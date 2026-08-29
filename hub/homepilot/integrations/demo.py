@@ -77,6 +77,18 @@ class DemoIntegration(Integration):
             commands=["turn_on", "turn_off", "toggle"],
         )
         await self.add_entity(
+            "cover_livingroom",
+            EntityKind.COVER,
+            "Store Wohnzimmer",
+            # Mit Lamellen, und das ist der Grund für diese Entität: Die
+            # Storenkachel ist die aufwendigste im Haus (Stellungen,
+            # Fenstergrafik, zwei Regler), und ohne eine Store in der
+            # Demo liess sie sich im Browser gar nicht ansehen - genau
+            # dem Weg, den CLAUDE.md für Layoutfragen vorschreibt.
+            state={"state": "open", "position": 100, "tilt": 100},
+            commands=["open", "close", "stop", "set_position", "set_tilt"],
+        )
+        await self.add_entity(
             "temp_livingroom",
             EntityKind.SENSOR,
             "Temperatur Wohnzimmer",
@@ -280,6 +292,19 @@ class DemoIntegration(Integration):
         elif command == "set_brightness":
             changes["brightness"] = max(0, min(100, int(data.get("brightness", 100))))
             changes["state"] = "on" if changes["brightness"] > 0 else "off"
+        elif command in ("open", "close") and entity.kind == EntityKind.COVER:
+            hoch = command == "open"
+            changes.update(
+                {"state": "open" if hoch else "closed", "position": 100 if hoch else 0}
+            )
+        elif command == "set_position":
+            # Ohne Fahrzeit: Die echte Store gleitet, die Demo springt.
+            # Was hier zählt, ist der Stand, an dem die Kachel ihre
+            # Stellung ablesen soll.
+            changes["position"] = max(0, min(100, int(data.get("position", 100))))
+            changes["state"] = "open" if changes["position"] > 0 else "closed"
+        elif command == "set_tilt":
+            changes["tilt"] = max(0, min(100, int(data.get("tilt", 100))))
         if "brightness" in data and command == "turn_on":
             changes["brightness"] = max(0, min(100, int(data["brightness"])))
         if changes:

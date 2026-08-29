@@ -12,6 +12,8 @@ import { zustandsText } from '../lib/haushalt';
 import { KachelEintrag, kachelAktionen } from '../lib/kachelmenue';
 import { zustandName } from '../lib/hausmusik';
 import { hatWarteschlange } from '../lib/musikliste';
+import { lichtkachel } from '../lib/lichtfarbe';
+import { szenenfarbe } from '../lib/szenenfarbe';
 import { ketteSatz, ursacheSatz } from '../lib/ursache';
 import { zaehlbar } from '../lib/zaehlung';
 import { useColors } from '../theme';
@@ -28,6 +30,7 @@ import { TvApps, appsOf } from './TvApps';
 import { TvVolume } from './TvVolume';
 import { TvSleep } from './TvSleep';
 import { TvRemote } from './TvRemote';
+import { TvSteuerkreuz } from './TvSteuerkreuz';
 import {
   AnpassenBlatt,
   GroupPicker,
@@ -38,6 +41,7 @@ import {
 import {
   CameraSnapshot,
   CoverBody,
+  KameraKachel,
   GrillBody,
   LockBody,
   VacuumBody,
@@ -285,6 +289,31 @@ export function EntityCard({
     entity.last_seen ? sinceLabel(entity.last_seen) : null
   );
   /**
+   * Kacheln, die selbst der Knopf sind und ihren Namen selbst tragen.
+   *
+   * Bei ihnen ist die Fläche die Bedienung, und eine Fusszeile mit
+   * demselben Namen darunter wäre ein zweiter Ort für dieselbe Auskunft.
+   * Im Anpassen-Modus gilt das nicht: Dort geht es nicht ums Bedienen,
+   * und der Name muss neben den Einstellungen stehen bleiben.
+   */
+  const szeneKachel =
+    entity.kind === 'scene' && !editing ? szenenfarbe(entity.name) : null;
+  const lichtKachel =
+    entity.kind === 'light' && !editing
+      ? lichtkachel(entity.state as Record<string, unknown>)
+      : null;
+  // Die Kamera trägt Namen und Zeit im Bild - aber nur, solange sie
+  // eines liefert. Ohne Bild (offline, Privatsphäre) bleibt der alte
+  // Aufbau samt Fusszeile.
+  const kameraVoll =
+    entity.kind === 'camera' &&
+    !editing &&
+    !!snapshotUri &&
+    entity.state.state === 'online' &&
+    entity.state.privacy !== 'on';
+  const eigenerName =
+    !!szeneKachel || (entity.kind === 'light' && !editing) || kameraVoll;
+  /**
    * Der Knopf unten rechts bedeutet auf jeder Kachel «ein/aus» - nur
    * auf der Musikbox tat er bisher etwas anderes.
    *
@@ -348,30 +377,98 @@ export function EntityCard({
   const body = () => {
     switch (entity.kind) {
       case 'light': {
+        // Die Kachel IST der Schalter: ein Tipp irgendwo darauf schaltet,
+        // und solange Licht brennt, trägt sie dessen Farbe
+        // (lib/lichtfarbe.ts). Vorher stand hier eine Vorschaufläche, die
+        // ausgerechnet dann leer war, wenn das Licht aus ist - 78 Punkte
+        // Höhe für nichts -, und der Schaltknopf saas 34 Punkte gross in
+        // der Ecke, obwohl er die Hauptsache ist.
+        //
         // Die Farbreihe steht auch bei ausgeschaltetem Licht da: Ein Tipp
         // darauf schaltet ein und stellt die Farbe in einem Zug – so
         // gedacht ist es beim Sternenprojektor am Abend.
         const farben = entity.commands.includes('set_color') ? (
           <ColorRow entity={entity} onCommand={onCommand} />
         ) : null;
-        return entity.commands.includes('set_brightness') ? (
+        const dimmbar = entity.commands.includes('set_brightness');
+        const helligkeit = Math.round(Number(entity.state.brightness ?? 100));
+        const tinte = lichtKachel ? lichtKachel.tinte : colors.ink;
+        return (
           <View style={styles.stack}>
-            <Bar
-              value={isOn ? (entity.state.brightness ?? 100) : 0}
-              onChange={(value) => onCommand('set_brightness', { brightness: value })}
-            />
-            <Text style={styles.hint}>
-              {isOn ? `${Math.round(entity.state.brightness ?? 100)} % Helligkeit` : 'Aus'}
-            </Text>
+            <Pressable
+              onPress={toggleMitDoppeltipp}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: isOn, busy: !!pending }}
+              accessibilityLabel={`${entity.name} ${isOn ? 'ausschalten' : 'einschalten'}`}
+              style={({ pressed }) => [styles.lichtFlaeche, pressed && { opacity: 0.7 }]}
+            >
+              <View style={styles.lichtKopf}>
+                <Ionicons
+                  name={isOn ? 'bulb' : 'bulb-outline'}
+                  size={22}
+                  color={isOn ? tinte : colors.inkSoft}
+                />
+                <View
+                  style={[
+                    styles.lichtPunkt,
+                    { backgroundColor: isOn ? colors.on : colors.off },
+                  ]}
+                />
+              </View>
+              <View>
+                <Text
+                  style={[
+                    styles.lichtWert,
+                    { color: isOn ? tinte : colors.inkSoft },
+                  ]}
+                >
+                  {!entity.available
+                    ? '–'
+                    : isOn
+                      ? dimmbar
+                        ? `${helligkeit} %`
+                        : 'An'
+                      : 'Aus'}
+                </Text>
+                <Text
+                  numberOfLines={2}
+                  style={[styles.lichtName, { color: isOn ? tinte : colors.ink }]}
+                >
+                  {entity.name}
+                </Text>
+                <Text
+                  numberOfLines={1}
+                  style={[styles.lichtUnter, { color: isOn ? tinte : colors.inkSoft }]}
+                >
+                  {pending
+                    ? 'wird geschaltet …'
+                    : entity.available
+                      ? subtitle
+                      : offlineText}
+                </Text>
+              </View>
+            </Pressable>
+            {/* Dimmen bleibt auf der Kachel, solange Licht brennt: Es ist
+                der zweithäufigste Griff am Licht, und ihn in die
+                Detailansicht zu schieben wäre ein schlechter Tausch. Aus
+                braucht es den Balken nicht - dann ist die Kachel kurz. */}
+            {dimmbar && isOn ? (
+              <Bar
+                value={helligkeit}
+                height={26}
+                // Weiss auf der Lichtfarbe: Der Balken lag vorher in
+                // genau dem Ton der Kachel und war damit unsichtbar -
+                // mehr Weiss heisst heller, das liest sich von selbst.
+                gradient={
+                  lichtKachel
+                    ? ['rgba(255,255,255,0.95)', 'rgba(255,255,255,0.7)']
+                    : undefined
+                }
+                onChange={(value) => onCommand('set_brightness', { brightness: value })}
+              />
+            ) : null}
             {farben}
           </View>
-        ) : farben ? (
-          <View style={styles.stack}>
-            <BigValue value={isOn ? 'An' : 'Aus'} on={isOn} />
-            {farben}
-          </View>
-        ) : (
-          <BigValue value={isOn ? 'An' : 'Aus'} on={isOn} />
         );
       }
 
@@ -503,7 +600,21 @@ export function EntityCard({
               }
             />
             {fernseher ? teile.lautstaerke && <TvVolume entity={entity} onCommand={onCommand} /> : null}
-            {(fernseher ? teile.transport : entity.commands.includes('next')) ? (
+            {/* Beim Fernseher steht statt der drei Transportknöpfe das
+                Steuerkreuz: «weiter» springt je nach App irgendwohin, und
+                ob etwas läuft, meldet ein Android TV ohnehin nie -
+                navigieren ist, was man tut. Bei einer Musikbox bleibt
+                alles, wie es war: Dort heisst «weiter» nächster Titel,
+                und das ist genau richtig. */}
+            {fernseher && teile.fernbedienung ? (
+              <TvSteuerkreuz
+                onCommand={onCommand}
+                onMehr={hasRemote ? () => setRemoteOpen(true) : undefined}
+                // Wo schon ein Schieber steht, wären zwei Tasten daneben
+                // ein zweiter Weg zum selben Ziel.
+                lautstaerke={!teile.lautstaerke && !entity.commands.includes('set_volume')}
+              />
+            ) : (fernseher ? teile.transport : entity.commands.includes('next')) ? (
               <View style={styles.mediaRow}>
                 <MediaButton
                   icon="play-skip-back"
@@ -644,7 +755,10 @@ export function EntityCard({
       case 'camera': {
         const online = entity.state.state === 'online';
         const privacyOn = entity.state.privacy === 'on';
-        return (
+        // Mit Bild füllt es die Kachel und trägt Namen und letzte
+        // Bewegung darauf; ohne Bild bleibt der bisherige Aufbau
+        // (entity/koerper.tsx, KameraKachel).
+        const klassisch = (
           <View style={styles.stack}>
             {snapshotUri && online ? (
               <CameraSnapshot
@@ -715,6 +829,21 @@ export function EntityCard({
               </Pressable>
             ) : null}
           </View>
+        );
+        return (
+          <KameraKachel
+            entity={entity}
+            snapshotUri={snapshotUri}
+            unterzeile={
+              !entity.available
+                ? offlineText
+                : entity.state.last_motion
+                  ? `Bewegung ${clock(entity.state.last_motion)}`
+                  : subtitle
+            }
+            onCommand={onCommand}
+            klassisch={klassisch}
+          />
         );
       }
 
@@ -829,26 +958,42 @@ export function EntityCard({
 
       case 'scene': {
         // Eine Lichtszene hat nichts zum Ablesen und nichts zum Stellen –
-        // sie hat einen Knopf. Ob sie gerade gilt, weiss die Bridge: Sie
-        // meldet «inactive», sobald jemand eine der Lampen von Hand
-        // verstellt hat. Deshalb steht «gilt gerade» und nicht «zuletzt
-        // gedrückt» – Letzteres wäre nach einer Handbewegung eine Lüge.
+        // sie hat einen Knopf. Also ist die ganze Kachel der Knopf, und
+        // sie trägt die Farbe der Szene (lib/szenenfarbe.ts): Man
+        // erkennt sie am Bild, nicht am Text.
+        //
+        // Vorher stand hier ein «Bereit»-Chip (eine Szene ist immer
+        // bereit), darunter ein blauer Knopf und ganz unten der Name -
+        // unter dem Knopf, den man drückt. Alle drei Zeilen sagten
+        // dasselbe oder nichts.
+        //
+        // Ob sie gerade gilt, weiss die Bridge: Sie meldet «inactive»,
+        // sobald jemand eine der Lampen von Hand verstellt hat. Deshalb
+        // steht «gilt gerade» und nicht «zuletzt gedrückt» – Letzteres
+        // wäre nach einer Handbewegung eine Lüge.
         const gilt = entity.state.state === 'active';
+        const farbe = szenenfarbe(entity.name);
         return (
-          <View style={styles.stack}>
-            <Pill
-              label={gilt ? 'Gilt gerade' : 'Bereit'}
-              tone={gilt ? colors.on : undefined}
-            />
-            <Pressable
-              onPress={() => onCommand('activate')}
-              accessibilityRole="button"
-              accessibilityLabel={`Szene ${entity.name} aufrufen`}
-              style={({ pressed }) => [styles.sceneButton, pressed && { opacity: 0.7 }]}
-            >
-              <Ionicons name="color-palette-outline" size={16} color="#FFFFFF" />
-              <Text style={styles.sceneButtonText}>Aufrufen</Text>
-            </Pressable>
+          <View style={styles.szeneInhalt}>
+            <View style={styles.szeneKopf}>
+              <Ionicons name="sparkles" size={20} color={farbe.tinte} />
+              {gilt ? (
+                <Text style={[styles.szeneStand, { color: farbe.tinte }]}>
+                  Gilt gerade
+                </Text>
+              ) : null}
+            </View>
+            <View>
+              <Text
+                numberOfLines={2}
+                style={[styles.szeneName, { color: farbe.tinte }]}
+              >
+                {entity.name}
+              </Text>
+              <Text style={[styles.szeneStand, { color: farbe.tinte }]}>
+                {entity.available ? 'Tippen zum Aufrufen' : offlineText}
+              </Text>
+            </View>
           </View>
         );
       }
@@ -892,7 +1037,7 @@ export function EntityCard({
 
   return (
     <Card
-      style={{ width }}
+      style={kameraVoll ? { width, padding: 0, overflow: 'hidden', gap: 0 } : { width }}
       // Eine offene Türe ist keine Nebensache: Die Kachel färbt sich, statt
       // es nur danebenzuschreiben. Beim Aufsperren dreht das Schloss noch
       // (unlocking) - erst wenn es wirklich offen ist, färbt es sich.
@@ -902,8 +1047,18 @@ export function EntityCard({
           ? colors.dangerSoft
           : undefined
       }
+      verlauf={
+        szeneKachel
+          ? [szeneKachel.von, szeneKachel.bis]
+          : lichtKachel
+            ? [lichtKachel.von, lichtKachel.bis]
+            : undefined
+      }
+      label={szeneKachel ? `Szene ${entity.name} aufrufen` : undefined}
       dimmed={!entity.available || (hidden && !editing)}
-      onPress={onPress}
+      // Die Szenenkachel IST der Knopf - überall sonst bleibt der Tipp,
+      // den der Bildschirm vorgibt (Vollbild, Verlauf, nichts).
+      onPress={onPress ?? (szeneKachel ? () => onCommand('activate') : undefined)}
       onLongPress={langerDruck}
     >
       {editing ? (
@@ -1130,15 +1285,19 @@ export function EntityCard({
         <View style={[styles.body, pending && { opacity: 0.55 }]}>{body()}</View>
       </KachelDruck>
       {chart}
-      <CardFooter
-        title={entity.name}
-        subtitle={pending ? 'wird geschaltet …' : entity.available ? subtitle : offlineText}
-        on={isOn || !!boxSchalter?.an}
-        onToggle={toggleMitDoppeltipp}
-        toggleLabel={boxSchalter?.label}
-        pending={pending}
-        onLongPress={langerDruck}
-      />
+      {eigenerName ? null : (
+        <CardFooter
+          title={entity.name}
+          subtitle={
+            pending ? 'wird geschaltet …' : entity.available ? subtitle : offlineText
+          }
+          on={isOn || !!boxSchalter?.an}
+          onToggle={toggleMitDoppeltipp}
+          toggleLabel={boxSchalter?.label}
+          pending={pending}
+          onLongPress={langerDruck}
+        />
+      )}
       {usedIn ? (
         <Pressable
           onPress={onUsedIn}
