@@ -511,6 +511,82 @@ struct TuerAktivitaetAttributes: ActivityAttributes {
     var tuer: String
 }
 
+/// Öffnet die Haustüre direkt vom Sperrbildschirm - OHNE Entsperren.
+///
+/// Bewusster Opt-in (Profil → Live-Aktivitäten → «Öffnen ohne
+/// Entsperren», Standard aus): Wer ihn setzt, entscheidet, dass jeder
+/// mit dem Telefon in der Hand die Türe öffnen kann - Face ID und die
+/// «Wirklich öffnen?»-Rückfrage der App laufen hier nicht. Die App legt
+/// dafür Adresse, Token und den fertigen Befehl in die App-Gruppe
+/// (lib/widget.ts, syncTuerKnopf); ohne diese Ablage tut der Knopf
+/// nichts und die Karte zeigt den bisherigen Weg in die App.
+@available(iOS 17.0, *)
+struct TuerOeffnenIntent: AppIntent {
+    static var title: LocalizedStringResource = "Haustüre öffnen"
+    // Absichtlich KEIN openAppWhenRun: Der ganze Zweck ist, dass die
+    // Türe aufgeht, während das Telefon gesperrt in der Hand liegt.
+
+    func perform() async throws -> some IntentResult {
+        guard
+            let ablage = UserDefaults(suiteName: appGroup),
+            ablage.string(forKey: "tuerKnopf") == "1",
+            let url = ablage.string(forKey: "tuerUrl"),
+            let token = ablage.string(forKey: "tuerToken"),
+            let pfad = ablage.string(forKey: "tuerPfad"),
+            let befehl = ablage.string(forKey: "tuerBefehl"),
+            let ziel = URL(string: url + pfad)
+        else { return .result() }
+        var request = URLRequest(url: ziel, timeoutInterval: 10)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = befehl.data(using: .utf8)
+        // Fehler bewusst geschluckt: Auf dem Sperrbildschirm gibt es
+        // keinen Ort für eine Meldung - ob die Türe aufging, hört man.
+        _ = try? await URLSession.shared.data(for: request)
+        return .result()
+    }
+}
+
+/// Ob der Opt-in gesetzt ist - die Karte zeichnet danach Knopf oder Link.
+func tuerKnopfAktiv() -> Bool {
+    UserDefaults(suiteName: appGroup)?.string(forKey: "tuerKnopf") == "1"
+}
+
+/// Der Öffnen-Knopf der Türkarte - je nach Opt-in direkt (App-Intent,
+/// ohne Entsperren) oder der bisherige Weg in die App (Link, mit
+/// Rückfrage und Face ID). Eigene View statt Bedingung im Karten-Layout:
+/// `#available` und eine zweite Bedingung im selben `if` verträgt der
+/// ViewBuilder nicht überall - verschachtelt ist es eindeutig.
+@available(iOS 16.2, *)
+struct TuerOeffnenKnopf: View {
+    var body: some View {
+        if #available(iOS 17.0, *) {
+            if tuerKnopfAktiv() {
+                Button(intent: TuerOeffnenIntent()) { etikett }
+                    .buttonStyle(.plain)
+            } else {
+                appLink
+            }
+        } else {
+            appLink
+        }
+    }
+
+    private var appLink: some View {
+        Link(destination: URL(string: "homepilot://door")!) { etikett }
+    }
+
+    private var etikett: some View {
+        Text("Öffnen")
+            .font(.headline)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+            .background(.tint, in: Capsule())
+            .foregroundStyle(.white)
+    }
+}
+
 @available(iOS 16.2, *)
 struct TuerAktivitaet: Widget {
     var body: some WidgetConfiguration {
@@ -527,14 +603,7 @@ struct TuerAktivitaet: Widget {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Link(destination: URL(string: "homepilot://door")!) {
-                    Text("Öffnen")
-                        .font(.headline)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 10)
-                        .background(.tint, in: Capsule())
-                        .foregroundStyle(.white)
-                }
+                TuerOeffnenKnopf()
             }
             .padding(14)
             .activityBackgroundTint(Color.black.opacity(0.6))

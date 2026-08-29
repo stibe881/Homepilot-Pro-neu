@@ -50,6 +50,7 @@ import { Knopfdruck, Tap, useNotificationTap } from '../hooks/useNotificationTap
 import { usePrefs } from '../hooks/usePrefs';
 import { useLiveAktivitaet } from '../hooks/useLiveAktivitaet';
 import { useWatchSync } from '../hooks/useWatchSync';
+import { useTuerKnopf } from '../hooks/useTuerKnopf';
 import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, space, type, useColors } from '../theme';
 import { KAMERA_MINDEST, kachelBreite, spalten } from '../lib/raster';
@@ -608,6 +609,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setDoppeltipp,
     setLiveTuer,
     setLiveAus,
+    setTuerKnopf,
+    eigenGeladen,
     setFavorites,
     setFavoriteOrder,
     setDurchsage,
@@ -638,6 +641,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Der Apple Watch die Zugangsdaten hinüberreichen - tut nur auf einem
   // iPhone mit dem passenden Build etwas (hooks/useWatchSync.ts).
   useWatchSync(settings, entities, status === 'connected');
+
+  // Der Öffnen-Knopf auf der Haustür-Karte (ohne Entsperren) - erst
+  // handeln, wenn die persönlichen Einstellungen da sind: Beim Start
+  // kurz zu löschen und gleich wieder zu schreiben würde den Knopf auf
+  // einer gerade liegenden Karte für einen Moment töten.
+  useTuerKnopf(
+    settings,
+    entities,
+    eigenGeladen ? eigenePrefs.tuerKnopf === true : null
+  );
 
   // Einmalige Übernahme dessen, was vorher im Gerät und beim Benutzer
   // lag. Erst nach der ersten Antwort des Hubs - sonst sähe die
@@ -2084,6 +2097,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               onChange={setLiveTuer}
               aus={eigenePrefs.liveAus ?? []}
               onAus={setLiveAus}
+              tuerKnopf={eigenePrefs.tuerKnopf === true}
+              onTuerKnopf={setTuerKnopf}
             />
           ) : null}
           <PushPrefs settings={settings} />
