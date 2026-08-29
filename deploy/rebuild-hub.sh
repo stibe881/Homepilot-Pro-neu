@@ -89,7 +89,14 @@ set -euo pipefail
 # aussen sah es aus, als käme die Änderung nicht an. Deshalb ein fester
 # Zweig als Vorgabe; wer etwas anderes bauen will, setzt HOMEPILOT_BRANCH
 # in /opt/homepilot/github-credentials.env.
-BRANCH="${HOMEPILOT_BRANCH:-claude/custom-home-automation-t9lvq3}"
+#
+# Seit dem Zusammenführen aller Arbeitszweige ist das `main`. Vorher
+# stand hier einer der `claude/…`-Zweige, und das war dieselbe Falle in
+# klein: Ein Arbeitszweig heisst nach der Arbeit, die einmal darauf lag.
+# Ist sie erledigt, zieht die nächste woanders hin - und der Knopf baut
+# weiter den alten Namen. `main` heisst nach nichts und bleibt deshalb
+# richtig.
+BRANCH="${HOMEPILOT_BRANCH:-main}"
 REPO="stibe881/Homepilot-Pro-neu"
 WORKDIR="/tmp/homepilot-build"
 CREDENTIALS_FILE="/opt/homepilot/github-credentials.env"

@@ -20,6 +20,15 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Betrieb**
 
+- **`main` ist der Zweig, der im Haus läuft.** Alle Arbeitszweige sind
+  zusammengeführt, und der Update-Knopf baut jetzt `main` statt eines
+  `claude/…`-Zweigs. Ein Arbeitszweig heisst nach der Arbeit, die
+  einmal darauf lag – ist sie erledigt, zieht die nächste woanders hin,
+  und der Knopf baut weiter den alten Namen. Genau diese Falle steht
+  schon zweimal in dieser Datei; `main` heisst nach nichts und bleibt
+  deshalb richtig. **Der Portainer-Stack muss einmal von Hand auf
+  `refs/heads/main` umgestellt werden** – sonst klont er weiter den
+  alten Zweig (siehe `deploy/portainer.md`).
 - Küchen-Timer überleben den Neustart. Der Update-Knopf wird gern
   abends gedrückt – genau dann, wenn etwas im Ofen ist, und der Wecker
   starb mit dem Hub. Ein während des Neustarts abgelaufener Timer

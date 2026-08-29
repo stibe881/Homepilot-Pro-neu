@@ -53,8 +53,7 @@ Ring-Token). **Diesen Ordner ins Backup aufnehmen.**
 2. Name: `homepilot`.
 3. Build-Methode **Repository** wählen:
    - **Repository URL:** `https://github.com/stibe881/Homepilot-Pro-neu`
-   - **Repository reference:** `refs/heads/claude/custom-home-automation-t9lvq3`
-     (nach einem Merge auf den Hauptzweig: `refs/heads/main`)
+   - **Repository reference:** `refs/heads/main`
    - **Compose path:** `docker-compose.portainer.yml`
    - **Authentication** einschalten: GitHub-Benutzername + das Token aus
      den Voraussetzungen.
