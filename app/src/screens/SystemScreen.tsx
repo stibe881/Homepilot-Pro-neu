@@ -25,6 +25,7 @@ import { ConfigCard } from './system/konfiguration';
 import { datumUhr } from '../lib/format';
 import { integrationDetail } from '../lib/integrationszeile';
 import { LaufArt, LetzterLauf, letzterLaufSatz } from '../lib/letzterlauf';
+import { fehlerZeilen, letzterStartfehler, startfehlerListe } from '../lib/startfehler';
 import { localTime, timeAgo } from '../lib/zeit';
 import { Colors, radius, space, type, useColors } from '../theme';
 
@@ -148,6 +149,7 @@ export function SystemScreen({
         ) : null}
         {status.build ? <WebVersionNote hubCommit={status.build.commit} /> : null}
         <AppVersionNote />
+        <StartfehlerNote />
         <WasIstNeu settings={settings} />
 
         {showOffline ? (
@@ -701,6 +703,47 @@ function AppVersionNote() {
           nachgeladene Fassung – die kann älter sein als das, was TestFlight gerade gebracht
           hat. Fehlt eine Änderung, die im Build drin sein müsste, ist das der
           wahrscheinliche Grund.
+        </Text>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * Was beim Start schiefging - falls etwas schiefging.
+ *
+ * `lib/startfehler.tsx` hält solche Fehler seit dem 29. August fest,
+ * damit eine gestolperte Nebensache nicht die ganze App mitnimmt. Nur
+ * las sie niemand: Die Sammelstellen (`startfehlerListe`,
+ * `letzterStartfehler`) trugen «für die System-Seite» im Kommentar, und
+ * auf der System-Seite stand nichts davon. Ein Netz, dessen Fang man
+ * nicht ansehen kann, ist ein halbes Netz.
+ *
+ * Im Normalfall steht hier nichts - genau dann ist alles in Ordnung.
+ */
+function StartfehlerNote() {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const liste = startfehlerListe();
+  const letzter = letzterStartfehler();
+  if (liste.length === 0 && letzter == null) return null;
+
+  const { titel, text } = fehlerZeilen(letzter);
+  return (
+    <>
+      <Text style={[styles.hint, { color: colors.warn }]}>
+        Beim Start ist etwas schiefgegangen. Die App läuft weiter, aber eine
+        Nebensache fehlt vermutlich.
+      </Text>
+      {liste.map((eintrag) => (
+        <Text key={eintrag.stelle} selectable style={styles.hint}>
+          {eintrag.stelle}: {eintrag.titel}
+        </Text>
+      ))}
+      {letzter != null && liste.length === 0 ? (
+        <Text selectable style={styles.hint}>
+          {titel}
+          {text ? `\n${text}` : ''}
         </Text>
       ) : null}
     </>

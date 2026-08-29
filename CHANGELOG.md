@@ -9,6 +9,20 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Die System-Seite zeigt, was beim Start schiefging.** Das Netz aus
+  `lib/startfehler.tsx` hielt gestolperte Anweisungen zwar fest, aber
+  gelesen hat sie niemand: Die Sammelstellen trugen «für die
+  System-Seite» im Kommentar, und auf der System-Seite stand nichts
+  davon. Jetzt steht es dort - im Normalfall gar nichts, und genau
+  dann ist alles in Ordnung.
+- **`updates.enabled` steht vorübergehend auf `false`.** Das ist eine
+  Messung, keine Absicht: Der wortlose Absturz vom 29. August zeigt im
+  Bericht nur die Ersatz-Ausnahme, die `expo-updates` selbst wirft,
+  nachdem seine Rettungskette aufgegeben hat - den ursprünglichen
+  Fehler trägt sie nicht mit. Ohne `expo-updates` wird ErrorRecovery
+  gar nicht erst scharfgestellt (nachgelesen in `StartupProcedure`),
+  und der Bericht zeigt den echten Stapel. **Nach dem Befund gehört
+  die Zeile wieder heraus** - ohne sie gibt es keine OTA-Fassungen.
 - **Der Start der App wartet nicht mehr auf das Netz.** In `app.json`
   stand `fallbackToCacheTimeout: 3000`: Bei jedem Öffnen hielt
   `expo-updates` die App bis zu drei Sekunden an, um nachzusehen, ob
