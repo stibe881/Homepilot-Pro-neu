@@ -9,6 +9,14 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Der Start der App wartet nicht mehr auf das Netz.** In `app.json`
+  stand `fallbackToCacheTimeout: 3000`: Bei jedem Öffnen hielt
+  `expo-updates` die App bis zu drei Sekunden an, um nachzusehen, ob
+  eine neue Fassung da ist. Jetzt steht dort `0` - die App startet
+  sofort mit dem Stand, den sie hat, und lädt im Hintergrund. Das ist
+  ohnehin, was die Meldung des Update-Skripts seit je verspricht
+  («angewendet wird sie beim übernächsten Start»), und es nimmt dem
+  Start ein Zeitfenster, in dem er von aussen scheitern kann.
 - **Das Widget stürzte ab, sobald ein Zähler abgelaufen war.** Auf der
   Karte mit Countdown stand `Date()...Date(timeIntervalSince1970: endet)`.
   Ein `ClosedRange` verlangt, dass die obere Grenze nicht vor der
