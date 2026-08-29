@@ -1,8 +1,6 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Image,
   Linking,
   Modal,
   Pressable,
@@ -13,7 +11,6 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CommandData, Entity, HubSettings } from '../api/types';
@@ -25,15 +22,11 @@ import {
   gruppeVon,
   siehtBereich,
 } from '../lib/einstellungsmenue';
-import { Bar } from '../components/Bar';
-import { Card } from '../components/Card';
 import { DraggableList } from '../components/DraggableList';
 import { CellLayout, DragCell, reorderByDrop } from '../components/DragGrid';
 import { EntityCard } from '../components/EntityCard';
 import { skyFromIcon } from '../components/CoverVisual';
 import { HistoryChart } from '../components/HistoryChart';
-import { CameraLive } from '../components/CameraLive';
-import { CameraTimeline } from '../components/CameraTimeline';
 import { OpenDoors } from '../components/OpenDoors';
 import { RunningAppliances } from '../components/RunningAppliances';
 import { SECTION_LABEL, Rail, Section } from '../components/Rail';
@@ -56,34 +49,23 @@ import { useHub } from '../hooks/useHub';
 import { Knopfdruck, Tap, useNotificationTap } from '../hooks/useNotificationTap';
 import { usePrefs } from '../hooks/usePrefs';
 import { useLiveAktivitaet } from '../hooks/useLiveAktivitaet';
+import { useWatchSync } from '../hooks/useWatchSync';
 import { usePushRegistration } from '../hooks/usePushRegistration';
-import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
+import { breakpoints, space, type, useColors } from '../theme';
 import { KAMERA_MINDEST, kachelBreite, spalten } from '../lib/raster';
+import { mengeUndName } from '../lib/einkauf';
+import { uhr } from '../lib/format';
 import {
-  EinkaufZeile,
-  Shop,
-  findeArtikel,
-  mengeUndName,
-  mitMenge,
-  shopCategory,
-} from '../lib/einkauf';
-import { datumUhr, uhr } from '../lib/format';
-import { Erinnerung, anzuzeigende, bestaetigung, naechsteAt, quittiertVon, vollbildTitel } from '../lib/erinnerungen';
-import {
-  AUTO_SCHLIESSEN_SEKUNDEN,
-  KlingelAktion,
   klingelAktionen,
   klingelBild,
   klingeltGerade,
-  neueFrist,
-  restSekunden,
   vollbildZeigen,
 } from '../lib/klingel';
 import { deviceKindLabel, musikboxenImRaum } from '../lib/geraeteart';
 import { rueckangebot } from '../lib/rueckgriff';
 import { gemerkteAktion, menuLabel } from '../lib/doppeltipp';
 import { leerbild } from '../lib/leerzustand';
-import { Nutzung, merken as merkeRaum, reihenfolge as nutzungsReihenfolge } from '../lib/raumnutzung';
+import { reihenfolge as nutzungsReihenfolge } from '../lib/raumnutzung';
 import { sorgen, sorgenSatz } from '../lib/sorgen';
 import { szenenFuerKachel, szenenFuerRaum } from '../lib/szenen';
 import {
@@ -140,12 +122,16 @@ import { SceneSuggestion } from '../components/SceneSuggestion';
 import { PersonenScreen } from './PersonenScreen';
 import { UsersScreen } from './UsersScreen';
 import { confirm as confirmBiometrie, needsCheck } from '../lib/biometrie';
-import { mayOpenDirectly } from '../lib/tuerbestaetigung';
 import { BioLock } from '../components/BioLock';
 import { TuerRueckfrage } from '../components/TuerRueckfrage';
 import { Widgets } from '../components/Widgets';
 import { Ablage, syncWidget } from '../lib/widget';
 import { resolveKarten } from '../lib/widgetKarten';
+import { hoereAufSchnellaktionen, setzeSchnellaktionen } from '../lib/schnellaktionen';
+import { PushKnopf, Ziel, knoepfeAus, zielAus } from '../lib/pushziel';
+import { PushBlatt } from '../components/PushBlatt';
+import { Erinnerungsblatt } from '../components/Erinnerungsblatt';
+import { fristSatz } from '../lib/erinnerungsfrist';
 import { favoritenVon, zuUebernehmen } from '../lib/favoriten';
 import { altesUebernehmen } from '../lib/hausprefs';
 import {
@@ -155,7 +141,17 @@ import {
   widgetCommand,
 } from '../lib/widgetButtons';
 import { HubProvider } from '../hooks/HubContext';
+import { useFamilienlisten } from '../hooks/useFamilienlisten';
+import { useRaumnutzung } from '../hooks/useRaumnutzung';
+import { useSensorlinien } from '../hooks/useSensorlinien';
 import { useTakt } from '../hooks/useTakt';
+import { ErinnerungOverlay } from './dashboard/Erinnerungsvollbild';
+import { GroupControls } from './dashboard/Gruppensteuerung';
+import { CameraFullscreen } from './dashboard/Kameravollbild';
+import { DoorbellOverlay } from './dashboard/Klingelvollbild';
+import { usePanelMode } from './dashboard/panelmodus';
+import { AlarmPinAsk, LockConfirm } from './dashboard/Rueckfragen';
+import { makeStyles } from './dashboard/stile';
 
 const ALL_ROOMS = 'Alle';
 /** Befehle, die ein gesperrtes Gerät nur nach Rückfrage annimmt. Lesende
@@ -356,6 +352,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     blatt.current?.scrollTo({ y: 0, animated: false });
   }, [section, room]);
 
+  // Der Wunsch aus einer Nachricht gilt für diesen einen Besuch. Wer die
+  // Familie verlässt und später wiederkommt, soll nicht erneut im
+  // Einkauf landen, bloss weil er vor einer Stunde darauf getippt hat.
+  useEffect(() => {
+    if (section !== 'family') setFamilienModul(null);
+  }, [section]);
+
   const [now, setNow] = useState(() => new Date());
   const [gridWidth, setGridWidth] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -383,6 +386,25 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // auch dann, wenn das Läuten inzwischen vorbei ist. Ein Tipp auf die
   // Nachricht ist eine Bitte, keine Störung.
   const [klingelTap, setKlingelTap] = useState<string | null>(null);
+  // Welche Kachel der Familie eine Nachricht gemeint hat («Milch steht
+  // auf der Einkaufsliste» → Einkauf). Getrennt vom Riegel-Modul: Das
+  // eine ist ein Weg um eine Sperre herum, das andere ein Ziel.
+  const [familienModul, setFamilienModul] = useState<string | null>(null);
+  // Welches Gerät gerade nach einer Frist gefragt wird («sag mir in zwei
+  // Stunden Bescheid»).
+  const [erinnernAn, setErinnernAn] = useState<Entity | null>(null);
+  // Der Weg zu einem Ziel aus einer Nachricht. Über eine Ref, weil der
+  // Tipp-Haken früh gebraucht wird und der Weg selbst erst weiter unten
+  // steht - dort, wo die Räume bekannt sind.
+  const zumZiel = useRef<(ziel: Ziel) => void>(() => {});
+  // Die Handgriffe, die ein Ablauf seiner Nachricht mitgegeben hat -
+  // «Trockner an» unter «Waschmaschine fertig». Sie stehen erst hier zur
+  // Wahl, hinter der Anmeldung.
+  const [pushBlatt, setPushBlatt] = useState<{
+    titel?: string;
+    text?: string;
+    knoepfe: PushKnopf[];
+  } | null>(null);
   // Angetippte Kamera im Vollbild (Entitäts-ID, damit Live-Updates ankommen).
   const [fullscreen, setFullscreen] = useState<string | null>(null);
   // Alle Kameras nebeneinander - fürs Tablet im Flur die einzige
@@ -434,326 +456,40 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   }, [hub, settings.url, settings.token]);
   useEffect(ladeCountdowns, [ladeCountdowns]);
   useTakt(ladeCountdowns, 60000);
+  // Einkaufsliste, Läden und Erinnerungen des Haushalts - Zustand und
+  // Handgriffe stehen in hooks/useFamilienlisten.ts.
+  const {
+    lernRef,
+    einkauf,
+    laeden,
+    bekannt,
+    einkaufUndo,
+    setEinkaufUndo,
+    griffUndo,
+    setGriffUndo,
+    kaufeEin,
+    hakeAb,
+    entferneEinkauf,
+    setzeMenge,
+    nimmAbhakenZurueck,
+    merkeGriff,
+    nimmGriffZurueck,
+    faelligeErinnerungen,
+    bestaetigeErinnerung,
+    quittiereErinnerung,
+  } = useFamilienlisten({
+    hub,
+    settings,
+    familyChangedAt,
+    aufStartseite: section === 'start',
+    benutzer: user,
+    melde: setNote,
+  });
 
-  // Einkaufsliste und Läden für die Kopfzeile. Dieselbe Quelle wie unter
-  // Familie - nur die offenen Einträge, denn oben zählt, was noch fehlt.
-  const [einkauf, setEinkauf] = useState<EinkaufZeile[]>([]);
-  // Dieselbe Liste als Ref: Die Rückrufe unten hängen sonst an jeder
-  // Änderung der Liste und bauen sich bei jedem Tippen neu auf – und die
-  // Kopfzeile mit ihnen.
-  const einkaufRef = useRef<EinkaufZeile[]>([]);
-  einkaufRef.current = einkauf;
-  // Was gerade abgehakt wurde, für einen Moment aufgehoben.
-  const [einkaufUndo, setEinkaufUndo] = useState<{ id: string; text: string } | null>(null);
-  // Der letzte grosse Griff («Alles aus»), solange er sich zurücknehmen
-  // lässt. Die Kennung gehört dem Hub: Er hat den Stand von vorher
-  // aufgenommen, die App kennt nur den Zettel dazu.
-  const [griffUndo, setGriffUndo] = useState<{ id: string; count: number } | null>(null);
-  const [laeden, setLaeden] = useState<Shop[]>([]);
-  // Schon einmal eingekaufte Artikel – die Vervollständigung im Fenster
-  // der Kopfzeile lebt davon. Kommt aus dem Hub, nicht vom Gerät: Was
-  // Livia einträgt, soll Stefan vorgeschlagen bekommen.
-  const [bekannt, setBekannt] = useState<string[]>([]);
-  // Die Erinnerungen des Haushalts - fürs Vollbild zur eingestellten
-  // Zeit. Geladen auf denselben Wegen wie die Einkaufsliste: sofortige
-  // Meldung über den WebSocket, Viertelstunde als Rückfalltakt.
-  const [erinnerungen, setErinnerungen] = useState<Erinnerung[]>([]);
-  const ladeEinkauf = useCallback(() => {
-    if (!settings.url || !settings.token) return;
-    // «still»: Das hier läuft jede Minute. Eine Einblendung je Minute wäre
-    // schlimmer als der Fehler – dass etwas klemmt, sieht man am
-    // Verbindungspunkt in der Kopfzeile.
-    const leise = { fallback: [] as EinkaufZeile[], still: true };
-    hub
-      .get<EinkaufZeile[]>('/api/family/shopping', leise)
-      .then((rows) =>
-        setEinkauf(Array.isArray(rows) ? rows.filter((row) => !row.done) : [])
-      );
-    hub
-      .get<Shop[]>('/api/family/shops', leise as { fallback: Shop[]; still: true })
-      .then((rows) => setLaeden(Array.isArray(rows) ? rows : []));
-    hub
-      .get<string[]>('/api/shopping/known', { fallback: [], still: true })
-      .then((rows) => setBekannt(Array.isArray(rows) ? rows.map(String) : []));
-    hub
-      .get<Erinnerung[]>('/api/family/reminders', {
-        fallback: [] as Erinnerung[],
-        still: true,
-      })
-      .then((rows) => setErinnerungen(Array.isArray(rows) ? rows : []));
-  }, [hub, settings.url, settings.token]);
-  useEffect(ladeEinkauf, [ladeEinkauf]);
-  // Nur noch als Rückfalltakt: Änderungen kommen über den WebSocket
-  // (family_changed, unten). Die Viertelstunde fängt verpasste
-  // Ereignisse ab - etwa wenn die Verbindung kurz weg war.
-  useTakt(ladeEinkauf, 15 * 60000);
-  // Der Hub meldet jede Änderung an den Familienlisten sofort - so steht
-  // das Abgehakte des einen beim anderen ohne Minute Wartezeit.
-  useEffect(() => {
-    if (familyChangedAt) ladeEinkauf();
-  }, [familyChangedAt, ladeEinkauf]);
-  // Und immer dann, wenn die Startseite wieder erscheint: Wer gerade
-  // unter Familie etwas eingetragen hat, will es oben sofort sehen und
-  // nicht bis zur nächsten Minute warten.
-  useEffect(() => {
-    if (section === 'start') ladeEinkauf();
-  }, [section, ladeEinkauf]);
-
-  // Ob eine Erinnerung fällig ist, entscheidet die Uhr dieses Geräts -
-  // der Halbminutentakt läuft nur, solange überhaupt eine offen ist.
-  // So erscheint das Vollbild auch auf dem Wandpanel pünktlich, ohne
-  // dass der Hub einen Wecker bräuchte.
-  const [jetztErinnerung, setJetztErinnerung] = useState(() => Date.now());
-  useTakt(
-    () => setJetztErinnerung(Date.now()),
-    naechsteAt(erinnerungen) !== null ? 30000 : null
-  );
-  // Frische Liste, frische Uhr: Kommt eine weitere Erinnerung an,
-  // während das Vollbild schon steht, wurde ihre Fälligkeit sonst gegen
-  // den letzten Takt gerechnet - und die neue Karte erschien erst bis
-  // zu eine halbe Minute später, obwohl man vor dem Schirm steht.
-  useEffect(() => {
-    setJetztErinnerung(Date.now());
-  }, [erinnerungen]);
-  // «Erledigt» (nur für mich) auf diesem Gerät - zusätzlich zur Liste
-  // beim Hub, damit das Vollbild auch dann sofort und dauerhaft weg ist,
-  // wenn der Name des Benutzers gerade (noch) nicht bekannt ist.
-  const [selbstQuittiert, setSelbstQuittiert] = useState<string[]>([]);
-  // Der Rückhalt gilt der jetzigen Ausgabe, nicht der Erinnerung an
-  // sich: Eine wiederkehrende behält ihre id, wenn sie auf den
-  // nächsten Termin weitergestellt wird - bliebe die id hier stehen,
-  // wäre die nächste Ausgabe auf diesem Gerät für immer stumm.
-  useEffect(() => {
-    setSelbstQuittiert((ids) =>
-      ids.filter((id) => {
-        const eintrag = erinnerungen.find((zeile) => zeile.id === id);
-        if (!eintrag || eintrag.done) return false;
-        const at = Number(eintrag.at);
-        // Noch fällig: Rückhalt behalten - vielleicht hat der Hub das
-        // Quittieren (noch) nicht gespeichert.
-        return !(Number.isFinite(at) && at > Date.now());
-      })
-    );
-  }, [erinnerungen]);
-  const faelligeErinnerungen = useMemo(
-    () =>
-      anzuzeigende(erinnerungen, jetztErinnerung, user?.name).filter(
-        (eintrag) => !selbstQuittiert.includes(eintrag.id)
-      ),
-    [erinnerungen, jetztErinnerung, user?.name, selbstQuittiert]
-  );
-  const bestaetigeErinnerung = useCallback(
-    (id: string) => {
-      // Sofort aus dem Bild, dann zum Hub: Wer bestätigt, will das
-      // Vollbild los sein - nicht auf die Antwort warten. Scheitert der
-      // Abruf, holt der Rückfalltakt die Erinnerung zurück, und man
-      // sieht, dass sie noch offen ist. Wiederkehrende werden dabei
-      // nicht erledigt, sondern auf den nächsten Termin weitergestellt.
-      const eintrag = erinnerungen.find((zeile) => zeile.id === id);
-      const patch = eintrag ? bestaetigung(eintrag, Date.now()) : { done: true };
-      setErinnerungen((liste) =>
-        liste.map((zeile) => (zeile.id === id ? { ...zeile, ...patch } : zeile))
-      );
-      hub
-        .put(`/api/family/reminders/${encodeURIComponent(id)}`, patch, {
-          fallback: null,
-        })
-        .catch(() => {});
-    },
-    [hub, erinnerungen]
-  );
-  const quittiereErinnerung = useCallback(
-    (id: string) => {
-      // «Erledigt» ohne «für alle»: nur bei mir weg, die anderen sehen
-      // die Erinnerung weiter, bis jemand für alle bestätigt. Der Name
-      // wandert in die geteilte Ablage - so bleibt es auch nach einem
-      // Neustart der App bei «schon gesehen», und die eigenen anderen
-      // Geräte ziehen mit.
-      setSelbstQuittiert((ids) => (ids.includes(id) ? ids : [...ids, id]));
-      const name = user?.name;
-      if (!name) return;
-      const eintrag = erinnerungen.find((zeile) => zeile.id === id);
-      const bisher = eintrag ? quittiertVon(eintrag) : [];
-      if (bisher.includes(name)) return;
-      hub
-        .put(
-          `/api/family/reminders/${encodeURIComponent(id)}`,
-          { quittiert: [...bisher, name] },
-          { fallback: null }
-        )
-        .catch(() => {});
-    },
-    [hub, user?.name, erinnerungen]
-  );
-
-  /** Einen Eintrag im Laden abhaken - er verschwindet sofort aus der
-   *  Kopfzeile, statt bis zum nächsten Abruf stehen zu bleiben. */
-  const hakeAb = useCallback(
-    (id: string) => {
-      // Vor dem Wegnehmen merken, was da stand: Im Laden tippt man daneben,
-      // und dann steht man vor dem Regal und weiss nicht mehr, was es war.
-      const weg = einkaufRef.current.find((eintrag) => eintrag.id === id);
-      if (weg) setEinkaufUndo({ id, text: String(weg.text ?? '') });
-      setEinkauf((liste) => liste.filter((eintrag) => eintrag.id !== id));
-      // Nicht still: Wer im Laden abhakt und dabei ins Leere greift, soll
-      // es erfahren – sonst kauft er es nicht und denkt, er habe es.
-      hub
-        .put(
-          `/api/family/shopping/${encodeURIComponent(id)}`,
-          { done: true },
-          {
-            fallback: null,
-          }
-        )
-        .finally(ladeEinkauf);
-    },
-    [hub, ladeEinkauf]
-  );
-
-  /**
-   * Einen Posten wegnehmen, ohne ihn gekauft zu haben.
-   *
-   * Abhaken heisst «habe ich» – das ist etwas anderes als «war ein
-   * Vertipper». Vorher ging Letzteres nur unter Familie, also genau dort
-   * nicht, wo man steht, wenn es auffällt.
-   */
-  const entferneEinkauf = useCallback(
-    (id: string) => {
-      setEinkauf((liste) => liste.filter((eintrag) => eintrag.id !== id));
-      hub
-        .del(`/api/family/shopping/${encodeURIComponent(id)}`, { fallback: null })
-        .finally(ladeEinkauf);
-    },
-    [hub, ladeEinkauf]
-  );
-
-  /**
-   * Die Stückzahl eines Postens ändern.
-   *
-   * Die Menge steht im Text und nicht in einem eigenen Feld: «2× Milch»
-   * ist auch für den lesbar, der die Liste unter Familie oder im
-   * Rohzustand ansieht, und der Hub muss nichts davon wissen. Fällt sie
-   * unter eins, ist der Posten weg – ein «0× Milch» will niemand sehen.
-   */
-  const setzeMenge = useCallback(
-    (id: string, menge: number) => {
-      const eintrag = einkaufRef.current.find((row) => row.id === id);
-      if (!eintrag) return;
-      const { name } = mengeUndName(String(eintrag.text ?? ''));
-      if (menge < 1) {
-        entferneEinkauf(id);
-        return;
-      }
-      const text = mitMenge(name, Math.min(99, menge));
-      setEinkauf((liste) => liste.map((row) => (row.id === id ? { ...row, text } : row)));
-      hub
-        .put(`/api/family/shopping/${encodeURIComponent(id)}`, { text }, { fallback: null })
-        .finally(ladeEinkauf);
-    },
-    [hub, ladeEinkauf, entferneEinkauf]
-  );
-
-  /** Ein Abhaken zurücknehmen – der Posten steht wieder offen auf der Liste. */
-  const nimmAbhakenZurueck = useCallback(() => {
-    const zurueck = einkaufUndo;
-    if (!zurueck) return;
-    setEinkaufUndo(null);
-    setEinkauf((liste) => [...liste, { id: zurueck.id, text: zurueck.text }]);
-    hub
-      .put(
-        `/api/family/shopping/${encodeURIComponent(zurueck.id)}`,
-        { done: false },
-        {
-          fallback: null,
-        }
-      )
-      .finally(ladeEinkauf);
-  }, [einkaufUndo, hub, ladeEinkauf]);
-
-  /**
-   * Den Rückweg zu einem grossen Griff beim Hub hinterlegen.
-   *
-   * Der einzelne Befehl hat sein Zurück in useHub; bei zwanzig Geräten
-   * auf einmal hilft das nicht. Der Hub rechnet aus dem Stand von vorher
-   * aus, was zurückzuschalten wäre – und lässt Geräte weg, an denen der
-   * Griff nichts geändert hat (hub/core/rueckgriff.py).
-   */
-  const merkeGriff = useCallback(
-    async (titel: string, entityIds: string[]) => {
-      setGriffUndo(null);
-      if (entityIds.length === 0) return;
-      const antwort = await hub.post<{ undo: { id: string } | null }>(
-        '/api/undo',
-        { title: titel, entity_ids: entityIds },
-        { fallback: { undo: null }, still: true }
-      );
-      // Gezählt wird, was der Griff schaltet, nicht was sich davon
-      // zurückholen lässt: Der Satz auf der Einblendung berichtet, was
-      // gerade passiert ist. Dass ein Saugroboter nicht mit zurückkommt,
-      // steht in hub/core/szenenrueckweg.py (OHNE_RUECKWEG).
-      if (antwort.undo) setGriffUndo({ id: antwort.undo.id, count: entityIds.length });
-    },
-    [hub]
-  );
-
-  /** Den letzten grossen Griff zurücknehmen. */
-  const nimmGriffZurueck = useCallback(() => {
-    const zurueck = griffUndo;
-    if (!zurueck) return;
-    setGriffUndo(null);
-    hub
-      .post<{ restored?: string[] }>(`/api/undo/${zurueck.id}/run`, undefined, {
-        fallback: {},
-      })
-      .then((antwort) => {
-        const zahl = antwort.restored?.length ?? 0;
-        if (zahl > 0) setNote(`${zahl} Gerät${zahl === 1 ? '' : 'e'} zurückgeschaltet`);
-      });
-  }, [griffUndo, hub]);
-
-  // Die Funkenlinien der Sensoren: ein Abruf für alle, alle fünf
-  // Minuten - die Reihen ändern sich nicht schneller (Drosselung im
-  // Hub, core/kurzverlauf.py).
-  const [trends, setTrends] = useState<Record<string, [number, number][]>>({});
-  useEffect(() => {
-    if (status !== 'connected') return;
-    let beendet = false;
-    const laden = () =>
-      hub
-        .get<{ trends?: Record<string, [number, number][]> } | null>('/api/trends', {
-          fallback: null,
-          still: true,
-        })
-        .then((data) => {
-          if (!beendet && data?.trends) setTrends(data.trends);
-        });
-    laden();
-    const takt = setInterval(laden, 5 * 60 * 1000);
-    return () => {
-      beendet = true;
-      clearInterval(takt);
-    };
-  }, [status, hub]);
-
-  // Wie oft welcher Raum auf diesem Gerät bedient wurde - nur fürs
-  // Sortieren, wenn der Schalter dazu an ist (lib/raumnutzung.ts).
-  const [raumZaehler, setRaumZaehler] = useState<Nutzung>({});
-  useEffect(() => {
-    AsyncStorage.getItem('homepilot.raumnutzung')
-      .then((roh) => {
-        if (roh) setRaumZaehler(JSON.parse(roh));
-      })
-      .catch(() => {});
-  }, []);
-  const zaehleRaum = useCallback((raum: string | null | undefined) => {
-    if (!raum) return;
-    setRaumZaehler((zaehler) => {
-      const neu = merkeRaum(zaehler, raum, Date.now());
-      AsyncStorage.setItem('homepilot.raumnutzung', JSON.stringify(neu)).catch(() => {});
-      return neu;
-    });
-  }, []);
-
+  // Die Funkenlinien der Sensoren (hooks/useSensorlinien.ts).
+  const trends = useSensorlinien(hub, status);
+  // Wie oft welcher Raum bedient wurde (hooks/useRaumnutzung.ts).
+  const { raumZaehler, zaehleRaum } = useRaumnutzung();
   // Ist gerade jemand da? Beim Öffnen der Einstellungen fragen,
   // nicht dauernd: Die Zeile im Menü ist der einzige Ort, an dem die
   // Antwort gebraucht wird - und dort steht sie eine Sekunde später.
@@ -789,40 +525,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         befehl: undo,
       }),
     [error, abrufFehler, einkaufUndo, griffUndo, undo]
-  );
-
-  /** Einen Artikel auf die Liste setzen – aus dem Fenster der Kopfzeile.
-   *
-   *  Der Eintrag erscheint sofort, mit einer vorläufigen Kennung: Wer
-   *  drei Sachen hintereinander eintippt, soll nicht nach jeder auf den
-   *  Hub warten. Der Abruf danach ersetzt ihn durch den echten. */
-  const kaufeEin = useCallback(
-    async (text: string) => {
-      const name = text.trim();
-      if (!name || !settings.url) return;
-      // Schon drauf? Dann meint «Milch» den vorhandenen Posten und nicht
-      // einen zweiten. Wer zwei Einträge «Milch» auf der Liste hat, kauft
-      // im Zweifel beide.
-      const schonDa = findeArtikel(einkaufRef.current, name);
-      if (schonDa) {
-        const jetzt = mengeUndName(String(schonDa.text ?? ''));
-        setzeMenge(String(schonDa.id), jetzt.menge + mengeUndName(name).menge);
-        return;
-      }
-      setEinkauf((liste) => [...liste, { id: `neu-${name}`, text: name }]);
-      setBekannt((liste) => [name, ...liste.filter((entry) => entry !== name)]);
-      // Der Gang wird hier bestimmt und nicht im Hub: Dieselbe Zuordnung
-      // sortiert die Liste, und sie steht in lib/einkauf.ts.
-      // Schlägt es fehl, sagt es die Einblendung, und der Abruf gleich
-      // darauf räumt den vorläufigen Eintrag wieder weg.
-      await hub.post(
-        '/api/family/shopping',
-        { text: name, category: shopCategory(name) },
-        { fallback: null }
-      );
-      ladeEinkauf();
-    },
-    [hub, settings.url, ladeEinkauf, setzeMenge]
   );
 
   // Die Ablaufnamen holen, damit die Suche sie kennt – und den
@@ -915,7 +617,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setWidgetButtons,
     setWidgetDirect,
     setWidgetKarten,
+    setEinkaufLernen,
   } = usePrefs(settings, status === 'connected');
+
+  // Jetzt, wo die Haus-Einstellungen da sind, bekommt das Abhaken in der
+  // Kopfzeile sein Protokoll (die Ref kommt aus useFamilienlisten).
+  lernRef.current = {
+    log: prefs.einkaufLernen ?? [],
+    schreiben: setEinkaufLernen,
+  };
 
   // Die Haustür-Karte für unterwegs - tut nur auf einem iPhone mit dem
   // passenden Build etwas (hooks/useLiveAktivitaet.ts). Hängt am
@@ -924,6 +634,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     settings,
     status === 'connected' && eigenePrefs.liveTuer !== false
   );
+
+  // Der Apple Watch die Zugangsdaten hinüberreichen - tut nur auf einem
+  // iPhone mit dem passenden Build etwas (hooks/useWatchSync.ts).
+  useWatchSync(settings, entities, status === 'connected');
 
   // Einmalige Übernahme dessen, was vorher im Gerät und beim Benutzer
   // lag. Erst nach der ersten Antwort des Hubs - sonst sähe die
@@ -965,6 +679,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     () => resolveKarten(prefs.widgetKarten, scenes, entities, !!prefs.widgetData),
     [prefs.widgetKarten, prefs.widgetData, scenes, entities]
   );
+  // Die Kurzbefehle am App-Symbol tragen dieselben Knöpfe wie das
+  // Widget - eine zweite Liste für dieselbe Frage wäre eine zweite
+  // Stelle, an der man sucht (lib/schnellaktionen.ts).
+  useEffect(() => {
+    if (widgetButtons.length === 0) return;
+    setzeSchnellaktionen(widgetButtons);
+  }, [widgetButtons]);
+  useEffect(() => hoereAufSchnellaktionen((url) => adresseAusfuehren.current(url)), []);
+
   const [widgetAblage, setWidgetAblage] = useState<Ablage>('kein-widget');
   useEffect(() => {
     // Erst, wenn etwas da ist: Vor der ersten Antwort des Hubs sind
@@ -991,22 +714,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // aufgeklappten Batterien – dort steht der Knopf zum Quittieren, und
   // ohne den Sprung sucht man ihn zwei Ebenen tief.
   const onNotificationTap = useCallback((tap: Tap) => {
-    if (tap.camera) {
-      setFullscreen(tap.camera);
-      return;
+    const ziel = zielAus(tap);
+    if (ziel) zumZiel.current(ziel);
+    // Erst hingehen, dann fragen: Das Blatt legt sich über den Ort, an
+    // den der Tipp geführt hat - wer es wegwischt, steht dort, statt
+    // wieder auf der Startseite.
+    const knoepfe = knoepfeAus(tap);
+    if (knoepfe.length > 0) {
+      setPushBlatt({ titel: tap.title, text: tap.body, knoepfe });
     }
-    if (tap.type === 'battery') {
-      setSection('devices');
-      setBatterienOffen(true);
-      return;
-    }
-    if (tap.type === 'doorbell') {
-      // Nicht die Kameraseite, sondern das Klingel-Vollbild: Dort stehen
-      // die Türknöpfe, und die sind der Grund, warum man tippt.
-      setKlingelTap(tap.entityId ?? '');
-      return;
-    }
-    if (tap.type === 'alarm') setSection('alarm');
   }, []);
   // «Später» und «Erledigt» aus der Mitteilung heraus. Beides läuft ohne
   // die App zu öffnen; sie erfährt davon, sobald sie das nächste Mal
@@ -1189,6 +905,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Zustands-Update erneut. Jetzt gilt: erledigt erst, wenn wirklich
   // gehandelt wurde - bis dahin wird mit jedem Laden neu probiert.
   const startLinkErledigt = useRef(false);
+  // Derselbe Weg für die Kurzbefehle am App-Symbol: Sie tragen dieselben
+  // homepilot://-Adressen, und was für den Widget-Knopf gilt, gilt für
+  // sie - ein Kurzbefehl darf nicht mehr dürfen als die App.
+  const adresseAusfuehren = useRef<(url: string) => void>(() => {});
   useEffect(() => {
     /** Führt den Link aus. `true` heisst: erledigt (auch «kenne ich
      *  nicht» ist erledigt) - `false`: die Daten fehlen noch, später
@@ -1239,6 +959,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         if (command) guardedCommand(entity.id, command);
       }
       return true;
+    };
+    adresseAusfuehren.current = (url: string) => {
+      handle(url);
     };
     // Kein Start-Link ist der Normalfall - dann startet die App normal.
     if (!startLinkErledigt.current) {
@@ -1342,6 +1065,82 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       : named;
     return sortiert.length > 0 ? [ALL_ROOMS, ...sortiert] : [];
   }, [entities, roomOrder, prefs.order?.raeume, eigenePrefs.raumNutzung, raumZaehler, now]);
+
+  /**
+   * Der Weg zu dem, was eine Nachricht meint.
+   *
+   * Eine Stelle für alle fünfundzwanzig Meldungen, statt einer Regel je
+   * Meldung: Was wohin gehört, sagt der Hub in der Nachricht selbst
+   * (lib/pushziel.ts). Die App muss dafür nichts über Wassermelder
+   * wissen - nur, wie man zu einem Raum kommt.
+   *
+   * Beim Zeichnen zugewiesen und nicht als Callback: Der Weg braucht
+   * Räume und Geräte, die weiter oben noch nicht stehen, und der
+   * Tipp-Haken bekommt so immer den frischen Stand.
+   */
+  zumZiel.current = (ziel: Ziel) => {
+    switch (ziel.art) {
+      // Was offen steht, zeigt die Karte auf der Startseite - eine
+      // eigene Seite dafür gibt es nicht.
+      case 'start':
+      // falls through
+      case 'offen':
+        setSection('start');
+        return;
+      case 'bereich':
+        setSection(ziel.bereich);
+        return;
+      case 'raum':
+        setSection('home');
+        setRoom(ziel.raum);
+        return;
+      case 'kamera':
+        setFullscreen(ziel.entityId);
+        return;
+      case 'geraet': {
+        const geraet = entities.find((entity) => entity.id === ziel.entityId);
+        // Eine Kamera zeigt man gross; alles andere steht in seinem
+        // Raum, und dort sieht man es im Zusammenhang.
+        if (geraet?.kind === 'camera') {
+          setFullscreen(geraet.id);
+          return;
+        }
+        if (geraet?.room) {
+          setSection('home');
+          setRoom(geraet.room);
+          return;
+        }
+        setSection('devices');
+        return;
+      }
+      case 'familie':
+        setSection('family');
+        setFamilienModul(ziel.modul);
+        return;
+      case 'batterien':
+        setSection('devices');
+        setBatterienOffen(true);
+        return;
+      case 'sorgen':
+        setSorgenOffen(true);
+        return;
+      case 'timer': {
+        // Der Timer steht in der Küche - dort, wo die Nudeln aufgesetzt
+        // sind, nicht in einer Liste.
+        const kueche = rooms.find((name) => istKueche(name));
+        if (kueche) {
+          setSection('home');
+          setRoom(kueche);
+        } else {
+          setSection('start');
+        }
+        return;
+      }
+      case 'klingel':
+        setKlingelTap(ziel.entityId ?? '');
+        return;
+    }
+  };
 
   // Alle vergebenen Gruppennamen – für die Auswahl im Anpassen-Modus.
   const groupNames = useMemo(
@@ -1712,6 +1511,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       groups={editing ? groupNames : undefined}
       onSetGroup={editing ? (group) => setEntityMeta(entity.id, { group }) : undefined}
       onCommand={(command, data) => guardedCommand(entity.id, command, data)}
+      onErinnern={() => setErinnernAn(entity)}
       sky={entity.kind === 'cover' ? sky : undefined}
       snapshotUri={
         // Kameras: Livebild. Sauger: die Karte – beides über denselben Endpunkt.
@@ -2082,7 +1882,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           hiddenModules={prefs.familyHidden}
           onHiddenModules={setFamilyHidden}
           changedAt={familyChangedAt}
-          startModul={riegelModul}
+          startModul={riegelModul ?? familienModul}
         />
       );
     }
@@ -3129,6 +2929,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   : {
                       shopping: einkauf,
                       shops: laeden,
+                      lernLog: prefs.einkaufLernen,
                       onShoppingDone: hakeAb,
                       onShoppingRemove: entferneEinkauf,
                       onShoppingCount: setzeMenge,
@@ -3287,6 +3088,39 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             }}
             colors={colors}
             styles={styles}
+          />
+        ) : null}
+
+        {erinnernAn ? (
+          <Erinnerungsblatt
+            entity={erinnernAn}
+            onWahl={(minuten) => {
+              hub
+                .post(
+                  `/api/entities/${encodeURIComponent(erinnernAn.id)}/erinnern`,
+                  { minutes: minuten },
+                  { fallback: null }
+                )
+                .then(() => setNote(fristSatz(minuten)))
+                .catch(() => {});
+              setErinnernAn(null);
+            }}
+            onSchliessen={() => setErinnernAn(null)}
+          />
+        ) : null}
+
+        {pushBlatt ? (
+          <PushBlatt
+            titel={pushBlatt.titel}
+            text={pushBlatt.text}
+            knoepfe={pushBlatt.knoepfe}
+            onDruck={(knopf) => {
+              if (knopf.scene) activateScene(knopf.scene);
+              else if (knopf.entity && knopf.command) {
+                guardedCommand(knopf.entity, knopf.command);
+              }
+            }}
+            onSchliessen={() => setPushBlatt(null)}
           />
         ) : null}
 
@@ -3469,1061 +3303,3 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     </HubProvider>
   );
 }
-
-/**
- * Rückfrage vor dem Schalten eines gesperrten Geräts.
- *
- * Für alles, was man nicht im Vorbeigehen antippen will: Herd, Sauna, der
- * Serverschrank. Die Sperre verhindert nichts – sie fügt nur den einen
- * bewussten Schritt ein, der ein Versehen von einer Absicht trennt.
- */
-function LockConfirm({
-  entity,
-  command,
-  onCancel,
-  onConfirm,
-  colors,
-  styles,
-}: {
-  entity: Entity;
-  command: string;
-  onCancel: () => void;
-  onConfirm: () => void;
-  colors: Colors;
-  styles: ReturnType<typeof makeStyles>;
-}) {
-  const was =
-    command === 'turn_off' || command === 'close'
-      ? 'ausschalten'
-      : command === 'toggle'
-        ? 'umschalten'
-        : 'einschalten';
-  return (
-    <Modal visible transparent animationType="fade" onRequestClose={onCancel}>
-      <View style={styles.lockBackdrop}>
-        <View style={styles.lockSheet}>
-          <Ionicons name="lock-closed" size={26} color={colors.accent} />
-          <Text style={styles.lockTitle}>{entity.name} ist gesperrt</Text>
-          <Text style={styles.lockText}>
-            Wirklich {was}? Die Sperre lässt sich im Anpassen-Modus wieder aufheben.
-          </Text>
-          <View style={styles.lockActions}>
-            <Pressable onPress={onCancel} style={styles.lockCancel}>
-              <Text style={styles.lockCancelText}>Abbrechen</Text>
-            </Pressable>
-            <Pressable onPress={onConfirm} style={styles.lockConfirm}>
-              <Text style={styles.lockConfirmText}>Ja, {was}</Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-/** PIN-Feld vor dem Entschärfen - siehe lib/alarmpin.ts, warum es das
- *  neben dem Feld im Alarm-Bildschirm noch einmal gibt. */
-function AlarmPinAsk({
-  entity,
-  onCancel,
-  onConfirm,
-  colors,
-  styles,
-}: {
-  entity: Entity;
-  onCancel: () => void;
-  onConfirm: (pin: string) => void;
-  colors: Colors;
-  styles: ReturnType<typeof makeStyles>;
-}) {
-  const [pin, setPin] = useState('');
-  const gesetzt = !!entity.state.pin_required;
-  return (
-    <Modal visible transparent animationType="fade" onRequestClose={onCancel}>
-      <View style={styles.lockBackdrop}>
-        <View style={styles.lockSheet}>
-          <Ionicons name="keypad-outline" size={26} color={colors.accent} />
-          <Text style={styles.lockTitle}>Anlage entschärfen</Text>
-          <Text style={styles.lockText}>
-            {gesetzt
-              ? 'Zum Ausschalten die PIN eingeben.'
-              : 'An diesem Gerät geht das nur mit PIN – es ist aber keine gesetzt. Wer die Alarmanlage verwaltet, kann sie dort setzen.'}
-          </Text>
-          {gesetzt ? (
-            <TextInput
-              style={styles.pinField}
-              value={pin}
-              onChangeText={(text) => setPin(text.replace(/[^0-9]/g, ''))}
-              onSubmitEditing={() => pin.length >= 4 && onConfirm(pin)}
-              placeholder="PIN"
-              placeholderTextColor={colors.inkFaint}
-              keyboardType="number-pad"
-              secureTextEntry
-              maxLength={8}
-              autoFocus
-              accessibilityLabel="PIN zum Entschärfen"
-            />
-          ) : null}
-          <View style={styles.lockActions}>
-            <Pressable onPress={onCancel} style={styles.lockCancel}>
-              <Text style={styles.lockCancelText}>Abbrechen</Text>
-            </Pressable>
-            {gesetzt ? (
-              <Pressable
-                onPress={() => onConfirm(pin)}
-                disabled={pin.length < 4}
-                style={[styles.lockConfirm, pin.length < 4 && { opacity: 0.6 }]}
-              >
-                <Text style={styles.lockConfirmText}>Entschärfen</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-const PANEL_TAG = 'homepilot-panel';
-
-/** Hält den Bildschirm wach, solange der Wandpanel-Modus aktiv ist.
- *
- * Bewusst über activate/deactivate statt useKeepAwake: Der Hook lässt sich
- * nicht abschalten, der Bildschirm bliebe also auch ohne Panel-Modus an.
- */
-function usePanelMode(active: boolean) {
-  useEffect(() => {
-    if (!active) return;
-    // Wachhalten ist eine Zugabe - wo es fehlt (Web), sperrt der
-    // Bildschirm wie immer.
-    activateKeepAwakeAsync(PANEL_TAG).catch(() => {});
-    return () => {
-      deactivateKeepAwake(PANEL_TAG).catch(() => {});
-    };
-  }, [active]);
-}
-
-/**
- * Vollbild, wenn es an der Haustüre klingelt: Kamerabild gross, ein Knopf
- * zum Öffnen (mit Zwei-Schritt-Bestätigung), einer zum Schliessen. Gedacht
- * fürs Wandpanel genauso wie fürs Telefon in der Hosentasche.
- */
-/**
- * Kamera im Vollbild: ein Tipp auf eine Kamerakachel macht das Standbild
- * gross und holt es alle drei Sekunden neu – die Kachel selbst bleibt bei
- * einem Bild pro Minute, damit die Übersicht nicht ständig lädt.
- */
-function CameraFullscreen({
-  camera,
-  uri,
-  streamUri,
-  settings,
-  onClose,
-  colors,
-  styles,
-}: {
-  camera: Entity;
-  uri?: string;
-  streamUri?: string;
-  settings: HubSettings;
-  onClose: () => void;
-  colors: Colors;
-  styles: ReturnType<typeof makeStyles>;
-}) {
-  const [tick, setTick] = useState(0);
-  // Klappt der Livestrom nicht, bleibt das Standbild – lieber ein Bild alle
-  // drei Sekunden als ein schwarzes Rechteck. Der Grund wird angezeigt,
-  // sonst lässt sich aus der Ferne nichts diagnostizieren.
-  const [liveFailed, setLiveFailed] = useState<string | null>(null);
-  useTakt(() => setTick((value) => value + 1), 3000);
-  const online = camera.state.state === 'online';
-  const live = online && !liveFailed && !!streamUri && camera.state.stream === true;
-
-  return (
-    <Modal visible animationType="fade" onRequestClose={onClose}>
-      <View style={styles.doorbellRoot}>
-        <Text style={styles.doorbellTitle}>{camera.name}</Text>
-        {live ? (
-          <View style={styles.videoBox}>
-            <CameraLive
-              uri={streamUri!}
-              label={`Live-Bild ${camera.name}`}
-              style={styles.videoFrame}
-              onFailed={(message) => setLiveFailed(message)}
-            />
-          </View>
-        ) : uri && online ? (
-          <Image
-            source={{ uri: `${uri}&t=${tick}` }}
-            style={styles.doorbellImage}
-            resizeMode="contain"
-          />
-        ) : (
-          <View
-            style={[
-              styles.doorbellImage,
-              { alignItems: 'center', justifyContent: 'center' },
-            ]}
-          >
-            <Ionicons name="videocam-off-outline" size={40} color="#FFFFFF" />
-            <Text style={styles.doorbellCloseText}>
-              {online ? 'Kein Bild verfügbar' : 'Kamera ist offline'}
-            </Text>
-          </View>
-        )}
-        <View style={styles.timelineBox}>
-          <CameraTimeline
-            entity={camera}
-            settings={settings}
-            refreshKey={String(camera.state.last_motion ?? '')}
-          />
-        </View>
-        <View style={styles.doorbellButtons}>
-          <Text style={[styles.doorbellCloseText, live ? { color: colors.danger } : null]}>
-            {live
-              ? '● Live'
-              : liveFailed
-                ? `Live-Bild nicht verfügbar (${liveFailed}) – Standbild alle 3 Sekunden`
-                : 'Standbild alle 3 Sekunden'}
-            {camera.state.motion === 'on' ? ' · Bewegung erkannt' : ''}
-          </Text>
-          <Pressable onPress={onClose} style={styles.doorbellClose}>
-            <Text style={styles.doorbellCloseText}>Schliessen</Text>
-          </Pressable>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-/**
- * Die fällige Erinnerung, gross und unübersehbar.
- *
- * Kein Kreuz und kein Wegwischen: Sie verschwindet nur über
- * «Erledigt» - das ist ihr ganzer Sinn. Wer sie nur wegdrücken könnte,
- * hätte einen hübschen Wecker ohne Gedächtnis. Bestätigt wird beim Hub,
- * und damit auf allen Bildschirmen zugleich.
- */
-function ErinnerungOverlay({
-  erinnerungen,
-  onBestaetigen,
-  onQuittieren,
-  styles,
-}: {
-  erinnerungen: Erinnerung[];
-  /** «Für alle erledigt» - räumt die Erinnerung überall ab. */
-  onBestaetigen: (id: string) => void;
-  /** «Erledigt» - nur bei mir weg, die anderen sehen sie weiter. */
-  onQuittieren: (id: string) => void;
-  styles: ReturnType<typeof makeStyles>;
-}) {
-  return (
-    <Modal visible animationType="fade" onRequestClose={() => {}}>
-      <View style={styles.doorbellRoot}>
-        {/* Bei mehreren steht die Zahl oben: Wer von der zweiten
-            Push-Nachricht kommt, soll sehen, dass hier zwei Karten
-            warten - jede mit eigenen Knöpfen, jede einzeln
-            bestätigbar. */}
-        <Text style={styles.doorbellTitle}>{vollbildTitel(erinnerungen.length)}</Text>
-        <ScrollView contentContainerStyle={styles.erinnerungListe}>
-          {erinnerungen.map((erinnerung) => (
-            <View key={erinnerung.id} style={styles.erinnerungKarte}>
-              <Text style={styles.erinnerungText}>
-                {String(erinnerung.text ?? '')}
-              </Text>
-              <Text style={styles.erinnerungZeit}>
-                {datumUhr(Number(erinnerung.at))}
-              </Text>
-              <View style={styles.erinnerungKnoepfe}>
-                <Pressable
-                  onPress={() => onQuittieren(erinnerung.id)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Erinnerung «${String(erinnerung.text ?? '')}» nur bei mir erledigt`}
-                  style={({ pressed }) => [
-                    styles.erinnerungKnopfLeise,
-                    pressed && { opacity: 0.8 },
-                  ]}
-                >
-                  <Text style={styles.erinnerungKnopfLeiseText}>Erledigt</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => onBestaetigen(erinnerung.id)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Erinnerung «${String(erinnerung.text ?? '')}» für alle erledigt`}
-                  style={({ pressed }) => [
-                    styles.erinnerungKnopf,
-                    pressed && { opacity: 0.8 },
-                  ]}
-                >
-                  <Ionicons name="checkmark" size={22} color="#FFFFFF" />
-                  <Text style={styles.erinnerungKnopfText}>Für alle erledigt</Text>
-                </Pressable>
-              </View>
-              <Text style={styles.erinnerungHinweis}>
-                «Erledigt» blendet sie nur hier aus - bei den anderen bleibt sie
-                stehen.
-              </Text>
-            </View>
-          ))}
-        </ScrollView>
-      </View>
-    </Modal>
-  );
-}
-
-function DoorbellOverlay({
-  ausloeser,
-  camera,
-  aktionen,
-  settings,
-  onCommand,
-  doorConfirm,
-  onDismiss,
-  colors,
-  styles,
-}: {
-  /** Was geklingelt hat – Türklingel, Kamera oder Gegensprechanlage. */
-  ausloeser: Entity;
-  /** Das Bild dazu, sofern es eines gibt. Eine Anlage hat keines. */
-  camera?: Entity;
-  aktionen: KlingelAktion[];
-  settings: HubSettings;
-  onCommand: (entityId: string, command: string) => void;
-  /** Fragt die Türe vor dem Öffnen nach? Auch hier, wo man ohnehin
-   *  hinschaut: Wer die Rückfrage abgestellt hat, meint sie überall. */
-  doorConfirm?: boolean;
-  onDismiss: () => void;
-  colors: Colors;
-  styles: ReturnType<typeof makeStyles>;
-}) {
-  // Welche Türe gerade auf die Rückfrage wartet - eine zur Zeit.
-  const [confirm, setConfirm] = useState<string | null>(null);
-  const [tick, setTick] = useState(0);
-  const [liveFailed, setLiveFailed] = useState<string | null>(null);
-  // Alle 3 Sekunden ein frisches Bild, solange das Vollbild offen ist.
-  useTakt(() => setTick((value) => value + 1), 3000);
-
-  // Rücklauf: Am Wandpanel bliebe sonst ein Bild der Strasse stehen, bis
-  // es jemand bemerkt. Jede Berührung setzt ihn zurück - während man
-  // hinschaut und überlegt, soll nichts zuklappen.
-  const [frist, setFrist] = useState(() => neueFrist(Date.now()));
-  const [rest, setRest] = useState(AUTO_SCHLIESSEN_SEKUNDEN);
-  const verlaengern = () => {
-    const neu = neueFrist(Date.now());
-    setFrist(neu);
-    setRest(restSekunden(neu, Date.now()));
-  };
-  useTakt(() => setRest(restSekunden(frist, Date.now())), 1000);
-  useEffect(() => {
-    if (rest <= 0) onDismiss();
-  }, [rest, onDismiss]);
-  // Ein neues Klingeln ist ein neuer Anlass, auch wenn das Bild noch steht.
-  useEffect(() => {
-    const neu = neueFrist(Date.now());
-    setFrist(neu);
-    setRest(restSekunden(neu, Date.now()));
-    setConfirm(null);
-  }, [ausloeser.state.last_ring]);
-  // Die Rückfrage verfällt von selbst. Sonst stünde «Wirklich öffnen?»
-  // eine Minute lang da, und der nächste beiläufige Tipp macht auf.
-  useEffect(() => {
-    if (!confirm) return undefined;
-    const timer = setTimeout(() => setConfirm(null), 8000);
-    return () => clearTimeout(timer);
-  }, [confirm]);
-  const base =
-    camera && settings.url && settings.token
-      ? `${settings.url.replace(/\/+$/, '')}/api/entities/${encodeURIComponent(camera.id)}`
-      : null;
-  const token = encodeURIComponent(settings.token ?? '');
-  const uri = base ? `${base}/snapshot?token=${token}&t=${tick}` : null;
-  // Wer klingelt, will man in Bewegung sehen – wenn die Kamera es hergibt.
-  const live = base && camera?.state.stream === true && !liveFailed;
-
-  return (
-    <Modal visible animationType="fade" onRequestClose={onDismiss}>
-      <Pressable
-        style={styles.doorbellRoot}
-        onPress={verlaengern}
-        accessibilityLabel="Offen halten"
-      >
-        {/* Welche Klingel es war, gehört dazu: Bei zwei Türen ist «Es
-            klingelt» die halbe Auskunft, und man drückt den falschen
-            Knopf. */}
-        <Text style={styles.doorbellTitle}>🔔 Es klingelt · {ausloeser.name}</Text>
-        {live ? (
-          <View style={styles.videoBox}>
-            <CameraLive
-              uri={`${base}/stream.m3u8?token=${token}`}
-              label="Live-Bild der Türklingel"
-              style={styles.videoFrame}
-              onFailed={(message) => setLiveFailed(message)}
-            />
-          </View>
-        ) : uri ? (
-          <Image source={{ uri }} style={styles.doorbellImage} resizeMode="cover" />
-        ) : (
-          // Kein Bild, also auch kein halber Bildschirm dafür: Eine
-          // Gegensprechanlage hat keine Kamera, und die schwarze Fläche
-          // schob die Knöpfe nach unten, um die es hier eigentlich geht.
-          <View style={styles.doorbellOhneBild}>
-            <Ionicons name="videocam-off-outline" size={26} color="#8A94A6" />
-            <Text style={styles.doorbellCloseText}>Kein Kamerabild an dieser Türe</Text>
-          </View>
-        )}
-        <View style={styles.doorbellButtons}>
-          {/* Sprechen läuft über die Ring-App: Die Gegensprech-Verbindung
-              ist WebRTC gegen Rings Server, und die gibt der Hersteller
-              nicht heraus. Ein Tipp führt dorthin, statt einen Knopf zu
-              zeigen, der nichts kann. */}
-          <Pressable
-            onPress={() => {
-              // Erst die App, dann der Browser - klappt beides nicht,
-              // gibt es schlicht kein Ring-Konto auf diesem Gerät.
-              Linking.openURL('ring://').catch(() =>
-                Linking.openURL('https://account.ring.com/').catch(() => {})
-              );
-            }}
-            accessibilityRole="button"
-            style={styles.doorbellTalk}
-          >
-            <Ionicons name="mic-outline" size={20} color="#FFFFFF" />
-            <Text style={styles.doorbellOpenText}>Sprechen (Ring-App)</Text>
-          </Pressable>
-          {/* Beide Türen nebeneinander: Wer im Treppenhaus wartet, soll
-              nicht darauf warten, dass jemand die App durchsucht. Die
-              Rückfrage bleibt je Türe - ein Fehlgriff öffnet sonst die
-              falsche. */}
-          {aktionen.map((aktion) => {
-            const gefragt = confirm === aktion.id;
-            // «Wirklich?» statt «Wirklich öffnen?»: Der Knopf sagt
-            // darüber schon, worum es geht, und aufschliessen ist nicht
-            // öffnen - die Rückfrage darf das nicht durcheinanderbringen.
-            const rueckfrage = `Wirklich? ${aktion.label}`;
-            return (
-              <Pressable
-                key={aktion.id}
-                onPress={() => {
-                  verlaengern();
-                  // Ohne Rückfrage nur, wenn *jeder* Schritt sie
-                  // überspringen dürfte: Ein Weg über zwei Türen ist
-                  // nicht harmloser als seine heikelste Türe.
-                  const ohneFrage = aktion.schritte.every((schritt) =>
-                    mayOpenDirectly(schritt.befehl, doorConfirm)
-                  );
-                  if (gefragt || ohneFrage) {
-                    // Der Reihe nach: unten zuerst, damit der Besuch
-                    // nicht vor der zweiten Türe steht, während die
-                    // erste noch zu ist.
-                    for (const schritt of aktion.schritte) {
-                      onCommand(schritt.entity.id, schritt.befehl);
-                    }
-                    onDismiss();
-                  } else {
-                    setConfirm(aktion.id);
-                  }
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={gefragt ? rueckfrage : aktion.label}
-                style={[styles.doorbellOpen, gefragt && { backgroundColor: colors.danger }]}
-              >
-                <Ionicons
-                  name={aktion.oeffnet ? 'log-in-outline' : 'key'}
-                  size={22}
-                  color="#FFFFFF"
-                />
-                <Text style={styles.doorbellOpenText}>
-                  {gefragt ? rueckfrage : aktion.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-          {/* Einmal erklärt, worin der Unterschied besteht. «Beide
-              aufschliessen» und «Beide öffnen» stehen sonst untereinander
-              und sehen aus wie dasselbe - und man drückt im Zweifel das
-              Weitergehende, weil es sicherer klingt. */}
-          {aktionen.some((aktion) => aktion.id.startsWith('alle')) ? (
-            <Text style={styles.doorbellHinweis}>
-              Aufschliessen zieht nur den Riegel – die Türe muss noch
-              gedrückt werden. Öffnen zieht auch die Falle.
-            </Text>
-          ) : null}
-          <Pressable onPress={onDismiss} style={styles.doorbellClose}>
-            <Text style={styles.doorbellCloseText}>
-              Schliessen{rest > 0 ? ` (${rest})` : ''}
-            </Text>
-          </Pressable>
-        </View>
-      </Pressable>
-    </Modal>
-  );
-}
-
-/** Gruppen-Steuerung: schaltet alle Geräte einer Gruppe auf einmal.
- *  Storen-Gruppen bekommen einen gemeinsamen Prozent-Schieber. */
-function GroupControls({
-  entities,
-  groups,
-  onCommand,
-}: {
-  entities: Entity[];
-  groups: string[];
-  onCommand: (entityId: string, command: string, data?: CommandData) => void;
-}) {
-  return (
-    <View style={{ gap: space.gap }}>
-      {groups.map((name) => (
-        <GroupRow
-          key={name}
-          name={name}
-          members={entities.filter((entity) => entity.group === name)}
-          onCommand={onCommand}
-        />
-      ))}
-    </View>
-  );
-}
-
-function GroupRow({
-  name,
-  members,
-  onCommand,
-}: {
-  name: string;
-  members: Entity[];
-  onCommand: (entityId: string, command: string, data?: CommandData) => void;
-}) {
-  const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  const covers = members.filter((entity) => entity.kind === 'cover');
-  const positionable = covers.filter((entity) => entity.commands.includes('set_position'));
-  const switches = members.filter((entity) => entity.commands.includes('turn_on'));
-  const locks = members.filter((entity) => entity.kind === 'lock');
-
-  // Startwert des Schiebers: Durchschnitt der aktuellen Storen-Positionen.
-  const avg = positionable.length
-    ? Math.round(
-        positionable.reduce(
-          (sum, entity) =>
-            sum + (typeof entity.state.position === 'number' ? entity.state.position : 0),
-          0
-        ) / positionable.length
-      )
-    : 0;
-  const [pos, setPos] = useState(avg);
-
-  const fan = (list: Entity[], command: string, data?: CommandData) =>
-    list.forEach((entity) => onCommand(entity.id, command, data));
-
-  return (
-    <Card style={styles.groupCard}>
-      <View style={styles.groupHead}>
-        <Ionicons name="layers-outline" size={18} color={colors.inkSoft} />
-        <Text style={styles.groupName}>{name}</Text>
-        <Text style={styles.groupCount}>
-          {members.length} {members.length === 1 ? 'Gerät' : 'Geräte'}
-        </Text>
-      </View>
-
-      {switches.length > 0 ? (
-        <View style={styles.groupButtons}>
-          <GroupButton label="Alle ein" onPress={() => fan(switches, 'turn_on')} />
-          <GroupButton label="Alle aus" onPress={() => fan(switches, 'turn_off')} />
-        </View>
-      ) : null}
-
-      {covers.length > 0 ? (
-        <View style={styles.groupButtons}>
-          <GroupButton label="Hoch" onPress={() => fan(covers, 'open')} />
-          <GroupButton label="Stopp" onPress={() => fan(covers, 'stop')} />
-          <GroupButton label="Runter" onPress={() => fan(covers, 'close')} />
-        </View>
-      ) : null}
-
-      {positionable.length > 0 ? (
-        <View style={{ gap: 8 }}>
-          <Bar value={pos} onChange={setPos} />
-          <GroupButton
-            label={`Auf ${pos}% setzen`}
-            onPress={() => fan(positionable, 'set_position', { position: pos })}
-            wide
-          />
-        </View>
-      ) : null}
-
-      {locks.length > 0 ? (
-        <View style={styles.groupButtons}>
-          <GroupButton label="Abschliessen" onPress={() => fan(locks, 'lock')} />
-          <GroupButton label="Aufschliessen" onPress={() => fan(locks, 'unlock')} />
-        </View>
-      ) : null}
-    </Card>
-  );
-}
-
-function GroupButton({
-  label,
-  onPress,
-  wide,
-}: {
-  label: string;
-  onPress: () => void;
-  wide?: boolean;
-}) {
-  const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      style={({ pressed }) => [
-        styles.groupButton,
-        wide && { flex: 0, alignSelf: 'stretch' },
-        pressed && { opacity: 0.75 },
-      ]}
-    >
-      <Text style={styles.groupButtonText}>{label}</Text>
-    </Pressable>
-  );
-}
-
-const makeStyles = (colors: Colors) =>
-  StyleSheet.create({
-    root: { flex: 1 },
-    timelineBox: { paddingHorizontal: 16, paddingTop: 10 },
-    offlineBanner: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      paddingVertical: 9,
-      paddingHorizontal: 12,
-      borderRadius: radius.control,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.warn,
-    },
-    offlineText: { color: colors.onGradient, fontSize: 13, flex: 1 },
-    allOffRow: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      flexWrap: 'wrap',
-      gap: 8,
-      marginTop: 4,
-    },
-    searchButton: {
-      width: 34,
-      height: 34,
-      borderRadius: 17,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: 'rgba(255,255,255,0.14)',
-    },
-    lockBackdrop: {
-      flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.5)',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: 20,
-    },
-    lockSheet: {
-      width: '100%',
-      maxWidth: 380,
-      gap: 10,
-      padding: 20,
-      borderRadius: radius.card,
-      backgroundColor: colors.panel,
-      borderWidth: 1,
-      borderColor: colors.surfaceBorder,
-      alignItems: 'center',
-    },
-    lockTitle: { color: colors.ink, fontSize: 17, fontWeight: '700', textAlign: 'center' },
-    lockText: {
-      color: colors.inkSoft,
-      fontSize: 14,
-      lineHeight: 20,
-      textAlign: 'center',
-    },
-    lockActions: { flexDirection: 'row', gap: 10, marginTop: 6, alignSelf: 'stretch' },
-    lockCancel: {
-      flex: 1,
-      alignItems: 'center',
-      paddingVertical: 12,
-      borderRadius: radius.control,
-      borderWidth: 1,
-      borderColor: colors.surfaceBorder,
-    },
-    lockCancelText: { color: colors.inkSoft, fontSize: 15, fontWeight: '700' },
-    pinField: {
-      alignSelf: 'stretch',
-      backgroundColor: colors.surfaceSoft,
-      borderRadius: radius.control,
-      borderWidth: 1,
-      borderColor: colors.surfaceBorder,
-      color: colors.ink,
-      fontSize: 18,
-      letterSpacing: 4,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      textAlign: 'center',
-    },
-    lockConfirm: {
-      flex: 1,
-      alignItems: 'center',
-      paddingVertical: 12,
-      borderRadius: radius.control,
-      backgroundColor: colors.accent,
-    },
-    lockConfirmText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
-    frame: { flex: 1, flexDirection: 'row' },
-    scroll: { flex: 1, minWidth: 0 },
-    content: {
-      paddingHorizontal: space.page,
-      paddingTop: 14,
-      paddingBottom: 28,
-      gap: 16,
-    },
-    greetingRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: space.gap,
-    },
-    greeting: { gap: 2, flexShrink: 1 },
-    // Hinweise rechts der Begrüssung. Auf schmalen Geräten stapeln sie sich,
-    // damit weder Türhinweis noch Haushalt abgeschnitten wird.
-    greetingNotes: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      justifyContent: 'flex-end',
-      alignItems: 'center',
-      gap: 8,
-      flexShrink: 1,
-    },
-    greetingLine: {
-      color: colors.onGradient,
-      fontSize: type.greeting,
-      fontWeight: '300',
-      letterSpacing: 0.2,
-    },
-    split: {
-      flexDirection: 'row',
-      gap: space.gap * 1.4,
-      alignItems: 'flex-start',
-    },
-    stack: { gap: space.gap * 1.4 },
-    // minWidth: 0 ist hier kein Zierrat. Ohne das kann eine Flex-Spalte
-    // nicht unter die Breite ihres Inhalts schrumpfen: Ein zu breites Kind
-    // macht die Spalte breiter, und die Nachbarspalte wandert aus dem Bild.
-    // Genau so sieht der abgeschnittene rechte Rand auf dem iPad aus. Im
-    // Browser bei 1180 Punkten liess er sich nicht nachstellen - die Zeile
-    // kostet nichts und nimmt die wahrscheinlichste Ursache weg.
-    main: { flex: 1, minWidth: 0 },
-    backRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 2,
-      alignSelf: 'flex-start',
-      paddingVertical: 4,
-      paddingRight: 10,
-    },
-    backText: { color: colors.onGradient, fontSize: 15, fontWeight: '600' },
-    /** Die Zeile unter den Türknöpfen im Klingel-Vollbild. Klein und
-     *  gedeckt: Sie erklärt, sie ist kein Knopf. */
-    doorbellHinweis: {
-      color: '#8A94A6',
-      fontSize: 12,
-      textAlign: 'center',
-      paddingHorizontal: 8,
-    },
-    settingsList: { gap: 10 },
-    settingsItem: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 14,
-      backgroundColor: colors.surface,
-      borderRadius: radius.card,
-      borderWidth: 1,
-      borderColor: colors.surfaceBorder,
-      paddingHorizontal: 16,
-      paddingVertical: 14,
-    },
-    settingsLabel: { color: colors.ink, fontSize: 16, fontWeight: '600' },
-    settingsDetail: { color: colors.inkSoft, fontSize: 13, marginTop: 1 },
-    doorbellRoot: {
-      flex: 1,
-      backgroundColor: '#10141B',
-      padding: 22,
-      paddingTop: 64,
-      gap: 18,
-    },
-    doorbellTitle: {
-      color: '#FFFFFF',
-      fontSize: 28,
-      fontWeight: '700',
-      textAlign: 'center',
-    },
-    // Das Erinnerungs-Vollbild teilt den Grund mit der Klingel - beides
-    // sind die zwei Momente, in denen die App von sich aus laut wird.
-    erinnerungListe: { gap: 16, paddingVertical: 12, justifyContent: 'center', flexGrow: 1 },
-    erinnerungKarte: {
-      backgroundColor: '#1B2230',
-      borderRadius: radius.card,
-      padding: 26,
-      gap: 10,
-      alignItems: 'center',
-    },
-    erinnerungText: {
-      color: '#FFFFFF',
-      fontSize: 34,
-      fontWeight: '700',
-      textAlign: 'center',
-      lineHeight: 42,
-    },
-    erinnerungZeit: { color: '#8A94A6', fontSize: 17 },
-    erinnerungKnoepfe: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      justifyContent: 'center',
-      gap: 12,
-      marginTop: 8,
-    },
-    erinnerungKnopf: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-      backgroundColor: colors.on,
-      borderRadius: radius.control,
-      paddingVertical: 14,
-      paddingHorizontal: 34,
-    },
-    erinnerungKnopfText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
-    // Der leise Bruder von erinnerungKnopf: nur Rahmen statt Fläche -
-    // «für alle» soll der Knopf sein, zu dem die Hand zuerst will.
-    erinnerungKnopfLeise: {
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 1,
-      borderColor: '#3A4358',
-      borderRadius: radius.control,
-      paddingVertical: 14,
-      paddingHorizontal: 34,
-    },
-    erinnerungKnopfLeiseText: { color: '#C6CDDB', fontSize: 18, fontWeight: '600' },
-    erinnerungHinweis: { color: '#8A94A6', fontSize: 13, textAlign: 'center' },
-    doorbellImage: {
-      flex: 1,
-      borderRadius: radius.card,
-      backgroundColor: '#1C2430',
-      width: '100%',
-    },
-    doorbellOhneBild: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 10,
-      paddingVertical: 26,
-      borderRadius: radius.card,
-      backgroundColor: '#1C2430',
-      width: '100%',
-    },
-    doorbellButtons: { gap: 10 },
-    doorbellTalk: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 10,
-      paddingVertical: 14,
-      borderRadius: radius.control,
-      backgroundColor: 'rgba(255,255,255,0.18)',
-      borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.35)',
-    },
-    // Live-Video: 16:9 einpassen statt es in die Bildschirmhöhe zu strecken –
-    // gestreckt schneidet der Player links und rechts ab.
-    videoBox: { flex: 1, justifyContent: 'center' },
-    videoFrame: {
-      width: '100%',
-      aspectRatio: 16 / 9,
-      borderRadius: radius.card,
-      backgroundColor: '#000000',
-    },
-    doorbellOpen: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 10,
-      backgroundColor: colors.on,
-      borderRadius: radius.control,
-      paddingVertical: 18,
-    },
-    doorbellOpenText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
-    doorbellClose: { alignItems: 'center', paddingVertical: 12 },
-    doorbellCloseText: { color: 'rgba(255,255,255,0.7)', fontSize: 15, fontWeight: '600' },
-    grid: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: space.gap,
-      marginTop: space.gap,
-    },
-    // Nur zum Messen der Breite, ohne eigenen Abstand.
-    measure: { height: 0 },
-    group: { marginTop: space.gap * 1.2 },
-    groupLabel: {
-      color: colors.onGradient,
-      fontSize: 19,
-      fontWeight: '700',
-      letterSpacing: -0.2,
-    },
-    editToggle: {
-      alignSelf: 'flex-start',
-      paddingVertical: 6,
-    },
-    editToggleText: {
-      color: colors.onGradientSoft,
-      fontSize: 13,
-      fontWeight: '600',
-    },
-    searchRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      paddingHorizontal: 12,
-      borderRadius: radius.control,
-      backgroundColor: colors.surfaceStrong,
-      borderWidth: 1,
-      borderColor: colors.surfaceBorder,
-    },
-    searchInput: { flex: 1, paddingVertical: 11, color: colors.ink, fontSize: 15 },
-    searchCount: { color: colors.onGradientSoft, fontSize: 12, fontWeight: '600' },
-    filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' },
-    filterChip: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 4,
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-      borderRadius: radius.pill,
-      backgroundColor: colors.surfaceSoft,
-      borderWidth: 1,
-      borderColor: colors.surfaceBorder,
-    },
-    filterChipOn: { backgroundColor: colors.surfaceStrong },
-    // Dunkle Tinte auch im ausgeschalteten Zustand. Der Chip hat in
-    // beiden Themen einen hellen, durchscheinenden Grund; `onGradientSoft`
-    // darauf misst sich zu 1.86:1 - «Ohne Raum · 91» stand als heller
-    // Schatten da, während der eingeschaltete Chip daneben scharf war.
-    // Mit `ink` sind es 6.4:1 hell und 9.9:1 dunkel. Ein und aus
-    // unterscheidet weiterhin der Grund, und der tut es deutlich
-    // genug: durchscheinend gegen fast deckend.
-    filterChipText: { color: colors.ink, fontSize: 12, fontWeight: '600' },
-    filterChipTextOn: { color: colors.ink, fontWeight: '700' },
-    /** Der Raumname über den Kacheln – so gross wie eine Seitenüberschrift,
-     *  denn genau das ist er. */
-    raumTitel: {
-      color: colors.onGradient,
-      fontSize: 24,
-      fontWeight: '700',
-      marginTop: 2,
-    },
-    raumKopf: { gap: 8 },
-    raumKopfText: { color: colors.onGradient, fontSize: 15, fontWeight: '600' },
-    reorderButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      alignSelf: 'flex-start',
-      paddingVertical: 6,
-    },
-    reorderText: { color: colors.onGradient, fontSize: 13, fontWeight: '600' },
-    // Der Kamera-Schalter: Symbol, zwei Zeilen Text, Schieber - breit
-    // genug, dass die Erklärung darunter passt.
-    kameraSort: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-      paddingVertical: 8,
-    },
-    kameraSortHint: { color: colors.onGradientSoft, fontSize: 12, lineHeight: 17 },
-    reorderSheet: { flex: 1, backgroundColor: colors.panel, padding: 20, paddingTop: 60 },
-    alphabetKnopf: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      alignSelf: 'flex-start',
-      gap: 6,
-      marginBottom: 12,
-      paddingHorizontal: 14,
-      paddingVertical: 8,
-      borderRadius: radius.pill,
-      backgroundColor: colors.surfaceStrong,
-      borderWidth: 1,
-      borderColor: colors.surfaceBorder,
-    },
-    alphabetText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
-    reorderHead: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: 8,
-    },
-    reorderTitle: { color: colors.ink, fontSize: 22, fontWeight: '700' },
-    reorderHint: { color: colors.inkFaint, fontSize: 13, lineHeight: 18, marginBottom: 14 },
-    // Ohne die beiden Überschreibungen bleibt die Karte auf der
-    // Mindesthöhe einer Gerätekachel stehen und schiebt ihre Knöpfe mit
-    // `space-between` an den unteren Rand - bei einer Gruppe mit einem
-    // Namen und zwei Knöpfen war die halbe Karte leer.
-    groupCard: { gap: 12, minHeight: 0, justifyContent: 'flex-start' },
-    groupHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    groupName: { color: colors.ink, fontSize: 16, fontWeight: '700', flex: 1 },
-    groupCount: { color: colors.inkFaint, fontSize: 12 },
-    groupButtons: { flexDirection: 'row', gap: 8 },
-    groupButton: {
-      flex: 1,
-      paddingVertical: 11,
-      borderRadius: radius.control,
-      backgroundColor: colors.surfaceSoft,
-      borderWidth: 1,
-      borderColor: colors.surfaceBorder,
-      alignItems: 'center',
-    },
-    groupButtonText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
-    sectionLabel: {
-      color: colors.onGradientSoft,
-      fontSize: 12,
-      fontWeight: '700',
-      letterSpacing: 1,
-      textTransform: 'uppercase',
-      marginTop: space.gap * 1.5,
-    },
-    // Einstellungen auf dem iPad: schmales Menü links, Inhalt rechts.
-    settingsSplit: { flexDirection: 'row', gap: 18, alignItems: 'flex-start' },
-    settingsRail: { width: 230, gap: 2 },
-    settingsRailItem: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-      paddingVertical: 10,
-      paddingHorizontal: 12,
-      borderRadius: radius.control,
-    },
-    settingsRailActive: { backgroundColor: colors.surface },
-    settingsRailText: { color: colors.inkSoft, fontSize: 14, fontWeight: '600', flex: 1 },
-    /** Die Überschrift über der Einrichtung in der iPad-Spalte. Klein und
-     *  gedeckt: Sie trennt, sie ist kein Knopf. */
-    settingsRailGruppe: {
-      color: colors.inkFaint,
-      fontSize: 12,
-      fontWeight: '700',
-      letterSpacing: 0.4,
-      textTransform: 'uppercase',
-      paddingHorizontal: 12,
-      paddingTop: 14,
-      paddingBottom: 4,
-    },
-    empty: {
-      color: colors.onGradientSoft,
-      fontSize: 14,
-      lineHeight: 21,
-      marginTop: 24,
-      maxWidth: 460,
-    },
-  });

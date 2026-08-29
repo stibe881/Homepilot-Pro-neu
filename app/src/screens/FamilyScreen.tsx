@@ -1,12 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Image, Linking, Modal, Pressable, ScrollView, Share, Text, TextInput, View } from 'react-native';
 
-import { HubFehler, hubClient } from '../api/client';
+import { hubClient } from '../api/client';
 import { Card } from '../components/Card';
-import { BabysitterStand, LEERER_BABYSITTER, modusSatz } from '../lib/babysitter';
+import { modusSatz } from '../lib/babysitter';
 import { gruppiereModule } from '../lib/familiemodule';
 import { DraggableList } from '../components/DraggableList';
 import { Shops } from '../components/Shops';
@@ -25,19 +25,15 @@ import {
   ladenZaehler,
   mengeAendern,
   shopCategory,
+  shopOrder,
   zeilenAufteilen,
 } from '../lib/einkauf';
-import {
-  Vorgemerkt,
-  anwenden,
-  frisch,
-  istVorlaeufig,
-  merke,
-  standText,
-  vorlaeufigeId,
-} from '../lib/familiecache';
-import { babysitterFrist, passwortHinweis } from '../lib/einladung';
+import { LernEintrag, merken, mitLernen, vergessen } from '../lib/ladenlernen';
+import { standText } from '../lib/familiecache';
+import { useFamilienablage } from './family/ablage';
+import { useBabysitterabend } from './family/babysitter';
 import { herkunftText, neuSeit, suche, trefferName } from '../lib/familiensuche';
+import { takt } from '../lib/vorrat';
 import {
   akku,
   kopfzeile,
@@ -48,22 +44,17 @@ import {
   warnZeile,
   zusammenfassung,
 } from '../lib/anwesenheitskarte';
-import { Rueckeintrag, bandSatz, eintragName, nochGueltig } from '../lib/rueckband';
+import { Rueckeintrag, bandSatz, nochGueltig } from '../lib/rueckband';
 import { mitglieder, pruefeName, rolleWort } from '../lib/mitglieder';
 import { Person } from '../lib/personen';
 import {
   ABEND_FELDER,
-  BABYSITTER_FEATURES,
-  BABYSITTER_USER,
   KALENDER_FARBEN,
   ROLLEN,
   NOTFALL_FELDER,
   abendLuecken,
-  babysitterKonto,
   babysitterVorname,
-  babysitterZugang,
   fuerBabysitter,
-  istBabysitterKonto,
   protokollZeile,
   PROTOKOLL_ZEILEN,
   geprueftVor,
@@ -93,7 +84,7 @@ import { kochVorschlaege, vorschlagsGrund, wuerfel } from '../lib/vorschlag';
 import { ROLE_LABELS } from './UsersScreen';
 import { doppeldosisFrage } from '../lib/doppeldosis';
 import { naechsteStraehne, straehnenSatz } from '../lib/straehne';
-import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, CountdownForm, ErinnerungForm, EventForm, FamilyData, FamilyItem, GroupedChecklist, MealRow, MedicationAddRow, Member, MemberAddRow, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, TaskAddRow, TwoFieldForm, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, parseSwissDate, pickPhoto, rotateMember } from './family/bausteine';
+import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, CountdownForm, ErinnerungForm, EventForm, FamilyItem, GroupedChecklist, MealRow, MedicationAddRow, Member, MemberAddRow, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, TaskAddRow, TwoFieldForm, VorratBlatt, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, parseSwissDate, pickPhoto, rotateMember } from './family/bausteine';
 import { makeStyles } from './family/stil';
 
 /**
@@ -111,8 +102,6 @@ import { makeStyles } from './family/stil';
 
 
 /** Wo der letzte bekannte Stand und die Warteschlange liegen. */
-const CACHE_KEY = 'homepilot.family.cache';
-const QUEUE_KEY = 'homepilot.family.queue';
 /** Wann jedes Modul zuletzt angesehen wurde – je Person im Gerät. */
 const SEEN_KEY = 'homepilot.family.seen';
 /** Der alte Ort der ausgeblendeten Kacheln: im Speicher der App. Er
@@ -135,8 +124,6 @@ export function FamilyScreen({
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  // Der Stand, wie der Hub ihn kennt …
-  const [serverData, setServerData] = useState<FamilyData>({});
   // Die Zugänge zum Hub. Sie sind nur die eine Hälfte der Familie - wer
   // dazugehört, steht in `data.members` (siehe lib/mitglieder.ts).
   const [konten, setKonten] = useState<Member[]>([]);
@@ -146,6 +133,14 @@ export function FamilyScreen({
   const [view, setView] = useState<ModuleKey | null>(
     (startModul as ModuleKey | null) ?? null
   );
+  // Ein *neuer* Startwunsch gilt auch später: Wer auf «Milch steht auf
+  // der Einkaufsliste» tippt, während die Familie schon offen ist, soll
+  // im Einkauf landen. Nur bei einer Änderung - «zurück» setzt `view`
+  // auf nichts, und der unveränderte Wunsch führte sonst sofort wieder
+  // hinein.
+  useEffect(() => {
+    if (startModul) setView(startModul as ModuleKey);
+  }, [startModul]);
   const [reorderOpen, setReorderOpen] = useState(false);
   // Die Doppeldosis-Rückfrage: welche Gabe gerade nachgefragt wird,
   // mit dem fertigen Satz dazu (lib/doppeldosis.ts).
@@ -154,7 +149,6 @@ export function FamilyScreen({
     gabe: string;
     text: string;
   } | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [calMode, setCalMode] = useState<'list' | 'month'>('list');
   // Kontakte: nach Rolle filtern und einzelne bearbeiten.
   const [kontaktRolle, setKontaktRolle] = useState<string>('alle');
@@ -172,22 +166,6 @@ export function FamilyScreen({
   const [monatLaedt, setMonatLaedt] = useState(false);
   const [letzterMonat, setLetzterMonat] = useState('');
   const [terminOffen, setTerminOffen] = useState<FamilyItem | null>(null);
-  // Babysitter-Zugang: der Gastbenutzer und sein frisches Token.
-  const [babysitterUser, setBabysitterUser] = useState<FamilyItem | null>(null);
-  // Das Passwort für den Abend und der Link, der daraus entsteht. Das
-  // Token stand hier einmal im Klartext – von dort war es einen Tipp
-  // weit in einen Chat.
-  const [babysitterPass, setBabysitterPass] = useState('');
-  const [babysitterLink, setBabysitterLink] = useState<string | null>(null);
-  // Der Hinweis gehört in die Karte, nicht in die Fehlerzeile weit
-  // oben: Wer auf «bis 21:00» tippt und nichts passieren sieht, hält
-  // den Knopf für kaputt.
-  const [babysitterNote, setBabysitterNote] = useState<string | null>(null);
-  // Punkt 187: Mehrere Babysitter, jeder mit eigenem Zugang.
-  const [babysitterKonten, setBabysitterKonten] = useState<FamilyItem[]>([]);
-  const [babysitterName, setBabysitterName] = useState('');
-  // Punkt 184: «So sieht es der Babysitter» – zeigt die Lücken vorher.
-  const [babysitterVorschau, setBabysitterVorschau] = useState(false);
   // Punkt 167: Was gelöscht wurde – dreissig Tage lang.
   const [korb, setKorb] = useState<FamilyItem[]>([]);
   const [korbOffen, setKorbOffen] = useState(false);
@@ -208,7 +186,13 @@ export function FamilyScreen({
   // Einkaufs-Modus läuft (Punkt 173).
   const [laden, setLaden] = useState('allgemein');
   const [imLaden, setImLaden] = useState(false);
+  // Das Abhak-Protokoll, aus dem die Gang-Reihenfolge je Laden gelernt
+  // wird (lib/ladenlernen.ts). Es liegt in den Haus-Einstellungen -
+  // haushaltsweit, denn der Laden ist für alle derselbe.
+  const [lernLog, setLernLog] = useState<LernEintrag[]>([]);
   // Was nach dem üblichen Abstand wieder fällig wäre (Punkt 176).
+  // Welcher Standardartikel gerade seinen Takt bekommt (Vorrat).
+  const [vorratOffen, setVorratOffen] = useState<FamilyItem | null>(null);
   const [faellig, setFaellig] = useState<{ text: string; days_since: number; interval: number }[]>(
     []
   );
@@ -251,6 +235,43 @@ export function FamilyScreen({
     [settings.url, settings.token]
   );
 
+  // Erst laden, wenn die Einkaufsliste aufgeht - die anderen Kacheln
+  // brauchen das Protokoll nicht, und beim Öffnen ist es dann frisch,
+  // auch wenn zuletzt ein anderes Telefon abgehakt hat.
+  useEffect(() => {
+    if (view !== 'shopping') return;
+    let abgebrochen = false;
+    hub
+      .get<{ prefs?: { einkaufLernen?: LernEintrag[] } } | null>('/api/houseprefs', {
+        fallback: null,
+        still: true,
+      })
+      .then((body) => {
+        if (abgebrochen) return;
+        const log = body?.prefs?.einkaufLernen;
+        if (Array.isArray(log)) setLernLog(log);
+      })
+      .catch(() => {});
+    return () => {
+      abgebrochen = true;
+    };
+  }, [view, hub]);
+
+  const lernLogSchreiben = useCallback(
+    (log: LernEintrag[]) => {
+      setLernLog(log);
+      // Nur dieser eine Schlüssel geht über die Leitung - der Hub führt
+      // die Haus-Einstellungen zusammen (core/einstellungen.py). Und
+      // «still»: Ein verpasstes Lern-Häkchen ist keinen Fehlerbalken wert.
+      hub.put(
+        '/api/houseprefs',
+        { prefs: { einkaufLernen: log } },
+        { fallback: null, still: true }
+      );
+    },
+    [hub]
+  );
+
   // Wer eine Push-Erinnerung bekommen kann - die Namen aus der
   // Benutzerverwaltung des Hubs, nicht die Mitgliederliste dieser Seite:
   // Push landet nur auf angemeldeten Telefonen, und die hängen an
@@ -275,72 +296,11 @@ export function FamilyScreen({
     uebernehmen: ortUebernehmen,
   } = useOrte(settings);
 
-  // ── Ohne Netz lesbar bleiben (Punkte 165 und 172) ──────────────────────
-  //
-  // Der Geräte-Bildschirm legt seinen Stand längst im Gerät ab; die
-  // Familienseite tat es nicht. Wer im Ladenkeller die Einkaufsliste
-  // öffnete, sah nichts - und ein Häkchen dort lief ins Leere, ohne dass
-  // es jemand merkte.
-  const [stand, setStand] = useState<number | null>(null);
-  const [verbunden, setVerbunden] = useState(true);
-  const [offen, setOffen] = useState<Vorgemerkt[]>([]);
-  // Die Warteschlange auch zum Nachlesen, ohne den Effekt neu zu binden.
-  const offenRef = useRef<Vorgemerkt[]>([]);
-  offenRef.current = offen;
-
-  // Beim Öffnen sofort den letzten bekannten Stand zeigen, statt auf die
-  // Verbindung zu warten - derselbe Handel wie in useHub.
-  useEffect(() => {
-    let abgebrochen = false;
-    AsyncStorage.getItem(CACHE_KEY)
-      .then((raw) => {
-        if (!raw || abgebrochen) return;
-        const gespeichert = JSON.parse(raw);
-        setServerData((vorher) => (Object.keys(vorher).length > 0 ? vorher : gespeichert.data ?? {}));
-        if (typeof gespeichert.at === 'number') setStand((v) => v ?? gespeichert.at);
-      })
-      // Kein Zwischenspeicher ist kein Fehler - dann kommt alles frisch.
-      .catch(() => {});
-    AsyncStorage.getItem(QUEUE_KEY)
-      .then((raw) => {
-        if (!raw || abgebrochen) return;
-        setOffen(frisch(JSON.parse(raw), Date.now()));
-      })
-      .catch(() => {});
-    return () => {
-      abgebrochen = true;
-    };
-  }, []);
-
-  const load = useCallback(() => {
-    // Der Bildschirm zeigt Fehler selbst an - deshalb «still».
-    hub
-      .get<FamilyData>('/api/family', { still: true })
-      .then((payload) => {
-        setServerData(payload);
-        setError(null);
-        setVerbunden(true);
-        const jetzt = Date.now();
-        setStand(jetzt);
-        AsyncStorage.setItem(
-          CACHE_KEY,
-          JSON.stringify({ data: payload, at: jetzt })
-        ).catch(() => {});
-      })
-      .catch((err) => {
-        setVerbunden(false);
-        setError(
-          `Familiendaten nicht abrufbar (${err instanceof HubFehler ? err.message : err})`
-        );
-      });
-  }, [hub]);
-
-  useEffect(load, [load]);
-
-  // … und der Stand, den man sieht: Server plus das, was noch wartet.
-  // Ohne diese Überlagerung springt das Häkchen zurück, und man tippt es
-  // ein zweites Mal.
-  const data = useMemo(() => anwenden(serverData, offen), [serverData, offen]);
+  // Stand, Warteschlange und Änderungen stehen in family/ablage.ts -
+  // sie halten die Seite ohne Netz lesbar und heben ein Häkchen auf,
+  // bis der Hub wieder da ist.
+  const { data, stand, verbunden, offen, error, setError, load, add, update, remove } =
+    useFamilienablage({ hub, changedAt, onGeloescht: setZurueck });
 
   // Wer in Aufgaben, Ämtli und Belohnungen auswählbar ist: die Zugänge
   // plus alle, die eingetragen sind, ohne die App zu bedienen. Ein
@@ -350,73 +310,6 @@ export function FamilyScreen({
     () => mitglieder(konten, data.members),
     [konten, data.members]
   );
-
-  // Was wartet, wird gespeichert: Die App darf zwischendurch beendet
-  // werden, ohne dass ein Häkchen verlorengeht.
-  useEffect(() => {
-    AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(offen)).catch(() => {});
-  }, [offen]);
-
-  /**
-   * Eine Änderung an den Hub - und wenn er nicht da ist, in die Warteschlange.
-   *
-   * Zurück kommt, ob es sofort geklappt hat. Der Aufrufer braucht das
-   * nicht; die Anzeige entsteht aus `offen`.
-   */
-  const senden = useCallback(
-    async (eintrag: Vorgemerkt): Promise<boolean> => {
-      try {
-        if (eintrag.kind === 'add') {
-          await hub.post(`/api/family/${eintrag.collection}`, eintrag.body ?? {}, {
-            still: true,
-          });
-        } else if (eintrag.kind === 'update') {
-          await hub.put(
-            `/api/family/${eintrag.collection}/${eintrag.id}`,
-            eintrag.body ?? {},
-            { still: true }
-          );
-        } else {
-          await hub.del(`/api/family/${eintrag.collection}/${eintrag.id}`, {
-            still: true,
-          });
-        }
-        return true;
-      } catch {
-        return false;
-      }
-    },
-    [hub]
-  );
-
-  // Sobald die Verbindung wieder steht, geht die Warteschlange raus -
-  // in der Reihenfolge, in der getippt wurde.
-  useEffect(() => {
-    if (!verbunden || offen.length === 0) return;
-    let abgebrochen = false;
-    (async () => {
-      const rest: Vorgemerkt[] = [];
-      for (const eintrag of offenRef.current) {
-        // Ein lokal angelegter Eintrag wird als Neuzugang geschickt; seine
-        // vorläufige Kennung kennt der Hub nicht.
-        const geschickt = await senden(
-          istVorlaeufig(eintrag.id) && eintrag.kind !== 'add'
-            ? { ...eintrag, kind: 'add' }
-            : eintrag
-        );
-        if (!geschickt) rest.push(eintrag);
-      }
-      if (abgebrochen) return;
-      setOffen(rest);
-      if (rest.length === 0) load();
-    })();
-    return () => {
-      abgebrochen = true;
-    };
-    // Absichtlich nur an `verbunden` und der Länge: Der Lauf soll einmal
-    // je Wiederverbindung starten, nicht bei jedem Zwischenstand.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [verbunden, offen.length]);
 
   /**
    * Die Termine eines Monats holen.
@@ -444,12 +337,6 @@ export function FamilyScreen({
     [hub]
   );
 
-  // Änderungen anderer Geräte kommen als Fingerzeig über den WebSocket –
-  // was Livia abhakt, steht bei Stefan sofort, ohne Minutentakt-Abfrage.
-  useEffect(() => {
-    if (changedAt) load();
-  }, [changedAt, load]);
-
   useEffect(() => {
     hub
       .get<Member[] | null>('/api/users', { fallback: null, still: true })
@@ -459,77 +346,6 @@ export function FamilyScreen({
         )
       );
   }, [hub, currentUser]);
-
-  // ── Änderungen an den Hub ──────────────────────────────────────────────
-
-  const add = useCallback(
-    async (collection: string, item: FamilyItem) => {
-      const eintrag: Vorgemerkt = {
-        kind: 'add',
-        collection,
-        id: vorlaeufigeId(Date.now()),
-        body: item,
-        at: Date.now(),
-      };
-      if (await senden(eintrag)) {
-        load();
-        return;
-      }
-      // Kein Netz: vormerken statt schweigend verlieren.
-      setVerbunden(false);
-      setOffen((vorher) => merke(vorher, eintrag));
-    },
-    [senden, load]
-  );
-
-  const update = useCallback(
-    async (collection: string, id: string, patch: FamilyItem) => {
-      const eintrag: Vorgemerkt = {
-        kind: 'update',
-        collection,
-        id,
-        body: patch,
-        at: Date.now(),
-      };
-      if (await senden(eintrag)) {
-        load();
-        return;
-      }
-      setVerbunden(false);
-      setOffen((vorher) => merke(vorher, eintrag));
-    },
-    [senden, load]
-  );
-
-  const remove = useCallback(
-    async (collection: string, id: string) => {
-      // Den Namen jetzt holen, nicht nachher: Nach dem Löschen steht er
-      // nirgends mehr, und «Eintrag gelöscht» ist keine Auskunft.
-      const zeile = ((data as Record<string, unknown>)[collection] as
-        | { id?: string; text?: string; name?: string }[]
-        | undefined)?.find((posten) => posten.id === id);
-      setZurueck({
-        name: eintragName(zeile ?? null),
-        label: 'gelöscht',
-        at: Date.now(),
-        collection,
-        id,
-      });
-      const eintrag: Vorgemerkt = {
-        kind: 'remove',
-        collection,
-        id,
-        at: Date.now(),
-      };
-      if (await senden(eintrag)) {
-        load();
-        return;
-      }
-      setVerbunden(false);
-      setOffen((vorher) => merke(vorher, eintrag));
-    },
-    [senden, load, data]
-  );
 
   /** Das eben Gelöschte zurückholen - über den Papierkorb des Hubs. */
   const zurueckholen = useCallback(async () => {
@@ -738,162 +554,27 @@ export function FamilyScreen({
   // keine Bedienung.
   const darfBenutzer =
     currentUser?.role === 'besitzer' || currentUser?.role === 'bewohner';
-  const babysitterAktiv = !!babysitterUser?.enabled;
-  // Der Modus ist etwas anderes als der Zugang: Der Zugang lässt jemanden
-  // in die App, der Modus hält die Abläufe zurück, die «niemand zuhause»
-  // annehmen. Beides gehört auf dieselbe Seite, aber an eigene Schalter -
-  // man will den einen ohne den anderen haben können.
-  const [modus, setModus] = useState<BabysitterStand>(LEERER_BABYSITTER);
-  const [ablaufZahl, setAblaufZahl] = useState(0);
 
-  const ladeBabysitter = useCallback(() => {
-    if (!darfBenutzer) return;
-    hub
-      .get<FamilyItem[]>('/api/users', { still: true })
-      .then((liste) => {
-        // Punkt 187: Es gibt nicht mehr «den» Babysitter, sondern je
-        // Person einen Zugang - dann steht im Protokoll auch, wer da war.
-        const konten = (Array.isArray(liste) ? liste : []).filter(istBabysitterKonto);
-        setBabysitterKonten(konten);
-        setBabysitterUser(konten.find((user) => user.enabled) ?? konten[0] ?? null);
-      })
-      .catch(() => {
-        setBabysitterKonten([]);
-        setBabysitterUser(null);
-      });
-  }, [hub, darfBenutzer]);
-
-  const ladeModus = useCallback(() => {
-    hub
-      .get<{ automations?: unknown[]; babysitter?: BabysitterStand } | null>(
-        '/api/automations',
-        { fallback: null, still: true }
-      )
-      .then((daten) => {
-        setModus(daten?.babysitter ?? LEERER_BABYSITTER);
-        setAblaufZahl(daten?.automations?.length ?? 0);
-      });
-  }, [hub]);
-
-  const schalteModus = async (active: boolean) => {
-    try {
-      const antwort = await hub.post<{ babysitter?: BabysitterStand }>(
-        '/api/automations/babysitter',
-        { active },
-        { still: true }
-      );
-      setModus(antwort?.babysitter ?? LEERER_BABYSITTER);
-    } catch (err) {
-      setError(
-        `Babysitter-Modus nicht umgestellt (${err instanceof Error ? err.message : err})`
-      );
-    }
-  };
-
-  useEffect(() => {
-    if (view === 'babysitter') {
-      ladeBabysitter();
-      ladeModus();
-    }
-  }, [view, ladeBabysitter, ladeModus]);
-
-  const oeffneBabysitter = async (bis: string) => {
-    // Erst das Passwort, dann die Türe: Ohne wäre der Link allein der
-    // Schlüssel, und genau das wollten wir nicht mehr.
-    const mangel = passwortHinweis(babysitterPass);
-    if (mangel) {
-      setBabysitterNote(`Zuerst ein Passwort setzen – ${mangel}`);
-      return;
-    }
-    setBabysitterNote(null);
-    const zugang = babysitterZugang(new Date(), bis);
-    const konto = babysitterKonto(babysitterName);
-    const vorhanden = babysitterKonten.find((user) => user.name === konto);
-    try {
-      if (vorhanden) {
-        await hub.put(
-          `/api/users/${encodeURIComponent(konto)}`,
-          { enabled: true, features: BABYSITTER_FEATURES, ...zugang },
-          { still: true }
-        );
-      } else {
-        const antwort = await hub.post<{ user?: FamilyItem; token?: string }>(
-          '/api/users',
-          {
-            name: konto,
-            role: 'gast',
-            features: BABYSITTER_FEATURES,
-            ...zugang,
-          },
-          { still: true }
-        );
-        // Das Token wird nicht mehr angezeigt: Es stand hier im
-        // Klartext und wanderte von dort in einen Chat. Statt seiner
-        // gibt es unten einen Link mit Passwort.
-        void antwort;
-      }
-      // Der Zugang steht – jetzt der Weg hinein. Der Link allein öffnet
-      // nichts; das Passwort gibt man der Babysitterin am Telefon oder
-      // an der Türe durch.
-      const einladung = await hub.post<{ link: string; expires: number }>(
-        `/api/users/${encodeURIComponent(konto)}/einladung`,
-        {
-          password: babysitterPass,
-          minutes: babysitterFrist(new Date(), bis),
-        },
-        { still: true }
-      );
-      setBabysitterLink(einladung?.link ?? null);
-      setBabysitterPass('');
-      ladeBabysitter();
-    } catch (err) {
-      setError(
-        `Zugang nicht geöffnet (${err instanceof Error ? err.message : err})`
-      );
-    }
-  };
-
-  /**
-   * «Noch eine Stunde» (Punkt 185).
-   *
-   * Wenn es später wird, legt man sonst den Zugang neu an - und der
-   * Babysitter muss sich neu anmelden, mitten im Abend.
-   */
-  const verlaengereBabysitter = async (konto: FamilyItem) => {
-    const bisher = String(konto.hours?.to ?? '22:00');
-    const [stunde, minute] = bisher.split(':').map(Number);
-    const spaeter = `${String((stunde + 1) % 24).padStart(2, '0')}:${String(
-      minute || 0
-    ).padStart(2, '0')}`;
-    try {
-      await hub.put(
-        `/api/users/${encodeURIComponent(String(konto.name))}`,
-        { hours: { ...(konto.hours ?? {}), to: spaeter } },
-        { still: true }
-      );
-      ladeBabysitter();
-    } catch (err) {
-      setError(
-        `Zugang nicht verlängert (${err instanceof Error ? err.message : err})`
-      );
-    }
-  };
-
-  const schliesseBabysitter = async (name?: string) => {
-    try {
-      await hub.put(
-        `/api/users/${encodeURIComponent(name ?? String(babysitterUser?.name ?? BABYSITTER_USER))}`,
-        { enabled: false },
-        { still: true }
-      );
-      setBabysitterLink(null);
-      ladeBabysitter();
-    } catch (err) {
-      setError(
-        `Zugang nicht geschlossen (${err instanceof Error ? err.message : err})`
-      );
-    }
-  };
+  // Zugang und Modus für den Abend stehen in family/babysitter.ts.
+  const {
+    babysitterAktiv,
+    babysitterUser,
+    babysitterKonten,
+    babysitterName,
+    setBabysitterName,
+    babysitterPass,
+    setBabysitterPass,
+    babysitterLink,
+    babysitterNote,
+    babysitterVorschau,
+    setBabysitterVorschau,
+    modus,
+    ablaufZahl,
+    schalteModus,
+    oeffneBabysitter,
+    verlaengereBabysitter,
+    schliesseBabysitter,
+  } = useBabysitterabend({ hub, darfBenutzer, view, melde: setError });
 
   const goBack = () => setView(null);
 
@@ -1259,7 +940,14 @@ export function FamilyScreen({
     // Im Einkaufs-Modus verschwindet Erledigtes: Was im Wagen liegt,
     // kostet nur Platz (Punkt 173).
     const sichtbar = imLaden ? offeneItems : items;
-    const usedCats = SHOP_CATEGORIES.filter((cat) =>
+    const aktuellerShop = shops.find((shop) => shop.id === laden) ?? null;
+    // Die Laufreihenfolge des Ladens: von Hand geordnet, sonst aus den
+    // letzten Einkäufen gelernt (lib/ladenlernen.ts), sonst Standard.
+    // Bisher stand hier stur die Standardliste - die unter «Läden»
+    // gezogene Reihenfolge galt nur im geteilten Text und in der
+    // Kopfzeile, nicht auf dieser Seite selbst.
+    const wirksamerShop = mitLernen(aktuellerShop, lernLog);
+    const usedCats = shopOrder(wirksamerShop).filter((cat) =>
       sichtbar.some((item) => catOf(item) === cat)
     );
     // Standardartikel: was jede Woche in den Wagen wandert. Ein Tipp
@@ -1270,7 +958,6 @@ export function FamilyScreen({
       alle.map((item: FamilyItem) => String(item.text ?? '').trim().toLowerCase())
     );
     const zaehler = ladenZaehler(alle, shops);
-    const aktuellerShop = shops.find((shop) => shop.id === laden) ?? null;
 
     /** Eintragen – mit Komma-Trennung und Zusammenlegen (174, 209). */
     const eintragenAuf = (roh: string, category: string) => {
@@ -1365,13 +1052,18 @@ export function FamilyScreen({
                 const drauf = aufListe.has(
                   String(staple.text ?? '').trim().toLowerCase()
                 );
+                const imVorrat = takt(staple) !== null;
                 return (
                   <Pressable
                     key={staple.id}
                     onPress={() =>
                       drauf ? undefined : eintragenAuf(String(staple.text ?? ''), String(staple.category ?? ''))
                     }
-                    onLongPress={() => remove('staples', staple.id)}
+                    // Langes Drücken löschte den Artikel - ohne Rückfrage,
+                    // mitten in einer Reihe kleiner Knöpfe. Jetzt geht das
+                    // Blatt auf: Dort steht der Takt, und dort steht auch
+                    // das Löschen.
+                    onLongPress={() => setVorratOffen(staple)}
                     disabled={drauf}
                     accessibilityRole="button"
                     accessibilityLabel={
@@ -1387,16 +1079,41 @@ export function FamilyScreen({
                       color={colors.inkSoft}
                     />
                     <Text style={styles.stapleText}>{staple.text}</Text>
+                    {/* Ein Artikel mit Takt kommt von selbst - das muss
+                        man ihm ansehen, sonst wundert man sich über den
+                        Posten auf der Liste. */}
+                    {imVorrat ? (
+                      <Ionicons name="repeat" size={12} color={colors.on} />
+                    ) : null}
                   </Pressable>
                 );
               })}
             </View>
             <Text style={styles.hint}>
-              Tippen legt den Artikel auf die Liste. Lange drücken entfernt
-              ihn aus den Standardartikeln.
+              Tippen legt den Artikel auf die Liste. Lange drücken stellt ein,
+              wie oft er von selbst kommen soll.
             </Text>
           </Card>
         ) : null}
+        <VorratBlatt
+          artikel={vorratOffen}
+          onSchliessen={() => setVorratOffen(null)}
+          onTakt={(tage) => {
+            if (!vorratOffen) return;
+            // Sofort im eigenen Blatt sichtbar: Der Hub bestätigt erst
+            // beim nächsten Laden, und ein Knopf, der nach dem Antippen
+            // eine Sekunde lang nichts tut, wird zweimal gedrückt.
+            setVorratOffen({ ...vorratOffen, days: tage });
+            update('staples', String(vorratOffen.id), { days: tage });
+          }}
+          onLoeschen={() => {
+            if (!vorratOffen) return;
+            remove('staples', String(vorratOffen.id));
+            setVorratOffen(null);
+          }}
+          styles={styles}
+          colors={colors}
+        />
         {usedCats.map((cat) => (
           <Card key={cat} style={styles.listCard}>
             <Text style={styles.groupTitle}>{cat}</Text>
@@ -1418,7 +1135,18 @@ export function FamilyScreen({
                         }
                       : undefined
                   }
-                  onToggle={() => update('shopping', item.id, { done: !item.done })}
+                  onToggle={() => {
+                    // Aus dem Abhaken lernt die App die Gang-Reihenfolge -
+                    // aber nur, wenn ein Laden gewählt ist: Wer die Liste
+                    // ungefiltert abarbeitet, steht in irgendeinem Laden.
+                    // Ein Zurücknehmen gleich danach gilt als Fehlgriff
+                    // und löscht den frischen Eintrag wieder.
+                    const neu = item.done
+                      ? vergessen(lernLog, laden, catOf(item), Date.now())
+                      : merken(lernLog, laden, catOf(item), Date.now());
+                    if (neu !== lernLog) lernLogSchreiben(neu);
+                    update('shopping', item.id, { done: !item.done });
+                  }}
                   onDelete={() => remove('shopping', item.id)}
                   // Punkt 207: Menge verstellen, ohne den Text zu tippen.
                   onCount={(delta) =>
@@ -1452,11 +1180,19 @@ export function FamilyScreen({
             {imLaden ? 'Alles im Wagen.' : 'Die Liste ist leer. Trag oben ein, was fehlt.'}
           </Text>
         ) : null}
+        {/* Eine Liste, die sich von selbst umsortiert, muss sagen, warum -
+            sonst sucht man den Gemüse-Gang dort, wo er gestern stand. */}
+        {wirksamerShop !== aktuellerShop ? (
+          <Text style={styles.hint}>
+            Die Reihenfolge der Gänge ist aus euren letzten Einkäufen in
+            diesem Laden gelernt. Von Hand ordnen geht unten unter «Läden».
+          </Text>
+        ) : null}
         {/* Punkt 177: Teilen, ohne die App zu verlangen. */}
         {offeneItems.length > 0 ? (
           <Pressable
             onPress={() =>
-              Share.share({ message: einkaufsText(offeneItems, aktuellerShop) })
+              Share.share({ message: einkaufsText(offeneItems, wirksamerShop) })
             }
             style={styles.clearButton}
             accessibilityRole="button"

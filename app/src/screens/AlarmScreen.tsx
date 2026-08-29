@@ -856,6 +856,8 @@ export function AlarmScreen({
         hub={settings}
         required={!!data.state.pin_required}
         pflicht={pinFehlt}
+        alarmSettings={data.settings}
+        onSaveSettings={(next) => save({ settings: next })}
         onChanged={load}
       />
 
@@ -1299,17 +1301,32 @@ function Toggle({
  *
  * Die Anlage lässt sich aus der App entschärfen, sobald das Telefon
  * entsperrt ist - die PIN schützt, falls es offen herumliegt. Sie gilt
- * überall, auch für Szenen und Abläufe: eine Hintertür wäre keine PIN. */
+ * für alles, was jemand *antippt*: App, Wandtablet, Szene, Karte.
+ *
+ * Hier stand einmal «gilt überall, auch für Abläufe: eine Hintertür
+ * wäre keine PIN». Das klang richtig und war es nicht: Ein Ablauf hat
+ * keine Tastatur. Die Anlage schaltete sich bei der Heimkehr nicht mehr
+ * ab, weil der Ablauf still an der fehlenden PIN scheiterte - und
+ * niemand sah, warum. Jetzt dürfen Abläufe entschärfen, und wer das
+ * nicht will, legt den Schalter darunter um (siehe
+ * alarm_rules.ohne_pin_erlaubt im Hub). */
 function PinCard({
   hub,
   required,
   pflicht = false,
+  alarmSettings,
+  onSaveSettings,
   onChanged,
 }: {
   hub: HubSettings;
   required: boolean;
   /** Dieses Gerät braucht eine PIN, es ist aber keine gesetzt. */
   pflicht?: boolean;
+  /** Die Einstellungen der Anlage - für den Ablauf-Schalter unten. Er
+   *  steht hier und nicht bei den übrigen Einstellungen: Er ergibt nur
+   *  Sinn, solange eine PIN gesetzt ist, und die setzt man hier. */
+  alarmSettings: Record<string, unknown>;
+  onSaveSettings: (next: Record<string, unknown>) => void;
   onChanged: () => void;
 }) {
   const colors = useColors();
@@ -1343,7 +1360,7 @@ function PinCard({
       <Klappe label="PIN fürs Entschärfen" stand={required ? 'gesetzt' : 'keine'}>
       <Text style={[styles.rowDetail, pflicht && styles.warn]}>
         {required
-          ? 'Eine PIN ist gesetzt - Entschärfen geht nur noch mit ihr, auch aus Szenen und Abläufen.'
+          ? 'Eine PIN ist gesetzt - Entschärfen geht nur noch mit ihr, auch aus Szenen und von Karten. Abläufe sind ausgenommen, siehe unten.'
           : pflicht
             ? 'Dieses Gerät gehört allen und hängt offen im Raum - hier geht Entschärfen nur mit PIN. Solange keine gesetzt ist, lässt sich die Anlage von hier aus nicht ausschalten. 4 bis 8 Ziffern.'
             : 'Ohne PIN kann jeder mit entsperrtem Telefon die Anlage entschärfen. 4 bis 8 Ziffern.'}
@@ -1381,6 +1398,27 @@ function PinCard({
         ) : null}
       </View>
       {note ? <Text style={styles.rowDetail}>{note}</Text> : null}
+
+      {/* Der Fall, für den es diesen Schalter gibt: Die Anlage schaltete
+          sich bei der Heimkehr nicht mehr ab. Der Ablauf war
+          unverändert - nur war inzwischen eine PIN gesetzt, und er hat
+          keine Tastatur. Nur sichtbar, solange eine PIN gesetzt ist:
+          Ohne sie entschärft ohnehin jeder Ablauf. */}
+      {required ? (
+        <Toggle
+          label="Abläufe dürfen ohne PIN entschärfen"
+          detail={
+            'Für «komme nach Hause → Anlage aus». Ein Ablauf hat keine ' +
+            'Tastatur; ohne diesen Schalter bleibt die Anlage scharf. Wer ' +
+            'ihn ausschaltet, muss von Hand entschärfen. Szenen und ' +
+            'Karten brauchen die PIN in jedem Fall.'
+          }
+          value={alarmSettings.automation_disarm !== false}
+          onChange={(value) =>
+            onSaveSettings({ ...alarmSettings, automation_disarm: value })
+          }
+        />
+      ) : null}
       </Klappe>
     </Card>
   );

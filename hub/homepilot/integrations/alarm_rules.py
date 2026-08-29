@@ -93,7 +93,61 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # Person und kein Tier, und die Kamera weiss das. Leer heisst: gar
     # nichts bricht durch (siehe DURCHBRUCH).
     "vacuum_detections": list(DURCHBRUCH),
+    # Dürfen Abläufe entschärfen, ohne die PIN zu nennen? Siehe
+    # ohne_pin_erlaubt() - dort steht, warum das kein Loch in der PIN ist
+    # und wann man den Schalter trotzdem umlegt.
+    "automation_disarm": True,
 }
+
+def ohne_pin_erlaubt(quelle: Any, settings: dict[str, Any]) -> bool:
+    """Darf diese Quelle ohne PIN entschärfen? (rein, testbar)
+
+    Der Anlass: Die Anlage schaltete sich bei der Heimkehr nicht mehr
+    ab. Der Ablauf war unverändert - nur war inzwischen eine PIN
+    gesetzt, und die galt für alles. Ein Ablauf hat keine Tastatur; er
+    scheiterte bei jeder Ankunft still am fehlenden Code.
+
+    Warum das kein Loch in der PIN ist: Die PIN schützt gegen jemanden,
+    der ein offenes Telefon oder das Wandtablet in die Hand bekommt.
+    Ein Ablauf ist nichts, was jemand in die Hand nimmt - er wurde
+    vorher von einer Person mit dem Recht, Abläufe zu ändern,
+    aufgeschrieben. Wer ihn auslösen will, muss seine Bedingung
+    herstellen (zuhause sein, mit dem richtigen Telefon) - und wer das
+    kann, steht ohnehin in der Wohnung.
+
+    Warum es trotzdem ein Schalter ist: Wie stark diese Bedingung ist,
+    weiss nur, wer den Ablauf geschrieben hat. Ein Ablauf, der auf einen
+    Wandtaster neben der Haustüre hört, ist etwas anderes als einer, der
+    auf die Ortung wartet. Wer das eine hat, legt den Schalter um.
+
+    Szenen und Karten bleiben aussen vor: Die tippt jemand an, der davor
+    steht - genau der Fall, für den es die PIN gibt. Sie führen die PIN
+    ohnehin mit (siehe handle_command).
+    """
+    if not isinstance(quelle, dict) or quelle.get("kind") != "automation":
+        return False
+    return settings.get("automation_disarm", True) is not False
+
+
+def quellen_name(quelle: Any) -> str:
+    """Wer geschaltet hat, für den Verlauf (rein, testbar).
+
+    «Unscharf geschaltet» allein beantwortet die Frage nicht, die man
+    nach einer selbsttätig entschärften Anlage stellt: von wem?
+    """
+    if not isinstance(quelle, dict):
+        return ""
+    label = str(quelle.get("label") or "").strip()
+    if not label:
+        return ""
+    if quelle.get("kind") == "automation":
+        return f"Ablauf «{label}»"
+    if quelle.get("kind") == "scene":
+        return f"Szene «{label}»"
+    if quelle.get("kind") == "user":
+        return label
+    return ""
+
 
 # Mindestabstand zwischen zwei Bewegungs-Nachrichten derselben Kamera.
 # Eine Kamera meldet Bewegung im Sekundentakt, solange sich etwas bewegt –

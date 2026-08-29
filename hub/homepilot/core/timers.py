@@ -88,7 +88,7 @@ class KitchenTimers:
                 tokens,
                 title="⏰ Küchen-Timer",
                 body=entry["text"],
-                data={"type": "timer"},
+                data={"type": "timer", "ziel": "timer"},
                 category="timer",
             )
         except Exception:

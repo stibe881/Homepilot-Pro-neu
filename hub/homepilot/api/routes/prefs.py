@@ -17,6 +17,7 @@ from fastapi import (
     Request,
 )
 
+from ...core import aenderungen
 from ...core.einstellungen import verschmelzen
 from ...core.users import Capability
 from ..context import ApiContext
@@ -106,7 +107,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         Gerät schalten darf, darf auch einstellen, wie es dasteht. Die App
         zeigt «Anpassen» trotzdem nur der Besitzerrolle.
         """
-        require(request, Capability.CONTROL)
+        user = require(request, Capability.CONTROL)
         bestand: dict[str, Any] = {}
         for entry in hub.data.get("house_prefs"):
             if isinstance(entry, dict) and isinstance(entry.get("prefs"), dict):
@@ -122,5 +123,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 detail="Die Einstellungen des Hauses sind zu gross geworden.",
             )
         hub.data.set("house_prefs", [{"prefs": zusammen}])
+        # Was sich geändert hat, in Worten - «widgetButtons geändert»
+        # wäre richtig, nur sucht niemand danach (core/aenderungen.py).
+        satz = aenderungen.haus_beschreiben(bestand, body.prefs)
+        if satz:
+            hub.aenderungen.merken(user, "haus", f"geändert: {satz}")
         return {"ok": True, "prefs": zusammen}
 

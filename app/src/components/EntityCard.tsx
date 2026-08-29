@@ -92,6 +92,9 @@ interface Props {
   doppelLabel?: string | null;
   /** Merken bzw. vergessen - null heisst vergessen. */
   onDoppeltipp?: (aktion: Doppelaktion | null) => void;
+  /** «Sag mir später Bescheid» – ohne diesen Griff gibt es den Eintrag
+   *  im Kachelmenü nicht. */
+  onErinnern?: () => void;
   width: number;
   onCommand: (command: string, data?: CommandData) => void;
   /** Kommando unterwegs – die Kachel zeigt das, statt still zu wirken. */
@@ -199,6 +202,7 @@ export function EntityCard({
   partOf,
   usedIn,
   onUsedIn,
+  onErinnern,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -228,6 +232,7 @@ export function EntityCard({
         zaehlung: Boolean(onToggleUngezaehlt) && zaehlbar(entity),
         ungezaehlt: Boolean(ungezaehlt),
         verlauf: Boolean(onLongPress),
+        erinnern: Boolean(onErinnern),
         // Nur wo es etwas zu merken gibt und wer schalten darf.
         doppeltipp: onDoppeltipp ? doppelLabel : null,
       });
@@ -237,6 +242,7 @@ export function EntityCard({
     if (eintrag.id === 'sperren') onToggleLocked?.();
     if (eintrag.id === 'zaehlung') onToggleUngezaehlt?.();
     if (eintrag.id === 'verlauf') onLongPress?.();
+    if (eintrag.id === 'erinnern') onErinnern?.();
     if (eintrag.id === 'doppeltipp') {
       // Steht schon dasselbe gemerkt, ist der Eintrag das Vergessen -
       // die Beschriftung sagt es, und lib/doppeltipp entscheidet es.

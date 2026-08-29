@@ -17,13 +17,17 @@ also genau das, was ein Browser aufnimmt. Ältere Boxen wollen MP3 oder
 WAV. Was nicht spielt, ist an der Box still und steht als Fehler in der
 Antwort; der Hub kann das nicht vorher wissen.
 
-**Warum es die Aufnahme nur im Browser gibt.** Die native App
-(Telefon/iPad) hat kein Aufnahmemodul – das nachzurüsten hiesse ein
-neues Expo-Modul, also eine neue ``runtimeVersion`` und damit ein
-gekappter OTA-Kanal für alle anderen Lieferungen (siehe CLAUDE.md,
-«Ausliefern»). Das ist ein hoher Preis für eine Kleinigkeit. Auf dem
-Wandpanel und im Browser geht es ohne all das, und dort steht man beim
-Weggehen ohnehin.
+**Wo aufgenommen wird.** Überall: im Browser und auf dem Wandpanel mit
+dem ``MediaRecorder``, auf Telefon und iPad mit ``expo-audio``. Lange
+gab es nur den ersten Weg, weil ein natives Aufnahmemodul eine neue
+``runtimeVersion`` bedeutet – und die kappt den OTA-Kanal für alle
+Telefone, bis jemand einen TestFlight-Build installiert (CLAUDE.md,
+«Ausliefern»). Bezahlt wurde dieser Preis dann für etwas anderes
+(``expo-quick-actions``); in derselben Runde kostete das Mikrofon nichts
+mehr extra.
+
+Vom Telefon kommt AAC in einem MP4-Rumpf statt WebM/Opus. ``medientyp``
+erkennt beides; Google-Cast-Boxen spielen beides.
 """
 
 from __future__ import annotations

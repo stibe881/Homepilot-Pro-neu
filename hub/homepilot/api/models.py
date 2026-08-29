@@ -70,6 +70,12 @@ class PushSnoozeRequest(BaseModel):
     minutes: int = 30
 
 
+class ErinnerungRequest(BaseModel):
+    """«Sag mir später Bescheid» zu einem Gerät."""
+
+    minutes: int = 120
+
+
 class BabysitterRequest(BaseModel):
     """Den Babysitter-Modus ein- oder ausschalten.
 
@@ -169,6 +175,16 @@ class NotifyRuleRequest(BaseModel):
 
     enabled: bool = True
     params: dict[str, float] = {}
+
+
+class LaundryRequest(BaseModel):
+    """Welcher Kontakt als Türe der Waschküche zählt.
+
+    ``None`` heisst nicht «keine», sondern «wieder raten»: Der Hub sucht
+    dann selbst nach einem Kontakt im passenden Raum.
+    """
+
+    door: str | None = None
 
 
 class GoodNightRequest(BaseModel):

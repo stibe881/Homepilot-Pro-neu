@@ -198,6 +198,68 @@ def leaks(entities: list[Any]) -> list[Any]:
     ]
 
 
+#: Was die häufigsten Sauger-Meldungen auf Deutsch heissen. Die Namen
+#: stammen aus der Roborock-Bibliothek (error_code_name und
+#: dock_error_status_name); die Liste muss nicht vollständig sein - was
+#: sie nicht kennt, kommt lesbar gemacht durch (sauger_wort). Lieber ein
+#: englischer Restname als eine verschluckte Meldung.
+SAUGER_TEXTE: dict[str, str] = {
+    "water_empty": "Der Reinigungswassertank ist leer oder nicht eingesetzt.",
+    "water_shortage": "Der Wasserstand ist niedrig - Tank auffüllen.",
+    "waste_water_tank_full": "Der Schmutzwassertank ist voll.",
+    "cleaning_tank_full_or_blocked": "Der Reinigungstank ist voll oder verstopft.",
+    "dirty_tank_latch_open": "Der Verschluss des Schmutzwassertanks ist offen.",
+    "duct_blockage": "Der Absaugkanal der Station ist verstopft.",
+    "no_dustbin": "Der Staubbehälter fehlt.",
+    "main_brush_jammed": "Die Hauptbürste ist blockiert.",
+    "side_brush_jammed": "Die Seitenbürste ist blockiert.",
+    "wheels_jammed": "Ein Rad ist blockiert.",
+    "robot_trapped": "Der Sauger steckt fest.",
+    "cliff_sensor_error": "Der Absturzsensor meldet ein Problem.",
+    "filter_blocked": "Der Filter ist verstopft oder nass.",
+    "low_battery": "Der Akku reicht nicht - erst laden lassen.",
+    "charging_error": "Das Laden klappt nicht.",
+    "return_to_dock_fail": "Der Sauger findet die Station nicht.",
+    "vibrarise_jammed": "Das Wischmodul ist blockiert.",
+}
+
+
+def sauger_wort(name: str) -> str:
+    """Eine Sauger-Meldung in einen lesbaren Satz bringen (rein, testbar)."""
+    kern = str(name or "").strip().lower()
+    bekannt = SAUGER_TEXTE.get(kern)
+    if bekannt:
+        return bekannt
+    # Unbekanntes bleibt erkennbar Original: «vertical bumper pressed»
+    # sagt dem, der nachschlägt, mehr als jede geratene Übersetzung.
+    return f"Der Sauger meldet: {kern.replace('_', ' ')}."
+
+
+def sauger_probleme(entities: list[Any]) -> list[tuple[Any, str, str]]:
+    """Sauger mit gemeldetem Problem: (Gerät, Schlüssel, Satz) (rein, testbar).
+
+    Zwei Quellen, weil es zwei sind: Der Roboter selbst meldet Fehler
+    (``error``), die Station ihre eigenen (``dock.error``) - der volle
+    Schmutzwassertank steht nur dort. Der Schlüssel unterscheidet beide,
+    damit «Tank leer» und «steckt fest» je eine Nachricht bekommen.
+    """
+    ergebnis: list[tuple[Any, str, str]] = []
+    for entity in entities:
+        if getattr(entity, "kind", None) != "vacuum":
+            continue
+        state = entity.state or {}
+        fehler = str(state.get("error") or "").strip()
+        if fehler and fehler.lower() not in ("none", "ok"):
+            ergebnis.append((entity, f"fehler:{fehler}", sauger_wort(fehler)))
+        dock = state.get("dock")
+        dock_fehler = (
+            str(dock.get("error") or "").strip() if isinstance(dock, dict) else ""
+        )
+        if dock_fehler and dock_fehler.lower() not in ("none", "ok"):
+            ergebnis.append((entity, f"dock:{dock_fehler}", sauger_wort(dock_fehler)))
+    return ergebnis
+
+
 #: So lange nach einer Klingel-Nachricht wird keine zweite verschickt.
 #:
 #: Ein Klingeln kommt beim Hub auf mehreren Wegen an - Ereigniskanal,

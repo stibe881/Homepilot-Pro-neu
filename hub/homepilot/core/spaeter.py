@@ -55,6 +55,11 @@ def einreihen(
     Dieselbe Meldung ein zweites Mal zu schieben verschiebt sie, statt
     sie zu verdoppeln: Wer zweimal auf «später» drückt, will sie einmal
     wiedersehen, nicht zweimal.
+
+    ``ziel`` reist mit, wenn eines dabei ist: Dieselbe Schlange trägt
+    seit Neuestem auch die selbst gestellten Erinnerungen an ein Gerät
+    («sag mir in zwei Stunden Bescheid»), und die sollen beim Antippen
+    dorthin führen (core/pushziel.py).
     """
     titel = str(eintrag.get("title") or "").strip()
     if not titel:
@@ -67,6 +72,8 @@ def einreihen(
         "to": str(eintrag.get("to") or "") or None,
         "at": faellig,
     }
+    if eintrag.get("ziel"):
+        neu["ziel"] = str(eintrag["ziel"])
     behalten = [
         row
         for row in rows or []

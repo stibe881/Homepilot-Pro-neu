@@ -115,6 +115,13 @@ liegt. Die drei häufigsten Fälle:
 Eine kaputte Integration hält den Hub nie auf: Die übrigen laufen, und
 der Wiederanlauf holt sie nach.
 
+Welche der freiwilligen Bibliotheken im Abbild liegen und welche fehlen,
+steht unter *System* → **Zusatzteile** – zusammen mit dem Befehl zum
+Nachinstallieren. Gemeldet wird nur, was hier auch gebraucht wird: Ein
+fehlendes Pit-Boss-Paket ist keine Meldung wert, solange niemand einen
+Pelletgrill angebunden hat. Die Karte ist entstanden, weil der
+Durchsage-Knopf lange nichts tat und das fehlende gTTS nirgends stand.
+
 ## Eine neue anbinden
 
 [`hub/docs/neue-integration.md`](../hub/docs/neue-integration.md) – und

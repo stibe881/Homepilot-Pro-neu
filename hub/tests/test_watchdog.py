@@ -201,7 +201,7 @@ async def test_a_finished_machine_is_remembered_once():
         # Neues Programm: Der Merker ist wieder frei.
         maschine.state = {"state": "running"}
         await hub.watchdog.check()
-        assert "vzug.waschmaschine" not in hub.watchdog._reminded
+        assert "vzug.waschmaschine" not in hub.watchdog._gemahnt
     finally:
         await hub.stop()
 
@@ -694,3 +694,102 @@ def test_offen_satz_nennt_die_uhrzeit():
     assert "1 Std. 1 Min." in satz
     # Unter einer Stunde in Minuten - «0 Stunden» wäre keine Auskunft.
     assert offen_satz(jetzt - 900, jetzt).endswith("15 Minuten")
+
+
+# ── Sauger-Probleme (Punkt: Meldungen der Hersteller-App auch als Push) ────
+
+
+def sauger(entity_id: str, state: dict):
+    return type(
+        "E",
+        (),
+        {
+            "id": entity_id,
+            "name": entity_id,
+            "label": "Saros Z70",
+            "kind": "vacuum",
+            "integration": "roborock",
+            "available": True,
+            "state": state,
+        },
+    )()
+
+
+def test_sauger_probleme_sieht_roboter_und_station():
+    """Der volle Schmutzwassertank steht nur am Dock - beide Quellen
+    zählen, und jede bekommt ihren eigenen Schlüssel."""
+    from homepilot.core.watchdog import sauger_probleme
+
+    entities = [
+        sauger(
+            "roborock.z70",
+            {
+                "state": "error",
+                "error": "robot_trapped",
+                "dock": {"error": "water_empty"},
+            },
+        )
+    ]
+    gefunden = sauger_probleme(entities)
+    assert [(schluessel, text) for _, schluessel, text in gefunden] == [
+        ("fehler:robot_trapped", "Der Sauger steckt fest."),
+        (
+            "dock:water_empty",
+            "Der Reinigungswassertank ist leer oder nicht eingesetzt.",
+        ),
+    ]
+
+
+def test_sauger_ohne_problem_bleibt_still():
+    from homepilot.core.watchdog import sauger_probleme
+
+    entities = [
+        sauger("roborock.z70", {"state": "cleaning", "battery": 80}),
+        sauger("roborock.alt", {"state": "docked", "dock": {"drying": True}}),
+        # «ok»/«none» sind die Ruhemeldungen mancher Firmware-Stände.
+        sauger("roborock.ok", {"state": "docked", "error": "none"}),
+        melder("hm.fenster", "contact"),
+    ]
+    assert sauger_probleme(entities) == []
+
+
+def test_unbekannte_sauger_meldung_bleibt_lesbar():
+    """Die Namensliste wächst mit der Firmware - was fehlt, soll als
+    Original durchkommen statt zu verschwinden."""
+    from homepilot.core.watchdog import sauger_probleme
+
+    entities = [
+        sauger("roborock.z70", {"state": "error", "error": "vertical_bumper_pressed"})
+    ]
+    (_, schluessel, text) = sauger_probleme(entities)[0]
+    assert schluessel == "fehler:vertical_bumper_pressed"
+    assert text == "Der Sauger meldet: vertical bumper pressed."
+
+
+async def test_ein_sauger_problem_wird_einmal_gemeldet_und_ist_danach_wieder_scharf():
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        sent: list[str] = []
+
+        async def fake_send(tokens, title, body, data=None, image=None, **_):
+            sent.append(body)
+            return len(tokens)
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+
+        kaputt = [sauger("roborock.z70", {"state": "docked", "dock": {"error": "water_empty"}})]
+        heil = [sauger("roborock.z70", {"state": "docked"})]
+
+        await hub.watchdog._check_sauger(kaputt)
+        await hub.watchdog._check_sauger(kaputt)
+        assert sent == ["Der Reinigungswassertank ist leer oder nicht eingesetzt."]
+
+        # Tank gefüllt, später wieder leer: neue Nachricht - dasselbe
+        # Muster wie bei den Wassermeldern.
+        await hub.watchdog._check_sauger(heil)
+        await hub.watchdog._check_sauger(kaputt)
+        assert len(sent) == 2
+    finally:
+        await hub.stop()

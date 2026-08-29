@@ -42,9 +42,12 @@ def test_waschmaschine_ja_grill_nein():
     )
     still = entity("vzug.gs", "appliance", "Geschirrspüler", state="idle")
 
-    geraete = karten_geraete([maschine, grill, still])
+    geraete = karten_geraete([maschine, grill, still], jetzt_s=1000.0)
     assert [k["art"] for k in geraete] == ["geraet:vzug.wm"]
-    assert geraete[0]["state"]["text"] == "Buntwäsche · noch ~40 min"
+    # Nur das Programm im Text: Die Minuten stehen als Countdown daneben
+    # und liefen sonst zweimal - einmal davon veraltet.
+    assert geraete[0]["state"]["text"] == "Buntwäsche"
+    assert geraete[0]["state"]["endet"] == 1000.0 + 40 * 60
     # Beim Ende bleibt kurz «Fertig» stehen - der Moment, um den es geht.
     assert geraete[0]["ende"]["state"]["text"] == "Fertig - ausräumen"
     assert geraete[0]["ende"]["sichtbar"] == 900
@@ -53,6 +56,37 @@ def test_waschmaschine_ja_grill_nein():
     assert [k["art"] for k in grills] == ["grill:pitboss.grill"]
     assert grills[0]["state"]["text"] == "182° → 200°"
     assert 0.9 < grills[0]["state"]["fortschritt"] < 0.92
+
+
+def test_ohne_restzeit_bleibt_es_beim_wort():
+    """Manche Maschinen nennen keine Restzeit. Dann gibt es keinen
+    Countdown - und die Karte behauptet auch keinen."""
+    maschine = entity(
+        "vzug.wm", "appliance", "Waschmaschine", state="running", program="Kurz"
+    )
+    karten = karten_geraete([maschine], jetzt_s=1000.0)
+    assert karten[0]["state"]["text"] == "Kurz"
+    assert "endet" not in karten[0]["state"]
+    assert "fortschritt" not in karten[0]["state"]
+
+
+def test_der_balken_kommt_aus_den_letzten_laeufen():
+    """Die Programmdauer wird nicht geraten: Ohne genug aufgezeichnete
+    Läufe bleibt der Balken weg, mit ihnen steht er ehrlich da."""
+    maschine = entity(
+        "vzug.wm", "appliance", "Waschmaschine",
+        state="running", program="Buntwäsche", minutes_left=30,
+    )
+    ohne = karten_geraete([maschine], [], jetzt_s=1000.0)
+    assert "fortschritt" not in ohne[0]["state"]
+
+    cycles = [
+        {"entity_id": "vzug.wm", "seconds": 3600},
+        {"entity_id": "vzug.wm", "seconds": 3600},
+    ]
+    mit = karten_geraete([maschine], cycles, jetzt_s=1000.0)
+    # Eine Stunde üblich, dreissig Minuten übrig: die Hälfte.
+    assert mit[0]["state"]["fortschritt"] == 0.5
 
 
 def test_sauger_karte_nur_beim_saugen():
@@ -89,9 +123,12 @@ def test_alarm_karte_countdown_und_rot():
     los = entity("alarm.haus", "alarm", "Alarmanlage", state="ausgeloest")
     karten = karten_alarm([los], jetzt_s=1000.0)
     assert karten[0]["state"]["farbe"] == "rot"
-    assert start_payload("alarm:x", karten[0]["state"], 1000.0)["aps"][
-        "relevance-score"
-    ] == 100
+    start = start_payload("alarm:x", karten[0]["state"], 1000.0)
+    assert start["aps"]["relevance-score"] == 100
+    # Pflichtfeld beim Start - ohne alert verwirft iOS den Push still
+    # (der Fall steht in test_liveaktivitaet.test_payloads_tragen_das_noetige).
+    assert start["aps"]["alert"]["title"] == karten[0]["state"]["titel"]
+    assert start["aps"]["alert"]["body"] == karten[0]["state"]["text"]
 
     # «scharf» bekommt bewusst keine Karte - eine Nacht ist länger als
     # die zwölf Stunden, die iOS einer Aktivität gibt.

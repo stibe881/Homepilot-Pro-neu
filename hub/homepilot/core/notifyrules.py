@@ -105,8 +105,10 @@ RULES: list[dict[str, Any]] = [
     {
         "key": "appliance",
         "title": "Haushaltgerät noch voll",
-        "detail": "Erinnert an die fertige, aber nicht ausgeräumte Maschine – "
-        "einmal je Programmlauf.",
+        "detail": "Erinnert an die fertige, aber nicht ausgeräumte Maschine. "
+        "Mit einem Türkontakt in der Waschküche wird nachgehakt, bis "
+        "jemand dort war – sonst bleibt es bei einer Nachricht je "
+        "Programmlauf.",
         "params": [
             {
                 "key": "hours",
@@ -118,6 +120,16 @@ RULES: list[dict[str, Any]] = [
                 "step": 1,
             }
         ],
+    },
+    {
+        "key": "vacuum",
+        "title": "Saugroboter meldet ein Problem",
+        "detail": "Sofort, wenn der Sauger oder seine Station nicht "
+        "weiterkommen - leerer Wassertank, voller Schmutzwassertank, "
+        "festgefahren. Einmal je Problem; nach dem Beheben ist die "
+        "Meldung wieder scharf. Bisher stand das nur in der "
+        "Hersteller-App.",
+        "params": [],
     },
     {
         "key": "rain",

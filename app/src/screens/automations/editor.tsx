@@ -26,6 +26,7 @@ import {
 } from './felder';
 import { makeStyles } from './stil';
 import { mitschalter, mitschalterSatz } from '../../lib/verweise';
+import { NachrichtenZiel } from './nachrichtenziel';
 import { SceneDevices } from './szenen-editor';
 
 export function Editor({
@@ -1692,6 +1693,16 @@ export function StepList({
                   onSelect={(notifyCamera) => setStep(index, { notifyCamera })}
                 />
               ) : null}
+              <NachrichtenZiel
+                ziel={step.notifyZiel}
+                onZiel={(notifyZiel) => setStep(index, { notifyZiel })}
+                knoepfe={step.notifyKnoepfe ?? []}
+                onKnoepfe={(notifyKnoepfe) => setStep(index, { notifyKnoepfe })}
+                entities={entities}
+                scenes={scenes}
+                colors={colors}
+                styles={styles}
+              />
               <Text style={styles.triggerNote}>
                 {step.notifyCamera === KAMERA_AUSLOESER
                   ? 'Das Bild kommt von der Kamera, die ausgelöst hat – ist der Auslöser keine Kamera, von einer im selben Raum. Findet sich keine, geht die Nachricht ohne Bild raus.'

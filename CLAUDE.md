@@ -140,8 +140,10 @@ nicht `test_mode_2`.
 | an Abläufen arbeitest | `hub/homepilot/core/automation.py` + `app/src/screens/AutomationsScreen.tsx` |
 | eine Route brauchst | `hub/homepilot/api/server.py` |
 | etwas dauerhaft speichern willst | `hub.data` (`core/persistence.py`) – **nie** Geheimnisse ins Repo |
+| eine Push-Nachricht anlegst | `hub/homepilot/core/pushziel.py` – jede Kategorie braucht ein Ziel, ein Test hält das fest |
 | eine Einstellung der Oberfläche anlegst | `app/src/hooks/usePrefs.ts` (ganze Bildschirme) oder `app/src/lib/persoenlich.ts` (einzelne Schlüssel tief in einer Kachel) – **nie** in den Speicher der App: Übersicht in `docs/einstellungen.md` |
-| an der Startseite arbeitest | `app/src/screens/DashboardScreen.tsx`, `components/TopStrip.tsx`, `SidePanel.tsx` |
+| an der Startseite arbeitest | `app/src/screens/DashboardScreen.tsx`, `components/TopStrip.tsx`, `SidePanel.tsx` – die Vollbilder (Klingel, Kamera, Erinnerung) und die Stiltafel liegen in `screens/dashboard/` |
+| an der Familienseite arbeitest | `app/src/screens/FamilyScreen.tsx` – Zwischenspeicher und Warteschlange in `screens/family/ablage.ts`, der Babysitter-Abend in `screens/family/babysitter.ts` |
 | eine Gerätekachel änderst | `app/src/components/EntityCard.tsx` |
 | Zigbee-Geräte anbindest | `hub/homepilot/integrations/zigbee2mqtt.py` – Übersicht in `docs/zigbee.md` |
 | an der Musik arbeitest | `hub/homepilot/core/ton.py` + `core/musik.py` + `app/src/components/Musikzentrale.tsx` – Übersicht in `docs/musik.md` |
@@ -175,8 +177,8 @@ Zwei Dinge, die dabei überraschen:
   die hochgezählte Versionsnummer täuschte dabei Aktualität vor. So
   gingen mehrere Lieferungen am Haus vorbei, ohne dass es auffiel: Der
   Hub war neu, die App nicht.
-- Deshalb steht dort jetzt eine feste `runtimeVersion` (`"2"`). Sie
-  gehört zur **nativen** Hülle, nicht zur Auslieferung:
+- Deshalb steht dort jetzt eine feste `runtimeVersion` (zurzeit `"3"`).
+  Sie gehört zur **nativen** Hülle, nicht zur Auslieferung:
   - **`version` bei jeder Auslieferung hochzählen** – wie bisher. Sie
     ist die Nummer, die im App Store und in TestFlight steht, und sie
     beeinflusst OTA nicht mehr.
@@ -184,6 +186,14 @@ Zwei Dinge, die dabei überraschen:
     ein neues Expo-Modul, eine neue Berechtigung, ein neues
     Zweitsymbol. Und dann gehört ein TestFlight-Build dazu, sonst
     erreicht die neue OTA-Fassung niemanden.
+  - Von `"2"` auf `"3"` ging es, als `expo-quick-actions` und
+    `expo-audio` (Mikrofon für gesprochene Durchsagen) dazukamen. Wer
+    ein natives Modul hinzufügt, ohne die Nummer zu erhöhen, liefert
+    OTA eine Fassung aus, deren Modul in der Hülle auf dem Telefon gar
+    nicht steckt – das fällt erst auf, wenn jemand die Stelle antippt.
+    Zwei native Module in einer Runde kosten dagegen nur *einen*
+    TestFlight-Build; wer ohnehin einen braucht, nimmt anderes gleich
+    mit.
 - Damit das auch ankommt, steht in `app/eas.json` `appVersionSource` auf
   `local`. Vorher stand dort `remote`: Dann führt EAS die Version auf
   seinem Server und ignoriert die `app.json` – die dortige `0.7.0` ging
@@ -197,10 +207,14 @@ Zwei Dinge, die dabei überraschen:
   Erhöhung überlebte den Lauf nie: Jeder Build war wieder Nummer 2, und
   Apple wies ihn ab («The bundle version must be higher than the
   previously uploaded version: 2»).
-- Stattdessen setzt `rebuild-hub.sh` die Nummer selbst, aus der **Anzahl
-  Commits** (`git rev-list --count HEAD`) – monoton steigend, ohne dass
-  sich jemand etwas merken muss, und aus dem Repo ablesbar statt in ihm
-  gespeichert. Von Hand geht dasselbe mit
+- Stattdessen setzt `rebuild-hub.sh` die Nummer selbst, aus den
+  **Minuten seit 1970**. Zuerst war es die Anzahl Commits – aber aus dem
+  flachen Klon des Skripts (`--depth 50`) ist die keine feste Grösse:
+  Wie viele Commits die 50 Schritte erreichen, hängt von der
+  Verzweigungs-Topologie ab, und so folgte auf Build 928 ein Build 168,
+  den TestFlight nie anbot, weil eine kleinere Nummer kein Update ist.
+  Die Uhr kann nur vorwärts und bleibt noch Jahrzehnte unter Apples
+  Obergrenze (2^31). Von Hand geht dasselbe mit
   `node scripts/set-build-number.mjs [zahl]` im Ordner `app/`;
   `npm run release:ios` ruft es von sich aus auf.
 - Die `buildNumber` in der `app.json` ist damit nur noch ein Startwert.

@@ -23,6 +23,7 @@ from fastapi import (
 from ...core import bilder, familienbuch, rezeptimport
 from ...core import shopping as shopping_module
 from ...core import trash as trash_module
+from ...core import vorrat as vorrat_module
 from ...core.users import Role, User
 from ...integrations import google_calendar as calendar_module
 from ..context import ApiContext
@@ -362,6 +363,18 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 # (Punkt 170).
                 if item.get("done") and not war_erledigt:
                     item["done_at"] = datetime.now().isoformat(timespec="seconds")
+                    # Abgehakt heisst gekauft: Ein Standardartikel mit
+                    # Takt beginnt hier von vorn. Ab dem *Eintragen* zu
+                    # rechnen ginge daneben - eine Liste, die zwei Wochen
+                    # liegen bleibt, schlüge den Kaffee sonst zwei Wochen
+                    # zu früh wieder vor (siehe core/vorrat.py).
+                    if collection == "shopping":
+                        staples, geaendert = vorrat_module.nachgekauft(
+                            hub.data.get("family_staples"), str(item.get("text") or "")
+                        )
+                        if geaendert:
+                            hub.data.set("family_staples", staples)
+                            await family_changed("staples")
                 elif not item.get("done"):
                     item.pop("done_at", None)
                 if collection == "recipes":

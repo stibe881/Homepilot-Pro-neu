@@ -27,10 +27,12 @@ from ...core import (
     pushverlauf,
     snapshots,
     spaeter,
+    waschkueche,
 )
 from ...core.users import Capability, Role
 from ..context import ApiContext
 from ..models import (
+    LaundryRequest,
     LiveActivityTokenRequest,
     NotifyRuleRequest,
     PushPrefsRequest,
@@ -160,7 +162,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     async def set_notify_rule(
         key: str, body: NotifyRuleRequest, request: Request
     ) -> dict[str, Any]:
-        require(request, Capability.EDIT_AUTOMATIONS)
+        user = require(request, Capability.EDIT_AUTOMATIONS)
         try:
             stored = notifyrules.store(
                 hub.data.get("notify_rules"), key, body.enabled, body.params
@@ -168,6 +170,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         except ValueError as err:
             raise HTTPException(status_code=404, detail=str(err)) from err
         hub.data.set("notify_rules", stored)
+        hub.aenderungen.merken(
+            user,
+            "regel",
+            "eingeschaltet" if body.enabled else "abgeschaltet",
+            push.CATEGORIES.get(key, key),
+        )
         # Sofort übernehmen, nicht erst in der nächsten Wächter-Runde:
         # Wer den Schalter umlegt, erwartet, dass er ab jetzt gilt.
         hub.watchdog.rules = notifyrules.effective(stored)
@@ -175,6 +183,51 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "rules": notifyrules.describe(stored),
             "groups": push.group_order(),
         }
+
+    # ── Die Türe der Waschküche ────────────────────────────────────────────
+    #
+    # Gehört zur Regel «Haushaltgerät noch voll» und steht in der App
+    # deshalb in derselben Karte: An diesem Kontakt liest der Wächter ab,
+    # ob jemand unten war - und hört auf zu mahnen. Warum überhaupt an
+    # einer Türe gemessen wird, steht in core/waschkueche.py.
+    #
+    # Nicht als Parameter der Regel selbst: Die sind Zahlen mit Grenzen
+    # (notifyrules.py), eine Geräte-Id ist keine.
+
+    @app.get("/api/laundry")
+    async def laundry_door(request: Request) -> dict[str, Any]:
+        current_user(request)
+        entities = hub.registry.all()
+        gewaehlt = _gewaehlte_tuer()
+        aktuell = waschkueche.tuer(entities, gewaehlt)
+        return {
+            # Was gewählt wurde - leer heisst «geraten».
+            "door": gewaehlt,
+            # Und was daraus folgt: Ohne diese Zeile sähe man in der App
+            # nicht, dass ohne eigene Wahl trotzdem eine Türe gilt.
+            "using": aktuell.id if aktuell is not None else None,
+            "guess": waschkueche.raten(entities),
+            "candidates": [
+                {"id": entity.id, "name": entity.label, "room": entity.room}
+                for entity in waschkueche.kandidaten(entities)
+            ],
+        }
+
+    @app.put("/api/laundry")
+    async def set_laundry_door(body: LaundryRequest, request: Request) -> dict[str, Any]:
+        require(request, Capability.EDIT_AUTOMATIONS)
+        tuer = (body.door or "").strip()
+        if tuer and hub.registry.get(tuer) is None:
+            raise HTTPException(status_code=404, detail="Diesen Kontakt kennt der Hub nicht")
+        hub.data.set("laundry", [{"door": tuer}] if tuer else [])
+        hub.watchdog.tuer_gewechselt(hub.registry.all(), tuer or None)
+        return await laundry_door(request)
+
+    def _gewaehlte_tuer() -> str | None:
+        for entry in hub.data.get("laundry"):
+            if isinstance(entry, dict) and entry.get("door"):
+                return str(entry["door"])
+        return None
 
     # ── Push ───────────────────────────────────────────────────────────────
 

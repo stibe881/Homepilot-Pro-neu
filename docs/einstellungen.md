@@ -53,11 +53,14 @@ Benutzer und ihre Rechte · Abläufe samt Lauf-Verlauf · Szenen ·
 Ablauf-Vorlagen · Papierkorb und frühere Fassungen · Raumzuordnung, Namen,
 Gruppen und zusammengefasste Leuchten · Alarmanlage samt PIN und
 Sensor-Zuordnung · Wächter-Regeln und abbestellte Nachrichten je Person ·
+die Türe der Waschküche (an ihr liest der Wächter ab, ob jemand die
+volle Maschine gesehen hat) ·
 angemeldete Telefone für Push · Gute-Nacht-Knopf · Nachtruhe, Dämpfen,
 Musik-Favoriten, Wecker und Schlummer · Radiosender · Ortungszonen und
 Läden · Meldungen je Person · Wartung · alle Familienlisten (Einkauf,
 Aufgaben, Ämtli, Rezepte, Kontakte, Medikamente, Notfallblatt,
-Wochenplan) samt eigenem Papierkorb · Zugriffsprotokoll · Geräte-Verlauf
+Wochenplan) samt eigenem Papierkorb · Zugriffsprotokoll ·
+Einrichtungsprotokoll (wer hat was eingerichtet) · Geräte-Verlauf
 (eigene Datei daneben).
 
 ## Absichtlich am Gerät

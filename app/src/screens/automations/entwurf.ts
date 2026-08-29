@@ -550,6 +550,20 @@ export type TriggerKind =
   | 'calendar'
   | 'geofence'
   | 'availability';
+/**
+ * Ein Handgriff unter einer Nachricht.
+ *
+ * Ein Tipp bringt einen an den richtigen Ort - aber oft weiss man schon
+ * vorher, was man dort tun will. «Waschmaschine fertig» und der Trockner
+ * soll laufen. Entweder eine Szene oder ein Gerät samt Befehl.
+ */
+export interface NotifyKnopf {
+  label: string;
+  sceneId?: string;
+  entityId?: string;
+  command?: string;
+}
+
 export type StepKind = 'command' | 'toggle_all' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'delay' | 'wait_until' | 'fade' | 'music';
 
 /** Was ein Musik-Schritt tun kann. */
@@ -651,6 +665,13 @@ export interface StepDraft {
    *  Benutzername - «Waschmaschine fertig» piepst dann nur bei dem, der
    *  sie ausräumt. */
   notifyTo: string;
+  /** Wohin ein Tipp auf die Nachricht führt: 'raum:Küche',
+   *  'familie:shopping', 'bereich:system' … Leer heisst: die App öffnet
+   *  sich, wie sie zuletzt stand. Siehe lib/pushziel.ts. */
+  notifyZiel: string;
+  /** Handgriffe, die unter der Nachricht zur Wahl stehen. Höchstens
+   *  drei - mehr liest dort niemand. */
+  notifyKnoepfe: NotifyKnopf[];
   /** Wartezeit in Sekunden. */
   seconds: string;
   /** «Warten bis»: worauf, und wie lange höchstens. */
@@ -686,6 +707,8 @@ export const EMPTY_STEP: StepDraft = {
   body: '',
   notifyCamera: '',
   notifyTo: '',
+  notifyZiel: '',
+  notifyKnoepfe: [],
   seconds: '60',
   waitEntityId: '',
   waitOp: 'is',
@@ -1320,6 +1343,22 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
     return musikSchrittZuAktion(step);
   }
   if (step.kind === 'notify') {
+    // Nur, was vollständig ist: Ein Knopf ohne Etikett oder ohne Ziel
+    // stünde als leerer Balken unter der Nachricht.
+    const knoepfe = (step.notifyKnoepfe ?? [])
+      .filter(
+        (knopf) =>
+          knopf.label.trim() && (knopf.sceneId || (knopf.entityId && knopf.command))
+      )
+      .map((knopf) =>
+        knopf.sceneId
+          ? { label: knopf.label.trim(), scene: knopf.sceneId }
+          : {
+              label: knopf.label.trim(),
+              entity: knopf.entityId as string,
+              command: knopf.command as string,
+            }
+      );
     return [
       {
         type: 'notify',
@@ -1327,6 +1366,8 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
         title: step.title,
         body: step.body,
         ...(step.notifyCamera ? { camera: step.notifyCamera } : {}),
+        ...(step.notifyZiel ? { open: step.notifyZiel } : {}),
+        ...(knoepfe.length > 0 ? { buttons: knoepfe } : {}),
       },
     ];
   }
@@ -1556,6 +1597,21 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
         body: action.body ?? '',
         notifyCamera: action.camera ?? '',
         notifyTo: action.to && action.to !== 'all' ? String(action.to) : '',
+        notifyZiel: typeof action.open === 'string' ? action.open : '',
+        notifyKnoepfe: Array.isArray(action.buttons)
+          ? action.buttons
+              .filter((knopf: unknown) => !!knopf && typeof knopf === 'object')
+              .map((roh: object) => {
+                const knopf = roh as Record<string, unknown>;
+                return {
+                  label: typeof knopf.label === 'string' ? knopf.label : '',
+                  sceneId: typeof knopf.scene === 'string' ? knopf.scene : undefined,
+                  entityId: typeof knopf.entity === 'string' ? knopf.entity : undefined,
+                  command:
+                    typeof knopf.command === 'string' ? knopf.command : undefined,
+                };
+              })
+          : [],
       });
     } else if (type === 'broadcast') {
       steps.push({
@@ -1896,4 +1952,40 @@ export function namensVorschlag(draft: Draft, entities: Entity[]): string {
   if (!dann) return '';
 
   return `${dann} ${wenn}`;
+}
+
+// ── Wohin ein Tipp auf die Nachricht führt ────────────────────────────────
+//
+// Gespeichert wird eine Zeichenkette ('raum:Küche'), bedient wird sie in
+// zwei Teilen: erst die Art, dann der Wert. Diese beiden Funktionen
+// halten das auseinander, damit der Editor nicht mit Doppelpunkten
+// hantieren muss.
+
+/** Welche Art von Ziel ist das? (rein, testbar) */
+export function zielArt(ziel: string): string {
+  if (!ziel) return '';
+  const [art] = ziel.split(':');
+  return art;
+}
+
+/** Der Wert dahinter – Raumname, Kennung, Kachel (rein, testbar). */
+export function zielWert(ziel: string): string {
+  const index = ziel.indexOf(':');
+  return index < 0 ? '' : ziel.slice(index + 1);
+}
+
+/**
+ * Die Art wechseln und den Wert dabei behalten, wo er passt (rein).
+ *
+ * Wer von «Raum» auf «Gerät» wechselt, meint nicht den Raum als
+ * Kennung - der Wert fällt weg. Wer dieselbe Art nochmal wählt, behält
+ * ihn: Sonst verliert ein Fehlgriff die halbe Eingabe.
+ */
+export function zielMitArt(ziel: string, art: string): string {
+  if (!art) return '';
+  if (zielArt(ziel) === art) return ziel;
+  // Arten ohne Wert stehen für sich allein.
+  return ['start', 'sorgen', 'timer', 'offen', 'batterien', 'klingel'].includes(art)
+    ? art
+    : `${art}:`;
 }
