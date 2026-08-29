@@ -48,6 +48,11 @@ export const kann = {
    *  im Heimnetz ohne Zertifikat. */
   qrScan: !web,
 
+  /** Ein Foto aufnehmen (Raumbild, Rezept). Aus demselben Grund wie beim
+   *  QR-Code: Im Browser ohne HTTPS gibt es keine Kamera. Die Galerie
+   *  steht dort trotzdem offen – ein Dateiauswahl-Dialog braucht das nicht. */
+  kamera: !web,
+
   /** Kurzbefehle am App-Symbol (langer Druck auf dem Homescreen).
    *  iOS und Android können es, der Browser nicht. */
   schnellaktionen: !web,

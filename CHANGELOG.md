@@ -133,6 +133,30 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 ## 2026-08-25
 
+**Raumkacheln mit Foto**
+
+- Die Seite «Räume» zeigt je Zimmer ein Bild statt einer Geräteliste. Man
+  erkennt den Raum, bevor man den Namen liest. Darunter eine Zeile
+  Zustand («21,3° · 47 % · 3 an») und höchstens drei Knöpfe für das, was
+  man im Vorbeigehen tut: Licht, Storen, Musik. Jeder schaltet alles
+  seiner Art im Raum – «Licht» meint die drei Lampen, nicht eine davon.
+- Das Foto wählt man mit einem langen Druck auf die Kachel: aufnehmen
+  oder aus den Fotos. Es gilt für alle im Haus; setzen darf es, wer hier
+  wohnt (dieselbe Regel wie beim Namen eines Geräts), ein Gast nicht.
+- **Ohne Foto ist die Kachel nicht kaputt**: Sie bekommt eine Farbe aus
+  dem Namen des Zimmers und dessen Symbol – dasselbe Zimmer immer
+  dieselbe Farbe. Ein graues «kein Bild» wäre genau der Fehler, den die
+  neue Kachel vermeiden soll.
+- **Was dabei weggeht, mit offenen Augen:** Aus der Übersicht lässt sich
+  kein einzelnes Gerät mehr schalten. Wer die eine Lampe meint, öffnet
+  den Raum – dort steht alles wie bisher. Dafür sind alle Kacheln gleich
+  hoch, und das «+ 3 weitere …» ist verschwunden.
+- Die Bilder liegen als Dateien neben der `homepilot-data.json`, nicht
+  darin: Die wird bei jeder Änderung ganz geschrieben, ein halbes Dutzend
+  Fotos hätten daraus einen Vorgang von Sekunden gemacht. Wird ein
+  Zimmer umbenannt oder gelöscht, räumt der Hub sein Bild beim nächsten
+  Start weg.
+
 **Zimmer**
 
 - Wetter und die Musik des Hauses stehen nicht mehr in der Spalte neben

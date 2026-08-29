@@ -145,6 +145,7 @@ nicht `test_mode_2`.
 | an der Startseite arbeitest | `app/src/screens/DashboardScreen.tsx`, `components/TopStrip.tsx`, `SidePanel.tsx` – die Vollbilder (Klingel, Kamera, Erinnerung) und die Stiltafel liegen in `screens/dashboard/` |
 | an der Familienseite arbeitest | `app/src/screens/FamilyScreen.tsx` – Zwischenspeicher und Warteschlange in `screens/family/ablage.ts`, der Babysitter-Abend in `screens/family/babysitter.ts` |
 | eine Gerätekachel änderst | `app/src/components/EntityCard.tsx` |
+| an den Raumkacheln arbeitest | `app/src/components/RoomCard.tsx` + `lib/raumkarte.ts`; die Fotos liegen im Hub unter `core/raumbilder.py` und `api/routes/raeume.py` |
 | Zigbee-Geräte anbindest | `hub/homepilot/integrations/zigbee2mqtt.py` – Übersicht in `docs/zigbee.md` |
 | an der Musik arbeitest | `hub/homepilot/core/ton.py` + `core/musik.py` + `app/src/components/Musikzentrale.tsx` – Übersicht in `docs/musik.md` |
 

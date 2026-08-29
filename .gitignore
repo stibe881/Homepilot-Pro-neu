@@ -52,3 +52,4 @@ dist/
 
 # Apple-Push-Schlüssel (Live-Aktivität) - gehört auf den Hub, nie ins Repo.
 *.p8
+hub/raumbilder/
