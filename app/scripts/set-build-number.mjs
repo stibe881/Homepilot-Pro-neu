@@ -8,33 +8,28 @@
  * weggeworfen wird. Die Erhöhung überlebte den Lauf nicht: Jeder Build
  * war wieder Nummer 2, und Apple wies ihn ab, weil es die 2 schon hatte.
  *
- * Die Anzahl Commits ist die Nummer, die es braucht: monoton steigend,
- * ohne dass sich jemand etwas merken muss, und aus dem Repo ablesbar
- * statt in ihm gespeichert. Wer zwischen zwei Builds nichts committet,
- * baut auch nichts Neues.
+ * Die Nummer sind die Minuten seit 1970. Vorher war es die Anzahl
+ * Commits - aus dem flachen Klon des Bau-Skripts (--depth 50) ist die
+ * aber keine feste Grösse: Wie viele Commits die 50 Schritte erreichen,
+ * hängt von der Verzweigungs-Topologie ab, und so folgte auf Build 928
+ * ein Build 168, den TestFlight nie anbot. Die Uhr kann nur vorwärts,
+ * und sie bleibt noch Jahrzehnte unter Apples Obergrenze (2^31).
  *
  * Aufruf (im Ordner app/):
- *   node scripts/set-build-number.mjs           # aus der Commit-Anzahl
+ *   node scripts/set-build-number.mjs           # aus der Uhr
  *   node scripts/set-build-number.mjs 123       # von Hand
  */
 
-import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const PFAD = new URL('../app.json', import.meta.url);
 
-function ausDerGeschichte() {
-  try {
-    return Number(execSync('git rev-list --count HEAD', { encoding: 'utf8' }).trim());
-  } catch {
-    return NaN;
-  }
-}
+const ausDerUhr = () => Math.floor(Date.now() / 60000);
 
-const gewuenscht = Number(process.argv[2]) || ausDerGeschichte();
+const gewuenscht = Number(process.argv[2]) || ausDerUhr();
 if (!Number.isFinite(gewuenscht) || gewuenscht < 1) {
   console.error(
-    '✗ Keine Build-Nummer zu ermitteln (kein git?). Von Hand: ' +
+    '✗ Keine Build-Nummer zu ermitteln. Von Hand: ' +
       'node scripts/set-build-number.mjs <zahl>'
   );
   process.exit(1);
@@ -44,9 +39,9 @@ const roh = readFileSync(PFAD, 'utf8');
 const config = JSON.parse(roh);
 const vorher = config.expo?.ios?.buildNumber;
 
-// Nie zurück: Läuft der Bau einmal aus einem flachen Klon, ist die
-// Commit-Anzahl kleiner als die echte - und eine kleinere Nummer weist
-// Apple ebenso ab wie eine gleiche.
+// Nie zurück: Auch eine von Hand gesetzte Zahl darf nicht hinter dem
+// Startwert in der app.json liegen - eine kleinere Nummer weist Apple
+// ebenso ab wie eine gleiche.
 const nummer = Math.max(gewuenscht, Number(vorher) + 1 || 0);
 
 config.expo.ios.buildNumber = String(nummer);

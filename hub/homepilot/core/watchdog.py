@@ -69,6 +69,7 @@ from .watchrules import (  # noqa: F401
     low_batteries,
     offen_satz,
     open_contacts,
+    sauger_probleme,
     watched_entities,
 )
 
@@ -133,6 +134,8 @@ class Watchdog:
         self._reported_open: set[str] = set()
         # Wassermelder, die schon gemeldet wurden.
         self._reported_leak: set[str] = set()
+        # Sauger-Probleme, die schon gemeldet wurden («gerät:schlüssel»).
+        self._reported_sauger: set[str] = set()
         # Energie: welcher Tag zuletzt geschrieben wurde und wann.
         self._energy_day: str | None = None
         self._energy_written: float = 0.0
@@ -314,6 +317,7 @@ class Watchdog:
         await self._check_batteries(entities)
         await self._check_open(entities)
         await self._check_leaks(entities)
+        await self._check_sauger(entities)
         self._record_energy(entities)
         await self._check_disk()
         await self._check_frost(entities)
@@ -1314,6 +1318,32 @@ class Watchdog:
                 entity_id=entity.id,
             )
         self._reported_leak &= nass
+
+    async def _check_sauger(self, entities: list[Any]) -> None:
+        """Der Sauger meldet ein Problem - Tank leer, festgefahren, voll.
+
+        Bisher stand das nur in der Hersteller-App: Wer deren
+        Mitteilungen aus hatte, merkte erst am ungesaugten Boden, dass
+        der Roboter seit Stunden auf Wasser wartet. Der Hub sieht die
+        Meldung ohnehin (error und dock.error am Gerät) - sie soll
+        denselben Weg gehen wie alle anderen Sorgen im Haus.
+
+        Einmal je Problem: gemeldet beim Auftauchen, vergessen beim
+        Verschwinden. Wer den Tank füllt und ihn nächste Woche wieder
+        leert, bekommt wieder eine Nachricht - dasselbe Muster wie bei
+        den Wassermeldern.
+        """
+        aktuell: set[str] = set()
+        for entity, schluessel, text in sauger_probleme(entities):
+            kennung = f"{entity.id}:{schluessel}"
+            aktuell.add(kennung)
+            if kennung in self._reported_sauger:
+                continue
+            self._reported_sauger.add(kennung)
+            await self._notify(
+                f"🧹 {entity.label}", text, "vacuum", entity_id=entity.id
+            )
+        self._reported_sauger &= aktuell
 
     async def _check_batteries(self, entities: list[Any]) -> None:
         """Schwache Batterien – einmal melden, nicht immer wieder.

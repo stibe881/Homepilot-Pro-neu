@@ -39,6 +39,7 @@ ZIELE: dict[str, str] = {
     "rain": "start",
     "plants": "start",
     "appliance": "start",
+    "vacuum": "start",
     "morning": "start",
     "test": "start",
     "open": "offen",
@@ -65,7 +66,7 @@ ZIELE: dict[str, str] = {
 # ein Wassermelder schickt einen dorthin, wo man den Hahn zudreht. Bei
 # den anderen (Batterie, ausgefallenes Gerät) ist der Sammelplatz
 # besser: Dort steht der Knopf zum Quittieren.
-AM_GERAET = frozenset({"open", "leak", "appliance"})
+AM_GERAET = frozenset({"open", "leak", "appliance", "vacuum"})
 
 
 def ziel_fuer(category: str | None, entity_id: str | None = None) -> str | None:

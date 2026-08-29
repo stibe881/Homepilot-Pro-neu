@@ -199,10 +199,14 @@ Zwei Dinge, die dabei überraschen:
   Erhöhung überlebte den Lauf nie: Jeder Build war wieder Nummer 2, und
   Apple wies ihn ab («The bundle version must be higher than the
   previously uploaded version: 2»).
-- Stattdessen setzt `rebuild-hub.sh` die Nummer selbst, aus der **Anzahl
-  Commits** (`git rev-list --count HEAD`) – monoton steigend, ohne dass
-  sich jemand etwas merken muss, und aus dem Repo ablesbar statt in ihm
-  gespeichert. Von Hand geht dasselbe mit
+- Stattdessen setzt `rebuild-hub.sh` die Nummer selbst, aus den
+  **Minuten seit 1970**. Zuerst war es die Anzahl Commits – aber aus dem
+  flachen Klon des Skripts (`--depth 50`) ist die keine feste Grösse:
+  Wie viele Commits die 50 Schritte erreichen, hängt von der
+  Verzweigungs-Topologie ab, und so folgte auf Build 928 ein Build 168,
+  den TestFlight nie anbot, weil eine kleinere Nummer kein Update ist.
+  Die Uhr kann nur vorwärts und bleibt noch Jahrzehnte unter Apples
+  Obergrenze (2^31). Von Hand geht dasselbe mit
   `node scripts/set-build-number.mjs [zahl]` im Ordner `app/`;
   `npm run release:ios` ruft es von sich aus auf.
 - Die `buildNumber` in der `app.json` ist damit nur noch ein Startwert.

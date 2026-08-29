@@ -454,25 +454,27 @@ fi
 # wird. Die Erhöhung überlebte den Lauf nicht: Jeder Build war wieder
 # Nummer 2, und Apple wies ihn ab, weil es die 2 schon hatte.
 #
-# Die Anzahl Commits ist die Nummer, die es braucht: monoton steigend,
-# ohne dass sich jemand etwas merken muss, und aus dem Repo ablesbar
-# statt in ihm gespeichert.
+# Früher stand hier die Anzahl Commits (git rev-list --count HEAD).
+# Aus dem flachen Klon oben (--depth 50) ist die aber keine feste
+# Grösse: Wie viele Commits die 50 Schritte erreichen, hängt von der
+# Verzweigungs-Topologie ab - und die ändert sich mit jeder
+# Zusammenführung. So folgte auf Build 928 ein Build 168, und TestFlight
+# bot ihn nie an, denn eine kleinere Nummer ist kein Update.
+#
+# Die Minuten seit 1970 können nur wachsen, ganz gleich, was mit der
+# Geschichte passiert, und bleiben noch Jahrzehnte unter Apples
+# Obergrenze (2^31). Dass zwei Builds in derselben Minute kollidieren,
+# verhindert schon die Bauzeit.
 #
 # Bewusst mit sed statt mit node: Auf dem Host muss kein Node liegen -
 # dafür gibt es das Abbild unten. Gesetzt wird aber, bevor das Abbild
 # gebaut wird, denn es nimmt die app.json mit hinein.
-BUILD_NUMMER="$(git -C "$WORKDIR" rev-list --count HEAD 2>/dev/null || echo 0)"
-if [ "$BUILD_NUMMER" -gt 0 ] 2>/dev/null; then
-  sed -i -E \
-    -e "s/(\"buildNumber\"[[:space:]]*:[[:space:]]*\")[0-9]+(\")/\1${BUILD_NUMMER}\2/" \
-    -e "s/(\"versionCode\"[[:space:]]*:[[:space:]]*)[0-9]+/\1${BUILD_NUMMER}/" \
-    "$WORKDIR/app/app.json"
-  echo "→ Build-Nummer für Apple: ${BUILD_NUMMER}"
-else
-  echo "⚠ Build-Nummer nicht zu ermitteln - Apple weist einen bereits"
-  echo "  hochgeladenen Stand ab. Von Hand im Ordner app/:"
-  echo "    node scripts/set-build-number.mjs <zahl>"
-fi
+BUILD_NUMMER="$(( $(date +%s) / 60 ))"
+sed -i -E \
+  -e "s/(\"buildNumber\"[[:space:]]*:[[:space:]]*\")[0-9]+(\")/\1${BUILD_NUMMER}\2/" \
+  -e "s/(\"versionCode\"[[:space:]]*:[[:space:]]*)[0-9]+/\1${BUILD_NUMMER}/" \
+  "$WORKDIR/app/app.json"
+echo "→ Build-Nummer für Apple: ${BUILD_NUMMER}"
 
 DEPS_IMAGE="homepilot-appdeps"
 WEB_IMAGE="homepilot-webdist"
@@ -650,17 +652,30 @@ if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
     else
       echo "⚠ iOS-Build liess sich nicht anstossen - das Hub-Update selbst"
       echo "  ist davon unberührt."
-      # Der häufigste Grund hat eine Lösung, die nicht im Log steht:
-      # Die App-Gruppe muss im Apple-Portal existieren und beiden
-      # Bundle-IDs zugewiesen sein. Wer das liest, soll wissen, wohin -
-      # nicht bloss, dass etwas schiefging.
+      # Die entscheidende Zeile aus dem eas-Log gleich mitgeben: «liess
+      # sich nicht anstossen» ohne das Warum hiess bisher, die Ursache
+      # per SSH im Journal zu suchen. Das «| » stammt von fremde_ausgabe.
+      sed 's/^| //' "$IOS_LOG" | grep -iE "error|failed|cannot|missing" \
+        | tail -1 | cut -c1-90 | sed 's/^/  /'
+      # Die häufigsten Gründe haben eine Lösung, die nicht im Log steht.
+      # Wer das liest, soll wissen, wohin - nicht bloss, dass etwas
+      # schiefging.
       if grep -qiE "application-groups|app group|bundleIdCapabilities" "$IOS_LOG"; then
         echo "  Es fehlt die App-Gruppe im Apple-Portal. Einmalig:"
         echo "  1. developer.apple.com → Identifiers → App Groups → +"
         echo "     Name frei, Kennung: group.me.stibe.homepilot"
         echo "  2. Bei ch.stibe.homepilot und ch.stibe.homepilot.widget"
         echo "     «App Groups» anhaken und die Gruppe auswählen."
-        echo "  Danach Update mit iOS-Build noch einmal auslösen."
+      elif grep -qiE "credentials|provisioning|bundle identifier|not registered" "$IOS_LOG"; then
+        # Ein neues Bau-Ziel (zuletzt: die Watch-App mit
+        # ch.stibe.homepilot.watch) braucht erstmalig Kennung und Profil
+        # bei Apple - im stillen Lauf legt EAS nichts Neues an.
+        echo "  Vermutlich fehlen Apple-Unterlagen für ein neues Bau-Ziel."
+        echo "  Einmalig einen Build mit Rückfragen anstossen:"
+        echo "    sudo docker run --rm -it -e EXPO_TOKEN=<Token> \\"
+        echo "      homepilot-appdeps npx eas-cli@latest build \\"
+        echo "      --platform ios --profile production"
+        echo "  Danach geht es wieder über den Update-Knopf."
       else
         echo "  Details: expo.dev/accounts/stibe88."
       fi
