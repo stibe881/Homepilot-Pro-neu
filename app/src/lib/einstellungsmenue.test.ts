@@ -8,7 +8,6 @@
 import {
   ADMIN_PUNKTE,
   Bereich,
-  adminZeile,
   gruppeVon,
   siehtBereich,
 } from './einstellungsmenue';
@@ -137,8 +136,4 @@ describe('Was unter Administrator liegt', () => {
    * Ein Mitbewohner sieht weniger als die Besitzerin. Eine Zeile, die
    * mehr verspricht als die Seite hält, schickt ihn ins Leere.
    */
-  it('die Zeile darunter richtet sich nach dem, was offensteht', () => {
-    expect(adminZeile(6)).toMatch(/Benutzer/);
-    expect(adminZeile(0)).toMatch(/Nichts/);
-  });
 });

@@ -17,11 +17,11 @@ import { CommandData, Entity, HubSettings } from '../api/types';
 import { begruessung } from '../lib/begruessung';
 import {
   Bereich,
-  adminZeile,
   einstiegsSeite,
   gruppeVon,
   siehtBereich,
 } from '../lib/einstellungsmenue';
+import { alarmPlakette } from '../lib/einstellungsgruppen';
 import { DraggableList } from '../components/DraggableList';
 import { CellLayout, DragCell, reorderByDrop } from '../components/DragGrid';
 import { EntityCard } from '../components/EntityCard';
@@ -90,7 +90,9 @@ import { verlangtPin } from '../lib/alarmpin';
 import { OffenesModul, istGesperrt, istPersoenlich, offeneModule } from '../lib/bereichsriegel';
 import { schleier } from '../lib/nachtabsenkung';
 import { Einrichtungshilfe } from '../components/Einrichtungshilfe';
-import { EinstellungsTabs } from '../components/EinstellungsTabs';
+import { EinstellungsKopf } from '../components/einstellungen/Kopf';
+import { EinstellungsUebersicht } from '../components/einstellungen/Uebersicht';
+import { Wechselblatt } from '../components/einstellungen/Wechselblatt';
 import { Kamerawand } from '../components/Kamerawand';
 import { HausRueckblick } from './HausRueckblick';
 import { nachBewegung } from '../lib/kameraordnung';
@@ -394,6 +396,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Welches Gerät gerade nach einer Frist gefragt wird («sag mir in zwei
   // Stunden Bescheid»).
   const [erinnernAn, setErinnernAn] = useState<Entity | null>(null);
+  // Das Blatt hinter dem Titel einer Einstellungsseite (components/einstellungen).
+  const [wechselOffen, setWechselOffen] = useState(false);
   // Der Weg zu einem Ziel aus einer Nachricht. Über eine Ref, weil der
   // Tipp-Haken früh gebraucht wird und der Weg selbst erst weiter unten
   // steht - dort, wo die Räume bekannt sind.
@@ -512,6 +516,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       sorgen({ entities, jetzt: Date.now() }).filter(
         (sorge) => sorge.art === 'offline' || sorge.art === 'still'
       ),
+    [entities]
+  );
+
+  // Die Anlage für die Plakette an ihrer Zeile in den Einstellungen. Ein
+  // per Namen erkannter Schalter ist der Notnagel für Aufbauten ohne
+  // echte Alarm-Entität - dieselbe Reihenfolge wie im Überblick.
+  const alarmGeraet = useMemo(
+    () =>
+      entities.find((entity) => entity.kind === 'alarm') ??
+      entities.find((entity) => /alarm/i.test(entity.name) && entity.kind === 'switch'),
     [entities]
   );
 
@@ -1622,6 +1636,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     label: string;
     detail: string;
     show: boolean;
+    /** Die kleine Meldung an der Zeile - siehe lib/einstellungsgruppen.ts. */
+    plakette?: { text: string; ton: 'gut' | 'warnung' | 'ruhig' };
     /** Statt zu einem Bereich zu wechseln: etwas öffnen. */
     onPress?: () => void;
   }[] = [
@@ -1663,6 +1679,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       icon: 'shield-checkmark-outline',
       label: 'Alarmanlage',
       detail: 'Sensoren, Modi und Verlauf',
+      // «Ist sie scharf?» ist die häufigste Frage an diesen Punkt - die
+      // Liste beantwortet sie selbst, statt sie hinter einem Tipp zu
+      // verstecken (lib/einstellungsgruppen.ts).
+      plakette: alarmGeraet
+        ? alarmPlakette(alarmGeraet.kind, String(alarmGeraet.state.state ?? ''))
+        : undefined,
       show: sieht('alarm'),
     },
     {
@@ -1679,6 +1701,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       icon: 'people-outline',
       label: besuchStand?.active ? 'Jemand ist da' : 'Besuch oder Babysitter',
       detail: modusZeile(besuchStand, Date.now()),
+      plakette: besuchStand?.active
+        ? ({ text: 'läuft', ton: 'gut' } as const)
+        : undefined,
       // Auch für Mitbewohner: Wer Gäste empfängt, soll ihnen das
       // WLAN geben können, ohne die Besitzerin zu fragen.
       show: true,
@@ -1697,6 +1722,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       detail: stummeGeraete.length
         ? sorgenSatz(stummeGeraete)
         : 'Batterien, Funkstille und Wartung auf einem Blatt',
+      plakette: stummeGeraete.length
+        ? ({ text: String(stummeGeraete.length), ton: 'warnung' } as const)
+        : undefined,
       show: sieht('devices'),
       onPress: () => setSorgenOffen(true),
     },
@@ -1809,9 +1837,49 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     ? 'settings'
     : section;
 
+  /**
+   * Einen Menüpunkt öffnen.
+   *
+   * Die meisten führen zu einem Bereich; drei öffnen stattdessen ein
+   * Blatt (Suche, Besuch, Sorgen). Der Unterschied stand vorher an vier
+   * Stellen abgeschrieben - jetzt einmal hier, und Übersicht,
+   * Wechselblatt und die iPad-Spalte rufen dasselbe auf.
+   */
+  const geheZuPunkt = (key: string) => {
+    const punkt = sichtbarePunkte.find((item) => item.key === key);
+    if (punkt?.onPress) punkt.onPress();
+    else setSection(key as Section);
+  };
+
+  /**
+   * Die Kopfzeile einer Einstellungsseite - oder nichts.
+   *
+   * `null` heisst: Es ist keine Einstellungsseite, oder es ist
+   * zweispaltig. Dann bleibt oben die Begrüssung stehen, wo sie
+   * hingehört.
+   */
+  // «Geräte» steht nicht in `einstellungsSeiten` - die Liste hat ihr
+  // eigenes Raster und ihre eigene rechte Spalte -, ist aber ein Punkt
+  // der Einstellungen und bekommt darum denselben Kopf.
+  const aufEinstellungsseite =
+    section === 'settings' || section === 'devices' || einstellungsSeiten.includes(section);
+  const einstellungsKopf =
+    zweispaltig || !aufEinstellungsseite ? null : (
+      <EinstellungsKopf
+        titel={
+          section === 'settings'
+            ? 'Einstellungen'
+            : (sichtbarePunkte.find((item) => item.key === section)?.label ??
+              SECTION_LABEL[section])
+        }
+        onZurueck={section === 'settings' ? undefined : () => setSection('settings')}
+        onWechseln={section === 'settings' ? undefined : () => setWechselOffen(true)}
+      />
+    );
+
   const waehleBereich = (ziel: Section) => {
     if (ziel === 'settings') {
-      const start = einstiegsSeite(offeneSeiten, zuletztEinstellung.current);
+      const start = einstiegsSeite(offeneSeiten, zuletztEinstellung.current, !hasRail);
       if (start) {
         setSection(start);
         return;
@@ -1900,107 +1968,27 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       );
     }
 
-    // Das Menü für alles, was über „Einstellungen“ erreicht wird.
-    // Zweispaltig braucht es niemand: Dort steht es daneben.
-    //
-    // Auf dem Telefon war hier eine blosse Zurück-Zeile, und damit war
-    // jeder Wechsel drei Handgriffe: zurück zur Liste, den Punkt suchen,
-    // wieder tippen. Jetzt ist jeder Punkt einen Tipp weit weg - und der
-    // Weg zur Kachelliste, wo die Erklärungen stehen, ganz links.
-    const back = zweispaltig ? null : (
-      <EinstellungsTabs
-        punkte={sichtbarePunkte}
-        active={section === 'settings' ? null : section}
-        onSelect={(key) => {
-          const punkt = sichtbarePunkte.find((item) => item.key === key);
-          if (punkt?.onPress) punkt.onPress();
-          else setSection(key as Section);
-        }}
-        onUebersicht={() => setSection('settings')}
-      />
-    );
 
     if (section === 'settings') {
-      // Vorne steht, was man bedient; hinter «Administrator», was das
-      // Haus einrichtet (lib/einstellungsmenue.ts). Wer was überhaupt
-      // sieht, entscheidet `show` je Punkt - der Hub prüft die Rechte
-      // ohnehin noch einmal selbst.
+      // Die Übersicht: gruppiert, durchsuchbar, mit Plaketten - und ohne
+      // die Tür «Administrator». Sie sparte einen Bildschirm und kostete
+      // zwei Tipps; ein Stück Weiterscrollen ist billiger
+      // (components/einstellungen, lib/einstellungsgruppen.ts).
       //
-      // Eine Ausnahme: «Abläufe». Ein Mitbewohner darf sie pausieren und
-      // den Babysitter-Modus schalten - das ist Bedienung, keine
-      // Einrichtung. Anlegen und Ändern bleibt ihm verwehrt, dafür sorgt
-      // edit_automations in der Seite selbst (und der Hub noch einmal).
+      // Wer was überhaupt sieht, entscheidet `show` je Punkt - der Hub
+      // prüft die Rechte ohnehin noch einmal selbst.
       return (
-        <View style={styles.settingsList}>
-          {hausPunkte.map((item) => (
-            <Pressable
-              key={item.key}
-              onPress={() =>
-                item.onPress ? item.onPress() : setSection(item.key as Section)
-              }
-              accessibilityRole="button"
-              style={({ pressed }) => [styles.settingsItem, pressed && { opacity: 0.8 }]}
-            >
-              <Ionicons name={item.icon} size={22} color={colors.ink} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.settingsLabel}>{item.label}</Text>
-                <Text style={styles.settingsDetail}>{item.detail}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
-            </Pressable>
-          ))}
-
-          {/* Die Einrichtung des Hauses hinter einer eigenen Tür. Sie
-              stand mitten zwischen den täglichen Wegen und verlängerte
-              sie - geöffnet wird sie selten und nie beiläufig. */}
-          {adminPunkte.length > 0 ? (
-            <Pressable
-              onPress={() => setSection('admin')}
-              accessibilityRole="button"
-              style={({ pressed }) => [styles.settingsItem, pressed && { opacity: 0.8 }]}
-            >
-              <Ionicons name="construct-outline" size={22} color={colors.ink} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.settingsLabel}>Administrator</Text>
-                <Text style={styles.settingsDetail}>
-                  {adminZeile(adminPunkte.length)}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
-            </Pressable>
-          ) : null}
-        </View>
+        <EinstellungsUebersicht
+          punkte={sichtbarePunkte}
+          onWahl={geheZuPunkt}
+          onHausSuche={() => setSearchOpen(true)}
+        />
       );
     }
 
-    if (section === 'admin') {
-      return (
-        <View style={styles.settingsList}>
-          {back}
-          {adminPunkte.map((item) => (
-            <Pressable
-              key={item.key}
-              onPress={() =>
-                item.onPress ? item.onPress() : setSection(item.key as Section)
-              }
-              accessibilityRole="button"
-              style={({ pressed }) => [styles.settingsItem, pressed && { opacity: 0.8 }]}
-            >
-              <Ionicons name={item.icon} size={22} color={colors.ink} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.settingsLabel}>{item.label}</Text>
-                <Text style={styles.settingsDetail}>{item.detail}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
-            </Pressable>
-          ))}
-        </View>
-      );
-    }
     if (section === 'alarm') {
       return (
         <View style={styles.stack}>
-          {back}
           <AlarmScreen
             settings={settings}
             entities={entities}
@@ -2018,7 +2006,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'speakers') {
       return (
         <View style={styles.stack}>
-          {back}
           <>
             <Musikzentrale settings={settings} entities={entities} />
             {/* Die Durchsage stand hier als breite Karte: ein leeres
@@ -2035,7 +2022,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'energy') {
       return (
         <View style={styles.stack}>
-          {back}
           <EnergyScreen settings={settings} entities={entities} />
         </View>
       );
@@ -2043,7 +2029,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'activity') {
       return (
         <View style={styles.stack}>
-          {back}
           {/* Zuerst der Rückblick über alle Geräte: Er hat ein
               Gedächtnis, das den Neustart übersteht. Die flüchtige
               Liste darunter zeigt, was seit dem Öffnen der App
@@ -2057,7 +2042,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'personen') {
       return (
         <View style={styles.stack}>
-          {back}
           <PersonenScreen settings={settings} />
         </View>
       );
@@ -2065,7 +2049,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'users') {
       return (
         <View style={styles.stack}>
-          {back}
           <UsersScreen settings={settings} currentUser={user} entities={entities} />
         </View>
       );
@@ -2073,7 +2056,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'account') {
       return (
         <View style={styles.stack}>
-          {back}
           <SettingsScreen
             initial={settings}
             onSave={onSaveSettings}
@@ -2108,7 +2090,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'connection') {
       return (
         <View style={styles.stack}>
-          {back}
           <SettingsScreen
             initial={settings}
             onSave={onSaveSettings}
@@ -2122,7 +2103,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'widgets') {
       return (
         <View style={styles.stack}>
-          {back}
           <Widgets
             buttons={prefs.widgetButtons}
             onButtons={setWidgetButtons}
@@ -2144,7 +2124,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'automations') {
       return (
         <View style={styles.stack}>
-          {back}
           {/* Was der Hub im Verlauf gesehen hat - als Angebot, nicht als
               Tat. Hier oben, weil man beim Öffnen der Abläufe ohnehin
               über Automatisieren nachdenkt. */}
@@ -2163,7 +2142,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'system') {
       return (
         <View style={styles.stack}>
-          {back}
           <SystemScreen settings={settings} user={user} entities={entities} push={push} />
         </View>
       );
@@ -2171,7 +2149,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     return (
       <View style={hasSidePanel ? styles.split : styles.stack}>
         <View style={hasSidePanel ? styles.main : undefined}>
-          {section === 'devices' ? back : null}
           {section === 'devices' ? (
             <View style={styles.searchRow}>
               <Ionicons name="search" size={16} color={colors.inkFaint} />
@@ -2967,30 +2944,38 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               />
             </Auffangnetz>
 
-            <View style={styles.greetingRow}>
-              <View style={styles.greeting}>
-                {/* Eine Zeile, nicht zwei: «Hallo Stefan,» mit «Guten
-                    Abend.» darunter begrüsste zweimal - so spricht
-                    niemand. Beides steht jetzt in einem Satz
-                    (lib/begruessung.ts). */}
-                <Text
-                  style={[
-                    styles.greetingLine,
-                    !hasRail && { fontSize: type.greetingSmall },
-                  ]}
-                >
-                  {begruessung(settings, user, now)}
-                </Text>
+            {/* Auf einer Einstellungsseite steht statt der Begrüssung ihr
+                Name - und der Name ist der Wechsler
+                (components/einstellungen/Kopf.tsx). «Guten Abend, Stefan»
+                über den Integrationen war siebzig Punkte Höhe für etwas,
+                das beim Einrichten niemand braucht. Zweispaltig bleibt
+                alles wie es war: Dort steht das Menü ohnehin daneben. */}
+            {einstellungsKopf ?? (
+              <View style={styles.greetingRow}>
+                <View style={styles.greeting}>
+                  {/* Eine Zeile, nicht zwei: «Hallo Stefan,» mit «Guten
+                      Abend.» darunter begrüsste zweimal - so spricht
+                      niemand. Beides steht jetzt in einem Satz
+                      (lib/begruessung.ts). */}
+                  <Text
+                    style={[
+                      styles.greetingLine,
+                      !hasRail && { fontSize: type.greetingSmall },
+                    ]}
+                  >
+                    {begruessung(settings, user, now)}
+                  </Text>
+                </View>
+                <View style={styles.greetingNotes}>
+                  {/* Die Suche sitzt in den Einstellungen. Auf der Startseite
+                    stand sie neben Begrüssung und Hausstand - und nahm dort
+                    Platz weg für etwas, das man selten braucht: Wer ein
+                    Gerät sucht, geht ohnehin in die Geräteliste. */}
+                  <RunningAppliances entities={entities} />
+                  <OpenDoors entities={entities} />
+                </View>
               </View>
-              <View style={styles.greetingNotes}>
-                {/* Die Suche sitzt in den Einstellungen. Auf der Startseite
-                  stand sie neben Begrüssung und Hausstand - und nahm dort
-                  Platz weg für etwas, das man selten braucht: Wer ein
-                  Gerät sucht, geht ohnehin in die Geräteliste. */}
-                <RunningAppliances entities={entities} />
-                <OpenDoors entities={entities} />
-              </View>
-            </View>
+            )}
 
             {/* Je Bereich ein eigenes Netz: Reisst die Kameraansicht, sollen
               Licht und Storen bedienbar bleiben. Ein Haus, das zu drei
@@ -3019,11 +3004,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                             <Text style={styles.settingsRailGruppe}>Administrator</Text>
                           ) : null}
                           <Pressable
-                            onPress={() =>
-                              item.onPress
-                                ? item.onPress()
-                                : setSection(item.key as Section)
-                            }
+                            onPress={() => geheZuPunkt(item.key)}
                             accessibilityRole="tab"
                             accessibilityState={{ selected: aktiv }}
                             style={({ pressed }) => [
@@ -3103,6 +3084,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             }}
             colors={colors}
             styles={styles}
+          />
+        ) : null}
+
+        {/* Das Blatt hinter dem Titel einer Einstellungsseite: alles
+            untereinander, gruppiert, der offene mit Haken - statt einer
+            Pillenzeile, in der zwölf von fünfzehn Punkten hinter dem
+            rechten Rand lagen. */}
+        {wechselOffen ? (
+          <Wechselblatt
+            punkte={sichtbarePunkte}
+            aktiv={section}
+            onWahl={(key) => {
+              setWechselOffen(false);
+              geheZuPunkt(key);
+            }}
+            onSchliessen={() => setWechselOffen(false)}
           />
         ) : null}
 

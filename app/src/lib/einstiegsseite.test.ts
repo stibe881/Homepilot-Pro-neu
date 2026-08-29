@@ -19,6 +19,14 @@ describe('Womit die Einstellungen aufgehen', () => {
     expect(einstiegsSeite(seiten, 'users' as never)).toBe('automations');
   });
 
+  it('führt auf dem Telefon beim ersten Mal in die Übersicht', () => {
+    // Dort ist die Übersicht die Karte - und «Benutzerverwaltung» als
+    // Einstieg wäre geraten. Ab dem zweiten Mal führt die Erinnerung
+    // ohnehin dorthin, wo man war.
+    expect(einstiegsSeite(seiten, null, true)).toBeNull();
+    expect(einstiegsSeite(seiten, 'system', true)).toBe('system');
+  });
+
   it('ergibt null, wenn es keine Seite gibt', () => {
     // Ein Gast sieht kaum etwas; ein leerer Bereich wäre schlimmer als
     // eine kurze Liste.

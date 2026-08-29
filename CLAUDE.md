@@ -143,6 +143,7 @@ nicht `test_mode_2`.
 | eine Push-Nachricht anlegst | `hub/homepilot/core/pushziel.py` – jede Kategorie braucht ein Ziel, ein Test hält das fest |
 | eine Einstellung der Oberfläche anlegst | `app/src/hooks/usePrefs.ts` (ganze Bildschirme) oder `app/src/lib/persoenlich.ts` (einzelne Schlüssel tief in einer Kachel) – **nie** in den Speicher der App: Übersicht in `docs/einstellungen.md` |
 | an der Startseite arbeitest | `app/src/screens/DashboardScreen.tsx`, `components/TopStrip.tsx`, `SidePanel.tsx` – die Vollbilder (Klingel, Kamera, Erinnerung) und die Stiltafel liegen in `screens/dashboard/` |
+| einen Punkt in den Einstellungen anlegst | die Liste in `app/src/screens/DashboardScreen.tsx` **und** eine Gruppe in `app/src/lib/einstellungsgruppen.ts` – sonst steht er auf dem Telefon unter «Weitere» |
 | an der Familienseite arbeitest | `app/src/screens/FamilyScreen.tsx` – Zwischenspeicher und Warteschlange in `screens/family/ablage.ts`, der Babysitter-Abend in `screens/family/babysitter.ts` |
 | eine Gerätekachel änderst | `app/src/components/EntityCard.tsx` |
 | Zigbee-Geräte anbindest | `hub/homepilot/integrations/zigbee2mqtt.py` – Übersicht in `docs/zigbee.md` |
