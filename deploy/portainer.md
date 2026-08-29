@@ -198,6 +198,12 @@ ist der einzige nötige Befehl.
   *Einstellungen → Apps → Alle Apps → System-Apps anzeigen → Android TV
   Remote Service → Speicher → Daten löschen*, den Fernseher neu starten
   und einmal neu koppeln (Kopplungs-Helfer oben).
+- Klappt die **Bildschirmtastatur des Fernsehers** bei jedem Tastendruck
+  kurz weg (etwa in einem Suchfeld): Der Hub meldet sich als Tastatur an,
+  der Fernseher erwartet den Text dann von ihm. Am betroffenen Gerät in
+  der `config.yaml` `ime: false` setzen und den Hub neu starten – dafür
+  zeigt die Kachel dann nicht mehr, welche App gerade läuft. Warum,
+  steht in `integrations/androidtv.py` bei `will_ime`.
 
 
 ## Update-Knopf in der App

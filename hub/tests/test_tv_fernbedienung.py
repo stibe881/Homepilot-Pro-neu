@@ -19,6 +19,7 @@ from homepilot.integrations.androidtv import (
     AndroidTvIntegration,
     absage,
     leitung_offen,
+    will_ime,
 )
 
 
@@ -264,3 +265,23 @@ async def test_bei_offener_leitung_geht_sie_raus(hub):
     integration._gekoppelt[tv.id] = True
     await integration.handle_command(tv, "dpad_up", {})
     assert remote.gesendet == ["KEYCODE_DPAD_UP"]
+
+
+# ── ime-Schalter ───────────────────────────────────────────────────────────
+#
+# Standardmässig meldet sich die Fernbedienung als Tastatur an (die Kachel
+# will die laufende App wissen). Wessen Fernseher dabei die eigene
+# Bildschirmtastatur bei jedem Tastendruck wegklappt, schaltet es am
+# Gerät ab - siehe will_ime() in der Integration.
+
+
+def test_ime_ist_ohne_angabe_an():
+    assert will_ime({"host": "10.0.0.1"}) is True
+
+
+def test_ime_laesst_sich_am_geraet_abschalten():
+    assert will_ime({"host": "10.0.0.1", "ime": False}) is False
+
+
+def test_ime_ausdruecklich_an_bleibt_an():
+    assert will_ime({"host": "10.0.0.1", "ime": True}) is True
