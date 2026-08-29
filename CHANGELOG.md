@@ -9,6 +9,20 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Ein Netz für Fehler beim Start.** Die App schloss sich am 29. August
+  auf iPhone und Wandpanel wortlos, keine Sekunde nach dem Antippen. Im
+  Absturzbericht stand als auslösende Queue
+  `expo.controller.errorRecoveryQueue`: die Fehler-Rettung von
+  `expo-updates`, die bei einem fatalen JS-Fehler beim Start greift und
+  den Prozess abbricht, wenn sie nichts Heiles zum Nachladen findet.
+  Der Fehler selbst stand nirgends - das `Auffangnetz` liegt *innerhalb*
+  des Baums und fängt nur, was beim Zeichnen passiert; ein Release-Build
+  zeigt keine rote Seite. Jetzt lädt `index.ts` die App in einem `try`,
+  und ein globaler Fang nimmt fatale Fehler im Startfenster auf. Statt
+  eines wortlosen Absturzes steht die Meldung samt Stapel auf dem
+  Bildschirm. Nachgewiesen mit einem absichtlich eingebauten
+  Startfehler.
+
 - **Grundriss-Ansicht** (Punkt 222): Die Räume-Seite kann zuoberst ein
   Foto des Wohnungsplans zeigen, darauf die Geräte als antippbare
   Punkte – antippen schaltet, der Zustand färbt den Punkt.
