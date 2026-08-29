@@ -1675,7 +1675,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       key: 'search',
       icon: 'search-outline',
       label: 'Suche',
-      detail: 'Geräte, Räume, Szenen und Abläufe auf einmal',
+      detail: 'Geräte, Räume, Szenen und Abläufe',
       show: true,
       onPress: () => setSearchOpen(true),
     },
@@ -1683,14 +1683,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       key: 'users',
       icon: 'people-circle-outline',
       label: 'Benutzerverwaltung',
-      detail: 'Zugänge und Rollen: Besitzer, Mitbewohner, Gast',
+      detail: 'Zugänge und Rollen',
       show: sieht('users'),
     },
     {
       key: 'personen',
       icon: 'people-outline',
       label: 'Familie und Freunde',
-      detail: 'Wer ist wo, und was soll über wen gemeldet werden',
+      detail: 'Wer ist wo – und was gemeldet wird',
       // Auch für Mitbewohner: Wo die Familie gerade ist, geht alle
       // an, die hier wohnen - anders als die Frage, wer Zugang hat.
       show: true,
@@ -1701,7 +1701,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       label: 'Abläufe',
       detail: istBesitzer
         ? 'Automationen und Szenen'
-        : 'Pausieren, Babysitter-Modus und was heute läuft',
+        : 'Pausieren, Babysitter, was heute läuft',
       show: sieht('automations'),
     },
     {
@@ -1751,7 +1751,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       // schlimmer als keine.
       detail: stummeGeraete.length
         ? sorgenSatz(stummeGeraete)
-        : 'Batterien, Funkstille und Wartung auf einem Blatt',
+        : 'Batterien, Funkstille und Wartung',
       plakette: stummeGeraete.length
         ? ({ text: String(stummeGeraete.length), ton: 'warnung' } as const)
         : undefined,
@@ -1783,14 +1783,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       key: 'activity',
       icon: 'timer-outline',
       label: 'Was war los',
-      detail: 'Der Rückblick über alle Geräte – Tage zurück',
+      detail: 'Der Rückblick über alle Geräte',
       show: sieht('activity'),
     },
     {
       key: 'widgets',
       icon: 'apps-outline',
       label: 'Widgets',
-      detail: 'Knöpfe auf Homescreen und Sperrbildschirm',
+      detail: 'Knöpfe für Homescreen und Sperre',
       // Für alle sichtbar, obwohl es die Ansicht des Hauses ändert:
       // Wer ein Widget auf seinem Telefon hat, muss nachsehen können,
       // was darauf liegt - und die Anleitung zum Hinzufügen braucht
@@ -1801,7 +1801,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       key: 'account',
       icon: 'person-outline',
       label: 'Konto',
-      detail: 'Profil, Darstellung, App-Symbol, Benachrichtigungen',
+      detail: 'Profil, Darstellung, Benachrichtigungen',
       show: true,
     },
     {
@@ -1853,7 +1853,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
    * Also geht gleich eine Seite auf; die vom letzten Mal, sonst die
    * erste (lib/einstellungsmenue.ts). Das Menü steht dabei immer
    * daneben: auf dem breiten Bildschirm als Spalte links, auf dem
-   * Telefon als schiebbare Zeile darüber (components/EinstellungsTabs).
+   * Telefon als Kopfzeile mit Wechselblatt (components/einstellungen).
    *
    * Sieht jemand überhaupt keine solche Seite - ein Gast etwa -, bleibt
    * es bei der Kachelliste: Ein leerer Bereich wäre schlimmer als eine
