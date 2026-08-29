@@ -40,6 +40,7 @@ import { RoomTabs } from '../components/RoomTabs';
 import { RoomTile } from '../components/RoomTile';
 import { SceneRow } from '../components/SceneRow';
 import { GlobalSearch } from '../components/GlobalSearch';
+import { Grundriss } from '../components/Grundriss';
 import { LiveTuerSchalter } from '../components/LiveTuerSchalter';
 import { PushPrefs } from '../components/PushPrefs';
 import { ActivityCard, SidePanel } from '../components/SidePanel';
@@ -2659,6 +2660,21 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               ? running.map((entity) => renderCard(entity))
               : null}
           </View>
+
+          {/* Der Grundriss über den Raumkacheln - nur wenn dieses Gerät
+              ihn eingeschaltet hat (Einstellungen, beim App-Symbol).
+              Zusätzlich statt anstelle der Kacheln: Der Plan beantwortet
+              «was brennt da hinten?», die Kacheln bleiben der Weg in
+              die volle Raumansicht. */}
+          {roomTiles && gridWidth > 0 && settings.grundriss ? (
+            <Grundriss
+              settings={settings}
+              entities={shown}
+              darfAnpassen={darfAnpassen}
+              onCommand={(entityId, command) => guardedCommand(entityId, command)}
+              width={gridWidth}
+            />
+          ) : null}
 
           {/* «Räume»: eine Kachel je Raum mit den Geräten darin. */}
           {roomTiles && gridWidth > 0 ? (

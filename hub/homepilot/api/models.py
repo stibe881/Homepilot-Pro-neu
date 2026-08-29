@@ -455,6 +455,18 @@ class PrefsRequest(BaseModel):
     prefs: dict[str, Any]
 
 
+class GrundrissBildRequest(BaseModel):
+    """Das Wohnungsbild als data-URI (JPEG/PNG/WebP, siehe core/bilder.py)."""
+
+    image: str
+
+
+class GrundrissPunkteRequest(BaseModel):
+    """Alle Geräte-Punkte des Grundrisses - geprüft in core/grundriss.py."""
+
+    punkte: list[dict[str, Any]] = []
+
+
 # Obergrenze der persönlichen Einstellungen je Benutzer - genug für viele
 # Reihenfolgen, zu wenig, um die Datendatei zu fluten.
 PREFS_BYTES = 32_768

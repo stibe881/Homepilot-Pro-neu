@@ -7,6 +7,17 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 ## 2026-09-01
 
+**Neu**
+
+- **Grundriss-Ansicht** (Punkt 222): Die Räume-Seite kann zuoberst ein
+  Foto des Wohnungsplans zeigen, darauf die Geräte als antippbare
+  Punkte – antippen schaltet, der Zustand färbt den Punkt.
+  Einschaltbar je Gerät in den Einstellungen beim App-Symbol (das
+  Wandpanel will den Plan, das Telefon die Kacheln); Bild und Punkte
+  liegen auf dem Hub und gelten für alle. Platziert wird mit zwei
+  Tipps statt mit Ziehen – die Geste, die auf iOS zweimal getäuscht
+  hat, kommt hier gar nicht erst vor.
+
 **Betrieb**
 
 - Küchen-Timer überleben den Neustart. Der Update-Knopf wird gern

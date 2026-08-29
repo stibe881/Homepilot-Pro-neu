@@ -1917,3 +1917,23 @@ Die Anwesenheitssimulation (presence_sim, Vorlage 156) muss jemand scharf schalt
 
 Stellen: `integrations/presence_sim.py`, `core/watchdog.py`
 
+
+
+# Teil V: Weiteres (ab 222)
+
+## Nach dem Einchecken der Liste (222–)
+
+### 222. Grundriss-Ansicht fürs Wandpanel ✓ erledigt
+
+*Aufwand: gross · Hub + App*
+
+Wer im Flur aufs iPad schaut, denkt nicht in einer Kachelliste, sondern
+in «das Licht da hinten links». Ein Foto des Wohnungsplans mit den
+Geräten als antippbaren Punkten beantwortet das direkt: antippen
+schaltet, der Zustand färbt den Punkt. Einschaltbar je Gerät in den
+Einstellungen beim App-Symbol; Bild und Punkte liegen auf dem Hub und
+gelten für alle. Punkte werden durch Antippen gesetzt und versetzt,
+bewusst ohne Ziehen – die Ziehen-Geste hat auf iOS zweimal getäuscht,
+zwei Tipps kann jede Plattform.
+
+Stellen: `hub/homepilot/core/grundriss.py`, `hub/homepilot/api/routes/grundriss.py`, `app/src/components/Grundriss.tsx`, `app/src/lib/grundriss.ts`
