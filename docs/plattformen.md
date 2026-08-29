@@ -1,8 +1,8 @@
 # Was auf welchem Gerät geht
 
 Dieselbe Quelle wird zu drei Programmen: iPhone und iPad (nativ),
-Android (grundsätzlich, nie ausgeliefert) und Browser. Das meiste ist
-überall gleich. Was nicht, steht hier.
+Android (baubar – der Weg steht in [android.md](android.md)) und
+Browser. Das meiste ist überall gleich. Was nicht, steht hier.
 
 Die Frage dahinter ist fast immer dieselbe: **«Warum sehe ich das im
 Browser nicht?»**

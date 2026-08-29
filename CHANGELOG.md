@@ -14,6 +14,11 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   starb mit dem Hub. Ein während des Neustarts abgelaufener Timer
   meldet sich sofort nach, mit dem Hinweis «verspätet»; was älter als
   eine Stunde ist, wird verworfen.
+- Der Android-Build ist vorbereitet (`docs/android.md`): Das
+  Produktionsprofil baut eine direkt installierbare APK, der
+  Firebase-Weg für Push ist dokumentiert statt geraten, und die
+  `google-services.json` steht vorsorglich in der `.gitignore`.
+  Kanäle, Symbole und Hintergrund-Ortung lagen schon bereit.
 - Die Werkbank-Liste steht jetzt im Repo (`docs/werkbank.md`): alle
   221 Punkte aus den vier Werkbank-Seiten, mit Begründungen und
   Fundstellen. Bisher lag sie ausserhalb – wer im Code auf
