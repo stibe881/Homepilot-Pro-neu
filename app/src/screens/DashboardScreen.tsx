@@ -38,7 +38,8 @@ import { Leerzustand } from '../components/Leerzustand';
 import { SorgenBlatt } from '../components/SorgenBlatt';
 import { DeviceHealth } from '../components/DeviceHealth';
 import { RoomTabs } from '../components/RoomTabs';
-import { RoomTile } from '../components/RoomTile';
+import { RoomCard } from '../components/RoomCard';
+import { Raumbild } from '../components/Raumbild';
 import { SceneRow } from '../components/SceneRow';
 import { GlobalSearch } from '../components/GlobalSearch';
 import { Grundriss } from '../components/Grundriss';
@@ -92,7 +93,12 @@ import {
 import { Person } from '../lib/ortung';
 import { FAVORITEN, raumGruppen } from '../lib/raumgruppen';
 import { verlangtPin } from '../lib/alarmpin';
-import { OffenesModul, istGesperrt, istPersoenlich, offeneModule } from '../lib/bereichsriegel';
+import {
+  OffenesModul,
+  istGesperrt,
+  istPersoenlich,
+  offeneModule,
+} from '../lib/bereichsriegel';
 import { schleier } from '../lib/nachtabsenkung';
 import { Einrichtungshilfe } from '../components/Einrichtungshilfe';
 import { EinstellungsKopf } from '../components/einstellungen/Kopf';
@@ -435,6 +441,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [wandOffen, setWandOffen] = useState(false);
   // Gerät, dessen Verlauf gerade offen ist (Geräte-Ansicht, Tipp auf die Kachel).
   const [historyFor, setHistoryFor] = useState<string | null>(null);
+  // Welcher Raum ein Foto auf seiner Kachel hat, und von wann. Der
+  // Zeitstempel hängt an der Bildadresse: Ohne ihn zeigte ein Telefon
+  // nach dem Wechseln wochenlang das alte Foto aus seinem Speicher.
+  const [raumbilder, setRaumbilder] = useState<Record<string, number>>({});
+  // Für welchen Raum das Blatt «Bild wählen» offen steht.
+  const [bildFuer, setBildFuer] = useState<string | null>(null);
   // Auf der Startseite markierte Countdowns aus dem Familie-Modul.
   const [startCountdowns, setStartCountdowns] = useState<
     { text: string; date: string; on_start?: boolean }[]
@@ -665,10 +677,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Die Haustür-Karte für unterwegs - tut nur auf einem iPhone mit dem
   // passenden Build etwas (hooks/useLiveAktivitaet.ts). Hängt am
   // Profil-Schalter: aus heisst, dieses Gerät meldet gar keine Tokens an.
-  useLiveAktivitaet(
-    settings,
-    status === 'connected' && eigenePrefs.liveTuer !== false
-  );
+  useLiveAktivitaet(settings, status === 'connected' && eigenePrefs.liveTuer !== false);
 
   // Der Apple Watch die Zugangsdaten hinüberreichen - tut nur auf einem
   // iPhone mit dem passenden Build etwas (hooks/useWatchSync.ts).
@@ -733,6 +742,43 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   }, [widgetButtons]);
   useEffect(() => hoereAufSchnellaktionen((url) => adresseAusfuehren.current(url)), []);
 
+  // Welcher Raum ein Foto hat. Einmal beim Verbinden und nicht im Takt:
+  // Ein Bild ändert sich, wenn jemand es wechselt - und dann sagt es die
+  // Antwort auf genau diese Änderung (siehe onChanged unten).
+  useEffect(() => {
+    if (status !== 'connected') return;
+    let abgebrochen = false;
+    hub
+      .get<{ images?: Record<string, number> }>('/api/rooms/images', {
+        fallback: { images: {} },
+        still: true,
+      })
+      .then((antwort) => {
+        if (!abgebrochen) setRaumbilder(antwort.images ?? {});
+      });
+    return () => {
+      abgebrochen = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, settings.url, settings.token]);
+
+  /**
+   * Die Adresse des Raumfotos – oder nichts, wenn es keines gibt.
+   *
+   * Der Zeitstempel hängt mit dran: Der Hub lässt das Bild ein Jahr lang
+   * zwischenspeichern (es ändert sich fast nie), und ein neues Foto ist
+   * damit eine neue Adresse statt eines alten Bildes im Speicher.
+   */
+  const raumbildUrl = useCallback(
+    (name: string): string | null => {
+      const stand = raumbilder[name];
+      if (!stand) return null;
+      const token = settings.token ? `token=${encodeURIComponent(settings.token)}&` : '';
+      return `${settings.url}/api/rooms/${encodeURIComponent(name)}/image?${token}v=${stand}`;
+    },
+    [raumbilder, settings.url, settings.token]
+  );
+
   const [widgetAblage, setWidgetAblage] = useState<Ablage>('kein-widget');
   useEffect(() => {
     // Erst, wenn etwas da ist: Vor der ersten Antwort des Hubs sind
@@ -740,9 +786,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // fiele aus der Knopfliste heraus - das Widget stünde kurz mit
     // weniger Knöpfen da, als jemand eingestellt hat.
     if (entities.length === 0 && scenes.length === 0) return;
-    setWidgetAblage(
-      syncWidget(settings, !!prefs.widgetData, widgetButtons, widgetKarten)
-    );
+    setWidgetAblage(syncWidget(settings, !!prefs.widgetData, widgetButtons, widgetKarten));
   }, [
     settings.url,
     settings.token,
@@ -776,12 +820,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     (druck: Knopfdruck) => {
       if (druck.handlung === 'spaeter') {
         hub
-          .post('/api/push/snooze', {
-            title: druck.title,
-            body: druck.body,
-            category: druck.category,
-            minutes: 30,
-          }, { still: true })
+          .post(
+            '/api/push/snooze',
+            {
+              title: druck.title,
+              body: druck.body,
+              category: druck.category,
+              minutes: 30,
+            },
+            { still: true }
+          )
           .then(() => setNote('Erinnerung in 30 Minuten'))
           .catch(() => {});
         return;
@@ -790,7 +838,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       // das Gerät, damit sie nicht jede Woche wiederkommt.
       if (druck.entityId) {
         hub
-          .post(`/api/batteries/${encodeURIComponent(druck.entityId)}/ack`, {}, { still: true })
+          .post(
+            `/api/batteries/${encodeURIComponent(druck.entityId)}/ack`,
+            {},
+            { still: true }
+          )
           .then(() => setNote('Quittiert'))
           .catch(() => {});
       }
@@ -1315,8 +1367,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // hat, und nur, wo es etwas zu sortieren gibt. Beim Anpassen und beim
   // Suchen bleibt die Reihenfolge, wie sie ist: Sonst zieht man eine
   // Kachel, und sie springt zur nächsten vollen Stunde weg.
-  const tageszeitAn =
-    !!eigenePrefs.tageszeit && !editing && !searching && lohntSich(shown);
+  const tageszeitAn = !!eigenePrefs.tageszeit && !editing && !searching && lohntSich(shown);
   const abschnitt = tageszeitAn ? jetzigerAbschnitt(now.getTime()) : null;
   const nachZeit = <T extends { kind: string }>(liste: T[]): T[] =>
     abschnitt ? nachTageszeit(liste, abschnitt) : liste;
@@ -1506,9 +1557,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           ? (aktion) => {
               setDoppeltipp(entity.id, aktion);
               setNote(
-                aktion
-                  ? `Doppeltipp gemerkt: ${aktion.wort}`
-                  : 'Doppeltipp vergessen'
+                aktion ? `Doppeltipp gemerkt: ${aktion.wort}` : 'Doppeltipp vergessen'
               );
             }
           : undefined
@@ -1654,11 +1703,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Auch hier `imRaumblock`, sobald ein Zimmer offen ist: Über diesen
   // Weg läuft das Zimmer im Anpassen-Modus und bei eigener Reihenfolge -
   // dort stand der Raumname sonst weiter unter jeder Kachel.
-  const renderCell = zellen(
-    orderScope,
-    rest,
-    section === 'home' && room !== ALL_ROOMS
-  );
+  const renderCell = zellen(orderScope, rest, section === 'home' && room !== ALL_ROOMS);
 
   const einstellungsPunkte: {
     key: Section | 'search' | 'sorgen' | 'besuch';
@@ -1827,8 +1872,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // daneben noch gäbe. Die Startseite und die Geräteliste bleiben
   // aussen vor: Sie haben ihre eigene rechte Spalte.
   const einstellungsSeiten: Section[] = [
-    'users', 'personen', 'automations', 'alarm', 'speakers',
-    'energy', 'system', 'activity', 'widgets', 'account', 'connection',
+    'users',
+    'personen',
+    'automations',
+    'alarm',
+    'speakers',
+    'energy',
+    'system',
+    'activity',
+    'widgets',
+    'account',
+    'connection',
   ];
   /** Ab hier ist Platz für Menü und Inhalt nebeneinander. */
   const ZWEISPALTIG_AB = 1000;
@@ -2308,8 +2362,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               <View style={{ flex: 1 }}>
                 <Text style={styles.reorderText}>Alle nebeneinander</Text>
                 <Text style={styles.kameraSortHint}>
-                  Standbilder, die sich von selbst auffrischen – antippen zeigt
-                  eine gross und live.
+                  Standbilder, die sich von selbst auffrischen – antippen zeigt eine gross
+                  und live.
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={22} color={colors.inkFaint} />
@@ -2780,14 +2834,26 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 )
                 .filter((tile) => tile.items.length > 0)
                 .map((tile) => (
-                  <RoomTile
+                  <RoomCard
                     key={tile.name}
                     name={tile.name}
                     items={tile.items}
-                    favorites={favorites}
                     width={hasRail ? Math.floor((gridWidth - space.gap) / 2) : gridWidth}
+                    imageUri={raumbildUrl(tile.name)}
                     onOpen={() => setRoom(tile.name)}
-                    onCommand={(entityId, command) => guardedCommand(entityId, command)}
+                    // Wer hier wohnt, darf das Bild setzen - dieselbe
+                    // Fähigkeit wie beim Namen eines Geräts. «Weitere»
+                    // ist kein Zimmer und bekommt darum keines.
+                    onLongPress={
+                      darfAnpassen && tile.name !== NO_ROOM
+                        ? () => setBildFuer(tile.name)
+                        : undefined
+                    }
+                    onAction={(aktion) =>
+                      aktion.befehle.forEach((befehl) =>
+                        guardedCommand(befehl.entityId, befehl.command)
+                      )
+                    }
                     scenes={szenenFuerKachel(scenes, entities, tile.name)}
                     onScene={activateScene}
                   />
@@ -2972,9 +3038,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             <Leerzustand
               bild={leerbild(
                 section,
-                section === 'home' && room !== ALL_ROOMS && room !== NO_ROOM
-                  ? room
-                  : null,
+                section === 'home' && room !== ALL_ROOMS && room !== NO_ROOM ? room : null,
                 status === 'connected'
               )}
               onAktion={() => setSection('devices')}
@@ -3123,8 +3187,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                       const aktiv = item.key === section;
                       // Die Überschrift steht vor dem ersten Punkt der
                       // Einrichtung - dort, wo das Haus aufhört.
-                      const trennt =
-                        adminPunkte.length > 0 && index === hausPunkte.length;
+                      const trennt = adminPunkte.length > 0 && index === hausPunkte.length;
                       return (
                         <React.Fragment key={item.key}>
                           {trennt ? (
@@ -3294,6 +3357,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             onClose={() => setHistoryFor(null)}
           />
         ) : null}
+
+        {/* Das Foto eines Zimmers – hinter dem langen Druck auf die
+            Raumkachel. Der Hub schickt den neuen Bildstand gleich mit
+            zurück; ein zweiter Abruf wäre nur eine zweite Gelegenheit,
+            veraltet zu sein. */}
+        <Raumbild
+          room={bildFuer}
+          settings={settings}
+          hatBild={!!bildFuer && !!raumbilder[bildFuer]}
+          onClose={() => setBildFuer(null)}
+          onChanged={setRaumbilder}
+        />
 
         {confirm ? (
           <LockConfirm

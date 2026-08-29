@@ -56,3 +56,6 @@ dist/
 # Firebase-Zugang der Android-App (Push, siehe docs/android.md). Wie die
 # Apple-Schlüssel: gehört zum Bauen dazu, nie ins Repository.
 app/google-services.json
+
+# Die Raumfotos liegen neben den Daten, nicht im Repository.
+hub/raumbilder/

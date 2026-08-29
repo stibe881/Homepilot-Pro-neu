@@ -48,6 +48,7 @@ from . import (
     metrics,
     persistence,
     pushverlauf,
+    raumbilder,
 )
 from . import push as push_service
 from . import users as users_module
@@ -199,6 +200,15 @@ class Hub:
         await self.automations.start(
             self.config.automations, self.data.get("automations")
         )
+        # Fotos von Zimmern, die es nicht mehr gibt. Erst hier, weil erst
+        # nach den Integrationen feststeht, welche Räume es gibt - ein
+        # umbenanntes Zimmer liesse sein Bild sonst für immer liegen, und
+        # niemand sähe je nach.
+        entfernt = raumbilder.aufraeumen(
+            raumbilder.ordner(self.config.data_file), self.known_rooms()
+        )
+        if entfernt:
+            log.info("%d Raumbild(er) ohne Zimmer entfernt", entfernt)
         self.started_at = time.time()
         self.watchdog.start()
         self.ton.start()

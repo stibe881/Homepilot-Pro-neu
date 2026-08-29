@@ -562,3 +562,14 @@ class MeldungRequest(BaseModel):
 
     key: str
     enabled: bool
+
+
+class RaumbildRequest(BaseModel):
+    """Das Foto eines Zimmers, als data-URI.
+
+    Als Text und nicht als Datei-Upload: Die App hat das Bild nach dem
+    Verkleinern ohnehin als Base64 in der Hand (siehe RecipeBook), und ein
+    zweiter Weg mit multipart bringt nichts als eine zweite Fehlerquelle.
+    """
+
+    image: str
