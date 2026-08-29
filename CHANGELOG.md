@@ -9,6 +9,13 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Jede Anweisung beim Start einzeln abgesichert.** In `App.tsx`
+  laufen vier Dinge schon beim Laden des Moduls (Mitteilungs-Handler,
+  Android-Kanäle, Mitteilungsknöpfe, die Ortungs-Aufgabe) - sie müssen
+  dort stehen, weil sie fertig sein müssen, bevor die erste Nachricht
+  eintrifft. Bisher nahm eine davon im Fehlerfall die ganze App mit.
+  Jetzt hält jede ihren eigenen Fehler fest, und der Start geht weiter:
+  im schlimmsten Fall fällt eine Nebensache aus statt des ganzen Hauses.
 - **Ein Netz für Fehler beim Start.** Die App schloss sich am 29. August
   auf iPhone und Wandpanel wortlos, keine Sekunde nach dem Antippen. Im
   Absturzbericht stand als auslösende Queue

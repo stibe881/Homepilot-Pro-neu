@@ -43,6 +43,30 @@ export function letzterStartfehler(): unknown {
   return letzter;
 }
 
+/** Was beim Start einzeln schiefging, mit dem Namen der Stelle. */
+const gestolpert: { stelle: string; titel: string }[] = [];
+
+/** Alle Stellen, die beim Start gestolpert sind - für die System-Seite. */
+export function startfehlerListe(): { stelle: string; titel: string }[] {
+  return [...gestolpert];
+}
+
+/**
+ * Eine gestolperte Stelle festhalten, ohne den Start abzubrechen.
+ *
+ * Für die Anweisungen auf Modulebene in `App.tsx`: Sie müssen dort
+ * stehen (ein Kanal oder ein Mitteilungsknopf muss angemeldet sein,
+ * bevor die erste Nachricht eintrifft) - aber eine davon darf nicht
+ * die ganze App mitnehmen. Der Name der Stelle steht mit dabei, sonst
+ * sucht man ihn im Log zwischen allem anderen.
+ */
+export function startfehlerMerken(stelle: string, fehler: unknown): void {
+  const { titel, text } = fehlerZeilen(fehler);
+  gestolpert.push({ stelle, titel });
+  letzter = fehler;
+  console.error(`[HomePilot] ${stelle} beim Start gescheitert:`, titel, text);
+}
+
 /**
  * Aus einem geworfenen Ding zwei lesbare Zeilen machen (rein, testbar).
  *
