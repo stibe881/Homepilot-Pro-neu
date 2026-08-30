@@ -91,6 +91,11 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
   // sie schon gebraucht hätte.
   const doorbell = entities.find((entity) => 'ring' in entity.state);
   const appliance = entities.find((entity) => entity.kind === 'appliance');
+  // Gibt es überhaupt eine Box, die sprechen kann? Ohne sie ist jede
+  // Durchsage-Vorlage ein Ablauf, der beim Laufen ins Leere greift.
+  const kannDurchsagen = entities.some((entity) =>
+    entity.commands.includes('play_url')
+  );
   const alert = entities.find((entity) => entity.kind === 'alert');
   const vacuum = entities.find((entity) => entity.commands.includes('clean_rooms'));
   const grill = entities.find((entity) =>
@@ -343,7 +348,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
         ],
       },
     });
-    if (entities.some((entity) => entity.commands.includes('play_url'))) {
+    if (kannDurchsagen) {
       // Wer die Klingel im Garten oder mit Kopfhörern verpasst, hört
       // sie über die Boxen trotzdem.
       templates.push({
@@ -386,6 +391,49 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
         ],
       },
     });
+    // Dieselbe Meldung, aber zur richtigen Zeit. Wer unterwegs ist,
+    // kann nichts ausräumen - die Nachricht ist dann nur eine, die man
+    // wegwischt und später nicht mehr findet. Sie wartet deshalb, bis
+    // jemand da ist, und sagt es dann laut im Haus: Wer zur Tür
+    // hereinkommt, hat das Telefon in der Tasche, nicht in der Hand.
+    if (presence && kannDurchsagen) {
+      templates.push({
+        label: 'Wäsche meldet sich erst beim Heimkommen',
+        icon: 'home-outline',
+        draft: {
+          ...EMPTY,
+          alias: `${appliance.name}: melden, wenn jemand da ist`,
+          triggers: [
+            { ...EMPTY_TRIGGER, entityId: appliance.id, fromState: 'running', toState: 'idle' },
+          ],
+          // Ist ohnehin jemand zuhause, gibt es nichts zu verschieben -
+          // dann läuft die gewöhnliche Meldung des Geräts.
+          stateConditions: [
+            { entity_id: presence.id, op: 'is' as Compare, value: 'off' },
+          ],
+          steps: [
+            {
+              ...EMPTY_STEP,
+              kind: 'wait_until' as StepKind,
+              waitEntityId: presence.id,
+              waitOp: 'is' as Compare,
+              waitValue: 'on',
+              // Acht Stunden: Ein Arbeitstag. Läuft die Frist ab, geht
+              // der Ablauf weiter und sagt es trotzdem - das ist
+              // richtig so, denn dann ist die Wäsche schon lange
+              // fertig. Der Wächter hakt ohnehin weiter nach
+              // (hub/core/waschkueche.py).
+              waitTimeout: '28800',
+            },
+            {
+              ...EMPTY_STEP,
+              kind: 'broadcast' as StepKind,
+              broadcastText: `Die Wäsche wartet: ${appliance.name} ist fertig.`,
+            },
+          ],
+        },
+      });
+    }
   }
   if (alert) {
     templates.push({
@@ -477,20 +525,44 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
       },
     });
     if (alert) {
+      // Hoch, nicht zu - und das ist keine Geschmacksfrage. Eine
+      // geschlossene Aussenstore ist eine Fläche, in die der Wind
+      // greift; hochgezogen liegt sie im Kasten. Die Vorlage hiess
+      // lange «Storen zu bei Warnung» und tat damit genau das
+      // Gegenteil dessen, was auf ihr stand.
+      //
+      // Und nur bei Wind: Bei Hitze, Regen oder Glatteis ändert sich an
+      // den Storen nichts. Der Hub rechnet die Unterscheidung aus der
+      // Warnung aus und legt sie als `wind` ans Gerät
+      // (integrations/meteoalarm.py) - hier wäre sie nicht zu haben,
+      // eine Bedingung vergleicht einzelne Werte und durchsucht keine
+      // Listen.
       templates.push({
-        label: 'Sturmschutz: Storen zu bei Warnung',
+        label: 'Sturmwarnung: Storen hoch',
         icon: 'shield-outline',
         draft: {
           ...EMPTY,
-          alias: 'Sturmschutz',
+          alias: 'Sturmwarnung',
           triggers: [{ ...EMPTY_TRIGGER, entityId: alert.id, toState: 'alert' }],
+          stateConditions: [
+            { entity_id: alert.id, op: 'is' as Compare, value: 'on', attribute: 'wind' },
+          ],
           steps: [
             {
               ...EMPTY_STEP,
               commandActions: covers.map((entity) => ({
                 entity_id: entity.id,
-                command: 'close',
+                command: 'open',
               })),
+            },
+            {
+              ...EMPTY_STEP,
+              kind: 'notify' as StepKind,
+              title: 'Sturmwarnung',
+              // {meldung} holt den Warntext vom Gerät (core/kamera.py).
+              // Ihn abzuschreiben hiesse, für immer die Warnung von
+              // damals zu melden.
+              body: '{meldung} – die Storen sind oben.',
             },
           ],
         },
@@ -623,6 +695,55 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
       allLights.find((entity) => /ess|küche|kueche/i.test(`${entity.room ?? ''} ${entity.name}`)) ??
       allLights.find((entity) => entity.room === tv.room) ??
       allLights[0];
+    // Es klingelt mitten im Film. Ohne Ablauf heisst das: aufstehen,
+    // Fernbedienung suchen, im Dunkeln zur Tür. Der Ablauf nimmt beides
+    // ab - Bild anhalten, Licht auf halb.
+    //
+    // Nur wenn wirklich etwas läuft: Klingelt es nachmittags, soll
+    // nicht das Wohnzimmerlicht angehen, bloss weil der Fernseher im
+    // Bereitschaftsbetrieb steht.
+    if (doorbell && tv.commands.includes('pause')) {
+      const wohnlicht = allLights.filter(
+        (entity) => entity.room && entity.room === tv.room
+      );
+      templates.push({
+        label: 'Es klingelt mitten im Film',
+        icon: 'pause-circle-outline',
+        draft: {
+          ...EMPTY,
+          alias: 'Klingel: Film anhalten',
+          triggers: [
+            { ...EMPTY_TRIGGER, entityId: doorbell.id, attribute: 'ring', toState: 'on' },
+          ],
+          stateConditions: [
+            { entity_id: tv.id, op: 'is' as Compare, value: 'playing' },
+          ],
+          steps: [
+            {
+              ...EMPTY_STEP,
+              commandActions: [{ entity_id: tv.id, command: 'pause' }],
+            },
+            {
+              ...EMPTY_STEP,
+              // Halb, nicht ganz: Man geht zur Tür, man liest nicht.
+              // Nach dem Film weiterschauen soll man können, ohne dass
+              // vorher die Deckenbeleuchtung angegangen ist.
+              commandActions: (wohnlicht.length > 0 ? wohnlicht : allLights).map(
+                (entity) => ({
+                  entity_id: entity.id,
+                  command: entity.commands.includes('set_brightness')
+                    ? 'set_brightness'
+                    : 'turn_on',
+                  ...(entity.commands.includes('set_brightness')
+                    ? { brightness: 50 }
+                    : {}),
+                })
+              ),
+            },
+          ],
+        },
+      });
+    }
     templates.push({
       label: 'Licht an, wenn der Fernseher spätabends ausgeht',
       icon: 'tv-outline',

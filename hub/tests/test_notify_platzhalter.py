@@ -150,3 +150,24 @@ async def test_ohne_passende_kamera_geht_die_nachricht_trotzdem_raus():
         assert "camera" not in gesendet[0]["data"]
     finally:
         await hub.stop()
+
+
+def test_meldung_kommt_vom_geraet_selbst():
+    """«Sturmwarnung als Push» soll sagen, wovor gewarnt wird.
+
+    Der Warntext steht am Gerät (MeteoAlarm schreibt ihn als `headline`).
+    Ohne den Platzhalter müsste ihn jeder Ablauf abschreiben – und stünde
+    danach für immer auf der Warnung von damals.
+    """
+    warner = gerät("meteoalarm.switzerland", "MeteoAlarm", None, EntityKind.ALERT)
+    warner.state["headline"] = "Sturm, stark, bis 18:00"
+    assert (
+        kamera.fill("Unwetter: {meldung}", warner) == "Unwetter: Sturm, stark, bis 18:00"
+    )
+
+
+def test_meldung_bleibt_leer_wo_ein_geraet_nichts_zu_sagen_hat():
+    # Die meisten Geräte haben keine `headline`. Der Satz soll trotzdem
+    # lesbar bleiben statt geschweifte Klammern zu zeigen.
+    melder = gerät("hm.flur", "Flur", "Flur")
+    assert kamera.fill("Achtung {meldung}", melder) == "Achtung"

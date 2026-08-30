@@ -21,7 +21,9 @@ Konfiguration:
 from __future__ import annotations
 
 import asyncio
+import re
 import xml.etree.ElementTree as ET
+from datetime import datetime
 from typing import Any
 
 import aiohttp
@@ -149,6 +151,118 @@ def filter_by_area(
     ]
 
 
+#: Woran eine Wind- oder Sturmwarnung zu erkennen ist. Der Feed
+#: beschriftet dasselbe Ereignis je nach Sprachraum anders - der Schweizer
+#: Feed liefert deutsche und französische Einträge nebeneinander -, und
+#: eine Warnung, die nur «Vent» heisst, ist trotzdem eine, bei der die
+#: Storen hochgehören.
+WIND_WOERTER = (
+    "wind",
+    "sturm",
+    "storm",
+    "orkan",
+    "böen",
+    "boen",
+    "gale",
+    "squall",
+    "vent",
+    "tempête",
+    "tempete",
+    "burrasca",
+    "vento",
+)
+
+#: Gesucht wird am *Wortanfang*, nicht irgendwo im Wort. Der Grund heisst
+#: «Thunderstorm»: Darin steckt «storm», und mit einer Suche mitten im
+#: Wort wäre jede Gewitterwarnung eine Sturmwarnung - die Storen führen
+#: dann den halben Sommer grundlos hoch, und irgendwann schaltet jemand
+#: den Ablauf ab. Deutsche Zusammensetzungen tragen die Art vorn
+#: («Sturmwarnung», «Windböen», «Orkanböen»), also greift die Regel
+#: genau dort, wo sie soll.
+_WIND = re.compile(
+    "(?<![a-zà-ÿ])(" + "|".join(WIND_WOERTER) + ")", re.IGNORECASE
+)
+
+#: Wie stark, auf Deutsch. Die Feed-Wörter stehen englisch drin und
+#: gehören so in keine Push-Nachricht.
+SCHWERE_WORT = {
+    "Minor": "gering",
+    "Moderate": "mässig",
+    "Severe": "stark",
+    "Extreme": "extrem",
+}
+
+
+def ist_wind(alerts: list[dict[str, Any]]) -> bool:
+    """Ist eine Wind- oder Sturmwarnung dabei? (rein, testbar)
+
+    Warum überhaupt unterschieden wird: Bei Hitze, Regen oder Glatteis
+    ändert sich an den Storen nichts. Bei Wind schon - und zwar in die
+    Richtung, die man zuerst nicht vermutet. Eine geschlossene Aussenstore
+    ist eine Fläche, in die der Wind greift; hochgezogen ist sie im
+    Kasten. «Sturmschutz» heisst deshalb hoch, nicht zu.
+
+    Gesucht wird in Ereignis *und* Titel: Manche Länder tragen die Art
+    nur im Titel ein, und dann stünde in `event` bloss «Warning».
+    """
+    for alert in alerts:
+        text = f"{alert.get('event') or ''} {alert.get('title') or ''}"
+        if _WIND.search(text):
+            return True
+    return False
+
+
+def bis_wann(expires: Any) -> str:
+    """Das Ende einer Warnung als Uhrzeit (rein, testbar).
+
+    Der Feed schreibt es als ISO-Zeitstempel mit Zeitzone. In einer
+    Nachricht will man «bis 18:00» lesen und nicht
+    «2026-08-30T18:00:00+02:00»; ist der Wert unlesbar, bleibt die
+    Angabe weg statt kaputt dazustehen.
+    """
+    roh = str(expires or "").strip()
+    if not roh:
+        return ""
+    try:
+        # Python 3.11 versteht auch «Z», ältere Feeds schreiben es so.
+        zeit = datetime.fromisoformat(roh.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    if zeit.tzinfo is not None:
+        zeit = zeit.astimezone()
+    return zeit.strftime("%H:%M")
+
+
+def schlagzeile(alerts: list[dict[str, Any]]) -> str:
+    """Die stärkste laufende Warnung in einem Satz (rein, testbar).
+
+    Damit ein Ablauf «Push mit dem Warntext» sagen kann, ohne dass jemand
+    ihn bei jeder Warnung neu tippt: Der Text steht als `headline` am
+    Gerät, und `{meldung}` im Ablauf holt ihn dort ab (core/kamera.py).
+
+    Die stärkste und nicht die erste: Wenn gleichzeitig eine mässige
+    Regen- und eine starke Sturmwarnung laufen, ist die Sturmwarnung
+    die Nachricht.
+    """
+    if not alerts:
+        return ""
+    stark = max(
+        alerts,
+        key=lambda alert: SEVERITY_ORDER.index(alert.get("severity"))
+        if alert.get("severity") in SEVERITY_ORDER
+        else -1,
+    )
+    was = str(stark.get("event") or stark.get("title") or "Unwetterwarnung").strip()
+    teile = [was]
+    wort = SCHWERE_WORT.get(str(stark.get("severity") or ""))
+    if wort:
+        teile.append(wort)
+    ende = bis_wann(stark.get("expires"))
+    if ende:
+        teile.append(f"bis {ende}")
+    return ", ".join(teile)
+
+
 def max_severity(alerts: list[dict[str, Any]]) -> str | None:
     best = None
     for alert in alerts:
@@ -227,6 +341,12 @@ class MeteoAlarmIntegration(Integration):
                 "state": "alert" if alerts else "ok",
                 "count": len(alerts),
                 "max_severity": max_severity(alerts),
+                # Zwei abgeleitete Felder für die Abläufe. Ohne sie
+                # müsste ein Ablauf «nur bei Sturm» die Liste der
+                # Warnungen durchsuchen - das kann er nicht, er
+                # vergleicht einzelne Werte.
+                "wind": "on" if ist_wind(alerts) else "off",
+                "headline": schlagzeile(alerts),
                 "alerts": alerts[:20],
             },
             available=True,

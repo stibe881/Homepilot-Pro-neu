@@ -1,9 +1,12 @@
 from homepilot.integrations.meteoalarm import (
+    bis_wann,
     filter_by_location,
+    ist_wind,
     max_severity,
     parse_feed,
     parse_polygon,
     point_in_polygon,
+    schlagzeile,
 )
 
 SAMPLE_FEED = """<?xml version="1.0" encoding="UTF-8"?>
@@ -83,3 +86,52 @@ def test_filter_by_location_keeps_only_the_own_region():
     # Mit Namensfilter als Rückfallebene wird auch die umrisslose geprüft.
     kept = filter_by_location([alpnach, ohne_umriss], 47.1445, 8.0675, ["Entlebuch"])
     assert kept == []
+
+
+def test_wind_wird_von_regen_unterschieden():
+    """Nur bei Wind gehören die Storen hoch.
+
+    Bei Hitze, Regen oder Glatteis ändert sich an ihnen nichts – ein
+    Sturmschutz, der bei jeder Warnung anspringt, fährt die Storen
+    mehrmals im Sommer grundlos hoch und wird abgeschaltet.
+    """
+    assert ist_wind([{"event": "Wind", "title": "Sturm Warnung"}])
+    assert not ist_wind([{"event": "Thunderstorm", "title": "Gewitter Warnung"}])
+    assert not ist_wind([])
+
+
+def test_wind_auch_wenn_die_art_nur_im_titel_steht():
+    # Manche Länder tragen in `event` bloss «Warning» ein.
+    assert ist_wind([{"event": "Warning", "title": "Orkanböen im Mittelland"}])
+    # Und der Schweizer Feed liefert französische Einträge daneben.
+    assert ist_wind([{"event": "Vent", "title": "Avis de tempête"}])
+
+
+def test_schlagzeile_nimmt_die_staerkste_warnung():
+    """Läuft gleichzeitig eine mässige und eine starke, ist die starke
+    die Nachricht – nicht die, die zufällig zuerst im Feed steht."""
+    alerts = parse_feed(SAMPLE_FEED)
+    assert schlagzeile(alerts) == "Wind, stark"
+
+
+def test_schlagzeile_nennt_das_ende_wenn_es_bekannt_ist():
+    satz = schlagzeile(
+        [
+            {
+                "event": "Sturm",
+                "severity": "Severe",
+                "expires": "2026-08-14T20:00:00+00:00",
+            }
+        ]
+    )
+    assert satz.startswith("Sturm, stark, bis ")
+
+
+def test_ohne_warnung_keine_schlagzeile():
+    assert schlagzeile([]) == ""
+
+
+def test_unlesbares_ende_faellt_weg_statt_kaputt_dazustehen():
+    assert bis_wann("") == ""
+    assert bis_wann("bald") == ""
+    assert bis_wann("2026-08-14T20:00:00+00:00") != ""

@@ -50,19 +50,28 @@ def fill(text: Any, entity: Entity | None) -> str:
     """Platzhalter im Nachrichtentext füllen (rein, testbar).
 
     «Jemand weint im Zimmer {raum}» soll für alle Kinderzimmer gelten und
-    nicht je Kamera abgeschrieben werden. Bekannt sind {gerät} und {raum};
-    ohne auslösendes Gerät bleibt beides leer statt geschweifte Klammern
-    in der Nachricht stehen zu lassen.
+    nicht je Kamera abgeschrieben werden. Bekannt sind {gerät}, {raum} und
+    {meldung}; ohne auslösendes Gerät bleibt alles leer statt geschweifte
+    Klammern in der Nachricht stehen zu lassen.
+
+    {meldung} ist der Text, den das Gerät selbst zu sagen hat - bei
+    MeteoAlarm «Sturm, stark, bis 18:00». Ein Ablauf «Sturmwarnung als
+    Push» muss ihn damit nicht abschreiben, und die Nachricht sagt, wovor
+    gewarnt wird, statt bloss dass gewarnt wird. Geräte ohne `headline`
+    lassen ihn leer - die meisten haben nichts zu sagen ausser ihrem
+    Zustand.
     """
     satz = str(text or "")
     if "{" not in satz:
         return satz
     name = entity.label if entity is not None else ""
     raum = (entity.room if entity is not None else "") or ""
+    meldung = str((entity.state.get("headline") if entity is not None else "") or "")
     for schluessel, wert in (
         ("{gerät}", name),
         ("{geraet}", name),
         ("{raum}", raum),
+        ("{meldung}", meldung),
     ):
         satz = satz.replace(schluessel, wert)
     # Doppelte Leerzeichen, wo ein Platzhalter leer blieb: «Jemand weint
