@@ -59,6 +59,29 @@ export function zustandsText(value: unknown): string {
   return RUHETEXT[wert] ?? wert;
 }
 
+/**
+ * «Bine räumt aus» – wer sich um die volle Maschine kümmert (rein,
+ * testbar).
+ *
+ * `null` heisst: niemand hat übernommen. Der Name kommt vom Hub am
+ * Zustand mit (core/watchdog.py), damit die anderen ihn sehen, ohne die
+ * Nachricht geöffnet zu haben - genau darum geht es: Ohne dieses
+ * Zeichen geht entweder niemand hinunter, weil jeder annimmt, ein
+ * anderer tue es, oder zwei stehen gleichzeitig vor der Trommel.
+ *
+ * Nur an einer stillstehenden Maschine: Läuft sie wieder, ist die
+ * Übernahme von vorhin erledigt, und der Hub räumt sie in der nächsten
+ * Runde weg. In der Sekunde dazwischen soll nicht «Bine räumt aus» über
+ * einem laufenden Programm stehen.
+ */
+export function uebernahmeZeile(entity: Entity | undefined): string | null {
+  if (!entity) return null;
+  const wert = String(entity.state.state ?? '');
+  if (wert === 'running' || wert === 'on') return null;
+  const name = String(entity.state.claimed_by ?? '').trim();
+  return name ? `${name} räumt aus` : null;
+}
+
 /** Zustandstext einer Haushaltgerät-Kachel (rein, testbar). */
 export function applianceLine(
   entity: Entity | undefined,

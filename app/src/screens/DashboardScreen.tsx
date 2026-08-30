@@ -851,6 +851,31 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           .catch(() => {});
         return;
       }
+      // «Ich mach's»: Der Programmlauf ist übernommen. Danach hört das
+      // Nachhaken auf, und bei den anderen steht am Gerät, wer sich
+      // kümmert (hub/core/waschkueche.py).
+      if (druck.handlung === 'ichmachs') {
+        if (druck.entityId) {
+          hub
+            .post<{ claimed?: boolean }>(
+              `/api/appliances/${encodeURIComponent(druck.entityId)}/claim`,
+              {},
+              { still: true }
+            )
+            // Der Hub sagt, ob es noch etwas zu übernehmen gab. Ein
+            // später Druck auf eine überholte Nachricht ist keine
+            // Panne, aber auch kein «erledigt» - das soll dastehen.
+            .then((antwort) =>
+              setNote(
+                antwort?.claimed
+                  ? 'Du räumst aus – die anderen sehen es'
+                  : 'Da ist nichts mehr offen'
+              )
+            )
+            .catch(() => {});
+        }
+        return;
+      }
       // «Erledigt» gibt es bisher für die Batteriewarnung: Sie quittiert
       // das Gerät, damit sie nicht jede Woche wiederkommt.
       if (druck.entityId) {

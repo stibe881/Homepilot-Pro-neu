@@ -191,3 +191,45 @@ def mahnsatz(label: str, seit: float, jetzt: float, gemahnt: int) -> tuple[str, 
         f"Seit {stunden} {wort} fertig - und seither war niemand in der "
         "Waschküche.",
     )
+
+
+# ── «Ich mach's» ───────────────────────────────────────────────────────────
+#
+# Die Meldung «Waschmaschine ist noch voll» geht an alle. Was danach
+# passiert, ist beide Male falsch: Entweder geht niemand hinunter, weil
+# jeder annimmt, ein anderer tue es - oder zwei stehen gleichzeitig vor
+# der Trommel. Beides, weil niemand sieht, was die anderen vorhaben.
+#
+# Ein Knopf unter der Nachricht übernimmt sie. Danach hört das Nachhaken
+# auf, und bei den anderen steht, wer sich kümmert.
+#
+# Die Übernahme gilt für *diesen* Programmlauf, nicht für das Gerät:
+# gemerkt wird das Programmende, das sie meint. Läuft die Maschine
+# wieder, ist das Ende ein anderes, und die nächste Ladung fängt bei
+# null an - sonst hätte ein «Ich mach's» von letzter Woche die
+# Erinnerungen für immer abgestellt.
+
+
+def uebernahme_gilt(eintrag: Any, seit: float | None) -> bool:
+    """Meint diese Übernahme den Programmlauf, der gerade ansteht?
+
+    Verglichen wird das Programmende auf die Sekunde genau: Es ist ein
+    Zeitstempel aus derselben Quelle, keine Messung. Ein Eintrag ohne
+    Ende gehört zu keinem Lauf und zählt nicht.
+    """
+    if not isinstance(eintrag, dict) or seit is None:
+        return False
+    try:
+        return float(eintrag.get("seit")) == float(seit)
+    except (TypeError, ValueError):
+        return False
+
+
+def uebernahmesatz(name: str) -> str:
+    """«Bine räumt aus» – was die anderen am Gerät lesen.
+
+    Der Name und kein «übernommen»: Die Frage, die im Kopf steht, ist
+    «muss ich?», und darauf antwortet nur ein Name.
+    """
+    sauber = str(name or "").strip()
+    return f"{sauber} räumt aus" if sauber else "Jemand räumt aus"

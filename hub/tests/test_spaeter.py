@@ -20,6 +20,8 @@ from .conftest import make_config
 def test_die_knoepfe_haengen_an_der_art_der_meldung():
     assert knoepfe("open") == "spaeter"
     assert knoepfe("battery") == "erledigt"
+    # Die volle Maschine bekommt einen eigenen Griff: «Ich mach's».
+    assert knoepfe("appliance") == "waesche"
 
 
 def test_ohne_sinnvollen_handgriff_keine_knoepfe():

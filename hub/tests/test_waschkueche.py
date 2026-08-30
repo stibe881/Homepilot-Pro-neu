@@ -310,3 +310,126 @@ async def test_die_gewaehlte_tuere_gilt_auch_im_waechter(tagsueber):
         assert len(sent) == before
     finally:
         await hub.stop()
+
+
+# ── «Ich mach's» ─────────────────────────────────────────────────────────
+
+
+def zeit_vor(hub, entity_id: str, sekunden: float) -> None:
+    """Den Programmlauf um so viele Sekunden nach hinten schieben.
+
+    Der Test hat keine Uhr, die er stellen kann, und schiebt stattdessen
+    das Programmende. Eine Übernahme zeigt auf genau dieses Ende, also
+    muss sie mitwandern - sonst prüfte der Test einen Fall, den es im
+    Haus nicht gibt: Der Wächter setzt ``_finished_at`` einmal und rührt
+    es danach nicht mehr an.
+    """
+    hub.watchdog._finished_at[entity_id] -= sekunden
+    eintraege = hub.data.get("laundry_claims")
+    for eintrag in eintraege:
+        if eintrag.get("entity_id") == entity_id:
+            eintrag["seit"] -= sekunden
+    hub.data.set("laundry_claims", eintraege)
+
+
+def test_die_uebernahme_gehoert_zu_einem_lauf_und_nicht_zum_geraet():
+    """Sonst hätte ein «Ich mach's» von letzter Woche die Erinnerungen
+    für immer abgestellt."""
+    eintrag = {"name": "Bine", "seit": 1000.0}
+    assert waschkueche.uebernahme_gilt(eintrag, 1000.0)
+    assert not waschkueche.uebernahme_gilt(eintrag, 2000.0)
+    assert not waschkueche.uebernahme_gilt(eintrag, None)
+    assert not waschkueche.uebernahme_gilt(None, 1000.0)
+    assert not waschkueche.uebernahme_gilt({"name": "Bine"}, 1000.0)
+
+
+def test_am_geraet_steht_ein_name_und_kein_haken():
+    # Die Frage im Kopf ist «muss ich?», und darauf antwortet nur ein Name.
+    assert waschkueche.uebernahmesatz("Bine") == "Bine räumt aus"
+    assert waschkueche.uebernahmesatz("  ") == "Jemand räumt aus"
+
+
+async def test_wer_uebernimmt_hoert_nichts_mehr(tagsueber):
+    sent: list[str] = []
+    wm = maschine()
+    tuere = kontakt("z.wk", "Waschküche", raum="Waschküche")
+    hub = await _hub_mit([wm, tuere], sent)
+    try:
+        await hub.watchdog.check()
+        wm.state = {"state": "idle"}
+        await hub.watchdog.check()
+        hub.watchdog._finished_at["vzug.waschmaschine"] -= 2 * 3600
+        await hub.watchdog.check()
+        assert len([t for t in sent if "voll" in t]) == 1
+
+        assert await hub.watchdog.uebernehmen("vzug.waschmaschine", "Bine")
+        for _ in range(4):
+            zeit_vor(hub, "vzug.waschmaschine", 3600)
+            await hub.watchdog.check()
+        # Nachzuhaken hiesse, ihr zu misstrauen.
+        assert len([t for t in sent if "voll" in t]) == 1
+    finally:
+        await hub.stop()
+
+
+async def test_die_naechste_ladung_faengt_wieder_bei_null_an(tagsueber):
+    sent: list[str] = []
+    wm = maschine()
+    tuere = kontakt("z.wk", "Waschküche", raum="Waschküche")
+    hub = await _hub_mit([wm, tuere], sent)
+    try:
+        await hub.watchdog.check()
+        wm.state = {"state": "idle"}
+        await hub.watchdog.check()
+        hub.watchdog._finished_at["vzug.waschmaschine"] -= 2 * 3600
+        await hub.watchdog.check()
+        await hub.watchdog.uebernehmen("vzug.waschmaschine", "Bine")
+
+        # Die Maschine läuft wieder - die Übernahme von vorhin ist damit
+        # erledigt und darf die nächste Ladung nicht mit abdecken.
+        wm.state = {"state": "running"}
+        await hub.watchdog.check()
+        assert hub.data.get("laundry_claims") == []
+        wm.state = {"state": "idle"}
+        await hub.watchdog.check()
+        hub.watchdog._finished_at["vzug.waschmaschine"] -= 2 * 3600
+        await hub.watchdog.check()
+        assert len([t for t in sent if "voll" in t]) == 2
+    finally:
+        await hub.stop()
+
+
+async def test_wer_unten_war_beendet_auch_die_uebernahme():
+    """«Bine räumt aus» am Gerät stehen zu lassen, nachdem sie
+    ausgeräumt hat, wäre eine Auskunft von gestern."""
+    sent: list[str] = []
+    wm = maschine()
+    tuere = kontakt("z.wk", "Waschküche", raum="Waschküche")
+    hub = await _hub_mit([wm, tuere], sent)
+    try:
+        await hub.watchdog.check()
+        wm.state = {"state": "idle"}
+        await hub.watchdog.check()
+        hub.watchdog._finished_at["vzug.waschmaschine"] -= 2 * 3600
+        await hub.watchdog.check()
+        await hub.watchdog.uebernehmen("vzug.waschmaschine", "Bine")
+        assert hub.data.get("laundry_claims") != []
+
+        tuere.state = {"device_class": "door", "state": "on"}
+        await hub.watchdog.check()
+        assert hub.data.get("laundry_claims") == []
+    finally:
+        await hub.stop()
+
+
+async def test_nichts_zu_uebernehmen_ist_kein_fehler():
+    """Der Normalfall bei einem späten Druck auf eine überholte
+    Nachricht: Die Maschine läuft wieder, oder jemand war schon unten.
+    Dann soll nichts gemerkt werden, was gleich falsch wäre."""
+    sent: list[str] = []
+    hub = await _hub_mit([maschine()], sent)
+    try:
+        assert not await hub.watchdog.uebernehmen("vzug.waschmaschine", "Bine")
+        assert hub.data.get("laundry_claims") == []
+    finally:
+        await hub.stop()

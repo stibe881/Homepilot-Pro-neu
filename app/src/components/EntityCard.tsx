@@ -8,7 +8,7 @@ import { CommandData, Entity, KalenderEintrag } from '../api/types';
 import { Doppelaktion, FENSTER_MS, merkbar } from '../lib/doppeltipp';
 import { Reihe, linienPunkte } from '../lib/funkenlinie';
 import { offlineSatz } from '../lib/funkstille';
-import { zustandsText } from '../lib/haushalt';
+import { uebernahmeZeile, zustandsText } from '../lib/haushalt';
 import { KachelEintrag, kachelAktionen } from '../lib/kachelmenue';
 import { zustandName } from '../lib/hausmusik';
 import { hatWarteschlange } from '../lib/musikliste';
@@ -931,6 +931,12 @@ export function EntityCard({
                   {entity.state.program}
                   {entity.state.program_end ? ` · noch ${entity.state.program_end}` : ''}
                 </Text>
+              ) : null}
+              {/* «Bine räumt aus» – damit niemand ein zweites Mal
+                  hinuntergeht und niemand annimmt, es tue schon ein
+                  anderer (hub/core/waschkueche.py). */}
+              {uebernahmeZeile(entity) ? (
+                <Text style={styles.detail}>{uebernahmeZeile(entity)}</Text>
               ) : null}
             </View>
           );

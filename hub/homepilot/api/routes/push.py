@@ -223,6 +223,34 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         hub.watchdog.tuer_gewechselt(hub.registry.all(), tuer or None)
         return await laundry_door(request)
 
+    @app.post("/api/appliances/{entity_id}/claim")
+    async def claim_appliance(entity_id: str, request: Request) -> dict[str, Any]:
+        """«Ich mach's» – diesen Programmlauf übernimmt jemand.
+
+        Die Meldung «Waschmaschine ist noch voll» geht an alle, und was
+        danach passiert, ist beide Male falsch: Entweder geht niemand
+        hinunter, weil jeder annimmt, ein anderer tue es - oder zwei
+        stehen gleichzeitig vor der Trommel. Hier steht der Name, der
+        das beendet.
+
+        Zum Bedienen und nicht zum Verwalten: Wer die Maschine ausräumen
+        darf, darf auch sagen, dass er es tut.
+        """
+        user = require(request, Capability.CONTROL)
+        entity = hub.registry.get(entity_id)
+        if entity is None or entity.kind != "appliance":
+            raise HTTPException(status_code=404, detail="Kein Haushaltgerät")
+        name = getattr(user, "name", "") or ""
+        genommen = await hub.watchdog.uebernehmen(entity_id, name)
+        # Kein Fehler, wenn es nichts zu übernehmen gibt: Der Normalfall
+        # ist ein später Druck auf eine überholte Nachricht - die
+        # Maschine läuft wieder, oder jemand war schon unten. Die App
+        # soll das sagen können, ohne dass es nach Panne aussieht.
+        return {
+            "claimed": genommen,
+            "by": waschkueche.uebernahmesatz(name) if genommen else None,
+        }
+
     def _gewaehlte_tuer() -> str | None:
         for entry in hub.data.get("laundry"):
             if isinstance(entry, dict) and entry.get("door"):

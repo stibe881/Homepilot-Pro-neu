@@ -1119,6 +1119,10 @@ class Watchdog:
         if wer_da_war:
             self._finished_at.clear()
             self._gemahnt.clear()
+            # Und die Übernahmen: Wer unten war, hat die Sache erledigt -
+            # «Bine räumt aus» am Gerät stehen zu lassen, nachdem sie
+            # ausgeräumt hat, wäre eine Auskunft von gestern.
+            await self._uebernahmen_loeschen()
 
         for entity in entities:
             if entity.kind != "appliance":
@@ -1132,6 +1136,8 @@ class Watchdog:
                     self._started_at[entity.id] = now
                 self._finished_at.pop(entity.id, None)
                 self._gemahnt.pop(entity.id, None)
+                if before != "running":
+                    await self._uebernahme_loeschen(entity.id)
                 continue
             if before == "running" and state == "idle":
                 self._finished_at[entity.id] = now
@@ -1139,7 +1145,22 @@ class Watchdog:
                 continue
 
             since = self._finished_at.get(entity.id)
+            # Eine Übernahme, die keinen laufenden Fall mehr meint, fällt
+            # weg - samt dem Namen am Gerät. Sonst stünde nach einem
+            # Neustart des Hubs für immer «Bine räumt aus» an einer
+            # Maschine, die längst leer ist: Der Merker der Programmläufe
+            # lebt nur im Speicher, die Übernahme aber in der Datei.
+            uebernahme = self._uebernahmen().get(entity.id)
+            if uebernahme is not None and not waschkueche.uebernahme_gilt(
+                uebernahme, since
+            ):
+                await self._uebernahme_loeschen(entity.id)
+                uebernahme = None
             if since is None:
+                continue
+            # Hat jemand «Ich mach's» gedrückt, ist die Frage
+            # beantwortet - nachzuhaken hiesse, ihm zu misstrauen.
+            if uebernahme is not None:
                 continue
             gemahnt = self._gemahnt.get(entity.id, 0)
             if not waschkueche.faellig(
@@ -1153,6 +1174,82 @@ class Watchdog:
             self._gemahnt[entity.id] = gemahnt + 1
             titel, text = waschkueche.mahnsatz(entity.label, since, now, gemahnt)
             await self._notify(titel, text, "appliance", entity_id=entity.id)
+
+    def _uebernahmen(self) -> dict[str, dict[str, Any]]:
+        """Wer welchen Programmlauf übernommen hat, je Gerät.
+
+        In der Datendatei und nicht bloss im Speicher: Ein Neustart des
+        Hubs darf nicht dazu führen, dass alle wieder gemahnt werden,
+        obwohl längst jemand unterwegs ist.
+
+        Gespeichert als *Liste* von Einträgen, weil der DataStore Listen
+        hält - von einem Objekt gäbe ``get`` nur die Schlüssel zurück
+        (siehe den Kommentar bei ``house_prefs``). Hier wird daraus
+        wieder ein Verzeichnis, weil nachgeschlagen und nicht
+        durchlaufen wird.
+        """
+        return {
+            str(eintrag["entity_id"]): eintrag
+            for eintrag in self.hub.data.get("laundry_claims")
+            if isinstance(eintrag, dict) and eintrag.get("entity_id")
+        }
+
+    def _uebernahmen_speichern(self, alle: dict[str, dict[str, Any]]) -> None:
+        self.hub.data.set("laundry_claims", list(alle.values()))
+
+    async def uebernehmen(self, entity_id: str, name: str) -> bool:
+        """«Ich mach's» – diesen Programmlauf übernimmt jemand.
+
+        ``False`` heisst: Es gibt gerade nichts zu übernehmen. Das ist
+        der Normalfall bei einem verspäteten Druck auf eine Nachricht,
+        die längst überholt ist - die Maschine läuft wieder, oder jemand
+        war unten. Dann soll nichts gemerkt werden, was gleich falsch
+        wäre.
+        """
+        seit = self._finished_at.get(entity_id)
+        if seit is None:
+            return False
+        self._uebernahmen_speichern(
+            {
+                **self._uebernahmen(),
+                entity_id: {"entity_id": entity_id, "name": name, "seit": seit},
+            }
+        )
+        # Am Gerät, damit die anderen es sehen, ohne die Nachricht
+        # geöffnet zu haben.
+        await self._claim_state(entity_id, name)
+        return True
+
+    async def _uebernahme_loeschen(self, entity_id: str) -> None:
+        """Eine einzelne Übernahme zurücknehmen."""
+        alle = self._uebernahmen()
+        if entity_id not in alle:
+            return
+        self._uebernahmen_speichern(
+            {key: wert for key, wert in alle.items() if key != entity_id}
+        )
+        await self._claim_state(entity_id, None)
+
+    async def _uebernahmen_loeschen(self) -> None:
+        """Alle Übernahmen zurücknehmen - jemand war in der Waschküche."""
+        alle = self._uebernahmen()
+        if not alle:
+            return
+        self._uebernahmen_speichern({})
+        for entity_id in alle:
+            await self._claim_state(entity_id, None)
+
+    async def _claim_state(self, entity_id: str, name: str | None) -> None:
+        """Den Namen ans Gerät schreiben - oder ihn wieder wegnehmen.
+
+        Ausdrücklich ``None`` und nicht weggelassen: Der Zustand wird
+        gemerged, ein fehlendes Feld bliebe stehen (siehe
+        registry.update_state).
+        """
+        try:
+            await self.hub.registry.update_state(entity_id, {"claimed_by": name})
+        except Exception as err:  # noqa: BLE001 - ein Gerät kann verschwinden
+            log.debug("Übernahme an %s nicht vermerkt: %s", entity_id, err)
 
     def tuer_gewechselt(self, entities: list[Any], gewaehlt: str | None) -> None:
         """Nach einer neuen Türwahl den Merker mitziehen.

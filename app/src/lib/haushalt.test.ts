@@ -1,6 +1,6 @@
 /** Die Kachel-Zeile eines Haushaltgeräts – und die Falle mit der Restzeit. */
 import { Entity } from '../api/types';
-import { applianceLine } from './haushalt';
+import { applianceLine, uebernahmeZeile } from './haushalt';
 
 const geraet = (state: Record<string, unknown>): Entity =>
   ({
@@ -94,5 +94,27 @@ describe('Stillstehende Maschinen heissen «Bereit»', () => {
     // Was nicht «wartet» heisst, bleibt stehen - «Bereit» über einem
     // Fehler wäre die schlechtere Auskunft.
     expect(applianceLine(geraet2('error'), '').text).toBe('error');
+  });
+});
+
+describe('uebernahmeZeile', () => {
+  it('nennt den Namen, wenn jemand übernommen hat', () => {
+    // Die Frage im Kopf ist «muss ich?», und darauf antwortet nur ein Name.
+    expect(uebernahmeZeile(geraet({ state: 'idle', claimed_by: 'Bine' }))).toBe(
+      'Bine räumt aus'
+    );
+  });
+
+  it('schweigt, solange niemand übernommen hat', () => {
+    expect(uebernahmeZeile(geraet({ state: 'idle' }))).toBeNull();
+    expect(uebernahmeZeile(undefined)).toBeNull();
+  });
+
+  it('steht nicht über einem laufenden Programm', () => {
+    // Läuft die Maschine wieder, ist die Übernahme von vorhin erledigt -
+    // der Hub räumt sie in der nächsten Runde weg.
+    expect(
+      uebernahmeZeile(geraet({ state: 'running', claimed_by: 'Bine' }))
+    ).toBeNull();
   });
 });

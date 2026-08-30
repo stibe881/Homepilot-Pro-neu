@@ -21,10 +21,12 @@ import { Platform } from 'react-native';
 /** Dieselben Kennungen wie im Hub (core/push.py). */
 export const KATEGORIE_SPAETER = 'spaeter';
 export const KATEGORIE_ERLEDIGT = 'erledigt';
+export const KATEGORIE_WAESCHE = 'waesche';
 
 /** Die Knöpfe selbst – die Kennung reist mit der Antwort zurück. */
 export const KNOPF_SPAETER = 'spaeter30';
 export const KNOPF_ERLEDIGT = 'erledigt';
+export const KNOPF_ICHMACHS = 'ichmachs';
 
 /**
  * Was dieser Knopf bedeutet (rein, testbar).
@@ -34,9 +36,12 @@ export const KNOPF_ERLEDIGT = 'erledigt';
  * bei Expo `expo.modules.notifications.actions.DEFAULT` und ist keiner
  * unserer Griffe.
  */
-export function knopfHandlung(id: string | undefined): 'spaeter' | 'erledigt' | null {
+export function knopfHandlung(
+  id: string | undefined
+): 'spaeter' | 'erledigt' | 'ichmachs' | null {
   if (id === KNOPF_SPAETER) return 'spaeter';
   if (id === KNOPF_ERLEDIGT) return 'erledigt';
+  if (id === KNOPF_ICHMACHS) return 'ichmachs';
   return null;
 }
 
@@ -61,9 +66,25 @@ export async function knoepfeAnmelden(): Promise<void> {
     buttonTitle: 'Erledigt',
     options: { opensAppToForeground: false },
   };
+  // «Ich mach's» unter der vollen Maschine. Die Meldung geht an alle,
+  // und ohne dieses Zeichen geht danach entweder niemand hinunter -
+  // jeder nimmt an, ein anderer tue es - oder zwei gleichzeitig.
+  //
+  // Harmlos im Sinne der Regel oben: Es schaltet nichts, es sagt nur,
+  // wer sich kümmert. Wer das Telefon vom Tisch nimmt und darauf
+  // drückt, hat höchstens seinen Namen an einer Waschmaschine stehen.
+  const ichmachs = {
+    identifier: KNOPF_ICHMACHS,
+    buttonTitle: 'Ich mach\u2019s',
+    options: { opensAppToForeground: false },
+  };
   await Notifications.setNotificationCategoryAsync(KATEGORIE_SPAETER, [spaeter]);
   await Notifications.setNotificationCategoryAsync(KATEGORIE_ERLEDIGT, [
     erledigt,
+    spaeter,
+  ]);
+  await Notifications.setNotificationCategoryAsync(KATEGORIE_WAESCHE, [
+    ichmachs,
     spaeter,
   ]);
 }

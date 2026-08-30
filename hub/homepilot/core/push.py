@@ -121,10 +121,14 @@ def push_fehlertext(status: int, body: str) -> str:
 KNOEPFE_SPAETER = "spaeter"
 #: Erinnert später und lässt sich abhaken (Batterie, Wartung).
 KNOEPFE_ERLEDIGT = "erledigt"
+#: «Ich mach's» – die volle Maschine übernimmt jemand. Die Meldung geht
+#: an alle, und ohne dieses Zeichen geht danach entweder niemand
+#: hinunter (jeder nimmt an, ein anderer tue es) oder zwei gleichzeitig.
+KNOEPFE_WAESCHE = "waesche"
 
 _KNOEPFE: dict[str, str] = {
     "open": KNOEPFE_SPAETER,
-    "appliance": KNOEPFE_SPAETER,
+    "appliance": KNOEPFE_WAESCHE,
     "shopping": KNOEPFE_SPAETER,
     "medication": KNOEPFE_SPAETER,
     "battery": KNOEPFE_ERLEDIGT,
