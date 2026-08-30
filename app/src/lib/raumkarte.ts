@@ -145,6 +145,22 @@ export function raumaktionen(items: Entity[]): Raumaktion[] {
 }
 
 /**
+ * Welche Aktionen die Kachel zeigt (rein, testbar).
+ *
+ * `undefined` heisst: keine Wahl getroffen - alle, die der Raum hergibt.
+ * Eine Liste heisst: genau diese, in der gewachsenen Reihenfolge der
+ * Aktionen. Auch die leere Liste ist eine Wahl - wer die Knöpfe auf
+ * einer Kachel nicht will, bekommt keine.
+ */
+export function gewaehlteAktionen(
+  aktionen: Raumaktion[],
+  auswahl: string[] | undefined
+): Raumaktion[] {
+  if (auswahl === undefined) return aktionen;
+  return aktionen.filter((aktion) => auswahl.includes(aktion.art));
+}
+
+/**
  * Die Farbe einer Kachel ohne Foto (rein, testbar).
  *
  * Kein Grau und kein Fragezeichen: Ein Zimmer ohne Bild soll nach einer

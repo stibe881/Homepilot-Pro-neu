@@ -40,6 +40,7 @@ import { DeviceHealth } from '../components/DeviceHealth';
 import { RoomTabs } from '../components/RoomTabs';
 import { RoomCard } from '../components/RoomCard';
 import { Raumbild } from '../components/Raumbild';
+import { raumaktionen } from '../lib/raumkarte';
 import { SceneRow } from '../components/SceneRow';
 import { GlobalSearch } from '../components/GlobalSearch';
 import { Grundriss } from '../components/Grundriss';
@@ -665,6 +666,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setDoorConfirm,
     setWidgetData,
     setWidgetButtons,
+    setRaumKnoepfe,
     setWidgetDirect,
     setWidgetKarten,
     setEinkaufLernen,
@@ -2866,6 +2868,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     }}
                     scenes={szenenFuerKachel(scenes, entities, tile.name)}
                     onScene={activateScene}
+                    knoepfeAuswahl={prefs.raumKnoepfe?.[tile.name]}
                   />
                 ))}
             </View>
@@ -3378,6 +3381,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           hatBild={!!bildFuer && !!raumbilder[bildFuer]}
           onClose={() => setBildFuer(null)}
           onChanged={setRaumbilder}
+          // Nur anbieten, was der Raum hergibt: Ein Chip «Storen» in
+          // einem Raum ohne Storen wäre ein Schalter ohne Draht.
+          knoepfe={
+            bildFuer
+              ? raumaktionen(entities.filter((entity) => entity.room === bildFuer)).map(
+                  (aktion) => ({ art: aktion.art, label: aktion.label })
+                )
+              : []
+          }
+          auswahl={bildFuer ? prefs.raumKnoepfe?.[bildFuer] : undefined}
+          onAuswahl={(arts) => {
+            if (bildFuer) setRaumKnoepfe(bildFuer, arts);
+          }}
         />
 
         {confirm ? (

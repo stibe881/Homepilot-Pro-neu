@@ -9,6 +9,12 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Welche Knöpfe auf der Raumkachel liegen, ist jetzt wählbar.** Im
+  Blatt hinter dem langen Druck auf die Kachel (dort, wo auch das
+  Foto gewählt wird) stehen neu Chips für Licht, Storen und Musik -
+  angeboten wird nur, was der Raum hergibt. Die Wahl gilt wie das
+  Bild für alle im Haus, und auch «gar keine Knöpfe» ist eine
+  gültige Wahl. Ohne Wahl bleibt alles wie bisher.
 - **«Terrasse steht offen» kommt nur noch einmal je Öffnung.** Die
   Mahnung war als «einmal je Öffnung» gedacht, aber ihr Merker lebte
   nur im Arbeitsspeicher - und jedes Update startet den Hub neu. Bei
