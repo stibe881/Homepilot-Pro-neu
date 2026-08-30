@@ -1,6 +1,7 @@
 import {
   ZUHAUSE,
   anwesenheitSatz,
+  anwesenheitsPersonen,
   ausTrigger,
   istOrtsmelder,
   ortsSatz,
@@ -99,4 +100,28 @@ test('die Sammelanwesenheit sagt, was sie meint', () => {
   // Frage, die man beim Lesen stellt.
   expect(anwesenheitSatz('off')).toBe('niemand mehr zuhause ist');
   expect(anwesenheitSatz('on')).toBe('jemand zuhause ist');
+});
+
+describe('anwesenheitsPersonen', () => {
+  const zone = (id: string, name: string) => ({ id, name });
+
+  it('macht aus der Entität die Kennung, die der Hub kennt', () => {
+    expect(
+      anwesenheitsPersonen([zone('geofence.levin', 'Levin')])
+    ).toEqual([{ zone: 'levin', name: 'Levin' }]);
+  });
+
+  it('lässt die Sammelfrage weg', () => {
+    // «Jemand zuhause» ist keine Person und lässt sich nicht melden.
+    expect(
+      anwesenheitsPersonen([
+        zone('geofence.anyone_home', 'Jemand zuhause'),
+        zone('geofence.lina', 'Lina'),
+      ]).map((eintrag) => eintrag.zone)
+    ).toEqual(['lina']);
+  });
+
+  it('lässt alles ausserhalb des Geofence weg', () => {
+    expect(anwesenheitsPersonen([zone('hue.decke', 'Decke')])).toEqual([]);
+  });
 });

@@ -1233,3 +1233,39 @@ describe('Wirkte der Ablauf?', () => {
     expect(lastRunText(runs, 'a')).toContain('ausgeführt');
   });
 });
+
+describe('Anwesenheit melden', () => {
+  const schritt = (teil: Partial<StepDraft>): StepDraft => ({
+    ...EMPTY_STEP,
+    kind: 'presence',
+    ...teil,
+  });
+
+  it('speichert die Kennung der Person und die Richtung', () => {
+    expect(
+      stepToActions(schritt({ presenceZone: 'levin', presenceEvent: 'enter' }))
+    ).toEqual([{ type: 'presence', zone: 'levin', event: 'enter' }]);
+  });
+
+  it('lässt einen Schritt ohne Person weg', () => {
+    // Gespeichert wäre er ein Schritt, der beim Laufen nichts findet.
+    expect(stepToActions(schritt({ presenceZone: '' }))).toEqual([]);
+  });
+
+  it('liest sich beim Bearbeiten wieder als Anwesenheit', () => {
+    const zurueck = actionsToSteps([
+      { type: 'presence', zone: 'levin', event: 'leave' },
+    ]);
+    expect(zurueck[0].kind).toBe('presence');
+    expect(zurueck[0].presenceZone).toBe('levin');
+    expect(zurueck[0].presenceEvent).toBe('leave');
+  });
+
+  it('fällt bei unbekannter Richtung auf «kommt an» zurück', () => {
+    // Ein Ankommen richtet schlimmstenfalls nichts an; ein geratenes
+    // «weg» schaltete das Haus ab, während jemand darin sitzt.
+    expect(actionsToSteps([{ type: 'presence', zone: 'levin' }])[0].presenceEvent).toBe(
+      'enter'
+    );
+  });
+});

@@ -23,6 +23,7 @@ Aktionen:
   - {type: scene, scene} / {type: hue_scene, scene}
   - {type: music, do: favorite|sleep|pause_all|night|fade, …} – siehe docs/musik.md
   - {type: notify, title?, body?, to?, camera?}
+  - {type: presence, zone, event: enter|leave}   # «X ist da» ohne Telefon
   - {type: wait_until, ...Bedingung, timeout?: sekunden}
   - {type: fade, entity_id, to: 0..100, minutes}   # weich dimmen (157)
   - {type: automation, automation_id}   # die Aktionen eines anderen mitausführen
@@ -422,6 +423,10 @@ def describe_action(action: dict[str, Any], name_of: Any = None) -> str:
         wer = action.get("to") or "alle"
         bild = " mit Kamerabild" if action.get("camera") else ""
         return f"Nachricht an {wer}: «{action.get('title') or action.get('body') or ''}»{bild}"
+    if atype == "presence":
+        richtung = str(action.get("event") or "enter").strip().lower()
+        wohin = "weg" if richtung in ("leave", "left", "exit", "away", "out") else "zuhause"
+        return f"{action.get('zone') or '?'} gilt als {wohin}"
     if atype == "broadcast":
         boxen = action.get("speakers") or []
         wo = f" auf {len(boxen)} Box(en)" if boxen else " auf allen Boxen"
@@ -2296,10 +2301,55 @@ class AutomationEngine:
                 speakers=[str(s) for s in action.get("speakers") or []] or None,
                 volume=action.get("volume"),
             )
+        elif atype == "presence":
+            return await self._anwesenheit(action)
         elif atype == "music":
             return await self._musik(automation, action)
         else:
             log.warning("Unbekannter Aktionstyp in '%s': %s", automation.alias, atype)
+        return None
+
+    async def _anwesenheit(self, action: dict[str, Any]) -> str | None:
+        """«Levin ist da» – gemeldet von einem Ablauf statt von einem Telefon.
+
+        Wer kein Telefon trägt, hat bisher keine Anwesenheit gehabt. Die
+        Zone gab es (sie entsteht aus der Benutzerliste), aber melden
+        konnte nur das Telefon selbst: `handle_command` an einer
+        Geofence-Zone weist ausdrücklich ab, und das zu Recht - eine Zone
+        ist nichts, was man schaltet.
+
+        Etwas anderes ist es, wenn ein Ereignis im Haus die Ankunft
+        *beweist*: ein Knopf am Schlüsselanhänger, ein eigener
+        Keypad-Code, ein Fob am Türschloss. Dann ist die Meldung so gut
+        wie die des Telefons - und dieser Schritt ist der Weg dafür.
+
+        Die Quelle heisst darum «ablauf» und nicht «geofence»: In der
+        Diagnose steht sonst bei Levin dasselbe wie bei allen anderen,
+        und die Frage «warum meldet sich das Telefon nicht» wäre bei
+        jemandem gestellt, der keines hat.
+
+        Ein Ankommen darf ohnehin jede Quelle melden - das «weg» bleibt
+        beim Führenden (core/presence.py: meldung_annehmen). Wer ein
+        Telefon *und* einen Knopf hat, kann sich damit früher anmelden,
+        aber nicht selbst abmelden.
+        """
+        zone = str(action.get("zone") or "").strip().lower()
+        if not zone:
+            return "Anwesenheit: keine Person angegeben"
+        dienst = self.hub.integrations.get("geofence")
+        if dienst is None or not hasattr(dienst, "report"):
+            return "Anwesenheit: die geofence-Integration ist nicht eingerichtet"
+        try:
+            await dienst.report(
+                zone, str(action.get("event") or "enter"), source="ablauf"
+            )
+        except KeyError:
+            # Kein Absturz, sondern ein Satz im Verlauf: Eine Zone
+            # verschwindet, wenn jemand aus der Benutzerliste fällt, und
+            # dann soll der Ablauf sagen, wen er nicht findet.
+            return f"Anwesenheit: «{zone}» kennt der Hub nicht"
+        except ValueError as err:
+            return f"Anwesenheit: {err}"
         return None
 
     async def _musik(self, automation: Automation, action: dict[str, Any]) -> str | None:

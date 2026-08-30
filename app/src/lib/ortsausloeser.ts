@@ -125,3 +125,23 @@ export function ortsSatz(wer: string, trigger: { to?: unknown; from?: unknown })
   const wo = ortsWort(wahl.ort);
   return wahl.richtung === 'an' ? `${wer} kommt bei ${wo} an` : `${wer} verlässt ${wo}`;
 }
+
+/**
+ * Die Personen, für die sich eine Anwesenheit melden lässt (rein, testbar).
+ *
+ * Der Ablauf-Schritt «Anwesenheit melden» speichert die *Kennung* der
+ * Zone (`levin`) und nicht die Entität (`geofence.levin`): Der Hub
+ * meldet über dieselbe Türe, durch die auch die Kurzbefehle melden, und
+ * die kennt nur Zonen. In der Auswahl steht trotzdem der Name – eine
+ * Liste aus Kennungen wäre eine Liste, in der man seine Familie sucht.
+ */
+export function anwesenheitsPersonen<E extends { id: string; name: string }>(
+  entities: E[]
+): { zone: string; name: string }[] {
+  return entities
+    .filter((entity) => istOrtsmelder(entity.id))
+    .map((entity) => ({
+      zone: entity.id.slice('geofence.'.length),
+      name: entity.name,
+    }));
+}

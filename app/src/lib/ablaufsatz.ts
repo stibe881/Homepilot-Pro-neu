@@ -199,6 +199,12 @@ function aktionSatz(
       return 'Nachricht';
     case 'broadcast':
       return 'Durchsage';
+    case 'presence':
+      // Der Name der Person und die Richtung - «Anwesenheit» allein
+      // liesse offen, ob jemand kommt oder geht.
+      return `${action.zone ?? '?'} gilt als ${
+        String(action.event ?? 'enter') === 'leave' ? 'weg' : 'zuhause'
+      }`;
     case 'delay': {
       const sekunden = Number(action.seconds) || 0;
       return sekunden >= 60 ? `${Math.round(sekunden / 60)} Min warten` : `${sekunden} s warten`;

@@ -518,6 +518,18 @@ def diagnose(person: str, state: dict[str, Any], now: float) -> dict[str, Any]:
         # Die einzige Quelle, die wirklich im Takt meldet - hier darf
         # der Satz das auch behaupten.
         text = "Meldet sich regelmässig (über Life360)."
+    elif quelle == "ablauf":
+        # Kein Telefon, sondern ein Ereignis im Haus: ein Knopf am
+        # Schlüsselanhänger, ein Keypad-Code. Der Satz darunter («das
+        # Telefon meldet nur beim Kommen und Gehen … App öffnen») wäre
+        # hier ein Rat an jemanden, der gar keine App hat.
+        minuten = int(alter // 60) if alter else 0
+        wann = f"vor {minuten} Min." if minuten < 120 else f"vor {minuten // 60} Std."
+        text = (
+            f"Zuletzt {wann} von einem Ablauf gemeldet - kein Telefon, "
+            "sondern ein Knopf oder ein Code im Haus. Ohne neue Meldung "
+            "gilt der Stand nach zwölf Stunden als unbekannt."
+        )
     else:
         # Telefon-Meldungen kommen NUR beim Übertreten einer Grenze. Hier
         # stand «Meldet sich regelmässig» - und genau dieser Satz hat in

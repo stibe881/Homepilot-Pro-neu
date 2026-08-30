@@ -564,7 +564,7 @@ export interface NotifyKnopf {
   command?: string;
 }
 
-export type StepKind = 'command' | 'toggle_all' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'delay' | 'wait_until' | 'fade' | 'music';
+export type StepKind = 'command' | 'toggle_all' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'presence' | 'delay' | 'wait_until' | 'fade' | 'music';
 
 /** Was ein Musik-Schritt tun kann. */
 export type MusikTat = 'favorite' | 'sleep' | 'pause_all' | 'night' | 'fade';
@@ -683,6 +683,12 @@ export interface StepDraft {
   waitTimeout: string;
   /** Durchsage: was gesagt wird, und auf welchen Boxen (leer = alle). */
   broadcastText: string;
+  /** Anwesenheit melden: die Kennung der Person (Zone) und die Richtung.
+   *  Für alle, die kein Telefon tragen - ein Knopf am Schlüsselanhänger
+   *  oder ein eigener Code am Türschloss meldet die Ankunft an ihrer
+   *  Stelle (hub/core/automation.py: _anwesenheit). */
+  presenceZone: string;
+  presenceEvent: 'enter' | 'leave';
   broadcastSpeakers: string[];
   /** Dimmen über Zeit (Punkt 157): welches Licht, wohin, wie lange. */
   fadeEntityId: string;
@@ -717,6 +723,8 @@ export const EMPTY_STEP: StepDraft = {
   waitValue: 'off',
   waitTimeout: '300',
   broadcastText: '',
+  presenceZone: '',
+  presenceEvent: 'enter',
   broadcastSpeakers: [],
   fadeEntityId: '',
   fadeTo: '0',
@@ -1385,6 +1393,12 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
       },
     ];
   }
+  if (step.kind === 'presence') {
+    if (!step.presenceZone) return [];
+    return [
+      { type: 'presence', zone: step.presenceZone, event: step.presenceEvent },
+    ];
+  }
   if (step.kind === 'fade') {
     if (!step.fadeEntityId) return [];
     return [
@@ -1625,6 +1639,13 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
         kind: 'broadcast',
         broadcastText: action.text ?? '',
         broadcastSpeakers: Array.isArray(action.speakers) ? action.speakers : [],
+      });
+    } else if (type === 'presence') {
+      steps.push({
+        ...EMPTY_STEP,
+        kind: 'presence',
+        presenceZone: String(action.zone ?? ''),
+        presenceEvent: String(action.event ?? 'enter') === 'leave' ? 'leave' : 'enter',
       });
     } else if (type === 'fade') {
       steps.push({
@@ -1948,6 +1969,8 @@ export function namensVorschlag(draft: Draft, entities: Entity[]): string {
     dann = name(schritt.commandActions[0]?.entity_id ?? '');
   } else if (schritt.kind === 'broadcast') {
     dann = 'Durchsage';
+  } else if (schritt.kind === 'presence') {
+    dann = 'Anwesenheit';
   } else if (schritt.kind === 'notify') {
     dann = 'Nachricht';
   } else if (schritt.kind === 'scene' || schritt.kind === 'hue_scene') {

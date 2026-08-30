@@ -11,7 +11,7 @@ import { Entity, Scene } from '../../api/types';
 import { Colors, useColors } from '../../theme';
 import { ablaufSatz } from '../../lib/ablaufsatz';
 import { datumUhr } from '../../lib/format';
-import { ZUHAUSE, istOrtsmelder, ortsauswahl } from '../../lib/ortsausloeser';
+import { ZUHAUSE, anwesenheitsPersonen, istOrtsmelder, ortsauswahl } from '../../lib/ortsausloeser';
 import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, KAMERA_AUSLOESER, PLATZHALTER, hatWartezeit, measurableAttributes, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis } from './entwurf';
 import {
   CategoryField,
@@ -1536,6 +1536,11 @@ export function StepList({
               ...(entities.some((entity) => entity.commands.includes('play_url'))
                 ? [{ key: 'broadcast', label: 'Durchsage' }]
                 : []),
+              // «X ist da» ohne Telefon - nur, wo es überhaupt Personen
+              // gibt, für die sich das melden liesse.
+              ...(anwesenheitsPersonen(entities).length > 0
+                ? [{ key: 'presence', label: 'Anwesenheit melden' }]
+                : []),
               // Dimmen über Zeit (Punkt 157) - nur wenn eine Lampe die
               // Helligkeit überhaupt kann.
               ...(entities.some((entity) => entity.commands.includes('set_brightness'))
@@ -1712,6 +1717,44 @@ export function StepList({
                 ohne Bild an. Auf dem iPhone braucht es zusätzlich einen
                 eigenen App-Build (siehe docs/eigener-app-build.md).
               </Text>
+            </>
+          ) : step.kind === 'presence' ? (
+            <>
+              <Text style={styles.triggerNote}>
+                Für alle, die kein Telefon tragen: Ein Knopf am
+                Schlüsselanhänger oder ein eigener Code am Türschloss meldet
+                die Ankunft an ihrer Stelle. Danach gilt die Person als
+                zuhause – und der Heimkomm-Ablauf läuft wie bei allen
+                anderen.
+              </Text>
+              <Choice
+                options={anwesenheitsPersonen(entities).map((person) => ({
+                  key: person.zone,
+                  label: person.name,
+                }))}
+                value={step.presenceZone}
+                onSelect={(presenceZone) => setStep(index, { presenceZone })}
+              />
+              <Choice
+                options={[
+                  { key: 'enter', label: 'ist zuhause' },
+                  { key: 'weg', label: 'ist weg' },
+                ]}
+                value={step.presenceEvent === 'leave' ? 'weg' : 'enter'}
+                onSelect={(wahl) =>
+                  setStep(index, {
+                    presenceEvent: wahl === 'weg' ? 'leave' : 'enter',
+                  })
+                }
+              />
+              {step.presenceEvent === 'leave' ? (
+                <Text style={styles.triggerNote}>
+                  «Ist weg» wird überhört, solange ein Telefon dieselbe Person
+                  meldet: Das Ankommen darf jeder melden, das Weggehen nur die
+                  führende Quelle. Sonst schaltete ein Knopf in der Hosentasche
+                  das Haus ab, während jemand darin sitzt.
+                </Text>
+              ) : null}
             </>
           ) : step.kind === 'broadcast' ? (
             <>

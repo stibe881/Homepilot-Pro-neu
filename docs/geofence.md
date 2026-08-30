@@ -271,3 +271,38 @@ und `quartier` –, und ein Ablauf kann darauf hören.
 Die Zone (`- id: oma`) muss oben unter `geofence` stehen; sonst schreibt
 der Hub genau das ins Protokoll. Der Akkustand kommt mit und steht in der
 Anwesenheits-Diagnose («Warum steht da das?»).
+
+## Wer kein Telefon trägt
+
+Ein Kind ohne Telefon hat trotzdem eine Zone – sie entsteht aus der
+Benutzerliste. Melden konnte sie bisher nur ein Telefon, und damit blieb
+sie leer: Der Heimkomm-Ablauf lief für dieses Kind nie.
+
+Dafür gibt es den Ablauf-Schritt **«Anwesenheit melden»**:
+
+```yaml
+  - type: presence
+    zone: levin
+    event: enter        # oder leave
+```
+
+Er gehört unter einen Auslöser, der die Ankunft *beweist* – ein Knopf am
+Schlüsselanhänger, ein eigener Code am Türschloss, ein Fob. Dann ist die
+Meldung so gut wie die eines Telefons, und `geofence.anyone_home` stimmt
+wieder.
+
+Drei Dinge, die man dabei wissen muss:
+
+- **Die Quelle heisst `ablauf`.** In der Anwesenheits-Diagnose steht
+  darum nicht der Rat «App öffnen und ‹Jetzt melden› drücken» – der
+  ginge an jemanden, der keine App hat.
+- **Ankommen darf jeder melden, Weggehen nur die führende Quelle.**
+  Wer ein Telefon *und* einen Knopf hat, kann sich damit früher
+  anmelden, aber nicht selbst abmelden: Ein Knopf, der in der
+  Hosentasche gedrückt wird, soll nicht das Haus abschalten, während
+  jemand darin sitzt (core/presence.py: `meldung_annehmen`).
+- **Ohne neue Meldung verfällt der Stand nach zwölf Stunden** auf
+  «unbekannt», und das zählt als weg. Wer kein «Ich gehe» drückt, steht
+  also am nächsten Morgen wieder auf weg – für die Frage «ist Levin
+  jetzt heimgekommen?» ist das richtig, für «war er heute überhaupt da?»
+  ist es der Verlauf, den man liest.
