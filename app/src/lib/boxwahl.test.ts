@@ -1,4 +1,4 @@
-import { zielBox } from './boxwahl';
+import { boxWechsel, zielBox } from './boxwahl';
 
 const BOXEN = ['Büro', 'Terrasse', 'Küche'];
 
@@ -24,3 +24,25 @@ test('aus voelliger Stille die erste sichtbare', () => {
   expect(zielBox(null, null, null, BOXEN)).toBe('Büro');
   expect(zielBox(null, null, null, [])).toBeNull();
 });
+
+describe('boxWechsel', () => {
+  const quelle = { id: 'spotify', kannUmziehen: true, devices: ['Büro', 'Terrasse'], spielt: true };
+
+  it('zieht die Musik um, wenn die Quelle die Box kennt', () => {
+    expect(boxWechsel(quelle, { id: 'box.buero', name: 'Büro' })).toEqual({
+      art: 'umzug',
+      device: 'Büro',
+      play: true,
+    });
+  });
+
+  it('wechselt nur die Ansicht, wenn die Quelle die Box nicht kennt', () => {
+    expect(boxWechsel(quelle, { id: 'box.bad', name: 'Bad' })).toEqual({ art: 'ansicht' });
+  });
+
+  it('wechselt nur die Ansicht ohne Quelle oder auf die Quelle selbst', () => {
+    expect(boxWechsel(null, { id: 'box.buero', name: 'Büro' })).toEqual({ art: 'ansicht' });
+    expect(boxWechsel(quelle, { id: 'spotify', name: 'Spotify' })).toEqual({ art: 'ansicht' });
+  });
+});
+

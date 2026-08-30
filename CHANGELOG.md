@@ -9,6 +9,15 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Der Musik-Knopf der Raumkachel öffnet jetzt den Player.** Bisher
+  schaltete er blind Play/Pause auf der Raumbox; für eine Playlist
+  musste man auf die Startseite zurück und dort erst die Box wählen.
+  Jetzt öffnet der Knopf denselben Player wie auf der Startseite als
+  Blatt - mit der Box des Raums vorgewählt. Es ist bewusst derselbe
+  Player (kein zweiter): Auch die Boxwahl-Regel, die Musik einmal
+  auf der Terrasse statt im Büro hat spielen lassen, existiert
+  weiterhin genau einmal (lib/boxwahl.ts). Das Knopf-Symbol ist neu
+  eine Note statt Play/Pause - es verspricht kein Schalten mehr.
 - **Die Storen-Kachel passt sich ihrer Breite an.** Auf der halben
   Telefonbreite brach «Beschattung» mitten im Wort, und das Fenster
   in voller Höhe machte die Kachel fast doppelt so hoch wie ihre

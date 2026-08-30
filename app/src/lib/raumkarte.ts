@@ -126,7 +126,11 @@ export function raumaktionen(items: Entity[]): Raumaktion[] {
     aktionen.push({
       art: 'musik',
       label: 'Musik',
-      icon: laeuft ? 'pause' : 'play',
+      // Kein Play/Pause-Symbol mehr: Der Knopf öffnet seit dem Musik-
+      // Blatt den Player (DashboardScreen), statt blind zu schalten -
+      // das Symbol soll kein Schalten versprechen. Die Note füllt sich,
+      // solange hier Musik läuft.
+      icon: laeuft ? 'musical-notes' : 'musical-notes-outline',
       an: laeuft,
       befehle: [
         {
