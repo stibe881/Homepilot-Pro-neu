@@ -9,6 +9,7 @@
 import { StyleSheet } from 'react-native';
 
 import { Colors, radius, space, type } from '../../theme';
+import { ZIFFERN, schrift } from '../../lib/schriftart';
 
 export const makeStyles = (colors: Colors) =>
   StyleSheet.create({
@@ -127,6 +128,10 @@ export const makeStyles = (colors: Colors) =>
       fontSize: type.greeting,
       fontWeight: '300',
       letterSpacing: 0.2,
+      // Die Display-Schrift im mageren Schnitt: Der Satz war schon
+      // vorher leicht gesetzt, und die Schrift soll den Blick ändern,
+      // nicht das Layout (lib/schriftart.ts).
+      ...schrift('leicht'),
     },
     split: {
       flexDirection: 'row',
@@ -333,6 +338,7 @@ export const makeStyles = (colors: Colors) =>
       fontSize: 24,
       fontWeight: '700',
       marginTop: 2,
+      ...schrift(),
     },
     raumKopf: { gap: 8 },
     raumKopfText: { color: colors.onGradient, fontSize: 15, fontWeight: '600' },
@@ -377,7 +383,15 @@ export const makeStyles = (colors: Colors) =>
       gap: 12,
     },
     raumKlimaBlock: { alignItems: 'flex-end' },
-    raumKlimaTemp: { color: colors.onGradient, fontSize: 30, fontWeight: '300' },
+    raumKlimaTemp: {
+      color: colors.onGradient,
+      fontSize: 30,
+      fontWeight: '300',
+      ...schrift('leicht'),
+      // Gleich breite Ziffern: Sonst rutscht die Zahl seitlich, sooft
+      // aus 21,4 ein 21,5 wird.
+      ...ZIFFERN,
+    },
     raumKlimaSub: { color: colors.onGradientSoft, fontSize: 12 },
     raumFakten: { color: colors.onGradientSoft, fontSize: 14, marginTop: 2 },
     reorderButton: {

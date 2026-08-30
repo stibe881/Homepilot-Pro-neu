@@ -1,6 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFonts } from 'expo-font';
+
+import { DISPLAY, DISPLAY_LEICHT } from './src/lib/schriftart';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Notifications from 'expo-notifications';
 import { StatusBar } from 'expo-status-bar';
@@ -113,7 +115,14 @@ export default function App() {
   // Ohne dieses Warten zeichnet das erste Symbol, bevor die Icon-Schrift da
   // ist – und bleibt dann dauerhaft leer. Scheitert das Laden, geht es
   // trotzdem weiter: lieber ohne Symbole als gar keine Oberfläche.
-  const [fontsLoaded, fontError] = useFonts(Ionicons.font);
+  // Dazu die Display-Schrift für Begrüssung, Raumnamen und die grossen
+  // Werte (lib/schriftart.ts). Scheitert sie, gilt dort Systemschrift -
+  // deshalb steht sie im selben Aufruf und blockiert nichts extra.
+  const [fontsLoaded, fontError] = useFonts({
+    ...Ionicons.font,
+    [DISPLAY]: require('./assets/fonts/FamiljenGrotesk-Bold.ttf'),
+    [DISPLAY_LEICHT]: require('./assets/fonts/FamiljenGrotesk-Regular.ttf'),
+  });
   // Beim ersten Start: Anmeldung oder doch der alte Weg über den QR-Code?
   const [useToken, setUseToken] = useState(false);
   const fontsSettled = fontsLoaded || fontError != null;

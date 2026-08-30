@@ -6,6 +6,7 @@
 import { StyleSheet } from 'react-native';
 
 import { Colors, radius, type } from '../../theme';
+import { ZIFFERN, schrift } from '../../lib/schriftart';
 
 
 export const makeStyles = (colors: Colors) =>
@@ -427,7 +428,9 @@ export const makeStyles = (colors: Colors) =>
     justifyContent: 'space-between',
   },
   lichtPunkt: { width: 10, height: 10, borderRadius: 5 },
-  lichtWert: { fontSize: type.value, fontWeight: '600' },
+  // Der grosse Wert auf der Lichtkachel trägt die Display-Schrift -
+  // eine der wenigen Stellen mit Platz dafür (lib/schriftart.ts).
+  lichtWert: { fontSize: type.value, fontWeight: '600', ...schrift(), ...ZIFFERN },
   lichtName: { fontSize: type.cardTitle, fontWeight: '700', marginTop: 2 },
   lichtUnter: { fontSize: type.cardSub, opacity: 0.85, marginTop: 1 },
   szeneStand: { fontSize: 12, fontWeight: '600', opacity: 0.8, marginTop: 3 },
@@ -478,6 +481,8 @@ export const makeStyles = (colors: Colors) =>
     color: colors.ink,
     fontSize: type.value,
     fontWeight: '600',
+    ...schrift(),
+    ...ZIFFERN,
   },
   hint: {
     color: colors.inkSoft,
