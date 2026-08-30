@@ -162,6 +162,7 @@ import { useKachelnutzung } from '../hooks/useKachelnutzung';
 import { useRaumnutzung } from '../hooks/useRaumnutzung';
 import { gelernt, hinweisGelernt, nachGewohnheit } from '../lib/kachellernen';
 import { useSensorlinien } from '../hooks/useSensorlinien';
+import { useAusfall } from '../hooks/useAusfall';
 import { useTakt } from '../hooks/useTakt';
 import { ErinnerungOverlay } from './dashboard/Erinnerungsvollbild';
 import { GroupControls } from './dashboard/Gruppensteuerung';
@@ -388,6 +389,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   }, [section]);
 
   const [now, setNow] = useState(() => new Date());
+  // Ob die Trennung Bestand hat - erst dann kommt der Ausfall-Balken.
+  const ausfall = useAusfall(status);
   const [gridWidth, setGridWidth] = useState(0);
   const [editing, setEditing] = useState(false);
   const [reorderOpen, setReorderOpen] = useState(false);
@@ -3193,10 +3196,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             // Loslassen landet sie dort, wo sie war.
             scrollEnabled={!drag}
           >
-            {status !== 'connected' && entities.length > 0 ? (
+            {ausfall && entities.length > 0 ? (
               // Getrennt, aber wir haben den letzten Stand: lieber alte Werte
               // mit deutlichem Hinweis als eine leere Seite. Geschaltet wird
               // trotzdem nicht - die Befehle liefen ins Leere.
+              //
+              // Erst nach der Gnadenfrist (hooks/useAusfall.ts): Beim
+              // Aufwachen verbindet die App grundsätzlich neu, und der
+              // Balken schob dabei jedes Mal die Seite nach unten und
+              // beim Verschwinden wieder hoch - der erste Tipp traf den
+              // Inhalt im Sprung. Den Verbindungsstand selbst zeigt
+              // derweil die Kopfzeile.
               <View style={styles.offlineBanner}>
                 <Ionicons name="cloud-offline-outline" size={16} color={colors.warn} />
                 <Text style={styles.offlineText} numberOfLines={2}>
