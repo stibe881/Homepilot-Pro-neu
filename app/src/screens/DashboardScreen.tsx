@@ -112,7 +112,6 @@ import {
   hinweis as tageszeitHinweis,
   jetzigerAbschnitt,
   lohntSich,
-  nachTageszeit,
 } from '../lib/tageszeit';
 import { hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
@@ -159,7 +158,9 @@ import {
 } from '../lib/widgetButtons';
 import { HubProvider } from '../hooks/HubContext';
 import { useFamilienlisten } from '../hooks/useFamilienlisten';
+import { useKachelnutzung } from '../hooks/useKachelnutzung';
 import { useRaumnutzung } from '../hooks/useRaumnutzung';
+import { gelernt, hinweisGelernt, nachGewohnheit } from '../lib/kachellernen';
 import { useSensorlinien } from '../hooks/useSensorlinien';
 import { useTakt } from '../hooks/useTakt';
 import { ErinnerungOverlay } from './dashboard/Erinnerungsvollbild';
@@ -537,6 +538,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const trends = useSensorlinien(hub, status);
   // Wie oft welcher Raum bedient wurde (hooks/useRaumnutzung.ts).
   const { raumZaehler, zaehleRaum } = useRaumnutzung();
+  // Und wie oft welches Gerät zu welcher Tageszeit
+  // (hooks/useKachelnutzung.ts) - daraus wird die gelernte Reihenfolge.
+  const { kachelZaehler, zaehleKachel } = useKachelnutzung();
   // Ist gerade jemand da? Beim Öffnen der Einstellungen fragen,
   // nicht dauernd: Die Zeile im Menü ist der einzige Ort, an dem die
   // Antwort gebraucht wird - und dort steht sie eine Sekunde später.
@@ -950,11 +954,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         return;
       }
       // Erst zählen, dann schalten: Die Zählung speist die Sortierung
-      // «meistbenutzter Raum zuoberst» (lib/raumnutzung.ts).
+      // «meistbenutzter Raum zuoberst» (lib/raumnutzung.ts) - und je
+      // Gerät und Tageszeit die gelernte Kachel-Reihenfolge
+      // (lib/kachellernen.ts).
       zaehleRaum(entity?.room);
+      zaehleKachel(entityId);
       sendCommand(entityId, command, data);
     },
-    [entities, locked, sendCommand, prefs.bioLock, user?.shared, zaehleRaum]
+    [
+      entities,
+      locked,
+      sendCommand,
+      prefs.bioLock,
+      user?.shared,
+      zaehleRaum,
+      zaehleKachel,
+    ]
   );
 
   /**
@@ -1382,8 +1397,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Kachel, und sie springt zur nächsten vollen Stunde weg.
   const tageszeitAn = !!eigenePrefs.tageszeit && !editing && !searching && lohntSich(shown);
   const abschnitt = tageszeitAn ? jetzigerAbschnitt(now.getTime()) : null;
-  const nachZeit = <T extends { kind: string }>(liste: T[]): T[] =>
-    abschnitt ? nachTageszeit(liste, abschnitt) : liste;
+  // Die feste Arten-Liste ist der Boden; wo genug gelernt ist, zieht die
+  // Gewohnheit einzelne Kacheln davor (lib/kachellernen.ts). Erst nach
+  // drei Griffen in derselben Tageszeit, und die Werte verblassen -
+  // sonst hielte die Seite jeden Zufall für die Regel.
+  const nachZeit = <T extends { id: string; kind: string }>(liste: T[]): T[] =>
+    abschnitt ? nachGewohnheit(liste, abschnitt, kachelZaehler, now.getTime()) : liste;
+  // Ob die Gewohnheit gerade wirklich mitredet - der Hinweis oben soll
+  // den Unterschied sagen, sonst hält man die umsortierte Seite für
+  // einen Fehler.
+  const gewohnheitWirkt =
+    abschnitt != null && gelernt(kachelZaehler, abschnitt.key, now.getTime()).length > 0;
 
   const rest =
     section === 'home'
@@ -2442,12 +2466,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               />
               <View style={{ flex: 1 }}>
                 <Text style={styles.reorderText}>
-                  {abschnitt ? tageszeitHinweis(abschnitt) : 'Feste Reihenfolge'}
+                  {abschnitt
+                    ? gewohnheitWirkt
+                      ? hinweisGelernt(abschnitt)
+                      : tageszeitHinweis(abschnitt)
+                    : 'Feste Reihenfolge'}
                 </Text>
                 <Text style={styles.kameraSortHint}>
-                  {eigenePrefs.tageszeit
-                    ? 'Morgens Storen, abends Licht – die Reihenfolge wandert mit dem Tag. Gilt nur für dich.'
-                    : 'Immer dieselbe Reihenfolge, egal wie spät es ist.'}
+                  {!eigenePrefs.tageszeit
+                    ? 'Immer dieselbe Reihenfolge, egal wie spät es ist.'
+                    : gewohnheitWirkt
+                      ? 'Was du um diese Zeit oft anfasst, steht vorn – gezählt auf diesem Gerät, und es verblasst wieder.'
+                      : 'Morgens Storen, abends Licht – die Reihenfolge wandert mit dem Tag. Gilt nur für dich.'}
                 </Text>
               </View>
               <Ionicons
