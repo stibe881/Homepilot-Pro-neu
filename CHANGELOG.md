@@ -9,6 +9,15 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Die Kacheln der Kamera-Zeitleiste zeigen jetzt die Aufnahme.**
+  Bisher sagten sie nur «12:05, Person» - ansehen konnte man nichts.
+  Ein Tipp öffnet jetzt die Aufnahme des Ereignisses als Video: Der
+  Hub exportiert sie in dem Moment aus Protect (zwei Sekunden
+  Vorlauf, mindestens sechs, höchstens neunzig Sekunden) und liefert
+  sie mit Range-Unterstützung aus - ohne die spielt der iOS-Player
+  gar nicht erst los. Kamera-Adresse und Zugangsdaten bleiben wie
+  beim Live-Bild auf dem Hub. Antippbar sind die Kacheln nur, wenn
+  die Integration Aufnahmen liefern kann.
 - **Der Musik-Knopf der Raumkachel öffnet jetzt den Player.** Bisher
   schaltete er blind Play/Pause auf der Raumbox; für eine Playlist
   musste man auf die Startseite zurück und dort erst die Box wählen.

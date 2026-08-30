@@ -1,12 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Entity, HubSettings } from '../api/types';
 import { gefiltert, FilterLage } from '../lib/ereignisfilter';
 import { uhr } from '../lib/format';
 import { Colors, radius, useColors } from '../theme';
 import { hubClient } from '../api/client';
+import { Aufnahme } from './Aufnahme';
+import { aufnahmeUrl } from '../lib/aufnahmeurl';
 
 /**
  * Was an dieser Kamera über den Tag los war.
@@ -53,6 +55,10 @@ export function CameraTimeline({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [events, setEvents] = useState<CameraEvent[] | null>(null);
   const [supported, setSupported] = useState(true);
+  // Ob der Hub zu den Ereignissen auch Aufnahmen liefern kann - nur dann
+  // werden die Kacheln antippbar. Und welche gerade offen ist.
+  const [clips, setClips] = useState(false);
+  const [offen, setOffen] = useState<CameraEvent | null>(null);
   // Die beiden Filter: nur Personen, nur tagsüber (lib/ereignisfilter).
   // Flüchtig mit Absicht - ein Filter, der kleben bleibt, ist morgen
   // die Leiste, auf der scheinbar nichts war.
@@ -66,13 +72,14 @@ export function CameraTimeline({
     // Ohne Antwort bleibt die Zeitleiste leer - das Kamerabild darüber
     // funktioniert unabhängig davon.
     hubClient(settings.url, settings.token)
-      .get<{ supported?: boolean; events?: unknown } | null>(
+      .get<{ supported?: boolean; events?: unknown; clips?: boolean } | null>(
         `/api/entities/${entity.id}/events?hours=24`,
         { fallback: null, still: true }
       )
       .then((body) => {
         if (cancelled || !body) return;
         setSupported(body.supported !== false);
+        setClips(body.clips === true);
         setEvents(Array.isArray(body.events) ? body.events : []);
       });
     return () => {
@@ -138,13 +145,23 @@ export function CameraTimeline({
           {sichtbar.map((event) => {
             const person = event.detected.includes('person');
             const ring = event.type === 'ring';
+            const url = clips
+              ? aufnahmeUrl(settings.url, settings.token, entity.id, event)
+              : null;
             return (
-              <View
+              <Pressable
                 key={event.id}
-                style={[
+                onPress={url ? () => setOffen(event) : undefined}
+                disabled={!url}
+                accessibilityRole={url ? 'button' : undefined}
+                accessibilityLabel={
+                  url ? `Aufnahme von ${uhr(new Date(event.start))} ansehen` : undefined
+                }
+                style={({ pressed }) => [
                   styles.bubble,
                   ring && { borderColor: colors.danger },
                   person && !ring && { borderColor: colors.warn },
+                  pressed && { opacity: 0.7 },
                 ]}
               >
                 <Ionicons
@@ -164,17 +181,49 @@ export function CameraTimeline({
                 <Text style={styles.label} numberOfLines={1}>
                   {event.detected.length > 0 ? detectedLabel(event.detected) : event.label}
                 </Text>
-              </View>
+              </Pressable>
             );
           })}
         </View>
       </ScrollView>
+      {offen ? (
+        <Modal visible transparent animationType="fade" onRequestClose={() => setOffen(null)}>
+          <Pressable
+            style={styles.clipGrund}
+            onPress={() => setOffen(null)}
+            accessibilityLabel="Aufnahme schliessen"
+          >
+            {/* Der Hub exportiert die Aufnahme beim ersten Abruf aus
+                Protect - ein paar Sekunden Ladezeit sind normal. */}
+            <Text style={styles.clipTitel}>
+              {uhr(new Date(offen.start))}
+              {offen.detected.length > 0 ? ` · ${detectedLabel(offen.detected)}` : ''}
+            </Text>
+            <Aufnahme
+              uri={aufnahmeUrl(settings.url, settings.token, entity.id, offen)!}
+              style={styles.clipVideo}
+            />
+            <Text style={styles.clipHinweis}>Tippen zum Schliessen</Text>
+          </Pressable>
+        </Modal>
+      ) : null}
     </View>
   );
 }
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
+    clipGrund: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.85)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 14,
+      gap: 10,
+    },
+    clipTitel: { color: '#E9EDF4', fontSize: 16, fontWeight: '700' },
+    clipVideo: { width: '100%', height: '60%' },
+    clipHinweis: { color: '#97A2B6', fontSize: 12 },
     hint: { color: colors.inkFaint, fontSize: 12 },
     filterZeile: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     filterChip: {
