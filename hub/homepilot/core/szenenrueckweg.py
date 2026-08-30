@@ -227,3 +227,36 @@ def szene_gilt_noch(
             elif str(zustand.get(feld) or "") != str(wert):
                 return False
     return geprueft > 0
+
+
+def aus_befehle(
+    entity_ids: list[str], geraete: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Die Aus-Befehle für die Geräte, die eine Szene verändert hat
+    (rein, testbar).
+
+    Für die Selbst-Ausschalt-Uhr der Szenen: Nach der Frist soll alles
+    *aus*, was die Szene angefasst hat - nicht zurück in den vorherigen
+    Zustand. Der Sternenhimmel um 19:30 soll um 20:15 dunkel sein, auch
+    wenn das Licht vor der Szene an war: «vorher» ist nach einer Stunde
+    kein Zustand mehr, den jemand zurückwill.
+
+    Je Gerät der passende Aus-Befehl: turn_off, sonst pause (eine Box),
+    sonst stop (eine Store hält wenigstens an). Kennt ein Gerät keinen
+    davon, bleibt es unangetastet - lieber ein Licht zu viel an als ein
+    Befehl, den es nicht gibt.
+    """
+    befehle: list[dict[str, Any]] = []
+    gesehen: set[str] = set()
+    for entity_id in entity_ids:
+        if not entity_id or entity_id in gesehen:
+            continue
+        gesehen.add(entity_id)
+        commands = (geraete.get(entity_id) or {}).get("commands") or []
+        aus = next(
+            (name for name in ("turn_off", "pause", "stop") if name in commands), None
+        )
+        if aus is not None:
+            befehle.append({"entity_id": entity_id, "command": aus})
+    return befehle
+
