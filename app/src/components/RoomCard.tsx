@@ -3,7 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Entity, Scene } from '../api/types';
-import { raumSymbol, raumZeile } from '../lib/raum';
+import { raumDunkel, raumSymbol, raumZeile } from '../lib/raum';
 import { Raumaktion, kachelKnoepfe, raumFarben, raumStand } from '../lib/raumkarte';
 import { Colors, radius, useColors } from '../theme';
 import { Card } from './Card';
@@ -77,6 +77,11 @@ export function RoomCard({
   const stand = useMemo(() => raumStand(items, raumZeile(items)), [items]);
   const [oben, unten] = useMemo(() => raumFarben(name), [name]);
   const zeigtBild = !!imageUri && !bildKaputt;
+  // Alles Licht aus: Der Kopf wird dunkel, wie das Zimmer selbst. So
+  // liest sich die Übersicht wie ein Blick durch die Wohnung - hell ist,
+  // wo Licht brennt. Räume ohne Lampen bleiben, wie sie sind
+  // (lib/raum.ts: raumDunkel).
+  const dunkel = useMemo(() => raumDunkel(items), [items]);
 
   return (
     <Card style={{ ...styles.karte, width }} onPress={onOpen} onLongPress={onLongPress}>
@@ -100,6 +105,11 @@ export function RoomCard({
             />
           </View>
         )}
+        {dunkel ? (
+          // Über Bild und Farbe, unter Name und Szenen: Das Foto bleibt
+          // erkennbar, wirkt aber wie bei gelöschtem Licht.
+          <View style={styles.nacht} pointerEvents="none" />
+        ) : null}
         {/* Der Verlauf trägt den Namen: Auf einem hellen Foto (Fenster,
             weisse Wand) verschwände weisse Schrift sonst. */}
         <View style={styles.verlauf} />
@@ -207,6 +217,13 @@ const makeStyles = (colors: Colors) =>
     verlauf: {
       ...StyleSheet.absoluteFillObject,
       backgroundColor: 'rgba(12, 16, 24, 0.30)',
+    },
+    // Zusammen mit dem Verlauf darüber wird das Bild deutlich dunkler,
+    // bleibt aber lesbar - ein schwarzes Feld wäre keine Auskunft mehr,
+    // sondern ein Loch in der Seite.
+    nacht: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(6, 9, 15, 0.5)',
     },
     name: {
       color: '#FFFFFF',

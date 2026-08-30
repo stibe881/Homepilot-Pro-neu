@@ -6,6 +6,7 @@ import {
   raumKategorien,
   raumFakten,
   raumKlima,
+  raumDunkel,
   raumLeuchtet,
   raumMesswerte,
   raumSymbol,
@@ -194,5 +195,28 @@ describe('raumLeuchtet', () => {
     expect(raumLeuchtet([geraet({ kind: 'light', state: { state: 'on' } })])).toBe(true);
     expect(raumLeuchtet([geraet({ kind: 'light', state: { state: 'off' } })])).toBe(false);
     expect(raumLeuchtet([geraet({ kind: 'switch', state: { state: 'on' } })])).toBe(false);
+  });
+});
+
+describe('raumDunkel', () => {
+  it('ein Raum mit gelöschtem Licht liegt im Dunkeln', () => {
+    expect(raumDunkel([geraet({ kind: 'light', state: { state: 'off' } })])).toBe(true);
+    expect(raumDunkel([geraet({ kind: 'light', state: { state: 'on' } })])).toBe(false);
+  });
+
+  it('eine brennende Lampe genügt, um den Raum zu erhellen', () => {
+    expect(
+      raumDunkel([
+        geraet({ kind: 'light', state: { state: 'off' } }),
+        geraet({ kind: 'light', state: { state: 'on' } }),
+      ])
+    ).toBe(false);
+  });
+
+  it('ein Raum ohne Lampen steht nie im Dunkeln', () => {
+    // Ein Eingang mit bloss einer Kamera kann nie leuchten - für immer
+    // abgedunkelt sähe er aus wie ein Fehler, nicht wie eine Auskunft.
+    expect(raumDunkel([geraet({ kind: 'camera', state: { state: 'on' } })])).toBe(false);
+    expect(raumDunkel([])).toBe(false);
   });
 });

@@ -93,6 +93,24 @@ export function raumLeuchtet(items: Entity[]): boolean {
   );
 }
 
+/**
+ * Liegt der Raum im Dunkeln? (rein, testbar)
+ *
+ * Daran hängt das abgedunkelte Kopfbild der Raumkachel: Ist alles Licht
+ * aus, sieht die Kachel aus wie das Zimmer selbst - dunkel. So liest man
+ * die Übersicht wie einen Blick durch die Wohnung, ohne eine einzige
+ * Zustandszeile zu lesen.
+ *
+ * Nur Räume, die überhaupt Licht *haben*: Ein Eingang mit bloss einer
+ * Kamera kann nie leuchten und stünde sonst für immer im Dunkeln - das
+ * sähe aus wie ein Fehler, nicht wie eine Auskunft.
+ */
+export function raumDunkel(items: Entity[]): boolean {
+  return (
+    items.some((entity) => entity.kind === 'light') && !raumLeuchtet(items)
+  );
+}
+
 /** Die Kopfzeile eines Raums (rein, testbar): «21,5° · Fenster offen ·
  *  Musik läuft». Leer, wenn es nichts zu sagen gibt. */
 export function raumZeile(items: Entity[]): string {
