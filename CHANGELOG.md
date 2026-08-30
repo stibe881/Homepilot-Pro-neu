@@ -9,6 +9,14 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Die Startseite beginnt mit einer Begrüssungskarte.** Der obere
+  Teil - Begrüssung, Uhr, Verbindungspunkt, Wetter, wer zuhause ist,
+  nächster Termin samt Geburtstag, Wetterwarnung und die Handgriff-Chips
+  (Lichter, offen, Einkaufen, saugt, Klima) - steht jetzt in einer
+  gerahmten Karte. Alles bleibt antippbar wie bisher: dieselben Fenster
+  für «Wer ist da», Lichter, offene Türen, Einkaufszettel, Termin und
+  Warnungen. Uhr- und Warnungs-Kachel darunter entfallen dafür - einmal
+  reicht. Laufende Geräte und der Türhinweis ziehen mit in die Karte.
 - **Jedes Gerät kann ein Knopf auf der Raumkachel sein.** Hinter dem
   langen Druck auf eine Kachel standen bisher nur die Sammelknöpfe zur
   Wahl, die der Raum hergibt - in Levins Zimmer also nur «Licht», und

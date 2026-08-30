@@ -2066,6 +2066,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               entities={entities}
               scenes={scenes}
               now={now}
+              // Uhr und Warnung stehen jetzt in der Startkarte oben -
+              // derselbe Inhalt zweimal untereinander wäre keiner.
+              ohneKopf
               pending={pending}
               wide={hasRail}
               onCommand={guardedCommand}
@@ -3237,6 +3240,20 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   );
                   return antwort?.people ?? [];
                 }}
+                // Auf der Startseite wird die Kopfzeile zur gerahmten
+                // Begrüssungskarte - gleiche Angaben, gleiche Fenster,
+                // nur als Karte. Begrüssung und Randnotizen ziehen mit
+                // hinein.
+                karte={section === 'start'}
+                gruss={begruessung(settings, user, now)}
+                zusatz={
+                  section === 'start' ? (
+                    <>
+                      <RunningAppliances entities={entities} />
+                      <OpenDoors entities={entities} />
+                    </>
+                  ) : undefined
+                }
               />
             </Auffangnetz>
 
@@ -3250,7 +3267,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 Raumnamen war siebzig Punkte Höhe für etwas, das man beim
                 Betreten der Startseite schon gelesen hat. */}
             {einstellungsKopf ??
-              (section === 'home' && room !== ALL_ROOMS ? null : (
+              (section === 'start' || (section === 'home' && room !== ALL_ROOMS) ? null : (
               <View style={styles.greetingRow}>
                 <View style={styles.greeting}>
                   {/* Eine Zeile, nicht zwei: «Hallo Stefan,» mit «Guten

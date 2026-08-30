@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
@@ -29,6 +30,7 @@ import {
 import { LernEintrag, mitLernen } from '../lib/ladenlernen';
 import { uhr, wochentagDatum, wochentagUhr } from '../lib/format';
 import { klimaLabel, klimaSensor } from '../lib/klimachip';
+import { anwesenheitsSatz, geburtstagsSatz, terminSatz } from '../lib/startkarte';
 import { Person, anwesenheitsListe, werIstDaHinweis } from '../lib/ortung';
 import { tapped } from '../lib/haptics';
 import { kann } from '../lib/plattform';
@@ -94,6 +96,10 @@ export function TopStrip({
   showClock = false,
   queued = 0,
   onLoadPresence,
+  karte = false,
+  gruss,
+  tageszeit,
+  zusatz,
 }: {
   entities: Entity[];
   status: ConnectionStatus;
@@ -139,6 +145,17 @@ export function TopStrip({
    *  wäre Verschwendung. Ohne diese Angabe bleibt der Chip reine
    *  Anzeige. */
   onLoadPresence?: () => Promise<Person[]>;
+  /** Karten-Modus für die Startseite: Dieselben Angaben und Fenster,
+   *  aber als gerahmte Begrüssungskarte statt als Chip-Zeile - mit
+   *  Wetter gross, Anwesenheits-, Termin- und Warnungs-Satz. */
+  karte?: boolean;
+  /** Die Begrüssung («Hallo Stefan») - nur im Karten-Modus gesetzt. */
+  gruss?: string;
+  /** Die zweite Zeile dazu («Schönen Abend.»). */
+  tageszeit?: string;
+  /** Was sonst neben der Begrüssung stünde (laufende Geräte, offene
+   *  Türen) - wandert im Karten-Modus mit in die Karte. */
+  zusatz?: React.ReactNode;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -220,148 +237,40 @@ export function TopStrip({
     einkauf.map((eintrag) => String(eintrag?.text ?? ''))
   );
 
-  return (
-    <View style={styles.row}>
-      <View style={styles.chips}>
-        {temperature ? (
-          <Chip
-            icon="thermometer-outline"
-            text={`${round(temperature.state.state)} °C`}
-            label={klimaLabel(temperature, 'temperature')}
-          />
-        ) : null}
-        {humidity ? (
-          <Chip
-            icon="water-outline"
-            text={`${round(humidity.state.state)} %`}
-            label={klimaLabel(humidity, 'humidity')}
-          />
-        ) : null}
-        {people ? (
-          <Chip
-            icon="people-outline"
-            // «alle sind zuhause» sagt der Hub nur, wenn er es von jedem
-            // Einzelnen weiss - ein verstummtes Telefon macht daraus
-            // wieder das vorsichtige «jemand da».
-            text={
-              people.state.state === 'on'
-                ? people.state.all
-                  ? 'alle sind zuhause'
-                  : 'jemand da'
-                : 'niemand da'
-            }
-            onPress={
-              onLoadPresence
-                ? () => {
-                    setDaOpen(true);
-                    // Bei jedem Öffnen frisch: Wer das Fenster zweimal
-                    // aufmacht, will nicht den Stand von vorhin sehen.
-                    setWer(null);
-                    onLoadPresence()
-                      .then(setWer)
-                      .catch(() => setWer([]));
-                  }
-                : undefined
-            }
-          />
-        ) : null}
-        {lightsOn > 0 ? (
-          <Chip
-            icon="bulb-outline"
-            text={lightsOn === 1 ? '1 an' : `${lightsOn} an`}
-            onPress={() => setLightsOpen(true)}
-          />
-        ) : null}
-        {offen.length > 0 ? (
-          <Blinkend an={tuerOffen}>
-            <Chip
-              icon="alert-circle-outline"
-              tone={wohnungOffen ? colors.danger : colors.warn}
-              // Bei der Wohnungstüre sagt der Streifen auch, welche
-              // gemeint ist: Rot allein liesse einen die Zahl antippen,
-              // um zu erfahren, ob es die eine ist, wegen der man
-              // aufsteht.
-              text={
-                wohnungOffen
-                  ? offen.length === 1
-                    ? 'Wohnungstüre offen'
-                    : `Wohnungstüre offen · ${offen.length}`
-                  : offen.length === 1
-                    ? '1 offen'
-                    : `${offen.length} offen`
-              }
-              onPress={() => setOpenOpen(true)}
-            />
-          </Blinkend>
-        ) : null}
-        {/* Immer da, damit man auch etwas *eintragen* kann - eine Liste,
-            die erst erscheint, wenn schon etwas drauf steht, ist genau
-            dann nicht da, wenn man sie braucht. Orange erst, sobald
-            wirklich etwas fehlt: Die Einkaufsliste ist der einzige
-            Eintrag hier, der einen zum Handeln bringt, statt nur zu
-            berichten - man geht ohnehin gleich aus dem Haus. */}
-        {/* Wer die Familienlisten nicht sehen darf, bekommt auch den
-            Einkaufszettel nicht: Ohne 'shopping' bleibt der Eintrag weg,
-            statt einem Gast ein leeres Fenster anzubieten, in dem jedes
-            Eintragen am Hub scheitert. */}
-        {shopping ? (
-        <Chip
-          icon="cart"
-          tone={einkauf.length > 0 ? colors.warn : undefined}
-          text={
-            einkauf.length === 0
-              ? 'Einkaufen'
-              : einkauf.length === 1
-                ? '1 einkaufen'
-                : `${einkauf.length} einkaufen`
-          }
-          onPress={() => setShopOpen(true)}
-        />
-        ) : null}
-        {vacuum ? <Chip icon="sparkles-outline" text="saugt" /> : null}
-        {calendar ? (
-          <Chip
-            icon="calendar-outline"
-            text={`${clockTime(calendar.state.next_start)} ${calendar.state.state}`}
-            onPress={event ? () => setEventOpen(true) : undefined}
-          />
-        ) : null}
-        {alerts ? (
-          <Chip
-            icon="warning-outline"
-            text={`${alerts.state.count ?? ''} Warnung${alerts.state.count === 1 ? '' : 'en'}`}
-            tone={colors.warn}
-            onPress={() => setAlertsOpen(true)}
-          />
-        ) : null}
-      </View>
+  // Beide Wege ins «Wer ist da»-Fenster - der Chip und die Zeile auf der
+  // Karte - holen die Liste frisch, aus demselben Griff.
+  const oeffneWerDa = onLoadPresence
+    ? () => {
+        setDaOpen(true);
+        // Bei jedem Öffnen frisch: Wer das Fenster zweimal aufmacht,
+        // will nicht den Stand von vorhin sehen.
+        setWer(null);
+        onLoadPresence()
+          .then(setWer)
+          .catch(() => setWer([]));
+      }
+    : undefined;
 
-      <View style={styles.chips}>
-        <View style={styles.chip}>
-          <View style={[styles.dot, { backgroundColor: statusColor(colors, status) }]} />
-          {/* Ohne diese Zahl ist ein Tipp im Funkloch nicht von einem
-              verschluckten Befehl zu unterscheiden – beides sieht nach
-              «nichts passiert» aus. */}
-          <Text style={styles.chipText} maxFontSizeMultiplier={MAX_SCHRIFT}>
-            {queued > 0
-              ? `${STATUS_LABEL[status]} · ${queued} wartet`
-              : STATUS_LABEL[status]}
-          </Text>
-        </View>
-        {/* Nur auf dem Wandpanel. Telefon und Rechner zeigen die Uhrzeit
-            ohnehin am Bildschirmrand - hier wäre sie ein zweites Mal
-            dasselbe. Ein fest montiertes Tablet im Vollbild hat dagegen
-            keine, und dort ist sie oft der Grund, hinzuschauen. */}
-        {/* Enge Stellen wachsen bis 160 % mit, dann ist Schluss - sonst
-            schiebt die Uhr die Chips aus der Kopfzeile (Punkt 66 der
-            Werkbank, Begründung in lib/schrift.ts). */}
-        {showClock ? (
-          <Text style={styles.clock} maxFontSizeMultiplier={MAX_SCHRIFT}>
-            {uhr(now)}
-          </Text>
-        ) : null}
-      </View>
+  // Nur für die Karte gebraucht - im Chip-Modus bleibt alles beim Alten.
+  const wetter = karte ? entities.find((entity) => entity.kind === 'weather') : undefined;
+  const anwesenheit = karte ? anwesenheitsSatz(entities) : null;
+  const kalenderEvents = karte
+    ? entities.find((entity) => entity.kind === 'calendar')?.state.events
+    : undefined;
+  const geburtstag = karte ? geburtstagsSatz(kalenderEvents, now) : null;
+  const termin =
+    karte && calendar
+      ? terminSatz(
+          clockTime(calendar.state.next_start),
+          calendar.state.state,
+          event?.location
+        )
+      : null;
 
+  // Die Fenster hinter den Chips und Sätzen - Karte und Chip-Zeile
+  // teilen sie sich, deshalb stehen sie einmal hier.
+  const fenster = (
+    <>
       {/* Wer ist da – hinter dem Chip «jemand da». Die Zeile sagt, dass
           jemand im Haus ist; wer und seit wann, stand nirgends. */}
       <Modal
@@ -856,6 +765,311 @@ export function TopStrip({
           </Pressable>
         </Pressable>
       </Modal>
+    </>
+  );
+
+  // Die Chips, die im Karten-Modus als Handgriff-Zeile weiterleben:
+  // dieselben Angaben, dieselben Fenster - nur Wetter, Anwesenheit,
+  // Termin und Warnung stehen dort als Sätze statt als Chips.
+  const handgriffChips = (
+    <>
+      {lightsOn > 0 ? (
+        <Chip
+          icon="bulb-outline"
+          text={lightsOn === 1 ? '1 an' : `${lightsOn} an`}
+          onPress={() => setLightsOpen(true)}
+        />
+      ) : null}
+      {offen.length > 0 ? (
+        <Blinkend an={tuerOffen}>
+          <Chip
+            icon="alert-circle-outline"
+            tone={wohnungOffen ? colors.danger : colors.warn}
+            text={
+              wohnungOffen
+                ? offen.length === 1
+                  ? 'Wohnungstüre offen'
+                  : `Wohnungstüre offen · ${offen.length}`
+                : offen.length === 1
+                  ? '1 offen'
+                  : `${offen.length} offen`
+            }
+            onPress={() => setOpenOpen(true)}
+          />
+        </Blinkend>
+      ) : null}
+      {shopping ? (
+        <Chip
+          icon="cart"
+          tone={einkauf.length > 0 ? colors.warn : undefined}
+          text={
+            einkauf.length === 0
+              ? 'Einkaufen'
+              : einkauf.length === 1
+                ? '1 einkaufen'
+                : `${einkauf.length} einkaufen`
+          }
+          onPress={() => setShopOpen(true)}
+        />
+      ) : null}
+      {vacuum ? <Chip icon="sparkles-outline" text="saugt" /> : null}
+      {temperature ? (
+        <Chip
+          icon="thermometer-outline"
+          text={`${round(temperature.state.state)} °C`}
+          label={klimaLabel(temperature, 'temperature')}
+        />
+      ) : null}
+      {humidity ? (
+        <Chip
+          icon="water-outline"
+          text={`${round(humidity.state.state)} %`}
+          label={klimaLabel(humidity, 'humidity')}
+        />
+      ) : null}
+    </>
+  );
+
+  if (karte) {
+    return (
+      <View>
+        <LinearGradient
+          colors={[`${colors.accent}2E`, `${colors.accent}08`]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[
+            styles.karte,
+            { backgroundColor: colors.gradient[1], borderColor: `${colors.accent}59` },
+          ]}
+        >
+          <View style={styles.karteKopf}>
+            <View style={{ flexShrink: 1 }}>
+              <Text style={styles.karteGruss} numberOfLines={1}>
+                {gruss}
+              </Text>
+              {tageszeit ? <Text style={styles.karteZeit}>{tageszeit}</Text> : null}
+            </View>
+            <View style={styles.chip}>
+              <View
+                style={[styles.dot, { backgroundColor: statusColor(colors, status) }]}
+              />
+              {/* Verbunden heisst: Die Uhr genügt. Alles andere - verbinde,
+                  getrennt, wartende Befehle - verdrängt sie; das ist dann
+                  die wichtigere Auskunft. */}
+              <Text style={styles.chipText} maxFontSizeMultiplier={MAX_SCHRIFT}>
+                {status !== 'connected'
+                  ? STATUS_LABEL[status]
+                  : queued > 0
+                    ? `${queued} wartet`
+                    : uhr(now)}
+              </Text>
+            </View>
+          </View>
+
+          {wetter || anwesenheit || hausAnwesend !== null ? (
+            <Pressable
+              onPress={oeffneWerDa}
+              disabled={!oeffneWerDa}
+              accessibilityRole={oeffneWerDa ? 'button' : undefined}
+              accessibilityLabel="Wer ist da?"
+              style={styles.karteWetter}
+            >
+              {wetter?.state.temperature != null ? (
+                <Text style={styles.karteTemp}>{String(wetter.state.temperature)}°</Text>
+              ) : null}
+              <View style={{ flexShrink: 1 }}>
+                {wetter ? (
+                  <Text style={styles.karteWetterText} numberOfLines={1}>
+                    {String(wetter.state.state ?? '')} · {wetter.name}
+                  </Text>
+                ) : null}
+                {/* «alle sind zuhause» sagt der Hub nur, wenn er es von
+                    jedem weiss - dieselbe Vorsicht wie beim Chip. */}
+                <Text style={styles.karteWetterText} numberOfLines={1}>
+                  {anwesenheit ??
+                    (hausAnwesend === true
+                      ? people?.state.all
+                        ? 'alle sind zuhause'
+                        : 'jemand zuhause'
+                      : hausAnwesend === false
+                        ? 'niemand zuhause'
+                        : '')}
+                </Text>
+              </View>
+            </Pressable>
+          ) : null}
+
+          {termin || geburtstag ? (
+            <Pressable
+              onPress={event ? () => setEventOpen(true) : undefined}
+              disabled={!event}
+              accessibilityRole={event ? 'button' : undefined}
+              accessibilityLabel="Nächster Termin"
+            >
+              <Text style={styles.karteZeile} numberOfLines={2}>
+                {termin ? `🗓 ${termin}` : null}
+                {termin && geburtstag ? '  ·  ' : null}
+                {geburtstag ? `🎁 ${geburtstag}` : null}
+              </Text>
+            </Pressable>
+          ) : null}
+
+          {alerts ? (
+            <Pressable
+              onPress={() => setAlertsOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Wetterwarnungen"
+            >
+              <Text style={styles.karteWarn} numberOfLines={1}>
+                ⚠{' '}
+                {String(
+                  alerts.state.headline ??
+                    alerts.state.event ??
+                    `${alerts.state.count ?? ''} Warnung${alerts.state.count === 1 ? '' : 'en'}`
+                )}
+              </Text>
+            </Pressable>
+          ) : null}
+
+          <View style={styles.karteChips}>{handgriffChips}</View>
+          {zusatz ? <View style={styles.karteZusatz}>{zusatz}</View> : null}
+        </LinearGradient>
+        {fenster}
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.row}>
+      <View style={styles.chips}>
+        {temperature ? (
+          <Chip
+            icon="thermometer-outline"
+            text={`${round(temperature.state.state)} °C`}
+            label={klimaLabel(temperature, 'temperature')}
+          />
+        ) : null}
+        {humidity ? (
+          <Chip
+            icon="water-outline"
+            text={`${round(humidity.state.state)} %`}
+            label={klimaLabel(humidity, 'humidity')}
+          />
+        ) : null}
+        {people ? (
+          <Chip
+            icon="people-outline"
+            // «alle sind zuhause» sagt der Hub nur, wenn er es von jedem
+            // Einzelnen weiss - ein verstummtes Telefon macht daraus
+            // wieder das vorsichtige «jemand da».
+            text={
+              people.state.state === 'on'
+                ? people.state.all
+                  ? 'alle sind zuhause'
+                  : 'jemand da'
+                : 'niemand da'
+            }
+            onPress={oeffneWerDa}
+          />
+        ) : null}
+        {lightsOn > 0 ? (
+          <Chip
+            icon="bulb-outline"
+            text={lightsOn === 1 ? '1 an' : `${lightsOn} an`}
+            onPress={() => setLightsOpen(true)}
+          />
+        ) : null}
+        {offen.length > 0 ? (
+          <Blinkend an={tuerOffen}>
+            <Chip
+              icon="alert-circle-outline"
+              tone={wohnungOffen ? colors.danger : colors.warn}
+              // Bei der Wohnungstüre sagt der Streifen auch, welche
+              // gemeint ist: Rot allein liesse einen die Zahl antippen,
+              // um zu erfahren, ob es die eine ist, wegen der man
+              // aufsteht.
+              text={
+                wohnungOffen
+                  ? offen.length === 1
+                    ? 'Wohnungstüre offen'
+                    : `Wohnungstüre offen · ${offen.length}`
+                  : offen.length === 1
+                    ? '1 offen'
+                    : `${offen.length} offen`
+              }
+              onPress={() => setOpenOpen(true)}
+            />
+          </Blinkend>
+        ) : null}
+        {/* Immer da, damit man auch etwas *eintragen* kann - eine Liste,
+            die erst erscheint, wenn schon etwas drauf steht, ist genau
+            dann nicht da, wenn man sie braucht. Orange erst, sobald
+            wirklich etwas fehlt: Die Einkaufsliste ist der einzige
+            Eintrag hier, der einen zum Handeln bringt, statt nur zu
+            berichten - man geht ohnehin gleich aus dem Haus. */}
+        {/* Wer die Familienlisten nicht sehen darf, bekommt auch den
+            Einkaufszettel nicht: Ohne 'shopping' bleibt der Eintrag weg,
+            statt einem Gast ein leeres Fenster anzubieten, in dem jedes
+            Eintragen am Hub scheitert. */}
+        {shopping ? (
+        <Chip
+          icon="cart"
+          tone={einkauf.length > 0 ? colors.warn : undefined}
+          text={
+            einkauf.length === 0
+              ? 'Einkaufen'
+              : einkauf.length === 1
+                ? '1 einkaufen'
+                : `${einkauf.length} einkaufen`
+          }
+          onPress={() => setShopOpen(true)}
+        />
+        ) : null}
+        {vacuum ? <Chip icon="sparkles-outline" text="saugt" /> : null}
+        {calendar ? (
+          <Chip
+            icon="calendar-outline"
+            text={`${clockTime(calendar.state.next_start)} ${calendar.state.state}`}
+            onPress={event ? () => setEventOpen(true) : undefined}
+          />
+        ) : null}
+        {alerts ? (
+          <Chip
+            icon="warning-outline"
+            text={`${alerts.state.count ?? ''} Warnung${alerts.state.count === 1 ? '' : 'en'}`}
+            tone={colors.warn}
+            onPress={() => setAlertsOpen(true)}
+          />
+        ) : null}
+      </View>
+
+      <View style={styles.chips}>
+        <View style={styles.chip}>
+          <View style={[styles.dot, { backgroundColor: statusColor(colors, status) }]} />
+          {/* Ohne diese Zahl ist ein Tipp im Funkloch nicht von einem
+              verschluckten Befehl zu unterscheiden – beides sieht nach
+              «nichts passiert» aus. */}
+          <Text style={styles.chipText} maxFontSizeMultiplier={MAX_SCHRIFT}>
+            {queued > 0
+              ? `${STATUS_LABEL[status]} · ${queued} wartet`
+              : STATUS_LABEL[status]}
+          </Text>
+        </View>
+        {/* Nur auf dem Wandpanel. Telefon und Rechner zeigen die Uhrzeit
+            ohnehin am Bildschirmrand - hier wäre sie ein zweites Mal
+            dasselbe. Ein fest montiertes Tablet im Vollbild hat dagegen
+            keine, und dort ist sie oft der Grund, hinzuschauen. */}
+        {/* Enge Stellen wachsen bis 160 % mit, dann ist Schluss - sonst
+            schiebt die Uhr die Chips aus der Kopfzeile (Punkt 66 der
+            Werkbank, Begründung in lib/schrift.ts). */}
+        {showClock ? (
+          <Text style={styles.clock} maxFontSizeMultiplier={MAX_SCHRIFT}>
+            {uhr(now)}
+          </Text>
+        ) : null}
+      </View>
+
+      {fenster}
     </View>
   );
 }
@@ -1029,6 +1243,50 @@ const makeStyles = (colors: Colors) =>
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
+  },
+  // ── Karten-Modus (Startseite) ────────────────────────────────────────
+  karte: {
+    borderRadius: radius.card,
+    borderWidth: 1,
+    padding: 16,
+    gap: 8,
+  },
+  karteKopf: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  karteGruss: {
+    color: colors.ink,
+    fontSize: 24,
+    fontWeight: '700',
+    letterSpacing: -0.4,
+  },
+  karteZeit: { color: colors.inkSoft, fontSize: 13, marginTop: 1 },
+  karteWetter: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  karteTemp: {
+    color: colors.ink,
+    fontSize: 34,
+    fontWeight: '700',
+    letterSpacing: -1,
+    lineHeight: 38,
+  },
+  karteWetterText: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
+  karteZeile: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
+  karteWarn: { color: colors.warn, fontSize: 13, fontWeight: '600' },
+  karteChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 2,
+  },
+  karteZusatz: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 10,
   },
   chips: {
     flexDirection: 'row',

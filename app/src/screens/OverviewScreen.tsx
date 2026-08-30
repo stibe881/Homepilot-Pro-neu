@@ -96,6 +96,10 @@ interface Props {
   /** Selbst gezogene Reihenfolge der Favoriten (Gerätekennungen). */
   favoriteOrder?: string[];
   onReorderFavorites?: (ids: string[]) => void;
+  /** Uhr- und Warnungs-Kopf weglassen - die Startkarte oben (TopStrip im
+   *  Karten-Modus) trägt Uhr, Wetter und Warnung schon. Die Haustüre
+   *  bleibt: ihr Öffnen-Knopf gehört weiterhin nach oben. */
+  ohneKopf?: boolean;
   /** Fragt die Türe vor dem Öffnen nach? Haushaltsweit eingestellt; fehlt
    *  der Wert, wird gefragt (siehe lib/tuerbestaetigung.ts). */
   doorConfirm?: boolean;
@@ -195,6 +199,7 @@ export function OverviewScreen({
   durchsage,
   onDurchsagePrefs,
   onSprachnotiz,
+  ohneKopf = false,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -750,6 +755,9 @@ export function OverviewScreen({
     >
       {/* Kopf: Uhr, Datum, Haustüre, Warnung */}
       <View style={styles.headRow}>
+        {/* Uhr und Datum stehen mit der Startkarte schon oben - zweimal
+            dieselbe Uhrzeit untereinander liest niemand. */}
+        {ohneKopf ? null : (
         <Card style={styles.clockCard}>
           <Text style={styles.clock}>
             {two(now.getHours())}:{two(now.getMinutes())}
@@ -758,6 +766,7 @@ export function OverviewScreen({
             {WEEKDAYS[now.getDay()]}, {now.getDate()}. {MONTHS[now.getMonth()]}
           </Text>
         </Card>
+        )}
         {/* Hier stand das Wetter. Aber die Frage beim Blick aufs Panel ist
             nicht «wie ist es draussen», sondern «hat jemand geklingelt» –
             und die Haustüre wohnte dafür zu weit unten, hinter einmal
@@ -784,7 +793,7 @@ export function OverviewScreen({
               )
             }
           />
-          {alert ? (
+          {alert && !ohneKopf ? (
             <View style={styles.alertRow}>
               <Ionicons name="warning" size={14} color={colors.danger} />
               <Text style={styles.alertText} numberOfLines={1}>
