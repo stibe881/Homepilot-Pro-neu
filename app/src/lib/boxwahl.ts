@@ -31,3 +31,37 @@ export function zielBox(
   if (wunsch && sichtbar.includes(wunsch)) return wunsch;
   return aktiv ?? sichtbar[0] ?? null;
 }
+
+/** Was der Wähler weiss, wenn eine Box angetippt wird. */
+export interface WechselQuelle {
+  id: string;
+  /** Kann die gezeigte Quelle umziehen (`play_on`)? */
+  kannUmziehen: boolean;
+  /** Boxen, die die Quelle gerade kennt. */
+  devices: string[];
+  spielt: boolean;
+}
+
+/**
+ * Umzug oder nur Ansichtswechsel? (rein, testbar)
+ *
+ * Die Entscheidung stand als Bedingungskette im SidePanel - und genau
+ * diese Kette trug schon einmal den Terrassen-Fehler (siehe Kopf der
+ * Datei). Seit der Player auch als Blatt über der Raumkachel steht,
+ * braucht es sie zweimal; zweimal hingeschrieben wäre der nächste
+ * Auseinanderlauf.
+ */
+export function boxWechsel(
+  quelle: WechselQuelle | null,
+  ziel: { id: string; name: string }
+): { art: 'umzug'; device: string; play: boolean } | { art: 'ansicht' } {
+  if (
+    quelle &&
+    ziel.id !== quelle.id &&
+    quelle.kannUmziehen &&
+    quelle.devices.includes(ziel.name)
+  ) {
+    return { art: 'umzug', device: ziel.name, play: quelle.spielt };
+  }
+  return { art: 'ansicht' };
+}

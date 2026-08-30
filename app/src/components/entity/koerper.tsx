@@ -10,6 +10,8 @@ import { Image, Pressable, Text, View } from 'react-native';
 import { CommandData, Entity } from '../../api/types';
 import { useTakt } from '../../hooks/useTakt';
 import { herkunftText, positionText, storenstand } from '../../lib/storenstand';
+import { aktiveVorgabe, vorgaben } from '../../lib/storenvorgaben';
+import { chipSchrift, fensterHoehe } from '../../lib/storenkachel';
 import { mayOpenDirectly } from '../../lib/tuerbestaetigung';
 import { radius, useColors } from '../../theme';
 import { Bar } from '../Bar';
@@ -195,6 +197,8 @@ export function CameraSnapshot({
   refreshKey,
   contain,
   refreshMs = 60_000,
+  voll,
+  onFehler,
 }: {
   uri: string;
   refreshKey: string;
@@ -202,6 +206,13 @@ export function CameraSnapshot({
   contain?: boolean;
   /** Abstand zwischen zwei Bildern. */
   refreshMs?: number;
+  /** Das Bild füllt die ganze Kachel - dann beschneidet sie, nicht das
+   *  Bild, und eine eigene Rundung sässe als heller Rahmen darin. */
+  voll?: boolean;
+  /** Kein Bild zu holen. Die Kachel entscheidet dann selbst, was sie
+   *  stattdessen zeigt - ohne diesen Weg verschwände hier nur das Bild
+   *  und die Beschriftung darüber stünde im Leeren. */
+  onFehler?: () => void;
 }) {
   const colors = useColors();
   const [tick, setTick] = useState(0);
@@ -214,12 +225,15 @@ export function CameraSnapshot({
   return (
     <Image
       source={{ uri: `${uri}${separator}t=${tick}-${encodeURIComponent(refreshKey)}` }}
-      onError={() => setFailed(true)}
+      onError={() => {
+        setFailed(true);
+        onFehler?.();
+      }}
       resizeMode={contain ? 'contain' : 'cover'}
       style={{
         width: '100%',
         aspectRatio: contain ? 4 / 3 : 16 / 9,
-        borderRadius: radius.control,
+        borderRadius: voll ? 0 : radius.control,
         backgroundColor: colors.surfaceSoft,
       }}
     />
@@ -365,6 +379,15 @@ export function GrillBody({
   );
 }
 
+/** Der Verlauf der Positions-Anzeige: von zu (dunkel) nach offen (hell) -
+ *  die Store selbst, nicht die Farbtemperatur einer Lampe. Der Balken
+ *  nahm bisher die Vorgabe von `Bar` (warmCool), und damit sah die Store
+ *  aus wie ein Lichtregler. */
+const POSITION_VERLAUF: [string, string] = ['#6C7C94', '#C3D3E6'];
+/** Und die Lamellen in einem eigenen Ton - zwei Regler in denselben
+ *  Farben waren nicht auseinanderzuhalten. */
+const LAMELLEN_VERLAUF: [string, string] = ['#8A7B63', '#E8D9BE'];
+
 export function CoverBody({
   entity,
   sky,
@@ -402,6 +425,16 @@ export function CoverBody({
     }
   }, [reported]);
 
+  // Aufgeklappte Feineinstellung. Je Kachel und nur für diesen Besuch:
+  // Wer sie einmal braucht, braucht sie selten wieder.
+  const [fein, setFein] = useState(false);
+
+  // Wie breit diese Kachel wirklich ist - auf dem Telefon die halbe
+  // Spalte, auf dem iPad mehr. Fenstergrösse und Chip-Schrift richten
+  // sich danach (lib/storenkachel.ts): Sonst brach «Beschattung» mitten
+  // im Wort, und die Kachel war doppelt so hoch wie ihre Nachbarn.
+  const [breite, setBreite] = useState(0);
+
   const target = anticipated ?? reported;
   const display = useGlide(target, travel);
   const shown = Math.round(display);
@@ -415,41 +448,133 @@ export function CoverBody({
     onCommand(command);
   };
 
+  // Die vier Stellungen (lib/storenvorgaben.ts). Sie stehen vor der
+  // Grafik: Man kommt zur Kachel, um die Store zu stellen, nicht um sie
+  // anzusehen.
+  const stellungen = vorgaben(entity.commands);
+  const aktiv = aktiveVorgabe(
+    stand.position,
+    typeof tilt === 'number' ? tilt : null,
+    entity.commands.includes('set_tilt')
+  );
+  const stellen = (ziel: (typeof stellungen)[number]) => {
+    // Die Anzeige läuft schon los, während der Hub noch antwortet -
+    // dieselbe Vorwegnahme wie bei den Fahrknöpfen.
+    for (const schritt of ziel.befehle) {
+      if (schritt.command === 'open') setAnticipated(100);
+      else if (schritt.command === 'close') setAnticipated(0);
+      else if (schritt.command === 'set_position' && schritt.data) {
+        setAnticipated(schritt.data.position);
+      }
+      onCommand(schritt.command, schritt.data);
+    }
+  };
+
   return (
-    <View style={styles.stack}>
+    <View
+      style={styles.stack}
+      onLayout={(ereignis) => setBreite(ereignis.nativeEvent.layout.width)}
+    >
+      {/* Nur, wenn die Stellungen es nicht schon sagen: Ein Chip «Offen»
+          über einem hervorgehobenen «Auf» ist derselbe Satz zweimal -
+          genau der Fehler, den diese Kachel vorher dreifach hatte. */}
+      {moving || aktiv === null ? (
+        <Pill
+          label={
+            moving
+              ? `${shown}% · fährt`
+              : stand.position === null
+                ? stand.text
+                : positionText(shown)
+          }
+          tone={moving ? colors.accent : undefined}
+        />
+      ) : null}
+      <View style={styles.vorgabenRaster}>
+        {stellungen.map((stellung) => {
+          const an = aktiv === stellung.key && !moving;
+          return (
+            <Pressable
+              key={stellung.key}
+              onPress={() => stellen(stellung)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: an }}
+              accessibilityLabel={`${entity.name}: ${stellung.label}`}
+              style={({ pressed }) => [
+                styles.vorgabe,
+                an && styles.vorgabeAn,
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              {/* Eine Zeile, notfalls kleiner (nur nativ; im Web bleibt
+                  die Zeile und kürzt im äussersten Fall mit «…») - ein
+                  mitten im Wort gebrochenes «Beschattun g» liest niemand. */}
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+                style={[
+                  styles.vorgabeText,
+                  { fontSize: chipSchrift(breite) },
+                  an && styles.vorgabeTextAn,
+                ]}
+              >
+                {stellung.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
       <CoverVisual
         open={display}
         tilt={typeof tilt === 'number' ? tilt : undefined}
         sky={sky}
-      />
-      <Pill
-        label={
-          moving
-            ? `${shown}% · fährt`
-            : stand.position === null
-              ? stand.text
-              : positionText(shown)
-        }
-        tone={moving ? colors.accent : undefined}
+        height={fensterHoehe(breite)}
       />
       {!moving && herkunft ? <Text style={styles.hint}>{herkunft}</Text> : null}
-      {entity.commands.includes('set_position') && typeof pos === 'number' ? (
+      {/* Der Feinschliff liegt einen Tipp entfernt: Die beiden Regler
+          waren der Grund, warum die Kachel doppelt so hoch war wie jede
+          andere - und man braucht sie ein paarmal im Jahr. */}
+      {fein ? (
         <View style={styles.stack}>
-          <Text style={styles.hint}>Position: {shown} % offen</Text>
-          <Bar
-            value={shown}
-            onChange={(value) => {
-              setAnticipated(value);
-              onCommand('set_position', { position: value });
-            }}
-          />
+          {entity.commands.includes('set_position') && typeof pos === 'number' ? (
+            <View style={styles.stack}>
+              <Text style={styles.hint}>Position: {shown} % offen</Text>
+              <Bar
+                value={shown}
+                // Nicht der Warm-Kalt-Verlauf der Lichtfarbe: Der stand
+                // hier, weil er die Vorgabe des Balkens ist - und liess
+                // die Store aussehen wie eine Farbtemperatur.
+                gradient={POSITION_VERLAUF}
+                onChange={(value) => {
+                  setAnticipated(value);
+                  onCommand('set_position', { position: value });
+                }}
+              />
+            </View>
+          ) : null}
+          {entity.commands.includes('set_tilt') && typeof tilt === 'number' ? (
+            <View style={styles.stack}>
+              <Text style={styles.hint}>Lamellen: {tilt} % offen</Text>
+              <Bar
+                value={tilt}
+                gradient={LAMELLEN_VERLAUF}
+                onChange={(value) => onCommand('set_tilt', { tilt: value })}
+              />
+            </View>
+          ) : null}
         </View>
-      ) : null}
-      {entity.commands.includes('set_tilt') && typeof tilt === 'number' ? (
-        <View style={styles.stack}>
-          <Text style={styles.hint}>Lamellen: {tilt} % offen</Text>
-          <Bar value={tilt} onChange={(value) => onCommand('set_tilt', { tilt: value })} />
-        </View>
+      ) : entity.commands.includes('set_position') ||
+        entity.commands.includes('set_tilt') ? (
+        <Pressable
+          onPress={() => setFein(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Fein einstellen"
+          style={({ pressed }) => [styles.feinZeile, pressed && { opacity: 0.7 }]}
+        >
+          <Text style={styles.hint}>Fein einstellen</Text>
+          <Ionicons name="chevron-forward" size={14} color={colors.inkFaint} />
+        </Pressable>
       ) : null}
       <View style={styles.mediaRow}>
         <MediaButton icon="arrow-up" label="Hoch" onPress={() => go('open')} />
@@ -751,3 +876,95 @@ export function vacuumLabel(state: string | undefined): string {
 }
 
 /** Startzeit eines Termins: Uhrzeit heute, sonst mit Datum. */
+
+/**
+ * Die Kamerakachel: Das Bild IST die Karte.
+ *
+ * Vorher stand an der Stelle des Bildes der Satz «Tippen für Live-Bild» -
+ * eine Gebrauchsanweisung dort, wo der Inhalt hingehört -, darüber ein
+ * «Online»-Chip, der keine Frage beantwortet, die man sich stellt, und
+ * der obere Teil der Karte blieb leer. Das Standbild holte die Kachel
+ * dabei die ganze Zeit schon.
+ *
+ * Jetzt füllt es die Kachel, Name und letzte Bewegung liegen darüber, und
+ * der Privatsphäre-Schalter sitzt als runder Knopf in der Ecke. Wo es
+ * kein Bild gibt - Kamera offline, Privatsphäre an, Bild nicht ladbar -
+ * bleibt es beim alten Aufbau: Eine leere schwarze Fläche mit Namen
+ * darauf wäre die schlechtere Auskunft.
+ */
+export function KameraKachel({
+  entity,
+  snapshotUri,
+  unterzeile,
+  onCommand,
+  klassisch,
+}: {
+  entity: Entity;
+  snapshotUri?: string;
+  /** Was unter dem Namen steht: letzte Bewegung, sonst der Raum. */
+  unterzeile: string;
+  onCommand: (command: string, data?: CommandData) => void;
+  /** Der bisherige Aufbau - für alles ohne Bild. */
+  klassisch: React.ReactNode;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [ohneBild, setOhneBild] = useState(false);
+  const online = entity.state.state === 'online';
+  const privacyOn = entity.state.privacy === 'on';
+  const zeigt = !!snapshotUri && online && !privacyOn && !ohneBild;
+  if (!zeigt) return <>{klassisch}</>;
+  return (
+    <View style={styles.kameraVoll}>
+      <CameraSnapshot
+        uri={snapshotUri as string}
+        // Neue Bewegung oder Klingeln holt sofort ein frisches Bild.
+        refreshKey={`${entity.state.last_motion ?? ''}|${entity.state.last_ring ?? ''}`}
+        // Kacheln zeigen Standbilder: ein Livestrom je Kamera gleichzeitig
+        // wäre für den Hub zu viel. Dafür öfter als sonst - Bewegtbild
+        // gibt es beim Antippen.
+        refreshMs={15_000}
+        voll
+        onFehler={() => setOhneBild(true)}
+      />
+      <View style={styles.kameraOben} pointerEvents="box-none">
+        <View style={styles.kameraLive}>
+          <View style={styles.kameraPunkt} />
+          <Text style={styles.kameraLiveText}>LIVE</Text>
+        </View>
+        {entity.commands.includes('set_privacy') ? (
+          <Pressable
+            // Web kennt stopPropagation, nativ nicht - deshalb offen
+            // getippt und optional aufgerufen.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            onPress={(event: any) => {
+              // Nicht das Live-Bild öffnen, nur die Blende schliessen.
+              event?.stopPropagation?.();
+              onCommand('set_privacy', { enabled: true });
+            }}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: false }}
+            accessibilityLabel="Privatsphäre einschalten"
+            hitSlop={6}
+            style={({ pressed }) => [styles.kameraRund, pressed && { opacity: 0.7 }]}
+          >
+            <Ionicons name="eye-off-outline" size={16} color="#FFFFFF" />
+          </Pressable>
+        ) : null}
+      </View>
+      <View style={styles.kameraUnten} pointerEvents="none">
+        {entity.state.ring === 'on' ? (
+          <Text style={styles.kameraMeldung}>Es klingelt</Text>
+        ) : entity.state.motion === 'on' ? (
+          <Text style={styles.kameraMeldung}>Bewegung</Text>
+        ) : null}
+        <Text numberOfLines={1} style={styles.kameraName}>
+          {entity.name}
+        </Text>
+        <Text numberOfLines={1} style={styles.kameraZeile}>
+          {unterzeile}
+        </Text>
+      </View>
+    </View>
+  );
+}

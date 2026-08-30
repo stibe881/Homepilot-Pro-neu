@@ -14,6 +14,7 @@ import {
 import { hatWarteschlange } from '../lib/musikliste';
 import { trockenSatz } from '../lib/giessen';
 import { Regenstand, balkenHoehen, regenSatz } from '../lib/regen';
+import { boxWechsel } from '../lib/boxwahl';
 import { panelContent, showsRoomPlayer } from '../lib/seitenspalte';
 import { uvWort } from '../lib/uv';
 import { Colors, radius, type, useColors } from '../theme';
@@ -88,21 +89,13 @@ export function SidePanel({
   // sitzt – nur zog die dann Spotify um statt das Radio.
   const choose = (ziel: Entity) => {
     const quelle = player && hatEigeneAuswahl(player) ? player : undefined;
-    const devices: string[] = Array.isArray(quelle?.state.devices)
-      ? (quelle!.state.devices as string[])
-      : [];
-    if (
-      quelle &&
-      ziel.id !== quelle.id &&
-      quelle.commands.includes('play_on') &&
-      devices.includes(ziel.name)
-    ) {
-      onCommand?.(quelle.id, 'play_on', {
-        device: ziel.name,
-        play: quelle.state.state === 'playing',
-      });
+    // Die Entscheidung selbst liegt in lib/boxwahl.ts - dieselbe, die
+    // auch das Musik-Blatt über der Raumkachel trifft.
+    const wechsel = boxWechsel(quelle ? wechselQuelle(quelle) : null, ziel);
+    if (wechsel.art === 'umzug' && quelle) {
+      onCommand?.(quelle.id, 'play_on', { device: wechsel.device, play: wechsel.play });
       setChosenId(quelle.id);
-      setWunschBox(ziel.name);
+      setWunschBox(wechsel.device);
     } else {
       setChosenId(ziel.id);
     }
@@ -189,7 +182,19 @@ export function SidePanel({
  *
  * In der Kachelreihe der Startseite zwang der Spotify-Bereich die
  * Nachbarkacheln auf seine Höhe; hier stört er niemanden. */
-function MediaPanel({
+/** Die gezeigte Quelle, wie `boxWechsel` sie braucht. */
+export function wechselQuelle(quelle: Entity) {
+  return {
+    id: quelle.id,
+    kannUmziehen: quelle.commands.includes('play_on'),
+    devices: Array.isArray(quelle.state.devices)
+      ? (quelle.state.devices as string[])
+      : [],
+    spielt: quelle.state.state === 'playing',
+  };
+}
+
+export function MediaPanel({
   entity,
   players,
   activeDevice,

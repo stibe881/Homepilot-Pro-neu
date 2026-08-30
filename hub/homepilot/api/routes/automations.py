@@ -400,6 +400,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "on_start": body.on_start,
             "transition": body.transition,
             "toggles": body.toggles,
+            "auto_off": body.auto_off,
             "category": body.category,
         }
         hub.data.set("scenes", [*stored_scenes(), entry])
@@ -439,6 +440,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 "on_start": body.on_start,
                 "transition": body.transition,
                 "toggles": body.toggles,
+                "auto_off": body.auto_off,
                 "category": body.category,
             }
             if entry["id"] == scene_id

@@ -17,6 +17,7 @@ import { knoepfeAnmelden } from './src/lib/mitteilungsknoepfe';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { gueltig } from './src/lib/appsymbol';
 import { persoenlichSetzen, persoenlichWert } from './src/lib/persoenlich';
+import { startfehlerMerken, startmarke } from './src/lib/startfehler';
 import { symbolWechseln } from './src/lib/symbolwechsel';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { ThemeProvider, useTheme } from './src/theme';
@@ -33,14 +34,24 @@ import { ThemeProvider, useTheme } from './src/theme';
  * Steht bewusst auf Modulebene: Der Handler muss stehen, bevor die erste
  * Nachricht eintrifft, nicht erst wenn eine Komponente gemountet ist.
  */
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+//
+// Einzeln abgesichert, wie alles hier unten: Diese vier Anweisungen
+// laufen beim Laden des Moduls, also bevor React existiert. Wirft eine
+// davon, nahm sie bisher die ganze App mit - und auf einem
+// Release-Build sieht das aus wie ein wortloser Absturz. Jetzt fällt
+// im schlimmsten Fall eine Nebensache aus, und das Haus geht auf.
+try {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+} catch (fehler) {
+  startfehlerMerken('setNotificationHandler', fehler);
+}
 
 /**
  * Die Android-Kanäle anlegen.
@@ -53,7 +64,11 @@ Notifications.setNotificationHandler({
  * Ohne `await` und mit stillem Fehlschlag: Das Anlegen ist eine
  * Nebensache beim Start und darf die App nicht aufhalten.
  */
-void kanaeleAnlegen().catch(() => {});
+try {
+  void kanaeleAnlegen().catch(() => {});
+} catch (fehler) {
+  startfehlerMerken('kanaeleAnlegen', fehler);
+}
 
 /**
  * Die Knöpfe unter der Mitteilung anmelden («Später», «Erledigt»).
@@ -62,7 +77,11 @@ void kanaeleAnlegen().catch(() => {});
  * eintrifft, zeigt schlicht keine Knöpfe - ohne Fehlermeldung, und man
  * sucht den Grund an der falschen Stelle.
  */
-void knoepfeAnmelden().catch(() => {});
+try {
+  void knoepfeAnmelden().catch(() => {});
+} catch (fehler) {
+  startfehlerMerken('knoepfeAnmelden', fehler);
+}
 
 /**
  * Die Hintergrund-Aufgabe der Ortung registrieren (Punkt 194).
@@ -76,8 +95,14 @@ void knoepfeAnmelden().catch(() => {});
  * Seite mit.
  */
 if (Platform.OS !== 'web') {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  require('./src/lib/ortungstask');
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require('./src/lib/ortungstask');
+  } catch (fehler) {
+    // Ohne die Aufgabe meldet die App keine Zonenübertritte mehr - das
+    // ist ärgerlich, aber kein Grund, das ganze Haus zuzusperren.
+    startfehlerMerken('ortungstask', fehler);
+  }
 }
 
 const STORAGE_KEY = 'homepilot.settings';
@@ -95,9 +120,26 @@ export default function App() {
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY)
-      .then((raw) => setSettings(raw ? JSON.parse(raw) : null))
-      .catch(() => setSettings(null));
+      .then((raw) => {
+        startmarke(raw ? 'Einstellungen geladen' : 'Einstellungen leer (erster Start)');
+        setSettings(raw ? JSON.parse(raw) : null);
+      })
+      .catch(() => {
+        startmarke('Einstellungen: Lesen fehlgeschlagen, weiter ohne');
+        setSettings(null);
+      });
   }, []);
+
+  // Die Etappen für den Startbericht. «bereit» ist die Marke, auf die
+  // die Startwache wartet - fehlt sie nach ein paar Sekunden, legt sie
+  // den Bericht über den schwarzen Bildschirm.
+  useEffect(() => {
+    if (fontsSettled) startmarke(fontError ? 'Schrift: Fehler, weiter ohne' : 'Schrift bereit');
+  }, [fontsSettled, fontError]);
+  const inhaltBereit = settings !== undefined && fontsSettled;
+  useEffect(() => {
+    if (inhaltBereit) startmarke('bereit');
+  }, [inhaltBereit]);
 
   const save = (next: HubSettings) => {
     setSettings(next);

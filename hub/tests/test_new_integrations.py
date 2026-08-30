@@ -2330,3 +2330,38 @@ def test_nothing_is_claimed_about_a_name_nobody_knows():
     assert zustand_name("egg_attack") == "unknown"
     assert zustand_name("") == "unknown"
     assert zustand_name(None) == "unknown"
+
+
+def test_calendar_birthdays_survive_a_busy_week():
+    """Zwölf Termine verdrängten jeden Geburtstag jenseits der nächsten
+    Tage - die App zeigte dann genau einen. Beide Listen haben jetzt ihr
+    eigenes Mass."""
+    from datetime import UTC, datetime
+
+    from homepilot.integrations.google_calendar import parse_events
+
+    now = datetime(2026, 8, 30, 8, 0, tzinfo=UTC)
+    termine = [
+        {
+            "id": f"t{i}",
+            "summary": f"Termin {i}",
+            "start": {"dateTime": f"2026-08-3{1 if i < 5 else 0}T1{i % 10}:00:00Z"},
+            "end": {"dateTime": f"2026-08-3{1 if i < 5 else 0}T1{i % 10}:30:00Z"},
+        }
+        for i in range(14)
+    ]
+    geburtstage = [
+        {
+            "id": f"g{i}",
+            "summary": f"Person {i} hat Geburtstag",
+            "start": {"date": f"2026-09-{10 + i:02d}"},
+            "end": {"date": f"2026-09-{11 + i:02d}"},
+            "_birthday": True,
+        }
+        for i in range(12)
+    ]
+    state = parse_events(termine + geburtstage, now)
+    events = state["events"]
+    assert sum(1 for event in events if not event["birthday"]) == 12
+    assert sum(1 for event in events if event["birthday"]) == 10
+

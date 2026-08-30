@@ -1,10 +1,11 @@
-"""Die Haustür-Live-Aktivität: starten beim Gehen, beenden beim Kommen."""
+"""Die Haustür-Live-Aktivität: starten im Anmarsch, beenden beim Kommen."""
 
 from homepilot.core.liveaktivitaet import (
     abmelden,
     aktivitaet_merken,
     apns_jwt,
     end_payload,
+    karte_faellig,
     parse_apns,
     registrieren,
     start_payload,
@@ -164,3 +165,28 @@ def test_der_profil_schalter_stoppt_und_beendet():
     rows, starten, beenden = wechsel(rows, weg)
     assert starten == []
     assert [r["activity_token"] for r in beenden] == ["activity-1"]
+
+
+class TestKarteFaellig:
+    def test_im_anmarsch_laeuft_die_karte(self) -> None:
+        # Nicht zuhause, aber nah: genau der Moment für den Türöffner.
+        assert karte_faellig("away", 800) is True
+        assert karte_faellig("quartier", 2500) is True
+
+    def test_weit_weg_laeuft_sie_nicht(self) -> None:
+        # Bisher lag die Karte den ganzen Arbeitstag auf dem Sperrbildschirm.
+        assert karte_faellig("away", 12_000) is False
+
+    def test_zuhause_endet_sie(self) -> None:
+        assert karte_faellig("home", 0) is False
+
+    def test_ohne_entfernung_entscheidet_die_zone(self) -> None:
+        assert karte_faellig("quartier", None) is True
+        assert karte_faellig("away", None) is False
+
+    def test_unbekannt_bleibt_unbekannt(self) -> None:
+        assert karte_faellig("unknown", None) is None
+        assert karte_faellig("", 500) is None
+        # bool ist in Python ein int - aber keine Entfernung.
+        assert karte_faellig("away", True) is False
+

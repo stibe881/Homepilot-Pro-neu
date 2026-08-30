@@ -2,44 +2,32 @@
  * Aufnehmen auf dem Telefon und dem iPad.
  *
  * Das Gegenstück zum Browser-Weg in `sprachnotiz.ts`: Dort nimmt der
- * `MediaRecorder` auf, hier `expo-audio`. Zwei Wege, weil die beiden
- * Welten nichts gemeinsam haben ausser dem Ergebnis - ein Blob, den der
- * Hub auf die Boxen legt.
+ * `MediaRecorder` auf, hier unser eigenes Modul `Aufnahme`
+ * (modules/aufnahme). Herauskommt beide Male ein Blob, den der Hub auf
+ * die Boxen legt.
+ *
+ * **Warum ein eigenes Modul und nicht `expo-audio`.** expo-audio hat
+ * die App vom 29. bis 31. August auf jedem Gerät wortlos schwarz
+ * starten lassen: Sein nativer Teil fasste schon beim App-Start die
+ * AVAudioSession an, und gegen ein Hängen dort hilft kein
+ * JavaScript-Netz (Werkbank-Punkt 223). Das eigene Modul ist um genau
+ * eine Eigenschaft herum gebaut: Beim App-Start läuft dort nichts -
+ * die Audio-Sitzung wird erst beim Druck auf den Aufnahmeknopf
+ * angefasst. Die Aufnahme-Werte (AAC, mono, 22 kHz, 48 kbit/s - spielt
+ * jede Cast-Box, eine Minute wiegt rund 350 KB) stehen jetzt im Swift.
  *
  * Diese Datei wird **nachgeladen** (`await import`), nicht oben
- * importiert. Sonst zöge jeder Web-Bau und jeder Test das native Modul
- * mit, und beide haben nichts davon.
- *
- * **Warum eigene Aufnahme-Werte statt eines der Voreinstellungen.**
- * `RecordingPresets.LOW_QUALITY` nimmt auf Android in AMR/3GP auf - das
- * spielt keine Google-Cast-Box. `HIGH_QUALITY` nimmt in Stereo mit 128
- * kbit/s auf; eine Minute davon ist fast ein Megabyte, und der Hub
- * weist alles über zwei Megabyte ab. Hier steht deshalb, was für eine
- * gesprochene Zeile richtig ist: AAC in einem MP4-Rumpf, mono, 22 kHz,
- * 48 kbit/s. Das spielt jede Cast-Box (der Hub erkennt es am `ftyp` -
- * siehe hub/core/sprachnotiz.py), und eine Minute wiegt rund 350 KB.
+ * importiert - der Web-Bau und die Tests haben vom nativen Modul
+ * nichts.
  */
-import type { RecordingOptions } from 'expo-audio';
-
 import type { Aufnahme } from './sprachnotiz';
 
-/** Aufnahme-Werte für gesprochene Sätze - siehe Kopf dieser Datei. */
-export const WERTE: RecordingOptions = {
-  extension: '.m4a',
-  sampleRate: 22050,
-  numberOfChannels: 1,
-  bitRate: 48000,
-  android: { outputFormat: 'mpeg4', audioEncoder: 'aac' },
-  ios: {
-    // Zahlenwerte statt der Enums: Die kämen nur aus dem nativen Modul,
-    // und das soll diese Datei nicht schon beim Einlesen brauchen.
-    outputFormat: 'aac ',
-    audioQuality: 64,
-    linearPCMBitDepth: 16,
-    linearPCMIsBigEndian: false,
-    linearPCMIsFloat: false,
-  },
-  web: { mimeType: 'audio/webm', bitsPerSecond: 48000 },
+/** Die Schnittstelle von modules/aufnahme/ios/AufnahmeModule.swift. */
+type AufnahmeModul = {
+  erlaubnis(): Promise<boolean>;
+  starten(): Promise<void>;
+  stoppen(): Promise<string | null>;
+  abbrechen(): Promise<void>;
 };
 
 /**
@@ -50,51 +38,43 @@ export const WERTE: RecordingOptions = {
  * einen Sinn, wenn man gerade den Aufnahmeknopf gedrückt hat.
  */
 export async function starteNativ(hoechstensMs: number): Promise<Aufnahme> {
-  const audio = await import('expo-audio');
-  const erlaubnis = await audio.requestRecordingPermissionsAsync();
-  if (!erlaubnis.granted) {
+  let modul: AufnahmeModul;
+  try {
+    const { requireNativeModule } = await import('expo-modules-core');
+    modul = requireNativeModule<AufnahmeModul>('Aufnahme');
+  } catch {
+    // Expo Go oder ein Build ohne das Modul - kein Mikrofon, kein Drama.
+    const fehler = new Error('Kein Aufnahmemodul in diesem Build');
+    fehler.name = 'NotFoundError';
+    throw fehler;
+  }
+
+  const erteilt = await modul.erlaubnis();
+  if (!erteilt) {
     const fehler = new Error('Mikrofon nicht freigegeben');
     fehler.name = 'NotAllowedError';
     throw fehler;
   }
-  // Ohne diesen Modus nimmt iOS nicht auf, solange der Schalter an der
-  // Seite auf «lautlos» steht - und genau dann greift man am ehesten zum
-  // Telefon, statt etwas zu rufen.
-  await audio.setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
 
-  const recorder = new audio.AudioRecorder(WERTE);
-  await recorder.prepareToRecordAsync();
-  recorder.record();
-
-  /** Das Mikrofon wieder loslassen - sonst bleibt oben der rote Balken
-   *  stehen, und auf dem Telefon sieht das aus, als höre die App weiter
-   *  zu. */
-  const loslassen = () =>
-    audio.setAudioModeAsync({ allowsRecording: false }).catch(() => undefined);
+  await modul.starten();
 
   const frist = setTimeout(() => {
-    if (recorder.isRecording) recorder.stop().catch(() => undefined);
+    void modul.stoppen().catch(() => undefined);
   }, hoechstensMs);
 
   return {
     stopp: async () => {
       clearTimeout(frist);
-      try {
-        if (recorder.isRecording) await recorder.stop();
-        const uri = recorder.uri;
-        if (!uri) return null;
-        // Der Umweg über `fetch`: Die Aufnahme liegt als Datei auf dem
-        // Gerät, und der Hub will einen Rumpf. Das ist derselbe Weg, den
-        // die App schon für Bilder nimmt.
-        return await (await fetch(uri)).blob();
-      } finally {
-        await loslassen();
-      }
+      const uri = await modul.stoppen();
+      if (!uri) return null;
+      // Der Umweg über `fetch`: Die Aufnahme liegt als Datei auf dem
+      // Gerät, und der Hub will einen Rumpf. Das ist derselbe Weg, den
+      // die App schon für Bilder nimmt.
+      return await (await fetch(uri)).blob();
     },
     abbrechen: () => {
       clearTimeout(frist);
-      if (recorder.isRecording) recorder.stop().catch(() => undefined);
-      loslassen();
+      void modul.abbrechen().catch(() => undefined);
     },
   };
 }

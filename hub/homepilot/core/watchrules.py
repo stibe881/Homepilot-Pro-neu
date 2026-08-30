@@ -306,3 +306,57 @@ def low_batteries(entities: list[Any]) -> list[Any]:
     return [entity for entity in entities if entity.state.get("low_battery") is True]
 
 
+# Ablage der schon gemahnten Öffnungen (hub.data): Zeilen mit Kennung
+# und Zeitpunkt der Öffnung. Zeilen und kein Dict, weil der DataStore
+# alles als Liste führt - ein Dict käme als Liste seiner Schlüssel zurück.
+OPEN_REPORTED_KEY = "open_reported"
+
+
+def offene_meldungen_lesen(rows: object, offen: set[str]) -> dict[str, float]:
+    """Die Ablage der gemahnten Öffnungen lesen und aufräumen (rein, testbar).
+
+    Geschlossene Kontakte fliegen heraus - damit ist der Merker für die
+    nächste Öffnung automatisch frei. Und die Ablage kommt aus einer
+    JSON-Datei: Was keine Zeile mit Kennung und Zeitstempel ist, wird
+    verworfen statt später zu überraschen.
+    """
+    ergebnis: dict[str, float] = {}
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        kennung = row.get("entity_id")
+        seit = row.get("seit")
+        if (
+            isinstance(kennung, str)
+            and kennung in offen
+            and isinstance(seit, (int, float))
+            and not isinstance(seit, bool)
+        ):
+            ergebnis[kennung] = float(seit)
+    return ergebnis
+
+
+def offene_meldungen_zeilen(gemahnt: dict[str, float]) -> list[dict[str, float | str]]:
+    """Das Gegenstück fürs Zurückschreiben (rein, testbar). Sortiert,
+    damit sich die Datei nur ändert, wenn sich der Inhalt ändert."""
+    return [
+        {"entity_id": kennung, "seit": gemahnt[kennung]} for kennung in sorted(gemahnt)
+    ]
+
+
+def schon_gemahnt(
+    gemeldet: dict[str, float], entity_id: str, seit: float, toleranz: float = 180.0
+) -> bool:
+    """Gilt die abgelegte Mahnung noch dieser Öffnung? (rein, testbar)
+
+    Verglichen wird der Zeitpunkt der Öffnung, nicht nur die Kennung:
+    Zu, wieder auf, wieder lange offen - das ist eine neue Öffnung und
+    verdient eine neue Mahnung. Die Toleranz fängt ab, dass Protokoll
+    und eigene Zählung um Sekunden auseinanderliegen können.
+
+    Der gemeldete Fall dahinter: «Terrasse steht offen» kam mehrfach für
+    dieselbe Öffnung. Der Merker lebte nur im Arbeitsspeicher, und jeder
+    Hub-Neustart - jedes Update ist einer - leerte ihn.
+    """
+    alt = gemeldet.get(entity_id)
+    return alt is not None and abs(alt - seit) <= toleranz

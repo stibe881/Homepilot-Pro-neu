@@ -67,6 +67,11 @@ class Scene:
     # leuchtet und beim nächsten Druck das halbe Haus wieder anschaltet,
     # wäre dort das Gegenteil von hilfreich.
     toggles: bool = True
+    # Nach so vielen Sekunden nimmt sich die Szene von selbst zurück
+    # (0 = nie). «Sternenhimmel im Kinderzimmer» soll nicht bis morgen
+    # leuchten, nur weil beim Einschlafen niemand mehr drückt. Wirkt nur
+    # bei Szenen, die aktiv bleiben - eine Handlung hat keinen Rückweg.
+    auto_off: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -81,11 +86,28 @@ class Scene:
             "category": self.category,
             "transition": self.transition,
             "toggles": self.toggles,
+            "auto_off": self.auto_off,
         }
 
 
 # Länger als eine Stunde ist kein Übergang mehr, sondern ein Ablauf.
 MAX_TRANSITION = 3600
+# Und länger als ein Tag ist kein Selbst-Ausschalten mehr, sondern nie.
+MAX_AUTO_OFF = 24 * 3600
+
+
+def restlaufzeit(ausgeloest: float, auto_off: int, jetzt: float) -> float | None:
+    """Wie lange die Szene noch gilt (rein, testbar).
+
+    None heisst: keine Uhr. 0 heisst: sofort zurücknehmen - der Fall
+    nach einem Neustart, wenn die Frist währenddessen abgelaufen ist.
+    Die Uhr rechnet ab dem Auslösen, nicht ab dem Neustart: Wer um 20
+    Uhr «Sternenhimmel, 30 Minuten» drückt, bekommt um 20:30 dunkel,
+    auch wenn der Hub um 20:15 neu gestartet ist.
+    """
+    if auto_off <= 0:
+        return None
+    return max(0.0, ausgeloest + auto_off - jetzt)
 # So oft wird während eines Übergangs nachgestellt. Alle fünf Sekunden:
 # oft genug, dass es fliessend wirkt, selten genug, dass eine Hue-Bridge
 # bei einer halbstündigen Rampe nicht in die Knie geht.
@@ -157,6 +179,7 @@ def parse_scenes(configs: list[dict[str, Any]], editable: bool = False) -> list[
                 # Vorgabe an: Der Umschalter ist das nützlichere Verhalten,
                 # und wer «Alles aus» baut, hakt es dort ab.
                 toggles=config.get("toggles", True) is not False,
+                auto_off=max(0, min(MAX_AUTO_OFF, int(config.get("auto_off") or 0))),
             )
         )
     return scenes
@@ -167,6 +190,8 @@ class SceneManager:
         # Laufende Übergänge – festgehalten, damit sie nicht vom
         # Müllsammler eingezogen werden, bevor sie fertig sind.
         self._fades: set[asyncio.Task] = set()
+        # Die laufenden Selbst-Ausschalt-Uhren, je Szene höchstens eine.
+        self._uhren: dict[str, asyncio.Task] = {}
         self.hub = hub
         self.scenes: list[Scene] = []
 
@@ -179,6 +204,17 @@ class SceneManager:
         self.scenes = parse_scenes(configs) + parse_scenes(stored or [], editable=True)
         if self.scenes:
             log.info("%d Szenen geladen", len(self.scenes))
+        # Die Uhren neu stellen - auch nach einem Neustart: Der Rückweg
+        # liegt auf der Platte und trägt den Auslöse-Zeitpunkt mit; eine
+        # Szene mit Frist, die vor dem Neustart ausgelöst wurde, schaltet
+        # trotzdem pünktlich zurück.
+        for eintrag in self._undo_lesen():
+            scene = self.get(str(eintrag.get("scene") or ""))
+            if scene is None or scene.auto_off <= 0:
+                continue
+            ausgeloest = eintrag.get("at")
+            if isinstance(ausgeloest, (int, float)):
+                self._uhr_stellen(scene, float(ausgeloest))
 
     def get(self, scene_id: str) -> Scene | None:
         return next((scene for scene in self.scenes if scene.id == scene_id), None)
@@ -291,6 +327,10 @@ class SceneManager:
                     )
                 await asyncio.sleep(0)
         self._undo_setzen(scene_id, None)
+        # Eine noch laufende Uhr hat nichts mehr zu tun.
+        uhr = self._uhren.pop(scene_id, None)
+        if uhr is not None:
+            uhr.cancel()
         log.info(
             "Szene '%s' zurückgenommen (%d Geräte)", scene.name, len(befehle) - len(failed)
         )
@@ -317,6 +357,15 @@ class SceneManager:
             self._undo_setzen(
                 scene_id, szenenrueckweg.plane_rueckweg(scene.actions, vorher)
             )
+            # Die Selbst-Ausschalt-Uhr läuft ab dem eben gespeicherten
+            # Auslöse-Zeitpunkt - derselbe Stempel, den auch ein Neustart
+            # wieder vorfindet.
+            if scene.auto_off > 0:
+                eintrag = next(
+                    (e for e in self._undo_lesen() if e.get("scene") == scene_id), None
+                )
+                if eintrag is not None and isinstance(eintrag.get("at"), (int, float)):
+                    self._uhr_stellen(scene, float(eintrag["at"]))
         else:
             # Kein Rückweg, und ein alter wird verworfen: Wer die Szene
             # nachträglich auf «löst nur aus» stellt, soll nicht beim
@@ -359,6 +408,52 @@ class SceneManager:
             len(scene.actions),
         )
         return {"scene": scene.as_dict(), "failed": failed}
+
+    def _uhr_stellen(self, scene: Scene, ausgeloest: float) -> None:
+        """Die Selbst-Ausschalt-Uhr dieser Szene (neu) stellen.
+
+        Je Szene läuft höchstens eine; ein neues Auslösen ersetzt die
+        alte. Beim Klingeln wird nachgesehen statt blind geschaltet:
+        Wurde die Szene von Hand zurückgenommen oder frisch neu
+        ausgelöst, ist der gespeicherte Auslöse-Zeitpunkt ein anderer,
+        und diese Uhr tut nichts.
+        """
+        alte = self._uhren.pop(scene.id, None)
+        if alte is not None:
+            alte.cancel()
+        rest = restlaufzeit(ausgeloest, scene.auto_off, time.time())
+        if rest is None:
+            return
+
+        async def klingeln() -> None:
+            await asyncio.sleep(rest)
+            eintrag = next(
+                (e for e in self._undo_lesen() if e.get("scene") == scene.id), None
+            )
+            if eintrag is None or eintrag.get("at") != ausgeloest:
+                return
+            try:
+                await self.revert(scene.id)
+                log.info(
+                    "Szene '%s' nach %d Minuten von selbst zurückgenommen",
+                    scene.name,
+                    scene.auto_off // 60,
+                )
+            except HomePilotError as err:
+                # Nichts mehr zurückzunehmen - jemand war schneller.
+                log.debug(
+                    "Szene '%s': Selbst-Ausschalten übersprungen (%s)", scene.name, err
+                )
+
+        task = asyncio.create_task(klingeln())
+        self._uhren[scene.id] = task
+        task.add_done_callback(
+            lambda fertig: (
+                self._uhren.pop(scene.id, None)
+                if self._uhren.get(scene.id) is fertig
+                else None
+            )
+        )
 
     async def _fade(
         self, scene: Scene, action: dict[str, Any], seconds: float

@@ -9,6 +9,216 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **«Alle Geburtstage» zeigt die nächsten zehn - und liest sich wie
+  eine Liste von Menschen.** Bisher stand dort oft nur einer: Der Hub
+  kappte Termine und Geburtstage zusammen bei zwölf Einträgen, und in
+  einer vollen Woche verdrängten die Termine jeden Geburtstag jenseits
+  der nächsten Tage. Beide Listen haben jetzt ihr eigenes Mass (12
+  Termine, 10 Geburtstage). Die Zeilen tragen den Namen statt des
+  Satzes («Flo» statt «Flo hat Geburtstag»), ein Geschenk-Symbol, das
+  Datum ausgeschrieben («Freitag, 4. September») und «in 5 Tagen» als
+  Chip rechts - «heute! 🎉» leuchtet im Akzent.
+- **«Alle Termine» liest sich jetzt als Woche.** Die flache Liste
+  wiederholte den Tag in jeder Zeile («Di, 10:00», «Di, 18:00») -
+  man las Daten statt Termine. Jetzt bündeln Tagesüberschriften
+  (Heute, Morgen, Mittwoch, «Sonntag, 6. September») die Liste, und
+  jede Zeile trägt nur noch ihre Uhrzeit in einer festen Spalte -
+  die Titel fluchten. Der Ort steht mit Nadel-Symbol darunter, die
+  Geburtstags-Liste trägt ihr «in 12 Tagen» als Chip rechts.
+- **Die Haustür-Karte erscheint erst im Anmarsch.** Sie lag bisher
+  den ganzen Arbeitstag auf dem Sperrbildschirm, sobald jemand weg
+  war - ein Türöffner ohne Face ID nützt aber nur auf den letzten
+  Metern. Jetzt startet sie erst näher als drei Kilometer (die
+  Quartier-Zone) und endet zuhause wie bisher.
+- **Tippen greift zuverlässiger.** Jede Meldung vom Hub (jeder
+  Temperaturtick) zeichnete sofort die ganze Startseite neu - ein
+  Tipp währenddessen ging verloren: «Ich muss oft zweimal drücken.»
+  Zustands-Meldungen werden jetzt über 120 ms gesammelt und in einem
+  Zug angewendet; die Verzögerung liegt unter dem, was ein Daumen
+  bemerkt.
+- **Szenen haben jetzt Auslöser.** Im Szenen-Editor steht der neue
+  Abschnitt «Auslöser»: Er zeigt die Abläufe, die diese Szene
+  starten, und legt auf Wunsch einen neuen an - vorbefüllt mit dem
+  Schritt «Szene», den Rest (Zeit, Bewegung, Heimkommen) kann der
+  Ablauf-Editor schon. Bewusst kein zweiter Auslöser-Editor: Es
+  gibt einen, und zwei wachsen auseinander.
+- **Szenen können sich nach einer Frist von selbst zurücknehmen.** Im
+  Editor steht neu «Schaltet von selbst zurück» (Nie, 15/30 Min,
+  1/2 Std) - der Sternenhimmel im Kinderzimmer soll nicht bis morgen
+  leuchten, nur weil beim Einschlafen niemand mehr drückt. Nach der
+  Frist passiert dasselbe wie beim zweiten Druck: Es wird
+  hergestellt, wie es vorher war, nur bei Geräten, die die Szene
+  wirklich verändert hat. Die Uhr läuft auf dem Hub, rechnet ab dem
+  Auslösen und übersteht Neustarts; wer vorher von Hand
+  zurückschaltet, ist schneller, und die Uhr tut nichts. Nur bei
+  Szenen, die aktiv bleiben - eine Handlung hat keinen Rückweg.
+- **Welche Knöpfe auf der Raumkachel liegen, ist jetzt wählbar.** Im
+  Blatt hinter dem langen Druck auf die Kachel (dort, wo auch das
+  Foto gewählt wird) stehen neu Chips für Licht, Storen und Musik -
+  angeboten wird nur, was der Raum hergibt. Die Wahl gilt wie das
+  Bild für alle im Haus, und auch «gar keine Knöpfe» ist eine
+  gültige Wahl. Ohne Wahl bleibt alles wie bisher.
+- **«Terrasse steht offen» kommt nur noch einmal je Öffnung.** Die
+  Mahnung war als «einmal je Öffnung» gedacht, aber ihr Merker lebte
+  nur im Arbeitsspeicher - und jedes Update startet den Hub neu. Bei
+  offener Türe kam die Nachricht darum nach jedem Neustart erneut.
+  Der Merker liegt jetzt in hub.data und ist am Zeitpunkt der
+  Öffnung verankert: Ein Neustart mahnt nicht mehr doppelt, eine
+  neue Öffnung (zu, wieder auf, wieder lange offen) mahnt weiterhin.
+- **Die Kacheln der Kamera-Zeitleiste zeigen jetzt die Aufnahme.**
+  Bisher sagten sie nur «12:05, Person» - ansehen konnte man nichts.
+  Ein Tipp öffnet jetzt die Aufnahme des Ereignisses als Video: Der
+  Hub exportiert sie in dem Moment aus Protect (zwei Sekunden
+  Vorlauf, mindestens sechs, höchstens neunzig Sekunden) und liefert
+  sie mit Range-Unterstützung aus - ohne die spielt der iOS-Player
+  gar nicht erst los. Kamera-Adresse und Zugangsdaten bleiben wie
+  beim Live-Bild auf dem Hub. Antippbar sind die Kacheln nur, wenn
+  die Integration Aufnahmen liefern kann.
+- **Der Musik-Knopf der Raumkachel öffnet jetzt den Player.** Bisher
+  schaltete er blind Play/Pause auf der Raumbox; für eine Playlist
+  musste man auf die Startseite zurück und dort erst die Box wählen.
+  Jetzt öffnet der Knopf denselben Player wie auf der Startseite als
+  Blatt - mit der Box des Raums vorgewählt. Es ist bewusst derselbe
+  Player (kein zweiter): Auch die Boxwahl-Regel, die Musik einmal
+  auf der Terrasse statt im Büro hat spielen lassen, existiert
+  weiterhin genau einmal (lib/boxwahl.ts). Das Knopf-Symbol ist neu
+  eine Note statt Play/Pause - es verspricht kein Schalten mehr.
+- **Die Storen-Kachel passt sich ihrer Breite an.** Auf der halben
+  Telefonbreite brach «Beschattung» mitten im Wort, und das Fenster
+  in voller Höhe machte die Kachel fast doppelt so hoch wie ihre
+  Nachbarn. Jetzt misst die Kachel ihre Breite: Auf schmalen Kacheln
+  wird die Chip-Schrift eine Stufe kleiner (und bleibt einzeilig),
+  das Fenster niedriger. Auf dem iPad ändert sich nichts.
+- **Durchsagen mit eigener Stimme kommen zurück - mit eigenem
+  Aufnahmemodul.** Statt `expo-audio` (das die App beim Start
+  anhielt) nimmt jetzt `modules/aufnahme` auf: rund 100 Zeilen Swift
+  um den AVAudioRecorder, gebaut um genau eine Eigenschaft - beim
+  App-Start läuft dort nichts, die Audio-Sitzung wird erst beim
+  Druck auf den Aufnahmeknopf angefasst. Gleiche Aufnahme-Werte wie
+  zuvor (AAC mono, 22 kHz, 48 kbit/s). Mit dem neuen Modul steigt
+  die Laufzeit auf 4: Einmal TestFlight installieren, danach greift
+  OTA wieder.
+- **Der wortlose Schwarzstart ist gelöst: Es war `expo-audio`.** Die
+  Diagnose-Fassung ohne das Paket lief auf Anhieb - damit ist es
+  überführt. Sein nativer Teil fasst beim App-Start die AVAudioSession
+  an; hängt das, zeichnet die App nie und kein Netz kann helfen. Mit
+  eingeschalteten Updates machte expo-updates daraus zusätzlich einen
+  sofortigen Abbruch - das waren die Abstürze vom 29. August. Das
+  Paket bleibt draussen (Durchsagen mit eigener Stimme sind bis auf
+  Weiteres abgeschaltet, Werkbank-Punkt 223), die OTA-Updates sind
+  wieder eingeschaltet, und die Laufzeit bleibt bewusst auf 3: Das
+  JavaScript braucht expo-audio nicht mehr und passt damit auf beide
+  Baustände.
+- **Diagnose-Fassung 1.4.11: ohne `expo-audio`.** Das Ausschluss-
+  verfahren per ipa-Vergleich (laufender Build 29799716 gegen
+  schwarzen Build 29801284) hat alles andere freigesprochen:
+  identische Dateilisten, gleiches Manifest, Info.plist bis auf den
+  Mikrofontext gleich, eigene Module beim Start untätig. Übrig
+  bleibt als einzige native Änderung im Bruch-Fenster `expo-audio`.
+  Diese Fassung nimmt es testweise ganz heraus; Durchsagen mit
+  eigener Stimme sind darin abgeschaltet. Läuft sie, ist der Täter
+  benannt und kommt kontrolliert zurück.
+- **Der Start zeichnet zuerst und lädt danach.** In 1.4.9 blieb der
+  Bildschirm schwarz, ohne dass der Startbericht erschien - der
+  konnte gar nicht: Die App-Module wurden vor dem ersten Bild
+  geladen, und ein Hängen dort liess auch die Wache nie zeichnen.
+  Jetzt steht zuerst das Startbild («HomePilot startet …», mit den
+  Etappen), und erst dann lädt `index.ts` die Module. Friert das
+  Bild bei «Lade App-Module …» ein, hängt das Laden; bleibt der
+  Bildschirm trotz allem schwarz, läuft nicht einmal JavaScript -
+  dann liegt es am Bündel oder an der nativen Hülle.
+- **Ein hängender Start erklärt sich selbst.** 1.4.8 hat gezeigt: Der
+  schwarze Bildschirm ist kein Fehler, sondern ein Hängen - die App
+  zeichnet nichts, solange Einstellungen oder Symbolschrift nicht
+  geladen sind, und wenn eines davon nie fertig wird, gibt es nichts
+  zu fangen. Jetzt meldet der Start jede Etappe (JavaScript läuft,
+  Module geladen, Schrift, Einstellungen, bereit), und bleibt die
+  Marke «bereit» sieben Sekunden aus, legt die Startwache einen
+  Bericht über den Bildschirm: die erreichten Etappen mit Zeiten -
+  die Etappe nach der letzten Zeile ist die, die hängt. Wird die App
+  doch noch fertig, verschwindet der Bericht von selbst.
+- **Ein geschluckter Startfehler zeigt sich jetzt, statt schwarz zu
+  bleiben.** Der Messbuild 1.4.7 hat bewiesen: Der Absturz ist ein
+  JavaScript-Fehler - ohne expo-updates stirbt der Prozess nicht mehr.
+  Aber der globale Fang schrieb die Meldung nur in die Konsole, die
+  ohne Mac niemand liest, und React blieb mitten im ersten Aufbau
+  stehen: schwarzer Bildschirm. Jetzt meldet der Fang den Fehler an
+  eine Startwache über der Wurzel, die den Notfallbildschirm mit der
+  Meldung zeigt - und ein nativer Alert tut es zusätzlich, falls
+  selbst das Zeichnen nicht mehr geht.
+- **Die System-Seite zeigt, was beim Start schiefging.** Das Netz aus
+  `lib/startfehler.tsx` hielt gestolperte Anweisungen zwar fest, aber
+  gelesen hat sie niemand: Die Sammelstellen trugen «für die
+  System-Seite» im Kommentar, und auf der System-Seite stand nichts
+  davon. Jetzt steht es dort - im Normalfall gar nichts, und genau
+  dann ist alles in Ordnung.
+- **`updates.enabled` steht vorübergehend auf `false`.** Das ist eine
+  Messung, keine Absicht: Der wortlose Absturz vom 29. August zeigt im
+  Bericht nur die Ersatz-Ausnahme, die `expo-updates` selbst wirft,
+  nachdem seine Rettungskette aufgegeben hat - den ursprünglichen
+  Fehler trägt sie nicht mit. Ohne `expo-updates` wird ErrorRecovery
+  gar nicht erst scharfgestellt (nachgelesen in `StartupProcedure`),
+  und der Bericht zeigt den echten Stapel. **Nach dem Befund gehört
+  die Zeile wieder heraus** - ohne sie gibt es keine OTA-Fassungen.
+- **Der Start der App wartet nicht mehr auf das Netz.** In `app.json`
+  stand `fallbackToCacheTimeout: 3000`: Bei jedem Öffnen hielt
+  `expo-updates` die App bis zu drei Sekunden an, um nachzusehen, ob
+  eine neue Fassung da ist. Jetzt steht dort `0` - die App startet
+  sofort mit dem Stand, den sie hat, und lädt im Hintergrund. Das ist
+  ohnehin, was die Meldung des Update-Skripts seit je verspricht
+  («angewendet wird sie beim übernächsten Start»), und es nimmt dem
+  Start ein Zeitfenster, in dem er von aussen scheitern kann.
+- **Das Widget stürzte ab, sobald ein Zähler abgelaufen war.** Auf der
+  Karte mit Countdown stand `Date()...Date(timeIntervalSince1970: endet)`.
+  Ein `ClosedRange` verlangt, dass die obere Grenze nicht vor der
+  unteren liegt - lag `endet` in der Vergangenheit, brach Swift den
+  Prozess ab (`brk 1`), ohne Ausnahme und ohne Auffangmöglichkeit. Bei
+  jedem Zeichnen erneut, bis iOS die Erweiterung drosselte; auf dem
+  Sperrbildschirm blieb die Karte leer. Jetzt endet die Spanne im
+  Jetzt und der Zähler steht auf 0:00 - was fachlich auch stimmt. Die
+  Uhr machte es von Anfang an so (`targets/watch/App.swift`), das
+  Widget als Einziges nicht.
+- **Die OTA-Veröffentlichung läuft wieder.** Sie scheiterte seit vier
+  Tagen bei jedem einzigen Lauf, und zwar an einer Zeile im
+  Update-Skript: `app_abbild: command not found`. Der Block stand vor
+  der Funktion, die er aufruft - die Bash kennt keine
+  Vorwärtsdeklaration, also war die Funktion an dieser Stelle
+  schlicht noch nicht da. Dazu lag er im Zweig «dieser Stand läuft
+  schon» und blieb damit ausgerechnet dann aus, wenn es etwas Neues
+  zu liefern gab. Beides ist behoben: Der Block steht jetzt hinter
+  `app_abbild()` und ausserhalb der Abfrage. Das ist der Grund,
+  warum die Telefone tagelang keine einzige Korrektur bekamen -
+  nicht die Korrekturen selbst.
+- **Eine gescheiterte OTA-Veröffentlichung nennt jetzt ihren Grund.**
+  Sie scheiterte vier Tage lang bei jedem Update-Lauf, und das Skript
+  schrieb dazu nur «Details: expo.dev» - den eigentlichen Fehler warf
+  es weg. Auf dem Kanal lagen deshalb nur noch Fassungen einer alten
+  Laufzeit (0.7.0), während die Telefone auf 3 liefen: Kein Gerät
+  bekam mehr etwas, und niemandem fiel es auf. Jetzt landen die
+  entscheidenden Zeilen im Log, und die Erfolgsmeldung nennt die
+  Laufzeit mit - denn sie allein entscheidet, welche Builds eine
+  Fassung überhaupt annehmen.
+- **Jede Anweisung beim Start einzeln abgesichert.** In `App.tsx`
+  laufen vier Dinge schon beim Laden des Moduls (Mitteilungs-Handler,
+  Android-Kanäle, Mitteilungsknöpfe, die Ortungs-Aufgabe) - sie müssen
+  dort stehen, weil sie fertig sein müssen, bevor die erste Nachricht
+  eintrifft. Bisher nahm eine davon im Fehlerfall die ganze App mit.
+  Jetzt hält jede ihren eigenen Fehler fest, und der Start geht weiter:
+  im schlimmsten Fall fällt eine Nebensache aus statt des ganzen Hauses.
+- **Ein Netz für Fehler beim Start.** Die App schloss sich am 29. August
+  auf iPhone und Wandpanel wortlos, keine Sekunde nach dem Antippen. Im
+  Absturzbericht stand als auslösende Queue
+  `expo.controller.errorRecoveryQueue`: die Fehler-Rettung von
+  `expo-updates`, die bei einem fatalen JS-Fehler beim Start greift und
+  den Prozess abbricht, wenn sie nichts Heiles zum Nachladen findet.
+  Der Fehler selbst stand nirgends - das `Auffangnetz` liegt *innerhalb*
+  des Baums und fängt nur, was beim Zeichnen passiert; ein Release-Build
+  zeigt keine rote Seite. Jetzt lädt `index.ts` die App in einem `try`,
+  und ein globaler Fang nimmt fatale Fehler im Startfenster auf. Statt
+  eines wortlosen Absturzes steht die Meldung samt Stapel auf dem
+  Bildschirm. Nachgewiesen mit einem absichtlich eingebauten
+  Startfehler.
+
 - **Grundriss-Ansicht** (Punkt 222): Die Räume-Seite kann zuoberst ein
   Foto des Wohnungsplans zeigen, darauf die Geräte als antippbare
   Punkte – antippen schaltet, der Zustand färbt den Punkt.
@@ -20,6 +230,15 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Betrieb**
 
+- **`main` ist der Zweig, der im Haus läuft.** Alle Arbeitszweige sind
+  zusammengeführt, und der Update-Knopf baut jetzt `main` statt eines
+  `claude/…`-Zweigs. Ein Arbeitszweig heisst nach der Arbeit, die
+  einmal darauf lag – ist sie erledigt, zieht die nächste woanders hin,
+  und der Knopf baut weiter den alten Namen. Genau diese Falle steht
+  schon zweimal in dieser Datei; `main` heisst nach nichts und bleibt
+  deshalb richtig. **Der Portainer-Stack muss einmal von Hand auf
+  `refs/heads/main` umgestellt werden** – sonst klont er weiter den
+  alten Zweig (siehe `deploy/portainer.md`).
 - Küchen-Timer überleben den Neustart. Der Update-Knopf wird gern
   abends gedrückt – genau dann, wenn etwas im Ofen ist, und der Wecker
   starb mit dem Hub. Ein während des Neustarts abgelaufener Timer

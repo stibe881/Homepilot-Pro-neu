@@ -22,11 +22,16 @@ Der Hub ist die Wahrheit; die App zeigt sie an und schickt Befehle.
 
 ## Bevor du anfängst
 
-**Auf welchem Zweig?** Der Update-Knopf in der App baut, was in
-`deploy/rebuild-hub.sh` unter `BRANCH` steht (überschreibbar mit
-`HOMEPILOT_BRANCH`). Wer anderswo arbeitet, kann noch so oft bauen – im
-Haus kommt nichts an. Das ist genau der Fehler, der zu dieser Datei
-geführt hat.
+**Auf welchem Zweig?** `main` – der ist der Stand, der im Haus läuft.
+Der Update-Knopf in der App baut, was in `deploy/rebuild-hub.sh` unter
+`BRANCH` steht (überschreibbar mit `HOMEPILOT_BRANCH`), und dort steht
+`main`. Wer anderswo arbeitet, kann noch so oft bauen – im Haus kommt
+nichts an. Das ist genau der Fehler, der zu dieser Datei geführt hat.
+
+Arbeiten darf man trotzdem, wo man will: Der Bau nimmt alle übrigen
+Zweige des Repos zusätzlich herein (nur lokal, `HOMEPILOT_MERGE_ALL`).
+Das ist ein Netz, kein Ersatz – was auf `main` liegt, ist gebaut; alles
+andere hängt daran, dass es sich konfliktfrei hineinnehmen lässt.
 
 **Schau nach, ob es das schon gibt.** Vor jeder neuen Funktion einmal
 `git log --oneline -30` und ein `grep` nach dem Begriff. Das Repo ist

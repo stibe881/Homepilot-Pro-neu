@@ -151,6 +151,37 @@ export function useHub(url: string | null, token: string | null) {
     return () => clearTimeout(timer);
   }, [undo]);
 
+  // Zustands-Meldungen gesammelt statt einzeln anwenden.
+  //
+  // Jede WebSocket-Meldung löste sofort ein setEntityMap aus - und damit
+  // ein Neuzeichnen der ganzen Startseite. In einem Haus mit vielen
+  // Fühlern (Leistung, Temperatur, Bewegung) ist der JS-Faden damit
+  // dauerbeschäftigt, und ein Tipp, der während eines Neuzeichnens
+  // ankommt, geht verloren: «Ich muss oft zweimal drücken.» Gesammelt
+  // über 120 ms wird aus einem Schwall ein einziges Neuzeichnen; die
+  // Verzögerung liegt unter dem, was ein Daumen bemerkt.
+  const meldungsPuffer = useRef<Record<string, Entity>>({});
+  const aktivitaetsPuffer = useRef<Activity[]>([]);
+  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flush = useCallback(() => {
+    flushTimer.current = null;
+    const staende = meldungsPuffer.current;
+    if (Object.keys(staende).length > 0) {
+      meldungsPuffer.current = {};
+      setEntityMap((prev) => ({ ...prev, ...staende }));
+    }
+    const eintraege = aktivitaetsPuffer.current;
+    if (eintraege.length > 0) {
+      aktivitaetsPuffer.current = [];
+      setActivity((prev) => [...eintraege, ...prev].slice(0, ACTIVITY_LIMIT));
+    }
+  }, []);
+  const flushPlanen = useCallback(() => {
+    if (flushTimer.current == null) {
+      flushTimer.current = setTimeout(flush, 120);
+    }
+  }, [flush]);
+
   const clearPending = useCallback((entityId: string) => {
     const timer = timersRef.current[entityId];
     if (timer) {
@@ -188,6 +219,8 @@ export function useHub(url: string | null, token: string | null) {
       ws.onmessage = (event) => {
         const message: ServerMessage = JSON.parse(String(event.data));
         if (message.type === 'snapshot') {
+          // Was noch im Puffer liegt, ist älter als der Schnappschuss.
+          meldungsPuffer.current = {};
           const entities = Object.fromEntries(
             message.entities.map((entity) => [entity.id, entity])
           );
@@ -211,7 +244,7 @@ export function useHub(url: string | null, token: string | null) {
           message.type === 'entity_added'
         ) {
           clearPending(message.entity.id);
-          setEntityMap((prev) => ({ ...prev, [message.entity.id]: message.entity }));
+          meldungsPuffer.current[message.entity.id] = message.entity;
           if (message.type === 'state_changed') {
             const summary = describe(
               message.entity,
@@ -219,24 +252,24 @@ export function useHub(url: string | null, token: string | null) {
               message.old_state
             );
             if (summary) {
-              setActivity((prev) =>
-                [
-                  {
-                    id: `${message.entity_id}-${Date.now()}`,
-                    name: message.entity.name,
-                    summary,
-                    source: message.source?.label ?? null,
-                    sourceKind: message.source?.kind ?? null,
-                    at: Date.now(),
-                  },
-                  ...prev,
-                ].slice(0, ACTIVITY_LIMIT)
-              );
+              aktivitaetsPuffer.current = [
+                {
+                  id: `${message.entity_id}-${Date.now()}`,
+                  name: message.entity.name,
+                  summary,
+                  source: message.source?.label ?? null,
+                  sourceKind: message.source?.kind ?? null,
+                  at: Date.now(),
+                },
+                ...aktivitaetsPuffer.current,
+              ].slice(0, ACTIVITY_LIMIT);
             }
           }
+          flushPlanen();
         } else if (message.type === 'family_changed') {
           setFamilyChangedAt(Date.now());
         } else if (message.type === 'entity_removed') {
+          delete meldungsPuffer.current[message.entity_id];
           setEntityMap((prev) => {
             const next = { ...prev };
             delete next[message.entity_id];
@@ -296,10 +329,14 @@ export function useHub(url: string | null, token: string | null) {
       disposed = true;
       appState.remove();
       if (retryTimer) clearTimeout(retryTimer);
+      if (flushTimer.current != null) {
+        clearTimeout(flushTimer.current);
+        flushTimer.current = null;
+      }
       ws?.close();
       wsRef.current = null;
     };
-  }, [url, token, clearPending]);
+  }, [url, token, clearPending, flushPlanen]);
 
   // Nach dem Anlegen oder Ändern einer Szene ruft der Editor das erneut auf.
   const reloadScenes = useCallback(() => {

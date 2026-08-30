@@ -40,6 +40,34 @@ from ..models import (
 
 log = logging.getLogger(__name__)
 
+def teilbereich(header: str | None, groesse: int) -> tuple[int, int] | None:
+    """Einen Range-Header auslegen (rein, testbar).
+
+    Nur der erste Bereich zählt - mehr fragt kein Videoplayer, und wer es
+    doch tut, bekommt eben den ersten. Unsinnige Angaben ergeben None,
+    also die ganze Datei: lieber vollständig als ein 416 für einen
+    Player, der danach einfach schwarz bliebe.
+    """
+    if not header or not header.startswith("bytes=") or groesse <= 0:
+        return None
+    roh = header[len("bytes=") :].split(",")[0].strip()
+    von_text, _, bis_text = roh.partition("-")
+    try:
+        if von_text == "":
+            # Suffix-Form: die letzten N Bytes.
+            letzte = int(bis_text)
+            if letzte <= 0:
+                return None
+            return max(0, groesse - letzte), groesse - 1
+        von = int(von_text)
+        bis = int(bis_text) if bis_text else groesse - 1
+    except ValueError:
+        return None
+    if von < 0 or von >= groesse or bis < von:
+        return None
+    return von, min(bis, groesse - 1)
+
+
 def register(app: FastAPI, ctx: ApiContext) -> None:
     hub = ctx.hub
     current_user = ctx.current_user
@@ -62,14 +90,18 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         service = hub.integrations.get(entity.integration)
         getter = getattr(service, "events", None)
+        # Kann diese Integration auch Aufnahmen liefern? Die App macht die
+        # Kacheln der Zeitleiste nur dann antippbar - ein Knopf, der immer
+        # «keine Aufnahme» sagt, ist keiner.
+        clips = callable(getattr(service, "clip", None))
         if not callable(getter):
-            return {"events": [], "supported": False}
+            return {"events": [], "supported": False, "clips": False}
         try:
             events = await getter(entity, hours=max(1, min(72, hours)))
         except Exception as err:
             log.debug("Ereignisse von %s nicht abrufbar: %s", entity_id, err)
-            return {"events": [], "supported": True}
-        return {"events": events, "supported": True}
+            return {"events": [], "supported": True, "clips": clips}
+        return {"events": events, "supported": True, "clips": clips}
 
     # ── Entitäten ──────────────────────────────────────────────────────────
 
@@ -324,6 +356,53 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         rows = batterie.vergiss(hub.data.get(batterie.STORE_KEY), [entity_id])
         hub.data.set(batterie.STORE_KEY, rows)
         return {"ok": True, "entity_id": entity_id}
+
+    @app.get("/api/entities/{entity_id}/clip")
+    async def entity_clip(
+        entity_id: str, start: int, request: Request, end: int | None = None
+    ) -> Response:
+        """Die Aufnahme zu einem Ereignis der Zeitleiste (MP4).
+
+        Das Token steht in der Adresse statt in einer Kopfzeile:
+        Videoplayer schicken keine eigenen Kopfzeilen mit (siehe
+        deliver()). Und sie fragen in Bereichen - ohne 206 auf einen
+        Range-Header spielt AVPlayer gar nicht erst los.
+        """
+        user = current_user(request)
+        entity = hub.registry.get(entity_id)
+        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration):
+            raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
+        integration = hub.integrations.get(entity.integration)
+        getter = getattr(integration, "clip", None)
+        if not callable(getter):
+            raise HTTPException(
+                status_code=404, detail="Diese Kamera liefert keine Aufnahmen"
+            )
+        try:
+            video = await getter(entity, start, end)
+        except Exception as err:
+            raise HTTPException(status_code=502, detail=f"Aufnahme: {err}") from err
+        if not video:
+            raise HTTPException(
+                status_code=404, detail="Keine Aufnahme zu diesem Ereignis"
+            )
+        kopf = {
+            "Accept-Ranges": "bytes",
+            # Die Aufnahme ändert sich nicht mehr - beim Spulen fragt der
+            # Player mehrfach, und jedes Mal neu zu exportieren wäre
+            # Verschwendung.
+            "Cache-Control": "private, max-age=3600",
+        }
+        bereich = teilbereich(request.headers.get("range"), len(video))
+        if bereich is None:
+            return Response(content=video, media_type="video/mp4", headers=kopf)
+        von, bis = bereich
+        return Response(
+            content=video[von : bis + 1],
+            status_code=206,
+            media_type="video/mp4",
+            headers={**kopf, "Content-Range": f"bytes {von}-{bis}/{len(video)}"},
+        )
 
     @app.get("/api/entities/{entity_id}/snapshot")
     async def entity_snapshot(entity_id: str, request: Request) -> Response:

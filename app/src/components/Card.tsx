@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import React, { useMemo } from 'react';
 import {
   ActivityIndicator,
@@ -16,6 +17,8 @@ export function Card({
   children,
   style,
   tint,
+  verlauf,
+  label,
   dimmed,
   onPress,
   onLongPress,
@@ -23,6 +26,15 @@ export function Card({
   children: React.ReactNode;
   style?: ViewStyle;
   tint?: string;
+  /** Zwei Töne, und die ganze Kachel trägt sie. Für die Kacheln, die
+   *  selbst der Knopf sind - die Szene trägt so ihre Farbe, statt sie
+   *  in einem Feld darin zu zeigen (lib/szenenfarbe.ts). Ein flacher
+   *  `tint` täte es nicht: Der Verlauf ist es, der die Fläche als Knopf
+   *  lesbar macht statt als eingefärbte Karte. */
+  verlauf?: [string, string, ...string[]];
+  /** Vorlesetext, wenn die ganze Kachel ein Knopf ist. Ohne ihn läse
+   *  VoiceOver den ganzen Inhalt vor, statt zu sagen, was passiert. */
+  label?: string;
   dimmed?: boolean;
   onPress?: () => void;
   onLongPress?: () => void;
@@ -32,22 +44,40 @@ export function Card({
   const content = [
     styles.card,
     tint ? { backgroundColor: tint } : null,
+    // Der Verlauf liegt als eigene Fläche darin und braucht die
+    // Beschneidung - sonst stünde er über die Rundung hinaus.
+    verlauf ? { overflow: 'hidden' as const } : null,
     dimmed ? styles.dimmed : null,
     style,
   ];
+  const inhalt = (
+    <>
+      {verlauf ? (
+        <LinearGradient
+          colors={verlauf}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
+      ) : null}
+      {children}
+    </>
+  );
   if (onPress || onLongPress) {
     return (
       <Pressable
         onPress={onPress}
         onLongPress={onLongPress}
         accessibilityRole="button"
+        accessibilityLabel={label}
         style={({ pressed }) => [...content, pressed && { opacity: 0.85 }]}
       >
-        {children}
+        {inhalt}
       </Pressable>
     );
   }
-  return <View style={content}>{children}</View>;
+  return <View style={content}>{inhalt}</View>;
 }
 
 /**

@@ -48,6 +48,9 @@ export interface SceneDraft {
    *  «Alles aus», die keinen Zustand herstellen. Fehlt der Wert, gilt
    *  «ja» – so verhalten sich die Szenen, die es schon gab. */
   toggles?: boolean;
+  /** Nach so vielen Sekunden nimmt sich die Szene von selbst zurück
+   *  (0 = nie). Nur sinnvoll, wenn sie aktiv bleibt. */
+  autoOff?: number;
   actions: SceneActionDraft[];
   /** Frei benannte Kategorie zum Gruppieren in der Liste. */
   category?: string;
@@ -625,6 +628,12 @@ export function SceneDevices({
   );
 }
 
+export interface SzenenAusloeser {
+  id: string;
+  alias: string;
+  enabled: boolean;
+}
+
 export function SceneEditor({
   draft,
   entities,
@@ -637,6 +646,8 @@ export function SceneEditor({
   onRevert,
   onVersions,
   onRestoreVersion,
+  ausloeser = [],
+  onAusloeser,
 }: {
   draft: SceneDraft | null;
   entities: Entity[];
@@ -649,6 +660,11 @@ export function SceneEditor({
   /** Nur bei gespeicherten Szenen: einmal auslösen, Rückweg merken. */
   onTest?: () => Promise<RueckwegBefehl[]>;
   onRevert?: (befehle: RueckwegBefehl[]) => void;
+  /** Abläufe, die diese Szene auslösen - fürs Anzeigen und Anspringen. */
+  ausloeser?: SzenenAusloeser[];
+  /** Einen Auslöser öffnen (id) oder neu anlegen (null). Fehlt der
+   *  Griff, bleibt der Abschnitt weg. */
+  onAusloeser?: (automationId: string | null) => void;
   /** Frühere Fassungen laden bzw. eine zurückholen (nur beim Bearbeiten). */
   onVersions?: () => Promise<Fassung[]>;
   onRestoreVersion?: (at: number) => Promise<boolean>;
@@ -751,6 +767,72 @@ export function SceneEditor({
               : 'Der Knopf leuchtet, solange der Raum so steht. Ein zweiter Druck stellt her, wie es vorher war – aber nur bei Geräten, die die Szene wirklich verändert hat. Ein Fernseher, der schon aus war, bleibt aus.'}
           </Text>
         </Field>
+
+        {/* Wann die Szene von selbst losgeht. Der Auslöser ist in
+            Wahrheit ein gewöhnlicher Ablauf mit dem Schritt «Szene» -
+            hier steht nur die Abkürzung dorthin. Bewusst kein zweiter
+            Auslöser-Editor: Es gibt schon einen, und zwei wachsen
+            auseinander. */}
+        {onAusloeser ? (
+          <Field label="Auslöser">
+            {ausloeser.map((eintrag) => (
+              <Pressable
+                key={eintrag.id}
+                onPress={() => onAusloeser(eintrag.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`Auslöser «${eintrag.alias}» bearbeiten`}
+                style={({ pressed }) => [styles.ausloeserZeile, pressed && { opacity: 0.7 }]}
+              >
+                <Ionicons name="flash-outline" size={16} color={colors.inkSoft} />
+                <Text style={styles.ausloeserText} numberOfLines={1}>
+                  {eintrag.alias}
+                </Text>
+                {!eintrag.enabled ? (
+                  <Text style={styles.ausloeserAus}>pausiert</Text>
+                ) : null}
+                <Ionicons name="chevron-forward" size={14} color={colors.inkFaint} />
+              </Pressable>
+            ))}
+            <Pressable
+              onPress={() => onAusloeser(null)}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.ausloeserNeu, pressed && { opacity: 0.7 }]}
+            >
+              <Ionicons name="add" size={16} color={colors.accent} />
+              <Text style={styles.ausloeserNeuText}>Auslöser hinzufügen</Text>
+            </Pressable>
+            <Text style={styles.triggerNote}>
+              Ein Auslöser ist ein gewöhnlicher Ablauf, der diese Szene
+              startet - Zeit, Bewegung, Heimkommen, was die Abläufe eben
+              können. Er erscheint auch unter «Abläufe».
+            </Text>
+          </Field>
+        ) : draft.id === undefined ? null : null}
+
+        {/* Nur bei Szenen mit Zustand: Eine Handlung hat keinen
+            Rückweg, also auch nichts, was sich von selbst zurücknehmen
+            könnte. Der Fall dahinter: der Sternenhimmel im
+            Kinderzimmer, den beim Einschlafen niemand mehr ausdrückt. */}
+        {draft.toggles !== false ? (
+          <Field label="Schaltet von selbst zurück">
+            <Choice
+              options={[
+                { key: '0', label: 'Nie' },
+                { key: '900', label: '15 Min' },
+                { key: '1800', label: '30 Min' },
+                { key: '3600', label: '1 Std' },
+                { key: '7200', label: '2 Std' },
+              ]}
+              value={String(draft.autoOff ?? 0)}
+              onSelect={(value) => set({ autoOff: Number(value) })}
+            />
+            <Text style={styles.triggerNote}>
+              Nach dieser Zeit stellt die Szene her, wie es vorher war –
+              dasselbe wie ein zweiter Druck auf den Knopf. Wer vorher von
+              Hand zurückschaltet, ist schneller; die Uhr tut dann nichts.
+            </Text>
+          </Field>
+        ) : null}
 
         <Field label="Übergang">
           <Choice

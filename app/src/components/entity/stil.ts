@@ -198,6 +198,28 @@ export const makeStyles = (colors: Colors) =>
   },
   renameSaveText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
   mediaRow: { flexDirection: 'row', gap: 10 },
+  /** Die vier Stellungen der Store: zwei mal zwei, damit auch «Beschattung»
+   *  in eine halbbreite Telefonkachel passt. */
+  vorgabenRaster: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  vorgabe: {
+    flexGrow: 1,
+    flexBasis: '46%',
+    alignItems: 'center',
+    paddingVertical: 9,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  vorgabeAn: { backgroundColor: colors.ink, borderColor: colors.ink },
+  vorgabeText: { color: colors.ink, fontSize: 12, fontWeight: '600' },
+  vorgabeTextAn: { color: colors.surfaceStrong, fontWeight: '700' },
+  feinZeile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+  },
   partOfRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
   partOfText: { color: colors.inkFaint, fontSize: 11, fontWeight: '600', flex: 1 },
   // Grill: Störung nach vorne – ein leerer Pelletbehälter lässt das
@@ -304,6 +326,64 @@ export const makeStyles = (colors: Colors) =>
   },
   deviceChipText: { fontSize: 12, color: colors.inkSoft, flexShrink: 1 },
   deviceChipTextActive: { color: '#FFFFFF' },
+  /** Die Kamerakachel, in der das Bild die Fläche ist. Alles Weitere
+   *  liegt darüber - deshalb ist hier nur die Bühne. */
+  kameraVoll: { position: 'relative' },
+  kameraOben: {
+    position: 'absolute',
+    left: 10,
+    right: 10,
+    top: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  kameraLive: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 4,
+    paddingHorizontal: 9,
+    borderRadius: radius.pill,
+    // Eigener Grund statt der Kachelfarbe: Was auf einem Bild liegt,
+    // muss vor jedem Bild lesbar bleiben - auch vor einer weissen Wand.
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  kameraPunkt: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#FF5A5A' },
+  kameraLiveText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  kameraRund: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  kameraUnten: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 12,
+    paddingTop: 24,
+    paddingBottom: 12,
+    // Ein Schleier statt eines Balkens: Der Name muss vor jedem Bild
+    // lesbar sein, ohne dass das Bild darunter verschwindet.
+    backgroundColor: 'rgba(0,0,0,0.42)',
+  },
+  kameraName: { color: '#FFFFFF', fontSize: type.cardTitle, fontWeight: '700' },
+  kameraZeile: { color: 'rgba(255,255,255,0.82)', fontSize: 12, marginTop: 1 },
+  kameraMeldung: {
+    color: '#FFD9A0',
+    fontSize: 11,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
   privacyButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -328,16 +408,29 @@ export const makeStyles = (colors: Colors) =>
     backgroundColor: colors.accent,
   },
   cleanRoomsText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
-  sceneButton: {
+  /** Die Szenenkachel: Sie IST der Knopf, deshalb füllt ihr Inhalt die
+   *  ganze Fläche - Symbol oben, Name unten, dazwischen Luft. */
+  szeneInhalt: { flex: 1, justifyContent: 'space-between', minHeight: 106, gap: 12 },
+  szeneKopf: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: radius.control,
-    backgroundColor: colors.accent,
+    justifyContent: 'space-between',
+    gap: 8,
   },
-  sceneButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  szeneName: { fontSize: 20, fontWeight: '700', lineHeight: 24 },
+  /** Die Lichtkachel: Die ganze Fläche ist der Schalter, deshalb sitzt
+   *  der Inhalt darin und nicht daneben. */
+  lichtFlaeche: { gap: 12, justifyContent: 'space-between', minHeight: 96 },
+  lichtKopf: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  lichtPunkt: { width: 10, height: 10, borderRadius: 5 },
+  lichtWert: { fontSize: type.value, fontWeight: '600' },
+  lichtName: { fontSize: type.cardTitle, fontWeight: '700', marginTop: 2 },
+  lichtUnter: { fontSize: type.cardSub, opacity: 0.85, marginTop: 1 },
+  szeneStand: { fontSize: 12, fontWeight: '600', opacity: 0.8, marginTop: 3 },
   lockButton: {
     flexDirection: 'row',
     alignItems: 'center',
