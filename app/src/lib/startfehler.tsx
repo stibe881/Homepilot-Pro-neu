@@ -113,12 +113,20 @@ export function fatalerStartfehler(): unknown {
 function fatalMelden(fehler: unknown): void {
   fataler = fehler;
   wecken();
-  const { titel, text } = fehlerZeilen(fehler);
-  try {
-    Alert.alert('HomePilot: Fehler beim Start', text ? `${titel}\n\n${text}` : titel);
-  } catch {
-    // Ohne Alert bleibt der Notfallbildschirm.
-  }
+  // Den Alert erst nach einer Gnadenfrist, und nur wenn die App dann
+  // wirklich nicht läuft: Der Entwicklungsmodus meldet auch Fehler als
+  // fatal, die ein try/catch längst verkraftet hat (Metro ruft
+  // reportFatalError beim Auswerten eines Moduls, bevor das catch
+  // greift). Erreicht der Start «bereit», war es keiner.
+  setTimeout(() => {
+    if (marken.some((m) => m.name === 'bereit')) return;
+    const { titel, text } = fehlerZeilen(fehler);
+    try {
+      Alert.alert('HomePilot: Fehler beim Start', text ? `${titel}\n\n${text}` : titel);
+    } catch {
+      // Ohne Alert bleibt der Notfallbildschirm.
+    }
+  }, 3000);
 }
 
 /** Was zuletzt beim Start schiefging - für die System-Seite. */
@@ -252,8 +260,14 @@ export function Startwache({ children }: { children: React.ReactNode }) {
     return () => clearTimeout(wecker);
   }, []);
 
-  if (fataler != null) return <Notfallbildschirm fehler={fataler} />;
   const bereit = marken.some((m) => m.name === 'bereit');
+  // Der Notfallbildschirm nur, solange die App nicht fertig gestartet
+  // ist: Am 31. August hielt er in Expo Go die ganze App an, weil der
+  // Entwicklungsmodus einen verkrafteten Import-Fehler (App-Symbol-
+  // Wechsler fehlt in Expo Go) zusätzlich als fatal meldete. Kommt
+  // «bereit» doch noch, läuft die App - der Fehler bleibt für die
+  // System-Seite festgehalten.
+  if (fataler != null && !bereit) return <Notfallbildschirm fehler={fataler} />;
   return (
     <View style={{ flex: 1 }}>
       {children}

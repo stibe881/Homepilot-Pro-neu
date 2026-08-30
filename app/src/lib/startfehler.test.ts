@@ -42,6 +42,14 @@ describe('fehlerZeilen', () => {
 });
 
 describe('globaler Fang', () => {
+  // Falsche Timer: fatalMelden stellt einen 3-Sekunden-Wecker für den
+  // Alert - der darf das Testende nicht überleben.
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => {
+    jest.runOnlyPendingTimers();
+    jest.useRealTimers();
+  });
+
   it('meldet einen fatalen Startfehler an die Startwache statt ihn nur zu loggen', () => {
     // Der schwarze Bildschirm vom 29. August: geschluckt, geloggt, nie
     // gezeigt. Seitdem muss ein fataler Fehler im Startfenster die
