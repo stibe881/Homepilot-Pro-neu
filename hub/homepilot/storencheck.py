@@ -22,36 +22,57 @@ deployen.
 import functools
 import json
 import os
-import re
 import urllib.request
+
+from .core.config import load_config
 
 # docker exec ohne Terminal puffert blockweise – jede Zeile sofort raus.
 print = functools.partial(print, flush=True)
 
 CONFIG = "/config/config.yaml"
+DATEN = "/config/homepilot-data.json"
 
 
 def token_und_port() -> tuple[str, str]:
     """Zugang aus der Umgebung, sonst aus der Konfiguration.
 
-    Die Umgebung zuerst, weil der livecheck es genauso hält; die Datei
-    als Rückfall, damit der Aufruf ohne Vorbereitung klappt.
+    Gelesen wird mit `load_config` und nicht mit einem eigenen Muster:
+    In der `config.yaml` steht ein halbes Dutzend `token:` – für Overkiz,
+    für Ring, fürs Update. Ein `re.search` nimmt das erste und trifft
+    damit fast sicher das falsche; der erste Versuch endete genau so in
+    einem 401. Der Leser des Hubs weiss, welches gemeint ist.
     """
     token = os.environ.get("TOKEN_STEFAN") or os.environ.get("HOMEPILOT_TOKEN") or ""
     port = "8123"
     try:
-        with open(CONFIG, encoding="utf-8") as datei:
-            roh = datei.read()
-    except OSError:
-        return token, port
-    if not token:
-        treffer = re.search(r"token:\s*([^\s#]+)", roh)
-        if treffer:
-            token = treffer.group(1).strip("'\"")
-    treffer = re.search(r"port:\s*(\d+)", roh)
-    if treffer:
-        port = treffer.group(1)
-    return token, port
+        config = load_config(CONFIG)
+    except Exception:
+        # Ohne Konfiguration bleibt es bei Umgebung und Standardport.
+        return token or gespeichertes_token(), port
+    if not token and config.api.token:
+        token = str(config.api.token)
+    # Wer keinen festen Zugang in der Konfiguration hat, hat trotzdem
+    # Benutzer - die legt die App an, und ihre Token stehen in der
+    # Datendatei.
+    return token or gespeichertes_token(), str(config.api.port)
+
+
+def gespeichertes_token() -> str:
+    """Das Token irgendeines eingerichteten Benutzers - oder nichts.
+
+    Nur zum Lesen und nur von innen: Der Aufruf läuft im Container, und
+    die Datei liegt ohnehin daneben. Ausgegeben wird das Token nie.
+    """
+    try:
+        with open(DATEN, encoding="utf-8") as datei:
+            daten = json.load(datei)
+    except (OSError, ValueError):
+        return ""
+    for eintrag in daten.get("users") or []:
+        marke = str(eintrag.get("token") or "")
+        if marke:
+            return marke
+    return ""
 
 
 def ja_nein(wert: object) -> str:
