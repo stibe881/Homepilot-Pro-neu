@@ -636,6 +636,8 @@ export interface StepDraft {
     adaptive?: boolean;
     /** Nachlauf in Sekunden – danach schaltet der Hub die Lampe aus. */
     offAfter?: number;
+    /** Lamellenwinkel in Prozent, wenn das Kommando 'set_tilt' ist. */
+    tilt?: number;
     /** Ziel-Lautstärke in Prozent, wenn das Kommando 'set_volume' ist. */
     volume?: number;
     /** Zieltemperatur, wenn das Kommando 'set_temperature' ist – beim
@@ -1475,6 +1477,9 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
       if (action.command === 'set_position') {
         built.data = { position: action.position ?? 50 };
       }
+      if (action.command === 'set_tilt') {
+        built.data = { tilt: action.tilt ?? 50 };
+      }
       if (action.command === 'set_brightness') {
         built.data = { brightness: action.brightness ?? 50 };
       }
@@ -1526,6 +1531,7 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
           'turn_on',
         rooms: action.data?.rooms ?? [],
         position: action.data?.position,
+        tilt: action.data?.tilt,
         brightness: action.data?.brightness,
         volume: action.data?.volume,
         temperature: action.data?.temperature,

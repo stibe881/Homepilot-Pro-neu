@@ -827,9 +827,10 @@ export function SceneEditor({
               onSelect={(value) => set({ autoOff: Number(value) })}
             />
             <Text style={styles.triggerNote}>
-              Nach dieser Zeit stellt die Szene her, wie es vorher war –
-              dasselbe wie ein zweiter Druck auf den Knopf. Wer vorher von
-              Hand zurückschaltet, ist schneller; die Uhr tut dann nichts.
+              Nach dieser Zeit schaltet alles aus, was die Szene verändert
+              hat – der Sternenhimmel ist dann dunkel, auch wenn das Licht
+              vorher an war. Wer früher von Hand schaltet, ist schneller;
+              die Uhr tut dann nichts.
             </Text>
           </Field>
         ) : null}

@@ -853,7 +853,8 @@ class Watchdog:
             zustaende.append(dict(entity.state))
             # Punkt 220: Ein leeres Telefon ist die häufigste Ursache für
             # eine tote Ortung – und es kündigt sich an.
-            text = presence.battery_alert(entity.label, entity.state.get("battery"), grenze)
+            akku = entity.state.get("battery")
+            text = presence.battery_alert(entity.label, akku, grenze)
             if text and zone_id not in self._battery_told:
                 self._battery_told.add(zone_id)
                 # Der Schalter wird erst hier geprüft, nicht schon oben:
@@ -862,7 +863,12 @@ class Watchdog:
                 # sie wieder einschaltet.
                 if personen.an(schalter, zone_id, "battery"):
                     await self._notify("Telefon fast leer", text, category="presence")
-            elif not text:
+            elif presence.battery_recovered(akku, grenze):
+                # Vergessen erst, wenn der Akku mit Abstand wieder oben
+                # ist - vorher stand hier «kein Warntext», und den gibt es
+                # auch bei einer Meldung ganz ohne Akkuwert. Ein Wechsel
+                # aus Wert und Nichtwert setzte den Vermerk deshalb
+                # dauernd zurück, und dieselbe Push kam wieder und wieder.
                 self._battery_told.discard(zone_id)
 
             # Funkstille: Bisher stand sie nur in der Diagnose, also

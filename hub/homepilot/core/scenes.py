@@ -432,18 +432,7 @@ class SceneManager:
             )
             if eintrag is None or eintrag.get("at") != ausgeloest:
                 return
-            try:
-                await self.revert(scene.id)
-                log.info(
-                    "Szene '%s' nach %d Minuten von selbst zurückgenommen",
-                    scene.name,
-                    scene.auto_off // 60,
-                )
-            except HomePilotError as err:
-                # Nichts mehr zurückzunehmen - jemand war schneller.
-                log.debug(
-                    "Szene '%s': Selbst-Ausschalten übersprungen (%s)", scene.name, err
-                )
+            await self._auto_aus(scene, eintrag)
 
         task = asyncio.create_task(klingeln())
         self._uhren[scene.id] = task
@@ -453,6 +442,47 @@ class SceneManager:
                 if self._uhren.get(scene.id) is fertig
                 else None
             )
+        )
+
+    async def _auto_aus(self, scene: Scene, eintrag: dict[str, Any]) -> None:
+        """Nach der Frist: alles aus, was die Szene verändert hat.
+
+        Bewusst *aus* und nicht zurück in den vorherigen Zustand: Der
+        Sternenhimmel um 19:30 soll um 20:15 dunkel sein - auch wenn das
+        Licht vor der Szene an war. «Vorher» ist nach einer Stunde kein
+        Zustand mehr, den jemand zurückwill; der zweite Druck auf den
+        Knopf stellt ihn weiterhin her, die Uhr nicht.
+        """
+        betroffene = [
+            str(befehl.get("entity_id") or "")
+            for befehl in eintrag.get("commands") or []
+            if isinstance(befehl, dict)
+        ]
+        befehle = szenenrueckweg.aus_befehle(
+            betroffene, self._geraete_stand(betroffene)
+        )
+        with as_source(scene_source(scene.id, f"{scene.name} aus")):
+            for befehl in befehle:
+                try:
+                    await self.hub.integrations.dispatch_command(
+                        befehl["entity_id"], befehl["command"], {}
+                    )
+                except Exception as err:
+                    log.warning(
+                        "Szene '%s' ausschalten: %s ging nicht (%s)",
+                        scene.name,
+                        befehl["entity_id"],
+                        err,
+                    )
+                await asyncio.sleep(0)
+        # Die Szene ist damit vorbei - der alte Rückweg gälte einem
+        # Zustand, den es nicht mehr gibt.
+        self._undo_setzen(scene.id, None)
+        log.info(
+            "Szene '%s' nach %d Minuten ausgeschaltet (%d Geräte)",
+            scene.name,
+            scene.auto_off // 60,
+            len(befehle),
         )
 
     async def _fade(
