@@ -59,3 +59,6 @@ app/google-services.json
 
 # Die Raumfotos liegen neben den Daten, nicht im Repository.
 hub/raumbilder/
+
+# Die Browser-Probe holt sich Playwright und einen Browser dorthin.
+scripts/node_modules/

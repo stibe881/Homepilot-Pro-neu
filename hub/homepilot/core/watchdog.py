@@ -33,6 +33,7 @@ from . import (
     batterieprognose,
     energy,
     familie,
+    flattern,
     gemeldet,
     giessen,
     losfahren,
@@ -170,6 +171,12 @@ class Watchdog:
         # Regeln für die eingebauten Nachrichten – zu Beginn die Vorgaben,
         # jede Runde frisch aus dem Datenspeicher (die App ändert sie dort).
         self.rules = notifyrules.effective(None)
+        # Je Integration die Zeitpunkte, zu denen ein Gerät nach einer
+        # Unterbrechung wieder erreichbar wurde - und wann darüber
+        # zuletzt gemeldet wurde. Siehe core/flattern.py: Die Zwischen-
+        # stufe zwischen «da» und «weg» hat bisher niemand gesehen.
+        self._rueckkehr: dict[str, list[float]] = {}
+        self._flattern_gemeldet: dict[str, float] = {}
         # Aktuell als ausgefallen gemeldete Integrationen (seit Zeitstempel).
         self.down_since: dict[str, float] = {}
         # Protokoll der letzten Ausfälle für die App (jüngste zuerst).
@@ -217,6 +224,20 @@ class Watchdog:
         entity_id = str(data.get("entity_id") or "")
         if not entity_id:
             return
+
+        # Eine Verbindung, die kommt und geht: Am Ereignis gezählt und
+        # nicht in der Runde, weil eine Unterbrechung von zwanzig
+        # Sekunden zwischen zwei Runden komplett verschwindet - genau
+        # die, um die es hier geht (core/flattern.py).
+        if data.get("availability_changed") and (data.get("entity") or {}).get(
+            "available"
+        ):
+            name = entity_id.split(".", 1)[0]
+            if name not in IGNORE:
+                self._rueckkehr[name] = flattern.merken(
+                    self._rueckkehr.get(name, []), time.time()
+                )
+
         alt = str((data.get("old_state") or {}).get("ring") or "")
         neu = str((data.get("new_state") or {}).get("ring") or "")
         if neu != "on":
@@ -326,6 +347,7 @@ class Watchdog:
         entities = self.hub.registry.all()
         await self._check_appliances(entities)
         await self._check_devices(entities)
+        await self._check_flattern()
         await self._check_batteries(entities)
         await self._check_open(entities)
         await self._check_leaks(entities)
@@ -385,6 +407,40 @@ class Watchdog:
                     f"{name} wieder da",
                     f"Die Integration '{name}' ist nach {minutes} Minuten wieder erreichbar.",
                 )
+
+    async def _check_flattern(self) -> None:
+        """Meldet eine Anbindung, die dauernd neu verbindet.
+
+        Die Lücke zwischen «da» und «weg»: Der Ausfallmelder oben hat
+        eine Karenz von Minuten und greift nicht, wenn die Verbindung
+        vorher wieder steht. Genau das tut ein Fernseher am Rand der
+        Reichweite - und verschluckt dabei jeden Tastendruck, der in eine
+        gerade zumachende Leitung fällt.
+
+        Höchstens einmal je Fenster: Erst wenn ein ganzes Fenster Ruhe
+        war, darf dieselbe Anbindung wieder gemeldet werden. Ohne diesen
+        Abstand käme die Meldung im Wechsel mit jeder einzelnen Rückkehr
+        - der Fehler, den die Akku-Warnung schon einmal gemacht hat
+        (tests/pushstand.py zählt das inzwischen mit).
+        """
+        schwelle = max(2, round(self.rules["flattern"]["params"]["mal"]))
+        jetzt = time.time()
+        for name, zeiten in list(self._rueckkehr.items()):
+            frisch = [zeit for zeit in zeiten if jetzt - zeit < flattern.FENSTER]
+            if not frisch:
+                self._rueckkehr.pop(name, None)
+                continue
+            self._rueckkehr[name] = frisch
+            if not flattern.flattert(frisch, schwelle):
+                continue
+            zuletzt = self._flattern_gemeldet.get(name, 0.0)
+            if jetzt - zuletzt < flattern.FENSTER:
+                continue
+            self._flattern_gemeldet[name] = jetzt
+            await self._notify(
+                f"{name} verbindet dauernd neu",
+                flattern.satz(name, len(frisch)),
+            )
 
     async def _check_frost(self, entities: list[Any]) -> None:
         """Vor der ersten Frostnacht an die Pflanzen auf dem Balkon erinnern.

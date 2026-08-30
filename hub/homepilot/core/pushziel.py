@@ -28,6 +28,9 @@ ZIELE: dict[str, str] = {
     "alarm_arming": "bereich:alarm",
     # Betrieb: Integrationen und Platte stehen im System-Bereich.
     "outage": "bereich:system",
+    # Dieselbe Seite wie beim Ausfall: Dort steht, welche Anbindung wie
+    # läuft - und eine flatternde ist der Ausfall von morgen.
+    "flattern": "bereich:system",
     "disk": "bereich:system",
     # Was mit einem Gerät nicht stimmt, steht auf einem Blatt zusammen -
     # samt Quittieren.

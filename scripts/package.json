@@ -1,0 +1,11 @@
+{
+  "name": "homepilot-probe",
+  "private": true,
+  "description": "Werkzeug der Browser-Probe. Bewusst getrennt von app/: Playwright zieht einen ganzen Browser nach, und wer nur an der App arbeitet, soll ihn nicht bei jedem npm ci herunterladen.",
+  "scripts": {
+    "browser": "playwright install chromium"
+  },
+  "devDependencies": {
+    "playwright": "1.49.1"
+  }
+}

@@ -16,6 +16,7 @@ steht sie hier, in vier Teilen entstanden:
 | 101–135 | Durchsicht (Abläufe, Szenen, Räume, Widgets, Rezepte) | Funktionslücken |
 | 136–164 | Küche & Abläufe | Rezeptbuch und Ablauf-Editor |
 | 165–221 | Familie & Haushalt | Familienlisten, Kontakte, Ortung |
+| 224–243 | Zweite Durchsicht | Wärme, Strom, Betrieb, und die Fehler einer Woche |
 
 Stand beim Einchecken: **alle 221 Punkte erledigt**, bis auf Punkt 94
 (bewusst gestrichen). Die Häkchen tragen die Commit-Kürzel von den
@@ -1966,3 +1967,286 @@ Wandpanel steht noch aus; erst danach gilt der Punkt als erledigt.
 
 Stellen: `app/modules/aufnahme/`, `app/src/lib/aufnahme-nativ.ts`, `app/src/lib/sprachnotiz.ts`
 
+
+
+# Teil V: Zweite Durchsicht (224–243)
+
+Zwanzig Punkte, wieder aus dem Code gelesen und gegen die 223
+bestehenden geprüft – einiges Naheliegende fiel dabei weg, weil es
+längst gebaut war (Sturmschutz für die Storen, das Nachhaken bei der
+Wäsche, der Papierkorb, die Watch-App, der Monats- und
+Vorjahresvergleich beim Strom).
+
+Die letzten sieben stünden hier nicht, wenn die Abende davor glatt
+gelaufen wären. Sie benennen nicht den einzelnen Fehler, sondern das
+Loch, durch das er gekommen ist.
+
+## Wärme (224–226)
+
+Der grösste weisse Fleck: Es gibt keine Entitätsart `climate`. Der Hub
+kennt Licht, Schalter, Storen, Schlösser, Sauger, Wetter – und
+Temperatur nur als Messwert.
+
+### 224. Die Heizung kann der Hub nur lesen, nicht stellen
+
+*tut weh · Aufwand: gross · Hub + App*
+
+Die Klima-Übersicht zeigt jeden Raum mit Temperatur und Feuchte und ist
+eine reine Anzeige. Einen Sollwert setzen kann im ganzen System nur der
+Grill – der einzige `set_temperature`-Aufruf der App steht in der
+Grillkachel. Es fehlt die Entitätsart selbst und alles, was darauf
+aufbaut: Soll-Temperatur je Raum, Betriebsart, Boost, ein Schritt im
+Ablauf-Editor. Solange sie fehlt, ist die teuerste Energie im Haus die
+einzige, die HomePilot nicht anfasst.
+
+Stellen: `hub/homepilot/core/entity.py`, `app/src/components/ClimateOverview.tsx`, `hub/homepilot/integrations/zigbee2mqtt.py`
+
+### 225. Fenster auf, Heizung läuft weiter
+
+*Aufwand: klein · Hub · braucht 224*
+
+Die Kontaktsensoren sind da, und der Wächter liest sie längst – er zählt
+die offenen Fenster für die Alarmanlage und meldet, wenn eines zu lange
+offen steht. Was er nicht kann: die Heizung in diesem Raum
+zurücknehmen und danach wieder freigeben. Der Sensor weiss es, der
+Heizkörper erfährt es nie.
+
+Stellen: `hub/homepilot/core/watchrules.py` (`open_contacts`)
+
+### 226. Heizen nach Plan und Anwesenheit statt nach Dauerwert
+
+*Aufwand: mittel · Hub · braucht 224*
+
+Der Hub weiss, wer zuhause ist, wann Schulferien sind, wann jemand ins
+Bett geht und wie weit weg jemand gerade ist – alles gebaut, alles
+getestet. Für die Heizung wäre genau das die Antwort auf «warum ist es
+kalt, wenn ich heimkomme»: absenken, sobald alle weg sind, vorheizen,
+sobald die Entfernung schrumpft.
+
+Stellen: `hub/homepilot/core/presence.py`, `core/goodnight.py`, `core/schulferien.py`
+
+## Luft und Strom (227–229)
+
+### 227. Feuchte ohne Rat: wann lüften sich lohnt
+
+*Aufwand: klein · Hub + App*
+
+Die Klima-Übersicht färbt die Feuchte, wenn sie aus dem Band läuft, und
+lässt den Bewohner damit allein. Ob Lüften hilft, hängt aber vom
+Vergleich mit draussen ab: Kalte Winterluft trocknet, schwüle Sommerluft
+macht es schlimmer. Beide Werte hat der Hub – der eine vom Sensor, der
+andere von Open-Meteo.
+
+Stellen: `app/src/lib/komfort.ts`, `hub/homepilot/integrations/weather.py`
+
+### 228. Der Hub kennt genau einen Strompreis
+
+*Aufwand: mittel · Hub + App*
+
+Die Energieseite rechnet alles gegen einen einzigen `price_per_kwh`:
+Tageskosten, Jahreshochrechnung, Standby-Kosten, die Rangliste der
+grössten Verbraucher. In der Schweiz stimmt das an keinem Tag. Die
+Stundenwerte werden bereits mitgeschrieben; ohne Tarifzeiten sind die
+Franken systematisch daneben.
+
+Stellen: `hub/homepilot/core/energy.py`
+
+### 229. Die Waschküche weiss nichts vom günstigen Tarif
+
+*Aufwand: klein · Hub · braucht 228*
+
+Der Hub hakt nach, bis die Wäsche aus der Trommel ist. Es fehlt die
+andere Hälfte: der Hinweis vorher. Wer um zwanzig vor neun eine Maschine
+startet, zahlt zwanzig Minuten Hochtarif für nichts.
+
+Stellen: `hub/homepilot/core/waschkueche.py`, `hub/homepilot/integrations/vzug.py`
+
+## Betrieb (230–234)
+
+### 230. Zigbee meldet seine Funkqualität, niemand liest sie
+
+*Aufwand: klein · Hub + App*
+
+Jede Zigbee-Meldung trägt eine `linkquality` mit, und die Integration
+übernimmt sie in den Zustand. Ausgewertet wird sie nie. Dabei ist sie
+die Frühwarnung schlechthin: Ein Gerät, dessen Wert seit Wochen fällt,
+meldet sich irgendwann gar nicht mehr – und dann sucht man den Fehler
+bei der Batterie. Für Batterien gibt es diese Vorsorge längst, samt
+Prognose.
+
+Stellen: `hub/homepilot/integrations/zigbee2mqtt.py`, `hub/homepilot/core/batterieprognose.py`
+
+### 231. Der Hub kann zurück auf den vorigen Stand, die App nicht
+
+*tut weh · Aufwand: mittel · Repo*
+
+Das Bau-Skript hebt das alte Abbild als `:prev` auf und fällt bei einem
+misslungenen Start von selbst darauf zurück. Für die nachgeladene
+App-Fassung gibt es nichts dergleichen: Wer eine kaputte Fassung
+veröffentlicht, kann sie nur durch eine neue ersetzen – zweimal
+komplett beenden, und in der Zwischenzeit ist die App unbrauchbar.
+
+Stellen: `deploy/rebuild-hub.sh`, `deploy/ota-aufraeumen.sh`
+
+### 232. Eine Anbindung, die dauernd neu verbindet, fällt niemandem auf ✓ erledigt
+
+*Aufwand: klein · Hub*
+
+Der Wächter kannte zwei Zustände: erreichbar oder nicht. Die
+Zwischenstufe fehlte, und sie ist die häufigste – der Fernseher, der
+alle paar Minuten die Verbindung verliert und wieder aufbaut. Nach
+aussen sieht das aus wie Betrieb: Der Ausfallmelder hat eine Karenz von
+Minuten und greift nie. Kosten tut es trotzdem, und Befehle
+verschwinden in einer gerade zumachenden Leitung – genau so gingen
+monatelang die Tastendrücke an den Fernseher verloren.
+
+Umgesetzt: Flanken statt Pegel, am Ereignis gezählt (eine Unterbrechung
+von zwanzig Sekunden fällt zwischen zwei Minutenrunden sonst heraus).
+Ab sechs Rückkehrern je Stunde eine Meldung, und erst nach einer ganzen
+ruhigen Stunde wieder eine.
+
+Stellen: `hub/homepilot/core/flattern.py`, `hub/homepilot/core/watchdog.py`
+
+### 233. Nichts prüft, ob Hub und App noch dieselbe Sprache sprechen
+
+*Aufwand: mittel · Repo*
+
+Die App beschreibt in `types.ts`, wie die Antworten des Hubs aussehen –
+und der Hub weiss davon nichts. Wer im Hub ein Feld umbenennt, bekommt
+weder vom Typprüfer noch von den Tests ein Wort zu hören: Beide Seiten
+sind für sich sauber. Auffallen tut es erst auf dem Telefon, als leere
+Kachel.
+
+Stellen: `app/src/api/types.ts`, `hub/homepilot/api/routes/`
+
+### 234. Antwortet Supabase nicht, kommt niemand mit Passwort ins Haus
+
+*tut weh · Aufwand: mittel · Hub*
+
+Die Anmeldung mit E-Mail und Passwort schaltet sich selbst ab, sobald
+der Dienst fehlt. Das ist ehrlich, heisst aber: Ein Ausfall irgendwo im
+Internet sperrt die Familie aus ihrem eigenen Haus aus, obwohl Hub,
+Telefon und WLAN im selben Raum stehen. Der Hub kennt seine Benutzer
+selbst.
+
+Stellen: `hub/homepilot/api/routes/auth.py`, `hub/homepilot/core/users.py`
+
+## Haushalt und Griff (235–236)
+
+### 235. Der Abfuhrkalender fehlt
+
+*Aufwand: klein · Hub + App*
+
+Kehricht, Grünabfuhr, Karton, Metall: feste Termine, die jede Gemeinde
+veröffentlicht, und die einzige Hausaufgabe, die man am Vorabend
+erledigen muss oder zwei Wochen liegen lässt. Der Hub führt Feiertage
+und Schulferien bereits als eigene Kalender mit – dieselbe Bauart.
+
+Stellen: `hub/homepilot/core/schulferien.py`, `core/feiertage.py`, `core/erinnerungen.py`
+
+### 236. Siri kann die vorhandenen Knöpfe nicht drücken
+
+*Aufwand: klein · App*
+
+Im Widget stecken fertige App-Intents – `SchaltIntent` schaltet ein
+Gerät, `TuerOeffnenIntent` öffnet die Tür, beide mit Rückfrage und
+Rechteprüfung. Es fehlt nur ein `AppShortcutsProvider` mit den Sätzen
+dazu. Ohne ihn bleibt die Arbeit auf den Sperrbildschirm beschränkt.
+
+Stellen: `app/targets/widget/index.swift`
+
+## Aus den Fehlern dieser Woche (237–243)
+
+### 237. «0» heisst manchmal «keine Auskunft»
+
+*Aufwand: klein · Hub*
+
+Life360 schickt den Akkustand «0» auch dann, wenn es nichts weiss.
+Gelesen als Zahl ergab das ein leeres Telefon und eine Push im
+Minutentakt, während in der App daneben 65 % standen. Behoben – offen
+bleibt die Frage für jede andere Quelle: Wo bedeutet eine Null noch
+«kein Wert»?
+
+Stellen: `hub/homepilot/integrations/life360.py`, `hub/homepilot/integrations/geofence.py`
+
+### 238. Kein Prüfstand für die Häufigkeit einer Meldung ✓ erledigt
+
+*Aufwand: mittel · Repo*
+
+Es gab Tests dafür, ob eine Push kommt und wie sie heisst – keinen
+einzigen dafür, wie oft. Genau daran ist die Akku-Warnung
+durchgerutscht: Jeder einzelne Durchgang war für sich richtig, erst die
+Reihe ergab den Fehler.
+
+Umgesetzt: `tests/pushstand.py` lässt den Wächter Runden laufen, lässt
+die Welt sich dazwischen ändern und zählt. Nachgewiesen an der alten
+Fassung – mit `elif not text` im Wächter fällt die Zusage um.
+
+Stellen: `hub/tests/pushstand.py`, `hub/tests/test_pushhaeufigkeit.py`
+
+### 239. Blätter leben in Kacheln statt am Bildschirm ✓ erledigt
+
+*tut weh · Aufwand: mittel · App*
+
+Musikliste und Fernbedienung standen mitten im Kachelkörper, zwischen
+Knöpfen, deren Bedingungen sich im Betrieb ändern. Ein Blatt
+verschwindet aber, sobald die Bedingung darüber falsch wird: Die
+Fernbedienung hing an «der Fernseher meldet an», und ein Android TV
+meldet nach jedem Tastendruck kurz «aus».
+
+Umgesetzt: beide an den Kachelfuss, zu den übrigen Blättern, und nur
+noch an Geräteart und Befehlsliste gehängt. Die Regel samt Begründung
+steht in `lib/blattgrund.ts`.
+
+Stellen: `app/src/lib/blattgrund.ts`, `app/src/components/EntityCard.tsx`
+
+### 240. Die Browser-Probe ist Handarbeit und liegt nicht im Repo ✓ erledigt
+
+*Aufwand: klein · Repo*
+
+Sie stand eine Seite lang in der CLAUDE.md, und jede Sitzung baute sie
+von Hand nach – samt einer Wegwerf-Integration, die danach wieder
+gelöscht wurde. Ein Werkzeug, das man vor jedem Gebrauch zusammensetzt,
+benutzt man zu selten.
+
+Umgesetzt: `scripts/probe.sh` mit drei Messungen, jede aus einem echten
+Fehler. Dass sie misst, ist nachgewiesen: Mit dem alten Fehler meldet
+sie «12-mal aus dem Dokument geflogen». Dafür hat der Gremlin einen
+zappeligen Fernseher bekommen.
+
+Stellen: `scripts/probe.sh`, `scripts/probe.mjs`, `hub/homepilot/integrations/gremlin.py`
+
+### 241. Drei Zweige von Hand gleich halten ✓ erledigt
+
+*Aufwand: klein · Repo*
+
+Der teure Fall ist nicht der abgelehnte Push, den sieht man. Teuer ist
+der Zweig, der still zurückfällt: eingecheckt, geprüft, grün – nur
+nicht dort, wo gebaut wird.
+
+Umgesetzt: `deploy/zweige.py pruefen` beantwortet die Frage und ändert
+nichts; `stossen` führt zusammen und stösst auf alle. Mit Gewalt nie.
+
+Stellen: `deploy/zweige.py`, `hub/tests/test_zweige.py`
+
+### 242. Die App sagt nicht, dass sie eine Fassung gar nicht bekommen kann
+
+*tut weh · Aufwand: klein · App*
+
+Unter System steht, welche Fassung läuft und ob sie mitgeliefert oder
+nachgeladen ist. Was dort nicht steht, ist das Entscheidende: ob die App
+die nächste überhaupt annehmen *kann*. Ändert sich die Laufzeit, ist der
+Kanal zu, und jede weitere Auslieferung geht am Telefon vorbei – diese
+Woche zweimal passiert, beide Male sah alles richtig aus.
+
+Stellen: `app/src/screens/SystemScreen.tsx`, `app/app.json`
+
+### 243. Der Hub weiss nicht, welche Fassung auf welchem Telefon läuft
+
+*Aufwand: klein · Hub + App*
+
+Die App meldet dem Hub Standort, Push-Token und Gerätenamen – ihre
+eigene Version nie. Deshalb kann niemand die Frage beantworten, die nach
+jeder Auslieferung als Erstes kommt: «Ist es angekommen?»
+
+Stellen: `hub/homepilot/core/sessions.py`, `app/src/api/client.ts`

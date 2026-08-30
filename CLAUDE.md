@@ -33,6 +33,19 @@ Zweige des Repos zusätzlich herein (nur lokal, `HOMEPILOT_MERGE_ALL`).
 Das ist ein Netz, kein Ersatz – was auf `main` liegt, ist gebaut; alles
 andere hängt daran, dass es sich konfliktfrei hineinnehmen lässt.
 
+Wer auf mehreren Zweigen gleichzeitig arbeitet, fragt nicht von Auge,
+sondern:
+
+```bash
+python3 deploy/zweige.py pruefen    # nur nachsehen
+python3 deploy/zweige.py stossen    # zusammenführen und pushen
+```
+
+Der teure Fehler ist nicht der abgelehnte Push – den sieht man. Teuer
+ist der Zweig, der still zurückfällt: eingecheckt, geprüft, grün, nur
+eben nicht dort, wo gebaut wird. Von aussen sieht das aus wie
+erledigt.
+
 **Schau nach, ob es das schon gibt.** Vor jeder neuen Funktion einmal
 `git log --oneline -30` und ein `grep` nach dem Begriff. Das Repo ist
 gross und gut kommentiert; die meisten Fragen sind irgendwo schon
@@ -66,7 +79,32 @@ ESLint auf, dem Bündler aber sofort.
 
 Für Layout-Fragen («sieht das auf dem iPad richtig aus?») braucht es
 keinen echten Hub. Ein Demo-Hub, die Web-Fassung und ein Browser genügen –
-und man kann dabei messen statt schauen:
+und man kann dabei messen statt schauen.
+
+**Der kurze Weg** – einmal einrichten, danach ein Aufruf:
+
+```bash
+npm --prefix scripts install && npm --prefix scripts run browser   # einmalig
+scripts/probe.sh              # bauen, messen, aufräumen
+scripts/probe.sh --ohne-bau   # den letzten Web-Bau wiederverwenden
+```
+
+Gemessen wird, was von Auge nicht verlässlich zu sehen ist, und jede
+Messung stammt aus einem Fehler, der wirklich passiert ist: ob etwas
+seitlich hinausragt (iPad und iPhone), ob ein offenes Blatt bei jedem
+Tastendruck stehen bleibt, und ob ein Tipp den Hub überhaupt erreicht.
+Dieselbe Probe läuft in `.github/workflows/pruefung.yml`.
+
+Dass sie wirklich misst, ist nachgewiesen: Mit dem alten Fehler in
+`EntityCard` meldet sie «12-mal aus dem Dokument geflogen», ohne ihn
+nichts. Ein Prüfstand, der nie rot wird, ist keiner.
+
+Der zappelige Fernseher dafür kommt vom Gremlin
+(`integrations/gremlin.py`): Er meldet nach jedem Tastendruck seinen
+Zustand neu und sagt dazwischen kurz «aus» – wie ein echter Android TV.
+Am zahmen Demo-Fernseher wäre die Messung wertlos.
+
+**Von Hand** – wenn man dazwischen selbst klicken will:
 
 ```bash
 # 1. Hub mit der Demo-Integration, auf einem eigenen Port
