@@ -8,6 +8,7 @@ Sachgebiet statt 3800 Zeilen am Stück. Die Routen selbst sind unverändert
 from __future__ import annotations
 
 import logging
+import secrets
 import time
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,10 @@ from ...core import (
     rueckgriff,
     say,
     sprachnotiz,
+    wlanschein,
+)
+from ...core import (
+    throttle as throttle_module,
 )
 from ...core.config_edit import add_cast_device
 from ...core.errors import HomePilotError
@@ -59,6 +64,7 @@ def _lautstaerke(roh: str | None) -> int | None:
 def register(app: FastAPI, ctx: ApiContext) -> None:
     hub = ctx.hub
     require = ctx.require
+    throttle = ctx.throttle
 
     def config_path() -> str:
         return configio.config_path(hub)
@@ -411,6 +417,202 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 status_code=502, detail=f"UniFi-Controller: {err}"
             ) from err
         return {"ok": True, "voucher": voucher}
+
+    # ── Der Aufkleber: Gutschein ziehen ohne Konto ─────────────────────────
+    #
+    # Bis hierher konnte einen Gutschein nur ziehen, wer selbst ein Konto
+    # hat - der Gast stand daneben und wartete, bis ihm jemand einen Code
+    # vorlas. Jetzt hängt im Flur ein QR-Code; wer ihn scannt, bekommt
+    # seinen eigenen. Warum der Aufkleber nur die Adresse trägt und nicht
+    # den Code, steht in core/wlanschein.py.
+
+    def sticker_token() -> str:
+        """Das Geheimnis im Aufkleber - beim ersten Blick angelegt.
+
+        Nicht in der config.yaml: Es wird gewechselt, wenn ein Aufkleber
+        aus dem Verkehr soll, und dafür soll niemand eine Datei
+        bearbeiten müssen.
+        """
+        for entry in hub.data.get("wifi_sticker"):
+            if isinstance(entry, dict) and entry.get("token"):
+                return str(entry["token"])
+        token = wlanschein.token_neu()
+        hub.data.set("wifi_sticker", [{"token": token, "created": time.time()}])
+        return token
+
+    def sticker_basis() -> str:
+        """Wohin der Aufkleber zeigt.
+
+        Die öffentliche Adresse und nicht die im Haus: Der Gast scannt,
+        bevor er im WLAN ist - er hängt am Mobilfunk und käme an eine
+        192.168er-Adresse gar nicht heran. Fehlt sie, bleibt die
+        Hausadresse als Notnagel; sie taugt für das Wandpanel und für
+        einen Gast, der schon im Netz ist.
+        """
+        aussen = str((hub.config.push or {}).get("public_url") or "").strip()
+        if aussen:
+            return aussen
+        return f"http://{qr_module.local_ip()}:{hub.config.api.port}"
+
+    @app.get("/api/wifi/sticker")
+    async def wifi_sticker(request: Request) -> dict[str, Any]:
+        """Was auf den Aufkleber gehört - und ob er funktionieren kann."""
+        require(request, Capability.CONTROL)
+        token = sticker_token()
+        aussen = bool(str((hub.config.push or {}).get("public_url") or "").strip())
+        unifi = hub.integrations.get("unifi")
+        jetzt = time.time()
+        gueltig, _ = wlanschein.aufteilen(hub.data.get("wifi_vouchers"), jetzt)
+        return {
+            "url": wlanschein.sticker_url(sticker_basis(), token),
+            # Ohne öffentliche Adresse zeigt der Aufkleber ins Hausnetz -
+            # das muss dranstehen, sonst hängt er im Flur und tut nichts.
+            "public": aussen,
+            "unifi": unifi is not None and hasattr(unifi, "create_voucher"),
+            "hours": wlanschein.GUELTIG_STUNDEN,
+            "open": [
+                {**eintrag, "left": wlanschein.restsatz(eintrag, jetzt)}
+                for eintrag in gueltig
+            ],
+        }
+
+    @app.post("/api/wifi/sticker/rotate")
+    async def rotate_wifi_sticker(request: Request) -> dict[str, Any]:
+        """Einen neuen Aufkleber - der alte gilt ab sofort nicht mehr.
+
+        EDIT_CONFIG und nicht CONTROL: Wer das drückt, macht jeden
+        ausgedruckten Aufkleber im Haus ungültig.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        hub.data.set(
+            "wifi_sticker", [{"token": wlanschein.token_neu(), "created": time.time()}]
+        )
+        return await wifi_sticker(request)
+
+    def _gastseite(inhalt: str, status: int = 200) -> Response:
+        return Response(
+            content=inhalt, status_code=status, media_type="text/html; charset=utf-8"
+        )
+
+    def _wlan_daten() -> tuple[str, str | None]:
+        """SSID und der QR zum Verbinden - beides darf fehlen."""
+        wifi = hub.config.guest_wifi or {}
+        ssid = str(wifi.get("ssid") or "")
+        if not ssid:
+            return "", None
+        password = str(wifi.get("password") or "")
+        offen = str(wifi.get("auth") or "").lower() in ("open", "nopass") or (
+            not password and bool(wifi.get("portal_password"))
+        )
+        return ssid, wlanschein.wlanbild(
+            qr_module.wifi_payload(
+                ssid, password, bool(wifi.get("hidden")), open_network=offen
+            )
+        )
+
+    def _sticker_pruefen(token: str, request: Request) -> Response | None:
+        """Bremse und Token - oder eine Seite, die sagt, was los ist."""
+        adresse = throttle_module.client_address(request)
+        if throttle.blocked_for(adresse) > 0:
+            return _gastseite(
+                wlanschein.fehlerseite(
+                    "Zu viele Versuche.", "Bitte in ein paar Minuten nochmal."
+                ),
+                status=429,
+            )
+        if not secrets.compare_digest(token, sticker_token()):
+            # Derselbe Satz wie bei einem abgelaufenen Aufkleber: Wer
+            # Adressen durchprobiert, soll aus der Antwort nichts lernen.
+            throttle.failed(adresse)
+            return _gastseite(
+                wlanschein.fehlerseite(
+                    "Dieser Code gilt nicht mehr.",
+                    "Frag im Haus nach dem aktuellen Aufkleber.",
+                ),
+                status=410,
+            )
+        return None
+
+    @app.get("/gast/wlan/{token}")
+    async def wlan_frage(token: str, request: Request) -> Response:
+        """Die Seite *zeigen* - und ausdrücklich noch nichts ziehen.
+
+        Dieselbe Falle wie beim Einmal-Link zur Türe (routes/passes.py):
+        Wer eine Adresse teilt oder scannt, dessen Vorschau bauen
+        Messenger, Mailserver und Virenscanner mit einem ganz normalen
+        GET. Ein GET, der zieht, verbrennt Gutscheine, bevor ein Mensch
+        die Seite gesehen hat.
+        """
+        fehler = _sticker_pruefen(token, request)
+        if fehler is not None:
+            return fehler
+        ssid, _ = _wlan_daten()
+        return _gastseite(wlanschein.frageseite(ssid))
+
+    @app.post("/gast/wlan/{token}")
+    async def wlan_ziehen(token: str, request: Request) -> Response:
+        """Einen frischen Gutschein ziehen - ohne Anmeldung, einmal gültig."""
+        fehler = _sticker_pruefen(token, request)
+        if fehler is not None:
+            return fehler
+        adresse = throttle_module.client_address(request)
+
+        unifi = hub.integrations.get("unifi")
+        if unifi is None or not hasattr(unifi, "create_voucher"):
+            return _gastseite(
+                wlanschein.fehlerseite(
+                    "Gerade nicht möglich.",
+                    "Der Hub kann im Moment keine Gutscheine ausstellen. "
+                    "Frag kurz im Haus nach.",
+                ),
+                status=503,
+            )
+
+        jetzt = time.time()
+        buch = hub.data.get("wifi_vouchers")
+        if wlanschein.zu_viele(buch, jetzt):
+            # Nicht dem Gast anlasten: Er hat nichts falsch gemacht, und
+            # der Satz soll ihn zu jemandem schicken, der helfen kann.
+            log.warning(
+                "Gäste-WLAN: %s offene Gutscheine - weiterer Versuch von %s abgewiesen",
+                wlanschein.HOECHSTENS_OFFEN,
+                adresse,
+            )
+            return _gastseite(
+                wlanschein.fehlerseite(
+                    "Gerade nicht möglich.",
+                    "Es sind schon sehr viele Codes offen. Frag kurz im Haus nach.",
+                ),
+                status=429,
+            )
+
+        try:
+            voucher = await unifi.create_voucher(
+                wlanschein.GUELTIG_STUNDEN * 60, note="Gast (Aufkleber)"
+            )
+        except Exception as err:
+            log.warning("Gäste-WLAN: Gutschein nicht ausgestellt: %s", err)
+            return _gastseite(
+                wlanschein.fehlerseite(
+                    "Gerade nicht möglich.",
+                    "Der WLAN-Controller antwortet nicht. Frag kurz im Haus nach.",
+                ),
+                status=502,
+            )
+
+        eintrag = wlanschein.eintragen(buch, voucher, jetzt, adresse)
+        hub.data.set("wifi_vouchers", eintrag)
+        throttle.succeeded(adresse)
+        log.warning("Gäste-WLAN: Gutschein gezogen von %s", adresse)
+        ssid, bild = _wlan_daten()
+        return _gastseite(
+            wlanschein.codeseite(
+                str(voucher.get("code") or ""),
+                wlanschein.restsatz(eintrag[0], jetzt),
+                ssid,
+                bild,
+            )
+        )
 
     @app.delete("/api/wifi/vouchers/{voucher_id}")
     async def delete_wifi_voucher(voucher_id: str, request: Request) -> dict[str, Any]:
