@@ -328,3 +328,30 @@ function Startbericht() {
     </View>
   );
 }
+
+/**
+ * Das erste Bild überhaupt: dunkler Grund, eine Zeile, die Etappen.
+ *
+ * Es steht auf dem Bildschirm, *bevor* die App-Module geladen werden
+ * (index.ts lädt sie erst nach dem ersten Zeichnen). Hängt das Laden,
+ * friert genau dieses Bild ein - und die letzte Etappe darauf sagt, wie
+ * weit es kam. Der schwarze Bildschirm vom 30. August konnte das nicht:
+ * Damals lief das Laden vor dem ersten Zeichnen, und ein Hängen dort
+ * liess nichts als Schwarz zurück.
+ */
+export function Startbild() {
+  React.useSyncExternalStore(startfehlerAbo, standNummer, standNummer);
+  const liste = startmarken();
+  return (
+    <View style={{ flex: 1, backgroundColor: '#0F1115', paddingTop: 72, paddingHorizontal: 22 }}>
+      <Text style={{ color: '#97A2B6', fontSize: 15 }}>HomePilot startet …</Text>
+      <View style={{ marginTop: 16 }}>
+        {liste.map((marke) => (
+          <Text key={marke.name} selectable style={{ color: '#6C7688', fontSize: 13, lineHeight: 20 }}>
+            {`+${(marke.nachMs / 1000).toFixed(1)}s  ${marke.name}`}
+          </Text>
+        ))}
+      </View>
+    </View>
+  );
+}

@@ -9,6 +9,15 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Der Start zeichnet zuerst und lädt danach.** In 1.4.9 blieb der
+  Bildschirm schwarz, ohne dass der Startbericht erschien - der
+  konnte gar nicht: Die App-Module wurden vor dem ersten Bild
+  geladen, und ein Hängen dort liess auch die Wache nie zeichnen.
+  Jetzt steht zuerst das Startbild («HomePilot startet …», mit den
+  Etappen), und erst dann lädt `index.ts` die Module. Friert das
+  Bild bei «Lade App-Module …» ein, hängt das Laden; bleibt der
+  Bildschirm trotz allem schwarz, läuft nicht einmal JavaScript -
+  dann liegt es am Bündel oder an der nativen Hülle.
 - **Ein hängender Start erklärt sich selbst.** 1.4.8 hat gezeigt: Der
   schwarze Bildschirm ist kein Fehler, sondern ein Hängen - die App
   zeichnet nichts, solange Einstellungen oder Symbolschrift nicht
