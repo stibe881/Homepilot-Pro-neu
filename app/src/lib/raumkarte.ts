@@ -298,12 +298,47 @@ export function kachelKnoepfe(
  * bräuchte.
  */
 export function raumFarben(name: string): [string, string] {
+  const ton = raumTon(name);
+  return [`hsl(${ton}, 38%, 44%)`, `hsl(${(ton + 22) % 360}, 42%, 25%)`];
+}
+
+/**
+ * Der Farbwinkel eines Raums (rein, testbar).
+ *
+ * Herausgelöst, damit die Farbe nicht nur auf der Übersichtskachel
+ * lebt: Sie soll sich durch die Raumseite ziehen, damit man beim
+ * Hinsehen weiss, wo man ist, bevor man den Namen liest. Wer sie
+ * anderswo braucht, mischt sich aus dem Winkel seine eigene Sättigung -
+ * ein Kopfbild verträgt kräftige Farbe, ein Schleier über dem Verlauf
+ * nicht.
+ *
+ * Aus dem Namen gerechnet und nicht gespeichert: Dasselbe Zimmer hat
+ * damit immer dieselbe Farbe, auf jedem Gerät, ohne dass jemand sie
+ * einstellen muss.
+ */
+export function raumTon(name: string): number {
   let summe = 0;
   for (const zeichen of name.trim().toLowerCase()) {
     summe = (summe * 31 + zeichen.charCodeAt(0)) % 100000;
   }
-  const ton = 250 + (summe % 140); // 250° bis 30° (über den Nullpunkt)
-  return [`hsl(${ton % 360}, 38%, 44%)`, `hsl(${(ton + 22) % 360}, 42%, 25%)`];
+  // 250° bis 30°, über den Nullpunkt hinweg: Blau, Violett, Rot,
+  // Orange - die Töne, die auf einem blaugrauen Verlauf noch als Farbe
+  // gelesen werden. Grün und Gelb fehlen mit Absicht, sie kippen dort
+  // ins Schmutzige.
+  return (250 + (summe % 140)) % 360;
+}
+
+/**
+ * Ein Schleier in der Farbe des Raums (rein, testbar).
+ *
+ * Zwei Stopps für einen Verlauf, der oben anfängt und nach unten
+ * ausgeht. Bewusst sehr blass: Er soll den Raum kennzeichnen, nicht die
+ * Seite einfärben - darüber steht weisse Schrift, und die muss lesbar
+ * bleiben.
+ */
+export function raumSchleier(name: string, staerke = 0.26): [string, string] {
+  const ton = raumTon(name);
+  return [`hsla(${ton}, 55%, 58%, ${staerke})`, `hsla(${ton}, 55%, 58%, 0)`];
 }
 
 /**

@@ -40,7 +40,7 @@ import { DeviceHealth } from '../components/DeviceHealth';
 import { RoomTabs } from '../components/RoomTabs';
 import { RoomCard } from '../components/RoomCard';
 import { Raumbild } from '../components/Raumbild';
-import { raumaktionen, waehlbareGeraete } from '../lib/raumkarte';
+import { raumSchleier, raumaktionen, waehlbareGeraete } from '../lib/raumkarte';
 import { SceneRow } from '../components/SceneRow';
 import { GlobalSearch } from '../components/GlobalSearch';
 import { Grundriss } from '../components/Grundriss';
@@ -2703,6 +2703,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               darf man sich nicht im Zimmer irren. */}
           {section === 'home' && room !== ALL_ROOMS ? (
             <View style={styles.raumBuehne}>
+              {/* Der Farbton des Zimmers, derselbe wie auf seiner Kachel
+                  in der Übersicht (lib/raumkarte.ts). Er zieht sich damit
+                  durch: Man weiss beim Hinsehen, wo man ist, bevor man
+                  den Namen liest. Ganz blass, denn darüber steht weisse
+                  Schrift. */}
+              <LinearGradient
+                colors={raumSchleier(room)}
+                style={styles.raumSchein}
+                pointerEvents="none"
+              />
               {raumSchein ? (
                 <LinearGradient
                   colors={['rgba(255, 192, 97, 0.20)', 'rgba(255, 192, 97, 0)']}

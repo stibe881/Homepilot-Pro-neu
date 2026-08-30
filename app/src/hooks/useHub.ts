@@ -436,13 +436,13 @@ export function useHub(url: string | null, token: string | null) {
       if (!send(entityId, command, data)) return;
       // Erst nach dem erfolgreichen Absenden anbieten – ein Befehl, der die
       // Verbindung gar nicht verlassen hat, braucht kein Zurück.
-      const back = before ? undoCommand(before, command) : null;
-      const after = entity && before ? expectedState(entity, command, data) : null;
-      if (back && after && entity) {
+      const back =
+        before && entity ? undoCommand(before, command, entity.kind, entity.commands) : null;
+      if (back && entity && before) {
         setUndo({
           entityId,
           name: entity.name,
-          label: undoLabel(before!, after),
+          label: undoLabel(before, command, data, entity.kind),
           command: back.command,
           data: back.data,
         });

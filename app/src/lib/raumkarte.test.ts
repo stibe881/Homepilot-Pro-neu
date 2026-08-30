@@ -4,6 +4,8 @@ import {
   gewaehlteAktionen,
   kachelKnoepfe,
   raumFarben,
+  raumSchleier,
+  raumTon,
   raumStand,
   raumaktionen,
   waehlbareGeraete,
@@ -207,5 +209,32 @@ describe('geraetAktion und kachelKnoepfe', () => {
     const items = [lampe('a', true), store('s', 50), box('m', false), szene];
     const wahl = ['licht', 'storen', 'musik', 'hue.sternenhimmel'];
     expect(kachelKnoepfe(items, wahl).length).toBe(3);
+  });
+});
+
+describe('raumTon und raumSchleier', () => {
+  it('gibt demselben Zimmer immer denselben Ton', () => {
+    // Aus dem Namen gerechnet, nicht gespeichert: auf jedem Gerät gleich,
+    // ohne dass jemand etwas einstellen muss.
+    expect(raumTon('Wohnzimmer')).toBe(raumTon('wohnzimmer '));
+  });
+
+  it('bleibt im blau-bis-orangen Bereich', () => {
+    // Grün und Gelb fehlen mit Absicht - auf dem blaugrauen Verlauf
+    // kippen sie ins Schmutzige.
+    for (const raum of ['Bad', 'Küche', 'Büro', 'Eingang', 'Levins Zimmer']) {
+      const ton = raumTon(raum);
+      expect(ton >= 250 || ton <= 30).toBe(true);
+    }
+  });
+
+  it('baut aus dem Ton einen Schleier, der nach unten ausgeht', () => {
+    const [oben, unten] = raumSchleier('Wohnzimmer');
+    expect(oben).toContain(`hsla(${raumTon('Wohnzimmer')}`);
+    expect(unten).toMatch(/, 0\)$/);
+  });
+
+  it('nimmt denselben Ton wie das Kopfbild der Kachel', () => {
+    expect(raumFarben('Büro')[0]).toContain(`hsl(${raumTon('Büro')},`);
   });
 });

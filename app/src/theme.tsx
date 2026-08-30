@@ -13,6 +13,7 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
 import { useColorScheme } from 'react-native';
 import { useTakt } from './hooks/useTakt';
+import { stundeVon, tagesverlauf } from './lib/tagesverlauf';
 
 export const lightColors = {
   gradient: ['#8B9AB0', '#6C7C94', '#556579'] as [string, string, ...string[]],
@@ -348,10 +349,22 @@ export function ThemeProvider({
   const scheme = useColorScheme();
   const [now, setNow] = useState(() => new Date());
 
-  // Nur im Zeitmodus muss die Uhr überhaupt beobachtet werden - und der
-  // Takt schweigt im Hintergrund, holt aber beim Aufwachen sofort nach:
-  // So stimmt hell/dunkel gleich nach dem Entsperren.
-  useTakt(() => setNow(new Date()), mode === 'auto' ? 60000 : null);
+  // Zwei Gründe, die Uhr zu beobachten - mit verschiedenen Takten.
+  //
+  // Im Zeitmodus entscheidet sie über hell und dunkel; das muss auf die
+  // Minute stimmen, sonst steht die App nach dem Entsperren im falschen
+  // Bild. Sonst wandert nur der Verlauf mit dem Tag (lib/tagesverlauf),
+  // und der bewegt sich über Stunden - alle zehn Minuten genügt dafür
+  // reichlich. Der Unterschied ist nicht kosmetisch: Jeder Tick erneuert
+  // die Farben und damit den ganzen Baum.
+  //
+  // Der Takt schweigt im Hintergrund und holt beim Aufwachen sofort
+  // nach.
+  const wandernderVerlauf = mode === 'system' || mode === 'auto' || mode === 'light' || mode === 'dark';
+  useTakt(
+    () => setNow(new Date()),
+    mode === 'auto' ? 60000 : wandernderVerlauf ? 600000 : null
+  );
 
   const value = useMemo<ThemeValue>(() => {
     // Pink und Mitternacht sind dunkle Erscheinungsbilder, Sand ein
@@ -375,8 +388,15 @@ export function ThemeProvider({
             : dark
               ? darkColors
               : lightColors;
-    return { colors, dark, mode };
-  }, [mode, scheme, now]);
+    // Der Verlauf folgt dem Tag: warm um Sonnenauf- und -untergang,
+    // kühler tief in der Nacht. Nur für die beiden Grundpaletten - Pink,
+    // Mitternacht und Sand sind bewusst gewählte Bilder, an denen die
+    // Uhrzeit nichts zu suchen hat.
+    const getoent = wandernderVerlauf
+      ? { ...colors, gradient: tagesverlauf(colors.gradient, stundeVon(now), sunHours(now)) }
+      : colors;
+    return { colors: getoent, dark, mode };
+  }, [mode, scheme, now, wandernderVerlauf]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
