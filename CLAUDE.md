@@ -33,6 +33,19 @@ Zweige des Repos zusätzlich herein (nur lokal, `HOMEPILOT_MERGE_ALL`).
 Das ist ein Netz, kein Ersatz – was auf `main` liegt, ist gebaut; alles
 andere hängt daran, dass es sich konfliktfrei hineinnehmen lässt.
 
+Wer auf mehreren Zweigen gleichzeitig arbeitet, fragt nicht von Auge,
+sondern:
+
+```bash
+python3 deploy/zweige.py pruefen    # nur nachsehen
+python3 deploy/zweige.py stossen    # zusammenführen und pushen
+```
+
+Der teure Fehler ist nicht der abgelehnte Push – den sieht man. Teuer
+ist der Zweig, der still zurückfällt: eingecheckt, geprüft, grün, nur
+eben nicht dort, wo gebaut wird. Von aussen sieht das aus wie
+erledigt.
+
 **Schau nach, ob es das schon gibt.** Vor jeder neuen Funktion einmal
 `git log --oneline -30` und ein `grep` nach dem Begriff. Das Repo ist
 gross und gut kommentiert; die meisten Fragen sind irgendwo schon
