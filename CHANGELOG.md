@@ -9,6 +9,12 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Die Storen-Kachel passt sich ihrer Breite an.** Auf der halben
+  Telefonbreite brach «Beschattung» mitten im Wort, und das Fenster
+  in voller Höhe machte die Kachel fast doppelt so hoch wie ihre
+  Nachbarn. Jetzt misst die Kachel ihre Breite: Auf schmalen Kacheln
+  wird die Chip-Schrift eine Stufe kleiner (und bleibt einzeilig),
+  das Fenster niedriger. Auf dem iPad ändert sich nichts.
 - **Durchsagen mit eigener Stimme kommen zurück - mit eigenem
   Aufnahmemodul.** Statt `expo-audio` (das die App beim Start
   anhielt) nimmt jetzt `modules/aufnahme` auf: rund 100 Zeilen Swift

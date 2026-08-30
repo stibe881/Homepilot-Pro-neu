@@ -11,6 +11,7 @@ import { CommandData, Entity } from '../../api/types';
 import { useTakt } from '../../hooks/useTakt';
 import { herkunftText, positionText, storenstand } from '../../lib/storenstand';
 import { aktiveVorgabe, vorgaben } from '../../lib/storenvorgaben';
+import { chipSchrift, fensterHoehe } from '../../lib/storenkachel';
 import { mayOpenDirectly } from '../../lib/tuerbestaetigung';
 import { radius, useColors } from '../../theme';
 import { Bar } from '../Bar';
@@ -428,6 +429,12 @@ export function CoverBody({
   // Wer sie einmal braucht, braucht sie selten wieder.
   const [fein, setFein] = useState(false);
 
+  // Wie breit diese Kachel wirklich ist - auf dem Telefon die halbe
+  // Spalte, auf dem iPad mehr. Fenstergrösse und Chip-Schrift richten
+  // sich danach (lib/storenkachel.ts): Sonst brach «Beschattung» mitten
+  // im Wort, und die Kachel war doppelt so hoch wie ihre Nachbarn.
+  const [breite, setBreite] = useState(0);
+
   const target = anticipated ?? reported;
   const display = useGlide(target, travel);
   const shown = Math.round(display);
@@ -464,7 +471,10 @@ export function CoverBody({
   };
 
   return (
-    <View style={styles.stack}>
+    <View
+      style={styles.stack}
+      onLayout={(ereignis) => setBreite(ereignis.nativeEvent.layout.width)}
+    >
       {/* Nur, wenn die Stellungen es nicht schon sagen: Ein Chip «Offen»
           über einem hervorgehobenen «Auf» ist derselbe Satz zweimal -
           genau der Fehler, den diese Kachel vorher dreifach hatte. */}
@@ -496,7 +506,19 @@ export function CoverBody({
                 pressed && { opacity: 0.7 },
               ]}
             >
-              <Text style={[styles.vorgabeText, an && styles.vorgabeTextAn]}>
+              {/* Eine Zeile, notfalls kleiner (nur nativ; im Web bleibt
+                  die Zeile und kürzt im äussersten Fall mit «…») - ein
+                  mitten im Wort gebrochenes «Beschattun g» liest niemand. */}
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+                style={[
+                  styles.vorgabeText,
+                  { fontSize: chipSchrift(breite) },
+                  an && styles.vorgabeTextAn,
+                ]}
+              >
                 {stellung.label}
               </Text>
             </Pressable>
@@ -507,6 +529,7 @@ export function CoverBody({
         open={display}
         tilt={typeof tilt === 'number' ? tilt : undefined}
         sky={sky}
+        height={fensterHoehe(breite)}
       />
       {!moving && herkunft ? <Text style={styles.hint}>{herkunft}</Text> : null}
       {/* Der Feinschliff liegt einen Tipp entfernt: Die beiden Regler
