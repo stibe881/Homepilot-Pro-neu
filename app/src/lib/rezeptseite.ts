@@ -175,3 +175,30 @@ export function kategorien(recipes: Rezept[]): { name: string; anzahl: number }[
     .map(([name, anzahl]) => ({ name, anzahl }))
     .sort((a, b) => b.anzahl - a.anzahl || a.name.localeCompare(b.name));
 }
+
+/**
+ * Die Namen aus dem Vorrat, die als Zutat taugen (rein, testbar).
+ *
+ * Rezeptbuch und Vorrat standen nebeneinander, ohne voneinander zu
+ * wissen: «Was geht mit dem, was da ist» hiess bisher, die Zutaten von
+ * Hand anzutippen – und wer schon weiss, was er hat, braucht die Frage
+ * nicht mehr zu stellen.
+ *
+ * Zu kurze Einträge fallen weg: `ausVorrat` sucht auf Wortstamm-Ebene,
+ * und ein zweibuchstabiges «Ei» träfe «Eintopf», «Eisberg» und
+ * «Eiweiss» gleich mit. Doppelte ebenso – im Vorrat steht «Milch»
+ * vielleicht zweimal, in den Chips soll sie einmal stehen.
+ */
+export function vorratsNamen(artikel: { text?: unknown }[]): string[] {
+  const gesehen = new Set<string>();
+  const namen: string[] = [];
+  for (const eintrag of artikel ?? []) {
+    const name = String(eintrag?.text ?? '').trim();
+    if (name.length < 3) continue;
+    const schluessel = name.toLowerCase();
+    if (gesehen.has(schluessel)) continue;
+    gesehen.add(schluessel);
+    namen.push(name);
+  }
+  return namen;
+}

@@ -6,6 +6,7 @@ import {
   fehltText,
   kategorien,
   kategorieUmbenennen,
+  vorratsNamen,
   rezeptAlsSeite,
 } from './rezeptseite';
 
@@ -108,5 +109,40 @@ describe('Kategorien aufräumen', () => {
       { name: 'dinner', anzahl: 2 },
       { name: 'Dessert', anzahl: 1 },
     ]);
+  });
+});
+
+describe('vorratsNamen', () => {
+  it('nimmt die Namen aus dem Vorrat', () => {
+    expect(
+      vorratsNamen([{ text: 'Milch' }, { text: 'Rahm' }])
+    ).toEqual(['Milch', 'Rahm']);
+  });
+
+  it('lässt zu kurze Einträge weg', () => {
+    // `ausVorrat` sucht auf Wortstamm-Ebene: Ein zweibuchstabiges «Ei»
+    // träfe «Eintopf», «Eisberg» und «Eiweiss» gleich mit.
+    expect(vorratsNamen([{ text: 'Ei' }, { text: 'Eier' }])).toEqual(['Eier']);
+  });
+
+  it('nennt dieselbe Sache nur einmal', () => {
+    expect(
+      vorratsNamen([{ text: 'Milch' }, { text: ' milch ' }])
+    ).toEqual(['Milch']);
+  });
+
+  it('verträgt Unsinn', () => {
+    expect(vorratsNamen([{ text: null }, {}, { text: '  ' }])).toEqual([]);
+  });
+
+  it('findet mit dem Vorrat auch wirklich Rezepte', () => {
+    // Der eigentliche Zweck: Die Namen aus dem Vorrat müssen so
+    // aussehen, dass `ausVorrat` sie annimmt.
+    const rezepte = [
+      { id: '1', text: 'Rahmsauce', ingredients: [{ name: 'Rahm' }, { name: 'Salz' }] },
+    ] as unknown as Parameters<typeof ausVorrat>[0];
+    const treffer = ausVorrat(rezepte, vorratsNamen([{ text: 'Rahm' }]));
+    expect(treffer).toHaveLength(1);
+    expect(treffer[0].fehlt).toEqual([]);
   });
 });

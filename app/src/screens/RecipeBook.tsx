@@ -36,6 +36,7 @@ import {
   GRUNDVORRAT,
   ausVorrat,
   fehltText,
+  vorratsNamen,
   kategorieUmbenennen,
   kategorien,
   rezeptAlsSeite,
@@ -91,6 +92,12 @@ interface Props {
    *  hinzugefügt» ist eine ehrlichere Antwort als ein wortloses
    *  Häkchen. */
   onShopping: (recipe: Rezept, faktor: number) => number;
+  /** Was im Vorrat steht (lib/vorrat.ts) - für «Was geht mit dem, was
+   *  da ist». Ohne die Liste bleibt es beim Antippen von Hand. */
+  vorratsliste?: string[];
+  /** Ein einzelner Posten auf die Einkaufsliste - für das, was einem
+   *  Rezept noch fehlt. */
+  onShoppingItem?: (name: string) => void;
   onClose: () => void;
 }
 
@@ -1815,6 +1822,8 @@ export function RecipeBook({
   onDelete,
   planMeal,
   onShopping,
+  vorratsliste,
+  onShoppingItem,
   onClose,
 }: Props) {
   const colors = useColors();
@@ -1840,6 +1849,9 @@ export function RecipeBook({
   // Punkt 192: Der Vorschlag aus 139 fragt nach dem Kalender, nicht nach
   // dem Kühlschrank. Hier die Umkehrung.
   const [vorrat, setVorrat] = useState<string[]>([]);
+  // Für welche Rezepte das Fehlende schon auf der Liste steht - ein
+  // Häkchen statt einer Meldung, wie beim Einkauf-Knopf im Rezept.
+  const [gekauft, setGekauft] = useState<string[]>([]);
   const [vorratOffen, setVorratOffen] = useState(false);
   // Punkt 216: Der Import brachte «dinner» mit, von Hand entstand
   // Deutsches – die Filterleiste zeigt beide Welten.
@@ -2071,6 +2083,31 @@ export function RecipeBook({
               })}
             </View>
           </ScrollView>
+          {/* Der Vorrat weiss ohnehin, was da ist - ihn von Hand
+              nachzutippen war die Arbeit, die diese Karte eigentlich
+              abnehmen sollte. Ein Knopf füllt die Auswahl daraus. */}
+          {vorratsliste && vorratsliste.length > 0 ? (
+            <Pressable
+              onPress={() =>
+                setVorrat((bisher) =>
+                  bisher.length > 0 ? [] : vorratsNamen(
+                    vorratsliste.map((name) => ({ text: name }))
+                  )
+                )
+              }
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.vorratAusVorrat, pressed && { opacity: 0.7 }]}
+            >
+              <Ionicons
+                name={vorrat.length > 0 ? 'close-circle-outline' : 'file-tray-full-outline'}
+                size={16}
+                color={colors.accent}
+              />
+              <Text style={styles.vorratAusVorratText}>
+                {vorrat.length > 0 ? 'Auswahl leeren' : 'Alles nehmen, was im Vorrat steht'}
+              </Text>
+            </Pressable>
+          ) : null}
           {vorrat.length === 0 ? (
             <Text style={styles.vorschlagGrund}>
               Zutaten antippen – dann steht hier, was damit geht.
@@ -2094,6 +2131,31 @@ export function RecipeBook({
                     </Text>
                     <Text style={styles.vorratFehlt}>{fehltText(fehlt)}</Text>
                   </View>
+                  {/* Was fehlt, gehört auf die Einkaufsliste - und zwar
+                      von hier aus. Sonst liest man «ohne Rahm», schliesst
+                      das Rezeptbuch und hat es beim Einkaufen vergessen. */}
+                  {onShoppingItem && fehlt.length > 0 ? (
+                    <Pressable
+                      onPress={() => {
+                        fehlt.forEach(onShoppingItem);
+                        setGekauft((bisher) => [...bisher, String(recipe.id)]);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${fehltText(fehlt)} auf die Einkaufsliste`}
+                      hitSlop={8}
+                      style={({ pressed }) => [styles.vorratKauf, pressed && { opacity: 0.6 }]}
+                    >
+                      <Ionicons
+                        name={
+                          gekauft.includes(String(recipe.id))
+                            ? 'checkmark-circle'
+                            : 'cart-outline'
+                        }
+                        size={16}
+                        color={colors.accent}
+                      />
+                    </Pressable>
+                  ) : null}
                   <Ionicons name="chevron-forward" size={16} color={colors.inkFaint} />
                 </Pressable>
               ))
@@ -2713,6 +2775,27 @@ const makeStyles = (colors: Colors) =>
       paddingVertical: 6,
     },
     vorratFehlt: { color: colors.inkSoft, fontSize: 12 },
+    /** Der Knopf, der das Fehlende auf die Einkaufsliste legt. */
+    vorratKauf: {
+      padding: 6,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceSoft,
+    },
+    /** «Alles nehmen, was im Vorrat steht» – der Knopf, der die
+     *  Handarbeit abnimmt, für die es diese Karte gibt. */
+    vorratAusVorrat: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      alignSelf: 'flex-start',
+      paddingVertical: 7,
+      paddingHorizontal: 12,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      marginBottom: 4,
+    },
+    vorratAusVorratText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
     // Grossmutters Karte: hoch statt breit, und ganz sichtbar.
     originalBild: {
       width: '100%',

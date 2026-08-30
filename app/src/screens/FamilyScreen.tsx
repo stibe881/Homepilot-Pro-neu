@@ -34,6 +34,7 @@ import { useFamilienablage } from './family/ablage';
 import { useBabysitterabend } from './family/babysitter';
 import { herkunftText, neuSeit, suche, trefferName } from '../lib/familiensuche';
 import { takt } from '../lib/vorrat';
+import { vorratsNamen } from '../lib/rezeptseite';
 import {
   akku,
   kopfzeile,
@@ -3792,6 +3793,23 @@ export function FamilyScreen({
               update('shopping', eintrag.id, { amount: eintrag.amount })
             );
             return neu.length + mehr.length;
+          }}
+          // Der Vorrat weiss ohnehin, was da ist - «Was geht mit dem, was
+          // da ist» musste man bisher trotzdem von Hand antippen.
+          vorratsliste={vorratsNamen(
+            ((data.staples ?? []) as FamilyItem[]).map((eintrag) => ({
+              text: eintrag.text,
+            }))
+          )}
+          onShoppingItem={(name) => {
+            // Nur, was noch nicht draufliegt: Wer zweimal auf denselben
+            // Karren tippt, bekommt sonst zweimal Rahm.
+            const schon = ((data.shopping ?? []) as FamilyItem[]).some(
+              (eintrag) =>
+                String(eintrag.text ?? '').trim().toLowerCase() ===
+                name.trim().toLowerCase()
+            );
+            if (!schon) add('shopping', { text: name, done: false });
           }}
           onClose={() => {
             // Wer aus dem Essensplaner kam, landet wieder dort - und der
