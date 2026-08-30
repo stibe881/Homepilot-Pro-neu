@@ -9,6 +9,13 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **«Terrasse steht offen» kommt nur noch einmal je Öffnung.** Die
+  Mahnung war als «einmal je Öffnung» gedacht, aber ihr Merker lebte
+  nur im Arbeitsspeicher - und jedes Update startet den Hub neu. Bei
+  offener Türe kam die Nachricht darum nach jedem Neustart erneut.
+  Der Merker liegt jetzt in hub.data und ist am Zeitpunkt der
+  Öffnung verankert: Ein Neustart mahnt nicht mehr doppelt, eine
+  neue Öffnung (zu, wieder auf, wieder lange offen) mahnt weiterhin.
 - **Die Kacheln der Kamera-Zeitleiste zeigen jetzt die Aufnahme.**
   Bisher sagten sie nur «12:05, Person» - ansehen konnte man nichts.
   Ein Tipp öffnet jetzt die Aufnahme des Ereignisses als Video: Der
