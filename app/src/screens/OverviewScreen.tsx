@@ -1685,11 +1685,18 @@ function KalenderFenster({
                         <Text style={styles.fensterZeit}>
                           {zeile.zeit ?? 'ganztägig'}
                         </Text>
-                      ) : null}
+                      ) : (
+                        <View style={styles.fensterSymbol}>
+                          <Ionicons name="gift-outline" size={16} color={colors.accent} />
+                        </View>
+                      )}
                       <View style={styles.fensterMitte}>
                         <Text style={styles.fensterName} numberOfLines={2}>
                           {zeile.titel}
                         </Text>
+                        {zeile.datum ? (
+                          <Text style={styles.fensterOrt}>{zeile.datum}</Text>
+                        ) : null}
                         {zeile.ort ? (
                           <View style={styles.fensterUnten}>
                             <Ionicons
@@ -1704,7 +1711,15 @@ function KalenderFenster({
                         ) : null}
                       </View>
                       {!gruppe.titel && zeile.wann ? (
-                        <Text style={styles.fensterChip}>{zeile.wann}</Text>
+                        <Text
+                          style={[
+                            styles.fensterChip,
+                            // «heute! 🎉» darf leuchten - dafür schaut man nach.
+                            zeile.wann.startsWith('heute') && styles.fensterChipHeute,
+                          ]}
+                        >
+                          {zeile.wann}
+                        </Text>
                       ) : null}
                     </View>
                   ))}
@@ -1909,6 +1924,9 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: 10,
       overflow: 'hidden',
     },
+    fensterChipHeute: { backgroundColor: `${colors.accent}22`, color: colors.accent },
+    // Das Geschenk sitzt in derselben Spur wie die Uhrzeit der Termine.
+    fensterSymbol: { width: 24, alignItems: 'center', paddingTop: 1 },
     /** Der Auswahlknopf für die Box - ein Dropdown, keine Chipwand. */
     durchsageZiel: {
       flexDirection: 'row',

@@ -4,6 +4,7 @@
  */
 import {
   alsZeitpunkt,
+  geburtstagsName,
   gruppenTitel,
   terminGruppen,
   geburtstagsListe,
@@ -199,6 +200,35 @@ describe('terminGruppen', () => {
     expect(
       terminGruppen([{ summary: 'Levin Geburtstag', start: '2026-09-01' }], jetzt)
     ).toEqual([]);
+  });
+});
+
+describe('geburtstagsName', () => {
+  it('löst den Namen aus den üblichen Satzformen', () => {
+    expect(geburtstagsName('Flo hat Geburtstag')).toBe('Flo');
+    expect(geburtstagsName('Geburtstag von Flo')).toBe('Flo');
+    expect(geburtstagsName("Flo's birthday")).toBe('Flo');
+    expect(geburtstagsName('Flo – Geburtstag')).toBe('Flo');
+  });
+
+  it('lässt einen Titel ohne Muster, wie er ist', () => {
+    expect(geburtstagsName('Oma Grosstante')).toBe('Oma Grosstante');
+    expect(geburtstagsName('')).toBe('Ohne Titel');
+  });
+});
+
+describe('geburtstagsListe', () => {
+  it('zeigt höchstens zehn, den nächsten zuerst, mit Datumzeile', () => {
+    const jetzt = new Date('2026-08-30T12:00:00');
+    const events = Array.from({ length: 14 }, (_, i) => ({
+      summary: `Person ${i} hat Geburtstag`,
+      start: `2026-09-${String(i + 1).padStart(2, '0')}`,
+      birthday: true,
+    }));
+    const liste = geburtstagsListe(events, jetzt);
+    expect(liste).toHaveLength(10);
+    expect(liste[0].titel).toBe('Person 0');
+    expect(liste[0].datum).toContain('September');
   });
 });
 

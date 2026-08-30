@@ -9,6 +9,15 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **«Alle Geburtstage» zeigt die nächsten zehn - und liest sich wie
+  eine Liste von Menschen.** Bisher stand dort oft nur einer: Der Hub
+  kappte Termine und Geburtstage zusammen bei zwölf Einträgen, und in
+  einer vollen Woche verdrängten die Termine jeden Geburtstag jenseits
+  der nächsten Tage. Beide Listen haben jetzt ihr eigenes Mass (12
+  Termine, 10 Geburtstage). Die Zeilen tragen den Namen statt des
+  Satzes («Flo» statt «Flo hat Geburtstag»), ein Geschenk-Symbol, das
+  Datum ausgeschrieben («Freitag, 4. September») und «in 5 Tagen» als
+  Chip rechts - «heute! 🎉» leuchtet im Akzent.
 - **«Alle Termine» liest sich jetzt als Woche.** Die flache Liste
   wiederholte den Tag in jeder Zeile («Di, 10:00», «Di, 18:00») -
   man las Daten statt Termine. Jetzt bündeln Tagesüberschriften

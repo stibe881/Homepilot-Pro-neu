@@ -247,11 +247,17 @@ def parse_events(items: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
     upcoming = ohne_doppelte(upcoming)
 
     first = next((event for event in upcoming if not event["birthday"]), None)
+    # Getrennt kappen: In einer vollen Woche verdrängten zwölf Termine
+    # jeden Geburtstag jenseits der nächsten Tage - die App zeigte dann
+    # genau einen. Termine und Geburtstage sind zwei Listen in der App,
+    # also bekommen beide ihr eigenes Mass.
+    termine = [event for event in upcoming if not event["birthday"]]
+    geburtstage = [event for event in upcoming if event["birthday"]]
     return {
         "state": first["summary"] if first else "frei",
         "next_start": first["start"] if first else None,
         "next_all_day": first["all_day"] if first else False,
-        "events": upcoming[:12],
+        "events": termine[:12] + geburtstage[:10],
     }
 
 

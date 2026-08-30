@@ -24,6 +24,27 @@ export interface KalenderZeile {
    *  Liste mit Tagesüberschriften, wo der Tag schon darüber steht. */
   zeit: string | null;
   ort: string | null;
+  /** Das Datum als Zeile darunter («Freitag, 4. September») - bisher
+   *  nur bei Geburtstagen, wo «in 5 Tagen» allein zum Nachrechnen zwang. */
+  datum?: string | null;
+}
+
+/** Den Namen aus dem Geburtstags-Titel lösen (rein, testbar).
+
+ * Der Geburtstags-Kalender schreibt Sätze («Flo hat Geburtstag»,
+ * «Geburtstag von Flo», «Flo's birthday») - in einer Liste, über der
+ * schon «Geburtstage» steht, ist der Satz Lärm. Bleibt nichts übrig,
+ * bleibt der Titel, wie er war.
+ */
+export function geburtstagsName(summary: unknown): string {
+  const roh = String(summary ?? '').trim();
+  const name = roh
+    .replace(/\s*hat\s+Geburtstag\s*$/i, '')
+    .replace(/^Geburtstag\s+von\s+/i, '')
+    .replace(/['’]s\s+birthday\s*$/i, '')
+    .replace(/\s*[-–·]?\s*Geburtstag\s*$/i, '')
+    .trim();
+  return name || roh || 'Ohne Titel';
 }
 
 /** Ein Tag der Termin-Liste: Überschrift plus seine Zeilen. */
@@ -168,14 +189,25 @@ export function terminGruppen(events: Eintrag[] | null, jetzt: Date): KalenderGr
 export function geburtstagsListe(events: Eintrag[] | null, jetzt: Date): KalenderZeile[] {
   return (events ?? [])
     .filter(istGeburtstag)
-    .map((event, index) => ({
-      key: String(event?.uid ?? event?.id ?? `${event?.start}-${index}`),
-      titel: String(event?.summary ?? '').trim() || 'Ohne Titel',
-      wann: tageBisText(event?.start, jetzt),
-      zeit: null,
-      ort: null,
-      _tage: tageBis(event?.start, jetzt) ?? Number.MAX_SAFE_INTEGER,
-    }))
+    .map((event, index) => {
+      const wann = alsZeitpunkt(event?.start);
+      return {
+        key: String(event?.uid ?? event?.id ?? `${event?.start}-${index}`),
+        titel: geburtstagsName(event?.summary),
+        wann: tageBisText(event?.start, jetzt),
+        zeit: null,
+        ort: null,
+        datum: wann
+          ? wann.toLocaleDateString('de-CH', {
+              weekday: 'long',
+              day: 'numeric',
+              month: 'long',
+            })
+          : null,
+        _tage: tageBis(event?.start, jetzt) ?? Number.MAX_SAFE_INTEGER,
+      };
+    })
     .sort((a, b) => a._tage - b._tage)
+    .slice(0, 10)
     .map(({ _tage, ...zeile }) => zeile);
 }
