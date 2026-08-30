@@ -9,6 +9,12 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Die Schnellaktionen sind Kacheln statt Pillen.** Kino, Schlafen,
+  Storen hoch und runter stehen jetzt als vier gleich breite Kacheln
+  nebeneinander - Sinnbild in einer Scheibe, Name darunter. Vorher
+  waren es Pillen in Textbreite, und «Storen runter» fiel allein in
+  die zweite Zeile als Balken über die volle Breite. Szenen tragen
+  den Akzent in der Scheibe statt als ganze Fläche.
 - **Die Startseite beginnt mit einer Begrüssungskarte.** Der obere
   Teil - Begrüssung, Uhr gross samt Datum, Verbindungspunkt, wer zuhause ist,
   nächster Termin samt Geburtstag, Wetterwarnung und die Handgriff-Chips

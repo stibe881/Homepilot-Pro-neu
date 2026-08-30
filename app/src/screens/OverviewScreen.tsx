@@ -382,6 +382,11 @@ export function OverviewScreen({
   // iPhone Max brach die Reihe darum um. Siehe lib/raster.
   const [rasterBreite, setRasterBreite] = useState(0);
   const tileSpalten = spalten(rasterBreite, { hoechstens: wide ? 3 : 2 });
+  // Schnellaktionen: vier gleich breite Kacheln je Reihe. Vorher waren es
+  // Pillen in Textbreite - «Storen runter» fiel allein in die zweite
+  // Zeile und wurde dort ein Balken über die volle Breite.
+  const schnellBreite =
+    rasterBreite > 0 ? kachelBreite(rasterBreite, 4, 10) : ('23%' as const);
   const tileWidth =
     rasterBreite > 0 ? kachelBreite(rasterBreite, tileSpalten) : ('100%' as const);
   // Favoriten hatten als Einzige keine gerechnete Breite: Jede Kachel war
@@ -804,29 +809,33 @@ export function OverviewScreen({
         </Card>
       </View>
 
-      {/* Schnellaktionen */}
-      <View style={styles.quickRow}>
+      {/* Schnellaktionen: gleich breite Kacheln mit Sinnbild in der
+          Scheibe - Szenen im Akzent, die Storen neutral. */}
+      <View style={styles.schnellRow}>
         {startScenes.map((scene) => (
-          <Action
+          <Schnellaktion
             styles={styles}
             key={scene.id}
             label={scene.name}
             icon={sceneIcon(scene)}
             accent
+            width={schnellBreite}
             onPress={() => onActivateScene(scene.id)}
           />
         ))}
-        <Action
+        <Schnellaktion
           styles={styles}
           label="Storen hoch"
           icon="arrow-up-outline"
+          width={schnellBreite}
           onPress={() => covers.forEach((c) => onCommand(c.id, 'open'))}
           disabled={covers.length === 0}
         />
-        <Action
+        <Schnellaktion
           styles={styles}
           label="Storen runter"
           icon="arrow-down-outline"
+          width={schnellBreite}
           onPress={() => covers.forEach((c) => onCommand(c.id, 'close'))}
           disabled={covers.length === 0}
         />
@@ -1815,6 +1824,53 @@ function sceneIcon(scene: { name: string; icon?: string }): keyof typeof Ionicon
   return 'sparkles-outline';
 }
 
+/** Eine Schnellaktions-Kachel: Sinnbild in der Scheibe, Name darunter.
+ *
+ * Nur für die Reihe oben auf der Startseite - die Pillen (Action) leben
+ * in den Kacheln weiter, wo sie neben Text stehen. Szenen tragen den
+ * Akzent in der Scheibe statt als ganze Fläche: vier volle Farbfelder
+ * nebeneinander schrien lauter als der Rest der Seite zusammen. */
+function Schnellaktion({
+  label,
+  icon,
+  onPress,
+  accent,
+  disabled,
+  width,
+  styles,
+}: {
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  onPress: () => void;
+  accent?: boolean;
+  disabled?: boolean;
+  width: number | `${number}%`;
+  styles: OverviewStyles;
+}) {
+  const colors = useColors();
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={({ pressed }) => [
+        styles.schnellKachel,
+        { width },
+        pressed && { opacity: 0.65 },
+        disabled && { opacity: 0.4 },
+      ]}
+    >
+      <View style={[styles.schnellKreis, accent && styles.schnellKreisAkzent]}>
+        <Ionicons name={icon} size={19} color={accent ? colors.accent : colors.ink} />
+      </View>
+      <Text style={styles.schnellText} numberOfLines={2}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 function Action({
   label,
   icon,
@@ -2070,6 +2126,33 @@ const makeStyles = (colors: Colors) =>
     alertText: { color: colors.danger, fontSize: 12, fontWeight: '600', flex: 1 },
 
     quickRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
+    schnellRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
+    schnellKachel: {
+      alignItems: 'center',
+      justifyContent: 'flex-start',
+      gap: 7,
+      paddingVertical: 12,
+      paddingHorizontal: 6,
+      borderRadius: radius.card,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    schnellKreis: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.surfaceStrong,
+    },
+    schnellKreisAkzent: { backgroundColor: `${colors.accent}2E` },
+    schnellText: {
+      color: colors.ink,
+      fontSize: 12,
+      fontWeight: '600',
+      textAlign: 'center',
+    },
     hintLine: { color: colors.onGradientSoft, fontSize: 12, marginTop: -6 },
 
     groupLabel: {
