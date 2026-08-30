@@ -9,6 +9,8 @@ import {
   FAVORIT_MINDEST,
   KACHEL_MINDEST,
   KAMERA_MINDEST,
+  breiteFuer,
+  doppeltBreit,
   kachelBreite,
   spalten,
 } from './raster';
@@ -125,3 +127,42 @@ describe('Favoritenkacheln stehen zu dritt nebeneinander', () => {
   });
 });
 
+
+describe('doppeltBreit', () => {
+  it('gibt der Kamera die Fläche', () => {
+    // Ein Vorschaubild unter 260 Punkten zeigt nichts, was man erkennen
+    // würde.
+    expect(doppeltBreit('camera')).toBe(true);
+  });
+
+  it('erkennt das Thermostat an seinem Befehl, nicht an einer Art', () => {
+    // Eine Geräteart «climate» gibt es im Hub gar nicht - was heizt, ist
+    // ein Gerät wie jedes andere, das `set_temperature` kann.
+    expect(doppeltBreit('switch', ['turn_on', 'set_temperature'])).toBe(true);
+    expect(doppeltBreit('appliance', ['set_temperature'])).toBe(true);
+  });
+
+  it('lässt den Rest, wie er ist', () => {
+    // Der Fernseher ausdrücklich auch: Sein Steuerkreuz ist rund und
+    // mittig, in der Breite entstünde daneben nur Leere.
+    for (const art of ['light', 'switch', 'cover', 'media_player', 'sensor']) {
+      expect(doppeltBreit(art, ['turn_on', 'turn_off'])).toBe(false);
+    }
+  });
+});
+
+describe('breiteFuer', () => {
+  it('nimmt zwei Spalten plus die Lücke', () => {
+    // Nicht die doppelte Breite: Sonst stünde die Kachel um eine Lücke
+    // über den Rand hinaus.
+    expect(breiteFuer(100, true, 3, 14)).toBe(214);
+  });
+
+  it('lässt schmale Kacheln schmal', () => {
+    expect(breiteFuer(100, false, 3, 14)).toBe(100);
+  });
+
+  it('verdoppelt nichts, wo es nur eine Spalte gibt', () => {
+    expect(breiteFuer(300, true, 1, 14)).toBe(300);
+  });
+});

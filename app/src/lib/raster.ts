@@ -90,3 +90,49 @@ export function kachelBreite(
   if (!Number.isFinite(breite) || breite <= 0 || anzahl < 1) return 0;
   return Math.floor((breite - luecke * (anzahl - 1)) / anzahl);
 }
+
+/**
+ * Welche Kachel die doppelte Breite verdient (rein, testbar).
+ *
+ * Bis hierher war jede Kachel gleich breit – auch die Kamera, deren
+ * Vorschaubild unter 260 Punkten nichts zeigt, was man erkennen würde,
+ * und das Thermostat, das Ist und Soll nebeneinander stellen will.
+ * Daneben stand der Lichtschalter, der mit einem Wort auskommt, in
+ * derselben Grösse: Alles gleich laut, und die Seite ohne Rangordnung.
+ *
+ * Bewusst eine kurze Liste und keine Einstellung. Wer jede Kachel selbst
+ * bemessen darf, bemisst am Ende keine – und die Übersicht sieht auf
+ * zwei Telefonen verschieden aus, ohne dass jemand das wollte.
+ *
+ * Der Fernseher steht ausdrücklich *nicht* dabei: Sein Steuerkreuz ist
+ * rund und mittig, und in der Breite entstünde daneben nur Leere.
+ *
+ * Erkannt wird das Thermostat an seinem Befehl und nicht an einer
+ * Geräteart: Eine Art «climate» gibt es im Hub gar nicht - was heizt,
+ * ist ein Gerät wie jedes andere, das `set_temperature` kann. Derselbe
+ * Griff trifft den Grill, und der hat mit seinen Fühlern noch mehr von
+ * der Fläche.
+ */
+export function doppeltBreit(kind: string, commands: readonly string[] = []): boolean {
+  return kind === 'camera' || commands.includes('set_temperature');
+}
+
+/**
+ * Die Breite einer Kachel im Raster (rein, testbar).
+ *
+ * Zwei Spalten plus die Lücke dazwischen – nicht die doppelte Breite:
+ * Sonst stünde die breite Kachel um eine Lücke über den Rand hinaus.
+ *
+ * Bei einer einzigen Spalte gibt es nichts zu verdoppeln, und beim
+ * Anpassen bleiben alle gleich: Dort zieht man Kacheln an ihren Platz,
+ * und ein Raster mit Lücken wäre dabei nicht zu treffen.
+ */
+export function breiteFuer(
+  einfach: number,
+  breit: boolean,
+  spaltenzahl: number,
+  luecke: number = space.gap
+): number {
+  if (!breit || spaltenzahl < 2) return einfach;
+  return einfach * 2 + luecke;
+}

@@ -57,7 +57,13 @@ import { useWatchSync } from '../hooks/useWatchSync';
 import { useTuerKnopf } from '../hooks/useTuerKnopf';
 import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, space, type, useColors } from '../theme';
-import { KAMERA_MINDEST, kachelBreite, spalten } from '../lib/raster';
+import {
+  KAMERA_MINDEST,
+  breiteFuer,
+  doppeltBreit,
+  kachelBreite,
+  spalten,
+} from '../lib/raster';
 import { mengeUndName } from '../lib/einkauf';
 import { uhr } from '../lib/format';
 import {
@@ -115,6 +121,7 @@ import {
 } from '../lib/tageszeit';
 import { hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
+import { Auftritt } from '../components/Auftritt';
 import { AutomationsScreen } from './AutomationsScreen';
 import { BereichRiegel } from '../components/BereichRiegel';
 import { FamilyScreen } from './FamilyScreen';
@@ -1643,7 +1650,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             }
           : undefined
       }
-      width={cardWidth!}
+      // Kamera und Thermostat bekommen zwei Spalten (lib/raster.ts).
+      // Beim Anpassen nicht: Dort zieht man Kacheln an ihren Platz, und
+      // ein Raster mit Lücken wäre dabei nicht zu treffen.
+      width={breiteFuer(
+        cardWidth!,
+        !editing && doppeltBreit(entity.kind, entity.commands),
+        columns
+      )}
       imRaumblock={imRaumblock}
       // Gehört dieser Spot zu einer zusammengefassten Leuchte? Unter
       // Geräte ist er sonst nicht von einer einzelnen Lampe zu
@@ -3216,6 +3230,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             />
           ) : null}
 
+          {/* Der Ortswechsel als Bewegung: Beim Sprung von «Räume» zu
+              «Licht» oder in ein Zimmer blendet die Seite kurz auf und
+              kommt ein Stück von unten. Aus dem Umschalten wird ein
+              Gehen - und wer weniger Bewegung eingestellt hat, bekommt
+              keine (components/Auftritt.tsx). */}
+          <Auftritt schluessel={`${section}:${room}`} style={styles.scroll}>
           <ScrollView
             ref={blatt}
             style={styles.scroll}
@@ -3400,6 +3420,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               )}
             </Auffangnetz>
           </ScrollView>
+          </Auftritt>
         </View>
 
         {!hasRail ? (
