@@ -1937,3 +1937,26 @@ bewusst ohne Ziehen – die Ziehen-Geste hat auf iOS zweimal getäuscht,
 zwei Tipps kann jede Plattform.
 
 Stellen: `hub/homepilot/core/grundriss.py`, `hub/homepilot/api/routes/grundriss.py`, `app/src/components/Grundriss.tsx`, `app/src/lib/grundriss.ts`
+
+### 223. Durchsagen mit eigener Stimme zurückbringen
+
+*Aufwand: mittel · App*
+
+Die Aufnahme am Telefon lief über `expo-audio` - und genau dieses Paket
+hat die App vom 29. bis 31. August auf jedem Gerät wortlos schwarz
+starten lassen: Sein nativer Teil fasst schon beim App-Start die
+AVAudioSession an, und gegen ein Hängen dort hilft kein JavaScript-Netz.
+Es ist deshalb ganz aus dem Build genommen; die Vorlesestimme und der
+Browser-Weg (MediaRecorder) gehen weiter.
+
+Zurück darf die Funktion nur mit einer Fassung, deren Start nachweislich
+nichts anfasst - neuere expo-audio-Version prüfen (das OnCreate mit
+`AVAudioSession.sharedInstance()` ist der kritische Punkt) oder ein
+eigenes schlankes Aufnahme-Modul, das erst beim Druck auf den
+Aufnahmeknopf initialisiert. In jedem Fall: erst ein TestFlight-
+Probelauf auf iPhone **und** Wandpanel, dann ausrollen. Die
+Absturzgeschichte steht im CHANGELOG (2026-09-01) und in
+`app/src/lib/aufnahme-nativ.ts`.
+
+Stellen: `app/src/lib/aufnahme-nativ.ts`, `app/src/lib/sprachnotiz.ts`, `app/package.json`, `app/app.json`
+

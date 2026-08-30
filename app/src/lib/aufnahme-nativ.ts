@@ -19,13 +19,16 @@
  * 48 kbit/s. Das spielt jede Cast-Box (der Hub erkennt es am `ftyp` -
  * siehe hub/core/sprachnotiz.py), und eine Minute wiegt rund 350 KB.
  */
-// DIAGNOSE 30.08.: `expo-audio` ist testweise ganz aus dem Build genommen.
-// Es ist die einzige native Änderung im Fenster, in dem die App den
-// wortlosen Schwarzstart bekam (zwischen Build 29799716, läuft, und
-// 29800133, schwarz) - alle anderen Verdächtigen sind per ipa-Vergleich
-// ausgeschlossen. Läuft die App ohne, war es expo-audio; dann kommt es
-// gezielt zurück (neuere Fassung oder späteres Laden). Der Typ steht
-// deshalb vorübergehend örtlich statt aus dem Paket.
+// `expo-audio` ist aus dem Build genommen - es war der Grund, warum die
+// App vom 29. bis 31. August auf jedem Gerät wortlos schwarz startete
+// (Werkbank-Punkt 223). Überführt per Ausschluss: Es war die einzige
+// native Änderung zwischen dem letzten laufenden Build (29799716) und
+// dem ersten schwarzen (29800133); Dateilisten, Manifest und Info.plist
+// der beiden ipas waren sonst deckungsgleich, und ohne das Paket lief
+// die App sofort wieder. Sein OnCreate fasst beim App-Start die
+// AVAudioSession an - gegen ein natives Hängen dort hilft kein JS-Netz.
+// Zurück darf es nur mit einer Fassung, die beim Start nichts anfasst,
+// und über einen TestFlight-Probelauf. Der Typ steht bis dahin örtlich.
 type RecordingOptions = Record<string, unknown>;
 
 import type { Aufnahme } from './sprachnotiz';
@@ -59,5 +62,5 @@ export const WERTE: RecordingOptions = {
 export async function starteNativ(hoechstensMs: number): Promise<Aufnahme> {
   void hoechstensMs;
   // Siehe Kopf der Datei: ohne expo-audio gibt es hier nichts zu starten.
-  throw new Error('Durchsagen mit eigener Stimme sind in dieser Diagnose-Fassung abgeschaltet.');
+  throw new Error('Durchsagen mit eigener Stimme sind zurzeit abgeschaltet - die Vorlesestimme geht weiter.');
 }

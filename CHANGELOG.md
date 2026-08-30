@@ -9,6 +9,17 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Der wortlose Schwarzstart ist gelöst: Es war `expo-audio`.** Die
+  Diagnose-Fassung ohne das Paket lief auf Anhieb - damit ist es
+  überführt. Sein nativer Teil fasst beim App-Start die AVAudioSession
+  an; hängt das, zeichnet die App nie und kein Netz kann helfen. Mit
+  eingeschalteten Updates machte expo-updates daraus zusätzlich einen
+  sofortigen Abbruch - das waren die Abstürze vom 29. August. Das
+  Paket bleibt draussen (Durchsagen mit eigener Stimme sind bis auf
+  Weiteres abgeschaltet, Werkbank-Punkt 223), die OTA-Updates sind
+  wieder eingeschaltet, und die Laufzeit bleibt bewusst auf 3: Das
+  JavaScript braucht expo-audio nicht mehr und passt damit auf beide
+  Baustände.
 - **Diagnose-Fassung 1.4.11: ohne `expo-audio`.** Das Ausschluss-
   verfahren per ipa-Vergleich (laufender Build 29799716 gegen
   schwarzen Build 29801284) hat alles andere freigesprochen:
