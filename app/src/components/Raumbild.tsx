@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useMemo, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { HubSettings } from '../api/types';
 import { kann } from '../lib/plattform';
@@ -34,6 +34,9 @@ export function Raumbild({
   hatBild,
   onClose,
   onChanged,
+  knoepfe,
+  auswahl,
+  onAuswahl,
 }: {
   /** Das Zimmer – `null` heisst: Das Blatt bleibt zu. */
   room: string | null;
@@ -43,6 +46,11 @@ export function Raumbild({
   onClose: () => void;
   /** Nach dem Setzen oder Entfernen: Der Bildstand des Hauses ist neu. */
   onChanged: (images: Record<string, number>) => void;
+  /** Welche Knöpfe dieser Raum überhaupt hergibt - für die Auswahl. */
+  knoepfe: { art: string; label: string }[];
+  /** Die getroffene Wahl - undefined heisst: alle. */
+  auswahl: string[] | undefined;
+  onAuswahl: (arts: string[]) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -174,6 +182,44 @@ export function Raumbild({
             ? zeile('trash-outline', 'Bild entfernen', () => senden('DELETE'), true)
             : null}
 
+          {/* Welche Knöpfe die Kachel trägt. Die Wahl gilt wie das Bild
+              für alle im Haus (house prefs) - abgewählt wird durch
+              Antippen, und auch «gar keine» ist eine gültige Wahl. */}
+          {knoepfe.length > 0 ? (
+            <>
+              <Text style={styles.abschnitt}>Knöpfe auf der Kachel</Text>
+              <View style={styles.chips}>
+                {knoepfe.map((knopf) => {
+                  const aktiv = (auswahl ?? knoepfe.map((k) => k.art)).includes(
+                    knopf.art
+                  );
+                  const wechseln = () => {
+                    const jetzt = auswahl ?? knoepfe.map((k) => k.art);
+                    onAuswahl(
+                      aktiv
+                        ? jetzt.filter((art) => art !== knopf.art)
+                        : [...jetzt, knopf.art]
+                    );
+                  };
+                  return (
+                    <Pressable
+                      key={knopf.art}
+                      onPress={wechseln}
+                      accessibilityRole="switch"
+                      accessibilityState={{ checked: aktiv }}
+                      accessibilityLabel={`Knopf ${knopf.label} auf der Kachel`}
+                      style={[styles.chip, aktiv && styles.chipAn]}
+                    >
+                      <Text style={[styles.chipText, aktiv && styles.chipTextAn]}>
+                        {knopf.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </>
+          ) : null}
+
           {laeuft ? <Text style={styles.hinweis}>Einen Moment …</Text> : null}
           {fehler ? <Text style={styles.fehler}>{fehler}</Text> : null}
 
@@ -193,6 +239,26 @@ export function Raumbild({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
+    abschnitt: {
+      color: colors.inkSoft,
+      fontSize: 12,
+      fontWeight: '700',
+      textTransform: 'uppercase',
+      letterSpacing: 0.4,
+      marginTop: 6,
+    },
+    chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    chip: {
+      paddingVertical: 8,
+      paddingHorizontal: 14,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    chipAn: { backgroundColor: colors.ink, borderColor: colors.ink },
+    chipText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
+    chipTextAn: { color: colors.surfaceStrong },
     grund: {
       flex: 1,
       backgroundColor: 'rgba(0, 0, 0, 0.5)',

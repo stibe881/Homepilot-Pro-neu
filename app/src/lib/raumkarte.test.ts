@@ -1,5 +1,5 @@
 import { Entity } from '../api/types';
-import { raumFarben, raumStand, raumaktionen } from './raumkarte';
+import { gewaehlteAktionen, raumFarben, raumStand, raumaktionen } from './raumkarte';
 
 function geraet(
   id: string,
@@ -134,3 +134,23 @@ describe('raumStand', () => {
     expect(raumStand([lampe('a', true), box('m', true)], '')).toBe('2 an');
   });
 });
+
+describe('gewaehlteAktionen', () => {
+  const alle = raumaktionen([lampe('a', false), box('b', false)]);
+
+  it('zeigt ohne Wahl alles, was der Raum hergibt', () => {
+    expect(gewaehlteAktionen(alle, undefined).map((a) => a.art)).toEqual([
+      'licht',
+      'musik',
+    ]);
+  });
+
+  it('zeigt mit Wahl genau die gewählten', () => {
+    expect(gewaehlteAktionen(alle, ['musik']).map((a) => a.art)).toEqual(['musik']);
+  });
+
+  it('nimmt auch die leere Wahl ernst - keine Knöpfe ist eine Antwort', () => {
+    expect(gewaehlteAktionen(alle, [])).toEqual([]);
+  });
+});
+

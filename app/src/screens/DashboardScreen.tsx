@@ -40,6 +40,7 @@ import { DeviceHealth } from '../components/DeviceHealth';
 import { RoomTabs } from '../components/RoomTabs';
 import { RoomCard } from '../components/RoomCard';
 import { Raumbild } from '../components/Raumbild';
+import { raumaktionen } from '../lib/raumkarte';
 import { SceneRow } from '../components/SceneRow';
 import { GlobalSearch } from '../components/GlobalSearch';
 import { Grundriss } from '../components/Grundriss';
@@ -125,6 +126,7 @@ import { EnergyScreen } from './EnergyScreen';
 import { SpeakersScreen } from './SpeakersScreen';
 import { SystemScreen } from './SystemScreen';
 import { EntityHistory } from '../components/EntityHistory';
+import { MusikBlatt } from '../components/MusikBlatt';
 import { Musikzentrale } from '../components/Musikzentrale';
 import { ClimateOverview } from '../components/ClimateOverview';
 import { KidsView } from '../components/KidsView';
@@ -447,6 +449,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [raumbilder, setRaumbilder] = useState<Record<string, number>>({});
   // Für welchen Raum das Blatt «Bild wählen» offen steht.
   const [bildFuer, setBildFuer] = useState<string | null>(null);
+  // Für welchen Raum der Player offen steht (Musik-Knopf der Raumkachel).
+  const [musikBlattRaum, setMusikBlattRaum] = useState<string | null>(null);
   // Auf der Startseite markierte Countdowns aus dem Familie-Modul.
   const [startCountdowns, setStartCountdowns] = useState<
     { text: string; date: string; on_start?: boolean }[]
@@ -662,6 +666,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setDoorConfirm,
     setWidgetData,
     setWidgetButtons,
+    setRaumKnoepfe,
     setWidgetDirect,
     setWidgetKarten,
     setEinkaufLernen,
@@ -2849,13 +2854,21 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                         ? () => setBildFuer(tile.name)
                         : undefined
                     }
-                    onAction={(aktion) =>
+                    onAction={(aktion) => {
+                      // Musik schaltet nicht mehr blind Play/Pause: Der
+                      // Knopf öffnet den Player der Startseite, mit der
+                      // Box dieses Raums vorgewählt (MusikBlatt.tsx).
+                      if (aktion.art === 'musik') {
+                        setMusikBlattRaum(tile.name);
+                        return;
+                      }
                       aktion.befehle.forEach((befehl) =>
                         guardedCommand(befehl.entityId, befehl.command)
-                      )
-                    }
+                      );
+                    }}
                     scenes={szenenFuerKachel(scenes, entities, tile.name)}
                     onScene={activateScene}
+                    knoepfeAuswahl={prefs.raumKnoepfe?.[tile.name]}
                   />
                 ))}
             </View>
@@ -3368,6 +3381,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           hatBild={!!bildFuer && !!raumbilder[bildFuer]}
           onClose={() => setBildFuer(null)}
           onChanged={setRaumbilder}
+          // Nur anbieten, was der Raum hergibt: Ein Chip «Storen» in
+          // einem Raum ohne Storen wäre ein Schalter ohne Draht.
+          knoepfe={
+            bildFuer
+              ? raumaktionen(entities.filter((entity) => entity.room === bildFuer)).map(
+                  (aktion) => ({ art: aktion.art, label: aktion.label })
+                )
+              : []
+          }
+          auswahl={bildFuer ? prefs.raumKnoepfe?.[bildFuer] : undefined}
+          onAuswahl={(arts) => {
+            if (bildFuer) setRaumKnoepfe(bildFuer, arts);
+          }}
         />
 
         {confirm ? (
@@ -3445,6 +3471,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           onDismiss={error ? dismissError : () => setAbrufFehler(null)}
           bottomInset={insets.bottom}
         />
+        {musikBlattRaum ? (
+          <MusikBlatt
+            raum={musikBlattRaum}
+            entities={entities}
+            onCommand={(entityId, command, data) =>
+              guardedCommand(entityId, command, data)
+            }
+            onSchliessen={() => setMusikBlattRaum(null)}
+          />
+        ) : null}
         <BesuchBlatt
           settings={settings}
           entities={entities}

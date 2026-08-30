@@ -20,7 +20,37 @@ export interface KalenderZeile {
   key: string;
   titel: string;
   wann: string;
+  /** Nur die Uhrzeit («18:00») - null bei ganztägigen Terminen. Für die
+   *  Liste mit Tagesüberschriften, wo der Tag schon darüber steht. */
+  zeit: string | null;
   ort: string | null;
+  /** Das Datum als Zeile darunter («Freitag, 4. September») - bisher
+   *  nur bei Geburtstagen, wo «in 5 Tagen» allein zum Nachrechnen zwang. */
+  datum?: string | null;
+}
+
+/** Den Namen aus dem Geburtstags-Titel lösen (rein, testbar).
+
+ * Der Geburtstags-Kalender schreibt Sätze («Flo hat Geburtstag»,
+ * «Geburtstag von Flo», «Flo's birthday») - in einer Liste, über der
+ * schon «Geburtstage» steht, ist der Satz Lärm. Bleibt nichts übrig,
+ * bleibt der Titel, wie er war.
+ */
+export function geburtstagsName(summary: unknown): string {
+  const roh = String(summary ?? '').trim();
+  const name = roh
+    .replace(/\s*hat\s+Geburtstag\s*$/i, '')
+    .replace(/^Geburtstag\s+von\s+/i, '')
+    .replace(/['’]s\s+birthday\s*$/i, '')
+    .replace(/\s*[-–·]?\s*Geburtstag\s*$/i, '')
+    .trim();
+  return name || roh || 'Ohne Titel';
+}
+
+/** Ein Tag der Termin-Liste: Überschrift plus seine Zeilen. */
+export interface KalenderGruppe {
+  titel: string;
+  zeilen: KalenderZeile[];
 }
 
 /** Ein reines Datum («2026-08-20») auf Mittag setzen (rein, testbar).
@@ -86,19 +116,69 @@ export function terminWann(event: Eintrag, jetzt: Date): string {
   return event?.all_day ? `${tag} · ganztägig` : `${tag}, ${uhr}`;
 }
 
+/** Die Überschrift eines Listen-Tages (rein, testbar).
+ *
+ * «Heute» und «Morgen» sagen mehr als jedes Datum; innerhalb der Woche
+ * genügt der Wochentag, danach steht er mit Datum da - so liest sich
+ * die Liste als Woche, nicht als Datumssalat.
+ */
+export function gruppenTitel(start: unknown, jetzt: Date): string {
+  const wann = alsZeitpunkt(start);
+  if (wann === null) return 'Ohne Datum';
+  const tage = tageBis(start, jetzt) ?? 0;
+  if (tage <= 0) return 'Heute';
+  if (tage === 1) return 'Morgen';
+  const wochentag = wann.toLocaleDateString('de-CH', { weekday: 'long' });
+  if (tage < 7) return wochentag;
+  return `${wochentag}, ${wann.toLocaleDateString('de-CH', { day: 'numeric', month: 'long' })}`;
+}
+
 /** Alles, was kein Geburtstag ist – in der Reihenfolge des Kalenders
  *  (rein, testbar). */
 export function terminListe(events: Eintrag[] | null, jetzt: Date): KalenderZeile[] {
   return (events ?? [])
     .filter((event) => !istGeburtstag(event))
-    .map((event, index) => ({
-      key: String(event?.uid ?? event?.id ?? `${event?.start}-${index}`),
-      titel: String(event?.summary ?? '').trim() || 'Ohne Titel',
-      wann: terminWann(event, jetzt),
-      ort: typeof event?.location === 'string' && event.location.trim()
-        ? event.location.trim()
-        : null,
-    }));
+    .map((event, index) => {
+      const wann = alsZeitpunkt(event?.start);
+      return {
+        key: String(event?.uid ?? event?.id ?? `${event?.start}-${index}`),
+        titel: String(event?.summary ?? '').trim() || 'Ohne Titel',
+        wann: terminWann(event, jetzt),
+        zeit:
+          event?.all_day || wann === null
+            ? null
+            : wann.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' }),
+        ort: typeof event?.location === 'string' && event.location.trim()
+          ? event.location.trim()
+          : null,
+      };
+    });
+}
+
+/**
+ * Die Termine nach Tagen gebündelt (rein, testbar).
+ *
+ * Die flache Liste wiederholte den Tag in jeder Zeile («Di, 10:00»,
+ * «Di, 18:00») - man las Daten statt Termine. Mit Tagesüberschriften
+ * trägt jede Zeile nur noch ihre Uhrzeit, und die Woche steht als
+ * Woche da.
+ */
+export function terminGruppen(events: Eintrag[] | null, jetzt: Date): KalenderGruppe[] {
+  const gruppen: KalenderGruppe[] = [];
+  const nachTitel = new Map<string, KalenderGruppe>();
+  const reihen = (events ?? []).filter((event) => !istGeburtstag(event));
+  const zeilen = terminListe(events, jetzt);
+  reihen.forEach((event, index) => {
+    const titel = gruppenTitel(event?.start, jetzt);
+    let gruppe = nachTitel.get(titel);
+    if (!gruppe) {
+      gruppe = { titel, zeilen: [] };
+      nachTitel.set(titel, gruppe);
+      gruppen.push(gruppe);
+    }
+    gruppe.zeilen.push(zeilen[index]);
+  });
+  return gruppen;
 }
 
 /** Die Geburtstage, der nächste zuerst (rein, testbar).
@@ -109,13 +189,25 @@ export function terminListe(events: Eintrag[] | null, jetzt: Date): KalenderZeil
 export function geburtstagsListe(events: Eintrag[] | null, jetzt: Date): KalenderZeile[] {
   return (events ?? [])
     .filter(istGeburtstag)
-    .map((event, index) => ({
-      key: String(event?.uid ?? event?.id ?? `${event?.start}-${index}`),
-      titel: String(event?.summary ?? '').trim() || 'Ohne Titel',
-      wann: tageBisText(event?.start, jetzt),
-      ort: null,
-      _tage: tageBis(event?.start, jetzt) ?? Number.MAX_SAFE_INTEGER,
-    }))
+    .map((event, index) => {
+      const wann = alsZeitpunkt(event?.start);
+      return {
+        key: String(event?.uid ?? event?.id ?? `${event?.start}-${index}`),
+        titel: geburtstagsName(event?.summary),
+        wann: tageBisText(event?.start, jetzt),
+        zeit: null,
+        ort: null,
+        datum: wann
+          ? wann.toLocaleDateString('de-CH', {
+              weekday: 'long',
+              day: 'numeric',
+              month: 'long',
+            })
+          : null,
+        _tage: tageBis(event?.start, jetzt) ?? Number.MAX_SAFE_INTEGER,
+      };
+    })
     .sort((a, b) => a._tage - b._tage)
+    .slice(0, 10)
     .map(({ _tage, ...zeile }) => zeile);
 }

@@ -570,9 +570,41 @@ def battery_alert(
         stand = int(battery)
     except (TypeError, ValueError):
         return None
-    if stand < 0 or stand > grenze:
+    # Die Null ist kein Messwert, sondern eine fehlende Auskunft. Life360
+    # schickt sie für Mitglieder, deren Telefon gerade nichts über sich
+    # sagt – mitten in einer Reihe richtiger Stände. Genau so kam die
+    # Meldung «Bines Telefon hat noch 0 %» im Minutentakt, während in der
+    # App daneben 65 % standen.
+    #
+    # Auch ein echtes Null-Prozent-Telefon wäre hier falsch bedient: Es
+    # ist dann längst aus und meldet gar nichts mehr. Eine Warnung, die
+    # «fällt gleich aus» sagt, käme zu spät. Gewarnt wird, solange
+    # Vorwarnen noch etwas nützt – ab einem Prozent.
+    if stand < 1 or stand > grenze:
         return None
     return f"{person}s Telefon hat noch {stand} % – die Ortung fällt gleich aus."
+
+
+# So weit muss der Akku wieder steigen, damit dieselbe Warnung ein zweites
+# Mal kommen darf. Ohne diesen Abstand genügt ein Schwanken um die Grenze,
+# und die Push kommt erneut.
+BATTERY_CLEAR = BATTERY_LOW + 10
+
+
+def battery_recovered(battery: Any, grenze: int = BATTERY_LOW) -> bool:
+    """Darf für dieses Telefon wieder gewarnt werden? (rein, testbar)
+
+    Nur bei einer echten Zahl mit Abstand über der Grenze. Ein fehlender
+    Wert heisst «keine Auskunft» und darf die schon gesagte Warnung nicht
+    zurücksetzen – genau daran kam sie immer wieder: warnen bei einer
+    Null, vergessen bei der nächsten Meldung ohne Wert, wieder warnen bei
+    der übernächsten Null.
+    """
+    try:
+        stand = int(battery)
+    except (TypeError, ValueError):
+        return False
+    return stand >= grenze + (BATTERY_CLEAR - BATTERY_LOW)
 
 
 def holiday_question(

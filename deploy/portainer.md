@@ -53,11 +53,19 @@ Ring-Token). **Diesen Ordner ins Backup aufnehmen.**
 2. Name: `homepilot`.
 3. Build-Methode **Repository** wählen:
    - **Repository URL:** `https://github.com/stibe881/Homepilot-Pro-neu`
-   - **Repository reference:** `refs/heads/claude/custom-home-automation-t9lvq3`
-     (nach einem Merge auf den Hauptzweig: `refs/heads/main`)
+   - **Repository reference:** `refs/heads/main`
    - **Compose path:** `docker-compose.portainer.yml`
    - **Authentication** einschalten: GitHub-Benutzername + das Token aus
      den Voraussetzungen.
+
+   > **Den Zweig später ändern** – etwa nach einem Umzug auf `main`:
+   > Stacks → `homepilot` → Abschnitt *Redeploy from git repository* →
+   > **`+ Advanced configuration`** aufklappen. Dahinter stecken
+   > *Repository reference* und *Compose path*; eingeklappt sieht die
+   > Seite aus, als gäbe es die Felder bei einem bestehenden Stack gar
+   > nicht. Danach **Save settings** und **Pull and redeploy** – ohne
+   > das Zweite bleibt der laufende Container auf dem alten Klon, und
+   > die Referenz stimmt nur auf dem Papier.
 4. Unter **Environment variables** hinzufügen:
 
    | Name | Wert |

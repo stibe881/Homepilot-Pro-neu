@@ -198,6 +198,15 @@ def parse_position(mitglied: dict[str, Any]) -> dict[str, Any] | None:
         akku = int(float(ort.get("battery") or "nan"))
     except (TypeError, ValueError):
         akku = None
+    # Life360 schickt «0» auch dann, wenn es über den Akku nichts weiss –
+    # als Zeichenkette, mitten in einer Reihe richtiger Stände. Als Zahl
+    # gelesen ergab das ein leeres Telefon, und der Wächter warnte im
+    # Minutentakt «hat noch 0 %», während daneben 65 % standen. Ein
+    # Telefon mit wirklich null Prozent meldet ohnehin keine Position
+    # mehr – wer hier eine Null sieht, hat keine Auskunft, nicht die
+    # Auskunft «leer».
+    if akku == 0:
+        akku = None
     return {
         "latitude": lat,
         "longitude": lon,

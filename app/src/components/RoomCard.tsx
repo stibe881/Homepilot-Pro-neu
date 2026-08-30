@@ -4,7 +4,13 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Entity, Scene } from '../api/types';
 import { raumSymbol, raumZeile } from '../lib/raum';
-import { Raumaktion, raumFarben, raumStand, raumaktionen } from '../lib/raumkarte';
+import {
+  Raumaktion,
+  gewaehlteAktionen,
+  raumFarben,
+  raumStand,
+  raumaktionen,
+} from '../lib/raumkarte';
 import { Colors, radius, useColors } from '../theme';
 import { Card } from './Card';
 
@@ -40,6 +46,7 @@ export function RoomCard({
   onOpen,
   onLongPress,
   onAction,
+  knoepfeAuswahl,
   scenes = [],
   onScene,
 }: {
@@ -54,6 +61,10 @@ export function RoomCard({
    *  dieser Mensch es nicht (Gäste) – dann passiert beim Halten nichts. */
   onLongPress?: () => void;
   onAction: (aktion: Raumaktion) => void;
+  /** Welche Knöpfe die Kachel zeigt («licht», «storen», «musik») -
+   *  undefined heisst alle, die leere Liste heisst bewusst keine.
+   *  Gewählt im Blatt hinter dem langen Druck, gilt für alle im Haus. */
+  knoepfeAuswahl?: string[];
   /** Die Szenen dieses Raums – höchstens zwei, vorausgewählt. */
   scenes?: Scene[];
   onScene?: (sceneId: string) => void;
@@ -63,7 +74,10 @@ export function RoomCard({
   // Ein Bild, das sich nicht laden lässt (Hub gerade weg, Datei kaputt),
   // darf keinen schwarzen Balken hinterlassen: Dann gilt die Farbe.
   const [bildKaputt, setBildKaputt] = useState(false);
-  const aktionen = useMemo(() => raumaktionen(items), [items]);
+  const aktionen = useMemo(
+    () => gewaehlteAktionen(raumaktionen(items), knoepfeAuswahl),
+    [items, knoepfeAuswahl]
+  );
   const stand = useMemo(() => raumStand(items, raumZeile(items)), [items]);
   const [oben, unten] = useMemo(() => raumFarben(name), [name]);
   const zeigtBild = !!imageUri && !bildKaputt;

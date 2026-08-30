@@ -396,7 +396,7 @@ async def test_an_open_window_is_reported_once_and_rearms_after_closing():
         # Zugemacht und wieder geöffnet: Der Merker ist frei.
         fenster.state = {"state": "off", "device_class": "contact"}
         await hub.watchdog.check()
-        assert "hm.fenster" not in hub.watchdog._reported_open
+        assert hub.data.get("open_reported") == []
         assert "hm.fenster" not in hub.watchdog._open_since
     finally:
         await hub.stop()
@@ -793,3 +793,41 @@ async def test_ein_sauger_problem_wird_einmal_gemeldet_und_ist_danach_wieder_sch
         assert len(sent) == 2
     finally:
         await hub.stop()
+
+
+async def test_open_reminder_survives_a_hub_restart():
+    """«Terrasse steht offen» kam nach jedem Update erneut - der Merker
+    lebte nur im Arbeitsspeicher, und jedes Update startet den Hub neu.
+    Jetzt liegt er in hub.data und ist am Zeitpunkt der Öffnung
+    verankert."""
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        sent: list[str] = []
+
+        async def fake_send(tokens, title, body, data=None, image=None, **_):
+            sent.append(title)
+            return len(tokens)
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+
+        fenster = melder("hm.fenster", "contact")
+        hub.registry.all = lambda: [fenster]  # type: ignore[assignment]
+
+        seit = time.time() - 3 * 3600
+        # So sieht es nach einem Neustart aus: Die Mahnung zu genau dieser
+        # Öffnung liegt schon in der Ablage, der Arbeitsspeicher ist leer.
+        hub.data.set("open_reported", [{"entity_id": "hm.fenster", "seit": seit}])
+        hub.watchdog._open_since["hm.fenster"] = seit
+        await hub.watchdog.check()
+        assert sent == []  # dieselbe Öffnung - keine zweite Mahnung
+
+        # Eine *neue* Öffnung (anderer Zeitpunkt) mahnt wieder.
+        neue = time.time() - 4 * 3600
+        hub.watchdog._open_since["hm.fenster"] = neue
+        await hub.watchdog.check()
+        assert any("steht offen" in title for title in sent)
+    finally:
+        await hub.stop()
+

@@ -733,6 +733,220 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
     });
   }
 
+  // ── Die Storen-Familie (August 2026, auf Wunsch) ─────────────────────
+  const wetter = entities.find((entity) => entity.kind === 'weather');
+  // «Balkon» und «Terrasse» fahren beim Hitzeschutz nicht ganz zu -
+  // dort will man hinaus; ihre Lamellen stellen sich stattdessen schräg.
+  const lamellenDraussen = covers.filter(
+    (entity) =>
+      /balkon|terrasse/i.test(entity.name) && entity.commands.includes('set_tilt')
+  );
+  const uebrigeStoren = covers.filter((entity) => !lamellenDraussen.includes(entity));
+  const lamellenAlle = covers.filter((entity) => entity.commands.includes('set_tilt'));
+
+  if (covers.length > 0) {
+    templates.push({
+      label: 'Storen mit der Sonne auf',
+      icon: 'sunny-outline',
+      draft: {
+        ...EMPTY,
+        alias: 'Storen mit der Sonne auf',
+        triggers: [
+          // Mit Streuung, und nicht vor sieben: Im Juni geht die Sonne
+          // um halb sechs auf, und niemand will dann Storen hören.
+          { ...EMPTY_TRIGGER, kind: 'sun' as TriggerKind, sunEvent: 'sunrise', jitter: '10' },
+        ],
+        conditionKind: 'time' as ConditionKind,
+        conditionAfter: '07:00',
+        steps: [
+          {
+            ...EMPTY_STEP,
+            commandActions: covers.map((entity) => ({
+              entity_id: entity.id,
+              command: 'open',
+            })),
+          },
+        ],
+      },
+    });
+    templates.push({
+      label: 'Storen mit der Sonne zu',
+      icon: 'moon-outline',
+      draft: {
+        ...EMPTY,
+        alias: 'Storen mit der Sonne zu',
+        triggers: [
+          { ...EMPTY_TRIGGER, kind: 'sun' as TriggerKind, sunEvent: 'sunset', sunOffset: '15', jitter: '10' },
+        ],
+        steps: [
+          {
+            ...EMPTY_STEP,
+            commandActions: covers.map((entity) => ({
+              entity_id: entity.id,
+              command: 'close',
+            })),
+          },
+        ],
+      },
+    });
+  }
+
+  if (wetter && covers.length > 0) {
+    templates.push({
+      label: 'Hitzeschutz: Storen bei Sommerhitze',
+      icon: 'thermometer-outline',
+      draft: {
+        ...EMPTY,
+        alias: 'Hitzeschutz Storen',
+        // Frühestens alle drei Stunden wieder: Eine Wolkenlücke um die
+        // Mittagszeit soll die Storen nicht im Viertelstundentakt fahren.
+        cooldownMinutes: '180',
+        triggers: [
+          {
+            ...EMPTY_TRIGGER,
+            kind: 'threshold' as TriggerKind,
+            entityId: wetter.id,
+            attribute: 'temperature',
+            thresholdOp: 'above',
+            thresholdValue: '26',
+          },
+        ],
+        steps: [
+          {
+            ...EMPTY_STEP,
+            commandActions: [
+              ...uebrigeStoren.map((entity) => ({
+                entity_id: entity.id,
+                command: 'close',
+              })),
+              // Balkon und Terrasse bleiben begehbar: Lamellen halb
+              // schräg schatten, ohne auszusperren.
+              ...lamellenDraussen.map((entity) => ({
+                entity_id: entity.id,
+                command: 'set_tilt',
+                tilt: 50,
+              })),
+            ],
+          },
+        ],
+      },
+    });
+  }
+
+  if (alert && lamellenAlle.length > 0) {
+    templates.push({
+      label: 'Wetterwarnung: Lamellen in Schutzstellung',
+      icon: 'warning-outline',
+      draft: {
+        ...EMPTY,
+        alias: 'Lamellen bei Wetterwarnung schützen',
+        cooldownMinutes: '360',
+        triggers: [
+          {
+            ...EMPTY_TRIGGER,
+            kind: 'threshold' as TriggerKind,
+            entityId: alert.id,
+            attribute: 'count',
+            thresholdOp: 'above',
+            thresholdValue: '0',
+          },
+        ],
+        steps: [
+          {
+            ...EMPTY_STEP,
+            commandActions: lamellenAlle.map((entity) => ({
+              entity_id: entity.id,
+              command: 'open',
+            })),
+          },
+          {
+            ...EMPTY_STEP,
+            kind: 'notify' as StepKind,
+            title: 'Wetterwarnung',
+            body: 'Die Lamellenstoren sind in die Schutzstellung gefahren.',
+          },
+        ],
+      },
+    });
+  }
+
+  // Die Zone eines Kindes ohne Telefon: ein Bluetooth-Anhänger am
+  // Schulthek (docs/bluetooth-anhaenger.md) meldet sie genauso wie ein
+  // Telefon - die Vorlage nimmt die Zone, die nach einem Kind aussieht,
+  // sonst die erste.
+  const personenZonen = entities.filter(
+    (entity) => entity.id.startsWith('geofence.') && entity.id !== 'geofence.anyone_home'
+  );
+  const kindZone =
+    personenZonen.find((entity) => /levin/i.test(entity.name)) ?? personenZonen[0];
+  if (kindZone) {
+    templates.push({
+      label: 'Nachricht, wenn ein Kind heimkommt',
+      icon: 'home-outline',
+      draft: {
+        ...EMPTY,
+        alias: `${kindZone.name} ist zuhause angekommen`,
+        triggers: [
+          {
+            ...EMPTY_TRIGGER,
+            kind: 'geofence' as TriggerKind,
+            entityId: kindZone.id,
+            toState: 'home',
+            ortId: 'home',
+          },
+        ],
+        steps: [
+          {
+            ...EMPTY_STEP,
+            kind: 'notify' as StepKind,
+            title: `${kindZone.name} ist zuhause angekommen`,
+            body: 'Eben an der Haustüre angekommen.',
+          },
+        ],
+      },
+    });
+  }
+
+  // Kamera mit Personenerkennung: Licht für drei Minuten, nur nachts.
+  const kamera = entities.find(
+    (entity) =>
+      entity.kind === 'camera' &&
+      ('detected_person' in (entity.state ?? {}) || entity.integration === 'unifi_protect')
+  );
+  const aussenlicht =
+    allLights.find((entity) => /aussen|garten|terrasse|hof|einfahrt/i.test(entity.name)) ??
+    allLights[0];
+  if (kamera && aussenlicht) {
+    templates.push({
+      label: 'Kameralicht bei Person in der Nacht',
+      icon: 'videocam-outline',
+      draft: {
+        ...EMPTY,
+        alias: `Licht bei Person (${kamera.name})`,
+        mode: 'restart',
+        triggers: [
+          {
+            ...EMPTY_TRIGGER,
+            entityId: kamera.id,
+            attribute: 'detected_person',
+            toState: 'on',
+          },
+        ],
+        conditionKind: 'time' as ConditionKind,
+        conditionAfter: '22:00',
+        conditionBefore: '06:30',
+        steps: [
+          {
+            ...EMPTY_STEP,
+            commandActions: [
+              { entity_id: aussenlicht.id, command: 'turn_on', offAfter: 180 },
+            ],
+          },
+        ],
+      },
+    });
+  }
+
   return templates;
 }
 

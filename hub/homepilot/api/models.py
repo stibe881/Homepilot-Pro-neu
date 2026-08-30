@@ -135,6 +135,9 @@ class SceneRequest(BaseModel):
     # Bleibt die Szene aktiv (Knopf leuchtet, zweiter Druck nimmt zurück)?
     # Aus für Handlungen wie «Alles aus», die keinen Zustand herstellen.
     toggles: bool = True
+    # Nach so vielen Sekunden nimmt sich die Szene von selbst zurück
+    # (0 = nie). Wirkt nur zusammen mit toggles.
+    auto_off: int = 0
 
 
 class HomeRequest(BaseModel):

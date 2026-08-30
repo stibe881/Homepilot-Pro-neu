@@ -63,7 +63,16 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from . import astro, babysitter, feiertage, kamera, personenbild, pushziel, wirkung
+from . import (
+    astro,
+    babysitter,
+    feiertage,
+    kamera,
+    personenbild,
+    pushziel,
+    terminkontext,
+    wirkung,
+)
 from . import light as licht
 from . import push as push_service
 from .source import as_source, automation_source
@@ -2283,7 +2292,7 @@ class AutomationEngine:
 
             await say.speak(
                 self.hub,
-                str(action.get("text") or ""),
+                self._mit_termin(str(action.get("text") or "")),
                 speakers=[str(s) for s in action.get("speakers") or []] or None,
                 volume=action.get("volume"),
             )
@@ -2704,6 +2713,26 @@ class AutomationEngine:
         finally:
             self._depth.pop(ziel.id, None)
 
+    def _mit_termin(self, text: str) -> str:
+        """``{termin}`` im Text durch den laufenden Kalendertermin ersetzen.
+
+        Damit sagt eine Klingel-Durchsage «Das ist wohl {termin}» an
+        jedem Besuchstag den richtigen Namen - nicht fest verdrahtet für
+        einen (core/terminkontext.py). Ohne Platzhalter kostet der
+        Aufruf nichts.
+        """
+        if "{termin}" not in text:
+            return text
+        events = next(
+            (
+                entity.state.get("events")
+                for entity in self.hub.registry.all()
+                if isinstance(entity.state.get("events"), list)
+            ),
+            None,
+        )
+        return terminkontext.platzhalter_fuellen(text, events, datetime.now().astimezone())
+
     async def _notify(
         self,
         automation: Automation,
@@ -2741,8 +2770,8 @@ class AutomationEngine:
         )
         await self.hub.push.send(
             tokens,
-            title=kamera.fill(action.get("title") or automation.alias, quelle),
-            body=kamera.fill(action.get("body") or "", quelle),
+            title=self._mit_termin(kamera.fill(action.get("title") or automation.alias, quelle)),
+            body=self._mit_termin(kamera.fill(action.get("body") or "", quelle)),
             data={
                 "automation_id": automation.id,
                 **({"camera": camera} if camera else {}),

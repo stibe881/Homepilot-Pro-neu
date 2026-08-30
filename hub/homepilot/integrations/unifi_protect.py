@@ -312,6 +312,24 @@ def parse_events(payload: Any, camera_id: str, limit: int = 40) -> list[dict[str
     return rows[:limit]
 
 
+def clip_fenster(start_ms: int, end_ms: int | None, jetzt_ms: int) -> tuple[int, int]:
+    """Der Ausschnitt für den Video-Export (rein, testbar).
+
+    Zwei Sekunden Vorlauf, damit der erste Schritt nicht fehlt.
+    Mindestens sechs Sekunden, weil Protect Ereignisse oft kürzer meldet,
+    als das, was man sehen will. Höchstens 90, damit ein hängen
+    gebliebenes Ereignis nicht einen Filmabend exportiert. Und nie über
+    das Jetzt hinaus - Protect lehnt Zukunft mit einem Fehler ab.
+    """
+    anfang = max(0, start_ms - 2000)
+    ende = end_ms if end_ms is not None and end_ms > start_ms else start_ms
+    ende = max(ende, anfang + 6000)
+    ende = min(ende, anfang + 90_000, jetzt_ms)
+    # Ein eben erst begonnenes Ereignis: lieber zwei kurze Sekunden als
+    # eine leere Spanne.
+    return anfang, max(ende, anfang + 1000)
+
+
 def camera_state(camera: dict[str, Any], quality: str = "medium") -> dict[str, Any]:
     """Übersetzt ein Kamera-Objekt der API in Entitäts-Attribute."""
     state: dict[str, Any] = {
@@ -714,6 +732,32 @@ class UnifiProtectIntegration(Integration):
             self.log.debug("Ereignisse von %s nicht abrufbar: %s", entity.label, err)
             return []
         return parse_events(payload, camera_id, limit)
+
+    async def clip(self, entity: Entity, start_ms: int, end_ms: int | None) -> bytes | None:
+        """Die Aufnahme zu einem Ereignis als MP4 (Protect: video/export).
+
+        Läuft über den Hub, nicht direkt vom Telefon zu Protect: Die App
+        kennt so weder Adresse noch Zugangsdaten der Anlage, und die
+        Sichtbarkeitsregeln der Route gelten auch hier.
+        """
+        camera_id = next(
+            (cid for cid, eid in self._cameras.items() if eid == entity.id), None
+        )
+        if camera_id is None:
+            return None
+        anfang, ende = clip_fenster(start_ms, end_ms, int(time.time() * 1000))
+        headers = {"X-CSRF-Token": self._csrf} if self._csrf else {}
+        async with self._session.get(
+            f"{self._base}/proxy/protect/api/video/export",
+            params={"camera": camera_id, "start": str(anfang), "end": str(ende)},
+            headers=headers,
+        ) as response:
+            if response.status == 401:
+                await self._login()
+                return await self.clip(entity, start_ms, end_ms)
+            if response.status >= 400:
+                return None
+            return await response.read()
 
     async def snapshot(self, entity: Entity) -> bytes | None:
         camera_id = next(

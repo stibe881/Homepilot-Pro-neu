@@ -61,6 +61,7 @@ from .watchrules import (  # noqa: F401
     FROST_BELOW,
     IGNORE,
     OPEN_CLASSES,
+    OPEN_REPORTED_KEY,
     cycle_stats,
     disk_usage,
     down_integrations,
@@ -69,8 +70,11 @@ from .watchrules import (  # noqa: F401
     leaks,
     low_batteries,
     offen_satz,
+    offene_meldungen_lesen,
+    offene_meldungen_zeilen,
     open_contacts,
     sauger_probleme,
+    schon_gemahnt,
     watched_entities,
 )
 
@@ -132,7 +136,6 @@ class Watchdog:
         self._wk_offen = False
         # Fenster und Türen: seit wann offen, und was schon gemeldet wurde.
         self._open_since: dict[str, float] = {}
-        self._reported_open: set[str] = set()
         # Wassermelder, die schon gemeldet wurden.
         self._reported_leak: set[str] = set()
         # Sauger-Probleme, die schon gemeldet wurden («gerät:schlüssel»).
@@ -889,7 +892,8 @@ class Watchdog:
             zustaende.append(dict(entity.state))
             # Punkt 220: Ein leeres Telefon ist die häufigste Ursache für
             # eine tote Ortung – und es kündigt sich an.
-            text = presence.battery_alert(entity.label, entity.state.get("battery"), grenze)
+            akku = entity.state.get("battery")
+            text = presence.battery_alert(entity.label, akku, grenze)
             if text and zone_id not in self._battery_told:
                 self._battery_told.add(zone_id)
                 # Der Schalter wird erst hier geprüft, nicht schon oben:
@@ -898,7 +902,12 @@ class Watchdog:
                 # sie wieder einschaltet.
                 if personen.an(schalter, zone_id, "battery"):
                     await self._notify("Telefon fast leer", text, category="presence")
-            elif not text:
+            elif presence.battery_recovered(akku, grenze):
+                # Vergessen erst, wenn der Akku mit Abstand wieder oben
+                # ist - vorher stand hier «kein Warntext», und den gibt es
+                # auch bei einer Meldung ganz ohne Akkuwert. Ein Wechsel
+                # aus Wert und Nichtwert setzte den Vermerk deshalb
+                # dauernd zurück, und dieselbe Push kam wieder und wieder.
                 self._battery_told.discard(zone_id)
 
             # Funkstille: Bisher stand sie nur in der Diagnose, also
@@ -1314,12 +1323,19 @@ class Watchdog:
         now = time.time()
         offen = {entity.id for entity in open_contacts(entities)}
         reminder = self.rules["open"]["params"]["hours"] * 3600
+        # Das Gedächtnis liegt in hub.data, nicht im Arbeitsspeicher:
+        # «Terrasse steht offen» kam sonst nach jedem Hub-Neustart erneut
+        # - und jedes Update ist ein Neustart. Verankert am Zeitpunkt der
+        # Öffnung, damit eine *neue* Öffnung trotzdem wieder mahnt
+        # (watchrules.schon_gemahnt).
+        vorher = self.hub.data.get(OPEN_REPORTED_KEY)
+        gemahnt = offene_meldungen_lesen(vorher, offen)
         for entity in open_contacts(entities):
             since = self._offen_seit(entity, now)
-            if entity.id in self._reported_open:
+            if schon_gemahnt(gemahnt, entity.id, since):
                 continue
             if now - since >= reminder:
-                self._reported_open.add(entity.id)
+                gemahnt[entity.id] = since
                 await self._notify(
                     f"{entity.label} steht offen",
                     # Die Uhrzeit statt einer gerundeten Dauer: «Seit 1
@@ -1331,11 +1347,13 @@ class Watchdog:
                     "open",
                     entity_id=entity.id,
                 )
+        zeilen = offene_meldungen_zeilen(gemahnt)
+        if zeilen != vorher:
+            self.hub.data.set(OPEN_REPORTED_KEY, zeilen)
         # Geschlossene wieder scharf stellen für die nächste Öffnung.
         for entity_id in list(self._open_since):
             if entity_id not in offen:
                 self._open_since.pop(entity_id, None)
-                self._reported_open.discard(entity_id)
 
     async def _check_leaks(self, entities: list[Any]) -> None:
         """Wasser – sofort, unabhängig vom Zustand der Alarmanlage.

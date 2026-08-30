@@ -141,6 +141,36 @@ def aktivitaet_merken(rows: Any, user: str, token: str) -> list[dict[str, Any]]:
     return neue
 
 
+# Näher als so viele Meter gilt als «im Anmarsch» - derselbe Umkreis wie
+# die Quartier-Zone des Geofence: weit genug für den Vorlauf, eng genug,
+# dass die Karte nicht den ganzen Arbeitstag auf dem Sperrbildschirm
+# liegt.
+NAHE_METER = 3000.0
+
+
+def karte_faellig(zustand: str, entfernung: Any) -> bool | None:
+    """Soll die Haustür-Karte gerade laufen? (rein, testbar)
+
+    None heisst unbekannt - daraus startet keine Karte, und eine
+    laufende verschwindet deswegen auch nicht.
+
+    Die Karte lief bisher, sobald jemand nicht zuhause war - und lag
+    damit den ganzen Arbeitstag auf dem Sperrbildschirm, obwohl ein
+    Türöffner ohne Face ID nur in einem Moment nützt: den letzten
+    Metern vor der Türe. Jetzt läuft sie nur im Anmarsch: nicht
+    zuhause, aber näher als NAHE_METER. Ohne Entfernung (eine
+    Flankenmeldung ohne Koordinaten) entscheidet die Zone - «quartier»
+    ist genau dieser Umkreis.
+    """
+    if zustand in ("", presence.UNKNOWN):
+        return None
+    if zustand == presence.HOME:
+        return False
+    if isinstance(entfernung, (int, float)) and not isinstance(entfernung, bool):
+        return float(entfernung) <= NAHE_METER
+    return zustand == "quartier"
+
+
 def wechsel(
     rows: Any, weg: dict[str, bool]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
@@ -361,10 +391,11 @@ class ApnsVersand:
 
 
 def _weg_stand(hub: Any, benutzer: set[str]) -> dict[str, bool]:
-    """Je Benutzer: ist er gerade ausdrücklich nicht zuhause?
+    """Je Benutzer: soll seine Haustür-Karte gerade laufen?
 
     «Unbekannt» fehlt bewusst im Ergebnis: Aus Nichtwissen soll weder
-    eine Karte entstehen noch eine verschwinden.
+    eine Karte entstehen noch eine verschwinden. Ob sie fällig ist,
+    entscheidet karte_faellig - nah, aber nicht zuhause.
     """
     geofence = hub.integrations.get("geofence") if hub.integrations else None
     zones = getattr(geofence, "_zones", None) or {}
@@ -378,10 +409,12 @@ def _weg_stand(hub: Any, benutzer: set[str]) -> dict[str, bool]:
         if zone_id is None:
             continue
         entity = hub.registry.get(zones[zone_id])
-        zustand = str((entity.state if entity else {}).get("state") or presence.UNKNOWN)
-        if zustand in ("", presence.UNKNOWN):
+        zustand_roh = (entity.state if entity else {})
+        zustand = str(zustand_roh.get("state") or presence.UNKNOWN)
+        faellig = karte_faellig(zustand, zustand_roh.get("distance"))
+        if faellig is None:
             continue
-        stand[name] = zustand != presence.HOME
+        stand[name] = faellig
     return stand
 
 

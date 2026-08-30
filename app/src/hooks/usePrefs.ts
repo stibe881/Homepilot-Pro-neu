@@ -61,6 +61,10 @@ export interface HousePrefs {
    *  «entity:light.kueche». Ohne Eintrag die drei, mit denen jeder
    *  anfängt. */
   widgetButtons?: string[];
+  /** Welche Knöpfe auf der Raumkachel liegen - je Raum die Liste der
+   *  Aktionen («licht», «storen», «musik»). Ohne Eintrag alle, die der
+   *  Raum hergibt; eine leere Liste heisst bewusst: keine. */
+  raumKnoepfe?: Record<string, string[]>;
   /** Schlüssel der Knöpfe, die direkt schalten statt die App zu öffnen.
    *  Nur für Szenen und Lichter erlaubt – nie für Tür oder Alarm. */
   widgetDirect?: string[];
@@ -291,6 +295,15 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [setzeHaus]
   );
 
+  const setRaumKnoepfe = useCallback(
+    (raum: string, arts: string[]) => {
+      setzeHaus({
+        raumKnoepfe: { ...(hausJetzt.current.raumKnoepfe ?? {}), [raum]: arts },
+      });
+    },
+    [setzeHaus]
+  );
+
   const setWidgetDirect = useCallback(
     (keys: string[]) => setzeHaus({ widgetDirect: keys }),
     [setzeHaus]
@@ -388,6 +401,7 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     setDoorConfirm,
     setWidgetData,
     setWidgetButtons,
+    setRaumKnoepfe,
     setWidgetDirect,
     setWidgetKarten,
     setEinkaufLernen,

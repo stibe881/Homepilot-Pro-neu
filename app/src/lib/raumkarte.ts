@@ -126,7 +126,11 @@ export function raumaktionen(items: Entity[]): Raumaktion[] {
     aktionen.push({
       art: 'musik',
       label: 'Musik',
-      icon: laeuft ? 'pause' : 'play',
+      // Kein Play/Pause-Symbol mehr: Der Knopf öffnet seit dem Musik-
+      // Blatt den Player (DashboardScreen), statt blind zu schalten -
+      // das Symbol soll kein Schalten versprechen. Die Note füllt sich,
+      // solange hier Musik läuft.
+      icon: laeuft ? 'musical-notes' : 'musical-notes-outline',
       an: laeuft,
       befehle: [
         {
@@ -138,6 +142,22 @@ export function raumaktionen(items: Entity[]): Raumaktion[] {
   }
 
   return aktionen;
+}
+
+/**
+ * Welche Aktionen die Kachel zeigt (rein, testbar).
+ *
+ * `undefined` heisst: keine Wahl getroffen - alle, die der Raum hergibt.
+ * Eine Liste heisst: genau diese, in der gewachsenen Reihenfolge der
+ * Aktionen. Auch die leere Liste ist eine Wahl - wer die Knöpfe auf
+ * einer Kachel nicht will, bekommt keine.
+ */
+export function gewaehlteAktionen(
+  aktionen: Raumaktion[],
+  auswahl: string[] | undefined
+): Raumaktion[] {
+  if (auswahl === undefined) return aktionen;
+  return aktionen.filter((aktion) => auswahl.includes(aktion.art));
 }
 
 /**

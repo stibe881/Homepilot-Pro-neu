@@ -121,3 +121,86 @@ describe('Anwesenheits-Vorlagen', () => {
     expect(buildTemplates([], [])).toEqual([]);
   });
 });
+
+describe('die Storen- und Wächter-Vorlagen (August 2026)', () => {
+  const geraet = (teil: Partial<Entity>): Entity =>
+    ({
+      id: 'x',
+      name: 'x',
+      kind: 'switch',
+      room: null,
+      integration: 'demo',
+      commands: [],
+      state: {},
+      ...teil,
+    }) as Entity;
+
+  const store = (id: string, name: string, tilt = false) =>
+    geraet({
+      id,
+      name,
+      kind: 'cover',
+      commands: tilt ? ['open', 'close', 'set_tilt'] : ['open', 'close'],
+    });
+  const wetter = geraet({ id: 'weather.haus', name: 'Wetter', kind: 'weather', state: { temperature: 21 } });
+  const warnung = geraet({ id: 'alert.haus', name: 'Warnungen', kind: 'alert', state: { count: 0 } });
+
+  it('trennt beim Hitzeschutz Balkon und Terrasse von den übrigen', () => {
+    const vorlage = buildTemplates(
+      [store('c.kind', 'Kinderzimmer'), store('c.balkon', 'Balkon', true), wetter],
+      []
+    ).find((eintrag) => eintrag.label.startsWith('Hitzeschutz'));
+    const aktionen = vorlage?.draft.steps?.[0].commandActions ?? [];
+    expect(aktionen).toEqual([
+      expect.objectContaining({ entity_id: 'c.kind', command: 'close' }),
+      expect.objectContaining({ entity_id: 'c.balkon', command: 'set_tilt', tilt: 50 }),
+    ]);
+  });
+
+  it('fährt bei einer Wetterwarnung nur Lamellenstoren - und sagt es', () => {
+    const vorlage = buildTemplates(
+      [store('c.kind', 'Kinderzimmer'), store('c.balkon', 'Balkon', true), warnung],
+      []
+    ).find((eintrag) => eintrag.label.startsWith('Wetterwarnung'));
+    expect(vorlage?.draft.steps?.[0].commandActions).toEqual([
+      expect.objectContaining({ entity_id: 'c.balkon', command: 'open' }),
+    ]);
+    expect(vorlage?.draft.steps?.[1].kind).toBe('notify');
+  });
+
+  it('nimmt für die Heimkommen-Nachricht die Kinder-Zone', () => {
+    const vorlage = buildTemplates(
+      [
+        geraet({ id: 'geofence.stefan', name: 'Stefan', kind: 'binary_sensor' }),
+        geraet({ id: 'geofence.levin', name: 'Levin', kind: 'binary_sensor' }),
+      ],
+      []
+    ).find((eintrag) => eintrag.label === 'Nachricht, wenn ein Kind heimkommt');
+    expect(vorlage?.draft.triggers?.[0]).toEqual(
+      expect.objectContaining({ kind: 'geofence', entityId: 'geofence.levin' })
+    );
+  });
+
+  it('schaltet das Kameralicht nur nachts und mit Nachlauf', () => {
+    const vorlage = buildTemplates(
+      [
+        geraet({ id: 'cam.grill', name: 'Grillplatz', kind: 'camera', integration: 'unifi_protect' }),
+        geraet({ id: 'licht.garten', name: 'Gartenlicht', kind: 'light', commands: ['turn_on', 'turn_off'] }),
+      ],
+      []
+    ).find((eintrag) => eintrag.label === 'Kameralicht bei Person in der Nacht');
+    expect(vorlage?.draft.conditionAfter).toBe('22:00');
+    expect(vorlage?.draft.steps?.[0].commandActions?.[0]).toEqual(
+      expect.objectContaining({ entity_id: 'licht.garten', offAfter: 180 })
+    );
+  });
+
+  it('bietet die Sonnen-Storen nur an, wo es Storen gibt', () => {
+    const mit = buildTemplates([store('c.kind', 'Kinderzimmer')], []).map((v) => v.label);
+    expect(mit).toContain('Storen mit der Sonne auf');
+    expect(mit).toContain('Storen mit der Sonne zu');
+    const ohne = buildTemplates([wetter], []).map((v) => v.label);
+    expect(ohne).not.toContain('Storen mit der Sonne auf');
+  });
+});
+
