@@ -92,6 +92,8 @@ export interface Scene {
   /** Bleibt die Szene aktiv? Aus für Handlungen wie «Alles aus», die
    *  keinen Zustand herstellen. Fehlt das Feld, gilt «ja». */
   toggles?: boolean;
+  /** Nach so vielen Sekunden nimmt sich die Szene von selbst zurück (0 = nie). */
+  auto_off?: number;
 }
 
 export interface User {

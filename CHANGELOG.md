@@ -9,6 +9,16 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Szenen können sich nach einer Frist von selbst zurücknehmen.** Im
+  Editor steht neu «Schaltet von selbst zurück» (Nie, 15/30 Min,
+  1/2 Std) - der Sternenhimmel im Kinderzimmer soll nicht bis morgen
+  leuchten, nur weil beim Einschlafen niemand mehr drückt. Nach der
+  Frist passiert dasselbe wie beim zweiten Druck: Es wird
+  hergestellt, wie es vorher war, nur bei Geräten, die die Szene
+  wirklich verändert hat. Die Uhr läuft auf dem Hub, rechnet ab dem
+  Auslösen und übersteht Neustarts; wer vorher von Hand
+  zurückschaltet, ist schneller, und die Uhr tut nichts. Nur bei
+  Szenen, die aktiv bleiben - eine Handlung hat keinen Rückweg.
 - **Welche Knöpfe auf der Raumkachel liegen, ist jetzt wählbar.** Im
   Blatt hinter dem langen Druck auf die Kachel (dort, wo auch das
   Foto gewählt wird) stehen neu Chips für Licht, Storen und Musik -

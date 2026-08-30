@@ -584,6 +584,7 @@ export function AutomationsScreen({
       on_start: !!sceneDraft.onStart,
       transition: Math.max(0, Number(sceneDraft.transition) || 0),
       toggles: sceneDraft.toggles !== false,
+      auto_off: Math.max(0, Number(sceneDraft.autoOff) || 0),
       category: sceneDraft.category?.trim() || null,
       actions: sceneDraft.actions
         .filter((action) => action.entity_id)
@@ -1598,6 +1599,7 @@ export function AutomationsScreen({
               onStart: false,
               transition: 0,
               toggles: true,
+              autoOff: 0,
               actions: [],
             })
           }
@@ -1708,6 +1710,7 @@ export function AutomationsScreen({
                           // Fehlt das Feld, gilt «bleibt aktiv» - so
                           // verhalten sich die Szenen, die es schon gab.
                           toggles: scene.toggles !== false,
+                          autoOff: Number(scene.auto_off) || 0,
                           category: scene.category ?? undefined,
                           actions: sceneActionsToDraft(scene.actions ?? []),
                         })

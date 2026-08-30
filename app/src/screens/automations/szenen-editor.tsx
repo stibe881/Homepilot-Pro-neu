@@ -48,6 +48,9 @@ export interface SceneDraft {
    *  «Alles aus», die keinen Zustand herstellen. Fehlt der Wert, gilt
    *  «ja» – so verhalten sich die Szenen, die es schon gab. */
   toggles?: boolean;
+  /** Nach so vielen Sekunden nimmt sich die Szene von selbst zurück
+   *  (0 = nie). Nur sinnvoll, wenn sie aktiv bleibt. */
+  autoOff?: number;
   actions: SceneActionDraft[];
   /** Frei benannte Kategorie zum Gruppieren in der Liste. */
   category?: string;
@@ -751,6 +754,31 @@ export function SceneEditor({
               : 'Der Knopf leuchtet, solange der Raum so steht. Ein zweiter Druck stellt her, wie es vorher war – aber nur bei Geräten, die die Szene wirklich verändert hat. Ein Fernseher, der schon aus war, bleibt aus.'}
           </Text>
         </Field>
+
+        {/* Nur bei Szenen mit Zustand: Eine Handlung hat keinen
+            Rückweg, also auch nichts, was sich von selbst zurücknehmen
+            könnte. Der Fall dahinter: der Sternenhimmel im
+            Kinderzimmer, den beim Einschlafen niemand mehr ausdrückt. */}
+        {draft.toggles !== false ? (
+          <Field label="Schaltet von selbst zurück">
+            <Choice
+              options={[
+                { key: '0', label: 'Nie' },
+                { key: '900', label: '15 Min' },
+                { key: '1800', label: '30 Min' },
+                { key: '3600', label: '1 Std' },
+                { key: '7200', label: '2 Std' },
+              ]}
+              value={String(draft.autoOff ?? 0)}
+              onSelect={(value) => set({ autoOff: Number(value) })}
+            />
+            <Text style={styles.triggerNote}>
+              Nach dieser Zeit stellt die Szene her, wie es vorher war –
+              dasselbe wie ein zweiter Druck auf den Knopf. Wer vorher von
+              Hand zurückschaltet, ist schneller; die Uhr tut dann nichts.
+            </Text>
+          </Field>
+        ) : null}
 
         <Field label="Übergang">
           <Choice
