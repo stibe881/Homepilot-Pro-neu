@@ -9,6 +9,16 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Ein hängender Start erklärt sich selbst.** 1.4.8 hat gezeigt: Der
+  schwarze Bildschirm ist kein Fehler, sondern ein Hängen - die App
+  zeichnet nichts, solange Einstellungen oder Symbolschrift nicht
+  geladen sind, und wenn eines davon nie fertig wird, gibt es nichts
+  zu fangen. Jetzt meldet der Start jede Etappe (JavaScript läuft,
+  Module geladen, Schrift, Einstellungen, bereit), und bleibt die
+  Marke «bereit» sieben Sekunden aus, legt die Startwache einen
+  Bericht über den Bildschirm: die erreichten Etappen mit Zeiten -
+  die Etappe nach der letzten Zeile ist die, die hängt. Wird die App
+  doch noch fertig, verschwindet der Bericht von selbst.
 - **Ein geschluckter Startfehler zeigt sich jetzt, statt schwarz zu
   bleiben.** Der Messbuild 1.4.7 hat bewiesen: Der Absturz ist ein
   JavaScript-Fehler - ohne expo-updates stirbt der Prozess nicht mehr.

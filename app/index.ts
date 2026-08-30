@@ -3,12 +3,13 @@
 // Komponente existiert, die sie zeigen könnte. Ein `import` weiter oben
 // würde vorher ausgewertet und liefe daran vorbei (siehe
 // src/lib/startfehler.tsx).
-import { Startwache, globalenFangInstallieren, notfallWurzel } from './src/lib/startfehler';
+import { Startwache, globalenFangInstallieren, notfallWurzel, startmarke } from './src/lib/startfehler';
 
 import { registerRootComponent } from 'expo';
 import React from 'react';
 
 globalenFangInstallieren();
+startmarke('JavaScript läuft');
 
 // `require` und nicht `import`: Ein `import` wird hochgezogen und liefe
 // ausserhalb dieses `try`. Genau das ist der Fall, den wir fangen wollen
@@ -20,6 +21,7 @@ try {
 } catch (fehler) {
   Wurzel = notfallWurzel(fehler);
 }
+startmarke('App-Module geladen');
 
 // Die Startwache liegt über allem: Schluckt der globale Fang einen
 // fatalen Fehler, blieb bisher ein schwarzer Bildschirm - React stand

@@ -17,7 +17,7 @@ import { knoepfeAnmelden } from './src/lib/mitteilungsknoepfe';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { gueltig } from './src/lib/appsymbol';
 import { persoenlichSetzen, persoenlichWert } from './src/lib/persoenlich';
-import { startfehlerMerken } from './src/lib/startfehler';
+import { startfehlerMerken, startmarke } from './src/lib/startfehler';
 import { symbolWechseln } from './src/lib/symbolwechsel';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { ThemeProvider, useTheme } from './src/theme';
@@ -120,9 +120,26 @@ export default function App() {
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY)
-      .then((raw) => setSettings(raw ? JSON.parse(raw) : null))
-      .catch(() => setSettings(null));
+      .then((raw) => {
+        startmarke(raw ? 'Einstellungen geladen' : 'Einstellungen leer (erster Start)');
+        setSettings(raw ? JSON.parse(raw) : null);
+      })
+      .catch(() => {
+        startmarke('Einstellungen: Lesen fehlgeschlagen, weiter ohne');
+        setSettings(null);
+      });
   }, []);
+
+  // Die Etappen für den Startbericht. «bereit» ist die Marke, auf die
+  // die Startwache wartet - fehlt sie nach ein paar Sekunden, legt sie
+  // den Bericht über den schwarzen Bildschirm.
+  useEffect(() => {
+    if (fontsSettled) startmarke(fontError ? 'Schrift: Fehler, weiter ohne' : 'Schrift bereit');
+  }, [fontsSettled, fontError]);
+  const inhaltBereit = settings !== undefined && fontsSettled;
+  useEffect(() => {
+    if (inhaltBereit) startmarke('bereit');
+  }, [inhaltBereit]);
 
   const save = (next: HubSettings) => {
     setSettings(next);

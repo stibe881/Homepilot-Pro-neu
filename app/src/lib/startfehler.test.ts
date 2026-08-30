@@ -3,6 +3,8 @@ import {
   fehlerZeilen,
   globalenFangInstallieren,
   startfehlerAbo,
+  startmarke,
+  startmarken,
 } from './startfehler';
 
 describe('fehlerZeilen', () => {
@@ -85,5 +87,26 @@ describe('globaler Fang', () => {
       konsole.mockRestore();
       delete (globalThis as { ErrorUtils?: unknown }).ErrorUtils;
     }
+  });
+});
+
+describe('startmarke', () => {
+  it('hält Etappen mit Zeit fest und weckt die Zuhörer', () => {
+    let geweckt = 0;
+    const abmelden = startfehlerAbo(() => {
+      geweckt += 1;
+    });
+    startmarke('Etappe eins');
+    expect(geweckt).toBe(1);
+    const liste = startmarken();
+    const eintrag = liste.find((m) => m.name === 'Etappe eins');
+    expect(eintrag).toBeDefined();
+    expect(eintrag!.nachMs).toBeGreaterThanOrEqual(0);
+
+    // Dieselbe Etappe zählt nur einmal - Effekte dürfen mehrfach feuern.
+    startmarke('Etappe eins');
+    expect(startmarken().filter((m) => m.name === 'Etappe eins')).toHaveLength(1);
+    expect(geweckt).toBe(1);
+    abmelden();
   });
 });

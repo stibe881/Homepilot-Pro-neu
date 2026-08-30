@@ -43,6 +43,51 @@ let fataler: unknown = null;
 
 const zuhoerer = new Set<() => void>();
 
+/** Wann dieses Modul geladen wurde - die Sekunden im Startbericht zählen ab hier. */
+const geladenUm = Date.now();
+
+/** Jede erreichte Etappe des Starts, mit Zeitpunkt. */
+const marken: { name: string; nachMs: number }[] = [];
+
+/** Wächst bei jeder Meldung - useSyncExternalStore braucht einen neuen Wert. */
+let stand = 0;
+
+function wecken(): void {
+  stand += 1;
+  for (const melden of [...zuhoerer]) {
+    try {
+      melden();
+    } catch {
+      // Ein kaputter Zuhörer darf die Meldung an die anderen nicht verhindern.
+    }
+  }
+}
+
+function standNummer(): number {
+  return stand;
+}
+
+/**
+ * Eine Etappe des Starts als erreicht melden.
+ *
+ * Der schwarze Bildschirm vom 30. August war kein Fehler, sondern ein
+ * Hängen: App.tsx zeichnet nichts, solange Einstellungen oder
+ * Symbolschrift nicht geladen sind - bleibt eines davon stecken, wird
+ * nie ein Fehler geworfen, und es gibt nichts zu fangen. Die Marken
+ * machen das Hängen lesbar: Der Startbericht zeigt, welche Etappe die
+ * letzte war, und die fehlende ist der Ort des Problems.
+ */
+export function startmarke(name: string): void {
+  if (marken.some((m) => m.name === name)) return;
+  marken.push({ name, nachMs: Date.now() - geladenUm });
+  wecken();
+}
+
+/** Alle erreichten Etappen - für Startbericht und System-Seite. */
+export function startmarken(): { name: string; nachMs: number }[] {
+  return [...marken];
+}
+
 /** Von der Startwache benutzt; testbar ohne React. */
 export function startfehlerAbo(melden: () => void): () => void {
   zuhoerer.add(melden);
@@ -67,13 +112,7 @@ export function fatalerStartfehler(): unknown {
  */
 function fatalMelden(fehler: unknown): void {
   fataler = fehler;
-  for (const melden of [...zuhoerer]) {
-    try {
-      melden();
-    } catch {
-      // Ein kaputter Zuhörer darf die Meldung an die anderen nicht verhindern.
-    }
-  }
+  wecken();
   const { titel, text } = fehlerZeilen(fehler);
   try {
     Alert.alert('HomePilot: Fehler beim Start', text ? `${titel}\n\n${text}` : titel);
@@ -202,12 +241,90 @@ export function notfallWurzel(fehler: unknown): () => React.JSX.Element {
  * Meldung. Sie ist bewusst winzig: Je weniger sie selbst braucht,
  * desto sicherer steht sie noch, wenn darunter alles liegt.
  */
+/** So lange darf der Start still bleiben, bevor der Bericht erscheint. */
+const BERICHT_NACH_MS = 7000;
+
 export function Startwache({ children }: { children: React.ReactNode }) {
-  const fehler = React.useSyncExternalStore(
-    startfehlerAbo,
-    fatalerStartfehler,
-    fatalerStartfehler
+  React.useSyncExternalStore(startfehlerAbo, standNummer, standNummer);
+  const [wartetLange, setWartetLange] = React.useState(false);
+  React.useEffect(() => {
+    const wecker = setTimeout(() => setWartetLange(true), BERICHT_NACH_MS);
+    return () => clearTimeout(wecker);
+  }, []);
+
+  if (fataler != null) return <Notfallbildschirm fehler={fataler} />;
+  const bereit = marken.some((m) => m.name === 'bereit');
+  return (
+    <View style={{ flex: 1 }}>
+      {children}
+      {wartetLange && !bereit ? <Startbericht /> : null}
+    </View>
   );
-  if (fehler != null) return <Notfallbildschirm fehler={fehler} />;
-  return <>{children}</>;
+}
+
+/**
+ * Der Bericht, wenn der Start hängt statt zu scheitern.
+ *
+ * Als Schicht über der App, nicht statt ihr: Die App bleibt darunter
+ * gemountet und darf fertig werden - meldet sie «bereit», nimmt die
+ * Wache den Bericht wieder weg. Aufbau wie der Notfallbildschirm:
+ * ohne Theme, ohne Symbolschrift, ohne eigene Bausteine.
+ */
+function Startbericht() {
+  const liste = startmarken();
+  const gestolperte = startfehlerListe();
+  const { titel, text } = fehlerZeilen(letzter);
+  return (
+    <View
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: '#0F1115',
+        paddingTop: 72,
+        paddingHorizontal: 22,
+      }}
+    >
+      <Text style={{ color: '#E9EDF4', fontSize: 20, fontWeight: '700', marginBottom: 10 }}>
+        HomePilot hängt beim Start
+      </Text>
+      <Text style={{ color: '#97A2B6', fontSize: 14, lineHeight: 20, marginBottom: 18 }}>
+        Kein Fehler, aber es geht nicht weiter. So weit ist der Start
+        gekommen - die Etappe nach der letzten Zeile ist die, die hängt.
+      </Text>
+      <ScrollView style={{ flex: 1 }}>
+        {liste.map((marke) => (
+          <Text key={marke.name} selectable style={{ color: '#E9EDF4', fontSize: 14, lineHeight: 22 }}>
+            {`+${(marke.nachMs / 1000).toFixed(1)}s  ${marke.name}`}
+          </Text>
+        ))}
+        {liste.length === 0 ? (
+          <Text selectable style={{ color: '#F0656A', fontSize: 14 }}>
+            Keine einzige Etappe erreicht - schon das Laden der App-Module hängt.
+          </Text>
+        ) : null}
+        {gestolperte.map((eintrag) => (
+          <Text
+            key={eintrag.stelle}
+            selectable
+            style={{ color: '#F0B056', fontSize: 13, lineHeight: 20, marginTop: 8 }}
+          >
+            {`gestolpert: ${eintrag.stelle} - ${eintrag.titel}`}
+          </Text>
+        ))}
+        {letzter != null ? (
+          <>
+            <Text selectable style={{ color: '#F0656A', fontSize: 14, fontWeight: '600', marginTop: 14 }}>
+              {titel}
+            </Text>
+            <Text selectable style={{ color: '#6C7688', fontSize: 12, lineHeight: 17 }}>
+              {text}
+            </Text>
+          </>
+        ) : null}
+      </ScrollView>
+    </View>
+  );
 }
