@@ -135,6 +135,7 @@ import { WhatsNew } from '../components/WhatsNew';
 import { LightGroups } from '../components/LightGroups';
 import { DeviceTools } from '../components/DeviceTools';
 import { SceneSuggestion } from '../components/SceneSuggestion';
+import { SzeneAufnehmen } from '../components/SzeneAufnehmen';
 import { PersonenScreen } from './PersonenScreen';
 import { UsersScreen } from './UsersScreen';
 import { confirm as confirmBiometrie, needsCheck } from '../lib/biometrie';
@@ -326,6 +327,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // beim Antippen ein «nicht erlaubt» einzufangen.
   const darfSchalten = (user?.capabilities ?? []).includes('control');
 
+  // Szenen anlegen ist Ablauf-Arbeit: Der Hub verlangt dafür
+  // edit_automations, und ein Knopf, der danach am Hub scheitert, ist
+  // schlimmer als keiner.
+  const darfSzenen = (user?.capabilities ?? []).includes('edit_automations');
   const darfAnpassen =
     (user?.capabilities ?? []).includes('edit_devices') ||
     (user?.capabilities ?? []).includes('edit_config');
@@ -399,8 +404,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Je Raum frisch zu - was man im Büro aufgeklappt hat, soll im
   // Schlafzimmer nicht offen stehen.
   const [raumMenue, setRaumMenue] = useState(false);
+  // «Szene aufnehmen» steht hinter dem ···-Menü und klappt darunter auf.
+  const [szeneAufnehmen, setSzeneAufnehmen] = useState(false);
   useEffect(() => {
     setRaumMenue(false);
+    setSzeneAufnehmen(false);
   }, [room, section]);
   const [lastTouch, setLastTouch] = useState(() => Date.now());
   // Zählt hoch, wenn der Widget-Knopf «Alles aus» gedrückt wurde – die
@@ -2739,6 +2747,39 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               <Ionicons name="swap-vertical" size={16} color={colors.onGradient} />
               <Text style={styles.reorderText}>Reihenfolge ändern</Text>
             </Pressable>
+          ) : null}
+
+          {/* «So wie jetzt» – aus dem Zimmer heraus. Der Weg über die
+              Abläufe war der Grund, warum das kaum jemand tat: Bis man
+              dort ist, hat jemand die Küche umgeschaltet. Nur im Raum,
+              denn nur dort ist «jetzt» eine Stimmung und nicht der
+              Zustand des ganzen Hauses. */}
+          {darfSzenen && categorized && !searching && raumMenue ? (
+            <Pressable
+              onPress={() => setSzeneAufnehmen((offen) => !offen)}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: szeneAufnehmen }}
+              style={({ pressed }) => [styles.reorderButton, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name="camera-outline" size={16} color={colors.onGradient} />
+              <Text style={styles.reorderText}>Szene aufnehmen</Text>
+            </Pressable>
+          ) : null}
+          {darfSzenen && categorized && szeneAufnehmen ? (
+            <SzeneAufnehmen
+              room={room}
+              items={inRoom}
+              onSpeichern={async (name, aktionen) => {
+                await hub.post(
+                  '/api/scenes',
+                  { name, actions: aktionen, room, icon: raumSymbol(room) },
+                  { still: true }
+                );
+                reloadScenes();
+                setNote(`Szene «${name}» angelegt`);
+              }}
+              onSchliessen={() => setSzeneAufnehmen(false)}
+            />
           ) : null}
 
           {section === 'devices' && !editing && !searching && groupNames.length > 0 ? (
