@@ -9,6 +9,15 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Durchsagen mit eigener Stimme kommen zurück - mit eigenem
+  Aufnahmemodul.** Statt `expo-audio` (das die App beim Start
+  anhielt) nimmt jetzt `modules/aufnahme` auf: rund 100 Zeilen Swift
+  um den AVAudioRecorder, gebaut um genau eine Eigenschaft - beim
+  App-Start läuft dort nichts, die Audio-Sitzung wird erst beim
+  Druck auf den Aufnahmeknopf angefasst. Gleiche Aufnahme-Werte wie
+  zuvor (AAC mono, 22 kHz, 48 kbit/s). Mit dem neuen Modul steigt
+  die Laufzeit auf 4: Einmal TestFlight installieren, danach greift
+  OTA wieder.
 - **Der wortlose Schwarzstart ist gelöst: Es war `expo-audio`.** Die
   Diagnose-Fassung ohne das Paket lief auf Anhieb - damit ist es
   überführt. Sein nativer Teil fasst beim App-Start die AVAudioSession

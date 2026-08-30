@@ -7,8 +7,8 @@
  * (hub/core/sprachnotiz.py): aufnehmen, hochladen, abspielen.
  *
  * **Zwei Wege zum selben Ergebnis.** Im Browser und auf dem Wandpanel
- * nimmt der `MediaRecorder` auf, auf dem Telefon und dem iPad
- * `expo-audio` (lib/aufnahme-nativ.ts). Herauskommt beide Male ein
+ * nimmt der `MediaRecorder` auf, auf dem Telefon und dem iPad unser
+ * eigenes Modul `Aufnahme` (lib/aufnahme-nativ.ts). Herauskommt beide Male ein
  * Blob, den der Hub auf die Boxen legt.
  *
  * Lange gab es nur den Browser-Weg, und das aus einem guten Grund: Ein
