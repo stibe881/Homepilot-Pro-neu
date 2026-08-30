@@ -419,6 +419,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Rückfrage öffnet sich dann von selbst, statt dass die App nur
   // aufgeht und nichts tut.
   const [allOffSignal, setAllOffSignal] = useState(0);
+  // Der Tipp auf Termin oder Geburtstag in der Startkarte öffnet die
+  // Kalender-Fenster des OverviewScreens - dasselbe Muster wie beim
+  // «Alles aus»-Signal: Der Zähler stösst an, die Art sagt welches.
+  const [kalenderSignal, setKalenderSignal] = useState<{
+    art: 'termine' | 'geburtstage';
+    n: number;
+  }>({ art: 'termine', n: 0 });
   // Türklingel-Vollbild: pro Klingel-Ereignis einmal zeigen, bis es
   // weggewischt wird (Schlüssel = Kamera + Zeitpunkt des Klingelns).
   const [dismissedRing, setDismissedRing] = useState<string | null>(null);
@@ -2072,6 +2079,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               // Uhr und Warnung stehen jetzt in der Startkarte oben -
               // derselbe Inhalt zweimal untereinander wäre keiner.
               ohneKopf
+              kalenderSignal={kalenderSignal}
               pending={pending}
               wide={hasRail}
               onCommand={guardedCommand}
@@ -3262,6 +3270,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   section === 'start' ? (
                     <RunningAppliances entities={entities} />
                   ) : undefined
+                }
+                onKalender={
+                  section === 'start'
+                    ? (art) => setKalenderSignal((s) => ({ art, n: s.n + 1 }))
+                    : undefined
                 }
               />
             </Auffangnetz>

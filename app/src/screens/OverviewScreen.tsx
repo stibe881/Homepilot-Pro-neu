@@ -100,6 +100,10 @@ interface Props {
    *  Karten-Modus) trägt Uhr, Wetter und Warnung schon. Die Haustüre
    *  bleibt: ihr Öffnen-Knopf gehört weiterhin nach oben. */
   ohneKopf?: boolean;
+  /** Ruft die Kalender-Fenster von aussen: Die Startkarte oben tippt
+   *  hiermit «Alle Termine» oder «Alle Geburtstage» an - dasselbe
+   *  Fenster wie die Kacheln unten. Der Zähler stösst an. */
+  kalenderSignal?: { art: 'termine' | 'geburtstage'; n: number };
   /** Fragt die Türe vor dem Öffnen nach? Haushaltsweit eingestellt; fehlt
    *  der Wert, wird gefragt (siehe lib/tuerbestaetigung.ts). */
   doorConfirm?: boolean;
@@ -200,6 +204,7 @@ export function OverviewScreen({
   onDurchsagePrefs,
   onSprachnotiz,
   ohneKopf = false,
+  kalenderSignal,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -455,6 +460,10 @@ export function OverviewScreen({
   // Eintrag; «was kommt diese Woche noch» und «wann hat Levin
   // Geburtstag» standen nirgends, obwohl beides im selben Kalender liegt.
   const [liste, setListe] = useState<'termine' | 'geburtstage' | null>(null);
+  // Von aussen gerufen (Startkarte): Zähler angestossen → Fenster auf.
+  useEffect(() => {
+    if (kalenderSignal && kalenderSignal.n > 0) setListe(kalenderSignal.art);
+  }, [kalenderSignal]);
   const jetztFuerListe = new Date();
   const alleTermine = terminListe(events, jetztFuerListe);
   const terminTage = terminGruppen(events, jetztFuerListe);

@@ -100,6 +100,7 @@ export function TopStrip({
   gruss,
   tageszeit,
   zusatz,
+  onKalender,
 }: {
   entities: Entity[];
   status: ConnectionStatus;
@@ -156,6 +157,10 @@ export function TopStrip({
   /** Was sonst neben der Begrüssung stünde (laufende Geräte, offene
    *  Türen) - wandert im Karten-Modus mit in die Karte. */
   zusatz?: React.ReactNode;
+  /** Öffnet die Kalender-Fenster der Startseite («Alle Termine» bzw.
+   *  «Alle Geburtstage») - der Tipp auf die Zeile in der Karte soll
+   *  dasselbe tun wie der Tipp auf die Kachel darunter. */
+  onKalender?: (art: 'termine' | 'geburtstage') => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -891,29 +896,46 @@ export function TopStrip({
           </View>
 
           {termin || geburtstag ? (
-            <Pressable
-              onPress={event ? () => setEventOpen(true) : undefined}
-              disabled={!event}
-              accessibilityRole={event ? 'button' : undefined}
-              accessibilityLabel="Nächster Termin"
-            >
-              {/* Sinnbilder statt Emojis - dieselben wie auf den Chips. */}
-              <Text style={styles.karteZeile} numberOfLines={2}>
-                {termin ? (
-                  <>
+            <View style={styles.karteZeilen}>
+              {/* Zwei eigene Griffe: Der Tipp auf den Termin öffnet «Alle
+                  Termine», der auf den Geburtstag «Alle Geburtstage» -
+                  dieselben Fenster wie die Kacheln darunter. Ohne diesen
+                  Draht (onKalender) bleibt der alte Weg: das einzelne
+                  Termin-Fenster. Sinnbilder statt Emojis, dieselben wie
+                  auf den Chips. */}
+              {termin ? (
+                <Pressable
+                  onPress={
+                    onKalender
+                      ? () => onKalender('termine')
+                      : event
+                        ? () => setEventOpen(true)
+                        : undefined
+                  }
+                  disabled={!onKalender && !event}
+                  accessibilityRole="button"
+                  accessibilityLabel="Alle Termine"
+                >
+                  <Text style={styles.karteZeile} numberOfLines={1}>
                     <Ionicons name="calendar-outline" size={12} color={colors.inkSoft} />{' '}
                     {termin}
-                  </>
-                ) : null}
-                {termin && geburtstag ? '  ·  ' : null}
-                {geburtstag ? (
-                  <>
+                  </Text>
+                </Pressable>
+              ) : null}
+              {geburtstag ? (
+                <Pressable
+                  onPress={onKalender ? () => onKalender('geburtstage') : undefined}
+                  disabled={!onKalender}
+                  accessibilityRole="button"
+                  accessibilityLabel="Alle Geburtstage"
+                >
+                  <Text style={styles.karteZeile} numberOfLines={1}>
                     <Ionicons name="gift-outline" size={12} color={colors.inkSoft} />{' '}
                     {geburtstag}
-                  </>
-                ) : null}
-              </Text>
-            </Pressable>
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
           ) : null}
 
           {alerts ? (
@@ -1276,6 +1298,13 @@ const makeStyles = (colors: Colors) =>
   },
   karteWetterText: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
   karteZeile: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
+  karteZeilen: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    columnGap: 14,
+    rowGap: 2,
+  },
   karteWarn: { color: colors.warn, fontSize: 13, fontWeight: '600' },
   karteChips: {
     flexDirection: 'row',
