@@ -69,6 +69,24 @@ RULES: list[dict[str, Any]] = [
         ],
     },
     {
+        "key": "flattern",
+        "title": "Anbindung verbindet dauernd neu",
+        "detail": "Die Zwischenstufe zwischen «da» und «weg»: Wer alle paar "
+        "Minuten die Verbindung verliert und wieder aufbaut, sieht von aussen "
+        "aus wie Betrieb – verschluckt aber Befehle und leert Batterien.",
+        "params": [
+            {
+                "key": "mal",
+                "label": "Melden ab",
+                "unit": "Rückkehrern pro Stunde",
+                "default": 6,
+                "min": 2,
+                "max": 30,
+                "step": 1,
+            }
+        ],
+    },
+    {
         "key": "device_down",
         "title": "Überwachtes Gerät antwortet nicht",
         "detail": "Für Sensoren, die der Alarmanlage zugeordnet sind: dort "

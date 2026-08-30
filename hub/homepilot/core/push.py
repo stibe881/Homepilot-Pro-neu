@@ -55,6 +55,7 @@ LEISE: frozenset[str] = frozenset(
         "battery",
         "disk",
         "outage",
+        "flattern",
         "device_down",
         "maintenance",
         "shopping",
@@ -181,6 +182,7 @@ CATEGORIES: dict[str, str] = {
     "alarm_arming": "Alarmanlage scharf/unscharf",
     "camera_motion": "Kamera sieht Bewegung (wenn scharf)",
     "outage": "Integration ausgefallen",
+    "flattern": "Anbindung verbindet dauernd neu",
     "device_down": "Überwachtes Gerät antwortet nicht",
     "battery": "Batterie schwach",
     "open": "Fenster/Tür steht offen",
@@ -227,7 +229,7 @@ GROUPS: list[tuple[str, tuple[str, ...]]] = [
               "maintenance")),
     ("Familie", ("birthday", "calendar", "medication", "tasks", "shopping",
                  "weekahead", "presence")),
-    ("Betrieb", ("outage", "device_down", "battery", "disk", "morning")),
+    ("Betrieb", ("outage", "flattern", "device_down", "battery", "disk", "morning")),
     # Leer, und trotzdem hier: Unter dieser Überschrift stehen die
     # Nachrichten aus selbst gebauten Abläufen. Sie haben keinen festen
     # Schlüssel - jeder Ablauf, der meldet, bringt seinen eigenen mit
