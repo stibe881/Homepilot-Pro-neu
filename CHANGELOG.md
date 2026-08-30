@@ -9,6 +9,18 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Sechs neue Ablauf-Vorlagen und der Platzhalter `{termin}`.** Auf
+  Wunsch dazugekommen: «Storen mit der Sonne auf/zu» (mit Streuung,
+  morgens nicht vor sieben), «Hitzeschutz» (ab 26° alle Storen zu,
+  Balkon und Terrasse stellen stattdessen die Lamellen halb schräg),
+  «Wetterwarnung: Lamellen in Schutzstellung» (samt Nachricht),
+  «Nachricht, wenn ein Kind heimkommt» (die Zone kann auch ein
+  Bluetooth-Anhänger am Schulthek melden) und «Kameralicht bei
+  Person in der Nacht». Dazu können Kommando-Schritte jetzt Lamellen
+  stellen (set_tilt). Und wer in einer Durchsage oder Nachricht
+  `{termin}` schreibt, bekommt den Titel des gerade laufenden
+  Kalendertermins eingesetzt - «Das ist wohl {termin}» sagt an jedem
+  Besuchstag den richtigen Namen, und ohne Termin schlicht «Besuch».
 - **«Alle Geburtstage» zeigt die nächsten zehn - und liest sich wie
   eine Liste von Menschen.** Bisher stand dort oft nur einer: Der Hub
   kappte Termine und Geburtstage zusammen bei zwölf Einträgen, und in
