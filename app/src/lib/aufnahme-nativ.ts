@@ -19,7 +19,14 @@
  * 48 kbit/s. Das spielt jede Cast-Box (der Hub erkennt es am `ftyp` -
  * siehe hub/core/sprachnotiz.py), und eine Minute wiegt rund 350 KB.
  */
-import type { RecordingOptions } from 'expo-audio';
+// DIAGNOSE 30.08.: `expo-audio` ist testweise ganz aus dem Build genommen.
+// Es ist die einzige native Änderung im Fenster, in dem die App den
+// wortlosen Schwarzstart bekam (zwischen Build 29799716, läuft, und
+// 29800133, schwarz) - alle anderen Verdächtigen sind per ipa-Vergleich
+// ausgeschlossen. Läuft die App ohne, war es expo-audio; dann kommt es
+// gezielt zurück (neuere Fassung oder späteres Laden). Der Typ steht
+// deshalb vorübergehend örtlich statt aus dem Paket.
+type RecordingOptions = Record<string, unknown>;
 
 import type { Aufnahme } from './sprachnotiz';
 
@@ -50,51 +57,7 @@ export const WERTE: RecordingOptions = {
  * einen Sinn, wenn man gerade den Aufnahmeknopf gedrückt hat.
  */
 export async function starteNativ(hoechstensMs: number): Promise<Aufnahme> {
-  const audio = await import('expo-audio');
-  const erlaubnis = await audio.requestRecordingPermissionsAsync();
-  if (!erlaubnis.granted) {
-    const fehler = new Error('Mikrofon nicht freigegeben');
-    fehler.name = 'NotAllowedError';
-    throw fehler;
-  }
-  // Ohne diesen Modus nimmt iOS nicht auf, solange der Schalter an der
-  // Seite auf «lautlos» steht - und genau dann greift man am ehesten zum
-  // Telefon, statt etwas zu rufen.
-  await audio.setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-
-  const recorder = new audio.AudioRecorder(WERTE);
-  await recorder.prepareToRecordAsync();
-  recorder.record();
-
-  /** Das Mikrofon wieder loslassen - sonst bleibt oben der rote Balken
-   *  stehen, und auf dem Telefon sieht das aus, als höre die App weiter
-   *  zu. */
-  const loslassen = () =>
-    audio.setAudioModeAsync({ allowsRecording: false }).catch(() => undefined);
-
-  const frist = setTimeout(() => {
-    if (recorder.isRecording) recorder.stop().catch(() => undefined);
-  }, hoechstensMs);
-
-  return {
-    stopp: async () => {
-      clearTimeout(frist);
-      try {
-        if (recorder.isRecording) await recorder.stop();
-        const uri = recorder.uri;
-        if (!uri) return null;
-        // Der Umweg über `fetch`: Die Aufnahme liegt als Datei auf dem
-        // Gerät, und der Hub will einen Rumpf. Das ist derselbe Weg, den
-        // die App schon für Bilder nimmt.
-        return await (await fetch(uri)).blob();
-      } finally {
-        await loslassen();
-      }
-    },
-    abbrechen: () => {
-      clearTimeout(frist);
-      if (recorder.isRecording) recorder.stop().catch(() => undefined);
-      loslassen();
-    },
-  };
+  void hoechstensMs;
+  // Siehe Kopf der Datei: ohne expo-audio gibt es hier nichts zu starten.
+  throw new Error('Durchsagen mit eigener Stimme sind in dieser Diagnose-Fassung abgeschaltet.');
 }

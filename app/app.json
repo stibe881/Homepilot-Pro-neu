@@ -3,7 +3,7 @@
     "name": "HomePilot",
     "slug": "homepilot",
     "owner": "stibe88",
-    "version": "1.4.10",
+    "version": "1.4.11",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -51,12 +51,6 @@
       "@bacons/apple-targets",
       "expo-quick-actions",
       [
-        "expo-audio",
-        {
-          "microphonePermission": "HomePilot nimmt damit kurze Durchsagen auf, die auf den Lautsprechern in der Wohnung abgespielt werden - «Essen ist fertig», mit deiner Stimme statt der Vorlesestimme. Aufgenommen wird nur zwischen dem Druck auf den Mikrofonknopf und dem Druck, der ihn wieder beendet. Die Aufnahme geht an deinen eigenen Hub und an niemanden sonst."
-        }
-      ],
-      [
         "expo-location",
         {
           "locationAlwaysAndWhenInUsePermission": "HomePilot meldet dem Hub zuhause, wo du bist – damit die Heizung rechtzeitig hochfährt und «alles aus» nicht läuft, während jemand da ist. Gemeldet wird, sobald du dich bewegt hast; im Stillstand misst die App nichts. Der Standort geht an deinen eigenen Hub und an niemanden sonst.",
@@ -90,7 +84,7 @@
     "scheme": "homepilot",
     "updates": {
       "enabled": false,
-    "url": "https://u.expo.dev/d98739fb-4d44-4872-824d-3f89a861749f",
+      "url": "https://u.expo.dev/d98739fb-4d44-4872-824d-3f89a861749f",
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
     },

@@ -9,6 +9,15 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Diagnose-Fassung 1.4.11: ohne `expo-audio`.** Das Ausschluss-
+  verfahren per ipa-Vergleich (laufender Build 29799716 gegen
+  schwarzen Build 29801284) hat alles andere freigesprochen:
+  identische Dateilisten, gleiches Manifest, Info.plist bis auf den
+  Mikrofontext gleich, eigene Module beim Start untätig. Übrig
+  bleibt als einzige native Änderung im Bruch-Fenster `expo-audio`.
+  Diese Fassung nimmt es testweise ganz heraus; Durchsagen mit
+  eigener Stimme sind darin abgeschaltet. Läuft sie, ist der Täter
+  benannt und kommt kontrolliert zurück.
 - **Der Start zeichnet zuerst und lädt danach.** In 1.4.9 blieb der
   Bildschirm schwarz, ohne dass der Startbericht erschien - der
   konnte gar nicht: Die App-Module wurden vor dem ersten Bild
