@@ -163,6 +163,7 @@ import { useRaumnutzung } from '../hooks/useRaumnutzung';
 import { gelernt, hinweisGelernt, nachGewohnheit } from '../lib/kachellernen';
 import { useSensorlinien } from '../hooks/useSensorlinien';
 import { useAusfall } from '../hooks/useAusfall';
+import { useZurueckWischen } from '../hooks/useZurueckWischen';
 import { useTakt } from '../hooks/useTakt';
 import { ErinnerungOverlay } from './dashboard/Erinnerungsvollbild';
 import { GroupControls } from './dashboard/Gruppensteuerung';
@@ -1550,6 +1551,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     [categorized, shown]
   );
   const raumKopf = categorized ? raumFakten(inRoom) : '';
+  // Von der linken Kante nach rechts: zurück zur Raumliste. Derselbe
+  // Weg wie «‹ Räume» oben links - nur erreichbar, ohne umzugreifen
+  // (lib/zurueckwischen.ts). Beim Anpassen bleibt sie aus: Dort zieht
+  // man Kacheln, und ein Wischen wäre zweideutig.
+  const zurueckWischen = useZurueckWischen(
+    section === 'home' && room !== ALL_ROOMS && !editing,
+    () => setRoom(ALL_ROOMS)
+  );
   const raumSchein = categorized && raumLeuchtet(inRoom);
   // Der Klimafühler steht gross im Kopf - als Chip daneben stünde er
   // doppelt, wie früher die Temperatur.
@@ -3191,7 +3200,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
 
   return (
     <HubProvider settings={settings} entities={entities} user={user}>
-      <View style={styles.root} onTouchStart={() => setLastTouch(Date.now())}>
+      <View
+        style={styles.root}
+        onTouchStart={() => setLastTouch(Date.now())}
+        {...zurueckWischen}
+      >
         <View style={[styles.frame, { paddingTop: insets.top }]}>
           {hasRail ? (
             <Rail

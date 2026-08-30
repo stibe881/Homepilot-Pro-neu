@@ -49,6 +49,7 @@ import {
 } from './entity/koerper';
 import { Fortschritt } from './entity/Fortschritt';
 import { KachelDruck } from './entity/kacheldruck';
+import { Wischdimmer } from './entity/wischdimmer';
 import { MediaButton, RadioPanel, ShuffleRepeat, SpotifyPanel } from './entity/medien';
 import { MedienExtras } from './entity/medienextras';
 import { makeStyles } from './entity/stil';
@@ -212,6 +213,15 @@ export function EntityCard({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [remoteOpen, setRemoteOpen] = useState(false);
+  // Helligkeit unter dem Finger, solange über die Kachel gestrichen wird
+  // (components/entity/wischdimmer.tsx). null heisst: der Hub führt.
+  const [wischWert, setWischWert] = useState<number | null>(null);
+  // Nach einem Streichen kommt trotzdem noch ein Druck an: Die Geste
+  // wurde dem Schalter darunter zwar weggenommen, aber er meldet beim
+  // Loslassen dennoch einen Tipp - im Browser gemessen, die Lampe ging
+  // nach dem Dimmen sofort wieder aus. Diese Fahne verschluckt genau
+  // diesen einen Druck.
+  const gewischt = useRef(false);
   // Was als Nächstes läuft – hinter Cover und Titel der Musikkachel.
   const [listeOffen, setListeOffen] = useState(false);
   const [roomPickerOpen, setRoomPickerOpen] = useState(false);
@@ -392,12 +402,47 @@ export function EntityCard({
           <ColorRow entity={entity} onCommand={onCommand} />
         ) : null;
         const dimmbar = entity.commands.includes('set_brightness');
-        const helligkeit = Math.round(Number(entity.state.brightness ?? 100));
+        // Während des Streichens gilt der Wert unter dem Finger: Sonst
+        // zieht man ins Blinde, bis der Hub geantwortet hat.
+        const helligkeit =
+          wischWert ?? Math.round(Number(entity.state.brightness ?? 100));
         const tinte = lichtKachel ? lichtKachel.tinte : colors.ink;
         return (
           <View style={styles.stack}>
+            {/* Quer über die Kachel streichen dimmt - auch von «aus»
+                aus. Der Regler darunter erscheint erst, wenn Licht
+                brennt; eine ausgeschaltete Lampe auf 30 % zu bringen
+                kostete vorher drei Griffe, und der erste blendet. */}
+            <Wischdimmer
+              aktiv={dimmbar && entity.available}
+              // Aus heisst: bei null anfangen. Sonst hätte eine
+              // ausgeschaltete Lampe, die sich 100 % gemerkt hat, nach
+              // oben keinen Weg mehr - und genau «aus auf 30 %» ist der
+              // Griff, für den es die Geste gibt.
+              wert={isOn ? Math.round(Number(entity.state.brightness ?? 100)) : 0}
+              onDimmen={(ziel) => {
+                gewischt.current = true;
+                setWischWert(ziel);
+              }}
+              onFertig={(ziel) => {
+                setWischWert(null);
+                onCommand('set_brightness', { brightness: ziel });
+                // Sicherheitsnetz: Bleibt der Druck aus (so verhält es
+                // sich nativ), soll die Fahne nicht den nächsten
+                // echten Tipp verschlucken.
+                setTimeout(() => {
+                  gewischt.current = false;
+                }, 350);
+              }}
+            >
             <Pressable
-              onPress={toggleMitDoppeltipp}
+              onPress={() => {
+                if (gewischt.current) {
+                  gewischt.current = false;
+                  return;
+                }
+                toggleMitDoppeltipp?.();
+              }}
               accessibilityRole="switch"
               accessibilityState={{ checked: isOn, busy: !!pending }}
               accessibilityLabel={`${entity.name} ${isOn ? 'ausschalten' : 'einschalten'}`}
@@ -425,11 +470,15 @@ export function EntityCard({
                 >
                   {!entity.available
                     ? '–'
-                    : isOn
-                      ? dimmbar
-                        ? `${helligkeit} %`
-                        : 'An'
-                      : 'Aus'}
+                    : // Während des Streichens steht dort, wohin es geht -
+                      // auch wenn die Lampe noch aus ist.
+                      wischWert !== null
+                      ? `${wischWert} %`
+                      : isOn
+                        ? dimmbar
+                          ? `${helligkeit} %`
+                          : 'An'
+                        : 'Aus'}
                 </Text>
                 <Text
                   numberOfLines={2}
@@ -449,6 +498,7 @@ export function EntityCard({
                 </Text>
               </View>
             </Pressable>
+            </Wischdimmer>
             {/* Dimmen bleibt auf der Kachel, solange Licht brennt: Es ist
                 der zweithäufigste Griff am Licht, und ihn in die
                 Detailansicht zu schieben wäre ein schlechter Tausch. Aus
