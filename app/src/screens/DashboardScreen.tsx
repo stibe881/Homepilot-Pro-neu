@@ -40,7 +40,7 @@ import { DeviceHealth } from '../components/DeviceHealth';
 import { RoomTabs } from '../components/RoomTabs';
 import { RoomCard } from '../components/RoomCard';
 import { Raumbild } from '../components/Raumbild';
-import { raumaktionen } from '../lib/raumkarte';
+import { raumaktionen, waehlbareGeraete } from '../lib/raumkarte';
 import { SceneRow } from '../components/SceneRow';
 import { GlobalSearch } from '../components/GlobalSearch';
 import { Grundriss } from '../components/Grundriss';
@@ -3484,6 +3484,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               ? raumaktionen(entities.filter((entity) => entity.room === bildFuer)).map(
                   (aktion) => ({ art: aktion.art, label: aktion.label })
                 )
+              : []
+          }
+          // Und daneben jedes schaltbare Gerät des Raums einzeln - so
+          // kommt auch ein Knopf auf die Kachel, den es als Sammelknopf
+          // nicht gibt («Sternenhimmel» in Levins Zimmer).
+          geraete={
+            bildFuer
+              ? waehlbareGeraete(
+                  entities.filter((entity) => entity.room === bildFuer)
+                ).map((aktion) => ({ art: aktion.id ?? aktion.art, label: aktion.label }))
               : []
           }
           auswahl={bildFuer ? prefs.raumKnoepfe?.[bildFuer] : undefined}

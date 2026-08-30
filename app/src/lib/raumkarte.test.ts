@@ -1,5 +1,13 @@
 import { Entity } from '../api/types';
-import { gewaehlteAktionen, raumFarben, raumStand, raumaktionen } from './raumkarte';
+import {
+  geraetAktion,
+  gewaehlteAktionen,
+  kachelKnoepfe,
+  raumFarben,
+  raumStand,
+  raumaktionen,
+  waehlbareGeraete,
+} from './raumkarte';
 
 function geraet(
   id: string,
@@ -154,3 +162,50 @@ describe('gewaehlteAktionen', () => {
   });
 });
 
+
+// ── Geräteknöpfe ─────────────────────────────────────────────────────────
+// Der Fall: In Levins Zimmer stand nur «Licht» zur Wahl - ein einzelnes
+// Gerät («Sternenhimmel») liess sich nicht auf die Kachel legen.
+
+describe('geraetAktion und kachelKnoepfe', () => {
+  const szene = geraet('hue.sternenhimmel', 'scene', { state: 'off' }, ['activate']);
+
+  it('macht aus einer Hue-Lichtszene einen Knopf', () => {
+    const knopf = geraetAktion(szene);
+    expect(knopf?.art).toBe('geraet');
+    expect(knopf?.id).toBe('hue.sternenhimmel');
+    expect(knopf?.befehle).toEqual([
+      { entityId: 'hue.sternenhimmel', command: 'activate' },
+    ]);
+  });
+
+  it('schaltet den Fernseher ein und aus, die Box auf Play und Pause', () => {
+    const tv = geraet('cast.tv', 'media_player', { state: 'off', has_screen: true }, [
+      'turn_on',
+      'turn_off',
+      'play',
+      'pause',
+    ]);
+    expect(geraetAktion(tv)?.befehle[0].command).toBe('turn_on');
+    expect(geraetAktion(box('b', true))?.befehle[0].command).toBe('pause');
+  });
+
+  it('macht aus einem Fühler keinen Knopf', () => {
+    expect(geraetAktion(geraet('t', 'sensor', { state: '21' }, []))).toBeNull();
+    expect(waehlbareGeraete([szene, geraet('t', 'sensor', {}, [])]).length).toBe(1);
+  });
+
+  it('zeigt gewählte Geräte neben den Sammelknöpfen', () => {
+    const items = [lampe('a', false), szene];
+    expect(kachelKnoepfe(items, undefined).map((k) => k.art)).toEqual(['licht']);
+    expect(
+      kachelKnoepfe(items, ['licht', 'hue.sternenhimmel']).map((k) => k.id ?? k.art)
+    ).toEqual(['licht', 'hue.sternenhimmel']);
+  });
+
+  it('trägt nie mehr als drei Knöpfe - vier passen nicht nebeneinander', () => {
+    const items = [lampe('a', true), store('s', 50), box('m', false), szene];
+    const wahl = ['licht', 'storen', 'musik', 'hue.sternenhimmel'];
+    expect(kachelKnoepfe(items, wahl).length).toBe(3);
+  });
+});

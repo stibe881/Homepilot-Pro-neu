@@ -9,6 +9,13 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Jedes Gerät kann ein Knopf auf der Raumkachel sein.** Hinter dem
+  langen Druck auf eine Kachel standen bisher nur die Sammelknöpfe zur
+  Wahl, die der Raum hergibt - in Levins Zimmer also nur «Licht», und
+  hinzufügen liess sich nichts. Jetzt steht dort auch jedes schaltbare
+  Gerät des Raums einzeln (samt Hue-Lichtszenen wie «Sternenhimmel»).
+  Höchstens drei Knöpfe zusammen - mehr trägt die Kachel nicht, und das
+  Blatt sagt es, statt stumm zu verweigern.
 - **Der Ofen sagt Bescheid.** Endet am Backofen (oder Steamer) das
   Vorheizen, kommt eine Durchsage «Der Backofen ist parat» samt
   Nachricht - und beim Programmende «fertig». Bisher lief man dreimal

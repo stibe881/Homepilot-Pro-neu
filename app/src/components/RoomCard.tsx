@@ -4,13 +4,7 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Entity, Scene } from '../api/types';
 import { raumSymbol, raumZeile } from '../lib/raum';
-import {
-  Raumaktion,
-  gewaehlteAktionen,
-  raumFarben,
-  raumStand,
-  raumaktionen,
-} from '../lib/raumkarte';
+import { Raumaktion, kachelKnoepfe, raumFarben, raumStand } from '../lib/raumkarte';
 import { Colors, radius, useColors } from '../theme';
 import { Card } from './Card';
 
@@ -74,8 +68,10 @@ export function RoomCard({
   // Ein Bild, das sich nicht laden lässt (Hub gerade weg, Datei kaputt),
   // darf keinen schwarzen Balken hinterlassen: Dann gilt die Farbe.
   const [bildKaputt, setBildKaputt] = useState(false);
+  // Sammel- und Geräteknöpfe zusammen: Wer im Blatt hinter dem langen
+  // Druck ein einzelnes Gerät gewählt hat, sieht es hier als Knopf.
   const aktionen = useMemo(
-    () => gewaehlteAktionen(raumaktionen(items), knoepfeAuswahl),
+    () => kachelKnoepfe(items, knoepfeAuswahl),
     [items, knoepfeAuswahl]
   );
   const stand = useMemo(() => raumStand(items, raumZeile(items)), [items]);
@@ -155,7 +151,7 @@ export function RoomCard({
           <View style={styles.knoepfe}>
             {aktionen.map((aktion) => (
               <Pressable
-                key={aktion.art}
+                key={aktion.id ?? aktion.art}
                 onPress={() => onAction(aktion)}
                 accessibilityRole="button"
                 accessibilityLabel={`${aktion.label} in ${name}`}
@@ -170,7 +166,12 @@ export function RoomCard({
                   size={17}
                   color={aktion.an ? '#FFFFFF' : colors.inkSoft}
                 />
-                <Text style={[styles.knopfText, aktion.an && { color: '#FFFFFF' }]}>
+                {/* Gerätenamen können lang sein («Sternenhimmel») - eine
+                    Zeile, notfalls gekürzt, statt eines wachsenden Knopfs. */}
+                <Text
+                  style={[styles.knopfText, aktion.an && { color: '#FFFFFF' }]}
+                  numberOfLines={1}
+                >
                   {aktion.label}
                 </Text>
               </Pressable>

@@ -20,11 +20,16 @@
  */
 
 import { Entity } from '../api/types';
+import { isTelevision } from './geraeteart';
 
-export type AktionsArt = 'licht' | 'storen' | 'musik';
+export type AktionsArt = 'licht' | 'storen' | 'musik' | 'geraet';
 
 export interface Raumaktion {
   art: AktionsArt;
+  /** Bei einem Geräte-Knopf: die Entität dahinter. Zugleich der
+   *  Schlüssel in der Knopf-Auswahl - die Sammelknöpfe heissen dort
+   *  nach ihrer Art, ein Gerät nach seiner Kennung. */
+  id?: string;
   label: string;
   /** Ionicons-Name; die Kachel setzt ihn ein, die Liste kennt ihn nur. */
   icon: string;
@@ -157,7 +162,121 @@ export function gewaehlteAktionen(
   auswahl: string[] | undefined
 ): Raumaktion[] {
   if (auswahl === undefined) return aktionen;
-  return aktionen.filter((aktion) => auswahl.includes(aktion.art));
+  return aktionen.filter((aktion) => auswahl.includes(aktion.id ?? aktion.art));
+}
+
+/**
+ * Ein einzelnes Gerät als Kachel-Knopf (rein, testbar).
+ *
+ * Der Fall dahinter: In Levins Zimmer stand nur «Licht» zur Wahl - was
+ * der Raum an Sammelknöpfen nicht hergibt, liess sich auch nicht
+ * hinzufügen, und ein einzelnes Gerät («Sternenhimmel») schon gar
+ * nicht. Jetzt kann jedes schaltbare Gerät des Raums ein eigener Knopf
+ * sein. `null` heisst: Daraus wird kein Knopf - ein Fühler hat nichts
+ * zu drücken.
+ */
+export function geraetAktion(entity: Entity): Raumaktion | null {
+  const knopf = (icon: string, an: boolean, command: string): Raumaktion => ({
+    art: 'geraet',
+    id: entity.id,
+    label: entity.name,
+    icon,
+    an,
+    befehle: [{ entityId: entity.id, command }],
+  });
+
+  if (
+    (entity.kind === 'light' || entity.kind === 'switch') &&
+    entity.commands.includes('toggle')
+  ) {
+    const an = entity.state.state === 'on';
+    return knopf(
+      entity.kind === 'light'
+        ? an
+          ? 'bulb'
+          : 'bulb-outline'
+        : an
+          ? 'flash'
+          : 'flash-outline',
+      an,
+      'toggle'
+    );
+  }
+  if (entity.kind === 'cover') {
+    if (!entity.commands.includes('open') && !entity.commands.includes('close')) {
+      return null;
+    }
+    const stehtOffen = offen(entity);
+    // Wie beim Sammelknopf: Offen ist kein Betrieb - der Pfeil sagt,
+    // wohin die Fahrt geht.
+    return knopf(stehtOffen ? 'arrow-down' : 'arrow-up', false, stehtOffen ? 'close' : 'open');
+  }
+  if (entity.kind === 'media_player') {
+    const laeuft = entity.state.state === 'playing' || entity.state.state === 'on';
+    // Ein Fernseher wird ein- und ausgeschaltet; eine Box spielt oder
+    // pausiert. Beides ist hier bewusst ein blinder Schalter - wer den
+    // Player will, nimmt den Sammelknopf «Musik».
+    if (isTelevision(entity) && entity.commands.includes('turn_on')) {
+      return knopf(laeuft ? 'tv' : 'tv-outline', laeuft, laeuft ? 'turn_off' : 'turn_on');
+    }
+    if (entity.commands.includes('toggle')) {
+      return knopf(laeuft ? 'musical-notes' : 'musical-notes-outline', laeuft, 'toggle');
+    }
+    if (entity.commands.includes('play') && entity.commands.includes('pause')) {
+      return knopf(
+        laeuft ? 'musical-notes' : 'musical-notes-outline',
+        laeuft,
+        laeuft ? 'pause' : 'play'
+      );
+    }
+    return null;
+  }
+  // Eine Hue-Lichtszene («Sternenhimmel») ist genau das, wofür man einen
+  // eigenen Knopf will: ein Griff, eine Stimmung.
+  if (entity.kind === 'scene' && entity.commands.includes('activate')) {
+    return knopf('color-palette-outline', entity.state.state === 'on', 'activate');
+  }
+  if (entity.kind === 'vacuum' && entity.commands.includes('start')) {
+    const saugt = entity.state.state === 'cleaning';
+    return knopf(
+      saugt ? 'sparkles' : 'sparkles-outline',
+      saugt,
+      saugt && entity.commands.includes('dock') ? 'dock' : 'start'
+    );
+  }
+  return null;
+}
+
+/** Die Geräte eines Raums, die ein eigener Knopf sein könnten (rein,
+ *  testbar) - für die Auswahl hinter dem langen Druck. */
+export function waehlbareGeraete(items: Entity[]): Raumaktion[] {
+  return items
+    .map(geraetAktion)
+    .filter((aktion): aktion is Raumaktion => aktion !== null);
+}
+
+/** Höchstens so viele Knöpfe trägt eine Kachel - vier passen auf einem
+ *  Telefon nicht mehr nebeneinander, ohne dass die Beschriftung bricht. */
+export const KNOEPFE_HOECHSTENS = 3;
+
+/**
+ * Die Knöpfe einer Kachel, Sammel- und Geräteknöpfe zusammen (rein,
+ * testbar).
+ *
+ * Ohne Wahl bleibt alles beim Alten: die Sammelknöpfe, die der Raum
+ * hergibt. Mit Wahl kommen auch einzelne Geräte dazu - und die
+ * Obergrenze gilt hier noch einmal, falls eine Wahl von einem anderen
+ * Gerät mehr enthält, als die Kachel tragen kann.
+ */
+export function kachelKnoepfe(
+  items: Entity[],
+  auswahl: string[] | undefined
+): Raumaktion[] {
+  const standard = raumaktionen(items);
+  if (auswahl === undefined) return standard;
+  return [...standard, ...waehlbareGeraete(items)]
+    .filter((aktion) => auswahl.includes(aktion.id ?? aktion.art))
+    .slice(0, KNOEPFE_HOECHSTENS);
 }
 
 /**

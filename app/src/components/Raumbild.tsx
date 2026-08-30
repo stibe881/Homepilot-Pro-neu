@@ -5,6 +5,7 @@ import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { HubSettings } from '../api/types';
 import { kann } from '../lib/plattform';
+import { KNOEPFE_HOECHSTENS } from '../lib/raumkarte';
 import { Colors, radius, useColors } from '../theme';
 
 /**
@@ -35,6 +36,7 @@ export function Raumbild({
   onClose,
   onChanged,
   knoepfe,
+  geraete = [],
   auswahl,
   onAuswahl,
 }: {
@@ -46,9 +48,12 @@ export function Raumbild({
   onClose: () => void;
   /** Nach dem Setzen oder Entfernen: Der Bildstand des Hauses ist neu. */
   onChanged: (images: Record<string, number>) => void;
-  /** Welche Knöpfe dieser Raum überhaupt hergibt - für die Auswahl. */
+  /** Welche Sammelknöpfe dieser Raum überhaupt hergibt - für die Auswahl. */
   knoepfe: { art: string; label: string }[];
-  /** Die getroffene Wahl - undefined heisst: alle. */
+  /** Einzelne Geräte des Raums, die ein eigener Knopf sein können -
+   *  `art` ist hier die Geräte-Kennung. Ohne Wahl sind sie aus. */
+  geraete?: { art: string; label: string }[];
+  /** Die getroffene Wahl - undefined heisst: alle Sammelknöpfe. */
   auswahl: string[] | undefined;
   onAuswahl: (arts: string[]) => void;
 }) {
@@ -56,6 +61,9 @@ export function Raumbild({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [laeuft, setLaeuft] = useState(false);
   const [fehler, setFehler] = useState<string | null>(null);
+  // Der Satz erscheint erst, wenn jemand an die Grenze stösst - vorher
+  // wäre er eine Warnung vor einem Problem, das niemand hat.
+  const [voll, setVoll] = useState(false);
 
   if (!room) return null;
 
@@ -184,22 +192,30 @@ export function Raumbild({
 
           {/* Welche Knöpfe die Kachel trägt. Die Wahl gilt wie das Bild
               für alle im Haus (house prefs) - abgewählt wird durch
-              Antippen, und auch «gar keine» ist eine gültige Wahl. */}
-          {knoepfe.length > 0 ? (
+              Antippen, und auch «gar keine» ist eine gültige Wahl.
+              Neben den Sammelknöpfen steht jedes schaltbare Gerät des
+              Raums zur Wahl - höchstens drei zusammen, mehr trägt die
+              Kachel nicht. */}
+          {knoepfe.length > 0 || geraete.length > 0 ? (
             <>
               <Text style={styles.abschnitt}>Knöpfe auf der Kachel</Text>
               <View style={styles.chips}>
-                {knoepfe.map((knopf) => {
-                  const aktiv = (auswahl ?? knoepfe.map((k) => k.art)).includes(
-                    knopf.art
-                  );
+                {[...knoepfe, ...geraete].map((knopf) => {
+                  const jetzt = auswahl ?? knoepfe.map((k) => k.art);
+                  const aktiv = jetzt.includes(knopf.art);
                   const wechseln = () => {
-                    const jetzt = auswahl ?? knoepfe.map((k) => k.art);
-                    onAuswahl(
-                      aktiv
-                        ? jetzt.filter((art) => art !== knopf.art)
-                        : [...jetzt, knopf.art]
-                    );
+                    if (aktiv) {
+                      setVoll(false);
+                      onAuswahl(jetzt.filter((art) => art !== knopf.art));
+                      return;
+                    }
+                    if (jetzt.length >= KNOEPFE_HOECHSTENS) {
+                      // Nicht stumm verweigern: sagen, warum.
+                      setVoll(true);
+                      return;
+                    }
+                    setVoll(false);
+                    onAuswahl([...jetzt, knopf.art]);
                   };
                   return (
                     <Pressable
@@ -217,6 +233,12 @@ export function Raumbild({
                   );
                 })}
               </View>
+              {voll ? (
+                <Text style={styles.hinweis}>
+                  Höchstens drei Knöpfe passen auf die Kachel – zuerst einen
+                  abwählen.
+                </Text>
+              ) : null}
             </>
           ) : null}
 
