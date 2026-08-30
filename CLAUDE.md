@@ -153,6 +153,7 @@ nicht `test_mode_2`.
 | eine Gerätekachel änderst | `app/src/components/EntityCard.tsx` |
 | an den Raumkacheln arbeitest | `app/src/components/RoomCard.tsx` + `lib/raumkarte.ts`; die Fotos liegen im Hub unter `core/raumbilder.py` und `api/routes/raeume.py` |
 | Zigbee-Geräte anbindest | `hub/homepilot/integrations/zigbee2mqtt.py` – Übersicht in `docs/zigbee.md` |
+| am Gäste-WLAN arbeitest | `hub/homepilot/core/wlanschein.py` + `api/routes/haus.py` + `app/src/lib/wlanaufkleber.ts` – Übersicht in `docs/gaeste-wlan.md` |
 | an der Musik arbeitest | `hub/homepilot/core/ton.py` + `core/musik.py` + `app/src/components/Musikzentrale.tsx` – Übersicht in `docs/musik.md` |
 
 ## Was nie ins Repository gehört
