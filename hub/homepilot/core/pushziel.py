@@ -39,6 +39,10 @@ ZIELE: dict[str, str] = {
     "rain": "start",
     "plants": "start",
     "appliance": "start",
+    # Ofen parat: Es gibt nichts zu tippen, also dorthin, wo man ohnehin
+    # hinwill. Der Losfahr-Wecker dagegen öffnet den Termin.
+    "oven": "start",
+    "departure": "familie:kalender",
     "vacuum": "start",
     "morning": "start",
     "test": "start",

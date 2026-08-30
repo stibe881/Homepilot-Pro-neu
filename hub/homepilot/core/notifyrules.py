@@ -122,6 +122,34 @@ RULES: list[dict[str, Any]] = [
         ],
     },
     {
+        "key": "oven",
+        "title": "Backofen parat und fertig",
+        "detail": "Sobald das Vorheizen durch ist und wenn das Programm "
+        "endet - als Nachricht und als Durchsage auf den Boxen. Gilt für "
+        "Kochgeräte (Backofen, Steamer, Mikrowelle); die Waschküche hat "
+        "ihre eigene Erinnerung oben.",
+        "params": [],
+    },
+    {
+        "key": "departure",
+        "title": "Losfahren zum Termin",
+        "detail": "Hat ein Termin einen Ort, meldet sich das Haus, sobald "
+        "es Zeit ist loszufahren - die Fahrzeit wird aus der Entfernung "
+        "ab zuhause geschätzt, bewusst mit Reserve. Termine ohne Ort "
+        "bleiben still.",
+        "params": [
+            {
+                "key": "buffer",
+                "label": "Puffer",
+                "unit": "Minuten",
+                "default": 10,
+                "min": 0,
+                "max": 45,
+                "step": 5,
+            }
+        ],
+    },
+    {
         "key": "vacuum",
         "title": "Saugroboter meldet ein Problem",
         "detail": "Sofort, wenn der Sauger oder seine Station nicht "

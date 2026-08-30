@@ -9,6 +9,20 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Der Ofen sagt Bescheid.** Endet am Backofen (oder Steamer) das
+  Vorheizen, kommt eine Durchsage «Der Backofen ist parat» samt
+  Nachricht - und beim Programmende «fertig». Bisher lief man dreimal
+  in die Küche, um nachzusehen; die V-ZUG-Anbindung wusste es die
+  ganze Zeit. Gilt nur für Kochgeräte - die Waschküche behält ihre
+  spätere Erinnerung, und eine Geschirrspüler-Durchsage um 22:30
+  will niemand. Abschaltbar unter Abläufe → Push.
+- **Der Losfahr-Wecker.** Hat ein Termin im Kalender einen Ort,
+  meldet sich das Haus, sobald es Zeit ist loszufahren:
+  «Fussballtraining um 17:30 in Sursee - Fahrzeit etwa 25 Minuten.»
+  Die Fahrzeit wird aus der Entfernung ab zuhause geschätzt, bewusst
+  mit Reserve und einstellbarem Puffer; jede Adresse wird nur einmal
+  nachgeschlagen und dann behalten. Termine ohne Ort, Ganztägiges
+  und alles ums Egg bleiben still.
 - **Auf dem Fernseher heisst Pause «Pause».** Die Kommando-Chips im
   Szenen- und Ablauf-Editor sprachen von «Musik an/aus» - wer den Film
   anhalten wollte, fand nichts Passendes. Auf einem Fernseher stehen

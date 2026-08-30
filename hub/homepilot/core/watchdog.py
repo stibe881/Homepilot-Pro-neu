@@ -35,9 +35,11 @@ from . import (
     familie,
     gemeldet,
     giessen,
+    losfahren,
     maintenance,
     morgen,
     notifyrules,
+    ofen,
     personen,
     presence,
     pushziel,
@@ -181,6 +183,12 @@ class Watchdog:
         # Sperrfrist, die verhindert, dass aus einem Besucher mehrere
         # Nachrichten werden.
         self._klingel_gemeldet: dict[str, float] = {}
+        # Kochgeräte: ob das Gerät in der letzten Runde am Vorheizen war -
+        # die Flanke «Vorheizen fertig» ergibt die Parat-Durchsage (ofen.py).
+        self._vorheiz: dict[str, bool] = {}
+        # Losfahr-Wecker: höchstens ein Nominatim-Nachschlagen je Runde,
+        # und nie schneller als hier steht - deren Regeln, nicht unsere.
+        self._geo_zuletzt: float = 0.0
 
     def start(self) -> None:
         # Den Stand der letzten Regen-Vorwarnung wieder aufnehmen. Ohne
@@ -337,6 +345,7 @@ class Watchdog:
         await self._check_emergency()
         await self._check_presence()
         await self._check_week_ahead()
+        await self._check_losfahren(entities)
         await self._check_family_cleanup()
         await self._check_meal_plan()
         await self._check_access()
@@ -1183,10 +1192,30 @@ class Watchdog:
                 self._gemahnt.pop(entity.id, None)
                 if before != "running":
                     await self._uebernahme_loeschen(entity.id)
+                # Kochgeräte (Punkt 248): Endet die Aufheizphase, ist der
+                # Ofen parat - genau der Moment, für den man sonst
+                # dreimal in die Küche läuft.
+                if ofen.kochgeraet(entity.label):
+                    phase = ofen.heizt_vor(
+                        entity.state.get("program"), entity.state.get("status")
+                    )
+                    war = self._vorheiz.get(entity.id, False)
+                    self._vorheiz[entity.id] = phase
+                    if war and not phase and before == "running":
+                        await self._kueche_durchsage(
+                            entity, "parat", ofen.parat_satz(entity.label)
+                        )
                 continue
             if before == "running" and state == "idle":
                 self._finished_at[entity.id] = now
                 self._log_cycle(entity, now)
+                # Und das Programmende: Die Waschküche wird später
+                # gemahnt (unten), das Essen ist *jetzt* fertig.
+                if ofen.kochgeraet(entity.label):
+                    self._vorheiz.pop(entity.id, None)
+                    await self._kueche_durchsage(
+                        entity, "fertig", ofen.fertig_satz(entity.label)
+                    )
                 continue
 
             since = self._finished_at.get(entity.id)
@@ -1219,6 +1248,125 @@ class Watchdog:
             self._gemahnt[entity.id] = gemahnt + 1
             titel, text = waschkueche.mahnsatz(entity.label, since, now, gemahnt)
             await self._notify(titel, text, "appliance", entity_id=entity.id)
+
+    async def _kueche_durchsage(self, entity: Any, kurz: str, satz: str) -> None:
+        """Parat/fertig aus der Küche: Push und Durchsage, jeder Weg für
+        sich - eine fehlende Box darf die Nachricht nicht verschlucken.
+
+        Die Durchsage geht wie beim Küchen-Timer an alle Boxen: Wer den
+        Ofen angeworfen hat, sitzt bis dahin oft woanders.
+        """
+        await self._notify(f"{entity.label} {kurz}", satz, "oven", entity_id=entity.id)
+        rule = self.rules.get("oven")
+        if rule is not None and not rule["enabled"]:
+            return
+        try:
+            from . import say
+
+            await say.speak(self.hub, satz)
+        except Exception as err:
+            log.info("Küchen-Durchsage nicht möglich: %s", err)
+
+    async def _check_losfahren(self, entities: list[Any]) -> None:
+        """«Jetzt losfahren» zum Termin mit Ort (Werkbank-Punkt 258).
+
+        Die Regeln stehen in losfahren.py; hier nur Takt, Nachschlagen
+        und Gedächtnis. Ohne Haus-Koordinaten in der config.yaml bleibt
+        der Wecker still - ab irgendwo lässt sich keine Fahrzeit
+        schätzen.
+        """
+        rule = self.rules.get("departure")
+        if rule is not None and not rule["enabled"]:
+            return
+        standort = self.hub.config.location or {}
+        try:
+            daheim = (float(standort["latitude"]), float(standort["longitude"]))
+        except (KeyError, TypeError, ValueError):
+            return
+        events: list[Any] = []
+        for entity in entities:
+            if entity.kind == "calendar" and isinstance(
+                entity.state.get("events"), list
+            ):
+                events.extend(entity.state["events"])
+        jetzt = datetime.now().astimezone()
+        termine = losfahren.kandidaten(events, jetzt)
+        if not termine:
+            return
+        puffer = int(self.rules["departure"]["params"]["buffer"])
+        orte = losfahren.orte_lesen(self.hub.data.get(losfahren.ORTE_KEY))
+        erinnert = losfahren.erinnert_lesen(self.hub.data.get(losfahren.ERINNERT_KEY))
+        neu: set[str] = set()
+        for termin in termine:
+            if termin["kennung"] in erinnert:
+                continue
+            koordinaten = await self._ort_koordinaten(str(termin["ort"]), orte)
+            if koordinaten is None:
+                continue
+            km = losfahren.luftlinie_km(*daheim, *koordinaten)
+            if km < losfahren.MINDEST_KM:
+                continue
+            minuten = losfahren.fahrminuten(km) + puffer
+            if not losfahren.faellig(termin["start"], minuten, jetzt):
+                continue
+            titel, text = losfahren.wecker_satz(
+                termin["summary"], termin["ort"], termin["start"], minuten
+            )
+            await self._notify(titel, text, "departure")
+            neu.add(termin["kennung"])
+        if neu:
+            self.hub.data.set(
+                losfahren.ERINNERT_KEY,
+                losfahren.erinnert_zeilen(
+                    self.hub.data.get(losfahren.ERINNERT_KEY), neu, time.time()
+                ),
+            )
+
+    async def _ort_koordinaten(
+        self, ort: str, orte: dict[str, tuple[float, float] | None]
+    ) -> tuple[float, float] | None:
+        """Einen Termin-Ort zu Koordinaten machen - mit Vorrat.
+
+        Jede Adresse wird genau einmal nachgeschlagen (Nominatim, offene
+        Daten von OpenStreetMap) und dann in der ``hub.data`` behalten -
+        auch ein «nicht gefunden», sonst fragte jede Runde denselben
+        Unsinn nach. Höchstens ein Nachschlagen je Minute: Das ist die
+        Hausordnung von Nominatim, und mehr braucht ein Familienkalender
+        nicht. Ein Netzfehler wird bewusst *nicht* gemerkt - die nächste
+        Runde darf es nochmals versuchen.
+        """
+        if ort in orte:
+            return orte[ort]
+        jetzt = time.time()
+        if jetzt - self._geo_zuletzt < 60:
+            return None
+        self._geo_zuletzt = jetzt
+        import aiohttp
+
+        try:
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(
+                timeout=timeout,
+                headers={"User-Agent": "HomePilot-Hub (Privathaushalt)"},
+            ) as session:
+                async with session.get(
+                    "https://nominatim.openstreetmap.org/search",
+                    params={"q": ort, "format": "json", "limit": "1"},
+                ) as response:
+                    response.raise_for_status()
+                    daten = await response.json()
+        except Exception as err:
+            log.debug("Ort «%s» nicht nachschlagbar: %s", ort, err)
+            return None
+        koordinaten: tuple[float, float] | None = None
+        if isinstance(daten, list) and daten and isinstance(daten[0], dict):
+            try:
+                koordinaten = (float(daten[0]["lat"]), float(daten[0]["lon"]))
+            except (KeyError, TypeError, ValueError):
+                koordinaten = None
+        orte[ort] = koordinaten
+        self.hub.data.set(losfahren.ORTE_KEY, losfahren.orte_zeilen(orte))
+        return koordinaten
 
     def _uebernahmen(self) -> dict[str, dict[str, Any]]:
         """Wer welchen Programmlauf übernommen hat, je Gerät.
