@@ -268,8 +268,17 @@ def zustand_aus_payload(
             changes["color_temp"] = payload["color_temp"]
     elif kind == EntityKind.COVER:
         if payload.get("position") is not None:
-            changes["position"] = int(payload["position"])
-            changes["state"] = "closed" if int(payload["position"]) <= 0 else "open"
+            # Dieselbe Einteilung wie bei Overkiz: «offen» heisst wirklich
+            # offen, nicht «nicht ganz unten». Vorher galt jede Stellung
+            # ueber null als offen - eine Store auf 5 % stand damit als
+            # «Offen» da, obwohl sie fast zu war. Das trifft nicht nur die
+            # Kachel: Ablaeufe, die «alles zu?» fragen, und das Widget
+            # lesen denselben Zustand.
+            position = max(0, min(100, int(payload["position"])))
+            changes["position"] = position
+            changes["state"] = (
+                "open" if position >= 99 else "closed" if position <= 1 else "partial"
+            )
     elif kind == EntityKind.LOCK and "state" in payload:
         changes["state"] = "locked" if str(payload["state"]).upper() == "LOCK" else "unlocked"
     elif kind == EntityKind.BUTTON and payload.get("action"):
