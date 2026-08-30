@@ -30,7 +30,7 @@ import {
 import { LernEintrag, mitLernen } from '../lib/ladenlernen';
 import { uhr, wochentagDatum, wochentagUhr } from '../lib/format';
 import { klimaLabel, klimaSensor } from '../lib/klimachip';
-import { anwesenheitsSatz, geburtstagsSatz, terminSatz } from '../lib/startkarte';
+import { geburtstagsSatz, terminSatz } from '../lib/startkarte';
 import { Person, anwesenheitsListe, werIstDaHinweis } from '../lib/ortung';
 import { tapped } from '../lib/haptics';
 import { kann } from '../lib/plattform';
@@ -252,7 +252,6 @@ export function TopStrip({
     : undefined;
 
   // Nur für die Karte gebraucht - im Chip-Modus bleibt alles beim Alten.
-  const anwesenheit = karte ? anwesenheitsSatz(entities) : null;
   const kalenderEvents = karte
     ? entities.find((entity) => entity.kind === 'calendar')?.state.events
     : undefined;
@@ -772,6 +771,19 @@ export function TopStrip({
   // Termin und Warnung stehen dort als Sätze statt als Chips.
   const handgriffChips = (
     <>
+      {people ? (
+        <Chip
+          icon="people-outline"
+          text={
+            people.state.state === 'on'
+              ? people.state.all
+                ? 'alle sind zuhause'
+                : 'jemand da'
+              : 'niemand da'
+          }
+          onPress={oeffneWerDa}
+        />
+      ) : null}
       {lightsOn > 0 ? (
         <Chip
           icon="bulb-outline"
@@ -862,38 +874,17 @@ export function TopStrip({
 
           {/* Die Uhr gross, statt des Wetters: Das Wetter hat seine eigene
               Karte beim Wetter-Gerät - die Uhrzeit hatte auf der
-              Startseite sonst keinen Platz mehr. Der Tipp auf die Zeile
-              öffnet weiterhin «Wer ist da». */}
-          <Pressable
-            onPress={oeffneWerDa}
-            disabled={!oeffneWerDa}
-            accessibilityRole={oeffneWerDa ? 'button' : undefined}
-            accessibilityLabel="Wer ist da?"
-            style={styles.karteWetter}
-          >
+              Startseite sonst keinen Platz mehr. Wer zuhause ist, steht
+              hier auf Wunsch nicht mehr; das «Wer ist da»-Fenster öffnet
+              der Chip «jemand da» unten. */}
+          <View style={styles.karteWetter}>
             <Text style={styles.karteTemp} maxFontSizeMultiplier={MAX_SCHRIFT}>
               {uhr(now)}
             </Text>
-            <View style={{ flexShrink: 1 }}>
-              <Text style={styles.karteWetterText} numberOfLines={1}>
-                {wochentagDatum(now)}
-              </Text>
-              {/* «alle sind zuhause» sagt der Hub nur, wenn er es von
-                  jedem weiss - dieselbe Vorsicht wie beim Chip. */}
-              {anwesenheit || hausAnwesend !== null ? (
-                <Text style={styles.karteWetterText} numberOfLines={1}>
-                  {anwesenheit ??
-                    (hausAnwesend === true
-                      ? people?.state.all
-                        ? 'alle sind zuhause'
-                        : 'jemand zuhause'
-                      : hausAnwesend === false
-                        ? 'niemand zuhause'
-                        : '')}
-                </Text>
-              ) : null}
-            </View>
-          </Pressable>
+            <Text style={styles.karteWetterText} numberOfLines={1}>
+              {wochentagDatum(now)}
+            </Text>
+          </View>
 
           {termin || geburtstag ? (
             <Pressable
