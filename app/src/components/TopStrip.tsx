@@ -845,9 +845,13 @@ export function TopStrip({
     return (
       <View>
         <LinearGradient
-          colors={[`${colors.accent}2E`, `${colors.accent}08`]}
+          // Kräftig oben links, nach unten rechts auslaufend - wie im
+          // gewählten Entwurf. Die zarte erste Fassung (18 % Deckung) las
+          // sich auf dem Telefon als einfarbige Fläche.
+          colors={[`${colors.accent}66`, `${colors.accent}24`, `${colors.accent}05`]}
+          locations={[0, 0.45, 1]}
           start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
+          end={{ x: 0.9, y: 1 }}
           style={[
             styles.karte,
             { backgroundColor: colors.gradient[1], borderColor: `${colors.accent}59` },
