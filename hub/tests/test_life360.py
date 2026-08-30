@@ -67,6 +67,23 @@ def test_position_kommt_als_text_und_wird_zu_zahlen():
     }
 
 
+def test_akku_null_heisst_keine_auskunft():
+    # Life360 schickt «0» als Zeichenkette auch dann, wenn es über den
+    # Akku nichts weiss - und zwar mitten zwischen richtigen Ständen. Als
+    # Zahl gelesen ergab das ein leeres Telefon: Der Wächter meldete «hat
+    # noch 0 %» im Minutentakt, während in der App 65 % standen. Ein
+    # Telefon mit wirklich null Prozent meldet ohnehin keine Position
+    # mehr.
+    position = parse_position(
+        {"location": {"latitude": "47.1381", "longitude": "7.9228",
+                      "timestamp": "1787500000", "battery": "0"}}
+    )
+    assert position is not None
+    assert position["battery"] is None
+    # Der Ort selbst bleibt gültig - nur die Akku-Auskunft fehlt.
+    assert position["latitude"] == 47.1381
+
+
 def test_ohne_ort_gibt_es_nichts_zu_melden():
     assert parse_position({"location": {}}) is None
     # 0/0 ist der Atlantik, nicht «unbekannt».

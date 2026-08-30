@@ -95,6 +95,29 @@ def test_battery_alert_only_below_the_limit():
     assert presence.battery_alert("Livia", None) is None
 
 
+def test_battery_alert_stays_quiet_at_zero_percent():
+    # Die Null ist keine Messung, sondern eine fehlende Auskunft: Life360
+    # schickt sie für Telefone, die gerade nichts über sich sagen. So kam
+    # «hat noch 0 %» im Minutentakt, während in der App 65 % standen.
+    assert presence.battery_alert("Bine", 0) is None
+    assert presence.battery_alert("Bine", "0") is None
+    # Ein Prozent ist dagegen eine Auskunft, und Vorwarnen nützt noch.
+    assert presence.battery_alert("Bine", 1) is not None
+
+
+def test_battery_recovered_needs_a_real_value_well_above_the_limit():
+    # Ohne Wert bleibt die Warnung gesagt: Eine Meldung ohne Akkustand
+    # darf sie nicht zurücksetzen, sonst kommt sie beim nächsten
+    # niedrigen Wert erneut - das war die Schleife.
+    assert presence.battery_recovered(None) is False
+    assert presence.battery_recovered(0) is False
+    # Knapp über der Grenze genügt nicht - sonst reicht ein Schwanken.
+    assert presence.battery_recovered(presence.BATTERY_LOW + 1) is False
+    # Wer wieder lädt, darf beim nächsten Mal erneut gewarnt werden.
+    assert presence.battery_recovered(presence.BATTERY_CLEAR) is True
+    assert presence.battery_recovered(80) is True
+
+
 def test_holiday_question_needs_everyone_away_for_a_day():
     jetzt = 1_000_000.0
     weg = [{"state": "away", "changed_at": jetzt - 30 * 3600}]
