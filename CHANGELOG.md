@@ -10,7 +10,7 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 **Neu**
 
 - **Die Startseite beginnt mit einer Begrüssungskarte.** Der obere
-  Teil - Begrüssung, Uhr, Verbindungspunkt, Wetter, wer zuhause ist,
+  Teil - Begrüssung, Uhr gross samt Datum, Verbindungspunkt, wer zuhause ist,
   nächster Termin samt Geburtstag, Wetterwarnung und die Handgriff-Chips
   (Lichter, offen, Einkaufen, saugt, Klima) - steht jetzt in einer
   gerahmten Karte. Alles bleibt antippbar wie bisher: dieselben Fenster

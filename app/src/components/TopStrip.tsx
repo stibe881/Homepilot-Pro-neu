@@ -146,8 +146,8 @@ export function TopStrip({
    *  Anzeige. */
   onLoadPresence?: () => Promise<Person[]>;
   /** Karten-Modus für die Startseite: Dieselben Angaben und Fenster,
-   *  aber als gerahmte Begrüssungskarte statt als Chip-Zeile - mit
-   *  Wetter gross, Anwesenheits-, Termin- und Warnungs-Satz. */
+   *  aber als gerahmte Begrüssungskarte statt als Chip-Zeile - mit der
+   *  Uhr gross, Anwesenheits-, Termin- und Warnungs-Satz. */
   karte?: boolean;
   /** Die Begrüssung («Hallo Stefan») - nur im Karten-Modus gesetzt. */
   gruss?: string;
@@ -252,7 +252,6 @@ export function TopStrip({
     : undefined;
 
   // Nur für die Karte gebraucht - im Chip-Modus bleibt alles beim Alten.
-  const wetter = karte ? entities.find((entity) => entity.kind === 'weather') : undefined;
   const anwesenheit = karte ? anwesenheitsSatz(entities) : null;
   const kalenderEvents = karte
     ? entities.find((entity) => entity.kind === 'calendar')?.state.events
@@ -853,38 +852,35 @@ export function TopStrip({
               <View
                 style={[styles.dot, { backgroundColor: statusColor(colors, status) }]}
               />
-              {/* Verbunden heisst: Die Uhr genügt. Alles andere - verbinde,
-                  getrennt, wartende Befehle - verdrängt sie; das ist dann
-                  die wichtigere Auskunft. */}
               <Text style={styles.chipText} maxFontSizeMultiplier={MAX_SCHRIFT}>
-                {status !== 'connected'
-                  ? STATUS_LABEL[status]
-                  : queued > 0
-                    ? `${queued} wartet`
-                    : uhr(now)}
+                {queued > 0
+                  ? `${STATUS_LABEL[status]} · ${queued} wartet`
+                  : STATUS_LABEL[status]}
               </Text>
             </View>
           </View>
 
-          {wetter || anwesenheit || hausAnwesend !== null ? (
-            <Pressable
-              onPress={oeffneWerDa}
-              disabled={!oeffneWerDa}
-              accessibilityRole={oeffneWerDa ? 'button' : undefined}
-              accessibilityLabel="Wer ist da?"
-              style={styles.karteWetter}
-            >
-              {wetter?.state.temperature != null ? (
-                <Text style={styles.karteTemp}>{String(wetter.state.temperature)}°</Text>
-              ) : null}
-              <View style={{ flexShrink: 1 }}>
-                {wetter ? (
-                  <Text style={styles.karteWetterText} numberOfLines={1}>
-                    {String(wetter.state.state ?? '')} · {wetter.name}
-                  </Text>
-                ) : null}
-                {/* «alle sind zuhause» sagt der Hub nur, wenn er es von
-                    jedem weiss - dieselbe Vorsicht wie beim Chip. */}
+          {/* Die Uhr gross, statt des Wetters: Das Wetter hat seine eigene
+              Karte beim Wetter-Gerät - die Uhrzeit hatte auf der
+              Startseite sonst keinen Platz mehr. Der Tipp auf die Zeile
+              öffnet weiterhin «Wer ist da». */}
+          <Pressable
+            onPress={oeffneWerDa}
+            disabled={!oeffneWerDa}
+            accessibilityRole={oeffneWerDa ? 'button' : undefined}
+            accessibilityLabel="Wer ist da?"
+            style={styles.karteWetter}
+          >
+            <Text style={styles.karteTemp} maxFontSizeMultiplier={MAX_SCHRIFT}>
+              {uhr(now)}
+            </Text>
+            <View style={{ flexShrink: 1 }}>
+              <Text style={styles.karteWetterText} numberOfLines={1}>
+                {wochentagDatum(now)}
+              </Text>
+              {/* «alle sind zuhause» sagt der Hub nur, wenn er es von
+                  jedem weiss - dieselbe Vorsicht wie beim Chip. */}
+              {anwesenheit || hausAnwesend !== null ? (
                 <Text style={styles.karteWetterText} numberOfLines={1}>
                   {anwesenheit ??
                     (hausAnwesend === true
@@ -895,9 +891,9 @@ export function TopStrip({
                         ? 'niemand zuhause'
                         : '')}
                 </Text>
-              </View>
-            </Pressable>
-          ) : null}
+              ) : null}
+            </View>
+          </Pressable>
 
           {termin || geburtstag ? (
             <Pressable
@@ -906,10 +902,21 @@ export function TopStrip({
               accessibilityRole={event ? 'button' : undefined}
               accessibilityLabel="Nächster Termin"
             >
+              {/* Sinnbilder statt Emojis - dieselben wie auf den Chips. */}
               <Text style={styles.karteZeile} numberOfLines={2}>
-                {termin ? `🗓 ${termin}` : null}
+                {termin ? (
+                  <>
+                    <Ionicons name="calendar-outline" size={12} color={colors.inkSoft} />{' '}
+                    {termin}
+                  </>
+                ) : null}
                 {termin && geburtstag ? '  ·  ' : null}
-                {geburtstag ? `🎁 ${geburtstag}` : null}
+                {geburtstag ? (
+                  <>
+                    <Ionicons name="gift-outline" size={12} color={colors.inkSoft} />{' '}
+                    {geburtstag}
+                  </>
+                ) : null}
               </Text>
             </Pressable>
           ) : null}
@@ -921,7 +928,7 @@ export function TopStrip({
               accessibilityLabel="Wetterwarnungen"
             >
               <Text style={styles.karteWarn} numberOfLines={1}>
-                ⚠{' '}
+                <Ionicons name="warning-outline" size={12} color={colors.warn} />{' '}
                 {String(
                   alerts.state.headline ??
                     alerts.state.event ??

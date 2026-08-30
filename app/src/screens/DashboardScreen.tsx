@@ -3256,12 +3256,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 // hinein.
                 karte={section === 'start'}
                 gruss={begruessung(settings, user, now)}
+                // Nur die laufenden Geräte - der Türhinweis stünde
+                // doppelt da, der Chip «offen» in der Karte sagt es schon.
                 zusatz={
                   section === 'start' ? (
-                    <>
-                      <RunningAppliances entities={entities} />
-                      <OpenDoors entities={entities} />
-                    </>
+                    <RunningAppliances entities={entities} />
                   ) : undefined
                 }
               />
