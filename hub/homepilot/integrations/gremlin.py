@@ -13,6 +13,8 @@ Der Gremlin macht kaputt, was man zum Prüfen braucht, und zwar planbar:
   - ``sensor_dropout`` - verschwindet regelmässig für eine Weile und kommt
     wieder (Erreichbarkeits-Flanken für Auslöser und Wächter).
   - ``sensor_wild``  - misst brav, liefert aber ab und zu einen Ausreisser.
+  - ``tv_zappelig``  - meldet nach jedem Tastendruck seinen Zustand neu und
+    sagt dazwischen kurz «aus», wie ein echter Android TV es tut.
 
 Konfiguration:
   - integration: gremlin
@@ -60,6 +62,42 @@ class GremlinIntegration(Integration):
             "Ausreisser-Sensor",
             state={"state": 50.0, "unit": "%"},
         )
+        # Ein Fernseher, der sich meldet wie ein echter.
+        #
+        # Ein Android TV schickt nach jedem Tastendruck seinen Zustand
+        # neu - und dazwischen steht dort für einen Moment «aus». Das ist
+        # kein Fehler des Geräts, sondern seine Bauart, und es ist die
+        # härteste Prüfung für die Oberfläche: Alles, was daran hängt, ob
+        # der Fernseher gerade «an» meldet, wird bei jedem Druck abgeräumt
+        # und neu aufgebaut. Genau so flog das offene
+        # Fernbedienungs-Blatt monatelang aus dem Baum - auf dem iPhone
+        # als Wegblinken zu sehen, sonst nirgends.
+        #
+        # Am zahmen Demo-Fernseher ist dieser Fehler unsichtbar. Deshalb
+        # steht der zappelige hier: Die Browser-Probe misst an ihm.
+        await self.add_entity(
+            "tv_zappelig",
+            EntityKind.MEDIA_PLAYER,
+            "Zappeliger Fernseher",
+            state={
+                "state": "on",
+                "app": "Plex",
+                "track": "Plex",
+                "volume": 20,
+                "has_screen": True,
+                "apps": [
+                    {"name": "Plex", "app": "com.plexapp.android"},
+                    {"name": "Zattoo", "app": "com.zattoo.player"},
+                ],
+            },
+            commands=[
+                "play", "pause", "next", "previous", "toggle",
+                "turn_on", "turn_off", "mute", "volume_up", "volume_down",
+                "launch_app", "sleep_timer",
+                "dpad_up", "dpad_down", "dpad_left", "dpad_right", "ok",
+                "home", "back",
+            ],
+        )
         self.start_task(self._misbehave())
 
     async def _misbehave(self) -> None:
@@ -99,7 +137,31 @@ class GremlinIntegration(Integration):
                     wild, {"state": round(45 + self._rng.uniform(0.0, 10.0), 1)}
                 )
 
+    async def _tv_meldet_sich(self, entity_id: str) -> None:
+        """Die Rückmeldung eines Android TV nach einem Tastendruck.
+
+        Erst «aus», einen Wimpernschlag später wieder «an» - so kommen
+        die Rückrufe der Bibliothek im Haus tatsächlich an, weil der
+        Fernseher seinen Zustand neu aufbaut, statt eine Taste einzeln zu
+        quittieren. Die Lücke dazwischen ist der ganze Punkt: Alles in
+        der Oberfläche, was an «meldet gerade an» hängt, verschwindet
+        darin kurz.
+        """
+        await asyncio.sleep(0.05)
+        await self.hub.registry.update_state(entity_id, {"state": "off"})
+        await asyncio.sleep(0.25)
+        await self.hub.registry.update_state(
+            entity_id, {"state": "on", "app": "Plex", "track": "Plex"}
+        )
+
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
+        # Der zappelige Fernseher nimmt jeden Befehl an - er ist nicht
+        # störrisch, sondern gesprächig. Sein Beitrag ist die Rückmeldung
+        # danach, nicht das Verschlucken davor.
+        if entity.id.endswith(".tv_zappelig"):
+            self.start_task(self._tv_meldet_sich(entity.id))
+            return
+
         # Jeder dritte Befehl scheitert - deterministisch gezählt, nicht
         # gewürfelt: «beim dritten Mal klemmt es» lässt sich so gezielt
         # vorführen und in Tests nachstellen.

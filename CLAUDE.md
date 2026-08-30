@@ -79,7 +79,32 @@ ESLint auf, dem Bündler aber sofort.
 
 Für Layout-Fragen («sieht das auf dem iPad richtig aus?») braucht es
 keinen echten Hub. Ein Demo-Hub, die Web-Fassung und ein Browser genügen –
-und man kann dabei messen statt schauen:
+und man kann dabei messen statt schauen.
+
+**Der kurze Weg** – einmal einrichten, danach ein Aufruf:
+
+```bash
+npm --prefix scripts install && npm --prefix scripts run browser   # einmalig
+scripts/probe.sh              # bauen, messen, aufräumen
+scripts/probe.sh --ohne-bau   # den letzten Web-Bau wiederverwenden
+```
+
+Gemessen wird, was von Auge nicht verlässlich zu sehen ist, und jede
+Messung stammt aus einem Fehler, der wirklich passiert ist: ob etwas
+seitlich hinausragt (iPad und iPhone), ob ein offenes Blatt bei jedem
+Tastendruck stehen bleibt, und ob ein Tipp den Hub überhaupt erreicht.
+Dieselbe Probe läuft in `.github/workflows/pruefung.yml`.
+
+Dass sie wirklich misst, ist nachgewiesen: Mit dem alten Fehler in
+`EntityCard` meldet sie «12-mal aus dem Dokument geflogen», ohne ihn
+nichts. Ein Prüfstand, der nie rot wird, ist keiner.
+
+Der zappelige Fernseher dafür kommt vom Gremlin
+(`integrations/gremlin.py`): Er meldet nach jedem Tastendruck seinen
+Zustand neu und sagt dazwischen kurz «aus» – wie ein echter Android TV.
+Am zahmen Demo-Fernseher wäre die Messung wertlos.
+
+**Von Hand** – wenn man dazwischen selbst klicken will:
 
 ```bash
 # 1. Hub mit der Demo-Integration, auf einem eigenen Port

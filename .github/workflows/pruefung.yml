@@ -43,7 +43,7 @@ jobs:
       # auffrischt – Fehler darin merkt man erst beim übernächsten Lauf.
       # shellcheck hält es sauber, bevor es auf dem Host landet.
       - name: Auslieferungs-Skripte (shellcheck)
-        run: shellcheck --severity=warning deploy/*.sh
+        run: shellcheck --severity=warning deploy/*.sh scripts/*.sh
       # Die Typprüfung darf vorerst rot sein, ohne den Lauf zu stoppen:
       # Sie kommt in ein gewachsenes Projekt und meldet zu Beginn viel.
       # Sobald die Zahl bei null ist, kommt das continue-on-error weg.
@@ -82,3 +82,45 @@ jobs:
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
         run: npx expo export --platform web --output-dir /tmp/webbau
+
+  # Die Browser-Probe: der einzige Schritt, der die App wirklich bedient.
+  #
+  # tsc, ESLint und der Web-Bau prüfen den Baum, nicht das Verhalten. Was
+  # sie nicht sehen: eine Spalte, die seitlich hinausragt; ein Blatt, das
+  # bei jedem Tastendruck abgeräumt wird; ein Druck, der nie beim Hub
+  # ankommt. Alle drei sind hier wirklich passiert, keiner davon fiel
+  # einer der anderen Prüfungen auf.
+  #
+  # Eigener Job, weil er beide Seiten braucht - Hub und App - und weil er
+  # einen Browser lädt. Er soll die schnellen Prüfungen nicht aufhalten.
+  probe:
+    name: Browser-Probe – bedient die App
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Hub einrichten
+        working-directory: hub
+        run: pip install -e .
+      - name: App einrichten
+        working-directory: app
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: npm ci --no-audit --no-fund
+      # Playwright liegt bewusst neben der App, nicht in ihr: Wer nur an
+      # der Oberfläche arbeitet, soll nicht bei jedem npm ci einen ganzen
+      # Browser herunterladen.
+      - name: Browser holen
+        run: |
+          npm --prefix scripts ci --no-audit --no-fund
+          npm --prefix scripts run browser
+      - name: Messen
+        run: scripts/probe.sh
