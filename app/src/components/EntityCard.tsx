@@ -25,6 +25,7 @@ import { ColorRow } from './ColorRow';
 import { Sky } from './CoverVisual';
 import { isTelevision } from '../lib/geraeteart';
 import { medienSchalter } from '../lib/medienschalter';
+import { musiklisteMoeglich } from '../lib/blattgrund';
 import { fernbedienungMoeglich, tvKopf, tvTeile } from '../lib/fernsehkachel';
 import { TvApps, appsOf } from './TvApps';
 import { TvVolume } from './TvVolume';
@@ -589,16 +590,6 @@ export function EntityCard({
             </Pressable>
             <Fortschritt entity={entity} onCommand={onCommand} />
             <MedienExtras entity={entity} onCommand={onCommand} />
-            <Musikliste
-              state={entity.state}
-              offen={listeOffen}
-              onClose={() => setListeOffen(false)}
-              onPlay={
-                entity.commands.includes('play_queue')
-                  ? (uri) => onCommand('play_queue', { uri })
-                  : undefined
-              }
-            />
             {fernseher ? teile.lautstaerke && <TvVolume entity={entity} onCommand={onCommand} /> : null}
             {/* Beim Fernseher steht statt der drei Transportknöpfe das
                 Steuerkreuz: «weiter» springt je nach App irgendwohin, und
@@ -653,27 +644,6 @@ export function EntityCard({
             ) : null}
             {(fernseher ? teile.timer : entity.commands.includes('sleep_timer')) ? (
               <TvSleep entity={entity} onCommand={onCommand} />
-            ) : null}
-            {/* Hier steht bewusst NICHT `hasRemote`: Das entscheidet über
-                den Knopf und hängt am gemeldeten Zustand - und der
-                Fernseher meldet nach jedem Tastendruck kurz «off». Das
-                offene Blatt flog damit bei jedem Druck aus dem Baum und
-                wurde neu aufgebaut: auf dem iPhone ein sichtbares
-                Wegblinken, im Browser als Aushängen gemessen. Was das
-                Blatt am Leben hält, darf sich im Betrieb nicht ändern -
-                siehe lib/fernsehkachel.ts, fernbedienungMoeglich. */}
-            {fernbedienungMoeglich(entity) ? (
-              <TvRemote
-                visible={remoteOpen}
-                name={entity.name}
-                onClose={() => setRemoteOpen(false)}
-                onCommand={onCommand}
-                // Dieselben Apps wie in der Auswahl der Kachel - das Blatt
-                // deckt die Kachel zu, also muss der Wechsel auch hier gehen.
-                apps={entity.commands.includes('launch_app') ? appsOf(entity) : []}
-                fehler={remoteOpen ? fehler : null}
-                onFehlerWeg={onFehlerWeg}
-              />
             ) : null}
             {entity.commands.includes('set_volume') ? (
               <View style={styles.volumeRow}>
@@ -1225,6 +1195,45 @@ export function EntityCard({
                 ]
               : []),
           ]}
+        />
+      ) : null}
+      {/* ── Die Blätter dieser Kachel ────────────────────────────────
+          Alle an einer Stelle, und keines mehr im Kachelkörper: Dort
+          standen sie zwischen Knöpfen, deren Bedingungen sich im Betrieb
+          ändern - und ein Blatt verschwindet in dem Moment, in dem die
+          Bedingung darüber falsch wird. Die Fernbedienung hing so an
+          «der Fernseher meldet an», und ein Android TV meldet nach jedem
+          Tastendruck kurz «aus»: Bei jedem Druck flog das offene Blatt
+          aus dem Baum und baute sich neu auf. Auf dem iPhone sah man ein
+          Wegblinken, sonst nichts.
+
+          Was ein Blatt hier am Leben hält, steht im Betrieb fest:
+          Geräteart und Befehlsliste, beide vom Hub beim Anlegen. Die
+          Regel und ihre Begründung: lib/blattgrund.ts. Gemessen wird sie
+          in scripts/probe.sh. */}
+      {musiklisteMoeglich(entity) ? (
+        <Musikliste
+          state={entity.state}
+          offen={listeOffen}
+          onClose={() => setListeOffen(false)}
+          onPlay={
+            entity.commands.includes('play_queue')
+              ? (uri) => onCommand('play_queue', { uri })
+              : undefined
+          }
+        />
+      ) : null}
+      {fernbedienungMoeglich(entity) ? (
+        <TvRemote
+          visible={remoteOpen}
+          name={entity.name}
+          onClose={() => setRemoteOpen(false)}
+          onCommand={onCommand}
+          // Dieselben Apps wie in der Auswahl der Kachel - das Blatt
+          // deckt die Kachel zu, also muss der Wechsel auch hier gehen.
+          apps={entity.commands.includes('launch_app') ? appsOf(entity) : []}
+          fehler={remoteOpen ? fehler : null}
+          onFehlerWeg={onFehlerWeg}
         />
       ) : null}
       {onSetRoom && rooms ? (
