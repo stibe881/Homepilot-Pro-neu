@@ -23,6 +23,56 @@ export interface EigeneVorlage {
   draft: Partial<Draft>;
 }
 
+/** Die Reihenfolge der Vorlagen-Gruppen - Eigene zuerst, denn wer sich
+ *  eine gesichert hat, sucht sie und nicht den Vorschlag des Hubs. */
+export const VORLAGEN_GRUPPEN = [
+  'Eigene',
+  'Kommen & Gehen',
+  'Licht',
+  'Storen & Wetter',
+  'Klingel & Kameras',
+  'Sicherheit',
+  'Haushalt',
+  'Weitere',
+] as const;
+
+/**
+ * In welche Gruppe eine Vorlage gehört (rein, testbar).
+ *
+ * Am Namen statt an einem Feld je Vorlage: 32 Zeilen in einer flachen
+ * Liste liest niemand mehr - aber die Namen sagen alle, wovon sie
+ * handeln. Die Reihenfolge der Regeln zählt: «Wäsche meldet sich erst
+ * beim Heimkommen» ist Haushalt, nicht Kommen & Gehen.
+ */
+export function vorlagenGruppe(label: string): string {
+  if (/klingel|kamera/i.test(label)) return 'Klingel & Kameras';
+  if (/storen|hitzeschutz|sturm|unwetter|lamellen/i.test(label)) return 'Storen & Wetter';
+  if (/wäsche|saugen|gerät|grill|batterie/i.test(label)) return 'Haushalt';
+  if (/scharf/i.test(label)) return 'Sicherheit';
+  if (/licht/i.test(label)) return 'Licht';
+  if (/heim|geht$|niemand|zuhause|ferienmodus|willkommen/i.test(label)) {
+    return 'Kommen & Gehen';
+  }
+  return 'Weitere';
+}
+
+/** Die Vorlagen nach Gruppen, in fester Reihenfolge (rein, testbar). */
+export function gruppiereVorlagen(
+  zeilen: VorlagenZeile[]
+): { titel: string; zeilen: VorlagenZeile[] }[] {
+  const gruppen = new Map<string, VorlagenZeile[]>();
+  for (const zeile of zeilen) {
+    const titel = zeile.eigen ? 'Eigene' : vorlagenGruppe(zeile.label);
+    const liste = gruppen.get(titel) ?? [];
+    liste.push(zeile);
+    gruppen.set(titel, liste);
+  }
+  return VORLAGEN_GRUPPEN.filter((titel) => gruppen.has(titel)).map((titel) => ({
+    titel,
+    zeilen: gruppen.get(titel)!,
+  }));
+}
+
 /** Eine Zeile der Vorlagenliste - eingebaut oder eigen. */
 export interface VorlagenZeile {
   key: string;
@@ -488,42 +538,9 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
     });
   }
   if (cover) {
-    templates.push({
-      label: 'Storen zu bei Sonnenuntergang',
-      icon: 'moon-outline',
-      draft: {
-        ...EMPTY,
-        alias: 'Storen zu bei Sonnenuntergang',
-        triggers: [{ ...EMPTY_TRIGGER, kind: 'sun', sunEvent: 'sunset', sunOffset: '0' }],
-        steps: [
-          {
-            ...EMPTY_STEP,
-            commandActions: covers.map((entity) => ({
-              entity_id: entity.id,
-              command: 'close',
-            })),
-          },
-        ],
-      },
-    });
-    templates.push({
-      label: 'Storen auf bei Sonnenaufgang',
-      icon: 'sunny-outline',
-      draft: {
-        ...EMPTY,
-        alias: 'Storen auf bei Sonnenaufgang',
-        triggers: [{ ...EMPTY_TRIGGER, kind: 'sun', sunEvent: 'sunrise', sunOffset: '0' }],
-        steps: [
-          {
-            ...EMPTY_STEP,
-            commandActions: covers.map((entity) => ({
-              entity_id: entity.id,
-              command: 'open',
-            })),
-          },
-        ],
-      },
-    });
+    // Die zwei einfachen Sonnen-Vorlagen sind in «Storen mit der Sonne
+    // auf/zu» aufgegangen - dieselbe Idee, aber mit Streuung und nicht
+    // vor sieben. Zwei fast gleiche Paare nebeneinander verwirren nur.
     if (alert) {
       // Hoch, nicht zu - und das ist keine Geschmacksfrage. Eine
       // geschlossene Aussenstore ist eine Fläche, in die der Wind

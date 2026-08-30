@@ -6,7 +6,14 @@
  * bearbeitet, will danach seine sehen und nicht beide.
  */
 import { EMPTY } from './entwurf';
-import { EigeneVorlage, Template, buildTemplates, mischeVorlagen } from './vorlagen';
+import {
+  EigeneVorlage,
+  Template,
+  buildTemplates,
+  gruppiereVorlagen,
+  mischeVorlagen,
+  vorlagenGruppe,
+} from './vorlagen';
 import { Entity } from '../../api/types';
 
 const eingebaut = (label: string): Template => ({
@@ -411,6 +418,37 @@ describe('die Storen- und Wächter-Vorlagen (August 2026)', () => {
     expect(mit).toContain('Storen mit der Sonne zu');
     const ohne = buildTemplates([wetter], []).map((v) => v.label);
     expect(ohne).not.toContain('Storen mit der Sonne auf');
+  });
+});
+
+describe('vorlagenGruppe', () => {
+  it('ordnet am Namen zu - die Reihenfolge der Regeln zählt', () => {
+    expect(vorlagenGruppe('Klingel-Ansage auf den Boxen')).toBe('Klingel & Kameras');
+    expect(vorlagenGruppe('Kameralicht bei Person in der Nacht')).toBe('Klingel & Kameras');
+    expect(vorlagenGruppe('Hitzeschutz: Storen bei Sommerhitze')).toBe('Storen & Wetter');
+    // «Heimkommen» im Namen, aber ein Haushaltsthema.
+    expect(vorlagenGruppe('Wäsche meldet sich erst beim Heimkommen')).toBe('Haushalt');
+    expect(vorlagenGruppe('Scharf, wenn der Letzte geht')).toBe('Sicherheit');
+    expect(vorlagenGruppe('Licht bei Bewegung, mit Nachlauf')).toBe('Licht');
+    expect(vorlagenGruppe('Der Letzte geht')).toBe('Kommen & Gehen');
+    expect(vorlagenGruppe('Irgendwas Neues')).toBe('Weitere');
+  });
+});
+
+describe('gruppiereVorlagen', () => {
+  it('stellt Eigene zuerst und hält die feste Reihenfolge', () => {
+    const zeilen = mischeVorlagen(
+      [eingebaut('Der Letzte geht'), eingebaut('Morgens saugen')],
+      [eigen('Reduit')],
+      []
+    );
+    const gruppen = gruppiereVorlagen(zeilen);
+    expect(gruppen.map((gruppe) => gruppe.titel)).toEqual([
+      'Eigene',
+      'Kommen & Gehen',
+      'Haushalt',
+    ]);
+    expect(gruppen[0].zeilen[0].label).toBe('Reduit');
   });
 });
 

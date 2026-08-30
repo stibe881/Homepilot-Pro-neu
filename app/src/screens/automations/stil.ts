@@ -178,7 +178,27 @@ export const makeStyles = (colors: Colors) =>
       borderWidth: 1,
       borderColor: colors.surfaceBorder,
     },
-    templateText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
+    templateText: { color: colors.ink, fontSize: 13, fontWeight: '600', flexShrink: 1 },
+    vorlagenGruppe: { gap: 6 },
+    vorlagenGruppeTitel: {
+      color: colors.onGradientSoft,
+      fontSize: 12,
+      fontWeight: '700',
+      textTransform: 'uppercase',
+      letterSpacing: 0.4,
+      marginTop: 8,
+    },
+    // Das Symbol in einer getönten Scheibe: Die Zeile bekommt einen
+    // Anker fürs Auge, und die Liste liest sich als Karten statt als
+    // Fliesstext mit Icons.
+    vorlagenSymbol: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: `${colors.accent}1A`,
+    },
     triggerNote: { color: colors.inkSoft, fontSize: 13, lineHeight: 18 },
     // Die Auslöser-Zeilen im Szenen-Editor: Verweise auf Abläufe.
     ausloeserZeile: {

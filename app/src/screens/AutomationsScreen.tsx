@@ -29,7 +29,7 @@ import { szenenFarben } from '../lib/szenenfarben';
 import { bandReihenfolge, bandZeile } from '../lib/tagesband';
 import { makeStyles } from './automations/stil';
 import { SCENE_ICONS, SceneDraft, SceneEditor } from './automations/szenen-editor';
-import { EigeneVorlage, buildTemplates, mischeVorlagen } from './automations/vorlagen';
+import { EigeneVorlage, buildTemplates, gruppiereVorlagen, mischeVorlagen } from './automations/vorlagen';
 
 /** Ein gegensätzlich geschaltetes Gerät aus /api/automations/conflicts. */
 interface Konflikt {
@@ -1082,7 +1082,12 @@ export function AutomationsScreen({
 
           {vorlagenOffen ? (
             <>
-              {alleVorlagen.map((vorlage) => (
+              {gruppiereVorlagen(alleVorlagen).map((gruppe) => (
+                <View key={gruppe.titel} style={styles.vorlagenGruppe}>
+                  {/* 32 Zeilen liest niemand als eine Liste - als sechs
+                      benannte Häppchen schon. */}
+                  <Text style={styles.vorlagenGruppeTitel}>{gruppe.titel}</Text>
+                  {gruppe.zeilen.map((vorlage) => (
                 <View key={vorlage.key} style={styles.vorlagenZeile}>
                   <Pressable
                     onPress={() => setDraft({ ...EMPTY, ...vorlage.draft })}
@@ -1094,12 +1099,14 @@ export function AutomationsScreen({
                       pressed && { opacity: 0.75 },
                     ]}
                   >
-                    <Ionicons
-                      name={vorlage.icon as keyof typeof Ionicons.glyphMap}
-                      size={14}
-                      color={colors.inkSoft}
-                    />
-                    <Text style={styles.templateText} numberOfLines={1}>
+                    <View style={styles.vorlagenSymbol}>
+                      <Ionicons
+                        name={vorlage.icon as keyof typeof Ionicons.glyphMap}
+                        size={15}
+                        color={colors.accent}
+                      />
+                    </View>
+                    <Text style={styles.templateText} numberOfLines={2}>
                       {vorlage.label}
                     </Text>
                   </Pressable>
@@ -1144,6 +1151,8 @@ export function AutomationsScreen({
                       color={colors.inkSoft}
                     />
                   </Pressable>
+                </View>
+                  ))}
                 </View>
               ))}
 

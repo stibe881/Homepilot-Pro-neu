@@ -9,6 +9,14 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Die Ablauf-Vorlagen sind gruppiert.** 32 Zeilen in einer flachen
+  Liste liest niemand - jetzt stehen sie unter benannten
+  Überschriften (Eigene, Kommen & Gehen, Licht, Storen & Wetter,
+  Klingel & Kameras, Sicherheit, Haushalt), jede Zeile trägt ihr
+  Symbol in einer getönten Scheibe. Die zwei einfachen
+  Sonnen-Vorlagen sind in «Storen mit der Sonne auf/zu»
+  aufgegangen - dieselbe Idee, aber mit Streuung und nicht vor
+  sieben; zwei fast gleiche Paare nebeneinander verwirren nur.
 - **Sechs neue Ablauf-Vorlagen und der Platzhalter `{termin}`.** Auf
   Wunsch dazugekommen: «Storen mit der Sonne auf/zu» (mit Streuung,
   morgens nicht vor sieben), «Hitzeschutz» (ab 26° alle Storen zu,
