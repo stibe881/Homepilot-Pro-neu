@@ -147,8 +147,21 @@ def test_eine_store_meldet_ihre_stellung():
     zu = z.zustand_aus_payload({"position": 0}, "cover", None, None)
     assert zu["state"] == "closed"
     halb = z.zustand_aus_payload({"position": 40}, "cover", None, None)
-    assert halb["state"] == "open"
+    assert halb["state"] == "partial"
     assert halb["position"] == 40
+    offen = z.zustand_aus_payload({"position": 100}, "cover", None, None)
+    assert offen["state"] == "open"
+
+
+def test_fast_zu_ist_nicht_offen():
+    """Der Fall aus dem Haus: alle Storen unten, in der App stand «Offen».
+
+    Vorher galt jede Stellung ueber null als offen. Fuenf Prozent Rest
+    sind keine offene Store - und die Frage «ist alles zu?» hing daran.
+    """
+    for stellung, erwartet in [(1, "closed"), (5, "partial"), (98, "partial"), (99, "open")]:
+        zustand = z.zustand_aus_payload({"position": stellung}, "cover", None, None)
+        assert zustand["state"] == erwartet, stellung
 
 
 def test_der_druck_ist_der_zustand_eines_tasters():
