@@ -310,7 +310,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         for scene in scenes:
             entities = [hub.registry.get(eid) for eid in scene["entity_ids"]]
             if all(
-                entity is not None and user.may_see(entity.id, entity.kind, entity.integration)
+                entity is not None and user.may_see(entity.id, entity.kind, entity.integration, entity.room)
                 for entity in entities
             ):
                 allowed.append(scene)
@@ -325,7 +325,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         if user.role == Role.GUEST:
             for entity_id in (action.get("entity_id") for action in scene.actions):
                 entity = hub.registry.get(entity_id or "")
-                if entity is None or not user.may_see(entity.id, entity.kind, entity.integration):
+                if entity is None or not user.may_see(entity.id, entity.kind, entity.integration, entity.room):
                     raise HTTPException(status_code=403, detail="Szene nicht freigegeben")
         return await hub.scenes.activate(scene_id)
 
@@ -336,7 +336,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         for entity_id in (action.get("entity_id") for action in scene.actions):
             entity = hub.registry.get(entity_id or "")
             if entity is None or not user.may_see(
-                entity.id, entity.kind, entity.integration
+                entity.id, entity.kind, entity.integration, entity.room
             ):
                 raise HTTPException(status_code=403, detail="Szene nicht freigegeben")
 

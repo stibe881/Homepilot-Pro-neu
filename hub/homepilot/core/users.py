@@ -225,6 +225,27 @@ class User:
     # andere. Gedacht für Levin und Lina - das eigene Zimmer ja, die
     # Alarmanlage und der Rest der Wohnung nicht.
     simple_rooms: list[str] = field(default_factory=list)
+    # Rechte je Raum: Leer heisst «das ganze Haus» - so war es immer und
+    # so bleibt es für alle, die nichts einstellen. Steht etwas drin,
+    # sieht und schaltet diese Person *nur* dort.
+    #
+    # Warum es das braucht, obwohl es simple_rooms schon gibt: Die
+    # Kinder-Ansicht ist eine *Ansicht*. Sie räumt den Rest der Wohnung
+    # aus dem Bild, aber nicht aus der Reichweite - wer die Adresse des
+    # Hubs und sein Token hat, schaltet weiterhin die Haustüre. Bisher
+    # entschied darüber allein die Rolle, und die kann nur alles oder
+    # nichts: «Bewohner» heisst ganzes Haus, «Gast» heisst Freigaben und
+    # damit kein eigenes Zimmer.
+    #
+    # Es kann nur wegnehmen, nie hinzufügen: Die Prüfung steht *vor* den
+    # Gast-Regeln, nicht neben ihnen. Ein Gast mit Raum bekommt also den
+    # Schnitt aus beidem.
+    #
+    # Geräte ohne Raum fallen heraus. Das ist gewollt: «Nur diese Räume»
+    # heisst nicht «diese Räume und alles Ortlose» - der Stromzähler und
+    # die Anwesenheit gehören niemandem Bestimmten und sind genau das,
+    # wovor der Schnitt schützen soll.
+    rooms: list[str] = field(default_factory=list)
     # Kein einzelner Mensch, sondern ein Gerät, das allen gehört: das
     # Wandtablet im Flur, das Küchendisplay. Es meldet sich wie ein
     # Benutzer an, gehört aber keiner Person - angesprochen werden möchte
@@ -264,7 +285,23 @@ class User:
     def can(self, capability: str) -> bool:
         return capability in CAPABILITIES.get(self.role, frozenset())
 
-    def may_see(self, entity_id: str, kind: str, integration: str = "") -> bool:
+    def darf_raum(self, room: str | None) -> bool:
+        """Liegt dieses Gerät in einem Raum, den diese Person haben darf?
+
+        Ohne Einschränkung gilt das ganze Haus - der Normalfall, und der
+        Zustand, in dem alle Benutzer starten.
+        """
+        if not self.rooms:
+            return True
+        return bool(room) and room in self.rooms
+
+    def may_see(
+        self, entity_id: str, kind: str, integration: str = "", room: str | None = None
+    ) -> bool:
+        # Zuerst der Raum, und zwar für jede Rolle: Er nimmt weg, und was
+        # weggenommen ist, holt auch eine Freigabe nicht zurück.
+        if not self.darf_raum(room):
+            return False
         if self.role != Role.GUEST:
             return True
         if self.features:
@@ -301,6 +338,7 @@ class User:
             "active": self.active(),
             "email": self.email,
             "simple_rooms": list(self.simple_rooms),
+            "rooms": list(self.rooms),
             "shared": self.shared,
             # Nur die Tatsache, nie der Wert: Die App muss wissen, ob sie
             # fragen soll, nicht wonach.
@@ -472,6 +510,7 @@ class UserRegistry:
         expires: str | None = None,
         hours: dict[str, str] | None = None,
         simple_rooms: list[str] | None = None,
+        rooms: list[str] | None = None,
         shared: bool | None = None,
         area_password: str | None = None,
         role: str | None = None,
@@ -510,6 +549,8 @@ class UserRegistry:
             user.hours = parse_hours(hours)
         if simple_rooms is not None:
             user.simple_rooms = [str(r) for r in simple_rooms]
+        if rooms is not None:
+            user.rooms = [str(r) for r in rooms]
         if shared is not None:
             user.shared = bool(shared)
         if area_password is not None:
@@ -537,6 +578,7 @@ class UserRegistry:
                 "expires": user.expires,
                 "hours": dict(user.hours),
                 "simple_rooms": list(user.simple_rooms),
+                "rooms": list(user.rooms),
                 "shared": user.shared,
                 "area_lock": dict(user.area_lock),
             }
@@ -579,6 +621,9 @@ def parse_users(raw: list[dict[str, Any]], legacy_token: str | None) -> UserRegi
         simple_rooms = entry.get("simple_rooms") or []
         if not isinstance(simple_rooms, list):
             raise ConfigError(f"'simple_rooms' bei {name} muss eine Liste sein")
+        rooms = entry.get("rooms") or []
+        if not isinstance(rooms, list):
+            raise ConfigError(f"'rooms' bei {name} muss eine Liste sein")
         users.append(
             User(
                 name=str(name),
@@ -590,6 +635,7 @@ def parse_users(raw: list[dict[str, Any]], legacy_token: str | None) -> UserRegi
                 expires=str(entry["expires"]) if entry.get("expires") else None,
                 hours=parse_hours(entry.get("hours")),
                 simple_rooms=[str(r) for r in simple_rooms],
+                rooms=[str(r) for r in rooms],
                 shared=bool(entry.get("shared")),
                 area_lock={
                     str(k): str(v)

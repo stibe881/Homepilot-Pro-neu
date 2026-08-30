@@ -250,7 +250,7 @@ def create_app(hub: Hub) -> FastAPI:
         return [
             entity.as_dict()
             for entity in entities
-            if user.may_see(entity.id, entity.kind, entity.integration)
+            if user.may_see(entity.id, entity.kind, entity.integration, entity.room)
         ]
 
     def _user_name(request: Request) -> str:
@@ -336,7 +336,12 @@ def create_app(hub: Hub) -> FastAPI:
             ):
                 return
             entity = data.get("entity")
-            if entity and not user.may_see(entity["id"], entity["kind"], entity.get("integration", "")):
+            if entity and not user.may_see(
+                entity["id"],
+                entity["kind"],
+                entity.get("integration", ""),
+                entity.get("room"),
+            ):
                 return
             queue.put_nowait({"type": event_type, **data})
 
@@ -376,7 +381,10 @@ def create_app(hub: Hub) -> FastAPI:
                     entity_id = message.get("entity_id", "")
                     entity = hub.registry.get(entity_id)
                     if not user.can(Capability.CONTROL) or (
-                        entity is not None and not user.may_see(entity.id, entity.kind, entity.integration)
+                        entity is not None
+                        and not user.may_see(
+                            entity.id, entity.kind, entity.integration, entity.room
+                        )
                     ):
                         queue.put_nowait(
                             {

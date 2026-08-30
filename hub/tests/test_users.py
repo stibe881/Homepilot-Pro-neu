@@ -293,3 +293,61 @@ def test_rename_verweigert_benutzer_aus_der_config():
         raise AssertionError("config-Benutzer wurde umbenannt")
     except HomePilotError as err:
         assert "config.yaml" in str(err)
+
+
+# ── Rechte je Raum ───────────────────────────────────────────────────────
+#
+# Ein Kind soll sein Zimmer schalten dürfen, aber nicht die Haustüre und
+# nicht die Alarmanlage. Über die Rolle ging das nicht: «Bewohner» heisst
+# ganzes Haus, «Gast» heisst Freigaben nach Geräteart - und damit kein
+# eigenes Zimmer.
+
+
+def test_ohne_raumliste_gilt_weiter_das_ganze_haus():
+    """Der Normalfall und der Zustand, in dem alle Benutzer starten."""
+    resident = registry([OWNER, RESIDENT]).by_token("t-resident")
+    assert resident.may_see("ring.haustuer", "camera", "ring", "Flur")
+    assert resident.may_see("hue.decke", "light", "hue", None)
+
+
+def test_mit_raumliste_bleibt_der_rest_der_wohnung_draussen():
+    levin = registry(
+        [OWNER, {"name": "Levin", "role": "bewohner", "token": "t-levin",
+                 "rooms": ["Kinderzimmer Levin"]}]
+    ).by_token("t-levin")
+    assert levin.may_see("hue.levin", "light", "hue", "Kinderzimmer Levin")
+    assert not levin.may_see("nuki.haustuer", "lock", "nuki", "Flur")
+    assert not levin.may_see("alarm.haus", "alarm", "alarm", "Flur")
+
+
+def test_geraete_ohne_raum_fallen_heraus():
+    """«Nur diese Räume» heisst nicht «diese Räume und alles Ortlose».
+
+    Der Stromzähler und die Anwesenheit gehören niemandem Bestimmten -
+    und sind genau das, wovor der Schnitt schützen soll.
+    """
+    levin = registry(
+        [OWNER, {"name": "Levin", "role": "bewohner", "token": "t-levin",
+                 "rooms": ["Kinderzimmer Levin"]}]
+    ).by_token("t-levin")
+    assert not levin.may_see("geofence.anyone_home", "binary_sensor", "geofence", None)
+
+
+def test_der_raum_nimmt_weg_und_gibt_nie_dazu():
+    """Ein Gast mit Raum bekommt den Schnitt aus beidem.
+
+    Die Kamera im freigegebenen Raum bleibt gesperrt, weil «Kameras»
+    nicht freigegeben ist; die Lampe im fremden Raum bleibt gesperrt,
+    weil der Raum nicht dazugehört.
+    """
+    gast = registry(
+        [OWNER, {**GUEST, "features": ["licht"], "rooms": ["Gästezimmer"]}]
+    ).by_token("t-guest")
+    assert gast.may_see("hue.gast", "light", "hue", "Gästezimmer")
+    assert not gast.may_see("ring.gast", "camera", "ring", "Gästezimmer")
+    assert not gast.may_see("hue.wohnzimmer", "light", "hue", "Wohnzimmer")
+
+
+def test_eine_kaputte_raumliste_faellt_beim_laden_auf():
+    with pytest.raises(ConfigError):
+        registry([OWNER, {**RESIDENT, "rooms": "Kinderzimmer"}])

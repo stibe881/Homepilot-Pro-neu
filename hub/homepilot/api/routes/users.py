@@ -74,6 +74,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                     expires=body.expires or None,
                     hours=users_module.parse_hours(body.hours),
                     simple_rooms=[str(r) for r in body.simple_rooms],
+                    rooms=[str(r) for r in body.rooms],
                     shared=body.shared,
                     # In der App angelegt: wird gespeichert und ist dort
                     # auch wieder löschbar.
@@ -200,6 +201,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 expires=body.expires,
                 hours=body.hours,
                 simple_rooms=body.simple_rooms,
+                rooms=body.rooms,
                 shared=body.shared,
                 area_password=body.area_password,
                 role=body.role,

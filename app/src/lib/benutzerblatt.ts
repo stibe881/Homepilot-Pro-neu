@@ -68,3 +68,19 @@ export function kinderStand(rooms?: string[] | null): string {
   if (anzahl === 0) return 'aus';
   return anzahl === 1 ? '1 Raum' : `${anzahl} Räume`;
 }
+
+/**
+ * «Wie weit reicht diese Person?» (rein, testbar)
+ *
+ * Leere Liste heisst das ganze Haus – und das muss dastehen, nicht bloss
+ * fehlen: Der Abschnitt sieht sonst aus wie eine Einstellung, die man
+ * noch machen muss, während er in Wahrheit genau richtig steht.
+ *
+ * Anders als bei der Kinder-Ansicht steht hier der Name, solange es nur
+ * einer ist: «Kinderzimmer Levin» beantwortet die Frage, «1 Raum» nicht.
+ */
+export function reichweiteStand(rooms?: string[] | null): string {
+  const liste = (rooms ?? []).filter((name) => String(name ?? '').trim());
+  if (liste.length === 0) return 'ganzes Haus';
+  return liste.length === 1 ? liste[0] : `${liste.length} Räume`;
+}

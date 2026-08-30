@@ -459,3 +459,68 @@ def test_der_letzte_besitzer_bleibt_besitzer():
             == 200
         )
         assert hub.users.by_name("Stibe").role == "bewohner"
+
+
+# ── Rechte je Raum ───────────────────────────────────────────────────────
+#
+# Die Kinder-Ansicht räumt den Rest der Wohnung aus dem Bild, aber nicht
+# aus der Reichweite: Wer die Adresse des Hubs und sein Token hat,
+# schaltet weiterhin die Haustüre. Deshalb wird hier geprüft, was der
+# Hub selbst durchsetzt - nicht, was die App zeigt.
+
+
+def raum_client() -> TestClient:
+    hub = Hub(
+        HubConfig(
+            api=ApiConfig(),
+            integrations=[{"integration": "demo"}],
+            users=[
+                *USERS,
+                {
+                    "name": "Levin",
+                    "role": "bewohner",
+                    "token": "t-levin",
+                    "rooms": ["Wohnzimmer"],
+                },
+            ],
+            rooms={
+                "Wohnzimmer": ["demo.light_livingroom"],
+                "Flur": ["demo.motion_hall"],
+            },
+        )
+    )
+    return TestClient(create_app(hub))
+
+
+def test_wer_nur_einen_raum_hat_sieht_auch_nur_diesen():
+    with raum_client() as client:
+        ids = [
+            entity["id"]
+            for entity in client.get("/api/entities", headers=auth("t-levin")).json()
+        ]
+        assert "demo.light_livingroom" in ids
+        assert "demo.motion_hall" not in ids
+        # Für alle anderen ändert sich nichts.
+        alle = [
+            entity["id"]
+            for entity in client.get("/api/entities", headers=auth("t-resident")).json()
+        ]
+        assert "demo.motion_hall" in alle
+
+
+def test_der_riegel_haelt_auch_beim_schalten():
+    """Die Liste zu filtern genügt nicht: Wer die Geräte-Id kennt,
+    schickt den Befehl auch ohne sie."""
+    with raum_client() as client:
+        erlaubt = client.post(
+            "/api/entities/demo.light_livingroom/command",
+            json={"command": "turn_on"},
+            headers=auth("t-levin"),
+        )
+        assert erlaubt.status_code == 200
+        gesperrt = client.post(
+            "/api/entities/demo.motion_hall/command",
+            json={"command": "turn_on"},
+            headers=auth("t-levin"),
+        )
+        assert gesperrt.status_code in (403, 404)

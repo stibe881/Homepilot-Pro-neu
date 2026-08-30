@@ -309,7 +309,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             for scene in hub.scenes.scenes
         ]
         for entity in hub.registry.all():
-            if not user.may_see(entity.id, entity.kind, entity.integration):
+            if not user.may_see(entity.id, entity.kind, entity.integration, entity.room):
                 continue
             for command in ("turn_on", "turn_off", "open", "close"):
                 if command not in entity.commands:
@@ -677,7 +677,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         sichtbar = [
             entity
             for entity in hub.registry.all()
-            if user.may_see(entity.id, entity.kind, entity.integration)
+            if user.may_see(entity.id, entity.kind, entity.integration, entity.room)
         ]
         raeume: dict[str, list[dict[str, Any]]] = {}
         for name in hub.known_rooms():
@@ -813,7 +813,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         visible = [
             entity
             for entity in hub.registry.all()
-            if user.may_see(entity.id, entity.kind, entity.integration)
+            if user.may_see(entity.id, entity.kind, entity.integration, entity.room)
         ]
         price = float((hub.config.energy or {}).get("price_per_kwh") or 0)
         return {

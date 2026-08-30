@@ -66,7 +66,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         for item in wanted:
             entity = hub.registry.get(item.entity_id)
             if entity is None or not user.may_see(
-                entity.id, entity.kind, entity.integration
+                entity.id, entity.kind, entity.integration, entity.room
             ):
                 raise HTTPException(status_code=404, detail="Unbekanntes Gerät")
             if item.command not in entity.commands:

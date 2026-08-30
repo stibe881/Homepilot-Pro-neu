@@ -403,6 +403,7 @@ class Hub:
                         enabled=bool(entry.get("enabled", True)),
                         features=entry.get("features") or [],
                         simple_rooms=entry.get("simple_rooms") or [],
+                        rooms=entry.get("rooms") or [],
                         # Ohne diese beiden verlor ein in der App angelegter
                         # Gast sein Ablaufdatum und Zeitfenster beim ersten
                         # Neustart - still, und genau dann, wenn man sich

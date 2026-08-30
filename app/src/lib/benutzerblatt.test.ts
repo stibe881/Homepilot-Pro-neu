@@ -2,6 +2,7 @@ import {
   artStand,
   ersterWeg,
   kinderStand,
+  reichweiteStand,
   sichtschutzStand,
   zugangStand,
 } from './benutzerblatt';
@@ -56,5 +57,20 @@ describe('Was im zugeklappten Kopf steht', () => {
     expect(kinderStand([])).toBe('aus');
     expect(kinderStand(['Küche'])).toBe('1 Raum');
     expect(kinderStand(['Küche', 'Bad', 'Levins Zimmer'])).toBe('3 Räume');
+  });
+});
+
+describe('reichweiteStand', () => {
+  it('sagt ausdrücklich, dass ohne Auswahl alles gilt', () => {
+    // Fehlt der Satz, sieht der Abschnitt aus wie eine Einstellung, die
+    // man noch machen muss - während er richtig steht.
+    expect(reichweiteStand(null)).toBe('ganzes Haus');
+    expect(reichweiteStand([])).toBe('ganzes Haus');
+  });
+
+  it('nennt den einen Raum beim Namen', () => {
+    // «1 Raum» beantwortet die Frage nicht, «Kinderzimmer Levin» schon.
+    expect(reichweiteStand(['Kinderzimmer Levin'])).toBe('Kinderzimmer Levin');
+    expect(reichweiteStand(['Küche', 'Bad'])).toBe('2 Räume');
   });
 });

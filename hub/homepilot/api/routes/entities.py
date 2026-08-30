@@ -86,7 +86,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """
         user = current_user(request)
         entity = hub.registry.get(entity_id)
-        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration):
+        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration, entity.room):
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         service = hub.integrations.get(entity.integration)
         getter = getattr(service, "events", None)
@@ -154,7 +154,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     async def get_entity(entity_id: str, request: Request) -> dict[str, Any]:
         user = current_user(request)
         entity = hub.registry.get(entity_id)
-        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration):
+        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration, entity.room):
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         return entity.as_dict()
 
@@ -164,7 +164,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     ) -> dict[str, Any]:
         user = require(request, Capability.CONTROL)
         entity = hub.registry.get(entity_id)
-        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration):
+        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration, entity.room):
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         hub.audit.record(
             user.name, entity, body.command, throttle_module.client_address(request)
@@ -370,7 +370,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """
         user = current_user(request)
         entity = hub.registry.get(entity_id)
-        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration):
+        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration, entity.room):
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         integration = hub.integrations.get(entity.integration)
         getter = getattr(integration, "clip", None)
@@ -413,7 +413,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """
         user = current_user(request)
         entity = hub.registry.get(entity_id)
-        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration):
+        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration, entity.room):
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         integration = hub.integrations.get(entity.integration)
         if integration is None:
@@ -445,7 +445,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """
         user = current_user(request)
         entity = hub.registry.get(entity_id)
-        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration):
+        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration, entity.room):
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         # Die Spanne kommt mit: Ohne sie kann die App nicht sagen, ob
         # «drei Einträge» wenig Betrieb heisst oder ein junger Hub.
@@ -472,7 +472,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 # Ein Gerät, das es nicht mehr gibt: Der Eintrag bleibt
                 # lesbar, denn er trägt seinen Namen selbst.
                 return True
-            return user.may_see(entity.id, entity.kind, entity.integration)
+            return user.may_see(entity.id, entity.kind, entity.integration, entity.room)
 
         ereignisse = hub.eventlog.rueckblick(hours, limit, darf)
         namen = {}
@@ -491,7 +491,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """Kamera-Entität samt Integration – oder ein sauberes 404."""
         user = current_user(request)
         entity = hub.registry.get(entity_id)
-        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration):
+        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration, entity.room):
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         integration = hub.integrations.get(entity.integration)
         if integration is None:

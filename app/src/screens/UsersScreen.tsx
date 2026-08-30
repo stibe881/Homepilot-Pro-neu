@@ -17,6 +17,7 @@ import {
   artStand,
   ersterWeg,
   kinderStand,
+  reichweiteStand,
   sichtschutzStand,
   Weg,
   WEGE,
@@ -95,6 +96,8 @@ interface HubUser {
   active?: boolean;
   /** Kinder-Ansicht: nur diese Räume, als grosse Knöpfe. */
   simple_rooms?: string[];
+  /** Rechte je Raum: leer = ganzes Haus, sonst nur diese Räume. */
+  rooms?: string[];
   /** Gemeinschaftsgerät (Wandtablet, Küchendisplay) statt einer Person. */
   shared?: boolean;
   /** Vor den persönlichen Bereichen liegt ein Passwort. Nur ob, nie welches. */
@@ -1027,6 +1030,56 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                             <Text style={styles.rotateText}>Riegel entfernen</Text>
                           </Pressable>
                         ) : null}
+                      </View>
+                    </Klappe>
+                  ) : null}
+
+                  {detail.editable ? (
+                    <Klappe
+                      label="Reicht bis"
+                      stand={reichweiteStand(detail.rooms)}
+                      zuBeginnZu
+                    >
+                      <Text style={styles.formHint}>
+                        Angetippte Räume sind die einzigen, die diese Person
+                        sieht und schaltet – alles andere weist der Hub ab,
+                        auch am Ende einer Leitung, die an der App vorbeigeht.
+                        Nichts angetippt = ganzes Haus.
+                      </Text>
+                      <Text style={styles.formHint}>
+                        Anders als die Kinder-Ansicht darunter: Die räumt den
+                        Rest der Wohnung aus dem Bild, nicht aus der
+                        Reichweite. Geräte ohne Raum – Stromzähler,
+                        Anwesenheit – fallen mit heraus.
+                      </Text>
+                      <View style={styles.roleRow}>
+                        {roomNames.map((room) => {
+                          const active = (detail.rooms ?? []).includes(room);
+                          return (
+                            <Pressable
+                              key={room}
+                              onPress={() => {
+                                const current = detail.rooms ?? [];
+                                const next = active
+                                  ? current.filter((entry) => entry !== room)
+                                  : [...current, room];
+                                patchUser(detail.name, { rooms: next });
+                              }}
+                              accessibilityRole="checkbox"
+                              accessibilityState={{ checked: active }}
+                              style={[styles.roleChip, active && styles.roleChipActive]}
+                            >
+                              <Text
+                                style={[
+                                  styles.roleChipText,
+                                  active && styles.roleChipTextActive,
+                                ]}
+                              >
+                                {room}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
                       </View>
                     </Klappe>
                   ) : null}

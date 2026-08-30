@@ -255,6 +255,9 @@ class UserRequest(BaseModel):
     hours: dict[str, str] = {}
     # Kinder-Ansicht: nur diese Räume, als grosse Knöpfe.
     simple_rooms: list[str] = []
+    # Rechte je Raum: leer = ganzes Haus, sonst nur diese Räume. Anders
+    # als simple_rooms eine Schranke und keine Ansicht (core/users.py).
+    rooms: list[str] = []
     # Gemeinschaftsgerät (Wandtablet, Küchendisplay) statt einer Person.
     shared: bool = False
 
@@ -274,6 +277,8 @@ class UserUpdateRequest(BaseModel):
     hours: dict[str, str] | None = None
     # Kinder-Ansicht an/aus bzw. Räume ändern; leere Liste hebt sie auf.
     simple_rooms: list[str] | None = None
+    # Rechte je Raum; leere Liste gibt das ganze Haus wieder frei.
+    rooms: list[str] | None = None
     # Gemeinschaftsgerät statt Person – siehe core/users.py.
     shared: bool | None = None
     # Passwort vor den persönlichen Bereichen; leerer Text nimmt es weg.

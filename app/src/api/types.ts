@@ -110,6 +110,10 @@ export interface User {
   email?: string | null;
   /** Kinder-Ansicht: nur diese Räume, als grosse Knöpfe. */
   simple_rooms?: string[];
+  /** Rechte je Raum: leer = ganzes Haus, sonst sieht und schaltet diese
+   *  Person nur dort. Anders als simple_rooms eine Schranke und keine
+   *  Ansicht – der Hub weist alles Übrige ab (core/users.py). */
+  rooms?: string[];
   /** Gemeinschaftsgerät statt Person: das Wandtablet im Flur. Nachrichten
    *  bekommt es wie jeder andere - dort im Flur sind sie am richtigen
    *  Ort -, aber es wird nicht mit Namen begrüsst, meldet sich nie ab,
