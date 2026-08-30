@@ -49,6 +49,7 @@ from . import (
     uvwarnung,
     vorrat,
     waschkueche,
+    wlanschein,
 )
 from .entity import EntityKind
 
@@ -326,6 +327,7 @@ class Watchdog:
         await self._check_maintenance()
         await self._check_shopping(entities)
         await self._check_vorrat()
+        await self._check_wlanscheine()
         await self._check_medications()
         await self._check_birthdays()
         await self._check_morgen(entities)
@@ -610,6 +612,43 @@ class Watchdog:
             [str(staple.get("text") or "").strip() for staple in dran]
         )
         await self._notify(titel, text, category="shopping")
+
+    async def _check_wlanscheine(self) -> None:
+        """Abgelaufene Gäste-Gutscheine wegräumen.
+
+        Der UniFi-Controller zählt die Gültigkeit erst ab der ersten
+        Anmeldung. Ein gezogener, nie benutzter Code läge dort deshalb
+        für immer - und der abfotografierte Aufkleber von letztem Sommer
+        wäre eine Dauerkarte. Zwölf Stunden ab dem Ziehen kann nur der
+        Hub durchsetzen, also tut er es hier (siehe core/wlanschein.py).
+
+        Der Eintrag im Buch fällt auch dann weg, wenn der Controller
+        gerade nicht antwortet: Sonst versucht der Wächter es im
+        Minutentakt weiter, und die Liste wüchse. Ein Gutschein, der im
+        Controller überlebt, ist ärgerlich; einer, den der Hub für ewig
+        im Buch führt, ist ein Fehler, der nie aufhört.
+        """
+        buch = self.hub.data.get("wifi_vouchers")
+        if not buch:
+            return
+        gueltig, weg = wlanschein.aufteilen(buch, time.time())
+        if not weg:
+            return
+        unifi = self.hub.integrations.get("unifi")
+        for eintrag in weg:
+            voucher_id = str(eintrag.get("id") or "")
+            if not voucher_id or unifi is None or not hasattr(unifi, "delete_voucher"):
+                continue
+            try:
+                await unifi.delete_voucher(voucher_id)
+            except Exception as err:
+                log.warning(
+                    "Gäste-WLAN: abgelaufener Gutschein %s nicht gelöscht: %s",
+                    eintrag.get("code") or voucher_id,
+                    err,
+                )
+        log.info("Gäste-WLAN: %s abgelaufene Gutscheine weggeräumt", len(weg))
+        self.hub.data.set("wifi_vouchers", gueltig)
 
     def _benutzer_zur_zone(
         self, zone_id: str | None, namen: dict[str, str]

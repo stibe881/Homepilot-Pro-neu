@@ -95,6 +95,49 @@ def render(text: str) -> str | None:
     return "\n".join(lines)
 
 
+def svg(text: str, size: int = 240) -> str | None:
+    """Denselben Code als eingebettetes SVG - für die Gästeseite.
+
+    ``render`` oben zeichnet mit Halbblöcken fürs Terminal; im Browser
+    braucht es ein Bild. Eingebettet und nicht als Datei: Die Seite, auf
+    der es steht, muss auch dann vollständig sein, wenn vom Hub sonst
+    nichts erreichbar ist (siehe api/invitepage.py).
+
+    Ein Rechteck je dunkles Feld wäre die naheliegende Lösung und
+    ergäbe ein paar hundert Elemente. Stattdessen wird je Zeile ein Pfad
+    gezogen; das Ergebnis ist ein Bruchteil so gross und zeichnet
+    schneller.
+    """
+    try:
+        import qrcode
+    except ImportError:  # pragma: no cover - qrcode ist Grundabhängigkeit
+        return None
+
+    code = qrcode.QRCode(border=2)
+    code.add_data(text)
+    code.make(fit=True)
+    matrix = code.get_matrix()
+    kanten = len(matrix)
+    pfad = []
+    for y, zeile in enumerate(matrix):
+        x = 0
+        while x < kanten:
+            if not zeile[x]:
+                x += 1
+                continue
+            start = x
+            while x < kanten and zeile[x]:
+                x += 1
+            pfad.append(f"M{start} {y}h{x - start}v1h-{x - start}z")
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" '
+        f'viewBox="0 0 {kanten} {kanten}" shape-rendering="crispEdges" '
+        'role="img" aria-label="QR-Code">'
+        f'<rect width="{kanten}" height="{kanten}" fill="#fff"/>'
+        f'<path d="{"".join(pfad)}" fill="#000"/></svg>'
+    )
+
+
 def setup_hint(users: UserRegistry, host: str, port: int) -> str:
     """Text samt QR-Code, den der Hub beim Start ausgibt."""
     owner = next(

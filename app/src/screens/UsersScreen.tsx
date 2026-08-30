@@ -28,6 +28,12 @@ import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { einladungFrist } from '../lib/einladung';
 import { gaesteansicht } from '../lib/gaestewlan';
+import {
+  Aufkleberstand,
+  aufkleberSatz,
+  huerde,
+  offenSatz,
+} from '../lib/wlanaufkleber';
 import { besitzerZahl, darfRolleAendern } from '../lib/rollenwahl';
 import { DoorPass } from '../components/DoorPass';
 import { Fehlschlag, Laedt } from '../components/Zustand';
@@ -1243,6 +1249,33 @@ function GuestWifiCard({
   >(null);
   const [voucherNote, setVoucherNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Der Aufkleber: Adresse, offene Codes und was ihn hindert.
+  const [aufkleber, setAufkleber] = useState<Aufkleberstand | null>(null);
+  const [aufkleberOffen, setAufkleberOffen] = useState(false);
+
+  const ladeAufkleber = () => {
+    // Ein Hub, der die Route noch nicht kennt, soll die Karte nicht rot
+    // machen - dann fällt der Abschnitt einfach weg.
+    hub
+      .get<Aufkleberstand | null>('/api/wifi/sticker', { fallback: null, still: true })
+      .then(setAufkleber);
+  };
+
+  const neuerAufkleber = async () => {
+    setBusy(true);
+    try {
+      setAufkleber(
+        await hub.post<Aufkleberstand>('/api/wifi/sticker/rotate', undefined, {
+          still: true,
+        })
+      );
+      setVoucherNote('Neuer Aufkleber - der alte gilt nicht mehr.');
+    } catch (err) {
+      setVoucherNote(String(err instanceof Error ? err.message : err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const loadVouchers = () => {
     // Ohne Antwort bleibt die Karte beim letzten Stand.
@@ -1271,6 +1304,7 @@ function GuestWifiCard({
         if (data?.payload) setWifi(data);
       });
     loadVouchers();
+    ladeAufkleber();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.url, settings.token]);
 
@@ -1392,6 +1426,80 @@ function GuestWifiCard({
             selbst. Passt zur Einmal-Türöffnung: Besuch bekommt Tür und
             WLAN aus derselben Karte.
           </Text>
+        </>
+      ) : null}
+
+      {/* Der Aufkleber. Er steht über dem Vorrat, weil er den Normalfall
+          bedient: Besuch holt sich den Code selbst, und niemand muss
+          etwas vorlesen. Der Vorrat darunter bleibt für den Gast ohne
+          Kamera und für den, dem man einen Code voraus geben will. */}
+      {open && aufkleber ? (
+        <>
+          <Pressable
+            onPress={() => setAufkleberOffen((wert) => !wert)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: aufkleberOffen }}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+          >
+            <Text style={[styles.formLabel, { flex: 1, marginTop: 0 }]}>
+              Aufkleber für Gäste
+            </Text>
+            {offenSatz(aufkleber) ? (
+              <Text style={styles.qrHint}>{offenSatz(aufkleber)}</Text>
+            ) : null}
+            <Ionicons
+              name={aufkleberOffen ? 'chevron-up' : 'chevron-down'}
+              size={16}
+              color={colors.inkSoft}
+            />
+          </Pressable>
+          <Text style={styles.qrHint}>{aufkleberSatz(aufkleber)}</Text>
+          {huerde(aufkleber) ? (
+            <Text style={[styles.qrHint, { color: colors.warn }]}>
+              {huerde(aufkleber)}
+            </Text>
+          ) : null}
+
+          {aufkleberOffen ? (
+            <>
+              <View style={styles.qrBox}>
+                <QRCode value={aufkleber.url} size={190} backgroundColor="#FFFFFF" />
+              </View>
+              {/* Die Adresse auch als Text: zum Abtippen aufs Wandpanel
+                  und zum Nachsehen, ob sie stimmt. */}
+              <Text style={styles.qrHint} selectable>
+                {aufkleber.url}
+              </Text>
+              {aufkleber.open.length > 0 ? (
+                <>
+                  <Text style={styles.formLabel}>Gerade offen</Text>
+                  {aufkleber.open.map((eintrag) => (
+                    <Text key={eintrag.code} style={styles.qrHint}>
+                      {eintrag.code} · {eintrag.left}
+                    </Text>
+                  ))}
+                </>
+              ) : null}
+              {canConfigure ? (
+                <Pressable
+                  onPress={neuerAufkleber}
+                  disabled={busy}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [
+                    styles.voucherChip,
+                    { alignSelf: 'flex-start' },
+                    (pressed || busy) && { opacity: 0.6 },
+                  ]}
+                >
+                  <Text style={styles.voucherChipText}>Neuer Aufkleber</Text>
+                </Pressable>
+              ) : null}
+              <Text style={styles.qrHint}>
+                Ausdrucken und aufhängen. Ein neuer Aufkleber macht alle
+                ausgedruckten ungültig - gezogene Codes laufen trotzdem ab.
+              </Text>
+            </>
+          ) : null}
         </>
       ) : null}
 
