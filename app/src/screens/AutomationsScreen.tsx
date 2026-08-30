@@ -22,7 +22,7 @@ import {
 } from '../lib/szenen';
 import { BabysitterStand, LEERER_BABYSITTER, istFreigegeben, modusSatz, seitText } from '../lib/babysitter';
 import { Editor, Fassung } from './automations/editor';
-import { Automation, Draft, DryRun, EMPTY, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, namensVorschlag, newTrigger, runLine, search, stepToActions, stepsToActions, symbolFuerNamen, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, wirkungText, zeitpunktLabel } from './automations/entwurf';
+import { Automation, Draft, DryRun, EMPTY, EMPTY_STEP, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, namensVorschlag, newTrigger, runLine, search, stepToActions, stepsToActions, symbolFuerNamen, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, wirkungText, zeitpunktLabel } from './automations/entwurf';
 import { Groups, SearchBox } from './automations/felder';
 import { laeuft, tippLabel, unterzeile } from '../lib/szenenzeile';
 import { szenenFarben } from '../lib/szenenfarben';
@@ -1811,6 +1811,46 @@ export function AutomationsScreen({
         onTest={sceneDraft?.id ? () => testScene(sceneDraft.id!) : undefined}
         onRevert={revertScene}
         onVersions={sceneDraft?.id ? loadSceneVersions : undefined}
+        // Die Abläufe, die diese Szene starten - und der Absprung dorthin.
+        // Nur bei gespeicherten Szenen: Ein Auslöser braucht die Kennung.
+        ausloeser={
+          sceneDraft?.id && automations
+            ? automations
+                .filter((automation) =>
+                  automation.actions.some(
+                    (schritt) => schritt?.scene === sceneDraft.id
+                  )
+                )
+                .map((automation) => ({
+                  id: automation.id,
+                  alias: automation.alias,
+                  enabled: automation.enabled !== false,
+                }))
+            : []
+        }
+        onAusloeser={
+          sceneDraft?.id
+            ? (automationId) => {
+                const szene = sceneDraft;
+                setSceneDraft(null);
+                if (automationId) {
+                  const gefunden = automations?.find(
+                    (automation) => automation.id === automationId
+                  );
+                  if (gefunden) setDraft(toDraft(gefunden));
+                  return;
+                }
+                // Ein neuer Auslöser: ein gewöhnlicher Ablauf, dessen
+                // einziger Schritt die Szene ist. Auslöser und Rest
+                // füllt der Ablauf-Editor - der kann das schon.
+                setDraft({
+                  ...EMPTY,
+                  alias: `Szene «${szene.name || 'Ohne Namen'}»`,
+                  steps: [{ ...EMPTY_STEP, kind: 'scene', sceneId: szene.id! }],
+                });
+              }
+            : undefined
+        }
         onRestoreVersion={
           sceneDraft?.id
             ? (at) => restoreVersion('scene', sceneDraft.id!, at)

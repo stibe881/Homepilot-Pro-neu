@@ -9,6 +9,23 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Die Haustür-Karte erscheint erst im Anmarsch.** Sie lag bisher
+  den ganzen Arbeitstag auf dem Sperrbildschirm, sobald jemand weg
+  war - ein Türöffner ohne Face ID nützt aber nur auf den letzten
+  Metern. Jetzt startet sie erst näher als drei Kilometer (die
+  Quartier-Zone) und endet zuhause wie bisher.
+- **Tippen greift zuverlässiger.** Jede Meldung vom Hub (jeder
+  Temperaturtick) zeichnete sofort die ganze Startseite neu - ein
+  Tipp währenddessen ging verloren: «Ich muss oft zweimal drücken.»
+  Zustands-Meldungen werden jetzt über 120 ms gesammelt und in einem
+  Zug angewendet; die Verzögerung liegt unter dem, was ein Daumen
+  bemerkt.
+- **Szenen haben jetzt Auslöser.** Im Szenen-Editor steht der neue
+  Abschnitt «Auslöser»: Er zeigt die Abläufe, die diese Szene
+  starten, und legt auf Wunsch einen neuen an - vorbefüllt mit dem
+  Schritt «Szene», den Rest (Zeit, Bewegung, Heimkommen) kann der
+  Ablauf-Editor schon. Bewusst kein zweiter Auslöser-Editor: Es
+  gibt einen, und zwei wachsen auseinander.
 - **Szenen können sich nach einer Frist von selbst zurücknehmen.** Im
   Editor steht neu «Schaltet von selbst zurück» (Nie, 15/30 Min,
   1/2 Std) - der Sternenhimmel im Kinderzimmer soll nicht bis morgen

@@ -180,6 +180,28 @@ export const makeStyles = (colors: Colors) =>
     },
     templateText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
     triggerNote: { color: colors.inkSoft, fontSize: 13, lineHeight: 18 },
+    // Die Auslöser-Zeilen im Szenen-Editor: Verweise auf Abläufe.
+    ausloeserZeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 11,
+      paddingHorizontal: 12,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    ausloeserText: { color: colors.ink, fontSize: 14, fontWeight: '600', flex: 1 },
+    ausloeserAus: { color: colors.inkFaint, fontSize: 12 },
+    ausloeserNeu: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+    },
+    ausloeserNeuText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
     triggerBox: {
       gap: 8,
       padding: 12,
