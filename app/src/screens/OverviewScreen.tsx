@@ -47,7 +47,12 @@ import {
 import { DurchsagePrefs } from '../hooks/usePrefs';
 import { DURCHSAGE_ID, favoritenOrdnen } from '../lib/favoritenordnung';
 import { haustuerZeile } from '../lib/klingel';
-import { KalenderZeile, geburtstagsListe, terminListe } from '../lib/kalenderliste';
+import {
+  KalenderGruppe,
+  geburtstagsListe,
+  terminGruppen,
+  terminListe,
+} from '../lib/kalenderliste';
 import { applianceLine } from '../lib/haushalt';
 import {
   aufnahmeFehler,
@@ -442,6 +447,7 @@ export function OverviewScreen({
   const [liste, setListe] = useState<'termine' | 'geburtstage' | null>(null);
   const jetztFuerListe = new Date();
   const alleTermine = terminListe(events, jetztFuerListe);
+  const terminTage = terminGruppen(events, jetztFuerListe);
   const alleGeburtstage = geburtstagsListe(events, jetztFuerListe);
 
   const termin = eventLine(nextEvent, 'Zahnarzt', 'Mo 14:30');
@@ -716,7 +722,13 @@ export function OverviewScreen({
       <KalenderFenster
         offen={liste !== null}
         titel={liste === 'geburtstage' ? 'Alle Geburtstage' : 'Alle Termine'}
-        zeilen={liste === 'geburtstage' ? alleGeburtstage : alleTermine}
+        // Termine nach Tagen gebündelt; die Geburtstage sind schon eine
+        // Rangliste («in 12 Tagen») - sie brauchen keine Überschriften.
+        gruppen={
+          liste === 'geburtstage'
+            ? [{ titel: '', zeilen: alleGeburtstage }]
+            : terminTage
+        }
         leer={
           liste === 'geburtstage'
             ? 'Im Kalender steht kein Geburtstag.'
@@ -1622,7 +1634,7 @@ function Badge({ label, styles }: { label: string; styles: OverviewStyles }) {
 function KalenderFenster({
   offen,
   titel,
-  zeilen,
+  gruppen,
   leer,
   onClose,
   styles,
@@ -1630,12 +1642,14 @@ function KalenderFenster({
 }: {
   offen: boolean;
   titel: string;
-  zeilen: KalenderZeile[];
+  /** Tage mit Überschrift - für die Geburtstage eine ohne (titel ''). */
+  gruppen: KalenderGruppe[];
   leer: string;
   onClose: () => void;
   styles: OverviewStyles;
   colors: Colors;
 }) {
+  const zeilenGesamt = gruppen.reduce((summe, gruppe) => summe + gruppe.zeilen.length, 0);
   return (
     <Modal visible={offen} animationType="slide" onRequestClose={onClose} transparent>
       <Pressable style={styles.fensterGrund} onPress={onClose}>
@@ -1652,25 +1666,48 @@ function KalenderFenster({
               <Ionicons name="close" size={24} color={colors.ink} />
             </Pressable>
           </View>
-          {zeilen.length === 0 ? (
+          {zeilenGesamt === 0 ? (
             <Text style={styles.fensterLeer}>{leer}</Text>
           ) : (
             <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
-              {zeilen.map((zeile) => (
-                <View key={zeile.key} style={styles.fensterZeile}>
-                  <Text style={styles.fensterName} numberOfLines={2}>
-                    {zeile.titel}
-                  </Text>
-                  <View style={styles.fensterUnten}>
-                    {zeile.wann ? (
-                      <Text style={styles.fensterWann}>{zeile.wann}</Text>
-                    ) : null}
-                    {zeile.ort ? (
-                      <Text style={styles.fensterOrt} numberOfLines={1}>
-                        · {zeile.ort}
-                      </Text>
-                    ) : null}
-                  </View>
+              {gruppen.map((gruppe) => (
+                <View key={gruppe.titel || 'alle'}>
+                  {gruppe.titel ? (
+                    <Text style={styles.fensterTag}>{gruppe.titel}</Text>
+                  ) : null}
+                  {gruppe.zeilen.map((zeile) => (
+                    <View key={zeile.key} style={styles.fensterZeile}>
+                      {/* Links die Uhrzeit in fester Breite - der Tag
+                          steht schon in der Überschrift. Ohne Tage
+                          (Geburtstage) trägt die Zeile ihr «wann» als
+                          Chip rechts. */}
+                      {gruppe.titel ? (
+                        <Text style={styles.fensterZeit}>
+                          {zeile.zeit ?? 'ganztägig'}
+                        </Text>
+                      ) : null}
+                      <View style={styles.fensterMitte}>
+                        <Text style={styles.fensterName} numberOfLines={2}>
+                          {zeile.titel}
+                        </Text>
+                        {zeile.ort ? (
+                          <View style={styles.fensterUnten}>
+                            <Ionicons
+                              name="location-outline"
+                              size={12}
+                              color={colors.inkFaint}
+                            />
+                            <Text style={styles.fensterOrt} numberOfLines={1}>
+                              {zeile.ort}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      {!gruppe.titel && zeile.wann ? (
+                        <Text style={styles.fensterChip}>{zeile.wann}</Text>
+                      ) : null}
+                    </View>
+                  ))}
                 </View>
               ))}
             </ScrollView>
@@ -1830,16 +1867,48 @@ const makeStyles = (colors: Colors) =>
     },
     fensterTitel: { color: colors.ink, fontSize: 18, fontWeight: '700' },
     fensterLeer: { color: colors.inkSoft, fontSize: 14, paddingVertical: 12 },
+    // Die Tagesüberschrift trennt die Liste in Tage - jede Zeile trägt
+    // dann nur noch ihre Uhrzeit statt «Di, 18:00» in jeder Zeile.
+    fensterTag: {
+      color: colors.inkSoft,
+      fontSize: 12,
+      fontWeight: '700',
+      textTransform: 'uppercase',
+      letterSpacing: 0.4,
+      marginTop: 14,
+      marginBottom: 2,
+    },
     fensterZeile: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 10,
       paddingVertical: 10,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.surfaceBorder,
-      gap: 3,
     },
+    // Feste Breite, damit die Titel untereinander fluchten - «ganztägig»
+    // ist das längste Wort, das hier steht.
+    fensterZeit: {
+      color: colors.inkSoft,
+      fontSize: 13,
+      fontVariant: ['tabular-nums'],
+      width: 64,
+      paddingTop: 1,
+    },
+    fensterMitte: { flex: 1, gap: 3 },
     fensterName: { color: colors.ink, fontSize: 15, fontWeight: '600' },
     fensterUnten: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     fensterWann: { color: colors.inkSoft, fontSize: 13 },
     fensterOrt: { color: colors.inkSoft, fontSize: 13, flexShrink: 1 },
+    fensterChip: {
+      color: colors.inkSoft,
+      fontSize: 13,
+      backgroundColor: colors.surfaceSoft,
+      borderRadius: radius.pill,
+      paddingVertical: 4,
+      paddingHorizontal: 10,
+      overflow: 'hidden',
+    },
     /** Der Auswahlknopf für die Box - ein Dropdown, keine Chipwand. */
     durchsageZiel: {
       flexDirection: 'row',

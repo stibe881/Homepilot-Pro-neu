@@ -4,6 +4,8 @@
  */
 import {
   alsZeitpunkt,
+  gruppenTitel,
+  terminGruppen,
   geburtstagsListe,
   istGeburtstag,
   tageBis,
@@ -162,3 +164,41 @@ describe('geburtstagsListe', () => {
     expect(zeilen[1].wann).toBe('');
   });
 });
+
+describe('gruppenTitel', () => {
+  const jetzt = new Date('2026-08-30T12:00:00'); // Sonntag
+
+  it('sagt Heute und Morgen statt eines Datums', () => {
+    expect(gruppenTitel('2026-08-30T18:00:00', jetzt)).toBe('Heute');
+    expect(gruppenTitel('2026-08-31T09:00:00', jetzt)).toBe('Morgen');
+  });
+
+  it('bleibt in der Woche beim Wochentag und hängt danach das Datum an', () => {
+    expect(gruppenTitel('2026-09-02T10:00:00', jetzt)).toBe('Mittwoch');
+    expect(gruppenTitel('2026-09-06T08:00:00', jetzt)).toBe('Sonntag, 6. September');
+  });
+});
+
+describe('terminGruppen', () => {
+  it('bündelt die Termine nach Tagen, in Kalender-Reihenfolge', () => {
+    const jetzt = new Date('2026-08-30T12:00:00');
+    const gruppen = terminGruppen(
+      [
+        { summary: 'Jugi', start: '2026-08-31T18:00:00' },
+        { summary: 'Elternabend', start: '2026-09-01', all_day: true },
+        { summary: 'Pro Senectute', start: '2026-09-01T10:00:00' },
+      ],
+      jetzt
+    );
+    expect(gruppen.map((gruppe) => gruppe.titel)).toEqual(['Morgen', 'Dienstag']);
+    expect(gruppen[1].zeilen.map((zeile) => zeile.zeit)).toEqual([null, '10:00']);
+  });
+
+  it('lässt Geburtstage draussen - die haben ihre eigene Liste', () => {
+    const jetzt = new Date('2026-08-30T12:00:00');
+    expect(
+      terminGruppen([{ summary: 'Levin Geburtstag', start: '2026-09-01' }], jetzt)
+    ).toEqual([]);
+  });
+});
+

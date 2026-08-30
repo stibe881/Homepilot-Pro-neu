@@ -9,6 +9,13 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **«Alle Termine» liest sich jetzt als Woche.** Die flache Liste
+  wiederholte den Tag in jeder Zeile («Di, 10:00», «Di, 18:00») -
+  man las Daten statt Termine. Jetzt bündeln Tagesüberschriften
+  (Heute, Morgen, Mittwoch, «Sonntag, 6. September») die Liste, und
+  jede Zeile trägt nur noch ihre Uhrzeit in einer festen Spalte -
+  die Titel fluchten. Der Ort steht mit Nadel-Symbol darunter, die
+  Geburtstags-Liste trägt ihr «in 12 Tagen» als Chip rechts.
 - **Die Haustür-Karte erscheint erst im Anmarsch.** Sie lag bisher
   den ganzen Arbeitstag auf dem Sperrbildschirm, sobald jemand weg
   war - ein Türöffner ohne Face ID nützt aber nur auf den letzten
