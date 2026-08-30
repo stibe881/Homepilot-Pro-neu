@@ -9,6 +9,14 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Auf dem Fernseher heisst Pause «Pause».** Die Kommando-Chips im
+  Szenen- und Ablauf-Editor sprachen von «Musik an/aus» - wer den Film
+  anhalten wollte, fand nichts Passendes. Auf einem Fernseher stehen
+  die Chips jetzt als «Weiter» und «Pause» da. Und weil derselbe
+  Fernseher zweimal in der Geräteliste steht (einmal als Android TV
+  mit Apps und Fernbedienung, einmal als Chromecast für Musik und
+  Durchsagen), trägt jeder Namensvetter seine Herkunft im Untertitel:
+  «Fernseher · Android TV» neben «Fernseher · Chromecast».
 - **Die Ablauf-Vorlagen sind gruppiert.** 32 Zeilen in einer flachen
   Liste liest niemand - jetzt stehen sie unter benannten
   Überschriften (Eigene, Kommen & Gehen, Licht, Storen & Wetter,

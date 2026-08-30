@@ -315,3 +315,18 @@ describe('Zieltemperatur', () => {
     expect(zieltemperaturStandard(grill('°F'))).toBe(300);
   });
 });
+
+describe('Pause auf dem Fernseher', () => {
+  it('nennt pause auf dem Fernseher «Pause», auf der Box «Musik aus»', () => {
+    // Wer den Film anhalten will, sucht keinen Musik-Chip. Erkannt wird
+    // der Fernseher wie überall sonst: am gemeldeten Bildschirm.
+    const tv = geraet('media_player', ['play', 'pause']);
+    tv.state = { ...tv.state, has_screen: true };
+    const box = geraet('media_player', ['play', 'pause']);
+    const namen = (entity: typeof tv) =>
+      commandOptions(entity, true).map((option) => option.label);
+    expect(namen(tv)).toEqual(expect.arrayContaining(['Pause', 'Weiter']));
+    expect(namen(box)).toEqual(expect.arrayContaining(['Musik aus', 'Musik an']));
+  });
+});
+

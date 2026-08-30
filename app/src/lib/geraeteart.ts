@@ -277,3 +277,39 @@ export function pickPlayer(entities: Entity[]): Entity | undefined {
     players[0]
   );
 }
+
+/** Lesbarer Name einer Integration - für den Untertitel im Wähler. */
+const INTEGRATION_NAMEN: Record<string, string> = {
+  google_cast: 'Chromecast',
+  androidtv: 'Android TV',
+  spotify: 'Spotify',
+  tunein: 'Radio',
+};
+
+/**
+ * Der Untertitel eines Geräts im Wähler (rein, testbar).
+ *
+ * Meist nur die Art («Fernseher»). Gibt es aber einen Namensvetter
+ * derselben Art - der Fernseher im Wohnzimmer steht als Android TV
+ * *und* als Chromecast da, beide «Fernseher» -, kommt die Herkunft
+ * dazu: «Fernseher · Chromecast». Sonst wählt man zweimal dasselbe
+ * Wort und weiss nicht, welches die Musik kann und welches die Apps.
+ */
+export function geraeteUntertitel(entity: Entity, alle: Entity[]): string {
+  const art = deviceKindLabel(entity);
+  const eigener = entity.name.trim().toLowerCase().replace(/\s+/g, ' ');
+  const vetter = alle.some(
+    (anderes) =>
+      anderes.id !== entity.id &&
+      anderes.kind === entity.kind &&
+      deviceKindLabel(anderes) === art &&
+      // «Fernseher Wohnzimmer» und «Fernseher im Wohnzimmer» meinen
+      // dasselbe Gerät - die Füllwörter zählen nicht.
+      anderes.name.trim().toLowerCase().replace(/\s+/g, ' ').replace(/\bim\b ?/g, '') ===
+        eigener.replace(/\bim\b ?/g, '')
+  );
+  if (!vetter) return art;
+  const herkunft = INTEGRATION_NAMEN[entity.integration] ?? entity.integration;
+  return `${art} · ${herkunft}`;
+}
+

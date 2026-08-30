@@ -14,6 +14,7 @@
  */
 
 import { Entity } from '../../api/types';
+import { isTelevision } from '../../lib/geraeteart';
 import {
   PRIVATSPHAERE_AUS,
   PRIVATSPHAERE_EIN,
@@ -97,11 +98,15 @@ export function baseCommandOptions(entity: Entity): { key: string; label: string
   if (entity.kind === 'media_player') {
     // «An» und «aus» nur, wo es sie gibt: Ein Fernseher lässt sich
     // schalten, eine Cast-Box hat keinen Netzschalter.
+    // Auf einem Fernseher heisst pause «Pause», nicht «Musik aus»: Wer
+    // den Film anhalten will, sucht keinen Musik-Chip - und fand darum
+    // keinen. Auf einer Box bleibt es bei Musik an/aus.
+    const tv = isTelevision(entity);
     const options = nimm([
       ['turn_on', 'ein'],
       ['turn_off', 'aus'],
-      ['play', 'Musik an'],
-      ['pause', 'Musik aus'],
+      ['play', tv ? 'Weiter' : 'Musik an'],
+      ['pause', tv ? 'Pause' : 'Musik aus'],
       ['set_volume', 'Lautstärke'],
     ]);
     if (kann('mute')) {

@@ -9,7 +9,7 @@ import { Pressable, Text, TextInput, View } from 'react-native';
 
 import { Entity } from '../../api/types';
 import { useColors } from '../../theme';
-import { deviceKindLabel } from '../../lib/geraeteart';
+import { deviceKindLabel, geraeteUntertitel } from '../../lib/geraeteart';
 import { PALETTE } from '../../components/ColorRow';
 import { RueckwegBefehl, SceneActionDraft, snapshotAction } from '../../lib/szenen';
 import { Fassung, VersionsSection } from './editor';
@@ -292,7 +292,7 @@ export function SceneDevices({
                     <Text style={styles.deviceName}>{entity.name}</Text>
                     {/* Wofür das Gerät steht. «Flur» allein sagt nicht, ob
                         das Licht oder der Melder gemeint ist. */}
-                    <Text style={styles.pickKind}>{deviceKindLabel(entity)}</Text>
+                    <Text style={styles.pickKind}>{geraeteUntertitel(entity, entities)}</Text>
                   </View>
                 </Pressable>
                 {included && !nurAuswahl ? (
