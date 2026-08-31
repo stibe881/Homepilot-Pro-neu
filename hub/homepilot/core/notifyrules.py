@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import push
+from . import push, waschkueche
 
 # Beschreibung je Parameter: Grenzen halten Tippfehler fern (eine Erinnerung
 # nach 0 Stunden wäre Dauerfeuer, eine Frostwarnung bei 40 °C nie still).
@@ -126,7 +126,10 @@ RULES: list[dict[str, Any]] = [
         "detail": "Erinnert an die fertige, aber nicht ausgeräumte Maschine. "
         "Mit einem Türkontakt in der Waschküche wird nachgehakt, bis "
         "jemand dort war – sonst bleibt es bei einer Nachricht je "
-        "Programmlauf.",
+        "Programmlauf. Nachts bleibt es still: Wer um zwei Uhr erfährt, "
+        "dass der Tumbler fertig ist, geht deswegen nicht hinunter. Die "
+        "Nachricht kommt am Morgen. Beide Zeiten gleich gesetzt heisst: "
+        "keine Nachtruhe.",
         "params": [
             {
                 "key": "hours",
@@ -136,7 +139,25 @@ RULES: list[dict[str, Any]] = [
                 "min": 1,
                 "max": 24,
                 "step": 1,
-            }
+            },
+            {
+                "key": "quiet_from",
+                "label": "Still ab",
+                "unit": "Uhr",
+                "default": waschkueche.RUHE_VON,
+                "min": 0,
+                "max": 23,
+                "step": 1,
+            },
+            {
+                "key": "quiet_to",
+                "label": "Wieder ab",
+                "unit": "Uhr",
+                "default": waschkueche.RUHE_BIS,
+                "min": 0,
+                "max": 23,
+                "step": 1,
+            },
         ],
     },
     {

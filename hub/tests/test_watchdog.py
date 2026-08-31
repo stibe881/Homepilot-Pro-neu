@@ -2,6 +2,7 @@
 
 import time
 
+from homepilot.core import waschkueche
 from homepilot.core.config import ApiConfig, HubConfig
 from homepilot.core.hub import Hub
 from homepilot.core.watchdog import (
@@ -153,9 +154,15 @@ async def test_a_weak_battery_is_reported_once():
         await hub.stop()
 
 
-async def test_a_finished_machine_is_remembered_once():
+async def test_a_finished_machine_is_remembered_once(monkeypatch):
     """Die Push beim Programmende geht unter, wenn man gerade nicht kann.
-    Erinnert wird deshalb später – aber nur einmal je Programm."""
+    Erinnert wird deshalb später – aber nur einmal je Programm.
+
+    Die Nachtruhe hängt hier aus: Sonst schlüge der Test zwischen 22 und
+    8 Uhr fehl, wo der Wächter mit Absicht schweigt (siehe
+    core/waschkueche.py und test_waschkueche.py).
+    """
+    monkeypatch.setattr(waschkueche, "ruhezeit", lambda *_, **__: False)
     hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
     await hub.start()
     try:

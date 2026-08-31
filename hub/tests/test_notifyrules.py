@@ -46,7 +46,16 @@ def test_broken_storage_falls_back_instead_of_crashing():
 def test_store_replaces_and_validates():
     stored = notifyrules.store([], "appliance", True, {"hours": 4})
     stored = notifyrules.store(stored, "appliance", False, {"hours": 6})
-    assert stored == [{"key": "appliance", "enabled": False, "params": {"hours": 6.0}}]
+    # Gespeichert wird die ganze Regel, auch die Werte, die niemand
+    # angefasst hat - sonst liesse sich später nicht mehr sagen, mit
+    # welchen Zahlen eine Nachricht rausging.
+    assert stored == [
+        {
+            "key": "appliance",
+            "enabled": False,
+            "params": {"hours": 6.0, "quiet_from": 22.0, "quiet_to": 8.0},
+        }
+    ]
 
     try:
         notifyrules.store([], "unbekannt", True, {})

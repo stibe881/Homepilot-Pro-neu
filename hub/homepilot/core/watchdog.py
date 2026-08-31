@@ -133,6 +133,10 @@ class Watchdog:
         # gemeldet»: Damit ging die Nachricht genau einmal raus, und wer
         # sie liegen liess, hörte nie wieder davon.
         self._gemahnt: dict[str, int] = {}
+        # Wann zuletzt gemahnt wurde. Der Abstand zählt ab hier und nicht
+        # ab dem Programmende - sonst wären nach der stillen Nacht alle
+        # liegengebliebenen Mahnungen um acht Uhr auf einmal fällig.
+        self._gemahnt_at: dict[str, float] = {}
         # Ob die Waschküchentüre in der letzten Runde offen stand - für
         # die Flanke. Der Zustand allein genügt nicht: Eine Türe, die
         # offen stehen bleibt, hiesse sonst in jeder Runde «war jemand da».
@@ -1229,6 +1233,7 @@ class Watchdog:
         if wer_da_war:
             self._finished_at.clear()
             self._gemahnt.clear()
+            self._gemahnt_at.clear()
             # Und die Übernahmen: Wer unten war, hat die Sache erledigt -
             # «Bine räumt aus» am Gerät stehen zu lassen, nachdem sie
             # ausgeräumt hat, wäre eine Auskunft von gestern.
@@ -1246,6 +1251,7 @@ class Watchdog:
                     self._started_at[entity.id] = now
                 self._finished_at.pop(entity.id, None)
                 self._gemahnt.pop(entity.id, None)
+                self._gemahnt_at.pop(entity.id, None)
                 if before != "running":
                     await self._uebernahme_loeschen(entity.id)
                 # Kochgeräte (Punkt 248): Endet die Aufheizphase, ist der
@@ -1293,15 +1299,20 @@ class Watchdog:
             if uebernahme is not None:
                 continue
             gemahnt = self._gemahnt.get(entity.id, 0)
+            params = self.rules["appliance"]["params"]
             if not waschkueche.faellig(
                 since,
                 gemahnt,
                 now,
-                self.rules["appliance"]["params"]["hours"],
+                params["hours"],
                 nachhaken=tuer is not None,
+                zuletzt=self._gemahnt_at.get(entity.id),
+                ruhe_von=params.get("quiet_from", waschkueche.RUHE_VON),
+                ruhe_bis=params.get("quiet_to", waschkueche.RUHE_BIS),
             ):
                 continue
             self._gemahnt[entity.id] = gemahnt + 1
+            self._gemahnt_at[entity.id] = now
             titel, text = waschkueche.mahnsatz(entity.label, since, now, gemahnt)
             await self._notify(titel, text, "appliance", entity_id=entity.id)
 

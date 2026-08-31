@@ -112,14 +112,60 @@ def test_irgendwann_ist_auch_mit_tuere_schluss():
     assert not waschkueche.faellig(fertig, waschkueche.HOECHSTENS, tag(20), 2, True)
 
 
-def test_nachts_wird_nicht_nachgehakt():
-    """Die Wäsche wartet, der Schlaf nicht - aber die erste Nachricht
-    gab es immer, und wer um halb zehn fertig ist, rechnet mit ihr."""
-    assert waschkueche.faellig(tag(21), 0, tag(23), 2, nachhaken=True)
-    assert not waschkueche.faellig(tag(20), 1, tag(23), 2, nachhaken=True)
+def test_nachts_kommt_gar_nichts():
+    """Auch die erste Nachricht nicht.
+
+    Lange ging sie trotzdem raus. Aber nachts wäscht in diesem Haushalt
+    niemand: Was um halb zwölf ankommt, weckt jemanden und ändert
+    nichts - die Trommel räumt um zwei Uhr keiner aus.
+    """
+    assert not waschkueche.faellig(tag(21), 0, tag(23), 2, nachhaken=True)
     assert not waschkueche.faellig(tag(20), 1, tag(6, 0, 13), 2, nachhaken=True)
-    # Am Morgen wird das Liegengebliebene nachgeholt.
-    assert waschkueche.faellig(tag(20), 1, tag(7, 30, 13), 2, nachhaken=True)
+
+
+def test_am_morgen_steht_sie_dann_da():
+    """Still heisst nicht weg: Um acht ist die Nachricht fällig, und sie
+    rechnet die Stunden seit dem Programmende."""
+    assert not waschkueche.faellig(tag(21), 0, tag(7, 30, 13), 2, nachhaken=True)
+    assert waschkueche.faellig(tag(21), 0, tag(8, 5, 13), 2, nachhaken=True)
+    _, text = waschkueche.mahnsatz("Tumbler", tag(21), tag(8, 5, 13), 0)
+    assert "11 Stunden" in text
+
+
+def test_nach_der_nacht_kommen_nicht_alle_mahnungen_auf_einmal():
+    """Der Abstand zählt ab der letzten Mahnung.
+
+    Ab dem Programmende gerechnet wären um acht Uhr alle vier
+    liegengebliebenen Mahnungen fällig - das Telefon klingelte viermal
+    innert vier Minuten.
+    """
+    fertig, letzte = tag(20), tag(21)
+    assert not waschkueche.faellig(
+        fertig, 1, tag(8, 5, 13), 2, nachhaken=True, zuletzt=tag(8, 0, 13)
+    )
+    assert waschkueche.faellig(
+        fertig, 1, tag(9, 5, 13), 2, nachhaken=True, zuletzt=tag(8, 0, 13)
+    )
+    # Ohne diesen Zeitpunkt bleibt es bei der alten Rechnung.
+    assert waschkueche.faellig(fertig, 1, tag(8, 5, 13), 2, nachhaken=True)
+    assert letzte < tag(8, 0, 13)
+
+
+def test_das_fenster_laesst_sich_verstellen_und_abschalten():
+    """Beide Zahlen stehen in der Push-Regel.
+
+    Gleiche Werte heben die Nachtruhe auf - sonst hiesse «ab 22 bis 22
+    Uhr» rund um die Uhr still, und niemand fände heraus, warum nichts
+    mehr kommt.
+    """
+    assert waschkueche.ruhezeit(tag(23), 22, 8)
+    assert not waschkueche.ruhezeit(tag(9), 22, 8)
+    # Ein Fenster ohne Mitternacht darin: «ab 0 bis 8» wäre mit dem
+    # Oder-Vergleich rund um die Uhr still - jede Stunde ist >= 0.
+    assert waschkueche.ruhezeit(tag(3), 0, 8)
+    assert not waschkueche.ruhezeit(tag(23), 0, 8)
+    assert not waschkueche.ruhezeit(tag(3), 22, 22)
+    assert waschkueche.faellig(tag(21), 0, tag(23), 2, True, ruhe_von=0, ruhe_bis=0)
 
 
 # ── Was drinsteht ────────────────────────────────────────────────────────
@@ -174,14 +220,36 @@ def maschine():
 
 @pytest.fixture
 def tagsueber(monkeypatch):
-    """Die Nachtruhe fürs Nachhaken aushängen.
+    """Die Nachtruhe aushängen.
 
-    Die Prüfung läuft, wann sie läuft - um 23 Uhr wäre jede Wiederholung
-    unterdrückt und der Test schlüge nur nachts fehl. Das Zeitfenster
-    selbst prüft ``test_nachts_wird_nicht_nachgehakt``.
+    Die Prüfung läuft, wann sie läuft - um 23 Uhr käme gar keine
+    Nachricht mehr, und der Test schlüge nur nachts fehl. Gehängt wird
+    an ``ruhezeit`` selbst und nicht an die beiden Zahlen: Die stehen
+    inzwischen in der Push-Regel, und ein Test, der die eine Quelle
+    verstellt, während der Wächter aus der anderen liest, prüft nichts.
+    Das Zeitfenster selbst prüfen die Tests weiter oben.
     """
-    monkeypatch.setattr(waschkueche, "RUHE_VON", 24)
-    monkeypatch.setattr(waschkueche, "RUHE_BIS", 0)
+    monkeypatch.setattr(waschkueche, "ruhezeit", lambda *_, **__: False)
+
+
+def zeit_vor(hub, entity_id: str, sekunden: float) -> None:
+    """Den Programmlauf um so viele Sekunden nach hinten schieben.
+
+    Der Test hat keine Uhr, die er stellen kann, und schiebt stattdessen
+    das Programmende. Alles, was auf diesen Lauf zeigt, muss mitwandern -
+    sonst prüft der Test einen Fall, den es im Haus nicht gibt: Der
+    Wächter setzt diese Zeitpunkte einmal und rührt sie danach nicht
+    mehr an. Das gilt für die Übernahme («Bine räumt aus») ebenso wie
+    für den Zeitpunkt der letzten Mahnung, an dem der Abstand hängt.
+    """
+    hub.watchdog._finished_at[entity_id] -= sekunden
+    if entity_id in hub.watchdog._gemahnt_at:
+        hub.watchdog._gemahnt_at[entity_id] -= sekunden
+    eintraege = hub.data.get("laundry_claims")
+    for eintrag in eintraege:
+        if eintrag.get("entity_id") == entity_id:
+            eintrag["seit"] -= sekunden
+    hub.data.set("laundry_claims", eintraege)
 
 
 async def _hub_mit(entities, sent):
@@ -198,7 +266,7 @@ async def _hub_mit(entities, sent):
     return hub
 
 
-async def test_ohne_tuere_bleibt_es_beim_einen_hinweis():
+async def test_ohne_tuere_bleibt_es_beim_einen_hinweis(tagsueber):
     """So war es immer - und ohne ein Zeichen, dass jemand da war, darf
     es auch nicht mehr werden."""
     sent: list[str] = []
@@ -209,7 +277,7 @@ async def test_ohne_tuere_bleibt_es_beim_einen_hinweis():
         wm.state = {"state": "idle"}
         await hub.watchdog.check()
         for _ in range(4):
-            hub.watchdog._finished_at["vzug.waschmaschine"] -= 2 * 3600
+            zeit_vor(hub, "vzug.waschmaschine", 2 * 3600)
             await hub.watchdog.check()
         assert len([t for t in sent if "voll" in t]) == 1
     finally:
@@ -225,9 +293,9 @@ async def test_mit_tuere_wird_nachgehakt(tagsueber):
         await hub.watchdog.check()
         wm.state = {"state": "idle"}
         await hub.watchdog.check()
-        hub.watchdog._finished_at["vzug.waschmaschine"] -= 2 * 3600
+        zeit_vor(hub, "vzug.waschmaschine", 2 * 3600)
         await hub.watchdog.check()
-        hub.watchdog._finished_at["vzug.waschmaschine"] -= 3600
+        zeit_vor(hub, "vzug.waschmaschine", 3600)
         await hub.watchdog.check()
         assert [t for t in sent if "voll" in t] == [
             "Waschmaschine ist noch voll",
@@ -237,7 +305,7 @@ async def test_mit_tuere_wird_nachgehakt(tagsueber):
         await hub.stop()
 
 
-async def test_wer_in_der_waschkueche_war_hoert_nichts_mehr():
+async def test_wer_in_der_waschkueche_war_hoert_nichts_mehr(tagsueber):
     sent: list[str] = []
     wm = maschine()
     tuere = kontakt("z.wk", "Waschküche", raum="Waschküche")
@@ -246,7 +314,7 @@ async def test_wer_in_der_waschkueche_war_hoert_nichts_mehr():
         await hub.watchdog.check()
         wm.state = {"state": "idle"}
         await hub.watchdog.check()
-        hub.watchdog._finished_at["vzug.waschmaschine"] -= 2 * 3600
+        zeit_vor(hub, "vzug.waschmaschine", 2 * 3600)
         await hub.watchdog.check()
         before = len(sent)
 
@@ -261,7 +329,7 @@ async def test_wer_in_der_waschkueche_war_hoert_nichts_mehr():
         await hub.stop()
 
 
-async def test_eine_offen_stehende_tuere_zaehlt_nur_einmal():
+async def test_eine_offen_stehende_tuere_zaehlt_nur_einmal(tagsueber):
     """Sonst hiesse jede Runde «war jemand da», und das Nachhaken wäre
     tot, sobald jemand die Türe offen lässt."""
     sent: list[str] = []
@@ -272,7 +340,7 @@ async def test_eine_offen_stehende_tuere_zaehlt_nur_einmal():
         await hub.watchdog.check()
         wm.state = {"state": "idle"}
         await hub.watchdog.check()
-        hub.watchdog._finished_at["vzug.waschmaschine"] -= 2 * 3600
+        zeit_vor(hub, "vzug.waschmaschine", 2 * 3600)
         await hub.watchdog.check()
         assert any("voll" in t for t in sent)
     finally:
@@ -290,13 +358,13 @@ async def test_die_gewaehlte_tuere_gilt_auch_im_waechter(tagsueber):
         await hub.watchdog.check()
         wm.state = {"state": "idle"}
         await hub.watchdog.check()
-        hub.watchdog._finished_at["vzug.waschmaschine"] -= 2 * 3600
+        zeit_vor(hub, "vzug.waschmaschine", 2 * 3600)
         await hub.watchdog.check()
         before = len(sent)
 
         # Die geratene Türe zählt nicht mehr ...
         falsch.state = {"device_class": "door", "state": "on"}
-        hub.watchdog._finished_at["vzug.waschmaschine"] -= 3600
+        zeit_vor(hub, "vzug.waschmaschine", 3600)
         await hub.watchdog.check()
         assert len(sent) > before
 
@@ -304,7 +372,6 @@ async def test_die_gewaehlte_tuere_gilt_auch_im_waechter(tagsueber):
         before = len(sent)
         richtig.state = {"device_class": "door", "state": "on"}
         await hub.watchdog.check()
-        hub.watchdog._finished_at.get("vzug.waschmaschine")
         for _ in range(3):
             await hub.watchdog.check()
         assert len(sent) == before
@@ -313,23 +380,6 @@ async def test_die_gewaehlte_tuere_gilt_auch_im_waechter(tagsueber):
 
 
 # ── «Ich mach's» ─────────────────────────────────────────────────────────
-
-
-def zeit_vor(hub, entity_id: str, sekunden: float) -> None:
-    """Den Programmlauf um so viele Sekunden nach hinten schieben.
-
-    Der Test hat keine Uhr, die er stellen kann, und schiebt stattdessen
-    das Programmende. Eine Übernahme zeigt auf genau dieses Ende, also
-    muss sie mitwandern - sonst prüfte der Test einen Fall, den es im
-    Haus nicht gibt: Der Wächter setzt ``_finished_at`` einmal und rührt
-    es danach nicht mehr an.
-    """
-    hub.watchdog._finished_at[entity_id] -= sekunden
-    eintraege = hub.data.get("laundry_claims")
-    for eintrag in eintraege:
-        if eintrag.get("entity_id") == entity_id:
-            eintrag["seit"] -= sekunden
-    hub.data.set("laundry_claims", eintraege)
 
 
 def test_die_uebernahme_gehoert_zu_einem_lauf_und_nicht_zum_geraet():
@@ -358,7 +408,7 @@ async def test_wer_uebernimmt_hoert_nichts_mehr(tagsueber):
         await hub.watchdog.check()
         wm.state = {"state": "idle"}
         await hub.watchdog.check()
-        hub.watchdog._finished_at["vzug.waschmaschine"] -= 2 * 3600
+        zeit_vor(hub, "vzug.waschmaschine", 2 * 3600)
         await hub.watchdog.check()
         assert len([t for t in sent if "voll" in t]) == 1
 
@@ -381,7 +431,7 @@ async def test_die_naechste_ladung_faengt_wieder_bei_null_an(tagsueber):
         await hub.watchdog.check()
         wm.state = {"state": "idle"}
         await hub.watchdog.check()
-        hub.watchdog._finished_at["vzug.waschmaschine"] -= 2 * 3600
+        zeit_vor(hub, "vzug.waschmaschine", 2 * 3600)
         await hub.watchdog.check()
         await hub.watchdog.uebernehmen("vzug.waschmaschine", "Bine")
 
@@ -392,14 +442,14 @@ async def test_die_naechste_ladung_faengt_wieder_bei_null_an(tagsueber):
         assert hub.data.get("laundry_claims") == []
         wm.state = {"state": "idle"}
         await hub.watchdog.check()
-        hub.watchdog._finished_at["vzug.waschmaschine"] -= 2 * 3600
+        zeit_vor(hub, "vzug.waschmaschine", 2 * 3600)
         await hub.watchdog.check()
         assert len([t for t in sent if "voll" in t]) == 2
     finally:
         await hub.stop()
 
 
-async def test_wer_unten_war_beendet_auch_die_uebernahme():
+async def test_wer_unten_war_beendet_auch_die_uebernahme(tagsueber):
     """«Bine räumt aus» am Gerät stehen zu lassen, nachdem sie
     ausgeräumt hat, wäre eine Auskunft von gestern."""
     sent: list[str] = []
@@ -410,7 +460,7 @@ async def test_wer_unten_war_beendet_auch_die_uebernahme():
         await hub.watchdog.check()
         wm.state = {"state": "idle"}
         await hub.watchdog.check()
-        hub.watchdog._finished_at["vzug.waschmaschine"] -= 2 * 3600
+        zeit_vor(hub, "vzug.waschmaschine", 2 * 3600)
         await hub.watchdog.check()
         await hub.watchdog.uebernehmen("vzug.waschmaschine", "Bine")
         assert hub.data.get("laundry_claims") != []

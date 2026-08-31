@@ -58,12 +58,18 @@ ABSTAND = 3600.0
 #: zum Morgen weiterläuft, weckt am Ende nur.
 HOECHSTENS = 4
 
-#: Zwischen 22 und 7 Uhr wird nicht *nachgehakt*. Die Wäsche wartet, der
-#: Schlaf nicht. Die erste Nachricht geht trotzdem raus: Sie gab es
-#: immer, und wer die Maschine um halb zehn fertig hat, rechnet mit ihr.
-#: Still ist also nur das, was neu dazukommt.
+#: Zwischen 22 und 8 Uhr bleibt es still - und zwar ganz, auch bei der
+#: ersten Nachricht. Lange ging die erste trotzdem raus, mit dem
+#: Argument, wer um halb zehn fertig wasche, rechne mit ihr. In diesem
+#: Haushalt läuft nachts keine Maschine: Was in diesem Fenster ankäme,
+#: weckt also jemanden und ändert nichts - die Wäsche holt um zwei Uhr
+#: niemand. Verloren geht die Nachricht dadurch nicht, sie wartet bis
+#: am Morgen.
+#:
+#: Beide Zahlen stehen in der Push-Regel und lassen sich in der App
+#: verstellen; gleiche Werte heben das Fenster auf.
 RUHE_VON = 22
-RUHE_BIS = 7
+RUHE_BIS = 8
 
 
 def ist_waschkueche(raum: str | None) -> bool:
@@ -142,10 +148,24 @@ def ist_offen(entity: Any | None) -> bool:
     return str(entity.state.get("state") or "") == "on"
 
 
-def ruhezeit(jetzt: float) -> bool:
-    """Ist gerade Nacht?"""
+def ruhezeit(jetzt: float, von: float = RUHE_VON, bis: float = RUHE_BIS) -> bool:
+    """Ist gerade Nacht? (rein, testbar)
+
+    Das Fenster geht über Mitternacht, deshalb das «oder». Sind beide
+    Zahlen gleich, gibt es keine Nachtruhe: Das ist der Weg, sie in der
+    App abzuschalten - ohne ihn hiesse «ab 22 bis 22 Uhr» rund um die
+    Uhr still, und niemand fände heraus, warum nichts mehr kommt.
+    """
+    if von == bis:
+        return False
     stunde = time.localtime(jetzt).tm_hour
-    return stunde >= RUHE_VON or stunde < RUHE_BIS
+    # Zwei Fälle, und nur einer davon geht über Mitternacht. «Ab 0 bis 8»
+    # mit dem Oder-Vergleich hiesse rund um die Uhr still, weil jede
+    # Stunde >= 0 ist - eine Einstellung, die man in der App in einem
+    # Tipp erreicht.
+    if von < bis:
+        return von <= stunde < bis
+    return stunde >= von or stunde < bis
 
 
 def faellig(
@@ -156,20 +176,34 @@ def faellig(
     nachhaken: bool,
     hoechstens: int = HOECHSTENS,
     abstand: float = ABSTAND,
+    zuletzt: float | None = None,
+    ruhe_von: float = RUHE_VON,
+    ruhe_bis: float = RUHE_BIS,
 ) -> bool:
-    """Ist jetzt eine Mahnung dran?
+    """Ist jetzt eine Mahnung dran? (rein, testbar)
 
     ``seit`` ist das Programmende, ``gemahnt`` die Anzahl der bisher
-    verschickten Nachrichten. ``nachhaken`` sagt, ob es eine Türe gibt,
-    an der sich das Ende ablesen lässt - ohne sie bleibt es bei der
-    ersten Nachricht.
+    verschickten Nachrichten, ``zuletzt`` der Zeitpunkt der letzten.
+    ``nachhaken`` sagt, ob es eine Türe gibt, an der sich das Ende
+    ablesen lässt - ohne sie bleibt es bei der ersten Nachricht.
+
+    In der Nachtruhe ist nichts fällig, auch die erste Nachricht nicht.
+    Hinfällig wird sie dadurch nicht: Um acht steht sie da, und
+    ``mahnsatz`` rechnet die Stunden seit dem Programmende aus.
+
+    Der Abstand zählt ab der letzten Mahnung und nicht ab dem
+    Programmende. Sonst wären nach einer stillen Nacht alle
+    liegengebliebenen Mahnungen auf einmal fällig, und das Telefon
+    klingelte um acht Uhr viermal innert vier Minuten.
     """
     if gemahnt >= (hoechstens if nachhaken else 1):
         return False
+    if ruhezeit(jetzt, ruhe_von, ruhe_bis):
+        return False
     if gemahnt == 0:
         return jetzt - seit >= erste_stunden * 3600
-    if ruhezeit(jetzt):
-        return False
+    if zuletzt is not None:
+        return jetzt - zuletzt >= abstand
     return jetzt - seit >= erste_stunden * 3600 + gemahnt * abstand
 
 
