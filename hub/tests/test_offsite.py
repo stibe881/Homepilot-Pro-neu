@@ -63,3 +63,17 @@ def test_no_factory_no_tarball(tmp_path):
     leer = tmp_path / "leer"
     leer.mkdir()
     assert matter_tar(str(leer)) is None
+
+
+def test_bucket_fehlt_erkennt_beide_schreibweisen():
+    from homepilot.core.offsite import bucket_fehlt
+
+    # Der Fall aus dem Betrieb: Supabase meldet den fehlenden Bucket als
+    # 400 mit «Bucket not found» und Code «NoSuchBucket».
+    assert bucket_fehlt(
+        '{"statusCode":"404","error":"Bucket not found",'
+        '"message":"Bucket not found","code":"NoSuchBucket"}'
+    )
+    assert bucket_fehlt('{"code":"NoSuchBucket"}')
+    assert not bucket_fehlt('{"error":"invalid signature"}')
+    assert not bucket_fehlt("")
