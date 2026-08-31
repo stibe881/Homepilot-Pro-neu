@@ -68,6 +68,26 @@ Damit lässt sich in einem Ablauf darauf auslösen (Auslöser «Zustand», Ziel
 ohne ihn kommen Tastendrücke gar nicht an, denn abfragen lassen sie sich
 nicht.
 
+Dasselbe gilt für die Schlüsselbund-Fernbedienung (HmIP-KRC4, KRCA): vier
+Tasten, vier Kanäle, ``kind: button`` - eine Taste je Eintrag, so viele,
+wie man braucht:
+
+      - address: "0001D8A9B12349:1"     # HmIP-KRC4, Taste 1
+        port: 2010
+        name: Schlüssel Levin Haustüre
+        kind: button
+
+Zwei Dinge sind bei ihr anders als beim Wandtaster, und beide fallen
+erst draussen auf:
+
+* Sie hängt an einer Batterie und meldet sich **nur beim Drücken**. Es
+  gibt nichts abzufragen; ohne ``callback_port`` bleibt sie für immer
+  stumm.
+* Sie muss die Zentrale von dort aus erreichen, wo man sie drückt - vor
+  der Haustüre, nicht am Küchentisch. Kommt der Druck an, steht er im
+  Log und auf der Kachel; kommt nichts, ist es die Funkstrecke und
+  nicht die Konfiguration.
+
 Beim 6-fach-Taster hat jede Taste einen eigenen Kanal (:1 … :6), beim
 2-fach-Taster :1 und :2. Der HmIP-SMI55(-2) vereint beides in einem
 Gehäuse - drei Einträge für ein Gerät, jede Funktion ihr Kanal: die
