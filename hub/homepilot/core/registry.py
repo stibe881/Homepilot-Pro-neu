@@ -15,6 +15,11 @@ from .source import current as current_source
 StateProvider = Callable[[str], "dict[str, Any] | None"]
 RoomProvider = Callable[[str], "str | None"]
 MetaProvider = Callable[[str], "dict[str, Any] | None"]
+#: Woher «seit wann steht das so?» kommt, solange der Hub den Wechsel
+#: nicht selbst miterlebt hat - beim Start also für jedes Gerät.
+#: (entity_id, kind, state) → der Protokolleintrag, mit dem dieser
+#: Zustand begann (core/eventlog.py: letzter_wechsel).
+ChangeProvider = Callable[[str, str, "dict[str, Any]"], "dict[str, Any] | None"]
 
 
 class EntityRegistry:
@@ -28,6 +33,10 @@ class EntityRegistry:
         # Liefert die Kennung der zusammengefassten Leuchte, in der eine
         # Entität aufgeht – oder None. Gefüllt von der group-Integration.
         self.combined_provider: RoomProvider | None = None
+        # Liefert den Protokolleintrag, mit dem der jetzige Zustand begann
+        # (core/eventlog.py: letzter_wechsel). Ohne ihn wüsste ein frisch
+        # gestarteter Hub von keinem Gerät, seit wann es so dasteht.
+        self.change_provider: ChangeProvider | None = None
 
     def _apply_meta(self, entity: Entity) -> None:
         if self.combined_provider is not None:
@@ -38,6 +47,37 @@ class EntityRegistry:
         entity.display_name = meta.get("name") or None
         entity.favorite = bool(meta.get("favorite"))
         entity.group = meta.get("group") or None
+
+    def _aus_protokoll(self, entity: Entity, state: dict[str, Any]) -> bool:
+        """«Seit wann steht das so?» aus dem Protokoll holen (in place).
+
+        Der Zeitpunkt am Gerät entsteht, wenn der Hub den Wechsel selbst
+        miterlebt. Nach einem Update ist er leer - und im Blatt «Fenster
+        offen» stand neben der Terrassentüre nichts. Ausgerechnet dann,
+        denn eine Türe, die schon vor dem Update offen stand, steht
+        lange offen.
+
+        Nur, solange der Hub in diesem Lauf noch keinen Wechsel gesehen
+        hat: Danach weiss er es selbst und besser. Und nur, wenn das
+        Protokoll denselben Zustand nennt - sonst hat sich etwas
+        geändert, während der Hub nicht lief, und wann das war, weiss
+        hier niemand.
+
+        Zurück kommt, ob etwas gefunden wurde.
+        """
+        if self.change_provider is None or entity.last_change is not None:
+            return False
+        wechsel = self.change_provider(entity.id, str(entity.kind), state)
+        at = (wechsel or {}).get("at")
+        if not isinstance(at, (int, float)):
+            return False
+        entity.last_change = float(at)
+        quelle = (wechsel or {}).get("source") or {}
+        # Nur eine Quelle, die etwas sagt: {kind: None} wäre ein
+        # «wodurch?», das keines ist.
+        if quelle.get("kind"):
+            entity.last_source = dict(quelle)
+        return True
 
     def get(self, entity_id: str) -> Entity | None:
         return self._entities.get(entity_id)
@@ -57,6 +97,10 @@ class EntityRegistry:
                 # Was die Integration liefert, gewinnt; Gespeichertes füllt
                 # nur die Lücken (siehe supabase/README.md).
                 entity.state = {**restored, **entity.state}
+        # «Seit wann steht die Terrassentüre offen?» Gefragt wird nach dem
+        # Zusammenführen des Zustands, denn verglichen wird mit dem, was
+        # am Ende dasteht.
+        self._aus_protokoll(entity, entity.state)
         self._entities[entity.id] = entity
         await self.bus.publish("entity_added", {"entity": entity.as_dict()})
 
@@ -163,9 +207,16 @@ class EntityRegistry:
         # und die Antwort reist am Zustand mit, statt einen eigenen
         # Abruf je Kachel zu kosten.
         if worth_recording(entity.kind, old_state, new_state):
-            entity.last_change = time.time()
-            quelle = current_source()
-            entity.last_source = dict(quelle) if quelle else None
+            # Der erste Wechsel nach einem Start ist oft gar keiner: Viele
+            # Anbindungen melden das Gerät zuerst als «unbekannt» und
+            # liefern den Zustand eine Sekunde später nach. «Gerade eben
+            # geöffnet» stünde dann an einer Türe, die seit dem Frühstück
+            # offen ist. Kennt das Protokoll diesen Zustand schon, gilt
+            # dessen Zeitpunkt.
+            if not self._aus_protokoll(entity, new_state):
+                entity.last_change = time.time()
+                quelle = current_source()
+                entity.last_source = dict(quelle) if quelle else None
 
         entity.state = new_state
         if available is not None:

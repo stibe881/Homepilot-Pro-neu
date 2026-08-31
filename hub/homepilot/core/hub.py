@@ -187,6 +187,10 @@ class Hub:
             if entry.get("entity_id")
         }
         self.registry.meta_provider = self._meta_by_entity.get
+        # Und woher «seit wann?» kommt, bevor der Hub selbst einen
+        # Wechsel gesehen hat: aus dem Protokoll, das den Neustart
+        # überlebt hat (siehe eventlog.letzter_wechsel).
+        self.registry.change_provider = self.eventlog.letzter_wechsel
         await self._start_store()
         self._load_stored_users()
         # Die Alarmanlage gehört zum Haus, nicht zu einer Geräteanbindung:
@@ -692,3 +696,4 @@ class Hub:
         self.registry.state_provider = None
         self.registry.room_provider = None
         self.registry.meta_provider = None
+        self.registry.change_provider = None

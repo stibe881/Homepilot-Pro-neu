@@ -279,6 +279,40 @@ class EventLog:
                 seit = float(wert)
         return seit
 
+    def letzter_wechsel(
+        self, entity_id: str, kind: str, state: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Der Eintrag, mit dem der *jetzige* Zustand begann - oder None.
+
+        Damit «seit wann?» einen Neustart übersteht. Der Zeitpunkt am
+        Gerät (``Entity.last_change``) entsteht, wenn der Hub den Wechsel
+        selbst miterlebt; nach einem Update war er leer, und im Blatt
+        «Fenster offen» stand neben der Terrassentüre nichts. Ausgerechnet
+        dann, denn eine Türe, die schon vor dem Update offen stand, steht
+        lange offen.
+
+        Gelesen wird von der jüngsten Meldung rückwärts, solange sie
+        denselben Zustand nennt; die älteste davon ist der Moment des
+        Wechsels. Sagt schon die jüngste etwas anderes, kommt None
+        zurück: Dann hat sich der Zustand geändert, während der Hub nicht
+        lief, und wann das war, weiss hier niemand. Geraten wird nicht -
+        eine ausgedachte Zeit steht am Ende als «seit drei Stunden» im
+        Telefon.
+
+        Beim Schloss zählen beide Auskünfte: Der Riegel kann sich gedreht
+        haben, ohne dass die Türe zuging, und umgekehrt.
+        """
+        zustand = str(state.get("state") or "")
+        tuer = str(state.get("door") or "") if kind == "lock" else ""
+        treffer: dict[str, Any] | None = None
+        for eintrag in self.for_entity(entity_id, limit=LIMIT):
+            if str(eintrag.get("state") or "") != zustand:
+                break
+            if kind == "lock" and str(eintrag.get("door") or "") != tuer:
+                break
+            treffer = eintrag
+        return treffer
+
     def rueckblick(
         self, stunden: int = 24, limit: int = 300, sichtbar: Any = None
     ) -> list[dict[str, Any]]:

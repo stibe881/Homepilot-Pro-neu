@@ -366,3 +366,115 @@ def test_rueckblick_zeigt_nur_was_jemand_sehen_darf():
     )
     zeilen = log.rueckblick(sichtbar=lambda kennung: kennung != "geheim")
     assert [z["entity_id"] for z in zeilen] == ["sichtbar"]
+
+
+# ── «Seit wann?» nach einem Neustart ─────────────────────────────────────
+#
+# Im Blatt «Fenster offen» stand neben der Terrassentüre keine Dauer.
+# Grund: Der Zeitpunkt am Gerät entsteht, wenn der Hub den Wechsel selbst
+# miterlebt - nach einem Update ist er leer. Ausgerechnet dann, denn eine
+# Türe, die schon vor dem Update offen stand, steht lange offen.
+
+
+def test_der_letzte_wechsel_ueberlebt_den_neustart():
+    log = EventLog()
+    _kontakt(log, "on", at=1000)
+    _kontakt(log, "off", at=2000)
+    _kontakt(log, "on", at=3000)
+    wechsel = log.letzter_wechsel("matter.kontakt", "binary_sensor", {"state": "on"})
+    # Die *jüngste* Öffnung, nicht die erste: Dazwischen war zu.
+    assert wechsel is not None and wechsel["at"] == 3000
+
+
+def test_ein_wechsel_im_dunkeln_wird_nicht_geraten():
+    """Sagt schon die jüngste Meldung etwas anderes als der Zustand jetzt,
+    hat sich etwas geändert, während der Hub nicht lief. Wann, weiss
+    niemand - und eine ausgedachte Zeit steht am Ende als «seit drei
+    Stunden» im Telefon."""
+    log = EventLog()
+    _kontakt(log, "on", at=1000)
+    _kontakt(log, "off", at=2000)
+    assert log.letzter_wechsel("matter.kontakt", "binary_sensor", {"state": "on"}) is None
+    assert log.letzter_wechsel("gibt.es.nicht", "binary_sensor", {"state": "on"}) is None
+
+
+def test_beim_schloss_zaehlen_riegel_und_tuere():
+    """Der Riegel kann sich gedreht haben, ohne dass die Türe zuging."""
+    log = EventLog()
+
+    def eintrag(state, door, at):
+        log.record(
+            "state_changed",
+            {
+                "entity_id": "nuki.wohnung",
+                "entity": {"kind": "lock"},
+                "old_state": {"state": "?", "door": "?"},
+                "new_state": {"state": state, "door": door},
+                "source": {},
+            },
+        )
+        log.all()[-1]["at"] = at
+
+    eintrag("locked", "open", 1000)
+    eintrag("unlocked", "open", 2000)
+    jetzt = {"state": "unlocked", "door": "open"}
+    assert log.letzter_wechsel("nuki.wohnung", "lock", jetzt)["at"] == 2000
+    # Und wenn die Türe inzwischen zu ist, passt der Eintrag nicht mehr.
+    assert log.letzter_wechsel("nuki.wohnung", "lock", {"state": "unlocked"}) is None
+
+
+async def test_ein_gerade_gestarteter_hub_weiss_seit_wann():
+    """Der ganze Weg: Protokoll → Registry → Gerät."""
+    from homepilot.core.entity import Entity, EntityKind
+
+    hub = Hub(make_config())
+    await hub.start()
+    try:
+        _kontakt(hub.eventlog, "on", at=time.time() - 7200)
+        await hub.registry.add(
+            Entity(
+                id="matter.kontakt",
+                kind=EntityKind.BINARY_SENSOR,
+                name="Terrasse",
+                integration="matter",
+                state={"state": "on", "device_class": "contact"},
+            )
+        )
+        entity = hub.registry.get("matter.kontakt")
+        assert entity is not None and entity.last_change is not None
+        assert 7100 < time.time() - entity.last_change < 7300
+    finally:
+        await hub.stop()
+
+
+async def test_der_erste_wechsel_nach_dem_start_ist_oft_gar_keiner():
+    """Viele Anbindungen melden das Gerät zuerst als «unbekannt» und
+    liefern den Zustand eine Sekunde später nach. «Gerade eben geöffnet»
+    stünde dann an einer Türe, die seit dem Frühstück offen ist."""
+    from homepilot.core.entity import Entity, EntityKind
+
+    hub = Hub(make_config())
+    await hub.start()
+    try:
+        vorhin = time.time() - 5400
+        _kontakt(hub.eventlog, "on", at=vorhin)
+        # So kommt sie herein: ohne Zustand, der Wert folgt später.
+        await hub.registry.add(
+            Entity(
+                id="matter.kontakt",
+                kind=EntityKind.BINARY_SENSOR,
+                name="Terrasse",
+                integration="matter",
+                state={"state": "unknown"},
+            )
+        )
+        assert hub.registry.get("matter.kontakt").last_change is None
+        await hub.registry.update_state("matter.kontakt", {"state": "on"})
+        entity = hub.registry.get("matter.kontakt")
+        assert entity.last_change == vorhin
+
+        # Der nächste echte Wechsel gehört wieder dem Hub selbst.
+        await hub.registry.update_state("matter.kontakt", {"state": "off"})
+        assert hub.registry.get("matter.kontakt").last_change > vorhin
+    finally:
+        await hub.stop()

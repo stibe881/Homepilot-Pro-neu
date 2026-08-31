@@ -3,7 +3,7 @@ import React, { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Entity } from '../api/types';
-import { offenSeit, offenSortiert } from '../lib/offen';
+import { offenSeit, offenSortiert, raumZeile } from '../lib/offen';
 import { Colors, useColors } from '../theme';
 
 /**
@@ -30,9 +30,13 @@ export function OffenListe({ entities, jetzt }: { entities: Entity[]; jetzt: num
             <Ionicons name="alert-circle-outline" size={18} color={colors.warn} />
             <View style={{ flex: 1 }}>
               <Text style={styles.name}>{entity.name}</Text>
-              {/* Nur der Raum: Die Dauer steht rechts, und zweimal
-                  dasselbe in einer Zeile liest niemand zweimal. */}
-              {entity.room ? <Text style={styles.unten}>{entity.room}</Text> : null}
+              {/* Nur der Raum, und auch der nur, wenn er nicht bloss
+                  den Namen wiederholt: Der Kontakt an der Terrassentüre
+                  heisst «Terrasse» und liegt im Raum «Terrasse». Die
+                  Dauer steht rechts. */}
+              {raumZeile(entity) ? (
+                <Text style={styles.unten}>{raumZeile(entity)}</Text>
+              ) : null}
             </View>
             {/* Die Dauer noch einmal rechts, gross genug zum Überfliegen:
                 Wer drei Zeilen sieht, sucht die längste. */}

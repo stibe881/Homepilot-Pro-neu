@@ -4,6 +4,7 @@ import {
   hasOpenDoor,
   offenSeit,
   offenSortiert,
+  raumZeile,
   wohnungstuer,
   wohnungstuerOffen,
 } from './offen';
@@ -132,5 +133,20 @@ describe('Wie lange steht es offen', () => {
       JETZT
     );
     expect(sortiert.map((e) => e.id)).toEqual(['lang', 'kurz', 'ohne']);
+  });
+});
+
+describe('raumZeile', () => {
+  it('lässt den Raum weg, wenn er nur den Namen wiederholt', () => {
+    // Der Kontakt an der Terrassentüre heisst «Terrasse» und liegt im
+    // Raum «Terrasse» - untereinander stand das zweimal da.
+    expect(raumZeile({ name: 'Terrasse', room: 'Terrasse' })).toBeNull();
+    expect(raumZeile({ name: 'Terrasse', room: ' terrasse ' })).toBeNull();
+  });
+
+  it('nennt ihn, wo er etwas sagt', () => {
+    expect(raumZeile({ name: 'Fenster', room: 'Küche' })).toBe('Küche');
+    expect(raumZeile({ name: 'Fenster' })).toBeNull();
+    expect(raumZeile({ name: 'Fenster', room: '  ' })).toBeNull();
   });
 });

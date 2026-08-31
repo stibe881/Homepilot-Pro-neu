@@ -145,3 +145,19 @@ export function offenSortiert(entities: Entity[], jetzt: number): Entity[] {
     entity.last_change ? jetzt / 1000 - entity.last_change : -1;
   return [...openContacts(entities)].sort((a, b) => alter(b) - alter(a));
 }
+
+/**
+ * Der Raum als zweite Zeile – oder nichts (rein, testbar).
+ *
+ * Der Kontakt an der Terrassentüre heisst «Terrasse» und liegt im Raum
+ * «Terrasse»; im Blatt stand das zweimal untereinander. Zweimal
+ * dasselbe liest niemand zweimal, und es verdeckt die Zeile, die etwas
+ * sagt: seit wann sie offen steht.
+ */
+export function raumZeile(entity: { name: string; room?: string | null }): string | null {
+  const raum = String(entity.room ?? '').trim();
+  if (!raum) return null;
+  return raum.toLowerCase() === String(entity.name ?? '').trim().toLowerCase()
+    ? null
+    : raum;
+}
