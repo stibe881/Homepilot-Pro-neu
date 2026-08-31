@@ -9,6 +9,14 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Der Stundenplan sieht aus wie einer.** Auf der Kinderseite sind
+  die Lektionen jetzt Blöcke mit Zeitspalte - eine Doppellektion
+  doppelt so hoch, dazwischen sichtbar die grosse Pause und der
+  Mittag. Die laufende Stunde (oder Pause) trägt Rand und «jetzt»,
+  ein frei endender Morgen den Balken «Nachmittag frei · ab 11:30».
+  Und wer den Dienstag einträgt, der aussieht wie der Montag, tippt
+  nicht mehr ab: «Zeiten übernehmen von» kopiert die Lektionen eines
+  anderen Tags - was schon dasteht, kommt nicht doppelt.
 - **Die Schnellaktionen sind Kacheln statt Pillen.** Kino, Schlafen,
   Storen hoch und runter stehen jetzt als vier gleich breite Kacheln
   nebeneinander - Sinnbild in einer Scheibe, Name darunter. Vorher

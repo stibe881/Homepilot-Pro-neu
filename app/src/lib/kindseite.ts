@@ -318,3 +318,126 @@ export function verschmelze(...quellen: (Eintrag[] | null | undefined)[]): Eintr
   }
   return [...gesehen.values()];
 }
+
+/** Minuten seit Mitternacht als «08:20» (rein, testbar). */
+export function uhrText(wert: number): string {
+  const stunde = Math.floor(wert / 60);
+  return `${String(stunde).padStart(2, '0')}:${String(wert % 60).padStart(2, '0')}`;
+}
+
+/** Eine Zeile des Tagesplans: eine Lektion - oder die Pause dazwischen. */
+export type PlanZeile =
+  | { art: 'lektion'; eintrag: Eintrag; laeuft: boolean }
+  | { art: 'pause'; titel: string; von: string; bis: string; laeuft: boolean };
+
+/** Ab dieser Lücke ist es eine Pause, die man sehen will - kürzer ist
+ *  Zimmerwechsel. */
+export const PAUSE_AB = 15;
+/** Und ab dieser Länge heisst sie «Mittag». */
+export const MITTAG_AB = 45;
+
+/** Fällt eine Lektion ohne Ende an - so lange gilt sie als laufend. */
+const LEKTION_STANDARD = 45;
+
+/**
+ * Der Tagesplan mit den Pausen dazwischen (rein, testbar).
+ *
+ * Der Stundenplan zeigte nur die Lektionen - dass zwischen 09:35 und
+ * 09:55 die grosse Pause liegt und zwischen 11:30 und 13:25 der Mittag,
+ * musste man aus den Zeiten herauslesen. Und wo das Kind gerade steckt,
+ * stand nirgends: ``jetztMin`` (Minuten seit Mitternacht, null wenn der
+ * gezeigte Tag nicht heute ist) markiert die laufende Lektion oder
+ * Pause.
+ */
+export function tagesplanMitPausen(
+  zeilen: Eintrag[],
+  jetztMin: number | null
+): PlanZeile[] {
+  const ergebnis: PlanZeile[] = [];
+  let vorigesEnde: number | null = null;
+  for (const eintrag of nachZeit(zeilen)) {
+    const von = minuten(eintrag?.from);
+    const bis = minuten(eintrag?.to) ?? (von === null ? null : von + LEKTION_STANDARD);
+    if (vorigesEnde !== null && von !== null && von - vorigesEnde >= PAUSE_AB) {
+      ergebnis.push({
+        art: 'pause',
+        titel: von - vorigesEnde >= MITTAG_AB ? 'Mittag' : 'Grosse Pause',
+        von: uhrText(vorigesEnde),
+        bis: uhrText(von),
+        laeuft: jetztMin !== null && jetztMin >= vorigesEnde && jetztMin < von,
+      });
+    }
+    ergebnis.push({
+      art: 'lektion',
+      eintrag,
+      laeuft:
+        jetztMin !== null &&
+        von !== null &&
+        bis !== null &&
+        jetztMin >= von &&
+        jetztMin < bis,
+    });
+    if (bis !== null) vorigesEnde = bis;
+  }
+  return ergebnis;
+}
+
+/**
+ * Was sich von einem anderen Tag übernehmen lässt (rein, testbar).
+ *
+ * Der Dienstag sieht oft aus wie der Montag - statt sechs Lektionen
+ * abzutippen, übernimmt man sie. Was am Zieltag schon steht (gleicher
+ * Anfang, gleiches Fach), kommt nicht doppelt.
+ */
+export function zuUebernehmen(quelle: Eintrag[], ziel: Eintrag[]): Eintrag[] {
+  const schluessel = (zeile: Eintrag) =>
+    `${zeitNormal(zeile?.from) ?? ''}|${String(zeile?.text ?? '')
+      .trim()
+      .toLowerCase()}`;
+  const vorhanden = new Set(ziel.map(schluessel));
+  return nachZeit(quelle).filter((zeile) => !vorhanden.has(schluessel(zeile)));
+}
+
+/** Ab hier ist «Nachmittag» - wer vorher fertig ist, hat frei. */
+export const NACHMITTAG_AB = 13 * 60;
+
+/**
+ * «Nachmittag frei · ab 11:30» - oder null (rein, testbar).
+ *
+ * Frei ist der Nachmittag, wenn der Tag Lektionen hat, aber keine mehr
+ * am Nachmittag beginnt. Zurück kommt das Ende der letzten Lektion -
+ * die Uhrzeit, ab der das Kind zuhause ist.
+ */
+export function nachmittagFrei(zeilen: Eintrag[]): string | null {
+  const sortiert = nachZeit(zeilen);
+  if (sortiert.length === 0) return null;
+  const nachmittags = sortiert.some(
+    (zeile) => (minuten(zeile?.from) ?? 0) >= NACHMITTAG_AB
+  );
+  if (nachmittags) return null;
+  const enden = sortiert
+    .map((zeile) => minuten(zeile?.to) ?? minuten(zeile?.from))
+    .filter((wert): wert is number => wert !== null);
+  if (enden.length === 0) return null;
+  return uhrText(Math.max(...enden));
+}
+
+/**
+ * Die Höhe eines Stundenplan-Blocks in Punkten (rein, testbar).
+ *
+ * Wie auf dem Zettel am Kühlschrank: Eine Doppellektion ist doppelt so
+ * hoch wie eine einfache, der Mittag höher als der Zimmerwechsel. Ganz
+ * proportional geht nicht - ein Zweistunden-Mittag würde den halben
+ * Bildschirm füllen, eine Fünf-Minuten-Pause unlesbar dünn.
+ */
+export function blockHoehe(
+  von: unknown,
+  bis: unknown,
+  mindestens: number,
+  hoechstens: number
+): number {
+  const a = minuten(von);
+  const b = minuten(bis);
+  const dauer = a !== null && b !== null && b > a ? b - a : 45;
+  return Math.max(mindestens, Math.min(hoechstens, Math.round(dauer * 1.1)));
+}

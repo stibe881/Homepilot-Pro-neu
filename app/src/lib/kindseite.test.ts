@@ -13,6 +13,10 @@ import {
   minuten,
   naechstesMal,
   nenntPerson,
+  blockHoehe,
+  nachmittagFrei,
+  tagesplanMitPausen,
+  zuUebernehmen,
   schulzeit,
   verschmelze,
   wochenliste,
@@ -194,5 +198,107 @@ describe('verschmelze', () => {
     const a = [{ summary: 'Turnen', start: 'x' }];
     const b = [{ summary: 'Turnen', start: 'y' }];
     expect(verschmelze(a, b, null)).toHaveLength(2);
+  });
+});
+
+// ── Tagesplan mit Pausen und laufender Stunde ────────────────────────────
+
+describe('tagesplanMitPausen', () => {
+  const lektion = (from: string, to: string, text = 'Alle') => ({
+    id: `${from}`,
+    member: 'Levin',
+    day: 'Mo',
+    text,
+    from,
+    to,
+  });
+  // Der Plan aus dem Bild: 5 Minuten Zimmerwechsel, 20 Minuten grosse
+  // Pause, und zwischen 11:30 und 13:25 der Mittag.
+  const plan = [
+    lektion('08:00', '08:45'),
+    lektion('08:50', '09:35'),
+    lektion('09:55', '10:40'),
+    lektion('10:45', '11:30'),
+    lektion('13:25', '14:10'),
+  ];
+
+  it('legt die grosse Pause und den Mittag zwischen die Lektionen', () => {
+    const arten = tagesplanMitPausen(plan, null).map((zeile) =>
+      zeile.art === 'pause' ? zeile.titel : 'Lektion'
+    );
+    // 5 Minuten Zimmerwechsel erscheinen nicht; 20 Minuten sind die
+    // grosse Pause, 70 Minuten der Mittag.
+    expect(arten).toEqual([
+      'Lektion',
+      'Lektion',
+      'Grosse Pause',
+      'Lektion',
+      'Lektion',
+      'Mittag',
+      'Lektion',
+    ]);
+    const mittag = tagesplanMitPausen(plan, null).find(
+      (zeile) => zeile.art === 'pause' && zeile.titel === 'Mittag'
+    );
+    expect(mittag && mittag.art === 'pause' ? mittag.von : '').toBe('11:30');
+  });
+
+  it('markiert die laufende Lektion - und die laufende Pause', () => {
+    const um = (zeit: string) => {
+      const wert = minuten(zeit) as number;
+      return tagesplanMitPausen(plan, wert).filter((zeile) => zeile.laeuft);
+    };
+    const inStunde = um('08:10');
+    expect(inStunde).toHaveLength(1);
+    expect(inStunde[0].art).toBe('lektion');
+    const inPause = um('09:45');
+    expect(inPause).toHaveLength(1);
+    expect(inPause[0].art === 'pause' && inPause[0].titel).toBe('Grosse Pause');
+    // Nicht heute (null): nichts läuft.
+    expect(tagesplanMitPausen(plan, null).some((zeile) => zeile.laeuft)).toBe(false);
+  });
+
+  it('nimmt für eine Lektion ohne Ende 45 Minuten an', () => {
+    const offen = [{ member: 'Levin', day: 'Mo', text: 'Turnen', from: '08:00', to: '' }];
+    expect(tagesplanMitPausen(offen, minuten('08:30') as number)[0].laeuft).toBe(true);
+    expect(tagesplanMitPausen(offen, minuten('08:50') as number)[0].laeuft).toBe(false);
+  });
+});
+
+describe('zuUebernehmen', () => {
+  it('übernimmt nur, was am Zieltag noch fehlt', () => {
+    const montag = [
+      { text: 'Mathematik', from: '08:00', to: '08:45' },
+      { text: 'Deutsch', from: '08:50', to: '09:35' },
+    ];
+    const dienstag = [{ text: 'Mathematik', from: '08:00', to: '08:45' }];
+    const neu = zuUebernehmen(montag, dienstag);
+    expect(neu).toHaveLength(1);
+    expect(neu[0].text).toBe('Deutsch');
+    expect(zuUebernehmen(montag, [])).toHaveLength(2);
+  });
+});
+
+describe('nachmittagFrei und blockHoehe', () => {
+  it('meldet den freien Nachmittag mit der Uhrzeit ab wann', () => {
+    const morgen = [
+      { text: 'Mathe', from: '08:00', to: '08:45' },
+      { text: 'Deutsch', from: '10:45', to: '11:30' },
+    ];
+    expect(nachmittagFrei(morgen)).toBe('11:30');
+    // Mit einer Nachmittagslektion ist nichts frei.
+    expect(
+      nachmittagFrei([...morgen, { text: 'Turnen', from: '13:25', to: '14:10' }])
+    ).toBeNull();
+    // Ohne Lektionen ist der ganze Tag frei - das sagt schon der leere
+    // Plan, kein zusätzlicher Balken nötig.
+    expect(nachmittagFrei([])).toBeNull();
+  });
+
+  it('macht Blöcke proportional, aber lesbar', () => {
+    expect(blockHoehe('08:00', '08:45', 44, 96)).toBe(50);
+    expect(blockHoehe('08:00', '09:30', 44, 96)).toBe(96); // Doppellektion, gedeckelt
+    expect(blockHoehe('09:35', '09:40', 26, 54)).toBe(26); // Zimmerwechsel, Mindestmass
+    expect(blockHoehe('kaputt', '', 44, 96)).toBe(50); // 45 Minuten angenommen
   });
 });

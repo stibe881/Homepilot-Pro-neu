@@ -33,11 +33,14 @@ import {
   heuteSatz,
   kindTermine,
   naechstesMal,
+  blockHoehe,
+  nachmittagFrei,
   tagVon,
+  tagesplanMitPausen,
   wochenliste,
   wochenplan,
   zeitNormal,
-  zeitraum,
+  zuUebernehmen,
 } from '../../lib/kindseite';
 import { Colors, radius } from '../../theme';
 import { BackHead, FamilyItem, Styles } from './bausteine';
@@ -231,6 +234,13 @@ export function Kindseite({
   const plan = wochenplan(lektionen, name);
   const tagesplan = plan.find((block) => block.tag === schultag)?.zeilen ?? [];
   const schultage = plan.map((block) => block.tag);
+  // Nur am heutigen Tag läuft etwas - für den Dienstag von morgen gibt
+  // es kein «jetzt».
+  const jetztMin =
+    schultag === heuteTag ? jetzt.getHours() * 60 + jetzt.getMinutes() : null;
+  const planZeilen = tagesplanMitPausen(tagesplan, jetztMin);
+  const frei = nachmittagFrei(tagesplan);
+  const andereTage = schultage.filter((tag) => tag !== schultag);
   const woche = wochenliste(termine, name);
   const naechste = kindTermine(events, name, jetzt);
 
@@ -331,24 +341,122 @@ export function Kindseite({
             jedem Gerät – auch am Wandpanel.
           </Text>
         ) : (
-          tagesplan.map((lektion) =>
-            zeile(
-              lektion,
-              'lessons',
-              String(lektion.text ?? ''),
-              zeitraum(lektion.from, lektion.to)
-            )
-          )
+          // Wie auf dem Zettel am Kühlschrank: Blöcke mit Zeitspalte,
+          // eine Doppellektion doppelt so hoch, die Pausen dazwischen
+          // sichtbar. Die laufende Stunde trägt Rand und «jetzt».
+          <View style={eigen.planSpalte}>
+            {planZeilen.map((planzeile, index) =>
+              planzeile.art === 'pause' ? (
+                <View
+                  key={`pause-${index}`}
+                  style={[
+                    eigen.pauseBlock,
+                    { height: blockHoehe(planzeile.von, planzeile.bis, 30, 56) },
+                    planzeile.laeuft && eigen.blockJetzt,
+                  ]}
+                >
+                  <Text style={eigen.blockZeit}>{planzeile.von}</Text>
+                  <Ionicons
+                    name={
+                      planzeile.titel === 'Mittag' ? 'restaurant-outline' : 'cafe-outline'
+                    }
+                    size={13}
+                    color={colors.inkFaint}
+                  />
+                  <Text style={eigen.pauseText}>{planzeile.titel}</Text>
+                  {planzeile.laeuft ? <Text style={eigen.jetztChip}>jetzt</Text> : null}
+                </View>
+              ) : (
+                <View
+                  key={String(planzeile.eintrag.id)}
+                  style={[
+                    eigen.lektionBlock,
+                    {
+                      minHeight: blockHoehe(
+                        planzeile.eintrag.from,
+                        planzeile.eintrag.to,
+                        46,
+                        96
+                      ),
+                    },
+                    planzeile.laeuft && eigen.blockJetzt,
+                  ]}
+                >
+                  <View style={eigen.blockZeiten}>
+                    <Text style={eigen.blockZeit}>
+                      {zeitNormal(planzeile.eintrag.from) ?? ''}
+                    </Text>
+                    {zeitNormal(planzeile.eintrag.to) ? (
+                      <Text style={eigen.blockZeitBis}>
+                        {zeitNormal(planzeile.eintrag.to)}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <View style={eigen.blockKern}>
+                    <Text style={styles.checkText} numberOfLines={2}>
+                      {String(planzeile.eintrag.text ?? '')}
+                    </Text>
+                    {planzeile.laeuft ? <Text style={eigen.jetztChip}>jetzt</Text> : null}
+                  </View>
+                  <Pressable
+                    onPress={() => onRemove('lessons', String(planzeile.eintrag.id))}
+                    style={styles.deleteTap}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${String(planzeile.eintrag.text ?? '')} entfernen`}
+                  >
+                    <Ionicons name="close" size={16} color={colors.inkFaint} />
+                  </Pressable>
+                </View>
+              )
+            )}
+            {frei ? (
+              <View style={eigen.freiBlock}>
+                <Ionicons name="sunny-outline" size={14} color={colors.inkSoft} />
+                <Text style={eigen.pauseText}>Nachmittag frei · ab {frei}</Text>
+              </View>
+            ) : null}
+          </View>
         )}
         {formKnopf('lessons', 'Lektion eintragen')}
         {formOffen === 'lessons' ? (
-          <WochenForm
-            platzhalter={`Fach am ${TAG_NAMEN[schultag]}, z.B. Mathematik …`}
-            tag={schultag}
-            onAdd={(neu) => onAdd('lessons', neu)}
-            styles={styles}
-            colors={colors}
-          />
+          <>
+            <WochenForm
+              platzhalter={`Fach am ${TAG_NAMEN[schultag]}, z.B. Mathematik …`}
+              tag={schultag}
+              onAdd={(neu) => onAdd('lessons', neu)}
+              styles={styles}
+              colors={colors}
+            />
+            {/* Der Dienstag sieht oft aus wie der Montag - statt sechs
+                Lektionen abzutippen, übernimmt man sie. Doppeltes lässt
+                zuUebernehmen weg. */}
+            {andereTage.length > 0 ? (
+              <View style={eigen.uebernehmenReihe}>
+                <Text style={styles.checkSub}>Zeiten übernehmen von:</Text>
+                {andereTage.map((tag) => (
+                  <Pressable
+                    key={tag}
+                    onPress={() => {
+                      const quelle = plan.find((block) => block.tag === tag)?.zeilen ?? [];
+                      for (const alt of zuUebernehmen(quelle, tagesplan)) {
+                        onAdd('lessons', {
+                          day: schultag,
+                          text: String(alt.text ?? ''),
+                          from: zeitNormal(alt.from) ?? '',
+                          to: zeitNormal(alt.to) ?? '',
+                        });
+                      }
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Lektionen vom ${TAG_NAMEN[tag]} übernehmen`}
+                    style={({ pressed }) => [styles.chip, pressed && { opacity: 0.6 }]}
+                  >
+                    <Text style={styles.chipText}>{tag}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+          </>
         ) : null}
       </Card>
 
@@ -423,4 +531,67 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.surfaceSoft,
     },
     formKnopfText: { color: colors.accent, fontSize: 13, fontWeight: '600' },
+    planSpalte: { gap: 5, marginTop: 4 },
+    lektionBlock: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      borderRadius: radius.control,
+      backgroundColor: `${colors.accent}12`,
+      borderWidth: 1,
+      borderColor: 'transparent',
+      borderLeftWidth: 3,
+      borderLeftColor: colors.accent,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+    },
+    pauseBlock: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: 'transparent',
+      borderLeftWidth: 3,
+      borderLeftColor: 'transparent',
+      paddingHorizontal: 10,
+    },
+    blockJetzt: {
+      borderColor: colors.accent,
+      backgroundColor: `${colors.accent}26`,
+    },
+    blockZeiten: { width: 44, alignSelf: 'stretch', justifyContent: 'space-between', paddingVertical: 2 },
+    blockZeit: { color: colors.inkSoft, fontSize: 11.5, fontVariant: ['tabular-nums'], width: 44 },
+    blockZeitBis: { color: colors.inkFaint, fontSize: 11.5, fontVariant: ['tabular-nums'] },
+    blockKern: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
+    freiBlock: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingHorizontal: 10,
+      paddingVertical: 9,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderStyle: 'dashed',
+      borderColor: colors.surfaceBorder,
+    },
+    jetztChip: {
+      color: '#FFFFFF',
+      backgroundColor: colors.accent,
+      fontSize: 10,
+      fontWeight: '700',
+      paddingHorizontal: 6,
+      paddingVertical: 1,
+      borderRadius: radius.pill,
+      overflow: 'hidden',
+    },
+    pauseText: { color: colors.inkFaint, fontSize: 12.5 },
+    uebernehmenReihe: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginTop: 8,
+    },
   });
