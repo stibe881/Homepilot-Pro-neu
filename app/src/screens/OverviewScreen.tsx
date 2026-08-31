@@ -20,7 +20,7 @@ import { appleMapsRoute, googleMapsRoute } from '../components/TopStrip';
 import { VacuumHome } from '../components/VacuumHome';
 import { useTakt } from '../hooks/useTakt';
 import { FAVORIT_LUECKE, FAVORIT_MINDEST, kachelBreite, spalten } from '../lib/raster';
-import { dauerText, wochentagUhr } from '../lib/format';
+import { dauerText } from '../lib/format';
 import {
   chipZeile,
   fensterZeile,
@@ -51,7 +51,6 @@ import {
   KalenderGruppe,
   geburtstagsListe,
   terminGruppen,
-  terminListe,
 } from '../lib/kalenderliste';
 import { applianceLine } from '../lib/haushalt';
 import {
@@ -152,22 +151,6 @@ function two(value: number): string {
   return value < 10 ? `0${value}` : String(value);
 }
 
-/** «in X Tagen» bis zu einem Datum – für den nächsten Geburtstag (rein,
- *  testbar). Reine Datumsangaben («2026-08-20») werden auf Mittag gesetzt,
- *  damit die Zeitzone die Tageszahl nicht verschiebt. */
-function daysUntilText(value: unknown): string {
-  const raw = String(value ?? '').trim();
-  const iso = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T12:00:00` : raw;
-  const target = new Date(iso);
-  if (Number.isNaN(target.getTime())) return '';
-  const today = new Date();
-  const days = Math.round(
-    (new Date(target).setHours(0, 0, 0, 0) - today.setHours(0, 0, 0, 0)) / 86_400_000
-  );
-  if (days <= 0) return 'heute! 🎉';
-  if (days === 1) return 'morgen';
-  return `in ${days} Tagen`;
-}
 
 /** Erstes Gerät, das auf Art und (optional) Namensmuster passt. */
 function pick(
@@ -335,8 +318,6 @@ export function OverviewScreen({
 
   // ── Demo-Zustände für noch nicht eingebundene Geräte ───────────────────
   const [demoFlatLocked, setDemoFlatLocked] = useState(true);
-  // Nachfrage «Route womit öffnen?» unter dem Termin-Ort.
-  const [routeAsk, setRouteAsk] = useState(false);
   const [demoAlarmArmed, setDemoAlarmArmed] = useState(false);
   const [confirm, setConfirm] = useState<string | null>(null);
 
@@ -431,48 +412,24 @@ export function OverviewScreen({
       ? 'Am Trocknen'
       : 'Fertig';
 
-  // Kalender: nächster Termin und – als eigener Platz – nächster Geburtstag.
+  // Der Kalender - nur noch für die beiden Fenster. Den nächsten Termin
+  // und den nächsten Geburtstag zeigt die Startkarte oben; hier stand
+  // dasselbe ein zweites Mal.
   const events: KalenderEintrag[] = Array.isArray(calendar?.state.events)
     ? calendar!.state.events
     : [];
-  const isBirthday = (event: KalenderEintrag) =>
-    event.birthday || /geburtstag|birthday/i.test(event.summary ?? '');
-  const birthday = events.find(isBirthday);
-  const nextEvent = events.find((event) => !isBirthday(event));
 
-  const eventLine = (
-    event: KalenderEintrag | undefined,
-    demoText: string,
-    demoWhen: string
-  ) => {
-    if (!calendar) return { title: demoText, when: demoWhen, demo: true };
-    if (!event) return { title: 'Nichts geplant', when: '', demo: false };
-    const when = event.all_day ? 'ganztägig' : wochentagUhr(new Date(event.start));
-    return {
-      title: event.summary ?? '—',
-      when,
-      demo: false,
-      location: typeof event.location === 'string' ? event.location : null,
-    };
-  };
-
-  // Welche der beiden Listen offen ist. Die Kacheln zeigen je einen
+  // Welche der beiden Listen offen ist. Die Startkarte zeigt je einen
   // Eintrag; «was kommt diese Woche noch» und «wann hat Levin
-  // Geburtstag» standen nirgends, obwohl beides im selben Kalender liegt.
+  // Geburtstag» stehen nur hier.
   const [liste, setListe] = useState<'termine' | 'geburtstage' | null>(null);
   // Von aussen gerufen (Startkarte): Zähler angestossen → Fenster auf.
   useEffect(() => {
     if (kalenderSignal && kalenderSignal.n > 0) setListe(kalenderSignal.art);
   }, [kalenderSignal]);
   const jetztFuerListe = new Date();
-  const alleTermine = terminListe(events, jetztFuerListe);
   const terminTage = terminGruppen(events, jetztFuerListe);
   const alleGeburtstage = geburtstagsListe(events, jetztFuerListe);
-
-  const termin = eventLine(nextEvent, 'Zahnarzt', 'Mo 14:30');
-  const geburtstag = birthday
-    ? { title: birthday.summary ?? '—', when: daysUntilText(birthday.start), demo: false }
-    : { title: 'Livia', when: 'in 12 Tagen', demo: true };
 
   // ── Anzeige ────────────────────────────────────────────────────────────
 
@@ -645,99 +602,39 @@ export function OverviewScreen({
 
   const heuteBlock = (
     <>
-      {/* Termine & Musik */}
-      <Text style={styles.groupLabel}>Heute</Text>
-      <View style={styles.tileRow}>
-        <Tile
-          styles={styles}
-          colors={colors}
-          width={tileWidth}
-          icon="calendar-outline"
-          title="Nächster Termin"
-          demo={termin.demo}
-          onPress={alleTermine.length > 0 ? () => setListe('termine') : undefined}
-          mehrLabel={`Alle Termine, ${alleTermine.length}`}
-        >
-          <Text style={styles.tileState} numberOfLines={1}>
-            {termin.title}
-          </Text>
-          {termin.when ? <Text style={styles.tileSub}>{termin.when}</Text> : null}
-          {'location' in termin && termin.location ? (
-            <>
-              <Pressable
-                onPress={() => setRouteAsk((v) => !v)}
-                accessibilityRole="button"
-                accessibilityLabel={`Route zu ${termin.location}`}
-                style={({ pressed }) => [styles.terminOrtRow, pressed && { opacity: 0.7 }]}
-              >
-                <Ionicons name="location-outline" size={13} color={colors.accent} />
-                <Text style={styles.terminOrt} numberOfLines={1}>
-                  {termin.location}
-                </Text>
-              </Pressable>
-              {routeAsk ? (
-                <View style={styles.routeRow}>
-                  <Action
-                    styles={styles}
-                    label="Google Maps"
-                    icon="map-outline"
-                    onPress={() => {
-                      // Keine Karten-App ist kein Fehler dieser Karte.
-                      Linking.openURL(googleMapsRoute(termin.location!)).catch(() => {});
-                      setRouteAsk(false);
-                    }}
-                  />
-                  <Action
-                    styles={styles}
-                    label="Apple Karten"
-                    icon="navigate-outline"
-                    onPress={() => {
-                      // Wie daneben: ohne Karten-App passiert nichts.
-                      Linking.openURL(appleMapsRoute(termin.location!)).catch(() => {});
-                      setRouteAsk(false);
-                    }}
-                  />
-                </View>
-              ) : null}
-            </>
-          ) : null}
-        </Tile>
-        <Tile
-          styles={styles}
-          colors={colors}
-          width={tileWidth}
-          icon="gift-outline"
-          title="Nächster Geburtstag"
-          demo={geburtstag.demo}
-          onPress={alleGeburtstage.length > 0 ? () => setListe('geburtstage') : undefined}
-          mehrLabel={`Alle Geburtstage, ${alleGeburtstage.length}`}
-        >
-          <Text style={styles.tileState} numberOfLines={1}>
-            {geburtstag.title}
-          </Text>
-          {geburtstag.when ? <Text style={styles.tileSub}>{geburtstag.when}</Text> : null}
-        </Tile>
-        {countdown ? (
-          <Tile
-            styles={styles}
-            colors={colors}
-            width={tileWidth}
-            icon="hourglass-outline"
-            title={countdown.text}
-          >
-            <Text style={styles.tileState} numberOfLines={1}>
-              {countdown.days != null
-                ? countdown.days > 0
-                  ? `noch ${countdown.days} Tage`
-                  : countdown.days === 0
-                    ? 'heute!'
-                    : 'vorbei'
-                : '—'}
-            </Text>
-            <Text style={styles.tileSub}>{countdown.date}</Text>
-          </Tile>
-        ) : null}
-      </View>
+      {/* Hier standen «Nächster Termin» und «Nächster Geburtstag».
+          Beides steht inzwischen als Zeile in der Startkarte ganz oben,
+          mitsamt dem Griff in dieselben Fenster - zweimal dasselbe
+          untereinander liest niemand, und die zwei Kacheln kosteten die
+          ganze erste Reihe.
+
+          Die Fenster selbst bleiben: Sie sind der Weg, auf dem die
+          Startkarte «Alle Termine» und «Alle Geburtstage» aufmacht. */}
+      {countdown ? (
+        <>
+          <Text style={styles.groupLabel}>Heute</Text>
+          <View style={styles.tileRow}>
+            <Tile
+              styles={styles}
+              colors={colors}
+              width={tileWidth}
+              icon="hourglass-outline"
+              title={countdown.text}
+            >
+              <Text style={styles.tileState} numberOfLines={1}>
+                {countdown.days != null
+                  ? countdown.days > 0
+                    ? `noch ${countdown.days} Tage`
+                    : countdown.days === 0
+                      ? 'heute!'
+                      : 'vorbei'
+                  : '—'}
+              </Text>
+              <Text style={styles.tileSub}>{countdown.date}</Text>
+            </Tile>
+          </View>
+        </>
+      ) : null}
       <KalenderFenster
         offen={liste !== null}
         titel={liste === 'geburtstage' ? 'Alle Geburtstage' : 'Alle Termine'}
@@ -1677,6 +1574,10 @@ function KalenderFenster({
   colors: Colors;
 }) {
   const zeilenGesamt = gruppen.reduce((summe, gruppe) => summe + gruppe.zeilen.length, 0);
+  // Zu welchem Termin die Frage «Route womit öffnen?» offen steht. Sie
+  // sass an der Kachel «Nächster Termin»; die gibt es nicht mehr, und
+  // ein Ort ohne Weg dorthin ist die halbe Auskunft.
+  const [routeFuer, setRouteFuer] = useState<string | null>(null);
   return (
     <Modal visible={offen} animationType="slide" onRequestClose={onClose} transparent>
       <Pressable style={styles.fensterGrund} onPress={onClose}>
@@ -1725,16 +1626,63 @@ function KalenderFenster({
                           <Text style={styles.fensterOrt}>{zeile.datum}</Text>
                         ) : null}
                         {zeile.ort ? (
-                          <View style={styles.fensterUnten}>
-                            <Ionicons
-                              name="location-outline"
-                              size={12}
-                              color={colors.inkFaint}
-                            />
-                            <Text style={styles.fensterOrt} numberOfLines={1}>
-                              {zeile.ort}
-                            </Text>
-                          </View>
+                          <>
+                            <Pressable
+                              onPress={() =>
+                                setRouteFuer((offen) =>
+                                  offen === zeile.key ? null : zeile.key
+                                )
+                              }
+                              accessibilityRole="button"
+                              accessibilityLabel={`Route zu ${zeile.ort}`}
+                              style={({ pressed }) => [
+                                styles.fensterUnten,
+                                pressed && { opacity: 0.7 },
+                              ]}
+                            >
+                              <Ionicons
+                                name="location-outline"
+                                size={12}
+                                color={colors.accent}
+                              />
+                              <Text
+                                style={[styles.fensterOrt, { color: colors.accent }]}
+                                numberOfLines={1}
+                              >
+                                {zeile.ort}
+                              </Text>
+                            </Pressable>
+                            {routeFuer === zeile.key ? (
+                              <View style={styles.routeRow}>
+                                <Action
+                                  styles={styles}
+                                  label="Google Maps"
+                                  icon="map-outline"
+                                  onPress={() => {
+                                    // Keine Karten-App ist kein Fehler
+                                    // dieses Fensters.
+                                    Linking.openURL(
+                                      googleMapsRoute(zeile.ort as string)
+                                    ).catch(() => {});
+                                    setRouteFuer(null);
+                                  }}
+                                />
+                                <Action
+                                  styles={styles}
+                                  label="Apple Karten"
+                                  icon="navigate-outline"
+                                  onPress={() => {
+                                    // Wie daneben: ohne Karten-App
+                                    // passiert schlicht nichts.
+                                    Linking.openURL(
+                                      appleMapsRoute(zeile.ort as string)
+                                    ).catch(() => {});
+                                    setRouteFuer(null);
+                                  }}
+                                />
+                              </View>
+                            ) : null}
+                          </>
                         ) : null}
                       </View>
                       {!gruppe.titel && zeile.wann ? (
@@ -1769,8 +1717,6 @@ function Tile({
   colors,
   width,
   tint,
-  onPress,
-  mehrLabel,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
@@ -1783,40 +1729,22 @@ function Tile({
   width: number | '100%';
   /** Hintergrund für Zustände, die man im Vorbeigehen sehen soll. */
   tint?: string;
-  /** Öffnet die volle Liste hinter der Kachel. Das kleine Zeichen oben
-   *  rechts sagt, dass es hier etwas zu sehen gibt – eine Kachel, die
-   *  ohne Hinweis auf Antippen reagiert, findet niemand. */
-  onPress?: () => void;
-  mehrLabel?: string;
 }) {
-  // Der Inhalt einmal; die Breite trägt aussen, wer da ist – die Karte
-  // selbst oder der Druckpunkt um sie herum. Sonst stünde die Kachel im
-  // gedrückten Fall zu schmal.
-  const karte = (
-    <Card style={{ ...styles.tile, width: onPress ? '100%' : width }} tint={tint}>
+  // Hier konnte eine Kachel auch antippbar sein und die volle Liste
+  // dahinter aufmachen - das brauchten «Nächster Termin» und «Nächster
+  // Geburtstag». Beide sind in die Startkarte gewandert, und ein
+  // Griff, den niemand mehr benutzt, veraltet still.
+  return (
+    <Card style={{ ...styles.tile, width }} tint={tint}>
       <View style={styles.tileHead}>
         <Ionicons name={icon} size={18} color={colors.inkSoft} />
         <Text style={styles.tileTitle} numberOfLines={1}>
           {title}
         </Text>
         {demo ? <Badge label="Demo" styles={styles} /> : null}
-        {onPress ? (
-          <Ionicons name="chevron-forward" size={15} color={colors.inkSoft} />
-        ) : null}
       </View>
       {children}
     </Card>
-  );
-  if (!onPress) return karte;
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={mehrLabel ?? title}
-      style={({ pressed }) => [{ width }, pressed && { opacity: 0.75 }]}
-    >
-      {karte}
-    </Pressable>
   );
 }
 
