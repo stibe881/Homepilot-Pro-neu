@@ -34,6 +34,7 @@ Präfix. Beides wird beim Verbinden automatisch erkannt.
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
 import aiohttp
@@ -41,6 +42,27 @@ import aiohttp
 from ..core.entity import EntityKind
 from ..core.errors import ConfigError
 from ..core.integration import Integration, console_html_hint
+
+# Wie lange dieselbe Klage schweigt, bevor sie sich wiederholt (Sekunden).
+KLAGE_TAKT = 1800.0
+
+
+def klage_faellig(vorher: tuple[str, float] | None, grund: str, jetzt: float) -> bool:
+    """Gehört diese gescheiterte Abfrage noch einmal ins Log? (rein, testbar)
+
+    Ist der Controller weg oder die Anmeldung abgelaufen, scheitert jede
+    Runde, und zwar immer am selben Grund. Als Warnung je Abfrage waren
+    das gut hundert Zeilen pro Stunde, die nichts Neues sagten und alles
+    andere zudeckten – ausgerechnet das Log, in dem man dann nach einem
+    Tastendruck oder einer Störung sucht.
+
+    Der erste Fehler gehört hinein, ein *anderer* Grund auch – der immer
+    gleiche erst wieder nach einer halben Stunde, damit man sieht, dass
+    es noch dauert, statt es für erledigt zu halten.
+    """
+    if vorher is None or vorher[0] != grund:
+        return True
+    return jetzt - vorher[1] >= KLAGE_TAKT
 
 
 def normalise_mac(mac: str) -> str:
@@ -94,6 +116,8 @@ class UnifiIntegration(Integration):
         # System nicht mehr traut.
         self._away_grace = float(self.config.get("away_grace", 300))
         self._last_seen: dict[str, float] = {}
+        # Die letzte Klage und wann sie geschrieben wurde – siehe _klagen.
+        self._klage: tuple[str, float] | None = None
         self._base = f"https://{self._host}"
         self._prefix = ""  # wird beim Login gesetzt
         self._csrf: str | None = None
@@ -265,17 +289,30 @@ class UnifiIntegration(Integration):
 
     # ── Abfrage ────────────────────────────────────────────────────────────
 
+    def _klagen(self, grund: str) -> None:
+        """Eine gescheiterte Abfrage ins Log – nicht alle 30 Sekunden dieselbe."""
+        jetzt = time.time()
+        if not klage_faellig(self._klage, grund, jetzt):
+            self.log.debug("UniFi-Abfrage weiterhin fehlgeschlagen: %s", grund)
+            return
+        self.log.warning("UniFi-Abfrage fehlgeschlagen: %s", grund)
+        self._klage = (grund, jetzt)
+
     async def _refresh(self) -> None:
         try:
             clients = await self._fetch_clients()
         except Exception as err:
-            self.log.warning("UniFi-Abfrage fehlgeschlagen: %s", err)
+            self._klagen(str(err))
             for entity_id in self._tracked.values():
                 await self.hub.registry.update_state(entity_id, {}, available=False)
             await self.hub.registry.update_state(
                 self.entity_id("clients_total"), {}, available=False
             )
             return
+
+        if self._klage is not None:
+            self.log.info("UniFi antwortet wieder.")
+            self._klage = None
 
         seen = presence_from_clients(clients, list(self._tracked))
         now = asyncio.get_running_loop().time()
