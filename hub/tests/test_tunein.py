@@ -7,6 +7,7 @@ auf – dass eine Suche auch Sendungen zurückgibt, die man nicht abspielen
 kann, und dass die «Sendeadresse» meistens eine Wiedergabeliste ist.
 """
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -14,6 +15,7 @@ import pytest
 from homepilot.core.config import ApiConfig, HubConfig
 from homepilot.core.entity import Entity, EntityKind
 from homepilot.core.hub import Hub
+from homepilot.integrations import tunein
 from homepilot.integrations.tunein import (
     ANSPRUCH_SEKUNDEN,
     Station,
@@ -664,6 +666,9 @@ async def test_the_same_station_twice_does_not_ask_tunein_twice():
             await hub.integrations.dispatch_command(
                 "tunein.radio", "play_radio", {"station": "SRF 3"}
             )
+        # Die Logo-Suche läuft nebenher, seit sie den Ton nicht mehr
+        # aufhalten soll - einmal durchatmen, damit sie durch ist.
+        await asyncio.sleep(0.05)
         # Drei, nicht zwei: Einmal Tune, einmal die Wiedergabeliste - und
         # genau EINE Suche, mit der sich der Sender sein fehlendes Logo
         # nachholt (mit_logo). Sie darf nicht je Start wiederkehren.
@@ -753,5 +758,48 @@ async def test_other_commands_still_say_that_no_radio_runs():
         entity = next(e for e in hub.registry.all() if e.integration == "tunein")
         with pytest.raises(HomePilotError, match="kein Radio"):
             await radio.handle_command(entity, "set_volume", {"volume": 40})
+    finally:
+        await hub.stop()
+
+
+async def test_the_addresses_are_resolved_before_anyone_taps(monkeypatch):
+    """«Beim Umschalten dauert es lange» hat zwei Gründe, und einen kann
+    der Hub abstellen: Ein kalter Sender kostet zwei Anfragen an TuneIn,
+    und die liegen im Weg zwischen «angetippt» und «hörbar». Also macht
+    der Hub sie vorher - während niemand wartet."""
+    hub, radio, box = await _hub_mit_box()
+    try:
+        monkeypatch.setattr(tunein, "WARM_ANLAUF", 0.0)
+        monkeypatch.setattr(tunein, "WARM_ABSTAND", 0.0)
+        anfragen: list[str] = []
+
+        async def opml(url: str) -> dict[str, Any]:
+            anfragen.append(url)
+            return TUNE
+
+        async def playlist(url: str) -> str:
+            anfragen.append(url)
+            return "http://stream.srg-ssr.ch/srgssr/srf3/mp3/128\n"
+
+        radio._opml = opml  # type: ignore[method-assign]
+        radio._playlist_text = playlist  # type: ignore[method-assign]
+
+        await radio.setup()
+        # Die Runde läuft im Hintergrund - einmal durchatmen.
+        await asyncio.sleep(0.05)
+        assert anfragen, "die Adresse wurde nicht im Voraus geholt"
+        vorher = len(anfragen)
+
+        # Und jetzt der Tipp: Er kostet keine Anfrage mehr auf dem Weg
+        # zum Ton. (Das Senderlogo sucht der Hub nebenher - es hält
+        # niemanden auf.)
+        await hub.integrations.dispatch_command(
+            "tunein.radio", "play_radio", {"station": "SRF 3"}
+        )
+        unterwegs = [
+            url for url in anfragen[vorher:] if "Tune.ashx" in url or ".m3u" in url
+        ]
+        assert unterwegs == []
+        assert box.gespielt[0]["url"] == "http://stream.srg-ssr.ch/srgssr/srf3/mp3/128"
     finally:
         await hub.stop()

@@ -15,6 +15,20 @@ from homepilot.core.hub import Hub
 
 from .conftest import make_config
 
+
+@pytest.fixture(autouse=True)
+def kurze_frist(monkeypatch):
+    """Die Frist nach dem Ende auf ein Wimpernschlag stellen.
+
+    Der Plan wartet zwanzig Sekunden, bevor er eine stille Box auf ihren
+    Ruhewert stellt - ein Senderwechsel geht durch «gestoppt» hindurch,
+    und in diese Lücke gehört kein Ruhewert. Für die Prüfung wäre das
+    zwanzig Sekunden Warten je Test; dass die Frist wirkt, prüft
+    `test_a_station_change_is_not_the_end_of_the_music`.
+    """
+    monkeypatch.setattr(lautplan, "ENDE_FRIST", 0.01)
+
+
 STUFEN = [
     {"at": "07:00", "volume": 20},
     {"at": "10:00", "volume": 70},
@@ -435,5 +449,61 @@ async def test_a_speaker_still_takes_it_when_the_music_ends() -> None:
         finally:
             hub.lautplan.jetzt_min = echte_zeit  # type: ignore[method-assign]
         assert hub.registry.get("test.box").state["volume"] == 70
+    finally:
+        await hub.stop()
+
+
+async def test_a_station_change_is_not_the_end_of_the_music() -> None:
+    """Der Fall aus dem Wohnzimmer.
+
+    Ein Senderwechsel im Radio geht durch «gestoppt» hindurch: Der Hub
+    schickt die neue Adresse, die Box bricht den alten Strom ab und baut
+    den neuen auf. Ohne Frist stellte der Plan genau in diese Lücke
+    seinen Ruhewert - und der neue Sender begann auf Tageszeit-Wert
+    statt dort, wo man gerade hörte.
+    """
+    hub = await hub_mit_box(zustand="playing", volume=35)
+    try:
+        hub.data.set(lautplan.KEY, [PLAN])
+        echte_zeit = hub.lautplan.jetzt_min
+        hub.lautplan.jetzt_min = lambda jetzt=None: um("11:00")  # type: ignore[method-assign]
+        try:
+            # Sender aus …
+            await hub.registry.update_state("test.box", {"state": "idle"})
+            # … und gleich der nächste an, noch innerhalb der Frist.
+            await hub.registry.update_state("test.box", {"state": "playing"})
+            await asyncio.sleep(0.05)
+            assert hub.registry.get("test.box").state["volume"] == 35
+
+            # Wer das Radio wirklich ausmacht, bekommt den Ruhewert.
+            await hub.registry.update_state("test.box", {"state": "idle"})
+            await asyncio.sleep(0.05)
+            assert hub.registry.get("test.box").state["volume"] == 70
+        finally:
+            hub.lautplan.jetzt_min = echte_zeit  # type: ignore[method-assign]
+    finally:
+        await hub.stop()
+
+
+async def test_a_box_that_says_nothing_still_gets_its_resting_value() -> None:
+    """Das Nachsehen nach der Frist ist der eigentliche Schutz.
+
+    Meldet eine Box ihren neuen Zustand gar nicht (manche nennen ihn nur
+    auf Nachfrage), fällt das Abbrechen aus - der Zustand steht dann
+    trotzdem richtig da, und danach richtet sich der Plan.
+    """
+    hub = await hub_mit_box(zustand="playing", volume=35)
+    try:
+        hub.data.set(lautplan.KEY, [PLAN])
+        echte_zeit = hub.lautplan.jetzt_min
+        hub.lautplan.jetzt_min = lambda jetzt=None: um("11:00")  # type: ignore[method-assign]
+        try:
+            await hub.registry.update_state("test.box", {"state": "idle"})
+            # Ohne Meldung, aber tatsächlich wieder am Spielen.
+            hub.registry.get("test.box").state["state"] = "playing"
+            await asyncio.sleep(0.05)
+            assert hub.registry.get("test.box").state["volume"] == 35
+        finally:
+            hub.lautplan.jetzt_min = echte_zeit  # type: ignore[method-assign]
     finally:
         await hub.stop()

@@ -32,6 +32,7 @@ hinspielt. Der Musikplayer der App kennt diese Form schon.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import dataclass, replace
 from typing import Any
@@ -357,6 +358,24 @@ def waehlbare_boxen(
 #: Eine Stunde: Sender wechseln ihre Adressen, aber nicht im Minutentakt.
 ADRESSE_HAELT = 3600.0
 
+#: In diesem Takt werden die Adressen der gemerkten Sender im Voraus
+#: aufgelöst - deutlich kürzer als ADRESSE_HAELT, damit keine abläuft.
+#:
+#: Warum überhaupt: Beim Umschalten kostet ein kalter Sender zwei
+#: Anfragen an TuneIn (die Kennung suchen, die Wiedergabeliste holen),
+#: und die liegen mitten im Weg zwischen «angetippt» und «hörbar». Der
+#: Hub kann sie stattdessen vorher machen - während niemand wartet.
+WARM_TAKT = 1500.0
+
+#: So lange nach dem Start wird gewartet, bevor die erste Runde läuft.
+#: Der Start hat Wichtigeres zu tun, als Sender aufzulösen, die
+#: vielleicht heute niemand hört.
+WARM_ANLAUF = 20.0
+
+#: Und so lange zwischen zwei Sendern derselben Runde. Ein Stakkato von
+#: zwanzig Anfragen sieht bei TuneIn aus wie ein Angriff.
+WARM_ABSTAND = 2.0
+
 #: Wie lange ein frisch eingeschalteter Sender als «läuft» gilt, auch
 #: wenn die Box noch nichts meldet.
 #:
@@ -462,6 +481,7 @@ class TuneInIntegration(Integration):
         )
         await self._refresh()
         self.start_polling(self._refresh)
+        self.start_task(self._adressen_warmhalten())
 
     # ── Sender ─────────────────────────────────────────────────────────────
 
@@ -582,6 +602,37 @@ class TuneInIntegration(Integration):
             f"auflösen{f': {letzter_fehler}' if letzter_fehler else ''}"
         )
 
+    async def _adressen_warmhalten(self) -> None:
+        """Die Sendeadressen im Voraus auflösen.
+
+        «Beim Umschalten dauert es lange» hat zwei Gründe, und einen
+        davon kann der Hub abstellen: Ein Sender, dessen Adresse nicht
+        im Kopf liegt, kostet zwei Anfragen an TuneIn - erst die Kennung
+        suchen, dann die Wiedergabeliste holen. Beide liegen im Weg
+        zwischen «angetippt» und «hörbar».
+
+        Also werden sie vorher gemacht. ``stream_for`` fragt von sich aus
+        nur, was abgelaufen ist; diese Runde ist damit fast immer eine
+        Runde durch den Speicher und kostet nichts.
+
+        Was bleibt, kann der Hub nicht abkürzen: Die Box muss den
+        Empfänger starten und den Strom puffern. Deshalb wird hier auch
+        nichts «vorgeladen» - eine Box lädt nur, was sie gerade spielt.
+        """
+        await asyncio.sleep(WARM_ANLAUF)
+        while True:
+            for station in self.stations():
+                try:
+                    await self.stream_for(station)
+                except Exception as err:  # noqa: BLE001 - ein Sender darf fehlen
+                    self.log.debug(
+                        "TuneIn: Adresse von '%s' nicht im Voraus geholt (%s)",
+                        station.name,
+                        err,
+                    )
+                await asyncio.sleep(WARM_ABSTAND)
+            await asyncio.sleep(WARM_TAKT)
+
     async def _play(self, station: Station, wunsch_box: str | None) -> None:
         boxen = self.speakers()
         ziel = pick_speaker(wunsch_box or self._wunsch_box, boxen, self._box)
@@ -596,24 +647,38 @@ class TuneInIntegration(Integration):
         )
         self._box = ziel
         self._station = self._gefunden.get(station.name.casefold(), station)
-        schluessel = self._station.name.casefold()
-        if (
-            not self._station.image
-            and self._station.id
-            and schluessel not in self._logo_gesucht
-        ):
-            # Höchstens einmal je Sender und Lauf - auch bei erfolgloser
-            # Suche, sonst fragte jeder Wiedergabestart aufs Neue.
-            self._logo_gesucht.add(schluessel)
-            try:
-                treffer = await self.search(self._station.name)
-            except Exception:
-                treffer = []
-            self._station = mit_logo(self._station, treffer)
-            self._gefunden[schluessel] = self._station
+        # Das Logo nebenher holen und nicht im Weg: Es ist ein Bild in
+        # der Kachel, und dafür soll niemand warten, bis der Ton läuft.
+        # Vorher hing es im Aufruf - der Tipp auf einen Sender kostete
+        # eine dritte Anfrage an TuneIn, bevor die App eine Antwort
+        # bekam. Erscheint es eine Sekunde später, merkt das niemand;
+        # die App holt den Zustand ohnehin laufend nach.
+        self._logo_nachholen(self._station)
         # Ab hier läuft die Frist, in der die ladende Box als «läuft» gilt.
         self._seit = time.time()
         await self._refresh()
+
+    def _logo_nachholen(self, station: Station) -> None:
+        """Das Senderbild im Hintergrund suchen - höchstens einmal je
+        Sender und Lauf, auch bei erfolgloser Suche: Sonst fragte jeder
+        Wiedergabestart aufs Neue."""
+        schluessel = station.name.casefold()
+        if station.image or not station.id or schluessel in self._logo_gesucht:
+            return
+        self._logo_gesucht.add(schluessel)
+
+        async def suchen() -> None:
+            try:
+                treffer = await self.search(station.name)
+            except Exception:  # noqa: BLE001 - ohne Logo geht es auch
+                return
+            mit = mit_logo(station, treffer)
+            self._gefunden[schluessel] = mit
+            if self._station is not None and self._station.name == station.name:
+                self._station = mit
+                await self._refresh()
+
+        self.start_task(suchen())
 
     # ── Box → Hub ──────────────────────────────────────────────────────────
 

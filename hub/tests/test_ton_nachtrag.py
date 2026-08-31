@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from homepilot.core import ton
 from homepilot.core.entity import Entity
 from homepilot.core.hub import Hub
@@ -16,6 +18,16 @@ from homepilot.core.source import as_source, automation_source, scene_source, us
 from .conftest import make_config
 
 ABLAUF = automation_source("a1", "Lautstärke Lautsprecher Morgen")
+
+
+@pytest.fixture(autouse=True)
+def kurze_frist(monkeypatch):
+    """Wie im Lautstärkeplan: Das Nachreichen wartet erst die Frist ab,
+    damit es nicht in die Lücke zwischen zwei Radiosendern fällt. Für die
+    Prüfung wäre das zwanzig Sekunden je Test."""
+    from homepilot.core import lautplan
+
+    monkeypatch.setattr(lautplan, "ENDE_FRIST", 0.01)
 
 
 # ── Die reine Entscheidung ────────────────────────────────────────────
@@ -287,5 +299,32 @@ async def test_the_deferred_set_runs_under_the_automations_name() -> None:
         await asyncio.sleep(0.05)
         assert gesehen and gesehen[0]["label"] == "Lautstärke Lautsprecher Morgen"
         assert gesehen[0]["kind"] == "automation"
+    finally:
+        await hub.stop()
+
+
+async def test_a_station_change_does_not_hand_over_the_wish() -> None:
+    """Der gemerkte Wunsch gehört ans Ende der Wiedergabe - nicht in die
+    Lücke zwischen zwei Radiosendern. Er bleibt gemerkt und kommt beim
+    nächsten echten Ende zum Zug."""
+    hub = await gestartet()
+    try:
+        await box(hub, "test.radio", "playing")
+        with as_source(ABLAUF):
+            await hub.integrations.dispatch_command("test.radio", "set_volume", {"volume": 20})
+        await hub.registry.update_state("test.radio", {"state": "playing", "volume": 45})
+
+        # Sender aus, nächster Sender an - noch innerhalb der Frist.
+        await hub.registry.update_state("test.radio", {"state": "idle"})
+        await hub.registry.update_state("test.radio", {"state": "playing"})
+        await asyncio.sleep(0.05)
+        assert hub.registry.get("test.radio").state["volume"] == 45
+        assert hub.ton.nachtrag() != []
+
+        # Und wenn das Radio wirklich ausgeht, kommt der Wunsch doch.
+        await hub.registry.update_state("test.radio", {"state": "idle"})
+        await asyncio.sleep(0.05)
+        assert hub.registry.get("test.radio").state["volume"] == 20
+        assert hub.ton.nachtrag() == []
     finally:
         await hub.stop()

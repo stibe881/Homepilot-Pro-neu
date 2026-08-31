@@ -61,6 +61,22 @@ MAX_STUFEN = 12
 #: reicht weit; hundert wären ein Versehen.
 MAX_PLAENE = 8
 
+#: So lange muss eine Box still bleiben, bis das als Ende der Wiedergabe
+#: zählt.
+#:
+#: Der Fall aus dem Wohnzimmer: Ein Senderwechsel im Radio geht durch
+#: «gestoppt» hindurch. Der Hub schickt die neue Adresse, die Box bricht
+#: den alten Strom ab und baut den neuen auf - dazwischen liegen ein paar
+#: Sekunden, in denen dort nichts läuft. Ohne diese Frist stellte der
+#: Plan genau in diese Lücke hinein seinen Ruhewert, und der neue Sender
+#: begann auf Tageszeit-Lautstärke statt dort, wo man gerade hörte.
+#:
+#: Zwanzig Sekunden sind grosszügig gerechnet (TuneIn auflösen, Empfänger
+#: starten, Strom puffern) und kosten nichts: Am Ende einer Wiedergabe
+#: ist die Box still, und ob ihr Ruhewert eine halbe Minute später gilt,
+#: merkt niemand.
+ENDE_FRIST = 20.0
+
 
 def minuten(hhmm: Any) -> int | None:
     """«07:00» → 420 (rein, testbar). Unsinn ergibt None."""
@@ -211,6 +227,8 @@ class Lautplan:
         #: neu - sonst zöge der Plan jeden Handgriff am Regler innerhalb
         #: einer Minute wieder zurück.
         self._zuletzt: dict[str, str] = {}
+        #: Boxen, bei denen gerade die Frist nach dem Ende läuft.
+        self._enden: dict[str, asyncio.Task[None]] = {}
 
     # ── Speicher ───────────────────────────────────────────────────────
 
@@ -236,6 +254,9 @@ class Lautplan:
         if self._takt is not None:
             self._takt.cancel()
             self._takt = None
+        for aufgabe in self._enden.values():
+            aufgabe.cancel()
+        self._enden.clear()
 
     async def _lauf(self) -> None:
         # Einmal beim Start: Eine stille Box auf einem Wert, den niemand
@@ -309,17 +330,44 @@ class Lautplan:
         neu = data.get("new_state") or {}
         if not isinstance(alt, dict) or not isinstance(neu, dict):
             return
+        entity_id = str(data.get("entity_id") or "")
+        # Wieder Musik: Eine wartende Frist ist gegenstandslos. Das ist
+        # der Senderwechsel - er kommt hier als «spielt wieder» an.
+        if str(neu.get("state")) in ("playing", "buffering"):
+            self._frist_abbrechen(entity_id)
+            return
         # Nur der Übergang zählt. Ein Player, der zehnmal je Minute
         # seinen Fortschritt meldet, ist zehnmal «nicht am Spielen».
         if str(alt.get("state")) not in ("playing", "buffering"):
             return
-        if str(neu.get("state")) in ("playing", "buffering"):
+        self._frist_abbrechen(entity_id)
+        self._enden[entity_id] = asyncio.create_task(self._nach_der_frist(entity_id))
+
+    def _frist_abbrechen(self, entity_id: str) -> None:
+        aufgabe = self._enden.pop(entity_id, None)
+        if aufgabe is not None:
+            aufgabe.cancel()
+
+    async def _nach_der_frist(self, entity_id: str) -> None:
+        """Nach der Frist nachsehen, ob die Box wirklich still geblieben ist.
+
+        Das Nachsehen ist der eigentliche Schutz; das Abbrechen oben
+        spart nur die wartende Aufgabe. Eine Meldung «spielt wieder»
+        kann ausbleiben (eine Box, die ihren Zustand nur auf Nachfrage
+        nennt), der Zustand steht dann trotzdem richtig da.
+        """
+        try:
+            await asyncio.sleep(ENDE_FRIST)
+        except asyncio.CancelledError:
             return
-        entity_id = str(data.get("entity_id") or "")
+        finally:
+            self._enden.pop(entity_id, None)
         entity = self.hub.registry.get(entity_id)
+        if entity is None or str(entity.state.get("state")) in ("playing", "buffering"):
+            return
         # Ein Fernseher zählt nur, wenn ein Plan ihn ausdrücklich nennt -
         # dieselbe Frage wie beim Stufenwechsel, also dieselbe Antwort.
-        bildschirm = bool(entity is not None and entity.state.get("has_screen"))
+        bildschirm = bool(entity.state.get("has_screen"))
         wert = sollwert(self.plaene(), entity_id, self.jetzt_min(), bildschirm)
         if wert is None:
             return
@@ -327,4 +375,4 @@ class Lautplan:
             (p for p in self.plaene() if gilt_fuer(p, entity_id, bildschirm)),
             {"name": "Lautstärkeplan"},
         )
-        asyncio.create_task(self._stellen(entity_id, wert, plan))
+        await self._stellen(entity_id, wert, plan)

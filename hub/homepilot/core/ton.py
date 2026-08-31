@@ -775,7 +775,6 @@ class Tonmeister:
         eintrag = nachtrag_fuer(self.nachtrag(), entity_id)
         if eintrag is None:
             return
-        self._vergessen(entity_id)
         # Deckt ein Tagesplan diese Box ab, gewinnt er: Er kennt den
         # Sollwert der *jetzigen* Zeit, der gemerkte Wunsch nur den von
         # damals. Läuft das Radio von sieben bis elf, gilt beim
@@ -801,6 +800,20 @@ class Tonmeister:
         asyncio.create_task(self._nachreichen(entity_id, eintrag))
 
     async def _nachreichen(self, entity_id: str, eintrag: dict[str, Any]) -> None:
+        # Erst die Frist abwarten: Ein Senderwechsel im Radio geht durch
+        # «gestoppt» hindurch, und der gemerkte Wunsch gehört ans Ende
+        # der Wiedergabe - nicht in die Lücke zwischen zwei Sendern.
+        # Dieselbe Frist wie im Lautstärkeplan; zwei Zahlen für dieselbe
+        # Lücke liefen auseinander.
+        await asyncio.sleep(lautplan.ENDE_FRIST)
+        entity = self.hub.registry.get(entity_id)
+        if entity is not None and laeuft(entity.state.get("state")):
+            # Es läuft wieder. Der Wunsch bleibt gemerkt - er kommt beim
+            # nächsten *echten* Ende zum Zug.
+            return
+        # Jetzt erst vergessen: Vorher wäre er weg, sobald die Box
+        # zwischen zwei Sendern einmal stillsteht.
+        self._vergessen(entity_id)
         try:
             # Unter der gemerkten Quelle: Am Gerät soll später der Ablauf
             # stehen, der es wollte, und nicht «Gerät».
