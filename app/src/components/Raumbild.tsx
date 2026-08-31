@@ -199,10 +199,20 @@ export function Raumbild({
           {knoepfe.length > 0 || geraete.length > 0 ? (
             <>
               <Text style={styles.abschnitt}>Knöpfe auf der Kachel</Text>
+              {/* Die Zahl vor dem Namen ist die einzige Stelle, an der
+                  die Reihenfolge sichtbar wird - ohne sie sähe die Wahl
+                  aus wie ein Haken, und die Kachel ordnete dann
+                  scheinbar willkürlich. Umsortiert wird durch Abwählen
+                  und neu Antippen; bei höchstens drei Knöpfen ist das
+                  kürzer als jedes Ziehen. */}
+              <Text style={styles.hinweis}>
+                Die Reihenfolge auf der Kachel ist die des Antippens.
+              </Text>
               <View style={styles.chips}>
                 {[...knoepfe, ...geraete].map((knopf) => {
                   const jetzt = auswahl ?? knoepfe.map((k) => k.art);
-                  const aktiv = jetzt.includes(knopf.art);
+                  const platz = jetzt.indexOf(knopf.art);
+                  const aktiv = platz >= 0;
                   const wechseln = () => {
                     if (aktiv) {
                       setVoll(false);
@@ -223,10 +233,15 @@ export function Raumbild({
                       onPress={wechseln}
                       accessibilityRole="switch"
                       accessibilityState={{ checked: aktiv }}
-                      accessibilityLabel={`Knopf ${knopf.label} auf der Kachel`}
+                      accessibilityLabel={
+                        aktiv
+                          ? `Knopf ${knopf.label}, Platz ${platz + 1} auf der Kachel`
+                          : `Knopf ${knopf.label} auf der Kachel`
+                      }
                       style={[styles.chip, aktiv && styles.chipAn]}
                     >
                       <Text style={[styles.chipText, aktiv && styles.chipTextAn]}>
+                        {aktiv ? `${platz + 1}. ` : ''}
                         {knopf.label}
                       </Text>
                     </Pressable>

@@ -150,22 +150,6 @@ export function raumaktionen(items: Entity[]): Raumaktion[] {
 }
 
 /**
- * Welche Aktionen die Kachel zeigt (rein, testbar).
- *
- * `undefined` heisst: keine Wahl getroffen - alle, die der Raum hergibt.
- * Eine Liste heisst: genau diese, in der gewachsenen Reihenfolge der
- * Aktionen. Auch die leere Liste ist eine Wahl - wer die Knöpfe auf
- * einer Kachel nicht will, bekommt keine.
- */
-export function gewaehlteAktionen(
-  aktionen: Raumaktion[],
-  auswahl: string[] | undefined
-): Raumaktion[] {
-  if (auswahl === undefined) return aktionen;
-  return aktionen.filter((aktion) => auswahl.includes(aktion.id ?? aktion.art));
-}
-
-/**
  * Ein einzelnes Gerät als Kachel-Knopf (rein, testbar).
  *
  * Der Fall dahinter: In Levins Zimmer stand nur «Licht» zur Wahl - was
@@ -267,6 +251,16 @@ export const KNOEPFE_HOECHSTENS = 3;
  * hergibt. Mit Wahl kommen auch einzelne Geräte dazu - und die
  * Obergrenze gilt hier noch einmal, falls eine Wahl von einem anderen
  * Gerät mehr enthält, als die Kachel tragen kann.
+ *
+ * **Die Wahl gibt die Reihenfolge vor.** Vorher stand auf der Kachel,
+ * was gewählt war, aber immer in der eingebauten Abfolge (Licht,
+ * Storen, Musik, dann die Geräte) - wer «Musik» zuerst wollte, konnte
+ * nichts tun. Jetzt zählt, in welcher Folge die Knöpfe angetippt
+ * wurden; im Blatt steht die Nummer neben jedem gewählten Chip.
+ *
+ * Doppelte Einträge fallen weg: Eine Wahl von einem anderen Gerät oder
+ * aus einer älteren Fassung soll keinen Knopf zweimal auf die Kachel
+ * bringen.
  */
 export function kachelKnoepfe(
   items: Entity[],
@@ -274,9 +268,17 @@ export function kachelKnoepfe(
 ): Raumaktion[] {
   const standard = raumaktionen(items);
   if (auswahl === undefined) return standard;
-  return [...standard, ...waehlbareGeraete(items)]
-    .filter((aktion) => auswahl.includes(aktion.id ?? aktion.art))
-    .slice(0, KNOEPFE_HOECHSTENS);
+  const alle = [...standard, ...waehlbareGeraete(items)];
+  const gesehen = new Set<string>();
+  const gewaehlt: Raumaktion[] = [];
+  for (const art of auswahl) {
+    if (gesehen.has(art)) continue;
+    const aktion = alle.find((eintrag) => (eintrag.id ?? eintrag.art) === art);
+    if (aktion === undefined) continue;
+    gesehen.add(art);
+    gewaehlt.push(aktion);
+  }
+  return gewaehlt.slice(0, KNOEPFE_HOECHSTENS);
 }
 
 /**

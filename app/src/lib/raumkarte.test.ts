@@ -1,7 +1,6 @@
 import { Entity } from '../api/types';
 import {
   geraetAktion,
-  gewaehlteAktionen,
   kachelKnoepfe,
   raumFarben,
   raumSchleier,
@@ -145,22 +144,43 @@ describe('raumStand', () => {
   });
 });
 
-describe('gewaehlteAktionen', () => {
-  const alle = raumaktionen([lampe('a', false), box('b', false)]);
+describe('die Wahl der Knöpfe', () => {
+  const items = [lampe('a', false), box('b', false)];
 
   it('zeigt ohne Wahl alles, was der Raum hergibt', () => {
-    expect(gewaehlteAktionen(alle, undefined).map((a) => a.art)).toEqual([
+    expect(kachelKnoepfe(items, undefined).map((k) => k.art)).toEqual([
       'licht',
       'musik',
     ]);
   });
 
   it('zeigt mit Wahl genau die gewählten', () => {
-    expect(gewaehlteAktionen(alle, ['musik']).map((a) => a.art)).toEqual(['musik']);
+    expect(kachelKnoepfe(items, ['musik']).map((k) => k.art)).toEqual(['musik']);
   });
 
   it('nimmt auch die leere Wahl ernst - keine Knöpfe ist eine Antwort', () => {
-    expect(gewaehlteAktionen(alle, [])).toEqual([]);
+    expect(kachelKnoepfe(items, [])).toEqual([]);
+  });
+
+  it('stellt die Knöpfe in die Reihenfolge der Wahl', () => {
+    // Vorher stand auf der Kachel immer erst «Licht», dann «Musik» -
+    // wer die Musik zuerst wollte, konnte nichts tun.
+    expect(kachelKnoepfe(items, ['musik', 'licht']).map((k) => k.art)).toEqual([
+      'musik',
+      'licht',
+    ]);
+  });
+
+  it('bringt keinen Knopf zweimal auf die Kachel', () => {
+    expect(kachelKnoepfe(items, ['musik', 'musik']).map((k) => k.art)).toEqual([
+      'musik',
+    ]);
+  });
+
+  it('übergeht, was der Raum nicht hergibt', () => {
+    expect(kachelKnoepfe(items, ['storen', 'licht']).map((k) => k.art)).toEqual([
+      'licht',
+    ]);
   });
 });
 
