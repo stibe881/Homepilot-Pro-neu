@@ -473,6 +473,53 @@ async def test_a_confirmed_callback_stays_quiet(hub, monkeypatch, caplog):
         await integration.teardown()
 
 
+def test_the_maintenance_channel_explains_a_silent_device():
+    """Eine Schlüsselbund-Fernbedienung meldet sich nur beim Drücken. Ohne
+    Druck gibt es genau eine Auskunft über sie, und die steht im
+    Wartungskanal: Hält die CCU sie für unerreichbar, wartet noch eine
+    Konfiguration, hat sie das Gerät je gehört?"""
+    from homepilot.integrations.homematic import wartungszeile
+
+    zeile = wartungszeile(
+        {
+            "UNREACH": False,
+            "CONFIG_PENDING": True,
+            "LOW_BAT": False,
+            "RSSI_DEVICE": -63,
+            "OPERATING_VOLTAGE": 3.0,
+        }
+    )
+    assert "UNREACH=nein" in zeile
+    assert "CONFIG_PENDING=ja" in zeile
+    assert "-63 dBm" in zeile
+    assert "3.0 V" in zeile
+
+    # Nie gehört ist etwas anderes als «gut gehört» - und der Unterschied
+    # ist die halbe Diagnose. Die CCU sagt beides mit einer 0.
+    assert "noch nie gehört" in wartungszeile({"RSSI_DEVICE": 0})
+    assert wartungszeile({}) == "keine Angaben"
+
+
+def test_the_tool_says_whether_the_device_is_configured_at_all():
+    """Die Kanalliste beantwortet «kennt die CCU das Gerät?». Die andere
+    Hälfte fehlte: Steht es überhaupt beim Hub? Ein Eintrag, der beim
+    Speichern verloren ging, sieht von aussen aus wie ein Funkproblem."""
+    from homepilot.integrations.homematic import eintraege_zum_geraet
+
+    devices = [
+        {"address": "0009E4099211F6:1", "name": "Schlüssel Levin", "kind": "button"},
+        {"address": "0009E4099211F6:2", "name": "Schlüssel Licht", "kind": "button"},
+        {"address": "001A58A9A24256:1", "name": "Taster Küche", "kind": "button"},
+    ]
+    gefunden = eintraege_zum_geraet(devices, "0009E4099211F6")
+    assert len(gefunden) == 2
+    assert "0009E4099211F6:1 «Schlüssel Levin» (kind: button)" in gefunden[0]
+    # Ein anderes Gerät gehört nicht dazu, auch wenn der Kanal gleich heisst.
+    assert all("001A58A9A24256" not in zeile for zeile in gefunden)
+    # Und gar kein Eintrag ist die wichtigste Antwort von allen.
+    assert eintraege_zum_geraet(devices, "0009E4099211AA") == []
+
+
 def test_the_datapoint_tells_what_kind_of_sensor_it_is():
     """Ohne diese Zuordnung ist ein Melder für den Hub bloss ein Ja/Nein –
     und der Wächter kann weder vor einem offenen Fenster noch vor Wasser
@@ -787,6 +834,59 @@ def test_key_channels_sortiert_nach_nummer():
         "001A58A9A24256:1",
         "001A58A9A24256:2",
     ]
+
+
+async def test_every_press_writes_a_line(hub, caplog):
+    """Ein Druck auf einen *eingetragenen* Kanal änderte bisher nur den
+    Zustand und schrieb nichts. Damit war «kommt überhaupt etwas an?» nur
+    zu beantworten, wenn man im richtigen Moment auf die Kachel schaute -
+    und genau diese Frage steht am Anfang jeder stummen Taste."""
+    ccu = _FakeCCU({})
+    integration = await _setup(
+        hub,
+        ccu,
+        [{"address": "0009E4099211F6:4", "port": 2010, "name": "Schlüssel", "kind": "button"}],
+    )
+    try:
+        with caplog.at_level(logging.INFO):
+            integration._on_event("id", "0009E4099211F6:4", "PRESS_SHORT", True)
+        assert "0009E4099211F6:4 PRESS_SHORT" in caplog.text
+
+        # Das Loslassen ist kein Druck und schreibt nichts.
+        caplog.clear()
+        with caplog.at_level(logging.INFO):
+            integration._on_event("id", "0009E4099211F6:4", "PRESS_SHORT", False)
+        assert "PRESS_SHORT" not in caplog.text
+    finally:
+        await integration.teardown()
+
+
+async def test_the_companions_of_a_long_press_prove_the_ccu_forwards(hub, caplog):
+    """PRESS_LONG_START und PRESS_LONG_RELEASE lösen bewusst nichts aus -
+    sonst käme ein langer Druck dreimal an. Lautlos verschwinden dürfen
+    sie trotzdem nicht: Sie sind der Beweis, dass die CCU weiterreicht,
+    und ohne den steht die Suche nach einer stummen Taste am Anfang."""
+    ccu = _FakeCCU({})
+    integration = await _setup(
+        hub,
+        ccu,
+        [{"address": "0009E4099211F6:4", "port": 2010, "name": "Schlüssel", "kind": "button"}],
+    )
+    try:
+        with caplog.at_level(logging.INFO):
+            integration._on_event("id", "0009E4099211F6:4", "PRESS_LONG_START", True)
+        assert "PRESS_LONG_START" in caplog.text
+        assert "Verbindung" in caplog.text
+        # Der Zustand bleibt unberührt - ausgelöst wird nichts.
+        assert hub.registry.get("homematic.0009E4099211F6_4").state["state"] == "unknown"
+
+        # Und je Kanal genügt es einmal, sonst wäre es ein Protokoll.
+        caplog.clear()
+        with caplog.at_level(logging.INFO):
+            integration._on_event("id", "0009E4099211F6:4", "PRESS_LONG_START", True)
+        assert caplog.text == ""
+    finally:
+        await integration.teardown()
 
 
 def test_fremder_druck_liefert_die_zeile_fuer_die_config():
