@@ -212,6 +212,30 @@ describe('geraetAktion und kachelKnoepfe', () => {
     expect(geraetAktion(box('b', true))?.befehle[0].command).toBe('pause');
   });
 
+  it('öffnet beim Fernseher mit Steuerkreuz die Fernbedienung', () => {
+    // Wer auf der Raumkachel «Fernseher» antippt, will umschalten -
+    // ein Gerät, das bloss angeht, beantwortet die halbe Frage.
+    const tv = geraet('cast.tv', 'media_player', { state: 'on', has_screen: true }, [
+      'turn_on',
+      'turn_off',
+      'dpad_up',
+    ]);
+    expect(geraetAktion(tv)?.oeffnet).toBe('fernbedienung');
+  });
+
+  it('lässt es ohne Steuerkreuz beim Schalter', () => {
+    // Ein Blatt mit nichts darin wäre schlechter als der Knopf, den es
+    // ersetzt.
+    const alt = geraet('cast.alt', 'media_player', { state: 'off', has_screen: true }, [
+      'turn_on',
+      'turn_off',
+    ]);
+    expect(geraetAktion(alt)?.oeffnet).toBeUndefined();
+    expect(geraetAktion(alt)?.befehle[0].command).toBe('turn_on');
+    // Und eine Box bleibt eine Box.
+    expect(geraetAktion(box('b', false))?.oeffnet).toBeUndefined();
+  });
+
   it('macht aus einem Fühler keinen Knopf', () => {
     expect(geraetAktion(geraet('t', 'sensor', { state: '21' }, []))).toBeNull();
     expect(waehlbareGeraete([szene, geraet('t', 'sensor', {}, [])]).length).toBe(1);

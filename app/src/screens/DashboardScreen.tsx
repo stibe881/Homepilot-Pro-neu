@@ -133,6 +133,8 @@ import { SpeakersScreen } from './SpeakersScreen';
 import { SystemScreen } from './SystemScreen';
 import { EntityHistory } from '../components/EntityHistory';
 import { MusikBlatt } from '../components/MusikBlatt';
+import { TvRemote } from '../components/TvRemote';
+import { appsOf } from '../components/TvApps';
 import { Musikzentrale } from '../components/Musikzentrale';
 import { ClimateOverview } from '../components/ClimateOverview';
 import { KidsView } from '../components/KidsView';
@@ -478,6 +480,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [bildFuer, setBildFuer] = useState<string | null>(null);
   // Für welchen Raum der Player offen steht (Musik-Knopf der Raumkachel).
   const [musikBlattRaum, setMusikBlattRaum] = useState<string | null>(null);
+  // Welcher Fernseher seine Fernbedienung offen hat. Sie hängt nicht an
+  // der Gerätekachel, sondern hier: Der Knopf «Fernseher» auf einer
+  // Raumkachel soll sie aufmachen, ohne dass man erst in den Raum geht.
+  const [remoteFuer, setRemoteFuer] = useState<string | null>(null);
   // Auf der Startseite markierte Countdowns aus dem Familie-Modul.
   const [startCountdowns, setStartCountdowns] = useState<
     { text: string; date: string; on_start?: boolean }[]
@@ -591,6 +597,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       entities.find((entity) => entity.kind === 'alarm') ??
       entities.find((entity) => /alarm/i.test(entity.name) && entity.kind === 'switch'),
     [entities]
+  );
+
+  // Der Fernseher, dessen Fernbedienung gerade offen ist. Über die
+  // Kennung und nicht über die Entität gemerkt: Der Hub schickt bei
+  // jedem Tastendruck einen neuen Zustand, und ein festgehaltenes Objekt
+  // wäre nach dem ersten Druck von gestern.
+  const remoteTv = useMemo(
+    () => entities.find((entity) => entity.id === remoteFuer) ?? null,
+    [entities, remoteFuer]
   );
 
   // Was die Einblendung unten anbietet: Abhaken, Griff oder die letzte
@@ -3008,6 +3023,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                         setMusikBlattRaum(tile.name);
                         return;
                       }
+                      // Und der Fernseher öffnet die Fernbedienung -
+                      // aus demselben Grund: Wer ihn antippt, will
+                      // umschalten, nicht bloss einschalten.
+                      if (aktion.oeffnet === 'fernbedienung' && aktion.id) {
+                        setRemoteFuer(aktion.id);
+                        return;
+                      }
                       aktion.befehle.forEach((befehl) =>
                         guardedCommand(befehl.entityId, befehl.command)
                       );
@@ -3663,6 +3685,20 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           onDismiss={error ? dismissError : () => setAbrufFehler(null)}
           bottomInset={insets.bottom}
         />
+        {/* Die Fernbedienung zum Knopf «Fernseher» auf einer Raumkachel.
+            Dieselbe wie auf der Gerätekachel - eine zweite Fassung
+            liefe früher oder später auseinander. */}
+        {remoteTv ? (
+          <TvRemote
+            visible
+            name={remoteTv.name}
+            onClose={() => setRemoteFuer(null)}
+            onCommand={(command, data) => guardedCommand(remoteTv.id, command, data)}
+            apps={remoteTv.commands.includes('launch_app') ? appsOf(remoteTv) : []}
+            fehler={error}
+            onFehlerWeg={dismissError}
+          />
+        ) : null}
         {musikBlattRaum ? (
           <MusikBlatt
             raum={musikBlattRaum}

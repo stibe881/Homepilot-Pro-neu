@@ -20,6 +20,7 @@
  */
 
 import { Entity } from '../api/types';
+import { fernbedienungMoeglich } from './fernsehkachel';
 import { isTelevision } from './geraeteart';
 
 export type AktionsArt = 'licht' | 'storen' | 'musik' | 'geraet';
@@ -37,6 +38,14 @@ export interface Raumaktion {
   an: boolean;
   /** Was beim Tippen hinausgeht – eines je betroffenem Gerät. */
   befehle: { entityId: string; command: string }[];
+  /** Dieser Knopf macht ein Blatt auf, statt zu schalten.
+   *
+   *  Wie beim Sammelknopf «Musik», der den Player öffnet: Ein Fernseher
+   *  hat nicht «an» und «aus», sondern eine Fernbedienung - und wer auf
+   *  der Raumkachel auf «Fernseher» tippt, will umschalten, lauter
+   *  stellen, pausieren. Das Ein- und Ausschalten liegt in der
+   *  Fernbedienung ganz oben. */
+  oeffnet?: 'fernbedienung';
 }
 
 /** Lichter des Raums – Leuchten wie Schalter, die sich schalten lassen. */
@@ -197,9 +206,20 @@ export function geraetAktion(entity: Entity): Raumaktion | null {
   }
   if (entity.kind === 'media_player') {
     const laeuft = entity.state.state === 'playing' || entity.state.state === 'on';
-    // Ein Fernseher wird ein- und ausgeschaltet; eine Box spielt oder
-    // pausiert. Beides ist hier bewusst ein blinder Schalter - wer den
-    // Player will, nimmt den Sammelknopf «Musik».
+    // Der Fernseher öffnet die Fernbedienung, statt blind zu schalten -
+    // dieselbe Entscheidung wie beim Sammelknopf «Musik», der den
+    // Player aufmacht. Ein Fernseher, der auf ein Tippen bloss angeht,
+    // beantwortet die halbe Frage: Danach steht man vor einem laufenden
+    // Gerät und sucht die Fernbedienung.
+    if (isTelevision(entity) && fernbedienungMoeglich(entity)) {
+      return {
+        ...knopf(laeuft ? 'tv' : 'tv-outline', laeuft, laeuft ? 'turn_off' : 'turn_on'),
+        oeffnet: 'fernbedienung',
+      };
+    }
+    // Ohne Steuerkreuz (eine Box, ein alter Chromecast) bleibt es beim
+    // Schalter: Ein Blatt mit nichts darin wäre schlechter als der
+    // Knopf, den es ersetzt.
     if (isTelevision(entity) && entity.commands.includes('turn_on')) {
       return knopf(laeuft ? 'tv' : 'tv-outline', laeuft, laeuft ? 'turn_off' : 'turn_on');
     }
