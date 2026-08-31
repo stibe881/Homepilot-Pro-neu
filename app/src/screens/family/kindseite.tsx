@@ -33,10 +33,14 @@ import {
   heuteSatz,
   kindTermine,
   naechstesMal,
+  Woche,
   blockHoehe,
+  fuerWoche,
+  naechsteWocheFach,
   nachmittagFrei,
   tagVon,
   tagesplanMitPausen,
+  wocheVon,
   wochenliste,
   wochenplan,
   zeitNormal,
@@ -108,6 +112,7 @@ function WochenForm({
   tag,
   onTag,
   onAdd,
+  dieseWoche,
   styles,
   colors,
 }: {
@@ -117,6 +122,9 @@ function WochenForm({
   /** Fehlt sie, ist der Tag von aussen gesetzt (Stundenplan). */
   onTag?: (tag: string) => void;
   onAdd: (zeile: FamilyItem) => void;
+  /** Gesetzt heisst: Das Fach kann alle zwei Wochen stattfinden
+   *  (A/B-Wochen), und diese hier läuft gerade. */
+  dieseWoche?: Woche;
   styles: Styles;
   colors: Colors;
 }) {
@@ -124,6 +132,7 @@ function WochenForm({
   const [von, setVon] = useState('');
   const [bis, setBis] = useState('');
   const [ort, setOrt] = useState('');
+  const [woche, setWoche] = useState<'' | Woche>('');
   const bereit = Boolean(text.trim()) && zeitNormal(von) !== null;
 
   const submit = () => {
@@ -137,12 +146,14 @@ function WochenForm({
       text: name,
       from: anfang,
       to: zeitNormal(bis) ?? '',
+      ...(woche ? { week: woche } : {}),
       ...(mitOrt && ort.trim() ? { ort: ort.trim() } : {}),
     });
     setText('');
     setVon('');
     setBis('');
     setOrt('');
+    setWoche('');
   };
 
   return (
@@ -195,6 +206,28 @@ function WochenForm({
           />
         ) : null}
       </View>
+      {/* Manche Fächer wechseln sich alle zwei Wochen ab (Handarbeit /
+          Werken). «diese Woche» steht dran, damit man beim Eintragen
+          weiss, welche Woche gerade läuft. */}
+      {dieseWoche ? (
+        <View style={styles.chipRow}>
+          {(['', 'A', 'B'] as const).map((wahl) => (
+            <Pressable
+              key={wahl || 'jede'}
+              onPress={() => setWoche(wahl)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: woche === wahl }}
+              style={[styles.chip, woche === wahl && styles.chipActive]}
+            >
+              <Text style={[styles.chipText, woche === wahl && styles.chipTextActive]}>
+                {wahl === ''
+                  ? 'Jede Woche'
+                  : `Woche ${wahl}${wahl === dieseWoche ? ' · diese' : ''}`}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -232,7 +265,15 @@ export function Kindseite({
   const [formOffen, setFormOffen] = useState<Wochenliste | null>(null);
 
   const plan = wochenplan(lektionen, name);
-  const tagesplan = plan.find((block) => block.tag === schultag)?.zeilen ?? [];
+  const dieseWoche = wocheVon(jetzt);
+  // Ungefiltert für Übernehmen und den Blick in die andere Woche -
+  // angezeigt wird nur, was in dieser Woche gilt.
+  const tagesplanAlle = plan.find((block) => block.tag === schultag)?.zeilen ?? [];
+  const tagesplan = fuerWoche(tagesplanAlle, dieseWoche);
+  const hatWochen = lektionen.some(
+    (zeile) =>
+      zeile?.member === name && (zeile?.week === 'A' || zeile?.week === 'B')
+  );
   const schultage = plan.map((block) => block.tag);
   // Nur am heutigen Tag läuft etwas - für den Dienstag von morgen gibt
   // es kein «jetzt».
@@ -334,6 +375,7 @@ export function Kindseite({
         <Text style={eigen.tagTitel}>
           {TAG_NAMEN[schultag]}
           {schultag === heuteTag ? ' · heute' : ''}
+          {hatWochen ? ` · Woche ${dieseWoche}` : ''}
         </Text>
         {tagesplan.length === 0 ? (
           <Text style={styles.checkSub}>
@@ -393,9 +435,23 @@ export function Kindseite({
                     ) : null}
                   </View>
                   <View style={eigen.blockKern}>
-                    <Text style={styles.checkText} numberOfLines={2}>
-                      {String(planzeile.eintrag.text ?? '')}
-                    </Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.checkText} numberOfLines={2}>
+                        {String(planzeile.eintrag.text ?? '')}
+                      </Text>
+                      {planzeile.eintrag.week === 'A' || planzeile.eintrag.week === 'B' ? (
+                        <Text style={styles.checkSub} numberOfLines={1}>
+                          {[
+                            'alle 2 Wochen',
+                            naechsteWocheFach(planzeile.eintrag, tagesplanAlle)
+                              ? `nächste Woche: ${naechsteWocheFach(planzeile.eintrag, tagesplanAlle)}`
+                              : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </Text>
+                      ) : null}
+                    </View>
                     {planzeile.laeuft ? <Text style={eigen.jetztChip}>jetzt</Text> : null}
                   </View>
                   <Pressable
@@ -423,6 +479,7 @@ export function Kindseite({
             <WochenForm
               platzhalter={`Fach am ${TAG_NAMEN[schultag]}, z.B. Mathematik …`}
               tag={schultag}
+              dieseWoche={dieseWoche}
               onAdd={(neu) => onAdd('lessons', neu)}
               styles={styles}
               colors={colors}
@@ -438,12 +495,15 @@ export function Kindseite({
                     key={tag}
                     onPress={() => {
                       const quelle = plan.find((block) => block.tag === tag)?.zeilen ?? [];
-                      for (const alt of zuUebernehmen(quelle, tagesplan)) {
+                      for (const alt of zuUebernehmen(quelle, tagesplanAlle)) {
                         onAdd('lessons', {
                           day: schultag,
                           text: String(alt.text ?? ''),
                           from: zeitNormal(alt.from) ?? '',
                           to: zeitNormal(alt.to) ?? '',
+                          ...(alt.week === 'A' || alt.week === 'B'
+                            ? { week: alt.week }
+                            : {}),
                         });
                       }
                     }}

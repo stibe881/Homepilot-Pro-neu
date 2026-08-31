@@ -9,6 +9,12 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Zweiwochen-Fächer im Stundenplan.** Handarbeit und Werken wechseln
+  sich alle zwei Wochen ab - beim Eintragen lässt sich jetzt «Woche A»
+  oder «Woche B» wählen (mit dem Hinweis, welche gerade läuft). Der
+  Plan zeigt immer, was diese Woche dran ist; am Fach steht «alle 2
+  Wochen · nächste Woche: Werken», und der Tagestitel trägt die Woche.
+  Auch der «Heute»-Satz rechnet mit der richtigen Woche.
 - **Der Stundenplan sieht aus wie einer.** Auf der Kinderseite sind
   die Lektionen jetzt Blöcke mit Zeitspalte - eine Doppellektion
   doppelt so hoch, dazwischen sichtbar die grosse Pause und der

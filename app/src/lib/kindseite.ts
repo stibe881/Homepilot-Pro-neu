@@ -203,8 +203,13 @@ export function heute(
   jetzt: Date
 ): Eintrag[] {
   const tag = tagVon(jetzt);
-  return nachZeit(
-    (zeilen ?? []).filter((zeile) => zeile?.member === name && zeile?.day === tag)
+  // Nur was diese Woche gilt: Ein Zweiwochen-Fach der anderen Woche
+  // gehört heute nicht in den Satz «Schule 08:00-15:00».
+  return fuerWoche(
+    nachZeit(
+      (zeilen ?? []).filter((zeile) => zeile?.member === name && zeile?.day === tag)
+    ),
+    wocheVon(jetzt)
   );
 }
 
@@ -393,7 +398,7 @@ export function zuUebernehmen(quelle: Eintrag[], ziel: Eintrag[]): Eintrag[] {
   const schluessel = (zeile: Eintrag) =>
     `${zeitNormal(zeile?.from) ?? ''}|${String(zeile?.text ?? '')
       .trim()
-      .toLowerCase()}`;
+      .toLowerCase()}|${zeile?.week === 'A' || zeile?.week === 'B' ? zeile.week : ''}`;
   const vorhanden = new Set(ziel.map(schluessel));
   return nachZeit(quelle).filter((zeile) => !vorhanden.has(schluessel(zeile)));
 }
@@ -440,4 +445,63 @@ export function blockHoehe(
   const b = minuten(bis);
   const dauer = a !== null && b !== null && b > a ? b - a : 45;
   return Math.max(mindestens, Math.min(hoechstens, Math.round(dauer * 1.1)));
+}
+
+// ── A/B-Wochen: Fächer, die nur alle zwei Wochen stattfinden ─────────────
+
+export type Woche = 'A' | 'B';
+
+/** Die ISO-Kalenderwoche (rein, testbar). Montag beginnt die Woche,
+ *  die erste Woche des Jahres ist die mit dem 4. Januar. */
+export function kalenderwoche(wann: Date): number {
+  const d = new Date(Date.UTC(wann.getFullYear(), wann.getMonth(), wann.getDate()));
+  const tag = (d.getUTCDay() + 6) % 7;
+  // Auf den Donnerstag derselben Woche stellen - er entscheidet, zu
+  // welchem Jahr eine Silvesterwoche gehört.
+  d.setUTCDate(d.getUTCDate() - tag + 3);
+  const jan4 = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  const montag1 = new Date(jan4);
+  montag1.setUTCDate(jan4.getUTCDate() - ((jan4.getUTCDay() + 6) % 7));
+  return 1 + Math.floor((d.getTime() - montag1.getTime()) / (7 * 86400000));
+}
+
+/** Welche Schulwoche gerade läuft (rein, testbar): ungerade
+ *  Kalenderwochen sind «A», gerade «B». Am Jahresende kann die Folge
+ *  einmal stolpern (KW 53 → KW 1, beide ungerade) - das tun die
+ *  A/B-Pläne der Schulen dann auch, und man stellt einmal um. */
+export function wocheVon(wann: Date): Woche {
+  return kalenderwoche(wann) % 2 === 1 ? 'A' : 'B';
+}
+
+export function andereWoche(woche: Woche): Woche {
+  return woche === 'A' ? 'B' : 'A';
+}
+
+/** Die Zeilen, die in dieser Woche gelten (rein, testbar): ohne
+ *  ``week`` jede Woche, sonst nur die passende. */
+export function fuerWoche(zeilen: Eintrag[], woche: Woche): Eintrag[] {
+  return zeilen.filter(
+    (zeile) => zeile?.week !== (woche === 'A' ? 'B' : 'A')
+  );
+}
+
+/**
+ * Was in der anderen Woche an dieser Stelle steht (rein, testbar).
+ *
+ * «Handarbeit, alle zwei Wochen» beantwortet nur die halbe Frage - die
+ * andere Hälfte ist, was nächste Woche zur selben Zeit dran ist. Das
+ * Gegenstück ist die Zeile am selben Tag mit demselben Anfang und der
+ * anderen Woche; ohne eines ist nächste Woche schlicht frei.
+ */
+export function naechsteWocheFach(zeile: Eintrag, tagZeilen: Eintrag[]): string | null {
+  const woche = zeile?.week;
+  if (woche !== 'A' && woche !== 'B') return null;
+  const anfang = zeitNormal(zeile?.from);
+  const partner = tagZeilen.find(
+    (andere) =>
+      andere !== zeile &&
+      andere?.week === andereWoche(woche) &&
+      zeitNormal(andere?.from) === anfang
+  );
+  return partner ? String(partner.text ?? '').trim() || null : null;
 }

@@ -14,8 +14,12 @@ import {
   naechstesMal,
   nenntPerson,
   blockHoehe,
+  fuerWoche,
+  kalenderwoche,
+  naechsteWocheFach,
   nachmittagFrei,
   tagesplanMitPausen,
+  wocheVon,
   zuUebernehmen,
   schulzeit,
   verschmelze,
@@ -300,5 +304,59 @@ describe('nachmittagFrei und blockHoehe', () => {
     expect(blockHoehe('08:00', '09:30', 44, 96)).toBe(96); // Doppellektion, gedeckelt
     expect(blockHoehe('09:35', '09:40', 26, 54)).toBe(26); // Zimmerwechsel, Mindestmass
     expect(blockHoehe('kaputt', '', 44, 96)).toBe(50); // 45 Minuten angenommen
+  });
+});
+
+// ── A/B-Wochen ───────────────────────────────────────────────────────────
+
+describe('Zweiwochen-Fächer', () => {
+  it('kennt die Kalenderwoche nach ISO', () => {
+    expect(kalenderwoche(new Date(2026, 0, 1))).toBe(1); // Do, 1.1.2026
+    expect(kalenderwoche(new Date(2026, 7, 30))).toBe(35); // So, 30.8.
+    expect(kalenderwoche(new Date(2026, 7, 31))).toBe(36); // Mo, 31.8.
+    // Silvesterwoche gehört zum neuen Jahr, wenn ihr Donnerstag dort liegt.
+    expect(kalenderwoche(new Date(2024, 11, 30))).toBe(1); // Mo, 30.12.2024 → KW 1/2025
+  });
+
+  it('macht aus ungeraden Wochen «A» und geraden «B»', () => {
+    expect(wocheVon(new Date(2026, 7, 30))).toBe('A'); // KW 35
+    expect(wocheVon(new Date(2026, 7, 31))).toBe('B'); // KW 36
+  });
+
+  it('zeigt in Woche A nur, was jede Woche oder in A stattfindet', () => {
+    const zeilen = [
+      { text: 'Mathe', from: '08:00' },
+      { text: 'Handarbeit', from: '10:00', week: 'A' },
+      { text: 'Werken', from: '10:00', week: 'B' },
+    ];
+    expect(fuerWoche(zeilen, 'A').map((zeile) => zeile.text)).toEqual([
+      'Mathe',
+      'Handarbeit',
+    ]);
+    expect(fuerWoche(zeilen, 'B').map((zeile) => zeile.text)).toEqual([
+      'Mathe',
+      'Werken',
+    ]);
+  });
+
+  it('nennt das Fach der anderen Woche an derselben Stelle', () => {
+    const tag = [
+      { text: 'Handarbeit', from: '10:00', week: 'A' },
+      { text: 'Werken', from: '10:00', week: 'B' },
+      { text: 'Mathe', from: '08:00' },
+    ];
+    expect(naechsteWocheFach(tag[0], tag)).toBe('Werken');
+    // Ohne Gegenstück ist nächste Woche schlicht frei.
+    expect(naechsteWocheFach({ text: 'Chor', from: '12:00', week: 'A' }, tag)).toBeNull();
+    // Ein Jede-Woche-Fach hat keine «andere Woche».
+    expect(naechsteWocheFach(tag[2], tag)).toBeNull();
+  });
+
+  it('übernimmt A- und B-Zeilen getrennt', () => {
+    const quelle = [
+      { text: 'Handarbeit', from: '10:00', week: 'A' },
+      { text: 'Werken', from: '10:00', week: 'B' },
+    ];
+    expect(zuUebernehmen(quelle, [{ text: 'Handarbeit', from: '10:00', week: 'A' }])).toHaveLength(1);
   });
 });
