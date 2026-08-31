@@ -26,6 +26,15 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   aussieht wie der Montag, tippt nicht mehr ab: «Zeiten übernehmen
   von» kopiert die Lektionen eines anderen Tags - was schon dasteht,
   kommt nicht doppelt.
+- **Der Stundenplan kann zwischen Woche A und B blättern.** Ein Fach
+  für die andere Woche einzutragen sah aus wie Datenverlust: Es wurde
+  gespeichert, verschwand aber sofort aus dem Blick, weil der Plan nur
+  die laufende Woche zeigte. Jetzt stehen über dem Plan zwei Chips
+  («Woche A», «Woche B · diese»), nach dem Eintragen blättert die
+  Ansicht von selbst in die Woche des neuen Fachs, und ein Tag, dessen
+  Einträge alle in der anderen Woche liegen, sagt das («die Einträge
+  liegen in Woche A»). Die Jetzt-Markierung und die Zeitlinie
+  erscheinen nur in der Woche, die wirklich läuft.
 - **Speichern kann nicht mehr stumm scheitern.** Wies der Hub eine
   Änderung an den Familienlisten ab (etwa weil er eine neue Liste wie
   den Stundenplan noch nicht kennt, solange das Update nicht durch

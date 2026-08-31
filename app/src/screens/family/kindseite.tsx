@@ -35,6 +35,7 @@ import {
   naechstesMal,
   MINUTE_PUNKTE,
   Woche,
+  andereWoche,
   fuerWoche,
   naechsteWocheFach,
   nachmittagFrei,
@@ -283,19 +284,30 @@ export function Kindseite({
 
   const plan = wochenplan(lektionen, name);
   const dieseWoche = wocheVon(jetzt);
+  // Welche der beiden Wochen der Plan zeigt. null heisst: die, die
+  // gerade läuft. Der Umschalter ist die Antwort auf einen gemeldeten
+  // Fehler: Ein Fach für die *andere* Woche wurde gespeichert - und
+  // verschwand sofort aus dem Blick, weil der Plan nur die laufende
+  // Woche zeigte. Ohne einen Weg, die andere Woche anzusehen, sieht
+  // korrektes Speichern aus wie Datenverlust.
+  const [wocheWahl, setWocheWahl] = useState<Woche | null>(null);
+  const angezeigteWoche = wocheWahl ?? dieseWoche;
   // Ungefiltert für Übernehmen und den Blick in die andere Woche -
-  // angezeigt wird nur, was in dieser Woche gilt.
+  // angezeigt wird nur, was in der gewählten Woche gilt.
   const tagesplanAlle = plan.find((block) => block.tag === schultag)?.zeilen ?? [];
-  const tagesplan = fuerWoche(tagesplanAlle, dieseWoche);
+  const tagesplan = fuerWoche(tagesplanAlle, angezeigteWoche);
   const hatWochen = lektionen.some(
     (zeile) =>
       zeile?.member === name && (zeile?.week === 'A' || zeile?.week === 'B')
   );
   const schultage = plan.map((block) => block.tag);
   // Nur am heutigen Tag läuft etwas - für den Dienstag von morgen gibt
-  // es kein «jetzt».
+  // es kein «jetzt». Und nur in der Woche, die wirklich läuft: Im Blick
+  // auf die andere Woche gehören weder Markierung noch Zeitlinie hin.
   const jetztMin =
-    schultag === heuteTag ? jetzt.getHours() * 60 + jetzt.getMinutes() : null;
+    schultag === heuteTag && angezeigteWoche === dieseWoche
+      ? jetzt.getHours() * 60 + jetzt.getMinutes()
+      : null;
   const planZeilen = tagesplanMitPausen(tagesplan, jetztMin);
   // Die Zeitachse des Tages - null, wenn keine Zeile eine lesbare Zeit
   // trägt; dann bleibt die schlichte Liste.
@@ -400,12 +412,43 @@ export function Kindseite({
         <Text style={eigen.tagTitel}>
           {TAG_NAMEN[schultag]}
           {schultag === heuteTag ? ' · heute' : ''}
-          {hatWochen ? ` · Woche ${dieseWoche}` : ''}
         </Text>
+        {/* Sobald ein Fach nur alle zwei Wochen stattfindet, lässt sich
+            zwischen den beiden Wochen blättern. Ohne den Umschalter war
+            die andere Woche unsichtbar - und ein frisch eingetragenes
+            Woche-A-Fach sah in Woche B aus, als wäre es nie gespeichert
+            worden. */}
+        {hatWochen ? (
+          <View style={styles.chipRow}>
+            {(['A', 'B'] as const).map((wahl) => (
+              <Pressable
+                key={wahl}
+                onPress={() => setWocheWahl(wahl)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: angezeigteWoche === wahl }}
+                style={[styles.chip, angezeigteWoche === wahl && styles.chipActive]}
+              >
+                <Text
+                  style={[
+                    styles.chipText,
+                    angezeigteWoche === wahl && styles.chipTextActive,
+                  ]}
+                >
+                  {`Woche ${wahl}${wahl === dieseWoche ? ' · diese' : ''}`}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
         {tagesplan.length === 0 ? (
           <Text style={styles.checkSub}>
-            Am {TAG_NAMEN[schultag]} steht nichts. Einmal getippt, steht der Plan auf
-            jedem Gerät – auch am Wandpanel.
+            {tagesplanAlle.length > 0
+              ? // Es gibt Einträge, nur nicht in der gewählten Woche - das
+                // gehört gesagt, sonst sehen sie verloren aus.
+                `In Woche ${angezeigteWoche} steht am ${TAG_NAMEN[schultag]} nichts - ` +
+                `die Einträge liegen in Woche ${andereWoche(angezeigteWoche)}.`
+              : `Am ${TAG_NAMEN[schultag]} steht nichts. Einmal getippt, steht der ` +
+                'Plan auf jedem Gerät – auch am Wandpanel.'}
           </Text>
         ) : raster ? (
           // Ein Stundenplan-Blatt, kein Blockstapel: links die vollen
@@ -490,7 +533,14 @@ export function Kindseite({
                           zeitraum(planzeile.eintrag.from, planzeile.eintrag.to),
                           zweiwoechig
                             ? naechstes
-                              ? `alle 2 Wochen · nächste Woche: ${naechstes}`
+                              ? // Im Blick auf die andere Woche ist das
+                                // Gegenstück nicht «nächste», sondern die
+                                // Woche, die gerade läuft.
+                                `alle 2 Wochen · ${
+                                  angezeigteWoche === dieseWoche
+                                    ? 'nächste'
+                                    : 'diese'
+                                } Woche: ${naechstes}`
                               : 'alle 2 Wochen'
                             : '',
                         ]
@@ -573,7 +623,15 @@ export function Kindseite({
               platzhalter={`Fach am ${TAG_NAMEN[schultag]}, z.B. Mathematik …`}
               tag={schultag}
               dieseWoche={dieseWoche}
-              onAdd={(neu) => onAdd('lessons', neu)}
+              onAdd={(neu) => {
+                onAdd('lessons', neu);
+                // In die Woche des neuen Eintrags blättern: Wer für
+                // Woche A einträgt, während B läuft, sieht sein Fach
+                // sonst nirgends - und hält das Speichern für kaputt.
+                if (neu.week === 'A' || neu.week === 'B') {
+                  setWocheWahl(neu.week as Woche);
+                }
+              }}
               styles={styles}
               colors={colors}
             />
