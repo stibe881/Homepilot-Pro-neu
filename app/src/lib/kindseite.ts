@@ -342,7 +342,7 @@ export const PAUSE_AB = 15;
 export const MITTAG_AB = 45;
 
 /** Fällt eine Lektion ohne Ende an - so lange gilt sie als laufend. */
-const LEKTION_STANDARD = 45;
+export const LEKTION_STANDARD = 45;
 
 /**
  * Der Tagesplan mit den Pausen dazwischen (rein, testbar).
@@ -445,6 +445,75 @@ export function blockHoehe(
   const b = minuten(bis);
   const dauer = a !== null && b !== null && b > a ? b - a : 45;
   return Math.max(mindestens, Math.min(hoechstens, Math.round(dauer * 1.1)));
+}
+
+// ── Das Zeitraster: der Tag als Stundenplan-Blatt ────────────────────────
+//
+// Blöcke untereinander sahen immer noch aus wie eine Liste. Ein
+// Stundenplan hat eine Zeitachse: links die vollen Stunden, jede Lektion
+// sitzt an ihrer wahren Höhe, und eine Lücke IST eine Lücke - sie
+// braucht keinen eigenen Kasten, um sichtbar zu sein.
+
+/** Punkte je Minute auf der Zeitachse. 1.2 macht aus einer
+ *  45-Minuten-Lektion 54 Punkte - genug für Fach und Zeitzeile. */
+export const MINUTE_PUNKTE = 1.2;
+
+export interface Zeitraster {
+  /** Obere Kante in Minuten seit Mitternacht - eine volle Stunde. */
+  von: number;
+  /** Untere Kante, ebenfalls volle Stunde. */
+  bis: number;
+  /** Gesamthöhe der Achse in Punkten. */
+  hoehe: number;
+  /** Die vollen Stunden für die Beschriftung links, in Minuten. */
+  stunden: number[];
+}
+
+/**
+ * Das Zeitraster eines Schultags (rein, testbar).
+ *
+ * Von der vollen Stunde vor der ersten Lektion bis zur vollen Stunde
+ * nach der letzten - so beginnt das Blatt nicht mitten in einer Stunde,
+ * und die erste Beschriftung steht über dem ersten Block. Ohne
+ * lesbare Zeiten gibt es kein Raster (null); dann bleibt die Liste.
+ */
+export function zeitraster(zeilen: Eintrag[]): Zeitraster | null {
+  const anfaenge: number[] = [];
+  const enden: number[] = [];
+  for (const zeile of zeilen ?? []) {
+    const a = minuten(zeile?.from);
+    if (a === null) continue;
+    anfaenge.push(a);
+    enden.push(minuten(zeile?.to) ?? a + LEKTION_STANDARD);
+  }
+  if (anfaenge.length === 0) return null;
+  const von = Math.floor(Math.min(...anfaenge) / 60) * 60;
+  const bis = Math.ceil(Math.max(...enden) / 60) * 60;
+  const stunden: number[] = [];
+  for (let marke = von; marke <= bis; marke += 60) stunden.push(marke);
+  return { von, bis, hoehe: (bis - von) * MINUTE_PUNKTE, stunden };
+}
+
+/**
+ * Wo ein Block auf der Zeitachse sitzt (rein, testbar).
+ *
+ * Oberkante und Höhe in Punkten, beides aus den wahren Zeiten - eine
+ * Doppellektion ist dadurch von selbst doppelt so hoch. Ohne Ende gilt
+ * die übliche Lektion (45 Minuten); ohne lesbaren Anfang gibt es keine
+ * Lage (null), und die Zeile fällt aus dem Raster in die Liste zurück.
+ */
+export function rasterLage(
+  von: unknown,
+  bis: unknown,
+  raster: Zeitraster
+): { oben: number; hoehe: number } | null {
+  const a = minuten(von);
+  if (a === null) return null;
+  const b = minuten(bis) ?? a + LEKTION_STANDARD;
+  return {
+    oben: (a - raster.von) * MINUTE_PUNKTE,
+    hoehe: Math.max((Math.max(b, a) - a) * MINUTE_PUNKTE, 18),
+  };
 }
 
 // ── A/B-Wochen: Fächer, die nur alle zwei Wochen stattfinden ─────────────

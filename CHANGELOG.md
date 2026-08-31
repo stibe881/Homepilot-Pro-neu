@@ -15,14 +15,29 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   Plan zeigt immer, was diese Woche dran ist; am Fach steht «alle 2
   Wochen · nächste Woche: Werken», und der Tagestitel trägt die Woche.
   Auch der «Heute»-Satz rechnet mit der richtigen Woche.
-- **Der Stundenplan sieht aus wie einer.** Auf der Kinderseite sind
-  die Lektionen jetzt Blöcke mit Zeitspalte - eine Doppellektion
-  doppelt so hoch, dazwischen sichtbar die grosse Pause und der
-  Mittag. Die laufende Stunde (oder Pause) trägt Rand und «jetzt»,
-  ein frei endender Morgen den Balken «Nachmittag frei · ab 11:30».
-  Und wer den Dienstag einträgt, der aussieht wie der Montag, tippt
-  nicht mehr ab: «Zeiten übernehmen von» kopiert die Lektionen eines
-  anderen Tags - was schon dasteht, kommt nicht doppelt.
+- **Der Stundenplan ist jetzt ein Stundenplan-Blatt.** Auf der
+  Kinderseite hat der Tag eine Zeitachse: links die vollen Stunden
+  mit Haarlinien, jede Lektion sitzt an ihrer wahren Höhe - eine
+  Doppellektion ist von selbst doppelt so hoch, die grosse Pause und
+  der Mittag stehen als beschriftete Bänder in ihren Lücken. Eine
+  Zeitlinie mit Punkt zeigt, wo der Tag gerade steht, die laufende
+  Stunde trägt Rand und «jetzt», ein frei endender Morgen den Balken
+  «Nachmittag frei · ab 11:30». Und wer den Dienstag einträgt, der
+  aussieht wie der Montag, tippt nicht mehr ab: «Zeiten übernehmen
+  von» kopiert die Lektionen eines anderen Tags - was schon dasteht,
+  kommt nicht doppelt.
+- **Speichern kann nicht mehr stumm scheitern.** Wies der Hub eine
+  Änderung an den Familienlisten ab (etwa weil er eine neue Liste wie
+  den Stundenplan noch nicht kennt, solange das Update nicht durch
+  ist), behandelte die App das wie «kein Netz»: Der Eintrag stand als
+  wartend da, sah gespeichert aus, wurde nie gespeichert - und
+  verschwand nach 24 Stunden wortlos. So verlor der Stundenplan seine
+  Einträge «bei jedem Server-Update». Jetzt unterscheidet die App
+  «keine Verbindung» (wartet und geht später raus) von «abgewiesen»
+  (scheitert sofort sichtbar, mit dem Grund des Hubs); Abgewiesenes
+  aus alten Warteschlangen wird gemeldet statt still weggeworfen. Und
+  die Kinderseite zeigt Fehlerband und Stand-Zeile jetzt auch - dort
+  scheiterte Speichern bisher unsichtbar.
 - **Die Schnellaktionen sind Kacheln statt Pillen.** Kino, Schlafen,
   Storen hoch und runter stehen jetzt als vier gleich breite Kacheln
   nebeneinander - Sinnbild in einer Scheibe, Name darunter. Vorher

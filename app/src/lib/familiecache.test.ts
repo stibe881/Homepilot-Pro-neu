@@ -4,7 +4,15 @@
  * Der Fall, der wehtut: Im Ladenkeller ein Häkchen setzen und glauben,
  * es sei angekommen. Diese Funktionen entscheiden, ob es das wird.
  */
-import { anwenden, frisch, merke, standText, vorlaeufigeId, Vorgemerkt } from './familiecache';
+import {
+  abgelehnt,
+  anwenden,
+  frisch,
+  merke,
+  standText,
+  vorlaeufigeId,
+  Vorgemerkt,
+} from './familiecache';
 
 const JETZT = 1_700_000_000_000;
 
@@ -81,4 +89,23 @@ describe('standText', () => {
 
 test('vorläufige Kennungen sind als solche erkennbar', () => {
   expect(vorlaeufigeId(JETZT, 0.5).startsWith('lokal-')).toBe(true);
+});
+
+describe('abgelehnt', () => {
+  test('eine 4xx-Antwort ist endgültig - der Stundenplan-Fall: ein Hub, der die Liste nicht kennt (404)', () => {
+    expect(abgelehnt(404)).toBe(true);
+    expect(abgelehnt(400)).toBe(true);
+    expect(abgelehnt(403)).toBe(true);
+  });
+
+  test('kein Netz und Hub-Schluckauf sind vorübergehend - die Schlange darf warten', () => {
+    expect(abgelehnt(null)).toBe(false);
+    expect(abgelehnt(500)).toBe(false);
+    expect(abgelehnt(502)).toBe(false);
+  });
+
+  test('Zeitüberschreitung und zu viele Anfragen heilen sich beim nächsten Versuch', () => {
+    expect(abgelehnt(408)).toBe(false);
+    expect(abgelehnt(429)).toBe(false);
+  });
 });

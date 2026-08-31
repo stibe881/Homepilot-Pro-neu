@@ -33,17 +33,21 @@ import {
   heuteSatz,
   kindTermine,
   naechstesMal,
+  MINUTE_PUNKTE,
   Woche,
-  blockHoehe,
   fuerWoche,
   naechsteWocheFach,
   nachmittagFrei,
+  rasterLage,
   tagVon,
   tagesplanMitPausen,
+  uhrText,
   wocheVon,
   wochenliste,
   wochenplan,
   zeitNormal,
+  zeitraster,
+  zeitraum,
   zuUebernehmen,
 } from '../../lib/kindseite';
 import { Colors, radius } from '../../theme';
@@ -51,6 +55,12 @@ import { BackHead, FamilyItem, Styles } from './bausteine';
 
 /** Die beiden wöchentlichen Listen beim Hub. */
 export type Wochenliste = 'lessons' | 'activities';
+
+/** Luft über und unter der Zeitachse, damit die erste und letzte
+ *  Stundenbeschriftung nicht an der Kartenkante klebt. */
+const RASTER_POLSTER = 10;
+/** Breite der Stundenspalte links - dahinter beginnen die Blöcke. */
+const ZEIT_SPALTE = 50;
 
 /** Die Wochentage als Knopfreihe – einmal für den Stundenplan, einmal
  *  im Formular für die wöchentlichen Termine. */
@@ -234,6 +244,8 @@ function WochenForm({
 
 export function Kindseite({
   name,
+  fehler,
+  hinweis,
   lektionen,
   termine,
   events,
@@ -245,6 +257,11 @@ export function Kindseite({
   colors,
 }: {
   name: string;
+  /** Warum das letzte Speichern scheiterte - dieselbe Zeile wie auf der
+   *  Familienseite. Ohne sie scheiterte Speichern hier unsichtbar. */
+  fehler?: string | null;
+  /** «Stand von 14:12 · 2 Änderungen warten» - die ehrliche Zeile. */
+  hinweis?: string | null;
   /** «lessons» – der Stundenplan. */
   lektionen: FamilyItem[];
   /** «activities» – was jede Woche wiederkehrt. */
@@ -280,6 +297,12 @@ export function Kindseite({
   const jetztMin =
     schultag === heuteTag ? jetzt.getHours() * 60 + jetzt.getMinutes() : null;
   const planZeilen = tagesplanMitPausen(tagesplan, jetztMin);
+  // Die Zeitachse des Tages - null, wenn keine Zeile eine lesbare Zeit
+  // trägt; dann bleibt die schlichte Liste.
+  const raster = zeitraster(tagesplan);
+  const ohneZeit = raster
+    ? tagesplan.filter((zeile) => rasterLage(zeile?.from, zeile?.to, raster) === null)
+    : [];
   const frei = nachmittagFrei(tagesplan);
   const andereTage = schultage.filter((tag) => tag !== schultag);
   const woche = wochenliste(termine, name);
@@ -328,6 +351,8 @@ export function Kindseite({
   return (
     <View style={styles.stack}>
       <BackHead title={name} onBack={onBack} styles={styles} colors={colors} />
+      {fehler ? <Text style={styles.error}>{fehler}</Text> : null}
+      {hinweis ? <Text style={styles.checkSub}>{hinweis}</Text> : null}
 
       {/* Die eine Zeile, für die man die Seite aufmacht. */}
       <Card style={styles.listCard}>
@@ -382,97 +407,165 @@ export function Kindseite({
             Am {TAG_NAMEN[schultag]} steht nichts. Einmal getippt, steht der Plan auf
             jedem Gerät – auch am Wandpanel.
           </Text>
-        ) : (
-          // Wie auf dem Zettel am Kühlschrank: Blöcke mit Zeitspalte,
-          // eine Doppellektion doppelt so hoch, die Pausen dazwischen
-          // sichtbar. Die laufende Stunde trägt Rand und «jetzt».
-          <View style={eigen.planSpalte}>
-            {planZeilen.map((planzeile, index) =>
-              planzeile.art === 'pause' ? (
-                <View
-                  key={`pause-${index}`}
-                  style={[
-                    eigen.pauseBlock,
-                    { height: blockHoehe(planzeile.von, planzeile.bis, 30, 56) },
-                    planzeile.laeuft && eigen.blockJetzt,
-                  ]}
-                >
-                  <Text style={eigen.blockZeit}>{planzeile.von}</Text>
-                  <Ionicons
-                    name={
-                      planzeile.titel === 'Mittag' ? 'restaurant-outline' : 'cafe-outline'
-                    }
-                    size={13}
-                    color={colors.inkFaint}
-                  />
-                  <Text style={eigen.pauseText}>{planzeile.titel}</Text>
-                  {planzeile.laeuft ? <Text style={eigen.jetztChip}>jetzt</Text> : null}
-                </View>
-              ) : (
+        ) : raster ? (
+          // Ein Stundenplan-Blatt, kein Blockstapel: links die vollen
+          // Stunden mit Haarlinien, jede Lektion sitzt an ihrer wahren
+          // Höhe auf der Zeitachse - eine Doppellektion ist von selbst
+          // doppelt so hoch, und eine Pause ist eine sichtbare Lücke.
+          // Die Zeitlinie («jetzt») zeigt, wo der Tag gerade steht.
+          <View
+            style={[eigen.rasterBlatt, { height: raster.hoehe + 2 * RASTER_POLSTER }]}
+          >
+            {raster.stunden.map((marke) => (
+              <View
+                key={marke}
+                pointerEvents="none"
+                style={[
+                  eigen.stundenZeile,
+                  { top: RASTER_POLSTER + (marke - raster.von) * MINUTE_PUNKTE - 8 },
+                ]}
+              >
+                <Text style={eigen.stundenText}>{uhrText(marke)}</Text>
+                <View style={eigen.stundenLinie} />
+              </View>
+            ))}
+            {planZeilen.map((planzeile, index) => {
+              if (planzeile.art === 'pause') {
+                const lage = rasterLage(planzeile.von, planzeile.bis, raster);
+                if (!lage) return null;
+                return (
+                  <View
+                    key={`pause-${index}`}
+                    style={[
+                      eigen.rasterBlock,
+                      eigen.pauseBand,
+                      { top: RASTER_POLSTER + lage.oben, height: lage.hoehe },
+                      planzeile.laeuft && eigen.blockJetzt,
+                    ]}
+                  >
+                    <Ionicons
+                      name={
+                        planzeile.titel === 'Mittag'
+                          ? 'restaurant-outline'
+                          : 'cafe-outline'
+                      }
+                      size={12}
+                      color={colors.inkFaint}
+                    />
+                    <Text style={eigen.pauseText} numberOfLines={1}>
+                      {planzeile.titel} · {planzeile.von}–{planzeile.bis}
+                    </Text>
+                    {planzeile.laeuft ? <Text style={eigen.jetztChip}>jetzt</Text> : null}
+                  </View>
+                );
+              }
+              const lage = rasterLage(
+                planzeile.eintrag.from,
+                planzeile.eintrag.to,
+                raster
+              );
+              if (!lage) return null;
+              const naechstes = naechsteWocheFach(planzeile.eintrag, tagesplanAlle);
+              const zweiwoechig =
+                planzeile.eintrag.week === 'A' || planzeile.eintrag.week === 'B';
+              return (
                 <View
                   key={String(planzeile.eintrag.id)}
                   style={[
+                    eigen.rasterBlock,
                     eigen.lektionBlock,
-                    {
-                      minHeight: blockHoehe(
-                        planzeile.eintrag.from,
-                        planzeile.eintrag.to,
-                        46,
-                        96
-                      ),
-                    },
+                    { top: RASTER_POLSTER + lage.oben, height: lage.hoehe },
                     planzeile.laeuft && eigen.blockJetzt,
                   ]}
                 >
-                  <View style={eigen.blockZeiten}>
-                    <Text style={eigen.blockZeit}>
-                      {zeitNormal(planzeile.eintrag.from) ?? ''}
+                  <View style={{ flex: 1 }}>
+                    <Text style={eigen.blockFach} numberOfLines={1}>
+                      {String(planzeile.eintrag.text ?? '')}
                     </Text>
-                    {zeitNormal(planzeile.eintrag.to) ? (
-                      <Text style={eigen.blockZeitBis}>
-                        {zeitNormal(planzeile.eintrag.to)}
+                    {/* Unter ~40 Punkten (halbe Lektion) trüge die zweite
+                        Zeile über den Blockrand hinaus. */}
+                    {lage.hoehe >= 40 ? (
+                      <Text style={eigen.blockSub} numberOfLines={1}>
+                        {[
+                          zeitraum(planzeile.eintrag.from, planzeile.eintrag.to),
+                          zweiwoechig
+                            ? naechstes
+                              ? `alle 2 Wochen · nächste Woche: ${naechstes}`
+                              : 'alle 2 Wochen'
+                            : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
                       </Text>
                     ) : null}
                   </View>
-                  <View style={eigen.blockKern}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.checkText} numberOfLines={2}>
-                        {String(planzeile.eintrag.text ?? '')}
-                      </Text>
-                      {planzeile.eintrag.week === 'A' || planzeile.eintrag.week === 'B' ? (
-                        <Text style={styles.checkSub} numberOfLines={1}>
-                          {[
-                            'alle 2 Wochen',
-                            naechsteWocheFach(planzeile.eintrag, tagesplanAlle)
-                              ? `nächste Woche: ${naechsteWocheFach(planzeile.eintrag, tagesplanAlle)}`
-                              : '',
-                          ]
-                            .filter(Boolean)
-                            .join(' · ')}
-                        </Text>
-                      ) : null}
-                    </View>
-                    {planzeile.laeuft ? <Text style={eigen.jetztChip}>jetzt</Text> : null}
-                  </View>
+                  {planzeile.laeuft ? <Text style={eigen.jetztChip}>jetzt</Text> : null}
                   <Pressable
                     onPress={() => onRemove('lessons', String(planzeile.eintrag.id))}
-                    style={styles.deleteTap}
+                    hitSlop={8}
                     accessibilityRole="button"
                     accessibilityLabel={`${String(planzeile.eintrag.text ?? '')} entfernen`}
                   >
-                    <Ionicons name="close" size={16} color={colors.inkFaint} />
+                    <Ionicons name="close" size={14} color={colors.inkFaint} />
                   </Pressable>
                 </View>
-              )
-            )}
-            {frei ? (
-              <View style={eigen.freiBlock}>
-                <Ionicons name="sunny-outline" size={14} color={colors.inkSoft} />
-                <Text style={eigen.pauseText}>Nachmittag frei · ab {frei}</Text>
-              </View>
+              );
+            })}
+            {jetztMin !== null && jetztMin >= raster.von && jetztMin <= raster.bis ? (
+              <>
+                <View
+                  pointerEvents="none"
+                  style={[
+                    eigen.jetztLinie,
+                    {
+                      top:
+                        RASTER_POLSTER + (jetztMin - raster.von) * MINUTE_PUNKTE - 1,
+                    },
+                  ]}
+                />
+                <View
+                  pointerEvents="none"
+                  style={[
+                    eigen.jetztPunkt,
+                    {
+                      top:
+                        RASTER_POLSTER + (jetztMin - raster.von) * MINUTE_PUNKTE - 4,
+                    },
+                  ]}
+                />
+              </>
             ) : null}
           </View>
+        ) : (
+          // Ohne eine einzige lesbare Zeit gibt es keine Achse - dann
+          // die schlichte Liste, statt gar nichts zu zeigen.
+          <View style={eigen.planSpalte}>
+            {tagesplan.map((eintrag) =>
+              zeile(
+                eintrag,
+                'lessons',
+                String(eintrag.text ?? ''),
+                zeitraum(eintrag.from, eintrag.to)
+              )
+            )}
+          </View>
         )}
+        {/* Zeilen ohne lesbaren Anfang fänden auf der Achse keinen Platz
+            - unsichtbar wären sie aber auch nicht mehr löschbar. */}
+        {ohneZeit.map((eintrag) =>
+          zeile(
+            eintrag,
+            'lessons',
+            String(eintrag.text ?? ''),
+            zeitraum(eintrag.from, eintrag.to) || 'ohne Zeit'
+          )
+        )}
+        {tagesplan.length > 0 && frei ? (
+          <View style={eigen.freiBlock}>
+            <Ionicons name="sunny-outline" size={14} color={colors.inkSoft} />
+            <Text style={eigen.pauseText}>Nachmittag frei · ab {frei}</Text>
+          </View>
+        ) : null}
         {formKnopf('lessons', 'Lektion eintragen')}
         {formOffen === 'lessons' ? (
           <>
@@ -592,39 +685,85 @@ const makeStyles = (colors: Colors) =>
     },
     formKnopfText: { color: colors.accent, fontSize: 13, fontWeight: '600' },
     planSpalte: { gap: 5, marginTop: 4 },
+    // Das Blatt trägt die Zeitachse; alles darauf ist absolut gesetzt,
+    // die Höhe kommt aus dem Raster.
+    rasterBlatt: { marginTop: 6 },
+    stundenZeile: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      height: 16,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    stundenText: {
+      width: 38,
+      color: colors.inkFaint,
+      fontSize: 10.5,
+      fontVariant: ['tabular-nums'],
+      textAlign: 'right',
+    },
+    stundenLinie: {
+      flex: 1,
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: colors.surfaceBorder,
+    },
+    // Alles rechts der Zeitspalte: Lektionen wie Pausen.
+    rasterBlock: { position: 'absolute', left: ZEIT_SPALTE, right: 0 },
     lektionBlock: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 10,
+      gap: 6,
       borderRadius: radius.control,
-      backgroundColor: `${colors.accent}12`,
+      backgroundColor: `${colors.accent}14`,
       borderWidth: 1,
       borderColor: 'transparent',
       borderLeftWidth: 3,
       borderLeftColor: colors.accent,
-      paddingHorizontal: 10,
-      paddingVertical: 6,
+      paddingHorizontal: 8,
+      overflow: 'hidden',
     },
-    pauseBlock: {
+    pauseBand: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
+      justifyContent: 'center',
+      gap: 6,
       borderRadius: radius.control,
       backgroundColor: colors.surfaceSoft,
       borderWidth: 1,
       borderColor: 'transparent',
-      borderLeftWidth: 3,
-      borderLeftColor: 'transparent',
-      paddingHorizontal: 10,
+      overflow: 'hidden',
     },
     blockJetzt: {
       borderColor: colors.accent,
       backgroundColor: `${colors.accent}26`,
     },
-    blockZeiten: { width: 44, alignSelf: 'stretch', justifyContent: 'space-between', paddingVertical: 2 },
-    blockZeit: { color: colors.inkSoft, fontSize: 11.5, fontVariant: ['tabular-nums'], width: 44 },
-    blockZeitBis: { color: colors.inkFaint, fontSize: 11.5, fontVariant: ['tabular-nums'] },
-    blockKern: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
+    blockFach: { color: colors.ink, fontSize: 13, fontWeight: '600' },
+    blockSub: {
+      color: colors.inkSoft,
+      fontSize: 11,
+      fontVariant: ['tabular-nums'],
+      marginTop: 1,
+    },
+    // Die Zeitlinie: wo der Tag gerade steht - wie der rote Strich auf
+    // einem Papierplan mit Lineal.
+    jetztLinie: {
+      position: 'absolute',
+      left: ZEIT_SPALTE - 6,
+      right: 0,
+      height: 2,
+      borderRadius: 1,
+      backgroundColor: colors.accent,
+    },
+    jetztPunkt: {
+      position: 'absolute',
+      left: ZEIT_SPALTE - 12,
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: colors.accent,
+    },
     freiBlock: {
       flexDirection: 'row',
       alignItems: 'center',

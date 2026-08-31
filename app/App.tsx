@@ -120,7 +120,11 @@ export default function App() {
   // deshalb steht sie im selben Aufruf und blockiert nichts extra.
   const [fontsLoaded, fontError] = useFonts({
     ...Ionicons.font,
+    // require, kein import: Nur so nimmt Metro die Schriftdateien mit
+    // ins Bundle - ein statischer import kennt keine .ttf-Assets.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     [DISPLAY]: require('./assets/fonts/FamiljenGrotesk-Bold.ttf'),
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     [DISPLAY_LEICHT]: require('./assets/fonts/FamiljenGrotesk-Regular.ttf'),
   });
   // Beim ersten Start: Anmeldung oder doch der alte Weg über den QR-Code?

@@ -13,6 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { HubClient, HubFehler } from '../../api/client';
 import {
   Vorgemerkt,
+  abgelehnt,
   anwenden,
   frisch,
   istVorlaeufig,
@@ -115,11 +116,16 @@ export function useFamilienablage({
   /**
    * Eine Änderung an den Hub - und wenn er nicht da ist, in die Warteschlange.
    *
-   * Zurück kommt, ob es sofort geklappt hat. Der Aufrufer braucht das
-   * nicht; die Anzeige entsteht aus `offen`.
+   * Drei Ausgänge, nicht zwei: gespeichert, keine Verbindung - oder vom
+   * Hub abgewiesen. Der dritte fehlte lange, und das war der Fehler,
+   * durch den der Stundenplan Einträge verlor: Eine 4xx-Antwort (etwa
+   * von einem Hub, der die Liste noch nicht kennt) landete als
+   * «keine Verbindung» in der Schlange, sah dort gespeichert aus und
+   * verfiel nach 24 Stunden wortlos. Abgewiesenes gehört nicht in die
+   * Schlange - es wird beim Wiederholen nicht richtiger.
    */
   const senden = useCallback(
-    async (eintrag: Vorgemerkt): Promise<boolean> => {
+    async (eintrag: Vorgemerkt): Promise<{ ok: boolean; abgewiesen: string | null }> => {
       try {
         if (eintrag.kind === 'add') {
           await hub.post(`/api/family/${eintrag.collection}`, eintrag.body ?? {}, {
@@ -136,9 +142,12 @@ export function useFamilienablage({
             still: true,
           });
         }
-        return true;
-      } catch {
-        return false;
+        return { ok: true, abgewiesen: null };
+      } catch (err) {
+        if (err instanceof HubFehler && abgelehnt(err.status)) {
+          return { ok: false, abgewiesen: err.message };
+        }
+        return { ok: false, abgewiesen: null };
       }
     },
     [hub]
@@ -151,17 +160,27 @@ export function useFamilienablage({
     let abgebrochen = false;
     (async () => {
       const rest: Vorgemerkt[] = [];
+      let abgewiesen: string | null = null;
       for (const eintrag of offenRef.current) {
         // Ein lokal angelegter Eintrag wird als Neuzugang geschickt; seine
         // vorläufige Kennung kennt der Hub nicht.
-        const geschickt = await senden(
+        const ergebnis = await senden(
           istVorlaeufig(eintrag.id) && eintrag.kind !== 'add'
             ? { ...eintrag, kind: 'add' }
             : eintrag
         );
-        if (!geschickt) rest.push(eintrag);
+        if (ergebnis.ok) continue;
+        if (ergebnis.abgewiesen) {
+          // Fällt aus der Schlange: Der Hub hat entschieden, nicht das
+          // Netz. Stumm behalten hiesse ewig «wartet» - und nach einem
+          // Tag wortlos weg.
+          abgewiesen = ergebnis.abgewiesen;
+          continue;
+        }
+        rest.push(eintrag);
       }
       if (abgebrochen) return;
+      if (abgewiesen) setError(`Nicht gespeichert: ${abgewiesen}`);
       setOffen(rest);
       if (rest.length === 0) load();
     })();
@@ -190,8 +209,15 @@ export function useFamilienablage({
         body: item,
         at: Date.now(),
       };
-      if (await senden(eintrag)) {
+      const ergebnis = await senden(eintrag);
+      if (ergebnis.ok) {
         load();
+        return;
+      }
+      if (ergebnis.abgewiesen) {
+        // Sichtbar scheitern lassen: Der Eintrag erscheint nicht, und die
+        // Zeile sagt warum - statt «wartend» dazustehen und nie anzukommen.
+        setError(`Nicht gespeichert: ${ergebnis.abgewiesen}`);
         return;
       }
       // Kein Netz: vormerken statt schweigend verlieren.
@@ -210,8 +236,13 @@ export function useFamilienablage({
         body: patch,
         at: Date.now(),
       };
-      if (await senden(eintrag)) {
+      const ergebnis = await senden(eintrag);
+      if (ergebnis.ok) {
         load();
+        return;
+      }
+      if (ergebnis.abgewiesen) {
+        setError(`Nicht gespeichert: ${ergebnis.abgewiesen}`);
         return;
       }
       setVerbunden(false);
@@ -227,6 +258,19 @@ export function useFamilienablage({
       const zeile = ((data as Record<string, unknown>)[collection] as
         | { id?: string; text?: string; name?: string }[]
         | undefined)?.find((posten) => posten.id === id);
+      const eintrag: Vorgemerkt = {
+        kind: 'remove',
+        collection,
+        id,
+        at: Date.now(),
+      };
+      const ergebnis = await senden(eintrag);
+      if (!ergebnis.ok && ergebnis.abgewiesen) {
+        // Nichts wurde gelöscht - dann auch kein Band mit «Rückgängig»,
+        // das etwas behauptet, was nicht passiert ist.
+        setError(`Nicht gespeichert: ${ergebnis.abgewiesen}`);
+        return;
+      }
       onGeloescht({
         name: eintragName(zeile ?? null),
         label: 'gelöscht',
@@ -234,13 +278,7 @@ export function useFamilienablage({
         collection,
         id,
       });
-      const eintrag: Vorgemerkt = {
-        kind: 'remove',
-        collection,
-        id,
-        at: Date.now(),
-      };
-      if (await senden(eintrag)) {
+      if (ergebnis.ok) {
         load();
         return;
       }
