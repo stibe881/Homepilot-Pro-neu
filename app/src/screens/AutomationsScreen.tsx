@@ -354,6 +354,7 @@ export function AutomationsScreen({
       match: draft.match,
       enabled: draft.enabled,
       category: draft.category.trim() || null,
+      quiet_night: draft.nachtsStill,
     };
     try {
       if (draft.id) {
@@ -424,6 +425,10 @@ export function AutomationsScreen({
         cooldown: automation.cooldown ?? 0,
         category: automation.category ?? null,
         quiet_until: automation.quiet_until ?? null,
+        // Mitschicken, sonst nimmt ein Ein-/Ausschalten aus der Liste
+        // dem Ablauf still seine Nachtruhe - der Hub schreibt hier die
+        // ganze Regel neu, nicht bloss das eine Feld.
+        quiet_night: automation.quiet_night === true,
         enabled,
       },
       { fallback: null, still: true }

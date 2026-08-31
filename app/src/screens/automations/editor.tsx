@@ -12,7 +12,7 @@ import { Colors, useColors } from '../../theme';
 import { ablaufSatz } from '../../lib/ablaufsatz';
 import { datumUhr } from '../../lib/format';
 import { ZUHAUSE, anwesenheitsPersonen, istOrtsmelder, ortsauswahl } from '../../lib/ortsausloeser';
-import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, KAMERA_AUSLOESER, PLATZHALTER, hatWartezeit, measurableAttributes, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis } from './entwurf';
+import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, KAMERA_AUSLOESER, PLATZHALTER, hatWartezeit, measurableAttributes, meldetEtwas, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis } from './entwurf';
 import {
   CategoryField,
   Choice,
@@ -742,6 +742,32 @@ export function Editor({
               Minuten, auch wenn er erneut ausgelöst wird – gegen den
               zuckenden Melder, der aus einer Durchsage zwanzig macht.
             </Text>
+          ) : null}
+          {/* Der Fall aus dem Haus: «Geschirrspüler ist fertig» um 03:25.
+              Ausgeräumt wird um acht, gemeldet also auch. Nur die
+              meldenden Schritte fallen weg - der Rest des Ablaufs läuft
+              weiter. */}
+          {meldetEtwas(draft.steps) || draft.nachtsStill ? (
+            <>
+              <Text style={styles.label}>Nachts (22–8 Uhr)</Text>
+              <Choice
+                options={[
+                  { key: 'melden', label: 'melden wie sonst' },
+                  { key: 'still', label: 'nichts melden' },
+                ]}
+                value={draft.nachtsStill ? 'still' : 'melden'}
+                onSelect={(wahl) => set({ nachtsStill: wahl === 'still' })}
+              />
+              {draft.nachtsStill ? (
+                <Text style={styles.triggerNote}>
+                  Zwischen 22 und 8 Uhr bleiben Nachricht und Durchsage aus;
+                  alles andere im Ablauf läuft weiter. Für das, was bis zum
+                  Morgen Zeit hat – die Maschine räumt um drei Uhr niemand
+                  aus. Was nachts kommen muss («jemand weint im
+                  Kinderzimmer»), bleibt auf «melden wie sonst».
+                </Text>
+              ) : null}
+            </>
           ) : null}
           {hatWartezeit(draft.steps) ? (
             <>

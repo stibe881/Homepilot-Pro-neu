@@ -118,6 +118,9 @@ class AutomationRequest(BaseModel):
     # Frühestens wieder nach so vielen Sekunden – gegen den zuckenden
     # Melder im Wind, der aus einer Durchsage zwanzig macht.
     cooldown: float = 0
+    # Nachts (22–8 Uhr) keine Nachricht und keine Durchsage; der Rest
+    # des Ablaufs läuft weiter.
+    quiet_night: bool = False
 
 
 class SceneRequest(BaseModel):

@@ -69,6 +69,7 @@ from . import (
     babysitter,
     feiertage,
     kamera,
+    nachtruhe,
     personenbild,
     pushziel,
     terminkontext,
@@ -224,6 +225,15 @@ class Automation:
     # Liste erlaubter Namen: Wer einen neuen tippt, hat ihn damit angelegt –
     # eine Kategorie ohne Einträge braucht niemand.
     category: str | None = None
+    # Nachts nichts melden: Nachricht und Durchsage bleiben zwischen 22
+    # und 8 Uhr aus, der Rest des Ablaufs läuft weiter. Für das, was
+    # ohnehin bis zum Morgen Zeit hat - «Geschirrspüler ist fertig» um
+    # 03:25 weckt jemanden und ändert nichts.
+    #
+    # Bewusst am einzelnen Ablauf und nicht am ganzen Haus: «Jemand
+    # weint im Kinderzimmer» ist genau die Nachricht, die nachts kommen
+    # muss, und eine Nachtruhe für alle hätte sie mit verschluckt.
+    quiet_night: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -240,6 +250,7 @@ class Automation:
             "cooldown": self.cooldown,
             "match": self.match,
             "category": self.category,
+            "quiet_night": self.quiet_night,
         }
 
     def as_config(self) -> dict[str, Any]:
@@ -257,6 +268,7 @@ class Automation:
             "cooldown": self.cooldown,
             "match": self.match,
             "category": self.category,
+            "quiet_night": self.quiet_night,
         }
 
 
@@ -933,6 +945,7 @@ def parse_automations(
                 cooldown=parse_cooldown(config.get("cooldown")),
                 match="any" if str(config.get("match")) == "any" else "all",
                 category=str(config["category"]) if config.get("category") else None,
+                quiet_night=bool(config.get("quiet_night")),
             )
         )
     return automations
@@ -2288,8 +2301,15 @@ class AutomationEngine:
         elif atype == "automation":
             await self._run_other(automation, action)
         elif atype == "notify":
+            if self._nachts_still(automation):
+                return "nachts still - nicht gemeldet"
             await self._notify(automation, action, ausloeser)
         elif atype == "broadcast":
+            if self._nachts_still(automation):
+                # Eine Durchsage um drei Uhr weckt zuverlässiger als
+                # jede Push - erst recht die eine still zu lassen und
+                # die andere nicht, wäre nicht zu erklären.
+                return "nachts still - keine Durchsage"
             # Durchsage auf die Cast-Boxen: «Es hat geklingelt»,
             # «Waschmaschine ist fertig». Die Quelle bleibt der Ablauf -
             # say.speak() überschreibt sie nicht.
@@ -2308,6 +2328,15 @@ class AutomationEngine:
         else:
             log.warning("Unbekannter Aktionstyp in '%s': %s", automation.alias, atype)
         return None
+
+    def _nachts_still(self, automation: Automation) -> bool:
+        """Meldet dieser Ablauf gerade absichtlich nicht?
+
+        Nur die meldenden Schritte fallen weg, nicht der ganze Lauf: Wer
+        nachts das Licht löschen und dabei nichts sagen will, hat einen
+        Ablauf und nicht zwei.
+        """
+        return automation.quiet_night and nachtruhe.still(time.time())
 
     async def _anwesenheit(self, action: dict[str, Any]) -> str | None:
         """«Levin ist da» – gemeldet von einem Ablauf statt von einem Telefon.

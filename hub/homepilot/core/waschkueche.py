@@ -29,9 +29,9 @@ Regel beenden lässt.
 
 from __future__ import annotations
 
-import time
 from typing import Any
 
+from . import nachtruhe
 from .watchrules import OPEN_CLASSES, OPENING_NAME
 
 #: Woran eine Waschküche zu erkennen ist - Raumname oder Gerätename.
@@ -68,8 +68,8 @@ HOECHSTENS = 4
 #:
 #: Beide Zahlen stehen in der Push-Regel und lassen sich in der App
 #: verstellen; gleiche Werte heben das Fenster auf.
-RUHE_VON = 22
-RUHE_BIS = 8
+RUHE_VON = nachtruhe.VON
+RUHE_BIS = nachtruhe.BIS
 
 
 def ist_waschkueche(raum: str | None) -> bool:
@@ -151,21 +151,10 @@ def ist_offen(entity: Any | None) -> bool:
 def ruhezeit(jetzt: float, von: float = RUHE_VON, bis: float = RUHE_BIS) -> bool:
     """Ist gerade Nacht? (rein, testbar)
 
-    Das Fenster geht über Mitternacht, deshalb das «oder». Sind beide
-    Zahlen gleich, gibt es keine Nachtruhe: Das ist der Weg, sie in der
-    App abzuschalten - ohne ihn hiesse «ab 22 bis 22 Uhr» rund um die
-    Uhr still, und niemand fände heraus, warum nichts mehr kommt.
+    Die Rechnung selbst steht in core/nachtruhe.py - dieselbe braucht
+    auch der Ablauf, der «Geschirrspüler ist fertig» meldet.
     """
-    if von == bis:
-        return False
-    stunde = time.localtime(jetzt).tm_hour
-    # Zwei Fälle, und nur einer davon geht über Mitternacht. «Ab 0 bis 8»
-    # mit dem Oder-Vergleich hiesse rund um die Uhr still, weil jede
-    # Stunde >= 0 ist - eine Einstellung, die man in der App in einem
-    # Tipp erreicht.
-    if von < bis:
-        return von <= stunde < bis
-    return stunde >= von or stunde < bis
+    return nachtruhe.still(jetzt, von, bis)
 
 
 def faellig(

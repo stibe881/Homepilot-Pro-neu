@@ -14,6 +14,7 @@ import {
   toDraft,
   describe as zeileFuer,
   measurableAttributes,
+  meldetEtwas,
   triggerFromConfig,
   istLichtFein,
   lichtKurz,
@@ -1267,5 +1268,31 @@ describe('Anwesenheit melden', () => {
     expect(actionsToSteps([{ type: 'presence', zone: 'levin' }])[0].presenceEvent).toBe(
       'enter'
     );
+  });
+});
+
+describe('Nachtruhe eines Ablaufs', () => {
+  it('fragt nur, wo der Ablauf auch etwas sagt', () => {
+    // Eine Einstellung, die nichts bewirkt, macht die Seite länger und
+    // die Sache unklarer.
+    expect(meldetEtwas([{ kind: 'command' }])).toBe(false);
+    expect(meldetEtwas([{ kind: 'command' }, { kind: 'notify' }])).toBe(true);
+    expect(meldetEtwas([{ kind: 'broadcast' }])).toBe(true);
+  });
+
+  it('nimmt den Schalter aus dem gespeicherten Ablauf mit', () => {
+    // Ohne ihn stünde der Editor beim nächsten Öffnen auf «melden wie
+    // sonst» - und ein Speichern nähme dem Ablauf still die Nachtruhe.
+    const auto = {
+      id: 'a',
+      alias: 'Geschirrspüler',
+      triggers: [],
+      conditions: [],
+      actions: [],
+      editable: true,
+      quiet_night: true,
+    };
+    expect(toDraft(auto).nachtsStill).toBe(true);
+    expect(toDraft({ ...auto, quiet_night: undefined }).nachtsStill).toBe(false);
   });
 });
