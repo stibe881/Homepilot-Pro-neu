@@ -86,16 +86,57 @@ def parse_apns(raw: Any) -> dict[str, str] | None:
 # ── Registrierung (rein, testbar) ─────────────────────────────────────────
 
 
+def token_tot(status: int, text: str) -> bool:
+    """Ist dieses Token endgültig hinüber? (rein, testbar)
+
+    Apple unterscheidet zwei Arten von Absage, und nur eine davon ist
+    endgültig: Ein Token, das es nicht mehr gibt (410 «Unregistered»,
+    400 «BadDeviceToken»), wird auch morgen keines mehr sein. Alles
+    andere - überlastet, kaputte Verbindung, abgelaufener Schlüssel -
+    ist ein Problem von jetzt und darf kein Telefon austragen.
+
+    Wozu: Eine Zeile mit totem Token fliegt raus. Sonst versucht der Hub
+    bei jedem Weggehen weiter, eine Karte auf ein Telefon zu stellen,
+    das es so nicht mehr gibt - und die Zeile zählte in der App als
+    angemeldetes Gerät mit.
+    """
+    if status == 410:
+        return True
+    return status == 400 and "BadDeviceToken" in text
+
+
 def registrieren(rows: Any, user: str, token: str, label: str = "") -> list[dict[str, Any]]:
     """Ein «push-to-start»-Token eines Telefons ablegen.
 
-    Nach Token abgelegt: Meldet sich dasselbe Telefon erneut (App-Start),
-    wird der Eintrag ersetzt statt verdoppelt - wie bei den Push-Geräten.
+    Abgelegt wird je **Telefon**, nicht je Token - und das ist der ganze
+    Punkt. Apple stellt das «push-to-start»-Token immer wieder neu aus:
+    nach einer Neuinstallation, nach einem App-Update, und von sich aus.
+    Nach Token abgelegt blieb die alte Zeile stehen; jede trug ihr
+    eigenes «unterwegs», und beim nächsten Weggehen bekam dasselbe
+    Telefon einen Start-Push je Zeile. Auf dem Sperrbildschirm lagen
+    dann fünf gleiche Karten übereinander - eine je Fassung, die man je
+    installiert hatte.
+
+    Das Telefon erkennt der Name, den die App mitschickt (`label`, der
+    Gerätename). Fehlt er - eine alte App-Fassung -, bleibt es beim
+    Vergleich über das Token: lieber eine Zeile zu viel als die eines
+    fremden Geräts überschrieben.
     """
+    name = str(label or "")
+
+    def dasselbe_telefon(row: dict[str, Any]) -> bool:
+        return bool(
+            name
+            and str(row.get("user") or "") == user
+            and str(row.get("label") or "") == name
+        )
+
     neue = [
         row
         for row in (rows or [])
-        if isinstance(row, dict) and row.get("start_token") != token
+        if isinstance(row, dict)
+        and row.get("start_token") != token
+        and not dasselbe_telefon(row)
     ]
     neue.append(
         {
@@ -332,6 +373,9 @@ class ApnsVersand:
         self._client: Any = None
         self._jwt: str | None = None
         self._jwt_alter = 0.0
+        #: Tokens, die Apple endgültig abgelehnt hat. Der Takt trägt sie
+        #: danach aus - siehe token_tot.
+        self.tote: set[str] = set()
 
     def _token(self, jetzt_s: float) -> str:
         # Apple akzeptiert ein Token 20 bis 60 Minuten; nach 40 ein
@@ -384,6 +428,8 @@ class ApnsVersand:
             antwort.status_code,
             antwort.text[:200],
         )
+        if token_tot(antwort.status_code, antwort.text):
+            self.tote.add(geraete_token)
         return False
 
 
@@ -473,4 +519,17 @@ async def _runde(hub: Any, versand: ApnsVersand) -> None:
             continue
         await versand.senden(str(token), end_payload(jetzt))
         log.info("Live-Aktivität: Ende an %s", row.get("user"))
+    # Telefone, deren Token Apple endgültig abgelehnt hat, fliegen raus.
+    # Sonst schickt der Hub bei jedem Weggehen weiter an ein Gerät, das
+    # es so nicht mehr gibt.
+    if versand.tote:
+        vorher = len(neue)
+        neue = [row for row in neue if row.get("start_token") not in versand.tote]
+        if len(neue) < vorher:
+            log.info(
+                "Live-Aktivität: %d Telefon(e) ausgetragen - Apple kennt "
+                "das Token nicht mehr",
+                vorher - len(neue),
+            )
+        versand.tote.clear()
     hub.data.set(DATA_KEY, neue)

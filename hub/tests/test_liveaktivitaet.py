@@ -9,6 +9,7 @@ from homepilot.core.liveaktivitaet import (
     parse_apns,
     registrieren,
     start_payload,
+    token_tot,
     wechsel,
 )
 
@@ -37,6 +38,45 @@ def test_registrieren_ersetzt_dasselbe_telefon():
     rows = registrieren(rows, "Bine", "token-b")
     assert len(rows) == 2
     assert abmelden(rows, "token-a") == [rows[1]]
+
+
+def test_ein_neues_token_ersetzt_dasselbe_telefon():
+    """Der Fall vom Sperrbildschirm: fünf gleiche Karten übereinander.
+
+    Apple stellt das «push-to-start»-Token immer wieder neu aus - nach
+    jeder Neuinstallation, nach jedem Update. Nach Token abgelegt blieb
+    die alte Zeile stehen, jede trug ihr eigenes «unterwegs», und beim
+    nächsten Weggehen bekam dasselbe Telefon einen Start-Push je Zeile.
+    """
+    rows = registrieren([], "Stibe", "token-alt", "Stibes iPhone")
+    rows = registrieren(rows, "Stibe", "token-neu", "Stibes iPhone")
+    assert [row["start_token"] for row in rows] == ["token-neu"]
+
+    # Ein zweites Telefon derselben Person bleibt ein zweites.
+    rows = registrieren(rows, "Stibe", "token-pad", "iPad")
+    assert len(rows) == 2
+    # Und das Telefon einer anderen Person erst recht.
+    rows = registrieren(rows, "Bine", "token-b", "Bines iPhone")
+    assert len(rows) == 3
+
+
+def test_ohne_geraetenamen_bleibt_es_beim_token():
+    """Eine alte App-Fassung schickt keinen Namen mit. Dann lieber eine
+    Zeile zu viel als die eines fremden Geräts überschrieben."""
+    rows = registrieren([], "Stibe", "token-a")
+    rows = registrieren(rows, "Stibe", "token-b")
+    assert len(rows) == 2
+
+
+def test_nur_eine_endgueltige_absage_traegt_ein_telefon_aus():
+    """Ein Token, das es nicht mehr gibt, wird auch morgen keines mehr
+    sein. Alles andere - überlastet, kaputte Verbindung - ist ein
+    Problem von jetzt und darf kein Telefon austragen."""
+    assert token_tot(410, "{}") is True
+    assert token_tot(400, '{"reason":"BadDeviceToken"}') is True
+    assert token_tot(400, '{"reason":"BadCollapseId"}') is False
+    assert token_tot(429, "TooManyRequests") is False
+    assert token_tot(200, "") is False
 
 
 def test_wechsel_startet_beim_gehen_und_beendet_beim_kommen():

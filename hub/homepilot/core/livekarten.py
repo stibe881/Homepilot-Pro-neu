@@ -61,11 +61,24 @@ UPDATE_ABSTAND = 45.0
 
 
 def registrieren(rows: Any, user: str, token: str, label: str = "") -> list[dict[str, Any]]:
-    """Ein Telefon für die generische Karte anmelden - ersetzt statt doppelt."""
+    """Ein Telefon für die generische Karte anmelden - ersetzt statt doppelt.
+
+    Je Telefon und nicht je Token, aus demselben Grund wie bei der
+    Haustür-Karte (liveaktivitaet.registrieren): Apple stellt das
+    Start-Token immer wieder neu aus, und jede stehengebliebene Zeile
+    ist später eine weitere Karte auf demselben Sperrbildschirm.
+    """
+    name = str(label or "")
     neue = [
         row
         for row in (rows or [])
-        if isinstance(row, dict) and row.get("token") != token
+        if isinstance(row, dict)
+        and row.get("token") != token
+        and not (
+            name
+            and str(row.get("user") or "") == user
+            and str(row.get("label") or "") == name
+        )
     ]
     neue.append({"user": user, "token": token, "label": label})
     return neue
