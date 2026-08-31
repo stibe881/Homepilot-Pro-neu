@@ -70,9 +70,20 @@ export function baseCommandOptions(entity: Entity): { key: string; label: string
     ]);
   }
   if (entity.kind === 'lock') {
+    // Nicht jedes «Schloss» hat einen Riegel. Die Gegensprechanlage
+    // unten kann nur eines: die Türe aufgehen lassen (`open_door`) - und
+    // weil sie weder abschliessen noch aufschliessen kann, fiel sie aus
+    // dieser Liste ganz heraus. Damit stand die Haustüre in keinem
+    // Ablauf und in keiner Szene zur Wahl: «Taste drücken, Haustüre
+    // öffnen» liess sich gar nicht bauen.
+    //
+    // Dasselbe galt für die Falle des Nuki (`unlatch`): aufschliessen
+    // ist das eine, die Türe wirklich aufziehen das andere.
     return nimm([
       ['lock', 'abschliessen'],
       ['unlock', 'aufschliessen'],
+      ['unlatch', 'aufziehen'],
+      ['open_door', 'Türe öffnen'],
     ]);
   }
   if (entity.kind === 'vacuum') {

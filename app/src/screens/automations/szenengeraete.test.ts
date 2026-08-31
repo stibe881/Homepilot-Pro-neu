@@ -58,6 +58,13 @@ describe('isSceneDevice', () => {
     expect(isSceneDevice(geraet('alarm', ['arm_night', 'disarm']))).toBe(true);
   });
 
+  it('nimmt auch die Gegensprechanlage auf, die nur öffnen kann', () => {
+    // Der Fall aus dem Haus: «Die Haustüre kann man nicht in einen
+    // Ablauf integrieren.» Sie hat keinen Riegel - weder abschliessen
+    // noch aufschliessen -, und damit fiel sie ganz aus der Liste.
+    expect(isSceneDevice(geraet('lock', ['open_door']))).toBe(true);
+  });
+
   it('nimmt eine Hue-Szene auf – sonst liesse sie sich in keine Szene legen', () => {
     expect(isSceneDevice(geraet('scene', ['activate']))).toBe(true);
   });
@@ -81,6 +88,17 @@ describe('baseCommandOptions', () => {
       PRIVATSPHAERE_EIN,
       PRIVATSPHAERE_AUS,
     ]);
+  });
+
+  it('bietet beim Schloss alles an, was es kann', () => {
+    // Aufschliessen ist das eine, die Türe aufziehen das andere - und
+    // die Gegensprechanlage kann nur das Letzte.
+    expect(schluessel(geraet('lock', ['lock', 'unlock', 'unlatch']))).toEqual([
+      'lock',
+      'unlock',
+      'unlatch',
+    ]);
+    expect(schluessel(geraet('lock', ['open_door']))).toEqual(['open_door']);
   });
 
   it('bietet nichts an, was das Gerät nicht kann', () => {
