@@ -836,6 +836,59 @@ def test_key_channels_sortiert_nach_nummer():
     ]
 
 
+async def test_every_press_writes_a_line(hub, caplog):
+    """Ein Druck auf einen *eingetragenen* Kanal änderte bisher nur den
+    Zustand und schrieb nichts. Damit war «kommt überhaupt etwas an?» nur
+    zu beantworten, wenn man im richtigen Moment auf die Kachel schaute -
+    und genau diese Frage steht am Anfang jeder stummen Taste."""
+    ccu = _FakeCCU({})
+    integration = await _setup(
+        hub,
+        ccu,
+        [{"address": "0009E4099211F6:4", "port": 2010, "name": "Schlüssel", "kind": "button"}],
+    )
+    try:
+        with caplog.at_level(logging.INFO):
+            integration._on_event("id", "0009E4099211F6:4", "PRESS_SHORT", True)
+        assert "0009E4099211F6:4 PRESS_SHORT" in caplog.text
+
+        # Das Loslassen ist kein Druck und schreibt nichts.
+        caplog.clear()
+        with caplog.at_level(logging.INFO):
+            integration._on_event("id", "0009E4099211F6:4", "PRESS_SHORT", False)
+        assert "PRESS_SHORT" not in caplog.text
+    finally:
+        await integration.teardown()
+
+
+async def test_the_companions_of_a_long_press_prove_the_ccu_forwards(hub, caplog):
+    """PRESS_LONG_START und PRESS_LONG_RELEASE lösen bewusst nichts aus -
+    sonst käme ein langer Druck dreimal an. Lautlos verschwinden dürfen
+    sie trotzdem nicht: Sie sind der Beweis, dass die CCU weiterreicht,
+    und ohne den steht die Suche nach einer stummen Taste am Anfang."""
+    ccu = _FakeCCU({})
+    integration = await _setup(
+        hub,
+        ccu,
+        [{"address": "0009E4099211F6:4", "port": 2010, "name": "Schlüssel", "kind": "button"}],
+    )
+    try:
+        with caplog.at_level(logging.INFO):
+            integration._on_event("id", "0009E4099211F6:4", "PRESS_LONG_START", True)
+        assert "PRESS_LONG_START" in caplog.text
+        assert "Verbindung" in caplog.text
+        # Der Zustand bleibt unberührt - ausgelöst wird nichts.
+        assert hub.registry.get("homematic.0009E4099211F6_4").state["state"] == "unknown"
+
+        # Und je Kanal genügt es einmal, sonst wäre es ein Protokoll.
+        caplog.clear()
+        with caplog.at_level(logging.INFO):
+            integration._on_event("id", "0009E4099211F6:4", "PRESS_LONG_START", True)
+        assert caplog.text == ""
+    finally:
+        await integration.teardown()
+
+
 def test_fremder_druck_liefert_die_zeile_fuer_die_config():
     """Die nützlichste Zeile im Log: einmal drücken, abschreiben, fertig."""
     text = homematic.fremder_druck("001A58A9A24256:1", "PRESS_SHORT")

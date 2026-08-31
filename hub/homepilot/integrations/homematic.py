@@ -68,6 +68,11 @@ Damit lässt sich in einem Ablauf darauf auslösen (Auslöser «Zustand», Ziel
 ohne ihn kommen Tastendrücke gar nicht an, denn abfragen lassen sie sich
 nicht.
 
+Jeder Druck steht im Log (``homematic: <Adresse> PRESS_SHORT``). Das ist
+die eine Zeile, an der «kommt überhaupt etwas an?» hängt - ohne sie
+liesse sich das nur beantworten, indem man im richtigen Augenblick auf
+die Kachel schaut.
+
 Dasselbe gilt für die Schlüsselbund-Fernbedienung (HmIP-KRC4, KRCA): vier
 Tasten, vier Kanäle, ``kind: button`` - eine Taste je Eintrag, so viele,
 wie man braucht:
@@ -236,6 +241,7 @@ from .homematic_channels import (  # noqa: F401
     PING_INTERVAL,
     PING_TIMEOUT,
     POWER,
+    PRESS_BEGLEITER,
     PRESS_DATAPOINTS,
     SLOW_CALLBACK,
     SWITCHING_TYPES,
@@ -1072,6 +1078,13 @@ class HomematicIntegration(Integration):
                 # das ist kein Druck und darf keinen Ablauf auslösen.
                 if value is False:
                     return ""
+                # Jeder Druck ins Log. Das ist die Zeile, die beim Suchen
+                # gefehlt hat: Ein Druck auf einen *eingetragenen* Kanal
+                # änderte bisher nur den Zustand und schrieb nichts - und
+                # damit war «kommt überhaupt etwas an?» nicht zu
+                # beantworten, ohne im richtigen Moment auf die Kachel zu
+                # schauen. Ein paar Zeilen am Tag sind das wert.
+                self.log.info("homematic: %s %s (%s)", address, key, entity_id)
                 changes = press_to_state(key, time.time())
             else:
                 changes = value_to_state(value, key, info["dimmable"])
@@ -1097,7 +1110,7 @@ class HomematicIntegration(Integration):
         return ""
 
     def _fremden_druck_melden(self, address: str, key: str, value: Any) -> None:
-        """Einen Tastendruck von einem nicht eingetragenen Kanal ins Log.
+        """Ein Ereignis, das der Hub nicht zuordnen kann, ins Log.
 
         Die nützlichste Zeile, die dieser Hub schreibt: Wer nicht weiss,
         welcher Kanal seines Schalters sendet, drückt einmal darauf und
@@ -1105,10 +1118,32 @@ class HomematicIntegration(Integration):
         Ohne das blieb nur Raten, und ein Kanal mehr oder weniger sieht in
         der Kanalliste gleich aus.
 
-        Nur echte Drücke: Das Loslassen meldet die CCU als zweites
+        Dasselbe gilt für die Begleiter eines langen Drucks. Die wertet
+        der Hub nicht aus, aber sie beantworten die Frage, an der eine
+        stumme Taste hängt: Reicht die CCU überhaupt etwas weiter? Ohne
+        diese Zeile fiel ein solches Ereignis lautlos durch, und die
+        Diagnose stand wieder am Anfang.
+
+        Nur echte Ereignisse: Das Loslassen meldet die CCU als zweites
         Ereignis mit False, und je Kanal genügt es einmal.
         """
-        if key not in PRESS_DATAPOINTS or value is False:
+        if value is False:
+            return
+        if key in PRESS_BEGLEITER:
+            # Kein Druck, aber ein Lebenszeichen: Wer wissen will, ob die
+            # CCU überhaupt etwas weiterreicht, hat hiermit die Antwort.
+            if (address, key) in self._fremde:
+                return
+            self._fremde.add((address, key))
+            self.log.info(
+                "homematic: %s meldet %s - davon löst der Hub nichts aus, "
+                "er wertet PRESS_SHORT und PRESS_LONG aus. Die Verbindung "
+                "zur CCU steht also.",
+                address,
+                key,
+            )
+            return
+        if key not in PRESS_DATAPOINTS:
             return
         if (address, key) in self._fremde:
             return

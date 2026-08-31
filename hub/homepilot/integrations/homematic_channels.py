@@ -26,6 +26,13 @@ DEFAULT_DATAPOINTS = {
 # Kanal nichts. Ein Taster hört deshalb auf beide Datenpunkte zugleich.
 PRESS_DATAPOINTS = {"PRESS_SHORT": "short", "PRESS_LONG": "long"}
 
+# Datenpunkte, die einen Druck begleiten, aber keiner sind: Anfang und
+# Ende eines langen Drucks, die Wiederholung beim Halten. Der Hub wertet
+# sie nicht aus - er würde sonst einen langen Druck dreimal melden. Sie
+# sind aber der Beweis, dass die CCU überhaupt etwas weiterreicht, und
+# genau danach sucht man, wenn eine Taste «nichts tut».
+PRESS_BEGLEITER = frozenset({"PRESS_LONG_START", "PRESS_LONG_RELEASE", "PRESS_CONT"})
+
 # Rauchwarnmelder (HmIP-SWSD) melden keinen Ja/Nein-Wert, sondern eine
 # Alarmart: 0 = Ruhe, 1 = eigener Alarm, 2 = Einbruchalarm, 3 = von einem
 # anderen Melder weitergereichter Alarm. Für die Anlage zählt nur, ob Ruhe
