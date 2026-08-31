@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import xmlrpc.client
 
 import pytest
@@ -418,6 +419,56 @@ async def test_without_a_pong_the_hub_registers_again(hub, monkeypatch):
     try:
         # Niemand antwortet – die CCU kennt uns nicht mehr.
         assert await integration._check_registration(2010) is False
+    finally:
+        await integration.teardown()
+
+
+async def test_a_callback_the_ccu_cannot_reach_says_so_right_away(hub, monkeypatch, caplog):
+    """«Bei der CCU für Events angemeldet» - und trotzdem kam nie ein
+    Tastendruck an. Die CCU nimmt jede Rückrufadresse entgegen und merkt
+    erst beim Zustellen, dass dort niemand zuhört; bis der Wächter das
+    bemerkte, verging eine Ping-Runde, und der System-Bildschirm zeigte
+    solange «Anmeldung noch nicht bestätigt» - genau in den Minuten nach
+    einem Update, in denen man hinschaut."""
+    monkeypatch.setattr(homematic, "PING_TIMEOUT", 0.2)
+    ccu = _FakeCCU({("0001D3C99C6A2B:3", "STATE"): True})
+    integration = await _setup(
+        hub,
+        ccu,
+        [{"address": "0001D3C99C6A2B:3", "port": 2010, "name": "Tumbler", "kind": "switch"}],
+    )
+    integration._callback_url = "http://172.17.0.5:9125"
+    try:
+        with caplog.at_level(logging.WARNING):
+            await integration._erste_pruefung()
+        # Die Adresse gehört in die Warnung: Sie ist die Antwort.
+        assert "172.17.0.5:9125" in caplog.text
+        assert "callback_host" in caplog.text
+    finally:
+        await integration.teardown()
+
+
+async def test_a_confirmed_callback_stays_quiet(hub, monkeypatch, caplog):
+    """Antwortet die CCU, gibt es nichts zu melden - und die Bestätigung
+    steht sofort im System-Bildschirm statt erst nach zwei Minuten."""
+    monkeypatch.setattr(homematic, "PING_TIMEOUT", 1.0)
+    ccu = _FakeCCU({("0001D3C99C6A2B:3", "STATE"): True})
+    integration = await _setup(
+        hub,
+        ccu,
+        [{"address": "0001D3C99C6A2B:3", "port": 2010, "name": "Tumbler", "kind": "switch"}],
+    )
+    integration._callback_url = "http://192.168.1.20:9125"
+    try:
+        async def answer():
+            await asyncio.sleep(0.05)
+            integration._on_event("id", "homepilot-2010", "PONG", "homepilot-2010")
+
+        asyncio.create_task(answer())
+        with caplog.at_level(logging.WARNING):
+            await integration._erste_pruefung()
+        assert "erreicht den Hub" not in caplog.text
+        assert integration.health()["registered"] == ["homepilot-2010"]
     finally:
         await integration.teardown()
 

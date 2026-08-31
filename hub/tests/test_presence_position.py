@@ -12,6 +12,7 @@ verloren gehen, denn die nächste rückt es gerade.
 
 from __future__ import annotations
 
+import logging
 import time
 
 from homepilot.core import presence
@@ -156,6 +157,30 @@ async def make_geofence() -> tuple[Hub, GeofenceIntegration]:
     )
     await integration.setup()
     return hub, integration
+
+
+async def test_an_unchanged_position_does_not_write_a_log_line(caplog) -> None:
+    """Life360 fragt alle halbe Minute und meldet dabei jede Person für
+    jeden Ort erneut. Als INFO waren das über hundert Zeilen je Runde, die
+    alle dasselbe sagten - und wer danach im Log eine Störung suchte, fand
+    sie im Rauschen nicht mehr. Der Wechsel ist die Nachricht."""
+    hub, geo = await make_geofence()
+    try:
+        with caplog.at_level(logging.INFO):
+            await geo.report_position("stefan", 47.1381, 7.9228, accuracy=15.0)
+            assert caplog.text.count("ist jetzt home") == 1
+
+            caplog.clear()
+            for _ in range(5):
+                await geo.report_position("stefan", 47.1381, 7.9228, accuracy=15.0)
+            assert "ist jetzt" not in caplog.text
+
+            # Und der Wechsel steht wieder da, wo er hingehört.
+            caplog.clear()
+            await geo.report_position("stefan", 47.05, 8.31, accuracy=20.0)
+            assert caplog.text.count("ist jetzt away") == 1
+    finally:
+        await geo.teardown()
 
 
 async def test_coming_home_is_noticed_even_though_the_leave_was_lost() -> None:

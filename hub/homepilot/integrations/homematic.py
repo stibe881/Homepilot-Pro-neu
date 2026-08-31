@@ -133,6 +133,25 @@ Drei Wege dorthin, welcher Kanal es ist:
   Das listet jeden Kanal des Geräts mit seiner Art, seinen Datenpunkten
   und dem Vorschlag, was dafür in die ``config.yaml`` gehört.
 
+Reagiert dagegen **keine einzige** Taste, ist es nicht der Kanal - dann
+kommt gar nichts an, und die Frage ist nur, wo es hängt. Der
+System-Bildschirm der App beantwortet sie in einer Zeile unter
+«homematic»:
+
+* «Anmeldung noch nicht bestätigt» - die CCU erreicht den Hub nicht.
+  Sie nimmt die Rückrufadresse zwar entgegen, stellt aber nichts zu.
+  Im Docker-Betrieb muss dort die Adresse des *Rechners* stehen, nicht
+  die des Containers: ``callback_host``. Dasselbe sagt eine Warnung im
+  Log, gleich nach dem Start.
+* «angemeldet … noch kein Ereignis» - der Weg steht, aber die
+  Schnittstelle schweigt. Ein Gerät auf ``port: 2010`` bringt die
+  Anmeldung bei Homematic IP mit; ohne ein einziges solches Gerät
+  meldet sich der Hub dort nie an, und HmIP-Tasten bleiben stumm,
+  während die klassischen Geräte weiterlaufen.
+* «angemeldet … letztes Ereignis gerade eben» - Ereignisse kommen an,
+  nur diese Taste nicht. Dann ist es die Funkstrecke oder der Kanal,
+  und die drei Wege oben führen weiter.
+
 Nach den Datenpunkten und nicht nach der Kanalart, weil die Art es nicht
 sicher sagt: Ein HmIP-Eingang kann als Taster *oder* als Ja/Nein-Kontakt
 eingerichtet sein (``CHANNEL_OPERATION_MODE``), und dann heisst derselbe
@@ -898,9 +917,40 @@ class HomematicIntegration(Integration):
                     port,
                     err,
                 )
+        self.start_task(self._erste_pruefung())
         self.start_task(self._keepalive_loop())
 
     # ── Anmeldung wachhalten ───────────────────────────────────────────────
+
+    async def _erste_pruefung(self) -> None:
+        """Gleich nach dem Start nachfragen, ob die CCU den Hub erreicht.
+
+        ``init`` gelingt auch dann, wenn sie ihn später gar nicht
+        erreicht: Sie nimmt die Adresse entgegen und merkt erst beim
+        Zustellen, dass dort niemand zuhört. Im Log stand dann «für
+        Events angemeldet», und trotzdem kam nie ein Tastendruck an -
+        die teuerste Zeile des ganzen Logs, weil sie das Gegenteil von
+        dem behauptet, was gilt.
+
+        Der Ping klärt das in Sekunden statt erst nach zwei Minuten beim
+        ersten Durchlauf des Wächters. Und er füllt nebenbei die
+        Bestätigung, die der System-Bildschirm zeigt: Ohne ihn stand
+        dort nach jedem Neustart erst einmal «Anmeldung noch nicht
+        bestätigt» - ausgerechnet in den Minuten, in denen man nach
+        einem Update hinschaut.
+        """
+        for port in sorted(self._ports()):
+            if await self._check_registration(port):
+                continue
+            self.log.warning(
+                "Die CCU (Port %s) hat die Anmeldung angenommen, erreicht den "
+                "Hub unter %s aber nicht - es kommen keine Tastendrücke und "
+                "Sensormeldungen an. Diese Adresse muss von der CCU aus "
+                "erreichbar sein: im Docker-Betrieb also die des Rechners, "
+                "nicht die des Containers (callback_host).",
+                port,
+                self._callback_url,
+            )
 
     def health(self) -> dict[str, Any]:
         """Was die App über die CCU-Verbindung wissen muss.

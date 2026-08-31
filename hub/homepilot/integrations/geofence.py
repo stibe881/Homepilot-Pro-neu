@@ -707,6 +707,7 @@ class GeofenceIntegration(Integration):
         # Kurzbefehl überschreiben - «ich bin angekommen» verlöre gegen
         # eine Messung aus dem Stau.
         self._gemessen[zone_id] = time.time()
+        vorher = str(self.merged(zone_id).get("state") or "")
         state, engster = presence.place_state(drin, self.places)
         # Life360 meldet eine Flanke, kennt aber die Koordinaten. Ohne
         # sie bliebe die Entfernung leer, und «wann ist er da?» stünde
@@ -725,8 +726,22 @@ class GeofenceIntegration(Integration):
                 else None
             ),
         )
-        self.log.info("Geofence: %s ist jetzt %s (%s)", zone_id, state, ort)
+        self._melden(zone_id, vorher, state, ort)
         return state
+
+    def _melden(self, zone_id: str, vorher: str, state: str, woher: str) -> None:
+        """Eine Ortsmeldung ins Log - laut nur, wenn sich etwas geändert hat.
+
+        Life360 fragt alle halbe Minute und meldet dabei jede Person für
+        jeden Ort erneut. Als INFO waren das über hundert Zeilen je Runde,
+        und alle sagten dasselbe: «ist immer noch zuhause». Wer danach im
+        Log nach einem Tastendruck oder einer Störung suchte, fand ihn im
+        Rauschen nicht mehr - also ausgerechnet dann nicht, wenn man das
+        Log wirklich braucht. Der Wechsel ist die Nachricht; alles andere
+        ist Buchhaltung und steht auf DEBUG.
+        """
+        schreiben = self.log.info if state != vorher else self.log.debug
+        schreiben("Geofence: %s ist jetzt %s (%s)", zone_id, state, woher)
 
     async def report_position(
         self,
@@ -781,6 +796,7 @@ class GeofenceIntegration(Integration):
             self._inside.get(zone_id, []), self.places, latitude, longitude, accuracy
         )
         self._inside[zone_id] = drin
+        vorher = str(self.merged(zone_id).get("state") or "")
         state, engster = presence.place_state(drin, self.places)
         await self._publish(
             zone_id,
@@ -791,9 +807,7 @@ class GeofenceIntegration(Integration):
             source,
             entfernung=presence.entfernung_zuhause(self.places, latitude, longitude),
         )
-        self.log.info(
-            "Geofence: %s ist jetzt %s (Position, ±%.0f m)", zone_id, state, accuracy or 0
-        )
+        self._melden(zone_id, vorher, state, f"Position, ±{accuracy or 0:.0f} m")
         return state
 
     async def _publish(

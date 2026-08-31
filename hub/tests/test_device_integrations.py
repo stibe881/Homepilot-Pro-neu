@@ -66,6 +66,24 @@ def test_presence_with_empty_client_list():
     }
 
 
+def test_the_same_unifi_error_does_not_fill_the_log():
+    """Der gemeldete Fall: Alle 30 Sekunden dieselbe Warnung, weil der
+    Controller die Anmeldeseite statt Daten schickte. Im Log war danach
+    nichts anderes mehr zu finden - und gesucht wurde dort gerade ein
+    Tastendruck, der nicht ankam."""
+    from homepilot.integrations.unifi import KLAGE_TAKT, klage_faellig
+
+    grund = "Der Controller hat die Anmeldeseite geschickt"
+    # Der erste Fehler gehört immer ins Log.
+    assert klage_faellig(None, grund, 1000.0) is True
+    # Derselbe Grund kurz darauf nicht mehr.
+    assert klage_faellig((grund, 1000.0), grund, 1030.0) is False
+    # Nach einer halben Stunde schon: Sonst hielte man es für erledigt.
+    assert klage_faellig((grund, 1000.0), grund, 1000.0 + KLAGE_TAKT) is True
+    # Ein anderer Grund ist eine andere Nachricht - der wartet nicht.
+    assert klage_faellig((grund, 1000.0), "Zeitüberschreitung", 1030.0) is True
+
+
 # ── Twinkly ──────────────────────────────────────────────────────────────
 
 
