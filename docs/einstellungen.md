@@ -34,7 +34,9 @@ Widget-Karten und ob das Widget Daten bekommt.
 
 Was Gewohnheit ist und darum jedem selbst gehört:
 
-eigene Favoriten und ihre Reihenfolge · Kameras nach Betrieb sortieren ·
+eigene Favoriten und ihre Reihenfolge · die Reihenfolge der
+Schnellaktionen ganz oben (Szenen und die zwei Storen-Knöpfe) · Kameras
+nach Betrieb sortieren ·
 Ansichten nach Tageszeit · Live-Karten auf dem Sperrbildschirm und welche
 Arten davon · Durchsage-Box und die eigenen Sätze · **der gewählte
 Anblick** (hell, dunkel, Pink, Mitternacht, Sand …) · **Reihenfolge und

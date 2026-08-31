@@ -691,6 +691,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     eigenGeladen,
     setFavorites,
     setFavoriteOrder,
+    setSchnellOrder,
     setDurchsage,
     setBioLock,
     setDoorConfirm,
@@ -2115,6 +2116,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               // sonst spränge beim Umstieg alles durcheinander.
               favoriteOrder={eigenePrefs.favoriteOrder ?? prefs.order?.favorites}
               onReorderFavorites={setFavoriteOrder}
+              schnellOrder={eigenePrefs.schnellOrder}
+              onReorderSchnell={setSchnellOrder}
               onDurchsage={darfSchalten ? sendeDurchsage : undefined}
               durchsage={eigenePrefs.durchsage}
               onDurchsagePrefs={setDurchsage}

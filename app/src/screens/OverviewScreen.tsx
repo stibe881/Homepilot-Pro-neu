@@ -20,6 +20,7 @@ import { appleMapsRoute, googleMapsRoute } from '../components/TopStrip';
 import { VacuumHome } from '../components/VacuumHome';
 import { useTakt } from '../hooks/useTakt';
 import { FAVORIT_LUECKE, FAVORIT_MINDEST, kachelBreite, spalten } from '../lib/raster';
+import { schnellposten } from '../lib/schnellordnung';
 import { dauerText } from '../lib/format';
 import {
   chipZeile,
@@ -95,6 +96,10 @@ interface Props {
   /** Selbst gezogene Reihenfolge der Favoriten (Gerätekennungen). */
   favoriteOrder?: string[];
   onReorderFavorites?: (ids: string[]) => void;
+  /** Selbst gezogene Reihenfolge der Schnellaktionen (Szenen-Kennungen
+   *  und die zwei Storen-Knöpfe, siehe lib/schnellordnung.ts). */
+  schnellOrder?: string[];
+  onReorderSchnell?: (ids: string[]) => void;
   /** Uhr- und Warnungs-Kopf weglassen - die Startkarte oben (TopStrip im
    *  Karten-Modus) trägt Uhr, Wetter und Warnung schon. Die Haustüre
    *  bleibt: ihr Öffnen-Knopf gehört weiterhin nach oben. */
@@ -180,6 +185,8 @@ export function OverviewScreen({
   favoriteIds = [],
   favoriteOrder,
   onReorderFavorites,
+  schnellOrder,
+  onReorderSchnell,
   onRenameEntity,
   doorConfirm,
   onDurchsage,
@@ -241,12 +248,14 @@ export function OverviewScreen({
   // hängen sich hinten an, statt die gewachsene Ordnung durcheinander zu
   // bringen. Dieselbe Regel wie bei den Familien-Kacheln.
   const [favOrdnen, setFavOrdnen] = useState(false);
+  const [schnellOrdnen, setSchnellOrdnen] = useState(false);
   // Solange eine Zeile in einem Ordnen-Blatt am Finger hängt, darf das
   // Blatt nicht scrollen: Der Capture-Anspruch der Zeile hält zwar die
   // Geste, aber ein ScrollView, der daneben weiter scrollen darf,
   // schiebt den Inhalt unter der Zeile weg. Die Startseite macht es mit
   // den Kacheln genauso (scrollEnabled={!drag}).
   const [favZieht, setFavZieht] = useState(false);
+  const [schnellZieht, setSchnellZieht] = useState(false);
   // Die Durchsage-Kachel: Sie hängt nicht an einem Gerät, sondern an der
   // Frage, ob es überhaupt eine Box gibt, die eine Tondatei abspielt.
   const durchsageBoxen = useMemo(() => boxenVon(entities), [entities]);
@@ -300,6 +309,12 @@ export function OverviewScreen({
     scenes.find((scene) => /schlaf/i.test(scene.name)),
   ].filter(Boolean) as typeof scenes;
   const startScenes = flagged.length > 0 ? flagged : fallback;
+  // Die Knöpfe der obersten Reihe in ihrer Reihenfolge - Szenen und
+  // Storen in einer Liste, weil sie in einer Reihe stehen.
+  const schnell = useMemo(
+    () => schnellposten(startScenes, schnellOrder),
+    [startScenes, schnellOrder]
+  );
 
   // Nächster auf der Startseite markierter Countdown (TT.MM.JJJJ → Tage).
   const countdown = useMemo(() => {
@@ -716,35 +731,88 @@ export function OverviewScreen({
       </View>
 
       {/* Schnellaktionen: gleich breite Kacheln mit Sinnbild in der
-          Scheibe - Szenen im Akzent, die Storen neutral. */}
+          Scheibe - Szenen im Akzent, die Storen neutral.
+
+          Die Abfolge war fest: erst die Szenen, dann die Storen. Wer die
+          Storen zuerst braucht, konnte nichts tun - deshalb reihen sich
+          auch sie ein wie eine Szene (lib/schnellordnung.ts), und der
+          Griff ☰ daneben ordnet die Reihe wie bei den Favoriten. */}
+      {onReorderSchnell && schnell.length > 1 ? (
+        <View style={styles.favHead}>
+          <Text style={[styles.groupLabel, { flex: 1 }]}>Schnellaktionen</Text>
+          <Pressable
+            onPress={() => setSchnellOrdnen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Reihenfolge der Schnellaktionen ändern"
+            hitSlop={8}
+            style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+          >
+            <Ionicons name="swap-vertical" size={16} color={colors.onGradient} />
+          </Pressable>
+        </View>
+      ) : null}
+      <Modal
+        visible={schnellOrdnen}
+        animationType="slide"
+        onRequestClose={() => setSchnellOrdnen(false)}
+      >
+        <View style={styles.reorderSheet}>
+          <View style={styles.reorderHead}>
+            <Text style={styles.reorderTitle}>Schnellaktionen ordnen</Text>
+            <Pressable onPress={() => setSchnellOrdnen(false)} accessibilityLabel="Fertig">
+              <Ionicons name="checkmark" size={26} color={colors.ink} />
+            </Pressable>
+          </View>
+          <Text style={styles.reorderHint}>
+            Am Griff ☰ ziehen. Die Reihenfolge wird bei deinem Benutzer gespeichert und
+            gilt auf allen deinen Geräten. Welche Szenen hier stehen, wählt man beim
+            Ablauf selbst («Als Schnellaktion anzeigen»).
+          </Text>
+          <ScrollView
+            contentContainerStyle={{ paddingBottom: 40 }}
+            scrollEnabled={!schnellZieht}
+          >
+            <DraggableList
+              onDragging={setSchnellZieht}
+              items={schnell.map(({ id, name }) => ({ id, name }))}
+              onReorder={(ids) => onReorderSchnell?.(ids)}
+            />
+          </ScrollView>
+        </View>
+      </Modal>
       <View style={styles.schnellRow}>
-        {startScenes.map((scene) => (
-          <Schnellaktion
-            styles={styles}
-            key={scene.id}
-            label={scene.name}
-            icon={sceneIcon(scene)}
-            accent
-            width={schnellBreite}
-            onPress={() => onActivateScene(scene.id)}
-          />
-        ))}
-        <Schnellaktion
-          styles={styles}
-          label="Storen hoch"
-          icon="arrow-up-outline"
-          width={schnellBreite}
-          onPress={() => covers.forEach((c) => onCommand(c.id, 'open'))}
-          disabled={covers.length === 0}
-        />
-        <Schnellaktion
-          styles={styles}
-          label="Storen runter"
-          icon="arrow-down-outline"
-          width={schnellBreite}
-          onPress={() => covers.forEach((c) => onCommand(c.id, 'close'))}
-          disabled={covers.length === 0}
-        />
+        {schnell.map((posten) => {
+          const scene = posten.sceneId
+            ? startScenes.find((entry) => entry.id === posten.sceneId)
+            : undefined;
+          if (posten.sceneId) {
+            return scene ? (
+              <Schnellaktion
+                styles={styles}
+                key={posten.id}
+                label={scene.name}
+                icon={sceneIcon(scene)}
+                accent
+                width={schnellBreite}
+                onPress={() => onActivateScene(scene.id)}
+              />
+            ) : null;
+          }
+          const auf = posten.storen === 'auf';
+          return (
+            <Schnellaktion
+              styles={styles}
+              key={posten.id}
+              label={posten.name}
+              icon={auf ? 'arrow-up-outline' : 'arrow-down-outline'}
+              width={schnellBreite}
+              onPress={() =>
+                covers.forEach((cover) => onCommand(cover.id, auf ? 'open' : 'close'))
+              }
+              disabled={covers.length === 0}
+            />
+          );
+        })}
       </View>
       {startScenes.length === 0 ? (
         <Text style={styles.hintLine}>

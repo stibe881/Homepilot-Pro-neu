@@ -127,6 +127,11 @@ export interface UserPrefs {
   favorites?: string[];
   /** Die selbst gezogene Reihenfolge der eigenen Favoriten. */
   favoriteOrder?: string[];
+  /** Die selbst gezogene Reihenfolge der Schnellaktionen ganz oben:
+   *  Szenen-Kennungen und die zwei Storen-Knöpfe (lib/schnellordnung.ts).
+   *  Persönlich wie die Favoriten - welche Szene man zuerst braucht, ist
+   *  eine persönliche Frage, und die Storen sind es erst recht. */
+  schnellOrder?: string[];
   /** Weitere persönliche Schlüssel liegen in derselben Ablage, werden
    *  aber nicht von hier aus gesetzt (siehe lib/persoenlich.ts):
    *  `theme` (der gewählte Anblick), `playlisten` (Reihenfolge und
@@ -377,6 +382,11 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [setzeEigen]
   );
 
+  const setSchnellOrder = useCallback(
+    (ids: string[]) => setzeEigen({ schnellOrder: ids }),
+    [setzeEigen]
+  );
+
   const setDurchsage = useCallback(
     (durchsage: DurchsagePrefs) =>
       setzeEigen({ durchsage }),
@@ -415,6 +425,7 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     setTuerKnopf,
     setFavorites,
     setFavoriteOrder,
+    setSchnellOrder,
     setDurchsage,
   };
 }
