@@ -578,3 +578,53 @@ def lesbare_datenpunkte(beschreibung: dict[str, Any]) -> set[str]:
         if operations is None or int(operations) & 0b101:
             namen.add(str(name))
     return namen
+
+
+def wartungszeile(werte: dict[str, Any]) -> str:
+    """Was der Wartungskanal über ein Gerät sagt (rein, testbar).
+
+    Bei einem Batteriegerät, das sich nur beim Drücken meldet, ist das
+    die einzige Auskunft, die es *ohne* Druck gibt - und damit die
+    Antwort auf «alles richtig eingetragen und trotzdem stumm»:
+
+    * ``UNREACH`` - die CCU hält es für unerreichbar. Dann liegt es an
+      der Funkstrecke oder am Anlernen, nicht an der config.yaml.
+    * ``CONFIG_PENDING`` - die CCU hat noch eine Konfiguration offen und
+      wartet auf den nächsten Kontakt. Solange das steht, ist das Gerät
+      angelernt, aber noch nicht fertig eingerichtet.
+    * ``RSSI_DEVICE`` - wie gut die CCU es zuletzt gehört hat. Fehlt der
+      Wert ganz, hat sie es noch nie gehört.
+    """
+    teile: list[str] = []
+    for name in ("UNREACH", "CONFIG_PENDING", "LOW_BAT", "UPDATE_PENDING"):
+        if name not in werte:
+            continue
+        teile.append(f"{name}={'ja' if werte[name] else 'nein'}")
+    rssi = werte.get("RSSI_DEVICE")
+    if isinstance(rssi, int) and rssi not in (0, 65536):
+        teile.append(f"RSSI_DEVICE={rssi} dBm")
+    elif "RSSI_DEVICE" in werte:
+        teile.append("RSSI_DEVICE=noch nie gehört")
+    spannung = werte.get("OPERATING_VOLTAGE")
+    if isinstance(spannung, (int, float)) and spannung:
+        teile.append(f"Batterie {float(spannung):.1f} V")
+    return " · ".join(teile) or "keine Angaben"
+
+
+def eintraege_zum_geraet(devices: list[dict[str, Any]], serial: str) -> list[str]:
+    """Welche Kanäle dieses Geräts in der config.yaml stehen (rein, testbar).
+
+    Die Frage, die der Kanalliste fehlte: Die CCU kennt das Gerät, die
+    Datenpunkte stimmen - aber steht es überhaupt beim Hub? Ein Eintrag,
+    den man in eine andere Datei geschrieben hat oder der beim Speichern
+    verloren ging, sieht von aussen genauso aus wie ein Funkproblem.
+    """
+    gefunden = []
+    for eintrag in devices or []:
+        adresse = str(eintrag.get("address") or "")
+        if adresse.split(":", 1)[0] != serial:
+            continue
+        art = str(eintrag.get("kind") or "?")
+        name = str(eintrag.get("name") or adresse)
+        gefunden.append(f"{adresse} «{name}» (kind: {art})")
+    return sorted(gefunden)

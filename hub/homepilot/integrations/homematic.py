@@ -131,7 +131,11 @@ Drei Wege dorthin, welcher Kanal es ist:
           -c /config/config.yaml --geraet 001A58A9A24256
 
   Das listet jeden Kanal des Geräts mit seiner Art, seinen Datenpunkten
-  und dem Vorschlag, was dafür in die ``config.yaml`` gehört.
+  und dem Vorschlag, was dafür in die ``config.yaml`` gehört. Darunter
+  stehen die beiden Zeilen, die eine stumme Batteriefernbedienung
+  erklären: was der Wartungskanal sagt (UNREACH, CONFIG_PENDING, wie gut
+  die CCU das Gerät zuletzt gehört hat) und welche Kanäle des Geräts
+  überhaupt in der ``config.yaml`` stehen.
 
 Reagiert dagegen **keine einzige** Taste, ist es nicht der Kanal - dann
 kommt gar nichts an, und die Frage ist nur, wo es hängt. Der
@@ -243,6 +247,7 @@ from .homematic_channels import (  # noqa: F401
     describe_channels,
     druck_hinweis,
     duty_cycle_of,
+    eintraege_zum_geraet,
     fremder_druck,
     group_by_device,
     guess_device_class,
@@ -259,6 +264,7 @@ from .homematic_channels import (  # noqa: F401
     unit_for,
     unknown_parameter,
     value_to_state,
+    wartungszeile,
 )
 
 
@@ -1264,6 +1270,26 @@ def _kanal_main(config_path: str, geraet: str) -> int:
             print(
                 f"{nummer(device):<7}{art:<38} {rat:<46} "
                 f"{', '.join(sorted(punkte)) or '-'}{modus}"
+            )
+
+        # Der Wartungskanal sagt, ob die CCU das Gerät überhaupt hört.
+        # Bei einer Batteriefernbedienung ist das die einzige Auskunft,
+        # die es ohne Tastendruck gibt.
+        try:
+            werte = proxy.getParamset(f"{serial}:0", "VALUES")
+            print(f"\nZustand laut CCU: {wartungszeile(werte)}")
+        except Exception as err:
+            print(f"\nZustand laut CCU: nicht lesbar ({err})")
+
+        # Und die andere Hälfte der Frage: Steht das Gerät beim Hub?
+        eintraege = eintraege_zum_geraet(block.get("devices") or [], serial)
+        if eintraege:
+            print("In der config.yaml: " + "; ".join(eintraege))
+        else:
+            print(
+                "In der config.yaml steht kein Kanal dieses Geräts - "
+                "solange das so ist, kann kein Druck ankommen, egal wie "
+                "gut die Funkstrecke ist."
             )
 
     if not gefunden:
