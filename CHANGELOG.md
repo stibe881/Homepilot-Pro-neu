@@ -122,6 +122,13 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   war - ein Türöffner ohne Face ID nützt aber nur auf den letzten
   Metern. Jetzt startet sie erst näher als drei Kilometer (die
   Quartier-Zone) und endet zuhause wie bisher.
+- **Und sie kommt jetzt wirklich.** Der Umbau darüber hatte einen
+  Denkfehler: Der Vermerk «war draussen», ohne den keine Karte
+  startet, wurde schon am Ortsrand gelöscht - drei Kilometer vor der
+  Türe, im selben Takt, in dem die Karte ihn gebraucht hätte. Ergebnis:
+  Auf keinem einzigen Heimweg erschien eine Karte. Jetzt bleibt der
+  Vermerk stehen, bis man wirklich zuhause ist - die Karte startet am
+  Ortsrand, bleibt bis zur Tür und endet daheim.
 - **Tippen greift zuverlässiger.** Jede Meldung vom Hub (jeder
   Temperaturtick) zeichnete sofort die ganze Startseite neu - ein
   Tipp währenddessen ging verloren: «Ich muss oft zweimal drücken.»

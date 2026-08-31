@@ -268,6 +268,29 @@ def weit_merken(rows: Any, user: str, weit: bool) -> list[dict[str, Any]]:
     return [*andere, {"user": user, "weit": bool(weit)}]
 
 
+def weit_nachfuehren(zustand: str, entfernung: Any) -> bool | None:
+    """Wie der «war draussen»-Vermerk nachzieht (rein, testbar).
+
+    Drei Ausgänge: True (jetzt richtig draussen - vormerken), False
+    (zuhause angekommen - der Vermerk fängt von vorn an), None (nichts
+    ändern).
+
+    None ist der ganze Punkt, und er ist einmal falsch gebaut worden:
+    Der Takt setzte den Vermerk direkt auf weit_weg() - und das wird
+    beim Heimkommen schon am Ortsrand False, drei Kilometer vor der
+    Türe. Im selben Takt fragte karte_faellig dann «war der weit weg?»,
+    bekam Nein - und die Karte, für die es den Vermerk überhaupt gibt,
+    erschien auf keinem einzigen Heimweg. Wer im Anmarsch ist (nah,
+    aber nicht zuhause), behält den Vermerk deshalb, bis er wirklich
+    durch die Tür ist.
+    """
+    if zustand == presence.HOME:
+        return False
+    if weit_weg(zustand, entfernung) is True:
+        return True
+    return None
+
+
 def wechsel(
     rows: Any, weg: dict[str, bool]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
@@ -516,9 +539,12 @@ def _weg_stand(hub: Any, benutzer: set[str]) -> dict[str, bool]:
         zustand = str(zustand_roh.get("state") or presence.UNKNOWN)
         entfernung = zustand_roh.get("distance")
         # Erst merken, dann entscheiden: Wer gerade draussen ist, ist
-        # damit für den Heimweg vorgemerkt; wer zuhause ankommt, fängt
-        # von vorn an. Unbekanntes lässt den Vermerk, wie er war.
-        weit = weit_weg(zustand, entfernung)
+        # damit für den Heimweg vorgemerkt; erst wer zuhause ankommt,
+        # fängt von vorn an. Der Anmarsch (nah, aber nicht zuhause) und
+        # Unbekanntes lassen den Vermerk, wie er war - sonst wäre er
+        # genau in dem Takt weg, in dem die Karte ihn braucht
+        # (weit_nachfuehren erzählt den Fehler).
+        weit = weit_nachfuehren(zustand, entfernung)
         if weit is not None and weit != war_weit(weit_rows, name):
             weit_rows = weit_merken(weit_rows, name, weit)
             hub.data.set(WEIT_KEY, weit_rows)

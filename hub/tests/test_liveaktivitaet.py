@@ -13,6 +13,7 @@ from homepilot.core.liveaktivitaet import (
     war_weit,
     wechsel,
     weit_merken,
+    weit_nachfuehren,
     weit_weg,
 )
 
@@ -270,4 +271,50 @@ class TestWeitWeg:
         rows = weit_merken(rows, "Stibe", False)
         assert len([r for r in rows if r["user"] == "Stibe"]) == 1
         assert war_weit(rows, "Stibe") is False
+
+
+class TestWeitNachfuehren:
+    """Wann der «war draussen»-Vermerk zieht - und wann er stehen bleibt."""
+
+    def test_richtig_draussen_wird_vorgemerkt(self) -> None:
+        assert weit_nachfuehren("away", 12_000) is True
+        assert weit_nachfuehren("away", None) is True
+
+    def test_zuhause_faengt_von_vorn_an(self) -> None:
+        assert weit_nachfuehren("home", 0) is False
+
+    def test_im_anmarsch_bleibt_der_vermerk(self) -> None:
+        """Der Fall vom 31. August: Heimkommen, keine Karte.
+
+        Der Takt setzte den Vermerk direkt auf weit_weg() - der wird am
+        Ortsrand False, drei Kilometer vor der Türe, und im selben Takt
+        fand karte_faellig dann keinen Vermerk mehr. Im Anmarsch (nah,
+        aber nicht zuhause) darf sich der Vermerk nicht ändern.
+        """
+        assert weit_nachfuehren("quartier", 2500) is None
+        assert weit_nachfuehren("away", 800) is None
+
+    def test_unbekannt_aendert_nichts(self) -> None:
+        assert weit_nachfuehren("unknown", None) is None
+        assert weit_nachfuehren("", 12_000) is None
+
+    def test_der_ganze_heimweg(self) -> None:
+        """Von der Arbeit bis vor die Tür, Takt für Takt."""
+        rows: list[dict] = []
+
+        def takt(zustand: str, entfernung: float | None) -> bool | None:
+            nonlocal rows
+            weit = weit_nachfuehren(zustand, entfernung)
+            if weit is not None and weit != war_weit(rows, "Stibe"):
+                rows = weit_merken(rows, "Stibe", weit)
+            return karte_faellig(zustand, entfernung, war_weit(rows, "Stibe"))
+
+        assert takt("home", 0) is False          # Morgen: zuhause
+        assert takt("quartier", 2500) is False   # Hinausgehen: keine Karte
+        assert takt("away", 12_000) is False     # Arbeitstag: keine Karte
+        assert takt("quartier", 2500) is True    # Heimweg, Ortsrand: Karte!
+        assert takt("away", 400) is True       # letzte Meter: Karte bleibt
+        assert takt("home", 0) is False          # daheim: Karte endet
+        assert takt("quartier", 2500) is False   # kurz zum Kiosk: keine
+
 
