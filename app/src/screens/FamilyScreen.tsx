@@ -86,6 +86,8 @@ import { ROLE_LABELS } from './UsersScreen';
 import { doppeldosisFrage } from '../lib/doppeldosis';
 import { naechsteStraehne, straehnenSatz } from '../lib/straehne';
 import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, CountdownForm, ErinnerungForm, EventForm, FamilyItem, GroupedChecklist, MealRow, MedicationAddRow, Member, MemberAddRow, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, TaskAddRow, TwoFieldForm, VorratBlatt, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, parseSwissDate, pickPhoto, rotateMember } from './family/bausteine';
+import { Kindseite, Wochenliste } from './family/kindseite';
+import { istKind, verschmelze } from '../lib/kindseite';
 import { makeStyles } from './family/stil';
 
 /**
@@ -170,6 +172,15 @@ export function FamilyScreen({
   const [monatLaedt, setMonatLaedt] = useState(false);
   const [letzterMonat, setLetzterMonat] = useState('');
   const [terminOffen, setTerminOffen] = useState<FamilyItem | null>(null);
+  // Wessen Seite gerade offen ist. Kein ModuleKey: Die Kinderseite
+  // gehört zu einem Namen, nicht zu einer Liste - und «zurück» führt
+  // von ihr an dieselbe Stelle wie von den Modulen.
+  const [kind, setKind] = useState<string | null>(null);
+  // Die Termine für die Kinderseite. Die Kalender-Entität trägt die
+  // nächsten zwölf der ganzen Familie; auf ein Kind heruntergefiltert
+  // bleiben davon oft null, und die Seite behauptete, es stehe nichts
+  // an. Deshalb der laufende und der nächste Monat dazu.
+  const [kindEvents, setKindEvents] = useState<FamilyItem[]>([]);
   // Punkt 167: Was gelöscht wurde – dreissig Tage lang.
   const [korb, setKorb] = useState<FamilyItem[]>([]);
   const [korbOffen, setKorbOffen] = useState(false);
@@ -340,6 +351,39 @@ export function FamilyScreen({
     },
     [hub]
   );
+
+  /**
+   * Die Termine für die Kinderseite – dieser und der nächste Monat.
+   *
+   * Erst beim Öffnen und nicht im Voraus: Zwei Abrufe für eine Seite,
+   * die vielleicht niemand aufmacht, wären zwei Abrufe zu viel. Geht es
+   * schief (kein Kalender angebunden), bleibt es bei dem, was die
+   * Entität hergibt - die Seite steht dann trotzdem.
+   */
+  useEffect(() => {
+    if (!kind) return;
+    const heute = new Date();
+    const monate = [0, 1].map((versatz) => {
+      const wann = new Date(heute.getFullYear(), heute.getMonth() + versatz, 1);
+      return `${wann.getFullYear()}-${String(wann.getMonth() + 1).padStart(2, '0')}`;
+    });
+    let abgebrochen = false;
+    Promise.all(
+      monate.map((monat) =>
+        hub
+          .get<{ events: FamilyItem[] }>(`/api/calendar/events?month=${monat}`, {
+            still: true,
+          })
+          .then((payload) => payload.events ?? [])
+          .catch(() => [] as FamilyItem[])
+      )
+    ).then((teile) => {
+      if (!abgebrochen) setKindEvents(teile.flat());
+    });
+    return () => {
+      abgebrochen = true;
+    };
+  }, [hub, kind]);
 
   useEffect(() => {
     hub
@@ -581,6 +625,32 @@ export function FamilyScreen({
   } = useBabysitterabend({ hub, darfBenutzer, view, melde: setError });
 
   const goBack = () => setView(null);
+
+  // ── Die Seite eines Kindes ─────────────────────────────────────────────
+  //
+  // Sie steht vor den Modulen: Wer im Raster auf ein Kind getippt hat,
+  // will dorthin, egal welches Modul zuletzt offen war.
+  if (kind) {
+    return (
+      <Kindseite
+        name={kind}
+        lektionen={data.lessons ?? []}
+        termine={data.activities ?? []}
+        events={verschmelze(kindEvents, events)}
+        // Frisch beim Zeichnen: `jetztTick` läuft nur, solange das
+        // Rückgängig-Band steht, und wäre hier sonst die Uhrzeit von
+        // vorgestern.
+        jetzt={new Date()}
+        onBack={() => setKind(null)}
+        onAdd={(liste: Wochenliste, zeile: FamilyItem) =>
+          add(liste, { ...zeile, member: kind })
+        }
+        onRemove={(liste: Wochenliste, id: string) => remove(liste, id)}
+        styles={styles}
+        colors={colors}
+      />
+    );
+  }
 
   // ── Die einzelnen Modul-Ansichten ──────────────────────────────────────
 
@@ -4164,8 +4234,21 @@ export function FamilyScreen({
       <View style={styles.memberRow}>
         {members.map((member) => {
           const presence = presenceOf(member.name);
+          // Nur Kinder führen weiter. Für die Erwachsenen steht dieselbe
+          // Auskunft ohnehin in ihrem eigenen Kalender, und das
+          // Wandtablet in der Küche hat keinen Stundenplan.
+          const eigeneSeite = istKind(member);
           return (
-            <View key={member.name} style={styles.member}>
+            <Pressable
+              key={member.name}
+              onPress={eigeneSeite ? () => setKind(member.name) : undefined}
+              disabled={!eigeneSeite}
+              accessibilityRole={eigeneSeite ? 'button' : undefined}
+              accessibilityLabel={
+                eigeneSeite ? `${member.name} – Termine, Stundenplan, Wöchentliches` : undefined
+              }
+              style={({ pressed }) => [styles.member, pressed && { opacity: 0.7 }]}
+            >
               <View
                 style={[
                   styles.avatar,
@@ -4179,17 +4262,29 @@ export function FamilyScreen({
               <Text style={styles.memberName} numberOfLines={1}>
                 {member.name}
               </Text>
-              <Text style={styles.memberRole}>
-                {presence === 'home'
-                  ? 'Zuhause'
-                  : presence === 'away'
-                    ? 'Unterwegs'
-                    : // Ohne Ortung steht die Rolle da. Für Kinder ohne
-                      // Zugang gibt es keine Hub-Rolle - dort hiesse es
-                      // sonst schlicht «kind».
-                      rolleWort(member) || ROLE_LABELS[member.role] || member.role}
-              </Text>
-            </View>
+              {/* Der Pfeil ist der einzige Hinweis darauf, dass hinter
+                  dem Kind eine Seite steckt. Ohne ihn tippt niemand auf
+                  ein Bild, das aussieht wie eine Beschriftung. */}
+              <View style={styles.memberFuss}>
+                <Text style={styles.memberRole}>
+                  {presence === 'home'
+                    ? 'Zuhause'
+                    : presence === 'away'
+                      ? 'Unterwegs'
+                      : // Ohne Ortung steht die Rolle da. Für Kinder ohne
+                        // Zugang gibt es keine Hub-Rolle - dort hiesse es
+                        // sonst schlicht «kind».
+                        rolleWort(member) || ROLE_LABELS[member.role] || member.role}
+                </Text>
+                {eigeneSeite ? (
+                  <Ionicons
+                    name="chevron-forward"
+                    size={11}
+                    color={colors.onGradientSoft}
+                  />
+                ) : null}
+              </View>
+            </Pressable>
           );
         })}
       </View>

@@ -57,6 +57,14 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             # wer ein Kind eintragen wollte, musste ihm einen Anmeldenamen
             # samt Token geben. Siehe app/src/lib/mitglieder.ts.
             "members",
+            # «lessons» und «activities»: der Stundenplan eines Kindes und
+            # seine regelmässigen Termine (Fussball, Jugi). Beide gehören
+            # zu einem Namen aus «members» und sind das, was ein
+            # Kalendereintrag nicht ist: Sie wiederholen sich jede Woche
+            # und stehen in keinem Kalender, weil sie niemand zwanzigmal
+            # eintippt. Siehe app/src/lib/kindseite.ts.
+            "lessons",
+            "activities",
         }
     )
 

@@ -188,6 +188,7 @@ nicht `test_mode_2`.
 | an der Startseite arbeitest | `app/src/screens/DashboardScreen.tsx`, `components/TopStrip.tsx`, `SidePanel.tsx` – die Vollbilder (Klingel, Kamera, Erinnerung) und die Stiltafel liegen in `screens/dashboard/` |
 | einen Punkt in den Einstellungen anlegst | die Liste in `app/src/screens/DashboardScreen.tsx` **und** eine Gruppe in `app/src/lib/einstellungsgruppen.ts` – sonst steht er auf dem Telefon unter «Weitere» |
 | wissen willst, was der Hub über die Storen weiss | `docker exec homepilot-hub python -m homepilot.storencheck` – Zustand, Stellung und ob sie nur angenommen ist |
+| an der Kinderseite arbeitest | `app/src/lib/kindseite.ts` + `app/src/screens/family/kindseite.tsx` – Stundenplan und Wöchentliches liegen als Familienlisten `lessons` und `activities` beim Hub |
 | an der Familienseite arbeitest | `app/src/screens/FamilyScreen.tsx` – Zwischenspeicher und Warteschlange in `screens/family/ablage.ts`, der Babysitter-Abend in `screens/family/babysitter.ts` |
 | eine Gerätekachel änderst | `app/src/components/EntityCard.tsx` |
 | an den Raumkacheln arbeitest | `app/src/components/RoomCard.tsx` + `lib/raumkarte.ts`; die Fotos liegen im Hub unter `core/raumbilder.py` und `api/routes/raeume.py` |

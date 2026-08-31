@@ -86,6 +86,7 @@ export const makeStyles = (colors: Colors) =>
     avatarSmallText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
     memberName: { color: colors.onGradient, fontSize: 13, fontWeight: '700' },
     memberRole: { color: colors.onGradientSoft, fontSize: 11 },
+    memberFuss: { flexDirection: 'row', alignItems: 'center', gap: 2 },
 
     tileRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.gap },
     moduleTile: { minHeight: 0, width: '48%', flexGrow: 1, maxWidth: 260, gap: 6 },

@@ -228,3 +228,36 @@ def test_a_report_names_the_place_and_the_battery():
 def test_guests_stay_out_of_the_bin():
     with make_client() as client:
         assert client.get("/api/family-trash", headers=auth("t-guest")).status_code == 403
+
+
+def test_a_childs_timetable_is_a_family_list_like_any_other():
+    """Stundenplan und regelmässige Termine liegen beim Hub, nicht im Telefon.
+
+    Sie gehören derselben Familie wie Ämtli und Einkauf: Wer sie im
+    Speicher der App hielte, hätte sie auf dem Wandpanel nie und nach
+    dem nächsten Build nicht mehr.
+    """
+    with make_client() as client:
+        lektion = client.post(
+            "/api/family/lessons",
+            json={"member": "Levin", "day": "Mo", "from": "08:20", "to": "09:05",
+                  "text": "Mathematik"},
+            headers=auth("t-owner"),
+        ).json()
+        assert lektion["text"] == "Mathematik"
+        termin = client.post(
+            "/api/family/activities",
+            json={"member": "Levin", "day": "Di", "from": "17:30", "to": "19:00",
+                  "text": "Fussball", "ort": "Turnhalle"},
+            headers=auth("t-owner"),
+        ).json()
+        assert termin["ort"] == "Turnhalle"
+
+        assert [row["text"] for row in
+                client.get("/api/family/lessons", headers=auth("t-owner")).json()] == [
+            "Mathematik"
+        ]
+        assert [row["text"] for row in
+                client.get("/api/family/activities", headers=auth("t-owner")).json()] == [
+            "Fussball"
+        ]
