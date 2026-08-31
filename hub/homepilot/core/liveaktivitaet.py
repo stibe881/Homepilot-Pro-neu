@@ -189,27 +189,83 @@ def aktivitaet_merken(rows: Any, user: str, token: str) -> list[dict[str, Any]]:
 NAHE_METER = 3000.0
 
 
-def karte_faellig(zustand: str, entfernung: Any) -> bool | None:
-    """Soll die Haustür-Karte gerade laufen? (rein, testbar)
+def weit_weg(zustand: str, entfernung: Any) -> bool | None:
+    """War diese Person richtig weg? (rein, testbar)
 
-    None heisst unbekannt - daraus startet keine Karte, und eine
-    laufende verschwindet deswegen auch nicht.
+    «Richtig weg» heisst: weiter als NAHE_METER von zuhause. Ohne
+    Entfernung (eine Flankenmeldung ohne Koordinaten) entscheidet die
+    Zone: Wer weder zuhause noch im Quartier steht, ist draussen.
 
-    Die Karte lief bisher, sobald jemand nicht zuhause war - und lag
-    damit den ganzen Arbeitstag auf dem Sperrbildschirm, obwohl ein
-    Türöffner ohne Face ID nur in einem Moment nützt: den letzten
-    Metern vor der Türe. Jetzt läuft sie nur im Anmarsch: nicht
-    zuhause, aber näher als NAHE_METER. Ohne Entfernung (eine
-    Flankenmeldung ohne Koordinaten) entscheidet die Zone - «quartier»
-    ist genau dieser Umkreis.
+    None heisst unbekannt - daraus wird nichts gemerkt und nichts
+    vergessen.
     """
     if zustand in ("", presence.UNKNOWN):
         return None
     if zustand == presence.HOME:
         return False
     if isinstance(entfernung, (int, float)) and not isinstance(entfernung, bool):
+        return float(entfernung) > NAHE_METER
+    return zustand != "quartier"
+
+
+def karte_faellig(zustand: str, entfernung: Any, war_weit: bool) -> bool | None:
+    """Soll die Haustür-Karte gerade laufen? (rein, testbar)
+
+    None heisst unbekannt - daraus startet keine Karte, und eine
+    laufende verschwindet deswegen auch nicht.
+
+    Die Karte lief zuerst, sobald jemand nicht zuhause war - und lag
+    damit den ganzen Arbeitstag auf dem Sperrbildschirm, obwohl ein
+    Türöffner ohne Face ID nur in einem Moment nützt: den letzten
+    Metern vor der Türe. Also nur noch im Umkreis von NAHE_METER.
+
+    Das genügte nicht: Beim *Weggehen* ist man ebenfalls in diesem
+    Umkreis, und die Karte kam damit jedes Mal beim Hinausgehen. Sie
+    gehört aber auf den Heimweg. Darum die dritte Bedingung: Man muss
+    seit dem letzten Mal zuhause auch wirklich draussen gewesen sein
+    (`war_weit`, siehe weit_weg). Wer um den Block geht, bekommt keine;
+    wer aus der Stadt zurückkommt, hat sie ab dem Ortseingang.
+
+    Der Preis: Wer ausschliesslich innerhalb von drei Kilometern
+    unterwegs ist, bekommt gar keine Karte mehr. Das ist die richtige
+    Seite des Irrtums - eine Karte, die man nicht braucht, liegt sonst
+    jeden Tag da, und eine, die man einmal vermisst, ersetzt die App
+    mit zwei Tippern.
+    """
+    if zustand in ("", presence.UNKNOWN):
+        return None
+    if zustand == presence.HOME:
+        return False
+    if not war_weit:
+        return False
+    if isinstance(entfernung, (int, float)) and not isinstance(entfernung, bool):
         return float(entfernung) <= NAHE_METER
     return zustand == "quartier"
+
+
+#: Wo steht, wer seit dem letzten Mal zuhause draussen war: [{user, weit}].
+#: In der Datendatei, nicht im Kopf: Zwischen Weggehen und Heimkommen
+#: liegt ein Arbeitstag, und ein Update dazwischen ist der Normalfall -
+#: ohne das Gedächtnis käme nach jedem Neustart des Hubs keine Karte mehr.
+WEIT_KEY = "live_weit"
+
+
+def war_weit(rows: Any, user: str) -> bool:
+    """Steht diese Person als «war draussen» vermerkt? (rein, testbar)"""
+    for row in rows or []:
+        if isinstance(row, dict) and str(row.get("user") or "") == user:
+            return bool(row.get("weit"))
+    return False
+
+
+def weit_merken(rows: Any, user: str, weit: bool) -> list[dict[str, Any]]:
+    """Den Vermerk setzen - je Person eine Zeile (rein, testbar)."""
+    andere = [
+        row
+        for row in (rows or [])
+        if isinstance(row, dict) and str(row.get("user") or "") != user
+    ]
+    return [*andere, {"user": user, "weit": bool(weit)}]
 
 
 def wechsel(
@@ -449,6 +505,7 @@ def _weg_stand(hub: Any, benutzer: set[str]) -> dict[str, bool]:
         zone_id: getattr(hub.registry.get(entity_id), "label", zone_id)
         for zone_id, entity_id in zones.items()
     }
+    weit_rows = hub.data.get(WEIT_KEY)
     stand: dict[str, bool] = {}
     for name in benutzer:
         zone_id = presence.zone_fuer(name, namen)
@@ -457,7 +514,15 @@ def _weg_stand(hub: Any, benutzer: set[str]) -> dict[str, bool]:
         entity = hub.registry.get(zones[zone_id])
         zustand_roh = (entity.state if entity else {})
         zustand = str(zustand_roh.get("state") or presence.UNKNOWN)
-        faellig = karte_faellig(zustand, zustand_roh.get("distance"))
+        entfernung = zustand_roh.get("distance")
+        # Erst merken, dann entscheiden: Wer gerade draussen ist, ist
+        # damit für den Heimweg vorgemerkt; wer zuhause ankommt, fängt
+        # von vorn an. Unbekanntes lässt den Vermerk, wie er war.
+        weit = weit_weg(zustand, entfernung)
+        if weit is not None and weit != war_weit(weit_rows, name):
+            weit_rows = weit_merken(weit_rows, name, weit)
+            hub.data.set(WEIT_KEY, weit_rows)
+        faellig = karte_faellig(zustand, entfernung, war_weit(weit_rows, name))
         if faellig is None:
             continue
         stand[name] = faellig

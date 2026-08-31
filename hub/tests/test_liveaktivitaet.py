@@ -10,7 +10,10 @@ from homepilot.core.liveaktivitaet import (
     registrieren,
     start_payload,
     token_tot,
+    war_weit,
     wechsel,
+    weit_merken,
+    weit_weg,
 )
 
 
@@ -208,25 +211,63 @@ def test_der_profil_schalter_stoppt_und_beendet():
 
 
 class TestKarteFaellig:
-    def test_im_anmarsch_laeuft_die_karte(self) -> None:
-        # Nicht zuhause, aber nah: genau der Moment für den Türöffner.
-        assert karte_faellig("away", 800) is True
-        assert karte_faellig("quartier", 2500) is True
+    def test_auf_dem_heimweg_laeuft_die_karte(self) -> None:
+        # Nicht zuhause, wieder nah - und vorher wirklich draussen
+        # gewesen: genau der Moment für den Türöffner.
+        assert karte_faellig("away", 800, True) is True
+        assert karte_faellig("quartier", 2500, True) is True
+
+    def test_beim_weggehen_kommt_sie_nicht(self) -> None:
+        """Der Fall vom Sperrbildschirm: Beim Hinausgehen ist man
+        ebenfalls im Umkreis - die Karte gehört aber auf den Heimweg."""
+        assert karte_faellig("away", 800, False) is False
+        assert karte_faellig("quartier", 2500, False) is False
 
     def test_weit_weg_laeuft_sie_nicht(self) -> None:
-        # Bisher lag die Karte den ganzen Arbeitstag auf dem Sperrbildschirm.
-        assert karte_faellig("away", 12_000) is False
+        # Sonst läge sie den ganzen Arbeitstag auf dem Sperrbildschirm.
+        assert karte_faellig("away", 12_000, True) is False
 
     def test_zuhause_endet_sie(self) -> None:
-        assert karte_faellig("home", 0) is False
+        assert karte_faellig("home", 0, True) is False
 
     def test_ohne_entfernung_entscheidet_die_zone(self) -> None:
-        assert karte_faellig("quartier", None) is True
-        assert karte_faellig("away", None) is False
+        assert karte_faellig("quartier", None, True) is True
+        assert karte_faellig("away", None, True) is False
 
     def test_unbekannt_bleibt_unbekannt(self) -> None:
-        assert karte_faellig("unknown", None) is None
-        assert karte_faellig("", 500) is None
+        assert karte_faellig("unknown", None, True) is None
+        assert karte_faellig("", 500, True) is None
         # bool ist in Python ein int - aber keine Entfernung.
-        assert karte_faellig("away", True) is False
+        assert karte_faellig("away", True, True) is False
+
+
+class TestWeitWeg:
+    """Was als «war wirklich draussen» zählt - der Vermerk, ohne den
+    keine Karte mehr kommt."""
+
+    def test_weiter_als_der_umkreis(self) -> None:
+        assert weit_weg("away", 12_000) is True
+        assert weit_weg("away", 800) is False
+
+    def test_zuhause_faengt_von_vorn_an(self) -> None:
+        assert weit_weg("home", 0) is False
+
+    def test_ohne_entfernung_entscheidet_die_zone(self) -> None:
+        assert weit_weg("away", None) is True
+        assert weit_weg("quartier", None) is False
+
+    def test_unbekannt_aendert_nichts(self) -> None:
+        assert weit_weg("unknown", None) is None
+        assert weit_weg("", 12_000) is None
+
+    def test_der_vermerk_haelt_je_person(self) -> None:
+        rows = weit_merken([], "Stibe", True)
+        rows = weit_merken(rows, "Bine", False)
+        assert war_weit(rows, "Stibe") is True
+        assert war_weit(rows, "Bine") is False
+        assert war_weit(rows, "Levin") is False
+        # Und je Person nur eine Zeile.
+        rows = weit_merken(rows, "Stibe", False)
+        assert len([r for r in rows if r["user"] == "Stibe"]) == 1
+        assert war_weit(rows, "Stibe") is False
 
