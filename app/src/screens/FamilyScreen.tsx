@@ -634,6 +634,11 @@ export function FamilyScreen({
     return (
       <Kindseite
         name={kind}
+        // Ohne diese beiden Zeilen scheiterte Speichern hier unsichtbar:
+        // Das Fehlerband und die Stand-Zeile gab es nur auf der
+        // Familienseite selbst, nicht auf der Seite des Kindes.
+        fehler={error}
+        hinweis={standHinweis}
         lektionen={data.lessons ?? []}
         termine={data.activities ?? []}
         events={verschmelze(kindEvents, events)}

@@ -87,6 +87,29 @@ export function frisch(offen: Vorgemerkt[], jetzt: number): Vorgemerkt[] {
 }
 
 /**
+ * Hat der Hub die Änderung endgültig abgewiesen? (rein, testbar)
+ *
+ * Der Unterschied entscheidet, was mit ihr passiert. Ohne Antwort (kein
+ * Netz) oder bei einem Schluckauf des Hubs (5xx) wartet sie in der
+ * Schlange und geht später raus. Eine 4xx-Antwort dagegen bleibt falsch,
+ * so oft man sie schickt: Ein Hub, der die Liste «lessons» nicht kennt,
+ * kennt sie auch beim zehnten Versuch nicht.
+ *
+ * Solche Einträge trotzdem einzureihen war der Fehler, durch den der
+ * Stundenplan seine Einträge verlor: Sie standen als «wartend» da, sahen
+ * gespeichert aus und verschwanden nach 24 Stunden wortlos - für den, der
+ * sie getippt hatte, «bei jedem Server-Update». Abgewiesenes muss sofort
+ * sichtbar scheitern statt später stumm.
+ *
+ * 408 (Zeitüberschreitung) und 429 (zu viele Anfragen) sind die zwei
+ * 4xx, die ein zweiter Versuch heilen kann - sie zählen als vorübergehend.
+ */
+export function abgelehnt(status: number | null): boolean {
+  if (status === null || status === 408 || status === 429) return false;
+  return status >= 400 && status < 500;
+}
+
+/**
  * Den zwischengespeicherten Stand mit dem überlagern, was noch wartet
  * (rein, testbar).
  *

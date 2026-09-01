@@ -243,24 +243,6 @@ def karte_faellig(zustand: str, entfernung: Any, war_weit: bool) -> bool | None:
     return zustand == "quartier"
 
 
-def vermerk(zustand: str, weit: bool | None) -> bool | None:
-    """Was aus dem Vermerk «war draussen» wird (rein, testbar).
-
-    None heisst: so lassen, wie er ist.
-
-    Der Vermerk fällt **nur zuhause**. Ihn schon beim Näherkommen fallen
-    zu lassen, war der Fehler: «nicht mehr weit weg» ist ab drei
-    Kilometern wahr - also genau ab der Entfernung, ab der die Karte
-    fällig wird. Der Grund für die Karte war damit im selben Augenblick
-    gelöscht, in dem sie gebraucht wurde.
-    """
-    if zustand == presence.HOME:
-        return False
-    if weit:
-        return True
-    return None
-
-
 def kartenstand(
     zustand: str, entfernung: Any, war_weit: bool, laeuft: bool
 ) -> bool | None:
@@ -311,6 +293,29 @@ def weit_merken(rows: Any, user: str, weit: bool) -> list[dict[str, Any]]:
         if isinstance(row, dict) and str(row.get("user") or "") != user
     ]
     return [*andere, {"user": user, "weit": bool(weit)}]
+
+
+def weit_nachfuehren(zustand: str, entfernung: Any) -> bool | None:
+    """Wie der «war draussen»-Vermerk nachzieht (rein, testbar).
+
+    Drei Ausgänge: True (jetzt richtig draussen - vormerken), False
+    (zuhause angekommen - der Vermerk fängt von vorn an), None (nichts
+    ändern).
+
+    None ist der ganze Punkt, und er ist einmal falsch gebaut worden:
+    Der Takt setzte den Vermerk direkt auf weit_weg() - und das wird
+    beim Heimkommen schon am Ortsrand False, drei Kilometer vor der
+    Türe. Im selben Takt fragte karte_faellig dann «war der weit weg?»,
+    bekam Nein - und die Karte, für die es den Vermerk überhaupt gibt,
+    erschien auf keinem einzigen Heimweg. Wer im Anmarsch ist (nah,
+    aber nicht zuhause), behält den Vermerk deshalb, bis er wirklich
+    durch die Tür ist.
+    """
+    if zustand == presence.HOME:
+        return False
+    if weit_weg(zustand, entfernung) is True:
+        return True
+    return None
 
 
 #: So lange nach einem Start kommt kein zweiter - auch dann nicht, wenn
@@ -589,19 +594,16 @@ def _weg_stand(hub: Any, benutzer: set[str], laufend: set[str]) -> dict[str, boo
         zustand_roh = (entity.state if entity else {})
         zustand = str(zustand_roh.get("state") or presence.UNKNOWN)
         entfernung = zustand_roh.get("distance")
-        # Erst merken, dann entscheiden: Wer draussen war, ist damit für
-        # den Heimweg vorgemerkt; wer zuhause ankommt, fängt von vorn an.
-        #
-        # Entscheidend ist, dass der Vermerk **nur zuhause** fällt. Vorher
-        # löschte ihn jedes Näherkommen, denn «nicht mehr weit weg» ist
-        # ab drei Kilometern wahr - also genau ab der Entfernung, ab der
-        # die Karte fällig wäre. Der Grund für die Karte war damit im
-        # selben Augenblick gelöscht, in dem sie gebraucht wurde, und ob
-        # eine kam, hing daran, in welcher Reihenfolge die Ortung ihre
-        # Punkte lieferte.
-        neu = vermerk(zustand, weit_weg(zustand, entfernung))
-        if neu is not None and neu != war_weit(weit_rows, name):
-            weit_rows = weit_merken(weit_rows, name, neu)
+
+        # Erst merken, dann entscheiden: Wer gerade draussen ist, ist
+        # damit für den Heimweg vorgemerkt; erst wer zuhause ankommt,
+        # fängt von vorn an. Der Anmarsch (nah, aber nicht zuhause) und
+        # Unbekanntes lassen den Vermerk, wie er war - sonst wäre er
+        # genau in dem Takt weg, in dem die Karte ihn braucht
+        # (weit_nachfuehren erzählt den Fehler).
+        weit = weit_nachfuehren(zustand, entfernung)
+        if weit is not None and weit != war_weit(weit_rows, name):
+            weit_rows = weit_merken(weit_rows, name, weit)
             hub.data.set(WEIT_KEY, weit_rows)
         faellig = kartenstand(
             zustand, entfernung, war_weit(weit_rows, name), name in laufend

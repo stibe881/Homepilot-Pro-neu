@@ -15,14 +15,38 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   Plan zeigt immer, was diese Woche dran ist; am Fach steht «alle 2
   Wochen · nächste Woche: Werken», und der Tagestitel trägt die Woche.
   Auch der «Heute»-Satz rechnet mit der richtigen Woche.
-- **Der Stundenplan sieht aus wie einer.** Auf der Kinderseite sind
-  die Lektionen jetzt Blöcke mit Zeitspalte - eine Doppellektion
-  doppelt so hoch, dazwischen sichtbar die grosse Pause und der
-  Mittag. Die laufende Stunde (oder Pause) trägt Rand und «jetzt»,
-  ein frei endender Morgen den Balken «Nachmittag frei · ab 11:30».
-  Und wer den Dienstag einträgt, der aussieht wie der Montag, tippt
-  nicht mehr ab: «Zeiten übernehmen von» kopiert die Lektionen eines
-  anderen Tags - was schon dasteht, kommt nicht doppelt.
+- **Der Stundenplan ist jetzt ein Stundenplan-Blatt.** Auf der
+  Kinderseite hat der Tag eine Zeitachse: links die vollen Stunden
+  mit Haarlinien, jede Lektion sitzt an ihrer wahren Höhe - eine
+  Doppellektion ist von selbst doppelt so hoch, die grosse Pause und
+  der Mittag stehen als beschriftete Bänder in ihren Lücken. Eine
+  Zeitlinie mit Punkt zeigt, wo der Tag gerade steht, die laufende
+  Stunde trägt Rand und «jetzt», ein frei endender Morgen den Balken
+  «Nachmittag frei · ab 11:30». Und wer den Dienstag einträgt, der
+  aussieht wie der Montag, tippt nicht mehr ab: «Zeiten übernehmen
+  von» kopiert die Lektionen eines anderen Tags - was schon dasteht,
+  kommt nicht doppelt.
+- **Der Stundenplan kann zwischen Woche A und B blättern.** Ein Fach
+  für die andere Woche einzutragen sah aus wie Datenverlust: Es wurde
+  gespeichert, verschwand aber sofort aus dem Blick, weil der Plan nur
+  die laufende Woche zeigte. Jetzt stehen über dem Plan zwei Chips
+  («Woche A», «Woche B · diese»), nach dem Eintragen blättert die
+  Ansicht von selbst in die Woche des neuen Fachs, und ein Tag, dessen
+  Einträge alle in der anderen Woche liegen, sagt das («die Einträge
+  liegen in Woche A»). Die Jetzt-Markierung und die Zeitlinie
+  erscheinen nur in der Woche, die wirklich läuft.
+- **Speichern kann nicht mehr stumm scheitern.** Wies der Hub eine
+  Änderung an den Familienlisten ab (etwa weil er eine neue Liste wie
+  den Stundenplan noch nicht kennt, solange das Update nicht durch
+  ist), behandelte die App das wie «kein Netz»: Der Eintrag stand als
+  wartend da, sah gespeichert aus, wurde nie gespeichert - und
+  verschwand nach 24 Stunden wortlos. So verlor der Stundenplan seine
+  Einträge «bei jedem Server-Update». Jetzt unterscheidet die App
+  «keine Verbindung» (wartet und geht später raus) von «abgewiesen»
+  (scheitert sofort sichtbar, mit dem Grund des Hubs); Abgewiesenes
+  aus alten Warteschlangen wird gemeldet statt still weggeworfen. Und
+  die Kinderseite zeigt Fehlerband und Stand-Zeile jetzt auch - dort
+  scheiterte Speichern bisher unsichtbar.
 - **Die Schnellaktionen sind Kacheln statt Pillen.** Kino, Schlafen,
   Storen hoch und runter stehen jetzt als vier gleich breite Kacheln
   nebeneinander - Sinnbild in einer Scheibe, Name darunter. Vorher
@@ -107,6 +131,13 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   war - ein Türöffner ohne Face ID nützt aber nur auf den letzten
   Metern. Jetzt startet sie erst näher als drei Kilometer (die
   Quartier-Zone) und endet zuhause wie bisher.
+- **Und sie kommt jetzt wirklich.** Der Umbau darüber hatte einen
+  Denkfehler: Der Vermerk «war draussen», ohne den keine Karte
+  startet, wurde schon am Ortsrand gelöscht - drei Kilometer vor der
+  Türe, im selben Takt, in dem die Karte ihn gebraucht hätte. Ergebnis:
+  Auf keinem einzigen Heimweg erschien eine Karte. Jetzt bleibt der
+  Vermerk stehen, bis man wirklich zuhause ist - die Karte startet am
+  Ortsrand, bleibt bis zur Tür und endet daheim.
 - **Tippen greift zuverlässiger.** Jede Meldung vom Hub (jeder
   Temperaturtick) zeichnete sofort die ganze Startseite neu - ein
   Tipp währenddessen ging verloren: «Ich muss oft zweimal drücken.»

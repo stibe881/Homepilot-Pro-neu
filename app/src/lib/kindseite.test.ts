@@ -18,7 +18,10 @@ import {
   kalenderwoche,
   naechsteWocheFach,
   nachmittagFrei,
+  rasterLage,
   tagesplanMitPausen,
+  zeitraster,
+  MINUTE_PUNKTE,
   wocheVon,
   zuUebernehmen,
   schulzeit,
@@ -358,5 +361,48 @@ describe('Zweiwochen-Fächer', () => {
       { text: 'Werken', from: '10:00', week: 'B' },
     ];
     expect(zuUebernehmen(quelle, [{ text: 'Handarbeit', from: '10:00', week: 'A' }])).toHaveLength(1);
+  });
+});
+
+describe('Zeitraster - der Tag als Stundenplan-Blatt', () => {
+  const zeilen = [
+    { text: 'Mathe', from: '08:20', to: '09:05' },
+    { text: 'Deutsch', from: '09:05', to: '09:50' },
+    { text: 'Sport', from: '13:30', to: '15:05' },
+  ];
+
+  it('reicht von der vollen Stunde vor der ersten bis zur vollen nach der letzten Lektion', () => {
+    const raster = zeitraster(zeilen);
+    expect(raster?.von).toBe(8 * 60);
+    expect(raster?.bis).toBe(16 * 60);
+    expect(raster?.stunden).toEqual([480, 540, 600, 660, 720, 780, 840, 900, 960]);
+    expect(raster?.hoehe).toBe((16 - 8) * 60 * MINUTE_PUNKTE);
+  });
+
+  it('gibt es ohne lesbare Zeiten nicht', () => {
+    expect(zeitraster([])).toBeNull();
+    expect(zeitraster([{ text: 'Mathe', from: 'bald' }])).toBeNull();
+  });
+
+  it('rechnet eine Lektion ohne Ende mit der üblichen Dauer', () => {
+    const raster = zeitraster([{ text: 'Chor', from: '15:30' }]);
+    // 15:30 + 45 Minuten = 16:15, aufgerundet auf 17:00.
+    expect(raster?.bis).toBe(17 * 60);
+  });
+
+  it('setzt jeden Block an seine wahre Stelle, die Doppellektion doppelt so hoch', () => {
+    const raster = zeitraster(zeilen)!;
+    const mathe = rasterLage('08:20', '09:05', raster)!;
+    expect(mathe.oben).toBe(20 * MINUTE_PUNKTE);
+    expect(mathe.hoehe).toBe(45 * MINUTE_PUNKTE);
+    const sport = rasterLage('13:30', '15:05', raster)!;
+    expect(sport.hoehe).toBeCloseTo(95 * MINUTE_PUNKTE);
+  });
+
+  it('lässt eine Zeile ohne lesbaren Anfang aus dem Raster fallen', () => {
+    const raster = zeitraster(zeilen)!;
+    expect(rasterLage('irgendwann', '09:05', raster)).toBeNull();
+    // Ohne Ende gilt die übliche Lektion.
+    expect(rasterLage('08:20', '', raster)?.hoehe).toBe(45 * MINUTE_PUNKTE);
   });
 });
