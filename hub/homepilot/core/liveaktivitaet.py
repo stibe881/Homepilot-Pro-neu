@@ -182,17 +182,49 @@ def aktivitaet_merken(rows: Any, user: str, token: str) -> list[dict[str, Any]]:
     return neue
 
 
-# Näher als so viele Meter gilt als «im Anmarsch» - derselbe Umkreis wie
-# die Quartier-Zone des Geofence: weit genug für den Vorlauf, eng genug,
-# dass die Karte nicht den ganzen Arbeitstag auf dem Sperrbildschirm
-# liegt.
-NAHE_METER = 3000.0
+# Zwei verschiedene Fragen, zwei verschiedene Zahlen - sie eine Zeit
+# lang zu einer zu machen war bequem und falsch.
+#
+# WEIT_METER beantwortet «war der wirklich weg?». Der Umkreis der
+# Quartier-Zone: Wer um den Block geht, war nicht weg.
+WEIT_METER = 3000.0
+
+# KARTE_METER beantwortet «ist er jetzt da?». Der Türöffner ohne Face ID
+# nützt in einem einzigen Moment - vor der Türe. Drei Kilometer waren
+# dafür der halbe Heimweg: Die Karte lag schon da, während man noch fuhr.
+KARTE_METER = 100.0
+
+
+def heimradius(places: Any) -> float | None:
+    """Der Radius des Ortes «zuhause» in Metern (rein, testbar)."""
+    for ort in places or []:
+        if not isinstance(ort, dict) or str(ort.get("id")) != presence.HOME:
+            continue
+        try:
+            return float(ort["radius"])
+        except (KeyError, TypeError, ValueError):
+            return None
+    return None
+
+
+def fenster_offen(radius: float | None, nah: float = KARTE_METER) -> bool:
+    """Bleibt zwischen «zuhause» und «da» überhaupt ein Fenster? (rein)
+
+    Die Entfernung misst bis zur Mitte des Ortes, und zuhause ist man ab
+    seinem Radius. Die Karte kommt also im Ring zwischen Radius und
+    `nah` - und ist der Radius grösser, gibt es diesen Ring nicht: Man
+    gilt schon als zuhause, bevor die Karte fällig wird, und sie käme
+    nie. Das ist keine Fehlbedienung, sondern zwei Zahlen, die nichts
+    voneinander wissen - deshalb sagt es der Hub beim Start, statt es
+    jemanden suchen zu lassen.
+    """
+    return radius is None or float(radius) < nah
 
 
 def weit_weg(zustand: str, entfernung: Any) -> bool | None:
     """War diese Person richtig weg? (rein, testbar)
 
-    «Richtig weg» heisst: weiter als NAHE_METER von zuhause. Ohne
+    «Richtig weg» heisst: weiter als WEIT_METER von zuhause. Ohne
     Entfernung (eine Flankenmeldung ohne Koordinaten) entscheidet die
     Zone: Wer weder zuhause noch im Quartier steht, ist draussen.
 
@@ -204,7 +236,7 @@ def weit_weg(zustand: str, entfernung: Any) -> bool | None:
     if zustand == presence.HOME:
         return False
     if isinstance(entfernung, (int, float)) and not isinstance(entfernung, bool):
-        return float(entfernung) > NAHE_METER
+        return float(entfernung) > WEIT_METER
     return zustand != "quartier"
 
 
@@ -217,20 +249,26 @@ def karte_faellig(zustand: str, entfernung: Any, war_weit: bool) -> bool | None:
     Die Karte lief zuerst, sobald jemand nicht zuhause war - und lag
     damit den ganzen Arbeitstag auf dem Sperrbildschirm, obwohl ein
     Türöffner ohne Face ID nur in einem Moment nützt: den letzten
-    Metern vor der Türe. Also nur noch im Umkreis von NAHE_METER.
+    Metern vor der Türe. Also nur noch im Umkreis von KARTE_METER.
 
     Das genügte nicht: Beim *Weggehen* ist man ebenfalls in diesem
     Umkreis, und die Karte kam damit jedes Mal beim Hinausgehen. Sie
-    gehört aber auf den Heimweg. Darum die dritte Bedingung: Man muss
+    gehört aber auf den Heimweg. Darum die zweite Bedingung: Man muss
     seit dem letzten Mal zuhause auch wirklich draussen gewesen sein
     (`war_weit`, siehe weit_weg). Wer um den Block geht, bekommt keine;
-    wer aus der Stadt zurückkommt, hat sie ab dem Ortseingang.
+    wer aus der Stadt zurückkommt, hat sie vor der Türe.
 
-    Der Preis: Wer ausschliesslich innerhalb von drei Kilometern
-    unterwegs ist, bekommt gar keine Karte mehr. Das ist die richtige
-    Seite des Irrtums - eine Karte, die man nicht braucht, liegt sonst
-    jeden Tag da, und eine, die man einmal vermisst, ersetzt die App
-    mit zwei Tippern.
+    KARTE_METER ist bewusst eng (100 m): Der Umkreis war zuerst
+    derselbe wie der für «war weg», drei Kilometer - und damit lag die
+    Karte den halben Heimweg lang da, statt in dem Moment zu kommen, in
+    dem man aussteigt. Wichtig dabei: Der Umkreis muss weiter reichen
+    als der Radius des Ortes «zuhause», sonst gilt man schon als
+    zuhause, bevor man ihn erreicht, und es bleibt kein Fenster übrig.
+    Der Hub sagt das beim Start, wenn es so ist.
+
+    Ohne Entfernung - eine Flankenmeldung ohne Koordinaten - bleibt nur
+    die Zone. Dann ist «quartier» das Beste, was zu haben ist: näher
+    weiss der Hub es in diesem Fall nicht.
     """
     if zustand in ("", presence.UNKNOWN):
         return None
@@ -239,7 +277,7 @@ def karte_faellig(zustand: str, entfernung: Any, war_weit: bool) -> bool | None:
     if not war_weit:
         return False
     if isinstance(entfernung, (int, float)) and not isinstance(entfernung, bool):
-        return float(entfernung) <= NAHE_METER
+        return float(entfernung) <= KARTE_METER
     return zustand == "quartier"
 
 
@@ -318,15 +356,8 @@ def weit_nachfuehren(zustand: str, entfernung: Any) -> bool | None:
     return None
 
 
-#: So lange nach einem Start kommt kein zweiter - auch dann nicht, wenn
-#: die Ortung zwischendurch behauptet, die Karte gehöre weg und wieder
-#: her. Der letzte Riegel vor einem Stapel: Selbst wenn alles andere
-#: versagt, liegt danach höchstens eine Karte je halbe Stunde.
-START_SPERRE = 1800.0
-
-
 def wechsel(
-    rows: Any, weg: dict[str, bool], jetzt: float | None = None
+    rows: Any, weg: dict[str, bool]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     """Wer bekommt einen Start-, wer einen Ende-Push? (rein, testbar)
 
@@ -338,7 +369,6 @@ def wechsel(
     Zurück kommen die neue Liste, die Zeilen für den Start-Push und die
     Zeilen für den Ende-Push.
     """
-    uhr = time.time() if jetzt is None else jetzt
     neue: list[dict[str, Any]] = []
     starten: list[dict[str, Any]] = []
     beenden: list[dict[str, Any]] = []
@@ -350,28 +380,16 @@ def wechsel(
             neue.append(row)
             continue
         if weg[user] and not row.get("unterwegs"):
-            letzter = row.get("letzter_start")
-            frisch = (
-                isinstance(letzter, (int, float))
-                and not isinstance(letzter, bool)
-                and uhr - float(letzter) < START_SPERRE
-            )
-            if frisch:
-                # Die vorige Karte liegt mit grosser Wahrscheinlichkeit
-                # noch da: Ein Ende-Push ohne Aktivitäts-Token kommt nicht
-                # an, und iOS räumt von selbst erst Stunden später. Also
-                # gilt sie als laufend, statt eine zweite danebenzulegen -
-                # und ihr Token bleibt erhalten, damit das Beenden bei der
-                # Ankunft noch möglich ist.
-                row = {**row, "unterwegs": True}
-            else:
-                row = {
-                    **row,
-                    "unterwegs": True,
-                    "activity_token": None,
-                    "letzter_start": uhr,
-                }
-                starten.append(row)
+            # Bewusst ohne Wartefrist. Es stand hier eine halbe Stunde
+            # Sperre gegen den Kartenstapel - sie war der falsche Riegel
+            # am falschen Ort: Wer kurz zum Briefkasten fährt und
+            # zurückkommt, soll seine Karte bekommen. Gegen den Stapel
+            # steht jetzt, dass eine Karte nur zuhause endet
+            # (kartenstand) und eine neue erst nach einer echten
+            # Auswärtsfahrt fällig wird (war_weit) - beides an der
+            # Ursache statt an der Uhr.
+            row = {**row, "unterwegs": True, "activity_token": None}
+            starten.append(row)
         elif not weg[user] and row.get("unterwegs"):
             beenden.append(row)
             row = {**row, "unterwegs": False, "activity_token": None}
@@ -623,6 +641,17 @@ async def tuer_loop(hub: Any) -> None:
         log.info("Live-Aktivität: kein apns-Block in der config.yaml - aus")
         return
     versand = ApnsVersand(config)
+    geofence = hub.integrations.get("geofence") if hub.integrations else None
+    radius = heimradius(getattr(geofence, "places", None))
+    if not fenster_offen(radius):
+        log.warning(
+            "Live-Aktivität: Der Ort «zuhause» hat %.0f m Radius, die Karte "
+            "kommt aber erst ab %.0f m - so gilt man als zuhause, bevor sie "
+            "fällig wird, und sie kommt nie. Entweder den Radius kleiner "
+            "machen oder KARTE_METER grösser.",
+            radius,
+            KARTE_METER,
+        )
     while True:
         await asyncio.sleep(TAKT_SEKUNDEN)
         try:

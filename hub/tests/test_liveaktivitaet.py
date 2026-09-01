@@ -214,16 +214,23 @@ def test_der_profil_schalter_stoppt_und_beendet():
 
 class TestKarteFaellig:
     def test_auf_dem_heimweg_laeuft_die_karte(self) -> None:
-        # Nicht zuhause, wieder nah - und vorher wirklich draussen
-        # gewesen: genau der Moment für den Türöffner.
-        assert karte_faellig("away", 800, True) is True
-        assert karte_faellig("quartier", 2500, True) is True
+        # Nicht zuhause, aber vor der Türe - und vorher wirklich
+        # draussen gewesen: genau der Moment für den Türöffner.
+        assert karte_faellig("away", 80, True) is True
+        assert karte_faellig("quartier", 40, True) is True
+
+    def test_der_halbe_heimweg_ist_zu_frueh(self) -> None:
+        """Der Umkreis war zuerst derselbe wie der für «war weg», drei
+        Kilometer - die Karte lag damit schon da, während man noch fuhr.
+        Der Türöffner nützt in einem Moment: vor der Türe."""
+        assert karte_faellig("away", 800, True) is False
+        assert karte_faellig("quartier", 2500, True) is False
 
     def test_beim_weggehen_kommt_sie_nicht(self) -> None:
         """Der Fall vom Sperrbildschirm: Beim Hinausgehen ist man
         ebenfalls im Umkreis - die Karte gehört aber auf den Heimweg."""
-        assert karte_faellig("away", 800, False) is False
-        assert karte_faellig("quartier", 2500, False) is False
+        assert karte_faellig("away", 80, False) is False
+        assert karte_faellig("quartier", 40, False) is False
 
     def test_weit_weg_laeuft_sie_nicht(self) -> None:
         # Sonst läge sie den ganzen Arbeitstag auf dem Sperrbildschirm.
@@ -313,10 +320,11 @@ class TestWeitNachfuehren:
         assert takt("home", 0) is False          # Morgen: zuhause
         assert takt("quartier", 2500) is False   # Hinausgehen: keine Karte
         assert takt("away", 12_000) is False     # Arbeitstag: keine Karte
-        assert takt("quartier", 2500) is True    # Heimweg, Ortsrand: Karte!
-        assert takt("away", 400) is True       # letzte Meter: Karte bleibt
+        assert takt("quartier", 2500) is False   # Ortsrand: noch zu früh
+        assert takt("away", 400) is False        # die Strasse hoch: nein
+        assert takt("away", 60) is True          # vor der Türe: Karte!
         assert takt("home", 0) is False          # daheim: Karte endet
-        assert takt("quartier", 2500) is False   # kurz zum Kiosk: keine
+        assert takt("away", 60) is False         # kurz zum Kiosk: keine
 
 
 class TestKartenstand:
@@ -334,38 +342,55 @@ class TestKartenstand:
         assert kartenstand("home", 0, True, True) is False
 
     def test_ohne_laufende_karte_gilt_die_alte_regel(self) -> None:
-        assert kartenstand("away", 800, True, False) is True
-        assert kartenstand("away", 800, False, False) is False
+        assert kartenstand("away", 80, True, False) is True
+        assert kartenstand("away", 80, False, False) is False
 
     def test_unbekannt_bleibt_unbekannt(self) -> None:
         assert kartenstand("unknown", None, True, True) is None
 
 
-def test_die_startsperre_verhindert_einen_stapel():
-    """Der letzte Riegel: Selbst wenn alles andere versagt, kommt
-    innerhalb einer halben Stunde keine zweite Karte dazu.
+def test_eine_kurze_fahrt_bekommt_ihre_karte():
+    """Ohne Wartefrist: Wer weg war, kurz heimkommt und gleich wieder
+    fährt, bekommt beim zweiten Heimkommen wieder eine Karte.
 
-    Nötig, weil ein Ende-Push das Token der laufenden Aktivität braucht.
-    Ein gesperrtes Telefon meldet es oft nie nach - die alte Karte
-    verschwindet dann nicht, sie bekommt bloss Gesellschaft.
+    Es stand hier eine halbe Stunde Sperre gegen den Kartenstapel - der
+    falsche Riegel am falschen Ort. Gegen den Stapel steht jetzt, dass
+    eine Karte nur zuhause endet und eine neue eine echte Auswärtsfahrt
+    braucht; die Uhr hat damit nichts zu tun.
     """
     rows = registrieren([], "Stibe", "token-a", "iPhone")
-    rows, starten, _ = wechsel(rows, {"Stibe": True}, jetzt=1000.0)
+    rows, starten, _ = wechsel(rows, {"Stibe": True})
+    assert len(starten) == 1
+    rows, _, beenden = wechsel(rows, {"Stibe": False})
+    assert len(beenden) == 1
+    # Zwei Minuten später wieder unterwegs - und wieder eine Karte.
+    rows, starten, _ = wechsel(rows, {"Stibe": True})
     assert len(starten) == 1
 
-    # Zuhause angekommen - aber die App hat nie ein Aktivitäts-Token
-    # nachgemeldet, das Ende geht also ins Leere.
-    rows, _, beenden = wechsel(rows, {"Stibe": False}, jetzt=1100.0)
-    assert [r.get("activity_token") for r in beenden] == [None]
 
-    # Gleich wieder unterwegs: Die Karte gilt als liegend, es kommt
-    # keine zweite dazu.
-    rows, starten, _ = wechsel(rows, {"Stibe": True}, jetzt=1200.0)
-    assert starten == []
-    assert rows[0]["unterwegs"] is True
+class TestFensterOffen:
+    """Zwischen «zuhause» und «da» muss ein Ring übrig bleiben.
 
-    # Nach der Sperrfrist ist eine neue Karte wieder richtig: Die alte
-    # hat iOS bis dahin längst weggeräumt.
-    rows, _, _ = wechsel(rows, {"Stibe": False}, jetzt=1300.0)
-    rows, starten, _ = wechsel(rows, {"Stibe": True}, jetzt=1300.0 + 1801.0)
-    assert len(starten) == 1
+    Die Entfernung misst bis zur Mitte des Ortes, zuhause ist man ab
+    seinem Radius. Ist der Radius grösser als der Umkreis der Karte,
+    gilt man als zuhause, bevor sie fällig wird - sie käme nie, und
+    niemand sähe, warum.
+    """
+
+    def test_ein_enger_ort_laesst_platz(self) -> None:
+        from homepilot.core.liveaktivitaet import fenster_offen
+
+        assert fenster_offen(50.0, nah=100.0) is True
+
+    def test_ein_weiter_ort_drueckt_das_fenster_zu(self) -> None:
+        from homepilot.core.liveaktivitaet import fenster_offen
+
+        assert fenster_offen(150.0, nah=100.0) is False
+
+    def test_ohne_ort_gibt_es_nichts_zu_warnen(self) -> None:
+        from homepilot.core.liveaktivitaet import fenster_offen, heimradius
+
+        assert fenster_offen(None) is True
+        assert heimradius([]) is None
+        assert heimradius([{"id": "home", "radius": 80}]) == 80.0
+        assert heimradius([{"id": "arbeit", "radius": 80}]) is None

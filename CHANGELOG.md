@@ -7,6 +7,36 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 ## 2026-09-01
 
+**Behoben**
+
+- **Die Haustür-Karte kommt einmal, und zwar vor der Türe.** Auf dem
+  Sperrbildschirm lagen fünf gleiche Karten übereinander. Drei
+  Ursachen: Der Vermerk «war draussen» fiel schon beim Näherkommen -
+  also genau dann, wenn die Karte ihn braucht. Anfang und Ende folgten
+  derselben Regel, also endete die Karte bei jedem Ausreisser der
+  Ortung und begann neu - und weil das Beenden ein Token braucht, das
+  ein gesperrtes Telefon oft nie nachmeldet, verschwand die alte nicht,
+  sondern bekam Gesellschaft. Jetzt endet eine Karte nur zuhause, und
+  eine neue braucht eine echte Auswärtsfahrt. Dazu kommt sie nicht mehr
+  drei Kilometer vor dem Haus, sondern hundert Meter davor - der
+  Türöffner nützt in dem Moment, in dem man aussteigt, nicht auf dem
+  halben Heimweg.
+- **«Öffnen ohne Entsperren» tut jetzt, was es sagt.** Der Schalter war
+  gesetzt, und das Telefon verlangte beim Tippen trotzdem Face ID. Der
+  Grund steckte in einem Wort im Widget: Nur ein LiveActivityIntent
+  darf iOS von einer Karte auf dem gesperrten Bildschirm ausführen, ein
+  gewöhnlicher AppIntent zeigt denselben Knopf und fragt nach dem Code.
+  (Nativ - erst mit dem nächsten Build.) Dazu räumt die App den Knopf
+  nur noch weg, wenn der Schalter wirklich aus ist; war die Türe bloss
+  noch nicht bekannt, verlor eine liegende Karte still ihren Öffner.
+- **Ein Tastendruck steht im Log.** Bei der Suche nach einer stummen
+  Fernbedienung fehlte die Zeile, an der alles hängt: kommt überhaupt
+  etwas an? Ein Druck auf einen eingetragenen Kanal änderte nur den
+  Zustand und schrieb nichts.
+- **Das Log ist wieder lesbar.** Der Geofence schrieb jede Person für
+  jeden Ort alle dreissig Sekunden erneut, UniFi wiederholte im selben
+  Takt dieselbe gescheiterte Abfrage. Jetzt steht nur der Wechsel da.
+
 **Neu**
 
 - **Zweiwochen-Fächer im Stundenplan.** Handarbeit und Werken wechseln
