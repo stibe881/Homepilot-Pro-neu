@@ -525,10 +525,18 @@ struct TuerAktivitaetAttributes: ActivityAttributes {
 /// (lib/widget.ts, syncTuerKnopf); ohne diese Ablage tut der Knopf
 /// nichts und die Karte zeigt den bisherigen Weg in die App.
 @available(iOS 17.0, *)
-struct TuerOeffnenIntent: AppIntent {
+struct TuerOeffnenIntent: LiveActivityIntent {
     static var title: LocalizedStringResource = "Haustüre öffnen"
     // Absichtlich KEIN openAppWhenRun: Der ganze Zweck ist, dass die
     // Türe aufgeht, während das Telefon gesperrt in der Hand liegt.
+    //
+    // Und darum LiveActivityIntent statt AppIntent. Das ist nicht bloss
+    // der genauere Name: Nur ein LiveActivityIntent darf iOS von einer
+    // Karte auf dem *gesperrten* Bildschirm ausführen. Als AppIntent tat
+    // der Knopf äusserlich dasselbe - iOS verlangte beim Tippen aber
+    // erst Face ID, und genau das sollte der Opt-in ja abnehmen. Der
+    // Schalter stand auf «Öffnen ohne Entsperren» und trotzdem musste
+    // man entsperren; anzusehen war dem Knopf das nicht.
 
     func perform() async throws -> some IntentResult {
         guard

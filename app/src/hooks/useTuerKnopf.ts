@@ -24,8 +24,20 @@ export function useTuerKnopf(
 ): void {
   const zuletzt = useRef('');
   const werte = an ? tuerKnopfWerte(settings, entities) : null;
+  // Weggeräumt wird nur, wenn der Opt-in wirklich aus ist. Steht er an
+  // und ist die Türe bloss (noch) nicht bekannt - die Geräte des Hubs
+  // sind unterwegs, oder er antwortet gerade nicht -, bleibt liegen,
+  // was liegt. Vorher räumte genau dieser Fall den Knopf weg: Die App
+  // ging auf, die Antwort des Hubs war noch nicht da, und die Karte auf
+  // dem Sperrbildschirm verlor still ihren direkten Öffner.
   const seriell =
-    an === null ? zuletzt.current : werte ? JSON.stringify(werte) : 'aus';
+    an === null
+      ? zuletzt.current
+      : an === false
+        ? 'aus'
+        : werte
+          ? JSON.stringify(werte)
+          : zuletzt.current;
 
   useEffect(() => {
     if (seriell === zuletzt.current) return;

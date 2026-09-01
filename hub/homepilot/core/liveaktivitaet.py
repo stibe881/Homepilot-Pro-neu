@@ -243,6 +243,51 @@ def karte_faellig(zustand: str, entfernung: Any, war_weit: bool) -> bool | None:
     return zustand == "quartier"
 
 
+def vermerk(zustand: str, weit: bool | None) -> bool | None:
+    """Was aus dem Vermerk «war draussen» wird (rein, testbar).
+
+    None heisst: so lassen, wie er ist.
+
+    Der Vermerk fällt **nur zuhause**. Ihn schon beim Näherkommen fallen
+    zu lassen, war der Fehler: «nicht mehr weit weg» ist ab drei
+    Kilometern wahr - also genau ab der Entfernung, ab der die Karte
+    fällig wird. Der Grund für die Karte war damit im selben Augenblick
+    gelöscht, in dem sie gebraucht wurde.
+    """
+    if zustand == presence.HOME:
+        return False
+    if weit:
+        return True
+    return None
+
+
+def kartenstand(
+    zustand: str, entfernung: Any, war_weit: bool, laeuft: bool
+) -> bool | None:
+    """Soll die Karte jetzt liegen? (rein, testbar)
+
+    Anfang und Ende folgen verschiedenen Regeln, und genau das fehlte:
+    Angefangen wird nur auf dem Heimweg (karte_faellig), aufgehört wird
+    nur zuhause. Dazwischen bleibt die Karte liegen, auch wenn die
+    Ortung noch einmal über die Drei-Kilometer-Grenze und zurück
+    springt.
+
+    Der gemeldete Fall - fünf gleiche Karten übereinander: Jeder solche
+    Sprung beendete die Karte und begann eine neue. Und weil das Beenden
+    das Token der laufenden Aktivität braucht, das ein gesperrtes
+    Telefon oft nie nachmeldet, verschwand die alte nicht, sondern
+    bekam nur Gesellschaft. Aus einem Zittern der Ortung wurde so ein
+    Stapel.
+    """
+    if zustand in ("", presence.UNKNOWN):
+        return None
+    if zustand == presence.HOME:
+        return False
+    if laeuft:
+        return True
+    return karte_faellig(zustand, entfernung, war_weit)
+
+
 #: Wo steht, wer seit dem letzten Mal zuhause draussen war: [{user, weit}].
 #: In der Datendatei, nicht im Kopf: Zwischen Weggehen und Heimkommen
 #: liegt ein Arbeitstag, und ein Update dazwischen ist der Normalfall -
@@ -268,8 +313,15 @@ def weit_merken(rows: Any, user: str, weit: bool) -> list[dict[str, Any]]:
     return [*andere, {"user": user, "weit": bool(weit)}]
 
 
+#: So lange nach einem Start kommt kein zweiter - auch dann nicht, wenn
+#: die Ortung zwischendurch behauptet, die Karte gehöre weg und wieder
+#: her. Der letzte Riegel vor einem Stapel: Selbst wenn alles andere
+#: versagt, liegt danach höchstens eine Karte je halbe Stunde.
+START_SPERRE = 1800.0
+
+
 def wechsel(
-    rows: Any, weg: dict[str, bool]
+    rows: Any, weg: dict[str, bool], jetzt: float | None = None
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     """Wer bekommt einen Start-, wer einen Ende-Push? (rein, testbar)
 
@@ -281,6 +333,7 @@ def wechsel(
     Zurück kommen die neue Liste, die Zeilen für den Start-Push und die
     Zeilen für den Ende-Push.
     """
+    uhr = time.time() if jetzt is None else jetzt
     neue: list[dict[str, Any]] = []
     starten: list[dict[str, Any]] = []
     beenden: list[dict[str, Any]] = []
@@ -292,8 +345,28 @@ def wechsel(
             neue.append(row)
             continue
         if weg[user] and not row.get("unterwegs"):
-            row = {**row, "unterwegs": True, "activity_token": None}
-            starten.append(row)
+            letzter = row.get("letzter_start")
+            frisch = (
+                isinstance(letzter, (int, float))
+                and not isinstance(letzter, bool)
+                and uhr - float(letzter) < START_SPERRE
+            )
+            if frisch:
+                # Die vorige Karte liegt mit grosser Wahrscheinlichkeit
+                # noch da: Ein Ende-Push ohne Aktivitäts-Token kommt nicht
+                # an, und iOS räumt von selbst erst Stunden später. Also
+                # gilt sie als laufend, statt eine zweite danebenzulegen -
+                # und ihr Token bleibt erhalten, damit das Beenden bei der
+                # Ankunft noch möglich ist.
+                row = {**row, "unterwegs": True}
+            else:
+                row = {
+                    **row,
+                    "unterwegs": True,
+                    "activity_token": None,
+                    "letzter_start": uhr,
+                }
+                starten.append(row)
         elif not weg[user] and row.get("unterwegs"):
             beenden.append(row)
             row = {**row, "unterwegs": False, "activity_token": None}
@@ -492,12 +565,13 @@ class ApnsVersand:
 # ── Der Takt ───────────────────────────────────────────────────────────────
 
 
-def _weg_stand(hub: Any, benutzer: set[str]) -> dict[str, bool]:
-    """Je Benutzer: soll seine Haustür-Karte gerade laufen?
+def _weg_stand(hub: Any, benutzer: set[str], laufend: set[str]) -> dict[str, bool]:
+    """Je Benutzer: soll seine Haustür-Karte gerade liegen?
 
     «Unbekannt» fehlt bewusst im Ergebnis: Aus Nichtwissen soll weder
-    eine Karte entstehen noch eine verschwinden. Ob sie fällig ist,
-    entscheidet karte_faellig - nah, aber nicht zuhause.
+    eine Karte entstehen noch eine verschwinden. Wann eine anfängt und
+    wann sie endet, entscheidet kartenstand - `laufend` sagt, für wen
+    gerade eine liegt.
     """
     geofence = hub.integrations.get("geofence") if hub.integrations else None
     zones = getattr(geofence, "_zones", None) or {}
@@ -515,14 +589,23 @@ def _weg_stand(hub: Any, benutzer: set[str]) -> dict[str, bool]:
         zustand_roh = (entity.state if entity else {})
         zustand = str(zustand_roh.get("state") or presence.UNKNOWN)
         entfernung = zustand_roh.get("distance")
-        # Erst merken, dann entscheiden: Wer gerade draussen ist, ist
-        # damit für den Heimweg vorgemerkt; wer zuhause ankommt, fängt
-        # von vorn an. Unbekanntes lässt den Vermerk, wie er war.
-        weit = weit_weg(zustand, entfernung)
-        if weit is not None and weit != war_weit(weit_rows, name):
-            weit_rows = weit_merken(weit_rows, name, weit)
+        # Erst merken, dann entscheiden: Wer draussen war, ist damit für
+        # den Heimweg vorgemerkt; wer zuhause ankommt, fängt von vorn an.
+        #
+        # Entscheidend ist, dass der Vermerk **nur zuhause** fällt. Vorher
+        # löschte ihn jedes Näherkommen, denn «nicht mehr weit weg» ist
+        # ab drei Kilometern wahr - also genau ab der Entfernung, ab der
+        # die Karte fällig wäre. Der Grund für die Karte war damit im
+        # selben Augenblick gelöscht, in dem sie gebraucht wurde, und ob
+        # eine kam, hing daran, in welcher Reihenfolge die Ortung ihre
+        # Punkte lieferte.
+        neu = vermerk(zustand, weit_weg(zustand, entfernung))
+        if neu is not None and neu != war_weit(weit_rows, name):
+            weit_rows = weit_merken(weit_rows, name, neu)
             hub.data.set(WEIT_KEY, weit_rows)
-        faellig = karte_faellig(zustand, entfernung, war_weit(weit_rows, name))
+        faellig = kartenstand(
+            zustand, entfernung, war_weit(weit_rows, name), name in laufend
+        )
         if faellig is None:
             continue
         stand[name] = faellig
@@ -553,7 +636,12 @@ async def _runde(hub: Any, versand: ApnsVersand) -> None:
     if not rows:
         return
     benutzer = {str(row.get("user") or "") for row in rows if isinstance(row, dict)}
-    weg = _weg_stand(hub, benutzer)
+    laufend = {
+        str(row.get("user") or "")
+        for row in rows
+        if isinstance(row, dict) and row.get("unterwegs")
+    }
+    weg = _weg_stand(hub, benutzer, laufend)
     # Wer den Schalter im Profil ausgestellt hat - ganz oder nur für die
     # Haustür-Karte -, gilt hier als zuhause: Es startet nichts Neues,
     # und eine gerade laufende Karte wird im selben Zug beendet. Der

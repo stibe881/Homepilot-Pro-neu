@@ -6,10 +6,12 @@ from homepilot.core.liveaktivitaet import (
     apns_jwt,
     end_payload,
     karte_faellig,
+    kartenstand,
     parse_apns,
     registrieren,
     start_payload,
     token_tot,
+    vermerk,
     war_weit,
     wechsel,
     weit_merken,
@@ -271,3 +273,81 @@ class TestWeitWeg:
         assert len([r for r in rows if r["user"] == "Stibe"]) == 1
         assert war_weit(rows, "Stibe") is False
 
+
+
+class TestVermerk:
+    """Wann «war draussen» gesetzt und wann es gelöscht wird.
+
+    Der Fehler dahinter: Gelöscht wurde bei jedem Näherkommen. «Nicht
+    mehr weit weg» ist ab drei Kilometern wahr - also genau ab der
+    Entfernung, ab der die Karte fällig wäre. Ob eine kam, hing damit
+    daran, in welcher Reihenfolge die Ortung ihre Punkte lieferte.
+    """
+
+    def test_draussen_setzt_den_vermerk(self) -> None:
+        assert vermerk("away", True) is True
+
+    def test_naeherkommen_loescht_ihn_nicht(self) -> None:
+        # Zwei Kilometer vor der Türe: der Heimweg, nicht sein Ende.
+        assert vermerk("away", False) is None
+        assert vermerk("quartier", False) is None
+
+    def test_erst_zuhause_faengt_es_von_vorn_an(self) -> None:
+        assert vermerk("home", False) is False
+        # Auch dann, wenn die Ortung gerade nichts weiss.
+        assert vermerk("home", None) is False
+
+    def test_unbekanntes_laesst_ihn_stehen(self) -> None:
+        assert vermerk("unknown", None) is None
+
+
+class TestKartenstand:
+    """Anfangen auf dem Heimweg, aufhören zuhause - und dazwischen
+    liegenbleiben, auch wenn die Ortung zittert."""
+
+    def test_eine_liegende_karte_ueberlebt_einen_ausreisser(self) -> None:
+        # Der gemeldete Fall: Die Entfernung springt kurz über die
+        # Grenze. Vorher endete die Karte damit und begann gleich neu -
+        # und weil das Beenden oft nicht ankommt, lagen danach zwei.
+        assert kartenstand("away", 12_000, True, True) is True
+        assert kartenstand("away", 12_000, True, False) is False
+
+    def test_zuhause_endet_sie_auch_dann(self) -> None:
+        assert kartenstand("home", 0, True, True) is False
+
+    def test_ohne_laufende_karte_gilt_die_alte_regel(self) -> None:
+        assert kartenstand("away", 800, True, False) is True
+        assert kartenstand("away", 800, False, False) is False
+
+    def test_unbekannt_bleibt_unbekannt(self) -> None:
+        assert kartenstand("unknown", None, True, True) is None
+
+
+def test_die_startsperre_verhindert_einen_stapel():
+    """Der letzte Riegel: Selbst wenn alles andere versagt, kommt
+    innerhalb einer halben Stunde keine zweite Karte dazu.
+
+    Nötig, weil ein Ende-Push das Token der laufenden Aktivität braucht.
+    Ein gesperrtes Telefon meldet es oft nie nach - die alte Karte
+    verschwindet dann nicht, sie bekommt bloss Gesellschaft.
+    """
+    rows = registrieren([], "Stibe", "token-a", "iPhone")
+    rows, starten, _ = wechsel(rows, {"Stibe": True}, jetzt=1000.0)
+    assert len(starten) == 1
+
+    # Zuhause angekommen - aber die App hat nie ein Aktivitäts-Token
+    # nachgemeldet, das Ende geht also ins Leere.
+    rows, _, beenden = wechsel(rows, {"Stibe": False}, jetzt=1100.0)
+    assert [r.get("activity_token") for r in beenden] == [None]
+
+    # Gleich wieder unterwegs: Die Karte gilt als liegend, es kommt
+    # keine zweite dazu.
+    rows, starten, _ = wechsel(rows, {"Stibe": True}, jetzt=1200.0)
+    assert starten == []
+    assert rows[0]["unterwegs"] is True
+
+    # Nach der Sperrfrist ist eine neue Karte wieder richtig: Die alte
+    # hat iOS bis dahin längst weggeräumt.
+    rows, _, _ = wechsel(rows, {"Stibe": False}, jetzt=1300.0)
+    rows, starten, _ = wechsel(rows, {"Stibe": True}, jetzt=1300.0 + 1801.0)
+    assert len(starten) == 1
