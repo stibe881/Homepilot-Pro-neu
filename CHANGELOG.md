@@ -18,9 +18,8 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   ein gesperrtes Telefon oft nie nachmeldet, verschwand die alte nicht,
   sondern bekam Gesellschaft. Jetzt endet eine Karte nur zuhause, und
   eine neue braucht eine echte Auswärtsfahrt. Dazu kommt sie nicht mehr
-  drei Kilometer vor dem Haus, sondern hundert Meter davor - der
-  Türöffner nützt in dem Moment, in dem man aussteigt, nicht auf dem
-  halben Heimweg.
+  drei Kilometer vor dem Haus, sondern kurz davor - der Türöffner nützt
+  in dem Moment, in dem man aussteigt, nicht auf dem halben Heimweg.
 - **Und der Ring liegt jetzt vor der Zone, nicht in ihr.** Mit den
   hundert Metern kam gar keine Karte mehr: Die Entfernung misst bis zur
   Mitte des Ortes «zuhause», und zuhause ist man ab dessen Radius - bei
@@ -29,6 +28,15 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   zwei Zahlen, die nichts voneinander wussten. Jetzt legt sich der Ring
   immer aussen an die Zone an, und der Hub schreibt beim Start hin, mit
   welchen Metern er rechnet.
+- **Der Ring ist 300 m breit, und die Karte bleibt nach der Ankunft
+  10 Minuten liegen.** Beides gegen dieselbe Lücke: Die Ortung meldet
+  alle 30 Sekunden, und wer mit fünfzig heimfährt, legt in dieser Zeit
+  gut 400 m zurück - ein schmaler Ring liegt dann zwischen zwei
+  Meldungen und wird nie betreten. Wird er trotzdem übersprungen, fängt
+  die Ankunft die Karte auf. Und die Nachfrist hat einen eigenen Grund:
+  Die Haustüre steht *innerhalb* der Zone, man gilt also als daheim,
+  während man vom Auto zur Türe geht - genau dann, wenn der Öffner ohne
+  Face ID nützt, und genau dann verschwand die Karte bisher.
 - **«Öffnen ohne Entsperren» tut jetzt, was es sagt.** Der Schalter war
   gesetzt, und das Telefon verlangte beim Tippen trotzdem Face ID. Der
   Grund steckte in einem Wort im Widget: Nur ein LiveActivityIntent

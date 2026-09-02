@@ -189,10 +189,27 @@ def aktivitaet_merken(rows: Any, user: str, token: str) -> list[dict[str, Any]]:
 # Quartier-Zone: Wer um den Block geht, war nicht weg.
 WEIT_METER = 3000.0
 
-# KARTE_METER beantwortet «ist er jetzt da?». Der Türöffner ohne Face ID
-# nützt in einem einzigen Moment - vor der Türe. Drei Kilometer waren
-# dafür der halbe Heimweg: Die Karte lag schon da, während man noch fuhr.
-KARTE_METER = 100.0
+# KARTE_METER beantwortet «ist er jetzt da?» - und zwar als Breite des
+# Rings, der aussen an der Zone «zuhause» anliegt (kartenradius).
+#
+# Warum nicht hundert Meter, wie es sich anhört: Die Ortung meldet alle
+# dreissig Sekunden, und wer mit fünfzig heimfährt, legt in dieser Zeit
+# gut vierhundert Meter zurück. Ein Ring von hundert Metern liegt dann
+# zwischen zwei Meldungen und wird nie betreten - die Karte käme nicht,
+# und niemand sähe, warum. Dreihundert Meter überspringt auch ein
+# schneller Wagen nicht; vor der Türe ist man damit immer noch, statt
+# wie früher auf dem halben Heimweg.
+KARTE_METER = 300.0
+
+#: So lange bleibt die Karte nach der Ankunft noch liegen.
+#:
+#: Der Grund ist die Geometrie: Die Haustüre steht *innerhalb* der Zone
+#: «zuhause» - man gilt also schon als daheim, während man vom Auto zur
+#: Türe geht. Genau dann nützt ein Öffner ohne Face ID, und genau dann
+#: verschwand die Karte bisher. Zehn Minuten decken den Weg vom Wagen
+#: bis in die Wohnung ab und sind kurz genug, dass niemand sie als
+#: liegengebliebene Karte wahrnimmt.
+HEIM_GNADE = 600.0
 
 
 def heimradius(places: Any) -> float | None:
@@ -297,14 +314,14 @@ def kartenstand(
     war_weit: bool,
     laeuft: bool,
     nah: float = KARTE_METER,
+    heim_vor: float | None = None,
 ) -> bool | None:
     """Soll die Karte jetzt liegen? (rein, testbar)
 
     Anfang und Ende folgen verschiedenen Regeln, und genau das fehlte:
-    Angefangen wird nur auf dem Heimweg (karte_faellig), aufgehört wird
-    nur zuhause. Dazwischen bleibt die Karte liegen, auch wenn die
-    Ortung noch einmal über die Drei-Kilometer-Grenze und zurück
-    springt.
+    Angefangen wird auf dem Heimweg (karte_faellig), aufgehört wird erst
+    zuhause. Dazwischen bleibt die Karte liegen, auch wenn die Ortung
+    noch einmal über die Grenze und zurück springt.
 
     Der gemeldete Fall - fünf gleiche Karten übereinander: Jeder solche
     Sprung beendete die Karte und begann eine neue. Und weil das Beenden
@@ -312,11 +329,31 @@ def kartenstand(
     Telefon oft nie nachmeldet, verschwand die alte nicht, sondern
     bekam nur Gesellschaft. Aus einem Zittern der Ortung wurde so ein
     Stapel.
+
+    `heim_vor` sagt, wie viele Sekunden die Ankunft her ist (None: nicht
+    zuhause oder unbekannt). Für die Nachfrist, und die hat einen
+    handfesten Grund: Die Haustüre steht *innerhalb* der Zone «zuhause».
+    Man gilt also als daheim, während man vom Auto zur Türe geht - und
+    genau in diesem Moment verschwand die Karte, der man den Türöffner
+    verdankt. Sie bleibt jetzt HEIM_GNADE lang liegen.
+
+    Zwei Wege führen zur Karte, und der zweite ist ein Netz: der Ring
+    vor der Zone (das Übliche) und die Ankunft selbst. Der Ring ist eine
+    Strecke von dreihundert Metern, und zwischen zwei Ortsmeldungen
+    liegen dreissig Sekunden - wer schnell fährt, kann ihn trotzdem
+    überspringen. Dann fängt die Ankunft die Karte auf, und man hat sie
+    für den Weg zur Türe. Beide Male gilt: nur, wer wirklich draussen
+    war.
     """
     if zustand in ("", presence.UNKNOWN):
         return None
     if zustand == presence.HOME:
-        return False
+        # Nach der Ankunft noch kurz - aber nur, wenn sie zu einer
+        # Heimkehr gehört. Wer den ganzen Tag zuhause sitzt, bekommt
+        # deswegen keine Karte.
+        if not (laeuft or war_weit):
+            return False
+        return heim_vor is not None and heim_vor < HEIM_GNADE
     if laeuft:
         return True
     return karte_faellig(zustand, entfernung, war_weit, nah)
@@ -337,14 +374,45 @@ def war_weit(rows: Any, user: str) -> bool:
     return False
 
 
+def _zeile(rows: Any, user: str) -> dict[str, Any]:
+    """Die Zeile dieser Person, oder eine leere (rein)."""
+    for row in rows or []:
+        if isinstance(row, dict) and str(row.get("user") or "") == user:
+            return row
+    return {}
+
+
 def weit_merken(rows: Any, user: str, weit: bool) -> list[dict[str, Any]]:
-    """Den Vermerk setzen - je Person eine Zeile (rein, testbar)."""
+    """Den Vermerk setzen - je Person eine Zeile (rein, testbar).
+
+    Die übrigen Felder der Zeile bleiben stehen: Dort wohnt seit der
+    Nachfrist auch die Ankunftszeit, und die darf ein Wechsel des
+    Vermerks nicht mitnehmen.
+    """
     andere = [
         row
         for row in (rows or [])
         if isinstance(row, dict) and str(row.get("user") or "") != user
     ]
-    return [*andere, {"user": user, "weit": bool(weit)}]
+    return [*andere, {**_zeile(rows, user), "user": user, "weit": bool(weit)}]
+
+
+def heim_seit(rows: Any, user: str) -> float | None:
+    """Seit wann diese Person zuhause ist, als Zeitstempel (rein, testbar)."""
+    wert = _zeile(rows, user).get("heim_seit")
+    if isinstance(wert, (int, float)) and not isinstance(wert, bool):
+        return float(wert)
+    return None
+
+
+def heim_merken(rows: Any, user: str, seit: float | None) -> list[dict[str, Any]]:
+    """Die Ankunftszeit setzen oder löschen (rein, testbar)."""
+    andere = [
+        row
+        for row in (rows or [])
+        if isinstance(row, dict) and str(row.get("user") or "") != user
+    ]
+    return [*andere, {**_zeile(rows, user), "user": user, "heim_seit": seit}]
 
 
 def weit_nachfuehren(zustand: str, entfernung: Any) -> bool | None:
@@ -629,6 +697,11 @@ def _weg_stand(hub: Any, benutzer: set[str], laufend: set[str]) -> dict[str, boo
         zustand = str(zustand_roh.get("state") or presence.UNKNOWN)
         entfernung = zustand_roh.get("distance")
 
+        # Der Vermerk von *vor* dieser Runde. Er entscheidet, denn die
+        # Ankunft löscht ihn im selben Takt - und die Ankunft ist genau
+        # der Moment, in dem die Karte fällig sein kann.
+        vorher_weit = war_weit(weit_rows, name)
+
         # Erst merken, dann entscheiden: Wer gerade draussen ist, ist
         # damit für den Heimweg vorgemerkt; erst wer zuhause ankommt,
         # fängt von vorn an. Der Anmarsch (nah, aber nicht zuhause) und
@@ -636,11 +709,30 @@ def _weg_stand(hub: Any, benutzer: set[str], laufend: set[str]) -> dict[str, boo
         # genau in dem Takt weg, in dem die Karte ihn braucht
         # (weit_nachfuehren erzählt den Fehler).
         weit = weit_nachfuehren(zustand, entfernung)
-        if weit is not None and weit != war_weit(weit_rows, name):
+        if weit is not None and weit != vorher_weit:
             weit_rows = weit_merken(weit_rows, name, weit)
             hub.data.set(WEIT_KEY, weit_rows)
+
+        # Die Ankunftszeit: gesetzt, sobald jemand zuhause auftaucht,
+        # gelöscht, sobald er wieder weg ist. Daran hängt die Nachfrist,
+        # in der die Karte den Weg vom Auto zur Türe überlebt.
+        angekommen = heim_seit(weit_rows, name)
+        if zustand == presence.HOME and angekommen is None:
+            angekommen = time.time()
+            weit_rows = heim_merken(weit_rows, name, angekommen)
+            hub.data.set(WEIT_KEY, weit_rows)
+        elif zustand not in (presence.HOME, "", presence.UNKNOWN) and angekommen:
+            angekommen = None
+            weit_rows = heim_merken(weit_rows, name, None)
+            hub.data.set(WEIT_KEY, weit_rows)
+
         faellig = kartenstand(
-            zustand, entfernung, war_weit(weit_rows, name), name in laufend, nah
+            zustand,
+            entfernung,
+            vorher_weit,
+            name in laufend,
+            nah,
+            None if angekommen is None else time.time() - angekommen,
         )
         if faellig is None:
             continue

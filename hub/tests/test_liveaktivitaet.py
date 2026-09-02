@@ -338,8 +338,27 @@ class TestKartenstand:
         assert kartenstand("away", 12_000, True, True) is True
         assert kartenstand("away", 12_000, True, False) is False
 
-    def test_zuhause_endet_sie_auch_dann(self) -> None:
-        assert kartenstand("home", 0, True, True) is False
+    def test_zuhause_endet_sie_nach_der_nachfrist(self) -> None:
+        from homepilot.core.liveaktivitaet import HEIM_GNADE
+
+        # Die Haustüre steht *innerhalb* der Zone: Wer vom Auto zur Türe
+        # geht, gilt schon als daheim - und genau da verschwand die
+        # Karte bisher, der man den Öffner verdankt.
+        assert kartenstand("home", 0, True, True, heim_vor=30.0) is True
+        assert kartenstand("home", 0, True, True, heim_vor=HEIM_GNADE + 1) is False
+        # Ohne bekannte Ankunftszeit bleibt es beim alten Verhalten.
+        assert kartenstand("home", 0, True, True, heim_vor=None) is False
+
+    def test_die_ankunft_faengt_eine_uebersprungene_karte_auf(self) -> None:
+        """Der Ring ist dreihundert Meter breit, zwischen zwei
+        Ortsmeldungen liegen dreissig Sekunden - wer schnell fährt, kann
+        ihn überspringen. Dann kommt die Karte bei der Ankunft."""
+        assert kartenstand("home", 0, True, False, heim_vor=5.0) is True
+
+    def test_wer_daheim_sitzt_bekommt_keine(self) -> None:
+        # Weder eine laufende Karte noch eine Heimkehr: Dann ist die
+        # frisch gesetzte Ankunftszeit kein Grund für eine Karte.
+        assert kartenstand("home", 0, False, False, heim_vor=5.0) is False
 
     def test_ohne_laufende_karte_gilt_die_alte_regel(self) -> None:
         assert kartenstand("away", 80, True, False) is True
@@ -406,3 +425,35 @@ class TestKartenradius:
         assert karte_faellig("away", 200, True, nah) is True
         # Und weiter draussen weiterhin nicht.
         assert karte_faellig("away", 900, True, nah) is False
+
+
+class TestHeimSeit:
+    """Die Ankunftszeit - daran hängt die Nachfrist."""
+
+    def test_setzen_lesen_loeschen(self) -> None:
+        from homepilot.core.liveaktivitaet import heim_merken, heim_seit
+
+        rows = heim_merken([], "Stibe", 1000.0)
+        assert heim_seit(rows, "Stibe") == 1000.0
+        assert heim_seit(rows, "Bine") is None
+        rows = heim_merken(rows, "Stibe", None)
+        assert heim_seit(rows, "Stibe") is None
+
+    def test_der_vermerk_nimmt_die_ankunft_nicht_mit(self) -> None:
+        """Beide wohnen in derselben Zeile. Schriebe weit_merken sie neu,
+        ginge die Ankunftszeit bei jedem Wechsel des Vermerks verloren -
+        und die Nachfrist wäre je nach Reihenfolge da oder nicht."""
+        from homepilot.core.liveaktivitaet import heim_merken, heim_seit
+
+        rows = heim_merken([], "Stibe", 1000.0)
+        rows = weit_merken(rows, "Stibe", True)
+        assert heim_seit(rows, "Stibe") == 1000.0
+        assert war_weit(rows, "Stibe") is True
+        # Und je Person bleibt es bei einer Zeile.
+        assert len([r for r in rows if r["user"] == "Stibe"]) == 1
+
+    def test_ein_kaputter_wert_gilt_als_unbekannt(self) -> None:
+        from homepilot.core.liveaktivitaet import heim_seit
+
+        assert heim_seit([{"user": "Stibe", "heim_seit": "gestern"}], "Stibe") is None
+        assert heim_seit([{"user": "Stibe", "heim_seit": True}], "Stibe") is None
