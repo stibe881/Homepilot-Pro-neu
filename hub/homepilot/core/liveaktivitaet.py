@@ -359,6 +359,87 @@ def kartenstand(
     return karte_faellig(zustand, entfernung, war_weit, nah)
 
 
+def diagnose(
+    *,
+    eingerichtet: bool,
+    telefone: int,
+    abgestellt: bool,
+    zone: str | None,
+    zustand: str,
+    entfernung: Any,
+    nah: float,
+    draussen_gewesen: bool,
+    laeuft: bool,
+    token_da: bool,
+    heim_vor: float | None,
+) -> str:
+    """Warum gerade keine Karte auf dem Sperrbildschirm liegt (rein, testbar).
+
+    Zwischen «der Schalter steht an» und «die Karte liegt da» hängen acht
+    Glieder, und sieben davon schweigen, wenn sie fehlen: kein
+    apns-Block, kein angemeldetes Telefon, keine Zone zu diesem
+    Benutzer, keine Ortung, kein Vermerk «war draussen», zu weit weg,
+    schon zuhause. Von aussen sieht jedes davon gleich aus - es passiert
+    nichts.
+
+    Das hat drei Runden Raten gekostet. Diese Funktion nennt das erste
+    Glied, das nicht trägt, in einem Satz, den die App unter dem
+    Schalter anzeigt.
+    """
+    if not eingerichtet:
+        return (
+            "Der Hub hat keinen apns-Block in der config.yaml - ohne "
+            "Apple-Schlüssel kann er keine Karte stellen."
+        )
+    if telefone == 0:
+        return (
+            "Dieses Konto hat kein angemeldetes Telefon. Die App meldet "
+            "ihr Token beim Start an; kommt es nie an, liegt es an iOS "
+            "(vor 17.2 gibt es keine Karte per Push) oder daran, dass die "
+            "App seit der Installation nicht offen war."
+        )
+    if abgestellt:
+        return "Im Profil abgeschaltet - weder «Live-Aktivitäten» noch die Haustür-Karte."
+    if zone is None:
+        return (
+            "Zu diesem Konto gibt es keine Geofence-Zone. Der Hub findet "
+            "die Zone über den Namen; heisst sie anders, weiss er nicht, "
+            "wo du bist."
+        )
+    if zustand in ("", presence.UNKNOWN):
+        return "Die Ortung weiss gerade nicht, wo du bist - daraus startet nichts."
+    if laeuft:
+        offen = "" if token_da else (
+            " Das Token der Aktivität hat die App nie nachgemeldet - "
+            "beenden lässt sie sich damit nicht, iOS räumt sie selbst weg."
+        )
+        return f"Eine Karte läuft gerade.{offen}"
+    if zustand == presence.HOME:
+        if heim_vor is not None and heim_vor >= HEIM_GNADE:
+            return (
+                f"Du bist seit {heim_vor / 60:.0f} Minuten zuhause - die "
+                f"Nachfrist von {HEIM_GNADE / 60:.0f} Minuten ist vorbei."
+            )
+        return "Du bist zuhause. Die Karte kommt auf dem Heimweg."
+    if not draussen_gewesen:
+        return (
+            f"Kein Vermerk «war draussen». Der Hub setzt ihn erst weiter "
+            f"als {WEIT_METER:.0f} m vom Haus - wer nur im Quartier "
+            f"unterwegs war, bekommt keine Karte."
+        )
+    if isinstance(entfernung, (int, float)) and not isinstance(entfernung, bool):
+        if float(entfernung) > nah:
+            return (
+                f"Noch {float(entfernung):.0f} m von der Hausmitte entfernt; "
+                f"die Karte kommt ab {nah:.0f} m."
+            )
+        return "Die Karte müsste jetzt kommen - der nächste Takt stellt sie."
+    return (
+        f"Die Ortung meldet keine Entfernung, nur die Zone «{zustand}». "
+        "Dann entscheidet allein sie, und die Karte kommt erst im Quartier."
+    )
+
+
 #: Wo steht, wer seit dem letzten Mal zuhause draussen war: [{user, weit}].
 #: In der Datendatei, nicht im Kopf: Zwischen Weggehen und Heimkommen
 #: liegt ein Arbeitstag, und ein Update dazwischen ist der Normalfall -

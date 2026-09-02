@@ -457,3 +457,77 @@ class TestHeimSeit:
 
         assert heim_seit([{"user": "Stibe", "heim_seit": "gestern"}], "Stibe") is None
         assert heim_seit([{"user": "Stibe", "heim_seit": True}], "Stibe") is None
+
+
+class TestDiagnose:
+    """Der Satz, den die App unter dem Schalter zeigt.
+
+    Er ist die Antwort auf drei Runden Raten: Zwischen «der Schalter
+    steht an» und «die Karte liegt da» hängen acht Glieder, und die
+    meisten schweigen, wenn sie fehlen. Von aussen sieht jedes davon
+    gleich aus - es passiert nichts.
+    """
+
+    def stand(self, **abweichung: object) -> str:
+        from homepilot.core.liveaktivitaet import diagnose
+
+        werte: dict = {
+            "eingerichtet": True,
+            "telefone": 1,
+            "abgestellt": False,
+            "zone": "stefan",
+            "zustand": "away",
+            "entfernung": 5000,
+            "nah": 450.0,
+            "draussen_gewesen": True,
+            "laeuft": False,
+            "token_da": True,
+            "heim_vor": None,
+        }
+        werte.update(abweichung)
+        return diagnose(**werte)  # type: ignore[arg-type]
+
+    def test_das_erste_glied_zaehlt(self) -> None:
+        # Fehlt der apns-Block, ist alles andere gleichgültig.
+        assert "apns-Block" in self.stand(eingerichtet=False, telefone=0)
+
+    def test_kein_angemeldetes_telefon(self) -> None:
+        """Der stillste Fall von allen: Ohne Zeile in live_activities
+        kehrt der Takt sofort um, und niemand sieht warum."""
+        assert "kein angemeldetes Telefon" in self.stand(telefone=0)
+
+    def test_abgestellt(self) -> None:
+        assert "Im Profil abgeschaltet" in self.stand(abgestellt=True)
+
+    def test_keine_zone(self) -> None:
+        assert "keine Geofence-Zone" in self.stand(zone=None)
+
+    def test_ohne_ortung(self) -> None:
+        assert "weiss gerade nicht" in self.stand(zustand="unknown")
+
+    def test_noch_zu_weit(self) -> None:
+        satz = self.stand(entfernung=5000)
+        assert "5000 m" in satz and "450 m" in satz
+
+    def test_gleich_soweit(self) -> None:
+        assert "müsste jetzt kommen" in self.stand(entfernung=300)
+
+    def test_ohne_auswaertsfahrt(self) -> None:
+        assert "war draussen" in self.stand(draussen_gewesen=False, entfernung=300)
+
+    def test_zuhause(self) -> None:
+        assert "Heimweg" in self.stand(zustand="home", entfernung=10)
+
+    def test_nachfrist_vorbei(self) -> None:
+        satz = self.stand(zustand="home", entfernung=10, heim_vor=3600.0)
+        assert "Nachfrist" in satz
+
+    def test_eine_laufende_karte_ohne_token(self) -> None:
+        """Ein häufiger halber Zustand: Die Karte liegt, aber der Hub
+        kann sie nicht beenden, weil die App das Token nie nachmeldete."""
+        satz = self.stand(laeuft=True, token_da=False)
+        assert "läuft gerade" in satz
+        assert "nie nachgemeldet" in satz
+
+    def test_ohne_entfernung_bleibt_die_zone(self) -> None:
+        assert "keine Entfernung" in self.stand(entfernung=None)

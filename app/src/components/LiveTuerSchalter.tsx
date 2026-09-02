@@ -52,6 +52,12 @@ export function LiveTuerSchalter({
   // Ob der Hub überhaupt dafür eingerichtet ist (apns-Block). Ohne ihn
   // ist der Schalter eine Attrappe - das soll dann auch dastehen.
   const [eingerichtet, setEingerichtet] = useState<boolean | null>(null);
+  // Warum gerade keine Karte da ist - der Hub weiss es, und ohne diesen
+  // Satz war es dreimal Raten: Zwischen «Schalter an» und «Karte liegt
+  // da» hängen acht Glieder, und die meisten schweigen, wenn sie fehlen.
+  const [grund, setGrund] = useState<string | null>(null);
+  const [telefone, setTelefone] = useState<string[]>([]);
+  const [neuGeladen, setNeuGeladen] = useState(0);
 
   useEffect(() => {
     let weg = false;
@@ -60,13 +66,16 @@ export function LiveTuerSchalter({
     })
       .then((antwort) => (antwort.ok ? antwort.json() : null))
       .then((daten) => {
-        if (!weg && daten) setEingerichtet(!!daten.configured);
+        if (weg || !daten) return;
+        setEingerichtet(!!daten.configured);
+        setGrund(typeof daten.reason === 'string' ? daten.reason : null);
+        setTelefone(Array.isArray(daten.phones) ? daten.phones : []);
       })
       .catch(() => {});
     return () => {
       weg = true;
     };
-  }, [settings.url, settings.token]);
+  }, [settings.url, settings.token, neuGeladen]);
 
   return (
     <Card style={styles.card}>
@@ -173,6 +182,28 @@ export function LiveTuerSchalter({
           apns-Block in der config.yaml (Anleitung: deploy/portainer.md).
         </Text>
       ) : null}
+      {/* Die Auskunft des Hubs. Sie steht auch dann da, wenn alles
+          stimmt («Die Karte müsste jetzt kommen») - eine Zeile, die nur
+          bei Störung erscheint, lässt einen im Zweifel, ob sie
+          überhaupt funktioniert. */}
+      {enabled && grund ? (
+        <Pressable
+          onPress={() => setNeuGeladen((n) => n + 1)}
+          accessibilityRole="button"
+          accessibilityLabel="Stand der Haustür-Karte neu abfragen"
+          style={({ pressed }) => [styles.stand, pressed && { opacity: 0.7 }]}
+        >
+          <Ionicons name="information-circle-outline" size={16} color={colors.inkFaint} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.hint}>{grund}</Text>
+            {telefone.length > 0 ? (
+              <Text style={styles.hint}>
+                Angemeldet: {telefone.join(', ')} · zum Auffrischen tippen
+              </Text>
+            ) : null}
+          </View>
+        </Pressable>
+      ) : null}
       <Text style={styles.hint}>
         Gilt für dich auf allen deinen iPhones (ab iOS 17.2, mit
         TestFlight-Build{Platform.OS === 'ios' ? '' : ' - nicht auf diesem Gerät'}).
@@ -196,6 +227,12 @@ const makeStyles = (colors: Colors) =>
       paddingVertical: 3,
     },
     zeileText: { color: colors.inkSoft, fontSize: 13, flexShrink: 1 },
+    stand: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 8,
+      paddingTop: 2,
+    },
     title: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
     hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 17 },
     warn: { color: colors.warn, fontSize: 12, lineHeight: 17 },

@@ -23,6 +23,7 @@ from ...core import (
     liveaktivitaet,
     livekarten,
     notifyrules,
+    presence,
     push,
     pushverlauf,
     snapshots,
@@ -389,15 +390,58 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
     @app.get("/api/liveactivity")
     async def liveactivity_status(request: Request) -> dict[str, Any]:
-        """Für die App: Ist der Hub dafür eingerichtet, und bin ich dabei?"""
+        """Für die App: eingerichtet, angemeldet - und warum keine Karte da ist.
+
+        Der Satz in `reason` hat drei Runden Raten gekostet. Zwischen
+        «der Schalter steht an» und «die Karte liegt da» hängen acht
+        Glieder, und die meisten schweigen, wenn sie fehlen: kein
+        angemeldetes Telefon, keine Zone zu diesem Namen, keine Ortung,
+        kein Vermerk «war draussen». Von aussen sieht jedes davon gleich
+        aus - es passiert nichts.
+        """
         user = current_user(request)
         rows = hub.data.get(liveaktivitaet.DATA_KEY)
+        meine = [
+            row for row in rows if isinstance(row, dict) and row.get("user") == user.name
+        ]
+
+        geofence = hub.integrations.get("geofence") if hub.integrations else None
+        zones = getattr(geofence, "_zones", None) or {}
+        namen = {
+            zone_id: getattr(hub.registry.get(entity_id), "label", zone_id)
+            for zone_id, entity_id in zones.items()
+        }
+        zone_id = presence.zone_fuer(user.name, namen)
+        entity = hub.registry.get(zones[zone_id]) if zone_id else None
+        zustand_roh = (entity.state if entity else {}) or {}
+
+        weit_rows = hub.data.get(liveaktivitaet.WEIT_KEY)
+        angekommen = liveaktivitaet.heim_seit(weit_rows, user.name)
+        prefs_rows = hub.data.get("user_prefs")
+
         return {
             "configured": liveaktivitaet.parse_apns(hub.config.apns) is not None,
-            "registered": sum(
-                1
-                for row in rows
-                if isinstance(row, dict) and row.get("user") == user.name
+            "registered": len(meine),
+            "phones": [str(row.get("label") or "Telefon") for row in meine],
+            "reason": liveaktivitaet.diagnose(
+                eingerichtet=liveaktivitaet.parse_apns(hub.config.apns) is not None,
+                telefone=len(meine),
+                abgestellt=(
+                    user.name in liveaktivitaet.abgeschaltet(prefs_rows)
+                    or "tuer" in liveaktivitaet.abbestellte(prefs_rows).get(
+                        user.name, set()
+                    )
+                ),
+                zone=zone_id,
+                zustand=str(zustand_roh.get("state") or presence.UNKNOWN),
+                entfernung=zustand_roh.get("distance"),
+                nah=liveaktivitaet.kartenradius(
+                    liveaktivitaet.heimradius(getattr(geofence, "places", None))
+                ),
+                draussen_gewesen=liveaktivitaet.war_weit(weit_rows, user.name),
+                laeuft=any(row.get("unterwegs") for row in meine),
+                token_da=any(row.get("activity_token") for row in meine),
+                heim_vor=None if angekommen is None else time.time() - angekommen,
             ),
         }
 
