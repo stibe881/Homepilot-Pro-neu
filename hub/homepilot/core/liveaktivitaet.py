@@ -207,18 +207,27 @@ def heimradius(places: Any) -> float | None:
     return None
 
 
-def fenster_offen(radius: float | None, nah: float = KARTE_METER) -> bool:
-    """Bleibt zwischen «zuhause» und «da» überhaupt ein Fenster? (rein)
+def kartenradius(radius: float | None, nah: float = KARTE_METER) -> float:
+    """Ab welcher Entfernung die Karte kommt, in Metern (rein, testbar).
 
-    Die Entfernung misst bis zur Mitte des Ortes, und zuhause ist man ab
-    seinem Radius. Die Karte kommt also im Ring zwischen Radius und
-    `nah` - und ist der Radius grösser, gibt es diesen Ring nicht: Man
-    gilt schon als zuhause, bevor die Karte fällig wird, und sie käme
-    nie. Das ist keine Fehlbedienung, sondern zwei Zahlen, die nichts
-    voneinander wissen - deshalb sagt es der Hub beim Start, statt es
-    jemanden suchen zu lassen.
+    Die hundert Meter gehören *ausserhalb* der Zone «zuhause», nicht ab
+    der Hausmitte - und das ist der Unterschied zwischen «kommt kurz vor
+    der Türe» und «kommt nie».
+
+    Gemessen wird nämlich bis zur Mitte des Ortes, und als zuhause gilt
+    man ab seinem Radius; die Karte kommt also im Ring zwischen beidem.
+    Stand dort die nackte Zahl, war dieser Ring bei einem Ort mit 150 m
+    Radius nicht bloss schmal, sondern leer: Man war schon zuhause,
+    bevor die Karte fällig wurde, und sie erschien auf keinem Heimweg -
+    ohne dass irgendwo etwas falsch eingetragen gewesen wäre. Zwei
+    Zahlen, die nichts voneinander wussten.
+
+    Jetzt legt sich der Ring immer aussen an die Zone an, wie weit sie
+    auch reicht.
     """
-    return radius is None or float(radius) < nah
+    if radius is None:
+        return nah
+    return float(radius) + nah
 
 
 def weit_weg(zustand: str, entfernung: Any) -> bool | None:
@@ -240,7 +249,9 @@ def weit_weg(zustand: str, entfernung: Any) -> bool | None:
     return zustand != "quartier"
 
 
-def karte_faellig(zustand: str, entfernung: Any, war_weit: bool) -> bool | None:
+def karte_faellig(
+    zustand: str, entfernung: Any, war_weit: bool, nah: float = KARTE_METER
+) -> bool | None:
     """Soll die Haustür-Karte gerade laufen? (rein, testbar)
 
     None heisst unbekannt - daraus startet keine Karte, und eine
@@ -261,10 +272,9 @@ def karte_faellig(zustand: str, entfernung: Any, war_weit: bool) -> bool | None:
     KARTE_METER ist bewusst eng (100 m): Der Umkreis war zuerst
     derselbe wie der für «war weg», drei Kilometer - und damit lag die
     Karte den halben Heimweg lang da, statt in dem Moment zu kommen, in
-    dem man aussteigt. Wichtig dabei: Der Umkreis muss weiter reichen
-    als der Radius des Ortes «zuhause», sonst gilt man schon als
-    zuhause, bevor man ihn erreicht, und es bleibt kein Fenster übrig.
-    Der Hub sagt das beim Start, wenn es so ist.
+    dem man aussteigt. `nah` ist die Entfernung von der Hausmitte, ab der
+    sie fällig wird - der Takt rechnet sie aus dem Radius der Zone aus,
+    damit der Ring wirklich draussen an ihr anliegt (kartenradius).
 
     Ohne Entfernung - eine Flankenmeldung ohne Koordinaten - bleibt nur
     die Zone. Dann ist «quartier» das Beste, was zu haben ist: näher
@@ -277,12 +287,16 @@ def karte_faellig(zustand: str, entfernung: Any, war_weit: bool) -> bool | None:
     if not war_weit:
         return False
     if isinstance(entfernung, (int, float)) and not isinstance(entfernung, bool):
-        return float(entfernung) <= KARTE_METER
+        return float(entfernung) <= nah
     return zustand == "quartier"
 
 
 def kartenstand(
-    zustand: str, entfernung: Any, war_weit: bool, laeuft: bool
+    zustand: str,
+    entfernung: Any,
+    war_weit: bool,
+    laeuft: bool,
+    nah: float = KARTE_METER,
 ) -> bool | None:
     """Soll die Karte jetzt liegen? (rein, testbar)
 
@@ -305,7 +319,7 @@ def kartenstand(
         return False
     if laeuft:
         return True
-    return karte_faellig(zustand, entfernung, war_weit)
+    return karte_faellig(zustand, entfernung, war_weit, nah)
 
 
 #: Wo steht, wer seit dem letzten Mal zuhause draussen war: [{user, weit}].
@@ -603,6 +617,8 @@ def _weg_stand(hub: Any, benutzer: set[str], laufend: set[str]) -> dict[str, boo
         for zone_id, entity_id in zones.items()
     }
     weit_rows = hub.data.get(WEIT_KEY)
+    # Aus dem Radius der Zone, nicht als nackte Zahl: siehe kartenradius.
+    nah = kartenradius(heimradius(getattr(geofence, "places", None)))
     stand: dict[str, bool] = {}
     for name in benutzer:
         zone_id = presence.zone_fuer(name, namen)
@@ -624,7 +640,7 @@ def _weg_stand(hub: Any, benutzer: set[str], laufend: set[str]) -> dict[str, boo
             weit_rows = weit_merken(weit_rows, name, weit)
             hub.data.set(WEIT_KEY, weit_rows)
         faellig = kartenstand(
-            zustand, entfernung, war_weit(weit_rows, name), name in laufend
+            zustand, entfernung, war_weit(weit_rows, name), name in laufend, nah
         )
         if faellig is None:
             continue
@@ -643,15 +659,17 @@ async def tuer_loop(hub: Any) -> None:
     versand = ApnsVersand(config)
     geofence = hub.integrations.get("geofence") if hub.integrations else None
     radius = heimradius(getattr(geofence, "places", None))
-    if not fenster_offen(radius):
-        log.warning(
-            "Live-Aktivität: Der Ort «zuhause» hat %.0f m Radius, die Karte "
-            "kommt aber erst ab %.0f m - so gilt man als zuhause, bevor sie "
-            "fällig wird, und sie kommt nie. Entweder den Radius kleiner "
-            "machen oder KARTE_METER grösser.",
-            radius,
-            KARTE_METER,
-        )
+    # Einmal beim Start hinschreiben, mit welchen Metern gerechnet wird.
+    # Es sind zwei Zahlen aus zwei Quellen, und wenn keine Karte kommt,
+    # ist das die erste Frage - vorher musste man sie aus dem Quelltext
+    # und der config.yaml zusammensuchen.
+    log.info(
+        "Live-Aktivität: Die Türkarte kommt ab %.0f m von der Hausmitte "
+        "(Zone «zuhause» %s + %.0f m).",
+        kartenradius(radius),
+        f"{radius:.0f} m" if radius is not None else "unbekannt",
+        KARTE_METER,
+    )
     while True:
         await asyncio.sleep(TAKT_SEKUNDEN)
         try:

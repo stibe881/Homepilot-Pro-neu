@@ -21,6 +21,14 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   drei Kilometer vor dem Haus, sondern hundert Meter davor - der
   Türöffner nützt in dem Moment, in dem man aussteigt, nicht auf dem
   halben Heimweg.
+- **Und der Ring liegt jetzt vor der Zone, nicht in ihr.** Mit den
+  hundert Metern kam gar keine Karte mehr: Die Entfernung misst bis zur
+  Mitte des Ortes «zuhause», und zuhause ist man ab dessen Radius - bei
+  150 m Radius war der Ring dazwischen leer, man galt als zuhause, bevor
+  die Karte fällig wurde. Falsch eingetragen war dabei nichts, es waren
+  zwei Zahlen, die nichts voneinander wussten. Jetzt legt sich der Ring
+  immer aussen an die Zone an, und der Hub schreibt beim Start hin, mit
+  welchen Metern er rechnet.
 - **«Öffnen ohne Entsperren» tut jetzt, was es sagt.** Der Schalter war
   gesetzt, und das Telefon verlangte beim Tippen trotzdem Face ID. Der
   Grund steckte in einem Wort im Widget: Nur ein LiveActivityIntent

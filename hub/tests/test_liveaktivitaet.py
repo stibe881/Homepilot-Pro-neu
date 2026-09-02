@@ -368,29 +368,41 @@ def test_eine_kurze_fahrt_bekommt_ihre_karte():
     assert len(starten) == 1
 
 
-class TestFensterOffen:
-    """Zwischen «zuhause» und «da» muss ein Ring übrig bleiben.
+class TestKartenradius:
+    """Der Ring liegt aussen an der Zone «zuhause» an, nicht in ihr.
 
-    Die Entfernung misst bis zur Mitte des Ortes, zuhause ist man ab
-    seinem Radius. Ist der Radius grösser als der Umkreis der Karte,
-    gilt man als zuhause, bevor sie fällig wird - sie käme nie, und
-    niemand sähe, warum.
+    Der gemeldete Fall: Nach der Umstellung auf hundert Meter kam gar
+    keine Karte mehr. Die Entfernung misst bis zur Mitte des Ortes,
+    zuhause ist man ab seinem Radius - bei 150 m Radius und 100 m
+    Schwelle war der Ring dazwischen leer, und man war zuhause, bevor
+    die Karte fällig wurde. Falsch eingetragen war dabei nichts.
     """
 
-    def test_ein_enger_ort_laesst_platz(self) -> None:
-        from homepilot.core.liveaktivitaet import fenster_offen
+    def test_der_ring_liegt_vor_der_zone(self) -> None:
+        from homepilot.core.liveaktivitaet import kartenradius
 
-        assert fenster_offen(50.0, nah=100.0) is True
+        assert kartenradius(150.0, nah=100.0) == 250.0
+        assert kartenradius(50.0, nah=100.0) == 150.0
 
-    def test_ein_weiter_ort_drueckt_das_fenster_zu(self) -> None:
-        from homepilot.core.liveaktivitaet import fenster_offen
+    def test_ohne_zuhause_bleibt_die_nackte_zahl(self) -> None:
+        from homepilot.core.liveaktivitaet import kartenradius
 
-        assert fenster_offen(150.0, nah=100.0) is False
+        assert kartenradius(None, nah=100.0) == 100.0
 
-    def test_ohne_ort_gibt_es_nichts_zu_warnen(self) -> None:
-        from homepilot.core.liveaktivitaet import fenster_offen, heimradius
+    def test_der_radius_kommt_vom_ort_zuhause(self) -> None:
+        from homepilot.core.liveaktivitaet import heimradius
 
-        assert fenster_offen(None) is True
         assert heimradius([]) is None
         assert heimradius([{"id": "home", "radius": 80}]) == 80.0
         assert heimradius([{"id": "arbeit", "radius": 80}]) is None
+        # Ein Ort ohne brauchbaren Radius soll nicht die Runde umwerfen.
+        assert heimradius([{"id": "home"}]) is None
+
+    def test_ein_weiter_ort_hat_trotzdem_ein_fenster(self) -> None:
+        """Die Probe aufs Ganze: 150 m Zone, Ankunft auf 200 m."""
+        from homepilot.core.liveaktivitaet import kartenradius
+
+        nah = kartenradius(150.0, nah=100.0)
+        assert karte_faellig("away", 200, True, nah) is True
+        # Und weiter draussen weiterhin nicht.
+        assert karte_faellig("away", 900, True, nah) is False
