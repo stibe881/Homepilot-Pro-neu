@@ -43,4 +43,32 @@ describe('workingAppliances', () => {
   it('zählt ein stilles Gerät nicht mit', () => {
     expect(workingAppliances([geraet({ state: { state: 'idle', minutes_left: 5 } }) ])).toEqual([]);
   });
+
+  it('nimmt an der Messsteckdose erst richtige Arbeit als «läuft»', () => {
+    const steckdose = (power: number) =>
+      geraet({
+        id: 'homematic.tumbler',
+        name: 'Tumbler',
+        kind: 'switch',
+        state: { state: 'on', power },
+      });
+    // Der gemeldete Fall: fertig, Display wach, 9 W - und die Startseite
+    // sagte trotzdem dauerhaft «Tumbler läuft».
+    expect(workingAppliances([steckdose(9)])).toEqual([]);
+    const [lauft] = workingAppliances([steckdose(320)]);
+    expect(lauft.note).toBe('320 W');
+  });
+
+  it('zählt fremde Steckdosen nicht, auch wenn sie ziehen', () => {
+    expect(
+      workingAppliances([
+        geraet({
+          id: 'homematic.tv',
+          name: 'Fernseher',
+          kind: 'switch',
+          state: { state: 'on', power: 180 },
+        }),
+      ])
+    ).toEqual([]);
+  });
 });

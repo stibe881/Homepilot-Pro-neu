@@ -103,8 +103,16 @@ export function applianceLine(
 /** Geräte an einer Messsteckdose, die zum Haushalt zählen. */
 const APPLIANCE_NAME = /tumbler|trockner|wasch|geschirr|sp(ü|ue)lmaschine/i;
 
-/** Ab dieser Leistung gilt ein Gerät an der Steckdose als «arbeitet». */
-const WORKING_WATTS = 5;
+/** Ab dieser Leistung gilt ein Gerät an der Steckdose als «arbeitet».
+ *
+ * Nicht 5: Der Tumbler zieht fertig, mit wachem Display, 9 W - und stand
+ * damit dauerhaft als «läuft» auf der Startseite. Richtige Arbeit heisst
+ * bei Tumbler, Waschmaschine und Geschirrspüler hunderte Watt; 20 lässt
+ * dem Standby Luft nach oben und der Arbeit reichlich nach unten. Sinkt
+ * eine Waschmaschine beim Einweichen kurz darunter, verschwindet die
+ * Zeile für ein paar Minuten - das ist der billigere Irrtum als ein
+ * Gerät, das nie fertig wird. */
+const WORKING_WATTS = 20;
 
 export interface Working {
   entity: Entity;

@@ -9,6 +9,12 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Behoben**
 
+- **Der Tumbler «läuft» nicht mehr ewig.** An der Messsteckdose galt
+  ein Gerät ab 5 W als arbeitend - der fertige Tumbler zieht mit
+  wachem Display aber 9 W, und die Startseite meldete dauerhaft
+  «Tumbler läuft · 9 W». Die Schwelle liegt jetzt bei 20 W: richtige
+  Arbeit heisst bei Tumbler, Waschmaschine und Geschirrspüler
+  hunderte Watt, und der Standby bleibt sauber darunter.
 - **Zwei Türkarten samt Meldung beim Heimkommen - die letzte alte
   Zeile ist weg.** Der Namens-Abgleich der Telefon-Anmeldung stoppte
   nur *neue* Doppel; Zeilen aus Fassungen vor den Gerätenamen blieben
