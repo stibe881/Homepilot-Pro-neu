@@ -27,12 +27,23 @@
         "buildType": "apk"
       },
       "channel": "production"
+    },
+    "play": {
+      "extends": "production",
+      "android": {
+        "buildType": "app-bundle"
+      }
     }
   },
   "submit": {
     "production": {
       "ios": {
         "ascAppId": "6802801449"
+      }
+    },
+    "play": {
+      "android": {
+        "track": "internal"
       }
     }
   }

@@ -573,7 +573,7 @@ const STAGE_LABEL: Record<string, string> = {
   web: 'Web-Fassung bauen',
   build: 'Abbild bauen',
   built: 'Abbild fertig',
-  ios: 'iOS-Build an EAS übergeben',
+  ios: 'App-Builds an EAS übergeben',
   deploy: 'Ausrollen anstossen',
   deploy_wait: 'Auf Wechsel warten',
   manual: 'Bereit – von Hand ausrollen',
@@ -1006,7 +1006,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
       } else {
         setNote(
           ios
-            ? 'Angestossen. Der Host baut den Hub, danach geht der iOS-Build an EAS – TestFlight meldet sich.'
+            ? 'Angestossen. Der Host baut den Hub, danach gehen die App-Builds an EAS – TestFlight und die Play Console melden sich.'
             : 'Angestossen. Der Host baut jetzt – das dauert ein paar Minuten.'
         );
       }
@@ -1037,9 +1037,9 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
           <Text style={styles.updateAskTitle}>Update wirklich starten?</Text>
           <Text style={styles.updateAskText}>
             Der Host holt den neusten Stand, baut den Hub neu und startet ihn – das dauert
-            ein paar Minuten, die App ist dabei kurz getrennt. «Hub + iOS-Build» reicht die
-            App zusätzlich über EAS bei App Store Connect ein; das braucht es nur, wenn sich
-            an der App selbst etwas geändert hat.
+            ein paar Minuten, die App ist dabei kurz getrennt. «Hub + App-Builds» reicht die
+            App zusätzlich über EAS bei App Store Connect und der Google Play Console ein;
+            das braucht es nur, wenn sich an der App selbst etwas geändert hat.
           </Text>
           <View style={styles.updateAskRow}>
             <Pressable
@@ -1066,7 +1066,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
               ]}
             >
               <Text style={[styles.updateAskButtonText, { color: '#FFFFFF' }]}>
-                Hub + iOS-Build
+                Hub + App-Builds
               </Text>
             </Pressable>
           </View>

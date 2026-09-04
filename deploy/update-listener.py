@@ -123,6 +123,9 @@ _STAGE_MARKERS = (
     ("Baue das Abbild neu", "build"),
     ("alte Schichten aufgeräumt", "built"),
     ("Stosse den iOS-Build an", "ios"),
+    # Der Android-Build folgt direkt auf den iOS-Build und gehört zur
+    # selben Phase - die App zeigt «App-Builds an EAS übergeben».
+    ("Stosse den Android-Build an", "ios"),
     ("Löse den Portainer-Webhook aus", "deploy"),
     ("Warte auf den Wechsel", "deploy_wait"),
     ("Jetzt in Portainer", "manual"),

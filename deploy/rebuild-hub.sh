@@ -42,7 +42,7 @@
 #   Web-Fassung           expo export, atomar nach web_root getauscht.
 #   App-Abhängigkeiten    Ein Abbild mit node_modules, gecacht über den
 #                         Hash von package-lock.json.
-#   iOS-Build             Nur mit HOMEPILOT_IOS_BUILD=1; EAS baut, Apple
+#   App-Builds            Nur mit HOMEPILOT_IOS_BUILD=1; EAS baut, Apple
 #                         bekommt ihn direkt.
 #
 # Zwei Regeln fürs Ändern: shellcheck muss sauber bleiben (läuft in der
@@ -373,7 +373,7 @@ RUNNING_COMMIT=$(docker exec "$CONTAINER" printenv HOMEPILOT_COMMIT 2>/dev/null 
 if [ -n "$RUNNING_COMMIT" ] && [ "$RUNNING_COMMIT" = "$COMMIT" ]; then
   if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
     echo "→ Der Hub läuft bereits mit Stand $COMMIT - dieser Lauf gilt vor"
-    echo "  allem dem iOS-Build."
+    echo "  allem den App-Builds (iOS und Android)."
   else
     echo "⚠ Der Hub läuft bereits mit Stand $COMMIT - auf GitHub liegt nichts"
     echo "  Neueres. Gebaut wird trotzdem; wechselt Portainer den Container"
@@ -438,7 +438,17 @@ sed -i -E \
   -e "s/(\"buildNumber\"[[:space:]]*:[[:space:]]*\")[0-9]+(\")/\1${BUILD_NUMMER}\2/" \
   -e "s/(\"versionCode\"[[:space:]]*:[[:space:]]*)[0-9]+/\1${BUILD_NUMMER}/" \
   "$WORKDIR/app/app.json"
-echo "→ Build-Nummer für Apple: ${BUILD_NUMMER}"
+echo "→ Build-Nummer für Apple und Google Play: ${BUILD_NUMMER}"
+
+# Die Firebase-Zugangsdatei für Android-Push (docs/android.md). Sie steht
+# in der .gitignore und fehlt deshalb in jedem frischen Klon - liegt sie
+# auf dem Host, wandert sie hier in den Bau-Kontext, BEVOR das
+# App-Abbild entsteht. Ohne sie baut die App trotzdem, nur Push bleibt
+# auf Android stumm.
+if [ -f /opt/homepilot/google-services.json ]; then
+  cp /opt/homepilot/google-services.json "$WORKDIR/app/google-services.json"
+  echo "→ google-services.json vom Host übernommen (Android-Push)."
+fi
 
 DEPS_IMAGE="homepilot-appdeps"
 WEB_IMAGE="homepilot-webdist"
@@ -718,7 +728,71 @@ if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
   fi
 fi
 
-# Erst jetzt aufräumen: Der iOS-Block oben braucht $WORKDIR/app noch.
+# ── Optional: Android-Build anstossen ───────────────────────────────────
+#
+# Derselbe Knopf wie für iOS: «Hub + App-Builds» in der App setzt
+# HOMEPILOT_IOS_BUILD=1, und seither gehört Android dazu - ein Haushalt
+# mit beiden Telefonsorten will beide Fassungen im selben Zug. Wer eine
+# Plattform einzeln will, überstimmt mit HOMEPILOT_ANDROID_BUILD=0
+# (oder =1 ohne iOS) in /opt/homepilot/github-credentials.env.
+#
+# Gebaut wird das Profil «play» (eas.json): ein App-Bundle statt der
+# APK des Produktionsprofils, denn die Play Console nimmt nur .aab an.
+# --auto-submit reicht es dort ein (Spur «internal») - dafür muss
+# einmalig ein Google-Dienstkonto-Schlüssel mit Play-Zugriff bei EAS
+# liegen, und die allererste Fassung verlangt Google von Hand
+# hochgeladen (beides: docs/android.md).
+HOMEPILOT_ANDROID_BUILD="${HOMEPILOT_ANDROID_BUILD:-${HOMEPILOT_IOS_BUILD:-0}}"
+if [ "${HOMEPILOT_ANDROID_BUILD}" = "1" ]; then
+  EXPO_TOKEN="${EXPO_TOKEN:-}"; EXPO_TOKEN="${EXPO_TOKEN%$'\r'}"
+  if [ -z "$EXPO_TOKEN" ]; then
+    echo "⚠ Android-Build gewünscht, aber EXPO_TOKEN fehlt in $CREDENTIALS_FILE."
+    echo "  Token erzeugen auf expo.dev → Account settings → Access tokens."
+  else
+    echo "→ Stosse den Android-Build an (EAS baut, Google Play bekommt ihn) …"
+    ANDROID_LOG=$(mktemp)
+    if app_abbild && docker run --rm -e EXPO_TOKEN="$EXPO_TOKEN" \
+        -e EAS_NO_VCS=1 \
+        "$DEPS_IMAGE" \
+        npx eas-cli@latest build --platform android --profile play \
+          --auto-submit --non-interactive --no-wait 2>&1 |
+        fremde_ausgabe | tee "$ANDROID_LOG"
+      [ "${PIPESTATUS[0]}" = "0" ]; then
+      echo "✓ Android-Build läuft auf den EAS-Servern - er geht danach an"
+      echo "  die Play Console (interne Testspur)."
+    else
+      echo "⚠ Android-Build liess sich nicht anstossen - Hub-Update und"
+      echo "  iOS-Build sind davon unberührt."
+      sed 's/^| //' "$ANDROID_LOG" | grep -iE "error|failed|cannot|missing|denied" \
+        | tail -1 | cut -c1-90 | sed 's/^/  /'
+      # Die zwei einmaligen Stolpersteine haben Lösungen, die nicht im
+      # Log stehen - wer hier liest, soll wissen, wohin.
+      if grep -qiE "keystore|credentials" "$ANDROID_LOG"; then
+        echo "  Vermutlich fehlt der Android-Signierschlüssel bei EAS."
+        echo "  Einmalig einen Build mit Rückfragen anstossen - EAS legt"
+        echo "  ihn dabei an und verwahrt ihn:"
+        echo "    sudo docker run --rm -it -e EXPO_TOKEN=<Token> \\"
+        echo "      homepilot-appdeps npx eas-cli@latest build \\"
+        echo "      --platform android --profile play"
+      elif grep -qiE "service account|serviceAccount|google play|submission" "$ANDROID_LOG"; then
+        echo "  Vermutlich fehlt der Dienstkonto-Schlüssel fürs Einreichen."
+        echo "  Einmalig: Play Console → API-Zugriff → Dienstkonto anlegen,"
+        echo "  Schlüssel als JSON laden, dann hochladen mit:"
+        echo "    sudo docker run --rm -it -e EXPO_TOKEN=<Token> \\"
+        echo "      homepilot-appdeps npx eas-cli@latest credentials \\"
+        echo "      --platform android"
+        echo "  Und: Die allererste Fassung verlangt Google von Hand in der"
+        echo "  Play Console hochgeladen - danach reicht der Knopf."
+      else
+        echo "  Details: expo.dev/accounts/stibe88."
+      fi
+    fi
+    rm -f "$ANDROID_LOG"
+  fi
+fi
+
+# Erst jetzt aufräumen: Die App-Build-Blöcke oben brauchen $WORKDIR/app
+# noch.
 rm -rf "$WORKDIR"
 
 # Die Hilfsabbilder sind Zwischenschritte, keine Ergebnisse - die Marken
@@ -943,7 +1017,8 @@ if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
     # als Fehlermeldung, und der angestossene iOS-Build ging darin unter.
     echo "✓ Fertig - der Hub läuft bereits mit dem neuesten Stand ($COMMIT)."
     if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
-      echo "  Der iOS-Build wurde angestossen - TestFlight meldet sich."
+      echo "  Die App-Builds wurden angestossen - TestFlight und die Play"
+      echo "  Console melden sich."
     fi
     exit 0
   else

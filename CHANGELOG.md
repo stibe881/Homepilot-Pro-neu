@@ -7,6 +7,18 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 ## 2026-09-01
 
+**Neu**
+
+- **Der Update-Knopf baut jetzt auch Android - und reicht bei Google
+  Play ein.** «Hub + iOS-Build» heisst neu «Hub + App-Builds»: Derselbe
+  Klick stösst nach dem iOS-Build einen Android-Build an (Profil
+  `play`, ein App-Bundle - die Play Console nimmt nur `.aab`) und
+  reicht ihn per EAS auf der internen Testspur ein. Einzeln steuerbar
+  über `HOMEPILOT_ANDROID_BUILD` in der Zugangsdatei. Zwei einmalige
+  Schritte (Signierschlüssel, Play-Dienstkonto samt erster Fassung von
+  Hand) stehen in `docs/android.md`; liegt eine `google-services.json`
+  unter `/opt/homepilot`, nimmt der Bau sie für Android-Push mit.
+
 **Behoben**
 
 - **Die Waschküchentüre bürgt nicht mehr für den Geschirrspüler.** Die

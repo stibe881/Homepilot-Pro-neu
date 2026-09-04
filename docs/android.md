@@ -95,8 +95,35 @@ wird auf Android schlicht ignoriert. NFC-Marken funktionieren anders
 öffnet die App genauso). Haptik gibt es, sie fühlt sich je nach Gerät
 anders an.
 
-Der Update-Knopf im Haus stösst bisher nur den **iOS**-Build an
-(`HOMEPILOT_IOS_BUILD=1` in `deploy/rebuild-hub.sh`); der Android-Build
-läuft über den Befehl oben von Hand. Das ist Absicht, solange genau ein
-Android-Gerät im Haushalt ist – ein zweiter Knopf für einen Build, den
-man zweimal im Jahr braucht, wäre mehr Pflege als Nutzen.
+## Über den Update-Knopf in die Play Console
+
+Der Update-Knopf («Hub + App-Builds», früher «Hub + iOS-Build») stösst
+seit September 2026 **beide** Builds an: iOS wie gehabt, dazu Android
+über das Profil `play` (`app/eas.json`) - ein **App-Bundle** statt der
+APK, denn die Play Console nimmt nur `.aab` an. `--auto-submit` reicht
+es dort auf der **internen Testspur** ein (Spur ändern:
+`submit.play.android.track` in `eas.json`). Wer eine Plattform einzeln
+will, setzt `HOMEPILOT_ANDROID_BUILD=0` (oder `=1` ohne iOS) in
+`/opt/homepilot/github-credentials.env`.
+
+Das Profil `production` bleibt, was es war: die direkt installierbare
+APK für Telefone ohne Play-Weg.
+
+Zwei einmalige Schritte, bevor der Knopf durchläuft:
+
+1. **Signierschlüssel**: Beim allerersten Android-Build legt EAS ihn
+   nur mit Rückfragen an - einmal von Hand bauen (Befehl oben, mit
+   `--profile play`), danach ist er bei EAS verwahrt.
+2. **Play-Zugang fürs Einreichen**: In der Play Console unter
+   *API-Zugriff* ein Dienstkonto anlegen (Rolle: Releases verwalten),
+   den JSON-Schlüssel laden und bei EAS hinterlegen:
+   `npx eas-cli@latest credentials --platform android` → *Google
+   Service Account Key* (für Submissions). Und: Die **allererste**
+   Fassung verlangt Google von Hand in der Play Console hochgeladen -
+   erst danach darf ein Dienstkonto einreichen.
+
+Die `google-services.json` (Firebase, siehe oben) fehlt in jedem
+frischen Klon, weil sie in der `.gitignore` steht. Liegt sie als
+`/opt/homepilot/google-services.json` auf dem Host, kopiert
+`deploy/rebuild-hub.sh` sie vor dem Bauen in den Bau-Kontext - ohne
+sie baut die App trotzdem, nur Push bleibt auf Android stumm.
