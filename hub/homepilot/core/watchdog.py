@@ -1225,19 +1225,29 @@ class Watchdog:
         # Erst die Türe: Ging sie seit der letzten Runde auf, war jemand
         # unten und hat die volle Maschine gesehen. Das gilt für alle
         # Geräte in der Waschküche zugleich – wer die Wäsche in den
-        # Tumbler umlädt, hat beide vor sich.
+        # Tumbler umlädt, hat beide vor sich. Aber NUR für die: Der
+        # Geschirrspüler steht in der Küche, und die Waschküchentüre
+        # sagt nichts darüber, ob ihn jemand ausgeräumt hat
+        # (waschkueche.tuer_buergt).
         tuer = waschkueche.tuer(entities, self._waschkuechentuer())
+        tuer_raum = getattr(tuer, "room", None) if tuer is not None else None
         offen = waschkueche.ist_offen(tuer)
         wer_da_war = offen and not self._wk_offen
         self._wk_offen = offen
         if wer_da_war:
-            self._finished_at.clear()
-            self._gemahnt.clear()
-            self._gemahnt_at.clear()
-            # Und die Übernahmen: Wer unten war, hat die Sache erledigt -
-            # «Bine räumt aus» am Gerät stehen zu lassen, nachdem sie
-            # ausgeräumt hat, wäre eine Auskunft von gestern.
-            await self._uebernahmen_loeschen()
+            for entity in entities:
+                if entity.kind != "appliance" or not waschkueche.tuer_buergt(
+                    entity, tuer_raum
+                ):
+                    continue
+                self._finished_at.pop(entity.id, None)
+                self._gemahnt.pop(entity.id, None)
+                self._gemahnt_at.pop(entity.id, None)
+                # Und die Übernahme: Wer unten war, hat die Sache
+                # erledigt - «Bine räumt aus» am Gerät stehen zu lassen,
+                # nachdem sie ausgeräumt hat, wäre eine Auskunft von
+                # gestern.
+                await self._uebernahme_loeschen(entity.id)
 
         for entity in entities:
             if entity.kind != "appliance":
@@ -1305,7 +1315,11 @@ class Watchdog:
                 gemahnt,
                 now,
                 params["hours"],
-                nachhaken=tuer is not None,
+                # Nachgehakt wird nur, wo die Türe das Ende der Mahnungen
+                # melden kann - beim Geschirrspüler in der Küche bleibt
+                # es bei der einen Nachricht, wie ganz ohne Türkontakt.
+                nachhaken=tuer is not None
+                and waschkueche.tuer_buergt(entity, tuer_raum),
                 zuletzt=self._gemahnt_at.get(entity.id),
                 ruhe_von=params.get("quiet_from", waschkueche.RUHE_VON),
                 ruhe_bis=params.get("quiet_to", waschkueche.RUHE_BIS),
@@ -1489,15 +1503,6 @@ class Watchdog:
             {key: wert for key, wert in alle.items() if key != entity_id}
         )
         await self._claim_state(entity_id, None)
-
-    async def _uebernahmen_loeschen(self) -> None:
-        """Alle Übernahmen zurücknehmen - jemand war in der Waschküche."""
-        alle = self._uebernahmen()
-        if not alle:
-            return
-        self._uebernahmen_speichern({})
-        for entity_id in alle:
-            await self._claim_state(entity_id, None)
 
     async def _claim_state(self, entity_id: str, name: str | None) -> None:
         """Den Namen ans Gerät schreiben - oder ihn wieder wegnehmen.

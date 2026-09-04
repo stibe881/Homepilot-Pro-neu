@@ -483,3 +483,70 @@ async def test_nichts_zu_uebernehmen_ist_kein_fehler():
         assert hub.data.get("laundry_claims") == []
     finally:
         await hub.stop()
+
+
+# ── Wofür die Türe bürgt ─────────────────────────────────────────────────
+
+
+def geraet(label, raum=None, eid="vzug.geraet"):
+    return type(
+        "E",
+        (),
+        {
+            "id": eid,
+            "name": label,
+            "label": label,
+            "kind": "appliance",
+            "integration": "vzug",
+            "available": True,
+            "room": raum,
+            "state": {"state": "running"},
+        },
+    )()
+
+
+def test_tuer_buergt_fuer_waesche_nicht_fuer_die_kueche():
+    """Die Waschküchentüre weiss nichts vom Geschirrspüler in der Küche."""
+    assert waschkueche.tuer_buergt(maschine()) is True
+    assert waschkueche.tuer_buergt(geraet("Tumbler")) is True
+    assert waschkueche.tuer_buergt(geraet("Geschirrspüler", "Küche")) is False
+    # Auch auf Schweizerdeutsch ist er kein Wäschegerät, obwohl «wasch»
+    # im Namen steckt.
+    assert waschkueche.tuer_buergt(geraet("Abwaschmaschine")) is False
+
+
+def test_der_raum_sticht_den_namen():
+    # Wer wirklich in der Waschküche steht, bekommt die Bürgschaft über
+    # den Raum - egal, wie er heisst.
+    assert waschkueche.tuer_buergt(geraet("Steamer", "Waschküche")) is True
+    # Oder über den Raum, in dem auch die Türe hängt.
+    assert waschkueche.tuer_buergt(geraet("Steamer", "Keller"), "Keller") is True
+    # Ohne Raum und ohne sprechenden Namen bürgt sie nicht: Lieber ein
+    # Nachhaken zu wenig als eines, das eine fremde Türe abstellt.
+    assert waschkueche.tuer_buergt(geraet("Steamer")) is False
+
+
+async def test_die_waschkuechentuere_beendet_den_geschirrspueler_nicht(tagsueber):
+    """Der gemeldete Fall: Die Türe der Waschküche galt auch für den
+    Geschirrspüler in der Küche als «jemand hat nachgesehen» - seine
+    Mahnung verstummte, obwohl ihn dort niemand gesehen haben kann."""
+    sent: list[str] = []
+    wm = maschine()
+    gs = geraet("Geschirrspüler", "Küche", eid="vzug.geschirrspueler")
+    tuere = kontakt("z.wk", "Waschküche", raum="Waschküche")
+    hub = await _hub_mit([wm, gs, tuere], sent)
+    try:
+        await hub.watchdog.check()
+        wm.state = {"state": "idle"}
+        gs.state = {"state": "idle"}
+        await hub.watchdog.check()
+        zeit_vor(hub, "vzug.waschmaschine", 2 * 3600)
+        zeit_vor(hub, "vzug.geschirrspueler", 2 * 3600)
+        # Jemand geht in die Waschküche: Für die Waschmaschine ist die
+        # Sache damit erledigt - der Geschirrspüler ist immer noch voll,
+        # seine Mahnung geht raus.
+        tuere.state = {"device_class": "door", "state": "on"}
+        await hub.watchdog.check()
+        assert [t for t in sent if "voll" in t] == ["Geschirrspüler ist noch voll"]
+    finally:
+        await hub.stop()

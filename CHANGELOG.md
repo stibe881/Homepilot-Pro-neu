@@ -9,6 +9,13 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Behoben**
 
+- **Die Waschküchentüre bürgt nicht mehr für den Geschirrspüler.** Die
+  Erinnerung «Haushaltgerät noch voll» galt für ihn wie für
+  Waschmaschine und Tumbler: Wer die Waschküchentüre öffnete, hatte
+  angeblich auch beim Geschirrspüler nachgesehen - der steht aber in
+  der Küche. Jetzt entscheidet Raum oder Name, für welche Geräte die
+  Türe sprechen kann; für den Geschirrspüler bleibt es bei der einen
+  Nachricht je Programmlauf, wie ganz ohne Türkontakt.
 - **Der Tumbler «läuft» nicht mehr ewig.** An der Messsteckdose galt
   ein Gerät ab 5 W als arbeitend - der fertige Tumbler zieht mit
   wachem Display aber 9 W, und die Startseite meldete dauerhaft

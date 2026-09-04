@@ -148,6 +148,44 @@ def ist_offen(entity: Any | None) -> bool:
     return str(entity.state.get("state") or "") == "on"
 
 
+#: Woran ein Wäschegerät zu erkennen ist - für die Frage, ob die
+#: Waschküchentüre für es bürgen kann.
+WAESCHE_WOERTER = ("wasch", "tumbler", "trockner", "dryer")
+
+#: ... und woran ein Küchengerät. Steht zuerst zur Prüfung an, denn
+#: «Abwaschmaschine» (der Geschirrspüler auf Schweizerdeutsch) enthält
+#: auch «wasch».
+KUECHEN_WOERTER = ("geschirr", "spül", "spuel", "abwasch", "dish")
+
+
+def tuer_buergt(entity: Any, tuer_raum: str | None = None) -> bool:
+    """Kann die Waschküchentüre für dieses Gerät bürgen? (rein, testbar)
+
+    Der gemeldete Fall: Der Geschirrspüler steht in der Küche, wurde
+    aber behandelt wie Waschmaschine und Tumbler - wer die
+    Waschküchentüre öffnete, galt auch für ihn als «hat nachgesehen»,
+    und seine Mahnung verstummte, obwohl ihn dort niemand gesehen haben
+    kann.
+
+    Erst der Raum, dann der Name: Steht das Gerät in einem Raum, der
+    nach Waschküche klingt, oder im selben Raum wie die Türe, bürgt
+    sie. Sonst entscheidet der Name - Küchenwörter (Geschirr, Spül-,
+    Abwasch-) heissen nein, Wäschewörter ja. Für ein Gerät ohne Raum
+    und ohne sprechenden Namen bürgt sie nicht: Lieber ein Nachhaken zu
+    wenig als eines, das eine fremde Türe abstellt.
+    """
+    raum = str(getattr(entity, "room", "") or "")
+    if raum:
+        if ist_waschkueche(raum):
+            return True
+        if tuer_raum and raum.casefold() == str(tuer_raum).casefold():
+            return True
+    tief = str(getattr(entity, "label", "") or "").casefold()
+    if any(wort in tief for wort in KUECHEN_WOERTER):
+        return False
+    return any(wort in tief for wort in WAESCHE_WOERTER)
+
+
 def ruhezeit(jetzt: float, von: float = RUHE_VON, bis: float = RUHE_BIS) -> bool:
     """Ist gerade Nacht? (rein, testbar)
 
