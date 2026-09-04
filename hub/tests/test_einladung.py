@@ -203,3 +203,26 @@ def test_eine_einladung_laesst_sich_zurueckziehen(client):
     assert client.get("/api/users/Bine/einladung", headers=auth("t-owner")).json()["open"]
     client.delete("/api/users/Bine/einladung", headers=auth("t-owner"))
     assert client.get(f"/einladung/{kennung}").status_code == 410
+
+
+def test_der_zugang_traegt_die_aussenadresse(tmp_path):
+    """Der gemeldete Fall: Maja löste die Einladung unterwegs ein und
+    bekam als Zugang die Haus-IP - «so wird man von extern keinen
+    Zugriff haben». Mit push.public_url gehört die Aussenadresse in die
+    Zugangsdaten, dieselbe wie im Einladungs-Link."""
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        CONFIG.format(data_file=tmp_path / "data.json")
+        + 'push: { public_url: "https://haus.example.ch" }\n'
+    )
+    hub = Hub(load_config(config_file))
+    with TestClient(create_app(hub)) as client:
+        antwort = ausstellen(client)
+        assert antwort.json()["link"].startswith("https://haus.example.ch/einladung/")
+        kennung = antwort.json()["link"].rsplit("/", 1)[-1]
+        seite = client.post(f"/einladung/{kennung}", data={"password": "sommer2026"})
+        assert seite.status_code == 200
+        # html.escape macht aus den Anführungszeichen &quot; - geprüft
+        # wird deshalb die Adresse selbst.
+        assert "https://haus.example.ch" in seite.text
+        assert "127.0.0.1" not in seite.text

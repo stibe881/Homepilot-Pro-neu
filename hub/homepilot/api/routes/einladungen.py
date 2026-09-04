@@ -247,11 +247,15 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         sichern(einladung_module.ersetze(rows, zeile))
         log.warning("Einladung für %s eingelöst (von %s)", ziel.name, adresse)
 
-        from ...qr import setup_payload
+        from ...qr import setup_payload_fuer
 
-        nutzlast = setup_payload(
-            hub.config.api.host, hub.config.api.port, ziel.token, ziel.name
-        )
+        # Dieselbe Adresse wie im Einladungs-Link (basis): die
+        # Aussenadresse aus push.public_url, wenn es eine gibt. Vorher
+        # stand hier die Haus-IP aus der config - und ein Gast, der die
+        # Einladung unterwegs einlöst, bekam Zugangsdaten, mit denen er
+        # von aussen nie eine Verbindung aufbauen kann. Ohne public_url
+        # bleibt es bei der Haus-Adresse wie bisher.
+        nutzlast = setup_payload_fuer(basis(), ziel.token, ziel.name)
         return _seite(
             "HomePilot – Zugang",
             f"<h1>Willkommen, {html.escape(ziel.name)}</h1>"

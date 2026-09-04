@@ -9,6 +9,15 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Benutzer mit Initialpasswort anlegen.** In der Benutzerverwaltung
+  gibt es beim Anlegen das Feld «Initialpasswort (optional)». Damit
+  meldet sich die Person unter «Anmelden» mit ihrem **Namen** an - ganz
+  ohne E-Mail-Konto und ohne QR-Code - und muss beim ersten Mal ein
+  eigenes Passwort setzen: Das Initialpasswort kennt ja auch, wer es
+  vergeben hat. Der Verwalter kann es jederzeit neu setzen («Passwort
+  zurücksetzen»), dann gilt die Wechsel-Pflicht wieder. Gespeichert
+  wird nur ein Abdruck (wie beim Bereichs-Passwort), und in einen
+  Export wandert er nicht.
 - **Der Update-Knopf baut jetzt auch Android - und reicht bei Google
   Play ein.** «Hub + iOS-Build» heisst neu «Hub + App-Builds»: Derselbe
   Klick stösst nach dem iOS-Build einen Android-Build an (Profil
@@ -20,6 +29,12 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   unter `/opt/homepilot`, nimmt der Bau sie für Android-Push mit.
 
 **Behoben**
+
+- **Die Einladung gibt jetzt die Aussenadresse heraus.** Wer einen
+  Einladungs-Link unterwegs einlöste, bekam Zugangsdaten mit der
+  Haus-IP («http://10.10.…») - von extern nutzlos. Jetzt steht darin
+  dieselbe Adresse wie im Link selbst: die Aussenadresse aus
+  `push.public_url`, falls eingerichtet.
 
 - **Die Waschküchentüre bürgt nicht mehr für den Geschirrspüler.** Die
   Erinnerung «Haushaltgerät noch voll» galt für ihn wie für

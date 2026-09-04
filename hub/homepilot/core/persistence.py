@@ -153,7 +153,8 @@ def strip_users(users: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ohne = {
             key: value
             for key, value in user.items()
-            if key not in {"token", "password", "hash", "salt", "pin", "area_lock"}
+            if key
+            not in {"token", "password", "hash", "salt", "pin", "area_lock", "passwort"}
         }
         sauber.append(ohne)
     return sauber

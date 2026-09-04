@@ -18,6 +18,7 @@ from fastapi import (
 )
 
 from ...core import (
+    bereich,
     supabase_auth,
 )
 from ...core import throttle as throttle_module
@@ -25,7 +26,13 @@ from ...core.errors import HomePilotError
 from ...core.users import Capability
 from .. import invitepage
 from ..context import ApiContext
-from ..models import EmailRequest, LoginRequest, PasswordRequest, RecoverRequest
+from ..models import (
+    EmailRequest,
+    LoginRequest,
+    PasswordRequest,
+    PasswortWechselRequest,
+    RecoverRequest,
+)
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +62,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         service = str(config.get("service_key") or "")
         return supabase_auth.SupabaseAuth(url, anon, service)
 
+    def lokal_moeglich() -> bool:
+        """Gibt es Benutzer mit eigenem Passwort-Zugang beim Hub?"""
+        return any(user.passwort for user in hub.users.users)
+
     @app.get("/api/auth/config")
     async def auth_config() -> dict[str, Any]:
         """Was die Anmeldemaske anbieten darf – ohne Anmeldung abrufbar.
@@ -65,7 +76,9 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """
         service = auth_service()
         return {
-            "password_login": service is not None,
+            # Passwort-Anmeldung gibt es auf zwei Wegen: über Supabase
+            # (E-Mail) oder direkt beim Hub (Name + Initialpasswort).
+            "password_login": service is not None or lokal_moeglich(),
             "self_signup": False,
             "invite": service is not None and service.can_invite,
         }
@@ -74,7 +87,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     async def auth_login(body: LoginRequest, request: Request) -> dict[str, Any]:
         """Anmelden und eine Sitzung für dieses Gerät bekommen."""
         service = auth_service()
-        if service is None:
+        if service is None and not lokal_moeglich():
             raise HTTPException(
                 status_code=503,
                 detail="Anmeldung mit Passwort ist nicht eingerichtet.",
@@ -88,6 +101,46 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 status_code=429,
                 detail=f"Zu viele Fehlversuche. In {round(waiting)} Sekunden wieder.",
                 headers={"Retry-After": str(round(waiting))},
+            )
+
+        # Erst der Hub selbst: Wer ein Initialpasswort bekommen hat,
+        # meldet sich mit seinem Namen an - ganz ohne Supabase und ohne
+        # E-Mail. Das Feld heisst in der App «Name oder E-Mail».
+        eingabe = str(body.email or "").strip()
+        lokal = hub.users.by_name(eingabe) or hub.users.by_email(eingabe)
+        if lokal is not None and lokal.passwort:
+            if not bereich.matches(lokal.passwort, body.password):
+                throttle.failed(address)
+                log.warning("Passwort-Anmeldung für %s abgelehnt (%s)", lokal.name, address)
+                raise HTTPException(
+                    status_code=401, detail="Name oder Passwort stimmt nicht."
+                )
+            if not lokal.active():
+                raise HTTPException(
+                    status_code=403, detail=f"Der Zugang von '{lokal.name}' ist gesperrt."
+                )
+            throttle.succeeded(address)
+            token = hub.sessions.create(
+                lokal.name,
+                body.label or "Unbenanntes Gerät",
+                keep=lokal.shared,
+                email=lokal.email or "",
+            )
+            log.warning("%s hat sich mit Passwort angemeldet (%s)", lokal.name, address)
+            return {
+                "token": token,
+                "user": user_payload(lokal),
+                # Die App führt dann zuerst zum Passwort-Wechsel: Ein
+                # Initialpasswort kennt auch der Verwalter.
+                "must_change_password": bool(lokal.passwort_wechseln),
+            }
+        if service is None:
+            # Es gibt Passwort-Zugänge, nur nicht für diese Eingabe -
+            # dieselbe Auskunft wie bei einem falschen Passwort, damit
+            # sich Namen nicht durchprobieren lassen.
+            throttle.failed(address)
+            raise HTTPException(
+                status_code=401, detail="Name oder Passwort stimmt nicht."
             )
         try:
             session = await service.sign_in(body.email, body.password)
@@ -171,6 +224,49 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "ok": True,
             "message": "Passwort gesetzt. Du kannst dich jetzt in der App anmelden.",
         }
+
+    @app.post("/api/auth/passwort-wechsel")
+    async def auth_passwort_wechsel(
+        body: PasswortWechselRequest, request: Request
+    ) -> dict[str, Any]:
+        """Das eigene (Initial-)Passwort gegen ein neues tauschen.
+
+        Angemeldet, mit dem bisherigen Passwort als Nachweis: Die
+        Sitzung sagt nur, dass das Gerät hereindarf - wer das Telefon
+        entsperrt in der Hand hält, soll damit nicht das Passwort
+        eines anderen setzen können. Danach ist die Wechsel-Pflicht
+        des Initialpassworts erledigt.
+        """
+        user = current_user(request)
+        if not user.passwort:
+            raise HTTPException(
+                status_code=400,
+                detail="Für dieses Konto gibt es keinen Passwort-Zugang.",
+            )
+        address = throttle_module.client_address(request)
+        waiting = throttle.blocked_for(address)
+        if waiting > 0:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Zu viele Versuche. In {round(waiting)} Sekunden wieder.",
+                headers={"Retry-After": str(round(waiting))},
+            )
+        if len(body.new.strip()) < 8:
+            raise HTTPException(
+                status_code=400, detail="Das Passwort braucht mindestens acht Zeichen."
+            )
+        if not bereich.matches(user.passwort, body.old):
+            throttle.failed(address)
+            raise HTTPException(
+                status_code=403, detail="Das bisherige Passwort stimmt nicht."
+            )
+        throttle.succeeded(address)
+        try:
+            hub.users.passwort_setzen(user.name, body.new, wechseln=False)
+        except HomePilotError as err:
+            raise HTTPException(status_code=409, detail=str(err)) from err
+        log.warning("%s hat das eigene Passwort gewechselt (%s)", user.name, address)
+        return {"ok": True}
 
     @app.post("/api/auth/recover")
     async def auth_recover(body: RecoverRequest) -> dict[str, Any]:

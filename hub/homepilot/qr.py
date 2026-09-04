@@ -54,13 +54,23 @@ def local_ip() -> str:
         return "127.0.0.1"
 
 
-def setup_payload(host: str, port: int, token: str, name: str) -> str:
-    address = local_ip() if host in ("0.0.0.0", "::", "") else host
+def setup_payload_fuer(url: str, token: str, name: str) -> str:
+    """Die Zugangsdaten für «Verbinden» - mit fertiger Adresse (rein, testbar).
+
+    Für Stellen, die selbst wissen, unter welcher Adresse der Hub für den
+    Empfänger erreichbar ist - etwa die Einladungsseite, die einem Gast
+    ausser Haus die Aussenadresse geben muss, nicht die Haus-IP.
+    """
     return json.dumps(
-        {"url": f"http://{address}:{port}", "token": token, "name": name},
+        {"url": url.rstrip("/"), "token": token, "name": name},
         ensure_ascii=False,
         separators=(",", ":"),
     )
+
+
+def setup_payload(host: str, port: int, token: str, name: str) -> str:
+    address = local_ip() if host in ("0.0.0.0", "::", "") else host
+    return setup_payload_fuer(f"http://{address}:{port}", token, name)
 
 
 def render(text: str) -> str | None:

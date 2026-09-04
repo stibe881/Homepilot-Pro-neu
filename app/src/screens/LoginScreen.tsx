@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { HubSettings } from '../api/types';
 import { Card } from '../components/Card';
+import { AnmeldeModus, validate, wechselProblem } from '../lib/anmeldung';
 import { defaultHubUrl } from '../lib/origin';
 import { geraeteName } from '../lib/plattform';
 import { Colors, radius, type, useColors } from '../theme';
@@ -24,25 +25,7 @@ import { Colors, radius, type, useColors } from '../theme';
  * kennt weiterhin genau eine Adresse.
  */
 
-type Mode = 'login' | 'recover';
-
-/** Sieht das nach einer E-Mail-Adresse aus? (rein, testbar)
- *
- *  Bewusst grosszügig: Die richtige Prüfung macht ohnehin erst die
- *  Bestätigungs-E-Mail. Hier geht es nur darum, den Tippfehler zu fangen,
- *  bevor jemand auf eine Antwort wartet. */
-export function looksLikeEmail(value: string): boolean {
-  const trimmed = value.trim();
-  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(trimmed);
-}
-
-/** Was an der Eingabe noch fehlt – null heisst «kann abgeschickt werden». */
-export function validate(mode: Mode, email: string, password: string): string | null {
-  if (!looksLikeEmail(email)) return 'Bitte eine gültige E-Mail-Adresse eintragen.';
-  if (mode === 'recover') return null;
-  if (password.length < 8) return 'Das Passwort braucht mindestens acht Zeichen.';
-  return null;
-}
+type Mode = AnmeldeModus;
 
 export function LoginScreen({
   initial,
@@ -63,6 +46,12 @@ export function LoginScreen({
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Der erzwungene Wechsel nach einem Initialpasswort: Die Sitzung ist
+  // schon ausgestellt, aber gespeichert wird sie erst, wenn ein eigenes
+  // Passwort gesetzt ist - das Initialpasswort kennt auch der Verwalter.
+  const [neu, setNeu] = useState('');
+  const [neuWiederholt, setNeuWiederholt] = useState('');
+  const [wartend, setWartend] = useState<HubSettings | null>(null);
   // null = noch nicht gefragt. Ohne eingerichteten Anmeldedienst hat die
   // Maske keinen Sinn und die App führt gleich zum Token-Weg.
   const [available, setAvailable] = useState<boolean | null>(null);
@@ -113,12 +102,21 @@ export function LoginScreen({
       if (!response.ok) throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
 
       if (mode === 'login') {
-        onSave({
+        const settings = {
           ...(initial ?? {}),
           url: base,
           token: body.token,
           name: body.user?.name ?? initial?.name ?? '',
-        } as HubSettings);
+        } as HubSettings;
+        if (body.must_change_password) {
+          // Erst das eigene Passwort, dann hinein: Das Initialpasswort
+          // kennt auch der Verwalter - drinnen ist man erst mit einem
+          // eigenen.
+          setWartend(settings);
+          setMode('wechsel');
+          return;
+        }
+        onSave(settings);
         return;
       }
       setNote(body.message ?? 'Erledigt.');
@@ -129,26 +127,105 @@ export function LoginScreen({
     }
   };
 
-  const title = mode === 'login' ? 'Anmelden' : 'Passwort vergessen';
+  const wechseln = async () => {
+    if (!wartend) return;
+    const problem = wechselProblem(password, neu, neuWiederholt);
+    if (problem) {
+      setError(problem);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(`${wartend.url}/api/auth/passwort-wechsel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${wartend.token}`,
+        },
+        body: JSON.stringify({ old: password, new: neu }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
+      onSave(wartend);
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const title =
+    mode === 'login'
+      ? 'Anmelden'
+      : mode === 'wechsel'
+        ? 'Eigenes Passwort setzen'
+        : 'Passwort vergessen';
 
   return (
     <View style={styles.screen}>
       <Card style={styles.card}>
         <Text style={styles.title}>{title}</Text>
 
-        <Text style={styles.label}>Adresse des Hubs</Text>
-        <TextInput
-          style={styles.input}
-          value={url}
-          onChangeText={setUrl}
-          placeholder="https://homepilot.example.ch"
-          placeholderTextColor={colors.inkFaint}
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="url"
-        />
+        {mode !== 'wechsel' ? (
+          <>
+            <Text style={styles.label}>Adresse des Hubs</Text>
+            <TextInput
+              style={styles.input}
+              value={url}
+              onChangeText={setUrl}
+              placeholder="https://homepilot.example.ch"
+              placeholderTextColor={colors.inkFaint}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+            />
+          </>
+        ) : null}
 
-        {available === false ? (
+        {mode === 'wechsel' ? (
+          <>
+            <Text style={styles.hint}>
+              Dein Zugang wurde mit einem Initialpasswort angelegt – das
+              kennt auch, wer dich eingeladen hat. Wähle jetzt ein eigenes;
+              erst damit geht es hinein.
+            </Text>
+            <Text style={styles.label}>Neues Passwort</Text>
+            <TextInput
+              style={styles.input}
+              value={neu}
+              onChangeText={setNeu}
+              placeholderTextColor={colors.inkFaint}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              textContentType="newPassword"
+            />
+            <Text style={styles.label}>Noch einmal</Text>
+            <TextInput
+              style={styles.input}
+              value={neuWiederholt}
+              onChangeText={setNeuWiederholt}
+              placeholderTextColor={colors.inkFaint}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              textContentType="newPassword"
+            />
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+            <Pressable
+              onPress={wechseln}
+              disabled={busy}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.primary, (pressed || busy) && { opacity: 0.7 }]}
+            >
+              <Ionicons name="key-outline" size={18} color="#FFFFFF" />
+              <Text style={styles.primaryText}>
+                {busy ? 'Einen Moment …' : 'Passwort setzen'}
+              </Text>
+            </Pressable>
+          </>
+        ) : available === false ? (
           <>
             <Text style={styles.hint}>
               Dieser Hub bietet keine Anmeldung mit Passwort an. Verbinde dich
@@ -161,12 +238,14 @@ export function LoginScreen({
           </>
         ) : (
           <>
-            <Text style={styles.label}>E-Mail-Adresse</Text>
+            <Text style={styles.label}>
+              {mode === 'recover' ? 'E-Mail-Adresse' : 'Name oder E-Mail-Adresse'}
+            </Text>
             <TextInput
               style={styles.input}
               value={email}
               onChangeText={setEmail}
-              placeholder="du@example.ch"
+              placeholder={mode === 'recover' ? 'du@example.ch' : 'Maja oder du@example.ch'}
               placeholderTextColor={colors.inkFaint}
               autoCapitalize="none"
               autoCorrect={false}
@@ -223,9 +302,9 @@ export function LoginScreen({
             </View>
 
             <Text style={styles.hint}>
-              Noch kein Zugang? Konten legt nur der Besitzer des Hubs an. Bitte
-              ihn um eine Einladung – sie kommt per E-Mail, darin setzt du dein
-              Passwort.
+              Noch kein Zugang? Konten legt nur der Besitzer des Hubs an – per
+              Einladung oder mit einem Initialpasswort, das du hier beim ersten
+              Anmelden gegen ein eigenes tauschst.
             </Text>
 
             <Pressable onPress={onUseToken} style={styles.secondary}>

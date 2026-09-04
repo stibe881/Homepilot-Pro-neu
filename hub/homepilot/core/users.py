@@ -258,6 +258,15 @@ class User:
     # einer eigenen Tabelle, weil es zum Benutzer gehört und mit ihm
     # verschwindet.
     area_lock: dict[str, str] = field(default_factory=dict)
+    # Anmeldung mit Name und Passwort, direkt beim Hub: {salt, hash} wie
+    # bei area_lock, nie der Klartext. Leer heisst: kein Passwort-Zugang
+    # für diese Person - Token und Supabase bleiben davon unberührt.
+    passwort: dict[str, str] = field(default_factory=dict)
+    # Vom Verwalter gesetzt (Initialpasswort beim Anlegen): Beim nächsten
+    # Anmelden muss ein eigenes her. Ein Passwort, das der Verwalter
+    # kennt, ist ein geteilter Schlüssel - der Zwang zum Wechsel macht
+    # daraus einen eigenen.
+    passwort_wechseln: bool = False
     # Kein Mensch, sondern ein Zugang: das einzelne api.token aus der
     # Konfiguration, mit dem Skripte und das Wandpanel hereinkommen. Es
     # gehört in kein Verzeichnis von Personen - dort stünde es zwischen
@@ -343,6 +352,10 @@ class User:
             # Nur die Tatsache, nie der Wert: Die App muss wissen, ob sie
             # fragen soll, nicht wonach.
             "area_locked": bool(self.area_lock),
+            # Ebenso hier: ob es einen Passwort-Zugang gibt und ob das
+            # Initialpasswort noch gewechselt werden muss.
+            "password_set": bool(self.passwort),
+            "must_change_password": bool(self.passwort_wechseln),
         }
         if include_token:
             data["token"] = self.token
@@ -565,6 +578,31 @@ class UserRegistry:
         self._changed()
         return user
 
+    def passwort_setzen(self, name: str, passwort: str, wechseln: bool) -> User:
+        """Den Passwort-Zugang setzen oder wegnehmen.
+
+        ``wechseln=True`` ist der Weg des Verwalters (Initialpasswort:
+        beim nächsten Anmelden muss ein eigenes her), ``False`` der des
+        Benutzers selbst nach dem Wechsel. Ein leeres Passwort nimmt den
+        Zugang weg - Token und Supabase-Anmeldung bleiben unberührt.
+        """
+        user = self.by_name(name)
+        if user is None:
+            raise ConfigError(f"Unbekannter Benutzer: {name}")
+        if not user.editable:
+            raise ConfigError(
+                f"'{name}' steht in der config.yaml - ein Passwort lässt "
+                "sich nur für in der App angelegte Benutzer speichern"
+            )
+        if str(passwort or "").strip():
+            user.passwort = bereich.make_entry(str(passwort))
+            user.passwort_wechseln = bool(wechseln)
+        else:
+            user.passwort = {}
+            user.passwort_wechseln = False
+        self._changed()
+        return user
+
     def editable_users(self) -> list[dict[str, Any]]:
         """Nur die in der App angelegten – die anderen gehören der Datei."""
         return [
@@ -581,6 +619,8 @@ class UserRegistry:
                 "rooms": list(user.rooms),
                 "shared": user.shared,
                 "area_lock": dict(user.area_lock),
+                "passwort": dict(user.passwort),
+                "passwort_wechseln": user.passwort_wechseln,
             }
             for user in self._users
             if user.editable

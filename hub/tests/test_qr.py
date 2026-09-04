@@ -3,7 +3,7 @@
 import json
 
 from homepilot.core.users import Role, User, UserRegistry
-from homepilot.qr import render, setup_hint, setup_payload
+from homepilot.qr import render, setup_hint, setup_payload, setup_payload_fuer
 
 
 def test_payload_has_the_fields_the_app_expects():
@@ -50,3 +50,10 @@ def test_render_without_the_package_returns_none(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", blocked)
     assert render("test") is None
+
+
+def test_payload_fuer_nimmt_die_fertige_adresse():
+    """Für die Einladungsseite: Sie weiss selbst, unter welcher Adresse
+    der Hub für den Gast erreichbar ist - etwa der Aussenadresse."""
+    data = json.loads(setup_payload_fuer("https://haus.example.ch/", "t", "Maja"))
+    assert data == {"url": "https://haus.example.ch", "token": "t", "name": "Maja"}

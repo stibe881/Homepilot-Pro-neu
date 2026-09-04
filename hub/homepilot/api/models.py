@@ -251,6 +251,10 @@ class UserRequest(BaseModel):
     name: str
     role: str = Role.RESIDENT
     token: str | None = None
+    # Initialpasswort für die Anmeldung mit Name und Passwort. Wer es
+    # bekommt, muss beim ersten Anmelden ein eigenes setzen - das hier
+    # kennt ja der Verwalter. Leer heisst: nur Token (wie bisher).
+    password: str | None = None
     allow: list[str] = []
     # Freigegebene Bereiche für Gäste (Schlüssel aus GUEST_FEATURES).
     features: list[str] = []
@@ -290,6 +294,17 @@ class UserUpdateRequest(BaseModel):
     # Rolle: besitzer, bewohner oder gast. Nur der Besitzer darf das, und
     # der letzte Besitzer kommt aus seiner Rolle nicht heraus.
     role: str | None = None
+    # Neues Initialpasswort («Passwort zurücksetzen» durch den Verwalter):
+    # Beim nächsten Anmelden muss wieder ein eigenes her. Leerer Text
+    # nimmt den Passwort-Zugang ganz weg.
+    password: str | None = None
+
+
+class PasswortWechselRequest(BaseModel):
+    """Der Benutzer tauscht sein (Initial-)Passwort gegen ein eigenes."""
+
+    old: str
+    new: str
 
 
 class AreaUnlockRequest(BaseModel):

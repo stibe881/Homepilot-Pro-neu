@@ -420,6 +420,11 @@ class Hub:
                         # persönlichen Bereichen.
                         shared=bool(entry.get("shared")),
                         area_lock=dict(entry.get("area_lock") or {}),
+                        # Der Passwort-Zugang samt Wechsel-Pflicht - ohne
+                        # diese beiden wäre nach jedem Neustart wieder nur
+                        # das Token übrig.
+                        passwort=dict(entry.get("passwort") or {}),
+                        passwort_wechseln=bool(entry.get("passwort_wechseln")),
                     )
                 )
             except Exception as err:

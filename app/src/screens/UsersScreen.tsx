@@ -281,6 +281,9 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
+  // Initialpasswort (optional): Damit meldet sich die Person mit ihrem
+  // Namen an - und muss beim ersten Anmelden ein eigenes setzen.
+  const [newPassword, setNewPassword] = useState('');
   const [newRole, setNewRole] = useState('bewohner');
   // Wandtablet statt Person - siehe den Hinweis im Formular.
   const [newShared, setNewShared] = useState(false);
@@ -376,6 +379,10 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
 
   const create = async () => {
     if (!newName.trim()) return;
+    if (newPassword.trim() && newPassword.trim().length < 8) {
+      setError('Das Initialpasswort braucht mindestens acht Zeichen.');
+      return;
+    }
     setError(null);
     try {
       const response = await fetch(`${settings.url}/api/users`, {
@@ -386,6 +393,7 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
           role: newRole,
           features: newRole === 'gast' ? newFeatures : [],
           shared: newShared,
+          ...(newPassword.trim() ? { password: newPassword.trim() } : {}),
         }),
       });
       const body = await response.json().catch(() => null);
@@ -393,6 +401,7 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
         throw new Error(body?.detail ?? `Hub antwortet mit ${response.status}`);
       }
       setNewName('');
+      setNewPassword('');
       setNewShared(false);
       setCreating(false);
       load();
@@ -499,6 +508,22 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
             ))}
           </View>
           <Text style={styles.roleHint}>{ROLE_HINTS[newRole]}</Text>
+          <Text style={styles.formLabel}>Initialpasswort (optional)</Text>
+          <TextInput
+            style={styles.input}
+            value={newPassword}
+            onChangeText={setNewPassword}
+            placeholder="mindestens acht Zeichen"
+            placeholderTextColor={colors.inkFaint}
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <Text style={styles.roleHint}>
+            Damit meldet sich die Person unter «Anmelden» mit ihrem Namen an
+            und muss beim ersten Mal ein eigenes Passwort setzen. Ohne
+            Initialpasswort bleibt es beim QR-Code oder der Einladung.
+          </Text>
           {/* Ein Zugang, den alle benutzen: das Wandtablet im Flur, das
               Küchendisplay. Gleich beim Anlegen, nicht erst hinterher -
               sonst brummt die erste Nachricht schon an der Wand. */}

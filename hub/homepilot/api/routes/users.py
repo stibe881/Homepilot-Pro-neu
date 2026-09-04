@@ -62,6 +62,14 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             raise HTTPException(
                 status_code=400, detail=f"Unbekannte Bereiche: {', '.join(unknown)}"
             )
+        # Vor dem Anlegen prüfen: Ein abgewiesenes Passwort soll keinen
+        # halb erzeugten Benutzer zurücklassen. Acht Zeichen wie bei der
+        # Passwort-Anmeldung über Supabase (routes/auth.py).
+        if body.password and body.password.strip() and len(body.password.strip()) < 8:
+            raise HTTPException(
+                status_code=400,
+                detail="Das Initialpasswort braucht mindestens acht Zeichen.",
+            )
         token = body.token or secrets.token_urlsafe(32)
         try:
             hub.users.add(
@@ -83,6 +91,11 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             )
         except HomePilotError as err:
             raise HTTPException(status_code=409, detail=str(err)) from err
+        # Das Initialpasswort - die Länge ist oben schon geprüft, damit
+        # ein abgewiesenes Passwort keinen halb angelegten Benutzer
+        # zurücklässt.
+        if body.password and body.password.strip():
+            hub.users.passwort_setzen(body.name, body.password, wechseln=True)
         hub.aenderungen.merken(
             wer, "benutzer", f"angelegt als {body.role}", body.name
         )
@@ -211,6 +224,20 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             raise HTTPException(status_code=400, detail=str(err)) from err
         except HomePilotError as err:
             raise HTTPException(status_code=409, detail=str(err)) from err
+        # «Passwort zurücksetzen» durch den Verwalter: neues
+        # Initialpasswort, beim nächsten Anmelden muss wieder ein
+        # eigenes her. Leerer Text nimmt den Passwort-Zugang weg.
+        if body.password is not None:
+            sauber = body.password.strip()
+            if sauber and len(sauber) < 8:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Das Initialpasswort braucht mindestens acht Zeichen.",
+                )
+            try:
+                hub.users.passwort_setzen(name, body.password, wechseln=True)
+            except HomePilotError as err:
+                raise HTTPException(status_code=409, detail=str(err)) from err
         hub.aenderungen.merken(
             user,
             "benutzer",
