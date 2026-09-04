@@ -67,6 +67,11 @@ def registrieren(rows: Any, user: str, token: str, label: str = "") -> list[dict
     Haustür-Karte (liveaktivitaet.registrieren): Apple stellt das
     Start-Token immer wieder neu aus, und jede stehengebliebene Zeile
     ist später eine weitere Karte auf demselben Sperrbildschirm.
+
+    Und wie dort: Eine Anmeldung MIT Gerätenamen räumt die namenlosen
+    Zeilen desselben Kontos gleich mit weg - sie stammen aus Fassungen
+    vor den Namen und sind fast sicher dasselbe Telefon von früher;
+    jede war sonst eine doppelte Karte.
     """
     name = str(label or "")
     neue = [
@@ -77,7 +82,7 @@ def registrieren(rows: Any, user: str, token: str, label: str = "") -> list[dict
         and not (
             name
             and str(row.get("user") or "") == user
-            and str(row.get("label") or "") == name
+            and str(row.get("label") or "") in ("", name)
         )
     ]
     neue.append({"user": user, "token": token, "label": label})

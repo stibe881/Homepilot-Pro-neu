@@ -9,6 +9,15 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Behoben**
 
+- **Zwei Türkarten samt Meldung beim Heimkommen - die letzte alte
+  Zeile ist weg.** Der Namens-Abgleich der Telefon-Anmeldung stoppte
+  nur *neue* Doppel; Zeilen aus Fassungen vor den Gerätenamen blieben
+  ewig stehen, und Apple hielt ihre Start-Tokens am Leben - dasselbe
+  Telefon bekam je Heimweg einen Start-Push je Zeile. Aus «fünf
+  Karten» war so bloss «immer noch zwei» geworden. Eine Anmeldung mit
+  Gerätenamen räumt die namenlosen Zeilen desselben Kontos jetzt mit
+  weg (Türkarte wie generische Karten); beim nächsten Öffnen der App
+  ist der Sperrbildschirm einfach.
 - **Die Haustür-Karte kommt einmal, und zwar vor der Türe.** Auf dem
   Sperrbildschirm lagen fünf gleiche Karten übereinander. Drei
   Ursachen: Der Vermerk «war draussen» fiel schon beim Näherkommen -

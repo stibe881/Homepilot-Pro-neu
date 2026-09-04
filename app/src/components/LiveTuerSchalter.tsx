@@ -156,7 +156,9 @@ export function LiveTuerSchalter({
               <Text style={styles.title}>Öffnen ohne Entsperren</Text>
               <Text style={styles.hint}>
                 Der Öffnen-Knopf auf der Haustür-Karte wirkt direkt vom
-                Sperrbildschirm.
+                Sperrbildschirm. Braucht den neuesten TestFlight-Build -
+                auf älteren führt der Knopf weiter in die App, mit
+                Rückfrage.
               </Text>
             </View>
             <Ionicons

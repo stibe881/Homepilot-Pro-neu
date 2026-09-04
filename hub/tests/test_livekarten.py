@@ -194,6 +194,18 @@ def test_registrieren_ersetzt_dasselbe_telefon():
     assert len(rows) == 1
 
 
+def test_anmeldung_mit_namen_raeumt_namenlose_zeilen_weg():
+    """Wie bei der Haustür-Karte: Zeilen aus Fassungen vor den
+    Gerätenamen blieben ewig stehen, und dasselbe Telefon bekam je
+    Karte zwei Start-Pushes."""
+    rows = registrieren([], "Stibe", "tok-uralt")
+    rows = registrieren(rows, "Bine", "tok-bine")
+    rows = registrieren(rows, "Stibe", "tok-neu", "Stibes iPhone")
+    assert [row["token"] for row in rows if row["user"] == "Stibe"] == ["tok-neu"]
+    # Die namenlose Zeile eines anderen Kontos bleibt.
+    assert [row["token"] for row in rows if row["user"] == "Bine"] == ["tok-bine"]
+
+
 def test_einzelne_kartenarten_lassen_sich_abbestellen():
     """Feinregelung wie bei den Benachrichtigungen: Wer «grill» in seiner
     liveAus-Liste hat, bekommt keine Grill-Karte mehr - eine laufende

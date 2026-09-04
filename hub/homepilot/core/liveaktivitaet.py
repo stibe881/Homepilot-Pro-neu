@@ -121,6 +121,17 @@ def registrieren(rows: Any, user: str, token: str, label: str = "") -> list[dict
     Gerätename). Fehlt er - eine alte App-Fassung -, bleibt es beim
     Vergleich über das Token: lieber eine Zeile zu viel als die eines
     fremden Geräts überschrieben.
+
+    Meldet sich ein Konto dagegen MIT Namen an, fliegen auch seine
+    namenlosen Zeilen raus. Sie stammen aus Fassungen vor den
+    Gerätenamen und sind fast sicher dasselbe Telefon von früher - und
+    Apple hält ihre Start-Tokens am Leben: Jede solche Zeile war eine
+    weitere gleiche Karte samt Meldung auf demselben Sperrbildschirm.
+    Der Namens-Abgleich oben stoppte nur neue Doppel; die alten Zeilen
+    räumte nichts weg, und aus «fünf Karten» wurde so bloss «immer noch
+    zwei». Der denkbare Verlust - ein Zweitgerät desselben Kontos, das
+    seit Monaten keine App-Fassung mit Namen sah - heilt sich beim
+    nächsten Öffnen der App von selbst.
     """
     name = str(label or "")
 
@@ -131,12 +142,20 @@ def registrieren(rows: Any, user: str, token: str, label: str = "") -> list[dict
             and str(row.get("label") or "") == name
         )
 
+    def alte_fassung(row: dict[str, Any]) -> bool:
+        return bool(
+            name
+            and str(row.get("user") or "") == user
+            and not str(row.get("label") or "")
+        )
+
     neue = [
         row
         for row in (rows or [])
         if isinstance(row, dict)
         and row.get("start_token") != token
         and not dasselbe_telefon(row)
+        and not alte_fassung(row)
     ]
     neue.append(
         {

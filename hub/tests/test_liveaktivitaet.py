@@ -73,6 +73,23 @@ def test_ohne_geraetenamen_bleibt_es_beim_token():
     assert len(rows) == 2
 
 
+def test_anmeldung_mit_namen_raeumt_namenlose_zeilen_weg():
+    """Der Zwei-Meldungen-Fall: Zeilen aus Fassungen vor den Gerätenamen
+    blieben ewig stehen, Apple hielt ihre Start-Tokens am Leben - und
+    dasselbe Telefon bekam je Heimweg einen Start-Push je Zeile: erst
+    fünf gleiche Karten, nach dem Namens-Abgleich immer noch zwei."""
+    rows = registrieren([], "Stibe", "token-uralt")
+    rows = registrieren(rows, "Bine", "token-bine")
+    rows = registrieren(rows, "Stibe", "token-neu", "Stibes iPhone")
+    assert [row["start_token"] for row in rows if row["user"] == "Stibe"] == [
+        "token-neu"
+    ]
+    # Die namenlose Zeile eines anderen Kontos bleibt stehen.
+    assert [row["start_token"] for row in rows if row["user"] == "Bine"] == [
+        "token-bine"
+    ]
+
+
 def test_nur_eine_endgueltige_absage_traegt_ein_telefon_aus():
     """Ein Token, das es nicht mehr gibt, wird auch morgen keines mehr
     sein. Alles andere - überlastet, kaputte Verbindung - ist ein
