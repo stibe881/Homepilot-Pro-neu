@@ -10,8 +10,9 @@ from __future__ import annotations
 import html
 import logging
 import time
+from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, quote
 
 from fastapi import FastAPI, HTTPException, Request, Response
 
@@ -54,6 +55,9 @@ def _seite(titel: str, inhalt: str, status: int = 200) -> Response:
             "background:#6E9BFF;color:#141922;font-size:17px;font-weight:700}"
             "code{display:block;padding:14px;border-radius:14px;word-break:break-all;"
             "background:rgba(255,255,255,.07);color:#EDF1F7;font-size:13px;margin:12px 0}"
+            "a.knopf{display:block;box-sizing:border-box;width:100%;padding:14px;"
+            "border-radius:14px;background:#6E9BFF;color:#141922;font-size:17px;"
+            "font-weight:700;text-align:center;text-decoration:none;margin:14px 0 6px}"
             ".warn{color:#FFC061}"
             "</style>"
             f"<main>{inhalt}</main>"
@@ -76,6 +80,13 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         host = hub.config.api.host
         adresse = local_ip() if host in ("0.0.0.0", "::", "") else host
         return f"http://{adresse}:{hub.config.api.port}"
+
+    def web_da() -> bool:
+        """Liefert der Hub die Web-Fassung aus? Dieselbe Prüfung wie beim
+        Einhängen (api/server.py, _serve_web) - ein Knopf auf eine Seite,
+        die es nicht gibt, führte den Gast auf einen 404."""
+        root = hub.config.web_root
+        return bool(root) and (Path(root) / "index.html").exists()
 
     def laden() -> list[dict[str, Any]]:
         """Die offenen Einladungen – Abgelaufenes fliegt dabei raus."""
@@ -256,12 +267,26 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         # von aussen nie eine Verbindung aufbauen kann. Ohne public_url
         # bleibt es bei der Haus-Adresse wie bisher.
         nutzlast = setup_payload_fuer(basis(), ziel.token, ziel.name)
+        # Ohne App gleich im Browser: Der Hub liefert die Web-Fassung
+        # unter «/» aus, und die liest die Zugangsdaten aus dem Fragment
+        # (app: lib/zugangslink.ts). Das Fragment verlässt den Browser
+        # nie - es steht in keiner Anfrage und keinem Protokoll. Die
+        # Web-Fassung speichert es und wischt die Adresszeile sauber.
+        browser = ""
+        if web_da():
+            browser = (
+                "<p>Am einfachsten ohne App – direkt im Browser:</p>"
+                f'<a class=knopf href="{html.escape(basis())}/#zugang='
+                f'{html.escape(quote(nutzlast, safe=""))}">Im Browser öffnen</a>'
+                "<p>Oder mit der HomePilot-App:</p>"
+            )
+        else:
+            browser = "<p>Öffne die HomePilot-App, tippe auf «Verbinden» und füge diesen Text ein:</p>"
         return _seite(
             "HomePilot – Zugang",
             f"<h1>Willkommen, {html.escape(ziel.name)}</h1>"
-            "<p>Öffne die HomePilot-App, tippe auf «Verbinden» und füge "
-            "diesen Text ein:</p>"
-            f"<code id=z>{html.escape(nutzlast)}</code>"
+            + browser
+            + f"<code id=z>{html.escape(nutzlast)}</code>"
             "<button onclick=\"navigator.clipboard.writeText("
             "document.getElementById('z').textContent).then("
             "()=>this.textContent='Kopiert')\">Kopieren</button>"

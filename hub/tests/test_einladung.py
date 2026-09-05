@@ -226,3 +226,42 @@ def test_der_zugang_traegt_die_aussenadresse(tmp_path):
         # wird deshalb die Adresse selbst.
         assert "https://haus.example.ch" in seite.text
         assert "127.0.0.1" not in seite.text
+
+
+def test_ohne_web_fassung_bleibt_der_browser_knopf_weg(client):
+    """Ein Knopf auf eine Seite, die es nicht gibt, führte auf einen 404."""
+    kennung = ausstellen(client).json()["link"].rsplit("/", 1)[-1]
+    seite = client.post(f"/einladung/{kennung}", data={"password": "sommer2026"})
+    assert seite.status_code == 200
+    assert "Im Browser öffnen" not in seite.text
+    assert "#zugang=" not in seite.text
+
+
+def test_mit_web_fassung_bietet_die_seite_den_browser_an(tmp_path):
+    """Der gewünschte Fall: Zugang per Link, ganz ohne App.
+
+    Der Knopf führt auf die Web-Fassung mit den Zugangsdaten im
+    Fragment - das Fragment verlässt den Browser nie, es steht in
+    keiner Anfrage und keinem Protokoll. Die Web-Fassung liest es beim
+    Start (app: lib/zugangslink.ts) und wischt die Adresszeile sauber.
+    """
+    web = tmp_path / "web"
+    web.mkdir()
+    (web / "index.html").write_text("<!doctype html>")
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        CONFIG.format(data_file=tmp_path / "data.json")
+        + f"web_root: {web}\n"
+        + 'push: { public_url: "https://haus.example.ch" }\n'
+    )
+    hub = Hub(load_config(config_file))
+    with TestClient(create_app(hub)) as client:
+        kennung = ausstellen(client).json()["link"].rsplit("/", 1)[-1]
+        seite = client.post(f"/einladung/{kennung}", data={"password": "sommer2026"})
+        assert seite.status_code == 200
+        assert "Im Browser öffnen" in seite.text
+        # Das Fragment trägt die Nutzlast URL-kodiert - Anführungszeichen
+        # und Doppelpunkte dürfen den href nicht zerreissen.
+        assert "https://haus.example.ch/#zugang=%7B%22url%22" in seite.text
+        # Der App-Weg bleibt daneben bestehen.
+        assert "t-bine" in seite.text

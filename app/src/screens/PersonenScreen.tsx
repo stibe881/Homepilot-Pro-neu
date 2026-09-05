@@ -1,6 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import {
+  Modal,
+  Pressable,
+  Share,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
 import { hubClient } from '../api/client';
@@ -8,6 +17,7 @@ import { HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { Fehlschlag, Laedt, Leer } from '../components/Zustand';
 import { useTakt } from '../hooks/useTakt';
+import { einladungFrist, passwortHinweis } from '../lib/einladung';
 import { DAUERN, Dauer, ablaufDatum, ablaufSatz } from '../lib/gastzugang';
 import {
   Person,
@@ -66,6 +76,12 @@ export function PersonenScreen({
     payload: string;
     expires: string | null;
   } | null>(null);
+  // Der Weg ohne App: eine Einladung (Link + Passwort), deren Seite
+  // «Im Browser öffnen» anbietet - dieselbe wie in der
+  // Benutzerverwaltung, nur von hier aus einen Tipp weit.
+  const [linkPass, setLinkPass] = useState('');
+  const [link, setLink] = useState<{ link: string; expires: number } | null>(null);
+  const [linkFehler, setLinkFehler] = useState<string | null>(null);
 
   const hub = useMemo(
     () => hubClient(settings.url ?? '', settings.token ?? ''),
@@ -129,6 +145,45 @@ export function PersonenScreen({
    * Ablaufdatum - fünf Schritte weit weg von der Person, um die es
    * geht. Hier steht sie schon; Dauer antippen, QR zeigen, fertig.
    */
+  /** Das Kopplungsblatt schliessen - samt dem Link-Teil darin. */
+  const kopplungZu = () => {
+    setKopplung(null);
+    setLink(null);
+    setLinkPass('');
+    setLinkFehler(null);
+  };
+
+  /**
+   * Der Weg ohne App: eine Einladung ausstellen und den Link teilen.
+   *
+   * Der Link führt auf die Einladungsseite des Hubs; mit dem Passwort
+   * bietet sie «Im Browser öffnen» an - die Web-Fassung, keine App.
+   * Link und Passwort reisen getrennt, wie in der Benutzerverwaltung:
+   * Ein Token im Chat wäre der Schlüssel zum Haus, für immer.
+   */
+  const linkErstellen = async (name: string) => {
+    const hinweis = passwortHinweis(linkPass);
+    if (hinweis) {
+      setLinkFehler(hinweis);
+      return;
+    }
+    setLinkFehler(null);
+    try {
+      const antwort = await hub.post<{ link: string; expires: number }>(
+        `/api/users/${encodeURIComponent(name)}/einladung`,
+        { password: linkPass }
+      );
+      setLink(antwort);
+      setLinkPass('');
+    } catch (err) {
+      setLinkFehler(
+        err instanceof Error && err.message
+          ? err.message
+          : 'Die Einladung liess sich nicht erstellen.'
+      );
+    }
+  };
+
   const zugangGeben = async (person: Person) => {
     setZugangFehler(null);
     setZugangLaeuft(true);
@@ -265,7 +320,8 @@ export function PersonenScreen({
                 <Text style={styles.zugangHinweis}>
                   {person.name} hat keinen Zugang zum Hub. Ein Gast-Zugang
                   zeigt Licht und Schalter – mehr lässt sich danach in der
-                  Benutzerverwaltung freigeben.
+                  Benutzerverwaltung freigeben. Weitergeben geht per QR für
+                  die App oder als Link, der im Browser läuft – ganz ohne App.
                 </Text>
                 <View style={styles.dauerReihe}>
                   {DAUERN.map((eintrag) => {
@@ -321,9 +377,9 @@ export function PersonenScreen({
         visible={kopplung !== null}
         transparent
         animationType="fade"
-        onRequestClose={() => setKopplung(null)}
+        onRequestClose={kopplungZu}
       >
-        <Pressable style={styles.qrHintergrund} onPress={() => setKopplung(null)}>
+        <Pressable style={styles.qrHintergrund} onPress={kopplungZu}>
           <Pressable style={styles.qrBlatt} onPress={() => {}}>
             <Text style={styles.qrTitel}>Zugang für {kopplung?.name}</Text>
             <View style={styles.qrKasten}>
@@ -344,8 +400,81 @@ export function PersonenScreen({
             <Text style={styles.qrHinweis}>
               {ablaufSatz(kopplung?.expires ?? null)}
             </Text>
+
+            {/* Nicht am selben Ort, oder keine Lust auf eine App? Dann
+                als Link - er führt auf die Einladungsseite des Hubs,
+                und die bietet «Im Browser öffnen» an. Link und Passwort
+                reisen getrennt: Ein Token im Chat wäre der Schlüssel
+                zum Haus, für immer. */}
+            <View style={styles.linkTeil}>
+              {link ? (
+                <>
+                  <Text style={styles.qrHinweis}>
+                    Ohne App: Der Link gilt einmal und läuft{' '}
+                    {einladungFrist(link.expires, new Date())} ab. Das Passwort
+                    gibst du auf einem anderen Weg durch – nicht im selben Chat.
+                  </Text>
+                  <Text style={styles.linkText} selectable>
+                    {link.link}
+                  </Text>
+                  <Pressable
+                    onPress={() => {
+                      Share.share({
+                        message:
+                          `Zugang zu unserem HomePilot für ${kopplung?.name}:\n\n` +
+                          `${link.link}\n\n` +
+                          'Öffnet sich im Browser, ganz ohne App. Das Passwort ' +
+                          'bekommst du von mir separat.',
+                        // Abgebrochenes Teilen ist eine Entscheidung,
+                        // kein Fehler.
+                      }).catch(() => {});
+                    }}
+                    accessibilityRole="button"
+                    style={({ pressed }) => [
+                      styles.linkKnopf,
+                      pressed && { opacity: 0.8 },
+                    ]}
+                  >
+                    <Ionicons name="share-outline" size={16} color={colors.accent} />
+                    <Text style={styles.linkKnopfText}>Link senden</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.qrHinweis}>
+                    Ohne App geht es auch: Leg ein Passwort fest und schick den
+                    Link – er öffnet das Haus im Browser. Der Link allein
+                    öffnet nichts.
+                  </Text>
+                  <TextInput
+                    value={linkPass}
+                    onChangeText={setLinkPass}
+                    placeholder="Passwort (mind. 6 Zeichen)"
+                    placeholderTextColor={colors.inkFaint}
+                    autoCapitalize="none"
+                    style={styles.linkEingabe}
+                  />
+                  <Pressable
+                    onPress={() => {
+                      if (kopplung) void linkErstellen(kopplung.name);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Einladungslink für ${kopplung?.name} erstellen`}
+                    style={({ pressed }) => [
+                      styles.linkKnopf,
+                      pressed && { opacity: 0.8 },
+                    ]}
+                  >
+                    <Ionicons name="link-outline" size={16} color={colors.accent} />
+                    <Text style={styles.linkKnopfText}>Link erstellen</Text>
+                  </Pressable>
+                </>
+              )}
+              {linkFehler ? <Text style={styles.fehler}>{linkFehler}</Text> : null}
+            </View>
+
             <Pressable
-              onPress={() => setKopplung(null)}
+              onPress={kopplungZu}
               accessibilityRole="button"
               style={({ pressed }) => [styles.qrSchliessen, pressed && { opacity: 0.7 }]}
             >
@@ -465,6 +594,35 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
     },
     qrHinweis: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
+    // Der Weg ohne App, abgesetzt vom QR-Teil darüber.
+    linkTeil: {
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.surfaceBorder,
+      paddingTop: 12,
+      gap: 8,
+    },
+    linkText: { color: colors.ink, fontSize: 12, lineHeight: 17 },
+    linkEingabe: {
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      borderRadius: radius.control,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      color: colors.ink,
+      fontSize: 14,
+      backgroundColor: colors.surfaceSoft,
+    },
+    linkKnopf: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      paddingVertical: 11,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.accent,
+    },
+    linkKnopfText: { color: colors.accent, fontSize: 14, fontWeight: '700' },
     qrSchliessen: {
       alignItems: 'center',
       paddingVertical: 12,

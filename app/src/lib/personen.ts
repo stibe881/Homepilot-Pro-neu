@@ -75,9 +75,14 @@ export function nebenZeile(person: Person): string {
   return teile.join(' · ');
 }
 
-/** Haushaltsmitglied oder nur geortet? (rein, testbar) */
+/** Haushaltsmitglied oder nur geortet? (rein, testbar)
+ *
+ *  Die Georteten hiessen auf der Plakette zuerst «Geortet» - technisch
+ *  richtig, aber kalt: Maja und Ray sind Familie, kein Messwert. Wer
+ *  hier steht, ohne zum Haushalt zu gehören, ist Familie oder Freund -
+ *  die Seite heisst genau so. */
 export function herkunft(person: Person): string {
-  return person.household ? 'Haushalt' : 'Geortet';
+  return person.household ? 'Haushalt' : 'Familie';
 }
 
 /**

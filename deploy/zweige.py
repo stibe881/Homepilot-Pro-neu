@@ -43,7 +43,13 @@ import sys
 from dataclasses import dataclass
 
 # Der erste ist der Auslieferzweig: Was dort fehlt, läuft nicht im Haus.
+# Er heisst main - dasselbe steht in rebuild-hub.sh (BRANCH). Eine Weile
+# stand hier ein claude/-Zweig zuoberst, und das Werkzeug mass damit
+# gegen einen Zweig, den der Bau gar nicht nimmt: Die Meldung «dort wird
+# gebaut» stimmte nicht mehr, seit der Knopf main baut.
 VORGABE = (
+    "main",
+    "claude/besuch-babysitter-page-redesign-kvedqh",
     "claude/custom-home-automation-t9lvq3",
     "claude/hallo-9vjbg6",
     "claude/push-ablauf-anzeige-6t5awb",

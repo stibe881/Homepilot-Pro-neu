@@ -20,6 +20,7 @@ import { LoginScreen } from './src/screens/LoginScreen';
 import { gueltig } from './src/lib/appsymbol';
 import { persoenlichSetzen, persoenlichWert } from './src/lib/persoenlich';
 import { startfehlerMerken, startmarke } from './src/lib/startfehler';
+import { zugangAusFragment } from './src/lib/zugangslink';
 import { symbolWechseln } from './src/lib/symbolwechsel';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { ThemeProvider, useTheme } from './src/theme';
@@ -132,6 +133,30 @@ export default function App() {
   const fontsSettled = fontsLoaded || fontError != null;
 
   useEffect(() => {
+    // Web: Kommt jemand über einen Einladungslink («Im Browser öffnen»
+    // auf der Einladungsseite des Hubs), stehen die Zugangsdaten im
+    // Fragment - siehe lib/zugangslink.ts. Sie gelten wie eine
+    // Anmeldung von Hand und stechen darum, was hier noch gespeichert
+    // ist: Wer den Link öffnet, will als diese Person hinein.
+    if (Platform.OS === 'web') {
+      try {
+        const ausLink = zugangAusFragment(window.location.hash);
+        if (ausLink) {
+          // Die Adresszeile sauber wischen, bevor irgendetwas anderes
+          // passiert: Der Link soll aus der Chronik des Browsers den
+          // Zugang nicht ein zweites Mal hergeben.
+          window.history.replaceState(null, '', window.location.pathname);
+          const next: HubSettings = ausLink;
+          AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+          startmarke('Zugang aus Einladungslink übernommen');
+          setSettings(next);
+          return;
+        }
+      } catch (fehler) {
+        // Ein kaputter Link darf den gewöhnlichen Start nicht aufhalten.
+        startfehlerMerken('zugangAusFragment', fehler);
+      }
+    }
     AsyncStorage.getItem(STORAGE_KEY)
       .then((raw) => {
         startmarke(raw ? 'Einstellungen geladen' : 'Einstellungen leer (erster Start)');

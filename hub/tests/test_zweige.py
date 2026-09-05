@@ -72,5 +72,8 @@ def test_zweigliste_aus_der_umgebung():
 def test_ohne_umgebung_gilt_die_vorgabe():
     assert zweige.zweige_aus_umgebung(None) == zweige.VORGABE
     assert zweige.zweige_aus_umgebung("   ") == zweige.VORGABE
-    # Der erste ist der Auslieferzweig - daran hängt, was im Haus läuft.
-    assert zweige.VORGABE[0].startswith("claude/")
+    # Der erste ist der Auslieferzweig - daran hängt, was im Haus läuft,
+    # und der Bau (rebuild-hub.sh, BRANCH) nimmt main. Hier stand einmal
+    # ein claude/-Zweig, und das Werkzeug mass gegen einen Zweig, den
+    # der Knopf gar nicht baut.
+    assert zweige.VORGABE[0] == "main"
