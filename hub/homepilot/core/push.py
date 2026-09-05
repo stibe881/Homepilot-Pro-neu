@@ -681,13 +681,23 @@ class PushService:
         valid = [token for token in tokens if is_expo_token(token)]
         stufe = dringlichkeit(category)
         kategorie_knoepfe = knoepfe(category)
+        # Die Kategorie reist auch in den Nutzdaten mit: Beim
+        # «Später»-Knopf reicht die App sie an /api/push/snooze zurück,
+        # und die Wiedervorlage läuft dann unter derselben Kategorie.
+        # Vorher stand sie nur oben als categoryId - die App fand in den
+        # Daten nichts, die Wiedervorlage fiel auf «outage» zurück und
+        # kam ohne Knöpfe; wer «outage» abbestellt hatte, bekam sie gar
+        # nicht. Ein ausdrückliches data["category"] bleibt unangetastet.
+        nutzdaten = dict(data or {})
+        if category and "category" not in nutzdaten:
+            nutzdaten["category"] = category
         messages = [
             {
                 "to": token,
                 "title": title,
                 "body": body,
                 "sound": "default",
-                "data": data or {},
+                "data": nutzdaten,
                 **stufe,
                 # Die Knöpfe hängen an der Art der Meldung, nicht an ihrem
                 # Text - deshalb reicht die Kennung; die Beschriftungen

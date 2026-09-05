@@ -107,6 +107,83 @@ def test_send_without_registered_device_reports_it():
     assert result.errors
 
 
+class _Antwort:
+    status = 200
+
+    async def text(self):
+        return ""
+
+    async def json(self, content_type=None):
+        return {"data": [{"status": "ok", "id": "TICKET-1"}]}
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+
+class _Mitschnitt:
+    """Fängt ab, was an Expo ginge - der Test liest das rohe Payload."""
+
+    def __init__(self):
+        self.gesendet = []
+
+    def post(self, url, json=None):
+        self.gesendet.append(json)
+        return _Antwort()
+
+    async def close(self):
+        pass
+
+
+def test_offene_tuere_traegt_knoepfe_und_kategorie_im_payload():
+    """Die ganze Knopf-Kette hängt an zwei Feldern der Expo-Nachricht.
+
+    ``categoryId`` sagt iOS, welche Knöpfe es zeigen soll («Passt so»,
+    «Später»). ``data.category`` ist der Rückweg: Beim «Später»-Knopf
+    reicht die App sie an /api/push/snooze zurück, damit die
+    Wiedervorlage unter derselben Kategorie läuft - und damit wieder
+    Knöpfe trägt. Fehlte sie, lief die Wiedervorlage als «outage»:
+    ohne Knöpfe, und bei abbestelltem «outage» gar nicht.
+    """
+    import asyncio
+
+    mitschnitt = _Mitschnitt()
+    service = PushService(session_factory=lambda: mitschnitt)
+    result = asyncio.run(
+        service.send(
+            [TOKEN],
+            title="Terrasse steht offen",
+            body="Offen seit 19:47",
+            data={"entity_id": "hm.terrasse"},
+            category="open",
+        )
+    )
+    assert result.accepted == 1
+    (nachricht,) = mitschnitt.gesendet[0]
+    assert nachricht["categoryId"] == "offen"
+    assert nachricht["data"]["category"] == "open"
+    # Das Mitgegebene bleibt daneben bestehen.
+    assert nachricht["data"]["entity_id"] == "hm.terrasse"
+    # Und die offene Türe ist dringend - sonst liegt die Meldung im Doze.
+    assert nachricht["priority"] == "high"
+
+
+def test_ohne_knoepfe_keine_kennung_im_payload():
+    # Beim Alarm gibt es keinen sinnvollen Handgriff - eine Kennung, die
+    # die App nie angemeldet hat, zeigte stumm keine Knöpfe; sie soll
+    # gar nicht erst mitreisen.
+    import asyncio
+
+    mitschnitt = _Mitschnitt()
+    service = PushService(session_factory=lambda: mitschnitt)
+    asyncio.run(service.send([TOKEN], title="Alarm", body="!", category="alarm"))
+    (nachricht,) = mitschnitt.gesendet[0]
+    assert "categoryId" not in nachricht
+    assert nachricht["data"]["category"] == "alarm"
+
+
 def test_parse_muted_drops_unknown_keys():
     """Eine umbenannte Kategorie darf niemanden stillschweigend stumm
     schalten – dann kommen die Nachrichten lieber wieder."""
