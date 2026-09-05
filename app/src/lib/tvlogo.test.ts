@@ -21,8 +21,10 @@ describe('tvLogo', () => {
     expect(tvLogo('Netflix')).toEqual({ icon: 'netflix', farbe: '#E50914' });
   });
 
-  it('Zattoo hat keine Glyphe und trägt darum einen Schriftzug', () => {
-    expect(tvLogo('Zattoo')).toEqual({ schriftzug: 'Z', farbe: '#000000' });
+  it('Zattoo hat keine Glyphe und trägt darum seinen Schriftzug', () => {
+    // Das ganze Wort: Ein einzelnes «Z» auf Schwarz las sich im
+    // Wohnzimmer als leerer Knopf, nicht als Logo.
+    expect(tvLogo('Zattoo')).toEqual({ schriftzug: 'zattoo', farbe: '#000000' });
   });
 
   it('liest über Schreibweise und Ränder hinweg', () => {

@@ -71,6 +71,32 @@ DEFAULT_APPS: list[dict[str, str]] = [
     {"name": "Joyn", "app": "de.prosiebensat1digital.seventv"},
 ]
 
+# Startadressen zu den bekannten Paketen. Der Fernseher öffnet beim
+# App-Start eine Adresse wie einen Link - eine nackte Paket-ID startet
+# seit einer Play-Store-Änderung auf vielen Geräten schlicht nichts
+# mehr (so auch die Home-Assistant-Doku zu androidtv_remote). Genau so
+# sah es im Haus aus: Jeder Knopf kam an, keiner tat etwas. Die Paket-ID
+# bleibt trotzdem die Kennung der App (APP_NAMES, config.yaml) -
+# übersetzt wird erst beim Senden. Unbekanntes geht unverändert hinaus:
+# Wer in der config.yaml einen eigenen Link einträgt, behält ihn.
+APP_LINKS: dict[str, str] = {
+    "com.netflix.ninja": "https://www.netflix.com/title",
+    "com.google.android.youtube.tv": "https://www.youtube.com",
+    "com.amazon.amazonvideo.livingroom": "https://app.primevideo.com",
+    "com.disney.disneyplus": "https://www.disneyplus.com",
+    "com.plexapp.android": "plex://",
+    "com.spotify.tv.android": "spotify://",
+    "com.zattoo.player": "zattoo://zattoo.com",
+    # Für Joyn kennt keine der Listen einen Link - die Web-Adresse ist
+    # der übliche App-Link des Dienstes und der beste Kandidat.
+    "de.prosiebensat1digital.seventv": "https://www.joyn.de",
+}
+
+
+def app_link(app: str) -> str:
+    """Die Adresse, die den App-Start wirklich auslöst (rein, testbar)."""
+    return APP_LINKS.get(app, app)
+
 
 def app_list(block: dict[str, Any], device: dict[str, Any]) -> list[dict[str, str]]:
     """Welche Apps dieses Gerät anbietet (rein, testbar).
@@ -555,7 +581,12 @@ class AndroidTvIntegration(Integration):
             app = data.get("app")
             if not app:
                 raise ValueError("launch_app braucht data.app (Paket-ID oder Link)")
-            self._senden(entity.id, lambda: remote.send_launch_app_command(str(app)))
+            ziel = app_link(str(app))
+            self._senden(entity.id, lambda: remote.send_launch_app_command(ziel))
+            # Wie bei den Tasten: Auch das Gelingen protokollieren - ein
+            # leeres Log unterscheidet nicht zwischen «alles gut» und
+            # «kam nie an», und genau dazwischen sucht man hier.
+            self.log.info("App-Start %s an %s gesendet (%s)", app, entity.id, ziel)
             return
         if command == "sleep_timer":
             await self._set_sleep(entity.id, data.get("minutes"))

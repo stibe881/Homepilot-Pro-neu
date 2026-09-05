@@ -5,6 +5,14 @@ import { StyleSheet, Text, View } from 'react-native';
 import { TvLogo } from '../lib/tvlogo';
 import { Colors, useColors } from '../theme';
 
+/** Schriftgrösse relativ zum Kreis, nach Länge des Schriftzugs (rein,
+ *  testbar über die Anzeige - hier nur eine Staffel, kein Geheimnis). */
+function schriftzugAnteil(schriftzug: string): number {
+  if (schriftzug.length <= 2) return 0.42;
+  if (schriftzug.length <= 4) return 0.26;
+  return 0.19;
+}
+
 /**
  * Der runde Logo-Knopf einer Fernseh-App: Markenfarbe als Grund, darauf
  * die Glyphe oder der Schriftzug aus lib/tvlogo.ts.
@@ -43,11 +51,13 @@ export function TvAppLogo({
         <Text
           style={[
             styles.schriftzug,
-            // «Z» und «D+» gross wie eine Glyphe; «prime» muss als Wort
-            // in den Kreis passen und bleibt darum klein.
-            { fontSize: (logo.schriftzug ?? '').length <= 2 ? size * 0.42 : size * 0.24 },
+            // Gestaffelt nach Länge: «D+» gross wie eine Glyphe, «joyn»
+            // mittel, «prime» und «zattoo» müssen als ganzes Wort in den
+            // Kreis passen und bleiben klein.
+            { fontSize: size * schriftzugAnteil(logo.schriftzug ?? '') },
           ]}
           allowFontScaling={false}
+          numberOfLines={1}
         >
           {logo.schriftzug}
         </Text>

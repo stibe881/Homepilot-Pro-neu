@@ -37,7 +37,10 @@ const LOGOS: Record<string, TvLogo> = {
   plex: { icon: 'plex', farbe: '#E5A00D' },
   kodi: { icon: 'kodi', farbe: '#17B2E7' },
   hulu: { icon: 'hulu', farbe: '#1CE783' },
-  zattoo: { schriftzug: 'Z', farbe: '#000000' },
+  // Der ganze Schriftzug, nicht nur «Z»: Das Zattoo-Logo IST das Wort -
+  // ein einzelner Buchstabe auf Schwarz las sich im Wohnzimmer nicht
+  // als Logo, sondern als leerer Knopf.
+  zattoo: { schriftzug: 'zattoo', farbe: '#000000' },
   'disney+': { schriftzug: 'D+', farbe: '#113CCF' },
   disney: { schriftzug: 'D+', farbe: '#113CCF' },
   'disney plus': { schriftzug: 'D+', farbe: '#113CCF' },

@@ -68,7 +68,7 @@ function Key({
       accessibilityLabel={label}
       onPress={() => onDruck(command)}
       style={({ pressed }) => [styles.key, big && styles.keyBig, pressed && styles.keyPressed]}>
-      <Ionicons name={icon} size={big ? 26 : 20} color={colors.ink} />
+      <Ionicons name={icon} size={big ? 30 : 23} color={colors.ink} />
     </Pressable>
   );
 }
@@ -199,7 +199,7 @@ export function TvRemote({
                     ]}
                   >
                     {logo ? (
-                      <TvAppLogo logo={logo} size={48} />
+                      <TvAppLogo logo={logo} size={52} />
                     ) : (
                       <Text style={styles.appChipText}>{app.name}</Text>
                     )}
@@ -236,11 +236,14 @@ const makeStyles = (colors: Colors) =>
       padding: 24,
     },
     sheet: {
-      width: 300,
+      // 340 statt 300: Die Fernbedienung ist die Fläche, auf der man
+      // ohne Hinsehen trifft - auf ihr ist Grosszügigkeit Bedienbarkeit,
+      // kein Schmuck. maxWidth fängt schmale Telefone ab.
+      width: 340,
       maxWidth: '100%',
       borderRadius: 24,
-      padding: 20,
-      gap: 14,
+      padding: 22,
+      gap: 16,
       // Opaker Grund: das Modal schwebt frei, Glas-Transparenz hätte hier
       // nichts, wodurch sie durchscheinen könnte.
       backgroundColor: colors.panel,
@@ -254,16 +257,16 @@ const makeStyles = (colors: Colors) =>
     dpadRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     row: { flexDirection: 'row', justifyContent: 'space-evenly' },
     key: {
-      width: 52,
-      height: 52,
-      borderRadius: 26,
+      width: 58,
+      height: 58,
+      borderRadius: 29,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: colors.surfaceSoft,
       borderWidth: 1,
       borderColor: colors.surfaceBorder,
     },
-    keyBig: { width: 68, height: 68, borderRadius: 34 },
+    keyBig: { width: 76, height: 76, borderRadius: 38 },
     absage: {
       flexDirection: 'row',
       alignItems: 'flex-start',

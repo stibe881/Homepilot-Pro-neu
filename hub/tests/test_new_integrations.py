@@ -2451,3 +2451,26 @@ def test_calendar_birthdays_survive_a_busy_week():
     assert sum(1 for event in events if not event["birthday"]) == 12
     assert sum(1 for event in events if event["birthday"]) == 10
 
+
+
+def test_app_start_geht_als_link_hinaus():
+    """Der Fernseher öffnet Links, keine Paket-IDs.
+
+    Gemeldet aus dem Wohnzimmer: Jeder App-Knopf kam an, keiner tat
+    etwas. Eine nackte Paket-ID startet seit einer Play-Store-Änderung
+    auf vielen Geräten nichts mehr - die bekannten Pakete werden darum
+    beim Senden in ihre Startadresse übersetzt. Die Paket-ID bleibt die
+    Kennung (APP_NAMES, config.yaml); eigene Links gehen unverändert
+    hinaus.
+    """
+    from homepilot.integrations.androidtv import APP_LINKS, DEFAULT_APPS, app_link
+
+    assert app_link("com.zattoo.player") == "zattoo://zattoo.com"
+    assert app_link("com.netflix.ninja") == "https://www.netflix.com/title"
+    # Jede Vorgabe-App hat eine Startadresse - sonst hätte genau dieser
+    # eine Knopf wieder keinen Effekt, und es fiele erst im Wohnzimmer auf.
+    for eintrag in DEFAULT_APPS:
+        assert eintrag["app"] in APP_LINKS, eintrag["name"]
+    # Eigene Einträge aus der config.yaml bleiben, wie sie sind.
+    assert app_link("tv.arte.plus7") == "tv.arte.plus7"
+    assert app_link("kodi://") == "kodi://"
