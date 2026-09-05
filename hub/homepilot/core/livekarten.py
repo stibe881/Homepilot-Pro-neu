@@ -98,6 +98,36 @@ def abmelden(rows: Any, token: str) -> list[dict[str, Any]]:
     ]
 
 
+#: Tokens liegen gebliebener Karten - fürs Nach-Beenden im nächsten Takt.
+#:
+#: Der Fall dahinter, gemeldet am Fernseher: Die Karte startet per Push,
+#: während das Telefon gesperrt ist - ihr Token meldet die App erst beim
+#: nächsten Öffnen. Geht der Fernseher vorher aus, will der Hub beenden,
+#: hat aber kein Token, und die Karte bleibt stundenlang liegen. Kommt
+#: das Token dann endlich an und es gibt zu seiner Art keine laufende
+#: Karte mehr, gehört genau diese Aktivität beendet - dasselbe Muster
+#: wie bei der Türkarte (liveaktivitaet.VERWAIST_KEY).
+VERWAIST_KEY = "live_cards_verwaist"
+
+
+def hat_karte(rows: Any, user: str, art: str) -> bool:
+    """Läuft laut Hub eine Karte dieser Art für diese Person? (rein, testbar)"""
+    return any(
+        isinstance(row, dict) and row.get("user") == user and row.get("art") == art
+        for row in rows or []
+    )
+
+
+def verwaist_merken(rows: Any, user: str, token: str) -> list[dict[str, Any]]:
+    """Ein Token zum Nach-Beenden vormerken (rein, testbar)."""
+    neue = [
+        row
+        for row in (rows or [])
+        if isinstance(row, dict) and row.get("token") != token
+    ]
+    return [*neue, {"user": user, "token": token}]
+
+
 def token_merken(rows: Any, user: str, art: str, token: str) -> list[Any]:
     """Das Aktivitäts-Token einer laufenden Karte nachtragen (rein, testbar).
 
@@ -854,10 +884,26 @@ def _gewuenscht(hub: Any, jetzt_s: float, benutzer: list[str]) -> list[dict[str,
 
 
 async def _runde(hub: Any, versand: liveaktivitaet.ApnsVersand) -> None:
+    jetzt = time.time()
+    # Zuerst die liegen gebliebenen Karten abräumen: Ihr Ende wurde
+    # übersprungen, weil das Token damals fehlte - jetzt ist es da
+    # (VERWAIST_KEY, gefüllt von /api/liveactivity/activity). Vor dem
+    # frühen Ausstieg unten: Auch wer sich gerade abgemeldet hat, soll
+    # keine tote Karte behalten.
+    verwaiste = hub.data.get(VERWAIST_KEY)
+    if verwaiste:
+        for eintrag in verwaiste:
+            if not isinstance(eintrag, dict) or not eintrag.get("token"):
+                continue
+            await versand.senden(str(eintrag["token"]), ende_payload(None, 0.0, jetzt))
+            log.info(
+                "Live-Karte: liegen gebliebene Karte von %s beendet",
+                eintrag.get("user"),
+            )
+        hub.data.set(VERWAIST_KEY, [])
     start_rows = hub.data.get(START_KEY)
     if not start_rows:
         return
-    jetzt = time.time()
     prefs_rows = hub.data.get("user_prefs")
     gesperrt = liveaktivitaet.abgeschaltet(prefs_rows)
     benutzer = sorted(
