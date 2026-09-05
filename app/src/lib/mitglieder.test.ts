@@ -1,4 +1,4 @@
-import { mitglieder, namen, pruefeName, rolleWort } from './mitglieder';
+import { haushalt, mitglieder, namen, pruefeName, rolleWort } from './mitglieder';
 
 const konten = [
   { name: 'Stefan', role: 'besitzer' },
@@ -32,6 +32,27 @@ describe('mitglieder', () => {
 
   it('nimmt «kind» als Voreinstellung', () => {
     expect(mitglieder([], [{ id: 'x', text: 'Nino' }])[0].role).toBe('kind');
+  });
+});
+
+describe('haushalt', () => {
+  it('lässt Gäste aus der Familienreihe weg', () => {
+    // Der gemeldete Fall: Der Babysitter und der Besuch mit Link-Zugang
+    // standen als Avatare zwischen den Kindern - mit jedem spontanen
+    // Gast-Zugang einer mehr.
+    const reihe = mitglieder(
+      [...konten, { name: 'Babysitter', role: 'gast' }, { name: 'Ray', role: 'gast' }],
+      [{ id: 'a1', text: 'Livia' }]
+    );
+    expect(namen(haushalt(reihe))).toEqual(['Stefan', 'Bine', 'Livia']);
+  });
+
+  it('behält Kinder und Angehörige ohne Zugang', () => {
+    const reihe = mitglieder(konten, [
+      { id: 'a1', text: 'Livia' },
+      { id: 'a2', text: 'Oma', role: 'erwachsen' },
+    ]);
+    expect(haushalt(reihe)).toEqual(reihe);
   });
 });
 
