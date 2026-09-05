@@ -563,10 +563,18 @@ interface UpdateStatus {
   /** Schiefgegangenes, das den Bau nicht stoppte – etwa ein
    *  fehlgeschlagener Web-Bau, bei dem die alte Fassung online bleibt. */
   warnings?: string[];
+  /** Auf Wunsch abgebrochen - dann ist der error-Ausgang kein Schaden,
+   *  sondern das bestellte Ergebnis, und steht nicht in Rot da. */
+  aborted?: boolean;
   /** Der Ausgang des letzten Laufs, über Neustarts des Dienstes hinweg.
    *  Fehlt bei älteren Update-Diensten – dann bleibt es wie bisher. */
   last_run?: LetzterLauf | null;
 }
+
+// Ab diesen Phasen ist das Ausrollen angestossen und läuft bei Portainer
+// weiter - abbrechen kann der Dienst dann nichts mehr, also verschwindet
+// der Knopf, statt eine leere Geste anzubieten.
+const NICHT_MEHR_ABBRECHBAR = new Set(['deploy', 'deploy_wait', 'manual', 'done']);
 
 const STAGE_LABEL: Record<string, string> = {
   clone: 'Code holen',
@@ -895,7 +903,11 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
         setProgress(data);
         if (!data.available || data.state === 'ok' || data.state === 'error') {
           setBusy(false);
-          if (data.state === 'error') {
+          if (data.state === 'error' && data.aborted) {
+            // Bestellt, nicht gescheitert: Der alte Stand läuft weiter.
+            setNoteArt('hinweis');
+            setNote(data.message || 'Abgebrochen - der alte Stand läuft weiter.');
+          } else if (data.state === 'error') {
             setNoteArt('fehler');
             // Die Ursache steht in den Zeilen nach der Fehlermeldung.
             // Sie hier wegzulassen hiesse: «ging schief», Punkt – und
@@ -1019,6 +1031,32 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
 
   const showBar = busy && progress?.available !== false;
   const percent = progress?.stage ? (STAGE_PERCENT[progress.stage] ?? 5) : 5;
+  // Abbrechen nur, solange es das Ausrollen noch verhindert. Der Dienst
+  // prüft das selbst noch einmal - der Knopf soll aber gar nicht erst
+  // etwas versprechen, was nicht mehr geht.
+  const abbrechbar =
+    showBar &&
+    progress?.state === 'running' &&
+    !NICHT_MEHR_ABBRECHBAR.has(progress?.stage ?? '');
+
+  const abbrechen = async () => {
+    try {
+      const response = await fetch(`${settings.url}/api/system/update/abort`, {
+        method: 'POST',
+        headers,
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok)
+        throw new Error(body?.detail ?? `Hub antwortet mit ${response.status}`);
+      // Das Ende meldet der laufende Status-Poll (state error + aborted) -
+      // hier nur bestätigen, dass der Wunsch angekommen ist.
+      setNoteArt('hinweis');
+      setNote('Abbruch angefordert - es wird nichts ausgerollt.');
+    } catch (err) {
+      setNoteArt('fehler');
+      setNote(String(err instanceof Error ? err.message : err));
+    }
+  };
 
   return (
     <>
@@ -1086,6 +1124,17 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
           {STAGE_LABEL[progress.stage] ?? progress.stage}
           {progress.message ? ` · ${progress.message}` : ''}
         </Text>
+      ) : null}
+      {abbrechbar ? (
+        <Pressable
+          onPress={abbrechen}
+          accessibilityRole="button"
+          accessibilityLabel="Update abbrechen - nichts ausrollen"
+          style={({ pressed }) => [styles.updateAbbruch, pressed && { opacity: 0.7 }]}
+        >
+          <Ionicons name="close-circle-outline" size={15} color={colors.danger} />
+          <Text style={styles.updateAbbruchText}>Abbrechen – nichts ausrollen</Text>
+        </Pressable>
       ) : null}
       {note ? (
         <Text
@@ -2046,6 +2095,17 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     updateText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
+    // Bewusst nur eine Textzeile, kein grosser Knopf: Abbrechen ist der
+    // Ausnahmefall und soll nicht neben dem Balken um Aufmerksamkeit
+    // ringen - aber da sein, solange es noch etwas verhindert.
+    updateAbbruch: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      gap: 5,
+      paddingVertical: 4,
+    },
+    updateAbbruchText: { color: colors.danger, fontSize: 12, fontWeight: '600' },
     progressTrack: {
       height: 6,
       borderRadius: 3,

@@ -266,3 +266,31 @@ def test_a_foreign_cross_does_not_fail_the_run(monkeypatch, credentials):
     listener._handle_line("✗️ some tool being decorative")
 
     assert listener._status["state"] == "running"
+
+
+def test_abort_is_announced_and_knows_when_it_is_too_late(monkeypatch, credentials):
+    """Abbrechen gibt es - aber nur, solange es das Ausrollen verhindert.
+
+    «Abbrechen» nach dem Portainer-Webhook wäre eine leere Geste: Das
+    Ausrollen läuft dann bei Portainer weiter, und ein Dienst, der
+    trotzdem «abgebrochen» meldet, lügt. Die Regel steht als reine
+    Funktion da, damit genau diese Grenze festgehalten ist.
+    """
+    listener = load_listener(monkeypatch, credentials, None)
+    assert "abort" in listener.FEATURES
+
+    # Vor dem Webhook: abbrechen erlaubt, der alte Stand bleibt stehen.
+    for stage in ("clone", "web", "build", "built", "ios"):
+        moeglich, _ = listener.abbruch_moeglich("running", stage)
+        assert moeglich, stage
+
+    # Ab dem Webhook: zu spät - ablehnen statt vortäuschen.
+    for stage in ("deploy", "deploy_wait", "manual", "done"):
+        moeglich, grund = listener.abbruch_moeglich("running", stage)
+        assert not moeglich, stage
+        assert "spät" in grund
+
+    # Ohne laufenden Bau gibt es nichts abzubrechen.
+    moeglich, grund = listener.abbruch_moeglich("idle", None)
+    assert not moeglich
+    assert "kein Bau" in grund

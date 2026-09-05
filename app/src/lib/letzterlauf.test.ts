@@ -56,6 +56,23 @@ describe('letzterLaufSatz', () => {
     expect(satz!.text).toContain('Der Web-Bau schlug fehl.');
   });
 
+  it('zeigt einen gewollten Abbruch als Hinweis, nicht als Fehler', () => {
+    // Der Abbrechen-Knopf beim Update: bestellt, kein Schaden. In Rot
+    // suchte man nach einem Fehler, den es nicht gab.
+    const satz = letzterLaufSatz(
+      {
+        state: 'error',
+        aborted: true,
+        message: 'Auf Wunsch abgebrochen - der alte Stand läuft weiter.',
+        finished_at: JETZT - 120,
+      },
+      JETZT
+    );
+    expect(satz!.art).toBe('hinweis');
+    expect(satz!.text).toContain('abgebrochen');
+    expect(satz!.text).not.toContain('fehlgeschlagen');
+  });
+
   it('erkennt einen Lauf, der nie zu Ende kam', () => {
     // Der Dienst schreibt seinen Ausgang am Ende. Steht danach noch
     // «running» da, wurde er mittendrin abgeräumt.

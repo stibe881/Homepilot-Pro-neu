@@ -458,6 +458,66 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             return {"ok": True, "nur_ausrollen": True}
         return {"ok": True}
 
+    @app.post("/api/system/update/abort")
+    async def update_abbrechen(request: Request) -> dict[str, Any]:
+        """Den laufenden Host-Bau abbrechen, bevor er ausgerollt wird.
+
+        Nur solange der Portainer-Webhook noch nicht ausgelöst ist - danach
+        arbeitet Portainer unabhängig weiter, und der Dienst lehnt ab (409),
+        statt einen Abbruch vorzutäuschen. Ein früher Abbruch ist folgenlos:
+        Der alte Container läuft unangetastet weiter.
+        """
+        user = require(request, Capability.EDIT_CONFIG)
+        url = str((hub.config.update or {}).get("webhook_url") or "")
+        if not url.rstrip("/").endswith("/update"):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Abbrechen kann nur der Update-Dienst des Hosts "
+                    "(update-listener.py) - unter update.webhook_url ist "
+                    "keiner eingerichtet."
+                ),
+            )
+        abort_url = url.rstrip("/")[: -len("/update")] + "/abort"
+        secret = str((hub.config.update or {}).get("token") or "")
+        headers = {"Authorization": f"Bearer {secret}"} if secret else {}
+        log.warning("Update-Abbruch angefordert von %s", user.name)
+        try:
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(abort_url, headers=headers) as response:
+                    text = (await response.text())[:300].strip()
+                    if response.status == 404:
+                        # Ältere Fassung des Dienstes: /abort gibt es dort
+                        # noch nicht. Der Bau läuft weiter - das muss
+                        # dastehen, sonst wähnt man ihn gestoppt.
+                        raise HTTPException(
+                            status_code=502,
+                            detail=(
+                                "Der Update-Dienst auf dem Server kennt das "
+                                "Abbrechen noch nicht - der Bau läuft weiter. "
+                                "Auf dem Server einmal «sudo systemctl restart "
+                                "homepilot-update» ausführen; ab dem nächsten "
+                                "Update geht es dann."
+                            ),
+                        )
+                    if response.status == 409:
+                        # Zu spät oder nichts am Laufen - der Grund kommt
+                        # vom Dienst und ist schon ein ganzer Satz.
+                        raise HTTPException(status_code=409, detail=text)
+                    if response.status >= 400:
+                        raise HTTPException(
+                            status_code=502,
+                            detail=f"Update-Dienst antwortet mit {response.status}: {text}",
+                        )
+        except HTTPException:
+            raise
+        except Exception as err:
+            raise HTTPException(
+                status_code=502, detail=f"Update-Dienst nicht erreichbar: {err}"
+            ) from err
+        return {"ok": True, "message": text}
+
     @app.get("/api/system/update/status")
     async def update_status(request: Request) -> dict[str, Any]:
         """Live-Fortschritt des Host-Baus, für einen Fortschrittsbalken in der App.

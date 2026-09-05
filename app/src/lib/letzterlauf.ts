@@ -17,6 +17,8 @@ export interface LetzterLauf {
   message?: string | null;
   detail?: string | null;
   warnings?: string[] | null;
+  /** Auf Wunsch abgebrochen - vom Abbrechen-Knopf, kein Schaden. */
+  aborted?: boolean | null;
   started_at?: number | null;
   finished_at?: number | null;
   ios?: boolean | null;
@@ -58,6 +60,14 @@ export function letzterLaufSatz(
   const wann = lauf.finished_at ? vorWieLange(jetztSekunden - lauf.finished_at) : null;
   const kopf = wann ? `Letztes Update ${wann}` : 'Letztes Update';
 
+  if (lauf.state === 'error' && lauf.aborted) {
+    // Der Abbrechen-Knopf, nicht ein Schaden: Der alte Stand lief
+    // weiter. In Rot suchte man nach einem Fehler, den es nicht gab.
+    return {
+      art: 'hinweis',
+      text: `${kopf}: auf Wunsch abgebrochen - es wurde nichts ausgerollt.`,
+    };
+  }
   if (lauf.state === 'error') {
     return {
       art: 'fehler',

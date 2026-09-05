@@ -45,6 +45,7 @@ import http.server
 import json
 import logging
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -67,7 +68,7 @@ WATCHDOG_SECONDS = 3600
 # der Dienst auf dem Server zu alt ist – statt eines nackten „404 Nicht
 # gefunden", das in die falsche Richtung zeigt. Neue Fähigkeiten kommen
 # hier dazu, damit die App sie ankündigen kann, bevor sie ins Leere läuft.
-FEATURES = ["status", "warnings", "ios", "last_run"]
+FEATURES = ["status", "warnings", "ios", "last_run", "abort"]
 
 # Wohin der Ausgang des letzten Laufs geschrieben wird. Der Status oben
 # lebt im Arbeitsspeicher und ist nach jedem Neustart des Dienstes weg -
@@ -114,6 +115,56 @@ log = logging.getLogger("update-listener")
 # Damit nicht zwei Bauläufe gleichzeitig starten, wenn jemand zweimal tippt.
 _running = threading.Lock()
 
+# Der laufende Bau-Prozess - damit POST /abort ihn beenden kann. Er wird
+# als eigene Prozessgruppe gestartet (start_new_session): rebuild-hub.sh
+# ruft docker build und expo auf, und ein Kill auf das Skript allein
+# liesse die Kinder weiterbauen.
+_proc_lock = threading.Lock()
+_proc: subprocess.Popen | None = None
+# Auf Wunsch abgebrochen? Unterscheidet den gewollten Abbruch vom echten
+# Fehler - in der App soll «abgebrochen» nicht rot wie «gescheitert»
+# aussehen.
+_abbruch = False
+
+# Ab diesen Phasen ist der Portainer-Webhook schon ausgelöst; das
+# Ausrollen läuft dann auf Portainers Seite und lässt sich von hier aus
+# nicht mehr zurückholen.
+ZU_SPAET = ("deploy", "deploy_wait", "manual", "done")
+
+
+def abbruch_moeglich(state, stage) -> tuple[bool, str]:
+    """Verhindert ein Abbruch jetzt noch das Ausrollen? (rein, testbar)
+
+    Der Sinn des Knopfs ist «es soll nichts ins Haus übertragen werden».
+    Vor dem Webhook stimmt das: Der alte Container läuft unangetastet
+    weiter, ein abgebrochener Bau ist ein Nicht-Ereignis. Danach ist es
+    eine leere Geste - Portainer arbeitet unabhängig weiter, und so zu
+    tun, als sei abgebrochen worden, wäre gelogen.
+    """
+    if state != "running":
+        return False, "Es läuft gerade kein Bau."
+    if stage in ZU_SPAET:
+        return False, (
+            "Zu spät: Das Ausrollen ist schon angestossen - "
+            "Portainer arbeitet unabhängig weiter."
+        )
+    return True, ""
+
+
+def _bau_beenden(proc: subprocess.Popen) -> None:
+    """Den Bau samt Kindern beenden (docker build, expo, eas).
+
+    Erst die ganze Prozessgruppe, dann - falls das Skript ohne eigene
+    Gruppe läuft (alte Popen-Aufrufe) - wenigstens das Skript selbst.
+    """
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
 # Die einzelnen Zeilen, an denen rebuild-hub.sh erkennen lässt, in welcher
 # Phase es gerade steckt (siehe dessen echo-Zeilen). Reihenfolge ist die
 # der Ausführung, nicht wichtig für die Erkennung selbst.
@@ -146,6 +197,9 @@ _status = {
     # Fassung online bleibt. Bisher standen sie nur im Journal, und in
     # der App sah danach alles nach Erfolg aus.
     "warnings": [],
+    # Auf Wunsch abgebrochen statt gescheitert - die App zeigt das als
+    # Hinweis, nicht als Fehler.
+    "aborted": False,
     "started_at": None,
     "updated_at": None,
 }
@@ -288,13 +342,15 @@ def build(ios: bool = False) -> None:
     Wartezeit auf Portainer noch einmal auf Update drückte, sah eine
     Bestätigung und bekam nichts – dreimal hintereinander.
     """
-    global _warn_open
+    global _warn_open, _abbruch, _proc
     _warn_open = False
+    _abbruch = False
     _set_status(
         state="running",
         stage="clone",
         message=None,
         warnings=[],
+        aborted=False,
         started_at=time.time(),
     )
 
@@ -314,13 +370,18 @@ def build(ios: bool = False) -> None:
             text=True,
             bufsize=1,
             env=env,
+            # Eigene Prozessgruppe: Abbruch und Wächter sollen auch die
+            # Kinder treffen (docker build, expo) - nicht nur das Skript.
+            start_new_session=True,
         )
+        with _proc_lock:
+            _proc = proc
 
         def _give_up() -> None:
             nonlocal timed_out
             timed_out = True
             if proc is not None:
-                proc.kill()
+                _bau_beenden(proc)
 
         watchdog = threading.Timer(WATCHDOG_SECONDS, _give_up)
         watchdog.start()
@@ -340,13 +401,24 @@ def build(ios: bool = False) -> None:
     finally:
         if watchdog is not None:
             watchdog.cancel()
+        with _proc_lock:
+            _proc = None
         # Immer freigeben, auf jedem Weg hier hinaus. Bliebe die Sperre
         # nach einem Fehler liegen, lehnte der Dienst jedes weitere Update
         # ab, bis ihn jemand neu startet - und niemand wüsste, warum.
         _running.release()
 
     with _status_lock:
-        if timed_out:
+        if _abbruch:
+            # Gewollt, kein Schaden: Der alte Container läuft unangetastet
+            # weiter. `aborted` lässt die App das als Hinweis zeigen statt
+            # rot wie ein gescheitertes Update; für ältere App-Stände
+            # bleibt es ein gewöhnlicher error-Ausgang.
+            _status["state"] = "error"
+            _status["aborted"] = True
+            _status["message"] = "Auf Wunsch abgebrochen - der alte Stand läuft weiter."
+            _status["detail"] = None
+        elif timed_out:
             _status["state"] = "error"
             _status["message"] = "Abgebrochen: über eine Stunde ohne Ende"
         elif _status["state"] == "running":
@@ -371,6 +443,7 @@ def build(ios: bool = False) -> None:
             "message": _status["message"],
             "detail": _status["detail"],
             "warnings": list(_status["warnings"]),
+            "aborted": bool(_status.get("aborted")),
             "started_at": _status["started_at"],
             "finished_at": time.time(),
             "ios": ios,
@@ -408,6 +481,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
     # sucht - nicht nach unserer Namenskonvention.
     def do_POST(self) -> None:
         path, _, query = self.path.partition("?")
+        if path.rstrip("/") == "/abort":
+            self._abort()
+            return
         if path.rstrip("/") != "/update":
             self._answer(404, "Nicht gefunden\n")
             return
@@ -441,6 +517,38 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # Sperre gibt der Bau selbst wieder frei.
         threading.Thread(target=build, kwargs={"ios": ios}, daemon=True).start()
         self._answer(202, "Bau gestartet (mit iOS-Build)\n" if ios else "Bau gestartet\n")
+
+    def _abort(self) -> None:
+        """POST /abort: den laufenden Bau beenden, bevor ausgerollt wird.
+
+        Vor dem Portainer-Webhook ist das folgenlos - der alte Container
+        läuft weiter, das halbe Abbild räumt der nächste Lauf weg. Danach
+        wird abgelehnt statt so zu tun (siehe abbruch_moeglich).
+        """
+        global _abbruch
+        if not self._authorized():
+            log.warning("Abbruch abgelehnt: falsches oder fehlendes Geheimnis")
+            self._answer(403, "Nicht erlaubt\n")
+            return
+        with _status_lock:
+            state, stage = _status["state"], _status["stage"]
+        moeglich, grund = abbruch_moeglich(state, stage)
+        if not moeglich:
+            log.warning("Abbruch abgelehnt: %s", grund)
+            self._answer(409, grund + "\n")
+            return
+        with _proc_lock:
+            proc = _proc
+        if proc is None:
+            # Zwischen Statusblick und Zugriff fertig geworden.
+            self._answer(409, "Es läuft gerade kein Bau.\n")
+            return
+        _abbruch = True
+        log.warning("Bau wird auf Wunsch abgebrochen (Phase: %s)", stage)
+        _bau_beenden(proc)
+        self._answer(
+            202, "Abgebrochen - es wird nichts ausgerollt, der alte Stand läuft weiter.\n"
+        )
 
     def do_GET(self) -> None:
         if self.path.rstrip("/") == "/status":

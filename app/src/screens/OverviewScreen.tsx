@@ -1211,6 +1211,18 @@ function DurchsageFenster({
     }
   };
 
+  // Verwerfen: aufhören, ohne zu senden. Bisher gab es nur den einen
+  // Knopf, und der schickte beim Stoppen sofort los - wer sich
+  // versprochen hatte, konnte nur zusehen, wie es durchs Haus schallte.
+  const aufnahmeVerwerfen = () => {
+    const aufnahme = laufend.current;
+    if (!aufnahme) return;
+    laufend.current = null;
+    setSeit(null);
+    aufnahme.abbrechen();
+    setNote('Verworfen - nichts gesendet.');
+  };
+
   const speichern = () => {
     const sauber = frei.trim();
     if (!sauber) return;
@@ -1471,6 +1483,24 @@ function DurchsageFenster({
                 werden?»), nur mit der Stimme beantwortet. Während der
                 Aufnahme steht die Zeit im Knopf - sonst weiss niemand,
                 ob das Mikrofon wirklich läuft. */}
+            {/* Während der Aufnahme steht links daneben das Verwerfen:
+                aufhören, ohne dass etwas durchs Haus schallt. Erst beim
+                Aufnehmen - vorher gibt es nichts zu verwerfen, und ein
+                Knopf ohne Wirkung wäre nur Deko. */}
+            {mikrofon && !verwalten && seit !== null ? (
+              <Pressable
+                onPress={aufnahmeVerwerfen}
+                accessibilityRole="button"
+                accessibilityLabel="Aufnahme verwerfen - nichts senden"
+                style={({ pressed }) => [
+                  styles.durchsageSenden,
+                  styles.durchsageVerwerfen,
+                  pressed && { opacity: 0.5 },
+                ]}
+              >
+                <Ionicons name="trash-outline" size={18} color={colors.ink} />
+              </Pressable>
+            ) : null}
             {mikrofon && !verwalten ? (
               <Pressable
                 onPress={aufnahmeUmschalten}
@@ -2065,6 +2095,14 @@ const makeStyles = (colors: Colors) =>
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: colors.accent,
+    },
+    // Verwerfen: bewusst matt neben dem roten Aufnahmeknopf - der
+    // Normalfall bleibt «beenden und senden», das Verwerfen ist der
+    // Notausgang.
+    durchsageVerwerfen: {
+      backgroundColor: colors.surfaceStrong,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
     },
     // Die laufende Sekunde im Aufnahmeknopf - gleich gross wie das
     // Symbol daneben, damit die Zeile beim Umschalten nicht springt.
