@@ -43,6 +43,8 @@ const LOGOS: Record<string, TvLogo> = {
   'disney plus': { schriftzug: 'D+', farbe: '#113CCF' },
   'prime video': { schriftzug: 'prime', farbe: '#00A8E1' },
   prime: { schriftzug: 'prime', farbe: '#00A8E1' },
+  // Wie das App-Symbol: weisses «joyn» auf dunklem Nachtblau.
+  joyn: { schriftzug: 'joyn', farbe: '#131A3C' },
 };
 
 /** Das Logo zum App-Namen – oder null für Unbekanntes (rein, testbar). */

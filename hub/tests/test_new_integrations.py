@@ -580,6 +580,9 @@ def test_app_list_defaults_and_overrides():
 
     assert app_list({}, {}) == DEFAULT_APPS
     assert [app["name"] for app in DEFAULT_APPS][:3] == ["Plex", "Zattoo", "YouTube"]
+    # Joyn gehört seit dem Wunsch vom Wohnzimmer-iPad zur Vorgabe - fällt
+    # es aus der Liste, verschwindet der Knopf im ganzen Haus.
+    assert {"name": "Joyn", "app": "de.prosiebensat1digital.seventv"} in DEFAULT_APPS
 
     # Liste für alle Geräte des Blocks.
     alle = app_list({"apps": ["com.plexapp.android"]}, {})

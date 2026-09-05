@@ -168,6 +168,9 @@ class DemoIntegration(Integration):
                     {"name": "Zattoo", "app": "com.zattoo.player"},
                     {"name": "YouTube", "app": "com.google.android.youtube.tv"},
                     {"name": "Netflix", "app": "com.netflix.ninja"},
+                    # Auch im Demo-Haus, seit es zur Vorgabe gehört: Sonst
+                    # liesse sich der Joyn-Knopf im Browser nie ansehen.
+                    {"name": "Joyn", "app": "de.prosiebensat1digital.seventv"},
                 ],
             },
             commands=[

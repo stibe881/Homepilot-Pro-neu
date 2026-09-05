@@ -412,7 +412,8 @@ integrations:
   #   python -m homepilot.integrations.androidtv -c config.yaml
   #
   # «apps» bestimmt, was die Kachel zum Starten anbietet. Ohne Eintrag
-  # eine kurze Vorgabe (Plex, Zattoo, YouTube, Netflix, Disney+, Prime).
+  # eine kurze Vorgabe (Plex, Zattoo, YouTube, Netflix, Disney+, Prime,
+  # Joyn).
   # Das Protokoll kann Apps starten, aber nicht aufzählen - deshalb steht
   # die Liste hier und kommt nicht vom Fernseher. Den Paketnamen zeigt
   # der Play-Store in der Adresszeile («?id=…»).

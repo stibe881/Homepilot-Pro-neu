@@ -4,7 +4,15 @@ describe('tvLogo', () => {
   it('kennt jede Vorgabe-App des Android-TV', () => {
     // Die Liste aus hub/integrations/androidtv.py (DEFAULT_APPS): Genau
     // diese Namen stehen auf der Fernbedienung im Wohnzimmer.
-    for (const name of ['Plex', 'Zattoo', 'YouTube', 'Netflix', 'Disney+', 'Prime Video']) {
+    for (const name of [
+      'Plex',
+      'Zattoo',
+      'YouTube',
+      'Netflix',
+      'Disney+',
+      'Prime Video',
+      'Joyn',
+    ]) {
       expect(tvLogo(name)).not.toBeNull();
     }
   });

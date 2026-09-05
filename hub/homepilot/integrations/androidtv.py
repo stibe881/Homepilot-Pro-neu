@@ -48,6 +48,9 @@ APP_NAMES = {
     "com.amazon.amazonvideo.livingroom": "Prime Video",
     "com.plexapp.android": "Plex",
     "com.zattoo.player": "Zattoo",
+    # Joyn heisst im Paketnamen noch «7TV» - so hiess der Dienst, bevor
+    # ProSiebenSat.1 ihn umtaufte. Der Play Store bestätigt die ID.
+    "de.prosiebensat1digital.seventv": "Joyn",
     "com.google.android.apps.tv.launcherx": None,  # Startbildschirm
     "com.android.systemui": None,
     "com.google.android.tvlauncher": None,
@@ -65,6 +68,7 @@ DEFAULT_APPS: list[dict[str, str]] = [
     {"name": "Netflix", "app": "com.netflix.ninja"},
     {"name": "Disney+", "app": "com.disney.disneyplus"},
     {"name": "Prime Video", "app": "com.amazon.amazonvideo.livingroom"},
+    {"name": "Joyn", "app": "de.prosiebensat1digital.seventv"},
 ]
 
 
