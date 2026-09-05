@@ -138,6 +138,62 @@ def test_fernseher_karte_nicht_fuer_leute_unterwegs():
     assert "ohne" not in karten_tv([tv])[0]
 
 
+def test_fernseher_zwillinge_geben_eine_karte():
+    """Der gemeldete Fall: «Fernseher Wohnzimmer, eingeschaltet» lag
+    über «Fernseher im Wohnzimmer, Plex» - derselbe Bildschirm, einmal
+    als Android TV (mit Steuerkreuz), einmal als Zuspieler. Eine Karte,
+    und zwar die mit der Fernbedienung - der Text kommt vom Zuspieler,
+    denn der weiss, was läuft."""
+    android = SimpleNamespace(
+        id="androidtv.wz", kind="media_player", label="Fernseher Wohnzimmer",
+        state={"state": "on", "has_screen": True},
+        room="Wohnzimmer", commands=["dpad_up", "turn_off"],
+    )
+    plex = SimpleNamespace(
+        id="plex.wz", kind="media_player", label="Fernseher im Wohnzimmer",
+        state={"state": "playing", "has_screen": True, "app": "Plex"},
+        room="Wohnzimmer", commands=["play", "pause"],
+    )
+    karten = karten_tv([android, plex])
+    assert [k["art"] for k in karten] == ["tv:androidtv.wz"]
+    assert karten[0]["state"]["text"] == "Plex"
+    assert karten[0]["state"]["url"] == "homepilot://fernbedienung/androidtv.wz"
+
+
+def test_fernseher_zwillinge_nur_im_selben_raum_und_ohne_raten():
+    """Zwei echte Fernseher in zwei Räumen bleiben zwei Karten - und bei
+    zwei Steuerkreuzen im selben Raum wird nicht geraten (dieselbe
+    Vorsicht wie auf der Raumkachel, lib/raumkarte.ts)."""
+    wohnzimmer = SimpleNamespace(
+        id="tv.wz", kind="media_player", label="Wohnzimmer",
+        state={"state": "on", "has_screen": True},
+        room="Wohnzimmer", commands=["dpad_up"],
+    )
+    schlafzimmer = SimpleNamespace(
+        id="tv.sz", kind="media_player", label="Schlafzimmer",
+        state={"state": "on", "has_screen": True},
+        room="Schlafzimmer", commands=["play"],
+    )
+    assert len(karten_tv([wohnzimmer, schlafzimmer])) == 2
+
+    zweiter = SimpleNamespace(
+        id="tv.wz2", kind="media_player", label="Beamer",
+        state={"state": "on", "has_screen": True},
+        room="Wohnzimmer", commands=["dpad_up"],
+    )
+    assert len(karten_tv([wohnzimmer, zweiter])) == 2
+
+    # Läuft nur der Zuspieler, bleibt seine Karte - besser die ohne
+    # Steuerkreuz als gar keine.
+    zuspieler = SimpleNamespace(
+        id="plex.wz", kind="media_player", label="Fernseher im Wohnzimmer",
+        state={"state": "playing", "has_screen": True, "app": "Plex"},
+        room="Wohnzimmer", commands=["play"],
+    )
+    allein = karten_tv([zuspieler])
+    assert [k["art"] for k in allein] == ["tv:plex.wz"]
+
+
 def test_nicht_zuhause_zaehlt_nur_nachweislich_abwesende():
     """Unbekannt zählt als zuhause: Wessen Telefon nichts meldet (oder
     wer keine Ortung hat), soll die Karte trotzdem bekommen - im Zweifel

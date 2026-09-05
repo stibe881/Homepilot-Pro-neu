@@ -358,6 +358,56 @@ def karten_sauger(entities: list[Any]) -> list[dict[str, Any]]:
 TV_AN = frozenset({"on", "playing", "paused", "buffering"})
 
 
+def _tv_app(entity: Any) -> str | None:
+    app = entity.state.get("app") or entity.state.get("track")
+    return str(app) if app else None
+
+
+def tv_auswahl(laufend: list[Any]) -> list[tuple[Any, str | None]]:
+    """Je Bildschirm ein Gerät - Zwillinge zusammengelegt (rein, testbar).
+
+    Derselbe Fernseher steht oft zweimal im Raum: als Zuspieler ohne
+    Steuerkreuz (Cast, Plex) und als Android TV mit. Laufen beide, lagen
+    zwei Karten für einen Bildschirm auf dem Sperrbildschirm -
+    «Fernseher Wohnzimmer, eingeschaltet» über «Fernseher im Wohnzimmer,
+    Plex». Genau so wurde es gemeldet.
+
+    Dieselbe Regel wie auf der Raumkachel (app/src/lib/raumkarte.ts,
+    fernbedienungFuer): Ein laufender Fernseher ohne Steuerkreuz gehört
+    zum *einzigen* Steuerkreuz-Gerät seines Raums - bei zweien wird
+    nicht geraten, und ohne Raum lässt sich kein Zwilling erkennen. Der
+    Text des Zuspielers wandert mit: Er weiss, was läuft («Plex»), das
+    Steuerkreuz-Gerät sagt oft nur «eingeschaltet».
+    """
+    nach_raum: dict[Any, list[Any]] = {}
+    for entity in laufend:
+        nach_raum.setdefault(getattr(entity, "room", None), []).append(entity)
+
+    auswahl: list[tuple[Any, str | None]] = []
+    for raum, gruppe in nach_raum.items():
+        kreuze = [
+            entity
+            for entity in gruppe
+            if "dpad_up" in (getattr(entity, "commands", None) or [])
+        ]
+        if raum is None or len(gruppe) == 1 or len(kreuze) != 1:
+            auswahl.extend((entity, _tv_app(entity)) for entity in gruppe)
+            continue
+        gewinner = kreuze[0]
+        app = _tv_app(gewinner)
+        if not app:
+            app = next(
+                (
+                    _tv_app(entity)
+                    for entity in gruppe
+                    if entity is not gewinner and _tv_app(entity)
+                ),
+                None,
+            )
+        auswahl.append((gewinner, app))
+    return auswahl
+
+
 def karten_tv(entities: list[Any], ohne: list[str] | None = None) -> list[dict[str, Any]]:
     """Der laufende Fernseher - ein Tipp öffnet seine Fernbedienung.
 
@@ -370,20 +420,22 @@ def karten_tv(entities: list[Any], ohne: list[str] | None = None) -> list[dict[s
     dasselbe Merkmal, an dem auch die App Fernseher von Musikboxen
     trennt). Die Adresse führt zur Fernbedienung genau dieses Geräts,
     nicht in den Raum: Wer auf die Karte tippt, will umschalten, nicht
-    nachsehen.
+    nachsehen. Je Bildschirm eine Karte, auch wenn er zweimal im Hub
+    steht (tv_auswahl).
 
     ``ohne`` sind die Leute, die gerade nachweislich nicht zuhause sind
     (nicht_zuhause) - für sie liegt keine Karte: Eine Fernbedienung im
     Zug ist nur eine Karte im Weg.
     """
+    laufend = [
+        entity
+        for entity in entities
+        if entity.kind == "media_player"
+        and entity.state.get("has_screen")
+        and str(entity.state.get("state") or "") in TV_AN
+    ]
     karten = []
-    for entity in entities:
-        if entity.kind != "media_player" or not entity.state.get("has_screen"):
-            continue
-        if str(entity.state.get("state") or "") not in TV_AN:
-            continue
-        # Die laufende App ist der Text - «Netflix» sagt mehr als «an».
-        app = entity.state.get("app") or entity.state.get("track")
+    for entity, app in tv_auswahl(laufend):
         karten.append(
             {
                 "art": f"tv:{entity.id}",
@@ -391,7 +443,8 @@ def karten_tv(entities: list[Any], ohne: list[str] | None = None) -> list[dict[s
                 **({"ohne": list(ohne)} if ohne else {}),
                 "state": {
                     "titel": entity.label,
-                    "text": str(app) if app else "eingeschaltet",
+                    # Die laufende App als Text - «Netflix» sagt mehr als «an».
+                    "text": app or "eingeschaltet",
                     "symbol": "tv",
                     "url": f"homepilot://fernbedienung/{quote(str(entity.id))}",
                 },
