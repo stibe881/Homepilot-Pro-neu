@@ -437,6 +437,43 @@ def tv_auswahl(laufend: list[Any]) -> list[tuple[Any, str | None]]:
     return auswahl
 
 
+def fernbedienung_ziel(entity: Any, entities: list[Any]) -> str:
+    """Wessen Fernbedienung der Tipp auf die Karte öffnet (rein, testbar).
+
+    Am liebsten die eigene. Hat das Gerät selbst kein Steuerkreuz - der
+    Cast/Plex-Zuspieler eines Fernsehers, der daneben auch als Android
+    TV im Raum steht -, gilt der Zwilling: derselbe Bildschirm, nur der
+    andere Draht. Gemeldet wurde genau das: Der Tipp auf die Live-Karte
+    öffnete eine andere Fernbedienung als die App - die App wählt über
+    die Raumkachel längst den Zwilling (lib/raumkarte.ts,
+    fernbedienungFuer), die Karte zeigte stur auf sich selbst.
+
+    Anders als beim Zusammenlegen der Karten (tv_auswahl) zählt der
+    Zwilling hier auch, wenn er gerade «aus» ist oder nicht antwortet:
+    Die Karte kommt vom Zuspieler, wenn der Hub den Fernseher selbst
+    nicht erreicht - und gerade dann soll der Tipp trotzdem bei der
+    richtigen Fernbedienung landen. Bei zwei Steuerkreuzen im Raum wird
+    nicht geraten, ohne Raum gibt es keinen Zwilling - dann bleibt es
+    bei der eigenen.
+    """
+    if "dpad_up" in (getattr(entity, "commands", None) or []):
+        return str(entity.id)
+    raum = getattr(entity, "room", None)
+    if raum is None:
+        return str(entity.id)
+    kreuze = [
+        kandidat
+        for kandidat in entities
+        if kandidat is not entity
+        and getattr(kandidat, "kind", None) == "media_player"
+        and getattr(kandidat, "room", None) == raum
+        and "dpad_up" in (getattr(kandidat, "commands", None) or [])
+    ]
+    if len(kreuze) != 1:
+        return str(entity.id)
+    return str(kreuze[0].id)
+
+
 def karten_tv(
     entities: list[Any],
     ohne: list[str] | None = None,
@@ -451,10 +488,11 @@ def karten_tv(
 
     Fernseher heisst: Medienspieler mit Bildschirm (``has_screen`` -
     dasselbe Merkmal, an dem auch die App Fernseher von Musikboxen
-    trennt). Die Adresse führt zur Fernbedienung genau dieses Geräts,
-    nicht in den Raum: Wer auf die Karte tippt, will umschalten, nicht
-    nachsehen. Je Bildschirm eine Karte, auch wenn er zweimal im Hub
-    steht (tv_auswahl).
+    trennt). Die Adresse führt zur Fernbedienung, nicht in den Raum:
+    Wer auf die Karte tippt, will umschalten, nicht nachsehen - und
+    zwar zur *richtigen* Fernbedienung, notfalls der des
+    Steuerkreuz-Zwillings (fernbedienung_ziel). Je Bildschirm eine
+    Karte, auch wenn er zweimal im Hub steht (tv_auswahl).
 
     ``ohne`` sind die Leute, die gerade nachweislich nicht zuhause sind
     (nicht_zuhause) - für sie liegt keine Karte: Eine Fernbedienung im
@@ -483,7 +521,10 @@ def karten_tv(
                     # Die laufende App als Text - «Netflix» sagt mehr als «an».
                     "text": app or "eingeschaltet",
                     "symbol": "tv",
-                    "url": f"homepilot://fernbedienung/{quote(str(entity.id))}",
+                    "url": (
+                        "homepilot://fernbedienung/"
+                        f"{quote(fernbedienung_ziel(entity, entities))}"
+                    ),
                     **({"knoepfe": [knopf]} if knopf else {}),
                 },
             }

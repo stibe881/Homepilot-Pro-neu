@@ -138,6 +138,63 @@ def test_fernseher_karte_nicht_fuer_leute_unterwegs():
     assert "ohne" not in karten_tv([tv])[0]
 
 
+def test_die_karte_des_zuspielers_oeffnet_die_fernbedienung_des_zwillings():
+    """Der gemeldete Fall: Der Tipp auf die Live-Karte öffnete eine
+    andere Fernbedienung als die App. Die Karte kam vom Plex/Cast-
+    Zuspieler (der Hub erreichte den Android TV gerade nicht) und
+    zeigte stur auf sich selbst - die App wählt über die Raumkachel
+    längst den Steuerkreuz-Zwilling. Der Zwilling zählt auch, wenn er
+    «aus» ist: Genau dann kommt die Karte ja vom Zuspieler."""
+    android_aus = SimpleNamespace(
+        id="androidtv.wz", kind="media_player", label="Fernseher Wohnzimmer",
+        state={"state": "off", "has_screen": True},
+        room="Wohnzimmer", commands=["dpad_up", "turn_on"],
+    )
+    plex = SimpleNamespace(
+        id="plex.wz", kind="media_player", label="Fernseher im Wohnzimmer",
+        state={"state": "playing", "has_screen": True, "app": "Plex"},
+        room="Wohnzimmer", commands=["play", "pause"],
+    )
+    karten = karten_tv([android_aus, plex])
+    assert [k["art"] for k in karten] == ["tv:plex.wz"]
+    assert karten[0]["state"]["url"] == "homepilot://fernbedienung/androidtv.wz"
+
+
+def test_ohne_zwilling_bleibt_die_eigene_fernbedienung():
+    """Ohne Raum kein Zwilling, bei zwei Steuerkreuzen wird nicht
+    geraten - und eine Musikbox im selben Raum ist keiner."""
+    plex = SimpleNamespace(
+        id="plex.wz", kind="media_player", label="Fernseher im Wohnzimmer",
+        state={"state": "playing", "has_screen": True},
+        room="Wohnzimmer", commands=["play"],
+    )
+    ohne_raum = SimpleNamespace(
+        id="plex.sz", kind="media_player", label="TV",
+        state={"state": "playing", "has_screen": True},
+        room=None, commands=["play"],
+    )
+    kreuz_a = SimpleNamespace(
+        id="tv.a", kind="media_player", label="TV A",
+        state={"state": "off", "has_screen": True},
+        room="Wohnzimmer", commands=["dpad_up"],
+    )
+    kreuz_b = SimpleNamespace(
+        id="tv.b", kind="media_player", label="TV B",
+        state={"state": "off", "has_screen": True},
+        room="Wohnzimmer", commands=["dpad_up"],
+    )
+    box = SimpleNamespace(
+        id="sonos.wz", kind="media_player", label="Box",
+        state={"state": "playing"}, room="Wohnzimmer", commands=["play"],
+    )
+    zwei = karten_tv([plex, kreuz_a, kreuz_b])
+    assert zwei[0]["state"]["url"] == "homepilot://fernbedienung/plex.wz"
+    allein = karten_tv([ohne_raum, kreuz_a])
+    assert allein[0]["state"]["url"] == "homepilot://fernbedienung/plex.sz"
+    mit_box = karten_tv([plex, box])
+    assert mit_box[0]["state"]["url"] == "homepilot://fernbedienung/plex.wz"
+
+
 def test_die_fernseher_karte_traegt_den_kino_griff():
     """Der Film beginnt, das Licht ist noch hell - die Szene «Kino»
     gehört als Knopf neben die Fernbedienung, nicht vier Tipps tief in
