@@ -1133,6 +1133,24 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         setAllOffSignal((n) => n + 1);
       } else if (what === 'alarm') {
         setSection('alarm');
+      } else if (what === 'raum' && id) {
+        // Von der Live-Aktivität eines Geräts (Geschirrspüler → Küche,
+        // Waschmaschine → Waschküche): in den Raum, in dem es steht.
+        // Den Namen schickt der Hub kodiert mit (core/livekarten.py,
+        // raum_url); entschlüsselt ist er oben schon.
+        if (!entities.some((entity) => entity.room === id)) return entities.length > 0;
+        setSection('home');
+        setRoom(id);
+      } else if (what === 'timer') {
+        // Die Karte des Küchen-Timers: Er wohnt in der Küche (die
+        // Kachel steht nur dort). Die Adresse schickte der Hub schon
+        // immer - sie führte bisher bloss nirgendwohin.
+        const kueche = entities
+          .map((entity) => entity.room)
+          .find((name): name is string => !!name && istKueche(name));
+        if (!kueche) return entities.length > 0;
+        setSection('home');
+        setRoom(kueche);
       } else if (what === 'scene' && id) {
         if (!scenes.some((scene) => scene.id === id)) return scenes.length > 0;
         setSection('start');

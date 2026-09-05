@@ -11,6 +11,7 @@ from homepilot.core.livekarten import (
     karten_grill,
     karten_sauger,
     karten_timer,
+    raum_url,
     registrieren,
     start_payload,
     token_merken,
@@ -239,3 +240,43 @@ def test_einzelne_kartenarten_lassen_sich_abbestellen():
         rows, wunsch, ["Stibe", "Bine"], 2000.0, abbestellt=ab
     )
     assert [b["tokens"] for b in beenden if b["tokens"]] == [["act-1"]]
+
+
+def test_ein_tipp_auf_die_geraetekarte_fuehrt_in_den_raum():
+    """Geschirrspüler → Küche, Waschmaschine → Waschküche.
+
+    Vorher trug die Geräte-Karte gar keine Adresse: Ein Tipp öffnete
+    bloss die Startseite, und man suchte die Maschine von Hand. Der
+    Raumname reist kodiert («Waschküche» trägt einen Umlaut) und auch
+    auf dem «Fertig»-Stand mit - gerade dann will man zur Maschine.
+    """
+    maschine = SimpleNamespace(
+        id="vzug.wm", kind="appliance", label="Waschmaschine",
+        room="Waschküche",
+        state={"state": "running", "program": "Buntwäsche", "minutes_left": 40},
+    )
+    karten = karten_geraete([maschine])
+    assert karten[0]["state"]["url"] == "homepilot://raum/Waschk%C3%BCche"
+    assert karten[0]["ende"]["state"]["url"] == "homepilot://raum/Waschk%C3%BCche"
+
+    # Ohne Raum keine Adresse - lieber die Startseite als der falsche Raum.
+    ohne = SimpleNamespace(
+        id="vzug.gs", kind="appliance", label="Geschirrspüler", room=None,
+        state={"state": "running", "program": "Eco"},
+    )
+    assert "url" not in karten_geraete([ohne])[0]["state"]
+    assert raum_url(ohne) is None
+    assert raum_url(maschine) == "homepilot://raum/Waschk%C3%BCche"
+
+
+def test_auch_grill_und_sauger_fuehren_in_ihren_raum():
+    grill = SimpleNamespace(
+        id="pitboss.grill", kind="appliance", label="Grill", room="Terrasse",
+        state={"state": "running", "target": 200, "temperature": 150},
+    )
+    sauger = SimpleNamespace(
+        id="roborock.s7", kind="vacuum", label="Sauger", room="Flur",
+        state={"state": "cleaning", "battery": 80},
+    )
+    assert karten_grill([grill])[0]["state"]["url"] == "homepilot://raum/Terrasse"
+    assert karten_sauger([sauger])[0]["state"]["url"] == "homepilot://raum/Flur"

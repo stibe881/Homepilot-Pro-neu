@@ -31,6 +31,7 @@ import json
 import logging
 import time
 from typing import Any
+from urllib.parse import quote
 
 from . import laufzeit, liveaktivitaet
 
@@ -147,6 +148,25 @@ def karten_timer(timers: Any) -> list[dict[str, Any]]:
     return karten
 
 
+def raum_url(entity: Any) -> str | None:
+    """Wohin ein Tipp auf die Geräte-Karte führt (rein, testbar).
+
+    In den Raum des Geräts: Der Geschirrspüler steht in der Küche, die
+    Waschmaschine in der Waschküche - dort ist die Kachel mit allem, was
+    man nach dem Tipp wissen oder tun will. Vorher trug die Karte gar
+    keine Adresse, und der Tipp öffnete bloss die Startseite.
+
+    Ohne Raum keine Adresse: Dann bleibt es beim bisherigen Verhalten,
+    statt in einen Raum zu springen, der nicht stimmt. Der Name wird
+    kodiert - «Waschküche» trägt einen Umlaut, und die App entschlüsselt
+    ihn wieder (decodeURIComponent im Adress-Handler).
+    """
+    raum = getattr(entity, "room", None)
+    if not raum:
+        return None
+    return f"homepilot://raum/{quote(str(raum))}"
+
+
 def _geraete_symbol(label: str) -> str:
     tief = label.lower()
     if "geschirr" in tief:
@@ -194,6 +214,7 @@ def karten_geraete(
         # stünde zweimal da, einmal davon veraltet.
         text = programm if rest else (f"{programm} · noch ~{int(minuten)} min" if minuten else programm)
         anteil = laufzeit.fortschritt(rest, laufzeit.typische_dauer(cycles, entity.id))
+        url = raum_url(entity)
         karten.append(
             {
                 "art": f"geraet:{entity.id}",
@@ -204,6 +225,7 @@ def karten_geraete(
                     "symbol": _geraete_symbol(entity.label),
                     **({"endet": round(jetzt + rest * 60, 1)} if rest else {}),
                     **({"fortschritt": anteil} if anteil is not None else {}),
+                    **({"url": url} if url else {}),
                 },
                 # Beim Programmende kurz «Fertig» stehen lassen - genau
                 # der Moment, in dem die Karte ihren Zweck erfüllt.
@@ -212,6 +234,9 @@ def karten_geraete(
                         "titel": entity.label,
                         "text": "Fertig - ausräumen",
                         "symbol": _geraete_symbol(entity.label),
+                        # Auch auf «Fertig» führt der Tipp in den Raum -
+                        # gerade dann will man zur Maschine.
+                        **({"url": url} if url else {}),
                     },
                     "sichtbar": 900,
                 },
@@ -231,6 +256,7 @@ def karten_grill(entities: list[Any]) -> list[dict[str, Any]]:
             continue
         ist = entity.state.get("temperature")
         text = f"{round(float(ist))}° → {round(float(ziel))}°" if ist is not None else f"Ziel {round(float(ziel))}°"
+        url = raum_url(entity)
         karten.append(
             {
                 "art": f"grill:{entity.id}",
@@ -245,6 +271,7 @@ def karten_grill(entities: list[Any]) -> list[dict[str, Any]]:
                         if ist is not None and float(ziel) > 0
                         else None
                     ),
+                    **({"url": url} if url else {}),
                 },
             }
         )
@@ -270,6 +297,7 @@ def karten_sauger(entities: list[Any]) -> list[dict[str, Any]]:
             teile.append(f"{flaeche} m²")
         if akku is not None:
             teile.append(f"Akku {int(akku)} %")
+        url = raum_url(entity)
         karten.append(
             {
                 "art": f"sauger:{entity.id}",
@@ -278,6 +306,7 @@ def karten_sauger(entities: list[Any]) -> list[dict[str, Any]]:
                     "titel": entity.label,
                     "text": " · ".join(teile),
                     "symbol": "fan",
+                    **({"url": url} if url else {}),
                 },
             }
         )
