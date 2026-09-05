@@ -21,11 +21,9 @@ from ...core import automation as automation_module
 from ...core import babysitter as babysitter_module
 from ...core import editversions as editversions_module
 from ...core import konflikte as konflikte_module
-from ...core import rueckgriff
 from ...core import trash as trash_module
 from ...core import vorlagen as vorlagen_module
 from ...core.errors import HomePilotError
-from ...core.source import as_source, user_source
 from ...core.users import Capability, Role
 from ..context import ApiContext
 from ..models import (
@@ -504,17 +502,6 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             ),
         }
 
-    def babysitter_lichter() -> list[str]:
-        """Die zuletzt gewählten Empfangslichter.
-
-        Sie überleben das Ende des Modus - beim nächsten Mal soll
-        dieselbe Auswahl schon angehakt sein.
-        """
-        for entry in hub.data.get("babysitter_lights"):
-            if isinstance(entry, dict):
-                return [str(x) for x in entry.get("lights") or []]
-        return []
-
     @app.get("/api/automations/babysitter")
     async def get_babysitter(request: Request) -> dict[str, Any]:
         require(request, Capability.PAUSE_AUTOMATIONS)
@@ -524,7 +511,6 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 [automation.id for automation in hub.automations.automations],
                 time.time(),
             ),
-            "lights": babysitter_lichter(),
             "default_hours": babysitter_module.STUNDEN_VORGABE,
         }
 
@@ -535,11 +521,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         Dieselbe Berechtigung wie das Pausieren: Es ist derselbe Eingriff -
         Abläufe ruhen zu lassen -, nur gezielter.
 
-        ``hours`` und ``lights`` kommen aus dem früheren Gästemodus. Der
-        stand daneben und tat fast dasselbe, nur gröber: Er pausierte
-        *alle* Abläufe, auch die hier ausdrücklich freigegebenen. Ein
-        Modus statt zwei - und die Freigabeliste gilt jetzt auch für den
-        Besuch.
+        ``hours`` kommt aus dem früheren Gästemodus. Der stand daneben
+        und tat fast dasselbe, nur gröber: Er pausierte *alle* Abläufe,
+        auch die hier ausdrücklich freigegebenen. Ein Modus statt zwei -
+        und die Freigabeliste gilt jetzt auch für den Besuch.
 
         Die Alarmanlage bleibt unberührt. Ein Modus, der sie entschärft,
         wäre kein Komfort mehr, sondern ein Loch - und wer sie für den
@@ -552,29 +537,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 hub, "von Hand"
             )}
 
-        bekannt = {entity.id: entity for entity in hub.registry.all()}
-        lichter = [x for x in body.lights if x in bekannt]
-        hub.data.set("babysitter_lights", [{"lights": lichter}])
-
-        # Erst den Rückweg, dann schalten (core/rueckgriff.py): Danach ist
-        # nicht mehr feststellbar, wie hell es vorher war.
-        rueckweg = rueckgriff.ablegen(
-            hub, "Babysitter-Modus", lichter, "turn_on", user.name
-        )
-        an: list[str] = []
-        with as_source(user_source(user.name)):
-            for entity_id in lichter:
-                try:
-                    await hub.integrations.dispatch_command(entity_id, "turn_on")
-                    an.append(bekannt[entity_id].label)
-                except Exception:
-                    log.debug("Babysitter: %s nicht schaltbar", entity_id, exc_info=True)
-
         stand = babysitter_module.starten(
             hub.data.get(babysitter_module.KEY),
             jetzt,
             stunden=body.hours,
-            undo=(rueckweg or {}).get("id"),
         )
         hub.data.set(babysitter_module.KEY, babysitter_module.store(stand))
         log.info(
@@ -590,7 +556,6 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 [automation.id for automation in hub.automations.automations],
                 jetzt,
             ),
-            "lights_on": an,
         }
 
     @app.put("/api/automations/{automation_id}/babysitter")

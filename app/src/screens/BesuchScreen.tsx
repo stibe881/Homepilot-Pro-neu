@@ -4,24 +4,18 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
 import { hubClient } from '../api/client';
-import { Entity, HubSettings } from '../api/types';
+import { HubSettings } from '../api/types';
 import { Card } from '../components/Card';
-import {
-  BabysitterStand,
-  lichterUmschalten,
-  modusSatz,
-  restText,
-  seitText,
-} from '../lib/babysitter';
+import { BabysitterStand, modusSatz, restText, seitText } from '../lib/babysitter';
 import { Colors, radius, space, type, useColors } from '../theme';
 
 /**
  * «Es ist jemand da» – Besuch oder Babysitter, als eigene Seite.
  *
- * Sonst tut man jedes Mal dasselbe an vier Orten: WLAN weitergeben, im
- * Eingang Licht machen, die Abläufe anhalten – und am Ende alles wieder
- * zurück. Den letzten Schritt vergisst man, deshalb kann der Modus eine
- * Frist tragen und endet dann von selbst.
+ * Sonst tut man jedes Mal dasselbe an mehreren Orten: WLAN weitergeben,
+ * die Abläufe anhalten – und am Ende alles wieder zurück. Den letzten
+ * Schritt vergisst man, deshalb kann der Modus eine Frist tragen und
+ * endet dann von selbst.
  *
  * **War vorher ein Blatt** (components/BesuchBlatt.tsx): ein Popup mit
  * innerem Scrollbereich, in dem Dauer, Lichter und der WLAN-Code
@@ -40,12 +34,10 @@ const DAUERN: (number | null)[] = [null, 2, 4, 6, 8];
 
 export function BesuchScreen({
   settings,
-  entities,
   onStand,
   onAblaeufe,
 }: {
   settings: HubSettings;
-  entities: Entity[];
   /** Meldet jeden frischen Stand nach oben – die Zeile im
    *  Einstellungsmenü soll sagen, was hier gerade entschieden wurde. */
   onStand?: (stand: BabysitterStand | null) => void;
@@ -60,7 +52,6 @@ export function BesuchScreen({
     [settings.url, settings.token]
   );
   const [stand, setStand] = useState<BabysitterStand | null>(null);
-  const [lichter, setLichter] = useState<string[]>([]);
   const [stunden, setStunden] = useState<number | null>(4);
   const [wlan, setWlan] = useState<{ ssid: string; payload: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -76,14 +67,13 @@ export function BesuchScreen({
 
   const laden = useCallback(() => {
     hub
-      .get<{ babysitter?: BabysitterStand; lights?: string[] } | null>(
+      .get<{ babysitter?: BabysitterStand } | null>(
         '/api/automations/babysitter',
         { fallback: null, still: true }
       )
       .then((data) => {
         if (!data?.babysitter) return;
         uebernehmen(data.babysitter);
-        setLichter(data.lights ?? []);
         setJetzt(Date.now());
       });
     // Kein Gäste-WLAN eingerichtet sieht gleich aus wie keine Antwort -
@@ -107,16 +97,12 @@ export function BesuchScreen({
     return () => clearInterval(uhr);
   }, [stand?.active, stand?.until]);
 
-  const lampen = entities.filter(
-    (entity) => entity.kind === 'light' && !entity.combined_into
-  );
-
   const starten = async () => {
     setBusy(true);
     try {
       const antwort = await hub.post<{ babysitter?: BabysitterStand } | null>(
         '/api/automations/babysitter',
-        { active: true, hours: stunden, lights: lichter },
+        { active: true, hours: stunden },
         { fallback: null }
       );
       if (antwort?.babysitter) uebernehmen(antwort.babysitter);
@@ -224,44 +210,10 @@ export function BesuchScreen({
             color="#FFFFFF"
           />
           <Text style={styles.buttonText}>
-            {laeuft ? 'Beenden – alles wieder wie vorher' : 'Starten'}
+            {laeuft ? 'Beenden – die Abläufe laufen wieder' : 'Starten'}
           </Text>
         </Pressable>
       </Card>
-
-      {/* Die Lichterwahl nur, solange der Modus aus ist: Sie wirkt beim
-          Einschalten - während er läuft, gäbe es nichts, worauf sie noch
-          wirken könnte. */}
-      {laeuft || lampen.length === 0 ? null : (
-        <Card style={styles.card}>
-          <Text style={styles.heading}>Licht zum Empfang</Text>
-          <Text style={styles.hint}>
-            Diese Lampen gehen beim Starten an, damit niemand im Dunkeln
-            vor der Türe steht. Beim Beenden stellt der Hub sie wieder so,
-            wie sie vorher standen – nicht einfach aus.
-          </Text>
-          <View style={styles.chips}>
-            {lampen.map((entity) => {
-              const an = lichter.includes(entity.id);
-              return (
-                <Pressable
-                  key={entity.id}
-                  onPress={() =>
-                    setLichter((liste) => lichterUmschalten(liste, entity.id))
-                  }
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: an }}
-                  style={[styles.chip, an && styles.chipActive]}
-                >
-                  <Text style={[styles.chipText, an && styles.chipTextActive]}>
-                    {entity.name}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </Card>
-      )}
 
       <Card style={styles.card}>
         <Text style={styles.heading}>Ruhe für die Abläufe</Text>

@@ -2274,7 +2274,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         <View style={styles.stack}>
           <BesuchScreen
             settings={settings}
-            entities={entities}
             // Die Zeile im Menü soll sagen, was hier gerade entschieden
             // wurde - ohne aufs nächste Öffnen der Einstellungen zu warten.
             onStand={setBesuchStand}
