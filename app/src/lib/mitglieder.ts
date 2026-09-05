@@ -81,6 +81,19 @@ export function rolleWort(mitglied: Mitglied): string {
 }
 
 /**
+ * Nur der Haushalt – Gäste bleiben draussen (rein, testbar).
+ *
+ * Die Avatar-Reihe auf der Familienseite zeigt, wer hierher gehört.
+ * Ein Gast-Zugang (der Babysitter, der Besuch mit Link) darf Licht
+ * schalten, ist aber kein Mitglied – er stand trotzdem in der Reihe,
+ * sobald jemand ihm spontan Zugang gab, und mit jedem geht die Reihe
+ * weiter auseinander.
+ */
+export function haushalt(reihe: Mitglied[]): Mitglied[] {
+  return reihe.filter((mitglied) => mitglied.role !== 'gast');
+}
+
+/**
  * Taugt dieser Name als neuer Eintrag? (rein, testbar)
  *
  * Zurück kommt der Grund, warum nicht – oder null, wenn er taugt. Der

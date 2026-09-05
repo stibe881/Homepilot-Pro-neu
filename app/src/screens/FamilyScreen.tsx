@@ -46,7 +46,7 @@ import {
   zusammenfassung,
 } from '../lib/anwesenheitskarte';
 import { Rueckeintrag, bandSatz, nochGueltig } from '../lib/rueckband';
-import { mitglieder, pruefeName, rolleWort } from '../lib/mitglieder';
+import { haushalt, mitglieder, pruefeName, rolleWort } from '../lib/mitglieder';
 import { Person } from '../lib/personen';
 import {
   ABEND_FELDER,
@@ -4235,9 +4235,11 @@ export function FamilyScreen({
         </Card>
       ) : null}
 
-      {/* Mitglieder */}
+      {/* Mitglieder - nur der Haushalt. Gäste (der Babysitter, der
+          Besuch mit Link-Zugang) können die App bedienen, gehören aber
+          nicht in die Familienreihe (lib/mitglieder.ts, haushalt). */}
       <View style={styles.memberRow}>
-        {members.map((member) => {
+        {haushalt(members).map((member) => {
           const presence = presenceOf(member.name);
           // Nur Kinder führen weiter. Für die Erwachsenen steht dieselbe
           // Auskunft ohnehin in ihrem eigenen Kalender, und das
