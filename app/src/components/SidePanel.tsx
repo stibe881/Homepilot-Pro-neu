@@ -10,6 +10,7 @@ import {
   musikboxenImRaum,
   pickPlayer,
   quellenSymbol,
+  zeigtStopp,
 } from '../lib/geraeteart';
 import { hatWarteschlange } from '../lib/musikliste';
 import { trockenSatz } from '../lib/giessen';
@@ -435,6 +436,20 @@ export function MediaPanel({
         >
           <Ionicons name={playing ? 'pause' : 'play'} size={18} color={colors.ink} />
         </Pressable>
+        {/* Stopp neben Pause, aber nur auf Boxen mit einer Sitzung:
+            Pause hält bloss an - die Sitzung bleibt auf der Box und
+            hält sie besetzt. Stopp beendet sie (lib/geraeteart,
+            zeigtStopp). */}
+        {zeigtStopp(entity) ? (
+          <Pressable
+            onPress={() => command('turn_off')}
+            accessibilityRole="button"
+            accessibilityLabel="Stopp – Wiedergabe beenden"
+            style={styles.playButton}
+          >
+            <Ionicons name="stop" size={18} color={colors.ink} />
+          </Pressable>
+        ) : null}
         {entity.commands.includes('next') ? (
           <Pressable
             onPress={() => command('next')}

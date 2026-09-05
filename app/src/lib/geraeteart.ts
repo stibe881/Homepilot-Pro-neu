@@ -214,6 +214,23 @@ export function deviceKindIcon(entity: Entity): string {
  * Steuerkreuz oder einen App-Start kennt, ist ein Fernseher. Das gilt auch
  * für den nächsten, der nicht von Nvidia kommt.
  */
+/** Zeigt die Medienkarte einen Stopp-Knopf? (rein, testbar)
+ *
+ * Pause hält nur an: Die Cast-Sitzung bleibt auf der Box stehen, hält
+ * den Empfänger besetzt und lässt sich jederzeit wieder aufwecken -
+ * auf dem Display steht weiter die App. «Stopp» (turn_off) beendet die
+ * Sitzung wirklich, die Box steht danach frei da.
+ *
+ * Nur wo beides zutrifft: Die Box kennt turn_off (Spotify und Radio
+ * kennen es nicht - dort IST Pause das Ende), und es steht eine
+ * Sitzung - auch eine pausierte, denn gerade die besetzt die Box,
+ * ohne dass man es hört. Im Leerlauf gäbe es nichts zu beenden.
+ */
+export function zeigtStopp(entity: Entity): boolean {
+  if (!entity.commands.includes('turn_off')) return false;
+  return ['playing', 'paused', 'buffering'].includes(String(entity.state.state ?? ''));
+}
+
 export function istMusikbox(entity: Entity): boolean {
   // Die Regel selbst steht in lib/geraeteart.ts – dieselbe, an der auch
   // die Geräteauswahl der Abläufe «Fernseher» oder «Lautsprecher»

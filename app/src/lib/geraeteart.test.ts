@@ -7,7 +7,7 @@
  * einzelnen Spot statt der Deckenlampe.
  */
 import type { Entity } from '../api/types';
-import { deviceKindIcon, deviceKindLabel, isTelevision } from './geraeteart';
+import { deviceKindIcon, deviceKindLabel, isTelevision, zeigtStopp } from './geraeteart';
 
 function geraet(teile: Partial<Entity>): Entity {
   return {
@@ -126,5 +126,28 @@ describe('Lichtszenen der Bridge', () => {
     const szene = geraet({ kind: 'scene', integration: 'hue', commands: ['activate'] });
     expect(deviceKindLabel(szene)).toBe('Lichtszene');
     expect(deviceKindIcon(szene)).toBe('color-palette-outline');
+  });
+});
+
+describe('zeigtStopp', () => {
+  const box = (state: string, commands: string[] = ['play', 'pause', 'turn_off']) =>
+    geraet({ kind: 'media_player', commands, state: { state } });
+
+  it('steht auf Boxen mit laufender oder pausierter Sitzung', () => {
+    expect(zeigtStopp(box('playing'))).toBe(true);
+    // Gerade die pausierte Sitzung besetzt die Box, ohne dass man es
+    // hört - dort ist Stopp am wertvollsten.
+    expect(zeigtStopp(box('paused'))).toBe(true);
+    expect(zeigtStopp(box('buffering'))).toBe(true);
+  });
+
+  it('fehlt im Leerlauf - da gibt es nichts zu beenden', () => {
+    expect(zeigtStopp(box('idle'))).toBe(false);
+    expect(zeigtStopp(box('off'))).toBe(false);
+  });
+
+  it('fehlt, wo Pause schon das Ende ist (Spotify, Radio)', () => {
+    // Beide kennen kein turn_off: Ihre Pause beendet die Wiedergabe.
+    expect(zeigtStopp(box('playing', ['play', 'pause', 'play_on']))).toBe(false);
   });
 });

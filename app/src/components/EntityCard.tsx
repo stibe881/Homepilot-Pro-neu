@@ -23,7 +23,7 @@ import { faelltAuf, standZeile } from '../lib/kachelstand';
 import { Musikliste } from './Musikliste';
 import { ColorRow } from './ColorRow';
 import { Sky } from './CoverVisual';
-import { isTelevision } from '../lib/geraeteart';
+import { isTelevision, zeigtStopp } from '../lib/geraeteart';
 import { medienSchalter } from '../lib/medienschalter';
 import { musiklisteMoeglich } from '../lib/blattgrund';
 import { fernbedienungMoeglich, tvKopf, tvTeile } from '../lib/fernsehkachel';
@@ -671,6 +671,17 @@ export function EntityCard({
                   label={fernseher ? 'Wiedergabe/Pause' : playing ? 'Pause' : 'Abspielen'}
                   onPress={() => onCommand(playing ? 'pause' : 'play')}
                 />
+                {/* Stopp, wo eine Sitzung auf der Box steht: Pause hält
+                    nur an und lässt die Box besetzt (lib/geraeteart,
+                    zeigtStopp). Der Fernseher hat dafür schon seinen
+                    An/Aus-Knopf auf der Kachel. */}
+                {!fernseher && zeigtStopp(entity) ? (
+                  <MediaButton
+                    icon="stop"
+                    label="Stopp – Wiedergabe beenden"
+                    onPress={() => onCommand('turn_off')}
+                  />
+                ) : null}
                 <MediaButton
                   icon="play-skip-forward"
                   label="Weiter"
