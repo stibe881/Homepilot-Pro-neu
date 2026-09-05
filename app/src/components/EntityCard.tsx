@@ -146,6 +146,11 @@ interface Props {
   /** Fragt die Türe vor dem Öffnen nach? Haushaltsweite Einstellung;
    *  fehlt sie, wird gefragt (siehe lib/tuerbestaetigung.ts). */
   doorConfirm?: boolean;
+  /** Die Szene «Kino» fürs Fernbedienungs-Blatt (lib/kinoszene.ts) -
+   *  der Film beginnt, das Licht ist noch hell, der Griff gehört
+   *  neben die Tasten. */
+  kino?: { id: string; name: string } | null;
+  onKino?: (sceneId: string) => void;
   /** Sensorkacheln lassen sich antippen und zeigen dann ihren Verlauf. */
   onPress?: () => void;
   /** Langes Drücken: Vorschau mit Verlauf – überall, nicht nur unter
@@ -200,6 +205,8 @@ export function EntityCard({
   groups,
   onSetGroup,
   doorConfirm,
+  kino,
+  onKino,
   onPress,
   onLongPress,
   chart,
@@ -1295,6 +1302,8 @@ export function EntityCard({
           apps={entity.commands.includes('launch_app') ? appsOf(entity) : []}
           fehler={remoteOpen ? fehler : null}
           onFehlerWeg={onFehlerWeg}
+          kino={kino}
+          onKino={onKino}
         />
       ) : null}
       {onSetRoom && rooms ? (

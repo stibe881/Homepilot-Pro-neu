@@ -148,6 +148,7 @@ import { PersonenScreen } from './PersonenScreen';
 import { UsersScreen } from './UsersScreen';
 import { confirm as confirmBiometrie, needsCheck } from '../lib/biometrie';
 import { mayOpenDirectly } from '../lib/tuerbestaetigung';
+import { kinoSzene } from '../lib/kinoszene';
 import { BioLock } from '../components/BioLock';
 import { TuerRueckfrage } from '../components/TuerRueckfrage';
 import { Widgets } from '../components/Widgets';
@@ -619,6 +620,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     () => entities.find((entity) => entity.id === remoteFuer) ?? null,
     [entities, remoteFuer]
   );
+  // Die Szene «Kino» fürs Fernbedienungs-Blatt - dieselbe Regel wie auf
+  // der Live-Karte des Fernsehers (lib/kinoszene.ts).
+  const kinoImBlatt = useMemo(() => kinoSzene(scenes), [scenes]);
 
   // Was die Einblendung unten anbietet: Abhaken, Griff oder die letzte
   // Schaltung – in dieser Reihenfolge, aus einem Grund (lib/rueckgriff.ts).
@@ -1789,6 +1793,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         darfAnpassen ? (name) => setEntityMeta(entity.id, { name }) : undefined
       }
       doorConfirm={prefs.doorConfirm}
+      kino={kinoImBlatt}
+      onKino={activateScene}
       groups={editing ? groupNames : undefined}
       onSetGroup={editing ? (group) => setEntityMeta(entity.id, { group }) : undefined}
       onCommand={(command, data) => guardedCommand(entity.id, command, data)}
@@ -3815,6 +3821,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             apps={remoteTv.commands.includes('launch_app') ? appsOf(remoteTv) : []}
             fehler={error}
             onFehlerWeg={dismissError}
+            kino={kinoImBlatt}
+            onKino={activateScene}
           />
         ) : null}
         {musikBlattRaum ? (
