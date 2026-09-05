@@ -20,7 +20,6 @@ def test_read_ist_nachsichtig() -> None:
         "allow": [],
         "since": None,
         "until": None,
-        "undo": None,
     }
     assert babysitter.read("kaputt")["active"] is False
     assert babysitter.read({"active": True, "allow": "keine Liste"})["allow"] == []
@@ -90,9 +89,9 @@ def test_der_zustand_ueberlebt_den_datenspeicher() -> None:
     assert zurueck == stand
 
 
-# ── Frist und Empfangslicht (früher der Gästemodus) ────────────────────
+# ── Die Frist (früher der Gästemodus) ──────────────────────────────────
 #
-# Sie standen in einem zweiten Modus daneben, der fast dasselbe tat -
+# Sie stand in einem zweiten Modus daneben, der fast dasselbe tat -
 # nur pausierte er *alle* Abläufe, auch die hier freigegebenen, und
 # zwar still. Ein Modus statt zwei; was der andere wirklich konnte,
 # steht jetzt hier.
@@ -137,15 +136,27 @@ def test_unsinnige_dauern_werden_eingefangen() -> None:
     assert babysitter.stunden_pruefen(2) == 2.0
 
 
-def test_die_freigaben_ueberleben_frist_und_licht() -> None:
+def test_die_freigaben_ueberleben_die_frist() -> None:
     """Sie gehören zum Haus, nicht zum Abend."""
     stand = babysitter.toggle(None, "licht_bewegung", True)
-    an = babysitter.starten(stand, 1.0, stunden=2, undo="abc123")
+    an = babysitter.starten(stand, 1.0, stunden=2)
     assert an["allow"] == ["licht_bewegung"]
-    assert an["undo"] == "abc123"
     aus = babysitter.beenden(an)
     assert aus["allow"] == ["licht_bewegung"]
-    assert aus["until"] is None and aus["undo"] is None and aus["active"] is False
+    assert aus["until"] is None and aus["active"] is False
+
+
+def test_read_wirft_einen_alten_undo_eintrag_weg() -> None:
+    """Das zurückgebaute Empfangslicht hinterliess ``undo`` im Speicher.
+
+    Ein Haus, das den Modus über die Umstellung hinweg laufen hat, darf
+    daran nicht hängenbleiben - der Rest wird gelesen, der Schlüssel
+    verschwindet.
+    """
+    alt = {"active": True, "allow": ["a"], "since": 1.0, "undo": "abc123"}
+    gelesen = babysitter.read(alt)
+    assert gelesen["active"] is True and gelesen["allow"] == ["a"]
+    assert "undo" not in gelesen
 
 
 def test_ein_freigegebener_ablauf_laeuft_auch_beim_besuch() -> None:

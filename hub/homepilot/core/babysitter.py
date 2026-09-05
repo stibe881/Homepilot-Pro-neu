@@ -19,21 +19,21 @@ Was der Modus *nicht* anfasst: alles, was nicht über Abläufe geht.
 Wasser- und Rauchmelder, die Alarmanlage selbst und die Meldungen des
 Wächters laufen weiter - sie sind kein Komfort, den man abschaltet.
 
-**Frist und Empfangslicht kommen aus dem früheren Gästemodus.** Den gab
-es daneben, für «Besuch kommt», und er tat fast dasselbe - nur gröber:
-Er pausierte *alle* Abläufe, auch die ausdrücklich freigegebenen, und
-zwar still. Zwei Modi für einen Fall («es ist jemand da, den die
-Anwesenheit nicht kennt») waren zwei Stellen zum Nachsehen und eine zum
-Vergessen. Was er wirklich konnte, war zweierlei, und beides steht
-jetzt hier:
+**Die Frist kommt aus dem früheren Gästemodus.** Den gab es daneben,
+für «Besuch kommt», und er tat fast dasselbe - nur gröber: Er pausierte
+*alle* Abläufe, auch die ausdrücklich freigegebenen, und zwar still.
+Zwei Modi für einen Fall («es ist jemand da, den die Anwesenheit nicht
+kennt») waren zwei Stellen zum Nachsehen und eine zum Vergessen. Was
+er wirklich konnte, steht jetzt hier: Mit Frist endet der Modus von
+selbst, denn an dem Abend, an dem er läuft, denkt garantiert niemand
+ans Ausschalten. Ohne Frist läuft er wie bisher, bis ihn jemand
+abschaltet - für den Babysitter-Abend, an dem man ans Ausschalten
+denkt, ist das richtig.
 
-- **Eine Frist.** Der Modus endet von selbst, denn an dem Abend, an dem
-  er läuft, denkt garantiert niemand ans Ausschalten. Ohne Frist läuft
-  er wie bisher, bis ihn jemand abschaltet - für den Babysitter-Abend,
-  an dem man ans Ausschalten denkt, ist das richtig.
-- **Empfangslicht.** Beim Einschalten geht Licht an, beim Ausschalten
-  steht es wieder so, wie es vorher stand (core/rueckgriff.py) - und
-  nicht «alles an».
+Ein «Empfangslicht» (Lampen, die beim Einschalten angehen und am Ende
+wieder wie vorher stehen) gab es hier eine Weile auch - es wurde nicht
+gebraucht und ist zurückgebaut. Ein alter Eintrag mit ``undo`` im
+Datenspeicher stört nicht: ``read`` liest nur, was es kennt.
 """
 
 from __future__ import annotations
@@ -78,7 +78,7 @@ def read(roh: Any) -> dict[str, Any]:
     der wegen eines Tippfehlers in einer Datei nicht mehr läuft, wäre
     die schlechtere Antwort.
     """
-    leer = {"active": False, "allow": [], "since": None, "until": None, "undo": None}
+    leer = {"active": False, "allow": [], "since": None, "until": None}
     if isinstance(roh, list):
         roh = next((x for x in roh if isinstance(x, dict)), None)
     if not isinstance(roh, dict):
@@ -96,9 +96,6 @@ def read(roh: Any) -> dict[str, Any]:
         # Ohne Frist läuft er, bis jemand ausschaltet - das ist der
         # Babysitter-Abend. Mit Frist endet er von selbst.
         "until": bis,
-        # Die Kennung des Rückwegs (core/rueckgriff.py): Was der Modus
-        # eingeschaltet hat, geht am Ende wieder in den Stand von vorher.
-        "undo": str(roh.get("undo") or "") or None,
     }
 
 
@@ -161,7 +158,6 @@ def starten(
     jetzt: float,
     *,
     stunden: Any = None,
-    undo: str | None = None,
 ) -> dict[str, Any]:
     """Den Modus einschalten (rein, testbar).
 
@@ -178,7 +174,6 @@ def starten(
         "active": True,
         "since": jetzt,
         "until": jetzt + stunden_pruefen(stunden) * 3600 if stunden is not None else None,
-        "undo": undo,
     }
 
 
@@ -187,7 +182,7 @@ def beenden(roh: Any) -> dict[str, Any]:
 
     Nur die Freigabeliste bleibt: Sie gehört zum Haus, nicht zum Abend.
     """
-    return {**read(roh), "active": False, "since": None, "until": None, "undo": None}
+    return {**read(roh), "active": False, "since": None, "until": None}
 
 
 def set_active(roh: Any, active: bool, *, now: float | None = None) -> dict[str, Any]:
@@ -231,42 +226,18 @@ def store(stand: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 async def beenden_ausfuehren(hub: Any, grund: str) -> dict[str, Any]:
-    """Den Modus beenden: Abläufe wieder frei, Licht wie vorher.
+    """Den Modus beenden - die Abläufe greifen wieder.
 
-    Nicht rein - hier wird geschaltet. Aufgerufen von der Route (jemand
-    drückt «beenden») und vom Wächter (die Frist ist um); beide sollen
-    dasselbe tun, also steht es einmal da.
+    Aufgerufen von der Route (jemand drückt «beenden») und vom Wächter
+    (die Frist ist um); beide sollen dasselbe tun, also steht es einmal
+    da.
     """
     import time
 
-    from . import rueckgriff
-
-    stand = read(hub.data.get(KEY))
     hub.data.set(KEY, store(beenden(hub.data.get(KEY))))
-
-    zurueck: list[str] = []
-    if stand["undo"]:
-        rows = hub.data.get(rueckgriff.SCHLANGE)
-        eintrag = rueckgriff.holen(rows, stand["undo"], time.time())
-        if eintrag:
-            hub.data.set(rueckgriff.SCHLANGE, rueckgriff.entfernen(rows, stand["undo"]))
-            for befehl in eintrag.get("commands") or []:
-                entity_id = str(befehl.get("entity_id") or "")
-                try:
-                    await hub.integrations.dispatch_command(
-                        entity_id,
-                        str(befehl.get("command") or ""),
-                        befehl.get("data") or {},
-                    )
-                    zurueck.append(entity_id)
-                except Exception:
-                    log.debug("Babysitter: Rückweg hakt bei %s", entity_id, exc_info=True)
     log.info("Babysitter-Modus beendet (%s)", grund)
-    return {
-        **summary(
-            hub.data.get(KEY),
-            [a.id for a in hub.automations.automations],
-            time.time(),
-        ),
-        "restored": zurueck,
-    }
+    return summary(
+        hub.data.get(KEY),
+        [a.id for a in hub.automations.automations],
+        time.time(),
+    )

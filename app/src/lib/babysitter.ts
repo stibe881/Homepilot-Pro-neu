@@ -10,12 +10,13 @@
  * Solange der Modus läuft, ruhen alle Abläufe ausser den ausdrücklich
  * angehakten.
  *
- * **Frist und Empfangslicht** kamen aus dem früheren Gästemodus. Der
- * stand daneben, für «Besuch kommt», und tat fast dasselbe – nur
- * gröber: Er pausierte *alle* Abläufe, auch die hier freigegebenen.
- * Zwei Modi für einen Fall waren zwei Stellen zum Nachsehen und eine
- * zum Vergessen. Was der andere wirklich konnte, steht jetzt hier:
- * eine Frist (der Modus endet von selbst) und Licht zum Empfang.
+ * **Die Frist** kam aus dem früheren Gästemodus. Der stand daneben,
+ * für «Besuch kommt», und tat fast dasselbe – nur gröber: Er pausierte
+ * *alle* Abläufe, auch die hier freigegebenen. Zwei Modi für einen
+ * Fall waren zwei Stellen zum Nachsehen und eine zum Vergessen. Was
+ * der andere wirklich konnte, steht jetzt hier: eine Frist, mit der
+ * der Modus von selbst endet. (Sein «Licht zum Empfang» gab es hier
+ * eine Weile auch; es wurde nicht gebraucht und ist zurückgebaut.)
  */
 
 /** Was der Hub über den Modus mitschickt. */
@@ -32,8 +33,6 @@ export interface BabysitterStand {
    *  er läuft dann, bis jemand ausschaltet. */
   until?: number | null;
   minutes_left?: number;
-  /** Die zuletzt gewählten Empfangslichter (nur in der Abfrage). */
-  lights?: string[];
   default_hours?: number;
 }
 

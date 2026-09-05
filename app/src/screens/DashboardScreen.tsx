@@ -32,7 +32,7 @@ import { OpenDoors } from '../components/OpenDoors';
 import { RunningAppliances } from '../components/RunningAppliances';
 import { SECTION_LABEL, Rail, Section } from '../components/Rail';
 import { AllOff } from '../components/AllOff';
-import { BesuchBlatt } from '../components/BesuchBlatt';
+import { BesuchScreen } from './BesuchScreen';
 import { BabysitterStand, modusZeile } from '../lib/babysitter';
 import { Leerzustand } from '../components/Leerzustand';
 import { SorgenBlatt } from '../components/SorgenBlatt';
@@ -368,8 +368,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [batterienOffen, setBatterienOffen] = useState(false);
   // Das Blatt «was ist gerade nicht in Ordnung» - offen oder zu.
   const [sorgenOffen, setSorgenOffen] = useState(false);
-  // Das Blatt «Besuch oder Babysitter»: offen/zu, und was der Hub sagt.
-  const [besuchOffen, setBesuchOffen] = useState(false);
+  // Was der Hub über «Besuch oder Babysitter» sagt - für die Zeile im
+  // Menü; die Seite selbst (screens/BesuchScreen.tsx) fragt ihn frisch.
   const [besuchStand, setBesuchStand] = useState<BabysitterStand | null>(null);
   // Bis wann die persönlichen Bereiche offen sind (0 = zu). Nur im
   // Arbeitsspeicher: Nach einem Neustart der App wird wieder gefragt.
@@ -1890,7 +1890,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const renderCell = zellen(orderScope, rest, section === 'home' && room !== ALL_ROOMS);
 
   const einstellungsPunkte: {
-    key: Section | 'search' | 'sorgen' | 'besuch';
+    key: Section | 'search' | 'sorgen';
     icon: keyof typeof Ionicons.glyphMap;
     label: string;
     detail: string;
@@ -1966,7 +1966,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       // Auch für Mitbewohner: Wer Gäste empfängt, soll ihnen das
       // WLAN geben können, ohne die Besitzerin zu fragen.
       show: true,
-      onPress: () => setBesuchOffen(true),
     },
     {
       key: 'sorgen',
@@ -2060,6 +2059,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     'personen',
     'automations',
     'alarm',
+    'besuch',
     'speakers',
     'energy',
     'system',
@@ -2108,8 +2108,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   /**
    * Einen Menüpunkt öffnen.
    *
-   * Die meisten führen zu einem Bereich; drei öffnen stattdessen ein
-   * Blatt (Suche, Besuch, Sorgen). Der Unterschied stand vorher an vier
+   * Die meisten führen zu einem Bereich; zwei öffnen stattdessen ein
+   * Blatt (Suche, Sorgen). Der Unterschied stand vorher an vier
    * Stellen abgeschrieben - jetzt einmal hier, und Übersicht,
    * Wechselblatt und die iPad-Spalte rufen dasselbe auf.
    */
@@ -2273,6 +2273,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               setSection('devices');
               setQuery(name);
             }}
+          />
+        </View>
+      );
+    }
+    if (section === 'besuch') {
+      return (
+        <View style={styles.stack}>
+          <BesuchScreen
+            settings={settings}
+            // Die Zeile im Menü soll sagen, was hier gerade entschieden
+            // wurde - ohne aufs nächste Öffnen der Einstellungen zu warten.
+            onStand={setBesuchStand}
+            onAblaeufe={sieht('automations') ? () => setSection('automations') : undefined}
           />
         </View>
       );
@@ -3825,23 +3838,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             onSchliessen={() => setMusikBlattRaum(null)}
           />
         ) : null}
-        <BesuchBlatt
-          settings={settings}
-          entities={entities}
-          offen={besuchOffen}
-          onClose={() => {
-            setBesuchOffen(false);
-            // Den Stand nachziehen: Die Zeile im Menü soll sagen, was
-            // im Blatt gerade entschieden wurde.
-            hub
-              .get<{ babysitter?: BabysitterStand } | null>('/api/automations/babysitter', {
-                fallback: null,
-                still: true,
-              })
-              .then((data) => setBesuchStand(data?.babysitter ?? null));
-          }}
-        />
-
         <SorgenBlatt
           settings={settings}
           entities={entities}

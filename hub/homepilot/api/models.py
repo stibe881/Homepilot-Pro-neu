@@ -85,15 +85,16 @@ class ErinnerungRequest(BaseModel):
 class BabysitterRequest(BaseModel):
     """Den Babysitter-Modus ein- oder ausschalten.
 
-    ``hours`` und ``lights`` kommen aus dem früheren Gästemodus und sind
-    beide freiwillig: Ohne Frist läuft der Modus, bis jemand ausschaltet
-    (der Babysitter-Abend), mit Frist endet er von selbst (der Besuch,
-    an den danach niemand mehr denkt).
+    ``hours`` kommt aus dem früheren Gästemodus und ist freiwillig:
+    Ohne Frist läuft der Modus, bis jemand ausschaltet (der
+    Babysitter-Abend), mit Frist endet er von selbst (der Besuch, an
+    den danach niemand mehr denkt). Ein ``lights`` von älteren
+    App-Fassungen wird stillschweigend ignoriert - das Empfangslicht
+    ist zurückgebaut.
     """
 
     active: bool = False
     hours: float | None = None
-    lights: list[str] = []
 
 
 class BabysitterAllowRequest(BaseModel):

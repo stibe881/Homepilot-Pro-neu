@@ -126,11 +126,11 @@ def ablegen(hub: Any, titel: str, entity_ids: list[str], command: str, wer: str)
     Danach ist es zu spät: Der Zustand von vorher ist dann weg, und wie
     hell das Licht war, weiss niemand mehr.
 
-    Stand als Hilfsfunktion in api/routes/haus.py und wurde dort von
-    «alles aus» und vom Gästemodus gebraucht. Seit der Babysitter-Modus
-    das Empfangslicht übernommen hat, braucht ihn eine dritte Route in
-    einer anderen Datei - also gehört er hierher, wo das Rechnen dazu
-    ohnehin steht.
+    Stand als Hilfsfunktion in api/routes/haus.py; hierher gezogen, wo
+    das Rechnen dazu ohnehin steht, als ihn zeitweise auch eine Route in
+    einer anderen Datei brauchte (das inzwischen zurückgebaute
+    Empfangslicht des Babysitter-Modus). Er bleibt hier: Der nächste
+    Griff, der einen Rückweg braucht, wohnt wieder woanders.
     """
     import secrets
     import time

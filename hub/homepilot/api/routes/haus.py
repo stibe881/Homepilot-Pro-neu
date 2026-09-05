@@ -74,9 +74,9 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
     # ── Grosse Griffe zurücknehmen ─────────────────────────────────────────
 
-    # Der Rückweg wohnt jetzt in core/rueckgriff.py: Seit der
-    # Babysitter-Modus das Empfangslicht übernommen hat, braucht ihn auch
-    # eine Route in einer anderen Datei.
+    # Der Rückweg wohnt in core/rueckgriff.py - dorthin gezogen, als ihn
+    # zeitweise auch eine Route in einer anderen Datei brauchte, und dort
+    # geblieben, weil das Rechnen dazu ohnehin dort steht.
     def rueckweg_ablegen(
         titel: str, entity_ids: list[str], command: str, wer: str
     ) -> dict[str, Any] | None:

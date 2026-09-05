@@ -1887,8 +1887,8 @@ class Watchdog:
         Nur wenn eine gesetzt wurde: Ohne Frist läuft er, bis jemand
         ausschaltet - das ist der Babysitter-Abend, an dem man ans
         Ausschalten denkt. Mit Frist ist es der Besuch, an den danach
-        garantiert niemand mehr denkt. Also endet er hier: Abläufe
-        wieder frei, Licht wie vorher.
+        garantiert niemand mehr denkt. Also endet er hier, und die
+        Abläufe sind wieder frei.
 
         Gemeldet wird es auch, und zwar an alle: Dass die Abläufe wieder
         greifen, ist die Auskunft, ohne die man am nächsten Morgen
@@ -1903,7 +1903,7 @@ class Watchdog:
         await babysitter.beenden_ausfuehren(self.hub, "Frist abgelaufen")
         await self._notify(
             "Babysitter-Modus beendet",
-            "Die Abläufe laufen wieder, das Licht steht wie vorher.",
+            "Die Frist ist um - die Abläufe laufen wieder.",
             category="maintenance",
         )
 
