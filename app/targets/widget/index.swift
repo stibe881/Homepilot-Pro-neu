@@ -16,6 +16,10 @@ import AppIntents
 //   App unter Einstellungen → Widgets zusammen; hier steht nur, wie sie
 //   gezeichnet werden. Fehlen sie – frisch installiert, App noch nicht
 //   geöffnet –, zeigt das Widget die drei, mit denen jeder anfängt.
+// - Die **eigenen Karten** ebenso: dieselbe Liste, die auch die
+//   Widget-Art «HomePilot Karte» speist. Sie erscheinen unter den
+//   Knöpfen (mittlere und grosse Grösse) – im selben Widget, nicht in
+//   einem zweiten, das erst niemand findet.
 // - **Adresse und Token** nur, wenn der Hausstand eingeschaltet ist.
 //   Damit fragt das Widget /api/glance an – eine eigene, winzige Antwort
 //   statt der ganzen Geräteliste. Es läuft alle Viertelstunde auf einem
@@ -131,14 +135,33 @@ struct Maschine {
     }
 }
 
-func ladeGlance() async -> Hausstand {
+/// Zustand einer eigenen Karte, wie /api/glance ihn je Kennung liefert.
+struct Kartenzeile {
+    let text: String
+    let an: Bool
+    let erreichbar: Bool
+}
+
+/// Hausstand und Kartenzustände in **einer** Anfrage.
+///
+/// Die Kennungen der Karten reisen als ?ids=… mit - /api/glance hängt
+/// dann je Kennung eine Zeile an. Eine zweite Anfrage nur für die Karten
+/// wäre doppelter Funkverkehr für dieselbe Viertelstunde.
+func ladeGlance(kartenIds: [String] = []) async -> (Hausstand, [String: Kartenzeile]) {
     let defaults = UserDefaults(suiteName: appGroup)
+    var adresse = "/api/glance"
+    if !kartenIds.isEmpty,
+        let kennungen = kartenIds.joined(separator: ",")
+            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
+    {
+        adresse += "?ids=" + kennungen
+    }
     guard
         let base = defaults?.string(forKey: "hubUrl"),
         let token = defaults?.string(forKey: "hubToken"),
-        let url = URL(string: base + "/api/glance")
+        let url = URL(string: base + adresse)
     else {
-        return .aus
+        return (.aus, [:])
     }
 
     var request = URLRequest(url: url)
@@ -153,7 +176,7 @@ func ladeGlance() async -> Hausstand {
             let http = response as? HTTPURLResponse, http.statusCode == 200,
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         else {
-            return .nichtErreicht
+            return (.nichtErreicht, [:])
         }
         var termin: String? = nil
         if let event = json["next_event"] as? [String: Any] {
@@ -172,34 +195,65 @@ func ladeGlance() async -> Hausstand {
                 percent: $0["percent"] as? Double
             )
         }
-        return .da(
-            doorsOpen: (json["doors_open"] as? [String]) ?? [],
-            lightsOn: (json["lights_on"] as? Int) ?? 0,
-            nextEvent: termin,
-            alarm: json["alarm"] as? String,
-            running: maschinen
+        var staende: [String: Kartenzeile] = [:]
+        for zeile in (json["entities"] as? [[String: Any]]) ?? [] {
+            guard let id = zeile["id"] as? String else { continue }
+            staende[id] = Kartenzeile(
+                text: (zeile["text"] as? String) ?? "–",
+                an: (zeile["on"] as? Bool) ?? false,
+                erreichbar: (zeile["available"] as? Bool) ?? true
+            )
+        }
+        return (
+            .da(
+                doorsOpen: (json["doors_open"] as? [String]) ?? [],
+                lightsOn: (json["lights_on"] as? Int) ?? 0,
+                nextEvent: termin,
+                alarm: json["alarm"] as? String,
+                running: maschinen
+            ),
+            staende
         )
     } catch {
-        return .nichtErreicht
+        return (.nichtErreicht, [:])
     }
 }
 
 struct Provider: TimelineProvider {
     func placeholder(in context: Context) -> Entry {
-        Entry(date: Date(), glance: .aus, shortcuts: standardShortcuts)
+        Entry(
+            date: Date(),
+            glance: .aus,
+            shortcuts: standardShortcuts,
+            karten: [],
+            kartenStaende: [:]
+        )
     }
 
     func getSnapshot(in context: Context, completion: @escaping (Entry) -> Void) {
         Task {
+            let karten = ladeKarten()
+            let (glance, staende) = await ladeGlance(
+                kartenIds: karten.filter { $0.kind == "entity" }.map { $0.id }
+            )
             completion(
-                Entry(date: Date(), glance: await ladeGlance(), shortcuts: ladeShortcuts())
+                Entry(
+                    date: Date(),
+                    glance: glance,
+                    shortcuts: ladeShortcuts(),
+                    karten: karten,
+                    kartenStaende: staende
+                )
             )
         }
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<Entry>) -> Void) {
         Task {
-            let glance = await ladeGlance()
+            let karten = ladeKarten()
+            let (glance, staende) = await ladeGlance(
+                kartenIds: karten.filter { $0.kind == "entity" }.map { $0.id }
+            )
             let knöpfe = ladeShortcuts()
             // Alle 15 Minuten: Häufiger lässt iOS ohnehin nicht zu, und für
             // «steht die Türe offen» ist es kein Alarm, sondern ein Blick im
@@ -211,7 +265,15 @@ struct Provider: TimelineProvider {
                 ?? Date().addingTimeInterval(900)
             completion(
                 Timeline(
-                    entries: [Entry(date: Date(), glance: glance, shortcuts: knöpfe)],
+                    entries: [
+                        Entry(
+                            date: Date(),
+                            glance: glance,
+                            shortcuts: knöpfe,
+                            karten: karten,
+                            kartenStaende: staende
+                        )
+                    ],
                     policy: .after(nächste)
                 )
             )
@@ -223,6 +285,13 @@ struct Entry: TimelineEntry {
     let date: Date
     let glance: Hausstand
     let shortcuts: [Shortcut]
+    /// Die eigenen Karten aus der App - sie liegen im selben Widget wie
+    /// die Knöpfe, unter ihnen. Das war der ausdrückliche Wunsch: nicht
+    /// noch eine Widget-Art anlegen und einrichten müssen, sondern die
+    /// Karten dort sehen, wo das Widget schon liegt.
+    let karten: [Karte]
+    /// Zustand je Karten-Kennung, aus derselben Glance-Antwort.
+    let kartenStaende: [String: Kartenzeile]
 
     /// Fürs runde Sperrbildschirm-Widget: Steht etwas offen?
     var etwasOffen: Bool {
@@ -410,6 +479,61 @@ struct KnopfInhalt<Inhalt: View>: View {
     }
 }
 
+/// Eine eigene Karte als Kachel im Haupt-Widget.
+///
+/// Symbol, Name, Zustand - und der Tipp schaltet, wo die App es erlaubt
+/// hat (actionPath liegt nur mit Hausstand in der Ablage), sonst öffnet
+/// er die App beim Gerät. Dieselbe Arbeitsteilung wie bei den Knöpfen:
+/// Das Widget versteht die Karte nicht, es zeichnet und ruft auf.
+struct KartenKachel: View {
+    let karte: Karte
+    let stand: Kartenzeile?
+    /// Auf der grossen Grösse steht der Zustand als Wort dazu; auf der
+    /// mittleren sagt ihn nur die Symbolfarbe - mehr Platz ist nicht.
+    var mitText: Bool = false
+
+    private var leuchtet: Bool {
+        guard let stand = stand else { return false }
+        return stand.an && stand.erreichbar
+    }
+
+    private var zustandstext: String? {
+        guard let stand = stand else { return nil }
+        return stand.erreichbar ? stand.text : "nicht erreichbar"
+    }
+
+    var body: some View {
+        if #available(iOS 17.0, *), let pfad = karte.actionPath, !pfad.isEmpty {
+            Button(intent: SchaltIntent(pfad: pfad, body: karte.actionBody ?? "")) {
+                inhalt
+            }
+            .buttonStyle(.plain)
+        } else {
+            Link(destination: karte.url) {
+                inhalt
+            }
+        }
+    }
+
+    private var inhalt: some View {
+        VStack(spacing: 2) {
+            Image(systemName: karte.symbol)
+                .font(.body)
+                .foregroundStyle(leuchtet ? .yellow : .secondary)
+            Text(karte.title)
+                .font(.caption2)
+                .lineLimit(1)
+            if mitText, let text = zustandstext {
+                Text(text)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
 struct HomePilotWidgetView: View {
     @Environment(\.widgetFamily) var family
     var entry: Provider.Entry
@@ -476,13 +600,19 @@ struct HomePilotWidgetView: View {
                     Spacer()
                     StatusZeile(glance: entry.glance)
                 }
-                if let termin = entry.termin {
+                // Auf der mittleren Grösse müssen die Karten unten noch
+                // hinpassen: Dann weicht die Terminzeile, und von den
+                // Maschinen bleibt die oberste - was unten abgeschnitten
+                // würde, wäre sonst genau die Kartenreihe.
+                if let termin = entry.termin,
+                    family == .systemLarge || sichtbareKarten.isEmpty
+                {
                     Label(termin, systemImage: "calendar")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
-                ForEach(entry.maschinen, id: \.name) { maschine in
+                ForEach(sichtbareMaschinen, id: \.name) { maschine in
                     MaschinenZeile(maschine: maschine)
                 }
                 Divider()
@@ -496,9 +626,48 @@ struct HomePilotWidgetView: View {
                         }
                     }
                 }
+                // Die eigenen Karten, unter den Knöpfen - dort, wo man
+                // sie erwartet, wenn man sie in der App zusammengestellt
+                // hat. Auf der mittleren Grösse eine Reihe zu vier, auf
+                // der grossen alle acht samt Zustandswort.
+                if !sichtbareKarten.isEmpty {
+                    Divider()
+                    LazyVGrid(
+                        columns: Array(
+                            repeating: GridItem(.flexible(), spacing: 10),
+                            count: 4
+                        ),
+                        spacing: 10
+                    ) {
+                        ForEach(sichtbareKarten, id: \.key) { karte in
+                            KartenKachel(
+                                karte: karte,
+                                stand: entry.kartenStaende[karte.id],
+                                mitText: family == .systemLarge
+                            )
+                        }
+                    }
+                }
+                if family == .systemLarge {
+                    Spacer(minLength: 0)
+                }
             }
             .padding(4)
         }
+    }
+
+    /// Mittlere Grösse: eine Reihe. Grosse: bis zum Deckel der App (8).
+    private var sichtbareKarten: [Karte] {
+        Array(entry.karten.prefix(family == .systemLarge ? 8 : 4))
+    }
+
+    /// Mit Karten auf der mittleren Grösse nur die oberste Maschine -
+    /// die stehen nach Restzeit, oben ist die, für die man aufsteht.
+    private var sichtbareMaschinen: [Maschine] {
+        if family == .systemLarge || sichtbareKarten.isEmpty {
+            return entry.maschinen
+        }
+        return Array(entry.maschinen.prefix(1))
     }
 }
 
@@ -858,17 +1027,20 @@ struct HausKarte: Widget {
     }
 }
 
-// ── Eigene Widgets: je eines für ein Gerät oder eine Szene ────────────────
-//
-// Das Widget oben ist eine Knopfleiste: vier Abkürzungen und ein Blick
-// aufs Haus. Was es nicht kann, ist «zeig mir das Küchenlicht» - und
-// genau dafür legt man sich ein Widget hin.
+// ── Eigene Karten ─────────────────────────────────────────────────────────
 //
 // Die Karten stellt man in der App zusammen (Einstellungen → Widgets);
-// hier landen sie als Liste in der App-Gruppe. Welche davon ein
-// bestimmtes Widget zeigt, wählt man auf dem Homescreen aus: langer
-// Druck → «Widget bearbeiten». So liegen mehrere nebeneinander, jedes
-// mit seinem eigenen Gerät - was mit einem festen Widget nicht ginge.
+// hier landen sie als Liste in der App-Gruppe. Gezeigt werden sie an
+// zwei Orten:
+//
+// - **Im Haupt-Widget**, unter den Knöpfen (KartenKachel oben). Das ist
+//   der Ort, an dem man sie erwartet - die erste Fassung hatte sie nur
+//   als eigene Widget-Art, und die im Haus zusammengestellten Karten
+//   tauchten im Widget auf dem Homescreen schlicht nie auf, weil
+//   niemand ahnte, dass man dafür ein *zweites* Widget anlegen muss.
+// - **Als einzelnes Widget «HomePilot Karte»** (unten): eine Karte
+//   gross, je Exemplar wählbar über langen Druck → «Widget bearbeiten».
+//   Für alle, die ein Gerät einzeln aufs Raster legen wollen.
 
 struct Karte: Decodable {
     /// 'entity:…' oder 'scene:…' - zugleich die Kennung in der Auswahl.
@@ -1189,10 +1361,11 @@ struct HomePilotWidget: Widget {
             }
         }
         .configurationDisplayName("HomePilot")
-        .description("Türstatus, nächster Termin – und deine Knöpfe.")
+        .description("Türstatus, deine Knöpfe – und deine eigenen Karten.")
         .supportedFamilies([
             .systemSmall,
             .systemMedium,
+            .systemLarge,
             .accessoryCircular,
             .accessoryRectangular,
         ])

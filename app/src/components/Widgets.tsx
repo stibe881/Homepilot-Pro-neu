@@ -61,8 +61,9 @@ function nativerBuildKannKarten(): boolean {
  *
  * Die **Karten** sind das, was man landläufig ein Widget nennt: eine
  * Kachel für ein Gerät oder eine Szene, mit Zustand und einem Knopf.
- * Hier stellt man sie zusammen; welche davon ein bestimmtes Widget auf
- * dem Homescreen zeigt, wählt man dort beim Anlegen aus.
+ * Hier stellt man sie zusammen, und sie erscheinen im HomePilot-Widget
+ * unterhalb der Knöpfe. Wer eine einzeln gross will, nimmt zusätzlich
+ * die Widget-Art «HomePilot Karte».
  *
  * Was hier bewusst fehlt, ist ein Knopf «Widget hinzufügen». Nicht aus
  * Nachlässigkeit: iOS lässt keine App ein Widget auf den Homescreen
@@ -357,10 +358,9 @@ export function Widgets({
           <Text style={styles.hint}>{kartenSatz(kartenListe.length)}</Text>
           {!nativerBuildKannKarten() ? (
             <Text style={[styles.hint, { color: colors.warn }]}>
-              Die Widget-Art selbst kommt erst mit dem nächsten iOS-Build
-              (TestFlight) aufs Telefon - bis dahin taucht sie beim
-              «Widget bearbeiten» auf dem Homescreen noch nicht auf. Die
-              Karten hier bleiben gespeichert und stehen dann bereit.
+              Die Anzeige im Widget kommt erst mit dem nächsten iOS-Build
+              (TestFlight) aufs Telefon. Die Karten hier bleiben
+              gespeichert und erscheinen dann im HomePilot-Widget.
             </Text>
           ) : null}
 
@@ -507,12 +507,12 @@ export function Widgets({
               hinzufügen.
             </Text>
             <Text style={styles.hint}>
-              «HomePilot» ist die Knopfleiste, «HomePilot Karte» eines der
-              eigenen Widgets von oben – die tauchen also nicht in der
-              Knopfleiste auf, sondern sind je ein eigenes Widget. Welche
-              Karte eines zeigt, wählt man nach dem Hinzufügen: Widget
-              lange drücken → «Widget bearbeiten». So liegen mehrere davon
-              nebeneinander, jedes mit seinem eigenen Gerät.
+              Die eigenen Karten von oben liegen direkt im
+              «HomePilot»-Widget, unterhalb der Knöpfe – die mittlere
+              Grösse zeigt vier, die grosse alle acht samt Zustand. Wer
+              eine Karte einzeln gross will, nimmt zusätzlich «HomePilot
+              Karte»: je ein Widget für eine Karte, wählbar über langen
+              Druck → «Widget bearbeiten».
             </Text>
             <Text style={styles.hint}>
               Die Vorschau in der Widget-Galerie zeigt immer nur

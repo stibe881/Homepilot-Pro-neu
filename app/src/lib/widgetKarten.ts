@@ -175,16 +175,18 @@ export function karteArt(karte: WidgetKarte): string {
 /**
  * Der Satz über der Liste (rein, testbar).
  *
- * Ehrlich über das, was die App nicht kann: Anlegen ist Sache von iOS.
- * Ein Text, der so tut, als lege der Knopf hier ein Widget an, schickt
- * einen auf die Suche nach einem Knopf, den es nicht gibt.
+ * Er sagt, wo die Karten landen: **im HomePilot-Widget**, unter den
+ * Knöpfen. Die erste Fassung schickte einen stattdessen zum «Widget
+ * bearbeiten» einer eigenen Widget-Art – und die hier zusammengestellten
+ * Karten tauchten im Widget nie auf, weil niemand ahnte, dass man dafür
+ * ein zweites Widget anlegen muss.
  */
 export function kartenSatz(anzahl: number): string {
   if (anzahl === 0) {
-    return 'Noch keine. Eine Karte zeigt ein Gerät oder eine Szene gross auf dem Homescreen – mit Zustand und einem Knopf.';
+    return 'Noch keine. Eine Karte zeigt ein Gerät oder eine Szene im HomePilot-Widget – mit Zustand und einem Knopf.';
   }
   const wort = anzahl === 1 ? 'Eine Karte steht' : `${anzahl} Karten stehen`;
-  return `${wort} bereit. Auf dem Homescreen ein HomePilot-Widget lange drücken, «Widget bearbeiten» und die gewünschte auswählen.`;
+  return `${wort} im HomePilot-Widget, unterhalb der Knöpfe. Die mittlere Grösse zeigt vier, die grosse alle acht samt Zustand.`;
 }
 
 export { kurz };

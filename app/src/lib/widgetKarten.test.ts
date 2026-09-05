@@ -139,11 +139,12 @@ describe('Der Satz über der Liste', () => {
     expect(kartenSatz(0)).toContain('Gerät oder eine Szene');
   });
 
-  it('sagt sonst, wie sie auf den Homescreen kommt', () => {
-    // Anlegen ist Sache von iOS - ein Text, der etwas anderes behauptet,
-    // schickt einen auf die Suche nach einem Knopf, den es nicht gibt.
+  it('sagt sonst, wo die Karten erscheinen: im HomePilot-Widget', () => {
+    // Der behobene Irrweg: Der Satz schickte zum «Widget bearbeiten»
+    // einer eigenen Widget-Art - dabei liegen die Karten jetzt dort,
+    // wo das Widget schon ist.
     expect(kartenSatz(1)).toContain('Eine Karte steht');
     expect(kartenSatz(3)).toContain('3 Karten stehen');
-    expect(kartenSatz(2)).toContain('Widget bearbeiten');
+    expect(kartenSatz(2)).toContain('im HomePilot-Widget');
   });
 });
