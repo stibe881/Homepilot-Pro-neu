@@ -28,7 +28,16 @@ def make_client() -> TestClient:
 
 def test_die_liste_wird_dort_gelesen_wo_das_bauskript_sie_ablegt(monkeypatch):
     vorher = CHANGES.read_text(encoding="utf-8") if CHANGES.exists() else None
-    CHANGES.write_text("Erste Änderung\n\nZweite Änderung\n", encoding="utf-8")
+    # Die Merge-Zeile stammt vom Zweige-Abgleich (deploy/zweige.py) -
+    # Buchhaltung, keine Änderung. Sie steht in alten changes.txt noch
+    # drin (das Bau-Skript frischt sich erst beim übernächsten Lauf auf)
+    # und soll in den Release Notes trotzdem nie erscheinen.
+    CHANGES.write_text(
+        "Erste Änderung\n"
+        "Merge remote-tracking branch 'origin/main' into claude/x\n"
+        "\nZweite Änderung\n",
+        encoding="utf-8",
+    )
     monkeypatch.setenv("HOMEPILOT_COMMIT", "abc1234")
     try:
         with make_client() as client:

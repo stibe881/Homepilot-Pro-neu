@@ -645,7 +645,13 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             lines = [
                 line.strip()
                 for line in path.read_text(encoding="utf-8").splitlines()
-                if line.strip()
+                # Zusammenführungen («Merge remote-tracking branch …»)
+                # sind Buchhaltung des Zweige-Abgleichs, keine Änderung -
+                # sie sagen in den Release Notes niemandem etwas. Das
+                # Bau-Skript filtert sie inzwischen selbst (--no-merges),
+                # aber es frischt sich erst beim übernächsten Lauf auf -
+                # hier greift der Filter sofort.
+                if line.strip() and not line.strip().startswith("Merge ")
             ]
         except OSError:
             lines = []

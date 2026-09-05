@@ -310,6 +310,13 @@ def test_die_vorschau_liest_betreffzeilen_und_zugangswerte(monkeypatch, credenti
 
     commits = [
         {"commit": {"message": "Joyn auf der Fernbedienung\n\nLanger Text"}},
+        # Zusammenführungen sind Buchhaltung des Zweige-Abgleichs, keine
+        # Änderung - erkannt an den zwei Eltern oder am Betreff.
+        {
+            "commit": {"message": "Merge remote-tracking branch 'origin/main'"},
+            "parents": [{"sha": "a"}, {"sha": "b"}],
+        },
+        {"commit": {"message": "Merge branch 'x' ohne parents-Feld"}},
         {"commit": {"message": "Stopp-Knopf auf den Medienkarten"}},
         {"commit": {"message": ""}},
         "unsinn",

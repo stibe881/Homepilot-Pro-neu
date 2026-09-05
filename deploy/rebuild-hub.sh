@@ -385,13 +385,16 @@ fi
 # changes.txt ins Abbild - die App zeigt sie nach dem Update einmal an.
 # Kennt die (flache) Geschichte den alten Stand nicht, eben die letzten
 # zehn; besser eine grosszügige Liste als gar keine.
+# --no-merges: «Merge remote-tracking branch …» ist Buchhaltung des
+# Zweige-Abgleichs (deploy/zweige.py), keine Änderung - in den Release
+# Notes sagt so eine Zeile niemandem etwas.
 CHANGES_FILE="$WORKDIR/hub/homepilot/changes.txt"
 if [ -n "$RUNNING_COMMIT" ] \
    && git -C "$WORKDIR" cat-file -e "$RUNNING_COMMIT^{commit}" 2>/dev/null; then
-  git -C "$WORKDIR" log --format='%s' "$RUNNING_COMMIT..HEAD" > "$CHANGES_FILE" 2>/dev/null || true
+  git -C "$WORKDIR" log --no-merges --format='%s' "$RUNNING_COMMIT..HEAD" > "$CHANGES_FILE" 2>/dev/null || true
 fi
 if [ ! -s "$CHANGES_FILE" ]; then
-  git -C "$WORKDIR" log --format='%s' -n 10 > "$CHANGES_FILE" 2>/dev/null || true
+  git -C "$WORKDIR" log --no-merges --format='%s' -n 10 > "$CHANGES_FILE" 2>/dev/null || true
 fi
 
 # ── Das Abbild mit den App-Abhängigkeiten ──────────────────────────────
