@@ -108,3 +108,20 @@ def test_the_three_kinds_of_people_all_end_up_in_one_list():
     # Und die Geortete ohne Zugang.
     assert maja["household"] is False
     assert maja["where"] == "bei Tanners Home"
+
+
+def test_zugaenge_stehen_nicht_in_der_familienliste():
+    """Menschen, nicht Zugänge: Der Hub-Token (ein Zugang für Skripte)
+    und die Wandpanels (geteilte Konten) standen als «Aufenthalt
+    unbekannt» in der Liste - mit Schaltern, die nie etwas melden."""
+    from types import SimpleNamespace
+
+    def user(**felder):
+        vorgabe = {"role": "bewohner", "enabled": True, "system": False, "shared": False}
+        return SimpleNamespace(**{**vorgabe, **felder})
+
+    assert personen.gehoert_auf_die_seite(user(name="Stefan"))
+    assert not personen.gehoert_auf_die_seite(user(name="Hub-Token", system=True))
+    assert not personen.gehoert_auf_die_seite(user(name="Wandpanel", shared=True))
+    assert not personen.gehoert_auf_die_seite(user(name="Besuch", role="gast"))
+    assert not personen.gehoert_auf_die_seite(user(name="Alt", enabled=False))

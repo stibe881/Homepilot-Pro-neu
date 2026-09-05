@@ -15,7 +15,6 @@ from fastapi import FastAPI, HTTPException, Request
 
 from ...core import personen as personen_module
 from ...core import presence as presence_module
-from ...core import users as users_module
 from ...core.users import Capability
 from ..context import ApiContext
 from ..models import MeldungRequest
@@ -99,9 +98,9 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 "zone": presence_module.zone_fuer(user.name, namen),
             }
             for user in hub.users.users
-            # Gäste bleiben draussen: Für sie ist die Ortung ohnehin aus,
-            # und ein Wochenendbesuch gehört nicht in die Familienliste.
-            if user.role != users_module.Role.GUEST and user.enabled
+            # Menschen, nicht Zugänge: Hub-Token, Wandpanels und Gäste
+            # bleiben draussen (core/personen.py, gehoert_auf_die_seite).
+            if personen_module.gehoert_auf_die_seite(user)
         ]
         leute = personen_module.zusammenfuehren(benutzer, zonen_zeilen())
         return {

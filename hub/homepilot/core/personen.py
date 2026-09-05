@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .users import Role
+
 # Was der Hub über eine einzelne Person melden kann, und wie es heisst.
 # Reihenfolge ist Absicht: Was von selbst passiert, steht oben; was man
 # ausdrücklich haben will, unten.
@@ -48,6 +50,24 @@ LADE = "person_prefs"
 def bekannt(key: str) -> bool:
     """Gibt es diese Meldungsart? (rein, testbar)"""
     return key in MELDUNGEN
+
+
+def gehoert_auf_die_seite(user: Any) -> bool:
+    """Steht dieser Benutzer auf «Familie und Freunde»? (rein, testbar)
+
+    Menschen, nicht Zugänge. Der Hub führt auch Konten, hinter denen
+    niemand steht: den Hub-Token (ein Zugang für Skripte, ``system``)
+    und die Wandpanels (geteilte Konten ohne eigenes Telefon,
+    ``shared``). Beide standen trotzdem in der Liste - mit «Aufenthalt
+    unbekannt» und Schaltern, die nie etwas melden würden. Gäste
+    bleiben draussen wie bisher: Ein Wochenendbesuch gehört nicht in
+    die Familienliste.
+    """
+    if not getattr(user, "enabled", True):
+        return False
+    if getattr(user, "system", False) or getattr(user, "shared", False):
+        return False
+    return str(getattr(user, "role", "")) != Role.GUEST
 
 
 def fuer(rows: Any, zone: str) -> dict[str, bool]:
