@@ -50,6 +50,7 @@ export function SidePanel({
   width,
   room,
   onCommand,
+  topOffset = 0,
 }: {
   entities: Entity[];
   width?: number;
@@ -58,6 +59,11 @@ export function SidePanel({
   room?: string | null;
   /** Für den Player – ohne ihn bleibt er weg statt tot dazustehen. */
   onCommand?: (entityId: string, command: string, data?: CommandData) => void;
+  /** Versatz nach unten, in Punkten. Im offenen Raum die gemessene Höhe
+   *  des Raumkopfs: Die Karte des Raums soll unter dem Titel beginnen,
+   *  nicht neben ihm um dieselbe Zeile streiten (nur als Spalte rechts -
+   *  auf dem Telefon steht der Abschnitt ohnehin unter allem). */
+  topOffset?: number;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -144,7 +150,13 @@ export function SidePanel({
   if (!zeigt.anything) return null;
 
   return (
-    <View style={[styles.column, width ? { width } : { flex: 1 }]}>
+    <View
+      style={[
+        styles.column,
+        width ? { width } : { flex: 1 },
+        topOffset > 0 && { marginTop: topOffset },
+      ]}
+    >
       {zeigt.weather ? <WeatherPanel entity={weather!} /> : null}
       {zeigt.housePlayer && player && onCommand ? (
         <MediaPanel

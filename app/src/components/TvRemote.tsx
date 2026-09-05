@@ -4,7 +4,9 @@ import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { CommandData } from '../api/types';
 import { TvApp } from './TvApps';
+import { TvAppLogo } from './TvAppLogo';
 import { tapped, triggered } from '../lib/haptics';
+import { tvLogo } from '../lib/tvlogo';
 import { tastenStaerke } from '../lib/tastenhaptik';
 import { Colors, radius, useColors } from '../theme';
 
@@ -177,20 +179,33 @@ export function TvRemote({
 
           {/* Die Apps zum Schluss: erst steuern, dann wechseln. Die
               gleiche Liste bietet auch die Kachel an - aber die liegt
-              unter diesem Blatt. */}
+              unter diesem Blatt. Als Logos, nicht ausgeschrieben: Sechs
+              Wörter nebeneinander musste man lesen, sechs Logos erkennt
+              man vom Sofa aus - wie auf jeder echten Fernbedienung. Nur
+              Unbekanntes (lib/tvlogo.ts) bleibt ein Wort-Chip. */}
           {apps && apps.length > 0 ? (
             <View style={styles.appReihe}>
-              {apps.map((app) => (
-                <Pressable
-                  key={app.app}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${app.name} auf dem Fernseher starten`}
-                  onPress={() => druck('launch_app', { app: app.app })}
-                  style={({ pressed }) => [styles.appChip, pressed && styles.keyPressed]}
-                >
-                  <Text style={styles.appChipText}>{app.name}</Text>
-                </Pressable>
-              ))}
+              {apps.map((app) => {
+                const logo = tvLogo(app.name);
+                return (
+                  <Pressable
+                    key={app.app}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${app.name} auf dem Fernseher starten`}
+                    onPress={() => druck('launch_app', { app: app.app })}
+                    style={({ pressed }) => [
+                      !logo && styles.appChip,
+                      pressed && (logo ? { opacity: 0.7 } : styles.keyPressed),
+                    ]}
+                  >
+                    {logo ? (
+                      <TvAppLogo logo={logo} size={48} />
+                    ) : (
+                      <Text style={styles.appChipText}>{app.name}</Text>
+                    )}
+                  </Pressable>
+                );
+              })}
             </View>
           ) : null}
 
@@ -261,6 +276,9 @@ const makeStyles = (colors: Colors) =>
       flexDirection: 'row',
       flexWrap: 'wrap',
       justifyContent: 'center',
+      // Logos und Wort-Chips sind verschieden hoch - mittig statt
+      // gestreckt, sonst wird aus einem Chip eine Kreis-hohe Pille.
+      alignItems: 'center',
       gap: 8,
       paddingTop: 2,
     },

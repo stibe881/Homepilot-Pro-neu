@@ -403,6 +403,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Ob die Trennung Bestand hat - erst dann kommt der Ausfall-Balken.
   const ausfall = useAusfall(status);
   const [gridWidth, setGridWidth] = useState(0);
+  // Gemessene Höhe des Raumkopfs (raumBuehne): Um so viel rückt die
+  // Spalte rechts nach unten, damit die Medienkarte nicht neben dem
+  // Raumtitel klebt, sondern erst unter ihm beginnt.
+  const [raumKopfHoehe, setRaumKopfHoehe] = useState(0);
   const [editing, setEditing] = useState(false);
   const [reorderOpen, setReorderOpen] = useState(false);
   // «Räume ordnen»: Die Reihenfolge kam aus der config.yaml – wer sie
@@ -2753,7 +2757,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               Der Titel bleibt auch im Anpassen-Modus stehen: Gerade dort
               darf man sich nicht im Zimmer irren. */}
           {section === 'home' && room !== ALL_ROOMS ? (
-            <View style={styles.raumBuehne}>
+            <View
+              style={styles.raumBuehne}
+              onLayout={(event) => setRaumKopfHoehe(event.nativeEvent.layout.height)}
+            >
               {/* Der Farbton des Zimmers, derselbe wie auf seiner Kachel
                   in der Übersicht (lib/raumkarte.ts). Er zieht sich damit
                   durch: Man weiss beim Hinsehen, wo man ist, bevor man
@@ -3246,6 +3253,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           width={hasSidePanel ? panelWidth : undefined}
           room={offenerRaum}
           onCommand={guardedCommand}
+          // Im Raum beginnt die Spalte erst unter dem Raumkopf: Die
+          // Medienkarte stand sonst auf gleicher Höhe wie «‹ Räume» und
+          // der Raumname - zwei Dinge, die um dieselbe Zeile stritten.
+          // Der Versatz ist die gemessene Kopfhöhe, kein fester Wert:
+          // Der Kopf wird mit Faktenzeile und Klima unterschiedlich hoch.
+          topOffset={
+            hasSidePanel && offenerRaum && raumKopfHoehe > 0
+              ? raumKopfHoehe + space.gap
+              : 0
+          }
         />
       </View>
     );

@@ -3,7 +3,9 @@ import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { CommandData, Entity } from '../api/types';
+import { tvLogo } from '../lib/tvlogo';
 import { Colors, radius, useColors } from '../theme';
+import { TvAppLogo } from './TvAppLogo';
 
 /**
  * App-Auswahl auf der Android-TV-Kachel.
@@ -78,8 +80,13 @@ export function TvApps({
 
       {offen ? (
         <View style={styles.list}>
+          {/* Logos statt Wörter, dieselben wie auf der Fernbedienung
+              (lib/tvlogo.ts): Man erkennt Netflix am roten N schneller,
+              als man es liest. Die laufende App trägt einen Ring; nur
+              Apps ohne bekanntes Logo bleiben ein Wort-Chip. */}
           {apps.map((app) => {
             const aktiv = laufend === app.name;
+            const logo = tvLogo(app.name);
             return (
               <Pressable
                 key={app.app}
@@ -88,15 +95,21 @@ export function TvApps({
                   setOffen(false);
                 }}
                 accessibilityRole="button"
+                accessibilityLabel={`${app.name} starten`}
+                accessibilityState={{ selected: aktiv }}
                 style={({ pressed }) => [
-                  styles.chip,
-                  aktiv && styles.chipActive,
+                  !logo && styles.chip,
+                  !logo && aktiv && styles.chipActive,
                   pressed && { opacity: 0.8 },
                 ]}
               >
-                <Text style={[styles.chipText, aktiv && styles.chipTextActive]}>
-                  {app.name}
-                </Text>
+                {logo ? (
+                  <TvAppLogo logo={logo} size={40} aktiv={aktiv} />
+                ) : (
+                  <Text style={[styles.chipText, aktiv && styles.chipTextActive]}>
+                    {app.name}
+                  </Text>
+                )}
               </Pressable>
             );
           })}
@@ -120,7 +133,10 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     headText: { color: colors.ink, fontSize: 13, fontWeight: '600', flex: 1 },
-    list: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+    // alignItems: Logos (Kreise) und Wort-Chips (Pillen) sind
+    // verschieden hoch - ohne Zentrierung streckte der Stretch die
+    // Chips auf Kreis-Höhe.
+    list: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
     chip: {
       paddingVertical: 6,
       paddingHorizontal: 12,
