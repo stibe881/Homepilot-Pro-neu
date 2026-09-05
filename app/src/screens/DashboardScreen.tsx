@@ -2329,7 +2329,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'personen') {
       return (
         <View style={styles.stack}>
-          <PersonenScreen settings={settings} />
+          <PersonenScreen settings={settings} darfZugang={istBesitzer} />
         </View>
       );
     }
