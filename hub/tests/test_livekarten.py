@@ -138,6 +138,34 @@ def test_fernseher_karte_nicht_fuer_leute_unterwegs():
     assert "ohne" not in karten_tv([tv])[0]
 
 
+def test_die_fernseher_karte_traegt_den_kino_griff():
+    """Der Film beginnt, das Licht ist noch hell - die Szene «Kino»
+    gehört als Knopf neben die Fernbedienung, nicht vier Tipps tief in
+    die App. Gefunden wird sie über ihren Namen; die Schreibweise ist
+    egal."""
+    tv = entity("tv.wz", "media_player", "TV", state="on", has_screen=True)
+    szene = SimpleNamespace(id="szene.kino", name="Kino")
+    karten = karten_tv([tv], szenen=[szene, SimpleNamespace(id="s2", name="Alles aus")])
+    assert karten[0]["state"]["knoepfe"] == [
+        {"symbol": "film.fill", "pfad": "/api/scenes/szene.kino/activate", "body": ""}
+    ]
+    assert karten_tv([tv], szenen=[SimpleNamespace(id="s", name="KINO ")])[0]["state"][
+        "knoepfe"
+    ][0]["pfad"] == "/api/scenes/s/activate"
+
+
+def test_ohne_kino_szene_kein_knopf_und_bei_zweien_auch_nicht():
+    """Heisst keine Szene so, gibt es keinen Knopf - und heissen zwei
+    so, auch nicht: lieber keiner als der falsche."""
+    tv = entity("tv.wz", "media_player", "TV", state="on", has_screen=True)
+    assert "knoepfe" not in karten_tv([tv])[0]["state"]
+    assert "knoepfe" not in karten_tv(
+        [tv], szenen=[SimpleNamespace(id="s1", name="Abend")]
+    )[0]["state"]
+    doppelt = [SimpleNamespace(id="s1", name="Kino"), SimpleNamespace(id="s2", name="kino")]
+    assert "knoepfe" not in karten_tv([tv], szenen=doppelt)[0]["state"]
+
+
 def test_fernseher_zwillinge_geben_eine_karte():
     """Der gemeldete Fall: «Fernseher Wohnzimmer, eingeschaltet» lag
     über «Fernseher im Wohnzimmer, Plex» - derselbe Bildschirm, einmal

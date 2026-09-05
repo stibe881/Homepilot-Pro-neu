@@ -363,6 +363,35 @@ def _tv_app(entity: Any) -> str | None:
     return str(app) if app else None
 
 
+def kino_knopf(szenen: list[Any]) -> dict[str, Any] | None:
+    """Der Kino-Griff auf der Fernseher-Karte (rein, testbar).
+
+    Der Fall: Der Film beginnt, das Licht ist noch hell - und die Szene
+    «Kino» liegt vier Tipps tief in der App, während die Fernbedienung
+    längst auf dem Sperrbildschirm liegt. Der Griff gehört daneben.
+
+    Gefunden wird die Szene über ihren Namen: «Kino», Gross- und
+    Kleinschreibung egal. Kein eigenes Einstellfeld - wer die Szene so
+    nennt, hat sie für genau diesen Moment gebaut. Heisst keine so,
+    gibt es keinen Knopf; heissen zwei so, auch nicht - lieber keiner
+    als der falsche. Harmlos im Sinne der Sperrbildschirm-Regel
+    (lib/mitteilungsknoepfe.ts): Die Szene ist ein selbst gewählter
+    Lichtgriff, und der Hub prüft die Rechte ohnehin noch einmal.
+    """
+    treffer = [
+        szene
+        for szene in szenen or []
+        if str(getattr(szene, "name", "") or "").strip().casefold() == "kino"
+    ]
+    if len(treffer) != 1:
+        return None
+    return {
+        "symbol": "film.fill",
+        "pfad": f"/api/scenes/{quote(str(treffer[0].id))}/activate",
+        "body": "",
+    }
+
+
 def tv_auswahl(laufend: list[Any]) -> list[tuple[Any, str | None]]:
     """Je Bildschirm ein Gerät - Zwillinge zusammengelegt (rein, testbar).
 
@@ -408,7 +437,11 @@ def tv_auswahl(laufend: list[Any]) -> list[tuple[Any, str | None]]:
     return auswahl
 
 
-def karten_tv(entities: list[Any], ohne: list[str] | None = None) -> list[dict[str, Any]]:
+def karten_tv(
+    entities: list[Any],
+    ohne: list[str] | None = None,
+    szenen: list[Any] | None = None,
+) -> list[dict[str, Any]]:
     """Der laufende Fernseher - ein Tipp öffnet seine Fernbedienung.
 
     Der Fall dahinter: Man sitzt vor dem Fernseher, das Telefon liegt
@@ -426,6 +459,9 @@ def karten_tv(entities: list[Any], ohne: list[str] | None = None) -> list[dict[s
     ``ohne`` sind die Leute, die gerade nachweislich nicht zuhause sind
     (nicht_zuhause) - für sie liegt keine Karte: Eine Fernbedienung im
     Zug ist nur eine Karte im Weg.
+
+    ``szenen`` sind die Szenen des Hauses: Gibt es darunter genau eine
+    namens «Kino», trägt die Karte deren Griff (kino_knopf).
     """
     laufend = [
         entity
@@ -434,6 +470,7 @@ def karten_tv(entities: list[Any], ohne: list[str] | None = None) -> list[dict[s
         and entity.state.get("has_screen")
         and str(entity.state.get("state") or "") in TV_AN
     ]
+    knopf = kino_knopf(szenen or [])
     karten = []
     for entity, app in tv_auswahl(laufend):
         karten.append(
@@ -447,6 +484,7 @@ def karten_tv(entities: list[Any], ohne: list[str] | None = None) -> list[dict[s
                     "text": app or "eingeschaltet",
                     "symbol": "tv",
                     "url": f"homepilot://fernbedienung/{quote(str(entity.id))}",
+                    **({"knoepfe": [knopf]} if knopf else {}),
                 },
             }
         )
@@ -763,8 +801,12 @@ def _gewuenscht(hub: Any, jetzt_s: float, benutzer: list[str]) -> list[dict[str,
         *karten_grill(entities),
         *karten_sauger(entities),
         # Die Fernbedienung nur für die, die zuhause sind - unterwegs
-        # ist sie bloss eine Karte im Weg.
-        *karten_tv(entities, nicht_zuhause(benutzer, _zonen_zustaende(hub, benutzer))),
+        # ist sie bloss eine Karte im Weg. Die Szenen für den Kino-Griff.
+        *karten_tv(
+            entities,
+            nicht_zuhause(benutzer, _zonen_zustaende(hub, benutzer)),
+            szenen=getattr(hub.scenes, "scenes", None) or [],
+        ),
         *karten_erinnerungen(hub.data.get("family_reminders"), jetzt_s * 1000),
         *karten_alarm(entities, jetzt_s),
     ]
