@@ -67,3 +67,29 @@ export function lichterAus(gezaehlt: Entity[], locked: string[]): Entity[] {
     (entity) => !locked.includes(entity.id) && entity.commands.includes('turn_off')
   );
 }
+
+/** Wo Geräte ohne Raum landen - zuletzt, denn dort sucht man selten. */
+export const OHNE_RAUM = 'Weitere';
+
+/**
+ * Die brennenden Lichter nach Raum gebündelt (rein, testbar).
+ *
+ * Die Liste im «Lichter an»-Blatt war flach, mit dem Raum als kleiner
+ * Unterzeile - bei sieben Lichtern aus drei Räumen liest man sieben
+ * Unterzeilen, statt drei Überschriften zu überfliegen. Räume
+ * alphabetisch, «Weitere» zuletzt, die Lichter darin nach Namen -
+ * dieselbe Ordnung wie in jeder Geräteauswahl (felder.groupEntities).
+ */
+export function lichterNachRaum(gezaehlt: Entity[]): { raum: string; lichter: Entity[] }[] {
+  const raeume = Array.from(
+    new Set(gezaehlt.map((entity) => entity.room || OHNE_RAUM))
+  ).sort((a, b) =>
+    a === OHNE_RAUM ? 1 : b === OHNE_RAUM ? -1 : a.localeCompare(b)
+  );
+  return raeume.map((raum) => ({
+    raum,
+    lichter: gezaehlt
+      .filter((entity) => (entity.room || OHNE_RAUM) === raum)
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  }));
+}

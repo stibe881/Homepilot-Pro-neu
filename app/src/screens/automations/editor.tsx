@@ -14,6 +14,7 @@ import { datumUhr } from '../../lib/format';
 import { ZUHAUSE, anwesenheitsPersonen, istOrtsmelder, ortsauswahl } from '../../lib/ortsausloeser';
 import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, KAMERA_AUSLOESER, PLATZHALTER, hatWartezeit, measurableAttributes, meldetEtwas, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis } from './entwurf';
 import {
+  Abschnitt,
   CategoryField,
   Choice,
   EditorRahmen,
@@ -248,7 +249,12 @@ export function Editor({
           ) : null}
         </Klappe>
 
-        <Field label={draft.triggers.length > 1 ? 'Wenn eines passiert' : 'Wenn … passiert'}>
+        {/* Die vier Hauptabschnitte als nummerierte Karten - die Nummern
+            erzählen den Satz: 1 Wenn, 2 Nur wenn, 3 Dann, 4 Sonst. */}
+        <Abschnitt
+          nummer="1"
+          titel={draft.triggers.length > 1 ? 'Wenn eines passiert' : 'Wenn … passiert'}
+        >
           {draft.triggers.map((trigger, index) => (
             <TriggerRow
               key={index}
@@ -269,13 +275,18 @@ export function Editor({
             <Ionicons name="add" size={16} color={colors.accent} />
             <Text style={styles.addRowText}>Weiterer Auslöser</Text>
           </Pressable>
-        </Field>
+        </Abschnitt>
 
-        {/* Die grösste Klappe: Zustandsbedingungen, Und/Oder-Gruppen,
+        {/* Der grösste Abschnitt: Zustandsbedingungen, Und/Oder-Gruppen,
             Wochentage, Feiertage. Für «wenn der Melder anschlägt, mach
             das Licht an» braucht man nichts davon - offen sind es zwei
-            Bildschirme, an denen man vorbeiscrollt. */}
-        <Klappe label="Nur wenn (Bedingung)" stand={bedingungStand(draft)}>
+            Bildschirme, an denen man vorbeiscrollt; darum zuklappbar. */}
+        <Abschnitt
+          nummer="2"
+          titel="Nur wenn (Bedingung)"
+          stand={bedingungStand(draft)}
+          zuklappbar
+        >
           <Choice
             options={[
               { key: 'none', label: 'immer' },
@@ -706,9 +717,9 @@ export function Editor({
             können gar nicht gleichzeitig eintreten. Ein «und» gehört hierher:
             «wenn der Taster gedrückt wird – aber nur, wenn es dunkel ist».
           </Text>
-        </Klappe>
+        </Abschnitt>
 
-        <Field label="… dann das tun">
+        <Abschnitt nummer="3" titel="… dann das tun">
           <StepList
             steps={draft.steps}
             entities={entities}
@@ -787,9 +798,9 @@ export function Editor({
               </Text>
             </>
           ) : null}
-        </Field>
+        </Abschnitt>
 
-        <Klappe label="… sonst" stand={sonstStand(draft)}>
+        <Abschnitt nummer="4" titel="… sonst" stand={sonstStand(draft)} zuklappbar>
           {draft.elseSteps.length === 0 ? (
             <>
               <Pressable
@@ -824,7 +835,7 @@ export function Editor({
               onChange={(elseSteps) => set({ elseSteps })}
             />
           )}
-        </Klappe>
+        </Abschnitt>
 
         {/* Grau, solange der Ablauf nichts täte. Nicht als Schikane:
             Oben steht als Liste, was fehlt, und die Knöpfe zeigen

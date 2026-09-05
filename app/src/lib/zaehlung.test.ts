@@ -6,7 +6,7 @@
  * – gemeint war die «3 an» in der Kopfzeile.
  */
 import { Entity } from '../api/types';
-import { gezaehlteLichter, lichterAus, zaehlbar, zaehltMit } from './zaehlung';
+import { gezaehlteLichter, lichterAus, lichterNachRaum, zaehlbar, zaehltMit } from './zaehlung';
 
 const geraet = (id: string, kind: string, state = 'on', extra = {}): Entity =>
   ({ id, name: id, kind, integration: 'demo', state: { state }, commands: [], ...extra }) as
@@ -100,5 +100,23 @@ describe('lichterAus', () => {
   it('lässt weg, was gar nicht ausschalten kann', () => {
     const ohne = licht('light.c', { commands: ['turn_on'] });
     expect(lichterAus([ohne], [])).toEqual([]);
+  });
+});
+
+describe('lichterNachRaum', () => {
+  const lampe = (name: string, room?: string) =>
+    ({ id: name, name, kind: 'light', room, state: { state: 'on' }, commands: [] }) as unknown as Entity;
+
+  it('bündelt nach Raum - alphabetisch, «Weitere» zuletzt', () => {
+    const zeilen = lichterNachRaum([
+      lampe('Kallax oben', 'Büro'),
+      lampe('TV Backlight', 'Wohnzimmer'),
+      lampe('K1 Max'),
+      lampe('Bürotisch', 'Büro'),
+    ]);
+    expect(zeilen.map((zeile) => zeile.raum)).toEqual(['Büro', 'Wohnzimmer', 'Weitere']);
+    // Im Raum nach Namen: So steht «Bürotisch» vor «Kallax oben».
+    expect(zeilen[0].lichter.map((e) => e.name)).toEqual(['Bürotisch', 'Kallax oben']);
+    expect(zeilen[2].lichter.map((e) => e.name)).toEqual(['K1 Max']);
   });
 });

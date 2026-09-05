@@ -417,6 +417,75 @@ export function Field({ label, children }: { label: string; children: React.Reac
 }
 
 /**
+ * Ein Hauptabschnitt des Ablauf-Editors: «Wenn», «Nur wenn», «Dann», «Sonst».
+ *
+ * Der gemeldete Fall: «Man sieht fast nicht, wenn ein neuer Abschnitt
+ * kommt.» Die Abschnitte trugen dieselbe kleine Beschriftung wie jedes
+ * Feld darin - zwischen dreissig Chips und zwei Gerätelisten ging die
+ * Gliederung unter. Jetzt ist jeder Abschnitt eine eigene Karte mit
+ * Nummer und grosser Überschrift: Die Nummern erzählen den Satz («1
+ * Wenn … 2 Nur wenn … 3 Dann …»), und die Kartenränder sagen auch beim
+ * schnellen Scrollen, wo man ist.
+ *
+ * `zuklappbar` übernimmt, was vorher die Klappe tat - gleiche Regeln:
+ * offen, sobald etwas drinsteht (`stand`), sonst zu.
+ */
+export function Abschnitt({
+  nummer,
+  titel,
+  stand,
+  zuklappbar = false,
+  children,
+}: {
+  nummer: string;
+  titel: string;
+  /** Was eingestellt ist – steht zugeklappt im Kopf und öffnet den
+   *  Abschnitt von selbst. */
+  stand?: string;
+  zuklappbar?: boolean;
+  children: React.ReactNode;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [offen, setOffen] = useState(!zuklappbar || !!stand);
+
+  return (
+    <View style={styles.abschnitt}>
+      <Pressable
+        onPress={zuklappbar ? () => setOffen((auf) => !auf) : undefined}
+        disabled={!zuklappbar}
+        accessibilityRole={zuklappbar ? 'button' : 'header'}
+        accessibilityState={zuklappbar ? { expanded: offen } : undefined}
+        accessibilityLabel={stand ? `${titel}: ${stand}` : titel}
+        style={styles.abschnittKopf}
+      >
+        <View style={styles.abschnittNummer}>
+          <Text style={styles.abschnittNummerText}>{nummer}</Text>
+        </View>
+        <Text style={styles.abschnittTitel} numberOfLines={1}>
+          {titel}
+        </Text>
+        {zuklappbar && stand && !offen ? (
+          <Text style={styles.klappeStand} numberOfLines={1}>
+            {stand}
+          </Text>
+        ) : (
+          <View style={{ flex: 1 }} />
+        )}
+        {zuklappbar ? (
+          <Ionicons
+            name={offen ? 'chevron-up' : 'chevron-down'}
+            size={18}
+            color={colors.inkSoft}
+          />
+        ) : null}
+      </Pressable>
+      {offen ? <View style={styles.abschnittInhalt}>{children}</View> : null}
+    </View>
+  );
+}
+
+/**
  * Ein Abschnitt, der zugeklappt anfängt.
  *
  * Der Editor zeigte beim Anlegen alles auf einmal: Name, Kategorie,
@@ -598,13 +667,26 @@ export function EntityPicker({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [query, setQuery] = useState('');
+  const chosen = entities.find((entity) => entity.id === value);
+  // Mit noneLabel ist auch «nichts» eine getroffene Wahl.
+  const gewaehltEtwas = !!chosen || (noneLabel !== undefined && value === '');
+  // Der gemeldete Fall: «Man muss sehr viel scrollen.» Die Liste stand
+  // dauerhaft offen - auch dann noch, wenn längst gewählt war. Solange
+  // nichts gewählt ist, bleibt sie offen (man soll sehen, was zur Wahl
+  // steht); nach der Wahl schrumpft sie auf eine Zeile mit «Ändern».
+  const [aufgeklappt, setAufgeklappt] = useState(!gewaehltEtwas);
+  const offen = aufgeklappt || !gewaehltEtwas;
   // Kurze Listen brauchen kein Suchfeld; es stünde nur im Weg.
   const searchable = entities.length > 8;
   const groups = useMemo(
     () => groupEntities(entities, searchable ? query : '', value),
     [entities, query, searchable, value]
   );
-  const chosen = entities.find((entity) => entity.id === value);
+  const waehlen = (id: string) => {
+    onSelect(id);
+    setAufgeklappt(false);
+    setQuery('');
+  };
 
   const row = (
     key: string,
@@ -642,6 +724,35 @@ export function EntityPicker({
       ) : null}
     </Pressable>
   );
+
+  if (!offen) {
+    // Die Wahl als eine Zeile: Symbol, Name, Art - und «Ändern» als
+    // sichtbares Versprechen, dass sich dahinter die Liste öffnet.
+    return (
+      <Pressable
+        onPress={() => setAufgeklappt(true)}
+        accessibilityRole="button"
+        accessibilityLabel={`Gewählt: ${chosen ? chosen.name : noneLabel ?? ''}. Ändern`}
+        style={({ pressed }) => [styles.gewaehltZeile, pressed && { opacity: 0.75 }]}
+      >
+        <Ionicons
+          name={
+            (chosen ? deviceKindIcon(chosen) : 'remove-circle-outline') as keyof typeof Ionicons.glyphMap
+          }
+          size={19}
+          color={colors.accent}
+        />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.pickName} numberOfLines={1}>
+            {chosen ? chosen.name : noneLabel}
+          </Text>
+          {chosen ? <Text style={styles.pickKind}>{deviceKindLabel(chosen)}</Text> : null}
+        </View>
+        <Text style={styles.gewaehltAendern}>Ändern</Text>
+        <Ionicons name="chevron-down" size={16} color={colors.inkSoft} />
+      </Pressable>
+    );
+  }
 
   return (
     <View style={{ gap: 8 }}>
@@ -687,7 +798,7 @@ export function EntityPicker({
               null,
               'remove-circle-outline',
               value === '',
-              () => onSelect('')
+              () => waehlen('')
             )
           : null}
         {groups.length === 0 ? (
@@ -703,7 +814,7 @@ export function EntityPicker({
                 deviceKindLabel(entity),
                 deviceKindIcon(entity),
                 value === entity.id,
-                () => onSelect(entity.id)
+                () => waehlen(entity.id)
               )
             )}
           </View>

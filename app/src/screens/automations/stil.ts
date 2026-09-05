@@ -410,6 +410,52 @@ export const makeStyles = (colors: Colors) =>
     },
     editorBarText: { color: colors.accent, fontSize: 16, fontWeight: '700' },
     field: { gap: 8 },
+    /**
+     * Die Hauptabschnitte des Ablauf-Editors als eigene Karten.
+     *
+     * Der gemeldete Fall: «Man sieht fast nicht, wenn ein neuer
+     * Abschnitt kommt.» Kartenrand plus nummerierter Kopf - mehr
+     * braucht es nicht, damit das Auge beim Scrollen Halt findet.
+     */
+    abschnitt: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      padding: 14,
+      gap: 12,
+    },
+    abschnittKopf: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    abschnittNummer: {
+      width: 26,
+      height: 26,
+      borderRadius: 13,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.accent,
+    },
+    abschnittNummerText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
+    abschnittTitel: {
+      color: colors.ink,
+      fontSize: 17,
+      fontWeight: '800',
+      flexShrink: 1,
+    },
+    abschnittInhalt: { gap: 10 },
+    /** Die getroffene Gerätewahl als eine Zeile - statt der offenen
+     *  Liste, an der man sonst jedes Mal vorbeiscrollt. */
+    gewaehltZeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    gewaehltAendern: { color: colors.accent, fontSize: 13, fontWeight: '700' },
     /** Was noch fehlt – gedeckt, nicht blau: `satzMehr` ist die Farbe
      *  von «Alle zeigen», und drei blaue Zeilen in einem orangen Kasten
      *  sehen nach drei Links aus, die keine sind. */
