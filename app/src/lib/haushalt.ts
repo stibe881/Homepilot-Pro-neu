@@ -116,7 +116,8 @@ const WORKING_WATTS = 20;
 
 export interface Working {
   entity: Entity;
-  /** Kurze Zusatzangabe: Restzeit, Programm oder Leistung. */
+  /** Kurze Zusatzangabe: Restzeit oder Programm. Leer, wenn es nichts
+   *  zu sagen gibt - dann steht nur, *dass* das Gerät läuft. */
   note: string;
 }
 
@@ -153,7 +154,11 @@ export function workingAppliances(entities: Entity[]): Working[] {
     if (!Number.isFinite(watts)) continue;
     if (!APPLIANCE_NAME.test(entity.name)) continue;
     if (String(entity.state.state) === 'off' || watts <= WORKING_WATTS) continue;
-    working.push({ entity, note: `${Math.round(watts)} W` });
+    // Ohne die Wattzahl, so gewünscht: Neben der Begrüssung will man
+    // wissen, DASS der Tumbler läuft - «1142 W» ist ein Wert aus dem
+    // Energie-Bereich und liest sich hier wie eine Warnung. Die Leistung
+    // entscheidet oben nur, OB die Zeile erscheint.
+    working.push({ entity, note: '' });
   }
   return working;
 }

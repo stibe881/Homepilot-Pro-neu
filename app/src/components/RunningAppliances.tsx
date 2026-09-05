@@ -40,14 +40,25 @@ export function RunningAppliances({ entities }: { entities: Entity[] }) {
     working.length === 1
       ? `${working[0].entity.name} läuft`
       : `${working.length} Geräte laufen`;
+  // Eine leere Zusatzangabe (Tumbler an der Messsteckdose: es gibt keine
+  // Restzeit, und die Wattzahl gehört in den Energie-Bereich) lässt die
+  // Zeile weg statt ein hängendes «Tumbler · » zu zeichnen.
   const detail = working
     .map((item) =>
-      working.length === 1 ? item.note : `${item.entity.name} · ${item.note}`
+      working.length === 1
+        ? item.note
+        : item.note
+          ? `${item.entity.name} · ${item.note}`
+          : item.entity.name
     )
+    .filter(Boolean)
     .join(', ');
 
   return (
-    <View style={styles.card} accessibilityLabel={`${heading}: ${detail}`}>
+    <View
+      style={styles.card}
+      accessibilityLabel={detail ? `${heading}: ${detail}` : heading}
+    >
       <Ionicons
         name={working.length === 1 ? applianceIcon(working[0].entity.name) : 'ellipse'}
         size={working.length === 1 ? 16 : 10}
@@ -57,9 +68,11 @@ export function RunningAppliances({ entities }: { entities: Entity[] }) {
         <Text style={styles.heading} numberOfLines={1}>
           {heading}
         </Text>
-        <Text style={styles.detail} numberOfLines={2}>
-          {detail}
-        </Text>
+        {detail ? (
+          <Text style={styles.detail} numberOfLines={2}>
+            {detail}
+          </Text>
+        ) : null}
       </View>
     </View>
   );

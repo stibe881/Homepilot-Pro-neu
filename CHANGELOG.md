@@ -31,6 +31,12 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   keine Karte liegen sollte, beendet der Hub genau diese Karte im
   nächsten Takt. (Das Aufräumen in der App braucht einen frischen
   TestFlight-Build.)
+- **«Tumbler läuft» kommt jetzt ohne Wattzahl.** Neben der Begrüssung
+  stand «Tumbler läuft · 1142 W» - die Zahl liest sich dort wie eine
+  Warnung und gehört in den Energie-Bereich. Die Leistung entscheidet
+  weiterhin, *ob* die Zeile erscheint (ab 20 W echte Arbeit), steht
+  aber nicht mehr dran; bei echten Haushaltsgeräten bleibt die
+  Restzeit («noch 2 h 10 min»), denn die will man dort sehen.
 - **Die abgestellte Rückfrage gilt jetzt auch vom Sperrbildschirm
   aus.** Wer «Rückfrage vor dem Türöffnen» ausgeschaltet hatte, wurde
   auf dem Weg über die Türkarte und den Widget-Knopf trotzdem gefragt -

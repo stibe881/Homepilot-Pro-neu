@@ -56,7 +56,23 @@ describe('workingAppliances', () => {
     // sagte trotzdem dauerhaft «Tumbler läuft».
     expect(workingAppliances([steckdose(9)])).toEqual([]);
     const [lauft] = workingAppliances([steckdose(320)]);
-    expect(lauft.note).toBe('320 W');
+    expect(lauft.entity.name).toBe('Tumbler');
+  });
+
+  it('behält die Wattzahl für sich', () => {
+    // Auch das ein Wunsch aus dem Haus: Neben der Begrüssung will man
+    // wissen, DASS der Tumbler läuft - «1142 W» liest sich dort wie eine
+    // Warnung und gehört in den Energie-Bereich. Die Leistung entscheidet
+    // nur, ob die Zeile erscheint.
+    const [lauft] = workingAppliances([
+      geraet({
+        id: 'homematic.tumbler',
+        name: 'Tumbler',
+        kind: 'switch',
+        state: { state: 'on', power: 1142 },
+      }),
+    ]);
+    expect(lauft.note).toBe('');
   });
 
   it('zählt fremde Steckdosen nicht, auch wenn sie ziehen', () => {
