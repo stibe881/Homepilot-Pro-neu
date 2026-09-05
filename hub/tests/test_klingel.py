@@ -200,3 +200,30 @@ async def test_the_state_flapping_does_not_multiply_the_message():
     finally:
         await wache.stop()
         await hub.stop()
+
+
+async def test_a_broken_sibling_check_never_swallows_the_ring():
+    """Die Klingel darf an keiner anderen Prüfung hängen.
+
+    Der Fall dahinter: Weinen- und Klingel-Prüfung liefen als eine Kette
+    im selben Ereignis-Handler. Ein Fehler in der einen hätte die andere
+    still verschluckt - der Bus fängt die Ausnahme, das Vollbild am
+    Panel (es hängt am Zustand, nicht am Wächter) käme weiter, nur die
+    Nachricht bliebe aus. Jetzt läuft jede Prüfung hinter ihrem eigenen
+    Netz, die Klingel zuerst.
+    """
+    hub, wache, gemeldet = await _hub_mit_klingel()
+
+    def kaputt(_entity_id, _data):
+        raise RuntimeError("die Nachbarprüfung stolpert")
+
+    wache._pruefe_weinen = kaputt  # type: ignore[method-assign]
+    try:
+        await hub.registry.update_state("ring.haustuere", {"ring": "on"})
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert len(gemeldet) == 1
+        assert gemeldet[0]["title"] == "Es klingelt: Haustüre"
+    finally:
+        await wache.stop()
+        await hub.stop()

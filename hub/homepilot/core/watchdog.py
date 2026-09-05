@@ -249,10 +249,21 @@ class Watchdog:
                     self._rueckkehr.get(name, []), time.time()
                 )
 
-        # Ein weinendes Baby hat so wenig Zeit wie ein Klingeln - deshalb
-        # ebenfalls hier am Ereignis, nicht in der Minuten-Runde.
-        self._pruefe_weinen(entity_id, data)
+        # Klingel und Weinen laufen jede für sich, jede hinter ihrem
+        # eigenen Netz - und die Klingel zuerst. Vorher hingen sie als
+        # eine Kette in diesem Handler: Ein Fehler in der einen Prüfung
+        # hätte die andere verschluckt, und zwar still - der Bus fängt
+        # die Ausnahme, das Vollbild am Panel (es hängt am Zustand,
+        # nicht am Wächter) käme weiter, nur die Nachricht bliebe aus.
+        # Die wichtigste Nachricht im Haus darf an keiner anderen hängen.
+        for pruefung in (self._pruefe_klingeln, self._pruefe_weinen):
+            try:
+                pruefung(entity_id, data)
+            except Exception:
+                log.exception("Wächter-Prüfung am Ereignis fehlgeschlagen")
 
+    def _pruefe_klingeln(self, entity_id: str, data: dict[str, Any]) -> None:
+        """Bus-Listener-Teil: Klingelt es gerade an dieser Türe?"""
         alt = str((data.get("old_state") or {}).get("ring") or "")
         neu = str((data.get("new_state") or {}).get("ring") or "")
         if neu != "on":
