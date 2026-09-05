@@ -5,7 +5,7 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { Entity } from '../../api/types';
 import { useColors } from '../../theme';
@@ -144,15 +144,25 @@ export function SceneDevices({
     : all;
   const byId = new Map(actions.map((action) => [action.entity_id, action]));
 
+  // Die gewählten Geräte stehen über der Liste, in der Reihenfolge der
+  // Wahl - und die Liste zeigt nur noch, was sich hinzufügen lässt.
+  // Vorher stand alles in einer einzigen, ungedeckelten Liste: Wer drei
+  // Geräte gewählt hatte, scrollte an hundert anderen vorbei, um sie
+  // wiederzufinden.
+  const gewaehlte = actions
+    .map((action) => all.find((entity) => entity.id === action.entity_id))
+    .filter((entity): entity is Entity => !!entity);
+  const angebot = devices.filter((entity) => !byId.has(entity.id));
+
   // Nach Raum gruppieren; Geräte ohne Raum kommen unter «Weitere».
   const groups: { room: string; items: Entity[] }[] = [];
   const order = Array.from(
-    new Set(devices.map((entity) => entity.room || 'Weitere'))
+    new Set(angebot.map((entity) => entity.room || 'Weitere'))
   ).sort((a, b) => (a === 'Weitere' ? 1 : b === 'Weitere' ? -1 : a.localeCompare(b)));
   for (const room of order) {
     groups.push({
       room,
-      items: devices
+      items: angebot
         .filter((entity) => (entity.room || 'Weitere') === room)
         // Nach Art, dann nach Name: So stehen die Lichter eines Raums
         // beieinander und die Storen auch – in der Reihenfolge, in der
@@ -264,17 +274,44 @@ export function SceneDevices({
         </Text>
       ) : null}
 
-      {groups.length === 0 ? (
+      {gewaehlte.length > 0 ? (
+        <View style={{ gap: 6 }}>
+          <Text style={styles.groupLabel}>Ausgewählt</Text>
+          {gewaehlte.map((entity) => geraeteZeile(entity))}
+        </View>
+      ) : null}
+
+      {groups.length === 0 && needle ? (
         <Text style={styles.snapshotHint}>Nichts gefunden.</Text>
       ) : null}
-      {groups.map((group) => (
-        <View key={group.room} style={{ gap: 6 }}>
-          <Text style={styles.groupLabel}>{group.room}</Text>
-          {group.items.map((entity) => {
-            const action = byId.get(entity.id);
-            const included = !!action;
-            const rooms = vacuumRooms(entity);
-            return (
+      {/* Die Angebotsliste scrollt in sich selbst, wie die Gerätewahl
+          der Auslöser: Hundert Geräte am Stück schoben sonst den Rest
+          des Editors ausser Sicht - genau das gemeldete Scrollen. */}
+      {groups.length > 0 ? (
+        <ScrollView
+          style={styles.pickList}
+          nestedScrollEnabled
+          keyboardShouldPersistTaps="handled"
+        >
+          {groups.map((group) => (
+            <View key={group.room} style={{ gap: 6 }}>
+              <Text style={styles.groupLabel}>{group.room}</Text>
+              {group.items.map((entity) => geraeteZeile(entity))}
+            </View>
+          ))}
+        </ScrollView>
+      ) : null}
+    </View>
+  );
+
+  /** Eine Gerätezeile: gewählt mit ihren Einstellungen darunter, im
+   *  Angebot als blosse Ankreuzzeile. Als Funktionsdeklaration nach dem
+   *  return, damit oben zuerst steht, was die Ansicht zeigt. */
+  function geraeteZeile(entity: Entity) {
+    const action = byId.get(entity.id);
+    const included = !!action;
+    const rooms = vacuumRooms(entity);
+    return (
               <View key={entity.id} style={styles.deviceRow}>
                 <Pressable
                   onPress={() => toggle(entity)}
@@ -620,12 +657,8 @@ export function SceneDevices({
                   </View>
                 ) : null}
               </View>
-            );
-          })}
-        </View>
-      ))}
-    </View>
-  );
+    );
+  }
 }
 
 export interface SzenenAusloeser {
