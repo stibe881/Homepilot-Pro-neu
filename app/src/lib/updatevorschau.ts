@@ -40,7 +40,15 @@ export function vorschauZeilen(vorschau: UpdateVorschau | null | undefined): {
     return { art: 'keine', zeilen: [], mehr: 0 };
   }
   const alle = (vorschau.commits ?? []).filter(
-    (zeile) => typeof zeile === 'string' && zeile.trim()
+    (zeile) =>
+      typeof zeile === 'string' &&
+      zeile.trim() &&
+      // Zusammenführungen («Merge remote-tracking branch …») sind
+      // Buchhaltung des Zweige-Abgleichs, keine Änderung. Der
+      // Update-Dienst filtert sie inzwischen selbst - aber er frischt
+      // sich erst beim übernächsten Update auf, und hier ist der Filter
+      // sofort da. Eigene Commits beginnen nie mit «Merge ».
+      !zeile.trim().startsWith('Merge ')
   );
   if (alle.length === 0) {
     // Nur die genaue Antwort darf «nichts Neues» behaupten - eine

@@ -145,15 +145,24 @@ def betreffzeilen(commits: Any) -> list[str]:
 
     Nimmt beides an: die Liste aus /compare (älteste zuerst) wie die aus
     /commits (neueste zuerst) - die Reihenfolge richtet der Aufrufer.
+
+    Zusammenführungen fallen heraus: «Merge remote-tracking branch …»
+    sagt niemandem, was das Update bringt - es ist Buchhaltung des
+    Zweige-Abgleichs (deploy/zweige.py), keine Änderung. Erkannt an den
+    zwei Eltern; wo GitHub keine mitschickt, am Betreff.
     """
     zeilen: list[str] = []
     for commit in commits or []:
         if not isinstance(commit, dict):
             continue
+        eltern = commit.get("parents")
+        if isinstance(eltern, list) and len(eltern) > 1:
+            continue
         message = ((commit.get("commit") or {}).get("message")) or ""
         betreff = str(message).splitlines()[0].strip() if message else ""
-        if betreff:
-            zeilen.append(betreff)
+        if not betreff or betreff.startswith("Merge "):
+            continue
+        zeilen.append(betreff)
     return zeilen
 
 

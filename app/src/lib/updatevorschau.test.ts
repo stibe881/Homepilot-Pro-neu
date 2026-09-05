@@ -34,6 +34,27 @@ describe('vorschauZeilen', () => {
     expect(vorschauZeilen({ available: false }).art).toBe('keine');
   });
 
+  it('lässt Zusammenführungen weg - und sagt dann ehrlich «nichts Neues»', () => {
+    // Die Merge-Zeilen stammen vom Zweige-Abgleich - Buchhaltung, keine
+    // Änderung. Bringt ein Update nur solche, bringt es nichts.
+    const gemischt = vorschauZeilen({
+      available: true,
+      exact: true,
+      commits: [
+        "Merge remote-tracking branch 'origin/main' into claude/x",
+        'Joyn auf der Fernbedienung',
+      ],
+    });
+    expect(gemischt.zeilen).toEqual(['Joyn auf der Fernbedienung']);
+    expect(
+      vorschauZeilen({
+        available: true,
+        exact: true,
+        commits: ["Merge branch 'a' into b"],
+      }).art
+    ).toBe('nichts');
+  });
+
   it('kennzeichnet die Näherung', () => {
     const ergebnis = vorschauZeilen({
       available: true,
