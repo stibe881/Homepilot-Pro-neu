@@ -1,5 +1,5 @@
 import { Entity } from '../api/types';
-import { tuerKnopfWerte } from './widget';
+import { ablageBefund, tuerKnopfWerte } from './widget';
 
 /**
  * Der Öffnen-Knopf auf der Sperrbildschirm-Karte umgeht Entsperren,
@@ -42,4 +42,18 @@ test('ohne Tuere gibt es nichts zu hinterlegen', () => {
 
 test('ohne Zugangsdaten gibt es nichts zu hinterlegen', () => {
   expect(tuerKnopfWerte({ url: '', token: 'x' }, [schloss({})])).toBeNull();
+});
+
+test('die beiden stummen Faelle der Ablage bleiben auseinander', () => {
+  // «Das Widget zeigt meine Knöpfe nicht» hat zwei Ursachen mit zwei
+  // Abhilfen: Hülle ohne Ablage-Modul (TestFlight-Build nötig) und
+  // App-Gruppe ohne Portal-Eintrag (Apple-Portal, dann Build). Eine
+  // Anzeige, die beide zusammenwarf, schickte einen ins Portal, wenn
+  // ein Build fällig war.
+  expect(ablageBefund(false, false)).toBe('huelle-alt');
+  // Ohne Modul ist auch ein «gelesen» nichts wert - es kam von der
+  // Attrappe, nicht aus der geteilten Ablage.
+  expect(ablageBefund(false, true)).toBe('huelle-alt');
+  expect(ablageBefund(true, false)).toBe('fehlt');
+  expect(ablageBefund(true, true)).toBe('ok');
 });
