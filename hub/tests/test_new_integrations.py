@@ -271,7 +271,10 @@ def test_vacuum_state_cleaning():
     )
     assert state["state"] == "cleaning"
     assert state["battery"] == 76
-    assert "error" not in state
+    # Ausdrücklich None, nicht weggelassen: Der Zustand wird verschmolzen,
+    # und ein weggelassener Fehler bliebe für immer kleben - der Wächter
+    # meldete denselben Fehler dann nie wieder (siehe vacuum_state).
+    assert state["error"] is None
     # mm² der Bibliothek werden zu m² für die App.
     assert state["clean_area_m2"] == 23.5
     assert state["clean_minutes"] == 25
@@ -282,6 +285,23 @@ def test_vacuum_state_reports_errors():
 
     state = vacuum_state(_Status(state_name="error", battery=12, error_code_name="stuck"))
     assert state["error"] == "stuck"
+
+
+def test_a_cleared_vacuum_error_clears_in_the_state():
+    """Der behobene Fehler muss den Zustand wieder verlassen.
+
+    Der gemeldete Fall: «Die Fehlermeldungen vom Roborock kommen nicht
+    als Push.» Der Hub sah jeden neuen Fehler als alten - das erste
+    «stuck» blieb nach dem Befreien im Zustand stehen, das zweite
+    änderte daran nichts, und ohne Änderung gibt es weder Ereignis noch
+    Nachricht. Erst ein Hub-Neustart machte wieder genau einen Push frei.
+    """
+    from homepilot.integrations.roborock import vacuum_state
+
+    behoben = vacuum_state(_Status(state_name="cleaning", error_code_name="none"))
+    assert behoben["error"] is None
+    ohne_feld = vacuum_state(_Status(state_name="cleaning"))
+    assert ohne_feld["error"] is None
 
 
 def test_vacuum_state_survives_missing_fields():

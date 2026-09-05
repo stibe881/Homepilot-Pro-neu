@@ -174,9 +174,15 @@ def vacuum_state(status: Any) -> dict[str, Any]:
         "state_raw": str(state_name) if state_name else None,
         "battery": getattr(status, "battery", None),
     }
+    # Ausdrücklich None statt weggelassen, wenn kein Fehler ansteht: Der
+    # Zustand wird verschmolzen (registry.update_state), ein fehlendes
+    # Feld behält seinen alten Wert. Genau daran hingen die
+    # Sauger-Pushes: Der erste Fehler klebte für immer im Zustand, und
+    # als der Roboter das nächste Mal mit derselben Meldung stecken
+    # blieb, änderte sich nichts - der Wächter hielt das Problem für
+    # längst gemeldet, und es kam nie wieder eine Nachricht.
     error = getattr(status, "error_code_name", None)
-    if error and error not in ("none", "None"):
-        result["error"] = error
+    result["error"] = error if error and error not in ("none", "None") else None
     clean_area = getattr(status, "clean_area", None)
     if clean_area:
         # Die Bibliothek liefert mm² – die App soll m² zeigen.
