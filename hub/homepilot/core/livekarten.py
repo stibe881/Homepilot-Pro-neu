@@ -98,6 +98,36 @@ def abmelden(rows: Any, token: str) -> list[dict[str, Any]]:
     ]
 
 
+#: Tokens liegen gebliebener Karten - fürs Nach-Beenden im nächsten Takt.
+#:
+#: Der Fall dahinter, gemeldet am Fernseher: Die Karte startet per Push,
+#: während das Telefon gesperrt ist - ihr Token meldet die App erst beim
+#: nächsten Öffnen. Geht der Fernseher vorher aus, will der Hub beenden,
+#: hat aber kein Token, und die Karte bleibt stundenlang liegen. Kommt
+#: das Token dann endlich an und es gibt zu seiner Art keine laufende
+#: Karte mehr, gehört genau diese Aktivität beendet - dasselbe Muster
+#: wie bei der Türkarte (liveaktivitaet.VERWAIST_KEY).
+VERWAIST_KEY = "live_cards_verwaist"
+
+
+def hat_karte(rows: Any, user: str, art: str) -> bool:
+    """Läuft laut Hub eine Karte dieser Art für diese Person? (rein, testbar)"""
+    return any(
+        isinstance(row, dict) and row.get("user") == user and row.get("art") == art
+        for row in rows or []
+    )
+
+
+def verwaist_merken(rows: Any, user: str, token: str) -> list[dict[str, Any]]:
+    """Ein Token zum Nach-Beenden vormerken (rein, testbar)."""
+    neue = [
+        row
+        for row in (rows or [])
+        if isinstance(row, dict) and row.get("token") != token
+    ]
+    return [*neue, {"user": user, "token": token}]
+
+
 def token_merken(rows: Any, user: str, art: str, token: str) -> list[Any]:
     """Das Aktivitäts-Token einer laufenden Karte nachtragen (rein, testbar).
 
@@ -437,6 +467,43 @@ def tv_auswahl(laufend: list[Any]) -> list[tuple[Any, str | None]]:
     return auswahl
 
 
+def fernbedienung_ziel(entity: Any, entities: list[Any]) -> str:
+    """Wessen Fernbedienung der Tipp auf die Karte öffnet (rein, testbar).
+
+    Am liebsten die eigene. Hat das Gerät selbst kein Steuerkreuz - der
+    Cast/Plex-Zuspieler eines Fernsehers, der daneben auch als Android
+    TV im Raum steht -, gilt der Zwilling: derselbe Bildschirm, nur der
+    andere Draht. Gemeldet wurde genau das: Der Tipp auf die Live-Karte
+    öffnete eine andere Fernbedienung als die App - die App wählt über
+    die Raumkachel längst den Zwilling (lib/raumkarte.ts,
+    fernbedienungFuer), die Karte zeigte stur auf sich selbst.
+
+    Anders als beim Zusammenlegen der Karten (tv_auswahl) zählt der
+    Zwilling hier auch, wenn er gerade «aus» ist oder nicht antwortet:
+    Die Karte kommt vom Zuspieler, wenn der Hub den Fernseher selbst
+    nicht erreicht - und gerade dann soll der Tipp trotzdem bei der
+    richtigen Fernbedienung landen. Bei zwei Steuerkreuzen im Raum wird
+    nicht geraten, ohne Raum gibt es keinen Zwilling - dann bleibt es
+    bei der eigenen.
+    """
+    if "dpad_up" in (getattr(entity, "commands", None) or []):
+        return str(entity.id)
+    raum = getattr(entity, "room", None)
+    if raum is None:
+        return str(entity.id)
+    kreuze = [
+        kandidat
+        for kandidat in entities
+        if kandidat is not entity
+        and getattr(kandidat, "kind", None) == "media_player"
+        and getattr(kandidat, "room", None) == raum
+        and "dpad_up" in (getattr(kandidat, "commands", None) or [])
+    ]
+    if len(kreuze) != 1:
+        return str(entity.id)
+    return str(kreuze[0].id)
+
+
 def karten_tv(
     entities: list[Any],
     ohne: list[str] | None = None,
@@ -451,10 +518,11 @@ def karten_tv(
 
     Fernseher heisst: Medienspieler mit Bildschirm (``has_screen`` -
     dasselbe Merkmal, an dem auch die App Fernseher von Musikboxen
-    trennt). Die Adresse führt zur Fernbedienung genau dieses Geräts,
-    nicht in den Raum: Wer auf die Karte tippt, will umschalten, nicht
-    nachsehen. Je Bildschirm eine Karte, auch wenn er zweimal im Hub
-    steht (tv_auswahl).
+    trennt). Die Adresse führt zur Fernbedienung, nicht in den Raum:
+    Wer auf die Karte tippt, will umschalten, nicht nachsehen - und
+    zwar zur *richtigen* Fernbedienung, notfalls der des
+    Steuerkreuz-Zwillings (fernbedienung_ziel). Je Bildschirm eine
+    Karte, auch wenn er zweimal im Hub steht (tv_auswahl).
 
     ``ohne`` sind die Leute, die gerade nachweislich nicht zuhause sind
     (nicht_zuhause) - für sie liegt keine Karte: Eine Fernbedienung im
@@ -483,7 +551,10 @@ def karten_tv(
                     # Die laufende App als Text - «Netflix» sagt mehr als «an».
                     "text": app or "eingeschaltet",
                     "symbol": "tv",
-                    "url": f"homepilot://fernbedienung/{quote(str(entity.id))}",
+                    "url": (
+                        "homepilot://fernbedienung/"
+                        f"{quote(fernbedienung_ziel(entity, entities))}"
+                    ),
                     **({"knoepfe": [knopf]} if knopf else {}),
                 },
             }
@@ -813,10 +884,26 @@ def _gewuenscht(hub: Any, jetzt_s: float, benutzer: list[str]) -> list[dict[str,
 
 
 async def _runde(hub: Any, versand: liveaktivitaet.ApnsVersand) -> None:
+    jetzt = time.time()
+    # Zuerst die liegen gebliebenen Karten abräumen: Ihr Ende wurde
+    # übersprungen, weil das Token damals fehlte - jetzt ist es da
+    # (VERWAIST_KEY, gefüllt von /api/liveactivity/activity). Vor dem
+    # frühen Ausstieg unten: Auch wer sich gerade abgemeldet hat, soll
+    # keine tote Karte behalten.
+    verwaiste = hub.data.get(VERWAIST_KEY)
+    if verwaiste:
+        for eintrag in verwaiste:
+            if not isinstance(eintrag, dict) or not eintrag.get("token"):
+                continue
+            await versand.senden(str(eintrag["token"]), ende_payload(None, 0.0, jetzt))
+            log.info(
+                "Live-Karte: liegen gebliebene Karte von %s beendet",
+                eintrag.get("user"),
+            )
+        hub.data.set(VERWAIST_KEY, [])
     start_rows = hub.data.get(START_KEY)
     if not start_rows:
         return
-    jetzt = time.time()
     prefs_rows = hub.data.get("user_prefs")
     gesperrt = liveaktivitaet.abgeschaltet(prefs_rows)
     benutzer = sorted(

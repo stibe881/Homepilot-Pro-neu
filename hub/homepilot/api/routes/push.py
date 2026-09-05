@@ -515,14 +515,28 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """Das Token der gerade laufenden Aktivität - fürs spätere Beenden."""
         user = current_user(request)
         if body.art:
-            # Eine generische Karte (Timer, Gerät, Grill, …): Das Token
-            # gehört zur laufenden Zeile in live_cards.
-            hub.data.set(
-                livekarten.KARTEN_KEY,
-                livekarten.token_merken(
-                    hub.data.get(livekarten.KARTEN_KEY), user.name, body.art, body.token
-                ),
-            )
+            # Eine generische Karte (Timer, Gerät, Fernseher, …): Das
+            # Token gehört zur laufenden Zeile in live_cards.
+            rows = hub.data.get(livekarten.KARTEN_KEY)
+            if livekarten.hat_karte(rows, user.name, body.art):
+                hub.data.set(
+                    livekarten.KARTEN_KEY,
+                    livekarten.token_merken(rows, user.name, body.art, body.token),
+                )
+            else:
+                # Laut Hub läuft zu dieser Art keine Karte mehr - dann
+                # gehört die, deren Token hier ankommt, beendet: Sie ist
+                # die liegen gebliebene vom letzten Mal (der Fernseher
+                # ging aus, bevor die App ihr Token melden konnte, und
+                # ohne Token ging ihr Ende ins Leere). Der Takt räumt
+                # sie im nächsten Umlauf ab - dasselbe Muster wie bei
+                # der Türkarte darunter.
+                hub.data.set(
+                    livekarten.VERWAIST_KEY,
+                    livekarten.verwaist_merken(
+                        hub.data.get(livekarten.VERWAIST_KEY), user.name, body.token
+                    ),
+                )
         else:
             rows = hub.data.get(liveaktivitaet.DATA_KEY)
             if liveaktivitaet.karte_laeuft(rows, user.name):
