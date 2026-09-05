@@ -2,7 +2,6 @@ import { kann } from './plattform';
 
 import { Entity, HubSettings } from '../api/types';
 import { WidgetButton } from './widgetButtons';
-import { WidgetKarte } from './widgetKarten';
 import { watchKontext } from './watchkontext';
 
 /**
@@ -17,10 +16,6 @@ import { watchKontext } from './watchkontext';
  * - Die **Knöpfe** immer. Sie sind eine Liste von Titeln, Symbolen und
  *   homepilot://-Adressen – nichts davon ist ein Geheimnis, und ohne sie
  *   hätte das Widget gar keinen Inhalt.
- * - Die **Karten** ebenso: die selbst zusammengestellten Widgets, je
- *   eines für ein Gerät oder eine Szene. Auch sie sind nur Namen und
- *   Adressen; den Zustand holt sich das Widget selbst – und nur, wenn
- *   der Hausstand an ist.
  * - **Adresse und Token** nur, wenn der Hausstand eingeschaltet ist. Ein
  *   Token im Widget-Prozess ist eine Angriffsfläche mehr. Für eine
  *   blosse Knopfleiste wäre sie den Preis nicht wert; für ein Widget,
@@ -69,8 +64,7 @@ function storage(): any | null {
 export function syncWidget(
   settings: HubSettings,
   enabled: boolean,
-  buttons: WidgetButton[],
-  karten: WidgetKarte[] = []
+  buttons: WidgetButton[]
 ): Ablage {
   const store = storage();
   if (store === null) return 'kein-widget';
@@ -81,14 +75,11 @@ export function syncWidget(
     if (buttons.length > 0) {
       store.set('buttons', JSON.stringify(buttons));
     }
-    // Die Karten dagegen dürfen leer sein, und dann muss die Ablage auch
-    // leer werden: Wer seine letzte Karte entfernt, soll sie nicht als
-    // Auswahl weiterstehen sehen, wenn er ein Widget anlegt. Nur beim
-    // allerersten Zeichnen wird nichts geschrieben - dort ist «leer»
-    // bloss «noch nicht geladen».
-    if (buttons.length > 0 || karten.length > 0) {
-      store.set('karten', JSON.stringify(karten));
-    }
+    // Aufräumen: Hier lagen einmal die «eigenen Karten» - eine zweite
+    // Liste für eine eigene Widget-Art, die niemand fand. Die Knöpfe
+    // sind jetzt die eine Liste; der Schlüssel soll nicht als Altlast
+    // liegen bleiben.
+    store.remove('karten');
     if (enabled && settings.url && settings.token) {
       store.set('hubUrl', settings.url.replace(/\/+$/, ''));
       store.set('hubToken', settings.token);

@@ -152,7 +152,6 @@ import { BioLock } from '../components/BioLock';
 import { TuerRueckfrage } from '../components/TuerRueckfrage';
 import { Widgets } from '../components/Widgets';
 import { Ablage, syncWidget } from '../lib/widget';
-import { resolveKarten } from '../lib/widgetKarten';
 import { hoereAufSchnellaktionen, setzeSchnellaktionen } from '../lib/schnellaktionen';
 import { PushKnopf, Ziel, knoepfeAus, zielAus } from '../lib/pushziel';
 import { PushBlatt } from '../components/PushBlatt';
@@ -727,7 +726,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setWidgetButtons,
     setRaumKnoepfe,
     setWidgetDirect,
-    setWidgetKarten,
     setEinkaufLernen,
   } = usePrefs(settings, status === 'connected');
 
@@ -803,12 +801,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       entities,
     ]
   );
-  // Die selbst zusammengestellten Karten - je eine für ein Gerät oder
-  // eine Szene. Dieselbe Ablage, derselbe Takt wie die Knöpfe.
-  const widgetKarten = useMemo(
-    () => resolveKarten(prefs.widgetKarten, scenes, entities, !!prefs.widgetData),
-    [prefs.widgetKarten, prefs.widgetData, scenes, entities]
-  );
   // Die Kurzbefehle am App-Symbol tragen dieselben Knöpfe wie das
   // Widget - eine zweite Liste für dieselbe Frage wäre eine zweite
   // Stelle, an der man sucht (lib/schnellaktionen.ts).
@@ -862,13 +854,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // fiele aus der Knopfliste heraus - das Widget stünde kurz mit
     // weniger Knöpfen da, als jemand eingestellt hat.
     if (entities.length === 0 && scenes.length === 0) return;
-    setWidgetAblage(syncWidget(settings, !!prefs.widgetData, widgetButtons, widgetKarten));
+    setWidgetAblage(syncWidget(settings, !!prefs.widgetData, widgetButtons));
   }, [
     settings.url,
     settings.token,
     prefs.widgetData,
     widgetButtons,
-    widgetKarten,
     entities.length,
     scenes.length,
   ]);
@@ -2399,8 +2390,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             }
             onDirect={setWidgetDirect}
             tuerOhneRueckfrage={tuerOhneRueckfrage}
-            karten={prefs.widgetKarten}
-            onKarten={setWidgetKarten}
             dataEnabled={!!prefs.widgetData}
             onDataEnabled={setWidgetData}
             ablage={widgetAblage}

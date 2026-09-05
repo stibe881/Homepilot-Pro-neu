@@ -68,11 +68,6 @@ export interface HousePrefs {
   /** Schlüssel der Knöpfe, die direkt schalten statt die App zu öffnen.
    *  Nur für Szenen und Lichter erlaubt – nie für Tür oder Alarm. */
   widgetDirect?: string[];
-  /** Die selbst zusammengestellten Widgets: je eines für ein Gerät oder
-   *  eine Szene, in derselben Schlüsselsprache wie die Knöpfe. Sie
-   *  stehen für alle im Haus, wie die Knöpfe auch – wer eines anlegt,
-   *  legt es auf jedem Telefon zur Auswahl. */
-  widgetKarten?: string[];
   /** Das Abhak-Protokoll der Einkaufsliste: aus ihm lernt die App die
    *  Gang-Reihenfolge je Laden (lib/ladenlernen.ts). Haushaltsweit,
    *  weil der Laden für alle derselbe ist – was Livia abhakt, sortiert
@@ -314,11 +309,6 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [setzeHaus]
   );
 
-  const setWidgetKarten = useCallback(
-    (keys: string[]) => setzeHaus({ widgetKarten: keys }),
-    [setzeHaus]
-  );
-
   const setEinkaufLernen = useCallback(
     (log: LernEintrag[]) => setzeHaus({ einkaufLernen: log }),
     [setzeHaus]
@@ -413,7 +403,6 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     setWidgetButtons,
     setRaumKnoepfe,
     setWidgetDirect,
-    setWidgetKarten,
     setEinkaufLernen,
     setSeenChanges,
     setKameraDynamisch,
