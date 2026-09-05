@@ -3035,9 +3035,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                       }
                       // Und der Fernseher öffnet die Fernbedienung -
                       // aus demselben Grund: Wer ihn antippt, will
-                      // umschalten, nicht bloss einschalten.
-                      if (aktion.oeffnet === 'fernbedienung' && aktion.id) {
-                        setRemoteFuer(aktion.id);
+                      // umschalten, nicht bloss einschalten. Beim
+                      // Cast-Zwilling ist es die Fernbedienung des
+                      // Android-TV-Geräts daneben (lib/raumkarte.ts:
+                      // fernbedienungFuer).
+                      const fernbedienung = aktion.fernbedienungId ?? aktion.id;
+                      if (aktion.oeffnet === 'fernbedienung' && fernbedienung) {
+                        setRemoteFuer(fernbedienung);
                         return;
                       }
                       aktion.befehle.forEach((befehl) =>

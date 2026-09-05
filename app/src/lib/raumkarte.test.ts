@@ -236,6 +236,55 @@ describe('geraetAktion und kachelKnoepfe', () => {
     expect(geraetAktion(box('b', false))?.oeffnet).toBeUndefined();
   });
 
+  it('leiht sich die Fernbedienung des Zwillings im Zimmer', () => {
+    // Der gemeldete Fall: Der Knopf «Fernseher Wohnzimmer» zeigt auf
+    // den Cast-Eintrag des Fernsehers (ohne Steuerkreuz) - daneben
+    // steht derselbe Bildschirm als Android TV. Der Tipp soll dessen
+    // Fernbedienung öffnen, nicht bloss schalten.
+    const cast = geraet('cast.tv', 'media_player', { state: 'on', has_screen: true }, [
+      'turn_on',
+      'turn_off',
+    ]);
+    const android = geraet('androidtv.tv', 'media_player', { state: 'on' }, [
+      'turn_on',
+      'turn_off',
+      'dpad_up',
+    ]);
+    const aktion = geraetAktion(cast, [cast, android, lampe('a', false)]);
+    expect(aktion?.oeffnet).toBe('fernbedienung');
+    expect(aktion?.fernbedienungId).toBe('androidtv.tv');
+    // Der Schlüssel des Knopfs bleibt der Cast-Eintrag - sonst fände
+    // die gespeicherte Knopf-Auswahl ihn nicht mehr.
+    expect(aktion?.id).toBe('cast.tv');
+  });
+
+  it('raet bei zwei Steuerkreuzen im Zimmer nicht', () => {
+    // Eine falsche Fernbedienung ist schlimmer als keine.
+    const cast = geraet('cast.tv', 'media_player', { state: 'on', has_screen: true }, [
+      'turn_on',
+      'turn_off',
+    ]);
+    const eins = geraet('androidtv.wz', 'media_player', { state: 'on' }, ['dpad_up']);
+    const zwei = geraet('androidtv.buero', 'media_player', { state: 'on' }, ['dpad_up']);
+    const aktion = geraetAktion(cast, [cast, eins, zwei]);
+    expect(aktion?.oeffnet).toBeUndefined();
+    expect(aktion?.befehle[0].command).toBe('turn_off');
+  });
+
+  it('die Knopf-Auswahl des Raums kennt den Zwilling auch', () => {
+    // Derselbe Weg wie auf der Kachel: Die gewählten Knöpfe entstehen
+    // über waehlbareGeraete, und dort müssen die Nachbarn mitreisen.
+    const cast = geraet('cast.tv', 'media_player', { state: 'on', has_screen: true }, [
+      'turn_on',
+      'turn_off',
+    ]);
+    const android = geraet('androidtv.tv', 'media_player', { state: 'on' }, ['dpad_up']);
+    const knopf = waehlbareGeraete([cast, android]).find(
+      (eintrag) => eintrag.id === 'cast.tv'
+    );
+    expect(knopf?.fernbedienungId).toBe('androidtv.tv');
+  });
+
   it('macht aus einem Fühler keinen Knopf', () => {
     expect(geraetAktion(geraet('t', 'sensor', { state: '21' }, []))).toBeNull();
     expect(waehlbareGeraete([szene, geraet('t', 'sensor', {}, [])]).length).toBe(1);

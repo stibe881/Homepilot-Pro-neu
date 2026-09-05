@@ -46,6 +46,13 @@ export interface Raumaktion {
    *  stellen, pausieren. Das Ein- und Ausschalten liegt in der
    *  Fernbedienung ganz oben. */
   oeffnet?: 'fernbedienung';
+  /** Wessen Fernbedienung aufgeht - nicht immer das Gerät des Knopfs.
+   *
+   *  Derselbe Fernseher steht oft zweimal im Zimmer: als Cast-Gerät
+   *  (zum Zuspielen, ohne Steuerkreuz) und als Android TV (mit). Wer
+   *  den Cast-Zwilling als Knopf gewählt hat, meint denselben
+   *  Bildschirm - seine Fernbedienung ist die des Zwillings. */
+  fernbedienungId?: string;
 }
 
 /** Lichter des Raums – Leuchten wie Schalter, die sich schalten lassen. */
@@ -159,6 +166,30 @@ export function raumaktionen(items: Entity[]): Raumaktion[] {
 }
 
 /**
+ * Wessen Fernbedienung zu diesem Fernseher gehört (rein, testbar).
+ *
+ * Am liebsten die eigene. Hat das Gerät selbst kein Steuerkreuz - der
+ * Cast-Eintrag eines Fernsehers, der daneben auch als Android TV im
+ * Zimmer steht -, gilt der Zwilling: derselbe Bildschirm, nur der
+ * andere Draht. Gemeldet wurde genau das: Der Knopf «Fernseher
+ * Wohnzimmer» schaltete bloss, statt die Fernbedienung zu öffnen.
+ *
+ * Nur bei *einem* Steuerkreuz im Zimmer: Bei zweien wäre es geraten,
+ * und eine falsche Fernbedienung ist schlimmer als keine. `null`
+ * heisst: Es gibt hier keine - dann bleibt der Knopf ein Schalter.
+ */
+export function fernbedienungFuer(entity: Entity, nachbarn: Entity[]): string | null {
+  if (fernbedienungMoeglich(entity)) return entity.id;
+  const kreuze = nachbarn.filter(
+    (kandidat) =>
+      kandidat.id !== entity.id &&
+      isTelevision(kandidat) &&
+      fernbedienungMoeglich(kandidat)
+  );
+  return kreuze.length === 1 ? kreuze[0].id : null;
+}
+
+/**
  * Ein einzelnes Gerät als Kachel-Knopf (rein, testbar).
  *
  * Der Fall dahinter: In Levins Zimmer stand nur «Licht» zur Wahl - was
@@ -167,8 +198,11 @@ export function raumaktionen(items: Entity[]): Raumaktion[] {
  * nicht. Jetzt kann jedes schaltbare Gerät des Raums ein eigener Knopf
  * sein. `null` heisst: Daraus wird kein Knopf - ein Fühler hat nichts
  * zu drücken.
+ *
+ * `nachbarn` sind die übrigen Geräte des Raums - sie entscheiden beim
+ * Fernseher, wessen Fernbedienung aufgeht (fernbedienungFuer).
  */
-export function geraetAktion(entity: Entity): Raumaktion | null {
+export function geraetAktion(entity: Entity, nachbarn: Entity[] = []): Raumaktion | null {
   const knopf = (icon: string, an: boolean, command: string): Raumaktion => ({
     art: 'geraet',
     id: entity.id,
@@ -210,11 +244,15 @@ export function geraetAktion(entity: Entity): Raumaktion | null {
     // dieselbe Entscheidung wie beim Sammelknopf «Musik», der den
     // Player aufmacht. Ein Fernseher, der auf ein Tippen bloss angeht,
     // beantwortet die halbe Frage: Danach steht man vor einem laufenden
-    // Gerät und sucht die Fernbedienung.
-    if (isTelevision(entity) && fernbedienungMoeglich(entity)) {
+    // Gerät und sucht die Fernbedienung. Fehlt ihm selbst das
+    // Steuerkreuz, darf es das seines Zwillings im Zimmer sein
+    // (fernbedienungFuer).
+    const kreuz = isTelevision(entity) ? fernbedienungFuer(entity, nachbarn) : null;
+    if (kreuz) {
       return {
         ...knopf(laeuft ? 'tv' : 'tv-outline', laeuft, laeuft ? 'turn_off' : 'turn_on'),
         oeffnet: 'fernbedienung',
+        fernbedienungId: kreuz,
       };
     }
     // Ohne Steuerkreuz (eine Box, ein alter Chromecast) bleibt es beim
@@ -255,7 +293,7 @@ export function geraetAktion(entity: Entity): Raumaktion | null {
  *  testbar) - für die Auswahl hinter dem langen Druck. */
 export function waehlbareGeraete(items: Entity[]): Raumaktion[] {
   return items
-    .map(geraetAktion)
+    .map((entity) => geraetAktion(entity, items))
     .filter((aktion): aktion is Raumaktion => aktion !== null);
 }
 

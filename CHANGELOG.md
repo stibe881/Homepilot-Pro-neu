@@ -45,6 +45,14 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   weiterhin, *ob* die Zeile erscheint (ab 20 W echte Arbeit), steht
   aber nicht mehr dran; bei echten Haushaltsgeräten bleibt die
   Restzeit («noch 2 h 10 min»), denn die will man dort sehen.
+- **Der Fernseher-Knopf auf der Raumkachel öffnet die Fernbedienung
+  auch beim Cast-Eintrag.** Derselbe Fernseher steht oft zweimal im
+  Zimmer: als Cast-Gerät (zum Zuspielen, ohne Steuerkreuz) und als
+  Android TV (mit). Zeigte der gewählte Knopf auf den Cast-Zwilling,
+  schaltete er bloss ein und aus - jetzt öffnet er die Fernbedienung
+  des Zwillings, sofern es genau eine im Zimmer gibt. Bei zweien wird
+  nicht geraten, und ein Fernseher ganz ohne Steuerkreuz bleibt ein
+  Schalter.
 - **Die abgestellte Rückfrage gilt jetzt auch vom Sperrbildschirm
   aus.** Wer «Rückfrage vor dem Türöffnen» ausgeschaltet hatte, wurde
   auf dem Weg über die Türkarte und den Widget-Knopf trotzdem gefragt -
