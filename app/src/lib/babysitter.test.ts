@@ -1,6 +1,7 @@
 import {
   LEERER_BABYSITTER,
   istFreigegeben,
+  lichterUmschalten,
   modusSatz,
   modusZeile,
   restText,
@@ -44,6 +45,18 @@ describe('Babysitter-Modus', () => {
     expect(seitText(undefined)).toBe('');
     expect(seitText(null)).toBe('');
     expect(modusSatz({ active: true, allow: [] }, 5)).toContain('Läuft –');
+  });
+});
+
+describe('Die Wahl der Empfangslichter', () => {
+  it('ein zweiter Tipp nimmt die Lampe wieder heraus', () => {
+    expect(lichterUmschalten([], 'hue.flur')).toEqual(['hue.flur']);
+    expect(lichterUmschalten(['hue.flur'], 'hue.flur')).toEqual([]);
+  });
+
+  it('lässt die übrige Auswahl in Ruhe', () => {
+    expect(lichterUmschalten(['a', 'b'], 'c')).toEqual(['a', 'b', 'c']);
+    expect(lichterUmschalten(['a', 'b', 'c'], 'b')).toEqual(['a', 'c']);
   });
 });
 

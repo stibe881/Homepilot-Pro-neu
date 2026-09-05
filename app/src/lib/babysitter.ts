@@ -74,6 +74,16 @@ export function modusSatz(stand: BabysitterStand, gesamt: number): string {
   return `Babysitter-Modus: beim Einschalten laufen ${frei} von ${gesamt} Abläufen weiter, ${ruhend} ruhen.`;
 }
 
+/**
+ * Ein Empfangslicht an- oder abwählen (rein, testbar).
+ *
+ * Ein zweiter Tipp nimmt die Lampe wieder heraus – die Wahl auf der
+ * Besuchsseite ist ein Umschalten, kein Anhäufen.
+ */
+export function lichterUmschalten(liste: string[], id: string): string[] {
+  return liste.includes(id) ? liste.filter((x) => x !== id) : [...liste, id];
+}
+
 /** «seit 19:40» – am nächsten Morgen die Frage, ob jemand vergessen hat
  *  auszuschalten (rein, testbar). */
 export function seitText(since?: number | null): string {
