@@ -245,8 +245,20 @@ bietet «Baby schreit» also gar nicht erst an, und umgekehrt steht das Feld
 von Anfang an bereit: Man kann den Ablauf bauen, bevor das Baby zum ersten
 Mal geschrien hat.
 
-Im Ablauf-Editor stehen sie beim Auslöser direkt zur Auswahl («hört ein
-Baby schreien»). In der config.yaml sieht es so aus:
+**Weint ein Baby, kommt die Push von selbst.** Wie beim Klingeln braucht
+es dafür keinen eigenen Ablauf: Sobald eine Kamera `detected_baby_cry`
+meldet, schickt der Hub «Ein Baby weint» an alle – Tag und Nacht,
+unabhängig davon, ob die Alarmanlage scharf ist. Ein Tipp auf die
+Nachricht öffnet die Kamera im Vollbild. Abschalten lässt sich das unter
+**Abläufe → Push** («Ein Baby weint»), einzeln je Person unter den
+Benachrichtigungen im Profil. Da Protect ein anhaltendes Weinen als
+mehrere kurze Ereignisse meldet, gilt eine Sperrfrist von zwei Minuten
+je Kamera.
+
+Ein eigener Ablauf bleibt der Weg für Sonderwünsche – eine Durchsage auf
+den Boxen, Licht im Flur, ein eigener Text. Im Ablauf-Editor stehen die
+Erkennungen beim Auslöser direkt zur Auswahl («hört ein Baby schreien»).
+In der config.yaml sieht es so aus:
 
 ```yaml
 automations:

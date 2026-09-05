@@ -286,6 +286,31 @@ def klingel_gesperrt(
     return 0 <= jetzt - zuletzt < frist
 
 
+#: So lange nach einer Wein-Nachricht wird für dieselbe Kamera keine
+#: zweite verschickt.
+#:
+#: Protect meldet ein anhaltendes Weinen nicht als ein Ereignis, sondern
+#: als mehrere kurz aufeinanderfolgende - jedes endet und Sekunden später
+#: beginnt das nächste. Jede dieser Flanken liefe durch denselben Weg,
+#: und aus einem weinenden Kind würden fünf Nachrichten in zwei Minuten.
+#:
+#: Zwei Minuten statt der Klingel-Minute: Wer die Nachricht gehört hat,
+#: ist unterwegs ins Zimmer. Weint es danach immer noch, ist die nächste
+#: Nachricht kein Doppel mehr, sondern eine neue Auskunft.
+WEIN_SPERRE = 120.0
+
+
+def wein_gesperrt(
+    zuletzt: float | None, jetzt: float, frist: float = WEIN_SPERRE
+) -> bool:
+    """Wurde für diese Kamera eben schon gemeldet? (rein, testbar)
+
+    Derselbe Riegel wie bei der Klingel, nur mit längerer Frist - siehe
+    WEIN_SPERRE.
+    """
+    return klingel_gesperrt(zuletzt, jetzt, frist)
+
+
 def klingelnde(entities: list[Any]) -> list[Any]:
     """Geräte, an denen es gerade klingelt (rein, testbar).
 

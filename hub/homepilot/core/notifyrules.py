@@ -45,6 +45,17 @@ RULES: list[dict[str, Any]] = [
         "params": [],
     },
     {
+        "key": "baby_cry",
+        "title": "Ein Baby weint",
+        "detail": "Sofort, sobald eine Kamera ein weinendes Baby hört - Tag "
+        "und Nacht, unabhängig davon, ob die Alarmanlage scharf ist. Dafür "
+        "braucht es keinen eigenen Ablauf mehr. Voraussetzung: Die "
+        "Ton-Erkennung ist in Protect je Kamera eingeschaltet (Kamera → "
+        "Smart Detections → Audio). Weint es weiter, kommt frühestens nach "
+        "zwei Minuten die nächste Nachricht.",
+        "params": [],
+    },
+    {
         "key": "battery",
         "title": "Batterie schwach",
         "detail": "Einmal je Gerät, sobald es eine schwache Batterie meldet. "

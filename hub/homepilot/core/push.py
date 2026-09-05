@@ -188,6 +188,7 @@ CATEGORIES: dict[str, str] = {
     "open": "Fenster/Tür steht offen",
     "leak": "Wasser gemeldet",
     "doorbell": "Es klingelt an der Türe",
+    "baby_cry": "Ein Baby weint",
     "disk": "Speicherplatz wird knapp",
     "frost": "Frost angekündigt",
     "rain": "Regen kommt",
@@ -229,8 +230,12 @@ GROUPS: list[tuple[str, tuple[str, ...]]] = [
     ("Sicherheit", ("doorbell", "alarm", "alarm_arming", "camera_motion", "leak")),
     ("Haus", ("open", "appliance", "oven", "vacuum", "frost", "rain", "plants",
               "timer", "maintenance")),
-    ("Familie", ("birthday", "calendar", "departure", "medication", "tasks",
-                 "shopping", "weekahead", "presence")),
+    # «Baby weint» steht vorn und bei der Familie, nicht bei der
+    # Sicherheit: Gesucht wird die Nachricht dort, wo die Kinder sind.
+    # Dringend bleibt sie unabhängig von der Gruppe - die Einteilung
+    # sortiert nur die Schalter, über die Zustellung entscheidet LEISE.
+    ("Familie", ("baby_cry", "birthday", "calendar", "departure", "medication",
+                 "tasks", "shopping", "weekahead", "presence")),
     ("Betrieb", ("outage", "flattern", "device_down", "battery", "disk", "morning")),
     # Leer, und trotzdem hier: Unter dieser Überschrift stehen die
     # Nachrichten aus selbst gebauten Abläufen. Sie haben keinen festen

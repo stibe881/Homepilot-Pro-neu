@@ -79,6 +79,7 @@ from .watchrules import (  # noqa: F401
     sauger_probleme,
     schon_gemahnt,
     watched_entities,
+    wein_gesperrt,
 )
 
 if TYPE_CHECKING:
@@ -194,6 +195,12 @@ class Watchdog:
         # Sperrfrist, die verhindert, dass aus einem Besucher mehrere
         # Nachrichten werden.
         self._klingel_gemeldet: dict[str, float] = {}
+        # An welchen Kameras gerade ein Baby weint, und wann zuletzt
+        # gemeldet wurde - dasselbe Gedächtnis wie bei der Klingel:
+        # Protect meldet ein anhaltendes Weinen als mehrere kurze
+        # Ereignisse, und ohne Sperrfrist würde jedes zur Nachricht.
+        self._weint: set[str] = set()
+        self._wein_gemeldet: dict[str, float] = {}
         # Kochgeräte: ob das Gerät in der letzten Runde am Vorheizen war -
         # die Flanke «Vorheizen fertig» ergibt die Parat-Durchsage (ofen.py).
         self._vorheiz: dict[str, bool] = {}
@@ -242,6 +249,10 @@ class Watchdog:
                     self._rueckkehr.get(name, []), time.time()
                 )
 
+        # Ein weinendes Baby hat so wenig Zeit wie ein Klingeln - deshalb
+        # ebenfalls hier am Ereignis, nicht in der Minuten-Runde.
+        self._pruefe_weinen(entity_id, data)
+
         alt = str((data.get("old_state") or {}).get("ring") or "")
         neu = str((data.get("new_state") or {}).get("ring") or "")
         if neu != "on":
@@ -280,6 +291,55 @@ class Watchdog:
             "Jemand steht vor der Türe.",
             "doorbell",
             data={"type": "doorbell", "entity_id": entity_id, "ziel": "klingel"},
+        )
+
+    def _pruefe_weinen(self, entity_id: str, data: dict[str, Any]) -> None:
+        """Bus-Listener-Teil: Hört eine Kamera gerade ein Baby weinen?
+
+        Die Nachricht hing bisher an einem selbst gebauten Ablauf - und
+        ein Ablauf ist eine Verdrahtung, die man versehentlich falsch
+        setzt. «Wenn das Baby weint, kommt keine Push» ist derselbe
+        Fehler wie damals bei der Klingel, also dieselbe Antwort: Die
+        Nachricht ist eingebaut und hängt nur noch an der Erkennung
+        selbst (unifi_protect: detected_baby_cry).
+        """
+        alt = str((data.get("old_state") or {}).get("detected_baby_cry") or "")
+        neu = str((data.get("new_state") or {}).get("detected_baby_cry") or "")
+        if neu != "on":
+            # «off» oder verschwunden: Die nächste Erkennung darf wieder
+            # melden - sofern die Sperrfrist um ist.
+            self._weint.discard(entity_id)
+            return
+        if alt == "on" or entity_id in self._weint:
+            return
+        jetzt = time.time()
+        if wein_gesperrt(self._wein_gemeldet.get(entity_id), jetzt):
+            log.debug(
+                "Weinen an %s bereits gemeldet - keine zweite Nachricht", entity_id
+            )
+            return
+        self._wein_gemeldet[entity_id] = jetzt
+        self._weint.add(entity_id)
+        entity = (
+            (data.get("entity") or {}) if isinstance(data.get("entity"), dict) else {}
+        )
+        name = str(entity.get("name") or entity_id)
+        raum = str(entity.get("room") or "")
+        # Als eigene Aufgabe, wie bei der Klingel: Der Bus ruft synchron,
+        # und der Zustand soll nicht auf den Versand warten.
+        asyncio.create_task(self._melde_weinen(entity_id, name, raum))
+
+    async def _melde_weinen(self, entity_id: str, name: str, raum: str) -> None:
+        # Der Raum sagt, wohin man geht; erst ohne Raum muss der
+        # Kameraname herhalten. Das Ziel (Kamera im Vollbild) setzt
+        # _notify aus der Kategorie samt Gerät (core/pushziel.py).
+        wo = raum or name
+        await self._notify(
+            f"Ein Baby weint: {wo}",
+            f"Die Kamera «{name}» hört ein Baby weinen.",
+            "baby_cry",
+            data={"type": "baby_cry", "entity_id": entity_id},
+            entity_id=entity_id,
         )
 
     async def stop(self) -> None:

@@ -52,6 +52,9 @@ ZIELE: dict[str, str] = {
     "open": "offen",
     "leak": "sorgen",
     "doorbell": "klingel",
+    # Ohne Kamera bleibt nur die Startseite - der Normalfall steht in
+    # AN_DER_KAMERA: Man will sehen und hören, was im Zimmer los ist.
+    "baby_cry": "start",
     "timer": "timer",
     # Familie: je Meldung ihre Kachel.
     "tasks": "familie:tasks",
@@ -75,6 +78,13 @@ ZIELE: dict[str, str] = {
 # besser: Dort steht der Knopf zum Quittieren.
 AM_GERAET = frozenset({"open", "leak", "appliance", "vacuum"})
 
+## Meldungen, bei denen das Kamerabild der beste Ort ist.
+#
+# «Ein Baby weint» beantwortet man mit einem Blick ins Zimmer, nicht mit
+# einem Sprung in einen Raum voller Kacheln: Der Tipp öffnet die Kamera
+# im Vollbild, mit Ton und Live-Bild.
+AN_DER_KAMERA = frozenset({"baby_cry"})
+
 
 def ziel_fuer(category: str | None, entity_id: str | None = None) -> str | None:
     """Das Ziel zu einer Kategorie (rein, testbar).
@@ -87,6 +97,8 @@ def ziel_fuer(category: str | None, entity_id: str | None = None) -> str | None:
         return None
     if entity_id and category in AM_GERAET:
         return f"geraet:{entity_id}"
+    if entity_id and category in AN_DER_KAMERA:
+        return f"kamera:{entity_id}"
     return ZIELE.get(category)
 
 
