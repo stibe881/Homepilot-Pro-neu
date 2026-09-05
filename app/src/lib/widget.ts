@@ -37,8 +37,33 @@ const APP_GROUP = 'group.me.stibe.homepilot';
  * nicht, schluckt iOS jedes Schreiben stillschweigend – die App meldet
  * Erfolg, das Widget liest nichts und zeigt bis in alle Ewigkeit, es sei
  * nicht eingeschaltet. Deshalb wird nach dem Schreiben zurückgelesen.
+ *
+ * «huelle-alt» ist der zweite stumme Fall, und er sah bis jetzt genauso
+ * aus: Das native Ablage-Modul steckt nicht in der installierten Hülle
+ * (der Build ist älter als die Widget-Ablage). Das JavaScript-Paket
+ * fällt dann lautlos auf Attrappen zurück - jedes Schreiben tut nichts,
+ * und kein OTA-Update kann das nachliefern, nur ein TestFlight-Build.
+ * Zwei Ursachen, zwei Abhilfen - eine Anzeige, die sie zusammenwarf,
+ * schickte einen ins Apple-Portal, wenn ein Build fällig war.
  */
-export type Ablage = 'kein-widget' | 'ok' | 'fehlt';
+export type Ablage = 'kein-widget' | 'ok' | 'fehlt' | 'huelle-alt';
+
+/** Welcher der Fälle vorliegt (rein, testbar). */
+export function ablageBefund(modulDa: boolean, zurueckgelesen: boolean): Ablage {
+  if (!modulDa) return 'huelle-alt';
+  return zurueckgelesen ? 'ok' : 'fehlt';
+}
+
+/** Steckt das native Ablage-Modul in dieser Hülle? */
+function modulDa(): boolean {
+  try {
+    // Erst zur Laufzeit: Im Web gibt es das Modulsystem nicht.
+    const { requireOptionalNativeModule } = require('expo');
+    return requireOptionalNativeModule('ExtensionStorage') != null;
+  } catch {
+    return false;
+  }
+}
 
 // Das Modul wird erst zur Laufzeit geladen (unten) - einen Typ gibt es
 // deshalb hier nicht.
@@ -92,12 +117,13 @@ export function syncWidget(
     // gerade eingeschaltet hat.
     const { ExtensionStorage } = require('@bacons/apple-targets');
     ExtensionStorage.reloadWidget();
-    // Zurücklesen, statt dem Schreiben zu glauben.
-    return store.get('buttons') ? 'ok' : 'fehlt';
+    // Zurücklesen, statt dem Schreiben zu glauben - und die beiden
+    // stummen Fälle auseinanderhalten (ablageBefund).
+    return ablageBefund(modulDa(), !!store.get('buttons'));
   } catch {
     // Ein Widget, das nicht aktualisiert, ist kein Grund, die App zu
     // stören.
-    return 'fehlt';
+    return ablageBefund(modulDa(), false);
   }
 }
 
