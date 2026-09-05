@@ -407,6 +407,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Spalte rechts nach unten, damit die Medienkarte nicht neben dem
   // Raumtitel klebt, sondern erst unter ihm beginnt.
   const [raumKopfHoehe, setRaumKopfHoehe] = useState(0);
+  // Genauer, sobald messbar: Die Oberkante des ersten Kartenrasters im
+  // Raum (Gruppe + Raster, beide relativ zu ihrem Elternteil gemessen).
+  // Nur mit der Kopfhöhe sass die Medienkarte auf Höhe der Szenen-Zeile
+  // - der gemeldete Fall: Sie soll mit der ersten Kachel links bündig
+  // sein, und was dazwischen liegt (Szenen, Gruppentitel), ist je Raum
+  // verschieden hoch.
+  const [raumGruppeY, setRaumGruppeY] = useState(0);
+  const [raumRasterY, setRaumRasterY] = useState(0);
   const [editing, setEditing] = useState(false);
   const [reorderOpen, setReorderOpen] = useState(false);
   // «Räume ordnen»: Die Reihenfolge kam aus der config.yaml – wer sie
@@ -3217,10 +3225,27 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   <SceneRow scenes={roomScenes} onActivate={activateScene} />
                 </View>
               ) : null}
-              {categories.map((group) => (
-                <View key={group.key} style={styles.group}>
+              {categories.map((group, gruppenIndex) => (
+                <View
+                  key={group.key}
+                  style={styles.group}
+                  // Nur die erste Gruppe wird vermessen: An ihrer ersten
+                  // Kachel richtet sich die Medienkarte rechts aus.
+                  onLayout={
+                    gruppenIndex === 0
+                      ? (event) => setRaumGruppeY(event.nativeEvent.layout.y)
+                      : undefined
+                  }
+                >
                   <Text style={styles.groupLabel}>{group.label}</Text>
-                  <View style={styles.grid}>
+                  <View
+                    style={styles.grid}
+                    onLayout={
+                      gruppenIndex === 0
+                        ? (event) => setRaumRasterY(event.nativeEvent.layout.y)
+                        : undefined
+                    }
+                  >
                     {/* `imRaumblock`: Man steht in einem Zimmer, jede
                         Kachel darin gehört dazu. Ohne das stand unter
                         jedem der sechs Bürolichter noch einmal «Büro» -
@@ -3306,14 +3331,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           width={hasSidePanel ? panelWidth : undefined}
           room={offenerRaum}
           onCommand={guardedCommand}
-          // Im Raum beginnt die Spalte erst unter dem Raumkopf: Die
-          // Medienkarte stand sonst auf gleicher Höhe wie «‹ Räume» und
-          // der Raumname - zwei Dinge, die um dieselbe Zeile stritten.
-          // Der Versatz ist die gemessene Kopfhöhe, kein fester Wert:
-          // Der Kopf wird mit Faktenzeile und Klima unterschiedlich hoch.
+          // Im Raum beginnt die Spalte bündig mit der ersten Kachel
+          // links - gemessen, kein fester Wert: Was darüber liegt
+          // (Raumkopf, Szenen, Gruppentitel), ist je Raum verschieden
+          // hoch. Solange die Messung noch fehlt, wenigstens unter den
+          // Raumkopf - die Medienkarte stritt sonst mit «‹ Räume» und
+          // dem Raumnamen um dieselbe Zeile.
           topOffset={
-            hasSidePanel && offenerRaum && raumKopfHoehe > 0
-              ? raumKopfHoehe + space.gap
+            hasSidePanel && offenerRaum
+              ? raumGruppeY + raumRasterY > 0
+                ? raumGruppeY + raumRasterY
+                : raumKopfHoehe > 0
+                  ? raumKopfHoehe + space.gap
+                  : 0
               : 0
           }
         />

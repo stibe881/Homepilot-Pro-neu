@@ -35,7 +35,7 @@ import { Person, anwesenheitsListe, werIstDaHinweis } from '../lib/ortung';
 import { tapped } from '../lib/haptics';
 import { kann } from '../lib/plattform';
 import { MAX_SCHRIFT } from '../lib/schrift';
-import { gezaehlteLichter, lichterAus } from '../lib/zaehlung';
+import { OHNE_RAUM, gezaehlteLichter, lichterAus, lichterNachRaum } from '../lib/zaehlung';
 import { ConnectionStatus } from '../hooks/useHub';
 import { useEscape } from '../hooks/useEscape';
 import { Colors, radius, type, useColors } from '../theme';
@@ -374,25 +374,32 @@ export function TopStrip({
               ) : null}
             </View>
             <ScrollView style={{ maxHeight: 360 }}>
-              {litEntities.map((entity) => (
-                <View key={entity.id} style={styles.lightRow}>
-                  <Ionicons name="bulb" size={18} color={colors.warn} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.lightName}>{entity.name}</Text>
-                    {entity.room ? (
-                      <Text style={styles.lightRoom}>{entity.room}</Text>
-                    ) : null}
-                  </View>
-                  {onCommand && entity.commands.includes('turn_off') ? (
-                    <Pressable
-                      onPress={() => onCommand(entity.id, 'turn_off')}
-                      accessibilityRole="button"
-                      accessibilityLabel={`${entity.name} ausschalten`}
-                      style={({ pressed }) => [styles.offButton, pressed && { opacity: 0.7 }]}
-                    >
-                      <Text style={styles.offButtonText}>Aus</Text>
-                    </Pressable>
+              {/* Nach Raum gebündelt statt flach: Sieben Lichter aus drei
+                  Räumen liest man über drei Überschriften schneller als
+                  über sieben Unterzeilen. «Weitere» nur, wenn es daneben
+                  auch Räume gibt - sonst wäre die eine Überschrift bloss
+                  eine Zeile Lärm. */}
+              {lichterNachRaum(litEntities).map((gruppe, _index, alle) => (
+                <View key={gruppe.raum}>
+                  {alle.length > 1 || gruppe.raum !== OHNE_RAUM ? (
+                    <Text style={styles.lightGruppe}>{gruppe.raum}</Text>
                   ) : null}
+                  {gruppe.lichter.map((entity) => (
+                    <View key={entity.id} style={styles.lightRow}>
+                      <Ionicons name="bulb" size={18} color={colors.warn} />
+                      <Text style={[styles.lightName, { flex: 1 }]}>{entity.name}</Text>
+                      {onCommand && entity.commands.includes('turn_off') ? (
+                        <Pressable
+                          onPress={() => onCommand(entity.id, 'turn_off')}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${entity.name} ausschalten`}
+                          style={({ pressed }) => [styles.offButton, pressed && { opacity: 0.7 }]}
+                        >
+                          <Text style={styles.offButtonText}>Aus</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  ))}
                 </View>
               ))}
             </ScrollView>
@@ -1424,6 +1431,15 @@ const makeStyles = (colors: Colors) =>
   einkaufTap: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
   lightName: { color: colors.ink, fontSize: 15, fontWeight: '600' },
   lightRoom: { color: colors.inkFaint, fontSize: 12 },
+  /** Die Raumüberschrift im «Lichter an»-Blatt - klein und gedeckt,
+   *  damit die Lichter darunter die Hauptsache bleiben. */
+  lightGruppe: {
+    color: colors.inkSoft,
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 10,
+    marginBottom: 2,
+  },
   offButton: {
     paddingHorizontal: 12,
     paddingVertical: 6,
