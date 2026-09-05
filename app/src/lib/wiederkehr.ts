@@ -18,6 +18,34 @@
  * zählt, kurz genug, dass das Telefon aus der Tasche fast immer zählt. */
 export const NEU_GEOEFFNET_NACH = 30_000;
 
+/** Darf das «Was ist neu»-Fenster jetzt stehen? (rein, testbar)
+ *
+ * Der Fall hinter `geladen`: Beim Kaltstart war die Änderungsliste vom
+ * Hub schneller da als die persönlichen Einstellungen mit dem
+ * «schon gelesen»-Stand. Solange der noch fehlt, sah `seen !== commit`
+ * nach «ungelesen» aus - das Fenster blitzte auf und verschwand, sobald
+ * die Einstellungen eintrafen. Vor der Antwort gibt es keine Aussage,
+ * also auch kein Fenster: Lieber eine Sekunde später zeigen als kurz
+ * etwas zeigen, das gleich wieder weg ist.
+ */
+export function zeigtWasIstNeu(daten: {
+  /** Sind die persönlichen Einstellungen (mit dem gelesenen Stand) da? */
+  geladen: boolean;
+  commit: string | null;
+  changes: number;
+  seen: string | undefined;
+  zurueckgestellt: boolean;
+}): boolean {
+  return (
+    daten.geladen &&
+    !!daten.commit &&
+    daten.commit !== 'unbekannt' &&
+    daten.changes > 0 &&
+    daten.seen !== daten.commit &&
+    !daten.zurueckgestellt
+  );
+}
+
 /** War die App lange genug weg, dass das Zurückkommen ein Öffnen ist?
  *  (rein, testbar) */
 export function giltAlsNeuGeoeffnet(

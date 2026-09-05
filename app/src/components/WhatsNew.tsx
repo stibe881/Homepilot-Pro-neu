@@ -13,7 +13,7 @@ import {
 import { hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
 import { Card } from './Card';
-import { giltAlsNeuGeoeffnet } from '../lib/wiederkehr';
+import { giltAlsNeuGeoeffnet, zeigtWasIstNeu } from '../lib/wiederkehr';
 import { Colors, radius, type, useColors } from '../theme';
 
 /**
@@ -41,11 +41,16 @@ import { Colors, radius, type, useColors } from '../theme';
 export function WhatsNew({
   settings,
   seen,
+  seenGeladen,
   onSeen,
 }: {
   settings: HubSettings;
   /** Bis zu welchem Stand die Karte schon weggeklickt wurde. */
   seen: string | undefined;
+  /** Sind die persönlichen Einstellungen mit `seen` überhaupt schon da?
+   *  Vorher ist «nicht gesetzt» keine Aussage - das Fenster blitzte beim
+   *  Kaltstart kurz auf und verschwand, sobald sie eintrafen. */
+  seenGeladen: boolean;
   onSeen: (commit: string) => void;
 }) {
   const colors = useColors();
@@ -96,12 +101,15 @@ export function WhatsNew({
     return () => sub.remove();
   }, [laden]);
 
-  const zeigen =
-    !!commit &&
-    commit !== 'unbekannt' &&
-    changes.length > 0 &&
-    seen !== commit &&
-    !zurueckgestellt;
+  // Die Regel liegt in lib/wiederkehr.ts - samt dem Grund, warum das
+  // Fenster auf die geladenen Einstellungen wartet.
+  const zeigen = zeigtWasIstNeu({
+    geladen: seenGeladen,
+    commit,
+    changes: changes.length,
+    seen,
+    zurueckgestellt,
+  });
 
   if (!zeigen) return null;
 

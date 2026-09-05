@@ -3675,6 +3675,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         <WhatsNew
           settings={settings}
           seen={eigenePrefs.seenChanges}
+          seenGeladen={eigenGeladen}
           onSeen={setSeenChanges}
         />
 
