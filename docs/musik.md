@@ -26,6 +26,20 @@ hergibt:
   einer Box, auf die jemand direkt vom Handy castet, geht es nicht – und
   dann steht das da, statt dass nichts passiert.
 
+## Boxen umbenennen
+
+Auf der Lautsprecher-Seite (*Einstellungen → Lautsprecher*), der Stift
+neben einer eingebundenen Box. Der Name gilt überall in der App –
+Musikkarte, Boxenwahl, Durchsagen; leer speichern stellt den Netz-Namen
+wieder her.
+
+Umbenannt wird der **Anzeigename** der Entität, nicht die Box selbst:
+Ihren Netz-Namen bekommt sie aus der Google-Home-App, und unter genau
+dem kennt Spotify sie. Der Hub übersetzt deshalb an der Spotify-Grenze
+in beide Richtungen (`integrations/spotify.py`, `uebersetzte_namen`) –
+sonst fände «Musik dorthin» eine umbenannte Box nicht mehr. Radio
+braucht keine Übersetzung: Es spricht die Boxen über ihre Kennung an.
+
 ## Die Karte «Musik im Haus»
 
 Unter **Lautsprecher**. Sie beantwortet, was eine einzelne Kachel nicht

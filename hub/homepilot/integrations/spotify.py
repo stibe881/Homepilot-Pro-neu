@@ -86,6 +86,41 @@ def merge_device_names(connect: list[str], cast: list[str]) -> list[str]:
     return result
 
 
+# Spotify kennt jede Box nur unter dem Namen, den sie selbst ins Netz
+# meldet - dem aus der Google-Home-App. Wer eine Box in HomePilot
+# umbenennt (Anzeigename), sähe hier also weiter den alten Namen, und
+# «Musik dorthin» fände die Box nicht mehr: Die App vergleicht über
+# Namen. Deshalb übersetzt die Integration an ihren Rändern - Zustand
+# hinaus in Anzeigenamen, Befehle herein zurück - und rechnet innen
+# ungestört mit den Netz-Namen. Radio (tunein) braucht das nicht: Es
+# spricht die Boxen über ihre Entitäts-Kennung an und nutzt längst
+# `entity.label`.
+
+
+def uebersetzte_namen(paare: dict[str, str], namen: list[str]) -> list[str]:
+    """Netz-Namen für die Anzeige übersetzen (rein, testbar).
+
+    ``paare``: Netz-Name → Anzeigename, nur für umbenannte Boxen.
+    Unbekanntes bleibt, wie es ist - Telefone und Rechner stehen nie in
+    der Tabelle und heissen weiter wie bei Spotify.
+    """
+    return [paare.get(name, name) for name in namen]
+
+
+def technischer_name(paare: dict[str, str], name: str) -> str:
+    """Einen Anzeigenamen auf den Netz-Namen zurückführen (rein, testbar).
+
+    Die Umkehrung von ``uebersetzte_namen`` für ankommende Befehle: Die
+    App sagt «Büro», Spotify kennt nur «Nest Küche». Wer schon einen
+    Netz-Namen schickt (Abläufe, alte App-Stände), bekommt ihn unverändert
+    zurück - die Übersetzung ist ein Angebot, keine Pflicht.
+    """
+    for intern, anzeige in paare.items():
+        if anzeige == name:
+            return intern
+    return name
+
+
 def extract_code(text: str) -> str:
     """Holt den OAuth-Code aus einer ganzen Redirect-Adresse oder gibt die
     Eingabe unverändert zurück, wenn sie schon der Code ist (rein, testbar)."""
@@ -627,6 +662,15 @@ class SpotifyIntegration(Integration):
         # Welche davon echte Google-Gruppen sind. Die App setzt die
         # Marke daneben; ohne sie sieht eine Gruppe aus wie eine Box.
         state["device_groups"] = self._cast_groups()
+        # Zum Schluss die Anzeigenamen: erst zusammensetzen, dann
+        # übersetzen - so bleibt das Entfernen von Duplikaten oben bei
+        # den Netz-Namen, unter denen beide Listen dieselbe Box führen.
+        paare = self._anzeige_paare()
+        if paare:
+            state["devices"] = uebersetzte_namen(paare, state["devices"])
+            state["device_groups"] = uebersetzte_namen(paare, state["device_groups"])
+            if state.get("device"):
+                state["device"] = paare.get(state["device"], state["device"])
         state["playlists"] = [p["name"] for p in self._playlists]
         state["playlist"] = playlist_name(state.get("context_uri"), self._playlists)
         state["queue"] = await self._warteschlange(state.get("state"))
@@ -716,7 +760,11 @@ class SpotifyIntegration(Integration):
         Rückgabe: ob es dieser Weg war. False heisst «nicht zuständig» –
         dann geht es wie bisher über Spotify (Telefon, Rechner, Sonos).
         """
-        name = str(entity.state.get("device") or "")
+        # Im Zustand steht der Anzeigename - die Cast-Integration führt
+        # ihre Boxen unter dem Netz-Namen (siehe uebersetzte_namen).
+        name = technischer_name(
+            self._anzeige_paare(), str(entity.state.get("device") or "")
+        )
         cast = self.hub.integrations.get("google_cast")
         if not name or cast is None or not hasattr(cast, "lautstaerke_setzen"):
             return False
@@ -762,6 +810,19 @@ class SpotifyIntegration(Integration):
             return cast.device_names()
         except Exception:
             return []
+
+    def _anzeige_paare(self) -> dict[str, str]:
+        """Netz-Name → Anzeigename der umbenannten Cast-Boxen.
+
+        Siehe den Kommentar bei `uebersetzte_namen`: Innen Netz-Namen,
+        an den Rändern Anzeigenamen."""
+        cast = self.hub.integrations.get("google_cast")
+        if cast is None or not hasattr(cast, "anzeige_paare"):
+            return {}
+        try:
+            return cast.anzeige_paare()
+        except Exception:
+            return {}
 
     async def _wake_and_find(self, name: str) -> str | None:
         """Weckt eine schlafende Cast-Box und wartet, bis Spotify sie kennt."""
@@ -814,7 +875,10 @@ class SpotifyIntegration(Integration):
             await self._refresh()
             return
         if command == "play_on":
-            name = str(data.get("device", ""))
+            # Die App darf den Anzeigenamen schicken - Spotify kennt nur
+            # den Netz-Namen (siehe uebersetzte_namen).
+            paare = self._anzeige_paare()
+            name = technischer_name(paare, str(data.get("device", "")))
             device_id = self._device_ids.get(name)
             # Schlafende Cast-Box: Sie taucht in Spotify erst auf, wenn sie
             # geweckt ist. Ohne diesen Schritt liess sich die Musik auf jede
@@ -828,9 +892,12 @@ class SpotifyIntegration(Integration):
             if device_id is None and name:
                 device_id = await self._wake_and_find(name)
             if device_id is None:
+                # In der Fehlermeldung die Anzeigenamen - sie steht in der
+                # App, und dort heisst die Box so.
+                sichtbar = uebersetzte_namen(paare, list(self._device_ids))
                 raise ValueError(
-                    f"'{name}' ist nicht erreichbar. Sichtbar sind: "
-                    f"{', '.join(self._device_ids) or 'keine'}"
+                    f"'{data.get('device', '')}' ist nicht erreichbar. "
+                    f"Sichtbar sind: {', '.join(sichtbar) or 'keine'}"
                 )
             # Spotify Connect zieht die Wiedergabe nahtlos um. «play» folgt
             # dem bisherigen Zustand: Was lief, läuft weiter; was pausiert
@@ -841,7 +908,10 @@ class SpotifyIntegration(Integration):
             )
             ziel = self._device_name(device_id) or name
             await self._gruppen_lautstaerke_wiederherstellen(ziel)
-            await self._announce({"device": ziel})
+            # Nach aussen wieder der Anzeigename - sonst spränge die
+            # Karte kurz auf den Netz-Namen zurück, bis der Takt sie
+            # wieder übersetzt.
+            await self._announce({"device": paare.get(ziel, ziel)})
             return
         if command == "play_playlist":
             name = str(data.get("name", ""))
@@ -853,7 +923,10 @@ class SpotifyIntegration(Integration):
             body: dict[str, Any] = {"context_uri": uri}
             # Ziel: gewünschte Box → gerade aktive → erste sichtbare. Ohne
             # Ziel würde Spotify aus der Stille heraus mit 404 abwinken.
-            requested = str(data.get("device", ""))
+            # Beides kann als Anzeigename ankommen - der Wunsch aus der
+            # App, der aktive aus dem eigenen (übersetzten) Zustand.
+            paare = self._anzeige_paare()
+            requested = technischer_name(paare, str(data.get("device", "")))
             if requested:
                 # Eine ausdrücklich genannte Box ist eine Ansage, keine
                 # Anregung. Hier stand ein Rückfall auf «gerade aktiv»
@@ -872,16 +945,19 @@ class SpotifyIntegration(Integration):
                 if device_id is None:
                     device_id = await self._wake_and_find(requested)
                 if device_id is None:
+                    sichtbar = uebersetzte_namen(paare, list(self._device_ids))
                     raise ValueError(
-                        f"'{requested}' liess sich nicht erreichen – Musik "
-                        "läuft darum nirgends, statt im falschen Zimmer. "
+                        f"'{data.get('device', '')}' liess sich nicht erreichen – "
+                        "Musik läuft darum nirgends, statt im falschen Zimmer. "
                         "Sichtbar sind: "
-                        f"{', '.join(self._device_ids) or 'keine'}. Details im "
+                        f"{', '.join(sichtbar) or 'keine'}. Details im "
                         "Hub-Log (docker logs homepilot-hub | grep -i spotify)"
                     )
             else:
                 device_id = pick_device(
-                    requested, entity.state.get("device"), self._device_ids
+                    requested,
+                    technischer_name(paare, str(entity.state.get("device") or "")),
+                    self._device_ids,
                 )
             if device_id is None:
                 raise ValueError(
@@ -902,12 +978,13 @@ class SpotifyIntegration(Integration):
             await self._call("PUT", f"/me/player/play?device_id={device_id}", json=body)
             if mischen is not None:
                 await self._shuffle(mischen, device_id)
+            ziel = self._device_name(device_id) or requested
             await self._announce(
                 {
                     "state": "playing",
                     "context_uri": uri,
                     "playlist": playlist_name(uri, self._playlists) or name or None,
-                    "device": self._device_name(device_id) or requested or None,
+                    "device": paare.get(ziel, ziel) if ziel else None,
                     **({"shuffle": mischen} if mischen is not None else {}),
                 }
             )
@@ -919,7 +996,13 @@ class SpotifyIntegration(Integration):
                 raise ValueError("play_queue braucht die 'uri' des Titels")
             # Ohne Zielgerät antwortet Spotify aus der Stille heraus mit
             # 404 - und das nur, wenn gerade wirklich nichts läuft.
-            device_id = pick_device("", entity.state.get("device"), self._device_ids)
+            device_id = pick_device(
+                "",
+                technischer_name(
+                    self._anzeige_paare(), str(entity.state.get("device") or "")
+                ),
+                self._device_ids,
+            )
             ziel = f"?device_id={device_id}" if device_id else ""
             folgende = folgende_uris(entity.state.get("queue"), uri)
             context = str(entity.state.get("context_uri") or "")

@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { HubFehler, hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
 import { Card } from '../components/Card';
+import { RenameDialog } from '../components/entity/anpassen';
 import { Colors, radius, space, type, useColors } from '../theme';
 
 /**
@@ -30,6 +31,13 @@ interface Speaker {
   model?: string;
   group: boolean;
   entity_id?: string | null;
+  /** In der App vergebener Name, wenn er vom Netz-Namen abweicht. */
+  app_name?: string | null;
+}
+
+/** Wie eine Box in der App heisst (rein, testbar). */
+export function speakerLabel(entry: Pick<Speaker, 'name' | 'app_name'>): string {
+  return entry.app_name || entry.name;
 }
 
 /** Kennung einer Box für Listen und Nachschlagewerke (rein, testbar). */
@@ -137,6 +145,30 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
     }
   };
 
+  /** Welche Box gerade umbenannt wird - öffnet den Dialog. */
+  const [renameFor, setRenameFor] = useState<Speaker | null>(null);
+
+  /** Eine eingebundene Box umbenennen - als Anzeigename der Entität.
+   *
+   *  Derselbe Weg wie der Stift auf der Gerätekachel (PUT …/meta): Der
+   *  Name gilt damit überall in der App - Musikkarte, Boxenwahl,
+   *  Durchsagen. Das Verschieben der Musik bricht dabei nicht: Der Hub
+   *  übersetzt an der Spotify-Grenze zwischen Netz- und Anzeigename
+   *  (integrations/spotify.py, `uebersetzte_namen`). Leer speichern
+   *  stellt den Netz-Namen wieder her. */
+  const rename = async (entry: Speaker, name: string) => {
+    setRenameFor(null);
+    if (!entry.entity_id) return;
+    try {
+      await hub.put(`/api/entities/${encodeURIComponent(entry.entity_id)}/meta`, {
+        name,
+      });
+      load();
+    } catch (err) {
+      setError(err instanceof HubFehler ? err.message : String(err));
+    }
+  };
+
   /** Hub neu starten, damit frisch eingetragene Boxen erscheinen. */
   const [restarting, setRestarting] = useState(false);
   const restartNow = async () => {
@@ -233,8 +265,9 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
             <View key={keyOf(entry)} style={styles.row}>
               <Ionicons name="people" size={20} color={colors.accent} />
               <View style={{ flex: 1 }}>
-                <Text style={styles.rowTitle}>{entry.name}</Text>
+                <Text style={styles.rowTitle}>{speakerLabel(entry)}</Text>
                 <Text style={styles.rowDetail}>
+                  {entry.app_name ? `im Netz «${entry.name}» · ` : ''}
                   {members[keyOf(entry)]
                     ? members[keyOf(entry)].length > 0
                       ? members[keyOf(entry)].join(', ')
@@ -243,6 +276,16 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
                 </Text>
               </View>
               <Badge entry={entry} />
+              {entry.entity_id ? (
+                <Pressable
+                  onPress={() => setRenameFor(entry)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${speakerLabel(entry)} umbenennen`}
+                >
+                  <Ionicons name="pencil-outline" size={18} color={colors.inkSoft} />
+                </Pressable>
+              ) : null}
               {!members[keyOf(entry)] ? (
                 <Pressable
                   onPress={() => loadMembers(entry)}
@@ -260,6 +303,16 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
 
       <Card style={styles.card}>
         <Text style={styles.heading}>Einzelne Boxen</Text>
+        {/* Umbenannt wird der Anzeigename in der App - der Name aus der
+            Google-Home-App bleibt im Netz bestehen und steht dann klein
+            darunter. Nur eingebundene Boxen tragen den Stift: Für die
+            übrigen gibt es noch keine Entität, die einen Namen tragen
+            könnte. */}
+        <Text style={styles.hint}>
+          Der Stift benennt eine eingebundene Box für die App um – der Name
+          gilt überall, auch in der Musikkarte. Leer speichern stellt den
+          Netz-Namen wieder her.
+        </Text>
         {speakers == null ? (
           <Text style={styles.hint}>Wird gesucht …</Text>
         ) : singles.length === 0 ? (
@@ -269,13 +322,24 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
             <View key={keyOf(entry)} style={styles.row}>
               <Ionicons name="volume-medium-outline" size={20} color={colors.inkSoft} />
               <View style={{ flex: 1 }}>
-                <Text style={styles.rowTitle}>{entry.name}</Text>
+                <Text style={styles.rowTitle}>{speakerLabel(entry)}</Text>
                 <Text style={styles.rowDetail}>
+                  {entry.app_name ? `im Netz «${entry.name}» · ` : ''}
                   {entry.host}
                   {entry.model ? ` · ${entry.model}` : ''}
                 </Text>
               </View>
               <Badge entry={entry} />
+              {entry.entity_id ? (
+                <Pressable
+                  onPress={() => setRenameFor(entry)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${speakerLabel(entry)} umbenennen`}
+                >
+                  <Ionicons name="pencil-outline" size={18} color={colors.inkSoft} />
+                </Pressable>
+              ) : null}
             </View>
           ))
         )}
@@ -315,6 +379,15 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
           <Text style={styles.buttonText}>{busy ? 'Sucht …' : 'Erneut suchen'}</Text>
         </Pressable>
       </Card>
+
+      <RenameDialog
+        visible={renameFor != null}
+        current={renameFor ? speakerLabel(renameFor) : ''}
+        onClose={() => setRenameFor(null)}
+        onSubmit={(name) => {
+          if (renameFor) rename(renameFor, name);
+        }}
+      />
     </View>
   );
 }

@@ -182,6 +182,9 @@ def _als_integration(fake):
     from homepilot.integrations.spotify import SpotifyIntegration
 
     fake.handle_command = SpotifyIntegration.handle_command.__get__(fake)
+    # Auch echt: die Namensübersetzung für umbenannte Boxen. Ohne
+    # Cast-Integration (das Doppel liefert keine) bleibt sie leer.
+    fake._anzeige_paare = SpotifyIntegration._anzeige_paare.__get__(fake)
     return fake
 
 
@@ -351,3 +354,24 @@ def test_queue_update_lehnt_unbekannte_wiederholung_ab():
 
     with pytest.raises(ConfigError, match="off"):
         queue_update_nachricht(1, repeat="rueckwaerts")
+
+
+async def test_a_renamed_box_is_found_under_its_app_name():
+    """«Büro» in der App ist «Nest Küche» im Netz - beide Wege gehen.
+
+    Der Fall dahinter: Wer eine Box auf der Lautsprecher-Seite umbenennt,
+    drückt danach in der Musikkarte «Playlist auf Büro». Spotify kennt
+    nur den Netz-Namen - ohne die Übersetzung an der Grenze hiesse es
+    «'Büro' liess sich nicht erreichen», obwohl die Box dasteht.
+    """
+    fake = _als_integration(_Spotify({"Nest Küche": "id-kueche"}, weckbar=set()))
+    # Das Doppel bekommt eine Cast-Integration, die die Umbenennung kennt.
+    cast = types.SimpleNamespace(anzeige_paare=lambda: {"Nest Küche": "Büro"})
+    fake.hub = types.SimpleNamespace(
+        integrations=types.SimpleNamespace(get=lambda n: cast if n == "google_cast" else None)
+    )
+    entity = types.SimpleNamespace(state={"device": None})
+    await fake.handle_command(
+        entity, "play_playlist", {"name": "Party", "device": "Büro"}
+    )
+    assert fake.gestartet == [("id-kueche", "spotify:playlist:party")]

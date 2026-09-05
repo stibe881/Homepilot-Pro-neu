@@ -577,6 +577,20 @@ class GoogleCastIntegration(Integration):
 
     # ── Spotify-Wecken (für die spotify-Integration) ───────────────────────
 
+    def anzeige_paare(self) -> dict[str, str]:
+        """Netz-Name → Anzeigename der in der App umbenannten Cast-Geräte.
+
+        Für die Ränder der Spotify-Integration (siehe dort,
+        `uebersetzte_namen`): Spotify spricht die Netz-Namen, die App die
+        Anzeigenamen. Boxen ohne eigenen Anzeigenamen fehlen bewusst -
+        eine leere Tabelle heisst «nichts zu übersetzen»."""
+        paare: dict[str, str] = {}
+        for entity_id in self._casts:
+            entity = self.hub.registry.get(entity_id)
+            if entity is not None and entity.label != entity.name:
+                paare[entity.name] = entity.label
+        return paare
+
     def device_names(self) -> list[str]:
         """Namen der verbundenen Cast-Boxen – als schlafende Connect-Ziele.
 

@@ -572,7 +572,10 @@ class Tonmeister:
         for kandidat in self.hub.registry.all():
             if "play_on" not in kandidat.commands:
                 continue
-            if str(kandidat.state.get("device") or "") in (entity.name, name):
+            # Auch der Anzeigename zählt: Spotify meldet eine in der App
+            # umbenannte Box unter genau diesem Namen (siehe
+            # uebersetzte_namen in integrations/spotify.py).
+            if str(kandidat.state.get("device") or "") in (entity.name, entity.label, name):
                 return kandidat
         return None
 

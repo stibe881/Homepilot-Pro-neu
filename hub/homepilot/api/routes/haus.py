@@ -649,12 +649,21 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 log.warning("Cast-Suche fehlgeschlagen: %s", err)
 
         configured = {
-            entity.name: entity.id
+            entity.name: entity
             for entity in hub.registry.all()
             if entity.kind == "media_player"
         }
         for entry in found:
-            entry["entity_id"] = configured.get(entry["name"])
+            entity = configured.get(entry["name"])
+            entry["entity_id"] = entity.id if entity is not None else None
+            # Der in der App vergebene Name, falls er vom Netz-Namen
+            # abweicht - die Lautsprecher-Seite zeigt ihn daneben und
+            # bietet dort das Umbenennen an.
+            entry["app_name"] = (
+                entity.label
+                if entity is not None and entity.label != entry["name"]
+                else None
+            )
         return {
             "speakers": found,
             # Boxen, die der Hub kennt, aber die Suche nicht gefunden hat –

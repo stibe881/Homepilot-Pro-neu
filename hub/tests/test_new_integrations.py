@@ -1493,6 +1493,28 @@ def test_merge_device_names_appends_sleeping_cast_boxes():
     assert merge_device_names(["Terrasse"], []) == ["Terrasse"]
 
 
+def test_renamed_speakers_translate_at_the_edges():
+    """Umbenannte Boxen heissen aussen wie in der App, innen wie im Netz.
+
+    Der Fall dahinter: «Nest Küche» wird in der App zu «Büro» umbenannt.
+    Spotify kennt weiter nur «Nest Küche» - ohne Übersetzung fände
+    «Musik dorthin» die Box nicht mehr, denn die App vergleicht über
+    Namen.
+    """
+    from homepilot.integrations.spotify import technischer_name, uebersetzte_namen
+
+    paare = {"Nest Küche": "Büro"}
+    # Hinaus: Netz-Namen werden zu Anzeigenamen, Fremdes bleibt.
+    assert uebersetzte_namen(paare, ["iPhone", "Nest Küche"]) == ["iPhone", "Büro"]
+    # Herein: Der Anzeigename führt zurück zum Netz-Namen.
+    assert technischer_name(paare, "Büro") == "Nest Küche"
+    # Wer schon den Netz-Namen schickt (Abläufe, alte App-Stände),
+    # bekommt ihn unverändert - die Übersetzung ist ein Angebot.
+    assert technischer_name(paare, "Nest Küche") == "Nest Küche"
+    assert technischer_name({}, "Büro") == "Büro"
+    assert uebersetzte_namen({}, ["Terrasse"]) == ["Terrasse"]
+
+
 def test_hue_scenes_keep_their_names():
     """«Entspannen» gibt es in jedem Zimmer – ohne Unterscheidung wäre die
     Auswahl ein Ratespiel."""
