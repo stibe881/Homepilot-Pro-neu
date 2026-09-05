@@ -40,8 +40,11 @@ export interface WidgetButton {
   actionBody?: string;
 }
 
-/** Mehr passt selbst auf die grosse Widget-Grösse nicht nebeneinander. */
-export const MAX_BUTTONS = 4;
+/** Acht, seit die Knöpfe im Widget in Reihen umbrechen: mittel und
+ *  gross zeigen zwei Reihen zu vier, die kleine Grösse die ersten vier.
+ *  Vorher waren es vier - und wer seine Szenen ins Widget wollte, musste
+ *  dafür Tür oder Alarm opfern. */
+export const MAX_BUTTONS = 8;
 
 /** Womit jeder anfängt, solange nichts eingestellt wurde. */
 export const STANDARD = ['door', 'alloff', 'alarm'];
