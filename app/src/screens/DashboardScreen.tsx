@@ -147,6 +147,7 @@ import { SzeneAufnehmen } from '../components/SzeneAufnehmen';
 import { PersonenScreen } from './PersonenScreen';
 import { UsersScreen } from './UsersScreen';
 import { confirm as confirmBiometrie, needsCheck } from '../lib/biometrie';
+import { mayOpenDirectly } from '../lib/tuerbestaetigung';
 import { BioLock } from '../components/BioLock';
 import { TuerRueckfrage } from '../components/TuerRueckfrage';
 import { Widgets } from '../components/Widgets';
@@ -1108,10 +1109,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           ) ?? entities.find((entity) => entity.kind === 'lock');
         if (!door) return entities.length > 0;
         setSection('home');
-        setConfirm({
-          entity: door,
-          command: door.commands.includes('open_door') ? 'open_door' : 'unlatch',
-        });
+        const befehl = door.commands.includes('open_door') ? 'open_door' : 'unlatch';
+        // Wer die Nachfrage abgestellt hat, meint sie überall - auch auf
+        // dem Weg vom Sperrbildschirm hierher. Vorher fragte dieser Pfad
+        // immer, und die Einstellung «Fragt die Türe vor dem Öffnen
+        // nach» galt nur für die Kachel. Gerätesperre und Face ID
+        // bleiben: guardedCommand prüft beide, wie bei jedem Tipp.
+        if (mayOpenDirectly(befehl, prefs.doorConfirm)) {
+          guardedCommand(door.id, befehl);
+        } else {
+          setConfirm({ entity: door, command: befehl });
+        }
       } else if (what === 'alloff') {
         setSection('home');
         setRoom(ALL_ROOMS);
@@ -1130,13 +1138,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         if (!entity) return entities.length > 0;
         setSection('start');
         if (entity.kind === 'lock') {
-          // Ein Schloss fragt immer nach - auch das eigene Wohnzimmer
-          // hat eine Türe, und der Sperrbildschirm ist kein Ort für
-          // einen einzigen Tipp.
-          setConfirm({
-            entity,
-            command: entity.commands.includes('open_door') ? 'open_door' : 'unlatch',
-          });
+          // Ein Schloss fragt nach - ausser die Nachfrage ist
+          // ausdrücklich abgestellt (dieselbe Regel wie oben bei
+          // «door»; Gerätesperre und Face ID prüft guardedCommand).
+          const befehl = entity.commands.includes('open_door') ? 'open_door' : 'unlatch';
+          if (mayOpenDirectly(befehl, prefs.doorConfirm)) {
+            guardedCommand(entity.id, befehl);
+          } else {
+            setConfirm({ entity, command: befehl });
+          }
           return true;
         }
         const command = widgetCommand(entity);
@@ -1160,7 +1170,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // Ereignisse (App lief schon) kommen genau einmal - jedes zählt.
     const subscription = Linking.addEventListener('url', (event) => handle(event.url));
     return () => subscription.remove();
-  }, [entities, scenes, activateScene, guardedCommand]);
+  }, [entities, scenes, activateScene, guardedCommand, prefs.doorConfirm]);
 
   const toggleIn = (list: string[], id: string) =>
     list.includes(id) ? list.filter((item) => item !== id) : [...list, id];
@@ -3614,6 +3624,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           <LockConfirm
             entity={confirm.entity}
             command={confirm.command}
+            gesperrt={locked.includes(confirm.entity.id)}
             onCancel={() => setConfirm(null)}
             onConfirm={() => {
               sendCommand(confirm.entity.id, confirm.command, confirm.data);

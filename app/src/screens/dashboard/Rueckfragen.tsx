@@ -16,6 +16,7 @@ import { DashboardStile } from './stile';
 export function LockConfirm({
   entity,
   command,
+  gesperrt = true,
   onCancel,
   onConfirm,
   colors,
@@ -23,25 +24,36 @@ export function LockConfirm({
 }: {
   entity: Entity;
   command: string;
+  /** Ist das Gerät wirklich gesperrt? Die Türe vom Sperrbildschirm fragt
+   *  auch ungesperrt nach - dann darf der Titel nicht «ist gesperrt»
+   *  behaupten, und der Hinweis nennt die Nachfrage-Einstellung statt
+   *  des Anpassen-Modus. */
+  gesperrt?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
   colors: Colors;
   styles: DashboardStile;
 }) {
   const was =
-    command === 'turn_off' || command === 'close'
-      ? 'ausschalten'
-      : command === 'toggle'
-        ? 'umschalten'
-        : 'einschalten';
+    command === 'open_door' || command === 'unlatch'
+      ? 'öffnen'
+      : command === 'turn_off' || command === 'close'
+        ? 'ausschalten'
+        : command === 'toggle'
+          ? 'umschalten'
+          : 'einschalten';
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onCancel}>
       <View style={styles.lockBackdrop}>
         <View style={styles.lockSheet}>
           <Ionicons name="lock-closed" size={26} color={colors.accent} />
-          <Text style={styles.lockTitle}>{entity.name} ist gesperrt</Text>
+          <Text style={styles.lockTitle}>
+            {gesperrt ? `${entity.name} ist gesperrt` : `${entity.name} ${was}?`}
+          </Text>
           <Text style={styles.lockText}>
-            Wirklich {was}? Die Sperre lässt sich im Anpassen-Modus wieder aufheben.
+            {gesperrt
+              ? `Wirklich ${was}? Die Sperre lässt sich im Anpassen-Modus wieder aufheben.`
+              : `Wirklich ${was}? Diese Frage lässt sich in den Einstellungen abstellen («Rückfrage vor dem Türöffnen»).`}
           </Text>
           <View style={styles.lockActions}>
             <Pressable onPress={onCancel} style={styles.lockCancel}>

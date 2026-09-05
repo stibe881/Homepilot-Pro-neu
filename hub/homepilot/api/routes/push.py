@@ -505,11 +505,26 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 ),
             )
         else:
-            hub.data.set(
-                liveaktivitaet.DATA_KEY,
-                liveaktivitaet.aktivitaet_merken(
-                    hub.data.get(liveaktivitaet.DATA_KEY), user.name, body.token
-                ),
-            )
+            rows = hub.data.get(liveaktivitaet.DATA_KEY)
+            if liveaktivitaet.karte_laeuft(rows, user.name):
+                hub.data.set(
+                    liveaktivitaet.DATA_KEY,
+                    liveaktivitaet.aktivitaet_merken(rows, user.name, body.token),
+                )
+            else:
+                # Laut Hub liegt gerade keine Karte - dann gehört die,
+                # deren Token hier ankommt, beendet. Das ist die liegen
+                # gebliebene vom letzten Mal: Ihr Ende wurde übersprungen,
+                # weil das Token damals fehlte, und die nächste Fahrt
+                # legte eine zweite Karte darüber (core/liveaktivitaet.py,
+                # VERWAIST_KEY). Der Takt räumt sie im nächsten Umlauf ab.
+                hub.data.set(
+                    liveaktivitaet.VERWAIST_KEY,
+                    liveaktivitaet.verwaist_merken(
+                        hub.data.get(liveaktivitaet.VERWAIST_KEY),
+                        user.name,
+                        body.token,
+                    ),
+                )
         return {"ok": True}
 

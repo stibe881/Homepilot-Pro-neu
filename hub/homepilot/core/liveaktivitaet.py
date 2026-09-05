@@ -184,9 +184,14 @@ def aktivitaet_merken(rows: Any, user: str, token: str) -> list[dict[str, Any]]:
 
     Es gehört zu genau einer Aktivität, aber die App weiss nicht, aus
     welchem Start-Token sie entstand. Darum bekommt es jede laufende
-    Zeile des Benutzers, die noch keines hat - im Haushalt hat eine
-    Person selten mehr als ein Telefon, und ein doppelt beendetes
-    Beenden ist harmlos.
+    Zeile des Benutzers - im Haushalt hat eine Person selten mehr als
+    ein Telefon, und ein doppelt beendetes Beenden ist harmlos.
+
+    Auch eine Zeile, die schon ein Token trägt, bekommt das neue: Apple
+    stellt Aktivitäts-Tokens gelegentlich frisch aus, und die App meldet
+    beim Öffnen zudem die Tokens *liegender* Karten nach. Das jüngste
+    ist das, mit dem sich die Karte wirklich beenden lässt - am alten
+    festzuhalten hiesse, mit einem abgelaufenen Schlüssel zu winken.
     """
     neue = []
     for row in rows or []:
@@ -194,11 +199,40 @@ def aktivitaet_merken(rows: Any, user: str, token: str) -> list[dict[str, Any]]:
             isinstance(row, dict)
             and row.get("user") == user
             and row.get("unterwegs")
-            and not row.get("activity_token")
         ):
             row = {**row, "activity_token": token}
         neue.append(row)
     return neue
+
+
+def karte_laeuft(rows: Any, user: str) -> bool:
+    """Sollte für diese Person gerade eine Karte liegen? (rein, testbar)"""
+    return any(
+        isinstance(row, dict) and row.get("user") == user and row.get("unterwegs")
+        for row in rows or []
+    )
+
+
+#: Aktivitäts-Tokens von Karten, die nicht liegen dürften: [{user, token}].
+#:
+#: Der Fall dahinter, gemeldet als «hier kommen immer noch 2 Karten»: Die
+#: App meldet das Aktivitäts-Token oft erst nach, wenn das Telefon längst
+#: wieder entsperrt ist. Bis dahin ist die Person heimgekommen, der Takt
+#: wollte beenden, hatte kein Token - und übersprang das Ende. Die Karte
+#: blieb liegen, und die nächste Fahrt legte eine zweite darüber. Meldet
+#: die App später ein Token, obwohl laut Hub gar keine Karte liegen
+#: sollte, gehört genau diese Karte beendet - der Takt holt das nach.
+VERWAIST_KEY = "live_verwaist"
+
+
+def verwaist_merken(rows: Any, user: str, token: str) -> list[dict[str, Any]]:
+    """Ein Token zum Nach-Beenden vormerken (rein, testbar)."""
+    neue = [
+        row
+        for row in (rows or [])
+        if isinstance(row, dict) and row.get("token") != token
+    ]
+    return [*neue, {"user": user, "token": token}]
 
 
 # Zwei verschiedene Fragen, zwei verschiedene Zahlen - sie eine Zeit
@@ -873,6 +907,22 @@ async def tuer_loop(hub: Any) -> None:
 
 
 async def _runde(hub: Any, versand: ApnsVersand) -> None:
+    # Zuerst die verwaisten Karten wegräumen: liegen gebliebene, deren
+    # Token die App erst nachgemeldet hat, als der Hub sie längst für
+    # beendet hielt (siehe VERWAIST_KEY). Vor allem anderen, damit auf
+    # dem Sperrbildschirm nie zwei gleiche Karten übereinander liegen.
+    verwaiste = hub.data.get(VERWAIST_KEY)
+    if verwaiste:
+        jetzt = time.time()
+        for eintrag in verwaiste:
+            if not isinstance(eintrag, dict) or not eintrag.get("token"):
+                continue
+            await versand.senden(str(eintrag["token"]), end_payload(jetzt))
+            log.info(
+                "Live-Aktivität: liegen gebliebene Karte von %s beendet",
+                eintrag.get("user"),
+            )
+        hub.data.set(VERWAIST_KEY, [])
     rows = hub.data.get(DATA_KEY)
     if not rows:
         return

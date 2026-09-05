@@ -35,6 +35,54 @@ public class LiveAktivitaetModule: Module {
     //   die `art` mit, damit der Hub weiss, zu welcher sie gehört.
     Function("beobachten") {
       guard #available(iOS 17.2, *) else { return }
+      // Aufräumen, bevor beobachtet wird: Karten, die beim Öffnen der
+      // App schon liegen. `activityUpdates` unten meldet nur *neue*
+      // Aktivitäten - eine, die gestartet wurde, während die App
+      // nicht lief, hätte ihr Token sonst nie gemeldet. Genau daran
+      // hingen die doppelten Türkarten: Der Hub konnte die alte ohne
+      // Token nicht beenden, und die nächste Fahrt legte eine zweite
+      // darüber. Doppelte (mehr als eine Tür-Karte, mehr als eine
+      // Haus-Karte derselben Art) sind wortgleich - alle bis auf eine
+      // enden sofort; die übrige meldet ihr Token, damit der Hub sie
+      // später beenden kann.
+      Task {
+        let tueren = Activity<TuerAktivitaetAttributes>.activities
+        for doppel in tueren.dropFirst() {
+          await doppel.end(nil, dismissalPolicy: .immediate)
+        }
+        if let karte = tueren.first {
+          if let token = karte.pushToken {
+            self.sendEvent("onActivityToken", ["token": hex(token), "typ": "tuer"])
+          }
+          for await daten in karte.pushTokenUpdates {
+            self.sendEvent("onActivityToken", ["token": hex(daten), "typ": "tuer"])
+          }
+        }
+      }
+      Task {
+        var gesehen = Set<String>()
+        for karte in Activity<HausAktivitaetAttributes>.activities {
+          if gesehen.contains(karte.attributes.art) {
+            await karte.end(nil, dismissalPolicy: .immediate)
+            continue
+          }
+          gesehen.insert(karte.attributes.art)
+          if let token = karte.pushToken {
+            self.sendEvent(
+              "onActivityToken",
+              ["token": hex(token), "typ": "haus", "art": karte.attributes.art]
+            )
+          }
+          Task {
+            for await daten in karte.pushTokenUpdates {
+              self.sendEvent(
+                "onActivityToken",
+                ["token": hex(daten), "typ": "haus", "art": karte.attributes.art]
+              )
+            }
+          }
+        }
+      }
       Task {
         for await daten in Activity<TuerAktivitaetAttributes>.pushToStartTokenUpdates {
           self.sendEvent("onStartToken", ["token": hex(daten), "typ": "tuer"])

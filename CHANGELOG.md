@@ -5,6 +5,41 @@ Gegenstück: was die Anlage heute kann, was sie vorher nicht konnte.
 
 Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
+## 2026-09-05
+
+**Neu**
+
+- **Ein weinendes Baby meldet sich von selbst.** Sobald eine Kamera
+  `detected_baby_cry` hört, kommt die Push «Ein Baby weint: ‹Raum›» -
+  dringend, Tag und Nacht, unabhängig von der Alarmanlage, und ohne
+  dass jemand dafür einen Ablauf verdrahtet haben muss (dieselbe
+  Antwort wie damals bei der Klingel). Ein Tipp öffnet die Kamera im
+  Vollbild. Abschaltbar unter Abläufe → Push, je Person im Profil;
+  gegen Protects Ereignis-Stakkato gilt eine Sperrfrist von zwei
+  Minuten je Kamera.
+
+**Behoben**
+
+- **Zwei gleiche Türkarten auf dem Sperrbildschirm.** Diesmal lag es
+  nicht an alten Telefon-Zeilen, sondern am Beenden: Das braucht das
+  Token der laufenden Karte, und das meldet die App oft erst, wenn das
+  Telefon längst wieder entsperrt ist. Bis dahin war man heimgekommen,
+  der Hub wollte beenden, hatte kein Token - und die Karte blieb
+  liegen; die nächste Fahrt legte eine zweite darüber. Jetzt räumt die
+  App beim Öffnen liegen gebliebene Doppel selbst weg und meldet das
+  Token der übrigen nach - und meldet sie eines, obwohl laut Hub gar
+  keine Karte liegen sollte, beendet der Hub genau diese Karte im
+  nächsten Takt. (Das Aufräumen in der App braucht einen frischen
+  TestFlight-Build.)
+- **Die abgestellte Rückfrage gilt jetzt auch vom Sperrbildschirm
+  aus.** Wer «Rückfrage vor dem Türöffnen» ausgeschaltet hatte, wurde
+  auf dem Weg über die Türkarte und den Widget-Knopf trotzdem gefragt -
+  dieser Pfad fragte immer, die Einstellung galt nur für die Kachel.
+  Jetzt gilt sie überall; Gerätesperre und Face ID fragen weiterhin.
+  Und der Dialog sagt nicht mehr «Haustüre ist gesperrt … wirklich
+  einschalten?», wenn die Türe gar nicht gesperrt ist - er fragt
+  «öffnen?» und nennt die Einstellung, mit der man ihn abstellt.
+
 ## 2026-09-01
 
 **Neu**

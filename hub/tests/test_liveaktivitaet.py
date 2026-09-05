@@ -229,6 +229,46 @@ def test_der_profil_schalter_stoppt_und_beendet():
     assert [r["activity_token"] for r in beenden] == ["activity-1"]
 
 
+def test_ein_frisches_aktivitaets_token_ersetzt_das_gemerkte():
+    """Apple stellt Aktivitäts-Tokens gelegentlich neu aus, und die App
+    meldet beim Öffnen auch die Tokens liegender Karten nach. Das jüngste
+    ist das, mit dem sich die Karte wirklich beenden lässt - vorher blieb
+    das erste stehen, und das Ende winkte mit einem abgelaufenen
+    Schlüssel."""
+    rows = registrieren([], "Stibe", "token-a", "iPhone")
+    rows, _, _ = wechsel(rows, {"Stibe": True})
+    rows = aktivitaet_merken(rows, "Stibe", "activity-1")
+    rows = aktivitaet_merken(rows, "Stibe", "activity-2")
+    assert rows[0]["activity_token"] == "activity-2"
+
+
+def test_karte_laeuft_sagt_ob_gerade_eine_liegen_sollte():
+    from homepilot.core.liveaktivitaet import karte_laeuft
+
+    rows = registrieren([], "Stibe", "token-a", "iPhone")
+    assert karte_laeuft(rows, "Stibe") is False
+    rows, _, _ = wechsel(rows, {"Stibe": True})
+    assert karte_laeuft(rows, "Stibe") is True
+    assert karte_laeuft(rows, "Bine") is False
+    assert karte_laeuft(None, "Stibe") is False
+
+
+def test_verwaiste_karten_werden_einmal_vorgemerkt():
+    """Der gemeldete Fall «hier kommen immer noch 2 Karten»: Das Ende
+    einer Karte wurde übersprungen, weil ihr Token damals fehlte - und
+    die nächste Fahrt legte eine zweite darüber. Meldet die App das Token
+    später nach, obwohl laut Hub keine Karte liegen sollte, wird es zum
+    Nach-Beenden vorgemerkt - je Token genau einmal, so oft die App es
+    auch schickt."""
+    from homepilot.core.liveaktivitaet import verwaist_merken
+
+    rows = verwaist_merken(None, "Stibe", "activity-alt")
+    rows = verwaist_merken(rows, "Stibe", "activity-alt")
+    assert rows == [{"user": "Stibe", "token": "activity-alt"}]
+    rows = verwaist_merken(rows, "Stibe", "activity-uralt")
+    assert len(rows) == 2
+
+
 class TestKarteFaellig:
     def test_auf_dem_heimweg_laeuft_die_karte(self) -> None:
         # Nicht zuhause, aber vor der Türe - und vorher wirklich
