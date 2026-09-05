@@ -30,6 +30,11 @@ interface Props {
    *  nichts passieren und erfuhr auch nicht, warum. */
   fehler?: string | null;
   onFehlerWeg?: () => void;
+  /** Die Szene «Kino», wenn es genau eine gibt (lib/kinoszene.ts).
+   *  Der Film beginnt, das Licht ist noch hell - der Griff gehört
+   *  neben die Fernbedienung, nicht vier Tipps tief in die App. */
+  kino?: { id: string; name: string } | null;
+  onKino?: (sceneId: string) => void;
 }
 
 /** Eine einzelne Taste der Fernbedienung.
@@ -83,6 +88,8 @@ export function TvRemote({
   apps,
   fehler,
   onFehlerWeg,
+  kino,
+  onKino,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -209,6 +216,30 @@ export function TvRemote({
             </View>
           ) : null}
 
+          {/* Die Szene «Kino», wenn es genau eine gibt: Der Film
+              beginnt, das Licht ist noch hell - der Griff gehört
+              hierher, nicht vier Tipps tief in die App. Dieselbe Regel
+              wie auf der Live-Karte des Fernsehers (hub kino_knopf). */}
+          {kino && onKino ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Szene ${kino.name} starten`}
+              onPress={() => {
+                try {
+                  tapped();
+                } catch {
+                  // Haptik ist Zugabe - der Druck darf nie an ihr hängen.
+                }
+                if (fehler) onFehlerWeg?.();
+                onKino(kino.id);
+              }}
+              style={({ pressed }) => [styles.kinoKnopf, pressed && { opacity: 0.7 }]}
+            >
+              <Ionicons name="film-outline" size={17} color={colors.ink} />
+              <Text style={styles.kinoText}>{kino.name}</Text>
+            </Pressable>
+          ) : null}
+
           {/* Nur die Absage des Hubs - eine Erfolgsmeldung braucht es
               nicht mehr: Dass der Druck ankommt, sagen Haptik und
               Fernseher. Die Diagnosezeilen von einst (welche Taste
@@ -285,6 +316,24 @@ const makeStyles = (colors: Colors) =>
       gap: 8,
       paddingTop: 2,
     },
+    // Der Kino-Griff: eine Pille unter den App-Logos, bewusst anders
+    // geformt als die runden Apps - er startet keine App, er stellt
+    // das Zimmer.
+    kinoKnopf: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      alignSelf: 'center',
+      gap: 8,
+      paddingHorizontal: 18,
+      paddingVertical: 10,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      marginTop: 4,
+    },
+    kinoText: { color: colors.ink, fontSize: 14, fontWeight: '700' },
     appChip: {
       paddingVertical: 7,
       paddingHorizontal: 14,
