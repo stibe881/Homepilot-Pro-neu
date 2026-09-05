@@ -22,6 +22,7 @@ const KARTEN: { key: string; label: string }[] = [
   { key: 'geraet', label: 'Waschmaschine & Geschirrspüler' },
   { key: 'grill', label: 'Grill' },
   { key: 'sauger', label: 'Saugroboter' },
+  { key: 'tv', label: 'Fernbedienung, solange der Fernseher läuft' },
   { key: 'erinnerung', label: 'Fällige Erinnerungen' },
   { key: 'alarm', label: 'Alarmanlage' },
 ];

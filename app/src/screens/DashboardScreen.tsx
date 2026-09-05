@@ -1164,6 +1164,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         if (!entities.some((entity) => entity.room === id)) return entities.length > 0;
         setSection('home');
         setRoom(id);
+      } else if (what === 'fernbedienung' && id) {
+        // Von der Fernseher-Live-Karte: die Fernbedienung genau dieses
+        // Geräts, nicht bloss sein Raum - wer auf die Karte tippt, will
+        // umschalten, nicht nachsehen. Der Raum kommt trotzdem darunter
+        // auf: Nach dem Schliessen steht man am richtigen Ort.
+        const tv = entities.find((item) => item.id === id);
+        if (!tv) return entities.length > 0;
+        setSection('home');
+        if (tv.room) setRoom(tv.room);
+        setRemoteFuer(tv.id);
       } else if (what === 'timer') {
         // Die Karte des Küchen-Timers: Er wohnt in der Küche (die
         // Kachel steht nur dort). Die Adresse schickte der Hub schon

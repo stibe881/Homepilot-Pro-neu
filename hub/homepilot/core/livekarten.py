@@ -33,7 +33,7 @@ import time
 from typing import Any
 from urllib.parse import quote
 
-from . import laufzeit, liveaktivitaet
+from . import laufzeit, liveaktivitaet, presence
 
 log = logging.getLogger(__name__)
 
@@ -352,6 +352,73 @@ def karten_sauger(entities: list[Any]) -> list[dict[str, Any]]:
     return karten
 
 
+#: Wann ein Fernseher als eingeschaltet gilt. «idle» und «standby»
+#: fehlen bewusst: Ein Cast-Fernseher im Hintergrundbild ist kein
+#: Fernsehabend, und eine Karte dafür wäre Dauermöblierung.
+TV_AN = frozenset({"on", "playing", "paused", "buffering"})
+
+
+def karten_tv(entities: list[Any], ohne: list[str] | None = None) -> list[dict[str, Any]]:
+    """Der laufende Fernseher - ein Tipp öffnet seine Fernbedienung.
+
+    Der Fall dahinter: Man sitzt vor dem Fernseher, das Telefon liegt
+    daneben - und die Fernbedienung ist vier Tipps entfernt (App öffnen,
+    Raum suchen, Kachel, Knopf). Solange er läuft, liegt sie jetzt einen
+    Tipp weit auf dem Sperrbildschirm.
+
+    Fernseher heisst: Medienspieler mit Bildschirm (``has_screen`` -
+    dasselbe Merkmal, an dem auch die App Fernseher von Musikboxen
+    trennt). Die Adresse führt zur Fernbedienung genau dieses Geräts,
+    nicht in den Raum: Wer auf die Karte tippt, will umschalten, nicht
+    nachsehen.
+
+    ``ohne`` sind die Leute, die gerade nachweislich nicht zuhause sind
+    (nicht_zuhause) - für sie liegt keine Karte: Eine Fernbedienung im
+    Zug ist nur eine Karte im Weg.
+    """
+    karten = []
+    for entity in entities:
+        if entity.kind != "media_player" or not entity.state.get("has_screen"):
+            continue
+        if str(entity.state.get("state") or "") not in TV_AN:
+            continue
+        # Die laufende App ist der Text - «Netflix» sagt mehr als «an».
+        app = entity.state.get("app") or entity.state.get("track")
+        karten.append(
+            {
+                "art": f"tv:{entity.id}",
+                "user": None,
+                **({"ohne": list(ohne)} if ohne else {}),
+                "state": {
+                    "titel": entity.label,
+                    "text": str(app) if app else "eingeschaltet",
+                    "symbol": "tv",
+                    "url": f"homepilot://fernbedienung/{quote(str(entity.id))}",
+                },
+            }
+        )
+    return karten
+
+
+def nicht_zuhause(benutzer: list[str], zustaende: dict[str, str]) -> list[str]:
+    """Wer ist nachweislich weg? (rein, testbar)
+
+    «Weg» ist nur, wer ausdrücklich anderswo steht - ``away`` oder ein
+    benannter Ort («schule»). Unbekannt zählt als zuhause: Wessen
+    Telefon gerade nichts meldet (oder wer gar keine Ortung hat), soll
+    die Fernseher-Karte trotzdem bekommen - dieselbe vorsichtige
+    Richtung wie bei «jemand ist zuhause» (presence.anyone_home_state),
+    nur dass hier im Zweifel eine Karte zu viel liegt statt das Haus
+    herunterzufahren.
+    """
+    weg = []
+    for name in benutzer:
+        zustand = str(zustaende.get(name) or presence.UNKNOWN).strip().lower()
+        if zustand not in (presence.HOME, "", presence.UNKNOWN):
+            weg.append(name)
+    return weg
+
+
 def karten_erinnerungen(reminders: Any, jetzt_ms: float) -> list[dict[str, Any]]:
     """Fällige Erinnerungen - je Person, bis sie bestätigt hat.
 
@@ -610,13 +677,41 @@ async def karten_loop(hub: Any) -> None:
             log.exception("Live-Karten: Runde fehlgeschlagen")
 
 
-def _gewuenscht(hub: Any, jetzt_s: float) -> list[dict[str, Any]]:
+def _zonen_zustaende(hub: Any, benutzer: list[str]) -> dict[str, str]:
+    """Je Benutzer der Stand seiner Geofence-Zone («home», «away», Ort).
+
+    Derselbe Weg wie bei der Haustür-Karte (liveaktivitaet._weg_stand):
+    Zone über den Namen finden, Zustand am Zonen-Entity ablesen. Wer
+    keine Zone hat, fehlt im Ergebnis - und zählt damit als zuhause
+    (nicht_zuhause erklärt, warum das die richtige Richtung ist).
+    """
+    geofence = hub.integrations.get("geofence") if hub.integrations else None
+    zones = getattr(geofence, "_zones", None) or {}
+    namen = {
+        zone_id: getattr(hub.registry.get(entity_id), "label", zone_id)
+        for zone_id, entity_id in zones.items()
+    }
+    zustaende: dict[str, str] = {}
+    for name in benutzer:
+        zone_id = presence.zone_fuer(name, namen)
+        if zone_id is None:
+            continue
+        entity = hub.registry.get(zones[zone_id])
+        zustand_roh = (entity.state if entity else {}) or {}
+        zustaende[name] = str(zustand_roh.get("state") or presence.UNKNOWN)
+    return zustaende
+
+
+def _gewuenscht(hub: Any, jetzt_s: float, benutzer: list[str]) -> list[dict[str, Any]]:
     entities = hub.registry.all()
     return [
         *karten_timer(hub.timers.list()),
         *karten_geraete(entities, hub.data.get("appliance_cycles"), jetzt_s),
         *karten_grill(entities),
         *karten_sauger(entities),
+        # Die Fernbedienung nur für die, die zuhause sind - unterwegs
+        # ist sie bloss eine Karte im Weg.
+        *karten_tv(entities, nicht_zuhause(benutzer, _zonen_zustaende(hub, benutzer))),
         *karten_erinnerungen(hub.data.get("family_reminders"), jetzt_s * 1000),
         *karten_alarm(entities, jetzt_s),
     ]
@@ -638,7 +733,7 @@ async def _runde(hub: Any, versand: liveaktivitaet.ApnsVersand) -> None:
     )
     neue, starten, aktualisieren, beenden = abgleich(
         hub.data.get(KARTEN_KEY),
-        _gewuenscht(hub, jetzt),
+        _gewuenscht(hub, jetzt, benutzer),
         benutzer,
         jetzt,
         abbestellt=liveaktivitaet.abbestellte(prefs_rows),

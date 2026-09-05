@@ -11,6 +11,8 @@ from homepilot.core.livekarten import (
     karten_grill,
     karten_sauger,
     karten_timer,
+    karten_tv,
+    nicht_zuhause,
     raum_url,
     registrieren,
     sauger_knoepfe,
@@ -100,6 +102,51 @@ def test_sauger_karte_nur_beim_saugen():
     karten = karten_sauger([unterwegs, daheim])
     assert [k["art"] for k in karten] == ["sauger:roborock.saros"]
     assert karten[0]["state"]["text"] == "saugt · 12.5 m² · Akku 80 %"
+
+
+def test_fernseher_karte_fuehrt_zur_fernbedienung():
+    """Man sitzt vor dem Fernseher, das Telefon daneben - die
+    Fernbedienung soll einen Tipp weit auf dem Sperrbildschirm liegen,
+    nicht vier Tipps tief in der App."""
+    tv = entity(
+        "androidtv.wohnzimmer", "media_player", "Wohnzimmer TV",
+        state="on", has_screen=True, app="Netflix",
+    )
+    karten = karten_tv([tv])
+    assert karten[0]["art"] == "tv:androidtv.wohnzimmer"
+    # Die laufende App als Text: «Netflix» sagt mehr als «an».
+    assert karten[0]["state"]["text"] == "Netflix"
+    assert karten[0]["state"]["symbol"] == "tv"
+    # Der Tipp öffnet die Fernbedienung genau dieses Geräts.
+    assert karten[0]["state"]["url"] == "homepilot://fernbedienung/androidtv.wohnzimmer"
+
+
+def test_fernseher_karte_nur_fuer_laufende_fernseher():
+    aus = entity("tv.aus", "media_player", "TV", state="off", has_screen=True)
+    # Eine Musikbox hat keinen Bildschirm - und keine Fernbedienung.
+    box = entity("sonos.kueche", "media_player", "Küche", state="playing")
+    # Ein Cast-Fernseher im Hintergrundbild ist kein Fernsehabend.
+    leerlauf = entity("tv.idle", "media_player", "TV", state="idle", has_screen=True)
+    assert karten_tv([aus, box, leerlauf]) == []
+
+
+def test_fernseher_karte_nicht_fuer_leute_unterwegs():
+    tv = entity("tv.wz", "media_player", "TV", state="on", has_screen=True)
+    karten = karten_tv([tv], ohne=["Stefan"])
+    assert karten[0]["ohne"] == ["Stefan"]
+    # Ohne Abwesende fehlt der Schlüssel ganz - wie bei den anderen Karten.
+    assert "ohne" not in karten_tv([tv])[0]
+
+
+def test_nicht_zuhause_zaehlt_nur_nachweislich_abwesende():
+    """Unbekannt zählt als zuhause: Wessen Telefon nichts meldet (oder
+    wer keine Ortung hat), soll die Karte trotzdem bekommen - im Zweifel
+    liegt lieber eine Karte zu viel."""
+    zustaende = {"Stefan": "away", "Livia": "schule", "Bine": "home", "Gast": "unknown"}
+    assert nicht_zuhause(["Stefan", "Livia", "Bine", "Gast", "Neu"], zustaende) == [
+        "Stefan",
+        "Livia",
+    ]
 
 
 def test_erinnerungs_karte_folgt_den_regeln_des_vollbilds():
