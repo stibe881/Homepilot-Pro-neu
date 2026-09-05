@@ -54,12 +54,21 @@ export function ablageBefund(modulDa: boolean, zurueckgelesen: boolean): Ablage 
   return zurueckgelesen ? 'ok' : 'fehlt';
 }
 
-/** Steckt das native Ablage-Modul in dieser Hülle? */
+/** Steckt das native Ablage-Modul in dieser Hülle?
+ *
+ *  Nachgesehen wird exakt dort, wo das Paket selbst entscheidet, ob es
+ *  echt schreibt oder still auf Attrappen zurückfällt
+ *  (@bacons/apple-targets, ExtensionStorage.js: `expo.modules
+ *  .ExtensionStorage`). Vorher lief die Frage über
+ *  requireOptionalNativeModule aus dem expo-Paket - ein zweiter Weg zur
+ *  selben Antwort, nur mit eigenen Fehlerquellen. Zwei Stellen, die
+ *  dieselbe Frage verschieden beantworten können, sind eine zu viel:
+ *  Genau hier hing «Hülle zu alt», während der neuste Build installiert
+ *  war. */
 function modulDa(): boolean {
   try {
-    // Erst zur Laufzeit: Im Web gibt es das Modulsystem nicht.
-    const { requireOptionalNativeModule } = require('expo');
-    return requireOptionalNativeModule('ExtensionStorage') != null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (globalThis as any).expo?.modules?.ExtensionStorage != null;
   } catch {
     return false;
   }

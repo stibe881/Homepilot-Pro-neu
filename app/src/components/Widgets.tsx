@@ -350,9 +350,11 @@ export function Widgets({
                   Die installierte App kennt die Widget-Ablage noch nicht –
                   Knöpfe und Hausstand erreichen das Widget deshalb nicht,
                   es bleibt bei den Standardknöpfen. Das kann kein
-                  nachgeladenes Update beheben: Einmal den aktuellen
-                  TestFlight-Build installieren, danach greift alles hier
-                  von selbst.
+                  nachgeladenes Update beheben. Steht das hier auch nach
+                  der Installation des neusten TestFlight-Builds noch, ist
+                  dieser Build selbst zu alt: Erst ein Update mit
+                  «Hub + App-Builds» erzeugt einen neuen – der taucht nach
+                  dem Bauen in TestFlight auf und gehört dann installiert.
                 </Text>
               </View>
             ) : null}
