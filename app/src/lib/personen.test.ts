@@ -60,8 +60,10 @@ describe('Familie und Freunde', () => {
   });
 
   it('unterscheidet Haushalt von bloss geortet', () => {
+    // Die Plakette sagt «Familie», nicht «Geortet»: Maja und Ray sind
+    // Familie, kein Messwert.
     expect(herkunft(person({}))).toBe('Haushalt');
-    expect(herkunft(person({ household: false }))).toBe('Geortet');
+    expect(herkunft(person({ household: false }))).toBe('Familie');
   });
 
   it('stellt den Haushalt nach vorn, behält aber die Reihenfolge des Hubs', () => {
