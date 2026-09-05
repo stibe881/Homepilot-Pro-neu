@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Activity, CommandData, Entity, EntityState } from '../api/types';
 import { uhr, wochentag } from '../lib/format';
@@ -16,6 +16,7 @@ import { trockenSatz } from '../lib/giessen';
 import { Regenstand, balkenHoehen, regenSatz } from '../lib/regen';
 import { boxWechsel } from '../lib/boxwahl';
 import { panelContent, showsRoomPlayer } from '../lib/seitenspalte';
+import { stundenZeilen } from '../lib/stundenwetter';
 import { uvWort } from '../lib/uv';
 import { Colors, radius, type, useColors } from '../theme';
 import { Bar } from './Bar';
@@ -187,9 +188,7 @@ export function wechselQuelle(quelle: Entity) {
   return {
     id: quelle.id,
     kannUmziehen: quelle.commands.includes('play_on'),
-    devices: Array.isArray(quelle.state.devices)
-      ? (quelle.state.devices as string[])
-      : [],
+    devices: Array.isArray(quelle.state.devices) ? (quelle.state.devices as string[]) : [],
     spielt: quelle.state.state === 'playing',
   };
 }
@@ -315,46 +314,51 @@ export function MediaPanel({
           {[...boxen]
             .sort((a, b) => a.name.localeCompare(b.name, 'de'))
             .map((speaker, index) => {
-            const selected =
-              speaker.id === entity.id ||
-              (istQuelle && activeDevice != null && speaker.name === activeDevice);
-            return (
-              <Pressable
-                key={speaker.id}
-                onPress={() => {
-                  onSelect(speaker);
-                  setPickerOpen(false);
-                }}
-                accessibilityRole="radio"
-                accessibilityState={{ selected }}
-                accessibilityLabel={`Musik auf ${speaker.name}`}
-                style={({ pressed }) => [
-                  styles.speakerItem,
-                  index > 0 && styles.speakerItemTrenner,
-                  pressed && { opacity: 0.7 },
-                ]}
-              >
-                <Ionicons
-                  name={
-                    speaker.state.state === 'playing'
-                      ? 'volume-high-outline'
-                      : 'volume-mute-outline'
-                  }
-                  size={15}
-                  color={speaker.state.state === 'playing' ? colors.accent : colors.inkFaint}
-                />
-                <Text
-                  style={[styles.speakerItemText, selected && styles.speakerItemTextActive]}
-                  numberOfLines={1}
+              const selected =
+                speaker.id === entity.id ||
+                (istQuelle && activeDevice != null && speaker.name === activeDevice);
+              return (
+                <Pressable
+                  key={speaker.id}
+                  onPress={() => {
+                    onSelect(speaker);
+                    setPickerOpen(false);
+                  }}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={`Musik auf ${speaker.name}`}
+                  style={({ pressed }) => [
+                    styles.speakerItem,
+                    index > 0 && styles.speakerItemTrenner,
+                    pressed && { opacity: 0.7 },
+                  ]}
                 >
-                  {speaker.name}
-                </Text>
-                {selected ? (
-                  <Ionicons name="checkmark" size={16} color={colors.accent} />
-                ) : null}
-              </Pressable>
-            );
-          })}
+                  <Ionicons
+                    name={
+                      speaker.state.state === 'playing'
+                        ? 'volume-high-outline'
+                        : 'volume-mute-outline'
+                    }
+                    size={15}
+                    color={
+                      speaker.state.state === 'playing' ? colors.accent : colors.inkFaint
+                    }
+                  />
+                  <Text
+                    style={[
+                      styles.speakerItemText,
+                      selected && styles.speakerItemTextActive,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {speaker.name}
+                  </Text>
+                  {selected ? (
+                    <Ionicons name="checkmark" size={16} color={colors.accent} />
+                  ) : null}
+                </Pressable>
+              );
+            })}
         </View>
       ) : null}
       {/* Cover und Titel öffnen, was als Nächstes kommt – aber nur, wenn
@@ -513,86 +517,144 @@ export function ActivityCard({
 }
 
 /** Wetterlage: aktuell gross, darunter die nächsten sieben Tage als
- *  Streifen mit Symbol, Höchst- und Tiefstwert. */
+ *  Streifen mit Symbol, Höchst- und Tiefstwert. Ein Tipp auf die Karte
+ *  klappt den heutigen Tag Stunde für Stunde auf - so gewünscht: «60 %
+ *  heute» sagt nicht, ob der Grillabend trocken bleibt. */
 function WeatherPanel({ entity }: { entity: Entity }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const days: EntityState[] = Array.isArray(entity.state.days) ? entity.state.days : [];
+  const [stunden, setStunden] = useState(false);
+  const stundenListe = stundenZeilen(entity.state.hours);
 
   return (
     <Card style={styles.alertCard}>
-      <View style={styles.weatherNow}>
-        <Ionicons
-          name={
-            (entity.state.icon as keyof typeof Ionicons.glyphMap) ?? 'partly-sunny-outline'
-          }
-          size={40}
-          color={colors.ink}
-        />
-        <View style={{ flex: 1 }}>
-          <Text style={styles.weatherTemp}>
-            {entity.state.temperature != null ? `${entity.state.temperature}°` : '–'}
-          </Text>
-          <Text style={styles.alertSource}>
-            {entity.state.state} · {entity.name}
-          </Text>
+      <Pressable
+        onPress={() => setStunden((offen) => !offen)}
+        accessibilityRole="button"
+        accessibilityLabel={
+          stunden ? 'Stündliches Wetter verbergen' : 'Stündliches Wetter für heute anzeigen'
+        }
+        style={styles.weatherPress}
+      >
+        <View style={styles.weatherNow}>
+          <Ionicons
+            name={
+              (entity.state.icon as keyof typeof Ionicons.glyphMap) ??
+              'partly-sunny-outline'
+            }
+            size={40}
+            color={colors.ink}
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.weatherTemp}>
+              {entity.state.temperature != null ? `${entity.state.temperature}°` : '–'}
+            </Text>
+            <Text style={styles.alertSource}>
+              {entity.state.state} · {entity.name}
+            </Text>
+          </View>
         </View>
-      </View>
 
-      {/* Die Frage am Fenster: Muss die Wäsche jetzt herein? Die
+        {/* Die Frage am Fenster: Muss die Wäsche jetzt herein? Die
           Wochenzeile darunter beantwortet sie nicht (lib/regen.ts). */}
-      {regenSatz(entity.state.rain as Regenstand | undefined) ? (
-        <Text style={styles.regen}>
-          {regenSatz(entity.state.rain as Regenstand | undefined)}
-        </Text>
-      ) : null}
-      <RegenBalken stand={entity.state.rain as Regenstand | undefined} />
-      {/* Der UV-Index, sobald er etwas sagt: ab «mässig» als Zeile, ab
+        {regenSatz(entity.state.rain as Regenstand | undefined) ? (
+          <Text style={styles.regen}>
+            {regenSatz(entity.state.rain as Regenstand | undefined)}
+          </Text>
+        ) : null}
+        <RegenBalken stand={entity.state.rain as Regenstand | undefined} />
+        {/* Der UV-Index, sobald er etwas sagt: ab «mässig» als Zeile, ab
           «hoch» in Warnfarbe. Unter 3 steht nichts - eine Zahl, die
           immer da ist, liest bald niemand mehr (hub/core/uvwarnung.py
           brummt aus demselben Grund erst ab «hoch»). */}
-      {uvWort(entity.state.uv_today) ? (
-        <Text
-          style={[
-            styles.uv,
-            Number(entity.state.uv_today) >= 6 && { color: colors.warn },
-          ]}
-        >
-          UV heute {uvWort(entity.state.uv_today)} ({String(entity.state.uv_today)})
-          {Number(entity.state.uv_today) >= 6 ? ' · eincremen' : ''}
-        </Text>
-      ) : null}
+        {uvWort(entity.state.uv_today) ? (
+          <Text
+            style={[
+              styles.uv,
+              Number(entity.state.uv_today) >= 6 && { color: colors.warn },
+            ]}
+          >
+            UV heute {uvWort(entity.state.uv_today)} ({String(entity.state.uv_today)})
+            {Number(entity.state.uv_today) >= 6 ? ' · eincremen' : ''}
+          </Text>
+        ) : null}
 
-      {/* Und die andere Richtung: Wie lange es *nicht* geregnet hat.
+        {/* Und die andere Richtung: Wie lange es *nicht* geregnet hat.
           Der Hub erinnert abends ans Giessen (hub/core/giessen.py) - hier
           steht dieselbe Auskunft dort, wo man ohnehin nachsieht. */}
-      {trockenSatz(entity.state.dry_days, entity.state.rain_next) ? (
-        <Text style={styles.trocken}>
-          {trockenSatz(entity.state.dry_days, entity.state.rain_next)} · giessen
-        </Text>
-      ) : null}
+        {trockenSatz(entity.state.dry_days, entity.state.rain_next) ? (
+          <Text style={styles.trocken}>
+            {trockenSatz(entity.state.dry_days, entity.state.rain_next)} · giessen
+          </Text>
+        ) : null}
 
-      {days.length > 0 ? (
-        <View style={styles.weekRow}>
-          {days.map((day, index) => (
-            <View key={day.date ?? index} style={styles.dayCol}>
-              <Text style={styles.dayName}>
-                {index === 0 ? 'Heute' : weekdayShort(day.date)}
-              </Text>
-              <Ionicons
-                name={(day.icon as keyof typeof Ionicons.glyphMap) ?? 'cloud-outline'}
-                size={20}
-                color={colors.inkSoft}
-              />
-              <Text style={styles.dayHigh}>{day.high != null ? `${day.high}°` : '–'}</Text>
-              <Text style={styles.dayLow}>{day.low != null ? `${day.low}°` : ''}</Text>
-              {day.rain != null && day.rain >= 20 ? (
-                <Text style={styles.dayRain}>{day.rain}%</Text>
-              ) : null}
-            </View>
-          ))}
-        </View>
-      ) : null}
+        {/* Aufgeklappt: der heutige Tag Stunde für Stunde, seitlich
+          wischbar. Bewusst dieselbe Spaltenform wie die Wochenzeile
+          darunter - eine Karte, ein Vokabular. */}
+        {stunden ? (
+          stundenListe.length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              accessibilityLabel="Heute Stunde für Stunde"
+            >
+              <View style={styles.hourRow}>
+                {stundenListe.map((stunde) => (
+                  <View key={stunde.zeit} style={[styles.dayCol, styles.hourCol]}>
+                    <Text style={styles.dayName}>{stunde.zeit}</Text>
+                    <Ionicons
+                      name={
+                        (stunde.icon as keyof typeof Ionicons.glyphMap) ?? 'cloud-outline'
+                      }
+                      size={20}
+                      color={colors.inkSoft}
+                    />
+                    <Text style={styles.dayHigh}>
+                      {stunde.temp != null ? `${stunde.temp}°` : '–'}
+                    </Text>
+                    {stunde.rain != null && stunde.rain >= 20 ? (
+                      <Text style={styles.dayRain}>{stunde.rain}%</Text>
+                    ) : null}
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+          ) : (
+            // Ein Hub von vor dieser Funktion schickt keine Stundenwerte.
+            // Dann steht hier, woran es liegt - eine Karte, die auf den
+            // Tipp einfach nichts tut, sieht kaputt aus.
+            <Text style={styles.hourHint}>
+              Stundenwerte kennt erst der neue Hub - einmal aktualisieren (Einstellungen →
+              System → Update).
+            </Text>
+          )
+        ) : null}
+
+        {days.length > 0 ? (
+          <View style={styles.weekRow}>
+            {days.map((day, index) => (
+              <View key={day.date ?? index} style={styles.dayCol}>
+                <Text style={styles.dayName}>
+                  {index === 0 ? 'Heute' : weekdayShort(day.date)}
+                </Text>
+                <Ionicons
+                  name={(day.icon as keyof typeof Ionicons.glyphMap) ?? 'cloud-outline'}
+                  size={20}
+                  color={colors.inkSoft}
+                />
+                <Text style={styles.dayHigh}>
+                  {day.high != null ? `${day.high}°` : '–'}
+                </Text>
+                <Text style={styles.dayLow}>{day.low != null ? `${day.low}°` : ''}</Text>
+                {day.rain != null && day.rain >= 20 ? (
+                  <Text style={styles.dayRain}>{day.rain}%</Text>
+                ) : null}
+              </View>
+            ))}
+          </View>
+        ) : null}
+      </Pressable>
     </Card>
   );
 }
@@ -779,6 +841,15 @@ const makeStyles = (colors: Colors) =>
     },
     volumeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     alertCard: { gap: 12, minHeight: 0 },
+    // Übernimmt den Abstand der Karte: Seit dem Tipp-zum-Aufklappen ist
+    // die ganze Wetterkarte ein Pressable, und `gap` wirkt nur auf
+    // direkte Kinder.
+    weatherPress: { gap: 12 },
+    hourRow: { flexDirection: 'row', gap: 10, paddingRight: 4 },
+    // In der wischbaren Reihe darf keine Spalte wachsen - `flex: 1` aus
+    // der Wochenzeile presste sonst alle Stunden in die Kartenbreite.
+    hourCol: { flex: 0, minWidth: 44 },
+    hourHint: { color: colors.inkFaint, fontSize: 12, lineHeight: 17 },
     activityCard: { gap: 12, minHeight: 0, flexShrink: 1 },
     alertHead: {
       flexDirection: 'row',

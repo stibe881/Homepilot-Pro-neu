@@ -18,6 +18,14 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   gegen Protects Ereignis-Stakkato gilt eine Sperrfrist von zwei
   Minuten je Kamera.
 
+- **Ein Tipp auf die Wetterkarte zeigt den heutigen Tag Stunde für
+  Stunde.** Temperatur, Symbol und Regenwahrscheinlichkeit je Stunde,
+  seitlich wischbar, in derselben Spaltenform wie die Wochenzeile -
+  nur die restlichen Stunden von heute, was vorbei ist, braucht keine
+  Vorhersage mehr. Ein zweiter Tipp klappt sie wieder zu. Die Werte
+  kommen von Open-Meteo über den Hub; ein Hub von vor dieser Funktion
+  sagt beim Aufklappen, dass ihm die Stundenwerte noch fehlen.
+
 **Behoben**
 
 - **Zwei gleiche Türkarten auf dem Sperrbildschirm.** Diesmal lag es

@@ -945,6 +945,47 @@ def test_weather_parse_forecast():
     assert state["days"][1]["text"] == "Regenschauer"
 
 
+def test_weather_hours_zeigen_den_rest_des_tages():
+    """Der Tipp auf die Wetterkarte: heute Stunde für Stunde.
+
+    Open-Meteo liefert in der Stundenliste die Vergangenheitstage und
+    die ganze Woche voraus - übrig bleiben darf nur der Rest von heute,
+    einschliesslich der angebrochenen Stunde: In der steht man gerade.
+    """
+    from datetime import datetime
+
+    from homepilot.integrations.weather import stunden_heute
+
+    hourly = {
+        "time": [
+            "2026-08-14T18:00",  # gestern
+            "2026-08-15T11:00",  # vorbei
+            "2026-08-15T12:00",  # die angebrochene Stunde
+            "2026-08-15T13:00",
+            "2026-08-16T00:00",  # morgen - dafür ist die Wochenzeile da
+        ],
+        "temperature_2m": [19.0, 24.4, 26.8, 27.2, 17.0],
+        "weather_code": [3, 1, 0, 80, 0],
+        "precipitation_probability": [10, 0, 0, 55, 0],
+    }
+    zeilen = stunden_heute(hourly, datetime(2026, 8, 15, 12, 35))
+    assert [zeile["time"] for zeile in zeilen] == [
+        "2026-08-15T12:00",
+        "2026-08-15T13:00",
+    ]
+    assert zeilen[0] == {
+        "time": "2026-08-15T12:00",
+        "temp": 27,
+        "text": "Klar",
+        "icon": "sunny-outline",
+        "rain": 0,
+    }
+    assert zeilen[1]["text"] == "Regenschauer"
+    assert zeilen[1]["rain"] == 55
+    # Ohne Stundenwerte in der Antwort: eine leere Liste, kein Fehler.
+    assert stunden_heute(None, datetime(2026, 8, 15, 12, 35)) == []
+
+
 def test_weather_unknown_code_stays_neutral():
     from homepilot.integrations.weather import describe_code
 

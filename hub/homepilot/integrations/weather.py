@@ -73,6 +73,42 @@ def describe_code(code: Any) -> tuple[str, str]:
         return ("—", "cloud-outline")
 
 
+def stunden_heute(hourly: Any, jetzt: datetime) -> list[dict[str, Any]]:
+    """Die restlichen Stunden des heutigen Tages (rein, testbar).
+
+    Für die aufgeklappte Wetterkarte: Ein Tipp darauf soll sagen, wie
+    der Tag wird - Stunde für Stunde. Vergangene Stunden fallen weg
+    (nur die angebrochene bleibt: In ihr steht man ja gerade), und
+    morgen auch - dafür ist die Wochenzeile da. Open-Meteo liefert in
+    derselben Liste nämlich beides, die Vergangenheitstage (past_days)
+    und die ganze Woche voraus.
+    """
+    if not isinstance(hourly, dict):
+        return []
+    times = hourly.get("time") or []
+    temps = hourly.get("temperature_2m") or []
+    codes = hourly.get("weather_code") or []
+    rain = hourly.get("precipitation_probability") or []
+    ab = jetzt.replace(minute=0, second=0, microsecond=0)
+    heute = jetzt.date()
+    zeilen: list[dict[str, Any]] = []
+    for index, roh in enumerate(times):
+        zeit = _zeitpunkt(roh)
+        if zeit is None or zeit < ab or zeit.date() != heute:
+            continue
+        text, icon = describe_code(codes[index] if index < len(codes) else None)
+        zeilen.append(
+            {
+                "time": str(roh),
+                "temp": _round(temps[index] if index < len(temps) else None),
+                "text": text,
+                "icon": icon,
+                "rain": rain[index] if index < len(rain) else None,
+            }
+        )
+    return zeilen
+
+
 def parse_forecast(
     payload: dict[str, Any], jetzt: datetime | None = None
 ) -> dict[str, Any]:
@@ -123,6 +159,10 @@ def parse_forecast(
         "icon": icon,
         "temperature": _round(current.get("temperature_2m")),
         "days": days_out,
+        # Der heutige Tag Stunde für Stunde - die Antwort auf den Tipp
+        # auf die Wetterkarte. Nur die restlichen Stunden: Was vorbei
+        # ist, braucht keine Vorhersage mehr.
+        "hours": stunden_heute(payload.get("hourly"), jetzt),
         # Der Tageshöchstwert heute, griffbereit: Die Karte und der
         # Morgen-Hinweis fragen genau danach, nicht nach der Woche.
         "uv_today": days_out[0]["uv"] if days_out else None,
@@ -198,6 +238,10 @@ class WeatherIntegration(Integration):
             # bei Open-Meteo nicht, und feiner tun als die Quelle wäre
             # eine erfundene Zahl (core/regen.py).
             "minutely_15": "precipitation",
+            # Stundenwerte für die aufgeklappte Wetterkarte: Wie wird
+            # der heutige Tag? Der Parser behält nur die restlichen
+            # Stunden von heute (stunden_heute).
+            "hourly": "temperature_2m,weather_code,precipitation_probability",
             "daily": "weather_code,temperature_2m_max,temperature_2m_min,"
             "precipitation_probability_max,uv_index_max,precipitation_sum",
             # Fünf Tage zurück: Daraus rechnet sich, wie lange es nicht
