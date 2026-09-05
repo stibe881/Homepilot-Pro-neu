@@ -294,3 +294,39 @@ def test_abort_is_announced_and_knows_when_it_is_too_late(monkeypatch, credentia
     moeglich, grund = listener.abbruch_moeglich("idle", None)
     assert not moeglich
     assert "kein Bau" in grund
+
+
+def test_die_vorschau_liest_betreffzeilen_und_zugangswerte(monkeypatch, credentials, tmp_path):
+    """Die Bausteine der Update-Vorschau: GitHub-Antworten und Zugangsdatei.
+
+    «Update wirklich starten?» soll sagen, was das Update bringt - die
+    Betreffzeilen holt dieser Dienst bei GitHub. Hier steht fest, wie er
+    GitHubs Listen liest (nur die erste Zeile jeder Nachricht, Unsinn
+    fällt raus) und dass er die Zugangsdatei samt Anführungszeichen und
+    Wagenrückläufen verkraftet.
+    """
+    listener = load_listener(monkeypatch, credentials, None)
+    assert "preview" in listener.FEATURES
+
+    commits = [
+        {"commit": {"message": "Joyn auf der Fernbedienung\n\nLanger Text"}},
+        {"commit": {"message": "Stopp-Knopf auf den Medienkarten"}},
+        {"commit": {"message": ""}},
+        "unsinn",
+        None,
+    ]
+    assert listener.betreffzeilen(commits) == [
+        "Joyn auf der Fernbedienung",
+        "Stopp-Knopf auf den Medienkarten",
+    ]
+    assert listener.betreffzeilen(None) == []
+
+    datei = tmp_path / "zugang.env"
+    datei.write_text(
+        'GITHUB_TOKEN="geheim"\r\nHOMEPILOT_BRANCH=main\nKAPUTT\n', encoding="utf-8"
+    )
+    werte = listener.zugangswerte_lesen(str(datei))
+    assert werte["GITHUB_TOKEN"] == "geheim"
+    assert werte["HOMEPILOT_BRANCH"] == "main"
+    # Eine fehlende Datei ist kein Fehler, nur eine leere Auskunft.
+    assert listener.zugangswerte_lesen(str(tmp_path / "fehlt.env")) == {}

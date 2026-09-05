@@ -50,6 +50,10 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from typing import Any
 
 # Nur auf dem Docker-Bridge-Gateway lauschen, nicht auf allen Adressen.
 # Damit ist der Dienst aus den Containern erreichbar, aber nicht aus dem
@@ -68,7 +72,10 @@ WATCHDOG_SECONDS = 3600
 # der Dienst auf dem Server zu alt ist – statt eines nackten „404 Nicht
 # gefunden", das in die falsche Richtung zeigt. Neue Fähigkeiten kommen
 # hier dazu, damit die App sie ankündigen kann, bevor sie ins Leere läuft.
-FEATURES = ["status", "warnings", "ios", "last_run", "abort"]
+FEATURES = ["status", "warnings", "ios", "last_run", "abort", "preview"]
+
+#: Woraus gebaut wird - für die Vorschau «was bringt ein Update».
+REPO = os.environ.get("UPDATE_REPO", "stibe881/Homepilot-Pro-neu")
 
 # Wohin der Ausgang des letzten Laufs geschrieben wird. Der Status oben
 # lebt im Arbeitsspeicher und ist nach jedem Neustart des Dienstes weg -
@@ -111,6 +118,111 @@ def has_expo_token() -> bool:
 
 
 log = logging.getLogger("update-listener")
+
+
+def zugangswerte_lesen(pfad: str) -> dict[str, str]:
+    """Die Zugangsdatei als Wörterbuch (rein genug - liest nur).
+
+    Dieselbe Datei, aus der auch rebuild-hub.sh liest. Anführungszeichen
+    und Wagenrückläufe werden abgestreift - wer die Datei einmal unter
+    Windows bearbeitet hat, hat CRLF drin, und «Token\\r» ist bei GitHub
+    keiner.
+    """
+    werte: dict[str, str] = {}
+    try:
+        with open(pfad, encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                name, _, value = line.strip().partition("=")
+                if name.strip():
+                    werte[name.strip()] = value.strip().strip("\"'").rstrip("\r")
+    except OSError:
+        pass
+    return werte
+
+
+def betreffzeilen(commits: Any) -> list[str]:
+    """Die Betreffzeilen aus GitHubs Commit-Listen (rein, testbar).
+
+    Nimmt beides an: die Liste aus /compare (älteste zuerst) wie die aus
+    /commits (neueste zuerst) - die Reihenfolge richtet der Aufrufer.
+    """
+    zeilen: list[str] = []
+    for commit in commits or []:
+        if not isinstance(commit, dict):
+            continue
+        message = ((commit.get("commit") or {}).get("message")) or ""
+        betreff = str(message).splitlines()[0].strip() if message else ""
+        if betreff:
+            zeilen.append(betreff)
+    return zeilen
+
+
+def _github(pfad: str, token: str) -> Any:
+    request = urllib.request.Request(
+        f"https://api.github.com{pfad}",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "homepilot-update-listener",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=10) as antwort:
+        return json.load(antwort)
+
+
+#: Die letzte Vorschau, kurz gemerkt: Wer den Update-Dialog zweimal
+#: öffnet, soll GitHub nicht zweimal in der Minute fragen.
+_vorschau_cache: tuple[float, str, dict] | None = None
+
+
+def vorschau(ab: str) -> dict[str, Any]:
+    """Was ein Update jetzt brächte: Betreffzeilen seit dem Stand ``ab``.
+
+    Der Hub kennt sein Git nicht, und das Bau-Skript klont erst beim
+    Bauen - die Frage «was käme?» kann vorher nur dieser Dienst
+    beantworten, mit den GitHub-Zugängen, die ohnehin auf dem Host
+    liegen. Kennt GitHub den laufenden Stand nicht (eine örtliche
+    Zusammenführung), kommen ersatzweise die jüngsten Betreffzeilen des
+    Zweigs, als ``exact: false`` gekennzeichnet.
+    """
+    global _vorschau_cache
+    jetzt = time.time()
+    if _vorschau_cache and _vorschau_cache[1] == ab and jetzt - _vorschau_cache[0] < 60:
+        return _vorschau_cache[2]
+
+    werte = zugangswerte_lesen(CREDENTIALS_FILE)
+    token = os.environ.get("GITHUB_TOKEN", "").strip() or werte.get("GITHUB_TOKEN", "")
+    branch = (
+        os.environ.get("HOMEPILOT_BRANCH", "").strip()
+        or werte.get("HOMEPILOT_BRANCH", "")
+        or "main"
+    )
+    if not token:
+        return {"error": "Auf dem Host liegt kein GITHUB_TOKEN"}
+
+    daten: dict[str, Any]
+    if ab and ab != "unbekannt":
+        try:
+            payload = _github(f"/repos/{REPO}/compare/{ab}...{branch}", token)
+            # /compare liefert älteste zuerst - die App zeigt wie
+            # changes.txt das Neueste zuoberst.
+            daten = {
+                "commits": list(reversed(betreffzeilen(payload.get("commits")))),
+                "exact": True,
+                "branch": branch,
+            }
+            _vorschau_cache = (jetzt, ab, daten)
+            return daten
+        except urllib.error.HTTPError as err:
+            if err.code != 404:
+                raise
+            # 404: GitHub kennt den laufenden Stand nicht - weiter unten
+            # der Rückfall auf die jüngsten Zeilen.
+
+    payload = _github(f"/repos/{REPO}/commits?sha={branch}&per_page=10", token)
+    daten = {"commits": betreffzeilen(payload), "exact": False, "branch": branch}
+    _vorschau_cache = (jetzt, ab, daten)
+    return daten
 
 # Damit nicht zwei Bauläufe gleichzeitig starten, wenn jemand zweimal tippt.
 _running = threading.Lock()
@@ -551,6 +663,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
         )
 
     def do_GET(self) -> None:
+        pfad, _, query = self.path.partition("?")
+        if pfad.rstrip("/") == "/vorschau":
+            # Derselbe Schutz wie /status: Commit-Betreffzeilen eines
+            # privaten Repos gehen nicht ohne das geteilte Geheimnis raus.
+            if not self._authorized():
+                self._answer(403, "Nicht erlaubt\n")
+                return
+            ab = (urllib.parse.parse_qs(query).get("ab") or [""])[0]
+            try:
+                daten = vorschau(ab)
+            except Exception as err:
+                # GitHub nicht erreichbar, Token abgelaufen - der Grund
+                # steht im Journal, die App fällt auf ihren alten Text
+                # zurück statt eine kaputte Liste zu zeigen.
+                log.warning("Vorschau fehlgeschlagen: %s", err)
+                daten = {"error": str(err)}
+            body = json.dumps(daten).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path.rstrip("/") == "/status":
             # Derselbe Schutz wie /update: Der Stand eines Baus (welcher
             # Commit, welche Fehlermeldung) ist nichts, was ohne das

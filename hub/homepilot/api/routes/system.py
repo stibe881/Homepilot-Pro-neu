@@ -518,6 +518,42 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             ) from err
         return {"ok": True, "message": text}
 
+    @app.get("/api/system/update/vorschau")
+    async def update_vorschau(request: Request) -> dict[str, Any]:
+        """Was ein Update jetzt brächte - für den Bestätigungs-Dialog.
+
+        Der Hub kennt sein Git nicht; die Antwort holt der Update-Dienst
+        auf dem Host bei GitHub (Betreffzeilen seit dem laufenden Stand).
+        Ohne Dienst, mit alter Fassung oder ohne Antwort: available:false
+        - die App zeigt dann ihren bisherigen Erklärtext, keine Lücke.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        url = str((hub.config.update or {}).get("webhook_url") or "")
+        if not url.rstrip("/").endswith("/update"):
+            return {"available": False}
+        commit = os.environ.get("HOMEPILOT_COMMIT", "unbekannt")
+        vorschau_url = (
+            url.rstrip("/")[: -len("/update")] + "/vorschau?ab=" + commit
+        )
+        secret = str((hub.config.update or {}).get("token") or "")
+        headers = {"Authorization": f"Bearer {secret}"} if secret else {}
+        try:
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(vorschau_url, headers=headers) as response:
+                    if response.status != 200:
+                        return {"available": False}
+                    data = await response.json(content_type=None)
+        except Exception:
+            return {"available": False}
+        if not isinstance(data, dict) or data.get("error") or "commits" not in data:
+            return {"available": False}
+        return {
+            "available": True,
+            "commits": [str(zeile) for zeile in (data.get("commits") or [])],
+            "exact": bool(data.get("exact")),
+        }
+
     @app.get("/api/system/update/status")
     async def update_status(request: Request) -> dict[str, Any]:
         """Live-Fortschritt des Host-Baus, für einen Fortschrittsbalken in der App.

@@ -25,6 +25,7 @@ import { ConfigCard } from './system/konfiguration';
 import { datumUhr } from '../lib/format';
 import { integrationDetail } from '../lib/integrationszeile';
 import { LaufArt, LetzterLauf, letzterLaufSatz } from '../lib/letzterlauf';
+import { UpdateVorschau, vorschauZeilen } from '../lib/updatevorschau';
 import { fehlerZeilen, letzterStartfehler, startfehlerListe } from '../lib/startfehler';
 import { localTime, timeAgo } from '../lib/zeit';
 import { Colors, radius, space, type, useColors } from '../theme';
@@ -974,6 +975,21 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
   // EAS-Kontingent und erzeugt eine neue TestFlight-Fassung - das soll
   // eine bewusste Wahl sein, kein Nebeneffekt jedes Updates.
   const [asking, setAsking] = useState(false);
+  // Was das Update brächte - geholt beim Öffnen der Rückfrage. Der Hub
+  // reicht die Frage an den Update-Dienst auf dem Host weiter, der bei
+  // GitHub nachsieht. Ohne Antwort bleibt der bisherige Erklärtext.
+  const [vorschau, setVorschau] = useState<UpdateVorschau | null>(null);
+
+  const frageOeffnen = () => {
+    setAsking(true);
+    setVorschau(null);
+    fetch(`${settings.url}/api/system/update/vorschau`, { headers })
+      .then((response) => (response.ok ? response.json() : null))
+      // Auch «keine Antwort» ist eine Antwort - sonst stünde der Dialog
+      // bei einem älteren Hub für immer auf «hole …».
+      .then((data) => setVorschau((data as UpdateVorschau) ?? { available: false }))
+      .catch(() => setVorschau({ available: false }));
+  };
 
   const run = async (ios: boolean) => {
     setAsking(false);
@@ -1061,7 +1077,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
   return (
     <>
       <Pressable
-        onPress={() => setAsking(true)}
+        onPress={frageOeffnen}
         disabled={busy}
         accessibilityRole="button"
         style={({ pressed }) => [styles.updateButton, pressed && { opacity: 0.8 }]}
@@ -1073,12 +1089,57 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
       {asking ? (
         <View style={styles.updateAsk}>
           <Text style={styles.updateAskTitle}>Update wirklich starten?</Text>
-          <Text style={styles.updateAskText}>
-            Der Host holt den neusten Stand, baut den Hub neu und startet ihn – das dauert
-            ein paar Minuten, die App ist dabei kurz getrennt. «Hub + App-Builds» reicht die
-            App zusätzlich über EAS bei App Store Connect und der Google Play Console ein;
-            das braucht es nur, wenn sich an der App selbst etwas geändert hat.
-          </Text>
+          {/* Statt zu erklären, wie das Update funktioniert, steht hier,
+              was es bringt: die Betreffzeilen seit dem laufenden Stand
+              (Update-Dienst → GitHub). Nur wenn es die Auskunft nicht
+              gibt - älterer Dienst, keine Antwort -, bleibt der alte
+              Erklärtext; besser der als eine Lücke. */}
+          {(() => {
+            const inhalt = vorschauZeilen(vorschau);
+            if (vorschau === null) {
+              return (
+                <Text style={styles.updateAskText}>
+                  Hole, was dieses Update bringt …
+                </Text>
+              );
+            }
+            if (inhalt.art === 'nichts') {
+              return (
+                <Text style={styles.updateAskText}>
+                  Auf dem Server liegt nichts Neues – ein Update baut denselben Stand
+                  neu und startet den Hub kurz durch.
+                </Text>
+              );
+            }
+            if (inhalt.art === 'keine') {
+              return (
+                <Text style={styles.updateAskText}>
+                  Der Host holt den neusten Stand, baut den Hub neu und startet ihn –
+                  das dauert ein paar Minuten, die App ist dabei kurz getrennt.
+                  «Hub + App-Builds» reicht die App zusätzlich über EAS bei App Store
+                  Connect und der Google Play Console ein; das braucht es nur, wenn
+                  sich an der App selbst etwas geändert hat.
+                </Text>
+              );
+            }
+            return (
+              <>
+                <Text style={styles.updateAskText}>
+                  {inhalt.art === 'genau'
+                    ? 'Das bringt dieses Update:'
+                    : 'Die jüngsten Änderungen (der laufende Stand liess sich nicht genau vergleichen):'}
+                </Text>
+                <Text style={styles.updateAskText}>
+                  {inhalt.zeilen.map((zeile) => `· ${zeile}`).join('\n')}
+                  {inhalt.mehr > 0 ? `\n… und ${inhalt.mehr} weitere` : ''}
+                </Text>
+                <Text style={styles.updateAskHint}>
+                  Die App ist während des Updates kurz getrennt. «Hub + App-Builds»
+                  reicht die App zusätzlich bei TestFlight und Google Play ein.
+                </Text>
+              </>
+            );
+          })()}
           <View style={styles.updateAskRow}>
             <Pressable
               onPress={() => setAsking(false)}
@@ -2069,6 +2130,9 @@ const makeStyles = (colors: Colors) =>
     smallActionText: { color: colors.inkSoft, fontSize: 12, fontWeight: '700' },
     updateAskTitle: { color: colors.ink, fontSize: 14, fontWeight: '700' },
     updateAskText: { color: colors.inkSoft, fontSize: 12, lineHeight: 18 },
+    // Blasser als die Liste darüber: Das Organisatorische soll den
+    // Neuerungen nicht die Schau stehlen.
+    updateAskHint: { color: colors.inkFaint, fontSize: 11, lineHeight: 16 },
     updateAskRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     updateAskButton: {
       paddingVertical: 9,
