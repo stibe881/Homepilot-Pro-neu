@@ -6,12 +6,17 @@
 #
 # Hub und App laufen getrennt: Wer nur an der App arbeitet, wartet nicht
 # auf den Hub, und die Ausgabe sagt sofort, welche Seite klemmt.
+#
+# Nur auf main: Alle Zweige tragen hier denselben Stand (deploy/zweige.py
+# hält sie gleichauf), und vorher lief jeder Commit elfmal - ein roter
+# Commit hiess elf gleiche Fehlermails vor dem Frühstück. main ist der
+# Stand, der im Haus läuft; einmal geprüft ist geprüft.
 
 name: Prüfung
 
 on:
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
   workflow_dispatch:
 

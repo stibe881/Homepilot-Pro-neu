@@ -9,6 +9,7 @@ Push-Weg über ``init``/``event``.
 from __future__ import annotations
 
 import asyncio
+import http.client
 import socket
 import subprocess
 import sys
@@ -118,15 +119,32 @@ async def test_initial_state_is_read_from_ccu(ccu):
         await hub.stop()
 
 
+def _ccu_meldet_an(port: int) -> bool:
+    """Fragt die CCU mit einer **frischen** Verbindung, ob STATE an ist.
+
+    Eine frische je Poll, mit Absicht: Der ServerProxy hält sonst eine
+    einzige HTTP-Verbindung, und bleibt die nach einem abgebrochenen
+    Versuch im Zustand «Request-sent» hängen, wirft jeder weitere Poll
+    CannotSendRequest - so fiel dieser Test in der Prüfung um, während
+    der Schaltbefehl längst angekommen war. Ein Fehlversuch zählt als
+    «noch nicht», nicht als Absturz; ob es wirklich nie klappt, sagt der
+    Timeout von _wait_until.
+    """
+    try:
+        with xmlrpc.client.ServerProxy(f"http://127.0.0.1:{port}") as proxy:
+            return proxy.getValue(CHANNEL, "STATE") is True
+    except (OSError, http.client.HTTPException, xmlrpc.client.Error):
+        return False
+
+
 async def test_command_reaches_the_ccu(ccu):
     hub = await make_hub(ccu)
-    proxy = xmlrpc.client.ServerProxy(f"http://127.0.0.1:{ccu}")
     try:
         await hub.integrations.dispatch_command(ENTITY_ID, "turn_on")
 
         # Der Wert muss tatsächlich in der CCU stehen, nicht nur im Hub.
         assert await _wait_until(
-            lambda: proxy.getValue(CHANNEL, "STATE") is True
+            lambda: _ccu_meldet_an(ccu)
         ), "Schaltbefehl kam nicht bei der CCU an"
 
         # …und über den Event-Rückweg im Hub landen.
