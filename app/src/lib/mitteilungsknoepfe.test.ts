@@ -1,6 +1,7 @@
 import {
   KNOPF_ERLEDIGT,
   KNOPF_ICHMACHS,
+  KNOPF_PASST,
   KNOPF_SPAETER,
   knopfHandlung,
 } from './mitteilungsknoepfe';
@@ -23,5 +24,13 @@ describe('knopfHandlung', () => {
 describe('«Ich mach’s»', () => {
   it('kommt als eigene Handlung zurück', () => {
     expect(knopfHandlung(KNOPF_ICHMACHS)).toBe('ichmachs');
+  });
+});
+
+describe('«Passt so»', () => {
+  it('kommt als eigene Handlung zurück', () => {
+    // Der Knopf unter «steht offen»: Die Türe steht absichtlich offen -
+    // für diese Öffnung ist Ruhe, samt zurückgelegter Erinnerungen.
+    expect(knopfHandlung(KNOPF_PASST)).toBe('passt');
   });
 });

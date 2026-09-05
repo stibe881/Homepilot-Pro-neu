@@ -43,7 +43,7 @@ export interface Tap {
 
 /** Ein Griff aus der Mitteilung heraus – samt dem, was drinstand. */
 export interface Knopfdruck {
-  handlung: 'spaeter' | 'erledigt' | 'ichmachs';
+  handlung: 'spaeter' | 'erledigt' | 'ichmachs' | 'passt';
   title: string;
   body: string;
   category?: string;

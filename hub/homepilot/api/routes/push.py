@@ -37,6 +37,7 @@ from ..models import (
     LiveActivityTokenRequest,
     NotifyRuleRequest,
     PushPrefsRequest,
+    PushQuittierenRequest,
     PushRegistration,
     PushSnoozeRequest,
 )
@@ -344,6 +345,24 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             ),
         )
         return {"ok": True, "minutes": spaeter.minuten_pruefen(body.minutes)}
+
+    @app.post("/api/push/quittieren")
+    async def quittiere_push(
+        body: PushQuittierenRequest, request: Request
+    ) -> dict[str, Any]:
+        """«Passt so» aus der Mitteilung heraus - für die offene Türe.
+
+        Die steht oft absichtlich offen; quittieren heisst: Ruhe für
+        diese Öffnung. Der Wächter meldet ohnehin einmal je Öffnung -
+        auszutragen ist nur, was diese Person selbst mit «Später»
+        zurückgelegt hat. Erst zu und wieder offen beginnt von vorn.
+        """
+        user = current_user(request)
+        hub.data.set(
+            spaeter.SCHLANGE,
+            spaeter.austragen(hub.data.get(spaeter.SCHLANGE), body.title, user.name),
+        )
+        return {"ok": True}
 
     @app.post("/api/push/unregister")
     async def unregister_push(body: PushRegistration, request: Request) -> dict[str, Any]:

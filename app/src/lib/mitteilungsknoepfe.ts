@@ -22,11 +22,13 @@ import { Platform } from 'react-native';
 export const KATEGORIE_SPAETER = 'spaeter';
 export const KATEGORIE_ERLEDIGT = 'erledigt';
 export const KATEGORIE_WAESCHE = 'waesche';
+export const KATEGORIE_OFFEN = 'offen';
 
 /** Die Knöpfe selbst – die Kennung reist mit der Antwort zurück. */
 export const KNOPF_SPAETER = 'spaeter30';
 export const KNOPF_ERLEDIGT = 'erledigt';
 export const KNOPF_ICHMACHS = 'ichmachs';
+export const KNOPF_PASST = 'passtso';
 
 /**
  * Was dieser Knopf bedeutet (rein, testbar).
@@ -38,10 +40,11 @@ export const KNOPF_ICHMACHS = 'ichmachs';
  */
 export function knopfHandlung(
   id: string | undefined
-): 'spaeter' | 'erledigt' | 'ichmachs' | null {
+): 'spaeter' | 'erledigt' | 'ichmachs' | 'passt' | null {
   if (id === KNOPF_SPAETER) return 'spaeter';
   if (id === KNOPF_ERLEDIGT) return 'erledigt';
   if (id === KNOPF_ICHMACHS) return 'ichmachs';
+  if (id === KNOPF_PASST) return 'passt';
   return null;
 }
 
@@ -78,6 +81,15 @@ export async function knoepfeAnmelden(): Promise<void> {
     buttonTitle: 'Ich mach\u2019s',
     options: { opensAppToForeground: false },
   };
+  // «Passt so» unter der offenen Türe: Die steht oft absichtlich offen
+  // (lüften, Grillabend) - dieser Knopf sagt es dem Hub, und für diese
+  // Öffnung ist Ruhe, samt zurückgelegter «Später»-Erinnerungen. Erst
+  // zu und wieder offen beginnt von vorn.
+  const passt = {
+    identifier: KNOPF_PASST,
+    buttonTitle: 'Passt so',
+    options: { opensAppToForeground: false },
+  };
   await Notifications.setNotificationCategoryAsync(KATEGORIE_SPAETER, [spaeter]);
   await Notifications.setNotificationCategoryAsync(KATEGORIE_ERLEDIGT, [
     erledigt,
@@ -85,6 +97,10 @@ export async function knoepfeAnmelden(): Promise<void> {
   ]);
   await Notifications.setNotificationCategoryAsync(KATEGORIE_WAESCHE, [
     ichmachs,
+    spaeter,
+  ]);
+  await Notifications.setNotificationCategoryAsync(KATEGORIE_OFFEN, [
+    passt,
     spaeter,
   ]);
 }

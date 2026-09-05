@@ -890,6 +890,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           .catch(() => {});
         return;
       }
+      // «Passt so»: Die Türe steht absichtlich offen. Der Hub trägt die
+      // zurückgelegten «Später»-Fassungen dieser Person aus - mehr gibt
+      // es nicht zu tun, der Wächter meldet ohnehin einmal je Öffnung.
+      // Erst zu und wieder offen beginnt von vorn.
+      if (druck.handlung === 'passt') {
+        hub
+          .post('/api/push/quittieren', { title: druck.title }, { still: true })
+          .then(() => setNote('Passt so - meldet sich erst nach dem nächsten Öffnen.'))
+          .catch(() => {});
+        return;
+      }
       // «Ich mach's»: Der Programmlauf ist übernommen. Danach hört das
       // Nachhaken auf, und bei den anderen steht am Gerät, wer sich
       // kümmert (hub/core/waschkueche.py).

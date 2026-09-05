@@ -126,9 +126,15 @@ KNOEPFE_ERLEDIGT = "erledigt"
 #: an alle, und ohne dieses Zeichen geht danach entweder niemand
 #: hinunter (jeder nimmt an, ein anderer tue es) oder zwei gleichzeitig.
 KNOEPFE_WAESCHE = "waesche"
+#: «Passt so» plus «Später» - für die offene Türe. Die steht oft
+#: absichtlich offen (lüften, Grillabend): «Passt so» heisst dann Ruhe
+#: für diese Öffnung - auch für zurückgelegte «Später»-Erinnerungen.
+#: Erst zu und wieder offen beginnt von vorn (der Wächter meldet ohnehin
+#: einmal je Öffnung, core/watchdog.py).
+KNOEPFE_OFFEN = "offen"
 
 _KNOEPFE: dict[str, str] = {
-    "open": KNOEPFE_SPAETER,
+    "open": KNOEPFE_OFFEN,
     "appliance": KNOEPFE_WAESCHE,
     "shopping": KNOEPFE_SPAETER,
     "medication": KNOEPFE_SPAETER,

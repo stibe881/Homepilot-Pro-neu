@@ -84,6 +84,27 @@ def einreihen(
     return behalten[-HOECHSTENS:]
 
 
+def austragen(rows: Any, titel: str, user: str | None) -> list[dict[str, Any]]:
+    """Zurückgelegte Fassungen einer Meldung wieder ausreihen (rein, testbar).
+
+    Für den «Passt so»-Knopf: Wer die offene Türe quittiert, will auch
+    die «Später»-Erinnerung nicht mehr, die er vorhin dazu zurückgelegt
+    hat - sonst meldet sich die quittierte Türe eine halbe Stunde später
+    doch wieder. Nur die eigenen Einträge: Dass Stefan quittiert, nimmt
+    Lina ihre zurückgelegte Meldung nicht weg.
+    """
+    sauber = str(titel or "").strip()
+    behalten = [row for row in rows or [] if isinstance(row, dict)]
+    if not sauber:
+        return behalten
+    return [
+        row
+        for row in behalten
+        if str(row.get("title") or "") != sauber
+        or (user is not None and row.get("to") not in (None, user))
+    ]
+
+
 def faellig(rows: Any, jetzt: float) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Was jetzt raus muss – und was liegen bleibt (rein, testbar)."""
     dran: list[dict[str, Any]] = []

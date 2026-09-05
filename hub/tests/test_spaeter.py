@@ -18,7 +18,10 @@ from .conftest import make_config
 
 
 def test_die_knoepfe_haengen_an_der_art_der_meldung():
-    assert knoepfe("open") == "spaeter"
+    # Die offene Türe trägt «Passt so» plus «Später»: Sie steht oft
+    # absichtlich offen, und das soll sich direkt in der Mitteilung
+    # sagen lassen.
+    assert knoepfe("open") == "offen"
     assert knoepfe("battery") == "erledigt"
     # Die volle Maschine bekommt einen eigenen Griff: «Ich mach's».
     assert knoepfe("appliance") == "waesche"
@@ -103,3 +106,31 @@ async def test_der_knopf_reicht_die_meldung_an_den_hub_und_sie_kommt_wieder():
         await hub.watchdog._check_spaeter()
         assert gesendet == [("Fenster offen", "seit 2 Std")]
         assert hub.data.get(spaeter.SCHLANGE) == []
+
+
+def test_passt_so_traegt_die_eigenen_fassungen_aus():
+    """«Passt so» heisst: auch die zurückgelegte «Später»-Erinnerung weg.
+
+    Sonst meldet sich die quittierte Türe eine halbe Stunde später doch
+    wieder - und zwar genau bei der Person, die eben «passt so» gesagt
+    hat. Die Einträge der anderen bleiben: Dass Stefan quittiert, nimmt
+    Lina ihre Erinnerung nicht weg.
+    """
+    rows = spaeter.einreihen(
+        [], {"title": "Terrasse steht offen", "to": "stefan"}, 1000, 30
+    )
+    rows = spaeter.einreihen(
+        rows, {"title": "Fenster Bad steht offen", "to": "lina"}, 1000, 30
+    )
+    danach = spaeter.austragen(rows, "Terrasse steht offen", "stefan")
+    assert [row["title"] for row in danach] == ["Fenster Bad steht offen"]
+
+    # Ein fremder Eintrag mit demselben Titel bleibt stehen.
+    fremd = spaeter.einreihen(
+        [], {"title": "Terrasse steht offen", "to": "lina"}, 1000, 30
+    )
+    assert spaeter.austragen(fremd, "Terrasse steht offen", "stefan") == fremd
+
+    # Leerer Titel und Unsinn ändern nichts.
+    assert spaeter.austragen(fremd, "", "stefan") == fremd
+    assert spaeter.austragen(None, "Terrasse steht offen", "stefan") == []

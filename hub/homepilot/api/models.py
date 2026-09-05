@@ -70,6 +70,12 @@ class PushSnoozeRequest(BaseModel):
     minutes: int = 30
 
 
+class PushQuittierenRequest(BaseModel):
+    """«Passt so» aus der Mitteilung – zurückgelegte Fassungen ausreihen."""
+
+    title: str
+
+
 class ErinnerungRequest(BaseModel):
     """«Sag mir später Bescheid» zu einem Gerät."""
 
