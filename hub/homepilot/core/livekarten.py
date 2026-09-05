@@ -278,6 +278,36 @@ def karten_grill(entities: list[Any]) -> list[dict[str, Any]]:
     return karten
 
 
+def sauger_knoepfe(entity: Any) -> list[dict[str, Any]]:
+    """Die Griffe auf der Sauger-Karte (rein, testbar).
+
+    Pause bzw. Weiter je nach Zustand, dazu «zur Station» - und nur
+    Befehle, die dieser Sauger wirklich kennt. Das Widget versteht die
+    Knöpfe nicht: Es zeichnet das Symbol und ruft Pfad samt Body auf
+    (targets/widget/index.swift, KartenBefehlIntent) - dieselbe
+    Arbeitsteilung wie bei den Widget-Knöpfen. Alles Harmlose im Sinne
+    der Sperrbildschirm-Regel (lib/mitteilungsknoepfe.ts): Wer das
+    Telefon vom Tisch nimmt, kann höchstens den Sauger heimschicken.
+    """
+    befehle = getattr(entity, "commands", None) or []
+    pfad = f"/api/entities/{entity.id}/command"
+
+    def knopf(symbol: str, command: str) -> dict[str, Any]:
+        return {"symbol": symbol, "pfad": pfad, "body": json.dumps({"command": command})}
+
+    laeuft = entity.state.get("state") == "cleaning"
+    knoepfe = []
+    if laeuft and "pause" in befehle:
+        knoepfe.append(knopf("pause.fill", "pause"))
+    if not laeuft and "start" in befehle:
+        # `start` setzt eine pausierte Reinigung fort - derselbe Befehl
+        # wie in der App (VacuumHome).
+        knoepfe.append(knopf("play.fill", "start"))
+    if "dock" in befehle:
+        knoepfe.append(knopf("house.fill", "dock"))
+    return knoepfe
+
+
 def karten_sauger(entities: list[Any]) -> list[dict[str, Any]]:
     """Der Saugroboter, solange er unterwegs ist.
 
@@ -285,19 +315,27 @@ def karten_sauger(entities: list[Any]) -> list[dict[str, Any]]:
     das Reinigen einzelner Räume ab. Vorher blieb die Live-Karte beim
     Segmentreinigen ganz aus - also genau dann, wenn man den Sauger
     gezielt in die Küche geschickt hat und zusieht.
+
+    «paused» gehört seit den Karten-Knöpfen dazu: Wer auf der Karte
+    Pause drückt, soll dort auch Weiter drücken können - verschwände
+    die Karte mit der Pause, nähme der eine Knopf den anderen mit.
     """
     karten = []
     for entity in entities:
-        if entity.kind != "vacuum" or entity.state.get("state") != "cleaning":
+        if entity.kind != "vacuum" or entity.state.get("state") not in (
+            "cleaning",
+            "paused",
+        ):
             continue
         akku = entity.state.get("battery")
         flaeche = entity.state.get("clean_area_m2")
-        teile = ["saugt"]
+        teile = ["saugt" if entity.state.get("state") == "cleaning" else "pausiert"]
         if flaeche:
             teile.append(f"{flaeche} m²")
         if akku is not None:
             teile.append(f"Akku {int(akku)} %")
         url = raum_url(entity)
+        knoepfe = sauger_knoepfe(entity)
         karten.append(
             {
                 "art": f"sauger:{entity.id}",
@@ -307,6 +345,7 @@ def karten_sauger(entities: list[Any]) -> list[dict[str, Any]]:
                     "text": " · ".join(teile),
                     "symbol": "fan",
                     **({"url": url} if url else {}),
+                    **({"knoepfe": knoepfe} if knoepfe else {}),
                 },
             }
         )

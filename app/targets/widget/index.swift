@@ -360,26 +360,33 @@ struct SchaltIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult {
-        let defaults = UserDefaults(suiteName: appGroup)
-        guard
-            let base = defaults?.string(forKey: "hubUrl"),
-            let token = defaults?.string(forKey: "hubToken"),
-            !pfad.isEmpty,
-            let url = URL(string: base + pfad)
-        else {
-            return .result()
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
-        if !body.isEmpty {
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = body.data(using: .utf8)
-        }
-        request.timeoutInterval = 8
-        _ = try? await URLSession.shared.data(for: request)
+        await hubPost(pfad: pfad, body: body)
         return .result()
     }
+}
+
+/// Der eine Weg zum Hub aus dem Widget-Prozess: Adresse und Token aus
+/// der App-Gruppe, Fehler bewusst verschluckt - ein Widget hat keinen
+/// Platz für eine Fehlermeldung, und der nächste Blick auf den Zustand
+/// zeigt, ob es geklappt hat. Von SchaltIntent und KartenBefehlIntent
+/// geteilt, damit die beiden nie auseinanderlaufen.
+func hubPost(pfad: String, body: String) async {
+    let defaults = UserDefaults(suiteName: appGroup)
+    guard
+        let base = defaults?.string(forKey: "hubUrl"),
+        let token = defaults?.string(forKey: "hubToken"),
+        !pfad.isEmpty,
+        let url = URL(string: base + pfad)
+    else { return }
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+    if !body.isEmpty {
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body.data(using: .utf8)
+    }
+    request.timeoutInterval = 8
+    _ = try? await URLSession.shared.data(for: request)
 }
 
 /// Ein Knopf: schaltet direkt (iOS 17, wenn die App es erlaubt hat) oder
@@ -662,6 +669,19 @@ struct HausAktivitaetAttributes: ActivityAttributes {
         var endet: Double?
         var fortschritt: Double?
         var url: String?
+        /// Knöpfe direkt auf der Karte (Sauger: Pause/Weiter, zur
+        /// Station). Optional und vom Hub bestimmt - eine alte Hülle
+        /// überliest das Feld (Codable ignoriert unbekannte Schlüssel).
+        var knoepfe: [KartenKnopf]?
+    }
+
+    /// Ein Knopf: SF-Symbol plus dem, was er beim Hub auslöst. Das
+    /// Widget versteht den Inhalt nicht - es ruft nur auf, was der Hub
+    /// ihm hingelegt hat (dieselbe Arbeitsteilung wie beim SchaltIntent).
+    public struct KartenKnopf: Codable, Hashable {
+        var symbol: String
+        var pfad: String
+        var body: String?
     }
 
     var art: String
@@ -696,6 +716,74 @@ private func kartenFarbe(_ name: String?) -> Color {
     }
 }
 
+/// Ein Karten-Knopf läuft ohne Entsperren - bewusst: Auf die Karte
+/// kommen nur harmlose Griffe (Sauger pausieren, zur Station schicken),
+/// dieselbe Regel wie bei den Knöpfen unter Mitteilungen
+/// (lib/mitteilungsknoepfe.ts). Was Schaden anrichten kann, gehört
+/// nicht auf einen Sperrbildschirm - die Türe hat darum ihren eigenen
+/// Opt-in (TuerOeffnenIntent).
+@available(iOS 17.0, *)
+struct KartenBefehlIntent: LiveActivityIntent {
+    static var title: LocalizedStringResource = "HomePilot-Karte schalten"
+
+    @Parameter(title: "Pfad")
+    var pfad: String
+
+    @Parameter(title: "Body")
+    var befehl: String
+
+    init() {}
+
+    init(pfad: String, befehl: String) {
+        self.pfad = pfad
+        self.befehl = befehl
+    }
+
+    func perform() async throws -> some IntentResult {
+        await hubPost(pfad: pfad, body: befehl)
+        return .result()
+    }
+}
+
+/// Ohne Zugang keine Knöpfe: hubUrl/hubToken liegen nur in der
+/// App-Gruppe, wenn der Hausstand fürs Widget eingeschaltet ist. Ohne
+/// sie täte ein Knopf still nichts - dann lieber gar keiner, und die
+/// Karte sieht aus wie bisher.
+func kartenKnoepfeAktiv() -> Bool {
+    let ablage = UserDefaults(suiteName: appGroup)
+    return ablage?.string(forKey: "hubUrl") != nil
+        && ablage?.string(forKey: "hubToken") != nil
+}
+
+/// Die Knopfreihe der Karte. Eigene View wie beim Türknopf:
+/// `#available` und eine zweite Bedingung im selben `if` verträgt der
+/// ViewBuilder nicht überall - verschachtelt ist es eindeutig.
+@available(iOS 16.2, *)
+struct KartenKnoepfe: View {
+    let knoepfe: [HausAktivitaetAttributes.KartenKnopf]
+
+    var body: some View {
+        if #available(iOS 17.0, *) {
+            if kartenKnoepfeAktiv() {
+                HStack(spacing: 10) {
+                    ForEach(knoepfe, id: \.self) { knopf in
+                        Button(intent: KartenBefehlIntent(
+                            pfad: knopf.pfad,
+                            befehl: knopf.body ?? ""
+                        )) {
+                            Image(systemName: knopf.symbol)
+                                .font(.headline)
+                                .frame(width: 40, height: 40)
+                                .background(.white.opacity(0.15), in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+}
+
 @available(iOS 16.2, *)
 struct HausKarteInhalt: View {
     let state: HausAktivitaetAttributes.ContentState
@@ -718,6 +806,9 @@ struct HausKarteInhalt: View {
                 }
             }
             Spacer()
+            if let knoepfe = state.knoepfe, !knoepfe.isEmpty {
+                KartenKnoepfe(knoepfe: knoepfe)
+            }
             if let endet = state.endet {
                 // Zählt von selbst herunter - dafür braucht es keinen
                 // einzigen weiteren Push.

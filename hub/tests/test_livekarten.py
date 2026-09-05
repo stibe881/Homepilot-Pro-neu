@@ -13,6 +13,7 @@ from homepilot.core.livekarten import (
     karten_timer,
     raum_url,
     registrieren,
+    sauger_knoepfe,
     start_payload,
     token_merken,
 )
@@ -280,3 +281,38 @@ def test_auch_grill_und_sauger_fuehren_in_ihren_raum():
     )
     assert karten_grill([grill])[0]["state"]["url"] == "homepilot://raum/Terrasse"
     assert karten_sauger([sauger])[0]["state"]["url"] == "homepilot://raum/Flur"
+
+
+def test_die_saugerkarte_traegt_pause_weiter_und_station():
+    """Die Griffe direkt auf der Karte: Pause bzw. Weiter, zur Station.
+
+    Das Widget versteht die Knöpfe nicht - es zeichnet das Symbol und
+    ruft auf, was der Hub ihm hinlegt. Deshalb steht hier fest, was der
+    Hub hinlegt: saugend Pause und Station, pausiert Weiter und Station.
+    Und die Karte überlebt die Pause - verschwände sie, nähme der eine
+    Knopf den anderen mit.
+    """
+    def sauger(zustand: str, commands=("start", "pause", "dock")):
+        return SimpleNamespace(
+            id="roborock.s7", kind="vacuum", label="Sauger", room="Flur",
+            commands=list(commands), state={"state": zustand, "battery": 80},
+        )
+
+    saugend = karten_sauger([sauger("cleaning")])[0]["state"]
+    assert [k["symbol"] for k in saugend["knoepfe"]] == ["pause.fill", "house.fill"]
+    assert saugend["knoepfe"][0]["pfad"] == "/api/entities/roborock.s7/command"
+    assert '"pause"' in saugend["knoepfe"][0]["body"]
+
+    pausiert = karten_sauger([sauger("paused")])[0]["state"]
+    assert pausiert["text"].startswith("pausiert")
+    assert [k["symbol"] for k in pausiert["knoepfe"]] == ["play.fill", "house.fill"]
+
+    # Nur Befehle, die der Sauger wirklich kennt - und ohne Befehle
+    # keine Knopfliste, statt einer leeren.
+    nur_dock = sauger_knoepfe(sauger("cleaning", commands=("dock",)))
+    assert [k["symbol"] for k in nur_dock] == ["house.fill"]
+    assert "knoepfe" not in karten_sauger([sauger("cleaning", commands=())])[0]["state"]
+
+    # Angedockt oder unterwegs zur Station: keine Karte - wie bisher.
+    assert karten_sauger([sauger("docked")]) == []
+    assert karten_sauger([sauger("returning")]) == []

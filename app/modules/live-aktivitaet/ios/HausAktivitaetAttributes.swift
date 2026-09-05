@@ -24,6 +24,20 @@ struct HausAktivitaetAttributes: ActivityAttributes {
     var fortschritt: Double?
     /// Wohin ein Tipp auf die Karte führt (homepilot://…).
     var url: String?
+    /// Knöpfe direkt auf der Karte (Sauger: Pause/Weiter, zur Station).
+    /// Optional und vom Hub bestimmt - eine alte App-Hülle überliest
+    /// das Feld einfach (Codable ignoriert unbekannte Schlüssel).
+    var knoepfe: [KartenKnopf]?
+  }
+
+  /// Ein Knopf auf der Karte: SF-Symbol plus dem, was er beim Hub
+  /// auslöst. Das Widget versteht den Inhalt nicht - es ruft nur auf,
+  /// was der Hub ihm hingelegt hat (dieselbe Arbeitsteilung wie bei
+  /// den Widget-Knöpfen, targets/widget: SchaltIntent).
+  public struct KartenKnopf: Codable, Hashable {
+    var symbol: String
+    var pfad: String
+    var body: String?
   }
 
   /// Eindeutige Kennung der Karte, z.B. "timer:abc" - die App meldet
