@@ -24,7 +24,7 @@ describe('Warum ein Widget-Knopf nicht schaltet', () => {
     name: 'Haustüre',
     integration: 'nuki',
     state: { state: 'locked' },
-    commands: ['unlock'],
+    commands: ['unlock', 'open_door'],
   } as Entity;
 
   it('geht bei einem Licht, sobald der Hausstand an ist', () => {
@@ -35,14 +35,24 @@ describe('Warum ein Widget-Knopf nicht schaltet', () => {
     expect(direktMoeglich('entity:hue.wohnzimmer', [lampe], false)).toBe('kein-hausstand');
   });
 
-  it('bleibt bei Tür und Alarm beim Umweg – auch mit Hausstand', () => {
-    expect(direktMoeglich('entity:nuki.haustuer', [tuer], true)).toBe('nicht-erlaubt');
+  it('nennt beim Schloss die Rückfrage als Grund – nicht «geht nicht»', () => {
+    // Der gemeldete Fall die zweite: zwei Schlösser auf dem Widget,
+    // jeder Tipp öffnete nur die App. Der Grund war die Tür-Rückfrage,
+    // und die App soll ihn beim Namen nennen können.
+    expect(direktMoeglich('entity:nuki.haustuer', [tuer], true)).toBe('rueckfrage');
+    expect(direktMoeglich('entity:nuki.haustuer', [tuer], true, true)).toBe('geht');
+    // «Alles aus» bleibt endgültig verboten, das ist keine Rückfrage-Sache.
+    expect(direktMoeglich('alloff', [tuer], true, true)).toBe('nicht-erlaubt');
   });
 
   it('nimmt ohne eigene Wahl alles, was darf', () => {
     expect(
       standardDirekt(['entity:hue.wohnzimmer', 'entity:nuki.haustuer'], [lampe, tuer])
     ).toEqual(['entity:hue.wohnzimmer']);
+    // Ohne Rückfrage rutscht das Schloss in die Vorgabe mit hinein.
+    expect(
+      standardDirekt(['entity:hue.wohnzimmer', 'entity:nuki.haustuer'], [lampe, tuer], true)
+    ).toEqual(['entity:hue.wohnzimmer', 'entity:nuki.haustuer']);
     // Szenen dürfen immer.
     expect(standardDirekt(['scene:kino'], [])).toEqual(['scene:kino']);
   });

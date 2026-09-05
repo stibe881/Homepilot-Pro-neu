@@ -1,4 +1,5 @@
 import { Entity, Scene } from '../api/types';
+import { haustuerFuerWatch } from './watchkontext';
 
 /**
  * Die Knöpfe im Homescreen-Widget.
@@ -14,10 +15,10 @@ import { Entity, Scene } from '../api/types';
  * kennt nur noch das Ergebnis – es liest fertige Knöpfe aus der
  * App-Gruppe und muss weder Szenen noch Geräte verstehen.
  *
- * Warum überhaupt Adressen statt Befehle: Ein Widget-Tipp schaltet nichts
- * selbst, er öffnet die App an der richtigen Stelle. Ein Türöffner, der
- * sich vom gesperrten Bildschirm aus mit einem Tipp auslösen liesse, wäre
- * genau der Knopf, den man nicht will.
+ * Warum jeder Knopf eine Adresse trägt: Sie ist der Rückfall. Auf altem
+ * iOS (vor 17) und ohne Hausstand in der App-Gruppe öffnet ein Tipp die
+ * App an der richtigen Stelle; wo beides da ist, entscheidet
+ * `darfDirekt`, ob er stattdessen selbst schaltet.
  */
 
 export interface WidgetButton {
@@ -242,25 +243,52 @@ export function moveButton(
 }
 
 
+/** Womit ein Schloss die Türe wirklich öffnet – oder null, wenn es das
+ *  nicht kann. Dieselbe Wahl wie beim Watch-Kontext: erst `open_door`,
+ *  sonst `unlatch`. Ein Schloss, das nur ver- und entriegelt, bleibt
+ *  draussen – ihm blind `unlatch` zu schicken wäre ein Knopf, der nichts
+ *  tut. */
+export function tuerBefehl(entity: Entity): string | null {
+  if (entity.commands.includes('open_door')) return 'open_door';
+  if (entity.commands.includes('unlatch')) return 'unlatch';
+  return null;
+}
+
 /**
  * Darf dieser Knopf direkt schalten? (rein, testbar)
  *
  * Seit iOS 17 kann ein Widget-Knopf selbst schalten, ohne die App zu
- * öffnen. Für den Türöffner und den Alarm bleibt der Umweg Absicht –
- * ein Schloss vom Sperrbildschirm ohne Rückfrage ist genau der Knopf,
- * den man nicht will. Für eine Szene oder ein Licht ist der Umweg keine
- * Sicherheit mehr, nur noch Reibung.
+ * öffnen. Für eine Szene oder ein Licht ist der Umweg über die App keine
+ * Sicherheit, nur Reibung. Der Türöffner behält ihn, **solange die
+ * Tür-Rückfrage eingeschaltet ist** – dieselbe Abwägung wie in der App
+ * (lib/tuerbestaetigung.ts): Wer die Rückfrage ausdrücklich abgestellt
+ * hat, will auch am Widget keinen Umweg mehr. Die gemeldete Klage war
+ * genau die: zwei Schlösser auf dem Widget, und jeder Tipp öffnete nur
+ * die App. Nur «Alles aus» und der Alarm bleiben immer beim Umweg –
+ * die räumen das halbe Haus ab, das soll man sehen, bevor es passiert.
  */
-export function darfDirekt(key: string, entities: Entity[]): boolean {
+export function darfDirekt(
+  key: string,
+  entities: Entity[],
+  tuerOhneRueckfrage = false
+): boolean {
   if (key.startsWith('scene:')) return true;
+  if (key === 'door') {
+    if (!tuerOhneRueckfrage) return false;
+    const tuer = haustuerFuerWatch(entities);
+    return tuer !== null && tuerBefehl(tuer) !== null;
+  }
   if (!key.startsWith('entity:')) return false;
   const entity = entities.find((entry) => entry.id === key.slice('entity:'.length));
   if (!entity) return false;
+  if (entity.kind === 'lock') {
+    return tuerOhneRueckfrage && tuerBefehl(entity) !== null;
+  }
   return entity.kind === 'light' || entity.kind === 'switch';
 }
 
 /** Warum ein Knopf (nicht) direkt schalten kann. */
-export type DirektGrund = 'geht' | 'kein-hausstand' | 'nicht-erlaubt';
+export type DirektGrund = 'geht' | 'kein-hausstand' | 'rueckfrage' | 'nicht-erlaubt';
 
 /**
  * Kann dieser Knopf direkt schalten – und wenn nein, warum nicht?
@@ -270,13 +298,18 @@ export type DirektGrund = 'geht' | 'kein-hausstand' | 'nicht-erlaubt';
  * war: kein Blitz, kein Hinweis, nichts. Genau dort fehlte die
  * Erklärung. Der gemeldete Fall: «Mit den Widgets steuert man nichts,
  * es öffnet sich nur die App» – und in der App stand nirgends, warum.
+ * «rueckfrage» ist der neue dritte Grund: Ein Schloss dürfte, sobald
+ * die Tür-Rückfrage aus ist – auch das muss die App sagen können.
  */
 export function direktMoeglich(
   key: string,
   entities: Entity[],
-  dataEnabled: boolean
+  dataEnabled: boolean,
+  tuerOhneRueckfrage = false
 ): DirektGrund {
-  if (!darfDirekt(key, entities)) return 'nicht-erlaubt';
+  if (!darfDirekt(key, entities, tuerOhneRueckfrage)) {
+    return darfDirekt(key, entities, true) ? 'rueckfrage' : 'nicht-erlaubt';
+  }
   // Direkt schalten braucht das Token in der App-Gruppe, und das liegt
   // nur dort, wenn der Hausstand eingeschaltet ist.
   if (!dataEnabled) return 'kein-hausstand';
@@ -290,11 +323,14 @@ export function direktMoeglich(
  * Vorher war die Vorgabe «keiner»: Jedes frisch angelegte Widget öffnete
  * bloss die App, und der Schalter dafür war ein Blitzsymbol zwischen
  * vier anderen Symbolen. Wer ein Licht aufs Widget legt, will es
- * schalten – für Tür und Alarm bleibt der Umweg ohnehin, dafür sorgt
- * `darfDirekt`.
+ * schalten – wo der Umweg bleiben muss, dafür sorgt `darfDirekt`.
  */
-export function standardDirekt(keys: string[], entities: Entity[]): string[] {
-  return keys.filter((key) => darfDirekt(key, entities));
+export function standardDirekt(
+  keys: string[],
+  entities: Entity[],
+  tuerOhneRueckfrage = false
+): string[] {
+  return keys.filter((key) => darfDirekt(key, entities, tuerOhneRueckfrage));
 }
 
 /**
@@ -308,7 +344,8 @@ export function mitDirekt(
   buttons: WidgetButton[],
   directKeys: string[],
   entities: Entity[],
-  dataEnabled: boolean
+  dataEnabled: boolean,
+  tuerOhneRueckfrage = false
 ): WidgetButton[] {
   const ohneDirekt = (knopf: WidgetButton): WidgetButton => {
     const rest = { ...knopf };
@@ -321,7 +358,10 @@ export function mitDirekt(
     return buttons.map(ohneDirekt);
   }
   return buttons.map((knopf) => {
-    if (!directKeys.includes(knopf.key) || !darfDirekt(knopf.key, entities)) {
+    if (
+      !directKeys.includes(knopf.key) ||
+      !darfDirekt(knopf.key, entities, tuerOhneRueckfrage)
+    ) {
       return ohneDirekt(knopf);
     }
     if (knopf.key.startsWith('scene:')) {
@@ -333,9 +373,26 @@ export function mitDirekt(
         actionBody: '',
       };
     }
+    if (knopf.key === 'door') {
+      // Dieselbe Türe und derselbe Befehl wie auf der Uhr - zwei
+      // Meinungen darüber, was «die Haustüre» ist, wären eine zu viel.
+      const tuer = haustuerFuerWatch(entities)!;
+      return {
+        ...knopf,
+        direct: true,
+        actionPath: `/api/entities/${encodeURIComponent(tuer.id)}/command`,
+        actionBody: JSON.stringify({ command: tuerBefehl(tuer) }),
+      };
+    }
     const id = knopf.key.slice('entity:'.length);
     const entity = entities.find((entry) => entry.id === id);
-    const command = entity?.commands.includes('toggle') ? 'toggle' : 'turn_on';
+    // Ein Schloss öffnet die Türe, alles andere schaltet um.
+    const command =
+      entity?.kind === 'lock'
+        ? tuerBefehl(entity)
+        : entity?.commands.includes('toggle')
+          ? 'toggle'
+          : 'turn_on';
     return {
       ...knopf,
       direct: true,

@@ -75,6 +75,7 @@ export function Widgets({
   onButtons,
   direct = [],
   onDirect,
+  tuerOhneRueckfrage = false,
   karten,
   onKarten,
   dataEnabled,
@@ -89,9 +90,13 @@ export function Widgets({
   karten?: string[];
   onKarten?: (keys: string[]) => void;
   /** Schlüssel der Knöpfe, die direkt schalten (iOS 17) statt die App zu
-   *  öffnen. Nur Szenen und Lichter – Tür und Alarm behalten den Umweg. */
+   *  öffnen. Szenen und Lichter immer, Schlösser nur ohne Tür-Rückfrage
+   *  – «Alles aus» und der Alarm behalten den Umweg. */
   direct?: string[];
   onDirect?: (keys: string[]) => void;
+  /** Ist die Tür-Rückfrage ausdrücklich abgestellt? Dann dürfen auch
+   *  die Schlösser direkt schalten – dieselbe Abwägung wie in der App. */
+  tuerOhneRueckfrage?: boolean;
   dataEnabled: boolean;
   onDataEnabled: (on: boolean) => void;
   ablage: Ablage;
@@ -155,9 +160,9 @@ export function Widgets({
       <Card style={styles.card}>
         <Text style={styles.heading}>Knöpfe im Widget</Text>
         <Text style={styles.hint}>
-          Bis zu {MAX_BUTTONS} Stück. Ein Tipp darauf schaltet nichts direkt,
-          sondern öffnet die App an der richtigen Stelle – bei der Haustüre
-          steht die Rückfrage schon da.
+          Bis zu {MAX_BUTTONS} Stück. Ein Knopf mit ⚡ schaltet direkt vom
+          Widget aus (ab iOS 17), alle anderen öffnen die App an der
+          richtigen Stelle.
         </Text>
 
         {gewaehlt.length === 0 ? (
@@ -202,11 +207,12 @@ export function Widgets({
                   }
                 />
               </Pressable>
-              {onDirect && darfDirekt(knopf.key, entities) ? (
+              {onDirect && darfDirekt(knopf.key, entities, tuerOhneRueckfrage) ? (
                 // Seit iOS 17 kann der Knopf selbst schalten. Je Knopf
                 // entschieden: Für ein Licht ist der Umweg über die App
-                // keine Sicherheit mehr, nur Reibung – für Tür und Alarm
-                // gibt es den Schalter gar nicht erst.
+                // keine Sicherheit mehr, nur Reibung. Schlösser bekommen
+                // den Schalter erst, wenn die Tür-Rückfrage aus ist –
+                // «Alles aus» und der Alarm gar nie.
                 <Pressable
                   onPress={() =>
                     onDirect(
@@ -249,11 +255,25 @@ export function Widgets({
           ))
         )}
 
-        {onDirect && gewaehlt.some((k) => darfDirekt(k.key, entities)) ? (
+        {onDirect && gewaehlt.some((k) => darfDirekt(k.key, entities, tuerOhneRueckfrage)) ? (
           <Text style={styles.hint}>
             {dataEnabled
-              ? '⚡ heisst: Der Knopf schaltet direkt vom Widget aus (ab iOS 17), ohne die App zu öffnen. Tür und Alarm behalten den Umweg immer.'
+              ? '⚡ heisst: Der Knopf schaltet direkt vom Widget aus (ab iOS 17), ohne die App zu öffnen. «Alles aus» und der Alarm behalten den Umweg immer.'
               : 'Direkt schalten geht erst mit «Hausstand im Widget» weiter unten: Der Knopf braucht dafür die Zugangsdaten im Widget selbst. Ohne das öffnet jeder Tipp nur die App an der richtigen Stelle – das ist der Grund, wenn ein Widget nichts zu schalten scheint.'}
+          </Text>
+        ) : null}
+        {onDirect &&
+        gewaehlt.some(
+          (k) =>
+            !darfDirekt(k.key, entities, tuerOhneRueckfrage) &&
+            darfDirekt(k.key, entities, true)
+        ) ? (
+          // Der gemeldete Fall: zwei Schlösser auf dem Widget, jeder Tipp
+          // öffnete nur die App - und nirgends stand, woran es liegt.
+          <Text style={styles.hint}>
+            Die Schlösser öffnen erst direkt vom Widget aus, wenn die
+            Tür-Rückfrage abgestellt ist (Einstellungen → Konto) – dieselbe
+            Regel wie in der App.
           </Text>
         ) : null}
         {gewaehlt.length >= MAX_BUTTONS ? (
@@ -488,9 +508,16 @@ export function Widgets({
             </Text>
             <Text style={styles.hint}>
               «HomePilot» ist die Knopfleiste, «HomePilot Karte» eines der
-              eigenen Widgets von oben. Welche Karte es zeigt, wählt man
-              danach: Widget lange drücken → «Widget bearbeiten». So liegen
-              mehrere davon nebeneinander, jedes mit seinem eigenen Gerät.
+              eigenen Widgets von oben – die tauchen also nicht in der
+              Knopfleiste auf, sondern sind je ein eigenes Widget. Welche
+              Karte eines zeigt, wählt man nach dem Hinzufügen: Widget
+              lange drücken → «Widget bearbeiten». So liegen mehrere davon
+              nebeneinander, jedes mit seinem eigenen Gerät.
+            </Text>
+            <Text style={styles.hint}>
+              Die Vorschau in der Widget-Galerie zeigt immer nur
+              Beispielknöpfe – die eigene Auswahl erscheint erst, wenn das
+              Widget auf dem Bildschirm liegt.
             </Text>
             <Text style={styles.hint}>
               Für den Sperrbildschirm: Sperrbildschirm lange drücken →

@@ -770,6 +770,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // App-Gruppe. Bei jeder Änderung neu, damit ein gewechseltes Token
   // nicht ein Widget zurücklässt, das ins Leere fragt, und eine
   // gelöschte Szene keinen Knopf, der nirgends hinführt.
+  // Die abgestellte Tür-Rückfrage gilt überall - auch am Widget: Dann
+  // dürfen die Schlösser dort direkt öffnen, statt nur die App zu holen.
+  const tuerOhneRueckfrage = prefs.doorConfirm === false;
   const widgetButtons = useMemo(
     () =>
       mitDirekt(
@@ -777,11 +780,20 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         // Ohne eigene Wahl schalten die Knöpfe, die es dürfen. Vorher
         // war die Vorgabe «keiner»: Jedes frische Widget öffnete nur
         // die App - genau die Klage aus dem Haus.
-        prefs.widgetDirect ?? standardDirekt(prefs.widgetButtons ?? [], entities),
+        prefs.widgetDirect ??
+          standardDirekt(prefs.widgetButtons ?? [], entities, tuerOhneRueckfrage),
         entities,
-        !!prefs.widgetData
+        !!prefs.widgetData,
+        tuerOhneRueckfrage
       ),
-    [prefs.widgetButtons, prefs.widgetDirect, prefs.widgetData, scenes, entities]
+    [
+      prefs.widgetButtons,
+      prefs.widgetDirect,
+      prefs.widgetData,
+      tuerOhneRueckfrage,
+      scenes,
+      entities,
+    ]
   );
   // Die selbst zusammengestellten Karten - je eine für ein Gerät oder
   // eine Szene. Dieselbe Ablage, derselbe Takt wie die Knöpfe.
@@ -2351,9 +2363,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             buttons={prefs.widgetButtons}
             onButtons={setWidgetButtons}
             direct={
-              prefs.widgetDirect ?? standardDirekt(prefs.widgetButtons ?? [], entities)
+              prefs.widgetDirect ??
+              standardDirekt(prefs.widgetButtons ?? [], entities, tuerOhneRueckfrage)
             }
             onDirect={setWidgetDirect}
+            tuerOhneRueckfrage={tuerOhneRueckfrage}
             karten={prefs.widgetKarten}
             onKarten={setWidgetKarten}
             dataEnabled={!!prefs.widgetData}
