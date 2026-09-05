@@ -1033,13 +1033,34 @@ describe('wasFehlt', () => {
     ]);
   });
 
-  it('bemängelt einen Schritt, aus dem nichts wird', () => {
-    // Der Schritt steht im Formular, hat aber kein Gerät angekreuzt -
-    // gespeichert würde daraus ein Ablauf, der nichts tut.
+  it('sagt am unvollständigen Schritt, was ihm fehlt', () => {
+    // Der Schritt steht im Formular, hat aber kein Gerät angekreuzt.
+    // «Einen Schritt, der etwas tut» las sich da wie Unsinn - der
+    // Schritt stand ja vor einem. Jetzt steht, wohin die Hand muss.
     const raus = wasFehlt(
       entwurf({ triggers: [{ ...EMPTY_TRIGGER, entityId: 'melder' }] })
     );
+    expect(raus).toEqual(['Dann («Gerät schalten»): ein Gerät ankreuzen']);
+  });
+
+  it('bemängelt das Fehlen jedes Schritts weiterhin als Fehlen', () => {
+    const raus = wasFehlt(
+      entwurf({ triggers: [{ ...EMPTY_TRIGGER, entityId: 'melder' }], steps: [] })
+    );
     expect(raus).toEqual(['Dann: einen Schritt, der etwas tut']);
+  });
+
+  it('nennt bei mehreren Schritten die Nummer', () => {
+    const raus = wasFehlt(
+      entwurf({
+        triggers: [{ ...EMPTY_TRIGGER, entityId: 'melder' }],
+        steps: [{ ...EMPTY_STEP }, { ...EMPTY_STEP, kind: 'scene' }],
+      })
+    );
+    expect(raus).toEqual([
+      'Dann, Schritt 1 («Gerät schalten»): ein Gerät ankreuzen',
+      'Dann, Schritt 2 («Szene»): eine Szene wählen',
+    ]);
   });
 
   it('ist zufrieden, sobald Auslöser und Schritt stehen', () => {

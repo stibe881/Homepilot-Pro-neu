@@ -1880,12 +1880,77 @@ export function wasFehlt(draft: Draft): string[] {
 
   // Nicht die Schritte zählen, sondern was aus ihnen wird: Ein Schritt
   // «Gerät schalten» ohne angekreuztes Gerät sieht im Formular aus wie
-  // einer und ergibt beim Speichern nichts.
+  // einer und ergibt beim Speichern nichts. Genau daran ist die alte
+  // Meldung «einen Schritt, der etwas tut» gescheitert: Wer den Schritt
+  // vor sich sah, verstand sie nicht - es fehlte ja keiner, ihm fehlte
+  // etwas. Deshalb steht jetzt am Schritt, was ihm fehlt.
   if (stepsToActions(draft.steps).length === 0) {
-    fehlt.push('Dann: einen Schritt, der etwas tut');
+    if (draft.steps.length === 0) {
+      fehlt.push('Dann: einen Schritt, der etwas tut');
+    } else {
+      draft.steps.forEach((step, index) => {
+        const grund = schrittFehlt(step);
+        if (grund === null) return;
+        const wo =
+          draft.steps.length > 1
+            ? `Dann, Schritt ${index + 1} («${SCHRITT_WORT[step.kind]}»)`
+            : `Dann («${SCHRITT_WORT[step.kind]}»)`;
+        fehlt.push(`${wo}: ${grund}`);
+      });
+    }
   }
 
   return fehlt;
+}
+
+/** Das Wort auf dem Chip des Schritts – damit die Fehlzeile denselben
+ *  Namen trägt wie das Formular (editor.tsx). */
+const SCHRITT_WORT: Record<StepKind, string> = {
+  command: 'Gerät schalten',
+  toggle_all: 'Gemeinsam umschalten',
+  scene: 'Szene',
+  hue_scene: 'Hue-Szene',
+  notify: 'Nachricht',
+  broadcast: 'Durchsage',
+  presence: 'Anwesenheit melden',
+  delay: 'Warten',
+  wait_until: 'Warten bis',
+  fade: 'Dimmen',
+  music: 'Musik',
+};
+
+/**
+ * Was diesem Schritt fehlt – oder null, wenn er etwas ergibt (rein, testbar).
+ *
+ * Die Sätze nennen den Handgriff, nicht den Zustand: «ein Gerät
+ * ankreuzen» sagt, wohin die Hand muss.
+ */
+export function schrittFehlt(step: StepDraft): string | null {
+  if (stepToActions(step).length > 0) return null;
+  switch (step.kind) {
+    case 'command':
+      return 'ein Gerät ankreuzen';
+    case 'toggle_all':
+      return 'Geräte ankreuzen';
+    case 'scene':
+      return 'eine Szene wählen';
+    case 'hue_scene':
+      return 'eine Lichtszene wählen';
+    case 'broadcast':
+      return 'einen Text eintragen';
+    case 'presence':
+      return 'eine Person wählen';
+    case 'fade':
+      return 'ein Gerät wählen';
+    case 'delay':
+      return 'eine Wartezeit eintragen';
+    case 'wait_until':
+      return 'ein Gerät wählen';
+    case 'music':
+      return 'wählen, was laufen soll';
+    default:
+      return 'ausfüllen';
+  }
 }
 
 /**
