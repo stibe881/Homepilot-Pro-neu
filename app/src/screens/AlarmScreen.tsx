@@ -15,6 +15,15 @@ import {
   durchbruchAn,
   durchbruchUmschalten,
 } from '../lib/saugerdurchbruch';
+import {
+  Eskalation,
+  FRIST_STUFEN,
+  eskalationLesen,
+  eskalationStand,
+  fristLabel,
+  sirenenKandidaten,
+  verlaufPasst,
+} from '../lib/eskalation';
 import { datumUhr } from '../lib/format';
 import { ringAnteil } from '../lib/alarmring';
 import { tapped, triggered } from '../lib/haptics';
@@ -86,6 +95,10 @@ interface Overview {
   sensors: Sensor[];
   settings: AlarmConfig;
   after_trigger: Record<string, After>;
+  /** Die zweite Stufe: was passiert, wenn niemand entschärft (Punkt 255
+   *  der Werkbank). Offen getippt, weil ein älterer Hub das Feld nicht
+   *  schickt – lib/eskalation.ts liest es mit Vorgaben ein. */
+  escalation?: unknown;
   actions: Record<string, AlarmAction[]>;
   history: { kind: string; text: string; by?: string; at: number }[];
   candidates: Candidate[];
@@ -403,10 +416,10 @@ export function AlarmScreen({
 
   const tabLabel = MODES.find((mode) => mode.key === tab)?.label ?? '';
 
-  const gefilterterVerlauf =
-    historyKind === 'alle'
-      ? data.history
-      : data.history.filter((event) => event.kind === historyKind);
+  // «escalated» zählt zum Filter «Alarm» – siehe lib/eskalation.ts.
+  const gefilterterVerlauf = data.history.filter((event) =>
+    verlaufPasst(event.kind, historyKind)
+  );
   const gezeigterVerlauf = historyAll ? gefilterterVerlauf : gefilterterVerlauf.slice(0, 12);
 
   /** Alle Sensoren auf einmal in den gewählten Modus nehmen oder daraus
@@ -753,18 +766,27 @@ export function AlarmScreen({
                 name={
                   event.kind === 'triggered'
                     ? 'alert-circle'
-                    : event.kind === 'armed'
-                      ? 'lock-closed-outline'
-                      : event.kind === 'entry'
-                        ? 'time-outline'
-                        : // Kamerabewegung, während scharf war: kein Alarm,
-                          // aber der Grund, warum das Telefon gebrummt hat.
-                          event.kind === 'motion'
-                          ? 'videocam-outline'
-                          : 'lock-open-outline'
+                    : // Die zweite Stufe: Sirene und Licht sind an, weil
+                      // niemand entschärft hat. Ein eigenes Symbol, damit
+                      // die Zeile nicht wie ein zweiter Alarm aussieht.
+                      event.kind === 'escalated'
+                      ? 'megaphone-outline'
+                      : event.kind === 'armed'
+                        ? 'lock-closed-outline'
+                        : event.kind === 'entry'
+                          ? 'time-outline'
+                          : // Kamerabewegung, während scharf war: kein Alarm,
+                            // aber der Grund, warum das Telefon gebrummt hat.
+                            event.kind === 'motion'
+                            ? 'videocam-outline'
+                            : 'lock-open-outline'
                 }
                 size={18}
-                color={event.kind === 'triggered' ? colors.danger : colors.inkSoft}
+                color={
+                  event.kind === 'triggered' || event.kind === 'escalated'
+                    ? colors.danger
+                    : colors.inkSoft
+                }
               />
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowTitle}>{event.text}</Text>
@@ -802,6 +824,12 @@ export function AlarmScreen({
             },
           });
         }}
+      />
+
+      <EskalationKarte
+        raw={data.escalation}
+        entities={entities}
+        onSave={(escalation) => save({ escalation })}
       />
 
       <AlarmActions
@@ -896,6 +924,184 @@ function ClipPlayer({ uri, onClose }: { uri: string; onClose: () => void }) {
         </Text>
       </Pressable>
     </Modal>
+  );
+}
+
+/**
+ * Die Eskalation: Sirene, Licht und Durchsage, wenn niemand entschärft
+ * (Punkt 255 der Werkbank).
+ *
+ * Eigene Karte neben «Was die Anlage selbst schaltet», weil es eine
+ * andere Frage ist: Dort steht, was *sofort* beim Auslösen passiert –
+ * hier, was erst nach einer Frist kommt. Die Frist ist der Kern: In ihr
+ * lässt sich ein Fehlalarm noch entschärfen, bevor die Sirene die
+ * Nachbarschaft weckt.
+ *
+ * Auf Modulebene wie AfterTrigger, damit die Textfelder beim Tippen
+ * nicht neu montiert werden. Gelesen und normalisiert wird in
+ * lib/eskalation.ts.
+ */
+function EskalationKarte({
+  raw,
+  entities,
+  onSave,
+}: {
+  raw: unknown;
+  entities: Entity[];
+  onSave: (next: Eskalation) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const eskalation = useMemo(() => eskalationLesen(raw), [raw]);
+  // Textfelder lokal, Übernahme beim Verlassen – wie bei den
+  // Verzögerungen: Jeder Tastendruck als PUT wäre ein Dauerfeuer.
+  const [announce, setAnnounce] = useState(eskalation.announce);
+  const [volume, setVolume] = useState(
+    eskalation.volume == null ? '' : String(eskalation.volume)
+  );
+  const kandidaten = useMemo(() => sirenenKandidaten(entities), [entities]);
+
+  const commitTexte = () =>
+    onSave({
+      ...eskalation,
+      announce: announce.trim(),
+      // Leer heisst «Vorgabe des Hubs», nicht «stumm».
+      volume: volume.trim() === '' ? null : Math.max(0, Math.min(100, Number(volume) || 0)),
+    });
+
+  const toggleSirene = (entityId: string) => {
+    const sirens = eskalation.sirens.includes(entityId)
+      ? eskalation.sirens.filter((id) => id !== entityId)
+      : [...eskalation.sirens, entityId];
+    onSave({ ...eskalation, sirens });
+  };
+
+  return (
+    <Card style={styles.card}>
+      <Klappe label="Eskalation" stand={eskalationStand(eskalation)} zuBeginnZu>
+        <Text style={styles.hint}>
+          Die zweite Stufe nach dem Auslösen: Erst geht nur die Nachricht
+          hinaus – wer dann innerhalb der Frist nicht entschärft, bekommt
+          Sirene, Licht und Durchsage. Die Frist gibt es, damit ein
+          Fehlalarm noch entschärfbar ist, bevor die Nachbarschaft wach
+          wird.
+        </Text>
+
+        <Toggle
+          label="Eskalation einschalten"
+          detail="Ohne sie bleibt es bei Nachricht und den Schaltbefehlen von «Beim Auslösen»."
+          value={eskalation.enabled}
+          onChange={(value) => onSave({ ...eskalation, enabled: value })}
+        />
+
+        {eskalation.enabled ? (
+          <>
+            <View style={styles.field}>
+              <Text style={styles.label}>Frist bis zur Eskalation</Text>
+              <View style={styles.chipRow}>
+                {FRIST_STUFEN.map((sekunden) => {
+                  const on = eskalation.after === sekunden;
+                  return (
+                    <Pressable
+                      key={sekunden}
+                      onPress={() => onSave({ ...eskalation, after: sekunden })}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: on }}
+                      accessibilityLabel={`Eskalation ${fristLabel(sekunden)} nach dem Auslösen`}
+                      style={({ pressed }) => [
+                        styles.chip,
+                        on && styles.chipOn,
+                        pressed && { opacity: 0.7 },
+                      ]}
+                    >
+                      <Text style={[styles.chipText, on && { color: '#FFFFFF' }]}>
+                        {fristLabel(sekunden)}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>Sirenen</Text>
+              {kandidaten.length === 0 ? (
+                <Text style={styles.hint}>
+                  Kein schaltbares Gerät gefunden, das als Sirene taugt.
+                  Sirenen und Schalter erscheinen hier automatisch.
+                </Text>
+              ) : (
+                <View style={styles.chipRow}>
+                  {kandidaten.map((entity) => {
+                    const on = eskalation.sirens.includes(entity.id);
+                    return (
+                      <Pressable
+                        key={entity.id}
+                        onPress={() => toggleSirene(entity.id)}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: on }}
+                        accessibilityLabel={`${entity.name} als Sirene einschalten`}
+                        style={({ pressed }) => [
+                          styles.chip,
+                          on && styles.chipOn,
+                          pressed && { opacity: 0.7 },
+                        ]}
+                      >
+                        <Text style={[styles.chipText, on && { color: '#FFFFFF' }]}>
+                          {entity.name}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+
+            <Toggle
+              label="Alle Lichter einschalten"
+              detail="Einbrecher mögen kein Rampenlicht – und wer nachschauen geht, keinen dunklen Flur. Beim Entschärfen gehen nur die Sirenen wieder aus."
+              value={eskalation.all_lights}
+              onChange={(value) => onSave({ ...eskalation, all_lights: value })}
+            />
+
+            <View style={styles.field}>
+              <Text style={styles.label}>Durchsage auf die Boxen</Text>
+              <TextInput
+                style={styles.input}
+                value={announce}
+                onChangeText={setAnnounce}
+                onBlur={commitTexte}
+                placeholder="Leer lassen für keine Durchsage"
+                placeholderTextColor={colors.inkFaint}
+                accessibilityLabel="Text der Eskalations-Durchsage"
+              />
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>Lautstärke der Durchsage (0–100)</Text>
+              <TextInput
+                style={styles.input}
+                value={volume}
+                onChangeText={(text) => setVolume(text.replace(/[^0-9]/g, ''))}
+                onBlur={commitTexte}
+                keyboardType="number-pad"
+                maxLength={3}
+                placeholder="Vorgabe"
+                placeholderTextColor={colors.inkFaint}
+                accessibilityLabel="Lautstärke der Eskalations-Durchsage"
+              />
+            </View>
+
+            {eskalationStand(eskalation) === 'an, aber ohne Wirkung' ? (
+              <Text style={styles.warn}>
+                Eingeschaltet, aber ohne Sirene, Licht und Durchsage tut die
+                Eskalation nichts – oben etwas auswählen.
+              </Text>
+            ) : null}
+          </>
+        ) : null}
+      </Klappe>
+    </Card>
   );
 }
 
