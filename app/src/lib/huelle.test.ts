@@ -1,4 +1,4 @@
-import { bauZeitIso, huelleZeile } from './huelle';
+import { ablageDiagnose, bauZeitIso, huelleZeile } from './huelle';
 
 describe('bauZeitIso', () => {
   test('eine Minuten-Nummer wird zum Bau-Zeitpunkt', () => {
@@ -42,5 +42,42 @@ describe('huelleZeile', () => {
 
   test('eine Angabe allein genuegt', () => {
     expect(huelleZeile(null, '5')).toBe('Diese Hülle: Laufzeit 5');
+  });
+});
+
+describe('ablageDiagnose', () => {
+  test('gefunden heisst nichts zu diagnostizieren', () => {
+    expect(ablageDiagnose(true, ['ExtensionStorage'], true)).toBe('');
+  });
+
+  test('fehlendes expo-Objekt wird beim Namen genannt', () => {
+    expect(ablageDiagnose(false, [], false)).toBe(
+      'Innenansicht: Das expo-Objekt fehlt im JavaScript ganz.'
+    );
+  });
+
+  test('leere Modulliste heisst: die Liste ist das Problem', () => {
+    expect(ablageDiagnose(true, [], false)).toBe(
+      'Innenansicht: Die Hülle meldet gar keine nativen Module.'
+    );
+  });
+
+  test('verwandte Namen werden aufgezaehlt', () => {
+    // Heisst das Modul in der Hülle anders als erwartet, ist genau das
+    // die gesuchte Antwort - sie soll auf dem Foto stehen.
+    const zeile = ablageDiagnose(
+      true,
+      ['ExpoFont', 'ExtensionStorageModule', 'WidgetKitBruecke'],
+      false
+    );
+    expect(zeile).toContain('3 native Module');
+    expect(zeile).toContain('«ExtensionStorageModule»');
+    expect(zeile).toContain('«WidgetKitBruecke»');
+  });
+
+  test('ohne verwandte Namen bleibt es bei der Zaehlung', () => {
+    expect(ablageDiagnose(true, ['ExpoFont', 'ExpoVideo'], false)).toBe(
+      'Innenansicht: 2 native Module gemeldet, keines heisst «ExtensionStorage».'
+    );
   });
 });

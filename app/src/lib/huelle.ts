@@ -47,3 +47,37 @@ export function huelleZeile(
   if (laufzeit) teile.push(`Laufzeit ${laufzeit}`);
   return teile.length > 0 ? `Diese Hülle: ${teile.join(' · ')}` : '';
 }
+
+/**
+ * Die Innenansicht der Warnung «App kennt die Widget-Ablage noch nicht»
+ * (rein, testbar).
+ *
+ * Sie trennt, was die Warnung allein nicht trennen konnte: Fehlt das
+ * Modul wirklich im Build, fehlt gleich das ganze expo-Objekt, oder
+ * meldet die Hülle Module unter anderen Namen? Solange «Hülle zu alt»
+ * auch auf dem frisch gebauten Build stand, war jede dieser Ursachen
+ * gleich unsichtbar - jetzt steht die Antwort im Bildschirmfoto.
+ */
+export function ablageDiagnose(
+  expoDa: boolean,
+  moduleNamen: string[],
+  gefunden: boolean
+): string {
+  // Gefunden heisst: nichts zu diagnostizieren - die Warnung, zu der
+  // diese Zeile gehört, dürfte dann gar nicht dastehen.
+  if (gefunden) return '';
+  if (!expoDa) return 'Innenansicht: Das expo-Objekt fehlt im JavaScript ganz.';
+  if (moduleNamen.length === 0) {
+    // Dann ist nicht dieses eine Modul das Problem, sondern die Liste
+    // selbst - etwa, weil sie sich nicht aufzählen lässt.
+    return 'Innenansicht: Die Hülle meldet gar keine nativen Module.';
+  }
+  const verwandt = moduleNamen
+    .filter((name) => /storage|extension|widget/i.test(name))
+    .slice(0, 4);
+  if (verwandt.length > 0) {
+    const liste = verwandt.map((name) => `«${name}»`).join(', ');
+    return `Innenansicht: ${moduleNamen.length} native Module gemeldet; verwandt klingen ${liste} - «ExtensionStorage» selbst fehlt.`;
+  }
+  return `Innenansicht: ${moduleNamen.length} native Module gemeldet, keines heisst «ExtensionStorage».`;
+}

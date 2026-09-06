@@ -16,7 +16,7 @@ import { Entity, Scene } from '../api/types';
 import { Card } from './Card';
 import { WidgetSetting } from './WidgetSetting';
 import { huelleZeile } from '../lib/huelle';
-import { Ablage } from '../lib/widget';
+import { Ablage, ablageEinblick } from '../lib/widget';
 import {
   MAX_BUTTONS,
   STANDARD,
@@ -102,6 +102,9 @@ export function Widgets({
   // der alten oder der frisch installierten Hülle entstand – beide
   // zeigten denselben Text, und die Suche drehte sich im Kreis.
   const huelle = huelleZeile(Constants.nativeBuildVersion, Updates.runtimeVersion);
+  // Nur im Warnfall nachsehen: Die Innenansicht fasst native Globals an,
+  // und das soll nicht bei jedem Öffnen der Einstellungen passieren.
+  const einblick = ablage === 'huelle-alt' ? ablageEinblick() : '';
 
   const setzen = (next: string[]) => onButtons(next.slice(0, MAX_BUTTONS));
 
@@ -366,6 +369,7 @@ export function Widgets({
                   «Hub + App-Builds» erzeugt einen neuen – der taucht nach
                   dem Bauen in TestFlight auf und gehört dann installiert.
                   {huelle ? ` ${huelle}.` : ''}
+                  {einblick ? ` ${einblick}` : ''}
                 </Text>
               </View>
             ) : null}
