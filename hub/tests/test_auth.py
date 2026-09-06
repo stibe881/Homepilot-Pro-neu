@@ -26,8 +26,15 @@ class FakeAuth:
         self.accounts = {"stefan@example.ch": "richtig"}
         self.unconfirmed: set[str] = set()
         self.can_invite = bool(service_key)
+        # Kein Internet, DNS weg, Supabase down - wie der 503, den
+        # supabase_auth._send aus einem Netzfehler macht.
+        self.down = False
 
     async def sign_in(self, email, password):
+        if self.down:
+            raise supabase_auth.AuthError(
+                "Der Anmeldedienst ist nicht erreichbar.", 503
+            )
         email = email.strip().lower()
         if self.accounts.get(email) != password:
             raise supabase_auth.AuthError("E-Mail-Adresse oder Passwort stimmen nicht.", 400)
@@ -293,6 +300,293 @@ def test_without_supabase_there_is_no_password_login():
                 "/api/auth/login", json={"email": "a@b.ch", "password": "x"}
             ).status_code
             == 503
+        )
+
+
+# ── Punkt 234 der Werkbank: lokaler Rückfall bei Supabase-Ausfall ────────
+
+
+def eingetragen_und_einmal_online_angemeldet(client):
+    """Adresse eintragen und einmal online anmelden - führt den Hash nach."""
+    client.put(
+        "/api/users/Stefan/email",
+        json={"email": "stefan@example.ch"},
+        headers={"Authorization": "Bearer geheim"},
+    )
+    ok = client.post(
+        "/api/auth/login",
+        json={"email": "stefan@example.ch", "password": "richtig", "label": "iPhone"},
+    )
+    assert ok.status_code == 200
+    return ok.json()["token"]
+
+
+def test_login_still_works_with_the_right_password_while_supabase_is_down(monkeypatch):
+    """«Antwortet Supabase nicht, kommt niemand mit Passwort ins Haus.»
+
+    Der Hub kennt seine Benutzer selbst: Nach einer erfolgreichen
+    Online-Anmeldung liegt der Hash lokal, und im Ausfall prüft der Hub
+    dagegen und stellt eine ganz normale Sitzung aus."""
+    hub, fake = make_auth_hub(monkeypatch)
+    with TestClient(create_app(hub)) as client:
+        eingetragen_und_einmal_online_angemeldet(client)
+        fake.down = True
+        ok = client.post(
+            "/api/auth/login",
+            json={"email": "stefan@example.ch", "password": "richtig", "label": "iPad"},
+        )
+        assert ok.status_code == 200
+        token = ok.json()["token"]
+        assert ok.json()["user"]["name"] == "Stefan"
+        # Eine normale Sitzung: Damit geht alles, was Stefan darf.
+        assert (
+            client.get(
+                "/api/entities", headers={"Authorization": f"Bearer {token}"}
+            ).status_code
+            == 200
+        )
+
+
+def test_the_stored_fallback_is_a_salted_hash_and_never_the_password(monkeypatch):
+    hub, _ = make_auth_hub(monkeypatch)
+    with TestClient(create_app(hub)) as client:
+        eingetragen_und_einmal_online_angemeldet(client)
+    rows = hub.data.get("emails")
+    entry = next(row["passwort"] for row in rows if row["email"] == "stefan@example.ch")
+    assert entry["salt"] and entry["hash"]
+    import json
+
+    assert "richtig" not in json.dumps(rows)
+
+
+def test_a_wrong_password_is_refused_even_while_supabase_is_down(monkeypatch):
+    """Der Rückfall ist kein Hintertürchen: Das Passwort muss stimmen."""
+    hub, fake = make_auth_hub(monkeypatch)
+    with TestClient(create_app(hub)) as client:
+        eingetragen_und_einmal_online_angemeldet(client)
+        fake.down = True
+        refused = client.post(
+            "/api/auth/login",
+            json={"email": "stefan@example.ch", "password": "falsch"},
+        )
+        assert refused.status_code == 401
+
+
+def test_without_a_stored_hash_an_outage_stays_an_outage(monkeypatch):
+    """Wer sich nie online angemeldet hat, hat keinen lokalen Hash - dann
+    bleibt die ehrliche Auskunft: Der Anmeldedienst ist nicht erreichbar."""
+    hub, fake = make_auth_hub(monkeypatch)
+    with TestClient(create_app(hub)) as client:
+        client.put(
+            "/api/users/Stefan/email",
+            json={"email": "stefan@example.ch"},
+            headers={"Authorization": "Bearer geheim"},
+        )
+        fake.down = True
+        antwort = client.post(
+            "/api/auth/login",
+            json={"email": "stefan@example.ch", "password": "richtig"},
+        )
+        assert antwort.status_code == 503
+
+
+def test_a_supabase_rejection_does_not_fall_back_to_the_local_hash(monkeypatch):
+    """Supabase hat entschieden - sonst bliebe ein dort zurückgesetztes
+    Passwort über den lokalen Hash ewig gültig."""
+    hub, fake = make_auth_hub(monkeypatch)
+    with TestClient(create_app(hub)) as client:
+        eingetragen_und_einmal_online_angemeldet(client)
+        # Passwort bei Supabase geändert (z.B. über «Passwort vergessen»):
+        # Das alte stimmt lokal noch, Supabase lehnt es ab.
+        fake.accounts["stefan@example.ch"] = "neu-und-anders"
+        vorher = len(hub.sessions.list_for("Stefan"))
+        refused = client.post(
+            "/api/auth/login",
+            json={"email": "stefan@example.ch", "password": "richtig"},
+        )
+        assert refused.status_code == 400
+        # Kein lokaler Zweitversuch: keine neue Sitzung entstanden.
+        assert len(hub.sessions.list_for("Stefan")) == vorher
+
+
+def test_a_disabled_user_stays_out_even_during_an_outage(monkeypatch):
+    hub, fake = make_auth_hub(monkeypatch)
+    with TestClient(create_app(hub)) as client:
+        eingetragen_und_einmal_online_angemeldet(client)
+        hub.users.by_name("Stefan").enabled = False
+        fake.down = True
+        refused = client.post(
+            "/api/auth/login",
+            json={"email": "stefan@example.ch", "password": "richtig"},
+        )
+        assert refused.status_code == 403
+
+
+def test_config_offers_password_login_from_the_stored_hash_alone(monkeypatch):
+    """Fällt Supabase sogar aus der Konfiguration, bleibt die Anmeldemaske
+    offen, solange nachgeführte Hashes da sind - und die Anmeldung geht."""
+    hub, _ = make_auth_hub(monkeypatch)
+    with TestClient(create_app(hub)) as client:
+        eingetragen_und_einmal_online_angemeldet(client)
+        hub.config.supabase = {}
+        assert client.get("/api/auth/config").json()["password_login"] is True
+        ok = client.post(
+            "/api/auth/login",
+            json={"email": "stefan@example.ch", "password": "richtig"},
+        )
+        assert ok.status_code == 200
+
+
+# ── Punkt 244 der Werkbank: das eigene Konto verwalten ───────────────────
+
+
+def make_local_hub():
+    """Ein Hub ganz ohne Supabase - Anmeldung nur mit Name und Passwort."""
+    return Hub(
+        make_config(
+            token="geheim",
+            users=[{"name": "Stefan", "role": "besitzer", "token": "t-stefan"}],
+        )
+    )
+
+
+def lokal_anmelden(client, name, passwort, label):
+    antwort = client.post(
+        "/api/auth/login", json={"email": name, "password": passwort, "label": label}
+    )
+    assert antwort.status_code == 200
+    return antwort.json()["token"]
+
+
+def test_a_password_change_ends_the_other_sessions_but_keeps_this_one():
+    hub = make_local_hub()
+    with TestClient(create_app(hub)) as client:
+        owner = {"Authorization": "Bearer geheim"}
+        client.post(
+            "/api/users",
+            json={"name": "Levin", "role": "bewohner", "password": "start1234"},
+            headers=owner,
+        )
+        iphone = lokal_anmelden(client, "Levin", "start1234", "iPhone")
+        ipad = lokal_anmelden(client, "Levin", "start1234", "iPad")
+
+        gewechselt = client.post(
+            "/api/auth/passwort-wechsel",
+            json={"old": "start1234", "new": "eigenes1234"},
+            headers={"Authorization": f"Bearer {iphone}"},
+        )
+        assert gewechselt.status_code == 200
+        assert gewechselt.json()["revoked"] == 1
+
+        # Das andere Gerät ist draussen, das eigene bleibt drin.
+        assert (
+            client.get("/api/me", headers={"Authorization": f"Bearer {ipad}"}).status_code
+            == 401
+        )
+        assert (
+            client.get(
+                "/api/me", headers={"Authorization": f"Bearer {iphone}"}
+            ).status_code
+            == 200
+        )
+
+        # Das alte Passwort taugt nicht mehr, das neue schon - und die
+        # Wechsel-Pflicht des Initialpassworts ist erledigt.
+        assert (
+            client.post(
+                "/api/auth/login", json={"email": "Levin", "password": "start1234"}
+            ).status_code
+            == 401
+        )
+        wieder = client.post(
+            "/api/auth/login", json={"email": "Levin", "password": "eigenes1234"}
+        )
+        assert wieder.status_code == 200
+        assert wieder.json()["must_change_password"] is False
+
+
+def test_the_sessions_list_marks_the_current_device():
+    hub = make_local_hub()
+    with TestClient(create_app(hub)) as client:
+        owner = {"Authorization": "Bearer geheim"}
+        client.post(
+            "/api/users",
+            json={"name": "Levin", "role": "bewohner", "password": "start1234"},
+            headers=owner,
+        )
+        iphone = lokal_anmelden(client, "Levin", "start1234", "iPhone")
+        lokal_anmelden(client, "Levin", "start1234", "iPad")
+
+        rows = client.get(
+            "/api/auth/sessions", headers={"Authorization": f"Bearer {iphone}"}
+        ).json()["sessions"]
+        assert len(rows) == 2
+        assert all(row["label"] and row["created"] and row["seen"] for row in rows)
+        assert all(row["id"] for row in rows)
+        # Genau die eigene ist markiert - sonst räumt man in «Meine
+        # Geräte» das Gerät in der eigenen Hand mit ab.
+        assert [row["label"] for row in rows if row["current"]] == ["iPhone"]
+
+
+def test_a_single_session_can_be_ended_by_its_id():
+    hub = make_local_hub()
+    with TestClient(create_app(hub)) as client:
+        owner = {"Authorization": "Bearer geheim"}
+        client.post(
+            "/api/users",
+            json={"name": "Levin", "role": "bewohner", "password": "start1234"},
+            headers=owner,
+        )
+        iphone = lokal_anmelden(client, "Levin", "start1234", "iPhone")
+        ipad = lokal_anmelden(client, "Levin", "start1234", "iPad")
+
+        rows = client.get(
+            "/api/auth/sessions", headers={"Authorization": f"Bearer {iphone}"}
+        ).json()["sessions"]
+        fremd = next(row["id"] for row in rows if not row["current"])
+        beendet = client.delete(
+            f"/api/auth/sessions/{fremd}",
+            headers={"Authorization": f"Bearer {iphone}"},
+        )
+        assert beendet.status_code == 200
+        assert (
+            client.get("/api/me", headers={"Authorization": f"Bearer {ipad}"}).status_code
+            == 401
+        )
+        assert (
+            client.get(
+                "/api/me", headers={"Authorization": f"Bearer {iphone}"}
+            ).status_code
+            == 200
+        )
+
+
+def test_you_can_only_end_your_own_sessions():
+    """Die Kennung allein genügt absichtlich nicht - sie muss zu einer
+    eigenen Sitzung gehören."""
+    hub = make_local_hub()
+    with TestClient(create_app(hub)) as client:
+        owner = {"Authorization": "Bearer geheim"}
+        for name in ("Levin", "Lina"):
+            client.post(
+                "/api/users",
+                json={"name": name, "role": "bewohner", "password": "start1234"},
+                headers=owner,
+            )
+        levin = lokal_anmelden(client, "Levin", "start1234", "iPhone")
+        lina = lokal_anmelden(client, "Lina", "start1234", "iPad")
+
+        lina_sid = client.get(
+            "/api/auth/sessions", headers={"Authorization": f"Bearer {lina}"}
+        ).json()["sessions"][0]["id"]
+        verboten = client.delete(
+            f"/api/auth/sessions/{lina_sid}",
+            headers={"Authorization": f"Bearer {levin}"},
+        )
+        assert verboten.status_code == 404
+        assert (
+            client.get("/api/me", headers={"Authorization": f"Bearer {lina}"}).status_code
+            == 200
         )
 
 
