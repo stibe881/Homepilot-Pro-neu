@@ -177,10 +177,13 @@ def cover_state(states: dict[str, Any]) -> dict[str, Any]:
     orientation = states.get(ORIENTATION)
     if orientation is not None:
         try:
-            # Wie bei der Position dreht der Hub auch hier: Overkiz zählt
-            # die Lamellen als Geschlossenheit (100 = zu), die App denkt in
-            # «offen %» – sonst zeigt sie geschlossene Lamellen als offen.
-            result["tilt"] = max(0, min(100, 100 - int(orientation)))
+            # NICHT drehen - anders als die Position. Die Lamellenwendung
+            # zählt bei Overkiz schon wie die App: 0 = zu, 100 = offen.
+            # Früher wurde hier «wie bei der Position» gedreht, und dann
+            # stand die geschlossene EVB im Essbereich als «Beschattung»
+            # da (Lamellen angeblich 100 % offen), während die Somfy-App
+            # daneben «Geschlossen, Lamellenwendung 0 %» zeigte.
+            result["tilt"] = max(0, min(100, int(orientation)))
         except (TypeError, ValueError):
             pass
     # Bewusst *kein* `state: unknown` als Rückfall.
@@ -563,8 +566,11 @@ class OverkizIntegration(Integration):
             markise = variants and str(variants[0]) == "setDeployment"
             params: list[Any] = [offen if markise else 100 - offen]
         elif command == "set_tilt":
-            # App: offen %, Overkiz: geschlossen % - wie bei set_position.
-            params = [max(0, min(100, 100 - int(data.get("tilt", 0))))]
+            # NICHT drehen - die Lamellenwendung zählt bei Overkiz schon
+            # wie die App (0 = zu, 100 = offen), siehe cover_state. Lesen
+            # und Schreiben müssen dieselbe Richtung haben, sonst springt
+            # der Feinregler nach jeder Fahrt auf den Gegenwert.
+            params = [max(0, min(100, int(data.get("tilt", 0))))]
         else:
             params = []
 

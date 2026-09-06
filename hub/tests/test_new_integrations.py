@@ -1039,8 +1039,9 @@ def test_meteoalarm_area_filter():
 def test_overkiz_cover_state_position_and_tilt():
     from homepilot.integrations.overkiz import cover_state
 
-    # Overkiz zählt Geschlossenheit: closure 30 = 70 % offen, Lamellen-
-    # Orientierung 45 = 55 % offen - beides wird gedreht.
+    # Overkiz zählt die *Position* als Geschlossenheit (closure 30 =
+    # 70 % offen - wird gedreht), die *Lamellenwendung* aber schon als
+    # Offenheit (orientation 45 = 45 % offen - wird NICHT gedreht).
     state = cover_state(
         {
             "core:ClosureState": 30,
@@ -1049,8 +1050,22 @@ def test_overkiz_cover_state_position_and_tilt():
         }
     )
     assert state["position"] == 70
-    assert state["tilt"] == 55
+    assert state["tilt"] == 45
     assert state["state"] == "partial"
+
+
+def test_closed_evb_with_closed_slats_reads_as_closed_not_as_shading():
+    from homepilot.integrations.overkiz import cover_state
+
+    # Der Fall aus dem Essbereich: Die Somfy-App zeigt «Geschlossen,
+    # Lamellenwendung 0 %» - HomePilot machte daraus durch das alte
+    # Drehen «Lamellen 100 % offen» und hob «Beschattung» hervor.
+    state = cover_state(
+        {"core:ClosureState": 100, "core:SlateOrientationState": 0}
+    )
+    assert state["position"] == 0
+    assert state["tilt"] == 0
+    assert state["state"] == "closed"
 
 
 def test_overkiz_an_awning_counts_the_other_way():
