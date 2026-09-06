@@ -1,4 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
+import * as Updates from 'expo-updates';
 import React, { useMemo, useState } from 'react';
 import {
   Platform,
@@ -13,6 +15,7 @@ import {
 import { Entity, Scene } from '../api/types';
 import { Card } from './Card';
 import { WidgetSetting } from './WidgetSetting';
+import { huelleZeile } from '../lib/huelle';
 import { Ablage } from '../lib/widget';
 import {
   MAX_BUTTONS,
@@ -93,6 +96,12 @@ export function Widgets({
         knopf.title.toLowerCase().includes(query.trim().toLowerCase())
       )
     : angebot;
+
+  // Von welcher Hülle der Befund stammt, gehört in den Befund hinein:
+  // Ein Bildschirmfoto der Warnung allein liess bisher offen, ob sie auf
+  // der alten oder der frisch installierten Hülle entstand – beide
+  // zeigten denselben Text, und die Suche drehte sich im Kreis.
+  const huelle = huelleZeile(Constants.nativeBuildVersion, Updates.runtimeVersion);
 
   const setzen = (next: string[]) => onButtons(next.slice(0, MAX_BUTTONS));
 
@@ -336,6 +345,7 @@ export function Widgets({
                   liegen für das Widget bereit. Zeigt es trotzdem die
                   Standardknöpfe, hilft meist: Widget vom Bildschirm
                   entfernen und neu hinzufügen.
+                  {huelle ? ` ${huelle}.` : ''}
                 </Text>
               </View>
             ) : null}
@@ -355,6 +365,7 @@ export function Widgets({
                   dieser Build selbst zu alt: Erst ein Update mit
                   «Hub + App-Builds» erzeugt einen neuen – der taucht nach
                   dem Bauen in TestFlight auf und gehört dann installiert.
+                  {huelle ? ` ${huelle}.` : ''}
                 </Text>
               </View>
             ) : null}
