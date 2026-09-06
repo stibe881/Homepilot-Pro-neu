@@ -77,9 +77,9 @@ export function ablageDiagnose(
     .slice(0, 4);
   if (verwandt.length > 0) {
     const liste = verwandt.map((name) => `«${name}»`).join(', ');
-    return `Innenansicht: ${moduleNamen.length} native Module gemeldet; verwandt klingen ${liste} - «ExtensionStorage» selbst fehlt.`;
+    return `Innenansicht: ${moduleNamen.length} native Module gemeldet; verwandt klingen ${liste} - das Ablage-Modul selbst fehlt.`;
   }
-  return `Innenansicht: ${moduleNamen.length} native Module gemeldet, keines heisst «ExtensionStorage».`;
+  return `Innenansicht: ${moduleNamen.length} native Module gemeldet, keines heisst «WidgetAblage» oder «ExtensionStorage».`;
 }
 
 /**

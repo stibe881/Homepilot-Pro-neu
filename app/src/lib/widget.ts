@@ -74,7 +74,17 @@ function nativesModul(): any | null {
     // Erst zur Laufzeit laden: Im Web-Bau soll der Import oben nichts
     // anfassen müssen, was es nur nativ gibt.
     const { requireOptionalNativeModule } = require('expo-modules-core');
-    return requireOptionalNativeModule('ExtensionStorage') ?? null;
+    // Zuerst das eigene lokale Modul (modules/widget-ablage): Das
+    // ExtensionStorage-Modul des Pakets kam in keinem EAS-Build je an -
+    // die Innenansicht zählte 41 native Module, keines davon so genannt,
+    // während die lokalen Module dieses Projekts in jedem Build stecken.
+    // Das Paket bleibt als zweiter Griff: gleiche Signaturen, und sollte
+    // es je wieder auftauchen, schadet es nicht.
+    return (
+      requireOptionalNativeModule('WidgetAblage') ??
+      requireOptionalNativeModule('ExtensionStorage') ??
+      null
+    );
   } catch {
     return null;
   }

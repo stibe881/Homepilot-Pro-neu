@@ -19,8 +19,14 @@ let mockModul: {
   reloadWidget: jest.Mock;
 } | null = null;
 
+// Unter welchen Namen das nachgebaute Modul auffindbar ist - die App
+// versucht erst das lokale «WidgetAblage», dann das Paket-Modul
+// «ExtensionStorage».
+let mockNamen: string[] = ['WidgetAblage'];
+
 jest.mock('expo-modules-core', () => ({
-  requireOptionalNativeModule: () => mockModul,
+  requireOptionalNativeModule: (name: string) =>
+    mockNamen.includes(name) ? mockModul : null,
 }));
 
 import { syncWidget, abgelegteKnoepfe, widgetSpur } from './widget';
@@ -57,6 +63,7 @@ const knoepfe: WidgetButton[] = [
 
 afterEach(() => {
   mockModul = null;
+  mockNamen = ['WidgetAblage'];
 });
 
 describe('syncWidget', () => {
@@ -65,6 +72,14 @@ describe('syncWidget', () => {
     // Anzeige statt der Warnung, die den TestFlight-Build verlangt.
     mockModul = null;
     expect(syncWidget(settings, true, knoepfe)).toBe('huelle-alt');
+  });
+
+  test('auch ein Modul nur unter dem Paketnamen genuegt', () => {
+    // Der zweite Griff: Sollte das Paket-Modul je wieder in einem Build
+    // auftauchen, funktioniert die Ablage darüber genauso.
+    mockModul = frischesModul();
+    mockNamen = ['ExtensionStorage'];
+    expect(syncWidget(settings, true, knoepfe)).toBe('ok');
   });
 
   test('schreibt Knoepfe und Hausstand und liest zurueck', () => {

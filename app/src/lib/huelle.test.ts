@@ -77,7 +77,7 @@ describe('ablageDiagnose', () => {
 
   test('ohne verwandte Namen bleibt es bei der Zaehlung', () => {
     expect(ablageDiagnose(true, ['ExpoFont', 'ExpoVideo'], false)).toBe(
-      'Innenansicht: 2 native Module gemeldet, keines heisst «ExtensionStorage».'
+      'Innenansicht: 2 native Module gemeldet, keines heisst «WidgetAblage» oder «ExtensionStorage».'
     );
   });
 });
