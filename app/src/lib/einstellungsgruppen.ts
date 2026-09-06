@@ -62,6 +62,16 @@ export const GRUPPEN: readonly { key: string; titel: string; keys: readonly stri
     titel: 'Einrichtung und Rückblick',
     keys: ['system', 'activity'],
   },
+  // Eine eigene Gruppe für einen einzelnen Punkt - mit Absicht: Hilfe
+  // sucht, wer sich gerade nicht auskennt, und unter einer fremden
+  // Überschrift («Dieses Gerät», «Einrichtung») fände genau diese Person
+  // sie nicht. Die eine Überschrift mehr ist der Preis dafür, dass sie
+  // beim Überfliegen ins Auge springt - zuunterst, wie das Impressum.
+  {
+    key: 'hilfe',
+    titel: 'Hilfe',
+    keys: ['hilfe'],
+  },
 ] as const;
 
 /** Wo ein Punkt landet, den niemand einer Gruppe zugeordnet hat. */
@@ -91,6 +101,7 @@ const FARBEN: Record<string, string> = {
   connection: '#12A594',
   system: '#5D6572',
   activity: '#0091FF',
+  hilfe: '#00A2C7',
 };
 
 /** Der Ton eines Punktes – grau für alles, was hier nicht steht. */
@@ -121,6 +132,7 @@ const STICHWORTE: Record<string, readonly string[]> = {
   widgets: ['homescreen', 'sperrbildschirm', 'kachel', 'kurzbefehl'],
   personen: ['ortung', 'standort', 'zuhause', 'unterwegs', 'kontakt'],
   search: ['finden', 'suchen'],
+  hilfe: ['einführung', 'tour', 'anleitung', 'fragen', 'faq', 'erklärung', 'erste', 'schritte'],
 };
 
 /**
