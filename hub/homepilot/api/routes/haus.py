@@ -25,6 +25,7 @@ from ... import qr as qr_module
 from ...core import giessen as giessen_module
 from ...core import goodnight as goodnight_module
 from ...core import (
+    heimgruss,
     rueckgriff,
     say,
     sprachnotiz,
@@ -37,6 +38,7 @@ from ...core.config_edit import add_cast_device
 from ...core.errors import HomePilotError
 from ...core.source import as_source, user_source
 from ...core.users import Capability
+from ...integrations import geofence as geofence_module
 from .. import configio
 from ..context import ApiContext
 from ..models import (
@@ -342,6 +344,75 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             )
         except HomePilotError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
+
+    # ── Der Anrufbeantworter des Hauses (Punkt 259 der Werkbank) ───────────
+    #
+    # Eine Sprachnotiz «fürs nächste Heimkommen»: hinterlegen, nachsehen,
+    # zurückziehen. Abgespielt wird sie nicht hier, sondern von der
+    # Geofence-Integration im Moment der Ankunft (core/heimgruss.py).
+
+    @app.post("/api/heimgruss/voice")
+    async def heimgruss_hinterlegen(request: Request) -> dict[str, Any]:
+        """Eine Nachricht aufs Band legen - für alle, nicht für jemanden.
+
+        Derselbe rohe Rumpf wie bei /api/broadcast/voice, dieselben
+        Grenzen (sprachnotiz.pruefen). `speakers` und `volume` stehen in
+        der Adresse und werden mitgespeichert: Abgespielt wird später,
+        und dann soll die Nachricht dort klingen, wo sie der Hinterleger
+        haben wollte.
+        """
+        user = require(request, Capability.CONTROL)
+        # Die Adresse jetzt schon merken: Beim Abspielen kommt keine
+        # App-Anfrage vorbei, von der man sie ablesen könnte.
+        say.remember_base(hub, str(request.base_url))
+        audio = await request.body()
+        try:
+            sprachnotiz.pruefen(audio)
+        except HomePilotError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        eintrag = heimgruss.neuer_eintrag(
+            wer=user.name,
+            # Die Geofence-Kennung des Hinterlegers - damit die eigene
+            # Ankunft die Nachricht nicht verbraucht: Wer sie gesprochen
+            # hat, weiss, was drin ist.
+            zone=geofence_module.zonenkennung(user.name),
+            speakers=[
+                teil
+                for teil in request.query_params.get("speakers", "").split(",")
+                if teil
+            ],
+            volume=_lautstaerke(request.query_params.get("volume")),
+            typ=sprachnotiz.medientyp(audio),
+            now=time.time(),
+        )
+        hub.data.set(heimgruss.KEY, heimgruss.ablegen(hub.data.get(heimgruss.KEY), eintrag))
+        heimgruss.audio_ablegen(hub, audio)
+        log.info("Heimgruss: %s hat eine Nachricht hinterlegt", user.name)
+        return {"ok": True, "message": heimgruss.oeffentlich(eintrag)}
+
+    @app.get("/api/heimgruss")
+    async def heimgruss_stand(request: Request) -> dict[str, Any]:
+        """Liegt etwas auf dem Band? `message: null` heisst nein.
+
+        Für alle sichtbar, die schalten dürfen: Die Nachricht gilt dem
+        Haushalt, und wer sie sieht, kann sie auch zurückziehen.
+        """
+        require(request, Capability.CONTROL)
+        eintrag = heimgruss.offen(hub.data.get(heimgruss.KEY), time.time())
+        return {"message": heimgruss.oeffentlich(eintrag) if eintrag else None}
+
+    @app.delete("/api/heimgruss")
+    async def heimgruss_zurueckziehen(request: Request) -> dict[str, Any]:
+        """Die Nachricht zurückziehen, bevor jemand kommt.
+
+        Bewusst nicht nur für den Hinterleger: Ein Anrufbeantworter hat
+        keinen Besitzer, und «Papa hat was Falsches gesagt, lösch das»
+        soll nicht an einer Rechteprüfung scheitern.
+        """
+        user = require(request, Capability.CONTROL)
+        heimgruss.entfernen(hub)
+        log.info("Heimgruss: %s hat die Nachricht zurückgezogen", user.name)
+        return {"ok": True, "message": None}
 
     # ── Küchen-Timer ───────────────────────────────────────────────────────
 

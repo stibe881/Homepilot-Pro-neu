@@ -91,7 +91,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from ..core import ortsuche, personen, presence
+from ..core import heimgruss, ortsuche, personen, presence
 from ..core.entity import Entity, EntityKind
 from ..core.errors import ConfigError
 from ..core.integration import Integration
@@ -924,11 +924,26 @@ class GeofenceIntegration(Integration):
             key, titel, wort = "leave", "Unterwegs", "ist aus dem Haus"
         else:
             return
-        if not personen.an(self.hub.data.get(personen.LADE), zone_id, key):
-            return
         entity_id = self._zones.get(zone_id)
         entity = self.hub.registry.get(entity_id) if entity_id else None
         name = entity.label if entity else zone_id
+        if key == "arrive":
+            # Der Anrufbeantworter des Hauses (Punkt 259 der Werkbank):
+            # Liegt eine Nachricht «fürs nächste Heimkommen», spielt sie
+            # jetzt. Genau hier und nicht früher, weil die Zeilen darüber
+            # die Neustart-Welle unknown→home aussieben - sonst
+            # verbrauchte jedes Update die Nachricht für jemanden, der
+            # längst dasitzt. Vor der personen.an-Frage: Ob jemand die
+            # «ist angekommen»-Pushs bestellt hat, sagt nichts darüber,
+            # ob er die Lasagne-Nachricht hören soll.
+            try:
+                await heimgruss.bei_ankunft(self.hub, zone_id, name)
+            except Exception as err:
+                # Wie bei der Push darunter: Eine stumme Box darf die
+                # Ortung nicht anhalten.
+                self.log.warning("Heimgruss bei %s nicht abgespielt: %s", zone_id, err)
+        if not personen.an(self.hub.data.get(personen.LADE), zone_id, key):
+            return
         try:
             tokens = self.hub.push.recipients(
                 self.hub.users.users, category="presence"

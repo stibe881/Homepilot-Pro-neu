@@ -96,6 +96,10 @@ class Hub:
         # Kamerabilder, die einer Push-Nachricht beiliegen: nur im Speicher
         # und nur wenige Minuten gültig (siehe core/snapshots.py).
         self.snapshots = SnapshotStore()
+        # Der Ton des Anrufbeantworters (Punkt 259 der Werkbank, siehe
+        # core/heimgruss.py) - im Speicher fürs Abspielen, auf der Platte
+        # nur als Gedächtnis über den Neustart.
+        self.heimgruss_audio: bytes | None = None
         # Die letzten Warnungen und Fehler – die App zeigt sie unter System,
         # damit man dafür nicht per SSH ins Container-Log muss.
         self.log_buffer = install_log_buffer()
