@@ -99,6 +99,31 @@ def test_a_quiet_week_sends_nothing():
     assert familie.week_ahead([], [], [], [], date(2026, 8, 23)) is None
 
 
+def test_the_week_ahead_starts_on_monday_not_today():
+    """Der gemeldete Fall: Die Sonntagabend-Vorschau fing mit «So: …»
+    an - dem heutigen Tag. Die kommende Woche beginnt am Montag; was
+    heute noch ansteht, weiss man um sieben Uhr abends selbst."""
+    sonntag = date(2026, 9, 6)
+    text = familie.week_ahead(
+        [
+            {"summary": "Panzerweekend", "start": "2026-09-06T10:00"},
+            {"summary": "Jugi Levin", "start": "2026-09-07T18:00"},
+            # Der nächste Sonntag gehört noch zur kommenden Woche.
+            {"summary": "Brunch", "start": "2026-09-13T10:00"},
+        ],
+        [{"text": "Heute fällig", "due": "2026-09-06"}],
+        [],
+        [{"text": "Pia", "birthday": "06.09.2015"}],
+        sonntag,
+    )
+    assert text is not None
+    assert "Panzerweekend" not in text
+    assert "Heute fällig" not in text
+    assert "Pia" not in text
+    assert "Mo: Jugi Levin" in text
+    assert "So: Brunch" in text
+
+
 # ── Wochenplan füttert «zuletzt gekocht» (Punkt 218) ─────────────────────
 
 

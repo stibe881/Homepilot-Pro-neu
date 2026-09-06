@@ -390,10 +390,16 @@ def week_ahead(
     man die Woche ohnehin im Kopf durch; genau dann ist die Nachricht
     willkommen und nicht Lärm.
 
+    Der heutige Tag bleibt draussen: Die Nachricht kommt am Sonntagabend,
+    und «die kommende Woche» beginnt am Montag - gemeldet wurde eine
+    Vorschau, die mit «So: …» anfing. Was heute noch ansteht, weiss man
+    um sieben Uhr abends selbst; die Vorschau deckt Montag bis Sonntag.
+
     Nichts los heisst nichts schicken: Eine wöchentliche Push mit
     «diese Woche: nichts» schaltet man nach dem zweiten Mal ab.
     """
     zeilen: list[str] = []
+    von = heute + timedelta(days=1)
     bis = heute + timedelta(days=tage)
 
     termine: list[tuple[date, str]] = []
@@ -406,21 +412,34 @@ def week_ahead(
             wann = date(jahr, monat, tag)
         except (ValueError, TypeError):
             continue
-        if heute <= wann <= bis:
+        if von <= wann <= bis:
             termine.append((wann, str(event.get("summary") or "Termin")))
     for wann, titel in sorted(termine)[:4]:
         zeilen.append(f"{WEEKDAYS[wann.weekday()]}: {titel}")
 
-    for wann, text in (_due_within(tasks, heute, tage) + _due_within(chores, heute, tage))[:4]:
+    faellig = [
+        (wann, text)
+        for wann, text in _due_within(tasks, heute, tage) + _due_within(chores, heute, tage)
+        if wann >= von
+    ]
+    for wann, text in faellig[:4]:
         zeilen.append(f"{WEEKDAYS[wann.weekday()]}: {text}")
 
     # Beide Quellen, wie beim Gruss am Morgen: die Kontakte in «Familie»
     # und der Geburtstags-Kalender aus dem Telefon. Wer in beiden steht,
     # steht einmal in der Liste.
     geburtstage: list[tuple[int, str]] = [
-        (versatz, str(contact.get("text") or "").strip())
-        for versatz, contact in birthdays_in(contacts, heute, tage)
-    ] + calendar_birthdays(events, heute, tage)
+        eintrag
+        for eintrag in (
+            [
+                (versatz, str(contact.get("text") or "").strip())
+                for versatz, contact in birthdays_in(contacts, heute, tage)
+            ]
+            + calendar_birthdays(events, heute, tage)
+        )
+        # Der heutige Geburtstag stand schon im Morgengruss.
+        if eintrag[0] >= 1
+    ]
     gesehen: set[str] = set()
     for versatz, name in sorted(geburtstage, key=lambda zeile: zeile[0]):
         if not name or name.casefold() in gesehen:
