@@ -125,3 +125,25 @@ def test_zugaenge_stehen_nicht_in_der_familienliste():
     assert not personen.gehoert_auf_die_seite(user(name="Wandpanel", shared=True))
     assert not personen.gehoert_auf_die_seite(user(name="Besuch", role="gast"))
     assert not personen.gehoert_auf_die_seite(user(name="Alt", enabled=False))
+
+
+def test_gast_vermerken_sagt_der_karte_die_wahrheit():
+    """Der gemeldete Fall: Maja hat längst einen Gast-Zugang, steht auf
+    der Seite aber nur als Geortete - die «Zugang geben»-Karte
+    behauptete «hat keinen Zugang», und das Anlegen scheiterte einen
+    Tipp später mit «Benutzer existiert bereits». Der Vermerk «gast»
+    an ihrer Zeile lässt die App stattdessen Weitergeben anbieten."""
+    leute = [
+        {"name": "Maja", "household": False},
+        {"name": "Ray", "household": False},
+        {"name": "Stefan", "household": True},
+    ]
+    markiert = personen.gast_vermerken(leute, ["maja ", "Stefan"])
+    assert markiert[0].get("gast") is True
+    # Ray hat keinen Zugang - seine Karte darf weiter anlegen.
+    assert "gast" not in markiert[1]
+    # Haushaltsmitglieder brauchen den Vermerk nicht: Ihre Zeile zeigt
+    # die Karte gar nicht. Und ein zufällig gleichnamiger Zugang soll
+    # sie nicht zum Gast stempeln.
+    assert "gast" not in markiert[2]
+    assert personen.gast_vermerken([], []) == []

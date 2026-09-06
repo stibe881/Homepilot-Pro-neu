@@ -74,7 +74,10 @@ export function PersonenScreen({
   const [kopplung, setKopplung] = useState<{
     name: string;
     payload: string;
-    expires: string | null;
+    /** Fehlt beim Weitergeben eines bestehenden Zugangs: Wann der
+     *  endet, weiss die Benutzerverwaltung - das Blatt sagt das dann,
+     *  statt einen Ablauf zu raten. */
+    expires?: string | null;
   } | null>(null);
   // Der Weg ohne App: eine Einladung (Link + Passwort), deren Seite
   // «Im Browser öffnen» anbietet - dieselbe wie in der
@@ -210,6 +213,35 @@ export function PersonenScreen({
     }
   };
 
+  /**
+   * Den bestehenden Gast-Zugang weitergeben - QR und Link, ohne
+   * anzulegen.
+   *
+   * Der Fall: Die Person trägt den Vermerk «gast» (der Zugang besteht
+   * schon). «Anlegen» scheiterte hier mit «existiert bereits» - was es
+   * stattdessen braucht, ist dasselbe Kopplungsblatt wie nach dem
+   * Anlegen. `expires` bleibt weg: Wann der Zugang endet, weiss die
+   * Benutzerverwaltung - das Blatt sagt das, statt zu raten.
+   */
+  const zugangWeitergeben = async (person: Person) => {
+    setZugangFehler(null);
+    setZugangLaeuft(true);
+    try {
+      const antwort = await hub.get<{ payload?: string }>(
+        `/api/users/${encodeURIComponent(person.name)}/pairing`
+      );
+      setKopplung({ name: person.name, payload: String(antwort.payload ?? '') });
+    } catch (err) {
+      setZugangFehler(
+        err instanceof Error && err.message
+          ? err.message
+          : 'Der Kopplungs-Code liess sich nicht laden.'
+      );
+    } finally {
+      setZugangLaeuft(false);
+    }
+  };
+
   if (fehler && daten === null) {
     return <Fehlschlag text="Familie und Freunde liessen sich nicht laden." onRetry={laden} />;
   }
@@ -314,7 +346,41 @@ export function PersonenScreen({
                 bloss ortet: Wer schon Zugang hat, braucht keinen
                 zweiten. Und nur für Verwalter; allen anderen wiese der
                 Hub den Knopf ohnehin ab. */}
-            {auf && darfZugang && !person.household ? (
+            {auf && darfZugang && !person.household && person.gast ? (
+              // Der Zugang besteht schon (Gäste stehen bewusst nicht als
+              // eigene Zeile auf dieser Seite) - «Anlegen» scheiterte
+              // hier mit «existiert bereits». Was man an dieser Stelle
+              // will, ist Weitergeben: dasselbe Blatt mit QR und Link.
+              <View style={styles.zugang}>
+                <Text style={styles.zugangTitel}>Gast-Zugang besteht</Text>
+                <Text style={styles.zugangHinweis}>
+                  {person.name} hat einen Gast-Zugang. Ablauf und Rechte
+                  stehen in der Benutzerverwaltung (Einstellungen →
+                  Benutzerverwaltung) – dort lässt er sich auch löschen.
+                  Hier gibst du ihn weiter: per QR für die App oder als
+                  Link für den Browser.
+                </Text>
+                {zugangFehler ? (
+                  <Text style={styles.fehler}>{zugangFehler}</Text>
+                ) : null}
+                <Pressable
+                  onPress={() => zugangWeitergeben(person)}
+                  disabled={zugangLaeuft}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Gast-Zugang für ${person.name} weitergeben`}
+                  style={({ pressed }) => [
+                    styles.zugangKnopf,
+                    (pressed || zugangLaeuft) && { opacity: 0.6 },
+                  ]}
+                >
+                  <Ionicons name="qr-code-outline" size={16} color={colors.accent} />
+                  <Text style={styles.zugangKnopfText}>
+                    {zugangLaeuft ? 'Wird geladen …' : 'Zugang weitergeben'}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
+            {auf && darfZugang && !person.household && !person.gast ? (
               <View style={styles.zugang}>
                 <Text style={styles.zugangTitel}>Zugang zum Haus geben</Text>
                 <Text style={styles.zugangHinweis}>
@@ -398,7 +464,9 @@ export function PersonenScreen({
               selbst.
             </Text>
             <Text style={styles.qrHinweis}>
-              {ablaufSatz(kopplung?.expires ?? null)}
+              {kopplung && kopplung.expires === undefined
+                ? 'Ablauf und Rechte stehen in der Benutzerverwaltung – dort lässt sich der Zugang auch löschen.'
+                : ablaufSatz(kopplung?.expires ?? null)}
             </Text>
 
             {/* Nicht am selben Ort, oder keine Lust auf eine App? Dann

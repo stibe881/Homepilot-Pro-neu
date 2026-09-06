@@ -385,6 +385,15 @@ async def test_an_open_window_is_reported_once_and_rearms_after_closing():
         hub.push.send = fake_send  # type: ignore[assignment]
         hub.push.register("ExponentPushToken[x]", "Stefan")
 
+        # Der Morgen-Sammler ist hier nicht Gegenstand - und er feuert
+        # nach Wanduhr (morgen.faellig): Läuft die Prüfung um Punkt
+        # sieben, meldete check() zusätzlich «Am Morgen», und dieser
+        # Test war eine Stunde am Tag rot. Über hub.data abgestellt -
+        # check() liest die Regeln bei jedem Lauf frisch von dort.
+        hub.data.set(
+            "notify_rules", [{"key": "morning", "enabled": False, "params": {}}]
+        )
+
         fenster = melder("hm.fenster", "contact")
         hub.registry.all = lambda: [fenster]  # type: ignore[assignment]
 
@@ -818,6 +827,12 @@ async def test_open_reminder_survives_a_hub_restart():
 
         hub.push.send = fake_send  # type: ignore[assignment]
         hub.push.register("ExponentPushToken[x]", "Stefan")
+
+        # Wie oben: Der Morgen-Sammler feuert nach Wanduhr und machte
+        # aus «sent == []» um Punkt sieben eine rote Stunde am Tag.
+        hub.data.set(
+            "notify_rules", [{"key": "morning", "enabled": False, "params": {}}]
+        )
 
         fenster = melder("hm.fenster", "contact")
         hub.registry.all = lambda: [fenster]  # type: ignore[assignment]

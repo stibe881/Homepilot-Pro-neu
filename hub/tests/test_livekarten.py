@@ -140,6 +140,51 @@ def test_fernseher_karte_nicht_fuer_leute_unterwegs():
     assert "ohne" not in karten_tv([tv])[0]
 
 
+def test_zwillinge_finden_sich_auch_ueber_den_namen():
+    """Der gemeldete Fall, zweite Runde: Trotz Zusammenlegung lagen
+    wieder zwei Karten übereinander («Fernseher Wohnzimmer,
+    eingeschaltet» und «Fernseher im Wohnzimmer, YouTube»), und der
+    Tipp auf die des Zuspielers öffnete die falsche Fernbedienung.
+    Grund: Der Cast-Eintrag hatte keinen Raum zugeordnet, und die
+    Zwillingsregel kannte nur den Raum. Jetzt zählt auch der Name bis
+    auf Füllwörter - dieselbe Regel wie in der App (lib/geraeteart.ts):
+    «Fernseher Wohnzimmer» und «Fernseher im Wohnzimmer» meinen
+    dasselbe Gerät."""
+    android = SimpleNamespace(
+        id="androidtv.wz", kind="media_player", label="Fernseher Wohnzimmer",
+        state={"state": "on", "has_screen": True},
+        room="Wohnzimmer", commands=["dpad_up", "turn_off"],
+    )
+    cast_ohne_raum = SimpleNamespace(
+        id="cast.wz", kind="media_player", label="Fernseher im Wohnzimmer",
+        state={"state": "playing", "has_screen": True, "app": "YouTube"},
+        room=None, commands=["play", "pause"],
+    )
+    karten = karten_tv([android, cast_ohne_raum])
+    assert [k["art"] for k in karten] == ["tv:androidtv.wz"]
+    assert karten[0]["state"]["text"] == "YouTube"
+    assert karten[0]["state"]["url"] == "homepilot://fernbedienung/androidtv.wz"
+
+    # Und läuft nur der Zuspieler (der Hub erreicht den Android TV
+    # nicht), führt sein Tipp trotzdem zur richtigen Fernbedienung.
+    android_aus = SimpleNamespace(
+        id="androidtv.wz", kind="media_player", label="Fernseher Wohnzimmer",
+        state={"state": "off", "has_screen": True},
+        room="Wohnzimmer", commands=["dpad_up", "turn_on"],
+    )
+    allein = karten_tv([android_aus, cast_ohne_raum])
+    assert [k["art"] for k in allein] == ["tv:cast.wz"]
+    assert allein[0]["state"]["url"] == "homepilot://fernbedienung/androidtv.wz"
+
+    # Verschiedene Namen ohne Raum bleiben verschiedene Fernseher.
+    anderer = SimpleNamespace(
+        id="tv.buero", kind="media_player", label="Fernseher Büro",
+        state={"state": "on", "has_screen": True},
+        room=None, commands=["dpad_up"],
+    )
+    assert len(karten_tv([anderer, cast_ohne_raum])) == 2
+
+
 def test_verwaiste_karten_werden_erkannt_und_vorgemerkt():
     """Der gemeldete Fall: Der Fernseher geht aus, bevor die App das
     Token der Karte melden konnte - ihr Ende ging ohne Token ins Leere,
@@ -370,6 +415,52 @@ def test_abgleich_startet_aktualisiert_und_beendet():
     rows, starten, aktualisieren, beenden = abgleich(rows, [], ["Stibe", "Bine"], 3000.0)
     assert rows == [] and len(beenden) == 2
     assert sorted(len(b["tokens"]) for b in beenden) == [0, 1]
+
+
+def test_wer_das_haus_verlaesst_verliert_die_fernseher_karte():
+    """Der Wunsch aus dem Haus: Beim Weggehen soll die Fernseher-Karte
+    vom Sperrbildschirm verschwinden - eine Fernbedienung im Zug ist nur
+    eine Karte im Weg. Der Fernseher läuft dabei weiter: Nicht die Karte
+    ist weg, nur diese Person steht in ``ohne`` (nicht_zuhause), und ihr
+    Exemplar endet sofort, ohne Nachbild."""
+    rows = [
+        {
+            "user": "Stefan",
+            "art": "tv:androidtv.wz",
+            "stand": "x",
+            "activity_tokens": ["tok-stefan"],
+            "aktualisiert": 0.0,
+        },
+        {
+            "user": "Bine",
+            "art": "tv:androidtv.wz",
+            "stand": "x",
+            "activity_tokens": ["tok-bine"],
+            "aktualisiert": 0.0,
+        },
+    ]
+    karte = {
+        "art": "tv:androidtv.wz",
+        "user": None,
+        "ohne": ["Stefan"],
+        "state": {"titel": "TV", "text": "an", "symbol": "tv"},
+    }
+    neue, starten, aktualisieren, beenden = abgleich(
+        rows, [karte], ["Stefan", "Bine"], 1000.0
+    )
+    # Stefans Exemplar endet sofort - Bines bleibt liegen: Sie sitzt ja
+    # noch vor dem Fernseher.
+    assert [auftrag["tokens"] for auftrag in beenden] == [["tok-stefan"]]
+    assert beenden[0]["sichtbar"] == 0.0 and beenden[0]["state"] is None
+    assert [row["user"] for row in neue] == ["Bine"]
+    assert starten == []
+
+    # Kommt Stefan heim (und der Fernseher läuft noch), startet seine
+    # Karte frisch.
+    ohne_ohne = {**karte}
+    ohne_ohne.pop("ohne")
+    _, wieder, _, _ = abgleich(neue, [ohne_ohne], ["Stefan", "Bine"], 2000.0)
+    assert [auftrag["user"] for auftrag in wieder] == ["Stefan"]
 
 
 def test_abgleich_drosselt_updates():
