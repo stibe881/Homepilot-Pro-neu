@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Request
 
 from ...core import personen as personen_module
 from ...core import presence as presence_module
-from ...core.users import Capability
+from ...core.users import Capability, Role
 from ..context import ApiContext
 from ..models import MeldungRequest
 
@@ -103,6 +103,19 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             if personen_module.gehoert_auf_die_seite(user)
         ]
         leute = personen_module.zusammenfuehren(benutzer, zonen_zeilen())
+        # Wer als Gast schon einen Zugang hat, bekommt den Vermerk an
+        # seine Zeile - die «Zugang geben»-Karte der App behauptete
+        # sonst «hat keinen Zugang», und das Anlegen scheiterte einen
+        # Tipp später mit «existiert bereits» (personen.gast_vermerken).
+        leute = personen_module.gast_vermerken(
+            leute,
+            [
+                user.name
+                for user in hub.users.users
+                if str(getattr(user, "role", "")) == Role.GUEST
+                and getattr(user, "enabled", True)
+            ],
+        )
         return {
             "people": leute,
             # Die Beschriftungen kommen mit: Sonst stünden dieselben

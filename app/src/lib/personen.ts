@@ -16,6 +16,12 @@ export interface Person {
   role?: string | null;
   /** Gehört zum Haushalt (hat einen Zugang) oder wird nur geortet. */
   household?: boolean;
+  /** Nur geortet, aber es besteht schon ein Gast-Zugang mit diesem
+   *  Namen. Gäste stehen bewusst nicht als eigene Zeile auf der Seite -
+   *  ohne den Vermerk behauptete die «Zugang geben»-Karte aber «hat
+   *  keinen Zugang», und das Anlegen scheiterte mit «existiert
+   *  bereits». */
+  gast?: boolean;
   /** Fertiger Satzteil vom Hub: «zuhause», «bei Tanners Home», … */
   where?: string | null;
   /** Seit wann dieser Zustand gilt (Unix-Sekunden). */

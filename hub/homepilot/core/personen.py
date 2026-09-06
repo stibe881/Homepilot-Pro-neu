@@ -70,6 +70,31 @@ def gehoert_auf_die_seite(user: Any) -> bool:
     return str(getattr(user, "role", "")) != Role.GUEST
 
 
+def gast_vermerken(
+    leute: list[dict[str, Any]], gastnamen: list[str]
+) -> list[dict[str, Any]]:
+    """Geortete mit bestehendem Gast-Zugang markieren (rein, testbar).
+
+    Gäste stehen bewusst nicht als eigene Zeile auf der Seite
+    (gehoert_auf_die_seite) - ein Wochenendbesuch gehört nicht in die
+    Familienliste. Aber die Karte «Zugang geben» in der App muss wissen,
+    dass es den Zugang schon gibt: Sie behauptete sonst «hat keinen
+    Zugang», und das Anlegen scheiterte einen Tipp später mit
+    «Benutzer existiert bereits» - gemeldet mit Maja. Verglichen wird
+    wie überall bei Namen: ohne Gross-/Kleinschreibung und überzählige
+    Leerzeichen (presence.zone_fuer).
+    """
+    kurz = {" ".join(str(name or "").split()).casefold() for name in gastnamen}
+    kurz.discard("")
+    markiert = []
+    for person in leute:
+        name = " ".join(str(person.get("name") or "").split()).casefold()
+        if not person.get("household") and name in kurz:
+            person = {**person, "gast": True}
+        markiert.append(person)
+    return markiert
+
+
 def fuer(rows: Any, zone: str) -> dict[str, bool]:
     """Die vollständigen Schalter einer Zone (rein, testbar).
 
