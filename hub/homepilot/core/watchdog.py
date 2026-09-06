@@ -1238,7 +1238,7 @@ class Watchdog:
         for user in self.hub.users.users:
             if user.role != users.Role.GUEST or not user.enabled:
                 continue
-            ende = users.access_end(user.expires, user.hours, jetzt)
+            ende = users.access_end(user.expires, user.hours, jetzt, user.days)
             if ende is None:
                 continue
             marke = f"{user.name}:{ende.isoformat(timespec='minutes')}"
@@ -1252,6 +1252,12 @@ class Watchdog:
                     category="tasks",
                     to=user.name,
                 )
+            # Ein wiederkehrendes Fenster («jeden Donnerstag 8-12») endet
+            # nicht, es pausiert - die Familie jeden Donnerstag um 12:01
+            # zu behelligen, wäre Lärm. Gemeldet wird erst, wenn auch das
+            # Datum vorbei ist.
+            if users.laeuft_wieder(user.days, user.expires, jetzt.strftime("%Y-%m-%d")):
+                continue
             if rest <= 0 and self._einmal(
                 f"access-end:{marke}", jetzt.timestamp()
             ):

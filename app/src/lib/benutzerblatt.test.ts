@@ -4,6 +4,7 @@ import {
   kinderStand,
   reichweiteStand,
   sichtschutzStand,
+  tageLabel,
   zugangStand,
 } from './benutzerblatt';
 
@@ -34,6 +35,22 @@ describe('Was im zugeklappten Kopf steht', () => {
     expect(zugangStand(null, { from: '22:00', to: '06:00' })).toBe(
       'unbegrenzt · 22:00–06:00'
     );
+  });
+
+  it('die wochentage des wiederkehrenden gastes', () => {
+    expect(zugangStand(null, { from: '08:00', to: '12:00' }, [3])).toBe(
+      'unbegrenzt · nur Do · 08:00–12:00'
+    );
+    // Alle Tage bleiben wortlos - das ist der Normalfall, kein Merkmal.
+    expect(zugangStand(null, null, [])).toBe('unbegrenzt');
+  });
+
+  it('tageLabel kennt die beiden haeufigen muster beim wort', () => {
+    expect(tageLabel([0, 1, 2, 3, 4])).toBe('werktags');
+    expect(tageLabel([5, 6])).toBe('am Wochenende');
+    expect(tageLabel([1, 3])).toBe('Di, Do');
+    expect(tageLabel([0, 1, 2, 3, 4, 5, 6])).toBe('');
+    expect(tageLabel(undefined)).toBe('');
   });
 
   it('aber keine halbe Zeitangabe – die sperrt nichts', () => {

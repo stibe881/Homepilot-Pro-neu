@@ -284,6 +284,9 @@ class UserRequest(BaseModel):
     features: list[str] = []
     expires: str | None = None
     hours: dict[str, str] = {}
+    # Nur an diesen Wochentagen (0 = Montag); leer heisst alle Tage.
+    # Für den wiederkehrenden Gast: «jeden Donnerstag 8-12».
+    days: list[int] = []
     # Kinder-Ansicht: nur diese Räume, als grosse Knöpfe.
     simple_rooms: list[str] = []
     # Rechte je Raum: leer = ganzes Haus, sonst nur diese Räume. Anders
@@ -306,6 +309,8 @@ class UserUpdateRequest(BaseModel):
     expires: str | None = None
     # Zeitfenster {"from": "07:00", "to": "20:00"}; leer hebt es auf.
     hours: dict[str, str] | None = None
+    # Wochentage (0 = Montag); leere Liste heisst wieder alle Tage.
+    days: list[int] | None = None
     # Kinder-Ansicht an/aus bzw. Räume ändern; leere Liste hebt sie auf.
     simple_rooms: list[str] | None = None
     # Rechte je Raum; leere Liste gibt das ganze Haus wieder frei.
