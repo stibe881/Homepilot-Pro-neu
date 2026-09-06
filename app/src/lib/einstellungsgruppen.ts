@@ -107,7 +107,7 @@ export function farbeVon(key: string): string {
  */
 const STICHWORTE: Record<string, readonly string[]> = {
   account: ['push', 'benachrichtigung', 'mitteilung', 'profil', 'darstellung', 'design', 'farbe', 'symbol', 'sperre', 'passwort'],
-  connection: ['token', 'hub', 'adresse', 'server', 'url', 'anmelden'],
+  connection: ['token', 'hub', 'adresse', 'server', 'url', 'anmelden', 'kalender', 'spotify', 'google', 'mail', 'dienst', 'dienste'],
   automations: ['szene', 'szenen', 'automation', 'regel', 'zeitplan'],
   besuch: ['wlan', 'gast', 'gäste', 'babysitter', 'qr'],
   sorgen: ['batterie', 'offline', 'wartung', 'kaputt', 'störung'],

@@ -127,6 +127,7 @@ import { BereichRiegel } from '../components/BereichRiegel';
 import { FamilyScreen } from './FamilyScreen';
 import { OverviewScreen } from './OverviewScreen';
 import { SettingsScreen } from './SettingsScreen';
+import { VerbindungenScreen } from './VerbindungenScreen';
 import { AlarmScreen } from './AlarmScreen';
 import { EnergyScreen } from './EnergyScreen';
 import { SpeakersScreen } from './SpeakersScreen';
@@ -2053,7 +2054,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       key: 'connection',
       icon: 'link-outline',
       label: 'Verbindungen',
-      detail: 'Hub-Adresse und Token dieses Geräts',
+      // Für die Besitzerin liegen hier auch die Dienste des Hauses -
+      // die Zeile nennt beides, sonst sucht man den Kalender vergebens.
+      detail: (user?.capabilities ?? []).includes('edit_config')
+        ? 'Hub-Zugang, Kalender, Spotify, Google Home'
+        : 'Hub-Adresse und Token dieses Geräts',
       show: true,
     },
   ];
@@ -2394,12 +2399,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'connection') {
       return (
         <View style={styles.stack}>
-          <SettingsScreen
-            initial={settings}
+          {/* Dieses Gerät plus die Dienste des Hauses (Kalender, Spotify,
+              Google Home) - die Dienst-Karten sieht nur, wer die
+              Konfiguration ändern darf; für alle anderen bleibt die
+              Seite die Hub-Verbindung, die sie immer war. */}
+          <VerbindungenScreen
+            settings={settings}
             onSave={onSaveSettings}
             user={user}
-            embedded
-            nur="verbindung"
+            darfDienste={(user?.capabilities ?? []).includes('edit_config')}
           />
         </View>
       );

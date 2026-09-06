@@ -185,32 +185,7 @@ def _append_integration(
     Und zwar am Ende der ``integrations``-Liste, nicht am Ende der Datei –
     darunter stehen meist noch Benutzer, Szenen und Abläufe.
     """
-    key = next(
-        (
-            index
-            for index, line in enumerate(lines)
-            if line.strip() == "integrations:"
-        ),
-        None,
-    )
-    if key is None:
-        # Ohne Abschnitt gibt es nichts einzureihen – dann eben anlegen.
-        lines = [*lines, "integrations:"]
-        key = len(lines) - 1
-
-    key_indent = indent_of(lines[key])
-    indent = key_indent + 2
-    insert = key + 1
-    for index in range(key + 1, len(lines)):
-        line = lines[index]
-        if not line.strip():
-            continue
-        if not _in_list(line, key_indent):
-            break
-        if line.strip().startswith("- "):
-            indent = indent_of(line)
-        insert = index + 1
-
+    lines, insert, indent = _integrations_insert(lines)
     lines[insert:insert] = [
         " " * indent + "- integration: google_cast",
         " " * (indent + 2) + "devices:",
@@ -558,6 +533,229 @@ def _wert(value: object) -> str:
 def _join(content: str, lines: list[str]) -> str:
     text = "\n".join(lines)
     return text + "\n" if content.endswith("\n") else text
+
+
+# ── Werte in einem Integrations-Block ────────────────────────────────────
+#
+# Für die Verbindungen-Seite: Sie ändert einzelne Angaben einer Anbindung
+# (eine Kalender-Adresse, ein remind_minutes), ohne dass jemand den Block
+# als Text sieht. Dieselbe Regel wie überall in dieser Datei: Text an Ort
+# und Stelle, Kommentare und Reihenfolge bleiben.
+
+
+def enabled_block(content: str, integration: str) -> tuple[int, int] | None:
+    """code..end des eingeschalteten Blocks dieser Integration (rein).
+
+    Ein auskommentierter Block zählt nicht: In seine Zeilen zu schreiben
+    hiesse, YAML zwischen Kommentare zu mischen - wer ihn ändern will,
+    schaltet ihn zuerst ein.
+    """
+    for abschnitt in outline(content):
+        if abschnitt.get("key") != "integrations":
+            continue
+        for item in abschnitt.get("items") or []:
+            if item.get("name") == integration and item.get("enabled"):
+                return int(str(item["code"])), int(str(item["end"]))
+    return None
+
+
+def _block_einfuegestelle(lines: list[str], start: int, end: int) -> int:
+    """Hinter die letzte gefüllte Zeile des Blocks (rein)."""
+    stelle = min(end, len(lines))
+    while stelle > start + 1 and not lines[stelle - 1].strip():
+        stelle -= 1
+    return stelle
+
+
+def set_block_scalar(content: str, integration: str, key: str, value: object) -> str:
+    """Einen Wert im Block dieser Integration setzen (rein, testbar).
+
+    `None` entfernt die Zeile. Gibt es die Integration nicht (oder nur
+    auskommentiert), bleibt der Text unverändert - anlegen ist Sache von
+    `append_integration_block`.
+    """
+    found = enabled_block(content, integration)
+    if found is None:
+        return content
+    start, end = found
+    lines = content.splitlines()
+    indent = indent_of(lines[start]) + 2
+    zeile = _find_key(lines, key, start + 1, end, indent)
+    if zeile is not None:
+        if value is None:
+            del lines[zeile]
+        else:
+            lines[zeile] = " " * indent + f"{key}: {_wert(value)}"
+        return _join(content, lines)
+    if value is None:
+        return content
+    lines.insert(
+        _block_einfuegestelle(lines, start, end),
+        " " * indent + f"{key}: {_wert(value)}",
+    )
+    return _join(content, lines)
+
+
+def set_block_list(content: str, integration: str, key: str, values: list[str]) -> str:
+    """Eine Liste von Texten im Block setzen oder ersetzen (rein, testbar).
+
+    Gedacht für `calendar_ids`: Die App zeigt die Adressen als Liste, und
+    hier wird genau diese Liste zurückgeschrieben. Eine leere Liste nimmt
+    den Schlüssel ganz heraus - dann gilt wieder die Vorgabe der
+    Integration, statt dass ein leeres `calendar_ids:` in der Datei steht.
+    """
+    found = enabled_block(content, integration)
+    if found is None:
+        return content
+    start, end = found
+    lines = content.splitlines()
+    indent = indent_of(lines[start]) + 2
+    zeile = _find_key(lines, key, start + 1, end, indent)
+    eintrag_indent = indent + 2
+
+    if zeile is not None:
+        # Bis wohin reicht die bestehende Liste? Auch eine einzeilige
+        # Schreibweise (`key: [a, b]`) ist damit abgedeckt - sie ist
+        # dann einfach nur die Schlüsselzeile selbst.
+        liste_ende = zeile + 1
+        for index in range(zeile + 1, end):
+            line = lines[index]
+            if not line.strip():
+                continue
+            if not _in_list(line, indent):
+                break
+            if line.strip().startswith("- "):
+                eintrag_indent = indent_of(line)
+            liste_ende = index + 1
+        neu = (
+            [" " * indent + f"{key}:"]
+            + [" " * eintrag_indent + f"- {quote(str(value))}" for value in values]
+            if values
+            else []
+        )
+        lines[zeile:liste_ende] = neu
+        return _join(content, lines)
+
+    if not values:
+        return content
+    stelle = _block_einfuegestelle(lines, start, end)
+    lines[stelle:stelle] = [" " * indent + f"{key}:"] + [
+        " " * (indent + 2) + f"- {quote(str(value))}" for value in values
+    ]
+    return _join(content, lines)
+
+
+def append_integration_block(
+    content: str, integration: str, felder: list[tuple[str, object]]
+) -> str:
+    """Einen neuen Block ans Ende der integrations-Liste (rein, testbar).
+
+    `felder` sind (Schlüssel, Wert)-Paare; ein Listenwert wird als
+    YAML-Liste geschrieben. Gibt es die Integration schon (eingeschaltet),
+    bleibt der Text unverändert - ein zweiter Block derselben Anbindung
+    wäre beim Start ein Fehler.
+    """
+    if enabled_block(content, integration) is not None:
+        return content
+    lines = content.splitlines()
+    lines, insert, indent = _integrations_insert(lines)
+    block = [" " * indent + f"- integration: {integration}"]
+    for key, value in felder:
+        if isinstance(value, list):
+            block.append(" " * (indent + 2) + f"{key}:")
+            block += [" " * (indent + 4) + f"- {quote(str(v))}" for v in value]
+        else:
+            block.append(" " * (indent + 2) + f"{key}: {_wert(value)}")
+    lines[insert:insert] = block
+    return _join(content, lines)
+
+
+def _integrations_insert(lines: list[str]) -> tuple[list[str], int, int]:
+    """Wo ein neuer Block hingehört: ans Ende der integrations-Liste (rein).
+
+    Liefert (Zeilen, Einfügezeile, Einrückung) - und legt den Abschnitt
+    an, wenn es ihn noch gar nicht gibt.
+    """
+    key = next(
+        (index for index, line in enumerate(lines) if line.strip() == "integrations:"),
+        None,
+    )
+    if key is None:
+        lines = [*lines, "integrations:"]
+        key = len(lines) - 1
+    key_indent = indent_of(lines[key])
+    # Massgeblich ist die Einrückung der *obersten* Listeneinträge. Ein
+    # «- host:» tief in einer Geräteliste beginnt auch mit «- » - wer dem
+    # folgt, hängt den neuen Block mitten in fremde Geräte (genau so ist
+    # ein frisch angelegter Kalender einmal in der devices-Liste von
+    # google_cast gelandet).
+    entry_indent: int | None = None
+    insert = key + 1
+    for index in range(key + 1, len(lines)):
+        line = lines[index]
+        if not line.strip():
+            continue
+        if not _in_list(line, key_indent):
+            break
+        if line.strip().startswith("- "):
+            stufe = indent_of(line)
+            if entry_indent is None or stufe < entry_indent:
+                entry_indent = stufe
+        insert = index + 1
+    indent = entry_indent if entry_indent is not None else key_indent + 2
+    return lines, insert, indent
+
+
+def remove_cast_device(content: str, host: str, port: int = 8009) -> str:
+    """Eine Box aus dem google_cast-Block nehmen (rein, testbar).
+
+    Das Gegenstück zu `add_cast_device` - für die Verbindungen-Seite, auf
+    der man ein ausgemustertes Gerät auch wieder los werden soll. Fehlt
+    der Eintrag, bleibt der Text unverändert; wie beim Eintragen zählt
+    Adresse *und* Port, weil eine Lautsprechergruppe die Adresse mit
+    einer ihrer Boxen teilt.
+    """
+    found = enabled_block(content, "google_cast")
+    if found is None:
+        return content
+    lines = content.splitlines()
+    start, end = found
+    devices = _devices_line(lines, start, end)
+    if devices is None:
+        return content
+    device_indent = indent_of(lines[devices])
+
+    eintraege: list[tuple[int, int]] = []
+    von: int | None = None
+    liste_ende = devices + 1
+    for index in range(devices + 1, end):
+        line = lines[index]
+        if not line.strip():
+            continue
+        if not _in_list(line, device_indent):
+            break
+        if line.strip().startswith("- "):
+            if von is not None:
+                eintraege.append((von, index))
+            von = index
+        liste_ende = index + 1
+    if von is not None:
+        eintraege.append((von, liste_ende))
+
+    for anfang, bis in eintraege:
+        eintrag_host: str | None = None
+        eintrag_port = 8009
+        for index in range(anfang, bis):
+            text = lines[index].strip().lstrip("- ").strip()
+            if text.startswith("host:"):
+                eintrag_host = text.split(":", 1)[1].strip()
+            elif text.startswith("port:"):
+                wert = text.split(":", 1)[1].strip()
+                eintrag_port = int(wert) if wert.isdigit() else 8009
+        if eintrag_host == host and eintrag_port == port:
+            del lines[anfang:bis]
+            return _join(content, lines)
+    return content
 
 
 def toggle_block(content: str, start: int, end: int, enabled: bool) -> str:
