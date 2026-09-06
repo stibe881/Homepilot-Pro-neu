@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import Any
 from urllib.parse import quote
@@ -393,6 +394,35 @@ def _tv_app(entity: Any) -> str | None:
     return str(app) if app else None
 
 
+def _tv_name(label: Any) -> str:
+    """Der Name ohne Füllwörter, zum Vergleichen (rein).
+
+    «Fernseher Wohnzimmer» und «Fernseher im Wohnzimmer» meinen
+    dasselbe Gerät - dieselbe Regel wie in der App
+    (lib/geraeteart.ts, deviceKindLabel-Umfeld): Füllwörter zählen
+    nicht.
+    """
+    kurz = " ".join(str(label or "").lower().split())
+    return re.sub(r"\bim\b ?", "", kurz).strip()
+
+
+def sind_zwillinge(a: Any, b: Any) -> bool:
+    """Meinen zwei Einträge denselben Bildschirm? (rein, testbar)
+
+    Zwei Wege dorthin, und einer genügt: derselbe Raum - oder derselbe
+    Name bis auf Füllwörter. Der Namensweg ist kein Luxus: Der
+    Cast-Eintrag eines Fernsehers hat oft gar keinen Raum zugeordnet,
+    und genau daran scheiterte die Zusammenlegung zuerst - es lagen
+    wieder zwei Karten übereinander, und der Tipp auf die des
+    Zuspielers öffnete die falsche Fernbedienung.
+    """
+    raum_a = getattr(a, "room", None)
+    if raum_a is not None and raum_a == getattr(b, "room", None):
+        return True
+    name_a = _tv_name(getattr(a, "label", None))
+    return bool(name_a) and name_a == _tv_name(getattr(b, "label", None))
+
+
 def kino_knopf(szenen: list[Any]) -> dict[str, Any] | None:
     """Der Kino-Griff auf der Fernseher-Karte (rein, testbar).
 
@@ -433,23 +463,35 @@ def tv_auswahl(laufend: list[Any]) -> list[tuple[Any, str | None]]:
 
     Dieselbe Regel wie auf der Raumkachel (app/src/lib/raumkarte.ts,
     fernbedienungFuer): Ein laufender Fernseher ohne Steuerkreuz gehört
-    zum *einzigen* Steuerkreuz-Gerät seines Raums - bei zweien wird
-    nicht geraten, und ohne Raum lässt sich kein Zwilling erkennen. Der
-    Text des Zuspielers wandert mit: Er weiss, was läuft («Plex»), das
+    zum *einzigen* Steuerkreuz-Gerät unter seinen Zwillingen - bei
+    zweien wird nicht geraten. Zwilling heisst: derselbe Raum oder
+    derselbe Name bis auf Füllwörter (sind_zwillinge). Der Text des
+    Zuspielers wandert mit: Er weiss, was läuft («Plex»), das
     Steuerkreuz-Gerät sagt oft nur «eingeschaltet».
     """
-    nach_raum: dict[Any, list[Any]] = {}
+    gruppen: list[list[Any]] = []
     for entity in laufend:
-        nach_raum.setdefault(getattr(entity, "room", None), []).append(entity)
+        ziel = next(
+            (
+                gruppe
+                for gruppe in gruppen
+                if any(sind_zwillinge(entity, mitglied) for mitglied in gruppe)
+            ),
+            None,
+        )
+        if ziel is None:
+            gruppen.append([entity])
+        else:
+            ziel.append(entity)
 
     auswahl: list[tuple[Any, str | None]] = []
-    for raum, gruppe in nach_raum.items():
+    for gruppe in gruppen:
         kreuze = [
             entity
             for entity in gruppe
             if "dpad_up" in (getattr(entity, "commands", None) or [])
         ]
-        if raum is None or len(gruppe) == 1 or len(kreuze) != 1:
+        if len(gruppe) == 1 or len(kreuze) != 1:
             auswahl.extend((entity, _tv_app(entity)) for entity in gruppe)
             continue
         gewinner = kreuze[0]
@@ -478,26 +520,23 @@ def fernbedienung_ziel(entity: Any, entities: list[Any]) -> str:
     die Raumkachel längst den Zwilling (lib/raumkarte.ts,
     fernbedienungFuer), die Karte zeigte stur auf sich selbst.
 
-    Anders als beim Zusammenlegen der Karten (tv_auswahl) zählt der
-    Zwilling hier auch, wenn er gerade «aus» ist oder nicht antwortet:
-    Die Karte kommt vom Zuspieler, wenn der Hub den Fernseher selbst
-    nicht erreicht - und gerade dann soll der Tipp trotzdem bei der
-    richtigen Fernbedienung landen. Bei zwei Steuerkreuzen im Raum wird
-    nicht geraten, ohne Raum gibt es keinen Zwilling - dann bleibt es
-    bei der eigenen.
+    Der Zwilling zählt hier auch, wenn er gerade «aus» ist oder nicht
+    antwortet: Die Karte kommt vom Zuspieler, wenn der Hub den
+    Fernseher selbst nicht erreicht - und gerade dann soll der Tipp
+    trotzdem bei der richtigen Fernbedienung landen. Zwilling heisst
+    wie beim Zusammenlegen: derselbe Raum oder derselbe Name bis auf
+    Füllwörter (sind_zwillinge). Bei zwei Steuerkreuzen wird nicht
+    geraten - dann bleibt es bei der eigenen.
     """
     if "dpad_up" in (getattr(entity, "commands", None) or []):
-        return str(entity.id)
-    raum = getattr(entity, "room", None)
-    if raum is None:
         return str(entity.id)
     kreuze = [
         kandidat
         for kandidat in entities
         if kandidat is not entity
         and getattr(kandidat, "kind", None) == "media_player"
-        and getattr(kandidat, "room", None) == raum
         and "dpad_up" in (getattr(kandidat, "commands", None) or [])
+        and sind_zwillinge(entity, kandidat)
     ]
     if len(kreuze) != 1:
         return str(entity.id)
