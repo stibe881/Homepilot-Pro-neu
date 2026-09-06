@@ -52,6 +52,10 @@ KANAL_LEISE = "leise"
 # Medikament und jeder selbst gebaute Ablauf - gilt als dringend.
 LEISE: frozenset[str] = frozenset(
     {
+        # Die Hitze-Empfehlung darf warten - der Sturm nicht: storm_covers
+        # bleibt absichtlich dringend, da ist schon gehandelt worden und
+        # man will wissen, warum es im Haus gerade heller wurde.
+        "heat_covers",
         "battery",
         "disk",
         "outage",
@@ -204,6 +208,8 @@ CATEGORIES: dict[str, str] = {
     "disk": "Speicherplatz wird knapp",
     "frost": "Frost angekündigt",
     "rain": "Regen kommt",
+    "storm_covers": "Sturm/Hagel: Storen hochgefahren",
+    "heat_covers": "Sommerhitze: Storen-Empfehlung",
     "plants": "Pflanzen giessen",
     "appliance": "Haushaltgerät fertig",
     "oven": "Backofen parat/fertig",
@@ -240,8 +246,8 @@ GROUPS: list[tuple[str, tuple[str, ...]]] = [
     # sofort reagiert - und die einzige, bei der ein paar Sekunden
     # Verzögerung den Zweck zunichte machen.
     ("Sicherheit", ("doorbell", "alarm", "alarm_arming", "camera_motion", "leak")),
-    ("Haus", ("open", "appliance", "oven", "vacuum", "frost", "rain", "plants",
-              "timer", "maintenance")),
+    ("Haus", ("open", "appliance", "oven", "vacuum", "frost", "rain",
+              "storm_covers", "heat_covers", "plants", "timer", "maintenance")),
     # «Baby weint» steht vorn und bei der Familie, nicht bei der
     # Sicherheit: Gesucht wird die Nachricht dort, wo die Kinder sind.
     # Dringend bleibt sie unabhängig von der Gruppe - die Einteilung

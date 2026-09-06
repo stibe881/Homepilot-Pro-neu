@@ -29,12 +29,14 @@ from ...core import (
     pushverlauf,
     snapshots,
     spaeter,
+    storenwaechter,
     waschkueche,
 )
 from ...core.users import Capability, Role
 from ..context import ApiContext
 from ..models import (
     BatteryPrefsRequest,
+    CoverGuardRequest,
     LaundryRequest,
     LiveActivityTokenRequest,
     NotifyRuleRequest,
@@ -261,6 +263,57 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         hub.data.set("laundry", [{"door": tuer}] if tuer else [])
         hub.watchdog.tuer_gewechselt(hub.registry.all(), tuer or None)
         return await laundry_door(request)
+
+    # ── Die Storen der Wächter ─────────────────────────────────────────────
+    #
+    # Gehört zu den Regeln «Sturm und Hagel» und «Sommerhitze» und steht
+    # in der App in deren Karten: Hier wird gewählt, welche Storen der
+    # Sturmwächter fährt bzw. von welchen die Hitze-Empfehlung spricht.
+    # Aus demselben Grund wie bei der Waschküchentüre nicht als Parameter
+    # der Regel: Die sind Zahlen mit Grenzen, Geräte-Ids sind keine.
+
+    @app.get("/api/coverguard")
+    async def cover_guard(request: Request) -> dict[str, Any]:
+        current_user(request)
+        entities = hub.registry.all()
+        rows = hub.data.get("cover_guard")
+        return {
+            "storm": storenwaechter.guard_auswahl(rows, "storm"),
+            "heat": storenwaechter.guard_auswahl(rows, "heat"),
+            # Alle Storen des Hauses - die App baut daraus die Chips,
+            # ohne selbst durch die Entitäten zu gehen.
+            "covers": [
+                {"id": entity.id, "name": entity.label, "room": entity.room}
+                for entity in entities
+                if entity.kind == "cover"
+            ],
+        }
+
+    @app.put("/api/coverguard")
+    async def set_cover_guard(
+        body: CoverGuardRequest, request: Request
+    ) -> dict[str, Any]:
+        require(request, Capability.EDIT_AUTOMATIONS)
+        rows = hub.data.get("cover_guard")
+        stand = {
+            "storm": storenwaechter.guard_auswahl(rows, "storm"),
+            "heat": storenwaechter.guard_auswahl(rows, "heat"),
+        }
+        known = {entity.id for entity in hub.registry.all() if entity.kind == "cover"}
+        for art, neu in (("storm", body.storm), ("heat", body.heat)):
+            if neu is None:
+                continue
+            fremd = [eintrag for eintrag in neu if eintrag not in known]
+            if fremd:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Diese Storen kennt der Hub nicht: {', '.join(fremd)}",
+                )
+            stand[art] = [str(eintrag) for eintrag in neu]
+        hub.data.set(
+            "cover_guard", [stand] if (stand["storm"] or stand["heat"]) else []
+        )
+        return await cover_guard(request)
 
     @app.post("/api/appliances/{entity_id}/claim")
     async def claim_appliance(entity_id: str, request: Request) -> dict[str, Any]:

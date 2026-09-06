@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import (
+    astro,
     babysitter,
     batterie,
     batterieprognose,
@@ -48,6 +49,7 @@ from . import (
     regen,
     shopping,
     spaeter,
+    storenwaechter,
     trash,
     users,
     uvwarnung,
@@ -56,6 +58,7 @@ from . import (
     wlanschein,
 )
 from .entity import EntityKind
+from .source import as_source, automation_source
 
 # Die reinen Regeln wohnen in watchrules.py; hier bleiben Takt und
 # Gedächtnis. Die Namen werden re-exportiert - Server und Tests
@@ -147,6 +150,10 @@ class Watchdog:
         self._open_since: dict[str, float] = {}
         # Wassermelder, die schon gemeldet wurden.
         self._reported_leak: set[str] = set()
+        # Die zuletzt beantwortete Unwetterwarnung (Grund + Ablaufzeit):
+        # Dieselbe Warnung soll die Storen nur einmal fahren - erst eine
+        # neue (oder dieselbe nach Warnungsende) zählt wieder.
+        self._storm_beantwortet: str | None = None
         # Sauger-Probleme, die schon gemeldet wurden («gerät:schlüssel»).
         self._reported_sauger: set[str] = set()
         # Energie: welcher Tag zuletzt geschrieben wurde und wann.
@@ -434,6 +441,8 @@ class Watchdog:
         # bestehende Minutentakt, und eine zweite Uhr müsste jemand warten.
         cliparchiv.aufraeumen_lauf(self.hub)
         await self._check_disk()
+        await self._check_storm_covers(entities)
+        await self._check_heat_covers(entities)
         await self._check_frost(entities)
         await self._check_regen(entities)
         await self._check_giessen(entities)
@@ -521,6 +530,123 @@ class Watchdog:
                 f"{name} verbindet dauernd neu",
                 flattern.satz(name, len(frisch)),
             )
+
+    def _cover_guard(self, art: str) -> list[str]:
+        """Die gespeicherte Storen-Auswahl («storm» oder «heat»)."""
+        return storenwaechter.guard_auswahl(self.hub.data.get("cover_guard"), art)
+
+    def _sonnenhoehe(self) -> float:
+        location = self.hub.config.location or {}
+        lat = float(location.get("latitude", 47.13844))
+        lon = float(location.get("longitude", 7.92059))
+        elevation, _azimut = astro.sun_position(datetime.now(), lat, lon)
+        return elevation
+
+    async def _check_storm_covers(self, entities: list[Any]) -> None:
+        """Sturm, Hagel oder Gewitter angekündigt: die Storen hochfahren.
+
+        Hier wird gehandelt statt gefragt - ein heruntergelassener Behang
+        ist die Angriffsfläche für den Wind, und Hagel verbeult Lamellen,
+        während das Glas dahinter hält. Die Beschattung (shading) schützt
+        nur ihre konfigurierten Fenster; dieser Wächter nimmt die
+        gewählten (oder alle) Storen und sagt danach Bescheid.
+        """
+        if not self.rules.get("storm_covers", {}).get("enabled", True):
+            return
+        warnung = next(
+            (e for e in entities if getattr(e, "kind", "") == "alert"), None
+        )
+        if warnung is None:
+            return
+        lage = storenwaechter.unwetter(getattr(warnung, "state", None) or {})
+        if lage is None:
+            # Warnung vorbei: Die nächste darf wieder fahren. Runter
+            # fährt hier nichts - das entscheiden Mensch und Beschattung.
+            self._storm_beantwortet = None
+            return
+        marke = f"{lage['grund']}:{lage['bis']}"
+        if self._storm_beantwortet == marke:
+            return
+        storen = storenwaechter.storen_auswahl(entities, self._cover_guard("storm"))
+        if not storen:
+            return
+        self._storm_beantwortet = marke
+        gefahren = 0
+        with as_source(automation_source("watchdog:storm", "Sturmwächter")):
+            for entity in storen:
+                try:
+                    if "set_position" in (entity.commands or []):
+                        await self.hub.integrations.dispatch_command(
+                            entity.id, "set_position", {"position": 100}
+                        )
+                    elif "open" in (entity.commands or []):
+                        await self.hub.integrations.dispatch_command(
+                            entity.id, "open", {}
+                        )
+                    else:
+                        continue
+                    gefahren += 1
+                except Exception as err:
+                    log.warning(
+                        "Sturmwächter: %s liess sich nicht fahren: %s",
+                        entity.id,
+                        err,
+                    )
+        if not gefahren:
+            return
+        anzahl = "Die Store ist" if gefahren == 1 else f"{gefahren} Storen sind"
+        await self._notify(
+            f"{lage['grund']}warnung - Storen hochgefahren",
+            f"{anzahl} hochgefahren: Unten wären die Lamellen dem Wetter "
+            "ausgesetzt. Runter geht es wieder von Hand, sobald es vorbei ist.",
+            category="storm_covers",
+        )
+
+    async def _check_heat_covers(self, entities: list[Any]) -> None:
+        """Sommerhitze: tagsüber der Storen-Vorschlag, abends das Lüften.
+
+        Bewusst nur Sätze, keine Taten (core/suggest.py-Doktrin): Wer am
+        Esstisch sitzt, will nicht plötzlich im Dunkeln sitzen. Je einmal
+        am Tag, und der Abend-Hinweis erst, wenn es draussen wirklich
+        kühler ist - sonst lüftet man warme Luft herein.
+        """
+        regel = self.rules.get("heat_covers", {})
+        if not regel.get("enabled", True):
+            return
+        innen = storenwaechter.innentemperatur(entities)
+        if innen is None:
+            return
+        schwelle = float(regel.get("params", {}).get("innen_ab", 25))
+        jetzt = datetime.now()
+        heute = jetzt.strftime("%Y-%m-%d")
+        elevation = self._sonnenhoehe()
+
+        if storenwaechter.hitze_tagsueber(innen, schwelle, elevation, jetzt.hour):
+            if self._einmal(f"heat-tag:{heute}"):
+                await self._notify(
+                    "Drinnen wird es warm",
+                    f"Im Haus sind es {innen:g} °C und die Sonne steht hoch. "
+                    "Storen auf der Sonnenseite unten halten die Wärme "
+                    "draussen - je früher, desto mehr bringt es.",
+                    category="heat_covers",
+                )
+            return
+
+        wetter = next(
+            (e for e in entities if getattr(e, "kind", "") == "weather"), None
+        )
+        draussen = None
+        if wetter is not None:
+            wert = (getattr(wetter, "state", None) or {}).get("temperature")
+            draussen = float(wert) if isinstance(wert, (int, float)) else None
+        if storenwaechter.lueften_abends(innen, draussen, schwelle, elevation):
+            if self._einmal(f"heat-abend:{heute}"):
+                await self._notify(
+                    "Jetzt querlüften",
+                    f"Draussen sind es noch {draussen:g} °C, drinnen {innen:g} - "
+                    "Fenster auf beiden Seiten auf, und die Wärme zieht ab.",
+                    category="heat_covers",
+                )
 
     async def _check_frost(self, entities: list[Any]) -> None:
         """Vor der ersten Frostnacht an die Pflanzen auf dem Balkon erinnern.

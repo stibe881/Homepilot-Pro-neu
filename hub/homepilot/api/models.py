@@ -217,6 +217,18 @@ class LaundryRequest(BaseModel):
     door: str | None = None
 
 
+class CoverGuardRequest(BaseModel):
+    """Welche Storen die Wächter anfassen dürfen.
+
+    `None` lässt die jeweilige Auswahl unangetastet; eine leere Liste
+    heisst «alle Storen» - das ist die Vorgabe, mit der die Wächter auch
+    ohne jede Einstellung wirken (core/storenwaechter.py).
+    """
+
+    storm: list[str] | None = None
+    heat: list[str] | None = None
+
+
 class GoodNightRequest(BaseModel):
     """Einstellungen des Gute-Nacht-Knopfs."""
 

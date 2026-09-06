@@ -40,6 +40,10 @@ ZIELE: dict[str, str] = {
     # Wetter und Haushalt: die Startseite trägt die Karten dazu.
     "frost": "start",
     "rain": "start",
+    # Die Storen wohnen auf der Startseite - dort sieht man, was der
+    # Wächter gefahren hat bzw. was man senken soll.
+    "storm_covers": "start",
+    "heat_covers": "start",
     "plants": "start",
     "appliance": "start",
     # Ofen parat: Es gibt nichts zu tippen, also dorthin, wo man ohnehin

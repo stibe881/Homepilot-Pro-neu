@@ -381,6 +381,34 @@ RULES: list[dict[str, Any]] = [
         ],
     },
     {
+        "key": "storm_covers",
+        "title": "Sturm und Hagel: Storen hoch",
+        "detail": "Meldet MeteoSchweiz Sturm, Hagel oder Gewitter (ab Stufe "
+        "«markant»), fahren die gewählten Storen hoch und eine Nachricht "
+        "sagt es - unten wären die Lamellen die Angriffsfläche. Welche "
+        "Storen mitmachen, steht in dieser Karte; ohne Auswahl alle.",
+        "params": [],
+    },
+    {
+        "key": "heat_covers",
+        "title": "Sommerhitze: Storen-Empfehlung",
+        "detail": "Ist es drinnen zu warm und die Sonne steht hoch, kommt "
+        "tagsüber der Vorschlag, die Storen zu senken - und abends, sobald "
+        "es draussen kühler ist, der Hinweis zum Querlüften. Geschaltet "
+        "wird nichts von selbst.",
+        "params": [
+            {
+                "key": "innen_ab",
+                "label": "Drinnen wärmer als",
+                "unit": "°C",
+                "default": 25,
+                "min": 20,
+                "max": 30,
+                "step": 0.5,
+            }
+        ],
+    },
+    {
         "key": "disk",
         "title": "Speicherplatz wird knapp",
         "detail": "Höchstens einmal am Tag, solange es knapp bleibt. Nicht "

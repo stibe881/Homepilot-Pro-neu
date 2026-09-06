@@ -15,6 +15,7 @@ import {
   naechsteWahl,
   tuerSatz,
 } from '../lib/waschkueche';
+import { GuardStand, dabei, storenSatz, umschalten } from '../lib/storenwahl';
 import { Automation, triggerIcon } from '../screens/automations/entwurf';
 
 /**
@@ -98,6 +99,9 @@ export function PushRules({
   // steht deshalb in deren Karte - nicht in einer eigenen Einstellung,
   // die niemand mit der Nachricht in Verbindung brächte.
   const [tuer, setTuer] = useState<Tuerstand | null>(null);
+  // Die Storen der Wächter-Regeln (Sturm/Hitze) - geladen wie die Türe,
+  // erst beim Aufklappen.
+  const [guard, setGuard] = useState<GuardStand | null>(null);
 
   const hub = useMemo(
     () => hubClient(settings.url, settings.token),
@@ -127,7 +131,21 @@ export function PushRules({
       // Ein Hub, der die Route noch nicht kennt, ist kein Grund, die
       // ganze Push-Liste rot zu machen - die Auswahl fällt dann weg.
       .catch(() => setTuer(null));
+    hub
+      .get<GuardStand>('/api/coverguard', { still: true })
+      .then(setGuard)
+      .catch(() => setGuard(null));
   }, [hub, open]);
+
+  const storenWaehlen = async (art: 'storm' | 'heat', id: string) => {
+    if (!guard) return;
+    const neu = umschalten(guard[art], id, guard.covers);
+    try {
+      setGuard(await hub.put<GuardStand>('/api/coverguard', { [art]: neu }, { still: true }));
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+    }
+  };
 
   const tuerWaehlen = async (id: string) => {
     const naechste = naechsteWahl(tuer, id);
@@ -299,6 +317,23 @@ export function PushRules({
                   colors={colors}
                 />
               ) : null}
+
+              {/* Welche Storen der Wächter anfasst - je Regel ihre eigene
+                  Auswahl, denn der Sturm soll alles schützen dürfen,
+                  während die Hitze-Empfehlung nur von der Sonnenseite
+                  sprechen mag. */}
+              {(rule.key === 'storm_covers' || rule.key === 'heat_covers') &&
+              rule.enabled &&
+              guard ? (
+                <StorenWahl
+                  art={rule.key === 'storm_covers' ? 'storm' : 'heat'}
+                  stand={guard}
+                  mayEdit={mayEdit}
+                  onWaehlen={storenWaehlen}
+                  styles={styles}
+                  colors={colors}
+                />
+              ) : null}
             </Card>
           ))}
           </View>
@@ -462,6 +497,83 @@ function Tuerwahl({
                 {stand.guess === kontakt.id ? (
                   <Text style={styles.badge}>Vorschlag</Text>
                 ) : null}
+              </Pressable>
+            );
+          })
+        : null}
+    </View>
+  );
+}
+
+/**
+ * Die Storen einer Wächter-Regel als Auswahl.
+ *
+ * Zugeklappt steht der Satz da, was gilt - in aller Regel «alle Storen»,
+ * und dann ist hier nichts zu tun. Erst wer einzelne ausnehmen will,
+ * klappt die Liste auf; ein Haken je Store, «leer heisst alle» rechnet
+ * lib/storenwahl.ts.
+ */
+function StorenWahl({
+  art,
+  stand,
+  mayEdit,
+  onWaehlen,
+  styles,
+  colors,
+}: {
+  art: 'storm' | 'heat';
+  stand: GuardStand;
+  mayEdit: boolean;
+  onWaehlen: (art: 'storm' | 'heat', id: string) => void;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Colors;
+}) {
+  const [offen, setOffen] = useState(false);
+  const gewaehlt = stand[art];
+
+  return (
+    <View style={styles.tuerBlock}>
+      <Text style={styles.tuerTitel}>
+        {art === 'storm' ? 'Diese Storen fährt der Wächter hoch' : 'Von diesen Storen spricht der Vorschlag'}
+      </Text>
+      <Text style={styles.detail}>{storenSatz(gewaehlt, stand.covers)}</Text>
+      {mayEdit && stand.covers.length > 1 ? (
+        <Pressable
+          onPress={() => setOffen((wert) => !wert)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: offen }}
+          accessibilityLabel="Storen wählen"
+          style={styles.tuerChip}
+        >
+          <Ionicons name="options-outline" size={14} color={colors.inkSoft} />
+          <Text style={styles.tuerChipText}>Storen wählen</Text>
+          <Ionicons
+            name={offen ? 'chevron-up' : 'chevron-down'}
+            size={14}
+            color={colors.inkSoft}
+          />
+        </Pressable>
+      ) : null}
+      {offen
+        ? stand.covers.map((cover) => {
+            const an = dabei(gewaehlt, cover.id);
+            return (
+              <Pressable
+                key={cover.id}
+                onPress={() => onWaehlen(art, cover.id)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: an }}
+                style={styles.tuerZeile}
+              >
+                <Ionicons
+                  name={an ? 'checkbox' : 'square-outline'}
+                  size={16}
+                  color={an ? colors.on : colors.inkFaint}
+                />
+                <Text style={[styles.tuerZeileText, an && { color: colors.ink }]}>
+                  {cover.name}
+                  {cover.room ? ` · ${cover.room}` : ''}
+                </Text>
               </Pressable>
             );
           })
