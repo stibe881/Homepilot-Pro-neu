@@ -30,6 +30,59 @@ Die Karte unter *Benutzerverwaltung → Gäste-WLAN → Aufkleber für Gäste*
 zeigt den QR-Code zum Ausdrucken, die Adresse zum Nachlesen und sagt,
 welcher dieser Teile gerade fehlt.
 
+## Die UniFi-Anbindung einrichten
+
+Drei Orte, und die Reihenfolge ist nicht beliebig.
+
+**1. Im UniFi-Controller, einmalig:**
+
+- Einen **lokalen** Benutzer anlegen (UniFi OS: *Settings → Admins &
+  Users → Add Admin*, «Restrict to local access only»). Kein
+  Ubiquiti-Cloud-Konto und **keine Zwei-Faktor-Anmeldung** – die
+  API-Anmeldung des Hubs kann keinen zweiten Faktor beantworten. Zugriff
+  auf die *Network*-App als Site Admin: Der Hub liest die Geräteliste
+  und stellt Gutscheine aus, die schmale «Hotspot»-Rolle reicht dafür
+  nicht.
+- Das Gastnetz mit **Gutschein-Portal** betreiben: *Settings → WiFi* für
+  das Gästenetz, dazu unter *Hotspot Portal* die Authentifizierung
+  «Voucher». Ohne Voucher-Portal gelten die Codes nirgends.
+
+**2. Auf dem Hub-Rechner, vor dem Konfigurieren:** zwei Zeilen in die
+`secrets.env` **neben der config.yaml** –
+
+```
+UNIFI_NET_USER=hub
+UNIFI_NET_PASSWORD=…
+```
+
+Erst die Datei, dann die Konfiguration: Der Hub prüft beim Speichern die
+ganze config.yaml und weist eine `${VARIABLE}` zurück, die er nirgends
+findet. Wer die Zugangsdaten stattdessen im Klartext in die config.yaml
+schreibt, findet sie später in jeder Fassung der
+Konfigurations-Historie wieder – deshalb der Umweg.
+
+**3. In der App** (*System → Konfiguration*), unter `integrations:`
+
+```yaml
+- integration: unifi
+  host: 192.168.1.1            # UDM/Cloud Gateway; Standalone: host:8443
+  username: "${UNIFI_NET_USER}"
+  password: "${UNIFI_NET_PASSWORD}"
+  site: default
+```
+
+Vor `host` gehört kein `https://` – das setzt die Integration selbst,
+und sie erkennt beim Anmelden von allein, ob ein UniFi-OS-Gerät (UDM,
+Cloud Gateway, Cloud Key Gen2) oder ein alter Standalone-Controller
+antwortet. `track` mit MAC-Adressen ist optional und ergibt
+«Gerät im WLAN»-Sensoren; für die Gutscheine braucht es das nicht.
+
+Danach den Hub neu starten (der Update-Knopf tut das ohnehin). Die
+Karte *Gäste-WLAN* wechselt dann von selbst auf den Gutschein-Spender;
+für den Aufkleber fehlen sonst höchstens noch `push.public_url` und
+`guest_wifi.ssid` aus der Tabelle oben – die Karte sagt, welcher Teil
+es ist.
+
 ## Der Haken mit dem Mobilfunk
 
 Der Gast scannt, **bevor** er im WLAN ist. Er hängt also am Mobilfunk –
