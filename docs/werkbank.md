@@ -17,7 +17,7 @@ steht sie hier, in vier Teilen entstanden:
 | 136–164 | Küche & Abläufe | Rezeptbuch und Ablauf-Editor |
 | 165–221 | Familie & Haushalt | Familienlisten, Kontakte, Ortung |
 | 224–243 | Zweite Durchsicht | Wärme, Strom, Betrieb, und die Fehler einer Woche |
-| 244–257 | Auf Zuruf (September 2026) | Benutzer und Zugang, Bedienung, Abläufe, Sicherheit |
+| 244–258 | Auf Zuruf (September 2026) | Benutzer und Zugang, Bedienung, Abläufe, Sicherheit |
 
 Stand beim Einchecken: **alle 221 Punkte erledigt**, bis auf Punkt 94
 (bewusst gestrichen). Die Häkchen tragen die Commit-Kürzel von den
@@ -2282,7 +2282,7 @@ jeder Auslieferung als Erstes kommt: «Ist es angekommen?»
 Stellen: `hub/homepilot/core/sessions.py`, `app/src/api/client.ts`
 
 
-# Teil VI: Auf Zuruf (244–257)
+# Teil VI: Auf Zuruf (244–258)
 
 Punkte aus Durchsichten im September 2026, auf Zuruf ausgewählt und
 umgesetzt. Gleichzeitig wurden 224–227, 228–229, 235–236 und 242–243
@@ -2480,3 +2480,20 @@ sondern Möblierung. Bewusst kein Umsortieren der Kacheln: Wer seine
 Startseite kennt, soll sie zu jeder Stunde am selben Ort wiederfinden.
 
 Stellen: `app/src/lib/tageszeile.ts`, `app/src/components/TagesZeile.tsx`, `app/src/screens/OverviewScreen.tsx`
+
+### 258. Die Batteriewarnung erinnert täglich - Stunde und Schwelle einstellbar ✓ erledigt (c49d5bc)
+
+*tut weh · Aufwand: mittel · Hub + App*
+
+«Ich bekomme keine Push mehr, wenn ein Gerät fast keinen Akku hat» -
+und das stimmte: Die Warnung kam bewusst genau einmal und geriet dann
+in Vergessenheit, bis der Melder still war. Neu meldet der Hub sofort
+und erinnert danach täglich zur Erinnerungsstunde, bis die Batterie
+gewechselt ist. Neben dem low_battery-Flag zählt neu der Prozentwert
+gegen eine Schwelle (ein Sensor auf 4 %, dessen Integration das Flag
+nicht kennt, blieb sonst unerwähnt); die Telefone bleiben draussen,
+ihre Warnung wohnt bei der Ortung. Stunde und Schwelle stellt man in
+den Push-Einstellungen ein - für den ganzen Haushalt, denn sie
+bestimmen, ob der Hub überhaupt meldet.
+
+Stellen: `hub/homepilot/core/batterie.py`, `hub/homepilot/core/watchrules.py`, `app/src/components/PushPrefs.tsx`
