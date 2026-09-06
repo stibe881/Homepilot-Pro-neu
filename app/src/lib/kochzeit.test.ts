@@ -37,3 +37,26 @@ describe('zeitenImText', () => {
     expect(zeitenImText('Zwiebeln würfeln')).toEqual([]);
   });
 });
+
+describe('die Feinheiten echter Rezepttexte', () => {
+  it('ein Bereich ist EINE Uhr - die kürzere', () => {
+    // Man schaut lieber einmal zu früh in den Ofen als einmal zu spät.
+    expect(zeitenImText('20-25 Min backen')).toEqual([20]);
+    expect(zeitenImText('20–25 Minuten backen')).toEqual([20]);
+    expect(zeitenImText('2 bis 3 Stunden schmoren')).toEqual([120]);
+  });
+
+  it('versteht Zeiten in Worten und mit Bruchzeichen', () => {
+    expect(zeitenImText('eine halbe Stunde köcheln')).toEqual([30]);
+    expect(zeitenImText('nach einer Viertelstunde wenden')).toEqual([15]);
+    expect(zeitenImText('1½ Std gehen lassen')).toEqual([90]);
+    expect(zeitenImText('½ Stunde ziehen lassen')).toEqual([30]);
+  });
+
+  it('laesst liegen, was die Kuechenuhr nicht kann', () => {
+    // Der Hub deckelt bei 180 Minuten (core/timers.py) - ein Knopf, der
+    // still an dieser Grenze scheitert, wäre schlimmer als keiner.
+    expect(zeitenImText('4 Stunden marinieren')).toEqual([]);
+    expect(zeitenImText('3 Stunden schmoren')).toEqual([180]);
+  });
+});
