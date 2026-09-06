@@ -174,7 +174,13 @@ export function syncWidget(
   buttons: WidgetButton[]
 ): Ablage {
   const store = storage();
-  if (store === null) return 'kein-widget';
+  if (store === null) {
+    // Kein Modul heisst auf iOS «Hülle zu alt», nicht «kein Widget»:
+    // Beim Umbau auf den Expo-Auflöser fiel dieser Unterschied kurz
+    // weg, und die Warnung verschwand ausgerechnet dann, wenn sie
+    // gebraucht wurde - das sah aus wie geheilt.
+    return kann.widgets ? ablageBefund(false, false) : 'kein-widget';
+  }
   try {
     // Ohne Knöpfe nichts schreiben: Beim Start steht die Geräteliste
     // noch aus, und eine leere Liste hiesse für das Widget «keine
