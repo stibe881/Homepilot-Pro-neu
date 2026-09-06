@@ -150,6 +150,7 @@ import { SzeneAufnehmen } from '../components/SzeneAufnehmen';
 import { PersonenScreen } from './PersonenScreen';
 import { UsersScreen } from './UsersScreen';
 import { confirm as confirmBiometrie, needsCheck } from '../lib/biometrie';
+import { type HeimgrussStand } from '../lib/heimgruss';
 import { mayOpenDirectly } from '../lib/tuerbestaetigung';
 import { kinoSzene } from '../lib/kinoszene';
 import { BioLock } from '../components/BioLock';
@@ -1125,6 +1126,32 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     [hub]
   );
 
+  /**
+   * Der Anrufbeantworter des Hauses (Punkt 259 der Werkbank): dieselbe
+   * Aufnahme, aber hinterlegt statt abgespielt - wer als Nächstes
+   * heimkommt, hört sie. Dazu der Stand («liegt schon etwas?») und das
+   * Zurückziehen. Alles drei nur gereicht, wenn geschaltet werden darf -
+   * wie bei der Sprachnotiz.
+   */
+  const hinterlegeHeimgruss = useCallback(
+    async (aufnahme: Blob, speakers: string[]) =>
+      hub.roh<{ message?: HeimgrussStand | null }>(
+        `/api/heimgruss/voice?speakers=${encodeURIComponent(speakers.join(','))}`,
+        aufnahme,
+        { still: true }
+      ),
+    [hub]
+  );
+  const holeHeimgrussStand = useCallback(
+    async () =>
+      (await hub.get<{ message?: HeimgrussStand | null }>('/api/heimgruss', { still: true }))
+        .message ?? null,
+    [hub]
+  );
+  const zieheHeimgrussZurueck = useCallback(async () => {
+    await hub.del('/api/heimgruss', { still: true });
+  }, [hub]);
+
   // Abkürzungen aus dem Widget und von NFC-Aufklebern: homepilot://door
   // öffnet die Türe (mit Rückfrage), //alloff und //alarm springen an die
   // passende Stelle, //scene/<id> löst eine Szene aus und //entity/<id>
@@ -1737,6 +1764,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         rooms={user.simple_rooms}
         entities={entities}
         scenes={scenes}
+        // Für «Mami anrufen» (Punkt 261): Die Ansicht steht vor dem
+        // HubProvider, deshalb bekommt sie die Zugangsdaten als Prop.
+        settings={settings}
         onCommand={(entityId, command) => guardedCommand(entityId, command)}
         onActivateScene={activateScene}
       />
@@ -2262,6 +2292,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               durchsage={eigenePrefs.durchsage}
               onDurchsagePrefs={setDurchsage}
               onSprachnotiz={darfSchalten ? sendeSprachnotiz : undefined}
+              onHeimgruss={darfSchalten ? hinterlegeHeimgruss : undefined}
+              onHeimgrussStand={darfSchalten ? holeHeimgrussStand : undefined}
+              onHeimgrussZurueck={darfSchalten ? zieheHeimgrussZurueck : undefined}
               onRenameEntity={
                 darfAnpassen
                   ? (entityId, name) => setEntityMeta(entityId, { name })

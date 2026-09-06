@@ -17,7 +17,7 @@ steht sie hier, in vier Teilen entstanden:
 | 136–164 | Küche & Abläufe | Rezeptbuch und Ablauf-Editor |
 | 165–221 | Familie & Haushalt | Familienlisten, Kontakte, Ortung |
 | 224–243 | Zweite Durchsicht | Wärme, Strom, Betrieb, und die Fehler einer Woche |
-| 244–258 | Auf Zuruf (September 2026) | Benutzer und Zugang, Bedienung, Abläufe, Sicherheit |
+| 244–262 | Auf Zuruf (September 2026) | Benutzer und Zugang, Bedienung, Abläufe, Sicherheit |
 
 Stand beim Einchecken: **alle 221 Punkte erledigt**, bis auf Punkt 94
 (bewusst gestrichen). Die Häkchen tragen die Commit-Kürzel von den
@@ -2078,7 +2078,7 @@ Stellen: `hub/homepilot/core/waschkueche.py`, `hub/homepilot/integrations/vzug.p
 
 ## Betrieb (230–234)
 
-### 230. Zigbee meldet seine Funkqualität, niemand liest sie
+### 230. Zigbee meldet seine Funkqualität, niemand liest sie ✓ erledigt (d3dff34)
 
 *Aufwand: klein · Hub + App*
 
@@ -2091,7 +2091,7 @@ Prognose.
 
 Stellen: `hub/homepilot/integrations/zigbee2mqtt.py`, `hub/homepilot/core/batterieprognose.py`
 
-### 231. Der Hub kann zurück auf den vorigen Stand, die App nicht
+### 231. Der Hub kann zurück auf den vorigen Stand, die App nicht ✓ erledigt (5a1bdb7)
 
 *tut weh · Aufwand: mittel · Repo*
 
@@ -2122,7 +2122,7 @@ ruhigen Stunde wieder eine.
 
 Stellen: `hub/homepilot/core/flattern.py`, `hub/homepilot/core/watchdog.py`
 
-### 233. Nichts prüft, ob Hub und App noch dieselbe Sprache sprechen
+### 233. Nichts prüft, ob Hub und App noch dieselbe Sprache sprechen ✓ erledigt (5a1bdb7)
 
 *Aufwand: mittel · Repo*
 
@@ -2282,7 +2282,7 @@ jeder Auslieferung als Erstes kommt: «Ist es angekommen?»
 Stellen: `hub/homepilot/core/sessions.py`, `app/src/api/client.ts`
 
 
-# Teil VI: Auf Zuruf (244–258)
+# Teil VI: Auf Zuruf (244–262)
 
 Punkte aus Durchsichten im September 2026, auf Zuruf ausgewählt und
 umgesetzt. Gleichzeitig wurden 224–227, 228–229, 235–236 und 242–243
@@ -2497,3 +2497,58 @@ den Push-Einstellungen ein - für den ganzen Haushalt, denn sie
 bestimmen, ob der Hub überhaupt meldet.
 
 Stellen: `hub/homepilot/core/batterie.py`, `hub/homepilot/core/watchrules.py`, `app/src/components/PushPrefs.tsx`
+
+## Das Haus wird persönlicher (259–262)
+
+### 259. Der Anrufbeantworter des Hauses ✓ erledigt (d4773f7)
+
+*lohnt sich · Aufwand: mittel · Hub + App*
+
+Sprachnotiz aufnehmen und Boxen bespielen konnte das Haus längst - was
+fehlte, war die Brücke zum Ankommen: eine Nachricht «fürs nächste
+Heimkommen» hinterlegen, die spielt, wenn jemand die Tür aufmacht
+(«Lasagne im Ofen, bin um sechs zurück»). Einmalig, mit Verfall nach
+48 Stunden, die hinterlegende Person verbraucht sie nicht selbst, die
+Nachtruhe lässt sie liegen, und der Hinterleger erfährt per Push, dass
+sie gespielt hat.
+
+Stellen: `hub/homepilot/core/heimgruss.py`, `hub/homepilot/integrations/geofence.py`, `app/src/screens/OverviewScreen.tsx`
+
+### 260. Ämtli-Sterne ✓ erledigt (3851409)
+
+*lohnt sich · Aufwand: mittel · App*
+
+Die Ämtli-Listen gab es, die Kinderseite gab es - was fehlte, war der
+Spass: Abgehakte Ämtli geben Sterne, mit Wochenziel (Montag bis
+Sonntag, wie überall) und einer von den Eltern gesetzten Belohnung.
+Ohne gesetztes Ziel erscheint nichts - ein «0 von 0» wäre kein
+Ansporn.
+
+Stellen: `app/src/lib/aemtlisterne.ts`, `app/src/screens/family/kindseite.tsx`, `app/src/screens/FamilyScreen.tsx`
+
+### 261. «Ruf Mami / Ruf Papi» in der Kinder-Ansicht ✓ erledigt (3851409)
+
+*Feinschliff · Aufwand: klein · App*
+
+Der Babysitter hatte den grossen Anruf-Knopf (Punkt 183), die Kinder
+in ihrer eigenen Ansicht nicht. Jetzt: dieselben Notfall-Kontakte,
+grosse Knöpfe mit dem Namen darauf - und wo tel: nichts wählt (Web,
+Wandpanel), steht die Nummer gross zum Ablesen statt eines toten
+Knopfs.
+
+Stellen: `app/src/lib/elternruf.ts`, `app/src/components/KidsView.tsx`
+
+### 262. Verwaiste Abläufe fallen nie auf ✓ erledigt (c32edc0)
+
+*lohnt sich · Aufwand: mittel · Hub + App*
+
+Stille sieht wie Erfolg aus: Ein Ablauf, der seit Monaten nicht
+gefeuert hat (umbenanntes Gerät, nie erfüllte Bedingung), ist meist
+tot, und niemand merkte es. Der Motor führt jetzt ein dauerhaftes
+«zuletzt gefeuert» je Ablauf, die Liste zeigt bei Verwaisten «Zuletzt
+gefeuert: vor 4 Monaten», der Editor verweist auf «Hätte gefeuert»
+(Punkt 254), und höchstens einmal im Monat fasst eine Push die
+stillen zusammen. Die 90-Tage-Grenze rechnet nur der Hub - App und
+Hub sollen nie zwei Meinungen haben.
+
+Stellen: `hub/homepilot/core/verwaist.py`, `hub/homepilot/core/automation.py`, `app/src/lib/verwaist.ts`

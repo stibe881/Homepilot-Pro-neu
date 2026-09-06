@@ -66,6 +66,14 @@ export interface Automation {
    *  das ist eine eigene Auskunft, nicht dasselbe wie «lief und tat
    *  nichts». Siehe lib/laufzeile.ts. */
   last_run?: LaufEintrag | null;
+  /** Wann der Ablauf zuletzt wirklich lief (Unix-Sekunden) - anders als
+   *  last_run dauerhaft, nicht auf die letzten 100 Läufe gedeckelt.
+   *  null = nie, seit der Hub Buch führt (Punkt 262). */
+  last_fired?: number | null;
+  /** Seit über 90 Tagen still, obwohl aktiv und mit Auslösern - das
+   *  Urteil fällt der Hub (core/verwaist.py), damit App und Hub nie
+   *  zwei Meinungen über die Grenze haben. */
+  orphaned?: boolean;
 }
 
 /** Je Auslöser: kam er überhaupt an? Antwort von /diagnose. */

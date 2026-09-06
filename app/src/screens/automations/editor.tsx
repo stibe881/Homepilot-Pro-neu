@@ -41,6 +41,7 @@ import {
 } from './felder';
 import { makeStyles } from './stil';
 import { mitschalter, mitschalterSatz } from '../../lib/verweise';
+import { zuletztGefeuert } from '../../lib/verwaist';
 import { NachrichtenZiel } from './nachrichtenziel';
 import { SceneDevices } from './szenen-editor';
 
@@ -64,6 +65,7 @@ export function Editor({
   onVersions,
   onRestoreVersion,
   onCancel,
+  verwaist,
 }: {
   draft: Draft | null;
   entities: Entity[];
@@ -97,6 +99,11 @@ export function Editor({
   onVersions?: () => Promise<Fassung[]>;
   onRestoreVersion?: (at: number) => Promise<boolean>;
   onCancel: () => void;
+  /** Nur bei verwaisten Abläufen (Punkt 262) - das Urteil fällt der Hub
+   *  (`orphaned`), damit App und Hub nie zwei Meinungen über die
+   *  90-Tage-Grenze haben. `lastFired` ist das letzte Feuern in
+   *  Unix-Sekunden, null = noch nie. */
+  verwaist?: { lastFired: number | null };
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -927,6 +934,21 @@ export function Editor({
             «Jetzt testen» führt die Aktionen wirklich aus – ohne auf Auslöser
             oder Bedingung zu warten. Der Trockenlauf zeigt nur, was passieren
             würde. Gespeicherte Änderungen zuerst sichern.
+          </Text>
+        ) : null}
+        {/* Verwaist (Punkt 262): Der Hinweis steht direkt vor «Hätte
+            gefeuert», weil das der Weg zur Antwort ist - die Simulation
+            (Punkt 254) rechnet nach, ob der Ablauf überhaupt hätte
+            feuern können, oder ob Gerät und Bedingung ins Leere zeigen. */}
+        {verwaist ? (
+          <Text style={[styles.snapshotHint, { color: colors.warn }]}>
+            Dieser Ablauf hat{' '}
+            {verwaist.lastFired
+              ? `zuletzt ${zuletztGefeuert(verwaist.lastFired)}`
+              : 'noch nie'}{' '}
+            gefeuert. Mit «Hätte gefeuert» lässt sich prüfen, ob er
+            überhaupt hätte feuern können - oft steckt ein umbenanntes
+            Gerät oder eine nie erfüllte Bedingung dahinter.
           </Text>
         ) : null}
         {/* «Hätte gefeuert» (Punkt 254): Der Trockenlauf kennt nur das

@@ -1,0 +1,143 @@
+{
+  "GET /api/automations": [
+    "automations",
+    "babysitter",
+    "paused_until"
+  ],
+  "GET /api/automations · Eintrag": [
+    "actions",
+    "alias",
+    "category",
+    "conditions",
+    "cooldown",
+    "editable",
+    "enabled",
+    "id",
+    "last_fired",
+    "last_run",
+    "match",
+    "mode",
+    "next_run",
+    "orphaned",
+    "otherwise",
+    "quiet_night",
+    "quiet_until",
+    "triggers"
+  ],
+  "GET /api/batteries": [
+    "batteries"
+  ],
+  "GET /api/entities · Eintrag": [
+    "available",
+    "combined_into",
+    "commands",
+    "favorite",
+    "group",
+    "id",
+    "integration",
+    "kind",
+    "last_change",
+    "last_seen",
+    "last_source",
+    "name",
+    "room",
+    "state"
+  ],
+  "GET /api/family/shopping · Eintrag": [
+    "author",
+    "created",
+    "id",
+    "text"
+  ],
+  "GET /api/health": [
+    "entities",
+    "ok"
+  ],
+  "GET /api/houseprefs": [
+    "prefs"
+  ],
+  "GET /api/log": [
+    "devices",
+    "events",
+    "log"
+  ],
+  "GET /api/me": [
+    "active",
+    "allow",
+    "area_locked",
+    "capabilities",
+    "editable",
+    "email",
+    "enabled",
+    "expires",
+    "features",
+    "hours",
+    "must_change_password",
+    "name",
+    "password_set",
+    "role",
+    "rooms",
+    "shared",
+    "simple_rooms"
+  ],
+  "GET /api/prefs": [
+    "prefs"
+  ],
+  "GET /api/scenes · Eintrag": [
+    "actions",
+    "active",
+    "auto_off",
+    "category",
+    "editable",
+    "entity_ids",
+    "icon",
+    "id",
+    "name",
+    "on_start",
+    "revertable",
+    "room",
+    "toggles",
+    "transition"
+  ],
+  "GET /api/system/status": [
+    "automations",
+    "build",
+    "database",
+    "disk",
+    "down",
+    "energy",
+    "entities",
+    "integrations",
+    "outages",
+    "push_devices",
+    "runtime",
+    "unavailable",
+    "uptime_seconds"
+  ],
+  "GET /api/trends": [
+    "span",
+    "trends"
+  ],
+  "GET /api/users · Eintrag": [
+    "active",
+    "allow",
+    "area_locked",
+    "editable",
+    "email",
+    "enabled",
+    "expires",
+    "features",
+    "hours",
+    "must_change_password",
+    "name",
+    "password_set",
+    "role",
+    "rooms",
+    "shared",
+    "simple_rooms"
+  ],
+  "POST /api/entities/{id}/command": [
+    "entity",
+    "ok"
+  ]
+}

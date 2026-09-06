@@ -36,6 +36,7 @@ from . import (
     energy,
     familie,
     flattern,
+    funkqualitaet,
     gemeldet,
     giessen,
     losfahren,
@@ -102,6 +103,11 @@ INTERVAL = 60.0
 ENERGY_INTERVAL = 600.0
 # Nicht öfter als einmal am Tag mahnen, solange es knapp bleibt.
 DISK_REMIND = 24 * 3600
+# So oft wird die Zigbee-Funkqualität eingesammelt. Nicht jede Runde:
+# Das laufende Wochenmittel änderte sich sonst im Minutentakt um
+# Nachkommastellen, und jede Änderung schriebe die Datendatei. Eine
+# Stichprobe je Stunde sind 168 je Woche - mehr braucht kein Mittel.
+FUNK_INTERVAL = 3600.0
 # So viele Tage im Voraus wird an einen Geburtstag erinnert. Drei sind
 # Zeit für ein Geschenk und kurz genug, es nicht wieder zu vergessen.
 BIRTHDAY_AHEAD = 3
@@ -156,6 +162,8 @@ class Watchdog:
         self._storm_beantwortet: str | None = None
         # Sauger-Probleme, die schon gemeldet wurden («gerät:schlüssel»).
         self._reported_sauger: set[str] = set()
+        # Wann zuletzt die Funkqualität eingesammelt wurde (FUNK_INTERVAL).
+        self._funk_gesammelt = 0.0
         # Energie: welcher Tag zuletzt geschrieben wurde und wann.
         self._energy_day: str | None = None
         self._energy_written: float = 0.0
@@ -432,6 +440,7 @@ class Watchdog:
         await self._check_devices(entities)
         await self._check_flattern()
         await self._check_batteries(entities)
+        await self._check_funk(entities)
         await self._check_open(entities)
         await self._check_leaks(entities)
         await self._check_sauger(entities)
@@ -2015,6 +2024,74 @@ class Watchdog:
                 # Damit ein Tipp auf die Nachricht direkt zu den Batterien
                 # führt, statt nur die App zu öffnen.
                 data={"type": "battery", "entity_id": entity.id, "ziel": "batterien"},
+            )
+
+    async def _check_funk(self, entities: list[Any]) -> None:
+        """Zigbee-Funkqualität: den Abstieg melden, bevor das Gerät verstummt.
+
+        Jede Zigbee-Meldung trägt eine linkquality mit (Punkt 230 der
+        Werkbank) - sie stand im Zustand, und niemand las sie. Dabei ist
+        sie die Frühwarnung schlechthin: Ein Gerät, dessen Wert seit
+        Wochen fällt, verstummt irgendwann ganz, und dann sucht man den
+        Fehler bei der Batterie. Die Rechnung wohnt in funkqualitaet.py;
+        hier stehen nur Takt und Gedächtnis - wie bei den Batterien.
+
+        Gemeldet wird je Gerät höchstens einmal; das Gedächtnis liegt in
+        der hub.data und überlebt den Neustart. Wieder scharf erst, wenn
+        der Wert sich deutlich erholt hat: Wer knapp um die Schwelle
+        pendelt, bekäme sonst im Wochentakt dieselbe Nachricht.
+        """
+        jetzt = time.time()
+        if jetzt - self._funk_gesammelt < FUNK_INTERVAL:
+            return
+        self._funk_gesammelt = jetzt
+        funker = [
+            entity
+            for entity in entities
+            if isinstance(entity.state.get("linkquality"), (int, float))
+            and not isinstance(entity.state.get("linkquality"), bool)
+        ]
+        if not funker:
+            return
+
+        # Die Wochenmittel fortschreiben - nur schreiben, wenn sich
+        # wirklich etwas ändert (dasselbe wie beim Batterie-Verlauf).
+        heute = datetime.now().date()
+        verlauf = self.hub.data.get(funkqualitaet.STORE_KEY)
+        neu_verlauf = verlauf
+        for entity in funker:
+            wert = float(entity.state.get("linkquality"))
+            if 0 <= wert <= 255:
+                neu_verlauf = funkqualitaet.aufnehmen(
+                    neu_verlauf, entity.id, wert, heute
+                )
+        if neu_verlauf != verlauf:
+            self.hub.data.set(funkqualitaet.STORE_KEY, neu_verlauf)
+
+        rows = self.hub.data.get(funkqualitaet.MELDUNG_KEY)
+        for entity in funker:
+            zeile = funkqualitaet.gemeldet_zeile(rows, entity.id)
+            if zeile is not None:
+                if funkqualitaet.erholt(neu_verlauf, entity.id, zeile.get("auf")):
+                    rows = funkqualitaet.vergiss(rows, [entity.id])
+                    self.hub.data.set(funkqualitaet.MELDUNG_KEY, rows)
+                continue
+            schwach = funkqualitaet.bewertung(neu_verlauf, entity.id)
+            if schwach is None:
+                continue
+            # Vormerken *bevor* die Meldung rausgeht: Scheitert der
+            # Versand, soll er nicht in der nächsten Stunde erneut
+            # versucht werden (wie bei den Batterien).
+            rows = funkqualitaet.merke_meldung(rows, entity.id, schwach["auf"], jetzt)
+            self.hub.data.set(funkqualitaet.MELDUNG_KEY, rows)
+            await self._notify(
+                f"Funk wird schwach: {entity.label}",
+                funkqualitaet.satz(schwach["von"], schwach["auf"])
+                + " Bevor das Gerät verstummt: Standort prüfen oder einen "
+                "Repeater dazwischenstellen - an der Batterie liegt es "
+                "meist nicht.",
+                "maintenance",
+                entity_id=entity.id,
             )
 
     def _log_outage(self, name: str, ended: float | None) -> None:

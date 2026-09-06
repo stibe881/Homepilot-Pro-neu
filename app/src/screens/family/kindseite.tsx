@@ -26,6 +26,13 @@ import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Card } from '../../components/Card';
+import {
+  SternZiel,
+  sternHinweis,
+  sternReihe,
+  sternSatz,
+  wochenSterne,
+} from '../../lib/aemtlisterne';
 import { terminWann } from '../../lib/kalenderliste';
 import {
   TAGE,
@@ -249,6 +256,8 @@ export function Kindseite({
   hinweis,
   lektionen,
   termine,
+  aemtli,
+  ziel,
   events,
   jetzt,
   onBack,
@@ -267,6 +276,11 @@ export function Kindseite({
   lektionen: FamilyItem[];
   /** «activities» – was jede Woche wiederkehrt. */
   termine: FamilyItem[];
+  /** «chores» – die Ämtli mit ihren Stern-Protokollen (Punkt 260). */
+  aemtli: FamilyItem[];
+  /** Wochenziel und Belohnung dieses Kindes - null heisst: keine
+   *  Sterne auf dieser Seite. Kein Zwang, kein «0 von 0». */
+  ziel: SternZiel | null;
   /** Die Termine aus dem Kalender, so weit die Seite sie hat. */
   events: FamilyItem[];
   jetzt: Date;
@@ -371,6 +385,47 @@ export function Kindseite({
         <Text style={eigen.kartenTitel}>Heute</Text>
         <Text style={eigen.heute}>{heuteSatz(lektionen, termine, name, jetzt)}</Text>
       </Card>
+
+      {/* Ämtli-Sterne (Punkt 260): gross und freundlich - die Karte
+          gehört dem Kind, nicht den Eltern. Ohne gesetztes Wochenziel
+          gibt es sie nicht (kein Zwang, kein «0 von 0»); gezählt wird
+          in lib/aemtlisterne.ts, die Woche beginnt am Montag. */}
+      {ziel
+        ? (() => {
+            const sterne = wochenSterne(aemtli, name, jetzt);
+            const reihe = sternReihe(sterne, ziel.goal);
+            const satz = sternSatz(sterne, ziel.goal);
+            const hinweisZeile = sternHinweis(sterne, ziel);
+            return (
+              <Card style={styles.listCard}>
+                <View
+                  accessible
+                  accessibilityLabel={`Ämtli-Sterne: ${satz}${
+                    hinweisZeile ? `. ${hinweisZeile}` : ''
+                  }`}
+                >
+                  <Text style={eigen.kartenTitel}>Meine Sterne</Text>
+                  {reihe ? (
+                    <View style={eigen.sternReihe}>
+                      {reihe.map((voll, stelle) => (
+                        <Ionicons
+                          key={stelle}
+                          name={voll ? 'star' : 'star-outline'}
+                          size={30}
+                          color={voll ? colors.warn : colors.inkFaint}
+                        />
+                      ))}
+                    </View>
+                  ) : null}
+                  <Text style={eigen.sternSatz}>{satz}</Text>
+                  {hinweisZeile ? (
+                    <Text style={eigen.sternHinweis}>{hinweisZeile}</Text>
+                  ) : null}
+                </View>
+              </Card>
+            );
+          })()
+        : null}
 
       <Text style={styles.groupLabel}>Nächste Termine</Text>
       <Card style={styles.listCard}>
@@ -722,6 +777,11 @@ const makeStyles = (colors: Colors) =>
     zeile: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
     kartenTitel: { color: colors.ink, fontSize: 15, fontWeight: '700' },
     heute: { color: colors.inkSoft, fontSize: 14, lineHeight: 20 },
+    // Die Sterne: gross genug zum Zählen mit dem Finger. Die Reihe
+    // bricht um, wenn das Ziel breiter ist als ein Telefon.
+    sternReihe: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 8 },
+    sternSatz: { color: colors.ink, fontSize: 20, fontWeight: '800', marginTop: 8 },
+    sternHinweis: { color: colors.inkSoft, fontSize: 14, marginTop: 2 },
     tagTitel: {
       color: colors.inkSoft,
       fontSize: 12,

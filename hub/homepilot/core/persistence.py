@@ -116,6 +116,12 @@ EMPTY: dict[str, Any] = {
     # Eigener Korb, nicht der von Szenen und Abläufen: Dort sucht
     # niemand nach einem gelöschten Rezept.
     "family_trash": [],
+    # Der Anrufbeantworter des Hauses (Punkt 259 der Werkbank): höchstens
+    # ein Eintrag {wer, zone, speakers, volume, typ, at} - siehe
+    # heimgruss.py. Der Ton selbst liegt als Datei daneben, nicht hier:
+    # Zwei Megabyte Opus gehören nicht in eine JSON-Datei, die bei jedem
+    # Schreiben ganz auf die Platte geht.
+    "heimgruss": [],
 }
 
 
