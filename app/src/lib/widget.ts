@@ -1,6 +1,7 @@
 import { kann } from './plattform';
 
 import { Entity, HubSettings } from '../api/types';
+import { ablageDiagnose } from './huelle';
 import { WidgetButton } from './widgetButtons';
 import { watchKontext } from './watchkontext';
 
@@ -54,39 +55,73 @@ export function ablageBefund(modulDa: boolean, zurueckgelesen: boolean): Ablage 
   return zurueckgelesen ? 'ok' : 'fehlt';
 }
 
-/** Steckt das native Ablage-Modul in dieser Hülle?
+/** Das native Ablage-Modul, über Expos eigenen Auflöser.
  *
- *  Nachgesehen wird exakt dort, wo das Paket selbst entscheidet, ob es
- *  echt schreibt oder still auf Attrappen zurückfällt
- *  (@bacons/apple-targets, ExtensionStorage.js: `expo.modules
- *  .ExtensionStorage`). Vorher lief die Frage über
- *  requireOptionalNativeModule aus dem expo-Paket - ein zweiter Weg zur
- *  selben Antwort, nur mit eigenen Fehlerquellen. Zwei Stellen, die
- *  dieselbe Frage verschieden beantworten können, sind eine zu viel:
- *  Genau hier hing «Hülle zu alt», während der neuste Build installiert
- *  war. */
-function modulDa(): boolean {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (globalThis as any).expo?.modules?.ExtensionStorage != null;
-  } catch {
-    return false;
-  }
-}
-
-// Das Modul wird erst zur Laufzeit geladen (unten) - einen Typ gibt es
-// deshalb hier nicht.
+ *  Das JavaScript des Pakets (@bacons/apple-targets) sieht nur an einer
+ *  einzigen Stelle nach - `globalThis.expo.modules.ExtensionStorage`,
+ *  einmal beim Import - und fällt sonst still auf Attrappen zurück.
+ *  Expo selbst kennt beim Auflösen nativer Module drei Wege: dieses
+ *  Global, den Bridge-Proxy und das TurboModule-Register
+ *  (expo-modules-core, requireOptionalNativeModule). Genau an diesem
+ *  Unterschied hing zuletzt «Hülle zu alt», während nachweislich der
+ *  frisch gebaute Build lief: Die Frage gehört an den Auflöser mit
+ *  allen drei Wegen - und die Schreib- und Lesezugriffe gleich mit,
+ *  darum unten der eigene Griff statt der Klasse des Pakets. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function storage(): any | null {
+function nativesModul(): any | null {
   if (!kann.widgets) return null;
   try {
-    // Erst zur Laufzeit laden: Auf Android und im Web gibt es das Modul
-    // gar nicht, und ein Import oben würde den Start zerlegen.
-    const { ExtensionStorage } = require('@bacons/apple-targets');
-    return new ExtensionStorage(APP_GROUP);
+    // Erst zur Laufzeit laden: Im Web-Bau soll der Import oben nichts
+    // anfassen müssen, was es nur nativ gibt.
+    const { requireOptionalNativeModule } = require('expo-modules-core');
+    return requireOptionalNativeModule('ExtensionStorage') ?? null;
   } catch {
     return null;
   }
+}
+
+function modulDa(): boolean {
+  return nativesModul() != null;
+}
+
+/** Lesen und Schreiben direkt am nativen Modul.
+ *
+ *  Alles, was die App ablegt, ist Text - setString genügt. Die
+ *  Signaturen stehen in ExtensionStorageModule.swift des Pakets fest:
+ *  (key, value, suite) fürs Schreiben, (key, suite) fürs Lesen. */
+function storage(): {
+  set: (key: string, wert: string) => void;
+  get: (key: string) => string | null;
+  remove: (key: string) => void;
+  neuZeichnen: () => void;
+} | null {
+  const modul = nativesModul();
+  if (modul == null) return null;
+  return {
+    set: (key, wert) => modul.setString(key, wert, APP_GROUP),
+    get: (key) => modul.get(key, APP_GROUP) ?? null,
+    remove: (key) => modul.remove(key, APP_GROUP),
+    neuZeichnen: () => modul.reloadWidget(null),
+  };
+}
+
+/** Die Innenansicht für die Warnung: was die Hülle wirklich meldet.
+ *
+ *  Solange «Hülle zu alt» dastand, obwohl der neuste Build lief, war
+ *  von aussen nicht zu unterscheiden, ob das Modul im Build fehlt oder
+ *  nur die Suche danach ins Leere greift. Diese Zeile beantwortet das
+ *  auf dem Bildschirmfoto selbst (ablageDiagnose). */
+export function ablageEinblick(): string {
+  if (!kann.widgets) return '';
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const expoGlobal = (globalThis as any).expo;
+  let namen: string[] = [];
+  try {
+    namen = Object.keys(expoGlobal?.modules ?? {});
+  } catch {
+    namen = [];
+  }
+  return ablageDiagnose(expoGlobal != null, namen, modulDa());
 }
 
 /**
@@ -124,8 +159,7 @@ export function syncWidget(
     // Sofort neu zeichnen, sonst zeigt das Widget bis zur nächsten
     // Viertelstunde den alten Stand - oder gar nichts, obwohl man es
     // gerade eingeschaltet hat.
-    const { ExtensionStorage } = require('@bacons/apple-targets');
-    ExtensionStorage.reloadWidget();
+    store.neuZeichnen();
     // Zurücklesen, statt dem Schreiben zu glauben - und die beiden
     // stummen Fälle auseinanderhalten (ablageBefund).
     return ablageBefund(modulDa(), !!store.get('buttons'));
