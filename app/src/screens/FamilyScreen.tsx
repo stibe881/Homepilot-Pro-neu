@@ -252,6 +252,7 @@ export function FamilyScreen({
   onHiddenModules,
   changedAt,
   startModul,
+  startKind,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -303,7 +304,13 @@ export function FamilyScreen({
   // Wessen Seite gerade offen ist. Kein ModuleKey: Die Kinderseite
   // gehört zu einem Namen, nicht zu einer Liste - und «zurück» führt
   // von ihr an dieselbe Stelle wie von den Modulen.
-  const [kind, setKind] = useState<string | null>(null);
+  const [kind, setKind] = useState<string | null>(startKind ?? null);
+  // Der Kindermodus des Panels: Kommt der Wunsch später (Einstellungen
+  // eben geändert) oder kehrt die Ansicht zurück, landet sie wieder auf
+  // der Kinderseite - das Gerät gehört diesem einen Kind.
+  useEffect(() => {
+    if (startKind) setKind(startKind);
+  }, [startKind]);
   // Die Termine für die Kinderseite. Die Kalender-Entität trägt die
   // nächsten zwölf der ganzen Familie; auf ein Kind heruntergefiltert
   // bleiben davon oft null, und die Seite behauptete, es stehe nichts

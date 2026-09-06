@@ -185,6 +185,12 @@ export interface HubSettings {
    *  Wandpanel im Flur will den Plan, das Telefon in der Tasche die
    *  Kacheln, und beide gehören derselben Person. */
   grundriss?: boolean;
+  /** Kindermodus: Dieses Gerät zeigt nur die Kinderseite des genannten
+   *  Kindes - für das Tablet im Kinderzimmer. Ohne Alarm, Storen und
+   *  den Rest der Wohnung; nur die Einstellungen bleiben erreichbar,
+   *  sonst käme man am Gerät nie wieder heraus. Leer heisst: normale
+   *  App. Wie panel und grundriss eine Eigenschaft dieses Geräts. */
+  kindPanel?: string | null;
 }
 
 /** Eine Zustandsänderung für die Liste „Zuletzt passiert“. */

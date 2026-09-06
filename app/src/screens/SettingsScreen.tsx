@@ -124,6 +124,39 @@ export function SettingsScreen({
     if (initial) onSave({ ...initial, grundriss: an });
   };
   const [panel, setPanel] = useState(!!initial?.panel);
+  // Kindermodus: Das Panel im Kinderzimmer zeigt nur die Kinderseite
+  // dieses einen Kindes. Die Namen kommen aus den Familienmitgliedern -
+  // geholt erst, wenn der Wandpanel-Schalter an ist: Auf jedem Telefon
+  // wäre der Abruf für eine unsichtbare Auswahl verschwendet.
+  const [kindPanel, setKindPanel] = useState(initial?.kindPanel ?? '');
+  const [kinderNamen, setKinderNamen] = useState<string[]>([]);
+  useEffect(() => {
+    if (!panel || !initial?.url || !initial?.token) return;
+    let weg = false;
+    fetch(`${initial.url.replace(/\/+$/, '')}/api/family/members`, {
+      headers: { Authorization: `Bearer ${initial.token}` },
+    })
+      .then((antwort) => (antwort.ok ? antwort.json() : []))
+      .then((rows) => {
+        if (weg) return;
+        const namen = (Array.isArray(rows) ? rows : [])
+          .filter((row) => String(row?.role || 'kind') !== 'erwachsen')
+          .map((row) => String(row?.text ?? '').trim())
+          .filter(Boolean);
+        setKinderNamen(namen);
+      })
+      .catch(() => {});
+    return () => {
+      weg = true;
+    };
+  }, [panel, initial?.url, initial?.token]);
+  // Antippen ist Speichern, wie beim Erscheinungsbild - und die Wahl
+  // eines Kindes schreibt den Panel-Modus gleich mit fest: Ein
+  // Kinderzimmer-Tablet ohne Wandpanel-Verhalten ergäbe keinen Sinn.
+  const kindPanelWaehlen = (name: string) => {
+    setKindPanel(name);
+    if (initial) onSave({ ...initial, panel: true, kindPanel: name || null });
+  };
   const [scanning, setScanning] = useState(false);
   // Zwei-Schritt-Rückfrage für «überall abmelden» – das wirft auch das
   // Gerät hinaus, auf dem man gerade tippt.
@@ -206,6 +239,7 @@ export function SettingsScreen({
       panel,
       appSymbol,
       grundriss,
+      kindPanel: (kindPanel ?? '').trim() || null,
       // Was sonst noch im Gerät steht, bleibt erhalten: Wer die
       // Adresse ändert, will nicht seine ausgeblendeten Geräte
       // verlieren - und schon gar nicht die Sperren, die bisher
@@ -455,6 +489,43 @@ export function SettingsScreen({
           <View style={[styles.knob, panel && styles.knobOn]} />
         </View>
       </Pressable>
+
+      {/* Der Kindermodus hängt am Panel-Schalter: Er ist die Sonderform
+          des Wandpanels fürs Kinderzimmer. Antippen speichert sofort. */}
+      {panel && kinderNamen.length > 0 ? (
+        <View style={styles.field}>
+          <Text style={styles.label}>Kindermodus</Text>
+          <View style={styles.modes}>
+            {['', ...kinderNamen].map((wahl) => (
+              <Pressable
+                key={wahl || 'aus'}
+                onPress={() => kindPanelWaehlen(wahl)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: (kindPanel ?? '') === wahl }}
+                style={({ pressed }) => [
+                  styles.mode,
+                  (kindPanel ?? '') === wahl && styles.modeActive,
+                  pressed && { opacity: 0.7 },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.modeText,
+                    (kindPanel ?? '') === wahl && styles.modeTextActive,
+                  ]}
+                >
+                  {wahl || 'Aus'}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={styles.modeHint}>
+            Dieses Gerät zeigt dann nur die Kinderseite des gewählten Kindes
+            - ohne Alarm, Storen und den Rest der Wohnung. Fürs Tablet im
+            Kinderzimmer; zurück geht es hier über «Aus».
+          </Text>
+        </View>
+      ) : null}
 
       {/* Nicht doppelt: Für Personen steht das Feld im Profil - hier
           bleibt es fürs Panel (Anrede) und für die Ersteinrichtung. */}

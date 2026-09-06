@@ -995,7 +995,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   useTakt(
     () => {
       if (Date.now() - lastTouch > 180000) {
-        setSection('start');
+        // Im Kindermodus ist «zuhause» die Kinderseite, nicht die
+        // Startseite - die gibt es auf diesem Gerät gar nicht.
+        setSection((settings.kindPanel ?? '').trim() ? 'family' : 'start');
         setEditing(false);
         setRoom(ALL_ROOMS);
         setRiegelBis(0);
@@ -1291,6 +1293,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
 
   // Gäste sehen nur die freigegebenen Bereiche in der Navigation.
   const hiddenSections = useMemo<Section[]>(() => {
+    // Kindermodus: Das Tablet im Kinderzimmer zeigt nur die Familie
+    // (dort landet man auf der Kinderseite) - kein Alarm, keine Storen,
+    // kein Rest der Wohnung. Die Einstellungen bleiben, sonst käme man
+    // am Gerät nie wieder aus dem Modus heraus.
+    if ((settings.kindPanel ?? '').trim()) {
+      return ['start', 'home', 'light', 'covers', 'cameras'];
+    }
     const result: Section[] = [];
     // Ohne Kameras kein Kamera-Reiter – ein leerer Bereich hilft niemandem.
     if (!entities.some((entity) => entity.kind === 'camera')) result.push('cameras');
@@ -1302,7 +1311,20 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (!features.includes('familie')) result.push('family');
     if (!features.includes('kameras')) result.push('cameras');
     return result;
-  }, [user, entities]);
+  }, [user, entities, settings.kindPanel]);
+
+  // Der Kindermodus zwingt die Ansicht auf die Familie: Beim Start und
+  // wenn jemand den Modus gerade einschaltet - alles andere ist auf
+  // diesem Gerät ja ausgeblendet. Die Einstellungen bleiben begehbar.
+  const kindPanelName = (settings.kindPanel ?? '').trim() || null;
+  useEffect(() => {
+    if (!kindPanelName) return;
+    setSection((bisher) =>
+      (['start', 'home', 'light', 'covers', 'cameras'] as Section[]).includes(bisher)
+        ? 'family'
+        : bisher
+    );
+  }, [kindPanelName]);
 
   // Nicht «eine Kamera, die klingelt», sondern «was gerade klingelt».
   // Die Haustüre ist hier eine Ring-Gegensprechanlage, und die legt der
@@ -2323,6 +2345,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           onHiddenModules={setFamilyHidden}
           changedAt={familyChangedAt}
           startModul={riegelModul ?? familienModul}
+          startKind={kindPanelName ?? undefined}
         />
       );
     }
