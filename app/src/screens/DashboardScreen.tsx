@@ -152,6 +152,7 @@ import { confirm as confirmBiometrie, needsCheck } from '../lib/biometrie';
 import { mayOpenDirectly } from '../lib/tuerbestaetigung';
 import { kinoSzene } from '../lib/kinoszene';
 import { BioLock } from '../components/BioLock';
+import { KontoBlatt } from '../components/KontoBlatt';
 import { TuerRueckfrage } from '../components/TuerRueckfrage';
 import { Widgets } from '../components/Widgets';
 import { Ablage, syncWidget } from '../lib/widget';
@@ -2052,8 +2053,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     {
       key: 'account',
       icon: 'person-outline',
+      // Punkt 244 der Werkbank: Passwort und «Meine Geräte» wohnen
+      // seither auch hier - die Beschreibung muss sie nennen, sonst
+      // sucht man sie in der Benutzerverwaltung.
       label: 'Konto',
-      detail: 'Profil, Darstellung, Benachrichtigungen',
+      detail: 'Profil, Passwort, Geräte, Benachrichtigungen',
       show: true,
     },
     {
@@ -2197,7 +2201,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     const gesperrt = istGesperrt(section, {
       areaLocked: user?.area_locked,
       panel: settings.panel,
-      babysitter,
+      // Punkt 246 der Werkbank: Das Gemeinschaftsgerät zählt wie das
+      // Panel - sein Wandpanel-Schalter ist eine lokale Einstellung,
+      // an die beim Einrichten niemand denkt, und genau daran fiel der
+      // Riegel für den Besuch am Wandtablet durch.
+      shared: user?.shared,
+      // Besuch und Babysitter sind derselbe «Jemand ist da»-Modus;
+      // `besuchStand` kommt sofort von der Besuch-Seite, `babysitter`
+      // aus dem Abläufe-Takt - wer eben erst eingeschaltet hat, soll
+      // nicht auf den nächsten Abgleich warten.
+      babysitter: babysitter || !!besuchStand?.active,
       offenBis: riegelBis,
       jetzt: now.getTime(),
     });
@@ -2209,7 +2222,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           settings={settings}
           titel={SECTION_LABEL[section]}
           onOffen={setRiegelBis}
-          offen={offeneModule(section, settings.panel, gesperrt)}
+          offen={offeneModule(section, panelArtig, gesperrt)}
           onOeffneModul={setRiegelModul}
         />
       );
@@ -2385,6 +2398,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             nur="konto"
             onRenamed={benutzerNeuLaden}
           />
+          {/* Punkt 244 der Werkbank: Passwort wechseln und «Meine
+              Geräte» - direkt beim Profil, denn beides ist die Frage
+              «wer kommt mit meinem Konto herein?». */}
+          <KontoBlatt settings={settings} user={user} />
           <BioLock enabled={!!prefs.bioLock} onChange={setBioLock} />
           {/* Nur für die Besitzerin: Die Hürde vor der Haustüre gilt fürs
               ganze Haus, ihr Abräumen ist keine Ansichtssache. */}

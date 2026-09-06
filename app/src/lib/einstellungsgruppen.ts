@@ -117,7 +117,10 @@ export function farbeVon(key: string): string {
  * Die Beschreibung deckt einiges ab; hier steht, was ihr fehlt.
  */
 const STICHWORTE: Record<string, readonly string[]> = {
-  account: ['push', 'benachrichtigung', 'mitteilung', 'profil', 'darstellung', 'design', 'farbe', 'symbol', 'sperre', 'passwort'],
+  // «sitzung», «abmelden», «geräte»: Seit Punkt 244 wohnen der
+  // Passwort-Wechsel und «Meine Geräte» im Konto - wer sein verlorenes
+  // Telefon hinauswerfen will, tippt eines dieser Wörter, nicht «Konto».
+  account: ['push', 'benachrichtigung', 'mitteilung', 'profil', 'darstellung', 'design', 'farbe', 'symbol', 'sperre', 'passwort', 'sitzung', 'sitzungen', 'abmelden', 'geräte'],
   connection: ['token', 'hub', 'adresse', 'server', 'url', 'anmelden'],
   automations: ['szene', 'szenen', 'automation', 'regel', 'zeitplan'],
   besuch: ['wlan', 'gast', 'gäste', 'babysitter', 'qr'],

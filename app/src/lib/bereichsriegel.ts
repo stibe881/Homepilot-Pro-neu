@@ -18,11 +18,20 @@
  *
  * Zwei Bedingungen, und beide müssen zutreffen:
  *
- * - **Am Wandpanel.** Ein Telefon steckt in einer Tasche; was darauf
- *   steht, sieht ohnehin nur der, dem es gehört.
- * - **Im Babysitter-Modus.** Er ist der Zeitpunkt, an dem jemand im Haus
- *   ist, der nicht dazugehört. Genau dann – und nur dann – soll die
- *   Einkaufsliste im Flur nicht offen dastehen.
+ * - **An einem Gerät, das offen herumsteht.** Das Wandpanel – oder ein
+ *   Gemeinschaftsgerät (`shared`): Das Küchendisplay ist als
+ *   Gemeinschafts-Zugang angelegt, aber sein Wandpanel-Schalter ist eine
+ *   lokale Geräte-Einstellung, an die beim Einrichten niemand denkt.
+ *   Genau daran fiel der Riegel durch: Besuch, der tagsüber am
+ *   Wandtablet vorbeiging, sah Einkaufsliste und Kalender, weil das
+ *   Tablet zwar allen gehörte, aber nie als Panel markiert war. Ein
+ *   Telefon dagegen steckt in einer Tasche; was darauf steht, sieht
+ *   ohnehin nur der, dem es gehört.
+ * - **Solange jemand da ist.** Der «Jemand ist da»-Modus (Besuch oder
+ *   Babysitter, eine Sache – screens/BesuchScreen.tsx) ist der
+ *   Zeitpunkt, an dem jemand im Haus ist, der nicht dazugehört. Genau
+ *   dann – und nur dann – soll die Einkaufsliste im Flur nicht offen
+ *   dastehen.
  *
  * Bewusst ein Sichtschutz, keine zweite Anmeldung: Was jemand *darf*,
  * hängt weiter an der Rolle, und der Hub prüft das ohnehin. Hier geht es
@@ -45,9 +54,13 @@ export function istPersoenlich(section: Section): boolean {
 export interface Lage {
   /** Ist für diesen Zugang überhaupt ein Passwort gesetzt? */
   areaLocked?: boolean;
-  /** Hängt dieses Gerät als Wandpanel? */
+  /** Hängt dieses Gerät als Wandpanel? (lokale Geräte-Einstellung) */
   panel?: boolean;
-  /** Läuft der Babysitter-Modus? */
+  /** Gemeinschafts-Zugang (Wandtablet, Küchendisplay) – kommt vom Hub
+   *  und ist darum auch dann wahr, wenn der Panel-Schalter am Gerät nie
+   *  gesetzt wurde. */
+  shared?: boolean;
+  /** Läuft der «Jemand ist da»-Modus (Besuch oder Babysitter)? */
   babysitter?: boolean;
   /** Bis wann zuletzt aufgeschlossen wurde – 0, wenn noch nie. */
   offenBis: number;
@@ -59,15 +72,21 @@ export interface Lage {
  * Muss jetzt nach dem Passwort gefragt werden? (rein, testbar)
  *
  * Alle vier Bedingungen müssen zutreffen: ein gesetztes Passwort, ein
- * persönlicher Bereich, ein Wandpanel und ein laufender
- * Babysitter-Modus. Fehlt eine, steht der Bereich offen.
+ * persönlicher Bereich, ein Gerät, das offen herumsteht (Wandpanel oder
+ * Gemeinschaftsgerät), und ein laufender «Jemand ist da»-Modus. Fehlt
+ * eine, steht der Bereich offen.
  */
 export function istGesperrt(section: Section, lage: Lage): boolean {
   if (!lage.areaLocked) return false;
   if (!istPersoenlich(section)) return false;
-  // Am Telefon nie: Es steckt in einer Tasche, nicht im Flur.
-  if (!lage.panel) return false;
-  // Und nur, solange jemand im Haus ist, der nicht dazugehört.
+  // Am Telefon nie: Es steckt in einer Tasche, nicht im Flur. `shared`
+  // zählt wie das Panel - der Gemeinschafts-Zugang kommt vom Hub und
+  // hängt nicht daran, dass jemand am Gerät den Panel-Schalter fand.
+  // Vorher griff der Riegel NUR am Panel: Das Wandtablet ohne gesetzten
+  // Schalter zeigte dem Besuch im Besuch-Modus die Einkaufsliste.
+  if (!lage.panel && !lage.shared) return false;
+  // Und nur, solange jemand im Haus ist, der nicht dazugehört - Besuch
+  // oder Babysitter, es ist derselbe Modus.
   if (!lage.babysitter) return false;
   return lage.jetzt >= lage.offenBis;
 }
@@ -82,8 +101,9 @@ export function istGesperrt(section: Section, lage: Lage): boolean {
  * steht. Ein Code davor ist kein Sichtschutz, sondern eine verschlossene
  * Tür vor dem Feuerlöscher.
  *
- * Nur am Panel: Auf einem Telefon hat der Riegel diesen Zweck nicht –
- * das Gerät steckt in einer Tasche und nicht im Flur.
+ * Nur an Geräten, die offen herumstehen (Panel oder Gemeinschaftsgerät):
+ * Auf einem Telefon hat der Riegel diesen Zweck nicht – das Gerät steckt
+ * in einer Tasche und nicht im Flur.
  */
 export const OFFEN_AM_PANEL = ['contacts', 'emergency', 'babysitter'] as const;
 
@@ -92,16 +112,19 @@ export type OffenesModul = (typeof OFFEN_AM_PANEL)[number];
 /**
  * Welche Module vor dem Riegel erreichbar bleiben (rein, testbar).
  *
+ * `aufgestellt` heisst: Wandpanel oder Gemeinschaftsgerät – dieselben
+ * Geräte, an denen der Riegel überhaupt zuhält (istGesperrt).
+ *
  * Leer, wo der Riegel gar nicht steht: Dann führt der gewöhnliche Weg
  * ohnehin überall hin, und eine zweite Liste derselben Kacheln wäre
  * doppelt.
  */
 export function offeneModule(
   section: Section,
-  panel: boolean | undefined,
+  aufgestellt: boolean | undefined,
   gesperrt: boolean
 ): readonly OffenesModul[] {
-  if (!panel || !gesperrt || section !== 'family') return [];
+  if (!aufgestellt || !gesperrt || section !== 'family') return [];
   return OFFEN_AM_PANEL;
 }
 

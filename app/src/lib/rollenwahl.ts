@@ -63,3 +63,32 @@ export function darfRolleAendern(
 export function besitzerZahl(leute: { role: string }[]): number {
   return (leute ?? []).filter((person) => person.role === 'besitzer').length;
 }
+
+/**
+ * Hat diese Rolle nur EINE Zimmerwahl? (rein, testbar)
+ *
+ * Punkt 245 der Werkbank: Bei der Rolle «kind» springen `rooms`
+ * (Schranke) und `simple_rooms` (Kinder-Ansicht) im Hub füreinander ein
+ * (core/users.py, kid_rooms) – wer nur eines setzt, meint beide. Zwei
+ * getrennte Klappen dafür wären tote Bedienung: Das Antippen der einen
+ * änderte still auch die andere. Also stellt die Verwaltung Kindern
+ * genau eine Wahl hin.
+ */
+export function eineZimmerwahl(role: string): boolean {
+  return role === 'kind';
+}
+
+/**
+ * Was die eine Zimmerwahl an den Hub schickt (rein, testbar).
+ *
+ * Beide Felder, mit derselben Liste: Der Rückgriff des Hubs füllt nur
+ * das *leere* Feld. Stünde vom früheren Rollenwechsel noch ein alter
+ * Wert im anderen, liefen Ansicht und Schranke auseinander – das Kind
+ * sähe ein Zimmer, das es nicht schalten darf, oder umgekehrt.
+ */
+export function zimmerPatch(rooms: string[]): {
+  rooms: string[];
+  simple_rooms: string[];
+} {
+  return { rooms: [...rooms], simple_rooms: [...rooms] };
+}
