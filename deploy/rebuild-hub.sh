@@ -547,6 +547,34 @@ else
     echo "✓ OTA-Fassung veröffentlicht (Stand $COMMIT, Laufzeit $OTA_RUNTIME)."
     echo "  Die Telefone holen sie beim nächsten Öffnen der App -"
     echo "  angewendet wird sie beim übernächsten Start."
+    # Die Kennung der eben veröffentlichten Gruppe festhalten (Punkt 231):
+    # deploy/ota-zurueck.sh geht damit auf die vorletzte Fassung zurück und
+    # erkennt Veröffentlichungen, die am Update-Knopf vorbeiliefen. Neben
+    # den anderen Deploy-Artefakten (platz.log, Zugangsdatei) in
+    # /opt/homepilot - der Bau-Ordner wird am Ende weggeworfen, dort wäre
+    # die Notiz nach dem Lauf verloren. eas-cli druckt die Kennung als
+    # Zeile «Update group ID  <uuid>»; das «| » stammt von fremde_ausgabe.
+    OTA_GRUPPE=$(sed 's/^| //' "$OTA_LOG" | grep -iE 'update group id' \
+      | grep -oiE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' \
+      | head -1 || true)
+    OTA_VERLAUF="/opt/homepilot/ota-verlauf.log"
+    if [ -n "$OTA_GRUPPE" ]; then
+      echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $OTA_GRUPPE commit=$COMMIT runtime=$OTA_RUNTIME branch=production" \
+        >> "$OTA_VERLAUF" 2>/dev/null || true
+      # Nur die jüngsten 50 behalten - die Datei ist ein Gedächtnis für
+      # den Rückweg, kein Archiv.
+      if [ -f "$OTA_VERLAUF" ] && [ "$(wc -l < "$OTA_VERLAUF")" -gt 50 ]; then
+        tail -n 50 "$OTA_VERLAUF" > "$OTA_VERLAUF.neu" 2>/dev/null \
+          && mv "$OTA_VERLAUF.neu" "$OTA_VERLAUF" || rm -f "$OTA_VERLAUF.neu"
+      fi
+      echo "  Gruppe $OTA_GRUPPE - zurück ginge es mit deploy/ota-zurueck.sh."
+    else
+      # Nur eine Notiz, kein Fehler: ota-zurueck.sh fragt die Gruppen
+      # ohnehin bei EAS nach (eas update:list) - ihm fehlt dann bloss die
+      # Gegenprobe gegen dieses Gedächtnis.
+      echo "  (Keine Gruppen-Kennung in der eas-Ausgabe gefunden -"
+      echo "  ota-zurueck.sh liest sie bei Bedarf über «eas update:list».)"
+    fi
   else
     echo "⚠ OTA-Veröffentlichung fehlgeschlagen - Web-Fassung und Hub sind"
     echo "  davon unberührt. Die Telefone bleiben auf ihrem Stand, bis ein"
