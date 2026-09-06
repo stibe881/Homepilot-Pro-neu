@@ -225,7 +225,7 @@ Zwei Dinge, die dabei überraschen:
   die hochgezählte Versionsnummer täuschte dabei Aktualität vor. So
   gingen mehrere Lieferungen am Haus vorbei, ohne dass es auffiel: Der
   Hub war neu, die App nicht.
-- Deshalb steht dort jetzt eine feste `runtimeVersion` (zurzeit `"3"`).
+- Deshalb steht dort jetzt eine feste `runtimeVersion` (zurzeit `"5"`).
   Sie gehört zur **nativen** Hülle, nicht zur Auslieferung:
   - **`version` bei jeder Auslieferung hochzählen** – wie bisher. Sie
     ist die Nummer, die im App Store und in TestFlight steht, und sie
@@ -239,6 +239,12 @@ Zwei Dinge, die dabei überraschen:
     ein natives Modul hinzufügt, ohne die Nummer zu erhöhen, liefert
     OTA eine Fassung aus, deren Modul in der Hülle auf dem Telefon gar
     nicht steckt – das fällt erst auf, wenn jemand die Stelle antippt.
+    Von `"4"` auf `"5"` ging es genau wegen dieses Fehlers: Die
+    Widget-Ablage (`ExtensionStorage` aus `@bacons/apple-targets`) kam
+    ohne Erhöhung dazu; die Telefone bekamen OTA eine App, deren
+    Widget-Sync still ins Leere schrieb, und «den neusten
+    TestFlight-Build installieren» half nicht, weil es noch gar keinen
+    Build mit dem Modul gab.
     Zwei native Module in einer Runde kosten dagegen nur *einen*
     TestFlight-Build; wer ohnehin einen braucht, nimmt anderes gleich
     mit.
