@@ -19,17 +19,54 @@ import os
 from pathlib import Path
 from typing import Any
 
+import aiohttp
 import yaml
 from fastapi import FastAPI, HTTPException, Request
 
 from ...core import config_edit, tokenstore, verbindungen
-from ...core.config import SECRETS_FILE
+from ...core.config import SECRETS_FILE, ConfigError, expand_env, read_secrets
 from ...core.users import Capability
+from ...integrations import google_calendar as google_calendar_module
+from ...integrations import spotify as spotify_module
 from .. import configio
 from ..context import ApiContext
-from ..models import VerbindungRequest
+from ..models import AnmeldungRequest, VerbindungRequest
 
 log = logging.getLogger(__name__)
+
+
+async def code_einloesen(
+    key: str, client_id: str, client_secret: str, code: str
+) -> dict[str, Any]:
+    """Den OAuth-Code beim Anbieter gegen Tokens tauschen.
+
+    Auf Modulebene und nicht im register(): In den Tests wird genau
+    diese Funktion ersetzt - eine Route, die zum Prüfen echte
+    Google-Server braucht, wäre keine prüfbare Route.
+    """
+    timeout = aiohttp.ClientTimeout(total=20)
+    if key == "kalender":
+        async with aiohttp.ClientSession(timeout=timeout) as session, session.post(
+            google_calendar_module.TOKEN_URL,
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": google_calendar_module.REDIRECT,
+            },
+        ) as response:
+            return await response.json(content_type=None)
+    async with aiohttp.ClientSession(timeout=timeout) as session, session.post(
+        spotify_module.ACCOUNTS,
+        data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": spotify_module.REDIRECT,
+        },
+        auth=aiohttp.BasicAuth(client_id, client_secret),
+    ) as response:
+        return await response.json(content_type=None)
 
 
 def register(app: FastAPI, ctx: ApiContext) -> None:
@@ -395,3 +432,123 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         )
         hub.aenderungen.merken(user, "verbindung", f"{eintrag['label']} geändert")
         return antwort
+
+    # ── Anmeldung im Browser statt im Terminal ────────────────────────────
+    #
+    # Der Weg über «docker exec» setzt einen Rechner mit SSH voraus - für
+    # eine Zustimmung, die ohnehin im Browser passiert. Also: Der Hub baut
+    # die Anmeldeadresse, die App öffnet sie, und die zurückkopierte
+    # Redirect-Adresse löst der Hub selbst gegen den refresh_token ein.
+    # Die Geheimnisse bleiben dabei, wo sie sind: beim Hub.
+
+    def _zugangsdaten(key: str) -> tuple[dict[str, Any], str, str]:
+        """Katalogeintrag plus aufgelöste client_id/client_secret - oder 400."""
+        eintrag = verbindungen.dienst(key)
+        if eintrag is None:
+            raise HTTPException(status_code=404, detail=f"Unbekannter Dienst '{key}'")
+        if not eintrag.get("token_name"):
+            raise HTTPException(
+                status_code=400, detail=f"{eintrag['label']} braucht keine Anmeldung"
+            )
+        block = _bloecke(config_text()).get(str(eintrag["integration"]))
+        if block is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{eintrag['label']} ist nicht eingerichtet oder ausgeschaltet",
+            )
+        # Die ${VERWEISE} auflösen wie beim Start: Umgebung zuerst, dann
+        # die secrets.env neben der config.yaml.
+        geheim = read_secrets(config_path().parent / SECRETS_FILE)
+        try:
+            client_id = str(expand_env(block.get("client_id") or "", geheim)).strip()
+            client_secret = str(
+                expand_env(block.get("client_secret") or "", geheim)
+            ).strip()
+        except ConfigError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        if not client_id or not client_secret:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{eintrag['label']}: Zugangsdaten fehlen - zuerst eintragen",
+            )
+        return eintrag, client_id, client_secret
+
+    @app.get("/api/verbindungen/{key}/anmeldung")
+    async def get_anmeldung(key: str, request: Request) -> dict[str, Any]:
+        """Die Anmeldeadresse für den Browser - Schritt 1."""
+        require(request, Capability.EDIT_CONFIG)
+        _eintrag, client_id, _client_secret = _zugangsdaten(key)
+        url = (
+            google_calendar_module.anmelde_url(client_id)
+            if key == "kalender"
+            else spotify_module.anmelde_url(client_id)
+        )
+        return {"url": url}
+
+    @app.post("/api/verbindungen/{key}/anmeldung")
+    async def post_anmeldung(
+        key: str, body: AnmeldungRequest, request: Request
+    ) -> dict[str, Any]:
+        """Die zurückkopierte Adresse einlösen - Schritt 2."""
+        user = require(request, Capability.EDIT_CONFIG)
+        eintrag, client_id, client_secret = _zugangsdaten(key)
+        # extract_code versteht die ganze Redirect-Adresse wie den blossen
+        # Code - es wohnt beim Spotify-Helfer, ist aber anbieterneutral.
+        code = spotify_module.extract_code(body.antwort)
+        if not code or "://" in code or " " in code:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Darin steckt kein Anmelde-Code. Die komplette Adresse "
+                    "aus der Adresszeile einfügen («Seite nicht erreichbar» "
+                    "ist dabei richtig)."
+                ),
+            )
+
+        try:
+            payload = await code_einloesen(key, client_id, client_secret, code)
+        except Exception as err:
+            raise HTTPException(
+                status_code=502, detail=f"Anbieter nicht erreichbar: {err}"
+            ) from err
+
+        fehler = str(payload.get("error") or "")
+        if fehler == "invalid_client":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Der Anbieter lehnt die Zugangsdaten ab (invalid_client) - "
+                    "Client-Secret frisch kopieren und hier neu eintragen."
+                ),
+            )
+        if fehler == "invalid_grant":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Der Code war abgelaufen oder schon benutzt - nochmals "
+                    "anmelden und die Adresse zügig einfügen."
+                ),
+            )
+        refresh_token = str(payload.get("refresh_token") or "")
+        if not refresh_token:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Kein refresh_token erhalten. Bei Google meist: Code doppelt "
+                    "verwendet, oder der Zustimmungsbildschirm kennt den "
+                    "Testnutzer nicht."
+                ),
+            )
+
+        # In die Token-Datei der Integration - und was dort schon liegt
+        # (etwa das sp_dc-Cookie fürs Wecken der Boxen), bleibt erhalten.
+        block = _bloecke(config_text()).get(str(eintrag["integration"]))
+        datei = tokenstore.token_file(
+            hub.config.data_file, block, str(eintrag["token_name"])
+        )
+        bestand = tokenstore.load(datei) or {}
+        tokenstore.save(datei, {**bestand, "refresh_token": refresh_token})
+        hub.aenderungen.merken(user, "verbindung", f"{eintrag['label']}: angemeldet")
+        # Die Integration liest die Datei nur beim Start - erst der
+        # Neustart macht aus der Anmeldung eine Verbindung.
+        return {"ok": True, "angemeldet": True, "restart_required": True}

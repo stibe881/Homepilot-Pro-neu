@@ -21,7 +21,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
@@ -29,6 +29,7 @@ import { Card } from '../components/Card';
 import {
   Dienst,
   ERINNERUNGS_MINUTEN,
+  anbieterName,
   dienstSymbol,
   erinnerungsWort,
   geraetZeile,
@@ -94,6 +95,32 @@ export function VerbindungenScreen({ settings, onSave, user, darfDienste }: Prop
     [hub, laden]
   );
 
+  /** Schritt 1 der Browser-Anmeldung: die Adresse beim Hub holen. */
+  const anmeldeUrl = useCallback(
+    (key: string) =>
+      hub
+        .get<{ url: string }>(
+          `/api/verbindungen/${encodeURIComponent(key)}/anmeldung`,
+          { still: true }
+        )
+        .then((antwort) => antwort.url),
+    [hub]
+  );
+
+  /** Schritt 2: die zurückkopierte Adresse einlösen lassen. */
+  const anmelden = useCallback(
+    async (key: string, antwort: string) => {
+      const ergebnis = await hub.post<Antwort>(
+        `/api/verbindungen/${encodeURIComponent(key)}/anmeldung`,
+        { antwort },
+        { still: true }
+      );
+      if (ergebnis.restart_required) setNeustartNoetig(true);
+      laden();
+    },
+    [hub, laden]
+  );
+
   const neustarten = async () => {
     setNeustart('laeuft');
     // Der Hub beendet sich gleich - eine Antwort kommt nicht immer noch
@@ -145,6 +172,8 @@ export function VerbindungenScreen({ settings, onSave, user, darfDienste }: Prop
               key={dienst.key}
               dienst={dienst}
               aendern={(body) => aendern(dienst.key, body)}
+              anmeldeUrl={() => anmeldeUrl(dienst.key)}
+              anmelden={(antwort) => anmelden(dienst.key, antwort)}
             />
           ))}
         </>
@@ -158,9 +187,13 @@ export function VerbindungenScreen({ settings, onSave, user, darfDienste }: Prop
 function DienstKarte({
   dienst,
   aendern,
+  anmeldeUrl,
+  anmelden,
 }: {
   dienst: Dienst;
   aendern: (body: Record<string, unknown>) => Promise<void>;
+  anmeldeUrl: () => Promise<string>;
+  anmelden: (antwort: string) => Promise<void>;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -291,18 +324,16 @@ function DienstKarte({
             <GoogleHomeInhalt dienst={dienst} busy={busy} tu={tu} />
           ) : null}
 
-          {/* Die fehlende Anmeldung samt dem einen Befehl, der sie holt.
-              Er läuft im Terminal auf dem Hub-Rechner - OAuth braucht
-              dort einmalig einen Menschen, das kann die App nicht. */}
-          {dienst.angemeldet === false && dienst.anmeldung ? (
-            <View style={styles.befehlKasten}>
-              <Text style={styles.hinweis}>
-                Einmalig auf dem Hub-Rechner anmelden - der Befehl führt durch:
-              </Text>
-              <Text selectable style={styles.befehl}>
-                {dienst.anmeldung}
-              </Text>
-            </View>
+          {/* Die fehlende Anmeldung - direkt im Browser, ohne Terminal.
+              Nur wenn die Zugangsdaten schon da sind: Ohne sie kann der
+              Hub die Anmeldeadresse gar nicht bauen, und der Stand-Satz
+              oben sagt dann ohnehin «Zugangsdaten fehlen». */}
+          {dienst.enabled && dienst.zugang !== false && dienst.angemeldet === false ? (
+            <AnmeldeBereich
+              dienst={dienst}
+              anmeldeUrl={anmeldeUrl}
+              anmelden={anmelden}
+            />
           ) : null}
 
           {/* Zugangsdaten: nie anzeigen, nur ersetzen können. */}
@@ -596,6 +627,126 @@ function GeraetForm({
   );
 }
 
+/**
+ * Die Anmeldung beim Anbieter - im Browser statt im Terminal.
+ *
+ * Vorher stand hier ein «docker exec»-Befehl: Für eine Zustimmung, die
+ * ohnehin im Browser passiert, brauchte es einen Rechner mit SSH. Jetzt
+ * baut der Hub die Adresse, die App öffnet sie, und die zurückkopierte
+ * Redirect-Adresse löst der Hub selbst gegen das Token ein.
+ *
+ * Der eine unschöne Moment bleibt ehrlich benannt: Am Ende leitet der
+ * Anbieter auf 127.0.0.1 um, und diese Seite lädt nicht - genau daraus
+ * kopiert man die Adresse. Wer das nicht vorher liest, hält die
+ * Anmeldung für gescheitert und bricht ab.
+ */
+function AnmeldeBereich({
+  dienst,
+  anmeldeUrl,
+  anmelden,
+}: {
+  dienst: Dienst;
+  anmeldeUrl: () => Promise<string>;
+  anmelden: (antwort: string) => Promise<void>;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [offen, setOffen] = useState(false);
+  const [antwort, setAntwort] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [fehler, setFehler] = useState<string | null>(null);
+  const anbieter = anbieterName(dienst.key);
+
+  const starten = async () => {
+    setBusy(true);
+    setFehler(null);
+    try {
+      const url = await anmeldeUrl();
+      // Erst das Feld zeigen, dann den Browser öffnen: Wer zurückkommt,
+      // soll die Stelle zum Einfügen schon offen vorfinden.
+      setOffen(true);
+      await Linking.openURL(url);
+    } catch (err) {
+      setFehler(String(err instanceof Error ? err.message : err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const abschliessen = async () => {
+    if (!antwort.trim()) {
+      setFehler('Zuerst die Adresse aus dem Browser einfügen.');
+      return;
+    }
+    setBusy(true);
+    setFehler(null);
+    try {
+      await anmelden(antwort.trim());
+      setAntwort('');
+      setOffen(false);
+    } catch (err) {
+      setFehler(String(err instanceof Error ? err.message : err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={styles.befehlKasten}>
+      {!offen ? (
+        <>
+          <Text style={styles.hinweis}>
+            Damit der Hub auf das {anbieter}-Konto zugreifen darf, braucht es
+            einmalig eine Zustimmung im Browser.
+          </Text>
+          <Pressable
+            onPress={starten}
+            disabled={busy}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.anmeldeKnopf, pressed && { opacity: 0.8 }]}
+          >
+            <Ionicons name="open-outline" size={16} color={colors.panel} />
+            <Text style={styles.knopfText}>Bei {anbieter} anmelden</Text>
+          </Pressable>
+        </>
+      ) : (
+        <>
+          <Text style={styles.hinweis}>
+            Im Browser anmelden und zustimmen. Am Ende erscheint «Seite nicht
+            erreichbar» - das ist richtig so. Die komplette Adresse aus der
+            Adresszeile kopieren und hier einfügen (sie gilt nur ein paar
+            Minuten).
+          </Text>
+          <TextInput
+            style={styles.input}
+            value={antwort}
+            onChangeText={setAntwort}
+            autoCapitalize="none"
+            autoCorrect={false}
+            placeholder="http://127.0.0.1:8888/…?code=…"
+            placeholderTextColor={colors.inkFaint}
+            onSubmitEditing={abschliessen}
+          />
+          <View style={styles.hinzuZeile}>
+            <Pressable
+              onPress={abschliessen}
+              disabled={busy}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.knopf, pressed && { opacity: 0.7 }]}
+            >
+              <Text style={styles.knopfText}>Anmeldung abschliessen</Text>
+            </Pressable>
+            <Pressable onPress={starten} disabled={busy} accessibilityRole="button" style={styles.leiseZeile}>
+              <Text style={styles.leiseText}>Browser nochmals öffnen</Text>
+            </Pressable>
+          </View>
+        </>
+      )}
+      {fehler ? <Text style={styles.fehlerText}>{fehler}</Text> : null}
+    </View>
+  );
+}
+
 /** Die zwei Geheimfelder - fürs Einrichten und fürs Ersetzen dieselben. */
 function ZugangsFelder({
   clientId,
@@ -771,11 +922,16 @@ const makeStyles = (colors: Colors) =>
       borderWidth: 1,
       borderColor: colors.surfaceBorder,
     },
-    befehl: {
-      color: colors.ink,
-      fontSize: 11,
-      fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
-      lineHeight: 16,
+    // Der volle Anmelde-Knopf im Kasten - dieselbe Sprache wie «Speichern
+    // & verbinden» eine Karte weiter oben: Das ist der Hauptweg, kein Nebenpfad.
+    anmeldeKnopf: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      paddingVertical: 12,
+      borderRadius: radius.control,
+      backgroundColor: colors.ink,
     },
     leiseZeile: {
       flexDirection: 'row',

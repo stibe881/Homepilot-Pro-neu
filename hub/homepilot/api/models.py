@@ -645,6 +645,18 @@ class VerbindungRequest(BaseModel):
     geraet_weg: VerbindungGeraet | None = None
 
 
+class AnmeldungRequest(BaseModel):
+    """Der zweite Schritt der Browser-Anmeldung eines Dienstes.
+
+    `antwort` ist, was aus der Adresszeile des Browsers kommt - die ganze
+    Redirect-Adresse oder nur der Code daraus. Der Hub fischt den Code
+    heraus und tauscht ihn selbst gegen das Token; das Geheimnis dazu
+    bleibt bei ihm.
+    """
+
+    antwort: str
+
+
 class RaumbildRequest(BaseModel):
     """Das Foto eines Zimmers, als data-URI.
 
