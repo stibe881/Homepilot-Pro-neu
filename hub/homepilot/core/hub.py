@@ -414,6 +414,10 @@ class Hub:
                         # darauf verliess.
                         expires=str(entry["expires"]) if entry.get("expires") else None,
                         hours=users_module.parse_hours(entry.get("hours")),
+                        # Die Wochentage des wiederkehrenden Gastes - ohne
+                        # diese Zeile stünde die Putzhilfe nach dem ersten
+                        # Neustart wieder an sieben Tagen in der Woche drin.
+                        days=users_module.parse_days(entry.get("days")),
                         # Dasselbe für das Wandtablet: Ohne diese beiden
                         # war es nach einem Neustart wieder eine Person -
                         # mit Begrüssung, ohne PIN-Zwang und mit offenen
