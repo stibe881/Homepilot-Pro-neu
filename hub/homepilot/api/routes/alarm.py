@@ -14,8 +14,10 @@ from fastapi import (
     FastAPI,
     HTTPException,
     Request,
+    Response,
 )
 
+from ...core import bildarchiv, cliparchiv
 from ...core import throttle as throttle_module
 from ...core.errors import HomePilotError
 from ...core.users import Capability
@@ -137,4 +139,77 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         except HomePilotError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
         return {"ok": True, "pin_required": alarm_service().pin_required()}
+
+    # ── Das Ereignisblatt ──────────────────────────────────────────────────
+    #
+    # «Was war da eigentlich?» braucht bisher vier Orte: den
+    # Alarm-Verlauf, den Haus-Rückblick, das Clip-Archiv und die
+    # Push-Bilder (die nach zehn Minuten weg sind). Hier kommt die
+    # Viertelstunde um ein Ereignis als EIN Blatt zurück - samt der
+    # archivierten Standbilder (core/bildarchiv.py).
+
+    #: Wie weit das Blatt um das Ereignis herum schaut (je Seite).
+    EREIGNIS_FENSTER = 450.0
+
+    @app.get("/api/alarm/ereignis")
+    async def alarm_ereignis(at: float, request: Request) -> dict[str, Any]:
+        """Alles aus der Viertelstunde um den Zeitpunkt `at`."""
+        user = require(request, Capability.CONTROL)
+        von, bis = at - EREIGNIS_FENSTER, at + EREIGNIS_FENSTER
+        service = alarm_service()
+        verlauf = [
+            row
+            for row in service.history
+            if isinstance(row.get("at"), (int, float)) and von <= row["at"] <= bis
+        ]
+
+        def darf(entity_id: str) -> bool:
+            entity = hub.registry.get(entity_id)
+            if entity is None:
+                return True
+            return user.may_see(
+                entity.id, entity.kind, entity.integration, entity.room
+            )
+
+        ereignisse = hub.eventlog.fenster(von, bis, sichtbar=darf)
+        namen: dict[str, dict[str, Any]] = {}
+        for eintrag in ereignisse:
+            kennung = str(eintrag.get("entity_id") or "")
+            if kennung not in namen:
+                entity = hub.registry.get(kennung)
+                namen[kennung] = {
+                    "name": entity.label if entity is not None else kennung,
+                    "kind": str(entity.kind) if entity is not None else "",
+                    "room": entity.room if entity is not None else None,
+                }
+        bilder = bildarchiv.fenster(
+            bildarchiv.liste(bildarchiv.ordner(hub.config.data_file)), von, bis
+        )
+        clips = [
+            meta
+            for meta in cliparchiv.liste(cliparchiv.ordner(hub.config.data_file))
+            if isinstance(meta.get("at"), (int, float)) and von <= meta["at"] <= bis
+        ]
+        return {
+            "von": von,
+            "bis": bis,
+            "verlauf": verlauf,
+            "events": ereignisse,
+            "devices": namen,
+            "bilder": bilder,
+            "clips": clips,
+        }
+
+    @app.get("/api/alarm/bild/{kennung}")
+    async def alarm_bild(kennung: str, request: Request) -> Response:
+        """Ein archiviertes Standbild - die Kennung kommt aus dem Blatt."""
+        require(request, Capability.CONTROL)
+        daten = bildarchiv.lesen(bildarchiv.ordner(hub.config.data_file), kennung)
+        if daten is None:
+            raise HTTPException(status_code=404, detail="Dieses Bild gibt es nicht mehr")
+        return Response(
+            content=daten,
+            media_type="image/png" if daten.startswith(b"\x89PNG") else "image/jpeg",
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
 

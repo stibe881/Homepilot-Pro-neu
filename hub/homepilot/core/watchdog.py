@@ -32,6 +32,7 @@ from . import (
     babysitter,
     batterie,
     batterieprognose,
+    bildarchiv,
     cliparchiv,
     energy,
     familie,
@@ -450,6 +451,7 @@ class Watchdog:
         # hier statt in einem eigenen Zeitplan: Der Wächter ist der
         # bestehende Minutentakt, und eine zweite Uhr müsste jemand warten.
         cliparchiv.aufraeumen_lauf(self.hub)
+        bildarchiv.aufraeumen_lauf(self.hub)
         await self._check_disk()
         await self._check_storm_covers(entities)
         await self._check_heat_covers(entities)

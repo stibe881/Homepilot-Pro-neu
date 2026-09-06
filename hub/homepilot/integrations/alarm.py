@@ -46,7 +46,7 @@ import secrets
 import time
 from typing import Any
 
-from ..core import cliparchiv, personenbild, say, snapshots, source, streams
+from ..core import bildarchiv, cliparchiv, personenbild, say, snapshots, source, streams
 from ..core.entity import Entity, EntityKind
 from ..core.errors import HomePilotError
 from ..core.integration import Integration
@@ -532,6 +532,7 @@ class AlarmIntegration(Integration):
             return
         self._motion_seen[entity.id] = jetzt
         self._note("motion", f"Bewegung vor {entity.label}", "")
+        self._start_bild(entity.id, "motion")
         await self._notify(
             "Bewegung vor der Kamera",
             f"{entity.label} sieht Bewegung – die Anlage ist scharf.",
@@ -587,6 +588,9 @@ class AlarmIntegration(Integration):
         # folge. Er landet stattdessen beim letzten Auslösen, wo die App ihn
         # zeigt, sobald er da ist.
         self._start_clip(camera_for(entity, self.hub.registry.all()))
+        # Und das Standbild dazu - der Mitschnitt braucht ffmpeg und
+        # RTSP, das Bild nur die Kamera. Meist gibt es beides.
+        self._start_bild(camera_for(entity, self.hub.registry.all()), "alarm")
 
         await self._apply_after(mode)
 
@@ -703,6 +707,47 @@ class AlarmIntegration(Integration):
                     befehl["command"],
                     err,
                 )
+
+    def _start_bild(self, camera: str | None, anlass: str) -> None:
+        """Ein Standbild vom Moment ins Bild-Archiv - fürs Ereignisblatt.
+
+        Das Push-Bild lebt zehn Minuten im Speicher (core/snapshots.py);
+        wer am Morgen nachsehen will, was nachts los war, fände nichts.
+        Wie der Clip eine Zugabe: Jeder Fehler endet still, ein Alarm
+        darf an keiner Kamera scheitern.
+        """
+        if not camera:
+            return
+        asyncio.create_task(self._bild_archivieren(camera, anlass))
+
+    async def _bild_archivieren(self, camera: str, anlass: str) -> None:
+        try:
+            entity = self.hub.registry.get(camera)
+            integration = (
+                self.hub.integrations.get(entity.integration) if entity else None
+            )
+            if entity is None or integration is None:
+                return
+            daten = await integration.snapshot(entity)
+            if not daten:
+                return
+            jetzt = time.time()
+            kennung = cliparchiv.neue_kennung(jetzt)
+            meta = cliparchiv.eintrag(
+                kennung,
+                entity.id,
+                anlass,
+                jetzt,
+                name=entity.label,
+                room=entity.room,
+                integration=entity.integration,
+                groesse=len(daten),
+            )
+            bildarchiv.ablegen(
+                bildarchiv.ordner(self.hub.config.data_file), daten, meta
+            )
+        except Exception as err:
+            self.log.debug("Bild-Archiv: %s liefert nichts (%s)", camera, err)
 
     def _start_clip(self, camera: str | None) -> None:
         seconds = int(self._settings.get("clip_seconds") or 0)
