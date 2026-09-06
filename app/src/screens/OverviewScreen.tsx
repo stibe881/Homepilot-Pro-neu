@@ -17,6 +17,7 @@ import { RenameDialog } from '../components/entity/anpassen';
 import { DraggableList } from '../components/DraggableList';
 import { KIND_ICONS, shortState } from '../components/RoomTile';
 import { appleMapsRoute, googleMapsRoute } from '../components/TopStrip';
+import { TagesZeile } from '../components/TagesZeile';
 import { VacuumHome } from '../components/VacuumHome';
 import { useTakt } from '../hooks/useTakt';
 import { FAVORIT_LUECKE, FAVORIT_MINDEST, kachelBreite, spalten } from '../lib/raster';
@@ -952,6 +953,10 @@ export function OverviewScreen({
         </>
       ) : null}
 
+      {/* Der Handgriff zur Tageszeit: morgens «Storen auf», abends
+          «Licht aus» und «Storen zu» - nur, wenn es etwas zu tun gibt
+          (Punkt 257 der Werkbank, lib/tageszeile.ts). */}
+      <TagesZeile entities={entities} now={now} onCommand={onCommand} />
       {/* Zugang steht immer gleich unter den Schnellaktionen. Danach
           tauschen Haushalt und Heute je nach Tageszeit den Platz: morgens
           zuerst der Tag (Termine, Musik), abends zuerst die Wohnung. */}

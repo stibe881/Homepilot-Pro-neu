@@ -99,6 +99,9 @@ from .routes import (
     raeume as routes_raeume,
 )
 from .routes import (
+    rueckblick as routes_rueckblick,
+)
+from .routes import (
     system as routes_system,
 )
 from .routes import (
@@ -296,6 +299,7 @@ def create_app(hub: Hub) -> FastAPI:
         routes_personen.register,
         routes_medien.register,
         routes_raeume.register,
+        routes_rueckblick.register,
         routes_verbindungen.register,
     ):
         register(app, ctx)

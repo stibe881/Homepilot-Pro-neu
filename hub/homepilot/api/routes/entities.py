@@ -18,7 +18,7 @@ from fastapi import (
     Response,
 )
 
-from ...core import batterie, kurzverlauf, spaeter, widgetkarten
+from ...core import batterie, cliparchiv, kurzverlauf, spaeter, widgetkarten
 from ...core import replace as replace_module
 from ...core import throttle as throttle_module
 from ...core.errors import HomePilotError, UnknownEntityError, UnsupportedCommandError
@@ -336,12 +336,17 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         if hub.registry.get(entity_id) is None:
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         jetzt = time.time()
-        rows = batterie.quittiere(hub.data.get(batterie.STORE_KEY), entity_id, jetzt)
+        # Bis zur eingestellten Erinnerungsstunde, nicht bis zur Vorgabe -
+        # sonst käme die Erinnerung früher, als die Einstellung verspricht.
+        stunde = batterie.prefs_lesen(hub.data.get(batterie.PREFS_KEY))["hour"]
+        rows = batterie.quittiere(
+            hub.data.get(batterie.STORE_KEY), entity_id, jetzt, stunde
+        )
         hub.data.set(batterie.STORE_KEY, rows)
         return {
             "ok": True,
             "entity_id": entity_id,
-            "muted_until": batterie.stumm_bis(jetzt),
+            "muted_until": batterie.stumm_bis(jetzt, stunde),
         }
 
     @app.delete("/api/batteries/{entity_id}/ack")
@@ -579,6 +584,105 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         except StreamError as err:
             log.warning("Live-Bild %s (%s): %s", entity_id, name, err)
             raise HTTPException(status_code=404, detail=str(err)) from err
+
+    # ── Clip-Archiv (Punkt 256 der Werkbank) ──────────────────────────────
+    # Die Alarm-Mitschnitte liegen dauerhaft neben der Datendatei
+    # (core/cliparchiv.py). Die Routen wohnen hier bei den anderen
+    # Kamera-Routen, denn es gelten dieselben Sichtbarkeitsregeln: Wer
+    # eine Kamera nicht sehen darf, darf auch ihre Clips nicht sehen.
+
+    def clip_ordner():
+        return cliparchiv.ordner(hub.config.data_file)
+
+    def clip_sichtbar(user, meta: dict[str, Any]) -> bool:
+        """Dieselbe Prüfung wie am Live-Bild - aus den Metadaten statt der
+        Registry, denn ein Clip überlebt seine Kamera."""
+        return user.may_see(
+            str(meta.get("camera") or ""),
+            "camera",
+            str(meta.get("integration") or ""),
+            meta.get("room"),
+        )
+
+    def clip_meta_oder_404(user, kennung: str) -> dict[str, Any]:
+        meta = cliparchiv.metadaten(clip_ordner(), kennung)
+        # Unsichtbar und nicht vorhanden sehen gleich aus - wie bei den
+        # Entitäten: Ein 403 verriete, dass es den Clip gibt.
+        if meta is None or not clip_sichtbar(user, meta):
+            raise HTTPException(status_code=404, detail=f"Unbekannter Clip: {kennung}")
+        return meta
+
+    @app.get("/api/clips")
+    async def clips_list(request: Request) -> dict[str, Any]:
+        """Alle archivierten Clips, jüngste zuerst - gefiltert nach dem,
+        was diese Person sehen darf."""
+        user = current_user(request)
+        return {
+            "clips": [
+                meta
+                for meta in cliparchiv.liste(clip_ordner())
+                if clip_sichtbar(user, meta)
+            ],
+            "retention_days": cliparchiv.frist_tage(hub.data.get("cliparchiv")),
+        }
+
+    @app.put("/api/clips/einstellungen")
+    async def clips_settings(body: dict[str, Any], request: Request) -> dict[str, Any]:
+        """Die Aufbewahrungsfrist stellen (Tage).
+
+        `edit_config` wie bei der Alarm-Konfiguration: Wie lange das Haus
+        Videomaterial behält, ist eine Entscheidung fürs ganze Haus.
+        """
+        user = require(request, Capability.EDIT_CONFIG)
+        try:
+            tage = int(body.get("retention_days"))
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=400, detail="retention_days muss eine Zahl (Tage) sein"
+            ) from None
+        tage = max(cliparchiv.FRIST_MIN, min(cliparchiv.FRIST_MAX, tage))
+        hub.data.set("cliparchiv", [{"retention_days": tage}])
+        hub.aenderungen.merken(user, "cliparchiv", "Aufbewahrung eingestellt")
+        return {"ok": True, "retention_days": tage}
+
+    @app.get("/api/clips/{kennung}")
+    async def clip_video(kennung: str, request: Request) -> Response:
+        """Ein archivierter Clip als MP4 - mit Range-Antworten, denn ohne
+        206 spielt AVPlayer gar nicht erst los (siehe entity_clip)."""
+        user = current_user(request)
+        clip_meta_oder_404(user, kennung)
+        video = cliparchiv.lesen(clip_ordner(), kennung)
+        if video is None:
+            raise HTTPException(status_code=404, detail=f"Unbekannter Clip: {kennung}")
+        kopf = {
+            "Accept-Ranges": "bytes",
+            # Ein archivierter Clip ändert sich nie mehr - beim Spulen
+            # fragt der Player mehrfach nach derselben Datei.
+            "Cache-Control": "private, max-age=3600",
+        }
+        bereich = teilbereich(request.headers.get("range"), len(video))
+        if bereich is None:
+            return Response(content=video, media_type="video/mp4", headers=kopf)
+        von, bis = bereich
+        return Response(
+            content=video[von : bis + 1],
+            status_code=206,
+            media_type="video/mp4",
+            headers={**kopf, "Content-Range": f"bytes {von}-{bis}/{len(video)}"},
+        )
+
+    @app.delete("/api/clips/{kennung}")
+    async def clip_delete(kennung: str, request: Request) -> dict[str, Any]:
+        """Einen Clip vor Ablauf der Frist entfernen.
+
+        `edit_devices` zusätzlich zur Sichtbarkeit: Bewohner dürfen
+        aufräumen, ein Gast mit Kamera-Freigabe darf zuschauen, aber
+        keine Beweise löschen.
+        """
+        user = require(request, Capability.EDIT_DEVICES)
+        clip_meta_oder_404(user, kennung)
+        weg = cliparchiv.loeschen(clip_ordner(), kennung)
+        return {"ok": True, "removed": weg}
 
     @app.get("/api/trends")
     async def trends(request: Request) -> dict[str, Any]:

@@ -2,6 +2,7 @@
 import { Entity } from '../api/types';
 import {
   alphabetisch,
+  inBeschattung,
   raeumeSortiert,
   raumKategorien,
   raumFakten,
@@ -42,6 +43,28 @@ describe('raumZeile', () => {
       geraet({ kind: 'media_player', name: 'Box', state: { state: 'playing' } }),
     ]);
     expect(zeile).toBe('21,5° · 45 % · Fenster Bad offen · Musik läuft');
+  });
+
+  it('meldet Beschattung - unten, aber mit offenen Lamellen', () => {
+    const store = geraet({
+      kind: 'cover',
+      name: 'Store Essbereich',
+      state: { state: 'closed', position: 0, tilt: 50 },
+      commands: ['open', 'close', 'set_position', 'set_tilt'],
+    });
+    expect(raumZeile([store])).toBe('Beschattung');
+    expect(inBeschattung(store)).toBe(true);
+  });
+
+  it('schweigt bei ganz geschlossenen Lamellen - das ist «zu», nicht Beschattung', () => {
+    const store = geraet({
+      kind: 'cover',
+      name: 'Store Essbereich',
+      state: { state: 'closed', position: 0, tilt: 0 },
+      commands: ['open', 'close', 'set_position', 'set_tilt'],
+    });
+    expect(raumZeile([store])).toBe('');
+    expect(inBeschattung(store)).toBe(false);
   });
 
   it('schweigt in einem Raum ohne Fühler und ohne Offenes', () => {

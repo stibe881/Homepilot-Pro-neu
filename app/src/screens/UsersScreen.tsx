@@ -35,7 +35,12 @@ import {
   huerde,
   offenSatz,
 } from '../lib/wlanaufkleber';
-import { besitzerZahl, darfRolleAendern } from '../lib/rollenwahl';
+import {
+  besitzerZahl,
+  darfRolleAendern,
+  eineZimmerwahl,
+  zimmerPatch,
+} from '../lib/rollenwahl';
 import { DoorPass } from '../components/DoorPass';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { Colors, radius, space, type, useColors } from '../theme';
@@ -65,12 +70,17 @@ function isoInDays(days: number): string {
 export const ROLE_LABELS: Record<string, string> = {
   besitzer: 'Besitzer',
   bewohner: 'Mitbewohner',
+  // Punkt 245 der Werkbank: zwischen Mitbewohner und Gast - ein Kind
+  // war vorher ein Bewohner mit fünf verstreuten Einschränkungsfeldern,
+  // und wer eines vergass, hatte ein Kind mit Systemsicht.
+  kind: 'Kind',
   gast: 'Gast',
 };
 
 const ROLE_HINTS: Record<string, string> = {
   besitzer: 'darf alles, auch Benutzer und Konfiguration verwalten',
   bewohner: 'bedient das ganze Haus, darf Abläufe pausieren',
+  kind: 'darf schalten und den Verlauf sehen; die Kinder-Ansicht seiner Zimmer ist der Normalfall',
   gast: 'sieht und schaltet nur die freigegebenen Bereiche',
 };
 
@@ -392,7 +402,10 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
           name: newName.trim(),
           role: newRole,
           features: newRole === 'gast' ? newFeatures : [],
-          shared: newShared,
+          // Ein Kind ist ein Mensch, kein Wandtablet - die Wahl steht
+          // für diese Rolle gar nicht erst da, also darf auch kein
+          // liegengebliebener Schalter aus einer anderen Rolle mit.
+          shared: eineZimmerwahl(newRole) ? false : newShared,
           ...(newPassword.trim() ? { password: newPassword.trim() } : {}),
         }),
       });
@@ -526,8 +539,9 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
           </Text>
           {/* Ein Zugang, den alle benutzen: das Wandtablet im Flur, das
               Küchendisplay. Gleich beim Anlegen, nicht erst hinterher -
-              sonst brummt die erste Nachricht schon an der Wand. */}
-          {newRole !== 'gast' ? (
+              sonst brummt die erste Nachricht schon an der Wand. Nicht
+              für Kinder: Ein Kind ist ein Mensch, kein Gerät im Flur. */}
+          {newRole !== 'gast' && !eineZimmerwahl(newRole) ? (
             <>
               <Text style={styles.formLabel}>Art des Zugangs</Text>
               <View style={styles.roleRow}>
@@ -943,7 +957,9 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                       war der Grund, warum diese Seite eine Wand war.
                       Zugeklappt beantwortet der Kopf die Frage, mit der
                       man kommt - siehe lib/benutzerblatt.ts. */}
-                  {detail.editable ? (
+                  {/* Nicht bei Kindern: Ein Kind ist ein Mensch, kein
+                      Wandtablet - die Wahl wäre tote Bedienung. */}
+                  {detail.editable && !eineZimmerwahl(detail.role) ? (
                     <Klappe
                       label="Art des Zugangs"
                       stand={artStand(detail.shared)}
@@ -1003,10 +1019,13 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                           Wandtablet gedacht - Licht und Storen bedient
                           jeder, der vorbeigeht, die Einkaufsliste und der
                           Kalender der Familie sollen aber nicht offen im
-                          Flur stehen. Er hält nur am Panel zu und nur im
-                          Babysitter-Modus; warum, steht in
-                          lib/bereichsriegel.ts. */}
-                  {detail.editable ? (
+                          Flur stehen. Er hält an aufgestellten Geräten
+                          (Panel oder Gemeinschaftsgerät) zu, solange der
+                          Besuch- oder Babysitter-Modus läuft; warum,
+                          steht in lib/bereichsriegel.ts. Nicht bei
+                          Kindern: Deren Gerät ist keines, das offen im
+                          Flur steht. */}
+                  {detail.editable && !eineZimmerwahl(detail.role) ? (
                     <Klappe
                       label="Riegel vor Familie & Konto"
                       stand={sichtschutzStand(detail.area_locked)}
@@ -1014,8 +1033,8 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                     >
                       <Text style={styles.formHint}>
                         {detail.area_locked
-                          ? 'Gesetzt. Gefragt wird nur am Wandpanel und nur, solange der Babysitter-Modus läuft: Familie, Kalender und Nachrichten sind dann verriegelt, Licht, Storen und Alarm bleiben frei. Ein neues Passwort ersetzt das alte, leer speichern nimmt den Riegel weg.'
-                          : 'Kein Riegel: Am Wandpanel steht auch im Babysitter-Modus alles offen. Mindestens 4 Zeichen; auch eine Zahlenfolge ist erlaubt, am Wandtablet tippt man auf Glas.'}
+                          ? 'Gesetzt. Gefragt wird nur am Wandpanel und an Gemeinschaftsgeräten und nur, solange der Besuch- oder Babysitter-Modus läuft: Familie, Kalender und Nachrichten sind dann verriegelt, Licht, Storen und Alarm bleiben frei. Ein neues Passwort ersetzt das alte, leer speichern nimmt den Riegel weg.'
+                          : 'Kein Riegel: Am Wandtablet steht auch mit Besuch alles offen. Mindestens 4 Zeichen; auch eine Zahlenfolge ist erlaubt, am Wandtablet tippt man auf Glas.'}
                       </Text>
                       <TextInput
                         style={styles.input}
@@ -1065,7 +1084,61 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                     </Klappe>
                   ) : null}
 
-                  {detail.editable ? (
+                  {/* Punkt 245 der Werkbank: Bei Kindern spiegelt der
+                      Hub Schranke (rooms) und Kinder-Ansicht
+                      (simple_rooms) füreinander - zwei getrennte
+                      Klappen wären tote Bedienung, das Antippen der
+                      einen änderte still die andere. Kinder bekommen
+                      darum unten EINE Zimmerwahl. */}
+                  {detail.editable && eineZimmerwahl(detail.role) ? (
+                    <Klappe
+                      label="Zimmer"
+                      stand={reichweiteStand(detail.simple_rooms)}
+                      zuBeginnZu
+                    >
+                      <Text style={styles.formHint}>
+                        Angetippte Zimmer sind die Welt dieses Kindes:
+                        Es sieht sie als grosse Knöpfe (Kinder-Ansicht)
+                        und kann auch nur dort schalten – alles andere
+                        weist der Hub ab. Eine Wahl für beides; nichts
+                        angetippt heisst ganzes Haus mit normaler App.
+                      </Text>
+                      <View style={styles.roleRow}>
+                        {roomNames.map((room) => {
+                          const active = (detail.simple_rooms ?? []).includes(room);
+                          return (
+                            <Pressable
+                              key={room}
+                              onPress={() => {
+                                const current = detail.simple_rooms ?? [];
+                                const next = active
+                                  ? current.filter((entry) => entry !== room)
+                                  : [...current, room];
+                                // Beide Felder mit derselben Liste -
+                                // warum, steht in lib/rollenwahl.ts.
+                                patchUser(detail.name, zimmerPatch(next));
+                              }}
+                              accessibilityRole="checkbox"
+                              accessibilityState={{ checked: active }}
+                              accessibilityLabel={`Zimmer ${room} für ${detail.name}`}
+                              style={[styles.roleChip, active && styles.roleChipActive]}
+                            >
+                              <Text
+                                style={[
+                                  styles.roleChipText,
+                                  active && styles.roleChipTextActive,
+                                ]}
+                              >
+                                {room}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </Klappe>
+                  ) : null}
+
+                  {detail.editable && !eineZimmerwahl(detail.role) ? (
                     <Klappe
                       label="Reicht bis"
                       stand={reichweiteStand(detail.rooms)}
@@ -1115,7 +1188,7 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                     </Klappe>
                   ) : null}
 
-                  {detail.editable ? (
+                  {detail.editable && !eineZimmerwahl(detail.role) ? (
                     <Klappe
                       label="Kinder-Ansicht"
                       stand={kinderStand(detail.simple_rooms)}

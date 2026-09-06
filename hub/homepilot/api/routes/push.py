@@ -20,6 +20,7 @@ from fastapi import (
 )
 
 from ...core import (
+    batterie,
     liveaktivitaet,
     livekarten,
     notifyrules,
@@ -33,6 +34,7 @@ from ...core import (
 from ...core.users import Capability, Role
 from ..context import ApiContext
 from ..models import (
+    BatteryPrefsRequest,
     LaundryRequest,
     LiveActivityTokenRequest,
     NotifyRuleRequest,
@@ -144,6 +146,41 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         hub.data.set("push_prefs", list(stored.values()))
         hub.push.muted = push.parse_muted(hub.data.get("push_prefs"))
         return {"ok": True, "muted": sorted(hub.push.muted.get(user.name, set()))}
+
+    # ── Batterie-Erinnerung (Punkt 258 der Werkbank) ───────────────────────
+
+    @app.get("/api/push/battery")
+    async def battery_prefs(request: Request) -> dict[str, Any]:
+        """Zu welcher Stunde und ab welcher Schwelle der Hub erinnert."""
+        current_user(request)
+        return batterie.prefs_lesen(hub.data.get(batterie.PREFS_KEY))
+
+    @app.put("/api/push/battery")
+    async def set_battery_prefs(
+        body: BatteryPrefsRequest, request: Request
+    ) -> dict[str, Any]:
+        """Stunde und Schwelle setzen - für den ganzen Haushalt.
+
+        Global und nicht je Benutzer, wie die Wächter-Regeln darunter:
+        Die Einstellung bestimmt, ob und wann der Hub überhaupt meldet.
+        Wer die Batterien nur für sich nicht will, bestellt die Kategorie
+        unter Benachrichtigungen ab. Die Klemmen (0-23, 1-50) sitzen in
+        prefs_lesen, damit auch von Hand geschriebene Werte sie passieren.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        bisher = batterie.prefs_lesen(hub.data.get(batterie.PREFS_KEY))
+        neu = batterie.prefs_lesen(
+            {
+                "hour": body.hour if body.hour is not None else bisher["hour"],
+                "threshold": (
+                    body.threshold
+                    if body.threshold is not None
+                    else bisher["threshold"]
+                ),
+            }
+        )
+        hub.data.set(batterie.PREFS_KEY, neu)
+        return {"ok": True, **neu}
 
     # ── Eingebaute Wächter-Nachrichten (Abläufe → Push) ────────────────────
     # Global, nicht je Benutzer: Diese Regeln bestimmen, ob und wann der Hub

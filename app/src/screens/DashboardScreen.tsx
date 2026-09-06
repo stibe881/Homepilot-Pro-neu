@@ -141,6 +141,8 @@ import { ClimateOverview } from '../components/ClimateOverview';
 import { KidsView } from '../components/KidsView';
 import { KitchenTimer } from '../components/KitchenTimer';
 import { WhatsNew } from '../components/WhatsNew';
+import { Einfuehrung } from '../components/Einfuehrung';
+import { Hilfeblatt } from '../components/Hilfeblatt';
 import { LightGroups } from '../components/LightGroups';
 import { DeviceTools } from '../components/DeviceTools';
 import { SceneSuggestion } from '../components/SceneSuggestion';
@@ -151,6 +153,7 @@ import { confirm as confirmBiometrie, needsCheck } from '../lib/biometrie';
 import { mayOpenDirectly } from '../lib/tuerbestaetigung';
 import { kinoSzene } from '../lib/kinoszene';
 import { BioLock } from '../components/BioLock';
+import { KontoBlatt } from '../components/KontoBlatt';
 import { TuerRueckfrage } from '../components/TuerRueckfrage';
 import { Widgets } from '../components/Widgets';
 import { Ablage, syncWidget } from '../lib/widget';
@@ -369,6 +372,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [batterienOffen, setBatterienOffen] = useState(false);
   // Das Blatt «was ist gerade nicht in Ordnung» - offen oder zu.
   const [sorgenOffen, setSorgenOffen] = useState(false);
+  // Das Hilfeblatt (Einstellungen → Hilfe) und die von dort aus erneut
+  // angeforderte Einführung. Ob sie beim ersten Öffnen von selbst kommt,
+  // entscheidet sie selbst (components/Einfuehrung.tsx).
+  const [hilfeOffen, setHilfeOffen] = useState(false);
+  const [einfuehrungErzwungen, setEinfuehrungErzwungen] = useState(false);
   // Was der Hub über «Besuch oder Babysitter» sagt - für die Zeile im
   // Menü; die Seite selbst (screens/BesuchScreen.tsx) fragt ihn frisch.
   const [besuchStand, setBesuchStand] = useState<BabysitterStand | null>(null);
@@ -1908,7 +1916,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const renderCell = zellen(orderScope, rest, section === 'home' && room !== ALL_ROOMS);
 
   const einstellungsPunkte: {
-    key: Section | 'search' | 'sorgen';
+    key: Section | 'search' | 'sorgen' | 'hilfe';
     icon: keyof typeof Ionicons.glyphMap;
     label: string;
     detail: string;
@@ -2046,8 +2054,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     {
       key: 'account',
       icon: 'person-outline',
+      // Punkt 244 der Werkbank: Passwort und «Meine Geräte» wohnen
+      // seither auch hier - die Beschreibung muss sie nennen, sonst
+      // sucht man sie in der Benutzerverwaltung.
       label: 'Konto',
-      detail: 'Profil, Darstellung, Benachrichtigungen',
+      detail: 'Profil, Passwort, Geräte, Benachrichtigungen',
       show: true,
     },
     {
@@ -2060,6 +2071,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         ? 'Hub-Zugang, Kalender, Spotify, Google Home'
         : 'Hub-Adresse und Token dieses Geräts',
       show: true,
+    },
+    {
+      key: 'hilfe',
+      icon: 'help-buoy-outline',
+      label: 'Hilfe',
+      detail: 'Die häufigsten Fragen - und die Einführung erneut',
+      // Für alle, gerade für Gäste: Wer sich nicht auskennt, ist der,
+      // für den dieser Punkt da ist.
+      show: true,
+      onPress: () => setHilfeOffen(true),
     },
   ];
 
@@ -2185,7 +2206,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     const gesperrt = istGesperrt(section, {
       areaLocked: user?.area_locked,
       panel: settings.panel,
-      babysitter,
+      // Punkt 246 der Werkbank: Das Gemeinschaftsgerät zählt wie das
+      // Panel - sein Wandpanel-Schalter ist eine lokale Einstellung,
+      // an die beim Einrichten niemand denkt, und genau daran fiel der
+      // Riegel für den Besuch am Wandtablet durch.
+      shared: user?.shared,
+      // Besuch und Babysitter sind derselbe «Jemand ist da»-Modus;
+      // `besuchStand` kommt sofort von der Besuch-Seite, `babysitter`
+      // aus dem Abläufe-Takt - wer eben erst eingeschaltet hat, soll
+      // nicht auf den nächsten Abgleich warten.
+      babysitter: babysitter || !!besuchStand?.active,
       offenBis: riegelBis,
       jetzt: now.getTime(),
     });
@@ -2197,7 +2227,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           settings={settings}
           titel={SECTION_LABEL[section]}
           onOffen={setRiegelBis}
-          offen={offeneModule(section, settings.panel, gesperrt)}
+          offen={offeneModule(section, panelArtig, gesperrt)}
           onOeffneModul={setRiegelModul}
         />
       );
@@ -2373,6 +2403,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             nur="konto"
             onRenamed={benutzerNeuLaden}
           />
+          {/* Punkt 244 der Werkbank: Passwort wechseln und «Meine
+              Geräte» - direkt beim Profil, denn beides ist die Frage
+              «wer kommt mit meinem Konto herein?». */}
+          <KontoBlatt settings={settings} user={user} />
           <BioLock enabled={!!prefs.bioLock} onChange={setBioLock} />
           {/* Nur für die Besitzerin: Die Hürde vor der Haustüre gilt fürs
               ganze Haus, ihr Abräumen ist keine Ansichtssache. */}
@@ -3796,6 +3830,24 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           seen={eigenePrefs.seenChanges}
           seenGeladen={eigenGeladen}
           onSeen={setSeenChanges}
+        />
+
+        {/* Die Einführung beim allerersten Öffnen - wie WhatsNew hier
+          oben, damit sie unabhängig von der Seite kommt. Ob und in
+          welcher Fassung, entscheidet lib/einfuehrung.ts. */}
+        <Einfuehrung
+          settings={settings}
+          user={user}
+          erzwungen={einfuehrungErzwungen}
+          onErzwungenZu={() => setEinfuehrungErzwungen(false)}
+        />
+        <Hilfeblatt
+          offen={hilfeOffen}
+          onZu={() => setHilfeOffen(false)}
+          onEinfuehrung={() => {
+            setHilfeOffen(false);
+            setEinfuehrungErzwungen(true);
+          }}
         />
 
         <GlobalSearch

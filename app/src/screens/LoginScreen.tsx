@@ -2,8 +2,10 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { HubFehler, hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
 import { Card } from '../components/Card';
+import { anmeldeFehlerText } from '../lib/anmeldefehler';
 import { AnmeldeModus, validate, wechselProblem } from '../lib/anmeldung';
 import { defaultHubUrl } from '../lib/origin';
 import { geraeteName } from '../lib/plattform';
@@ -60,13 +62,20 @@ export function LoginScreen({
     if (!url) return;
     let cancelled = false;
     setAvailable(null);
-    fetch(`${url.replace(/\/$/, '')}/api/auth/config`)
-      .then((response) => (response.ok ? response.json() : null))
+    // Über den Hub-Client statt nacktem fetch (Punkt 247 der Werkbank):
+    // Vorher hing ein nicht antwortender Hub diese Abfrage ewig auf, und
+    // die Maske blieb ohne Rückmeldung. Vor der Anmeldung gibt es noch
+    // kein Token - der Client schickt dann «Bearer » mit leerem Rest, und
+    // die Auth-Wege des Hubs prüfen keinen Kopf (routes/auth.py), das
+    // stört also nicht. `still`, weil die Maske selbst zeigt, was los
+    // ist; `fallback: null` heisst wie vorher «kein Passwort-Login».
+    hubClient(url.replace(/\/$/, ''), '')
+      .get<{ password_login?: boolean } | null>('/api/auth/config', {
+        fallback: null,
+        still: true,
+      })
       .then((body) => {
         if (!cancelled) setAvailable(body?.password_login === true);
-      })
-      .catch(() => {
-        if (!cancelled) setAvailable(false);
       });
     return () => {
       cancelled = true;
@@ -85,21 +94,27 @@ export function LoginScreen({
     const base = url.replace(/\/$/, '');
     const path = mode === 'login' ? '/api/auth/login' : '/api/auth/recover';
     try {
-      const response = await fetch(`${base}${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(
+      // Über den Hub-Client (Punkt 247 der Werkbank): Zeitlimit statt
+      // ewigem Warten, und die Fehlersätze des Clients statt nacktem
+      // Status. `still`, weil der Fehler unter dem Formular steht - eine
+      // Einblendung obendrauf wäre doppelt.
+      const body =
+        (await hubClient(base, '').post<{
+          token?: string;
+          user?: { name?: string };
+          must_change_password?: boolean;
+          message?: string;
+        } | null>(
+          path,
           mode === 'recover'
             ? { email: email.trim() }
             : {
                 email: email.trim(),
                 password,
                 label: geraeteName(),
-              }
-        ),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
+              },
+          { still: true }
+        )) ?? {};
 
       if (mode === 'login') {
         const settings = {
@@ -121,7 +136,13 @@ export function LoginScreen({
       }
       setNote(body.message ?? 'Erledigt.');
     } catch (err) {
-      setError(String(err instanceof Error ? err.message : err));
+      // An der Maske heisst 401 «Name oder Passwort stimmt nicht», nicht
+      // «Anmeldung abgelaufen» - siehe lib/anmeldefehler.ts.
+      setError(
+        err instanceof HubFehler
+          ? anmeldeFehlerText(err.status, err.message, 'anmelden')
+          : String(err instanceof Error ? err.message : err)
+      );
     } finally {
       setBusy(false);
     }
@@ -137,19 +158,20 @@ export function LoginScreen({
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(`${wartend.url}/api/auth/passwort-wechsel`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${wartend.token}`,
-        },
-        body: JSON.stringify({ old: password, new: neu }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
+      // Hier gibt es schon ein Token: Die Sitzung ist ausgestellt, nur
+      // gespeichert wird sie erst nach dem Wechsel.
+      await hubClient(wartend.url, wartend.token).post(
+        '/api/auth/passwort-wechsel',
+        { old: password, new: neu },
+        { still: true }
+      );
       onSave(wartend);
     } catch (err) {
-      setError(String(err instanceof Error ? err.message : err));
+      setError(
+        err instanceof HubFehler
+          ? anmeldeFehlerText(err.status, err.message, 'wechsel')
+          : String(err instanceof Error ? err.message : err)
+      );
     } finally {
       setBusy(false);
     }
@@ -179,6 +201,7 @@ export function LoginScreen({
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="url"
+              accessibilityLabel="Adresse des Hubs"
             />
           </>
         ) : null}
@@ -200,6 +223,7 @@ export function LoginScreen({
               autoCapitalize="none"
               autoCorrect={false}
               textContentType="newPassword"
+              accessibilityLabel="Neues Passwort"
             />
             <Text style={styles.label}>Noch einmal</Text>
             <TextInput
@@ -211,12 +235,15 @@ export function LoginScreen({
               autoCapitalize="none"
               autoCorrect={false}
               textContentType="newPassword"
+              accessibilityLabel="Neues Passwort wiederholen"
             />
             {error ? <Text style={styles.error}>{error}</Text> : null}
             <Pressable
               onPress={wechseln}
               disabled={busy}
               accessibilityRole="button"
+              accessibilityLabel="Passwort setzen"
+              accessibilityState={{ disabled: busy, busy }}
               style={({ pressed }) => [styles.primary, (pressed || busy) && { opacity: 0.7 }]}
             >
               <Ionicons name="key-outline" size={18} color="#FFFFFF" />
@@ -231,7 +258,12 @@ export function LoginScreen({
               Dieser Hub bietet keine Anmeldung mit Passwort an. Verbinde dich
               mit dem QR-Code oder einem Token.
             </Text>
-            <Pressable onPress={onUseToken} style={styles.primary}>
+            <Pressable
+              onPress={onUseToken}
+              accessibilityRole="button"
+              accessibilityLabel="Mit QR-Code verbinden"
+              style={styles.primary}
+            >
               <Ionicons name="qr-code-outline" size={18} color="#FFFFFF" />
               <Text style={styles.primaryText}>Mit QR-Code verbinden</Text>
             </Pressable>
@@ -251,6 +283,9 @@ export function LoginScreen({
               autoCorrect={false}
               keyboardType="email-address"
               textContentType="emailAddress"
+              accessibilityLabel={
+                mode === 'recover' ? 'E-Mail-Adresse' : 'Name oder E-Mail-Adresse'
+              }
             />
 
             {mode !== 'recover' ? (
@@ -266,6 +301,7 @@ export function LoginScreen({
                   autoCapitalize="none"
                   autoCorrect={false}
                   textContentType="password"
+                  accessibilityLabel="Passwort"
                 />
               </>
             ) : null}
@@ -277,6 +313,8 @@ export function LoginScreen({
               onPress={submit}
               disabled={busy}
               accessibilityRole="button"
+              accessibilityLabel={mode === 'login' ? 'Anmelden' : 'E-Mail schicken'}
+              accessibilityState={{ disabled: busy, busy }}
               style={({ pressed }) => [styles.primary, (pressed || busy) && { opacity: 0.7 }]}
             >
               <Ionicons
@@ -291,11 +329,19 @@ export function LoginScreen({
 
             <View style={styles.links}>
               {mode === 'login' ? (
-                <Pressable onPress={() => { setMode('recover'); setError(null); }}>
+                <Pressable
+                  onPress={() => { setMode('recover'); setError(null); }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Passwort vergessen"
+                >
                   <Text style={styles.link}>Passwort vergessen</Text>
                 </Pressable>
               ) : (
-                <Pressable onPress={() => { setMode('login'); setError(null); }}>
+                <Pressable
+                  onPress={() => { setMode('login'); setError(null); }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Zurück zum Anmelden"
+                >
                   <Text style={styles.link}>Zurück zum Anmelden</Text>
                 </Pressable>
               )}
@@ -307,7 +353,12 @@ export function LoginScreen({
               Anmelden gegen ein eigenes tauschst.
             </Text>
 
-            <Pressable onPress={onUseToken} style={styles.secondary}>
+            <Pressable
+              onPress={onUseToken}
+              accessibilityRole="button"
+              accessibilityLabel="Stattdessen mit QR-Code oder Token verbinden"
+              style={styles.secondary}
+            >
               <Ionicons name="qr-code-outline" size={16} color={colors.ink} />
               <Text style={styles.secondaryText}>Stattdessen QR-Code oder Token</Text>
             </Pressable>

@@ -17,6 +17,7 @@ steht sie hier, in vier Teilen entstanden:
 | 136–164 | Küche & Abläufe | Rezeptbuch und Ablauf-Editor |
 | 165–221 | Familie & Haushalt | Familienlisten, Kontakte, Ortung |
 | 224–243 | Zweite Durchsicht | Wärme, Strom, Betrieb, und die Fehler einer Woche |
+| 244–258 | Auf Zuruf (September 2026) | Benutzer und Zugang, Bedienung, Abläufe, Sicherheit |
 
 Stand beim Einchecken: **alle 221 Punkte erledigt**, bis auf Punkt 94
 (bewusst gestrichen). Die Häkchen tragen die Commit-Kürzel von den
@@ -1987,9 +1988,12 @@ Der grösste weisse Fleck: Es gibt keine Entitätsart `climate`. Der Hub
 kennt Licht, Schalter, Storen, Schlösser, Sauger, Wetter – und
 Temperatur nur als Messwert.
 
-### 224. Die Heizung kann der Hub nur lesen, nicht stellen
+### 224. Die Heizung kann der Hub nur lesen, nicht stellen — gestrichen
 
 *tut weh · Aufwand: gross · Hub + App*
+
+Gestrichen im September 2026 auf Entscheid: Die Heizung bleibt aussen
+vor, samt 225 und 226, die darauf aufbauen.
 
 Die Klima-Übersicht zeigt jeden Raum mit Temperatur und Feuchte und ist
 eine reine Anzeige. Einen Sollwert setzen kann im ganzen System nur der
@@ -2001,9 +2005,11 @@ einzige, die HomePilot nicht anfasst.
 
 Stellen: `hub/homepilot/core/entity.py`, `app/src/components/ClimateOverview.tsx`, `hub/homepilot/integrations/zigbee2mqtt.py`
 
-### 225. Fenster auf, Heizung läuft weiter
+### 225. Fenster auf, Heizung läuft weiter — gestrichen
 
 *Aufwand: klein · Hub · braucht 224*
+
+Gestrichen mit 224.
 
 Die Kontaktsensoren sind da, und der Wächter liest sie längst – er zählt
 die offenen Fenster für die Alarmanlage und meldet, wenn eines zu lange
@@ -2013,9 +2019,11 @@ Heizkörper erfährt es nie.
 
 Stellen: `hub/homepilot/core/watchrules.py` (`open_contacts`)
 
-### 226. Heizen nach Plan und Anwesenheit statt nach Dauerwert
+### 226. Heizen nach Plan und Anwesenheit statt nach Dauerwert — gestrichen
 
 *Aufwand: mittel · Hub · braucht 224*
+
+Gestrichen mit 224.
 
 Der Hub weiss, wer zuhause ist, wann Schulferien sind, wann jemand ins
 Bett geht und wie weit weg jemand gerade ist – alles gebaut, alles
@@ -2027,9 +2035,11 @@ Stellen: `hub/homepilot/core/presence.py`, `core/goodnight.py`, `core/schulferie
 
 ## Luft und Strom (227–229)
 
-### 227. Feuchte ohne Rat: wann lüften sich lohnt
+### 227. Feuchte ohne Rat: wann lüften sich lohnt — gestrichen
 
 *Aufwand: klein · Hub + App*
+
+Gestrichen im September 2026 auf Entscheid.
 
 Die Klima-Übersicht färbt die Feuchte, wenn sie aus dem Band läuft, und
 lässt den Bewohner damit allein. Ob Lüften hilft, hängt aber vom
@@ -2039,9 +2049,12 @@ andere von Open-Meteo.
 
 Stellen: `app/src/lib/komfort.ts`, `hub/homepilot/integrations/weather.py`
 
-### 228. Der Hub kennt genau einen Strompreis
+### 228. Der Hub kennt genau einen Strompreis — gestrichen
 
 *Aufwand: mittel · Hub + App*
+
+Gestrichen im September 2026 auf Entscheid: Der eine Preis bleibt,
+samt 229, das darauf aufbaut.
 
 Die Energieseite rechnet alles gegen einen einzigen `price_per_kwh`:
 Tageskosten, Jahreshochrechnung, Standby-Kosten, die Rangliste der
@@ -2051,9 +2064,11 @@ Franken systematisch daneben.
 
 Stellen: `hub/homepilot/core/energy.py`
 
-### 229. Die Waschküche weiss nichts vom günstigen Tarif
+### 229. Die Waschküche weiss nichts vom günstigen Tarif — gestrichen
 
 *Aufwand: klein · Hub · braucht 228*
+
+Gestrichen mit 228.
 
 Der Hub hakt nach, bis die Wäsche aus der Trommel ist. Es fehlt die
 andere Hälfte: der Hinweis vorher. Wer um zwanzig vor neun eine Maschine
@@ -2119,7 +2134,7 @@ Kachel.
 
 Stellen: `app/src/api/types.ts`, `hub/homepilot/api/routes/`
 
-### 234. Antwortet Supabase nicht, kommt niemand mit Passwort ins Haus
+### 234. Antwortet Supabase nicht, kommt niemand mit Passwort ins Haus ✓ erledigt (5ed560e)
 
 *tut weh · Aufwand: mittel · Hub*
 
@@ -2129,13 +2144,22 @@ Internet sperrt die Familie aus ihrem eigenen Haus aus, obwohl Hub,
 Telefon und WLAN im selben Raum stehen. Der Hub kennt seine Benutzer
 selbst.
 
-Stellen: `hub/homepilot/api/routes/auth.py`, `hub/homepilot/core/users.py`
+Umgesetzt: Nach jeder erfolgreichen Online-Anmeldung führt der Hub
+einen gesalzenen Hash lokal nach (in den `emails`-Zeilen, die als
+SECRETS nie in einen Export wandern) und fällt bei Netz- und
+Serverfehlern darauf zurück. Ein von Supabase abgelehntes Passwort
+fällt bewusst nicht zurück – sonst bliebe ein zurückgesetztes Passwort
+lokal ewig gültig.
+
+Stellen: `hub/homepilot/api/routes/auth.py`, `hub/homepilot/core/supabase_auth.py`
 
 ## Haushalt und Griff (235–236)
 
-### 235. Der Abfuhrkalender fehlt
+### 235. Der Abfuhrkalender fehlt — gestrichen
 
 *Aufwand: klein · Hub + App*
+
+Gestrichen im September 2026 auf Entscheid.
 
 Kehricht, Grünabfuhr, Karton, Metall: feste Termine, die jede Gemeinde
 veröffentlicht, und die einzige Hausaufgabe, die man am Vorabend
@@ -2144,9 +2168,11 @@ und Schulferien bereits als eigene Kalender mit – dieselbe Bauart.
 
 Stellen: `hub/homepilot/core/schulferien.py`, `core/feiertage.py`, `core/erinnerungen.py`
 
-### 236. Siri kann die vorhandenen Knöpfe nicht drücken
+### 236. Siri kann die vorhandenen Knöpfe nicht drücken — gestrichen
 
 *Aufwand: klein · App*
+
+Gestrichen im September 2026 auf Entscheid.
 
 Im Widget stecken fertige App-Intents – `SchaltIntent` schaltet ein
 Gerät, `TuerOeffnenIntent` öffnet die Tür, beide mit Rückfrage und
@@ -2229,9 +2255,11 @@ nichts; `stossen` führt zusammen und stösst auf alle. Mit Gewalt nie.
 
 Stellen: `deploy/zweige.py`, `hub/tests/test_zweige.py`
 
-### 242. Die App sagt nicht, dass sie eine Fassung gar nicht bekommen kann
+### 242. Die App sagt nicht, dass sie eine Fassung gar nicht bekommen kann — gestrichen
 
 *tut weh · Aufwand: klein · App*
+
+Gestrichen im September 2026 auf Entscheid.
 
 Unter System steht, welche Fassung läuft und ob sie mitgeliefert oder
 nachgeladen ist. Was dort nicht steht, ist das Entscheidende: ob die App
@@ -2241,12 +2269,231 @@ Woche zweimal passiert, beide Male sah alles richtig aus.
 
 Stellen: `app/src/screens/SystemScreen.tsx`, `app/app.json`
 
-### 243. Der Hub weiss nicht, welche Fassung auf welchem Telefon läuft
+### 243. Der Hub weiss nicht, welche Fassung auf welchem Telefon läuft — gestrichen
 
 *Aufwand: klein · Hub + App*
+
+Gestrichen im September 2026 auf Entscheid, zusammen mit 242.
 
 Die App meldet dem Hub Standort, Push-Token und Gerätenamen – ihre
 eigene Version nie. Deshalb kann niemand die Frage beantworten, die nach
 jeder Auslieferung als Erstes kommt: «Ist es angekommen?»
 
 Stellen: `hub/homepilot/core/sessions.py`, `app/src/api/client.ts`
+
+
+# Teil VI: Auf Zuruf (244–258)
+
+Punkte aus Durchsichten im September 2026, auf Zuruf ausgewählt und
+umgesetzt. Gleichzeitig wurden 224–227, 228–229, 235–236 und 242–243
+bewusst gestrichen – die Begründungen stehen dort.
+
+## Benutzer und Zugang (244–246)
+
+### 244. Selbstverwaltung fürs eigene Konto ✓ erledigt (5ed560e, 916d22f)
+
+*lohnt sich · Aufwand: mittel · Hub + App*
+
+Ein Bewohner konnte sein Passwort nur beim erzwungenen Erst-Wechsel
+ändern, und niemand sah, welche Geräte unter seinem Namen angemeldet
+waren – dabei hielt der Hub die Sitzungsliste längst. Neu: Ein Blatt
+«Konto» mit Passwortwechsel (beendet alle anderen Sitzungen) und
+«Meine Geräte» (aktuelle Sitzung markiert, einzelne beendbar, das
+Wandtablet erkennbar).
+
+Stellen: `hub/homepilot/api/routes/auth.py`, `hub/homepilot/core/sessions.py`, `app/src/lib/konto.ts`
+
+### 245. Eine echte Rolle «Kind» ✓ erledigt (683e450, 916d22f)
+
+*lohnt sich · Aufwand: mittel · Hub + App*
+
+Ein Kind war ein Bewohner mit fünf verstreuten Einschränkungsfeldern
+(`simple_rooms`, `rooms`, `hours`, `features`, Familienlisten-Rolle) –
+fünf Stellen, an denen man eine vergessen konnte. Die neue Rolle
+bringt konservative Rechte mit (schalten und Verlauf sehen), und bei
+ihr springen Ansicht und Schranke füreinander ein: Die Zimmerwahl ist
+eine Wahl.
+
+Stellen: `hub/homepilot/core/users.py`, `app/src/screens/UsersScreen.tsx`, `app/src/lib/rollenwahl.ts`
+
+### 246. Gast-Zugang an einem Ort zu Ende denken ✓ erledigt (916d22f)
+
+*Feinschliff · Aufwand: klein · App*
+
+Die Personenseite konnte Gäste anlegen, verwies fürs Verlängern und
+Widerrufen aber nur textlich in die Benutzerverwaltung. Und der
+Bereichs-Riegel griff nur im Babysitter-Modus – Besuch, der tagsüber
+am Wandtablet vorbeiging, sah Einkaufsliste und Kalender. Neu:
+Verlängern, Sperren und Löschen direkt vor Ort, und der Riegel greift
+am geteilten Gerät auch im Besuch-Modus.
+
+Stellen: `app/src/screens/PersonenScreen.tsx`, `app/src/lib/bereichsriegel.ts`
+
+## Bedienung (247–250)
+
+### 247. Die Anmeldemaske läuft am Hub-Client vorbei ✓ erledigt (8b5e8bb)
+
+*tut weh · Aufwand: klein · App*
+
+Der Login-Bildschirm umging den zentralen Client mit drei nackten
+`fetch`-Aufrufen: kein Zeitlimit, keine lesbaren Fehlersätze – ein
+hängender Hub blockierte ausgerechnet die erste Maske ohne jede
+Rückmeldung. Dazu hatten Login-, Energie- und Besuchsbildschirm als
+einzige kein einziges Vorlesezeichen.
+
+Stellen: `app/src/screens/LoginScreen.tsx`, `app/src/lib/anmeldefehler.ts`
+
+### 248. Geführter Erst-Start und Hilfe in der App ✓ erledigt (5758c14)
+
+*lohnt sich · Aufwand: mittel · App*
+
+Es gab Leerzustände, Einrichtungshilfe und WhatsNew – aber keine
+Einführung nach dem ersten Login und keinen Hilfe-Bereich; die
+Doku-Seiten unter `docs/` sind von der App aus unerreichbar. Neu: ein
+blätterbares Einführungsblatt (einmal pro Person, wie WhatsNew über
+die Hub-Prefs), für Gäste und Babysitter als kurze «So funktioniert
+das hier»-Fassung, dazu ein Hilfeblatt in den Einstellungen.
+
+Stellen: `app/src/lib/einfuehrung.ts`, `app/src/components/Einfuehrung.tsx`, `app/src/components/Hilfeblatt.tsx`
+
+### 249. Der Favoriten-Kommentar behauptete das Gegenteil des Codes ✓ erledigt (feaea28)
+
+*Feinschliff · Aufwand: klein · App*
+
+`lib/favoriten.ts` erzählte noch «der Stern gehört allen» – die
+Favoriten sind seit dem Umzug in `/api/prefs` persönlich. Wer dem
+Kommentar glaubte, baute am falschen Modell weiter; genau so entstehen
+die Doppelbauten, gegen die dieses Repo sonst so gut gerüstet ist.
+
+Stellen: `app/src/lib/favoriten.ts`
+
+### 250. Rezepte überstehen keinen Hub-Ausfall ✓ erledigt (4f91494)
+
+*tut weh · Aufwand: mittel · App*
+
+Familienlisten und Schaltbefehle überlebten einen Ausfall vorbildlich,
+die Rezepte nicht: Wer in der Küche stand und das WLAN zickte, verlor
+das Rezept mitten im Kochen. Neu hält ein eigenes Lager die zuletzt
+geladenen Rezepte ohne die eingebetteten Fotos; der Kochmodus läuft
+vollständig daraus. Schreiben bleibt online-only – Konflikte in
+Rezepttexten sind teurer als die seltene Unannehmlichkeit.
+
+Stellen: `app/src/lib/rezeptcache.ts`, `app/src/screens/RecipeBook.tsx`
+
+## Abläufe (251–254)
+
+### 251. Kontrollfluss in Aktionslisten ✓ erledigt (eb03e5b, 12e599e)
+
+*lohnt sich · Aufwand: gross · Hub + App*
+
+Innerhalb einer Aktionsliste gab es kein Wenn/Dann und kein
+Wiederholen – nur das eine globale «sonst» –, und Nachrichtentexte
+waren starre Literale. Neu: `if` mit dann/sonst über die bestehende
+Bedingungsauswertung, `repeat` mit Anzahl oder solange-Bedingung
+(Tiefe 3, hart bei 50 Durchgängen gedeckelt), und Platzhalter
+`{entity_id}`, `{entity_id.attribut}`, `{time}` in Nachricht und
+Durchsage – Unbekanntes bleibt wörtlich stehen, eine Push mit
+«{tippfehler}» ist besser lesbar als ein abgestürzter Ablauf.
+
+Stellen: `hub/homepilot/core/automation.py`, `hub/homepilot/core/platzhalter.py`
+
+### 252. Anwesenheit und Wetter als Auslöser ✓ erledigt (eb03e5b, 12e599e)
+
+*lohnt sich · Aufwand: mittel · Hub + App*
+
+Anwesenheit war im Editor nur Aktion, nie Auslöser, und die
+Meteoalarm-Warnungen holte der Hub, ohne dass ein Ablauf darauf
+reagieren konnte. Neu: «Person kommt an / geht» (je Zone, an derselben
+Quelle wie die Ankunfts-Pushs – die Neustart-Welle feuert nicht) und
+«Wetterwarnung» ab wählbarer Stufe, nur für neu hinzugekommene
+Warnungen.
+
+Stellen: `hub/homepilot/core/automation.py`
+
+### 253. Der Monats- und Jahresrückblick ✓ erledigt (f5fb0e0, cef343b)
+
+*lohnt sich · Aufwand: mittel · Hub + App*
+
+Supabase schrieb eine `state_history`, die nie jemand las. Der neue
+Rückblick macht daraus Kernaussagen: wärmster und kältester Raum,
+meistgeschaltete Lichter, Stromtrend gegen Vormonat und Vorjahr – fair
+bis zum selben Stichtag gerechnet. Strom und Licht kommen aus lokalen
+Quellen, denn der Rückblick muss auch offline etwas zeigen; fehlt
+Supabase, fällt nur die Temperatur weg, und die Antwort sagt es.
+
+Stellen: `hub/homepilot/core/langzeit.py`, `hub/homepilot/api/routes/rueckblick.py`, `app/src/screens/HausRueckblick.tsx`
+
+### 254. Die Zeitraum-Simulation für Abläufe ✓ erledigt (eb03e5b, 12e599e)
+
+*lohnt sich · Aufwand: mittel · Hub + App*
+
+Der Trockenlauf kannte nur das Jetzt. Die Simulation beantwortet «wie
+oft hätte dieser Ablauf letzte Woche gefeuert?»: Zeit, Sonne und
+Kalender exakt, Zustands-Auslöser aus dem Ereignisprotokoll – und was
+sich nicht simulieren lässt, steht ehrlich als «nicht simulierbar»
+dabei, denn eine geschätzte Zahl wäre eine Lüge mit Nachkommastellen.
+
+Stellen: `hub/homepilot/core/ablaufsimulation.py`, `hub/homepilot/api/routes/automations.py`
+
+## Sicherheit (255–256)
+
+### 255. Die Alarmanlage kann jetzt mehr als Push ✓ erledigt (db5947d, cef343b)
+
+*lohnt sich · Aufwand: mittel · Hub + App*
+
+Im Zustand «ausgelöst» blieb es bei einer Push-Nachricht. Neu
+eskaliert die Anlage nach einer einstellbaren Frist (Vorgabe 30 s,
+damit ein Fehlalarm noch entschärfbar ist): Sirenen ein, wahlweise
+alle Lichter, wahlweise eine Durchsage. Entschärfen bricht ab und
+schaltet die Sirene aus – die Lichter bleiben bewusst an. Ohne
+Konfiguration ändert sich nichts.
+
+Stellen: `hub/homepilot/integrations/alarm_rules.py`, `hub/homepilot/integrations/alarm.py`
+
+### 256. Ein Clip-Archiv mit Aufbewahrungsfrist ✓ erledigt (db5947d, cef343b)
+
+*lohnt sich · Aufwand: mittel · Hub + App*
+
+Kamera-Clips gab es nur als kurzlebige Snapshots für die Push. Neu
+legt der Alarm beim Auslösen einen Clip der zugeordneten Kamera ins
+Archiv (Dateien neben der Datendatei, Bauart wie die Raumbilder), der
+Wächter-Minutentakt räumt Abgelaufenes weg (Vorgabe 14 Tage), und die
+App zeigt die Aufnahmen mit denselben Rechten wie das Livebild –
+löschen darf nur, wer Geräte bearbeiten darf: Gäste löschen keine
+Beweise.
+
+Stellen: `hub/homepilot/core/cliparchiv.py`, `hub/homepilot/api/routes/entities.py`
+
+## Alltag (257)
+
+### 257. Der Handgriff zur Tageszeit auf der Startseite ✓ erledigt (5cb3862)
+
+*lohnt sich · Aufwand: klein · App*
+
+Die Startseite ordnete ihre Blöcke morgens schon um (morningFirst),
+aber der Griff, den die Stunde nahelegt, fehlte: Morgens will man die
+Storen hochlassen, abends das vergessene Licht löschen und die Storen
+schliessen. Neu bietet eine Schnellzeile genau diese Sammelgriffe an –
+«3 Storen auf», «Licht aus», «Store zu» – und nur, wenn es wirklich
+etwas zu tun gibt: Eine Zeile «0 Storen auf» wäre keine Auskunft,
+sondern Möblierung. Bewusst kein Umsortieren der Kacheln: Wer seine
+Startseite kennt, soll sie zu jeder Stunde am selben Ort wiederfinden.
+
+Stellen: `app/src/lib/tageszeile.ts`, `app/src/components/TagesZeile.tsx`, `app/src/screens/OverviewScreen.tsx`
+
+### 258. Die Batteriewarnung erinnert täglich - Stunde und Schwelle einstellbar ✓ erledigt (c49d5bc)
+
+*tut weh · Aufwand: mittel · Hub + App*
+
+«Ich bekomme keine Push mehr, wenn ein Gerät fast keinen Akku hat» -
+und das stimmte: Die Warnung kam bewusst genau einmal und geriet dann
+in Vergessenheit, bis der Melder still war. Neu meldet der Hub sofort
+und erinnert danach täglich zur Erinnerungsstunde, bis die Batterie
+gewechselt ist. Neben dem low_battery-Flag zählt neu der Prozentwert
+gegen eine Schwelle (ein Sensor auf 4 %, dessen Integration das Flag
+nicht kennt, blieb sonst unerwähnt); die Telefone bleiben draussen,
+ihre Warnung wohnt bei der Ortung. Stunde und Schwelle stellt man in
+den Push-Einstellungen ein - für den ganzen Haushalt, denn sie
+bestimmen, ob der Hub überhaupt meldet.
+
+Stellen: `hub/homepilot/core/batterie.py`, `hub/homepilot/core/watchrules.py`, `app/src/components/PushPrefs.tsx`

@@ -1,9 +1,11 @@
 """Benutzer und Rollen.
 
-Drei Rollen, vom Alltag her gedacht:
+Vier Rollen, vom Alltag her gedacht:
 
   besitzer  – darf alles, auch Benutzer verwalten und Automationen ändern
   bewohner  – bedient das ganze Haus, darf Automationen pausieren
+  kind      – schaltet und sieht den Verlauf; die Kinder-Ansicht ist der
+              Normalfall, alles Verstellende bleibt bei den Erwachsenen
   gast      – sieht und schaltet nur, was ausdrücklich freigegeben ist
 
 Jeder Benutzer hat sein eigenes Token. Damit steht in jedem Protokolleintrag,
@@ -40,9 +42,14 @@ _HHMM = re.compile(r"\d{2}:\d{2}")
 class Role:
     OWNER = "besitzer"
     RESIDENT = "bewohner"
+    # Punkt 245 der Werkbank: Ein Kind war bisher ein Bewohner mit fünf
+    # verstreuten Einschränkungsfeldern - wer eines davon vergass, hatte
+    # ein Kind mit Systemsicht. Als eigene Rolle ist das Vorsichtige der
+    # Ausgangszustand, nicht das Ergebnis sorgfältiger Konfiguration.
+    KID = "kind"
     GUEST = "gast"
 
-    ALL = (OWNER, RESIDENT, GUEST)
+    ALL = (OWNER, RESIDENT, KID, GUEST)
 
 
 class Capability:
@@ -86,6 +93,11 @@ CAPABILITIES: dict[str, frozenset[str]] = {
             Capability.EDIT_DEVICES,
         }
     ),
+    # Kinder schalten und dürfen nachsehen, was war («hat das Licht
+    # gebrannt?») - mehr nicht. Bewusst weder Automationen noch
+    # Systemsicht noch Geräte-Umbau: Alles, was das Haus verstellt,
+    # bleibt bei den Erwachsenen (Punkt 245 der Werkbank).
+    Role.KID: frozenset({Capability.CONTROL, Capability.VIEW_HISTORY}),
     # Gäste dürfen bedienen, aber nichts über das Haus erfahren.
     Role.GUEST: frozenset({Capability.CONTROL}),
 }
@@ -195,6 +207,28 @@ def access_end(
     return ende
 
 
+def kid_rooms(role: str, primary: list[str], fallback: list[str]) -> list[str]:
+    """Räume mit dem Rückgriff der Kinder-Rolle (rein, testbar).
+
+    Punkt 245 der Werkbank: Ansicht (``simple_rooms``) und Schranke
+    (``rooms``) sind zwei Felder, und bei Kindern wurde regelmässig nur
+    eines gepflegt. Dann zeigte die App zwar bloss das Kinderzimmer, aber
+    das Token schaltete weiter die Haustüre - oder umgekehrt: alles sauber
+    gesperrt, doch die Ansicht blieb die ganze Wohnung. Für die Rolle
+    «kind» springt deshalb das jeweils andere Feld ein: Wer nur eines
+    setzt, meint beide. Für alle anderen Rollen ändert sich nichts -
+    bestehende Benutzer verhalten sich exakt wie bisher.
+
+    Aufgerufen mit (rooms, simple_rooms) liefert es die Schranke, mit
+    (simple_rooms, rooms) die Ansicht - dieselbe Regel, beide Richtungen.
+    """
+    if primary:
+        return list(primary)
+    if role == Role.KID:
+        return list(fallback)
+    return []
+
+
 @dataclass
 class User:
     name: str
@@ -298,11 +332,13 @@ class User:
         """Liegt dieses Gerät in einem Raum, den diese Person haben darf?
 
         Ohne Einschränkung gilt das ganze Haus - der Normalfall, und der
-        Zustand, in dem alle Benutzer starten.
+        Zustand, in dem alle Benutzer starten. Bei der Rolle «kind»
+        zählt auch die Kinder-Ansicht als Schranke (siehe kid_rooms).
         """
-        if not self.rooms:
+        limit = kid_rooms(self.role, self.rooms, self.simple_rooms)
+        if not limit:
             return True
-        return bool(room) and room in self.rooms
+        return bool(room) and room in limit
 
     def may_see(
         self, entity_id: str, kind: str, integration: str = "", room: str | None = None
@@ -346,7 +382,12 @@ class User:
             "hours": dict(self.hours),
             "active": self.active(),
             "email": self.email,
-            "simple_rooms": list(self.simple_rooms),
+            # Die App zeigt die Kinder-Ansicht, sobald hier etwas steht.
+            # Für die Rolle «kind» soll sie der Normalfall sein - darum
+            # springt rooms ein, wenn nur die Schranke gepflegt ist
+            # (Punkt 245 der Werkbank). Gespeichert wird weiterhin das
+            # rohe Feld (editable_users), nur die Auskunft ist ergänzt.
+            "simple_rooms": kid_rooms(self.role, self.simple_rooms, self.rooms),
             "rooms": list(self.rooms),
             "shared": self.shared,
             # Nur die Tatsache, nie der Wert: Die App muss wissen, ob sie

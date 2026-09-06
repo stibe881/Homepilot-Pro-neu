@@ -18,7 +18,14 @@ import { Card } from '../components/Card';
 import { Fehlschlag, Laedt, Leer } from '../components/Zustand';
 import { useTakt } from '../hooks/useTakt';
 import { einladungFrist, passwortHinweis } from '../lib/einladung';
-import { DAUERN, Dauer, ablaufDatum, ablaufSatz } from '../lib/gastzugang';
+import {
+  DAUERN,
+  Dauer,
+  GastKonto,
+  ablaufDatum,
+  ablaufSatz,
+  zugangsZeile,
+} from '../lib/gastzugang';
 import {
   Person,
   anzahlAn,
@@ -71,6 +78,13 @@ export function PersonenScreen({
   const [dauer, setDauer] = useState<Dauer>('heute');
   const [zugangLaeuft, setZugangLaeuft] = useState(false);
   const [zugangFehler, setZugangFehler] = useState<string | null>(null);
+  // Punkt 246 der Werkbank: Besteht der Zugang schon, wird er HIER
+  // verwaltet - Verlängern, Sperren, Löschen -, nicht fünf Schritte
+  // weiter in der Benutzerverwaltung. /api/personen weiss nur, DASS es
+  // ihn gibt; Ablauf und Sperre kommen beim Aufklappen aus /api/users.
+  const [gastKonto, setGastKonto] = useState<GastKonto | null>(null);
+  // Zwei-Schritt-Rückfrage fürs Löschen - das Token ist danach weg.
+  const [gastLoeschen, setGastLoeschen] = useState(false);
   const [kopplung, setKopplung] = useState<{
     name: string;
     payload: string;
@@ -242,6 +256,82 @@ export function PersonenScreen({
     }
   };
 
+  /** Ablauf und Sperre des bestehenden Zugangs holen (Punkt 246).
+   *
+   *  Es gibt keinen Einzelabruf - /api/users liefert die Liste, und die
+   *  sieht nur, wer verwalten darf. «still», weil der Kasten dann eben
+   *  nur Weitergeben zeigt, wie vor diesem Punkt. */
+  const gastLaden = async (name: string) => {
+    setGastKonto(null);
+    setGastLoeschen(false);
+    try {
+      const alle = await hub.get<
+        { name: string; enabled?: boolean; expires?: string | null }[]
+      >('/api/users', { still: true });
+      const konto = (alle ?? []).find((eintrag) => eintrag.name === name);
+      if (konto) setGastKonto({ enabled: konto.enabled, expires: konto.expires ?? null });
+    } catch {
+      // Ohne Antwort bleiben nur QR und Link - besser als ein roter
+      // Kasten neben einer Person, um die es gar nicht geht.
+    }
+  };
+
+  /** Verlängern oder Sperren - dieselbe Route wie die Benutzerverwaltung
+   *  (PUT /api/users/{name}), nur einen Tipp neben der Person. */
+  const gastAendern = async (
+    person: Person,
+    patch: { expires?: string | null; enabled?: boolean }
+  ) => {
+    setZugangFehler(null);
+    setZugangLaeuft(true);
+    try {
+      const antwort = await hub.put<{
+        user?: { enabled?: boolean; expires?: string | null };
+      }>(`/api/users/${encodeURIComponent(person.name)}`, patch, { still: true });
+      if (antwort?.user) {
+        setGastKonto({
+          enabled: antwort.user.enabled,
+          expires: antwort.user.expires ?? null,
+        });
+      }
+    } catch (err) {
+      setZugangFehler(
+        err instanceof Error && err.message
+          ? err.message
+          : 'Die Änderung liess sich nicht speichern.'
+      );
+    } finally {
+      setZugangLaeuft(false);
+    }
+  };
+
+  /** Löschen, mit Rückfrage: Danach ist das Token weg - anders als beim
+   *  Sperren gibt es keinen Weg zurück ohne neues Koppeln. */
+  const gastEntfernen = async (person: Person) => {
+    if (!gastLoeschen) {
+      setGastLoeschen(true);
+      return;
+    }
+    setGastLoeschen(false);
+    setZugangFehler(null);
+    setZugangLaeuft(true);
+    try {
+      await hub.del(`/api/users/${encodeURIComponent(person.name)}`, { still: true });
+      setGastKonto(null);
+      // Die Liste sagt danach wieder «kein Zugang» - gleich, nicht erst
+      // in einer Minute.
+      laden();
+    } catch (err) {
+      setZugangFehler(
+        err instanceof Error && err.message
+          ? err.message
+          : 'Der Zugang liess sich nicht löschen.'
+      );
+    } finally {
+      setZugangLaeuft(false);
+    }
+  };
+
   if (fehler && daten === null) {
     return <Fehlschlag text="Familie und Freunde liessen sich nicht laden." onRetry={laden} />;
   }
@@ -275,6 +365,14 @@ export function PersonenScreen({
                 setOffen(auf ? null : (person.zone ?? person.name));
                 // Der Fehler von vorhin gehört nicht zur nächsten Person.
                 setZugangFehler(null);
+                setGastLoeschen(false);
+                // Beim Aufklappen eines bestehenden Gasts gleich Ablauf
+                // und Sperre holen - die Knöpfe brauchen den Stand.
+                if (!auf && darfZugang && !person.household && person.gast) {
+                  void gastLaden(person.name);
+                } else {
+                  setGastKonto(null);
+                }
               }}
               accessibilityRole="button"
               accessibilityState={{ expanded: auf }}
@@ -349,16 +447,17 @@ export function PersonenScreen({
             {auf && darfZugang && !person.household && person.gast ? (
               // Der Zugang besteht schon (Gäste stehen bewusst nicht als
               // eigene Zeile auf dieser Seite) - «Anlegen» scheiterte
-              // hier mit «existiert bereits». Was man an dieser Stelle
-              // will, ist Weitergeben: dasselbe Blatt mit QR und Link.
+              // hier mit «existiert bereits». Punkt 246 der Werkbank:
+              // Statt auf die Benutzerverwaltung zu verweisen, steht
+              // hier alles, was man mit einem bestehenden Gast-Zugang
+              // tut - Weitergeben, Verlängern, Sperren, Löschen. Über
+              // dieselben Routen wie dort (PUT/DELETE /api/users).
               <View style={styles.zugang}>
                 <Text style={styles.zugangTitel}>Gast-Zugang besteht</Text>
                 <Text style={styles.zugangHinweis}>
-                  {person.name} hat einen Gast-Zugang. Ablauf und Rechte
-                  stehen in der Benutzerverwaltung (Einstellungen →
-                  Benutzerverwaltung) – dort lässt er sich auch löschen.
-                  Hier gibst du ihn weiter: per QR für die App oder als
-                  Link für den Browser.
+                  {gastKonto
+                    ? zugangsZeile(gastKonto)
+                    : `${person.name} hat einen Gast-Zugang. Weitergeben geht per QR für die App oder als Link für den Browser.`}
                 </Text>
                 {zugangFehler ? (
                   <Text style={styles.fehler}>{zugangFehler}</Text>
@@ -378,6 +477,94 @@ export function PersonenScreen({
                     {zugangLaeuft ? 'Wird geladen …' : 'Zugang weitergeben'}
                   </Text>
                 </Pressable>
+
+                {gastKonto ? (
+                  <>
+                    {/* Verlängern mit denselben Dauer-Chips wie beim
+                        Anlegen - nur wirken sie hier sofort: Wer den
+                        Abendbesuch um eine Woche verlängert, will einen
+                        Tipp, keinen Dialog. */}
+                    <Text style={styles.zugangHinweis}>Verlängern – gilt sofort:</Text>
+                    <View style={styles.dauerReihe}>
+                      {DAUERN.map((eintrag) => (
+                        <Pressable
+                          key={eintrag.key}
+                          onPress={() =>
+                            gastAendern(person, {
+                              expires: ablaufDatum(eintrag.key, new Date()),
+                            })
+                          }
+                          disabled={zugangLaeuft}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Zugang für ${person.name} verlängern: ${eintrag.label}`}
+                          style={({ pressed }) => [
+                            styles.dauerChip,
+                            (pressed || zugangLaeuft) && { opacity: 0.6 },
+                          ]}
+                        >
+                          <Text style={styles.dauerText}>{eintrag.label}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                    <View style={styles.verwaltenReihe}>
+                      <Pressable
+                        onPress={() =>
+                          gastAendern(person, { enabled: gastKonto.enabled === false })
+                        }
+                        disabled={zugangLaeuft}
+                        accessibilityRole="button"
+                        accessibilityLabel={
+                          gastKonto.enabled === false
+                            ? `Gast-Zugang für ${person.name} entsperren`
+                            : `Gast-Zugang für ${person.name} sperren`
+                        }
+                        style={({ pressed }) => [
+                          styles.zugangKnopf,
+                          { flex: 1 },
+                          (pressed || zugangLaeuft) && { opacity: 0.6 },
+                        ]}
+                      >
+                        <Ionicons
+                          name={
+                            gastKonto.enabled === false
+                              ? 'lock-open-outline'
+                              : 'lock-closed-outline'
+                          }
+                          size={16}
+                          color={colors.accent}
+                        />
+                        <Text style={styles.zugangKnopfText}>
+                          {gastKonto.enabled === false ? 'Entsperren' : 'Sperren'}
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => gastEntfernen(person)}
+                        disabled={zugangLaeuft}
+                        accessibilityRole="button"
+                        accessibilityLabel={
+                          gastLoeschen
+                            ? `Gast-Zugang für ${person.name} wirklich löschen`
+                            : `Gast-Zugang für ${person.name} löschen`
+                        }
+                        style={({ pressed }) => [
+                          styles.loeschKnopf,
+                          { flex: 1 },
+                          (pressed || zugangLaeuft) && { opacity: 0.6 },
+                        ]}
+                      >
+                        <Ionicons name="trash-outline" size={16} color={colors.danger} />
+                        <Text style={styles.loeschKnopfText}>
+                          {gastLoeschen ? 'Wirklich löschen' : 'Löschen'}
+                        </Text>
+                      </Pressable>
+                    </View>
+                    <Text style={styles.zugangHinweis}>
+                      Sperren hält die Anmeldung zu, das Token bleibt –
+                      Entsperren genügt später. Löschen entfernt den
+                      Zugang samt Token endgültig.
+                    </Text>
+                  </>
+                ) : null}
               </View>
             ) : null}
             {auf && darfZugang && !person.household && !person.gast ? (
@@ -635,6 +822,20 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.accent,
     },
     zugangKnopfText: { color: colors.accent, fontSize: 14, fontWeight: '700' },
+    // Sperren und Löschen nebeneinander - zwei halbe Knöpfe statt zwei
+    // ganzer Zeilen, der Kasten ist ohnehin schon hoch.
+    verwaltenReihe: { flexDirection: 'row', gap: 8 },
+    loeschKnopf: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      paddingVertical: 11,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.danger,
+    },
+    loeschKnopfText: { color: colors.danger, fontSize: 14, fontWeight: '700' },
     qrHintergrund: {
       flex: 1,
       backgroundColor: 'rgba(0,0,0,0.55)',

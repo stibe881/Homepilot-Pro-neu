@@ -326,9 +326,39 @@ def klingelnde(entities: list[Any]) -> list[Any]:
     ]
 
 
-def low_batteries(entities: list[Any]) -> list[Any]:
-    """Geräte, die eine schwache Batterie melden (rein, testbar)."""
-    return [entity for entity in entities if entity.state.get("low_battery") is True]
+def low_batteries(entities: list[Any], schwelle: float | None = None) -> list[Any]:
+    """Geräte, die eine schwache Batterie melden (rein, testbar).
+
+    Zwei Quellen (Punkt 258 der Werkbank): das ausdrückliche
+    `low_battery`-Flag des Geräts - und, wo eine Schwelle gegeben ist,
+    der Prozentwert dagegen. Vorher zählte nur das Flag, und ein Sensor
+    auf 4 %, dessen Integration das Flag nicht kennt, blieb unerwähnt,
+    bis er still war.
+
+    Eine 0 zählt hier mit, anders als beim Telefon-Akku (Punkt 237):
+    Ein Sensor, der «0 %» funkt, sendet ja noch - das ist eine echte,
+    fast leere Batterie und keine fehlende Auskunft.
+
+    Die Telefone bleiben draussen: Ihre Akku-Warnung wohnt bei der
+    Ortung (core/presence.battery_alert) mit eigener Schwelle - hier
+    mitgezählt käme jede Warnung doppelt.
+    """
+    schwach = []
+    for entity in entities:
+        if str(getattr(entity, "integration", "")) in ("geofence", "life360"):
+            continue
+        if entity.state.get("low_battery") is True:
+            schwach.append(entity)
+            continue
+        stand = entity.state.get("battery")
+        if (
+            schwelle is not None
+            and isinstance(stand, (int, float))
+            and not isinstance(stand, bool)
+            and 0 <= stand <= schwelle
+        ):
+            schwach.append(entity)
+    return schwach
 
 
 # Ablage der schon gemahnten Öffnungen (hub.data): Zeilen mit Kennung

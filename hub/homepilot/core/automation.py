@@ -9,6 +9,8 @@ Trigger:
   - {type: sun, event: "sunrise"|"sunset", offset?: minuten, jitter?: minuten}
   - {type: calendar, contains?: "Wort", event?: "start"|"end",
      minutes_before?: minuten, entity_id?}   # Termin beginnt/endet (153)
+  - {type: presence, person, event: "arrives"|"leaves", zone?}   # (252)
+  - {type: weather_warning, min_severity?, entity_id?}   # neue Warnung (252)
 
 Bedingungen:
   - {type: state, entity_id, attribute?: "state", equals? | above? | below?}
@@ -27,6 +29,13 @@ Aktionen:
   - {type: wait_until, ...Bedingung, timeout?: sekunden}
   - {type: fade, entity_id, to: 0..100, minutes}   # weich dimmen (157)
   - {type: automation, automation_id}   # die Aktionen eines anderen mitausführen
+  - {type: if, conditions, match?, then: [...], else?: [...]}   # (251)
+  - {type: repeat, count, actions} / {type: repeat, while: [...],
+     actions, max?}   # (251) - harte Obergrenze, siehe REPEAT_LIMIT
+
+Nachrichtentexte (notify, broadcast) dürfen Platzhalter tragen:
+``{entity_id}`` (Zustand), ``{entity_id.attribut}`` und ``{time}`` -
+siehe core/platzhalter.py, Punkt 251.
 
 Läuft ein Ablauf noch (etwa in einem ``delay``) und wird erneut
 ausgelöst, entscheidet ``mode``:
@@ -71,6 +80,7 @@ from . import (
     kamera,
     nachtruhe,
     personenbild,
+    platzhalter,
     pushziel,
     terminkontext,
     wirkung,
@@ -299,6 +309,19 @@ QUEUE_LIMIT = 20
 # bemerkt hat.
 CALL_DEPTH = 3
 
+# Wie tief sich «wenn» und «wiederholen» ineinander stecken dürfen
+# (Punkt 251 der Werkbank). Dieselbe Überlegung wie bei CALL_DEPTH: Drei
+# Ebenen decken jeden Fall, den jemand noch lesen kann - alles darüber
+# ist ein Versehen, das sich sonst endlos selbst frisst.
+NEST_DEPTH = 3
+
+# Wie oft ein «wiederholen»-Schritt höchstens dreht (Punkt 251). Die
+# Grenze ist hart und gilt auch für `while`-Schleifen mit eigener
+# `max`-Angabe: Eine Bedingung, die nie kippt (der Sensor ist tot, die
+# Türe bleibt offen), liefe sonst für immer - und blockierte mit `mode:
+# single` gleich noch jeden weiteren Lauf desselben Ablaufs.
+REPEAT_LIMIT = 50
+
 # «Warten bis»: wie oft nachgesehen wird, und wie lange höchstens, wenn im
 # Ablauf keine eigene Frist steht. Eine Frist muss sein – sonst bliebe ein
 # Ablauf für immer stehen, wenn die Tür offen bleibt.
@@ -450,6 +473,31 @@ def describe_action(action: dict[str, Any], name_of: Any = None) -> str:
         )
     if atype == "music":
         return musik_satz(action, named)
+    if atype == "if":
+        # Der Trockenlauf zählt nicht bloss («2 Schritte»), er zeigt die
+        # Zweige - sonst weiss man erst im Betrieb, was «sonst» tut.
+        dann = "; ".join(
+            describe_action(a, name_of) for a in action.get("then") or []
+        )
+        sonst = "; ".join(
+            describe_action(a, name_of) for a in action.get("else") or []
+        )
+        conds = [c for c in action.get("conditions") or [] if isinstance(c, dict)]
+        art = "eine genügt" if str(action.get("match", "all")) == "any" else "alle"
+        satz = f"wenn {len(conds)} Bedingung(en) ({art}): {dann or 'nichts'}"
+        return f"{satz} – sonst: {sonst}" if sonst else satz
+    if atype == "repeat":
+        drin = "; ".join(
+            describe_action(a, name_of) for a in action.get("actions") or []
+        )
+        if action.get("while") is not None:
+            grenze = parse_repeat_count(action.get("max") or REPEAT_LIMIT)
+            conds = [c for c in action.get("while") or [] if isinstance(c, dict)]
+            return (
+                f"solange {len(conds)} Bedingung(en) gelten "
+                f"(höchstens {grenze}-mal): {drin or 'nichts'}"
+            )
+        return f"{parse_repeat_count(action.get('count'))}-mal: {drin or 'nichts'}"
     return f"unbekannte Aktion «{atype}»"
 
 
@@ -745,6 +793,24 @@ def describe_trigger_health(
                 "verstummt oder wiederkommt, nicht auf einen Zustand."
             ),
         }
+    if art == "presence":
+        return {
+            "type": art,
+            "ok": True,
+            "hinweis": (
+                "Anwesenheits-Auslöser – er feuert beim Kommen oder Gehen "
+                "der Person, nicht auf einen Dauerzustand."
+            ),
+        }
+    if art == "weather_warning":
+        return {
+            "type": art,
+            "ok": True,
+            "hinweis": (
+                "Wetterwarnungs-Auslöser – er feuert, wenn eine neue "
+                "Warnung eintrifft (integrations/meteoalarm.py)."
+            ),
+        }
     if art != "state":
         return {
             "type": art,
@@ -914,6 +980,144 @@ def calendar_due(
         if feuer_ab <= jetzt_ts < feuer_ab + 300:
             faellig.append(schluessel)
     return faellig
+
+
+def parse_repeat_count(value: Any, maximum: int = REPEAT_LIMIT) -> int:
+    """Wie oft ein «wiederholen»-Schritt drehen soll (rein, testbar).
+
+    Unsinn und Negatives heisst null - ein Tippfehler soll den Schritt
+    stumm machen, nicht fünfzigmal die Storen fahren. Nach oben deckelt
+    REPEAT_LIMIT auch eine ausdrücklich grössere Angabe: Die Grenze
+    schützt vor Endlosschleifen, und eine Grenze mit Ausnahme ist keine.
+    """
+    try:
+        anzahl = int(float(value))
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(int(maximum), anzahl))
+
+
+def person_matches(person: str, entity_id: str, label: str) -> bool:
+    """Meint dieser Auslöser diese Anwesenheits-Zone? (rein, testbar)
+
+    Erlaubt sind die Zonenkennung («livia»), die volle Entitäts-Kennung
+    («geofence.livia») und der Name («Livia Gross» oder nur «Livia») -
+    dieselbe Grosszügigkeit wie beim Zusammenführen der Zonen
+    (presence.zone_fuer): Wer den Auslöser in der App baut, tippt den
+    Namen, wie er ihn kennt, und soll nicht raten müssen, wie die
+    Kennung intern heisst.
+    """
+    gesucht = " ".join(str(person or "").split()).casefold()
+    if not gesucht:
+        return False
+    if gesucht == str(entity_id or "").casefold():
+        return True
+    kennung = str(entity_id or "").rsplit(".", 1)[-1].casefold()
+    if gesucht == kennung:
+        return True
+    name = " ".join(str(label or "").split()).casefold()
+    if not name:
+        return False
+    return name == gesucht or name.split(" ")[0] == gesucht
+
+
+def presence_trigger_matches(trigger: dict[str, Any], data: dict[str, Any]) -> bool:
+    """Ist diese Zustandsmeldung das gesuchte Kommen oder Gehen?
+
+    (rein, testbar) - Punkt 252 der Werkbank.
+
+    Der Auslöser hängt an derselben Quelle wie die «Livia ist
+    angekommen»-Nachrichten (Punkt 199): an den Zonen-Entitäten der
+    Geofence-Integration, die jede Meldung ohnehin als state_changed
+    auf den Bus legt. Kein eigenes Polling - eine zweite Uhr, die
+    dieselbe Frage stellt, gäbe früher oder später eine zweite Antwort.
+
+    Ein leerer oder unbekannter Vorzustand zählt nicht als Ankunft -
+    dieselbe Regel wie bei den Nachrichten (geofence._sagen): Nach einem
+    Neustart melden alle Telefone einmal, und das wäre sonst eine
+    Ankunftswelle für Leute, die längst dasitzen.
+    """
+    new_state = data.get("new_state") or {}
+    if str(new_state.get("device_class") or "") != "presence":
+        return False
+    entity = data.get("entity") or {}
+    if not person_matches(
+        str(trigger.get("person") or ""),
+        str(data.get("entity_id") or ""),
+        str(entity.get("name") or ""),
+    ):
+        return False
+    alt = str((data.get("old_state") or {}).get("state") or "")
+    neu = str(new_state.get("state") or "")
+    if not alt or alt == "unknown" or alt == neu:
+        return False
+    # Ohne Zonenangabe zählt das Zuhause - «kommt an» heisst im Alltag
+    # «kommt heim». Ein benannter Ort («schule») ist als Zustand selbst
+    # sichtbar und lässt sich genauso abfragen.
+    zone = str(trigger.get("zone") or "home").strip().lower()
+    event = str(trigger.get("event") or "arrives").strip().lower()
+    if event in ("leaves", "leave", "left", "exit", "geht"):
+        return alt == zone and neu != zone
+    return neu == zone and alt != zone
+
+
+#: Die Warnstufen von MeteoAlarm, schwächste zuerst - dieselbe Reihe wie
+#: in integrations/meteoalarm.py. Bewusst hier noch einmal: Der Kern darf
+#: nicht von einer Integration importieren, sonst hängt jeder Ablauf an
+#: deren Abhängigkeiten.
+WARNSTUFEN = ("Minor", "Moderate", "Severe", "Extreme")
+
+
+def warnungs_schluessel(alert: dict[str, Any]) -> str:
+    """Woran eine Warnung wiederzuerkennen ist (rein, testbar).
+
+    Titel, Ereignis und Beginn zusammen: Eine Warnung, die bei jeder
+    Feed-Runde erneut in der Liste steht, bleibt dieselbe - eine mit
+    neuem Beginn oder anderem Ereignis ist eine neue.
+    """
+    return "|".join(
+        str(alert.get(feld) or "") for feld in ("title", "event", "onset")
+    )
+
+
+def neue_warnungen(
+    old_state: dict[str, Any],
+    new_state: dict[str, Any],
+    min_severity: Any = None,
+) -> list[dict[str, Any]]:
+    """Welche Wetterwarnungen sind eben NEU dazugekommen? (rein, testbar)
+
+    Punkt 252 der Werkbank. Verglichen werden die Warnlisten am
+    Alert-Gerät (integrations/meteoalarm.py legt sie dort ab) - der
+    Auslöser feuert nur für Warnungen, die vorher nicht da waren, nicht
+    bei jeder Feed-Runde erneut.
+
+    ``min_severity`` filtert nach der Stufe. Eine Warnung ohne Stufe und
+    eine unlesbare Schwelle zählen mit statt wegzufallen: Bei
+    Unwetterwarnungen ist «eine zu viel» der billigere Fehler als «eine
+    unterschlagene» - dieselbe Haltung wie beim Gebietsfilter des Feeds.
+    """
+    bekannt = {
+        warnungs_schluessel(alert)
+        for alert in old_state.get("alerts") or []
+        if isinstance(alert, dict)
+    }
+    schwelle = None
+    if min_severity is not None:
+        wort = str(min_severity).strip().capitalize()
+        schwelle = WARNSTUFEN.index(wort) if wort in WARNSTUFEN else None
+    neu: list[dict[str, Any]] = []
+    for alert in new_state.get("alerts") or []:
+        if not isinstance(alert, dict):
+            continue
+        if warnungs_schluessel(alert) in bekannt:
+            continue
+        if schwelle is not None:
+            stufe = str(alert.get("severity") or "")
+            if stufe in WARNSTUFEN and WARNSTUFEN.index(stufe) < schwelle:
+                continue
+        neu.append(alert)
+    return neu
 
 
 def _as_list(value: Any) -> list[dict[str, Any]]:
@@ -1257,6 +1461,38 @@ class AutomationEngine:
                             self._schedule_held(automation, index, trigger, hold)
                         else:
                             self._schedule(automation, str(data.get("entity_id") or "") or None)
+                        break
+                    continue
+                if art == "presence":
+                    # Punkt 252: Kommen und Gehen als Auslöser - an
+                    # derselben Quelle wie die Ankunfts-Nachrichten (die
+                    # Zonen-Entitäten des Geofence), nicht an einem
+                    # eigenen Polling.
+                    if presence_trigger_matches(trigger, data):
+                        self._gefeuert[(automation.id, index)] = jetzt
+                        self._schedule(
+                            automation, str(data.get("entity_id") or "") or None
+                        )
+                        break
+                    continue
+                if art == "weather_warning":
+                    # Punkt 252: Die Warnliste liegt als Zustand am
+                    # Alert-Gerät (integrations/meteoalarm.py) - gefeuert
+                    # wird nur für Warnungen, die eben NEU dazukamen,
+                    # nicht bei jeder Feed-Runde erneut.
+                    if trigger.get("entity_id") and trigger.get(
+                        "entity_id"
+                    ) != data.get("entity_id"):
+                        continue
+                    if neue_warnungen(
+                        data.get("old_state") or {},
+                        data.get("new_state") or {},
+                        trigger.get("min_severity"),
+                    ):
+                        self._gefeuert[(automation.id, index)] = jetzt
+                        self._schedule(
+                            automation, str(data.get("entity_id") or "") or None
+                        )
                         break
                     continue
                 if art != "state":
@@ -2185,6 +2421,37 @@ class AutomationEngine:
             "would_run": timed_actions(actions, name_of),
         }
 
+    def simulation(self, automation_id: str, tage: int) -> dict[str, Any] | None:
+        """Wie oft hätte dieser Ablauf in den letzten Tagen gefeuert?
+
+        (Punkt 254 der Werkbank.) Die Rechnung selbst ist rein und liegt
+        in core/ablaufsimulation.py - hier wird nur zusammengetragen, was
+        sie braucht: Standort, Ereignisprotokoll, Ferientermine und die
+        Terminliste des Kalenders. None, wenn es den Ablauf nicht gibt.
+        """
+        automation = self.get(automation_id)
+        if automation is None:
+            return None
+        # Erst hier importiert: ablaufsimulation braucht die reinen
+        # Helfer dieses Moduls (parse_hhmm, time_in_window) - ein Import
+        # beim Laden wäre ein Kreis.
+        from . import ablaufsimulation, schulferien
+
+        lat, lon = self._location()
+        return ablaufsimulation.simulieren(
+            automation.triggers,
+            automation.conditions,
+            automation.match,
+            tage,
+            datetime.now(),
+            lat,
+            lon,
+            schulferien_rows=self.hub.data.get(schulferien.STORE_KEY),
+            events=self.hub.eventlog.all(),
+            log_start=self.hub.eventlog.started,
+            calendar_events=self._calendar_events(""),
+        )
+
     def _value_of(self, condition: dict[str, Any]) -> Any:
         """Der Istwert einer Gerätebedingung – für die Begründung."""
         if condition.get("type", "state") != "state":
@@ -2254,9 +2521,15 @@ class AutomationEngine:
         automation: Automation,
         action: dict[str, Any],
         ausloeser: str | None = None,
+        tiefe: int = 0,
     ) -> str | None:
         """Eine Aktion ausführen. Die Rückgabe ist eine kurze Notiz für
-        die Schritt-Spur des Laufs (Punkt 160) - oder None."""
+        die Schritt-Spur des Laufs (Punkt 160) - oder None.
+
+        ``tiefe`` zählt, wie tief «wenn» und «wiederholen» ineinander
+        stecken (Punkt 251) - ab NEST_DEPTH wird abgebrochen, damit sich
+        eine versehentliche Verschachtelung nicht endlos frisst.
+        """
         atype = action.get("type", "command")
         if atype == "command":
             await self.hub.integrations.dispatch_command(
@@ -2300,6 +2573,10 @@ class AutomationEngine:
             await hue.activate_scene(str(action.get("scene") or ""))
         elif atype == "automation":
             await self._run_other(automation, action)
+        elif atype == "if":
+            return await self._verzweigung(automation, action, ausloeser, tiefe)
+        elif atype == "repeat":
+            return await self._wiederholung(automation, action, ausloeser, tiefe)
         elif atype == "notify":
             if self._nachts_still(automation):
                 return "nachts still - nicht gemeldet"
@@ -2317,7 +2594,7 @@ class AutomationEngine:
 
             await say.speak(
                 self.hub,
-                self._mit_termin(str(action.get("text") or "")),
+                self._mit_platzhaltern(self._mit_termin(str(action.get("text") or ""))),
                 speakers=[str(s) for s in action.get("speakers") or []] or None,
                 volume=action.get("volume"),
             )
@@ -2792,6 +3069,143 @@ class AutomationEngine:
         finally:
             self._depth.pop(ziel.id, None)
 
+    async def _verzweigung(
+        self,
+        automation: Automation,
+        action: dict[str, Any],
+        ausloeser: str | None,
+        tiefe: int,
+    ) -> str | None:
+        """«wenn … dann … sonst» mitten in der Aktionsliste (Punkt 251).
+
+        Bisher konnte nur der ganze Ablauf verzweigen (conditions +
+        otherwise). «Licht an - und NUR wenn es dunkel ist, auch die
+        Aussenlampe» brauchte deshalb zwei Abläufe mit demselben
+        Auslöser, die man beim Ändern beide anfassen muss.
+
+        Die Bedingungen sind dieselben wie überall (``_check_condition``
+        samt Gruppen) - eine zweite Bedingungssprache nur für diesen
+        Schritt wäre eine zweite Stelle, an der Regeln auseinanderlaufen.
+        """
+        if tiefe >= NEST_DEPTH:
+            # Kein Fehler, sondern eine Notiz im Verlauf: Der restliche
+            # Lauf soll weitergehen - siehe die Haltung in _run.
+            log.warning(
+                "Automation '%s': «wenn» zu tief verschachtelt (%d) - übersprungen",
+                automation.alias,
+                tiefe,
+            )
+            return f"zu tief verschachtelt (mehr als {NEST_DEPTH} Ebenen) - übersprungen"
+        conds = [c for c in action.get("conditions") or [] if isinstance(c, dict)]
+        if not conds:
+            # Leer heisst «gilt» - wie bei der leeren Bedingungsliste und
+            # der leeren Gruppe: Ein vergessener Block soll auffallen,
+            # nicht lähmen.
+            held = True
+        elif str(action.get("match", "all")) == "any":
+            held = any(self._check_condition(c) for c in conds)
+        else:
+            held = all(self._check_condition(c) for c in conds)
+        zweig = action.get("then") if held else action.get("else")
+        gelaufen = await self._unterschritte(
+            automation, zweig, ausloeser, tiefe + 1
+        )
+        wohin = "Bedingung traf zu" if held else "sonst-Zweig"
+        return f"{wohin}: {gelaufen}"
+
+    async def _wiederholung(
+        self,
+        automation: Automation,
+        action: dict[str, Any],
+        ausloeser: str | None,
+        tiefe: int,
+    ) -> str | None:
+        """Einen Aktionsblock mehrfach ausführen (Punkt 251).
+
+        Zwei Formen: ``count`` dreht eine feste Zahl von Runden («dreimal
+        blinken»), ``while`` prüft VOR jedem Durchgang, ob die
+        Bedingungen noch gelten («solange die Türe offen ist, alle
+        dreissig Sekunden mahnen»). Beide enden spätestens an
+        REPEAT_LIMIT - warum die Grenze hart ist, steht dort.
+        """
+        if tiefe >= NEST_DEPTH:
+            log.warning(
+                "Automation '%s': «wiederholen» zu tief verschachtelt (%d) - übersprungen",
+                automation.alias,
+                tiefe,
+            )
+            return f"zu tief verschachtelt (mehr als {NEST_DEPTH} Ebenen) - übersprungen"
+        schritte = [a for a in action.get("actions") or [] if isinstance(a, dict)]
+        solange = action.get("while")
+        if solange is not None:
+            conds = [c for c in solange or [] if isinstance(c, dict)]
+            grenze = parse_repeat_count(action.get("max") or REPEAT_LIMIT)
+            durchgaenge = 0
+            for _ in range(grenze):
+                # Vor jedem Durchgang, nicht danach: Gilt die Bedingung
+                # schon zu Beginn nicht, läuft gar nichts - wie bei
+                # einer while-Schleife, deren Namen der Schritt trägt.
+                if conds and not all(self._check_condition(c) for c in conds):
+                    break
+                await self._unterschritte(automation, schritte, ausloeser, tiefe + 1)
+                durchgaenge += 1
+            if durchgaenge >= grenze:
+                return f"nach {grenze} Durchgängen an der Obergrenze gestoppt"
+            return f"{durchgaenge} Durchgang/Durchgänge"
+        anzahl = parse_repeat_count(action.get("count"))
+        for _ in range(anzahl):
+            await self._unterschritte(automation, schritte, ausloeser, tiefe + 1)
+        return f"{anzahl} Durchgang/Durchgänge"
+
+    async def _unterschritte(
+        self,
+        automation: Automation,
+        schritte: Any,
+        ausloeser: str | None,
+        tiefe: int,
+    ) -> str:
+        """Die Schritte eines Zweigs oder einer Runde - mit derselben
+        Haltung wie der Hauptlauf: Ein hängender Schritt hält die
+        übrigen nicht an, er steht als Zahl in der Notiz und im Log."""
+        gelaufen = 0
+        gestolpert = 0
+        for schritt in schritte or []:
+            if not isinstance(schritt, dict):
+                continue
+            try:
+                await self._execute_action(automation, schritt, ausloeser, tiefe)
+                gelaufen += 1
+            except Exception as err:
+                gestolpert += 1
+                log.warning(
+                    "Automation '%s': Unterschritt hing (%s) - weiter",
+                    automation.alias,
+                    err,
+                )
+        satz = f"{gelaufen} Schritt(e)"
+        if gestolpert:
+            satz += f", {gestolpert} hingen"
+        return satz
+
+    def _mit_platzhaltern(self, text: str) -> str:
+        """``{entity_id}``, ``{entity_id.attribut}`` und ``{time}`` im
+        Text füllen (Punkt 251) - die Auflösung selbst ist rein
+        (core/platzhalter.py), hier steht nur das Nachschlagen im
+        Gerätebestand. Unbekanntes bleibt stehen, damit ein Tippfehler
+        als Tippfehler ankommt statt als ausgefallene Nachricht."""
+        if "{" not in text:
+            return text
+
+        def nachschlagen(entity_id: str, attribut: str) -> Any:
+            entity = self.hub.registry.get(entity_id)
+            if entity is None:
+                return None
+            return entity.state.get(attribut)
+
+        return platzhalter.fuellen(
+            text, nachschlagen, jetzt=datetime.now().strftime("%H:%M")
+        )
+
     def _mit_termin(self, text: str) -> str:
         """``{termin}`` im Text durch den laufenden Kalendertermin ersetzen.
 
@@ -2849,8 +3263,18 @@ class AutomationEngine:
         )
         await self.hub.push.send(
             tokens,
-            title=self._mit_termin(kamera.fill(action.get("title") or automation.alias, quelle)),
-            body=self._mit_termin(kamera.fill(action.get("body") or "", quelle)),
+            # Erst {raum}/{gerät} (kamera.fill), dann {termin}, zuletzt
+            # {entity_id}/{time} (Punkt 251) - jeder Schritt lässt
+            # stehen, was ihm nicht gehört, deshalb dürfen sie sich
+            # nacheinander denselben Text teilen.
+            title=self._mit_platzhaltern(
+                self._mit_termin(
+                    kamera.fill(action.get("title") or automation.alias, quelle)
+                )
+            ),
+            body=self._mit_platzhaltern(
+                self._mit_termin(kamera.fill(action.get("body") or "", quelle))
+            ),
             data={
                 "automation_id": automation.id,
                 **({"camera": camera} if camera else {}),

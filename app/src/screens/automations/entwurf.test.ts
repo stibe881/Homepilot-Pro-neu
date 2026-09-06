@@ -13,6 +13,9 @@ import {
   actionsToSteps,
   toDraft,
   describe as zeileFuer,
+  geraetePlatzhalter,
+  hatWartezeit,
+  kopieSchritt,
   measurableAttributes,
   meldetEtwas,
   triggerFromConfig,
@@ -1315,5 +1318,357 @@ describe('Nachtruhe eines Ablaufs', () => {
     };
     expect(toDraft(auto).nachtsStill).toBe(true);
     expect(toDraft({ ...auto, quiet_night: undefined }).nachtsStill).toBe(false);
+  });
+});
+
+describe('Wenn/Sonst und Wiederholen als Schritte (Punkt 251)', () => {
+  const wennSchritt = (patch: Partial<StepDraft>): StepDraft => ({
+    ...EMPTY_STEP,
+    kind: 'if',
+    ifConditions: [{ entity_id: 'hm.lux', op: 'below', value: '20' }],
+    ifThen: [
+      {
+        ...EMPTY_STEP,
+        kind: 'command',
+        commandActions: [{ entity_id: 'hue.flur', command: 'turn_on' }],
+      },
+    ],
+    ...patch,
+  });
+
+  it('speichert einen wenn-Schritt mit dann und sonst', () => {
+    const actions = stepToActions(
+      wennSchritt({
+        ifElse: [{ ...EMPTY_STEP, kind: 'broadcast', broadcastText: 'hell genug' }],
+      })
+    );
+    expect(actions).toEqual([
+      {
+        type: 'if',
+        conditions: [{ type: 'state', entity_id: 'hm.lux', below: 20 }],
+        match: 'all',
+        then: [{ type: 'command', entity_id: 'hue.flur', command: 'turn_on' }],
+        else: [{ type: 'broadcast', text: 'hell genug' }],
+      },
+    ]);
+  });
+
+  it('lässt den leeren sonst-Zweig weg', () => {
+    const [action] = stepToActions(wennSchritt({}));
+    expect(action.else).toBeUndefined();
+  });
+
+  it('ergibt ohne Bedingung oder ohne Zweig keine Aktion', () => {
+    // Ohne Bedingung hiesse der Schritt beim Hub «gilt immer», ohne
+    // Zweig wäre er eine leere Klammer - beides bleibt Entwurf.
+    expect(stepToActions(wennSchritt({ ifConditions: [] }))).toEqual([]);
+    expect(stepToActions(wennSchritt({ ifThen: [] }))).toEqual([]);
+  });
+
+  it('kommt aus der gespeicherten Form unversehrt zurück', () => {
+    const gespeichert = [
+      {
+        type: 'if',
+        conditions: [
+          { type: 'state', entity_id: 'hm.lux', below: 20 },
+          // Ein Zeitfenster kann der Editor nicht als Zeile zeigen -
+          // es muss den Weg über ifExtra überleben.
+          { type: 'time', after: '22:00' },
+        ],
+        match: 'any',
+        then: [{ type: 'command', entity_id: 'hue.flur', command: 'turn_on' }],
+      },
+    ];
+    const schritte = actionsToSteps(gespeichert);
+    expect(schritte[0].kind).toBe('if');
+    expect(schritte[0].ifMatch).toBe('any');
+    expect(schritte[0].ifConditions).toEqual([
+      { entity_id: 'hm.lux', op: 'below', value: '20' },
+    ]);
+    expect(schritte[0].ifExtra).toEqual([{ type: 'time', after: '22:00' }]);
+    // Und wieder zurück - samt der Bedingung aus der Konfiguration.
+    expect(stepToActions(schritte[0])).toEqual([
+      {
+        type: 'if',
+        conditions: [
+          { type: 'state', entity_id: 'hm.lux', below: 20 },
+          { type: 'time', after: '22:00' },
+        ],
+        match: 'any',
+        then: [{ type: 'command', entity_id: 'hue.flur', command: 'turn_on' }],
+      },
+    ]);
+  });
+
+  it('speichert wiederholen mit Anzahl und deckelt bei 50', () => {
+    const schritt: StepDraft = {
+      ...EMPTY_STEP,
+      kind: 'repeat',
+      repeatCount: '200',
+      repeatSteps: [
+        {
+          ...EMPTY_STEP,
+          kind: 'command',
+          commandActions: [{ entity_id: 'hue.flur', command: 'toggle' }],
+        },
+      ],
+    };
+    expect(stepToActions(schritt)).toEqual([
+      {
+        type: 'repeat',
+        count: 50,
+        actions: [{ type: 'command', entity_id: 'hue.flur', command: 'toggle' }],
+      },
+    ]);
+  });
+
+  it('speichert wiederholen mit solange-Bedingung und max', () => {
+    const schritt: StepDraft = {
+      ...EMPTY_STEP,
+      kind: 'repeat',
+      repeatArt: 'while',
+      repeatWhile: [{ entity_id: 'hm.fenster', op: 'is', value: 'on' }],
+      repeatMax: '10',
+      repeatSteps: [
+        { ...EMPTY_STEP, kind: 'broadcast', broadcastText: 'Fenster offen' },
+      ],
+    };
+    expect(stepToActions(schritt)).toEqual([
+      {
+        type: 'repeat',
+        while: [{ type: 'state', entity_id: 'hm.fenster', equals: 'on' }],
+        actions: [{ type: 'broadcast', text: 'Fenster offen' }],
+        max: 10,
+      },
+    ]);
+    // Und zurück in den Entwurf.
+    const [zurueck] = actionsToSteps(stepToActions(schritt));
+    expect(zurueck.repeatArt).toBe('while');
+    expect(zurueck.repeatMax).toBe('10');
+    expect(zurueck.repeatSteps[0].broadcastText).toBe('Fenster offen');
+  });
+
+  it('sagt am Schritt, was ihm fehlt', () => {
+    const draft: Draft = {
+      ...EMPTY,
+      triggers: [{ ...EMPTY_TRIGGER, kind: 'time', at: '07:00' }],
+      steps: [wennSchritt({ ifConditions: [], ifExtra: [] })],
+    };
+    expect(wasFehlt(draft).join(' ')).toContain('eine Bedingung anlegen');
+    const solange: Draft = {
+      ...draft,
+      steps: [
+        {
+          ...EMPTY_STEP,
+          kind: 'repeat',
+          repeatArt: 'while',
+          repeatSteps: [
+            {
+              ...EMPTY_STEP,
+              kind: 'command',
+              commandActions: [{ entity_id: 'hue.flur', command: 'turn_on' }],
+            },
+          ],
+        },
+      ],
+    };
+    expect(wasFehlt(solange).join(' ')).toContain('Solange-Bedingung');
+  });
+
+  it('sieht Nachricht und Wartezeit auch in den Zweigen', () => {
+    // Die Nachtruhe-Frage muss die Nachricht im sonst-Zweig sehen -
+    // ein flaches some griffe zu kurz.
+    const steps = [
+      wennSchritt({
+        ifElse: [{ ...EMPTY_STEP, kind: 'notify', title: 'x', body: 'y' }],
+      }),
+    ];
+    expect(meldetEtwas(steps)).toBe(true);
+    const wiederholt = [
+      {
+        ...EMPTY_STEP,
+        kind: 'repeat' as const,
+        repeatSteps: [{ ...EMPTY_STEP, kind: 'delay' as const }],
+      },
+    ];
+    expect(hatWartezeit(wiederholt)).toBe(true);
+  });
+
+  it('kopiert einen wenn-Schritt tief, nicht geteilt', () => {
+    const original = wennSchritt({});
+    const kopie = kopieSchritt(original);
+    kopie.ifThen[0].commandActions[0].entity_id = 'hue.kueche';
+    expect(original.ifThen[0].commandActions[0].entity_id).toBe('hue.flur');
+  });
+
+  it('beschreibt die neuen Schritte in der Listenzeile', () => {
+    const zeile = zeileFuer(
+      {
+        id: 'a1',
+        alias: 'Test',
+        triggers: [{ type: 'time', at: '07:00' }],
+        conditions: [],
+        actions: [
+          {
+            type: 'if',
+            conditions: [{ type: 'sun', state: 'down' }],
+            then: [{ type: 'command', entity_id: 'x', command: 'turn_on' }],
+            else: [{ type: 'notify' }],
+          },
+        ],
+        editable: true,
+      },
+      []
+    );
+    expect(zeile).toContain('verzweigt (1 dann / 1 sonst)');
+  });
+});
+
+describe('Die neuen Auslöser im Entwurf (Punkt 252)', () => {
+  it('speichert Person, Richtung und Zone', () => {
+    expect(
+      triggerToConfig({
+        ...EMPTY_TRIGGER,
+        kind: 'presence',
+        presencePerson: 'livia',
+        presenceEvent: 'leaves',
+        ortId: 'schule',
+      })
+    ).toEqual({ type: 'presence', person: 'livia', event: 'leaves', zone: 'schule' });
+    // Das Zuhause ist die Vorgabe des Hubs und bleibt weg.
+    expect(
+      triggerToConfig({
+        ...EMPTY_TRIGGER,
+        kind: 'presence',
+        presencePerson: 'livia',
+        presenceEvent: 'arrives',
+      })
+    ).toEqual({ type: 'presence', person: 'livia', event: 'arrives' });
+  });
+
+  it('liest einen gespeicherten presence-Auslöser zurück', () => {
+    const entwurf = triggerFromConfig({
+      type: 'presence',
+      person: 'livia',
+      event: 'leave',
+      zone: 'schule',
+    });
+    expect(entwurf.kind).toBe('presence');
+    expect(entwurf.presencePerson).toBe('livia');
+    expect(entwurf.presenceEvent).toBe('leaves');
+    expect(entwurf.ortId).toBe('schule');
+  });
+
+  it('speichert die Wetterwarnung ohne die Vorgaben des Hubs', () => {
+    expect(
+      triggerToConfig({ ...EMPTY_TRIGGER, kind: 'weather_warning', entityId: '' })
+    ).toEqual({ type: 'weather_warning' });
+    expect(
+      triggerToConfig({
+        ...EMPTY_TRIGGER,
+        kind: 'weather_warning',
+        minSeverity: 'Severe',
+        entityId: 'meteoalarm.switzerland',
+      })
+    ).toEqual({
+      type: 'weather_warning',
+      min_severity: 'Severe',
+      entity_id: 'meteoalarm.switzerland',
+    });
+  });
+
+  it('liest eine gespeicherte Wetterwarnung zurück', () => {
+    const entwurf = triggerFromConfig({
+      type: 'weather_warning',
+      min_severity: 'Moderate',
+    });
+    expect(entwurf.kind).toBe('weather_warning');
+    expect(entwurf.minSeverity).toBe('Moderate');
+  });
+
+  it('verlangt beim presence-Auslöser eine Person', () => {
+    const draft: Draft = {
+      ...EMPTY,
+      triggers: [{ ...EMPTY_TRIGGER, kind: 'presence' }],
+      steps: [
+        {
+          ...EMPTY_STEP,
+          kind: 'command',
+          commandActions: [{ entity_id: 'hue.flur', command: 'turn_on' }],
+        },
+      ],
+    };
+    expect(wasFehlt(draft)).toEqual(['Wenn: eine Person wählen']);
+  });
+
+  it('zeigt die neuen Auslöser als Satz in der Listenzeile', () => {
+    const zeile = zeileFuer(
+      {
+        id: 'a1',
+        alias: 'x',
+        triggers: [{ type: 'presence', person: 'livia', event: 'arrives' }],
+        conditions: [],
+        actions: [{ type: 'notify' }],
+        editable: true,
+      },
+      []
+    );
+    expect(zeile).toContain('wenn Livia kommt heim');
+    const warnung = zeileFuer(
+      {
+        id: 'a2',
+        alias: 'x',
+        triggers: [{ type: 'weather_warning', min_severity: 'Severe' }],
+        conditions: [],
+        actions: [{ type: 'notify' }],
+        editable: true,
+      },
+      []
+    );
+    expect(warnung).toContain('wenn eine neue Wetterwarnung eintrifft (ab «schwer»)');
+  });
+
+  it('gibt den neuen Auslösern eigene Symbole', () => {
+    expect(
+      triggerIcon({
+        id: 'a',
+        alias: '',
+        triggers: [{ type: 'presence', person: 'livia', event: 'arrives' }],
+        conditions: [],
+        actions: [],
+        editable: true,
+      })
+    ).toBe('person-outline');
+    expect(
+      triggerIcon({
+        id: 'a',
+        alias: '',
+        triggers: [{ type: 'weather_warning' }],
+        conditions: [],
+        actions: [],
+        editable: true,
+      })
+    ).toBe('thunderstorm-outline');
+  });
+});
+
+describe('Platzhalter aus der Geräteauswahl (Punkt 251)', () => {
+  it('bietet Zustand und nur echte Messwerte an', () => {
+    const sensor = {
+      id: 'hm.melder',
+      name: 'Melder Flur',
+      kind: 'binary_sensor',
+      state: { state: 'off', illumination: 12, battery: 80 },
+      commands: [],
+    } as unknown as Entity;
+    expect(geraetePlatzhalter(sensor)).toEqual([
+      { key: '{hm.melder}', label: 'Zustand' },
+      { key: '{hm.melder.illumination}', label: 'Helligkeit (Lux)' },
+      { key: '{hm.melder.battery}', label: 'Batterie (%)' },
+    ]);
+  });
+
+  it('bleibt ohne Gerät leer', () => {
+    expect(geraetePlatzhalter(undefined)).toEqual([]);
   });
 });

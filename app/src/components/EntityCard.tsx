@@ -296,8 +296,12 @@ export function EntityCard({
     ungezaehlt,
   };
 
+  // Heisst das Gerät wie sein Raum («Essbereich» im Essbereich), stünde
+  // derselbe Name zweimal untereinander - dieselbe Auskunft zweimal ist
+  // keine. Dann lieber die Anbindung als Untertitel.
   const subtitle =
-    (imRaumblock ? undefined : entity.room) || integrationLabel(entity.integration);
+    (imRaumblock || entity.room === entity.name ? undefined : entity.room) ||
+    integrationLabel(entity.integration);
   // Offline-Geräte: mit «zuletzt vor …», damit man sieht, ob das Gerät
   // gerade eben oder seit Tagen weg ist. Bei einer Store am Funk steht
   // dort zusätzlich, dass Drücken trotzdem etwas bewirkt - siehe

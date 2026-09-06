@@ -88,6 +88,56 @@ def error_text(status: int, payload: Any) -> str:
     return f"Supabase antwortet mit {status}"
 
 
+def stored_hash(rows: list[dict[str, Any]], email: str) -> dict[str, str]:
+    """Der lokal nachgeführte Passwort-Hash zu einer Adresse (rein, testbar).
+
+    Punkt 234 der Werkbank: Supabase kennt das Passwort, der Hub bis
+    jetzt gar nichts - fiel Supabase aus, kam niemand mit Passwort ins
+    Haus. Deshalb merkt sich der Hub nach jeder erfolgreichen
+    Online-Anmeldung einen gesalzenen Hash (core/bereich.py), gegen den
+    er im Ausfall selbst prüfen kann. Nie den Klartext.
+    """
+    wanted = (email or "").strip().lower()
+    if not wanted:
+        return {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("email") or "").strip().lower() == wanted:
+            entry = row.get("passwort")
+            return dict(entry) if isinstance(entry, dict) else {}
+    return {}
+
+
+def remember_hash(
+    rows: list[dict[str, Any]], email: str, entry: dict[str, str]
+) -> list[dict[str, Any]]:
+    """Den Hash in die Adress-Zeilen schreiben (rein, testbar).
+
+    Er liegt bewusst in den «emails»-Zeilen der Datendatei und nicht in
+    einer eigenen Liste: Die Adressen stehen in persistence.SECRETS und
+    wandern damit nie in einen Export - eine neue Liste täte das
+    stillschweigend (siehe den Kommentar dort). Der Preis: Wer eine
+    Adresse ändert oder jemanden umbenennt, schreibt die Zeilen frisch
+    und der Hash ist weg. Das heilt sich selbst - die nächste
+    erfolgreiche Online-Anmeldung führt ihn wieder nach (Punkt 234).
+
+    Zeilen ohne passende Adresse bleiben unangetastet; gibt es keine,
+    wird auch nichts erfunden - eine Adresse ohne Benutzer wäre genau
+    die verwaiste Zeile, vor der hub._load_stored_users warnt.
+    """
+    wanted = (email or "").strip().lower()
+    result = []
+    for row in rows or []:
+        if (
+            isinstance(row, dict)
+            and str(row.get("email") or "").strip().lower() == wanted
+        ):
+            row = {**row, "passwort": dict(entry)}
+        result.append(row)
+    return result
+
+
 def parse_session(payload: dict[str, Any]) -> dict[str, Any]:
     """Aus der Supabase-Antwort machen, was der Hub braucht (rein, testbar).
 

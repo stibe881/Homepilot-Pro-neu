@@ -12,7 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { hubClient } from '../api/client';
+import { HubClient, hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { Fehlschlag, Laedt, Leer } from '../components/Zustand';
@@ -23,6 +23,16 @@ import {
   hausAbschnitte,
   vorhandeneArten,
 } from '../lib/hausrueckblick';
+import {
+  LangzeitAntwort,
+  fussnoten,
+  istJahr,
+  lichtDetail,
+  stromJahrSaetze,
+  stromMonatSaetze,
+  temperaturSatz,
+  zeitraumTitel,
+} from '../lib/langzeit';
 import { LogSpan, reichweiteText } from '../lib/verlauf';
 import { Colors, radius, type, useColors } from '../theme';
 
@@ -44,6 +54,23 @@ export function HausRueckblick({ settings }: { settings: HubSettings }) {
   const [span, setSpan] = useState<LogSpan | null>(null);
   const [fehler, setFehler] = useState<string | null>(null);
   const [art, setArt] = useState<string | null>(null);
+  // Ob der Monats-/Jahresteil überhaupt gezeigt wird: Die Route verlangt
+  // view_history, und ein Abschnitt, der nur einen 403 zeigen kann, ist
+  // schlechter als keiner. Der Rückblick bekommt den Benutzer nicht als
+  // Prop – deshalb einmal selbst nachfragen, wie es useHub auch tut.
+  const [darfLangzeit, setDarfLangzeit] = useState(false);
+
+  useEffect(() => {
+    let weg = false;
+    hub
+      .get<{ capabilities?: string[] } | null>('/api/me', { fallback: null, still: true })
+      .then((ich) => {
+        if (!weg) setDarfLangzeit(!!ich?.capabilities?.includes('view_history'));
+      });
+    return () => {
+      weg = true;
+    };
+  }, [hub]);
 
   const laden = useCallback(() => {
     setEreignisse(null);
@@ -91,6 +118,7 @@ export function HausRueckblick({ settings }: { settings: HubSettings }) {
   );
 
   return (
+    <>
     <Card>
       <View style={styles.kopf}>
         <Ionicons name="time-outline" size={18} color={colors.inkSoft} />
@@ -200,6 +228,160 @@ export function HausRueckblick({ settings }: { settings: HubSettings }) {
         <Text style={styles.hinweis}>{reichweiteText(span)}</Text>
       ) : null}
     </Card>
+
+    {/* Der lange Atem unter dem Tagesteil: Monat und Jahr. Nur mit
+        view_history – der Hub lehnte sonst ohnehin ab. */}
+    {darfLangzeit ? <LangzeitKarte hub={hub} /> : null}
+    </>
+  );
+}
+
+/**
+ * Der Monats- und Jahresrückblick (Punkt 253 der Werkbank).
+ *
+ * Stromtrend, die drei meistgeschalteten Lichter, wärmster und kältester
+ * Raum – als Sätze statt Tabellen, gerechnet in lib/langzeit.ts. Was der
+ * Hub nicht weiss, steht unaufgeregt als Fussnote darunter.
+ */
+function LangzeitKarte({ hub }: { hub: HubClient }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [zeitraum, setZeitraum] = useState<'monat' | 'jahr'>('monat');
+  const [antwort, setAntwort] = useState<LangzeitAntwort | null>(null);
+  const [fehler, setFehler] = useState(false);
+
+  useEffect(() => {
+    let weg = false;
+    setAntwort(null);
+    setFehler(false);
+    hub
+      .get<LangzeitAntwort | null>(`/api/rueckblick/langzeit?zeitraum=${zeitraum}`, {
+        fallback: null,
+        still: true,
+      })
+      .then((daten) => {
+        if (weg) return;
+        setAntwort(daten);
+        // Auch ein älterer Hub ohne die Route landet hier: Dann bleibt
+        // die Karte klein und sagt es, statt ewig zu laden.
+        setFehler(daten === null);
+      });
+    return () => {
+      weg = true;
+    };
+  }, [hub, zeitraum]);
+
+  const noten = useMemo(() => (antwort ? fussnoten(antwort) : []), [antwort]);
+  const stromSaetze = useMemo(() => {
+    if (!antwort?.strom) return [];
+    return istJahr(antwort.strom)
+      ? stromJahrSaetze(antwort.strom)
+      : stromMonatSaetze(antwort.strom);
+  }, [antwort]);
+
+  return (
+    <Card>
+      <View style={styles.kopf}>
+        <Ionicons name="calendar-outline" size={18} color={colors.inkSoft} />
+        <Text style={styles.titel}>
+          {antwort ? zeitraumTitel(antwort.zeitraum, antwort.von) : 'Monat und Jahr'}
+        </Text>
+      </View>
+
+      <View style={styles.chips}>
+        {(
+          [
+            ['monat', 'Monat'],
+            ['jahr', 'Jahr'],
+          ] as const
+        ).map(([key, label]) => (
+          <Pressable
+            key={key}
+            onPress={() => setZeitraum(key)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: zeitraum === key }}
+            style={({ pressed }) => [
+              styles.chip,
+              zeitraum === key && styles.chipAn,
+              pressed && { opacity: 0.7 },
+            ]}
+          >
+            <Text style={[styles.chipText, zeitraum === key && styles.chipTextAn]}>
+              {label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {antwort === null && !fehler ? <Laedt was="Rückblick" klein /> : null}
+      {fehler ? (
+        <Text style={styles.hinweis}>
+          Der Hub liefert noch keinen Langzeit-Rückblick. Ist er auf dem
+          neusten Stand?
+        </Text>
+      ) : null}
+
+      {antwort?.strom ? (
+        <View style={styles.langzeitBlock}>
+          <View style={styles.langzeitKopf}>
+            <Ionicons name="flash-outline" size={16} color={colors.inkSoft} />
+            <Text style={styles.langzeitTitel}>Strom</Text>
+          </View>
+          {stromSaetze.map((satz) => (
+            <Text key={satz} style={styles.satz}>
+              {satz}
+            </Text>
+          ))}
+          {zeitraum === 'monat' ? (
+            <Text style={styles.hinweis}>
+              Verglichen wird mit dem Vormonat bis zum selben Tag – gegen den
+              ganzen Vormonat sähe jeder angebrochene Monat wie eine
+              Ersparnis aus.
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      {antwort && antwort.licht.length > 0 ? (
+        <View style={styles.langzeitBlock}>
+          <View style={styles.langzeitKopf}>
+            <Ionicons name="bulb-outline" size={16} color={colors.inkSoft} />
+            <Text style={styles.langzeitTitel}>Meistgeschaltete Lichter</Text>
+          </View>
+          {antwort.licht.map((eintrag, index) => (
+            <View key={eintrag.entity_id} style={styles.lichtZeile}>
+              <Text style={styles.lichtPlatz}>{index + 1}.</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.wer} numberOfLines={1}>
+                  {eintrag.name}
+                </Text>
+                <Text style={styles.was} numberOfLines={1}>
+                  {lichtDetail(eintrag)}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      {antwort?.temperatur ? (
+        <View style={styles.langzeitBlock}>
+          <View style={styles.langzeitKopf}>
+            <Ionicons name="thermometer-outline" size={16} color={colors.inkSoft} />
+            <Text style={styles.langzeitTitel}>Temperatur</Text>
+          </View>
+          <Text style={styles.satz}>{temperaturSatz(antwort.temperatur)}</Text>
+        </View>
+      ) : null}
+
+      {/* Die Fussnoten: was fehlt und warum – unaufgeregt, denn ein
+          fehlender Teil ist kein Fehler, sondern eine fehlende Quelle. */}
+      {noten.map((note) => (
+        <Text key={note} style={styles.hinweis}>
+          {note}
+        </Text>
+      ))}
+    </Card>
   );
 }
 
@@ -254,4 +436,17 @@ const makeStyles = (colors: Colors) =>
     wer: { color: colors.ink, fontSize: 14, fontWeight: '600' },
     was: { color: colors.inkFaint, fontSize: 12, marginTop: 1 },
     hinweis: { color: colors.inkFaint, fontSize: 11, marginTop: 8, lineHeight: 16 },
+
+    langzeitBlock: { marginTop: 12, gap: 4 },
+    langzeitKopf: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    langzeitTitel: { color: colors.inkSoft, fontSize: 13, fontWeight: '700' },
+    satz: { color: colors.ink, fontSize: 13, lineHeight: 19 },
+    lichtZeile: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 3 },
+    lichtPlatz: {
+      color: colors.inkSoft,
+      fontSize: 13,
+      fontWeight: '700',
+      width: 18,
+      fontVariant: ['tabular-nums'],
+    },
   });

@@ -815,6 +815,33 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             raise HTTPException(status_code=404, detail="Ablauf nicht gefunden")
         return hub.automations.dry_run(found)
 
+    @app.get("/api/automations/{automation_id}/simulation")
+    async def simulate_automation(
+        automation_id: str, request: Request, days: int = 7
+    ) -> dict[str, Any]:
+        """Wie oft hätte dieser Ablauf in den letzten n Tagen gefeuert?
+
+        (Punkt 254 der Werkbank.) Der Trockenlauf kennt nur das Jetzt -
+        hier werden Zeit-, Sonnen- und Kalender-Auslöser samt
+        Wochentags-, Feiertags- und Ferienbedingungen über den Zeitraum
+        exakt durchgerechnet; Zustands-Auslöser kommen aus dem
+        Ereignisprotokoll, und was sich nicht nachrechnen lässt, steht
+        mit Grund unter `not_simulatable` statt als Schätzwert in der
+        Summe.
+        """
+        require(request, Capability.VIEW_AUTOMATIONS)
+        if not 1 <= days <= 31:
+            # Mehr als ein Monat wäre keine Simulation mehr, sondern
+            # eine Statistik - und das Protokoll reicht ohnehin nicht
+            # so weit.
+            raise HTTPException(
+                status_code=400, detail="days muss zwischen 1 und 31 liegen"
+            )
+        bericht = hub.automations.simulation(automation_id, days)
+        if bericht is None:
+            raise HTTPException(status_code=404, detail="Ablauf nicht gefunden")
+        return bericht
+
     @app.get("/api/hue/scenes")
     async def hue_scenes(request: Request) -> dict[str, Any]:
         """Die auf der Hue-Bridge gespeicherten Szenen.

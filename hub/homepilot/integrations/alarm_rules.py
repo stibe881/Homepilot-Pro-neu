@@ -190,6 +190,113 @@ def parse_actions(raw: Any) -> dict[str, list[dict[str, Any]]]:
             result[slot].append(action)
     return result
 
+# ── Eskalation nach dem Auslösen (Punkt 255 der Werkbank) ──────────────
+#
+# Die trigger-Aktionen laufen im Moment des Auslösens – wer dort schon die
+# Sirene einträgt, weckt bei jedem Fehlalarm die Nachbarschaft. Die
+# Eskalation ist die zweite Stufe: Erst nach einer Frist, in der ein
+# Fehlalarm noch entschärft werden kann, wird es laut und hell. 30
+# Sekunden als Vorgabe: genug, um das Telefon zu ziehen und die PIN zu
+# tippen, kurz genug, dass ein echter Einbrecher nicht in Ruhe fertig wird.
+ESCALATION_DEFAULT: dict[str, Any] = {
+    # Aus, bis jemand sie ausdrücklich einschaltet: Ohne Konfiguration
+    # verhält sich die Anlage exakt wie bisher.
+    "enabled": False,
+    # Sekunden zwischen Auslösen und Eskalation.
+    "after": 30,
+    # Benannte Sirenen-/Signal-Entitäten, die dann eingeschaltet werden.
+    "sirens": [],
+    # Zusätzlich alle Lichter einschalten: Einbrecher mögen kein
+    # Rampenlicht, und wer nachts nachschauen geht, auch keinen dunklen Flur.
+    "all_lights": False,
+    # Durchsage auf die Boxen (leer = keine) – derselbe Weg wie die
+    # broadcast-Aktion der Abläufe (core/say.py).
+    "announce": "",
+    # Lautstärke der Durchsage in Prozent; None = Vorgabe von say.py.
+    "volume": None,
+}
+
+
+def parse_escalation(raw: Any) -> dict[str, Any]:
+    """Die Eskalations-Konfiguration einlesen (rein, testbar).
+
+    Unbrauchbares fällt auf die Vorgabe zurück statt zu scheitern: Der
+    Moment, in dem die Eskalation läuft, ist der schlechteste Zeitpunkt,
+    um an einem Tippfehler in der Datei zu hängen.
+    """
+    result = dict(ESCALATION_DEFAULT)
+    if not isinstance(raw, dict):
+        return result
+    result["enabled"] = bool(raw.get("enabled"))
+    try:
+        # Keine Untergrenze ausser 0: Wer sofort eskalieren will, darf -
+        # das ist dann eine Entscheidung, kein Unfall.
+        result["after"] = max(0.0, float(raw.get("after")))
+    except (TypeError, ValueError):
+        pass
+    sirens = raw.get("sirens")
+    if isinstance(sirens, list):
+        result["sirens"] = [str(s) for s in sirens if str(s or "").strip()]
+    result["all_lights"] = bool(raw.get("all_lights"))
+    result["announce"] = str(raw.get("announce") or "").strip()
+    volume = raw.get("volume")
+    if isinstance(volume, (int, float)):
+        result["volume"] = max(0, min(100, int(volume)))
+    return result
+
+
+def eskalation_wirkt(escalation: dict[str, Any]) -> bool:
+    """Würde die Eskalation überhaupt etwas tun? (rein, testbar)
+
+    Eingeschaltet, aber ohne Sirene, Licht und Durchsage, ist sie nur ein
+    Timer ins Leere - dann wird gar nicht erst einer gestellt.
+    """
+    if not escalation.get("enabled"):
+        return False
+    return bool(
+        escalation.get("sirens")
+        or escalation.get("all_lights")
+        or escalation.get("announce")
+    )
+
+
+def eskalations_befehle(
+    escalation: dict[str, Any], entities: list[Entity]
+) -> list[dict[str, Any]]:
+    """Was die Eskalation einschaltet (rein, testbar).
+
+    Sirenen zuerst: Der Lärm ist der Zweck, das Licht die Zugabe. Die
+    Lichter kommen aus dem Bestand statt aus einer gepflegten Liste -
+    «alle» soll auch die Lampe von letzter Woche meinen.
+    """
+    befehle: list[dict[str, Any]] = [
+        {"entity_id": entity_id, "command": "turn_on"}
+        for entity_id in escalation.get("sirens") or []
+    ]
+    if escalation.get("all_lights"):
+        sirenen = set(escalation.get("sirens") or [])
+        befehle.extend(
+            {"entity_id": entity.id, "command": "turn_on"}
+            for entity in entities
+            if entity.kind == EntityKind.LIGHT and entity.id not in sirenen
+        )
+    return befehle
+
+
+def eskalations_ende_befehle(escalation: dict[str, Any]) -> list[dict[str, Any]]:
+    """Was beim Entschärfen wieder ausgeht (rein, testbar).
+
+    Nur die Sirenen: Eine Sirene, die nach dem Entschärfen weiterheult,
+    wäre der Fehler, den niemand verzeiht. Die Lichter bleiben bewusst an
+    - wer nach einem Alarm durchs Haus geht, will nicht im Dunkeln stehen,
+    und Ausschalten ist ein Handgriff.
+    """
+    return [
+        {"entity_id": entity_id, "command": "turn_off"}
+        for entity_id in escalation.get("sirens") or []
+    ]
+
+
 # Was nach einem Alarm passiert. Je Modus einstellbar, weil die Antwort
 # unterschiedlich ausfällt: Nachts ist man da und schaltet selbst ab, im
 # Urlaub ist niemand da, der das täte.

@@ -193,6 +193,13 @@ class PushPrefsRequest(BaseModel):
     muted: list[str] = []
 
 
+class BatteryPrefsRequest(BaseModel):
+    """Erinnerungsstunde und Schwelle der Batteriewarnung (Punkt 258)."""
+
+    hour: int | None = None
+    threshold: int | None = None
+
+
 class NotifyRuleRequest(BaseModel):
     """Änderung an einer eingebauten Wächter-Nachricht (Abläufe → Push)."""
 

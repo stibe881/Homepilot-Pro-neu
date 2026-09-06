@@ -22,6 +22,7 @@ import { Card } from '../components/Card';
 import { Maintenance } from '../components/Maintenance';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { ConfigCard } from './system/konfiguration';
+import { ROLE_LABELS } from './UsersScreen';
 import { datumUhr } from '../lib/format';
 import { integrationDetail } from '../lib/integrationszeile';
 import { LaufArt, LetzterLauf, letzterLaufSatz } from '../lib/letzterlauf';
@@ -287,7 +288,7 @@ export function SystemScreen({
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowTitle}>{entry.name}</Text>
                 <Text style={styles.rowDetail}>
-                  {entry.role}
+                  {ROLE_LABELS[entry.role] ?? entry.role}
                   {entry.allow.length ? ` · ${entry.allow.join(', ')}` : ''}
                 </Text>
               </View>
@@ -2022,6 +2023,8 @@ function Button({
 function roleIcon(role: string): keyof typeof Ionicons.glyphMap {
   if (role === 'besitzer') return 'key-outline';
   if (role === 'gast') return 'person-outline';
+  // Punkt 245 der Werkbank: Kinder sind keine Bewohner - auch nicht im Symbol.
+  if (role === 'kind') return 'happy-outline';
   return 'people-outline';
 }
 

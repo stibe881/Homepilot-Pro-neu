@@ -25,6 +25,14 @@ interface Category {
   group?: string;
 }
 
+/** Die wählbaren Schwellen der Batterie-Erinnerung. Mehr als 20 % wäre
+ *  ein Daueralarm - die Klemme dazu sitzt im Hub (core/batterie.py). */
+const SCHWELLEN = [5, 10, 15, 20];
+
+/** Die wählbaren Erinnerungsstunden: morgens für den Weg in den Tag,
+ *  mittags und abends für alle, die tagsüber ausser Haus sind. */
+const STUNDEN = [7, 8, 9, 12, 18, 20];
+
 /** Die Kategorien in ihre Unterkategorien, wie der Hub sie vergibt.
  *
  * «test» absichtlich nirgends: Der Test kommt immer an, ein Schalter
@@ -63,6 +71,16 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
   const [log, setLog] = useState<
     { title: string; body: string; at: number; category?: string | null }[] | null
   >(null);
+  // Die Batterie-Erinnerung (Punkt 258 der Werkbank): täglich zur
+  // gewählten Stunde, ab der gewählten Schwelle - anders als die
+  // Schalter darüber für den ganzen Haushalt, denn sie bestimmt, ob der
+  // Hub überhaupt meldet. null: alter Hub ohne die Route - dann fehlt
+  // der Abschnitt, statt tote Knöpfe zu zeigen.
+  const [batterie, setBatterie] = useState<{
+    hour: number;
+    threshold: number;
+  } | null>(null);
+  const [batterieFehler, setBatterieFehler] = useState<string | null>(null);
 
   const hub = useMemo(
     () => hubClient(settings.url, settings.token),
@@ -83,7 +101,32 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
         setMuted(data.muted ?? []);
       })
       .catch((err) => setError(err instanceof HubFehler ? err.message : String(err)));
+    hub
+      .get<{ hour: number; threshold: number } | null>('/api/push/battery', {
+        fallback: null,
+        still: true,
+      })
+      .then((data) => setBatterie(data ?? null));
   }, [hub]);
+
+  const batterieSetzen = async (patch: { hour?: number; threshold?: number }) => {
+    if (!batterie) return;
+    const vorher = batterie;
+    // Sofort zeigen, der Hub bestätigt - wie bei den Schaltern oben.
+    setBatterie({ ...batterie, ...patch });
+    setBatterieFehler(null);
+    try {
+      const data = await hub.put<{ hour: number; threshold: number }>(
+        '/api/push/battery',
+        patch,
+        { still: true }
+      );
+      setBatterie({ hour: data.hour, threshold: data.threshold });
+    } catch (err) {
+      setBatterie(vorher);
+      setBatterieFehler(String(err instanceof Error ? err.message : err));
+    }
+  };
 
   // Erst laden, wenn jemand hinsieht: Zugeklappt ist die Antwort des
   // Hubs nichts wert, und beim Öffnen der Einstellungen laufen ohnehin
@@ -226,6 +269,60 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
         )
       ) : null}
 
+      {batterie ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Batterie-Erinnerung</Text>
+          <Text style={styles.hint}>
+            Der Hub meldet eine schwache Batterie sofort und erinnert dann
+            täglich zur gewählten Zeit, bis sie gewechselt ist – gilt für den
+            ganzen Haushalt.
+          </Text>
+          <View style={styles.wahlZeile}>
+            <Text style={styles.wahlWort}>Ab</Text>
+            {SCHWELLEN.map((wert) => {
+              const an = batterie.threshold === wert;
+              return (
+                <Pressable
+                  key={wert}
+                  onPress={() => batterieSetzen({ threshold: wert })}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: an }}
+                  accessibilityLabel={`Erinnern ab ${wert} Prozent`}
+                  style={[styles.wahlChip, an && styles.wahlChipAn]}
+                >
+                  <Text style={[styles.wahlText, an && styles.wahlTextAn]}>
+                    {wert} %
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <View style={styles.wahlZeile}>
+            <Text style={styles.wahlWort}>Um</Text>
+            {STUNDEN.map((stunde) => {
+              const an = batterie.hour === stunde;
+              return (
+                <Pressable
+                  key={stunde}
+                  onPress={() => batterieSetzen({ hour: stunde })}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: an }}
+                  accessibilityLabel={`Täglich um ${stunde} Uhr erinnern`}
+                  style={[styles.wahlChip, an && styles.wahlChipAn]}
+                >
+                  <Text style={[styles.wahlText, an && styles.wahlTextAn]}>
+                    {stunde} Uhr
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          {batterieFehler ? (
+            <Text style={styles.hint}>{batterieFehler}</Text>
+          ) : null}
+        </View>
+      ) : null}
+
       {error ? (
         <Text style={styles.hint}>Nicht abrufbar: {error}</Text>
       ) : categories == null ? (
@@ -318,6 +415,21 @@ const makeStyles = (colors: Colors) =>
       maxWidth: 420,
     },
     rowTitle: { color: colors.ink, fontSize: 14, fontWeight: '600', flexShrink: 1 },
+    wahlZeile: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
+    wahlWort: { color: colors.inkSoft, fontSize: 13, fontWeight: '600', minWidth: 24 },
+    wahlChip: {
+      paddingVertical: 6,
+      paddingHorizontal: 12,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surfaceSoft,
+    },
+    wahlChipAn: { backgroundColor: colors.ink, borderColor: colors.ink },
+    wahlText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
+    // `panel` auf `ink`-Grund - nicht `surfaceStrong`, das im dunklen
+    // Erscheinungsbild durchscheint (siehe SettingsScreen, modeTextActive).
+    wahlTextAn: { color: colors.panel },
     logKopf: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     logTitel: { color: colors.inkSoft, fontSize: 13, fontWeight: '700', flex: 1 },
     logZeile: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
