@@ -214,7 +214,12 @@ export const makeStyles = (colors: Colors) =>
   },
   vorgabeAn: { backgroundColor: colors.ink, borderColor: colors.ink },
   vorgabeText: { color: colors.ink, fontSize: 12, fontWeight: '600' },
-  vorgabeTextAn: { color: colors.surfaceStrong, fontWeight: '700' },
+  // `panel`, nicht `surfaceStrong`: Der Grund des gewählten Chips ist
+  // `ink` - im dunklen Erscheinungsbild hell, und `surfaceStrong` ist
+  // dort ein durchscheinendes Weiss. «Beschattung» stand damit als
+  // weisse Schrift auf weissem Chip. Gleicher Fehler, gleiche Lösung
+  // wie bei den Erscheinungsbild-Knöpfen (SettingsScreen, modeTextActive).
+  vorgabeTextAn: { color: colors.panel, fontWeight: '700' },
   feinZeile: {
     flexDirection: 'row',
     alignItems: 'center',
