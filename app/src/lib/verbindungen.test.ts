@@ -1,6 +1,7 @@
 /** Die reinen Teile der Verbindungen-Seite. */
 
 import {
+  anbieterName,
   erinnerungsWort,
   geraetZeile,
   gueltigeKalenderId,
@@ -33,6 +34,14 @@ describe('eingaben pruefen', () => {
     expect(gueltigerHost('192.168.1.35')).toBe(true);
     expect(gueltigerHost('chromecast.local')).toBe(true);
     expect(gueltigerHost('10.0.0.1; rm -rf')).toBe(false);
+  });
+});
+
+describe('anbieterName', () => {
+  it('nennt den namen, der im browser auftaucht', () => {
+    expect(anbieterName('kalender')).toBe('Google');
+    expect(anbieterName('spotify')).toBe('Spotify');
+    expect(anbieterName('googlehome')).toBe('');
   });
 });
 

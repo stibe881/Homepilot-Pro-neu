@@ -121,6 +121,18 @@ def technischer_name(paare: dict[str, str], name: str) -> str:
     return name
 
 
+def anmelde_url(client_id: str) -> str:
+    """Die Spotify-Anmeldeadresse zu dieser Client-ID (rein, testbar).
+
+    Von CLI-Helfer und App-Anmeldung gemeinsam benutzt - zwei Stellen,
+    die dieselbe Adresse bauen, driften sonst irgendwann auseinander.
+    """
+    return (
+        f"{AUTHORIZE}?client_id={quote(client_id)}&response_type=code"
+        f"&redirect_uri={quote(REDIRECT)}&scope={quote(SCOPES)}"
+    )
+
+
 def extract_code(text: str) -> str:
     """Holt den OAuth-Code aus einer ganzen Redirect-Adresse oder gibt die
     Eingabe unverändert zurück, wenn sie schon der Code ist (rein, testbar)."""
@@ -1172,10 +1184,7 @@ async def _login_main(config_path: str) -> int:
         print("✗ Client-ID und Client-Secret sind nötig (developer.spotify.com).")
         return 1
 
-    auth_url = (
-        f"{AUTHORIZE}?client_id={quote(client_id)}&response_type=code"
-        f"&redirect_uri={quote(REDIRECT)}&scope={quote(SCOPES)}"
-    )
+    auth_url = anmelde_url(client_id)
     print("\n1. Diese Adresse im Browser öffnen und zustimmen:\n")
     print(f"   {auth_url}\n")
     print(

@@ -49,6 +49,19 @@ export function dienstSymbol(key: string): string {
 }
 
 /**
+ * Bei wem man sich da anmeldet.
+ *
+ * Der Dienst heisst auf der Karte «Kalender», aber angemeldet wird man
+ * bei Google - der Knopf muss den Namen tragen, der gleich im Browser
+ * auftaucht, sonst stutzt man genau im falschen Moment.
+ */
+export function anbieterName(key: string): string {
+  if (key === 'kalender') return 'Google';
+  if (key === 'spotify') return 'Spotify';
+  return '';
+}
+
+/**
  * Eine Kalender-Adresse lesbar machen.
  *
  * «primary» ist Googles Wort für den Hauptkalender des Kontos, und die

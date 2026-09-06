@@ -49,6 +49,22 @@ SCOPE = "https://www.googleapis.com/auth/calendar.events"
 REDIRECT = "http://127.0.0.1:8888"
 
 
+def anmelde_url(client_id: str) -> str:
+    """Die Google-Anmeldeadresse zu dieser Client-ID (rein, testbar).
+
+    Von CLI-Helfer und App-Anmeldung gemeinsam benutzt. `prompt=consent`
+    erzwingt, dass Google wieder einen refresh_token mitgibt - beim
+    zweiten Zustimmen liesse er ihn sonst stillschweigend weg.
+    """
+    return (
+        "https://accounts.google.com/o/oauth2/v2/auth"
+        f"?client_id={quote(client_id)}"
+        f"&response_type=code&redirect_uri={quote(REDIRECT)}"
+        f"&scope={quote(SCOPE)}"
+        "&access_type=offline&prompt=consent"
+    )
+
+
 def build_event(
     summary: str, date: str, time_text: str = "", duration_minutes: int = 60
 ) -> dict[str, Any]:
@@ -546,13 +562,7 @@ async def _login_main(config_path: str) -> int:
         print("✗ client_id und client_secret sind nötig (OAuth-Client Typ Desktop).")
         return 1
 
-    auth_url = (
-        "https://accounts.google.com/o/oauth2/v2/auth"
-        f"?client_id={quote(client_id)}"
-        f"&response_type=code&redirect_uri={quote(REDIRECT)}"
-        f"&scope={quote(SCOPE)}"
-        "&access_type=offline&prompt=consent"
-    )
+    auth_url = anmelde_url(client_id)
     print("\n1. Diese Adresse im Browser öffnen und mit dem Google-Konto anmelden:\n")
     print(f"   {auth_url}\n")
     print(
