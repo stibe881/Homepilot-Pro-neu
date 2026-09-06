@@ -574,3 +574,115 @@ export function naechsteWocheFach(zeile: Eintrag, tagZeilen: Eintrag[]): string 
   );
   return partner ? String(partner.text ?? '').trim() || null : null;
 }
+
+// ── Zum Vorfreuen: Ferien- und Geburtstags-Countdown ─────────────────────
+
+/**
+ * Der Ferien-Satz aus der Schulferien-Entität (rein, testbar).
+ *
+ * Der Hub rechnet `next_in_days` längst (core/schulferien.py) - er wurde
+ * nur nie angezeigt. Kinder zählen Tage; die Seite soll es auch.
+ */
+export function ferienSatz(stand: Eintrag | null | undefined): string | null {
+  if (!stand || typeof stand !== 'object') return null;
+  if (stand.state === 'ferien') {
+    const name = typeof stand.name === 'string' && stand.name ? stand.name : '';
+    if (name === 'Feiertag') return 'Heute ist ein Feiertag - keine Schule!';
+    return name ? `Gerade sind ${name} - keine Schule!` : 'Gerade sind Ferien!';
+  }
+  const next = typeof stand.next === 'string' && stand.next ? stand.next : null;
+  const tage = typeof stand.next_in_days === 'number' ? stand.next_in_days : null;
+  if (!next || tage === null || tage < 0) return null;
+  if (tage === 0) return `Heute beginnen die ${next}!`;
+  if (tage === 1) return `Morgen beginnen die ${next}!`;
+  return `Noch ${tage} Tage bis zu den ${next}`;
+}
+
+/**
+ * Wie viele Tage bis zum nächsten Geburtstag (rein, testbar).
+ *
+ * Versteht die Schreibweisen der Kontaktliste: «25.08.2015», «25.08.»
+ * und ISO. Das Jahr ist egal - gezählt wird bis zum nächsten Auftreten
+ * von Tag und Monat, heute zählt als 0.
+ */
+export function geburtstagInTagen(birthday: unknown, heute: Date): number | null {
+  const text = String(birthday ?? '').trim();
+  if (!text) return null;
+  let tag: number | null = null;
+  let monat: number | null = null;
+  const schweizer = text.match(/^(\d{1,2})\.(\d{1,2})\.?/);
+  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (schweizer) {
+    tag = Number(schweizer[1]);
+    monat = Number(schweizer[2]);
+  } else if (iso) {
+    tag = Number(iso[3]);
+    monat = Number(iso[2]);
+  }
+  if (!tag || !monat || monat > 12 || tag > 31) return null;
+  const start = new Date(heute.getFullYear(), heute.getMonth(), heute.getDate());
+  let naechster = new Date(heute.getFullYear(), monat - 1, tag);
+  if (naechster < start) naechster = new Date(heute.getFullYear() + 1, monat - 1, tag);
+  return Math.round((naechster.getTime() - start.getTime()) / 86400000);
+}
+
+/**
+ * Der Geburtstags-Satz fürs Kind (rein, testbar).
+ *
+ * Nur die letzten 99 Tage: Ein Countdown, der bei 320 anfängt, ist
+ * keiner mehr - er steht dann monatelang unbeachtet da und stumpft ab.
+ */
+export function geburtstagSatz(
+  kontakte: Eintrag[] | null | undefined,
+  name: string,
+  heute: Date
+): string | null {
+  const gesucht = name.trim().toLowerCase();
+  const kontakt = (kontakte ?? []).find(
+    (eintrag) => String(eintrag?.text ?? '').trim().toLowerCase() === gesucht
+  );
+  const tage = geburtstagInTagen(kontakt?.birthday, heute);
+  if (tage === null || tage > 99) return null;
+  if (tage === 0) return 'Heute hast du Geburtstag - alles Gute!';
+  if (tage === 1) return 'Morgen hast du Geburtstag!';
+  return `Noch ${tage} Tage bis zu deinem Geburtstag`;
+}
+
+// ── Die Packliste: was morgen in den Thek gehört ─────────────────────────
+
+/**
+ * Die Gegenstände dieses Kindes für einen Tag (rein, testbar).
+ *
+ * Ein Eintrag ohne Woche gilt jede Woche, «A»/«B» nur in der ihren -
+ * dieselbe Regel wie beim Stundenplan (fuerWoche), und der Hub rechnet
+ * am Vorabend gleich (core/packliste.py).
+ */
+export function packlisteFuer(
+  gear: Eintrag[] | null | undefined,
+  name: string,
+  wann: Date
+): Eintrag[] {
+  const tag = tagVon(wann);
+  return fuerWoche(
+    (gear ?? []).filter(
+      (zeile) =>
+        String(zeile?.member ?? '') === name && String(zeile?.day ?? '') === tag
+    ),
+    wocheVon(wann)
+  );
+}
+
+/** «Morgen mitnehmen: Turnsack, Flöte» - oder nichts (rein, testbar). */
+export function morgenPackSatz(
+  gear: Eintrag[] | null | undefined,
+  name: string,
+  jetzt: Date
+): string | null {
+  const morgen = new Date(jetzt.getFullYear(), jetzt.getMonth(), jetzt.getDate() + 1);
+  const sachen = packlisteFuer(gear, name, morgen).map((zeile) =>
+    String(zeile.text ?? '').trim()
+  );
+  const liste = sachen.filter(Boolean);
+  if (liste.length === 0) return null;
+  return `Morgen mitnehmen: ${liste.join(', ')}`;
+}

@@ -64,6 +64,7 @@ LEISE: frozenset[str] = frozenset(
         "maintenance",
         "shopping",
         "birthday",
+        "packlist",
         "weekahead",
         "morning",
     }
@@ -224,6 +225,7 @@ CATEGORIES: dict[str, str] = {
     "calendar": "Termin steht an",
     "medication": "Medikament fällig",
     "birthday": "Geburtstag heute",
+    "packlist": "Packliste für morgen",
     "morning": "Morgen-Zusammenfassung",
     "presence": "Ortung: schwacher Akku, Funkstille",
     "weekahead": "Wochenausblick am Sonntag",
@@ -253,7 +255,7 @@ GROUPS: list[tuple[str, tuple[str, ...]]] = [
     # Dringend bleibt sie unabhängig von der Gruppe - die Einteilung
     # sortiert nur die Schalter, über die Zustellung entscheidet LEISE.
     ("Familie", ("baby_cry", "birthday", "calendar", "departure", "medication",
-                 "tasks", "shopping", "weekahead", "presence")),
+                 "tasks", "shopping", "packlist", "weekahead", "presence")),
     ("Betrieb", ("outage", "flattern", "device_down", "battery", "disk", "morning")),
     # Leer, und trotzdem hier: Unter dieser Überschrift stehen die
     # Nachrichten aus selbst gebauten Abläufen. Sie haben keinen festen

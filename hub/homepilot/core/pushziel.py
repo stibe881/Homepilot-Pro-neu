@@ -67,6 +67,9 @@ ZIELE: dict[str, str] = {
     "medication": "familie:medications",
     "birthday": "familie:kalender",
     "weekahead": "familie:woche",
+    # Die Packliste steht auf der Kinderseite - erreichbar über das
+    # Mitglieder-Raster, in dem die Kinder wohnen.
+    "packlist": "familie:members",
     # Wer wo ist, steht unter «Familie und Freunde».
     "presence": "bereich:personen",
     # Bewegung sieht man auf der Kamera - welche, sagt die Nachricht

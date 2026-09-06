@@ -44,6 +44,7 @@ from . import (
     morgen,
     notifyrules,
     ofen,
+    packliste,
     personen,
     presence,
     pushziel,
@@ -465,6 +466,7 @@ class Watchdog:
         await self._check_emergency()
         await self._check_presence()
         await self._check_week_ahead()
+        await self._check_packliste()
         await self._check_losfahren(entities)
         await self._check_family_cleanup()
         await self._check_meal_plan()
@@ -1295,6 +1297,28 @@ class Watchdog:
         if not text:
             return
         await self._notify("Die kommende Woche", text, category="weekahead")
+
+    async def _check_packliste(self) -> None:
+        """Was morgen in den Thek gehört - am Vorabend (core/packliste.py).
+
+        Der Stundenplan weiss, wann Sport ist; dass dann der Turnsack
+        mitmuss, wusste bisher nur der Kopf der Eltern - und der Abend
+        um neun ist der Moment, in dem er es vergisst. Ohne Einträge
+        für morgen kommt nichts.
+        """
+        jetzt = datetime.now()
+        stunde = int(self.rules["packlist"]["params"].get("hour", 19))
+        if jetzt.hour != stunde:
+            return
+        heute = jetzt.strftime("%Y-%m-%d")
+        if not self._einmal(f"packlist:{heute}"):
+            return
+        morgen = (jetzt + timedelta(days=1)).date()
+        zeilen = packliste.morgen_zeilen(self.hub.data.get("family_gear"), morgen)
+        text = packliste.satz(zeilen)
+        if not text:
+            return
+        await self._notify("Packliste für morgen", text, category="packlist")
 
     async def _check_family_cleanup(self) -> None:
         """Erledigtes verschwindet von selbst (Punkt 170).

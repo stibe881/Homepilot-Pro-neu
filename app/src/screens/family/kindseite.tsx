@@ -37,7 +37,10 @@ import { terminWann } from '../../lib/kalenderliste';
 import {
   TAGE,
   TAG_NAMEN,
+  ferienSatz,
+  geburtstagSatz,
   heuteSatz,
+  morgenPackSatz,
   kindTermine,
   naechstesMal,
   MINUTE_PUNKTE,
@@ -62,7 +65,7 @@ import { Colors, radius } from '../../theme';
 import { BackHead, FamilyItem, Styles } from './bausteine';
 
 /** Die beiden wöchentlichen Listen beim Hub. */
-export type Wochenliste = 'lessons' | 'activities';
+export type Wochenliste = 'lessons' | 'activities' | 'gear';
 
 /** Luft über und unter der Zeitachse, damit die erste und letzte
  *  Stundenbeschriftung nicht an der Kartenkante klebt. */
@@ -113,6 +116,80 @@ function Tagesreihe({
           ) : null}
         </Pressable>
       ))}
+    </View>
+  );
+}
+
+/**
+ * Das Formular für einen Packlisten-Gegenstand.
+ *
+ * Bewusst schmaler als das Wochen-Formular: Ein Gegenstand hat keinen
+ * Anfang und kein Ende - nur einen Namen, einen Tag und auf Wunsch die
+ * A- oder B-Woche (die Flöte nur, wenn Musik ist).
+ */
+function PackForm({
+  tag,
+  onTag,
+  dieseWoche,
+  onAdd,
+  styles,
+  colors,
+}: {
+  tag: string;
+  onTag: (tag: string) => void;
+  dieseWoche: Woche;
+  onAdd: (zeile: FamilyItem) => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const [text, setText] = useState('');
+  const [woche, setWoche] = useState<'' | Woche>('');
+
+  const submit = () => {
+    const name = text.trim();
+    if (!name) return;
+    onAdd({ day: tag, text: name, ...(woche ? { week: woche } : {}) });
+    setText('');
+    setWoche('');
+  };
+
+  return (
+    <View style={{ gap: 8, marginTop: 4 }}>
+      <Tagesreihe gewaehlt={tag} onWaehlen={onTag} styles={styles} colors={colors} />
+      <View style={styles.addRow}>
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={text}
+          onChangeText={setText}
+          placeholder="Turnsack, Flöte, Bibliotheksbuch …"
+          placeholderTextColor={colors.inkSoft}
+          onSubmitEditing={submit}
+        />
+        <Pressable
+          onPress={submit}
+          style={[styles.addButton, !text.trim() && { opacity: 0.5 }]}
+          accessibilityLabel={`Am ${TAG_NAMEN[tag]} mitnehmen`}
+        >
+          <Ionicons name="add" size={22} color="#FFFFFF" />
+        </Pressable>
+      </View>
+      <View style={styles.chipRow}>
+        {(['', 'A', 'B'] as const).map((wahl) => (
+          <Pressable
+            key={wahl || 'jede'}
+            onPress={() => setWoche(wahl)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: woche === wahl }}
+            style={[styles.chip, woche === wahl && styles.chipActive]}
+          >
+            <Text style={[styles.chipText, woche === wahl && styles.chipTextActive]}>
+              {wahl === ''
+                ? 'Jede Woche'
+                : `Woche ${wahl}${wahl === dieseWoche ? ' · diese' : ''}`}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
     </View>
   );
 }
@@ -260,6 +337,9 @@ export function Kindseite({
   ziel,
   events,
   jetzt,
+  ferien,
+  kontakte,
+  sachen,
   onBack,
   onAdd,
   onRemove,
@@ -284,6 +364,12 @@ export function Kindseite({
   /** Die Termine aus dem Kalender, so weit die Seite sie hat. */
   events: FamilyItem[];
   jetzt: Date;
+  /** Der Zustand der Schulferien-Entität - für den Ferien-Countdown. */
+  ferien?: FamilyItem | null;
+  /** Die Familienkontakte - der Geburtstag des Kindes steht dort. */
+  kontakte?: FamilyItem[];
+  /** «gear» - die Packliste: was an welchem Tag in den Thek gehört. */
+  sachen?: FamilyItem[];
   onBack: () => void;
   onAdd: (liste: Wochenliste, zeile: FamilyItem) => void;
   onRemove: (liste: Wochenliste, id: string) => void;
@@ -294,6 +380,7 @@ export function Kindseite({
   const heuteTag = tagVon(jetzt);
   const [schultag, setSchultag] = useState(heuteTag);
   const [terminTag, setTerminTag] = useState(heuteTag);
+  const [packTag, setPackTag] = useState(heuteTag);
   const [formOffen, setFormOffen] = useState<Wochenliste | null>(null);
 
   const plan = wochenplan(lektionen, name);
@@ -332,6 +419,14 @@ export function Kindseite({
   const frei = nachmittagFrei(tagesplan);
   const andereTage = schultage.filter((tag) => tag !== schultag);
   const woche = wochenliste(termine, name);
+  // Die Packliste dieses Kindes, in der Ordnung der Woche - so liest
+  // sie sich wie der Stundenplan, nicht wie ein Eingabeprotokoll.
+  const meineSachen = TAGE.flatMap((tag) =>
+    (sachen ?? []).filter(
+      (eintrag) =>
+        String(eintrag?.member ?? '') === name && String(eintrag?.day ?? '') === tag
+    )
+  );
   const naechste = kindTermine(events, name, jetzt);
 
   const zeile = (
@@ -384,7 +479,45 @@ export function Kindseite({
       <Card style={styles.listCard}>
         <Text style={eigen.kartenTitel}>Heute</Text>
         <Text style={eigen.heute}>{heuteSatz(lektionen, termine, name, jetzt)}</Text>
+        {/* Der Blick nach vorn: Was morgen in den Thek gehört, will man
+            am Abend wissen, nicht am Morgen um sieben. */}
+        {(() => {
+          const packZeile = morgenPackSatz(sachen, name, jetzt);
+          return packZeile ? (
+            <View style={eigen.vorfreudeZeile}>
+              <Ionicons name="bag-handle-outline" size={16} color={colors.accent} />
+              <Text style={eigen.heute}>{packZeile}</Text>
+            </View>
+          ) : null;
+        })()}
       </Card>
+
+      {/* Zum Vorfreuen: Kinder zählen Tage - bis zu den Ferien und bis
+          zum eigenen Geburtstag. Beides rechnet der Hub längst
+          (schulferien.heute, family_contacts); es stand nur nie da.
+          Ohne Daten gibt es keine Karte statt einer leeren. */}
+      {(() => {
+        const ferienZeile = ferienSatz(ferien);
+        const geburtstagZeile = geburtstagSatz(kontakte, name, jetzt);
+        if (!ferienZeile && !geburtstagZeile) return null;
+        return (
+          <Card style={styles.listCard}>
+            <Text style={eigen.kartenTitel}>Zum Vorfreuen</Text>
+            {ferienZeile ? (
+              <View style={eigen.vorfreudeZeile}>
+                <Ionicons name="sunny-outline" size={18} color={colors.accent} />
+                <Text style={eigen.heute}>{ferienZeile}</Text>
+              </View>
+            ) : null}
+            {geburtstagZeile ? (
+              <View style={eigen.vorfreudeZeile}>
+                <Ionicons name="gift-outline" size={18} color={colors.accent} />
+                <Text style={eigen.heute}>{geburtstagZeile}</Text>
+              </View>
+            ) : null}
+          </Card>
+        );
+      })()}
 
       {/* Ämtli-Sterne (Punkt 260): gross und freundlich - die Karte
           gehört dem Kind, nicht den Eltern. Ohne gesetztes Wochenziel
@@ -762,6 +895,47 @@ export function Kindseite({
           />
         ) : null}
       </Card>
+
+      {/* Die Packliste: Gegenstand ↔ Wochentag, einmal zugeordnet. Der
+          Hub fasst am Vorabend zusammen, was morgen mitmuss - die
+          Zeile dazu steht oben in der Heute-Karte und als Nachricht
+          bei den Eltern (core/packliste.py). */}
+      <Text style={styles.groupLabel}>Packliste</Text>
+      <Card style={styles.listCard}>
+        {meineSachen.length === 0 ? (
+          <Text style={styles.checkSub}>
+            Turnsack am Dienstag, Flöte am Donnerstag: Einmal eintragen, und
+            am Vorabend sagt das Haus, was morgen in den Thek gehört.
+          </Text>
+        ) : (
+          meineSachen.map((eintrag) =>
+            zeile(
+              eintrag,
+              'gear',
+              String(eintrag.text ?? ''),
+              [
+                TAG_NAMEN[String(eintrag.day ?? '')] ?? String(eintrag.day ?? ''),
+                eintrag.week === 'A' || eintrag.week === 'B'
+                  ? `nur Woche ${eintrag.week}`
+                  : '',
+              ]
+                .filter(Boolean)
+                .join(' · ')
+            )
+          )
+        )}
+        {formKnopf('gear', 'Gegenstand eintragen')}
+        {formOffen === 'gear' ? (
+          <PackForm
+            tag={packTag}
+            onTag={setPackTag}
+            dieseWoche={wocheVon(jetzt)}
+            onAdd={(neu) => onAdd('gear', neu)}
+            styles={styles}
+            colors={colors}
+          />
+        ) : null}
+      </Card>
     </View>
   );
 }
@@ -777,6 +951,7 @@ const makeStyles = (colors: Colors) =>
     zeile: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
     kartenTitel: { color: colors.ink, fontSize: 15, fontWeight: '700' },
     heute: { color: colors.inkSoft, fontSize: 14, lineHeight: 20 },
+    vorfreudeZeile: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     // Die Sterne: gross genug zum Zählen mit dem Finger. Die Reihe
     // bricht um, wenn das Ziel breiter ist als ein Telefon.
     sternReihe: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 8 },

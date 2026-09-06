@@ -778,6 +778,13 @@ export function FamilyScreen({
           ) ?? null
         )}
         events={verschmelze(kindEvents, events)}
+        // Der Ferien-Countdown kommt aus der Schulferien-Entität, der
+        // Geburtstag aus den Familienkontakten - beides liegt schon da.
+        ferien={
+          entities.find((entity) => entity.id === 'schulferien.heute')?.state ?? null
+        }
+        kontakte={data.contacts ?? []}
+        sachen={data.gear ?? []}
         // Frisch beim Zeichnen: `jetztTick` läuft nur, solange das
         // Rückgängig-Band steht, und wäre hier sonst die Uhrzeit von
         // vorgestern.

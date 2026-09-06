@@ -381,6 +381,24 @@ RULES: list[dict[str, Any]] = [
         ],
     },
     {
+        "key": "packlist",
+        "title": "Packliste am Vorabend",
+        "detail": "Steht in der Kinderseite, was an welchem Tag in den Thek "
+        "gehört (Turnsack am Dienstag), kommt am Abend vorher eine Nachricht "
+        "mit allem, was morgen mitmuss. Ohne Einträge für morgen kommt nichts.",
+        "params": [
+            {
+                "key": "hour",
+                "label": "Verschicken um",
+                "unit": "Uhr",
+                "default": 19,
+                "min": 16,
+                "max": 21,
+                "step": 1,
+            }
+        ],
+    },
+    {
         "key": "storm_covers",
         "title": "Sturm und Hagel: Storen hoch",
         "detail": "Meldet MeteoSchweiz Sturm, Hagel oder Gewitter (ab Stufe "

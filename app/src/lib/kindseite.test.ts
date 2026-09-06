@@ -6,8 +6,12 @@
  * Dienstagabend stimmt und nützt nichts.
  */
 import {
+  ferienSatz,
+  geburtstagInTagen,
+  geburtstagSatz,
   heute,
   heuteSatz,
+  morgenPackSatz,
   istKind,
   kindTermine,
   minuten,
@@ -404,5 +408,102 @@ describe('Zeitraster - der Tag als Stundenplan-Blatt', () => {
     expect(rasterLage('irgendwann', '09:05', raster)).toBeNull();
     // Ohne Ende gilt die übliche Lektion.
     expect(rasterLage('08:20', '', raster)?.hoehe).toBe(45 * MINUTE_PUNKTE);
+  });
+});
+
+// ── Zum Vorfreuen: Ferien- und Geburtstags-Countdown ─────────────────────
+
+describe('ferienSatz', () => {
+  it('zaehlt die tage bis zu den naechsten ferien', () => {
+    expect(
+      ferienSatz({ state: 'schultag', next: 'Herbstferien', next_in_days: 12 })
+    ).toBe('Noch 12 Tage bis zu den Herbstferien');
+    expect(
+      ferienSatz({ state: 'schultag', next: 'Herbstferien', next_in_days: 1 })
+    ).toBe('Morgen beginnen die Herbstferien!');
+    expect(
+      ferienSatz({ state: 'wochenende', next: 'Sportferien', next_in_days: 0 })
+    ).toBe('Heute beginnen die Sportferien!');
+  });
+
+  it('feiert die laufenden ferien statt zu zaehlen', () => {
+    expect(ferienSatz({ state: 'ferien', name: 'Sommerferien' })).toBe(
+      'Gerade sind Sommerferien - keine Schule!'
+    );
+    expect(ferienSatz({ state: 'ferien', name: 'Feiertag' })).toBe(
+      'Heute ist ein Feiertag - keine Schule!'
+    );
+  });
+
+  it('schweigt ohne daten - keine karte statt einer leeren', () => {
+    expect(ferienSatz(null)).toBeNull();
+    expect(ferienSatz({ state: 'schultag' })).toBeNull();
+  });
+});
+
+describe('geburtstagSatz', () => {
+  const heute = new Date(2026, 8, 6); // 6. September 2026
+
+  it('versteht die schreibweisen der kontaktliste', () => {
+    expect(geburtstagInTagen('25.09.2015', heute)).toBe(19);
+    expect(geburtstagInTagen('25.09.', heute)).toBe(19);
+    expect(geburtstagInTagen('2015-09-25', heute)).toBe(19);
+    expect(geburtstagInTagen('06.09.2015', heute)).toBe(0);
+    // Schon vorbei dieses Jahr: gezählt wird bis zum nächsten.
+    expect(geburtstagInTagen('01.01.2015', heute)).toBe(117);
+    expect(geburtstagInTagen('irgendwann', heute)).toBeNull();
+  });
+
+  it('findet das kind in den kontakten und zaehlt', () => {
+    const kontakte = [{ text: 'Livia', birthday: '25.09.2015' }];
+    expect(geburtstagSatz(kontakte, 'Livia', heute)).toBe(
+      'Noch 19 Tage bis zu deinem Geburtstag'
+    );
+    expect(geburtstagSatz(kontakte, 'livia ', heute)).toBe(
+      'Noch 19 Tage bis zu deinem Geburtstag'
+    );
+    expect(
+      geburtstagSatz([{ text: 'Livia', birthday: '06.09.2015' }], 'Livia', heute)
+    ).toBe('Heute hast du Geburtstag - alles Gute!');
+  });
+
+  it('faengt erst bei 99 tagen an - ein countdown ab 320 ist keiner', () => {
+    expect(
+      geburtstagSatz([{ text: 'Livia', birthday: '01.01.2015' }], 'Livia', heute)
+    ).toBeNull();
+    expect(geburtstagSatz([], 'Livia', heute)).toBeNull();
+  });
+});
+
+// ── Die Packliste: was morgen in den Thek gehört ─────────────────────────
+
+describe('morgenPackSatz', () => {
+  const gear = [
+    { member: 'Levin', text: 'Turnsack', day: 'Di' },
+    { member: 'Levin', text: 'Flöte', day: 'Di', week: 'A' },
+    { member: 'Lina', text: 'Malschürze', day: 'Di' },
+    { member: 'Levin', text: 'Fussballschuhe', day: 'Mi' },
+  ];
+  // Montag, 7. September 2026 - KW 37, also Woche A; morgen ist Dienstag.
+  const montagA = new Date(2026, 8, 7, 19, 0);
+  // Montag der KW 38 - Woche B.
+  const montagB = new Date(2026, 8, 14, 19, 0);
+
+  it('zaehlt auf, was morgen mitmuss - nur fuer dieses kind', () => {
+    expect(morgenPackSatz(gear, 'Levin', montagA)).toBe(
+      'Morgen mitnehmen: Turnsack, Flöte'
+    );
+    expect(morgenPackSatz(gear, 'Lina', montagA)).toBe('Morgen mitnehmen: Malschürze');
+  });
+
+  it('die floete bleibt in der b-woche zuhause', () => {
+    expect(morgenPackSatz(gear, 'Levin', montagB)).toBe('Morgen mitnehmen: Turnsack');
+  });
+
+  it('ohne eintraege fuer morgen kommt keine zeile', () => {
+    // Am Dienstagabend ist morgen Mittwoch - für Lina steht nichts an.
+    const dienstag = new Date(2026, 8, 8, 19, 0);
+    expect(morgenPackSatz(gear, 'Lina', dienstag)).toBeNull();
+    expect(morgenPackSatz([], 'Levin', montagA)).toBeNull();
   });
 });
