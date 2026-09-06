@@ -417,6 +417,52 @@ def test_abgleich_startet_aktualisiert_und_beendet():
     assert sorted(len(b["tokens"]) for b in beenden) == [0, 1]
 
 
+def test_wer_das_haus_verlaesst_verliert_die_fernseher_karte():
+    """Der Wunsch aus dem Haus: Beim Weggehen soll die Fernseher-Karte
+    vom Sperrbildschirm verschwinden - eine Fernbedienung im Zug ist nur
+    eine Karte im Weg. Der Fernseher läuft dabei weiter: Nicht die Karte
+    ist weg, nur diese Person steht in ``ohne`` (nicht_zuhause), und ihr
+    Exemplar endet sofort, ohne Nachbild."""
+    rows = [
+        {
+            "user": "Stefan",
+            "art": "tv:androidtv.wz",
+            "stand": "x",
+            "activity_tokens": ["tok-stefan"],
+            "aktualisiert": 0.0,
+        },
+        {
+            "user": "Bine",
+            "art": "tv:androidtv.wz",
+            "stand": "x",
+            "activity_tokens": ["tok-bine"],
+            "aktualisiert": 0.0,
+        },
+    ]
+    karte = {
+        "art": "tv:androidtv.wz",
+        "user": None,
+        "ohne": ["Stefan"],
+        "state": {"titel": "TV", "text": "an", "symbol": "tv"},
+    }
+    neue, starten, aktualisieren, beenden = abgleich(
+        rows, [karte], ["Stefan", "Bine"], 1000.0
+    )
+    # Stefans Exemplar endet sofort - Bines bleibt liegen: Sie sitzt ja
+    # noch vor dem Fernseher.
+    assert [auftrag["tokens"] for auftrag in beenden] == [["tok-stefan"]]
+    assert beenden[0]["sichtbar"] == 0.0 and beenden[0]["state"] is None
+    assert [row["user"] for row in neue] == ["Bine"]
+    assert starten == []
+
+    # Kommt Stefan heim (und der Fernseher läuft noch), startet seine
+    # Karte frisch.
+    ohne_ohne = {**karte}
+    ohne_ohne.pop("ohne")
+    _, wieder, _, _ = abgleich(neue, [ohne_ohne], ["Stefan", "Bine"], 2000.0)
+    assert [auftrag["user"] for auftrag in wieder] == ["Stefan"]
+
+
 def test_abgleich_drosselt_updates():
     """Der Grill meldet im Sekundentakt - Apple deckelt das Budget, also
     frühestens alle UPDATE_ABSTAND Sekunden. Ein verworfenes Update ist
