@@ -105,6 +105,44 @@ function storage(): {
   };
 }
 
+/** Wie viele Knöpfe wirklich in der Ablage liegen - zurückgelesen,
+ *  nicht geglaubt. Null, wenn dort nichts (Lesbares) liegt. */
+export function abgelegteKnoepfe(): number | null {
+  const store = storage();
+  if (store === null) return null;
+  try {
+    const roh = store.get('buttons');
+    if (!roh) return null;
+    const liste = JSON.parse(roh);
+    return Array.isArray(liste) ? liste.length : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Die Lesespur des Widgets: Unix-Sekunden seines letzten Laufs.
+ *
+ *  Das Zurücklesen in syncWidget beweist nur, dass *dieser* Prozess
+ *  seine eigene Ablage sieht. Ob der Widget-Prozess dieselben Daten
+ *  bekommt, war bisher unbeweisbar - genau dort trennt sich «App-Gruppe
+ *  funktioniert» von «jeder schreibt in seinen eigenen Topf» (etwa,
+ *  wenn das Signierprofil die Gruppe nicht trägt). Deshalb hinterlässt
+ *  das Widget bei jedem Zeitplan-Lauf einen Zeitstempel in der Ablage
+ *  (index.swift); liegt er da, ist der Weg in beide Richtungen belegt.
+ *  Ältere Builds schreiben ihn nie - dann bleibt es bei null, was
+ *  ehrlich «kein Nachweis» heisst, nicht «kaputt». */
+export function widgetSpur(): number | null {
+  const store = storage();
+  if (store === null) return null;
+  try {
+    const roh = store.get('widgetZuletztGelesen');
+    const zahl = roh ? Number(roh) : NaN;
+    return Number.isFinite(zahl) && zahl > 0 ? zahl : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Die Innenansicht für die Warnung: was die Hülle wirklich meldet.
  *
  *  Solange «Hülle zu alt» dastand, obwohl der neuste Build lief, war

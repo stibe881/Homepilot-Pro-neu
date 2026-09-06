@@ -15,8 +15,8 @@ import {
 import { Entity, Scene } from '../api/types';
 import { Card } from './Card';
 import { WidgetSetting } from './WidgetSetting';
-import { huelleZeile } from '../lib/huelle';
-import { Ablage, ablageEinblick } from '../lib/widget';
+import { ablageStand, huelleZeile } from '../lib/huelle';
+import { Ablage, abgelegteKnoepfe, ablageEinblick, widgetSpur } from '../lib/widget';
 import {
   MAX_BUTTONS,
   STANDARD,
@@ -102,9 +102,11 @@ export function Widgets({
   // der alten oder der frisch installierten Hülle entstand – beide
   // zeigten denselben Text, und die Suche drehte sich im Kreis.
   const huelle = huelleZeile(Constants.nativeBuildVersion, Updates.runtimeVersion);
-  // Nur im Warnfall nachsehen: Die Innenansicht fasst native Globals an,
-  // und das soll nicht bei jedem Öffnen der Einstellungen passieren.
+  // Nur im jeweiligen Fall nachsehen: Innenansicht und Ablage-Stand
+  // fassen native Module an, und das soll nicht bei jedem Öffnen der
+  // Einstellungen passieren.
   const einblick = ablage === 'huelle-alt' ? ablageEinblick() : '';
+  const stand = ablage === 'ok' ? ablageStand(abgelegteKnoepfe(), widgetSpur()) : '';
 
   const setzen = (next: string[]) => onButtons(next.slice(0, MAX_BUTTONS));
 
@@ -303,6 +305,65 @@ export function Widgets({
             </ScrollView>
           </>
         ) : null}
+
+        {/* Der Stand der geteilten Ablage - hier oben, in der ersten
+            Karte. Er stand lange am Ende der dritten und fiel damit aus
+            jedem Bildschirmfoto: Wochenlang liess sich aus «das Widget
+            zeigt meine Knöpfe nicht» samt Foto nicht ablesen, was die
+            Ablage überhaupt meldet. Was den Fehler erklärt, gehört
+            neben die Liste, um die es geht. */}
+        {ablage === 'ok' ? (
+          <View style={styles.warn}>
+            <Ionicons name="checkmark-circle-outline" size={18} color={colors.on} />
+            <Text style={styles.warnText}>
+              Die geteilte Ablage antwortet – Knöpfe und Hausstand
+              liegen für das Widget bereit. Zeigt es trotzdem die
+              Standardknöpfe, hilft meist: Widget vom Bildschirm
+              entfernen und neu hinzufügen.
+              {stand ? ` ${stand}` : ''}
+              {huelle ? ` ${huelle}.` : ''}
+            </Text>
+          </View>
+        ) : null}
+        {ablage === 'huelle-alt' ? (
+          // Der zweite stumme Fall: Das native Ablage-Modul steckt
+          // nicht in der installierten Hülle. Ein OTA-Update kann es
+          // nicht nachliefern - der Hinweis muss das sagen, sonst
+          // wartet man auf ein Update, das nie hilft.
+          <View style={styles.warn}>
+            <Ionicons name="alert-circle-outline" size={18} color={colors.warn} />
+            <Text style={styles.warnText}>
+              Die installierte App kennt die Widget-Ablage noch nicht –
+              Knöpfe und Hausstand erreichen das Widget deshalb nicht,
+              es bleibt bei den Standardknöpfen. Das kann kein
+              nachgeladenes Update beheben. Steht das hier auch nach
+              der Installation des neusten TestFlight-Builds noch, ist
+              dieser Build selbst zu alt: Erst ein Update mit
+              «Hub + App-Builds» erzeugt einen neuen – der taucht nach
+              dem Bauen in TestFlight auf und gehört dann installiert.
+              {huelle ? ` ${huelle}.` : ''}
+              {einblick ? ` ${einblick}` : ''}
+            </Text>
+          </View>
+        ) : null}
+        {ablage === 'fehlt' ? (
+          // Der Fall, der sonst als «nicht erreichbar» im Widget
+          // endet und wie eine Netzstörung aussieht: Die App-Gruppe
+          // ist im Apple-Portal nicht eingerichtet. iOS schluckt
+          // jedes Schreiben stillschweigend, die App merkt es nur,
+          // weil sie zurückliest.
+          <View style={styles.warn}>
+            <Ionicons name="alert-circle-outline" size={18} color={colors.warn} />
+            <Text style={styles.warnText}>
+              Die geteilte Ablage antwortet nicht – das Widget bleibt
+              bei den Standardknöpfen und zeigt keinen Hausstand. Meist
+              fehlt die App-Gruppe im Apple-Entwickler-Portal; sie muss
+              dort angelegt und beiden Kennungen zugewiesen sein
+              (Anleitung in docs/eigener-app-build.md). Danach braucht
+              es einen neuen Build.
+            </Text>
+          </View>
+        ) : null}
       </Card>
 
       <WidgetSetting enabled={dataEnabled} onChange={onDataEnabled} />
@@ -335,62 +396,6 @@ export function Widgets({
               Hinzufügen bei sich. Änderungen hier sind dagegen sofort da,
               ohne das Widget neu anzulegen.
             </Text>
-            {/* Der Stand der geteilten Ablage steht immer da - nicht nur
-                im Fehlerfall. «Das Widget zeigt meine Knöpfe nicht» hat
-                zwei stumme Ursachen mit zwei verschiedenen Abhilfen, und
-                wer hier nachsieht, soll lesen, welche gilt - statt zu
-                raten, ob überhaupt etwas ankommt. */}
-            {ablage === 'ok' ? (
-              <View style={styles.warn}>
-                <Ionicons name="checkmark-circle-outline" size={18} color={colors.on} />
-                <Text style={styles.warnText}>
-                  Die geteilte Ablage antwortet – Knöpfe und Hausstand
-                  liegen für das Widget bereit. Zeigt es trotzdem die
-                  Standardknöpfe, hilft meist: Widget vom Bildschirm
-                  entfernen und neu hinzufügen.
-                  {huelle ? ` ${huelle}.` : ''}
-                </Text>
-              </View>
-            ) : null}
-            {ablage === 'huelle-alt' ? (
-              // Der zweite stumme Fall: Das native Ablage-Modul steckt
-              // nicht in der installierten Hülle. Ein OTA-Update kann es
-              // nicht nachliefern - der Hinweis muss das sagen, sonst
-              // wartet man auf ein Update, das nie hilft.
-              <View style={styles.warn}>
-                <Ionicons name="alert-circle-outline" size={18} color={colors.warn} />
-                <Text style={styles.warnText}>
-                  Die installierte App kennt die Widget-Ablage noch nicht –
-                  Knöpfe und Hausstand erreichen das Widget deshalb nicht,
-                  es bleibt bei den Standardknöpfen. Das kann kein
-                  nachgeladenes Update beheben. Steht das hier auch nach
-                  der Installation des neusten TestFlight-Builds noch, ist
-                  dieser Build selbst zu alt: Erst ein Update mit
-                  «Hub + App-Builds» erzeugt einen neuen – der taucht nach
-                  dem Bauen in TestFlight auf und gehört dann installiert.
-                  {huelle ? ` ${huelle}.` : ''}
-                  {einblick ? ` ${einblick}` : ''}
-                </Text>
-              </View>
-            ) : null}
-            {ablage === 'fehlt' ? (
-              // Der Fall, der sonst als «nicht erreichbar» im Widget
-              // endet und wie eine Netzstörung aussieht: Die App-Gruppe
-              // ist im Apple-Portal nicht eingerichtet. iOS schluckt
-              // jedes Schreiben stillschweigend, die App merkt es nur,
-              // weil sie zurückliest.
-              <View style={styles.warn}>
-                <Ionicons name="alert-circle-outline" size={18} color={colors.warn} />
-                <Text style={styles.warnText}>
-                  Die geteilte Ablage antwortet nicht – das Widget bleibt
-                  bei den Standardknöpfen und zeigt keinen Hausstand. Meist
-                  fehlt die App-Gruppe im Apple-Entwickler-Portal; sie muss
-                  dort angelegt und beiden Kennungen zugewiesen sein
-                  (Anleitung in docs/eigener-app-build.md). Danach braucht
-                  es einen neuen Build.
-                </Text>
-              </View>
-            ) : null}
           </>
         ) : (
           <Text style={styles.hint}>

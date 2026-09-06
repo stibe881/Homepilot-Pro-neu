@@ -1,4 +1,4 @@
-import { ablageDiagnose, bauZeitIso, huelleZeile } from './huelle';
+import { ablageDiagnose, ablageStand, bauZeitIso, huelleZeile } from './huelle';
 
 describe('bauZeitIso', () => {
   test('eine Minuten-Nummer wird zum Bau-Zeitpunkt', () => {
@@ -78,6 +78,32 @@ describe('ablageDiagnose', () => {
   test('ohne verwandte Namen bleibt es bei der Zaehlung', () => {
     expect(ablageDiagnose(true, ['ExpoFont', 'ExpoVideo'], false)).toBe(
       'Innenansicht: 2 native Module gemeldet, keines heisst «ExtensionStorage».'
+    );
+  });
+});
+
+describe('ablageStand', () => {
+  test('nennt Knopfzahl und Lesespur des Widgets', () => {
+    // 06.09.2026, 06:00 UTC - die genaue Ortszeit-Darstellung gehört
+    // epochTime; hier zählt, dass beide Hälften im Satz stehen.
+    const zeile = ablageStand(5, 1788681600);
+    expect(zeile).toContain('5 Knöpfe liegen zurückgelesen');
+    expect(zeile).toContain('das Widget hat zuletzt');
+  });
+
+  test('fehlende Spur wird offen gesagt statt Erfolg behauptet', () => {
+    expect(ablageStand(5, null)).toBe(
+      '5 Knöpfe liegen zurückgelesen in der Ablage; eine Lesespur des Widgets liegt noch nicht da.'
+    );
+  });
+
+  test('ein einzelner Knopf steht in der Einzahl', () => {
+    expect(ablageStand(1, null)).toContain('1 Knopf liegt zurückgelesen');
+  });
+
+  test('ohne Knopfzahl bleibt die Spur allein uebrig', () => {
+    expect(ablageStand(null, null)).toBe(
+      'Eine Lesespur des Widgets liegt noch nicht da.'
     );
   });
 });
