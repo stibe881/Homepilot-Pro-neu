@@ -109,6 +109,43 @@ def test_low_batteries_are_found():
     assert [item.id for item in low_batteries(entities)] == ["a"]
 
 
+def test_low_batteries_also_by_threshold_but_never_phones():
+    """Punkt 258: Auch der Prozentwert zählt - ein Sensor auf 4 %, dessen
+    Integration das low_battery-Flag nicht kennt, blieb sonst unerwähnt,
+    bis er still war. Die Telefone bleiben draussen: Ihre Warnung wohnt
+    bei der Ortung, sonst käme sie doppelt."""
+
+    def entity(entity_id: str, integration: str, **state):
+        return type(
+            "E",
+            (),
+            {
+                "id": entity_id,
+                "name": entity_id,
+                "label": entity_id,
+                "integration": integration,
+                "state": state,
+            },
+        )()
+
+    entities = [
+        entity("hm.sensor", "homematic", battery=4),
+        entity("hm.voll", "homematic", battery=80),
+        # Eine 0 vom Sensor zählt mit: Er funkt ja noch (anders als beim
+        # Telefon, Punkt 237, wo 0 «keine Auskunft» heissen kann).
+        entity("z2m.leer", "zigbee2mqtt", battery=0),
+        # True wäre als Zahl eine 1 - ein Flag ist aber kein Prozentwert.
+        entity("z2m.flag", "zigbee2mqtt", battery=True),
+        entity("geofence.bine", "geofence", battery=3),
+    ]
+    assert [item.id for item in low_batteries(entities, 10)] == [
+        "hm.sensor",
+        "z2m.leer",
+    ]
+    # Ohne Schwelle bleibt es beim Flag - für Aufrufer von früher.
+    assert low_batteries(entities) == []
+
+
 async def test_a_weak_battery_is_reported_once():
     hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
     await hub.start()

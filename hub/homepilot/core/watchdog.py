@@ -902,7 +902,17 @@ class Watchdog:
         gebaut = morgen.satz(
             morgen.zeilen(
                 offen=[entity.label for entity in open_contacts(entities)],
-                schwach=[entity.label for entity in low_batteries(entities)],
+                # Dieselbe Schwelle wie die Warnung selbst - sonst nennt
+                # die Morgen-Nachricht andere Geräte als die Batterie-Push.
+                schwach=[
+                    entity.label
+                    for entity in low_batteries(
+                        entities,
+                        batterie.prefs_lesen(
+                            self.hub.data.get(batterie.PREFS_KEY)
+                        )["threshold"],
+                    )
+                ],
                 stumm=sorted(
                     self.hub.registry.get(entity_id).label
                     for entity_id in self._reported_down
@@ -1846,18 +1856,29 @@ class Watchdog:
             rows = batterie.vergiss(rows, wieder_gut)
             self.hub.data.set(batterie.STORE_KEY, rows)
 
-        for entity in low_batteries(entities):
-            if not batterie.soll_melden(rows, entity.id, jetzt):
+        # Stunde und Schwelle aus den Push-Einstellungen (Punkt 258):
+        # sofort melden, dann täglich zur Erinnerungsstunde, bis die
+        # Batterie gewechselt ist.
+        prefs = batterie.prefs_lesen(self.hub.data.get(batterie.PREFS_KEY))
+        for entity in low_batteries(entities, prefs["threshold"]):
+            if not batterie.soll_melden(rows, entity.id, jetzt, prefs["hour"]):
                 continue
             # Vormerken *bevor* die Meldung rausgeht: Scheitert der
             # Versand, soll er nicht in der nächsten Minute erneut
             # versucht werden (wie in `_einmal`).
             rows = batterie.merke_meldung(rows, entity.id, jetzt)
             self.hub.data.set(batterie.STORE_KEY, rows)
+            stand = entity.state.get("battery")
+            prozent = (
+                f"Noch {int(stand)} %. "
+                if isinstance(stand, (int, float)) and not isinstance(stand, bool)
+                else ""
+            )
             await self._notify(
                 f"Batterie schwach: {entity.label}",
-                "Das Gerät meldet eine schwache Batterie. Danach ist es still, "
-                "ohne sich abzumelden.",
+                f"{prozent}Danach ist das Gerät still, ohne sich abzumelden. "
+                f"Der Hub erinnert täglich um {prefs['hour']} Uhr, bis die "
+                "Batterie gewechselt ist.",
                 "battery",
                 # Damit ein Tipp auf die Nachricht direkt zu den Batterien
                 # führt, statt nur die App zu öffnen.

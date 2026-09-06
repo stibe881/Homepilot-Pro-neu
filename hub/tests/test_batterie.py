@@ -16,17 +16,62 @@ from homepilot.core.hub import Hub
 from homepilot.core.watchdog import Watchdog
 
 
-def test_a_warning_goes_out_once_and_not_again():
-    """Eine schwache Batterie bleibt wochenlang schwach. Jeden Tag daran
-    zu erinnern macht sie nicht voller."""
-    jetzt = 1_000_000.0
-    rows: list = []
-    assert batterie.soll_melden(rows, "hm.melder", jetzt) is True
+def test_a_warning_goes_out_immediately_and_then_daily_at_the_hour():
+    """Sofort melden, dann täglich zur Erinnerungsstunde (Punkt 258).
 
-    rows = batterie.merke_meldung(rows, "hm.melder", jetzt)
-    assert batterie.soll_melden(rows, "hm.melder", jetzt) is False
-    # Auch eine Woche später nicht – der Merker liegt auf der Platte.
-    assert batterie.soll_melden(rows, "hm.melder", jetzt + 7 * 86400) is False
+    Früher hiess es «einmal und nie wieder» - und die eine Meldung
+    geriet in Vergessenheit, bis der Melder still war."""
+    mittag = datetime(2026, 9, 8, 12, 0).timestamp()
+    rows: list = []
+    assert batterie.soll_melden(rows, "hm.melder", mittag) is True
+
+    rows = batterie.merke_meldung(rows, "hm.melder", mittag)
+    # Am selben Tag bleibt es bei der einen Meldung.
+    assert batterie.soll_melden(rows, "hm.melder", mittag + 4 * 3600) is False
+    # Am nächsten Morgen kurz vor der Stunde: noch nicht.
+    kurz_davor = datetime(2026, 9, 9, 7, 59).timestamp()
+    assert batterie.soll_melden(rows, "hm.melder", kurz_davor) is False
+    # Zur Erinnerungsstunde: wieder.
+    acht = datetime(2026, 9, 9, 8, 0).timestamp()
+    assert batterie.soll_melden(rows, "hm.melder", acht) is True
+    # Und nach dieser Erinnerung wieder erst morgen.
+    rows = batterie.merke_meldung(rows, "hm.melder", acht)
+    assert batterie.soll_melden(rows, "hm.melder", acht + 3600) is False
+    assert (
+        batterie.soll_melden(
+            rows, "hm.melder", datetime(2026, 9, 10, 8, 0).timestamp()
+        )
+        is True
+    )
+
+
+def test_the_reminder_hour_is_configurable():
+    """Wer um 20 Uhr erinnert werden will, hört um 8 nichts."""
+    mittag = datetime(2026, 9, 8, 12, 0).timestamp()
+    rows = batterie.merke_meldung([], "hm.melder", mittag)
+    acht = datetime(2026, 9, 9, 8, 0).timestamp()
+    abend = datetime(2026, 9, 9, 20, 0).timestamp()
+    assert batterie.soll_melden(rows, "hm.melder", acht, stunde=20) is False
+    assert batterie.soll_melden(rows, "hm.melder", abend, stunde=20) is True
+
+
+def test_prefs_are_read_defensively():
+    """Klemmen statt Absturz: Auch eine kaputte Datei ergibt eine
+    brauchbare Stunde und Schwelle."""
+    assert batterie.prefs_lesen(None) == {"hour": 8, "threshold": 10}
+    assert batterie.prefs_lesen({"hour": 20, "threshold": 15}) == {
+        "hour": 20,
+        "threshold": 15,
+    }
+    # Stunde 25 und Schwelle 90 sind kein Wunsch, sondern ein Fehler.
+    assert batterie.prefs_lesen({"hour": 25, "threshold": 90}) == {
+        "hour": 23,
+        "threshold": 50,
+    }
+    assert batterie.prefs_lesen({"hour": "abends", "threshold": None}) == {
+        "hour": 8,
+        "threshold": 10,
+    }
 
 
 def test_acknowledging_is_a_delay_not_a_switch():

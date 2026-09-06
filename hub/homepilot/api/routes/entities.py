@@ -336,12 +336,17 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         if hub.registry.get(entity_id) is None:
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         jetzt = time.time()
-        rows = batterie.quittiere(hub.data.get(batterie.STORE_KEY), entity_id, jetzt)
+        # Bis zur eingestellten Erinnerungsstunde, nicht bis zur Vorgabe -
+        # sonst käme die Erinnerung früher, als die Einstellung verspricht.
+        stunde = batterie.prefs_lesen(hub.data.get(batterie.PREFS_KEY))["hour"]
+        rows = batterie.quittiere(
+            hub.data.get(batterie.STORE_KEY), entity_id, jetzt, stunde
+        )
         hub.data.set(batterie.STORE_KEY, rows)
         return {
             "ok": True,
             "entity_id": entity_id,
-            "muted_until": batterie.stumm_bis(jetzt),
+            "muted_until": batterie.stumm_bis(jetzt, stunde),
         }
 
     @app.delete("/api/batteries/{entity_id}/ack")
