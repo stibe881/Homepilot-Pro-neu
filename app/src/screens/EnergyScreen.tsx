@@ -294,6 +294,17 @@ export function EnergyScreen({
               key={entity.id}
               onPress={() => setExpanded(open ? null : entity.id)}
               accessibilityRole="button"
+              // Vorlesezeichen (Punkt 247 der Werkbank): Das Label nennt
+              // gleich den Wert - wer vorlesen lässt, soll nicht erst
+              // aufklappen müssen, um die eine Zahl zu hören.
+              accessibilityLabel={
+                `${entity.name}, ` +
+                (entity.state.power != null
+                  ? `${Math.round(watts)} Watt`
+                  : 'keine Leistung gemeldet') +
+                `, Verlauf ${open ? 'zuklappen' : 'anzeigen'}`
+              }
+              accessibilityState={{ expanded: open }}
               style={styles.row}
             >
               <Ionicons
@@ -375,7 +386,14 @@ function HoursCard({
           <Pressable
             key={key}
             onPress={() => setDay(key)}
-            accessibilityRole="button"
+            // «radio» wie bei den Dauer-Chips des Besuchsmodus: Von zwei
+            // Tagen ist immer genau einer gewählt - das sagt dem
+            // Vorlesen mehr als ein blosser Knopf (Punkt 247 der Werkbank).
+            accessibilityRole="radio"
+            accessibilityState={{ selected: day === key }}
+            accessibilityLabel={
+              key === 'today' ? 'Verbrauch von heute zeigen' : 'Verbrauch von gestern zeigen'
+            }
             style={[styles.hourChip, day === key && styles.hourChipActive]}
           >
             <Text
