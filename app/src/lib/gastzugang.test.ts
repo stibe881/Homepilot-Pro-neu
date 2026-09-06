@@ -1,4 +1,4 @@
-import { ablaufDatum, ablaufSatz } from './gastzugang';
+import { ablaufDatum, ablaufSatz, zugangsZeile } from './gastzugang';
 
 describe('Der spontane Gast-Zugang', () => {
   // Abends um Viertel nach zehn: Genau dann sitzt der Besuch auf dem
@@ -26,5 +26,20 @@ describe('Der spontane Gast-Zugang', () => {
       'Der Zugang endet am 6.9. um Mitternacht von selbst.'
     );
     expect(ablaufSatz(null)).toContain('läuft nicht ab');
+  });
+});
+
+describe('Der bestehende Gast-Zugang (Punkt 246)', () => {
+  it('nennt die Sperre vor dem Ablauf', () => {
+    // Ein gesperrter Zugang «endet» nicht - er ist zu. Das Ablaufdatum
+    // dazuzusagen wäre eine Auskunft über etwas, das gerade nicht gilt.
+    expect(zugangsZeile({ enabled: false, expires: '2026-09-06' })).toContain('Gesperrt');
+  });
+
+  it('sagt sonst, wann er endet', () => {
+    expect(zugangsZeile({ enabled: true, expires: '2026-09-06' })).toBe(
+      'Der Zugang endet am 6.9. um Mitternacht von selbst.'
+    );
+    expect(zugangsZeile({})).toContain('läuft nicht ab');
   });
 });

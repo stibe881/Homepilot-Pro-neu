@@ -64,7 +64,16 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
     def lokal_moeglich() -> bool:
         """Gibt es Benutzer mit eigenem Passwort-Zugang beim Hub?"""
-        return any(user.passwort for user in hub.users.users)
+        if any(user.passwort for user in hub.users.users):
+            return True
+        # Punkt 234 der Werkbank: Auch die nachgeführten Supabase-Hashes
+        # zählen. Sonst meldete die Maske «keine Passwort-Anmeldung»,
+        # sobald Supabase aus der Konfiguration fällt, obwohl der lokale
+        # Rückfall längst funktioniert.
+        return any(
+            isinstance(row, dict) and row.get("passwort")
+            for row in hub.data.get("emails")
+        )
 
     @app.get("/api/auth/config")
     async def auth_config() -> dict[str, Any]:
@@ -86,6 +95,53 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     @app.post("/api/auth/login")
     async def auth_login(body: LoginRequest, request: Request) -> dict[str, Any]:
         """Anmelden und eine Sitzung für dieses Gerät bekommen."""
+
+        def rueckfall_lokal(address: str) -> dict[str, Any] | None:
+            """Anmeldung gegen den nachgeführten Hash - None heisst: kein Weg.
+
+            Punkt 234 der Werkbank: Antwortet Supabase nicht, prüft der
+            Hub das Passwort selbst - gegen den Hash, den die letzte
+            erfolgreiche Online-Anmeldung hinterlegt hat. Der Rückfall
+            senkt die Sicherheit nicht: Gesperrte und abgelaufene
+            Benutzer bleiben draussen, und hierher führt nur ein
+            Netz-/Serverfehler, nie ein von Supabase abgelehntes
+            Passwort.
+            """
+            eingabe = str(body.email or "").strip()
+            user = hub.users.by_email(eingabe)
+            if user is None:
+                return None
+            entry = supabase_auth.stored_hash(hub.data.get("emails"), eingabe)
+            if not entry:
+                return None
+            if not bereich.matches(entry, body.password):
+                throttle.failed(address)
+                log.warning(
+                    "Rückfall-Anmeldung für %s abgelehnt (%s)", user.name, address
+                )
+                raise HTTPException(
+                    status_code=401, detail="Name oder Passwort stimmt nicht."
+                )
+            if not user.active():
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Der Zugang von '{user.name}' ist gesperrt.",
+                )
+            throttle.succeeded(address)
+            token = hub.sessions.create(
+                user.name,
+                body.label or "Unbenanntes Gerät",
+                keep=user.shared,
+                email=user.email or "",
+            )
+            log.warning(
+                "Supabase nicht erreichbar - %s über den lokalen Hash "
+                "angemeldet (%s)",
+                user.name,
+                address,
+            )
+            return {"token": token, "user": user_payload(user)}
+
         service = auth_service()
         if service is None and not lokal_moeglich():
             raise HTTPException(
@@ -135,6 +191,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 "must_change_password": bool(lokal.passwort_wechseln),
             }
         if service is None:
+            # Punkt 234 der Werkbank: Steht Supabase nicht (mehr) in der
+            # Konfiguration, gilt trotzdem der nachgeführte Hash - wer
+            # sich je online angemeldet hat, kommt weiter herein.
+            rueckfall = rueckfall_lokal(address)
+            if rueckfall is not None:
+                return rueckfall
             # Es gibt Passwort-Zugänge, nur nicht für diese Eingabe -
             # dieselbe Auskunft wie bei einem falschen Passwort, damit
             # sich Namen nicht durchprobieren lassen.
@@ -146,7 +208,19 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             session = await service.sign_in(body.email, body.password)
         except supabase_auth.AuthError as err:
             if err.status in (400, 401, 403):
+                # Supabase hat entschieden: falsches Passwort, unbestätigte
+                # Adresse. Das fällt bewusst NICHT auf den lokalen Hash
+                # zurück - sonst bliebe ein bei Supabase zurückgesetztes
+                # Passwort hier ewig gültig.
                 throttle.failed(address)
+                raise HTTPException(status_code=err.status, detail=str(err)) from err
+            if err.status >= 500:
+                # Timeout, DNS weg, Supabase down (Punkt 234 der
+                # Werkbank): Der Hub kennt seine Benutzer selbst und darf
+                # das Haus nicht vom Internet abhängig machen.
+                rueckfall = rueckfall_lokal(address)
+                if rueckfall is not None:
+                    return rueckfall
             raise HTTPException(status_code=err.status, detail=str(err)) from err
 
         user = hub.users.by_email(session["email"])
@@ -171,6 +245,21 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 status_code=403, detail=f"Der Zugang von '{user.name}' ist gesperrt."
             )
         throttle.succeeded(address)
+        # Punkt 234 der Werkbank: Den Hash lokal nachführen, damit der
+        # Rückfall beim nächsten Ausfall greift - ein Supabase-Benutzer
+        # hat sonst gar keinen lokalen Hash, das Passwort kennt nur
+        # Supabase. Nur bei Änderung schreiben: make_entry salzt frisch,
+        # und jede Anmeldung würde die Datendatei sonst neu schreiben.
+        rows = hub.data.get("emails")
+        if not bereich.matches(
+            supabase_auth.stored_hash(rows, session["email"]), body.password
+        ):
+            hub.data.set(
+                "emails",
+                supabase_auth.remember_hash(
+                    rows, session["email"], bereich.make_entry(body.password)
+                ),
+            )
         # Das Wandtablet meldet sich einmal an und dann nie wieder: Es
         # steht an der Wand, und niemand tippt dort nach drei Monaten
         # wieder eine Adresse samt Passwort ein.
@@ -229,13 +318,14 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     async def auth_passwort_wechsel(
         body: PasswortWechselRequest, request: Request
     ) -> dict[str, Any]:
-        """Das eigene (Initial-)Passwort gegen ein neues tauschen.
+        """Das eigene Passwort gegen ein neues tauschen - jederzeit.
 
         Angemeldet, mit dem bisherigen Passwort als Nachweis: Die
         Sitzung sagt nur, dass das Gerät hereindarf - wer das Telefon
         entsperrt in der Hand hält, soll damit nicht das Passwort
-        eines anderen setzen können. Danach ist die Wechsel-Pflicht
-        des Initialpassworts erledigt.
+        eines anderen setzen können. Danach ist eine allfällige
+        Wechsel-Pflicht des Initialpassworts erledigt (Punkt 244 der
+        Werkbank: derselbe Weg dient auch dem freiwilligen Wechsel).
         """
         user = current_user(request)
         if not user.passwort:
@@ -265,8 +355,20 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             hub.users.passwort_setzen(user.name, body.new, wechseln=False)
         except HomePilotError as err:
             raise HTTPException(status_code=409, detail=str(err)) from err
-        log.warning("%s hat das eigene Passwort gewechselt (%s)", user.name, address)
-        return {"ok": True}
+        # Punkt 244 der Werkbank: Die anderen Sitzungen fallen mit. Wer
+        # sein Passwort wechselt, tut das oft, weil das alte irgendwo
+        # gelandet ist, wo es nicht hingehört - dann darf das fremde
+        # Gerät nicht angemeldet bleiben. Nur die eigene Sitzung
+        # überlebt, sonst meldet einen der Wechsel selbst ab.
+        beendet = hub.sessions.revoke_others(user.name, token_from(request) or "")
+        log.warning(
+            "%s hat das eigene Passwort gewechselt (%s, %d andere "
+            "Sitzungen beendet)",
+            user.name,
+            address,
+            beendet,
+        )
+        return {"ok": True, "revoked": beendet}
 
     @app.post("/api/auth/recover")
     async def auth_recover(body: RecoverRequest) -> dict[str, Any]:
@@ -299,9 +401,34 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
     @app.get("/api/auth/sessions")
     async def auth_sessions(request: Request) -> dict[str, Any]:
-        """Die eigenen angemeldeten Geräte."""
+        """Die eigenen angemeldeten Geräte - mit «diese hier»-Kennung.
+
+        Punkt 244 der Werkbank: Jede Zeile trägt label, created, seen,
+        eine Kennung (id) zum einzelnen Beenden und current für die
+        Sitzung, mit der gerade gefragt wird - sonst räumt man in der
+        «Meine Geräte»-Ansicht das Gerät in der eigenen Hand mit ab.
+        """
         user = current_user(request)
-        return {"sessions": hub.sessions.list_for(user.name)}
+        return {
+            "sessions": hub.sessions.list_for(user.name, token_from(request) or "")
+        }
+
+    @app.delete("/api/auth/sessions/{sid}")
+    async def auth_revoke_one(sid: str, request: Request) -> dict[str, Any]:
+        """Ein einzelnes Gerät abmelden, ohne alle anderen mitzureissen.
+
+        Punkt 244 der Werkbank: Bisher gab es nur «überall abmelden» -
+        für das vergessene iPad im Ferienhaus ist das zu grob. Die
+        Kennung allein genügt absichtlich nicht, sie muss zu einer
+        eigenen Sitzung gehören (core/sessions.py).
+        """
+        user = current_user(request)
+        if not hub.sessions.revoke_id(user.name, sid):
+            raise HTTPException(
+                status_code=404, detail="Diese Sitzung gibt es nicht (mehr)."
+            )
+        log.warning("%s hat die Sitzung %s beendet", user.name, sid)
+        return {"ok": True}
 
     @app.delete("/api/auth/sessions")
     async def auth_revoke_all(request: Request) -> dict[str, Any]:

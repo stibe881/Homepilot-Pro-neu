@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import secrets
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ from fastapi import (
 )
 
 from ... import qr as qr_module
+from ...core import giessen as giessen_module
 from ...core import goodnight as goodnight_module
 from ...core import (
     rueckgriff,
@@ -39,6 +41,7 @@ from .. import configio
 from ..context import ApiContext
 from ..models import (
     BroadcastRequest,
+    GiessenQuittungRequest,
     GoodNightRequest,
     SpeakerRequest,
     TimerRequest,
@@ -136,6 +139,35 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                     fehler.append(namen.get(entity_id, entity_id))
         return {"ok": not fehler, "restored": zurueck, "failed": fehler}
 
+
+    # ── Giess-Erinnerung ───────────────────────────────────────────────────
+
+    @app.post("/api/giessen/quittung")
+    async def giessen_quittieren(body: GiessenQuittungRequest, request: Request) -> dict[str, Any]:
+        """Die Antwort auf «Pflanzen giessen» - vom Knopf in der Mitteilung.
+
+        «gegossen» zählt wie Regen: Die nächste Erinnerung kommt
+        frühestens nach der eingestellten Trockenzeit. «passt» heisst:
+        Diese Trockenperiode ist versorgt - Ruhe, bis es wieder einmal
+        geregnet hat (core/giessen.py, unterdrueckt). Ohne diese Antwort
+        kam die Meldung jeden Abend wieder, als wäre nichts geschehen.
+        """
+        user = require(request, Capability.CONTROL)
+        wetter = next(
+            (e for e in hub.registry.all() if getattr(e, "kind", "") == "weather"),
+            None,
+        )
+        heute = datetime.now().strftime("%Y-%m-%d")
+        hub.data.set(
+            giessen_module.QUITTUNG_KEY,
+            giessen_module.quittung(
+                body.art,
+                heute,
+                (wetter.state.get("dry_days") if wetter else 0),
+            ),
+        )
+        log.info("Giess-Erinnerung: %s hat «%s» gedrückt", user.name, body.art)
+        return {"ok": True, "art": "passt" if body.art == "passt" else "gegossen"}
 
     # ── Gute Nacht ─────────────────────────────────────────────────────────
 

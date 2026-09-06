@@ -132,9 +132,15 @@ KNOEPFE_WAESCHE = "waesche"
 #: Erst zu und wieder offen beginnt von vorn (der Wächter meldet ohnehin
 #: einmal je Öffnung, core/watchdog.py).
 KNOEPFE_OFFEN = "offen"
+#: «Gegossen» plus «Passt so» - für die Giess-Erinnerung. Gegossen
+#: zählt wie Regen, passt so heisst Ruhe für diese Trockenperiode
+#: (core/giessen.py). Ohne die Knöpfe kam die Meldung jeden Abend
+#: wieder, als wäre nichts geschehen.
+KNOEPFE_GIESSEN = "giessen"
 
 _KNOEPFE: dict[str, str] = {
     "open": KNOEPFE_OFFEN,
+    "plants": KNOEPFE_GIESSEN,
     "appliance": KNOEPFE_WAESCHE,
     "shopping": KNOEPFE_SPAETER,
     "medication": KNOEPFE_SPAETER,

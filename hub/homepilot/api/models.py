@@ -97,6 +97,16 @@ class BabysitterRequest(BaseModel):
     hours: float | None = None
 
 
+class GiessenQuittungRequest(BaseModel):
+    """Die Antwort auf die Giess-Erinnerung: «gegossen» oder «passt».
+
+    Alles andere zählt als «gegossen» - lieber eine Erinnerung zu früh
+    als ein vertrockneter Balkon (core/giessen.py, quittung).
+    """
+
+    art: str = "gegossen"
+
+
 class BabysitterAllowRequest(BaseModel):
     """Einen einzelnen Ablauf für den Modus freigeben."""
 
@@ -595,6 +605,37 @@ class MeldungRequest(BaseModel):
 
     key: str
     enabled: bool
+
+
+class VerbindungGeraet(BaseModel):
+    """Eine Cast-Box für die Verbindungen-Seite - eintragen oder entfernen."""
+
+    host: str
+    name: str = ""
+    # Gruppen laufen auf der Adresse einer ihrer Boxen, mit eigenem Port.
+    port: int = 8009
+
+
+class VerbindungRequest(BaseModel):
+    """Eine Änderung an einer Dienst-Verbindung (Kalender, Spotify, Google Home).
+
+    Alles optional: Geschickt wird nur, was sich ändern soll. Welche
+    Felder zu welchem Dienst gehören, entscheidet die Route - ein
+    `calendar_ids` an Spotify ist ein Fehler, kein stilles Nichts.
+    """
+
+    enabled: bool | None = None
+    # Kalender: die Mail-Adressen der Kalender und der Erinnerungs-Vorlauf.
+    calendar_ids: list[str] | None = None
+    remind_minutes: int | None = None
+    # Kalender und Spotify: die Zugangsdaten der Entwickler-Konsole. Sie
+    # landen in der secrets.env neben der config.yaml - zurück zur App
+    # geht nur, OB sie gesetzt sind, nie der Wert.
+    client_id: str | None = None
+    client_secret: str | None = None
+    # Google Home: eine Box eintragen oder entfernen.
+    geraet_hinzu: VerbindungGeraet | None = None
+    geraet_weg: VerbindungGeraet | None = None
 
 
 class RaumbildRequest(BaseModel):

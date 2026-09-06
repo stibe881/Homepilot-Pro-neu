@@ -84,7 +84,22 @@ async function angemeldeteSeite(browser, groesse) {
   );
   await seite.goto(WEB);
   await seite.waitForTimeout(2500);
+  await einfuehrungWegtippen(seite);
   return seite;
+}
+
+/** Das Einführungsblatt wegtippen, falls es steht.
+ *
+ *  Seit Punkt 248 der Werkbank begrüsst die App jede Person genau
+ *  einmal – und die Probe startet immer mit frischem Profil, ist also
+ *  immer die «erste Person». Sie tippt das Blatt weg wie ein Mensch;
+ *  stünde es noch, fingen die Messklicks im Blatt statt in der App. */
+async function einfuehrungWegtippen(seite) {
+  const spaeter = seite.getByText('Später', { exact: true }).first();
+  if (await spaeter.isVisible().catch(() => false)) {
+    await spaeter.click();
+    await seite.waitForTimeout(400);
+  }
 }
 
 /** 1. Ragt etwas seitlich hinaus? */

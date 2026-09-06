@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Entity, HubSettings, Scene, User } from '../api/types';
+import { SimulationsBericht } from '../lib/ablaufsimulation';
 import { Card } from '../components/Card';
 import { PushRules } from '../components/PushRules';
 import { Fehlschlag, Laedt } from '../components/Zustand';
@@ -510,6 +511,21 @@ export function AutomationsScreen({
   const dryRun = async (id: string): Promise<DryRun | null> => {
     try {
       return await hub.get<DryRun>(`/api/automations/${id}/dryrun`, { still: true });
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+      return null;
+    }
+  };
+
+  /** «Hätte gefeuert» (Punkt 254): die letzten sieben Tage nachgerechnet.
+   *  Sieben, weil die Frage beim Einrichten «letzte Woche» lautet - wer
+   *  mehr will, wartet auf niemanden: Der Hub kann bis 31. */
+  const simulation = async (id: string): Promise<SimulationsBericht | null> => {
+    try {
+      return await hub.get<SimulationsBericht>(
+        `/api/automations/${id}/simulation?days=7`,
+        { still: true }
+      );
     } catch (err) {
       setError(String(err instanceof Error ? err.message : err));
       return null;
@@ -1808,6 +1824,7 @@ export function AutomationsScreen({
         onDelete={draft?.id ? () => remove(draft.id!) : undefined}
         onTest={draft?.id ? () => test(draft.id!) : undefined}
         onDryRun={draft?.id ? () => dryRun(draft.id!) : undefined}
+        onSimulation={draft?.id ? () => simulation(draft.id!) : undefined}
         onVersions={draft?.id ? loadAutomationVersions : undefined}
         onRestoreVersion={
           draft?.id ? (at) => restoreVersion('automation', draft.id!, at) : undefined

@@ -1,19 +1,28 @@
 import { Entity } from '../api/types';
 
 /**
- * Favoriten gehören dem Haus, nicht dem Telefon.
+ * Favoriten gehören der Person – beim Hub abgelegt, nicht im Telefon.
+ * Punkt 249 der Werkbank.
  *
- * Lange lagen sie in den Geräte-Einstellungen – im Speicher der App auf
- * genau diesem Telefon. Das hielt genau so lange, wie die Installation
- * hielt: Neue App, neues Gerät, Weboberfläche, andere Person – jedes Mal
- * eine leere Startseite, und niemand konnte sagen, warum.
+ * Die Geschichte in drei Schritten, weil jeder eine Falle war:
  *
- * Jetzt steht der Stern beim Gerät selbst (`entity.favorite`), der Hub
- * legt ihn in der homepilot-data.json ab, und alle sehen dasselbe. Der
- * Preis: Wer einen Stern setzt, setzt ihn für alle. Das ist die
- * ausdrückliche Absicht – eine Startseite, auf der bei jedem etwas
- * anderes steht, war nie gewollt. Dasselbe gilt für die Reihenfolge, für
- * ausgeblendete und gesperrte Geräte: alles im Haus (siehe usePrefs).
+ * 1. Zuerst lagen sie im Speicher der App auf genau diesem Telefon. Das
+ *    hielt so lange wie die Installation: Neue App, neues Gerät,
+ *    Weboberfläche – jedes Mal eine leere Startseite.
+ * 2. Dann stand der Stern am Gerät selbst (`entity.favorite`, beim Hub)
+ *    und galt für alle im Haus. Robust, aber falsch herum: Griffbereit
+ *    ist eine persönliche Frage. Was Stefan jeden Abend braucht, ist für
+ *    Livia nur eine Kachel im Weg – und jeder gesetzte Stern räumte
+ *    allen anderen die Startseite um.
+ * 3. Heute sind sie persönlich UND beim Hub: `favorites` in den eigenen
+ *    Einstellungen (usePrefs, /api/prefs). Die Sterne am Gerät gibt es
+ *    noch – als Startbestand für alle, die noch keine eigene Liste
+ *    haben; der erste eigene Stern schreibt die Liste fest
+ *    (DashboardScreen).
+ *
+ * Haushaltsweit geblieben sind dagegen ausgeblendete und gesperrte
+ * Geräte (usePrefs): Was gefährlich oder unerwünscht ist, ist es für
+ * alle.
  */
 
 /**

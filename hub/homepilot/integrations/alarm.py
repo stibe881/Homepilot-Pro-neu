@@ -46,7 +46,7 @@ import secrets
 import time
 from typing import Any
 
-from ..core import personenbild, snapshots, source, streams
+from ..core import cliparchiv, personenbild, say, snapshots, source, streams
 from ..core.entity import Entity, EntityKind
 from ..core.errors import HomePilotError
 from ..core.integration import Integration
@@ -74,6 +74,9 @@ from .alarm_rules import (  # noqa: F401
     TRIGGERED,
     camera_for,
     camera_motion_due,
+    eskalation_wirkt,
+    eskalations_befehle,
+    eskalations_ende_befehle,
     guards,
     hash_pin,
     is_sensor,
@@ -82,6 +85,7 @@ from .alarm_rules import (  # noqa: F401
     ohne_pin_erlaubt,
     parse_actions,
     parse_after,
+    parse_escalation,
     parse_sensors,
     quellen_name,
     sauger_deckt,
@@ -119,6 +123,14 @@ class AlarmIntegration(Integration):
         self._next: str | None = None
         self._last: dict[str, Any] | None = None
         self._clip_task: asyncio.Task | None = None
+        # Die zweite Stufe nach dem Auslösen (Punkt 255 der Werkbank):
+        # eigener Timer neben self._timer, weil der nach dem Auslösen
+        # schon fürs Wiederscharfschalten gebraucht wird.
+        self._eskalation_task: asyncio.Task | None = None
+        # Ob die Eskalation in diesem Alarm wirklich gefeuert hat. Nur
+        # dann schaltet das Entschärfen die Sirenen aus - sonst bekämen
+        # Geräte bei jedem Entschärfen Befehle, obwohl nie etwas lief.
+        self._eskaliert = False
         # Je Kamera, wann zuletzt eine Bewegungs-Nachricht rausging. Eine
         # Kamera meldet Bewegung im Sekundentakt, solange sich etwas regt;
         # ohne Abstand wäre das Telefon nach einer Minute unbenutzbar.
@@ -137,6 +149,7 @@ class AlarmIntegration(Integration):
         self._settings = {**DEFAULT_SETTINGS, **(config.get("settings") or {})}
         self._after_trigger = parse_after(config.get("after_trigger"))
         self._actions = parse_actions(config.get("actions"))
+        self._escalation = parse_escalation(config.get("escalation"))
         self._history: list[dict[str, Any]] = list(config.get("history") or [])
 
         self._entity = await self.add_entity(
@@ -162,6 +175,7 @@ class AlarmIntegration(Integration):
         if self._clip_task is not None:
             self._clip_task.cancel()
             self._clip_task = None
+        self._cancel_escalation()
         if self._unsubscribe is not None:
             self._unsubscribe()
             self._unsubscribe = None
@@ -356,6 +370,10 @@ class AlarmIntegration(Integration):
     ) -> dict[str, Any]:
         self.check_pin(pin, address, require_pin)
         self._cancel_timer()
+        # Die Eskalation bricht mit dem Entschärfen ab: Genau dafür ist
+        # ihre Frist da - ein Fehlalarm, der rechtzeitig entschärft wird,
+        # bleibt für die Nachbarschaft unhörbar.
+        self._cancel_escalation()
         was = self._state
         self._state = DISARMED
         self._mode = None
@@ -366,6 +384,11 @@ class AlarmIntegration(Integration):
         # Sirene aus, Licht zurück – sonst heult sie weiter, obwohl die
         # Anlage aus ist.
         await self._run_actions("clear")
+        # Und die Eskalations-Sirenen ebenfalls, falls sie schon liefen -
+        # sie stehen nicht zwingend auch in den clear-Aktionen.
+        if self._eskaliert:
+            self._eskaliert = False
+            await self._run_commands(eskalations_ende_befehle(self._escalation), "eskalation-aus")
         if self._settings.get("notify_arming") and was != DISARMED:
             await self._notify(
                 "Alarmanlage unscharf", "Die Anlage ist aus.", "alarm_arming"
@@ -554,6 +577,10 @@ class AlarmIntegration(Integration):
         # Nachricht nicht aufhalten.
         await self._run_actions("trigger")
 
+        # Die zweite Stufe stellen: Nach der Frist wird es laut und hell,
+        # wenn bis dahin niemand entschärft hat (Punkt 255 der Werkbank).
+        self._start_escalation()
+
         # Der Mitschnitt läuft nebenher. In der Nachricht selbst kann er
         # nicht stehen – ein Banner zeigt nur Standbilder, und acht Sekunden
         # auf ein Video zu warten wäre bei einem Alarm die falsche Reihen-
@@ -608,6 +635,75 @@ class AlarmIntegration(Integration):
         if self._settings.get("notify_arming"):
             await self._notify("Alarmanlage wieder scharf", text, "alarm_arming")
 
+    # ── Eskalation (Punkt 255 der Werkbank) ────────────────────────────────
+
+    def _cancel_escalation(self) -> None:
+        if self._eskalation_task is not None:
+            self._eskalation_task.cancel()
+            self._eskalation_task = None
+
+    def _start_escalation(self) -> None:
+        """Die zweite Stufe stellen - nur, wenn sie etwas tun würde.
+
+        Ohne Konfiguration läuft hier gar nichts an: Das ist die
+        Abwärtskompatibilität - eine Anlage ohne Eskalations-Eintrag
+        verhält sich exakt wie vorher.
+        """
+        if not eskalation_wirkt(self._escalation):
+            return
+        self._cancel_escalation()
+        delay = float(self._escalation.get("after") or 0)
+        self._eskalation_task = asyncio.create_task(self._after(delay, self._escalate))
+
+    async def _escalate(self) -> None:
+        """Sirene, Rampenlicht, Durchsage - nachdem die Frist verstrichen ist."""
+        # In der Zwischenzeit entschärft oder wieder scharf geworden?
+        # Dann ist die Lage eine andere, und die Sirene bliebe falsch.
+        if self._state != TRIGGERED:
+            return
+        self._eskaliert = True
+        befehle = eskalations_befehle(self._escalation, self.hub.registry.all())
+        await self._run_commands(befehle, "eskalation")
+        self._note(
+            "escalated",
+            "Eskalation: Niemand hat entschärft - Sirene und Licht sind an",
+            "",
+        )
+        text = str(self._escalation.get("announce") or "")
+        if text:
+            # Derselbe Weg wie die broadcast-Aktion der Abläufe. Abgesichert,
+            # weil die Durchsage Netz oder eine bekannte Hub-Adresse braucht -
+            # und eine stumme Box die Sirene nicht aufhalten darf.
+            try:
+                await say.speak(
+                    self.hub, text, volume=self._escalation.get("volume")
+                )
+            except Exception as err:
+                log.warning("Eskalations-Durchsage fehlgeschlagen: %s", err)
+        await self._publish()
+
+    async def _run_commands(
+        self, befehle: list[dict[str, Any]], anlass: str
+    ) -> None:
+        """Schaltbefehle einzeln abgesichert ausführen.
+
+        Wie bei den Aktions-Plätzen: Eine Sirene, die nicht antwortet,
+        darf nicht verhindern, dass danach die Lichter angehen.
+        """
+        for befehl in befehle:
+            try:
+                await self.hub.integrations.dispatch_command(
+                    befehl["entity_id"], befehl["command"], befehl.get("data") or {}
+                )
+            except Exception as err:
+                log.warning(
+                    "Alarm-Befehl (%s, %s %s) fehlgeschlagen: %s",
+                    anlass,
+                    befehl["entity_id"],
+                    befehl["command"],
+                    err,
+                )
+
     def _start_clip(self, camera: str | None) -> None:
         seconds = int(self._settings.get("clip_seconds") or 0)
         if not camera or seconds <= 0:
@@ -634,6 +730,10 @@ class AlarmIntegration(Integration):
             data = await streams.record_clip(source, seconds)
             if not data or self._last is None:
                 return
+            # Zusätzlich ins Archiv (Punkt 256 der Werkbank): Der
+            # Schnappschuss-Speicher vergisst nach zehn Minuten - genau
+            # dann, wenn man den Clip jemandem zeigen will, wäre er weg.
+            self._archive_clip(camera, data)
             public_url = (self.hub.config.push or {}).get("public_url")
             token = self.hub.snapshots.put(data)
             self._last["clip"] = snapshots.image_url(public_url, token) or (
@@ -644,6 +744,29 @@ class AlarmIntegration(Integration):
             raise
         except Exception as err:
             log.warning("Mitschnitt zum Alarm fehlgeschlagen: %s", err)
+
+    def _archive_clip(self, camera: str, data: bytes) -> None:
+        """Den Alarm-Mitschnitt dauerhaft ablegen - still bei jedem Fehler.
+
+        Raum und Integration der Kamera reisen in die Metadaten, damit
+        die Sichtbarkeitsprüfung der Clip-Routen auch dann noch
+        funktioniert, wenn es die Kamera längst nicht mehr gibt.
+        """
+        folder = cliparchiv.ordner(self.hub.config.data_file)
+        if folder is None:
+            return
+        entity = self.hub.registry.get(camera)
+        meta = cliparchiv.eintrag(
+            kennung=cliparchiv.neue_kennung(),
+            camera=camera,
+            anlass="alarm",
+            jetzt=time.time(),
+            name=entity.label if entity is not None else None,
+            room=entity.room if entity is not None else None,
+            integration=entity.integration if entity is not None else None,
+            groesse=len(data),
+        )
+        cliparchiv.ablegen(folder, data, meta)
 
     async def test_run(self, by: str = "") -> dict[str, Any]:
         """Probealarm: einmal durchspielen, was ein Einbruch auslösen würde.
@@ -760,6 +883,7 @@ class AlarmIntegration(Integration):
                 mode: dict(entry) for mode, entry in self._after_trigger.items()
             },
             "actions": {slot: list(entries) for slot, entries in self._actions.items()},
+            "escalation": dict(self._escalation),
         }
 
     def _save(self) -> None:
@@ -775,6 +899,8 @@ class AlarmIntegration(Integration):
             self._after_trigger = parse_after(patch["after_trigger"], self._after_trigger)
         if "actions" in patch:
             self._actions = parse_actions(patch["actions"])
+        if "escalation" in patch:
+            self._escalation = parse_escalation(patch["escalation"])
         self._save()
         await self._publish()
 

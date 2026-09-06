@@ -41,6 +41,14 @@ import {
   kategorien,
   rezeptAlsSeite,
 } from '../lib/rezeptseite';
+import {
+  RezeptLager,
+  REZEPT_CACHE_KEY,
+  anzeigen,
+  gelesen,
+  hinweisText,
+  uebernehmen,
+} from '../lib/rezeptcache';
 import { zutatenImSchritt } from '../lib/schrittzutaten';
 import { kochVorschlaege, vorschlagsGrund } from '../lib/vorschlag';
 import { Colors, radius, useColors } from '../theme';
@@ -1256,6 +1264,7 @@ function CookMode({
 function RecipeDetail({
   recipe,
   settings,
+  hinweis,
   onBack,
   onEdit,
   onDuplicate,
@@ -1269,6 +1278,9 @@ function RecipeDetail({
   colors,
 }: {
   recipe: Rezept;
+  /** «Ohne Verbindung – Stand von 14:12»: steht auch hier, damit man
+   *  beim Kochen weiss, woran man ist (Punkt 250). */
+  hinweis?: string | null;
   onBack: () => void;
   onEdit: () => void;
   /** Als Variante kopieren (Punkt 148): «Lasagne, aber vegetarisch»
@@ -1354,6 +1366,12 @@ function RecipeDetail({
   return (
     <View style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={styles.detailStack}>
+        {hinweis ? (
+          <View style={styles.standRow}>
+            <Ionicons name="cloud-offline-outline" size={15} color={colors.inkSoft} />
+            <Text style={styles.standText}>{hinweis}</Text>
+          </View>
+        ) : null}
         <View>
           {bildUri(recipe.image_url, settings) ? (
             <Image
@@ -1813,7 +1831,7 @@ type Screen =
   | { kind: 'form'; id?: string; vorlage?: Rezept };
 
 export function RecipeBook({
-  recipes,
+  recipes: geladen,
   settings,
   currentUser,
   initialRecipeId,
@@ -1828,6 +1846,67 @@ export function RecipeBook({
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+
+  // ── Rezepte ohne Netz (Punkt 250 der Werkbank) ────────────────────────
+  //
+  // Die Familienlisten überstehen einen Hub-Ausfall längst - die Rezepte
+  // fielen durch, weil ihr Stand mit den eingebetteten Fotos zu gross
+  // für den Zwischenspeicher der Familienseite ist. Deshalb ein eigenes
+  // Lager ohne Fotos: Wer in der Küche steht, braucht den Text, nicht
+  // das Titelbild. Die Regeln stehen in lib/rezeptcache.ts.
+  const [lager, setLager] = useState<RezeptLager | null>(null);
+  // Als Ref daneben: Das Nachführen unten soll bei einem neuen Stand
+  // laufen, nicht auch noch bei jedem Lesen des Lagers selbst.
+  const lagerRef = useRef<RezeptLager | null>(null);
+  lagerRef.current = lager;
+  useEffect(() => {
+    let weg = false;
+    AsyncStorage.getItem(REZEPT_CACHE_KEY)
+      .then((raw) => {
+        if (weg) return;
+        const gespeichert = gelesen(raw);
+        // Hat das Laden inzwischen einen frischeren Stand gebracht,
+        // gewinnt der - das Gerät liest langsamer als das WLAN.
+        if (gespeichert) setLager((vorher) => vorher ?? gespeichert);
+      })
+      // Kein Lager ist kein Fehler - dann gibt es eben keinen Rückgriff.
+      .catch(() => {});
+    return () => {
+      weg = true;
+    };
+  }, []);
+  // Bei jedem erfolgreichen Laden wandert der Stand (ohne Fotos) ins
+  // Gerät. Ein leerer Stand überschreibt nichts - von hier aus sieht ein
+  // Ausfall genauso aus wie ein leeres Buch (lib/rezeptcache.ts).
+  useEffect(() => {
+    const neu = uebernehmen(lagerRef.current, geladen, Date.now());
+    if (!neu || neu === lagerRef.current) return;
+    setLager(neu);
+    AsyncStorage.setItem(REZEPT_CACHE_KEY, JSON.stringify(neu)).catch(() => {});
+  }, [geladen]);
+  const sicht = useMemo(() => anzeigen(geladen, lager, Date.now()), [geladen, lager]);
+  const recipes = sicht.recipes;
+
+  // Schreiben bleibt online-only, mit Absicht ohne Warteschlange:
+  // Konflikte in Rezepttexten sind teurer als die seltene
+  // Unannehmlichkeit, mit dem Speichern auf den Hub zu warten. Wer es
+  // ohne Verbindung versucht, bekommt eine ehrliche Zeile statt eines
+  // Häkchens, das nie ankommt.
+  const [meldung, setMeldung] = useState<string | null>(null);
+  const nurMitHub = () => {
+    setMeldung('Ohne Verbindung – Rezepte lassen sich erst mit dem Hub wieder ändern.');
+    setTimeout(() => setMeldung(null), 4000);
+  };
+  const addSicher = (recipe: Rezept) => (sicht.ausCache ? nurMitHub() : onAdd(recipe));
+  const updateSicher = (id: string, patch: Rezept) =>
+    sicht.ausCache ? nurMitHub() : onUpdate(id, patch);
+  // Löschen hat keinen eigenen Helfer: Sein einziger Aufruf (in der
+  // Detailansicht) muss zusätzlich die Rückkehr zur Liste unterdrücken
+  // und prüft deshalb an Ort und Stelle.
+  // Die sichtbare, unaufgeregte Zeile dazu - im Kopf der Liste und oben
+  // in der Detailansicht, damit sie auch beim Kochen dasteht.
+  const offlineHinweis =
+    meldung ?? (sicht.ausCache ? hinweisText(sicht.stand, new Date()) : null);
   const [screen, setScreen] = useState<Screen>(
     initialRecipeId ? { kind: 'detail', id: initialRecipeId } : { kind: 'list' }
   );
@@ -1905,7 +1984,7 @@ export function RecipeBook({
 
   const favoriteCount = recipes.filter((recipe) => recipe.favorite).length;
   const toggleFavorite = (recipe: Rezept) =>
-    onUpdate(recipe.id, { favorite: !recipe.favorite });
+    updateSicher(recipe.id, { favorite: !recipe.favorite });
 
   if (screen.kind === 'form') {
     const editing = screen.id
@@ -1917,8 +1996,8 @@ export function RecipeBook({
         categories={categories}
         settings={settings}
         onSave={(recipe) => {
-          if (editing) onUpdate(editing.id, recipe);
-          else onAdd(recipe);
+          if (editing) updateSicher(editing.id, recipe);
+          else addSicher(recipe);
           setScreen(editing ? { kind: 'detail', id: editing.id } : { kind: 'list' });
         }}
         onCancel={() =>
@@ -1941,27 +2020,49 @@ export function RecipeBook({
       <RecipeDetail
         recipe={recipe}
         settings={settings}
-        onCooked={() =>
-          // Datum plus Zähler (Punkt 140): «wann zuletzt?» für den
-          // Essensplaner, «wie oft?» für die Klassiker-Sortierung.
-          onUpdate(recipe.id, {
-            last_cooked: new Date().toISOString().slice(0, 10),
-            cooked_count: (Number(recipe.cooked_count) || 0) + 1,
-          })
+        hinweis={offlineHinweis}
+        onCooked={
+          // Aus dem Lager gekocht wird ohne Buchführung: Das «zuletzt
+          // gekocht» stumm in eine Warteschlange zu legen, widerspräche
+          // der Regel oben - und die Kopfzeile sagt ja, woran man ist.
+          sicht.ausCache
+            ? undefined
+            : () =>
+                // Datum plus Zähler (Punkt 140): «wann zuletzt?» für den
+                // Essensplaner, «wie oft?» für die Klassiker-Sortierung.
+                onUpdate(recipe.id, {
+                  last_cooked: new Date().toISOString().slice(0, 10),
+                  cooked_count: (Number(recipe.cooked_count) || 0) + 1,
+                })
         }
-        onNote={(text) => {
-          // Datiert und untereinander – wie ein Kochtagebuch. Das alte
-          // Notizfeld bleibt, was es war: eine Liste von Zeilen.
-          const bisher = listOfTexts(recipe.notes);
-          const heuteKurz = new Date().toLocaleDateString('de-CH', {
-            day: '2-digit',
-            month: '2-digit',
-          });
-          onUpdate(recipe.id, { notes: [...bisher, `${heuteKurz}: ${text}`] });
-        }}
+        onNote={
+          // Ohne Hub keine Frage «Wie war es?» - eine Notiz, die nicht
+          // gespeichert werden kann, soll gar nicht erst getippt werden.
+          sicht.ausCache
+            ? undefined
+            : (text) => {
+                // Datiert und untereinander – wie ein Kochtagebuch. Das alte
+                // Notizfeld bleibt, was es war: eine Liste von Zeilen.
+                const bisher = listOfTexts(recipe.notes);
+                const heuteKurz = new Date().toLocaleDateString('de-CH', {
+                  day: '2-digit',
+                  month: '2-digit',
+                });
+                onUpdate(recipe.id, { notes: [...bisher, `${heuteKurz}: ${text}`] });
+              }
+        }
         onBack={() => setScreen({ kind: 'list' })}
-        onEdit={() => setScreen({ kind: 'form', id: recipe.id })}
+        // Bearbeiten und Kopieren führen in die Maske und enden im
+        // Speichern - ohne Hub ehrlich an der Tür abweisen statt nach
+        // dem Abtippen an der Kasse.
+        onEdit={() =>
+          sicht.ausCache ? nurMitHub() : setScreen({ kind: 'form', id: recipe.id })
+        }
         onDuplicate={() => {
+          if (sicht.ausCache) {
+            nurMitHub();
+            return;
+          }
           // Kopie ohne Kennung und Geschichte: Der Zähler, das «zuletzt
           // gekocht» und das Herz gehören zum Original, nicht zur Variante.
           const {
@@ -1979,6 +2080,10 @@ export function RecipeBook({
           });
         }}
         onDelete={() => {
+          if (sicht.ausCache) {
+            nurMitHub();
+            return;
+          }
           onDelete(recipe.id);
           setScreen({ kind: 'list' });
         }}
@@ -2051,6 +2156,16 @@ export function RecipeBook({
           <Ionicons name="close" size={20} color={colors.ink} />
         </Pressable>
       </View>
+
+      {/* Die ehrliche Zeile bei einem Ausfall (Punkt 250): Ein alter
+          Stand, der wie ein aktueller aussieht, wäre der eigentliche
+          Schaden - nicht der alte Stand selbst. */}
+      {offlineHinweis ? (
+        <View style={styles.standRow}>
+          <Ionicons name="cloud-offline-outline" size={15} color={colors.inkSoft} />
+          <Text style={styles.standText}>{offlineHinweis}</Text>
+        </View>
+      ) : null}
 
       {/* Punkt 192: Zwei, drei Zutaten antippen und sehen, was daraus
           wird – samt der ehrlichen Angabe, was noch fehlt. */}
@@ -2233,7 +2348,7 @@ export function RecipeBook({
             <Pressable
               onPress={() => {
                 for (const geaendert of kategorieUmbenennen(recipes, umbenennen, neuerName)) {
-                  onUpdate(String(geaendert.id), { category: geaendert.category });
+                  updateSicher(String(geaendert.id), { category: geaendert.category });
                 }
                 if (filter === `kat:${umbenennen}`) setFilter('alle');
                 setUmbenennen(null);
@@ -2328,7 +2443,7 @@ export function RecipeBook({
       </ScrollView>
 
       <Pressable
-        onPress={() => setScreen({ kind: 'form' })}
+        onPress={() => (sicht.ausCache ? nurMitHub() : setScreen({ kind: 'form' }))}
         accessibilityRole="button"
         accessibilityLabel="Neues Rezept"
         style={styles.fab}
@@ -2345,6 +2460,19 @@ const makeStyles = (colors: Colors) =>
     header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
     headerTitle: { color: colors.onGradient, fontSize: 28, fontWeight: '800' },
     headerSub: { color: colors.onGradientSoft, fontSize: 14, marginTop: 2 },
+    // Die ehrliche Zeile bei einem Ausfall (Punkt 250) - gleiche Bauart
+    // wie auf der Familienseite (family/stil.ts, standRow).
+    standRow: {
+      backgroundColor: colors.surfaceSoft,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 10,
+    },
+    standText: { color: colors.inkSoft, fontSize: 12, flex: 1 },
     roundButtonDim: {
       width: 38,
       height: 38,

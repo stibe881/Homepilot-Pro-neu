@@ -52,3 +52,26 @@ export function ablaufSatz(expires: string | null): string {
   const [, monat, tag] = expires.split('-');
   return `Der Zugang endet am ${Number(tag)}.${Number(monat)}. um Mitternacht von selbst.`;
 }
+
+/** Der bestehende Gast-Zugang, soweit ihn diese Seite braucht - die
+ *  Felder heissen wie bei PUT /api/users/{name}. */
+export interface GastKonto {
+  enabled?: boolean;
+  expires?: string | null;
+}
+
+/**
+ * Die Zustandszeile über den Knöpfen (rein, testbar).
+ *
+ * Punkt 246 der Werkbank: Besteht der Zugang schon, verwies die Seite
+ * bisher bloss auf die Benutzerverwaltung - fünf Schritte weit weg von
+ * der Person, um die es geht. Wer hier Verlängern oder Sperren antippt,
+ * muss vorher sehen, woran er ist; die Sperre zuerst, denn ein
+ * gesperrter Zugang «endet» nicht, er ist zu.
+ */
+export function zugangsZeile(konto: GastKonto): string {
+  if (konto.enabled === false) {
+    return 'Gesperrt – die Anmeldung ist zu, der Zugang bleibt aber angelegt.';
+  }
+  return ablaufSatz(konto.expires ?? null);
+}

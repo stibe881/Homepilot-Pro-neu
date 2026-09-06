@@ -99,10 +99,16 @@ from .routes import (
     raeume as routes_raeume,
 )
 from .routes import (
+    rueckblick as routes_rueckblick,
+)
+from .routes import (
     system as routes_system,
 )
 from .routes import (
     users as routes_users,
+)
+from .routes import (
+    verbindungen as routes_verbindungen,
 )
 
 log = logging.getLogger(__name__)
@@ -293,6 +299,8 @@ def create_app(hub: Hub) -> FastAPI:
         routes_personen.register,
         routes_medien.register,
         routes_raeume.register,
+        routes_rueckblick.register,
+        routes_verbindungen.register,
     ):
         register(app, ctx)
 

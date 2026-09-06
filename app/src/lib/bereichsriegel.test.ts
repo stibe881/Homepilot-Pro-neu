@@ -71,6 +71,26 @@ describe('istGesperrt', () => {
     expect(istGesperrt('family', { ...BABYSITTERABEND, panel: undefined })).toBe(false);
   });
 
+  it('hält am Gemeinschaftsgerät auch ohne Panel-Schalter zu', () => {
+    // Der Fall, an dem der Riegel durchfiel: Das Wandtablet ist als
+    // Gemeinschafts-Zugang angelegt, aber sein Wandpanel-Schalter ist
+    // eine lokale Geräte-Einstellung, an die beim Einrichten niemand
+    // dachte. Besuch, der tagsüber vorbeiging, sah die Einkaufsliste -
+    // obwohl der Besuch-Modus lief.
+    expect(
+      istGesperrt('family', { ...BABYSITTERABEND, panel: false, shared: true })
+    ).toBe(true);
+    // Aber auch dort nur, solange jemand da ist.
+    expect(
+      istGesperrt('family', {
+        ...BABYSITTERABEND,
+        panel: false,
+        shared: true,
+        babysitter: false,
+      })
+    ).toBe(false);
+  });
+
   it('fragt ohne Babysitter-Modus nicht', () => {
     // Mittags ist die Familie unter sich. Zwanzig Ziffern am Tag für
     // einen Fall, den es an den meisten Tagen gar nicht gibt.
@@ -104,7 +124,7 @@ describe('Was am Wandpanel ohne Code offensteht', () => {
     ]);
   });
 
-  it('gilt nur am Panel', () => {
+  it('gilt nur an aufgestellten Geräten (Panel oder Gemeinschaftsgerät)', () => {
     // Auf einem Telefon hat der Riegel diesen Zweck nicht - das Gerät
     // steckt in einer Tasche und nicht im Flur.
     expect(offeneModule('family', false, true)).toEqual([]);

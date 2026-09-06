@@ -31,6 +31,7 @@ from . import (
     babysitter,
     batterie,
     batterieprognose,
+    cliparchiv,
     energy,
     familie,
     flattern,
@@ -428,6 +429,10 @@ class Watchdog:
         await self._check_leaks(entities)
         await self._check_sauger(entities)
         self._record_energy(entities)
+        # Abgelaufene Kamera-Clips wegräumen (Punkt 256 der Werkbank) -
+        # hier statt in einem eigenen Zeitplan: Der Wächter ist der
+        # bestehende Minutentakt, und eine zweite Uhr müsste jemand warten.
+        cliparchiv.aufraeumen_lauf(self.hub)
         await self._check_disk()
         await self._check_frost(entities)
         await self._check_regen(entities)
@@ -626,6 +631,16 @@ class Watchdog:
         ):
             return
         heute = jetzt.strftime("%Y-%m-%d")
+        # Wer «Gegossen» oder «Passt so» gedrückt hat, soll Ruhe haben -
+        # gegossen zählt wie Regen, passt für die ganze Trockenperiode
+        # (core/giessen.py, unterdrueckt).
+        if giessen.unterdrueckt(
+            self.hub.data.get(giessen.QUITTUNG_KEY),
+            wetter.state.get("dry_days"),
+            heute,
+            int(params.get("days", 3)),
+        ):
+            return
         if not self._einmal(f"plants:{heute}", jetzt.timestamp()):
             return
         await self._notify(

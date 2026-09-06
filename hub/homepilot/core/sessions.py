@@ -35,6 +35,19 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def session_id(hashwert: str) -> str:
+    """Die öffentliche Kennung einer Sitzung (rein, testbar).
+
+    Punkt 244 der Werkbank: Die «Meine Geräte»-Ansicht braucht etwas,
+    womit sich eine einzelne Sitzung beenden lässt. Ein Stück des Hashes
+    statt des ganzen, weil die Kennung durch App, Logs und Screenshots
+    wandert - dort soll nichts liegen, was dem gespeicherten Wert näher
+    kommt als nötig. Zwölf Hex-Zeichen genügen, um unter den höchstens
+    PER_USER Sitzungen einer Person eine bestimmte zu treffen.
+    """
+    return hashwert[:12]
+
+
 def bleibt(row: dict[str, Any], moment: float) -> bool:
     """Gilt diese Sitzung noch? (rein, testbar)
 
@@ -175,9 +188,64 @@ class SessionStore:
         self._save(rest)
         return len(rows) - len(rest)
 
-    def list_for(self, user: str) -> list[dict[str, Any]]:
-        return [
-            {k: v for k, v in row.items() if k != "hash"}
-            for row in prune(self._rows())
-            if row.get("user") == user
+    def revoke_others(self, user: str, token: str) -> int:
+        """Alle anderen Sitzungen dieser Person beenden - die eigene bleibt.
+
+        Punkt 244 der Werkbank, für den Passwortwechsel: Wer sein Passwort
+        wechselt, tut das oft, weil das alte irgendwo gelandet ist, wo es
+        nicht hingehört. Dann müssen auch die damit ausgestellten
+        Sitzungen fallen - nur nicht die, an der man gerade sitzt, sonst
+        meldet einen der Wechsel selbst ab und das fühlt sich wie ein
+        Fehler an.
+        """
+        wanted = hash_token(token) if token else ""
+        rows = self._rows()
+        rest = [
+            row
+            for row in rows
+            if row.get("user") != user or row.get("hash") == wanted
         ]
+        self._save(rest)
+        return len(rows) - len(rest)
+
+    def revoke_id(self, user: str, sid: str) -> bool:
+        """Eine einzelne Sitzung über ihre Kennung beenden.
+
+        Der Benutzer gehört zur Prüfung dazu: Die Kennung kommt aus der
+        App und ist damit Eingabe - ohne den Abgleich beendete jeder, der
+        eine fremde Kennung errät, fremde Sitzungen (Punkt 244).
+        """
+        if not sid:
+            return False
+        rows = self._rows()
+        rest = [
+            row
+            for row in rows
+            if not (
+                row.get("user") == user
+                and session_id(str(row.get("hash") or "")) == sid
+            )
+        ]
+        if len(rest) == len(rows):
+            return False
+        self._save(rest)
+        return True
+
+    def list_for(self, user: str, current_token: str = "") -> list[dict[str, Any]]:
+        """Die Sitzungen einer Person, für die «Meine Geräte»-Ansicht.
+
+        ``current_token`` markiert die Sitzung, mit der gerade gefragt
+        wird: Ohne die «diese hier»-Kennung beendet man beim Aufräumen
+        versehentlich das Gerät in der eigenen Hand (Punkt 244).
+        """
+        wanted = hash_token(current_token) if current_token else ""
+        result = []
+        for row in prune(self._rows()):
+            if row.get("user") != user:
+                continue
+            hashwert = str(row.get("hash") or "")
+            cleaned = {k: v for k, v in row.items() if k != "hash"}
+            cleaned["id"] = session_id(hashwert)
+            cleaned["current"] = bool(wanted) and hashwert == wanted
+            result.append(cleaned)
+        return result

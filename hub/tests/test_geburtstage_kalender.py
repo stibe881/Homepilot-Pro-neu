@@ -118,6 +118,9 @@ def test_der_wochenausblick_nimmt_beide_quellen_mit():
     text = familie.week_ahead(EVENTS, [], [], [{"text": "Livia", "birthday": "25.08.1985"}], HEUTE)
     assert text is not None
     zeilen = text.split("\n")
-    # Levin steht nur im Kalender, Livia in beiden - und einmal.
-    assert any("Levin hat Geburtstag" in zeile for zeile in zeilen)
+    # Livia steht im Kalender und in den Kontakten - und einmal da.
     assert sum("Livia hat Geburtstag" in zeile for zeile in zeilen) == 1
+    # Levins Geburtstag ist heute - und heute gehört nicht in die
+    # *kommende* Woche: Die Vorschau geht am Sonntagabend raus und
+    # beginnt am Montag; der heutige stand schon im Morgengruss.
+    assert not any("Levin hat Geburtstag" in zeile for zeile in zeilen)

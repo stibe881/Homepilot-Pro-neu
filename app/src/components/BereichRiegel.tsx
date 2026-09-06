@@ -77,13 +77,15 @@ export function BereichRiegel({
       <Ionicons name="lock-closed-outline" size={26} color={colors.inkSoft} />
       <Text style={styles.titel}>{titel} ist abgeriegelt</Text>
       <Text style={styles.hinweis}>
-        {/* Warum ausgerechnet jetzt: Der Riegel steht nur am Wandpanel und
-            nur, solange der Babysitter-Modus läuft. Ohne diesen Satz
+        {/* Warum ausgerechnet jetzt: Der Riegel steht am Wandpanel und am
+            Gemeinschaftsgerät, solange der «Jemand ist da»-Modus läuft -
+            Besuch wie Babysitter (Punkt 246 der Werkbank). Ohne diesen Satz
             wirkte er willkürlich - dieselbe Kachel, die mittags aufging,
             fragt abends nach einem Passwort. */}
-        Der Babysitter-Modus läuft, und dieses Gerät steht offen herum – darum
-        liegt jetzt ein Passwort vor den persönlichen Bereichen. Es kommt von
-        der Hausverwaltung, derselben Person, die den Zugang eingerichtet hat.
+        Es ist gerade Besuch oder ein Babysitter im Haus, und dieses Gerät
+        steht offen herum – darum liegt jetzt ein Passwort vor den
+        persönlichen Bereichen. Es kommt von der Hausverwaltung, derselben
+        Person, die den Zugang eingerichtet hat.
       </Text>
       <TextInput
         style={styles.feld}

@@ -169,7 +169,7 @@ def test_zwillinge_finden_sich_auch_ueber_den_namen():
     # nicht), führt sein Tipp trotzdem zur richtigen Fernbedienung.
     android_aus = SimpleNamespace(
         id="androidtv.wz", kind="media_player", label="Fernseher Wohnzimmer",
-        state={"state": "off", "has_screen": True},
+        state={"state": "off", "has_screen": True}, available=False,
         room="Wohnzimmer", commands=["dpad_up", "turn_on"],
     )
     allein = karten_tv([android_aus, cast_ohne_raum])
@@ -183,6 +183,39 @@ def test_zwillinge_finden_sich_auch_ueber_den_namen():
         room=None, commands=["dpad_up"],
     )
     assert len(karten_tv([anderer, cast_ohne_raum])) == 2
+
+
+def test_geisterbild_des_zuspielers_bekommt_keine_karte():
+    """Der gemeldete Fall: Alle Fernseher aus - trotzdem lag «Fernseher
+    im Wohnzimmer, Zattoo» auf dem Sperrbildschirm. Der Cast-Eintrag
+    hält seine letzte Sitzung fest, während der Android-TV-Zwilling
+    erreichbar «aus» meldet - und der weiss es besser: Seine Verbindung
+    steht auch im Standby, «aus» heisst dort dunkler Bildschirm."""
+    android_aus = SimpleNamespace(
+        id="androidtv.wz", kind="media_player", label="Fernseher Wohnzimmer",
+        state={"state": "off", "has_screen": True}, available=True,
+        room="Wohnzimmer", commands=["dpad_up", "turn_on"],
+    )
+    zattoo_geist = SimpleNamespace(
+        id="cast.wz", kind="media_player", label="Fernseher im Wohnzimmer",
+        state={"state": "paused", "has_screen": True, "app": "Zattoo"},
+        room=None, commands=["play", "pause"],
+    )
+    assert karten_tv([android_aus, zattoo_geist]) == []
+
+    # Schaltet der Fernseher ein, ist es kein Geisterbild mehr - eine
+    # Karte, mit dem Text des Zuspielers.
+    android_an = SimpleNamespace(
+        id="androidtv.wz", kind="media_player", label="Fernseher Wohnzimmer",
+        state={"state": "on", "has_screen": True}, available=True,
+        room="Wohnzimmer", commands=["dpad_up", "turn_on"],
+    )
+    karten = karten_tv([android_an, zattoo_geist])
+    assert [k["art"] for k in karten] == ["tv:androidtv.wz"]
+    assert karten[0]["state"]["text"] == "Zattoo"
+
+    # Ohne Steuerkreuz-Zwilling weiss es niemand besser - Karte bleibt.
+    assert len(karten_tv([zattoo_geist])) == 1
 
 
 def test_verwaiste_karten_werden_erkannt_und_vorgemerkt():
@@ -214,7 +247,10 @@ def test_die_karte_des_zuspielers_oeffnet_die_fernbedienung_des_zwillings():
     «aus» ist: Genau dann kommt die Karte ja vom Zuspieler."""
     android_aus = SimpleNamespace(
         id="androidtv.wz", kind="media_player", label="Fernseher Wohnzimmer",
-        state={"state": "off", "has_screen": True},
+        # «aus», weil der Hub ihn nicht erreicht (Kopplung weg) - nur
+        # dann darf der Zuspieler den Fernsehabend allein behaupten
+        # (geisterbild): Erreichbar «aus» hiesse dunkler Bildschirm.
+        state={"state": "off", "has_screen": True}, available=False,
         room="Wohnzimmer", commands=["dpad_up", "turn_on"],
     )
     plex = SimpleNamespace(

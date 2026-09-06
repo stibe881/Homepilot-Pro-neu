@@ -423,6 +423,43 @@ def sind_zwillinge(a: Any, b: Any) -> bool:
     return bool(name_a) and name_a == _tv_name(getattr(b, "label", None))
 
 
+def geisterbild(entity: Any, entities: list[Any]) -> bool:
+    """Behauptet nur der Zuspieler den Fernsehabend? (rein, testbar)
+
+    Der gemeldete Fall: Alle Fernseher aus - und trotzdem liegt
+    «Fernseher im Wohnzimmer, Zattoo» auf dem Sperrbildschirm. Der
+    Cast-Eintrag hält seine letzte Sitzung fest (Zattoo pausiert im
+    Hintergrund weiter), während der Android-TV-Zwilling verlässlich
+    «aus» meldet: Seine Fernbedienungs-Verbindung steht auch im
+    Standby, «aus» heisst dort wirklich dunkler Bildschirm.
+
+    Also sticht der Zwilling: Meldet das einzige Steuerkreuz-Gerät
+    unter den Zwillingen *erreichbar* «off», ist die Sitzung des
+    Zuspielers ein Geisterbild und bekommt keine Karte. Nur dann -
+    ist der Zwilling gerade nicht erreichbar (Kopplung weg, Kabel
+    gezogen), weiss es niemand besser, und die Zuspieler-Karte bleibt:
+    Genau so lief der Plex-Abend, an dem der Hub den Android TV nicht
+    erreichte.
+    """
+    if "dpad_up" in (getattr(entity, "commands", None) or []):
+        return False
+    kreuze = [
+        kandidat
+        for kandidat in entities
+        if kandidat is not entity
+        and getattr(kandidat, "kind", None) == "media_player"
+        and "dpad_up" in (getattr(kandidat, "commands", None) or [])
+        and sind_zwillinge(entity, kandidat)
+    ]
+    if len(kreuze) != 1:
+        return False
+    zwilling = kreuze[0]
+    return (
+        getattr(zwilling, "available", True) is True
+        and str(zwilling.state.get("state") or "") == "off"
+    )
+
+
 def kino_knopf(szenen: list[Any]) -> dict[str, Any] | None:
     """Der Kino-Griff auf der Fernseher-Karte (rein, testbar).
 
@@ -576,6 +613,10 @@ def karten_tv(
         if entity.kind == "media_player"
         and entity.state.get("has_screen")
         and str(entity.state.get("state") or "") in TV_AN
+        # Kein Geisterbild: Hält nur der Zuspieler die Sitzung fest,
+        # während der Steuerkreuz-Zwilling erreichbar «aus» meldet, ist
+        # der Bildschirm dunkel - und eine Karte dafür Dauermöblierung.
+        and not geisterbild(entity, entities)
     ]
     knopf = kino_knopf(szenen or [])
     karten = []

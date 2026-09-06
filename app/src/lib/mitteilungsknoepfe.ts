@@ -23,12 +23,14 @@ export const KATEGORIE_SPAETER = 'spaeter';
 export const KATEGORIE_ERLEDIGT = 'erledigt';
 export const KATEGORIE_WAESCHE = 'waesche';
 export const KATEGORIE_OFFEN = 'offen';
+export const KATEGORIE_GIESSEN = 'giessen';
 
 /** Die Knöpfe selbst – die Kennung reist mit der Antwort zurück. */
 export const KNOPF_SPAETER = 'spaeter30';
 export const KNOPF_ERLEDIGT = 'erledigt';
 export const KNOPF_ICHMACHS = 'ichmachs';
 export const KNOPF_PASST = 'passtso';
+export const KNOPF_GEGOSSEN = 'gegossen';
 
 /**
  * Was dieser Knopf bedeutet (rein, testbar).
@@ -40,11 +42,12 @@ export const KNOPF_PASST = 'passtso';
  */
 export function knopfHandlung(
   id: string | undefined
-): 'spaeter' | 'erledigt' | 'ichmachs' | 'passt' | null {
+): 'spaeter' | 'erledigt' | 'ichmachs' | 'passt' | 'gegossen' | null {
   if (id === KNOPF_SPAETER) return 'spaeter';
   if (id === KNOPF_ERLEDIGT) return 'erledigt';
   if (id === KNOPF_ICHMACHS) return 'ichmachs';
   if (id === KNOPF_PASST) return 'passt';
+  if (id === KNOPF_GEGOSSEN) return 'gegossen';
   return null;
 }
 
@@ -90,6 +93,15 @@ export async function knoepfeAnmelden(): Promise<void> {
     buttonTitle: 'Passt so',
     options: { opensAppToForeground: false },
   };
+  // «Gegossen» und «Passt so» unter der Giess-Erinnerung. Ohne Antwort
+  // kam sie jeden Abend wieder, als wäre nichts geschehen. Gegossen
+  // zählt wie Regen; passt so heisst Ruhe für diese Trockenperiode -
+  // bis es wieder einmal geregnet hat (hub/core/giessen.py).
+  const gegossen = {
+    identifier: KNOPF_GEGOSSEN,
+    buttonTitle: 'Gegossen',
+    options: { opensAppToForeground: false },
+  };
   await Notifications.setNotificationCategoryAsync(KATEGORIE_SPAETER, [spaeter]);
   await Notifications.setNotificationCategoryAsync(KATEGORIE_ERLEDIGT, [
     erledigt,
@@ -102,5 +114,9 @@ export async function knoepfeAnmelden(): Promise<void> {
   await Notifications.setNotificationCategoryAsync(KATEGORIE_OFFEN, [
     passt,
     spaeter,
+  ]);
+  await Notifications.setNotificationCategoryAsync(KATEGORIE_GIESSEN, [
+    gegossen,
+    passt,
   ]);
 }

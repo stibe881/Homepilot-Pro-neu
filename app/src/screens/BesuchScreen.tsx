@@ -173,6 +173,13 @@ export function BesuchScreen({
                   onPress={() => setStunden(wert)}
                   accessibilityRole="radio"
                   accessibilityState={{ selected: stunden === wert }}
+                  // «2 Std» liest sich als «zwei S-t-d» vor - deshalb das
+                  // ausgeschriebene Wort (Punkt 247 der Werkbank).
+                  accessibilityLabel={
+                    wert === null
+                      ? 'Ohne Frist'
+                      : `${wert} ${wert === 1 ? 'Stunde' : 'Stunden'}`
+                  }
                   style={[styles.chip, stunden === wert && styles.chipActive]}
                 >
                   <Text
@@ -198,6 +205,8 @@ export function BesuchScreen({
           onPress={() => void (laeuft ? beenden() : starten())}
           disabled={busy}
           accessibilityRole="button"
+          accessibilityLabel={laeuft ? 'Besuchsmodus beenden' : 'Besuchsmodus starten'}
+          accessibilityState={{ disabled: busy, busy }}
           style={({ pressed }) => [
             styles.button,
             laeuft && { backgroundColor: colors.danger },
@@ -230,6 +239,7 @@ export function BesuchScreen({
           <Pressable
             onPress={onAblaeufe}
             accessibilityRole="button"
+            accessibilityLabel="Einzelne Abläufe freigeben – öffnet die Abläufe"
             style={({ pressed }) => [styles.link, pressed && { opacity: 0.7 }]}
           >
             <Text style={styles.linkText}>
@@ -251,7 +261,15 @@ export function BesuchScreen({
         <Card style={styles.card}>
           <Text style={styles.heading}>Gäste-WLAN</Text>
           <View style={styles.wlan}>
-            <View style={styles.qr}>
+            {/* Ein QR-Code ist fürs Vorlesen nur ein stummes Bild - das
+                Label sagt wenigstens, wofür er da ist (Punkt 247 der
+                Werkbank). */}
+            <View
+              style={styles.qr}
+              accessible
+              accessibilityRole="image"
+              accessibilityLabel={`QR-Code für das Gäste-WLAN «${wlan.ssid}»`}
+            >
               <QRCode value={wlan.payload} size={170} backgroundColor="#FFFFFF" />
             </View>
             <Text style={styles.hint}>

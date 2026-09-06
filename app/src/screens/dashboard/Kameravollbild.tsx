@@ -5,6 +5,7 @@ import { Image, Modal, Pressable, Text, View } from 'react-native';
 import { Entity, HubSettings } from '../../api/types';
 import { CameraLive } from '../../components/CameraLive';
 import { CameraTimeline } from '../../components/CameraTimeline';
+import { ClipArchiv } from '../../components/ClipArchiv';
 import { useTakt } from '../../hooks/useTakt';
 import { Colors } from '../../theme';
 import { DashboardStile } from './stile';
@@ -36,6 +37,10 @@ export function CameraFullscreen({
   // drei Sekunden als ein schwarzes Rechteck. Der Grund wird angezeigt,
   // sonst lässt sich aus der Ferne nichts diagnostizieren.
   const [liveFailed, setLiveFailed] = useState<string | null>(null);
+  // Das Clip-Archiv (Punkt 256 der Werkbank): Die dauerhaften
+  // Alarm-Mitschnitte wohnen bei den Kameras, weil man sie hier sucht –
+  // die Zeitleiste darunter zeigt nur die flüchtigen 24 Stunden.
+  const [archivOffen, setArchivOffen] = useState(false);
   useTakt(() => setTick((value) => value + 1), 3000);
   const online = camera.state.state === 'online';
   const live = online && !liveFailed && !!streamUri && camera.state.stream === true;
@@ -88,10 +93,21 @@ export function CameraFullscreen({
                 : 'Standbild alle 3 Sekunden'}
             {camera.state.motion === 'on' ? ' · Bewegung erkannt' : ''}
           </Text>
+          <Pressable
+            onPress={() => setArchivOffen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Archivierte Aufnahmen zeigen"
+            style={styles.doorbellClose}
+          >
+            <Text style={styles.doorbellCloseText}>Aufnahmen</Text>
+          </Pressable>
           <Pressable onPress={onClose} style={styles.doorbellClose}>
             <Text style={styles.doorbellCloseText}>Schliessen</Text>
           </Pressable>
         </View>
+        {archivOffen ? (
+          <ClipArchiv settings={settings} onClose={() => setArchivOffen(false)} />
+        ) : null}
       </View>
     </Modal>
   );

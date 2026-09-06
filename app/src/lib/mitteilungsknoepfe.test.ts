@@ -1,5 +1,6 @@
 import {
   KNOPF_ERLEDIGT,
+  KNOPF_GEGOSSEN,
   KNOPF_ICHMACHS,
   KNOPF_PASST,
   KNOPF_SPAETER,
@@ -32,5 +33,14 @@ describe('«Passt so»', () => {
     // Der Knopf unter «steht offen»: Die Türe steht absichtlich offen -
     // für diese Öffnung ist Ruhe, samt zurückgelegter Erinnerungen.
     expect(knopfHandlung(KNOPF_PASST)).toBe('passt');
+  });
+});
+
+describe('«Gegossen»', () => {
+  it('kommt als eigene Handlung zurück', () => {
+    // Der Knopf unter «Pflanzen giessen»: gegossen zählt wie Regen -
+    // die nächste Erinnerung kommt frühestens nach der Trockenzeit
+    // (hub/core/giessen.py).
+    expect(knopfHandlung(KNOPF_GEGOSSEN)).toBe('gegossen');
   });
 });

@@ -42,6 +42,7 @@ ARTEN: dict[str, str] = {
     "alarm": "Alarmanlage",
     "regel": "Benachrichtigung",
     "konfiguration": "Konfiguration",
+    "verbindung": "Dienst-Verbindung",
 }
 
 

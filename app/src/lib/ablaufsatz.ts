@@ -1,5 +1,11 @@
 import { Entity, Scene } from '../api/types';
 import {
+  presenceSatz,
+  wennSchrittSatz,
+  wetterwarnungSatz,
+  wiederholenSatz,
+} from './kontrollfluss';
+import {
   SAMMEL_ANWESENHEIT,
   anwesenheitSatz,
   istOrtsmelder,
@@ -60,6 +66,12 @@ function triggerSatz(trigger: Roh, entities: Entity[]): string {
       return `alle ${Math.round(Number(trigger.seconds) / 60) || 1} Min`;
     case 'availability':
       return trigger.to === true ? `${wer} wiederkommt` : `${wer} verstummt${dauer}`;
+    // Die neuen Auslöser (Punkt 252): dieselben Worte wie beim
+    // Ortsauslöser, denn für die lesende Person ist es dieselbe Sache.
+    case 'presence':
+      return presenceSatz(trigger.person, trigger.event, trigger.zone);
+    case 'weather_warning':
+      return wetterwarnungSatz(trigger.min_severity);
     default: {
       // Ortsauslöser lesen sich als Satz, nicht als Zustandswechsel:
       // «Livia verlässt Schule» statt «geofence.livia → ändert sich».
@@ -213,6 +225,38 @@ function aktionSatz(
       return `warten bis ${nameVon(entities, action.entity_id)} passt`;
     case 'music':
       return musikSatz(action, entities);
+    // Kontrollfluss (Punkt 251): Die Zweige rekursiv als Sätze - der
+    // mitlaufende Satz ist die billigste Prüfung, und gerade bei einer
+    // Verzweigung will man lesen, was in welchem Zweig passiert.
+    case 'if': {
+      const bedingungen = ((action.conditions ?? []) as Roh[]).map((sub) =>
+        bedingungSatz(sub, entities)
+      );
+      const dann = ((action.then ?? []) as Roh[]).map((sub) =>
+        aktionSatz(sub, entities, scenes)
+      );
+      const sonst = ((action.else ?? []) as Roh[]).map((sub) =>
+        aktionSatz(sub, entities, scenes)
+      );
+      return wennSchrittSatz(
+        bedingungen,
+        action.match === 'any' ? 'any' : 'all',
+        dann,
+        sonst
+      );
+    }
+    case 'repeat': {
+      const schritte = ((action.actions ?? []) as Roh[]).map((sub) =>
+        aktionSatz(sub, entities, scenes)
+      );
+      const solange = Array.isArray(action.while)
+        ? (action.while as Roh[]).map((sub) => bedingungSatz(sub, entities))
+        : undefined;
+      return wiederholenSatz(
+        { count: action.count, while: solange, max: action.max },
+        schritte
+      );
+    }
     default: {
       const was = BEFEHL[String(action.command)] ?? action.command;
       // Der Wert gehört dazu: «Lautsprecher Lautstärke» sagt nicht, ob

@@ -6,6 +6,14 @@
 
 import { Entity } from '../../api/types';
 import { datumUhr, dauerText } from '../../lib/format';
+import {
+  begrenzteAnzahl,
+  personWort,
+  presenceSatz,
+  wennKurz,
+  wetterwarnungSatz,
+  wiederholenKurz,
+} from '../../lib/kontrollfluss';
 import type { LaufEintrag } from '../../lib/laufzeile';
 import { befehlWort, nameVon } from '../../lib/ablaufsatz';
 import {
@@ -552,6 +560,8 @@ export type TriggerKind =
   | 'sun'
   | 'calendar'
   | 'geofence'
+  | 'presence'
+  | 'weather_warning'
   | 'availability';
 /**
  * Ein Handgriff unter einer Nachricht.
@@ -567,7 +577,7 @@ export interface NotifyKnopf {
   command?: string;
 }
 
-export type StepKind = 'command' | 'toggle_all' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'presence' | 'delay' | 'wait_until' | 'fade' | 'music';
+export type StepKind = 'command' | 'toggle_all' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'presence' | 'delay' | 'wait_until' | 'fade' | 'music' | 'if' | 'repeat';
 
 /** Was ein Musik-Schritt tun kann. */
 export type MusikTat = 'favorite' | 'sleep' | 'pause_all' | 'night' | 'fade';
@@ -609,6 +619,16 @@ export interface TriggerDraft {
   calendarContains: string;
   calendarEvent: 'start' | 'end';
   calendarBefore: string;
+  /** Anwesenheits-Auslöser (Punkt 252): wessen Kommen oder Gehen. Die
+   *  Zone steckt in `ortId` - dasselbe Feld wie beim Ortsauslöser, denn
+   *  es ist dieselbe Frage «wo?». Anders als der Ortsauslöser feuert er
+   *  nur bei einem echten Wechsel: Die Meldewelle nach einem Hub-Neustart
+   *  (unknown → home) löst nicht aus. */
+  presencePerson: string;
+  presenceEvent: 'arrives' | 'leaves';
+  /** Wetterwarnungs-Auslöser (Punkt 252): ab welcher Stufe (leer =
+   *  jede). Das Warn-Gerät steht in `entityId`; leer heisst jedes. */
+  minSeverity: string;
 }
 
 /**
@@ -707,6 +727,25 @@ export interface StepDraft {
   musikMinuten: string;
   musikLautstaerke: string;
   musikAn: boolean;
+  /** «Wenn …» mitten in der Aktionsliste (Punkt 251): Bedingungen wie
+   *  überall, dann/sonst als eigene Unterlisten aus Schritten. Was der
+   *  Editor an Bedingungen nicht bauen kann (Zeitfenster, Gruppen aus
+   *  der config.yaml), bleibt in `ifExtra` erhalten, statt beim Öffnen
+   *  stumm zu verschwinden - dieselbe Regel wie bei extraConditions. */
+  ifConditions: StateCondition[];
+  ifMatch: 'all' | 'any';
+  ifExtra: BausteinConfig[];
+  ifThen: StepDraft[];
+  ifElse: StepDraft[];
+  /** «Wiederholen» (Punkt 251): feste Anzahl oder solange eine
+   *  Bedingung gilt - mit Obergrenze, beides hart bei 50 gedeckelt
+   *  (lib/kontrollfluss.ts), wie im Hub. */
+  repeatArt: 'count' | 'while';
+  repeatCount: string;
+  repeatWhile: StateCondition[];
+  repeatWhileExtra: BausteinConfig[];
+  repeatMax: string;
+  repeatSteps: StepDraft[];
 }
 
 export const EMPTY_STEP: StepDraft = {
@@ -738,6 +777,17 @@ export const EMPTY_STEP: StepDraft = {
   musikMinuten: '30',
   musikLautstaerke: '30',
   musikAn: true,
+  ifConditions: [],
+  ifMatch: 'all',
+  ifExtra: [],
+  ifThen: [],
+  ifElse: [],
+  repeatArt: 'count',
+  repeatCount: '3',
+  repeatWhile: [],
+  repeatWhileExtra: [],
+  repeatMax: '10',
+  repeatSteps: [],
 };
 
 /** Ein neuer Auslöser für dieses Gerät – mit einem Zustand, den es auch
@@ -769,6 +819,9 @@ export const EMPTY_TRIGGER: TriggerDraft = {
   calendarContains: '',
   calendarEvent: 'start',
   calendarBefore: '',
+  presencePerson: '',
+  presenceEvent: 'arrives',
+  minSeverity: '',
 };
 
 /** «ist» vergleicht den Zustand, «über»/«unter» eine Zahl – für Helligkeit,
@@ -892,6 +945,28 @@ export function triggerToConfig(t: TriggerDraft): BausteinConfig {
   if (t.kind === 'interval') {
     return { type: 'interval', seconds: Math.max(10, Number(t.intervalSeconds) || 600) };
   }
+  if (t.kind === 'presence') {
+    // Punkt 252: Gespeichert wird die Zonen-Kennung («livia») - der Hub
+    // versteht auch Namen, aber die Kennung bleibt beim Umbenennen
+    // stabil. Das Zuhause ist die Vorgabe des Hubs und wird nicht
+    // mitgeschrieben, damit die gespeicherte Form schlank bleibt.
+    const trigger: BausteinConfig = {
+      type: 'presence',
+      person: t.presencePerson,
+      event: t.presenceEvent,
+    };
+    if (t.ortId && t.ortId !== ZUHAUSE) trigger.zone = t.ortId;
+    return trigger;
+  }
+  if (t.kind === 'weather_warning') {
+    // Ohne Stufe zählt jede Warnung, ohne Gerät jedes Warn-Gerät -
+    // beides sind die Vorgaben des Hubs und bleiben darum weg.
+    return {
+      type: 'weather_warning',
+      ...(t.minSeverity ? { min_severity: t.minSeverity } : {}),
+      ...(t.entityId ? { entity_id: t.entityId } : {}),
+    };
+  }
   const hold = Math.max(0, Number(t.forMinutes) || 0) * 60;
   if (t.kind === 'availability') {
     const trigger: { type: string; entity_id: string; to: boolean; for?: number } = {
@@ -952,6 +1027,10 @@ export function triggerFromConfig(t: BausteinConfig): TriggerDraft {
         ? 'time'
         : t?.type === 'calendar'
           ? 'calendar'
+        : t?.type === 'presence'
+          ? 'presence'
+        : t?.type === 'weather_warning'
+          ? 'weather_warning'
         : t?.type === 'sun'
           ? 'sun'
           : t?.type === 'interval'
@@ -965,7 +1044,24 @@ export function triggerFromConfig(t: BausteinConfig): TriggerDraft {
                   : 'state',
     entityId: t?.entity_id ?? '',
     toState: ortswahl ? (ortswahl.richtung === 'weg' ? 'away' : 'home') : (t?.to ?? 'on'),
-    ortId: ortswahl ? ortswahl.ort : EMPTY_TRIGGER.ortId,
+    // Beim Anwesenheits-Auslöser trägt `ortId` die Zone - ohne Angabe
+    // gilt das Zuhause, wie im Hub.
+    ortId:
+      t?.type === 'presence'
+        ? String(t?.zone ?? '') || ZUHAUSE
+        : ortswahl
+          ? ortswahl.ort
+          : EMPTY_TRIGGER.ortId,
+    presencePerson: t?.type === 'presence' ? String(t?.person ?? '') : '',
+    // Dieselbe Grosszügigkeit wie der Hub (presence_trigger_matches):
+    // «leave», «left», «geht» - alles heisst gehen.
+    presenceEvent: ['leaves', 'leave', 'left', 'exit', 'geht'].includes(
+      String(t?.event ?? '').toLowerCase()
+    )
+      ? 'leaves'
+      : 'arrives',
+    minSeverity:
+      t?.type === 'weather_warning' ? String(t?.min_severity ?? '') : '',
     fromState: t?.from ?? '',
     attribute: t?.attribute ?? '',
     at: t?.at ?? EMPTY_TRIGGER.at,
@@ -996,13 +1092,40 @@ export function vacuumRooms(entity: Entity | undefined): { id: number; name: str
  * das Licht löscht, weckt niemanden - und eine Einstellung, die nichts
  * bewirkt, macht die Seite länger und die Sache unklarer.
  */
-export function meldetEtwas(steps: { kind: string }[]): boolean {
-  return steps.some((step) => step.kind === 'notify' || step.kind === 'broadcast');
+/** Ein Schritt samt seiner Unterlisten - so viel Form, wie die
+ *  rekursiven Fragen unten brauchen. */
+interface SchrittBaum {
+  kind: string;
+  ifThen?: SchrittBaum[];
+  ifElse?: SchrittBaum[];
+  repeatSteps?: SchrittBaum[];
 }
 
-export function hatWartezeit(steps: { kind: string }[]): boolean {
+/** Alle Schritte, auch die in «wenn» und «wiederholen» (rein, testbar).
+ *
+ *  Seit Schritte Unterlisten tragen können, greift ein flaches `some`
+ *  zu kurz: Eine Nachricht im sonst-Zweig ist trotzdem eine Nachricht,
+ *  und die Nachtruhe-Frage muss sie sehen. */
+export function alleSchritte(steps: SchrittBaum[]): SchrittBaum[] {
+  return steps.flatMap((step) => [
+    step,
+    ...alleSchritte([
+      ...(step.ifThen ?? []),
+      ...(step.ifElse ?? []),
+      ...(step.repeatSteps ?? []),
+    ]),
+  ]);
+}
+
+export function meldetEtwas(steps: SchrittBaum[]): boolean {
+  return alleSchritte(steps).some(
+    (step) => step.kind === 'notify' || step.kind === 'broadcast'
+  );
+}
+
+export function hatWartezeit(steps: SchrittBaum[]): boolean {
   // Dimmen dauert - für «restart oder nicht» zählt es wie eine Wartezeit.
-  return steps.some(
+  return alleSchritte(steps).some(
     (step) => step.kind === 'delay' || step.kind === 'wait_until' || step.kind === 'fade'
   );
 }
@@ -1104,6 +1227,10 @@ export function triggerIcon(automation: Automation): string {
   if (art === 'interval') return 'repeat-outline';
   if (art === 'calendar') return 'calendar-outline';
   if (art === 'availability') return 'pulse-outline';
+  // Punkt 252: Der Anwesenheits-Auslöser fragt nach einer Person, die
+  // Wetterwarnung nach dem Himmel.
+  if (art === 'presence') return 'person-outline';
+  if (art === 'weather_warning') return 'thunderstorm-outline';
   if ('above' in trigger || 'below' in trigger) return 'analytics-outline';
   // Die Sammelanwesenheit fragt nach Menschen, nicht nach einem Ort.
   if (String(trigger.entity_id ?? '') === SAMMEL_ANWESENHEIT) return 'people-outline';
@@ -1245,7 +1372,34 @@ export const KAMERA_AUSLOESER = 'trigger';
 export const PLATZHALTER: { key: string; label: string }[] = [
   { key: '{raum}', label: '+ Raum' },
   { key: '{gerät}', label: '+ Gerät' },
+  // Punkt 251: Die Uhrzeit des Auslösens - «Bewegung um {time}» sagt
+  // beim Nachlesen am Morgen, wann es wirklich war.
+  { key: '{time}', label: '+ Uhrzeit' },
 ];
+
+/**
+ * Was sich aus einem Gerät in einen Nachrichtentext einsetzen lässt
+ * (rein, testbar) - Punkt 251 der Werkbank.
+ *
+ * Der Hub ersetzt {kennung} durch den Zustand und {kennung.feld} durch
+ * einen Messwert (core/platzhalter.py). Kennungen tippt niemand
+ * fehlerfrei ab - deshalb baut der Editor den Platzhalter aus der
+ * Geräteauswahl zusammen. Angeboten werden nur Felder, die das Gerät
+ * wirklich führt: Ein Platzhalter, der wörtlich stehen bliebe, wäre
+ * eine Attrappe.
+ */
+export function geraetePlatzhalter(
+  entity?: Entity
+): { key: string; label: string }[] {
+  if (!entity) return [];
+  return [
+    { key: `{${entity.id}}`, label: 'Zustand' },
+    ...measurableAttributes(entity).map(({ key, label }) => ({
+      key: `{${entity.id}.${key}}`,
+      label,
+    })),
+  ];
+}
 
 /** Weisstöne, die zur Auswahl stehen: Mirek und was man dazu sagt.
  *
@@ -1369,6 +1523,57 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
   }
   if (step.kind === 'music') {
     return musikSchrittZuAktion(step);
+  }
+  if (step.kind === 'if') {
+    // Ohne Bedingung hiesse der Schritt beim Hub «gilt immer», ohne
+    // einen Zweig, der etwas tut, wäre er eine leere Klammer - beides
+    // sieht im Editor unfertig aus und ergibt darum keine Aktion.
+    const conditions = [
+      ...step.ifConditions
+        .map(stateConditionToConfig)
+        .filter((sub): sub is BausteinConfig => sub !== null),
+      ...(step.ifExtra ?? []),
+    ];
+    const dann = stepsToActions(step.ifThen ?? []);
+    const sonst = stepsToActions(step.ifElse ?? []);
+    if (conditions.length === 0 || (dann.length === 0 && sonst.length === 0)) {
+      return [];
+    }
+    return [
+      {
+        type: 'if',
+        conditions,
+        match: step.ifMatch,
+        then: dann,
+        ...(sonst.length > 0 ? { else: sonst } : {}),
+      },
+    ];
+  }
+  if (step.kind === 'repeat') {
+    const actions = stepsToActions(step.repeatSteps ?? []);
+    if (actions.length === 0) return [];
+    if (step.repeatArt === 'while') {
+      const conditions = [
+        ...step.repeatWhile
+          .map(stateConditionToConfig)
+          .filter((sub): sub is BausteinConfig => sub !== null),
+        ...(step.repeatWhileExtra ?? []),
+      ];
+      // Ohne Bedingung liefe die Schleife stur bis zur Obergrenze - das
+      // meint niemand, der «solange» gewählt hat.
+      if (conditions.length === 0) return [];
+      return [
+        {
+          type: 'repeat',
+          while: conditions,
+          actions,
+          max: begrenzteAnzahl(step.repeatMax, 10),
+        },
+      ];
+    }
+    return [
+      { type: 'repeat', count: begrenzteAnzahl(step.repeatCount, 3), actions },
+    ];
   }
   if (step.kind === 'notify') {
     // Nur, was vollständig ist: Ein Knopf ohne Etikett oder ohne Ziel
@@ -1673,6 +1878,51 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
         fadeTo: String(action.to ?? 0),
         fadeMinutes: String(action.minutes ?? 10),
       });
+    } else if (type === 'if') {
+      // Punkt 251: Zweige rekursiv zurück in Schritte. Bedingungen, die
+      // der Editor nicht bauen kann (Zeitfenster, Gruppen), wandern nach
+      // ifExtra und bleiben beim Speichern erhalten - vorher fiel ein
+      // solcher Schritt beim Öffnen komplett und stumm aus dem Ablauf.
+      const conditions = ((action.conditions ?? []) as BausteinConfig[]).filter(
+        (sub) => !!sub && typeof sub === 'object'
+      );
+      steps.push({
+        ...EMPTY_STEP,
+        kind: 'if',
+        ifConditions: conditions
+          .filter(editierbareBedingung)
+          .map(stateConditionFromConfig),
+        ifExtra: conditions.filter((sub) => !editierbareBedingung(sub)),
+        ifMatch: action.match === 'any' ? 'any' : 'all',
+        ifThen: actionsToSteps(action.then ?? []),
+        ifElse: actionsToSteps(action.else ?? []),
+      });
+    } else if (type === 'repeat') {
+      const solange = Array.isArray(action.while)
+        ? (action.while as BausteinConfig[]).filter(
+            (sub) => !!sub && typeof sub === 'object'
+          )
+        : null;
+      steps.push({
+        ...EMPTY_STEP,
+        kind: 'repeat',
+        repeatArt: solange ? 'while' : 'count',
+        repeatCount:
+          action.count != null
+            ? String(begrenzteAnzahl(action.count, 3))
+            : EMPTY_STEP.repeatCount,
+        repeatWhile: (solange ?? [])
+          .filter(editierbareBedingung)
+          .map(stateConditionFromConfig),
+        repeatWhileExtra: (solange ?? []).filter(
+          (sub) => !editierbareBedingung(sub)
+        ),
+        repeatMax:
+          action.max != null
+            ? String(begrenzteAnzahl(action.max, 10))
+            : EMPTY_STEP.repeatMax,
+        repeatSteps: actionsToSteps(action.actions ?? []),
+      });
     } else if (type === 'delay') {
       steps.push({ ...EMPTY_STEP, kind: 'delay', seconds: String(action.seconds ?? 60) });
     } else if (type === 'wait_until') {
@@ -1700,6 +1950,12 @@ function editierbareGruppe(entry: BausteinConfig): boolean {
       (sub: BausteinConfig) => (sub?.type ?? 'state') === 'state' && sub?.entity_id
     )
   );
+}
+
+/** Kann der Editor diese einzelne Bedingung bauen? Nur reine
+ *  Gerätebedingungen - dieselbe Regel wie bei den Gruppen. */
+function editierbareBedingung(entry: BausteinConfig): boolean {
+  return (entry?.type ?? 'state') === 'state' && !!entry?.entity_id;
 }
 
 function stateConditionFromConfig(entry: BausteinConfig): StateCondition {
@@ -1768,6 +2024,31 @@ export function withAtLeastOne(steps: StepDraft[]): StepDraft[] {
   return steps.length > 0 ? steps : [{ ...EMPTY_STEP }];
 }
 
+/**
+ * Eine echte Kopie eines Schritts (rein, testbar).
+ *
+ * Die flache Kopie von früher reichte, solange ein Schritt höchstens
+ * Listen aus Werten trug. Ein «Wenn …»- oder «Wiederholen»-Schritt
+ * trägt ganze Unterlisten aus Schritten - flach kopiert teilte sich die
+ * Kopie die Zweige mit dem Original, und wer die Kopie umbaute, baute
+ * unbemerkt beide um.
+ */
+export function kopieSchritt(step: StepDraft): StepDraft {
+  return {
+    ...step,
+    commandActions: step.commandActions.map((entry) => ({ ...entry })),
+    broadcastSpeakers: [...step.broadcastSpeakers],
+    notifyKnoepfe: (step.notifyKnoepfe ?? []).map((knopf) => ({ ...knopf })),
+    ifConditions: (step.ifConditions ?? []).map((entry) => ({ ...entry })),
+    ifExtra: [...(step.ifExtra ?? [])],
+    ifThen: (step.ifThen ?? []).map(kopieSchritt),
+    ifElse: (step.ifElse ?? []).map(kopieSchritt),
+    repeatWhile: (step.repeatWhile ?? []).map((entry) => ({ ...entry })),
+    repeatWhileExtra: [...(step.repeatWhileExtra ?? [])],
+    repeatSteps: (step.repeatSteps ?? []).map(kopieSchritt),
+  };
+}
+
 /** Wie das Licht in der Listenzeile steht (rein, testbar).
  *
  * Mit dem Nachlauf, wenn es einen gibt: «Licht an» allein lässt die
@@ -1801,6 +2082,11 @@ export function describe(automation: Automation, entities: Entity[] = []): strin
           ? `alle ${trigger.seconds} s`
           : trigger.type === 'availability'
             ? `wenn ${wer} ${trigger.to === true ? 'wiederkommt' : 'verstummt'}`
+            : // Die neuen Auslöser (Punkt 252) - als Satz, nicht als Kennung.
+            trigger.type === 'presence'
+              ? `wenn ${presenceSatz(trigger.person, trigger.event, trigger.zone)}`
+              : trigger.type === 'weather_warning'
+                ? `wenn ${wetterwarnungSatz(trigger.min_severity)}`
             : istOrtsmelder(trigger.entity_id)
               ? `wenn ${ortsSatz(wer, trigger)}`
               : String(trigger.entity_id ?? '') === SAMMEL_ANWESENHEIT
@@ -1810,6 +2096,12 @@ export function describe(automation: Automation, entities: Entity[] = []): strin
                   } → ${trigger.to ?? 'sich ändert'}`;
   const dann = !action
     ? 'ohne Aktion'
+    : // Kontrollfluss (Punkt 251): kurz sagen, DASS verzweigt oder
+    // wiederholt wird - die Zweige selbst liest man im Editor-Satz.
+    action.type === 'if'
+      ? wennKurz(action)
+      : action.type === 'repeat'
+        ? wiederholenKurz(action)
     : action.type === 'toggle_all'
       ? `${(action.entity_ids ?? []).length} Geräte gemeinsam umschalten`
       : action.type === 'light'
@@ -1876,6 +2168,11 @@ export function wasFehlt(draft: Draft): string[] {
     if (trigger.kind === 'time' && !String(trigger.at ?? '').trim()) {
       fehlt.push(`${wo}: eine Uhrzeit eintragen`);
     }
+    // Der Anwesenheits-Auslöser braucht kein Gerät, aber eine Person -
+    // ohne sie horchte er auf niemanden.
+    if (trigger.kind === 'presence' && !trigger.presencePerson) {
+      fehlt.push(`${wo}: eine Person wählen`);
+    }
   });
 
   // Nicht die Schritte zählen, sondern was aus ihnen wird: Ein Schritt
@@ -1917,6 +2214,8 @@ const SCHRITT_WORT: Record<StepKind, string> = {
   wait_until: 'Warten bis',
   fade: 'Dimmen',
   music: 'Musik',
+  if: 'Wenn …',
+  repeat: 'Wiederholen',
 };
 
 /**
@@ -1948,6 +2247,21 @@ export function schrittFehlt(step: StepDraft): string | null {
       return 'ein Gerät wählen';
     case 'music':
       return 'wählen, was laufen soll';
+    case 'if':
+      // Erst die Bedingung, dann die Zweige - in der Reihenfolge, in
+      // der das Formular sie zeigt.
+      if (step.ifConditions.length + (step.ifExtra?.length ?? 0) === 0) {
+        return 'eine Bedingung anlegen';
+      }
+      return 'im Dann- oder Sonst-Zweig einen Schritt anlegen, der etwas tut';
+    case 'repeat':
+      if (
+        step.repeatArt === 'while' &&
+        step.repeatWhile.length + (step.repeatWhileExtra?.length ?? 0) === 0
+      ) {
+        return 'eine Solange-Bedingung anlegen';
+      }
+      return 'einen Schritt zum Wiederholen anlegen, der etwas tut';
     default:
       return 'ausfüllen';
   }
@@ -2040,6 +2354,18 @@ export function namensVorschlag(draft: Draft, entities: Entity[]): string {
     wenn = 'regelmässig';
   } else if (trigger.kind === 'calendar') {
     wenn = 'bei einem Termin';
+  } else if (trigger.kind === 'presence') {
+    // «Nachricht bei der Ankunft von Livia» - der Satzbau der übrigen
+    // Vorschläge, nicht der des Editor-Satzes.
+    wenn = trigger.presencePerson
+      ? `${
+          trigger.presenceEvent === 'leaves'
+            ? 'beim Weggehen von'
+            : 'bei der Ankunft von'
+        } ${personWort(trigger.presencePerson)}`
+      : '';
+  } else if (trigger.kind === 'weather_warning') {
+    wenn = 'bei Wetterwarnung';
   } else {
     const geraet = name(trigger.entityId);
     wenn = geraet ? `bei ${geraet}` : '';

@@ -156,3 +156,57 @@ async def test_no_reminder_when_rain_is_forecast(monkeypatch):
         assert gesendet == []
     finally:
         await hub.stop()
+
+
+# ── Die Antwort auf die Erinnerung: «Gegossen» oder «Passt so» ─────────
+#
+# Der gemeldete Fall: «Hier soll man sagen können, dass man gegossen
+# hat - oder ob passt so.» Ohne das kam die Meldung jeden Abend wieder,
+# als wäre nichts geschehen.
+
+
+def test_gegossen_zaehlt_wie_regen():
+    rows = giessen.quittung("gegossen", "2026-09-06", 6)
+    # Am selben und den nächsten zwei Abenden ist Ruhe (dry_days wächst
+    # ohne Regen um eins je Tag weiter).
+    assert giessen.unterdrueckt(rows, 6, "2026-09-06", 3) is True
+    assert giessen.unterdrueckt(rows, 8, "2026-09-08", 3) is True
+    # Drei trockene Tage nach dem Giessen ist der Balkon wieder dran.
+    assert giessen.unterdrueckt(rows, 9, "2026-09-09", 3) is False
+
+
+def test_passt_so_gilt_fuer_die_ganze_trockenperiode():
+    rows = giessen.quittung("passt", "2026-09-06", 6)
+    # Auch eine Woche später noch Ruhe - solange es nicht geregnet hat.
+    assert giessen.unterdrueckt(rows, 13, "2026-09-13", 3) is True
+    # Regen dazwischen (die Zählung wurde auf null gestellt und ist erst
+    # wieder bei 4): Die Quittung ist verbraucht, neue Periode, neue Frage.
+    assert giessen.unterdrueckt(rows, 4, "2026-09-13", 3) is False
+
+
+def test_kaputte_quittung_unterdrueckt_nichts():
+    # Lieber eine Meldung zu viel als ein vertrockneter Balkon.
+    assert giessen.unterdrueckt(None, 6, "2026-09-06", 3) is False
+    assert giessen.unterdrueckt([{"art": "gegossen"}], 6, "2026-09-06", 3) is False
+    assert giessen.unterdrueckt(
+        giessen.quittung("gegossen", "kein-datum", 6), 6, "2026-09-06", 3
+    ) is False
+    # Eine Quittung aus der Zukunft (verstellte Uhr) zählt nicht.
+    assert giessen.unterdrueckt(
+        giessen.quittung("gegossen", "2026-09-09", 6), 6, "2026-09-06", 3
+    ) is False
+
+
+async def test_nach_der_quittung_ist_abends_ruhe(monkeypatch):
+    from datetime import datetime as dt
+
+    hub, gesendet = await _wach(monkeypatch, dt(2026, 8, 20, 18, 0), TROCKEN)
+    try:
+        hub.data.set(
+            giessen.QUITTUNG_KEY,
+            giessen.quittung("gegossen", "2026-08-20", TROCKEN["dry_days"]),
+        )
+        await hub.watchdog._check_giessen(hub.registry.all())
+        assert gesendet == []
+    finally:
+        await hub.stop()
