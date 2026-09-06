@@ -121,7 +121,7 @@ const STICHWORTE: Record<string, readonly string[]> = {
   // Passwort-Wechsel und «Meine Geräte» im Konto - wer sein verlorenes
   // Telefon hinauswerfen will, tippt eines dieser Wörter, nicht «Konto».
   account: ['push', 'benachrichtigung', 'mitteilung', 'profil', 'darstellung', 'design', 'farbe', 'symbol', 'sperre', 'passwort', 'sitzung', 'sitzungen', 'abmelden', 'geräte'],
-  connection: ['token', 'hub', 'adresse', 'server', 'url', 'anmelden'],
+  connection: ['token', 'hub', 'adresse', 'server', 'url', 'anmelden', 'kalender', 'spotify', 'google', 'mail', 'dienst', 'dienste'],
   automations: ['szene', 'szenen', 'automation', 'regel', 'zeitplan'],
   besuch: ['wlan', 'gast', 'gäste', 'babysitter', 'qr'],
   sorgen: ['batterie', 'offline', 'wartung', 'kaputt', 'störung'],
