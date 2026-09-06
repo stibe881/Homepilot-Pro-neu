@@ -4,6 +4,7 @@ import { Entity } from '../api/types';
 import { timerZeile } from '../lib/fernsehtimer';
 import { zustandsText } from '../lib/haushalt';
 import { zustandWort } from '../lib/saugerkarte';
+import { aktiveVorgabe } from '../lib/storenvorgaben';
 
 /**
  * Ein Gerät in einer Zeile: sein Sinnbild und sein Zustand in einem Wort.
@@ -42,6 +43,20 @@ export function shortState(entity: Entity): string {
   switch (entity.kind) {
     case 'cover': {
       const position = entity.state.position;
+      const tilt = entity.state.tilt;
+      // Dieselben Worte wie die Stellungs-Chips der Gerätekachel
+      // (lib/storenvorgaben.ts): «0 % offen» war für eine Store in
+      // Beschattung die halbe Wahrheit - unten stimmt, aber durch die
+      // offenen Lamellen kommt Licht. Von der Höhe allein ist genau
+      // das nicht abzulesen.
+      const stellung = aktiveVorgabe(
+        typeof position === 'number' ? position : null,
+        typeof tilt === 'number' ? tilt : null,
+        entity.commands.includes('set_tilt')
+      );
+      if (stellung === 'schatten') return 'Beschattung';
+      if (stellung === 'zu') return 'Zu';
+      if (stellung === 'auf') return 'Offen';
       if (typeof position === 'number') return `${position}% offen`;
       return state === 'closed' ? 'Zu' : state === 'open' ? 'Offen' : '–';
     }
