@@ -199,6 +199,18 @@ struct Provider: TimelineProvider {
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<Entry>) -> Void) {
         Task {
+            // Die Lesespur: der einzige Beweis über die Prozessgrenze,
+            // dass die geteilte Ablage wirklich geteilt ist. Die App kann
+            // nur im eigenen Prozess zurücklesen - schreiben App und
+            // Widget je in ihren eigenen Topf (etwa weil das
+            // Signierprofil die Gruppe nicht trägt), sieht die App
+            // «alles gut» und das Widget trotzdem nichts. Der Stempel
+            // hier lässt die App genau das unterscheiden (lib/widget.ts,
+            // widgetSpur).
+            UserDefaults(suiteName: appGroup)?.set(
+                String(Int(Date().timeIntervalSince1970)),
+                forKey: "widgetZuletztGelesen"
+            )
             let glance = await ladeGlance()
             let knöpfe = ladeShortcuts()
             // Alle 15 Minuten: Häufiger lässt iOS ohnehin nicht zu, und für

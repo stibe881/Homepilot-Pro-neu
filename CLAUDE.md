@@ -225,7 +225,7 @@ Zwei Dinge, die dabei überraschen:
   die hochgezählte Versionsnummer täuschte dabei Aktualität vor. So
   gingen mehrere Lieferungen am Haus vorbei, ohne dass es auffiel: Der
   Hub war neu, die App nicht.
-- Deshalb steht dort jetzt eine feste `runtimeVersion` (zurzeit `"5"`).
+- Deshalb steht dort jetzt eine feste `runtimeVersion` (zurzeit `"6"`).
   Sie gehört zur **nativen** Hülle, nicht zur Auslieferung:
   - **`version` bei jeder Auslieferung hochzählen** – wie bisher. Sie
     ist die Nummer, die im App Store und in TestFlight steht, und sie
@@ -248,6 +248,13 @@ Zwei Dinge, die dabei überraschen:
     Zwei native Module in einer Runde kosten dagegen nur *einen*
     TestFlight-Build; wer ohnehin einen braucht, nimmt anderes gleich
     mit.
+    Von `"5"` auf `"6"` ging es, als die Widget-Ablage zum **lokalen**
+    Modul wurde (`modules/widget-ablage`): Das `ExtensionStorage`-Modul
+    des Pakets kam in keinem EAS-Build je an – die Innenansicht der
+    Widget-Einstellungen zählte 41 native Module, keines davon so
+    genannt, während die lokalen Module in jedem Build stecken. Warum
+    der Bau-Server genau dieses eine Fremdpaket auslässt, ist ungeklärt;
+    die Ablage hängt seither nicht mehr daran.
 - Damit das auch ankommt, steht in `app/eas.json` `appVersionSource` auf
   `local`. Vorher stand dort `remote`: Dann führt EAS die Version auf
   seinem Server und ignoriert die `app.json` – die dortige `0.7.0` ging

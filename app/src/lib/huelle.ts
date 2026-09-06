@@ -1,4 +1,4 @@
-import { localTime } from './zeit';
+import { epochTime, localTime } from './zeit';
 
 /**
  * Welche Hülle läuft hier eigentlich? – die Zeile für die Befund-Kästen
@@ -77,7 +77,39 @@ export function ablageDiagnose(
     .slice(0, 4);
   if (verwandt.length > 0) {
     const liste = verwandt.map((name) => `«${name}»`).join(', ');
-    return `Innenansicht: ${moduleNamen.length} native Module gemeldet; verwandt klingen ${liste} - «ExtensionStorage» selbst fehlt.`;
+    return `Innenansicht: ${moduleNamen.length} native Module gemeldet; verwandt klingen ${liste} - das Ablage-Modul selbst fehlt.`;
   }
-  return `Innenansicht: ${moduleNamen.length} native Module gemeldet, keines heisst «ExtensionStorage».`;
+  return `Innenansicht: ${moduleNamen.length} native Module gemeldet, keines heisst «WidgetAblage» oder «ExtensionStorage».`;
+}
+
+/**
+ * Der Satz zur grünen Erfolgsmeldung: was zurückgelesen wurde und ob
+ * das Widget selbst schon eine Lesespur hinterlassen hat (rein,
+ * testbar).
+ *
+ * Die Spur ist der einzige Beweis über die Prozessgrenze: Erfolg beim
+ * Zurücklesen kann auch heissen, dass App und Widget je in ihren
+ * eigenen Topf schreiben (Signierprofil ohne App-Gruppe) - dann sieht
+ * die App «alles gut» und das Widget trotzdem nichts. Fehlt die Spur,
+ * sagt der Satz das offen, statt Erfolg zu behaupten.
+ */
+export function ablageStand(
+  knoepfe: number | null,
+  spurEpoch: number | null
+): string {
+  const teile: string[] = [];
+  if (knoepfe != null) {
+    teile.push(
+      knoepfe === 1
+        ? '1 Knopf liegt zurückgelesen in der Ablage'
+        : `${knoepfe} Knöpfe liegen zurückgelesen in der Ablage`
+    );
+  }
+  teile.push(
+    spurEpoch != null
+      ? `das Widget hat zuletzt ${epochTime(spurEpoch)} daraus gelesen`
+      : 'eine Lesespur des Widgets liegt noch nicht da'
+  );
+  const satz = teile.join('; ');
+  return `${satz.charAt(0).toUpperCase()}${satz.slice(1)}.`;
 }

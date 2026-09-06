@@ -74,7 +74,17 @@ function nativesModul(): any | null {
     // Erst zur Laufzeit laden: Im Web-Bau soll der Import oben nichts
     // anfassen müssen, was es nur nativ gibt.
     const { requireOptionalNativeModule } = require('expo-modules-core');
-    return requireOptionalNativeModule('ExtensionStorage') ?? null;
+    // Zuerst das eigene lokale Modul (modules/widget-ablage): Das
+    // ExtensionStorage-Modul des Pakets kam in keinem EAS-Build je an -
+    // die Innenansicht zählte 41 native Module, keines davon so genannt,
+    // während die lokalen Module dieses Projekts in jedem Build stecken.
+    // Das Paket bleibt als zweiter Griff: gleiche Signaturen, und sollte
+    // es je wieder auftauchen, schadet es nicht.
+    return (
+      requireOptionalNativeModule('WidgetAblage') ??
+      requireOptionalNativeModule('ExtensionStorage') ??
+      null
+    );
   } catch {
     return null;
   }
@@ -103,6 +113,44 @@ function storage(): {
     remove: (key) => modul.remove(key, APP_GROUP),
     neuZeichnen: () => modul.reloadWidget(null),
   };
+}
+
+/** Wie viele Knöpfe wirklich in der Ablage liegen - zurückgelesen,
+ *  nicht geglaubt. Null, wenn dort nichts (Lesbares) liegt. */
+export function abgelegteKnoepfe(): number | null {
+  const store = storage();
+  if (store === null) return null;
+  try {
+    const roh = store.get('buttons');
+    if (!roh) return null;
+    const liste = JSON.parse(roh);
+    return Array.isArray(liste) ? liste.length : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Die Lesespur des Widgets: Unix-Sekunden seines letzten Laufs.
+ *
+ *  Das Zurücklesen in syncWidget beweist nur, dass *dieser* Prozess
+ *  seine eigene Ablage sieht. Ob der Widget-Prozess dieselben Daten
+ *  bekommt, war bisher unbeweisbar - genau dort trennt sich «App-Gruppe
+ *  funktioniert» von «jeder schreibt in seinen eigenen Topf» (etwa,
+ *  wenn das Signierprofil die Gruppe nicht trägt). Deshalb hinterlässt
+ *  das Widget bei jedem Zeitplan-Lauf einen Zeitstempel in der Ablage
+ *  (index.swift); liegt er da, ist der Weg in beide Richtungen belegt.
+ *  Ältere Builds schreiben ihn nie - dann bleibt es bei null, was
+ *  ehrlich «kein Nachweis» heisst, nicht «kaputt». */
+export function widgetSpur(): number | null {
+  const store = storage();
+  if (store === null) return null;
+  try {
+    const roh = store.get('widgetZuletztGelesen');
+    const zahl = roh ? Number(roh) : NaN;
+    return Number.isFinite(zahl) && zahl > 0 ? zahl : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Die Innenansicht für die Warnung: was die Hülle wirklich meldet.
@@ -136,7 +184,13 @@ export function syncWidget(
   buttons: WidgetButton[]
 ): Ablage {
   const store = storage();
-  if (store === null) return 'kein-widget';
+  if (store === null) {
+    // Kein Modul heisst auf iOS «Hülle zu alt», nicht «kein Widget»:
+    // Beim Umbau auf den Expo-Auflöser fiel dieser Unterschied kurz
+    // weg, und die Warnung verschwand ausgerechnet dann, wenn sie
+    // gebraucht wurde - das sah aus wie geheilt.
+    return kann.widgets ? ablageBefund(false, false) : 'kein-widget';
+  }
   try {
     // Ohne Knöpfe nichts schreiben: Beim Start steht die Geräteliste
     // noch aus, und eine leere Liste hiesse für das Widget «keine
