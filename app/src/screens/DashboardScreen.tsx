@@ -905,6 +905,26 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           .catch(() => {});
         return;
       }
+      // «Gegossen» unter der Giess-Erinnerung: zählt wie Regen - die
+      // nächste Meldung kommt frühestens nach der Trockenzeit
+      // (hub/core/giessen.py).
+      if (druck.handlung === 'gegossen') {
+        hub
+          .post('/api/giessen/quittung', { art: 'gegossen' }, { still: true })
+          .then(() => setNote('Gegossen – gemerkt.'))
+          .catch(() => {});
+        return;
+      }
+      // «Passt so» unter der Giess-Erinnerung: Diese Trockenperiode ist
+      // versorgt - Ruhe, bis es wieder einmal geregnet hat. Erkennbar an
+      // der Kategorie; derselbe Knopf steht auch unter der offenen Türe.
+      if (druck.handlung === 'passt' && druck.category === 'plants') {
+        hub
+          .post('/api/giessen/quittung', { art: 'passt' }, { still: true })
+          .then(() => setNote('Passt so – Ruhe, bis es wieder geregnet hat.'))
+          .catch(() => {});
+        return;
+      }
       // «Passt so»: Die Türe steht absichtlich offen. Der Hub trägt die
       // zurückgelegten «Später»-Fassungen dieser Person aus - mehr gibt
       // es nicht zu tun, der Wächter meldet ohnehin einmal je Öffnung.

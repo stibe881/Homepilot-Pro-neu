@@ -97,6 +97,16 @@ class BabysitterRequest(BaseModel):
     hours: float | None = None
 
 
+class GiessenQuittungRequest(BaseModel):
+    """Die Antwort auf die Giess-Erinnerung: «gegossen» oder «passt».
+
+    Alles andere zählt als «gegossen» - lieber eine Erinnerung zu früh
+    als ein vertrockneter Balkon (core/giessen.py, quittung).
+    """
+
+    art: str = "gegossen"
+
+
 class BabysitterAllowRequest(BaseModel):
     """Einen einzelnen Ablauf für den Modus freigeben."""
 

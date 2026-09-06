@@ -626,6 +626,16 @@ class Watchdog:
         ):
             return
         heute = jetzt.strftime("%Y-%m-%d")
+        # Wer «Gegossen» oder «Passt so» gedrückt hat, soll Ruhe haben -
+        # gegossen zählt wie Regen, passt für die ganze Trockenperiode
+        # (core/giessen.py, unterdrueckt).
+        if giessen.unterdrueckt(
+            self.hub.data.get(giessen.QUITTUNG_KEY),
+            wetter.state.get("dry_days"),
+            heute,
+            int(params.get("days", 3)),
+        ):
+            return
         if not self._einmal(f"plants:{heute}", jetzt.timestamp()):
             return
         await self._notify(

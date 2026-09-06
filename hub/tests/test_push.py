@@ -304,3 +304,11 @@ def test_umbenennen_zieht_geraete_und_abbestellungen_mit():
     assert service.muted == {"Stefano": {"doorbell"}}
     # Niemand mit dem Namen: nichts zu tun, kein Fehler.
     assert service.umbenennen("Niemand", "Egal") == 0
+
+
+def test_giess_erinnerung_traegt_ihre_knoepfe():
+    """«Gegossen» und «Passt so» unter «Pflanzen giessen» - ohne sie kam
+    die Meldung jeden Abend wieder, als wäre nichts geschehen."""
+    from homepilot.core.push import knoepfe
+
+    assert knoepfe("plants") == "giessen"
