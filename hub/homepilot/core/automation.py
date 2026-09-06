@@ -77,12 +77,14 @@ from . import (
     astro,
     babysitter,
     feiertage,
+    gemeldet,
     kamera,
     nachtruhe,
     personenbild,
     platzhalter,
     pushziel,
     terminkontext,
+    verwaist,
     wirkung,
 )
 from . import light as licht
@@ -321,6 +323,12 @@ NEST_DEPTH = 3
 # Türe bleibt offen), liefe sonst für immer - und blockierte mit `mode:
 # single` gleich noch jeden weiteren Lauf desselben Ablaufs.
 REPEAT_LIMIT = 50
+
+# Wie oft der Motor nach verwaisten Abläufen sieht (Punkt 262). Sechs
+# Stunden sind bewusst grob: Verwaist wird man über Monate, nicht über
+# Mittag - und der Sammel-Hinweis ist ohnehin auf einmal im Monat
+# gedeckelt (gemeldet.py-Marke, siehe _verwaiste_pruefen).
+VERWAIST_TAKT = 6 * 3600
 
 # «Warten bis»: wie oft nachgesehen wird, und wie lange höchstens, wenn im
 # Ablauf keine eigene Frist steht. Eine Frist muss sein – sonst bliebe ein
@@ -1411,6 +1419,10 @@ class AutomationEngine:
                 elif trigger.get("type") == "calendar":
                     task = asyncio.create_task(self._calendar_loop(automation, trigger))
                     self._timer_tasks.append(task)
+        # Der eigene Takt des Motors: nach verwaisten Abläufen sehen
+        # (Punkt 262). Hier und nicht im Wächter, weil der Motor seine
+        # Abläufe kennt - der Wächter müsste sie sich erst geben lassen.
+        self._timer_tasks.append(asyncio.create_task(self._verwaiste_loop()))
         if self.automations:
             log.info("%d Automationen geladen", len(self.automations))
 
@@ -2366,13 +2378,89 @@ class AutomationEngine:
         # Spur weg, der man nachgeht - «heute Nacht ging das Licht an, und
         # jetzt weiss niemand, warum».
         self._verlauf_sichern()
+        # Das dauerhafte «zuletzt gefeuert» (Punkt 262). Nur echte Läufe:
+        # Ein übersprungener Lauf («nie erfüllte Bedingung») ist genau
+        # eine der Arten, verwaist zu sein, und der Testen-Knopf würde
+        # die Uhr eines toten Ablaufs zurückstellen, ohne dass er je von
+        # selbst gefeuert hätte.
+        if executed and not test:
+            self._feuer_merken(automation)
         return eintrag
+
+    def _feuer_merken(self, automation: Automation) -> None:
+        try:
+            self.hub.data.set(
+                verwaist.STORE_KEY,
+                verwaist.merke_feuer(
+                    self.hub.data.get(verwaist.STORE_KEY), automation.id, time.time()
+                ),
+            )
+        except Exception:
+            log.debug("«Zuletzt gefeuert» nicht schreibbar", exc_info=True)
 
     def _verlauf_sichern(self) -> None:
         try:
             self.hub.data.set("automation_runs", self.runs)
         except Exception:
             log.debug("Ablauf-Verlauf nicht schreibbar", exc_info=True)
+
+    # ── Verwaiste Abläufe (Punkt 262) ──────────────────────────────────────
+    #
+    # Ein Ablauf, der seit Monaten nicht gefeuert hat (umbenanntes Gerät,
+    # nie erfüllte Bedingung), ist meist tot - und Stille sieht wie Erfolg
+    # aus. Das Rechnen steht in core/verwaist.py; hier hängt es am eigenen
+    # Takt des Motors.
+
+    async def _verwaiste_loop(self) -> None:
+        while True:
+            await asyncio.sleep(VERWAIST_TAKT)
+            try:
+                await self._verwaiste_pruefen()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Der Takt läuft weiter: Eine kaputte Zeile in der Datei
+                # darf die Prüfung von übermorgen nicht mitreissen.
+                log.debug("Verwaisten-Prüfung fehlgeschlagen", exc_info=True)
+
+    async def _verwaiste_pruefen(self) -> None:
+        jetzt = time.time()
+        rows = self.hub.data.get(verwaist.STORE_KEY)
+        # Zuerst das «zuerst gesehen» nachführen: Ohne Anlagedatum ist es
+        # der einzige Beleg, dass ein Ablauf schon lange genug da ist, um
+        # verwaist sein zu können.
+        neu = verwaist.merke_gesehen(
+            rows, [automation.id for automation in self.automations], jetzt
+        )
+        if neu is not None:
+            self.hub.data.set(verwaist.STORE_KEY, neu)
+            rows = neu
+        tote = verwaist.verwaiste(rows, self.automations, jetzt)
+        if not tote:
+            return
+        # Höchstens einmal im Monat: Die Marke trägt den Kalendermonat,
+        # das Gedächtnis liegt in der hub.data und überlebt so den
+        # Neustart - dasselbe Muster wie beim Wächter (gemeldet.py).
+        marke = f"verwaiste_ablaeufe:{datetime.fromtimestamp(jetzt):%Y-%m}"
+        notified = self.hub.data.get("notified")
+        if gemeldet.schon(notified, marke):
+            return
+        # Vormerken *bevor* die Meldung rausgeht: Scheitert der Versand,
+        # soll er nicht im nächsten Takt erneut versucht werden.
+        self.hub.data.set("notified", gemeldet.merke(notified, marke, jetzt))
+        titel, text = verwaist.hinweis(tote)
+        tokens = self.hub.push.recipients(self.hub.users.users, "all", "maintenance")
+        await self.hub.push.send(
+            tokens,
+            titel,
+            text,
+            # «maintenance» hat ein Ziel (core/pushziel.py: das
+            # Sorgen-Blatt) - aufräumen tut man Abläufe aber in ihrer
+            # Liste, also führt der Tipp dorthin.
+            data={"ziel": "bereich:automations"},
+            category="maintenance",
+        )
+        log.info("Verwaisten-Hinweis verschickt: %d Ablauf/Abläufe", len(tote))
 
     def _conditions_hold(self, automation: Automation) -> tuple[bool, list[str]]:
         """Stimmen die Bedingungen? Ohne Bedingungen: ja.
