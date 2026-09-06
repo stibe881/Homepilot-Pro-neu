@@ -31,6 +31,7 @@ from . import (
     babysitter,
     batterie,
     batterieprognose,
+    cliparchiv,
     energy,
     familie,
     flattern,
@@ -428,6 +429,10 @@ class Watchdog:
         await self._check_leaks(entities)
         await self._check_sauger(entities)
         self._record_energy(entities)
+        # Abgelaufene Kamera-Clips wegräumen (Punkt 256 der Werkbank) -
+        # hier statt in einem eigenen Zeitplan: Der Wächter ist der
+        # bestehende Minutentakt, und eine zweite Uhr müsste jemand warten.
+        cliparchiv.aufraeumen_lauf(self.hub)
         await self._check_disk()
         await self._check_frost(entities)
         await self._check_regen(entities)
