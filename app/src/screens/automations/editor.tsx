@@ -9,10 +9,24 @@ import { Pressable, Text, TextInput, View } from 'react-native';
 
 import { Entity, Scene } from '../../api/types';
 import { Colors, useColors } from '../../theme';
-import { ablaufSatz } from '../../lib/ablaufsatz';
+import { ablaufSatz, nameVon } from '../../lib/ablaufsatz';
+import {
+  SimulationsBericht,
+  nichtSimulierbarZeile,
+  obergrenzeSatz,
+  summenSatz,
+  tagZeile,
+  ungeprueftZeile,
+} from '../../lib/ablaufsimulation';
 import { datumUhr } from '../../lib/format';
+import {
+  MAX_SCHACHTELUNG,
+  REPEAT_LIMIT,
+  WARNSTUFEN_WAHL,
+  begrenzteAnzahl,
+} from '../../lib/kontrollfluss';
 import { ZUHAUSE, anwesenheitsPersonen, istOrtsmelder, ortsauswahl } from '../../lib/ortsausloeser';
-import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, KAMERA_AUSLOESER, PLATZHALTER, hatWartezeit, measurableAttributes, meldetEtwas, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis } from './entwurf';
+import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StateCondition, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, geraetePlatzhalter, KAMERA_AUSLOESER, kopieSchritt, PLATZHALTER, hatWartezeit, measurableAttributes, meldetEtwas, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis } from './entwurf';
 import {
   Abschnitt,
   CategoryField,
@@ -46,6 +60,7 @@ export function Editor({
   onDelete,
   onTest,
   onDryRun,
+  onSimulation,
   onVersions,
   onRestoreVersion,
   onCancel,
@@ -75,6 +90,9 @@ export function Editor({
   onTest?: () => void;
   /** Nur bei gespeicherten Abläufen: zeigen, was jetzt passieren würde. */
   onDryRun?: () => Promise<DryRun | null>;
+  /** Nur bei gespeicherten Abläufen: «Hätte gefeuert» - die letzten
+   *  sieben Tage nachgerechnet (Punkt 254). */
+  onSimulation?: () => Promise<SimulationsBericht | null>;
   /** Frühere Fassungen laden bzw. eine zurückholen (nur beim Bearbeiten). */
   onVersions?: () => Promise<Fassung[]>;
   onRestoreVersion?: (at: number) => Promise<boolean>;
@@ -86,6 +104,9 @@ export function Editor({
   // Der Satz oben: kurz, mit «Alle zeigen» - siehe lib/ablaufsatz.ts.
   const [satzGanz, setSatzGanz] = useState(false);
   const [preview, setPreview] = useState<DryRun | null>(null);
+  // Das Blatt «Hätte gefeuert» (Punkt 254) - null heisst: noch nicht
+  // geholt oder Hub nicht erreichbar.
+  const [simulation, setSimulation] = useState<SimulationsBericht | null>(null);
   if (!draft) return null;
 
   const set = (patch: Partial<Draft>) => onChange({ ...draft, ...patch });
@@ -908,6 +929,25 @@ export function Editor({
             würde. Gespeicherte Änderungen zuerst sichern.
           </Text>
         ) : null}
+        {/* «Hätte gefeuert» (Punkt 254): Der Trockenlauf kennt nur das
+            Jetzt - hier steht, wie oft der Ablauf letzte Woche gelaufen
+            wäre. Die ehrlichen Abschnitte («nicht simulierbar»,
+            «ungeprüft») gehören dazu: Eine Zahl ohne sie wäre eine
+            Schätzung, die sich als Messung ausgibt. */}
+        {onSimulation ? (
+          <Pressable
+            style={({ pressed }) => [styles.snapshot, pressed && { opacity: 0.8 }]}
+            onPress={async () => setSimulation(await onSimulation())}
+            accessibilityRole="button"
+            accessibilityLabel="Hätte gefeuert: die letzten sieben Tage nachrechnen"
+          >
+            <Ionicons name="calendar-outline" size={18} color={colors.accent} />
+            <Text style={styles.snapshotText}>Hätte gefeuert (7 Tage)</Text>
+          </Pressable>
+        ) : null}
+        {simulation ? (
+          <SimulationsBlatt bericht={simulation} entities={entities} styles={styles} colors={colors} />
+        ) : null}
         {onVersions && onRestoreVersion ? (
           <VersionsSection load={onVersions} restore={onRestoreVersion} />
         ) : null}
@@ -990,6 +1030,71 @@ export function VersionsSection({
   );
 }
 
+/**
+ * Das Blatt «Hätte gefeuert» (Punkt 254): je Tag die Zeitpunkte, die
+ * Summe - und ehrlich, was sich nicht nachrechnen liess.
+ *
+ * Die Sätze kommen aus lib/ablaufsimulation.ts; hier steht nur, wo sie
+ * stehen. Tage ohne Lauf bleiben als Strich sichtbar: «hat nie gefeuert»
+ * ist genau die Antwort, für die man das Blatt aufmacht.
+ */
+export function SimulationsBlatt({
+  bericht,
+  entities,
+  styles,
+  colors,
+}: {
+  bericht: SimulationsBericht;
+  entities: Entity[];
+  styles: ReturnType<typeof makeStyles>;
+  colors: Colors;
+}) {
+  const name = (id: string) => nameVon(entities, id);
+  return (
+    <View style={styles.preview}>
+      <Text style={styles.previewHead}>{summenSatz(bericht)}</Text>
+      {bericht.days.map((tag) => (
+        <Text key={tag.date} style={styles.previewLine}>
+          {tagZeile(tag)}
+        </Text>
+      ))}
+      {obergrenzeSatz(bericht) ? (
+        <Text style={[styles.previewLine, { color: colors.warn }]}>
+          {obergrenzeSatz(bericht)}
+        </Text>
+      ) : null}
+      {bericht.not_simulatable.length > 0 ? (
+        <>
+          <Text style={styles.previewHead}>Nicht simulierbar</Text>
+          {bericht.not_simulatable.map((eintrag, index) => (
+            <Text key={index} style={styles.previewLine}>
+              • {nichtSimulierbarZeile(eintrag, name)}
+            </Text>
+          ))}
+        </>
+      ) : null}
+      {bericht.unchecked_conditions.length > 0 ? (
+        <>
+          <Text style={styles.previewHead}>Nicht geprüfte Bedingungen</Text>
+          {bericht.unchecked_conditions.map((eintrag, index) => (
+            <Text key={index} style={styles.previewLine}>
+              • {ungeprueftZeile(eintrag, name)} – gilt in der Rechnung als
+              erfüllt.
+            </Text>
+          ))}
+        </>
+      ) : null}
+      {/* Der Hub sagt selbst, wenn sein Protokoll den Zeitraum nicht
+          deckt - der Satz kommt fertig und gehört unverändert hin. */}
+      {bericht.hinweis ? (
+        <Text style={[styles.previewLine, { color: colors.warn }]}>
+          {bericht.hinweis}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 /** Ein Auslöser im Editor – eigenständige Komponente auf Modulebene, damit
  *  die Texteingaben beim Tippen nicht neu montiert werden. */
 export function TriggerRow({
@@ -1043,6 +1148,16 @@ export function TriggerRow({
           ...(entities.some((entity) => istOrtsmelder(entity.id))
             ? [{ key: 'geofence', label: 'Ort' }]
             : []),
+          // Punkt 252: Kommen und Gehen als eigener Auslöser - nur, wo
+          // es überhaupt gemeldete Personen gibt.
+          ...(anwesenheitsPersonen(entities).length > 0
+            ? [{ key: 'presence', label: 'Person kommt/geht' }]
+            : []),
+          // Dito die Wetterwarnung: ohne MeteoAlarm-Gerät gäbe es
+          // nichts zu hören.
+          ...(entities.some((entity) => entity.kind === 'alert')
+            ? [{ key: 'weather_warning', label: 'Wetterwarnung' }]
+            : []),
           // Dito für den Kalender (Punkt 153): ohne angebundenen Kalender
           // gäbe es nichts zu hören.
           ...(entities.some((entity) => Array.isArray(entity.state?.events))
@@ -1050,7 +1165,16 @@ export function TriggerRow({
             : []),
         ]}
         value={trigger.kind}
-        onSelect={(kind) => onChange({ kind: kind as TriggerKind })}
+        onSelect={(kind) =>
+          onChange({
+            kind: kind as TriggerKind,
+            // Die Wetterwarnung hört auf ein Warn-Gerät. Die Gerätewahl
+            // eines vorherigen Auslösers (eine Lampe, ein Melder) hier
+            // stehen zu lassen, speicherte ein entity_id, auf das nie
+            // eine Warnung kommt.
+            ...(kind === 'weather_warning' ? { entityId: '' } : {}),
+          })
+        }
       />
       {trigger.kind === 'sun' ? (
         <>
@@ -1241,6 +1365,67 @@ export function TriggerRow({
               nicht als «alle weg».
             </Text>
           ) : null}
+        </>
+      ) : trigger.kind === 'presence' ? (
+        <>
+          <Choice
+            options={anwesenheitsPersonen(entities).map((person) => ({
+              key: person.zone,
+              label: person.name,
+            }))}
+            value={trigger.presencePerson}
+            onSelect={(presencePerson) => onChange({ presencePerson })}
+          />
+          <Choice
+            options={[
+              { key: 'arrives', label: 'kommt an' },
+              { key: 'leaves', label: 'geht weg' },
+            ]}
+            value={trigger.presenceEvent}
+            onSelect={(presenceEvent) =>
+              onChange({
+                presenceEvent: presenceEvent as TriggerDraft['presenceEvent'],
+              })
+            }
+          />
+          {ortsWahl.length > 1 ? (
+            <Choice
+              options={ortsWahl}
+              value={trigger.ortId || ZUHAUSE}
+              onSelect={(ortId) => onChange({ ortId })}
+            />
+          ) : null}
+          <Text style={styles.triggerNote}>
+            Feuert beim echten Kommen oder Gehen – die Meldewelle nach
+            einem Hub-Neustart («unbekannt → zuhause») löst nicht aus.
+            Ohne Ortswahl zählt das Zuhause. Anders als der Ort-Auslöser
+            hört er auch auf Ankünfte, die ein Ablauf oder ein Knopf
+            meldet («Anwesenheit melden»), nicht nur aufs Telefon.
+          </Text>
+        </>
+      ) : trigger.kind === 'weather_warning' ? (
+        <>
+          <Choice
+            options={WARNSTUFEN_WAHL}
+            value={trigger.minSeverity}
+            onSelect={(minSeverity) => onChange({ minSeverity })}
+          />
+          {/* Bei mehreren Warn-Geräten (zwei Länder im Feed) lässt sich
+              eines wählen; bei einem wäre die Auswahl eine ohne Wahl. */}
+          {entities.filter((entity) => entity.kind === 'alert').length > 1 ? (
+            <EntityPicker
+              entities={entities.filter((entity) => entity.kind === 'alert')}
+              noneLabel="Jedes Warn-Gerät"
+              value={trigger.entityId}
+              onSelect={(entityId) => onChange({ entityId })}
+            />
+          ) : null}
+          <Text style={styles.triggerNote}>
+            Feuert für jede Warnung, die neu dazukommt – nicht bei jeder
+            Feed-Runde erneut. Eine Warnung ohne Stufe zählt mit: Bei
+            Unwetter ist «eine zu viel» der billigere Fehler als eine
+            unterschlagene.
+          </Text>
         </>
       ) : trigger.kind === 'threshold' ? (
         <>
@@ -1442,6 +1627,7 @@ export function StepList({
   onProbeStep,
   colors,
   styles,
+  tiefe = 1,
   onChange,
 }: {
   steps: StepDraft[];
@@ -1464,6 +1650,11 @@ export function StepList({
   onProbeStep?: (step: StepDraft) => Promise<boolean>;
   colors: Colors;
   styles: ReturnType<typeof makeStyles>;
+  /** Wie tief diese Liste steckt: 1 = die Hauptliste, darunter die
+   *  Zweige von «Wenn …» und «Wiederholen». Ab MAX_SCHACHTELUNG bietet
+   *  die Liste keine weiteren Kontroll-Schritte an - der Hub führte sie
+   *  nicht aus, und ein Chip, der ins Leere baut, wäre eine Falle. */
+  tiefe?: number;
   onChange: (steps: StepDraft[]) => void;
 }) {
   // Welcher Schritt gerade probiert wurde - für das kurze Häkchen.
@@ -1472,15 +1663,17 @@ export function StepList({
     onChange(steps.map((step, i) => (i === index ? { ...step, ...patch } : step)));
   const remove = (index: number) => onChange(steps.filter((_, i) => i !== index));
   // «Licht an, warten, Licht aus» für den zweiten Flur tippte man bisher
-  // neu – ein Ablauf liess sich kopieren, ein Schritt nicht.
+  // neu – ein Ablauf liess sich kopieren, ein Schritt nicht. Die Kopie
+  // ist tief (entwurf.kopieSchritt): «Wenn …» und «Wiederholen» tragen
+  // ganze Unterlisten, flach kopiert teilte man sie mit dem Original.
   const copy = (index: number) => {
-    const kopie = {
-      ...steps[index],
-      commandActions: steps[index].commandActions.map((entry) => ({ ...entry })),
-      broadcastSpeakers: [...steps[index].broadcastSpeakers],
-    };
-    onChange([...steps.slice(0, index + 1), kopie, ...steps.slice(index + 1)]);
+    onChange([
+      ...steps.slice(0, index + 1),
+      kopieSchritt(steps[index]),
+      ...steps.slice(index + 1),
+    ]);
   };
+  const kontrolleErlaubt = tiefe <= MAX_SCHACHTELUNG;
   const move = (index: number, delta: number) => {
     const target = index + delta;
     if (target < 0 || target >= steps.length) return;
@@ -1522,8 +1715,12 @@ export function StepList({
                 </Pressable>
               </>
             ) : null}
+            {/* «Wenn …» und «Wiederholen» sind wie das Warten vom
+                Einzel-Probelauf ausgenommen: Sie prüfen live Bedingungen
+                bzw. drehen Runden - das ist kein Einzelschritt mehr,
+                dafür gibt es «Jetzt testen». */}
             {onProbeStep &&
-            !['delay', 'wait_until'].includes(step.kind) ? (
+            !['delay', 'wait_until', 'if', 'repeat'].includes(step.kind) ? (
               // Punkt 164: die eine Durchsage, die eine Nachricht
               // ausprobieren, ohne dass die Storen mitfahren - und ohne
               // vorher speichern zu müssen.
@@ -1590,9 +1787,31 @@ export function StepList({
                 : []),
               { key: 'delay', label: 'Warten' },
               { key: 'wait_until', label: 'Warten bis' },
+              // Kontrollfluss (Punkt 251). In der tiefsten Ebene nur
+              // dann anbieten, wenn der Schritt schon so heisst - sonst
+              // stünde ein gespeicherter Schritt ohne seinen Chip da.
+              ...(kontrolleErlaubt || step.kind === 'if'
+                ? [{ key: 'if', label: 'Wenn …' }]
+                : []),
+              ...(kontrolleErlaubt || step.kind === 'repeat'
+                ? [{ key: 'repeat', label: 'Wiederholen' }]
+                : []),
             ]}
             value={step.kind}
-            onSelect={(kind) => setStep(index, { kind: kind as StepKind })}
+            onSelect={(kind) =>
+              setStep(index, {
+                kind: kind as StepKind,
+                // Ein frischer Zweig beginnt mit einem leeren Schritt -
+                // eine leere Unterliste sähe aus wie ein fertiger Block,
+                // der nichts tut.
+                ...(kind === 'if' && step.ifThen.length === 0
+                  ? { ifThen: [{ ...EMPTY_STEP }] }
+                  : {}),
+                ...(kind === 'repeat' && step.repeatSteps.length === 0
+                  ? { repeatSteps: [{ ...EMPTY_STEP }] }
+                  : {}),
+              })
+            }
           />
 
           {step.kind === 'command' ? (
@@ -1693,10 +1912,24 @@ export function StepList({
                 }
                 styles={styles}
               />
+              {/* Punkt 251: Auch Gerätewerte dürfen in den Text - «Die
+                  Waschküche hat {sensor.temp} Grad». Die Kennung tippt
+                  niemand fehlerfrei ab, darum wird sie zusammengeklickt. */}
+              <GeraetewertZeile
+                entities={entities}
+                feld="Text"
+                onEinsetzen={(halter) =>
+                  setStep(index, { body: `${step.body}${halter}` })
+                }
+                colors={colors}
+                styles={styles}
+              />
               <Text style={styles.triggerNote}>
-                {'{raum}'} und {'{gerät}'} setzt der Hub beim Auslösen ein –
-                in Titel und Text. So genügt ein Ablauf für alle Zimmer,
-                statt je Melder einen mit eigenem Text.
+                Platzhalter setzt der Hub beim Auslösen ein – in Titel und
+                Text: {'{raum}'} und {'{gerät}'} nennen den Melder, {'{time}'}{' '}
+                die Uhrzeit, ein Gerätewert wie {'{sensor.temperature}'} den
+                Messwert von genau dann. Unbekanntes bleibt wörtlich stehen
+                – ein Tippfehler ist so auf einen Blick zu sehen.
               </Text>
               {empfaenger.length > 1 ? (
                 // Punkt 158: «Waschmaschine fertig» muss nicht das ganze
@@ -1803,6 +2036,36 @@ export function StepList({
                 placeholderTextColor={colors.inkFaint}
                 maxLength={200}
               />
+              {/* Punkt 251: Uhrzeit und Gerätewerte auch in der
+                  Durchsage - «Es ist {time}, die Türe steht offen».
+                  {raum}/{gerät} gibt es hier nicht: Die füllt nur die
+                  Nachricht, und ein Chip, der wörtlich stehen bliebe,
+                  wäre eine Attrappe. */}
+              <View style={styles.choices}>
+                <Pressable
+                  onPress={() =>
+                    setStep(index, {
+                      broadcastText: `${step.broadcastText}{time}`,
+                    })
+                  }
+                  accessibilityRole="button"
+                  accessibilityLabel="Die Uhrzeit in die Durchsage einfügen"
+                  style={({ pressed }) => [styles.template, pressed && { opacity: 0.75 }]}
+                >
+                  <Text style={styles.templateText}>+ Uhrzeit</Text>
+                </Pressable>
+              </View>
+              <GeraetewertZeile
+                entities={entities}
+                feld="Durchsage-Text"
+                onEinsetzen={(halter) =>
+                  setStep(index, {
+                    broadcastText: `${step.broadcastText}${halter}`,
+                  })
+                }
+                colors={colors}
+                styles={styles}
+              />
               {entities.filter((entity) => entity.commands.includes('play_url'))
                 .length > 1 ? (
                 <Choice
@@ -1822,8 +2085,10 @@ export function StepList({
               ) : null}
               <Text style={styles.triggerNote}>
                 Der Text wird auf den Cast-Boxen vorgelesen - ohne Auswahl
-                auf allen. Braucht Internet (Sprachausgabe) und dass die
-                App den Hub mindestens einmal erreicht hat.
+                auf allen. {'{time}'} und Gerätewerte setzt der Hub beim
+                Auslösen ein; Unbekanntes bleibt wörtlich stehen. Braucht
+                Internet (Sprachausgabe) und dass die App den Hub
+                mindestens einmal erreicht hat.
               </Text>
             </>
           ) : step.kind === 'fade' ? (
@@ -1964,6 +2229,180 @@ export function StepList({
                 </>
               )}
             </>
+          ) : step.kind === 'if' ? (
+            <>
+              <Text style={styles.triggerNote}>
+                Verzweigt mitten im Ablauf: Passen die Bedingungen in dem
+                Moment, in dem dieser Schritt dran ist, laufen die
+                Dann-Schritte, sonst die Sonst-Schritte – danach geht der
+                Ablauf normal weiter.
+              </Text>
+              <BedingungsListe
+                conditions={step.ifConditions}
+                entities={entities}
+                hinzufuegenText="Bedingung hinzufügen"
+                onChange={(ifConditions) => setStep(index, { ifConditions })}
+                colors={colors}
+                styles={styles}
+              />
+              {(step.ifExtra?.length ?? 0) > 0 ? (
+                <Text style={styles.triggerNote}>
+                  Dazu {step.ifExtra.length === 1
+                    ? 'eine Bedingung'
+                    : `${step.ifExtra.length} Bedingungen`}{' '}
+                  aus der Konfiguration (Zeitfenster, Gruppen) – zu viel für
+                  den Editor, sie bleiben beim Speichern erhalten.
+                </Text>
+              ) : null}
+              {step.ifConditions.length + (step.ifExtra?.length ?? 0) > 1 ? (
+                <Choice
+                  options={[
+                    { key: 'all', label: 'alle zusammen (und)' },
+                    { key: 'any', label: 'eine davon genügt (oder)' },
+                  ]}
+                  value={step.ifMatch}
+                  onSelect={(ifMatch) =>
+                    setStep(index, { ifMatch: ifMatch as 'all' | 'any' })
+                  }
+                />
+              ) : null}
+              <Text style={styles.label}>dann</Text>
+              <View style={zweigStil(colors)}>
+                <StepList
+                  steps={step.ifThen}
+                  entities={entities}
+                  scenes={scenes}
+                  andereAblaeufe={andereAblaeufe}
+                  eigeneId={eigeneId}
+                  hueScenes={hueScenes}
+                  favoriten={favoriten}
+                  empfaenger={empfaenger}
+                  luxSensors={luxSensors}
+                  onProbeStep={onProbeStep}
+                  colors={colors}
+                  styles={styles}
+                  tiefe={tiefe + 1}
+                  onChange={(ifThen) => setStep(index, { ifThen })}
+                />
+              </View>
+              {step.ifElse.length === 0 ? (
+                <Pressable
+                  onPress={() => setStep(index, { ifElse: [{ ...EMPTY_STEP }] })}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.75 }]}
+                >
+                  <Ionicons name="git-branch-outline" size={16} color={colors.accent} />
+                  <Text style={styles.addRowText}>Sonst-Zweig hinzufügen</Text>
+                </Pressable>
+              ) : (
+                <>
+                  <Text style={styles.label}>sonst</Text>
+                  <View style={zweigStil(colors)}>
+                    <StepList
+                      steps={step.ifElse}
+                      entities={entities}
+                      scenes={scenes}
+                      andereAblaeufe={andereAblaeufe}
+                      eigeneId={eigeneId}
+                      hueScenes={hueScenes}
+                      favoriten={favoriten}
+                      empfaenger={empfaenger}
+                      luxSensors={luxSensors}
+                      onProbeStep={onProbeStep}
+                      colors={colors}
+                      styles={styles}
+                      tiefe={tiefe + 1}
+                      onChange={(ifElse) => setStep(index, { ifElse })}
+                    />
+                  </View>
+                </>
+              )}
+              {/* Ein Schritt aus der config.yaml kann tiefer stecken, als
+                  der Hub ausführt - das gehört gesagt, nicht versteckt. */}
+              {tiefe > MAX_SCHACHTELUNG ? (
+                <Text style={[styles.triggerNote, { color: colors.warn }]}>
+                  Tiefer als {MAX_SCHACHTELUNG} Ebenen führt der Hub nicht
+                  aus – dieser Zweig würde beim Lauf übersprungen.
+                </Text>
+              ) : null}
+            </>
+          ) : step.kind === 'repeat' ? (
+            <>
+              <Choice
+                options={[
+                  { key: 'count', label: 'feste Anzahl' },
+                  { key: 'while', label: 'solange Bedingung gilt' },
+                ]}
+                value={step.repeatArt}
+                onSelect={(repeatArt) =>
+                  setStep(index, { repeatArt: repeatArt as 'count' | 'while' })
+                }
+              />
+              {step.repeatArt === 'count' ? (
+                <AnzahlWahl
+                  value={step.repeatCount}
+                  vorgaben={['2', '3', '5', '10']}
+                  onCommit={(repeatCount) => setStep(index, { repeatCount })}
+                  styles={styles}
+                />
+              ) : (
+                <>
+                  <BedingungsListe
+                    conditions={step.repeatWhile}
+                    entities={entities}
+                    hinzufuegenText="Solange-Bedingung hinzufügen"
+                    onChange={(repeatWhile) => setStep(index, { repeatWhile })}
+                    colors={colors}
+                    styles={styles}
+                  />
+                  {(step.repeatWhileExtra?.length ?? 0) > 0 ? (
+                    <Text style={styles.triggerNote}>
+                      Dazu {step.repeatWhileExtra.length === 1
+                        ? 'eine Bedingung'
+                        : `${step.repeatWhileExtra.length} Bedingungen`}{' '}
+                      aus der Konfiguration – sie bleiben beim Speichern
+                      erhalten.
+                    </Text>
+                  ) : null}
+                  <Text style={styles.label}>höchstens</Text>
+                  <AnzahlWahl
+                    value={step.repeatMax}
+                    vorgaben={['5', '10', '20', '50']}
+                    onCommit={(repeatMax) => setStep(index, { repeatMax })}
+                    styles={styles}
+                  />
+                </>
+              )}
+              <Text style={styles.triggerNote}>
+                {step.repeatArt === 'while'
+                  ? `Geprüft wird vor jedem Durchgang: Gilt die Bedingung schon zu Beginn nicht, läuft nichts. Mehr als ${REPEAT_LIMIT} Durchgänge lässt der Hub nie zu – eine Bedingung, die nie kippt (der Sensor ist tot, die Türe bleibt offen), liefe sonst für immer.`
+                  : `Führt die Schritte der Reihe nach mehrfach aus – «dreimal blinken». Mehr als ${REPEAT_LIMIT} Durchgänge lässt der Hub nie zu.`}
+              </Text>
+              <View style={zweigStil(colors)}>
+                <StepList
+                  steps={step.repeatSteps}
+                  entities={entities}
+                  scenes={scenes}
+                  andereAblaeufe={andereAblaeufe}
+                  eigeneId={eigeneId}
+                  hueScenes={hueScenes}
+                  favoriten={favoriten}
+                  empfaenger={empfaenger}
+                  luxSensors={luxSensors}
+                  onProbeStep={onProbeStep}
+                  colors={colors}
+                  styles={styles}
+                  tiefe={tiefe + 1}
+                  onChange={(repeatSteps) => setStep(index, { repeatSteps })}
+                />
+              </View>
+              {tiefe > MAX_SCHACHTELUNG ? (
+                <Text style={[styles.triggerNote, { color: colors.warn }]}>
+                  Tiefer als {MAX_SCHACHTELUNG} Ebenen führt der Hub nicht
+                  aus – diese Wiederholung würde beim Lauf übersprungen.
+                </Text>
+              ) : null}
+            </>
           ) : step.kind === 'delay' ? (
             <>
               <Choice
@@ -2049,3 +2488,280 @@ export function StepList({
  * angestossen. Den Wähler trotzdem hinzustellen hiesse, eine Frage zu
  * stellen, die sich nicht stellt.
  */
+
+/** Die Einrückung eines dann/sonst/wiederholen-Zweigs: eine Linie am
+ *  linken Rand statt einer eigenen Box - Boxen in Boxen in Boxen wären
+ *  bei Tiefe 3 schmaler als ein Chip. */
+const zweigStil = (colors: Colors) =>
+  ({
+    borderLeftWidth: 2,
+    borderLeftColor: colors.surfaceBorder,
+    paddingLeft: 10,
+    gap: 4,
+  }) as const;
+
+/**
+ * Die Bedingungszeilen eines «Wenn …»- oder «Wiederholen»-Schritts.
+ *
+ * Derselbe Baustein wie in den Und/Oder-Gruppen (Punkt 152) – dieselbe
+ * Bedienung, weil es dieselbe Sache ist: Gerät, Vergleich, Wert. Auf
+ * Modulebene, damit die Eingaben beim Tippen nicht neu montiert werden.
+ */
+export function BedingungsListe({
+  conditions,
+  entities,
+  hinzufuegenText,
+  onChange,
+  colors,
+  styles,
+}: {
+  conditions: StateCondition[];
+  entities: Entity[];
+  hinzufuegenText: string;
+  onChange: (conditions: StateCondition[]) => void;
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const setEntry = (index: number, patch: Partial<StateCondition>) =>
+    onChange(
+      conditions.map((entry, position) =>
+        position === index ? { ...entry, ...patch } : entry
+      )
+    );
+  return (
+    <>
+      {conditions.map((entry, index) => {
+        const chosen = entities.find((entity) => entity.id === entry.entity_id);
+        return (
+          <View key={index} style={styles.rowGap}>
+            <View style={{ flex: 1, gap: 6 }}>
+              <EntityPicker
+                entities={entities}
+                value={entry.entity_id}
+                onSelect={(entity_id) =>
+                  setEntry(index, {
+                    entity_id,
+                    // Nach dem Gerätewechsel muss der Zustand zum neuen
+                    // Gerät passen - sonst stünde «an» bei einem Taster.
+                    value:
+                      entry.op === 'is'
+                        ? fittingState(
+                            entities.find((candidate) => candidate.id === entity_id),
+                            entry.value
+                          )
+                        : entry.value,
+                  })
+                }
+              />
+              <Choice
+                options={[
+                  { key: 'is', label: 'ist' },
+                  { key: 'above', label: 'über' },
+                  { key: 'below', label: 'unter' },
+                ]}
+                value={entry.op}
+                onSelect={(op) =>
+                  setEntry(index, {
+                    op: op as Compare,
+                    value:
+                      op === 'is'
+                        ? fittingState(chosen, entry.value)
+                        : String(Number(entry.value) || 0),
+                    // «ist» vergleicht immer den Zustand selbst.
+                    attribute: op === 'is' ? undefined : entry.attribute,
+                  })
+                }
+              />
+              {entry.op === 'is' ? (
+                <Choice
+                  options={conditionOptions(chosen)}
+                  value={entry.value}
+                  onSelect={(value) => setEntry(index, { value })}
+                />
+              ) : (
+                <NumberField
+                  value={entry.value}
+                  onCommit={(value) => setEntry(index, { value })}
+                  placeholder="z.B. 30"
+                />
+              )}
+              {entry.op !== 'is' && measurableAttributes(chosen).length > 0 ? (
+                <Choice
+                  options={[
+                    { key: '', label: 'Zustand' },
+                    ...measurableAttributes(chosen),
+                  ]}
+                  value={entry.attribute ?? ''}
+                  onSelect={(attribute) => setEntry(index, { attribute })}
+                />
+              ) : null}
+            </View>
+            <Pressable
+              onPress={() =>
+                onChange(
+                  conditions.filter((_entry, position) => position !== index)
+                )
+              }
+              accessibilityLabel="Bedingung entfernen"
+              hitSlop={8}
+            >
+              <Ionicons name="close" size={18} color={colors.inkSoft} />
+            </Pressable>
+          </View>
+        );
+      })}
+      <Pressable
+        onPress={() =>
+          onChange([
+            ...conditions,
+            {
+              entity_id: entities[0]?.id ?? '',
+              op: 'is' as Compare,
+              value: fittingState(entities[0], 'on'),
+            },
+          ])
+        }
+        accessibilityRole="button"
+        style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.75 }]}
+      >
+        <Ionicons name="add" size={16} color={colors.accent} />
+        <Text style={styles.addRowText}>{hinzufuegenText}</Text>
+      </Pressable>
+    </>
+  );
+}
+
+/**
+ * Durchgänge wählen: die üblichen Zahlen als Knöpfe, alles andere zum
+ * Eintippen – dasselbe Muster wie MinutenWahl (felder.tsx), nur zählt
+ * es Male statt Minuten. Eingetipptes wird sofort auf die harte Grenze
+ * des Hubs gebracht: Der Editor soll keine 200 versprechen, von denen
+ * der Hub 50 hält.
+ */
+export function AnzahlWahl({
+  value,
+  vorgaben,
+  onCommit,
+  styles,
+}: {
+  value: string;
+  vorgaben: string[];
+  onCommit: (value: string) => void;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const [offen, setOffen] = useState(false);
+  const istVorgabe = vorgaben.includes(value);
+  const eigen = offen || !istVorgabe;
+  return (
+    <>
+      <View style={styles.rowGap}>
+        <Choice
+          options={[
+            ...vorgaben.map((key) => ({ key, label: `${key}×` })),
+            {
+              key: 'eigen',
+              label:
+                eigen && value && !istVorgabe
+                  ? `${begrenzteAnzahl(value, 1)}×`
+                  : 'eigene Zahl',
+            },
+          ]}
+          value={eigen ? 'eigen' : value}
+          onSelect={(key) => {
+            if (key === 'eigen') {
+              setOffen(true);
+              return;
+            }
+            setOffen(false);
+            onCommit(key);
+          }}
+        />
+      </View>
+      {eigen ? (
+        <NumberField
+          value={value}
+          placeholder={`Anzahl, höchstens ${REPEAT_LIMIT}`}
+          onCommit={(text) => onCommit(String(begrenzteAnzahl(text, 1)))}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * «+ Gerätewert»: baut {kennung} bzw. {kennung.feld} zusammen und setzt
+ * den Platzhalter in den Text (Punkt 251).
+ *
+ * Kennungen tippt niemand fehlerfrei ab – hier wählt man das Gerät wie
+ * überall im Editor und tippt den Wert an, der in den Text soll.
+ * Angeboten wird nur, was das Gerät wirklich meldet: Ein Platzhalter,
+ * der wörtlich stehen bliebe, wäre eine Attrappe.
+ */
+export function GeraetewertZeile({
+  entities,
+  feld,
+  onEinsetzen,
+  colors,
+  styles,
+}: {
+  entities: Entity[];
+  /** Wie das Zielfeld heisst – für die Vorlesehilfe. */
+  feld: string;
+  onEinsetzen: (halter: string) => void;
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const [offen, setOffen] = useState(false);
+  const [geraet, setGeraet] = useState('');
+  const chosen = entities.find((entity) => entity.id === geraet);
+  return (
+    <>
+      <View style={styles.choices}>
+        <Pressable
+          onPress={() => setOffen((auf) => !auf)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: offen }}
+          accessibilityLabel={`Einen Gerätewert in den ${feld} einfügen`}
+          style={({ pressed }) => [styles.template, pressed && { opacity: 0.75 }]}
+        >
+          <Ionicons
+            name={offen ? 'chevron-down' : 'add'}
+            size={13}
+            color={colors.inkSoft}
+          />
+          <Text style={styles.templateText}>Gerätewert</Text>
+        </Pressable>
+      </View>
+      {offen ? (
+        <>
+          <EntityPicker
+            entities={entities}
+            value={geraet}
+            onSelect={setGeraet}
+          />
+          {chosen ? (
+            <View style={styles.choices}>
+              {geraetePlatzhalter(chosen).map((halter) => (
+                <Pressable
+                  key={halter.key}
+                  onPress={() => {
+                    onEinsetzen(halter.key);
+                    setOffen(false);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${halter.label} von ${chosen.name} in den ${feld} einfügen`}
+                  style={({ pressed }) => [
+                    styles.template,
+                    pressed && { opacity: 0.75 },
+                  ]}
+                >
+                  <Text style={styles.templateText}>+ {halter.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+        </>
+      ) : null}
+    </>
+  );
+}

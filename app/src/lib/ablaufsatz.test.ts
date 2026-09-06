@@ -315,3 +315,73 @@ describe('Ein Ablauf mit vielen Geräten', () => {
     expect(kuerze(['a', 'b', 'c', 'd'])).toBe('a, b, c und 1 weitere');
   });
 });
+
+describe('Kontrollfluss und die neuen Auslöser (Punkte 251/252)', () => {
+  it('liest einen wenn-Schritt mit beiden Zweigen vor', () => {
+    const satz = ablaufSatz(
+      {
+        triggers: [{ type: 'state', entity_id: 'hm.bewegung', to: 'on' }],
+        conditions: [],
+        actions: [
+          {
+            type: 'if',
+            conditions: [{ type: 'sun', state: 'down' }],
+            match: 'all',
+            then: [{ type: 'command', entity_id: 'hue.flur', command: 'turn_on' }],
+            else: [{ type: 'notify', title: 'Hell genug' }],
+          },
+        ],
+        otherwise: [],
+        match: 'all',
+      },
+      entities,
+      scenes
+    );
+    // Die Zweige müssen lesbar sein - sonst weiss man erst im Betrieb,
+    // was «sonst» tut.
+    expect(satz).toContain('wenn dunkel: Licht Flur ein; sonst Nachricht');
+  });
+
+  it('liest einen wiederholen-Schritt samt Obergrenze vor', () => {
+    const satz = ablaufSatz(
+      {
+        triggers: [{ type: 'state', entity_id: 'hm.fenster', to: 'on' }],
+        conditions: [],
+        actions: [
+          {
+            type: 'repeat',
+            while: [{ type: 'state', entity_id: 'hm.fenster', equals: 'on' }],
+            actions: [{ type: 'broadcast', text: 'Fenster offen' }],
+            max: 10,
+          },
+        ],
+        otherwise: [],
+        match: 'all',
+      },
+      entities,
+      scenes
+    );
+    expect(satz).toContain(
+      'solange Fenster Küche ist on: Durchsage (höchstens 10×)'
+    );
+  });
+
+  it('liest die neuen Auslöser als Sätze, nicht als Kennungen', () => {
+    const satz = ablaufSatz(
+      {
+        triggers: [
+          { type: 'presence', person: 'livia', event: 'arrives', zone: 'schule' },
+          { type: 'weather_warning', min_severity: 'Severe' },
+        ],
+        conditions: [],
+        actions: [{ type: 'notify', title: 'x' }],
+        otherwise: [],
+        match: 'all',
+      },
+      entities,
+      scenes
+    );
+    expect(satz).toContain('Livia kommt bei Schule an');
+    expect(satz).toContain('eine neue Wetterwarnung eintrifft (ab «schwer»)');
+  });
+});
