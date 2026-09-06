@@ -69,6 +69,9 @@ from .routes import (
     family as routes_family,
 )
 from .routes import (
+    funk as routes_funk,
+)
+from .routes import (
     grundriss as routes_grundriss,
 )
 from .routes import (
@@ -301,6 +304,7 @@ def create_app(hub: Hub) -> FastAPI:
         routes_raeume.register,
         routes_rueckblick.register,
         routes_verbindungen.register,
+        routes_funk.register,
     ):
         register(app, ctx)
 
