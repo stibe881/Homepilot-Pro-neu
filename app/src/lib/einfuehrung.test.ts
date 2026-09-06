@@ -17,6 +17,12 @@ describe('fassungFuer', () => {
     expect(fassungFuer({ role: 'besitzer' })).toBe('haushalt');
   });
 
+  it('gibt Kindern die eigene kurze Fassung', () => {
+    // Kinder sehen die Kinder-Ansicht, nicht die Leiste mit den
+    // Bereichen - die Haushalts-Tour beschriebe eine fremde App.
+    expect(fassungFuer({ role: 'kind' })).toBe('kind');
+  });
+
   it('behandelt einen noch unbekannten Benutzer wie den Haushalt', () => {
     // Am Wandpanel mit Config-Token gibt es keinen Benutzer - dort ist
     // die volle Fassung die richtige, nicht die beschnittene.
@@ -108,6 +114,13 @@ describe('schritteFuer', () => {
     expect(alles).toContain('Alles aus');
     expect(alles).toContain('Suche');
     expect(alles).toContain('Einstellungen');
+  });
+
+  it('erklärt Kindern nur ihre Zimmer mit den grossen Knöpfen', () => {
+    const schritte = schritteFuer({ role: 'kind' });
+    expect(schritte).toHaveLength(1);
+    expect(schritte[0].text).toContain('Zimmer');
+    expect(schritte[0].text).not.toContain('Leiste');
   });
 
   it('gibt dem Babysitter einen einzigen kurzen Schritt mit seinen Bereichen', () => {

@@ -35,7 +35,7 @@ export interface EinfuehrungBenutzer {
   features?: string[];
 }
 
-export type EinfuehrungsFassung = 'haushalt' | 'gast';
+export type EinfuehrungsFassung = 'haushalt' | 'gast' | 'kind';
 
 /**
  * Welche Fassung diese Person bekommt (rein, testbar).
@@ -44,12 +44,17 @@ export type EinfuehrungsFassung = 'haushalt' | 'gast';
  * screens/family/babysitter.ts) bekommen die kurze «So funktioniert das
  * hier»-Fassung: nur was sie dürfen, in wenigen Sätzen. Eine Tour durch
  * Bereiche, die sie gar nicht sehen, wäre eine Führung durch
- * verschlossene Türen.
+ * verschlossene Türen. Kinder (Punkt 245 der Werkbank) ebenso: Sie sehen
+ * die Kinder-Ansicht ihrer Zimmer, nicht die Leiste mit den Bereichen -
+ * die Haushalts-Tour beschriebe eine App, die sie gar nicht vor sich
+ * haben.
  */
 export function fassungFuer(
   user: EinfuehrungBenutzer | null | undefined
 ): EinfuehrungsFassung {
-  return user?.role === 'gast' ? 'gast' : 'haushalt';
+  if (user?.role === 'gast') return 'gast';
+  if (user?.role === 'kind') return 'kind';
+  return 'haushalt';
 }
 
 /**
@@ -122,7 +127,8 @@ export function gastSatz(features: string[] | undefined): string {
 export function schritteFuer(
   user: EinfuehrungBenutzer | null | undefined
 ): EinfuehrungSchritt[] {
-  if (fassungFuer(user) === 'gast') {
+  const fassung = fassungFuer(user);
+  if (fassung === 'gast') {
     return [
       {
         icon: 'hand-left-outline',
@@ -131,6 +137,18 @@ export function schritteFuer(
           `${gastSatz(user?.features)} Antippen schaltet, ` +
           'nochmals antippen schaltet zurück. Mehr braucht es nicht - ' +
           'alles andere bleibt, wie es ist.',
+      },
+    ];
+  }
+  if (fassung === 'kind') {
+    return [
+      {
+        icon: 'happy-outline',
+        titel: 'Deine Zimmer',
+        text:
+          'Du siehst deine Zimmer mit grossen Knöpfen. Antippen macht ' +
+          'das Licht an, nochmals antippen macht es wieder aus - und ' +
+          'genauso gehen die Storen. Mehr musst du nicht wissen.',
       },
     ];
   }
