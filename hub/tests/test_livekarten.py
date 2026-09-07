@@ -731,17 +731,45 @@ def test_vorgemerkte_karte_faellt_nach_dem_nachhall_weg():
     assert rows == []
 
 
-def test_kehrt_der_fernseher_zurueck_ist_der_vermerk_erledigt():
-    """Kommt das Gerät zurück, ist die liegende Karte wieder die
-    richtige - kein zweiter Start-Push, der sie verdoppeln würde."""
+def test_kehrt_der_fernseher_zurueck_wird_neu_gestartet():
+    """Gemeldet, nachdem der Vermerk zuerst als «läuft schon» galt: «Es
+    kommt keine Live-Aktivität mehr, wenn der Fernseher eingeschaltet
+    wird.»
+
+    Eine Karte mit offenem Ende konnte der Hub nicht beenden - ob sie
+    noch liegt, weiss er also nicht. Als «läuft schon» gerechnet,
+    verhinderte sie jeden neuen Start, und es blieb beim Aktualisieren
+    einer Karte, die niemand sieht. Lieber eine zu viel: Doppelte
+    derselben Art räumt die App beim Öffnen selbst ab."""
     wunsch = [{"art": "tv:cast.wz", "user": None, "state": {"titel": "TV", "text": "an"}}]
     rows, _, _, _ = abgleich([], wunsch, ["Stibe"], 1000.0)
     rows, _, _, _ = abgleich(rows, [], ["Stibe"], 1100.0)
     assert rows[0]["ende_offen"] is True
 
-    rows, starten, _, beenden = abgleich(rows, wunsch, ["Stibe"], 1200.0)
-    assert starten == [] and beenden == []
+    rows, starten, _, _ = abgleich(rows, wunsch, ["Stibe"], 1200.0)
+    assert [s["art"] for s in starten] == ["tv:cast.wz"]
     assert "ende_offen" not in rows[0]
+
+
+def test_eine_uralte_zeile_sperrt_die_naechste_karte_nicht():
+    """Wer die Karte von Hand wegwischt, sagt es dem Hub nicht - und
+    iOS beendet eine Live-Aktivität ohnehin von selbst. Eine Zeile, die
+    älter ist als NACHHALL_SEKUNDEN, behauptet also eine Karte, die es
+    nicht mehr gibt; als «läuft schon» gerechnet, sperrte sie einen
+    halben Tag lang jede neue."""
+    wunsch = [{"art": "tv:cast.wz", "user": None, "state": {"titel": "TV", "text": "an"}}]
+    rows, _, _, _ = abgleich([], wunsch, ["Stibe"], 1000.0)
+    rows = token_merken(rows, "Stibe", "tv:cast.wz", "act-1")
+
+    # Kurz darauf: Es läuft, also kein zweiter Start.
+    _, starten, _, _ = abgleich(rows, wunsch, ["Stibe"], 2000.0)
+    assert starten == []
+
+    # Einen halben Tag später gibt es die Aktivität sicher nicht mehr.
+    rows, starten, _, _ = abgleich(rows, wunsch, ["Stibe"], 1000.0 + NACHHALL_SEKUNDEN)
+    assert [s["art"] for s in starten] == ["tv:cast.wz"]
+    # Und der neue Anlauf beginnt ohne die alten Tokens.
+    assert rows[0]["activity_tokens"] == []
 
 
 async def test_ohne_angemeldetes_telefon_werden_karten_trotzdem_beendet():

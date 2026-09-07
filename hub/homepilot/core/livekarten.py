@@ -791,6 +791,40 @@ def _stand(state: dict[str, Any]) -> str:
     return json.dumps(state, sort_keys=True, ensure_ascii=False)
 
 
+def liegt_noch(alt: dict[str, Any], jetzt_s: float) -> bool:
+    """Liegt diese Karte plausibel noch auf dem Sperrbildschirm? (rein, testbar)
+
+    Der Fall, der das gekostet hat: «Es kommt jetzt keine Live-Aktivität
+    mehr, wenn der Fernseher eingeschaltet wird.» Eine Zeile in
+    ``live_cards`` heisst für den Abgleich «läuft schon» - und dann wird
+    nicht gestartet, sondern höchstens aktualisiert. Stimmt die Zeile
+    nicht mehr, kommt nie wieder eine Karte:
+
+    - Eine Karte mit offenem Ende (``ende_offen``) konnte der Hub nicht
+      beenden. Ob sie noch liegt, weiss er also gerade nicht - und ein
+      «vielleicht» darf keinen Start verhindern. Lieber eine Karte zu
+      viel: Doppelte derselben Art räumt die App beim nächsten Öffnen
+      selbst ab (LiveAktivitaetModule.beobachten).
+    - Eine Karte, die älter ist als NACHHALL_SEKUNDEN, gibt es sicher
+      nicht mehr: iOS beendet eine Live-Aktivität von selbst und nimmt
+      sie danach vom Sperrbildschirm. Die Zeile wäre sonst eine
+      Sperre, die einen halben Tag lang jede neue Karte verhindert -
+      und genau das ist passiert, weil auch das Wegwischen von Hand
+      hier nie ankommt.
+    """
+    if alt.get("ende_offen"):
+        return False
+    begonnen = alt.get("gestartet")
+    if begonnen is None:
+        # Zeilen aus einer Fassung ohne Startzeitpunkt: Der letzte
+        # Anfassen-Zeitpunkt ist die einzige Zahl, die es gibt.
+        begonnen = alt.get("aktualisiert")
+    try:
+        return jetzt_s - float(begonnen) < NACHHALL_SEKUNDEN
+    except (TypeError, ValueError):
+        return False
+
+
 def abgleich(
     rows: Any,
     gewuenscht: list[dict[str, Any]],
@@ -817,7 +851,9 @@ def abgleich(
     Eine Karte, deren Ende mangels Token nicht rausgeht, bleibt als
     ``ende_offen`` in der Liste stehen (bis NACHHALL_SEKUNDEN). Sie
     wurde früher trotzdem gestrichen - danach wusste der Hub nichts
-    mehr von ihr, und das Telefon behielt sie.
+    mehr von ihr, und das Telefon behielt sie. Als *laufend* zählt sie
+    dabei nicht mehr: Wird ihre Art wieder gewollt, wird neu gestartet
+    (liegt_noch).
     """
     soll: dict[tuple[str, str], dict[str, Any]] = {}
     for karte in gewuenscht:
@@ -848,10 +884,12 @@ def abgleich(
         user, art = schluessel
         stand = _stand(karte["state"])
         alt = alte.pop(schluessel, None)
-        if alt is not None and alt.get("ende_offen"):
-            # Die Karte ist wieder gewollt (der Fernseher ist zurück im
-            # Netz) - damit ist der offene Ende-Vermerk erledigt.
-            alt = {name: wert for name, wert in alt.items() if name != "ende_offen"}
+        if alt is not None and not liegt_noch(alt, jetzt_s):
+            # Die Zeile behauptet eine Karte, die es so nicht mehr gibt
+            # (liegt_noch erklärt, woran das liegt). Von vorn - sonst
+            # bliebe es beim Aktualisieren einer Karte, die niemand
+            # sieht.
+            alt = None
         if alt is None:
             starten.append({"user": user, "art": art, "state": karte["state"]})
             neue.append(
@@ -860,6 +898,7 @@ def abgleich(
                     "art": art,
                     "stand": stand,
                     "activity_tokens": [],
+                    "gestartet": jetzt_s,
                     "aktualisiert": jetzt_s,
                 }
             )
