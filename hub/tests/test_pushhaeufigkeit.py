@@ -139,3 +139,49 @@ async def test_ein_stummes_telefon_wird_auch_nur_einmal_gemeldet(hub):
     await stand.runden(5)
 
     assert stand.wie_oft("Meldet sich nicht mehr") == 1
+
+
+async def test_ein_voller_tank_meldet_einmal_und_dann_erst_am_naechsten_tag(hub):
+    """Punkt 263: Der Sauger meldet sofort, dann täglich zur Stunde.
+
+    Beides gehört geprüft, und beides an derselben Meldung: Käme sie in
+    jeder Runde, wischte man sie weg; käme sie nur einmal, stünde der
+    Sauger drei Tage mit vollem Tank da. Genau diese Reihe - nicht der
+    einzelne Durchgang - war schon bei der Akku-Warnung der Fehler
+    (Punkt 238).
+    """
+    from homepilot.core import batterie
+    from homepilot.core.watchdog import SAUGER_STORE_KEY
+
+    stand = Pushstand(hub)
+    saros = entitaet(
+        "roborock.saros",
+        name="Saros",
+        integration="roborock",
+        kind="vacuum",
+        state="docked",
+        dock={"dirty_water": "full_not_installed"},
+    )
+    stand.welt([saros])
+
+    await stand.runden(5)
+    assert stand.wie_oft("🧹 Saros") == 1
+
+    # Die Uhr vorstellen, statt zu warten: Der Merker trägt den
+    # Zeitpunkt, und «morgen zur Stunde» rechnet sich daraus.
+    rows = hub.data.get(SAUGER_STORE_KEY)
+    assert rows, "Der Merker muss auf der Platte liegen, nicht im Speicher"
+    gestern = time.time() - 36 * 3600
+    hub.data.set(
+        SAUGER_STORE_KEY,
+        [{**row, "at": gestern, "until": 0.0} for row in rows],
+    )
+    await stand.runden(1)
+    assert stand.wie_oft("🧹 Saros") == 2
+
+    # Tank geleert: Der Merker geht weg, damit dasselbe Problem beim
+    # nächsten Mal wieder sofort meldet.
+    saros.state.pop("dock")
+    await stand.runden(1)
+    assert hub.data.get(SAUGER_STORE_KEY) == []
+    assert batterie.zeile(hub.data.get(SAUGER_STORE_KEY), "roborock.saros") is None

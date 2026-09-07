@@ -433,16 +433,81 @@ def test_dock_state_collects_known_fields():
     from homepilot.integrations.roborock import dock_state
 
     status = SimpleNamespace(
-        dock_error_status_name="none",
-        dock_type_name="empty_wash_fill_dry_dock",
+        dock_error_status="ok",
+        dock_type="empty_wash_fill_dry_dock",
         wash_phase=2,
         dry_status=1,
     )
     dock = dock_state(status)
-    # «none» ist keine Störung und gehört nicht in die Anzeige.
+    # «ok» ist keine Störung und gehört nicht in die Anzeige.
     assert "error" not in dock
     assert dock["type"] == "empty_wash_fill_dry_dock"
     assert dock["wash_phase"] == 2 and dock["drying"] == 1
+
+
+def test_dock_state_reads_the_names_the_library_really_has():
+    """Die Felder, die roborock.py abfragt, muss es auch geben.
+
+    Der Fall dahinter (Punkt 263 der Werkbank): Hier stand
+    `dock_error_status_name` - ein Name, den die Bibliothek nie hatte.
+    `getattr` lieferte still None, der volle Schmutzwassertank kam
+    monatelang nicht als Nachricht an, und der Test daneben war grün,
+    weil er einen selbst gebauten Doppelgänger mit denselben erfundenen
+    Namen prüfte. Ein Doppelgänger bestätigt nur, dass der Code mit sich
+    selbst einig ist; gegen die Wirklichkeit prüft er nichts.
+
+    Deshalb liegt python-roborock im dev-Extra: Dieser Test soll laufen.
+    """
+    import dataclasses
+
+    pytest.importorskip("roborock", reason="python-roborock nicht installiert")
+    from roborock.data.v1.v1_containers import StatusV2
+
+    from homepilot.integrations.roborock import DOCK_FELDER, ROBOTER_FELDER
+
+    vorhanden = {f.name for f in dataclasses.fields(StatusV2)} | {
+        name
+        for name in dir(StatusV2)
+        if isinstance(getattr(StatusV2, name, None), property)
+    }
+    fehlend = sorted(
+        feld for feld in (*DOCK_FELDER, *ROBOTER_FELDER) if feld not in vorhanden
+    )
+    assert not fehlend, (
+        f"Diese Felder fragt roborock.py ab, die Bibliothek kennt sie nicht: "
+        f"{', '.join(fehlend)}. Umbenannt? Dann in roborock.py nachziehen - "
+        f"stillschweigend fehlende Felder kosten ganze Meldungen."
+    )
+
+
+def test_a_full_waste_water_tank_becomes_a_message():
+    """Die Meldung, mit der alles anfing: «Schmutzwassertank voll».
+
+    Sie steht nicht im Fehler der Station, sondern in deren eigenem
+    Tankstand - der Saros meldet sie über den Sammelwert `dss`. Vom
+    Zustand bis zum deutschen Satz muss der Weg durchgehen.
+    """
+    from types import SimpleNamespace
+
+    from homepilot.core.watchrules import sauger_probleme
+    from homepilot.integrations.roborock import dock_state
+
+    status = SimpleNamespace(
+        dock_error_status="ok",
+        dirty_water_box_status=SimpleNamespace(
+            name="full_not_installed_2", display_name="full_not_installed"
+        ),
+    )
+    dock = dock_state(status)
+    assert dock["dirty_water"] == "full_not_installed"
+
+    sauger = SimpleNamespace(
+        kind="vacuum", id="roborock.saros", label="Saros", state={"dock": dock}
+    )
+    probleme = sauger_probleme([sauger])
+    assert [text for _, _, text in probleme] == [
+        "Der Schmutzwassertank ist voll oder nicht eingesetzt."
+    ]
 
 
 def test_robot_position_as_image_fractions():

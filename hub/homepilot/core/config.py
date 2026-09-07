@@ -63,6 +63,18 @@ class ApiConfig:
     # Gerät im eigenen Netz vertretbar, weil der Token nicht automatisch
     # mitgeschickt wird; einschränken lässt es sich trotzdem.
     cors_origins: list[str] = field(default_factory=lambda: ["*"])
+    # Zweiter Zugang allein für das Anmeldefenster des Gäste-WLANs.
+    #
+    # UniFi lässt beim «External Portal Server» nur eine IPv4-Adresse zu -
+    # kein «:8123». Der Controller schickt den Gast also auf Port 80, wo
+    # der Hub nicht steht, und das Fenster bleibt leer. Auf diesem Port
+    # antwortet deshalb ein blosser Umleiter zum echten Port; er kennt
+    # keine Daten und keine Anmeldung, er zeigt nur den Weg.
+    #
+    # Nicht voreingestellt: Port 80 ist ein knappes Gut auf einem
+    # Rechner, und wer ihn schon belegt hat, soll nicht beim Start eine
+    # Fehlermeldung suchen müssen.
+    portal_port: int | None = None
 
 
 @dataclass
@@ -183,6 +195,29 @@ def brauchbar(wert: str | None) -> str | None:
     return wert if wert.strip() else None
 
 
+def portal_port(wert: Any) -> int | None:
+    """Der Port für das Anmeldefenster - oder None (rein, testbar).
+
+    Ein unbrauchbarer Wert darf den Hub nicht am Starten hindern: Der
+    Umleiter ist eine Bequemlichkeit fürs Gäste-WLAN, nicht der Dienst
+    selbst. Unsinn und 0 heissen deshalb «lass es bleiben», nicht
+    «brich ab».
+    """
+    if wert is None or wert is False:
+        return None
+    try:
+        nummer = int(wert)
+    except (TypeError, ValueError):
+        raise ConfigError(
+            "'api.portal_port' muss eine Portnummer sein (üblich: 80)"
+        ) from None
+    if nummer <= 0:
+        return None
+    if nummer > 65535:
+        raise ConfigError("'api.portal_port' ist keine gültige Portnummer")
+    return nummer
+
+
 def expand_env(value: Any, extra: dict[str, str] | None = None) -> Any:
     """Ersetzt ${VARIABLE} rekursiv durch Umgebungsvariablen.
 
@@ -268,6 +303,7 @@ def load_config(path: str | Path) -> HubConfig:
         port=int(api_raw.get("port", 8123)),
         token=api_raw.get("token"),
         cors_origins=[str(origin) for origin in origins] if origins else ["*"],
+        portal_port=portal_port(api_raw.get("portal_port")),
     )
 
     supabase = raw.get("supabase") or {}

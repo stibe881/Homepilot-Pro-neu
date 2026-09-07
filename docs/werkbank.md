@@ -17,7 +17,7 @@ steht sie hier, in vier Teilen entstanden:
 | 136–164 | Küche & Abläufe | Rezeptbuch und Ablauf-Editor |
 | 165–221 | Familie & Haushalt | Familienlisten, Kontakte, Ortung |
 | 224–243 | Zweite Durchsicht | Wärme, Strom, Betrieb, und die Fehler einer Woche |
-| 244–262 | Auf Zuruf (September 2026) | Benutzer und Zugang, Bedienung, Abläufe, Sicherheit |
+| 244–263 | Auf Zuruf (September 2026) | Benutzer und Zugang, Bedienung, Abläufe, Sicherheit |
 
 Stand beim Einchecken: **alle 221 Punkte erledigt**, bis auf Punkt 94
 (bewusst gestrichen). Die Häkchen tragen die Commit-Kürzel von den
@@ -2282,7 +2282,7 @@ jeder Auslieferung als Erstes kommt: «Ist es angekommen?»
 Stellen: `hub/homepilot/core/sessions.py`, `app/src/api/client.ts`
 
 
-# Teil VI: Auf Zuruf (244–262)
+# Teil VI: Auf Zuruf (244–263)
 
 Punkte aus Durchsichten im September 2026, auf Zuruf ausgewählt und
 umgesetzt. Gleichzeitig wurden 224–227, 228–229, 235–236 und 242–243
@@ -2552,3 +2552,33 @@ stillen zusammen. Die 90-Tage-Grenze rechnet nur der Hub - App und
 Hub sollen nie zwei Meinungen haben.
 
 Stellen: `hub/homepilot/core/verwaist.py`, `hub/homepilot/core/automation.py`, `app/src/lib/verwaist.ts`
+
+## Aus dem Betrieb (263)
+
+### 263. Sauger-Meldungen kamen nie an - ein Feldname, den es nie gab ✓ erledigt
+
+*tut weh · Aufwand: mittel · Hub*
+
+«Schmutzwassertank voll/nicht eingesetzt» stand in der Roborock-App;
+in HomePilot kam nichts. Die Ursache lag drei Schichten tiefer, als
+sie aussah: `roborock.py` fragte die Station über
+`dock_error_status_name` ab - ein Feld, das die Bibliothek nie hatte,
+sie heisst `dock_error_status` ohne den Zusatz. `getattr` lieferte
+still `None`, `dock["error"]` wurde nie gesetzt, und die Regel im
+Wächter fand nichts zu melden. Nichts scheiterte, es fehlte einfach.
+
+Der Test daneben war grün, weil er einen selbst gebauten Doppelgänger
+mit denselben erfundenen Namen prüfte - er bestätigte nur, dass der
+Code mit sich selbst einig ist. Deshalb liegt python-roborock jetzt im
+dev-Extra, und ein Test hält die abgefragten Feldnamen gegen die echte
+Klasse.
+
+Dazu kam heraus, dass der volle Schmutzwassertank beim Saros gar nicht
+im Fehler der Station steht, sondern in deren eigenem Tankstand
+(`dirty_water_box_status` aus dem Sammelwert `dss`) - der wurde bisher
+überhaupt nicht gelesen. Und der Merker der gemeldeten Probleme lag im
+Arbeitsspeicher: Ein Tank, der voll bleibt, wurde einmal gemeldet und
+dann nie wieder. Jetzt erinnert der Hub täglich zur selben Stunde wie
+bei den Batterien (Punkt 258).
+
+Stellen: `hub/homepilot/integrations/roborock.py`, `hub/homepilot/core/watchrules.py`, `hub/homepilot/core/watchdog.py`, `hub/homepilot/saugercheck.py`
