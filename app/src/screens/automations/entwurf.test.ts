@@ -387,6 +387,30 @@ describe('Licht mit Feinheiten', () => {
     expect(istLichtFein({ command: 'set_brightness', adaptive: true })).toBe(true);
     expect(istLichtFein({ command: 'set_brightness', colorTemp: 286 })).toBe(true);
   });
+
+  it('nur beim Einschalten - «aus» hat keine Feinheiten', () => {
+    // Der Aktionstyp 'light' heisst beim Hub «mach sie an, und zwar so»;
+    // einen Befehl trägt er gar nicht mit. Eine Farbe, die vom
+    // Einschalten stehen geblieben ist, darf ein «aus» nicht dorthin
+    // schicken.
+    expect(istLichtFein({ command: 'turn_off', color: '#FFD9A0' })).toBe(false);
+    expect(istLichtFein({ command: 'turn_off', offAfter: 300 })).toBe(false);
+    expect(istLichtFein({ command: 'toggle', colorTemp: 286 })).toBe(false);
+  });
+
+  it('«aus» bleibt «aus» - auch mit stehen gebliebener Farbe', () => {
+    // Der gemeldete Fehler: Chip auf «aus», speichern, öffnen - und er
+    // stand wieder auf «ein». Der Ablauf schaltete die Lampe damit AN,
+    // wo er sie ausschalten sollte; die Anzeige war nur der sichtbare
+    // Teil davon.
+    const aus = licht({ command: 'turn_off', brightness: undefined, color: '#FFD9A0' });
+    const gespeichert = stepToActions(aus);
+    expect(gespeichert[0].type).toBe('command');
+    expect(gespeichert[0].command).toBe('turn_off');
+
+    const [zurueck] = actionsToSteps(gespeichert);
+    expect(zurueck.commandActions[0].command).toBe('turn_off');
+  });
 });
 
 describe('melderMitLux', () => {

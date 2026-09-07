@@ -1491,6 +1491,10 @@ export function nachlaufLabel(seconds: string | number): string {
  *
  * Nur dann wird daraus ein Licht-Schritt. Ein blosses «einschalten»
  * bleibt das schlichte Kommando, das es immer war. */
+export function istAnschalten(command: string): boolean {
+  return command === 'turn_on' || command === 'set_brightness';
+}
+
 export function istLichtFein(action: {
   command: string;
   color?: string;
@@ -1498,6 +1502,17 @@ export function istLichtFein(action: {
   adaptive?: boolean;
   offAfter?: number;
 }): boolean {
+  // Nur beim Einschalten. Der Aktionstyp 'light' heisst beim Hub «mach
+  // sie an, und zwar so» - einen Befehl trägt er gar nicht mit. Ein
+  // «aus», das diesen Weg nahm, verlor sein Aus unterwegs: gespeichert
+  // wurde eine Lampe, die angeht, und beim Öffnen stand der Chip wieder
+  // auf «ein». Schlimmer als die Anzeige war die Wirkung - der Ablauf
+  // schaltete die Lampe an, wo er sie ausschalten sollte.
+  //
+  // Die Feinheiten bleiben dabei im Entwurf stehen (Farbe, Nachlauf);
+  // sie sind nur gegenstandslos, solange ausgeschaltet wird, und
+  // kommen zurück, wenn jemand wieder auf «ein» stellt.
+  if (!istAnschalten(action.command)) return false;
   return !!(action.adaptive || action.color || action.colorTemp || action.offAfter);
 }
 

@@ -19,6 +19,10 @@ export interface Regenstand {
   mm?: number | null;
   /** Die nächsten Viertelstunden in mm – für die kleine Grafik. */
   bars?: number[];
+  /** Stunden bis zum nächsten Regen, wenn in den nächsten zwei Stunden
+   *  nichts ansteht. Der Hub schaut dafür einen Tag weit (core/regen.py,
+   *  naechste_stunden); weiter voraus bleibt es leer. */
+  hours?: number | null;
 }
 
 /** Der Satz für die Wetterkarte – oder nichts (rein, testbar). */
@@ -29,7 +33,14 @@ export function regenSatz(stand: Regenstand | null | undefined): string | null {
     if (minuten == null) return 'Es regnet.';
     return `Es regnet noch etwa ${minuten} Min.`;
   }
-  if (minuten == null) return null;
+  if (minuten == null) {
+    // Nichts in den nächsten zwei Stunden - dann die gröbere Auskunft.
+    // Sie stand bisher nirgends: Die Karte schwieg, und die Wochenzeile
+    // mit ihren Prozenten sagt nicht, wie lange man noch hat.
+    const stunden = stand.hours;
+    if (stunden == null) return null;
+    return `Regen in etwa ${stunden} Std.`;
+  }
   if (minuten <= 5) return 'Es fängt gleich an zu regnen.';
   return `Regen in etwa ${minuten} Min.`;
 }

@@ -180,6 +180,10 @@ def parse_forecast(
             # Die Reihe hinter dem Satz: acht Viertelstunden für die
             # kleine Grafik auf der Wetterkarte.
             "bars": regen.balken(payload.get("minutely_15"), jetzt),
+            # Und die gröbere Frage für den Rest des Tages: Steht in den
+            # nächsten zwei Stunden nichts an, sagt die Karte trotzdem,
+            # wie lange man noch hat.
+            "hours": regen.naechste_stunden(payload.get("hourly"), jetzt),
         },
     }
 
@@ -241,7 +245,12 @@ class WeatherIntegration(Integration):
             # Stundenwerte für die aufgeklappte Wetterkarte: Wie wird
             # der heutige Tag? Der Parser behält nur die restlichen
             # Stunden von heute (stunden_heute).
-            "hourly": "temperature_2m,weather_code,precipitation_probability",
+            # 'precipitation' dazu: Daraus rechnet sich, in wie vielen
+            # Stunden es anfängt (core/regen.py, naechste_stunden). Die
+            # Wahrscheinlichkeit allein taugt dafür nicht - «60 %» heisst
+            # nicht, dass es um vier Uhr regnet.
+            "hourly": "temperature_2m,weather_code,precipitation_probability,"
+            "precipitation",
             "daily": "weather_code,temperature_2m_max,temperature_2m_min,"
             "precipitation_probability_max,uv_index_max,precipitation_sum",
             # Fünf Tage zurück: Daraus rechnet sich, wie lange es nicht
