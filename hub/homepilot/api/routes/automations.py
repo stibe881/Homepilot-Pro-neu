@@ -22,6 +22,7 @@ from ...core import babysitter as babysitter_module
 from ...core import editversions as editversions_module
 from ...core import konflikte as konflikte_module
 from ...core import trash as trash_module
+from ...core import verwaist as verwaist_module
 from ...core import vorlagen as vorlagen_module
 from ...core.errors import HomePilotError
 from ...core.users import Capability, Role
@@ -477,6 +478,20 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     @app.get("/api/automations")
     async def list_automations(request: Request) -> dict[str, Any]:
         require(request, Capability.VIEW_AUTOMATIONS)
+        # Verwaiste Abläufe (Punkt 262): «zuletzt gefeuert» kommt aus dem
+        # dauerhaften Speicher des Motors, nicht aus dem gedeckelten
+        # Lauf-Verlauf. `orphaned` rechnet der Hub selbst aus - die
+        # 90-Tage-Grenze steht nur hier (core/verwaist.py), damit App und
+        # Hub nie zwei Meinungen haben.
+        feuer_rows = hub.data.get(verwaist_module.STORE_KEY)
+        jetzt = time.time()
+        gefeuert = verwaist_module.letzte_feuer(feuer_rows)
+        tote = {
+            row["id"]
+            for row in verwaist_module.verwaiste(
+                feuer_rows, hub.automations.automations, jetzt
+            )
+        }
         return {
             "automations": [
                 # next_run (Punkt 161): «heute 21:12» in der Liste statt
@@ -488,6 +503,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 # kostete einen zweiten Aufruf je Ablauf - also fragte
                 # niemand, und ein stummer Ablauf blieb unbemerkt.
                 | {"last_run": automation_module.letzter_lauf(hub.automations.runs, automation.id)}
+                | {
+                    "last_fired": gefeuert.get(automation.id),
+                    "orphaned": automation.id in tote,
+                }
                 for automation in hub.automations.automations
             ],
             "paused_until": (
@@ -613,6 +632,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "quiet_until": body.quiet_until,
             "cooldown": body.cooldown,
             "quiet_night": body.quiet_night,
+            "countdown": body.countdown,
         }
         hub.data.set("automations", [*stored_automations(), entry])
         await hub.reload_automations()
@@ -654,6 +674,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 "quiet_until": body.quiet_until,
                 "cooldown": body.cooldown,
             "quiet_night": body.quiet_night,
+            "countdown": body.countdown,
             }
             if entry["id"] == automation_id
             else entry

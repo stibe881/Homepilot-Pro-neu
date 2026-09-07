@@ -2,6 +2,7 @@ import type { Ionicons } from '@expo/vector-icons';
 
 import { Entity } from '../api/types';
 import { openContacts } from './offen';
+import { aktiveVorgabe } from './storenvorgaben';
 
 /**
  * Was ein Raum über sich sagt – bevor man seine Kacheln liest.
@@ -113,6 +114,22 @@ export function raumDunkel(items: Entity[]): boolean {
 
 /** Die Kopfzeile eines Raums (rein, testbar): «21,5° · Fenster offen ·
  *  Musik läuft». Leer, wenn es nichts zu sagen gibt. */
+/** Steht diese Store in Beschattung – unten, mit offenen Lamellen?
+ *  (rein, testbar) – dieselbe Ableitung wie die Stellungs-Chips der
+ *  Gerätekachel (lib/storenvorgaben.ts), damit beide dasselbe sagen. */
+export function inBeschattung(entity: Entity): boolean {
+  if (entity.kind !== 'cover') return false;
+  const position = entity.state.position;
+  const tilt = entity.state.tilt;
+  return (
+    aktiveVorgabe(
+      typeof position === 'number' ? position : null,
+      typeof tilt === 'number' ? tilt : null,
+      entity.commands.includes('set_tilt')
+    ) === 'schatten'
+  );
+}
+
 export function raumZeile(items: Entity[]): string {
   const teile: string[] = [];
   const fuehler = temperatur(items);
@@ -125,6 +142,11 @@ export function raumZeile(items: Entity[]): string {
   const offen = openContacts(items);
   if (offen.length === 1) teile.push(`${offen[0].name} offen`);
   else if (offen.length > 1) teile.push(`${offen.length} offen`);
+  // Unten, aber hell: der eine Storen-Zustand, den man an der Höhe
+  // nicht ablesen kann - genau er gehört deshalb in die Zeile. «Zu»
+  // und «Offen» stehen hier bewusst nicht: mehr Worte, keine Auskunft,
+  // die der Storen-Knopf der Kachel nicht schon über seinen Pfeil gibt.
+  if (items.some(inBeschattung)) teile.push('Beschattung');
   if (
     items.some(
       (entity) => entity.kind === 'media_player' && entity.state.state === 'playing'

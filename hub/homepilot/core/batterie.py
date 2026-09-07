@@ -1,6 +1,22 @@
-"""Batteriewarnungen: einmal melden, quittieren, morgen wieder.
+"""Batteriewarnungen: sofort melden, dann täglich zur Erinnerungsstunde.
 
-Der Fall: «Die Meldung ‹Batterie schwach› kommt immer und immer wieder.»
+Zwei Fälle haben diese Datei geformt, und sie ziehen in entgegengesetzte
+Richtungen:
+
+Erst: «Die Meldung ‹Batterie schwach› kommt immer und immer wieder» -
+daraus wurde «einmal melden, fertig». Dann (September 2026, Punkt 258
+der Werkbank): «Ich bekomme keine Push mehr» - die eine Meldung geriet
+in Vergessenheit, und der Melder war still, bis die Batterie ganz leer
+war. Eine Batterie ist eben beides: kein Minutenthema, aber auch keines,
+das sich mit einem einzigen Satz erledigt.
+
+Die Antwort ist der Tagesrhythmus: sofort melden, wenn ein Gerät schwach
+wird, und danach **täglich zur Erinnerungsstunde** wieder, bis die
+Batterie gewechselt ist. Stunde und Prozent-Schwelle stellt man in den
+Push-Einstellungen der App ein (`PREFS_KEY`, Routen in
+api/routes/push.py).
+
+Der ursprüngliche Fall: «Die Meldung ‹Batterie schwach› kommt immer und immer wieder.»
 
 Zwei Wege führten dorthin, und beide laufen hier zusammen:
 
@@ -19,11 +35,9 @@ Zwei Wege führten dorthin, und beide laufen hier zusammen:
    kommt die Warnung erneut. Deshalb wird hier nur vergessen, wenn ein
    Gerät ausdrücklich «Batterie in Ordnung» sagt.
 
-Dazu kommt das Quittieren: «bis morgen stumm». Es ist kein Ausschalten,
-sondern ein Aufschub – morgen früh erinnert der Hub noch einmal. Wer die
-Batterie bis dahin gewechselt hat, hört nichts mehr; wer sie liegen
-lässt, wird erinnert. Genau darum geht es bei einer Batterie, die man
-sonst vergisst, bis der Melder still ist.
+Dazu kommt das Quittieren: «bis morgen stumm». Im Tagesrhythmus heisst
+das schlicht: Die heutige Erinnerung ist gelesen, die nächste kommt wie
+alle anderen morgen zur Erinnerungsstunde.
 
 Hier steht nur das Rechnen: Zeilen rein, Zeilen raus. Wo sie liegen,
 weiss der Wächter (`hub.data`, Schlüssel `battery_notified`).
@@ -38,10 +52,19 @@ from typing import Any
 #: Wächter: Die Routen für das Quittieren brauchen ihn auch.
 STORE_KEY = "battery_notified"
 
-#: Zu dieser Stunde läuft ein «bis morgen» ab. Acht Uhr: früh genug, um
-#: den Tag noch für einen Batteriewechsel zu nutzen, spät genug, um
-#: niemanden zu wecken.
+#: Zu dieser Stunde erinnert der Hub täglich (und ein «bis morgen» läuft
+#: ab). Acht Uhr: früh genug, um den Tag noch für einen Batteriewechsel
+#: zu nutzen, spät genug, um niemanden zu wecken. Nur die Vorgabe - die
+#: wirkliche Stunde steht in den Push-Einstellungen (PREFS_KEY).
 MORGENSTUNDE = 8
+
+#: Wo Stunde und Schwelle liegen (hub.data). Der Schlüssel steht hier,
+#: weil Wächter und Push-Route ihn beide brauchen.
+PREFS_KEY = "battery_prefs"
+
+#: Ab diesem Prozentwert gilt eine Batterie als schwach, wenn das Gerät
+#: kein eigenes low_battery-Flag führt. Vorgabe; einstellbar in der App.
+SCHWELLE = 10
 
 #: So lange bleibt eine Zeile liegen, auch wenn das Gerät längst weg ist.
 #: Ein halbes Jahr ist mehr als jede Batterie hält – und wer ein Gerät
@@ -91,22 +114,52 @@ def ist_stumm(rows: Any, entity_id: str, now: float) -> bool:
     return eintrag is not None and _zahl(eintrag.get("until")) > now
 
 
-def soll_melden(rows: Any, entity_id: str, now: float) -> bool:
+def prefs_lesen(rows: Any) -> dict[str, int]:
+    """Stunde und Schwelle der Batterie-Erinnerung (rein, testbar).
+
+    Defensiv gelesen, mit Klemmen: Eine Stunde 25 oder eine Schwelle 90
+    aus einer kaputten Datei soll den Wächter nicht in den Unsinn
+    schicken - 50 % als Obergrenze, weil alles darüber keine «fast
+    leere» Batterie mehr beschreibt, sondern einen Daueralarm.
+    """
+    daten = rows if isinstance(rows, dict) else {}
+    try:
+        stunde = int(daten.get("hour", MORGENSTUNDE))
+    except (TypeError, ValueError):
+        stunde = MORGENSTUNDE
+    try:
+        schwelle = int(daten.get("threshold", SCHWELLE))
+    except (TypeError, ValueError):
+        schwelle = SCHWELLE
+    return {
+        "hour": min(23, max(0, stunde)),
+        "threshold": min(50, max(1, schwelle)),
+    }
+
+
+def soll_melden(
+    rows: Any, entity_id: str, now: float, stunde: int = MORGENSTUNDE
+) -> bool:
     """Geht für dieses Gerät jetzt eine Warnung raus? (rein, testbar)
 
     Drei Fälle, drei Antworten:
 
-    * **Noch nie gemeldet** – ja, einmal.
-    * **Gemeldet und nicht quittiert** – nein. Die Batterie ist bekannt
-      schwach; jeden Tag daran zu erinnern macht sie nicht voller.
-    * **Quittiert** – nein bis morgen früh, danach noch einmal ja. Das ist
-      der Sinn von «bis morgen stumm»: ein Aufschub, keine Abschaltung.
+    * **Noch nie gemeldet** – ja, sofort. Auf die Erinnerungsstunde
+      wartet nur die Wiederholung, nicht die erste Nachricht.
+    * **Gemeldet** – wieder ja ab der nächsten Erinnerungsstunde am
+      Folgetag. Früher hiess es hier «nein, für immer» - und die eine
+      Meldung geriet in Vergessenheit, bis der Melder still war
+      (Punkt 258 der Werkbank).
+    * **Quittiert** – dasselbe: Die heutige Erinnerung ist gelesen, die
+      nächste kommt morgen zur Stunde.
     """
     eintrag = zeile(rows, entity_id)
     if eintrag is None:
         return True
-    bis = _zahl(eintrag.get("until"))
-    return bis > 0 and now >= bis
+    faellig = _zahl(eintrag.get("until")) or stumm_bis(
+        _zahl(eintrag.get("at")), stunde
+    )
+    return now >= faellig
 
 
 def merke_meldung(rows: Any, entity_id: str, at: float) -> list[dict[str, Any]]:
@@ -118,7 +171,9 @@ def merke_meldung(rows: Any, entity_id: str, at: float) -> list[dict[str, Any]]:
     return _setze(rows, {"entity_id": entity_id, "at": at, "until": 0.0}, at)
 
 
-def quittiere(rows: Any, entity_id: str, now: float) -> list[dict[str, Any]]:
+def quittiere(
+    rows: Any, entity_id: str, now: float, stunde: int = MORGENSTUNDE
+) -> list[dict[str, Any]]:
     """«Bis morgen stumm» für dieses Gerät (rein, testbar)."""
     eintrag = zeile(rows, entity_id) or {}
     return _setze(
@@ -126,7 +181,7 @@ def quittiere(rows: Any, entity_id: str, now: float) -> list[dict[str, Any]]:
         {
             "entity_id": entity_id,
             "at": _zahl(eintrag.get("at")) or now,
-            "until": stumm_bis(now),
+            "until": stumm_bis(now, stunde),
         },
         now,
     )

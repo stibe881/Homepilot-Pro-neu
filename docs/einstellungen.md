@@ -67,13 +67,16 @@ Einrichtungsprotokoll (wer hat was eingerichtet) · Geräte-Verlauf
 
 ## Absichtlich am Gerät
 
-Vier Dinge bleiben, wo sie sind – sie gehören zur Installation, nicht zur
+Fünf Dinge bleiben, wo sie sind – sie gehören zur Installation, nicht zur
 Person:
 
 - **App-Symbol.** Wer sich am Wandpanel anmeldet, soll damit nicht das
   Telefon umfärben.
 - **Wandpanel-Modus** (Bildschirm an, Rückkehr zur Startseite) und die
   Anrede darauf.
+- **Kindermodus.** Das Tablet im Kinderzimmer zeigt nur die Kinderseite
+  des gewählten Kindes – welches, ist eine Eigenschaft genau dieses
+  Geräts (`kindPanel`, unter dem Wandpanel-Schalter).
 - **Grundriss-Ansicht.** Das Panel im Flur will den Wohnungsplan, das
   Telefon in der Tasche die Kacheln – und beide gehören derselben
   Person. Bild und Punkte selbst liegen auf dem Hub, für alle.

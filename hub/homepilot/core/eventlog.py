@@ -339,6 +339,32 @@ class EventLog:
                 break
         return raus
 
+    def fenster(
+        self, von: float, bis: float, limit: int = 200, sichtbar: Any = None
+    ) -> list[dict[str, Any]]:
+        """Die Ereignisse eines Zeitfensters, älteste zuerst.
+
+        Für das Ereignisblatt des Alarms: `rueckblick` rechnet immer ab
+        jetzt - die Frage «was schaltete um drei Uhr nachts?» braucht
+        beide Grenzen. `sichtbar` filtert wie dort.
+        """
+        raus: list[dict[str, Any]] = []
+        for eintrag in reversed(self._events):
+            wann = eintrag.get("at")
+            if not isinstance(wann, (int, float)):
+                continue
+            if wann < von:
+                break
+            if wann > bis:
+                continue
+            if sichtbar is not None and not sichtbar(str(eintrag.get("entity_id") or "")):
+                continue
+            raus.append(eintrag)
+            if len(raus) >= limit:
+                break
+        raus.reverse()
+        return raus
+
     def span(self) -> dict[str, Any]:
         """Wie weit das Protokoll zurückreicht - und warum nicht weiter.
 

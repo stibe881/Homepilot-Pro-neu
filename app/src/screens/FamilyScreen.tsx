@@ -6,13 +6,14 @@ import { Image, Linking, Modal, Pressable, ScrollView, Share, Text, TextInput, V
 
 import { hubClient } from '../api/client';
 import { Card } from '../components/Card';
+import { sternProtokoll, sternZiel, wochenSterne } from '../lib/aemtlisterne';
 import { modusSatz } from '../lib/babysitter';
 import { gruppiereModule } from '../lib/familiemodule';
 import { DraggableList } from '../components/DraggableList';
 import { Shops } from '../components/Shops';
 import { useOrte } from '../hooks/useOrte';
 import { ortKennung } from '../lib/orte';
-import { useColors } from '../theme';
+import { Colors, useColors } from '../theme';
 import { RecipeBook } from './RecipeBook';
 import { datumUhr, wochentagDatumKurz, wochentagUhr } from '../lib/format';
 import { Erinnerung, bestaetigung, offene, wiederholungVon, wiederholungsLabel } from '../lib/erinnerungen';
@@ -85,7 +86,7 @@ import { kochVorschlaege, vorschlagsGrund, wuerfel } from '../lib/vorschlag';
 import { ROLE_LABELS } from './UsersScreen';
 import { doppeldosisFrage } from '../lib/doppeldosis';
 import { naechsteStraehne, straehnenSatz } from '../lib/straehne';
-import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, CountdownForm, ErinnerungForm, EventForm, FamilyItem, GroupedChecklist, MealRow, MedicationAddRow, Member, MemberAddRow, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, TaskAddRow, TwoFieldForm, VorratBlatt, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, parseSwissDate, pickPhoto, rotateMember } from './family/bausteine';
+import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, CountdownForm, ErinnerungForm, EventForm, FamilyItem, GroupedChecklist, MealRow, MedicationAddRow, Member, MemberAddRow, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, Styles, TaskAddRow, TwoFieldForm, VorratBlatt, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, parseSwissDate, pickPhoto, rotateMember } from './family/bausteine';
 import { Kindseite, Wochenliste } from './family/kindseite';
 import { istKind, verschmelze } from '../lib/kindseite';
 import { makeStyles } from './family/stil';
@@ -114,6 +115,133 @@ const HIDDEN_KEY = 'homepilot.family.hidden';
 /** Kennung fürs Wachhalten im Einkaufs-Modus. */
 const EINKAUF_TAG = 'homepilot-einkauf';
 
+/**
+ * Wochenziel und Belohnung eines Kindes festlegen (Punkt 260).
+ *
+ * Steht unter der Personenkarte bei «Wer dazugehört»: Dort legen die
+ * Eltern fest, was fürs Kind zählt («10 Sterne = Kino»). Gespeichert
+ * wird am Mitglieds-Eintrag der Familienlisten (stars_goal,
+ * stars_reward) - beim Hub, damit die Kinderseite auf jedem Gerät
+ * dieselben Sterne zeigt. Ohne Ziel bleibt alles leer: kein Zwang.
+ *
+ * Auf Modulebene wie alle Unterkomponenten dieser Datei - sonst würfe
+ * jedes Live-Update das Formular samt Eingabe weg.
+ */
+function SternZielForm({
+  name,
+  eintrag,
+  sterne,
+  onSave,
+  styles,
+  colors,
+}: {
+  name: string;
+  /** Der rohe Eintrag aus «members» - er trägt Ziel und Belohnung. */
+  eintrag: FamilyItem;
+  /** Sterne dieser Woche - die Eltern sehen so, wo das Kind steht. */
+  sterne: number;
+  onSave: (patch: FamilyItem) => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const [offen, setOffen] = useState(false);
+  const [zielText, setZielText] = useState('');
+  const [belohnung, setBelohnung] = useState('');
+  const ziel = sternZiel(eintrag);
+
+  const oeffnen = () => {
+    // Die Startwerte kommen beim Aufklappen, nicht beim Zeichnen: Sie
+    // sollen der Stand vom Moment des Tippens sein, nicht was ein
+    // Live-Update dazwischenschiebt.
+    setZielText(ziel ? String(ziel.goal) : '');
+    setBelohnung(String(eintrag?.stars_reward ?? ''));
+    setOffen(true);
+  };
+
+  const speichern = () => {
+    const zahl = Math.round(Number(zielText.replace(',', '.')));
+    onSave({
+      // Leeres Feld heisst «kein Ziel mehr» - so schaltet man die
+      // Sterne wieder ab, ohne einen eigenen Löschknopf zu brauchen.
+      stars_goal: Number.isFinite(zahl) && zahl > 0 ? zahl : null,
+      stars_reward: belohnung.trim(),
+    });
+    setOffen(false);
+  };
+
+  return (
+    <Card style={styles.listCard}>
+      <Pressable
+        onPress={() => (offen ? setOffen(false) : oeffnen())}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: offen }}
+        accessibilityLabel={
+          ziel
+            ? `Sterne-Ziel von ${name} ändern`
+            : `Sterne-Ziel für ${name} festlegen`
+        }
+        style={({ pressed }) => [styles.checkRow, pressed && { opacity: 0.7 }]}
+      >
+        <Ionicons
+          name={ziel ? 'star' : 'star-outline'}
+          size={18}
+          color={ziel ? colors.warn : colors.inkSoft}
+        />
+        <Text style={[styles.checkSub, { flex: 1 }]}>
+          {ziel
+            ? `Wochenziel: ${ziel.goal} Sterne` +
+              (ziel.reward ? ` = ${ziel.reward}` : '') +
+              ` · diese Woche ${sterne}`
+            : 'Sterne-Ziel festlegen - abgehakte Ämtli geben Sterne'}
+        </Text>
+        <Ionicons
+          name={offen ? 'chevron-up' : 'chevron-down'}
+          size={16}
+          color={colors.inkFaint}
+        />
+      </Pressable>
+      {offen ? (
+        <>
+          <View style={styles.addRow}>
+            <TextInput
+              style={[styles.input, { width: 110 }]}
+              value={zielText}
+              onChangeText={setZielText}
+              placeholder="Ziel, z.B. 10"
+              placeholderTextColor={colors.inkSoft}
+              keyboardType="number-pad"
+              accessibilityLabel={`Wochenziel für ${name}, Anzahl Sterne`}
+            />
+            <TextInput
+              style={[styles.input, { flex: 1 }]}
+              value={belohnung}
+              onChangeText={setBelohnung}
+              placeholder="Belohnung, z.B. Kino"
+              placeholderTextColor={colors.inkSoft}
+              onSubmitEditing={speichern}
+              accessibilityLabel={`Belohnung für ${name}`}
+            />
+            <Pressable
+              onPress={speichern}
+              accessibilityRole="button"
+              accessibilityLabel={`Sterne-Ziel für ${name} speichern`}
+              style={({ pressed }) => [styles.addButton, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name="checkmark" size={22} color="#FFFFFF" />
+            </Pressable>
+          </View>
+          {/* checkSub statt hint: Der Satz steht in der Karte, hint ist
+              für den Verlauf draussen auf dem Farbgrund gedacht. */}
+          <Text style={styles.checkSub}>
+            Jedes abgehakte Ämtli gibt {name} einen Stern; die Woche beginnt am
+            Montag. Ziel leer lassen und speichern schaltet die Sterne wieder ab.
+          </Text>
+        </>
+      ) : null}
+    </Card>
+  );
+}
+
 export function FamilyScreen({
   settings,
   entities,
@@ -124,6 +252,7 @@ export function FamilyScreen({
   onHiddenModules,
   changedAt,
   startModul,
+  startKind,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -175,7 +304,13 @@ export function FamilyScreen({
   // Wessen Seite gerade offen ist. Kein ModuleKey: Die Kinderseite
   // gehört zu einem Namen, nicht zu einer Liste - und «zurück» führt
   // von ihr an dieselbe Stelle wie von den Modulen.
-  const [kind, setKind] = useState<string | null>(null);
+  const [kind, setKind] = useState<string | null>(startKind ?? null);
+  // Der Kindermodus des Panels: Kommt der Wunsch später (Einstellungen
+  // eben geändert) oder kehrt die Ansicht zurück, landet sie wieder auf
+  // der Kinderseite - das Gerät gehört diesem einen Kind.
+  useEffect(() => {
+    if (startKind) setKind(startKind);
+  }, [startKind]);
   // Die Termine für die Kinderseite. Die Kalender-Entität trägt die
   // nächsten zwölf der ganzen Familie; auf ein Kind heruntergefiltert
   // bleiben davon oft null, und die Seite behauptete, es stehe nichts
@@ -641,7 +776,22 @@ export function FamilyScreen({
         hinweis={standHinweis}
         lektionen={data.lessons ?? []}
         termine={data.activities ?? []}
+        aemtli={data.chores ?? []}
+        // Ziel und Belohnung stehen am Mitglieds-Eintrag - ohne Ziel
+        // zeigt die Seite keine Sterne (lib/aemtlisterne.ts).
+        ziel={sternZiel(
+          (data.members ?? []).find(
+            (eintrag: FamilyItem) => String(eintrag.text ?? '').trim() === kind
+          ) ?? null
+        )}
         events={verschmelze(kindEvents, events)}
+        // Der Ferien-Countdown kommt aus der Schulferien-Entität, der
+        // Geburtstag aus den Familienkontakten - beides liegt schon da.
+        ferien={
+          entities.find((entity) => entity.id === 'schulferien.heute')?.state ?? null
+        }
+        kontakte={data.contacts ?? []}
+        sachen={data.gear ?? []}
         // Frisch beim Zeichnen: `jetztTick` läuft nur, solange das
         // Rückgängig-Band steht, und wäre hier sonst die Uhrzeit von
         // vorgestern.
@@ -1686,6 +1836,10 @@ export function FamilyScreen({
         last_done: isoInDays(0),
         last_by: chore.member ?? null,
         ...naechsteStraehne(chore, isoInDays(0)),
+        // Der Stern fürs Kind (Punkt 260): am Ämtli selbst, denn
+        // last_by kennt nur die letzte Runde, und die Prämien-Buchung
+        // gibt es nur bei Punkten. Gezählt wird in lib/aemtlisterne.ts.
+        stars_log: sternProtokoll(chore, isoInDays(0)),
       });
     };
 
@@ -3585,8 +3739,17 @@ export function FamilyScreen({
             offen > 0 ? `${offen} offen` : '',
             punkte !== 0 ? `${punkte} Punkte` : '',
           ].filter(Boolean);
+          // Der rohe Eintrag aus «members»: Nur er trägt Sterne-Ziel
+          // und Belohnung; die zusammengeführte Reihe (lib/mitglieder)
+          // kennt bloss Name und Rolle.
+          const rohEintrag = member.id
+            ? (data.members ?? []).find(
+                (eintrag: FamilyItem) => eintrag.id === member.id
+              )
+            : undefined;
           return (
-            <Card key={member.name} style={styles.rewardCard}>
+            <React.Fragment key={member.name}>
+            <Card style={styles.rewardCard}>
               <View style={styles.avatarSmall}>
                 <Text style={styles.avatarSmallText}>
                   {member.name.slice(0, 1).toUpperCase()}
@@ -3633,6 +3796,21 @@ export function FamilyScreen({
                 </>
               ) : null}
             </Card>
+            {/* Ämtli-Sterne (Punkt 260): nur bei Kindern aus den
+                Familienlisten - Erwachsene sammeln Punkte, keine
+                Sterne, und Zugänge haben hier keinen Eintrag, an dem
+                das Ziel hängen könnte. */}
+            {istKind(member) && member.id && rohEintrag ? (
+              <SternZielForm
+                name={member.name}
+                eintrag={rohEintrag}
+                sterne={wochenSterne(data.chores, member.name, new Date())}
+                onSave={(patch) => update('members', member.id as string, patch)}
+                styles={styles}
+                colors={colors}
+              />
+            ) : null}
+            </React.Fragment>
           );
         })}
 

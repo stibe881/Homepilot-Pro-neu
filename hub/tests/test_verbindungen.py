@@ -86,6 +86,21 @@ def test_secrets_lines_replace_in_place_and_keep_comments():
     assert frisch.startswith("#") and "X=1" in frisch
 
 
+def test_both_login_urls_are_built_from_one_place():
+    """CLI-Helfer und App-Anmeldung teilen sich dieselbe Adresse - zwei
+    Stellen, die sie getrennt bauen, driften auseinander."""
+    from homepilot.integrations import google_calendar, spotify
+
+    google = google_calendar.anmelde_url("g-id")
+    assert google.startswith("https://accounts.google.com/o/oauth2/v2/auth?")
+    assert "client_id=g-id" in google
+    assert "access_type=offline" in google and "prompt=consent" in google
+
+    sp = spotify.anmelde_url("s-id")
+    assert sp.startswith("https://accounts.spotify.com/authorize?")
+    assert "client_id=s-id" in sp and "playlist-read-private" in sp
+
+
 # ── Blockbearbeitung (rein, core/config_edit) ────────────────────────────
 
 CONFIG = """\
@@ -345,6 +360,140 @@ def test_a_service_can_be_switched_off_and_on_again(client):
     )
     assert antwort.status_code == 200
     assert "# - integration: google_cast" not in client.config_file.read_text()
+
+
+def test_the_login_url_carries_the_resolved_client_id(client):
+    # Zugangsdaten eintragen - die client_id landet als ${VERWEIS} in der
+    # Datei und als Wert in der secrets.env.
+    client.put(
+        "/api/verbindungen/kalender",
+        json={"client_id": "id-123", "client_secret": "geheim-456"},
+        headers=auth("t-owner"),
+    )
+    antwort = client.get("/api/verbindungen/kalender/anmeldung", headers=auth("t-owner"))
+    assert antwort.status_code == 200, antwort.text
+    url = antwort.json()["url"]
+    # Aufgelöst aus der secrets.env, nicht der Verweis - und mit den
+    # Zutaten, die Google für einen refresh_token verlangt.
+    assert "client_id=id-123" in url
+    assert "accounts.google.com" in url and "prompt=consent" in url
+
+
+def test_login_needs_a_configured_service_and_never_googlehome(client):
+    antwort = client.get("/api/verbindungen/spotify/anmeldung", headers=auth("t-owner"))
+    assert antwort.status_code == 400
+    assert "eingerichtet" in antwort.json()["detail"]
+    antwort = client.get(
+        "/api/verbindungen/googlehome/anmeldung", headers=auth("t-owner")
+    )
+    assert antwort.status_code == 400
+    assert "keine Anmeldung" in antwort.json()["detail"]
+    assert (
+        client.get(
+            "/api/verbindungen/kalender/anmeldung", headers=auth("t-resident")
+        ).status_code
+        == 403
+    )
+
+
+def test_redeeming_the_pasted_address_stores_the_refresh_token(client, monkeypatch):
+    from homepilot.api.routes import verbindungen as routen
+
+    client.put(
+        "/api/verbindungen/kalender",
+        json={"client_id": "id-123", "client_secret": "geheim-456"},
+        headers=auth("t-owner"),
+    )
+    gesehen: dict = {}
+
+    async def falscher_tausch(key, client_id, client_secret, code):
+        gesehen.update(key=key, client_id=client_id, secret=client_secret, code=code)
+        return {"refresh_token": "r-neu"}
+
+    monkeypatch.setattr(routen, "code_einloesen", falscher_tausch)
+    antwort = client.post(
+        "/api/verbindungen/kalender/anmeldung",
+        json={"antwort": "http://127.0.0.1:8888/?code=4%2FABC&scope=calendar"},
+        headers=auth("t-owner"),
+    )
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json()["restart_required"] is True
+    # Der Code kam ausgepackt beim Tausch an, samt der aufgelösten Daten.
+    assert gesehen == {
+        "key": "kalender",
+        "client_id": "id-123",
+        "secret": "geheim-456",
+        "code": "4/ABC",
+    }
+    token_datei = client.config_file.parent / "google-token.json"
+    assert '"refresh_token": "r-neu"' in token_datei.read_text()
+    # Und die Übersicht weiss es sofort.
+    dienste = {
+        d["key"]: d
+        for d in client.get("/api/verbindungen", headers=auth("t-owner")).json()[
+            "dienste"
+        ]
+    }
+    assert dienste["kalender"]["angemeldet"] is True
+
+
+def test_redeeming_keeps_what_else_lies_in_the_token_file(client, monkeypatch):
+    # Der gemeldete Nachbar-Fall: In spotify-token.json liegt auch das
+    # sp_dc-Cookie fürs Wecken der Boxen - eine Neuanmeldung darf es
+    # nicht wegwerfen.
+    from homepilot.api.routes import verbindungen as routen
+    from homepilot.core import tokenstore
+
+    client.put(
+        "/api/verbindungen/spotify",
+        json={"client_id": "sp-id", "client_secret": "sp-geheim"},
+        headers=auth("t-owner"),
+    )
+    token_datei = client.config_file.parent / "spotify-token.json"
+    tokenstore.save(token_datei, {"refresh_token": "r-alt", "sp_dc": "keks"})
+
+    async def falscher_tausch(key, client_id, client_secret, code):
+        return {"refresh_token": "r-neu"}
+
+    monkeypatch.setattr(routen, "code_einloesen", falscher_tausch)
+    antwort = client.post(
+        "/api/verbindungen/spotify/anmeldung",
+        json={"antwort": "AQBBARE"},
+        headers=auth("t-owner"),
+    )
+    assert antwort.status_code == 200, antwort.text
+    inhalt = tokenstore.load(token_datei)
+    assert inhalt == {"refresh_token": "r-neu", "sp_dc": "keks"}
+
+
+def test_a_pasted_address_without_a_code_is_refused(client, monkeypatch):
+    from homepilot.api.routes import verbindungen as routen
+
+    client.put(
+        "/api/verbindungen/kalender",
+        json={"client_id": "a", "client_secret": "b"},
+        headers=auth("t-owner"),
+    )
+    antwort = client.post(
+        "/api/verbindungen/kalender/anmeldung",
+        json={"antwort": "http://127.0.0.1:8888/?error=access_denied"},
+        headers=auth("t-owner"),
+    )
+    assert antwort.status_code == 400
+    assert "kein Anmelde-Code" in antwort.json()["detail"]
+
+    # Und ein abgelaufener Code bekommt den Satz, der weiterhilft.
+    async def abgelaufen(key, client_id, client_secret, code):
+        return {"error": "invalid_grant"}
+
+    monkeypatch.setattr(routen, "code_einloesen", abgelaufen)
+    antwort = client.post(
+        "/api/verbindungen/kalender/anmeldung",
+        json={"antwort": "CODE123"},
+        headers=auth("t-owner"),
+    )
+    assert antwort.status_code == 400
+    assert "abgelaufen" in antwort.json()["detail"]
 
 
 def test_a_request_that_changes_nothing_does_not_touch_the_file(client):

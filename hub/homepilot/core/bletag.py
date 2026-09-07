@@ -107,13 +107,31 @@ def zustand(
     frische Meldung heisst es «weg»: Ein Anhänger, den kein Empfänger
     mehr hört, ist nicht im letzten Zimmer, sondern ausser Haus.
     """
-    frisch = {
+    alle = {
         name: eintrag
         for name, eintrag in (meldungen or {}).items()
-        if isinstance(eintrag, dict) and jetzt - float(eintrag.get("at") or 0) <= frist
+        if isinstance(eintrag, dict)
+    }
+    # Fürs Fundbüro: der zuletzt gehörte Raum, auch wenn die Meldung alt
+    # ist. melden() wirft alte Räume nie weg - «weg, zuletzt im Flur vor
+    # zwei Stunden» ist genau die Auskunft, nach der man den Schlüssel
+    # sucht, und sie lag hier schon immer ungenutzt herum.
+    letzte = (
+        max(alle.items(), key=lambda paar: float(paar[1].get("at") or 0))
+        if alle
+        else None
+    )
+    spur: dict[str, Any] = {
+        "last_room": letzte[0] if letzte else None,
+        "last_seen_at": float(letzte[1].get("at") or 0) if letzte else None,
+    }
+    frisch = {
+        name: eintrag
+        for name, eintrag in alle.items()
+        if jetzt - float(eintrag.get("at") or 0) <= frist
     }
     if not frisch:
-        return {"state": "weg", "room": None, "distance": None}
+        return {"state": "weg", "room": None, "distance": None, **spur}
     naechstes = min(frisch.items(), key=lambda paar: float(paar[1].get("distance") or 999))
     name, eintrag = naechstes
     alt = frisch.get(str(bisher or ""))
@@ -131,4 +149,5 @@ def zustand(
         "state": name,
         "room": name,
         "distance": round(float(eintrag.get("distance") or 0), 1),
+        **spur,
     }

@@ -13,6 +13,7 @@ import {
   batteryRows,
   stummBis,
 } from '../lib/batterien';
+import { FunkZeile, funkRows, funkStufe, funkWort } from '../lib/funkqualitaet';
 import { epochAgo } from '../lib/zeit';
 import { Colors, radius, type, useColors } from '../theme';
 
@@ -26,6 +27,12 @@ export { batteryRows, stummBis };
  * davor fehlte: Wer vor den Ferien wissen will, welche Melder demnächst
  * dran sind, musste jedes Gerät einzeln antippen. Sortiert nach
  * Dringlichkeit: leere zuerst, volle zuletzt.
+ *
+ * Dazu der Abschnitt «Funk» (Punkt 230): Zigbee-Geräte mit schwachem
+ * oder fallendem Funk, mit Wert und Entwicklung. Die andere Hälfte
+ * derselben Frage – ein Gerät, dessen Funk abreisst, verstummt genauso
+ * wie eines mit leerer Batterie, nur sucht man den Fehler dann am
+ * falschen Ort.
  */
 
 export function DeviceHealth({
@@ -58,6 +65,10 @@ export function DeviceHealth({
   // «reicht noch ~3 Monate» je Gerät - der Hub rechnet es aus dem
   // eigenen Tempo der Batterie (core/batterieprognose.py).
   const [prognose, setPrognose] = useState<Record<string, string>>({});
+  // Funkqualität der Zigbee-Geräte (Punkt 230): Der Hub sammelt
+  // Wochenmittel und rechnet den Trend (core/funkqualitaet.py) - ein
+  // Gerät, dessen Wert seit Wochen fällt, verstummt irgendwann.
+  const [funk, setFunk] = useState<FunkZeile[]>([]);
   const [jetzt, setJetzt] = useState(() => Date.now());
   const laden = useCallback(() => {
     hub
@@ -71,6 +82,14 @@ export function DeviceHealth({
           setPrognose(data.forecast ?? {});
         }
         setJetzt(Date.now());
+      });
+    hub
+      .get<{ radios?: FunkZeile[] } | null>('/api/funk', {
+        fallback: null,
+        still: true,
+      })
+      .then((data) => {
+        if (data) setFunk(data.radios ?? []);
       });
   }, [hub]);
   // Nur wenn die Liste offen ist: Zugeklappt braucht niemand die
@@ -100,6 +119,7 @@ export function DeviceHealth({
   };
 
   const rows = batteryRows(entities);
+  const funkAuffaellig = funkRows(funk);
   if (rows.length === 0) return null;
 
   const urgent = rows.filter(
@@ -208,6 +228,46 @@ export function DeviceHealth({
             bis morgen früh stumm. Es ist ein Aufschub, kein Ausschalten:
             Ist die Batterie dann noch schwach, erinnert der Hub noch einmal.
           </Text>
+          {/* Funk (Punkt 230): nur die Auffälligen - schwach oder seit
+              Wochen fallend. Ein Gerät, dessen Funk abreisst, verstummt
+              irgendwann, und dann sucht man den Fehler bei der Batterie. */}
+          {funkAuffaellig.length > 0 ? (
+            <>
+              <View style={styles.funkHead}>
+                <Ionicons name="wifi-outline" size={16} color={colors.warn} />
+                <Text style={styles.funkHeading}>Funk</Text>
+              </View>
+              {funkAuffaellig.map((funker) => (
+                <View key={funker.entity_id} style={styles.row}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.name}>{funker.name}</Text>
+                    <Text style={styles.detail}>
+                      {funker.room ?? 'Ohne Raum'} · Funkqualität{' '}
+                      {funkWort(funker)}
+                    </Text>
+                  </View>
+                  <Text
+                    style={[
+                      styles.value,
+                      {
+                        color:
+                          funkStufe(funker) === 'kritisch'
+                            ? colors.danger
+                            : colors.warn,
+                      },
+                    ]}
+                  >
+                    {Math.round(funker.value)}
+                  </Text>
+                </View>
+              ))}
+              <Text style={styles.hint}>
+                Funkqualität in Punkten von 255. Meist hilft ein anderer
+                Standort oder ein Repeater dazwischen – an der Batterie
+                liegt es selten.
+              </Text>
+            </>
+          ) : null}
         </>
       ) : null}
     </Card>
@@ -234,6 +294,13 @@ const makeStyles = (colors: Colors) =>
     },
     quittiertAktiv: { backgroundColor: colors.accent, borderColor: colors.accent },
     quittierenText: { fontSize: 11, fontWeight: '700', color: colors.inkSoft },
+    funkHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginTop: 4,
+    },
+    funkHeading: { color: colors.ink, fontSize: 13, fontWeight: '700' },
     name: { color: colors.ink, fontSize: 14, fontWeight: '600' },
     detail: { color: colors.inkFaint, fontSize: 12, marginTop: 1 },
     value: { fontSize: 14, fontWeight: '700' },

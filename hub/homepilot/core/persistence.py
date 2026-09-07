@@ -83,6 +83,10 @@ EMPTY: dict[str, Any] = {
     # Gute-Nacht-Knopf: höchstens ein Eintrag {night_lights: [ids],
     # arm_alarm: bool}. Als Liste, weil der DataStore Listen verwaltet.
     "goodnight": [],
+    # Welche Storen die Wächter anfassen dürfen: höchstens ein Eintrag
+    # {storm: [ids], heat: [ids]}. Leere Liste heisst alle Storen -
+    # siehe core/storenwaechter.py.
+    "cover_guard": [],
     # PIN fürs Entschärfen der Alarmanlage: höchstens ein Eintrag
     # {salt, hash} - die PIN selbst liegt nie im Klartext.
     "alarm_pin": [],
@@ -112,6 +116,12 @@ EMPTY: dict[str, Any] = {
     # Eigener Korb, nicht der von Szenen und Abläufen: Dort sucht
     # niemand nach einem gelöschten Rezept.
     "family_trash": [],
+    # Der Anrufbeantworter des Hauses (Punkt 259 der Werkbank): höchstens
+    # ein Eintrag {wer, zone, speakers, volume, typ, at} - siehe
+    # heimgruss.py. Der Ton selbst liegt als Datei daneben, nicht hier:
+    # Zwei Megabyte Opus gehören nicht in eine JSON-Datei, die bei jedem
+    # Schreiben ganz auf die Platte geht.
+    "heimgruss": [],
 }
 
 

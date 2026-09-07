@@ -31,13 +31,34 @@ export function ersterWeg(email?: string | null): Weg {
   return email ? 'mail' : 'qr';
 }
 
+/** Die Wochentage, wie der Hub sie zählt: 0 = Montag. */
+export const WOCHENTAGE = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'] as const;
+
+/**
+ * Die Wochentage eines wiederkehrenden Zugangs in Worten (rein, testbar).
+ *
+ * Leer heisst «alle Tage» und bleibt darum wortlos - «jeden Tag» im
+ * Kopf jedes Benutzers wäre Rauschen. Die zwei häufigen Muster bekommen
+ * ihr Wort, alles andere die Kürzel.
+ */
+export function tageLabel(days?: number[] | null): string {
+  const tage = [...new Set((days ?? []).filter((tag) => tag >= 0 && tag <= 6))].sort();
+  if (tage.length === 0 || tage.length === 7) return '';
+  if (tage.join(',') === '0,1,2,3,4') return 'werktags';
+  if (tage.join(',') === '5,6') return 'am Wochenende';
+  return (tage.length === 1 ? 'nur ' : '') + tage.map((tag) => WOCHENTAGE[tag]).join(', ');
+}
+
 /** «Läuft der Zugang ab, und wann darf er?» (rein, testbar) */
 export function zugangStand(
   expires?: string | null,
-  hours?: { from?: string | null; to?: string | null } | null
+  hours?: { from?: string | null; to?: string | null } | null,
+  days?: number[] | null
 ): string {
   const teile: string[] = [];
   teile.push(expires ? `bis ${expires}` : 'unbegrenzt');
+  const tage = tageLabel(days);
+  if (tage) teile.push(tage);
   const von = (hours?.from ?? '').trim();
   const bis = (hours?.to ?? '').trim();
   // Nur wenn beide dastehen: Eine halbe Angabe sperrt nichts, und

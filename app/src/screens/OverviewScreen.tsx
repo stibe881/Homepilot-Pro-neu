@@ -17,6 +17,7 @@ import { RenameDialog } from '../components/entity/anpassen';
 import { DraggableList } from '../components/DraggableList';
 import { KIND_ICONS, shortState } from '../components/RoomTile';
 import { appleMapsRoute, googleMapsRoute } from '../components/TopStrip';
+import { TagesZeile } from '../components/TagesZeile';
 import { VacuumHome } from '../components/VacuumHome';
 import { useTakt } from '../hooks/useTakt';
 import { FAVORIT_LUECKE, FAVORIT_MINDEST, kachelBreite, spalten } from '../lib/raster';
@@ -62,6 +63,12 @@ import {
   starteAufnahme,
   type Aufnahme,
 } from '../lib/sprachnotiz';
+import {
+  hinterlegtText,
+  istOffen,
+  standZeile,
+  type HeimgrussStand,
+} from '../lib/heimgruss';
 import { mayOpenDirectly } from '../lib/tuerbestaetigung';
 import { Colors, radius, space, useColors } from '../theme';
 
@@ -126,6 +133,19 @@ interface Props {
     aufnahme: Blob,
     speakers: string[]
   ) => Promise<{ sent?: string[]; errors?: string[] }>;
+  /** Der Anrufbeantworter des Hauses (Punkt 259 der Werkbank): eine
+   *  Sprachnotiz fürs nächste Heimkommen hinterlegen statt sofort
+   *  abspielen. Fehlt eine der drei Funktionen (alter Hub, kein
+   *  Schaltrecht), zeigt das Blatt den Schalter gar nicht erst. */
+  onHeimgruss?: (
+    aufnahme: Blob,
+    speakers: string[]
+  ) => Promise<{ message?: HeimgrussStand | null }>;
+  /** Liegt schon eine Nachricht? Wird beim Öffnen des Blatts gefragt -
+   *  ein Dauerabruf für ein Blatt, das meist zu ist, wäre Verkehr für
+   *  nichts. */
+  onHeimgrussStand?: () => Promise<HeimgrussStand | null>;
+  onHeimgrussZurueck?: () => Promise<void>;
 }
 
 const WEEKDAYS = [
@@ -193,6 +213,9 @@ export function OverviewScreen({
   durchsage,
   onDurchsagePrefs,
   onSprachnotiz,
+  onHeimgruss,
+  onHeimgrussStand,
+  onHeimgrussZurueck,
   ohneKopf = false,
   kalenderSignal,
 }: Props) {
@@ -439,8 +462,18 @@ export function OverviewScreen({
   // Geburtstag» stehen nur hier.
   const [liste, setListe] = useState<'termine' | 'geburtstage' | null>(null);
   // Von aussen gerufen (Startkarte): Zähler angestossen → Fenster auf.
+  //
+  // Der Zähler lebt im DashboardScreen und überlebt damit den Wechsel
+  // in einen anderen Bereich - diese Seite hier nicht. Beim Zurückkommen
+  // wurde sie neu aufgebaut, sah den alten Stand («n > 0», vom einen
+  // Tipp vor Tagen) und riss das Geburtstags-Fenster wieder auf, jedes
+  // Mal. Deshalb zählt nur, was NACH dem Aufbau angestossen wird: Der
+  // Stand beim Aufbau gilt als verbraucht.
+  const kalenderVerbraucht = useRef(kalenderSignal?.n ?? 0);
   useEffect(() => {
-    if (kalenderSignal && kalenderSignal.n > 0) setListe(kalenderSignal.art);
+    if (!kalenderSignal || kalenderSignal.n <= kalenderVerbraucht.current) return;
+    kalenderVerbraucht.current = kalenderSignal.n;
+    setListe(kalenderSignal.art);
   }, [kalenderSignal]);
   const jetztFuerListe = new Date();
   const terminTage = terminGruppen(events, jetztFuerListe);
@@ -944,6 +977,9 @@ export function OverviewScreen({
               onPrefs={onDurchsagePrefs}
               onSenden={onDurchsage}
               onSprachnotiz={onSprachnotiz}
+              onHeimgruss={onHeimgruss}
+              onHeimgrussStand={onHeimgrussStand}
+              onHeimgrussZurueck={onHeimgrussZurueck}
               onClose={() => setDurchsageOffen(false)}
               styles={styles}
               colors={colors}
@@ -952,6 +988,10 @@ export function OverviewScreen({
         </>
       ) : null}
 
+      {/* Der Handgriff zur Tageszeit: morgens «Storen auf», abends
+          «Licht aus» und «Storen zu» - nur, wenn es etwas zu tun gibt
+          (Punkt 257 der Werkbank, lib/tageszeile.ts). */}
+      <TagesZeile entities={entities} now={now} onCommand={onCommand} />
       {/* Zugang steht immer gleich unter den Schnellaktionen. Danach
           tauschen Haushalt und Heute je nach Tageszeit den Platz: morgens
           zuerst der Tag (Termine, Musik), abends zuerst die Wohnung. */}
@@ -1108,6 +1148,9 @@ function DurchsageFenster({
   onPrefs,
   onSenden,
   onSprachnotiz,
+  onHeimgruss,
+  onHeimgrussStand,
+  onHeimgrussZurueck,
   onClose,
   styles,
   colors,
@@ -1123,6 +1166,12 @@ function DurchsageFenster({
     aufnahme: Blob,
     speakers: string[]
   ) => Promise<{ sent?: string[]; errors?: string[] }>;
+  onHeimgruss?: (
+    aufnahme: Blob,
+    speakers: string[]
+  ) => Promise<{ message?: HeimgrussStand | null }>;
+  onHeimgrussStand?: () => Promise<HeimgrussStand | null>;
+  onHeimgrussZurueck?: () => Promise<void>;
   onClose: () => void;
   styles: OverviewStyles;
   colors: Colors;
@@ -1154,6 +1203,34 @@ function DurchsageFenster({
   const laufend = useRef<Aufnahme | null>(null);
   const [seit, setSeit] = useState<number | null>(null);
   const [jetzt, setJetzt] = useState(() => Date.now());
+
+  // Der Anrufbeantworter (Punkt 259 der Werkbank): Steht der Schalter,
+  // wird die nächste Aufnahme hinterlegt statt abgespielt. Bewusst
+  // flüchtig und nicht in den Prefs: «beim nächsten Heimkommen» ist eine
+  // Entscheidung für diese eine Nachricht, keine Voreinstellung - wer
+  // morgen «Essen ist fertig» ruft, will es sofort hören.
+  const heimBand = mikrofon && !!onHeimgruss;
+  const [heimkommen, setHeimkommen] = useState(false);
+  // Die liegende Nachricht - einmal beim Öffnen geholt. `undefined`
+  // heisst «noch nicht gefragt», damit vor der Antwort keine leere
+  // Zeile aufblitzt.
+  const [hinterlegt, setHinterlegt] = useState<HeimgrussStand | null | undefined>(
+    undefined
+  );
+  useEffect(() => {
+    if (!onHeimgrussStand) return;
+    let weg = false;
+    onHeimgrussStand()
+      .then((stand) => {
+        if (!weg) setHinterlegt(stand);
+      })
+      // Ein alter Hub kennt die Route nicht - dann gibt es schlicht
+      // keine Anzeige, keinen Fehlerbalken.
+      .catch(() => {});
+    return () => {
+      weg = true;
+    };
+  }, [onHeimgrussStand]);
 
   // Die Sekundenanzeige läuft nur, solange aufgenommen wird - ein
   // Ticker, der immer läuft, zeichnet das Blatt bei jedem Tippen neu.
@@ -1192,8 +1269,18 @@ function DurchsageFenster({
       setBusy(true);
       setNote(null);
       try {
-        const antwort = await onSprachnotiz?.(ton, sprecherFuer(ziel));
-        setNote(bestaetigung(antwort ?? {}));
+        if (heimkommen && onHeimgruss) {
+          // Aufs Band statt auf die Boxen: Die Nachricht wartet beim Hub
+          // auf den nächsten Ankömmling (Punkt 259 der Werkbank).
+          const antwort = await onHeimgruss(ton, sprecherFuer(ziel));
+          setHinterlegt(antwort?.message ?? null);
+          setNote(hinterlegtText(zielText(ziel, boxen)));
+          // Der Schalter fällt zurück: Er galt dieser einen Nachricht.
+          setHeimkommen(false);
+        } else {
+          const antwort = await onSprachnotiz?.(ton, sprecherFuer(ziel));
+          setNote(bestaetigung(antwort ?? {}));
+        }
       } catch (err) {
         setNote(String(err instanceof Error ? err.message : err));
       } finally {
@@ -1221,6 +1308,22 @@ function DurchsageFenster({
     setSeit(null);
     aufnahme.abbrechen();
     setNote('Verworfen - nichts gesendet.');
+  };
+
+  // Die liegende Nachricht zurückziehen, bevor jemand kommt. Danach ist
+  // das Band leer - genau wie nach dem Abspielen.
+  const grussZurueckziehen = async () => {
+    if (!onHeimgrussZurueck || busy) return;
+    setBusy(true);
+    try {
+      await onHeimgrussZurueck();
+      setHinterlegt(null);
+      setNote('Zurückgezogen - die Nachricht wird nicht abgespielt.');
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const speichern = () => {
@@ -1509,8 +1612,12 @@ function DurchsageFenster({
                 accessibilityState={{ busy: seit !== null }}
                 accessibilityLabel={
                   seit === null
-                    ? `Sprachnotiz aufnehmen für ${zielText(ziel, boxen)}`
-                    : 'Aufnahme beenden und durchsagen'
+                    ? heimkommen
+                      ? 'Sprachnotiz fürs nächste Heimkommen aufnehmen'
+                      : `Sprachnotiz aufnehmen für ${zielText(ziel, boxen)}`
+                    : heimkommen
+                      ? 'Aufnahme beenden und hinterlegen'
+                      : 'Aufnahme beenden und durchsagen'
                 }
                 style={({ pressed }) => [
                   styles.durchsageSenden,
@@ -1526,6 +1633,61 @@ function DurchsageFenster({
               </Pressable>
             ) : null}
           </View>
+
+          {/* Der Anrufbeantworter des Hauses (Punkt 259 der Werkbank):
+              Steht der Schalter, wird die nächste Aufnahme beim Hub
+              hinterlegt statt sofort abgespielt - wer als Nächstes
+              heimkommt, hört sie. Nur fürs Gesprochene: Eine getippte
+              Durchsage hat die Vorlesestimme, und die soll niemanden
+              «zuhause begrüssen». */}
+          {heimBand && !verwalten ? (
+            <Pressable
+              onPress={() => setHeimkommen((an) => !an)}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: heimkommen }}
+              accessibilityLabel="Beim nächsten Heimkommen abspielen statt sofort"
+              style={({ pressed }) => [styles.durchsageZiel, pressed && { opacity: 0.7 }]}
+            >
+              <Ionicons
+                name={heimkommen ? 'home' : 'home-outline'}
+                size={18}
+                color={heimkommen ? colors.accent : colors.inkSoft}
+              />
+              <Text
+                style={[styles.durchsageZielText, heimkommen && { color: colors.accent }]}
+                numberOfLines={1}
+              >
+                Beim nächsten Heimkommen abspielen
+              </Text>
+              <Ionicons
+                name={heimkommen ? 'checkmark-circle' : 'ellipse-outline'}
+                size={20}
+                color={heimkommen ? colors.accent : colors.inkFaint}
+              />
+            </Pressable>
+          ) : null}
+
+          {/* Liegt schon eine Nachricht, steht hier, von wem - und der
+              Weg, sie loszuwerden, bevor jemand kommt. */}
+          {!verwalten && istOffen(hinterlegt, jetzt) ? (
+            <View style={styles.durchsageZiel}>
+              <Ionicons name="recording-outline" size={18} color={colors.accent} />
+              <Text style={[styles.durchsageZielText, { fontWeight: '400' }]}>
+                {standZeile(hinterlegt, jetzt)}
+              </Text>
+              {onHeimgrussZurueck ? (
+                <Pressable
+                  onPress={grussZurueckziehen}
+                  disabled={busy}
+                  accessibilityRole="button"
+                  accessibilityLabel="Nachricht zurückziehen - sie wird nicht abgespielt"
+                  hitSlop={8}
+                >
+                  <Text style={styles.durchsageZurueck}>Zurückziehen</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
 
           {note ? <Text style={styles.durchsageNote}>{note}</Text> : null}
             </>
@@ -2113,6 +2275,10 @@ const makeStyles = (colors: Colors) =>
       fontVariant: ['tabular-nums'],
     },
     durchsageNote: { color: colors.inkSoft, fontSize: 13, lineHeight: 18 },
+    // «Zurückziehen» als Wort statt als Papierkorb-Symbol: Es wirft
+    // etwas weg, das jemand anderes hinterlegt haben kann - das soll
+    // man lesen, bevor man es drückt.
+    durchsageZurueck: { color: colors.accent, fontSize: 14, fontWeight: '700' },
     timerStand: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     timerStandText: { color: colors.inkSoft, fontSize: 15, flex: 1 },
     timerWahl: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

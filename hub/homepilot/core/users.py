@@ -155,6 +155,57 @@ def parse_hours(raw: Any) -> dict[str, str]:
     return {"from": start, "to": end}
 
 
+def parse_days(raw: object) -> list[int]:
+    """Wochentage eines wiederkehrenden Zugangs (rein, testbar).
+
+    0 = Montag, wie überall im Haus (automation.parse_weekdays, der
+    Musik-Wecker). Leer heisst «alle Tage» - damit verhalten sich alle
+    bestehenden Benutzer exakt wie bisher. Alle sieben Tage werden zur
+    leeren Liste zusammengezogen: «jeden Tag» ist keine Einschränkung,
+    und zwei Schreibweisen für denselben Zustand wären eine zu viel.
+    """
+    if not isinstance(raw, list):
+        return []
+    tage: set[int] = set()
+    for eintrag in raw:
+        try:
+            tag = int(eintrag)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= tag <= 6:
+            tage.add(tag)
+    return [] if len(tage) == 7 else sorted(tage)
+
+
+def in_days(days: list[int], hours: dict[str, str], now: datetime) -> bool:
+    """Gilt der Zugang an diesem Wochentag? (rein, testbar)
+
+    Bei einem Fenster über Mitternacht («22:00 bis 06:00») meint
+    «Donnerstag» den Donnerstagabend: Wer um 01:00 noch drin ist, ist
+    der Donnerstagsgast von gestern - massgeblich ist dann der Vortag,
+    sonst fiele der Zugang um Mitternacht heraus.
+    """
+    if not days:
+        return True
+    massgeblich = now
+    start = (hours or {}).get("from", "")
+    end = (hours or {}).get("to", "")
+    if start and end and start > end and now.strftime("%H:%M") <= end:
+        massgeblich = now - timedelta(days=1)
+    return massgeblich.weekday() in days
+
+
+def laeuft_wieder(days: list[int], expires: str | None, heute: str) -> bool:
+    """Kommt dieser Zugang von selbst zurück? (rein, testbar)
+
+    Ein wiederkehrendes Fenster («jeden Donnerstag 8-12») endet nicht,
+    es pausiert - die Familie jeden Donnerstag um 12:01 mit «Zugang ist
+    abgelaufen» zu behelligen, wäre Lärm. Abgelaufen ist er erst, wenn
+    auch das Datum vorbei ist.
+    """
+    return bool(days) and (not expires or heute <= expires)
+
+
 def in_hours(hours: dict[str, str], now: datetime) -> bool:
     """Liegt dieser Moment im Zeitfenster? (rein, testbar)
 
@@ -171,7 +222,10 @@ def in_hours(hours: dict[str, str], now: datetime) -> bool:
 
 
 def access_end(
-    expires: str | None, hours: dict[str, str], now: datetime
+    expires: str | None,
+    hours: dict[str, str],
+    now: datetime,
+    days: list[int] | None = None,
 ) -> datetime | None:
     """Wann endet dieser Zugang? (rein, testbar)
 
@@ -193,6 +247,11 @@ def access_end(
         except (ValueError, TypeError):
             tag = None
     if not hours:
+        return tag
+    # An einem Tag ausserhalb der Wochentage gibt es kein laufendes
+    # Fenster - das heutige Fensterende zu melden, hiesse ein Ende
+    # ankündigen, wo nie ein Anfang war. Es zählt nur noch das Datum.
+    if days and not in_days(days, hours, now):
         return tag
     try:
         stunde, minute = (int(teil) for teil in hours["to"].split(":"))
@@ -251,6 +310,11 @@ class User:
     # Zugang nur in diesem Zeitfenster, z.B. {"from": "07:00", "to": "20:00"}.
     # Für Kinder gedacht: Licht im eigenen Zimmer ja, um Mitternacht nicht.
     hours: dict[str, str] = field(default_factory=dict)
+    # Und nur an diesen Wochentagen (0 = Montag). Leer heisst alle Tage.
+    # Für den wiederkehrenden Gast gedacht - «die Putzhilfe kommt jeden
+    # Donnerstag 8 bis 12»: einmal anlegen statt jede Woche ein neues
+    # Fenster, und an den übrigen sechs Tagen ist das Token wertlos.
+    days: list[int] = field(default_factory=list)
     # E-Mail-Adresse für die Anmeldung mit Passwort. Sie ist zugleich die
     # Einladung: Registrieren kann sich nur, wessen Adresse hier schon
     # steht – sonst legte sich jeder mit der Hub-Adresse ein Konto an.
@@ -323,7 +387,7 @@ class User:
         moment = now or datetime.now()
         if self.expires and moment.strftime("%Y-%m-%d") > self.expires:
             return False
-        return in_hours(self.hours, moment)
+        return in_days(self.days, self.hours, moment) and in_hours(self.hours, moment)
 
     def can(self, capability: str) -> bool:
         return capability in CAPABILITIES.get(self.role, frozenset())
@@ -380,6 +444,7 @@ class User:
             "features": list(self.features),
             "expires": self.expires,
             "hours": dict(self.hours),
+            "days": list(self.days),
             "active": self.active(),
             "email": self.email,
             # Die App zeigt die Kinder-Ansicht, sobald hier etwas steht.
@@ -563,6 +628,7 @@ class UserRegistry:
         features: list[str] | None = None,
         expires: str | None = None,
         hours: dict[str, str] | None = None,
+        days: list[int] | None = None,
         simple_rooms: list[str] | None = None,
         rooms: list[str] | None = None,
         shared: bool | None = None,
@@ -601,6 +667,8 @@ class UserRegistry:
             user.expires = expires.strip() or None
         if hours is not None:
             user.hours = parse_hours(hours)
+        if days is not None:
+            user.days = parse_days(days)
         if simple_rooms is not None:
             user.simple_rooms = [str(r) for r in simple_rooms]
         if rooms is not None:
@@ -656,6 +724,7 @@ class UserRegistry:
                 "features": list(user.features),
                 "expires": user.expires,
                 "hours": dict(user.hours),
+                "days": list(user.days),
                 "simple_rooms": list(user.simple_rooms),
                 "rooms": list(user.rooms),
                 "shared": user.shared,
@@ -715,6 +784,7 @@ def parse_users(raw: list[dict[str, Any]], legacy_token: str | None) -> UserRegi
                 features=[str(f) for f in features],
                 expires=str(entry["expires"]) if entry.get("expires") else None,
                 hours=parse_hours(entry.get("hours")),
+                days=parse_days(entry.get("days")),
                 simple_rooms=[str(r) for r in simple_rooms],
                 rooms=[str(r) for r in rooms],
                 shared=bool(entry.get("shared")),

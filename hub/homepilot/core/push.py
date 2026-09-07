@@ -52,6 +52,10 @@ KANAL_LEISE = "leise"
 # Medikament und jeder selbst gebaute Ablauf - gilt als dringend.
 LEISE: frozenset[str] = frozenset(
     {
+        # Die Hitze-Empfehlung darf warten - der Sturm nicht: storm_covers
+        # bleibt absichtlich dringend, da ist schon gehandelt worden und
+        # man will wissen, warum es im Haus gerade heller wurde.
+        "heat_covers",
         "battery",
         "disk",
         "outage",
@@ -60,6 +64,7 @@ LEISE: frozenset[str] = frozenset(
         "maintenance",
         "shopping",
         "birthday",
+        "packlist",
         "weekahead",
         "morning",
     }
@@ -204,6 +209,8 @@ CATEGORIES: dict[str, str] = {
     "disk": "Speicherplatz wird knapp",
     "frost": "Frost angekündigt",
     "rain": "Regen kommt",
+    "storm_covers": "Sturm/Hagel: Storen hochgefahren",
+    "heat_covers": "Sommerhitze: Storen-Empfehlung",
     "plants": "Pflanzen giessen",
     "appliance": "Haushaltgerät fertig",
     "oven": "Backofen parat/fertig",
@@ -218,6 +225,7 @@ CATEGORIES: dict[str, str] = {
     "calendar": "Termin steht an",
     "medication": "Medikament fällig",
     "birthday": "Geburtstag heute",
+    "packlist": "Packliste für morgen",
     "morning": "Morgen-Zusammenfassung",
     "presence": "Ortung: schwacher Akku, Funkstille",
     "weekahead": "Wochenausblick am Sonntag",
@@ -240,14 +248,14 @@ GROUPS: list[tuple[str, tuple[str, ...]]] = [
     # sofort reagiert - und die einzige, bei der ein paar Sekunden
     # Verzögerung den Zweck zunichte machen.
     ("Sicherheit", ("doorbell", "alarm", "alarm_arming", "camera_motion", "leak")),
-    ("Haus", ("open", "appliance", "oven", "vacuum", "frost", "rain", "plants",
-              "timer", "maintenance")),
+    ("Haus", ("open", "appliance", "oven", "vacuum", "frost", "rain",
+              "storm_covers", "heat_covers", "plants", "timer", "maintenance")),
     # «Baby weint» steht vorn und bei der Familie, nicht bei der
     # Sicherheit: Gesucht wird die Nachricht dort, wo die Kinder sind.
     # Dringend bleibt sie unabhängig von der Gruppe - die Einteilung
     # sortiert nur die Schalter, über die Zustellung entscheidet LEISE.
     ("Familie", ("baby_cry", "birthday", "calendar", "departure", "medication",
-                 "tasks", "shopping", "weekahead", "presence")),
+                 "tasks", "shopping", "packlist", "weekahead", "presence")),
     ("Betrieb", ("outage", "flattern", "device_down", "battery", "disk", "morning")),
     # Leer, und trotzdem hier: Unter dieser Überschrift stehen die
     # Nachrichten aus selbst gebauten Abläufen. Sie haben keinen festen

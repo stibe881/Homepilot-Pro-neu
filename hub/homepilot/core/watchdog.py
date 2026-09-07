@@ -28,13 +28,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import (
+    astro,
     babysitter,
     batterie,
     batterieprognose,
+    bildarchiv,
     cliparchiv,
     energy,
     familie,
     flattern,
+    funkqualitaet,
     gemeldet,
     giessen,
     losfahren,
@@ -42,12 +45,14 @@ from . import (
     morgen,
     notifyrules,
     ofen,
+    packliste,
     personen,
     presence,
     pushziel,
     regen,
     shopping,
     spaeter,
+    storenwaechter,
     trash,
     users,
     uvwarnung,
@@ -56,6 +61,7 @@ from . import (
     wlanschein,
 )
 from .entity import EntityKind
+from .source import as_source, automation_source
 
 # Die reinen Regeln wohnen in watchrules.py; hier bleiben Takt und
 # Gedächtnis. Die Namen werden re-exportiert - Server und Tests
@@ -99,6 +105,11 @@ INTERVAL = 60.0
 ENERGY_INTERVAL = 600.0
 # Nicht öfter als einmal am Tag mahnen, solange es knapp bleibt.
 DISK_REMIND = 24 * 3600
+# So oft wird die Zigbee-Funkqualität eingesammelt. Nicht jede Runde:
+# Das laufende Wochenmittel änderte sich sonst im Minutentakt um
+# Nachkommastellen, und jede Änderung schriebe die Datendatei. Eine
+# Stichprobe je Stunde sind 168 je Woche - mehr braucht kein Mittel.
+FUNK_INTERVAL = 3600.0
 # So viele Tage im Voraus wird an einen Geburtstag erinnert. Drei sind
 # Zeit für ein Geschenk und kurz genug, es nicht wieder zu vergessen.
 BIRTHDAY_AHEAD = 3
@@ -147,8 +158,14 @@ class Watchdog:
         self._open_since: dict[str, float] = {}
         # Wassermelder, die schon gemeldet wurden.
         self._reported_leak: set[str] = set()
+        # Die zuletzt beantwortete Unwetterwarnung (Grund + Ablaufzeit):
+        # Dieselbe Warnung soll die Storen nur einmal fahren - erst eine
+        # neue (oder dieselbe nach Warnungsende) zählt wieder.
+        self._storm_beantwortet: str | None = None
         # Sauger-Probleme, die schon gemeldet wurden («gerät:schlüssel»).
         self._reported_sauger: set[str] = set()
+        # Wann zuletzt die Funkqualität eingesammelt wurde (FUNK_INTERVAL).
+        self._funk_gesammelt = 0.0
         # Energie: welcher Tag zuletzt geschrieben wurde und wann.
         self._energy_day: str | None = None
         self._energy_written: float = 0.0
@@ -425,6 +442,7 @@ class Watchdog:
         await self._check_devices(entities)
         await self._check_flattern()
         await self._check_batteries(entities)
+        await self._check_funk(entities)
         await self._check_open(entities)
         await self._check_leaks(entities)
         await self._check_sauger(entities)
@@ -433,7 +451,10 @@ class Watchdog:
         # hier statt in einem eigenen Zeitplan: Der Wächter ist der
         # bestehende Minutentakt, und eine zweite Uhr müsste jemand warten.
         cliparchiv.aufraeumen_lauf(self.hub)
+        bildarchiv.aufraeumen_lauf(self.hub)
         await self._check_disk()
+        await self._check_storm_covers(entities)
+        await self._check_heat_covers(entities)
         await self._check_frost(entities)
         await self._check_regen(entities)
         await self._check_giessen(entities)
@@ -447,6 +468,7 @@ class Watchdog:
         await self._check_emergency()
         await self._check_presence()
         await self._check_week_ahead()
+        await self._check_packliste()
         await self._check_losfahren(entities)
         await self._check_family_cleanup()
         await self._check_meal_plan()
@@ -521,6 +543,123 @@ class Watchdog:
                 f"{name} verbindet dauernd neu",
                 flattern.satz(name, len(frisch)),
             )
+
+    def _cover_guard(self, art: str) -> list[str]:
+        """Die gespeicherte Storen-Auswahl («storm» oder «heat»)."""
+        return storenwaechter.guard_auswahl(self.hub.data.get("cover_guard"), art)
+
+    def _sonnenhoehe(self) -> float:
+        location = self.hub.config.location or {}
+        lat = float(location.get("latitude", 47.13844))
+        lon = float(location.get("longitude", 7.92059))
+        elevation, _azimut = astro.sun_position(datetime.now(), lat, lon)
+        return elevation
+
+    async def _check_storm_covers(self, entities: list[Any]) -> None:
+        """Sturm, Hagel oder Gewitter angekündigt: die Storen hochfahren.
+
+        Hier wird gehandelt statt gefragt - ein heruntergelassener Behang
+        ist die Angriffsfläche für den Wind, und Hagel verbeult Lamellen,
+        während das Glas dahinter hält. Die Beschattung (shading) schützt
+        nur ihre konfigurierten Fenster; dieser Wächter nimmt die
+        gewählten (oder alle) Storen und sagt danach Bescheid.
+        """
+        if not self.rules.get("storm_covers", {}).get("enabled", True):
+            return
+        warnung = next(
+            (e for e in entities if getattr(e, "kind", "") == "alert"), None
+        )
+        if warnung is None:
+            return
+        lage = storenwaechter.unwetter(getattr(warnung, "state", None) or {})
+        if lage is None:
+            # Warnung vorbei: Die nächste darf wieder fahren. Runter
+            # fährt hier nichts - das entscheiden Mensch und Beschattung.
+            self._storm_beantwortet = None
+            return
+        marke = f"{lage['grund']}:{lage['bis']}"
+        if self._storm_beantwortet == marke:
+            return
+        storen = storenwaechter.storen_auswahl(entities, self._cover_guard("storm"))
+        if not storen:
+            return
+        self._storm_beantwortet = marke
+        gefahren = 0
+        with as_source(automation_source("watchdog:storm", "Sturmwächter")):
+            for entity in storen:
+                try:
+                    if "set_position" in (entity.commands or []):
+                        await self.hub.integrations.dispatch_command(
+                            entity.id, "set_position", {"position": 100}
+                        )
+                    elif "open" in (entity.commands or []):
+                        await self.hub.integrations.dispatch_command(
+                            entity.id, "open", {}
+                        )
+                    else:
+                        continue
+                    gefahren += 1
+                except Exception as err:
+                    log.warning(
+                        "Sturmwächter: %s liess sich nicht fahren: %s",
+                        entity.id,
+                        err,
+                    )
+        if not gefahren:
+            return
+        anzahl = "Die Store ist" if gefahren == 1 else f"{gefahren} Storen sind"
+        await self._notify(
+            f"{lage['grund']}warnung - Storen hochgefahren",
+            f"{anzahl} hochgefahren: Unten wären die Lamellen dem Wetter "
+            "ausgesetzt. Runter geht es wieder von Hand, sobald es vorbei ist.",
+            category="storm_covers",
+        )
+
+    async def _check_heat_covers(self, entities: list[Any]) -> None:
+        """Sommerhitze: tagsüber der Storen-Vorschlag, abends das Lüften.
+
+        Bewusst nur Sätze, keine Taten (core/suggest.py-Doktrin): Wer am
+        Esstisch sitzt, will nicht plötzlich im Dunkeln sitzen. Je einmal
+        am Tag, und der Abend-Hinweis erst, wenn es draussen wirklich
+        kühler ist - sonst lüftet man warme Luft herein.
+        """
+        regel = self.rules.get("heat_covers", {})
+        if not regel.get("enabled", True):
+            return
+        innen = storenwaechter.innentemperatur(entities)
+        if innen is None:
+            return
+        schwelle = float(regel.get("params", {}).get("innen_ab", 25))
+        jetzt = datetime.now()
+        heute = jetzt.strftime("%Y-%m-%d")
+        elevation = self._sonnenhoehe()
+
+        if storenwaechter.hitze_tagsueber(innen, schwelle, elevation, jetzt.hour):
+            if self._einmal(f"heat-tag:{heute}"):
+                await self._notify(
+                    "Drinnen wird es warm",
+                    f"Im Haus sind es {innen:g} °C und die Sonne steht hoch. "
+                    "Storen auf der Sonnenseite unten halten die Wärme "
+                    "draussen - je früher, desto mehr bringt es.",
+                    category="heat_covers",
+                )
+            return
+
+        wetter = next(
+            (e for e in entities if getattr(e, "kind", "") == "weather"), None
+        )
+        draussen = None
+        if wetter is not None:
+            wert = (getattr(wetter, "state", None) or {}).get("temperature")
+            draussen = float(wert) if isinstance(wert, (int, float)) else None
+        if storenwaechter.lueften_abends(innen, draussen, schwelle, elevation):
+            if self._einmal(f"heat-abend:{heute}"):
+                await self._notify(
+                    "Jetzt querlüften",
+                    f"Draussen sind es noch {draussen:g} °C, drinnen {innen:g} - "
+                    "Fenster auf beiden Seiten auf, und die Wärme zieht ab.",
+                    category="heat_covers",
+                )
 
     async def _check_frost(self, entities: list[Any]) -> None:
         """Vor der ersten Frostnacht an die Pflanzen auf dem Balkon erinnern.
@@ -902,7 +1041,17 @@ class Watchdog:
         gebaut = morgen.satz(
             morgen.zeilen(
                 offen=[entity.label for entity in open_contacts(entities)],
-                schwach=[entity.label for entity in low_batteries(entities)],
+                # Dieselbe Schwelle wie die Warnung selbst - sonst nennt
+                # die Morgen-Nachricht andere Geräte als die Batterie-Push.
+                schwach=[
+                    entity.label
+                    for entity in low_batteries(
+                        entities,
+                        batterie.prefs_lesen(
+                            self.hub.data.get(batterie.PREFS_KEY)
+                        )["threshold"],
+                    )
+                ],
                 stumm=sorted(
                     self.hub.registry.get(entity_id).label
                     for entity_id in self._reported_down
@@ -1151,6 +1300,28 @@ class Watchdog:
             return
         await self._notify("Die kommende Woche", text, category="weekahead")
 
+    async def _check_packliste(self) -> None:
+        """Was morgen in den Thek gehört - am Vorabend (core/packliste.py).
+
+        Der Stundenplan weiss, wann Sport ist; dass dann der Turnsack
+        mitmuss, wusste bisher nur der Kopf der Eltern - und der Abend
+        um neun ist der Moment, in dem er es vergisst. Ohne Einträge
+        für morgen kommt nichts.
+        """
+        jetzt = datetime.now()
+        stunde = int(self.rules["packlist"]["params"].get("hour", 19))
+        if jetzt.hour != stunde:
+            return
+        heute = jetzt.strftime("%Y-%m-%d")
+        if not self._einmal(f"packlist:{heute}"):
+            return
+        morgen = (jetzt + timedelta(days=1)).date()
+        zeilen = packliste.morgen_zeilen(self.hub.data.get("family_gear"), morgen)
+        text = packliste.satz(zeilen)
+        if not text:
+            return
+        await self._notify("Packliste für morgen", text, category="packlist")
+
     async def _check_family_cleanup(self) -> None:
         """Erledigtes verschwindet von selbst (Punkt 170).
 
@@ -1219,7 +1390,7 @@ class Watchdog:
         for user in self.hub.users.users:
             if user.role != users.Role.GUEST or not user.enabled:
                 continue
-            ende = users.access_end(user.expires, user.hours, jetzt)
+            ende = users.access_end(user.expires, user.hours, jetzt, user.days)
             if ende is None:
                 continue
             marke = f"{user.name}:{ende.isoformat(timespec='minutes')}"
@@ -1233,6 +1404,12 @@ class Watchdog:
                     category="tasks",
                     to=user.name,
                 )
+            # Ein wiederkehrendes Fenster («jeden Donnerstag 8-12») endet
+            # nicht, es pausiert - die Familie jeden Donnerstag um 12:01
+            # zu behelligen, wäre Lärm. Gemeldet wird erst, wenn auch das
+            # Datum vorbei ist.
+            if users.laeuft_wieder(user.days, user.expires, jetzt.strftime("%Y-%m-%d")):
+                continue
             if rest <= 0 and self._einmal(
                 f"access-end:{marke}", jetzt.timestamp()
             ):
@@ -1846,22 +2023,101 @@ class Watchdog:
             rows = batterie.vergiss(rows, wieder_gut)
             self.hub.data.set(batterie.STORE_KEY, rows)
 
-        for entity in low_batteries(entities):
-            if not batterie.soll_melden(rows, entity.id, jetzt):
+        # Stunde und Schwelle aus den Push-Einstellungen (Punkt 258):
+        # sofort melden, dann täglich zur Erinnerungsstunde, bis die
+        # Batterie gewechselt ist.
+        prefs = batterie.prefs_lesen(self.hub.data.get(batterie.PREFS_KEY))
+        for entity in low_batteries(entities, prefs["threshold"]):
+            if not batterie.soll_melden(rows, entity.id, jetzt, prefs["hour"]):
                 continue
             # Vormerken *bevor* die Meldung rausgeht: Scheitert der
             # Versand, soll er nicht in der nächsten Minute erneut
             # versucht werden (wie in `_einmal`).
             rows = batterie.merke_meldung(rows, entity.id, jetzt)
             self.hub.data.set(batterie.STORE_KEY, rows)
+            stand = entity.state.get("battery")
+            prozent = (
+                f"Noch {int(stand)} %. "
+                if isinstance(stand, (int, float)) and not isinstance(stand, bool)
+                else ""
+            )
             await self._notify(
                 f"Batterie schwach: {entity.label}",
-                "Das Gerät meldet eine schwache Batterie. Danach ist es still, "
-                "ohne sich abzumelden.",
+                f"{prozent}Danach ist das Gerät still, ohne sich abzumelden. "
+                f"Der Hub erinnert täglich um {prefs['hour']} Uhr, bis die "
+                "Batterie gewechselt ist.",
                 "battery",
                 # Damit ein Tipp auf die Nachricht direkt zu den Batterien
                 # führt, statt nur die App zu öffnen.
                 data={"type": "battery", "entity_id": entity.id, "ziel": "batterien"},
+            )
+
+    async def _check_funk(self, entities: list[Any]) -> None:
+        """Zigbee-Funkqualität: den Abstieg melden, bevor das Gerät verstummt.
+
+        Jede Zigbee-Meldung trägt eine linkquality mit (Punkt 230 der
+        Werkbank) - sie stand im Zustand, und niemand las sie. Dabei ist
+        sie die Frühwarnung schlechthin: Ein Gerät, dessen Wert seit
+        Wochen fällt, verstummt irgendwann ganz, und dann sucht man den
+        Fehler bei der Batterie. Die Rechnung wohnt in funkqualitaet.py;
+        hier stehen nur Takt und Gedächtnis - wie bei den Batterien.
+
+        Gemeldet wird je Gerät höchstens einmal; das Gedächtnis liegt in
+        der hub.data und überlebt den Neustart. Wieder scharf erst, wenn
+        der Wert sich deutlich erholt hat: Wer knapp um die Schwelle
+        pendelt, bekäme sonst im Wochentakt dieselbe Nachricht.
+        """
+        jetzt = time.time()
+        if jetzt - self._funk_gesammelt < FUNK_INTERVAL:
+            return
+        self._funk_gesammelt = jetzt
+        funker = [
+            entity
+            for entity in entities
+            if isinstance(entity.state.get("linkquality"), (int, float))
+            and not isinstance(entity.state.get("linkquality"), bool)
+        ]
+        if not funker:
+            return
+
+        # Die Wochenmittel fortschreiben - nur schreiben, wenn sich
+        # wirklich etwas ändert (dasselbe wie beim Batterie-Verlauf).
+        heute = datetime.now().date()
+        verlauf = self.hub.data.get(funkqualitaet.STORE_KEY)
+        neu_verlauf = verlauf
+        for entity in funker:
+            wert = float(entity.state.get("linkquality"))
+            if 0 <= wert <= 255:
+                neu_verlauf = funkqualitaet.aufnehmen(
+                    neu_verlauf, entity.id, wert, heute
+                )
+        if neu_verlauf != verlauf:
+            self.hub.data.set(funkqualitaet.STORE_KEY, neu_verlauf)
+
+        rows = self.hub.data.get(funkqualitaet.MELDUNG_KEY)
+        for entity in funker:
+            zeile = funkqualitaet.gemeldet_zeile(rows, entity.id)
+            if zeile is not None:
+                if funkqualitaet.erholt(neu_verlauf, entity.id, zeile.get("auf")):
+                    rows = funkqualitaet.vergiss(rows, [entity.id])
+                    self.hub.data.set(funkqualitaet.MELDUNG_KEY, rows)
+                continue
+            schwach = funkqualitaet.bewertung(neu_verlauf, entity.id)
+            if schwach is None:
+                continue
+            # Vormerken *bevor* die Meldung rausgeht: Scheitert der
+            # Versand, soll er nicht in der nächsten Stunde erneut
+            # versucht werden (wie bei den Batterien).
+            rows = funkqualitaet.merke_meldung(rows, entity.id, schwach["auf"], jetzt)
+            self.hub.data.set(funkqualitaet.MELDUNG_KEY, rows)
+            await self._notify(
+                f"Funk wird schwach: {entity.label}",
+                funkqualitaet.satz(schwach["von"], schwach["auf"])
+                + " Bevor das Gerät verstummt: Standort prüfen oder einen "
+                "Repeater dazwischenstellen - an der Batterie liegt es "
+                "meist nicht.",
+                "maintenance",
+                entity_id=entity.id,
             )
 
     def _log_outage(self, name: str, ended: float | None) -> None:

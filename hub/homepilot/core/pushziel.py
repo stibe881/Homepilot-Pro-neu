@@ -40,6 +40,10 @@ ZIELE: dict[str, str] = {
     # Wetter und Haushalt: die Startseite trägt die Karten dazu.
     "frost": "start",
     "rain": "start",
+    # Die Storen wohnen auf der Startseite - dort sieht man, was der
+    # Wächter gefahren hat bzw. was man senken soll.
+    "storm_covers": "start",
+    "heat_covers": "start",
     "plants": "start",
     "appliance": "start",
     # Ofen parat: Es gibt nichts zu tippen, also dorthin, wo man ohnehin
@@ -63,6 +67,9 @@ ZIELE: dict[str, str] = {
     "medication": "familie:medications",
     "birthday": "familie:kalender",
     "weekahead": "familie:woche",
+    # Die Packliste steht auf der Kinderseite - erreichbar über das
+    # Mitglieder-Raster, in dem die Kinder wohnen.
+    "packlist": "familie:members",
     # Wer wo ist, steht unter «Familie und Freunde».
     "presence": "bereich:personen",
     # Bewegung sieht man auf der Kamera - welche, sagt die Nachricht

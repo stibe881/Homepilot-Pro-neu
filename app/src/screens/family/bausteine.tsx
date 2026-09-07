@@ -58,6 +58,9 @@ export interface Props {
    *  Abkürzungen am Wandpanel: Wer dort «Notfallblatt» drückt, will das
    *  Notfallblatt und nicht die Kachelwand davor. */
   startModul?: string | null;
+  /** Gleich auf der Kinderseite dieses Kindes aufmachen - der
+   *  Kindermodus des Wandpanels (HubSettings.kindPanel). */
+  startKind?: string | null;
 }
 
 export type ModuleKey =

@@ -37,6 +37,12 @@ function describe(
 ): string | null {
   if (JSON.stringify(newState) === JSON.stringify(oldState)) return null;
   const value = newState.state;
+  // «Eingeschaltet» nur, wenn wirklich geschaltet wurde. Sonst meldete
+  // jede Nebensache am brennenden Licht - eine neue Helligkeit, die
+  // Restzeit eines Ablaufs (lib/abschaltung.ts) - ein Einschalten, das
+  // gar nicht stattfand, und «Zuletzt passiert» füllte sich mit
+  // Ereignissen, die niemand ausgelöst hat.
+  if (value === oldState.state) return null;
   if (value === 'on') return 'eingeschaltet';
   if (value === 'off') return 'ausgeschaltet';
   if (value === 'running') return 'gestartet';

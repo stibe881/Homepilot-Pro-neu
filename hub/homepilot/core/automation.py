@@ -74,15 +74,18 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from . import (
+    abschaltung,
     astro,
     babysitter,
     feiertage,
+    gemeldet,
     kamera,
     nachtruhe,
     personenbild,
     platzhalter,
     pushziel,
     terminkontext,
+    verwaist,
     wirkung,
 )
 from . import light as licht
@@ -244,6 +247,16 @@ class Automation:
     # weint im Kinderzimmer» ist genau die Nachricht, die nachts kommen
     # muss, und eine Nachtruhe für alle hätte sie mit verschluckt.
     quiet_night: bool = False
+    # Restzeit anzeigen: Schaltet dieser Ablauf etwas nach einer
+    # Wartezeit wieder aus, schreibt die Maschine den Zeitpunkt als
+    # «off_at» an die betroffenen Geräte - und die App zeigt «geht in
+    # 12 Min aus», auf der Kachel, in der Raumkarte und im
+    # «Lichter an»-Blatt (core/abschaltung.py).
+    #
+    # Freiwillig und je Ablauf: Beim Treppenhauslicht will man es sehen,
+    # bei der Anwesenheits-Simulation gerade nicht - die soll aussehen
+    # wie ein Mensch, der das Licht löscht, und nicht wie eine Schaltuhr.
+    countdown: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -261,6 +274,7 @@ class Automation:
             "match": self.match,
             "category": self.category,
             "quiet_night": self.quiet_night,
+            "countdown": self.countdown,
         }
 
     def as_config(self) -> dict[str, Any]:
@@ -279,6 +293,7 @@ class Automation:
             "match": self.match,
             "category": self.category,
             "quiet_night": self.quiet_night,
+            "countdown": self.countdown,
         }
 
 
@@ -321,6 +336,12 @@ NEST_DEPTH = 3
 # Türe bleibt offen), liefe sonst für immer - und blockierte mit `mode:
 # single` gleich noch jeden weiteren Lauf desselben Ablaufs.
 REPEAT_LIMIT = 50
+
+# Wie oft der Motor nach verwaisten Abläufen sieht (Punkt 262). Sechs
+# Stunden sind bewusst grob: Verwaist wird man über Monate, nicht über
+# Mittag - und der Sammel-Hinweis ist ohnehin auf einmal im Monat
+# gedeckelt (gemeldet.py-Marke, siehe _verwaiste_pruefen).
+VERWAIST_TAKT = 6 * 3600
 
 # «Warten bis»: wie oft nachgesehen wird, und wie lange höchstens, wenn im
 # Ablauf keine eigene Frist steht. Eine Frist muss sein – sonst bliebe ein
@@ -1150,6 +1171,7 @@ def parse_automations(
                 match="any" if str(config.get("match")) == "any" else "all",
                 category=str(config["category"]) if config.get("category") else None,
                 quiet_night=bool(config.get("quiet_night")),
+                countdown=bool(config.get("countdown")),
             )
         )
     return automations
@@ -1337,6 +1359,12 @@ class AutomationEngine:
         # ausschaltet, und wann er fällig ist. Je Lampe genau einer -
         # neue Bewegung verlängert, statt einen zweiten zu starten.
         self._nachlauf: dict[str, tuple[asyncio.Task, float]] = {}
+        # Geräte mit angezeigter Restzeit: Kennung → (Zeitpunkt, wer
+        # wartet). Der Eigentümer ist die wartende Aufgabe - endet sie,
+        # räumt ihr Rückruf den Eintrag weg. Ohne diesen Besitz bliebe
+        # nach einem abgebrochenen Lauf ein «geht in 12 Min aus» an einem
+        # Licht stehen, das niemand mehr ausschaltet (core/abschaltung.py).
+        self._abschaltungen: dict[str, tuple[float, asyncio.Task | None]] = {}
         # Wann ein Auslöser zuletzt gepasst hat und wann sich sein Gerät
         # zuletzt überhaupt gemeldet hat - je (Ablauf, Nummer des
         # Auslösers). Das beantwortet «kam der Auslöser an?», was der
@@ -1411,6 +1439,10 @@ class AutomationEngine:
                 elif trigger.get("type") == "calendar":
                     task = asyncio.create_task(self._calendar_loop(automation, trigger))
                     self._timer_tasks.append(task)
+        # Der eigene Takt des Motors: nach verwaisten Abläufen sehen
+        # (Punkt 262). Hier und nicht im Wächter, weil der Motor seine
+        # Abläufe kennt - der Wächter müsste sie sich erst geben lassen.
+        self._timer_tasks.append(asyncio.create_task(self._verwaiste_loop()))
         if self.automations:
             log.info("%d Automationen geladen", len(self.automations))
 
@@ -1444,6 +1476,15 @@ class AutomationEngine:
 
     def _on_state_changed(self, _event_type: str, data: dict[str, Any]) -> None:
         jetzt = time.time()
+        # Wer von Hand ausschaltet, hat die Restzeit beantwortet: Die
+        # Anzeige muss weg, sonst steht «geht in 12 Min aus» an einem
+        # längst dunklen Licht. Auch der Ablauf selbst kommt hier vorbei,
+        # wenn er ausschaltet - einmal aufräumen genügt für beide Wege.
+        entity_id = str(data.get("entity_id") or "")
+        if entity_id in self._abschaltungen:
+            neuer = (data.get("new_state") or {}).get("state")
+            if neuer is not None and str(neuer) != "on":
+                self._start_task(self._countdown_loeschen(entity_id))
         for automation in self.automations:
             if not automation.enabled:
                 continue
@@ -2097,8 +2138,12 @@ class AutomationEngine:
         # steht daneben und will sehen, was durchkommt.
         gestolpert: list[tuple[str, str]] = []
         with as_source(automation_source(automation.id, automation.alias)):
-            for action in automation.actions:
+            for position, action in enumerate(automation.actions):
                 try:
+                    # Auch der Probelauf zeigt die Restzeit: Wer den
+                    # Testen-Knopf drückt, will genau sehen, was im Haus
+                    # ankommt - und dazu gehört «geht in 12 Min aus».
+                    self._countdown_planen(automation, automation.actions, position)
                     await self._execute_action(automation, action)
                 except Exception as err:
                     gestolpert.append((describe_action(action, name_of), str(err)))
@@ -2172,6 +2217,10 @@ class AutomationEngine:
                     for position, action in enumerate(actions):  # noqa: B007
                         notiz: str | None = None
                         schritt_fehler: str | None = None
+                        # Vor der Wartezeit, nicht danach: Wer jetzt aufs
+                        # Telefon schaut, will wissen, wie lange das Licht
+                        # noch brennt (core/abschaltung.py).
+                        self._countdown_planen(automation, actions, position)
                         try:
                             notiz = await self._execute_action(
                                 automation, action, ausloeser
@@ -2366,13 +2415,89 @@ class AutomationEngine:
         # Spur weg, der man nachgeht - «heute Nacht ging das Licht an, und
         # jetzt weiss niemand, warum».
         self._verlauf_sichern()
+        # Das dauerhafte «zuletzt gefeuert» (Punkt 262). Nur echte Läufe:
+        # Ein übersprungener Lauf («nie erfüllte Bedingung») ist genau
+        # eine der Arten, verwaist zu sein, und der Testen-Knopf würde
+        # die Uhr eines toten Ablaufs zurückstellen, ohne dass er je von
+        # selbst gefeuert hätte.
+        if executed and not test:
+            self._feuer_merken(automation)
         return eintrag
+
+    def _feuer_merken(self, automation: Automation) -> None:
+        try:
+            self.hub.data.set(
+                verwaist.STORE_KEY,
+                verwaist.merke_feuer(
+                    self.hub.data.get(verwaist.STORE_KEY), automation.id, time.time()
+                ),
+            )
+        except Exception:
+            log.debug("«Zuletzt gefeuert» nicht schreibbar", exc_info=True)
 
     def _verlauf_sichern(self) -> None:
         try:
             self.hub.data.set("automation_runs", self.runs)
         except Exception:
             log.debug("Ablauf-Verlauf nicht schreibbar", exc_info=True)
+
+    # ── Verwaiste Abläufe (Punkt 262) ──────────────────────────────────────
+    #
+    # Ein Ablauf, der seit Monaten nicht gefeuert hat (umbenanntes Gerät,
+    # nie erfüllte Bedingung), ist meist tot - und Stille sieht wie Erfolg
+    # aus. Das Rechnen steht in core/verwaist.py; hier hängt es am eigenen
+    # Takt des Motors.
+
+    async def _verwaiste_loop(self) -> None:
+        while True:
+            await asyncio.sleep(VERWAIST_TAKT)
+            try:
+                await self._verwaiste_pruefen()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Der Takt läuft weiter: Eine kaputte Zeile in der Datei
+                # darf die Prüfung von übermorgen nicht mitreissen.
+                log.debug("Verwaisten-Prüfung fehlgeschlagen", exc_info=True)
+
+    async def _verwaiste_pruefen(self) -> None:
+        jetzt = time.time()
+        rows = self.hub.data.get(verwaist.STORE_KEY)
+        # Zuerst das «zuerst gesehen» nachführen: Ohne Anlagedatum ist es
+        # der einzige Beleg, dass ein Ablauf schon lange genug da ist, um
+        # verwaist sein zu können.
+        neu = verwaist.merke_gesehen(
+            rows, [automation.id for automation in self.automations], jetzt
+        )
+        if neu is not None:
+            self.hub.data.set(verwaist.STORE_KEY, neu)
+            rows = neu
+        tote = verwaist.verwaiste(rows, self.automations, jetzt)
+        if not tote:
+            return
+        # Höchstens einmal im Monat: Die Marke trägt den Kalendermonat,
+        # das Gedächtnis liegt in der hub.data und überlebt so den
+        # Neustart - dasselbe Muster wie beim Wächter (gemeldet.py).
+        marke = f"verwaiste_ablaeufe:{datetime.fromtimestamp(jetzt):%Y-%m}"
+        notified = self.hub.data.get("notified")
+        if gemeldet.schon(notified, marke):
+            return
+        # Vormerken *bevor* die Meldung rausgeht: Scheitert der Versand,
+        # soll er nicht im nächsten Takt erneut versucht werden.
+        self.hub.data.set("notified", gemeldet.merke(notified, marke, jetzt))
+        titel, text = verwaist.hinweis(tote)
+        tokens = self.hub.push.recipients(self.hub.users.users, "all", "maintenance")
+        await self.hub.push.send(
+            tokens,
+            titel,
+            text,
+            # «maintenance» hat ein Ziel (core/pushziel.py: das
+            # Sorgen-Blatt) - aufräumen tut man Abläufe aber in ihrer
+            # Liste, also führt der Tipp dorthin.
+            data={"ziel": "bereich:automations"},
+            category="maintenance",
+        )
+        log.info("Verwaisten-Hinweis verschickt: %d Ablauf/Abläufe", len(tote))
 
     def _conditions_hold(self, automation: Automation) -> tuple[bool, list[str]]:
         """Stimmen die Bedingungen? Ohne Bedingungen: ja.
@@ -2881,6 +3006,98 @@ class AutomationEngine:
             await self.hub.integrations.dispatch_command(entity_id, befehl, {})
         return "alle an" if befehl == "turn_on" else "alle aus"
 
+    # ── Restzeit («geht in 12 Min aus») ───────────────────────────────
+    #
+    # Nur wenn der Ablauf es sagt (Automation.countdown). Geschrieben
+    # wird ein einziges Feld im Zustand (core/abschaltung.FELD) - die
+    # App zählt selbst herunter, der Hub meldet sich nur beim Setzen und
+    # beim Löschen.
+
+    async def _countdown_setzen(
+        self, entity_id: str, at: float, besitzer: asyncio.Task | None
+    ) -> None:
+        self._abschaltungen[entity_id] = (at, besitzer)
+        try:
+            await self.hub.registry.update_state(entity_id, {abschaltung.FELD: at})
+        except Exception:
+            # Ein Gerät, das es nicht mehr gibt, ist kein Grund, den
+            # Ablauf anzuhalten - die Restzeit ist eine Zugabe.
+            self._abschaltungen.pop(entity_id, None)
+
+    async def _countdown_loeschen(self, entity_id: str) -> None:
+        """Die Restzeit wegnehmen - ausdrücklich als None.
+
+        Weggelassen bliebe sie kleben: Der Zustand wird gemerged (siehe
+        core/registry.update_state), und an einem längst ausgeschalteten
+        Licht stünde weiter «geht in 3 Min aus».
+        """
+        self._abschaltungen.pop(entity_id, None)
+        entity = self.hub.registry.get(entity_id)
+        if entity is None or entity.state.get(abschaltung.FELD) is None:
+            return
+        try:
+            await self.hub.registry.update_state(entity_id, {abschaltung.FELD: None})
+        except Exception:
+            log.debug("Restzeit von %s nicht löschbar", entity_id, exc_info=True)
+
+    def _countdown_planen(
+        self, automation: Automation, actions: list[dict[str, Any]], position: int
+    ) -> None:
+        """Vor einer Wartezeit: Wer danach ausgeht, bekommt seine Restzeit.
+
+        Der Eigentümer ist die Aufgabe, die gerade wartet. Bricht der
+        Lauf ab (Neustart, Halt), räumt ihr Rückruf die Anzeige weg -
+        sonst behauptete sie eine Abschaltung, die nie kommt.
+        """
+        if not automation.countdown:
+            return
+        action = actions[position] if position < len(actions) else {}
+        if str(action.get("type") or "command") != "delay":
+            return
+        try:
+            sekunden = float(action.get("seconds") or 0)
+        except (TypeError, ValueError):
+            return
+        ziele = abschaltung.ziele_nach(actions, position)
+        if sekunden <= 0 or not ziele:
+            return
+        at = time.time() + sekunden
+        besitzer = asyncio.current_task()
+        for entity_id in ziele:
+            self._start_task(self._countdown_setzen(entity_id, at, besitzer))
+        if besitzer is not None:
+            besitzer.add_done_callback(
+                lambda _done, ids=tuple(ziele), wer=besitzer: self._countdown_aufraeumen(
+                    ids, wer
+                )
+            )
+
+    def _countdown_aufraeumen(
+        self, entity_ids: tuple[str, ...], besitzer: asyncio.Task | None
+    ) -> None:
+        """Nach dem Lauf: eigene Anzeigen wegräumen, fremde stehen lassen.
+
+        Fremde heisst: Ein zweiter Durchgang hat die Lampe inzwischen
+        neu übernommen (Nachlauf, «von vorn beginnen») - dessen Restzeit
+        gehört nicht diesem Lauf und bleibt.
+        """
+        for entity_id in entity_ids:
+            eintrag = self._abschaltungen.get(entity_id)
+            if eintrag is None or eintrag[1] is not besitzer:
+                continue
+            self._start_task(self._countdown_loeschen(entity_id))
+
+    def _start_task(self, coro: Any) -> None:
+        """Eine Nebenaufgabe starten, ohne sie aus den Augen zu verlieren."""
+        try:
+            task = asyncio.create_task(coro)
+        except RuntimeError:
+            # Kein laufender Loop (Test, Abbau) - dann eben nicht.
+            coro.close()
+            return
+        self._run_tasks.add(task)
+        task.add_done_callback(self._run_tasks.discard)
+
     def _plan_off(self, automation: Automation, entity_id: str, seconds: float) -> None:
         """Die Lampe nach der Nachlaufzeit wieder ausschalten.
 
@@ -2908,6 +3125,16 @@ class AutomationEngine:
                 await self.hub.integrations.dispatch_command(entity_id, "turn_off", {})
 
         task = asyncio.create_task(warten())
+        # Der Nachlauf ist der zweite Weg zu «geht in 4 Min aus» - beim
+        # Bewegungslicht sogar der übliche. Verlängert ihn neue Bewegung,
+        # überschreibt der neue Zeitpunkt den alten von selbst.
+        if automation.countdown:
+            self._start_task(self._countdown_setzen(entity_id, faellig, task))
+            task.add_done_callback(
+                lambda _done, key=entity_id, wer=task: self._countdown_aufraeumen(
+                    (key,), wer
+                )
+            )
         self._nachlauf[entity_id] = (task, faellig)
         self._run_tasks.add(task)
         task.add_done_callback(self._run_tasks.discard)

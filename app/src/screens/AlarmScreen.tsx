@@ -1,6 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Image,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import Svg, { Circle } from 'react-native-svg';
 
@@ -25,6 +34,7 @@ import {
   verlaufPasst,
 } from '../lib/eskalation';
 import { datumUhr } from '../lib/format';
+import { BlattZeile, blattWuerdig, blattZeilen } from '../lib/ereignisblatt';
 import { ringAnteil } from '../lib/alarmring';
 import { tapped, triggered } from '../lib/haptics';
 import { Colors, radius, space, type, useColors } from '../theme';
@@ -260,6 +270,8 @@ export function AlarmScreen({
   const [tab, setTab] = useState('nacht');
   // Adresse des Mitschnitts, solange er im Vollbild läuft.
   const [clip, setClip] = useState<string | null>(null);
+  // Das Ereignisblatt: der Zeitpunkt des angetippten Verlaufs-Eintrags.
+  const [blattAt, setBlattAt] = useState<number | null>(null);
   // Verlauf: welcher Art, und ob alle fünfzig oder nur der Anfang.
   const [historyKind, setHistoryKind] = useState<'alle' | 'armed' | 'disarmed' | 'triggered'>(
     'alle'
@@ -760,8 +772,20 @@ export function AlarmScreen({
               </Pressable>
             ))}
           </View>
+          {/* Hinter einem Alarm, einer Eskalation oder einer Bewegung
+              steckt eine Geschichte - antippen öffnet das Ereignisblatt
+              mit allem aus der Viertelstunde: was schaltete, welche
+              Bilder die Kameras sahen, welcher Mitschnitt entstand. */}
           {gezeigterVerlauf.map((event, index) => (
-            <View key={index} style={styles.row}>
+            <Pressable
+              key={index}
+              onPress={
+                blattWuerdig(event.kind) ? () => setBlattAt(event.at) : undefined
+              }
+              disabled={!blattWuerdig(event.kind)}
+              accessibilityRole={blattWuerdig(event.kind) ? 'button' : undefined}
+              style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]}
+            >
               <Ionicons
                 name={
                   event.kind === 'triggered'
@@ -795,7 +819,10 @@ export function AlarmScreen({
                   {event.by ? ` · ${event.by}` : ''}
                 </Text>
               </View>
-            </View>
+              {blattWuerdig(event.kind) ? (
+                <Ionicons name="chevron-forward" size={16} color={colors.inkFaint} />
+              ) : null}
+            </Pressable>
           ))}
           {gefilterterVerlauf.length > gezeigterVerlauf.length ? (
             <Pressable
@@ -891,6 +918,19 @@ export function AlarmScreen({
 
 
       {clip ? <ClipPlayer uri={clip} onClose={() => setClip(null)} /> : null}
+      {blattAt != null ? (
+        <Ereignisblatt
+          at={blattAt}
+          settings={settings}
+          // Erst das Blatt zu, dann der Player: Zwei native Modals
+          // übereinander verträgt iOS nicht verlässlich.
+          onClip={(uri) => {
+            setBlattAt(null);
+            setClip(uri);
+          }}
+          onClose={() => setBlattAt(null)}
+        />
+      ) : null}
     </View>
   );
 }
@@ -902,6 +942,137 @@ export function AlarmScreen({
  * gilt – danach ist er weg. Das ist Absicht: Ein Alarmvideo, das für immer
  * herumliegt, ist eine Überwachungsanlage, keine Alarmanlage.
  */
+/**
+ * Das Ereignisblatt: die Viertelstunde um einen Verlaufs-Eintrag.
+ *
+ * Bisher brauchte «was war da eigentlich?» vier Orte - den
+ * Alarm-Verlauf, den Haus-Rückblick, das Clip-Archiv und die
+ * Push-Bilder, die nach zehn Minuten weg waren. Der Hub zieht die
+ * Viertelstunde zusammen (/api/alarm/ereignis), das Bild-Archiv
+ * (core/bildarchiv.py) hält die Standbilder vom Moment fest, und hier
+ * steht alles als eine Zeitleiste.
+ */
+function Ereignisblatt({
+  at,
+  settings,
+  onClip,
+  onClose,
+}: {
+  at: number;
+  settings: HubSettings;
+  onClip: (uri: string) => void;
+  onClose: () => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
+  const [zeilen, setZeilen] = useState<BlattZeile[] | null>(null);
+  const [fehler, setFehler] = useState<string | null>(null);
+
+  useEffect(() => {
+    let weg = false;
+    hub
+      .get<Parameters<typeof blattZeilen>[0]>(`/api/alarm/ereignis?at=${at}`, {
+        still: true,
+      })
+      .then((antwort) => {
+        if (!weg) setZeilen(blattZeilen(antwort));
+      })
+      .catch((err) => {
+        if (!weg) setFehler(String(err instanceof Error ? err.message : err));
+      });
+    return () => {
+      weg = true;
+    };
+  }, [hub, at]);
+
+  const symbol = (zeile: BlattZeile) => {
+    if (zeile.art === 'bild') return 'image-outline' as const;
+    if (zeile.art === 'clip') return 'play-circle-outline' as const;
+    if (zeile.art === 'geraet') return 'flash-outline' as const;
+    return zeile.hervor ? ('alert-circle' as const) : ('shield-half-outline' as const);
+  };
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.blattGrund} onPress={onClose}>
+        {/* Die Karte selbst schluckt den Tipp - zu geht es am Rand. */}
+        <Pressable style={styles.blattKarte} onPress={() => {}}>
+          <Text style={styles.heading}>Ereignisblatt</Text>
+          <Text style={styles.rowDetail}>
+            Die Viertelstunde um {datumUhr(at * 1000)}
+          </Text>
+          {fehler ? <Text style={styles.blattFehler}>{fehler}</Text> : null}
+          {zeilen === null && !fehler ? (
+            <Text style={styles.rowDetail}>Wird zusammengetragen …</Text>
+          ) : null}
+          <ScrollView
+            style={{ maxHeight: 460 }}
+            contentContainerStyle={{ gap: 10, paddingBottom: 4 }}
+          >
+            {zeilen?.length === 0 ? (
+              <Text style={styles.rowDetail}>
+                Aus dieser Viertelstunde ist nichts (mehr) da - Bilder und
+                Mitschnitte werden nach der eingestellten Frist weggeräumt.
+              </Text>
+            ) : null}
+            {(zeilen ?? []).map((zeile, index) => (
+              <View key={index} style={{ gap: 6 }}>
+                <Pressable
+                  disabled={zeile.art !== 'clip'}
+                  onPress={
+                    zeile.art === 'clip' && zeile.clipId
+                      ? () =>
+                          onClip(
+                            `${settings.url.replace(/\/+$/, '')}/api/clips/${encodeURIComponent(String(zeile.clipId))}?token=${encodeURIComponent(settings.token)}`
+                          )
+                      : undefined
+                  }
+                  accessibilityRole={zeile.art === 'clip' ? 'button' : undefined}
+                  style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]}
+                >
+                  <Ionicons
+                    name={symbol(zeile)}
+                    size={18}
+                    color={zeile.hervor ? colors.danger : colors.inkSoft}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.rowTitle}>{zeile.titel}</Text>
+                    <Text style={styles.rowDetail}>
+                      {datumUhr(zeile.at * 1000)}
+                      {zeile.unter ? ` · ${zeile.unter}` : ''}
+                    </Text>
+                  </View>
+                </Pressable>
+                {zeile.art === 'bild' && zeile.kennung ? (
+                  <Image
+                    source={{
+                      uri: `${settings.url.replace(/\/+$/, '')}/api/alarm/bild/${encodeURIComponent(zeile.kennung)}?token=${encodeURIComponent(settings.token)}`,
+                    }}
+                    style={styles.blattBild}
+                    resizeMode="cover"
+                    accessibilityLabel={`Bild von ${zeile.titel}`}
+                  />
+                ) : null}
+              </View>
+            ))}
+          </ScrollView>
+          <Pressable
+            onPress={onClose}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.smallButton, pressed && { opacity: 0.7 }]}
+          >
+            <Text style={styles.smallButtonText}>Schliessen</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 function ClipPlayer({ uri, onClose }: { uri: string; onClose: () => void }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -1638,6 +1809,30 @@ const makeStyles = (colors: Colors) =>
     note: { color: colors.onGradientSoft, fontSize: 14, marginTop: 20 },
     hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },
     clipRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
+    // Das Ereignisblatt: eine Karte über abgedunkeltem Grund - wie der
+    // Player, nur hell genug zum Lesen.
+    blattGrund: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.55)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 16,
+    },
+    blattKarte: {
+      width: '100%',
+      maxWidth: 520,
+      borderRadius: radius.card,
+      backgroundColor: colors.panel,
+      padding: 18,
+      gap: 10,
+    },
+    blattBild: {
+      width: '100%',
+      height: 190,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceSoft,
+    },
+    blattFehler: { color: colors.danger, fontSize: 13 },
     clipBackdrop: {
       flex: 1,
       backgroundColor: 'rgba(0,0,0,0.92)',

@@ -32,11 +32,12 @@ def test_ohne_entfernung_ist_die_meldung_wertlos():
 def test_das_naechste_zimmer_gewinnt():
     stand = bletag.melden({}, "Buero", 6.0, 1000)
     stand = bletag.melden(stand, "Kueche", 1.5, 1000)
-    assert bletag.zustand(stand, 1000) == {
-        "state": "Kueche",
-        "room": "Kueche",
-        "distance": 1.5,
-    }
+    zustand = bletag.zustand(stand, 1000)
+    assert (zustand["state"], zustand["room"], zustand["distance"]) == (
+        "Kueche",
+        "Kueche",
+        1.5,
+    )
 
 
 def test_ein_knapper_unterschied_laesst_das_zimmer_stehen():
@@ -58,6 +59,10 @@ def test_alte_meldungen_zaehlen_nicht_mehr():
         "state": "weg",
         "room": None,
         "distance": None,
+        # Fürs Fundbüro bleibt die Spur: weg heisst nicht spurlos -
+        # «zuletzt im Büro» ist genau die Auskunft, mit der man sucht.
+        "last_room": "Buero",
+        "last_seen_at": 1000.0,
     }
 
 

@@ -20,6 +20,7 @@ from fastapi import (
 )
 
 from ...core import (
+    batterie,
     liveaktivitaet,
     livekarten,
     notifyrules,
@@ -28,11 +29,14 @@ from ...core import (
     pushverlauf,
     snapshots,
     spaeter,
+    storenwaechter,
     waschkueche,
 )
 from ...core.users import Capability, Role
 from ..context import ApiContext
 from ..models import (
+    BatteryPrefsRequest,
+    CoverGuardRequest,
     LaundryRequest,
     LiveActivityTokenRequest,
     NotifyRuleRequest,
@@ -145,6 +149,41 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         hub.push.muted = push.parse_muted(hub.data.get("push_prefs"))
         return {"ok": True, "muted": sorted(hub.push.muted.get(user.name, set()))}
 
+    # ── Batterie-Erinnerung (Punkt 258 der Werkbank) ───────────────────────
+
+    @app.get("/api/push/battery")
+    async def battery_prefs(request: Request) -> dict[str, Any]:
+        """Zu welcher Stunde und ab welcher Schwelle der Hub erinnert."""
+        current_user(request)
+        return batterie.prefs_lesen(hub.data.get(batterie.PREFS_KEY))
+
+    @app.put("/api/push/battery")
+    async def set_battery_prefs(
+        body: BatteryPrefsRequest, request: Request
+    ) -> dict[str, Any]:
+        """Stunde und Schwelle setzen - für den ganzen Haushalt.
+
+        Global und nicht je Benutzer, wie die Wächter-Regeln darunter:
+        Die Einstellung bestimmt, ob und wann der Hub überhaupt meldet.
+        Wer die Batterien nur für sich nicht will, bestellt die Kategorie
+        unter Benachrichtigungen ab. Die Klemmen (0-23, 1-50) sitzen in
+        prefs_lesen, damit auch von Hand geschriebene Werte sie passieren.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        bisher = batterie.prefs_lesen(hub.data.get(batterie.PREFS_KEY))
+        neu = batterie.prefs_lesen(
+            {
+                "hour": body.hour if body.hour is not None else bisher["hour"],
+                "threshold": (
+                    body.threshold
+                    if body.threshold is not None
+                    else bisher["threshold"]
+                ),
+            }
+        )
+        hub.data.set(batterie.PREFS_KEY, neu)
+        return {"ok": True, **neu}
+
     # ── Eingebaute Wächter-Nachrichten (Abläufe → Push) ────────────────────
     # Global, nicht je Benutzer: Diese Regeln bestimmen, ob und wann der Hub
     # überhaupt meldet. Wer sie nur für sich nicht will, bestellt die
@@ -224,6 +263,57 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         hub.data.set("laundry", [{"door": tuer}] if tuer else [])
         hub.watchdog.tuer_gewechselt(hub.registry.all(), tuer or None)
         return await laundry_door(request)
+
+    # ── Die Storen der Wächter ─────────────────────────────────────────────
+    #
+    # Gehört zu den Regeln «Sturm und Hagel» und «Sommerhitze» und steht
+    # in der App in deren Karten: Hier wird gewählt, welche Storen der
+    # Sturmwächter fährt bzw. von welchen die Hitze-Empfehlung spricht.
+    # Aus demselben Grund wie bei der Waschküchentüre nicht als Parameter
+    # der Regel: Die sind Zahlen mit Grenzen, Geräte-Ids sind keine.
+
+    @app.get("/api/coverguard")
+    async def cover_guard(request: Request) -> dict[str, Any]:
+        current_user(request)
+        entities = hub.registry.all()
+        rows = hub.data.get("cover_guard")
+        return {
+            "storm": storenwaechter.guard_auswahl(rows, "storm"),
+            "heat": storenwaechter.guard_auswahl(rows, "heat"),
+            # Alle Storen des Hauses - die App baut daraus die Chips,
+            # ohne selbst durch die Entitäten zu gehen.
+            "covers": [
+                {"id": entity.id, "name": entity.label, "room": entity.room}
+                for entity in entities
+                if entity.kind == "cover"
+            ],
+        }
+
+    @app.put("/api/coverguard")
+    async def set_cover_guard(
+        body: CoverGuardRequest, request: Request
+    ) -> dict[str, Any]:
+        require(request, Capability.EDIT_AUTOMATIONS)
+        rows = hub.data.get("cover_guard")
+        stand = {
+            "storm": storenwaechter.guard_auswahl(rows, "storm"),
+            "heat": storenwaechter.guard_auswahl(rows, "heat"),
+        }
+        known = {entity.id for entity in hub.registry.all() if entity.kind == "cover"}
+        for art, neu in (("storm", body.storm), ("heat", body.heat)):
+            if neu is None:
+                continue
+            fremd = [eintrag for eintrag in neu if eintrag not in known]
+            if fremd:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Diese Storen kennt der Hub nicht: {', '.join(fremd)}",
+                )
+            stand[art] = [str(eintrag) for eintrag in neu]
+        hub.data.set(
+            "cover_guard", [stand] if (stand["storm"] or stand["heat"]) else []
+        )
+        return await cover_guard(request)
 
     @app.post("/api/appliances/{entity_id}/claim")
     async def claim_appliance(entity_id: str, request: Request) -> dict[str, Any]:

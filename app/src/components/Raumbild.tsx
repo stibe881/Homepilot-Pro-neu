@@ -295,7 +295,10 @@ const makeStyles = (colors: Colors) =>
     },
     chipAn: { backgroundColor: colors.ink, borderColor: colors.ink },
     chipText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
-    chipTextAn: { color: colors.surfaceStrong },
+    // `panel` statt `surfaceStrong`: Auf dem hellen `ink`-Grund war die
+    // Schrift im dunklen Erscheinungsbild ein Weiss auf Weiss - siehe
+    // die Erscheinungsbild-Knöpfe im SettingsScreen (modeTextActive).
+    chipTextAn: { color: colors.panel },
     grund: {
       flex: 1,
       backgroundColor: 'rgba(0, 0, 0, 0.5)',

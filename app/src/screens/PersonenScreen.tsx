@@ -34,6 +34,7 @@ import {
   ortZeile,
   sortiert,
 } from '../lib/personen';
+import { fundstuecke } from '../lib/fundbuero';
 import { Colors, radius, space, useColors } from '../theme';
 
 /**
@@ -60,12 +61,17 @@ interface Antwort {
 export function PersonenScreen({
   settings,
   darfZugang = false,
+  entities = [],
 }: {
   settings: HubSettings;
   /** Darf der angemeldete Benutzer Zugänge anlegen (manage_users)?
    *  Ohne das Recht wiese der Hub den Knopf ohnehin ab - er soll dann
    *  gar nicht erst dastehen. */
   darfZugang?: boolean;
+  /** Für das Fundbüro: Die Bluetooth-Anhänger liegen als Entitäten
+   *  längst in der App - hier braucht es keinen eigenen Abruf. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  entities?: any[];
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -73,6 +79,12 @@ export function PersonenScreen({
   const [fehler, setFehler] = useState<string | null>(null);
   const [offen, setOffen] = useState<string | null>(null);
   const [jetzt, setJetzt] = useState(() => new Date());
+  // Das Fundbüro rechnet aus den ohnehin geladenen Entitäten - «jetzt»
+  // hängt am selben Minutentakt wie die «seit wann»-Zeilen der Personen.
+  const sachen = useMemo(
+    () => fundstuecke(entities, jetzt.getTime() / 1000),
+    [entities, jetzt]
+  );
   // Der spontane Gast-Zugang: gewählte Dauer, laufender Aufruf und der
   // Kopplungs-QR, sobald der Zugang steht (lib/gastzugang.ts).
   const [dauer, setDauer] = useState<Dauer>('heute');
@@ -340,6 +352,7 @@ export function PersonenScreen({
   const leute = sortiert(daten.people);
 
   return (
+    <>
     <Card style={styles.card}>
       <Text style={styles.titel}>Familie und Freunde</Text>
       <Text style={styles.hinweis}>
@@ -739,6 +752,36 @@ export function PersonenScreen({
         </Pressable>
       </Modal>
     </Card>
+
+    {/* Das Fundbüro: Sachen statt Menschen, aber dieselbe Frage - wo
+        ist was. Die Karte erscheint nur, wenn es Anhänger gibt; ohne
+        bletags-Integration bleibt die Seite, wie sie war. */}
+    {sachen.length > 0 ? (
+      <Card style={styles.card}>
+        <Text style={styles.titel}>Fundbüro</Text>
+        <Text style={styles.hinweis}>
+          Die Bluetooth-Anhänger des Hauses - und wo sie zuletzt gehört
+          wurden. «Weg» heisst: kein Empfänger hört den Anhänger, meist
+          ist er unterwegs.
+        </Text>
+        {sachen.map((stueck) => (
+          <View key={stueck.id} style={styles.zeile}>
+            <View style={styles.kopf}>
+              <Ionicons
+                name={stueck.daheim ? 'pricetag' : 'pricetag-outline'}
+                size={18}
+                color={stueck.daheim ? colors.on : colors.inkFaint}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.name}>{stueck.name}</Text>
+                <Text style={styles.hinweis}>{stueck.zeile}</Text>
+              </View>
+            </View>
+          </View>
+        ))}
+      </Card>
+    ) : null}
+    </>
   );
 }
 

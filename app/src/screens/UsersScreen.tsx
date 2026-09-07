@@ -21,6 +21,7 @@ import {
   sichtschutzStand,
   Weg,
   WEGE,
+  WOCHENTAGE,
   zugangStand,
 } from '../lib/benutzerblatt';
 
@@ -114,6 +115,8 @@ interface HubUser {
   expires?: string | null;
   /** Zugang nur in diesem Fenster, z.B. {from: '07:00', to: '20:00'}. */
   hours?: { from?: string; to?: string };
+  /** Und nur an diesen Wochentagen (0 = Montag); leer heisst alle Tage. */
+  days?: number[];
   /** Darf diese Person gerade herein? Rechnet Ablauf und Fenster mit. */
   active?: boolean;
   /** Kinder-Ansicht: nur diese Räume, als grosse Knöpfe. */
@@ -151,7 +154,12 @@ function AccessLimits({
   colors,
   onChange,
 }: {
-  detail: { expires?: string | null; hours?: { from?: string; to?: string }; active?: boolean };
+  detail: {
+    expires?: string | null;
+    hours?: { from?: string; to?: string };
+    days?: number[];
+    active?: boolean;
+  };
   styles: ReturnType<typeof makeStyles>;
   colors: Colors;
   onChange: (patch: Record<string, unknown>) => void;
@@ -159,6 +167,16 @@ function AccessLimits({
   const [expires, setExpires] = useState(detail.expires ?? '');
   const [from, setFrom] = useState(detail.hours?.from ?? '');
   const [to, setTo] = useState(detail.hours?.to ?? '');
+  // Die Wochentage des wiederkehrenden Gastes - «jeden Donnerstag 8-12»
+  // einmal anlegen, statt jede Woche ein neues Fenster (0 = Montag).
+  const [days, setDays] = useState<number[]>(detail.days ?? []);
+  const tagKippen = (tag: number) => {
+    const neu = days.includes(tag)
+      ? days.filter((rest) => rest !== tag)
+      : [...days, tag].sort((a, b) => a - b);
+    setDays(neu);
+    onChange({ days: neu });
+  };
 
   return (
     <>
@@ -203,6 +221,32 @@ function AccessLimits({
         placeholderTextColor={colors.inkFaint}
         autoCapitalize="none"
       />
+
+      <Text style={styles.formLabel}>Nur an diesen Tagen (optional)</Text>
+      <View style={styles.expiryRow}>
+        {WOCHENTAGE.map((kurz, tag) => {
+          const an = days.includes(tag);
+          return (
+            <Pressable
+              key={kurz}
+              onPress={() => tagKippen(tag)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: an }}
+              accessibilityLabel={`Zugang am ${kurz}`}
+              style={[styles.expiryChip, an && styles.expiryChipActive]}
+            >
+              <Text style={[styles.expiryChipText, an && styles.expiryChipTextActive]}>
+                {kurz}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <Text style={styles.qrHint}>
+        Keiner gewählt heisst jeden Tag. Für die Putzhilfe am Donnerstag:
+        «Do» antippen und unten das Zeitfenster setzen - der Zugang kommt
+        jede Woche von selbst wieder.
+      </Text>
 
       <Text style={styles.formLabel}>Nur zwischen (optional)</Text>
       <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -1009,7 +1053,7 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                   {detail.editable ? (
                     <Klappe
                       label="Zugang beschränken"
-                      stand={zugangStand(detail.expires, detail.hours)}
+                      stand={zugangStand(detail.expires, detail.hours, detail.days)}
                       zuBeginnZu
                     >
                     <AccessLimits

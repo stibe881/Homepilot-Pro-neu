@@ -12,6 +12,7 @@ import { HubFehler, hubClient } from '../api/client';
 import { datumKurz, uhr } from '../lib/format';
 import { brauchtRueckfrage, handstartSatz } from '../lib/handstart';
 import { laufzeile } from '../lib/laufzeile';
+import { verwaistZeile } from '../lib/verwaist';
 import { istPushKategorie } from '../lib/pushablaeufe';
 import { useOrte } from '../hooks/useOrte';
 import {
@@ -356,6 +357,7 @@ export function AutomationsScreen({
       enabled: draft.enabled,
       category: draft.category.trim() || null,
       quiet_night: draft.nachtsStill,
+      countdown: draft.restzeitZeigen,
     };
     try {
       if (draft.id) {
@@ -430,6 +432,9 @@ export function AutomationsScreen({
         // dem Ablauf still seine Nachtruhe - der Hub schreibt hier die
         // ganze Regel neu, nicht bloss das eine Feld.
         quiet_night: automation.quiet_night === true,
+        // Aus demselben Grund wie die Nachtruhe: Der Hub schreibt beim
+        // Ein-/Ausschalten die ganze Regel neu.
+        countdown: automation.countdown === true,
         enabled,
       },
       { fallback: null, still: true }
@@ -1312,6 +1317,18 @@ export function AutomationsScreen({
                         </Text>
                       );
                     })()}
+                    {/* Verwaist (Punkt 262): seit über 90 Tagen still,
+                        obwohl aktiv und mit Auslösern. Das Urteil fällt
+                        der Hub (orphaned) - die Zeile erscheint NUR
+                        dann, sonst stünde an jedem seltenen Ablauf eine
+                        Warnung. Der Zeitpunkt kommt aus dem dauerhaften
+                        «zuletzt gefeuert», nicht aus dem gedeckelten
+                        Lauf-Verlauf darüber. */}
+                    {automation.orphaned ? (
+                      <Text style={[styles.detail, { color: colors.warn }]}>
+                        {verwaistZeile(automation.last_fired)}
+                      </Text>
+                    ) : null}
                     {automation.quiet_until &&
                     automation.quiet_until * 1000 > Date.now() ? (
                       <Text style={[styles.detail, { color: colors.warn }]}>
@@ -1830,6 +1847,16 @@ export function AutomationsScreen({
           draft?.id ? (at) => restoreVersion('automation', draft.id!, at) : undefined
         }
         onCancel={() => setDraft(null)}
+        // Verwaist (Punkt 262): Das Urteil kommt fertig vom Hub - der
+        // Editor zeigt dann den Hinweis samt Verweis auf «Hätte gefeuert».
+        verwaist={(() => {
+          const offen = draft?.id
+            ? automations?.find((automation) => automation.id === draft.id)
+            : undefined;
+          return offen?.orphaned
+            ? { lastFired: offen.last_fired ?? null }
+            : undefined;
+        })()}
       />
       <SceneEditor
         draft={sceneDraft}

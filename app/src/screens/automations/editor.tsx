@@ -26,7 +26,7 @@ import {
   begrenzteAnzahl,
 } from '../../lib/kontrollfluss';
 import { ZUHAUSE, anwesenheitsPersonen, istOrtsmelder, ortsauswahl } from '../../lib/ortsausloeser';
-import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StateCondition, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, geraetePlatzhalter, KAMERA_AUSLOESER, kopieSchritt, PLATZHALTER, hatWartezeit, measurableAttributes, meldetEtwas, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis } from './entwurf';
+import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StateCondition, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, geraetePlatzhalter, KAMERA_AUSLOESER, kopieSchritt, PLATZHALTER, hatWartezeit, schaltetSpaeterAus, measurableAttributes, meldetEtwas, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis } from './entwurf';
 import {
   Abschnitt,
   CategoryField,
@@ -41,6 +41,7 @@ import {
 } from './felder';
 import { makeStyles } from './stil';
 import { mitschalter, mitschalterSatz } from '../../lib/verweise';
+import { zuletztGefeuert } from '../../lib/verwaist';
 import { NachrichtenZiel } from './nachrichtenziel';
 import { SceneDevices } from './szenen-editor';
 
@@ -64,6 +65,7 @@ export function Editor({
   onVersions,
   onRestoreVersion,
   onCancel,
+  verwaist,
 }: {
   draft: Draft | null;
   entities: Entity[];
@@ -97,6 +99,11 @@ export function Editor({
   onVersions?: () => Promise<Fassung[]>;
   onRestoreVersion?: (at: number) => Promise<boolean>;
   onCancel: () => void;
+  /** Nur bei verwaisten Abläufen (Punkt 262) - das Urteil fällt der Hub
+   *  (`orphaned`), damit App und Hub nie zwei Meinungen über die
+   *  90-Tage-Grenze haben. `lastFired` ist das letzte Feuern in
+   *  Unix-Sekunden, null = noch nie. */
+  verwaist?: { lastFired: number | null };
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -801,6 +808,30 @@ export function Editor({
               ) : null}
             </>
           ) : null}
+          {/* Der gemeldete Fall: «Das Licht geht nach 30 Minuten aus» -
+              und im Kinderzimmer stand man davor und riet, ob es gleich
+              ausgeht oder erst in einer halben Stunde. Freiwillig, weil
+              es nicht überall erwünscht ist: Die Anwesenheits-Simulation
+              soll aussehen wie ein Mensch, der das Licht löscht, und
+              nicht wie eine Schaltuhr. */}
+          {schaltetSpaeterAus(draft.steps) ? (
+            <>
+              <Text style={styles.label}>Restzeit anzeigen</Text>
+              <Choice
+                options={[
+                  { key: 'aus', label: 'nicht anzeigen' },
+                  { key: 'an', label: 'anzeigen' },
+                ]}
+                value={draft.restzeitZeigen ? 'an' : 'aus'}
+                onSelect={(wahl) => set({ restzeitZeigen: wahl === 'an' })}
+              />
+              <Text style={styles.triggerNote}>
+                {draft.restzeitZeigen
+                  ? 'Solange der Ablauf wartet, steht «geht in 12 Min aus» am Gerät selbst, auf der Raumkarte und im «Lichter an»-Blatt der Startkarte. Wer von Hand ausschaltet, nimmt die Anzeige mit.'
+                  : 'Ohne Anzeige merkt man das Ausschalten erst, wenn es passiert – bei einem Licht im Kinderzimmer ist das die falsche Überraschung.'}
+              </Text>
+            </>
+          ) : null}
           {hatWartezeit(draft.steps) ? (
             <>
               <Text style={styles.label}>Wenn er dabei erneut ausgelöst wird</Text>
@@ -927,6 +958,21 @@ export function Editor({
             «Jetzt testen» führt die Aktionen wirklich aus – ohne auf Auslöser
             oder Bedingung zu warten. Der Trockenlauf zeigt nur, was passieren
             würde. Gespeicherte Änderungen zuerst sichern.
+          </Text>
+        ) : null}
+        {/* Verwaist (Punkt 262): Der Hinweis steht direkt vor «Hätte
+            gefeuert», weil das der Weg zur Antwort ist - die Simulation
+            (Punkt 254) rechnet nach, ob der Ablauf überhaupt hätte
+            feuern können, oder ob Gerät und Bedingung ins Leere zeigen. */}
+        {verwaist ? (
+          <Text style={[styles.snapshotHint, { color: colors.warn }]}>
+            Dieser Ablauf hat{' '}
+            {verwaist.lastFired
+              ? `zuletzt ${zuletztGefeuert(verwaist.lastFired)}`
+              : 'noch nie'}{' '}
+            gefeuert. Mit «Hätte gefeuert» lässt sich prüfen, ob er
+            überhaupt hätte feuern können - oft steckt ein umbenanntes
+            Gerät oder eine nie erfüllte Bedingung dahinter.
           </Text>
         ) : null}
         {/* «Hätte gefeuert» (Punkt 254): Der Trockenlauf kennt nur das

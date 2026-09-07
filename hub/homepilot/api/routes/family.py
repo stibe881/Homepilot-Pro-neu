@@ -65,6 +65,11 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             # eintippt. Siehe app/src/lib/kindseite.ts.
             "lessons",
             "activities",
+            # «gear»: was an welchem Wochentag in den Thek gehört
+            # (Turnsack am Di, Flöte am Do) - je Kind, auf Wunsch nur in
+            # der A- oder B-Woche. Der Wächter fasst am Vorabend
+            # zusammen (core/packliste.py).
+            "gear",
         }
     )
 

@@ -22,12 +22,39 @@ import type { Ionicons } from '@expo/vector-icons';
  *  sie noch einmal sehen sollen - nicht bei jedem Wortdreher. */
 export const EINFUEHRUNG_STAND = 1;
 
-/** Ein Schritt des Blatts: Symbol, Überschrift, zwei, drei Sätze. */
+/** Ein Schritt des Blatts: Symbol, Überschrift, zwei, drei Sätze -
+ *  und auf Wunsch ein Schaubild, das zeigt statt zu beschreiben. */
 export interface EinfuehrungSchritt {
   icon: keyof typeof Ionicons.glyphMap;
   titel: string;
   text: string;
+  /** Was über dem Text steht: die antippbare Leiste, der
+   *  «Alles aus»-Knopf oder das Suchfeld - gezeichnet in
+   *  components/Einfuehrung.tsx. */
+  schaubild?: 'leiste' | 'allesaus' | 'suche';
 }
+
+/**
+ * Die Bereiche der Leiste, wie sie das Schaubild zeigt.
+ *
+ * Dieselben Symbole und Wörter wie in components/Rail.tsx (ITEMS) - wer
+ * dort etwas umbenennt, benennt es hier mit um, sonst erklärt die
+ * Einführung eine Leiste, die es nicht mehr gibt. Die Kameras fehlen
+ * bewusst: Sie erscheinen nur in Häusern, die welche haben, und die
+ * Einführung kennt die Geräte nicht.
+ */
+export const BEREICHE: {
+  key: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+}[] = [
+  { key: 'start', icon: 'home-outline', label: 'Start' },
+  { key: 'home', icon: 'grid-outline', label: 'Räume' },
+  { key: 'light', icon: 'bulb-outline', label: 'Licht' },
+  { key: 'covers', icon: 'reorder-four-outline', label: 'Storen' },
+  { key: 'family', icon: 'people-outline', label: 'Familie' },
+  { key: 'settings', icon: 'settings-outline', label: 'Mehr' },
+];
 
 /** Was die Entscheidung vom angemeldeten Benutzer wissen muss. */
 export interface EinfuehrungBenutzer {
@@ -117,12 +144,18 @@ export function gastSatz(features: string[] | undefined): string {
 /**
  * Die Schritte des Blatts für diese Person (rein, testbar).
  *
- * Bewusst ein blätterbares Blatt mit kurzen Texten und KEIN Overlay, das
- * mit Pfeilen auf echte Bedienelemente zeigt: Die Leiste liegt auf dem
- * Telefon unten, auf dem iPad links, im Browser mal so, mal so - ein
- * Pfeil, der auf allen dreien auf die richtige Stelle träfe, müsste jedes
- * Layout kennen und bräche beim nächsten Umbau still. Ein Blatt, das
- * erklärt statt zu zeigen, überlebt jeden Umbau.
+ * Bewusst ein blätterbares Blatt und KEIN Overlay, das mit Pfeilen auf
+ * echte Bedienelemente zeigt: Die Leiste liegt auf dem Telefon unten,
+ * auf dem iPad links, im Browser mal so, mal so - ein Pfeil, der auf
+ * allen dreien auf die richtige Stelle träfe, müsste jedes Layout kennen
+ * und bräche beim nächsten Umbau still.
+ *
+ * Gezeigt wird trotzdem, nicht nur erzählt: Jeder Schritt trägt ein
+ * Schaubild IM Blatt - die Leiste mit ihren echten Symbolen (antippbar,
+ * die App wechselt dahinter live mit), der «Alles aus»-Knopf, das
+ * Suchfeld. Eine Aufzählung «Start, Räume, Licht, …» in Prosa musste
+ * jeder erst im Kopf auf Symbole übersetzen; das Schaubild spart ihm
+ * genau diese Übersetzung.
  */
 export function schritteFuer(
   user: EinfuehrungBenutzer | null | undefined
@@ -156,22 +189,30 @@ export function schritteFuer(
     {
       icon: 'compass-outline',
       titel: 'Die Bereiche',
+      schaubild: 'leiste',
       text:
-        'In der Leiste (unten auf dem Telefon, links auf dem iPad) ' +
-        'liegen die Bereiche: Start, Räume, Licht, Storen, Familie. ' +
-        'Auf Start steht, was gerade läuft - von dort erreichst du alles.',
+        'Das ist die Leiste - unten auf dem Telefon, links auf dem iPad. ' +
+        'Tipp oben einen Bereich an: Die App wechselt dahinter gleich mit. ' +
+        'Auf Start steht, was gerade läuft.',
     },
     {
       icon: 'power-outline',
       titel: '«Alles aus»',
+      schaubild: 'allesaus',
+      // Wo er WIRKLICH wohnt: Von der Startseite wurde der Knopf bewusst
+      // entfernt (er stand dort im Weg), und ohne eingeschaltete Geräte
+      // zeigt er sich gar nicht. Genau das muss die Einführung sagen -
+      // sonst sucht jemand einen Knopf, den es «gar nirgends gibt».
       text:
-        'Der Knopf auf der Startseite schaltet ab, was gerade an ist - ' +
-        'aber erst nach einer Liste zum Abwählen: Laufende Haushaltgeräte ' +
-        'bleiben von selbst verschont.',
+        'Sobald etwas an ist, steht dieser Knopf im Bereich Räume - für ' +
+        'den gewählten Raum oder das ganze Haus. Er zeigt erst eine Liste ' +
+        'zum Abwählen: Laufende Haushaltgeräte bleiben von selbst ' +
+        'verschont. Als Widget liegt er auch auf dem Sperrbildschirm.',
     },
     {
       icon: 'search-outline',
       titel: 'Suchen statt scrollen',
+      schaubild: 'suche',
       text:
         'Unter Einstellungen → Suche findest du jedes Gerät, jeden Raum, ' +
         'jede Szene und jeden Ablauf mit drei getippten Buchstaben.',

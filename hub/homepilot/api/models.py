@@ -138,6 +138,9 @@ class AutomationRequest(BaseModel):
     # Nachts (22–8 Uhr) keine Nachricht und keine Durchsage; der Rest
     # des Ablaufs läuft weiter.
     quiet_night: bool = False
+    # Restzeit anzeigen: «geht in 12 Min aus» an Kachel, Raumkarte und
+    # im «Lichter an»-Blatt (core/abschaltung.py).
+    countdown: bool = False
 
 
 class SceneRequest(BaseModel):
@@ -193,6 +196,13 @@ class PushPrefsRequest(BaseModel):
     muted: list[str] = []
 
 
+class BatteryPrefsRequest(BaseModel):
+    """Erinnerungsstunde und Schwelle der Batteriewarnung (Punkt 258)."""
+
+    hour: int | None = None
+    threshold: int | None = None
+
+
 class NotifyRuleRequest(BaseModel):
     """Änderung an einer eingebauten Wächter-Nachricht (Abläufe → Push)."""
 
@@ -208,6 +218,18 @@ class LaundryRequest(BaseModel):
     """
 
     door: str | None = None
+
+
+class CoverGuardRequest(BaseModel):
+    """Welche Storen die Wächter anfassen dürfen.
+
+    `None` lässt die jeweilige Auswahl unangetastet; eine leere Liste
+    heisst «alle Storen» - das ist die Vorgabe, mit der die Wächter auch
+    ohne jede Einstellung wirken (core/storenwaechter.py).
+    """
+
+    storm: list[str] | None = None
+    heat: list[str] | None = None
 
 
 class GoodNightRequest(BaseModel):
@@ -277,6 +299,9 @@ class UserRequest(BaseModel):
     features: list[str] = []
     expires: str | None = None
     hours: dict[str, str] = {}
+    # Nur an diesen Wochentagen (0 = Montag); leer heisst alle Tage.
+    # Für den wiederkehrenden Gast: «jeden Donnerstag 8-12».
+    days: list[int] = []
     # Kinder-Ansicht: nur diese Räume, als grosse Knöpfe.
     simple_rooms: list[str] = []
     # Rechte je Raum: leer = ganzes Haus, sonst nur diese Räume. Anders
@@ -299,6 +324,8 @@ class UserUpdateRequest(BaseModel):
     expires: str | None = None
     # Zeitfenster {"from": "07:00", "to": "20:00"}; leer hebt es auf.
     hours: dict[str, str] | None = None
+    # Wochentage (0 = Montag); leere Liste heisst wieder alle Tage.
+    days: list[int] | None = None
     # Kinder-Ansicht an/aus bzw. Räume ändern; leere Liste hebt sie auf.
     simple_rooms: list[str] | None = None
     # Rechte je Raum; leere Liste gibt das ganze Haus wieder frei.
@@ -636,6 +663,18 @@ class VerbindungRequest(BaseModel):
     # Google Home: eine Box eintragen oder entfernen.
     geraet_hinzu: VerbindungGeraet | None = None
     geraet_weg: VerbindungGeraet | None = None
+
+
+class AnmeldungRequest(BaseModel):
+    """Der zweite Schritt der Browser-Anmeldung eines Dienstes.
+
+    `antwort` ist, was aus der Adresszeile des Browsers kommt - die ganze
+    Redirect-Adresse oder nur der Code daraus. Der Hub fischt den Code
+    heraus und tauscht ihn selbst gegen das Token; das Geheimnis dazu
+    bleibt bei ihm.
+    """
+
+    antwort: str
 
 
 class RaumbildRequest(BaseModel):

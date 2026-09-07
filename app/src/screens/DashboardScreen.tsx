@@ -150,6 +150,7 @@ import { SzeneAufnehmen } from '../components/SzeneAufnehmen';
 import { PersonenScreen } from './PersonenScreen';
 import { UsersScreen } from './UsersScreen';
 import { confirm as confirmBiometrie, needsCheck } from '../lib/biometrie';
+import { type HeimgrussStand } from '../lib/heimgruss';
 import { mayOpenDirectly } from '../lib/tuerbestaetigung';
 import { kinoSzene } from '../lib/kinoszene';
 import { BioLock } from '../components/BioLock';
@@ -994,7 +995,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   useTakt(
     () => {
       if (Date.now() - lastTouch > 180000) {
-        setSection('start');
+        // Im Kindermodus ist «zuhause» die Kinderseite, nicht die
+        // Startseite - die gibt es auf diesem Gerät gar nicht.
+        setSection((settings.kindPanel ?? '').trim() ? 'family' : 'start');
         setEditing(false);
         setRoom(ALL_ROOMS);
         setRiegelBis(0);
@@ -1124,6 +1127,32 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       ),
     [hub]
   );
+
+  /**
+   * Der Anrufbeantworter des Hauses (Punkt 259 der Werkbank): dieselbe
+   * Aufnahme, aber hinterlegt statt abgespielt - wer als Nächstes
+   * heimkommt, hört sie. Dazu der Stand («liegt schon etwas?») und das
+   * Zurückziehen. Alles drei nur gereicht, wenn geschaltet werden darf -
+   * wie bei der Sprachnotiz.
+   */
+  const hinterlegeHeimgruss = useCallback(
+    async (aufnahme: Blob, speakers: string[]) =>
+      hub.roh<{ message?: HeimgrussStand | null }>(
+        `/api/heimgruss/voice?speakers=${encodeURIComponent(speakers.join(','))}`,
+        aufnahme,
+        { still: true }
+      ),
+    [hub]
+  );
+  const holeHeimgrussStand = useCallback(
+    async () =>
+      (await hub.get<{ message?: HeimgrussStand | null }>('/api/heimgruss', { still: true }))
+        .message ?? null,
+    [hub]
+  );
+  const zieheHeimgrussZurueck = useCallback(async () => {
+    await hub.del('/api/heimgruss', { still: true });
+  }, [hub]);
 
   // Abkürzungen aus dem Widget und von NFC-Aufklebern: homepilot://door
   // öffnet die Türe (mit Rückfrage), //alloff und //alarm springen an die
@@ -1264,6 +1293,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
 
   // Gäste sehen nur die freigegebenen Bereiche in der Navigation.
   const hiddenSections = useMemo<Section[]>(() => {
+    // Kindermodus: Das Tablet im Kinderzimmer zeigt nur die Familie
+    // (dort landet man auf der Kinderseite) - kein Alarm, keine Storen,
+    // kein Rest der Wohnung. Die Einstellungen bleiben, sonst käme man
+    // am Gerät nie wieder aus dem Modus heraus.
+    if ((settings.kindPanel ?? '').trim()) {
+      return ['start', 'home', 'light', 'covers', 'cameras'];
+    }
     const result: Section[] = [];
     // Ohne Kameras kein Kamera-Reiter – ein leerer Bereich hilft niemandem.
     if (!entities.some((entity) => entity.kind === 'camera')) result.push('cameras');
@@ -1275,7 +1311,20 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (!features.includes('familie')) result.push('family');
     if (!features.includes('kameras')) result.push('cameras');
     return result;
-  }, [user, entities]);
+  }, [user, entities, settings.kindPanel]);
+
+  // Der Kindermodus zwingt die Ansicht auf die Familie: Beim Start und
+  // wenn jemand den Modus gerade einschaltet - alles andere ist auf
+  // diesem Gerät ja ausgeblendet. Die Einstellungen bleiben begehbar.
+  const kindPanelName = (settings.kindPanel ?? '').trim() || null;
+  useEffect(() => {
+    if (!kindPanelName) return;
+    setSection((bisher) =>
+      (['start', 'home', 'light', 'covers', 'cameras'] as Section[]).includes(bisher)
+        ? 'family'
+        : bisher
+    );
+  }, [kindPanelName]);
 
   // Nicht «eine Kamera, die klingelt», sondern «was gerade klingelt».
   // Die Haustüre ist hier eine Ring-Gegensprechanlage, und die legt der
@@ -1737,6 +1786,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         rooms={user.simple_rooms}
         entities={entities}
         scenes={scenes}
+        // Für «Mami anrufen» (Punkt 261): Die Ansicht steht vor dem
+        // HubProvider, deshalb bekommt sie die Zugangsdaten als Prop.
+        settings={settings}
         onCommand={(entityId, command) => guardedCommand(entityId, command)}
         onActivateScene={activateScene}
       />
@@ -2262,6 +2314,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               durchsage={eigenePrefs.durchsage}
               onDurchsagePrefs={setDurchsage}
               onSprachnotiz={darfSchalten ? sendeSprachnotiz : undefined}
+              onHeimgruss={darfSchalten ? hinterlegeHeimgruss : undefined}
+              onHeimgrussStand={darfSchalten ? holeHeimgrussStand : undefined}
+              onHeimgrussZurueck={darfSchalten ? zieheHeimgrussZurueck : undefined}
               onRenameEntity={
                 darfAnpassen
                   ? (entityId, name) => setEntityMeta(entityId, { name })
@@ -2290,6 +2345,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           onHiddenModules={setFamilyHidden}
           changedAt={familyChangedAt}
           startModul={riegelModul ?? familienModul}
+          startKind={kindPanelName ?? undefined}
         />
       );
     }
@@ -2381,7 +2437,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'personen') {
       return (
         <View style={styles.stack}>
-          <PersonenScreen settings={settings} darfZugang={istBesitzer} />
+          <PersonenScreen settings={settings} darfZugang={istBesitzer} entities={entities} />
         </View>
       );
     }
@@ -3840,6 +3896,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           user={user}
           erzwungen={einfuehrungErzwungen}
           onErzwungenZu={() => setEinfuehrungErzwungen(false)}
+          // Das Leisten-Schaubild ist antippbar: Die App wechselt hinter
+          // dem Blatt live mit - ausprobieren statt merken. Ausgeblendete
+          // Bereiche (Kindermodus, Gast) bleiben zu.
+          onBereich={(key) => {
+            const ziel = key as Section;
+            if (!hiddenSections.includes(ziel)) setSection(ziel);
+          }}
         />
         <Hilfeblatt
           offen={hilfeOffen}
