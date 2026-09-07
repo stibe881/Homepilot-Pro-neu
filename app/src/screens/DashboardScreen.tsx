@@ -3584,6 +3584,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     ? (art) => setKalenderSignal((s) => ({ art, n: s.n + 1 }))
                     : undefined
                 }
+                // Ein Tipp auf «saugt» öffnet die Karte des Saugroboters -
+                // derselbe Weg wie ein Suchtreffer: in die Geräteliste,
+                // nach seinem Namen gefiltert, mit allen Bedienelementen.
+                onVacuum={(entityId) => {
+                  const sauger = entities.find((e) => e.id === entityId);
+                  setSection('devices');
+                  setQuery(sauger?.name ?? 'Sauger');
+                }}
               />
             </Auffangnetz>
 
