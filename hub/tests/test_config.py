@@ -178,3 +178,67 @@ def test_missing_variable_names_both_ways(tmp_path):
     assert "secrets.env" in text
     assert "FEHLT" in text
     assert "docker-compose" in text
+
+
+def test_empty_environment_variable_falls_back_to_the_secrets_file(tmp_path, monkeypatch):
+    """Gesetzt-aber-leer ist nicht gesetzt.
+
+    Die docker-compose-Zeile '- UNIFI_NET_USER=${UNIFI_NET_USER:-}'
+    reicht die Variable auch dann weiter, wenn der Portainer-Stack sie
+    gar nicht kennt - als leerer Text. Der gewann bisher gegen die
+    secrets.env, und der Hub meldete sich mit leerem Benutzernamen an.
+    """
+    from homepilot.core.config import load_config
+
+    (tmp_path / "secrets.env").write_text("UNIFI_NET_USER=HomePilot\n", encoding="utf-8")
+    (tmp_path / "config.yaml").write_text(
+        'integrations:\n  - integration: unifi\n    username: "${UNIFI_NET_USER}"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("UNIFI_NET_USER", "")
+    config = load_config(tmp_path / "config.yaml")
+    assert config.integrations[0]["username"] == "HomePilot"
+
+
+def test_blank_environment_variable_counts_as_empty(tmp_path, monkeypatch):
+    """Auch blosse Leerzeichen sind kein Passwort."""
+    from homepilot.core.config import load_config
+
+    (tmp_path / "secrets.env").write_text("TUYA_KEY=geheim\n", encoding="utf-8")
+    (tmp_path / "config.yaml").write_text(
+        'integrations:\n  - integration: tuya\n    key: "${TUYA_KEY}"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TUYA_KEY", "   ")
+    config = load_config(tmp_path / "config.yaml")
+    assert config.integrations[0]["key"] == "geheim"
+
+
+def test_empty_everywhere_says_that_it_is_empty(tmp_path, monkeypatch):
+    """Leer ist eine andere Ursache als fehlend - und braucht andere Worte.
+
+    «Ist nicht gesetzt» schickte einen die secrets.env prüfen, in der
+    der Wert längst richtig stand; der leere Wert kam aus der
+    compose-Datei.
+    """
+    import pytest
+
+    from homepilot.core.config import ConfigError, load_config
+
+    (tmp_path / "config.yaml").write_text(
+        'integrations:\n  - integration: tuya\n    key: "${TUYA_KEY}"\n', encoding="utf-8"
+    )
+    monkeypatch.setenv("TUYA_KEY", "")
+    with pytest.raises(ConfigError) as fehler:
+        load_config(tmp_path / "config.yaml")
+    assert "gesetzt, aber leer" in str(fehler.value)
+
+
+def test_brauchbar_keeps_real_values():
+    """Was aussieht wie ein Geheimnis, bleibt eines (rein)."""
+    from homepilot.core.config import brauchbar
+
+    assert brauchbar("!LeliBist.1561!") == "!LeliBist.1561!"
+    assert brauchbar(None) is None
+    assert brauchbar("") is None
+    assert brauchbar("\t \n") is None

@@ -171,6 +171,18 @@ def read_secrets(path: str | Path) -> dict[str, str]:
     return werte
 
 
+def brauchbar(wert: str | None) -> str | None:
+    """Ein Wert, der als Geheimnis taugt - oder None (rein, testbar).
+
+    Leer und blosse Leerzeichen zählen als «nicht gesetzt»: Sie können
+    kein Passwort, kein Token und keine Adresse sein, und als Wert
+    verdeckten sie bisher die richtige Angabe in der secrets.env.
+    """
+    if wert is None:
+        return None
+    return wert if wert.strip() else None
+
+
 def expand_env(value: Any, extra: dict[str, str] | None = None) -> Any:
     """Ersetzt ${VARIABLE} rekursiv durch Umgebungsvariablen.
 
@@ -181,15 +193,24 @@ def expand_env(value: Any, extra: dict[str, str] | None = None) -> Any:
     `extra` sind die Werte aus der secrets.env neben der Konfiguration.
     Die echte Umgebung geht vor: Wer eine Variable im Container setzt,
     soll damit auch gewinnen.
+
+    Gesetzt-aber-leer zählt dabei als *nicht* gesetzt, und das ist keine
+    Spitzfindigkeit: Die docker-compose-Zeile
+    ``- UNIFI_NET_USER=${UNIFI_NET_USER:-}`` reicht die Variable auch
+    dann in den Container weiter, wenn der Portainer-Stack sie gar nicht
+    kennt - als leerer Text. Der gewann bisher gegen die secrets.env, und
+    der Hub meldete sich mit leerem Benutzernamen an: «Anmeldung
+    fehlgeschlagen - Zugangsdaten prüfen», während die Zugangsdaten
+    danebenlagen und stimmten. Ein leeres Geheimnis ist nie gemeint.
     """
     extra = extra or {}
 
     if isinstance(value, str):
         def replace(match: re.Match[str]) -> str:
             name = match.group(1)
-            resolved = os.environ.get(name)
+            resolved = brauchbar(os.environ.get(name))
             if resolved is None:
-                resolved = extra.get(name)
+                resolved = brauchbar(extra.get(name))
             if resolved is None:
                 # Zuerst der einfache Weg, dann der bisherige: Die
                 # häufigste Ursache ist nicht ein Tippfehler, sondern die
@@ -198,8 +219,11 @@ def expand_env(value: Any, extra: dict[str, str] | None = None) -> Any:
                 # in den Container kommt sie erst durch eine Zeile in
                 # deren environment-Liste. Das gehört in die Meldung,
                 # sonst sucht man an der falschen Stelle.
+                leer = os.environ.get(name) is not None or name in extra
                 raise ConfigError(
-                    f"Umgebungsvariable '{name}' ist nicht gesetzt. Am "
+                    f"Umgebungsvariable '{name}' ist "
+                    + ("gesetzt, aber leer. " if leer else "nicht gesetzt. ")
+                    + "Am "
                     f"einfachsten trägst du sie in die Datei {SECRETS_FILE} "
                     "neben dieser Konfiguration ein (eine Zeile "
                     f"'{name}=…'); der Hub liest sie beim Start mit. "
