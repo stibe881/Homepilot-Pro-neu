@@ -89,6 +89,8 @@ import { naechsteStraehne, straehnenSatz } from '../lib/straehne';
 import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, CountdownForm, ErinnerungForm, EventForm, FamilyItem, GroupedChecklist, MealRow, MedicationAddRow, Member, MemberAddRow, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, Styles, TaskAddRow, TwoFieldForm, VorratBlatt, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, parseSwissDate, pickPhoto, rotateMember } from './family/bausteine';
 import { Kindseite, Wochenliste } from './family/kindseite';
 import { istKind, verschmelze } from '../lib/kindseite';
+import { Gutscheine } from './family/gutscheine';
+import { kachelText as gutscheinKachel } from '../lib/gutscheine';
 import { makeStyles } from './family/stil';
 
 /**
@@ -4117,6 +4119,27 @@ export function FamilyScreen({
     );
   }
 
+  // Punkt 264: Gutscheine. Das Modul liegt in family/gutscheine.tsx;
+  // hier nur die Sammlung, der Name für die Buchungen und die Wege zum Hub.
+  if (view === 'vouchers') {
+    return (
+      <Gutscheine
+        eintraege={data.vouchers ?? []}
+        settings={settings}
+        ich={currentUser?.name ?? ''}
+        fehler={error}
+        hinweis={standHinweis}
+        jetzt={new Date()}
+        onBack={goBack}
+        onAdd={(eintrag) => add('vouchers', eintrag)}
+        onUpdate={(id, patch) => update('vouchers', id, patch)}
+        onRemove={(id) => remove('vouchers', id)}
+        styles={styles}
+        colors={colors}
+      />
+    );
+  }
+
   // ── Familien-Übersicht ─────────────────────────────────────────────────
 
   const modules: {
@@ -4172,6 +4195,8 @@ export function FamilyScreen({
     { key: 'reminders', icon: 'alarm-outline', label: 'Erinnerungen', sub: 'Gross auf dem Schirm oder als Push' },
     { key: 'recipes', icon: 'book-outline', label: 'Rezeptbuch', sub: 'Familienrezepte' },
     { key: 'documents', icon: 'folder-open-outline', label: 'Dokumentsafe', sub: 'Wichtige Angaben' },
+    // Punkt 264: «3 verfügbar · 130.00 CHF» - was noch einzulösen ist.
+    { key: 'vouchers', icon: 'gift-outline', label: 'Gutscheine', sub: gutscheinKachel(data.vouchers ?? [], new Date()) },
   ];
 
   // Selbst gezogene Reihenfolge anwenden; Unbekanntes bleibt an seinem

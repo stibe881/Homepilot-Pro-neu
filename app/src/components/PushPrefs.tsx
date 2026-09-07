@@ -33,6 +33,12 @@ const SCHWELLEN = [5, 10, 15, 20];
  *  mittags und abends für alle, die tagsüber ausser Haus sind. */
 const STUNDEN = [7, 8, 9, 12, 18, 20];
 
+/** Die wählbaren Vorlaufzeiten der Gutschein-Erinnerung, in Tagen. Zwei
+ *  Stufen, weil eine nicht reicht: Die erste fällt in den Alltag und
+ *  geht unter, die zweite kurz vor Schluss ist der Anstoss, den Gutschein
+ *  wirklich einzulösen. Am Ablauftag selbst meldet der Hub ohnehin. */
+const VORLAUF_TAGE = [3, 7, 14, 30, 60, 90];
+
 /** Die Kategorien in ihre Unterkategorien, wie der Hub sie vergibt.
  *
  * «test» absichtlich nirgends: Der Test kommt immer an, ein Schalter
@@ -81,6 +87,13 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
     threshold: number;
   } | null>(null);
   const [batterieFehler, setBatterieFehler] = useState<string | null>(null);
+  // Die Gutschein-Erinnerung (Punkt 264): zwei Stufen vor dem Ablauf,
+  // haushaltsweit wie die Batterie. null: alter Hub ohne die Route.
+  const [gutschein, setGutschein] = useState<{
+    first_days: number;
+    second_days: number;
+  } | null>(null);
+  const [gutscheinFehler, setGutscheinFehler] = useState<string | null>(null);
 
   const hub = useMemo(
     () => hubClient(settings.url, settings.token),
@@ -107,7 +120,36 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
         still: true,
       })
       .then((data) => setBatterie(data ?? null));
+    hub
+      .get<{ first_days: number; second_days: number } | null>(
+        '/api/push/vouchers',
+        { fallback: null, still: true }
+      )
+      .then((data) => setGutschein(data ?? null));
   }, [hub]);
+
+  const gutscheinSetzen = async (patch: {
+    first_days?: number;
+    second_days?: number;
+  }) => {
+    if (!gutschein) return;
+    const vorher = gutschein;
+    setGutschein({ ...gutschein, ...patch });
+    setGutscheinFehler(null);
+    try {
+      const data = await hub.put<{ first_days: number; second_days: number }>(
+        '/api/push/vouchers',
+        patch,
+        { still: true }
+      );
+      // Der Hub darf die Reihenfolge richten (erste vor zweiter) - was
+      // er zurückgibt, gilt, nicht was angetippt wurde.
+      setGutschein({ first_days: data.first_days, second_days: data.second_days });
+    } catch (err) {
+      setGutschein(vorher);
+      setGutscheinFehler(String(err instanceof Error ? err.message : err));
+    }
+  };
 
   const batterieSetzen = async (patch: { hour?: number; threshold?: number }) => {
     if (!batterie) return;
@@ -319,6 +361,47 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
           </View>
           {batterieFehler ? (
             <Text style={styles.hint}>{batterieFehler}</Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      {gutschein ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Gutschein-Erinnerung</Text>
+          <Text style={styles.hint}>
+            Der Hub erinnert zweimal, bevor ein Gutschein verfällt, und am
+            Ablauftag selbst – gilt für den ganzen Haushalt; private
+            Gutscheine sieht nur, wem sie gehören.
+          </Text>
+          {(
+            [
+              ['first_days', '1. Erinnerung'],
+              ['second_days', '2. Erinnerung'],
+            ] as const
+          ).map(([feld, wort]) => (
+            <View key={feld} style={styles.wahlZeile}>
+              <Text style={[styles.wahlWort, { minWidth: 96 }]}>{wort}</Text>
+              {VORLAUF_TAGE.map((tage) => {
+                const an = gutschein[feld] === tage;
+                return (
+                  <Pressable
+                    key={tage}
+                    onPress={() => gutscheinSetzen({ [feld]: tage })}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: an }}
+                    accessibilityLabel={`${wort} ${tage} Tage vor dem Ablauf`}
+                    style={[styles.wahlChip, an && styles.wahlChipAn]}
+                  >
+                    <Text style={[styles.wahlText, an && styles.wahlTextAn]}>
+                      {tage} T.
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ))}
+          {gutscheinFehler ? (
+            <Text style={styles.hint}>{gutscheinFehler}</Text>
           ) : null}
         </View>
       ) : null}

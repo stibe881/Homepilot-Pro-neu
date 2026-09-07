@@ -28,12 +28,15 @@ export const DURCHSUCHT: { key: string; label: string }[] = [
   { key: 'routines', label: 'Routinen' },
   { key: 'packlists', label: 'Packlisten' },
   { key: 'countdowns', label: 'Countdowns' },
+  // Punkt 264: «Haben wir noch was von Brack?» - Laden, Titel und
+  // Kategorie eines Gutscheins.
+  { key: 'vouchers', label: 'Gutscheine' },
 ];
 
 /** Felder, in denen gesucht wird. Alles andere ist Technik. */
 const FELDER = [
   'text', 'name', 'title', 'body', 'note', 'notes', 'phone', 'phone2',
-  'email', 'address', 'member', 'category', 'value',
+  'email', 'address', 'member', 'category', 'value', 'shop',
 ];
 
 export interface Treffer {
@@ -75,7 +78,7 @@ export function suche(
         const inhalt = textVon(item, feld);
         if (inhalt.toLowerCase().includes(gesucht)) {
           // Der Name ist keine Fundstelle – er steht schon in der Zeile.
-          if (!['text', 'name', 'title'].includes(feld)) fundstelle = inhalt;
+          if (!['text', 'name', 'title', 'shop'].includes(feld)) fundstelle = inhalt;
           treffer.push({ collection: modul.key, label: modul.label, item, fundstelle });
           break;
         }
@@ -91,6 +94,13 @@ export function suche(
 
 /** Wie ein Treffer in der Liste heisst (rein, testbar). */
 export function trefferName(item: Zeile): string {
+  // Ein Gutschein heisst nach seinem Laden; der Titel («Gutschein»)
+  // allein sagte nicht, welcher gemeint ist.
+  const laden = String(item?.shop ?? '').trim();
+  if (laden) {
+    const titel = String(item?.title ?? '').trim();
+    return titel ? `${laden} – ${titel}` : laden;
+  }
   return (
     String(item?.text ?? item?.name ?? item?.title ?? '').trim() || 'Ohne Namen'
   );
