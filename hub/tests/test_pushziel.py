@@ -35,6 +35,8 @@ def test_beim_sammelplatz_gewinnt_die_kategorie():
 def test_familie_kommt_in_ihre_kachel():
     assert ziel_fuer("shopping") == "familie:shopping"
     assert ziel_fuer("medication") == "familie:medications"
+    # Ein verfallender Gutschein (Punkt 264) wird in seiner Kachel eingelöst.
+    assert ziel_fuer("vouchers") == "familie:vouchers"
 
 
 def test_ohne_kategorie_kein_ziel():

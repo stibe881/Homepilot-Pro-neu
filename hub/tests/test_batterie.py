@@ -249,3 +249,45 @@ async def test_the_routes_acknowledge_and_undo():
 
         assert client.delete("/api/batteries/demo.motion_hall/ack").status_code == 200
         assert client.get("/api/batteries").json() == {"batteries": []}
+
+
+def test_prefs_survive_the_data_store_as_a_one_entry_list():
+    """Der DataStore kennt nur Listen - ein Dict wird zur Liste seiner
+    Schlüssel. Genau so kam die eingestellte Stunde nie an; gelesen
+    werden muss deshalb beides, Dict und Ein-Eintrag-Liste."""
+    assert batterie.prefs_lesen([{"hour": 20, "threshold": 15}]) == {
+        "hour": 20,
+        "threshold": 15,
+    }
+    # Das kaputte Erbe von früher: die Schlüsselliste. Vorgaben, kein Absturz.
+    assert batterie.prefs_lesen(["hour", "threshold"]) == {"hour": 8, "threshold": 10}
+
+
+def test_the_battery_prefs_route_really_stores_what_it_says():
+    """Die Route antwortete «ok» und speicherte nichts - der Test dazu
+    fehlte. Jetzt muss, was PUT bestätigt, beim nächsten GET dastehen."""
+    from fastapi.testclient import TestClient
+
+    from homepilot.api.server import create_app
+
+    hub = Hub(
+        HubConfig(
+            api=ApiConfig(),
+            integrations=[{"integration": "demo"}],
+            users=[{"name": "Stefan", "role": "besitzer", "token": "t-owner"}],
+        )
+    )
+    kopf = {"Authorization": "Bearer t-owner"}
+    with TestClient(create_app(hub)) as client:
+        assert client.get("/api/push/battery", headers=kopf).json() == {
+            "hour": 8,
+            "threshold": 10,
+        }
+        antwort = client.put("/api/push/battery", json={"hour": 20}, headers=kopf)
+        assert antwort.json() == {"ok": True, "hour": 20, "threshold": 10}
+        assert client.get("/api/push/battery", headers=kopf).json() == {
+            "hour": 20,
+            "threshold": 10,
+        }
+        # Und der Wächter liest dieselbe Stunde - er ist der Grund für alles.
+        assert batterie.prefs_lesen(hub.data.get(batterie.PREFS_KEY))["hour"] == 20

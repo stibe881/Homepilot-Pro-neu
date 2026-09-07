@@ -22,7 +22,18 @@ import base64
 import binascii
 import hashlib
 import re
+from pathlib import Path
 from typing import Any
+
+# Welche Familiensammlung ihre Bilder in welchem Ordner ablegt - neben
+# der Datendatei. Die Rezepte hiessen zuerst so, und die Bilder liegen
+# schon dort; die Gutscheine (Punkt 264 der Werkbank) bekommen ihren
+# eigenen Ordner, damit ein Foto der Gutscheinkarte samt Nummer nicht
+# zwischen den Lasagne-Bildern liegt, die jeder sehen darf.
+ORDNER: dict[str, str] = {
+    "recipes": "rezeptbilder",
+    "vouchers": "gutscheinbilder",
+}
 
 # Was wir annehmen. Bewusst kurz: Alles, was die App aufnimmt, wird
 # vorher zu JPEG verkleinert; PNG kommt aus dem Netz-Import.
@@ -76,6 +87,27 @@ def safe_id(value: Any) -> str | None:
     """Eine Kennung, die als Dateiname taugen darf (rein, testbar)."""
     text = str(value or "").strip()
     return text if SAFE_ID.fullmatch(text) else None
+
+
+def ordner(data_path: Any, collection: str) -> Path | None:
+    """Der Bildordner einer Sammlung neben der Datendatei (rein, testbar).
+
+    None ohne Datendatei (Tests, im Speicher gebaute Hubs) und für
+    Sammlungen, die keine Bilder führen.
+    """
+    name = ORDNER.get(collection)
+    if not data_path or name is None:
+        return None
+    return Path(data_path).parent / name
+
+
+def loeschen(folder: Path | None, item_id: Any) -> None:
+    """Alle Fassungen eines Bildes wegräumen - ohne Klage, wenn es keins gibt."""
+    kennung = safe_id(item_id)
+    if folder is None or kennung is None or not folder.exists():
+        return
+    for datei in folder.glob(f"{kennung}.*"):
+        datei.unlink(missing_ok=True)
 
 
 def media_type(name: str) -> str:
