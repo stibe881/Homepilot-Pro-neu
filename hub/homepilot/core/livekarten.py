@@ -58,6 +58,10 @@ KARTEN_KEY = "live_cards"
 #: Aktivität ohnehin.
 UPDATE_ABSTAND = 45.0
 
+#: So lange bleibt eine Karte vorgemerkt, deren Ende mangels Token nicht
+#: rausging - danach hat iOS sie ohnehin selbst abgeräumt.
+NACHHALL_SEKUNDEN = 12 * 3600.0
+
 
 # ── Registrierung (rein, testbar) ─────────────────────────────────────────
 
@@ -150,6 +154,29 @@ def token_merken(rows: Any, user: str, art: str, token: str) -> list[Any]:
 
 
 # ── Die Treiber: aus Hauszustand werden gewünschte Karten ─────────────────
+
+
+def erreichbar(entity: Any) -> bool:
+    """Weiss der Hub gerade wirklich, wie es um das Gerät steht? (rein, testbar)
+
+    Der gemeldete Fall: Beide Fernseher waren längst aus, ihre Karten
+    lagen trotzdem noch auf dem Sperrbildschirm - «Küche · Relaxing
+    Sounds» und «Fernseher Wohnzimmer · eingeschaltet». Ein
+    Cast-Gerät fällt mit dem Ausschalten aus dem Netz, und die
+    Integration setzt dann nur ``available=False``, ohne den Zustand
+    anzufassen (integrations/google_cast.py: ``update_state(id, {},
+    available=False)``). Für den Hub lief die Sitzung damit ewig
+    weiter: Er *wollte* die Karte weiter, beendete sie nie - und selbst
+    das Nach-Beenden beim App-Start griff nicht, weil zu dieser Art ja
+    noch eine Karte laufen sollte (hat_karte).
+
+    Also: Was der Hub nicht erreicht, läuft für die Karte nicht. Der
+    letzte Zustand ist dann eine Erinnerung und kein Messwert - und
+    eine Karte, die man nicht mehr loswird, ist schlimmer als eine, die
+    einen Takt zu früh geht.
+    """
+    return getattr(entity, "available", True) is not False
+
 #
 # Jede Karte: {"art": eindeutig, "user": Name oder None (= alle),
 # "state": {titel, text, symbol, farbe?, endet?, fortschritt?, url?},
@@ -233,6 +260,8 @@ def karten_geraete(
     for entity in entities:
         if entity.kind != "appliance" or entity.state.get("state") != "running":
             continue
+        if not erreichbar(entity):
+            continue
         if entity.state.get("target") is not None:
             continue
         minuten = entity.state.get("minutes_left")
@@ -281,6 +310,8 @@ def karten_grill(entities: list[Any]) -> list[dict[str, Any]]:
     karten = []
     for entity in entities:
         if entity.kind != "appliance" or entity.state.get("state") != "running":
+            continue
+        if not erreichbar(entity):
             continue
         ziel = entity.state.get("target")
         if ziel is None:
@@ -357,6 +388,8 @@ def karten_sauger(entities: list[Any]) -> list[dict[str, Any]]:
             "cleaning",
             "paused",
         ):
+            continue
+        if not erreichbar(entity):
             continue
         akku = entity.state.get("battery")
         flaeche = entity.state.get("clean_area_m2")
@@ -613,6 +646,10 @@ def karten_tv(
         if entity.kind == "media_player"
         and entity.state.get("has_screen")
         and str(entity.state.get("state") or "") in TV_AN
+        # Erreichbar muss er auch sein: Ein Fernseher, der mit dem
+        # Ausschalten aus dem Netz fällt, behält seinen letzten Zustand
+        # (erreichbar) - genau daran blieben die Karten hängen.
+        and erreichbar(entity)
         # Kein Geisterbild: Hält nur der Zuspieler die Sitzung fest,
         # während der Steuerkreuz-Zwilling erreichbar «aus» meldet, ist
         # der Bildschirm dunkel - und eine Karte dafür Dauermöblierung.
@@ -776,6 +813,11 @@ def abgleich(
     Updates frühestens alle `update_abstand` Sekunden je Karte - ein
     verworfenes Update geht nicht verloren, es kommt in einer späteren
     Runde, weil der gespeicherte Stand erst beim Senden nachzieht.
+
+    Eine Karte, deren Ende mangels Token nicht rausgeht, bleibt als
+    ``ende_offen`` in der Liste stehen (bis NACHHALL_SEKUNDEN). Sie
+    wurde früher trotzdem gestrichen - danach wusste der Hub nichts
+    mehr von ihr, und das Telefon behielt sie.
     """
     soll: dict[tuple[str, str], dict[str, Any]] = {}
     for karte in gewuenscht:
@@ -806,6 +848,10 @@ def abgleich(
         user, art = schluessel
         stand = _stand(karte["state"])
         alt = alte.pop(schluessel, None)
+        if alt is not None and alt.get("ende_offen"):
+            # Die Karte ist wieder gewollt (der Fernseher ist zurück im
+            # Netz) - damit ist der offene Ende-Vermerk erledigt.
+            alt = {name: wert for name, wert in alt.items() if name != "ende_offen"}
         if alt is None:
             starten.append({"user": user, "art": art, "state": karte["state"]})
             neue.append(
@@ -838,13 +884,23 @@ def abgleich(
                 karte = kandidat
                 break
         ende = (karte or {}).get("ende") or {}
+        tokens = alt.get("activity_tokens") or []
         beenden.append(
             {
-                "tokens": alt.get("activity_tokens") or [],
+                "tokens": tokens,
                 "state": ende.get("state"),
                 "sichtbar": float(ende.get("sichtbar") or 0),
             }
         )
+        # Ohne Token geht das Ende ins Leere - und mit der Zeile wäre
+        # auch das Wissen weg, dass da noch eine Karte liegt. Also
+        # vorgemerkt lassen statt vergessen: Meldet die App ihr Token
+        # nach (/api/liveactivity/activity), landet es an genau dieser
+        # Zeile, und der nächste Takt beendet die Karte wirklich. Der
+        # Umweg über VERWAIST_KEY greift nur, wenn der Hub die Art gar
+        # nicht mehr kennt - er ist das Netz darunter, nicht der Weg.
+        if not tokens and jetzt_s - float(alt.get("aktualisiert") or 0) < NACHHALL_SEKUNDEN:
+            neue.append({**alt, "ende_offen": True})
     return neue, starten, aktualisieren, beenden
 
 
@@ -1020,9 +1076,18 @@ async def _runde(hub: Any, versand: liveaktivitaet.ApnsVersand) -> None:
         for token in auftrag["tokens"]:
             await versand.senden(str(token), update_payload(auftrag["state"], jetzt))
     for auftrag in beenden:
+        if not auftrag["tokens"]:
+            # Kein Token, kein Ende - die Karte bleibt vorgemerkt
+            # (abgleich, ende_offen), bis die App ihres nachmeldet.
+            log.info("Live-Karte: Ende ohne Token - vorgemerkt")
+            continue
         for token in auftrag["tokens"]:
             await versand.senden(
                 str(token), ende_payload(auftrag["state"], auftrag["sichtbar"], jetzt)
             )
-    if starten or aktualisieren or beenden:
+    # Nur schreiben, wenn sich wirklich etwas geändert hat: Eine
+    # vorgemerkte Karte (ende_offen) steht in jeder Runde erneut unter
+    # «beenden», und «gab es Aufträge?» hätte damit alle 20 Sekunden
+    # eine Speicherung ausgelöst, ohne dass sich eine Zeile ändert.
+    if neue != hub.data.get(KARTEN_KEY):
         hub.data.set(KARTEN_KEY, neue)
