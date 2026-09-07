@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 
 from homepilot.core.livekarten import (
+    NACHHALL_SEKUNDEN,
     abgleich,
     ende_payload,
     hat_karte,
@@ -449,8 +450,11 @@ def test_abgleich_startet_aktualisiert_und_beendet():
 
     # Timer weg: beide Karten enden - auch die ohne Token (leere Liste).
     rows, starten, aktualisieren, beenden = abgleich(rows, [], ["Stibe", "Bine"], 3000.0)
-    assert rows == [] and len(beenden) == 2
+    assert len(beenden) == 2
     assert sorted(len(b["tokens"]) for b in beenden) == [0, 1]
+    # Die mit Token ist erledigt; die ohne bleibt vorgemerkt, sonst
+    # wüsste der Hub nichts mehr von der Karte, die noch liegt.
+    assert [(r["user"], r.get("ende_offen")) for r in rows] == [("Bine", True)]
 
 
 def test_wer_das_haus_verlaesst_verliert_die_fernseher_karte():
@@ -653,3 +657,84 @@ def test_die_saugerkarte_traegt_pause_weiter_und_station():
     # Angedockt oder unterwegs zur Station: keine Karte - wie bisher.
     assert karten_sauger([sauger("docked")]) == []
     assert karten_sauger([sauger("returning")]) == []
+
+
+def test_karten_nur_fuer_geraete_die_der_hub_erreicht():
+    """Der gemeldete Fall: «Beide Geräte wurden bereits ausgeschaltet,
+    aber die Live-Aktivität ist immer noch vorhanden.»
+
+    Ein Cast-Fernseher fällt mit dem Ausschalten aus dem Netz. Die
+    Integration setzt dann nur ``available=False`` und lässt den
+    Zustand stehen - für den Hub lief «Relaxing Sounds» ewig weiter,
+    und die Karte war nicht mehr loszuwerden."""
+    weg = SimpleNamespace(
+        id="cast.kueche", kind="media_player", label="Küche",
+        state={"state": "playing", "has_screen": True, "app": "Relaxing Sounds"},
+        available=False,
+    )
+    da = SimpleNamespace(
+        id="cast.wz", kind="media_player", label="Wohnzimmer",
+        state={"state": "playing", "has_screen": True},
+        available=True,
+    )
+    assert [k["art"] for k in karten_tv([weg, da])] == ["tv:cast.wz"]
+
+    # Dieselbe Regel bei Waschmaschine, Grill und Sauger.
+    waesche = SimpleNamespace(
+        id="shelly.wm", kind="appliance", label="Waschmaschine",
+        state={"state": "running", "program": "Buntwäsche"}, available=False,
+    )
+    grill = SimpleNamespace(
+        id="pitboss.grill", kind="appliance", label="Grill",
+        state={"state": "running", "target": 110, "temperature": 80},
+        available=False,
+    )
+    sauger = SimpleNamespace(
+        id="roborock.saros", kind="vacuum", label="Saros",
+        state={"state": "cleaning"}, available=False,
+    )
+    assert karten_geraete([waesche]) == []
+    assert karten_grill([grill]) == []
+    assert karten_sauger([sauger]) == []
+
+
+def test_karte_ohne_token_bleibt_vorgemerkt_und_endet_beim_nachtragen():
+    """Ohne Aktivitäts-Token geht das Ende ins Leere. Die Zeile trotzdem
+    zu streichen hiess: Der Hub vergisst die Karte, das Telefon behält
+    sie. Jetzt bleibt sie vorgemerkt, bis die App ihr Token nachmeldet."""
+    wunsch = [{"art": "tv:cast.wz", "user": None, "state": {"titel": "TV", "text": "an"}}]
+    rows, starten, _, _ = abgleich([], wunsch, ["Stibe"], 1000.0)
+    assert len(starten) == 1
+
+    # Fernseher aus, bevor die App ihr Token melden konnte.
+    rows, _, _, beenden = abgleich(rows, [], ["Stibe"], 1100.0)
+    assert beenden[0]["tokens"] == []
+    assert hat_karte(rows, "Stibe", "tv:cast.wz")
+
+    # Jetzt kommt das Token - es landet an der vorgemerkten Zeile.
+    rows = token_merken(rows, "Stibe", "tv:cast.wz", "act-7")
+    rows, _, _, beenden = abgleich(rows, [], ["Stibe"], 1200.0)
+    assert [b["tokens"] for b in beenden] == [["act-7"]]
+    assert rows == []
+
+
+def test_vorgemerkte_karte_faellt_nach_dem_nachhall_weg():
+    """Ewig warten wäre falsch: Nach zwölf Stunden hat iOS die Karte
+    ohnehin selbst abgeräumt."""
+    wunsch = [{"art": "tv:cast.wz", "user": None, "state": {"titel": "TV", "text": "an"}}]
+    rows, _, _, _ = abgleich([], wunsch, ["Stibe"], 1000.0)
+    rows, _, _, _ = abgleich(rows, [], ["Stibe"], 1000.0 + NACHHALL_SEKUNDEN)
+    assert rows == []
+
+
+def test_kehrt_der_fernseher_zurueck_ist_der_vermerk_erledigt():
+    """Kommt das Gerät zurück, ist die liegende Karte wieder die
+    richtige - kein zweiter Start-Push, der sie verdoppeln würde."""
+    wunsch = [{"art": "tv:cast.wz", "user": None, "state": {"titel": "TV", "text": "an"}}]
+    rows, _, _, _ = abgleich([], wunsch, ["Stibe"], 1000.0)
+    rows, _, _, _ = abgleich(rows, [], ["Stibe"], 1100.0)
+    assert rows[0]["ende_offen"] is True
+
+    rows, starten, _, beenden = abgleich(rows, wunsch, ["Stibe"], 1200.0)
+    assert starten == [] and beenden == []
+    assert "ende_offen" not in rows[0]
