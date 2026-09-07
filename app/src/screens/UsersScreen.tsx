@@ -1677,16 +1677,12 @@ function GuestWifiCard({
               <Text style={styles.qrHint} selectable>
                 {aufkleber.url}
               </Text>
-              {aufkleber.open.length > 0 ? (
-                <>
-                  <Text style={styles.formLabel}>Gerade offen</Text>
-                  {aufkleber.open.map((eintrag) => (
-                    <Text key={eintrag.code} style={styles.qrHint}>
-                      {eintrag.code} · {eintrag.left}
-                    </Text>
-                  ))}
-                </>
-              ) : null}
+              {/* Die gezogenen Codes standen hier einmal im Klartext.
+                  Das ist der falsche Ort dafür: Die Karte hängt auf dem
+                  Wandpanel im Gang, und wer vorbeigeht, liest gültige
+                  Gästezugänge mit. Die Zahl oben («3 Codes offen») sagt
+                  ohnehin alles, wofür man hier nachsieht - ob jemand den
+                  Aufkleber benutzt, den man nicht gemeint hat. */}
               {canConfigure ? (
                 <Pressable
                   onPress={neuerAufkleber}
