@@ -791,6 +791,14 @@ if [ "${HOMEPILOT_ANDROID_BUILD}" = "1" ]; then
       [ "${PIPESTATUS[0]}" = "0" ]; then
       echo "✓ Android-Build läuft auf den EAS-Servern - er geht danach an"
       echo "  die Play Console (interne Testspur)."
+      # Das Einreichen passiert erst nach dem Bauen und auf den
+      # EAS-Servern - hier ist der Lauf da längst vorbei. Wer also grün
+      # liest und trotzdem nichts in der Play Console findet, schaut auf
+      # expo.dev unter «Submissions» nach; die häufigste Meldung dort
+      # («The caller does not have permission») hat nichts mit dem Build
+      # zu tun, sondern mit den Rechten des Dienstkontos.
+      echo "  Ergebnis des Einreichens: expo.dev → Submissions"
+      echo "  (scheitert es dort: docs/android.md, letzter Abschnitt)."
     else
       echo "⚠ Android-Build liess sich nicht anstossen - Hub-Update und"
       echo "  iOS-Build sind davon unberührt."
