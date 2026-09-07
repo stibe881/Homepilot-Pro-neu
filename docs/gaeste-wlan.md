@@ -154,6 +154,10 @@ gemeint hat.
 ## Der Vorrat daneben
 
 Der ältere Weg bleibt: Unter *Portal-Gutschein* legt man Codes von Hand
-an (4 Stunden bis 1 Woche) und liest sie vor. Das ist der Weg für den
-Gast ohne Kamera und für den Code, den man jemandem im Voraus geben
-will.
+an und liest sie vor. Das ist der Weg für den Gast ohne Kamera und für
+den Code, den man jemandem im Voraus geben will.
+
+Acht Stunden sind dort der Standard - ein Abendbesuch -, daneben stehen
+1 Tag, 3 Tage und 1 Woche für die bewusste Wahl. Der eben angelegte Code
+steht sofort oben; erst wenn er eingelöst oder gelöscht ist, rückt der
+Vorrat der Reihe nach nach.
