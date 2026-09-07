@@ -3896,6 +3896,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           user={user}
           erzwungen={einfuehrungErzwungen}
           onErzwungenZu={() => setEinfuehrungErzwungen(false)}
+          // Das Leisten-Schaubild ist antippbar: Die App wechselt hinter
+          // dem Blatt live mit - ausprobieren statt merken. Ausgeblendete
+          // Bereiche (Kindermodus, Gast) bleiben zu.
+          onBereich={(key) => {
+            const ziel = key as Section;
+            if (!hiddenSections.includes(ziel)) setSection(ziel);
+          }}
         />
         <Hilfeblatt
           offen={hilfeOffen}

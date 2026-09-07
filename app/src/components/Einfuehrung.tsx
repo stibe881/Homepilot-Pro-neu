@@ -1,11 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppState, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { hubClient } from '../api/client';
 import { HubSettings, User } from '../api/types';
 import { Card } from './Card';
-import { EINFUEHRUNG_STAND, schritteFuer, zeigtEinfuehrung } from '../lib/einfuehrung';
+import {
+  BEREICHE,
+  EINFUEHRUNG_STAND,
+  EinfuehrungSchritt,
+  schritteFuer,
+  zeigtEinfuehrung,
+} from '../lib/einfuehrung';
 import { persoenlichSetzen } from '../lib/persoenlich';
 import { giltAlsNeuGeoeffnet } from '../lib/wiederkehr';
 import { Colors, radius, type, useColors } from '../theme';
@@ -17,9 +23,15 @@ import { Colors, radius, type, useColors } from '../theme';
  * Leiste liegt auf dem Telefon unten, auf dem iPad links, im Browser je
  * nach Fenster - ein Pfeil, der überall die richtige Stelle träfe,
  * müsste jedes Layout kennen und bräche beim nächsten Umbau still,
- * mitten auf dem Bildschirm des einen Geräts, das niemand prüft. Ein
- * Blatt mit kurzen Texten erklärt dasselbe und überlebt jeden Umbau
- * (die Schritte samt Begründung: lib/einfuehrung.ts).
+ * mitten auf dem Bildschirm des einen Geräts, das niemand prüft.
+ *
+ * Gezeigt wird trotzdem: Jeder Schritt trägt ein Schaubild IM Blatt
+ * (lib/einfuehrung.ts, `schaubild`). Das wichtigste ist die Leiste mit
+ * ihren echten Symbolen - antippbar, und die App wechselt dahinter live
+ * mit (`onBereich`): Wer «Licht» einmal selbst gedrückt hat, muss sich
+ * die Aufzählung nicht merken. Vorher stand hier «Start, Räume, Licht,
+ * Storen, Familie» als Prosa, und jeder übersetzte sie im Kopf erst
+ * wieder in Symbole.
  *
  * Der «einmal pro Person»-Mechanismus ist derselbe wie bei «Was ist neu»
  * (WhatsNew.tsx, lib/wiederkehr.ts): Das Gesehen-Sein liegt als
@@ -39,6 +51,7 @@ export function Einfuehrung({
   user,
   erzwungen = false,
   onErzwungenZu,
+  onBereich,
 }: {
   settings: HubSettings;
   /** Der angemeldete Benutzer - entscheidet über die Fassung. */
@@ -46,6 +59,9 @@ export function Einfuehrung({
   /** Aus der Hilfe heraus: «Einführung erneut zeigen». */
   erzwungen?: boolean;
   onErzwungenZu?: () => void;
+  /** Ein Bereich im Schaubild wurde angetippt - die App soll dahinter
+   *  live dorthin wechseln (Ausprobieren statt Merken). */
+  onBereich?: (key: string) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -58,6 +74,9 @@ export function Einfuehrung({
   const [geladen, setGeladen] = useState(false);
   const [zurueckgestellt, setZurueckgestellt] = useState(false);
   const [schritt, setSchritt] = useState(0);
+  // Welcher Bereich im Schaubild zuletzt ausprobiert wurde - nur fürs
+  // Aufleuchten des Knopfs; den Wechsel dahinter macht `onBereich`.
+  const [getippt, setGetippt] = useState('start');
 
   const laden = useCallback(() => {
     hubClient(settings.url, settings.token)
@@ -101,7 +120,10 @@ export function Einfuehrung({
 
   // Beim Aufgehen wieder vorne anfangen - auch beim «erneut zeigen».
   useEffect(() => {
-    if (zeigen) setSchritt(0);
+    if (zeigen) {
+      setSchritt(0);
+      setGetippt('start');
+    }
   }, [zeigen]);
 
   if (!zeigen) return null;
@@ -134,9 +156,20 @@ export function Einfuehrung({
               <Ionicons name={aktuell.icon} size={22} color={colors.accent} />
               <Text style={styles.title}>{aktuell.titel}</Text>
             </View>
-            <ScrollView style={{ flexGrow: 0 }}>
-              <Text style={styles.text}>{aktuell.text}</Text>
-            </ScrollView>
+            <Schaubild
+              art={aktuell.schaubild}
+              getippt={getippt}
+              onBereich={(key) => {
+                setGetippt(key);
+                onBereich?.(key);
+              }}
+              styles={styles}
+              colors={colors}
+            />
+            {/* Direkt statt in einer ScrollView: Neben dem Schaubild
+                kollabierte die auf eine Zeile und schnitt den Satz ab.
+                Die Texte sind bewusst kurz - scrollen muss hier nichts. */}
+            <Text style={styles.text}>{aktuell.text}</Text>
 
             {schritte.length > 1 ? (
               <View style={styles.dots} accessibilityLabel={`Schritt ${schritt + 1} von ${schritte.length}`}>
@@ -189,6 +222,83 @@ export function Einfuehrung({
   );
 }
 
+/**
+ * Das Schaubild eines Schritts - zeigen statt beschreiben.
+ *
+ * Die Leiste besteht aus den echten Symbolen und ist antippbar: Die App
+ * wechselt dahinter live mit, und der gedrückte Knopf leuchtet - wer
+ * «Licht» einmal selbst getroffen hat, muss sich nichts merken. Der
+ * «Alles aus»-Knopf und das Suchfeld sind Abbilder zum Wiedererkennen,
+ * keine Bedienelemente: Ein Knopf, der aus der Einführung heraus die
+ * halbe Wohnung abschaltet, wäre eine Falle.
+ */
+function Schaubild({
+  art,
+  getippt,
+  onBereich,
+  styles,
+  colors,
+}: {
+  art: EinfuehrungSchritt['schaubild'];
+  getippt: string;
+  onBereich: (key: string) => void;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Colors;
+}) {
+  if (art === 'leiste') {
+    return (
+      <View style={styles.leiste}>
+        {BEREICHE.map((bereich) => {
+          const an = getippt === bereich.key;
+          return (
+            <Pressable
+              key={bereich.key}
+              onPress={() => onBereich(bereich.key)}
+              accessibilityRole="button"
+              accessibilityLabel={`Bereich ${bereich.label} ausprobieren`}
+              style={({ pressed }) => [
+                styles.leisteKnopf,
+                an && styles.leisteKnopfAn,
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              <Ionicons
+                name={bereich.icon}
+                size={22}
+                color={an ? colors.accent : colors.inkSoft}
+              />
+              <Text style={[styles.leisteLabel, an && { color: colors.accent }]}>
+                {bereich.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    );
+  }
+  if (art === 'allesaus') {
+    return (
+      <View style={styles.schaubild}>
+        <View style={styles.allesAus}>
+          <Ionicons name="power" size={16} color="#FFFFFF" />
+          <Text style={styles.allesAusText}>Alles aus</Text>
+        </View>
+      </View>
+    );
+  }
+  if (art === 'suche') {
+    return (
+      <View style={styles.schaubild}>
+        <View style={styles.suchfeld}>
+          <Ionicons name="search-outline" size={16} color={colors.inkFaint} />
+          <Text style={styles.suchfeldText}>«ess» findet die Esstisch-Lampe</Text>
+        </View>
+      </View>
+    );
+  }
+  return null;
+}
+
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     backdrop: {
@@ -202,7 +312,10 @@ const makeStyles = (colors: Colors) =>
     card: {
       minHeight: 0,
       gap: 12,
-      maxHeight: '80%',
+      // Kein maxHeight mehr: Gegen den Wickel-Pressable ohne feste Höhe
+      // kollabierte das Prozentmass, und die Knöpfe ragten unter die
+      // Kartenkante. Der Inhalt ist kurz und fix - die Karte darf so
+      // hoch sein, wie er braucht.
       backgroundColor: colors.panel,
       alignSelf: 'center',
       width: '100%',
@@ -230,4 +343,56 @@ const makeStyles = (colors: Colors) =>
     },
     buttonPrimary: { backgroundColor: colors.accent, borderColor: colors.accent },
     buttonText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
+    // Die Schaubilder: eine ruhige Fläche über dem Text, auf der etwas
+    // zum Wiedererkennen steht - die Leiste, der Knopf, das Suchfeld.
+    leiste: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      gap: 4,
+      padding: 8,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    leisteKnopf: {
+      flex: 1,
+      alignItems: 'center',
+      gap: 4,
+      paddingVertical: 8,
+      borderRadius: radius.control,
+    },
+    leisteKnopfAn: { backgroundColor: colors.surfaceStrong },
+    leisteLabel: { color: colors.inkSoft, fontSize: 11, fontWeight: '600' },
+    schaubild: {
+      alignItems: 'center',
+      padding: 14,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    allesAus: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingHorizontal: 18,
+      paddingVertical: 10,
+      borderRadius: radius.pill,
+      backgroundColor: colors.danger,
+    },
+    allesAusText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+    suchfeld: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      alignSelf: 'stretch',
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceStrong,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    suchfeldText: { color: colors.inkFaint, fontSize: 13 },
   });
