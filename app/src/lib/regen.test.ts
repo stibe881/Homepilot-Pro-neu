@@ -33,3 +33,32 @@ describe('balkenHoehen', () => {
     expect(balkenHoehen(undefined, 24)).toEqual([]);
   });
 });
+
+describe('regenSatz mit Stunden', () => {
+  test('ohne Regen in zwei Stunden sagt die Karte, wie lange man noch hat', () => {
+    // Bisher schwieg sie hier ganz - und die Wochenzeile mit ihren
+    // Prozenten beantwortet die Frage am Fenster nicht.
+    expect(regenSatz({ now: false, minutes: null, hours: 6 })).toBe(
+      'Regen in etwa 6 Std.'
+    );
+  });
+
+  test('die Minuten gehen vor - sie sind die genauere Auskunft', () => {
+    expect(regenSatz({ now: false, minutes: 45, hours: 1 })).toBe(
+      'Regen in etwa 45 Min.'
+    );
+  });
+
+  test('regnet es schon, zaehlt das Ende und nicht der naechste Guss', () => {
+    expect(regenSatz({ now: true, minutes: 20, hours: 8 })).toBe(
+      'Es regnet noch etwa 20 Min.'
+    );
+  });
+
+  test('trocken bleibt trocken', () => {
+    // Kein Regen in Sicht: kein Satz. Eine Zeile «kein Regen» stünde
+    // dort an den meisten Tagen und würde bald nicht mehr gelesen.
+    expect(regenSatz({ now: false, minutes: null, hours: null })).toBeNull();
+    expect(regenSatz({ now: false, minutes: null })).toBeNull();
+  });
+});
