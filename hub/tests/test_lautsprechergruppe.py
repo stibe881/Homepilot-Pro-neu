@@ -332,6 +332,35 @@ def test_zustaende_sind_ehrlich():
     assert cast_state_name(None, None) == "standby"
 
 
+def test_der_fernseher_ist_aus_auch_wenn_zattoo_weiterlaeuft():
+    """Zweimal gemeldet: «Der Fernseher ist aus, die Live-Aktivität ist
+    immer noch da - Fernseher Wohnzimmer, Zattoo.»
+
+    Zattoo hält seine Cast-Sitzung im Standby offen; der Zuspieler
+    meldet also weiter PLAYING, während das Bild dunkel ist. Der
+    Fernseher sagt es aber selbst - über HDMI-CEC (is_stand_by,
+    is_active_input)."""
+    from homepilot.integrations.google_cast import cast_media_state, cast_state_name
+
+    assert cast_state_name("PLAYING", "Zattoo", standby=True) == "standby"
+    assert cast_state_name("PLAYING", "Zattoo", aktiver_eingang=False) == "standby"
+    # Bild an: Es bleibt beim Abspielzustand.
+    assert cast_state_name("PLAYING", "Zattoo", aktiver_eingang=True) == "playing"
+    # Nicht gemeldet ändert nichts - ältere Geräte führen die Felder gar nicht.
+    assert cast_state_name("PLAYING", "Zattoo") == "playing"
+
+    # Am Fernseher zählt CEC, an der Box nicht: Eine Musikbox hat kein
+    # Bild, das aus sein könnte, und darf davon nicht stumm werden.
+    tv = cast_media_state(
+        "PLAYING", None, None, "Zattoo", 0.3, has_screen=True, standby=True
+    )
+    assert tv["state"] == "standby"
+    box = cast_media_state(
+        "PLAYING", "Lied", None, "Spotify", 0.3, has_screen=False, standby=True
+    )
+    assert box["state"] == "playing"
+
+
 def test_queue_update_nachricht():
     from homepilot.integrations.google_cast import queue_update_nachricht
 

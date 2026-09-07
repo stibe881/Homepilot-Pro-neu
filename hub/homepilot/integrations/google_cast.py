@@ -229,7 +229,12 @@ CAST_ZUSTAENDE = {
 BACKDROP = "Backdrop"
 
 
-def cast_state_name(player_state: str | None, app: str | None = None) -> str:
+def cast_state_name(
+    player_state: str | None,
+    app: str | None = None,
+    aktiver_eingang: bool | None = None,
+    standby: bool | None = None,
+) -> str:
     """Ehrlicher Zustand statt pauschalem «idle» (rein, testbar).
 
     Vorher hiess alles ausser «playing» schlicht idle. Damit sah eine
@@ -242,7 +247,22 @@ def cast_state_name(player_state: str | None, app: str | None = None) -> str:
     ``standby`` ist der Sonderfall Fernseher: Das Gerät antwortet, aber
     es läuft nur der Bildschirmschoner. Das ist etwas anderes als eine
     Box, die auf den nächsten Titel wartet.
+
+    Und der Fall, der das hier gekostet hat: «Der Fernseher ist aus, auf
+    dem Sperrbildschirm liegt trotzdem seit Stunden Zattoo.» Zattoo
+    hält seine Cast-Sitzung im Standby weiter offen - der Zuspieler
+    meldet also brav ``PLAYING``, während das Bild längst dunkel ist.
+    Der Fernseher weiss es aber selbst: Cast meldet neben dem
+    Abspielzustand auch ``is_stand_by`` und ``is_active_input``
+    (beides über HDMI-CEC). Sagt eines davon «Bild aus», gewinnt das -
+    eine laufende Sitzung ist kein Beweis für ein Bild.
+
+    Nicht gemeldet heisst ``None`` und ändert nichts: Lautsprecher und
+    Gruppen führen die Felder gar nicht, und ein fehlendes Feld darf
+    keine Box abschalten.
     """
+    if standby is True or aktiver_eingang is False:
+        return "standby"
     name = (player_state or "").strip().upper()
     zustand = CAST_ZUSTAENDE.get(name, "idle")
     if zustand == "idle" and (app or "").strip() in ("", BACKDROP):
@@ -266,6 +286,8 @@ def cast_media_state(
     repeat: Any = None,
     position_at: float | None = None,
     can_seek: bool | None = None,
+    aktiver_eingang: bool | None = None,
+    standby: bool | None = None,
 ) -> dict[str, Any]:
     """Übersetzt Cast-Status in Entitäts-Attribute (rein, testbar).
 
@@ -274,7 +296,15 @@ def cast_media_state(
     nicht aus seinem Namen: «Wohnzimmer» ist kein Beweis.
     """
     result: dict[str, Any] = {
-        "state": cast_state_name(player_state, app),
+        # Die CEC-Felder zählen nur am Fernseher: Eine Box hat kein
+        # Bild, das aus sein könnte, und ein «nein» aus einem Feld, das
+        # sie gar nicht führt, würde sie fälschlich stummschalten.
+        "state": cast_state_name(
+            player_state,
+            app,
+            aktiver_eingang if has_screen else None,
+            standby if has_screen else None,
+        ),
         "track": title or None,
         "artist": artist or None,
         # Cover des laufenden Titels, sofern die sendende App eines mitgibt.
@@ -571,6 +601,11 @@ class GoogleCastIntegration(Integration):
                 repeat=getattr(media, "repeat_mode", None),
                 position_at=time.time(),
                 can_seek=bool(getattr(media, "supports_seek", False)),
+                # Was der Fernseher über sein eigenes Bild sagt - siehe
+                # cast_state_name. Ältere Geräte führen die Felder
+                # nicht; dann bleibt es bei None.
+                aktiver_eingang=getattr(status, "is_active_input", None),
+                standby=getattr(status, "is_stand_by", None),
             ),
             available=True,
         )

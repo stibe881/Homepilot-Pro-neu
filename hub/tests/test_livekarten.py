@@ -130,7 +130,10 @@ def test_fernseher_karte_nur_fuer_laufende_fernseher():
     box = entity("sonos.kueche", "media_player", "Küche", state="playing")
     # Ein Cast-Fernseher im Hintergrundbild ist kein Fernsehabend.
     leerlauf = entity("tv.idle", "media_player", "TV", state="idle", has_screen=True)
-    assert karten_tv([aus, box, leerlauf]) == []
+    # Und ein Fernseher, dessen Bild laut CEC aus ist, obwohl die
+    # Cast-Sitzung weiterläuft (google_cast.cast_state_name).
+    ruhe = entity("tv.standby", "media_player", "TV", state="standby", has_screen=True)
+    assert karten_tv([aus, box, leerlauf, ruhe]) == []
 
 
 def test_fernseher_karte_nicht_fuer_leute_unterwegs():
