@@ -359,6 +359,19 @@ def test_der_fernseher_ist_aus_auch_wenn_zattoo_weiterlaeuft():
         "PLAYING", "Lied", None, "Spotify", 0.3, has_screen=False, standby=True
     )
     assert box["state"] == "playing"
+    assert "screen_off" not in box
+
+    # Die CEC-Antwort steht auch als eigenes Feld - sonst ist beim
+    # nächsten «die Karte liegt immer noch da» nicht zu unterscheiden,
+    # ob der Fernseher «Bild an» sagt oder gar nichts meldet
+    # (homepilot.tvcheck).
+    assert tv["screen_off"] is True
+    an = cast_media_state(
+        "PLAYING", None, None, "YouTube", 0.3, has_screen=True, aktiver_eingang=True
+    )
+    assert an["screen_off"] is False
+    stumm = cast_media_state("PLAYING", None, None, "YouTube", 0.3, has_screen=True)
+    assert stumm["screen_off"] is None
 
 
 def test_queue_update_nachricht():
