@@ -35,9 +35,11 @@ import { Person, anwesenheitsListe, werIstDaHinweis } from '../lib/ortung';
 import { tapped } from '../lib/haptics';
 import { kann } from '../lib/plattform';
 import { MAX_SCHRIFT } from '../lib/schrift';
+import { abschaltSatz } from '../lib/abschaltung';
 import { OHNE_RAUM, gezaehlteLichter, lichterAus, lichterNachRaum } from '../lib/zaehlung';
 import { ConnectionStatus } from '../hooks/useHub';
 import { useEscape } from '../hooks/useEscape';
+import { useJetzt } from '../hooks/useRestzeit';
 import { Colors, radius, type, useColors } from '../theme';
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
@@ -165,6 +167,11 @@ export function TopStrip({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [lightsOpen, setLightsOpen] = useState(false);
+  // Die Uhr fürs «Lichter an»-Blatt: nur wenn es offen ist und dort
+  // wirklich eine Frist läuft (hooks/useRestzeit.ts).
+  const lichterJetzt = useJetzt(
+    lightsOpen && entities.some((entity) => typeof entity.state.off_at === 'number')
+  );
   const [daOpen, setDaOpen] = useState(false);
   const [wer, setWer] = useState<Person[] | null>(null);
   const [eventOpen, setEventOpen] = useState(false);
@@ -387,7 +394,18 @@ export function TopStrip({
                   {gruppe.lichter.map((entity) => (
                     <View key={entity.id} style={styles.lightRow}>
                       <Ionicons name="bulb" size={18} color={colors.warn} />
-                      <Text style={[styles.lightName, { flex: 1 }]}>{entity.name}</Text>
+                      {/* Läuft eine Frist, steht sie unter dem Namen:
+                          Wer die Liste öffnet, will wissen, was noch
+                          brennt - und was von selbst wieder ausgeht, muss
+                          er nicht ausschalten (lib/abschaltung.ts). */}
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.lightName}>{entity.name}</Text>
+                        {abschaltSatz(entity.state, lichterJetzt) ? (
+                          <Text style={styles.lightRest}>
+                            {abschaltSatz(entity.state, lichterJetzt)}
+                          </Text>
+                        ) : null}
+                      </View>
                       {onCommand && entity.commands.includes('turn_off') ? (
                         <Pressable
                           onPress={() => onCommand(entity.id, 'turn_off')}
@@ -1430,6 +1448,7 @@ const makeStyles = (colors: Colors) =>
   // mit einer Hand tippt, trifft sonst die kleinen Knöpfe daneben.
   einkaufTap: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
   lightName: { color: colors.ink, fontSize: 15, fontWeight: '600' },
+  lightRest: { color: colors.inkSoft, fontSize: 12, marginTop: 1 },
   lightRoom: { color: colors.inkFaint, fontSize: 12 },
   /** Die Raumüberschrift im «Lichter an»-Blatt - klein und gedeckt,
    *  damit die Lichter darunter die Hauptsache bleiben. */

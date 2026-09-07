@@ -58,6 +58,7 @@ export interface Automation {
   /** Nachts (22–8 Uhr) keine Nachricht und keine Durchsage – der Rest
    *  des Ablaufs läuft weiter. */
   quiet_night?: boolean;
+  countdown?: boolean;
   /** Ruht bis (Unix-Sekunden) - «aus bis morgen», Punkt 159. */
   quiet_until?: number | null;
   /** Nächster geplanter Lauf (Unix-Sekunden), nur Zeit/Sonne - Punkt 161. */
@@ -895,6 +896,9 @@ export interface Draft {
   /** Nachts nichts melden: Nachricht und Durchsage bleiben zwischen 22
    *  und 8 Uhr aus. Für das, was ohnehin bis zum Morgen Zeit hat. */
   nachtsStill: boolean;
+  /** Restzeit anzeigen: «geht in 12 Min aus» an der Gerätekachel, in der
+   *  Raumkarte und im «Lichter an»-Blatt, solange der Ablauf wartet. */
+  restzeitZeigen: boolean;
   /** Gesetzt, solange dieser Entwurf eine *Vorlage* ist und kein Ablauf:
    *  «neu» für eine frische, sonst die Kennung der gespeicherten. Der
    *  Editor sieht daran, dass beim Speichern eine Vorlage entsteht und
@@ -925,6 +929,7 @@ export const EMPTY: Draft = {
   category: '',
   enabled: true,
   nachtsStill: false,
+  restzeitZeigen: false,
 };
 
 /** Einen Trigger-Entwurf in die gespeicherte Form bringen (rein, testbar). */
@@ -1107,6 +1112,9 @@ interface SchrittBaum {
   ifThen?: SchrittBaum[];
   ifElse?: SchrittBaum[];
   repeatSteps?: SchrittBaum[];
+  /** Nur so viel davon, wie die Fragen hier brauchen: Ob der Schritt
+   *  etwas ausschaltet und ob ein Nachlauf daranhängt (schaltetSpaeterAus). */
+  commandActions?: { command?: string; offAfter?: number }[];
 }
 
 /** Alle Schritte, auch die in «wenn» und «wiederholen» (rein, testbar).
@@ -1129,6 +1137,29 @@ export function meldetEtwas(steps: SchrittBaum[]): boolean {
   return alleSchritte(steps).some(
     (step) => step.kind === 'notify' || step.kind === 'broadcast'
   );
+}
+
+/**
+ * Schaltet dieser Ablauf etwas zeitversetzt wieder aus? (rein, testbar)
+ *
+ * Nur dann lohnt die Frage nach der Restzeit - und nur dann kann der Hub
+ * eine nennen. Zwei Wege führen dahin: eine Wartezeit mit einem
+ * «ausschalten» dahinter, oder der Nachlauf am Licht-Schritt selbst
+ * («an, in 4 Min wieder aus»).
+ */
+export function schaltetSpaeterAus(steps: SchrittBaum[]): boolean {
+  const alle = alleSchritte(steps);
+  const nachlauf = alle.some((step) =>
+    (step.commandActions ?? []).some((aktion) => Number(aktion.offAfter) > 0)
+  );
+  if (nachlauf) return true;
+  const wartet = alle.findIndex((step) => step.kind === 'delay');
+  if (wartet < 0) return false;
+  return alle
+    .slice(wartet + 1)
+    .some((step) =>
+      (step.commandActions ?? []).some((aktion) => aktion.command === 'turn_off')
+    );
 }
 
 export function hatWartezeit(steps: SchrittBaum[]): boolean {
@@ -2024,6 +2055,7 @@ export function toDraft(automation: Automation): Draft {
     category: automation.category ?? '',
     enabled: automation.enabled !== false,
     nachtsStill: automation.quiet_night === true,
+    restzeitZeigen: automation.countdown === true,
   };
 }
 

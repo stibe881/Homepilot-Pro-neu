@@ -15,6 +15,7 @@ import {
   describe as zeileFuer,
   geraetePlatzhalter,
   hatWartezeit,
+  schaltetSpaeterAus,
   kopieSchritt,
   measurableAttributes,
   meldetEtwas,
@@ -1670,5 +1671,47 @@ describe('Platzhalter aus der Geräteauswahl (Punkt 251)', () => {
 
   it('bleibt ohne Gerät leer', () => {
     expect(geraetePlatzhalter(undefined)).toEqual([]);
+  });
+});
+
+
+describe('schaltetSpaeterAus', () => {
+  const licht = (kind: string, extra: Record<string, unknown> = {}) => ({
+    ...EMPTY_STEP,
+    kind,
+    ...extra,
+  });
+
+  it('sieht die Wartezeit mit einem «ausschalten» dahinter', () => {
+    const steps = [
+      licht('command', {
+        commandActions: [{ entity_id: 'hue.a', command: 'turn_on' }],
+      }),
+      licht('delay', { delaySeconds: '1800' }),
+      licht('command', {
+        commandActions: [{ entity_id: 'hue.a', command: 'turn_off' }],
+      }),
+    ];
+    expect(schaltetSpaeterAus(steps)).toBe(true);
+  });
+
+  it('sieht auch den Nachlauf am Licht-Schritt selbst', () => {
+    const steps = [
+      licht('command', {
+        commandActions: [{ entity_id: 'hue.a', command: 'turn_on', offAfter: 240 }],
+      }),
+    ];
+    expect(schaltetSpaeterAus(steps)).toBe(true);
+  });
+
+  it('schweigt, wenn nichts von selbst wieder ausgeht', () => {
+    // Warten allein genügt nicht: Ohne «ausschalten» dahinter gibt es
+    // keine Frist, die man anzeigen könnte.
+    const steps = [
+      licht('delay', { delaySeconds: '600' }),
+      licht('notify', { title: 'Fertig', body: '' }),
+    ];
+    expect(schaltetSpaeterAus(steps)).toBe(false);
+    expect(schaltetSpaeterAus([])).toBe(false);
   });
 });

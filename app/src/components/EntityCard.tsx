@@ -7,6 +7,7 @@ import Svg, { Polyline } from 'react-native-svg';
 import { CommandData, Entity, KalenderEintrag } from '../api/types';
 import { Doppelaktion, FENSTER_MS, merkbar } from '../lib/doppeltipp';
 import { Reihe, linienPunkte } from '../lib/funkenlinie';
+import { abschaltSatz } from '../lib/abschaltung';
 import { offlineSatz } from '../lib/funkstille';
 import { uebernahmeZeile, zustandsText } from '../lib/haushalt';
 import { KachelEintrag, kachelAktionen } from '../lib/kachelmenue';
@@ -16,6 +17,7 @@ import { lichtkachel } from '../lib/lichtfarbe';
 import { szenenfarbe } from '../lib/szenenfarbe';
 import { ketteSatz, ursacheSatz } from '../lib/ursache';
 import { zaehlbar } from '../lib/zaehlung';
+import { useJetzt } from '../hooks/useRestzeit';
 import { useColors } from '../theme';
 import { Bar } from './Bar';
 import { Card, CardFooter } from './Card';
@@ -299,7 +301,13 @@ export function EntityCard({
   // Heisst das Gerät wie sein Raum («Essbereich» im Essbereich), stünde
   // derselbe Name zweimal untereinander - dieselbe Auskunft zweimal ist
   // keine. Dann lieber die Anbindung als Untertitel.
+  // Läuft eine Frist, ist sie die Auskunft - «geht in 12 Min aus» sagt
+  // mehr als «tuya» oder der Raumname, den die Kachel ohnehin trägt.
+  // Getickt wird nur, solange wirklich eine läuft (hooks/useRestzeit.ts).
+  const jetzt = useJetzt(typeof entity.state.off_at === 'number');
+  const restzeit = abschaltSatz(entity.state, jetzt);
   const subtitle =
+    restzeit ||
     (imRaumblock || entity.room === entity.name ? undefined : entity.room) ||
     integrationLabel(entity.integration);
   // Offline-Geräte: mit «zuletzt vor …», damit man sieht, ob das Gerät

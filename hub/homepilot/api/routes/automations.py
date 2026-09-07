@@ -632,6 +632,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "quiet_until": body.quiet_until,
             "cooldown": body.cooldown,
             "quiet_night": body.quiet_night,
+            "countdown": body.countdown,
         }
         hub.data.set("automations", [*stored_automations(), entry])
         await hub.reload_automations()
@@ -673,6 +674,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 "quiet_until": body.quiet_until,
                 "cooldown": body.cooldown,
             "quiet_night": body.quiet_night,
+            "countdown": body.countdown,
             }
             if entry["id"] == automation_id
             else entry

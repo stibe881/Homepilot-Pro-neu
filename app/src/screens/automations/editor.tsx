@@ -26,7 +26,7 @@ import {
   begrenzteAnzahl,
 } from '../../lib/kontrollfluss';
 import { ZUHAUSE, anwesenheitsPersonen, istOrtsmelder, ortsauswahl } from '../../lib/ortsausloeser';
-import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StateCondition, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, geraetePlatzhalter, KAMERA_AUSLOESER, kopieSchritt, PLATZHALTER, hatWartezeit, measurableAttributes, meldetEtwas, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis } from './entwurf';
+import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StateCondition, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, geraetePlatzhalter, KAMERA_AUSLOESER, kopieSchritt, PLATZHALTER, hatWartezeit, schaltetSpaeterAus, measurableAttributes, meldetEtwas, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis } from './entwurf';
 import {
   Abschnitt,
   CategoryField,
@@ -806,6 +806,30 @@ export function Editor({
                   Kinderzimmer»), bleibt auf «melden wie sonst».
                 </Text>
               ) : null}
+            </>
+          ) : null}
+          {/* Der gemeldete Fall: «Das Licht geht nach 30 Minuten aus» -
+              und im Kinderzimmer stand man davor und riet, ob es gleich
+              ausgeht oder erst in einer halben Stunde. Freiwillig, weil
+              es nicht überall erwünscht ist: Die Anwesenheits-Simulation
+              soll aussehen wie ein Mensch, der das Licht löscht, und
+              nicht wie eine Schaltuhr. */}
+          {schaltetSpaeterAus(draft.steps) ? (
+            <>
+              <Text style={styles.label}>Restzeit anzeigen</Text>
+              <Choice
+                options={[
+                  { key: 'aus', label: 'nicht anzeigen' },
+                  { key: 'an', label: 'anzeigen' },
+                ]}
+                value={draft.restzeitZeigen ? 'an' : 'aus'}
+                onSelect={(wahl) => set({ restzeitZeigen: wahl === 'an' })}
+              />
+              <Text style={styles.triggerNote}>
+                {draft.restzeitZeigen
+                  ? 'Solange der Ablauf wartet, steht «geht in 12 Min aus» am Gerät selbst, auf der Raumkarte und im «Lichter an»-Blatt der Startkarte. Wer von Hand ausschaltet, nimmt die Anzeige mit.'
+                  : 'Ohne Anzeige merkt man das Ausschalten erst, wenn es passiert – bei einem Licht im Kinderzimmer ist das die falsche Überraschung.'}
+              </Text>
             </>
           ) : null}
           {hatWartezeit(draft.steps) ? (

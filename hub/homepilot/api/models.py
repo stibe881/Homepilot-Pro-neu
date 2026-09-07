@@ -138,6 +138,9 @@ class AutomationRequest(BaseModel):
     # Nachts (22–8 Uhr) keine Nachricht und keine Durchsage; der Rest
     # des Ablaufs läuft weiter.
     quiet_night: bool = False
+    # Restzeit anzeigen: «geht in 12 Min aus» an Kachel, Raumkarte und
+    # im «Lichter an»-Blatt (core/abschaltung.py).
+    countdown: bool = False
 
 
 class SceneRequest(BaseModel):

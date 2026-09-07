@@ -22,6 +22,11 @@ export interface EntityState {
   muted?: boolean;
   device_class?: string;
   error?: string | null;
+  /** Wann ein Ablauf dieses Gerät von selbst ausschaltet (Unix-Sekunden).
+   *  Nur gesetzt, wenn der Ablauf «Restzeit anzeigen» trägt - der Hub
+   *  schickt den Zeitpunkt, heruntergezählt wird hier
+   *  (hub/core/abschaltung.py, lib/abschaltung.ts). */
+  off_at?: number | null;
   // Alles Weitere je nach Integration (rooms, playlists, events, robot …).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;

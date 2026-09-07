@@ -357,6 +357,7 @@ export function AutomationsScreen({
       enabled: draft.enabled,
       category: draft.category.trim() || null,
       quiet_night: draft.nachtsStill,
+      countdown: draft.restzeitZeigen,
     };
     try {
       if (draft.id) {
@@ -431,6 +432,9 @@ export function AutomationsScreen({
         // dem Ablauf still seine Nachtruhe - der Hub schreibt hier die
         // ganze Regel neu, nicht bloss das eine Feld.
         quiet_night: automation.quiet_night === true,
+        // Aus demselben Grund wie die Nachtruhe: Der Hub schreibt beim
+        // Ein-/Ausschalten die ganze Regel neu.
+        countdown: automation.countdown === true,
         enabled,
       },
       { fallback: null, still: true }

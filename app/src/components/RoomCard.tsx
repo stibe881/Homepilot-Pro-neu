@@ -5,6 +5,7 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Entity, Scene } from '../api/types';
 import { raumDunkel, raumSymbol, raumZeile } from '../lib/raum';
 import { Raumaktion, kachelKnoepfe, raumFarben, raumStand } from '../lib/raumkarte';
+import { useJetzt } from '../hooks/useRestzeit';
 import { Colors, radius, useColors } from '../theme';
 import { Card } from './Card';
 
@@ -74,7 +75,12 @@ export function RoomCard({
     () => kachelKnoepfe(items, knoepfeAuswahl),
     [items, knoepfeAuswahl]
   );
-  const stand = useMemo(() => raumStand(items, raumZeile(items)), [items]);
+  // Die Restzeit tickt nur, wenn im Raum wirklich eine läuft.
+  const jetzt = useJetzt(items.some((entity) => typeof entity.state.off_at === 'number'));
+  const stand = useMemo(
+    () => raumStand(items, raumZeile(items), jetzt),
+    [items, jetzt]
+  );
   const [oben, unten] = useMemo(() => raumFarben(name), [name]);
   const zeigtBild = !!imageUri && !bildKaputt;
   // Alles Licht aus: Der Kopf wird dunkel, wie das Zimmer selbst. So

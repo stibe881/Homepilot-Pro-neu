@@ -20,6 +20,7 @@
  */
 
 import { Entity } from '../api/types';
+import { naechsteAbschaltung, restText } from './abschaltung';
 import { fernbedienungMoeglich } from './fernsehkachel';
 import { isTelevision } from './geraeteart';
 
@@ -408,11 +409,17 @@ export function raumSchleier(name: string, staerke = 0.26): [string, string] {
  * gerade läuft, und wie viele Geräte es überhaupt sind – aber nur, was
  * wirklich etwas sagt. «0 an» ist keine Auskunft, «alles ruhig» schon.
  */
-export function raumStand(items: Entity[], zeile: string): string {
+export function raumStand(items: Entity[], zeile: string, jetzt?: number): string {
   const an = items.filter(
     (entity) => entity.state.state === 'on' || entity.state.state === 'playing'
   ).length;
   const teile = zeile ? [zeile] : [];
   teile.push(an > 0 ? `${an} an` : 'alles ruhig');
+  // Läuft im Raum eine Frist («Licht geht in 12 Min aus»), gehört sie
+  // hierher: Die Raumkarte ist der Ort, an dem man von aussen hinsieht,
+  // ohne das Zimmer zu öffnen. Die nächste zählt - brennen zwei Lichter
+  // mit Frist, ist die frühere die Auskunft (lib/abschaltung.ts).
+  const rest = jetzt === undefined ? null : naechsteAbschaltung(items, jetzt);
+  if (rest !== null) teile.push(`geht in ${restText(rest)} aus`);
   return teile.join(' · ');
 }
