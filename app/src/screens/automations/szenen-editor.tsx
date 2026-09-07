@@ -13,7 +13,7 @@ import { deviceKindLabel, geraeteUntertitel } from '../../lib/geraeteart';
 import { PALETTE } from '../../components/ColorRow';
 import { RueckwegBefehl, SceneActionDraft, snapshotAction } from '../../lib/szenen';
 import { Fassung, VersionsSection } from './editor';
-import { WEISSTOENE, vacuumRooms } from './entwurf';
+import { WEISSTOENE, istAnschalten, vacuumRooms } from './entwurf';
 import {
   appsVon,
   baseCommandOptions,
@@ -80,14 +80,6 @@ export const SCENE_ICONS = [
 /** Schlüssel des «angepasst»-Knopfs. Keine Prozentzahl, kollidiert also
  *  mit keiner Stufe. */
 const ANGEPASST = 'lux';
-
-/** Schaltet dieser Befehl die Lampe ein? (rein, testbar)
- *
- * Nur dann lohnen Farbe und Weissanteil: Wer ausschaltet, braucht keine
- * Lichtfarbe, und «umschalten» weiss vorher nicht, wohin es geht. */
-export function istAnschalten(command: string): boolean {
-  return command === 'turn_on' || command === 'set_brightness';
-}
 
 export function SceneDevices({
   entities,
