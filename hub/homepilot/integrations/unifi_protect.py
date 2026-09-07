@@ -351,6 +351,35 @@ def camera_state(camera: dict[str, Any], quality: str = "medium") -> dict[str, A
     return state
 
 
+
+def health_detail(
+    kameras: int,
+    grund: str | None = None,
+    *,
+    je_geglueckt: bool = True,
+) -> str:
+    """Was im System-Bildschirm über Protect steht (rein, testbar).
+
+    Entstanden an einem Abend, an dem dort «Keine eigenen Geräte» stand
+    und sonst nichts: Der erste Abruf beim Start scheitert nur als
+    Warnung ins Log (eine Kamera, die gerade neu startet, soll den Hub
+    nicht mitreissen) - die Integration selbst gilt weiter als in
+    Ordnung. Von aussen sah «der Controller weist mich ab» damit genau
+    so aus wie «du hast keine Kameras». Zwei Ursachen, zwei Abhilfen,
+    eine Anzeige.
+    """
+    if grund:
+        if not je_geglueckt:
+            return f"Kein Zugriff auf Protect: {grund}"
+        return f"Zuletzt nicht erreicht: {grund}"
+    if kameras == 0:
+        return (
+            "Verbunden, aber der Controller nennt keine Kamera - "
+            "läuft Protect auf dieser Konsole, und darf der Benutzer es sehen?"
+        )
+    return f"{kameras} Kamera{'s' if kameras != 1 else ''} angebunden"
+
+
 class UnifiProtectIntegration(Integration):
     name = "unifi_protect"
 
@@ -367,6 +396,9 @@ class UnifiProtectIntegration(Integration):
         self._csrf: str | None = None
         # Kamera-ID der API → Entitäts-ID im Hub
         self._cameras: dict[str, str] = {}
+        # Warum die Kameraliste leer ist - für die Diagnose (health).
+        self._letzter_grund: str | None = None
+        self._je_geglueckt = False
         # Entitäts-ID → RTSP-Name des Live-Kanals (fehlt, wenn RTSP aus ist)
         self._aliases: dict[str, str] = {}
         # Entitäts-ID → Mikrofon/Aufnahmemodus vor dem Privatsphäre-Modus,
@@ -434,9 +466,14 @@ class UnifiProtectIntegration(Integration):
             bootstrap = await self._bootstrap()
         except Exception as err:
             self.log.warning("Protect nicht erreichbar: %s", err)
+            # Auch für die Diagnose merken: Ein Abruf, der nur ins Log
+            # scheitert, sieht in der App sonst aus wie «keine Kameras».
+            self._letzter_grund = str(err)
             for entity_id in self._cameras.values():
                 await self.hub.registry.update_state(entity_id, {}, available=False)
             return
+        self._letzter_grund = None
+        self._je_geglueckt = True
 
         self._last_update_id = bootstrap.get("lastUpdateId")
         for camera in bootstrap.get("cameras", []):
@@ -646,6 +683,24 @@ class UnifiProtectIntegration(Integration):
         if kennung and not beendet:
             self._laufende[kennung] = (entity_id, felder)
         await self.hub.registry.update_state(entity_id, changes, available=True)
+
+    # ── Was die Diagnose zu sehen bekommt ──────────────────────────────────
+
+    def health(self) -> dict[str, Any]:
+        """Warum stehen hier keine Kameras?
+
+        Ohne diese Auskunft stand in der App «Keine eigenen Geräte» -
+        gleichlautend für «der Controller weist mich ab», «Protect läuft
+        auf einer anderen Konsole» und «du hast wirklich keine Kamera».
+        """
+        return {
+            "detail": health_detail(
+                len(self._cameras),
+                self._letzter_grund,
+                je_geglueckt=self._je_geglueckt,
+            ),
+            "kameras": len(self._cameras),
+        }
 
     async def _poll_loop(self) -> None:
         while True:
