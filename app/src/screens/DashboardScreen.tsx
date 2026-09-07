@@ -121,6 +121,7 @@ import {
 } from '../lib/tageszeit';
 import { hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
+import { GaesteWlanKarte } from '../components/GaesteWlan';
 import { Auftritt } from '../components/Auftritt';
 import { AutomationsScreen } from './AutomationsScreen';
 import { BereichRiegel } from '../components/BereichRiegel';
@@ -3571,6 +3572,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 // nur als Karte. Begrüssung und Randnotizen ziehen mit
                 // hinein.
                 karte={section === 'start'}
+                // Nur auf der Startseite: In der Kopfzeile der übrigen
+                // Bildschirme wäre das Symbol ein Fremdkörper, und der
+                // Weg über die Benutzerverwaltung bleibt ja.
+                gaesteWlan={
+                  section === 'start' ? (
+                    <GaesteWlanKarte
+                      settings={settings}
+                      headers={{ Authorization: `Bearer ${settings.token}` }}
+                      canConfigure={istBesitzer}
+                    />
+                  ) : undefined
+                }
                 gruss={begruessung(settings, user, now)}
                 // Nur die laufenden Geräte - der Türhinweis stünde
                 // doppelt da, der Chip «offen» in der Karte sagt es schon.

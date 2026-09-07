@@ -103,8 +103,18 @@ export function TopStrip({
   tageszeit,
   zusatz,
   onKalender,
+  gaesteWlan,
 }: {
   entities: Entity[];
+  /** Die Gäste-WLAN-Karte fürs Blatt hinter dem WLAN-Symbol. Als Element
+   *  und nicht als Daten: Was dort steht, weiss die Karte selbst - hier
+   *  soll nur ein Knopf davorstehen, wenn es etwas zu zeigen gibt.
+   *
+   *  Warum überhaupt hier: Besuch steht vor einem und fragt nach dem
+   *  WLAN. Die Karte lag in der Benutzerverwaltung, drei Tipps und ein
+   *  Bildschirm entfernt - genau die drei Tipps, die man in dem Moment
+   *  nicht macht. */
+  gaesteWlan?: React.ReactNode;
   status: ConnectionStatus;
   now: Date;
   /** Ausgeblendete Geräte – wer eine Lampe aus den Alltagsansichten
@@ -279,8 +289,29 @@ export function TopStrip({
 
   // Die Fenster hinter den Chips und Sätzen - Karte und Chip-Zeile
   // teilen sie sich, deshalb stehen sie einmal hier.
+  const [wlanOffen, setWlanOffen] = useState(false);
+
   const fenster = (
     <>
+      {/* Das Gäste-WLAN hinter dem Symbol in der Kopfzeile. */}
+      <Modal
+        visible={wlanOffen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setWlanOffen(false)}
+      >
+        <Pressable style={styles.backdrop} onPress={() => setWlanOffen(false)}>
+          <Pressable style={styles.sheet} onPress={() => {}}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {gaesteWlan}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {/* Wer ist da – hinter dem Chip «jemand da». Die Zeile sagt, dass
           jemand im Haus ist; wer und seit wann, stand nirgends. */}
       <Modal
@@ -894,15 +925,28 @@ export function TopStrip({
               </Text>
               {tageszeit ? <Text style={styles.karteZeit}>{tageszeit}</Text> : null}
             </View>
-            <View style={styles.chip}>
-              <View
-                style={[styles.dot, { backgroundColor: statusColor(colors, status) }]}
-              />
-              <Text style={styles.chipText} maxFontSizeMultiplier={MAX_SCHRIFT}>
-                {queued > 0
-                  ? `${STATUS_LABEL[status]} · ${queued} wartet`
-                  : STATUS_LABEL[status]}
-              </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              {gaesteWlan ? (
+                <Pressable
+                  onPress={() => setWlanOffen(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Gäste-WLAN"
+                  hitSlop={8}
+                  style={({ pressed }) => [styles.chip, pressed && { opacity: 0.6 }]}
+                >
+                  <Ionicons name="wifi" size={16} color={colors.ink} />
+                </Pressable>
+              ) : null}
+              <View style={styles.chip}>
+                <View
+                  style={[styles.dot, { backgroundColor: statusColor(colors, status) }]}
+                />
+                <Text style={styles.chipText} maxFontSizeMultiplier={MAX_SCHRIFT}>
+                  {queued > 0
+                    ? `${STATUS_LABEL[status]} · ${queued} wartet`
+                    : STATUS_LABEL[status]}
+                </Text>
+              </View>
             </View>
           </View>
 
