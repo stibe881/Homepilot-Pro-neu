@@ -42,6 +42,12 @@ dev = [
     "httpx>=0.27",
     # CCU-Simulator für die Homematic-Tests; fehlt er, werden sie übersprungen.
     "pydevccu>=0.1.8",
+    # Nicht zum Laufen nötig (die Integration ist ein Extra), sondern zum
+    # Prüfen: Der Test vergleicht die Feldnamen, die roborock.py abfragt,
+    # mit denen, die die Bibliothek wirklich hat. Ohne sie lief dieser
+    # Test nie, und `dock_error_status_name` - ein Name, den es nie gab -
+    # verschluckte den vollen Schmutzwassertank monatelang (Punkt 263).
+    "python-roborock>=3.0",
     # Linter, Typprüfung und Abdeckung - siehe [tool.ruff] und [tool.mypy].
     "ruff>=0.6",
     "mypy>=1.11",

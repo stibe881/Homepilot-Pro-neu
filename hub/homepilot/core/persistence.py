@@ -122,6 +122,10 @@ EMPTY: dict[str, Any] = {
     # Zwei Megabyte Opus gehören nicht in eine JSON-Datei, die bei jedem
     # Schreiben ganz auf die Platte geht.
     "heimgruss": [],
+    # Schon gemeldete Sauger-Probleme (Punkt 263 der Werkbank). Gleiche
+    # Zeilenform wie die Batterien, damit dieselben reinen Funktionen
+    # rechnen: {entity_id: «gerät:quelle:wert», at, until}.
+    "vacuum_notified": [],
 }
 
 
