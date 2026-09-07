@@ -221,7 +221,34 @@ SAUGER_TEXTE: dict[str, str] = {
     "charging_error": "Das Laden klappt nicht.",
     "return_to_dock_fail": "Der Sauger findet die Station nicht.",
     "vibrarise_jammed": "Das Wischmodul ist blockiert.",
+    # Die Tankstände der Station (Punkt 263): Sie kommen nicht als
+    # Fehler herein, sondern als eigener Zustand - lesen muss man sie
+    # trotzdem, es ist derselbe volle Tank.
+    "full_not_installed": "Der Schmutzwassertank ist voll oder nicht eingesetzt.",
+    "drain_error": "Der Schmutzwassertank lässt sich nicht leeren.",
+    "empty_not_installed": "Der Frischwassertank ist leer oder nicht eingesetzt.",
+    "full": "Der Staubbeutel ist voll.",
+    "not_installed": "Der Staubbeutel fehlt.",
+    "no_dustbin_or_filter": "Staubbehälter oder Filter fehlt.",
+    "auto_empty_dock_fan_error": "Das Gebläse der Absaugstation meldet einen Fehler.",
+    "auto_empty_dock_voltage_error": "Die Absaugstation meldet ein Spannungsproblem.",
+    "maintenance_brush_jammed": "Die Reinigungsbürste der Station ist blockiert.",
 }
+
+
+#: Was bei einem Sauger «kein Problem» heisst. Die Station schreibt
+#: ihren guten Zustand `ok`, die Tankstände `okay`, und wo ein Feld
+#: leer bleibt, steht `none` - alle drei sind dasselbe.
+SAUGER_OK = frozenset({"none", "ok", "okay", "0"})
+
+#: Welche Felder der Station eine Nachricht wert sind. Der Dock-Fehler
+#: allein reichte nicht: Der Saros meldet den vollen Schmutzwassertank
+#: über den eigenen Tankstand, nicht als Fehler der Station - und genau
+#: diese Meldung fehlte in der App, während sie in der Roborock-App
+#: stand (Punkt 263 der Werkbank). `type`, `wash_phase`, `drying`,
+#: `dust_collection` und `auto_empty` stehen bewusst nicht hier: Das
+#: sind Betriebszustände, keine Störungen.
+DOCK_MELDER = ("error", "dirty_water", "clear_water", "dust_bag", "water_shortage")
 
 
 def sauger_wort(name: str) -> str:
@@ -238,10 +265,11 @@ def sauger_wort(name: str) -> str:
 def sauger_probleme(entities: list[Any]) -> list[tuple[Any, str, str]]:
     """Sauger mit gemeldetem Problem: (Gerät, Schlüssel, Satz) (rein, testbar).
 
-    Zwei Quellen, weil es zwei sind: Der Roboter selbst meldet Fehler
-    (``error``), die Station ihre eigenen (``dock.error``) - der volle
-    Schmutzwassertank steht nur dort. Der Schlüssel unterscheidet beide,
-    damit «Tank leer» und «steckt fest» je eine Nachricht bekommen.
+    Der Roboter meldet seine Fehler selbst (``error``), die Station ihre
+    eigenen - und die Tank- und Beutelstände nochmals getrennt davon
+    (``dock.dirty_water`` und Geschwister, siehe DOCK_MELDER). Der
+    Schlüssel nennt die Quelle mit, damit «Tank voll» und «steckt fest»
+    je eine eigene Nachricht bekommen und nicht einander verdrängen.
     """
     ergebnis: list[tuple[Any, str, str]] = []
     for entity in entities:
@@ -249,14 +277,16 @@ def sauger_probleme(entities: list[Any]) -> list[tuple[Any, str, str]]:
             continue
         state = entity.state or {}
         fehler = str(state.get("error") or "").strip()
-        if fehler and fehler.lower() not in ("none", "ok"):
+        if fehler and fehler.lower() not in SAUGER_OK:
             ergebnis.append((entity, f"fehler:{fehler}", sauger_wort(fehler)))
         dock = state.get("dock")
-        dock_fehler = (
-            str(dock.get("error") or "").strip() if isinstance(dock, dict) else ""
-        )
-        if dock_fehler and dock_fehler.lower() not in ("none", "ok"):
-            ergebnis.append((entity, f"dock:{dock_fehler}", sauger_wort(dock_fehler)))
+        if isinstance(dock, dict):
+            for feld in DOCK_MELDER:
+                wert = str(dock.get(feld) or "").strip()
+                if wert and wert.lower() not in SAUGER_OK:
+                    ergebnis.append(
+                        (entity, f"dock:{feld}:{wert}", sauger_wort(wert))
+                    )
     return ergebnis
 
 

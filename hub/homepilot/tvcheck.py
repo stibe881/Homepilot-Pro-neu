@@ -53,6 +53,20 @@ def als_entity(roh: dict) -> SimpleNamespace:
     )
 
 
+def bild_wort(screen_off: object) -> str:
+    """Was HDMI-CEC über das Bild sagt - oder dass es nichts sagt.
+
+    Drei Antworten, nicht zwei: «–» (der Fernseher meldet die Felder gar
+    nicht) ist etwas anderes als «an», und genau diese Unterscheidung
+    fehlte beim zweiten Anlauf.
+    """
+    if screen_off is True:
+        return "aus"
+    if screen_off is False:
+        return "an"
+    return "–"
+
+
 def liegende_karten() -> list[dict]:
     """Was der Hub für laufend hält (live_cards aus der Datendatei).
 
@@ -92,26 +106,26 @@ def main() -> None:
     gewollt = {karte["art"].split(":", 1)[1] for karte in karten_tv(geraete)}
 
     kopf = (
-        f"{'Kennung':<34} {'Name':<20} {'Zustand':<9} {'App':<14} "
-        f"{'erreichbar':<10} {'Kreuz':<6} {'Geist':<6} Karte"
+        f"{'Kennung':<26} {'Name':<20} {'Zustand':<9} {'App':<12} "
+        f"{'da':<4} {'CEC-Bild':<9} {'Zwilling':<26} {'Geist':<6} Karte"
     )
     print(kopf)
     print("-" * len(kopf))
     for entity in sorted(schirme, key=lambda e: e.id):
-        kreuze = [
+        zwillinge = [
             kandidat.id
             for kandidat in geraete
             if kandidat is not entity
             and kandidat.kind == "media_player"
-            and "dpad_up" in kandidat.commands
             and sind_zwillinge(entity, kandidat)
         ]
         print(
-            f"{entity.id:<34.34} {entity.label:<20.20} "
+            f"{entity.id:<26.26} {entity.label:<20.20} "
             f"{str(entity.state.get('state') or '–'):<9.9} "
-            f"{str(entity.state.get('app') or '–'):<14.14} "
-            f"{ja_nein(erreichbar(entity)):<10} "
-            f"{(','.join(kreuze) or '–'):<6.6} "
+            f"{str(entity.state.get('app') or entity.state.get('track') or '–'):<12.12} "
+            f"{ja_nein(erreichbar(entity)):<4} "
+            f"{bild_wort(entity.state.get('screen_off')):<9} "
+            f"{(','.join(zwillinge) or '–'):<26.26} "
             f"{ja_nein(geisterbild(entity, geraete)):<6} "
             f"{ja_nein(entity.id in gewollt)}"
         )
@@ -130,11 +144,16 @@ def main() -> None:
 
     print()
     print(
-        "«Karte: ja» heisst: Der Hub will sie. «Geist: ja» heisst: Der\n"
-        "Zuspieler behauptet den Fernsehabend allein, der Zwilling\n"
-        "widerspricht - dann liegt keine Karte. Steht unter «Kreuz» ein\n"
-        "«–», findet der Hub den Steuerkreuz-Zwilling nicht; dann fehlt\n"
-        "ihm der Widerspruch, und nur der Zustand des Zuspielers zählt."
+        "«Karte: ja» heisst: Der Hub will sie - und zwar je Bildschirm\n"
+        "nur einmal, am Steuerkreuz-Gerät (tv_auswahl); der Zuspieler\n"
+        "daneben steuert nur den Text bei.\n"
+        "«CEC-Bild» ist die Antwort des Fernsehers auf «ist dein Bild\n"
+        "an?» (is_stand_by / is_active_input): «aus» heisst dunkel, egal\n"
+        "was die Cast-Sitzung behauptet; «–» heisst, dass dieser\n"
+        "Fernseher es gar nicht meldet - dann zählt nur der Zustand.\n"
+        "«Geist: ja» heisst: Der Zuspieler behauptet den Fernsehabend\n"
+        "allein, sein Steuerkreuz-Zwilling widerspricht erreichbar mit\n"
+        "«off» - dann liegt keine Karte."
     )
 
 

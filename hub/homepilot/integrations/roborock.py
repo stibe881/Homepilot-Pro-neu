@@ -159,6 +159,34 @@ def zustand_name(roh: Any) -> str:
     return "unknown"
 
 
+#: Was «kein Problem» heisst - in allen Schreibweisen, die die Codes
+#: der Bibliothek dafür kennen. `okay` gehört dazu, weil die
+#: Tank-Zustände es so schreiben und der Dock-Fehler `ok`.
+STATION_OK = frozenset({"", "none", "ok", "okay", "0"})
+
+
+def _code_wort(value: Any) -> str | None:
+    """Den lesbaren Namen eines Bibliotheks-Codes (rein, testbar).
+
+    `display_name` vor `name`: Der Schmutzwassertank meldet je nach
+    Modell 1 oder 39, und die beiden heissen intern
+    `full_not_installed` und `full_not_installed_2` - dieselbe Sache,
+    aber zwei Schlüssel, und damit zwei Nachrichten und zwei
+    Übersetzungen. `display_name` führt beide zusammen.
+    """
+    if value is None:
+        return None
+    for attr in ("display_name", "name"):
+        wort = getattr(value, attr, None)
+        if isinstance(wort, str) and wort:
+            return wort
+    # Kein Code, sondern ein roher Wert (die Waschphase ist eine Zahl):
+    # None heisst hier «kein Wort dafür», und der Aufrufer behält den
+    # Wert, wie er ist. Ein str() daraus machte aus der 2 eine «2» und
+    # damit aus einer Zahl in der App plötzlich Text.
+    return value if isinstance(value, str) else None
+
+
 def vacuum_state(status: Any) -> dict[str, Any]:
     """Übersetzt den Status der Bibliothek in Entitäts-Attribute.
 
@@ -181,8 +209,15 @@ def vacuum_state(status: Any) -> dict[str, Any]:
     # als der Roboter das nächste Mal mit derselben Meldung stecken
     # blieb, änderte sich nichts - der Wächter hielt das Problem für
     # längst gemeldet, und es kam nie wieder eine Nachricht.
-    error = getattr(status, "error_code_name", None)
-    result["error"] = error if error and error not in ("none", "None") else None
+    # Über dieselbe Auflösung wie die Station: Meldet eine
+    # Bibliotheksfassung hier den Code statt seines Namens, käme sonst
+    # «RoborockErrorCode.robot_trapped» in der Nachricht an.
+    error = _code_wort(
+        getattr(status, "error_code_name", None) or getattr(status, "error_code", None)
+    )
+    result["error"] = (
+        error if error and error.strip().lower() not in STATION_OK else None
+    )
     clean_area = getattr(status, "clean_area", None)
     if clean_area:
         # Die Bibliothek liefert mm² – die App soll m² zeigen.
@@ -299,29 +334,66 @@ def parse_consumables(consumable: Any) -> list[dict[str, Any]]:
     return parts
 
 
+#: Welches Feld der Bibliothek unter welchem Namen in den Zustand geht.
+#: Als Tabelle und nicht inline, damit ein Test sie gegen die echte
+#: Klasse halten kann - genau das fehlte, als hier erfundene Namen
+#: standen (Punkt 263 der Werkbank).
+DOCK_FELDER = {
+    "dock_error_status": "error",
+    "dock_type": "type",
+    "wash_phase": "wash_phase",
+    "dry_status": "drying",
+    "dust_collection_status": "dust_collection",
+    "auto_dust_collection": "auto_empty",
+    # Die Tank- und Beutelstände stecken beim Saros und seinen
+    # Geschwistern nicht im Dock-Fehler, sondern in einem eigenen
+    # Sammelwert (`dss`), den die Bibliothek in diese Felder aufteilt.
+    # «Schmutzwassertank voll/nicht eingesetzt» - die Meldung, mit der
+    # das hier anfing - steht genau dort.
+    "dirty_water_box_status": "dirty_water",
+    "clear_water_box_status": "clear_water",
+    "dust_bag_status": "dust_bag",
+    "water_shortage_status": "water_shortage",
+}
+
+#: Dasselbe für den Roboter selbst - auch diese Namen prüft der Test.
+ROBOTER_FELDER = (
+    "state_name",
+    "battery",
+    "error_code_name",
+    "clean_area",
+    "clean_time",
+    "fan_power",
+)
+
+
 def dock_state(status: Any) -> dict[str, Any]:
     """Was der Status über die Ladestation verrät (rein, testbar).
 
     Bewusst defensiv über getattr: Welche Felder es gibt, hängt an Modell
     und Bibliotheksversion – was fehlt, fehlt einfach.
+
+    **Die Namen hier sind die der Bibliothek, nicht die naheliegenden.**
+    Hier stand `dock_error_status_name` und `dock_type_name` - beide gibt
+    es nicht, die Felder heissen ohne `_name` (der Zusatz existiert nur
+    beim Roboterfehler, `error_code_name`). `getattr` lieferte also
+    stillschweigend None, `dock["error"]` wurde nie gesetzt, und der
+    volle Schmutzwassertank kam nie als Nachricht an - monatelang, weil
+    nichts scheiterte, es fehlte einfach. Der Test dazu prüfte einen
+    selbst gebauten Doppelgänger mit denselben erfundenen Namen und war
+    darum grün; jetzt prüft er gegen die echte Bibliothek
+    (test_new_integrations.py). Punkt 263 der Werkbank.
     """
     dock: dict[str, Any] = {}
-    mapping = {
-        "dock_error_status_name": "error",
-        "dock_type_name": "type",
-        "wash_phase": "wash_phase",
-        "dry_status": "drying",
-        "dust_collection_status": "dust_collection",
-        "auto_dust_collection": "auto_empty",
-    }
-    for attr, key in mapping.items():
+    for attr, key in DOCK_FELDER.items():
         value = getattr(status, attr, None)
         if value is None:
             continue
-        name = getattr(value, "name", None)
-        dock[key] = name if name is not None else value
-    if str(dock.get("error")) in ("none", "None", "ok"):
-        dock.pop("error", None)
+        wort = _code_wort(value)
+        dock[key] = wort if wort is not None else value
+    for key in ("error", "dirty_water", "clear_water", "dust_bag", "water_shortage"):
+        if str(dock.get(key, "")).strip().lower() in STATION_OK:
+            dock.pop(key, None)
     return dock
 
 

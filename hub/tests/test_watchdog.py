@@ -784,11 +784,44 @@ def test_sauger_probleme_sieht_roboter_und_station():
         )
     ]
     gefunden = sauger_probleme(entities)
+    # Der Schlüssel nennt die Quelle mit: Der Fehler der Station und ihr
+    # Tankstand sind zwei Sachen und dürfen einander nicht verdrängen.
     assert [(schluessel, text) for _, schluessel, text in gefunden] == [
         ("fehler:robot_trapped", "Der Sauger steckt fest."),
         (
-            "dock:water_empty",
+            "dock:error:water_empty",
             "Der Reinigungswassertank ist leer oder nicht eingesetzt.",
+        ),
+    ]
+
+
+def test_sauger_meldet_auch_den_tankstand_der_station():
+    """Punkt 263: «Schmutzwassertank voll» steht nicht im Fehler der
+    Station, sondern in deren eigenem Tankstand - beim Saros der einzige
+    Weg, auf dem diese Meldung überhaupt hereinkommt."""
+    from homepilot.core.watchdog import sauger_probleme
+
+    entities = [
+        sauger(
+            "roborock.z70",
+            {
+                "state": "docked",
+                "dock": {
+                    "error": "ok",
+                    "dirty_water": "full_not_installed",
+                    "dust_bag": "okay",
+                    "wash_phase": 2,
+                },
+            },
+        )
+    ]
+    gefunden = sauger_probleme(entities)
+    # «ok»/«okay» sind keine Störung, die Waschphase ist ein
+    # Betriebszustand - nur der volle Tank ist eine Nachricht wert.
+    assert [(schluessel, text) for _, schluessel, text in gefunden] == [
+        (
+            "dock:dirty_water:full_not_installed",
+            "Der Schmutzwassertank ist voll oder nicht eingesetzt.",
         ),
     ]
 

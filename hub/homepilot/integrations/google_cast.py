@@ -344,6 +344,18 @@ def cast_media_state(
         result["muted"] = bool(muted)
     if has_screen is not None:
         result["has_screen"] = bool(has_screen)
+    if has_screen:
+        # Was HDMI-CEC über das Bild sagt - als eigenes Feld, damit man
+        # es nachsehen kann (homepilot.tvcheck). Ohne das war beim
+        # zweiten «die Karte liegt immer noch da» nicht zu unterscheiden,
+        # ob der Fernseher CEC gar nicht meldet oder «Bild an» sagt.
+        # Immer gesetzt (notfalls None): Zustände werden verschmolzen,
+        # ein weggelassenes Feld bliebe sonst als alter Wert stehen.
+        result["screen_off"] = (
+            True
+            if (standby is True or aktiver_eingang is False)
+            else (False if (standby is False or aktiver_eingang is True) else None)
+        )
     if is_group is not None:
         result["is_group"] = bool(is_group)
     return result

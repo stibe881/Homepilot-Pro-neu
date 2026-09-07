@@ -118,6 +118,14 @@ HOLIDAY_ASK_AGAIN = 48 * 3600
 # So lange vor dem Ablauf bekommt ein Gast Bescheid.
 ACCESS_WARN_SECONDS = 15 * 60
 
+#: Wo die schon gemeldeten Sauger-Probleme liegen («gerät:quelle:wert»).
+#: Auf der Platte statt im Arbeitsspeicher, damit ein Neustart die
+#: Meldungen nicht wiederholt - und damit ein Problem, das bleibt,
+#: täglich erinnert werden kann (Punkt 263 der Werkbank). Die Zeilen
+#: haben dieselbe Form wie die der Batterien und werden mit denselben
+#: reinen Funktionen gerechnet (core/batterie.py).
+SAUGER_STORE_KEY = "vacuum_notified"
+
 #: Wo der Zeitpunkt der letzten Regen-Vorwarnung liegt. Auf der Platte,
 #: weil zwischen Vorwarnung und Regen eine Viertelstunde liegt und ein
 #: Update dazwischen der Normalfall ist.
@@ -162,8 +170,6 @@ class Watchdog:
         # Dieselbe Warnung soll die Storen nur einmal fahren - erst eine
         # neue (oder dieselbe nach Warnungsende) zählt wieder.
         self._storm_beantwortet: str | None = None
-        # Sauger-Probleme, die schon gemeldet wurden («gerät:schlüssel»).
-        self._reported_sauger: set[str] = set()
         # Wann zuletzt die Funkqualität eingesammelt wurde (FUNK_INTERVAL).
         self._funk_gesammelt = 0.0
         # Energie: welcher Tag zuletzt geschrieben wurde und wann.
@@ -1965,22 +1971,47 @@ class Watchdog:
         Meldung ohnehin (error und dock.error am Gerät) - sie soll
         denselben Weg gehen wie alle anderen Sorgen im Haus.
 
-        Einmal je Problem: gemeldet beim Auftauchen, vergessen beim
-        Verschwinden. Wer den Tank füllt und ihn nächste Woche wieder
-        leert, bekommt wieder eine Nachricht - dasselbe Muster wie bei
-        den Wassermeldern.
+        Sofort melden, dann täglich erinnern, bis das Problem weg ist -
+        dieselbe Haltung wie bei den Batterien (Punkt 258), und aus
+        demselben Grund: Ein voller Schmutzwassertank ist genau die Art
+        Sache, die man beim ersten Lesen wegwischt und dann vergisst,
+        bis der Sauger drei Tage später immer noch dasteht. Die Stunde
+        ist dieselbe wie dort - wer sie umstellt, stellt beide um.
+
+        Das Gedächtnis liegt in der `hub.data` und überlebt darum den
+        Neustart. Vorher stand es im Arbeitsspeicher, und wer abends
+        über den Update-Knopf baute, bekam jede offene Sauger-Meldung
+        gleich noch einmal (dieselbe Lehre wie in `batterie.py`).
+        Vergessen wird ein Problem, sobald es verschwindet: Wer den Tank
+        leert und ihn nächste Woche wieder vollmacht, bekommt wieder
+        eine Nachricht.
         """
+        jetzt = time.time()
+        stunde = batterie.prefs_lesen(self.hub.data.get(batterie.PREFS_KEY))["hour"]
+        rows = self.hub.data.get(SAUGER_STORE_KEY)
         aktuell: set[str] = set()
         for entity, schluessel, text in sauger_probleme(entities):
             kennung = f"{entity.id}:{schluessel}"
             aktuell.add(kennung)
-            if kennung in self._reported_sauger:
+            if not batterie.soll_melden(rows, kennung, jetzt, stunde):
                 continue
-            self._reported_sauger.add(kennung)
+            # Vormerken *bevor* die Meldung rausgeht - wie überall hier:
+            # Scheitert der Versand, soll er nicht in der nächsten Minute
+            # erneut versucht werden.
+            rows = batterie.merke_meldung(rows, kennung, jetzt)
+            self.hub.data.set(SAUGER_STORE_KEY, rows)
             await self._notify(
                 f"🧹 {entity.label}", text, "vacuum", entity_id=entity.id
             )
-        self._reported_sauger &= aktuell
+        # Behobene Probleme verlassen das Gedächtnis, damit dasselbe
+        # Problem beim nächsten Mal wieder sofort meldet.
+        erledigt = [
+            str(row.get("entity_id"))
+            for row in rows or []
+            if isinstance(row, dict) and str(row.get("entity_id")) not in aktuell
+        ]
+        if erledigt:
+            self.hub.data.set(SAUGER_STORE_KEY, batterie.vergiss(rows, erledigt))
 
     async def _check_batteries(self, entities: list[Any]) -> None:
         """Schwache Batterien – einmal melden, nicht immer wieder.

@@ -98,6 +98,7 @@ export function TopStrip({
   showClock = false,
   queued = 0,
   onLoadPresence,
+  onVacuum,
   karte = false,
   gruss,
   tageszeit,
@@ -158,6 +159,10 @@ export function TopStrip({
    *  wäre Verschwendung. Ohne diese Angabe bleibt der Chip reine
    *  Anzeige. */
   onLoadPresence?: () => Promise<Person[]>;
+  /** Ein Tipp auf «saugt» führt zur Karte des Saugroboters - der Chip
+   *  sagt sonst nur, DASS gesaugt wird, und wer wissen will, wo er
+   *  steht oder ihn heimschicken will, musste das Gerät suchen. */
+  onVacuum?: (entityId: string) => void;
   /** Karten-Modus für die Startseite: Dieselben Angaben und Fenster,
    *  aber als gerahmte Begrüssungskarte statt als Chip-Zeile - mit der
    *  Uhr gross, Anwesenheits-, Termin- und Warnungs-Satz. */
@@ -884,7 +889,14 @@ export function TopStrip({
           onPress={() => setShopOpen(true)}
         />
       ) : null}
-      {vacuum ? <Chip icon="sparkles-outline" text="saugt" /> : null}
+      {vacuum ? (
+        <Chip
+          icon="sparkles-outline"
+          text="saugt"
+          label={`${vacuum.name} saugt – Karte öffnen`}
+          onPress={onVacuum ? () => onVacuum(vacuum.id) : undefined}
+        />
+      ) : null}
       {temperature ? (
         <Chip
           icon="thermometer-outline"
@@ -1118,7 +1130,14 @@ export function TopStrip({
           onPress={() => setShopOpen(true)}
         />
         ) : null}
-        {vacuum ? <Chip icon="sparkles-outline" text="saugt" /> : null}
+        {vacuum ? (
+          <Chip
+            icon="sparkles-outline"
+            text="saugt"
+            label={`${vacuum.name} saugt – Karte öffnen`}
+            onPress={onVacuum ? () => onVacuum(vacuum.id) : undefined}
+          />
+        ) : null}
         {calendar ? (
           <Chip
             icon="calendar-outline"
