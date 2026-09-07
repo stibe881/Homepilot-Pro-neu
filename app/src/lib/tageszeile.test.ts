@@ -67,6 +67,38 @@ describe('tagesGriffe', () => {
     expect(griffe[1].label).toBe('Store zu');
   });
 
+  it('nennt Name und Raum jedes Geräts - für das Blatt hinter dem Griff', () => {
+    // «4 Lichter aus» sagt nicht, welche vier. Wer erst nach dem Tippen
+    // merkt, dass das Kinderzimmer dabei war, hat ein Kind im Dunkeln -
+    // deshalb reisen Name und Raum am Befehl mit.
+    const kinderzimmer = geraet({
+      kind: 'light',
+      name: 'Nachttischlampe',
+      room: 'Kinderzimmer',
+      state: { state: 'on' },
+      commands: ['turn_off'],
+    });
+    const griff = tagesGriffe([kinderzimmer], um(22))[0];
+    expect(griff.befehle[0]).toEqual({
+      entityId: kinderzimmer.id,
+      command: 'turn_off',
+      name: 'Nachttischlampe',
+      room: 'Kinderzimmer',
+    });
+    expect(griff.titel).toBe('Diese Lichter brennen');
+    expect(griff.tunWort).toBe('ausschalten');
+  });
+
+  it('trägt je Griff das passende Zeitwort für den Knopf', () => {
+    const oben = geraet({
+      kind: 'cover',
+      state: { state: 'open', position: 100 },
+      commands: ['open', 'close'],
+    });
+    expect(tagesGriffe([oben], um(22))[0].tunWort).toBe('schliessen');
+    expect(tagesGriffe([storeUnten()], um(7))[0].tunWort).toBe('öffnen');
+  });
+
   it('gilt auch kurz nach Mitternacht noch als Abend', () => {
     expect(tagesGriffe([lichtAn()], um(1))).toHaveLength(1);
   });

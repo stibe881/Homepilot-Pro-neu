@@ -3744,11 +3744,16 @@ export function FamilyScreen({
           // Der rohe Eintrag aus «members»: Nur er trägt Sterne-Ziel
           // und Belohnung; die zusammengeführte Reihe (lib/mitglieder)
           // kennt bloss Name und Rolle.
-          const rohEintrag = member.id
-            ? (data.members ?? []).find(
-                (eintrag: FamilyItem) => eintrag.id === member.id
-              )
-            : undefined;
+          //
+          // Gesucht wird über den Namen und nicht über member.id: Eine
+          // Kennung hat nur, wer *ausschliesslich* in den
+          // Familienlisten steht. Ein Kind mit eigenem Zugang gewinnt
+          // beim Zusammenführen als Konto und kommt ohne Kennung an -
+          // und blieb damit ohne Sterne. Dieselbe Suche wie auf der
+          // Kinderseite selbst (weiter oben, ziel={sternZiel(...)}).
+          const rohEintrag = (data.members ?? []).find(
+            (eintrag: FamilyItem) => String(eintrag.text ?? '').trim() === member.name
+          );
           return (
             <React.Fragment key={member.name}>
             <Card style={styles.rewardCard}>
@@ -3798,16 +3803,27 @@ export function FamilyScreen({
                 </>
               ) : null}
             </Card>
-            {/* Ämtli-Sterne (Punkt 260): nur bei Kindern aus den
-                Familienlisten - Erwachsene sammeln Punkte, keine
-                Sterne, und Zugänge haben hier keinen Eintrag, an dem
-                das Ziel hängen könnte. */}
-            {istKind(member) && member.id && rohEintrag ? (
+            {/* Ämtli-Sterne (Punkt 260): bei jedem Kind - ob mit
+                eigenem Zugang oder nur in den Familienlisten
+                (lib/kindseite.ts, istKind). Erwachsene sammeln Punkte,
+                keine Sterne.
+
+                Ein Kind mit Zugang hat noch keinen Listeneintrag, an
+                dem das Ziel hängen könnte - dann legt das Speichern
+                einen an. Er trägt nur den Namen und das Ziel; in der
+                Personenreihe bleibt es beim Konto (lib/mitglieder.ts
+                lässt den Eintrag hinter dem Zugang zurücktreten), also
+                steht niemand doppelt da. */}
+            {istKind(member) ? (
               <SternZielForm
                 name={member.name}
-                eintrag={rohEintrag}
+                eintrag={rohEintrag ?? {}}
                 sterne={wochenSterne(data.chores, member.name, new Date())}
-                onSave={(patch) => update('members', member.id as string, patch)}
+                onSave={(patch) =>
+                  rohEintrag?.id
+                    ? update('members', String(rohEintrag.id), patch)
+                    : add('members', { text: member.name, role: 'kind', ...patch })
+                }
                 styles={styles}
                 colors={colors}
               />
