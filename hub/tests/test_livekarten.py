@@ -1,5 +1,6 @@
 """Live-Karten: aus dem Hauszustand werden Sperrbildschirm-Karten."""
 
+import time
 from types import SimpleNamespace
 
 from homepilot.core.livekarten import (
@@ -741,3 +742,53 @@ def test_kehrt_der_fernseher_zurueck_ist_der_vermerk_erledigt():
     rows, starten, _, beenden = abgleich(rows, wunsch, ["Stibe"], 1200.0)
     assert starten == [] and beenden == []
     assert "ende_offen" not in rows[0]
+
+
+async def test_ohne_angemeldetes_telefon_werden_karten_trotzdem_beendet():
+    """Der gemeldete Fall, dritte Runde: Alle Fernseher aus, der Hub
+    will keine Karte mehr - und in `live_cards` stehen die Zeilen
+    trotzdem unverändert weiter.
+
+    Die Runde stieg aus, sobald kein Telefon zum Starten angemeldet
+    war: `if not start_rows: return`, noch vor dem Abgleich. Damit
+    blieb jede laufende Karte für immer stehen. Ein leeres Soll heisst
+    aber nicht «nichts tun», sondern «nichts soll laufen»."""
+    from homepilot.core import livekarten as modul
+    from homepilot.core.hub import Hub
+
+    from .conftest import make_config
+
+    hub = Hub(
+        make_config(
+            users=[{"name": "Stefan", "role": "besitzer", "token": "t"}],
+            integrations=[{"integration": "demo"}],
+        )
+    )
+    await hub.start()
+    try:
+        hub.data.set(modul.START_KEY, [])
+        hub.data.set(
+            modul.KARTEN_KEY,
+            [
+                {
+                    "user": "Stefan",
+                    "art": "tv:cast.wz",
+                    "stand": "{}",
+                    "activity_tokens": ["act-1"],
+                    "aktualisiert": time.time(),
+                }
+            ],
+        )
+        gesendet: list[dict] = []
+
+        class Versand:
+            async def senden(self, token: str, payload: dict) -> bool:
+                gesendet.append({"token": token, "payload": payload})
+                return True
+
+        await modul._runde(hub, Versand())
+        # Das Ende ging raus, und die Zeile ist weg.
+        assert [e["payload"]["aps"]["event"] for e in gesendet] == ["end"]
+        assert hub.data.get(modul.KARTEN_KEY) == []
+    finally:
+        await hub.stop()

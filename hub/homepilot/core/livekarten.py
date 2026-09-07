@@ -1038,8 +1038,6 @@ async def _runde(hub: Any, versand: liveaktivitaet.ApnsVersand) -> None:
             )
         hub.data.set(VERWAIST_KEY, [])
     start_rows = hub.data.get(START_KEY)
-    if not start_rows:
-        return
     prefs_rows = hub.data.get("user_prefs")
     gesperrt = liveaktivitaet.abgeschaltet(prefs_rows)
     benutzer = sorted(
@@ -1049,9 +1047,17 @@ async def _runde(hub: Any, versand: liveaktivitaet.ApnsVersand) -> None:
             if isinstance(row, dict) and str(row.get("user") or "") not in gesperrt
         }
     )
+    # Ohne angemeldetes Telefon nichts *starten* - aber sehr wohl noch
+    # beenden. Vorher stieg die Runde hier ganz aus, und damit blieb
+    # jede laufende Karte für immer stehen: Wer die Live-Aktivitäten
+    # abschaltet oder sein Telefon neu anmeldet, behielt die alte Karte
+    # auf dem Sperrbildschirm, obwohl der Hub sie längst nicht mehr
+    # wollte. Ein leeres Soll heisst nicht «nichts tun», es heisst
+    # «nichts soll laufen» - derselbe Gedanke wie beim Abräumen der
+    # liegen gebliebenen Karten oben.
     neue, starten, aktualisieren, beenden = abgleich(
         hub.data.get(KARTEN_KEY),
-        _gewuenscht(hub, jetzt, benutzer),
+        _gewuenscht(hub, jetzt, benutzer) if benutzer else [],
         benutzer,
         jetzt,
         abbestellt=liveaktivitaet.abbestellte(prefs_rows),
