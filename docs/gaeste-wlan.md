@@ -52,8 +52,37 @@ Hubs zeigen lassen. Dann wird daraus:
 
 **Im Controller:** *Settings → Hotspot Portal → Landing Page* auf
 **External Portal Server** stellen und dort die Adresse des Hubs
-eintragen (`10.10.1.13:8123`, mit Port). Die Pre-Authorization-Liste
-braucht es weiterhin - ohne sie erreicht das Fenster die Seite nicht.
+eintragen. Die Pre-Authorization-Liste braucht es weiterhin - ohne sie
+erreicht das Fenster die Seite nicht.
+
+**Und dann die Stolperstelle:** Das Feld nimmt **nur eine IPv4-Adresse**,
+kein `:8123`. Der Controller schickt den Gast also auf **Port 80**, wo der
+Hub nicht steht - das Fenster bleibt leer, und im Log taucht nicht einmal
+eine Anfrage auf, weil sie gar nie ankommt. Dagegen gibt es in der
+`config.yaml`:
+
+```yaml
+api:
+  portal_port: 80
+```
+
+Damit antwortet auf Port 80 ein blosser Umleiter auf den echten Port -
+Pfad und Abfrage unverändert, denn in der Abfrage steht die MAC des
+Gastgeräts. Er beantwortet nichts inhaltlich und kennt weder Token noch
+Daten.
+
+Ports unter 1024 gehören unter Linux root, der Hub läuft im Container
+aber als gewöhnlicher Benutzer. Einmalig auf dem Docker-Host:
+
+```bash
+echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/99-homepilot.conf
+sudo sysctl --system
+```
+
+Belegt schon etwas anderes Port 80 (ein Gegenlauf-Server etwa), lässt man
+`portal_port` weg und trägt dort stattdessen eine Weiterleitung für
+`/guest/` und `/gast/` auf Port 8123 ein. Der Hub sagt in beiden Fällen
+im Log, wenn der Port zubleibt - statt still nichts zu tun.
 
 Der Controller ruft dann `…/guest/s/<site>/?id=<MAC>&ap=…&ssid=…` auf;
 genau dorthin hört der Hub. Zum Ausprobieren gibt es dieselbe Seite

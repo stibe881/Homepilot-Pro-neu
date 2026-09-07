@@ -22,6 +22,13 @@ api:
   # Herkünfte, die der Browser ansprechen darf. Nötig für die Web-Fassung
   # der App, die unter einer anderen Adresse läuft als der Hub.
   cors_origins: ["*"]
+  # Nur fürs Gäste-WLAN mit «External Portal Server»: UniFi lässt dort
+  # allein eine IPv4-Adresse zu, kein «:8123» - der Controller schickt den
+  # Gast also auf Port 80. Steht diese Zeile, antwortet dort ein blosser
+  # Umleiter auf den echten Port (docs/gaeste-wlan.md). Ports unter 1024
+  # gehören root; der Hub braucht dafür einmal
+  # 'net.ipv4.ip_unprivileged_port_start=80' auf dem Docker-Host.
+  # portal_port: 80
 
 # Wohin in der App angelegte Benutzer und Abläufe geschrieben werden.
 # Standard: homepilot-data.json neben dieser Datei. Die Datei enthält Tokens

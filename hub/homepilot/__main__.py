@@ -7,7 +7,7 @@ import argparse
 import uvicorn
 
 from .api import create_app
-from .core import logform
+from .core import logform, portalport
 from .core.config import load_config
 from .core.hub import Hub
 from .qr import setup_hint
@@ -33,6 +33,11 @@ def main() -> None:
         # der QR-Code unsichtbar, während die Logs (stderr) durchkommen.
         print(setup_hint(hub.users, config.api.host, config.api.port), flush=True)
     app = create_app(hub)
+    # Der Umleiter fürs Gäste-Anmeldefenster, falls eingerichtet: Er muss
+    # vor dem blockierenden uvicorn.run() stehen und läuft in einem
+    # eigenen Faden (core/portalport.py).
+    if config.api.portal_port and config.api.portal_port != config.api.port:
+        portalport.starten(config.api.host, config.api.portal_port, config.api.port)
     uvicorn.run(app, host=config.api.host, port=config.api.port, log_level="warning")
 
 
