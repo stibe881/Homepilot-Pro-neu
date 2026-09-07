@@ -365,3 +365,42 @@ def test_a_guest_is_also_found_by_its_last_address():
 
     clients = [{"mac": "aa:bb:cc:dd:ee:ff", "last_ip": "10.10.20.55", "is_guest": True}]
     assert guest_mac_for_address(clients, "10.10.20.55") == "aa:bb:cc:dd:ee:ff"
+
+
+def test_only_a_waiting_guest_can_be_let_in():
+    """Die Prüfung hinter dem Portal-Weg.
+
+    Der Controller nennt die MAC in einer Adresse, die auch jemand
+    anders aufrufen könnte - freigeschaltet wird nur, wer wirklich am
+    Gästenetz hängt.
+    """
+    from homepilot.integrations.unifi import guest_is_waiting
+
+    clients = [
+        {"mac": "AA:BB:CC:DD:EE:FF", "is_guest": True},
+        {"mac": "11:22:33:44:55:66", "is_guest": False},
+    ]
+    assert guest_is_waiting(clients, "aa-bb-cc-dd-ee-ff") is True
+    # Das Hausgerät ist kein Gast, und Erfundenes steht nirgends.
+    assert guest_is_waiting(clients, "11:22:33:44:55:66") is False
+    assert guest_is_waiting(clients, "99:99:99:99:99:99") is False
+    assert guest_is_waiting(clients, "") is False
+
+
+def test_protect_says_why_it_has_no_cameras():
+    """«Keine eigenen Geräte» ist drei Ursachen mit einer Anzeige.
+
+    Der erste Abruf scheitert nur als Warnung ins Log - die Integration
+    gilt weiter als in Ordnung. Von aussen sah «der Controller weist
+    mich ab» damit genau so aus wie «du hast keine Kameras».
+    """
+    from homepilot.integrations.unifi_protect import health_detail
+
+    # Nie erreicht: Das ist kein «zuletzt», das ist gar nicht.
+    assert health_detail(0, "401", je_geglueckt=False).startswith("Kein Zugriff")
+    # Lief schon einmal, jetzt gestört.
+    assert "Zuletzt nicht erreicht" in health_detail(2, "Zeitüberschreitung")
+    # Verbunden, aber leer - die Frage, die dann zu klären ist.
+    assert "keine Kamera" in health_detail(0)
+    assert health_detail(1) == "1 Kamera angebunden"
+    assert health_detail(3) == "3 Kameras angebunden"

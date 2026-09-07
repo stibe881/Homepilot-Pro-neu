@@ -1458,6 +1458,9 @@ def test_login_error_names_the_real_cause():
     assert "Zwei-Faktor" in login_error(499)
     assert "Local Access Only" in login_error(499)
     assert "Passwort" in login_error(401)
+    # 403 ist bei UniFi OS oft die Sperre nach Fehlversuchen - wer dann
+    # am Passwort dreht, verlängert sie nur.
+    assert "gesperrt" in login_error(403)
     assert "503" in login_error(503)
 
 
@@ -2489,3 +2492,21 @@ def test_app_start_geht_als_link_hinaus():
     # Eigene Einträge aus der config.yaml bleiben, wie sie sind.
     assert app_link("tv.arte.plus7") == "tv.arte.plus7"
     assert app_link("kodi://") == "kodi://"
+
+
+def test_the_network_login_also_names_the_second_factor():
+    """Beide Anbindungen lesen denselben Statuscode gleich.
+
+    Der Netzwerk-Controller liess beide Anmeldewege scheitern und sagte
+    dann «Zugangsdaten prüfen» - während in Wahrheit der zweite Faktor
+    fehlte. Man sucht danach stundenlang nach einem Tippfehler.
+    """
+    from homepilot.integrations.unifi import login_error as netz_fehler
+
+    zweifaktor = netz_fehler(499, "UniFi")
+    assert "Zwei-Faktor" in zweifaktor
+    assert "UniFi verlangt" in zweifaktor
+    # Und der Rat, der wirklich hilft: ein eigener Benutzer, keine
+    # nachträglich ergänzten Zugangsdaten an einem Cloud-Konto.
+    assert "Mailadresse" in zweifaktor
+    assert "abgelehnt (401)" in netz_fehler(401, "UniFi")

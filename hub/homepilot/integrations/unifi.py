@@ -42,6 +42,7 @@ import aiohttp
 from ..core.entity import EntityKind
 from ..core.errors import ConfigError
 from ..core.integration import Integration, console_html_hint
+from .unifi_protect import login_error
 
 # Wie lange dieselbe Klage schweigt, bevor sie sich wiederholt (Sekunden).
 KLAGE_TAKT = 1800.0
@@ -118,6 +119,24 @@ def guest_mac_for_address(
                 mac = normalise_mac(str(client.get("mac") or ""))
                 return mac or None
     return None
+
+
+def guest_is_waiting(clients: list[dict[str, Any]], mac: str) -> bool:
+    """Hängt dieses Gerät gerade als Gast im Netz? (rein, testbar)
+
+    Die Prüfung hinter dem Portal-Weg: Dort nennt der Controller die MAC
+    selbst, aber er nennt sie in einer Adresse, die auch jemand anders
+    aufrufen könnte. Freigeschaltet wird deshalb nur, wer wirklich am
+    Gästenetz hängt - eine erfundene oder fremde MAC steht dort nicht.
+    """
+    gesucht = normalise_mac(mac)
+    if not gesucht:
+        return False
+    return any(
+        client.get("is_guest")
+        and normalise_mac(str(client.get("mac") or "")) == gesucht
+        for client in clients
+    )
 
 
 def presence_from_clients(
@@ -202,12 +221,19 @@ class UnifiIntegration(Integration):
     async def _login(self) -> None:
         """Meldet sich an und erkennt dabei die Controller-Generation."""
         credentials = {"username": self._username, "password": self._password}
+        # Was die Konsole auf den ersten Versuch geantwortet hat. Beide
+        # Versuche scheitern zu lassen und dann «Zugangsdaten prüfen» zu
+        # sagen, war die teuerste Zeile dieser Anbindung: Ein 499 heisst
+        # «zweiter Faktor fehlt», nicht «falsches Passwort» - und man
+        # sucht danach stundenlang am falschen Ort.
+        abgewiesen: list[int] = []
         for path, prefix in (("/api/auth/login", "/proxy/network"), ("/api/login", "")):
             try:
                 async with self._session.post(
                     f"{self._base}{path}", json=credentials
                 ) as response:
                     if response.status >= 400:
+                        abgewiesen.append(response.status)
                         continue
                     self._prefix = prefix
                     self._csrf = response.headers.get("X-CSRF-Token") or self._csrf
@@ -221,6 +247,8 @@ class UnifiIntegration(Integration):
                     return
             except aiohttp.ClientError as err:
                 raise ConnectionError(f"UniFi-Controller nicht erreichbar: {err}") from err
+        if abgewiesen:
+            raise ConnectionError(login_error(abgewiesen[0], "UniFi"))
         raise ConnectionError("UniFi-Anmeldung fehlgeschlagen – Zugangsdaten prüfen")
 
     @staticmethod
@@ -313,6 +341,10 @@ class UnifiIntegration(Integration):
     async def guest_mac(self, address: str) -> str | None:
         """Die MAC des Gastgeräts an dieser Adresse - oder None."""
         return guest_mac_for_address(await self._fetch_clients(), address)
+
+    async def guest_waiting(self, mac: str) -> bool:
+        """Steht diese MAC gerade als Gast in der Client-Liste?"""
+        return guest_is_waiting(await self._fetch_clients(), mac)
 
     async def authorize_guest(self, mac: str, minutes: int) -> None:
         """Ein Gastgerät am Portal freischalten - ohne Gutschein.

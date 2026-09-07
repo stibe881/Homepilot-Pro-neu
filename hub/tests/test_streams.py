@@ -15,10 +15,13 @@ from homepilot.api import create_app
 from homepilot.core.hub import Hub
 from homepilot.core.streams import (
     Target,
+    apple_player,
+    apple_schnell,
     ffmpeg_command,
     path_name,
     publish_command,
     rewrite_playlist,
+    start_rueckstand,
     strip_low_latency,
 )
 
@@ -256,3 +259,41 @@ def test_the_clip_is_only_repacked_not_recalculated():
     # faststart, sonst muss ein Player erst die ganze Datei laden.
     assert command[command.index("-movflags") + 1] == "+faststart"
     assert command[-1] == "/tmp/clip.mp4"
+
+
+def test_apple_player_is_recognised_by_its_name():
+    """AVPlayer meldet sich als «AppleCoreMedia» - Chrome nicht.
+
+    Chrome und der Android-Browser tragen «Safari/» aus historischen
+    Gründen im Namen; sie bekämen sonst die langsame Fassung, obwohl sie
+    die schnelle spielen können.
+    """
+    assert apple_player("AppleCoreMedia/1.0.0.21G93 (iPhone; …)") is True
+    assert apple_player("Mozilla/5.0 (Macintosh) … Version/17.0 Safari/605.1") is True
+    assert apple_player("Mozilla/5.0 … Chrome/120 Safari/537.36") is False
+    assert apple_player("Mozilla/5.0 (Linux; Android 14) … Safari/537.36") is False
+    assert apple_player("") is False
+
+
+def test_apple_low_latency_is_off_until_someone_tries_it():
+    """Ein Fehlversuch heisst schwarzes Bild - also nicht aufdrängen."""
+    assert apple_schnell(None) is False
+    assert apple_schnell({}) is False
+    assert apple_schnell({"apple_low_latency": True}) is True
+
+
+def test_the_start_offset_stays_in_a_sane_range():
+    """Zu knapp heisst Stocken bei jeder Netzdelle, Unlesbares heisst
+    Voreinstellung - der Strom soll an einer krummen Zahl nicht zerfallen."""
+    assert start_rueckstand(None) == 2.0
+    assert start_rueckstand({"start_offset": 1}) == 1.0
+    assert start_rueckstand({"start_offset": 0.1}) == 0.5
+    assert start_rueckstand({"start_offset": 99}) == 10.0
+    assert start_rueckstand({"start_offset": "bald"}) == 2.0
+
+
+def test_the_offset_lands_in_the_playlist():
+    """Und zwar lesbar - «-1.5», nicht «-1.5000000000000002»."""
+    liste = "#EXTM3U\n#EXT-X-VERSION:9\n#EXTINF:1.0,\nsegment1.mp4\n"
+    assert "#EXT-X-START:TIME-OFFSET=-1.5" in strip_low_latency(liste, 1.5)
+    assert "#EXT-X-START:TIME-OFFSET=-2" in strip_low_latency(liste)

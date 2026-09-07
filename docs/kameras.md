@@ -112,6 +112,33 @@ nur, solange jemand zuschaut. Dafür gibt es zwei Wege:
 - **ffmpeg** (Rückfall): läuft mediamtx nicht, packt der Hub selbst mit
   ffmpeg um – gleiches Bild, rund zwei Sekunden Rückstand.
 
+### Warum es auf dem Telefon trotzdem 2–4 Sekunden sind
+
+Im Browser liegt der Rückstand unter einer Sekunde, auf iPhone und iPad
+nicht - und das ist eine bewusste Entscheidung des Hubs, keine Schwäche
+des Geräts: Apple-Player bekommen die Wiedergabeliste **ohne** die
+Low-Latency-Teile. Sie verlangen exakt gleich lange Bruchstücke, und als
+die Sperre entstand, zitterten die Part-Dauern (Tonspur, wackelnde
+Zeitstempel der Kameras); AVPlayer stieg dann ganz aus - schwarzes Bild
+statt Rückstand.
+
+Beides ist inzwischen behoben: Der Strom wird ohne Ton und mit fester
+Bildrate neu codiert. Die Sperre *könnte* also überflüssig sein.
+Beweisen lässt sich das nur am Gerät, deshalb ist sie ausprobierbar
+statt einfach entfernt:
+
+```yaml
+streaming:
+  apple_low_latency: true    # Versuch: LL-HLS auch für iPhone/iPad
+  start_offset: 2            # sonst: Sekunden hinter dem Live-Rand
+```
+
+Läuft das Bild damit flüssig, bleibt es an - der Rückstand fällt unter
+eine Sekunde. Bleibt es schwarz oder stockt es, wieder auf `false`. Wer
+bei der sicheren Fassung bleibt, kann mit `start_offset` trotzdem etwas
+holen: `1` statt der voreingestellten `2` spart rund eine Sekunde, macht
+den Strom aber anfälliger fürs Stocken. Unter `0.5` lässt der Hub nicht.
+
 Welcher Weg aktiv ist, steht beim ersten Antippen einer Kamera im Log:
 `Live-Bild über mediamtx (Low-Latency-HLS)` oder `… über ffmpeg (HLS)`.
 

@@ -249,6 +249,55 @@ def codeseite(
     )
 
 
+def mac_aus_id(roh: str | None) -> str | None:
+    """Die MAC aus dem `id` der Portal-Umleitung (rein, testbar).
+
+    Der Controller schickt sie mal mit Doppelpunkten, mal mit
+    Bindestrichen, mal ohne alles. Was nicht wie zwölf Hexziffern
+    aussieht, ist keine MAC - und darf keine werden: Auf diesen Wert hin
+    wird jemand freigeschaltet.
+    """
+    text = str(roh or "").strip().lower().replace("-", ":")
+    nur = text.replace(":", "")
+    if len(nur) != 12 or any(zeichen not in "0123456789abcdef" for zeichen in nur):
+        return None
+    return ":".join(nur[stelle : stelle + 2] for stelle in range(0, 12, 2))
+
+
+def portalseite(ssid: str) -> str:
+    """Was das Telefon von selbst aufmacht, sobald es im Gästenetz hängt.
+
+    Ein Satz und ein Knopf, mehr nicht: Dieses Fenster (das Telefon nennt
+    es «Anmelden») ist eng, verschwindet beim Wegtippen und hat keine
+    Adresszeile. Wer hier zu lesen anfängt, hat das Fenster schon zu.
+
+    Der Knopf und nicht das blosse Aufrufen: Das Fenster geht bei jedem
+    Vorbeigehen am Haus auf, sobald ein Telefon das offene Netz sieht -
+    freischalten soll das noch niemanden.
+    """
+    netz = f" «{_text(ssid)}»" if ssid else ""
+    return _huelle(
+        "WLAN für Gäste",
+        f"<h1>Willkommen</h1>"
+        f"<p>Ein Druck, und du bist im Gästenetz{netz} - "
+        f"für {GUELTIG_STUNDEN} Stunden, ohne Code und ohne Passwort.</p>"
+        '<form method="post" action=""><button type="submit">'
+        "Verbinden</button></form>",
+    )
+
+
+def portalerfolg(ssid: str) -> str:
+    """Geschafft - und das Fenster darf zu."""
+    netz = f" «{_text(ssid)}»" if ssid else ""
+    return _huelle(
+        "Du bist im Netz",
+        f"<h1>Du bist im Netz</h1>"
+        f"<p>Dieses Gerät ist im Gästenetz{netz} freigeschaltet, "
+        f"{GUELTIG_STUNDEN} Stunden lang.</p>"
+        "<p>Du kannst dieses Fenster schliessen.</p>",
+    )
+
+
 def fehlerseite(titel: str, satz: str) -> str:
     """Alles, was schiefgehen kann - in derselben Form."""
     return _huelle(titel, f"<h1>{_text(titel)}</h1><p>{_text(satz)}</p>")

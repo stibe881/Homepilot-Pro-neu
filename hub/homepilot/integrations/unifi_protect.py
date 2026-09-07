@@ -60,26 +60,48 @@ def decode_ws_message(data: bytes) -> tuple[dict[str, Any], dict[str, Any]]:
     return action, payload
 
 
-def login_error(status: int) -> str:
+def login_error(status: int, anwendung: str = "Protect") -> str:
     """Sagt, was der Statuscode der Anmeldung bedeutet (rein, testbar).
 
     UniFi meldet mit 499 nicht «falsches Passwort», sondern «hier fehlt der
     zweite Faktor» – der Unterschied entscheidet, ob man das Passwort neu
     tippt oder einen lokalen Benutzer ohne 2FA anlegt.
+
+    `anwendung` steht davor, weil dieselbe Konsole beides beantwortet:
+    Der Netzwerk-Controller nannte einen 499 lange «Zugangsdaten prüfen»
+    und schickte damit auf die Suche nach einem Tippfehler, während in
+    Wahrheit der zweite Faktor fehlte - beide Anbindungen lesen den
+    Statuscode jetzt gleich.
+
+    Ein Konto mit hinterlegter Mailadresse ist dabei nie rein lokal: Es
+    hängt an einer Ubiquiti-Kennung, und die bringt ihre 2FA mit, auch
+    wenn daneben ein lokaler Benutzername steht.
     """
     if status == 499:
         return (
-            "Protect verlangt Zwei-Faktor-Authentifizierung (499). Der Hub kann "
-            "keinen Code eingeben: In UniFi OS unter Settings → Admins & Users "
-            "einen Benutzer mit 'Local Access Only' und ohne 2FA anlegen "
-            "(ein Ubiquiti-Cloud-Konto erzwingt 2FA immer)."
+            f"{anwendung} verlangt Zwei-Faktor-Authentifizierung (499). Der Hub "
+            "kann keinen Code eingeben: In UniFi OS unter Settings → Admins & "
+            "Users einen EIGENEN Benutzer anlegen - 'Local Access Only', ohne "
+            "Mailadresse und ohne 2FA. Ein bestehendes Konto um lokale "
+            "Zugangsdaten zu ergänzen genügt nicht: Es bleibt an seiner "
+            "Ubiquiti-Kennung hängen, und die erzwingt 2FA immer."
         )
-    if status in (401, 403):
+    if status == 403:
+        # Nicht «Passwort prüfen»: UniFi OS antwortet so auch, wenn das
+        # Konto nach zu vielen Fehlversuchen gesperrt ist - und wer dann
+        # das Passwort neu tippt, verlängert die Sperre nur.
         return (
-            f"Protect-Anmeldung abgelehnt ({status}) – Benutzername oder Passwort "
-            "stimmen nicht, oder der Benutzer hat keine Protect-Berechtigung."
+            f"{anwendung}-Anmeldung verweigert (403). Entweder ist das Konto "
+            "nach zu vielen Fehlversuchen vorübergehend gesperrt - dann den "
+            "Hub stoppen, eine Viertelstunde warten, nichts probieren -, oder "
+            f"der Benutzer darf {anwendung} nicht benutzen."
         )
-    return f"Protect-Anmeldung fehlgeschlagen ({status})"
+    if status == 401:
+        return (
+            f"{anwendung}-Anmeldung abgelehnt (401) – Benutzername oder "
+            "Passwort stimmen nicht."
+        )
+    return f"{anwendung}-Anmeldung fehlgeschlagen ({status})"
 
 
 def _iso(millis: Any) -> str | None:
@@ -351,6 +373,35 @@ def camera_state(camera: dict[str, Any], quality: str = "medium") -> dict[str, A
     return state
 
 
+
+def health_detail(
+    kameras: int,
+    grund: str | None = None,
+    *,
+    je_geglueckt: bool = True,
+) -> str:
+    """Was im System-Bildschirm über Protect steht (rein, testbar).
+
+    Entstanden an einem Abend, an dem dort «Keine eigenen Geräte» stand
+    und sonst nichts: Der erste Abruf beim Start scheitert nur als
+    Warnung ins Log (eine Kamera, die gerade neu startet, soll den Hub
+    nicht mitreissen) - die Integration selbst gilt weiter als in
+    Ordnung. Von aussen sah «der Controller weist mich ab» damit genau
+    so aus wie «du hast keine Kameras». Zwei Ursachen, zwei Abhilfen,
+    eine Anzeige.
+    """
+    if grund:
+        if not je_geglueckt:
+            return f"Kein Zugriff auf Protect: {grund}"
+        return f"Zuletzt nicht erreicht: {grund}"
+    if kameras == 0:
+        return (
+            "Verbunden, aber der Controller nennt keine Kamera - "
+            "läuft Protect auf dieser Konsole, und darf der Benutzer es sehen?"
+        )
+    return f"{kameras} Kamera{'s' if kameras != 1 else ''} angebunden"
+
+
 class UnifiProtectIntegration(Integration):
     name = "unifi_protect"
 
@@ -367,6 +418,9 @@ class UnifiProtectIntegration(Integration):
         self._csrf: str | None = None
         # Kamera-ID der API → Entitäts-ID im Hub
         self._cameras: dict[str, str] = {}
+        # Warum die Kameraliste leer ist - für die Diagnose (health).
+        self._letzter_grund: str | None = None
+        self._je_geglueckt = False
         # Entitäts-ID → RTSP-Name des Live-Kanals (fehlt, wenn RTSP aus ist)
         self._aliases: dict[str, str] = {}
         # Entitäts-ID → Mikrofon/Aufnahmemodus vor dem Privatsphäre-Modus,
@@ -434,9 +488,14 @@ class UnifiProtectIntegration(Integration):
             bootstrap = await self._bootstrap()
         except Exception as err:
             self.log.warning("Protect nicht erreichbar: %s", err)
+            # Auch für die Diagnose merken: Ein Abruf, der nur ins Log
+            # scheitert, sieht in der App sonst aus wie «keine Kameras».
+            self._letzter_grund = str(err)
             for entity_id in self._cameras.values():
                 await self.hub.registry.update_state(entity_id, {}, available=False)
             return
+        self._letzter_grund = None
+        self._je_geglueckt = True
 
         self._last_update_id = bootstrap.get("lastUpdateId")
         for camera in bootstrap.get("cameras", []):
@@ -646,6 +705,24 @@ class UnifiProtectIntegration(Integration):
         if kennung and not beendet:
             self._laufende[kennung] = (entity_id, felder)
         await self.hub.registry.update_state(entity_id, changes, available=True)
+
+    # ── Was die Diagnose zu sehen bekommt ──────────────────────────────────
+
+    def health(self) -> dict[str, Any]:
+        """Warum stehen hier keine Kameras?
+
+        Ohne diese Auskunft stand in der App «Keine eigenen Geräte» -
+        gleichlautend für «der Controller weist mich ab», «Protect läuft
+        auf einer anderen Konsole» und «du hast wirklich keine Kamera».
+        """
+        return {
+            "detail": health_detail(
+                len(self._cameras),
+                self._letzter_grund,
+                je_geglueckt=self._je_geglueckt,
+            ),
+            "kameras": len(self._cameras),
+        }
 
     async def _poll_loop(self) -> None:
         while True:
