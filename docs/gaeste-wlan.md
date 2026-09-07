@@ -37,6 +37,38 @@ in der Client-Liste des Controllers als **Gast** steht – käme die
 Anfrage über einen Gegenlauf-Server im Haus, träfe die Adresse dessen
 eigenes Gerät, und der Hub schaltete den Falschen frei.
 
+## Der Weg ohne Aufkleber: das Portal selbst
+
+Der Aufkleber setzt voraus, dass der Gast schon im Netz hängt - sonst
+erreicht er den Hub gar nicht. Wer neu dazukommt, muss sich also erst
+verbinden, das Portal-Fenster wegtippen und dann scannen: ein Schritt zu
+viel, und ausgerechnet der unerklärlichste.
+
+Der Controller kann sein Portal-Fenster stattdessen auf eine Seite des
+Hubs zeigen lassen. Dann wird daraus:
+
+> Mit «Gast» verbinden → die Seite geht **von selbst** auf → einmal
+> tippen → drin.
+
+**Im Controller:** *Settings → Hotspot Portal → Landing Page* auf
+**External Portal Server** stellen und dort die Adresse des Hubs
+eintragen (`10.10.1.13:8123`, mit Port). Die Pre-Authorization-Liste
+braucht es weiterhin - ohne sie erreicht das Fenster die Seite nicht.
+
+Der Controller ruft dann `…/guest/s/<site>/?id=<MAC>&ap=…&ssid=…` auf;
+genau dorthin hört der Hub. Zum Ausprobieren gibt es dieselbe Seite
+unter `/gast/portal`.
+
+**Was der Hub prüft.** Die MAC steht in der Adresse, und eine Adresse
+kann jeder aufrufen. Freigeschaltet wird deshalb nur, wen der Controller
+selbst gerade als Gast am Netz führt - eine erfundene oder fremde MAC
+steht dort nicht. Fehlt die MAC ganz (weil jemand die Seite von Hand
+aufruft), bleibt der Weg über die IP wie beim Aufkleber.
+
+**Und der Knopf statt des blossen Aufrufens?** Das Fenster geht bei jedem
+Telefon auf, das im Vorbeigehen das offene Netz sieht. Wer nur vorbeigeht,
+soll nicht freigeschaltet werden.
+
 ## Was dafür stehen muss
 
 | Teil | Wofür | Ohne ihn |

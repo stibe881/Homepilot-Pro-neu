@@ -120,6 +120,24 @@ def guest_mac_for_address(
     return None
 
 
+def guest_is_waiting(clients: list[dict[str, Any]], mac: str) -> bool:
+    """Hängt dieses Gerät gerade als Gast im Netz? (rein, testbar)
+
+    Die Prüfung hinter dem Portal-Weg: Dort nennt der Controller die MAC
+    selbst, aber er nennt sie in einer Adresse, die auch jemand anders
+    aufrufen könnte. Freigeschaltet wird deshalb nur, wer wirklich am
+    Gästenetz hängt - eine erfundene oder fremde MAC steht dort nicht.
+    """
+    gesucht = normalise_mac(mac)
+    if not gesucht:
+        return False
+    return any(
+        client.get("is_guest")
+        and normalise_mac(str(client.get("mac") or "")) == gesucht
+        for client in clients
+    )
+
+
 def presence_from_clients(
     clients: list[dict[str, Any]], macs: list[str]
 ) -> dict[str, bool]:
@@ -313,6 +331,10 @@ class UnifiIntegration(Integration):
     async def guest_mac(self, address: str) -> str | None:
         """Die MAC des Gastgeräts an dieser Adresse - oder None."""
         return guest_mac_for_address(await self._fetch_clients(), address)
+
+    async def guest_waiting(self, mac: str) -> bool:
+        """Steht diese MAC gerade als Gast in der Client-Liste?"""
+        return guest_is_waiting(await self._fetch_clients(), mac)
 
     async def authorize_guest(self, mac: str, minutes: int) -> None:
         """Ein Gastgerät am Portal freischalten - ohne Gutschein.

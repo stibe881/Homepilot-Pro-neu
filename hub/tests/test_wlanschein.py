@@ -160,9 +160,14 @@ class FalscherController:
         self.freigeschaltet: list[tuple[str, int]] = []
         self.gast_mac: str | None = None
         self.freischalten_kaputt = False
+        # Wer gerade als Gast am Netz hängt - das Portal prüft das.
+        self.wartende: list[str] = []
 
     async def guest_mac(self, address: str) -> str | None:
         return self.gast_mac
+
+    async def guest_waiting(self, mac: str) -> bool:
+        return mac in self.wartende
 
     async def authorize_guest(self, mac: str, minutes: int) -> None:
         if self.freischalten_kaputt:
@@ -439,5 +444,80 @@ async def test_ein_misslungenes_freischalten_kostet_den_gutschein_nicht():
         assert gezogen.status_code == 200
         assert "00001-11111" in gezogen.text
         assert "Dein WLAN-Code" in gezogen.text
+    finally:
+        await hub.stop()
+
+
+def test_die_mac_aus_der_portal_adresse():
+    """Der Controller schreibt sie verschieden - und Unsinn ist keine MAC."""
+    from homepilot.core.wlanschein import mac_aus_id
+
+    assert mac_aus_id("AA:BB:CC:DD:EE:FF") == "aa:bb:cc:dd:ee:ff"
+    assert mac_aus_id("aa-bb-cc-dd-ee-ff") == "aa:bb:cc:dd:ee:ff"
+    assert mac_aus_id("aabbccddeeff") == "aa:bb:cc:dd:ee:ff"
+    # Auf diesen Wert hin wird jemand freigeschaltet - er muss stimmen.
+    assert mac_aus_id("../../etc/passwd") is None
+    assert mac_aus_id("aa:bb:cc") is None
+    assert mac_aus_id("") is None
+    assert mac_aus_id(None) is None
+
+
+async def test_das_portal_schaltet_das_geraet_mit_einem_druck_frei():
+    """Der Weg ohne Aufkleber: verbinden, ein Druck, drin."""
+    hub = _hub_mit_wlan()
+    await hub.start()
+    try:
+        unifi = FalscherController()
+        unifi.wartende = ["aa:bb:cc:dd:ee:ff"]
+        hub.integrations._integrations["unifi"] = unifi  # type: ignore[attr-defined]
+        client = TestClient(create_app(hub))
+
+        # Das Fenster geht bei jedem Telefon auf, das das Netz sieht -
+        # freischalten darf das noch niemanden.
+        seite = client.get("/guest/s/default?id=aa:bb:cc:dd:ee:ff&ssid=Gäste")
+        assert seite.status_code == 200
+        assert "Verbinden" in seite.text
+        assert unifi.freigeschaltet == []
+
+        drin = client.post("/guest/s/default?id=aa:bb:cc:dd:ee:ff")
+        assert drin.status_code == 200
+        assert "Du bist im Netz" in drin.text
+        assert unifi.freigeschaltet == [("aa:bb:cc:dd:ee:ff", 12 * 60)]
+    finally:
+        await hub.stop()
+
+
+async def test_eine_fremde_mac_kommt_nicht_durch():
+    """Die Adresse könnte auch jemand anders aufrufen.
+
+    Deshalb gilt nur, was der Controller selbst als wartenden Gast
+    führt - sonst schaltete ein erfundener Parameter beliebige Geräte
+    frei.
+    """
+    hub = _hub_mit_wlan()
+    await hub.start()
+    try:
+        unifi = FalscherController()
+        unifi.wartende = ["aa:bb:cc:dd:ee:ff"]
+        unifi.gast_mac = None
+        hub.integrations._integrations["unifi"] = unifi  # type: ignore[attr-defined]
+        client = TestClient(create_app(hub))
+
+        abgewiesen = client.post("/guest/s/default?id=11:22:33:44:55:66")
+        assert abgewiesen.status_code == 409
+        assert unifi.freigeschaltet == []
+    finally:
+        await hub.stop()
+
+
+async def test_ohne_unifi_sagt_das_portal_es_dem_gast():
+    """Kein Controller, keine Freischaltung - und ein Satz, der hilft."""
+    hub = _hub_mit_wlan()
+    await hub.start()
+    try:
+        client = TestClient(create_app(hub))
+        antwort = client.post("/gast/portal?id=aa:bb:cc:dd:ee:ff")
+        assert antwort.status_code == 503
+        assert "Frag kurz im Haus nach" in antwort.text
     finally:
         await hub.stop()

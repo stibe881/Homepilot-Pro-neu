@@ -365,3 +365,23 @@ def test_a_guest_is_also_found_by_its_last_address():
 
     clients = [{"mac": "aa:bb:cc:dd:ee:ff", "last_ip": "10.10.20.55", "is_guest": True}]
     assert guest_mac_for_address(clients, "10.10.20.55") == "aa:bb:cc:dd:ee:ff"
+
+
+def test_only_a_waiting_guest_can_be_let_in():
+    """Die Prüfung hinter dem Portal-Weg.
+
+    Der Controller nennt die MAC in einer Adresse, die auch jemand
+    anders aufrufen könnte - freigeschaltet wird nur, wer wirklich am
+    Gästenetz hängt.
+    """
+    from homepilot.integrations.unifi import guest_is_waiting
+
+    clients = [
+        {"mac": "AA:BB:CC:DD:EE:FF", "is_guest": True},
+        {"mac": "11:22:33:44:55:66", "is_guest": False},
+    ]
+    assert guest_is_waiting(clients, "aa-bb-cc-dd-ee-ff") is True
+    # Das Hausgerät ist kein Gast, und Erfundenes steht nirgends.
+    assert guest_is_waiting(clients, "11:22:33:44:55:66") is False
+    assert guest_is_waiting(clients, "99:99:99:99:99:99") is False
+    assert guest_is_waiting(clients, "") is False

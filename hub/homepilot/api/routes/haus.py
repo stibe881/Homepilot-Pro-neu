@@ -739,6 +739,103 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             )
         )
 
+    # ── Das Portal selbst: der Weg ohne Aufkleber ──────────────────────────
+    #
+    # Der Aufkleber setzt voraus, dass der Gast schon im Netz hängt - sonst
+    # erreicht er den Hub gar nicht. Also muss er sich erst verbinden, das
+    # Portal-Fenster wegtippen und dann scannen: ein Schritt zu viel, und
+    # ausgerechnet der unerklärlichste.
+    #
+    # Der Controller kann das Fenster stattdessen auf eine eigene Seite
+    # zeigen lassen («External Portal Server»). Dann geht beim Verbinden
+    # diese Seite von selbst auf, und ein Druck genügt. Der Controller
+    # hängt dabei die MAC des Geräts an die Adresse - der Hub muss sie
+    # nicht mehr über die IP erraten.
+    #
+    # Der Pfad ist nicht frei gewählt: Genau dorthin leitet UniFi um
+    # (/guest/s/<site>/?id=…&ap=…&t=…&url=…&ssid=…).
+
+    async def _portal_zeigen(request: Request) -> Response:
+        """Das Fenster, das beim Verbinden aufgeht - noch ohne Wirkung.
+
+        Nichts wird hier freigeschaltet: Das Fenster geht bei jedem
+        Telefon auf, das im Vorbeigehen das offene Netz sieht.
+        """
+        ssid, _ = _wlan_daten()
+        return _gastseite(wlanschein.portalseite(ssid))
+
+    async def _portal_freischalten(request: Request) -> Response:
+        """Ein Druck auf «Verbinden» - das Gerät ins Netz lassen."""
+        adresse = throttle_module.client_address(request)
+        if throttle.blocked_for(adresse) > 0:
+            return _gastseite(
+                wlanschein.fehlerseite(
+                    "Zu viele Versuche.", "Bitte in ein paar Minuten nochmal."
+                ),
+                status=429,
+            )
+
+        unifi = hub.integrations.get("unifi")
+        if unifi is None or not hasattr(unifi, "authorize_guest"):
+            return _gastseite(
+                wlanschein.fehlerseite(
+                    "Gerade nicht möglich.",
+                    "Der Hub erreicht den WLAN-Controller nicht. "
+                    "Frag kurz im Haus nach.",
+                ),
+                status=503,
+            )
+
+        # Die MAC nennt der Controller in der Adresse; fehlt sie (weil
+        # jemand die Seite von Hand aufruft), bleibt der Weg über die IP.
+        mac = wlanschein.mac_aus_id(request.query_params.get("id"))
+        try:
+            if mac:
+                # Die Adresse könnte auch jemand anders aufrufen - darum
+                # gilt nur, was der Controller selbst als Gast führt.
+                if not await unifi.guest_waiting(mac):
+                    mac = None
+            else:
+                mac = await unifi.guest_mac(adresse)
+            if mac:
+                await unifi.authorize_guest(mac, wlanschein.GUELTIG_STUNDEN * 60)
+        except Exception as err:
+            log.warning("Gäste-WLAN: Portal-Freischaltung misslang: %s", err)
+            mac = None
+
+        ssid, _ = _wlan_daten()
+        if not mac:
+            throttle.failed(adresse)
+            return _gastseite(
+                wlanschein.fehlerseite(
+                    "Das hat nicht geklappt.",
+                    "Verbinde dich zuerst mit dem Gästenetz und versuch es "
+                    "dann nochmal. Hilft das nicht, frag kurz im Haus nach.",
+                ),
+                status=409,
+            )
+
+        throttle.succeeded(adresse)
+        log.warning("Gäste-WLAN: %s über das Portal freigeschaltet", mac)
+        return _gastseite(wlanschein.portalerfolg(ssid))
+
+    @app.get("/guest/s/{site}")
+    async def portal_zeigen(site: str, request: Request) -> Response:
+        return await _portal_zeigen(request)
+
+    @app.post("/guest/s/{site}")
+    async def portal_freischalten(site: str, request: Request) -> Response:
+        return await _portal_freischalten(request)
+
+    @app.get("/gast/portal")
+    async def portal_zeigen_kurz(request: Request) -> Response:
+        """Derselbe Weg unter lesbarer Adresse - fürs Ausprobieren."""
+        return await _portal_zeigen(request)
+
+    @app.post("/gast/portal")
+    async def portal_freischalten_kurz(request: Request) -> Response:
+        return await _portal_freischalten(request)
+
     @app.delete("/api/wifi/vouchers/{voucher_id}")
     async def delete_wifi_voucher(voucher_id: str, request: Request) -> dict[str, Any]:
         require(request, Capability.CONTROL)
