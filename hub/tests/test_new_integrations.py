@@ -1458,6 +1458,9 @@ def test_login_error_names_the_real_cause():
     assert "Zwei-Faktor" in login_error(499)
     assert "Local Access Only" in login_error(499)
     assert "Passwort" in login_error(401)
+    # 403 ist bei UniFi OS oft die Sperre nach Fehlversuchen - wer dann
+    # am Passwort dreht, verlängert sie nur.
+    assert "gesperrt" in login_error(403)
     assert "503" in login_error(503)
 
 

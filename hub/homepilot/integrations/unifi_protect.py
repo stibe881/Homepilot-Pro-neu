@@ -86,11 +86,20 @@ def login_error(status: int, anwendung: str = "Protect") -> str:
             "Zugangsdaten zu ergänzen genügt nicht: Es bleibt an seiner "
             "Ubiquiti-Kennung hängen, und die erzwingt 2FA immer."
         )
-    if status in (401, 403):
+    if status == 403:
+        # Nicht «Passwort prüfen»: UniFi OS antwortet so auch, wenn das
+        # Konto nach zu vielen Fehlversuchen gesperrt ist - und wer dann
+        # das Passwort neu tippt, verlängert die Sperre nur.
         return (
-            f"{anwendung}-Anmeldung abgelehnt ({status}) – Benutzername oder "
-            f"Passwort stimmen nicht, oder der Benutzer hat keine Berechtigung "
-            f"für {anwendung}."
+            f"{anwendung}-Anmeldung verweigert (403). Entweder ist das Konto "
+            "nach zu vielen Fehlversuchen vorübergehend gesperrt - dann den "
+            "Hub stoppen, eine Viertelstunde warten, nichts probieren -, oder "
+            f"der Benutzer darf {anwendung} nicht benutzen."
+        )
+    if status == 401:
+        return (
+            f"{anwendung}-Anmeldung abgelehnt (401) – Benutzername oder "
+            "Passwort stimmen nicht."
         )
     return f"{anwendung}-Anmeldung fehlgeschlagen ({status})"
 
