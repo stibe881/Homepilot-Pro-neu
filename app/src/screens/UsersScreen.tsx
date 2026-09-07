@@ -29,7 +29,13 @@ import { HubFehler, hubClient } from '../api/client';
 import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { einladungFrist } from '../lib/einladung';
-import { gaesteansicht } from '../lib/gaestewlan';
+import {
+  DAUERN,
+  STANDARD_STUNDEN,
+  dauerName,
+  gaesteansicht,
+  gezeigterGutschein,
+} from '../lib/gaestewlan';
 import {
   Aufkleberstand,
   aufkleberSatz,
@@ -1443,6 +1449,8 @@ function GuestWifiCard({
     | null
   >(null);
   const [voucherNote, setVoucherNote] = useState<string | null>(null);
+  // Der eben angelegte Gutschein - er steht vor dem Vorrat.
+  const [zuletzt, setZuletzt] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // Der Aufkleber: Adresse, offene Codes und was ihn hindert.
   const [aufkleber, setAufkleber] = useState<Aufkleberstand | null>(null);
@@ -1514,7 +1522,18 @@ function GuestWifiCard({
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
-      setVoucherNote('In den Vorrat gelegt.');
+      // Den frischen Gutschein gleich aus der Antwort übernehmen und
+      // merken: Wer ihn eben angelegt hat, will ihn jetzt vorlesen -
+      // nicht erst nach dem nächsten Abgleich, und nicht hinter dem
+      // Vorrat (lib/gaestewlan.ts, gezeigterGutschein).
+      const frisch: Gutschein | undefined = body.voucher;
+      if (frisch?.id) {
+        setVouchers((bisher) => [frisch, ...(bisher ?? []).filter((v) => v.id !== frisch.id)]);
+        setZuletzt(frisch.id);
+        setVoucherNote(`Neu für ${dauerName(frisch.minutes)} - der Code steht oben.`);
+      } else {
+        setVoucherNote('In den Vorrat gelegt.');
+      }
       loadVouchers();
     } catch (err) {
       setVoucherNote(String(err instanceof Error ? err.message : err));
@@ -1533,18 +1552,11 @@ function GuestWifiCard({
     loadVouchers();
   };
 
-  const durationLabel = (minutes: number) =>
-    minutes >= 1440 && minutes % 1440 === 0
-      ? `${minutes / 1440} Tag${minutes / 1440 === 1 ? '' : 'e'}`
-      : `${Math.round(minutes / 60)} Std.`;
-
-  // Der Spender: Gezeigt wird genau ein Gutschein - der älteste noch
-  // nicht eingelöste. Wird er verwendet, rückt beim nächsten Abgleich
-  // der nächste nach.
-  const fresh = (vouchers ?? [])
-    .filter((voucher) => !voucher.used)
-    .sort((a, b) => (a.created ?? 0) - (b.created ?? 0));
-  const current = fresh[0] ?? null;
+  // Der Spender: Gezeigt wird genau ein Gutschein - der eben angelegte,
+  // sonst der älteste noch nicht eingelöste. Wird er verwendet, rückt
+  // beim nächsten Abgleich der nächste nach.
+  const fresh = (vouchers ?? []).filter((voucher) => !voucher.used);
+  const current = gezeigterGutschein(vouchers ?? [], zuletzt);
 
   // Kurzer Takt mit Absicht: Genau in dem Moment, in dem der Gast den
   // Code eintippt, schaut man auf diese Karte.
@@ -1707,7 +1719,7 @@ function GuestWifiCard({
                 {current.code}
               </Text>
               <Text style={styles.qrHint}>
-                {durationLabel(current.minutes)} ab der ersten Anmeldung
+                {dauerName(current.minutes)} ab der ersten Anmeldung
                 {current.note ? ` · ${current.note}` : ''}
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -1731,15 +1743,30 @@ function GuestWifiCard({
             </Text>
           )}
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-            {[
-              { hours: 4, label: '4 Std.' },
-              { hours: 24, label: '1 Tag' },
-              { hours: 72, label: '3 Tage' },
-              { hours: 168, label: '1 Woche' },
-            ].map((option) => (
+            {/* Der Standard vorn und hervorgehoben: Ein Abendbesuch ist
+                der Regelfall, und dafür soll niemand erst eine Dauer
+                wählen müssen. Die drei längeren daneben sind die
+                bewusste Entscheidung - für die Übernachtung, das lange
+                Wochenende, die Ferienwoche. */}
+            <Pressable
+              onPress={() => createVoucher(STANDARD_STUNDEN)}
+              disabled={busy}
+              accessibilityRole="button"
+              accessibilityLabel={`Gutschein für ${STANDARD_STUNDEN} Stunden anlegen`}
+              style={({ pressed }) => [
+                styles.voucherChip,
+                styles.voucherChipStark,
+                (pressed || busy) && { opacity: 0.6 },
+              ]}
+            >
+              <Text style={[styles.voucherChipText, styles.voucherChipStarkText]}>
+                + Gutschein ({STANDARD_STUNDEN} Std.)
+              </Text>
+            </Pressable>
+            {DAUERN.map((option) => (
               <Pressable
-                key={option.hours}
-                onPress={() => createVoucher(option.hours)}
+                key={option.stunden}
+                onPress={() => createVoucher(option.stunden)}
                 disabled={busy}
                 accessibilityRole="button"
                 style={({ pressed }) => [
@@ -1805,6 +1832,8 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     voucherChipText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
+    voucherChipStark: { backgroundColor: colors.accent, borderColor: colors.accent },
+    voucherChipStarkText: { color: '#FFFFFF' },
     intro: { color: colors.onGradientSoft, fontSize: 13, lineHeight: 19, maxWidth: 520 },
     note: { color: colors.inkSoft, fontSize: 14 },
     error: { color: colors.danger, fontSize: 13, fontWeight: '600' },

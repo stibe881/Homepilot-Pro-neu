@@ -12,11 +12,30 @@ seinen eigenen Zugangscode: **zwölf Stunden gültig, einmal einlösbar.**
 
 ## Der Weg des Gastes
 
-1. QR-Code scannen – mit der Kamera, ohne App und ohne Konto.
+**Hängt er schon im offenen Gästenetz** (der Regelfall, wenn die
+Pre-Authorization-Liste steht):
+
+1. QR-Code scannen.
 2. Auf der Seite «Code holen» drücken.
+3. Fertig – der Hub schaltet genau dieses Gerät frei. Nichts abzutippen.
+
+Der Code steht trotzdem auf der Seite: Das zweite Gerät (Tablet des
+Kindes, Laptop) ist damit noch nicht freigeschaltet, und dafür ist er da.
+
+**Kommt er vom Mobilfunk**, kennt der Hub sein Gerät nicht – dann bleibt
+es beim Abtippen:
+
+1. QR-Code scannen.
+2. «Code holen» drücken.
 3. Der Code steht gross da, darunter ein zweiter QR fürs Netz selbst.
 4. Mit dem Netz verbinden, die Anmeldeseite geht von selbst auf, Code
    eintippen.
+
+Das Freischalten geht denselben Weg, den das Portal nach dem Eintippen
+eines Codes auch ginge (`authorize-guest`). Freigeschaltet wird nur, wer
+in der Client-Liste des Controllers als **Gast** steht – käme die
+Anfrage über einen Gegenlauf-Server im Haus, träfe die Adresse dessen
+eigenes Gerät, und der Hub schaltete den Falschen frei.
 
 ## Was dafür stehen muss
 
@@ -135,6 +154,10 @@ gemeint hat.
 ## Der Vorrat daneben
 
 Der ältere Weg bleibt: Unter *Portal-Gutschein* legt man Codes von Hand
-an (4 Stunden bis 1 Woche) und liest sie vor. Das ist der Weg für den
-Gast ohne Kamera und für den Code, den man jemandem im Voraus geben
-will.
+an und liest sie vor. Das ist der Weg für den Gast ohne Kamera und für
+den Code, den man jemandem im Voraus geben will.
+
+Acht Stunden sind dort der Standard - ein Abendbesuch -, daneben stehen
+1 Tag, 3 Tage und 1 Woche für die bewusste Wahl. Der eben angelegte Code
+steht sofort oben; erst wenn er eingelöst oder gelöscht ist, rückt der
+Vorrat der Reihe nach nach.

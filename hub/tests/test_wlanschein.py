@@ -156,6 +156,18 @@ class FalscherController:
         self.geloescht: list[str] = []
         self._n = 0
         self.kaputt = False
+        # Wen der Hub freigeschaltet hat - und wen er dafür gefunden hat.
+        self.freigeschaltet: list[tuple[str, int]] = []
+        self.gast_mac: str | None = None
+        self.freischalten_kaputt = False
+
+    async def guest_mac(self, address: str) -> str | None:
+        return self.gast_mac
+
+    async def authorize_guest(self, mac: str, minutes: int) -> None:
+        if self.freischalten_kaputt:
+            raise ConnectionError("Controller antwortet nicht")
+        self.freigeschaltet.append((mac, minutes))
 
     async def teardown(self) -> None:
         return None
@@ -354,3 +366,78 @@ def test_der_qr_code_zeigt_wirklich_die_richtigen_felder():
         for spalte in range(int(x), int(x) + int(breite)):
             zurueck[int(y)][spalte] = True
     assert zurueck == matrix
+
+
+async def test_wer_schon_im_gastnetz_haengt_wird_gleich_freigeschaltet():
+    """Der schöne Fall: scannen, drücken, drin.
+
+    Wer über den Aufkleber kommt, hat sich mit genau diesem Aufkleber
+    ausgewiesen; ihn danach noch zehn Ziffern abtippen zu lassen, ist
+    eine Hürde ohne Gewinn.
+    """
+    hub = _hub_mit_wlan()
+    await hub.start()
+    try:
+        unifi = FalscherController()
+        unifi.gast_mac = "aa:bb:cc:dd:ee:ff"
+        hub.integrations._integrations["unifi"] = unifi  # type: ignore[attr-defined]
+        client = TestClient(create_app(hub))
+        stand = client.get(
+            "/api/wifi/sticker", headers={"Authorization": "Bearer geheim"}
+        ).json()
+        pfad = "/gast/wlan/" + stand["url"].rsplit("/", 1)[1]
+
+        gezogen = client.post(pfad)
+        assert gezogen.status_code == 200
+        assert "Du bist im Netz" in gezogen.text
+        assert unifi.freigeschaltet == [("aa:bb:cc:dd:ee:ff", 12 * 60)]
+        # Der Code steht trotzdem da - fürs zweite Gerät.
+        assert "00001-11111" in gezogen.text
+    finally:
+        await hub.stop()
+
+
+async def test_am_mobilfunk_bleibt_es_bei_der_anleitung():
+    """Kein Gastgerät an dieser Adresse: Dann gibt es nichts freizuschalten."""
+    hub = _hub_mit_wlan()
+    await hub.start()
+    try:
+        unifi = FalscherController()
+        unifi.gast_mac = None
+        hub.integrations._integrations["unifi"] = unifi  # type: ignore[attr-defined]
+        client = TestClient(create_app(hub))
+        stand = client.get(
+            "/api/wifi/sticker", headers={"Authorization": "Bearer geheim"}
+        ).json()
+        gezogen = client.post("/gast/wlan/" + stand["url"].rsplit("/", 1)[1])
+        assert gezogen.status_code == 200
+        assert unifi.freigeschaltet == []
+        assert "Dein WLAN-Code" in gezogen.text
+    finally:
+        await hub.stop()
+
+
+async def test_ein_misslungenes_freischalten_kostet_den_gutschein_nicht():
+    """Der Controller mault beim Freischalten - der Code gilt trotzdem.
+
+    Sonst stünde der Gast ganz ohne da: Der Gutschein ist längst
+    angelegt, und ihn wegen des bequemeren Wegs zu verschweigen, wäre
+    die schlechtere Hälfte von beidem.
+    """
+    hub = _hub_mit_wlan()
+    await hub.start()
+    try:
+        unifi = FalscherController()
+        unifi.gast_mac = "aa:bb:cc:dd:ee:ff"
+        unifi.freischalten_kaputt = True
+        hub.integrations._integrations["unifi"] = unifi  # type: ignore[attr-defined]
+        client = TestClient(create_app(hub))
+        stand = client.get(
+            "/api/wifi/sticker", headers={"Authorization": "Bearer geheim"}
+        ).json()
+        gezogen = client.post("/gast/wlan/" + stand["url"].rsplit("/", 1)[1])
+        assert gezogen.status_code == 200
+        assert "00001-11111" in gezogen.text
+        assert "Dein WLAN-Code" in gezogen.text
+    finally:
+        await hub.stop()

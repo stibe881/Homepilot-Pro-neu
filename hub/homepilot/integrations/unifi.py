@@ -90,6 +90,36 @@ def shape_voucher(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def guest_mac_for_address(
+    clients: list[dict[str, Any]], address: str
+) -> str | None:
+    """Welches *Gastgerät* hängt an dieser IP? (rein, testbar)
+
+    Damit kann der Hub jemanden, der schon im offenen Gästenetz hängt,
+    direkt freischalten - ohne dass er einen Code abtippt. Gebraucht
+    wird dafür seine MAC, und die einzige Spur, die er hinterlässt, ist
+    die Adresse, von der seine Anfrage kommt.
+
+    Nur Gäste, und das ist die Sicherung: Käme die Anfrage über einen
+    Gegenlauf-Server (Reverse Proxy) im Haus, träfe die Adresse dessen
+    eigenes Gerät - und der Hub schaltete den falschen frei. Ein
+    Hausgerät ist aber nie ``is_guest``, und ein Gast am Mobilfunk
+    steht gar nicht in der Liste; beide Fälle enden hier bei None und
+    damit beim Code zum Abtippen.
+    """
+    gesucht = str(address or "").strip()
+    if not gesucht:
+        return None
+    for client in clients:
+        if not client.get("is_guest"):
+            continue
+        for feld in ("ip", "last_ip"):
+            if str(client.get(feld) or "").strip() == gesucht:
+                mac = normalise_mac(str(client.get("mac") or ""))
+                return mac or None
+    return None
+
+
 def presence_from_clients(
     clients: list[dict[str, Any]], macs: list[str]
 ) -> dict[str, bool]:
@@ -279,6 +309,28 @@ class UnifiIntegration(Integration):
         if not rows:
             raise ConnectionError("Voucher angelegt, aber nicht auffindbar")
         return shape_voucher(rows[0])
+
+    async def guest_mac(self, address: str) -> str | None:
+        """Die MAC des Gastgeräts an dieser Adresse - oder None."""
+        return guest_mac_for_address(await self._fetch_clients(), address)
+
+    async def authorize_guest(self, mac: str, minutes: int) -> None:
+        """Ein Gastgerät am Portal freischalten - ohne Gutschein.
+
+        Der Weg, den das Portal sonst nach dem Eintippen eines Codes
+        selbst geht. Wer über den Aufkleber kommt, hat sich mit genau
+        diesem Aufkleber schon ausgewiesen; ihn danach noch zehn Ziffern
+        abtippen zu lassen, ist eine Hürde ohne Gewinn.
+        """
+        await self._api(
+            "POST",
+            f"/api/s/{self._site}/cmd/stamgr",
+            json={
+                "cmd": "authorize-guest",
+                "mac": normalise_mac(mac),
+                "minutes": max(1, int(minutes)),
+            },
+        )
 
     async def delete_voucher(self, voucher_id: str) -> None:
         await self._api(
