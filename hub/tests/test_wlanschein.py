@@ -85,18 +85,40 @@ def test_der_restsatz_rechnet_fuer_den_gast():
     assert wlanschein.restsatz(schein(), JETZT + 13 * STUNDE) == "Abgelaufen"
 
 
-def test_die_seiten_stehen_ohne_javascript_und_ohne_fremde_quellen():
+def test_die_seiten_kommen_vollstaendig_an_oder_gar_nicht():
     """Sie stehen auf einem fremden Telefon, das noch gar nicht im Netz
-    ist - sie müssen vollständig ankommen oder gar nicht."""
+    ist - nachladen kann es nichts.
+
+    Hier stand einmal «kein <script>». Das war strenger als der Grund:
+    Ein Skript *in* der Seite kommt mit ihr an, ein Schriftsatz von
+    einem fremden Server nicht. Seit der Code sich kopieren lässt,
+    braucht die Seite ein wenig JavaScript - aber keines von auswärts,
+    und nichts, ohne das sie unbrauchbar wäre (siehe unten).
+    """
     for seite in (
         wlanschein.frageseite("Gäste"),
         wlanschein.codeseite("01234-56789", "Noch 12 Std.", "Gäste", None),
         wlanschein.fehlerseite("Zu viele", "Später nochmal."),
     ):
-        assert "<script" not in seite
+        # Kein Skript, kein Bild, kein Stil von einer anderen Adresse.
+        assert "<script src" not in seite
         assert "http://" not in seite and "https://" not in seite.replace(
             "http://www.w3.org/2000/svg", ""
         )
+
+
+def test_ohne_javascript_bleibt_die_seite_brauchbar():
+    """Der Kopierknopf ist Bequemlichkeit, nicht Bedingung.
+
+    Ohne JavaScript bleibt der Code lesbar (und markierbar, siehe
+    -webkit-user-select im Stil), das Netz steht beim Namen, und der
+    Weg hinein ist beschrieben. Nur der Knopf zeigt sich gar nicht
+    erst - ein toter Knopf wäre schlimmer als keiner.
+    """
+    seite = wlanschein.codeseite("01234-56789", "Noch 12 Std.", "Gäste", None)
+    ohne = seite.split("<script>")[0]
+    assert "01234-56789" in ohne
+    assert "<button id=kopieren hidden>" in ohne
 
 
 def test_die_frageseite_zieht_noch_nichts():
@@ -115,9 +137,21 @@ def test_der_code_steht_gross_auf_der_seite():
 
 
 def test_fremder_text_kommt_entwertet_in_die_seite():
-    seite = wlanschein.codeseite("x", "y", '<script>böse</script>', None)
-    assert "<script>" not in seite
+    """Der Netzname kommt aus der Konfiguration, der Code vom Controller.
+
+    Geprüft wird der eingeschleuste Text selbst, nicht das blosse
+    Vorkommen von «<script>»: Die Seite bringt seit dem Kopierknopf ein
+    eigenes mit, und eine Prüfung, die daran anschlägt, prüft das
+    Falsche.
+    """
+    seite = wlanschein.codeseite("x", "y", "<script>böse</script>", None)
+    assert "böse" not in seite.replace("&lt;script&gt;böse&lt;/script&gt;", "")
     assert "&lt;script&gt;" in seite
+    # Und im Skript selbst steht der Code als JSON-Literal.
+    gefaehrlich = wlanschein.codeseite('</script><b>', "y", "Gäste", None)
+    assert "</script><b>" not in gefaehrlich.replace(
+        "&lt;/script&gt;&lt;b&gt;", ""
+    )
 
 
 def test_die_aufkleber_adresse_haengt_am_token():
@@ -521,3 +555,70 @@ async def test_ohne_unifi_sagt_das_portal_es_dem_gast():
         assert "Frag kurz im Haus nach" in antwort.text
     finally:
         await hub.stop()
+
+
+def test_the_code_page_offers_to_copy_the_code():
+    """Zwischen Code und Eingabefeld liegt ein Netzwechsel.
+
+    Der Code muss gleich in ein Feld auf einer *anderen* Seite, und
+    dazwischen wechselt das Telefon das Netz - zehn Ziffern im Kopf
+    darüber zu tragen ist die Stelle, an der man sich vertippt.
+    """
+    from homepilot.core.wlanschein import codeseite, kopierknopf
+
+    seite = codeseite("12345-67890", "Noch 12 Std.", "Gross-ICT Gast", None)
+    assert "Code kopieren" in seite
+    assert "clipboard" in seite
+    # Der Code steht auch im Skript - und zwar als JSON-Literal, denn er
+    # kommt vom Controller und gehört nicht ungeprüft in ein Skript.
+    assert '"12345-67890"' in kopierknopf("12345-67890")
+    assert '"a\\"b"' in kopierknopf('a"b')
+
+
+def test_the_copy_button_hides_itself_without_javascript():
+    """Ein toter Knopf wäre schlimmer als keiner - er schaltet sich
+    selbst frei, wenn der Zwischenspeicher da ist."""
+    from homepilot.core.wlanschein import kopierknopf
+
+    knopf = kopierknopf("1")
+    assert "<button id=kopieren hidden>" in knopf
+    assert "k.hidden=false" in knopf
+
+
+def test_the_way_into_the_network_differs_by_phone():
+    """Android darf die WLAN-Einstellungen öffnen, iOS nicht.
+
+    Einen Knopf hinzustellen, der auf dem iPhone in eine Fehlermeldung
+    läuft, wäre schlimmer als der Satz, der sagt, wo man tippen muss.
+    """
+    from homepilot.core.wlanschein import netzweg
+
+    weg = netzweg("Gross-ICT Gast")
+    assert "<b>Gross-ICT Gast</b>" in weg
+    assert "android.settings.WIFI_SETTINGS" in weg
+    assert "Kontrollzentrum" in weg
+    # Beide Fassungen liegen bereit; die Seite entscheidet selbst.
+    assert weg.count("hidden") >= 2
+
+
+def test_without_an_ssid_the_network_stays_nameless():
+    """Ohne guest_wifi.ssid weiss der Hub den Namen nicht - dann steht
+    dort «das Gästenetz» statt eines erfundenen Namens."""
+    from homepilot.core.wlanschein import netzweg
+
+    assert "das Gästenetz" in netzweg("")
+
+
+def test_ein_code_kann_das_skript_nicht_beenden():
+    """«</script>» im Wert würde sonst das Skript schliessen.
+
+    Der Code kommt vom Controller, nicht aus dem Haus - und json.dumps
+    allein entwertet «<» nicht. Ein Gutschein besteht zwar aus Ziffern;
+    darauf zu bauen hiesse, die Sicherheit einer fremden Antwort zu
+    überlassen.
+    """
+    from homepilot.core.wlanschein import kopierknopf
+
+    knopf = kopierknopf("</script><b>bös</b>")
+    assert "</script>" not in knopf.replace("});};})();</script>", "")
+    assert "\\u003c/script>" in knopf

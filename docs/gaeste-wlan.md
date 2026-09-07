@@ -22,14 +22,21 @@ Pre-Authorization-Liste steht):
 Der Code steht trotzdem auf der Seite: Das zweite Gerät (Tablet des
 Kindes, Laptop) ist damit noch nicht freigeschaltet, und dafür ist er da.
 
-**Kommt er vom Mobilfunk**, kennt der Hub sein Gerät nicht – dann bleibt
-es beim Abtippen:
+**Kommt er vom Mobilfunk**, kennt der Hub sein Gerät nicht – ein Gerät,
+das nicht im Netz hängt, steht in keiner Client-Liste, und ohne das
+weiss der Hub nicht, wen er freischalten soll. Dann geht es so:
 
 1. QR-Code scannen.
 2. «Code holen» drücken.
-3. Der Code steht gross da, darunter ein zweiter QR fürs Netz selbst.
-4. Mit dem Netz verbinden, die Anmeldeseite geht von selbst auf, Code
-   eintippen.
+3. Der Code steht gross da – **«Code kopieren»** legt ihn in den
+   Zwischenspeicher. Das ist der Punkt, an dem man sich sonst vertippt:
+   Gleich muss er in ein Feld auf einer anderen Seite, und dazwischen
+   wechselt das Telefon das Netz.
+4. Mit dem Gästenetz verbinden. Auf Android öffnet der Knopf darunter
+   die WLAN-Einstellungen; auf dem iPhone geht das nicht – Apple lässt
+   keine Webseite die Einstellungen öffnen –, dort steht stattdessen,
+   wo man tippt.
+5. Die Anmeldeseite geht von selbst auf, Code einsetzen.
 
 Das Freischalten geht denselben Weg, den das Portal nach dem Eintippen
 eines Codes auch ginge (`authorize-guest`). Freigeschaltet wird nur, wer

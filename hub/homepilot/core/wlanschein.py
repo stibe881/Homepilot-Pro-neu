@@ -34,6 +34,7 @@ watchdog._check_wlanscheine).
 
 from __future__ import annotations
 
+import json
 import secrets
 import time
 from typing import Any
@@ -156,9 +157,13 @@ _STIL = (
     "line-height:0;margin:0 0 1em}"
     "ol{text-align:left;color:#aab2c0;margin:0 0 1.2em;padding-left:1.3em}"
     "li{margin:0 0 .5em}"
-    "button{width:100%;padding:20px;font-size:1.15rem;font-weight:600;"
-    "color:#fff;background:#5b6cff;border:0;border-radius:16px;cursor:pointer}"
-    "button:active{opacity:.85}"
+    "button,.knopf{display:block;width:100%;padding:20px;font-size:1.15rem;"
+    "font-weight:600;color:#fff;background:#5b6cff;border:0;border-radius:16px;"
+    "cursor:pointer;text-decoration:none;text-align:center;margin:0 0 .8em;"
+    "font-family:inherit}"
+    "button:active,.knopf:active{opacity:.85}"
+    ".leise{background:#1b1f28;border:1px solid #2b3140;color:#eef1f6}"
+    "[hidden]{display:none!important}"
 )
 
 
@@ -237,15 +242,13 @@ def codeseite(
     return _huelle(
         "Dein WLAN-Code",
         f"<h1>Dein WLAN-Code</h1>"
-        f"<p class=code>{_text(code)}</p>"
+        f"<p class=code id=code>{_text(code)}</p>"
         f"<p class=rest>{_text(rest)} gültig · einmal einlösbar</p>"
-        f"{bild}"
-        "<ol>"
-        f"<li>Mit dem WLAN <b>{netz}</b> verbinden{' – QR oben scannen' if wlan_qr else ''}.</li>"
-        "<li>Die Anmeldeseite geht von selbst auf.</li>"
-        "<li>Dort den Code oben eintippen.</li>"
-        "</ol>"
-        "<p>Diese Seite kannst du offen lassen, bis du drin bist.</p>",
+        + kopierknopf(code)
+        + netzweg(ssid)
+        + bild
+        + "<p>Diese Seite kannst du offen lassen, bis du drin bist - der "
+        "Code steht dann noch da.</p>",
     )
 
 
@@ -295,6 +298,73 @@ def portalerfolg(ssid: str) -> str:
         f"<p>Dieses Gerät ist im Gästenetz{netz} freigeschaltet, "
         f"{GUELTIG_STUNDEN} Stunden lang.</p>"
         "<p>Du kannst dieses Fenster schliessen.</p>",
+    )
+
+
+def kopierknopf(code: str) -> str:
+    """Der Code in den Zwischenspeicher, mit einem Tipp (rein, testbar).
+
+    Der Grund ist der Weg danach: Gleich muss der Code in ein Feld, das
+    auf einer *anderen* Seite steht (dem Anmeldefenster des Portals) -
+    und dazwischen liegt ein Netzwechsel, der diese Seite womöglich aus
+    dem Blick nimmt. Zehn Ziffern im Kopf über einen Netzwechsel zu
+    tragen, ist genau die Stelle, an der man sich vertippt.
+
+    Der Knopf funktioniert nur mit JavaScript; ohne bleibt der Code
+    trotzdem lesbar und markierbar (-webkit-user-select:all im Stil).
+    Deshalb steht er als <button>, der sich selbst freischaltet - ein
+    toter Knopf wäre schlimmer als keiner.
+    """
+    # Als JSON in die Seite: Der Code kommt vom Controller, und was von
+    # dort kommt, gehört nicht ungeprüft in ein Skript.
+    #
+    # Und mit entwertetem «<»: json.dumps lässt es stehen, womit ein
+    # «</script>» im Wert das Skript beenden würde - der Rest des Codes
+    # stünde dann als Seiteninhalt da. Ein Gutschein besteht zwar aus
+    # Ziffern; darauf zu bauen heisst, die Sicherheit einer fremden
+    # Antwort zu überlassen.
+    literal = json.dumps(str(code)).replace("<", "\\u003c")
+    return (
+        '<button id=kopieren hidden>Code kopieren</button>'
+        "<script>"
+        "(function(){var k=document.getElementById('kopieren');"
+        "if(!navigator.clipboard)return;k.hidden=false;"
+        "k.onclick=function(){navigator.clipboard.writeText(" + literal + ")"
+        ".then(function(){k.textContent='Kopiert \u2713';"
+        "var w=document.getElementById('weiter');if(w)w.hidden=false;})"
+        ".catch(function(){k.textContent='Zum Kopieren gedr\u00fcckt halten';});};"
+        "})();"
+        "</script>"
+    )
+
+
+def netzweg(ssid: str) -> str:
+    """Wie der Gast von hier ins Netz kommt (rein, testbar).
+
+    Zwei Wege, weil die beiden Telefonwelten verschieden viel zulassen:
+    Android lässt eine Seite die WLAN-Einstellungen öffnen (intent://),
+    iOS nicht - Apple hat das Öffnen von Einstellungen aus Safari
+    abgeschaltet. Einen Knopf hinzustellen, der auf dem iPhone in eine
+    Fehlermeldung läuft, wäre schlimmer als der Satz, der sagt, wo man
+    tippen muss. Welcher der beiden gilt, entscheidet die Seite selbst.
+    """
+    netz = f"<b>{_text(ssid)}</b>" if ssid else "das Gästenetz"
+    return (
+        '<div id=weiter>'
+        f"<p>Verbinde dich jetzt mit {netz}. Die Anmeldeseite geht von "
+        "selbst auf - dort den Code einsetzen.</p>"
+        '<a id=wlanauf class="knopf leise" hidden '
+        'href="intent://#Intent;action=android.settings.WIFI_SETTINGS;end">'
+        "WLAN-Einstellungen öffnen</a>"
+        "<p id=wlanhand hidden>Auf dem iPhone: von rechts oben ins "
+        "Kontrollzentrum wischen, das WLAN-Feld gedrückt halten und das "
+        "Netz wählen.</p>"
+        "</div>"
+        "<script>"
+        "(function(){var a=/Android/i.test(navigator.userAgent);"
+        "var e=document.getElementById(a?'wlanauf':'wlanhand');"
+        "if(e)e.hidden=false;})();"
+        "</script>"
     )
 
 
