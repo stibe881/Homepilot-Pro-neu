@@ -1,4 +1,4 @@
-import { laufzeile } from './laufzeile';
+import { laufzeile, laufzeilenGrenze } from './laufzeile';
 
 const JETZT = 1_700_000_000_000;
 const VOR_ZWEI_STUNDEN = (JETZT - 7_200_000) / 1000;
@@ -64,5 +64,20 @@ describe('laufzeile', () => {
     );
     expect(zeile.text).toContain('im Alltag hätte gestoppt');
     expect(zeile.text).toContain('niemand zuhause');
+  });
+});
+
+describe('laufzeilenGrenze', () => {
+  test('eine Warnung wird nicht gekappt', () => {
+    // «Übersprungen vor 28 Minuten: Uhrzeit auss…» war genau die
+    // Auskunft, für die man hinschaut - abgeschnitten beantwortet sie
+    // nichts: Man sieht, DASS etwas im Weg stand, aber nicht was.
+    expect(laufzeilenGrenze('warn')).toBeUndefined();
+  });
+
+  test('die harmlosen Zeilen enden nach zwei', () => {
+    // Sonst läuft eine lange Liste von Abläufen auseinander.
+    expect(laufzeilenGrenze('ok')).toBe(2);
+    expect(laufzeilenGrenze('still')).toBe(2);
   });
 });

@@ -11,7 +11,7 @@ import { useColors } from '../theme';
 import { HubFehler, hubClient } from '../api/client';
 import { datumKurz, uhr } from '../lib/format';
 import { brauchtRueckfrage, handstartSatz } from '../lib/handstart';
-import { laufzeile } from '../lib/laufzeile';
+import { laufzeile, laufzeilenGrenze } from '../lib/laufzeile';
 import { verwaistZeile } from '../lib/verwaist';
 import { istPushKategorie } from '../lib/pushablaeufe';
 import { useOrte } from '../hooks/useOrte';
@@ -1311,7 +1311,7 @@ export function AutomationsScreen({
                             zeile.ton === 'warn' && { color: colors.warn },
                             zeile.ton === 'still' && { color: colors.inkFaint },
                           ]}
-                          numberOfLines={2}
+                          numberOfLines={laufzeilenGrenze(zeile.ton)}
                         >
                           {zeile.text}
                         </Text>

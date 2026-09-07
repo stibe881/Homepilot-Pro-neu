@@ -31,6 +31,19 @@ export interface Laufzeile {
   ton: 'ok' | 'warn' | 'still';
 }
 
+/**
+ * Wie viele Zeilen dieser Satz bekommen darf (rein, testbar).
+ *
+ * Eine Warnung wird nicht gekappt. «Übersprungen vor 28 Minuten:
+ * Uhrzeit auss…» war genau die Auskunft, für die man hinschaut - und
+ * abgeschnitten beantwortet sie nichts: Man sieht, dass etwas im Weg
+ * stand, aber nicht was. Die harmlosen Zeilen enden weiterhin nach
+ * zwei, sonst läuft eine lange Liste von Abläufen auseinander.
+ */
+export function laufzeilenGrenze(ton: Laufzeile['ton']): number | undefined {
+  return ton === 'warn' ? undefined : 2;
+}
+
 /** Der Satz zum letzten Lauf (rein, testbar). */
 export function laufzeile(
   lauf: LaufEintrag | null | undefined,
