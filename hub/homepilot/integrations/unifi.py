@@ -42,6 +42,7 @@ import aiohttp
 from ..core.entity import EntityKind
 from ..core.errors import ConfigError
 from ..core.integration import Integration, console_html_hint
+from .unifi_protect import login_error
 
 # Wie lange dieselbe Klage schweigt, bevor sie sich wiederholt (Sekunden).
 KLAGE_TAKT = 1800.0
@@ -220,12 +221,19 @@ class UnifiIntegration(Integration):
     async def _login(self) -> None:
         """Meldet sich an und erkennt dabei die Controller-Generation."""
         credentials = {"username": self._username, "password": self._password}
+        # Was die Konsole auf den ersten Versuch geantwortet hat. Beide
+        # Versuche scheitern zu lassen und dann «Zugangsdaten prüfen» zu
+        # sagen, war die teuerste Zeile dieser Anbindung: Ein 499 heisst
+        # «zweiter Faktor fehlt», nicht «falsches Passwort» - und man
+        # sucht danach stundenlang am falschen Ort.
+        abgewiesen: list[int] = []
         for path, prefix in (("/api/auth/login", "/proxy/network"), ("/api/login", "")):
             try:
                 async with self._session.post(
                     f"{self._base}{path}", json=credentials
                 ) as response:
                     if response.status >= 400:
+                        abgewiesen.append(response.status)
                         continue
                     self._prefix = prefix
                     self._csrf = response.headers.get("X-CSRF-Token") or self._csrf
@@ -239,6 +247,8 @@ class UnifiIntegration(Integration):
                     return
             except aiohttp.ClientError as err:
                 raise ConnectionError(f"UniFi-Controller nicht erreichbar: {err}") from err
+        if abgewiesen:
+            raise ConnectionError(login_error(abgewiesen[0], "UniFi"))
         raise ConnectionError("UniFi-Anmeldung fehlgeschlagen – Zugangsdaten prüfen")
 
     @staticmethod

@@ -87,13 +87,16 @@ Drei Orte, und die Reihenfolge ist nicht beliebig.
 
 **1. Im UniFi-Controller, einmalig:**
 
-- Einen **lokalen** Benutzer anlegen (UniFi OS: *Settings → Admins &
-  Users → Add Admin*, «Restrict to local access only»). Kein
-  Ubiquiti-Cloud-Konto und **keine Zwei-Faktor-Anmeldung** – die
-  API-Anmeldung des Hubs kann keinen zweiten Faktor beantworten. Zugriff
-  auf die *Network*-App als Site Admin: Der Hub liest die Geräteliste
-  und stellt Gutscheine aus, die schmale «Hotspot»-Rolle reicht dafür
-  nicht.
+- Einen **eigenen, neuen** Benutzer anlegen (UniFi OS: *Settings →
+  Admins & Users → Add Admin*, «Restrict to Local Access Only»), **ohne
+  Mailadresse**. Das ist der Punkt, an dem es schiefgeht: Ein
+  bestehendes Konto nachträglich um lokale Zugangsdaten zu ergänzen
+  genügt nicht – es hängt weiter an seiner Ubiquiti-Kennung, und die
+  erzwingt Zwei-Faktor-Anmeldung. Der Hub kann keinen Code eintippen;
+  die Anmeldung endet dann mit 499. Zugriff auf die *Network*-App als
+  Site Admin: Der Hub liest die Geräteliste und stellt Gutscheine aus,
+  die schmale «Hotspot»-Rolle reicht dafür nicht. Wer auch Kameras
+  anbindet, gibt demselben Benutzer gleich die *Protect*-Rolle.
 - Das Gastnetz mit **Gutschein-Portal** betreiben: *Settings → WiFi* für
   das Gästenetz, dazu unter *Hotspot Portal* die Authentifizierung
   «Voucher». Ohne Voucher-Portal gelten die Codes nirgends.

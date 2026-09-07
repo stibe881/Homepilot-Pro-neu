@@ -60,26 +60,39 @@ def decode_ws_message(data: bytes) -> tuple[dict[str, Any], dict[str, Any]]:
     return action, payload
 
 
-def login_error(status: int) -> str:
+def login_error(status: int, anwendung: str = "Protect") -> str:
     """Sagt, was der Statuscode der Anmeldung bedeutet (rein, testbar).
 
     UniFi meldet mit 499 nicht «falsches Passwort», sondern «hier fehlt der
     zweite Faktor» – der Unterschied entscheidet, ob man das Passwort neu
     tippt oder einen lokalen Benutzer ohne 2FA anlegt.
+
+    `anwendung` steht davor, weil dieselbe Konsole beides beantwortet:
+    Der Netzwerk-Controller nannte einen 499 lange «Zugangsdaten prüfen»
+    und schickte damit auf die Suche nach einem Tippfehler, während in
+    Wahrheit der zweite Faktor fehlte - beide Anbindungen lesen den
+    Statuscode jetzt gleich.
+
+    Ein Konto mit hinterlegter Mailadresse ist dabei nie rein lokal: Es
+    hängt an einer Ubiquiti-Kennung, und die bringt ihre 2FA mit, auch
+    wenn daneben ein lokaler Benutzername steht.
     """
     if status == 499:
         return (
-            "Protect verlangt Zwei-Faktor-Authentifizierung (499). Der Hub kann "
-            "keinen Code eingeben: In UniFi OS unter Settings → Admins & Users "
-            "einen Benutzer mit 'Local Access Only' und ohne 2FA anlegen "
-            "(ein Ubiquiti-Cloud-Konto erzwingt 2FA immer)."
+            f"{anwendung} verlangt Zwei-Faktor-Authentifizierung (499). Der Hub "
+            "kann keinen Code eingeben: In UniFi OS unter Settings → Admins & "
+            "Users einen EIGENEN Benutzer anlegen - 'Local Access Only', ohne "
+            "Mailadresse und ohne 2FA. Ein bestehendes Konto um lokale "
+            "Zugangsdaten zu ergänzen genügt nicht: Es bleibt an seiner "
+            "Ubiquiti-Kennung hängen, und die erzwingt 2FA immer."
         )
     if status in (401, 403):
         return (
-            f"Protect-Anmeldung abgelehnt ({status}) – Benutzername oder Passwort "
-            "stimmen nicht, oder der Benutzer hat keine Protect-Berechtigung."
+            f"{anwendung}-Anmeldung abgelehnt ({status}) – Benutzername oder "
+            f"Passwort stimmen nicht, oder der Benutzer hat keine Berechtigung "
+            f"für {anwendung}."
         )
-    return f"Protect-Anmeldung fehlgeschlagen ({status})"
+    return f"{anwendung}-Anmeldung fehlgeschlagen ({status})"
 
 
 def _iso(millis: Any) -> str | None:
