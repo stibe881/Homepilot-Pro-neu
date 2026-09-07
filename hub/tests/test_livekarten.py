@@ -810,6 +810,8 @@ async def test_ohne_angemeldetes_telefon_werden_karten_trotzdem_beendet():
         gesendet: list[dict] = []
 
         class Versand:
+            tote: set[str] = set()
+
             async def senden(self, token: str, payload: dict) -> bool:
                 gesendet.append({"token": token, "payload": payload})
                 return True
@@ -818,5 +820,50 @@ async def test_ohne_angemeldetes_telefon_werden_karten_trotzdem_beendet():
         # Das Ende ging raus, und die Zeile ist weg.
         assert [e["payload"]["aps"]["event"] for e in gesendet] == ["end"]
         assert hub.data.get(modul.KARTEN_KEY) == []
+    finally:
+        await hub.stop()
+
+
+async def test_ein_start_der_nie_ankam_wird_nicht_als_laufend_verbucht():
+    """Gemeldet: «Es kommt keine Live-Aktivität, wenn der Fernseher
+    eingeschaltet wird» - bei einem Hub, der die Karte laut tvcheck
+    sehr wohl wollte und eine Zeile dafür führte.
+
+    Die Zeile entstand mit dem *Auftrag*, nicht mit der Karte. Lehnt
+    Apple den Start ab, liegt keine Karte, aber die Zeile sagt «läuft
+    schon» - danach wird nur noch aktualisiert und nie mehr gestartet.
+    Dazu gehört, dass ein endgültig totes Telefon ausgetragen wird."""
+    from homepilot.core import livekarten as modul
+    from homepilot.core.hub import Hub
+
+    from .conftest import make_config
+
+    hub = Hub(
+        make_config(
+            users=[{"name": "Stefan", "role": "besitzer", "token": "t"}],
+            integrations=[{"integration": "demo"}],
+        )
+    )
+    await hub.start()
+    try:
+        hub.data.set(modul.START_KEY, [{"user": "Stefan", "token": "start-1"}])
+        hub.data.set(modul.KARTEN_KEY, [])
+        hub.timers.start(10, "Pasta", "Stefan")
+
+        class Versand:
+            tote: set[str] = set()
+
+            async def senden(self, token: str, payload: dict) -> bool:
+                # Apple kennt dieses Telefon nicht mehr.
+                self.tote.add(token)
+                return False
+
+        versand = Versand()
+        await modul._runde(hub, versand)
+        # Keine Karte gestartet, also auch keine Zeile - sonst käme nie
+        # wieder eine.
+        assert hub.data.get(modul.KARTEN_KEY) == []
+        # Und das tote Telefon ist ausgetragen.
+        assert hub.data.get(modul.START_KEY) == []
     finally:
         await hub.stop()

@@ -1101,22 +1101,37 @@ async def _runde(hub: Any, versand: liveaktivitaet.ApnsVersand) -> None:
         jetzt,
         abbestellt=liveaktivitaet.abbestellte(prefs_rows),
     )
+    # Starts, von denen kein einziger ankam - ihre Zeile darf nicht
+    # stehen bleiben (siehe unten).
+    gescheitert: set[tuple[str, str]] = set()
     for auftrag in starten:
         tokens = [
             str(row.get("token"))
             for row in start_rows
             if isinstance(row, dict) and row.get("user") == auftrag["user"]
         ]
+        angekommen = 0
         for token in tokens:
-            await versand.senden(
+            if await versand.senden(
                 token, start_payload(auftrag["art"], auftrag["state"], jetzt)
+            ):
+                angekommen += 1
+        if angekommen:
+            log.info(
+                "Live-Karte %s für %s gestartet (%d von %d Telefonen)",
+                auftrag["art"],
+                auftrag["user"],
+                angekommen,
+                len(tokens),
             )
-        log.info(
-            "Live-Karte %s für %s gestartet (%d Telefone)",
-            auftrag["art"],
-            auftrag["user"],
-            len(tokens),
-        )
+        else:
+            gescheitert.add((auftrag["user"], auftrag["art"]))
+            log.warning(
+                "Live-Karte %s für %s: kein Start angekommen (%d Telefone)",
+                auftrag["art"],
+                auftrag["user"],
+                len(tokens),
+            )
     for auftrag in aktualisieren:
         for token in auftrag["tokens"]:
             await versand.senden(str(token), update_payload(auftrag["state"], jetzt))
@@ -1130,6 +1145,37 @@ async def _runde(hub: Any, versand: liveaktivitaet.ApnsVersand) -> None:
             await versand.senden(
                 str(token), ende_payload(auftrag["state"], auftrag["sichtbar"], jetzt)
             )
+    # Eine Zeile entsteht mit dem Auftrag, nicht mit der Karte - und das
+    # war falsch: Lehnt Apple den Start ab (totes push-to-start-Token,
+    # abgelaufener Schlüssel), liegt keine Karte, aber die Zeile sagt
+    # «läuft schon». Danach wird nur noch aktualisiert, nie gestartet,
+    # und es kommt nie wieder eine Karte. Also raus damit, dann
+    # versucht es der nächste Takt erneut.
+    if gescheitert:
+        neue = [
+            row
+            for row in neue
+            if (str(row.get("user")), str(row.get("art"))) not in gescheitert
+        ]
+    # Telefone, deren Token Apple endgültig abgelehnt hat, austragen -
+    # dieselbe Regel wie bei der Haustür-Karte (liveaktivitaet.tuer_loop).
+    # Ohne das schickt der Hub jeden Takt an ein Gerät, das es so nicht
+    # mehr gibt, und jeder Start scheitert für immer.
+    if versand.tote:
+        uebrig = [
+            row
+            for row in start_rows
+            if isinstance(row, dict) and row.get("token") not in versand.tote
+        ]
+        if len(uebrig) < len(start_rows):
+            log.info(
+                "Live-Karten: %d Telefon(e) ausgetragen - Apple kennt das "
+                "Token nicht mehr",
+                len(start_rows) - len(uebrig),
+            )
+            hub.data.set(START_KEY, uebrig)
+        versand.tote.clear()
+
     # Nur schreiben, wenn sich wirklich etwas geändert hat: Eine
     # vorgemerkte Karte (ende_offen) steht in jeder Runde erneut unter
     # «beenden», und «gab es Aufträge?» hätte damit alle 20 Sekunden
