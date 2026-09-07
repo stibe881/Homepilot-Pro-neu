@@ -277,11 +277,14 @@ function Schaubild({
     );
   }
   if (art === 'allesaus') {
+    // Genau so, wie der Chip in den Räumen aussieht (AllOff.tsx,
+    // compact) - ein rotes Abbild sähe zwar dringlicher aus, aber wer
+    // danach sucht, sucht dann das Falsche.
     return (
       <View style={styles.schaubild}>
         <View style={styles.allesAus}>
-          <Ionicons name="power" size={16} color="#FFFFFF" />
-          <Text style={styles.allesAusText}>Alles aus</Text>
+          <Ionicons name="power-outline" size={15} color={colors.ink} />
+          <Text style={styles.allesAusText}>Alles aus (3)</Text>
         </View>
       </View>
     );
@@ -372,16 +375,19 @@ const makeStyles = (colors: Colors) =>
       borderWidth: 1,
       borderColor: colors.surfaceBorder,
     },
+    // Dieselbe Form wie der echte Chip in den Räumen (AllOff.tsx).
     allesAus: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
-      paddingHorizontal: 18,
-      paddingVertical: 10,
+      gap: 6,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
       borderRadius: radius.pill,
-      backgroundColor: colors.danger,
+      backgroundColor: colors.surfaceStrong,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
     },
-    allesAusText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+    allesAusText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
     suchfeld: {
       flexDirection: 'row',
       alignItems: 'center',

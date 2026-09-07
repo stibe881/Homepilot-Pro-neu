@@ -199,10 +199,15 @@ export function schritteFuer(
       icon: 'power-outline',
       titel: '«Alles aus»',
       schaubild: 'allesaus',
+      // Wo er WIRKLICH wohnt: Von der Startseite wurde der Knopf bewusst
+      // entfernt (er stand dort im Weg), und ohne eingeschaltete Geräte
+      // zeigt er sich gar nicht. Genau das muss die Einführung sagen -
+      // sonst sucht jemand einen Knopf, den es «gar nirgends gibt».
       text:
-        'Dieser Knopf wohnt auf der Startseite und schaltet ab, was ' +
-        'gerade an ist - aber erst nach einer Liste zum Abwählen: ' +
-        'Laufende Haushaltgeräte bleiben von selbst verschont.',
+        'Sobald etwas an ist, steht dieser Knopf im Bereich Räume - für ' +
+        'den gewählten Raum oder das ganze Haus. Er zeigt erst eine Liste ' +
+        'zum Abwählen: Laufende Haushaltgeräte bleiben von selbst ' +
+        'verschont. Als Widget liegt er auch auf dem Sperrbildschirm.',
     },
     {
       icon: 'search-outline',
