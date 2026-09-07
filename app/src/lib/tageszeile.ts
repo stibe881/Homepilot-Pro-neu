@@ -13,15 +13,39 @@ import { Entity } from '../api/types';
  * Bewusst nur eine kleine Zeile und kein Umsortieren der Kacheln: Wer
  * seine Startseite kennt, soll sie zu jeder Stunde am selben Ort
  * wiederfinden.
+ *
+ * Der Griff schaltet nicht sofort, sondern zeigt erst, *was* er
+ * schalten würde. «4 Lichter aus» sagt nämlich nicht, ob das Licht im
+ * Kinderzimmer dabei ist - und wer das erst nach dem Tippen merkt, hat
+ * ein Kind im Dunkeln. Deshalb dieselbe Rückfrage wie bei «Alles aus»
+ * (components/AllOff.tsx), mit denselben Häkchen zum Ausnehmen.
  */
+
+export interface TagesBefehl {
+  entityId: string;
+  command: string;
+  /** Name und Raum reisen mit: Das Blatt hinter dem Griff zeigt, *was*
+   *  gleich geschaltet wird, und dafür genügt eine Kennung nicht. */
+  name: string;
+  room?: string | null;
+}
 
 export interface TagesGriff {
   key: 'storen_auf' | 'licht_aus' | 'storen_zu';
   label: string;
   icon: 'arrow-up' | 'arrow-down' | 'bulb-outline';
+  /** Überschrift des Blatts, das der Griff öffnet. */
+  titel: string;
+  /** Das Zeitwort für den Ausführen-Knopf: «3 ausschalten». */
+  tunWort: string;
   /** Ausdrücklich je Gerät - wie bei den Raumknöpfen (lib/raumkarte.ts):
    *  ein toggle könnte in die falsche Richtung schalten. */
-  befehle: { entityId: string; command: string }[];
+  befehle: TagesBefehl[];
+}
+
+/** Name und Raum an den Befehl heften (rein, testbar). */
+function befehl(entity: Entity, command: string): TagesBefehl {
+  return { entityId: entity.id, command, name: entity.name, room: entity.room };
 }
 
 /** Steht diese Store (mindestens einen Spalt) offen? Dieselbe Lesart wie
@@ -74,7 +98,9 @@ export function tagesGriffe(entities: Entity[], now: Date): TagesGriff[] {
         key: 'storen_auf',
         label: griffLabel(unten.length, 'Store auf', 'Storen auf'),
         icon: 'arrow-up',
-        befehle: unten.map((entity) => ({ entityId: entity.id, command: 'open' })),
+        titel: 'Diese Storen sind unten',
+        tunWort: 'öffnen',
+        befehle: unten.map((entity) => befehl(entity, 'open')),
       });
     }
     return griffe;
@@ -87,10 +113,11 @@ export function tagesGriffe(entities: Entity[], now: Date): TagesGriff[] {
         key: 'licht_aus',
         label: griffLabel(an.length, 'Licht aus', 'Lichter aus'),
         icon: 'bulb-outline',
-        befehle: an.map((entity) => ({
-          entityId: entity.id,
-          command: entity.commands.includes('turn_off') ? 'turn_off' : 'toggle',
-        })),
+        titel: 'Diese Lichter brennen',
+        tunWort: 'ausschalten',
+        befehle: an.map((entity) =>
+          befehl(entity, entity.commands.includes('turn_off') ? 'turn_off' : 'toggle')
+        ),
       });
     }
     const offen = storen(entities, 'close').filter(coverOffen);
@@ -99,7 +126,9 @@ export function tagesGriffe(entities: Entity[], now: Date): TagesGriff[] {
         key: 'storen_zu',
         label: griffLabel(offen.length, 'Store zu', 'Storen zu'),
         icon: 'arrow-down',
-        befehle: offen.map((entity) => ({ entityId: entity.id, command: 'close' })),
+        titel: 'Diese Storen stehen offen',
+        tunWort: 'schliessen',
+        befehle: offen.map((entity) => befehl(entity, 'close')),
       });
     }
   }
