@@ -26,7 +26,10 @@ from ...core.source import as_source, user_source
 from ...core.streams import (
     SEGMENT_NAME,
     StreamError,
+    apple_player,
+    apple_schnell,
     rewrite_playlist,
+    start_rueckstand,
     strip_low_latency,
 )
 from ...core.users import Capability
@@ -531,11 +534,13 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             # Apple-Player (AVPlayer in der App, Safari) scheitern an den
             # zitternden Part-Dauern der Protect-Kameras – sie bekommen die
             # Liste ohne Low-Latency-Teile und spielen gewöhnliches HLS.
+            # Das kostet auf iPhone und iPad die zwei Sekunden Rückstand,
+            # die im Browser nicht anfallen; wer sie loswerden will,
+            # schaltet «streaming.apple_low_latency: true» ein und sieht
+            # am Gerät nach, ob AVPlayer inzwischen mitspielt.
             agent = request.headers.get("user-agent", "")
-            if "AppleCoreMedia" in agent or (
-                "Safari/" in agent and "Chrome" not in agent and "Android" not in agent
-            ):
-                text = strip_low_latency(text)
+            if apple_player(agent) and not apple_schnell(hub.config.streaming):
+                text = strip_low_latency(text, start_rueckstand(hub.config.streaming))
             content, media_type = text.encode(), "application/vnd.apple.mpegurl"
         return Response(
             content=content,

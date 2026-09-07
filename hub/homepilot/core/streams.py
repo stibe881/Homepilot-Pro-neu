@@ -110,7 +110,59 @@ LL_TAGS = (
 )
 
 
-def strip_low_latency(text: str) -> str:
+#: Voreingestellter Rückstand für Apple-Player, in Sekunden. Er ist der
+#: Preis für Zuverlässigkeit - und der grösste Einzelposten am Rückstand
+#: auf iPhone und iPad, deshalb steht er hier und nicht mitten im Code.
+START_RUECKSTAND = 2.0
+
+
+def apple_player(user_agent: str) -> bool:
+    """Fragt hier ein Apple-Player die Liste ab? (rein, testbar)
+
+    AVPlayer meldet sich als «AppleCoreMedia» - in der App und im
+    Vollbild von Safari. Safari selbst fragt die Liste manchmal auch
+    direkt ab; Chrome und der Android-Browser tragen «Safari/» aus
+    historischen Gründen ebenfalls im Namen und müssen deshalb ausdrücklich
+    heraus.
+    """
+    agent = user_agent or ""
+    if "AppleCoreMedia" in agent:
+        return True
+    return "Safari/" in agent and "Chrome" not in agent and "Android" not in agent
+
+
+def apple_schnell(streaming: dict | None) -> bool:
+    """Darf auch Apple die Low-Latency-Fassung bekommen? (rein, testbar)
+
+    Aus gutem Grund abschaltbar und aus gutem Grund voreingestellt aus:
+    Die Sperre entstand, als die Part-Dauern zitterten (Tonspur, wackelnde
+    Zeitstempel der Kameras). Beides ist inzwischen behoben - der Strom
+    wird mit fester Bildrate und ohne Ton neu codiert -, also *könnte*
+    AVPlayer heute mitspielen. Beweisen lässt sich das nur am Gerät, und
+    ein Fehlversuch heisst schwarzes Bild statt einer Sekunde weniger
+    Rückstand. Deshalb: ausprobierbar, nicht aufgezwungen.
+    """
+    return bool((streaming or {}).get("apple_low_latency", False))
+
+
+def start_rueckstand(streaming: dict | None) -> float:
+    """Wie weit hinter dem Live-Rand Apple einsteigen soll (rein, testbar).
+
+    Kleiner heisst näher an der Gegenwart und anfälliger fürs Stocken:
+    Wer zu knapp einsteigt, wartet bei jeder Netzdelle auf das nächste
+    Häppchen. Unter einer halben Sekunde lässt der Hub deshalb nicht zu,
+    und Unlesbares fällt auf die Voreinstellung zurück statt den Strom
+    zu zerlegen.
+    """
+    wert = (streaming or {}).get("start_offset", START_RUECKSTAND)
+    try:
+        sekunden = float(wert)
+    except (TypeError, ValueError):
+        return START_RUECKSTAND
+    return max(0.5, min(10.0, sekunden))
+
+
+def strip_low_latency(text: str, rueckstand: float = START_RUECKSTAND) -> str:
     """Macht aus einer Low-Latency-Liste gewöhnliches HLS (rein, testbar).
 
     Apple-Player verlangen, dass alle Bruchstücke exakt die angekündigte
@@ -128,7 +180,7 @@ def strip_low_latency(text: str) -> str:
     if lines and lines[0].startswith("#EXTM3U") and not any(
         line.startswith("#EXT-X-START") for line in lines
     ):
-        lines.insert(1, "#EXT-X-START:TIME-OFFSET=-2")
+        lines.insert(1, f"#EXT-X-START:TIME-OFFSET=-{rueckstand:g}")
     return "\n".join(lines) + "\n"
 
 
