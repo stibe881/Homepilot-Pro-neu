@@ -25,10 +25,18 @@ deployen.
 
 import functools
 import json
+import time
 import urllib.request
 from types import SimpleNamespace
 
-from .core.livekarten import KARTEN_KEY, erreichbar, geisterbild, karten_tv, sind_zwillinge
+from .core.livekarten import (
+    KARTEN_KEY,
+    START_KEY,
+    erreichbar,
+    geisterbild,
+    karten_tv,
+    sind_zwillinge,
+)
 from .storencheck import DATEN, ja_nein, token_und_port
 
 # docker exec ohne Terminal puffert blockweise - jede Zeile sofort raus.
@@ -67,19 +75,38 @@ def bild_wort(screen_off: object) -> str:
     return "–"
 
 
-def liegende_karten() -> list[dict]:
-    """Was der Hub für laufend hält (live_cards aus der Datendatei).
+def daten_lesen(schluessel: str) -> list[dict]:
+    """Eine Liste aus der Datendatei.
 
-    Gelesen und nie ausgegeben wird das Token selbst - hier zählt nur,
-    ob eines da ist. Ohne Token kann der Hub eine Karte nicht beenden,
-    und genau das ist der zweite Fall oben.
+    Gelesen und nie ausgegeben werden die Tokens selbst - hier zählt
+    nur, ob eines da ist. Ohne Token kann der Hub eine Karte nicht
+    beenden, und genau das ist der zweite Fall oben.
     """
     try:
         with open(DATEN, encoding="utf-8") as datei:
             daten = json.load(datei)
     except (OSError, ValueError):
         return []
-    return [row for row in (daten.get(KARTEN_KEY) or []) if isinstance(row, dict)]
+    return [row for row in (daten.get(schluessel) or []) if isinstance(row, dict)]
+
+
+def vor_wie_lange(wann: object) -> str:
+    """«vor 3 min», «vor 5 Std» - oder «?» (rein, testbar).
+
+    Das Alter einer liegenden Karte beantwortet die Frage, ob der Takt
+    sie überhaupt anfasst: Eine Zeile, die seit Stunden unverändert
+    dasteht, obwohl der Hub die Karte nicht mehr will, heisst, dass die
+    Runde gar nicht bis zum Abgleich kommt.
+    """
+    try:
+        alter = time.time() - float(wann)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return "?"
+    if alter < 90:
+        return f"vor {int(alter)} s"
+    if alter < 5400:
+        return f"vor {int(alter / 60)} min"
+    return f"vor {int(alter / 3600)} Std"
 
 
 def main() -> None:
@@ -131,14 +158,27 @@ def main() -> None:
         )
 
     print()
+    # Ohne angemeldetes Telefon startet der Hub keine Karte. Beenden
+    # kann er sie trotzdem - dass er es vorher nicht tat, war der
+    # Fehler dahinter (livekarten._runde).
+    start_rows = daten_lesen(START_KEY)
+    namen = sorted({str(row.get("user") or "?") for row in start_rows})
+    print(
+        f"Angemeldete Telefone (live_start_tokens): {len(start_rows)}"
+        f"{' – ' + ', '.join(namen) if namen else ''}"
+    )
+
     print("Liegende Karten laut Hub (live_cards):")
-    karten = [row for row in liegende_karten() if str(row.get("art", "")).startswith("tv:")]
+    karten = [
+        row for row in daten_lesen(KARTEN_KEY) if str(row.get("art", "")).startswith("tv:")
+    ]
     if not karten:
         print("  keine")
     for row in karten:
         print(
             f"  {row.get('art')} · {row.get('user')} · "
-            f"Token: {len(row.get('activity_tokens') or []) or '-'}"
+            f"Token: {len(row.get('activity_tokens') or []) or '-'} · "
+            f"angefasst {vor_wie_lange(row.get('aktualisiert'))}"
             f"{' · Ende offen' if row.get('ende_offen') else ''}"
         )
 
