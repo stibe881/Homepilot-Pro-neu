@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Entity } from '../api/types';
@@ -79,8 +79,16 @@ export function AllOff({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [open, setOpen] = useState(false);
   const [skip, setSkip] = useState<string[]>([]);
+  // Nur ein Signal, das NACH dem Aufbau kommt, öffnet die Rückfrage:
+  // Der Zähler lebt beim Aufrufer und überlebt den Bereichswechsel,
+  // diese Komponente nicht - beim Zurückkommen auf die Startseite sah
+  // sie den alten Stand und riss die Rückfrage wieder auf (derselbe
+  // Fehler wie beim Geburtstags-Fenster, OverviewScreen.kalenderSignal).
+  const verbraucht = useRef(openSignal);
   useEffect(() => {
-    if (openSignal > 0) start();
+    if (openSignal <= verbraucht.current) return;
+    verbraucht.current = openSignal;
+    start();
     // start hängt an on/skip und ändert sich jede Runde – hier zählt nur
     // das Signal.
     // eslint-disable-next-line react-hooks/exhaustive-deps

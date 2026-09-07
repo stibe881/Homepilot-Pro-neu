@@ -462,8 +462,18 @@ export function OverviewScreen({
   // Geburtstag» stehen nur hier.
   const [liste, setListe] = useState<'termine' | 'geburtstage' | null>(null);
   // Von aussen gerufen (Startkarte): Zähler angestossen → Fenster auf.
+  //
+  // Der Zähler lebt im DashboardScreen und überlebt damit den Wechsel
+  // in einen anderen Bereich - diese Seite hier nicht. Beim Zurückkommen
+  // wurde sie neu aufgebaut, sah den alten Stand («n > 0», vom einen
+  // Tipp vor Tagen) und riss das Geburtstags-Fenster wieder auf, jedes
+  // Mal. Deshalb zählt nur, was NACH dem Aufbau angestossen wird: Der
+  // Stand beim Aufbau gilt als verbraucht.
+  const kalenderVerbraucht = useRef(kalenderSignal?.n ?? 0);
   useEffect(() => {
-    if (kalenderSignal && kalenderSignal.n > 0) setListe(kalenderSignal.art);
+    if (!kalenderSignal || kalenderSignal.n <= kalenderVerbraucht.current) return;
+    kalenderVerbraucht.current = kalenderSignal.n;
+    setListe(kalenderSignal.art);
   }, [kalenderSignal]);
   const jetztFuerListe = new Date();
   const terminTage = terminGruppen(events, jetztFuerListe);
