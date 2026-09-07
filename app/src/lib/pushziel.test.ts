@@ -40,6 +40,12 @@ describe('Wohin ein Tipp auf eine Nachricht führt', () => {
       modul: 'shopping',
     });
     expect(zielAus({ ziel: 'familie:gibtsnicht' })).toBeNull();
+    // Punkt 264: Die Ablauf-Erinnerung zeigt auf die Gutscheine - ohne
+    // den Eintrag fiele der Tipp auf «App öffnen» zurück.
+    expect(zielAus({ ziel: 'familie:vouchers' })).toEqual({
+      art: 'familie',
+      modul: 'vouchers',
+    });
   });
 
   it('versteht die Blätter ohne Wert', () => {

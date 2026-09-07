@@ -116,6 +116,19 @@ EMPTY: dict[str, Any] = {
     # Eigener Korb, nicht der von Szenen und Abläufen: Dort sucht
     # niemand nach einem gelöschten Rezept.
     "family_trash": [],
+    # Gutscheine der Familie (Punkt 264 der Werkbank): [{id, author,
+    # created, shop, title, unit, total, left, number, pin, expires,
+    # category, shared, url, image_url, transactions, notes}] - siehe
+    # core/gutscheine.py. Bewusst *nicht* in SECRETS, obwohl Nummer und
+    # PIN darin stehen: Der Export ist die Sicherung, die die Familie
+    # für sich selbst macht, und ein Gutschein, der mit dem Hub
+    # verlorengeht, ist verlorenes Geld. Was hingegen die anderen im
+    # Haus sehen, regelt «shared» je Eintrag - in den Routen, nicht hier.
+    "family_vouchers": [],
+    # Erinnerungsstufen der Gutscheine: höchstens ein Eintrag
+    # {first_days, second_days} - siehe gutscheine.PREFS_KEY. Als Liste,
+    # weil der DataStore Listen verwaltet.
+    "voucher_prefs": [],
     # Der Anrufbeantworter des Hauses (Punkt 259 der Werkbank): höchstens
     # ein Eintrag {wer, zone, speakers, volume, typ, at} - siehe
     # heimgruss.py. Der Ton selbst liegt als Datei daneben, nicht hier:

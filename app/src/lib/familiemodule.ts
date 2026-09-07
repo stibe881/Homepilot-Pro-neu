@@ -42,7 +42,9 @@ export const MODULGRUPPEN: Modulgruppe[] = [
   {
     key: 'nachschlagen',
     label: 'Nachschlagen',
-    module: ['recipes', 'packlists', 'documents'],
+    // Gutscheine (Punkt 264) stehen beim Nachschlagen: Man öffnet sie
+    // vor dem Einkauf, nicht im Alltagstakt.
+    module: ['recipes', 'packlists', 'documents', 'vouchers'],
   },
 ];
 

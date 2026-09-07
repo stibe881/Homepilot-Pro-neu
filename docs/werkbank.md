@@ -17,7 +17,7 @@ steht sie hier, in vier Teilen entstanden:
 | 136–164 | Küche & Abläufe | Rezeptbuch und Ablauf-Editor |
 | 165–221 | Familie & Haushalt | Familienlisten, Kontakte, Ortung |
 | 224–243 | Zweite Durchsicht | Wärme, Strom, Betrieb, und die Fehler einer Woche |
-| 244–263 | Auf Zuruf (September 2026) | Benutzer und Zugang, Bedienung, Abläufe, Sicherheit |
+| 244–264 | Auf Zuruf (September 2026) | Benutzer und Zugang, Bedienung, Abläufe, Sicherheit |
 
 Stand beim Einchecken: **alle 221 Punkte erledigt**, bis auf Punkt 94
 (bewusst gestrichen). Die Häkchen tragen die Commit-Kürzel von den
@@ -2282,7 +2282,7 @@ jeder Auslieferung als Erstes kommt: «Ist es angekommen?»
 Stellen: `hub/homepilot/core/sessions.py`, `app/src/api/client.ts`
 
 
-# Teil VI: Auf Zuruf (244–263)
+# Teil VI: Auf Zuruf (244–264)
 
 Punkte aus Durchsichten im September 2026, auf Zuruf ausgewählt und
 umgesetzt. Gleichzeitig wurden 224–227, 228–229, 235–236 und 242–243
@@ -2582,3 +2582,29 @@ dann nie wieder. Jetzt erinnert der Hub täglich zur selben Stunde wie
 bei den Batterien (Punkt 258).
 
 Stellen: `hub/homepilot/integrations/roborock.py`, `hub/homepilot/core/watchrules.py`, `hub/homepilot/core/watchdog.py`, `hub/homepilot/saugercheck.py`
+
+## Familie (264)
+
+### 264. Gutscheine als Familien-Modul ✓ erledigt (6944257, c040417)
+
+*lohnt sich · Aufwand: gross · Hub + App*
+
+Geschenk- und Einkaufsgutscheine lagen bisher in einer fremden App
+oder in der Schublade - und verfielen dort. Neu verwaltet die
+Familienseite sie selbst: Laden, Wert in Franken oder Stück, Nummer
+und PIN (maskiert), Ablaufdatum oder «unbegrenzt», Kategorie, Foto der
+Karte, Link zum Laden. «Abziehen» bucht eine Einlösung mit Datum und
+Person in den Transaktionsverlauf, der Rest wandert als Balken mit;
+aufgebrauchte klappen sich weg. «Privat» heisst privat - auch vor dem
+Verwalter, sonst wäre das Wort eine Lüge; der Hub filtert, nicht die
+App. Die Fotos liegen als Dateien neben den Daten (Bauart der
+Rezeptbilder, verallgemeinert), und das Familienbuch nimmt die
+geteilten Gutscheine ohne PIN mit - ein Gutschein ist Geld, und die
+Druckseite ist für den Tag, an dem der Hub tot ist.
+
+Dazu die Ablauf-Erinnerung: zwei Stufen vor dem Verfall (Vorgabe 30
+und 7 Tage, einstellbar unter Benachrichtigungen) und am Ablauftag
+selbst, je Gutschein und Stufe genau einmal; private gehen nur an den
+Besitzer.
+
+Stellen: `hub/homepilot/core/gutscheine.py`, `hub/homepilot/api/routes/family.py`, `app/src/screens/family/gutscheine.tsx`, `app/src/lib/gutscheine.ts`
