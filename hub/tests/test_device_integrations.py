@@ -329,3 +329,39 @@ def test_echte_daten_loesen_keinen_hinweis_aus():
 
     for typ in ("application/json", "application/json; charset=utf-8", ""):
         assert console_html_hint("https://10.10.1.1/proxy/network/api/self/sites", typ) is None
+
+
+def test_only_guest_devices_can_be_authorised_directly():
+    """Die Sicherung am Aufkleber-Freischalten.
+
+    Käme die Anfrage über einen Gegenlauf-Server im Haus, träfe die
+    Adresse dessen eigenes Gerät - und der Hub schaltete den Falschen
+    frei. Ein Hausgerät ist aber nie `is_guest`.
+    """
+    from homepilot.integrations.unifi import guest_mac_for_address
+
+    clients = [
+        {"mac": "AA-BB-CC-DD-EE-FF", "ip": "10.10.20.55", "is_guest": True},
+        {"mac": "11:22:33:44:55:66", "ip": "10.10.1.7", "is_guest": False},
+    ]
+    assert guest_mac_for_address(clients, "10.10.20.55") == "aa:bb:cc:dd:ee:ff"
+    # Das Hausgerät an der Proxy-Adresse bleibt unangetastet.
+    assert guest_mac_for_address(clients, "10.10.1.7") is None
+
+
+def test_an_unknown_address_finds_no_guest():
+    """Der Gast am Mobilfunk steht in keiner Client-Liste."""
+    from homepilot.integrations.unifi import guest_mac_for_address
+
+    clients = [{"mac": "aa:bb:cc:dd:ee:ff", "ip": "10.10.20.55", "is_guest": True}]
+    assert guest_mac_for_address(clients, "85.1.2.3") is None
+    assert guest_mac_for_address(clients, "") is None
+    assert guest_mac_for_address([], "10.10.20.55") is None
+
+
+def test_a_guest_is_also_found_by_its_last_address():
+    """UniFi führt die Adresse manchmal nur als `last_ip`."""
+    from homepilot.integrations.unifi import guest_mac_for_address
+
+    clients = [{"mac": "aa:bb:cc:dd:ee:ff", "last_ip": "10.10.20.55", "is_guest": True}]
+    assert guest_mac_for_address(clients, "10.10.20.55") == "aa:bb:cc:dd:ee:ff"

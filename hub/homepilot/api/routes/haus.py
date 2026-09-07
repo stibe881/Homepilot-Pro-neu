@@ -635,7 +635,28 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         eintrag = wlanschein.eintragen(buch, voucher, jetzt, adresse)
         hub.data.set("wifi_vouchers", eintrag)
         throttle.succeeded(adresse)
-        log.warning("Gäste-WLAN: Gutschein gezogen von %s", adresse)
+
+        # Hängt der Gast schon im offenen Gästenetz, schaltet ihn der Hub
+        # gleich frei - den Code abzutippen ist dann eine Hürde ohne
+        # Gewinn: Mit dem Aufkleber hat er sich längst ausgewiesen, und
+        # genau diesen Weg ginge das Portal nach dem Eintippen auch.
+        # Scheitert es (Gast am Mobilfunk, Controller mault), bleibt es
+        # bei der Anleitung - deshalb wird der Gutschein in jedem Fall
+        # ausgestellt und nicht erst, wenn das Freischalten misslingt.
+        angemeldet = False
+        try:
+            mac = await unifi.guest_mac(adresse)
+            if mac:
+                await unifi.authorize_guest(mac, wlanschein.GUELTIG_STUNDEN * 60)
+                angemeldet = True
+        except Exception as err:
+            log.warning("Gäste-WLAN: Direktes Freischalten misslang: %s", err)
+
+        log.warning(
+            "Gäste-WLAN: Gutschein gezogen von %s%s",
+            adresse,
+            " (Gerät gleich freigeschaltet)" if angemeldet else "",
+        )
         ssid, bild = _wlan_daten()
         return _gastseite(
             wlanschein.codeseite(
@@ -643,6 +664,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 wlanschein.restsatz(eintrag[0], jetzt),
                 ssid,
                 bild,
+                angemeldet=angemeldet,
             )
         )
 

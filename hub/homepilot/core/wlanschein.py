@@ -195,16 +195,45 @@ def frageseite(ssid: str) -> str:
     )
 
 
-def codeseite(code: str, rest: str, ssid: str, wlan_qr: str | None) -> str:
+def codeseite(
+    code: str,
+    rest: str,
+    ssid: str,
+    wlan_qr: str | None,
+    angemeldet: bool = False,
+) -> str:
     """Der gezogene Gutschein, so gross wie möglich.
 
     Der Code steht oben und in Festbreitenschrift: Er wird abgetippt,
     und «0» gegen «O» zu halten ist genau dann wichtig. Der QR darunter
     verbindet nur mit dem Netz - eingeloggt wird man damit nicht, das
     macht erst die Anmeldeseite, die danach von selbst aufgeht.
+
+    ``angemeldet`` ist der schöne Fall: Wer schon im offenen Gästenetz
+    hing, als er scannte, hat der Hub gleich freigeschaltet - für ihn
+    ist gar nichts mehr zu tun. Der Code bleibt trotzdem stehen, und
+    zwar nicht aus Ordnungsliebe: Das zweite Gerät (Tablet des Kindes,
+    Laptop) ist nicht freigeschaltet, und die Anleitung darunter ist
+    genau die, die es dafür braucht.
     """
     bild = f'<div class=qr>{wlan_qr}</div>' if wlan_qr else ""
     netz = _text(ssid) if ssid else "das Gästenetz"
+    if angemeldet:
+        return _huelle(
+            "Du bist im Netz",
+            f"<h1>Du bist im Netz</h1>"
+            f"<p>Dieses Gerät ist für <b>{netz}</b> freigeschaltet, "
+            f"{_text(rest)} lang. Du musst nichts eintippen.</p>"
+            f"<p class=code>{_text(code)}</p>"
+            f"<p class=rest>Für ein zweites Gerät · einmal einlösbar</p>"
+            f"{bild}"
+            "<ol>"
+            f"<li>Das andere Gerät mit <b>{netz}</b> verbinden"
+            f"{' – QR oben scannen' if wlan_qr else ''}.</li>"
+            "<li>Die Anmeldeseite geht von selbst auf.</li>"
+            "<li>Dort den Code oben eintippen.</li>"
+            "</ol>",
+        )
     return _huelle(
         "Dein WLAN-Code",
         f"<h1>Dein WLAN-Code</h1>"
