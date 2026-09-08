@@ -114,3 +114,48 @@ test('eine Frist in der Zukunft ist nicht überfällig', () => {
   expect(tageUeberfaellig('2026-08-30', JETZT)).toBeLessThan(0);
   expect(tageUeberfaellig(null, JETZT)).toBe(0);
 });
+
+describe('Geräteart auf dem Blatt', () => {
+  it('sagt bei jeder Zeile, was für ein Gerät gemeint ist', () => {
+    // Gemeldet aus dem Haus: Auf dem Blatt stand ein Name und ein Raum.
+    // «Flur» sagt nicht, ob das Licht, die Store oder der Melder klemmt -
+    // und gerade das entscheidet, was zu tun ist.
+    const liste = sorgen({
+      entities: [
+        {
+          id: 'hue.flur',
+          kind: 'light',
+          name: 'Flur',
+          integration: 'hue',
+          state: {},
+          commands: [],
+          available: false,
+        },
+        {
+          id: 'zigbee.store_stube',
+          kind: 'cover',
+          name: 'Stube',
+          integration: 'zigbee2mqtt',
+          state: {},
+          commands: [],
+          available: false,
+        },
+      ] as unknown as Parameters<typeof sorgen>[0]['entities'],
+      jetzt: Date.now(),
+    });
+    expect(liste.map((sorge) => sorge.geraeteart)).toEqual([
+      'Licht',
+      'Store / Rollladen',
+    ]);
+  });
+
+  it('lässt sie bei einer Wartung weg', () => {
+    // Hinter «Filter wechseln» steht kein Gerät.
+    const liste = sorgen({
+      entities: [],
+      wartungen: [{ id: 'w1', text: 'Filter wechseln', due: '2020-01-01' }],
+      jetzt: Date.now(),
+    });
+    expect(liste[0].geraeteart).toBeUndefined();
+  });
+});

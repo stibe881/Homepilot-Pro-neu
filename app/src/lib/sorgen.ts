@@ -14,6 +14,7 @@
  */
 import { Entity } from '../api/types';
 import { BATTERY_SOON, BatterieVermerk, batteryRows, stummBis } from './batterien';
+import { deviceKindLabel } from './geraeteart';
 import { epochAgo } from './zeit';
 
 /** Ab hier gilt ein Melder als verstummt. */
@@ -36,6 +37,16 @@ export interface Sorge {
   name: string;
   /** Die eine Zeile darunter: seit wann, wie wenig, wie lange überfällig. */
   detail: string;
+  /**
+   * Wofür das Gerät steht - «Licht», «Store», «Bewegungsmelder».
+   *
+   * Ohne sie stand hier ein Name und ein Raum: «Flur · nicht
+   * erreichbar». Welches Gerät im Flur, sagte das nicht, und gerade auf
+   * diesem Blatt entscheidet die Art, was zu tun ist: Ein stummer
+   * Melder heisst Batterie, eine stumme Store heisst Funk. Für eine
+   * Wartung bleibt sie leer - dahinter steht kein Gerät.
+   */
+  geraeteart?: string;
   raum?: string | null;
   /** Rot statt gelb: Das gehört heute erledigt. */
   dringend: boolean;
@@ -93,6 +104,7 @@ export function sorgen(lage: {
         detail: entity.last_seen
           ? `nicht erreichbar · zuletzt ${epochAgo(entity.last_seen, jetzt)}`
           : 'nicht erreichbar',
+        geraeteart: deviceKindLabel(entity),
         raum: entity.room,
         dringend: true,
         entityId: entity.id,
@@ -109,6 +121,7 @@ export function sorgen(lage: {
         art: 'still',
         name: entity.name,
         detail: `meldet sich nicht mehr · zuletzt ${epochAgo(entity.last_seen, jetzt)}`,
+        geraeteart: deviceKindLabel(entity),
         raum: entity.room,
         // Ein verstummter Melder ist der Fall, den sonst niemand
         // bemerkt: Er wirft keinen Fehler, er schweigt nur.
@@ -128,6 +141,7 @@ export function sorgen(lage: {
       art: 'batterie',
       name: row.entity.name,
       detail: row.percent === null ? 'Batterie schwach' : `Batterie bei ${row.percent}%`,
+      geraeteart: deviceKindLabel(row.entity),
       raum: row.entity.room,
       // «Schwach» ohne Prozentwert ist die letzte Meldung vor der Stille.
       dringend: row.low || (row.percent !== null && row.percent <= 10),
