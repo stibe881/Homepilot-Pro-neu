@@ -229,7 +229,7 @@ Zwei Dinge, die dabei überraschen:
   die hochgezählte Versionsnummer täuschte dabei Aktualität vor. So
   gingen mehrere Lieferungen am Haus vorbei, ohne dass es auffiel: Der
   Hub war neu, die App nicht.
-- Deshalb steht dort jetzt eine feste `runtimeVersion` (zurzeit `"6"`).
+- Deshalb steht dort jetzt eine feste `runtimeVersion` (zurzeit `"7"`).
   Sie gehört zur **nativen** Hülle, nicht zur Auslieferung:
   - **`version` bei jeder Auslieferung hochzählen** – wie bisher. Sie
     ist die Nummer, die im App Store und in TestFlight steht, und sie
@@ -252,6 +252,14 @@ Zwei Dinge, die dabei überraschen:
     Zwei native Module in einer Runde kosten dagegen nur *einen*
     TestFlight-Build; wer ohnehin einen braucht, nimmt anderes gleich
     mit.
+    Von `"6"` auf `"7"` ging es für den Datei-Anhang der Gutscheine
+    (`expo-document-picker`, Punkt 266): Ein PDF vom Telefon holen kann
+    keine Fassung, deren Hülle den Auswähler nicht enthält. Wer den
+    Sprung liest und sich fragt, ob er nötig war - genau das ist der
+    Fall, für den die Regel da ist: Das Modul ist neu in der Hülle, und
+    ohne TestFlight-Build erreicht die neue OTA-Fassung niemanden. Weil
+    ein Build ohnehin fällig war (Punkt 223 wartet auf seinen
+    Probelauf), kostet dieser Sprung nichts extra.
     Von `"5"` auf `"6"` ging es, als die Widget-Ablage zum **lokalen**
     Modul wurde (`modules/widget-ablage`): Das `ExtensionStorage`-Modul
     des Pakets kam in keinem EAS-Build je an – die Innenansicht der
