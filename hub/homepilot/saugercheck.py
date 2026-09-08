@@ -95,6 +95,23 @@ def main() -> None:
         else:
             print("   Station    : meldet nichts. Bei einem Modell mit "
                   "Station heisst das: Die Felder kommen nicht an.")
+        lauf = zustand.get("last_run")
+        if isinstance(lauf, dict):
+            # Der eigene Grund des Saugers steht als Zahl daneben und
+            # wird nicht übersetzt: Was welche Zahl bedeutet, ist je
+            # Modell verschieden. Wer eine Meldung der Roborock-App im
+            # HomePilot vermisst («Reinigungsweg ungewöhnlich»), sieht
+            # hier, was der Sauger zu genau dieser Fahrt sagt.
+            print(
+                f"   Letzte Fahrt: vollständig="
+                f"{'ja' if lauf.get('complete') else 'nein' if lauf.get('complete') is not None else '–'}"
+                f"  Grund={lauf.get('reason', '–')}"
+                f"  {lauf.get('area_m2', '–')} m²"
+                f"  {lauf.get('minutes', '–')} min"
+            )
+        else:
+            print("   Letzte Fahrt: noch keine seit dem Start des Hubs "
+                  "nachgelesen (kommt nach der nächsten Reinigung).")
         print()
 
     probleme = sauger_probleme(sauger)

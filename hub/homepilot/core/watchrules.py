@@ -262,6 +262,43 @@ def sauger_wort(name: str) -> str:
     return f"Der Sauger meldet: {kern.replace('_', ' ')}."
 
 
+def lauf_meldung(state: dict[str, Any] | None) -> tuple[str, str] | None:
+    """Der letzte Reinigungslauf, falls er eine Nachricht wert ist (rein, testbar).
+
+    Der Anlass: Die Roborock-App meldete «Reinigungsweg ungewöhnlich.
+    Alle reinigbaren Bereiche wurden gereinigt.» - im HomePilot kam
+    nichts. Kein Wunder: Der Hub las bisher nur den Fehlercode des
+    Roboters und die Stände der Station, und ein *Lauf*, der anders
+    endete als geplant, ist keines von beidem. Er steht in einem
+    eigenen Protokoll, das der Sauger nach jeder Fahrt führt
+    (roborock.py, lauf_state).
+
+    Gemeldet wird, was eindeutig ist: ein Lauf, den der Sauger selbst
+    als nicht vollständig führt (``complete`` falsch). Ist er
+    vollständig, schweigt der Hub - «fertig» ist keine Störung, und
+    eine Nachricht nach jeder Fahrt wäre in einer Woche abbestellt.
+
+    Der Schlüssel trägt den Zeitpunkt des Laufs: So bekommt jede Fahrt
+    höchstens eine Nachricht, und die nächste bekommt wieder eine.
+    """
+    lauf = (state or {}).get("last_run")
+    if not isinstance(lauf, dict):
+        return None
+    if lauf.get("complete") is None or lauf.get("complete"):
+        return None
+    wann = lauf.get("at")
+    umfang = []
+    flaeche = lauf.get("area_m2")
+    if isinstance(flaeche, (int, float)) and flaeche > 0:
+        umfang.append(f"{flaeche:g} m²")
+    minuten = lauf.get("minutes")
+    if isinstance(minuten, (int, float)) and minuten > 0:
+        umfang.append(f"{int(minuten)} min")
+    satz = "Der Sauger ist fertig, hat aber nicht alles geschafft"
+    satz += f" ({' in '.join(umfang)})." if umfang else "."
+    return (f"lauf:{wann}", satz)
+
+
 def sauger_probleme(entities: list[Any]) -> list[tuple[Any, str, str]]:
     """Sauger mit gemeldetem Problem: (Gerät, Schlüssel, Satz) (rein, testbar).
 
@@ -287,6 +324,11 @@ def sauger_probleme(entities: list[Any]) -> list[tuple[Any, str, str]]:
                     ergebnis.append(
                         (entity, f"dock:{feld}:{wert}", sauger_wort(wert))
                     )
+        # Und der Lauf selbst: Er endet manchmal, ohne dass irgendwo ein
+        # Fehler steht - der Sauger kam schlicht nicht überall durch.
+        lauf = lauf_meldung(state)
+        if lauf is not None:
+            ergebnis.append((entity, lauf[0], lauf[1]))
     return ergebnis
 
 
