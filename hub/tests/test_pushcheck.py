@@ -49,3 +49,30 @@ def test_ohne_passende_art_bleibt_die_zeile_ohne_ereignis():
     und eine falsche ist schlechter als keine."""
     ereignisse = [{"entity_id": "x", "kind": "alarm", "name": "A", "at": 100}]
     assert passendes_ereignis({"category": "battery", "at": 200}, ereignisse) is None
+
+
+def test_art_und_name_kommen_aus_der_geraetetabelle():
+    """Die erste Messung aus dem Haus blieb in der Spalte «Verzug» bei
+    jeder Zeile leer, obwohl Klingel und Alarm sauber im Protokoll
+    standen: `/api/log` liefert `events` und `devices` getrennt, damit
+    derselbe Gerätename nicht hundertmal über die Leitung geht - und
+    dieses Werkzeug las `kind` direkt am Ereignis, wo nie etwas steht."""
+    from homepilot.pushcheck import mit_geraeten, passendes_ereignis
+
+    antwort = {
+        "events": [{"entity_id": "unifi.klingel", "state": "on", "at": 1000}],
+        "devices": {"unifi.klingel": {"name": "Haustüre", "kind": "binary_sensor"}},
+    }
+    ereignisse = mit_geraeten(antwort)
+    assert ereignisse[0]["kind"] == "binary_sensor"
+    treffer = passendes_ereignis({"category": "doorbell", "at": 1002}, ereignisse)
+    assert treffer is not None and treffer["entity_id"] == "unifi.klingel"
+
+
+def test_ohne_geraetetabelle_bleibt_die_liste_lesbar():
+    from homepilot.pushcheck import mit_geraeten
+
+    assert mit_geraeten({}) == []
+    assert mit_geraeten({"events": [{"entity_id": "x", "at": 1}]}) == [
+        {"entity_id": "x", "at": 1}
+    ]

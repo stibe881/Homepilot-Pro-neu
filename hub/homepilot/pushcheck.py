@@ -71,6 +71,23 @@ def spanne(sekunden: float) -> str:
     return f"{zeichen}{rest // 3600} Std {(rest % 3600) // 60} min"
 
 
+def mit_geraeten(antwort: dict) -> list[dict]:
+    """Die Ereignisse mit Art und Name daneben (rein, testbar).
+
+    `/api/log` liefert `events` und `devices` getrennt, damit derselbe
+    Gerätename nicht hundertmal über die Leitung geht. Beim ersten
+    Anlauf las dieses Werkzeug `kind` direkt am Ereignis - dort steht
+    nie etwas, und die Spalte «Verzug» blieb bei jeder Zeile leer,
+    obwohl Klingel und Alarm sauber im Protokoll standen.
+    """
+    geraete = (antwort or {}).get("devices") or {}
+    return [
+        {**eintrag, **(geraete.get(str(eintrag.get("entity_id") or "")) or {})}
+        for eintrag in ((antwort or {}).get("events") or [])
+        if isinstance(eintrag, dict)
+    ]
+
+
 def zettel() -> list[dict]:
     """Die verschickten Meldungen aus der Datendatei (jüngste zuletzt)."""
     try:
@@ -141,7 +158,7 @@ def main() -> None:
         headers={"Authorization": f"Bearer {token}"},
     )
     with urllib.request.urlopen(bitte, timeout=15) as antwort:
-        ereignisse = json.load(antwort).get("events") or []
+        ereignisse = mit_geraeten(json.load(antwort))
 
     meldungen = [
         row
