@@ -1317,8 +1317,12 @@ export function eventWhenText(event: KalenderEintrag): string {
   return endTime ? `${day} · ${startTime}–${endTime}` : `${day} · ${startTime}`;
 }
 
+/** Wortgleich mit lib/kontrollfluss.ts und dem Hub
+ *  (integrations/meteoalarm.py, SCHWERE_WORT): In der Begrüssungszeile
+ *  stand «…, stark, bis 00:00» und im Blatt darunter «… · schwer» -
+ *  dieselbe Warnung, zwei Wörter. */
 const SEVERITY_LABEL: Record<string, string> = {
-  Minor: 'geringfügig',
+  Minor: 'gering',
   Moderate: 'mässig',
   Severe: 'schwer',
   Extreme: 'extrem',
