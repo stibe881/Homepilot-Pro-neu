@@ -74,14 +74,13 @@ def bibliothek(monkeypatch):
     yield
 
 
-def test_die_meldung_nennt_den_ganzen_weg():
+def test_die_meldung_nennt_den_weg_in_der_app():
     """«siehe Hub-Protokoll» half niemandem, der vor dem Fernseher steht.
 
-    Dort steht jetzt der Befehl - und dass der Hub die frische Kopplung
-    von selbst aufgreift, statt einen Neustart zu verlangen.
+    Dort steht jetzt, wo in der App zu tippen ist - der Weg, der ohne
+    Terminal auskommt und nach dem die Schleife sofort wieder anläuft.
     """
-    assert "androidtv" in androidtv.NICHT_GEKOPPELT
-    assert "zehn Minuten" in androidtv.NICHT_GEKOPPELT
+    assert "Fernseher koppeln" in androidtv.NICHT_GEKOPPELT
     # Und der andere Fall bleibt der andere Fall.
     assert androidtv.absage(True) == androidtv.NICHT_ERREICHBAR
     assert androidtv.absage(False) == androidtv.NICHT_GEKOPPELT
@@ -90,9 +89,11 @@ def test_die_meldung_nennt_den_ganzen_weg():
 async def test_nach_dem_koppeln_kommt_der_fernseher_von_selbst_wieder(monkeypatch):
     """Der gemeldete Fall: Gekoppelt, und die Meldung blieb trotzdem.
 
-    Die Integration gab endgültig auf. Jetzt fragt sie später noch
-    einmal - mit einer frischen Fernbedienung, denn das Zertifikat wird
-    erst beim Verbinden gelesen.
+    Gekoppelt wurde über die Kommandozeile - der Weg, der nicht bei
+    `pair_finish` vorbeikommt und die Geräteschleife deshalb nicht neu
+    anwirft. Die Integration gab endgültig auf. Jetzt fragt sie später
+    noch einmal, mit einer frischen Fernbedienung, denn das Zertifikat
+    wird erst beim Verbinden gelesen.
     """
     # Der erste Anlauf wird abgelehnt, der zweite geht durch.
     FalscheFernbedienung.abgelehnt = 1
@@ -114,6 +115,7 @@ async def test_nach_dem_koppeln_kommt_der_fernseher_von_selbst_wieder(monkeypatc
     integration._remotes = {}
     integration._gekoppelt = {}
     integration._sleep = {}
+    integration._timer_of = {}
 
     await asyncio.wait_for(
         integration._device_loop("androidtv.tv", "10.10.1.37", "/tmp"), timeout=5

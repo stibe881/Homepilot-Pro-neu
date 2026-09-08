@@ -20,7 +20,7 @@ from fastapi import (
     Response,
 )
 
-from ...core import bilder, familienbuch, gutscheine, rezeptimport
+from ...core import bilder, dateien, familienbuch, gutscheine, rezeptimport
 from ...core import shopping as shopping_module
 from ...core import trash as trash_module
 from ...core import vorrat as vorrat_module
@@ -181,6 +181,36 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     def bild_loeschen(collection: str, item_id: str) -> None:
         bilder.loeschen(bilder_ordner(collection), item_id)
 
+    def anhang_eintrag(
+        collection: str, kennung: str, user: User, sonst: str
+    ) -> dict[str, Any] | None:
+        """Den Eintrag holen, wenn diese Person ihn sehen darf.
+
+        Nur die Gutscheine haben etwas zu verbergen; für jede andere
+        Sammlung kommt None zurück, und die Route liefert einfach aus -
+        das Foto einer Lasagne verrät niemanden.
+
+        404 und nicht 403 (anders als beim Ändern in sichtbar_oder_403):
+        Eine Adresse, die «verboten» sagt, verrät, dass es dort etwas
+        gibt. Beim Ändern ist das hinnehmbar - die Kennung stammt dann
+        aus einer Liste, die man abgeschrieben hat. Eine Bild- oder
+        Dateiadresse dagegen landet in Verläufen und Vorschauen, und
+        «gibt es nicht» ist dort die einzige Antwort, die nichts sagt.
+        """
+        if collection != "vouchers":
+            return None
+        eintrag = next(
+            (
+                row
+                for row in hub.data.get(gutscheine.KEY)
+                if isinstance(row, dict) and row.get("id") == kennung
+            ),
+            None,
+        )
+        if eintrag is None or not gutscheine.darf_sehen(eintrag, user.name):
+            raise HTTPException(status_code=404, detail=sonst)
+        return eintrag
+
     def bild_liefern(collection: str, item_id: str, request: Request, v: str) -> Response:
         """Das Foto eines Eintrags – als eigene Datei, damit es im Cache bleibt.
 
@@ -199,17 +229,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         kennung = bilder.safe_id(item_id)
         if ordner is None or kennung is None:
             raise HTTPException(status_code=404, detail="Kein Bild")
-        if collection == "vouchers":
-            eintrag = next(
-                (
-                    row
-                    for row in hub.data.get(gutscheine.KEY)
-                    if isinstance(row, dict) and row.get("id") == kennung
-                ),
-                None,
-            )
-            if eintrag is None or not gutscheine.darf_sehen(eintrag, user.name):
-                raise HTTPException(status_code=404, detail="Kein Bild")
+        anhang_eintrag(collection, kennung, user, "Kein Bild")
         for datei in sorted(ordner.glob(f"{kennung}.*")) if ordner.exists() else []:
             return Response(
                 content=datei.read_bytes(),
@@ -235,6 +255,126 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         if collection not in bilder.ORDNER:
             raise HTTPException(status_code=404, detail="Diese Liste führt keine Bilder")
         return bild_liefern(collection, item_id, request, v)
+
+    # ── Dateien der Familienlisten: Gutscheine (Punkt 266) ────────────────
+    #
+    # Der Zwilling der Bilder von oben, in derselben Bauart: hereingereicht
+    # als data-URI, abgelegt neben den Daten, ausgeliefert unter einer
+    # Adresse mit Fingerabdruck. Ein Gutschein kommt meist als PDF im
+    # Mail-Anhang, und ein Foto der Karte hilft dann niemandem.
+    #
+    # Zwei Unterschiede, beide in core/dateien.py begründet: Die Datei
+    # trägt einen Namen (der geht in den Content-Disposition-Kopf, und der
+    # Name kommt von aussen), und eine unbrauchbare Datei wird abgelehnt
+    # statt stillschweigend übergangen - ein Bild kann man weglassen, eine
+    # angehängte Datei nicht.
+
+    def dateien_ordner(collection: str) -> Path | None:
+        return dateien.ordner(hub.data.path, collection)
+
+    def datei_adresse(collection: str, kennung: str) -> str:
+        return f"/api/family/{collection}/{kennung}/datei"
+
+    def datei_aufnehmen(
+        collection: str, item_id: Any, anhang: Any
+    ) -> dict[str, Any] | None:
+        """Eine mitgeschickte Datei ablegen und ihren Block zurückgeben.
+
+        Hereingereicht wird `{"data": "<data-URI>", "name": "…"}`; zurück
+        kommt der Block, wie er am Eintrag steht (dateien.block). None
+        heisst «nichts Neues dabei» - dann bleibt stehen, was schon am
+        Eintrag ist: Ein unveränderter Block mit fertiger Adresse geht bei
+        jedem Speichern mit hin und her und darf das überleben.
+
+        Wird VOR jeder Änderung am Eintrag gerufen: Eine abgelehnte Datei
+        wirft hier, und dann soll der Eintrag noch unberührt sein.
+        """
+        if not isinstance(anhang, dict) or "data" not in anhang:
+            return None
+        ordner = dateien_ordner(collection)
+        kennung = bilder.safe_id(item_id)
+        if ordner is None or kennung is None:
+            return None
+        try:
+            roh, endung, typ = dateien.entpacke(anhang.get("data"))
+        except dateien.DateiFehler as err:
+            # 413 für «zu gross», 415 für «solche nicht» - warum
+            # überhaupt abgelehnt und nicht geklemmt, steht bei
+            # dateien.entpacke().
+            raise HTTPException(status_code=err.status, detail=str(err)) from err
+        try:
+            ordner.mkdir(parents=True, exist_ok=True)
+            # Alte Fassung mit anderer Endung wegräumen, sonst lägen zwei
+            # Dateien da und die ausgelieferte wäre Zufall.
+            for vorher in ordner.glob(f"{kennung}.*"):
+                vorher.unlink(missing_ok=True)
+            (ordner / f"{kennung}.{endung}").write_bytes(roh)
+        except OSError as err:
+            # Hier anders als beim Bild: Ein Foto, das nicht auf die
+            # Platte kam, ist ein fehlendes Foto; eine Datei, die nicht
+            # ankam, ist ein Gutschein, den jemand für gesichert hält.
+            # Also sagen, dass es schiefging.
+            log.warning("Datei %s/%s nicht geschrieben: %s", collection, kennung, err)
+            raise HTTPException(
+                status_code=500, detail="Die Datei liess sich nicht ablegen"
+            ) from err
+        return dateien.block(
+            f"{datei_adresse(collection, kennung)}?v={bilder.fingerprint(roh)}",
+            dateien.sauberer_name(anhang.get("name"), endung),
+            typ,
+            len(roh),
+        )
+
+    def datei_loeschen(collection: str, item_id: str) -> None:
+        dateien.loeschen(dateien_ordner(collection), item_id)
+
+    def datei_liefern(
+        collection: str, item_id: str, request: Request, v: str
+    ) -> Response:
+        """Die Datei eines Eintrags – wie das Bild, nur mit Namen.
+
+        Derselbe Fingerabdruck im `v` und dasselbe Zwischenspeichern wie
+        beim Bild, dieselbe Sichtbarkeitsprüfung (siehe anhang_eintrag):
+        Das PDF eines privaten Gutscheins ist der Gutschein.
+
+        Der Name kommt aus dem Eintrag und damit ursprünglich aus einer
+        Mail - er geht durch dateien.disposition(), damit ein
+        Zeilenumbruch darin nicht die Kopfzeile sprengt.
+        """
+        user = family_user(request)
+        ordner = dateien_ordner(collection)
+        kennung = bilder.safe_id(item_id)
+        if ordner is None or kennung is None:
+            raise HTTPException(status_code=404, detail="Keine Datei")
+        eintrag = anhang_eintrag(collection, kennung, user, "Keine Datei") or {}
+        anhang = eintrag.get("file")
+        gewuenscht = anhang.get("name") if isinstance(anhang, dict) else ""
+        for datei in sorted(ordner.glob(f"{kennung}.*")) if ordner.exists() else []:
+            return Response(
+                content=datei.read_bytes(),
+                media_type=dateien.media_type(datei.name),
+                headers={
+                    # «inline», damit das PDF im Telefon aufgeht statt im
+                    # Download-Ordner zu verschwinden - man zeigt den
+                    # Gutschein an der Kasse.
+                    "Content-Disposition": dateien.disposition(
+                        dateien.sauberer_name(gewuenscht, datei.suffix.lstrip("."))
+                    ),
+                    "Cache-Control": "public, max-age=31536000, immutable"
+                    if v
+                    else "public, max-age=300",
+                },
+            )
+        raise HTTPException(status_code=404, detail="Keine Datei")
+
+    @app.get("/api/family/{collection}/{item_id}/datei")
+    async def family_file(
+        collection: str, item_id: str, request: Request, v: str = ""
+    ) -> Response:
+        """Die Datei eines Eintrags, für jede Sammlung mit Dateiordner."""
+        if collection not in dateien.ORDNER:
+            raise HTTPException(status_code=404, detail="Diese Liste führt keine Dateien")
+        return datei_liefern(collection, item_id, request, v)
 
     @app.get("/api/family")
     async def family_all(request: Request) -> dict[str, Any]:
@@ -403,6 +543,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         item["id"] = secrets.token_urlsafe(8)
         item["author"] = user.name
         item["created"] = datetime.now().isoformat(timespec="seconds")
+        # Die Datei vor dem Bereinigen: bereinigen() wirft alles weg, was
+        # kein fertiger Block ist - der data-URI wäre danach fort.
+        if collection in dateien.ORDNER:
+            anhang = datei_aufnehmen(collection, item["id"], item.get("file"))
+            if anhang is not None:
+                item["file"] = anhang
         if collection == "vouchers":
             item = gutscheine.bereinigen(item)
         if collection in bilder.ORDNER:
@@ -443,11 +589,23 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         for item in items:
             if item.get("id") == item_id:
                 sichtbar_oder_403(collection, item, user)
+                # Die Datei zuerst, noch bevor am Eintrag etwas steht:
+                # Eine zu grosse oder verbotene Datei wirft hier, und
+                # dann soll der Gutschein unverändert geblieben sein -
+                # die Einträge in `items` sind dieselben Objekte wie im
+                # Datenspeicher.
+                anhang = (
+                    datei_aufnehmen(collection, item_id, body.get("file"))
+                    if collection in dateien.ORDNER
+                    else None
+                )
                 vorher = str(item.get("member") or "")
                 war_erledigt = bool(item.get("done"))
                 item.update(
                     {k: v for k, v in body.items() if k not in ("id", "author", "created")}
                 )
+                if anhang is not None:
+                    item["file"] = anhang
                 if collection == "vouchers":
                     # Abziehen ist ein normales PUT: Die App schreibt
                     # `left` und `transactions` selbst. Der Hub klemmt
@@ -457,6 +615,11 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                     sauber = gutscheine.bereinigen(item)
                     item.clear()
                     item.update(sauber)
+                # Wer den Anhang wegnimmt, nimmt ihn ganz weg: Bliebe die
+                # Datei liegen, wäre sie unter ihrer alten Adresse weiter
+                # abrufbar, obwohl am Gutschein nichts mehr davon steht.
+                if collection in dateien.ORDNER and item.get("file") is None:
+                    datei_loeschen(collection, item_id)
                 # Wann etwas abgehakt wurde, weiss sonst niemand - und
                 # ohne das kann Erledigtes nicht von selbst verschwinden
                 # (Punkt 170).
@@ -559,8 +722,14 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         korb = hub.data.get("family_trash")
         for row in korb:
             art = str(row.get("kind") or "")
+            kennung = str((row.get("item") or {}).get("id") or "")
             if art in bilder.ORDNER:
-                bild_loeschen(art, str((row.get("item") or {}).get("id") or ""))
+                bild_loeschen(art, kennung)
+            # Und die angehängte Datei dazu (Punkt 266): Das PDF eines
+            # Gutscheins ist der Gutschein - es darf nicht länger auf der
+            # Platte liegen als der Eintrag.
+            if art in dateien.ORDNER:
+                datei_loeschen(art, kennung)
         hub.data.set("family_trash", [])
         log.info("%s hat den Familien-Papierkorb geleert (%d Einträge)", user.name, len(korb))
         return {"ok": True, "removed": len(korb)}

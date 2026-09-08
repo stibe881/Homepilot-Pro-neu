@@ -188,6 +188,7 @@ nicht `test_mode_2`.
 | an der Startseite arbeitest | `app/src/screens/DashboardScreen.tsx`, `components/TopStrip.tsx`, `SidePanel.tsx` – die Vollbilder (Klingel, Kamera, Erinnerung) und die Stiltafel liegen in `screens/dashboard/` |
 | einen Punkt in den Einstellungen anlegst | die Liste in `app/src/screens/DashboardScreen.tsx` **und** eine Gruppe in `app/src/lib/einstellungsgruppen.ts` – sonst steht er auf dem Telefon unter «Weitere» |
 | wissen willst, was der Hub über die Storen weiss | `docker exec homepilot-hub python -m homepilot.storencheck` – Zustand, Stellung und ob sie nur angenommen ist |
+| wissen willst, warum der Fernseher sagt, er sei nicht gekoppelt | `hub/homepilot/integrations/androidtv.py` (`pair_start`/`pair_finish`) + `api/routes/androidtv.py` + `app/src/components/TvKopplung.tsx` – koppeln geht in der App, der Fernseher muss dabei an sein |
 | wissen willst, warum eine Fernseher-Karte auf dem Sperrbildschirm liegen bleibt | `docker exec homepilot-hub python -m homepilot.tvcheck` – Zustand, Zwilling, Geisterbild und ob der Hub die Karte noch will |
 | wissen willst, warum eine Sauger-Meldung nicht als Push ankommt | `docker exec homepilot-hub python -m homepilot.saugercheck` – Fehler, Tankstände der Station, was davon meldebar ist und wer die Kategorie abbestellt hat |
 | wissen willst, ob eine Push-Meldung zu spät kam oder erst das Ereignis | `docker exec homepilot-hub python -m homepilot.pushcheck` – Uhr und Zeitzone des Hubs, dazu je Meldung Ereigniszeit, Sendezeit und der Verzug dazwischen |
@@ -229,7 +230,7 @@ Zwei Dinge, die dabei überraschen:
   die hochgezählte Versionsnummer täuschte dabei Aktualität vor. So
   gingen mehrere Lieferungen am Haus vorbei, ohne dass es auffiel: Der
   Hub war neu, die App nicht.
-- Deshalb steht dort jetzt eine feste `runtimeVersion` (zurzeit `"6"`).
+- Deshalb steht dort jetzt eine feste `runtimeVersion` (zurzeit `"7"`).
   Sie gehört zur **nativen** Hülle, nicht zur Auslieferung:
   - **`version` bei jeder Auslieferung hochzählen** – wie bisher. Sie
     ist die Nummer, die im App Store und in TestFlight steht, und sie
@@ -252,6 +253,18 @@ Zwei Dinge, die dabei überraschen:
     Zwei native Module in einer Runde kosten dagegen nur *einen*
     TestFlight-Build; wer ohnehin einen braucht, nimmt anderes gleich
     mit.
+    Von `"6"` auf `"7"` ging es für den Datei-Anhang der Gutscheine
+    (`expo-document-picker`, Punkt 266) - und zwar erst, als beide
+    Hälften fertig waren, **keinen Tag früher**. Der Sprung stand schon einmal eine Stunde lang im Repo,
+    während das Modul noch gar nicht benutzt wurde; ein Bau lief
+    gerade, nahm ihn über `HOMEPILOT_MERGE_ALL` mit herein und hätte
+    eine OTA-Fassung veröffentlicht, die kein Telefon im Haus je
+    bekommen hätte - für ein Feature, das es noch nicht gab. Daraus die
+    Regel unter der Regel: Die Laufzeit steigt im selben Commit wie das
+    Modul, das sie braucht, und erst wenn der TestFlight-Build
+    unmittelbar folgt. Zwischen Erhöhung und Build ist das Haus von
+    Nachladungen abgeschnitten, und diese Lücke gehört so kurz wie
+    möglich.
     Von `"5"` auf `"6"` ging es, als die Widget-Ablage zum **lokalen**
     Modul wurde (`modules/widget-ablage`): Das `ExtensionStorage`-Modul
     des Pakets kam in keinem EAS-Build je an – die Innenansicht der

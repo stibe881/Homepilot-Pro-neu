@@ -19,6 +19,10 @@ declare module 'react-test-renderer' {
     update(element: ReactElement): void;
     root: {
       findAllByType(typ: unknown): TestKnoten[];
+      /** Nach einer Eigenschaft statt nach dem Bauteiltyp suchen - für
+       *  Knöpfe, die man an ihrer Beschriftung erkennt und nicht an
+       *  ihrer Klasse. */
+      findAll(treffer: (knoten: TestKnoten) => boolean): TestKnoten[];
     };
   }
 

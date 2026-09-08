@@ -158,6 +158,14 @@ def main() -> None:
         )
 
     print()
+    # Ein Fernseher ohne Kopplung nimmt keinen einzigen Befehl an - weder
+    # eine Taste noch den Einschlaf-Timer. Das steht sonst nirgends
+    # zusammengefasst, und aus dem Haus kam es als «wenn ich den Timer
+    # einschalten will, kommt diese Meldung».
+    ohne = [entity.id for entity in schirme if entity.state.get("paired") is False]
+    print("Nicht gekoppelt: " + (", ".join(ohne) if ohne else "keiner"))
+
+    print()
     # Ohne angemeldetes Telefon startet der Hub keine Karte. Beenden
     # kann er sie trotzdem - dass er es vorher nicht tat, war der
     # Fehler dahinter (livekarten._runde).
@@ -193,7 +201,11 @@ def main() -> None:
         "Fernseher es gar nicht meldet - dann zählt nur der Zustand.\n"
         "«Geist: ja» heisst: Der Zuspieler behauptet den Fernsehabend\n"
         "allein, sein Steuerkreuz-Zwilling widerspricht erreichbar mit\n"
-        "«off» - dann liegt keine Karte."
+        "«off» - dann liegt keine Karte.\n"
+        "«Nicht gekoppelt» heisst: Der Fernseher lehnt die Anmeldung ab\n"
+        "und nimmt gar keinen Befehl an. Das lässt sich in der App auf\n"
+        "seiner Kachel beheben («Fernseher koppeln») - er muss dabei an\n"
+        "sein, denn er zeigt den Code auf dem Bildschirm."
     )
 
 
