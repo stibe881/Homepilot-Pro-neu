@@ -17,7 +17,7 @@ steht sie hier, in vier Teilen entstanden:
 | 136–164 | Küche & Abläufe | Rezeptbuch und Ablauf-Editor |
 | 165–221 | Familie & Haushalt | Familienlisten, Kontakte, Ortung |
 | 224–243 | Zweite Durchsicht | Wärme, Strom, Betrieb, und die Fehler einer Woche |
-| 244–265 | Auf Zuruf (September 2026) | Benutzer und Zugang, Bedienung, Abläufe, Sicherheit |
+| 244–266 | Auf Zuruf (September 2026) | Benutzer und Zugang, Bedienung, Abläufe, Sicherheit |
 
 Stand beim Einchecken: **alle 221 Punkte erledigt**, bis auf Punkt 94
 (bewusst gestrichen). Die Häkchen tragen die Commit-Kürzel von den
@@ -2287,7 +2287,7 @@ jeder Auslieferung als Erstes kommt: «Ist es angekommen?»
 Stellen: `hub/homepilot/core/sessions.py`, `app/src/api/client.ts`
 
 
-# Teil VI: Auf Zuruf (244–265)
+# Teil VI: Auf Zuruf (244–266)
 
 Punkte aus Durchsichten im September 2026, auf Zuruf ausgewählt und
 umgesetzt. Gleichzeitig wurden 224–227, 228–229, 235–236 und 242–243
@@ -2640,3 +2640,29 @@ Auge ist das nie zu finden - es fällt nur auf dem iPhone auf, nur weit
 unten im Fenster, und nur wenn dort wirklich jemand tippt.
 
 Stellen: `app/src/components/Tastaturplatz.tsx`, `app/src/lib/tastaturplatz.test.ts`, `app/src/screens/DashboardScreen.tsx`
+
+### 266. Ein Gutschein trägt seinen Beleg bei sich ✓ erledigt (HASH_APP, HASH_HUB)
+
+*lohnt sich · Aufwand: gross · Hub + App*
+
+Das Modul nahm ein Foto der Gutscheinkarte - nur kommen die meisten
+Gutscheine gar nicht als Karte, sondern als PDF per E-Mail. Wer den
+abfotografierte, hatte ein unlesbares Bild eines Bildschirms. Neu hängt
+neben dem Foto eine Datei am Gutschein (PDF, Bilder, Word, Excel, Text,
+ZIP), die der Hub wie die Bilder neben die Daten legt und unter einer
+eigenen Adresse ausliefert - mit derselben Sichtbarkeitsprüfung, denn
+ein privater Gutschein ist auch als Datei privat.
+
+Zwei Dinge, die dabei zu lernen waren. Geprüft wird **vor** dem Lesen:
+Grösse und Format stehen schon im Auswähler fest, und eine zu grosse
+Datei wird abgelehnt, bevor sie durch den Speicher wandert - ein Korb
+im Dialog ist freundlicher als ein 415 nach dem Warten. Und die
+Laufzeit: Der Auswähler ist ein natives Modul, `runtimeVersion` musste
+also steigen. Der Sprung stand versehentlich schon eine Stunde früher
+im Repo, während ein Bau lief - was beinahe eine OTA-Fassung
+veröffentlicht hätte, die kein Telefon im Haus je bekommen hätte. Die
+Regel dazu steht seither in der CLAUDE.md: Die Laufzeit steigt im
+selben Commit wie das Modul, das sie braucht, und erst wenn der
+TestFlight-Build unmittelbar folgt.
+
+Stellen: `hub/homepilot/core/dateien.py`, `hub/homepilot/api/routes/family.py`, `app/src/screens/family/gutscheine.tsx`, `app/src/lib/gutscheine.ts`
