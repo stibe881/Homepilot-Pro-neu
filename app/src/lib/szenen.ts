@@ -134,10 +134,14 @@ export interface SceneActionDraft {
   /** Weissanteil als Mirek (153 = tageslichtweiss … 500 = sehr warm).
    *  Nur in Abläufen; Szenen fragen bisher nicht danach. */
   colorTemp?: number;
-  /** «An die Umgebungshelligkeit angepasst»: Der Hub nimmt beim Auslösen
-   *  die Lux des Melders und rechnet die Helligkeit daraus. Nur sinnvoll,
-   *  wenn ein Auslöser überhaupt Helligkeit misst. */
+  /** «Nach Raumhelligkeit»: Der Hub nimmt beim Auslösen die gemessenen
+   *  Lux und rechnet die Helligkeit daraus - erst vom Melder, der
+   *  auslöst, sonst von einem Fühler im Raum der Lampe. Nur sinnvoll,
+   *  wo überhaupt jemand Helligkeit misst. */
   adaptive?: boolean;
+  /** «Nach Tageszeit»: Der Hub nimmt die Uhr. Der Weg für die Räume
+   *  ohne Fühler - also für die meisten (lib/helligkeitsvorgabe.ts). */
+  nachTageszeit?: boolean;
   /** Nachlauf in Sekunden: So lange bleibt die Lampe an, dann schaltet der
    *  Hub sie von selbst aus. 0 oder fehlend heisst «an lassen». */
   offAfter?: number;

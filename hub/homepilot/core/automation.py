@@ -445,7 +445,9 @@ def describe_action(action: dict[str, Any], name_of: Any = None) -> str:
         teile: list[str] = []
         helligkeit = action.get("brightness")
         if isinstance(helligkeit, str) and helligkeit.lower() == "adaptive":
-            teile.append("an die Umgebung angepasst")
+            teile.append("an die Raumhelligkeit angepasst")
+        elif isinstance(helligkeit, str) and helligkeit.lower() == "tageszeit":
+            teile.append("nach Tageszeit")
         elif helligkeit is not None:
             teile.append(f"{helligkeit} %")
         if action.get("color"):
@@ -2938,9 +2940,16 @@ class AutomationEngine:
         hintereinanderzuhängen, zwischen denen die Lampe sichtbar
         umspringt.
 
-        ``brightness: "adaptive"`` holt die Helligkeit aus dem Melder, der
-        ausgelöst hat: siehe core/light.py, warum es dunkler statt heller
-        wird, je dunkler es ist.
+        Für die Helligkeit gibt es drei Wege, und der Unterschied
+        entscheidet, ob abends jemand geblendet wird:
+
+        - eine Zahl: immer dieselbe Prozentzahl;
+        - ``brightness: "adaptive"``: nach der gemessenen Helligkeit -
+          erst der Melder, der ausgelöst hat, dann ein Fühler im Raum der
+          Lampe (core/light.py, warum es dunkler statt heller wird, je
+          dunkler es ist);
+        - ``brightness: "tageszeit"``: nach der Uhr. Für die meisten
+          Räume, in denen gar kein Fühler steht.
         """
         entity_id = str(action.get("entity_id") or "")
         entity = self.hub.registry.get(entity_id)
@@ -2955,8 +2964,9 @@ class AutomationEngine:
         notiz: str | None = None
         helligkeit: float | None = None
         roh = action.get("brightness")
-        if isinstance(roh, str) and roh.strip().lower() == "adaptive":
-            lux = self._lux_for(automation, action, ausloeser)
+        wort = roh.strip().lower() if isinstance(roh, str) else ""
+        if wort == "adaptive":
+            lux = self._lux_for(automation, action, ausloeser, entity.room)
             if lux is None:
                 # Kein Messwert: Die Lampe geht trotzdem an - ein
                 # Bewegungslicht, das wegen eines stummen Fühlers dunkel
@@ -2965,6 +2975,10 @@ class AutomationEngine:
             else:
                 helligkeit = licht.brightness_from_lux(lux)
                 notiz = f"{lux:.0f} lx → {helligkeit:.0f} %"
+        elif wort == "tageszeit":
+            jetzt = datetime.now()
+            helligkeit = licht.brightness_from_time(jetzt.hour, jetzt.minute)
+            notiz = f"{jetzt:%H:%M} → {helligkeit:.0f} %"
         elif roh is not None:
             try:
                 helligkeit = max(0.0, min(100.0, float(roh)))
@@ -3008,13 +3022,20 @@ class AutomationEngine:
         automation: Automation,
         action: dict[str, Any],
         ausloeser: str | None,
+        raum: str | None = None,
     ) -> float | None:
         """Die Umgebungshelligkeit, an die sich das Licht anpassen soll.
 
         In dieser Reihenfolge: das im Ablauf genannte Gerät (für von Hand
         geschriebene config.yaml), sonst der Melder, der gerade ausgelöst
-        hat, sonst der erste Auslöser, der überhaupt Lux meldet. Ohne
-        jeden Wert: None - der Aufrufer schaltet dann ohne Vorgabe ein.
+        hat, sonst der erste Auslöser, der überhaupt Lux meldet, sonst
+        ein Fühler im Raum der Lampe. Ohne jeden Wert: None - der
+        Aufrufer schaltet dann ohne Vorgabe ein.
+
+        Der Raum kam zuletzt dazu und ist der Grund, warum die Wahl
+        überhaupt allgemein taugt: Ein Ablauf «um 18:00 das Wohnzimmer
+        an» hat keinen Melder, der auslöst - vorher war «an die
+        Helligkeit angepasst» dort schlicht wirkungslos.
         """
         kandidaten: list[str] = []
         genannt = action.get("lux_from")
@@ -3031,7 +3052,7 @@ class AutomationEngine:
             wert = entity.state.get("illumination")
             if isinstance(wert, (int, float)):
                 return float(wert)
-        return None
+        return licht.raum_lux(self.hub.registry.all(), raum)
 
     async def _toggle_all(
         self, automation: Automation, action: dict[str, Any]

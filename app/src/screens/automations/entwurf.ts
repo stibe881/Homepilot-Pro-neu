@@ -668,8 +668,12 @@ export interface StepDraft {
     color?: string;
     /** Weissanteil als Mirek (153 kühl … 500 warm). */
     colorTemp?: number;
-    /** Helligkeit erst beim Auslösen aus den Lux des Melders rechnen. */
+    /** Helligkeit erst beim Auslösen aus den Lux rechnen - erst der
+     *  Melder, der auslöst, dann ein Fühler im Raum der Lampe. */
     adaptive?: boolean;
+    /** Helligkeit nach der Uhr - der Weg für Räume ohne Fühler
+     *  (lib/helligkeitsvorgabe.ts). */
+    nachTageszeit?: boolean;
     /** Nachlauf in Sekunden – danach schaltet der Hub die Lampe aus. */
     offAfter?: number;
     /** Lamellenwinkel in Prozent, wenn das Kommando 'set_tilt' ist. */
@@ -1518,6 +1522,7 @@ export function istLichtFein(action: {
   color?: string;
   colorTemp?: number;
   adaptive?: boolean;
+  nachTageszeit?: boolean;
   offAfter?: number;
 }): boolean {
   // Nur beim Einschalten. Der Aktionstyp 'light' heisst beim Hub «mach
@@ -1531,7 +1536,13 @@ export function istLichtFein(action: {
   // sie sind nur gegenstandslos, solange ausgeschaltet wird, und
   // kommen zurück, wenn jemand wieder auf «ein» stellt.
   if (!istAnschalten(action.command)) return false;
-  return !!(action.adaptive || action.color || action.colorTemp || action.offAfter);
+  return !!(
+    action.adaptive ||
+    action.nachTageszeit ||
+    action.color ||
+    action.colorTemp ||
+    action.offAfter
+  );
 }
 
 /**
@@ -1732,6 +1743,7 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
       if (istLichtFein(action)) {
         const licht: BausteinConfig = { type: 'light', entity_id: action.entity_id };
         if (action.adaptive) licht.brightness = 'adaptive';
+        else if (action.nachTageszeit) licht.brightness = 'tageszeit';
         else if (action.command === 'set_brightness') {
           licht.brightness = action.brightness ?? 50;
         }
@@ -1869,16 +1881,19 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
         })),
       });
     } else if (type === 'light') {
-      const adaptive = String(action.brightness ?? '') === 'adaptive';
+      const wort = String(action.brightness ?? '');
+      const adaptive = wort === 'adaptive';
+      const nachTageszeit = wort === 'tageszeit';
       const entry = {
         entity_id: action.entity_id,
         command:
-          adaptive || typeof action.brightness === 'number'
+          adaptive || nachTageszeit || typeof action.brightness === 'number'
             ? 'set_brightness'
             : 'turn_on',
         rooms: [],
         brightness: typeof action.brightness === 'number' ? action.brightness : undefined,
         adaptive: adaptive || undefined,
+        nachTageszeit: nachTageszeit || undefined,
         color: action.color ? String(action.color) : undefined,
         colorTemp: action.color_temp ? Number(action.color_temp) : undefined,
         offAfter: action.off_after ? Number(action.off_after) : undefined,
@@ -2127,12 +2142,15 @@ export function kopieSchritt(step: StepDraft): StepDraft {
  * Mit dem Nachlauf, wenn es einen gibt: «Licht an» allein lässt die
  * Frage offen, wann es wieder ausgeht. */
 export function lichtKurz(action: BausteinConfig): string {
+  const wort = String(action.brightness ?? '');
   const wie =
-    String(action.brightness ?? '') === 'adaptive'
-      ? 'angepasst'
-      : action.brightness != null
-        ? `${action.brightness} %`
-        : 'an';
+    wort === 'adaptive'
+      ? 'nach Raumhelligkeit'
+      : wort === 'tageszeit'
+        ? 'nach Tageszeit'
+        : action.brightness != null
+          ? `${action.brightness} %`
+          : 'an';
   return action.off_after ? `${wie}, ${nachlaufLabel(action.off_after)}` : wie;
 }
 

@@ -11,6 +11,12 @@ import { Entity } from '../../api/types';
 import { useColors } from '../../theme';
 import { deviceKindLabel, geraeteUntertitel } from '../../lib/geraeteart';
 import { PALETTE } from '../../components/ColorRow';
+import {
+  chipWahl,
+  chipWert,
+  helligkeitsOptionen,
+  raumHatLux,
+} from '../../lib/helligkeitsvorgabe';
 import { RueckwegBefehl, SceneActionDraft, snapshotAction } from '../../lib/szenen';
 import { Fassung, VersionsSection } from './editor';
 import { WEISSTOENE, istAnschalten, vacuumRooms } from './entwurf';
@@ -77,9 +83,15 @@ export const SCENE_ICONS = [
 /** Geräte-Checkliste statt Zeilen mit Dropdown: antippen nimmt ein Gerät in
  *  die Szene auf, ein zweiter Chip legt den Zielzustand fest. «Aktuellen
  *  Zustand übernehmen» füllt alles in einem Tipp aus der Wirklichkeit. */
-/** Schlüssel des «angepasst»-Knopfs. Keine Prozentzahl, kollidiert also
- *  mit keiner Stufe. */
-const ANGEPASST = 'lux';
+/** Die blossen Stufen - für Szenen, die keine Auslöser haben und sich
+ *  darum an nichts anpassen können. */
+const STUFEN = [
+  { key: '10', label: '10 %' },
+  { key: '25', label: '25 %' },
+  { key: '50', label: '50 %' },
+  { key: '75', label: '75 %' },
+  { key: '100', label: '100 %' },
+];
 
 export function SceneDevices({
   entities,
@@ -506,38 +518,37 @@ export function SceneDevices({
                     {action!.command === 'set_brightness' ? (
                       <>
                         <Choice
-                          options={[
-                            { key: '10', label: '10 %' },
-                            { key: '25', label: '25 %' },
-                            { key: '50', label: '50 %' },
-                            { key: '75', label: '75 %' },
-                            { key: '100', label: '100 %' },
-                            // Nur wenn ein Melder des Ablaufs Lux misst -
-                            // sonst stünde hier eine Wahl, die nichts
-                            // täte (siehe hub/core/light.py).
-                            ...(hatLux
-                              ? [{ key: ANGEPASST, label: 'an Helligkeit angepasst' }]
-                              : []),
-                          ]}
-                          value={
-                            action!.adaptive ? ANGEPASST : String(action!.brightness ?? 50)
+                          options={
+                            lichtFein
+                              ? helligkeitsOptionen(
+                                  hatLux || raumHatLux(entities, entity)
+                                )
+                              : STUFEN
                           }
-                          onSelect={(key) =>
-                            key === ANGEPASST
-                              ? setField(entity.id, { adaptive: true })
-                              : setField(entity.id, {
-                                  adaptive: undefined,
-                                  brightness: Number(key),
-                                })
-                          }
+                          value={chipWert(action!)}
+                          onSelect={(key) => setField(entity.id, chipWahl(key))}
                         />
+                        {/* Woher die Helligkeit kommt, gehört
+                            dazugeschrieben: «nach Raumhelligkeit» klingt
+                            wie eine Einstellung, ist aber eine Rechnung,
+                            und ohne Messwert eine andere als man denkt. */}
                         {action!.adaptive ? (
                           <Text style={styles.snapshotHint}>
-                            Der Hub nimmt beim Auslösen die Helligkeit von{' '}
-                            {(luxSensors ?? []).map((m) => m.name).join(', ')} und
-                            rechnet daraus: stockdunkel gedämpft, am trüben
+                            Der Hub nimmt beim Auslösen die gemessene Helligkeit
+                            {(luxSensors ?? []).length > 0
+                              ? ` von ${(luxSensors ?? []).map((m) => m.name).join(', ')}`
+                              : ' aus dem Raum der Lampe'}{' '}
+                            und rechnet daraus: stockdunkel gedämpft, am trüben
                             Nachmittag voll. Kein Messwert heisst «an ohne
                             Vorgabe» – dunkel bleibt die Lampe nie.
+                          </Text>
+                        ) : null}
+                        {action!.nachTageszeit ? (
+                          <Text style={styles.snapshotHint}>
+                            Der Hub nimmt die Uhrzeit: nachts gedämpft, tagsüber
+                            voll, morgens und abends dazwischen. Braucht keinen
+                            Helligkeitsfühler – dafür ist ein Gewitternachmittag
+                            für sie so hell wie ein Julitag.
                           </Text>
                         ) : null}
                         {sceneTransition > 0 ? (

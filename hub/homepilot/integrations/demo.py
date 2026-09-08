@@ -48,7 +48,11 @@ class DemoIntegration(Integration):
             # Wächter, die App und die Alarmanlage lesen sie (die
             # Alarmanlage entscheidet daran, ob ein Sensor während der
             # Saugerfahrt schweigen darf - alarm_rules.ist_bewegung).
-            state={"state": "off", "device_class": "motion"},
+            # Mit Helligkeitswert, wie ihn die Präsenzmelder im Haus
+            # liefern: Ohne einen einzigen Melder, der Lux meldet, stand
+            # die Wahl «nach Raumhelligkeit» im Ablauf-Editor gar nie zur
+            # Verfügung - man konnte sie also auch nie ansehen.
+            state={"state": "off", "device_class": "motion", "illumination": 8.0},
             # Manuell schaltbar, um Automationen aus der App zu testen.
             commands=["turn_on", "turn_off", "toggle"],
         )
