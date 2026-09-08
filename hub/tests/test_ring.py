@@ -94,7 +94,14 @@ def test_ein_anlauf_der_nicht_traegt_hoert_auf_startet_gerade_zu_sagen():
     zweiter = _integration(_anlaeufe=1, _abbrueche=0, _anlauf_seit=jetzt)
     text = zweiter.health()["detail"]
     assert "startet gerade" not in text
-    assert zweiter.health()["ok"] is False
+    # Ob das ein Ausfall ist, entscheidet nicht der Kanal, sondern ob
+    # unter der Tuere ein Netz gespannt ist (kanal_ok): Ohne Ersatz
+    # kommt gar nichts, mit Ersatz kommt es zehn Sekunden spaeter.
+    assert zweiter.health()["ok"] is True
+    ohne_netz = _integration(
+        _anlaeufe=1, _abbrueche=0, _anlauf_seit=jetzt, _ohne_ersatz=["Haustüre"]
+    )
+    assert ohne_netz.health()["ok"] is False
 
 
 def test_wiederholte_anlaeufe_stehen_im_klartext():
@@ -236,7 +243,13 @@ def test_ein_durchlauf_ohne_dauerverbindung_meldet_nicht_verbunden(monkeypatch):
     assert "startet gerade" not in text
     # Und der Grund benennt den gesperrten Weg, nicht bloss «Fehler».
     assert "mtalk.google.com:5228" in text
+    # Ein Ausfall ist es erst ohne Netz unter der Tuere (kanal_ok):
+    # Steht die Ersatz-Abfrage, kommt das Klingeln zehn Sekunden spaeter -
+    # laestig, aber kein Grund fuer ein Warnzeichen, das nie mehr weggeht.
+    integration._ohne_ersatz = ["Haustüre"]
     assert integration.health()["ok"] is False
+    integration._ohne_ersatz = []
+    assert integration.health()["ok"] is True
 
 
 # ── Die Gegensprechanlage hat jetzt auch ein Netz ────────────────────────
@@ -578,3 +591,39 @@ def test_an_empty_entry_counts_as_missing():
     for leer in ("", "   ", None):
         _, frisch = hardware_id({"hardware_id": leer})
         assert frisch is True
+
+
+def test_ein_fehlender_ereigniskanal_ist_kein_ausfall_solange_ein_netz_da_ist():
+    """Gemeldet: «Es kommt immer diese Meldung. Wenn ich auf den
+    Kreis-Pfeil klicke, verschwindet sie wieder.»
+
+    Sie hatte recht, aber im falschen Ton: Der Hub führte die
+    Integration als gestört, obwohl im selben Satz stand, dass das
+    Klingeln ankommt - über den Verlauf, alle 10 s. Der Kanal ist der
+    schnelle Weg, nicht die Funktion."""
+    from homepilot.integrations.ring import kanal_ok
+
+    # Kanal weg, aber jede Türe hat ihr Netz: kein Ausfall.
+    assert kanal_ok(False, False, False, []) is True
+    # Eine Türe ohne Netz: dort kommt gar nichts - das ist einer.
+    assert kanal_ok(False, False, False, ["Haustüre"]) is False
+
+
+def test_auch_der_taube_kanal_haengt_am_netz_darunter():
+    """«Verbunden» und trotzdem kommt nichts an ist derselbe Fall wie
+    «gar kein Kanal»: Es kommt an, nur später. Das Warnzeichen gehört
+    dorthin, wo gar nichts ankommt."""
+    from homepilot.integrations.ring import kanal_ok
+
+    # Auch der taube Kanal ist nur der langsamere Weg, solange die
+    # Abfrage darunter steht - der Satz daneben sagt ausdruecklich, dass
+    # das Klingeln bis zu zehn Sekunden spaeter kommt.
+    assert kanal_ok(True, True, False, []) is True
+    assert kanal_ok(True, True, False, ["Haustüre"]) is False
+    assert kanal_ok(True, False, False, []) is True
+
+
+def test_waehrend_des_anlaufs_wird_nichts_behauptet():
+    from homepilot.integrations.ring import kanal_ok
+
+    assert kanal_ok(False, False, True, ["Haustüre"]) is True
