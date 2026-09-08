@@ -49,6 +49,7 @@ from . import (
     persistence,
     pushverlauf,
     raumbilder,
+    stromrueckkehr,
 )
 from . import push as push_service
 from . import users as users_module
@@ -56,6 +57,7 @@ from .aenderungen import Aenderungsprotokoll
 from .audit import AuditLog
 from .automation import AutomationEngine
 from .config import HubConfig
+from .entity import EntityKind
 from .eventlog import EventLog
 from .events import EventBus
 from .guestpass import PassStore
@@ -171,6 +173,18 @@ class Hub:
         # Grundlage ist die config.yaml; in der App gesetzte Zuordnungen
         # (aus der homepilot-data.json) haben Vorrang.
         self.data.load()
+        # Ist der Hub nach einem Stromausfall hochgefahren? Die Antwort
+        # steht im Vermerk des vorigen Laufs und muss hier fallen, bevor
+        # ihn dieser Lauf überschreibt (core/stromrueckkehr.py).
+        eintraege = self.data.get("lauf")
+        self._kaltstart = stromrueckkehr.kaltstart(
+            eintraege[0] if eintraege else None
+        )
+        self.data.set("lauf", [{"state": "laeuft", "at": time.time()}])
+        if self._kaltstart:
+            log.warning(
+                "Der vorige Lauf endete nicht geordnet - vermutlich Stromausfall."
+            )
         self._rooms_by_entity = {
             entity_id: room
             for room, members in self.config.rooms.items()
@@ -238,6 +252,9 @@ class Hub:
         # Die übrigen Karten (Timer, Geräte, Grill, Sauger, Erinnerungen,
         # Alarm) - gleiche Bedingung, gleicher Draht (livekarten.py).
         self._karten_task = asyncio.create_task(livekarten.karten_loop(self))
+        # Und nach einem Stromausfall aufräumen - später, wenn die
+        # Anbindungen stehen.
+        self._strom_task = asyncio.create_task(self._stromrueckkehr())
 
         if self.users.open_access:
             log.warning(
@@ -675,14 +692,85 @@ class Hub:
             return None
         return str(Path(self.config.data_file).parent / "log-uebergabe.json")
 
+    async def _stromrueckkehr(self) -> None:
+        """Nach einem Stromausfall: alles Licht aus ausser dem Vorgegebenen.
+
+        In Runden statt einmal, und das ist der ganze Kniff: Ein Haus
+        kommt nicht auf einmal zurück. Die Lampe hat Strom, lange bevor
+        Switch, Accesspoint und Bridge wieder stehen - eine einzelne
+        Aufräumrunde nach fester Wartezeit fände die halbe Wohnung
+        «nicht erreichbar» und liesse sie brennen. Also wird
+        nachgesehen, bis jede Lampe einmal dran war oder das Fenster zu
+        ist (core/stromrueckkehr.py).
+        """
+        if not self._kaltstart or not self.config.power_restore:
+            return
+        einstellung = self.config.power_restore
+        gewuenscht = stromrueckkehr.gewuenschte_lichter(einstellung)
+        await asyncio.sleep(stromrueckkehr.wartezeit(einstellung))
+        schluss = time.monotonic() + stromrueckkehr.fenster(einstellung)
+        erledigt: set[str] = set()
+        gestellt = 0
+        while True:
+            lichter = [
+                (entity.id, str(entity.state.get("state", "")), entity.available)
+                for entity in self.registry.all()
+                # Nur Licht: Am selben Strang hängen Gefriertruhe, Pumpe
+                # und Router - dort wäre ein «aus» nach dem Stromausfall
+                # gefährlich.
+                if entity.kind == EntityKind.LIGHT
+            ]
+            for entity_id, befehl in stromrueckkehr.zu_stellen(
+                lichter, gewuenscht, erledigt
+            ):
+                try:
+                    await self.integrations.dispatch_command(entity_id, befehl, {})
+                    gestellt += 1
+                except Exception as err:
+                    # Eine Lampe, die gerade nicht antwortet, darf die
+                    # übrigen nicht aufhalten - und sie kommt in der
+                    # nächsten Runde wieder dran.
+                    log.warning(
+                        "Stromrückkehr: %s liess sich nicht stellen: %s", entity_id, err
+                    )
+                    continue
+                erledigt.add(entity_id)
+            # Auch die erreichbaren, die schon richtig standen, gelten
+            # als erledigt - sonst schaltete der Hub sie aus, wenn sie
+            # jemand während des Fensters von Hand anmacht.
+            erledigt.update(
+                entity_id for entity_id, _zustand, da in lichter if da
+            )
+            if all(da for _id, _zustand, da in lichter) or time.monotonic() >= schluss:
+                break
+            await asyncio.sleep(stromrueckkehr.takt(einstellung))
+        if gestellt:
+            log.warning(
+                "Nach dem Stromausfall: %d Lichter gestellt (%d sollen brennen)",
+                gestellt,
+                len(gewuenscht),
+            )
+
     async def stop(self) -> None:
         log.info("Hub stoppt …")
+        # Der Vermerk zuerst: Er sagt dem nächsten Start, dass dieses
+        # Ende geordnet war. Weiter unten kann noch einiges schiefgehen -
+        # dann wäre der Stromausfall von morgen nicht mehr von einem
+        # missglückten Neustart zu unterscheiden.
+        self.data.set("lauf", [{"state": "beendet", "at": time.time()}])
         # Den Ring einmal weglegen – ein Schreibvorgang je Neustart, und
         # die Antwort auf «warum hat er neu gestartet?» übersteht ihn.
         ring_pfad = self._log_ring_path()
         if ring_pfad:
             self.log_buffer.save(ring_pfad)
-        for name in ("_backup_task", "_flush_task", "_erinnerungs_task", "_live_task", "_karten_task"):
+        for name in (
+            "_backup_task",
+            "_flush_task",
+            "_erinnerungs_task",
+            "_live_task",
+            "_karten_task",
+            "_strom_task",
+        ):
             task = getattr(self, name, None)
             if task is not None:
                 task.cancel()
