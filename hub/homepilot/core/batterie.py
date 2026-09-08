@@ -122,6 +122,13 @@ def prefs_lesen(rows: Any) -> dict[str, int]:
     schicken - 50 % als Obergrenze, weil alles darüber keine «fast
     leere» Batterie mehr beschreibt, sondern einen Daueralarm.
     """
+    # Der DataStore kennt nur Listen: `set()` macht aus jedem Dict eine
+    # Liste seiner Schlüssel - und genau so ging die gespeicherte Stunde
+    # wochenlang still verloren (gespeichert war ['hour', 'threshold'],
+    # gelesen wurde die Vorgabe). Die Route legt das Dict deshalb als
+    # Ein-Eintrag-Liste ab, und hier gilt beides.
+    if isinstance(rows, list):
+        rows = next((row for row in rows if isinstance(row, dict)), None)
     daten = rows if isinstance(rows, dict) else {}
     try:
         stunde = int(daten.get("hour", MORGENSTUNDE))

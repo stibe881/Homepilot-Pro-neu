@@ -82,7 +82,8 @@ export type ModuleKey =
   | 'emergency'
   | 'medications'
   | 'babysitter'
-  | 'members';
+  | 'members'
+  | 'vouchers';
 
 export const WEEK_DAYS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 

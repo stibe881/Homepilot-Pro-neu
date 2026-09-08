@@ -41,12 +41,22 @@ export const TAG_NAMEN: Record<string, string> = {
 /**
  * Ist das ein Kind? (rein, testbar)
  *
- * Nur wer in den Familienlisten steht und dort als Kind geführt ist.
- * Zugänge zum Hub sind es nie: «bewohner» sagt nichts über das Alter,
- * und das Wandtablet in der Küche ist erst recht kein Kind – es steht
- * mit Namen und Rolle im selben Raster.
+ * Zwei Wege, und einer genügt: die Hub-Rolle «kind» oder ein Eintrag
+ * in den Familienlisten, der dort nicht als erwachsen geführt ist.
+ *
+ * Die Rolle stand zuerst nicht drin, und das kostete: Levin hat einen
+ * eigenen Zugang und ist damit ein Konto, kein Listeneintrag - er
+ * zählte also nirgends als Kind, bekam keine Sterne und keine eigene
+ * Seite, während seine Schwester ohne Konto beides hatte. «Kind» ist
+ * aber eine Eigenschaft des Menschen und nicht der Frage, ob er sich
+ * anmelden kann.
+ *
+ * Die übrigen Zugänge bleiben aussen vor: «bewohner» sagt nichts über
+ * das Alter, und das Wandtablet in der Küche ist erst recht kein Kind -
+ * es steht mit Namen und Rolle im selben Raster.
  */
 export function istKind(mitglied: { role?: string; ohneZugang?: boolean }): boolean {
+  if (mitglied?.role === 'kind') return true;
   return Boolean(mitglied?.ohneZugang) && mitglied?.role !== 'erwachsen';
 }
 

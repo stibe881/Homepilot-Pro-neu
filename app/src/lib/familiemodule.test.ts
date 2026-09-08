@@ -48,3 +48,8 @@ describe('Familien-Module in Gruppen', () => {
     expect(gruppeVon('babysitter')).toBe('notfall');
   });
 });
+
+test('stellt die Gutscheine zum Nachschlagen', () => {
+  // Man öffnet sie vor dem Einkauf, nicht im Alltagstakt (Punkt 264).
+  expect(gruppeVon('vouchers')).toBe('nachschlagen');
+});

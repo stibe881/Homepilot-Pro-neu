@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 
 import { HubSettings } from '../api/types';
+import { Tastaturplatz } from '../components/Tastaturplatz';
 import {
   Box,
   ZIEL_HIER,
@@ -1735,6 +1736,10 @@ function RecipeDetail({
         animationType="fade"
         onRequestClose={() => setNotizFrage(false)}
       >
+        {/* Die Notiz zum gekochten Rezept wird getippt - ohne das läge die
+            Tastatur auf dem Feld und auf beiden Knöpfen darunter (Punkt 265
+            der Werkbank). */}
+        <Tastaturplatz>
         <View style={styles.notizHintergrund}>
           <View style={styles.notizKarte}>
             <Text style={styles.sectionTitle}>Wie war es?</Text>
@@ -1773,6 +1778,7 @@ function RecipeDetail({
             </View>
           </View>
         </View>
+        </Tastaturplatz>
       </Modal>
     </View>
   );

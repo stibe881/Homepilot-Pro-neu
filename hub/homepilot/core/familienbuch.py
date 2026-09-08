@@ -17,6 +17,8 @@ from __future__ import annotations
 import html
 from typing import Any
 
+from . import gutscheine
+
 # Welche Listen ins Buch kommen und wie sie darin heissen. Bewusst
 # ausgewählt: Aufgaben von letzter Woche will niemand ausgedruckt haben,
 # die Nummer der Kinderärztin schon.
@@ -29,7 +31,15 @@ SECTIONS: list[tuple[str, str]] = [
     ("staples", "Standardartikel"),
     ("routines", "Routinen"),
     ("shops", "Läden"),
+    # Gutscheine sind Geld, und genau dafür ist das Buch da - aber nur
+    # die geteilten und ohne PIN; warum, steht bei gutscheine.BUCH_OHNE.
+    ("vouchers", "Gutscheine"),
 ]
+
+# Sammlungen, die nicht so ins Buch kommen, wie sie im Speicher liegen.
+# Die Regel steht beim Sachgebiet (core/gutscheine.py), damit sie dort
+# geprüft wird, wo jemand die Privatsphäre ändert - nicht hier.
+SIEB = {"vouchers": gutscheine.fuers_buch}
 
 # Felder, die in keinen Ausdruck gehören - sie sind Technik, kein Inhalt.
 SKIP = frozenset({"id", "created", "author", "done_at", "image_url", "recipe_id"})
@@ -103,6 +113,8 @@ def render(data: dict[str, Any], stand: str) -> str:
     leer = True
     for key, titel in SECTIONS:
         rows = [row for row in data.get(f"family_{key}") or [] if isinstance(row, dict)]
+        if key in SIEB:
+            rows = SIEB[key](rows)
         if not rows:
             continue
         leer = False

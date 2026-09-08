@@ -78,3 +78,24 @@ describe('herkunftText', () => {
     expect(herkunftText({}, jetzt)).toBe('');
   });
 });
+
+describe('Gutscheine in der Suche (Punkt 264)', () => {
+  const daten = {
+    vouchers: [
+      { id: 'v1', shop: 'Brack.ch', title: 'Gutschein', category: 'Shopping', number: '5741' },
+      { id: 'v2', shop: 'Kino', category: 'Freizeit' },
+    ],
+  };
+
+  test('findet über Laden und Kategorie', () => {
+    expect(suche(daten, 'brack')[0].collection).toBe('vouchers');
+    expect(suche(daten, 'brack')[0].label).toBe('Gutscheine');
+    expect(suche(daten, 'freizeit')[0].treffer[0].item.id).toBe('v2');
+  });
+
+  test('der Laden ist der Name, nicht die Fundstelle', () => {
+    expect(suche(daten, 'brack')[0].treffer[0].fundstelle).toBe('');
+    expect(trefferName(daten.vouchers[0])).toBe('Brack.ch – Gutschein');
+    expect(trefferName(daten.vouchers[1])).toBe('Kino');
+  });
+});

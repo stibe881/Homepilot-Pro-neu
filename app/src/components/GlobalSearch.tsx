@@ -12,6 +12,7 @@ import {
 
 import { CommandData, Entity, Scene } from '../api/types';
 import { befehlAusText } from '../lib/suchbefehl';
+import { Tastaturplatz } from './Tastaturplatz';
 import { Colors, radius, useColors } from '../theme';
 
 /**
@@ -142,6 +143,9 @@ export function GlobalSearch({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      {/* Der Suchbegriff wird getippt - ohne das läge die Tastatur auf dem
+          Feld und auf den ersten Treffern (Punkt 265 der Werkbank). */}
+      <Tastaturplatz>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={() => {}}>
           <View style={styles.searchBox}>
@@ -223,6 +227,7 @@ export function GlobalSearch({
           )}
         </Pressable>
       </Pressable>
+      </Tastaturplatz>
     </Modal>
   );
 }

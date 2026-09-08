@@ -609,6 +609,40 @@ def kanal_taub(quellen: list[str]) -> bool:
     return sum(1 for q in letzte if q != "push") >= TAUB_AB
 
 
+def kanal_ok(
+    events_ok: bool,
+    taub: bool,
+    anlauf: bool,
+    ohne_ersatz: list[str] | None,
+) -> bool:
+    """Ist der fehlende Ereigniskanal ein Problem? (rein, testbar)
+
+    Gemeldet: «Es kommt immer diese Meldung. Wenn ich auf den
+    Kreis-Pfeil klicke, verschwindet sie wieder.» - und sie hatte
+    recht, aber im falschen Ton: Der Hub führte die Integration als
+    gestört, obwohl im selben Satz stand, dass das Klingeln ankommt
+    («wird über den Verlauf abgefragt, alle 10 s»).
+
+    Der Kanal ist der *schnelle* Weg, nicht die Funktion. Fällt er aus,
+    kommt das Klingeln zehn Sekunden später - lästig, aber kein
+    Ausfall. Ein Ausfall ist es erst für eine Türe, unter der kein Netz
+    gespannt ist (`ohne_ersatz`): Dort kommt dann gar nichts.
+
+    Der Unterschied zählt, weil ein Warnzeichen, das immer steht und an
+    dem niemand etwas ändern kann - Google lehnt die Anmeldung ab -,
+    nach einer Woche keines mehr ist. Dann übersieht man das nächste,
+    das zählt.
+    """
+    if anlauf:
+        return True
+    if events_ok and not taub:
+        return True
+    # Taub oder gar nicht da - beides heisst dasselbe: Das Klingeln
+    # kommt über die Abfrage, also zehn Sekunden später. Ein Ausfall ist
+    # es nur dort, wo es gar nicht ankommt.
+    return not ohne_ersatz
+
+
 def health_detail(
     events_ok: bool,
     error: str | None,
@@ -1078,8 +1112,10 @@ class RingIntegration(Integration):
         taub = self._events_ok and kanal_taub(self._quellen)
         return {
             # Taub heisst nicht in Ordnung: Sonst steht der Haken neben
-            # einem Kanal, über den nichts kommt.
-            "ok": (self._events_ok and not taub) or anlauf,
+            # einem Kanal, über den nichts kommt. Ein fehlender Kanal
+            # dagegen ist nur der langsamere Weg, solange unter jeder
+            # Türe ein Netz gespannt ist (kanal_ok).
+            "ok": kanal_ok(self._events_ok, taub, anlauf, self._ohne_ersatz),
             "detail": health_detail(
                 self._events_ok,
                 self._listen_error,

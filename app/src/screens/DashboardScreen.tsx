@@ -64,6 +64,7 @@ import {
   kachelBreite,
   spalten,
 } from '../lib/raster';
+import { warnungSchonOben } from '../lib/warnzeile';
 import { mengeUndName } from '../lib/einkauf';
 import { uhr } from '../lib/format';
 import {
@@ -1530,6 +1531,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           (entity) =>
             !hidden.includes(entity.id) &&
             !entity.combined_into &&
+            // Die Wetter-Kachel schweigt, solange die Warnung oben in
+            // der Begrüssungskarte steht: Zweimal derselbe Satz auf
+            // einer Seite sieht aus, als wären es zwei Sachen
+            // (lib/warnzeile.ts). Ohne Warnung bleibt sie - «Keine
+            // Warnungen» steht sonst nirgends.
+            !warnungSchonOben(entity) &&
             // Beim Anpassen bleibt sie stehen: Wer Kacheln ordnet oder
             // ausblendet, muss sie greifen können.
             !raumBoxen.some((box) => box.id === entity.id)
@@ -3512,6 +3519,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             // sie bleibt scheinbar an ihrem Platz kleben, und beim
             // Loslassen landet sie dort, wo sie war.
             scrollEnabled={!drag}
+            // Die Tastatur schiebt den Inhalt hoch, statt sich darüber zu
+            // legen. Punkt 11 der Werkbank hat das damals nur für die
+            // Fenster gelöst (KeyboardAvoidingView in TopStrip) - die
+            // eingebetteten Seiten hängen aber alle in diesem einen
+            // ScrollView, und dort blieb das Feld unter der Tastatur:
+            // gemeldet beim Erfassen eines Gutscheins, wo Notiz und Link
+            // ganz unten stehen. Ein KeyboardAvoidingView um die ganze
+            // Seite wäre das gröbere Mittel (es staucht das Layout);
+            // diese Zeile schiebt nur den Rollbereich, wie es iOS in
+            // seinen eigenen Apps tut. Auf Android und im Browser ohne
+            // Wirkung - beide brauchen sie nicht (lib/plattform.ts).
+            automaticallyAdjustKeyboardInsets
+            // Und ein Tipp auf einen Chip wirkt sofort, statt erst die
+            // Tastatur zu schliessen: «Unbegrenzt» oder eine Kategorie
+            // im Gutschein-Formular brauchte sonst zwei Tipper.
+            keyboardShouldPersistTaps="handled"
           >
             {ausfall && entities.length > 0 ? (
               // Getrennt, aber wir haben den letzten Stand: lieber alte Werte

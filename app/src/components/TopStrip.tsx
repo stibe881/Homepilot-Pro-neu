@@ -41,6 +41,7 @@ import { ConnectionStatus } from '../hooks/useHub';
 import { useEscape } from '../hooks/useEscape';
 import { useJetzt } from '../hooks/useRestzeit';
 import { Colors, radius, type, useColors } from '../theme';
+import { warnText, warnZahl, warnZahlSatz } from '../lib/warnzeile';
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
   connected: 'verbunden',
@@ -1020,20 +1021,22 @@ export function TopStrip({
           ) : null}
 
           {alerts ? (
-            <Pressable
-              onPress={() => setAlertsOpen(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Wetterwarnungen"
-            >
-              <Text style={styles.karteWarn} numberOfLines={1}>
-                <Ionicons name="warning-outline" size={12} color={colors.warn} />{' '}
-                {String(
-                  alerts.state.headline ??
-                    alerts.state.event ??
-                    `${alerts.state.count ?? ''} Warnung${alerts.state.count === 1 ? '' : 'en'}`
-                )}
-              </Text>
-            </Pressable>
+            // Rot und blinkend wie die offene Wohnungstüre: Orange
+            // heisst im Haus «schau mal», Rot heisst «jetzt» - und ein
+            // Unwetter, das man erst am Abend bemerkt, ist die Sorte
+            // Auskunft, die mehr will als gelesen zu werden.
+            <Blinkend an>
+              <Pressable
+                onPress={() => setAlertsOpen(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Wetterwarnungen"
+              >
+                <Text style={styles.karteWarn} numberOfLines={1}>
+                  <Ionicons name="warning-outline" size={12} color={colors.danger} />{' '}
+                  {warnText(alerts.state)}
+                </Text>
+              </Pressable>
+            </Blinkend>
           ) : null}
 
           <View style={styles.karteChips}>{handgriffChips}</View>
@@ -1146,12 +1149,16 @@ export function TopStrip({
           />
         ) : null}
         {alerts ? (
-          <Chip
-            icon="warning-outline"
-            text={`${alerts.state.count ?? ''} Warnung${alerts.state.count === 1 ? '' : 'en'}`}
-            tone={colors.warn}
-            onPress={() => setAlertsOpen(true)}
-          />
+          // Dieselbe Auskunft in der schmalen Fassung - also auch
+          // dieselbe Farbe und dasselbe Blinken.
+          <Blinkend an>
+            <Chip
+              icon="warning-outline"
+              text={warnZahlSatz(Math.max(1, warnZahl(alerts.state)))}
+              tone={colors.danger}
+              onPress={() => setAlertsOpen(true)}
+            />
+          </Blinkend>
         ) : null}
       </View>
 
@@ -1189,10 +1196,10 @@ export function TopStrip({
 /**
  * Lässt sein Kind pulsieren, solange `an` gilt.
  *
- * Für den einen Fall, in dem eine Anzeige mehr will als gelesen zu
- * werden: Die Wohnungstüre steht offen. Blinken ist dafür das richtige
- * Mittel und für alles andere das falsche – deshalb hat es hier keinen
- * zweiten Verwendungszweck.
+ * Für die Fälle, in denen eine Anzeige mehr will als gelesen zu werden:
+ * Die Wohnungstüre steht offen - und, seit es ausdrücklich gewünscht
+ * wurde, die Unwetterwarnung. Blinken ist dafür das richtige Mittel und
+ * für alles Übrige das falsche; es bleibt bei diesen beiden.
  *
  * Wer im Betriebssystem «Bewegung reduzieren» eingeschaltet hat, bekommt
  * kein Blinken, sondern die dauerhaft eingefärbte Anzeige. Die Auskunft
@@ -1317,8 +1324,12 @@ export function eventWhenText(event: KalenderEintrag): string {
   return endTime ? `${day} · ${startTime}–${endTime}` : `${day} · ${startTime}`;
 }
 
+/** Wortgleich mit lib/kontrollfluss.ts und dem Hub
+ *  (integrations/meteoalarm.py, SCHWERE_WORT): In der Begrüssungszeile
+ *  stand «…, stark, bis 00:00» und im Blatt darunter «… · schwer» -
+ *  dieselbe Warnung, zwei Wörter. */
 const SEVERITY_LABEL: Record<string, string> = {
-  Minor: 'geringfügig',
+  Minor: 'gering',
   Moderate: 'mässig',
   Severe: 'schwer',
   Extreme: 'extrem',
@@ -1393,7 +1404,8 @@ const makeStyles = (colors: Colors) =>
     columnGap: 14,
     rowGap: 2,
   },
-  karteWarn: { color: colors.warn, fontSize: 13, fontWeight: '600' },
+  // Rot, nicht orange - siehe lib/warnzeile.ts.
+  karteWarn: { color: colors.danger, fontSize: 13, fontWeight: '600' },
   karteChips: {
     flexDirection: 'row',
     flexWrap: 'wrap',

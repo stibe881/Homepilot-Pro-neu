@@ -40,11 +40,19 @@ import {
 const DIENSTAG = new Date('2026-09-01T16:00:00');
 
 describe('istKind', () => {
-  it('nimmt nur die eingetragenen Kinder', () => {
+  it('nimmt die eingetragenen Kinder', () => {
     expect(istKind({ role: 'kind', ohneZugang: true })).toBe(true);
     expect(istKind({ role: 'erwachsen', ohneZugang: true })).toBe(false);
     // Das Wandtablet in der Küche steht mit «bewohner» im selben Raster.
     expect(istKind({ role: 'bewohner' })).toBe(false);
+  });
+
+  it('nimmt auch das Kind mit eigenem Zugang', () => {
+    // Gemeldet als «Weshalb kann Levin keine Sterne sammeln?»: Er hat
+    // ein Konto mit der Hub-Rolle «kind» und stand deshalb nicht in den
+    // Familienlisten - er zählte nirgends als Kind, während seine
+    // Schwester ohne Konto Sterne und eine eigene Seite hatte.
+    expect(istKind({ role: 'kind' })).toBe(true);
   });
 });
 

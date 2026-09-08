@@ -17,7 +17,7 @@ steht sie hier, in vier Teilen entstanden:
 | 136–164 | Küche & Abläufe | Rezeptbuch und Ablauf-Editor |
 | 165–221 | Familie & Haushalt | Familienlisten, Kontakte, Ortung |
 | 224–243 | Zweite Durchsicht | Wärme, Strom, Betrieb, und die Fehler einer Woche |
-| 244–263 | Auf Zuruf (September 2026) | Benutzer und Zugang, Bedienung, Abläufe, Sicherheit |
+| 244–265 | Auf Zuruf (September 2026) | Benutzer und Zugang, Bedienung, Abläufe, Sicherheit |
 
 Stand beim Einchecken: **alle 221 Punkte erledigt**, bis auf Punkt 94
 (bewusst gestrichen). Die Häkchen tragen die Commit-Kürzel von den
@@ -116,11 +116,16 @@ Ein iPad in Split View oder Slide Over ist 320–500 Punkte breit. Dort greift d
 
 Stellen: `manuelle Prüfung`
 
-### 11. Kein `KeyboardAvoidingView` in der ganzen App ✓ erledigt (2cddf53)
+### 11. Kein `KeyboardAvoidingView` in der ganzen App ✓ erledigt (2cddf53) · nachgebessert in 265
 
 *lohnt sich · Aufwand: klein · App*
 
 Kein einziges Vorkommen. Auf dem Telefon schiebt sich die Tastatur über Eingabefelder in Fenstern — auch über das Feld der Einkaufsliste, das ich gerade eingebaut habe. Auf dem iPad fällt es kaum auf, auf dem iPhone sofort.
+
+Erledigt wurde damals genau ein Fenster: das der Einkaufsliste, an dem
+es auffiel. «In der ganzen App» stand im Titel und blieb offen — zwölf
+weitere Fenster kamen seither dazu, jedes mit demselben Fehler. Siehe
+Punkt 265; dort steht auch der Test, der das Zählen künftig übernimmt.
 
 Stellen: `app/src/**`, `0 Treffer`
 
@@ -2282,7 +2287,7 @@ jeder Auslieferung als Erstes kommt: «Ist es angekommen?»
 Stellen: `hub/homepilot/core/sessions.py`, `app/src/api/client.ts`
 
 
-# Teil VI: Auf Zuruf (244–263)
+# Teil VI: Auf Zuruf (244–265)
 
 Punkte aus Durchsichten im September 2026, auf Zuruf ausgewählt und
 umgesetzt. Gleichzeitig wurden 224–227, 228–229, 235–236 und 242–243
@@ -2582,3 +2587,56 @@ dann nie wieder. Jetzt erinnert der Hub täglich zur selben Stunde wie
 bei den Batterien (Punkt 258).
 
 Stellen: `hub/homepilot/integrations/roborock.py`, `hub/homepilot/core/watchrules.py`, `hub/homepilot/core/watchdog.py`, `hub/homepilot/saugercheck.py`
+
+## Familie (264)
+
+### 264. Gutscheine als Familien-Modul ✓ erledigt (6944257, c040417)
+
+*lohnt sich · Aufwand: gross · Hub + App*
+
+Geschenk- und Einkaufsgutscheine lagen bisher in einer fremden App
+oder in der Schublade - und verfielen dort. Neu verwaltet die
+Familienseite sie selbst: Laden, Wert in Franken oder Stück, Nummer
+und PIN (maskiert), Ablaufdatum oder «unbegrenzt», Kategorie, Foto der
+Karte, Link zum Laden. «Abziehen» bucht eine Einlösung mit Datum und
+Person in den Transaktionsverlauf, der Rest wandert als Balken mit;
+aufgebrauchte klappen sich weg. «Privat» heisst privat - auch vor dem
+Verwalter, sonst wäre das Wort eine Lüge; der Hub filtert, nicht die
+App. Die Fotos liegen als Dateien neben den Daten (Bauart der
+Rezeptbilder, verallgemeinert), und das Familienbuch nimmt die
+geteilten Gutscheine ohne PIN mit - ein Gutschein ist Geld, und die
+Druckseite ist für den Tag, an dem der Hub tot ist.
+
+Dazu die Ablauf-Erinnerung: zwei Stufen vor dem Verfall (Vorgabe 30
+und 7 Tage, einstellbar unter Benachrichtigungen) und am Ablauftag
+selbst, je Gutschein und Stufe genau einmal; private gehen nur an den
+Besitzer.
+
+Stellen: `hub/homepilot/core/gutscheine.py`, `hub/homepilot/api/routes/family.py`, `app/src/screens/family/gutscheine.tsx`, `app/src/lib/gutscheine.ts`
+
+## Aus dem Betrieb (265)
+
+### 265. Die Tastatur legt sich über die Eingabefelder ✓ erledigt (7195fda, 3b6823b)
+
+*tut weh · Aufwand: mittel · App*
+
+Gemeldet beim Erfassen eines Gutscheins: Notiz und Link stehen unten im
+Formular, und die Tastatur deckte sie zu. Der Fehler war aber weder neu
+noch auf die Gutscheine beschränkt - er stand an vierzehn Stellen, und
+Punkt 11 hatte ihn schon einmal behoben. Nur eben an einer einzigen:
+dem Fenster der Einkaufsliste, an dem er damals auffiel.
+
+Zwei Ursachen, zwei Antworten. Die eingebetteten Formulare (Gutschein,
+Rezept, Ablauf-Editor) hängen alle im einen Rollbereich der Startseite;
+der schiebt seinen Inhalt jetzt selbst hoch
+(`automaticallyAdjustKeyboardInsets`, eine Zeile für alle). Die Fenster
+liegen darüber und rollen nicht mit - sie bekommen `<Tastaturplatz>`,
+eine Komponente statt einer Zeile, die man an jeder Stelle neu erfindet.
+
+Und weil «in der ganzen App» ein Anspruch ist, den kein Mensch
+nachzählt, zählt jetzt ein Test: Er liest die Quellen und wird rot,
+sobald ein Fenster mit Eingabefeld ohne Tastaturplatz dasteht. Von
+Auge ist das nie zu finden - es fällt nur auf dem iPhone auf, nur weit
+unten im Fenster, und nur wenn dort wirklich jemand tippt.
+
+Stellen: `app/src/components/Tastaturplatz.tsx`, `app/src/lib/tastaturplatz.test.ts`, `app/src/screens/DashboardScreen.tsx`

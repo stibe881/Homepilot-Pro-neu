@@ -35,6 +35,7 @@ import { Modal, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View 
 import { hubClient } from '../../api/client';
 import { ConfigVersion, HubSettings } from '../../api/types';
 import { Card } from '../../components/Card';
+import { Tastaturplatz } from '../../components/Tastaturplatz';
 import {
   Abschnitt,
   Anbindung,
@@ -411,6 +412,10 @@ export function ConfigCard({ settings }: { settings: HubSettings }) {
         animationType="slide"
         onRequestClose={() => setBlock(null)}
       >
+        {/* Der Ausschnitt der Konfiguration wird hier von Hand bearbeitet -
+            ohne das läge die Tastatur über dem halben Text und über
+            «Übernehmen» (Punkt 265 der Werkbank). */}
+        <Tastaturplatz>
         <View style={styles.blattRoot}>
           <View style={styles.kopf}>
             <Text style={[styles.heading, { flex: 1 }]}>{block?.titel}</Text>
@@ -422,7 +427,7 @@ export function ConfigCard({ settings }: { settings: HubSettings }) {
             Nur dieser Ausschnitt. Was hier steht, ersetzt genau die Zeilen, aus
             denen es kommt – der Rest der Datei bleibt unangetastet.
           </Text>
-          <ScrollView>
+          <ScrollView keyboardShouldPersistTaps="handled">
             <TextInput
               multiline
               value={block?.text ?? ''}
@@ -447,6 +452,7 @@ export function ConfigCard({ settings }: { settings: HubSettings }) {
             />
           </View>
         </View>
+        </Tastaturplatz>
       </Modal>
     </Card>
   );

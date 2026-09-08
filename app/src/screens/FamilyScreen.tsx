@@ -89,6 +89,9 @@ import { naechsteStraehne, straehnenSatz } from '../lib/straehne';
 import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, CountdownForm, ErinnerungForm, EventForm, FamilyItem, GroupedChecklist, MealRow, MedicationAddRow, Member, MemberAddRow, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, Styles, TaskAddRow, TwoFieldForm, VorratBlatt, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, parseSwissDate, pickPhoto, rotateMember } from './family/bausteine';
 import { Kindseite, Wochenliste } from './family/kindseite';
 import { istKind, verschmelze } from '../lib/kindseite';
+import { farbIndex, initialen, personenGruppen, rolleZeile } from '../lib/personenliste';
+import { Gutscheine } from './family/gutscheine';
+import { kachelText as gutscheinKachel } from '../lib/gutscheine';
 import { makeStyles } from './family/stil';
 
 /**
@@ -114,6 +117,24 @@ const SEEN_KEY = 'homepilot.family.seen';
 const HIDDEN_KEY = 'homepilot.family.hidden';
 /** Kennung fürs Wachhalten im Einkaufs-Modus. */
 const EINKAUF_TAG = 'homepilot-einkauf';
+
+/** Ein Symbolname, wie Ionicons ihn kennt - für die Marken unten. */
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+
+/**
+ * Die Farben der Personen-Bilder.
+ *
+ * Aus dem Farbklang des Themas und nicht aus festen Werten: Wer «Pink»
+ * oder «Sand» eingestellt hat, soll keine vier fremden Kreise sehen.
+ * Vier reichen - bei sechs Personen wiederholt sich zwar eine Farbe,
+ * aber sie steht dann neben einem anderen Buchstaben.
+ */
+const avatarFarben = (colors: Colors) => [
+  colors.accent,
+  colors.on,
+  colors.warn,
+  colors.danger,
+];
 
 /**
  * Wochenziel und Belohnung eines Kindes festlegen (Punkt 260).
@@ -170,7 +191,11 @@ function SternZielForm({
   };
 
   return (
-    <Card style={styles.listCard}>
+    // Kein eigenes <Card> mehr: Das Blatt sitzt in der Karte der
+    // Person, zu der es gehört. Losgelöst darunter sah es aus wie ein
+    // verrutschter Eintrag, und zu wem das Ziel gehört, musste man aus
+    // der Reihenfolge schliessen.
+    <View style={styles.sternBlatt}>
       <Pressable
         onPress={() => (offen ? setOffen(false) : oeffnen())}
         accessibilityRole="button"
@@ -180,7 +205,7 @@ function SternZielForm({
             ? `Sterne-Ziel von ${name} ändern`
             : `Sterne-Ziel für ${name} festlegen`
         }
-        style={({ pressed }) => [styles.checkRow, pressed && { opacity: 0.7 }]}
+        style={({ pressed }) => [styles.sternKopf, pressed && { opacity: 0.7 }]}
       >
         <Ionicons
           name={ziel ? 'star' : 'star-outline'}
@@ -238,7 +263,7 @@ function SternZielForm({
           </Text>
         </>
       ) : null}
-    </Card>
+    </View>
   );
 }
 
@@ -256,6 +281,7 @@ export function FamilyScreen({
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const AVATAR_FARBEN = useMemo(() => avatarFarben(colors), [colors]);
   // Die Zugänge zum Hub. Sie sind nur die eine Hälfte der Familie - wer
   // dazugehört, steht in `data.members` (siehe lib/mitglieder.ts).
   const [konten, setKonten] = useState<Member[]>([]);
@@ -3725,94 +3751,171 @@ export function FamilyScreen({
         <BackHead title="Wer dazugehört" onBack={goBack} styles={styles} colors={colors} />
         <Text style={styles.hint}>
           Wer hier steht, lässt sich Aufgaben und Ämtli zuteilen und sammelt Punkte –
-          auch ohne eigenen Zugang zur App. Zugänge zum Hub legt der Besitzer unter
-          Einstellungen → Benutzer an; sie stehen hier von selbst.
+          auch ohne eigenen Zugang zur App.
         </Text>
 
-        {members.map((member) => {
-          const offen = offeneVon(member.name);
-          const punkte = punkteVon(member.name);
-          const zeile = [
-            member.ohneZugang
-              ? rolleWort(member)
-              : `${ROLE_LABELS[member.role] ?? member.role} · Zugang zur App`,
-            offen > 0 ? `${offen} offen` : '',
-            punkte !== 0 ? `${punkte} Punkte` : '',
-          ].filter(Boolean);
-          // Der rohe Eintrag aus «members»: Nur er trägt Sterne-Ziel
-          // und Belohnung; die zusammengeführte Reihe (lib/mitglieder)
-          // kennt bloss Name und Rolle.
-          const rohEintrag = member.id
-            ? (data.members ?? []).find(
-                (eintrag: FamilyItem) => eintrag.id === member.id
-              )
-            : undefined;
-          return (
-            <React.Fragment key={member.name}>
-            <Card style={styles.rewardCard}>
-              <View style={styles.avatarSmall}>
-                <Text style={styles.avatarSmallText}>
-                  {member.name.slice(0, 1).toUpperCase()}
-                </Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.checkText}>{member.name}</Text>
-                <Text style={styles.checkSub}>{zeile.join(' · ')}</Text>
-              </View>
-              {/* Nur die selbst Eingetragenen lassen sich hier ändern: Ein
-                  Zugang gehört der Benutzerverwaltung, und ein Kreuz, das
-                  jemandem die Anmeldung nimmt, hat auf dieser Seite nichts
-                  zu suchen. */}
-              {member.ohneZugang && member.id ? (
-                <>
+        {/* Nach Gruppen statt als eine Reihe gleich schwerer Karten
+            (lib/personenliste.ts erklärt, warum). Die Überschrift trägt
+            die Zahl mit: «Kinder 2» beantwortet die Frage, mit der man
+            die Seite aufmacht, ohne dass man zählt. */}
+        {personenGruppen(members).map((gruppe) => (
+          <View key={gruppe.key} style={styles.personGruppe}>
+            <View style={styles.personKopfZeile}>
+              <Text style={styles.groupTitle}>{gruppe.titel}</Text>
+              <Text style={styles.personZahl}>{gruppe.leute.length}</Text>
+            </View>
+
+            {gruppe.leute.map((member) => {
+              const offen = offeneVon(member.name);
+              const punkte = punkteVon(member.name);
+              const kind = istKind(member);
+              // Der rohe Eintrag aus «members»: Nur er trägt Sterne-Ziel
+              // und Belohnung; die zusammengeführte Reihe
+              // (lib/mitglieder) kennt bloss Name und Rolle.
+              //
+              // Gesucht wird über den Namen und nicht über member.id:
+              // Eine Kennung hat nur, wer *ausschliesslich* in den
+              // Familienlisten steht. Ein Kind mit eigenem Zugang
+              // gewinnt beim Zusammenführen als Konto und kommt ohne
+              // Kennung an - und blieb damit ohne Sterne. Dieselbe
+              // Suche wie auf der Kinderseite selbst (weiter oben,
+              // ziel={sternZiel(...)}).
+              const rohEintrag = (data.members ?? []).find(
+                (eintrag: FamilyItem) => String(eintrag.text ?? '').trim() === member.name
+              );
+              // Was an dieser Person hängt - als Marken statt als
+              // Punktkette hinter der Rolle: «Besitzer · Zugang zur App
+              // · 3 offen · 12 Punkte» war eine Zeile, in der man die
+              // Zahl suchen musste. Nur was wirklich da ist: Eine Marke
+              // «0 Punkte» an jedem Zweiten wäre wieder dieselbe
+              // Möblierung, nur runder.
+              const marken: { icon: IoniconName; text: string; ton?: string }[] = [];
+              if (offen > 0) {
+                marken.push({ icon: 'ellipse-outline', text: `${offen} offen` });
+              }
+              if (punkte !== 0) {
+                marken.push({ icon: 'ribbon-outline', text: `${punkte} Punkte` });
+              }
+              return (
+                <Card key={member.name} style={styles.personCard}>
                   <Pressable
-                    onPress={() =>
-                      update('members', member.id as string, {
-                        role: member.role === 'kind' ? 'erwachsen' : 'kind',
-                      })
-                    }
-                    style={styles.deleteTap}
-                    accessibilityRole="button"
+                    // Nur bei Kindern führt die Karte weiter - dorthin,
+                    // wo Stundenplan und Wöchentliches stehen. Für alle
+                    // anderen gibt es keine solche Seite, und ein Tipp,
+                    // der nichts tut, ist schlimmer als keiner.
+                    onPress={kind ? () => setKind(member.name) : undefined}
+                    disabled={!kind}
+                    accessibilityRole={kind ? 'button' : undefined}
                     accessibilityLabel={
-                      member.role === 'kind'
-                        ? `${member.name} ist erwachsen`
-                        : `${member.name} ist ein Kind`
+                      kind ? `${member.name} – Termine, Stundenplan, Wöchentliches` : undefined
                     }
+                    style={({ pressed }) => [
+                      styles.personZeile,
+                      pressed && kind ? { opacity: 0.7 } : null,
+                    ]}
                   >
-                    <Ionicons
-                      name={member.role === 'kind' ? 'happy-outline' : 'person-outline'}
-                      size={18}
-                      color={colors.inkFaint}
+                    <View
+                      style={[
+                        styles.avatarSmall,
+                        { backgroundColor: AVATAR_FARBEN[farbIndex(member.name, AVATAR_FARBEN.length)] },
+                      ]}
+                    >
+                      <Text style={styles.avatarSmallText}>{initialen(member.name)}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.personName}>{member.name}</Text>
+                      <Text style={styles.checkSub}>
+                        {rolleZeile(member, ROLE_LABELS[member.role] ?? member.role)}
+                      </Text>
+                    </View>
+                    {kind ? (
+                      <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
+                    ) : null}
+                    {/* Nur die selbst Eingetragenen lassen sich hier
+                        ändern: Ein Zugang gehört der Benutzerverwaltung,
+                        und ein Kreuz, das jemandem die Anmeldung nimmt,
+                        hat auf dieser Seite nichts zu suchen. */}
+                    {member.ohneZugang && member.id ? (
+                      <>
+                        <Pressable
+                          onPress={() =>
+                            update('members', member.id as string, {
+                              role: member.role === 'kind' ? 'erwachsen' : 'kind',
+                            })
+                          }
+                          style={styles.personTaste}
+                          accessibilityRole="button"
+                          accessibilityLabel={
+                            member.role === 'kind'
+                              ? `${member.name} ist erwachsen`
+                              : `${member.name} ist ein Kind`
+                          }
+                        >
+                          <Ionicons
+                            name={member.role === 'kind' ? 'happy-outline' : 'person-outline'}
+                            size={17}
+                            color={colors.inkSoft}
+                          />
+                        </Pressable>
+                        <Pressable
+                          onPress={() => remove('members', member.id as string)}
+                          style={styles.personTaste}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${member.name} entfernen`}
+                        >
+                          <Ionicons name="close" size={17} color={colors.inkSoft} />
+                        </Pressable>
+                      </>
+                    ) : null}
+                  </Pressable>
+
+                  {marken.length > 0 ? (
+                    <View style={styles.markenReihe}>
+                      {marken.map((marke) => (
+                        <View key={marke.text} style={styles.marke}>
+                          <Ionicons name={marke.icon} size={12} color={colors.inkSoft} />
+                          <Text style={styles.markeText}>{marke.text}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+
+                  {/* Ämtli-Sterne (Punkt 260): bei jedem Kind - ob mit
+                      eigenem Zugang oder nur in den Familienlisten
+                      (lib/kindseite.ts, istKind). Erwachsene sammeln
+                      Punkte, keine Sterne.
+
+                      In derselben Karte und nicht mehr als eigene
+                      darunter: Losgelöst sah das Blatt aus wie ein
+                      verrutschter Eintrag, und zu wem das Ziel gehört,
+                      musste man aus der Reihenfolge schliessen.
+
+                      Ein Kind mit Zugang hat noch keinen
+                      Listeneintrag, an dem das Ziel hängen könnte -
+                      dann legt das Speichern einen an. Er trägt nur
+                      den Namen und das Ziel; in der Personenreihe
+                      bleibt es beim Konto (lib/mitglieder.ts lässt den
+                      Eintrag hinter dem Zugang zurücktreten), also
+                      steht niemand doppelt da. */}
+                  {kind ? (
+                    <SternZielForm
+                      name={member.name}
+                      eintrag={rohEintrag ?? {}}
+                      sterne={wochenSterne(data.chores, member.name, new Date())}
+                      onSave={(patch) =>
+                        rohEintrag?.id
+                          ? update('members', String(rohEintrag.id), patch)
+                          : add('members', { text: member.name, role: 'kind', ...patch })
+                      }
+                      styles={styles}
+                      colors={colors}
                     />
-                  </Pressable>
-                  <Pressable
-                    onPress={() => remove('members', member.id as string)}
-                    style={styles.deleteTap}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${member.name} entfernen`}
-                  >
-                    <Ionicons name="close" size={18} color={colors.inkFaint} />
-                  </Pressable>
-                </>
-              ) : null}
-            </Card>
-            {/* Ämtli-Sterne (Punkt 260): nur bei Kindern aus den
-                Familienlisten - Erwachsene sammeln Punkte, keine
-                Sterne, und Zugänge haben hier keinen Eintrag, an dem
-                das Ziel hängen könnte. */}
-            {istKind(member) && member.id && rohEintrag ? (
-              <SternZielForm
-                name={member.name}
-                eintrag={rohEintrag}
-                sterne={wochenSterne(data.chores, member.name, new Date())}
-                onSave={(patch) => update('members', member.id as string, patch)}
-                styles={styles}
-                colors={colors}
-              />
-            ) : null}
-            </React.Fragment>
-          );
-        })}
+                  ) : null}
+                </Card>
+              );
+            })}
+          </View>
+        ))}
 
         <MemberAddRow
           onAdd={(name, role) => add('members', { text: name, role })}
@@ -3820,6 +3923,13 @@ export function FamilyScreen({
           styles={styles}
           colors={colors}
         />
+        {/* Der Satz gehört hierher und nicht an den Kopf: Er beantwortet
+            die Frage, die beim Eintragen aufkommt («und wie kriegt Levin
+            die App?»), und stand oben nur im Weg. */}
+        <Text style={styles.hint}>
+          Zugänge zum Hub legt der Besitzer unter Einstellungen → Benutzer an; sie
+          stehen hier von selbst.
+        </Text>
       </View>
     );
   }
@@ -4117,6 +4227,27 @@ export function FamilyScreen({
     );
   }
 
+  // Punkt 264: Gutscheine. Das Modul liegt in family/gutscheine.tsx;
+  // hier nur die Sammlung, der Name für die Buchungen und die Wege zum Hub.
+  if (view === 'vouchers') {
+    return (
+      <Gutscheine
+        eintraege={data.vouchers ?? []}
+        settings={settings}
+        ich={currentUser?.name ?? ''}
+        fehler={error}
+        hinweis={standHinweis}
+        jetzt={new Date()}
+        onBack={goBack}
+        onAdd={(eintrag) => add('vouchers', eintrag)}
+        onUpdate={(id, patch) => update('vouchers', id, patch)}
+        onRemove={(id) => remove('vouchers', id)}
+        styles={styles}
+        colors={colors}
+      />
+    );
+  }
+
   // ── Familien-Übersicht ─────────────────────────────────────────────────
 
   const modules: {
@@ -4172,6 +4303,8 @@ export function FamilyScreen({
     { key: 'reminders', icon: 'alarm-outline', label: 'Erinnerungen', sub: 'Gross auf dem Schirm oder als Push' },
     { key: 'recipes', icon: 'book-outline', label: 'Rezeptbuch', sub: 'Familienrezepte' },
     { key: 'documents', icon: 'folder-open-outline', label: 'Dokumentsafe', sub: 'Wichtige Angaben' },
+    // Punkt 264: «3 verfügbar · 130.00 CHF» - was noch einzulösen ist.
+    { key: 'vouchers', icon: 'gift-outline', label: 'Gutscheine', sub: gutscheinKachel(data.vouchers ?? [], new Date()) },
   ];
 
   // Selbst gezogene Reihenfolge anwenden; Unbekanntes bleibt an seinem

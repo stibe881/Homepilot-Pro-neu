@@ -432,6 +432,60 @@ export const makeStyles = (colors: Colors) =>
     },
     groupTitle: { color: colors.ink, fontSize: 16, fontWeight: '700' },
 
+    // «Wer dazugehört» (lib/personenliste.ts): Gruppen mit Zahl, eine
+    // Karte je Person, darin Marken und - bei Kindern - das Sterne-Blatt.
+    personGruppe: { gap: 8 },
+    personKopfZeile: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    // Die Zahl neben der Überschrift, leise: Sie ist eine Beilage zur
+    // Gruppe, keine zweite Überschrift.
+    personZahl: {
+      color: colors.inkSoft,
+      fontSize: 12,
+      fontWeight: '700',
+      paddingHorizontal: 7,
+      paddingVertical: 1,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceSoft,
+      overflow: 'hidden',
+    },
+    personCard: { minHeight: 0, gap: 8 },
+    personZeile: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    personName: { color: colors.ink, fontSize: 16, fontWeight: '700' },
+    // Rund und umrandet, damit die zwei Symbole rechts als Knöpfe zu
+    // erkennen sind: Vorher standen dort zwei blasse Zeichen ohne
+    // Fläche, und niemand tippte darauf.
+    personTaste: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    markenReihe: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+    marke: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      paddingHorizontal: 9,
+      paddingVertical: 4,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceSoft,
+    },
+    markeText: { color: colors.inkSoft, fontSize: 12, fontWeight: '600' },
+    // Das Sterne-Blatt sitzt in der Personenkarte - die Linie darüber
+    // trennt es von Name und Marken, ohne es abzuhängen.
+    sternBlatt: {
+      gap: 8,
+      paddingTop: 8,
+      borderTopWidth: 1,
+      borderTopColor: colors.surfaceBorder,
+    },
+    // Der Stern klebte am Text: checkRow hat keinen Abstand, weil dort
+    // sonst ein Häkchen mitten in der Zeile stünde.
+    sternKopf: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+
     eventRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
     eventDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent },
     calHead: {

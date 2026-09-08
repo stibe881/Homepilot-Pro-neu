@@ -19,6 +19,7 @@ import { ketteSatz, ursacheSatz } from '../lib/ursache';
 import { zaehlbar } from '../lib/zaehlung';
 import { useJetzt } from '../hooks/useRestzeit';
 import { useColors } from '../theme';
+import { warnZahl, warnZahlSatz } from '../lib/warnzeile';
 import { Bar } from './Bar';
 import { Card, CardFooter } from './Card';
 import { faelltAuf, standZeile } from '../lib/kachelstand';
@@ -993,13 +994,17 @@ export function EntityCard({
         }
 
       case 'alert': {
-        const count = entity.state.count ?? 0;
+        const count = warnZahl(entity.state);
         const severity = entity.state.max_severity;
         const alerts: Record<string, string | undefined>[] = entity.state.alerts ?? [];
+        // Die Kachel erscheint mit laufender Warnung gar nicht mehr -
+        // die steht oben in der Begrüssungskarte (lib/warnzeile.ts).
+        // Hier bleibt sie trotzdem richtig: Unter «Geräte» ist sie
+        // weiterhin zu sehen, und dort stand «1 Warnungen».
         return (
           <View style={styles.stack}>
             <Pill
-              label={count > 0 ? `${count} Warnungen` : 'Keine Warnungen'}
+              label={count > 0 ? warnZahlSatz(count) : 'Keine Warnungen'}
               tone={count > 0 ? severityColor(colors, severity) : colors.on}
               solid
             />

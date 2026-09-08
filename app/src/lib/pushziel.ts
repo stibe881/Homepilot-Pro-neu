@@ -88,6 +88,8 @@ const MODULE = [
   'medications',
   'babysitter',
   'members',
+  // Punkt 264: Ziel der Ablauf-Erinnerung «familie:vouchers».
+  'vouchers',
 ];
 
 /**
