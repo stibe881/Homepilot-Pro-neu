@@ -229,7 +229,7 @@ Zwei Dinge, die dabei überraschen:
   die hochgezählte Versionsnummer täuschte dabei Aktualität vor. So
   gingen mehrere Lieferungen am Haus vorbei, ohne dass es auffiel: Der
   Hub war neu, die App nicht.
-- Deshalb steht dort jetzt eine feste `runtimeVersion` (zurzeit `"6"`).
+- Deshalb steht dort jetzt eine feste `runtimeVersion` (zurzeit `"7"`).
   Sie gehört zur **nativen** Hülle, nicht zur Auslieferung:
   - **`version` bei jeder Auslieferung hochzählen** – wie bisher. Sie
     ist die Nummer, die im App Store und in TestFlight steht, und sie
@@ -252,9 +252,9 @@ Zwei Dinge, die dabei überraschen:
     Zwei native Module in einer Runde kosten dagegen nur *einen*
     TestFlight-Build; wer ohnehin einen braucht, nimmt anderes gleich
     mit.
-    Von `"6"` auf `"7"` geht es, sobald der Datei-Anhang der Gutscheine
-    fertig ist (`expo-document-picker`, Punkt 266) - **und keinen Tag
-    früher**. Der Sprung stand schon einmal eine Stunde lang im Repo,
+    Von `"6"` auf `"7"` ging es für den Datei-Anhang der Gutscheine
+    (`expo-document-picker`, Punkt 266) - und zwar erst, als beide
+    Hälften fertig waren, **keinen Tag früher**. Der Sprung stand schon einmal eine Stunde lang im Repo,
     während das Modul noch gar nicht benutzt wurde; ein Bau lief
     gerade, nahm ihn über `HOMEPILOT_MERGE_ALL` mit herein und hätte
     eine OTA-Fassung veröffentlicht, die kein Telefon im Haus je

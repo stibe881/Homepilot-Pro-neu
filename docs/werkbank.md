@@ -2641,7 +2641,7 @@ unten im Fenster, und nur wenn dort wirklich jemand tippt.
 
 Stellen: `app/src/components/Tastaturplatz.tsx`, `app/src/lib/tastaturplatz.test.ts`, `app/src/screens/DashboardScreen.tsx`
 
-### 266. Ein Gutschein trägt seinen Beleg bei sich ✓ erledigt (HASH_APP, HASH_HUB)
+### 266. Ein Gutschein trägt seinen Beleg bei sich ✓ erledigt (f2d10ec, ed2dec6)
 
 *lohnt sich · Aufwand: gross · Hub + App*
 
