@@ -18,7 +18,6 @@ import { CommandData, Entity, HubSettings } from '../api/types';
 import { begruessung } from '../lib/begruessung';
 import {
   Bereich,
-  einstiegsSeite,
   gruppeVon,
   siehtBereich,
 } from '../lib/einstellungsmenue';
@@ -364,12 +363,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [ordnenZieht, setOrdnenZieht] = useState(false);
   // Die grosse Liste, damit ein Wechsel oben anfängt (siehe unten).
   const blatt = useRef<ScrollView>(null);
-  // Welche Einstellungsseite zuletzt offen war - damit «Einstellungen»
-  // auf einem breiten Bildschirm dort weitermacht, wo man aufgehört hat.
-  // Eine Ref und kein Zustand: Der Wert wird nirgends gezeichnet, nur
-  // beim nächsten Öffnen gelesen. Als Zustand wäre jede Seite in den
-  // Einstellungen eine zweite Zeichnung wert - für nichts.
-  const zuletztEinstellung = useRef<Section | null>(null);
   // Aufgeklappt kommt man nur über die Batteriewarnung hierher; sonst
   // entscheidet die Karte selbst (siehe DeviceHealth).
   const [batterienOffen, setBatterienOffen] = useState(false);
@@ -2174,32 +2167,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   /** Ab hier ist Platz für Menü und Inhalt nebeneinander. */
   const ZWEISPALTIG_AB = 1000;
   const zweispaltig = width >= ZWEISPALTIG_AB && einstellungsSeiten.includes(section);
-  if (einstellungsSeiten.includes(section)) zuletztEinstellung.current = section;
 
-  // Welche dieser Seiten dieser Benutzer überhaupt sieht - in der
-  // Reihenfolge des Menüs, damit «die erste» dieselbe ist, die auch oben
-  // in der Spalte steht.
-  const offeneSeiten = sichtbarePunkte
-    .map((item) => item.key)
-    .filter((key): key is Section => einstellungsSeiten.includes(key as Section));
-
-  /**
-   * Zu einem Bereich wechseln - mit einer Ausnahme.
-   *
-   * «Einstellungen» war ein Zwischenschritt für nichts: Man tippte
-   * darauf, bekam eine Liste von Kacheln, tippte noch einmal, und erst
-   * dann stand die Ansicht da, die man gemeint hatte. Zweimal derselbe
-   * Weg, einmal davon vergeblich.
-   *
-   * Also geht gleich eine Seite auf; die vom letzten Mal, sonst die
-   * erste (lib/einstellungsmenue.ts). Das Menü steht dabei immer
-   * daneben: auf dem breiten Bildschirm als Spalte links, auf dem
-   * Telefon als Kopfzeile mit Wechselblatt (components/einstellungen).
-   *
-   * Sieht jemand überhaupt keine solche Seite - ein Gast etwa -, bleibt
-   * es bei der Kachelliste: Ein leerer Bereich wäre schlimmer als eine
-   * kurze Liste.
-   */
   // Womit die Leiste «Einstellungen» hervorhebt, solange man drin ist.
   // Vorher stand dort nichts hervorgehoben, sobald man eine Seite offen
   // hatte - und auf einem breiten Bildschirm ist man ab dem ersten Tipp
@@ -2248,16 +2216,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       />
     );
 
-  const waehleBereich = (ziel: Section) => {
-    if (ziel === 'settings') {
-      const start = einstiegsSeite(offeneSeiten, zuletztEinstellung.current, !hasRail);
-      if (start) {
-        setSection(start);
-        return;
-      }
-    }
-    setSection(ziel);
-  };
+  /**
+   * Zu einem Bereich wechseln.
+   *
+   * Jeder Menüpunkt führt auf seine eigene Seite - auch «Einstellungen».
+   * Eine Zeit lang sprang der Punkt gleich in die Seite, die zuletzt
+   * offen war: Die Kachelliste galt als Zwischenschritt für nichts.
+   * Aus dem Haus kam das Gegenteil zurück, und zu Recht: Wer im Menü auf
+   * einen Namen tippt, erwartet die Seite mit diesem Namen. Kam
+   * stattdessen «Push-Nachrichten», weil man dort gestern zuletzt war,
+   * sah es aus, als hätte man danebengetippt - und die Übersicht, von
+   * der aus alles andere erreichbar ist, war nirgends mehr zu holen.
+   */
+  const waehleBereich = (ziel: Section) => setSection(ziel);
 
   const content = () => {
     // Der Riegel vor Familie und Konto - siehe lib/bereichsriegel.ts. Er
