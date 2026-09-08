@@ -40,6 +40,7 @@ import {
 
 import { HubSettings } from '../../api/types';
 import { Card } from '../../components/Card';
+import { Tastaturplatz } from '../../components/Tastaturplatz';
 import { Leerzustand } from '../../components/Leerzustand';
 import {
   Ablaufstufe,
@@ -806,6 +807,9 @@ function AbziehenDialog({
 
   return (
     <Modal visible={!!entry} transparent animationType="fade" onRequestClose={onAbbrechen}>
+      {/* Der Betrag wird getippt - ohne das läge die Zahlentastatur auf
+          dem Feld (Punkt 265 der Werkbank). */}
+      <Tastaturplatz>
       <Pressable style={styles.modalBack} onPress={onAbbrechen} accessibilityLabel="Dialog schliessen">
         <Pressable style={styles.modalCard} onPress={() => {}}>
           {entry ? (
@@ -866,6 +870,7 @@ function AbziehenDialog({
           ) : null}
         </Pressable>
       </Pressable>
+      </Tastaturplatz>
     </Modal>
   );
 }
