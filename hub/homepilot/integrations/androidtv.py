@@ -11,11 +11,13 @@ Konfiguration:
 Voraussetzung:  pip install "homepilot[androidtv]"  bzw.  pip install androidtvremote2
 
 Einrichtung (einmalig pro Fernseher, der Fernseher muss dabei an sein):
-  1. Den Geräteblock wie oben in die config.yaml eintragen.
-  2. Auf dem Hub-Rechner ausführen:
+  1. Den Geräteblock wie oben in die config.yaml eintragen, Hub starten.
+  2. In der App auf der Fernsehkachel «Fernseher koppeln» antippen. Auf
+     dem Fernseher erscheint ein sechsstelliger Code – in der App
+     eintippen (api/routes/androidtv.py, pair_start/pair_finish).
+     Von der Kommandozeile geht dasselbe weiterhin:
          python -m homepilot.integrations.androidtv -c config.yaml
-     Auf dem Fernseher erscheint ein sechsstelliger Code – hier eintippen.
-  3. Hub (neu) starten. Die Kopplung liegt danach als Zertifikat neben der
+  3. Die Kopplung liegt danach als Zertifikat neben der
      homepilot-data.json und hält dauerhaft.
 
 Das Protokoll authentifiziert über ein selbstsigniertes Client-Zertifikat,
@@ -28,6 +30,7 @@ im Event-Loop an.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from pathlib import Path
@@ -229,8 +232,9 @@ def cert_paths(cert_dir: str | Path, host: str) -> tuple[str, str]:
 
 
 PAIR_HINT = (
-    "nicht gekoppelt – auf dem Hub-Rechner ausführen: "
-    "python -m homepilot.integrations.androidtv -c config.yaml"
+    "nicht gekoppelt – in der App auf der Fernsehkachel «Fernseher koppeln» "
+    "antippen (oder auf dem Hub-Rechner: "
+    "python -m homepilot.integrations.androidtv -c config.yaml)"
 )
 
 # Was der Benutzer liest, wenn eine Taste ins Leere geht. Der Grund gehört
@@ -240,10 +244,48 @@ PAIR_HINT = (
 NICHT_ERREICHBAR = (
     "Fernseher nicht erreichbar – ist er am Strom und im selben Netz?"
 )
+# Die Kopplung selbst braucht weiterhin einen Menschen vor dem Fernseher -
+# aber nicht mehr eine Kommandozeile auf dem Hub-Rechner. Der alte Satz
+# endete auf «(siehe Hub-Protokoll)», und dort stand dann ein
+# docker-exec-Aufruf: Wer abends den Einschlaf-Timer stellen will, hat
+# weder Terminal noch Lust. Der Weg steht jetzt in der App, und deshalb
+# nennt ihn auch die Absage.
 NICHT_GEKOPPELT = (
-    "Fernseher nicht gekoppelt – die Kopplung muss einmal am Gerät "
-    "bestätigt werden (siehe Hub-Protokoll)."
+    "Fernseher nicht gekoppelt – auf der Fernsehkachel «Fernseher koppeln» "
+    "antippen; der Code erscheint dann auf dem Bildschirm."
 )
+
+# Warum eine Kopplung scheiterte. Die Bibliothek wirft englische
+# Ausnahmen ohne Text («InvalidAuth»); ungefiltert stünde in der App ein
+# leeres «Fehler».
+PAIR_FEHLER: dict[str, str] = {
+    "CannotConnect": "Fernseher nicht erreichbar – ist er an und im selben Netz?",
+    "InvalidAuth": "Der Code stimmt nicht – bitte die Kopplung neu starten.",
+    "ConnectionClosed": "Die Verbindung brach ab – bitte noch einmal von vorne.",
+}
+
+
+# So lange bleibt eine angefangene Kopplung offen. Zwischen «Code
+# anzeigen» und «Code eintippen» steht jemand auf und geht ins
+# Wohnzimmer - fünf Minuten sind dafür reichlich. Ohne Frist bliebe der
+# Fernseher nach einem abgebrochenen Versuch bis zum nächsten Hub-Start
+# ohne Verbindung: Die Geräteschleife ist für die Kopplung angehalten
+# worden und würde von selbst nie wieder anlaufen.
+PAIR_FRIST = 300.0
+
+
+def pair_absage(err: BaseException) -> str:
+    """Warum die Kopplung nicht zustande kam (rein, testbar).
+
+    Am Namen und nicht am Typ, aus demselben Grund wie in ``_senden``:
+    ``androidtvremote2`` wird erst beim Gebrauch importiert, damit der
+    Hub auch ohne die Bibliothek startet.
+    """
+    bekannt = PAIR_FEHLER.get(type(err).__name__)
+    if bekannt is not None:
+        return bekannt
+    text = str(err).strip()
+    return f"Kopplung fehlgeschlagen: {text}" if text else "Kopplung fehlgeschlagen."
 
 
 def leitung_offen(remote: Any) -> bool | None:
@@ -331,6 +373,21 @@ class AndroidTvIntegration(Integration):
         # wollte, musste den ganzen Fernseher favorisieren.
         self._timer_of: dict[str, str] = {}  # TV-Id → Timer-Id
         self._tv_of: dict[str, str] = {}  # Timer-Id → TV-Id
+        # Was zu jedem Fernseher in der Konfiguration steht. Bisher lebte
+        # das nur als Argument der Geräteschleife – für eine Kopplung aus
+        # der App muss man es später noch einmal in die Hand nehmen
+        # können, ohne die config.yaml erneut zu lesen.
+        self._geraete: dict[str, dict[str, Any]] = {}
+        # Die laufende Geräteschleife je Fernseher, damit die Kopplung sie
+        # anhalten und danach frisch starten kann.
+        self._loops: dict[str, asyncio.Task] = {}
+        # Angefangene Kopplungen: Zwischen «Code anzeigen» und «Code
+        # eingeben» liegt ein Mensch vor dem Fernseher, also zwei
+        # getrennte Aufrufe – die Fernbedienung dazwischen muss dieselbe
+        # bleiben, sonst zeigt der Fernseher beim zweiten einen neuen Code.
+        self._pairing: dict[str, Any] = {}
+        # Je angefangene Kopplung ein Wecker, der sie wieder aufräumt.
+        self._pair_frist: dict[str, asyncio.Task] = {}
 
     async def setup(self) -> None:
         devices = self.config.get("devices") or []
@@ -369,6 +426,12 @@ class AndroidTvIntegration(Integration):
                     # etwas schickt.
                     "sleep_until": None,
                     "sleep_minutes": SLEEP_MINUTES,
+                    # Anfangs «ja»: Solange nichts dagegen spricht, soll
+                    # die Kachel nicht zum Koppeln auffordern. Erst wenn
+                    # der Fernseher die Anmeldung wirklich ablehnt, wird
+                    # daraus ein «nein» – und dann steht der Weg dorthin
+                    # auf der Kachel.
+                    "paired": True,
                 },
                 commands=[
                     "turn_on", "turn_off", "toggle",
@@ -387,14 +450,23 @@ class AndroidTvIntegration(Integration):
                     "state": "off",
                     "sleep_until": None,
                     "sleep_minutes": SLEEP_MINUTES,
+                    # Auch hier: Die Timer-Kachel ist die zweite Stelle,
+                    # an der die fehlende Kopplung auffällt - und aus dem
+                    # Haus gemeldet wurde sie genau von dort («wenn ich
+                    # den Timer für den Fernseher einschalten will»).
+                    "paired": True,
                 },
                 commands=["sleep_timer"],
             )
             self._timer_of[entity.id] = timer.id
             self._tv_of[timer.id] = entity.id
-            self.start_task(
-                self._device_loop(entity.id, str(host), cert_dir, will_ime(device))
-            )
+            self._geraete[entity.id] = {
+                "host": str(host),
+                "cert_dir": cert_dir,
+                "ime": will_ime(device),
+                "name": device.get("name", f"Android TV {host}"),
+            }
+            self._starte_loop(entity.id)
 
     async def teardown(self) -> None:
         await super().teardown()
@@ -408,6 +480,16 @@ class AndroidTvIntegration(Integration):
                 pass
         self._remotes.clear()
         self._gekoppelt.clear()
+        self._loops.clear()
+        for remote in self._pairing.values():
+            try:
+                remote.disconnect()
+            except Exception:
+                pass
+        self._pairing.clear()
+        for task in self._pair_frist.values():
+            task.cancel()
+        self._pair_frist.clear()
 
     # ── Gerät → Hub ────────────────────────────────────────────────────────
 
@@ -428,8 +510,8 @@ class AndroidTvIntegration(Integration):
                 # Pairing braucht einen Menschen vor dem Fernseher –
                 # Dauer-Wiederholung wäre sinnlos.
                 self.log.warning("Android TV %s %s", host, PAIR_HINT)
-                self._gekoppelt[entity_id] = False
                 await self.hub.registry.update_state(entity_id, {"state": "off"}, available=False)
+                await self._push_gekoppelt(entity_id, False)
                 return
             except asyncio.CancelledError:
                 raise
@@ -443,7 +525,7 @@ class AndroidTvIntegration(Integration):
         # endete in der englischen Meldung der Bibliothek statt in einem
         # Satz, der sagt, was zu tun ist.
         self._remotes[entity_id] = remote
-        self._gekoppelt[entity_id] = True
+        await self._push_gekoppelt(entity_id, True)
 
         def push(*_args: Any) -> None:
             asyncio.get_running_loop().create_task(self._push_state(entity_id, remote))
@@ -457,11 +539,189 @@ class AndroidTvIntegration(Integration):
         remote.add_current_app_updated_callback(push)
         remote.add_volume_info_updated_callback(push)
         remote.add_is_available_updated_callback(availability)
+        # Auch hier auf die Kachel und nicht bloss ins Protokoll: Genau so
+        # geht eine Kopplung im Betrieb verloren – am Fernseher werden die
+        # Daten des «Android TV Remote Service» gelöscht, und von da an
+        # lehnt er jede Anmeldung ab. Stand das nur im Log, sah man in der
+        # App bloss ein Gerät, das nichts mehr tut.
         remote.keep_reconnecting(
-            invalid_auth_callback=lambda: self.log.warning("Android TV %s %s", host, PAIR_HINT)
+            invalid_auth_callback=lambda: self._kopplung_weg(entity_id, host)
         )
         await self._push_state(entity_id, remote)
         self.log.info("Mit Android TV %s verbunden", host)
+
+    def _kopplung_weg(self, entity_id: str, host: str) -> None:
+        """Die Bibliothek meldet aus ihrer Wiederverbindungs-Schleife heraus,
+        dass der Fernseher die Anmeldung ablehnt – ein Rückruf ohne await."""
+        self.log.warning("Android TV %s %s", host, PAIR_HINT)
+        asyncio.get_running_loop().create_task(self._push_gekoppelt(entity_id, False))
+
+    async def _push_gekoppelt(self, tv_id: str, ok: bool) -> None:
+        """Den Kopplungsstand auf beide Kacheln schreiben.
+
+        Wie beim Timer (``_push_sleep``): Die Timer-Kachel ist eine
+        zweite Ansicht desselben Fernsehers, und eine Kachel, die zum
+        Koppeln auffordert, während die andere schweigt, wäre schlimmer
+        als gar kein Hinweis.
+        """
+        self._gekoppelt[tv_id] = ok
+        await self.hub.registry.update_state(tv_id, {"paired": ok})
+        timer_id = self._timer_of.get(tv_id)
+        if timer_id is not None:
+            await self.hub.registry.update_state(timer_id, {"paired": ok})
+
+    # ── Kopplung aus der App ───────────────────────────────────────────────
+
+    def tv_id(self, entity_id: str) -> str | None:
+        """Welcher Fernseher steckt hinter dieser Kachel?
+
+        Die Timer-Kachel gehört zu einem Fernseher und ist selbst keiner -
+        gekoppelt wird trotzdem der Fernseher. ``None`` heisst: gehört
+        nicht hierher.
+        """
+        if entity_id in self._geraete:
+            return entity_id
+        return self._tv_of.get(entity_id)
+
+    def _starte_loop(self, entity_id: str) -> None:
+        """Die Geräteschleife eines Fernsehers (neu) anwerfen."""
+        geraet = self._geraete[entity_id]
+        self._loops[entity_id] = self.start_task(
+            self._device_loop(
+                entity_id, geraet["host"], geraet["cert_dir"], geraet["ime"]
+            )
+        )
+
+    async def _loop_anhalten(self, entity_id: str) -> None:
+        """Alles kappen, was noch auf demselben Fernseher hängt.
+
+        Vor einer Kopplung muss die Leitung weg sein: Der Fernseher lässt
+        nur eine Anmeldung zu, und eine Wiederverbindungs-Schleife, die im
+        Hintergrund weiterläuft, koppelt uns mitten in der PIN-Eingabe
+        wieder ab.
+        """
+        task = self._loops.pop(entity_id, None)
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+        remote = self._remotes.pop(entity_id, None)
+        if remote is not None:
+            try:
+                remote.disconnect()
+            except Exception:
+                pass
+
+    def _frist_loeschen(self, entity_id: str) -> None:
+        task = self._pair_frist.pop(entity_id, None)
+        if task is not None:
+            task.cancel()
+
+    async def _pair_verfaellt(self, entity_id: str) -> None:
+        """Eine angefangene Kopplung nach der Frist wieder aufräumen."""
+        await asyncio.sleep(PAIR_FRIST)
+        self._pair_frist.pop(entity_id, None)
+        remote = self._pairing.pop(entity_id, None)
+        if remote is None:
+            return
+        try:
+            remote.disconnect()
+        except Exception:
+            pass
+        self.log.info(
+            "Android TV %s: Kopplung abgebrochen (kein Code) – Verbindung wieder auf",
+            entity_id,
+        )
+        self._starte_loop(entity_id)
+
+    async def pair_start(self, entity_id: str, neu: bool = False) -> None:
+        """Kopplung beginnen – danach steht der Code auf dem Fernseher.
+
+        ``neu`` wirft das bestehende Zertifikat beiseite. Das ist der
+        Fall, den der Kommandozeilen-Helfer mit ``--neu`` abdeckt und der
+        einen ganzen Abend gekostet hat: Nach dem Datenlöschen am
+        Fernseher nimmt der Dienst unsere TLS-Verbindung weiter an und
+        wirft trotzdem jede Taste weg. Wer nur die App hat, braucht
+        diesen Ausweg genauso.
+        """
+        from androidtvremote2 import AndroidTVRemote
+
+        geraet = self._geraete.get(entity_id)
+        if geraet is None:
+            raise ValueError("Dieses Gerät ist kein Android-TV-Fernseher")
+
+        await self._loop_anhalten(entity_id)
+        self._frist_loeschen(entity_id)
+        offen = self._pairing.pop(entity_id, None)
+        if offen is not None:
+            try:
+                offen.disconnect()
+            except Exception:
+                pass
+
+        certfile, keyfile = cert_paths(geraet["cert_dir"], geraet["host"])
+        if neu:
+            # Beiseite, nicht gelöscht: Wer «neu» sagt und dann abbricht,
+            # soll zum alten Stand zurückkönnen.
+            for datei in (certfile, keyfile):
+                if Path(datei).exists():
+                    Path(datei).rename(datei + ".alt")
+                    self.log.info("Android TV: %s → %s.alt", datei, datei)
+
+        remote = AndroidTVRemote("homepilot", certfile, keyfile, geraet["host"])
+        await remote.async_generate_cert_if_missing()
+        try:
+            await remote.async_start_pairing()
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:
+            try:
+                remote.disconnect()
+            except Exception:
+                pass
+            # Die Schleife wieder anwerfen: Ein misslungener Anlauf darf
+            # den Fernseher nicht dauerhaft aus dem Hub nehmen.
+            self._starte_loop(entity_id)
+            raise ConnectionError(pair_absage(err)) from err
+
+        self._pairing[entity_id] = remote
+        self._pair_frist[entity_id] = self.start_task(self._pair_verfaellt(entity_id))
+        self.log.info("Android TV %s: Kopplung begonnen", geraet["host"])
+
+    async def pair_finish(self, entity_id: str, code: str) -> None:
+        """Den Code vom Bildschirm nachreichen – und wieder verbinden."""
+        remote = self._pairing.get(entity_id)
+        if remote is None:
+            raise ValueError(
+                "Für diesen Fernseher läuft keine Kopplung – zuerst «Fernseher "
+                "koppeln» antippen."
+            )
+        self._frist_loeschen(entity_id)
+        try:
+            await remote.async_finish_pairing(str(code).strip())
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:
+            # Auch der falsche Code beendet den Versuch: Der Fernseher
+            # schliesst die Sitzung und zeigt beim nächsten Anlauf einen
+            # frischen Code. Ihn hier offenzuhalten hiesse, gegen einen
+            # Code zu prüfen, der nicht mehr auf dem Bildschirm steht.
+            self._pairing.pop(entity_id, None)
+            try:
+                remote.disconnect()
+            except Exception:
+                pass
+            self._starte_loop(entity_id)
+            raise ConnectionError(pair_absage(err)) from err
+
+        self._pairing.pop(entity_id, None)
+        try:
+            remote.disconnect()
+        except Exception:
+            pass
+        await self._push_gekoppelt(entity_id, True)
+        self._starte_loop(entity_id)
+        self.log.info("Android TV %s gekoppelt", self._geraete[entity_id]["host"])
 
     async def _push_state(self, entity_id: str, remote: Any, available: bool = True) -> None:
         zustand = tv_state(bool(remote.is_on), remote.current_app, remote.volume_info)
