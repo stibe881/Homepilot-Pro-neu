@@ -5,7 +5,6 @@ const ALLES = {
   weather: true,
   housePlayer: true,
   roomPlayer: true,
-  alert: true,
 };
 
 describe('panelContent', () => {
@@ -14,7 +13,6 @@ describe('panelContent', () => {
       weather: true,
       housePlayer: true,
       roomPlayer: true,
-      alert: true,
       anything: true,
     });
   });
@@ -31,22 +29,21 @@ describe('panelContent', () => {
     expect(panelContent({ ...ALLES, inRoom: true }).roomPlayer).toBe(true);
   });
 
-  it('behält die Wetterwarnung auch im Zimmer', () => {
-    // Sie ist der Grund, aus dem es die Spalte gibt. Sie wegzuräumen,
-    // weil man in einem Zimmer steht, hiesse sie genau dann zu
-    // verstecken, wenn man hinschaut.
-    expect(panelContent({ ...ALLES, inRoom: true }).alert).toBe(true);
+  it('trägt keine Wetterwarnung mehr', () => {
+    // Sie stand hier als grosse Karte «Wetterlage · 1 Warnungen» -
+    // während dieselbe Warnung oben in der Kopfzeile rot blinkte.
+    // Zweimal dasselbe auf einer Seite liest niemand zweimal.
+    expect('alert' in panelContent(ALLES)).toBe(false);
   });
 
   it('meldet eine leere Spalte, statt Platz zu beanspruchen', () => {
-    // Im Zimmer ohne eigene Box und ohne Warnung bleibt nichts übrig -
-    // dann darf dort auch keine Fläche stehen.
+    // Im Zimmer ohne eigene Box bleibt nichts übrig - dann darf dort
+    // auch keine Fläche stehen.
     const leer = panelContent({
       inRoom: true,
       weather: true,
       housePlayer: true,
       roomPlayer: false,
-      alert: false,
     });
     expect(leer.anything).toBe(false);
     expect(
@@ -55,7 +52,6 @@ describe('panelContent', () => {
         weather: false,
         housePlayer: false,
         roomPlayer: false,
-        alert: false,
       }).anything
     ).toBe(false);
   });

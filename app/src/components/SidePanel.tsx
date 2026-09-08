@@ -25,10 +25,6 @@ import { Card } from './Card';
 import { Musikliste } from './Musikliste';
 import { RadioPanel, ShuffleRepeat, SpotifyPanel } from './EntityCard';
 
-function severityColor(colors: Colors, severity: string): string {
-  return severity === 'Extreme' || severity === 'Severe' ? colors.danger : colors.warn;
-}
-
 /**
  * Breite Spalte rechts (Tablet) bzw. Abschnitt unten (Telefon):
  * Wetterlage, Musik und was zuletzt im Haus passiert ist.
@@ -36,10 +32,13 @@ function severityColor(colors: Colors, severity: string): string {
  * Steht ein Raum offen, zeigt die Spalte **nur** dessen Box – Wetter und
  * die Musik des Hauses bleiben weg. Wer «Küche» öffnet, will die Küche
  * sehen und nicht das Wetter von Zell und die Box, die im Wohnzimmer
- * spielt; auf dem Telefon schob beides die Lampen unter den Rand. Was
- * bleibt, ist eine Wetterwarnung: Sie wegzuräumen, weil man gerade in
- * einem Zimmer steht, hiesse sie genau dann zu verstecken, wenn man
- * hinschaut. Welche Karte wann steht, entscheidet lib/seitenspalte.ts.
+ * spielt; auf dem Telefon schob beides die Lampen unter den Rand.
+ * Welche Karte wann steht, entscheidet lib/seitenspalte.ts.
+ *
+ * Eine Wetterwarnung stand hier bis vor Kurzem als eigene grosse Karte.
+ * Sie ist weg: Dieselbe Warnung steht oben in der Kopfzeile, rot und
+ * blinkend, und ein Tipp darauf öffnet die ganze Liste
+ * (components/TopStrip.tsx, lib/warnzeile.ts).
  *
  * Die Box des Raums lag früher als Kachel zwischen seinen Lampen: Man
  * bediente die Musik des Wohnzimmers also an einer anderen Stelle als
@@ -69,9 +68,7 @@ export function SidePanel({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const weather = entities.find((entity) => entity.kind === 'weather');
-  const alert = entities.find((entity) => entity.kind === 'alert');
   // Warnung nur zeigen, wenn es wirklich eine gibt (für den gewählten Ort).
-  const hasAlert = alert && (alert.state.count ?? 0) > 0;
   const players = useMemo(() => entities.filter(istMusikbox), [entities]);
   // Von Hand gewählte Box, solange es sie noch gibt – sonst die naheliegende
   // (siehe pickPlayer): So sieht man immer nur eine Karte, aber jede Box
@@ -146,7 +143,6 @@ export function SidePanel({
     weather: !!weather,
     housePlayer: !!player && !!onCommand,
     roomPlayer: zeigtRaumPlayer && !!onCommand,
-    alert: !!hasAlert,
   });
   if (!zeigt.anything) return null;
 
@@ -187,7 +183,6 @@ export function SidePanel({
           onCommand={onCommand}
         />
       ) : null}
-      {zeigt.alert ? <AlertPanel entity={alert!} /> : null}
     </View>
   );
 }
@@ -731,56 +726,6 @@ function weekdayShort(date: string): string {
   const parsed = new Date(`${date}T12:00:00`);
   if (Number.isNaN(parsed.getTime())) return '';
   return wochentag(parsed);
-}
-
-function AlertPanel({ entity }: { entity: Entity }) {
-  const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  const count = entity.state.count ?? 0;
-  const severity = entity.state.max_severity;
-  const tone = count > 0 ? severityColor(colors, severity) : colors.on;
-  const alerts: Record<string, string | undefined>[] = entity.state.alerts ?? [];
-
-  return (
-    <Card style={styles.alertCard}>
-      <View style={styles.alertHead}>
-        <Ionicons
-          name={count > 0 ? 'thunderstorm-outline' : 'sunny-outline'}
-          size={26}
-          color={tone}
-        />
-        <View style={{ flex: 1 }}>
-          <Text style={styles.heading}>Wetterlage</Text>
-          <Text style={styles.alertSource}>{entity.name}</Text>
-        </View>
-      </View>
-
-      <Text style={[styles.alertCount, { color: tone }]}>
-        {count > 0 ? `${count} Warnungen` : 'Keine Warnungen'}
-      </Text>
-
-      <View style={styles.list}>
-        {alerts.slice(0, 4).map((item, index) => (
-          <View key={index} style={styles.alertRow}>
-            <View
-              style={[
-                styles.severityBar,
-                { backgroundColor: severityColor(colors, item.severity ?? '') },
-              ]}
-            />
-            <View style={{ flex: 1 }}>
-              <Text numberOfLines={1} style={styles.alertEvent}>
-                {item.event ?? item.title}
-              </Text>
-              <Text numberOfLines={1} style={styles.alertArea}>
-                {item.area}
-              </Text>
-            </View>
-          </View>
-        ))}
-      </View>
-    </Card>
-  );
 }
 
 const makeStyles = (colors: Colors) =>

@@ -8,10 +8,14 @@
  * Beides beantwortet keine Frage, die man im Zimmer stellt, und auf dem
  * Telefon schob es die Lampen unter den Bildschirmrand.
  *
- * Was bleibt: die Box **dieses** Raums und die Wetterwarnung. Die Warnung
- * ist der Grund, aus dem es sie gibt – sie wegzuräumen, weil man gerade
- * in einem Zimmer steht, hiesse sie genau dann zu verstecken, wenn man
- * hinschaut.
+ * Was bleibt: die Box **dieses** Raums.
+ *
+ * Die Wetterwarnung stand hier lange mit dem Argument, sie sei der
+ * Grund, aus dem es die Spalte gibt. Sie steht aber längst oben in der
+ * Kopfzeile – rot und blinkend (components/TopStrip.tsx,
+ * lib/warnzeile.ts) –, und damit war sie auf jedem Bildschirm zweimal
+ * zu sehen: einmal oben und einmal als grosse Karte «Wetterlage · 1
+ * Warnungen» darunter. Zweimal dasselbe liest niemand zweimal.
  *
  * Reines Rechnen, damit «wann steht die Spalte leer da» prüfbar bleibt:
  * Eine Spalte, die ihre 340 Punkte für nichts beansprucht, hatte die
@@ -27,15 +31,12 @@ export interface Spaltenwunsch {
   housePlayer: boolean;
   /** Gibt es eine eigene Box in diesem Raum? */
   roomPlayer: boolean;
-  /** Liegt gerade eine Wetterwarnung vor? */
-  alert: boolean;
 }
 
 export interface Spalteninhalt {
   weather: boolean;
   housePlayer: boolean;
   roomPlayer: boolean;
-  alert: boolean;
   /** Nichts davon? Dann gar keine Spalte, statt einer leeren Fläche. */
   anything: boolean;
 }
@@ -46,7 +47,6 @@ export function panelContent(wunsch: Spaltenwunsch): Spalteninhalt {
     weather: wunsch.weather && !wunsch.inRoom,
     housePlayer: wunsch.housePlayer && !wunsch.inRoom,
     roomPlayer: wunsch.roomPlayer,
-    alert: wunsch.alert,
   };
   return { ...inhalt, anything: Object.values(inhalt).some(Boolean) };
 }
