@@ -16,8 +16,17 @@ import {
   betragLesen,
   datumLesen,
   datumText,
+  DATEI_MAX_BYTES,
+  alsDatei,
+  dateiErlaubt,
+  dateiGroesse,
+  dateiPruefen,
+  dateiSatz,
+  dateiSymbol,
   formularPruefen,
   formularVon,
+  mimeVon,
+  mitMimeTyp,
   gefiltert,
   kachelText,
   kategorien,
@@ -332,3 +341,149 @@ describe('alsGutschein', () => {
     expect(anteil({ left: 5, total: 0 })).toBe(0);
   });
 });
+
+// ── Die Datei am Gutschein (Punkt 266) ───────────────────────────────────
+
+describe('Datei am Gutschein', () => {
+  const beleg = {
+    url: '/api/family/vouchers/v1/datei?v=abc',
+    name: 'Gutschein Brack.pdf',
+    type: 'application/pdf',
+    bytes: 182913,
+  };
+
+  test('dateiGroesse rundet, wie man es liest', () => {
+    expect(dateiGroesse(182913)).toBe('179 KB');
+    expect(dateiGroesse(1258291)).toBe('1.2 MB');
+    expect(dateiGroesse(1024 * 1024)).toBe('1 MB');
+    expect(dateiGroesse(DATEI_MAX_BYTES)).toBe('10 MB');
+    expect(dateiGroesse(812)).toBe('812 B');
+    expect(dateiGroesse(1024)).toBe('1 KB');
+    // Keine Angabe heisst keine Zeile - nicht «0 B».
+    expect(dateiGroesse(undefined)).toBe('');
+    expect(dateiGroesse(null)).toBe('');
+    expect(dateiGroesse(-5)).toBe('');
+  });
+
+  test('dateiSymbol unterscheidet PDF, Bild, Tabelle und Text', () => {
+    expect(dateiSymbol('application/pdf')).toBe('document-text-outline');
+    expect(dateiSymbol('image/jpeg')).toBe('image-outline');
+    expect(dateiSymbol('text/plain')).toBe('document-outline');
+    expect(dateiSymbol('text/csv')).toBe('grid-outline');
+    expect(dateiSymbol('application/vnd.ms-excel')).toBe('grid-outline');
+    expect(dateiSymbol('application/zip')).toBe('archive-outline');
+    expect(dateiSymbol('application/msword')).toBe('document-attach-outline');
+    expect(dateiSymbol(undefined)).toBe('document-attach-outline');
+    // Ein Bild ist nie dasselbe Symbol wie ein PDF - darum geht es.
+    expect(dateiSymbol('image/png')).not.toBe(dateiSymbol('application/pdf'));
+  });
+
+  test('mimeVon nimmt die Endung, wenn das Gerät nichts sagt', () => {
+    expect(mimeVon('Beleg.pdf', 'application/pdf')).toBe('application/pdf');
+    expect(mimeVon('Beleg.pdf', 'application/octet-stream')).toBe('application/pdf');
+    expect(mimeVon('Beleg.PDF', undefined)).toBe('application/pdf');
+    expect(mimeVon('Tabelle.xlsx', null)).toBe(
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    expect(mimeVon('ohnepunkt', undefined)).toBe('');
+    // Was der Hub nicht kennt, bekommt auch keinen Typ angedichtet.
+    expect(mimeVon('Foto.heic', undefined)).toBe('');
+  });
+
+  test('dateiErlaubt lässt genau durch, was der Hub ablegt', () => {
+    expect(dateiErlaubt('application/pdf')).toBe(true);
+    expect(dateiErlaubt('image/jpeg')).toBe(true);
+    expect(dateiErlaubt('text/plain')).toBe(true);
+    expect(dateiErlaubt('application/msword')).toBe(true);
+    expect(dateiErlaubt('application/zip')).toBe(true);
+    expect(dateiErlaubt('APPLICATION/PDF ')).toBe(true);
+    expect(dateiErlaubt('application/x-msdownload')).toBe(false);
+    expect(dateiErlaubt('')).toBe(false);
+    // Dieselbe Liste wie beim Hub: kein image/*, kein text/*. SVG und
+    // HTML dürfen Skripte tragen und liefen unter der Adresse des Hubs.
+    expect(dateiErlaubt('image/svg+xml')).toBe(false);
+    expect(dateiErlaubt('text/html')).toBe(false);
+    expect(dateiErlaubt('image/heic')).toBe(false);
+  });
+
+  test('dateiPruefen sagt vor dem Hochladen, was nicht geht', () => {
+    expect(dateiPruefen({ name: 'Gutschein Brack.pdf', size: 182913, mimeType: 'application/pdf' })).toBeNull();
+    // Zu gross: Die Meldung nennt beide Zahlen und sagt, was zu tun ist.
+    const gross = dateiPruefen({ name: 'Film.pdf', size: 40 * 1024 * 1024, mimeType: 'application/pdf' });
+    expect(gross).toContain('40 MB');
+    expect(gross).toContain('10 MB');
+    expect(gross).toContain('kleinere');
+    // Genau an der Grenze geht noch.
+    expect(dateiPruefen({ name: 'Rand.pdf', size: DATEI_MAX_BYTES, mimeType: 'application/pdf' })).toBeNull();
+    expect(dateiPruefen({ name: 'Virus.exe', size: 100, mimeType: 'application/x-msdownload' })).toContain(
+      'PDF'
+    );
+    expect(dateiPruefen({ name: 'Seite.html', size: 100, mimeType: 'text/html' })).toContain('Format');
+    expect(dateiPruefen({ name: 'leer.pdf', size: 0, mimeType: 'application/pdf' })).toContain('leer');
+    expect(dateiPruefen({ name: '', size: 10 })).toContain('keinen Namen');
+    // Ohne Grössenangabe (manche Android-Anbieter melden keine) darf sie durch.
+    expect(dateiPruefen({ name: 'Beleg.pdf' })).toBeNull();
+  });
+
+  test('dateiSatz ist das Vorlesezeichen', () => {
+    expect(dateiSatz(beleg)).toBe('Gutschein Brack.pdf, 179 KB');
+    expect(dateiSatz({ name: 'Beleg.pdf' })).toBe('Beleg.pdf');
+    expect(dateiSatz(null)).toBe('');
+  });
+
+  test('alsDatei nimmt den Block vom Hub - und nichts Leeres', () => {
+    expect(alsDatei(beleg)).toEqual(beleg);
+    expect(alsDatei({ data: 'data:application/pdf;base64,AAA', name: 'Neu.pdf' })).toEqual({
+      data: 'data:application/pdf;base64,AAA',
+      name: 'Neu.pdf',
+    });
+    expect(alsDatei(null)).toBeNull();
+    expect(alsDatei({})).toBeNull();
+    expect(alsDatei({ name: 'nur ein Name' })).toBeNull();
+    expect(alsDatei({ url: '/x' })?.name).toBe('Datei');
+  });
+
+  test('mitMimeTyp setzt nur nach, was fehlt', () => {
+    expect(mitMimeTyp('data:application/octet-stream;base64,AAA', 'application/pdf')).toBe(
+      'data:application/pdf;base64,AAA'
+    );
+    expect(mitMimeTyp('data:;base64,AAA', 'application/pdf')).toBe('data:application/pdf;base64,AAA');
+    // Ein sinnvoller Typ bleibt, wie er ist.
+    expect(mitMimeTyp('data:image/png;base64,AAA', 'application/pdf')).toBe('data:image/png;base64,AAA');
+    expect(mitMimeTyp('nichts', 'application/pdf')).toBe('nichts');
+  });
+
+  test('alsGutschein liest die Datei mit', () => {
+    expect(alsGutschein({ shop: 'Brack', total: 100, file: beleg }).file).toEqual(beleg);
+    expect(alsGutschein({ shop: 'Brack', total: 100 }).file).toBeNull();
+    expect(alsGutschein({ shop: 'Brack', total: 100, file: null }).file).toBeNull();
+  });
+
+  test('beim Bearbeiten bleibt die Datei dran', () => {
+    // Der übliche Fehler bei so einem Feld: Wer nur den Betrag
+    // korrigiert, verliert den Beleg. Der Block geht unverändert
+    // hinaus - mit url, ohne data.
+    const mitDatei: Gutschein = { ...brack, file: beleg };
+    const form = { ...formularVon(mitDatei), total: '120' };
+    const { eintrag } = formularPruefen(form, mitDatei);
+    expect(eintrag?.file).toEqual(beleg);
+    expect(eintrag?.file?.data).toBeUndefined();
+  });
+
+  test('eine neue Datei geht als data-URI hinaus, «entfernen» als null', () => {
+    const neu = { data: 'data:application/pdf;base64,AAA', name: 'Neu.pdf' };
+    const angehaengt = formularPruefen({ ...formularVon(brack), file: neu }, brack);
+    expect(angehaengt.eintrag?.file).toEqual(neu);
+    // Entfernen heisst null, nicht «Feld weglassen» - sonst behält der
+    // Hub die alte Datei.
+    const weg = formularPruefen({ ...formularVon({ ...brack, file: beleg }), file: null }, brack);
+    expect(weg.eintrag?.file).toBeNull();
+    // Und wer nie eine anhängt, schickt auch null.
+    expect(formularPruefen(leeresFormular2(), null).eintrag?.file).toBeNull();
+  });
+});
+
+/** Ein gültiges leeres Formular – der Laden und der Wert sind Pflicht. */
+function leeresFormular2() {
+  return { ...leeresFormular(), shop: 'Coop', total: '20' };
+}

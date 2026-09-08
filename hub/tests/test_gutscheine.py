@@ -1,17 +1,24 @@
 """Gutscheine der Familie (Punkt 264 der Werkbank): Sichtbarkeit, Klemmen,
-Ablauf-Erinnerung, Bild und Familienbuch."""
+Ablauf-Erinnerung, Bild und Familienbuch – dazu die angehängte Datei
+(Punkt 266): ablegen, ausliefern, ablehnen, aufräumen."""
 
 from __future__ import annotations
 
+import base64
 from datetime import date, datetime
 
 import pytest
 from fastapi.testclient import TestClient
 
 from homepilot.api import create_app
-from homepilot.core import familienbuch, gutscheine
+from homepilot.core import dateien, familienbuch, gutscheine
 from homepilot.core.config import ApiConfig, HubConfig
 from homepilot.core.hub import Hub
+
+# Ein winziges, echtes PDF - an den ersten Bytes sieht man, dass genau
+# das ankam, was hineinging (Punkt 266 der Werkbank).
+PDF_ROH = b"%PDF-1.4\n%HomePilot\n1 0 obj\n<<>>\nendobj\n"
+PDF = "data:application/pdf;base64," + base64.b64encode(PDF_ROH).decode()
 
 # ── Reine Funktionen ─────────────────────────────────────────────────────
 
@@ -178,6 +185,116 @@ def test_ins_buch_kommen_nur_geteilte_ohne_pin():
     buch = gutscheine.fuers_buch(rows)
     assert [r["shop"] for r in buch] == ["Brack.ch"]
     assert "pin" not in buch[0] and buch[0]["number"] == "574"
+
+
+def test_ein_anhang_ohne_adresse_fliegt_aus_dem_gutschein():
+    """Was keine Adresse hat, ist kein Anhang - vor allem der data-URI.
+
+    Bliebe der `{"data": …}` stehen, läge die ganze Datei in der
+    Datendatei; genau davor sollen die Dateien bewahren.
+    """
+    riesig = {"data": "data:application/pdf;base64,JVBERi0=", "name": "x.pdf"}
+    assert gutscheine.bereinigen({"file": riesig})["file"] is None
+    assert gutscheine.bereinigen({"file": "irgendwas"})["file"] is None
+    assert gutscheine.bereinigen({"file": None})["file"] is None
+    # Eine fremde Adresse ist keine: Sonst bestimmte der Schreiber eines
+    # Eintrags, welchen Server die App beim Öffnen aufruft.
+    fremd = {"url": "https://beispiel.ch/x.pdf", "name": "x.pdf"}
+    assert gutscheine.bereinigen({"file": fremd})["file"] is None
+    # Ohne das Feld bleibt es weg - ein PUT ohne «file» ist keine Aussage.
+    assert "file" not in gutscheine.bereinigen({"total": 10})
+
+
+def test_ein_anhang_wird_auf_seine_vier_felder_geklemmt():
+    sauber = gutscheine.bereinigen(
+        {
+            "file": {
+                "url": "/api/family/vouchers/abc/datei?v=deadbeef",
+                "name": "Gutschein Brack.pdf",
+                "type": "application/pdf",
+                "bytes": "182913",
+                "data": "data:application/pdf;base64,JVBERi0=",
+                "geheim": "weg damit",
+            }
+        }
+    )["file"]
+    assert sauber == {
+        "url": "/api/family/vouchers/abc/datei?v=deadbeef",
+        "name": "Gutschein Brack.pdf",
+        "type": "application/pdf",
+        "bytes": 182913,
+    }
+    # Unsinn wird geklemmt, nicht abgelehnt - wie der Rest des Gutscheins.
+    krumm = gutscheine.bereinigen(
+        {"file": {"url": "/api/family/vouchers/a/datei", "type": "x/y", "bytes": -3}}
+    )["file"]
+    assert krumm["type"] == "application/octet-stream"
+    assert krumm["bytes"] == 0 and krumm["name"] == "Datei"
+
+
+def test_entpacke_nimmt_pdf_und_lehnt_programme_und_riesen_ab():
+    """Ausführbares hat auf einem Hub nichts zu suchen - und ein Video auch nicht."""
+    roh, endung, typ = dateien.entpacke(PDF)
+    assert roh.startswith(b"%PDF") and endung == "pdf" and typ == "application/pdf"
+
+    for verboten in ("text/html", "image/svg+xml", "application/x-sh"):
+        with pytest.raises(dateien.DateiFehler) as fehler:
+            dateien.entpacke(f"data:{verboten};base64,{base64.b64encode(b'x').decode()}")
+        assert fehler.value.status == 415
+
+    with pytest.raises(dateien.DateiFehler) as fehler:
+        dateien.entpacke("/api/family/vouchers/a/datei?v=abc")
+    assert fehler.value.status == 415
+
+    with pytest.raises(dateien.DateiFehler) as fehler:
+        dateien.entpacke(
+            "data:application/pdf;base64,"
+            + base64.b64encode(b"x" * (dateien.MAX_BYTES + 1)).decode()
+        )
+    assert fehler.value.status == 413
+    assert "MB" in str(fehler.value)
+
+
+def test_ein_dateiname_bricht_die_kopfzeile_nicht():
+    """Der Name kommt aus einer Mail - Umbruch, Anführungszeichen, Pfad."""
+    boese = 'Gutschein"\r\nX-Böse: ja\r\n\r\n../../etc/passwd'
+    name = dateien.sauberer_name(boese, "pdf")
+    assert "\n" not in name and "\r" not in name and '"' not in name
+    assert "/" not in name and "\\" not in name
+    kopf = dateien.disposition(boese)
+    assert "\n" not in kopf and "\r" not in kopf
+    assert kopf.startswith('inline; filename="') and "filename*=UTF-8''" in kopf
+    # Umlaute überleben - aber nur im kodierten Teil; der einfache ist
+    # ASCII, sonst scheiterte die ganze Antwort an der latin-1-Kopfzeile.
+    kopf = dateien.disposition("Gutschein Küche 🎁.pdf")
+    assert kopf.encode("latin-1")
+    assert "K%C3%BCche" in kopf
+    # Und die Endung wird angehängt, wenn sie fehlt.
+    assert dateien.sauberer_name("Gutschein Brack", "pdf") == "Gutschein Brack.pdf"
+    assert dateien.sauberer_name("Gutschein.PDF", "pdf") == "Gutschein.PDF"
+    assert dateien.sauberer_name("   ", "pdf") == "Datei.pdf"
+
+
+def test_ins_buch_kommt_der_dateiname_ohne_die_adresse():
+    """Der Name sagt, dass es eine Datei gab; die Adresse nützt ohne Hub nichts."""
+    rows = gutscheine.fuers_buch(
+        [
+            {
+                "id": "a",
+                "shop": "Brack.ch",
+                "file": {
+                    "url": "/api/family/vouchers/a/datei?v=abc",
+                    "name": "Gutschein Brack.pdf",
+                    "type": "application/pdf",
+                    "bytes": 1234,
+                },
+            }
+        ]
+    )
+    assert rows[0]["file"] == "Gutschein Brack.pdf"
+    seite = familienbuch.render({"family_vouchers": rows}, "01.09.2026")
+    assert "Gutschein Brack.pdf" in seite
+    assert "/datei" not in seite
 
 
 def test_das_familienbuch_zeigt_gutscheine_ohne_pin_und_ohne_private():
@@ -358,6 +475,173 @@ def test_das_gutscheinfoto_wird_datei_und_folgt_der_privatsphaere(tmp_path):
         assert not (tmp_path / "gutscheinbilder" / f"{gutschein['id']}.png").exists()
 
 
+def test_die_gutscheindatei_wird_abgelegt_und_ausgeliefert(tmp_path):
+    """Ein Gutschein kommt als PDF - das gehört an den Eintrag, nicht ins Postfach."""
+    with make_client(tmp_path) as client:
+        gutschein = client.post(
+            "/api/family/vouchers",
+            json={
+                "shop": "Brack.ch",
+                "total": 100,
+                "shared": "privat",
+                "file": {"data": PDF, "name": "Gutschein Brack.pdf"},
+            },
+            headers=auth("t-livia"),
+        ).json()
+        # Der Vertrag mit der App: genau diese vier Felder.
+        assert set(gutschein["file"]) == {"url", "name", "type", "bytes"}
+        assert gutschein["file"]["url"].startswith(
+            f"/api/family/vouchers/{gutschein['id']}/datei?v="
+        )
+        assert gutschein["file"]["name"] == "Gutschein Brack.pdf"
+        assert gutschein["file"]["type"] == "application/pdf"
+        assert gutschein["file"]["bytes"] == len(PDF_ROH)
+        assert (tmp_path / "gutscheindateien" / f"{gutschein['id']}.pdf").exists()
+
+        antwort = client.get(gutschein["file"]["url"], headers=auth("t-livia"))
+        assert antwort.status_code == 200
+        assert antwort.content == PDF_ROH
+        assert antwort.headers["content-type"].startswith("application/pdf")
+        assert 'filename="Gutschein Brack.pdf"' in antwort.headers["content-disposition"]
+        assert antwort.headers["content-disposition"].startswith("inline;")
+        assert "immutable" in antwort.headers["cache-control"]
+
+        # Ein unveränderter Block überlebt das Speichern - die App
+        # schickt ihn beim Abziehen einfach mit zurück.
+        nachher = client.put(
+            f"/api/family/vouchers/{gutschein['id']}",
+            json={"left": 80, "file": gutschein["file"]},
+            headers=auth("t-livia"),
+        ).json()
+        assert nachher["file"] == gutschein["file"]
+        assert (tmp_path / "gutscheindateien" / f"{gutschein['id']}.pdf").exists()
+
+
+def test_die_datei_eines_fremden_privaten_gutscheins_gibt_es_nicht(tmp_path):
+    """404 und nicht 403: Die Adresse selbst soll nichts verraten."""
+    with make_client(tmp_path) as client:
+        gutschein = client.post(
+            "/api/family/vouchers",
+            json={
+                "shop": "Geheim",
+                "total": 100,
+                "shared": "privat",
+                "file": {"data": PDF, "name": "Geheim.pdf"},
+            },
+            headers=auth("t-livia"),
+        ).json()
+        assert (
+            client.get(gutschein["file"]["url"], headers=auth("t-owner")).status_code
+            == 404
+        )
+        # Eine Liste ohne Dateiordner kennt keine Dateien.
+        assert (
+            client.get("/api/family/recipes/x/datei", headers=auth("t-owner")).status_code
+            == 404
+        )
+
+
+def test_loeschen_und_korb_leeren_nehmen_die_datei_mit(tmp_path):
+    with make_client(tmp_path) as client:
+        gutschein = client.post(
+            "/api/family/vouchers",
+            json={"shop": "Brack.ch", "total": 100, "file": {"data": PDF, "name": "b.pdf"}},
+            headers=auth("t-livia"),
+        ).json()
+        ablage = tmp_path / "gutscheindateien" / f"{gutschein['id']}.pdf"
+        client.delete(f"/api/family/vouchers/{gutschein['id']}", headers=auth("t-livia"))
+        # Im Papierkorb bleibt sie liegen: Zurückholen soll den Gutschein
+        # samt PDF bringen.
+        assert ablage.exists()
+        client.delete("/api/family-trash", headers=auth("t-livia"))
+        assert not ablage.exists()
+
+
+def test_wer_den_anhang_wegnimmt_nimmt_ihn_ganz_weg(tmp_path):
+    """Sonst bliebe das PDF unter seiner Adresse abrufbar, ohne am Gutschein zu stehen."""
+    with make_client(tmp_path) as client:
+        gutschein = client.post(
+            "/api/family/vouchers",
+            json={"shop": "Brack.ch", "total": 100, "file": {"data": PDF, "name": "b.pdf"}},
+            headers=auth("t-livia"),
+        ).json()
+        adresse = gutschein["file"]["url"]
+        ablage = tmp_path / "gutscheindateien" / f"{gutschein['id']}.pdf"
+        nachher = client.put(
+            f"/api/family/vouchers/{gutschein['id']}",
+            json={"file": None},
+            headers=auth("t-livia"),
+        ).json()
+        assert nachher["file"] is None
+        assert not ablage.exists()
+        assert client.get(adresse, headers=auth("t-livia")).status_code == 404
+
+
+def test_eine_zu_grosse_datei_und_ein_verbotener_typ_werden_abgelehnt(tmp_path):
+    """413 und 415 statt Klemmen - eine halbe Datei ist keine.
+
+    Und der Gutschein entsteht gar nicht erst: Ein Eintrag ohne den
+    Anhang, den man angehängt hat, sähe aus wie geglückt.
+    """
+    with make_client(tmp_path) as client:
+        riesig = "data:application/pdf;base64," + base64.b64encode(
+            b"x" * (dateien.MAX_BYTES + 1)
+        ).decode()
+        antwort = client.post(
+            "/api/family/vouchers",
+            json={"shop": "Brack.ch", "total": 100, "file": {"data": riesig}},
+            headers=auth("t-livia"),
+        )
+        assert antwort.status_code == 413
+        antwort = client.post(
+            "/api/family/vouchers",
+            json={
+                "shop": "Brack.ch",
+                "total": 100,
+                "file": {"data": "data:text/html;base64,PHNjcmlwdD4=", "name": "x.html"},
+            },
+            headers=auth("t-livia"),
+        )
+        assert antwort.status_code == 415
+        assert client.get("/api/family/vouchers", headers=auth("t-livia")).json() == []
+
+        # Und beim Ändern bleibt der Gutschein, wie er war - die Prüfung
+        # steht vor der ersten Änderung am Eintrag.
+        gutschein = client.post(
+            "/api/family/vouchers",
+            json={"shop": "Brack.ch", "total": 100},
+            headers=auth("t-livia"),
+        ).json()
+        antwort = client.put(
+            f"/api/family/vouchers/{gutschein['id']}",
+            json={"left": 20, "file": {"data": riesig, "name": "x.pdf"}},
+            headers=auth("t-livia"),
+        )
+        assert antwort.status_code == 413
+        unveraendert = client.get("/api/family/vouchers", headers=auth("t-livia")).json()
+        assert unveraendert[0]["left"] == 100 and "file" not in unveraendert[0]
+
+
+def test_ein_dateiname_mit_umbruch_bricht_die_auslieferung_nicht(tmp_path):
+    """Der Name kommt aus einer Mail - er darf keine Kopfzeile anfangen."""
+    with make_client(tmp_path) as client:
+        gutschein = client.post(
+            "/api/family/vouchers",
+            json={
+                "shop": "Brack.ch",
+                "total": 100,
+                "file": {"data": PDF, "name": 'a"\r\nX-Böse: ja\r\n\r\nboese.pdf'},
+            },
+            headers=auth("t-livia"),
+        ).json()
+        antwort = client.get(gutschein["file"]["url"], headers=auth("t-livia"))
+        assert antwort.status_code == 200
+        assert "x-böse" not in {k.lower() for k in antwort.headers}
+        kopf = antwort.headers["content-disposition"]
+        assert "\n" not in kopf and "\r" not in kopf
+        assert kopf.count('"') == 2
+
+
 def test_rezeptbilder_behalten_ihre_alte_adresse_und_die_neue_geht_auch(tmp_path):
     with make_client(tmp_path) as client:
         rezept = client.post(
@@ -518,6 +802,49 @@ async def test_was_aus_dem_korb_faellt_nimmt_sein_bild_mit(monkeypatch, tmp_path
         assert not (ordner / "alt.png").exists()
         assert (ordner / "frisch.png").exists()
         assert [row["name"] for row in hub.data.get("family_trash")] == ["frisch"]
+    finally:
+        await hub.stop()
+
+
+@pytest.mark.asyncio
+async def test_was_aus_dem_korb_faellt_nimmt_auch_seine_datei_mit(monkeypatch, tmp_path):
+    """Das PDF ist der Gutschein - es darf nicht länger liegen als der Eintrag."""
+    from homepilot.core import trash
+
+    hub = Hub(
+        HubConfig(
+            api=ApiConfig(),
+            integrations=[{"integration": "demo"}],
+            data_file=str(tmp_path / "hub.json"),
+        )
+    )
+    await hub.start()
+    try:
+        ordner = tmp_path / "gutscheindateien"
+        ordner.mkdir()
+        (ordner / "alt.pdf").write_bytes(PDF_ROH)
+        (ordner / "frisch.pdf").write_bytes(PDF_ROH)
+        jetzt = datetime(2030, 6, 1, 4, 0)
+        hub.data.set(
+            "family_trash",
+            [
+                {"kind": "vouchers", "at": jetzt.timestamp() - trash.KEEP_SECONDS - 1,
+                 "by": "Livia", "name": "alt", "item": {"id": "alt"}},
+                {"kind": "vouchers", "at": jetzt.timestamp() - 60,
+                 "by": "Livia", "name": "frisch", "item": {"id": "frisch"}},
+            ],
+        )
+
+        class Uhr(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return jetzt
+
+        monkeypatch.setattr("homepilot.core.watchdog.datetime", Uhr)
+        monkeypatch.setattr("homepilot.core.trash.time.time", lambda: jetzt.timestamp())
+        await hub.watchdog._check_family_cleanup()
+        assert not (ordner / "alt.pdf").exists()
+        assert (ordner / "frisch.pdf").exists()
     finally:
         await hub.stop()
 

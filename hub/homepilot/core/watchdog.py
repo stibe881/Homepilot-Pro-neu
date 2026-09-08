@@ -35,6 +35,7 @@ from . import (
     bildarchiv,
     bilder,
     cliparchiv,
+    dateien,
     energy,
     familie,
     flattern,
@@ -1376,17 +1377,23 @@ class Watchdog:
             log.info("Familienliste '%s': %d Erledigte aufgeräumt", collection, len(alt))
         geleert = trash.purge(korb)
         # Was nach dreissig Tagen aus dem Korb fällt, nimmt sein Bild
-        # mit. Vorher blieben die Rezeptfotos für immer liegen - und ein
-        # Gutscheinfoto mit Nummer und Strichcode soll nicht länger auf
-        # der Platte sein als der Eintrag, zu dem es gehört.
+        # und seine Datei mit. Vorher blieben die Rezeptfotos für immer
+        # liegen - und ein Gutscheinfoto mit Nummer und Strichcode soll
+        # nicht länger auf der Platte sein als der Eintrag, zu dem es
+        # gehört. Fürs angehängte PDF (Punkt 266) gilt dasselbe, nur
+        # deutlicher: Es IST der Gutschein.
         geblieben = {
             (row.get("kind"), (row.get("item") or {}).get("id")) for row in geleert
         }
         for row in korb:
             art = str(row.get("kind") or "")
             kennung = (row.get("item") or {}).get("id")
-            if art in bilder.ORDNER and (art, kennung) not in geblieben:
+            if (art, kennung) in geblieben:
+                continue
+            if art in bilder.ORDNER:
                 bilder.loeschen(bilder.ordner(self.hub.data.path, art), kennung)
+            if art in dateien.ORDNER:
+                dateien.loeschen(dateien.ordner(self.hub.data.path, art), kennung)
         self.hub.data.set("family_trash", geleert)
         # Und einmal im Monat das Familienbuch (Punkt 169): eine Seite,
         # die auch ohne HomePilot noch lesbar ist.

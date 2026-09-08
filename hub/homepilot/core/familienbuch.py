@@ -33,6 +33,8 @@ SECTIONS: list[tuple[str, str]] = [
     ("shops", "Läden"),
     # Gutscheine sind Geld, und genau dafür ist das Buch da - aber nur
     # die geteilten und ohne PIN; warum, steht bei gutscheine.BUCH_OHNE.
+    # Von einer angehängten Datei bleibt dort nur der Name stehen: Die
+    # Adresse zeigt auf den Hub, den es an dem Tag nicht mehr gibt.
     ("vouchers", "Gutscheine"),
 ]
 
