@@ -190,6 +190,7 @@ nicht `test_mode_2`.
 | wissen willst, was der Hub über die Storen weiss | `docker exec homepilot-hub python -m homepilot.storencheck` – Zustand, Stellung und ob sie nur angenommen ist |
 | wissen willst, warum eine Fernseher-Karte auf dem Sperrbildschirm liegen bleibt | `docker exec homepilot-hub python -m homepilot.tvcheck` – Zustand, Zwilling, Geisterbild und ob der Hub die Karte noch will |
 | wissen willst, warum eine Sauger-Meldung nicht als Push ankommt | `docker exec homepilot-hub python -m homepilot.saugercheck` – Fehler, Tankstände der Station, was davon meldebar ist und wer die Kategorie abbestellt hat |
+| wissen willst, ob eine Push-Meldung zu spät kam oder erst das Ereignis | `docker exec homepilot-hub python -m homepilot.pushcheck` – Uhr und Zeitzone des Hubs, dazu je Meldung Ereigniszeit, Sendezeit und der Verzug dazwischen |
 | an der Kinderseite arbeitest | `app/src/lib/kindseite.ts` + `app/src/screens/family/kindseite.tsx` – Stundenplan und Wöchentliches liegen als Familienlisten `lessons` und `activities` beim Hub |
 | an der Familienseite arbeitest | `app/src/screens/FamilyScreen.tsx` – Zwischenspeicher und Warteschlange in `screens/family/ablage.ts`, der Babysitter-Abend in `screens/family/babysitter.ts` |
 | eine Gerätekachel änderst | `app/src/components/EntityCard.tsx` |
