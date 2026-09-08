@@ -50,6 +50,46 @@ SONNE_HOCH = 15.0
 LUEFTEN_MARGE = 2.0
 
 
+#: Wo der Wächter sich merkt, dass ein Unwetter läuft. In `hub.data`
+#: und nicht im Gedächtnis des Prozesses: Der Hub startet bei jedem
+#: Update neu, und ein Neustart mitten im Gewitter fuhr die Storen sonst
+#: ein zweites Mal hoch und meldete es ein zweites Mal.
+STURM_STORE_KEY = "storm_covers_lage"
+
+
+def sturm_schritt(
+    lage: dict[str, str] | None, gemerkt: Any, jetzt: float
+) -> tuple[str, list[dict[str, Any]]]:
+    """Was jetzt zu tun ist und was zu merken (rein, testbar).
+
+    Der gemeldete Fall: «Diese Meldung kommt immer wieder. Sie soll aber
+    nur einmal kommen pro Gewitter.» - und sie kam wirklich alle paar
+    Stunden. Gemerkt wurde bisher Grund *und Ablaufzeit* der Warnung,
+    und MeteoAlarm stellt im Lauf eines Gewitterabends immer wieder neue
+    Warnungen mit neuem Ablauf aus. Für den Wächter war jede davon ein
+    neues Unwetter: Storen nochmals hoch, Nachricht nochmals raus.
+
+    Ein Unwetter ist aber nicht eine Warnung, sondern die Zeit, in der
+    überhaupt eine läuft. Gemerkt wird deshalb nur, *dass* eines läuft -
+    bis keine Warnung mehr da ist. Dann, und nur dann, gibt es die
+    Entwarnung.
+
+    Zurück kommt der Schritt («fahren», «entwarnen», «nichts») und die
+    neue Merkliste.
+    """
+    laufend = next(
+        (row for row in (gemerkt or []) if isinstance(row, dict) and row.get("grund")),
+        None,
+    )
+    if lage is None:
+        if laufend is None:
+            return ("nichts", [])
+        return ("entwarnen", [])
+    if laufend is not None:
+        return ("nichts", [laufend])
+    return ("fahren", [{"grund": lage["grund"], "seit": float(jetzt)}])
+
+
 def _text_von(alert: dict[str, Any]) -> str:
     return " ".join(
         str(alert.get(key) or "")
