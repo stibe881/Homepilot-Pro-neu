@@ -28,6 +28,7 @@ import {
 import { HubFehler, hubClient } from '../api/client';
 import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
+import { Tastaturplatz } from '../components/Tastaturplatz';
 import { einladungFrist } from '../lib/einladung';
 import {
   besitzerZahl,
@@ -662,9 +663,16 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
         transparent
         onRequestClose={() => setDetail(null)}
       >
+        {/* E-Mail-Adresse, Einladungspasswort und Bereichs-PIN werden hier
+            getippt - ohne das läge die Tastatur auf dem jeweiligen Feld
+            (Punkt 265 der Werkbank). */}
+        <Tastaturplatz>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalSheet}>
-            <ScrollView contentContainerStyle={styles.modalContent}>
+            <ScrollView
+              contentContainerStyle={styles.modalContent}
+              keyboardShouldPersistTaps="handled"
+            >
               {detail ? (
                 <>
                   <View style={styles.modalHead}>
@@ -1379,6 +1387,7 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
             </ScrollView>
           </View>
         </View>
+        </Tastaturplatz>
       </Modal>
     </View>
   );

@@ -19,6 +19,7 @@ import { KIND_ICONS, shortState } from '../components/RoomTile';
 import { appleMapsRoute, googleMapsRoute } from '../components/TopStrip';
 import { TagesZeile } from '../components/TagesZeile';
 import { VacuumHome } from '../components/VacuumHome';
+import { Tastaturplatz } from '../components/Tastaturplatz';
 import { useTakt } from '../hooks/useTakt';
 import { FAVORIT_LUECKE, FAVORIT_MINDEST, kachelBreite, spalten } from '../lib/raster';
 import { schnellposten } from '../lib/schnellordnung';
@@ -1381,6 +1382,10 @@ function DurchsageFenster({
 
   return (
     <Modal visible animationType="slide" onRequestClose={onClose} transparent>
+      {/* Der Durchsagetext wird getippt, und sein Feld sitzt zuunterst im
+          Blatt - genau dort, wo die Tastatur aufgeht (Punkt 265 der
+          Werkbank). */}
+      <Tastaturplatz>
       <Pressable style={styles.fensterGrund} onPress={onClose}>
         <Pressable style={styles.fensterBlatt} onPress={() => {}}>
           <View style={styles.fensterKopf}>
@@ -1694,6 +1699,7 @@ function DurchsageFenster({
           )}
         </Pressable>
       </Pressable>
+      </Tastaturplatz>
     </Modal>
   );
 }

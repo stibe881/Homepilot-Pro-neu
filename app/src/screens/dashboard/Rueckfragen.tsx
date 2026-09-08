@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { Modal, Pressable, Text, TextInput, View } from 'react-native';
 
 import { Entity } from '../../api/types';
+import { Tastaturplatz } from '../../components/Tastaturplatz';
 import { Colors } from '../../theme';
 import { DashboardStile } from './stile';
 
@@ -88,6 +89,9 @@ export function AlarmPinAsk({
   const gesetzt = !!entity.state.pin_required;
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onCancel}>
+      {/* Die PIN zum Entschärfen wird getippt - ohne das läge die
+          Zahlentastatur genau auf dem Feld (Punkt 265 der Werkbank). */}
+      <Tastaturplatz>
       <View style={styles.lockBackdrop}>
         <View style={styles.lockSheet}>
           <Ionicons name="keypad-outline" size={26} color={colors.accent} />
@@ -128,6 +132,7 @@ export function AlarmPinAsk({
           </View>
         </View>
       </View>
+      </Tastaturplatz>
     </Modal>
   );
 }

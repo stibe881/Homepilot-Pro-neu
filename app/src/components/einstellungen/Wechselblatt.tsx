@@ -13,6 +13,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 
 import { filtere } from '../../lib/einstellungsgruppen';
 import { MAX_SCHRIFT } from '../../lib/schrift';
+import { Tastaturplatz } from '../Tastaturplatz';
 import { Colors, radius, useColors } from '../../theme';
 import { EinstellungsListe, ListenPunkt } from './Liste';
 
@@ -34,6 +35,9 @@ export function Wechselblatt({
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onSchliessen}>
+      {/* Der Bereich wird hier gesucht - ohne das läge die Tastatur genau
+          auf dem Suchfeld am unteren Blattrand (Punkt 265 der Werkbank). */}
+      <Tastaturplatz>
       {/* Der Grund schliesst: Wer daneben tippt, meint «doch nicht». */}
       <Pressable style={styles.grund} onPress={onSchliessen} accessibilityLabel="Schliessen" />
       <View style={styles.blatt}>
@@ -73,6 +77,7 @@ export function Wechselblatt({
           )}
         </ScrollView>
       </View>
+      </Tastaturplatz>
     </Modal>
   );
 }

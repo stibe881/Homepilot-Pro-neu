@@ -16,6 +16,7 @@ import { persoenlichLesen, persoenlichSetzen } from '../../lib/persoenlich';
 import { Playlistbuch, wahlFuer, wahlSetzen } from '../../lib/playlisten';
 import { keineBoxText, senderzeile } from '../../lib/radiobox';
 import { useColors } from '../../theme';
+import { Tastaturplatz } from '../Tastaturplatz';
 import { useKachelDruck } from './kacheldruck';
 import { makeStyles } from './stil';
 
@@ -395,6 +396,9 @@ export function PlaylistSheet({
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      {/* Die Playlist wird gesucht - ohne das läge die Tastatur über der
+          Trefferliste (Punkt 265 der Werkbank). */}
+      <Tastaturplatz>
       <View style={styles.sheet}>
         <View style={styles.sheetHead}>
           <Text style={styles.sheetTitle}>Playlists</Text>
@@ -439,7 +443,10 @@ export function PlaylistSheet({
           </Text>
         )}
 
-        <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: 40 }}
+          keyboardShouldPersistTaps="handled"
+        >
           {listed.length === 0 ? (
             <Text style={styles.hint}>
               {playlists.length === 0
@@ -518,6 +525,7 @@ export function PlaylistSheet({
           })}
         </ScrollView>
       </View>
+      </Tastaturplatz>
     </Modal>
   );
 }
@@ -821,6 +829,10 @@ export function RadioSheet({
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      {/* Der Sender wird gesucht - ohne das läge die Tastatur über den
+          Vorschlägen, die TuneIn zum Getippten liefert (Punkt 265 der
+          Werkbank). */}
+      <Tastaturplatz>
       <View style={styles.sheet}>
         <View style={styles.sheetHead}>
           <Text style={styles.sheetTitle}>Radio</Text>
@@ -856,7 +868,10 @@ export function RadioSheet({
         {hinweis ? <Text style={styles.warnHint}>{hinweis}</Text> : null}
         {note ? <Text style={styles.hint}>{note}</Text> : null}
 
-        <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: 40 }}
+          keyboardShouldPersistTaps="handled"
+        >
           {eigene.length === 0 && stations.length === 0 ? (
             <Text style={styles.hint}>
               Noch kein Sender eingerichtet. Tippe oben einen Namen ein – was
@@ -922,6 +937,7 @@ export function RadioSheet({
           ))}
         </ScrollView>
       </View>
+      </Tastaturplatz>
     </Modal>
   );
 }

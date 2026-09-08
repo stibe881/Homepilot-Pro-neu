@@ -16,6 +16,7 @@ import { hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { Fehlschlag, Laedt, Leer } from '../components/Zustand';
+import { Tastaturplatz } from '../components/Tastaturplatz';
 import { useTakt } from '../hooks/useTakt';
 import { einladungFrist, passwortHinweis } from '../lib/einladung';
 import {
@@ -645,6 +646,10 @@ export function PersonenScreen({
         animationType="fade"
         onRequestClose={kopplungZu}
       >
+        {/* Das Passwort für den Einladungslink wird getippt, und sein Feld
+            liegt weit unten im Blatt - ohne das läge die Tastatur darauf
+            (Punkt 265 der Werkbank). */}
+        <Tastaturplatz>
         <Pressable style={styles.qrHintergrund} onPress={kopplungZu}>
           <Pressable style={styles.qrBlatt} onPress={() => {}}>
             <Text style={styles.qrTitel}>Zugang für {kopplung?.name}</Text>
@@ -750,6 +755,7 @@ export function PersonenScreen({
             </Pressable>
           </Pressable>
         </Pressable>
+        </Tastaturplatz>
       </Modal>
     </Card>
 
