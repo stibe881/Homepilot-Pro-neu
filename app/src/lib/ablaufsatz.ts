@@ -72,6 +72,8 @@ function triggerSatz(trigger: Roh, entities: Entity[]): string {
       return presenceSatz(trigger.person, trigger.event, trigger.zone);
     case 'weather_warning':
       return wetterwarnungSatz(trigger.min_severity);
+    case 'power_restore':
+      return 'der Strom zurückkommt';
     default: {
       // Ortsauslöser lesen sich als Satz, nicht als Zustandswechsel:
       // «Livia verlässt Schule» statt «geofence.livia → ändert sich».

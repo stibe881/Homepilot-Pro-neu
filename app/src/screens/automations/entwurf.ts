@@ -571,6 +571,7 @@ export type TriggerKind =
   | 'geofence'
   | 'presence'
   | 'weather_warning'
+  | 'power_restore'
   | 'availability';
 /**
  * Ein Handgriff unter einer Nachricht.
@@ -628,6 +629,9 @@ export interface TriggerDraft {
   calendarContains: string;
   calendarEvent: 'start' | 'end';
   calendarBefore: string;
+  /** «Nach Stromausfall»: Sekunden, bis der Ablauf loslegt. Leer heisst
+   *  die Voreinstellung des Hubs. */
+  restoreDelay: string;
   /** Anwesenheits-Auslöser (Punkt 252): wessen Kommen oder Gehen. Die
    *  Zone steckt in `ortId` - dasselbe Feld wie beim Ortsauslöser, denn
    *  es ist dieselbe Frage «wo?». Anders als der Ortsauslöser feuert er
@@ -828,6 +832,7 @@ export const EMPTY_TRIGGER: TriggerDraft = {
   calendarContains: '',
   calendarEvent: 'start',
   calendarBefore: '',
+  restoreDelay: '',
   presencePerson: '',
   presenceEvent: 'arrives',
   minSeverity: '',
@@ -980,6 +985,16 @@ export function triggerToConfig(t: TriggerDraft): BausteinConfig {
       ...(t.entityId ? { entity_id: t.entityId } : {}),
     };
   }
+  if (t.kind === 'power_restore') {
+    // Kein Gerät, keine Uhrzeit: Der Auslöser hat nur einen Fall - der
+    // Hub ist nach einem Stromausfall hochgefahren. Die Verzögerung
+    // steht trotzdem im Ablauf, weil sie von Haus zu Haus verschieden
+    // ist: Bis Switch, Accesspoint und Bridge stehen, dauert es.
+    const trigger: BausteinConfig = { type: 'power_restore' };
+    const warten = Number(t.restoreDelay);
+    if (Number.isFinite(warten) && warten > 0) trigger.delay = warten;
+    return trigger;
+  }
   const hold = Math.max(0, Number(t.forMinutes) || 0) * 60;
   if (t.kind === 'availability') {
     const trigger: { type: string; entity_id: string; to: boolean; for?: number } = {
@@ -1044,6 +1059,8 @@ export function triggerFromConfig(t: BausteinConfig): TriggerDraft {
           ? 'presence'
         : t?.type === 'weather_warning'
           ? 'weather_warning'
+        : t?.type === 'power_restore'
+          ? 'power_restore'
         : t?.type === 'sun'
           ? 'sun'
           : t?.type === 'interval'
@@ -1089,6 +1106,7 @@ export function triggerFromConfig(t: BausteinConfig): TriggerDraft {
     calendarContains: String(t?.contains ?? ''),
     calendarEvent: t?.event === 'end' ? 'end' : 'start',
     calendarBefore: t?.minutes_before ? String(t.minutes_before) : '',
+    restoreDelay: t?.type === 'power_restore' && t?.delay ? String(t.delay) : '',
   };
 }
 

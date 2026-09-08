@@ -97,11 +97,6 @@ class HubConfig:
     # Live-Bild: Adressen von mediamtx, falls es nicht neben dem Hub läuft
     # ({mediamtx_api, mediamtx_hls}). Leer = die Standardadressen probieren.
     streaming: dict[str, Any] = field(default_factory=dict)
-    # Nach einem Stromausfall: {lights_on: [...], delay: 90}. Kommt der
-    # Strom zurück, gehen die meisten Lampen von selbst an - hier steht,
-    # welche brennen bleiben sollen. Ohne Block passiert nichts
-    # (core/stromrueckkehr.py).
-    power_restore: dict[str, Any] = field(default_factory=dict)
     # Push-Nachrichten: {public_url: "https://haus.example.ch"} – die von
     # aussen erreichbare Adresse des Hubs. Nur damit kann eine Alarm-Meldung
     # das Kamerabild mitbringen; das Telefon holt es beim Anzeigen selbst,
@@ -339,10 +334,6 @@ def load_config(path: str | Path) -> HubConfig:
     if not isinstance(location, dict):
         raise ConfigError("'location' muss ein Mapping sein (latitude, longitude)")
 
-    power_restore = raw.get("power_restore") or {}
-    if not isinstance(power_restore, dict):
-        raise ConfigError("'power_restore' muss ein Mapping sein (lights_on, delay)")
-
     guest_wifi = raw.get("guest_wifi") or {}
     if not isinstance(guest_wifi, dict):
         raise ConfigError("'guest_wifi' muss ein Mapping sein (ssid, password)")
@@ -403,7 +394,6 @@ def load_config(path: str | Path) -> HubConfig:
         scenes=scenes,
         users=users,
         streaming=streaming,
-        power_restore=power_restore,
         energy=energy,
         location=location,
         guest_wifi=guest_wifi,

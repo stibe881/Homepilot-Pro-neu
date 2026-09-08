@@ -1,4 +1,4 @@
-"""Nach dem Stromausfall: nur das Licht, das man vorgegeben hat.
+"""Nach dem Stromausfall: Was der Hub darüber weiss.
 
 Kommt der Strom zurück, gehen die meisten Lampen von selbst an - das
 entscheidet das Leuchtmittel, nicht der Hub, denn der war zu diesem
@@ -12,19 +12,21 @@ noch loswerden will, stellt es am Gerät ein (bei Hue heisst es
 Einschaltwert). Das hier ist das Netz darunter - es gilt für jede
 Anbindung und auch für die Lampe, die diese Einstellung nicht kennt.
 
-**Woran der Hub den Stromausfall erkennt.** Nicht an der Uhr: Ein
-Update dauert auch ein paar Minuten, und danach dürfen die Lichter
-nicht ausgehen. Erkannt wird am *sauberen* Ende: Wird der Hub geordnet
-beendet, hinterlässt er einen Vermerk. Fehlt er beim nächsten Start,
-ist der Dienst mitten im Lauf gestorben - Stromausfall, Stecker,
-abgestürzter Rechner. Beim allerersten Start fehlt er auch; deshalb
-zählt nur ein ausdrücklich als «läuft» hinterlassener Vermerk als
-Kaltstart. Sonst räumte ein frisch eingerichteter Hub beim ersten
-Hochfahren das Haus ab.
+**Was aufgeräumt wird, steht in einem Ablauf**, nicht in der
+config.yaml: Der Auslöser «Nach Stromausfall» (core/automation.py)
+lässt sich mit allem verbinden, was ein Ablauf sonst auch kann - eine
+Szene, ein Dutzend einzelner Lampen, eine Nachricht. Hier stehen nur
+die Zahlen und die eine Frage, die der Hub selbst beantworten muss: Ist
+er überhaupt nach einem Stromausfall hochgefahren?
 
-**Nur Licht.** Nach einem Stromausfall wahllos Geräte abzuschalten wäre
-gefährlich: Am selben Strang hängen Gefriertruhe, Pumpe, Router. Licht
-ist die einzige Art, bei der «aus» nie schadet.
+**Woran er das erkennt.** Nicht an der Uhr: Ein Update dauert auch ein
+paar Minuten, und danach dürfen die Lichter nicht ausgehen. Erkannt
+wird am *sauberen* Ende: Wird der Hub geordnet beendet, hinterlässt er
+einen Vermerk. Fehlt er beim nächsten Start, ist der Dienst mitten im
+Lauf gestorben - Stromausfall, Stecker, abgestürzter Rechner. Beim
+allerersten Start fehlt er auch; deshalb zählt nur ein ausdrücklich als
+«läuft» hinterlassener Vermerk als Kaltstart. Sonst räumte ein frisch
+eingerichteter Hub beim ersten Hochfahren das Haus ab.
 """
 
 from __future__ import annotations
@@ -65,24 +67,17 @@ def kaltstart(vermerk: Any) -> bool:
     return vermerk.get("state") == "laeuft"
 
 
-def gewuenschte_lichter(config: Any) -> list[str]:
-    """Welche Lichter nach dem Stromausfall brennen sollen (rein, testbar)."""
-    roh = (config or {}).get("lights_on")
-    if isinstance(roh, str):
-        roh = [roh]
-    if not isinstance(roh, list):
-        return []
-    return [str(eintrag) for eintrag in roh if str(eintrag).strip()]
-
-
 def wartezeit(config: Any) -> int:
-    """Wie lange gewartet wird, bevor aufgeräumt wird (rein, testbar)."""
+    """Wie lange nach dem Start gewartet wird (rein, testbar).
+
+    Sofort wäre zu früh - die Anbindungen stehen noch nicht -, eine
+    Stunde zu spät: Dann ist längst jemand durchs Haus gegangen und hat
+    von Hand gelöscht.
+    """
     try:
         sekunden = int((config or {}).get("delay", WARTEN_SEKUNDEN))
     except (TypeError, ValueError):
         return WARTEN_SEKUNDEN
-    # Sofort wäre zu früh (die Anbindungen stehen noch nicht), eine
-    # Stunde zu spät - dann ist längst jemand durchs Haus gegangen.
     return max(5, min(3600, sekunden))
 
 
@@ -107,43 +102,15 @@ def fenster(config: Any) -> int:
         return FENSTER_SEKUNDEN
 
 
-def zu_stellen(
-    lichter: list[tuple[str, str, bool]],
-    gewuenscht: list[str],
-    erledigt: set[str] | None = None,
-) -> list[tuple[str, str]]:
-    """Welche Befehle in dieser Runde zu schicken sind (rein, testbar).
+def wer_fehlt(ziele: list[tuple[str, bool]]) -> set[str]:
+    """Welche Geräte des Ablaufs noch nicht erreichbar sind (rein, testbar).
 
-    Hinein die Lichter als (Kennung, Zustand, erreichbar), heraus die
-    Liste (Kennung, Befehl).
+    Der Kniff am ganzen Aufräumen: Ein Haus kommt nicht auf einmal
+    zurück. Die Lampe hat Strom, lange bevor Switch, Accesspoint und
+    Bridge wieder stehen - ein Befehl an sie verpufft, und sie brennt
+    weiter. Der Ablauf läuft deshalb noch einmal, sobald eines der
+    fehlenden Geräte auftaucht.
 
-    Drei Regeln, und jede hat ihren Grund:
-
-    **Nicht erreichbar heisst überspringen, nicht aufgeben.** Nach einem
-    Stromausfall hat die Lampe Strom, lange bevor der Accesspoint wieder
-    steht - ein Befehl an sie verpufft, und sie brennt weiter. Sie kommt
-    in einer der nächsten Runden dran.
-
-    **Geschickt wird nur, was etwas ändert.** Eine Lampe, die ohnehin
-    aus ist, bekommt kein zweites «aus» - manche Bridge quittiert einen
-    Schwung Befehle mit einer Denkpause, und dann kommt der eine, auf
-    den es ankommt, zu spät.
-
-    **Und jede Lampe nur einmal.** ``erledigt`` sind die schon
-    gestellten. Sonst wäre der Hub zehn Minuten lang ein Gegner: Wer im
-    Dunkeln Licht macht, während noch aufgeräumt wird, bekäme es sofort
-    wieder ausgeschaltet.
+    Eine leere Menge heisst «alle da» und beendet das Nachfassen.
     """
-    soll = set(gewuenscht)
-    fertig = erledigt or set()
-    befehle: list[tuple[str, str]] = []
-    for entity_id, zustand, erreichbar in lichter:
-        if not erreichbar or entity_id in fertig:
-            continue
-        an = str(zustand).lower() == "on"
-        if entity_id in soll:
-            if not an:
-                befehle.append((entity_id, "turn_on"))
-        elif an:
-            befehle.append((entity_id, "turn_off"))
-    return befehle
+    return {entity_id for entity_id, erreichbar in ziele if not erreichbar}

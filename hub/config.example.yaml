@@ -66,29 +66,11 @@ supabase:
 #   auth: open
 #   portal_password: "${GAST_PORTAL_PASSWORT}"   # weglassen bei blossem Bestätigen
 
-# Nach einem Stromausfall: Welche Lichter brennen sollen, wenn der Strom
-# zurückkommt. Die meisten Lampen gehen von selbst an - das entscheidet
-# das Leuchtmittel, nicht der Hub (der war ja auch stromlos). Steht
-# dieser Block, räumt der Hub nach dem Hochfahren auf: Alles Licht aus
-# ausser dem hier Genannten.
-#
-# Erkannt wird der Stromausfall am fehlenden sauberen Ende des vorigen
-# Laufs - ein Update dauert auch ein paar Minuten, danach bleiben die
-# Lichter, wie sie sind.
-#
-# Aufgeräumt wird in Runden, nicht einmal: Nach einem Stromausfall hat
-# die Lampe Strom, lange bevor Switch, Accesspoint und Bridge wieder
-# stehen. Jede Lampe wird höchstens einmal gestellt - wer während des
-# Aufräumens von Hand Licht macht, behält es.
-#
-# Den Blitz beim Zurückkommen verhindert das nicht; dafür gibt es die
-# Einstellung am Gerät (Hue: «Verhalten bei Stromrückkehr»). Das hier
-# ist das Netz darunter.
-# power_restore:
-#   lights_on: [hue.flur]   # diese sollen brennen; alles andere Licht geht aus
-#   delay: 20               # Sekunden bis zur ersten Runde
-#   interval: 15            # Abstand der Runden
-#   window: 600             # so lange wird nachgesehen
+# Nach einem Stromausfall gehen die meisten Lampen von selbst an - das
+# entscheidet das Leuchtmittel, nicht der Hub (der war ja auch stromlos).
+# Was danach gelten soll, steht in einem Ablauf: Auslöser «Nach
+# Stromausfall» in der App, dazu die Geräte, die aus- bzw. angehen
+# sollen. Hier braucht es dafür nichts (core/stromrueckkehr.py).
 
 # Standort für Sonnenauf-/-untergangs-Trigger (Storen, adaptives Licht).
 # Ohne diesen Abschnitt wird Zell LU angenommen.

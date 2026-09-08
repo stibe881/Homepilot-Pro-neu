@@ -32,55 +32,19 @@ def test_ohne_vermerk_wird_nichts_abgeraeumt():
     assert stromrueckkehr.kaltstart("laeuft") is False
 
 
-def test_gestellt_wird_nur_was_sich_aendert():
-    """Eine Lampe, die ohnehin aus ist, bekommt kein zweites «aus».
+def test_wer_noch_fehlt_haelt_das_nachfassen_am_leben():
+    """Der Kniff am ganzen Aufräumen.
 
-    Nicht aus Sparsamkeit: Manche Bridge quittiert einen Schwung Befehle
-    mit einer Denkpause, und dann kommt der eine, auf den es ankommt, zu
-    spät.
+    Ein Haus kommt nicht auf einmal zurück: Die Lampe hat Strom, lange
+    bevor Switch, Accesspoint und Bridge wieder stehen. Ein Befehl an
+    sie verpufft - und sie brennt weiter.
     """
-    lichter = [("hue.flur", "on", True), ("hue.bad", "off", True), ("hue.stube", "on", True)]
-    assert stromrueckkehr.zu_stellen(lichter, ["hue.stube"]) == [
-        ("hue.flur", "turn_off")
-    ]
-
-
-def test_das_vorgegebene_licht_geht_an_wenn_es_aus_blieb():
-    """Manche Lampe bleibt nach dem Stromausfall dunkel - dann ist sie
-    der eine Fall, in dem der Hub einschaltet."""
-    assert stromrueckkehr.zu_stellen([("hue.stube", "off", True)], ["hue.stube"]) == [
-        ("hue.stube", "turn_on")
-    ]
-
-
-def test_ohne_vorgabe_geht_alles_licht_aus():
-    lichter = [("hue.flur", "on", True), ("hue.bad", "on", True)]
-    assert stromrueckkehr.zu_stellen(lichter, []) == [
-        ("hue.flur", "turn_off"),
-        ("hue.bad", "turn_off"),
-    ]
-
-
-def test_wer_noch_nicht_erreichbar_ist_kommt_spaeter_dran():
-    """Der eigentliche Fall nach einem Stromausfall.
-
-    Die Lampe hat Strom, lange bevor Accesspoint und Bridge wieder
-    stehen. Ein Befehl an sie verpufft - und sie brennt weiter. Also
-    überspringen, nicht aufgeben.
-    """
-    assert stromrueckkehr.zu_stellen([("hue.flur", "on", False)], []) == []
-    # Eine Runde später ist sie da.
-    assert stromrueckkehr.zu_stellen([("hue.flur", "on", True)], []) == [
-        ("hue.flur", "turn_off")
-    ]
-
-
-def test_jede_lampe_nur_einmal():
-    """Sonst wäre der Hub zehn Minuten lang ein Gegner: Wer im Dunkeln
-    Licht macht, während noch aufgeräumt wird, bekäme es sofort wieder
-    ausgeschaltet."""
-    lichter = [("hue.flur", "on", True)]
-    assert stromrueckkehr.zu_stellen(lichter, [], {"hue.flur"}) == []
+    assert stromrueckkehr.wer_fehlt([("hue.flur", False), ("hue.bad", True)]) == {
+        "hue.flur"
+    }
+    # Alle da: Das Nachfassen hat sein Ende erreicht.
+    assert stromrueckkehr.wer_fehlt([("hue.flur", True)]) == set()
+    assert stromrueckkehr.wer_fehlt([]) == set()
 
 
 def test_takt_und_fenster_bleiben_in_vernuenftigen_grenzen():
@@ -102,14 +66,6 @@ def test_die_wartezeit_bleibt_in_vernuenftigen_grenzen():
     assert stromrueckkehr.wartezeit({"delay": 0}) == 5
     assert stromrueckkehr.wartezeit({"delay": 99999}) == 3600
     assert stromrueckkehr.wartezeit({"delay": "gleich"}) == stromrueckkehr.WARTEN_SEKUNDEN
-
-
-def test_eine_einzelne_lampe_darf_ohne_liste_dastehen():
-    assert stromrueckkehr.gewuenschte_lichter({"lights_on": "hue.stube"}) == [
-        "hue.stube"
-    ]
-    assert stromrueckkehr.gewuenschte_lichter({}) == []
-    assert stromrueckkehr.gewuenschte_lichter(None) == []
 
 
 async def test_ein_geordnetes_ende_hinterlaesst_seinen_vermerk(tmp_path):
@@ -160,94 +116,136 @@ def test_nur_licht_wird_angefasst():
     assert EntityKind.LIGHT == "light"
 
 
-async def test_der_hub_raeumt_nach_dem_stromausfall_wirklich_auf(tmp_path, monkeypatch):
-    """Der ganze Weg, nicht nur die Rechnung.
+def ablauf(entity_id: str) -> dict:
+    """Ein Ablauf, wie ihn jemand im Editor anlegt: «Strom zurück → aus»."""
+    return {
+        "id": "strom",
+        "alias": "Nach Stromausfall",
+        "trigger": [{"type": "power_restore", "delay": 0, "interval": 0}],
+        "action": [
+            {"type": "command", "entity_id": entity_id, "command": "turn_off"}
+        ],
+    }
 
-    Die reinen Funktionen liessen sich prüfen, ohne dass die Schleife im
-    Hub je lief - und genau dort steckte beim Bauen ein fehlender Import,
-    den erst ruff fand. Ein Test, der den Weg nicht geht, deckt ihn nicht.
-    """
-    pfad = str(tmp_path / "hub.json")
+
+async def kalt_gestartet(pfad: str, **kwargs) -> Hub:
+    """Einen Hub hochfahren, der einen Stromausfall hinter sich hat."""
     vorlauf = Hub(make_config(data_file=pfad))
     await vorlauf.start()
     vorlauf.data.flush()
+    # Kein stop() - so sieht ein Stromausfall aus.
     for name in ("_backup_task", "_flush_task", "_erinnerungs_task", "_live_task",
-                 "_karten_task", "_strom_task"):
+                 "_karten_task"):
         aufgabe = getattr(vorlauf, name, None)
         if aufgabe is not None:
             aufgabe.cancel()
+    await vorlauf.automations.stop()
     await vorlauf.integrations.teardown_all()
+    return Hub(make_config(data_file=pfad, **kwargs))
 
-    # Der Demo-Hub bringt ein Licht mit; es soll ausgehen.
-    hub = Hub(
-        make_config(
-            data_file=pfad,
-            power_restore={"lights_on": [], "delay": 5},
-        )
+
+async def test_der_ablauf_laeuft_nach_dem_stromausfall(tmp_path, monkeypatch):
+    """Der ganze Weg: Kaltstart erkannt, Ablauf ausgelöst, Licht aus."""
+    pfad = str(tmp_path / "hub.json")
+    # Erst wissen, wie das Licht heisst.
+    probe = Hub(make_config())
+    await probe.start()
+    licht_id = next(
+        entity.id for entity in probe.registry.all() if entity.kind == EntityKind.LIGHT
     )
+    await probe.stop()
+
+    # Ohne Wartezeit - die Untergrenze von fünf Sekunden ist für den
+    # Betrieb richtig, im Test nur Leerlauf.
+    monkeypatch.setattr(stromrueckkehr, "wartezeit", lambda _t: 0)
+    hub = await kalt_gestartet(pfad, automations=[ablauf(licht_id)])
     await hub.start()
     try:
         assert hub._kaltstart is True
-        licht = next(
-            entity for entity in hub.registry.all() if entity.kind == EntityKind.LIGHT
-        )
-        await hub.integrations.dispatch_command(licht.id, "turn_on", {})
-        assert hub.registry.get(licht.id).state.get("state") == "on"
-
-        # Nicht die fünf Sekunden abwarten - die Schleife selbst aufrufen.
-        hub._strom_task.cancel()
-        monkeypatch.setattr(stromrueckkehr, "wartezeit", lambda _c: 0)
-        await hub._stromrueckkehr()
-
-        assert hub.registry.get(licht.id).state.get("state") == "off"
+        await hub.integrations.dispatch_command(licht_id, "turn_on", {})
+        assert hub.registry.get(licht_id).state.get("state") == "on"
+        for _ in range(50):
+            await asyncio.sleep(0.01)
+            if hub.registry.get(licht_id).state.get("state") == "off":
+                break
+        assert hub.registry.get(licht_id).state.get("state") == "off"
     finally:
         await hub.stop()
 
 
-async def test_die_spaet_erwachte_lampe_wird_in_einer_spaeteren_runde_gestellt(
+async def test_ohne_stromausfall_bleibt_der_ablauf_still(tmp_path, monkeypatch):
+    """Ein Update dauert auch ein paar Minuten - danach dürfen die
+    Lichter nicht ausgehen."""
+    pfad = str(tmp_path / "hub.json")
+    probe = Hub(make_config())
+    await probe.start()
+    licht_id = next(
+        entity.id for entity in probe.registry.all() if entity.kind == EntityKind.LIGHT
+    )
+    await probe.stop()
+
+    # Geordnet beendet: kein Kaltstart.
+    sauber = Hub(make_config(data_file=pfad))
+    await sauber.start()
+    await sauber.stop()
+
+    monkeypatch.setattr(stromrueckkehr, "wartezeit", lambda _t: 0)
+    hub = Hub(make_config(data_file=pfad, automations=[ablauf(licht_id)]))
+    await hub.start()
+    try:
+        assert hub._kaltstart is False
+        await hub.integrations.dispatch_command(licht_id, "turn_on", {})
+        for _ in range(30):
+            await asyncio.sleep(0.01)
+        assert hub.registry.get(licht_id).state.get("state") == "on"
+    finally:
+        await hub.stop()
+
+
+async def test_die_spaet_erwachte_lampe_bekommt_ihre_zweite_gelegenheit(
     tmp_path, monkeypatch
 ):
     """Der Fall, um den es eigentlich geht.
 
     Nach dem Stromausfall hat die Hue-Lampe Strom, lange bevor
-    Accesspoint und Bridge wieder stehen. In der ersten Runde ist sie
-    «nicht erreichbar» - eine einzelne Aufräumrunde hätte sie brennen
+    Accesspoint und Bridge wieder stehen. Beim ersten Lauf ist sie
+    «nicht erreichbar» - ein einziger Durchgang hätte sie brennen
     lassen.
     """
     pfad = str(tmp_path / "hub.json")
-    vorlauf = Hub(make_config(data_file=pfad))
-    await vorlauf.start()
-    vorlauf.data.flush()
-    for name in ("_backup_task", "_flush_task", "_erinnerungs_task", "_live_task",
-                 "_karten_task", "_strom_task"):
-        aufgabe = getattr(vorlauf, name, None)
-        if aufgabe is not None:
-            aufgabe.cancel()
-    await vorlauf.integrations.teardown_all()
+    probe = Hub(make_config())
+    await probe.start()
+    licht_id = next(
+        entity.id for entity in probe.registry.all() if entity.kind == EntityKind.LIGHT
+    )
+    await probe.stop()
 
-    hub = Hub(make_config(data_file=pfad, power_restore={"lights_on": []}))
+    monkeypatch.setattr(stromrueckkehr, "wartezeit", lambda _t: 0)
+    monkeypatch.setattr(stromrueckkehr, "takt", lambda _t: 0)
+    hub = await kalt_gestartet(pfad, automations=[ablauf(licht_id)])
     await hub.start()
-    hub._strom_task.cancel()
     try:
-        licht = next(
-            entity for entity in hub.registry.all() if entity.kind == EntityKind.LIGHT
-        )
-        await hub.integrations.dispatch_command(licht.id, "turn_on", {})
-        # Runde eins: Die Lampe brennt, ist aber noch nicht erreichbar.
-        await hub.registry.update_state(licht.id, {}, available=False)
+        await hub.integrations.dispatch_command(licht_id, "turn_on", {})
+        # Der erste Lauf trifft eine Lampe, die noch nicht am Netz ist.
+        await hub.registry.update_state(licht_id, {}, available=False)
+        for _ in range(20):
+            await asyncio.sleep(0.01)
 
-        # Ohne Wartezeiten - und über monkeypatch, damit die echten
-        # Werte nach dem Test wieder stehen: Ein Test, der sie liegen
-        # lässt, verändert die Nachbarn.
-        monkeypatch.setattr(stromrueckkehr, "wartezeit", lambda _c: 0)
-        monkeypatch.setattr(stromrueckkehr, "takt", lambda _c: 0)
-        aufgabe = asyncio.create_task(hub._stromrueckkehr())
-        await asyncio.sleep(0)
-        assert hub.registry.get(licht.id).state.get("state") == "on"
+        # In Wirklichkeit verpufft der Befehl an einer Lampe ohne Netz,
+        # und sie brennt weiter. Die Demo-Anbindung antwortet auch als
+        # «nicht erreichbar» - also stellen wir den echten Ausgang von
+        # Hand her, sonst prüfte der Test die Attrappe statt das
+        # Nachfassen.
+        await hub.integrations.dispatch_command(licht_id, "turn_on", {})
+        await hub.registry.update_state(licht_id, {}, available=False)
+        assert hub.registry.get(licht_id).state.get("state") == "on"
 
-        # Und jetzt kommt das Netz zurück.
-        await hub.registry.update_state(licht.id, {}, available=True)
-        await aufgabe
-        assert hub.registry.get(licht.id).state.get("state") == "off"
+        # Und jetzt kommt das Netz zurück - der Ablauf fasst nach.
+        await hub.registry.update_state(licht_id, {}, available=True)
+        for _ in range(50):
+            await asyncio.sleep(0.01)
+            if hub.registry.get(licht_id).state.get("state") == "off":
+                break
+        assert hub.registry.get(licht_id).state.get("state") == "off"
     finally:
         await hub.stop()
