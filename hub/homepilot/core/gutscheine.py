@@ -26,6 +26,8 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+from . import dateien
+
 #: Sammlung im Datenspeicher (``hub.data``).
 KEY = "family_vouchers"
 
@@ -208,6 +210,15 @@ def bereinigen(entry: dict[str, Any]) -> dict[str, Any]:
         if isinstance(transactions, list)
         else []
     )
+
+    # Die angehängte Datei (Punkt 266 der Werkbank): Was keine Adresse
+    # hat, ist keine - der Block fliegt raus und wird null, statt als
+    # halbe Wahrheit am Gutschein zu bleiben. Das ist zugleich die
+    # Stelle, an der ein data-URI hängen bliebe, wenn das Ablegen nicht
+    # stattgefunden hat: Er käme sonst in die Datendatei, und genau
+    # davor sollen die Dateien ja bewahren (siehe core/dateien.py).
+    if "file" in sauber:
+        sauber["file"] = dateien.bereinigen(sauber.get("file"))
     return sauber
 
 
@@ -323,10 +334,33 @@ def empfaenger(entry: dict[str, Any]) -> str | None:
 BUCH_OHNE = frozenset({"pin", "transactions", "image_url", "shared"})
 
 
+def _buchzeile(row: dict[str, Any]) -> dict[str, Any]:
+    """Ein Gutschein, wie er auf der Druckseite steht (rein, testbar).
+
+    Die angehängte Datei (Punkt 266) wird auf ihren Namen eingedampft.
+    Der Name darf mit: «Gutschein Brack.pdf» sagt dem, der die Seite in
+    zehn Jahren liest, dass es zu diesem Eintrag ein PDF gab - und mit
+    dem Namen findet er es in der Sicherung oder im Postfach wieder.
+    Die Adresse dagegen führt in einen Hub, und der ist an dem Tag, für
+    den das Buch gemacht ist, gerade nicht mehr da; gedruckt wäre sie
+    eine Zeile Unsinn. Deshalb nicht in BUCH_OHNE, sondern gekürzt.
+    """
+    schmal = {k: v for k, v in row.items() if k not in BUCH_OHNE}
+    anhang = schmal.get("file")
+    if isinstance(anhang, dict):
+        schmal["file"] = str(anhang.get("name") or "").strip()
+    elif not isinstance(anhang, str):
+        # Kein Anhang (None) und nichts Lesbares kommt weg. Ein blosser
+        # Name bleibt stehen: So lässt sich dieselbe Zeile zweimal durchs
+        # Sieb schicken, ohne dass sie beim zweiten Mal leer wird.
+        schmal.pop("file", None)
+    return schmal
+
+
 def fuers_buch(rows: Any) -> list[dict[str, Any]]:
     """Die Gutscheine, wie sie ins Familienbuch dürfen (rein, testbar)."""
     return [
-        {k: v for k, v in row.items() if k not in BUCH_OHNE}
+        _buchzeile(row)
         for row in rows or []
         if isinstance(row, dict) and not ist_privat(row)
     ]

@@ -14,6 +14,11 @@ und kein veralteter Cache.
 
 Hier steht nur das Rechnen; wer schreibt und ausliefert, ist
 api/routes/family.py.
+
+Ein Gutschein trägt seit Punkt 266 zusätzlich eine Datei (meist das PDF
+aus der Mail). Die liegt in core/dateien.py – gleiche Bauart, eigene
+Typentabelle und eigene Obergrenze; das Zerlegen des data-URI ist hier
+geblieben und wird von dort mitbenutzt.
 """
 
 from __future__ import annotations
@@ -55,6 +60,36 @@ DATA_URI = re.compile(r"^data:([\w/+.-]+);base64,(.*)$", re.S)
 SAFE_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
+def data_uri_teile(value: Any) -> tuple[str, str] | None:
+    """«data:image/jpeg;base64,…» → (Typ, base64-Rumpf) (rein, testbar).
+
+    Der Teil, den Bilder und Dateien gemeinsam haben – core/dateien.py
+    ist der Zwilling dieser Datei und ruft hier herüber, statt die
+    gleiche Zerlegung ein zweites Mal hinzuschreiben. Was erlaubt ist
+    und wie gross es werden darf, entscheidet jeder für sich; beides ist
+    dort anders.
+
+    None bei allem, was kein base64-data-URI ist – auch bei einer schon
+    fertigen Adresse.
+    """
+    treffer = DATA_URI.match(str(value or "").strip())
+    if not treffer:
+        return None
+    return treffer.group(1).lower(), treffer.group(2)
+
+
+def entschluessle(rumpf: str) -> bytes | None:
+    """Den base64-Rumpf eines data-URI in Bytes (rein, testbar).
+
+    None, wenn das kein base64 war. Auch das teilen sich Bilder und
+    Dateien – siehe data_uri_teile().
+    """
+    try:
+        return base64.b64decode(rumpf, validate=False)
+    except (binascii.Error, ValueError):
+        return None
+
+
 def decode_data_uri(value: Any) -> tuple[bytes, str] | None:
     """«data:image/jpeg;base64,…» → (Bytes, Endung) (rein, testbar).
 
@@ -62,17 +97,14 @@ def decode_data_uri(value: Any) -> tuple[bytes, str] | None:
     lässt sich dieselbe Funktion bei jedem Speichern aufrufen, ohne
     vorher zu unterscheiden.
     """
-    text = str(value or "")
-    treffer = DATA_URI.match(text.strip())
-    if not treffer:
+    teile = data_uri_teile(value)
+    if teile is None:
         return None
-    endung = TYPES.get(treffer.group(1).lower())
+    typ, rumpf = teile
+    endung = TYPES.get(typ)
     if endung is None:
         return None
-    try:
-        roh = base64.b64decode(treffer.group(2), validate=False)
-    except (binascii.Error, ValueError):
-        return None
+    roh = entschluessle(rumpf)
     if not roh or len(roh) > MAX_BYTES:
         return None
     return roh, endung
