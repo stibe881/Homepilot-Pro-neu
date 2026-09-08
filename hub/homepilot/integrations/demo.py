@@ -191,6 +191,57 @@ class DemoIntegration(Integration):
             state={"state": "idle", "scene": "Entspannen"},
             commands=["activate"],
         )
+        # Ein Kalender und eine Wetterwarnung. Nicht weil man sie
+        # schalten könnte, sondern weil die Begrüssungskarte der
+        # Startseite ohne sie fast leer ist - Uhr, Datum, Chips. Genau
+        # ihre beiden Zeilen sind aber die, die zu lang werden und
+        # deshalb durchwandern (app/src/lib/lauftext.ts), und ein
+        # Prüfstand, der die Zeile gar nicht erst zeichnet, misst nichts.
+        #
+        # Die Texte sind mit Absicht zu lang: Sie stammen aus dem
+        # gemeldeten Fall («… / finja hüten 9.15, Si…») und aus einer
+        # echten Unwetterwarnung.
+        heute = time.localtime()
+        def um(stunde: int, minute: int) -> str:
+            return time.strftime(f"%Y-%m-%dT{stunde:02d}:{minute:02d}:00", heute)
+
+        await self.add_entity(
+            "calendar_family",
+            EntityKind.CALENDAR,
+            "Familie",
+            state={
+                "state": "Chrabbelzwergli Bine + Aline / finja hüten 9.15, Sinja bringen",
+                "next_start": um(8, 50),
+                "events": [
+                    {
+                        "summary": (
+                            "Chrabbelzwergli Bine + Aline / finja hüten 9.15, "
+                            "Sinja bringen"
+                        ),
+                        "start": um(8, 50),
+                        "end": um(11, 0),
+                        "location": "Zell LU",
+                    },
+                    {
+                        "summary": "Pia hat Geburtstag",
+                        "start": um(0, 0),
+                        "all_day": True,
+                        "birthday": True,
+                    },
+                ],
+            },
+        )
+        await self.add_entity(
+            "weather_alerts",
+            EntityKind.ALERT,
+            "Wetterlage",
+            state={
+                "state": "alert",
+                "count": 1,
+                "event": "Gewitter",
+                "headline": "Verbreitet heftige Gewitter möglich, schwer, bis 22:00 Uhr",
+            },
+        )
         self.start_task(self._temperature_drift())
 
     async def _temperature_drift(self) -> None:

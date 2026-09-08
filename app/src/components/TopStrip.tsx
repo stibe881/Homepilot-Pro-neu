@@ -42,6 +42,7 @@ import { useEscape } from '../hooks/useEscape';
 import { useJetzt } from '../hooks/useRestzeit';
 import { Colors, radius, type, useColors } from '../theme';
 import { warnText, warnZahl, warnZahlSatz } from '../lib/warnzeile';
+import { Lauftext } from './Lauftext';
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
   connected: 'verbunden',
@@ -997,11 +998,18 @@ export function TopStrip({
                   disabled={!onKalender && !event}
                   accessibilityRole="button"
                   accessibilityLabel="Alle Termine"
+                  style={styles.karteZeilenGriff}
                 >
-                  <Text style={styles.karteZeile} numberOfLines={1}>
-                    <Ionicons name="calendar-outline" size={12} color={colors.inkSoft} />{' '}
+                  {/* Wandert durch, wenn der Tag mehr Termine hat, als
+                      auf die Zeile passen - genau der Fall aus dem Haus:
+                      «… / finja hüten 9.15, Si…». Siehe lib/lauftext.ts. */}
+                  <Lauftext
+                    style={styles.karteZeile}
+                    icon="calendar-outline"
+                    iconFarbe={colors.inkSoft}
+                  >
                     {termin}
-                  </Text>
+                  </Lauftext>
                 </Pressable>
               ) : null}
               {geburtstag ? (
@@ -1010,11 +1018,15 @@ export function TopStrip({
                   disabled={!onKalender}
                   accessibilityRole="button"
                   accessibilityLabel="Alle Geburtstage"
+                  style={styles.karteZeilenGriff}
                 >
-                  <Text style={styles.karteZeile} numberOfLines={1}>
-                    <Ionicons name="gift-outline" size={12} color={colors.inkSoft} />{' '}
+                  <Lauftext
+                    style={styles.karteZeile}
+                    icon="gift-outline"
+                    iconFarbe={colors.inkSoft}
+                  >
                     {geburtstag}
-                  </Text>
+                  </Lauftext>
                 </Pressable>
               ) : null}
             </View>
@@ -1031,10 +1043,16 @@ export function TopStrip({
                 accessibilityRole="button"
                 accessibilityLabel="Wetterwarnungen"
               >
-                <Text style={styles.karteWarn} numberOfLines={1}>
-                  <Ionicons name="warning-outline" size={12} color={colors.danger} />{' '}
+                {/* Auch hier: «Verbreitet heftige Gewitter möglich,
+                    schwer, bis 22:00» endet sonst bei «schwer,…» - und
+                    das «bis wann» ist das, wonach man abends sieht. */}
+                <Lauftext
+                  style={styles.karteWarn}
+                  icon="warning-outline"
+                  iconFarbe={colors.danger}
+                >
                   {warnText(alerts.state)}
-                </Text>
+                </Lauftext>
               </Pressable>
             </Blinkend>
           ) : null}
@@ -1404,6 +1422,13 @@ const makeStyles = (colors: Colors) =>
     columnGap: 14,
     rowGap: 2,
   },
+  // Der Griff muss schrumpfen dürfen, sonst schiebt ein langer Termin
+  // die ganze Zeile über die Karte hinaus - gemessen 449 Punkte in
+  // einer Zeile von 315. In React Native ist flexShrink standardmässig
+  // 0, und ohne diese Zeile las sich der Fehler wie ein Fehler des
+  // Lauftextes: Sein Fenster war so breit wie der Text und hatte
+  // folglich nie etwas zu schieben.
+  karteZeilenGriff: { flexShrink: 1 },
   // Rot, nicht orange - siehe lib/warnzeile.ts.
   karteWarn: { color: colors.danger, fontSize: 13, fontWeight: '600' },
   karteChips: {

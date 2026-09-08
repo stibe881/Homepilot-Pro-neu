@@ -194,6 +194,7 @@ nicht `test_mode_2`.
 | wissen willst, ob eine Push-Meldung zu spät kam oder erst das Ereignis | `docker exec homepilot-hub python -m homepilot.pushcheck` – Uhr und Zeitzone des Hubs, dazu je Meldung Ereigniszeit, Sendezeit und der Verzug dazwischen |
 | an der Kinderseite arbeitest | `app/src/lib/kindseite.ts` + `app/src/screens/family/kindseite.tsx` – Stundenplan und Wöchentliches liegen als Familienlisten `lessons` und `activities` beim Hub |
 | an der Familienseite arbeitest | `app/src/screens/FamilyScreen.tsx` – Zwischenspeicher und Warteschlange in `screens/family/ablage.ts`, der Babysitter-Abend in `screens/family/babysitter.ts` |
+| eine Zeile hast, die nicht auf den Bildschirm passt | `app/src/lib/lauftext.ts` + `components/Lauftext.tsx` – sie wandert einmal durch, statt bei «…» aufzuhören; die Browser-Probe misst das |
 | eine Gerätekachel änderst | `app/src/components/EntityCard.tsx` |
 | an den Raumkacheln arbeitest | `app/src/components/RoomCard.tsx` + `lib/raumkarte.ts`; die Fotos liegen im Hub unter `core/raumbilder.py` und `api/routes/raeume.py` |
 | Zigbee-Geräte anbindest | `hub/homepilot/integrations/zigbee2mqtt.py` – Übersicht in `docs/zigbee.md` |

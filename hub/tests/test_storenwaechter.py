@@ -180,7 +180,12 @@ async def test_a_storm_warning_raises_the_covers_once(client, monkeypatch):
 
     monkeypatch.setattr(hub.watchdog, "_notify", kein_push)
 
-    entities = [*hub.registry.all(), warnung]
+    # Ohne die Warngeräte des Hubs: Der Wächter nimmt die *erste*
+    # Warn-Entität, und die Demo-Integration bringt seit dem Lauftext der
+    # Startseite eine eigene mit (integrations/demo.py). Sonst prüfte
+    # dieser Test, was die Registry zufällig zuerst hergibt.
+    ohne_warnungen = [e for e in hub.registry.all() if e.kind != "alert"]
+    entities = [*ohne_warnungen, warnung]
     await hub.watchdog._check_storm_covers(entities)
     assert any(eintrag[0] == cover.id for eintrag in befehle)
     # Mit Zeichen am Anfang - auf dem Sperrbildschirm zwischen zwanzig
@@ -198,7 +203,7 @@ async def test_a_storm_warning_raises_the_covers_once(client, monkeypatch):
     warnung.state = {
         "alerts": [{"event": "Hagel", "severity": "Severe", "expires": "22:00"}]
     }
-    await hub.watchdog._check_storm_covers([*hub.registry.all(), warnung])
+    await hub.watchdog._check_storm_covers([*ohne_warnungen, warnung])
     assert befehle == []
     assert len(gesendet) == 1
 
@@ -207,16 +212,16 @@ async def test_a_storm_warning_raises_the_covers_once(client, monkeypatch):
     # nichts behauptet: Eine Entwarnung, die nur aus einem Ausfall
     # folgt, wäre eine falsche.)
     warnung.state = {"alerts": []}
-    await hub.watchdog._check_storm_covers([*hub.registry.all(), warnung])
+    await hub.watchdog._check_storm_covers([*ohne_warnungen, warnung])
     assert gesendet[-1] == "storm_covers:✅ Hagel vorbei"
-    await hub.watchdog._check_storm_covers([*hub.registry.all(), warnung])
+    await hub.watchdog._check_storm_covers([*ohne_warnungen, warnung])
     assert len(gesendet) == 2
 
     # Das nächste Unwetter fährt wieder.
     warnung.state = {
         "alerts": [{"event": "Sturm", "severity": "Severe", "expires": "23:00"}]
     }
-    await hub.watchdog._check_storm_covers([*hub.registry.all(), warnung])
+    await hub.watchdog._check_storm_covers([*ohne_warnungen, warnung])
     assert befehle
     assert gesendet[-1] == "storm_covers:⚠️ Sturmwarnung - Storen hochgefahren"
 
