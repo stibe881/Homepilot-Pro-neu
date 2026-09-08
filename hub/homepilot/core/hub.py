@@ -49,6 +49,7 @@ from . import (
     persistence,
     pushverlauf,
     raumbilder,
+    stromrueckkehr,
 )
 from . import push as push_service
 from . import users as users_module
@@ -171,6 +172,18 @@ class Hub:
         # Grundlage ist die config.yaml; in der App gesetzte Zuordnungen
         # (aus der homepilot-data.json) haben Vorrang.
         self.data.load()
+        # Ist der Hub nach einem Stromausfall hochgefahren? Die Antwort
+        # steht im Vermerk des vorigen Laufs und muss hier fallen, bevor
+        # ihn dieser Lauf überschreibt (core/stromrueckkehr.py).
+        eintraege = self.data.get("lauf")
+        self._kaltstart = stromrueckkehr.kaltstart(
+            eintraege[0] if eintraege else None
+        )
+        self.data.set("lauf", [{"state": "laeuft", "at": time.time()}])
+        if self._kaltstart:
+            log.warning(
+                "Der vorige Lauf endete nicht geordnet - vermutlich Stromausfall."
+            )
         self._rooms_by_entity = {
             entity_id: room
             for room, members in self.config.rooms.items()
@@ -677,12 +690,23 @@ class Hub:
 
     async def stop(self) -> None:
         log.info("Hub stoppt …")
+        # Der Vermerk zuerst: Er sagt dem nächsten Start, dass dieses
+        # Ende geordnet war. Weiter unten kann noch einiges schiefgehen -
+        # dann wäre der Stromausfall von morgen nicht mehr von einem
+        # missglückten Neustart zu unterscheiden.
+        self.data.set("lauf", [{"state": "beendet", "at": time.time()}])
         # Den Ring einmal weglegen – ein Schreibvorgang je Neustart, und
         # die Antwort auf «warum hat er neu gestartet?» übersteht ihn.
         ring_pfad = self._log_ring_path()
         if ring_pfad:
             self.log_buffer.save(ring_pfad)
-        for name in ("_backup_task", "_flush_task", "_erinnerungs_task", "_live_task", "_karten_task"):
+        for name in (
+            "_backup_task",
+            "_flush_task",
+            "_erinnerungs_task",
+            "_live_task",
+            "_karten_task",
+        ):
             task = getattr(self, name, None)
             if task is not None:
                 task.cancel()

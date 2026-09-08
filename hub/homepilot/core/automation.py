@@ -84,6 +84,7 @@ from . import (
     personenbild,
     platzhalter,
     pushziel,
+    stromrueckkehr,
     terminkontext,
     verwaist,
     wirkung,
@@ -1439,6 +1440,11 @@ class AutomationEngine:
                 elif trigger.get("type") == "calendar":
                     task = asyncio.create_task(self._calendar_loop(automation, trigger))
                     self._timer_tasks.append(task)
+                elif trigger.get("type") == "power_restore":
+                    task = asyncio.create_task(
+                        self._stromausfall_loop(automation, trigger)
+                    )
+                    self._timer_tasks.append(task)
         # Der eigene Takt des Motors: nach verwaisten Abläufen sehen
         # (Punkt 262). Hier und nicht im Wächter, weil der Motor seine
         # Abläufe kennt - der Wächter müsste sie sich erst geben lassen.
@@ -1582,6 +1588,64 @@ class AutomationEngine:
         task = asyncio.create_task(wait_and_check())
         self._held_tasks[key] = task
         task.add_done_callback(lambda _t: self._held_tasks.pop(key, None))
+
+    def _ablauf_ziele(self, automation: Automation) -> list[str]:
+        """Welche Geräte dieser Ablauf anfasst (für das Nachfassen).
+
+        Nur die, die er beim Namen nennt - eine Szene oder eine
+        Nachricht hat keine Adresse, auf deren Erreichbarkeit man warten
+        könnte.
+        """
+        ids: list[str] = []
+        for action in automation.actions:
+            einzeln = action.get("entity_id")
+            if einzeln:
+                ids.append(str(einzeln))
+            for entry in action.get("entity_ids") or []:
+                if entry:
+                    ids.append(str(entry))
+        return ids
+
+    async def _stromausfall_loop(
+        self, automation: Automation, trigger: dict[str, Any]
+    ) -> None:
+        """«Nach Stromausfall»: einmal auslösen - und geduldig nachfassen.
+
+        Der Ablauf läuft nur, wenn der Hub wirklich nach einem
+        Stromausfall hochgefahren ist (core/stromrueckkehr.py); ein
+        Update ist keiner.
+
+        Und dann nicht ein einziges Mal: Ein Haus kommt nicht auf einmal
+        zurück. Die Lampe hat Strom, lange bevor Switch, Accesspoint und
+        Bridge wieder stehen - ein Befehl an sie verpufft, und sie
+        brennt weiter. Also läuft der Ablauf erneut, sobald eines der
+        fehlenden Geräte auftaucht. Erneut und nicht dauernd: Wer im
+        Dunkeln von Hand Licht macht, während noch aufgeräumt wird, soll
+        es behalten, solange nichts Neues dazukommt.
+        """
+        if not getattr(self.hub, "_kaltstart", False):
+            return
+        await asyncio.sleep(stromrueckkehr.wartezeit(trigger))
+        schluss = time.monotonic() + stromrueckkehr.fenster(trigger)
+        self._schedule(automation)
+        ziele = self._ablauf_ziele(automation)
+        fehlten = self._fehlende(ziele)
+        while fehlten and time.monotonic() < schluss:
+            await asyncio.sleep(stromrueckkehr.takt(trigger))
+            jetzt = self._fehlende(ziele)
+            if jetzt != fehlten:
+                # Etwas ist aufgetaucht - der Ablauf bekommt seine
+                # zweite Gelegenheit, jetzt mit mehr Geräten am Netz.
+                self._schedule(automation)
+                fehlten = jetzt
+
+    def _fehlende(self, ziele: list[str]) -> set[str]:
+        """Welche der Geräte gerade nicht erreichbar sind."""
+        stand = []
+        for entity_id in ziele:
+            entity = self.hub.registry.get(entity_id)
+            stand.append((entity_id, bool(entity and entity.available)))
+        return stromrueckkehr.wer_fehlt(stand)
 
     def _trigger_still_holds(self, trigger: dict[str, Any]) -> bool:
         """Gilt der Zielzustand des Auslösers immer noch? (für ``for``)

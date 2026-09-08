@@ -385,3 +385,20 @@ describe('Kontrollfluss und die neuen Auslöser (Punkte 251/252)', () => {
     expect(satz).toContain('eine neue Wetterwarnung eintrifft (ab «schwer»)');
   });
 });
+
+test('der Stromausfall-Auslöser liest sich als Satz', () => {
+  // «power_restore» stünde sonst roh in der Liste - und die Karte soll
+  // sich lesen lassen wie ein Satz, nicht wie eine Konfiguration.
+  const satz = ablaufSatz(
+    {
+      triggers: [{ type: 'power_restore' }],
+      conditions: [],
+      actions: [{ type: 'command', entity_id: 'hue.flur', command: 'turn_off' }],
+      otherwise: [],
+      match: 'all',
+    },
+    entities,
+    scenes
+  );
+  expect(satz).toContain('der Strom zurückkommt');
+});

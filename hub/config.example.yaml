@@ -66,6 +66,12 @@ supabase:
 #   auth: open
 #   portal_password: "${GAST_PORTAL_PASSWORT}"   # weglassen bei blossem Bestätigen
 
+# Nach einem Stromausfall gehen die meisten Lampen von selbst an - das
+# entscheidet das Leuchtmittel, nicht der Hub (der war ja auch stromlos).
+# Was danach gelten soll, steht in einem Ablauf: Auslöser «Nach
+# Stromausfall» in der App, dazu die Geräte, die aus- bzw. angehen
+# sollen. Hier braucht es dafür nichts (core/stromrueckkehr.py).
+
 # Standort für Sonnenauf-/-untergangs-Trigger (Storen, adaptives Licht).
 # Ohne diesen Abschnitt wird Zell LU angenommen.
 location:

@@ -1739,3 +1739,36 @@ describe('schaltetSpaeterAus', () => {
     expect(schaltetSpaeterAus([])).toBe(false);
   });
 });
+
+describe('Auslöser «Nach Stromausfall»', () => {
+  it('braucht weder Gerät noch Uhrzeit', () => {
+    // Er hat genau einen Fall: Der Hub ist nach einem Stromausfall
+    // hochgefahren. Ein Gerätefeld daran wäre ein leeres Versprechen.
+    const config = triggerToConfig({ ...EMPTY_TRIGGER, kind: 'power_restore' });
+    expect(config).toEqual({ type: 'power_restore' });
+  });
+
+  it('nimmt die Wartezeit mit, wenn eine gewählt wurde', () => {
+    // Wie lange es dauert, bis Switch, Accesspoint und Bridge stehen,
+    // ist von Haus zu Haus verschieden - deshalb steht die Zahl im
+    // Ablauf und nicht im Hub.
+    const config = triggerToConfig({
+      ...EMPTY_TRIGGER,
+      kind: 'power_restore',
+      restoreDelay: '120',
+    });
+    expect(config.delay).toBe(120);
+  });
+
+  it('liest sich unverändert zurück', () => {
+    const gespeichert = triggerToConfig({
+      ...EMPTY_TRIGGER,
+      kind: 'power_restore',
+      restoreDelay: '300',
+    });
+    const zurueck = triggerFromConfig(gespeichert);
+    expect(zurueck.kind).toBe('power_restore');
+    expect(zurueck.restoreDelay).toBe('300');
+    expect(triggerToConfig(zurueck)).toEqual(gespeichert);
+  });
+});
