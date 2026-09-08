@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Activity, CommandData, Entity, EntityState } from '../api/types';
@@ -15,7 +15,7 @@ import {
 import { hatWarteschlange } from '../lib/musikliste';
 import { trockenSatz } from '../lib/giessen';
 import { Regenstand, balkenHoehen, regenSatz } from '../lib/regen';
-import { boxWechsel } from '../lib/boxwahl';
+import { boxLabel, boxWechsel } from '../lib/boxwahl';
 import { panelContent, showsRoomPlayer } from '../lib/seitenspalte';
 import { stundenZeilen } from '../lib/stundenwetter';
 import { uvWort } from '../lib/uv';
@@ -94,25 +94,22 @@ export function SidePanel({
   // sitzt – nur zog die dann Spotify um statt das Radio.
   const choose = (ziel: Entity) => {
     const quelle = player && hatEigeneAuswahl(player) ? player : undefined;
+    // Eine gewählte *Box* ist immer eine Ansage, wohin die Musik soll -
+    // auch wenn die gezeigte Quelle gerade nicht umziehen kann. Der
+    // Wunsch gehört deshalb dem Wähler und nicht der Quelle: Er
+    // überlebt den Wechsel auf «Radio» und gilt, bis jemand eine andere
+    // Box wählt (lib/boxwahl.ts, boxLabel erklärt den gemeldeten Fall).
+    if (!hatEigeneAuswahl(ziel)) setWunschBox(ziel.name);
     // Die Entscheidung selbst liegt in lib/boxwahl.ts - dieselbe, die
     // auch das Musik-Blatt über der Raumkachel trifft.
     const wechsel = boxWechsel(quelle ? wechselQuelle(quelle) : null, ziel);
     if (wechsel.art === 'umzug' && quelle) {
       onCommand?.(quelle.id, 'play_on', { device: wechsel.device, play: wechsel.play });
       setChosenId(quelle.id);
-      setWunschBox(wechsel.device);
     } else {
       setChosenId(ziel.id);
     }
   };
-
-  // Sobald die gewünschte Box die aktive ist, hat der Wunsch seinen
-  // Dienst getan. Ihn weiter festzuhalten hiesse: Wer die Musik später
-  // in der Spotify-App woandershin zieht und hier eine Playlist drückt,
-  // bekäme sie zurück ins Büro geholt.
-  useEffect(() => {
-    if (wunschBox && player?.state.device === wunschBox) setWunschBox(null);
-  }, [wunschBox, player?.state.device]);
 
   // Die Box des offenen Raums – immer die des Raums, in dem man gerade
   // steht. Läuft sie ohnehin schon oben (weil sie die spielende des
@@ -238,7 +235,11 @@ export function MediaPanel({
   // Der Wähler führt nur noch Boxen, also steht auch nur die Box darauf.
   // Vorher stand dort der Name der Quelle – neben einem Chip, auf dem
   // schon «Radio» steht, ist das dasselbe Wort zweimal.
-  const pickerLabel = istQuelle ? (activeDevice ?? 'Box wählen') : entity.name;
+  // Welche Box angeschrieben ist, entscheidet lib/boxwahl.ts: Läuft
+  // etwas, gilt die aktive; läuft nichts, der Wunsch - denn dann ist
+  // «wo spielt der nächste Griff» die einzige offene Frage.
+  const zielBoxName = istQuelle ? boxLabel(playing, activeDevice, wunschBox) : null;
+  const pickerLabel = istQuelle ? (zielBoxName ?? 'Box wählen') : entity.name;
 
   // Zwei verschiedene Fragen, die bisher in einer Liste steckten: *was*
   // spielt (Spotify oder Radio) und *wo* es spielt (welche Box). Beides
@@ -324,7 +325,7 @@ export function MediaPanel({
             .map((speaker, index) => {
               const selected =
                 speaker.id === entity.id ||
-                (istQuelle && activeDevice != null && speaker.name === activeDevice);
+                (istQuelle && zielBoxName != null && speaker.name === zielBoxName);
               return (
                 <Pressable
                   key={speaker.id}
