@@ -49,6 +49,9 @@ export interface Gutschein {
    *  liefert danach einen Pfad wie «/api/family/vouchers/<id>/bild?v=…» –
    *  dieselbe Bauart wie bei den Rezeptbildern (Punkt 193). */
   image_url?: string | null;
+  /** Der Beleg zum Gutschein – meist das PDF aus der Bestätigungsmail
+   *  (Punkt 266 der Werkbank). Fehlt oder null, wenn keiner dranhängt. */
+  file?: GutscheinDatei | null;
   transactions?: Transaktion[];
   notes?: string;
 }
@@ -107,6 +110,7 @@ export function alsGutschein(item: Record<string, unknown>): Gutschein {
     shared: item.shared === 'privat' ? 'privat' : 'familie',
     url: String(item.url ?? '').trim(),
     image_url: item.image_url ? String(item.image_url) : null,
+    file: alsDatei(item.file),
     transactions: Array.isArray(item.transactions)
       ? (item.transactions as Record<string, unknown>[]).map((t) => ({
           at: String(t?.at ?? ''),
@@ -117,6 +121,224 @@ export function alsGutschein(item: Record<string, unknown>): Gutschein {
       : [],
     notes: String(item.notes ?? '').trim(),
   };
+}
+
+// ── Datei ────────────────────────────────────────────────────────────────
+
+/**
+ * Der Beleg am Gutschein (Punkt 266 der Werkbank).
+ *
+ * Gutscheine kommen meist als PDF per Mail; das Foto der Karte ist nur
+ * die halbe Miete. Das Feld hat zwei Gestalten: Auf dem Weg **zum** Hub
+ * trägt es `{data, name}` – die Datei als data-URI, genau wie beim Bild.
+ * Der Hub legt sie ab und liefert danach `{url, name, type, bytes}`
+ * zurück. Ein Block, der schon eine `url` trägt, geht beim nächsten
+ * Speichern unverändert wieder hinaus – das ist der Grund, warum ein
+ * bestehender Gutschein beim Bearbeiten seine Datei behält.
+ */
+export interface GutscheinDatei {
+  /** Pfad beim Hub, «/api/family/vouchers/<id>/datei?v=…» – braucht wie
+   *  das Bild Adresse und Token (siehe `bildUri`). */
+  url?: string;
+  /** Nur auf dem Hinweg: die Datei selbst als data-URI. */
+  data?: string;
+  name: string;
+  type?: string;
+  bytes?: number;
+}
+
+/** Was der Hub annimmt. Grösser abzulehnen ist billiger, als es erst
+ *  nach dem Hochladen zu erfahren – deshalb steht die Grenze auch hier. */
+export const DATEI_MAX_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Was der Hub annimmt – Zeichen für Zeichen die Tabelle `TYPES` aus
+ * `hub/homepilot/core/dateien.py`.
+ *
+ * Kein `image/*` und kein `text/*`: SVG und HTML dürfen Skripte
+ * enthalten, und der Hub liefert, was bei ihm liegt, unter seiner
+ * eigenen Adresse wieder aus – im Browser liefe so ein Skript mit den
+ * Zugangsdaten des Hubs im Speicher. Der Hub lehnt beides ab; hier
+ * dieselbe Liste zu führen ist der Unterschied zwischen «geht nicht»
+ * vor dem Hochladen und einem 415 nach dem Warten.
+ */
+const ERLAUBTE_MIMES = new Set([
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/plain',
+  'text/csv',
+  'application/zip',
+]);
+
+/** Dieselben Typen für den Auswähler: Was der Hub nicht nimmt, soll
+ *  schon im Dateidialog grau sein. */
+export const DATEI_TYPEN = [...ERLAUBTE_MIMES];
+
+/** Notnagel für Geräte, die keinen MIME-Typ mitliefern: Android gibt bei
+ *  Dateien aus manchen Cloud-Ordnern nur «application/octet-stream».
+ *  Nur Endungen, die der Hub auch annimmt – für alles andere bleibt der
+ *  Typ leer, und `dateiPruefen` sagt es. */
+const MIME_NACH_ENDUNG: Record<string, string> = {
+  pdf: 'application/pdf',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  txt: 'text/plain',
+  csv: 'text/csv',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  zip: 'application/zip',
+};
+
+function endung(name: string): string {
+  const teile = String(name ?? '').toLowerCase().split('.');
+  return teile.length > 1 ? teile[teile.length - 1].trim() : '';
+}
+
+/**
+ * Der MIME-Typ, mit dem wir die Datei speichern (rein, testbar).
+ *
+ * Erst das, was der Auswähler sagt; nur wenn er nichts oder das
+ * nichtssagende «application/octet-stream» liefert, entscheidet die
+ * Endung. Ohne das landet jedes PDF aus einem Cloud-Ordner als
+ * Bytehaufen beim Hub und bekommt hinterher das falsche Symbol.
+ */
+export function mimeVon(name: string, mimeType?: string | null): string {
+  const roh = String(mimeType ?? '').trim().toLowerCase();
+  if (roh && roh !== 'application/octet-stream') return roh;
+  return MIME_NACH_ENDUNG[endung(name)] ?? roh;
+}
+
+/** Nimmt der Hub diesen Typ? (rein, testbar) */
+export function dateiErlaubt(type: string | null | undefined): boolean {
+  return ERLAUBTE_MIMES.has(String(type ?? '').trim().toLowerCase());
+}
+
+/**
+ * «179 KB», «1.2 MB», «812 B» (rein, testbar).
+ *
+ * Ganze Kilobyte, aber eine Nachkommastelle bei Megabyte: «1 MB» und
+ * «1.9 MB» sind für die Frage «passt das noch?» ein Unterschied,
+ * «178 KB» und «179 KB» nicht.
+ */
+export function dateiGroesse(bytes: number | null | undefined): string {
+  const n = typeof bytes === 'number' ? bytes : NaN;
+  if (!Number.isFinite(n) || n < 0) return '';
+  if (n < 1024) return `${Math.round(n)} B`;
+  const kb = Math.round(n / 1024);
+  if (kb < 1024) return `${kb} KB`;
+  const mb = (n / (1024 * 1024)).toFixed(1);
+  return `${mb.endsWith('.0') ? mb.slice(0, -2) : mb} MB`;
+}
+
+/**
+ * Das Symbol zur Datei (rein, testbar).
+ *
+ * Ein Ionicons-Name. Wer die Liste überfliegt, soll am Symbol sehen, ob
+ * der Beleg ein PDF, ein Foto oder eine Tabelle ist – dafür ist es da;
+ * ein Papierklammer-Symbol für alles wäre keine Auskunft.
+ */
+export function dateiSymbol(type: string | null | undefined): string {
+  const t = String(type ?? '').trim().toLowerCase();
+  if (t.includes('pdf')) return 'document-text-outline';
+  if (t.startsWith('image/')) return 'image-outline';
+  // CSV ist zwar «text/», gemeint ist aber eine Tabelle - wie xls.
+  if (t.includes('sheet') || t.includes('excel') || t.includes('csv')) return 'grid-outline';
+  if (t.startsWith('text/')) return 'document-outline';
+  if (t.includes('zip')) return 'archive-outline';
+  return 'document-attach-outline';
+}
+
+/**
+ * Warum diese Datei nicht geht – oder null, wenn sie geht (rein, testbar).
+ *
+ * Geprüft wird **vor** dem Einlesen: Eine 40-MB-Datei erst nach dem
+ * Warten abgelehnt zu bekommen ist die schlechtere Reihenfolge, und das
+ * Einlesen einer solchen Datei als data-URI kostet obendrein Speicher,
+ * den das Telefon nicht hergeben will.
+ */
+export function dateiPruefen(datei: {
+  name?: string | null;
+  size?: number | null;
+  mimeType?: string | null;
+}): string | null {
+  const name = String(datei?.name ?? '').trim();
+  if (!name) return 'Diese Datei hat keinen Namen – bitte eine andere wählen.';
+  const size = typeof datei?.size === 'number' && Number.isFinite(datei.size) ? datei.size : null;
+  if (size !== null && size > DATEI_MAX_BYTES) {
+    return (
+      `«${name}» ist ${dateiGroesse(size)} gross – der Hub nimmt höchstens ` +
+      `${dateiGroesse(DATEI_MAX_BYTES)}. Bitte eine kleinere Fassung wählen.`
+    );
+  }
+  if (size === 0) return `«${name}» ist leer – da steht nichts drin.`;
+  if (!dateiErlaubt(mimeVon(name, datei?.mimeType))) {
+    return (
+      `«${name}» ist kein Format, das der Hub ablegt. Möglich sind PDF, ` +
+      'JPEG, PNG, WebP, Word, Excel, Text, CSV und ZIP.'
+    );
+  }
+  return null;
+}
+
+/** «Gutschein Brack.pdf, 179 KB» – der Kern jedes Vorlesezeichens. */
+export function dateiSatz(datei: GutscheinDatei | null | undefined): string {
+  if (!datei) return '';
+  const groesse = dateiGroesse(datei.bytes);
+  return groesse ? `${datei.name}, ${groesse}` : datei.name;
+}
+
+/**
+ * Einen Datei-Block vom Hub lesen (rein, testbar).
+ *
+ * Ohne `url` und ohne `data` ist nichts dran – dann null, damit die
+ * Anzeige nicht auf einen leeren Namen hereinfällt.
+ */
+export function alsDatei(wert: unknown): GutscheinDatei | null {
+  if (!wert || typeof wert !== 'object') return null;
+  const roh = wert as Record<string, unknown>;
+  const url = String(roh.url ?? '').trim();
+  const data = String(roh.data ?? '').trim();
+  if (!url && !data) return null;
+  const bytes = Number(roh.bytes);
+  const type = String(roh.type ?? '').trim();
+  return {
+    ...(url ? { url } : {}),
+    ...(data ? { data } : {}),
+    name: String(roh.name ?? '').trim() || 'Datei',
+    ...(type ? { type } : {}),
+    ...(Number.isFinite(bytes) && bytes > 0 ? { bytes } : {}),
+  };
+}
+
+/**
+ * Den MIME-Typ in einer data-URI nachtragen (rein, testbar).
+ *
+ * Der Weg über Blob und FileReader liefert auf Android oft
+ * «data:application/octet-stream;base64,…», weil der Anbieter des
+ * Cloud-Ordners keinen Typ meldet. Was der Auswähler weiss oder die
+ * Endung verrät, ist besser – sonst lädt der Browser das PDF später
+ * herunter, statt es anzuzeigen. Ein bereits gesetzter, sinnvoller Typ
+ * bleibt.
+ */
+export function mitMimeTyp(datenUri: string, mime: string): string {
+  const roh = String(datenUri ?? '');
+  const treffer = /^data:([^,]*),/.exec(roh);
+  if (!treffer || !mime) return roh;
+  const teile = treffer[1].split(';');
+  const bisher = teile[0].trim().toLowerCase();
+  if (bisher && bisher !== 'application/octet-stream') return roh;
+  const anhang = teile.slice(1).filter(Boolean).join(';');
+  return `data:${mime}${anhang ? `;${anhang}` : ''},${roh.slice(treffer[0].length)}`;
 }
 
 // ── Texte ────────────────────────────────────────────────────────────────
@@ -439,6 +661,8 @@ export interface Formular {
   shared: Geteilt;
   url: string;
   image_url: string;
+  /** Der Beleg – null heisst «keiner dran». */
+  file: GutscheinDatei | null;
   notes: string;
 }
 
@@ -455,6 +679,7 @@ export function leeresFormular(): Formular {
     shared: 'familie',
     url: '',
     image_url: '',
+    file: null,
     notes: '',
   };
 }
@@ -473,6 +698,10 @@ export function formularVon(entry: Gutschein): Formular {
     shared: entry.shared,
     url: entry.url ?? '',
     image_url: entry.image_url ?? '',
+    // Die Datei reist mit, ohne dass das Formular sie anfasst: Wer nur
+    // den Betrag korrigiert, soll den Beleg nicht verlieren - genau das
+    // ist der übliche Fehler bei so einem Feld.
+    file: entry.file ?? null,
     notes: entry.notes ?? '',
   };
 }
@@ -526,6 +755,8 @@ export function formularPruefen(
       shared: form.shared,
       url,
       image_url: form.image_url || null,
+      // null (nicht «weglassen»): So versteht der Hub auch das Entfernen.
+      file: form.file ?? null,
       notes: form.notes.trim(),
       transactions: bisher?.transactions ?? [],
     },

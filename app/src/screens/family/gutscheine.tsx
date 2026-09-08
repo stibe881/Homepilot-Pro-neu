@@ -13,6 +13,11 @@
  * (Rest, Ablaufstufe, Reihenfolge, der Abzug selbst), steht rein und
  * geprüft in lib/gutscheine.ts; hier nur Anzeige und Eingabe.
  *
+ * **Foto und Datei.** Das Foto zeigt die Karte, die Datei ist der Beleg –
+ * meist das PDF aus der Bestätigungsmail (Punkt 266 der Werkbank).
+ * Beides darf gleichzeitig dranhängen; die Datei liegt wie das Bild beim
+ * Hub und wird von dort mit Token geholt.
+ *
  * **Privat oder Familie.** Ein Gutschein «privat» wird vom Hub nur dem
  * Besitzer geliefert – die App muss nichts verstecken und tut es auch
  * nicht: Was hier ankommt, darf man sehen.
@@ -22,6 +27,7 @@
  * gehören daneben, nicht hinein.
  */
 import { Ionicons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useMemo, useState } from 'react';
 import {
@@ -44,11 +50,13 @@ import { Tastaturplatz } from '../../components/Tastaturplatz';
 import { Leerzustand } from '../../components/Leerzustand';
 import {
   Ablaufstufe,
+  DATEI_TYPEN,
   EINHEITEN,
   Formular,
   GETEILT,
   Geteilt,
   Gutschein,
+  GutscheinDatei,
   ablaufSatz,
   ablaufStufe,
   abziehen,
@@ -59,6 +67,10 @@ import {
   betragLesen,
   betragText,
   betragZahl,
+  dateiGroesse,
+  dateiPruefen,
+  dateiSatz,
+  dateiSymbol,
   datumText,
   einheitText,
   formularPruefen,
@@ -69,6 +81,8 @@ import {
   kopfText,
   leeresFormular,
   listeLeerbild,
+  mimeVon,
+  mitMimeTyp,
   restText,
   teilText,
   verlauf,
@@ -163,6 +177,71 @@ async function holeFoto(quelle: 'galerie' | 'kamera'): Promise<string | null> {
   return asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri;
 }
 
+/**
+ * Eine beliebige Datei als data-URI einlesen (Punkt 266 der Werkbank).
+ *
+ * Das Foto nimmt den kurzen Weg über `expo-image-manipulator`, der
+ * base64 gleich mitliefert; für eine beliebige Datei gäbe es
+ * `expo-file-system` – das steht aber nicht in den Abhängigkeiten der
+ * App, sondern hängt nur unter `expo/` mit und ist von hier aus nicht
+ * auflösbar. Ein Paket dazuzunehmen hiesse eine neue runtimeVersion
+ * samt TestFlight-Build (siehe CLAUDE.md).
+ *
+ * Deshalb der Weg über Blob und FileReader, den beide Seiten können und
+ * bei dem kein Server im Spiel ist: Im Browser liegt die gewählte Datei
+ * unter einer `blob:`-Adresse, auf dem Telefon nach
+ * `copyToCacheDirectory` unter einer `file://`-Adresse – beide
+ * beantwortet React Native selbst, das Blob-Modul hängt sich dafür vor
+ * das Netz.
+ */
+async function alsDatenUri(uri: string, mime: string): Promise<string | null> {
+  if (uri.startsWith('data:')) return mitMimeTyp(uri, mime);
+  try {
+    const antwort = await fetch(uri);
+    const blob = await antwort.blob();
+    const gelesen = await new Promise<string | null>((fertig) => {
+      const leser = new FileReader();
+      leser.onerror = () => fertig(null);
+      leser.onload = () => fertig(typeof leser.result === 'string' ? leser.result : null);
+      leser.readAsDataURL(blob);
+    });
+    return gelesen ? mitMimeTyp(gelesen, mime) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** null: abgebrochen. Sonst die Datei – oder der Grund, warum nicht. */
+type DateiWahl = { datei: GutscheinDatei } | { fehler: string } | null;
+
+/**
+ * Eine Datei auswählen, prüfen und einlesen.
+ *
+ * Geprüft wird **vor** dem Einlesen: Eine 40 MB grosse Datei erst nach
+ * dem Warten abgelehnt zu bekommen ist die schlechtere Reihenfolge – und
+ * als data-URI im Speicher wäre sie ohnehin ein Drittel grösser.
+ */
+async function holeDatei(): Promise<DateiWahl> {
+  const ergebnis = await DocumentPicker.getDocumentAsync({
+    type: DATEI_TYPEN,
+    copyToCacheDirectory: true,
+    multiple: false,
+  }).catch(() => null);
+  if (!ergebnis || ergebnis.canceled || !ergebnis.assets?.length) return null;
+  const asset = ergebnis.assets[0];
+  const grund = dateiPruefen({ name: asset.name, size: asset.size, mimeType: asset.mimeType });
+  if (grund) return { fehler: grund };
+  const type = mimeVon(asset.name, asset.mimeType);
+  // `base64` fordern wir nicht an: Der Auswähler läse die Datei dann
+  // schon, bevor wir ihre Grösse prüfen konnten. Liefert eine Fassung
+  // sie doch mit, nehmen wir sie natürlich.
+  const data = await alsDatenUri(asset.base64 ?? asset.uri, type);
+  if (!data) {
+    return { fehler: 'Die Datei liess sich nicht lesen. Bitte noch einmal versuchen.' };
+  }
+  return { datei: { data, name: asset.name, type, bytes: asset.size } };
+}
+
 /** Die Farbe, in der das Ablaufdatum steht. */
 function ablaufFarbe(stufe: Ablaufstufe, colors: Colors): string {
   if (stufe === 'bald') return colors.warn;
@@ -237,7 +316,9 @@ function GutscheinKarte({
       label={`${entry.shop}${entry.title ? `, ${entry.title}` : ''}, ${restText(entry)}, ${ablaufSatz(
         entry.expires,
         heute
-      )}, ${entry.shared === 'familie' ? 'Familie' : 'Privat'}`}
+      )}, ${entry.shared === 'familie' ? 'Familie' : 'Privat'}${
+        entry.file ? `, mit Beleg: ${dateiSatz(entry.file)}` : ''
+      }`}
     >
       <View style={eigen.karteKopf}>
         <View style={eigen.ladenBox}>
@@ -267,6 +348,15 @@ function GutscheinKarte({
         <View style={{ flex: 1 }}>
           <View style={eigen.chipZeile}>
             <GeteiltChip shared={entry.shared} eigen={eigen} colors={colors} />
+            {/* Wo der Beleg liegt, soll man sehen, ohne jeden Gutschein
+                zu öffnen - deshalb das Symbol schon auf der Karte. */}
+            {entry.file ? (
+              <Ionicons
+                name={dateiSymbol(entry.file.type) as keyof typeof Ionicons.glyphMap}
+                size={14}
+                color={colors.inkSoft}
+              />
+            ) : null}
             {entry.category ? <Text style={eigen.kategorieText}>{entry.category}</Text> : null}
           </View>
           <Text style={[eigen.gueltigText, { color: ablaufFarbe(stufe, colors) }]}>
@@ -437,6 +527,32 @@ function Detail({
             </Text>
           </Pressable>
         ) : null}
+        {entry.file ? (
+          <Pressable
+            onPress={() => {
+              // Die Datei liegt beim Hub und braucht den Token - dieselbe
+              // Adresse wie das Bild, deshalb derselbe Griff.
+              const ziel = bildUri(entry.file?.url, settings);
+              if (ziel) Linking.openURL(ziel).catch(() => {});
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={`${dateiSatz(entry.file)} – öffnen`}
+            style={({ pressed }) => [eigen.dateiZeile, pressed && { opacity: 0.8 }]}
+          >
+            <Ionicons
+              name={dateiSymbol(entry.file.type) as keyof typeof Ionicons.glyphMap}
+              size={22}
+              color={colors.accent}
+            />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={eigen.dateiName} numberOfLines={1}>
+                {entry.file.name}
+              </Text>
+              <Text style={eigen.dateiMass}>{dateiGroesse(entry.file.bytes) || 'Beleg'}</Text>
+            </View>
+            <Ionicons name="open-outline" size={18} color={colors.inkSoft} />
+          </Pressable>
+        ) : null}
         {entry.notes ? (
           <Text style={eigen.notiz} selectable>
             {entry.notes}
@@ -558,9 +674,24 @@ function FormularBlatt({
 }) {
   const [form, setForm] = useState<Formular>(() => (bisher ? formularVon(bisher) : leeresFormular()));
   const [fehler, setFehler] = useState<string | null>(null);
+  // Der Grund einer abgelehnten Datei steht beim Abschnitt, nicht unten
+  // beim Speichern-Knopf: Dort schaut in dem Moment niemand hin.
+  const [dateiFehler, setDateiFehler] = useState<string | null>(null);
   const setze = <K extends keyof Formular>(key: K, wert: Formular[K]) =>
     setForm((vorher) => ({ ...vorher, [key]: wert }));
   const bild = bildUri(form.image_url, settings);
+
+  const dateiWaehlen = async () => {
+    const wahl = await holeDatei();
+    if (!wahl) return;
+    if ('fehler' in wahl) {
+      setDateiFehler(wahl.fehler);
+      return;
+    }
+    tapped();
+    setDateiFehler(null);
+    setze('file', wahl.datei);
+  };
 
   const speichern = () => {
     const ergebnis = formularPruefen(form, bisher);
@@ -750,6 +881,55 @@ function FormularBlatt({
               </Pressable>
             ) : null}
           </View>
+        </View>
+
+        <View style={eigen.formFeld}>
+          <Text style={eigen.formLabel}>Datei</Text>
+          {form.file ? (
+            <View style={eigen.dateiZeile}>
+              <Ionicons
+                name={dateiSymbol(form.file.type) as keyof typeof Ionicons.glyphMap}
+                size={22}
+                color={colors.accent}
+              />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={eigen.dateiName} numberOfLines={1}>
+                  {form.file.name}
+                </Text>
+                <Text style={eigen.dateiMass}>
+                  {dateiGroesse(form.file.bytes) || (form.file.url ? 'Beim Hub abgelegt' : 'Bereit')}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => {
+                  setze('file', null);
+                  setDateiFehler(null);
+                }}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={`Datei ${form.file.name} entfernen`}
+              >
+                <Ionicons name="close-circle-outline" size={22} color={colors.inkSoft} />
+              </Pressable>
+            </View>
+          ) : null}
+          <Pressable
+            onPress={dateiWaehlen}
+            accessibilityRole="button"
+            accessibilityLabel={form.file ? 'Andere Datei wählen' : 'PDF oder Dokument wählen'}
+            style={({ pressed }) => [eigen.fotoAktion, pressed && { opacity: 0.7 }]}
+          >
+            <Ionicons name="attach-outline" size={16} color={colors.accent} />
+            <Text style={eigen.fotoAktionText}>
+              {form.file ? 'Andere Datei wählen' : 'PDF oder Dokument wählen'}
+            </Text>
+          </Pressable>
+          {dateiFehler ? <Text style={styles.error}>{dateiFehler}</Text> : null}
+          <Text style={styles.formHintSmall}>
+            Foto und Datei dürfen beide dran sein: Das Foto zeigt die Karte, die Datei ist
+            der Beleg – meist das PDF aus der Bestätigungsmail. Bis 10 MB, als PDF, Bild,
+            Word, Excel, Text oder ZIP.
+          </Text>
         </View>
 
         {eingabe('Notiz', 'notes', { placeholder: 'z.B. nur im Laden einlösbar', multiline: true })}
@@ -1317,6 +1497,20 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: 4,
     },
     fotoAktionText: { color: colors.accent, fontSize: 13, fontWeight: '600' },
+
+    // ── Datei ─────────────────────────────────────────────────────────
+    dateiZeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      padding: 12,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    dateiName: { color: colors.ink, fontSize: 15, fontWeight: '600' },
+    dateiMass: { color: colors.inkSoft, fontSize: 12 },
 
     // ── Abziehen-Dialog ───────────────────────────────────────────────
     dialogTitel: { color: colors.ink, fontSize: 20, fontWeight: '800', textAlign: 'center' },
