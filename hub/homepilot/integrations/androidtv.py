@@ -294,6 +294,56 @@ PAIR_FEHLER: dict[str, str] = {
 # worden und würde von selbst nie wieder anlaufen.
 PAIR_FRIST = 300.0
 
+# Wo die laufenden Einschlaf-Timer liegen. Der Timer lebt im Hub und
+# nicht in der App - wer einschläft, sperrt sein Telefon. Nur lebte er
+# bisher auch nicht *über den Hub hinaus*: Ein Neustart (Update,
+# Stromausfall, Container neu) liess ihn verschwinden, und in der Kachel
+# stand danach «kein Timer». Wer im Bett liegt, merkt das erst, wenn der
+# Fernseher um drei Uhr noch läuft.
+SLEEP_KEY = "androidtv_sleep"
+
+
+def timer_ablage(
+    rows: list[dict[str, Any]] | None, tv_id: str, bis: float | None
+) -> list[dict[str, Any]]:
+    """Die Ablage nach dem Stellen oder Abbrechen eines Timers (rein, testbar).
+
+    ``bis = None`` heisst «kein Timer mehr» und wirft die Zeile hinaus -
+    ein abgebrochener Timer, der den Neustart überlebt, wäre schlimmer
+    als gar keine Ablage.
+    """
+    behalten = [
+        row
+        for row in (rows or [])
+        if isinstance(row, dict) and row.get("entity_id") != tv_id
+    ]
+    if bis is None:
+        return behalten
+    return [*behalten, {"entity_id": tv_id, "until": float(bis)}]
+
+
+def offene_timer(rows: list[dict[str, Any]] | None, jetzt: float) -> dict[str, float]:
+    """Welche Timer nach einem Neustart noch gelten (rein, testbar).
+
+    Abgelaufene bleiben liegen. Der Hub weiss nicht, wie lange er weg
+    war: Lief er acht Stunden nicht, ist der Wunsch von gestern Abend
+    nicht mehr der von jetzt - und ein Fernseher, der beim Hochfahren
+    des Hubs mitten im Film ausgeht, ist schlimmer als ein Timer, den
+    man neu stellt.
+    """
+    offen: dict[str, float] = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        entity_id = row.get("entity_id")
+        try:
+            bis = float(row.get("until"))
+        except (TypeError, ValueError):
+            continue
+        if isinstance(entity_id, str) and entity_id and bis > jetzt:
+            offen[entity_id] = bis
+    return offen
+
 
 def pair_absage(err: BaseException) -> str:
     """Warum die Kopplung nicht zustande kam (rein, testbar).
@@ -488,6 +538,38 @@ class AndroidTvIntegration(Integration):
                 "name": device.get("name", f"Android TV {host}"),
             }
             self._starte_loop(entity.id)
+
+        await self._timer_zurueckholen()
+
+    async def _timer_zurueckholen(self) -> None:
+        """Nach einem Neustart die Timer weiterlaufen lassen.
+
+        Die Kacheln zeigen dabei denselben Zeitpunkt wie vorher, nicht
+        eine frisch gerechnete Restzeit: Wer um 22:10 «in einer Stunde»
+        gesagt hat, meint 23:10 - auch wenn der Hub dazwischen zehn
+        Minuten weg war.
+        """
+        offen = offene_timer(self.hub.data.get(SLEEP_KEY), time.time())
+        for tv_id, bis in offen.items():
+            if tv_id not in self._geraete:
+                continue
+            await self._push_sleep(tv_id, bis)
+            self._sleep[tv_id] = self.start_task(
+                self._sleep_loop(tv_id, max(1.0, bis - time.time()))
+            )
+            self.log.info(
+                "Einschlaf-Timer von %s weitergeführt: noch %.0f Minuten",
+                tv_id,
+                (bis - time.time()) / 60,
+            )
+        # Was abgelaufen ist, während der Hub weg war, fliegt hinaus -
+        # sonst stünde es beim nächsten Start wieder zur Prüfung an.
+        liegt = self.hub.data.get(SLEEP_KEY) or []
+        if len(liegt) != len(offen):
+            self.hub.data.set(
+                SLEEP_KEY,
+                [{"entity_id": tv_id, "until": bis} for tv_id, bis in offen.items()],
+            )
 
     async def teardown(self) -> None:
         await super().teardown()
@@ -788,6 +870,10 @@ class AndroidTvIntegration(Integration):
                 timer_id,
                 {"sleep_until": bis, "state": "on" if bis is not None else "off"},
             )
+        # Und in die Ablage, damit ein Neustart ihn nicht verschluckt.
+        self.hub.data.set(
+            SLEEP_KEY, timer_ablage(self.hub.data.get(SLEEP_KEY), tv_id, bis)
+        )
 
     async def _set_sleep(self, entity_id: str, minutes: Any) -> None:
         """Timer setzen, verlängern oder abbrechen.
