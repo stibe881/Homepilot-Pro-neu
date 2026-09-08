@@ -15,8 +15,9 @@ Einrichtung (einmalig pro Fernseher, der Fernseher muss dabei an sein):
   2. Auf dem Hub-Rechner ausführen:
          python -m homepilot.integrations.androidtv -c config.yaml
      Auf dem Fernseher erscheint ein sechsstelliger Code – hier eintippen.
-  3. Hub (neu) starten. Die Kopplung liegt danach als Zertifikat neben der
-     homepilot-data.json und hält dauerhaft.
+  3. Fertig. Die Kopplung liegt als Zertifikat neben der homepilot-data.json
+     und hält dauerhaft; der laufende Hub greift sie innert zehn Minuten von
+     selbst auf (PAIR_RETRY_SEKUNDEN) – ein Neustart beschleunigt es nur.
 
 Das Protokoll authentifiziert über ein selbstsigniertes Client-Zertifikat,
 das der Fernseher bei der PIN-Eingabe einmalig freischaltet – deshalb
@@ -233,6 +234,20 @@ PAIR_HINT = (
     "python -m homepilot.integrations.androidtv -c config.yaml"
 )
 
+#: So lange wartet der Hub, bis er eine abgelehnte Kopplung erneut
+#: versucht.
+#:
+#: Vorher gab er endgültig auf: Ein Fernseher, der beim Start nicht
+#: gekoppelt war, blieb es bis zum nächsten Neustart des Hubs - auch
+#: wenn längst jemand mit dem Pairing-Helfer davor gestanden hatte. Die
+#: Meldung «nicht gekoppelt» stand dann in der App, während das
+#: Zertifikat schon auf der Platte lag. Genau so gemeldet worden.
+#:
+#: Zehn Minuten, weil das Koppeln einen Menschen vor dem Gerät braucht:
+#: Häufiger zu fragen bringt nichts, seltener hiesse, dass man doch
+#: wieder neu startet.
+PAIR_RETRY_SEKUNDEN = 600
+
 # Was der Benutzer liest, wenn eine Taste ins Leere geht. Der Grund gehört
 # dazu: «Der Befehl ist fehlgeschlagen» beantwortet keine einzige Frage,
 # und die englische Meldung der Bibliothek («Called send_key_command after
@@ -241,8 +256,10 @@ NICHT_ERREICHBAR = (
     "Fernseher nicht erreichbar – ist er am Strom und im selben Netz?"
 )
 NICHT_GEKOPPELT = (
-    "Fernseher nicht gekoppelt – die Kopplung muss einmal am Gerät "
-    "bestätigt werden (siehe Hub-Protokoll)."
+    "Fernseher nicht gekoppelt – auf dem Hub-Rechner einmal "
+    "«python -m homepilot.integrations.androidtv» laufen lassen und den "
+    "Code am Fernseher eintippen. Der Hub greift ihn danach von selbst "
+    "auf; das dauert bis zu zehn Minuten."
 )
 
 
@@ -425,12 +442,26 @@ class AndroidTvIntegration(Integration):
                 await remote.async_connect()
                 break
             except InvalidAuth:
-                # Pairing braucht einen Menschen vor dem Fernseher –
-                # Dauer-Wiederholung wäre sinnlos.
-                self.log.warning("Android TV %s %s", host, PAIR_HINT)
+                # Pairing braucht einen Menschen vor dem Fernseher -
+                # deshalb nicht im Sekundentakt fragen. Aber auch nicht
+                # aufgeben: Wer eben gekoppelt hat, soll den Fernseher
+                # wiederhaben, ohne den Hub neu zu starten.
+                if self._gekoppelt.get(entity_id) is not False:
+                    # Nur beim ersten Mal ins Log - sonst steht dieselbe
+                    # Zeile alle zehn Minuten da und deckt alles zu.
+                    self.log.warning("Android TV %s %s", host, PAIR_HINT)
                 self._gekoppelt[entity_id] = False
-                await self.hub.registry.update_state(entity_id, {"state": "off"}, available=False)
-                return
+                await self.hub.registry.update_state(
+                    entity_id, {"state": "off"}, available=False
+                )
+                await asyncio.sleep(PAIR_RETRY_SEKUNDEN)
+                # Ein frisches Zertifikat liegt jetzt vielleicht da - und
+                # gelesen wird es erst beim nächsten Verbinden.
+                remote = AndroidTVRemote(
+                    "homepilot", certfile, keyfile, host, enable_ime=ime
+                )
+                await remote.async_generate_cert_if_missing()
+                continue
             except asyncio.CancelledError:
                 raise
             except Exception as err:
