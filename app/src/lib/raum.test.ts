@@ -399,3 +399,38 @@ describe('raumKategorien ohne Kontaktkacheln', () => {
     expect(kategorien.map((gruppe) => gruppe.label)).toEqual(['Bewegungsmelder']);
   });
 });
+
+describe('raumFakten zählt, was der Raum zeigt', () => {
+  const lampe = (name: string, an: boolean, patch: Partial<Entity> = {}): Entity =>
+    geraet({
+      kind: 'light',
+      name,
+      commands: ['turn_on', 'turn_off'],
+      state: { state: an ? 'on' : 'off' },
+      ...patch,
+    });
+
+  it('zählt die Spots nicht mit, die in einer Leuchte aufgegangen sind', () => {
+    // Der gemeldete Fall: Über vier Lampenkacheln stand «1 von 14 an» -
+    // die zehn übrigen waren die einzelnen Spots der beiden Leuchten.
+    const spots = Array.from({ length: 10 }, (_, i) =>
+      lampe(`Spot ${i}`, false, { combined_into: 'licht.buero' })
+    );
+    const zeile = raumFakten([
+      lampe('Büro', true),
+      lampe('Büro Ambilight', false),
+      lampe('Grow', false),
+      lampe('K2 Plus', false),
+      ...spots,
+    ]);
+    expect(zeile).toBe('1 von 4 an');
+  });
+
+  it('zählt keine ausgeblendeten Kacheln mit', () => {
+    const zeile = raumFakten(
+      [lampe('Deckenlicht', true), lampe('Steckdose', false, { id: 'weg' })],
+      ['weg']
+    );
+    expect(zeile).toBe('1 von 1 an');
+  });
+});
