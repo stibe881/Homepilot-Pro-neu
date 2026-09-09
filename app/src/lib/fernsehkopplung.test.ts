@@ -34,6 +34,23 @@ describe('brauchtKopplung', () => {
 });
 
 describe('kannKoppeln', () => {
+  it('lässt den Einschlaf-Timer aus - gekoppelt wird der Fernseher', () => {
+    // Aus dem Haus: «Weshalb sind hier die Timer auch vorhanden zum
+    // Koppeln?» Der Hub setzt `paired` auch auf der Timer-Kachel, damit
+    // sie abends sagen kann, dass die Kopplung fehlt - eine zweite
+    // Karte zum Koppeln ist daraus aber nie geworden.
+    const timer = {
+      id: 'androidtv.10_0_0_5_timer',
+      kind: 'timer',
+      name: 'Fernseher Wohnzimmer Timer',
+      integration: 'androidtv',
+      state: { paired: true },
+      commands: ['sleep_timer'],
+      available: true,
+    } as Entity;
+    expect(kannKoppeln(timer)).toBe(false);
+  });
+
   it('gilt für jeden Android-TV, auch den gerade gekoppelten', () => {
     // «Wo finde ich nun das Verbinden zu einem Android TV?» - der Weg
     // stand nur da, wo der Hub die Kopplung schon als abgelehnt erlebt
