@@ -2,6 +2,7 @@ import {
   Person,
   anzahlAn,
   herkunft,
+  istZuhause,
   nebenZeile,
   ortZeile,
   sortiert,
@@ -83,5 +84,21 @@ describe('Familie und Freunde', () => {
     expect(anzahlAn(person({}))).toBe(2);
     expect(anzahlAn(person({ meldungen: {} }))).toBe(0);
     expect(anzahlAn(person({ meldungen: undefined }))).toBe(0);
+  });
+});
+
+describe('istZuhause', () => {
+  it('erkennt das Zuhause und nichts sonst', () => {
+    expect(istZuhause({ name: 'Stefan', where: 'zuhause' })).toBe(true);
+    expect(istZuhause({ name: 'Stefan', where: 'Zuhause' })).toBe(true);
+    expect(istZuhause({ name: 'Maja', where: 'bei Tanners Home' })).toBe(false);
+    expect(istZuhause({ name: 'Ray', where: 'unterwegs' })).toBe(false);
+  });
+
+  it('behauptet ohne Angabe nichts', () => {
+    // Ein unbekannter Aufenthalt ist kein «ist da» - der grüne Punkt
+    // wäre dann eine Falschmeldung in die gefährliche Richtung.
+    expect(istZuhause({ name: 'Neu' })).toBe(false);
+    expect(istZuhause({ name: 'Neu', where: null })).toBe(false);
   });
 });
