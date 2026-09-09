@@ -16,8 +16,12 @@ export interface UpdateVorschau {
   exact?: boolean;
 }
 
-/** Mehr liest vor einem Knopfdruck niemand - der Rest wird gezählt. */
-export const HOECHSTENS_ZEILEN = 8;
+// Es gab hier einen Deckel von acht Zeilen und darunter «… und 6
+// weitere». Aus dem Haus kam dazu: Genau die sechs will man sehen. Der
+// Deckel sparte Platz an der einzigen Stelle, an der jemand freiwillig
+// liest - vor einem Knopf, der das Haus für ein paar Minuten
+// durchstartet. Die Liste ist jetzt vollständig; gedeckelt wird die
+// Höhe des Kastens, nicht der Inhalt (SystemScreen.tsx).
 
 export type VorschauArt =
   /** Liste seit dem laufenden Stand. */
@@ -33,11 +37,9 @@ export type VorschauArt =
 export function vorschauZeilen(vorschau: UpdateVorschau | null | undefined): {
   art: VorschauArt;
   zeilen: string[];
-  /** Wie viele Zeilen der Deckel abgeschnitten hat. */
-  mehr: number;
 } {
   if (!vorschau || vorschau.available !== true) {
-    return { art: 'keine', zeilen: [], mehr: 0 };
+    return { art: 'keine', zeilen: [] };
   }
   const alle = (vorschau.commits ?? []).filter(
     (zeile) =>
@@ -53,7 +55,7 @@ export function vorschauZeilen(vorschau: UpdateVorschau | null | undefined): {
   if (alle.length === 0) {
     // Nur die genaue Antwort darf «nichts Neues» behaupten - eine
     // leere Näherungsliste heisst bloss, dass GitHub nichts hergab.
-    return { art: vorschau.exact ? 'nichts' : 'keine', zeilen: [], mehr: 0 };
+    return { art: vorschau.exact ? 'nichts' : 'keine', zeilen: [] };
   }
   // Ohne genauen Vergleich wird nichts aufgezählt. Die Liste hiess
   // «die jüngsten Änderungen» und zeigte die zehn neusten Commits des
@@ -64,10 +66,6 @@ export function vorschauZeilen(vorschau: UpdateVorschau | null | undefined): {
   // dem Knopf steht, will wissen, was *noch* kommt; eine Liste, die im
   // Zweifel schon Ausgeliefertes nennt, beantwortet das nicht, sondern
   // führt in die Irre. Dann lieber ein ehrlicher Satz und keine Liste.
-  if (!vorschau.exact) return { art: 'ungefaehr', zeilen: [], mehr: 0 };
-  return {
-    art: 'genau',
-    zeilen: alle.slice(0, HOECHSTENS_ZEILEN),
-    mehr: Math.max(0, alle.length - HOECHSTENS_ZEILEN),
-  };
+  if (!vorschau.exact) return { art: 'ungefaehr', zeilen: [] };
+  return { art: 'genau', zeilen: alle };
 }

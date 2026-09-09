@@ -20,7 +20,10 @@ import type { Ionicons } from '@expo/vector-icons';
 /** Welche Fassung der Einführung schon weggeklickt wurde. Nur
  *  hochzählen, wenn sich die Schritte so ändern, dass auch alte Hasen
  *  sie noch einmal sehen sollen - nicht bei jedem Wortdreher. */
-export const EINFUEHRUNG_STAND = 1;
+// Von 1 auf 2, als die Seitenhilfe dazukam: Der letzte Schritt sagt
+// jetzt etwas anderes - dass es auf jeder Seite ein Fragezeichen gibt -,
+// und das soll auch sehen, wer die Einführung längst weggeklickt hat.
+export const EINFUEHRUNG_STAND = 2;
 
 /** Ein Schritt des Blatts: Symbol, Überschrift, zwei, drei Sätze -
  *  und auf Wunsch ein Schaubild, das zeigt statt zu beschreiben. */
@@ -218,12 +221,19 @@ export function schritteFuer(
         'jede Szene und jeden Ablauf mit drei getippten Buchstaben.',
     },
     {
-      icon: 'settings-outline',
-      titel: 'Einstellungen und Hilfe',
+      icon: 'help-circle-outline',
+      titel: 'Auf jeder Seite ein Fragezeichen',
+      // Der wichtigste Schritt, seit es die Seitenhilfe gibt
+      // (lib/seitenhilfe.ts): Diese Einführung muss die App nicht mehr
+      // erklären, sie muss nur noch zeigen, wo die Erklärung steht -
+      // und zwar die zu der Seite, auf der jemand gerade nicht
+      // weiterweiss. Alles auf einmal zu erzählen hat noch nie
+      // funktioniert; man liest es, bevor man die Frage hat.
       text:
-        'Hinter dem Zahnrad in der Leiste liegt alles Übrige - auch die ' +
-        'Hilfe mit den häufigsten Fragen, und diese Einführung, falls du ' +
-        'sie noch einmal sehen willst.',
+        'Hinter dem Zahnrad in der Leiste liegen die Einstellungen. Oben ' +
+        'rechts steht dort auf jeder Seite ein Fragezeichen: Es sagt, ' +
+        'wofür genau diese Seite da ist, und führt dich hin, wo etwas ' +
+        'anderes wohnt. Diese Einführung findest du dort auch wieder.',
     },
   ];
 }

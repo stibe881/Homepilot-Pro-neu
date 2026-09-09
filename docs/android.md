@@ -127,3 +127,73 @@ frischen Klon, weil sie in der `.gitignore` steht. Liegt sie als
 `/opt/homepilot/google-services.json` auf dem Host, kopiert
 `deploy/rebuild-hub.sh` sie vor dem Bauen in den Bau-Kontext - ohne
 sie baut die App trotzdem, nur Push bleibt auf Android stumm.
+
+## Wenn das Einreichen scheitert: «The caller does not have permission»
+
+Der Build läuft durch, das Einreichen bricht ab:
+
+```
+Google Api Error: Invalid request - The caller does not have permission - Retrying...
+[!] Google Api Error: Invalid request - The caller does not have permission
+Failed to submit the app to the store
+```
+
+Wichtig zum Einordnen: Diese Meldung fällt beim **allerersten**
+API-Aufruf (`edits.insert`), bevor Google die `.aab` überhaupt
+angeschaut hat. Sie sagt deshalb nichts über Versionsnummer, Bündel
+oder Spur aus - fastlane druckt die Zusammenfassung nur vorher. Google
+antwortet so in genau einem Fall: Das Dienstkonto, dessen Schlüssel EAS
+benutzt, darf diese App nicht anfassen.
+
+Vier Stellen, in dieser Reihenfolge:
+
+1. **Welches Dienstkonto benutzt EAS überhaupt?**
+
+   ```bash
+   cd app && npx eas-cli@latest credentials --platform android
+   ```
+
+   Unter *Google Service Account Key for submissions* steht die
+   `client_email`, etwa `…@….iam.gserviceaccount.com`. Diese Adresse
+   ist der Schlüssel zu allem Weiteren. Der häufigste Fehler steckt
+   schon hier: In der Cloud-Konsole entstehen leicht zwei Dienstkonten,
+   und dann ist das eine eingeladen und der Schlüssel des anderen
+   hochgeladen.
+
+2. **Steht diese Adresse in der Play Console als Nutzer?** Play Console
+   → *Nutzer und Berechtigungen*. Fehlt sie dort, einladen. Ein
+   Dienstkonto, das nur unter *API-Zugriff* angelegt wurde, existiert in
+   der Cloud - Rechte in der Play Console hat es damit noch keine.
+
+3. **Darf sie diese App auf die Testspur schieben?** In den
+   Berechtigungen des Kontos muss HomePilot in der App-Liste stehen,
+   mit mindestens «Releases auf Testspuren veröffentlichen» und «App-
+   Informationen einsehen». Kontoweite Rechte ohne die App in der Liste
+   reichen nicht. Zum Eingrenzen kurz Admin geben: Läuft es dann durch,
+   war es die Rechteliste und nicht der Schlüssel.
+
+4. **Ist die API im richtigen Cloud-Projekt an?** Das `project_id` im
+   JSON-Schlüssel muss zu dem Projekt gehören, das unter *API-Zugriff*
+   verknüpft ist, und dort muss die «Google Play Android Developer API»
+   aktiviert sein.
+
+Nach einer Änderung an den Rechten dauert es ein paar Minuten, bis
+Google sie überall kennt (Google nennt bis zu 24 Stunden). Neu bauen
+muss man dafür nicht - der fertige Build lässt sich einzeln nochmals
+einreichen:
+
+```bash
+cd app && npx eas-cli@latest submit --platform android --profile play --latest
+```
+
+Was **nicht** die Ursache ist, auch wenn es danach aussieht: der
+temporäre App-Name «ch.stibe.homepilot (unreviewed)» und das «Nicht
+überprüft» an der Fassung. Beides ist bei einer neuen App normal und
+hindert das Einreichen über die API nicht - die Bedingung ist nur, dass
+überhaupt schon einmal von Hand hochgeladen wurde, und das ist mit der
+678 auf der internen Spur erfüllt.
+
+Ein liegen gebliebener **Entwurf** auf derselben Spur ist ebenfalls
+nicht die Ursache, aber Aufräumen lohnt sich: Der nächste erfolgreiche
+Lauf reicht ihn sonst mit ein, weil fastlane die ganze Bearbeitung
+abschickt und nicht nur die neue Fassung.

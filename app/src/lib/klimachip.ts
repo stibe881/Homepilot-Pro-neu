@@ -27,7 +27,13 @@ const KEINE_FEUCHTE = /duty[_ ]?cycle|sendespeicher|batter|akku|filter|signal|wl
  *  gehört nicht in die Kopfzeile der Wohnung. */
 const KEIN_KLIMA = /grill|sonde|probe|ofen|backofen|kühlschrank|kuehlschrank|gefrier|tiefkühl|tiefkuehl/i;
 
-function passt(entity: Entity, art: Messgroesse): boolean {
+/**
+ * Misst diese Entität wirklich das Klima? (rein, testbar)
+ *
+ * Auch der Raumkopf fragt danach: Sein Feuchtewert soll nicht der
+ * Sendespeicher des Funkmoduls sein, nur weil beide in Prozent zählen.
+ */
+export function istKlimaFuehler(entity: Entity, art: Messgroesse): boolean {
   if (entity.kind !== 'sensor') return false;
   const einheit = String(entity.state?.unit ?? '');
   if (!EINHEIT[art].includes(einheit)) return false;
@@ -45,7 +51,14 @@ function passt(entity: Entity, art: Messgroesse): boolean {
  * dieselbe Einheit trägt.
  */
 export function klimaSensor(entities: Entity[], art: Messgroesse): Entity | undefined {
-  const kandidaten = entities.filter((entity) => passt(entity, art));
+  // «Zählt nur für seinen Raum» (Geräte → Anpassen) bleibt hier
+  // draussen: Der Fühler neben dem Rack in der Waschküche misst
+  // 30 Grad. Oben stünde das als die Temperatur der Wohnung - und die
+  // stimmte dann nie. Im Raumkopf der Waschküche zeigt ihn derselbe
+  // Fühler weiterhin (lib/raum.ts).
+  const kandidaten = entities.filter(
+    (entity) => istKlimaFuehler(entity, art) && !entity.room_only
+  );
   return (
     kandidaten.find((entity) => entity.state?.device_class === art) ??
     kandidaten.find((entity) => !entity.room) ??

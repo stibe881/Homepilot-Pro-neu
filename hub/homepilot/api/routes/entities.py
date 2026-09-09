@@ -28,6 +28,7 @@ from ...core.streams import (
     StreamError,
     apple_player,
     apple_schnell,
+    ohne_luecken,
     rewrite_playlist,
     start_rueckstand,
     strip_low_latency,
@@ -181,9 +182,21 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             daten = {**(body.data or {}), "require_pin": True}
         try:
             with as_source(user_source(user.name)):
-                entity = await hub.integrations.dispatch_command(
-                    entity_id, body.command, daten
-                )
+                # Szenen einer Integration (Hue) gehen über die
+                # Szenen-Verwaltung: Die Bridge kann eine Szene nur
+                # aufrufen, das Zurücknehmen beim zweiten Druck merkt
+                # sich der Hub selbst (core/scenes.py, fremde_szene).
+                if (
+                    body.command == "activate"
+                    and str(getattr(entity.kind, "value", entity.kind)) == "scene"
+                    and entity.state.get("lights")
+                ):
+                    await hub.scenes.fremde_szene(entity)
+                    entity = hub.registry.get(entity_id) or entity
+                else:
+                    entity = await hub.integrations.dispatch_command(
+                        entity_id, body.command, daten
+                    )
         except UnknownEntityError as err:
             raise HTTPException(status_code=404, detail=str(err)) from err
         except UnsupportedCommandError as err:
@@ -506,6 +519,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             raise HTTPException(status_code=503, detail="Integration nicht geladen")
         return entity, integration
 
+    # Nur einmal je Hub-Lauf gemeldet: Wer den Schalter kennt, braucht die
+    # Zeile nicht bei jedem Häppchen.
+    apple_gemeldet = False
+
     async def deliver(target, request: Request, prefix: str) -> Response:
         """Wiedergabeliste oder Häppchen ausliefern – aus Datei oder mediamtx.
 
@@ -531,6 +548,11 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 prefix,
                 request.query_params.get("token"),
             )
+            # Die Platzhalter eines frisch angelaufenen Stroms raus, bevor
+            # ein Player darin einsteigt (core/streams.py: ohne_luecken).
+            # Für alle, nicht nur für Apple: Auch hls.js hat an diesen
+            # Löchern nichts zu holen.
+            text = ohne_luecken(text)
             # Apple-Player (AVPlayer in der App, Safari) scheitern an den
             # zitternden Part-Dauern der Protect-Kameras – sie bekommen die
             # Liste ohne Low-Latency-Teile und spielen gewöhnliches HLS.
@@ -541,6 +563,23 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             agent = request.headers.get("user-agent", "")
             if apple_player(agent) and not apple_schnell(hub.config.streaming):
                 text = strip_low_latency(text, start_rueckstand(hub.config.streaming))
+            elif apple_player(agent):
+                # Der Schalter ist an - dann bekommt AVPlayer die
+                # Low-Latency-Fassung mit ihren Bruchstücken. Das ist
+                # eine Einladung zum schwarzen Bild: Er verlangt, dass
+                # jedes Bruchstück exakt so lang ist wie angekündigt,
+                # und die Zeitstempel der Kameras zittern. Wortlos
+                # aussteigen tut er dann, nicht mit einem Fehler - also
+                # sagt es der Hub, sonst sucht man es nirgends.
+                nonlocal apple_gemeldet
+                if not apple_gemeldet:
+                    apple_gemeldet = True
+                    log.warning(
+                        "streaming.apple_low_latency ist an: iPhone und iPad "
+                        "bekommen die Low-Latency-Fassung. Bleibt das Bild "
+                        "dort schwarz, ist das der erste Verdacht - Schalter "
+                        "in der config.yaml herausnehmen."
+                    )
             content, media_type = text.encode(), "application/vnd.apple.mpegurl"
         return Response(
             content=content,

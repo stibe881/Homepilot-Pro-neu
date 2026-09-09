@@ -151,3 +151,47 @@ async def test_the_entity_remembers_why_it_changed():
         "kind": "device",
         "label": "Gerät",
     }
+
+
+async def test_meta_marks_a_sensor_as_counting_only_for_its_room():
+    """«Gilt für: nur diesen Raum» kommt aus dem Meta-Speicher.
+
+    Vorgabe ist «das ganze Haus»; gespeichert wird nur die Abweichung,
+    damit der Eintrag klein bleibt (siehe hub.set_entity_meta). Und sie
+    muss im Schnappschuss für die App stehen - dort hängt die Zeile im
+    Anpassen-Blatt daran.
+    """
+    registry = EntityRegistry(EventBus())
+    registry.meta_provider = {"demo.light": {"room_only": True}}.get
+    events: list[dict] = []
+    registry.bus.subscribe("entity_added", lambda t, d: events.append(d["entity"]))
+    await registry.add(make_light())
+
+    assert registry.get("demo.light").room_only is True
+    assert events[0]["room_only"] is True
+
+
+async def test_a_sensor_counts_house_wide_unless_someone_says_otherwise():
+    registry = EntityRegistry(EventBus())
+    registry.meta_provider = {}.get
+    await registry.add(make_light())
+    assert registry.get("demo.light").room_only is False
+
+
+async def test_meta_says_whether_a_contact_hangs_on_a_window_or_a_door():
+    """Homematic meldet beides als «contact» - hier steht, was gilt.
+
+    Geraten wird sonst am Namen, und ein Kontakt namens «Waschküche»
+    galt damit als Fenster. Was jemand einträgt, muss stärker sein als
+    das Raten - und alles ausser «window» und «door» heisst «weiss ich
+    nicht».
+    """
+    registry = EntityRegistry(EventBus())
+    registry.meta_provider = {"demo.light": {"contact_kind": "door"}}.get
+    await registry.add(make_light())
+    assert registry.get("demo.light").contact_kind == "door"
+
+    zweite = EntityRegistry(EventBus())
+    zweite.meta_provider = {"demo.light": {"contact_kind": "tuer"}}.get
+    await zweite.add(make_light())
+    assert zweite.get("demo.light").contact_kind is None

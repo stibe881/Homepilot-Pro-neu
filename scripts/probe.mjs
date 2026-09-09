@@ -270,8 +270,14 @@ async function terminWandert(browser) {
       while (fenster && getComputedStyle(fenster).overflowX !== 'hidden') {
         fenster = fenster.parentElement;
       }
+      // Die Begrüssungskarte findet man an ihrem Gruss - und der
+      // wechselt mit der Tageszeit: «Guten Morgen», «Hallo», «Guten
+      // Abend» (app/src/lib/begruessung.ts). Gesucht wurde nur nach
+      // «Guten », und damit war diese Messung jeden Nachmittag rot:
+      // «Zeile nicht gefunden», ohne dass am Code etwas fehlte.
+      const GRUSS = /Guten Morgen|Guten Abend|Hallo/;
       let karte = fenster;
-      while (karte && !karte.textContent.includes('Guten ')) karte = karte.parentElement;
+      while (karte && !GRUSS.test(karte.textContent)) karte = karte.parentElement;
       if (!fenster || !karte) return null;
       return {
         x: Math.round(el.getBoundingClientRect().left),

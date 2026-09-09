@@ -127,118 +127,228 @@ def first_url(playlist):
     return None
 
 
-KALT = "--kalt" in sys.argv
+def medienstueck(playlist):
+    """Das erste *echte* Häppchen – kein Init, kein Bruchstück.
 
-token = os.environ.get("TOKEN_STEFAN") or os.environ.get("HOMEPILOT_TOKEN") or ""
-if not token:
-    raise SystemExit("Kein Token in der Umgebung (TOKEN_STEFAN/HOMEPILOT_TOKEN)")
-quoted = urllib.parse.quote(token, safe="")
-print(f"Token: {len(token)} Zeichen, Sonderzeichen: "
-      f"{'ja' if quoted != token else 'nein'}")
+    Der Grund für diese Funktion ist ein falscher Freispruch: Die erste
+    Adresse einer fMP4-Liste ist die Initialisierung (``EXT-X-MAP``),
+    ein paar hundert Bytes gross. Die holte die Prüfung, bekam 200 und
+    meldete «die Kette liefert» - während der Player kurz darauf an den
+    Video-Häppchen scheiterte und eine schwarze Fläche zeigte. Genau so
+    gemeldet worden.
 
-# ── 1. mediamtx erreichbar? ──────────────────────────────────────────────
-status, body = get(f"{MTX_API}/v3/config/global/get", timeout=5)
-print(f"\n1) mediamtx-API      : {status} {'OK' if status == 200 else short(body)}")
-bereit = pfade_bereit()
-if bereit:
-    laufend = [name for name, ready in bereit.items() if ready] or ["keiner"]
-    print(f"   laufende Ströme    : {', '.join(laufend)}")
+    Lücken zählen dabei nicht als Häppchen: ``#EXT-X-GAP`` heisst «hier
+    ist mit Absicht nichts», und ``gap.mp4`` gibt es nie zu holen. Wer
+    das übersieht, misst einen 404 und hält ihn für den Fehler - der
+    zweite falsche Freispruch, nur in die andere Richtung.
+    """
+    luecke = False
+    for line in playlist.decode("utf-8", "replace").splitlines():
+        if line.startswith("#EXT-X-GAP"):
+            luecke = True
+            continue
+        if line.startswith("#") or not line.strip():
+            continue
+        if luecke:
+            luecke = False
+            continue
+        return line.strip()
+    return None
 
-# ── 2. Kameras des Hubs ──────────────────────────────────────────────────
-status, body = get(f"{HUB}/api/entities?token={quoted}")
-if status != 200:
-    raise SystemExit(f"2) Hub-Entitäten     : {status} {short(body)}")
-cameras = [e for e in json.loads(body) if e.get("kind") == "camera"]
-print(f"2) Kameras           : {len(cameras)} gefunden")
-for camera in cameras:
-    print(f"   - {camera['id']}  live={camera['state'].get('stream')} "
-          f"zustand={camera['state'].get('state')}")
 
-targets = [c for c in cameras if c["state"].get("stream")]
-if not targets:
-    raise SystemExit("Keine Kamera mit RTSP – in Protect je Kamera einschalten.")
+def luecken(playlist):
+    """Wie viele Platzhalter in der Liste stehen (``#EXT-X-GAP``).
 
-for camera in targets:
-    entity = camera["id"]
-    base = f"{HUB}/api/entities/{urllib.parse.quote(entity)}"
-    print(f"\n=== {entity} ({camera['name']}) ===")
+    Beim Anlaufen füllt mediamtx das Fenster damit auf. Der Hub nimmt
+    die führenden heraus (core/streams.py, ohne_luecken) - stehen hier
+    trotzdem welche, läuft ein Abbild von vor dieser Änderung.
+    """
+    return playlist.decode("utf-8", "replace").count("#EXT-X-GAP")
 
-    # Warm oder kalt? Ohne diese Angabe misst der zweite Aufruf etwas
-    # ganz anderes als der erste - und die Frage «warum dauert es so
-    # lange» beantwortet nur der kalte.
-    # Denselben Namen wie der Hub bilden, nicht einen ähnlichen: Sonst
-    # sucht die Prüfung einen Pfad, den es in mediamtx gar nicht gibt,
-    # und hält jede Kamera für kalt.
-    pfad = path_name(entity)
-    warm = pfade_bereit().get(pfad, False)
-    if KALT and warm:
-        print("   Strom läuft noch - warte, bis mediamtx ihn loslässt …")
-        warm = not warte_auf_kalt(pfad)
-    print(f"   Zustand vorher     : {'warm (läuft schon)' if warm else 'kalt'}")
 
-    # ── 3. Master-Playlist ───────────────────────────────────────────────
-    beginn = time.monotonic()
-    status, master = get(f"{base}/stream.m3u8?token={quoted}")
-    liste_dauer = get.dauer
-    print(f"3) Master-Playlist   : {status} · {zeit()}")
+def bruchstueck(playlist):
+    """Das erste Low-Latency-Bruchstück (``EXT-X-PART``), wenn es eines gibt.
+
+    Im Browser hängt das Bild daran: hls.js holt die Teile, nicht die
+    ganzen Häppchen. Ein Strom, dessen Häppchen liegen und dessen Teile
+    fehlen, sieht in jeder anderen Messung gesund aus.
+    """
+    for line in playlist.decode("utf-8", "replace").splitlines():
+        if line.startswith("#EXT-X-PART:"):
+            match = re.search(r'URI="([^"]+)"', line)
+            if match:
+                return match.group(1)
+    return None
+
+
+def main():
+    """Die Prüfung selbst.
+
+    In einer Funktion und nicht auf Modulebene, damit sich die
+    Helfer darüber (medienstueck, bruchstueck) importieren und
+    prüfen lassen - vorher lief beim blossen Import sofort die ganze
+    Messung los, und ein Test dafür war nicht möglich.
+    """
+    KALT = "--kalt" in sys.argv
+
+    token = os.environ.get("TOKEN_STEFAN") or os.environ.get("HOMEPILOT_TOKEN") or ""
+    if not token:
+        raise SystemExit("Kein Token in der Umgebung (TOKEN_STEFAN/HOMEPILOT_TOKEN)")
+    quoted = urllib.parse.quote(token, safe="")
+    print(f"Token: {len(token)} Zeichen, Sonderzeichen: "
+          f"{'ja' if quoted != token else 'nein'}")
+
+    # ── 1. mediamtx erreichbar? ──────────────────────────────────────────────
+    status, body = get(f"{MTX_API}/v3/config/global/get", timeout=5)
+    print(f"\n1) mediamtx-API      : {status} {'OK' if status == 200 else short(body)}")
+    bereit = pfade_bereit()
+    if bereit:
+        laufend = [name for name, ready in bereit.items() if ready] or ["keiner"]
+        print(f"   laufende Ströme    : {', '.join(laufend)}")
+
+    # ── 2. Kameras des Hubs ──────────────────────────────────────────────────
+    status, body = get(f"{HUB}/api/entities?token={quoted}")
     if status != 200:
-        print(f"   → {short(master, 300)}")
-        continue
-    print(f"   {short(master, 300)}")
+        raise SystemExit(f"2) Hub-Entitäten     : {status} {short(body)}")
+    cameras = [e for e in json.loads(body) if e.get("kind") == "camera"]
+    print(f"2) Kameras           : {len(cameras)} gefunden")
+    for camera in cameras:
+        print(f"   - {camera['id']}  live={camera['state'].get('stream')} "
+              f"zustand={camera['state'].get('state')}")
 
-    variant = first_url(master)
-    if not variant:
-        print("   → keine Unterliste in der Master-Playlist")
-        continue
-    print(f"   Unterliste: {variant}")
-    encoded = any(mark in variant for mark in ("%2F", "%2B", "%3D"))
-    print(f"   Token kodiert: {'ja' if encoded else 'nicht nötig/nein'}")
-    print(f"   Token doppelt: {'JA – Fehler' if variant.count('token=') > 1 else 'nein'}")
+    targets = [c for c in cameras if c["state"].get("stream")]
+    if not targets:
+        raise SystemExit("Keine Kamera mit RTSP – in Protect je Kamera einschalten.")
 
-    # ── 4. Unterliste (so wie der Player sie abruft) ─────────────────────
-    status, media = get(f"{base}/{variant}")
-    print(f"4) Unterliste        : {status} · {zeit()}")
-    if status != 200:
-        print(f"   → {short(media, 300)}")
-        continue
+    for camera in targets:
+        entity = camera["id"]
+        base = f"{HUB}/api/entities/{urllib.parse.quote(entity)}"
+        print(f"\n=== {entity} ({camera['name']}) ===")
 
-    # ── 5. Erstes Häppchen ───────────────────────────────────────────────
-    piece = first_url(media)
-    print(f"   erstes Stück: {piece}")
-    if piece:
-        status, data = get(f"{base}/stream/{piece}")
-        print(f"5) Häppchen          : {status} ({len(data)} Bytes) · {zeit()}")
+        # Warm oder kalt? Ohne diese Angabe misst der zweite Aufruf etwas
+        # ganz anderes als der erste - und die Frage «warum dauert es so
+        # lange» beantwortet nur der kalte.
+        # Denselben Namen wie der Hub bilden, nicht einen ähnlichen: Sonst
+        # sucht die Prüfung einen Pfad, den es in mediamtx gar nicht gibt,
+        # und hält jede Kamera für kalt.
+        pfad = path_name(entity)
+        warm = pfade_bereit().get(pfad, False)
+        if KALT and warm:
+            print("   Strom läuft noch - warte, bis mediamtx ihn loslässt …")
+            warm = not warte_auf_kalt(pfad)
+        print(f"   Zustand vorher     : {'warm (läuft schon)' if warm else 'kalt'}")
+
+        # ── 3. Master-Playlist ───────────────────────────────────────────────
+        beginn = time.monotonic()
+        status, master = get(f"{base}/stream.m3u8?token={quoted}")
+        liste_dauer = get.dauer
+        print(f"3) Master-Playlist   : {status} · {zeit()}")
         if status != 200:
-            print(f"   → {short(data, 300)}")
-    # Das ist die Zahl, um die es geht: von «jemand tippt die Kamera an»
-    # bis «das erste Stück Video liegt da». Der Löwenanteil steckt im
-    # Warten auf ein vollständiges Bild der Kamera (Protect sendet im
-    # Smart Codec nur alle 4-8 s eines) - deshalb steht daneben, ob der
-    # Strom vorher schon lief.
+            print(f"   → {short(master, 300)}")
+            continue
+        print(f"   {short(master, 300)}")
+
+        variant = first_url(master)
+        if not variant:
+            print("   → keine Unterliste in der Master-Playlist")
+            continue
+        print(f"   Unterliste: {variant}")
+        encoded = any(mark in variant for mark in ("%2F", "%2B", "%3D"))
+        print(f"   Token kodiert: {'ja' if encoded else 'nicht nötig/nein'}")
+        print(f"   Token doppelt: {'JA – Fehler' if variant.count('token=') > 1 else 'nein'}")
+
+        # ── 4. Unterliste (so wie der Player sie abruft) ─────────────────────
+        status, media = get(f"{base}/{variant}")
+        print(f"4) Unterliste        : {status} · {zeit()}")
+        if status != 200:
+            print(f"   → {short(media, 300)}")
+            continue
+
+        # ── 5. Init, Häppchen, Bruchstück ────────────────────────────────────
+        #
+        # Alle drei, und in dieser Reihenfolge: Die Initialisierung allein
+        # beweist gar nichts (siehe medienstueck) - sie ist ein paar hundert
+        # Bytes gross und kommt auch dann, wenn kein einziges Bild folgt.
+        init = first_url(media)
+        if init:
+            status, data = get(f"{base}/stream/{init}")
+            print(f"5) Init              : {status} ({len(data)} Bytes) · {zeit()}")
+            if status != 200:
+                print(f"   → {short(data, 300)}")
+
+        fehlend = luecken(media)
+        if fehlend:
+            print(f"   ✗ {fehlend} Lücken-Platzhalter in der Liste - der Hub "
+                  "sollte sie herausnehmen (ohne_luecken); altes Abbild?")
+        piece = medienstueck(media)
+        print(f"   erstes Häppchen: {piece}")
+        if not piece:
+            print("   ✗ In der Liste steht kein einziges Video-Häppchen - "
+                  "der Strom läuft noch nicht wirklich.")
+        else:
+            status, data = get(f"{base}/stream/{piece}")
+            gross = len(data) > 20000
+            print(f"6) Video-Häppchen    : {status} ({len(data)} Bytes) · {zeit()} "
+                  f"{'' if gross else '← verdächtig klein, da steckt kaum Bild drin'}")
+            if status != 200:
+                print(f"   → {short(data, 300)}")
+
+        teil = bruchstueck(media)
+        if teil:
+            status, data = get(f"{base}/stream/{teil}")
+            print(f"7) Bruchstück (LL)   : {status} ({len(data)} Bytes) · {zeit()}")
+            if status != 200:
+                print(f"   → {short(data, 300)}")
+        # Das ist die Zahl, um die es geht: von «jemand tippt die Kamera an»
+        # bis «das erste Stück Video liegt da». Der Löwenanteil steckt im
+        # Warten auf ein vollständiges Bild der Kamera (Protect sendet im
+        # Smart Codec nur alle 4-8 s eines) - deshalb steht daneben, ob der
+        # Strom vorher schon lief.
+        print(
+            f"   bis zum ersten Bild: {time.monotonic() - beginn:5.2f}s "
+            f"({'warm' if warm else 'kalt'}; davon Wiedergabeliste {liste_dauer:.2f}s)"
+        )
+
+        # ── 8. Was Apple bekommt ─────────────────────────────────────────────
+        status, apple_master = get(f"{base}/stream.m3u8?token={quoted}", ua=APPLE_UA)
+        apple_variant = first_url(apple_master) if status == 200 else None
+        if apple_variant:
+            status, apple_media = get(f"{base}/{apple_variant}", ua=APPLE_UA)
+            text = apple_media.decode("utf-8", "replace")
+            parts = text.count("#EXT-X-PART:")
+            # Diese Zeile ist die wichtigste der ganzen Prüfung, wenn iPhone
+            # oder iPad schwarz bleiben: AVPlayer verlangt, dass jedes
+            # Bruchstück exakt so lang ist wie angekündigt. Die Zeitstempel
+            # der Protect-Kameras zittern, die Part-Dauern schwanken - und
+            # der Player steigt wortlos aus. Schwarz, kein Fehler. Deshalb
+            # nimmt der Hub die PART-Zeilen für Apple heraus
+            # (core/streams.py, strip_low_latency); stehen sie hier
+            # trotzdem, läuft ein Hub-Abbild von vor dieser Änderung - oder
+            # in der config.yaml steht «streaming.apple_low_latency: true».
+            verdict = (
+                "(gut)"
+                if parts == 0
+                else "(← DAS ist der schwarze Bildschirm auf iPhone/iPad: "
+                "alter Hub-Code oder streaming.apple_low_latency: true)"
+            )
+            print(f"8) Apple-Fassung     : {status}, PART-Zeilen: {parts} {verdict}")
+            piece = medienstueck(apple_media) or first_url(apple_media)
+            if piece:
+                status, data = get(f"{base}/stream/{piece}", ua=APPLE_UA)
+                print(f"   Apple-Häppchen    : {status} ({len(data)} Bytes) · {zeit()}")
+
     print(
-        f"   bis zum ersten Bild: {time.monotonic() - beginn:5.2f}s "
-        f"({'warm' if warm else 'kalt'}; davon Wiedergabeliste {liste_dauer:.2f}s)"
+        "\nFertig. Alles 200 *und* ein Video-Häppchen mit ordentlich Bytes"
+        "\nheisst: Die Kette liefert. Nur 200 auf Liste und Init heisst das"
+        "\nnicht - die kommen auch, wenn kein einziges Bild folgt."
+        "\nKalt gemessen? Dann ist die Zeit «bis zum ersten Bild» die, die ein"
+        "\nMensch am Telefon erlebt - plus zwei Sekunden Vorlauf, mit denen"
+        "\nApple-Player einsteigen (streaming.start_offset)."
+        "\nOhne --kalt lief der Strom womöglich schon; die Zeile «Zustand"
+        "\nvorher» sagt es je Kamera."
     )
 
-    # ── 6. Was Apple bekommt ─────────────────────────────────────────────
-    status, apple_master = get(f"{base}/stream.m3u8?token={quoted}", ua=APPLE_UA)
-    apple_variant = first_url(apple_master) if status == 200 else None
-    if apple_variant:
-        status, apple_media = get(f"{base}/{apple_variant}", ua=APPLE_UA)
-        text = apple_media.decode("utf-8", "replace")
-        parts = text.count("#EXT-X-PART:")
-        verdict = "(gut)" if parts == 0 else "(alter Hub-Code – neu bauen!)"
-        print(f"6) Apple-Fassung     : {status}, PART-Zeilen: {parts} {verdict}")
-        piece = first_url(apple_media)
-        if piece:
-            status, data = get(f"{base}/stream/{piece}", ua=APPLE_UA)
-            print(f"   Apple-Häppchen    : {status} ({len(data)} Bytes)")
 
-print(
-    "\nFertig. Alles 200 = die Kette liefert; die App müsste spielen."
-    "\nKalt gemessen? Dann ist die Zeit «bis zum ersten Bild» die, die ein"
-    "\nMensch am Telefon erlebt - plus zwei Sekunden Vorlauf, mit denen"
-    "\nApple-Player einsteigen (streaming.start_offset)."
-    "\nOhne --kalt lief der Strom womöglich schon; die Zeile «Zustand"
-    "\nvorher» sagt es je Kamera."
-)
+
+if __name__ == "__main__":
+    main()

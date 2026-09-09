@@ -92,6 +92,18 @@ export function CameraLive({
     // aufs Standbild zurückzufallen – erst nach einem Rettungsversuch.
     let recovered = false;
     hls.on(Hls.Events.ERROR, (_event, data) => {
+      // Jede Klage in die Konsole, auch die nicht tödliche. Der Grund
+      // steht in einem Bildschirmfoto einer schwarzen Fläche: hls.js
+      // hört bei einem stehenden Puffer («bufferStalledError») nicht auf
+      // und meldet auch nichts nach aussen - es kommt einfach kein Bild.
+      // Wer dann F12 drückt, soll den Grund lesen können, statt raten zu
+      // müssen. Eine Zeile je Klage; sie kosten nichts, solange alles
+      // läuft, denn dann kommt keine.
+      console.warn(
+        `[Live-Bild] ${data.type} · ${data.details}` +
+          `${data.fatal ? ' · endgültig' : ''}` +
+          `${data.response?.code ? ` · HTTP ${data.response.code}` : ''}`
+      );
       if (!data.fatal) return;
       if (!recovered && data.type === Hls.ErrorTypes.NETWORK_ERROR) {
         recovered = true;

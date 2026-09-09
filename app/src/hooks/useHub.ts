@@ -577,7 +577,18 @@ export function useHub(url: string | null, token: string | null) {
   const setEntityMeta = useCallback(
     async (
       entityId: string,
-      meta: { name?: string | null; favorite?: boolean; group?: string | null }
+      meta: {
+        name?: string | null;
+        favorite?: boolean;
+        group?: string | null;
+        /** Nur Szenen einer Integration: Bleibt sie aktiv, nimmt der
+         *  zweite Druck sie zurück (Hub: core/scenes.py). */
+        scene_toggles?: boolean;
+        /** Nur Klimafühler: Der Wert zählt nur für seinen Raum. */
+        room_only?: boolean;
+        /** Nur Fenster- und Türkontakte: «window» oder «door». */
+        contact_kind?: 'window' | 'door' | null;
+      }
     ) => {
       setEntityMap((prev) => {
         const entity = prev[entityId];
@@ -586,6 +597,9 @@ export function useHub(url: string | null, token: string | null) {
         if (meta.name !== undefined) next.name = meta.name || entity.name;
         if (meta.favorite !== undefined) next.favorite = meta.favorite;
         if (meta.group !== undefined) next.group = meta.group;
+        if (meta.scene_toggles !== undefined) next.scene_toggles = meta.scene_toggles;
+        if (meta.room_only !== undefined) next.room_only = meta.room_only;
+        if (meta.contact_kind !== undefined) next.contact_kind = meta.contact_kind;
         return { ...prev, [entityId]: next };
       });
       try {

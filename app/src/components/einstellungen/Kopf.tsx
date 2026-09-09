@@ -24,12 +24,17 @@ export function EinstellungsKopf({
   titel,
   onZurueck,
   onWechseln,
+  onHilfe,
 }: {
   titel: string;
   /** Zurück zur Übersicht. Fehlt er, steht man schon dort. */
   onZurueck?: () => void;
   /** Öffnet das Blatt mit allen Bereichen. Fehlt er, gibt es nichts zu wechseln. */
   onWechseln?: () => void;
+  /** Öffnet die Hilfe zu dieser Seite. Fehlt er, gibt es für die Seite
+   *  (noch) keine - dann steht dort auch kein Fragezeichen, statt eines
+   *  zu zeigen, das ein leeres Blatt aufmacht. */
+  onHilfe?: () => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -62,6 +67,25 @@ export function EinstellungsKopf({
           <Ionicons name="chevron-down" size={17} color={colors.onGradientSoft} />
         ) : null}
       </Pressable>
+
+      {/* Rechts aussen und auf jeder Seite an derselben Stelle: Eine
+          Hilfe, die man suchen muss, ist im Moment der Ratlosigkeit
+          keine. Was drinsteht, gilt genau dieser Seite
+          (components/Seitenhilfe.tsx). */}
+      {onHilfe ? (
+        <>
+          <View style={{ flex: 1 }} />
+          <Pressable
+            onPress={onHilfe}
+            accessibilityRole="button"
+            accessibilityLabel={`Hilfe zu ${titel}`}
+            hitSlop={8}
+            style={({ pressed }) => [styles.hilfe, pressed && { opacity: 0.6 }]}
+          >
+            <Ionicons name="help-circle-outline" size={22} color={colors.onGradientSoft} />
+          </Pressable>
+        </>
+      ) : null}
     </View>
   );
 }
@@ -89,5 +113,13 @@ const makeStyles = (colors: Colors) =>
       fontSize: 25,
       fontWeight: '700',
       flexShrink: 1,
+    },
+    hilfe: {
+      width: 34,
+      height: 34,
+      borderRadius: radius.pill,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: -6,
     },
   });

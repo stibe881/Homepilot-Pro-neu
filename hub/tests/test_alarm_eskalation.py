@@ -17,6 +17,7 @@ from homepilot.integrations.alarm import (
     ARMED,
     DISARMED,
     TRIGGERED,
+    durchsage_boxen,
     eskalation_wirkt,
     eskalations_befehle,
     eskalations_ende_befehle,
@@ -33,6 +34,18 @@ def contact(entity_id: str, state: str = "off") -> Entity:
         name=entity_id,
         integration="test",
         state={"state": state, "device_class": "contact"},
+    )
+
+
+def box(entity_id: str, room: str | None = None) -> Entity:
+    return Entity(
+        id=entity_id,
+        kind=EntityKind.MEDIA_PLAYER,
+        name=entity_id,
+        integration="test",
+        state={"state": "idle"},
+        commands=["play_url"],
+        room=room,
     )
 
 
@@ -70,7 +83,6 @@ def test_parse_escalation_uebernimmt_und_begrenzt_die_werte():
             "enabled": True,
             "after": 10,
             "sirens": ["hm.sirene", "", None],
-            "all_lights": 1,
             "announce": "  Alarm im Haus  ",
             "volume": 250,
         }
@@ -80,40 +92,74 @@ def test_parse_escalation_uebernimmt_und_begrenzt_die_werte():
     # Leere Kennungen fliegen raus - ein halber Eintrag scheiterte sonst
     # genau im Alarmfall.
     assert parsed["sirens"] == ["hm.sirene"]
-    assert parsed["all_lights"] is True
     assert parsed["announce"] == "Alarm im Haus"
     assert parsed["volume"] == 100
 
 
+def test_parse_escalation_nimmt_das_ziel_der_durchsage():
+    parsed = parse_escalation(
+        {"announce_target": "raum", "announce_speakers": ["cast.kueche", ""]}
+    )
+    assert parsed["announce_target"] == "raum"
+    assert parsed["announce_speakers"] == ["cast.kueche"]
+    # Ein Ziel, das es nicht gibt, fällt auf «alle» zurück - im Alarmfall
+    # ist eine Durchsage überallhin besser als gar keine.
+    assert parse_escalation({"announce_target": "kueche"})["announce_target"] == "alle"
+
+
+def test_durchsage_geht_ohne_wahl_an_alle():
+    # None heisst «alle» - genau das, was say.speak ohne Liste tut.
+    assert durchsage_boxen(parse_escalation(None), [], None) is None
+
+
+def test_durchsage_an_die_ausgewaehlten_boxen():
+    eskalation = parse_escalation(
+        {"announce_target": "auswahl", "announce_speakers": ["cast.flur"]}
+    )
+    assert durchsage_boxen(eskalation, [box("cast.flur")], None) == ["cast.flur"]
+
+
+def test_leere_auswahl_geht_an_alle_statt_ins_leere():
+    # Der schlimmere Fehler wäre eine Durchsage, die beim Einbruch
+    # nirgends ankommt: Der Sinn ist, dass es im Haus laut wird.
+    eskalation = parse_escalation({"announce_target": "auswahl"})
+    assert durchsage_boxen(eskalation, [box("cast.flur")], None) is None
+
+
+def test_durchsage_in_den_raum_des_melders():
+    eskalation = parse_escalation({"announce_target": "raum"})
+    boxen = [box("cast.kueche", "Küche"), box("cast.stube", "Stube")]
+    assert durchsage_boxen(eskalation, boxen, "Küche") == ["cast.kueche"]
+    # Ein Raum ohne Box - und ein Melder ohne Raum - fallen auf «alle».
+    assert durchsage_boxen(eskalation, boxen, "Estrich") is None
+    assert durchsage_boxen(eskalation, boxen, None) is None
+
+
 def test_eskalation_wirkt_nur_wenn_sie_etwas_tun_wuerde():
     assert not eskalation_wirkt(parse_escalation(None))
-    # Eingeschaltet, aber ohne Sirene, Licht und Durchsage: ein Timer ins
+    # Eingeschaltet, aber ohne Sirene und ohne Durchsage: ein Timer ins
     # Leere - der wird gar nicht erst gestellt.
     assert not eskalation_wirkt(parse_escalation({"enabled": True}))
     assert eskalation_wirkt(parse_escalation({"enabled": True, "sirens": ["a"]}))
-    assert eskalation_wirkt(parse_escalation({"enabled": True, "all_lights": True}))
     assert eskalation_wirkt(parse_escalation({"enabled": True, "announce": "Hallo"}))
+    # «Alle Lichter einschalten» gibt es nicht mehr: Dasselbe geht über
+    # eine Zeile mit Frist unter «Was wann geschaltet wird».
+    assert not eskalation_wirkt(parse_escalation({"enabled": True, "all_lights": True}))
     # Nicht eingeschaltet schlägt alles - auch mit konfigurierter Sirene.
     assert not eskalation_wirkt(parse_escalation({"sirens": ["a"]}))
 
 
-def test_eskalations_befehle_schalten_sirene_und_alle_lichter():
+def test_eskalation_schaltet_nur_noch_die_sirenen():
+    """«Alle Lichter einschalten» ist weg - und zwar mit Absicht.
+
+    Der Schalter konnte genau eine Sache und erklärte sie nicht. Licht
+    zum Alarm gehört jetzt als gewöhnliche Zeile mit Frist unter «Was
+    wann geschaltet wird»: «Licht an, nach 30 Sekunden».
+    """
     escalation = parse_escalation(
         {"enabled": True, "sirens": ["hm.sirene"], "all_lights": True}
     )
-    entities = [light("a.licht"), light("b.licht"), contact("c.kontakt")]
-    befehle = eskalations_befehle(escalation, entities)
-    # Sirene zuerst: Der Lärm ist der Zweck, das Licht die Zugabe.
-    assert befehle[0] == {"entity_id": "hm.sirene", "command": "turn_on"}
-    assert {"entity_id": "a.licht", "command": "turn_on"} in befehle
-    assert {"entity_id": "b.licht", "command": "turn_on"} in befehle
-    # Der Kontakt ist kein Licht und bekommt nichts.
-    assert all(befehl["entity_id"] != "c.kontakt" for befehl in befehle)
-
-
-def test_ohne_all_lights_bleiben_die_lichter_aus():
-    escalation = parse_escalation({"enabled": True, "sirens": ["hm.sirene"]})
-    befehle = eskalations_befehle(escalation, [light("a.licht")])
+    befehle = eskalations_befehle(escalation, [light("a.licht"), contact("c.kontakt")])
     assert befehle == [{"entity_id": "hm.sirene", "command": "turn_on"}]
 
 

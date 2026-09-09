@@ -14,6 +14,40 @@ import { istPerson } from './batterien';
 export type GeraeteFilter = '' | 'offline' | 'batterie' | 'ohne-raum' | 'ausgeblendet';
 export type GeraeteSortierung = 'selbst' | 'raum' | 'art' | 'gesehen';
 
+/**
+ * Die Sortierungen mit ihren Wörtern - eine Liste, kein Ringschluss.
+ *
+ * Der Knopf auf der Geräteseite zählte durch: antippen, und die
+ * Reihenfolge sprang zur nächsten von vier. Was es zu holen gibt, sah
+ * man nie - man tippte, bis das Richtige dastand, und wer eins zu weit
+ * kam, musste dreimal weiter. Die Namen standen dabei dreimal im
+ * Bildschirm als verschachtelte Fragezeichen-Ketten (Knopf, Beschriftung
+ * für die Sprachausgabe, Weiterschalten); hier stehen sie einmal.
+ */
+export const SORTIERUNGEN: {
+  key: GeraeteSortierung;
+  label: string;
+  hinweis: string;
+}[] = [
+  {
+    key: 'selbst',
+    label: 'Eigene Reihenfolge',
+    hinweis: 'Wie du die Kacheln gezogen hast.',
+  },
+  { key: 'raum', label: 'Nach Raum', hinweis: 'Küche, Wohnzimmer, Flur …' },
+  { key: 'art', label: 'Nach Art', hinweis: 'Alle Lichter, alle Storen, alle Melder.' },
+  {
+    key: 'gesehen',
+    label: 'Lange nicht gesehen',
+    hinweis: 'Das stummste Gerät zuoberst - die Liste zum Nachsehen.',
+  },
+];
+
+/** Wie die aktuelle Sortierung heisst (rein, testbar). */
+export function sortierungsWort(sortierung: GeraeteSortierung): string {
+  return SORTIERUNGEN.find((eintrag) => eintrag.key === sortierung)?.label ?? '';
+}
+
 /** Ab hier gilt eine Batterie als «demnächst dran» – derselbe Wert wie in
  *  der Geräte-Gesundheit. */
 const BATTERY_SOON = 25;

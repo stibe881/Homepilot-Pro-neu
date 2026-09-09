@@ -1,4 +1,4 @@
-import { HOECHSTENS_ZEILEN, vorschauZeilen } from './updatevorschau';
+import { vorschauZeilen } from './updatevorschau';
 
 describe('vorschauZeilen', () => {
   it('zeigt die Liste seit dem laufenden Stand', () => {
@@ -9,14 +9,15 @@ describe('vorschauZeilen', () => {
     });
     expect(ergebnis.art).toBe('genau');
     expect(ergebnis.zeilen).toHaveLength(2);
-    expect(ergebnis.mehr).toBe(0);
   });
 
-  it('deckelt lange Listen und zählt den Rest', () => {
+  it('zählt auch lange Listen vollständig auf', () => {
+    // Es gab einen Deckel von acht Zeilen und darunter «… und 4
+    // weitere». Aus dem Haus kam dazu: Genau die vier will man sehen.
     const commits = Array.from({ length: 12 }, (_, i) => `Änderung ${i + 1}`);
     const ergebnis = vorschauZeilen({ available: true, exact: true, commits });
-    expect(ergebnis.zeilen).toHaveLength(HOECHSTENS_ZEILEN);
-    expect(ergebnis.mehr).toBe(12 - HOECHSTENS_ZEILEN);
+    expect(ergebnis.zeilen).toHaveLength(12);
+    expect(ergebnis.zeilen[11]).toBe('Änderung 12');
   });
 
   it('sagt «nichts Neues» nur bei der genauen Antwort', () => {
@@ -68,6 +69,5 @@ describe('vorschauZeilen', () => {
     });
     expect(ergebnis.art).toBe('ungefaehr');
     expect(ergebnis.zeilen).toEqual([]);
-    expect(ergebnis.mehr).toBe(0);
   });
 });

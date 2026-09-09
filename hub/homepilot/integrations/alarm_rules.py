@@ -187,6 +187,17 @@ def parse_actions(raw: Any) -> dict[str, list[dict[str, Any]]]:
             action = {"entity_id": entity_id, "command": command}
             if isinstance(entry.get("data"), dict):
                 action["data"] = entry["data"]
+            # Frist je Befehl (Sekunden). Damit lässt sich staffeln, was
+            # vorher nur die Eskalation konnte: Licht sofort, Sirene nach
+            # dreissig Sekunden, Storen hoch nach zwei Minuten. Ohne
+            # Angabe oder mit Unsinn: sofort - das war das Verhalten,
+            # bevor es die Frist gab, und es ist das erwartete.
+            try:
+                after = max(0.0, float(entry.get("after") or 0))
+            except (TypeError, ValueError):
+                after = 0.0
+            if after > 0:
+                action["after"] = after
             result[slot].append(action)
     return result
 
@@ -206,15 +217,23 @@ ESCALATION_DEFAULT: dict[str, Any] = {
     "after": 30,
     # Benannte Sirenen-/Signal-Entitäten, die dann eingeschaltet werden.
     "sirens": [],
-    # Zusätzlich alle Lichter einschalten: Einbrecher mögen kein
-    # Rampenlicht, und wer nachts nachschauen geht, auch keinen dunklen Flur.
-    "all_lights": False,
     # Durchsage auf die Boxen (leer = keine) – derselbe Weg wie die
     # broadcast-Aktion der Abläufe (core/say.py).
     "announce": "",
+    # Wohin die Durchsage geht: "alle", "auswahl" (die Liste darunter)
+    # oder "raum" (die Boxen im Zimmer, in dem der Melder ausgelöst hat).
+    # Vorgabe bleibt "alle" - so verhielt es sich, bevor es die Wahl gab.
+    "announce_target": "alle",
+    # Die Boxen für "auswahl". Gruppen sind hier gewöhnliche Einträge:
+    # Eine Lautsprechergruppe ist für den Hub eine Box wie jede andere.
+    "announce_speakers": [],
     # Lautstärke der Durchsage in Prozent; None = Vorgabe von say.py.
     "volume": None,
 }
+
+#: Wohin eine Durchsage gehen kann. Mehr braucht es nicht: Wer eine
+#: einzelne Box will, nimmt "auswahl" mit einem Eintrag.
+ANNOUNCE_TARGETS = ("alle", "auswahl", "raum")
 
 
 def parse_escalation(raw: Any) -> dict[str, Any]:
@@ -237,12 +256,53 @@ def parse_escalation(raw: Any) -> dict[str, Any]:
     sirens = raw.get("sirens")
     if isinstance(sirens, list):
         result["sirens"] = [str(s) for s in sirens if str(s or "").strip()]
-    result["all_lights"] = bool(raw.get("all_lights"))
     result["announce"] = str(raw.get("announce") or "").strip()
+    target = str(raw.get("announce_target") or "").strip()
+    if target in ANNOUNCE_TARGETS:
+        result["announce_target"] = target
+    speakers = raw.get("announce_speakers")
+    if isinstance(speakers, list):
+        result["announce_speakers"] = [
+            str(s) for s in speakers if str(s or "").strip()
+        ]
     volume = raw.get("volume")
     if isinstance(volume, (int, float)):
         result["volume"] = max(0, min(100, int(volume)))
     return result
+
+
+def durchsage_boxen(
+    escalation: dict[str, Any],
+    entities: list[Entity],
+    raum: str | None,
+) -> list[str] | None:
+    """Auf welchen Boxen die Durchsage läuft (rein, testbar).
+
+    ``None`` heisst «alle» - genau das, was ``say.speak`` ohne Liste tut.
+
+    Drei Wege, weil das Haus drei Fälle kennt: immer alle, eine feste
+    Auswahl (Küche und Flur, aber nicht das Kinderzimmer) oder der Raum,
+    in dem der Melder ausgelöst hat - dort steht der Einbrecher.
+
+    Wo ein Weg ins Leere führt - leere Auswahl, ein Raum ohne Box, ein
+    Melder ohne Raum -, gilt wieder «alle». Eine Durchsage, die beim
+    Einbruch nirgends ankommt, ist der schlimmere Fehler: Der Sinn der
+    Sache ist, dass es im Haus laut wird.
+    """
+    ziel = str(escalation.get("announce_target") or "alle")
+    if ziel == "auswahl":
+        gewaehlt = [str(s) for s in escalation.get("announce_speakers") or []]
+        return gewaehlt or None
+    if ziel == "raum":
+        if not raum:
+            return None
+        im_raum = [
+            entity.id
+            for entity in entities
+            if entity.kind == EntityKind.MEDIA_PLAYER and entity.room == raum
+        ]
+        return im_raum or None
+    return None
 
 
 def eskalation_wirkt(escalation: dict[str, Any]) -> bool:
@@ -253,34 +313,28 @@ def eskalation_wirkt(escalation: dict[str, Any]) -> bool:
     """
     if not escalation.get("enabled"):
         return False
-    return bool(
-        escalation.get("sirens")
-        or escalation.get("all_lights")
-        or escalation.get("announce")
-    )
+    return bool(escalation.get("sirens") or escalation.get("announce"))
 
 
 def eskalations_befehle(
-    escalation: dict[str, Any], entities: list[Entity]
+    escalation: dict[str, Any], entities: list[Entity] | None = None
 ) -> list[dict[str, Any]]:
     """Was die Eskalation einschaltet (rein, testbar).
 
-    Sirenen zuerst: Der Lärm ist der Zweck, das Licht die Zugabe. Die
-    Lichter kommen aus dem Bestand statt aus einer gepflegten Liste -
-    «alle» soll auch die Lampe von letzter Woche meinen.
+    Nur noch die Sirenen. «Alle Lichter einschalten» stand hier als
+    eigener Schalter und schaltete jede Lampe des Hauses ein - eine
+    Sonderregel, die genau eine Sache konnte und sie nicht erklärte.
+    Dasselbe (und mehr) geht jetzt über «Was wann geschaltet wird»: Dort
+    trägt jeder Befehl seine eigene Frist, und «Licht an nach 30
+    Sekunden» ist damit eine gewöhnliche Zeile statt eines Schalters.
+
+    ``entities`` wird nicht mehr gebraucht und bleibt nur stehen, damit
+    bestehende Aufrufe nicht brechen.
     """
-    befehle: list[dict[str, Any]] = [
+    return [
         {"entity_id": entity_id, "command": "turn_on"}
         for entity_id in escalation.get("sirens") or []
     ]
-    if escalation.get("all_lights"):
-        sirenen = set(escalation.get("sirens") or [])
-        befehle.extend(
-            {"entity_id": entity.id, "command": "turn_on"}
-            for entity in entities
-            if entity.kind == EntityKind.LIGHT and entity.id not in sirenen
-        )
-    return befehle
 
 
 def eskalations_ende_befehle(escalation: dict[str, Any]) -> list[dict[str, Any]]:

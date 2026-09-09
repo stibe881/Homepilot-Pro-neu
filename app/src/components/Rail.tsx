@@ -5,60 +5,14 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Colors, radius, useColors } from '../theme';
 import { MAX_SCHRIFT } from '../lib/schrift';
 
-export type Section =
-  | 'start'
-  | 'home'
-  | 'light'
-  | 'covers'
-  | 'cameras'
-  | 'family'
-  | 'settings'
-  // Über „Einstellungen“ erreichbar, nicht in der Leiste:
-  | 'devices'
-  | 'automations'
-  | 'system'
-  | 'energy'
-  | 'alarm'
-  | 'besuch'
-  | 'speakers'
-  | 'users'
-  | 'personen'
-  | 'activity'
-  | 'widgets'
-  | 'account'
-  // «Konto & Verbindung» war beides zugleich: Wer sein Erscheinungsbild
-  // ändern wollte, scrollte an Adresse und Token vorbei. Zwei Fragen,
-  // zwei Punkte.
-  | 'connection';
+// Die Liste der Bereiche und ihre Namen wohnen in lib/bereiche.ts -
+// sie werden auch ohne Leiste gebraucht (Auffangnetz, Riegel,
+// Seitenhilfe). Hier durchgereicht, damit die bisherigen Importe
+// «aus der Leiste» weiter gelten.
+import type { Section } from '../lib/bereiche';
 
-/**
- * Wie ein Bereich heisst, wenn man ihn benennen muss – in Meldungen und
- * im Auffangnetz («Kameras lässt sich gerade nicht anzeigen»). Die Leiste
- * zeigt nur sieben davon; die übrigen erreicht man über Einstellungen und
- * brauchen trotzdem einen Namen.
- */
-export const SECTION_LABEL: Record<Section, string> = {
-  start: 'Start',
-  home: 'Räume',
-  light: 'Licht',
-  covers: 'Storen',
-  cameras: 'Kameras',
-  family: 'Familie',
-  settings: 'Einstellungen',
-  devices: 'Geräte',
-  automations: 'Abläufe',
-  system: 'System',
-  energy: 'Energie',
-  alarm: 'Alarmanlage',
-  besuch: 'Besuch',
-  speakers: 'Boxen',
-  users: 'Benutzer',
-  personen: 'Familie und Freunde',
-  activity: 'Zuletzt passiert',
-  widgets: 'Widgets',
-  account: 'Konto',
-  connection: 'Verbindungen',
-};
+export type { Section } from '../lib/bereiche';
+export { SECTION_LABEL } from '../lib/bereiche';
 
 /** `needs` nennt die Berechtigung, ohne die der Punkt gar nicht erscheint. */
 const ITEMS: {

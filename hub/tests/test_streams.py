@@ -18,6 +18,7 @@ from homepilot.core.streams import (
     apple_player,
     apple_schnell,
     ffmpeg_command,
+    ohne_luecken,
     path_name,
     publish_command,
     rewrite_playlist,
@@ -76,6 +77,101 @@ def test_publish_command_strips_audio_but_keeps_video():
     assert command.endswith("rtsp://127.0.0.1:8554/unifi_protect_x")
 
 
+# Die Liste, wie sie ein frisch angelaufener mediamtx im Haus wirklich
+# ausgeliefert hat (9. September 2026, Kamera Waschküche). Gekürzt um
+# Token und Sitzung, sonst Zeichen für Zeichen dieselbe.
+MIT_LUECKEN = """#EXTM3U
+#EXT-X-VERSION:10
+#EXT-X-TARGETDURATION:1
+#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK=0.50000
+#EXT-X-PART-INF:PART-TARGET=0.20000
+#EXT-X-MEDIA-SEQUENCE:1
+#EXT-X-MAP:URI="cb30_video1_init.mp4"
+#EXT-X-GAP
+#EXTINF:1.00000,
+gap.mp4
+#EXT-X-GAP
+#EXTINF:1.00000,
+gap.mp4
+#EXT-X-PROGRAM-DATE-TIME:2026-09-09T09:48:28.156Z
+#EXT-X-PART:DURATION=0.20000,URI="cb30_video1_part0.mp4",INDEPENDENT=YES
+#EXTINF:1.00000,
+cb30_video1_seg7.mp4
+#EXT-X-PRELOAD-HINT:TYPE=PART,URI="cb30_video1_part5.mp4"
+"""
+
+
+def test_luecken_beim_anlaufen_fliegen_raus():
+    """Der schwarze Bildschirm beim Umschalten auf Live.
+
+    mediamtx füllt ein frisches Fenster mit Platzhaltern auf: sechs
+    «gap.mp4», ein echtes Häppchen. Für Apple nehmen wir die Bruchstücke
+    heraus und lassen ihn zwei Sekunden hinter dem Live-Rand einsteigen -
+    und genau dort lagen die Löcher. Er setzte die Nadel ins Leere und
+    blieb stehen: schwarz, ohne Fehler.
+    """
+    text = ohne_luecken(MIT_LUECKEN)
+    assert "gap.mp4" not in text
+    assert "#EXT-X-GAP" not in text
+    # Das echte Häppchen, die Initialisierung und die Bruchstücke bleiben.
+    assert "cb30_video1_seg7.mp4" in text
+    assert 'URI="cb30_video1_init.mp4"' in text
+    assert "#EXT-X-PART:" in text
+    assert "#EXT-X-PROGRAM-DATE-TIME" in text
+    # Und die Nummerierung zählt weiter: Sonst hielte der Player das
+    # verbliebene Häppchen für eines der weggelassenen und lüde es beim
+    # nächsten Abruf noch einmal.
+    assert "#EXT-X-MEDIA-SEQUENCE:3" in text
+
+
+def test_ohne_luecken_laesst_eine_gesunde_liste_in_ruhe():
+    """Kein Loch, keine Änderung - Zeichen für Zeichen dieselbe Liste."""
+    assert ohne_luecken(LOW_LATENCY) == LOW_LATENCY
+    assert ohne_luecken(PLAYLIST) == PLAYLIST
+
+
+def test_eine_luecke_mitten_drin_bleibt_stehen():
+    """Die ist echt - und sie zu verschweigen wäre eine Lüge über die Zeit.
+
+    Fehlt in der Aufnahme wirklich eine Sekunde, muss der Player das
+    wissen; sonst hält er die Häppchen für lückenlos und läuft der
+    Tonspur davon. Weggenommen wird nur, was *vor* dem ersten echten
+    Häppchen steht - die Auffüllung beim Anlaufen.
+    """
+    text = ohne_luecken(
+        "#EXTM3U\n"
+        "#EXT-X-MEDIA-SEQUENCE:5\n"
+        "#EXTINF:1.00000,\n"
+        "seg5.mp4\n"
+        "#EXT-X-GAP\n"
+        "#EXTINF:1.00000,\n"
+        "gap.mp4\n"
+        "#EXTINF:1.00000,\n"
+        "seg7.mp4\n"
+    )
+    assert "gap.mp4" in text
+    assert "#EXT-X-MEDIA-SEQUENCE:5" in text
+
+
+def test_eine_liste_aus_lauter_luecken_bleibt_wie_sie_ist():
+    """Dann hat der Strom noch gar kein Bild.
+
+    Eine leere Liste wäre keine bessere Auskunft als eine mit Löchern -
+    und der nächste Abruf ist ohnehin eine Sekunde später da.
+    """
+    nur_luecken = (
+        "#EXTM3U\n"
+        "#EXT-X-MEDIA-SEQUENCE:1\n"
+        "#EXT-X-GAP\n"
+        "#EXTINF:1.00000,\n"
+        "gap.mp4\n"
+        "#EXT-X-GAP\n"
+        "#EXTINF:1.00000,\n"
+        "gap.mp4\n"
+    )
+    assert ohne_luecken(nur_luecken) == nur_luecken
+
+
 def test_strip_low_latency_keeps_segments_and_map():
     """Apple bekommt gewöhnliches HLS: Parts weg, Segmente und Init bleiben."""
     text = strip_low_latency(
@@ -111,6 +207,72 @@ def test_apple_gets_playlist_without_low_latency_parts(tmp_path):
         ).text
         assert "EXT-X-PART" not in slow
         assert "seg00001.ts" in slow
+
+
+def test_die_ausgelieferte_liste_hat_keine_luecken_mehr(tmp_path):
+    """Und zwar auf dem ganzen Weg, nicht nur in der reinen Funktion.
+
+    Der Fall ist an der Verdrahtung schon einmal vorbeigegangen: Eine
+    Umformung, die niemand aufruft, sieht in ihrem eigenen Test
+    tadellos aus.
+    """
+    hub, patch = make_client(tmp_path)
+    (tmp_path / "index.m3u8").write_text(
+        "#EXTM3U\n"
+        "#EXT-X-MEDIA-SEQUENCE:1\n"
+        "#EXT-X-GAP\n"
+        "#EXTINF:1.00000,\n"
+        "gap.mp4\n"
+        "#EXTINF:1.00000,\n"
+        "seg00002.ts\n"
+    )
+    with TestClient(create_app(hub)) as client:
+        patch()
+        text = client.get(
+            "/api/entities/demo.light_livingroom/stream.m3u8?token=geheim",
+            headers={"User-Agent": "hls.js"},
+        ).text
+        assert "gap.mp4" not in text
+        assert "stream/seg00002.ts?token=geheim" in text
+        assert "#EXT-X-MEDIA-SEQUENCE:2" in text
+
+
+def test_der_hub_warnt_wenn_apple_die_schnelle_fassung_bekommt(tmp_path, caplog):
+    """Der Schalter, der iPhone und iPad schwarz machen kann.
+
+    `streaming.apple_low_latency: true` lässt die Bruchstücke auch für
+    AVPlayer stehen. Der verlangt aber, dass jedes exakt so lang ist wie
+    angekündigt - und die Zeitstempel der Protect-Kameras zittern. Er
+    steigt dann wortlos aus: schwarze Fläche, kein Fehler, nichts im
+    Protokoll. Genau so gemeldet worden.
+
+    Also sagt es der Hub einmal je Lauf. Ohne diese Zeile sucht man den
+    Schalter nirgends - er steht in der config.yaml, und die schaut bei
+    einem schwarzen Bild niemand an.
+    """
+    hub = Hub(make_config(token="geheim", streaming={"apple_low_latency": True}))
+    hub.streams = _FakeStreams(tmp_path)
+
+    async def fake_stream_url(entity):
+        return "rtsps://cam/abc"
+
+    (tmp_path / "index.m3u8").write_text(
+        '#EXTM3U\n#EXT-X-PART:DURATION=0.24,URI="part7.mp4"\nseg00001.ts\n'
+    )
+    with TestClient(create_app(hub)) as client:
+        hub.integrations.get("demo").stream_url = fake_stream_url
+        url = "/api/entities/demo.light_livingroom/stream.m3u8?token=geheim"
+        with caplog.at_level("WARNING"):
+            text = client.get(
+                url, headers={"User-Agent": "AppleCoreMedia/1.0.0 (iPhone)"}
+            ).text
+            # Der Schalter wirkt: Die Bruchstücke bleiben stehen.
+            assert "EXT-X-PART" in text
+            assert "apple_low_latency" in caplog.text
+            # Und nur einmal - sonst stünde die Zeile bei jedem Häppchen.
+            caplog.clear()
+            client.get(url, headers={"User-Agent": "AppleCoreMedia/1.0.0 (iPhone)"})
+            assert "apple_low_latency" not in caplog.text
 
 
 def test_path_name_survives_mediamtx():

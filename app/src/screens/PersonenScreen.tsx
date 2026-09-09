@@ -14,6 +14,7 @@ import QRCode from 'react-native-qrcode-svg';
 
 import { hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
+import { Abschnitt } from '../components/Abschnitt';
 import { Card } from '../components/Card';
 import { Fehlschlag, Laedt, Leer } from '../components/Zustand';
 import { Tastaturplatz } from '../components/Tastaturplatz';
@@ -30,7 +31,7 @@ import {
 import {
   Person,
   anzahlAn,
-  herkunft,
+  istZuhause,
   nebenZeile,
   ortZeile,
   sortiert,
@@ -352,24 +353,15 @@ export function PersonenScreen({
 
   const leute = sortiert(daten.people);
 
-  return (
-    <>
-    <Card style={styles.card}>
-      <Text style={styles.titel}>Familie und Freunde</Text>
-      <Text style={styles.hinweis}>
-        Alle, die der Hub kennt – Haushalt und geortete Personen. Antippen zeigt,
-        was über eine Person gemeldet wird.
-      </Text>
-      {fehler ? <Text style={styles.fehler}>{fehler}</Text> : null}
-
-      {leute.length === 0 ? (
-        <Leer
-          titel="Noch niemand erfasst"
-          hinweis="Sobald ein Benutzer angelegt oder eine Ortungszone eingerichtet ist, steht die Person hier."
-        />
-      ) : null}
-
-      {leute.map((person) => {
+  /**
+   * Eine Person als Zeile - aufklappbar, mit allem, was zu ihr gehört.
+   *
+   * Als Funktion und nicht zweimal hingeschrieben: Die Seite zeigt
+   * seit dem Umbau zwei Gruppen (Haushalt, nur Geortete), und zwei
+   * Kopien derselben zweihundert Zeilen liefen bei der ersten
+   * Änderung auseinander.
+   */
+  const personZeile = (person: Person) => {
         const auf = offen === (person.zone ?? person.name);
         const neben = nebenZeile(person);
         return (
@@ -393,17 +385,31 @@ export function PersonenScreen({
               accessibilityLabel={`${person.name}, ${ortZeile(person, jetzt)}`}
               style={({ pressed }) => [styles.kopf, pressed && { opacity: 0.7 }]}
             >
-              <Ionicons
-                name={person.household ? 'person-circle-outline' : 'location-outline'}
-                size={22}
-                color={colors.inkSoft}
-              />
+              {/* Die Initiale mit einem Punkt daran: Ob jemand da ist,
+                  ist die Frage, wegen der man diese Seite aufmacht -
+                  und «Zuhause · seit 3 Std» als graue Zeile zu lesen
+                  dauert länger, als einen grünen Punkt zu sehen. Die
+                  Plakette «Haushalt»/«Familie» hinter dem Namen ist
+                  dafür weg: Das sagt jetzt die Überschrift der Gruppe,
+                  einmal statt in jeder Zeile. */}
+              <View>
+                <View style={styles.bild}>
+                  <Text style={styles.bildText}>
+                    {person.name.slice(0, 1).toUpperCase()}
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    styles.punkt,
+                    { backgroundColor: istZuhause(person) ? colors.on : colors.inkFaint },
+                  ]}
+                />
+              </View>
               <View style={{ flex: 1 }}>
                 <View style={styles.namenszeile}>
                   <Text style={styles.name} numberOfLines={1}>
                     {person.name}
                   </Text>
-                  <Text style={styles.marke}>{herkunft(person)}</Text>
                 </View>
                 <Text style={styles.ort} numberOfLines={1}>
                   {ortZeile(person, jetzt)}
@@ -635,11 +641,55 @@ export function PersonenScreen({
             ) : null}
           </View>
         );
-      })}
+  };
 
-      {/* Der Kopplungs-QR, sobald der Zugang steht: Das Telefon des
-          Gasts scannt, Verbindung und Token kommen von selbst -
-          dieselbe Kopplung wie in der Benutzerverwaltung. */}
+  // Zwei Gruppen, weil es zwei Sorten sind: Wer einen Zugang hat, ist
+  // hier Mitglied; wer bloss geortet wird (Maja über Life360), gehört
+  // dazu, hat aber nichts zu bedienen. Vorher stand das als kleine
+  // Plakette «Haushalt»/«Familie» hinter jedem Namen - eine Auskunft,
+  // die man Zeile für Zeile lesen musste, statt sie einmal zu sehen.
+  const haushalt = leute.filter((person) => person.household);
+  const geortete = leute.filter((person) => !person.household);
+
+  return (
+    <>
+    <View style={styles.seitenkopf}>
+      <Text style={styles.seitenTitel}>Familie und Freunde</Text>
+      <Text style={styles.seitenHinweis}>
+        Alle, die der Hub kennt. Antippen zeigt, was über eine Person
+        gemeldet wird.
+      </Text>
+      {fehler ? <Text style={styles.fehler}>{fehler}</Text> : null}
+    </View>
+
+    {leute.length === 0 ? (
+      <Card style={styles.card}>
+        <Leer
+          titel="Noch niemand erfasst"
+          hinweis="Sobald ein Benutzer angelegt oder eine Ortungszone eingerichtet ist, steht die Person hier."
+        />
+      </Card>
+    ) : null}
+
+    {haushalt.length > 0 ? (
+      <Abschnitt titel="Haushalt" hinweis="Mit eigenem Zugang zum Haus.">
+        <Card style={styles.card}>{haushalt.map(personZeile)}</Card>
+      </Abschnitt>
+    ) : null}
+
+    {geortete.length > 0 ? (
+      <Abschnitt
+        titel="Familie und Freunde"
+        hinweis="Ohne Zugang - der Hub sieht nur, wo sie sind."
+      >
+        <Card style={styles.card}>{geortete.map(personZeile)}</Card>
+      </Abschnitt>
+    ) : null}
+
+
+    {/* Der Kopplungs-QR, sobald der Zugang steht: Das Telefon des
+        Gasts scannt, Verbindung und Token kommen von selbst -
+        dieselbe Kopplung wie in der Benutzerverwaltung. */}
       <Modal
         visible={kopplung !== null}
         transparent
@@ -757,7 +807,6 @@ export function PersonenScreen({
         </Pressable>
         </Tastaturplatz>
       </Modal>
-    </Card>
 
     {/* Das Fundbüro: Sachen statt Menschen, aber dieselbe Frage - wo
         ist was. Die Karte erscheint nur, wenn es Anhänger gibt; ohne
@@ -794,6 +843,13 @@ export function PersonenScreen({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     card: { gap: space.gap },
+    /** Der Kopf der Seite steht auf dem Verlauf und nicht mehr in der
+     *  ersten Karte: Er gehört zur ganzen Seite, nicht zum Haushalt.
+     *  Darum eigene Farben - auf dem Verlauf gilt onGradient, auf einer
+     *  Karte ink, und wer das verwechselt, schreibt grau auf grau. */
+    seitenkopf: { gap: 4, paddingHorizontal: 4 },
+    seitenTitel: { color: colors.onGradient, fontSize: 20, fontWeight: '700' },
+    seitenHinweis: { color: colors.onGradientSoft, fontSize: 13, lineHeight: 19 },
     titel: { color: colors.ink, fontSize: 18, fontWeight: '700' },
     hinweis: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
     fehler: { color: colors.danger, fontSize: 13 },
@@ -806,15 +862,28 @@ const makeStyles = (colors: Colors) =>
     kopf: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     namenszeile: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     name: { color: colors.ink, fontSize: 15, fontWeight: '600', flexShrink: 1 },
-    marke: {
-      color: colors.inkFaint,
-      fontSize: 11,
-      paddingHorizontal: 7,
-      paddingVertical: 2,
-      borderRadius: radius.pill,
+    bild: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.surfaceStrong,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.surfaceBorder,
-      overflow: 'hidden',
+    },
+    bildText: { color: colors.ink, fontSize: 16, fontWeight: '700' },
+    /** Der Punkt sitzt auf dem Rand des Bildes, mit einem Ring in der
+     *  Kartenfarbe - sonst verschwimmt Grün auf Grau. */
+    punkt: {
+      position: 'absolute',
+      right: -1,
+      bottom: -1,
+      width: 12,
+      height: 12,
+      borderRadius: 6,
+      borderWidth: 2,
+      borderColor: colors.surface,
     },
     ort: { color: colors.inkSoft, fontSize: 13, marginTop: 2 },
     neben: { color: colors.inkFaint, fontSize: 12, marginTop: 1 },
