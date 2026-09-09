@@ -30,7 +30,7 @@ import { isTelevision, zeigtStopp } from '../lib/geraeteart';
 import { medienSchalter } from '../lib/medienschalter';
 import { musiklisteMoeglich } from '../lib/blattgrund';
 import { fernbedienungMoeglich, tvKopf, tvTeile } from '../lib/fernsehkachel';
-import { brauchtKopplung } from '../lib/fernsehkopplung';
+import { brauchtKopplung, kannKoppeln } from '../lib/fernsehkopplung';
 import { TvApps, appsOf } from './TvApps';
 import { TvVolume } from './TvVolume';
 import { TvKopplung } from './TvKopplung';
@@ -557,7 +557,9 @@ export function EntityCard({
         // einschalten will»), und ohne Kopplung geht von hier gar nichts.
         return (
           <View style={styles.stack}>
-            {brauchtKopplung(entity) ? <TvKopplung entity={entity} /> : null}
+            {kannKoppeln(entity) ? (
+              <TvKopplung entity={entity} dringend={brauchtKopplung(entity)} />
+            ) : null}
             <TvSleep entity={entity} onCommand={onCommand} />
           </View>
         );
@@ -733,7 +735,9 @@ export function EntityCard({
             {entity.commands.includes('launch_app') ? (
               <TvApps entity={entity} onCommand={onCommand} />
             ) : null}
-            {brauchtKopplung(entity) ? <TvKopplung entity={entity} /> : null}
+            {kannKoppeln(entity) ? (
+              <TvKopplung entity={entity} dringend={brauchtKopplung(entity)} />
+            ) : null}
             {(fernseher ? teile.timer : entity.commands.includes('sleep_timer')) ? (
               <TvSleep entity={entity} onCommand={onCommand} />
             ) : null}

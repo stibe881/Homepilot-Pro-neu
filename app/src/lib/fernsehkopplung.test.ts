@@ -1,6 +1,11 @@
 /** Die Kopplung des Fernsehers – die Rechnerei dazu. */
 import { Entity } from '../api/types';
-import { brauchtKopplung, codeSauber, codeVollstaendig } from './fernsehkopplung';
+import {
+  brauchtKopplung,
+  codeSauber,
+  codeVollstaendig,
+  kannKoppeln,
+} from './fernsehkopplung';
 
 const geraet = (state: Record<string, unknown>): Entity =>
   ({
@@ -24,6 +29,23 @@ describe('brauchtKopplung', () => {
     // Aufforderung zum Koppeln auf einer Hue-Lampe wäre schlimmer als
     // gar keine.
     expect(brauchtKopplung(geraet({}))).toBe(false);
+  });
+});
+
+describe('kannKoppeln', () => {
+  it('gilt für jeden Android-TV, auch den gerade gekoppelten', () => {
+    // «Wo finde ich nun das Verbinden zu einem Android TV?» - der Weg
+    // stand nur da, wo der Hub die Kopplung schon als abgelehnt erlebt
+    // hatte. Ein Weg, den man erst sieht, wenn es zu spät ist, ist
+    // keiner. Und es gibt den Fall «verbindet, aber keine Taste wirkt» -
+    // da steht «paired» auf ja.
+    expect(kannKoppeln(geraet({ paired: true }))).toBe(true);
+    expect(kannKoppeln(geraet({ paired: false }))).toBe(true);
+  });
+
+  it('lässt jedes andere Gerät in Ruhe', () => {
+    expect(kannKoppeln(geraet({}))).toBe(false);
+    expect(kannKoppeln(geraet({ paired: 'vielleicht' }))).toBe(false);
   });
 });
 

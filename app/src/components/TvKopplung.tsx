@@ -23,11 +23,22 @@ import { Colors, radius, useColors } from '../theme';
  *
  * Zwei Schritte, weil dazwischen jemand aufsteht und hinschaut.
  */
-export function TvKopplung({ entity }: { entity: Entity }) {
+export function TvKopplung({
+  entity,
+  dringend = true,
+}: {
+  entity: Entity;
+  /** Der Hub meldet die Kopplung als abgelehnt: dann ein sichtbarer
+   *  Kasten. Sonst nur eine ruhige Zeile, die man aufklappt - die
+   *  Kopplung kappt die Verbindung für ein paar Minuten, das soll kein
+   *  Danebentippen auslösen. */
+  dringend?: boolean;
+}) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const settings = useSettings();
   const [schritt, setSchritt] = useState<'aus' | 'code'>('aus');
+  const [aufgeklappt, setAufgeklappt] = useState(false);
   const [code, setCode] = useState('');
   const [laeuft, setLaeuft] = useState(false);
   const [fehler, setFehler] = useState<string | null>(null);
@@ -81,13 +92,52 @@ export function TvKopplung({ entity }: { entity: Entity }) {
     }
   };
 
+  // Solange nichts klemmt, steht hier eine Zeile und kein Kasten: Der
+  // Weg soll auffindbar sein, ohne sich vorzudrängen.
+  if (!dringend && !aufgeklappt && !fertig) {
+    return (
+      <Pressable
+        onPress={() => setAufgeklappt(true)}
+        accessibilityRole="button"
+        accessibilityLabel="Fernseher koppeln"
+        style={({ pressed }) => [styles.zeile, pressed && { opacity: 0.6 }]}
+      >
+        <Ionicons name="link-outline" size={15} color={colors.inkSoft} />
+        <Text style={styles.zeileText}>Fernseher koppeln</Text>
+        <Ionicons name="chevron-down" size={16} color={colors.inkFaint} />
+      </Pressable>
+    );
+  }
+
   return (
-    <View style={styles.box}>
+    <View style={[styles.box, !dringend && { borderColor: colors.surfaceBorder }]}>
       <View style={styles.kopf}>
-        <Ionicons name="link-outline" size={15} color={colors.warn} />
-        <Text style={styles.kopfText}>
-          {fertig ? 'Gekoppelt – der Fernseher meldet sich gleich.' : 'Nicht gekoppelt'}
+        <Ionicons
+          name="link-outline"
+          size={15}
+          color={dringend ? colors.warn : colors.inkSoft}
+        />
+        <Text style={[styles.kopfText, !dringend && { color: colors.ink }]}>
+          {fertig
+            ? 'Gekoppelt – der Fernseher meldet sich gleich.'
+            : dringend
+              ? 'Nicht gekoppelt'
+              : 'Fernseher koppeln'}
         </Text>
+        {!dringend ? (
+          <Pressable
+            onPress={() => {
+              setAufgeklappt(false);
+              setSchritt('aus');
+              setFehler(null);
+            }}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Zuklappen"
+          >
+            <Ionicons name="chevron-up" size={16} color={colors.inkFaint} />
+          </Pressable>
+        ) : null}
       </View>
 
       {schritt === 'aus' ? (
@@ -95,6 +145,9 @@ export function TvKopplung({ entity }: { entity: Entity }) {
           <Text style={styles.hinweis}>
             Der Fernseher muss die Fernbedienung einmal erlauben. Er zeigt dazu
             eine Zahl auf dem Bildschirm – er muss also eingeschaltet sein.
+            {dringend
+              ? ''
+              : ' Solange die Kopplung läuft, ist er kurz nicht erreichbar.'}
           </Text>
           <Pressable
             onPress={() => starten(false)}
@@ -183,6 +236,17 @@ export function TvKopplung({ entity }: { entity: Entity }) {
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
+    zeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 7,
+      paddingHorizontal: 12,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    zeileText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600', flex: 1 },
     box: {
       gap: 8,
       padding: 12,

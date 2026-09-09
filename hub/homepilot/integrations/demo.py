@@ -167,6 +167,12 @@ class DemoIntegration(Integration):
                 "track": "Plex",
                 "volume": 20,
                 "has_screen": True,
+                # Wie ein gekoppelter Android TV: Nur an diesem Schlüssel
+                # erkennt die App, dass sie «Fernseher koppeln» anbieten
+                # darf (lib/fernsehkopplung.ts, kannKoppeln). Ohne ihn
+                # liesse sich der Weg im Browser nie ansehen - und genau
+                # der war schon einmal unauffindbar.
+                "paired": True,
                 "apps": [
                     {"name": "Plex", "app": "com.plexapp.android"},
                     {"name": "Zattoo", "app": "com.zattoo.player"},
