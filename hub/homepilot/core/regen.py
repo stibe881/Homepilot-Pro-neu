@@ -216,6 +216,25 @@ def melden(
     return jetzt - gemeldet_um >= sperre_minuten * 60
 
 
+def dauer(minuten: int) -> str:
+    """Eine Dauer, wie man sie sagt (rein, testbar).
+
+    «120 Minuten» stand in der Meldung und auf der Wetterkarte - und wer
+    das liest, teilt zuerst durch sechzig. Über einer Stunde gehört die
+    Stunde nach vorn; das Rechnen ist unsere Aufgabe. Die App sagt
+    dasselbe in ihrer kürzeren Schreibweise (app/src/lib/regen.ts,
+    ``regendauer``): «2 Std. 5 Min.» - wer beides sieht, soll dieselbe
+    Auskunft lesen.
+    """
+    if minuten < 60:
+        return f"{minuten} Minuten"
+    stunden, rest = divmod(minuten, 60)
+    kopf = "1 Stunde" if stunden == 1 else f"{stunden} Stunden"
+    if rest == 0:
+        return kopf
+    return f"{kopf} {rest} Minuten"
+
+
 def satz(stand: Any) -> str | None:
     """Der Satz für die Meldung (rein, testbar).
 
@@ -229,9 +248,9 @@ def satz(stand: Any) -> str | None:
     if stand.get("now"):
         if minuten is None:
             return "Es regnet."
-        return f"Es regnet noch etwa {minuten} Minuten."
+        return f"Es regnet noch etwa {dauer(minuten)}."
     if minuten is None:
         return None
     if minuten <= 5:
         return "Es fängt gleich an zu regnen."
-    return f"Regen in etwa {minuten} Minuten."
+    return f"Regen in etwa {dauer(minuten)}."

@@ -3,6 +3,7 @@ import {
   eskalationLesen,
   eskalationStand,
   fristLabel,
+  sensorenStand,
   sirenenKandidaten,
   verlaufPasst,
 } from './eskalation';
@@ -130,5 +131,24 @@ describe('verlaufPasst', () => {
     expect(verlaufPasst('triggered', 'triggered')).toBe(true);
     expect(verlaufPasst('escalated', 'armed')).toBe(false);
     expect(verlaufPasst('escalated', 'alle')).toBe(true);
+  });
+});
+
+describe('sensorenStand', () => {
+  it('sagt zugeklappt, wie viele Sensoren im Modus wachen', () => {
+    // Die Karte beginnt zugeklappt - dann muss ihr Kopf die Frage
+    // beantworten, für die man sonst aufklappen müsste.
+    expect(sensorenStand('Nacht', 4)).toBe('Nacht: 4 Sensoren');
+    expect(sensorenStand('Abwesend', 1)).toBe('Abwesend: 1 Sensor');
+  });
+
+  it('nennt die Null beim Namen', () => {
+    // Die wichtigste Auskunft der Seite: Eine scharfe Anlage ohne
+    // zugeordneten Sensor bewacht nichts.
+    expect(sensorenStand('Nacht', 0)).toBe('Nacht: 0 Sensoren');
+  });
+
+  it('kommt auch ohne Modusnamen zurecht', () => {
+    expect(sensorenStand('', 2)).toBe('2 Sensoren');
   });
 });

@@ -240,7 +240,11 @@ export function raeumeSortiert(rooms: string[], order?: string[]): string[] {
  * die drei Häufigsten behalten ihren festen Platz vorn.
  *
  * Messwerte tauchen gar nicht auf: Sie stehen als Zeile im Raumkopf
- * statt als volle Kacheln zwischen dem Bedienbaren.
+ * statt als volle Kacheln zwischen dem Bedienbaren. Ebenso die
+ * Lichtszenen der Bridge: Sie hatten eine eigene Kategorie
+ * «Lichtszene» ganz unten, hinter Beleuchtung, Store und Medien - und
+ * standen damit weit weg von den Szenen des Hubs, die dasselbe tun.
+ * Beide stehen jetzt zusammen im Raumkopf (lib/szenen.ts, raumSzenen).
  */
 export function raumKategorien(
   items: Entity[],
@@ -260,9 +264,11 @@ export function raumKategorien(
       passend.forEach((entity) => used.add(entity.id));
     }
   }
-  // Der Rest nach Geräteart, alphabetisch – Messwerte ausgenommen.
+  // Der Rest nach Geräteart, alphabetisch – Messwerte und Lichtszenen
+  // ausgenommen; beide stehen oben im Raumkopf.
   const rest = items.filter(
-    (entity) => !used.has(entity.id) && entity.kind !== 'sensor'
+    (entity) =>
+      !used.has(entity.id) && entity.kind !== 'sensor' && entity.kind !== 'scene'
   );
   const labels = Array.from(new Set(rest.map(kindLabel))).sort((a, b) =>
     a.localeCompare(b)

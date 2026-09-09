@@ -1417,6 +1417,12 @@ class Watchdog:
         anderen erfahren nicht einmal, dass es sie gibt. Geteilte gehen
         an alle - jeder könnte ihn einlösen (core/gutscheine.py).
         """
+        # Der Schalter der Regel «Gutschein läuft bald ab» (Abläufe →
+        # Push). Bisher gab es ihn nicht: Die Erinnerung liess sich nur
+        # je Person abbestellen, nicht fürs Haus abschalten - als
+        # einzige der Familien-Nachrichten.
+        if not self.rules.get("vouchers", {}).get("enabled", True):
+            return
         jetzt = datetime.now()
         if jetzt.hour != 9:
             return

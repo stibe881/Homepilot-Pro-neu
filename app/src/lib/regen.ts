@@ -11,6 +11,8 @@
  * zweimal dasselbe in anderen Worten lesen.
  */
 
+import { dauerText } from './verlaufliste';
+
 export interface Regenstand {
   /** Regnet es jetzt schon? */
   now?: boolean;
@@ -25,13 +27,27 @@ export interface Regenstand {
   hours?: number | null;
 }
 
+/**
+ * Eine Dauer, wie man sie sagt (rein, testbar).
+ *
+ * «120 Min.» stand auf der Karte, und wer das liest, rechnet zuerst:
+ * zwei Stunden. Über einer Stunde gehört die Stunde nach vorn - das
+ * Rechnen ist unsere Aufgabe, nicht die des Lesenden. Gerechnet wird
+ * ohnehin schon anderswo im Haus, deshalb ``dauerText`` und keine
+ * zweite Fassung derselben Regel.
+ */
+export function regendauer(minuten: number): string {
+  return dauerText(minuten * 60);
+}
+
 /** Der Satz für die Wetterkarte – oder nichts (rein, testbar). */
 export function regenSatz(stand: Regenstand | null | undefined): string | null {
   if (!stand) return null;
   const minuten = stand.minutes;
   if (stand.now) {
     if (minuten == null) return 'Es regnet.';
-    return `Es regnet noch etwa ${minuten} Min.`;
+    // Kein Punkt dahinter: «2 Std. 5 Min.» bringt seinen eigenen mit.
+    return `Es regnet noch etwa ${regendauer(minuten)}`;
   }
   if (minuten == null) {
     // Nichts in den nächsten zwei Stunden - dann die gröbere Auskunft.
@@ -42,7 +58,7 @@ export function regenSatz(stand: Regenstand | null | undefined): string | null {
     return `Regen in etwa ${stunden} Std.`;
   }
   if (minuten <= 5) return 'Es fängt gleich an zu regnen.';
-  return `Regen in etwa ${minuten} Min.`;
+  return `Regen in etwa ${regendauer(minuten)}`;
 }
 
 /**

@@ -12,6 +12,8 @@ import {
   STUMM_EIN,
   musikBefehl,
   musikSchluessel,
+  raumSzenen,
+  szeneGeraet,
   szenenFuerKachel,
   richtungBefehl,
   richtungSchluessel,
@@ -400,5 +402,112 @@ describe('Musik an mit Playlist', () => {
       command: 'play_playlist',
       data: gespeichert[0].data,
     });
+  });
+});
+
+describe('raumSzenen', () => {
+  const geraet = (patch: Partial<Entity>): Entity =>
+    ({
+      id: 'x',
+      kind: 'light',
+      name: 'X',
+      integration: 'hue',
+      state: {},
+      commands: [],
+      available: true,
+      ...patch,
+    }) as Entity;
+
+  const lampe = geraet({ id: 'hue.lampe', room: 'Büro' });
+  const sternenhimmel = geraet({
+    id: 'hue.sternenhimmel',
+    kind: 'scene',
+    name: 'Sternenhimmel',
+    room: 'Büro',
+    commands: ['activate'],
+    state: { state: 'on' },
+  });
+  const abend = geraet({
+    id: 'hue.abend',
+    kind: 'scene',
+    name: 'Abend',
+    room: 'Büro',
+    commands: ['activate'],
+    state: { state: 'off' },
+  });
+  const anderswo = geraet({
+    id: 'hue.kueche',
+    kind: 'scene',
+    name: 'Kochlicht',
+    room: 'Küche',
+    commands: ['activate'],
+  });
+  const hubszene = {
+    id: 'kino',
+    name: 'Kino',
+    icon: 'film',
+    entity_ids: ['hue.lampe'],
+    room: 'Büro',
+  };
+
+  it('stellt Hub-Szenen und Lichtszenen der Bridge in eine Reihe', () => {
+    // Sie lagen an zwei Orten: die einen als Gruppe «Szenen», die
+    // anderen als Kategorie «Lichtszene» hinter allen Gerätekacheln.
+    const reihe = raumSzenen(
+      [hubszene],
+      [lampe, sternenhimmel, abend, anderswo],
+      'Büro'
+    );
+    expect(reihe.map((szene) => szene.name)).toEqual([
+      'Kino',
+      'Abend',
+      'Sternenhimmel',
+    ]);
+  });
+
+  it('lässt die Lichtszenen anderer Zimmer draussen', () => {
+    const reihe = raumSzenen([], [lampe, anderswo], 'Büro');
+    expect(reihe).toEqual([]);
+  });
+
+  it('blendet aus, was in diesem Raum ausgeblendet ist', () => {
+    // Die Lichtszene ist selbst eine Kachel - wer sie ausblendet, will
+    // sie auch nicht als Knopf. Die Szene des Hubs bleibt: Sie hängt an
+    // allen Geräten des Raums, nicht an den gerade sichtbaren.
+    const reihe = raumSzenen([hubszene], [lampe, sternenhimmel, abend], 'Büro', [
+      sternenhimmel,
+    ]);
+    expect(reihe.map((szene) => szene.name)).toEqual(['Kino', 'Sternenhimmel']);
+  });
+
+  it('trägt mit, ob die Bridge-Szene gerade steht', () => {
+    const reihe = raumSzenen([], [sternenhimmel, abend], 'Büro');
+    expect(reihe.find((szene) => szene.name === 'Sternenhimmel')?.active).toBe(true);
+    expect(reihe.find((szene) => szene.name === 'Abend')?.active).toBe(false);
+  });
+});
+
+describe('szeneGeraet', () => {
+  it('sagt, welcher Knopf ein Gerät ist - und welcher eine Szene des Hubs', () => {
+    // Danach hängt ab, was gesendet wird: «activate» auf die Entität
+    // oder die Szenen-Route. Ein Griff daneben schaltet nichts.
+    const [szene] = raumSzenen(
+      [],
+      [
+        {
+          id: 'hue.sternenhimmel',
+          kind: 'scene',
+          name: 'Sternenhimmel',
+          room: 'Büro',
+          integration: 'hue',
+          state: {},
+          commands: ['activate'],
+          available: true,
+        } as Entity,
+      ],
+      'Büro'
+    );
+    expect(szeneGeraet(szene.id)).toBe('hue.sternenhimmel');
+    expect(szeneGeraet('kino')).toBeNull();
   });
 });

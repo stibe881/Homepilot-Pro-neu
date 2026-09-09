@@ -959,6 +959,33 @@ async def test_frisch_eingetragen_am_ablauftag_kommt_nur_die_tagesmeldung(monkey
         await hub.stop()
 
 
+@pytest.mark.asyncio
+async def test_abgeschaltete_regel_erinnert_gar_nicht(monkeypatch):
+    """Der Schalter in «Abläufe → Push» gilt fürs ganze Haus.
+
+    Bisher liess sich die Gutschein-Erinnerung nur je Person abbestellen
+    - als einzige der Familien-Nachrichten hatte sie keine Regel, an der
+    ein Schalter hängen könnte. Jetzt hat sie eine, und der Wächter
+    fragt sie, bevor er den Kalender überhaupt anschaut.
+    """
+    rows = [
+        {"id": "b1", "author": "Livia", "shop": "Brack.ch", "unit": "chf", "total": 100,
+         "left": 80, "expires": "2030-06-30", "shared": "familie"},
+    ]
+    hub, gesendet = await wach(monkeypatch, datetime(2030, 6, 1, 9, 0), rows)
+    try:
+        hub.watchdog.rules["vouchers"]["enabled"] = False
+        await hub.watchdog._check_vouchers()
+        assert gesendet == []
+        # Und eingeschaltet meldet er wieder - sonst prüfte der Test nur,
+        # dass irgendetwas den Weg versperrt.
+        hub.watchdog.rules["vouchers"]["enabled"] = True
+        await hub.watchdog._check_vouchers()
+        assert len(gesendet) == 1
+    finally:
+        await hub.stop()
+
+
 # ── Karte mitbringen (Punkt 267 der Werkbank) ───────────────────────────
 
 

@@ -30,6 +30,7 @@ import {
   eskalationLesen,
   eskalationStand,
   fristLabel,
+  sensorenStand,
   sirenenKandidaten,
   verlaufPasst,
 } from '../lib/eskalation';
@@ -427,6 +428,11 @@ export function AlarmScreen({
   };
 
   const tabLabel = MODES.find((mode) => mode.key === tab)?.label ?? '';
+  // Was im Kopf der zugeklappten Sensoren-Karte steht: wie viele Sensoren
+  // im gerade gewählten Modus wachen. «0» ist dabei die wichtigste Zahl -
+  // eine scharfe Anlage ohne zugeordneten Sensor bewacht nichts.
+  const wachen = data.sensors.filter((entry) => entry.modes.includes(tab)).length;
+  const sensorenKopf = sensorenStand(tabLabel, wachen);
 
   // «escalated» zählt zum Filter «Alarm» – siehe lib/eskalation.ts.
   const gefilterterVerlauf = data.history.filter((event) =>
@@ -612,231 +618,147 @@ export function AlarmScreen({
         ) : null}
       </Card>
 
-      {/* Sensoren – je Modus einzeln zusammenstellen */}
+      {/* Sensoren – je Modus einzeln zusammenstellen. Zugeklappt, weil
+          die Karte lang ist und man sie einmal einrichtet: Wer die Seite
+          öffnet, will fast immer schalten und nicht zuordnen. Wie viele
+          Sensoren im gerade gewählten Modus wachen, steht im Kopf - das
+          ist die Frage, die man auch ohne Aufklappen hat. */}
       <Card style={styles.card}>
-        <Text style={styles.heading}>Sensoren</Text>
-        <View style={styles.tabRow}>
-          {MODES.map((mode) => {
-            const on = tab === mode.key;
-            const count = data.sensors.filter((entry) =>
-              entry.modes.includes(mode.key)
-            ).length;
-            return (
-              <Pressable
-                key={mode.key}
-                onPress={() => setTab(mode.key)}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: on }}
-                style={[styles.tab, on && styles.tabOn]}
-              >
-                <Text style={[styles.tabText, on && { color: '#FFFFFF' }]}>
-                  {mode.label}
-                </Text>
-                <Text style={[styles.tabCount, on && { color: '#FFFFFF' }]}>
-                  {count}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        <Text style={styles.hint}>
-          Welche Sensoren wachen im Modus «{tabLabel}»? Jeder Modus wird
-          einzeln zusammengestellt – nachts gehören meist nur Türen und
-          Fenster dazu, weil Bewegungsmelder jeden Gang zur Toilette melden
-          würden.
-        </Text>
-
-        {data.candidates.length === 0 ? (
-          <Text style={styles.hint}>
-            Noch keine geeigneten Sensoren gefunden. Tür-/Fensterkontakte und
-            Bewegungsmelder erscheinen hier automatisch.
-          </Text>
-        ) : (
-          <View style={styles.chipRow}>
-            <Pressable onPress={() => setAllForTab(true)} style={styles.smallButton}>
-              <Text style={styles.smallButtonText}>Alle auswählen</Text>
-            </Pressable>
-            <Pressable onPress={() => setAllForTab(false)} style={styles.smallButton}>
-              <Text style={styles.smallButtonText}>Keine</Text>
-            </Pressable>
-          </View>
-        )}
-
-        {byRoom(data.candidates).map((group) => (
-          <View key={group.room} style={styles.group}>
-            <Text style={styles.groupTitle}>{group.room}</Text>
-            {group.items.map((candidate) => {
-              const entry = assigned.get(candidate.entity_id);
-              const on = (entry?.modes ?? []).includes(tab);
+        <Klappe label="Sensoren" stand={sensorenKopf} zuBeginnZu>
+          <View style={styles.tabRow}>
+            {MODES.map((mode) => {
+              const on = tab === mode.key;
+              const count = data.sensors.filter((entry) =>
+                entry.modes.includes(mode.key)
+              ).length;
               return (
-                <View key={candidate.entity_id} style={styles.sensor}>
-                  <Pressable
-                    onPress={() => toggleMode(candidate.entity_id, tab)}
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked: on }}
-                    style={styles.sensorHead}
-                  >
-                    <Ionicons
-                      name={on ? 'checkmark-circle' : 'ellipse-outline'}
-                      size={24}
-                      color={on ? colors.on : colors.inkFaint}
-                    />
-                    <Text style={styles.rowTitle} numberOfLines={1}>
-                      {candidate.name}
-                    </Text>
-                    {!candidate.available ? (
-                      <Text style={styles.offline}>offline</Text>
-                    ) : candidate.open ? (
-                      <Text style={styles.offline}>offen</Text>
-                    ) : null}
-                  </Pressable>
-                  {on ? (
-                    <View style={styles.chipRow}>
-                      <Pressable
-                        onPress={() =>
-                          setSensor(candidate.entity_id, { delayed: !entry?.delayed })
-                        }
-                        accessibilityRole="checkbox"
-                        accessibilityState={{ checked: !!entry?.delayed }}
-                        style={[styles.chip, entry?.delayed && styles.chipOn]}
-                      >
-                        <Text
-                          style={[styles.chipText, entry?.delayed && { color: '#FFFFFF' }]}
-                        >
-                          verzögert
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() =>
-                          setSensor(candidate.entity_id, { bypass: !entry?.bypass })
-                        }
-                        accessibilityRole="checkbox"
-                        accessibilityState={{ checked: !!entry?.bypass }}
-                        style={[styles.chip, entry?.bypass && styles.chipWarn]}
-                      >
-                        <Text
-                          style={[styles.chipText, entry?.bypass && { color: '#FFFFFF' }]}
-                        >
-                          überbrückt
-                        </Text>
-                      </Pressable>
-                    </View>
-                  ) : null}
-                </View>
+                <Pressable
+                  key={mode.key}
+                  onPress={() => setTab(mode.key)}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: on }}
+                  style={[styles.tab, on && styles.tabOn]}
+                >
+                  <Text style={[styles.tabText, on && { color: '#FFFFFF' }]}>
+                    {mode.label}
+                  </Text>
+                  <Text style={[styles.tabCount, on && { color: '#FFFFFF' }]}>
+                    {count}
+                  </Text>
+                </Pressable>
               );
             })}
           </View>
-        ))}
-        <Text style={styles.hint}>
-          «Verzögert» ist für die Tür, durch die du selbst hereinkommst: Sie
-          startet die Eingangsverzögerung, statt sofort auszulösen.
-          «Überbrückt» lässt einen Sensor vorübergehend aus, ohne die
-          Zuordnung zu verlieren – für das Fenster, das gekippt bleiben soll.
-          Beides gilt für den Sensor in allen Modi.
-        </Text>
+
+          <Text style={styles.hint}>
+            Welche Sensoren wachen im Modus «{tabLabel}»? Jeder Modus wird
+            einzeln zusammengestellt – nachts gehören meist nur Türen und
+            Fenster dazu, weil Bewegungsmelder jeden Gang zur Toilette melden
+            würden.
+          </Text>
+
+          {data.candidates.length === 0 ? (
+            <Text style={styles.hint}>
+              Noch keine geeigneten Sensoren gefunden. Tür-/Fensterkontakte und
+              Bewegungsmelder erscheinen hier automatisch.
+            </Text>
+          ) : (
+            <View style={styles.chipRow}>
+              <Pressable onPress={() => setAllForTab(true)} style={styles.smallButton}>
+                <Text style={styles.smallButtonText}>Alle auswählen</Text>
+              </Pressable>
+              <Pressable onPress={() => setAllForTab(false)} style={styles.smallButton}>
+                <Text style={styles.smallButtonText}>Keine</Text>
+              </Pressable>
+            </View>
+          )}
+
+          {byRoom(data.candidates).map((group) => (
+            <View key={group.room} style={styles.group}>
+              <Text style={styles.groupTitle}>{group.room}</Text>
+              {group.items.map((candidate) => {
+                const entry = assigned.get(candidate.entity_id);
+                const on = (entry?.modes ?? []).includes(tab);
+                return (
+                  <View key={candidate.entity_id} style={styles.sensor}>
+                    <Pressable
+                      onPress={() => toggleMode(candidate.entity_id, tab)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: on }}
+                      style={styles.sensorHead}
+                    >
+                      <Ionicons
+                        name={on ? 'checkmark-circle' : 'ellipse-outline'}
+                        size={24}
+                        color={on ? colors.on : colors.inkFaint}
+                      />
+                      <Text style={styles.rowTitle} numberOfLines={1}>
+                        {candidate.name}
+                      </Text>
+                      {!candidate.available ? (
+                        <Text style={styles.offline}>offline</Text>
+                      ) : candidate.open ? (
+                        <Text style={styles.offline}>offen</Text>
+                      ) : null}
+                    </Pressable>
+                    {on ? (
+                      <View style={styles.chipRow}>
+                        <Pressable
+                          onPress={() =>
+                            setSensor(candidate.entity_id, { delayed: !entry?.delayed })
+                          }
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: !!entry?.delayed }}
+                          style={[styles.chip, entry?.delayed && styles.chipOn]}
+                        >
+                          <Text
+                            style={[styles.chipText, entry?.delayed && { color: '#FFFFFF' }]}
+                          >
+                            verzögert
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() =>
+                            setSensor(candidate.entity_id, { bypass: !entry?.bypass })
+                          }
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: !!entry?.bypass }}
+                          style={[styles.chip, entry?.bypass && styles.chipWarn]}
+                        >
+                          <Text
+                            style={[styles.chipText, entry?.bypass && { color: '#FFFFFF' }]}
+                          >
+                            überbrückt
+                          </Text>
+                        </Pressable>
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </View>
+          ))}
+          <Text style={styles.hint}>
+            «Verzögert» ist für die Tür, durch die du selbst hereinkommst: Sie
+            startet die Eingangsverzögerung, statt sofort auszulösen.
+            «Überbrückt» lässt einen Sensor vorübergehend aus, ohne die
+            Zuordnung zu verlieren – für das Fenster, das gekippt bleiben soll.
+            Beides gilt für den Sensor in allen Modi.
+          </Text>
+        </Klappe>
       </Card>
 
-      {/* Der Verlauf steht vor den Einstellungen: «Was ist passiert?»
-          liest man, «was die Sirene tut» stellt man einmal ein. */}
-      {data.history.length > 0 ? (
-        <Card style={styles.card}>
-          <Text style={styles.heading}>Verlauf</Text>
-          {/* Nach einem Einbruch fragt man «wann war die Anlage unscharf,
-              während niemand da war?» – zwölf Zeilen ohne Filter waren
-              dafür eine Sackgasse, obwohl der Hub fünfzig aufhebt. */}
-          <View style={styles.chipRow}>
-            {(
-              [
-                ['alle', 'Alles'],
-                ['armed', 'Scharf'],
-                ['disarmed', 'Unscharf'],
-                ['triggered', 'Alarm'],
-              ] as const
-            ).map(([key, label]) => (
-              <Pressable
-                key={key}
-                onPress={() => setHistoryKind(key)}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: historyKind === key }}
-                style={[styles.smallButton, historyKind === key && styles.tabOn]}
-              >
-                <Text
-                  style={[
-                    styles.smallButtonText,
-                    historyKind === key && { color: '#FFFFFF' },
-                  ]}
-                >
-                  {label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-          {/* Hinter einem Alarm, einer Eskalation oder einer Bewegung
-              steckt eine Geschichte - antippen öffnet das Ereignisblatt
-              mit allem aus der Viertelstunde: was schaltete, welche
-              Bilder die Kameras sahen, welcher Mitschnitt entstand. */}
-          {gezeigterVerlauf.map((event, index) => (
-            <Pressable
-              key={index}
-              onPress={
-                blattWuerdig(event.kind) ? () => setBlattAt(event.at) : undefined
-              }
-              disabled={!blattWuerdig(event.kind)}
-              accessibilityRole={blattWuerdig(event.kind) ? 'button' : undefined}
-              style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]}
-            >
-              <Ionicons
-                name={
-                  event.kind === 'triggered'
-                    ? 'alert-circle'
-                    : // Die zweite Stufe: Sirene und Licht sind an, weil
-                      // niemand entschärft hat. Ein eigenes Symbol, damit
-                      // die Zeile nicht wie ein zweiter Alarm aussieht.
-                      event.kind === 'escalated'
-                      ? 'megaphone-outline'
-                      : event.kind === 'armed'
-                        ? 'lock-closed-outline'
-                        : event.kind === 'entry'
-                          ? 'time-outline'
-                          : // Kamerabewegung, während scharf war: kein Alarm,
-                            // aber der Grund, warum das Telefon gebrummt hat.
-                            event.kind === 'motion'
-                            ? 'videocam-outline'
-                            : 'lock-open-outline'
-                }
-                size={18}
-                color={
-                  event.kind === 'triggered' || event.kind === 'escalated'
-                    ? colors.danger
-                    : colors.inkSoft
-                }
-              />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.rowTitle}>{event.text}</Text>
-                <Text style={styles.rowDetail}>
-                  {datumUhr(event.at * 1000)}
-                  {event.by ? ` · ${event.by}` : ''}
-                </Text>
-              </View>
-              {blattWuerdig(event.kind) ? (
-                <Ionicons name="chevron-forward" size={16} color={colors.inkFaint} />
-              ) : null}
-            </Pressable>
-          ))}
-          {gefilterterVerlauf.length > gezeigterVerlauf.length ? (
-            <Pressable
-              onPress={() => setHistoryAll(true)}
-              accessibilityRole="button"
-              style={({ pressed }) => [styles.smallButton, pressed && { opacity: 0.7 }]}
-            >
-              <Text style={styles.smallButtonText}>
-                Alle {gefilterterVerlauf.length} zeigen
-              </Text>
-            </Pressable>
-          ) : null}
-        </Card>
-      ) : null}
+      <EskalationKarte
+        raw={data.escalation}
+        entities={entities}
+        onSave={(escalation) => save({ escalation })}
+      />
+
+      <AlarmActions
+        actions={data.actions ?? {}}
+        entities={entities}
+        onSave={(actions) => save({ actions })}
+      />
 
       <AfterTrigger
         after={data.after_trigger ?? {}}
@@ -853,16 +775,19 @@ export function AlarmScreen({
         }}
       />
 
-      <EskalationKarte
-        raw={data.escalation}
-        entities={entities}
-        onSave={(escalation) => save({ escalation })}
+      <PinCard
+        hub={settings}
+        required={!!data.state.pin_required}
+        pflicht={pinFehlt}
+        alarmSettings={data.settings}
+        onSaveSettings={(next) => save({ settings: next })}
+        onChanged={load}
       />
 
-      <AlarmActions
-        actions={data.actions ?? {}}
-        entities={entities}
-        onSave={(actions) => save({ actions })}
+      <AlarmSettings
+        settings={data.settings}
+        images={data.images !== false}
+        onSave={(next) => save({ settings: next })}
       />
 
       {/* Probealarm: Ob Sirene, Lichter und Nachricht überhaupt
@@ -901,21 +826,114 @@ export function AlarmScreen({
         </Klappe>
       </Card>
 
-      <AlarmSettings
-        settings={data.settings}
-        images={data.images !== false}
-        onSave={(next) => save({ settings: next })}
-      />
-
-      <PinCard
-        hub={settings}
-        required={!!data.state.pin_required}
-        pflicht={pinFehlt}
-        alarmSettings={data.settings}
-        onSaveSettings={(next) => save({ settings: next })}
-        onChanged={load}
-      />
-
+      {/* Der Verlauf ganz unten und zugeklappt: «Was ist passiert?»
+          fragt man selten, und die Karte ist die längste der Seite.
+          Die Zahl im Kopf sagt zugeklappt, ob sich das Aufklappen lohnt. */}
+      {data.history.length > 0 ? (
+        <Card style={styles.card}>
+          <Klappe
+            label="Verlauf"
+            stand={
+              data.history.length === 1 ? '1 Eintrag' : `${data.history.length} Einträge`
+            }
+            zuBeginnZu
+          >
+            {/* Nach einem Einbruch fragt man «wann war die Anlage unscharf,
+                während niemand da war?» – zwölf Zeilen ohne Filter waren
+                dafür eine Sackgasse, obwohl der Hub fünfzig aufhebt. */}
+            <View style={styles.chipRow}>
+              {(
+                [
+                  ['alle', 'Alles'],
+                  ['armed', 'Scharf'],
+                  ['disarmed', 'Unscharf'],
+                  ['triggered', 'Alarm'],
+                ] as const
+              ).map(([key, label]) => (
+                <Pressable
+                  key={key}
+                  onPress={() => setHistoryKind(key)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: historyKind === key }}
+                  style={[styles.smallButton, historyKind === key && styles.tabOn]}
+                >
+                  <Text
+                    style={[
+                      styles.smallButtonText,
+                      historyKind === key && { color: '#FFFFFF' },
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            {/* Hinter einem Alarm, einer Eskalation oder einer Bewegung
+                steckt eine Geschichte - antippen öffnet das Ereignisblatt
+                mit allem aus der Viertelstunde: was schaltete, welche
+                Bilder die Kameras sahen, welcher Mitschnitt entstand. */}
+            {gezeigterVerlauf.map((event, index) => (
+              <Pressable
+                key={index}
+                onPress={
+                  blattWuerdig(event.kind) ? () => setBlattAt(event.at) : undefined
+                }
+                disabled={!blattWuerdig(event.kind)}
+                accessibilityRole={blattWuerdig(event.kind) ? 'button' : undefined}
+                style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]}
+              >
+                <Ionicons
+                  name={
+                    event.kind === 'triggered'
+                      ? 'alert-circle'
+                      : // Die zweite Stufe: Sirene und Licht sind an, weil
+                        // niemand entschärft hat. Ein eigenes Symbol, damit
+                        // die Zeile nicht wie ein zweiter Alarm aussieht.
+                        event.kind === 'escalated'
+                        ? 'megaphone-outline'
+                        : event.kind === 'armed'
+                          ? 'lock-closed-outline'
+                          : event.kind === 'entry'
+                            ? 'time-outline'
+                            : // Kamerabewegung, während scharf war: kein Alarm,
+                              // aber der Grund, warum das Telefon gebrummt hat.
+                              event.kind === 'motion'
+                              ? 'videocam-outline'
+                              : 'lock-open-outline'
+                  }
+                  size={18}
+                  color={
+                    event.kind === 'triggered' || event.kind === 'escalated'
+                      ? colors.danger
+                      : colors.inkSoft
+                  }
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.rowTitle}>{event.text}</Text>
+                  <Text style={styles.rowDetail}>
+                    {datumUhr(event.at * 1000)}
+                    {event.by ? ` · ${event.by}` : ''}
+                  </Text>
+                </View>
+                {blattWuerdig(event.kind) ? (
+                  <Ionicons name="chevron-forward" size={16} color={colors.inkFaint} />
+                ) : null}
+              </Pressable>
+            ))}
+            {gefilterterVerlauf.length > gezeigterVerlauf.length ? (
+              <Pressable
+                onPress={() => setHistoryAll(true)}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.smallButton, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={styles.smallButtonText}>
+                  Alle {gefilterterVerlauf.length} zeigen
+                </Text>
+              </Pressable>
+            ) : null}
+          </Klappe>
+        </Card>
+      ) : null}
 
       {clip ? <ClipPlayer uri={clip} onClose={() => setClip(null)} /> : null}
       {blattAt != null ? (
