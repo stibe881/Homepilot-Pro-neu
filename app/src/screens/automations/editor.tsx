@@ -1189,6 +1189,9 @@ export function TriggerRow({
           { key: 'sun', label: 'Sonnenstand' },
           { key: 'interval', label: 'Regelmässig' },
           { key: 'availability', label: 'Meldet sich nicht' },
+          // Der seltenste Auslöser, deshalb hinten - aber der, den man
+          // sucht, wenn nachts um drei das ganze Haus brennt.
+          { key: 'power_restore', label: 'Nach Stromausfall' },
           // Nur anbieten, wenn es auch Zonen gibt – ein leerer Auslöser
           // wäre ein Versprechen, das der Hub nicht halten kann.
           ...(entities.some((entity) => istOrtsmelder(entity.id))
@@ -1323,6 +1326,32 @@ export function TriggerRow({
               nicht als «alle weg».
             </Text>
           ) : null}
+        </>
+      ) : trigger.kind === 'power_restore' ? (
+        <>
+          <Text style={styles.triggerNote}>
+            Läuft, wenn der Hub nach einem Stromausfall hochfährt - nicht
+            nach einem Update. Die meisten Lampen gehen bei Stromrückkehr
+            von selbst an; hier stellst du ein, was danach gelten soll.
+          </Text>
+          <Text style={styles.groupLabel}>Wie lange warten?</Text>
+          <Choice
+            options={[
+              { key: '', label: 'kurz (20 Sek.)' },
+              { key: '60', label: '1 Min.' },
+              { key: '120', label: '2 Min.' },
+              { key: '300', label: '5 Min.' },
+            ]}
+            value={trigger.restoreDelay}
+            onSelect={(restoreDelay) => onChange({ restoreDelay })}
+          />
+          <Text style={styles.triggerNote}>
+            Nach einem Stromausfall kommt nicht alles auf einmal zurück:
+            Eine Lampe hat Strom, lange bevor Switch, Accesspoint und
+            Bridge wieder stehen. Der Ablauf läuft deshalb noch einmal,
+            sobald eines seiner Geräte auftaucht - bis zu zehn Minuten
+            lang. Wer währenddessen von Hand Licht macht, behält es.
+          </Text>
         </>
       ) : trigger.kind === 'availability' ? (
         <>

@@ -32,6 +32,36 @@ export function zielBox(
   return aktiv ?? sichtbar[0] ?? null;
 }
 
+/**
+ * Welche Box der Wähler anschreibt (rein, testbar).
+ *
+ * Gemeldet, zweite Runde und diesmal am Radio: «Oben Büro gewählt, dann
+ * einen Radiosender abgespielt - der Lautsprecher wechselt auf
+ * Terrasse.»
+ *
+ * Der Wunsch galt bisher nur, bis die *gezeigte* Quelle ihn erfüllt
+ * hatte, und wurde dann weggeworfen. Beim Wählen steht aber Spotify
+ * vorn (pickPlayer bevorzugt, wer Playlisten kann): Spotify zog ins
+ * Büro um, der Wunsch war damit erledigt - und wer danach auf «Radio»
+ * tippte, startete auf der Box, die das Radio zuletzt selbst benutzt
+ * hatte. Die Wahl gehört aber dem Wähler, nicht einer Quelle: Sie
+ * überlebt den Wechsel der Quelle und gilt, bis jemand eine andere Box
+ * wählt.
+ *
+ * Was der Wähler dann anschreibt, hängt daran, ob gerade etwas läuft:
+ * Läuft es, ist die aktive Box die Wahrheit über das Jetzt. Läuft
+ * nichts, beantwortet die Zeile die einzige Frage, die dann offen ist -
+ * *wo* der nächste Griff spielen wird -, und das ist der Wunsch.
+ */
+export function boxLabel(
+  spielt: boolean,
+  aktiv: string | null | undefined,
+  wunsch: string | null | undefined
+): string | null {
+  if (spielt) return aktiv ?? wunsch ?? null;
+  return wunsch ?? aktiv ?? null;
+}
+
 /** Was der Wähler weiss, wenn eine Box angetippt wird. */
 export interface WechselQuelle {
   id: string;

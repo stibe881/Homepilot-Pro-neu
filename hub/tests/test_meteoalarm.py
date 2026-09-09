@@ -111,7 +111,7 @@ def test_schlagzeile_nimmt_die_staerkste_warnung():
     """Läuft gleichzeitig eine mässige und eine starke, ist die starke
     die Nachricht – nicht die, die zufällig zuerst im Feed steht."""
     alerts = parse_feed(SAMPLE_FEED)
-    assert schlagzeile(alerts) == "Wind, stark"
+    assert schlagzeile(alerts) == "Wind, schwer"
 
 
 def test_schlagzeile_nennt_das_ende_wenn_es_bekannt_ist():
@@ -124,7 +124,7 @@ def test_schlagzeile_nennt_das_ende_wenn_es_bekannt_ist():
             }
         ]
     )
-    assert satz.startswith("Sturm, stark, bis ")
+    assert satz.startswith("Sturm, schwer, bis ")
 
 
 def test_ohne_warnung_keine_schlagzeile():
@@ -135,3 +135,69 @@ def test_unlesbares_ende_faellt_weg_statt_kaputt_dazustehen():
     assert bis_wann("") == ""
     assert bis_wann("bald") == ""
     assert bis_wann("2026-08-14T20:00:00+00:00") != ""
+
+
+def test_der_deutsche_text_kommt_aus_der_vollen_cap_meldung():
+    """Gemeldet: «Alle Wetterwarnungen sollen auf Deutsch sein» - auf der
+    Startseite stand «Widespread heavy thunderstorms possible».
+
+    Der Atom-Feed ist ausschliesslich englisch. Die volle CAP-Meldung
+    dahinter führt je Sprache einen <info>-Block, und MeteoSchweiz
+    liefert darin auch Deutsch."""
+    from homepilot.integrations.meteoalarm import deutscher_text
+
+    xml = """<?xml version="1.0" encoding="utf-8"?>
+    <alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+      <info>
+        <language>en</language>
+        <event>Widespread heavy thunderstorms possible</event>
+        <headline>Widespread heavy thunderstorms possible</headline>
+      </info>
+      <info>
+        <language>de-CH</language>
+        <event>Verbreitet heftige Gewitter möglich</event>
+        <headline>Verbreitet heftige Gewitter möglich</headline>
+      </info>
+      <info>
+        <language>fr</language>
+        <event>Orages violents possibles</event>
+      </info>
+    </alert>"""
+    assert deutscher_text(xml) == {
+        "event": "Verbreitet heftige Gewitter möglich",
+        "headline": "Verbreitet heftige Gewitter möglich",
+    }
+
+
+def test_ohne_deutschen_block_bleibt_es_beim_englischen():
+    """Eine Warnung in der falschen Sprache ist immer noch eine Warnung;
+    keine wäre der schlechtere Tausch. Dasselbe bei kaputtem XML."""
+    from homepilot.integrations.meteoalarm import deutscher_text
+
+    nur_englisch = """<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+      <info><language>en</language><event>Gale</event></info>
+    </alert>"""
+    assert deutscher_text(nur_englisch) == {}
+    assert deutscher_text("kein XML") == {}
+
+
+def test_der_feed_bringt_kennung_und_adresse_der_vollen_meldung_mit():
+    """Ohne beide käme der deutsche Text nie an: Die Adresse führt zur
+    CAP-Meldung, die Kennung sorgt dafür, dass sie je Warnung nur einmal
+    geholt wird."""
+    from homepilot.integrations.meteoalarm import parse_feed
+
+    xml = """<?xml version="1.0"?>
+    <feed xmlns="http://www.w3.org/2005/Atom"
+          xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
+      <entry>
+        <title>Orange Thunderstorm Warning</title>
+        <id>https://feeds.meteoalarm.org/api/v1/warnings/x</id>
+        <cap:event>Widespread heavy thunderstorms possible</cap:event>
+        <cap:severity>Severe</cap:severity>
+        <cap:identifier>2.49.0.0.756.0.CH.abc</cap:identifier>
+      </entry>
+    </feed>"""
+    alert = parse_feed(xml)[0]
+    assert alert["identifier"] == "2.49.0.0.756.0.CH.abc"
+    assert alert["cap_url"] == "https://feeds.meteoalarm.org/api/v1/warnings/x"

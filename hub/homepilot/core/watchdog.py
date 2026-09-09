@@ -33,13 +33,16 @@ from . import (
     batterie,
     batterieprognose,
     bildarchiv,
+    bilder,
     cliparchiv,
+    dateien,
     energy,
     familie,
     flattern,
     funkqualitaet,
     gemeldet,
     giessen,
+    gutscheine,
     losfahren,
     maintenance,
     morgen,
@@ -169,7 +172,6 @@ class Watchdog:
         # Die zuletzt beantwortete Unwetterwarnung (Grund + Ablaufzeit):
         # Dieselbe Warnung soll die Storen nur einmal fahren - erst eine
         # neue (oder dieselbe nach Warnungsende) zählt wieder.
-        self._storm_beantwortet: str | None = None
         # Wann zuletzt die Funkqualität eingesammelt wurde (FUNK_INTERVAL).
         self._funk_gesammelt = 0.0
         # Energie: welcher Tag zuletzt geschrieben wurde und wann.
@@ -477,6 +479,7 @@ class Watchdog:
         await self._check_packliste()
         await self._check_losfahren(entities)
         await self._check_family_cleanup()
+        await self._check_vouchers()
         await self._check_meal_plan()
         await self._check_access()
         await self._check_spaeter()
@@ -578,18 +581,33 @@ class Watchdog:
         if warnung is None:
             return
         lage = storenwaechter.unwetter(getattr(warnung, "state", None) or {})
-        if lage is None:
-            # Warnung vorbei: Die nächste darf wieder fahren. Runter
-            # fährt hier nichts - das entscheiden Mensch und Beschattung.
-            self._storm_beantwortet = None
+        gemerkt = self.hub.data.get(storenwaechter.STURM_STORE_KEY)
+        schritt, neu = storenwaechter.sturm_schritt(lage, gemerkt, time.time())
+        if schritt == "entwarnen":
+            # Runter fährt hier nichts - das entscheiden Mensch und
+            # Beschattung. Gesagt wird es trotzdem: Wer die Storen von
+            # Hand hochfahren liess, will wissen, wann er sie wieder
+            # runterlassen kann.
+            self.hub.data.set(storenwaechter.STURM_STORE_KEY, neu)
+            grund = str(
+                next(
+                    (row.get("grund") for row in (gemerkt or []) if isinstance(row, dict)),
+                    "Unwetter",
+                )
+            )
+            await self._notify(
+                f"✅ {grund} vorbei",
+                "Die Warnung ist aufgehoben. Die Storen stehen noch oben - "
+                "runter geht es von Hand, wann immer es passt.",
+                category="storm_covers",
+            )
             return
-        marke = f"{lage['grund']}:{lage['bis']}"
-        if self._storm_beantwortet == marke:
+        if schritt != "fahren":
             return
         storen = storenwaechter.storen_auswahl(entities, self._cover_guard("storm"))
         if not storen:
             return
-        self._storm_beantwortet = marke
+        self.hub.data.set(storenwaechter.STURM_STORE_KEY, neu)
         gefahren = 0
         with as_source(automation_source("watchdog:storm", "Sturmwächter")):
             for entity in storen:
@@ -615,7 +633,10 @@ class Watchdog:
             return
         anzahl = "Die Store ist" if gefahren == 1 else f"{gefahren} Storen sind"
         await self._notify(
-            f"{lage['grund']}warnung - Storen hochgefahren",
+            # Mit Zeichen am Anfang, wie beim Alarm: Auf dem
+            # Sperrbildschirm zwischen zwanzig Zeilen erkennt man daran,
+            # dass hier etwas passiert ist.
+            f"⚠️ {lage['grund']}warnung - Storen hochgefahren",
             f"{anzahl} hochgefahren: Unten wären die Lamellen dem Wetter "
             "ausgesetzt. Runter geht es wieder von Hand, sobald es vorbei ist.",
             category="storm_covers",
@@ -1354,7 +1375,26 @@ class Watchdog:
                 korb = trash.put(korb, collection, row, "Wächter")
             self.hub.data.set(key, [row for row in rows if row.get("id") not in ids])
             log.info("Familienliste '%s': %d Erledigte aufgeräumt", collection, len(alt))
-        self.hub.data.set("family_trash", trash.purge(korb))
+        geleert = trash.purge(korb)
+        # Was nach dreissig Tagen aus dem Korb fällt, nimmt sein Bild
+        # und seine Datei mit. Vorher blieben die Rezeptfotos für immer
+        # liegen - und ein Gutscheinfoto mit Nummer und Strichcode soll
+        # nicht länger auf der Platte sein als der Eintrag, zu dem es
+        # gehört. Fürs angehängte PDF (Punkt 266) gilt dasselbe, nur
+        # deutlicher: Es IST der Gutschein.
+        geblieben = {
+            (row.get("kind"), (row.get("item") or {}).get("id")) for row in geleert
+        }
+        for row in korb:
+            art = str(row.get("kind") or "")
+            kennung = (row.get("item") or {}).get("id")
+            if (art, kennung) in geblieben:
+                continue
+            if art in bilder.ORDNER:
+                bilder.loeschen(bilder.ordner(self.hub.data.path, art), kennung)
+            if art in dateien.ORDNER:
+                dateien.loeschen(dateien.ordner(self.hub.data.path, art), kennung)
+        self.hub.data.set("family_trash", geleert)
         # Und einmal im Monat das Familienbuch (Punkt 169): eine Seite,
         # die auch ohne HomePilot noch lesbar ist.
         monat = jetzt.strftime("%Y-%m")
@@ -1362,6 +1402,47 @@ class Watchdog:
             ziel = self.hub.data.family_book(monat)
             if ziel is not None:
                 log.info("Familienbuch abgelegt: %s", ziel)
+
+    async def _check_vouchers(self) -> None:
+        """Gutscheine, die bald verfallen (Punkt 264 der Werkbank).
+
+        Dreimal je Gutschein, jede Stufe genau einmal: eine erste und
+        eine zweite Erinnerung (Vorgabe 30 und 7 Tage, einstellbar unter
+        Push → Gutscheine) und der Ablauftag selbst. Das Gedächtnis ist
+        `_einmal` und überlebt den Neustart. Am Morgen, nicht im
+        Minutentakt: «Brack: 80 CHF verfallen in 7 Tagen» liest man beim
+        Kaffee und bestellt am Abend; um drei Uhr nachts weckt es nur.
+
+        Private Gutscheine gehen an den, der sie eingetragen hat; die
+        anderen erfahren nicht einmal, dass es sie gibt. Geteilte gehen
+        an alle - jeder könnte ihn einlösen (core/gutscheine.py).
+        """
+        # Der Schalter der Regel «Gutschein läuft bald ab» (Abläufe →
+        # Push). Bisher gab es ihn nicht: Die Erinnerung liess sich nur
+        # je Person abbestellen, nicht fürs Haus abschalten - als
+        # einzige der Familien-Nachrichten.
+        if not self.rules.get("vouchers", {}).get("enabled", True):
+            return
+        jetzt = datetime.now()
+        if jetzt.hour != 9:
+            return
+        rows = self.hub.data.get(gutscheine.KEY)
+        if not rows:
+            return
+        prefs = gutscheine.prefs_lesen(self.hub.data.get(gutscheine.PREFS_KEY))
+        for eintrag, stufe, tage in gutscheine.ablaufende(
+            rows, jetzt.date(), gutscheine.stufen(prefs)
+        ):
+            if not self._einmal(gutscheine.marke(eintrag, stufe), jetzt.timestamp()):
+                continue
+            titel, text = gutscheine.meldung(eintrag, tage)
+            await self._notify(
+                titel,
+                text,
+                category="vouchers",
+                to=gutscheine.empfaenger(eintrag),
+                data={"kind": "family", "collection": "vouchers", "id": eintrag.get("id")},
+            )
 
     async def _check_meal_plan(self) -> None:
         """Der Wochenplan füttert «zuletzt gekocht» (Punkt 218).

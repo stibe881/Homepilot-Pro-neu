@@ -51,6 +51,9 @@ from .routes import (
     alarm as routes_alarm,
 )
 from .routes import (
+    androidtv as routes_androidtv,
+)
+from .routes import (
     auth as routes_auth,
 )
 from .routes import (
@@ -305,6 +308,7 @@ def create_app(hub: Hub) -> FastAPI:
         routes_rueckblick.register,
         routes_verbindungen.register,
         routes_funk.register,
+        routes_androidtv.register,
     ):
         register(app, ctx)
 

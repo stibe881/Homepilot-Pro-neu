@@ -18,7 +18,6 @@ import { CommandData, Entity, HubSettings } from '../api/types';
 import { begruessung } from '../lib/begruessung';
 import {
   Bereich,
-  einstiegsSeite,
   gruppeVon,
   siehtBereich,
 } from '../lib/einstellungsmenue';
@@ -64,6 +63,7 @@ import {
   kachelBreite,
   spalten,
 } from '../lib/raster';
+import { warnungSchonOben } from '../lib/warnzeile';
 import { mengeUndName } from '../lib/einkauf';
 import { uhr } from '../lib/format';
 import {
@@ -78,7 +78,7 @@ import { gemerkteAktion, menuLabel } from '../lib/doppeltipp';
 import { leerbild } from '../lib/leerzustand';
 import { reihenfolge as nutzungsReihenfolge } from '../lib/raumnutzung';
 import { sorgen, sorgenSatz } from '../lib/sorgen';
-import { szenenFuerKachel, szenenFuerRaum } from '../lib/szenen';
+import { raumSzenen, szeneGeraet, szenenFuerKachel } from '../lib/szenen';
 import {
   GeraeteFilter,
   GeraeteSortierung,
@@ -363,12 +363,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [ordnenZieht, setOrdnenZieht] = useState(false);
   // Die grosse Liste, damit ein Wechsel oben anfängt (siehe unten).
   const blatt = useRef<ScrollView>(null);
-  // Welche Einstellungsseite zuletzt offen war - damit «Einstellungen»
-  // auf einem breiten Bildschirm dort weitermacht, wo man aufgehört hat.
-  // Eine Ref und kein Zustand: Der Wert wird nirgends gezeichnet, nur
-  // beim nächsten Öffnen gelesen. Als Zustand wäre jede Seite in den
-  // Einstellungen eine zweite Zeichnung wert - für nichts.
-  const zuletztEinstellung = useRef<Section | null>(null);
   // Aufgeklappt kommt man nur über die Batteriewarnung hierher; sonst
   // entscheidet die Karte selbst (siehe DeviceHealth).
   const [batterienOffen, setBatterienOffen] = useState(false);
@@ -472,6 +466,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // auf der Einkaufsliste» → Einkauf). Getrennt vom Riegel-Modul: Das
   // eine ist ein Weg um eine Sperre herum, das andere ein Ziel.
   const [familienModul, setFamilienModul] = useState<string | null>(null);
+  // Zählt hoch, wenn im Menü ein Bereich gewählt wurde. Bildschirme, die
+  // ihre Unterseite selbst führen (Familie), kommen davon auf ihre
+  // Übersicht zurück - ein Zurücksetzen hier draussen erreicht sie
+  // nicht.
+  const [heimSignal, setHeimSignal] = useState(0);
   // Welches Gerät gerade nach einer Frist gefragt wird («sag mir in zwei
   // Stunden Bescheid»).
   const [erinnernAn, setErinnernAn] = useState<Entity | null>(null);
@@ -1530,6 +1529,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           (entity) =>
             !hidden.includes(entity.id) &&
             !entity.combined_into &&
+            // Die Wetter-Kachel schweigt, solange die Warnung oben in
+            // der Begrüssungskarte steht: Zweimal derselbe Satz auf
+            // einer Seite sieht aus, als wären es zwei Sachen
+            // (lib/warnzeile.ts). Ohne Warnung bleibt sie - «Keine
+            // Warnungen» steht sonst nirgends.
+            !warnungSchonOben(entity) &&
             // Beim Anpassen bleibt sie stehen: Wer Kacheln ordnet oder
             // ausblendet, muss sie greifen können.
             !raumBoxen.some((box) => box.id === entity.id)
@@ -1688,8 +1693,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     eigenePrefs.favoriteOrder,
   ]);
 
-  // Ein einzelner Raum wird nach Kategorien gegliedert: Szenen des Raums
-  // oben, dann Beleuchtung, Store, Medien, alles Übrige unter „Weitere“.
+  // Ein einzelner Raum wird nach Kategorien gegliedert: Beleuchtung,
+  // Store, Medien, dann jede weitere Geräteart. Die Szenen stehen davor
+  // im Raumkopf, nicht als Gruppe zwischen den Kacheln.
   // Leere Kategorien werden weggelassen. „Store“ (Storen/Rollläden)
   // erscheint so von selbst nur in Räumen mit solchen Geräten.
   const categorized =
@@ -1697,8 +1703,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Nicht nur das room-Feld: Eine Szene erscheint in jedem Raum, dessen
   // Geräte sie schaltet. «Feierabend» stand vorher in höchstens einem.
   const roomScenes = useMemo(
-    () => (categorized ? szenenFuerRaum(scenes, entities, room) : []),
-    [categorized, scenes, entities, room]
+    () => (categorized ? raumSzenen(scenes, entities, room, shown) : []),
+    [categorized, scenes, entities, room, shown]
+  );
+  // Eine Lichtszene der Bridge ist ein Gerät: Sie wird mit «activate»
+  // geschaltet und nicht über die Szenen-Route des Hubs. Welche von
+  // beiden ein Knopf ist, sagt seine Kennung (lib/szenen.ts).
+  const szeneAusloesen = useCallback(
+    (sceneId: string) => {
+      const geraet = szeneGeraet(sceneId);
+      if (geraet) guardedCommand(geraet, 'activate');
+      else activateScene(sceneId);
+    },
+    [activateScene, guardedCommand]
   );
   // Jede Geräteart bekommt ihre Überschrift statt eines Topfs «Weitere» –
   // in einem Bad mit Thermostat, Feuchtefühler und Handtuchtrockner war
@@ -2167,32 +2184,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   /** Ab hier ist Platz für Menü und Inhalt nebeneinander. */
   const ZWEISPALTIG_AB = 1000;
   const zweispaltig = width >= ZWEISPALTIG_AB && einstellungsSeiten.includes(section);
-  if (einstellungsSeiten.includes(section)) zuletztEinstellung.current = section;
 
-  // Welche dieser Seiten dieser Benutzer überhaupt sieht - in der
-  // Reihenfolge des Menüs, damit «die erste» dieselbe ist, die auch oben
-  // in der Spalte steht.
-  const offeneSeiten = sichtbarePunkte
-    .map((item) => item.key)
-    .filter((key): key is Section => einstellungsSeiten.includes(key as Section));
-
-  /**
-   * Zu einem Bereich wechseln - mit einer Ausnahme.
-   *
-   * «Einstellungen» war ein Zwischenschritt für nichts: Man tippte
-   * darauf, bekam eine Liste von Kacheln, tippte noch einmal, und erst
-   * dann stand die Ansicht da, die man gemeint hatte. Zweimal derselbe
-   * Weg, einmal davon vergeblich.
-   *
-   * Also geht gleich eine Seite auf; die vom letzten Mal, sonst die
-   * erste (lib/einstellungsmenue.ts). Das Menü steht dabei immer
-   * daneben: auf dem breiten Bildschirm als Spalte links, auf dem
-   * Telefon als Kopfzeile mit Wechselblatt (components/einstellungen).
-   *
-   * Sieht jemand überhaupt keine solche Seite - ein Gast etwa -, bleibt
-   * es bei der Kachelliste: Ein leerer Bereich wäre schlimmer als eine
-   * kurze Liste.
-   */
   // Womit die Leiste «Einstellungen» hervorhebt, solange man drin ist.
   // Vorher stand dort nichts hervorgehoben, sobald man eine Seite offen
   // hatte - und auf einem breiten Bildschirm ist man ab dem ersten Tipp
@@ -2212,7 +2204,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const geheZuPunkt = (key: string) => {
     const punkt = sichtbarePunkte.find((item) => item.key === key);
     if (punkt?.onPress) punkt.onPress();
-    else setSection(key as Section);
+    // Über denselben Weg wie die Leiste: Sonst räumte der eine
+    // Menü-Zugang auf und der andere nicht.
+    else waehleBereich(key as Section);
   };
 
   /**
@@ -2241,15 +2235,53 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       />
     );
 
+  /**
+   * Zu einem Bereich wechseln.
+   *
+   * Jeder Menüpunkt führt auf seine eigene Seite - auch «Einstellungen».
+   * Eine Zeit lang sprang der Punkt gleich in die Seite, die zuletzt
+   * offen war: Die Kachelliste galt als Zwischenschritt für nichts.
+   * Aus dem Haus kam das Gegenteil zurück, und zu Recht: Wer im Menü auf
+   * einen Namen tippt, erwartet die Seite mit diesem Namen. Kam
+   * stattdessen «Push-Nachrichten», weil man dort gestern zuletzt war,
+   * sah es aus, als hätte man danebengetippt - und die Übersicht, von
+   * der aus alles andere erreichbar ist, war nirgends mehr zu holen.
+   */
   const waehleBereich = (ziel: Section) => {
-    if (ziel === 'settings') {
-      const start = einstiegsSeite(offeneSeiten, zuletztEinstellung.current, !hasRail);
-      if (start) {
-        setSection(start);
-        return;
-      }
-    }
     setSection(ziel);
+    // ... und zwar auf deren *Anfang*. Das war die zweite Hälfte
+    // derselben Meldung: «Dasselbe bei den anderen Menüpunkten.» Wer im
+    // Wohnzimmer stand und «Räume» tippte, blieb im Wohnzimmer; wer im
+    // Einkauf stand und «Familie» tippte, blieb im Einkauf. Von aussen
+    // sieht das aus, als hätte der Tipp nichts getan.
+    //
+    // Zurückgesetzt wird nur, was Weg ist - kein halb Getipptes: Der
+    // Ablauf-Editor etwa liegt als Blatt über der Leiste, dort ist der
+    // Menüpunkt gar nicht erreichbar, und so bleibt er auch.
+    setRoom(ALL_ROOMS); // Räume: zurück zur Raumliste
+    setFamilienModul(null);
+    // Auch die Abkürzung am Riegel vorbei endet hier: Sie gilt «nur für
+    // dieses eine Modul» (siehe unten, offeneModule) - wer im Menü
+    // weitergeht, hat es verlassen.
+    setRiegelModul(null);
+    setHeimSignal((n) => n + 1); // Familie führt ihre Ansicht selbst
+    setExpanded(null); // Geräte: keine aufgeklappte Kachel
+    setQuery('');
+    setEditing(false);
+    // Und alles, was gerade darüber liegt: «egal wo man ist» heisst
+    // auch «egal was gerade offen ist».
+    setFullscreen(null);
+    setHistoryFor(null);
+    setBildFuer(null);
+    setErinnernAn(null);
+    setRaumMenue(false);
+    setWechselOffen(false);
+    setReorderOpen(false);
+    setRoomsReorderOpen(false);
+    setBatterienOffen(false);
+    setSorgenOffen(false);
+    setHilfeOffen(false);
+    setWandOffen(false);
   };
 
   const content = () => {
@@ -2347,6 +2379,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           changedAt={familyChangedAt}
           startModul={riegelModul ?? familienModul}
           startKind={kindPanelName ?? undefined}
+          heimSignal={heimSignal}
         />
       );
     }
@@ -2499,6 +2532,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             onSave={onSaveSettings}
             user={user}
             darfDienste={(user?.capabilities ?? []).includes('edit_config')}
+            entities={entities}
           />
         </View>
       );
@@ -3030,6 +3064,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 ) : null}
               </View>
               {raumKopf ? <Text style={styles.raumFakten}>{raumKopf}</Text> : null}
+              {/* Die Szenen des Zimmers gehören hierher, nicht unter die
+                  Kacheln: Sie sind der erste Griff beim Betreten
+                  («Kino», «Sternenhimmel»), und man soll ihn nicht
+                  suchen. Bisher lagen sie an zwei Stellen weiter unten -
+                  die Szenen des Hubs als Gruppe, die Lichtszenen der
+                  Bridge als eigene Kategorie hinter allen Geräten. */}
+              {roomScenes.length > 0 ? (
+                <SceneRow scenes={roomScenes} onActivate={szeneAusloesen} />
+              ) : null}
             </View>
           ) : null}
           {/* Kacheln anpassen heisst: verschieben, ausblenden, sperren,
@@ -3256,7 +3299,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           {section === 'home' && room !== ALL_ROOMS && istKueche(room) ? (
             <KitchenTimer settings={settings} />
           ) : null}
-          {/* Ein Raum: nach Kategorien (Szenen, Beleuchtung, Store, Medien). */}
+          {/* Ein Raum: nach Kategorien (Beleuchtung, Store, Medien …). */}
           {categorized ? (
             <>
               {/* Temperatur und Faktenzeile stehen jetzt oben im
@@ -3346,12 +3389,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   </>
                 ) : null}
               </View>
-              {roomScenes.length > 0 ? (
-                <View style={styles.group}>
-                  <Text style={styles.groupLabel}>Szenen</Text>
-                  <SceneRow scenes={roomScenes} onActivate={activateScene} />
-                </View>
-              ) : null}
               {categories.map((group, gruppenIndex) => (
                 <View
                   key={group.key}
@@ -3512,6 +3549,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             // sie bleibt scheinbar an ihrem Platz kleben, und beim
             // Loslassen landet sie dort, wo sie war.
             scrollEnabled={!drag}
+            // Die Tastatur schiebt den Inhalt hoch, statt sich darüber zu
+            // legen. Punkt 11 der Werkbank hat das damals nur für die
+            // Fenster gelöst (KeyboardAvoidingView in TopStrip) - die
+            // eingebetteten Seiten hängen aber alle in diesem einen
+            // ScrollView, und dort blieb das Feld unter der Tastatur:
+            // gemeldet beim Erfassen eines Gutscheins, wo Notiz und Link
+            // ganz unten stehen. Ein KeyboardAvoidingView um die ganze
+            // Seite wäre das gröbere Mittel (es staucht das Layout);
+            // diese Zeile schiebt nur den Rollbereich, wie es iOS in
+            // seinen eigenen Apps tut. Auf Android und im Browser ohne
+            // Wirkung - beide brauchen sie nicht (lib/plattform.ts).
+            automaticallyAdjustKeyboardInsets
+            // Und ein Tipp auf einen Chip wirkt sofort, statt erst die
+            // Tastatur zu schliessen: «Unbegrenzt» oder eine Kategorie
+            // im Gutschein-Formular brauchte sonst zwei Tipper.
+            keyboardShouldPersistTaps="handled"
           >
             {ausfall && entities.length > 0 ? (
               // Getrennt, aber wir haben den letzten Stand: lieber alte Werte

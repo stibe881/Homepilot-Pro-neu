@@ -387,6 +387,30 @@ describe('Licht mit Feinheiten', () => {
     expect(istLichtFein({ command: 'set_brightness', adaptive: true })).toBe(true);
     expect(istLichtFein({ command: 'set_brightness', colorTemp: 286 })).toBe(true);
   });
+
+  it('nur beim Einschalten - «aus» hat keine Feinheiten', () => {
+    // Der Aktionstyp 'light' heisst beim Hub «mach sie an, und zwar so»;
+    // einen Befehl trägt er gar nicht mit. Eine Farbe, die vom
+    // Einschalten stehen geblieben ist, darf ein «aus» nicht dorthin
+    // schicken.
+    expect(istLichtFein({ command: 'turn_off', color: '#FFD9A0' })).toBe(false);
+    expect(istLichtFein({ command: 'turn_off', offAfter: 300 })).toBe(false);
+    expect(istLichtFein({ command: 'toggle', colorTemp: 286 })).toBe(false);
+  });
+
+  it('«aus» bleibt «aus» - auch mit stehen gebliebener Farbe', () => {
+    // Der gemeldete Fehler: Chip auf «aus», speichern, öffnen - und er
+    // stand wieder auf «ein». Der Ablauf schaltete die Lampe damit AN,
+    // wo er sie ausschalten sollte; die Anzeige war nur der sichtbare
+    // Teil davon.
+    const aus = licht({ command: 'turn_off', brightness: undefined, color: '#FFD9A0' });
+    const gespeichert = stepToActions(aus);
+    expect(gespeichert[0].type).toBe('command');
+    expect(gespeichert[0].command).toBe('turn_off');
+
+    const [zurueck] = actionsToSteps(gespeichert);
+    expect(zurueck.commandActions[0].command).toBe('turn_off');
+  });
 });
 
 describe('melderMitLux', () => {
@@ -415,7 +439,9 @@ describe('melderMitLux', () => {
 
 describe('lichtKurz', () => {
   it('sagt in der Liste, was die Lampe tut', () => {
-    expect(lichtKurz({ brightness: 'adaptive' })).toBe('angepasst');
+    expect(lichtKurz({ brightness: 'adaptive' })).toBe('nach Raumhelligkeit');
+    // Der zweite Weg zur Helligkeit - der ohne Fühler.
+    expect(lichtKurz({ brightness: 'tageszeit' })).toBe('nach Tageszeit');
     expect(lichtKurz({ brightness: 40 })).toBe('40 %');
     expect(lichtKurz({ color: '#FF2D2D' })).toBe('an');
     expect(lichtKurz({ brightness: 40, off_after: 240 })).toBe('40 %, 4 Min.');
@@ -1713,5 +1739,72 @@ describe('schaltetSpaeterAus', () => {
     ];
     expect(schaltetSpaeterAus(steps)).toBe(false);
     expect(schaltetSpaeterAus([])).toBe(false);
+  });
+});
+
+describe('Auslöser «Nach Stromausfall»', () => {
+  it('braucht weder Gerät noch Uhrzeit', () => {
+    // Er hat genau einen Fall: Der Hub ist nach einem Stromausfall
+    // hochgefahren. Ein Gerätefeld daran wäre ein leeres Versprechen.
+    const config = triggerToConfig({ ...EMPTY_TRIGGER, kind: 'power_restore' });
+    expect(config).toEqual({ type: 'power_restore' });
+  });
+
+  it('nimmt die Wartezeit mit, wenn eine gewählt wurde', () => {
+    // Wie lange es dauert, bis Switch, Accesspoint und Bridge stehen,
+    // ist von Haus zu Haus verschieden - deshalb steht die Zahl im
+    // Ablauf und nicht im Hub.
+    const config = triggerToConfig({
+      ...EMPTY_TRIGGER,
+      kind: 'power_restore',
+      restoreDelay: '120',
+    });
+    expect(config.delay).toBe(120);
+  });
+
+  it('liest sich unverändert zurück', () => {
+    const gespeichert = triggerToConfig({
+      ...EMPTY_TRIGGER,
+      kind: 'power_restore',
+      restoreDelay: '300',
+    });
+    const zurueck = triggerFromConfig(gespeichert);
+    expect(zurueck.kind).toBe('power_restore');
+    expect(zurueck.restoreDelay).toBe('300');
+    expect(triggerToConfig(zurueck)).toEqual(gespeichert);
+  });
+});
+
+describe('Helligkeit nach der Uhr', () => {
+  const licht = (over = {}) => ({
+    ...EMPTY_STEP,
+    kind: 'command' as const,
+    commandActions: [
+      { entity_id: 'hue.flur', command: 'set_brightness', brightness: 50, ...over },
+    ],
+  });
+
+  it('schreibt «tageszeit» statt einer Zahl', () => {
+    // Der Weg für die Räume ohne Helligkeitsfühler - also für die
+    // meisten (hub/core/light.py, brightness_from_time).
+    const [action] = stepToActions(licht({ nachTageszeit: true }));
+    expect(action.type).toBe('light');
+    expect(action.brightness).toBe('tageszeit');
+  });
+
+  it('liest ihn auch wieder ein', () => {
+    const [schritt] = actionsToSteps([
+      { type: 'light', entity_id: 'hue.stube', brightness: 'tageszeit' },
+    ]);
+    expect(schritt.commandActions[0]).toMatchObject({
+      command: 'set_brightness',
+      nachTageszeit: true,
+    });
+    expect(schritt.commandActions[0].adaptive).toBeUndefined();
+  });
+
+  it('zählt als Licht-Feinheit', () => {
+    // Sonst würde daraus beim Speichern ein blosses «einschalten».
+    expect(istLichtFein({ command: 'set_brightness', nachTageszeit: true })).toBe(true);
   });
 });

@@ -26,6 +26,7 @@ import { ROLE_LABELS } from './UsersScreen';
 import { datumUhr } from '../lib/format';
 import { integrationDetail } from '../lib/integrationszeile';
 import { LaufArt, LetzterLauf, letzterLaufSatz } from '../lib/letzterlauf';
+import { OtaStand, otaLage, otaZeile } from '../lib/otastand';
 import { UpdateVorschau, vorschauZeilen } from '../lib/updatevorschau';
 import { fehlerZeilen, letzterStartfehler, startfehlerListe } from '../lib/startfehler';
 import { localTime, timeAgo } from '../lib/zeit';
@@ -695,10 +696,55 @@ function WasIstNeu({ settings }: { settings: HubSettings }) {
 function AppVersionNote() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  // Erst die Haken, dann die Anzeige - Hooks vertragen kein frühes
+  // Zurück, und im Browser gibt es gar keine nachgeladenen Fassungen.
+  // Der Haken der Bibliothek weiss beides ohne eigenes Buchhalten:
+  // «isUpdatePending» heisst geholt und wartet auf den Neustart,
+  // «isUpdateAvailable» heisst, es läge eine neuere bereit.
+  const { isUpdateAvailable, isUpdatePending } = Updates.useUpdates();
+  const [gefragt, setGefragt] = useState(false);
+  const [laeuft, setLaeuft] = useState(false);
+  const [fehler, setFehler] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (Platform.OS === 'web' || !Updates.isEnabled) return;
+    // Von sich aus fragt die App beim Start; wer hier steht, will es
+    // aber jetzt wissen. Das Ergebnis liest der Haken oben mit.
+    Updates.checkForUpdateAsync()
+      .catch(() => {})
+      // Ohne Netz oder ohne EAS-Kanal bleibt es bei «nicht gefragt» -
+      // dann steht hier nichts, statt einer Behauptung, die niemand
+      // geprüft hat.
+      .finally(() => setGefragt(true));
+  }, []);
+
+  const stand: OtaStand = {
+    bereit: isUpdatePending,
+    verfuegbar: isUpdateAvailable,
+    gefragt,
+  };
+
+  const uebernehmen = async () => {
+    if (laeuft) return;
+    setLaeuft(true);
+    setFehler(null);
+    try {
+      if (!isUpdatePending) await Updates.fetchUpdateAsync();
+      // Startet die App mit der neuen Fassung neu - genau das, was
+      // sonst zwei Kaltstarts kosten würde.
+      await Updates.reloadAsync();
+    } catch (err) {
+      setFehler(err instanceof Error ? err.message : 'Das hat nicht geklappt.');
+      setLaeuft(false);
+    }
+  };
+
   if (Platform.OS === 'web') return null;
 
   const gebaut = Updates.createdAt ? localTime(Updates.createdAt.toISOString()) : null;
   const nachgeladen = Updates.isEmbeddedLaunch === false;
+  const lage = otaLage(stand);
+  const zeile = otaZeile(lage);
   return (
     <>
       <Text style={styles.hint}>
@@ -714,6 +760,36 @@ function AppVersionNote() {
           hat. Fehlt eine Änderung, die im Build drin sein müsste, ist das der
           wahrscheinliche Grund.
         </Text>
+      ) : null}
+      {/* Der Grund für diesen Abschnitt: «Ich habe soeben das Update
+          gemacht. Trotzdem steht noch dies.» Es lief alles richtig - das
+          Telefon holt eine veröffentlichte Fassung erst beim nächsten
+          Öffnen und führt sie erst beim übernächsten Start aus. Zweimal
+          die App wegwischen ist keine Bedienung, die man erraten kann. */}
+      {zeile.text ? (
+        <Text style={[styles.hint, lage !== 'aktuell' && { color: colors.warn }]}>
+          {zeile.text}
+        </Text>
+      ) : null}
+      {zeile.knopf ? (
+        <Pressable
+          onPress={uebernehmen}
+          disabled={laeuft}
+          accessibilityRole="button"
+          accessibilityLabel={zeile.knopf}
+          style={({ pressed }) => [
+            styles.button,
+            { alignSelf: 'flex-start' },
+            (pressed || laeuft) && { opacity: 0.6 },
+          ]}
+        >
+          <Text style={styles.buttonText}>
+            {laeuft ? 'Einen Moment …' : zeile.knopf}
+          </Text>
+        </Pressable>
+      ) : null}
+      {fehler ? (
+        <Text style={[styles.hint, { color: colors.danger }]}>{fehler}</Text>
       ) : null}
     </>
   );
@@ -1112,6 +1188,19 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
                 </Text>
               );
             }
+            if (inhalt.art === 'ungefaehr') {
+              // Kein Aufzählen ohne genauen Vergleich - siehe
+              // lib/updatevorschau.ts. Der Satz sagt, warum die Auskunft
+              // fehlt, und dass ein Update trotzdem das Richtige tut.
+              return (
+                <Text style={styles.updateAskText}>
+                  Was noch aussteht, lässt sich gerade nicht sagen: Der laufende
+                  Stand entsteht beim Bauen aus mehreren Zweigen, und GitHub kennt
+                  ihn nicht. Ein Update holt in jedem Fall den neusten Stand –
+                  liegt nichts Neues vor, baut es denselben noch einmal.
+                </Text>
+              );
+            }
             if (inhalt.art === 'keine') {
               return (
                 <Text style={styles.updateAskText}>
@@ -1125,11 +1214,13 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
             }
             return (
               <>
-                <Text style={styles.updateAskText}>
-                  {inhalt.art === 'genau'
-                    ? 'Das bringt dieses Update:'
-                    : 'Die jüngsten Änderungen (der laufende Stand liess sich nicht genau vergleichen):'}
-                </Text>
+                {/* Nur noch der genaue Fall kommt hier an: «ungefaehr»
+                    kehrt weiter oben mit eigenem Text zurück und bringt
+                    ohnehin keine Zeilen mehr mit. Der alte Klammersatz
+                    ist damit weg - wer ihn auf einem Telefon mit älterer
+                    Fassung noch sieht, soll ihn im Repo nicht mehr
+                    finden und für aktuell halten. */}
+                <Text style={styles.updateAskText}>Das bringt dieses Update:</Text>
                 <Text style={styles.updateAskText}>
                   {inhalt.zeilen.map((zeile) => `· ${zeile}`).join('\n')}
                   {inhalt.mehr > 0 ? `\n… und ${inhalt.mehr} weitere` : ''}

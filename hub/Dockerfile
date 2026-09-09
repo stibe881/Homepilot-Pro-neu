@@ -47,8 +47,18 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
 # unterscheiden, ob der Container wirklich neu ist oder ob Portainer das
 # alte Abbild noch einmal ausgerollt hat.
 ARG GIT_COMMIT=unbekannt
+# Der Stand, den GitHub kennt - vor den örtlichen Zusammenführungen des
+# Bau-Skripts. Nur von ihm aus lässt sich sagen, was ein Update noch
+# brächte (api/routes/system.py, update_vorschau).
+ARG GIT_BASE=unbekannt
+# Aus welchem Zweig gebaut wurde. Der Update-Dienst auf dem Host riet ihn
+# sonst ein zweites Mal - und lag falsch, sobald beide Seiten die
+# Zugangsdatei verschieden lasen.
+ARG GIT_BRANCH=main
 ARG BUILD_TIME=unbekannt
 ENV HOMEPILOT_COMMIT=$GIT_COMMIT
+ENV HOMEPILOT_BASE_COMMIT=$GIT_BASE
+ENV HOMEPILOT_BRANCH_BUILT=$GIT_BRANCH
 ENV HOMEPILOT_BUILD_TIME=$BUILD_TIME
 
 ENV HOMEPILOT_CONFIG=/config/config.yaml

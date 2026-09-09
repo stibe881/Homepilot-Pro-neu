@@ -19,9 +19,11 @@ import { KIND_ICONS, shortState } from '../components/RoomTile';
 import { appleMapsRoute, googleMapsRoute } from '../components/TopStrip';
 import { TagesZeile } from '../components/TagesZeile';
 import { VacuumHome } from '../components/VacuumHome';
+import { Tastaturplatz } from '../components/Tastaturplatz';
 import { useTakt } from '../hooks/useTakt';
 import { FAVORIT_LUECKE, FAVORIT_MINDEST, kachelBreite, spalten } from '../lib/raster';
 import { schnellposten } from '../lib/schnellordnung';
+import { warnungSchonOben } from '../lib/warnzeile';
 import { dauerText } from '../lib/format';
 import {
   chipZeile,
@@ -266,7 +268,12 @@ export function OverviewScreen({
   // alte Haushalts-Stern – er steckt bereits als Startbestand in
   // `favoriteIds`, solange jemand noch keine eigene Liste hat. Zählte er
   // hier zusätzlich, liesse sich ein Gerät nie mehr entsternen.
-  const favoriten = entities.filter((e) => favoriteIds.includes(e.id));
+  // Die Wetter-Kachel fehlt, solange die Warnung oben in der
+  // Begrüssungskarte steht - zweimal derselbe Satz auf einer Seite sieht
+  // aus, als wären es zwei Sachen (lib/warnzeile.ts).
+  const favoriten = entities.filter(
+    (e) => favoriteIds.includes(e.id) && !warnungSchonOben(e)
+  );
   // Selbst gezogene Reihenfolge anwenden; neu hinzugekommene Favoriten
   // hängen sich hinten an, statt die gewachsene Ordnung durcheinander zu
   // bringen. Dieselbe Regel wie bei den Familien-Kacheln.
@@ -1381,6 +1388,10 @@ function DurchsageFenster({
 
   return (
     <Modal visible animationType="slide" onRequestClose={onClose} transparent>
+      {/* Der Durchsagetext wird getippt, und sein Feld sitzt zuunterst im
+          Blatt - genau dort, wo die Tastatur aufgeht (Punkt 265 der
+          Werkbank). */}
+      <Tastaturplatz>
       <Pressable style={styles.fensterGrund} onPress={onClose}>
         <Pressable style={styles.fensterBlatt} onPress={() => {}}>
           <View style={styles.fensterKopf}>
@@ -1694,6 +1705,7 @@ function DurchsageFenster({
           )}
         </Pressable>
       </Pressable>
+      </Tastaturplatz>
     </Modal>
   );
 }

@@ -80,6 +80,11 @@ def parse_feed(xml_text: str) -> list[dict[str, Any]]:
                 "title": text("atom:title"),
                 "event": text("cap:event"),
                 "severity": text("cap:severity"),
+                # Kennung und Adresse der vollen CAP-Meldung. Nur der
+                # Atom-Feed ist englisch; die Meldung dahinter trägt
+                # denselben Text auch auf Deutsch (deutscher_text).
+                "identifier": text("cap:identifier"),
+                "cap_url": text("atom:id"),
                 "onset": text("cap:onset") or text("cap:effective"),
                 "expires": text("cap:expires"),
                 "area": text("cap:areaDesc"),
@@ -89,6 +94,39 @@ def parse_feed(xml_text: str) -> list[dict[str, Any]]:
             }
         )
     return alerts
+
+
+def deutscher_text(xml_text: str) -> dict[str, str]:
+    """Ereignis und Schlagzeile auf Deutsch aus einer CAP-Meldung (rein, testbar).
+
+    Der Anlass: Auf der Startseite stand «Widespread heavy thunderstorms
+    possible». Der Atom-Feed, aus dem die Warnungen kommen, ist
+    ausschliesslich englisch - die volle CAP-Meldung dahinter führt
+    dagegen je Sprache einen ``<info>``-Block, und MeteoSchweiz liefert
+    darin de, fr, it und rm. «Verbreitet heftige Gewitter möglich» liegt
+    also bereit, sie steht nur nicht im Feed.
+
+    Gesucht wird über den Sprachanfang: Der Block heisst mal «de», mal
+    «de-CH», und auf ein exaktes Gleich wartet man vergebens. Findet
+    sich nichts, kommt ein leeres Ergebnis zurück - dann bleibt es beim
+    englischen Text, und das ist immer noch besser als gar keine
+    Warnung.
+    """
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return {}
+    for info in root.findall("cap:info", NS):
+        sprache = (info.findtext("cap:language", "", NS) or "").strip().lower()
+        if not sprache.startswith("de"):
+            continue
+        ergebnis = {}
+        for feld in ("event", "headline"):
+            wert = (info.findtext(f"cap:{feld}", "", NS) or "").strip()
+            if wert:
+                ergebnis[feld] = wert
+        return ergebnis
+    return {}
 
 
 def point_in_polygon(lat: float, lon: float, polygon: list[tuple[float, float]]) -> bool:
@@ -185,10 +223,14 @@ _WIND = re.compile(
 
 #: Wie stark, auf Deutsch. Die Feed-Wörter stehen englisch drin und
 #: gehören so in keine Push-Nachricht.
+#:
+#: Wortgleich mit der App (components/TopStrip.tsx, lib/kontrollfluss.ts):
+#: Auf der Startseite stand in der Begrüssungszeile «…, stark, bis 00:00»
+#: und im Blatt darunter «… · schwer» - dieselbe Warnung, zwei Wörter.
 SCHWERE_WORT = {
     "Minor": "gering",
     "Moderate": "mässig",
-    "Severe": "stark",
+    "Severe": "schwer",
     "Extreme": "extrem",
 }
 
@@ -297,6 +339,16 @@ class MeteoAlarmIntegration(Integration):
         except (TypeError, ValueError):
             self._lat = self._lon = None  # type: ignore[assignment]
         self._interval = self.scan_interval()
+        # Die deutschen Texte je Warnung (Kennung -> {event, headline}).
+        # Geholt wird nur für die paar Warnungen, die uns wirklich
+        # betreffen, und nur einmal je Warnung: Der Feed führt über
+        # hundert Einträge für die ganze Schweiz, und deren CAP-Meldungen
+        # alle viertelstündlich zu laden wäre eine Zumutung für einen
+        # Dienst, den es umsonst gibt.
+        self._deutsch: dict[str, dict[str, str]] = {}
+        # Welche Kennungen diese Runde vorkamen - der Takt räumt danach
+        # auf, sonst wüchse die Tabelle mit jedem Gewitter des Sommers.
+        self._gebraucht: set[str] = set()
 
         for country in self._countries:
             await self.add_entity(
@@ -309,9 +361,57 @@ class MeteoAlarmIntegration(Integration):
 
     async def _poll_loop(self) -> None:
         while True:
+            # Erst alle Länder, dann aufräumen: Was in *keinem* Feed mehr
+            # steht, ist abgelaufen. Je Land aufzuräumen hiesse, dass
+            # zwei Länder sich gegenseitig die Texte wegwerfen.
+            self._gebraucht: set[str] = set()
             for country in self._countries:
                 await self._refresh(country)
+            self._deutsch = {
+                kennung: texte
+                for kennung, texte in self._deutsch.items()
+                if kennung in self._gebraucht
+            }
             await asyncio.sleep(self._interval)
+
+    async def _eindeutschen(self, alerts: list[dict[str, Any]]) -> None:
+        """Die englischen Warntexte durch die deutschen ersetzen.
+
+        Gemeldet als «Alle Wetterwarnungen sollen auf Deutsch sein»: Auf
+        der Startseite stand «Widespread heavy thunderstorms possible».
+        Der Atom-Feed ist englisch, die volle CAP-Meldung dahinter führt
+        den Text auch auf Deutsch (deutscher_text).
+
+        Geholt wird erst *nach* dem Standortfilter - übrig bleiben ein
+        paar Warnungen statt der über hundert des Feeds - und je Warnung
+        nur einmal: Eine Gewitterwarnung steht acht Stunden lang im
+        Feed, ihr Text ändert sich in dieser Zeit nicht.
+
+        Scheitert das Laden, bleibt es beim englischen Text. Eine
+        Warnung in der falschen Sprache ist immer noch eine Warnung;
+        keine wäre der schlechtere Tausch.
+        """
+        for alert in alerts:
+            kennung = str(alert.get("identifier") or alert.get("cap_url") or "")
+            adresse = str(alert.get("cap_url") or "")
+            if not kennung or not adresse:
+                continue
+            self._gebraucht.add(kennung)
+            if kennung not in self._deutsch:
+                try:
+                    async with self._session.get(adresse) as antwort:
+                        antwort.raise_for_status()
+                        self._deutsch[kennung] = deutscher_text(await antwort.text())
+                except Exception as err:
+                    self.log.debug(
+                        "MeteoAlarm: deutscher Text zu %s nicht ladbar (%s)", kennung, err
+                    )
+                    continue
+            texte = self._deutsch.get(kennung) or {}
+            if texte.get("event"):
+                alert["event"] = texte["event"]
+            if texte.get("headline"):
+                alert["title"] = texte["headline"]
 
     async def _refresh(self, country: str) -> None:
         entity_id = self.entity_id(country)
@@ -328,10 +428,17 @@ class MeteoAlarmIntegration(Integration):
             alerts = filter_by_location(alerts, self._lat, self._lon, self._areas)
         else:
             alerts = filter_by_area(alerts, self._areas)
+        await self._eindeutschen(alerts)
         # Die Umrisse haben ihren Dienst getan – in den Zustand gehören
-        # sie nicht, die App zeigt nur Titel, Gebiet und Zeiten.
+        # sie nicht, die App zeigt nur Titel, Gebiet und Zeiten. Die
+        # CAP-Adresse ebenso wenig: Sie war nur der Weg zum deutschen
+        # Text.
         alerts = [
-            {key: value for key, value in alert.items() if key != "polygons"}
+            {
+                key: value
+                for key, value in alert.items()
+                if key not in ("polygons", "cap_url")
+            }
             for alert in alerts
         ]
 

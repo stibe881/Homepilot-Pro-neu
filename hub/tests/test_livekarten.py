@@ -1,5 +1,6 @@
 """Live-Karten: aus dem Hauszustand werden Sperrbildschirm-Karten."""
 
+import time
 from types import SimpleNamespace
 
 from homepilot.core.livekarten import (
@@ -730,14 +731,139 @@ def test_vorgemerkte_karte_faellt_nach_dem_nachhall_weg():
     assert rows == []
 
 
-def test_kehrt_der_fernseher_zurueck_ist_der_vermerk_erledigt():
-    """Kommt das Gerät zurück, ist die liegende Karte wieder die
-    richtige - kein zweiter Start-Push, der sie verdoppeln würde."""
+def test_kehrt_der_fernseher_zurueck_wird_neu_gestartet():
+    """Gemeldet, nachdem der Vermerk zuerst als «läuft schon» galt: «Es
+    kommt keine Live-Aktivität mehr, wenn der Fernseher eingeschaltet
+    wird.»
+
+    Eine Karte mit offenem Ende konnte der Hub nicht beenden - ob sie
+    noch liegt, weiss er also nicht. Als «läuft schon» gerechnet,
+    verhinderte sie jeden neuen Start, und es blieb beim Aktualisieren
+    einer Karte, die niemand sieht. Lieber eine zu viel: Doppelte
+    derselben Art räumt die App beim Öffnen selbst ab."""
     wunsch = [{"art": "tv:cast.wz", "user": None, "state": {"titel": "TV", "text": "an"}}]
     rows, _, _, _ = abgleich([], wunsch, ["Stibe"], 1000.0)
     rows, _, _, _ = abgleich(rows, [], ["Stibe"], 1100.0)
     assert rows[0]["ende_offen"] is True
 
-    rows, starten, _, beenden = abgleich(rows, wunsch, ["Stibe"], 1200.0)
-    assert starten == [] and beenden == []
+    rows, starten, _, _ = abgleich(rows, wunsch, ["Stibe"], 1200.0)
+    assert [s["art"] for s in starten] == ["tv:cast.wz"]
     assert "ende_offen" not in rows[0]
+
+
+def test_eine_uralte_zeile_sperrt_die_naechste_karte_nicht():
+    """Wer die Karte von Hand wegwischt, sagt es dem Hub nicht - und
+    iOS beendet eine Live-Aktivität ohnehin von selbst. Eine Zeile, die
+    älter ist als NACHHALL_SEKUNDEN, behauptet also eine Karte, die es
+    nicht mehr gibt; als «läuft schon» gerechnet, sperrte sie einen
+    halben Tag lang jede neue."""
+    wunsch = [{"art": "tv:cast.wz", "user": None, "state": {"titel": "TV", "text": "an"}}]
+    rows, _, _, _ = abgleich([], wunsch, ["Stibe"], 1000.0)
+    rows = token_merken(rows, "Stibe", "tv:cast.wz", "act-1")
+
+    # Kurz darauf: Es läuft, also kein zweiter Start.
+    _, starten, _, _ = abgleich(rows, wunsch, ["Stibe"], 2000.0)
+    assert starten == []
+
+    # Einen halben Tag später gibt es die Aktivität sicher nicht mehr.
+    rows, starten, _, _ = abgleich(rows, wunsch, ["Stibe"], 1000.0 + NACHHALL_SEKUNDEN)
+    assert [s["art"] for s in starten] == ["tv:cast.wz"]
+    # Und der neue Anlauf beginnt ohne die alten Tokens.
+    assert rows[0]["activity_tokens"] == []
+
+
+async def test_ohne_angemeldetes_telefon_werden_karten_trotzdem_beendet():
+    """Der gemeldete Fall, dritte Runde: Alle Fernseher aus, der Hub
+    will keine Karte mehr - und in `live_cards` stehen die Zeilen
+    trotzdem unverändert weiter.
+
+    Die Runde stieg aus, sobald kein Telefon zum Starten angemeldet
+    war: `if not start_rows: return`, noch vor dem Abgleich. Damit
+    blieb jede laufende Karte für immer stehen. Ein leeres Soll heisst
+    aber nicht «nichts tun», sondern «nichts soll laufen»."""
+    from homepilot.core import livekarten as modul
+    from homepilot.core.hub import Hub
+
+    from .conftest import make_config
+
+    hub = Hub(
+        make_config(
+            users=[{"name": "Stefan", "role": "besitzer", "token": "t"}],
+            integrations=[{"integration": "demo"}],
+        )
+    )
+    await hub.start()
+    try:
+        hub.data.set(modul.START_KEY, [])
+        hub.data.set(
+            modul.KARTEN_KEY,
+            [
+                {
+                    "user": "Stefan",
+                    "art": "tv:cast.wz",
+                    "stand": "{}",
+                    "activity_tokens": ["act-1"],
+                    "aktualisiert": time.time(),
+                }
+            ],
+        )
+        gesendet: list[dict] = []
+
+        class Versand:
+            tote: set[str] = set()
+
+            async def senden(self, token: str, payload: dict) -> bool:
+                gesendet.append({"token": token, "payload": payload})
+                return True
+
+        await modul._runde(hub, Versand())
+        # Das Ende ging raus, und die Zeile ist weg.
+        assert [e["payload"]["aps"]["event"] for e in gesendet] == ["end"]
+        assert hub.data.get(modul.KARTEN_KEY) == []
+    finally:
+        await hub.stop()
+
+
+async def test_ein_start_der_nie_ankam_wird_nicht_als_laufend_verbucht():
+    """Gemeldet: «Es kommt keine Live-Aktivität, wenn der Fernseher
+    eingeschaltet wird» - bei einem Hub, der die Karte laut tvcheck
+    sehr wohl wollte und eine Zeile dafür führte.
+
+    Die Zeile entstand mit dem *Auftrag*, nicht mit der Karte. Lehnt
+    Apple den Start ab, liegt keine Karte, aber die Zeile sagt «läuft
+    schon» - danach wird nur noch aktualisiert und nie mehr gestartet.
+    Dazu gehört, dass ein endgültig totes Telefon ausgetragen wird."""
+    from homepilot.core import livekarten as modul
+    from homepilot.core.hub import Hub
+
+    from .conftest import make_config
+
+    hub = Hub(
+        make_config(
+            users=[{"name": "Stefan", "role": "besitzer", "token": "t"}],
+            integrations=[{"integration": "demo"}],
+        )
+    )
+    await hub.start()
+    try:
+        hub.data.set(modul.START_KEY, [{"user": "Stefan", "token": "start-1"}])
+        hub.data.set(modul.KARTEN_KEY, [])
+        hub.timers.start(10, "Pasta", "Stefan")
+
+        class Versand:
+            tote: set[str] = set()
+
+            async def senden(self, token: str, payload: dict) -> bool:
+                # Apple kennt dieses Telefon nicht mehr.
+                self.tote.add(token)
+                return False
+
+        versand = Versand()
+        await modul._runde(hub, versand)
+        # Keine Karte gestartet, also auch keine Zeile - sonst käme nie
+        # wieder eine.
+        assert hub.data.get(modul.KARTEN_KEY) == []
+        # Und das tote Telefon ist ausgetragen.
+        assert hub.data.get(modul.START_KEY) == []
+    finally:
+        await hub.stop()

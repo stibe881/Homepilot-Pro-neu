@@ -1,7 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import QRCode from 'react-native-qrcode-svg';
 
 import { hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
@@ -12,10 +11,16 @@ import { Colors, radius, space, type, useColors } from '../theme';
 /**
  * «Es ist jemand da» – Besuch oder Babysitter, als eigene Seite.
  *
- * Sonst tut man jedes Mal dasselbe an mehreren Orten: WLAN weitergeben,
- * die Abläufe anhalten – und am Ende alles wieder zurück. Den letzten
- * Schritt vergisst man, deshalb kann der Modus eine Frist tragen und
- * endet dann von selbst.
+ * Sonst tut man jedes Mal dasselbe an mehreren Orten: die Abläufe
+ * anhalten – und am Ende alles wieder zurück. Den letzten Schritt
+ * vergisst man, deshalb kann der Modus eine Frist tragen und endet dann
+ * von selbst.
+ *
+ * Das Gäste-WLAN stand hier einmal als dritte Karte mit QR-Code. Es
+ * wohnt jetzt dort, wo es hingehört und wo es auch ohne Besuch zu
+ * finden ist: in der Gäste-WLAN-Karte (components/GaesteWlan.tsx) und
+ * hinter dem WLAN-Zeichen der Begrüssungskarte. Zweimal derselbe Code
+ * an zwei Orten heisst, dass einer davon irgendwann der veraltete ist.
  *
  * **War vorher ein Blatt** (components/BesuchBlatt.tsx): ein Popup mit
  * innerem Scrollbereich, in dem Dauer, Lichter und der WLAN-Code
@@ -53,7 +58,6 @@ export function BesuchScreen({
   );
   const [stand, setStand] = useState<BabysitterStand | null>(null);
   const [stunden, setStunden] = useState<number | null>(4);
-  const [wlan, setWlan] = useState<{ ssid: string; payload: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [jetzt, setJetzt] = useState(() => Date.now());
 
@@ -76,14 +80,6 @@ export function BesuchScreen({
         uebernehmen(data.babysitter);
         setJetzt(Date.now());
       });
-    // Kein Gäste-WLAN eingerichtet sieht gleich aus wie keine Antwort -
-    // dann zeigt die Seite eben keinen Code.
-    hub
-      .get<{ ssid: string; payload: string } | null>('/api/wifi', {
-        fallback: null,
-        still: true,
-      })
-      .then(setWlan);
   }, [hub, uebernehmen]);
 
   useEffect(laden, [laden]);
@@ -254,31 +250,6 @@ export function BesuchScreen({
           </Text>
         )}
       </Card>
-
-      {/* Der QR-Code auch vor dem Start: Oft ist er der eigentliche
-          Grund, warum jemand diese Seite öffnet. */}
-      {wlan ? (
-        <Card style={styles.card}>
-          <Text style={styles.heading}>Gäste-WLAN</Text>
-          <View style={styles.wlan}>
-            {/* Ein QR-Code ist fürs Vorlesen nur ein stummes Bild - das
-                Label sagt wenigstens, wofür er da ist (Punkt 247 der
-                Werkbank). */}
-            <View
-              style={styles.qr}
-              accessible
-              accessibilityRole="image"
-              accessibilityLabel={`QR-Code für das Gäste-WLAN «${wlan.ssid}»`}
-            >
-              <QRCode value={wlan.payload} size={170} backgroundColor="#FFFFFF" />
-            </View>
-            <Text style={styles.hint}>
-              «{wlan.ssid}» – mit der Kamera scannen, dann verbindet sich
-              das Telefon von selbst.
-            </Text>
-          </View>
-        </Card>
-      ) : null}
     </View>
   );
 }
@@ -321,8 +292,6 @@ const makeStyles = (colors: Colors) =>
       paddingVertical: 6,
     },
     linkText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
-    wlan: { alignItems: 'center', gap: 10 },
-    qr: { padding: 12, borderRadius: radius.control, backgroundColor: '#FFFFFF' },
     button: {
       flexDirection: 'row',
       alignItems: 'center',

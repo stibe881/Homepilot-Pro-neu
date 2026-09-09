@@ -84,6 +84,7 @@ from . import (
     personenbild,
     platzhalter,
     pushziel,
+    stromrueckkehr,
     terminkontext,
     verwaist,
     wirkung,
@@ -444,7 +445,9 @@ def describe_action(action: dict[str, Any], name_of: Any = None) -> str:
         teile: list[str] = []
         helligkeit = action.get("brightness")
         if isinstance(helligkeit, str) and helligkeit.lower() == "adaptive":
-            teile.append("an die Umgebung angepasst")
+            teile.append("an die Raumhelligkeit angepasst")
+        elif isinstance(helligkeit, str) and helligkeit.lower() == "tageszeit":
+            teile.append("nach Tageszeit")
         elif helligkeit is not None:
             teile.append(f"{helligkeit} %")
         if action.get("color"):
@@ -1439,6 +1442,11 @@ class AutomationEngine:
                 elif trigger.get("type") == "calendar":
                     task = asyncio.create_task(self._calendar_loop(automation, trigger))
                     self._timer_tasks.append(task)
+                elif trigger.get("type") == "power_restore":
+                    task = asyncio.create_task(
+                        self._stromausfall_loop(automation, trigger)
+                    )
+                    self._timer_tasks.append(task)
         # Der eigene Takt des Motors: nach verwaisten Abläufen sehen
         # (Punkt 262). Hier und nicht im Wächter, weil der Motor seine
         # Abläufe kennt - der Wächter müsste sie sich erst geben lassen.
@@ -1582,6 +1590,64 @@ class AutomationEngine:
         task = asyncio.create_task(wait_and_check())
         self._held_tasks[key] = task
         task.add_done_callback(lambda _t: self._held_tasks.pop(key, None))
+
+    def _ablauf_ziele(self, automation: Automation) -> list[str]:
+        """Welche Geräte dieser Ablauf anfasst (für das Nachfassen).
+
+        Nur die, die er beim Namen nennt - eine Szene oder eine
+        Nachricht hat keine Adresse, auf deren Erreichbarkeit man warten
+        könnte.
+        """
+        ids: list[str] = []
+        for action in automation.actions:
+            einzeln = action.get("entity_id")
+            if einzeln:
+                ids.append(str(einzeln))
+            for entry in action.get("entity_ids") or []:
+                if entry:
+                    ids.append(str(entry))
+        return ids
+
+    async def _stromausfall_loop(
+        self, automation: Automation, trigger: dict[str, Any]
+    ) -> None:
+        """«Nach Stromausfall»: einmal auslösen - und geduldig nachfassen.
+
+        Der Ablauf läuft nur, wenn der Hub wirklich nach einem
+        Stromausfall hochgefahren ist (core/stromrueckkehr.py); ein
+        Update ist keiner.
+
+        Und dann nicht ein einziges Mal: Ein Haus kommt nicht auf einmal
+        zurück. Die Lampe hat Strom, lange bevor Switch, Accesspoint und
+        Bridge wieder stehen - ein Befehl an sie verpufft, und sie
+        brennt weiter. Also läuft der Ablauf erneut, sobald eines der
+        fehlenden Geräte auftaucht. Erneut und nicht dauernd: Wer im
+        Dunkeln von Hand Licht macht, während noch aufgeräumt wird, soll
+        es behalten, solange nichts Neues dazukommt.
+        """
+        if not getattr(self.hub, "_kaltstart", False):
+            return
+        await asyncio.sleep(stromrueckkehr.wartezeit(trigger))
+        schluss = time.monotonic() + stromrueckkehr.fenster(trigger)
+        self._schedule(automation)
+        ziele = self._ablauf_ziele(automation)
+        fehlten = self._fehlende(ziele)
+        while fehlten and time.monotonic() < schluss:
+            await asyncio.sleep(stromrueckkehr.takt(trigger))
+            jetzt = self._fehlende(ziele)
+            if jetzt != fehlten:
+                # Etwas ist aufgetaucht - der Ablauf bekommt seine
+                # zweite Gelegenheit, jetzt mit mehr Geräten am Netz.
+                self._schedule(automation)
+                fehlten = jetzt
+
+    def _fehlende(self, ziele: list[str]) -> set[str]:
+        """Welche der Geräte gerade nicht erreichbar sind."""
+        stand = []
+        for entity_id in ziele:
+            entity = self.hub.registry.get(entity_id)
+            stand.append((entity_id, bool(entity and entity.available)))
+        return stromrueckkehr.wer_fehlt(stand)
 
     def _trigger_still_holds(self, trigger: dict[str, Any]) -> bool:
         """Gilt der Zielzustand des Auslösers immer noch? (für ``for``)
@@ -2874,9 +2940,16 @@ class AutomationEngine:
         hintereinanderzuhängen, zwischen denen die Lampe sichtbar
         umspringt.
 
-        ``brightness: "adaptive"`` holt die Helligkeit aus dem Melder, der
-        ausgelöst hat: siehe core/light.py, warum es dunkler statt heller
-        wird, je dunkler es ist.
+        Für die Helligkeit gibt es drei Wege, und der Unterschied
+        entscheidet, ob abends jemand geblendet wird:
+
+        - eine Zahl: immer dieselbe Prozentzahl;
+        - ``brightness: "adaptive"``: nach der gemessenen Helligkeit -
+          erst der Melder, der ausgelöst hat, dann ein Fühler im Raum der
+          Lampe (core/light.py, warum es dunkler statt heller wird, je
+          dunkler es ist);
+        - ``brightness: "tageszeit"``: nach der Uhr. Für die meisten
+          Räume, in denen gar kein Fühler steht.
         """
         entity_id = str(action.get("entity_id") or "")
         entity = self.hub.registry.get(entity_id)
@@ -2891,8 +2964,9 @@ class AutomationEngine:
         notiz: str | None = None
         helligkeit: float | None = None
         roh = action.get("brightness")
-        if isinstance(roh, str) and roh.strip().lower() == "adaptive":
-            lux = self._lux_for(automation, action, ausloeser)
+        wort = roh.strip().lower() if isinstance(roh, str) else ""
+        if wort == "adaptive":
+            lux = self._lux_for(automation, action, ausloeser, entity.room)
             if lux is None:
                 # Kein Messwert: Die Lampe geht trotzdem an - ein
                 # Bewegungslicht, das wegen eines stummen Fühlers dunkel
@@ -2901,6 +2975,10 @@ class AutomationEngine:
             else:
                 helligkeit = licht.brightness_from_lux(lux)
                 notiz = f"{lux:.0f} lx → {helligkeit:.0f} %"
+        elif wort == "tageszeit":
+            jetzt = datetime.now()
+            helligkeit = licht.brightness_from_time(jetzt.hour, jetzt.minute)
+            notiz = f"{jetzt:%H:%M} → {helligkeit:.0f} %"
         elif roh is not None:
             try:
                 helligkeit = max(0.0, min(100.0, float(roh)))
@@ -2944,13 +3022,20 @@ class AutomationEngine:
         automation: Automation,
         action: dict[str, Any],
         ausloeser: str | None,
+        raum: str | None = None,
     ) -> float | None:
         """Die Umgebungshelligkeit, an die sich das Licht anpassen soll.
 
         In dieser Reihenfolge: das im Ablauf genannte Gerät (für von Hand
         geschriebene config.yaml), sonst der Melder, der gerade ausgelöst
-        hat, sonst der erste Auslöser, der überhaupt Lux meldet. Ohne
-        jeden Wert: None - der Aufrufer schaltet dann ohne Vorgabe ein.
+        hat, sonst der erste Auslöser, der überhaupt Lux meldet, sonst
+        ein Fühler im Raum der Lampe. Ohne jeden Wert: None - der
+        Aufrufer schaltet dann ohne Vorgabe ein.
+
+        Der Raum kam zuletzt dazu und ist der Grund, warum die Wahl
+        überhaupt allgemein taugt: Ein Ablauf «um 18:00 das Wohnzimmer
+        an» hat keinen Melder, der auslöst - vorher war «an die
+        Helligkeit angepasst» dort schlicht wirkungslos.
         """
         kandidaten: list[str] = []
         genannt = action.get("lux_from")
@@ -2967,7 +3052,7 @@ class AutomationEngine:
             wert = entity.state.get("illumination")
             if isinstance(wert, (int, float)):
                 return float(wert)
-        return None
+        return licht.raum_lux(self.hub.registry.all(), raum)
 
     async def _toggle_all(
         self, automation: Automation, action: dict[str, Any]

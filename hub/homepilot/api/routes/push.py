@@ -21,6 +21,7 @@ from fastapi import (
 
 from ...core import (
     batterie,
+    gutscheine,
     liveaktivitaet,
     livekarten,
     notifyrules,
@@ -44,6 +45,7 @@ from ..models import (
     PushQuittierenRequest,
     PushRegistration,
     PushSnoozeRequest,
+    VoucherPrefsRequest,
 )
 
 log = logging.getLogger(__name__)
@@ -181,7 +183,50 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 ),
             }
         )
-        hub.data.set(batterie.PREFS_KEY, neu)
+        # Als Ein-Eintrag-Liste: `DataStore.set` nimmt nur Listen und
+        # machte aus dem Dict eine Liste seiner Schlüssel - die Einstellung
+        # kam nie an (siehe batterie.prefs_lesen).
+        hub.data.set(batterie.PREFS_KEY, [neu])
+        return {"ok": True, **neu}
+
+    # ── Gutschein-Erinnerung (Punkt 264 der Werkbank) ──────────────────────
+
+    @app.get("/api/push/vouchers")
+    async def voucher_prefs(request: Request) -> dict[str, Any]:
+        """Wie viele Tage vor dem Verfall der Hub erinnert - zweimal."""
+        current_user(request)
+        return gutscheine.prefs_lesen(hub.data.get(gutscheine.PREFS_KEY))
+
+    @app.put("/api/push/vouchers")
+    async def set_voucher_prefs(
+        body: VoucherPrefsRequest, request: Request
+    ) -> dict[str, Any]:
+        """Die beiden Stufen setzen - für den ganzen Haushalt.
+
+        Global und nicht je Benutzer, wie die Batterie-Erinnerung
+        darüber: Die Einstellung bestimmt, wann der Hub überhaupt meldet.
+        Wer die Gutscheine nur für sich nicht will, bestellt die Kategorie
+        unter Benachrichtigungen ab. Die Klemmen (1-365, erste vor der
+        zweiten) sitzen in prefs_lesen, damit auch von Hand geschriebene
+        Werte sie passieren. Der Ablauftag selbst ist keine Einstellung -
+        an dem wird immer erinnert.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        bisher = gutscheine.prefs_lesen(hub.data.get(gutscheine.PREFS_KEY))
+        neu = gutscheine.prefs_lesen(
+            {
+                "first_days": (
+                    body.first_days if body.first_days is not None else bisher["first_days"]
+                ),
+                "second_days": (
+                    body.second_days
+                    if body.second_days is not None
+                    else bisher["second_days"]
+                ),
+            }
+        )
+        # Als Ein-Eintrag-Liste: siehe gutscheine.PREFS_KEY.
+        hub.data.set(gutscheine.PREFS_KEY, [neu])
         return {"ok": True, **neu}
 
     # ── Eingebaute Wächter-Nachrichten (Abläufe → Push) ────────────────────

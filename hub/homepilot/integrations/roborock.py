@@ -187,6 +187,44 @@ def _code_wort(value: Any) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def lauf_state(record: Any) -> dict[str, Any] | None:
+    """Der letzte Reinigungslauf als Zustandsfeld (rein, testbar).
+
+    Der Anlass: «Reinigungsweg ungewöhnlich. Alle reinigbaren Bereiche
+    wurden gereinigt.» stand in der Roborock-App, im HomePilot kam
+    nichts. Der Hub las bisher nur den Fehlercode und die Stände der
+    Station - wie eine *Fahrt* ausgegangen ist, führt der Sauger aber in
+    einem eigenen Protokoll (Bibliothek: clean_summary,
+    last_clean_record).
+
+    Mitgenommen wird nur, was sich lesen lässt und etwas aussagt.
+    ``complete`` ist die eine Frage, an der eine Nachricht hängt
+    (core/watchrules.py, lauf_meldung); ``reason`` steht daneben, weil
+    der Sauger dort seinen eigenen Grund führt - übersetzt wird er
+    nicht, denn was welche Zahl bedeutet, unterscheidet sich je Modell.
+    Er ist da, damit man ihn nachsehen kann (homepilot.saugercheck).
+    """
+    if record is None:
+        return None
+    ende = getattr(record, "end", None)
+    vollstaendig = getattr(record, "complete", None)
+    lauf: dict[str, Any] = {
+        "at": float(ende) if isinstance(ende, (int, float)) else None,
+        # Die Bibliothek führt 0/1; als Wahrheitswert liest es sich
+        # überall sonst besser.
+        "complete": None if vollstaendig is None else bool(vollstaendig),
+        "reason": getattr(record, "finish_reason", None),
+    }
+    flaeche = getattr(record, "area", None)
+    if isinstance(flaeche, (int, float)) and flaeche > 0:
+        # Wie beim laufenden Zustand: Die Bibliothek liefert mm².
+        lauf["area_m2"] = round(float(flaeche) / 1_000_000, 1)
+    dauer = getattr(record, "duration", None)
+    if isinstance(dauer, (int, float)) and dauer > 0:
+        lauf["minutes"] = round(float(dauer) / 60)
+    return lauf
+
+
 def vacuum_state(status: Any) -> dict[str, Any]:
     """Übersetzt den Status der Bibliothek in Entitäts-Attribute.
 
@@ -918,12 +956,22 @@ class RoborockIntegration(Integration):
 
     async def _refresh_all(self) -> None:
         for entity_id, device in self._devices.items():
+            # Vor dem Nachführen gemerkt: Nur am Übergang «fuhr eben
+            # noch» → «steht wieder» lohnt sich der Blick ins Protokoll
+            # der Fahrten. Es bei jeder Runde zu holen wäre ein Aufruf
+            # pro Minute für eine Angabe, die sich stündlich nicht
+            # ändert.
+            vorher = self.hub.registry.get(entity_id)
+            fuhr = vorher is not None and vorher.state.get("state") == "cleaning"
             try:
                 status = device.v1_properties.status
                 await _maybe_await(status.refresh())
+                neu = vacuum_state(status)
                 await self.hub.registry.update_state(
-                    entity_id, vacuum_state(status), available=True
+                    entity_id, neu, available=True
                 )
+                if fuhr and neu.get("state") != "cleaning":
+                    await self._lauf_nachlesen(entity_id, device)
             except Exception as err:
                 self.log.warning("Roborock %s nicht erreichbar: %s", device.name, err)
                 await self.hub.registry.update_state(entity_id, {}, available=False)
@@ -943,6 +991,25 @@ class RoborockIntegration(Integration):
                         )
             except Exception as err:
                 self.log.debug("Verschleissteile von %s nicht abrufbar: %s", device.name, err)
+
+    async def _lauf_nachlesen(self, entity_id: str, device: Any) -> None:
+        """Wie die eben beendete Fahrt ausgegangen ist.
+
+        Getrennt und mit eigenem `try`: Nicht jedes Modell und nicht
+        jede Bibliotheksfassung führt das Protokoll der Fahrten, und ein
+        Sauger ohne diese Angabe soll deswegen nicht als «nicht
+        erreichbar» dastehen.
+        """
+        try:
+            trait = getattr(device.v1_properties, "clean_summary", None)
+            if trait is None:
+                return
+            await _maybe_await(trait.refresh())
+            lauf = lauf_state(getattr(trait, "last_clean_record", None))
+            if lauf is not None:
+                await self.hub.registry.update_state(entity_id, {"last_run": lauf})
+        except Exception as err:
+            self.log.debug("Fahrten-Protokoll von %s nicht abrufbar: %s", entity_id, err)
 
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
         device = self._devices[entity.id]

@@ -32,6 +32,13 @@ SCHWELLE_MM = 0.2
 #: mehr, sondern eine Vorhersage - und dafür gibt es die Wochenansicht.
 VORSCHAU_MINUTEN = 120
 
+#: Und so weit für die gröbere Frage «in wie vielen Stunden?». Einen Tag
+#: weit ist das eine Auskunft, mit der man den Nachmittag plant. Weiter
+#: voraus beantwortet die Wochenzeile mit ihren Prozenten mehr, als eine
+#: Stundenzahl je könnte - «Regen in etwa 63 Std.» wäre eine Zahl, die
+#: Genauigkeit vortäuscht, wo keine ist.
+VORSCHAU_STUNDEN = 24
+
 
 def _zeit(wert: Any) -> datetime | None:
     try:
@@ -45,6 +52,44 @@ def _mm(wert: Any) -> float:
         return float(wert)
     except (TypeError, ValueError):
         return 0.0
+
+
+def naechste_stunden(hourly: Any, jetzt: datetime) -> int | None:
+    """In wie vielen Stunden fängt es an zu regnen? (rein, testbar)
+
+    Die Viertelstunden-Vorwarnung (``analyse``) schaut zwei Stunden
+    voraus - richtig so für «muss die Wäsche herein?». Nur steht bei
+    trockenem Himmel dann gar nichts da, und die Wochenzeile beantwortet
+    die Frage nicht, die man am Fenster stellt: Wie lange habe ich noch?
+
+    Gerechnet wird über den Stundenwerten derselben Antwort, mit
+    derselben Schwelle wie die Vorwarnung - «feucht» ist kein Regen.
+    Fehlt die Menge (ältere Antworten liefern nur die
+    Wahrscheinlichkeit), bleibt es bei None: Eine Wahrscheinlichkeit ist
+    keine Menge, und «60 %» heisst nicht, dass es um vier Uhr regnet.
+
+    ``None`` heisst «in der nächsten Tagesvorschau nichts» - nicht
+    «unbekannt». Beides sähe in der App gleich aus, deshalb hört die
+    Vorschau nach VORSCHAU_STUNDEN auf, statt eine Zahl zu nennen, die
+    niemand mehr planen kann.
+    """
+    zeiten = list((hourly or {}).get("time") or [])
+    mengen = list((hourly or {}).get("precipitation") or [])
+    if not zeiten or not mengen:
+        return None
+    for index, roh in enumerate(zeiten):
+        zeit = _zeit(roh)
+        if zeit is None or zeit <= jetzt:
+            continue
+        stunden = (zeit - jetzt).total_seconds() / 3600
+        if stunden > VORSCHAU_STUNDEN:
+            return None
+        if _mm(mengen[index] if index < len(mengen) else 0) >= SCHWELLE_MM:
+            # Mindestens eine: Die Stunde, in der es anfängt, liegt immer
+            # in der Zukunft - «in 0 Std.» hiesse «jetzt», und das sagt
+            # die Vorwarnung.
+            return max(1, round(stunden))
+    return None
 
 
 def analyse(minutely: Any, jetzt: datetime) -> dict[str, Any]:
@@ -171,6 +216,25 @@ def melden(
     return jetzt - gemeldet_um >= sperre_minuten * 60
 
 
+def dauer(minuten: int) -> str:
+    """Eine Dauer, wie man sie sagt (rein, testbar).
+
+    «120 Minuten» stand in der Meldung und auf der Wetterkarte - und wer
+    das liest, teilt zuerst durch sechzig. Über einer Stunde gehört die
+    Stunde nach vorn; das Rechnen ist unsere Aufgabe. Die App sagt
+    dasselbe in ihrer kürzeren Schreibweise (app/src/lib/regen.ts,
+    ``regendauer``): «2 Std. 5 Min.» - wer beides sieht, soll dieselbe
+    Auskunft lesen.
+    """
+    if minuten < 60:
+        return f"{minuten} Minuten"
+    stunden, rest = divmod(minuten, 60)
+    kopf = "1 Stunde" if stunden == 1 else f"{stunden} Stunden"
+    if rest == 0:
+        return kopf
+    return f"{kopf} {rest} Minuten"
+
+
 def satz(stand: Any) -> str | None:
     """Der Satz für die Meldung (rein, testbar).
 
@@ -184,9 +248,9 @@ def satz(stand: Any) -> str | None:
     if stand.get("now"):
         if minuten is None:
             return "Es regnet."
-        return f"Es regnet noch etwa {minuten} Minuten."
+        return f"Es regnet noch etwa {dauer(minuten)}."
     if minuten is None:
         return None
     if minuten <= 5:
         return "Es fängt gleich an zu regnen."
-    return f"Regen in etwa {minuten} Minuten."
+    return f"Regen in etwa {dauer(minuten)}."

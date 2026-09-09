@@ -41,6 +41,8 @@ import { ConnectionStatus } from '../hooks/useHub';
 import { useEscape } from '../hooks/useEscape';
 import { useJetzt } from '../hooks/useRestzeit';
 import { Colors, radius, type, useColors } from '../theme';
+import { warnText, warnZahl, warnZahlSatz } from '../lib/warnzeile';
+import { Lauftext } from './Lauftext';
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
   connected: 'verbunden',
@@ -996,11 +998,18 @@ export function TopStrip({
                   disabled={!onKalender && !event}
                   accessibilityRole="button"
                   accessibilityLabel="Alle Termine"
+                  style={styles.karteZeilenGriff}
                 >
-                  <Text style={styles.karteZeile} numberOfLines={1}>
-                    <Ionicons name="calendar-outline" size={12} color={colors.inkSoft} />{' '}
+                  {/* Wandert durch, wenn der Tag mehr Termine hat, als
+                      auf die Zeile passen - genau der Fall aus dem Haus:
+                      «… / finja hüten 9.15, Si…». Siehe lib/lauftext.ts. */}
+                  <Lauftext
+                    style={styles.karteZeile}
+                    icon="calendar-outline"
+                    iconFarbe={colors.inkSoft}
+                  >
                     {termin}
-                  </Text>
+                  </Lauftext>
                 </Pressable>
               ) : null}
               {geburtstag ? (
@@ -1009,31 +1018,43 @@ export function TopStrip({
                   disabled={!onKalender}
                   accessibilityRole="button"
                   accessibilityLabel="Alle Geburtstage"
+                  style={styles.karteZeilenGriff}
                 >
-                  <Text style={styles.karteZeile} numberOfLines={1}>
-                    <Ionicons name="gift-outline" size={12} color={colors.inkSoft} />{' '}
+                  <Lauftext
+                    style={styles.karteZeile}
+                    icon="gift-outline"
+                    iconFarbe={colors.inkSoft}
+                  >
                     {geburtstag}
-                  </Text>
+                  </Lauftext>
                 </Pressable>
               ) : null}
             </View>
           ) : null}
 
           {alerts ? (
-            <Pressable
-              onPress={() => setAlertsOpen(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Wetterwarnungen"
-            >
-              <Text style={styles.karteWarn} numberOfLines={1}>
-                <Ionicons name="warning-outline" size={12} color={colors.warn} />{' '}
-                {String(
-                  alerts.state.headline ??
-                    alerts.state.event ??
-                    `${alerts.state.count ?? ''} Warnung${alerts.state.count === 1 ? '' : 'en'}`
-                )}
-              </Text>
-            </Pressable>
+            // Rot und blinkend wie die offene Wohnungstüre: Orange
+            // heisst im Haus «schau mal», Rot heisst «jetzt» - und ein
+            // Unwetter, das man erst am Abend bemerkt, ist die Sorte
+            // Auskunft, die mehr will als gelesen zu werden.
+            <Blinkend an>
+              <Pressable
+                onPress={() => setAlertsOpen(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Wetterwarnungen"
+              >
+                {/* Auch hier: «Verbreitet heftige Gewitter möglich,
+                    schwer, bis 22:00» endet sonst bei «schwer,…» - und
+                    das «bis wann» ist das, wonach man abends sieht. */}
+                <Lauftext
+                  style={styles.karteWarn}
+                  icon="warning-outline"
+                  iconFarbe={colors.danger}
+                >
+                  {warnText(alerts.state)}
+                </Lauftext>
+              </Pressable>
+            </Blinkend>
           ) : null}
 
           <View style={styles.karteChips}>{handgriffChips}</View>
@@ -1146,12 +1167,16 @@ export function TopStrip({
           />
         ) : null}
         {alerts ? (
-          <Chip
-            icon="warning-outline"
-            text={`${alerts.state.count ?? ''} Warnung${alerts.state.count === 1 ? '' : 'en'}`}
-            tone={colors.warn}
-            onPress={() => setAlertsOpen(true)}
-          />
+          // Dieselbe Auskunft in der schmalen Fassung - also auch
+          // dieselbe Farbe und dasselbe Blinken.
+          <Blinkend an>
+            <Chip
+              icon="warning-outline"
+              text={warnZahlSatz(Math.max(1, warnZahl(alerts.state)))}
+              tone={colors.danger}
+              onPress={() => setAlertsOpen(true)}
+            />
+          </Blinkend>
         ) : null}
       </View>
 
@@ -1189,10 +1214,10 @@ export function TopStrip({
 /**
  * Lässt sein Kind pulsieren, solange `an` gilt.
  *
- * Für den einen Fall, in dem eine Anzeige mehr will als gelesen zu
- * werden: Die Wohnungstüre steht offen. Blinken ist dafür das richtige
- * Mittel und für alles andere das falsche – deshalb hat es hier keinen
- * zweiten Verwendungszweck.
+ * Für die Fälle, in denen eine Anzeige mehr will als gelesen zu werden:
+ * Die Wohnungstüre steht offen - und, seit es ausdrücklich gewünscht
+ * wurde, die Unwetterwarnung. Blinken ist dafür das richtige Mittel und
+ * für alles Übrige das falsche; es bleibt bei diesen beiden.
  *
  * Wer im Betriebssystem «Bewegung reduzieren» eingeschaltet hat, bekommt
  * kein Blinken, sondern die dauerhaft eingefärbte Anzeige. Die Auskunft
@@ -1317,8 +1342,12 @@ export function eventWhenText(event: KalenderEintrag): string {
   return endTime ? `${day} · ${startTime}–${endTime}` : `${day} · ${startTime}`;
 }
 
+/** Wortgleich mit lib/kontrollfluss.ts und dem Hub
+ *  (integrations/meteoalarm.py, SCHWERE_WORT): In der Begrüssungszeile
+ *  stand «…, stark, bis 00:00» und im Blatt darunter «… · schwer» -
+ *  dieselbe Warnung, zwei Wörter. */
 const SEVERITY_LABEL: Record<string, string> = {
-  Minor: 'geringfügig',
+  Minor: 'gering',
   Moderate: 'mässig',
   Severe: 'schwer',
   Extreme: 'extrem',
@@ -1393,7 +1422,15 @@ const makeStyles = (colors: Colors) =>
     columnGap: 14,
     rowGap: 2,
   },
-  karteWarn: { color: colors.warn, fontSize: 13, fontWeight: '600' },
+  // Der Griff muss schrumpfen dürfen, sonst schiebt ein langer Termin
+  // die ganze Zeile über die Karte hinaus - gemessen 449 Punkte in
+  // einer Zeile von 315. In React Native ist flexShrink standardmässig
+  // 0, und ohne diese Zeile las sich der Fehler wie ein Fehler des
+  // Lauftextes: Sein Fenster war so breit wie der Text und hatte
+  // folglich nie etwas zu schieben.
+  karteZeilenGriff: { flexShrink: 1 },
+  // Rot, nicht orange - siehe lib/warnzeile.ts.
+  karteWarn: { color: colors.danger, fontSize: 13, fontWeight: '600' },
   karteChips: {
     flexDirection: 'row',
     flexWrap: 'wrap',

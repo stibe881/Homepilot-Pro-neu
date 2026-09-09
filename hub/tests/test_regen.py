@@ -78,6 +78,9 @@ def test_die_wetterentitaet_traegt_die_vorwarnung_mit():
         # Und die Reihe für die kleine Grafik: der laufende Eimer plus
         # die kommenden.
         "bars": [0.0, 0.0, 2.0],
+        # Die gröbere Auskunft fährt mit; ohne Stundenwerte in der
+        # Antwort bleibt sie leer.
+        "hours": None,
     }
 
 
@@ -321,3 +324,84 @@ async def test_nach_dem_regen_warnt_der_naechste_schauer_wieder():
         assert len(gesendet) == 2
     finally:
         await hub.stop()
+
+
+def stundenwerte(*mm: float, ab: datetime = JETZT) -> dict:
+    """Stundenwerte ab jetzt, wie Open-Meteo sie liefert."""
+    return {
+        "time": [(ab + timedelta(hours=i)).isoformat() for i in range(len(mm))],
+        "precipitation": list(mm),
+    }
+
+
+def test_die_karte_sagt_auch_wie_lange_man_noch_hat():
+    """Die Viertelstunden-Vorwarnung schaut zwei Stunden weit.
+
+    Danach schwieg die Karte - und die Wochenzeile mit ihren Prozenten
+    beantwortet die Frage am Fenster nicht: Wie lange habe ich noch?
+    """
+    # Trocken bis auf die fünfte Stunde. Die Stunde, in der wir stehen,
+    # zählt nicht mit - sie liegt nicht mehr in der Zukunft.
+    stunden = stundenwerte(0, 0, 0, 0, 0, 1.2)
+    assert regen.naechste_stunden(stunden, JETZT) == 5
+
+
+def test_feucht_ist_kein_regen():
+    """Dieselbe Schwelle wie die Vorwarnung - sonst meldete die Karte
+    einen Nebelhauch als Regen, und man schaltet sie ab."""
+    assert regen.naechste_stunden(stundenwerte(0, 0.1, 0.1), JETZT) is None
+
+
+def test_vergangene_stunden_zaehlen_nicht():
+    """Open-Meteo liefert past_days in derselben Liste mit."""
+    stunden = stundenwerte(9.9, 9.9, 0, 0.8, ab=JETZT - timedelta(hours=2))
+    # Der Regen von vor zwei Stunden ist vorbei; gemeint ist der in einer.
+    assert regen.naechste_stunden(stunden, JETZT) == 1
+
+
+def test_weiter_als_einen_tag_voraus_schweigt_die_karte():
+    """«Regen in etwa 63 Std.» täuschte Genauigkeit vor, wo keine ist -
+    dafür gibt es die Wochenzeile."""
+    stunden = stundenwerte(*([0.0] * 30 + [5.0]))
+    assert regen.naechste_stunden(stunden, JETZT) is None
+
+
+def test_ohne_mengen_bleibt_es_bei_nichts():
+    """Eine Wahrscheinlichkeit ist keine Menge: «60 %» heisst nicht,
+    dass es um vier Uhr regnet."""
+    assert regen.naechste_stunden({"time": ["2026-08-27T21:00"]}, JETZT) is None
+    assert regen.naechste_stunden(None, JETZT) is None
+    assert regen.naechste_stunden({}, JETZT) is None
+
+
+def test_die_stunden_fahren_am_wetterzustand_mit():
+    """Die Karte liest eine Entität, nicht zwei Quellen."""
+    payload = {
+        "current": {"temperature_2m": 17, "weather_code": 0},
+        "minutely_15": viertelstunden(0, 0, 0),
+        "hourly": {
+            "time": [(JETZT + timedelta(hours=i)).isoformat() for i in range(6)],
+            "precipitation": [0, 0, 0, 2.0, 0, 0],
+        },
+        "daily": {},
+    }
+    stand = parse_forecast(payload, JETZT)
+    assert stand["rain"]["hours"] == 3
+    # Und die Vorwarnung bleibt, was sie war.
+    assert stand["rain"]["minutes"] is None
+
+
+def test_lange_dauern_stehen_in_stunden():
+    """«120 Minuten» war eine Rechenaufgabe - jetzt sind es zwei Stunden.
+
+    Gemeldet mit rotem Kreis um die Zahl auf der Wetterkarte. Unter
+    einer Stunde bleibt die Minute die Auskunft, die man wirklich will.
+    """
+    assert regen.dauer(45) == "45 Minuten"
+    assert regen.dauer(59) == "59 Minuten"
+    assert regen.dauer(60) == "1 Stunde"
+    assert regen.dauer(125) == "2 Stunden 5 Minuten"
+    assert regen.satz({"now": True, "minutes": 120}) == "Es regnet noch etwa 2 Stunden."
+    assert (
+        regen.satz({"now": False, "minutes": 95}) == "Regen in etwa 1 Stunde 35 Minuten."
+    )

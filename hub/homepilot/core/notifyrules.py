@@ -381,6 +381,22 @@ RULES: list[dict[str, Any]] = [
         ],
     },
     {
+        "key": "vouchers",
+        "title": "Gutschein läuft bald ab",
+        "detail": "Zweimal vor dem Verfall und am Ablauftag selbst, morgens "
+        "um neun. Wie viele Tage vorher, steht in dieser Karte; private "
+        "Gutscheine sieht nur, wem sie gehören.",
+        # Die beiden Stufen sind keine Parameter dieser Regel, sondern
+        # eigene Einstellungen (core/gutscheine.py, PREFS_KEY): Sie
+        # bedingen einander (die erste liegt vor der zweiten) und werden
+        # dort geklemmt und nötigenfalls getauscht. Als zwei unabhängige
+        # Zahlen mit Plus und Minus liesse sich «erste 7, zweite 30»
+        # einstellen - also eine zweite Erinnerung, die vor der ersten
+        # käme. Die App zeigt sie deshalb als Chip-Reihen in derselben
+        # Karte, wie die Türe der Waschküche bei «Haushaltgerät».
+        "params": [],
+    },
+    {
         "key": "packlist",
         "title": "Packliste am Vorabend",
         "detail": "Steht in der Kinderseite, was an welchem Tag in den Thek "

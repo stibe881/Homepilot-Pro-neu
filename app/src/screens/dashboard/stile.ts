@@ -347,13 +347,21 @@ export const makeStyles = (colors: Colors) =>
     raumBuehne: { position: 'relative', gap: 4 },
     /** Der warme Schein, solange Licht brennt. Über die Seitenränder
      *  hinaus (negative Ränder), damit er wie Raumlicht wirkt und nicht
-     *  wie eine Karte. */
+     *  wie eine Karte.
+     *
+     *  Oben rund, unten nicht: Der Farbton läuft nach unten ohnehin aus,
+     *  dort gibt es keine Kante. Oben stiess er als scharfe Ecke gegen
+     *  den Bildschirmrand - als einziges Element der Seite, während
+     *  darunter jede Karte rund ist (radius.card). Gemeldet aus dem
+     *  Haus, und es galt für jeden Raum. */
     raumSchein: {
       position: 'absolute',
       top: -10,
       left: -space.page,
       right: -space.page,
       height: 200,
+      borderTopLeftRadius: radius.card,
+      borderTopRightRadius: radius.card,
     },
     /** Das Raumsymbol als Wasserzeichen – blass genug, dass Temperatur
      *  und Menüknopf darüber lesbar bleiben. */

@@ -571,6 +571,7 @@ export type TriggerKind =
   | 'geofence'
   | 'presence'
   | 'weather_warning'
+  | 'power_restore'
   | 'availability';
 /**
  * Ein Handgriff unter einer Nachricht.
@@ -628,6 +629,9 @@ export interface TriggerDraft {
   calendarContains: string;
   calendarEvent: 'start' | 'end';
   calendarBefore: string;
+  /** «Nach Stromausfall»: Sekunden, bis der Ablauf loslegt. Leer heisst
+   *  die Voreinstellung des Hubs. */
+  restoreDelay: string;
   /** Anwesenheits-Auslöser (Punkt 252): wessen Kommen oder Gehen. Die
    *  Zone steckt in `ortId` - dasselbe Feld wie beim Ortsauslöser, denn
    *  es ist dieselbe Frage «wo?». Anders als der Ortsauslöser feuert er
@@ -664,8 +668,12 @@ export interface StepDraft {
     color?: string;
     /** Weissanteil als Mirek (153 kühl … 500 warm). */
     colorTemp?: number;
-    /** Helligkeit erst beim Auslösen aus den Lux des Melders rechnen. */
+    /** Helligkeit erst beim Auslösen aus den Lux rechnen - erst der
+     *  Melder, der auslöst, dann ein Fühler im Raum der Lampe. */
     adaptive?: boolean;
+    /** Helligkeit nach der Uhr - der Weg für Räume ohne Fühler
+     *  (lib/helligkeitsvorgabe.ts). */
+    nachTageszeit?: boolean;
     /** Nachlauf in Sekunden – danach schaltet der Hub die Lampe aus. */
     offAfter?: number;
     /** Lamellenwinkel in Prozent, wenn das Kommando 'set_tilt' ist. */
@@ -828,6 +836,7 @@ export const EMPTY_TRIGGER: TriggerDraft = {
   calendarContains: '',
   calendarEvent: 'start',
   calendarBefore: '',
+  restoreDelay: '',
   presencePerson: '',
   presenceEvent: 'arrives',
   minSeverity: '',
@@ -980,6 +989,16 @@ export function triggerToConfig(t: TriggerDraft): BausteinConfig {
       ...(t.entityId ? { entity_id: t.entityId } : {}),
     };
   }
+  if (t.kind === 'power_restore') {
+    // Kein Gerät, keine Uhrzeit: Der Auslöser hat nur einen Fall - der
+    // Hub ist nach einem Stromausfall hochgefahren. Die Verzögerung
+    // steht trotzdem im Ablauf, weil sie von Haus zu Haus verschieden
+    // ist: Bis Switch, Accesspoint und Bridge stehen, dauert es.
+    const trigger: BausteinConfig = { type: 'power_restore' };
+    const warten = Number(t.restoreDelay);
+    if (Number.isFinite(warten) && warten > 0) trigger.delay = warten;
+    return trigger;
+  }
   const hold = Math.max(0, Number(t.forMinutes) || 0) * 60;
   if (t.kind === 'availability') {
     const trigger: { type: string; entity_id: string; to: boolean; for?: number } = {
@@ -1044,6 +1063,8 @@ export function triggerFromConfig(t: BausteinConfig): TriggerDraft {
           ? 'presence'
         : t?.type === 'weather_warning'
           ? 'weather_warning'
+        : t?.type === 'power_restore'
+          ? 'power_restore'
         : t?.type === 'sun'
           ? 'sun'
           : t?.type === 'interval'
@@ -1089,6 +1110,7 @@ export function triggerFromConfig(t: BausteinConfig): TriggerDraft {
     calendarContains: String(t?.contains ?? ''),
     calendarEvent: t?.event === 'end' ? 'end' : 'start',
     calendarBefore: t?.minutes_before ? String(t.minutes_before) : '',
+    restoreDelay: t?.type === 'power_restore' && t?.delay ? String(t.delay) : '',
   };
 }
 
@@ -1491,14 +1513,36 @@ export function nachlaufLabel(seconds: string | number): string {
  *
  * Nur dann wird daraus ein Licht-Schritt. Ein blosses «einschalten»
  * bleibt das schlichte Kommando, das es immer war. */
+export function istAnschalten(command: string): boolean {
+  return command === 'turn_on' || command === 'set_brightness';
+}
+
 export function istLichtFein(action: {
   command: string;
   color?: string;
   colorTemp?: number;
   adaptive?: boolean;
+  nachTageszeit?: boolean;
   offAfter?: number;
 }): boolean {
-  return !!(action.adaptive || action.color || action.colorTemp || action.offAfter);
+  // Nur beim Einschalten. Der Aktionstyp 'light' heisst beim Hub «mach
+  // sie an, und zwar so» - einen Befehl trägt er gar nicht mit. Ein
+  // «aus», das diesen Weg nahm, verlor sein Aus unterwegs: gespeichert
+  // wurde eine Lampe, die angeht, und beim Öffnen stand der Chip wieder
+  // auf «ein». Schlimmer als die Anzeige war die Wirkung - der Ablauf
+  // schaltete die Lampe an, wo er sie ausschalten sollte.
+  //
+  // Die Feinheiten bleiben dabei im Entwurf stehen (Farbe, Nachlauf);
+  // sie sind nur gegenstandslos, solange ausgeschaltet wird, und
+  // kommen zurück, wenn jemand wieder auf «ein» stellt.
+  if (!istAnschalten(action.command)) return false;
+  return !!(
+    action.adaptive ||
+    action.nachTageszeit ||
+    action.color ||
+    action.colorTemp ||
+    action.offAfter
+  );
 }
 
 /**
@@ -1699,6 +1743,7 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
       if (istLichtFein(action)) {
         const licht: BausteinConfig = { type: 'light', entity_id: action.entity_id };
         if (action.adaptive) licht.brightness = 'adaptive';
+        else if (action.nachTageszeit) licht.brightness = 'tageszeit';
         else if (action.command === 'set_brightness') {
           licht.brightness = action.brightness ?? 50;
         }
@@ -1836,16 +1881,19 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
         })),
       });
     } else if (type === 'light') {
-      const adaptive = String(action.brightness ?? '') === 'adaptive';
+      const wort = String(action.brightness ?? '');
+      const adaptive = wort === 'adaptive';
+      const nachTageszeit = wort === 'tageszeit';
       const entry = {
         entity_id: action.entity_id,
         command:
-          adaptive || typeof action.brightness === 'number'
+          adaptive || nachTageszeit || typeof action.brightness === 'number'
             ? 'set_brightness'
             : 'turn_on',
         rooms: [],
         brightness: typeof action.brightness === 'number' ? action.brightness : undefined,
         adaptive: adaptive || undefined,
+        nachTageszeit: nachTageszeit || undefined,
         color: action.color ? String(action.color) : undefined,
         colorTemp: action.color_temp ? Number(action.color_temp) : undefined,
         offAfter: action.off_after ? Number(action.off_after) : undefined,
@@ -2094,12 +2142,15 @@ export function kopieSchritt(step: StepDraft): StepDraft {
  * Mit dem Nachlauf, wenn es einen gibt: «Licht an» allein lässt die
  * Frage offen, wann es wieder ausgeht. */
 export function lichtKurz(action: BausteinConfig): string {
+  const wort = String(action.brightness ?? '');
   const wie =
-    String(action.brightness ?? '') === 'adaptive'
-      ? 'angepasst'
-      : action.brightness != null
-        ? `${action.brightness} %`
-        : 'an';
+    wort === 'adaptive'
+      ? 'nach Raumhelligkeit'
+      : wort === 'tageszeit'
+        ? 'nach Tageszeit'
+        : action.brightness != null
+          ? `${action.brightness} %`
+          : 'an';
   return action.off_after ? `${wie}, ${nachlaufLabel(action.off_after)}` : wie;
 }
 

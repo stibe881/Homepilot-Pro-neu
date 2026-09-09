@@ -9,6 +9,7 @@ import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-nativ
 
 import { KachelEintrag } from '../../lib/kachelmenue';
 import { useColors } from '../../theme';
+import { Tastaturplatz } from '../Tastaturplatz';
 import { makeStyles } from './stil';
 
 export function RoomPicker({
@@ -232,6 +233,9 @@ export function RenameDialog({
   }, [visible, current]);
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      {/* Der neue Gerätename wird getippt - ohne das läge die Tastatur auf
+          dem Feld (Punkt 265 der Werkbank). */}
+      <Tastaturplatz>
       <Pressable style={styles.roomBackdrop} onPress={onClose}>
         <Pressable style={styles.roomSheet} onPress={() => {}}>
           <Text style={styles.roomSheetTitle}>Gerät umbenennen</Text>
@@ -261,6 +265,7 @@ export function RenameDialog({
           </View>
         </Pressable>
       </Pressable>
+      </Tastaturplatz>
     </Modal>
   );
 }
@@ -291,10 +296,14 @@ export function GroupPicker({
   ];
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      {/* Der Name einer neuen Gruppe wird getippt, und sein Feld sitzt
+          zuunterst im Blatt - dort, wo die Tastatur aufliegt (Punkt 265
+          der Werkbank). */}
+      <Tastaturplatz>
       <Pressable style={styles.roomBackdrop} onPress={onClose}>
         <Pressable style={styles.roomSheet} onPress={() => {}}>
           <Text style={styles.roomSheetTitle}>Gruppe wählen</Text>
-          <ScrollView>
+          <ScrollView keyboardShouldPersistTaps="handled">
             {options.map((option) => {
               const active = option.value === current;
               return (
@@ -331,6 +340,7 @@ export function GroupPicker({
           </View>
         </Pressable>
       </Pressable>
+      </Tastaturplatz>
     </Modal>
   );
 }

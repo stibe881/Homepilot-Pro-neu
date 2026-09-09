@@ -791,6 +791,40 @@ def _stand(state: dict[str, Any]) -> str:
     return json.dumps(state, sort_keys=True, ensure_ascii=False)
 
 
+def liegt_noch(alt: dict[str, Any], jetzt_s: float) -> bool:
+    """Liegt diese Karte plausibel noch auf dem Sperrbildschirm? (rein, testbar)
+
+    Der Fall, der das gekostet hat: «Es kommt jetzt keine Live-Aktivität
+    mehr, wenn der Fernseher eingeschaltet wird.» Eine Zeile in
+    ``live_cards`` heisst für den Abgleich «läuft schon» - und dann wird
+    nicht gestartet, sondern höchstens aktualisiert. Stimmt die Zeile
+    nicht mehr, kommt nie wieder eine Karte:
+
+    - Eine Karte mit offenem Ende (``ende_offen``) konnte der Hub nicht
+      beenden. Ob sie noch liegt, weiss er also gerade nicht - und ein
+      «vielleicht» darf keinen Start verhindern. Lieber eine Karte zu
+      viel: Doppelte derselben Art räumt die App beim nächsten Öffnen
+      selbst ab (LiveAktivitaetModule.beobachten).
+    - Eine Karte, die älter ist als NACHHALL_SEKUNDEN, gibt es sicher
+      nicht mehr: iOS beendet eine Live-Aktivität von selbst und nimmt
+      sie danach vom Sperrbildschirm. Die Zeile wäre sonst eine
+      Sperre, die einen halben Tag lang jede neue Karte verhindert -
+      und genau das ist passiert, weil auch das Wegwischen von Hand
+      hier nie ankommt.
+    """
+    if alt.get("ende_offen"):
+        return False
+    begonnen = alt.get("gestartet")
+    if begonnen is None:
+        # Zeilen aus einer Fassung ohne Startzeitpunkt: Der letzte
+        # Anfassen-Zeitpunkt ist die einzige Zahl, die es gibt.
+        begonnen = alt.get("aktualisiert")
+    try:
+        return jetzt_s - float(begonnen) < NACHHALL_SEKUNDEN
+    except (TypeError, ValueError):
+        return False
+
+
 def abgleich(
     rows: Any,
     gewuenscht: list[dict[str, Any]],
@@ -817,7 +851,9 @@ def abgleich(
     Eine Karte, deren Ende mangels Token nicht rausgeht, bleibt als
     ``ende_offen`` in der Liste stehen (bis NACHHALL_SEKUNDEN). Sie
     wurde früher trotzdem gestrichen - danach wusste der Hub nichts
-    mehr von ihr, und das Telefon behielt sie.
+    mehr von ihr, und das Telefon behielt sie. Als *laufend* zählt sie
+    dabei nicht mehr: Wird ihre Art wieder gewollt, wird neu gestartet
+    (liegt_noch).
     """
     soll: dict[tuple[str, str], dict[str, Any]] = {}
     for karte in gewuenscht:
@@ -848,10 +884,12 @@ def abgleich(
         user, art = schluessel
         stand = _stand(karte["state"])
         alt = alte.pop(schluessel, None)
-        if alt is not None and alt.get("ende_offen"):
-            # Die Karte ist wieder gewollt (der Fernseher ist zurück im
-            # Netz) - damit ist der offene Ende-Vermerk erledigt.
-            alt = {name: wert for name, wert in alt.items() if name != "ende_offen"}
+        if alt is not None and not liegt_noch(alt, jetzt_s):
+            # Die Zeile behauptet eine Karte, die es so nicht mehr gibt
+            # (liegt_noch erklärt, woran das liegt). Von vorn - sonst
+            # bliebe es beim Aktualisieren einer Karte, die niemand
+            # sieht.
+            alt = None
         if alt is None:
             starten.append({"user": user, "art": art, "state": karte["state"]})
             neue.append(
@@ -860,6 +898,7 @@ def abgleich(
                     "art": art,
                     "stand": stand,
                     "activity_tokens": [],
+                    "gestartet": jetzt_s,
                     "aktualisiert": jetzt_s,
                 }
             )
@@ -1038,8 +1077,6 @@ async def _runde(hub: Any, versand: liveaktivitaet.ApnsVersand) -> None:
             )
         hub.data.set(VERWAIST_KEY, [])
     start_rows = hub.data.get(START_KEY)
-    if not start_rows:
-        return
     prefs_rows = hub.data.get("user_prefs")
     gesperrt = liveaktivitaet.abgeschaltet(prefs_rows)
     benutzer = sorted(
@@ -1049,29 +1086,52 @@ async def _runde(hub: Any, versand: liveaktivitaet.ApnsVersand) -> None:
             if isinstance(row, dict) and str(row.get("user") or "") not in gesperrt
         }
     )
+    # Ohne angemeldetes Telefon nichts *starten* - aber sehr wohl noch
+    # beenden. Vorher stieg die Runde hier ganz aus, und damit blieb
+    # jede laufende Karte für immer stehen: Wer die Live-Aktivitäten
+    # abschaltet oder sein Telefon neu anmeldet, behielt die alte Karte
+    # auf dem Sperrbildschirm, obwohl der Hub sie längst nicht mehr
+    # wollte. Ein leeres Soll heisst nicht «nichts tun», es heisst
+    # «nichts soll laufen» - derselbe Gedanke wie beim Abräumen der
+    # liegen gebliebenen Karten oben.
     neue, starten, aktualisieren, beenden = abgleich(
         hub.data.get(KARTEN_KEY),
-        _gewuenscht(hub, jetzt, benutzer),
+        _gewuenscht(hub, jetzt, benutzer) if benutzer else [],
         benutzer,
         jetzt,
         abbestellt=liveaktivitaet.abbestellte(prefs_rows),
     )
+    # Starts, von denen kein einziger ankam - ihre Zeile darf nicht
+    # stehen bleiben (siehe unten).
+    gescheitert: set[tuple[str, str]] = set()
     for auftrag in starten:
         tokens = [
             str(row.get("token"))
             for row in start_rows
             if isinstance(row, dict) and row.get("user") == auftrag["user"]
         ]
+        angekommen = 0
         for token in tokens:
-            await versand.senden(
+            if await versand.senden(
                 token, start_payload(auftrag["art"], auftrag["state"], jetzt)
+            ):
+                angekommen += 1
+        if angekommen:
+            log.info(
+                "Live-Karte %s für %s gestartet (%d von %d Telefonen)",
+                auftrag["art"],
+                auftrag["user"],
+                angekommen,
+                len(tokens),
             )
-        log.info(
-            "Live-Karte %s für %s gestartet (%d Telefone)",
-            auftrag["art"],
-            auftrag["user"],
-            len(tokens),
-        )
+        else:
+            gescheitert.add((auftrag["user"], auftrag["art"]))
+            log.warning(
+                "Live-Karte %s für %s: kein Start angekommen (%d Telefone)",
+                auftrag["art"],
+                auftrag["user"],
+                len(tokens),
+            )
     for auftrag in aktualisieren:
         for token in auftrag["tokens"]:
             await versand.senden(str(token), update_payload(auftrag["state"], jetzt))
@@ -1085,6 +1145,37 @@ async def _runde(hub: Any, versand: liveaktivitaet.ApnsVersand) -> None:
             await versand.senden(
                 str(token), ende_payload(auftrag["state"], auftrag["sichtbar"], jetzt)
             )
+    # Eine Zeile entsteht mit dem Auftrag, nicht mit der Karte - und das
+    # war falsch: Lehnt Apple den Start ab (totes push-to-start-Token,
+    # abgelaufener Schlüssel), liegt keine Karte, aber die Zeile sagt
+    # «läuft schon». Danach wird nur noch aktualisiert, nie gestartet,
+    # und es kommt nie wieder eine Karte. Also raus damit, dann
+    # versucht es der nächste Takt erneut.
+    if gescheitert:
+        neue = [
+            row
+            for row in neue
+            if (str(row.get("user")), str(row.get("art"))) not in gescheitert
+        ]
+    # Telefone, deren Token Apple endgültig abgelehnt hat, austragen -
+    # dieselbe Regel wie bei der Haustür-Karte (liveaktivitaet.tuer_loop).
+    # Ohne das schickt der Hub jeden Takt an ein Gerät, das es so nicht
+    # mehr gibt, und jeder Start scheitert für immer.
+    if versand.tote:
+        uebrig = [
+            row
+            for row in start_rows
+            if isinstance(row, dict) and row.get("token") not in versand.tote
+        ]
+        if len(uebrig) < len(start_rows):
+            log.info(
+                "Live-Karten: %d Telefon(e) ausgetragen - Apple kennt das "
+                "Token nicht mehr",
+                len(start_rows) - len(uebrig),
+            )
+            hub.data.set(START_KEY, uebrig)
+        versand.tote.clear()
+
     # Nur schreiben, wenn sich wirklich etwas geändert hat: Eine
     # vorgemerkte Karte (ende_offen) steht in jeder Runde erneut unter
     # «beenden», und «gab es Aufträge?» hätte damit alle 20 Sekunden

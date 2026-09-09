@@ -203,6 +203,13 @@ class BatteryPrefsRequest(BaseModel):
     threshold: int | None = None
 
 
+class VoucherPrefsRequest(BaseModel):
+    """Erinnerungsstufen der Gutscheine in Tagen vor dem Verfall (Punkt 264)."""
+
+    first_days: int | None = None
+    second_days: int | None = None
+
+
 class NotifyRuleRequest(BaseModel):
     """Änderung an einer eingebauten Wächter-Nachricht (Abläufe → Push)."""
 

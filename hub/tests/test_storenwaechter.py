@@ -180,20 +180,103 @@ async def test_a_storm_warning_raises_the_covers_once(client, monkeypatch):
 
     monkeypatch.setattr(hub.watchdog, "_notify", kein_push)
 
-    entities = [*hub.registry.all(), warnung]
+    # Ohne die Warngeräte des Hubs: Der Wächter nimmt die *erste*
+    # Warn-Entität, und die Demo-Integration bringt seit dem Lauftext der
+    # Startseite eine eigene mit (integrations/demo.py). Sonst prüfte
+    # dieser Test, was die Registry zufällig zuerst hergibt.
+    ohne_warnungen = [e for e in hub.registry.all() if e.kind != "alert"]
+    entities = [*ohne_warnungen, warnung]
     await hub.watchdog._check_storm_covers(entities)
     assert any(eintrag[0] == cover.id for eintrag in befehle)
-    assert gesendet and gesendet[0].startswith("storm_covers:Hagelwarnung")
+    # Mit Zeichen am Anfang - auf dem Sperrbildschirm zwischen zwanzig
+    # Zeilen erkennt man daran, dass etwas passiert ist.
+    assert gesendet == ["storm_covers:⚠️ Hagelwarnung - Storen hochgefahren"]
 
     # Dieselbe Warnung fährt kein zweites Mal.
     befehle.clear()
     await hub.watchdog._check_storm_covers(entities)
     assert befehle == []
 
-    # Warnung vorbei, neue Warnung: Es geht wieder los.
-    await hub.watchdog._check_storm_covers(hub.registry.all())
+    # Und auch eine *neue* Warnung desselben Gewitters nicht: MeteoAlarm
+    # stellt im Lauf eines Abends immer wieder welche mit neuem Ablauf
+    # aus, und genau daran kam die Meldung alle paar Stunden wieder.
     warnung.state = {
-        "alerts": [{"event": "Sturm", "severity": "Severe", "expires": "22:00"}]
+        "alerts": [{"event": "Hagel", "severity": "Severe", "expires": "22:00"}]
     }
-    await hub.watchdog._check_storm_covers([*hub.registry.all(), warnung])
+    await hub.watchdog._check_storm_covers([*ohne_warnungen, warnung])
+    assert befehle == []
+    assert len(gesendet) == 1
+
+    # Vorbei heisst: Die Warnliste ist leer - das Gerät bleibt. (Fehlt
+    # es ganz, etwa weil MeteoAlarm gerade nicht erreichbar ist, wird
+    # nichts behauptet: Eine Entwarnung, die nur aus einem Ausfall
+    # folgt, wäre eine falsche.)
+    warnung.state = {"alerts": []}
+    await hub.watchdog._check_storm_covers([*ohne_warnungen, warnung])
+    assert gesendet[-1] == "storm_covers:✅ Hagel vorbei"
+    await hub.watchdog._check_storm_covers([*ohne_warnungen, warnung])
+    assert len(gesendet) == 2
+
+    # Das nächste Unwetter fährt wieder.
+    warnung.state = {
+        "alerts": [{"event": "Sturm", "severity": "Severe", "expires": "23:00"}]
+    }
+    await hub.watchdog._check_storm_covers([*ohne_warnungen, warnung])
     assert befehle
+    assert gesendet[-1] == "storm_covers:⚠️ Sturmwarnung - Storen hochgefahren"
+
+
+def test_ein_gewitter_ist_ein_unwetter_und_nicht_jede_warnung():
+    """Gemeldet: «Diese Meldung kommt immer wieder. Sie soll aber nur
+    einmal kommen pro Gewitter.»
+
+    Gemerkt wurde Grund *und Ablaufzeit* der Warnung - und MeteoAlarm
+    stellt im Lauf eines Gewitterabends immer wieder neue Warnungen mit
+    neuem Ablauf aus. Für den Wächter war jede davon ein neues
+    Unwetter: Storen nochmals hoch, Nachricht nochmals raus."""
+    from homepilot.core.storenwaechter import sturm_schritt
+
+    # Erste Warnung: fahren, und merken, dass eines läuft.
+    schritt, gemerkt = sturm_schritt({"grund": "Gewitter", "bis": "18:00"}, [], 1000.0)
+    assert schritt == "fahren"
+    assert gemerkt[0]["grund"] == "Gewitter"
+
+    # Eine Stunde später dieselbe Lage, aber eine neue Warnung mit
+    # anderem Ablauf - genau das, woran es lag.
+    schritt, gemerkt = sturm_schritt(
+        {"grund": "Gewitter", "bis": "22:00"}, gemerkt, 4600.0
+    )
+    assert schritt == "nichts"
+
+    # Auch ein Wechsel des Grundes fährt nicht nochmals: Die Storen sind
+    # längst oben.
+    schritt, gemerkt = sturm_schritt({"grund": "Hagel", "bis": "22:00"}, gemerkt, 5000.0)
+    assert schritt == "nichts"
+
+
+def test_erst_wenn_keine_warnung_mehr_laeuft_gibt_es_die_entwarnung():
+    from homepilot.core.storenwaechter import sturm_schritt
+
+    _, gemerkt = sturm_schritt({"grund": "Gewitter", "bis": "18:00"}, [], 1000.0)
+    schritt, gemerkt = sturm_schritt(None, gemerkt, 9000.0)
+    assert schritt == "entwarnen"
+    assert gemerkt == []
+    # Und danach ist Ruhe - nicht bei jeder Runde eine zweite Entwarnung.
+    schritt, gemerkt = sturm_schritt(None, gemerkt, 9060.0)
+    assert schritt == "nichts"
+
+    # Das nächste Unwetter fährt wieder.
+    schritt, _ = sturm_schritt({"grund": "Sturm", "bis": "23:00"}, gemerkt, 20000.0)
+    assert schritt == "fahren"
+
+
+def test_der_merker_uebersteht_einen_neustart():
+    """Er liegt in `hub.data` und nicht im Gedächtnis des Prozesses: Der
+    Hub startet bei jedem Update neu, und ein Neustart mitten im
+    Gewitter fuhr die Storen sonst ein zweites Mal hoch."""
+    from homepilot.core.storenwaechter import sturm_schritt
+
+    # So, wie es aus der Datendatei zurückkommt.
+    gemerkt = [{"grund": "Gewitter", "seit": 1000.0}]
+    schritt, _ = sturm_schritt({"grund": "Gewitter", "bis": "18:00"}, gemerkt, 5000.0)
+    assert schritt == "nichts"

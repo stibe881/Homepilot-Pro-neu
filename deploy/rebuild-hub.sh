@@ -108,6 +108,15 @@ if [ -f "$CREDENTIALS_FILE" ]; then
   # shellcheck disable=SC1090
   . "$CREDENTIALS_FILE"
 fi
+# Noch einmal, jetzt wo die Zugangsdatei gelesen ist. Oben stand
+# BRANCH schon einmal - aber aus der blossen Umgebung, und der Kommentar
+# dort verspricht, dass HOMEPILOT_BRANCH *in dieser Datei* den Zweig
+# umstellt. Über den Update-Knopf stimmte das zufällig (systemd lädt
+# dieselbe Datei als EnvironmentFile), von Hand aufgerufen nicht: Dann
+# baute das Skript main, während der Update-Dienst gegen den
+# eingetragenen Zweig verglich - und die Liste zeigte den ganzen
+# Unterschied zwischen beiden als «kommt noch».
+BRANCH="${HOMEPILOT_BRANCH:-main}"
 # Wagenrücklauf am Zeilenende wegschneiden. Wer die Datei einmal unter
 # Windows bearbeitet hat, hat CRLF drin – dann ist der Wert nicht "1",
 # sondern "1\r", der Vergleich weiter unten schlägt fehl und die Prüfung
@@ -225,6 +234,19 @@ rm -rf "$WORKDIR"
 # der gerade läuft). Fünfzig reichen für jede realistische Update-Lücke.
 git clone --depth 50 -b "$BRANCH" \
   "https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/${REPO}.git" "$WORKDIR"
+
+# Der Stand, wie er auf GitHub steht - vor allen örtlichen
+# Zusammenführungen. Er ist der einzige Commit dieses Baus, den GitHub
+# kennt, und deshalb der einzige, von dem aus sich «was ist seither dazu
+# gekommen?» überhaupt beantworten lässt.
+#
+# Ohne ihn stand im Bestätigungs-Dialog der App immer «die jüngsten
+# Änderungen (der laufende Stand liess sich nicht genau vergleichen)» -
+# eine Liste, die dasselbe zeigt, ob die Änderungen schon laufen oder
+# nicht. Aus dem Haus kam daraufhin dreimal dieselbe Frage: «Ich habe
+# das Update gemacht, trotzdem steht noch das Alte.» Sie war nicht zu
+# beantworten, weil die Auskunft, die sie beantwortet hätte, geraten war.
+BASIS="$(git -C "$WORKDIR" rev-parse --short HEAD)"
 
 # ── Die anderen Zweige mit hineinnehmen ────────────────────────────────
 #
@@ -388,13 +410,32 @@ fi
 # --no-merges: «Merge remote-tracking branch …» ist Buchhaltung des
 # Zweige-Abgleichs (deploy/zweige.py), keine Änderung - in den Release
 # Notes sagt so eine Zeile niemandem etwas.
+#
+# Gerechnet wird von der *Basis* des laufenden Abbilds, nicht von seinem
+# Commit. Der Commit entsteht erst hier beim Bauen aus mehreren Zweigen,
+# lebt nur im WORKDIR dieses Laufs - und der wird weggeräumt. Der frische
+# Klon kennt ihn also nie, `cat-file -e` scheiterte planmässig, und es
+# griff jedes Mal der Ersatz: die zehn neusten Betreffzeilen, ob sie
+# laufen oder nicht. Genau die Liste, über die sich das Haus beschwert
+# hat - hier sogar ohne jeden Vorbehalt, denn «Was dieses Update
+# mitbrachte» kennt kein «ungefähr».
+#
+# Die Basis dagegen kommt von GitHub und steckt im Klon.
 CHANGES_FILE="$WORKDIR/hub/homepilot/changes.txt"
-if [ -n "$RUNNING_COMMIT" ] \
-   && git -C "$WORKDIR" cat-file -e "$RUNNING_COMMIT^{commit}" 2>/dev/null; then
-  git -C "$WORKDIR" log --no-merges --format='%s' "$RUNNING_COMMIT..HEAD" > "$CHANGES_FILE" 2>/dev/null || true
-fi
-if [ ! -s "$CHANGES_FILE" ]; then
-  git -C "$WORKDIR" log --no-merges --format='%s' -n 10 > "$CHANGES_FILE" 2>/dev/null || true
+RUNNING_BASE=$(docker exec "$CONTAINER" printenv HOMEPILOT_BASE_COMMIT 2>/dev/null || echo "")
+RUNNING_BASE="${RUNNING_BASE%$'\r'}"
+for VON in "$RUNNING_BASE" "$RUNNING_COMMIT"; do
+  [ -n "$VON" ] && [ "$VON" != "unbekannt" ] || continue
+  git -C "$WORKDIR" cat-file -e "$VON^{commit}" 2>/dev/null || continue
+  git -C "$WORKDIR" log --no-merges --format='%s' "$VON..HEAD" > "$CHANGES_FILE" 2>/dev/null || true
+  break
+done
+# Kein Ersatz aus den zehn neusten mehr. Lässt sich der laufende Stand
+# nicht auflösen, bleibt die Liste leer - die App sagt dann «keine
+# Liste», und das ist wahr. Zehn geratene Zeilen sahen dagegen aus wie
+# eine Auskunft.
+if [ ! -f "$CHANGES_FILE" ]; then
+  : > "$CHANGES_FILE"
 fi
 
 # ── Das Abbild mit den App-Abhängigkeiten ──────────────────────────────
@@ -650,6 +691,8 @@ echo "→ Baue das Abbild neu (ohne Cache) …"
 # nicht, ob der Container wirklich der neue ist.
 docker build --no-cache \
   --build-arg "GIT_COMMIT=$COMMIT" \
+  --build-arg "GIT_BASE=$BASIS" \
+  --build-arg "GIT_BRANCH=$BRANCH" \
   --build-arg "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   -t "$IMAGE" "$WORKDIR/hub"
 

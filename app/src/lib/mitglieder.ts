@@ -25,6 +25,10 @@ export interface Mitglied {
   ohneZugang?: boolean;
   /** Kennung in `family_members` – nur bei Einträgen ohne Zugang. */
   id?: string;
+  /** Gemeinschaftsgerät statt Mensch: das Wandtablet im Flur. Es reist
+   *  vom Zugang mit, damit «Wer dazugehört» es nicht als Mitbewohnerin
+   *  führt (lib/personenliste.ts, gruppeVon). */
+  shared?: boolean;
 }
 
 /** Ein Eintrag aus `family_members`, wie er vom Hub kommt. */
@@ -45,7 +49,7 @@ const schluessel = (name: unknown) => sauber(name).toLowerCase();
  * Zugang hat, in der Reihenfolge des Eintragens.
  */
 export function mitglieder(
-  konten: { name: string; role: string }[] | null | undefined,
+  konten: { name: string; role: string; shared?: boolean }[] | null | undefined,
   eigene: MitgliedRoh[] | null | undefined
 ): Mitglied[] {
   const reihe: Mitglied[] = [];
@@ -54,7 +58,11 @@ export function mitglieder(
     const name = sauber(konto?.name);
     if (!name || gesehen.has(schluessel(name))) continue;
     gesehen.add(schluessel(name));
-    reihe.push({ name, role: String(konto?.role ?? '') });
+    reihe.push({
+      name,
+      role: String(konto?.role ?? ''),
+      ...(konto?.shared ? { shared: true } : {}),
+    });
   }
   for (const eintrag of eigene ?? []) {
     const name = sauber(eintrag?.text);
