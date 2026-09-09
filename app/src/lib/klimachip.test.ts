@@ -1,5 +1,10 @@
 import { Entity } from '../api/types';
-import { istKlimaFuehler, klimaLabel, klimaSensor } from './klimachip';
+import {
+  istKlimaFuehler,
+  klimaKandidaten,
+  klimaLabel,
+  klimaSensor,
+} from './klimachip';
 
 const sensor = (over: Partial<Entity> & { id: string }): Entity =>
   ({
@@ -76,5 +81,35 @@ describe('Fühler, die nur für ihren Raum zählen', () => {
     expect(klimaSensor([rack], 'temperature')).toBeUndefined();
     // Als Klimafühler gilt er weiterhin - der Raumkopf zeigt ihn.
     expect(istKlimaFuehler(rack, 'temperature')).toBe(true);
+  });
+});
+
+describe('klimaKandidaten', () => {
+  it('nennt den gezeigten zuerst und die anderen dahinter', () => {
+    // Die Liste beantwortet «woher kommt diese Zahl?»: Der Chip nennt
+    // einen Wert, das Blatt dahinter das Gerät - und was sonst noch
+    // fürs ganze Haus zählt.
+    const draussen = sensor({
+      id: 'a',
+      name: 'Aussen',
+      state: { state: 12, unit: '°C' },
+    });
+    const stube = sensor({
+      id: 'b',
+      name: 'Stube',
+      room: 'Stube',
+      state: { state: 21, unit: '°C', device_class: 'temperature' },
+    });
+    const rack = sensor({
+      id: 'c',
+      name: 'Rack',
+      room: 'Waschküche',
+      room_only: true,
+      state: { state: 30, unit: '°C', device_class: 'temperature' },
+    });
+    const liste = klimaKandidaten([draussen, stube, rack], 'temperature');
+    // Der ausdrückliche Temperaturmesser zuerst, der ohne Raum danach -
+    // und der Fühler, der nur für sein Zimmer zählt, gar nicht.
+    expect(liste.map((entity) => entity.id)).toEqual(['b', 'a']);
   });
 });
