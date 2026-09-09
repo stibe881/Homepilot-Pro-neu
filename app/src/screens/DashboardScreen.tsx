@@ -164,6 +164,7 @@ import { BioLock } from '../components/BioLock';
 import { KontoBlatt } from '../components/KontoBlatt';
 import { TuerRueckfrage } from '../components/TuerRueckfrage';
 import { Widgets } from '../components/Widgets';
+import { syncAuto } from '../lib/autoablage';
 import { Ablage, syncWidget } from '../lib/widget';
 import { hoereAufSchnellaktionen, setzeSchnellaktionen } from '../lib/schnellaktionen';
 import { PushKnopf, Ziel, knoepfeAus, zielAus } from '../lib/pushziel';
@@ -878,6 +879,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // weniger Knöpfen da, als jemand eingestellt hat.
     if (entities.length === 0 && scenes.length === 0) return;
     setWidgetAblage(syncWidget(settings, !!prefs.widgetData, widgetButtons));
+    // Und dasselbe fürs Auto. Getrennt vom Widget, weil es ein anderer
+    // Topf ist (SharedPreferences statt App-Gruppe) und weil der
+    // Autodienst startet, wenn niemand die App offen hat: Was er
+    // braucht, muss vorher dastehen.
+    syncAuto(settings, widgetButtons);
   }, [
     settings.url,
     settings.token,

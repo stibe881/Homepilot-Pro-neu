@@ -69,10 +69,11 @@ module.exports = tseslint.config(
     rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
 
-  // Nachladen erst bei Bedarf: haptics und widget holen native Module
-  // absichtlich spät, damit die Web-Fassung sie nie anfasst.
+  // Nachladen erst bei Bedarf: haptics, widget und autoablage holen
+  // native Module absichtlich spät, damit die Web-Fassung sie nie
+  // anfasst.
   {
-    files: ['src/lib/haptics.ts', 'src/lib/widget.ts'],
+    files: ['src/lib/haptics.ts', 'src/lib/widget.ts', 'src/lib/autoablage.ts'],
     rules: { '@typescript-eslint/no-require-imports': 'off' },
   }
 );

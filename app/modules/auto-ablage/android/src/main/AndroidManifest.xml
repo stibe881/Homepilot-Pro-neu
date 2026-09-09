@@ -1,0 +1,37 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+  <!-- Android Auto: Das Telefon spiegelt auf den Autobildschirm. Ohne
+       diese Angabe erscheint die App dort gar nicht - sie ist die
+       Anmeldung, nicht bloss eine Notiz. -->
+  <uses-feature
+      android:name="android.hardware.type.automotive"
+      android:required="false" />
+
+  <application>
+    <!-- Sagt Android Auto, dass wir mit Vorlagen arbeiten (und nicht
+         etwa Medien ausliefern). -->
+    <meta-data
+        android:name="com.google.android.gms.car.application"
+        android:resource="@xml/automotive_app_desc" />
+
+    <!-- Ab welcher Fassung der Auto-Bibliothek wir laufen. Fehlt die
+         Zeile, weist der Host die App ab - und zwar ohne zu sagen,
+         warum. -->
+    <meta-data
+        android:name="androidx.car.app.minCarApiLevel"
+        android:value="1" />
+
+    <service
+        android:name="ch.stibe.homepilot.auto.HomePilotAutoDienst"
+        android:exported="true">
+      <intent-filter>
+        <action android:name="androidx.car.app.CarAppService" />
+        <!-- IoT: Genau die Schublade, in die eine Haussteuerung
+             gehört. Ohne eine zugelassene Kategorie lässt Google die
+             App nicht ins Auto - das ist der Grund, warum es hier
+             Kacheln gibt und keine eigene Oberfläche. -->
+        <category android:name="androidx.car.app.category.IOT" />
+      </intent-filter>
+    </service>
+  </application>
+</manifest>

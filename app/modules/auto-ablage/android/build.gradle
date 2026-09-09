@@ -1,0 +1,21 @@
+// Das Gradle-Plugin von Expo statt eigener Android-Blöcke: Es setzt
+// compileSdk, Kotlin und die Abhängigkeit auf expo-modules-core so, wie
+// es zur übrigen App passt. Von Hand geschrieben wandert das
+// auseinander, sobald Expo eine Version weiterzieht.
+apply plugin: 'expo-module-gradle-plugin'
+
+group = 'ch.stibe.homepilot.auto'
+version = '1.0.0'
+
+android {
+  namespace 'ch.stibe.homepilot.auto'
+}
+
+dependencies {
+  // Die Vorlagen des Autobildschirms. «app-projected» ist die Fassung
+  // für Android Auto (das Telefon spiegelt auf den Autobildschirm);
+  // «app-automotive» wäre für eingebaute Systeme - die hat hier
+  // niemand.
+  implementation 'androidx.car.app:app:1.7.0'
+  implementation 'androidx.car.app:app-projected:1.7.0'
+}

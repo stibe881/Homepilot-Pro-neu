@@ -117,11 +117,6 @@ ABWESEND_SCHWELLE = 3
 #: Takt, in dem die Geräteliste beim Gateway nachgefragt wird.
 ABFRAGE_INTERVALL = 300.0
 
-#: Wie lange nach dem Nachlesen gewartet wird, bevor erneut gefragt wird.
-#: Das Gateway fragt die Geräte über Funk ab, und die Antworten tröpfeln
-#: über Sekunden herein. Sofort wieder nachzusehen zeigt nur denselben
-#: alten Stand - und damit wäre der Vergleich wertlos.
-NACHLESE_WARTEN = 6.0
 
 
 def verfuegbarkeit(
@@ -493,21 +488,28 @@ class OverkizIntegration(Integration):
         lief.
 
         Und er meldet auch nicht, was während einer Unterbrechung
-        geschah - dafür das Nachlesen davor.
+        geschah - dafür das Nachlesen.
+
+        Die Reihenfolge ist der Punkt: **erst lesen, dann nachlesen
+        lassen.** Nachlesen ist nur ein Anstoss - das Gateway fragt die
+        Storen über Funk ab, und die Antworten tröpfeln über Sekunden
+        herein. Wer unmittelbar danach `get_devices()` ruft, liest den
+        Zwischenspeicher mitten in dieser Auffrischung aus und schreibt
+        einen Übergangsstand als Wahrheit fest. Genau so standen
+        anschliessend alle sechs Storen auf «offen», auch die vier
+        heruntergefahrenen - und zwar alle mit demselben Wert, was für
+        sich schon verrät, dass er nicht von den Geräten stammt.
+
+        So herum liest jeder Takt, was das Nachlesen des *vorigen* Takts
+        ergeben hat. Das hatte fünf Minuten Zeit, sich zu setzen, und
+        eine Wartezeit, die man raten müsste, braucht es nicht.
         """
-        if await self._zustaende_nachlesen():
-            # Den Funkantworten Zeit lassen. Das Nachlesen ist nur ein
-            # Anstoss: Das Gateway fragt die Geräte über Funk ab, und
-            # deren Antworten tröpfeln über Sekunden herein. Wer sofort
-            # wieder liest, bekommt genau denselben alten Stand - dann
-            # war das Nachlesen umsonst, und es bliebe beim Fehler, der
-            # gemeldet wurde. Der Takt läuft im Hintergrund; diese
-            # Sekunden kosten niemanden etwas.
-            await asyncio.sleep(NACHLESE_WARTEN)
         try:
             geraete = await self._client.get_devices()
         except Exception as err:
             self.log.debug("Overkiz: Geräteliste nicht abrufbar (%s)", err)
+            # Das Nachlesen für den nächsten Takt trotzdem anstossen.
+            await self._zustaende_nachlesen()
             return
         for device in geraete:
             entity_id = self._devices.get(getattr(device, "device_url", None))
@@ -529,6 +531,10 @@ class OverkizIntegration(Integration):
             await self.hub.registry.update_state(
                 entity_id, cover_state(states), available=erreichbar
             )
+
+        # Und jetzt das Nachlesen anstossen - für den nächsten Takt, nicht
+        # für diesen. Bis dahin sind die Funkantworten längst da.
+        await self._zustaende_nachlesen()
 
     def health(self) -> dict[str, Any]:
         """Welche Storen sich gerade nicht melden.
@@ -839,6 +845,14 @@ def nachlese_unterschiede(vorher: Any, nachher: Any) -> list[str]:
                     f"{davor.get(name)!r} → {neu.get(name)!r}"
                 )
     return zeilen
+
+
+#: Wie lange der Bericht nach dem Nachlesen wartet, bevor er erneut fragt.
+#: Das Gateway fragt die Storen über Funk ab, und die Antworten tröpfeln
+#: über Sekunden herein. Zu früh wieder nachzusehen zeigt einen
+#: Übergangsstand - und der Vergleich wäre wertlos. Grosszügig gewählt:
+#: Hier wartet ein Mensch vor der Ausgabe, nicht ein Takt im Hintergrund.
+NACHLESE_WARTEN = 15.0
 
 
 async def gateway_bericht(config_path: str) -> list[str]:
