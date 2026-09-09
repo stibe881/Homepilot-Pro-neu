@@ -104,3 +104,12 @@ def test_ohne_alles_bleibt_das_token_leer(tmp_path, monkeypatch):
     monkeypatch.delenv("HOMEPILOT_TOKEN", raising=False)
 
     assert storencheck.token_und_port() == ("", "8123")
+
+
+def test_der_gateway_teil_haelt_den_rest_nicht_auf(tmp_path, monkeypatch, capsys):
+    """Ohne Overkiz im Haus (oder ohne pyoverkiz) bleibt die Tabelle oben
+    trotzdem stehen - sie ist die Hälfte, die immer geht."""
+    monkeypatch.setattr(storencheck, "CONFIG", str(tmp_path / "gibts-nicht.yaml"))
+    storencheck.gateway_teil()
+    ausgabe = capsys.readouterr().out
+    assert "nicht abrufbar" in ausgabe or "übersprungen" in ausgabe

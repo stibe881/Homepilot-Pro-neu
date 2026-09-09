@@ -14,10 +14,23 @@ immer beim alten Wert - der zuletzt selbst gefahrenen Stellung.
 """
 
 import asyncio
+import time
 
 import pytest
 
+from homepilot.integrations import overkiz as overkiz_modul
 from homepilot.integrations.overkiz import OverkizIntegration
+
+
+@pytest.fixture(autouse=True)
+def ohne_warten(monkeypatch):
+    """Die Wartezeit gehört ins Haus, nicht in die Prüfung.
+
+    Im Betrieb sind es sechs Sekunden - hier würde jede Prüfung so lange
+    stehen, ohne dass es etwas belegt. Wer das Warten selbst prüft, setzt
+    den Wert in seinem Test wieder hoch.
+    """
+    monkeypatch.setattr(overkiz_modul, "NACHLESE_WARTEN", 0)
 
 
 class FakeClient:
@@ -109,3 +122,49 @@ def test_ein_leeres_ereignis_erfindet_keine_stellung():
 
     assert cover_state({}) == {}
     assert "position" not in cover_state({"core:StatusState": "available"})
+
+
+async def test_nach_dem_nachlesen_wird_den_funkantworten_zeit_gelassen(hub, monkeypatch):
+    """Nachlesen ist nur ein Anstoss - sonst liest man denselben alten Stand.
+
+    Das Gateway fragt die Storen über Funk ab; die Antworten brauchen
+    Sekunden. Käme ``get_devices()`` unmittelbar danach, gäbe es wieder
+    den Zwischenspeicher von vorher heraus, und das Nachlesen hätte am
+    gemeldeten Fehler nichts geändert.
+    """
+    monkeypatch.setattr(overkiz_modul, "NACHLESE_WARTEN", 0.05)
+    zeiten: list[tuple[str, float]] = []
+
+    class MessenderClient(FakeClient):
+        async def _refresh_states(self):
+            zeiten.append(("nachgelesen", time.monotonic()))
+            return await super()._refresh_states()
+
+        async def get_devices(self):
+            zeiten.append(("gefragt", time.monotonic()))
+            return await super().get_devices()
+
+    integration = _integration(hub, MessenderClient())
+    await integration._geraete_auffrischen()
+    assert [name for name, _ in zeiten] == ["nachgelesen", "gefragt"]
+    assert zeiten[1][1] - zeiten[0][1] >= 0.05
+
+
+async def test_ohne_nachlesen_wird_auch_nicht_gewartet(hub, monkeypatch):
+    """Kennt die Bibliothek den Aufruf nicht, gibt es nichts abzuwarten -
+    dann soll der Takt nicht künstlich stehen."""
+    monkeypatch.setattr(overkiz_modul, "NACHLESE_WARTEN", 5)
+    integration = _integration(hub, FakeClient(kann_nachlesen=False))
+    begonnen = time.monotonic()
+    await integration._geraete_auffrischen()
+    assert time.monotonic() - begonnen < 1
+
+
+async def test_ein_gebremstes_nachlesen_laesst_den_takt_nicht_warten(hub, monkeypatch):
+    """Weist Somfy das Nachlesen ab, ist nichts angestossen worden - dann
+    wäre das Warten reine Verzögerung."""
+    monkeypatch.setattr(overkiz_modul, "NACHLESE_WARTEN", 5)
+    integration = _integration(hub, FakeClient(nachlesen_kaputt=True))
+    begonnen = time.monotonic()
+    await integration._geraete_auffrischen()
+    assert time.monotonic() - begonnen < 1
