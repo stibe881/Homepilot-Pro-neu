@@ -24,8 +24,10 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { hubClient } from '../api/client';
-import { HubSettings } from '../api/types';
+import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
+import { TvKopplung } from '../components/TvKopplung';
+import { brauchtKopplung, kannKoppeln, kopplungsZeile } from '../lib/fernsehkopplung';
 import {
   Dienst,
   ERINNERUNGS_MINUTEN,
@@ -46,6 +48,9 @@ interface Props {
   user?: { name: string; role: string; shared?: boolean } | null;
   /** Nur wer die Konfiguration ändern darf, sieht die Dienst-Karten. */
   darfDienste: boolean;
+  /** Für die Fernseher-Kopplung: Welche Android-TV-Geräte es gibt und
+   *  woran sie sind. */
+  entities?: Entity[];
 }
 
 interface Antwort {
@@ -55,12 +60,29 @@ interface Antwort {
   warnings?: string[];
 }
 
-export function VerbindungenScreen({ settings, onSave, user, darfDienste }: Props) {
+export function VerbindungenScreen({
+  settings,
+  onSave,
+  user,
+  darfDienste,
+  entities = [],
+}: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const hub = useMemo(
     () => hubClient(settings.url, settings.token),
     [settings.url, settings.token]
+  );
+
+  // Nur die Android-TV-Geräte: Sie sind die einzigen, die eine Kopplung
+  // kennen (lib/fernsehkopplung.ts, kannKoppeln). Nach Namen, damit die
+  // Reihenfolge nicht mit jeder Zustandsmeldung springt.
+  const fernseher = useMemo(
+    () =>
+      (entities ?? [])
+        .filter(kannKoppeln)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [entities]
   );
 
   const [dienste, setDienste] = useState<Dienst[] | null>(null);
@@ -142,6 +164,41 @@ export function VerbindungenScreen({ settings, onSave, user, darfDienste }: Prop
         embedded
         nur="verbindung"
       />
+
+      {/* Die Fernseher. Sie stehen hier und nicht mehr auf ihrer Kachel:
+          Eine Kopplung richtet man einmal ein, und Einrichtung gehört zu
+          den Verbindungen - nicht neben den Einschlaf-Timer, den man
+          jeden Abend braucht. Ohne Android TV im Haus fällt der ganze
+          Abschnitt weg. */}
+      {fernseher.length > 0 ? (
+        <>
+          <Text style={styles.abschnitt}>Fernseher</Text>
+          {fernseher.map((tv) => (
+            <Card key={tv.id} style={styles.card}>
+              <View style={styles.tvKopf}>
+                <Ionicons
+                  name="tv-outline"
+                  size={20}
+                  color={brauchtKopplung(tv) ? colors.warn : colors.inkSoft}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.tvName}>{tv.name}</Text>
+                  <Text
+                    style={[
+                      styles.tvZeile,
+                      brauchtKopplung(tv) && { color: colors.warn },
+                    ]}
+                  >
+                    {kopplungsZeile(tv)}
+                    {tv.room ? ` · ${tv.room}` : ''}
+                  </Text>
+                </View>
+              </View>
+              <TvKopplung entity={tv} dringend={brauchtKopplung(tv)} />
+            </Card>
+          ))}
+        </>
+      ) : null}
 
       {darfDienste && dienste ? (
         <>
@@ -826,6 +883,9 @@ const makeStyles = (colors: Colors) =>
     },
     // Die Zwischenüberschrift trennt «dieses Gerät» von «das Haus» -
     // dieselbe Breite wie die Karten, damit sie mit ihnen fluchtet.
+    tvKopf: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    tvName: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
+    tvZeile: { color: colors.inkFaint, fontSize: 12, marginTop: 2 },
     abschnitt: {
       width: '100%',
       maxWidth: 460,

@@ -14,6 +14,20 @@
  */
 import { Entity } from '../api/types';
 
+/**
+ * Was unter dem Namen des Fernsehers steht (rein, testbar).
+ *
+ * Drei Zustände, drei verschiedene nächste Schritte - und der
+ * Unterschied zwischen den letzten beiden ist genau der, den die Absage
+ * im Hub schon macht (integrations/androidtv.py, absage): Ein nicht
+ * gekoppelter Fernseher braucht einen Menschen davor, ein nicht
+ * erreichbarer nur Strom und Netz.
+ */
+export function kopplungsZeile(entity: Entity): string {
+  if (entity?.state?.paired === false) return 'Nicht gekoppelt';
+  return entity?.available === false ? 'Gekoppelt · gerade nicht erreichbar' : 'Gekoppelt';
+}
+
 /** So viele Stellen hat der Code auf dem Fernseher. */
 export const CODE_LAENGE = 6;
 
