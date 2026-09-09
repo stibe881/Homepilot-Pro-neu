@@ -389,3 +389,19 @@ def test_die_stunden_fahren_am_wetterzustand_mit():
     assert stand["rain"]["hours"] == 3
     # Und die Vorwarnung bleibt, was sie war.
     assert stand["rain"]["minutes"] is None
+
+
+def test_lange_dauern_stehen_in_stunden():
+    """«120 Minuten» war eine Rechenaufgabe - jetzt sind es zwei Stunden.
+
+    Gemeldet mit rotem Kreis um die Zahl auf der Wetterkarte. Unter
+    einer Stunde bleibt die Minute die Auskunft, die man wirklich will.
+    """
+    assert regen.dauer(45) == "45 Minuten"
+    assert regen.dauer(59) == "59 Minuten"
+    assert regen.dauer(60) == "1 Stunde"
+    assert regen.dauer(125) == "2 Stunden 5 Minuten"
+    assert regen.satz({"now": True, "minutes": 120}) == "Es regnet noch etwa 2 Stunden."
+    assert (
+        regen.satz({"now": False, "minutes": 95}) == "Regen in etwa 1 Stunde 35 Minuten."
+    )
