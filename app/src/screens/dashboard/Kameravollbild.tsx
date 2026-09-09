@@ -59,6 +59,9 @@ export function CameraFullscreen({
   // Läuft der Strom, ist das Standbild darunter nicht mehr nötig - und
   // sein Takt auch nicht.
   const [liveLaeuft, setLiveLaeuft] = useState(false);
+  // Die Frist ist um, ohne Bild und ohne Fehler - genau der gemeldete
+  // Fall: «Live» stand da, die Fläche blieb schwarz.
+  const [liveHaengt, setLiveHaengt] = useState(false);
   // Welche Schicht wann sichtbar ist, entscheidet lib/kamerabild.ts -
   // dort steht auch, warum (und ein Test, der die leere Fläche kennt).
   const stand = {
@@ -66,6 +69,7 @@ export function CameraFullscreen({
     standbildDa: !!uri,
     liveMoeglich: !liveFailed && !!streamUri && camera.state.stream === true,
     liveLaeuft,
+    liveHaengt,
   };
   const schichten = bildschichten(stand);
   useTakt(() => setTick((value) => value + 1), schichten.standbild ? 3000 : null);
@@ -118,7 +122,11 @@ export function CameraFullscreen({
                   // leer, weil beides ausgeblendet wäre.
                   setLiveLaeuft(false);
                 }}
-                onReady={() => setLiveLaeuft(true)}
+                onReady={() => {
+                  setLiveLaeuft(true);
+                  setLiveHaengt(false);
+                }}
+                onStalled={() => setLiveHaengt(true)}
               />
             </View>
           ) : null}

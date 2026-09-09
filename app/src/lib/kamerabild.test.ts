@@ -55,6 +55,21 @@ describe('kameraSatz', () => {
     expect(kameraSatz(stand())).toBe('Standbild – Live-Bild startet …');
   });
 
+  it('sagt nach der Frist, dass es beim Standbild bleibt', () => {
+    // Der gemeldete Fall, mit Foto: «Live» stand da, und die Fläche
+    // blieb schwarz. Ein Strom, der gar nicht erst anläuft, meldet
+    // nämlich nichts - der Player wartet auf Häppchen, die nie kommen.
+    // «Startet …» in alle Ewigkeit wäre die zweite Fassung desselben
+    // Fehlers.
+    const satz = kameraSatz(stand({ liveHaengt: true }));
+    expect(satz).toBe('Live-Bild kommt nicht – es bleibt beim Standbild');
+  });
+
+  it('läuft er doch noch an, gilt wieder «Live»', () => {
+    // Kein Abbruch: Die Frist sagt nur, dass niemand mehr warten soll.
+    expect(kameraSatz(stand({ liveHaengt: true, liveLaeuft: true }))).toBe('● Live');
+  });
+
   it('läuft er, steht da «Live»', () => {
     expect(kameraSatz(stand({ liveLaeuft: true }))).toBe('● Live');
   });

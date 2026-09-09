@@ -5,6 +5,18 @@ import { VideoView, useVideoPlayer } from 'expo-video';
 import { radius, useColors } from '../theme';
 
 /**
+ * So lange darf ein Strom brauchen, bis er Bilder zeigt.
+ *
+ * Zwölf Sekunden, aus zwei Grenzen: Der Hub gibt seinem ffmpeg-Rückfall
+ * fünfzehn Sekunden für die erste Wiedergabeliste (core/streams.py,
+ * START_TIMEOUT), und eine Protect-Kamera braucht bis zu acht, bis sie
+ * ein vollständiges Bild schickt. Wer länger als zwölf Sekunden auf eine
+ * schwarze Fläche schaut, hält das Haus für kaputt - und liegt damit
+ * meistens richtig.
+ */
+const START_FRIST_MS = 12_000;
+
+/**
  * Live-Bild einer Kamera.
  *
  * Der Hub liefert HLS (`stream.m3u8`) – das spielen iPhone und iPad von
@@ -21,6 +33,7 @@ export function CameraLive({
   muted = true,
   onFailed,
   onReady,
+  onStalled,
   label = 'Live-Bild der Kamera',
 }: {
   uri: string;
@@ -35,6 +48,17 @@ export function CameraLive({
    *  schwarzes Rechteck und hält die Kamera für kaputt - deshalb sagt
    *  die Komponente Bescheid, statt den Aufrufer raten zu lassen. */
   onReady?: () => void;
+  /** Nach der Frist kam immer noch kein Bild - und auch kein Fehler.
+   *
+   *  Genau so gemeldet, mit Foto: «Live» stand da, und die Fläche blieb
+   *  schwarz. Ein Strom, der gar nicht erst anläuft, meldet nämlich
+   *  nichts: Der Player wartet auf Häppchen, die nie kommen, und der
+   *  Aufrufer wartet auf ein Ereignis, das es nicht gibt. Diese Frist
+   *  ist der Ersatz dafür.
+   *
+   *  Kein Abbruch: Der Strom bleibt eingehängt und darf später doch
+   *  noch anlaufen - dann kommt `onReady` wie sonst auch. */
+  onStalled?: () => void;
   /** Was hier zu sehen ist – für die Sprachausgabe. Ohne bleibt vom
    *  Livebild nur eine schwarze Fläche ohne Namen. */
   label?: string;
@@ -47,6 +71,11 @@ export function CameraLive({
   failedRef.current = onFailed;
   const readyRef = useRef(onReady);
   readyRef.current = onReady;
+  const stalledRef = useRef(onStalled);
+  stalledRef.current = onStalled;
+  // Läuft er? Nicht nur für den Aufrufer - auch die Frist unten hängt
+  // daran.
+  const [bereit, setBereit] = useState(false);
 
   const player = useVideoPlayer(uri, (instance) => {
     instance.muted = muted;
@@ -62,11 +91,20 @@ export function CameraLive({
         failedRef.current?.(message);
       } else if (status === 'readyToPlay') {
         setFailed(null);
+        setBereit(true);
         readyRef.current?.();
       }
     });
     return () => subscription.remove();
   }, [player]);
+
+  // Die Frist: Kommt in dieser Zeit kein Bild, sagt die Komponente es -
+  // schweigen hiesse hier, eine schwarze Fläche stehen zu lassen.
+  useEffect(() => {
+    if (bereit || failed) return undefined;
+    const timer = setTimeout(() => stalledRef.current?.(), START_FRIST_MS);
+    return () => clearTimeout(timer);
+  }, [bereit, failed, uri]);
 
   if (failed) {
     return (

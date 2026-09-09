@@ -11,11 +11,16 @@ import { ViewStyle } from 'react-native';
  * auf iPhone und iPad die native mit expo-video – hls.js landet also gar
  * nicht erst im App-Bündel.
  */
+/** Wie lange ein Strom brauchen darf, bis er Bilder zeigt - dieselbe
+ *  Frist wie nativ, samt Begründung in CameraLive.tsx. */
+const START_FRIST_MS = 12_000;
+
 export function CameraLive({
   uri,
   muted = true,
   onFailed,
   onReady,
+  onStalled,
   label = 'Live-Bild der Kamera',
 }: {
   uri: string;
@@ -24,6 +29,9 @@ export function CameraLive({
   onFailed?: (message: string) => void;
   /** Der Strom läuft wirklich - siehe CameraLive.tsx. */
   onReady?: () => void;
+  /** Nach der Frist kam kein Bild und auch kein Fehler - siehe
+   *  CameraLive.tsx. Kein Abbruch: Er darf später doch noch anlaufen. */
+  onStalled?: () => void;
   /** Was hier zu sehen ist – für die Sprachausgabe. */
   label?: string;
 }) {
@@ -36,6 +44,9 @@ export function CameraLive({
   failedRef.current = onFailed;
   const readyRef = useRef(onReady);
   readyRef.current = onReady;
+  const stalledRef = useRef(onStalled);
+  stalledRef.current = onStalled;
+  const [bereit, setBereit] = useState(false);
 
   useEffect(() => {
     const video = ref.current;
@@ -50,7 +61,10 @@ export function CameraLive({
     // «playing» und nicht «canplay»: Gemeint ist der Moment, in dem
     // wirklich Bilder kommen - bis dahin zeigt der Aufrufer das
     // Standbild weiter.
-    const laeuft = () => readyRef.current?.();
+    const laeuft = () => {
+      setBereit(true);
+      readyRef.current?.();
+    };
     video.addEventListener('playing', laeuft);
 
     // Safari und die Browser auf iOS können HLS direkt.
@@ -101,6 +115,15 @@ export function CameraLive({
       hls.destroy();
     };
   }, [uri]);
+
+  // Die Frist: Kommt in dieser Zeit kein Bild, sagt die Komponente es -
+  // schweigen hiesse hier, eine schwarze Fläche stehen zu lassen. Der
+  // Strom bleibt dabei eingehängt und darf später doch noch anlaufen.
+  useEffect(() => {
+    if (bereit || failed) return undefined;
+    const timer = setTimeout(() => stalledRef.current?.(), START_FRIST_MS);
+    return () => clearTimeout(timer);
+  }, [bereit, failed, uri]);
 
   if (failed) {
     return (
