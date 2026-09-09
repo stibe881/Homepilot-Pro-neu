@@ -40,6 +40,32 @@ import { Automation, triggerIcon } from '../screens/automations/entwurf';
  * Einstellungen unter Benachrichtigungen ab.
  */
 
+/** Die Batterie-Erinnerung, wie der Hub sie führt (core/batterie.py). */
+interface Batteriestand {
+  hour: number;
+  threshold: number;
+}
+
+/** Die zwei Stufen der Gutschein-Erinnerung (core/gutscheine.py). */
+interface Gutscheinstand {
+  first_days: number;
+  second_days: number;
+}
+
+/** Die wählbaren Schwellen der Batterie-Erinnerung. Mehr als 20 % wäre
+ *  ein Daueralarm - die Klemme dazu sitzt im Hub (core/batterie.py). */
+const SCHWELLEN = [5, 10, 15, 20];
+
+/** Die wählbaren Erinnerungsstunden: morgens für den Weg in den Tag,
+ *  mittags und abends für alle, die tagsüber ausser Haus sind. */
+const STUNDEN = [7, 8, 9, 12, 18, 20];
+
+/** Die wählbaren Vorlaufzeiten der Gutschein-Erinnerung, in Tagen. Zwei
+ *  Stufen, weil eine nicht reicht: Die erste fällt in den Alltag und
+ *  geht unter, die zweite kurz vor Schluss ist der Anstoss, den Gutschein
+ *  wirklich einzulösen. Am Ablauftag selbst meldet der Hub ohnehin. */
+const VORLAUF_TAGE = [3, 7, 14, 30, 60, 90];
+
 interface RuleParam {
   key: string;
   label: string;
@@ -102,6 +128,15 @@ export function PushRules({
   // Die Storen der Wächter-Regeln (Sturm/Hitze) - geladen wie die Türe,
   // erst beim Aufklappen.
   const [guard, setGuard] = useState<GuardStand | null>(null);
+  // Ab welcher Schwelle und zu welcher Stunde die Batterie erinnert, und
+  // wie viele Tage vorher der Gutschein. Beides stand in den
+  // Einstellungen unter Benachrichtigungen - also an einem anderen Ort
+  // als die Nachricht, um die es geht: Dort schaltet man Kategorien für
+  // sich ab, hier stellt man ein, wann das Haus überhaupt meldet.
+  // null heisst: ein Hub ohne diese Route - dann fehlt die Zeile, statt
+  // tote Knöpfe zu zeigen.
+  const [batterie, setBatterie] = useState<Batteriestand | null>(null);
+  const [gutschein, setGutschein] = useState<Gutscheinstand | null>(null);
 
   const hub = useMemo(
     () => hubClient(settings.url, settings.token),
@@ -135,7 +170,38 @@ export function PushRules({
       .get<GuardStand>('/api/coverguard', { still: true })
       .then(setGuard)
       .catch(() => setGuard(null));
+    hub
+      .get<Batteriestand>('/api/push/battery', { still: true })
+      .then(setBatterie)
+      .catch(() => setBatterie(null));
+    hub
+      .get<Gutscheinstand>('/api/push/vouchers', { still: true })
+      .then(setGutschein)
+      .catch(() => setGutschein(null));
   }, [hub, open]);
+
+  /** Beide Einstellungen gehen denselben Weg: hinschicken, was sich
+   *  geändert hat, und übernehmen, was der Hub daraus macht - er klemmt
+   *  die Werte und tauscht bei den Gutscheinen nötigenfalls die Stufen. */
+  const batterieSetzen = async (patch: Partial<Batteriestand>) => {
+    try {
+      setBatterie(
+        await hub.put<Batteriestand>('/api/push/battery', patch, { still: true })
+      );
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+    }
+  };
+
+  const gutscheinSetzen = async (patch: Partial<Gutscheinstand>) => {
+    try {
+      setGutschein(
+        await hub.put<Gutscheinstand>('/api/push/vouchers', patch, { still: true })
+      );
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+    }
+  };
 
   const storenWaehlen = async (art: 'storm' | 'heat', id: string) => {
     if (!guard) return;
@@ -318,6 +384,63 @@ export function PushRules({
                 />
               ) : null}
 
+              {/* Ab wann und wann täglich erinnert wird. Es stand in den
+                  Einstellungen unter Benachrichtigungen - zwei Bildschirme
+                  von der Nachricht entfernt, die es betrifft. */}
+              {rule.key === 'battery' && rule.enabled && batterie ? (
+                <>
+                  <Chipzeile
+                    wort="Ab"
+                    werte={SCHWELLEN}
+                    gewaehlt={batterie.threshold}
+                    beschriftung={(wert) => `${wert} %`}
+                    vorlesen={(wert) => `Erinnern ab ${wert} Prozent`}
+                    mayEdit={mayEdit}
+                    onWaehlen={(wert) => batterieSetzen({ threshold: wert })}
+                    styles={styles}
+                  />
+                  <Chipzeile
+                    wort="Um"
+                    werte={STUNDEN}
+                    gewaehlt={batterie.hour}
+                    beschriftung={(wert) => `${wert} Uhr`}
+                    vorlesen={(wert) => `Täglich um ${wert} Uhr erinnern`}
+                    mayEdit={mayEdit}
+                    onWaehlen={(wert) => batterieSetzen({ hour: wert })}
+                    styles={styles}
+                  />
+                </>
+              ) : null}
+
+              {/* Die beiden Stufen vor dem Verfall. Der Ablauftag selbst
+                  steht nicht zur Wahl - an dem wird immer erinnert. */}
+              {rule.key === 'vouchers' && rule.enabled && gutschein ? (
+                <>
+                  <Chipzeile
+                    wort="1. Erinnerung"
+                    breit
+                    werte={VORLAUF_TAGE}
+                    gewaehlt={gutschein.first_days}
+                    beschriftung={(tage) => `${tage} T.`}
+                    vorlesen={(tage) => `Erste Erinnerung ${tage} Tage vor dem Ablauf`}
+                    mayEdit={mayEdit}
+                    onWaehlen={(tage) => gutscheinSetzen({ first_days: tage })}
+                    styles={styles}
+                  />
+                  <Chipzeile
+                    wort="2. Erinnerung"
+                    breit
+                    werte={VORLAUF_TAGE}
+                    gewaehlt={gutschein.second_days}
+                    beschriftung={(tage) => `${tage} T.`}
+                    vorlesen={(tage) => `Zweite Erinnerung ${tage} Tage vor dem Ablauf`}
+                    mayEdit={mayEdit}
+                    onWaehlen={(tage) => gutscheinSetzen({ second_days: tage })}
+                    styles={styles}
+                  />
+                </>
+              ) : null}
+
               {/* Welche Storen der Wächter anfasst - je Regel ihre eigene
                   Auswahl, denn der Sturm soll alles schützen dürfen,
                   während die Hitze-Empfehlung nur von der Sonnenseite
@@ -425,6 +548,63 @@ export function PushRules({
           ) : null}
         </>
       ) : null}
+    </View>
+  );
+}
+
+/**
+ * Eine Zeile Chips: ein Wort links, dahinter die Wahlmöglichkeiten.
+ *
+ * Für Einstellungen, die zu einer Nachricht gehören und trotzdem keine
+ * Regel-Parameter sind: «ab 10 %», «um 8 Uhr», «30 Tage vorher». Als
+ * Plus-Minus-Knöpfe wie bei den Parametern wären es fünf Tipser bis zur
+ * gewünschten Zahl - und bei den Gutscheinen liesse sich unterwegs eine
+ * zweite Erinnerung einstellen, die vor der ersten läge.
+ */
+function Chipzeile({
+  wort,
+  breit,
+  werte,
+  gewaehlt,
+  beschriftung,
+  vorlesen,
+  mayEdit,
+  onWaehlen,
+  styles,
+}: {
+  wort: string;
+  /** Für lange Wörter («1. Erinnerung») eine feste, breitere Spalte -
+   *  sonst stehen die Chip-Reihen zweier Zeilen versetzt. */
+  breit?: boolean;
+  werte: number[];
+  gewaehlt: number;
+  beschriftung: (wert: number) => string;
+  vorlesen: (wert: number) => string;
+  mayEdit: boolean;
+  onWaehlen: (wert: number) => void;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  return (
+    <View style={styles.wahlZeile}>
+      <Text style={[styles.wahlWort, breit && styles.wahlWortBreit]}>{wort}</Text>
+      {werte.map((wert) => {
+        const an = gewaehlt === wert;
+        return (
+          <Pressable
+            key={wert}
+            onPress={() => onWaehlen(wert)}
+            disabled={!mayEdit}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: an, disabled: !mayEdit }}
+            accessibilityLabel={vorlesen(wert)}
+            style={[styles.wahlChip, an && styles.wahlChipAn]}
+          >
+            <Text style={[styles.wahlText, an && styles.wahlTextAn]}>
+              {beschriftung(wert)}
+            </Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -585,6 +765,26 @@ function StorenWahl({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     note: { color: colors.onGradientSoft, fontSize: 13 },
+    // Die Chip-Zeilen der Einstellungen, die zu einer Nachricht gehören
+    // (Batterie, Gutschein). Dieselbe Form wie vorher in den
+    // Einstellungen unter Benachrichtigungen - nur eben dort, wo die
+    // Nachricht steht, um die es geht.
+    wahlZeile: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
+    wahlWort: { color: colors.inkSoft, fontSize: 13, fontWeight: '600', minWidth: 24 },
+    wahlWortBreit: { minWidth: 96 },
+    wahlChip: {
+      paddingVertical: 6,
+      paddingHorizontal: 12,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surfaceSoft,
+    },
+    wahlChipAn: { backgroundColor: colors.ink, borderColor: colors.ink },
+    wahlText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
+    // `panel` auf `ink`-Grund - nicht `surfaceStrong`, das im dunklen
+    // Erscheinungsbild durchscheint (siehe SettingsScreen, modeTextActive).
+    wahlTextAn: { color: colors.panel },
     groupHead: {
       flexDirection: 'row',
       alignItems: 'center',
