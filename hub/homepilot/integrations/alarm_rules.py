@@ -212,9 +212,20 @@ ESCALATION_DEFAULT: dict[str, Any] = {
     # Durchsage auf die Boxen (leer = keine) – derselbe Weg wie die
     # broadcast-Aktion der Abläufe (core/say.py).
     "announce": "",
+    # Wohin die Durchsage geht: "alle", "auswahl" (die Liste darunter)
+    # oder "raum" (die Boxen im Zimmer, in dem der Melder ausgelöst hat).
+    # Vorgabe bleibt "alle" - so verhielt es sich, bevor es die Wahl gab.
+    "announce_target": "alle",
+    # Die Boxen für "auswahl". Gruppen sind hier gewöhnliche Einträge:
+    # Eine Lautsprechergruppe ist für den Hub eine Box wie jede andere.
+    "announce_speakers": [],
     # Lautstärke der Durchsage in Prozent; None = Vorgabe von say.py.
     "volume": None,
 }
+
+#: Wohin eine Durchsage gehen kann. Mehr braucht es nicht: Wer eine
+#: einzelne Box will, nimmt "auswahl" mit einem Eintrag.
+ANNOUNCE_TARGETS = ("alle", "auswahl", "raum")
 
 
 def parse_escalation(raw: Any) -> dict[str, Any]:
@@ -239,10 +250,52 @@ def parse_escalation(raw: Any) -> dict[str, Any]:
         result["sirens"] = [str(s) for s in sirens if str(s or "").strip()]
     result["all_lights"] = bool(raw.get("all_lights"))
     result["announce"] = str(raw.get("announce") or "").strip()
+    target = str(raw.get("announce_target") or "").strip()
+    if target in ANNOUNCE_TARGETS:
+        result["announce_target"] = target
+    speakers = raw.get("announce_speakers")
+    if isinstance(speakers, list):
+        result["announce_speakers"] = [
+            str(s) for s in speakers if str(s or "").strip()
+        ]
     volume = raw.get("volume")
     if isinstance(volume, (int, float)):
         result["volume"] = max(0, min(100, int(volume)))
     return result
+
+
+def durchsage_boxen(
+    escalation: dict[str, Any],
+    entities: list[Entity],
+    raum: str | None,
+) -> list[str] | None:
+    """Auf welchen Boxen die Durchsage läuft (rein, testbar).
+
+    ``None`` heisst «alle» - genau das, was ``say.speak`` ohne Liste tut.
+
+    Drei Wege, weil das Haus drei Fälle kennt: immer alle, eine feste
+    Auswahl (Küche und Flur, aber nicht das Kinderzimmer) oder der Raum,
+    in dem der Melder ausgelöst hat - dort steht der Einbrecher.
+
+    Wo ein Weg ins Leere führt - leere Auswahl, ein Raum ohne Box, ein
+    Melder ohne Raum -, gilt wieder «alle». Eine Durchsage, die beim
+    Einbruch nirgends ankommt, ist der schlimmere Fehler: Der Sinn der
+    Sache ist, dass es im Haus laut wird.
+    """
+    ziel = str(escalation.get("announce_target") or "alle")
+    if ziel == "auswahl":
+        gewaehlt = [str(s) for s in escalation.get("announce_speakers") or []]
+        return gewaehlt or None
+    if ziel == "raum":
+        if not raum:
+            return None
+        im_raum = [
+            entity.id
+            for entity in entities
+            if entity.kind == EntityKind.MEDIA_PLAYER and entity.room == raum
+        ]
+        return im_raum or None
+    return None
 
 
 def eskalation_wirkt(escalation: dict[str, Any]) -> bool:
