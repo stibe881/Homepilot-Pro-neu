@@ -3714,6 +3714,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     <BesuchKarte settings={settings} onStand={setBesuchStand} />
                   ) : undefined
                 }
+                // Läuft er, leuchtet das Zeichen. Ein Modus, der die
+                // Abläufe des ganzen Hauses ruhen lässt, darf nicht
+                // hinter einem Symbol liegen, das aussieht wie sonst -
+                // man schaltet ihn abends ein und denkt am Morgen nicht
+                // mehr daran.
+                besuchLaeuft={!!besuchStand?.active}
                 gruss={begruessung(settings, user, now)}
                 // Nur die laufenden Geräte - der Türhinweis stünde
                 // doppelt da, der Chip «offen» in der Karte sagt es schon.

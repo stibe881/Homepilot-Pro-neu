@@ -104,6 +104,7 @@ export function TopStrip({
   onKalender,
   gaesteWlan,
   besuch,
+  besuchLaeuft = false,
 }: {
   entities: Entity[];
   /** Die Gäste-WLAN-Karte fürs Blatt hinter dem WLAN-Symbol. Als Element
@@ -124,6 +125,14 @@ export function TopStrip({
    *  in dem Moment nicht macht. Die Seite bleibt trotzdem, sie erklärt,
    *  was der Modus mit den Abläufen macht. */
   besuch?: React.ReactNode;
+  /** Läuft der Modus gerade? Dann leuchtet das Zeichen.
+   *
+   *  Aus dem Haus: «Wenn hier eingeschaltet wird, soll man das beim
+   *  Symbol sehen.» Ein Modus, der die Abläufe des ganzen Hauses ruhen
+   *  lässt, darf nicht hinter einem Zeichen liegen, das genauso
+   *  aussieht wie sonst - man schaltet ihn abends ein und denkt am
+   *  nächsten Morgen nicht mehr daran. */
+  besuchLaeuft?: boolean;
   status: ConnectionStatus;
   now: Date;
   /** Ausgeblendete Geräte – wer eine Lampe aus den Alltagsansichten
@@ -972,11 +981,29 @@ export function TopStrip({
                 <Pressable
                   onPress={() => setBesuchOffen(true)}
                   accessibilityRole="button"
-                  accessibilityLabel="Besuch oder Babysitter"
+                  accessibilityLabel={
+                    besuchLaeuft
+                      ? 'Besuchsmodus läuft - antippen zum Beenden'
+                      : 'Besuch oder Babysitter'
+                  }
+                  accessibilityState={{ selected: besuchLaeuft }}
                   hitSlop={8}
-                  style={({ pressed }) => [styles.chip, pressed && { opacity: 0.6 }]}
+                  style={({ pressed }) => [
+                    styles.besuchKnopf,
+                    besuchLaeuft && styles.besuchKnopfAn,
+                    pressed && { opacity: 0.6 },
+                  ]}
                 >
-                  <Ionicons name="people" size={16} color={colors.ink} />
+                  {/* Gefülltes Zeichen auf farbigem Grund, solange er
+                      läuft - nicht bloss eine andere Tinte: Auf dem
+                      Verlauf der Begrüssungskarte ist ein Farbwechsel
+                      allein zu leise für etwas, das das ganze Haus
+                      betrifft. */}
+                  <Ionicons
+                    name="people"
+                    size={16}
+                    color={besuchLaeuft ? '#FFFFFF' : colors.ink}
+                  />
                 </Pressable>
               ) : null}
               {gaesteWlan ? (
@@ -1496,6 +1523,18 @@ const makeStyles = (colors: Colors) =>
     alignItems: 'center',
     gap: 6,
   },
+  /** Das Leute-Zeichen der Begrüssungskarte. Eigener Stil und nicht
+   *  `chip`: Es bekommt im eingeschalteten Zustand eine Füllung, und
+   *  der Platz dafür muss auch vorher schon da sein - sonst rückt die
+   *  ganze Reihe zur Seite, sobald der Modus startet. */
+  besuchKnopf: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 7,
+    paddingVertical: 5,
+    borderRadius: radius.pill,
+  },
+  besuchKnopfAn: { backgroundColor: colors.accent },
   chipText: {
     color: colors.onGradientSoft,
     fontSize: 13,
