@@ -17,7 +17,7 @@ steht sie hier, in vier Teilen entstanden:
 | 136–164 | Küche & Abläufe | Rezeptbuch und Ablauf-Editor |
 | 165–221 | Familie & Haushalt | Familienlisten, Kontakte, Ortung |
 | 224–243 | Zweite Durchsicht | Wärme, Strom, Betrieb, und die Fehler einer Woche |
-| 244–266 | Auf Zuruf (September 2026) | Benutzer und Zugang, Bedienung, Abläufe, Sicherheit |
+| 244–267 | Auf Zuruf (September 2026) | Benutzer und Zugang, Bedienung, Abläufe, Sicherheit |
 
 Stand beim Einchecken: **alle 221 Punkte erledigt**, bis auf Punkt 94
 (bewusst gestrichen). Die Häkchen tragen die Commit-Kürzel von den
@@ -2287,7 +2287,7 @@ jeder Auslieferung als Erstes kommt: «Ist es angekommen?»
 Stellen: `hub/homepilot/core/sessions.py`, `app/src/api/client.ts`
 
 
-# Teil VI: Auf Zuruf (244–266)
+# Teil VI: Auf Zuruf (244–267)
 
 Punkte aus Durchsichten im September 2026, auf Zuruf ausgewählt und
 umgesetzt. Gleichzeitig wurden 224–227, 228–229, 235–236 und 242–243
@@ -2666,3 +2666,32 @@ selben Commit wie das Modul, das sie braucht, und erst wenn der
 TestFlight-Build unmittelbar folgt.
 
 Stellen: `hub/homepilot/core/dateien.py`, `hub/homepilot/api/routes/family.py`, `app/src/screens/family/gutscheine.tsx`, `app/src/lib/gutscheine.ts`
+
+### 267. Der Gutschein, der nur mit der Karte gilt ✓ erledigt
+
+*lohnt sich · Aufwand: klein · Hub + App*
+
+Nummer und PIN stehen in der App, und genau das führt in die Irre: Ein
+Teil der Gutscheine wird im Laden nur gegen das Original eingelöst -
+die Plastikkarte, den Bon, den Ausdruck. Wer mit dem Telefon an der
+Kasse steht und die Nummer vorliest, fährt wieder heim.
+
+Neu steht beim Erfassen und Bearbeiten, wie eingelöst wird: «Nummer
+genügt» oder «Karte mitbringen». Beide Seiten sind benannt, nicht ein
+einzelner Schalter - bei «Karte mitbringen: aus» müsste man raten, was
+das Gegenteil ist.
+
+Wo der Hinweis auftaucht, folgt daraus, wann er gebraucht wird:
+**vor** dem Losfahren. Deshalb steht er als Chip schon auf der Karte in
+der Liste und nicht erst im Detail - da öffnet niemand jeden Gutschein
+einzeln. Und im Teilen-Text steht er auch: Wer den Gutschein
+weitergibt, gibt sonst nur die Nummer weiter, und der andere steht mit
+ihr im Laden, während die Karte hier liegt.
+
+Der Hub setzt das Feld bei jedem Speichern, auch als `false`. Sonst
+hinge an derselben Liste zweierlei Bedeutung von «nicht da». Im
+Familienbuch wird daraus ein Satz statt eines Wahrheitswerts, und nur
+in der einen Richtung: «physical False» auf einer gedruckten Seite
+liest sich wie ein Fehler.
+
+Stellen: `app/src/lib/gutscheine.ts`, `app/src/screens/family/gutscheine.tsx`, `hub/homepilot/core/gutscheine.py`

@@ -957,3 +957,38 @@ async def test_frisch_eingetragen_am_ablauftag_kommt_nur_die_tagesmeldung(monkey
         ]
     finally:
         await hub.stop()
+
+
+# ── Karte mitbringen (Punkt 267 der Werkbank) ───────────────────────────
+
+
+def test_ein_gutschein_ohne_angabe_verlangt_die_karte_nicht():
+    """Alte Einträge bleiben, wie sie waren - und bekommen ein ehrliches False.
+
+    Nummer und PIN stehen in der App; dass ein Laden trotzdem das
+    Original sehen will, ist die Ausnahme. Wer nichts angetippt hat, hat
+    damit nichts behauptet.
+    """
+    assert gutscheine.bereinigen({"total": 10})["physical"] is False
+    assert gutscheine.bereinigen({"total": 10, "physical": True})["physical"] is True
+    # Was aus einem Formular kommt, ist ein Wahrheitswert - nicht der
+    # Text «false», der als nichtleerer String sonst wahr wäre.
+    assert gutscheine.bereinigen({"physical": ""})["physical"] is False
+    assert gutscheine.bereinigen({"physical": "ja"})["physical"] is True
+
+
+def test_das_buch_druckt_die_karte_als_satz_und_das_gegenteil_gar_nicht():
+    """Auf der gedruckten Seite steht kein «physical False».
+
+    Das Familienbuch schreibt jedes Feld hin, wie es heisst. Ein
+    Wahrheitswert liest sich dort wie ein Fehler; gebraucht wird der
+    Hinweis nur in der einen Richtung.
+    """
+    rows = [
+        {"id": "a", "shop": "Brack.ch", "shared": "familie", "physical": True},
+        {"id": "b", "shop": "Zalando", "shared": "familie", "physical": False},
+    ]
+    buch = gutscheine.fuers_buch(rows)
+    assert "physical" not in buch[0] and "physical" not in buch[1]
+    assert buch[0]["mitbringen"] == "Karte, Bon oder Ausdruck nötig"
+    assert "mitbringen" not in buch[1]
