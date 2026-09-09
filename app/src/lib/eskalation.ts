@@ -123,6 +123,21 @@ export function eskalationStand(eskalation: Eskalation): string {
 }
 
 /**
+ * Was im zugeklappten Kopf der Sensoren-Karte steht (rein, testbar).
+ *
+ * Die Karte ist lang und wird einmal eingerichtet, deshalb beginnt sie
+ * zugeklappt - und dann muss ihr Kopf die Frage beantworten, die man
+ * ohne sie hat: Wie viele Sensoren wachen im gerade gewählten Modus?
+ * «Nacht: 0 Sensoren» ist dabei die wichtigste Auskunft der Seite: Eine
+ * scharfe Anlage ohne zugeordneten Sensor bewacht nichts, und das sah
+ * man vorher erst nach dem Aufklappen.
+ */
+export function sensorenStand(modus: string, anzahl: number): string {
+  const zahl = anzahl === 1 ? '1 Sensor' : `${anzahl} Sensoren`;
+  return modus ? `${modus}: ${zahl}` : zahl;
+}
+
+/**
  * Ob eine Verlaufszeile zum gewählten Filter gehört (rein, testbar).
  *
  * «escalated» zählt zum Filter «Alarm»: Die Eskalation ist die zweite
