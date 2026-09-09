@@ -187,6 +187,17 @@ def parse_actions(raw: Any) -> dict[str, list[dict[str, Any]]]:
             action = {"entity_id": entity_id, "command": command}
             if isinstance(entry.get("data"), dict):
                 action["data"] = entry["data"]
+            # Frist je Befehl (Sekunden). Damit lässt sich staffeln, was
+            # vorher nur die Eskalation konnte: Licht sofort, Sirene nach
+            # dreissig Sekunden, Storen hoch nach zwei Minuten. Ohne
+            # Angabe oder mit Unsinn: sofort - das war das Verhalten,
+            # bevor es die Frist gab, und es ist das erwartete.
+            try:
+                after = max(0.0, float(entry.get("after") or 0))
+            except (TypeError, ValueError):
+                after = 0.0
+            if after > 0:
+                action["after"] = after
             result[slot].append(action)
     return result
 
@@ -206,9 +217,6 @@ ESCALATION_DEFAULT: dict[str, Any] = {
     "after": 30,
     # Benannte Sirenen-/Signal-Entitäten, die dann eingeschaltet werden.
     "sirens": [],
-    # Zusätzlich alle Lichter einschalten: Einbrecher mögen kein
-    # Rampenlicht, und wer nachts nachschauen geht, auch keinen dunklen Flur.
-    "all_lights": False,
     # Durchsage auf die Boxen (leer = keine) – derselbe Weg wie die
     # broadcast-Aktion der Abläufe (core/say.py).
     "announce": "",
@@ -248,7 +256,6 @@ def parse_escalation(raw: Any) -> dict[str, Any]:
     sirens = raw.get("sirens")
     if isinstance(sirens, list):
         result["sirens"] = [str(s) for s in sirens if str(s or "").strip()]
-    result["all_lights"] = bool(raw.get("all_lights"))
     result["announce"] = str(raw.get("announce") or "").strip()
     target = str(raw.get("announce_target") or "").strip()
     if target in ANNOUNCE_TARGETS:
@@ -306,34 +313,28 @@ def eskalation_wirkt(escalation: dict[str, Any]) -> bool:
     """
     if not escalation.get("enabled"):
         return False
-    return bool(
-        escalation.get("sirens")
-        or escalation.get("all_lights")
-        or escalation.get("announce")
-    )
+    return bool(escalation.get("sirens") or escalation.get("announce"))
 
 
 def eskalations_befehle(
-    escalation: dict[str, Any], entities: list[Entity]
+    escalation: dict[str, Any], entities: list[Entity] | None = None
 ) -> list[dict[str, Any]]:
     """Was die Eskalation einschaltet (rein, testbar).
 
-    Sirenen zuerst: Der Lärm ist der Zweck, das Licht die Zugabe. Die
-    Lichter kommen aus dem Bestand statt aus einer gepflegten Liste -
-    «alle» soll auch die Lampe von letzter Woche meinen.
+    Nur noch die Sirenen. «Alle Lichter einschalten» stand hier als
+    eigener Schalter und schaltete jede Lampe des Hauses ein - eine
+    Sonderregel, die genau eine Sache konnte und sie nicht erklärte.
+    Dasselbe (und mehr) geht jetzt über «Was wann geschaltet wird»: Dort
+    trägt jeder Befehl seine eigene Frist, und «Licht an nach 30
+    Sekunden» ist damit eine gewöhnliche Zeile statt eines Schalters.
+
+    ``entities`` wird nicht mehr gebraucht und bleibt nur stehen, damit
+    bestehende Aufrufe nicht brechen.
     """
-    befehle: list[dict[str, Any]] = [
+    return [
         {"entity_id": entity_id, "command": "turn_on"}
         for entity_id in escalation.get("sirens") or []
     ]
-    if escalation.get("all_lights"):
-        sirenen = set(escalation.get("sirens") or [])
-        befehle.extend(
-            {"entity_id": entity.id, "command": "turn_on"}
-            for entity in entities
-            if entity.kind == EntityKind.LIGHT and entity.id not in sirenen
-        )
-    return befehle
 
 
 def eskalations_ende_befehle(escalation: dict[str, Any]) -> list[dict[str, Any]]:

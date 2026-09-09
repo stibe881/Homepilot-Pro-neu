@@ -25,7 +25,6 @@ describe('eskalationLesen', () => {
         enabled: true,
         after: 60,
         sirens: ['hue.sirene', ''],
-        all_lights: true,
         announce: 'Achtung',
         announce_target: 'raum',
         announce_speakers: ['cast.kueche', ''],
@@ -35,7 +34,6 @@ describe('eskalationLesen', () => {
       enabled: true,
       after: 60,
       sirens: ['hue.sirene'],
-      all_lights: true,
       announce: 'Achtung',
       announce_target: 'raum',
       announce_speakers: ['cast.kueche'],
@@ -128,10 +126,9 @@ describe('eskalationStand', () => {
         enabled: true,
         after: 30,
         sirens: ['a'],
-        all_lights: true,
         announce: 'Hallo',
       })
-    ).toBe('nach 30 s: Sirene, alle Lichter, Durchsage');
+    ).toBe('nach 30 s: Sirene, Durchsage');
   });
 
   it('verraet, wenn sie eingeschaltet ist, aber nichts taete', () => {
