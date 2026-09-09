@@ -75,6 +75,26 @@ def test_indoor_temperature_ignores_outdoor_and_broken_sensors():
     assert storenwaechter.innentemperatur([]) is None
 
 
+def test_indoor_temperature_ignores_sensors_that_only_count_for_their_room():
+    """«Gilt für: nur diesen Raum» (Geräte → Anpassen) hält den Fühler heraus.
+
+    Der Fühler in der Waschküche steht neben dem Rack und misst 30 Grad -
+    plausibel, drinnen, mit Raum, und trotzdem falsch: Er zöge das Mittel
+    so weit hoch, dass der Hitze-Hinweis an einem kühlen Tag käme.
+    """
+    stube = SimpleNamespace(
+        id="t.1", kind="sensor", room="Stube", state={"state": 22.0, "unit": "°C"}
+    )
+    rack = SimpleNamespace(
+        id="t.2",
+        kind="sensor",
+        room="Waschküche",
+        room_only=True,
+        state={"state": 30.0, "unit": "°C"},
+    )
+    assert storenwaechter.innentemperatur([stube, rack]) == 22.0
+
+
 def test_the_heat_hint_needs_sun_daytime_and_a_warm_house():
     hitze = storenwaechter.hitze_tagsueber
     assert hitze(26.0, 25.0, 40.0, 14)

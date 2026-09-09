@@ -1761,10 +1761,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const messwerte = useMemo(
     () =>
       (categorized ? raumMesswerte(shown) : []).filter(
-        (fuehler) => fuehler.id !== klima?.fuehler.id
+        (fuehler) =>
+          fuehler.id !== klima?.fuehler?.id && fuehler.id !== klima?.feuchteFuehler?.id
       ),
     [categorized, shown, klima]
   );
+  /** Die Karte eines Kopf-Fühlers auf- und zuklappen. Sie steht unten
+   *  bei den anderen Fühlern - der Kopf zeigt den Wert, die Karte den
+   *  Verlauf. */
+  const klimaAufklappen = useCallback((fuehler: Entity | null) => {
+    if (!fuehler) return;
+    setExpanded((current) => (current === fuehler.id ? null : fuehler.id));
+  }, []);
 
   /** Standbild-Adresse einer Kamera (oder der Saugerkarte) am Hub. */
   const snapshotUrl = (entity: Entity) =>
@@ -1906,6 +1914,20 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       onSceneToggles={
         darfAnpassen
           ? (value) => setEntityMeta(entity.id, { scene_toggles: value })
+          : undefined
+      }
+      // «Gilt für: nur diesen Raum» - für Klimafühler, die nicht für die
+      // Wohnung sprechen sollen (Hub: core/storenwaechter.py).
+      onRoomOnly={
+        darfAnpassen
+          ? (value) => setEntityMeta(entity.id, { room_only: value })
+          : undefined
+      }
+      // «Kontakt an: Fenster / Türe» - der Raumkopf sagt das eine oder
+      // das andere, und raten muss er nur, solange es niemand weiss.
+      onContactKind={
+        darfAnpassen
+          ? (value) => setEntityMeta(entity.id, { contact_kind: value })
           : undefined
       }
       doorConfirm={prefs.doorConfirm}
@@ -3121,21 +3143,34 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   {room}
                 </Text>
                 {klima ? (
-                  <Pressable
-                    onPress={() =>
-                      setExpanded((current) =>
-                        current === klima.fuehler.id ? null : klima.fuehler.id
-                      )
-                    }
-                    accessibilityRole="button"
-                    accessibilityLabel={`Temperatur ${klima.temp}`}
-                    style={styles.raumKlimaBlock}
-                  >
-                    <Text style={styles.raumKlimaTemp}>{klima.temp}</Text>
-                    {klima.feuchte ? (
-                      <Text style={styles.raumKlimaSub}>{klima.feuchte}</Text>
+                  <View style={styles.raumKlimaBlock}>
+                    {klima.fuehler && klima.temp ? (
+                      <Pressable
+                        onPress={() => klimaAufklappen(klima.fuehler)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Temperatur ${klima.temp}`}
+                      >
+                        <Text style={styles.raumKlimaTemp}>{klima.temp}</Text>
+                      </Pressable>
                     ) : null}
-                  </Pressable>
+                    {klima.feuchte ? (
+                      <Pressable
+                        onPress={() =>
+                          klimaAufklappen(klima.feuchteFuehler ?? klima.fuehler)
+                        }
+                        accessibilityRole="button"
+                        accessibilityLabel={`Luftfeuchtigkeit ${klima.feuchte}`}
+                      >
+                        <Text
+                          style={
+                            klima.temp ? styles.raumKlimaSub : styles.raumKlimaTemp
+                          }
+                        >
+                          {klima.feuchte}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
                 ) : null}
               </View>
               {raumKopf ? <Text style={styles.raumFakten}>{raumKopf}</Text> : null}
@@ -3419,7 +3454,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     // aber zu den anderen Fühlern.
                     const auf = [
                       ...messwerte,
-                      ...(klima ? [klima.fuehler] : []),
+                      ...(klima?.fuehler ? [klima.fuehler] : []),
+                      ...(klima?.feuchteFuehler ? [klima.feuchteFuehler] : []),
                     ].find((fuehler) => fuehler.id === expanded);
                     return auf && cardWidth ? renderCard(auf) : null;
                   })()}

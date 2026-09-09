@@ -532,6 +532,8 @@ class Hub:
         favorite: Any = UNSET,
         group: Any = UNSET,
         scene_toggles: Any = UNSET,
+        room_only: Any = UNSET,
+        contact_kind: Any = UNSET,
     ) -> None:
         """Setzt Anzeigename, Favorit-Flag oder Gruppe einer Entität.
 
@@ -551,6 +553,14 @@ class Hub:
             current["group"] = (group or "").strip() or None
         if scene_toggles is not UNSET:
             current["scene_toggles"] = bool(scene_toggles)
+        if room_only is not UNSET:
+            current["room_only"] = bool(room_only)
+        if contact_kind is not UNSET:
+            # Nur die beiden Werte, die etwas bedeuten - alles andere
+            # heisst «weiss ich nicht» und wird gleich wieder aussortiert.
+            current["contact_kind"] = (
+                contact_kind if contact_kind in ("window", "door") else None
+            )
         # Leere Felder entfernen, damit der Eintrag nicht anwächst.
         #
         # `scene_toggles` geht andersherum: Der Normalfall ist «ja»,

@@ -2,6 +2,8 @@
 import { Entity } from '../api/types';
 import {
   hasOpenDoor,
+  istKontakt,
+  kontaktArt,
   offenSeit,
   offenSortiert,
   raumZeile,
@@ -148,5 +150,54 @@ describe('raumZeile', () => {
     expect(raumZeile({ name: 'Fenster', room: 'Küche' })).toBe('Küche');
     expect(raumZeile({ name: 'Fenster' })).toBeNull();
     expect(raumZeile({ name: 'Fenster', room: '  ' })).toBeNull();
+  });
+});
+
+describe('kontaktArt', () => {
+  const kontakt = (patch: Partial<Entity>): Entity =>
+    ({
+      id: 'x',
+      name: 'Kontakt',
+      kind: 'binary_sensor',
+      integration: 'homematic',
+      available: true,
+      commands: [],
+      state: { state: 'off' },
+      ...patch,
+    }) as unknown as Entity;
+
+  it('nimmt, was jemand eingetragen hat - auch gegen den Namen', () => {
+    // Genau dafür gibt es die Zeile in Geräte → Anpassen: Der Kontakt
+    // heisst «Fenster Waschküche» und hängt an der Türe.
+    expect(
+      kontaktArt(kontakt({ name: 'Fenster Waschküche', contact_kind: 'door' }))
+    ).toBe('door');
+  });
+
+  it('sonst die Geräteklasse, wo die Integration sie kennt', () => {
+    expect(kontaktArt(kontakt({ state: { state: 'off', device_class: 'window' } }))).toBe(
+      'window'
+    );
+    expect(kontaktArt(kontakt({ state: { state: 'off', device_class: 'garage' } }))).toBe(
+      'door'
+    );
+  });
+
+  it('zuletzt der Name - Homematic meldet nur «contact»', () => {
+    const klasse = { state: 'off', device_class: 'contact' };
+    expect(kontaktArt(kontakt({ name: 'Küchenfenster', state: klasse }))).toBe('window');
+    expect(kontaktArt(kontakt({ name: 'Waschküche', state: klasse }))).toBe('door');
+  });
+
+  it('erkennt einen Kontakt, ohne dass er offen sein muss', () => {
+    expect(istKontakt(kontakt({ state: { state: 'off', device_class: 'contact' } }))).toBe(
+      true
+    );
+    // Ein Bewegungsmelder ist auch ein binary_sensor.
+    expect(istKontakt(kontakt({ state: { state: 'on', device_class: 'motion' } }))).toBe(
+      false
+    );
+    // Ein Schloss bleibt eine Kachel - man bedient es.
+    expect(istKontakt(kontakt({ kind: 'lock', state: { door: 'open' } }))).toBe(false);
   });
 });

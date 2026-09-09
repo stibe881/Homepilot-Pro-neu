@@ -23,6 +23,46 @@ export function isWindow(name: string): boolean {
 }
 
 /**
+ * Ist das ein Fenster- oder Türkontakt? (rein, testbar)
+ *
+ * Dieselbe Regel, nach der `openContacts` zählt - nur ohne die Frage,
+ * ob er gerade offen steht. Der Raumkopf braucht beides: die offenen,
+ * um sie zu nennen, und alle, um «Fenster zu» überhaupt sagen zu
+ * dürfen. In einem Raum ohne Kontakt wäre die Beruhigung erfunden.
+ *
+ * Schlösser zählen hier nicht mit: Sie bleiben eine Kachel - man
+ * bedient sie.
+ */
+export function istKontakt(entity: Entity): boolean {
+  if (entity.kind !== 'binary_sensor') return false;
+  const klasse = String(entity.state.device_class ?? '');
+  return klasse ? OPEN_CLASSES.has(klasse) : OPENING_NAME.test(entity.name);
+}
+
+/**
+ * Fenster oder Türe - was hängt an diesem Kontakt? (rein, testbar)
+ *
+ * Drei Stufen, und die erste ist neu: Was jemand in Geräte → Anpassen
+ * eingetragen hat, gilt. Homematic meldet jeden Kontakt als `contact`
+ * und weiss es selbst nicht; wo eine Integration es weiss (Zigbee,
+ * Matter, das Schloss mit Türsensor), sagt sie «door» oder «window».
+ * Bleibt der Name - und der ist geraten: Ein Kontakt, der «Waschküche»
+ * heisst, galt damit als Fenster, auch wenn er an der Türe klebt.
+ */
+export function kontaktArt(entity: Entity): 'window' | 'door' {
+  if (entity.contact_kind === 'window' || entity.contact_kind === 'door') {
+    return entity.contact_kind;
+  }
+  // Ein Schloss ist immer eine Türe - es hat keinen Kontakt, der
+  // etwas anderes behaupten könnte.
+  if (entity.kind === 'lock') return 'door';
+  const klasse = String(entity.state.device_class ?? '');
+  if (klasse === 'window') return 'window';
+  if (klasse === 'door' || klasse === 'garage') return 'door';
+  return isWindow(entity.name) ? 'window' : 'door';
+}
+
+/**
  * Alle offenen Türen und Fenster – Kontaktsensoren plus Türsensor im
  * Schloss.
  *
@@ -38,13 +78,9 @@ export function openContacts(entities: Entity[]): Entity[] {
     // Ein Schloss mit Türsensor: Der Riegel sagt nichts darüber, ob die
     // Türe offen steht.
     if (entity.kind === 'lock') return entity.state.door === 'open';
-    if (entity.kind !== 'binary_sensor') return false;
-    const klasse = String(entity.state.device_class ?? '');
-    // Wo die Integration keine Geräteklasse liefert, entscheidet der Name.
-    const isContact = klasse
-      ? OPEN_CLASSES.has(klasse)
-      : OPENING_NAME.test(entity.name);
-    return isContact && entity.state.state === 'on';
+    // Wo die Integration keine Geräteklasse liefert, entscheidet der
+    // Name (istKontakt).
+    return istKontakt(entity) && entity.state.state === 'on';
   });
 }
 
@@ -56,9 +92,7 @@ export function openContacts(entities: Entity[]): Entity[] {
  * das man jetzt wissen will.
  */
 export function hasOpenDoor(entities: Entity[]): boolean {
-  return openContacts(entities).some(
-    (entity) => entity.kind === 'lock' || !isWindow(entity.name)
-  );
+  return openContacts(entities).some((entity) => kontaktArt(entity) === 'door');
 }
 
 /**

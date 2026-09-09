@@ -64,6 +64,20 @@ export interface Entity {
    * Szene nicht zurücknehmen.
    */
   scene_toggles?: boolean;
+  /** Zählt dieser Fühler nur für seinen eigenen Raum?
+   *
+   *  Der Fühler in der Waschküche steht neben dem Rack und misst
+   *  30 Grad. Im Raum ist die Zahl richtig; als «die» Temperatur der
+   *  Wohnung - Kopfzeile, Raumübersicht, Hitze-Hinweis - ist sie
+   *  falsch. Wer das gesetzt hat, bleibt dort draussen. */
+  room_only?: boolean;
+  /** Hängt dieser Kontakt an einem Fenster oder an einer Türe?
+   *
+   *  Homematic meldet beides als `contact` und weiss es selbst nicht -
+   *  ein Kontakt namens «Waschküche» galt darum als Fenster. Der
+   *  Raumkopf sagt aber «Fenster zu» oder «Türe zu». Leer heisst
+   *  «raten» (lib/offen.ts, kontaktArt). */
+  contact_kind?: 'window' | 'door' | null;
   /** Kennung der Leuchte, in der dieses Licht aufgeht.
    *
    *  Eine Deckenlampe mit fünf Spots ist ein Licht, nicht fünf: Wer das

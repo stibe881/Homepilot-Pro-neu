@@ -1,7 +1,8 @@
 import type { Ionicons } from '@expo/vector-icons';
 
 import { Entity } from '../api/types';
-import { openContacts } from './offen';
+import { istKlimaFuehler } from './klimachip';
+import { istKontakt, kontaktArt, openContacts } from './offen';
 import { aktiveVorgabe } from './storenvorgaben';
 
 /**
@@ -25,24 +26,97 @@ function temperatur(items: Entity[]): Entity | undefined {
     .sort((a, b) => a.name.localeCompare(b.name))[0];
 }
 
+/** Der Feuchtefühler des Raums, wenn er ein eigenes Gerät ist – der
+ *  erste nach Name, wie bei der Temperatur. `istKlimaFuehler` hält
+ *  Akkustand und Sendespeicher heraus: Die zählen auch in Prozent. */
+function feuchtigkeit(items: Entity[]): Entity | undefined {
+  return items
+    .filter((entity) => istKlimaFuehler(entity, 'humidity'))
+    .sort((a, b) => a.name.localeCompare(b.name))[0];
+}
+
 /**
  * Das Klima des Raums für den grossen Wert rechts neben dem Titel
- * (rein, testbar). Null, wenn der Raum keinen Temperaturfühler hat -
- * dann trägt der Kopf einfach keinen Wert, statt «–» zu zeigen.
+ * (rein, testbar). Null, wenn der Raum weder Temperatur noch Feuchte
+ * misst - dann trägt der Kopf einfach keinen Wert, statt «–» zu zeigen.
+ *
+ * Die Feuchte stand bisher nur da, wenn derselbe Fühler sie mitlieferte
+ * (`state.humidity`). In der Waschküche sind es zwei Geräte, und die
+ * Feuchte lag darum als Chip unter dem Kopf - dieselbe Auskunft in
+ * einer anderen Form, zwei Zeilen tiefer. Jetzt steht sie in beiden
+ * Fällen an derselben Stelle: klein unter dem Grad.
  */
-export function raumKlima(
-  items: Entity[]
-): { fuehler: Entity; temp: string; feuchte: string | null } | null {
-  const fuehler = temperatur(items);
-  if (!fuehler) return null;
+export function raumKlima(items: Entity[]): {
+  fuehler: Entity | null;
+  temp: string | null;
+  feuchteFuehler: Entity | null;
+  feuchte: string | null;
+} | null {
+  const fuehler = temperatur(items) ?? null;
+  // Der eigene Feuchtefühler zählt nur, wenn der Temperaturfühler die
+  // Feuchte nicht schon selbst meldet - sonst stünde sie doppelt.
+  const eigen =
+    fuehler && typeof fuehler.state.humidity === 'number'
+      ? undefined
+      : feuchtigkeit(items);
+  const prozent =
+    fuehler && typeof fuehler.state.humidity === 'number'
+      ? Number(fuehler.state.humidity)
+      : eigen
+        ? Number(eigen.state.state)
+        : null;
+  if (!fuehler && prozent === null) return null;
   return {
     fuehler,
-    temp: `${Number(fuehler.state.state).toFixed(1).replace('.', ',')}°`,
-    feuchte:
-      typeof fuehler.state.humidity === 'number'
-        ? `${Math.round(fuehler.state.humidity)} % Feuchte`
-        : null,
+    temp: fuehler
+      ? `${Number(fuehler.state.state).toFixed(1).replace('.', ',')}°`
+      : null,
+    feuchteFuehler: eigen ?? null,
+    feuchte: prozent === null ? null : `${Math.round(prozent)} % Feuchte`,
   };
+}
+
+/** Mehrzahl, wo sie hingehört: «1 Fenster», «2 Fenster», «2 Türen». */
+function stueck(anzahl: number, art: 'window' | 'door'): string {
+  if (art === 'window') return `${anzahl} Fenster`;
+  return anzahl === 1 ? '1 Türe' : `${anzahl} Türen`;
+}
+
+/**
+ * Was der Raumkopf über Fenster und Türen sagt (rein, testbar).
+ *
+ * Die Kontakte hatten im Raum eine eigene Kategorie mit einer Kachel je
+ * Stück - eine ganze Überschrift und eine halbe Bildschirmhöhe für die
+ * Auskunft «zu». Sie ist eine Zeile wert, keine Kachel: Bedienen kann
+ * man einen Kontakt ohnehin nicht, und die Kachel sagte nichts, was
+ * hier nicht auch steht.
+ *
+ * Fenster und Türen getrennt, weil es etwas anderes ist: Ein gekipptes
+ * Fenster ist eine Notiz, eine offene Türe etwas, das man jetzt wissen
+ * will (dieselbe Trennung wie hasOpenDoor). Woran ein Kontakt hängt,
+ * sagt kontaktArt - notfalls geraten, und darum in Geräte → Anpassen
+ * überschreibbar.
+ *
+ * Leer, wenn der Raum gar keinen Kontakt hat: «Fenster zu» wäre dort
+ * eine Behauptung über etwas, das niemand misst.
+ */
+export function kontaktZeile(items: Entity[]): string {
+  const kontakte = items.filter(istKontakt);
+  if (kontakte.length === 0) return '';
+  const offen = openContacts(kontakte);
+  // Einer offen: Sein Name sagt mehr als seine Art - «Küchenfenster
+  // offen» ist die Auskunft, «1 Fenster offen» nur die halbe.
+  if (offen.length === 1) return `${offen[0].name} offen`;
+  if (offen.length > 1) {
+    const teile = (['window', 'door'] as const)
+      .map((art) => [art, offen.filter((e) => kontaktArt(e) === art).length] as const)
+      .filter(([, anzahl]) => anzahl > 0)
+      .map(([art, anzahl]) => stueck(anzahl, art));
+    return `${teile.join(' und ')} offen`;
+  }
+  const arten = new Set(kontakte.map(kontaktArt));
+  if (arten.size > 1) return 'Fenster und Türen zu';
+  return arten.has('window') ? 'Fenster zu' : 'Türen zu';
 }
 
 /**
@@ -63,19 +137,8 @@ export function raumFakten(items: Entity[]): string {
   if (bedienbar.length > 0) {
     teile.push(an === 0 ? 'Alles aus' : `${an} von ${bedienbar.length} an`);
   }
-  // Dieselben Klassen wie openContacts (lib/offen.ts) - sonst hiesse es
-  // «Fenster zu» aus einem anderen Fensterbegriff, als «offen» ihn hat.
-  const kontakte = items.filter(
-    (entity) =>
-      entity.kind === 'binary_sensor' &&
-      ['contact', 'door', 'window', 'garage'].includes(
-        String(entity.state?.device_class ?? '')
-      )
-  );
-  const offen = openContacts(items);
-  if (offen.length === 1) teile.push(`${offen[0].name} offen`);
-  else if (offen.length > 1) teile.push(`${offen.length} offen`);
-  else if (kontakte.length > 0) teile.push('Fenster zu');
+  const kontaktsatz = kontaktZeile(items);
+  if (kontaktsatz) teile.push(kontaktsatz);
   if (
     items.some(
       (entity) => entity.kind === 'media_player' && entity.state.state === 'playing'
@@ -132,7 +195,12 @@ export function inBeschattung(entity: Entity): boolean {
 
 export function raumZeile(items: Entity[]): string {
   const teile: string[] = [];
-  const fuehler = temperatur(items);
+  // Auf der Übersicht liest man die Räume nebeneinander wie einen Blick
+  // durch die Wohnung. Ein Fühler, der «nur für seinen Raum» zählt
+  // (Geräte → Anpassen), gehört da nicht hin: Die 30 Grad neben dem
+  // Rack in der Waschküche stünden zwischen lauter Wohntemperaturen.
+  // Im Raum selbst steht er weiterhin gross im Kopf (raumKlima).
+  const fuehler = temperatur(items.filter((entity) => !entity.room_only));
   if (fuehler) {
     teile.push(`${Number(fuehler.state.state).toFixed(1).replace('.', ',')}°`);
     if (typeof fuehler.state.humidity === 'number') {
@@ -189,7 +257,12 @@ export function wichtigeZuerst(items: Entity[], favorites: string[]): Entity[] {
  */
 export function raumSymbol(name: string): keyof typeof Ionicons.glyphMap {
   const n = name.toLowerCase();
-  if (/küche|kueche|kitchen/.test(n)) return 'restaurant-outline';
+  // Dieselbe Falle wie beim Küchentimer (istKueche weiter unten):
+  // «Waschküche» enthält «küche», und weil diese Zeile die erste war,
+  // trug die Waschküche im Kopf ein Besteck. Deutsche Zusammensetzungen
+  // hängen das Grundwort hinten an - also zählt nur ein «Küche», das
+  // für sich steht.
+  if (istKueche(name) || /kitchen/.test(n)) return 'restaurant-outline';
   if (/bad|dusche|wc|toilette/.test(n)) return 'water-outline';
   if (/schlaf|bett/.test(n)) return 'bed-outline';
   if (/kinder|nino|baby/.test(n)) return 'happy-outline';
@@ -240,7 +313,8 @@ export function raeumeSortiert(rooms: string[], order?: string[]): string[] {
  * die drei Häufigsten behalten ihren festen Platz vorn.
  *
  * Messwerte tauchen gar nicht auf: Sie stehen als Zeile im Raumkopf
- * statt als volle Kacheln zwischen dem Bedienbaren. Ebenso die
+ * statt als volle Kacheln zwischen dem Bedienbaren. Ebenso die Fenster-
+ * und Türkontakte - aus demselben Grund. Ebenso die
  * Lichtszenen der Bridge: Sie hatten eine eigene Kategorie
  * «Lichtszene» ganz unten, hinter Beleuchtung, Store und Medien - und
  * standen damit weit weg von den Szenen des Hubs, die dasselbe tun.
@@ -268,7 +342,15 @@ export function raumKategorien(
   // ausgenommen; beide stehen oben im Raumkopf.
   const rest = items.filter(
     (entity) =>
-      !used.has(entity.id) && entity.kind !== 'sensor' && entity.kind !== 'scene'
+      !used.has(entity.id) &&
+      entity.kind !== 'sensor' &&
+      entity.kind !== 'scene' &&
+      // Fenster- und Türkontakte stehen als Zeile im Raumkopf
+      // (kontaktZeile). Als Kategorie kosteten sie eine Überschrift und
+      // eine Kachel je Kontakt - für eine Auskunft, die «zu» lautet.
+      // Bedienen lässt sich ein Kontakt ohnehin nicht; wer seine
+      // Batterie sehen will, findet ihn unter Geräte.
+      !istKontakt(entity)
   );
   const labels = Array.from(new Set(rest.map(kindLabel))).sort((a, b) =>
     a.localeCompare(b)
