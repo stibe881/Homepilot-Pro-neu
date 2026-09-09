@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
+import { Abschnitt } from '../components/Abschnitt';
 import { Klappe } from '../components/Klappe';
 import {
   artStand,
@@ -30,6 +31,7 @@ import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { Tastaturplatz } from '../components/Tastaturplatz';
 import { einladungFrist } from '../lib/einladung';
+import { gruppiereZugaenge } from '../lib/benutzergruppen';
 import { ROLE_LABELS } from '../lib/rollen';
 import {
   besitzerZahl,
@@ -494,32 +496,49 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
       {users === null && !error ? <Laedt was="Benutzer" /> : null}
       {error ? <Fehlschlag text={error} onRetry={load} /> : null}
 
-      {(users ?? []).map((user) => (
-        <Card key={user.name} style={styles.userCard} onPress={() => openDetail(user)}>
-          <View style={[styles.avatar, user.enabled === false && styles.avatarDisabled]}>
-            <Text style={styles.avatarText}>{user.name.slice(0, 1).toUpperCase()}</Text>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.userName}>
-              {user.name}
-              {currentUser?.name === user.name ? '  (du)' : ''}
-            </Text>
-            <Text style={styles.userRole}>
-              {ROLE_LABELS[user.role] ?? user.role}
-              {user.role === 'gast' && (user.features?.length ?? 0) > 0
-                ? ` · ${user.features!.map((f) => FEATURE_LABELS[f] ?? f).join(', ')}`
-                : ''}
-              {!user.editable ? ' · aus config.yaml' : ''}
-            </Text>
-          </View>
-          {user.enabled === false ? (
-            <View style={styles.disabledBadge}>
-              <Text style={styles.disabledBadgeText}>Deaktiviert</Text>
-            </View>
-          ) : (
-            <Ionicons name="qr-code-outline" size={20} color={colors.inkFaint} />
-          )}
-        </Card>
+      {/* Nach Gruppen statt in einer Liste: Die Liste wächst nur in eine
+          Richtung - jeder Babysitter, der einmal einen Abend hereindurfte,
+          bleibt darin stehen. Die Frage hier ist fast nie «wer heisst
+          wie», sondern «wer kommt eigentlich alles herein?».
+          Die Einteilung steht in lib/benutzergruppen.ts. */}
+      {gruppiereZugaenge(users ?? []).map((gruppe) => (
+        <Abschnitt key={gruppe.key} titel={gruppe.titel} hinweis={gruppe.hinweis}>
+          {gruppe.eintraege.map((user) => (
+            <Card key={user.name} style={styles.userCard} onPress={() => openDetail(user)}>
+              <View style={[styles.avatar, user.enabled === false && styles.avatarDisabled]}>
+                {/* Ein Gerät bekommt kein Initial, sondern ein Sinnbild -
+                    «F» für den Flur sähe aus wie eine Person namens F. */}
+                {user.shared ? (
+                  <Ionicons name="tablet-landscape-outline" size={20} color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.avatarText}>
+                    {user.name.slice(0, 1).toUpperCase()}
+                  </Text>
+                )}
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.userName}>
+                  {user.name}
+                  {currentUser?.name === user.name ? '  (du)' : ''}
+                </Text>
+                <Text style={styles.userRole}>
+                  {ROLE_LABELS[user.role] ?? user.role}
+                  {user.role === 'gast' && (user.features?.length ?? 0) > 0
+                    ? ` · ${user.features!.map((f) => FEATURE_LABELS[f] ?? f).join(', ')}`
+                    : ''}
+                  {!user.editable ? ' · aus config.yaml' : ''}
+                </Text>
+              </View>
+              {user.enabled === false ? (
+                <View style={styles.disabledBadge}>
+                  <Text style={styles.disabledBadgeText}>Deaktiviert</Text>
+                </View>
+              ) : (
+                <Ionicons name="qr-code-outline" size={20} color={colors.inkFaint} />
+              )}
+            </Card>
+          ))}
+        </Abschnitt>
       ))}
 
       {creating ? (
@@ -641,13 +660,21 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
         </Pressable>
       )}
 
-      <DoorPass settings={settings} headers={headers} entities={entities} />
-
-      <GaesteWlanKarte
-        settings={settings}
-        headers={headers}
-        canConfigure={currentUser?.role === 'besitzer'}
-      />
+      {/* Beides gehört zum Besuch und nicht zur Verwaltung der Konten:
+          die Türe für den einen Moment und das Netz für den Abend. Sie
+          standen als zwei weitere gleich aussehende Karten am Ende der
+          Liste - unter einer Überschrift sagen sie, wofür es sie gibt. */}
+      <Abschnitt
+        titel="Für Besuch ohne Zugang"
+        hinweis="Wer kein Konto braucht, kommt so herein."
+      >
+        <DoorPass settings={settings} headers={headers} entities={entities} />
+        <GaesteWlanKarte
+          settings={settings}
+          headers={headers}
+          canConfigure={currentUser?.role === 'besitzer'}
+        />
+      </Abschnitt>
 
       {/* Detail: QR-Code, Sperren, Bereiche, Löschen */}
       <Modal
