@@ -14,11 +14,18 @@ man zwischen ihnen:
   gar nichts – eine Somfy-RTS-Store funkt nur in eine Richtung und
   meldet ihre Stellung nie zurück.
 
+Die Ausgabe hat zwei Hälften: oben, was der Hub meint (über seine
+eigene API gelesen), darunter, was das Gateway roh herausgibt - und was
+sich daran ändert, wenn man es ausdrücklich nachlesen lässt. Die zweite
+Hälfte entscheidet zwischen «der Wert ist alt» und «der Wert ist falsch
+gerechnet»; ohne sie rät man.
+
 Meldet Python «No module named homepilot.storencheck», läuft noch ein
 altes Abbild – dann zuerst deploy/rebuild-hub.sh und in Portainer neu
 deployen.
 """
 
+import asyncio
 import functools
 import json
 import os
@@ -103,6 +110,32 @@ def vor_wie_lange(wann: object) -> str:
     return f"vor {int(alter / 3600)} Std"
 
 
+def gateway_teil() -> None:
+    """Den rohen Gateway-Bericht anhängen - wenn Overkiz eingerichtet ist.
+
+    Die Tabelle oben sagt, was der Hub *meint*. Sie sagt nicht, woher er
+    es hat: Hinter «Pos 0» kann ein `core:ClosureState` von 100 stehen,
+    ein uralter Zwischenspeicher-Wert oder eine RTS-Store, die nie
+    zurückmeldet. Deshalb steht hier darunter, was das Gateway selbst
+    herausgibt - und was sich ändert, wenn man es ausdrücklich nachlesen
+    lässt. Erst beide Hälften zusammen sagen, wer falsch liegt.
+    """
+    try:
+        from .integrations.overkiz import gateway_bericht
+    except Exception as err:  # pyoverkiz fehlt, kein Overkiz im Haus
+        print(f"(Gateway-Teil übersprungen: {err})")
+        return
+    print()
+    print("Was das Gateway selbst meldet (eigene Sitzung, roh):")
+    try:
+        zeilen = asyncio.run(gateway_bericht(CONFIG))
+    except Exception as err:
+        print(f"  nicht abrufbar: {err}")
+        return
+    for zeile in zeilen:
+        print(zeile)
+
+
 def main() -> None:
     token, port = token_und_port()
     if not token:
@@ -157,8 +190,10 @@ def main() -> None:
         "ausdrücklich nachlesen lässt (integrations/overkiz.py,\n"
         "_zustaende_nachlesen - genau das tut die TaHoma-App beim Öffnen).\n"
         "Steht daneben «vor Minuten», stimmt die Umrechnung nicht - dann\n"
-        "gehört cover_state() angesehen."
+        "gehört cover_state() angesehen. Welcher der beiden Fälle es ist,\n"
+        "entscheidet der Teil darunter: Er fragt das Gateway direkt."
     )
+    gateway_teil()
 
 
 if __name__ == "__main__":
