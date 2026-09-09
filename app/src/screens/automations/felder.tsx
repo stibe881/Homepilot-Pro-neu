@@ -9,6 +9,7 @@ import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-nativ
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Entity } from '../../api/types';
+import { Kategoriezeile } from '../../components/Kategoriezeile';
 import { useColors } from '../../theme';
 import { deviceKindIcon, deviceKindLabel } from '../../lib/geraeteart';
 import {
@@ -265,6 +266,7 @@ export function Groups<T extends { id: string }>({
   openAll = false,
   onToggle,
   renderItem,
+  stand,
   empty,
 }: {
   groups: { category: string; items: T[] }[];
@@ -275,6 +277,9 @@ export function Groups<T extends { id: string }>({
   openAll?: boolean;
   onToggle: (category: string) => void;
   renderItem: (item: T) => React.ReactNode;
+  /** Was in der zugeklappten Zeile steht. Ohne Angabe die Anzahl - wer
+   *  mehr weiss (etwa wie viele davon aus sind), sagt es hier. */
+  stand?: (items: T[]) => string;
   empty: string;
 }) {
   const colors = useColors();
@@ -294,20 +299,12 @@ export function Groups<T extends { id: string }>({
         const shut = !openAll && !open.includes(group.category);
         return (
           <View key={group.category} style={{ gap: 10 }}>
-            <Pressable
-              onPress={() => onToggle(group.category)}
-              accessibilityRole="button"
-              accessibilityState={{ expanded: !shut }}
-              style={styles.groupHead}
-            >
-              <Ionicons
-                name={shut ? 'chevron-forward' : 'chevron-down'}
-                size={16}
-                color={colors.inkSoft}
-              />
-              <Text style={styles.groupTitle}>{group.category}</Text>
-              <Text style={styles.groupCount}>{group.items.length}</Text>
-            </Pressable>
+            <Kategoriezeile
+              titel={group.category}
+              stand={stand ? stand(group.items) : String(group.items.length)}
+              offen={!shut}
+              onToggle={() => onToggle(group.category)}
+            />
             {!shut ? group.items.map(renderItem) : null}
           </View>
         );

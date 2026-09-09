@@ -114,6 +114,9 @@ describe('schritteFuer', () => {
     expect(alles).toContain('Alles aus');
     expect(alles).toContain('Suche');
     expect(alles).toContain('Einstellungen');
+    // Und sie endet nicht mit einer weiteren Erklärung, sondern mit dem
+    // Ort, an dem alle weiteren stehen: dem Fragezeichen jeder Seite.
+    expect(alles).toContain('Fragezeichen');
   });
 
   it('erklärt Kindern nur ihre Zimmer mit den grossen Knöpfen', () => {

@@ -3,7 +3,7 @@
  * Raum, ausgeblendet – und die Reihenfolgen dazu.
  */
 import { Entity } from '../api/types';
-import { passtFilter, sortiereGeraete } from './geraetefilter';
+import { SORTIERUNGEN, passtFilter, sortiereGeraete, sortierungsWort } from './geraetefilter';
 
 const geraet = (patch: Partial<Entity>): Entity =>
   ({
@@ -93,5 +93,21 @@ describe('Batterie-Filter und Telefone', () => {
       available: true,
     } as unknown as Entity;
     expect(passtFilter(melder, 'batterie', [])).toBe(true);
+  });
+});
+
+describe('sortierungsWort', () => {
+  it('nennt jede Sortierung beim Namen', () => {
+    // Der Knopf zeigt dieses Wort, das Blatt darunter dieselbe Liste -
+    // zwei Fassungen davon hiessen, dass der Knopf «nach Art» sagt und
+    // die Liste «Nach Gerätetyp» anhakt.
+    expect(sortierungsWort('selbst')).toBe('Eigene Reihenfolge');
+    expect(sortierungsWort('raum')).toBe('Nach Raum');
+    expect(SORTIERUNGEN.map((eintrag) => eintrag.key)).toEqual([
+      'selbst',
+      'raum',
+      'art',
+      'gesehen',
+    ]);
   });
 });

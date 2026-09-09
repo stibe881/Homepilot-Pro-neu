@@ -82,8 +82,10 @@ import { raumSzenen, szeneGeraet, szenenFuerKachel } from '../lib/szenen';
 import {
   GeraeteFilter,
   GeraeteSortierung,
+  SORTIERUNGEN,
   passtFilter,
   sortiereGeraete,
+  sortierungsWort,
 } from '../lib/geraetefilter';
 import { verweisText, verweiseAuf } from '../lib/verweise';
 import {
@@ -121,6 +123,8 @@ import {
 } from '../lib/tageszeit';
 import { hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
+import { Abschnitt } from '../components/Abschnitt';
+import { BesuchKarte } from '../components/BesuchKarte';
 import { GaesteWlanKarte } from '../components/GaesteWlan';
 import { Auftritt } from '../components/Auftritt';
 import { AutomationsScreen } from './AutomationsScreen';
@@ -144,6 +148,8 @@ import { KitchenTimer } from '../components/KitchenTimer';
 import { WhatsNew } from '../components/WhatsNew';
 import { Einfuehrung } from '../components/Einfuehrung';
 import { Hilfeblatt } from '../components/Hilfeblatt';
+import { Seitenhilfe } from '../components/Seitenhilfe';
+import { hilfeFuer } from '../lib/seitenhilfe';
 import { LightGroups } from '../components/LightGroups';
 import { DeviceTools } from '../components/DeviceTools';
 import { SceneSuggestion } from '../components/SceneSuggestion';
@@ -372,6 +378,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // angeforderte Einführung. Ob sie beim ersten Öffnen von selbst kommt,
   // entscheidet sie selbst (components/Einfuehrung.tsx).
   const [hilfeOffen, setHilfeOffen] = useState(false);
+  // Die Hilfe zur Seite, auf der man gerade steht (lib/seitenhilfe.ts).
+  const [seitenhilfe, setSeitenhilfe] = useState(false);
   const [einfuehrungErzwungen, setEinfuehrungErzwungen] = useState(false);
   // Was der Hub über «Besuch oder Babysitter» sagt - für die Zeile im
   // Menü; die Seite selbst (screens/BesuchScreen.tsx) fragt ihn frisch.
@@ -431,6 +439,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // man diese Seite öffnet, plus die Reihenfolge dazu.
   const [deviceFilter, setDeviceFilter] = useState<GeraeteFilter>('');
   const [deviceSort, setDeviceSort] = useState<GeraeteSortierung>('selbst');
+  const [sortOffen, setSortOffen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   // Das ···-Menü im Raumkopf: klappt «Anpassen» und «Reihenfolge» auf.
   // Je Raum frisch zu - was man im Büro aufgeklappt hat, soll im
@@ -2232,6 +2241,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         }
         onZurueck={section === 'settings' ? undefined : () => setSection('settings')}
         onWechseln={section === 'settings' ? undefined : () => setWechselOffen(true)}
+        // Nur wo es etwas zu sagen gibt: Ein Fragezeichen, das ein
+        // leeres Blatt aufmacht, ist schlimmer als keines.
+        onHilfe={hilfeFuer(section) ? () => setSeitenhilfe(true) : undefined}
       />
     );
 
@@ -2484,7 +2496,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     }
     if (section === 'account') {
       return (
-        <View style={styles.stack}>
+        <View style={styles.spalte}>
+          {/* Die Reihenfolge der Seite entsteht im SettingsScreen - er
+              hält den Zustand (Name, Thema, Ortung), und zwei Fassungen
+              davon nebeneinander schrieben sich gegenseitig zu. Was
+              hier steht, sind die Karten, die anderswo wohnen und dort
+              in ihren Block gereicht werden. */}
           <SettingsScreen
             initial={settings}
             onSave={onSaveSettings}
@@ -2492,37 +2509,52 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             embedded
             nur="konto"
             onRenamed={benutzerNeuLaden}
+            sicherheit={
+              <Abschnitt
+                titel="Anmeldung und Sicherheit"
+                hinweis="Wer mit deinem Konto ins Haus kommt - und womit."
+              >
+                {/* Punkt 244 der Werkbank: Passwort wechseln und «Meine
+                    Geräte» - beides beantwortet dieselbe Frage. */}
+                <KontoBlatt settings={settings} user={user} />
+                <BioLock enabled={!!prefs.bioLock} onChange={setBioLock} />
+                {/* Nur für die Besitzerin: Die Hürde vor der Haustüre gilt
+                    fürs ganze Haus, ihr Abräumen ist keine Ansichtssache. */}
+                {istBesitzer ? (
+                  <TuerRueckfrage enabled={prefs.doorConfirm} onChange={setDoorConfirm} />
+                ) : null}
+              </Abschnitt>
+            }
+            geraet={
+              // Nur für Menschen mit eigenem iPhone - am Wandpanel und für
+              // Gäste hätte die Karte keinen Ort.
+              !user?.shared && user?.role !== 'gast' ? (
+                <LiveTuerSchalter
+                  settings={settings}
+                  enabled={eigenePrefs.liveTuer !== false}
+                  onChange={setLiveTuer}
+                  aus={eigenePrefs.liveAus ?? []}
+                  onAus={setLiveAus}
+                  tuerKnopf={eigenePrefs.tuerKnopf === true}
+                  onTuerKnopf={setTuerKnopf}
+                />
+              ) : null
+            }
+            weiteres={
+              <Abschnitt
+                titel="Benachrichtigungen"
+                hinweis="Was aufs Telefon kommt - und was nicht."
+              >
+                <PushPrefs settings={settings} />
+              </Abschnitt>
+            }
           />
-          {/* Punkt 244 der Werkbank: Passwort wechseln und «Meine
-              Geräte» - direkt beim Profil, denn beides ist die Frage
-              «wer kommt mit meinem Konto herein?». */}
-          <KontoBlatt settings={settings} user={user} />
-          <BioLock enabled={!!prefs.bioLock} onChange={setBioLock} />
-          {/* Nur für die Besitzerin: Die Hürde vor der Haustüre gilt fürs
-              ganze Haus, ihr Abräumen ist keine Ansichtssache. */}
-          {istBesitzer ? (
-            <TuerRueckfrage enabled={prefs.doorConfirm} onChange={setDoorConfirm} />
-          ) : null}
-          {/* Nur für Menschen mit eigenem iPhone - am Wandpanel und für
-              Gäste hätte die Karte keinen Ort. */}
-          {!user?.shared && user?.role !== 'gast' ? (
-            <LiveTuerSchalter
-              settings={settings}
-              enabled={eigenePrefs.liveTuer !== false}
-              onChange={setLiveTuer}
-              aus={eigenePrefs.liveAus ?? []}
-              onAus={setLiveAus}
-              tuerKnopf={eigenePrefs.tuerKnopf === true}
-              onTuerKnopf={setTuerKnopf}
-            />
-          ) : null}
-          <PushPrefs settings={settings} />
         </View>
       );
     }
     if (section === 'connection') {
       return (
-        <View style={styles.stack}>
+        <View style={styles.spalte}>
           {/* Dieses Gerät plus die Dienste des Hauses (Kalender, Spotify,
               Google Home) - die Dienst-Karten sieht nur, wer die
               Konfiguration ändern darf; für alle anderen bleibt die
@@ -2533,6 +2565,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             user={user}
             darfDienste={(user?.capabilities ?? []).includes('edit_config')}
             entities={entities}
+            stand={status}
           />
         </View>
       );
@@ -2653,34 +2686,68 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   Reihenfolge» in der zweiten Zeile an den beiden Enden,
                   mit einer Handbreit Leere dazwischen. Das sah nach
                   Fehler aus. Rechts und für sich ist sie ausserdem
-                  ehrlicher: Sie filtert nichts, sie ordnet. */}
+                  ehrlicher: Sie filtert nichts, sie ordnet.
+
+                  Und sie zählt nicht mehr durch: Der Knopf sprang zur
+                  nächsten von vier Reihenfolgen, und was es überhaupt zu
+                  holen gibt, sah man nie - man tippte, bis das Richtige
+                  dastand, und wer eins zu weit kam, tippte dreimal
+                  weiter. Jetzt geht eine Liste auf, in der die vier mit
+                  einem Satz dabeistehen. */}
               <Pressable
-                onPress={() =>
-                  setDeviceSort(
-                    deviceSort === 'selbst'
-                      ? 'raum'
-                      : deviceSort === 'raum'
-                        ? 'art'
-                        : deviceSort === 'art'
-                          ? 'gesehen'
-                          : 'selbst'
-                  )
-                }
+                onPress={() => setSortOffen(true)}
                 accessibilityRole="button"
-                accessibilityLabel="Sortierung wechseln"
+                accessibilityLabel={`Sortierung: ${sortierungsWort(deviceSort)}. Ändern`}
                 style={[styles.filterChip, { alignSelf: 'flex-end' }]}
               >
                 <Ionicons name="swap-vertical" size={12} color={colors.ink} />
-                <Text style={styles.filterChipText}>
-                  {deviceSort === 'selbst'
-                    ? 'eigene Reihenfolge'
-                    : deviceSort === 'raum'
-                      ? 'nach Raum'
-                      : deviceSort === 'art'
-                        ? 'nach Art'
-                        : 'lange nicht gesehen'}
-                </Text>
+                <Text style={styles.filterChipText}>{sortierungsWort(deviceSort)}</Text>
               </Pressable>
+              <Modal
+                visible={sortOffen}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setSortOffen(false)}
+              >
+                <Pressable
+                  style={styles.sortHintergrund}
+                  onPress={() => setSortOffen(false)}
+                >
+                  <Pressable style={styles.sortBlatt} onPress={() => {}}>
+                    <Text style={styles.sortTitel}>Reihenfolge</Text>
+                    {SORTIERUNGEN.map((eintrag) => {
+                      const an = deviceSort === eintrag.key;
+                      return (
+                        <Pressable
+                          key={eintrag.key}
+                          onPress={() => {
+                            setDeviceSort(eintrag.key);
+                            setSortOffen(false);
+                          }}
+                          accessibilityRole="radio"
+                          accessibilityState={{ selected: an }}
+                          style={({ pressed }) => [
+                            styles.sortZeile,
+                            pressed && { opacity: 0.7 },
+                          ]}
+                        >
+                          <Ionicons
+                            name={an ? 'radio-button-on' : 'radio-button-off'}
+                            size={18}
+                            color={an ? colors.accent : colors.inkFaint}
+                          />
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text style={[styles.sortWort, an && { color: colors.accent }]}>
+                              {eintrag.label}
+                            </Text>
+                            <Text style={styles.sortHinweis}>{eintrag.hinweis}</Text>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </Pressable>
+                </Pressable>
+              </Modal>
               {/* Batterien und Stumme im Detail – vorher unter System,
                   also auf dem Bildschirm für den Hub statt dem für die
                   Geräte. */}
@@ -3637,6 +3704,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     />
                   ) : undefined
                 }
+                // Neben dem WLAN, aus demselben Grund: Es klingelt, und
+                // der Besuchsmodus soll jetzt laufen - nicht drei Tipps
+                // später. Dieselbe Karte wie unter Einstellungen →
+                // Besuch, und sie meldet ihren Stand auch von hier aus
+                // ans Menü zurück.
+                besuch={
+                  section === 'start' ? (
+                    <BesuchKarte settings={settings} onStand={setBesuchStand} />
+                  ) : undefined
+                }
                 gruss={begruessung(settings, user, now)}
                 // Nur die laufenden Geräte - der Türhinweis stünde
                 // doppelt da, der Chip «offen» in der Karte sagt es schon.
@@ -3752,7 +3829,24 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                       );
                     })}
                   </View>
-                  <View style={{ flex: 1, minWidth: 0 }}>{content()}</View>
+                  <View style={styles.settingsInhalt}>
+                    {/* Auf dem iPad steht der Name der Seite nicht in
+                        der Kopfzeile - links ist er in der Spalte
+                        hervorgehoben. Das Fragezeichen fehlte damit
+                        aber genau dort, wo die grossen Seiten stehen;
+                        darum hier derselbe Kopf ohne Zurück und ohne
+                        Wechsler. */}
+                    <EinstellungsKopf
+                      titel={
+                        sichtbarePunkte.find((item) => item.key === section)?.label ??
+                        SECTION_LABEL[section]
+                      }
+                      onHilfe={
+                        hilfeFuer(section) ? () => setSeitenhilfe(true) : undefined
+                      }
+                    />
+                    {content()}
+                  </View>
                 </View>
               ) : (
                 content()
@@ -3978,6 +4072,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             if (!hiddenSections.includes(ziel)) setSection(ziel);
           }}
         />
+        {/* Die Hilfe zur aktuellen Seite. Sie hängt am Fragezeichen der
+            Kopfzeile und führt hin, statt Wege zu beschreiben. */}
+        <Seitenhilfe
+          section={section}
+          offen={seitenhilfe}
+          onZu={() => setSeitenhilfe(false)}
+          onGehe={(ziel) => waehleBereich(ziel)}
+        />
+
         <Hilfeblatt
           offen={hilfeOffen}
           onZu={() => setHilfeOffen(false)}

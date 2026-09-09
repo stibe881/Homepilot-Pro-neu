@@ -139,13 +139,71 @@ export const makeStyles = (colors: Colors) =>
       alignItems: 'flex-start',
     },
     stack: { gap: space.gap * 1.4 },
+    /** Die rechte Spalte der Einstellungen auf dem iPad - seit dort ein
+     *  Kopf mit dem Seitennamen steht, braucht sie einen Abstand
+     *  darunter. */
+    settingsInhalt: { flex: 1, minWidth: 0, gap: space.gap },
+    /** Das Blättchen zur Reihenfolge auf der Geräteseite. Klein und
+     *  mittig statt am Rand: Es hängt an einem Knopf, der auf dem iPad
+     *  ganz rechts steht und auf dem Telefon fast am linken Rand - ein
+     *  Menü, das sich daran ausrichtet, sitzt einmal so und einmal so. */
+    sortHintergrund: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 24,
+    },
+    sortBlatt: {
+      width: '100%',
+      maxWidth: 380,
+      gap: 4,
+      padding: 18,
+      borderRadius: radius.card,
+      backgroundColor: colors.panel,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    sortTitel: { color: colors.ink, fontSize: 16, fontWeight: '700', marginBottom: 6 },
+    sortZeile: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 9 },
+    sortWort: { color: colors.ink, fontSize: 15, fontWeight: '600' },
+    sortHinweis: { color: colors.inkFaint, fontSize: 12, marginTop: 1 },
+    /**
+     * Eine Spalte für die Einstellungsseiten - Konto, Verbindungen.
+     *
+     * Dort standen zwei Sorten Karten untereinander: die aus dem
+     * SettingsScreen halten sich seit je an 460 Punkte und stehen
+     * mittig, die von aussen dazugereichten (Passwort, «Meine Geräte»,
+     * Push) nahmen die ganze Breite. Auf dem Telefon fällt das nicht
+     * auf, im Browser sieht es aus, als hätte jemand zwei Seiten
+     * ineinandergeschoben. Die Spalte gibt allen dieselbe Breite - und
+     * eine Textseite, die über die halbe Bildschirmbreite läuft, liest
+     * ohnehin niemand gern.
+     */
+    spalte: {
+      width: '100%',
+      maxWidth: 460,
+      alignSelf: 'center',
+      gap: space.gap * 1.4,
+    },
     // minWidth: 0 ist hier kein Zierrat. Ohne das kann eine Flex-Spalte
     // nicht unter die Breite ihres Inhalts schrumpfen: Ein zu breites Kind
     // macht die Spalte breiter, und die Nachbarspalte wandert aus dem Bild.
     // Genau so sieht der abgeschnittene rechte Rand auf dem iPad aus. Im
     // Browser bei 1180 Punkten liess er sich nicht nachstellen - die Zeile
     // kostet nichts und nimmt die wahrscheinlichste Ursache weg.
-    main: { flex: 1, minWidth: 0 },
+    /**
+     * Die Hauptspalte, wenn rechts die Seitenspalte steht.
+     *
+     * Sie hatte keinen Abstand zwischen ihren Blöcken - anders als
+     * `stack`, das auf dem Telefon dieselben Blöcke trägt. Auf dem
+     * Telefon lagen also 20 Punkte zwischen Raumkopf, Szenen-Chips,
+     * Küchen-Timer und «Alles aus»; im Browser und auf dem iPad klebten
+     * sie aneinander, und die Sortierzeile darüber stiess direkt an den
+     * Raumkopf. Dieselben Blöcke, zwei Abstände - der Unterschied war
+     * kein Entwurf, sondern ein vergessenes `gap`.
+     */
+    main: { flex: 1, minWidth: 0, gap: space.gap * 1.4 },
     backRow: {
       flexDirection: 'row',
       alignItems: 'center',

@@ -35,6 +35,7 @@ import {
   verlaufPasst,
 } from '../lib/eskalation';
 import { datumUhr } from '../lib/format';
+import { melderArt } from '../lib/geraeteart';
 import { BlattZeile, blattWuerdig, blattZeilen } from '../lib/ereignisblatt';
 import { ringAnteil } from '../lib/alarmring';
 import { tapped, triggered } from '../lib/haptics';
@@ -679,12 +680,19 @@ export function AlarmScreen({
               {group.items.map((candidate) => {
                 const entry = assigned.get(candidate.entity_id);
                 const on = (entry?.modes ?? []).includes(tab);
+                // Was für ein Melder ist das? «Balkon» allein sagt es
+                // nicht - und genau daran hängt die Entscheidung, die
+                // hier getroffen wird: Nachts gehören Türen und Fenster
+                // dazu, Bewegungsmelder nicht. Wer die Art nicht sieht,
+                // hakt nach Namen ab und rät dabei.
+                const art = melderArt(candidate, entities);
                 return (
                   <View key={candidate.entity_id} style={styles.sensor}>
                     <Pressable
                       onPress={() => toggleMode(candidate.entity_id, tab)}
                       accessibilityRole="checkbox"
                       accessibilityState={{ checked: on }}
+                      accessibilityLabel={`${candidate.name}, ${art.label}`}
                       style={styles.sensorHead}
                     >
                       <Ionicons
@@ -692,9 +700,21 @@ export function AlarmScreen({
                         size={24}
                         color={on ? colors.on : colors.inkFaint}
                       />
-                      <Text style={styles.rowTitle} numberOfLines={1}>
-                        {candidate.name}
-                      </Text>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={styles.rowTitle} numberOfLines={1}>
+                          {candidate.name}
+                        </Text>
+                        <View style={styles.artZeile}>
+                          <Ionicons
+                            name={art.icon as keyof typeof Ionicons.glyphMap}
+                            size={13}
+                            color={colors.inkFaint}
+                          />
+                          <Text style={styles.art} numberOfLines={1}>
+                            {art.label}
+                          </Text>
+                        </View>
+                      </View>
                       {!candidate.available ? (
                         <Text style={styles.offline}>offline</Text>
                       ) : candidate.open ? (
@@ -1972,6 +1992,12 @@ const makeStyles = (colors: Colors) =>
       borderTopColor: colors.surfaceBorder,
     },
     sensorHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    /** Die Art unter dem Namen - leise, aber vorhanden. Sie beantwortet
+     *  die Frage, die der Name offen lässt: «Balkon» kann der
+     *  Bewegungsmelder auf dem Balkon sein oder der Kontakt an seiner
+     *  Türe, und nachts gehört nur das eine dazu. */
+    artZeile: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 },
+    art: { color: colors.inkFaint, fontSize: 12, flexShrink: 1 },
     offline: { color: colors.warn, fontSize: 11, fontWeight: '700' },
     chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
     chip: {

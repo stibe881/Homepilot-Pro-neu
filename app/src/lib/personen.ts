@@ -81,6 +81,21 @@ export function nebenZeile(person: Person): string {
   return teile.join(' · ');
 }
 
+/**
+ * Ist die Person gerade zuhause? (rein, testbar)
+ *
+ * Der Hub schickt einen fertigen Satzteil («zuhause», «bei Tanners
+ * Home», «unterwegs»); gerechnet wird hier nichts, nur verglichen. Für
+ * den Punkt neben dem Namen: Ob jemand da ist, ist die Frage, wegen der
+ * man diese Seite aufmacht - und «Zuhause · seit 3 Std» als graue Zeile
+ * zu lesen dauert länger, als einen grünen Punkt zu sehen.
+ *
+ * Im Zweifel `false`: Ein unbekannter Aufenthalt ist kein «ist da».
+ */
+export function istZuhause(person: Person): boolean {
+  return String(person.where || '').trim().toLowerCase() === 'zuhause';
+}
+
 /** Haushaltsmitglied oder nur geortet? (rein, testbar)
  *
  *  Die Georteten hiessen auf der Plakette zuerst «Geortet» - technisch

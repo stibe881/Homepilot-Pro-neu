@@ -3,10 +3,14 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { HubSettings } from '../api/types';
+import { Abschnitt } from '../components/Abschnitt';
 import { Card } from '../components/Card';
 import { useOrtung } from '../hooks/useOrtung';
+import { ConnectionStatus } from '../hooks/useHub';
 import { defaultHubUrl } from '../lib/origin';
+import { VERBINDUNGSWORT, verbindungsFarbe } from '../lib/verbindungsstand';
 import { PAUSEN, ortungsHinweis, pauseBis, pausiert } from '../lib/ortung';
+import { ROLE_LABELS } from '../lib/rollen';
 import { zonenkennung } from '../lib/zonenkennung';
 import { SYMBOLE, Symbolwahl, gueltig } from '../lib/appsymbol';
 import { kannWechseln, symbolWechseln } from '../lib/symbolwechsel';
@@ -41,8 +45,25 @@ interface Props {
   onRenamed?: () => void;
   /** Angemeldeter Benutzer – zeigt Name und Rolle an. */
   user?: { name: string; role: string; shared?: boolean } | null;
+  /**
+   * Karten, die zur Konto-Seite gehören, aber anderswo wohnen.
+   *
+   * Passwort, «Meine Geräte», Face ID, Push - sie hängen an Bausteinen
+   * ausserhalb dieses Bildschirms, gehören auf der Seite aber zwischen
+   * das Profil und das Erscheinungsbild. Ein zweiter SettingsScreen
+   * dafür hiesse zwei Fassungen desselben Zustands nebeneinander, und
+   * die schreiben sich gegenseitig zu.
+   */
+  sicherheit?: React.ReactNode;
+  /** Was sonst noch zu diesem Gerät gehört (die Türkarte). */
+  geraet?: React.ReactNode;
+  /** Was ganz unten steht, vor dem Abmelden (Benachrichtigungen). */
+  weiteres?: React.ReactNode;
   /** Wer die eigene Ortung sieht – für die Zeile im Profil (Punkt 197). */
   familie?: string[];
+  /** Woran die App gerade ist – für die Ampel in der Hub-Karte. Ohne
+   *  Angabe «verbunden»: Wer diese Seite sieht, hat den Hub erreicht. */
+  stand?: ConnectionStatus;
 }
 
 export function SettingsScreen({
@@ -54,6 +75,10 @@ export function SettingsScreen({
   onRenamed,
   user,
   familie = [],
+  stand = 'connected',
+  sicherheit,
+  geraet,
+  weiteres,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -194,6 +219,10 @@ export function SettingsScreen({
   // aus beidem zusammen las man «hat nicht funktioniert».
   const [nameNote, setNameNote] = useState<string | null>(null);
   const darfUmbenennen = !!user && !panel && !user.shared && user.role !== 'gast';
+  // Zu, bis jemand den Stift antippt.
+  const [umbenennen, setUmbenennen] = useState(false);
+  // Dasselbe für Adresse und Token auf der Verbindungen-Seite.
+  const [zugangOffen, setZugangOffen] = useState(false);
 
   /** Speichern - und wenn der Name neu ist, zuerst den Hub-Benutzer
    *  umbenennen. Erst wenn das gelungen ist, wird lokal gespeichert:
@@ -229,6 +258,10 @@ export function SettingsScreen({
       // wenn sie ihn neu holt - der Hub schickt ihn nur einmal.
       onRenamed?.();
       setNameNote(`Heisst jetzt ${gewuenscht}.`);
+      // Das Feld hat seine Arbeit getan - offen stehen bleiben hiesse,
+      // die Seite wieder in ein Formular zu verwandeln. Die Bestätigung
+      // darunter bleibt stehen.
+      setUmbenennen(false);
     }
     setNameFehler(null);
     onSave({
@@ -251,13 +284,52 @@ export function SettingsScreen({
     });
   };
 
+  // Der Kopf der Seite: wer bin ich, was darf ich, auf wie vielen
+  // Geräten. Vorher stand dort «Profil» als Überschrift und darunter
+  // «Angemeldet als Stefan · besitzer» - die Kleinschreibung aus der
+  // config.yaml inbegriffen. Das Namensfeld stand immer offen, obwohl
+  // man seinen Namen einmal im Leben ändert; das eigentliche Formular
+  // der Seite (Passwort) begann darum erst weit unten.
   const profil = user ? (
     <Card style={styles.card}>
-      <Text style={styles.title}>Profil</Text>
-      <Text style={styles.account}>
-        Angemeldet als {user.name} · {user.role}
-      </Text>
-      {darfUmbenennen ? (
+      <View style={styles.profilKopf}>
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>
+            {(user.name || '?').trim().charAt(0).toUpperCase()}
+          </Text>
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.profilName} numberOfLines={1}>
+            {user.name}
+          </Text>
+          <View style={styles.rollenReihe}>
+            <Text style={styles.rolle}>{ROLE_LABELS[user.role] ?? user.role}</Text>
+            {user.shared ? (
+              <Text style={styles.rolle}>Gemeinschaftsgerät</Text>
+            ) : null}
+          </View>
+        </View>
+        {/* Umbenennen hinter dem Stift: Das Feld stand vorher immer
+            offen und machte aus dem Kopf der Seite ein Formular. */}
+        {darfUmbenennen ? (
+          <Pressable
+            onPress={() => setUmbenennen((auf) => !auf)}
+            accessibilityRole="button"
+            accessibilityLabel={umbenennen ? 'Umbenennen abbrechen' : 'Namen ändern'}
+            accessibilityState={{ expanded: umbenennen }}
+            hitSlop={8}
+            style={({ pressed }) => [styles.stift, pressed && { opacity: 0.6 }]}
+          >
+            <Ionicons
+              name={umbenennen ? 'close' : 'pencil'}
+              size={16}
+              color={colors.inkSoft}
+            />
+          </Pressable>
+        ) : null}
+      </View>
+
+      {darfUmbenennen && umbenennen ? (
         <>
           {nameFeld}
           {/* Ein eigener Knopf, seit die Verbindung eine eigene Seite hat:
@@ -271,13 +343,17 @@ export function SettingsScreen({
           >
             <Text style={styles.nameButtonText}>Namen speichern</Text>
           </Pressable>
-          {nameNote ? <Text style={styles.nameNote}>{nameNote}</Text> : null}
           <Text style={styles.sharedNote}>
             Das ist dein Benutzername - er gilt überall: in der
             Benutzerverwaltung, in der Anwesenheit und als Push-Empfänger.
           </Text>
         </>
       ) : null}
+      {nameNote ? <Text style={styles.nameNote}>{nameNote}</Text> : null}
+      {nameFehler && nur === 'konto' ? (
+        <Text style={{ color: colors.danger, fontSize: 13 }}>{nameFehler}</Text>
+      ) : null}
+
       {/* Am Wandtablet gibt es kein Abmelden. Wer es antippt, sperrt
           das ganze Haus aus sich selbst aus - die Anmeldedaten des
           Geräts hat niemand in der Tasche, und bis jemand mit einem
@@ -289,7 +365,17 @@ export function SettingsScreen({
           die Kennzeichnung «Gemeinschaftsgerät» unter Benutzer
           aufheben.
         </Text>
-      ) : (
+      ) : null}
+    </Card>
+  ) : null;
+
+  // Abmelden ans Ende der Seite, nicht in den Kopf: Es ist die Tat mit
+  // dem grössten Schaden und dem seltensten Anlass. Zuoberst stand sie
+  // zwei Fingerbreit unter dem eigenen Namen - und «Überall abmelden»
+  // wirft auch die anderen im Haus hinaus.
+  const abmelden =
+    user && !user.shared ? (
+      <Card style={styles.card}>
         <View style={styles.logoutRow}>
           <Pressable
             onPress={async () => {
@@ -347,9 +433,13 @@ export function SettingsScreen({
             </Text>
           </Pressable>
         </View>
-      )}
-    </Card>
-  ) : null;
+        <Text style={styles.sharedNote}>
+          «Abmelden» betrifft nur dieses Gerät. «Überall abmelden» wirft
+          auch die anderen Geräte deines Kontos hinaus - einzelne beenden
+          geht oben unter «Meine Geräte».
+        </Text>
+      </Card>
+    ) : null;
 
   const aussehen = (
     <Card style={styles.card}>
@@ -634,19 +724,94 @@ export function SettingsScreen({
     </Card>
   ) : null;
 
+  // Die Karte der Hub-Verbindung.
+  //
+  // Sie war ein immer offenes Formular: «Hub-URL», «Token», darunter
+  // «Speichern & verbinden». Das ist die technischste Stelle der ganzen
+  // App - und sie stand zuoberst auf einer Seite, die man aufmacht, um
+  // nachzusehen, ob die Verbindung steht. Zwei Felder, die man einmal
+  // beim Einrichten ausfüllt und danach nie wieder anfasst, ausser man
+  // will genau das kaputtmachen.
+  //
+  // Jetzt sagt die Karte zuerst, woran man ist - dieselbe Ampel wie in
+  // der Begrüssungskarte -, und die Felder liegen hinter «Adresse von
+  // Hand ändern». Beim Einrichten (kein Benutzer) ist sie unverändert
+  // offen: Da IST das Formular die Aufgabe.
+  const eingerichtet = !!user;
+  const felderOffen = !eingerichtet || zugangOffen;
+
   const verbindung = (
     <Card style={styles.card}>
       <Text style={styles.title}>{user ? 'Hub-Verbindung' : 'Hub verbinden'}</Text>
 
-      <Pressable
-        onPress={() => setScanning(true)}
-        accessibilityRole="button"
-        style={({ pressed }) => [styles.scan, pressed && { opacity: 0.75 }]}
-      >
-        <Ionicons name="qr-code-outline" size={20} color={colors.ink} />
-        <Text style={styles.scanText}>QR-Code vom Hub scannen</Text>
-      </Pressable>
-      <Text style={styles.scanHint}>oder von Hand eintragen</Text>
+      {eingerichtet ? (
+        <View style={styles.hubStand}>
+          <View
+            style={[
+              styles.hubPunkt,
+              { backgroundColor: verbindungsFarbe(colors, stand) },
+            ]}
+          />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.hubWort}>
+              {stand === 'connected' ? 'Verbunden' : VERBINDUNGSWORT[stand]}
+            </Text>
+            {/* Die Adresse klein darunter: Sie ist die Antwort auf «mit
+                welchem Hub eigentlich?» - im Haus oder von aussen -,
+                aber keine, die man täglich liest. */}
+            <Text style={styles.hubAdresse} numberOfLines={1}>
+              {url || 'noch keine Adresse'}
+            </Text>
+          </View>
+        </View>
+      ) : null}
+
+      {felderOffen ? (
+        <>
+          <Pressable
+            onPress={() => setScanning(true)}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.scan, pressed && { opacity: 0.75 }]}
+          >
+            <Ionicons name="qr-code-outline" size={20} color={colors.ink} />
+            <Text style={styles.scanText}>QR-Code vom Hub scannen</Text>
+          </Pressable>
+          <Text style={styles.scanHint}>oder von Hand eintragen</Text>
+
+          <Field
+            label="Hub-URL"
+            value={url}
+            onChange={setUrl}
+            placeholder="http://192.168.1.10:8123"
+            keyboardType="url"
+          />
+          <Field
+            label="Token"
+            value={token}
+            onChange={setToken}
+            placeholder="Token aus config.yaml"
+            secure
+          />
+
+          {nameFehler ? (
+            <Text style={{ color: colors.danger, fontSize: 13 }}>{nameFehler}</Text>
+          ) : null}
+          <Pressable
+            style={({ pressed }) => [styles.save, pressed && { opacity: 0.8 }]}
+            onPress={speichern}
+          >
+            <Text style={styles.saveText}>Speichern & verbinden</Text>
+          </Pressable>
+        </>
+      ) : (
+        <Pressable
+          onPress={() => setZugangOffen(true)}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.nameButton, pressed && { opacity: 0.7 }]}
+        >
+          <Text style={styles.nameButtonText}>Adresse von Hand ändern</Text>
+        </Pressable>
+      )}
 
       <QrScanner
         visible={scanning}
@@ -661,30 +826,19 @@ export function SettingsScreen({
         }}
       />
 
-      <Field
-        label="Hub-URL"
-        value={url}
-        onChange={setUrl}
-        placeholder="http://192.168.1.10:8123"
-        keyboardType="url"
-      />
-      <Field
-        label="Token"
-        value={token}
-        onChange={setToken}
-        placeholder="Token aus config.yaml"
-        secure
-      />
-
-      {nameFehler ? (
-        <Text style={{ color: colors.danger, fontSize: 13 }}>{nameFehler}</Text>
+      {/* Der Scanner steht auch dem eingerichteten Gerät offen, ohne
+          dass es dafür die Felder aufmachen muss: Ein neuer Hub, ein
+          neues Token - ein Scan, fertig. */}
+      {eingerichtet && !felderOffen ? (
+        <Pressable
+          onPress={() => setScanning(true)}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.scan, pressed && { opacity: 0.75 }]}
+        >
+          <Ionicons name="qr-code-outline" size={20} color={colors.ink} />
+          <Text style={styles.scanText}>Neuen QR-Code scannen</Text>
+        </Pressable>
       ) : null}
-      <Pressable
-        style={({ pressed }) => [styles.save, pressed && { opacity: 0.8 }]}
-        onPress={speichern}
-      >
-        <Text style={styles.saveText}>Speichern & verbinden</Text>
-      </Pressable>
 
       {onCancel ? (
         <Pressable style={styles.cancel} onPress={onCancel}>
@@ -709,10 +863,21 @@ export function SettingsScreen({
   ) : nur === 'verbindung' ? (
     verbindung
   ) : nur === 'konto' ? (
+    // Vier Blöcke statt neun gleich lauter Karten: wer ich bin, wie man
+    // hereinkommt, wie sich dieses Gerät verhält, was es meldet - und
+    // ganz am Ende der Ausgang. Die Karten dazwischen kommen von aussen
+    // (siehe die Schlitze oben), die Reihenfolge gehört aber hierher,
+    // wo die Seite entsteht.
     <>
       {profil}
-      {aussehen}
-      {ortungKarte}
+      {sicherheit}
+      <Abschnitt titel="Dieses Gerät" hinweis="Gilt nur hier, nicht für die anderen im Haus.">
+        {aussehen}
+        {ortungKarte}
+        {geraet}
+      </Abschnitt>
+      {weiteres}
+      {abmelden}
     </>
   ) : (
     <>
@@ -835,6 +1000,46 @@ const makeStyles = (colors: Colors) =>
     fontSize: 16,
   },
   account: { color: colors.inkSoft, fontSize: 13, marginTop: -8 },
+  profilKopf: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  hubStand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  hubPunkt: { width: 10, height: 10, borderRadius: 5 },
+  hubWort: { color: colors.ink, fontSize: 16, fontWeight: '700' },
+  hubAdresse: { color: colors.inkFaint, fontSize: 12, marginTop: 1 },
+  /** Die Initiale statt eines Bildes: Es gibt im Haus keine Profilfotos,
+   *  und ein Platzhalter-Kopf für jeden sähe aus wie ein leeres Konto. */
+  avatar: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.accent,
+  },
+  avatarText: { color: '#FFFFFF', fontSize: 24, fontWeight: '700' },
+  profilName: { color: colors.ink, fontSize: 22, fontWeight: '700' },
+  rollenReihe: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
+  /** Die Rolle als Marke und nicht als Fliesstext: «Besitzer» ist eine
+   *  Eigenschaft des Kontos, kein Satz - und neben ihr steht am
+   *  Wandpanel noch «Gemeinschaftsgerät». */
+  rolle: {
+    color: colors.inkSoft,
+    fontSize: 12,
+    fontWeight: '600',
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    overflow: 'hidden',
+  },
+  stift: {
+    padding: 9,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    backgroundColor: colors.surfaceSoft,
+  },
   logoutRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   sharedNote: { color: colors.inkSoft, fontSize: 12, lineHeight: 17, marginTop: 4 },
   logout: {

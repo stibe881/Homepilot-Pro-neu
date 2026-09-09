@@ -1256,6 +1256,14 @@ export function AutomationsScreen({
             )}
             open={openAuto}
             openAll={!!autoQuery}
+            // «9» sagt nicht, dass zwei davon aus sind - und ein
+            // abgeschalteter Ablauf in einer zugeklappten Kategorie ist
+            // sonst nirgends zu sehen. Dieselbe Schreibweise wie im
+            // Push-Bereich darunter: nur eine Zahl, solange alle laufen.
+            stand={(items) => {
+              const an = items.filter((entry) => entry.enabled !== false).length;
+              return an === items.length ? String(items.length) : `${an}/${items.length}`;
+            }}
             onToggle={(category) =>
               setOpenAuto((prev) =>
                 prev.includes(category)

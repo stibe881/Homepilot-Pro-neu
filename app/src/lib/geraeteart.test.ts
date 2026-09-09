@@ -7,7 +7,14 @@
  * einzelnen Spot statt der Deckenlampe.
  */
 import type { Entity } from '../api/types';
-import { kachelHerkunft, deviceKindIcon, deviceKindLabel, isTelevision, zeigtStopp } from './geraeteart';
+import {
+  deviceKindIcon,
+  deviceKindLabel,
+  isTelevision,
+  kachelHerkunft,
+  melderArt,
+  zeigtStopp,
+} from './geraeteart';
 
 function geraet(teile: Partial<Entity>): Entity {
   return {
@@ -66,6 +73,18 @@ describe('deviceKindLabel', () => {
     expect(melder('contact')).toBe('Fenster-/Türkontakt');
     expect(melder('smoke')).toBe('Rauchmelder');
     expect(melder('moisture')).toBe('Wassermelder');
+  });
+
+  it('sagt Türe und Fenster, wo die Integration es weiss', () => {
+    // «Fenster-/Türkontakt» bleibt für Homematic, das den Unterschied
+    // nicht kennt. Zigbee und Matter kennen ihn - und an der
+    // Alarmanlage entscheidet genau er, was nachts mitwacht.
+    const melder = (klasse: string) =>
+      deviceKindLabel(geraet({ kind: 'binary_sensor', state: { device_class: klasse } }));
+    expect(melder('door')).toBe('Türkontakt');
+    expect(melder('window')).toBe('Fensterkontakt');
+    expect(melder('vibration')).toBe('Erschütterungsmelder');
+    expect(melder('occupancy')).toBe('Präsenzmelder');
   });
 
   it('sagt bei unklarer Melderart lieber das Allgemeine', () => {
@@ -149,6 +168,49 @@ describe('zeigtStopp', () => {
   it('fehlt, wo Pause schon das Ende ist (Spotify, Radio)', () => {
     // Beide kennen kein turn_off: Ihre Pause beendet die Wiedergabe.
     expect(zeigtStopp(box('playing', ['play', 'pause', 'play_on']))).toBe(false);
+  });
+});
+
+describe('melderArt', () => {
+  const kontakt = geraet({
+    id: 'z2m.balkontuere',
+    kind: 'binary_sensor',
+    state: { device_class: 'door' },
+  });
+
+  it('nennt Wort und Symbol zu einem Sensor der Alarmanlage', () => {
+    const art = melderArt(
+      { entity_id: 'z2m.balkontuere', kind: 'binary_sensor', device_class: 'door' },
+      [kontakt]
+    );
+    expect(art.label).toBe('Türkontakt');
+    expect(art.icon).toBe('log-in-outline');
+  });
+
+  it('zieht die volle Entität der knappen Liste vor', () => {
+    // Der Geofence ist ein binärer Melder wie jeder andere - dass er
+    // Anwesenheit meldet und keine Bewegung, weiss nur die Entität.
+    const geofence = geraet({
+      id: 'geofence.zuhause',
+      kind: 'binary_sensor',
+      integration: 'geofence',
+    });
+    const art = melderArt(
+      { entity_id: 'geofence.zuhause', kind: 'binary_sensor', device_class: null },
+      [geofence]
+    );
+    expect(art.label).toBe('Anwesenheit');
+  });
+
+  it('kommt auch ohne die Entität zu einer Antwort', () => {
+    // Die Liste der Alarmanlage kommt vom Hub und kann Geräte nennen,
+    // die in der Entitätenliste dieses Bildschirms fehlen. Dann lieber
+    // die Art aus den mitgelieferten Feldern als gar keine.
+    const art = melderArt(
+      { entity_id: 'fehlt.im.haus', kind: 'binary_sensor', device_class: 'motion' },
+      []
+    );
+    expect(art.label).toBe('Bewegungsmelder');
   });
 });
 
