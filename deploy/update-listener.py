@@ -167,6 +167,56 @@ def betreffzeilen(commits: Any) -> list[str]:
     return zeilen
 
 
+def zweig_sauber(name: str) -> str:
+    """Ein Zweigname, wie er in eine Adresse darf (rein, testbar).
+
+    Der Hub schickt ihn mit - er stammt aus dem eigenen Abbild, aber
+    geprüft wird trotzdem: Was von aussen kommt, gehört nie ungeprüft in
+    eine URL. Erlaubt ist, was Git für Zweige zulässt und GitHub im Pfad
+    verträgt.
+    """
+    text = str(name or "").strip()
+    if not text or len(text) > 200 or ".." in text or text.startswith("/"):
+        return ""
+    erlaubt = set(
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/-"
+    )
+    return text if all(zeichen in erlaubt for zeichen in text) else ""
+
+
+def vereinigt(listen: Any) -> list[dict]:
+    """Mehrere Commit-Listen zu einer, ohne Doppel, neueste zuerst
+    (rein, testbar).
+
+    Gebraucht, weil ein Bau aus mehreren Zweigen entsteht: Dieselbe
+    Änderung kann auf zweien liegen, und zweimal dieselbe Zeile im
+    Dialog liest sich wie zwei Änderungen. Sortiert wird nach dem
+    Zeitpunkt des Commits - ohne ihn gäbe es keine Reihenfolge, die
+    über Zweiggrenzen hinweg etwas bedeutet.
+    """
+    nach_schluessel: dict[str, dict] = {}
+    for liste in listen or []:
+        for commit in liste or []:
+            if not isinstance(commit, dict):
+                continue
+            inneres = commit.get("commit") or {}
+            betreff = str(inneres.get("message") or "").splitlines()[:1]
+            schluessel = str(commit.get("sha") or "") or (betreff[0] if betreff else "")
+            if not schluessel:
+                continue
+            nach_schluessel.setdefault(schluessel, commit)
+
+    def zeitpunkt(commit: dict) -> str:
+        inneres = commit.get("commit") or {}
+        for feld in ("committer", "author"):
+            wert = (inneres.get(feld) or {}).get("date")
+            if wert:
+                return str(wert)
+        return ""
+
+    return sorted(nach_schluessel.values(), key=zeitpunkt, reverse=True)
+
+
 def _github(pfad: str, token: str) -> Any:
     request = urllib.request.Request(
         f"https://api.github.com{pfad}",
@@ -236,7 +286,42 @@ def _basis_zur_bauzeit(branch: str, gebaut: str, token: str) -> str:
     return ""
 
 
-def vorschau(ab: str, gebaut: str = "") -> dict[str, Any]:
+def _uebrige_zweige(basis: str, branch: str, token: str) -> list[list]:
+    """Was auf den anderen Zweigen liegt - und beim nächsten Bau mitkäme.
+
+    Der Grund, warum es diese Funktion überhaupt gibt: Der Bau nimmt
+    **alle** Zweige des Repos herein (HOMEPILOT_MERGE_ALL, Vorgabe an),
+    verglichen wurde aber nur gegen einen. Wer auf einem Arbeitszweig
+    eincheckt und noch nicht nach main gestossen hat, dessen Arbeit
+    brächte das nächste Update sehr wohl mit - der Dialog sagte
+    trotzdem «Auf dem Server liegt nichts Neues». Ein falscher
+    Freibrief, und genau die Sorte Fehler, vor der die CLAUDE.md warnt:
+    «Teuer ist der Zweig, der still zurückfällt.»
+
+    Eine Seite Zweige genügt (GitHub gibt bis zu 100); mehr hat dieses
+    Repo nie, und wer sie hätte, sähe die Lücke am Vergleich selbst.
+    """
+    payload = _github(f"/repos/{REPO}/branches?per_page=100", token)
+    listen: list[list] = []
+    for eintrag in payload if isinstance(payload, list) else []:
+        if not isinstance(eintrag, dict):
+            continue
+        name = zweig_sauber(str(eintrag.get("name") or ""))
+        if not name or name == branch:
+            continue
+        try:
+            teil = _github(f"/repos/{REPO}/compare/{basis}...{name}", token)
+        except urllib.error.HTTPError as err:
+            # Ein einzelner Zweig, den GitHub nicht vergleichen kann,
+            # darf die übrige Auskunft nicht mitnehmen.
+            if err.code != 404:
+                raise
+            continue
+        listen.append(teil.get("commits") or [])
+    return listen
+
+
+def vorschau(ab: str, gebaut: str = "", zweig: str = "") -> dict[str, Any]:
     """Was ein Update jetzt brächte: Betreffzeilen seit dem Stand ``ab``.
 
     Der Hub kennt sein Git nicht, und das Bau-Skript klont erst beim
@@ -253,7 +338,7 @@ def vorschau(ab: str, gebaut: str = "") -> dict[str, Any]:
     """
     global _vorschau_cache
     jetzt = time.time()
-    schluessel = f"{ab}|{gebaut}"
+    schluessel = f"{ab}|{gebaut}|{zweig}"
     if (
         _vorschau_cache
         and _vorschau_cache[1] == schluessel
@@ -263,21 +348,46 @@ def vorschau(ab: str, gebaut: str = "") -> dict[str, Any]:
 
     werte = zugangswerte_lesen(CREDENTIALS_FILE)
     token = os.environ.get("GITHUB_TOKEN", "").strip() or werte.get("GITHUB_TOKEN", "")
+    # Zuerst der Zweig, den der Hub mitschickt - er steht im Abbild und
+    # ist damit der, aus dem wirklich gebaut wurde. Hier auf dem Host
+    # ihn ein zweites Mal zu erraten ging schief, sobald jemand
+    # HOMEPILOT_BRANCH in die Zugangsdatei schrieb, ohne den Dienst neu
+    # zu starten: Dann baute das Skript main und verglichen wurde gegen
+    # etwas anderes.
     branch = (
-        os.environ.get("HOMEPILOT_BRANCH", "").strip()
+        zweig_sauber(zweig)
+        or os.environ.get("HOMEPILOT_BRANCH", "").strip()
         or werte.get("HOMEPILOT_BRANCH", "")
         or "main"
     )
+    # Nimmt der Bau die übrigen Zweige mit herein? Dann muss die Vorschau
+    # sie auch ansehen (siehe _uebrige_zweige).
+    merge_all = (
+        os.environ.get("HOMEPILOT_MERGE_ALL", "").strip()
+        or werte.get("HOMEPILOT_MERGE_ALL", "")
+        or "1"
+    ) == "1"
     if not token:
         return {"error": "Auf dem Host liegt kein GITHUB_TOKEN"}
 
     def vergleiche(von: str) -> dict[str, Any]:
         payload = _github(f"/repos/{REPO}/compare/{von}...{branch}", token)
-        # /compare liefert älteste zuerst - die App zeigt wie
-        # changes.txt das Neueste zuoberst.
+        listen: list[list] = [payload.get("commits") or []]
+        genau = True
+        if merge_all:
+            try:
+                listen.extend(_uebrige_zweige(von, branch, token))
+            except Exception:
+                # Konnten wir die übrigen Zweige nicht ansehen, dürfen
+                # wir auch nicht «genau» behaupten - und schon gar nicht
+                # «nichts Neues». Lieber die halbe Auskunft, ehrlich
+                # gekennzeichnet, als ein Freibrief, den niemand prüfen
+                # kann.
+                genau = False
+        # `vereinigt` sortiert neueste zuerst - so, wie es die App zeigt.
         return {
-            "commits": list(reversed(betreffzeilen(payload.get("commits")))),
-            "exact": True,
+            "commits": betreffzeilen(vereinigt(listen)),
+            "exact": genau,
             "branch": branch,
         }
 
@@ -753,8 +863,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             felder = urllib.parse.parse_qs(query)
             ab = (felder.get("ab") or [""])[0]
             gebaut = (felder.get("gebaut") or [""])[0]
+            zweig = (felder.get("zweig") or [""])[0]
             try:
-                daten = vorschau(ab, gebaut)
+                daten = vorschau(ab, gebaut, zweig)
             except Exception as err:
                 # GitHub nicht erreichbar, Token abgelaufen - der Grund
                 # steht im Journal, die App fällt auf ihren alten Text

@@ -43,7 +43,7 @@ from ..models import ConfigEditRequest, ConfigRequest, UpdateTriggerRequest
 log = logging.getLogger(__name__)
 
 
-def vorschau_frage(ab: str, gebaut: str | None) -> str:
+def vorschau_frage(ab: str, gebaut: str | None, zweig: str | None = None) -> str:
     """Die Frage an den Update-Dienst (rein, testbar).
 
     Zwei Angaben statt einer, und die zweite ist die, die im Haus
@@ -53,11 +53,20 @@ def vorschau_frage(ab: str, gebaut: str | None) -> str:
     trägt sie ohnehin (HOMEPILOT_BUILD_TIME), und anders als der
     Basis-Commit hängt sie nicht daran, dass sich das Bau-Skript zuerst
     selbst aufgefrischt hat.
+
+    Dazu der Zweig, aus dem gebaut wurde. Ihn kannte der Dienst auf dem
+    Host bisher nur aus seiner eigenen Zugangsdatei - und las sie unter
+    Umständen anders als das Bau-Skript, das den Zweig schon vor dem
+    Einlesen festlegte. Verglichen wurde dann gegen einen Zweig, aus dem
+    gar nicht gebaut wurde.
     """
     felder = {"ab": ab}
     zeit = str(gebaut or "").strip()
     if zeit and zeit != "unbekannt":
         felder["gebaut"] = zeit
+    name = str(zweig or "").strip()
+    if name and name != "unbekannt":
+        felder["zweig"] = name
     return urlencode(felder)
 
 
@@ -580,6 +589,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 os.environ.get("HOMEPILOT_COMMIT"),
             ),
             os.environ.get("HOMEPILOT_BUILD_TIME"),
+            os.environ.get("HOMEPILOT_BRANCH_BUILT"),
         )
         secret = str((hub.config.update or {}).get("token") or "")
         headers = {"Authorization": f"Bearer {secret}"} if secret else {}

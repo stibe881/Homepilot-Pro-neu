@@ -1214,11 +1214,13 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
             }
             return (
               <>
-                <Text style={styles.updateAskText}>
-                  {inhalt.art === 'genau'
-                    ? 'Das bringt dieses Update:'
-                    : 'Die jüngsten Änderungen (der laufende Stand liess sich nicht genau vergleichen):'}
-                </Text>
+                {/* Nur noch der genaue Fall kommt hier an: «ungefaehr»
+                    kehrt weiter oben mit eigenem Text zurück und bringt
+                    ohnehin keine Zeilen mehr mit. Der alte Klammersatz
+                    ist damit weg - wer ihn auf einem Telefon mit älterer
+                    Fassung noch sieht, soll ihn im Repo nicht mehr
+                    finden und für aktuell halten. */}
+                <Text style={styles.updateAskText}>Das bringt dieses Update:</Text>
                 <Text style={styles.updateAskText}>
                   {inhalt.zeilen.map((zeile) => `· ${zeile}`).join('\n')}
                   {inhalt.mehr > 0 ? `\n… und ${inhalt.mehr} weitere` : ''}

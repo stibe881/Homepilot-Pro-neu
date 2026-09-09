@@ -380,6 +380,10 @@ def test_die_vorschau_schlaegt_ueber_die_bauzeit_nach(monkeypatch, credentials):
             raise urllib.error.HTTPError(pfad, 404, "Not Found", None, None)
         if "until=" in pfad:
             return [{"sha": "7f1987e"}]
+        if pfad.startswith(f"/repos/{modul.REPO}/branches"):
+            # Seit die Vorschau alle Zweige ansieht, gehört auch das
+            # hierher - sonst gälte die Auskunft als nicht genau.
+            return [{"name": "main"}]
         if pfad.startswith(f"/repos/{modul.REPO}/compare/7f1987e"):
             return {"commits": [{"commit": {"message": "Etwas Neues"}, "parents": [{}]}]}
         raise AssertionError(f"unerwartet: {pfad}")
@@ -405,9 +409,131 @@ def test_ohne_bauzeit_bleibt_es_bei_der_alten_naeherung(monkeypatch, credentials
     def fake_github(pfad, token):
         if "/compare/" in pfad:
             raise urllib.error.HTTPError(pfad, 404, "Not Found", None, None)
+        if "/branches" in pfad:
+            return [{"name": "main"}]
         return [{"commit": {"message": "Jüngstes"}, "parents": [{}]}]
 
     monkeypatch.setattr(modul, "_github", fake_github)
     antwort = modul.vorschau("a81bb71", "")
     assert antwort["exact"] is False
     assert antwort["commits"] == ["Jüngstes"]
+
+
+# ── Der Bau nimmt alle Zweige, die Vorschau muss sie auch ansehen ──────
+#
+# Der gefährlichste der gefundenen Fehler: Gebaut wird BRANCH *plus alle
+# übrigen Zweige* (HOMEPILOT_MERGE_ALL). Verglichen wurde nur gegen
+# einen. Wer auf einem Arbeitszweig eincheckt und noch nicht gestossen
+# hat, dessen Arbeit brächte das nächste Update sehr wohl mit - der
+# Dialog sagte trotzdem «Auf dem Server liegt nichts Neues». Ein
+# falscher Freibrief, und genau die Sorte Fehler, vor der die CLAUDE.md
+# warnt: «Teuer ist der Zweig, der still zurückfällt.»
+
+
+def _commit(sha, betreff, datum):
+    return {
+        "sha": sha,
+        "commit": {"message": betreff, "committer": {"date": datum}},
+        "parents": [{}],
+    }
+
+
+def test_zweignamen_kommen_geprueft_in_die_adresse(monkeypatch, credentials):
+    modul = load_listener(monkeypatch, credentials, None)
+    assert modul.zweig_sauber("claude/etwas-langes_1.2") == "claude/etwas-langes_1.2"
+    assert modul.zweig_sauber("../../etwas") == ""
+    assert modul.zweig_sauber("mit leerzeichen") == ""
+    assert modul.zweig_sauber("/absolut") == ""
+    assert modul.zweig_sauber("") == ""
+
+
+def test_vereinigt_wirft_doppel_weg_und_ordnet_nach_zeit(monkeypatch, credentials):
+    """Dieselbe Änderung kann auf zwei Zweigen liegen - zweimal dieselbe
+    Zeile liest sich wie zwei Änderungen."""
+    modul = load_listener(monkeypatch, credentials, None)
+    a = [_commit("1", "Alt", "2026-09-09T01:00:00Z")]
+    b = [
+        _commit("1", "Alt", "2026-09-09T01:00:00Z"),
+        _commit("2", "Neu", "2026-09-09T02:00:00Z"),
+    ]
+    assert [c["sha"] for c in modul.vereinigt([a, b])] == ["2", "1"]
+    assert modul.vereinigt([]) == []
+
+
+def test_arbeit_auf_einem_nebenzweig_steht_in_der_liste(monkeypatch, credentials):
+    """Der eigentliche Fall: main unverändert, aber auf einem
+    claude/…-Zweig liegt etwas, das der nächste Bau hereinnimmt."""
+    modul = load_listener(monkeypatch, credentials, None)
+    credentials.write_text("GITHUB_TOKEN=t\n", encoding="utf-8")
+    modul._vorschau_cache = None
+
+    def fake_github(pfad, token):
+        if pfad.startswith(f"/repos/{modul.REPO}/compare/M0...main"):
+            return {"commits": []}  # auf main nichts Neues
+        if pfad.startswith(f"/repos/{modul.REPO}/branches"):
+            return [{"name": "main"}, {"name": "claude/xy"}]
+        if pfad.startswith(f"/repos/{modul.REPO}/compare/M0...claude/xy"):
+            return {"commits": [_commit("9", "Arbeit vom Nebenzweig", "2026-09-09T03:00:00Z")]}
+        raise AssertionError(f"unerwartet: {pfad}")
+
+    monkeypatch.setattr(modul, "_github", fake_github)
+    antwort = modul.vorschau("M0", "", "main")
+
+    assert antwort["commits"] == ["Arbeit vom Nebenzweig"]
+    assert antwort["exact"] is True
+
+
+def test_wirklich_nichts_neues_bleibt_nichts_neues(monkeypatch, credentials):
+    """Die Gegenprobe - sonst wäre die Warnung nur Lärm."""
+    modul = load_listener(monkeypatch, credentials, None)
+    credentials.write_text("GITHUB_TOKEN=t\n", encoding="utf-8")
+    modul._vorschau_cache = None
+
+    def fake_github(pfad, token):
+        if "/branches" in pfad:
+            return [{"name": "main"}, {"name": "claude/xy"}]
+        return {"commits": []}
+
+    monkeypatch.setattr(modul, "_github", fake_github)
+    antwort = modul.vorschau("M0", "", "main")
+    assert antwort["commits"] == []
+    assert antwort["exact"] is True
+
+
+def test_ungesehene_zweige_heissen_nicht_genau(monkeypatch, credentials):
+    """Konnten wir die übrigen Zweige nicht ansehen, dürfen wir auch
+    nicht «genau» behaupten - und schon gar nicht «nichts Neues»."""
+    modul = load_listener(monkeypatch, credentials, None)
+    credentials.write_text("GITHUB_TOKEN=t\n", encoding="utf-8")
+    modul._vorschau_cache = None
+
+    def fake_github(pfad, token):
+        if "/branches" in pfad:
+            raise OSError("GitHub gerade nicht erreichbar")
+        return {"commits": []}
+
+    monkeypatch.setattr(modul, "_github", fake_github)
+    antwort = modul.vorschau("M0", "", "main")
+    assert antwort["exact"] is False
+
+
+def test_der_gebaute_zweig_schlaegt_die_zugangsdatei(monkeypatch, credentials):
+    """Das Skript legte den Zweig fest, bevor es die Datei las - der
+    Dienst liest sie bei jeder Anfrage. Beide meinten dann verschiedene
+    Zweige, und die Liste zeigte den Unterschied als «kommt noch»."""
+    modul = load_listener(monkeypatch, credentials, None)
+    credentials.write_text("GITHUB_TOKEN=t\nHOMEPILOT_BRANCH=etwas-anderes\n", encoding="utf-8")
+    monkeypatch.delenv("HOMEPILOT_BRANCH", raising=False)
+    modul._vorschau_cache = None
+    gefragt: list[str] = []
+
+    def fake_github(pfad, token):
+        gefragt.append(pfad)
+        if "/branches" in pfad:
+            return [{"name": "main"}]
+        return {"commits": []}
+
+    monkeypatch.setattr(modul, "_github", fake_github)
+    antwort = modul.vorschau("M0", "", "main")
+    assert antwort["branch"] == "main"
+    assert any("compare/M0...main" in pfad for pfad in gefragt)
