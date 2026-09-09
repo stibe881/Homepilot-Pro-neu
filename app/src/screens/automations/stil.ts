@@ -100,29 +100,10 @@ export const makeStyles = (colors: Colors) =>
     pickName: { color: colors.ink, fontSize: 15, fontWeight: '600' },
     pickNameActive: { color: colors.accent },
     pickKind: { color: colors.inkFaint, fontSize: 12, marginTop: 1 },
-    groupHead: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      paddingTop: 6,
-      paddingBottom: 2,
-    },
-    /**
-     * Die Kategoriezeile über einer Gruppe.
-     *
-     * Sie stand in Grossbuchstaben mit gesperrter Schrift - als
-     * Rubrikenschild gedacht. Bei selbst vergebenen Namen las sich das
-     * aber nicht als Schild, sondern als Geschrei: «6-FACH
-     * WANDTASTER», «BEWEGUNGSMELDER LICHT». Namen, die jemand getippt
-     * hat, gehören so hin, wie er sie getippt hat - dafür etwas
-     * grösser, damit sie sich weiter von den Karten darunter abheben.
-     */
-    groupTitle: {
-      flex: 1,
-      color: colors.onGradient,
-      fontSize: 15,
-      fontWeight: '700',
-    },
+    /** Die Zahl neben «Vorlagen» - dieselbe Schrift wie die Zahl in der
+     *  Kategoriezeile (components/Kategoriezeile.tsx), damit beide
+     *  Zeilen dieselbe Sprache sprechen. Die Kategoriezeile selbst wohnt
+     *  seit ihrem Umbau dort und bringt ihre Styles mit. */
     groupCount: { color: colors.onGradientSoft, fontSize: 13, fontWeight: '700' },
     templates: { gap: 8 },
     // «Alles mal ruhen lassen», ganz oben und dezent: eine Zeile statt

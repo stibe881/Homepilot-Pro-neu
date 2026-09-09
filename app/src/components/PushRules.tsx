@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { HubSettings } from '../api/types';
 import { Card } from './Card';
+import { Kategoriezeile } from './Kategoriezeile';
 import { Colors, type, useColors } from '../theme';
 import { HubFehler, hubClient } from '../api/client';
 import { pushAblaeufe, pushBeschreibung } from '../lib/pushablaeufe';
@@ -275,22 +276,16 @@ export function PushRules({
 
   return (
     <View style={{ gap: 10 }}>
-      <Pressable
-        onPress={() => setOpen((value) => !value)}
-        accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
-        style={styles.groupHead}
-      >
-        <Ionicons
-          name={open ? 'chevron-down' : 'chevron-forward'}
-          size={16}
-          color={colors.onGradientSoft}
-        />
-        <Text style={styles.groupTitle}>Push</Text>
-        <Text style={styles.groupCount}>
-          {active === gesamt ? gesamt : `${active}/${gesamt}`}
-        </Text>
-      </Pressable>
+      {/* Dieselbe Zeile wie die Kategorien darüber - sie steht in
+          derselben Liste (components/Kategoriezeile.tsx). Stünde hier
+          etwas anderes zwischen «Lautsprecher» und «Wandtaster», sähe es
+          nach einer anderen Ebene aus, obwohl es dieselbe ist. */}
+      <Kategoriezeile
+        titel="Push"
+        stand={active === gesamt ? String(gesamt) : `${active}/${gesamt}`}
+        offen={open}
+        onToggle={() => setOpen((value) => !value)}
+      />
 
       {open ? (
         <>
@@ -785,24 +780,6 @@ const makeStyles = (colors: Colors) =>
     // `panel` auf `ink`-Grund - nicht `surfaceStrong`, das im dunklen
     // Erscheinungsbild durchscheint (siehe SettingsScreen, modeTextActive).
     wahlTextAn: { color: colors.panel },
-    groupHead: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      paddingTop: 6,
-      paddingBottom: 2,
-    },
-    // Dieselbe Zeile wie die Kategorien darüber - sie steht in derselben
-    // Liste. Stünde hier weiter «PUSH» in Grossbuchstaben zwischen
-    // «Lautsprecher» und «Wandtaster», sähe es nach einer anderen Ebene
-    // aus, obwohl es dieselbe ist.
-    groupTitle: {
-      flex: 1,
-      color: colors.onGradient,
-      fontSize: 15,
-      fontWeight: '700',
-    },
-    groupCount: { color: colors.onGradientSoft, fontSize: 13, fontWeight: '700' },
     /** Zwischenüberschrift einer Unterkategorie. Kleiner als die
      *  «PUSH»-Zeile darüber: Sie gliedert, sie ist nicht die Überschrift. */
     gruppe: {
