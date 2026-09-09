@@ -139,6 +139,31 @@ export const makeStyles = (colors: Colors) =>
       alignItems: 'flex-start',
     },
     stack: { gap: space.gap * 1.4 },
+    /** Das Blättchen zur Reihenfolge auf der Geräteseite. Klein und
+     *  mittig statt am Rand: Es hängt an einem Knopf, der auf dem iPad
+     *  ganz rechts steht und auf dem Telefon fast am linken Rand - ein
+     *  Menü, das sich daran ausrichtet, sitzt einmal so und einmal so. */
+    sortHintergrund: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 24,
+    },
+    sortBlatt: {
+      width: '100%',
+      maxWidth: 380,
+      gap: 4,
+      padding: 18,
+      borderRadius: radius.card,
+      backgroundColor: colors.panel,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    sortTitel: { color: colors.ink, fontSize: 16, fontWeight: '700', marginBottom: 6 },
+    sortZeile: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 9 },
+    sortWort: { color: colors.ink, fontSize: 15, fontWeight: '600' },
+    sortHinweis: { color: colors.inkFaint, fontSize: 12, marginTop: 1 },
     /**
      * Eine Spalte für die Einstellungsseiten - Konto, Verbindungen.
      *

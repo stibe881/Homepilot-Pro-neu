@@ -82,8 +82,10 @@ import { raumSzenen, szeneGeraet, szenenFuerKachel } from '../lib/szenen';
 import {
   GeraeteFilter,
   GeraeteSortierung,
+  SORTIERUNGEN,
   passtFilter,
   sortiereGeraete,
+  sortierungsWort,
 } from '../lib/geraetefilter';
 import { verweisText, verweiseAuf } from '../lib/verweise';
 import {
@@ -433,6 +435,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // man diese Seite öffnet, plus die Reihenfolge dazu.
   const [deviceFilter, setDeviceFilter] = useState<GeraeteFilter>('');
   const [deviceSort, setDeviceSort] = useState<GeraeteSortierung>('selbst');
+  const [sortOffen, setSortOffen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   // Das ···-Menü im Raumkopf: klappt «Anpassen» und «Reihenfolge» auf.
   // Je Raum frisch zu - was man im Büro aufgeklappt hat, soll im
@@ -2676,34 +2679,68 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   Reihenfolge» in der zweiten Zeile an den beiden Enden,
                   mit einer Handbreit Leere dazwischen. Das sah nach
                   Fehler aus. Rechts und für sich ist sie ausserdem
-                  ehrlicher: Sie filtert nichts, sie ordnet. */}
+                  ehrlicher: Sie filtert nichts, sie ordnet.
+
+                  Und sie zählt nicht mehr durch: Der Knopf sprang zur
+                  nächsten von vier Reihenfolgen, und was es überhaupt zu
+                  holen gibt, sah man nie - man tippte, bis das Richtige
+                  dastand, und wer eins zu weit kam, tippte dreimal
+                  weiter. Jetzt geht eine Liste auf, in der die vier mit
+                  einem Satz dabeistehen. */}
               <Pressable
-                onPress={() =>
-                  setDeviceSort(
-                    deviceSort === 'selbst'
-                      ? 'raum'
-                      : deviceSort === 'raum'
-                        ? 'art'
-                        : deviceSort === 'art'
-                          ? 'gesehen'
-                          : 'selbst'
-                  )
-                }
+                onPress={() => setSortOffen(true)}
                 accessibilityRole="button"
-                accessibilityLabel="Sortierung wechseln"
+                accessibilityLabel={`Sortierung: ${sortierungsWort(deviceSort)}. Ändern`}
                 style={[styles.filterChip, { alignSelf: 'flex-end' }]}
               >
                 <Ionicons name="swap-vertical" size={12} color={colors.ink} />
-                <Text style={styles.filterChipText}>
-                  {deviceSort === 'selbst'
-                    ? 'eigene Reihenfolge'
-                    : deviceSort === 'raum'
-                      ? 'nach Raum'
-                      : deviceSort === 'art'
-                        ? 'nach Art'
-                        : 'lange nicht gesehen'}
-                </Text>
+                <Text style={styles.filterChipText}>{sortierungsWort(deviceSort)}</Text>
               </Pressable>
+              <Modal
+                visible={sortOffen}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setSortOffen(false)}
+              >
+                <Pressable
+                  style={styles.sortHintergrund}
+                  onPress={() => setSortOffen(false)}
+                >
+                  <Pressable style={styles.sortBlatt} onPress={() => {}}>
+                    <Text style={styles.sortTitel}>Reihenfolge</Text>
+                    {SORTIERUNGEN.map((eintrag) => {
+                      const an = deviceSort === eintrag.key;
+                      return (
+                        <Pressable
+                          key={eintrag.key}
+                          onPress={() => {
+                            setDeviceSort(eintrag.key);
+                            setSortOffen(false);
+                          }}
+                          accessibilityRole="radio"
+                          accessibilityState={{ selected: an }}
+                          style={({ pressed }) => [
+                            styles.sortZeile,
+                            pressed && { opacity: 0.7 },
+                          ]}
+                        >
+                          <Ionicons
+                            name={an ? 'radio-button-on' : 'radio-button-off'}
+                            size={18}
+                            color={an ? colors.accent : colors.inkFaint}
+                          />
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text style={[styles.sortWort, an && { color: colors.accent }]}>
+                              {eintrag.label}
+                            </Text>
+                            <Text style={styles.sortHinweis}>{eintrag.hinweis}</Text>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </Pressable>
+                </Pressable>
+              </Modal>
               {/* Batterien und Stumme im Detail – vorher unter System,
                   also auf dem Bildschirm für den Hub statt dem für die
                   Geräte. */}
