@@ -113,6 +113,44 @@ def test_apple_gets_playlist_without_low_latency_parts(tmp_path):
         assert "seg00001.ts" in slow
 
 
+def test_der_hub_warnt_wenn_apple_die_schnelle_fassung_bekommt(tmp_path, caplog):
+    """Der Schalter, der iPhone und iPad schwarz machen kann.
+
+    `streaming.apple_low_latency: true` lässt die Bruchstücke auch für
+    AVPlayer stehen. Der verlangt aber, dass jedes exakt so lang ist wie
+    angekündigt - und die Zeitstempel der Protect-Kameras zittern. Er
+    steigt dann wortlos aus: schwarze Fläche, kein Fehler, nichts im
+    Protokoll. Genau so gemeldet worden.
+
+    Also sagt es der Hub einmal je Lauf. Ohne diese Zeile sucht man den
+    Schalter nirgends - er steht in der config.yaml, und die schaut bei
+    einem schwarzen Bild niemand an.
+    """
+    hub = Hub(make_config(token="geheim", streaming={"apple_low_latency": True}))
+    hub.streams = _FakeStreams(tmp_path)
+
+    async def fake_stream_url(entity):
+        return "rtsps://cam/abc"
+
+    (tmp_path / "index.m3u8").write_text(
+        '#EXTM3U\n#EXT-X-PART:DURATION=0.24,URI="part7.mp4"\nseg00001.ts\n'
+    )
+    with TestClient(create_app(hub)) as client:
+        hub.integrations.get("demo").stream_url = fake_stream_url
+        url = "/api/entities/demo.light_livingroom/stream.m3u8?token=geheim"
+        with caplog.at_level("WARNING"):
+            text = client.get(
+                url, headers={"User-Agent": "AppleCoreMedia/1.0.0 (iPhone)"}
+            ).text
+            # Der Schalter wirkt: Die Bruchstücke bleiben stehen.
+            assert "EXT-X-PART" in text
+            assert "apple_low_latency" in caplog.text
+            # Und nur einmal - sonst stünde die Zeile bei jedem Häppchen.
+            caplog.clear()
+            client.get(url, headers={"User-Agent": "AppleCoreMedia/1.0.0 (iPhone)"})
+            assert "apple_low_latency" not in caplog.text
+
+
 def test_path_name_survives_mediamtx():
     # Punkte sind in mediamtx-Pfaden nicht erlaubt, in Entitäts-IDs schon.
     assert path_name("unifi_protect.eingang") == "unifi_protect_eingang"

@@ -506,6 +506,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             raise HTTPException(status_code=503, detail="Integration nicht geladen")
         return entity, integration
 
+    # Nur einmal je Hub-Lauf gemeldet: Wer den Schalter kennt, braucht die
+    # Zeile nicht bei jedem Häppchen.
+    apple_gemeldet = False
+
     async def deliver(target, request: Request, prefix: str) -> Response:
         """Wiedergabeliste oder Häppchen ausliefern – aus Datei oder mediamtx.
 
@@ -541,6 +545,23 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             agent = request.headers.get("user-agent", "")
             if apple_player(agent) and not apple_schnell(hub.config.streaming):
                 text = strip_low_latency(text, start_rueckstand(hub.config.streaming))
+            elif apple_player(agent):
+                # Der Schalter ist an - dann bekommt AVPlayer die
+                # Low-Latency-Fassung mit ihren Bruchstücken. Das ist
+                # eine Einladung zum schwarzen Bild: Er verlangt, dass
+                # jedes Bruchstück exakt so lang ist wie angekündigt,
+                # und die Zeitstempel der Kameras zittern. Wortlos
+                # aussteigen tut er dann, nicht mit einem Fehler - also
+                # sagt es der Hub, sonst sucht man es nirgends.
+                nonlocal apple_gemeldet
+                if not apple_gemeldet:
+                    apple_gemeldet = True
+                    log.warning(
+                        "streaming.apple_low_latency ist an: iPhone und iPad "
+                        "bekommen die Low-Latency-Fassung. Bleibt das Bild "
+                        "dort schwarz, ist das der erste Verdacht - Schalter "
+                        "in der config.yaml herausnehmen."
+                    )
             content, media_type = text.encode(), "application/vnd.apple.mpegurl"
         return Response(
             content=content,
