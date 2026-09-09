@@ -14,6 +14,11 @@
  *      ein Wegblinken; hier ist es eine Zahl.
  *   3. Kommt ein Druck am Hub an?  Die Fernbedienung war monatelang
  *      stumm, und niemand konnte sagen, wo der Druck stirbt.
+ *   4. Wandert die zu lange Terminzeile durch?  Sie endete auf «Si…»,
+ *      und der zweite Termin des Tages stand damit nirgends. Beim
+ *      Beheben zeigte sich der eigentliche Fehler: Der Griff um die
+ *      Zeile schrumpfte gar nicht (449 Punkte in einer Zeile von 315),
+ *      und beides sieht von Auge gleich aus – abgeschnitten.
  *
  * Aufruf über `scripts/probe.sh` – der startet Demo-Hub und Web-Fassung
  * und übergibt die Adressen hier hinein.
@@ -235,12 +240,87 @@ async function druckKommtAn(browser) {
   await seite.close();
 }
 
+/** 4. Wandert die zu lange Terminzeile durch – und bleibt sie dabei in
+ *  der Karte?
+ *
+ *  Nur auf dem Telefon: Auf dem iPad ist die Karte breit genug, dort
+ *  gibt es nichts zu wandern. Und ein Umlauf dauert acht Sekunden – die
+ *  gibt man nicht zweimal aus.
+ *
+ *  Der Demo-Kalender liefert dafür einen Termin, der mit Absicht zu
+ *  lang ist (hub/homepilot/integrations/demo.py); er ist der gemeldete
+ *  aus dem Haus.
+ */
+async function terminWandert(browser) {
+  const seite = await angemeldeteSeite(browser, GROESSEN[1]);
+  // Die wandernde Ausfertigung ist die zweite – die erste ist der
+  // Platzhalter, der den Platz bestimmt (components/Lauftext.tsx).
+  const messen = () =>
+    seite.evaluate(() => {
+      const treffer = [...document.querySelectorAll('div,span')].filter(
+        (el) => el.children.length === 0 && el.textContent?.includes('Chrabbelzwergli')
+      );
+      if (treffer.length === 0) return null;
+      const el = treffer[treffer.length - 1];
+      // Beides über den Baum und nicht über Klassen oder Stilangaben:
+      // React Native Web schreibt seine Stile mal als Klasse, mal
+      // eingebettet - ein Sucher darauf findet je nach Bau nichts und
+      // meldet dann Grün, weil er nichts zu messen fand.
+      let fenster = el.parentElement;
+      while (fenster && getComputedStyle(fenster).overflowX !== 'hidden') {
+        fenster = fenster.parentElement;
+      }
+      let karte = fenster;
+      while (karte && !karte.textContent.includes('Guten ')) karte = karte.parentElement;
+      if (!fenster || !karte) return null;
+      return {
+        x: Math.round(el.getBoundingClientRect().left),
+        ueberDieKarte: Math.round(
+          fenster.getBoundingClientRect().right - karte.getBoundingClientRect().right
+        ),
+      };
+    });
+
+  const erste = await messen();
+  if (erste === null) {
+    pruefe(false, 'Die lange Terminzeile steht in der Karte', 'Zeile nicht gefunden');
+    await seite.close();
+    return;
+  }
+  pruefe(
+    erste.ueberDieKarte <= 1,
+    'Die lange Terminzeile bleibt in der Karte',
+    `ragt ${erste.ueberDieKarte} Punkte hinaus`
+  );
+
+  // Zehneinhalb Sekunden sind ein Umlauf mit Reserve: 3 Sekunden Ruhe,
+  // rund 3 Sekunden Wanderung, 2 Sekunden Ruhe.
+  const spur = [erste.x];
+  for (let i = 0; i < 26; i++) {
+    await seite.waitForTimeout(400);
+    const jetzt = await messen();
+    if (jetzt) spur.push(jetzt.x);
+  }
+  const ruhe = Math.max(...spur);
+  const weiteste = ruhe - Math.min(...spur);
+  pruefe(weiteste > 20, 'Die lange Terminzeile wandert nach links', `nur ${weiteste} Punkte`);
+  // Nach der Wanderung wieder von vorne: Ein Lauftext, der am Ende
+  // liegen bleibt, zeigt den Anfang nie wieder.
+  // «Ist zurück» ohne «hat sich bewegt» wäre für jede stehende Zeile
+  // wahr - eine Messung, die auch dann grün ist, wenn gar nichts
+  // passiert, ist keine.
+  const zurueck = weiteste > 20 && spur.lastIndexOf(ruhe) > spur.indexOf(Math.min(...spur));
+  pruefe(zurueck, 'Die lange Terminzeile fängt wieder von vorne an', 'blieb am Ende stehen');
+  await seite.close();
+}
+
 const { chromium } = playwrightLaden();
 const browser = await chromium.launch({ executablePath: browserOrt() });
 try {
   await ueberlauf(browser);
   await blattBleibt(browser);
   await druckKommtAn(browser);
+  await terminWandert(browser);
 } finally {
   await browser.close();
 }

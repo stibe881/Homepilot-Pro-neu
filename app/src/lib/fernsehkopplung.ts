@@ -14,6 +14,20 @@
  */
 import { Entity } from '../api/types';
 
+/**
+ * Was unter dem Namen des Fernsehers steht (rein, testbar).
+ *
+ * Drei Zustände, drei verschiedene nächste Schritte - und der
+ * Unterschied zwischen den letzten beiden ist genau der, den die Absage
+ * im Hub schon macht (integrations/androidtv.py, absage): Ein nicht
+ * gekoppelter Fernseher braucht einen Menschen davor, ein nicht
+ * erreichbarer nur Strom und Netz.
+ */
+export function kopplungsZeile(entity: Entity): string {
+  if (entity?.state?.paired === false) return 'Nicht gekoppelt';
+  return entity?.available === false ? 'Gekoppelt · gerade nicht erreichbar' : 'Gekoppelt';
+}
+
 /** So viele Stellen hat der Code auf dem Fernseher. */
 export const CODE_LAENGE = 6;
 
@@ -27,6 +41,25 @@ export const CODE_LAENGE = 6;
  */
 export function brauchtKopplung(entity: Entity): boolean {
   return entity?.state?.paired === false;
+}
+
+/**
+ * Lässt sich dieses Gerät überhaupt koppeln? (rein, testbar)
+ *
+ * Am Vorhandensein des Schlüssels, nicht an seinem Wert: `paired` setzt
+ * einzig die Android-TV-Integration, und zwar auf jedem ihrer Geräte.
+ *
+ * Der Grund für diese zweite Frage: Zuerst gab es nur `brauchtKopplung`,
+ * und damit stand «Fernseher koppeln» ausschliesslich da, wo der Hub die
+ * Kopplung schon als abgelehnt erlebt hatte. Aus dem Haus kam prompt
+ * «Wo finde ich nun das Verbinden zu einem Android TV?» - zu Recht: Ein
+ * Weg, den man nur sieht, wenn es bereits zu spät ist, ist keiner. Und
+ * es gibt den Fall, in dem der Fernseher verbindet und trotzdem keine
+ * Taste wirkt (Daten des Remote-Dienstes am Gerät gelöscht); dann steht
+ * `paired` auf «ja» und man käme sonst nie an den Ausweg.
+ */
+export function kannKoppeln(entity: Entity): boolean {
+  return typeof entity?.state?.paired === 'boolean';
 }
 
 /**

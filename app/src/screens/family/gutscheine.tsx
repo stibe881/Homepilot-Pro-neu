@@ -52,6 +52,7 @@ import {
   Ablaufstufe,
   DATEI_TYPEN,
   EINHEITEN,
+  EINLOESEN,
   Formular,
   GETEILT,
   Geteilt,
@@ -81,6 +82,7 @@ import {
   kopfText,
   leeresFormular,
   listeLeerbild,
+  MITNEHMEN,
   mimeVon,
   mitMimeTyp,
   restText,
@@ -289,6 +291,22 @@ function GeteiltChip({ shared, eigen, colors }: { shared: Geteilt; eigen: Eigen;
   );
 }
 
+/** Der Chip «Karte mitbringen» (Punkt 267 der Werkbank).
+ *
+ * Er steht schon in der Liste und nicht erst im Detail: Gebraucht wird
+ * er in dem Moment, in dem jemand vor der Tür überlegt, ob er noch
+ * etwas einstecken muss - und da öffnet niemand jeden Gutschein
+ * einzeln.
+ */
+function MitnehmenChip({ eigen, colors }: { eigen: Eigen; colors: Colors }) {
+  return (
+    <View style={eigen.chipKlein}>
+      <Ionicons name="wallet-outline" size={12} color={colors.accent} />
+      <Text style={eigen.chipKleinText}>{MITNEHMEN}</Text>
+    </View>
+  );
+}
+
 // ── Die Karte in der Liste ───────────────────────────────────────────────
 
 function GutscheinKarte({
@@ -317,8 +335,8 @@ function GutscheinKarte({
         entry.expires,
         heute
       )}, ${entry.shared === 'familie' ? 'Familie' : 'Privat'}${
-        entry.file ? `, mit Beleg: ${dateiSatz(entry.file)}` : ''
-      }`}
+        entry.physical ? `, ${MITNEHMEN}` : ''
+      }${entry.file ? `, mit Beleg: ${dateiSatz(entry.file)}` : ''}`}
     >
       <View style={eigen.karteKopf}>
         <View style={eigen.ladenBox}>
@@ -348,6 +366,7 @@ function GutscheinKarte({
         <View style={{ flex: 1 }}>
           <View style={eigen.chipZeile}>
             <GeteiltChip shared={entry.shared} eigen={eigen} colors={colors} />
+            {entry.physical ? <MitnehmenChip eigen={eigen} colors={colors} /> : null}
             {/* Wo der Beleg liegt, soll man sehen, ohne jeden Gutschein
                 zu öffnen - deshalb das Symbol schon auf der Karte. */}
             {entry.file ? (
@@ -507,6 +526,7 @@ function Detail({
           )}
           {feld('Kategorie', entry.category || '–')}
           {feld('Geteilt', entry.shared === 'familie' ? 'Familie' : 'Privat')}
+          {feld('Einlösen', entry.physical ? MITNEHMEN : 'Nummer genügt')}
         </View>
         {rueckmeldung ? <Text style={eigen.rueckmeldung}>{rueckmeldung}</Text> : null}
         {stufe !== 'ok' && stufe !== 'unbegrenzt' ? (
@@ -829,6 +849,30 @@ function FormularBlatt({
           </View>
           <Text style={styles.formHintSmall}>
             Privat sieht nur, wer ihn erfasst hat. Familie sehen alle.
+          </Text>
+        </View>
+
+        <View style={eigen.formFeld}>
+          <Text style={eigen.formLabel}>Einlösen</Text>
+          <View style={styles.chipRow}>
+            {EINLOESEN.map((wahl) => (
+              <Pressable
+                key={String(wahl.key)}
+                onPress={() => setze('physical', wahl.key)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: form.physical === wahl.key }}
+                style={[styles.chip, form.physical === wahl.key && styles.chipActive]}
+              >
+                <Text style={[styles.chipText, form.physical === wahl.key && styles.chipTextActive]}>
+                  {wahl.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={styles.formHintSmall}>
+            «{MITNEHMEN}» heisst: Ohne die Karte, den Bon oder den Ausdruck geht im Laden
+            nichts – die Nummer allein nützt dort nicht. Steht dann schon in der Liste, damit
+            man es vor dem Losfahren sieht.
           </Text>
         </View>
 
@@ -1368,7 +1412,18 @@ const makeStyles = (colors: Colors) =>
     },
     balkenFuellung: { height: '100%', borderRadius: 3 },
     karteFuss: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-    chipZeile: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 },
+    // Umbrechend, seit ein zweiter Chip dazukam (Punkt 267): «Familie»,
+    // «Karte mitbringen», das Belegsymbol und die Kategorie passen auf
+    // einem schmalen Telefon nicht mehr in eine Zeile - ohne Umbruch
+    // schöbe der letzte die Karte seitlich aus dem Bild.
+    chipZeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: 8,
+      rowGap: 4,
+      marginBottom: 2,
+    },
     chipKlein: {
       flexDirection: 'row',
       alignItems: 'center',

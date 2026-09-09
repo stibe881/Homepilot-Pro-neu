@@ -22,7 +22,7 @@ export const HOECHSTENS_ZEILEN = 8;
 export type VorschauArt =
   /** Liste seit dem laufenden Stand. */
   | 'genau'
-  /** Nur die jüngsten Zeilen - Vergleich war nicht möglich. */
+  /** Der Vergleich war nicht möglich - es wird bewusst nichts aufgezählt. */
   | 'ungefaehr'
   /** Es gibt nachweislich nichts Neues. */
   | 'nichts'
@@ -55,8 +55,18 @@ export function vorschauZeilen(vorschau: UpdateVorschau | null | undefined): {
     // leere Näherungsliste heisst bloss, dass GitHub nichts hergab.
     return { art: vorschau.exact ? 'nichts' : 'keine', zeilen: [], mehr: 0 };
   }
+  // Ohne genauen Vergleich wird nichts aufgezählt. Die Liste hiess
+  // «die jüngsten Änderungen» und zeigte die zehn neusten Commits des
+  // Zweigs - ob sie schon laufen oder nicht. Aus dem Haus kam dazu:
+  // «momentan stehen da auch Sachen drin, die bereits im letzten Update
+  // gemacht wurden.» Genau so ist es, und die Klammer daneben («liess
+  // sich nicht genau vergleichen») liest niemand als Warnung. Wer vor
+  // dem Knopf steht, will wissen, was *noch* kommt; eine Liste, die im
+  // Zweifel schon Ausgeliefertes nennt, beantwortet das nicht, sondern
+  // führt in die Irre. Dann lieber ein ehrlicher Satz und keine Liste.
+  if (!vorschau.exact) return { art: 'ungefaehr', zeilen: [], mehr: 0 };
   return {
-    art: vorschau.exact ? 'genau' : 'ungefaehr',
+    art: 'genau',
     zeilen: alle.slice(0, HOECHSTENS_ZEILEN),
     mehr: Math.max(0, alle.length - HOECHSTENS_ZEILEN),
   };

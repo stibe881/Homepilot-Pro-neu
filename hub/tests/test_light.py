@@ -6,6 +6,7 @@ unsichtbar ist – dabei misst der Melder die Umgebungshelligkeit längst.
 """
 
 import asyncio
+from datetime import datetime
 
 import pytest
 
@@ -18,7 +19,18 @@ from homepilot.core.automation import (
 from homepilot.core.config import ApiConfig, HubConfig
 from homepilot.core.entity import Entity
 from homepilot.core.hub import Hub
-from homepilot.core.light import FULL_LUX, MAX_PERCENT, MIN_PERCENT, brightness_from_lux
+from homepilot.core.light import (
+    FULL_LUX,
+    MAX_PERCENT,
+    MIN_PERCENT,
+    NACHT_BEGINN,
+    NACHT_ENDE,
+    TAG_BEGINN,
+    TAG_ENDE,
+    brightness_from_lux,
+    brightness_from_time,
+    raum_lux,
+)
 
 
 def test_stockdunkel_gibt_das_minimum():
@@ -57,11 +69,72 @@ def test_unsinn_macht_die_lampe_nicht_dunkel():
     assert brightness_from_lux("keine Zahl") == MAX_PERCENT  # type: ignore[arg-type]
 
 
+# ── Nach der Uhr ──────────────────────────────────────────────────────
+#
+# Die zweite Antwort auf dieselbe Frage. Sie weiss weniger als der
+# Fühler - ein Gewitternachmittag ist ihr so hell wie ein Julitag -,
+# aber sie braucht keinen, und in den meisten Räumen des Hauses steht
+# keiner.
+
+
+def test_nachts_bleibt_es_beim_nachtlicht():
+    assert brightness_from_time(3) == MIN_PERCENT
+    assert brightness_from_time(23, 30) == MIN_PERCENT
+    assert brightness_from_time(NACHT_ENDE - 0.1) == MIN_PERCENT
+
+
+def test_mitten_am_tag_gibt_die_volle_lampe():
+    assert brightness_from_time(TAG_BEGINN) == MAX_PERCENT
+    assert brightness_from_time(13) == MAX_PERCENT
+    assert brightness_from_time(TAG_ENDE - 0.1) == MAX_PERCENT
+
+
+def test_morgens_hoch_und_abends_wieder_hinunter():
+    morgen = [brightness_from_time(std) for std in (6, 6.5, 7, 7.5, 8)]
+    assert morgen == sorted(morgen)
+    abend = [brightness_from_time(std) for std in (18, 19, 20, 21, 21.9)]
+    assert abend == sorted(abend, reverse=True)
+    assert brightness_from_time(NACHT_BEGINN) == MIN_PERCENT
+
+
+def test_die_uhr_laeuft_rundherum_und_unsinn_blendet_nicht():
+    # 25 Uhr ist ein Uhr. Und ein kaputter Wert soll die Lampe nicht
+    # dunkel lassen - lieber zu hell als scheinbar tot.
+    assert brightness_from_time(25) == brightness_from_time(1)
+    assert brightness_from_time("keine Zahl") == MAX_PERCENT  # type: ignore[arg-type]
+    assert brightness_from_time(float("nan")) == MAX_PERCENT
+
+
+# ── Der Fühler im Raum ────────────────────────────────────────────────
+
+
+def test_raum_lux_nimmt_den_fuehler_im_selben_zimmer():
+    from types import SimpleNamespace
+
+    entities = [
+        SimpleNamespace(room="Küche", state={"illumination": 300}),
+        SimpleNamespace(room="Flur", state={"illumination": 12}),
+        SimpleNamespace(room="Flur", state={}),
+    ]
+    assert raum_lux(entities, "Flur") == 12.0
+    # Ein Fühler zwei Zimmer weiter sagt nichts über das Licht hier.
+    assert raum_lux(entities, "Bad") is None
+    assert raum_lux(entities, None) is None
+
+
 def test_beschreibung_nennt_die_anpassung():
     zeile = describe_action(
         {"type": "light", "entity_id": "hue.flur", "brightness": "adaptive"}
     )
-    assert zeile == "hue.flur: Licht an die Umgebung angepasst"
+    assert zeile == "hue.flur: Licht an die Raumhelligkeit angepasst"
+
+
+def test_beschreibung_nennt_die_tageszeit():
+    """Der zweite Weg zur Helligkeit - der ohne Fühler."""
+    zeile = describe_action(
+        {"type": "light", "entity_id": "hue.flur", "brightness": "tageszeit"}
+    )
+    assert zeile == "hue.flur: Licht nach Tageszeit"
 
 
 def test_beschreibung_nennt_prozent_und_kelvin():
@@ -98,12 +171,13 @@ def test_licht_schritt_zaehlt_als_einschalten():
 # ── Der Schritt im laufenden Hub ───────────────────────────────────────────
 
 
-async def hub_mit(automations, illumination=None):
+async def hub_mit(automations, illumination=None, rooms=None):
     hub = Hub(
         HubConfig(
             api=ApiConfig(),
             integrations=[{"integration": "demo"}],
             automations=automations,
+            rooms=rooms or {},
         )
     )
     await hub.start()
@@ -167,6 +241,71 @@ async def test_ohne_helligkeitsfuehler_geht_das_licht_trotzdem_an():
         await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
         await settle()
         assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
+    finally:
+        await hub.stop()
+
+
+LICHT_NACH_UHR = {
+    "id": "abendlicht",
+    "alias": "Wohnzimmer am Abend",
+    "trigger": [{"type": "state", "entity_id": "demo.motion_hall", "to": "on"}],
+    "action": [
+        {
+            "type": "light",
+            "entity_id": "demo.light_livingroom",
+            "brightness": "tageszeit",
+        }
+    ],
+}
+
+
+@pytest.mark.asyncio
+async def test_nach_tageszeit_braucht_gar_keinen_fuehler(monkeypatch):
+    """Der Weg für die Räume ohne Helligkeitsfühler - also für die meisten."""
+    import homepilot.core.automation as automation_modul
+
+    class Nacht(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 1, 5, 3, 0)
+
+    monkeypatch.setattr(automation_modul, "datetime", Nacht)
+    hub = await hub_mit([LICHT_NACH_UHR])
+    try:
+        await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
+        await settle()
+        licht = hub.registry.get("demo.light_livingroom")
+        assert licht.state["state"] == "on"
+        # Drei Uhr nachts: Nachtlicht, nicht Flutlicht.
+        assert licht.state["brightness"] == MIN_PERCENT
+    finally:
+        await hub.stop()
+
+
+@pytest.mark.asyncio
+async def test_die_raumhelligkeit_zaehlt_auch_ohne_ausloesenden_melder():
+    """Ein Ablauf «um 18:00 das Wohnzimmer an» hat keinen Melder, der
+    auslöst - vorher war «an die Helligkeit angepasst» dort wirkungslos."""
+    hub = await hub_mit(
+        [LICHT_ANGEPASST], rooms={"Wohnzimmer": ["demo.light_livingroom"]}
+    )
+    try:
+        # Der Fühler steht im Raum der Lampe, nicht im Auslöser.
+        lampe = hub.registry.get("demo.light_livingroom")
+        assert lampe.room == "Wohnzimmer"
+        fuehler = Entity(
+            id="demo.lux_livingroom",
+            kind="sensor",
+            name="Helligkeit Wohnzimmer",
+            integration="demo",
+            state={"illumination": 0.0},
+            room=lampe.room,
+        )
+        await hub.registry.add(fuehler)
+        await hub.registry.update_state("demo.motion_hall", {"illumination": None})
+        await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
+        await settle()
+        assert hub.registry.get("demo.light_livingroom").state["brightness"] == MIN_PERCENT
     finally:
         await hub.stop()
 

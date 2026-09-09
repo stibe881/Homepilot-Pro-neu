@@ -44,6 +44,12 @@ export interface Gutschein {
   expires: string | null;
   category?: string;
   shared: Geteilt;
+  /** Muss das Original im Laden vorgezeigt werden? (Punkt 267 der
+   *  Werkbank) Nummer und PIN stehen in der App – ein Gutschein, den
+   *  der Laden nur gegen die Karte, den Bon oder den Ausdruck einlöst,
+   *  nützt an der Kasse trotzdem nichts. Fehlt das Feld, ist es ein
+   *  Eintrag von vor der Frage: dann genügt die Nummer. */
+  physical?: boolean;
   url?: string;
   /** Beim Speichern eine data-URI; der Hub legt sie als Datei ab und
    *  liefert danach einen Pfad wie «/api/family/vouchers/<id>/bild?v=…» –
@@ -61,6 +67,13 @@ export interface Gutschein {
  *  zum Dauerzustand wird, den niemand mehr sieht. */
 export const BALD_TAGE = 30;
 
+/** Das Wort für den Gutschein, der nur mit dem Original eingelöst wird.
+ *  An einer Stelle, weil es an vieren steht: Formular, Karte in der
+ *  Liste, Detail und Teilen-Text müssen dasselbe sagen – sonst sucht
+ *  man im Laden nach einem «Karte nötig», das in der Liste «physisch»
+ *  hiess. */
+export const MITNEHMEN = 'Karte mitbringen';
+
 export const EINHEITEN: { key: Einheit; label: string }[] = [
   { key: 'chf', label: 'CHF' },
   { key: 'stk', label: 'Stück' },
@@ -69,6 +82,14 @@ export const EINHEITEN: { key: Einheit; label: string }[] = [
 export const GETEILT: { key: Geteilt; label: string }[] = [
   { key: 'privat', label: 'Privat' },
   { key: 'familie', label: 'Familie' },
+];
+
+/** Wie eingelöst wird – beide Seiten benannt, nicht ein einzelner
+ *  Schalter: Bei «Karte mitbringen: aus» müsste man raten, was das
+ *  Gegenteil ist. So steht es da. */
+export const EINLOESEN: { key: boolean; label: string }[] = [
+  { key: false, label: 'Nummer genügt' },
+  { key: true, label: MITNEHMEN },
 ];
 
 /** Vorgeschlagene Kategorien, solange die Liste noch keine eigenen kennt. */
@@ -108,6 +129,7 @@ export function alsGutschein(item: Record<string, unknown>): Gutschein {
     category: String(item.category ?? '').trim(),
     // Wie der Hub (core/gutscheine.py): ohne Angabe gehört er der Familie.
     shared: item.shared === 'privat' ? 'privat' : 'familie',
+    physical: item.physical === true,
     url: String(item.url ?? '').trim(),
     image_url: item.image_url ? String(item.image_url) : null,
     file: alsDatei(item.file),
@@ -643,6 +665,10 @@ export function teilText(entry: Gutschein): string {
   zeilen.push(`Rest: ${restText(entry)} von ${betragText(entry.total, entry.unit)}`);
   if (entry.expires) zeilen.push(`Gültig bis ${datumText(entry.expires)}`);
   else zeilen.push('Unbegrenzt gültig');
+  // Wer den Gutschein weitergibt, gibt sonst nur die Nummer weiter -
+  // und der andere steht mit ihr im Laden, während die Karte hier
+  // liegt. Genau der Fall, für den das Feld da ist.
+  if (entry.physical) zeilen.push(MITNEHMEN);
   if (entry.url) zeilen.push(entry.url);
   return zeilen.join('\n');
 }
@@ -659,6 +685,7 @@ export interface Formular {
   expires: string;
   category: string;
   shared: Geteilt;
+  physical: boolean;
   url: string;
   image_url: string;
   /** Der Beleg – null heisst «keiner dran». */
@@ -677,6 +704,9 @@ export function leeresFormular(): Formular {
     expires: '',
     category: '',
     shared: 'familie',
+    // Der häufigere Fall: Die meisten Gutscheine im Haus sind Codes aus
+    // einer Mail. Wer die Karte hat, tippt es an.
+    physical: false,
     url: '',
     image_url: '',
     file: null,
@@ -696,6 +726,7 @@ export function formularVon(entry: Gutschein): Formular {
     expires: datumText(entry.expires),
     category: entry.category ?? '',
     shared: entry.shared,
+    physical: entry.physical === true,
     url: entry.url ?? '',
     image_url: entry.image_url ?? '',
     // Die Datei reist mit, ohne dass das Formular sie anfasst: Wer nur
@@ -753,6 +784,7 @@ export function formularPruefen(
       expires,
       category: form.category.trim(),
       shared: form.shared,
+      physical: form.physical,
       url,
       image_url: form.image_url || null,
       // null (nicht «weglassen»): So versteht der Hub auch das Entfernen.

@@ -200,6 +200,13 @@ def bereinigen(entry: dict[str, Any]) -> dict[str, Any]:
     wann = datum(sauber.get("expires"))
     sauber["expires"] = wann.isoformat() if wann else None
 
+    # Muss das Original vorgezeigt werden? (Punkt 267 der Werkbank)
+    # Immer gesetzt, nicht nur wenn es mitkommt: Ein Eintrag von vor der
+    # Frage bekommt beim ersten Speichern ein ehrliches False, statt das
+    # Feld weiter fehlen zu lassen - sonst hinge an derselben Liste
+    # zweierlei Bedeutung von «nicht da».
+    sauber["physical"] = bool(sauber.get("physical"))
+
     for feld in ("shop", "title", "number", "pin", "category", "url", "notes"):
         if feld in sauber:
             sauber[feld] = str(sauber.get(feld) or "").strip()
@@ -346,6 +353,13 @@ def _buchzeile(row: dict[str, Any]) -> dict[str, Any]:
     eine Zeile Unsinn. Deshalb nicht in BUCH_OHNE, sondern gekürzt.
     """
     schmal = {k: v for k, v in row.items() if k not in BUCH_OHNE}
+    # Auf der gedruckten Seite steht kein «physical False». Ein «True»
+    # dagegen gehört hin - und als Satz, nicht als Wahrheitswert: Wer
+    # das Buch in zehn Jahren liest, soll wissen, dass zu diesem
+    # Gutschein noch etwas Greifbares gehörte, nach dem sich das Suchen
+    # lohnt.
+    if schmal.pop("physical", False):
+        schmal["mitbringen"] = "Karte, Bon oder Ausdruck nötig"
     anhang = schmal.get("file")
     if isinstance(anhang, dict):
         schmal["file"] = str(anhang.get("name") or "").strip()

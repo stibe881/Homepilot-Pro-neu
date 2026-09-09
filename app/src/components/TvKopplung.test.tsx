@@ -133,6 +133,29 @@ describe('TvKopplung', () => {
     expect(knopf(baum, 'Fernseher koppeln')).toBeTruthy();
   });
 
+  it('steht am gekoppelten Fernseher als ruhige Zeile', async () => {
+    // Findbar, ohne sich vorzudrängen - und mit einem Tipp Abstand zum
+    // Koppeln selbst: Das kappt die Verbindung für ein paar Minuten,
+    // das soll kein Danebentippen auslösen.
+    let baum!: ReactTestRenderer;
+    await act(async () => {
+      baum = create(<TvKopplung entity={tv} dringend={false} />);
+    });
+    expect(texte(baum)).toContain('Fernseher koppeln');
+    expect(texte(baum)).not.toContain('Nicht gekoppelt');
+    expect(knopf(baum, 'Fernseher koppeln')).toBeTruthy();
+
+    // Erst der zweite Tipp schickt etwas los.
+    await act(async () => {
+      knopf(baum, 'Fernseher koppeln')!.onPress();
+    });
+    expect(mockPost).not.toHaveBeenCalled();
+    await act(async () => {
+      knopf(baum, 'Fernseher koppeln')!.onPress();
+    });
+    expect(mockPost).toHaveBeenCalledTimes(1);
+  });
+
   it('bietet den Ausweg für das tote Zertifikat an', async () => {
     // Wer am Fernseher die Daten des Remote-Dienstes löscht, dessen
     // Zertifikat verbindet weiter und wirkt nicht mehr - ohne «ganz neu»

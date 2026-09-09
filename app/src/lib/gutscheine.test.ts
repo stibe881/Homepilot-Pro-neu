@@ -24,6 +24,7 @@ import {
   dateiSatz,
   dateiSymbol,
   formularPruefen,
+  MITNEHMEN,
   formularVon,
   mimeVon,
   mitMimeTyp,
@@ -487,3 +488,40 @@ describe('Datei am Gutschein', () => {
 function leeresFormular2() {
   return { ...leeresFormular(), shop: 'Coop', total: '20' };
 }
+
+// ── Karte mitbringen (Punkt 267) ─────────────────────────────────────────
+
+describe('Karte mitbringen', () => {
+  test('ein Eintrag ohne das Feld verlangt nichts - alte Gutscheine bleiben, wie sie waren', () => {
+    expect(alsGutschein({ shop: 'Coop', total: 20 }).physical).toBe(false);
+    // Nur das ausdrückliche true zählt: «ja» oder 1 aus einer
+    // Hand-Eingabe sind kein Beschluss, sondern ein Zufall.
+    expect(alsGutschein({ shop: 'Coop', total: 20, physical: 'ja' }).physical).toBe(false);
+    expect(alsGutschein({ shop: 'Coop', total: 20, physical: true }).physical).toBe(true);
+  });
+
+  test('das Formular merkt sich die Wahl und gibt sie beim Bearbeiten wieder her', () => {
+    const { eintrag } = formularPruefen(
+      { ...leeresFormular(), shop: 'Migros', total: '50', physical: true },
+      null
+    );
+    expect(eintrag?.physical).toBe(true);
+    expect(formularVon(eintrag as Gutschein).physical).toBe(true);
+    // Und zurückgestellt bleibt zurückgestellt - nicht «einmal true,
+    // immer true», wie es passiert, wenn man nur auf Wahrheit prüft.
+    const zurueck = formularPruefen(
+      { ...formularVon(eintrag as Gutschein), physical: false },
+      eintrag as Gutschein
+    );
+    expect(zurueck.eintrag?.physical).toBe(false);
+  });
+
+  test('wer den Gutschein weitergibt, gibt den Hinweis mit', () => {
+    expect(teilText({ ...kino, physical: true })).toContain(MITNEHMEN);
+    expect(teilText(kino)).not.toContain(MITNEHMEN);
+  });
+
+  test('ein neuer Gutschein verlangt die Karte nicht von selbst', () => {
+    expect(leeresFormular().physical).toBe(false);
+  });
+});

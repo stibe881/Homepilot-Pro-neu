@@ -115,9 +115,14 @@ export function SorgenBlatt({
                   />
                   <View style={{ flex: 1 }}>
                     <Text style={styles.rowTitle}>{sorge.name}</Text>
+                    {/* Art und Raum zuerst, dann was ihm fehlt: «Licht ·
+                        Flur» beantwortet die Frage, mit der man auf diese
+                        Zeile schaut - welches Gerät ist gemeint? Der Name
+                        allein tat es nicht («Flur», «Flur 2»). */}
                     <Text style={styles.rowDetail}>
+                      {[sorge.geraeteart, sorge.raum].filter(Boolean).join(' · ')}
+                      {sorge.geraeteart || sorge.raum ? ' · ' : ''}
                       {sorge.detail}
-                      {sorge.raum ? ` · ${sorge.raum}` : ''}
                     </Text>
                   </View>
                   {sorge.art === 'batterie' || sorge.art === 'wartung' ? (

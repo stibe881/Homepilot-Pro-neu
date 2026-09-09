@@ -52,6 +52,78 @@ def brightness_from_lux(
     return int(round(minimum + anteil * (maximum - minimum)))
 
 
+# Wann das Licht wie hell sein soll, wenn es sich nach der Uhr richtet.
+# Die Anker stammen aus dem Haushalt und nicht aus einer Formel: Um sechs
+# steht der Erste auf, um acht ist der Tag da, um sechs am Abend fängt
+# das Dämmern an, und um zehn geht das erste Kind ins Bett.
+NACHT_ENDE = 6.0
+TAG_BEGINN = 8.0
+TAG_ENDE = 18.0
+NACHT_BEGINN = 22.0
+
+
+def brightness_from_time(
+    stunde: float,
+    minute: float = 0.0,
+    minimum: int = MIN_PERCENT,
+    maximum: int = MAX_PERCENT,
+) -> int:
+    """Die Lampenhelligkeit nach der Uhr (rein, testbar).
+
+    Die zweite Antwort auf dieselbe Frage wie ``brightness_from_lux``:
+    Volle Deckenbeleuchtung um drei Uhr nachts blendet. Nur braucht diese
+    hier keinen Fühler - und genau darum gibt es sie. Die Anpassung an
+    die Umgebungshelligkeit setzt einen Melder voraus, der Lux meldet;
+    in den meisten Räumen des Hauses steht keiner.
+
+    Dafür weiss sie weniger: Ein Gewitternachmittag ist ihr so hell wie
+    ein Julitag. Wer einen Fühler hat, nimmt den anderen Weg.
+
+    Nachts das Minimum, tagsüber voll, dazwischen linear übergeblendet -
+    linear und nicht logarithmisch wie bei den Lux, weil hier die Uhr
+    gemeint ist und nicht das Auge.
+    """
+    try:
+        uhr = float(stunde) + float(minute) / 60.0
+    except (TypeError, ValueError):
+        return maximum
+    if not math.isfinite(uhr):
+        return maximum
+    uhr %= 24.0
+    if uhr < NACHT_ENDE or uhr >= NACHT_BEGINN:
+        anteil = 0.0
+    elif uhr < TAG_BEGINN:
+        anteil = (uhr - NACHT_ENDE) / (TAG_BEGINN - NACHT_ENDE)
+    elif uhr < TAG_ENDE:
+        anteil = 1.0
+    else:
+        anteil = (NACHT_BEGINN - uhr) / (NACHT_BEGINN - TAG_ENDE)
+    return int(round(minimum + anteil * (maximum - minimum)))
+
+
+def raum_lux(entities: list[Any], raum: str | None) -> float | None:
+    """Die gemessene Helligkeit in einem Raum (rein, testbar).
+
+    Der zweite Weg zu einem Lux-Wert: Bisher zählte nur, was der Melder
+    meldete, der den Ablauf ausgelöst hat. Das passt für ein
+    Bewegungslicht und für sonst nichts - «wenn es 18:00 ist, mach das
+    Wohnzimmerlicht an» hat gar keinen Melder, und die Wahl «an die
+    Helligkeit angepasst» stand deshalb gar nicht erst zur Verfügung.
+
+    Gefragt wird der Raum, in dem die Lampe steht: Ein Fühler zwei
+    Zimmer weiter sagt nichts über das Licht hier.
+    """
+    if not raum:
+        return None
+    for entity in entities or []:
+        if getattr(entity, "room", None) != raum:
+            continue
+        wert = getattr(entity, "state", {}).get("illumination")
+        if isinstance(wert, (int, float)) and not isinstance(wert, bool):
+            return float(wert)
+    return None
+
+
 def lux_sources(triggers: list[dict[str, Any]]) -> list[str]:
     """Die Geräte, die als Helligkeitsquelle in Frage kommen (rein, testbar).
 

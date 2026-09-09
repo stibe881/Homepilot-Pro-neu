@@ -226,6 +226,19 @@ rm -rf "$WORKDIR"
 git clone --depth 50 -b "$BRANCH" \
   "https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/${REPO}.git" "$WORKDIR"
 
+# Der Stand, wie er auf GitHub steht - vor allen örtlichen
+# Zusammenführungen. Er ist der einzige Commit dieses Baus, den GitHub
+# kennt, und deshalb der einzige, von dem aus sich «was ist seither dazu
+# gekommen?» überhaupt beantworten lässt.
+#
+# Ohne ihn stand im Bestätigungs-Dialog der App immer «die jüngsten
+# Änderungen (der laufende Stand liess sich nicht genau vergleichen)» -
+# eine Liste, die dasselbe zeigt, ob die Änderungen schon laufen oder
+# nicht. Aus dem Haus kam daraufhin dreimal dieselbe Frage: «Ich habe
+# das Update gemacht, trotzdem steht noch das Alte.» Sie war nicht zu
+# beantworten, weil die Auskunft, die sie beantwortet hätte, geraten war.
+BASIS="$(git -C "$WORKDIR" rev-parse --short HEAD)"
+
 # ── Die anderen Zweige mit hineinnehmen ────────────────────────────────
 #
 # Der Knopf baut genau einen Zweig (BRANCH). Wer nebenher auf einem
@@ -650,6 +663,7 @@ echo "→ Baue das Abbild neu (ohne Cache) …"
 # nicht, ob der Container wirklich der neue ist.
 docker build --no-cache \
   --build-arg "GIT_COMMIT=$COMMIT" \
+  --build-arg "GIT_BASE=$BASIS" \
   --build-arg "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   -t "$IMAGE" "$WORKDIR/hub"
 

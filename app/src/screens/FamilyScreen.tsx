@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Linking, Modal, Pressable, ScrollView, Share, Text, TextInput, View } from 'react-native';
 
 import { hubClient } from '../api/client';
@@ -278,6 +278,7 @@ export function FamilyScreen({
   changedAt,
   startModul,
   startKind,
+  heimSignal,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -302,6 +303,19 @@ export function FamilyScreen({
   useEffect(() => {
     if (startModul) setView(startModul as ModuleKey);
   }, [startModul]);
+  // «Familie» im Menü heisst: die Kachelwand, nicht das Modul von
+  // vorhin. Ohne das hier blieb man darin hängen - der Bildschirm führt
+  // seine Ansicht selbst, und das Zurücksetzen draussen erreichte ihn
+  // gar nicht. Beim ersten Zeichnen tut es nichts, sonst käme man nie
+  // in ein Startmodul hinein (Wandpanel-Abkürzungen).
+  const ersterHeimlauf = useRef(true);
+  useEffect(() => {
+    if (ersterHeimlauf.current) {
+      ersterHeimlauf.current = false;
+      return;
+    }
+    setView(null);
+  }, [heimSignal]);
   const [reorderOpen, setReorderOpen] = useState(false);
   // Die Doppeldosis-Rückfrage: welche Gabe gerade nachgefragt wird,
   // mit dem fertigen Satz dazu (lib/doppeldosis.ts).

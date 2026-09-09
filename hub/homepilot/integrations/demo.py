@@ -48,7 +48,11 @@ class DemoIntegration(Integration):
             # Wächter, die App und die Alarmanlage lesen sie (die
             # Alarmanlage entscheidet daran, ob ein Sensor während der
             # Saugerfahrt schweigen darf - alarm_rules.ist_bewegung).
-            state={"state": "off", "device_class": "motion"},
+            # Mit Helligkeitswert, wie ihn die Präsenzmelder im Haus
+            # liefern: Ohne einen einzigen Melder, der Lux meldet, stand
+            # die Wahl «nach Raumhelligkeit» im Ablauf-Editor gar nie zur
+            # Verfügung - man konnte sie also auch nie ansehen.
+            state={"state": "off", "device_class": "motion", "illumination": 8.0},
             # Manuell schaltbar, um Automationen aus der App zu testen.
             commands=["turn_on", "turn_off", "toggle"],
         )
@@ -163,6 +167,12 @@ class DemoIntegration(Integration):
                 "track": "Plex",
                 "volume": 20,
                 "has_screen": True,
+                # Wie ein gekoppelter Android TV: Nur an diesem Schlüssel
+                # erkennt die App, dass sie «Fernseher koppeln» anbieten
+                # darf (lib/fernsehkopplung.ts, kannKoppeln). Ohne ihn
+                # liesse sich der Weg im Browser nie ansehen - und genau
+                # der war schon einmal unauffindbar.
+                "paired": True,
                 "apps": [
                     {"name": "Plex", "app": "com.plexapp.android"},
                     {"name": "Zattoo", "app": "com.zattoo.player"},
@@ -190,6 +200,57 @@ class DemoIntegration(Integration):
             "Entspannen",
             state={"state": "idle", "scene": "Entspannen"},
             commands=["activate"],
+        )
+        # Ein Kalender und eine Wetterwarnung. Nicht weil man sie
+        # schalten könnte, sondern weil die Begrüssungskarte der
+        # Startseite ohne sie fast leer ist - Uhr, Datum, Chips. Genau
+        # ihre beiden Zeilen sind aber die, die zu lang werden und
+        # deshalb durchwandern (app/src/lib/lauftext.ts), und ein
+        # Prüfstand, der die Zeile gar nicht erst zeichnet, misst nichts.
+        #
+        # Die Texte sind mit Absicht zu lang: Sie stammen aus dem
+        # gemeldeten Fall («… / finja hüten 9.15, Si…») und aus einer
+        # echten Unwetterwarnung.
+        heute = time.localtime()
+        def um(stunde: int, minute: int) -> str:
+            return time.strftime(f"%Y-%m-%dT{stunde:02d}:{minute:02d}:00", heute)
+
+        await self.add_entity(
+            "calendar_family",
+            EntityKind.CALENDAR,
+            "Familie",
+            state={
+                "state": "Chrabbelzwergli Bine + Aline / finja hüten 9.15, Sinja bringen",
+                "next_start": um(8, 50),
+                "events": [
+                    {
+                        "summary": (
+                            "Chrabbelzwergli Bine + Aline / finja hüten 9.15, "
+                            "Sinja bringen"
+                        ),
+                        "start": um(8, 50),
+                        "end": um(11, 0),
+                        "location": "Zell LU",
+                    },
+                    {
+                        "summary": "Pia hat Geburtstag",
+                        "start": um(0, 0),
+                        "all_day": True,
+                        "birthday": True,
+                    },
+                ],
+            },
+        )
+        await self.add_entity(
+            "weather_alerts",
+            EntityKind.ALERT,
+            "Wetterlage",
+            state={
+                "state": "alert",
+                "count": 1,
+                "event": "Gewitter",
+                "headline": "Verbreitet heftige Gewitter möglich, schwer, bis 22:00 Uhr",
+            },
         )
         self.start_task(self._temperature_drift())
 

@@ -439,7 +439,9 @@ describe('melderMitLux', () => {
 
 describe('lichtKurz', () => {
   it('sagt in der Liste, was die Lampe tut', () => {
-    expect(lichtKurz({ brightness: 'adaptive' })).toBe('angepasst');
+    expect(lichtKurz({ brightness: 'adaptive' })).toBe('nach Raumhelligkeit');
+    // Der zweite Weg zur Helligkeit - der ohne Fühler.
+    expect(lichtKurz({ brightness: 'tageszeit' })).toBe('nach Tageszeit');
     expect(lichtKurz({ brightness: 40 })).toBe('40 %');
     expect(lichtKurz({ color: '#FF2D2D' })).toBe('an');
     expect(lichtKurz({ brightness: 40, off_after: 240 })).toBe('40 %, 4 Min.');
@@ -1770,5 +1772,39 @@ describe('Auslöser «Nach Stromausfall»', () => {
     expect(zurueck.kind).toBe('power_restore');
     expect(zurueck.restoreDelay).toBe('300');
     expect(triggerToConfig(zurueck)).toEqual(gespeichert);
+  });
+});
+
+describe('Helligkeit nach der Uhr', () => {
+  const licht = (over = {}) => ({
+    ...EMPTY_STEP,
+    kind: 'command' as const,
+    commandActions: [
+      { entity_id: 'hue.flur', command: 'set_brightness', brightness: 50, ...over },
+    ],
+  });
+
+  it('schreibt «tageszeit» statt einer Zahl', () => {
+    // Der Weg für die Räume ohne Helligkeitsfühler - also für die
+    // meisten (hub/core/light.py, brightness_from_time).
+    const [action] = stepToActions(licht({ nachTageszeit: true }));
+    expect(action.type).toBe('light');
+    expect(action.brightness).toBe('tageszeit');
+  });
+
+  it('liest ihn auch wieder ein', () => {
+    const [schritt] = actionsToSteps([
+      { type: 'light', entity_id: 'hue.stube', brightness: 'tageszeit' },
+    ]);
+    expect(schritt.commandActions[0]).toMatchObject({
+      command: 'set_brightness',
+      nachTageszeit: true,
+    });
+    expect(schritt.commandActions[0].adaptive).toBeUndefined();
+  });
+
+  it('zählt als Licht-Feinheit', () => {
+    // Sonst würde daraus beim Speichern ein blosses «einschalten».
+    expect(istLichtFein({ command: 'set_brightness', nachTageszeit: true })).toBe(true);
   });
 });
