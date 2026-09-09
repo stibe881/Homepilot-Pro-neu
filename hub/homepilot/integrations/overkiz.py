@@ -115,7 +115,16 @@ WIEDERHOLPAUSE = 3.0
 ABWESEND_SCHWELLE = 3
 
 #: Takt, in dem die Geräteliste beim Gateway nachgefragt wird.
-ABFRAGE_INTERVALL = 300.0
+#:
+#: Eine Minute, nicht fünf. `get_devices()` gibt den Stand heraus, den
+#: das Gateway wirklich hat - das ist belegt: Sekunden nach dem Absenken
+#: von vier Storen meldete es für genau diese vier `ClosureState 100`.
+#: Der Hub lag also nie falsch, sondern zu spät, und mit fünf Minuten
+#: Takt hiess «zu spät» im schlimmsten Fall fünf Minuten. So lange sieht
+#: man auf dem Telefon eine offene Store, die längst unten ist, und hält
+#: den Hub für kaputt. Der Aufruf geht über das lokale Netz ans Gateway
+#: und kostet nichts, was eine Minute nicht hergäbe.
+ABFRAGE_INTERVALL = 60.0
 
 
 
@@ -313,6 +322,9 @@ class OverkizIntegration(Integration):
         self._cmd_by_entity: dict[str, dict[str, list[str]]] = {}
         # Wie oft ein Gerät hintereinander als abwesend gemeldet wurde.
         self._abwesend: dict[str, int] = {}
+        # Ob das Gateway «Zustände neu lesen» überhaupt kennt. Das lokale
+        # kennt es nicht - dann wird nicht endlos weitergefragt.
+        self._nachlesen_geht = True
         # Nur ein Befehl aufs Mal, mit Pause: Funktelegramme, die sich
         # überlagern, gehen verloren - siehe Kopf dieser Datei.
         self._funk = asyncio.Lock()
@@ -445,36 +457,38 @@ class OverkizIntegration(Integration):
         offen waren. Beide fragen dasselbe Gateway - nur fragt es die
         Storen nicht von selbst.
 
-        ``get_devices()`` liefert den **zwischengespeicherten** Stand des
-        Gateways. Der wird von zwei Dingen aufgefrischt: von Meldungen
-        der Geräte über den Ereigniskanal - und davon, dass jemand
-        ausdrücklich «lies neu» sagt. Genau das tut die TaHoma-App beim
-        Öffnen, und deshalb stimmt sie. Wer nur zuhört, bekommt hingegen
-        nur mit, was passiert, *während* er zuhört: Was der Hub verpasst
-        hat (Neustart, unterbrochener Kanal, Bedienung am Wandschalter),
-        bleibt für ihn für immer beim alten Wert stehen - und das ist
-        dann die zuletzt selbst gefahrene Stellung.
+        Für die **Wolke** ist das der richtige Aufruf. Das **lokale**
+        Gateway kennt ihn nicht: Es antwortet mit «Unknown object», und
+        zwar jedes Mal. Hier im Haus lief er also monatelang bei jedem
+        Takt ins Leere, und in dieser Datei stand er trotzdem als
+        Erklärung dafür, warum die TaHoma-App stimmt und der Hub nicht -
+        eine Erklärung, die nie zutraf und die Suche nach der echten
+        Ursache zweimal in die falsche Richtung geschickt hat. Die echte
+        Ursache war der Takt: fünf Minuten sind lang genug, um beim
+        Hinsehen falsch zu wirken (siehe ABFRAGE_INTERVALL).
 
-        Deshalb hier bei jedem Takt einmal ausdrücklich nachlesen
-        lassen. Die Antworten kommen anschliessend über den
-        Ereigniskanal herein; dieser Aufruf stösst sie nur an. Zurück
-        kommt, ob überhaupt nachgelesen wurde - denn wer danach den
-        Zwischenspeicher liest, muss den Funkantworten erst Zeit lassen.
-
-        Nicht bindend: Ältere Fassungen der Bibliothek kennen den Aufruf
-        nicht, und Somfy bremst ihn, wenn er zu oft kommt. Ein
-        Fehlschlag hier darf den übrigen Takt nicht mitnehmen - dann
-        bleibt es beim bisherigen Verhalten.
+        Deshalb wird eine Absage jetzt gemerkt. Wer nicht antwortet,
+        wird nicht alle sechzig Sekunden erneut gefragt - und einmal
+        sichtbar im Protokoll steht sie auch, statt nur im Debug-Rauschen
+        unterzugehen.
         """
+        if not self._nachlesen_geht:
+            return False
         nachlesen = getattr(self._client, "refresh_states", None)
         if not callable(nachlesen):
+            self._nachlesen_geht = False
             return False
         try:
             await nachlesen()
         except asyncio.CancelledError:
             raise
         except Exception as err:
-            self.log.debug("Overkiz: «Zustände neu lesen» ging nicht (%s)", err)
+            self._nachlesen_geht = False
+            self.log.info(
+                "Overkiz: Das Gateway kennt «Zustände neu lesen» nicht (%s) - der "
+                "Stand kommt aus dem Takt und dem Ereigniskanal.",
+                err,
+            )
             return False
         return True
 

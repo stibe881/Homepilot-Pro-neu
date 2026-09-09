@@ -183,15 +183,15 @@ def main() -> None:
         )
     print()
     print(
-        "«zuletzt» ist die Frage, mit der man hier anfängt. Steht überall eine\n"
-        "Stellung, die nicht stimmt, und daneben «vor Stunden», dann ist der\n"
-        "Wert nicht falsch gerechnet, sondern alt: Das Gateway gibt seinen\n"
-        "Zwischenspeicher heraus, und der wird nur aufgefrischt, wenn jemand\n"
-        "ausdrücklich nachlesen lässt (integrations/overkiz.py,\n"
-        "_zustaende_nachlesen - genau das tut die TaHoma-App beim Öffnen).\n"
-        "Steht daneben «vor Minuten», stimmt die Umrechnung nicht - dann\n"
-        "gehört cover_state() angesehen. Welcher der beiden Fälle es ist,\n"
-        "entscheidet der Teil darunter: Er fragt das Gateway direkt."
+        "«zuletzt» sagt, wie alt die Zeile ist; der Takt fragt jede Minute.\n"
+        "Stimmt eine Stellung nicht, entscheidet der Teil darunter, woran es\n"
+        "liegt - er fragt das Gateway direkt:\n"
+        "  · Das Gateway meldet dasselbe Falsche → das Gerät hat sich noch\n"
+        "    nicht gemeldet; niemand weiss es besser, auch die TaHoma-App nicht.\n"
+        "  · Das Gateway meldet es richtig → der Hub hinkt hinterher, und die\n"
+        "    Frage ist der Ereigniskanal oder der Takt (ABFRAGE_INTERVALL).\n"
+        "  · Der rohe Wert passt nicht zu dem, was oben steht → dann gehört\n"
+        "    cover_state() angesehen."
     )
     gateway_teil()
 

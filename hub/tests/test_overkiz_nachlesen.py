@@ -1,16 +1,15 @@
-"""Das Gateway muss gebeten werden, die Storen wirklich zu fragen.
+"""Woher der Hub weiss, wie die Storen stehen - und wie schnell.
 
-Der Fall aus dem Haus: «Es sind alle Storen geöffnet, es zeigt aber fast
-alle als geschlossen an. In der TaHoma-App werden alle Storen und
-Lamellen als geöffnet angezeigt.»
+Der Fall aus dem Haus, dreimal gemeldet: «Vier Storen sind unten,
+HomePilot zeigt alle offen.»
 
-Beide fragen dasselbe Gateway. Der Unterschied: ``get_devices()``
-liefert dessen *Zwischenspeicher*, und der wird nur aufgefrischt, wenn
-jemand ausdrücklich «lies neu» sagt - was die TaHoma-App beim Öffnen tut
-und der Hub bisher nie. Wer nur am Ereigniskanal zuhört, bekommt mit,
-was passiert, *während* er zuhört; was er verpasst hat (Neustart,
-unterbrochener Kanal, Bedienung am Wandschalter), bleibt für ihn für
-immer beim alten Wert - der zuletzt selbst gefahrenen Stellung.
+Die Antwort stand am Ende in der rohen Gateway-Ausgabe. Das Gateway
+wusste es richtig - fünfzig Sekunden nach dem Absenken meldete es für
+genau diese vier `ClosureState 100`. Der Hub lag also nie falsch,
+sondern **zu spät**: Er fragte nur alle fünf Minuten. Und was in dieser
+Datei als Erklärung stand - das ausdrückliche «lies neu» -, gibt es auf
+dem lokalen Gateway gar nicht; es antwortet «Unknown object», und zwar
+jedes Mal.
 """
 
 import asyncio
@@ -46,6 +45,7 @@ def _integration(hub, client) -> OverkizIntegration:
     integration._client = client
     integration._devices = {}
     integration._abwesend = {}
+    integration._nachlesen_geht = True
     return integration
 
 
@@ -160,3 +160,33 @@ async def test_der_takt_wartet_nicht(hub):
     integration = _integration(hub, FakeClient())
     await integration._geraete_auffrischen()
     assert time.monotonic() - begonnen < 1
+
+
+async def test_eine_abgewiesene_nachlese_wird_nicht_endlos_wiederholt(hub):
+    """Das lokale Gateway kennt den Aufruf nicht - es antwortet «Unknown
+    object», jedes Mal. Ihn im Minutentakt trotzdem zu schicken bringt
+    nichts und verdeckt im Protokoll, dass er gar nie funktioniert hat."""
+    client = FakeClient(nachlesen_kaputt=True)
+    integration = _integration(hub, client)
+    await integration._geraete_auffrischen()
+    await integration._geraete_auffrischen()
+    await integration._geraete_auffrischen()
+    assert client.nachgelesen == 1
+    assert client.geraete_gefragt == 3
+
+
+async def test_eine_fehlende_nachlese_wird_nur_einmal_gesucht(hub):
+    client = FakeClient(kann_nachlesen=False)
+    integration = _integration(hub, client)
+    await integration._geraete_auffrischen()
+    await integration._geraete_auffrischen()
+    assert integration._nachlesen_geht is False
+    assert client.geraete_gefragt == 2
+
+
+def test_der_takt_fragt_jede_minute():
+    """Fünf Minuten waren zu lang: So lange zeigte das Telefon eine offene
+    Store, die längst unten war - und das sah aus wie ein Fehler."""
+    from homepilot.integrations.overkiz import ABFRAGE_INTERVALL
+
+    assert ABFRAGE_INTERVALL == 60.0
