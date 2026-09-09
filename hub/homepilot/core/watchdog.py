@@ -43,6 +43,7 @@ from . import (
     gemeldet,
     giessen,
     gutscheine,
+    kamera,
     losfahren,
     maintenance,
     morgen,
@@ -317,6 +318,14 @@ class Watchdog:
         asyncio.create_task(self._melde_klingeln(entity_id, name))
 
     async def _melde_klingeln(self, entity_id: str, name: str) -> None:
+        # Das Live-Bild schon anwerfen, bevor jemand hinsieht: Der Strom
+        # läuft nur auf Abruf (core/streams.py), und bis die Kamera ein
+        # vollständiges Bild schickt, vergehen bei Protect 4-8 Sekunden.
+        # Wer die Push aufmacht, wartete die bisher ab - dabei weiss der
+        # Hub im Moment des Klingelns schon, dass gleich jemand
+        # hinschaut. Als eigene Aufgabe, damit die Nachricht nicht darauf
+        # wartet: Sie ist das Wichtigere.
+        asyncio.create_task(self._waerme_livebild(entity_id))
         # Zuerst auf den Bus: Wer beim Klingeln etwas tun will - die
         # Musik dämpfen, eine Ansage machen -, soll nicht warten, bis
         # die Push draussen ist.
@@ -329,6 +338,47 @@ class Watchdog:
             "doorbell",
             data={"type": "doorbell", "entity_id": entity_id, "ziel": "klingel"},
         )
+
+    async def _waerme_livebild(self, entity_id: str) -> None:
+        """Den Strom der Kamera zu dieser Klingel anwerfen.
+
+        Nur anstossen, nicht anschauen: Die Wiedergabeliste abzuholen
+        genügt, damit mediamtx den Kamerastrom startet - und er bleibt
+        danach die eingestellte Weile offen (ON_DEMAND_CLOSE), also lange
+        genug, bis jemand das Telefon in der Hand hat.
+
+        Schlägt es fehl, bleibt es beim Protokoll: Eine Klingel, die
+        nicht meldet, weil das Vorwärmen scheiterte, wäre ein
+        schlechterer Tausch als ein spätes Bild.
+        """
+        try:
+            ausloeser = self.hub.registry.get(entity_id)
+            if ausloeser is None:
+                return
+            kamera_id = kamera.camera_for(ausloeser, self.hub.registry.all())
+            if kamera_id is None:
+                return
+            entity = self.hub.registry.get(kamera_id)
+            if entity is None:
+                return
+            integration = self.hub.integrations.get(entity.integration)
+            if integration is None:
+                return
+            quelle = await integration.stream_url(entity)
+            if not quelle:
+                return
+            ziel = await self.hub.streams.playlist(kamera_id, quelle)
+            # Und die Liste wirklich abholen. Über mediamtx legt
+            # `playlist` nur den Pfad an - angezapft wird die Kamera erst,
+            # wenn ein Zuschauer die Wiedergabeliste holt (runOnDemand).
+            # Ohne diesen Abruf wäre das Vorwärmen eine Konfiguration
+            # ohne Wirkung; der Abruf hält, bis der Strom steht, und
+            # genau das ist die Wartezeit, die wir vorwegnehmen.
+            if ziel is not None and getattr(ziel, "url", None):
+                await self.hub.streams.fetch(ziel)
+            log.debug("Live-Bild %s beim Klingeln vorgewärmt", kamera_id)
+        except Exception as err:
+            log.debug("Live-Bild zu %s nicht vorwärmbar: %s", entity_id, err)
 
     def _pruefe_weinen(self, entity_id: str, data: dict[str, Any]) -> None:
         """Bus-Listener-Teil: Hört eine Kamera gerade ein Baby weinen?

@@ -297,3 +297,26 @@ def test_the_offset_lands_in_the_playlist():
     liste = "#EXTM3U\n#EXT-X-VERSION:9\n#EXTINF:1.0,\nsegment1.mp4\n"
     assert "#EXT-X-START:TIME-OFFSET=-1.5" in strip_low_latency(liste, 1.5)
     assert "#EXT-X-START:TIME-OFFSET=-2" in strip_low_latency(liste)
+
+
+def test_ffmpeg_wartet_nicht_erst_fuenf_sekunden_auf_seine_analyse(tmp_path):
+    """Gemeldet: «bis der Livestrom kommt, dauert es lange».
+
+    Der grösste Posten ist die Kamera selbst (Protect sendet nur alle
+    4-8 s ein vollständiges Bild). Der zweitgrösste war ffmpeg: Ohne
+    Weisung untersucht es den Eingang bis zu fünf Sekunden lang, bevor
+    das erste Bild herauskommt - bei einer RTSP-Kamera verschenkte Zeit,
+    denn was drin ist, steht in der SDP-Beschreibung.
+
+    Beide Wege bekommen die Weisung, und zwar *vor* dem `-i`: Danach
+    gälte sie dem Ausgang und bewirkte nichts.
+    """
+    befehl = publish_command("rtsp://10.10.1.10:7447/abc", "unifi_protect_x").split()
+    assert "nobuffer" in befehl
+    assert befehl.index("-probesize") < befehl.index("-i")
+    assert befehl.index("-analyzeduration") < befehl.index("-i")
+    assert befehl[befehl.index("-analyzeduration") + 1] == "1000000"
+
+    rueckfall = ffmpeg_command("rtsp://10.10.1.10:7447/abc", tmp_path)
+    assert rueckfall.index("-probesize") < rueckfall.index("-i")
+    assert rueckfall.index("-fflags") < rueckfall.index("-i")
