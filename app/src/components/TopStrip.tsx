@@ -107,6 +107,7 @@ export function TopStrip({
   zusatz,
   onKalender,
   gaesteWlan,
+  besuch,
 }: {
   entities: Entity[];
   /** Die Gäste-WLAN-Karte fürs Blatt hinter dem WLAN-Symbol. Als Element
@@ -118,6 +119,15 @@ export function TopStrip({
    *  Bildschirm entfernt - genau die drei Tipps, die man in dem Moment
    *  nicht macht. */
   gaesteWlan?: React.ReactNode;
+  /** Die Besuchskarte fürs Blatt hinter dem Leute-Symbol - aus demselben
+   *  Grund ein Element und keine Daten wie beim Gäste-WLAN daneben.
+   *
+   *  Warum überhaupt hier: Es klingelt, jemand steht vor der Türe, und
+   *  der Modus soll JETZT laufen. Der Weg über Einstellungen → Besuch
+   *  sind drei Tipps und ein Bildschirm - genau die drei Tipps, die man
+   *  in dem Moment nicht macht. Die Seite bleibt trotzdem, sie erklärt,
+   *  was der Modus mit den Abläufen macht. */
+  besuch?: React.ReactNode;
   status: ConnectionStatus;
   now: Date;
   /** Ausgeblendete Geräte – wer eine Lampe aus den Alltagsansichten
@@ -297,6 +307,7 @@ export function TopStrip({
   // Die Fenster hinter den Chips und Sätzen - Karte und Chip-Zeile
   // teilen sie sich, deshalb stehen sie einmal hier.
   const [wlanOffen, setWlanOffen] = useState(false);
+  const [besuchOffen, setBesuchOffen] = useState(false);
 
   const fenster = (
     <>
@@ -314,6 +325,27 @@ export function TopStrip({
               keyboardShouldPersistTaps="handled"
             >
               {gaesteWlan}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Besuch/Babysitter hinter dem Leute-Symbol - dieselbe Karte wie
+          auf der Besuchsseite (components/BesuchKarte.tsx), nicht eine
+          zweite Fassung davon. */}
+      <Modal
+        visible={besuchOffen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBesuchOffen(false)}
+      >
+        <Pressable style={styles.backdrop} onPress={() => setBesuchOffen(false)}>
+          <Pressable style={styles.sheet} onPress={() => {}}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {besuch}
             </ScrollView>
           </Pressable>
         </Pressable>
@@ -940,6 +972,17 @@ export function TopStrip({
               {tageszeit ? <Text style={styles.karteZeit}>{tageszeit}</Text> : null}
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              {besuch ? (
+                <Pressable
+                  onPress={() => setBesuchOffen(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Besuch oder Babysitter"
+                  hitSlop={8}
+                  style={({ pressed }) => [styles.chip, pressed && { opacity: 0.6 }]}
+                >
+                  <Ionicons name="people" size={16} color={colors.ink} />
+                </Pressable>
+              ) : null}
               {gaesteWlan ? (
                 <Pressable
                   onPress={() => setWlanOffen(true)}

@@ -121,6 +121,7 @@ import {
 } from '../lib/tageszeit';
 import { hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
+import { BesuchKarte } from '../components/BesuchKarte';
 import { GaesteWlanKarte } from '../components/GaesteWlan';
 import { Auftritt } from '../components/Auftritt';
 import { AutomationsScreen } from './AutomationsScreen';
@@ -3635,6 +3636,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                       headers={{ Authorization: `Bearer ${settings.token}` }}
                       canConfigure={istBesitzer}
                     />
+                  ) : undefined
+                }
+                // Neben dem WLAN, aus demselben Grund: Es klingelt, und
+                // der Besuchsmodus soll jetzt laufen - nicht drei Tipps
+                // später. Dieselbe Karte wie unter Einstellungen →
+                // Besuch, und sie meldet ihren Stand auch von hier aus
+                // ans Menü zurück.
+                besuch={
+                  section === 'start' ? (
+                    <BesuchKarte settings={settings} onStand={setBesuchStand} />
                   ) : undefined
                 }
                 gruss={begruessung(settings, user, now)}

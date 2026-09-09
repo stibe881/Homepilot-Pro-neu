@@ -1,12 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
+import { BesuchKarte } from '../components/BesuchKarte';
 import { Card } from '../components/Card';
-import { BabysitterStand, modusSatz, restText, seitText } from '../lib/babysitter';
-import { Colors, radius, space, type, useColors } from '../theme';
+import { BabysitterStand, modusSatz } from '../lib/babysitter';
+import { Colors, space, type, useColors } from '../theme';
 
 /**
  * «Es ist jemand da» – Besuch oder Babysitter, als eigene Seite.
@@ -22,6 +22,11 @@ import { Colors, radius, space, type, useColors } from '../theme';
  * hinter dem WLAN-Zeichen der Begrüssungskarte. Zweimal derselbe Code
  * an zwei Orten heisst, dass einer davon irgendwann der veraltete ist.
  *
+ * Die erste Karte - Zustand, Dauer, Knopf - wohnt in
+ * components/BesuchKarte.tsx: Sie steht auch als Blatt hinter dem
+ * Symbol in der Begrüssungskarte, und zwei Nachbauten desselben
+ * Schalters schalten ein halbes Jahr später verschieden.
+ *
  * **War vorher ein Blatt** (components/BesuchBlatt.tsx): ein Popup mit
  * innerem Scrollbereich, in dem Dauer, Lichter und der WLAN-Code
  * übereinandergestapelt lagen. Als einziger Menüpunkt neben Suche und
@@ -32,10 +37,6 @@ import { Colors, radius, space, type, useColors } from '../theme';
  * Was der Modus nicht anfasst: die Alarmanlage. Ein Knopf, der sie
  * entschärft, wäre kein Komfort mehr, sondern ein Loch.
  */
-
-/** `null` heisst «ohne Frist» – dann läuft er, bis jemand ausschaltet.
- *  Das ist der Babysitter-Abend, an dem man ans Ausschalten denkt. */
-const DAUERN: (number | null)[] = [null, 2, 4, 6, 8];
 
 export function BesuchScreen({
   settings,
@@ -52,15 +53,11 @@ export function BesuchScreen({
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const hub = useMemo(
-    () => hubClient(settings.url, settings.token),
-    [settings.url, settings.token]
-  );
   const [stand, setStand] = useState<BabysitterStand | null>(null);
-  const [stunden, setStunden] = useState<number | null>(4);
-  const [busy, setBusy] = useState(false);
-  const [jetzt, setJetzt] = useState(() => Date.now());
 
+  // Fest verdrahtet und nicht als Lambda im JSX: Die Karte hängt ihr
+  // Laden an diese Funktion, und eine, die sich bei jedem Rendern
+  // erneuert, liesse sie in einer Schleife nachfragen.
   const uebernehmen = useCallback(
     (neu: BabysitterStand | null) => {
       setStand(neu);
@@ -69,156 +66,11 @@ export function BesuchScreen({
     [onStand]
   );
 
-  const laden = useCallback(() => {
-    hub
-      .get<{ babysitter?: BabysitterStand } | null>(
-        '/api/automations/babysitter',
-        { fallback: null, still: true }
-      )
-      .then((data) => {
-        if (!data?.babysitter) return;
-        uebernehmen(data.babysitter);
-        setJetzt(Date.now());
-      });
-  }, [hub, uebernehmen]);
-
-  useEffect(laden, [laden]);
-
-  // Die Restzeit tickt mit, solange die Seite offen ist. Das Blatt
-  // vorher fror sie beim Öffnen ein - eine Seite kann eine Viertelstunde
-  // offen liegen, und «Läuft noch 2 Std» wäre dann eine alte Auskunft.
-  useEffect(() => {
-    if (!stand?.active || !stand.until) return;
-    const uhr = setInterval(() => setJetzt(Date.now()), 30_000);
-    return () => clearInterval(uhr);
-  }, [stand?.active, stand?.until]);
-
-  const starten = async () => {
-    setBusy(true);
-    try {
-      const antwort = await hub.post<{ babysitter?: BabysitterStand } | null>(
-        '/api/automations/babysitter',
-        { active: true, hours: stunden },
-        { fallback: null }
-      );
-      if (antwort?.babysitter) uebernehmen(antwort.babysitter);
-      setJetzt(Date.now());
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const beenden = async () => {
-    setBusy(true);
-    try {
-      const antwort = await hub.post<{ babysitter?: BabysitterStand } | null>(
-        '/api/automations/babysitter',
-        { active: false },
-        { fallback: null }
-      );
-      if (antwort?.babysitter) uebernehmen(antwort.babysitter);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const laeuft = !!stand?.active;
-  const rest = restText(stand, jetzt);
   const gesamt = (stand?.running ?? 0) + (stand?.paused ?? 0);
 
   return (
     <View style={styles.list}>
-      {/* Der Zustand zuoberst, mit dem einen Knopf, um den es geht.
-          Alles darunter sind die Einzelheiten - wer nur ein- oder
-          ausschalten will, ist hier schon fertig. */}
-      <Card style={styles.card}>
-        <View style={styles.statusRow}>
-          <View
-            style={[
-              styles.statusIcon,
-              laeuft && { backgroundColor: colors.onSoft },
-            ]}
-          >
-            <Ionicons
-              name="people"
-              size={26}
-              color={laeuft ? colors.on : colors.inkSoft}
-            />
-          </View>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.statusTitel}>
-              {laeuft ? 'Jemand ist da' : 'Niemand angemeldet'}
-            </Text>
-            <Text style={[styles.statusZeile, laeuft && { color: colors.on }]}>
-              {laeuft
-                ? rest
-                  ? `Läuft noch ${rest}`
-                  : `Läuft${seitText(stand?.since)} – bis jemand ausschaltet`
-                : 'Der Modus ist aus – alles läuft wie gewohnt.'}
-            </Text>
-          </View>
-        </View>
-
-        {laeuft ? null : (
-          <>
-            <Text style={styles.label}>Wie lange</Text>
-            <View style={styles.chips}>
-              {DAUERN.map((wert) => (
-                <Pressable
-                  key={String(wert)}
-                  onPress={() => setStunden(wert)}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: stunden === wert }}
-                  // «2 Std» liest sich als «zwei S-t-d» vor - deshalb das
-                  // ausgeschriebene Wort (Punkt 247 der Werkbank).
-                  accessibilityLabel={
-                    wert === null
-                      ? 'Ohne Frist'
-                      : `${wert} ${wert === 1 ? 'Stunde' : 'Stunden'}`
-                  }
-                  style={[styles.chip, stunden === wert && styles.chipActive]}
-                >
-                  <Text
-                    style={[
-                      styles.chipText,
-                      stunden === wert && styles.chipTextActive,
-                    ]}
-                  >
-                    {wert === null ? 'ohne Frist' : `${wert} Std`}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-            <Text style={styles.hint}>
-              Mit Frist endet der Modus von selbst – für den Abend, an dem
-              garantiert niemand ans Ausschalten denkt. «Ohne Frist» läuft
-              er, bis hier jemand ausschaltet.
-            </Text>
-          </>
-        )}
-
-        <Pressable
-          onPress={() => void (laeuft ? beenden() : starten())}
-          disabled={busy}
-          accessibilityRole="button"
-          accessibilityLabel={laeuft ? 'Besuchsmodus beenden' : 'Besuchsmodus starten'}
-          accessibilityState={{ disabled: busy, busy }}
-          style={({ pressed }) => [
-            styles.button,
-            laeuft && { backgroundColor: colors.danger },
-            (pressed || busy) && { opacity: 0.7 },
-          ]}
-        >
-          <Ionicons
-            name={laeuft ? 'stop-outline' : 'people-outline'}
-            size={16}
-            color="#FFFFFF"
-          />
-          <Text style={styles.buttonText}>
-            {laeuft ? 'Beenden – die Abläufe laufen wieder' : 'Starten'}
-          </Text>
-        </Pressable>
-      </Card>
+      <BesuchKarte settings={settings} onStand={uebernehmen} />
 
       <Card style={styles.card}>
         <Text style={styles.heading}>Ruhe für die Abläufe</Text>
@@ -259,30 +111,6 @@ const makeStyles = (colors: Colors) =>
     list: { gap: space.gap },
     card: { minHeight: 0, gap: 12 },
     heading: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
-    statusRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-    statusIcon: {
-      width: 52,
-      height: 52,
-      borderRadius: 26,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: colors.surfaceStrong,
-    },
-    statusTitel: { color: colors.ink, fontSize: 18, fontWeight: '700' },
-    statusZeile: { color: colors.inkSoft, fontSize: 13, marginTop: 2 },
-    label: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
-    chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    chip: {
-      paddingVertical: 8,
-      paddingHorizontal: 14,
-      borderRadius: radius.pill,
-      borderWidth: 1,
-      borderColor: colors.surfaceBorder,
-      backgroundColor: colors.surfaceSoft,
-    },
-    chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
-    chipText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
-    chipTextActive: { color: '#FFFFFF' },
     hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },
     stand: { color: colors.ink, fontSize: 13, lineHeight: 19, fontWeight: '600' },
     link: {
@@ -292,14 +120,4 @@ const makeStyles = (colors: Colors) =>
       paddingVertical: 6,
     },
     linkText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
-    button: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 8,
-      paddingVertical: 13,
-      borderRadius: radius.control,
-      backgroundColor: colors.accent,
-    },
-    buttonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
   });
