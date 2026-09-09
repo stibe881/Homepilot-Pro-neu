@@ -1,6 +1,7 @@
 import type { Ionicons } from '@expo/vector-icons';
 
 import { Entity } from '../api/types';
+import { istKlimaFuehler } from './klimachip';
 import { openContacts } from './offen';
 import { aktiveVorgabe } from './storenvorgaben';
 
@@ -25,23 +26,53 @@ function temperatur(items: Entity[]): Entity | undefined {
     .sort((a, b) => a.name.localeCompare(b.name))[0];
 }
 
+/** Der Feuchtefühler des Raums, wenn er ein eigenes Gerät ist – der
+ *  erste nach Name, wie bei der Temperatur. `istKlimaFuehler` hält
+ *  Akkustand und Sendespeicher heraus: Die zählen auch in Prozent. */
+function feuchtigkeit(items: Entity[]): Entity | undefined {
+  return items
+    .filter((entity) => istKlimaFuehler(entity, 'humidity'))
+    .sort((a, b) => a.name.localeCompare(b.name))[0];
+}
+
 /**
  * Das Klima des Raums für den grossen Wert rechts neben dem Titel
- * (rein, testbar). Null, wenn der Raum keinen Temperaturfühler hat -
- * dann trägt der Kopf einfach keinen Wert, statt «–» zu zeigen.
+ * (rein, testbar). Null, wenn der Raum weder Temperatur noch Feuchte
+ * misst - dann trägt der Kopf einfach keinen Wert, statt «–» zu zeigen.
+ *
+ * Die Feuchte stand bisher nur da, wenn derselbe Fühler sie mitlieferte
+ * (`state.humidity`). In der Waschküche sind es zwei Geräte, und die
+ * Feuchte lag darum als Chip unter dem Kopf - dieselbe Auskunft in
+ * einer anderen Form, zwei Zeilen tiefer. Jetzt steht sie in beiden
+ * Fällen an derselben Stelle: klein unter dem Grad.
  */
-export function raumKlima(
-  items: Entity[]
-): { fuehler: Entity; temp: string; feuchte: string | null } | null {
-  const fuehler = temperatur(items);
-  if (!fuehler) return null;
+export function raumKlima(items: Entity[]): {
+  fuehler: Entity | null;
+  temp: string | null;
+  feuchteFuehler: Entity | null;
+  feuchte: string | null;
+} | null {
+  const fuehler = temperatur(items) ?? null;
+  // Der eigene Feuchtefühler zählt nur, wenn der Temperaturfühler die
+  // Feuchte nicht schon selbst meldet - sonst stünde sie doppelt.
+  const eigen =
+    fuehler && typeof fuehler.state.humidity === 'number'
+      ? undefined
+      : feuchtigkeit(items);
+  const prozent =
+    fuehler && typeof fuehler.state.humidity === 'number'
+      ? Number(fuehler.state.humidity)
+      : eigen
+        ? Number(eigen.state.state)
+        : null;
+  if (!fuehler && prozent === null) return null;
   return {
     fuehler,
-    temp: `${Number(fuehler.state.state).toFixed(1).replace('.', ',')}°`,
-    feuchte:
-      typeof fuehler.state.humidity === 'number'
-        ? `${Math.round(fuehler.state.humidity)} % Feuchte`
-        : null,
+    temp: fuehler
+      ? `${Number(fuehler.state.state).toFixed(1).replace('.', ',')}°`
+      : null,
+    feuchteFuehler: eigen ?? null,
+    feuchte: prozent === null ? null : `${Math.round(prozent)} % Feuchte`,
   };
 }
 

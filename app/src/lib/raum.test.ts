@@ -258,3 +258,43 @@ describe('raumDunkel', () => {
     expect(raumDunkel([])).toBe(false);
   });
 });
+
+describe('raumKlima mit eigenem Feuchtefühler', () => {
+  it('nimmt den zweiten Fühler, wenn der erste keine Feuchte meldet', () => {
+    // In der Waschküche sind Temperatur und Feuchte zwei Geräte. Die
+    // Feuchte lag darum als Chip unter dem Kopf statt daneben.
+    const klima = raumKlima([
+      geraet({ kind: 'sensor', name: 'Temperatur', state: { state: 30, unit: '°C' } }),
+      geraet({
+        kind: 'sensor',
+        name: 'Luftfeuchtigkeit Rack',
+        state: { state: 37.4, unit: '%', device_class: 'humidity' },
+      }),
+    ]);
+    expect(klima?.temp).toBe('30,0°');
+    expect(klima?.feuchte).toBe('37 % Feuchte');
+    expect(klima?.feuchteFuehler?.name).toBe('Luftfeuchtigkeit Rack');
+  });
+
+  it('lässt den Akkustand nicht als Luftfeuchtigkeit durchgehen', () => {
+    // Prozent misst auch der Akku - und der Sendespeicher des
+    // Funkmoduls (lib/klimachip.ts).
+    const klima = raumKlima([
+      geraet({ kind: 'sensor', name: 'Temperatur', state: { state: 21, unit: '°C' } }),
+      geraet({ kind: 'sensor', name: 'Batterie', state: { state: 100, unit: '%' } }),
+    ]);
+    expect(klima?.feuchte).toBeNull();
+  });
+
+  it('zeigt die Feuchte auch ohne Temperaturfühler', () => {
+    const klima = raumKlima([
+      geraet({
+        kind: 'sensor',
+        name: 'Feuchte',
+        state: { state: 55, unit: '%', device_class: 'humidity' },
+      }),
+    ]);
+    expect(klima?.temp).toBeNull();
+    expect(klima?.feuchte).toBe('55 % Feuchte');
+  });
+});

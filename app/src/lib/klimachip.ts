@@ -27,7 +27,13 @@ const KEINE_FEUCHTE = /duty[_ ]?cycle|sendespeicher|batter|akku|filter|signal|wl
  *  gehört nicht in die Kopfzeile der Wohnung. */
 const KEIN_KLIMA = /grill|sonde|probe|ofen|backofen|kühlschrank|kuehlschrank|gefrier|tiefkühl|tiefkuehl/i;
 
-function passt(entity: Entity, art: Messgroesse): boolean {
+/**
+ * Misst diese Entität wirklich das Klima? (rein, testbar)
+ *
+ * Auch der Raumkopf fragt danach: Sein Feuchtewert soll nicht der
+ * Sendespeicher des Funkmoduls sein, nur weil beide in Prozent zählen.
+ */
+export function istKlimaFuehler(entity: Entity, art: Messgroesse): boolean {
   if (entity.kind !== 'sensor') return false;
   const einheit = String(entity.state?.unit ?? '');
   if (!EINHEIT[art].includes(einheit)) return false;
