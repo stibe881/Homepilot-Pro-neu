@@ -26,7 +26,12 @@ import { faelltAuf, standZeile } from '../lib/kachelstand';
 import { Musikliste } from './Musikliste';
 import { ColorRow } from './ColorRow';
 import { Sky } from './CoverVisual';
-import { isTelevision, zeigtStopp } from '../lib/geraeteart';
+import {
+  deviceKindLabel,
+  isTelevision,
+  kachelHerkunft,
+  zeigtStopp,
+} from '../lib/geraeteart';
 import { medienSchalter } from '../lib/medienschalter';
 import { musiklisteMoeglich } from '../lib/blattgrund';
 import { fernbedienungMoeglich, tvKopf, tvTeile } from '../lib/fernsehkachel';
@@ -62,7 +67,6 @@ import {
   clock,
   eventTime,
   format,
-  integrationLabel,
   severityColor,
   sinceLabel,
 } from './entity/teile';
@@ -299,18 +303,19 @@ export function EntityCard({
     ungezaehlt,
   };
 
-  // Heisst das Gerät wie sein Raum («Essbereich» im Essbereich), stünde
-  // derselbe Name zweimal untereinander - dieselbe Auskunft zweimal ist
-  // keine. Dann lieber die Anbindung als Untertitel.
+  // Woher das Gerät kommt - Raum, Art oder «ohne Raum»; die Regel und
+  // ihr Grund stehen in lib/geraeteart.ts (kachelHerkunft). Früher stand
+  // hier ersatzweise die Anbindung, und «overkiz» unter zwei von sechs
+  // Storen sah aus wie eine willkürliche Ausnahme.
   // Läuft eine Frist, ist sie die Auskunft - «geht in 12 Min aus» sagt
   // mehr als «tuya» oder der Raumname, den die Kachel ohnehin trägt.
   // Getickt wird nur, solange wirklich eine läuft (hooks/useRestzeit.ts).
   const jetzt = useJetzt(typeof entity.state.off_at === 'number');
   const restzeit = abschaltSatz(entity.state, jetzt);
+  // Im Raumblock steht der Raum schon über den Kacheln - dort sagt die
+  // Art mehr. Ausserhalb ist die Herkunft die Auskunft.
   const subtitle =
-    restzeit ||
-    (imRaumblock || entity.room === entity.name ? undefined : entity.room) ||
-    integrationLabel(entity.integration);
+    restzeit || (imRaumblock ? deviceKindLabel(entity) : kachelHerkunft(entity));
   // Offline-Geräte: mit «zuletzt vor …», damit man sieht, ob das Gerät
   // gerade eben oder seit Tagen weg ist. Bei einer Store am Funk steht
   // dort zusätzlich, dass Drücken trotzdem etwas bewirkt - siehe

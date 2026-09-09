@@ -373,7 +373,12 @@ class OverkizIntegration(Integration):
         # Der Ereigniskanal meldet Änderungen, aber nicht, dass ein Gerät
         # wieder da ist - deshalb zusätzlich ein langsamer Takt. Ohne ihn
         # blieb eine einmal ausgegraute Store bis zum Neustart grau.
-        self.start_polling(self._geraete_auffrischen, interval=ABFRAGE_INTERVALL)
+        # `sofort`: Sonst stünde nach einem Hub-Neustart fünf Minuten lang
+        # der Stand aus dem Zwischenspeicher des Gateways - also womöglich
+        # der von gestern Abend.
+        self.start_polling(
+            self._geraete_auffrischen, interval=ABFRAGE_INTERVALL, sofort=True
+        )
 
     @staticmethod
     def _is_cover(device: Any) -> bool:
@@ -431,6 +436,43 @@ class OverkizIntegration(Integration):
                 self.log.debug("Overkiz-Ereigniskanal unterbrochen (%s), neu in 15s", err)
                 await asyncio.sleep(15)
 
+    async def _zustaende_nachlesen(self) -> None:
+        """Das Gateway bitten, die Geräte wirklich zu fragen.
+
+        Der Fall, der monatelang falsch aussah: In der App standen fast
+        alle Storen als «Beschattung», während in der TaHoma-App alle
+        offen waren. Beide fragen dasselbe Gateway - nur fragt es die
+        Storen nicht von selbst.
+
+        ``get_devices()`` liefert den **zwischengespeicherten** Stand des
+        Gateways. Der wird von zwei Dingen aufgefrischt: von Meldungen
+        der Geräte über den Ereigniskanal - und davon, dass jemand
+        ausdrücklich «lies neu» sagt. Genau das tut die TaHoma-App beim
+        Öffnen, und deshalb stimmt sie. Wer nur zuhört, bekommt hingegen
+        nur mit, was passiert, *während* er zuhört: Was der Hub verpasst
+        hat (Neustart, unterbrochener Kanal, Bedienung am Wandschalter),
+        bleibt für ihn für immer beim alten Wert stehen - und das ist
+        dann die zuletzt selbst gefahrene Stellung.
+
+        Deshalb hier bei jedem Takt einmal ausdrücklich nachlesen
+        lassen. Die Antworten kommen anschliessend über den
+        Ereigniskanal herein; dieser Aufruf stösst sie nur an.
+
+        Nicht bindend: Ältere Fassungen der Bibliothek kennen den Aufruf
+        nicht, und Somfy bremst ihn, wenn er zu oft kommt. Ein
+        Fehlschlag hier darf den übrigen Takt nicht mitnehmen - dann
+        bleibt es beim bisherigen Verhalten.
+        """
+        nachlesen = getattr(self._client, "refresh_states", None)
+        if not callable(nachlesen):
+            return
+        try:
+            await nachlesen()
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:
+            self.log.debug("Overkiz: «Zustände neu lesen» ging nicht (%s)", err)
+
     async def _geraete_auffrischen(self) -> None:
         """Beim Gateway nachfragen, wer da ist - und wie es steht.
 
@@ -439,7 +481,11 @@ class OverkizIntegration(Integration):
         abwesend gemeldete Store in der App grau, bis jemand den Hub neu
         startete - auch wenn sie in der TaHoma-App längst wieder normal
         lief.
+
+        Und er meldet auch nicht, was während einer Unterbrechung
+        geschah - dafür das Nachlesen davor.
         """
+        await self._zustaende_nachlesen()
         try:
             geraete = await self._client.get_devices()
         except Exception as err:

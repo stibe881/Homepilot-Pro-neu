@@ -7,7 +7,7 @@
  * einzelnen Spot statt der Deckenlampe.
  */
 import type { Entity } from '../api/types';
-import { deviceKindIcon, deviceKindLabel, isTelevision, zeigtStopp } from './geraeteart';
+import { kachelHerkunft, deviceKindIcon, deviceKindLabel, isTelevision, zeigtStopp } from './geraeteart';
 
 function geraet(teile: Partial<Entity>): Entity {
   return {
@@ -149,5 +149,42 @@ describe('zeigtStopp', () => {
   it('fehlt, wo Pause schon das Ende ist (Spotify, Radio)', () => {
     // Beide kennen kein turn_off: Ihre Pause beendet die Wiedergabe.
     expect(zeigtStopp(box('playing', ['play', 'pause', 'play_on']))).toBe(false);
+  });
+});
+
+describe('kachelHerkunft', () => {
+  const store = (patch: Partial<Entity>): Entity =>
+    ({
+      id: 'overkiz.x',
+      kind: 'cover',
+      name: 'Sofa',
+      integration: 'overkiz',
+      state: {},
+      commands: [],
+      available: true,
+      ...patch,
+    }) as Entity;
+
+  it('nennt den Raum, wenn es einen gibt', () => {
+    expect(kachelHerkunft(store({ room: 'Wohnzimmer' }))).toBe('Wohnzimmer');
+  });
+
+  it('sagt bei fehlendem Raum genau das - nicht «overkiz»', () => {
+    // Gefragt aus dem Haus: «Weshalb steht bei manchen Storen das Zimmer
+    // und bei manchen die Integration?» Der Name eines Programmteils ist
+    // keine Auskunft über ein Gerät.
+    expect(kachelHerkunft(store({ room: null }))).toBe('ohne Raum');
+    expect(kachelHerkunft(store({}))).toBe('ohne Raum');
+  });
+
+  it('weicht auf die Art aus, wo Gerät und Raum gleich heissen', () => {
+    // «Essbereich» über «Essbereich» ist dieselbe Auskunft zweimal.
+    expect(kachelHerkunft(store({ name: 'Essbereich', room: 'Essbereich' }))).toBe(
+      'Store / Rollladen'
+    );
+    // Gross- und Kleinschreibung zählt dabei nicht.
+    expect(kachelHerkunft(store({ name: 'Terrasse', room: 'terrasse' }))).toBe(
+      'Store / Rollladen'
+    );
   });
 });

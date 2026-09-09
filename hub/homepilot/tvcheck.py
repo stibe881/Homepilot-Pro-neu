@@ -25,7 +25,6 @@ deployen.
 
 import functools
 import json
-import time
 import urllib.request
 from types import SimpleNamespace
 
@@ -37,7 +36,7 @@ from .core.livekarten import (
     karten_tv,
     sind_zwillinge,
 )
-from .storencheck import DATEN, ja_nein, token_und_port
+from .storencheck import DATEN, ja_nein, token_und_port, vor_wie_lange
 
 # docker exec ohne Terminal puffert blockweise - jede Zeile sofort raus.
 print = functools.partial(print, flush=True)
@@ -90,23 +89,6 @@ def daten_lesen(schluessel: str) -> list[dict]:
     return [row for row in (daten.get(schluessel) or []) if isinstance(row, dict)]
 
 
-def vor_wie_lange(wann: object) -> str:
-    """«vor 3 min», «vor 5 Std» - oder «?» (rein, testbar).
-
-    Das Alter einer liegenden Karte beantwortet die Frage, ob der Takt
-    sie überhaupt anfasst: Eine Zeile, die seit Stunden unverändert
-    dasteht, obwohl der Hub die Karte nicht mehr will, heisst, dass die
-    Runde gar nicht bis zum Abgleich kommt.
-    """
-    try:
-        alter = time.time() - float(wann)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return "?"
-    if alter < 90:
-        return f"vor {int(alter)} s"
-    if alter < 5400:
-        return f"vor {int(alter / 60)} min"
-    return f"vor {int(alter / 3600)} Std"
 
 
 def main() -> None:
@@ -203,9 +185,9 @@ def main() -> None:
         "allein, sein Steuerkreuz-Zwilling widerspricht erreichbar mit\n"
         "«off» - dann liegt keine Karte.\n"
         "«Nicht gekoppelt» heisst: Der Fernseher lehnt die Anmeldung ab\n"
-        "und nimmt gar keinen Befehl an. Das lässt sich in der App auf\n"
-        "seiner Kachel beheben («Fernseher koppeln») - er muss dabei an\n"
-        "sein, denn er zeigt den Code auf dem Bildschirm."
+        "und nimmt gar keinen Befehl an. Zu beheben in der App unter\n"
+        "Einstellungen → Verbindungen, Abschnitt «Fernseher» - er muss\n"
+        "dabei an sein, denn er zeigt den Code auf dem Bildschirm."
     )
 
 

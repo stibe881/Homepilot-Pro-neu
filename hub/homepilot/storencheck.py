@@ -22,6 +22,7 @@ deployen.
 import functools
 import json
 import os
+import time
 import urllib.request
 
 from .core.config import load_config
@@ -83,6 +84,25 @@ def ja_nein(wert: object) -> str:
     return str(wert)
 
 
+def vor_wie_lange(wann: object) -> str:
+    """«vor 3 min», «vor 5 Std» - oder «?» (rein, testbar).
+
+    Das Alter einer liegenden Karte beantwortet die Frage, ob der Takt
+    sie überhaupt anfasst: Eine Zeile, die seit Stunden unverändert
+    dasteht, obwohl der Hub die Karte nicht mehr will, heisst, dass die
+    Runde gar nicht bis zum Abgleich kommt.
+    """
+    try:
+        alter = time.time() - float(wann)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return "?"
+    if alter < 90:
+        return f"vor {int(alter)} s"
+    if alter < 5400:
+        return f"vor {int(alter / 60)} min"
+    return f"vor {int(alter / 3600)} Std"
+
+
 def main() -> None:
     token, port = token_und_port()
     if not token:
@@ -100,7 +120,10 @@ def main() -> None:
         print("Keine Store gefunden.")
         return
 
-    kopf = f"{'Kennung':<36} {'Name':<20} {'Zustand':<10} {'Pos':>4}  {'angenommen':<11} Lamellen"
+    kopf = (
+        f"{'Kennung':<36} {'Name':<20} {'Zustand':<10} {'Pos':>4}  "
+        f"{'angenommen':<11} {'Lamellen':<9} zuletzt"
+    )
     print(kopf)
     print("-" * len(kopf))
     for geraet in sorted(storen, key=lambda g: str(g.get("id", ""))):
@@ -112,7 +135,8 @@ def main() -> None:
             f"{str(zustand.get('state', '–')):<10} "
             f"{('–' if position is None else position):>4}  "
             f"{ja_nein(zustand.get('angenommen')):<11} "
-            f"{zustand.get('tilt', '–')}"
+            f"{str(zustand.get('tilt', '–')):<9} "
+            f"{vor_wie_lange(geraet.get('last_seen'))}"
         )
 
     print()
@@ -124,6 +148,17 @@ def main() -> None:
             "Ohne Stellung heisst: Das Gerät meldet nichts zurück (Somfy RTS "
             "funkt nur in eine Richtung). Die App darf daraus kein «offen» machen."
         )
+    print()
+    print(
+        "«zuletzt» ist die Frage, mit der man hier anfängt. Steht überall eine\n"
+        "Stellung, die nicht stimmt, und daneben «vor Stunden», dann ist der\n"
+        "Wert nicht falsch gerechnet, sondern alt: Das Gateway gibt seinen\n"
+        "Zwischenspeicher heraus, und der wird nur aufgefrischt, wenn jemand\n"
+        "ausdrücklich nachlesen lässt (integrations/overkiz.py,\n"
+        "_zustaende_nachlesen - genau das tut die TaHoma-App beim Öffnen).\n"
+        "Steht daneben «vor Minuten», stimmt die Umrechnung nicht - dann\n"
+        "gehört cover_state() angesehen."
+    )
 
 
 if __name__ == "__main__":
