@@ -17,13 +17,29 @@
  */
 import type { Entity } from '../api/types';
 
-/** Melderarten, wie der Hub sie als `device_class` mitschickt. */
+/**
+ * Melderarten, wie der Hub sie als `device_class` mitschickt.
+ *
+ * «contact» bleibt das Sammelwort: Homematic weiss beim Fensterkontakt
+ * nicht, ob er an einem Fenster oder an einer Türe hängt
+ * (homematic_channels.guess_device_class). Wo eine Integration es weiss
+ * - Zigbee, Matter, das Schloss mit Türsensor -, sagt sie «door» oder
+ * «window», und dann gehört das Genauere hin: An der Alarmanlage ist es
+ * genau der Unterschied, der nachts über «wacht mit» entscheidet.
+ */
 const MELDER: Record<string, string> = {
   motion: 'Bewegungsmelder',
+  occupancy: 'Präsenzmelder',
   presence: 'Präsenzmelder',
   contact: 'Fenster-/Türkontakt',
+  door: 'Türkontakt',
+  garage_door: 'Garagentor',
+  window: 'Fensterkontakt',
   smoke: 'Rauchmelder',
+  gas: 'Gasmelder',
   moisture: 'Wassermelder',
+  vibration: 'Erschütterungsmelder',
+  tamper: 'Sabotagekontakt',
 };
 
 /** Messwertarten – am `device_class`, sonst an der Einheit erkannt. */
@@ -162,9 +178,14 @@ export function deviceKindIcon(entity: Entity): string {
       return entity.integration === 'helpers' ? 'flag-outline' : 'flash-outline';
     case 'binary_sensor':
       if (deviceClass === 'motion' || deviceClass === 'presence') return 'walk-outline';
-      if (deviceClass === 'smoke') return 'flame-outline';
+      if (deviceClass === 'occupancy') return 'walk-outline';
+      if (deviceClass === 'smoke' || deviceClass === 'gas') return 'flame-outline';
       if (deviceClass === 'moisture') return 'water-outline';
-      if (deviceClass === 'contact') return 'log-in-outline';
+      if (deviceClass === 'vibration') return 'pulse-outline';
+      if (deviceClass === 'tamper') return 'hand-left-outline';
+      if (deviceClass === 'window') return 'grid-outline';
+      if (deviceClass === 'contact' || deviceClass === 'door') return 'log-in-outline';
+      if (deviceClass === 'garage_door') return 'car-outline';
       if (entity.integration === 'geofence') return 'people-outline';
       // Ein WLAN-Fühler bekommt das Netz-Sinnbild, keine Leute: Er zählt
       // Geräte, nicht Menschen.
@@ -201,6 +222,38 @@ export function deviceKindIcon(entity: Entity): string {
     default:
       return 'ellipse-outline';
   }
+}
+
+/**
+ * Die Art eines Melders, auch ohne die ganze Entität (rein, testbar).
+ *
+ * Die Alarmanlage bekommt ihre Sensoren nicht als Entitäten, sondern als
+ * knappe Liste vom Hub (`/api/alarm` → candidates): Kennung, Name, Raum,
+ * `kind` und `device_class`. Das genügt für die Art - aber nur fast:
+ * Erst die volle Entität weiss, dass ein binärer Melder der Geofence ist
+ * («Anwesenheit») und kein Präsenzmelder. Deshalb zuerst nachschlagen,
+ * und nur wenn sie fehlt, aus den mitgelieferten Feldern eine bauen.
+ *
+ * Antwort ist immer beides - Wort und Symbol: Wo die Art danebensteht,
+ * steht sie in einer engen Zeile, und das Sinnbild trägt sie über die
+ * Breite eines Telefons.
+ */
+export function melderArt(
+  sensor: { entity_id: string; kind: string; device_class?: string | null },
+  entities: Entity[]
+): { label: string; icon: string } {
+  const entity =
+    entities.find((eintrag) => eintrag.id === sensor.entity_id) ??
+    ({
+      id: sensor.entity_id,
+      kind: sensor.kind,
+      name: '',
+      integration: '',
+      state: { device_class: sensor.device_class ?? undefined },
+      commands: [],
+      available: true,
+    } as Entity);
+  return { label: deviceKindLabel(entity), icon: deviceKindIcon(entity) };
 }
 
 /** Musikbox oder Fernseher? (rein, testbar)
