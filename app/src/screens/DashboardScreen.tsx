@@ -1746,7 +1746,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     () => (categorized ? raumKlima(shown) : null),
     [categorized, shown]
   );
-  const raumKopf = categorized ? raumFakten(inRoom) : '';
+  // `inRoom` und nicht `shown`: Die Musikbox des Raums liegt rechts in
+  // der eigenen Spalte und fehlt in `shown` - «Musik läuft» soll aber
+  // stehen, während sie spielt. Was nicht mitzählt (aufgegangene Spots,
+  // Ausgeblendetes), sortiert raumFakten selbst aus.
+  const raumKopf = categorized ? raumFakten(inRoom, hidden) : '';
   // Von der linken Kante nach rechts: zurück zur Raumliste. Derselbe
   // Weg wie «‹ Räume» oben links - nur erreichbar, ohne umzugreifen
   // (lib/zurueckwischen.ts). Beim Anpassen bleibt sie aus: Dort zieht
