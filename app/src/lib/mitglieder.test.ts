@@ -47,6 +47,14 @@ describe('haushalt', () => {
     expect(namen(haushalt(reihe))).toEqual(['Stefan', 'Bine', 'Livia']);
   });
 
+  it('lässt das Wandtablet weg - es ist ein Gerät, kein Mensch', () => {
+    // Es ist als Bewohner angelegt, damit es das Haus bedienen darf,
+    // und stand darum mit «Mitbewohner» unter dem Namen zwischen den
+    // Menschen der Familienreihe.
+    const reihe = mitglieder([...konten, { name: 'Tablet', role: 'bewohner', shared: true }], []);
+    expect(namen(haushalt(reihe))).toEqual(['Stefan', 'Bine']);
+  });
+
   it('behält Kinder und Angehörige ohne Zugang', () => {
     const reihe = mitglieder(konten, [
       { id: 'a1', text: 'Livia' },
