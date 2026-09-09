@@ -16,6 +16,7 @@ import asyncio
 from homepilot.core.config import ApiConfig, HubConfig
 from homepilot.core.entity import Entity, EntityKind
 from homepilot.core.hub import Hub
+from homepilot.core.streams import Target
 from homepilot.core.watchdog import Watchdog
 
 
@@ -224,6 +225,100 @@ async def test_a_broken_sibling_check_never_swallows_the_ring():
         await asyncio.sleep(0)
         assert len(gemeldet) == 1
         assert gemeldet[0]["title"] == "Es klingelt: Haustüre"
+    finally:
+        await wache.stop()
+        await hub.stop()
+
+
+async def test_das_livebild_wird_beim_klingeln_schon_angeworfen():
+    """Gemeldet: «bis der Livestrom kommt, dauert es lange».
+
+    Der Strom läuft nur auf Abruf, und bis eine Protect-Kamera ein
+    vollständiges Bild schickt, vergehen 4-8 Sekunden. Die wartete
+    bisher der Mensch ab, der die Push aufmacht - dabei weiss der Hub im
+    Moment des Klingelns schon, dass gleich jemand hinsieht.
+
+    Geprüft wird der ganze Weg: von der Klingel zur Kamera desselben
+    Raums, von dort zur RTSP-Adresse der Integration und mit der zum
+    Strom-Manager.
+    """
+    hub, wache, gemeldet = await _hub_mit_klingel()
+    try:
+        await hub.registry.update_state("ring.haustuere", {"room": "Eingang"})
+        hub.registry.get("ring.haustuere").room = "Eingang"
+        await hub.registry.add(
+            Entity(
+                id="protect.tuerkamera",
+                kind=EntityKind.CAMERA,
+                name="Türkamera",
+                integration="protect",
+                room="Eingang",
+                state={"state": "online", "stream": True},
+                commands=[],
+            )
+        )
+
+        class FalscheIntegration:
+            name = "protect"
+
+            async def stream_url(self, entity):
+                return f"rtsp://10.10.1.10:7447/{entity.id}"
+
+            async def teardown(self):
+                return None
+
+        hub.integrations._integrations["protect"] = FalscheIntegration()
+        angeworfen: list[tuple[str, str]] = []
+        geholt: list[str] = []
+
+        async def merken(entity_id, source):
+            angeworfen.append((entity_id, source))
+            return Target(url=f"http://127.0.0.1:8888/{entity_id}/index.m3u8")
+
+        async def holen(ziel, query=""):
+            geholt.append(str(ziel.url))
+            return b"#EXTM3U", "application/vnd.apple.mpegurl"
+
+        hub.streams.playlist = merken  # type: ignore[method-assign]
+        hub.streams.fetch = holen  # type: ignore[method-assign]
+
+        await hub.registry.update_state("ring.haustuere", {"ring": "on"})
+        for _ in range(4):
+            await asyncio.sleep(0)
+
+        # Als Menge: Im Prüfstand hören zwei Wächter mit (der des Hubs
+        # und der des Tests), und beide wärmen dieselbe Kamera vor. Im
+        # Haus gibt es nur einen - und mediamtx würde ein zweites
+        # Anwerfen ohnehin an denselben laufenden Strom hängen.
+        assert set(angeworfen) == {
+            ("protect.tuerkamera", "rtsp://10.10.1.10:7447/protect.tuerkamera")
+        }
+        # Und die Liste wird auch wirklich geholt: Über mediamtx legt
+        # `playlist` nur den Pfad an - angezapft wird die Kamera erst,
+        # wenn jemand die Wiedergabeliste abruft. Ohne diesen Schritt
+        # wäre das Vorwärmen eine Konfiguration ohne Wirkung, und genau
+        # das war der erste Anlauf.
+        assert set(geholt) == {"http://127.0.0.1:8888/protect.tuerkamera/index.m3u8"}
+        # Und die Nachricht geht trotzdem hinaus - sie ist das Wichtigere.
+        assert len(gemeldet) == 1
+    finally:
+        await wache.stop()
+        await hub.stop()
+
+
+async def test_ohne_kamera_klingelt_es_trotzdem():
+    """Eine Gegensprechanlage hat kein Bild - und muss trotzdem melden.
+
+    Der Fall, der das Vorwärmen gefährlich machen würde: Wenn das
+    Anwerfen scheitert oder gar nichts zum Anwerfen da ist, darf die
+    Nachricht nicht daran hängen.
+    """
+    hub, wache, gemeldet = await _hub_mit_klingel()
+    try:
+        await hub.registry.update_state("ring.haustuere", {"ring": "on"})
+        for _ in range(4):
+            await asyncio.sleep(0)
+        assert len(gemeldet) == 1
     finally:
         await wache.stop()
         await hub.stop()
