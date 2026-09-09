@@ -11,6 +11,7 @@ import {
   deviceKindIcon,
   deviceKindLabel,
   isTelevision,
+  kachelHerkunft,
   melderArt,
   zeigtStopp,
 } from './geraeteart';
@@ -210,5 +211,42 @@ describe('melderArt', () => {
       []
     );
     expect(art.label).toBe('Bewegungsmelder');
+  });
+});
+
+describe('kachelHerkunft', () => {
+  const store = (patch: Partial<Entity>): Entity =>
+    ({
+      id: 'overkiz.x',
+      kind: 'cover',
+      name: 'Sofa',
+      integration: 'overkiz',
+      state: {},
+      commands: [],
+      available: true,
+      ...patch,
+    }) as Entity;
+
+  it('nennt den Raum, wenn es einen gibt', () => {
+    expect(kachelHerkunft(store({ room: 'Wohnzimmer' }))).toBe('Wohnzimmer');
+  });
+
+  it('sagt bei fehlendem Raum genau das - nicht «overkiz»', () => {
+    // Gefragt aus dem Haus: «Weshalb steht bei manchen Storen das Zimmer
+    // und bei manchen die Integration?» Der Name eines Programmteils ist
+    // keine Auskunft über ein Gerät.
+    expect(kachelHerkunft(store({ room: null }))).toBe('ohne Raum');
+    expect(kachelHerkunft(store({}))).toBe('ohne Raum');
+  });
+
+  it('weicht auf die Art aus, wo Gerät und Raum gleich heissen', () => {
+    // «Essbereich» über «Essbereich» ist dieselbe Auskunft zweimal.
+    expect(kachelHerkunft(store({ name: 'Essbereich', room: 'Essbereich' }))).toBe(
+      'Store / Rollladen'
+    );
+    // Gross- und Kleinschreibung zählt dabei nicht.
+    expect(kachelHerkunft(store({ name: 'Terrasse', room: 'terrasse' }))).toBe(
+      'Store / Rollladen'
+    );
   });
 });

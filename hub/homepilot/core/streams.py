@@ -53,6 +53,26 @@ MEDIAMTX_RTSP = "rtsp://127.0.0.1:8554"
 ON_DEMAND_CLOSE = "20s"
 
 
+#: Was ffmpeg *vor* dem `-i` mitbekommt, damit es sofort loslegt.
+#:
+#: Gemeldet als «bis der Livestrom kommt, dauert es lange». Der grösste
+#: Posten daran ist die Kamera selbst: Protect sendet im «Smart Codec»
+#: nur alle 4-8 Sekunden ein vollständiges Bild, und vorher lässt sich
+#: nichts dekodieren. Der zweitgrösste war ffmpeg - es untersucht den
+#: Eingang vor dem ersten Ausgabebild und nimmt sich dafür ohne Weisung
+#: bis zu fünf Sekunden Zeit (``analyzeduration`` 5 s, ``probesize``
+#: 5 MB). Bei einer RTSP-Kamera ist das verschenkt: Was drin ist, steht
+#: schon in der SDP-Beschreibung der Verbindung, und den Ton werfen wir
+#: ohnehin weg.
+#:
+#: Eine Sekunde und ein halbes Megabyte reichen dafür mit Reserve.
+#: Kleiner wäre riskant - findet ffmpeg die Bildspur nicht, gibt es gar
+#: kein Bild statt eines späten.
+EINGANG_SCHNELL = (
+    "-fflags nobuffer -flags low_delay -probesize 500000 -analyzeduration 1000000"
+)
+
+
 def publish_command(source: str, name: str) -> str:
     """ffmpeg-Aufruf, mit dem mediamtx die Kamera bei Bedarf anzapft.
 
@@ -74,7 +94,7 @@ def publish_command(source: str, name: str) -> str:
     """
     return (
         "ffmpeg -nostdin -loglevel error "
-        f"-rtsp_transport tcp -i {source} "
+        f"-rtsp_transport tcp {EINGANG_SCHNELL} -i {source} "
         # 720p reicht für Handy und Panel – und kostet nur einen Bruchteil
         # der CPU von 1512p. Kommt der Encoder nicht nach, wächst sonst der
         # Rückstand, bis der Strom abreisst.
@@ -209,6 +229,9 @@ def ffmpeg_command(source: str, directory: Path) -> list[str]:
         # TCP statt UDP: über WLAN gehen sonst Pakete verloren und das Bild
         # zerfällt in Blöcke.
         "-rtsp_transport", "tcp",
+        # Nicht erst eine Sekunde lang zuschauen, bevor es losgeht -
+        # siehe EINGANG_SCHNELL.
+        *EINGANG_SCHNELL.split(),
         "-i", source,
         "-c", "copy",
         "-f", "hls",

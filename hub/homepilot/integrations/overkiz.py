@@ -117,6 +117,12 @@ ABWESEND_SCHWELLE = 3
 #: Takt, in dem die Geräteliste beim Gateway nachgefragt wird.
 ABFRAGE_INTERVALL = 300.0
 
+#: Wie lange nach dem Nachlesen gewartet wird, bevor erneut gefragt wird.
+#: Das Gateway fragt die Geräte über Funk ab, und die Antworten tröpfeln
+#: über Sekunden herein. Sofort wieder nachzusehen zeigt nur denselben
+#: alten Stand - und damit wäre der Vergleich wertlos.
+NACHLESE_WARTEN = 6.0
+
 
 def verfuegbarkeit(
     zaehler: int, meldet_sich: bool, schwelle: int = ABWESEND_SCHWELLE
@@ -373,7 +379,12 @@ class OverkizIntegration(Integration):
         # Der Ereigniskanal meldet Änderungen, aber nicht, dass ein Gerät
         # wieder da ist - deshalb zusätzlich ein langsamer Takt. Ohne ihn
         # blieb eine einmal ausgegraute Store bis zum Neustart grau.
-        self.start_polling(self._geraete_auffrischen, interval=ABFRAGE_INTERVALL)
+        # `sofort`: Sonst stünde nach einem Hub-Neustart fünf Minuten lang
+        # der Stand aus dem Zwischenspeicher des Gateways - also womöglich
+        # der von gestern Abend.
+        self.start_polling(
+            self._geraete_auffrischen, interval=ABFRAGE_INTERVALL, sofort=True
+        )
 
     @staticmethod
     def _is_cover(device: Any) -> bool:
@@ -431,6 +442,47 @@ class OverkizIntegration(Integration):
                 self.log.debug("Overkiz-Ereigniskanal unterbrochen (%s), neu in 15s", err)
                 await asyncio.sleep(15)
 
+    async def _zustaende_nachlesen(self) -> bool:
+        """Das Gateway bitten, die Geräte wirklich zu fragen.
+
+        Der Fall, der monatelang falsch aussah: In der App standen fast
+        alle Storen als «Beschattung», während in der TaHoma-App alle
+        offen waren. Beide fragen dasselbe Gateway - nur fragt es die
+        Storen nicht von selbst.
+
+        ``get_devices()`` liefert den **zwischengespeicherten** Stand des
+        Gateways. Der wird von zwei Dingen aufgefrischt: von Meldungen
+        der Geräte über den Ereigniskanal - und davon, dass jemand
+        ausdrücklich «lies neu» sagt. Genau das tut die TaHoma-App beim
+        Öffnen, und deshalb stimmt sie. Wer nur zuhört, bekommt hingegen
+        nur mit, was passiert, *während* er zuhört: Was der Hub verpasst
+        hat (Neustart, unterbrochener Kanal, Bedienung am Wandschalter),
+        bleibt für ihn für immer beim alten Wert stehen - und das ist
+        dann die zuletzt selbst gefahrene Stellung.
+
+        Deshalb hier bei jedem Takt einmal ausdrücklich nachlesen
+        lassen. Die Antworten kommen anschliessend über den
+        Ereigniskanal herein; dieser Aufruf stösst sie nur an. Zurück
+        kommt, ob überhaupt nachgelesen wurde - denn wer danach den
+        Zwischenspeicher liest, muss den Funkantworten erst Zeit lassen.
+
+        Nicht bindend: Ältere Fassungen der Bibliothek kennen den Aufruf
+        nicht, und Somfy bremst ihn, wenn er zu oft kommt. Ein
+        Fehlschlag hier darf den übrigen Takt nicht mitnehmen - dann
+        bleibt es beim bisherigen Verhalten.
+        """
+        nachlesen = getattr(self._client, "refresh_states", None)
+        if not callable(nachlesen):
+            return False
+        try:
+            await nachlesen()
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:
+            self.log.debug("Overkiz: «Zustände neu lesen» ging nicht (%s)", err)
+            return False
+        return True
+
     async def _geraete_auffrischen(self) -> None:
         """Beim Gateway nachfragen, wer da ist - und wie es steht.
 
@@ -439,7 +491,19 @@ class OverkizIntegration(Integration):
         abwesend gemeldete Store in der App grau, bis jemand den Hub neu
         startete - auch wenn sie in der TaHoma-App längst wieder normal
         lief.
+
+        Und er meldet auch nicht, was während einer Unterbrechung
+        geschah - dafür das Nachlesen davor.
         """
+        if await self._zustaende_nachlesen():
+            # Den Funkantworten Zeit lassen. Das Nachlesen ist nur ein
+            # Anstoss: Das Gateway fragt die Geräte über Funk ab, und
+            # deren Antworten tröpfeln über Sekunden herein. Wer sofort
+            # wieder liest, bekommt genau denselben alten Stand - dann
+            # war das Nachlesen umsonst, und es bliebe beim Fehler, der
+            # gemeldet wurde. Der Takt läuft im Hintergrund; diese
+            # Sekunden kosten niemanden etwas.
+            await asyncio.sleep(NACHLESE_WARTEN)
         try:
             geraete = await self._client.get_devices()
         except Exception as err:
@@ -692,34 +756,116 @@ async def _login_main(config_path: str) -> int:
     return 0
 
 
-async def _geraete_main(config_path: str) -> int:
-    """Was das Gateway über jede Store meldet - roh.
+def protokoll(device_url: object) -> str:
+    """Welcher Funkstandard hinter einer Geräte-URL steckt (rein, testbar).
 
-    Der Anlass: «Die Store Terrasse ist geöffnet, wird aber als
-    geschlossen angezeigt.» Ob das an der Rechnung liegt oder daran, was
-    das Gerät meldet, sieht man nur hier. Die App zeigt den fertigen
-    Zustand; welche Zustandsnamen dahinterstehen, verrät sie nicht.
+    Die Frage «warum stimmt die Stellung nicht» hat zwei ganz verschiedene
+    Antworten, und dieses Kürzel unterscheidet sie: Eine io-homecontrol-
+    Store meldet ihre Stellung zurück, eine Somfy-RTS-Store funkt nur in
+    eine Richtung. Was das Gateway über eine RTS-Store sagt, hat es sich
+    selbst gemerkt - es kann genauso daneben liegen wie der Hub, und
+    Nachlesen hilft dort grundsätzlich nicht.
+    """
+    text = str(device_url or "")
+    schema, trenner, rest = text.partition("://")
+    if not trenner or not schema:
+        return "?"
+    return schema.upper()
+
+
+def roh_zustaende(device: Any) -> dict[str, Any]:
+    """Die Zustände eines Geräts als Name→Wert (rein, testbar)."""
+    return {
+        str(getattr(state, "name", "")): getattr(state, "value", None)
+        for state in (getattr(device, "states", None) or [])
+    }
+
+
+def geraete_zeilen(geraete: Any) -> list[str]:
+    """Den rohen Gateway-Bericht je Gerät als Zeilen (rein, testbar).
+
+    Zeilen statt direkter Ausgabe, damit derselbe Bericht auch aus
+    `homepilot.storencheck` heraus erscheinen kann: Dort steht daneben,
+    was der Hub daraus gemacht hat, und erst beides zusammen beantwortet
+    die Frage, wer von beiden falsch liegt.
+    """
+    zeilen: list[str] = []
+    for device in geraete:
+        art = getattr(device, "widget", None) or getattr(device, "ui_class", None)
+        url = getattr(device, "device_url", "")
+        da = (
+            "meldet sich"
+            if bool(getattr(device, "available", True))
+            else "meldet sich nicht"
+        )
+        zeilen.append("")
+        zeilen.append(f"{getattr(device, 'label', '?')}  ({art}, {protokoll(url)}, {da})")
+        zustaende = roh_zustaende(device)
+        for name in sorted(zustaende):
+            # Die drei, um die es beim Auf und Zu geht, zuerst erkennbar.
+            marke = "→" if name in (CLOSURE, DEPLOYMENT, OPEN_CLOSED) else " "
+            zeilen.append(f"  {marke} {name} = {zustaende[name]}")
+        zeilen.append(f"    daraus wird: {cover_state(zustaende)}")
+        definition = getattr(device, "definition", None)
+        befehle = sorted(
+            str(getattr(befehl, "command_name", befehl))
+            for befehl in (getattr(definition, "commands", None) or [])
+        )
+        if befehle:
+            zeilen.append(f"    Kommandos: {', '.join(befehle)}")
+    return zeilen
+
+
+def nachlese_unterschiede(vorher: Any, nachher: Any) -> list[str]:
+    """Was sich durch das Nachlesen beim Gateway geändert hat (rein, testbar).
+
+    Das ist die entscheidende Zeile bei «alle Storen sind offen, die App
+    zeigt sie geschlossen»: Ändert sich ein Wert, sobald man das Gateway
+    ausdrücklich nachlesen lässt, war er bloss alt - dann liegt es am
+    Zwischenspeicher. Ändert sich nichts, meint das Gateway es wirklich
+    so, und dann gehört entweder die Umrechnung angesehen oder das Gerät
+    meldet gar nie zurück (siehe `protokoll`).
+    """
+    alt = {str(getattr(d, "device_url", "")): roh_zustaende(d) for d in vorher}
+    zeilen: list[str] = []
+    for device in nachher:
+        url = str(getattr(device, "device_url", ""))
+        davor = alt.get(url, {})
+        neu = roh_zustaende(device)
+        for name in sorted(set(davor) | set(neu)):
+            if davor.get(name) != neu.get(name):
+                zeilen.append(
+                    f"  {getattr(device, 'label', url)}: {name} "
+                    f"{davor.get(name)!r} → {neu.get(name)!r}"
+                )
+    return zeilen
+
+
+async def gateway_bericht(config_path: str) -> list[str]:
+    """Was das Gateway roh meldet - vor und nach dem Nachlesen.
+
+    Nicht über den Hub, sondern in einer eigenen Sitzung direkt beim
+    Gateway. Wirft `ConfigError`, wenn Zugang oder Block fehlen.
     """
     from pyoverkiz.client import OverkizClient
     from pyoverkiz.utils import generate_local_server
 
-    from ..core import tokenstore
     from ..core.config import load_config
 
     config = load_config(config_path)
     blocks = [b for b in config.integrations if b.get("integration") == "overkiz"]
     if not blocks:
-        print(f"In {config_path} steht kein overkiz-Block.")
-        return 1
+        raise ConfigError(f"In {config_path} steht kein overkiz-Block.")
     block = blocks[0]
     host = str(block.get("host") or "")
     token = block.get("token") or tokenstore.value(
         tokenstore.token_file(config.data_file, block, "overkiz"), "token"
     )
     if not host or not token:
-        print("Ohne host und Token geht es nicht - erst anmelden:")
-        print(f"  python -m homepilot.integrations.overkiz -c {config_path}")
-        return 1
+        raise ConfigError(
+            "Ohne host und Token geht es nicht - erst anmelden: "
+            f"python -m homepilot.integrations.overkiz -c {config_path}"
+        )
 
     async with OverkizClient(
         username="",
@@ -729,26 +875,61 @@ async def _geraete_main(config_path: str) -> int:
         verify_ssl=False,
     ) as client:
         await client.login()
-        geraete = await client.get_devices()
+        vorher = list(await client.get_devices())
+        zeilen = geraete_zeilen(vorher)
+        nachlesen = getattr(client, "refresh_states", None)
+        if not callable(nachlesen):
+            zeilen.append("")
+            zeilen.append("Dieses pyoverkiz kennt kein refresh_states - nichts nachgelesen.")
+            return zeilen
+        try:
+            await nachlesen()
+        except Exception as err:
+            zeilen.append("")
+            zeilen.append(f"Nachlesen abgewiesen: {err}")
+            return zeilen
+        await asyncio.sleep(NACHLESE_WARTEN)
+        nachher = list(await client.get_devices())
 
-    for device in geraete:
-        art = getattr(device, "widget", None) or getattr(device, "ui_class", None)
-        print(f"\n{device.label}  ({art})")
-        zustaende = {
-            str(getattr(state, "name", "")): getattr(state, "value", None)
-            for state in (getattr(device, "states", None) or [])
-        }
-        for name in sorted(zustaende):
-            # Die drei, um die es beim Auf und Zu geht, zuerst erkennbar.
-            marke = "→" if name in (CLOSURE, DEPLOYMENT, OPEN_CLOSED) else " "
-            print(f"  {marke} {name} = {zustaende[name]}")
-        print(f"    daraus wird: {cover_state(zustaende)}")
-        befehle = sorted(
-            str(getattr(befehl, "command_name", befehl))
-            for befehl in (getattr(device, "definition", None).commands or [])
-        ) if getattr(device, "definition", None) else []
-        if befehle:
-            print(f"    Kommandos: {', '.join(befehle)}")
+    zeilen.append("")
+    unterschiede = nachlese_unterschiede(vorher, nachher)
+    if unterschiede:
+        zeilen.append(
+            f"Nach dem Nachlesen ({NACHLESE_WARTEN:.0f} s gewartet) hat sich geändert:"
+        )
+        zeilen.extend(unterschiede)
+        zeilen.append(
+            "  → Der alte Wert war bloss alt. Genau dieses Nachlesen macht der "
+            "Hub jetzt vor jedem Takt (_zustaende_nachlesen)."
+        )
+    else:
+        zeilen.append(
+            f"Nach dem Nachlesen ({NACHLESE_WARTEN:.0f} s gewartet) hat sich nichts "
+            "geändert."
+        )
+        zeilen.append(
+            "  → Das Gateway meint es so. Stimmt die Stellung trotzdem nicht, "
+            "gehört cover_state() angesehen - oder das Gerät funkt nur in eine "
+            "Richtung (RTS) und niemand weiss die Stellung wirklich."
+        )
+    return zeilen
+
+
+async def _geraete_main(config_path: str) -> int:
+    """Was das Gateway über jede Store meldet - roh.
+
+    Der Anlass: «Die Store Terrasse ist geöffnet, wird aber als
+    geschlossen angezeigt.» Ob das an der Rechnung liegt oder daran, was
+    das Gerät meldet, sieht man nur hier. Die App zeigt den fertigen
+    Zustand; welche Zustandsnamen dahinterstehen, verrät sie nicht.
+    """
+    try:
+        zeilen = await gateway_bericht(config_path)
+    except ConfigError as err:
+        print(str(err))
+        return 1
+    for zeile in zeilen:
+        print(zeile)
     return 0
 
 
