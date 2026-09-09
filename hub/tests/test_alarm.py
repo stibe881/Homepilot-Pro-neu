@@ -701,6 +701,35 @@ def test_actions_without_a_command_are_dropped():
     assert "unbekannt" not in result
 
 
+def test_actions_take_a_delay_per_command():
+    """Frist je Befehl - damit lässt sich staffeln.
+
+    «Licht sofort, Sirene nach dreissig Sekunden, Storen hoch nach zwei
+    Minuten» war vorher gar nicht möglich; das Nächste dazu war der
+    Schalter «Alle Lichter einschalten» in der Eskalation, der genau eine
+    Sache konnte. Ohne Angabe oder mit Unsinn bleibt es bei «sofort» -
+    das war das Verhalten, bevor es die Frist gab.
+    """
+    from homepilot.integrations.alarm import parse_actions
+
+    result = parse_actions(
+        {
+            "trigger": [
+                {"entity_id": "demo.licht", "command": "turn_on"},
+                {"entity_id": "demo.sirene", "command": "turn_on", "after": 30},
+                {"entity_id": "demo.store", "command": "open", "after": "bald"},
+                {"entity_id": "demo.tv", "command": "turn_off", "after": -5},
+            ]
+        }
+    )
+    assert result["trigger"] == [
+        {"entity_id": "demo.licht", "command": "turn_on"},
+        {"entity_id": "demo.sirene", "command": "turn_on", "after": 30.0},
+        {"entity_id": "demo.store", "command": "open"},
+        {"entity_id": "demo.tv", "command": "turn_off"},
+    ]
+
+
 def test_the_alarm_switches_the_siren_and_turns_it_off_again(tmp_path):
     """Eine Alarmanlage, die nur eine Nachricht schickt, informiert bloss.
     Und eine Sirene, die nach dem Unscharfschalten weiterheult, ist ein

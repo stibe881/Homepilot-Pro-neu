@@ -15,7 +15,6 @@ export interface Eskalation {
   after: number;
   /** Entitäten, die dann eingeschaltet werden. */
   sirens: string[];
-  all_lights: boolean;
   /** Durchsage auf die Boxen; leer heisst keine. */
   announce: string;
   /** Wohin die Durchsage geht. */
@@ -55,7 +54,6 @@ export const ESKALATION_VORGABE: Eskalation = {
   enabled: false,
   after: 30,
   sirens: [],
-  all_lights: false,
   announce: '',
   announce_target: 'alle',
   announce_speakers: [],
@@ -82,7 +80,6 @@ export function eskalationLesen(raw: unknown): Eskalation {
   if (Array.isArray(roh.sirens)) {
     ergebnis.sirens = roh.sirens.map((s) => String(s)).filter((s) => s.trim() !== '');
   }
-  ergebnis.all_lights = !!roh.all_lights;
   ergebnis.announce = String(roh.announce ?? '');
   const ziel = String(roh.announce_target ?? '');
   if (DURCHSAGEZIELE.some((eintrag) => eintrag.key === ziel)) {
@@ -112,6 +109,19 @@ export function fristLabel(sekunden: number): string {
   const minuten = Math.round(sekunden / 60);
   return `${minuten} min`;
 }
+
+/**
+ * Die wählbaren Fristen eines Schaltbefehls (rein, testbar).
+ *
+ * Dieselben Stufen wie bei der Eskalation, und aus demselben Grund: Wer
+ * beim Alarm etwas verzögern will, denkt in «sofort», «eine halbe
+ * Minute», «zwei Minuten» - nicht in Sekunden, die er eintippt.
+ *
+ * Der Schalter «Alle Lichter einschalten» der Eskalation ist damit
+ * überflüssig geworden: «Licht an, nach 30 s» ist eine gewöhnliche
+ * Zeile, und sie sagt, welches Licht.
+ */
+export const BEFEHLSFRISTEN = [0, 15, 30, 60, 120, 300];
 
 /** Das Nötigste einer Entität für die Sirenen-Auswahl. */
 export interface Schaltbar {
@@ -190,7 +200,7 @@ export function boxenKandidaten<T extends Schaltbar>(entities: T[]): T[] {
 /**
  * Was im zugeklappten Kopf der Klappe steht (rein, testbar).
  *
- * «aus» oder «nach 30 s: Sirene, alle Lichter» – die häufigste Frage
+ * «aus» oder «nach 30 s: Sirene, Durchsage» – die häufigste Frage
  * («tut die Anlage nach der Frist etwas?») beantwortet der Kopf, ohne
  * dass jemand aufklappen muss.
  */
@@ -199,7 +209,6 @@ export function eskalationStand(eskalation: Eskalation): string {
   const teile: string[] = [];
   if (eskalation.sirens.length === 1) teile.push('Sirene');
   if (eskalation.sirens.length > 1) teile.push(`${eskalation.sirens.length} Sirenen`);
-  if (eskalation.all_lights) teile.push('alle Lichter');
   if (eskalation.announce.trim() !== '') teile.push('Durchsage');
   // Eingeschaltet, aber ohne Wirkung: Der Hub stellt dann gar keinen
   // Timer – das soll der Kopf sagen, statt Sicherheit vorzutäuschen.
