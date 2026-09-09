@@ -330,3 +330,29 @@ export function geraeteUntertitel(entity: Entity, alle: Entity[]): string {
   return `${art} · ${herkunft}`;
 }
 
+/**
+ * Was unter dem Namen einer Gerätekachel steht (rein, testbar).
+ *
+ * Gefragt aus dem Haus: «Weshalb steht bei manchen Storen das Zimmer und
+ * bei manchen die Integration (overkiz)?» Zu Recht - «overkiz» ist der
+ * Name eines Programmteils, keine Auskunft über das Gerät. Er stand
+ * dort, wo der Raum nichts hergab, und sah dadurch aus wie eine
+ * willkürliche Ausnahme in einer Reihe sonst gleicher Kacheln.
+ *
+ * Drei Fälle, drei Antworten:
+ *
+ * - Das Gerät hat einen Raum, der anders heisst als es selbst: der Raum.
+ * - Es heisst wie sein Raum («Essbereich» im Essbereich): die Art.
+ *   Denselben Namen zweimal untereinander liest niemand zweimal.
+ * - Es hat gar keinen Raum: das steht dann auch da. Das ist die einzige
+ *   Auskunft, mit der man etwas anfangen kann - sie sagt, warum die
+ *   Kachel anders aussieht, und was in der config.yaml fehlt.
+ */
+export function kachelHerkunft(entity: Entity): string {
+  const raum = String(entity?.room ?? '').trim();
+  if (!raum) return 'ohne Raum';
+  if (raum.toLowerCase() === String(entity?.name ?? '').trim().toLowerCase()) {
+    return deviceKindLabel(entity);
+  }
+  return raum;
+}
