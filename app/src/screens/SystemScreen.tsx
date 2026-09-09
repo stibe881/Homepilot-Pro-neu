@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Platform,
   Pressable,
+  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -1220,11 +1221,27 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
                     ist damit weg - wer ihn auf einem Telefon mit älterer
                     Fassung noch sieht, soll ihn im Repo nicht mehr
                     finden und für aktuell halten. */}
-                <Text style={styles.updateAskText}>Das bringt dieses Update:</Text>
                 <Text style={styles.updateAskText}>
-                  {inhalt.zeilen.map((zeile) => `· ${zeile}`).join('\n')}
-                  {inhalt.mehr > 0 ? `\n… und ${inhalt.mehr} weitere` : ''}
+                  Das bringt dieses Update
+                  {inhalt.zeilen.length > 1 ? ` (${inhalt.zeilen.length})` : ''}:
                 </Text>
+                {/* Vollständig statt «… und 6 weitere»: Genau die sechs
+                    will man sehen, und dies ist die einzige Stelle, an
+                    der jemand freiwillig liest - vor einem Knopf, der
+                    das Haus für ein paar Minuten durchstartet.
+                    Gedeckelt wird darum die Höhe und nicht der Inhalt:
+                    Nach einem Monat ohne Update stünden sonst achtzig
+                    Zeilen zwischen der Frage und den zwei Knöpfen, die
+                    sie beantworten. */}
+                <ScrollView
+                  style={styles.updateAskListe}
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator
+                >
+                  <Text style={styles.updateAskText}>
+                    {inhalt.zeilen.map((zeile) => `· ${zeile}`).join('\n')}
+                  </Text>
+                </ScrollView>
                 <Text style={styles.updateAskHint}>
                   Die App ist während des Updates kurz getrennt. «Hub + App-Builds»
                   reicht die App zusätzlich bei TestFlight und Google Play ein.
@@ -2223,6 +2240,11 @@ const makeStyles = (colors: Colors) =>
     },
     smallActionText: { color: colors.inkSoft, fontSize: 12, fontWeight: '700' },
     updateAskTitle: { color: colors.ink, fontSize: 14, fontWeight: '700' },
+    /** Die Liste darf wachsen, der Kasten nicht ins Unendliche: Sie
+     *  scrollt für sich, damit «Abbrechen» und «Update» sichtbar
+     *  bleiben. 260 Punkte sind rund vierzehn Zeilen - so viele bringt
+     *  ein Update im Haus selten mit. */
+    updateAskListe: { maxHeight: 260 },
     updateAskText: { color: colors.inkSoft, fontSize: 12, lineHeight: 18 },
     // Blasser als die Liste darüber: Das Organisatorische soll den
     // Neuerungen nicht die Schau stehlen.
