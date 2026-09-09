@@ -139,6 +139,10 @@ export const makeStyles = (colors: Colors) =>
       alignItems: 'flex-start',
     },
     stack: { gap: space.gap * 1.4 },
+    /** Die rechte Spalte der Einstellungen auf dem iPad - seit dort ein
+     *  Kopf mit dem Seitennamen steht, braucht sie einen Abstand
+     *  darunter. */
+    settingsInhalt: { flex: 1, minWidth: 0, gap: space.gap },
     /** Das Blättchen zur Reihenfolge auf der Geräteseite. Klein und
      *  mittig statt am Rand: Es hängt an einem Knopf, der auf dem iPad
      *  ganz rechts steht und auf dem Telefon fast am linken Rand - ein

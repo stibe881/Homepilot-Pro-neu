@@ -148,6 +148,8 @@ import { KitchenTimer } from '../components/KitchenTimer';
 import { WhatsNew } from '../components/WhatsNew';
 import { Einfuehrung } from '../components/Einfuehrung';
 import { Hilfeblatt } from '../components/Hilfeblatt';
+import { Seitenhilfe } from '../components/Seitenhilfe';
+import { hilfeFuer } from '../lib/seitenhilfe';
 import { LightGroups } from '../components/LightGroups';
 import { DeviceTools } from '../components/DeviceTools';
 import { SceneSuggestion } from '../components/SceneSuggestion';
@@ -376,6 +378,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // angeforderte Einführung. Ob sie beim ersten Öffnen von selbst kommt,
   // entscheidet sie selbst (components/Einfuehrung.tsx).
   const [hilfeOffen, setHilfeOffen] = useState(false);
+  // Die Hilfe zur Seite, auf der man gerade steht (lib/seitenhilfe.ts).
+  const [seitenhilfe, setSeitenhilfe] = useState(false);
   const [einfuehrungErzwungen, setEinfuehrungErzwungen] = useState(false);
   // Was der Hub über «Besuch oder Babysitter» sagt - für die Zeile im
   // Menü; die Seite selbst (screens/BesuchScreen.tsx) fragt ihn frisch.
@@ -2237,6 +2241,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         }
         onZurueck={section === 'settings' ? undefined : () => setSection('settings')}
         onWechseln={section === 'settings' ? undefined : () => setWechselOffen(true)}
+        // Nur wo es etwas zu sagen gibt: Ein Fragezeichen, das ein
+        // leeres Blatt aufmacht, ist schlimmer als keines.
+        onHilfe={hilfeFuer(section) ? () => setSeitenhilfe(true) : undefined}
       />
     );
 
@@ -3822,7 +3829,24 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                       );
                     })}
                   </View>
-                  <View style={{ flex: 1, minWidth: 0 }}>{content()}</View>
+                  <View style={styles.settingsInhalt}>
+                    {/* Auf dem iPad steht der Name der Seite nicht in
+                        der Kopfzeile - links ist er in der Spalte
+                        hervorgehoben. Das Fragezeichen fehlte damit
+                        aber genau dort, wo die grossen Seiten stehen;
+                        darum hier derselbe Kopf ohne Zurück und ohne
+                        Wechsler. */}
+                    <EinstellungsKopf
+                      titel={
+                        sichtbarePunkte.find((item) => item.key === section)?.label ??
+                        SECTION_LABEL[section]
+                      }
+                      onHilfe={
+                        hilfeFuer(section) ? () => setSeitenhilfe(true) : undefined
+                      }
+                    />
+                    {content()}
+                  </View>
                 </View>
               ) : (
                 content()
@@ -4048,6 +4072,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             if (!hiddenSections.includes(ziel)) setSection(ziel);
           }}
         />
+        {/* Die Hilfe zur aktuellen Seite. Sie hängt am Fragezeichen der
+            Kopfzeile und führt hin, statt Wege zu beschreiben. */}
+        <Seitenhilfe
+          section={section}
+          offen={seitenhilfe}
+          onZu={() => setSeitenhilfe(false)}
+          onGehe={(ziel) => waehleBereich(ziel)}
+        />
+
         <Hilfeblatt
           offen={hilfeOffen}
           onZu={() => setHilfeOffen(false)}
