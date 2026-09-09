@@ -41,6 +41,30 @@ from ..models import ConfigEditRequest, ConfigRequest, UpdateTriggerRequest
 
 log = logging.getLogger(__name__)
 
+
+def vergleichsstand(basis: str | None, laufend: str | None) -> str:
+    """Von welchem Commit aus GitHub rechnen soll (rein, testbar).
+
+    Nicht vom laufenden Stand: Der entsteht beim Bauen aus dem Zweig
+    *plus allen anderen Zweigen des Repos* (HOMEPILOT_MERGE_ALL) und ist
+    damit ein Commit, den GitHub gar nicht kennt. Von ihm aus liess sich
+    nichts vergleichen, und der Dialog schrieb darum immer «die jüngsten
+    Änderungen (der laufende Stand liess sich nicht genau vergleichen)» -
+    eine Liste, die gleich aussieht, ob die Änderungen schon laufen oder
+    nicht. Aus dem Haus kam dreimal dieselbe Frage: «Update gemacht,
+    trotzdem steht noch das Alte.» Sie war nicht zu beantworten, weil
+    die Auskunft, die sie beantwortet hätte, geraten war.
+
+    Das Bau-Skript legt deshalb zusätzlich den Stand ab, den es von
+    GitHub geholt hat, *bevor* es örtlich zusammenführte. Ältere
+    Abbilder haben ihn nicht - dann bleibt es beim bisherigen Verhalten,
+    statt dass die Auskunft ganz ausfällt.
+    """
+    if basis and basis != "unbekannt":
+        return basis
+    return laufend or "unbekannt"
+
+
 # Was in der App steht, wenn der Update-Dienst auf dem Server den
 # iOS-Schalter nicht kennt. Ein nacktes «404 Nicht gefunden» schickte die
 # Suche in die falsche Richtung; und weil der übliche Rat (einmal neu
@@ -531,9 +555,13 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         url = str((hub.config.update or {}).get("webhook_url") or "")
         if not url.rstrip("/").endswith("/update"):
             return {"available": False}
-        commit = os.environ.get("HOMEPILOT_COMMIT", "unbekannt")
         vorschau_url = (
-            url.rstrip("/")[: -len("/update")] + "/vorschau?ab=" + commit
+            url.rstrip("/")[: -len("/update")]
+            + "/vorschau?ab="
+            + vergleichsstand(
+                os.environ.get("HOMEPILOT_BASE_COMMIT"),
+                os.environ.get("HOMEPILOT_COMMIT"),
+            )
         )
         secret = str((hub.config.update or {}).get("token") or "")
         headers = {"Authorization": f"Bearer {secret}"} if secret else {}
