@@ -51,7 +51,14 @@ export function istKlimaFuehler(entity: Entity, art: Messgroesse): boolean {
  * dieselbe Einheit trägt.
  */
 export function klimaSensor(entities: Entity[], art: Messgroesse): Entity | undefined {
-  const kandidaten = entities.filter((entity) => passt(entity, art));
+  // «Zählt nur für seinen Raum» (Geräte → Anpassen) bleibt hier
+  // draussen: Der Fühler neben dem Rack in der Waschküche misst
+  // 30 Grad. Oben stünde das als die Temperatur der Wohnung - und die
+  // stimmte dann nie. Im Raumkopf der Waschküche zeigt ihn derselbe
+  // Fühler weiterhin (lib/raum.ts).
+  const kandidaten = entities.filter(
+    (entity) => istKlimaFuehler(entity, art) && !entity.room_only
+  );
   return (
     kandidaten.find((entity) => entity.state?.device_class === art) ??
     kandidaten.find((entity) => !entity.room) ??

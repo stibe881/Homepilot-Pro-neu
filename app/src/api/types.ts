@@ -64,6 +64,13 @@ export interface Entity {
    * Szene nicht zurücknehmen.
    */
   scene_toggles?: boolean;
+  /** Zählt dieser Fühler nur für seinen eigenen Raum?
+   *
+   *  Der Fühler in der Waschküche steht neben dem Rack und misst
+   *  30 Grad. Im Raum ist die Zahl richtig; als «die» Temperatur der
+   *  Wohnung - Kopfzeile, Raumübersicht, Hitze-Hinweis - ist sie
+   *  falsch. Wer das gesetzt hat, bleibt dort draussen. */
+  room_only?: boolean;
   /** Kennung der Leuchte, in der dieses Licht aufgeht.
    *
    *  Eine Deckenlampe mit fünf Spots ist ein Licht, nicht fünf: Wer das

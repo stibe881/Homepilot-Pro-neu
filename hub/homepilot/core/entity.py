@@ -111,6 +111,15 @@ class Entity:
     # Szenen auch, und ein Knopf, der zurücknimmt, überrascht weniger als
     # einer, der es nicht tut.
     scene_toggles: bool = True
+    # Zählt dieser Fühler nur für seinen eigenen Raum?
+    #
+    # Der Temperatur- und Feuchtefühler in der Waschküche steht neben dem
+    # Rack und misst 30 Grad. Als «die» Temperatur der Wohnung oben in der
+    # Kopfzeile ist das falsch, in der Raumübersicht daneben, und im
+    # Hitze-Hinweis («drinnen wird es warm») zieht er den Mittelwert nach
+    # oben, bis der Vorschlag an einem kühlen Tag kommt. Im Raum selbst
+    # ist die Zahl richtig - dort bleibt sie auch stehen.
+    room_only: bool = False
     # Kennung der Lampe, in der diese Entität aufgeht – gesetzt, wenn sie
     # Mitglied einer zusammengefassten Leuchte ist. Eine Deckenlampe mit
     # fünf Spots soll ein Licht sein, nicht fünf: Wer das hier stehen hat,
@@ -162,6 +171,7 @@ class Entity:
             "favorite": self.favorite,
             "group": self.group,
             "scene_toggles": self.scene_toggles,
+            "room_only": self.room_only,
             "combined_into": self.combined_into,
             "last_seen": self.last_seen,
             "last_change": self.last_change,

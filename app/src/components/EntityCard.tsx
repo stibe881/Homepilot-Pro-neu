@@ -7,6 +7,7 @@ import Svg, { Polyline } from 'react-native-svg';
 import { CommandData, Entity, KalenderEintrag } from '../api/types';
 import { Doppelaktion, FENSTER_MS, merkbar } from '../lib/doppeltipp';
 import { Reihe, linienPunkte } from '../lib/funkenlinie';
+import { istKlimaFuehler } from '../lib/klimachip';
 import { abschaltSatz } from '../lib/abschaltung';
 import { offlineSatz } from '../lib/funkstille';
 import { uebernahmeZeile, zustandsText } from '../lib/haushalt';
@@ -150,6 +151,9 @@ interface Props {
   /** Nur für Szenen einer Integration (Hue): «Bleibt aktiv» umlegen.
    *  Fehlt er, steht die Zeile nicht im Anpassen-Blatt. */
   onSceneToggles?: (value: boolean) => void;
+  /** Nur für Temperatur- und Feuchtefühler: «Gilt für - nur diesen Raum»
+   *  umlegen. Fehlt er, steht die Zeile nicht im Anpassen-Blatt. */
+  onRoomOnly?: (value: boolean) => void;
   /** Anpassen-Modus: Gerät einer Gruppe zuordnen (oder lösen). */
   groups?: string[];
   onSetGroup?: (group: string | null) => void;
@@ -213,6 +217,7 @@ export function EntityCard({
   onSetRoom,
   onRename,
   onSceneToggles,
+  onRoomOnly,
   groups,
   onSetGroup,
   doorConfirm,
@@ -1248,6 +1253,30 @@ export function EntityCard({
                     // Das Blatt bleibt offen, wie beim Favoriten: Wer
                     // hier ist, legt meist mehrere Schalter um.
                     onPress: () => onSceneToggles(entity.scene_toggles === false),
+                  },
+                ]
+              : []),
+            // Nur bei Fühlern, die das Klima messen: Ein Grad- oder
+            // Prozentwert kann für die ganze Wohnung stehen - oder eben
+            // nur für sein Zimmer. Der Fühler neben dem Rack in der
+            // Waschküche misst 30 Grad; oben in der Kopfzeile wäre das
+            // die Temperatur der Wohnung, und im Hitze-Hinweis zöge er
+            // das Mittel so hoch, dass der Vorschlag an einem kühlen Tag
+            // käme.
+            ...(onRoomOnly &&
+            (istKlimaFuehler(entity, 'temperature') ||
+              istKlimaFuehler(entity, 'humidity'))
+              ? [
+                  {
+                    key: 'nur-raum',
+                    icon: (entity.room_only
+                      ? 'home-outline'
+                      : 'globe-outline') as keyof typeof Ionicons.glyphMap,
+                    label: 'Gilt für',
+                    wert: entity.room_only ? 'Nur diesen Raum' : 'Das ganze Haus',
+                    aktiv: !!entity.room_only,
+                    // Blatt bleibt offen, wie beim Favoriten.
+                    onPress: () => onRoomOnly(!entity.room_only),
                   },
                 ]
               : []),

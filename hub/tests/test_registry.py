@@ -151,3 +151,28 @@ async def test_the_entity_remembers_why_it_changed():
         "kind": "device",
         "label": "Gerät",
     }
+
+
+async def test_meta_marks_a_sensor_as_counting_only_for_its_room():
+    """«Gilt für: nur diesen Raum» kommt aus dem Meta-Speicher.
+
+    Vorgabe ist «das ganze Haus»; gespeichert wird nur die Abweichung,
+    damit der Eintrag klein bleibt (siehe hub.set_entity_meta). Und sie
+    muss im Schnappschuss für die App stehen - dort hängt die Zeile im
+    Anpassen-Blatt daran.
+    """
+    registry = EntityRegistry(EventBus())
+    registry.meta_provider = {"demo.light": {"room_only": True}}.get
+    events: list[dict] = []
+    registry.bus.subscribe("entity_added", lambda t, d: events.append(d["entity"]))
+    await registry.add(make_light())
+
+    assert registry.get("demo.light").room_only is True
+    assert events[0]["room_only"] is True
+
+
+async def test_a_sensor_counts_house_wide_unless_someone_says_otherwise():
+    registry = EntityRegistry(EventBus())
+    registry.meta_provider = {}.get
+    await registry.add(make_light())
+    assert registry.get("demo.light").room_only is False

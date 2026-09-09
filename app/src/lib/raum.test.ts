@@ -298,3 +298,24 @@ describe('raumKlima mit eigenem Feuchtefühler', () => {
     expect(klima?.feuchte).toBe('55 % Feuchte');
   });
 });
+
+describe('Fühler, die nur für ihren Raum zählen', () => {
+  // Der Temperatur- und Feuchtefühler in der Waschküche steht neben dem
+  // Rack und misst 30 Grad. Im Raum ist die Zahl richtig; als «die»
+  // Temperatur der Wohnung ist sie es nie.
+  const rack = geraet({
+    kind: 'sensor',
+    name: 'Rack',
+    room: 'Waschküche',
+    room_only: true,
+    state: { state: 30, unit: '°C', device_class: 'temperature' },
+  });
+
+  it('steht im Raumkopf weiterhin gross da', () => {
+    expect(raumKlima([rack])?.temp).toBe('30,0°');
+  });
+
+  it('bleibt aus der Zeile der Raumübersicht heraus', () => {
+    expect(raumZeile([rack])).toBe('');
+  });
+});

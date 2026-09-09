@@ -618,6 +618,9 @@ class MetaRequest(BaseModel):
     #: Nur für Szenen einer Integration: Bleibt sie aktiv (zweiter Druck
     #: nimmt zurück) oder löst sie nur aus? Siehe core/scenes.py.
     scene_toggles: bool | None = None
+    #: Nur für Klimafühler: Zählt der Wert nur für seinen Raum - also
+    #: nicht in der Kopfzeile, der Raumübersicht und den Hitze-Hinweisen?
+    room_only: bool | None = None
 
 
 

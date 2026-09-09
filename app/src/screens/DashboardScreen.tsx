@@ -1916,6 +1916,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           ? (value) => setEntityMeta(entity.id, { scene_toggles: value })
           : undefined
       }
+      // «Gilt für: nur diesen Raum» - für Klimafühler, die nicht für die
+      // Wohnung sprechen sollen (Hub: core/storenwaechter.py).
+      onRoomOnly={
+        darfAnpassen
+          ? (value) => setEntityMeta(entity.id, { room_only: value })
+          : undefined
+      }
       doorConfirm={prefs.doorConfirm}
       kino={kinoImBlatt}
       onKino={activateScene}

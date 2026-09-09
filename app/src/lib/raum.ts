@@ -163,7 +163,12 @@ export function inBeschattung(entity: Entity): boolean {
 
 export function raumZeile(items: Entity[]): string {
   const teile: string[] = [];
-  const fuehler = temperatur(items);
+  // Auf der Übersicht liest man die Räume nebeneinander wie einen Blick
+  // durch die Wohnung. Ein Fühler, der «nur für seinen Raum» zählt
+  // (Geräte → Anpassen), gehört da nicht hin: Die 30 Grad neben dem
+  // Rack in der Waschküche stünden zwischen lauter Wohntemperaturen.
+  // Im Raum selbst steht er weiterhin gross im Kopf (raumKlima).
+  const fuehler = temperatur(items.filter((entity) => !entity.room_only));
   if (fuehler) {
     teile.push(`${Number(fuehler.state.state).toFixed(1).replace('.', ',')}°`);
     if (typeof fuehler.state.humidity === 'number') {

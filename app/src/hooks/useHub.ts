@@ -584,6 +584,8 @@ export function useHub(url: string | null, token: string | null) {
         /** Nur Szenen einer Integration: Bleibt sie aktiv, nimmt der
          *  zweite Druck sie zurück (Hub: core/scenes.py). */
         scene_toggles?: boolean;
+        /** Nur Klimafühler: Der Wert zählt nur für seinen Raum. */
+        room_only?: boolean;
       }
     ) => {
       setEntityMap((prev) => {
@@ -594,6 +596,7 @@ export function useHub(url: string | null, token: string | null) {
         if (meta.favorite !== undefined) next.favorite = meta.favorite;
         if (meta.group !== undefined) next.group = meta.group;
         if (meta.scene_toggles !== undefined) next.scene_toggles = meta.scene_toggles;
+        if (meta.room_only !== undefined) next.room_only = meta.room_only;
         return { ...prev, [entityId]: next };
       });
       try {
