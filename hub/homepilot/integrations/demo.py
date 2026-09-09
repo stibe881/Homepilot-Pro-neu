@@ -212,8 +212,21 @@ class DemoIntegration(Integration):
         # gemeldeten Fall («… / finja hüten 9.15, Si…») und aus einer
         # echten Unwetterwarnung.
         heute = time.localtime()
+
         def um(stunde: int, minute: int) -> str:
             return time.strftime(f"%Y-%m-%dT{stunde:02d}:{minute:02d}:00", heute)
+
+        def gleich(minuten: int) -> str:
+            """In so vielen Minuten - immer in der Zukunft.
+
+            Vorher stand hier eine feste Uhrzeit (8.50 bis 11.00). Am
+            Vormittag zeigte die Begrüssungskarte den Termin, am
+            Nachmittag nicht mehr - und die Browser-Probe, die genau
+            diese Zeile misst, war ab elf Uhr rot: «Zeile nicht
+            gefunden». Eine Messung, die von der Tageszeit abhängt,
+            misst nicht den Code.
+            """
+            return time.strftime("%Y-%m-%dT%H:%M:00", time.localtime(time.time() + minuten * 60))
 
         await self.add_entity(
             "calendar_family",
@@ -221,15 +234,15 @@ class DemoIntegration(Integration):
             "Familie",
             state={
                 "state": "Chrabbelzwergli Bine + Aline / finja hüten 9.15, Sinja bringen",
-                "next_start": um(8, 50),
+                "next_start": gleich(70),
                 "events": [
                     {
                         "summary": (
                             "Chrabbelzwergli Bine + Aline / finja hüten 9.15, "
                             "Sinja bringen"
                         ),
-                        "start": um(8, 50),
-                        "end": um(11, 0),
+                        "start": gleich(70),
+                        "end": gleich(200),
                         "location": "Zell LU",
                     },
                     {
