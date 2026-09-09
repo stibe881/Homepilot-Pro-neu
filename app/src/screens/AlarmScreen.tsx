@@ -1312,9 +1312,14 @@ function EskalationKarte({
               ) : null}
             </View>
 
+            {/* Gefragt aus dem Haus: «Hat das einen Zusammenhang mit
+                «Was wann geschaltet wird»?» - Nein, es sind zwei
+                Wege zum selben Gerät, und der Unterschied ist die
+                Zeit. Das gehört in den Satz, sonst stellt man es an
+                zwei Orten ein und wundert sich über das Ergebnis. */}
             <Toggle
               label="Alle Lichter einschalten"
-              detail="Einbrecher mögen kein Rampenlicht – und wer nachschauen geht, keinen dunklen Flur. Beim Entschärfen gehen nur die Sirenen wieder aus."
+              detail="Einbrecher mögen kein Rampenlicht – und wer nachschauen geht, keinen dunklen Flur. Gemeint sind alle Lichter des Hauses, unabhängig von dem, was oben unter «Was wann geschaltet wird» steht – nur später, nämlich erst nach der Frist. Beim Entschärfen gehen nur die Sirenen wieder aus; die Lichter bleiben an."
               value={eskalation.all_lights}
               onChange={(value) => onSave({ ...eskalation, all_lights: value })}
             />
@@ -1641,11 +1646,24 @@ function AlarmActions({
   return (
     <Card style={styles.card}>
       <Klappe label="Was wann geschaltet wird" stand={geschaltetStand(actions)}>
+      {/* Je Zeitpunkt eine eigene Klappe.
+          Vorher standen die drei Überschriften mitten in einer Liste,
+          die jedes schaltbare Gerät des Hauses dreimal führt - sechzig
+          Zeilen, dann «Beim Hereinkommen», wieder sechzig, dann «Beim
+          Unscharfschalten». Wer scrollte, verlor die Überschrift aus
+          den Augen und wusste nicht mehr, welchen Zeitpunkt er gerade
+          einstellt. Zugeklappt sind es jetzt drei Zeilen, jede mit
+          ihrem Stand daneben - und die lange Liste sieht nur, wer sie
+          gerade braucht. */}
       {SLOTS.map((slot) => {
         const chosen = actions[slot.key] ?? [];
         return (
-          <View key={slot.key} style={styles.field}>
-            <Text style={styles.label}>{slot.label}</Text>
+          <View key={slot.key} style={styles.zeitpunkt}>
+            <Klappe
+              label={slot.label}
+              stand={geschaltetStand({ [slot.key]: chosen })}
+              zuBeginnZu
+            >
             <Text style={styles.hint}>{slot.hint}</Text>
             <View style={styles.actionWrap}>
               {schaltbar.map((entity) => {
@@ -1697,6 +1715,7 @@ function AlarmActions({
                 );
               })}
             </View>
+            </Klappe>
           </View>
         );
       })}
@@ -2059,6 +2078,16 @@ const makeStyles = (colors: Colors) =>
     clipHint: { color: '#B9C2D0', fontSize: 12 },
     clipText: { color: colors.accent, fontSize: 13, fontWeight: '700' },
     actionWrap: { gap: 6, marginTop: 4 },
+    /** Ein Zeitpunkt als eigener Block: Linie darüber, etwas Luft.
+     *  Die drei Überschriften gingen in der langen Geräteliste unter -
+     *  sechzig Zeilen, dann die nächste, und wer scrollte, wusste nicht
+     *  mehr, welchen Zeitpunkt er gerade einstellt. */
+    zeitpunkt: {
+      gap: 8,
+      paddingTop: 12,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.surfaceBorder,
+    },
     actionRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     actionName: { color: colors.ink, fontSize: 14 },
     actionArt: { color: colors.inkFaint, fontSize: 11, marginTop: 1 },
