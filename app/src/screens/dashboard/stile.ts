@@ -139,6 +139,24 @@ export const makeStyles = (colors: Colors) =>
       alignItems: 'flex-start',
     },
     stack: { gap: space.gap * 1.4 },
+    /**
+     * Eine Spalte für die Einstellungsseiten - Konto, Verbindungen.
+     *
+     * Dort standen zwei Sorten Karten untereinander: die aus dem
+     * SettingsScreen halten sich seit je an 460 Punkte und stehen
+     * mittig, die von aussen dazugereichten (Passwort, «Meine Geräte»,
+     * Push) nahmen die ganze Breite. Auf dem Telefon fällt das nicht
+     * auf, im Browser sieht es aus, als hätte jemand zwei Seiten
+     * ineinandergeschoben. Die Spalte gibt allen dieselbe Breite - und
+     * eine Textseite, die über die halbe Bildschirmbreite läuft, liest
+     * ohnehin niemand gern.
+     */
+    spalte: {
+      width: '100%',
+      maxWidth: 460,
+      alignSelf: 'center',
+      gap: space.gap * 1.4,
+    },
     // minWidth: 0 ist hier kein Zierrat. Ohne das kann eine Flex-Spalte
     // nicht unter die Breite ihres Inhalts schrumpfen: Ein zu breites Kind
     // macht die Spalte breiter, und die Nachbarspalte wandert aus dem Bild.

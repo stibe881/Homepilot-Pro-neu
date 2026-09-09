@@ -6,7 +6,9 @@ import { HubSettings } from '../api/types';
 import { Abschnitt } from '../components/Abschnitt';
 import { Card } from '../components/Card';
 import { useOrtung } from '../hooks/useOrtung';
+import { ConnectionStatus } from '../hooks/useHub';
 import { defaultHubUrl } from '../lib/origin';
+import { VERBINDUNGSWORT, verbindungsFarbe } from '../lib/verbindungsstand';
 import { PAUSEN, ortungsHinweis, pauseBis, pausiert } from '../lib/ortung';
 import { ROLE_LABELS } from '../lib/rollen';
 import { zonenkennung } from '../lib/zonenkennung';
@@ -59,6 +61,9 @@ interface Props {
   weiteres?: React.ReactNode;
   /** Wer die eigene Ortung sieht – für die Zeile im Profil (Punkt 197). */
   familie?: string[];
+  /** Woran die App gerade ist – für die Ampel in der Hub-Karte. Ohne
+   *  Angabe «verbunden»: Wer diese Seite sieht, hat den Hub erreicht. */
+  stand?: ConnectionStatus;
 }
 
 export function SettingsScreen({
@@ -70,6 +75,7 @@ export function SettingsScreen({
   onRenamed,
   user,
   familie = [],
+  stand = 'connected',
   sicherheit,
   geraet,
   weiteres,
@@ -215,6 +221,8 @@ export function SettingsScreen({
   const darfUmbenennen = !!user && !panel && !user.shared && user.role !== 'gast';
   // Zu, bis jemand den Stift antippt.
   const [umbenennen, setUmbenennen] = useState(false);
+  // Dasselbe für Adresse und Token auf der Verbindungen-Seite.
+  const [zugangOffen, setZugangOffen] = useState(false);
 
   /** Speichern - und wenn der Name neu ist, zuerst den Hub-Benutzer
    *  umbenennen. Erst wenn das gelungen ist, wird lokal gespeichert:
@@ -716,19 +724,94 @@ export function SettingsScreen({
     </Card>
   ) : null;
 
+  // Die Karte der Hub-Verbindung.
+  //
+  // Sie war ein immer offenes Formular: «Hub-URL», «Token», darunter
+  // «Speichern & verbinden». Das ist die technischste Stelle der ganzen
+  // App - und sie stand zuoberst auf einer Seite, die man aufmacht, um
+  // nachzusehen, ob die Verbindung steht. Zwei Felder, die man einmal
+  // beim Einrichten ausfüllt und danach nie wieder anfasst, ausser man
+  // will genau das kaputtmachen.
+  //
+  // Jetzt sagt die Karte zuerst, woran man ist - dieselbe Ampel wie in
+  // der Begrüssungskarte -, und die Felder liegen hinter «Adresse von
+  // Hand ändern». Beim Einrichten (kein Benutzer) ist sie unverändert
+  // offen: Da IST das Formular die Aufgabe.
+  const eingerichtet = !!user;
+  const felderOffen = !eingerichtet || zugangOffen;
+
   const verbindung = (
     <Card style={styles.card}>
       <Text style={styles.title}>{user ? 'Hub-Verbindung' : 'Hub verbinden'}</Text>
 
-      <Pressable
-        onPress={() => setScanning(true)}
-        accessibilityRole="button"
-        style={({ pressed }) => [styles.scan, pressed && { opacity: 0.75 }]}
-      >
-        <Ionicons name="qr-code-outline" size={20} color={colors.ink} />
-        <Text style={styles.scanText}>QR-Code vom Hub scannen</Text>
-      </Pressable>
-      <Text style={styles.scanHint}>oder von Hand eintragen</Text>
+      {eingerichtet ? (
+        <View style={styles.hubStand}>
+          <View
+            style={[
+              styles.hubPunkt,
+              { backgroundColor: verbindungsFarbe(colors, stand) },
+            ]}
+          />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.hubWort}>
+              {stand === 'connected' ? 'Verbunden' : VERBINDUNGSWORT[stand]}
+            </Text>
+            {/* Die Adresse klein darunter: Sie ist die Antwort auf «mit
+                welchem Hub eigentlich?» - im Haus oder von aussen -,
+                aber keine, die man täglich liest. */}
+            <Text style={styles.hubAdresse} numberOfLines={1}>
+              {url || 'noch keine Adresse'}
+            </Text>
+          </View>
+        </View>
+      ) : null}
+
+      {felderOffen ? (
+        <>
+          <Pressable
+            onPress={() => setScanning(true)}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.scan, pressed && { opacity: 0.75 }]}
+          >
+            <Ionicons name="qr-code-outline" size={20} color={colors.ink} />
+            <Text style={styles.scanText}>QR-Code vom Hub scannen</Text>
+          </Pressable>
+          <Text style={styles.scanHint}>oder von Hand eintragen</Text>
+
+          <Field
+            label="Hub-URL"
+            value={url}
+            onChange={setUrl}
+            placeholder="http://192.168.1.10:8123"
+            keyboardType="url"
+          />
+          <Field
+            label="Token"
+            value={token}
+            onChange={setToken}
+            placeholder="Token aus config.yaml"
+            secure
+          />
+
+          {nameFehler ? (
+            <Text style={{ color: colors.danger, fontSize: 13 }}>{nameFehler}</Text>
+          ) : null}
+          <Pressable
+            style={({ pressed }) => [styles.save, pressed && { opacity: 0.8 }]}
+            onPress={speichern}
+          >
+            <Text style={styles.saveText}>Speichern & verbinden</Text>
+          </Pressable>
+        </>
+      ) : (
+        <Pressable
+          onPress={() => setZugangOffen(true)}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.nameButton, pressed && { opacity: 0.7 }]}
+        >
+          <Text style={styles.nameButtonText}>Adresse von Hand ändern</Text>
+        </Pressable>
+      )}
 
       <QrScanner
         visible={scanning}
@@ -743,30 +826,19 @@ export function SettingsScreen({
         }}
       />
 
-      <Field
-        label="Hub-URL"
-        value={url}
-        onChange={setUrl}
-        placeholder="http://192.168.1.10:8123"
-        keyboardType="url"
-      />
-      <Field
-        label="Token"
-        value={token}
-        onChange={setToken}
-        placeholder="Token aus config.yaml"
-        secure
-      />
-
-      {nameFehler ? (
-        <Text style={{ color: colors.danger, fontSize: 13 }}>{nameFehler}</Text>
+      {/* Der Scanner steht auch dem eingerichteten Gerät offen, ohne
+          dass es dafür die Felder aufmachen muss: Ein neuer Hub, ein
+          neues Token - ein Scan, fertig. */}
+      {eingerichtet && !felderOffen ? (
+        <Pressable
+          onPress={() => setScanning(true)}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.scan, pressed && { opacity: 0.75 }]}
+        >
+          <Ionicons name="qr-code-outline" size={20} color={colors.ink} />
+          <Text style={styles.scanText}>Neuen QR-Code scannen</Text>
+        </Pressable>
       ) : null}
-      <Pressable
-        style={({ pressed }) => [styles.save, pressed && { opacity: 0.8 }]}
-        onPress={speichern}
-      >
-        <Text style={styles.saveText}>Speichern & verbinden</Text>
-      </Pressable>
 
       {onCancel ? (
         <Pressable style={styles.cancel} onPress={onCancel}>
@@ -929,6 +1001,10 @@ const makeStyles = (colors: Colors) =>
   },
   account: { color: colors.inkSoft, fontSize: 13, marginTop: -8 },
   profilKopf: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  hubStand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  hubPunkt: { width: 10, height: 10, borderRadius: 5 },
+  hubWort: { color: colors.ink, fontSize: 16, fontWeight: '700' },
+  hubAdresse: { color: colors.inkFaint, fontSize: 12, marginTop: 1 },
   /** Die Initiale statt eines Bildes: Es gibt im Haus keine Profilfotos,
    *  und ein Platzhalter-Kopf für jeden sähe aus wie ein leeres Konto. */
   avatar: {

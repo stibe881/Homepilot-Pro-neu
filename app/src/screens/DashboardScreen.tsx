@@ -2486,7 +2486,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     }
     if (section === 'account') {
       return (
-        <View style={styles.stack}>
+        <View style={styles.spalte}>
           {/* Die Reihenfolge der Seite entsteht im SettingsScreen - er
               hält den Zustand (Name, Thema, Ortung), und zwei Fassungen
               davon nebeneinander schrieben sich gegenseitig zu. Was
@@ -2544,7 +2544,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     }
     if (section === 'connection') {
       return (
-        <View style={styles.stack}>
+        <View style={styles.spalte}>
           {/* Dieses Gerät plus die Dienste des Hauses (Kalender, Spotify,
               Google Home) - die Dienst-Karten sieht nur, wer die
               Konfiguration ändern darf; für alle anderen bleibt die
@@ -2555,6 +2555,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             user={user}
             darfDienste={(user?.capabilities ?? []).includes('edit_config')}
             entities={entities}
+            stand={status}
           />
         </View>
       );

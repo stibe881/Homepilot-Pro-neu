@@ -24,7 +24,9 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { hubClient } from '../api/client';
+import { ConnectionStatus } from '../hooks/useHub';
 import { Entity, HubSettings } from '../api/types';
+import { Abschnitt } from '../components/Abschnitt';
 import { Card } from '../components/Card';
 import { TvKopplung } from '../components/TvKopplung';
 import { brauchtKopplung, kannKoppeln, kopplungsZeile } from '../lib/fernsehkopplung';
@@ -51,6 +53,8 @@ interface Props {
   /** Für die Fernseher-Kopplung: Welche Android-TV-Geräte es gibt und
    *  woran sie sind. */
   entities?: Entity[];
+  /** Woran die App gerade ist - für die Ampel in der Hub-Karte. */
+  stand?: ConnectionStatus;
 }
 
 interface Antwort {
@@ -66,6 +70,7 @@ export function VerbindungenScreen({
   user,
   darfDienste,
   entities = [],
+  stand,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -163,6 +168,7 @@ export function VerbindungenScreen({
         user={user}
         embedded
         nur="verbindung"
+        stand={stand}
       />
 
       {/* Die Fernseher. Sie stehen hier und nicht mehr auf ihrer Kachel:
@@ -171,8 +177,10 @@ export function VerbindungenScreen({
           jeden Abend braucht. Ohne Android TV im Haus fällt der ganze
           Abschnitt weg. */}
       {fernseher.length > 0 ? (
-        <>
-          <Text style={styles.abschnitt}>Fernseher</Text>
+        <Abschnitt
+          titel="Fernseher"
+          hinweis="Einmal koppeln, dann gehorcht die Fernbedienung in der App."
+        >
           {fernseher.map((tv) => (
             <Card key={tv.id} style={styles.card}>
               <View style={styles.tvKopf}>
@@ -197,12 +205,14 @@ export function VerbindungenScreen({
               <TvKopplung entity={tv} dringend={brauchtKopplung(tv)} />
             </Card>
           ))}
-        </>
+        </Abschnitt>
       ) : null}
 
       {darfDienste && dienste ? (
-        <>
-          <Text style={styles.abschnitt}>Dienste des Hauses</Text>
+        <Abschnitt
+          titel="Dienste des Hauses"
+          hinweis="Gilt für alle im Haus, nicht nur für dieses Gerät."
+        >
           {neustartNoetig || neustart === 'laeuft' ? (
             <Card style={styles.card}>
               <View style={styles.neustartZeile}>
@@ -233,7 +243,7 @@ export function VerbindungenScreen({
               anmelden={(antwort) => anmelden(dienst.key, antwort)}
             />
           ))}
-        </>
+        </Abschnitt>
       ) : null}
     </View>
   );
@@ -881,23 +891,9 @@ const makeStyles = (colors: Colors) =>
       gap: 12,
       padding: 22,
     },
-    // Die Zwischenüberschrift trennt «dieses Gerät» von «das Haus» -
-    // dieselbe Breite wie die Karten, damit sie mit ihnen fluchtet.
     tvKopf: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     tvName: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
     tvZeile: { color: colors.inkFaint, fontSize: 12, marginTop: 2 },
-    abschnitt: {
-      width: '100%',
-      maxWidth: 460,
-      alignSelf: 'center',
-      color: colors.inkSoft,
-      fontSize: 13,
-      fontWeight: '700',
-      textTransform: 'uppercase',
-      letterSpacing: 0.6,
-      marginTop: 8,
-      marginBottom: -4,
-    },
     kopf: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     symbol: {
       width: 40,

@@ -38,22 +38,18 @@ import { MAX_SCHRIFT } from '../lib/schrift';
 import { abschaltSatz } from '../lib/abschaltung';
 import { OHNE_RAUM, gezaehlteLichter, lichterAus, lichterNachRaum } from '../lib/zaehlung';
 import { ConnectionStatus } from '../hooks/useHub';
+import { VERBINDUNGSWORT, verbindungsFarbe } from '../lib/verbindungsstand';
 import { useEscape } from '../hooks/useEscape';
 import { useJetzt } from '../hooks/useRestzeit';
 import { Colors, radius, type, useColors } from '../theme';
 import { warnText, warnZahl, warnZahlSatz } from '../lib/warnzeile';
 import { Lauftext } from './Lauftext';
 
-const STATUS_LABEL: Record<ConnectionStatus, string> = {
-  connected: 'verbunden',
-  connecting: 'verbinde …',
-  disconnected: 'getrennt',
-};
-
-function statusColor(colors: Colors, status: ConnectionStatus): string {
-  if (status === 'connected') return colors.on;
-  return status === 'connecting' ? colors.warn : colors.danger;
-}
+// Die Wörter und die Ampel wohnen in lib/verbindungsstand.ts: Die
+// Verbindungen-Seite gibt oben dieselbe Auskunft, und zwei Fassungen
+// davon liefen auseinander.
+const STATUS_LABEL = VERBINDUNGSWORT;
+const statusColor = verbindungsFarbe;
 
 /** Der nächste echte Termin – dasselbe Ereignis, das der Hub in
  *  `state.state`/`next_start` zusammenfasst, hier aber mit allem drum
