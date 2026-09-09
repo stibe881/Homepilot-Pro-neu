@@ -1,4 +1,4 @@
-import { Entity } from '../api/types';
+import { Entity, Scene } from '../api/types';
 
 /**
  * Szenen: den Ist-Zustand einfangen und gespeicherte Aktionen zurücklesen.
@@ -424,4 +424,71 @@ export function szenenFuerRaum<S extends { room?: string | null; entity_ids: str
       ? scene.room === room
       : scene.entity_ids.some((id) => imRaum.has(id))
   );
+}
+
+/** Vorsatz für eine Lichtszene der Bridge in der Szenenreihe eines Raums.
+ *
+ *  Sie ist ein Gerät und keine Szene des Hubs - ausgelöst wird sie mit
+ *  ``activate`` auf der Entität, nicht über die Szenen-Route. Der
+ *  Vorsatz hält beides in einer Reihe auseinander, ohne dass die Reihe
+ *  zwei Listen führen muss. */
+const GERAETESZENE = 'geraet:';
+
+/**
+ * Alle Szenen eines Raums in einer Reihe (rein, testbar).
+ *
+ * Zwei Quellen, ein Griff: die Szenen des Hubs und die auf der Bridge
+ * gespeicherten Lichtszenen (Philips Hue). Sie standen bisher an zwei
+ * Orten - die einen als Gruppe «Szenen» zuoberst, die anderen weiter
+ * unten als eigene Kategorie «Lichtszene» zwischen den Gerätekacheln,
+ * hinter Beleuchtung, Store und Medien. Wer im Büro «Sternenhimmel»
+ * wollte, scrollte daran vorbei. Für den, der davorsteht, ist beides
+ * dasselbe: ein Knopf, eine Stimmung.
+ *
+ * Die Lichtszenen kommen hinten und alphabetisch: Eine Bridge liefert
+ * sie in ihrer eigenen Reihenfolge, und selbst angelegte Szenen sind
+ * die, die jemand für dieses Zimmer gemeint hat.
+ *
+ * Zwei Listen, und der Unterschied ist gewollt: Wohin eine Szene des
+ * Hubs gehört, entscheidet sich an *allen* Geräten des Raums - sie
+ * verschwände sonst, weil eine ihrer Lampen ausgeblendet ist. Die
+ * Lichtszenen dagegen sind selbst Kacheln; wer eine ausblendet, will
+ * sie nicht sehen, auch nicht als Knopf.
+ */
+export function raumSzenen(
+  scenes: Scene[],
+  entities: Entity[],
+  room: string,
+  sichtbar: Entity[] = entities
+): Scene[] {
+  const lichtszenen = sichtbar
+    .filter(
+      (entity) =>
+        entity.room === room &&
+        entity.kind === 'scene' &&
+        entity.commands.includes('activate')
+    )
+    .map((entity) => ({
+      id: `${GERAETESZENE}${entity.id}`,
+      name: entity.name,
+      icon: 'color-palette-outline',
+      entity_ids: [entity.id],
+      // Die Bridge sagt selbst, ob ihre Szene gerade steht - derselbe
+      // gefüllte Knopf wie bei einer Szene des Hubs.
+      active: entity.state.state === 'on',
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'de-CH'));
+  return [...szenenFuerRaum(scenes, entities, room), ...lichtszenen];
+}
+
+/**
+ * Steckt hinter dieser Kennung eine Lichtszene der Bridge? (rein, testbar)
+ *
+ * Gibt die Entitäts-Id zurück - dann wird `activate` geschickt statt die
+ * Szene des Hubs ausgelöst. `null` heisst: eine gewöhnliche Szene.
+ */
+export function szeneGeraet(sceneId: string): string | null {
+  return sceneId.startsWith(GERAETESZENE)
+    ? sceneId.slice(GERAETESZENE.length)
+    : null;
 }

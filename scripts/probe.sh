@@ -54,7 +54,8 @@ integrations:
   - { integration: gremlin, pace: 3600, seed: 7 }
 rooms:
   Wohnzimmer:
-    [demo.light_livingroom, demo.tv_livingroom, demo.cover_livingroom, gremlin.tv_zappelig]
+    [demo.light_livingroom, demo.tv_livingroom, demo.cover_livingroom, gremlin.tv_zappelig,
+     demo.scene_relax]
   Flur: [demo.motion_hall]
 automations: []
 YAML

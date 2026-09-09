@@ -79,7 +79,7 @@ import { gemerkteAktion, menuLabel } from '../lib/doppeltipp';
 import { leerbild } from '../lib/leerzustand';
 import { reihenfolge as nutzungsReihenfolge } from '../lib/raumnutzung';
 import { sorgen, sorgenSatz } from '../lib/sorgen';
-import { szenenFuerKachel, szenenFuerRaum } from '../lib/szenen';
+import { raumSzenen, szeneGeraet, szenenFuerKachel } from '../lib/szenen';
 import {
   GeraeteFilter,
   GeraeteSortierung,
@@ -1695,8 +1695,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     eigenePrefs.favoriteOrder,
   ]);
 
-  // Ein einzelner Raum wird nach Kategorien gegliedert: Szenen des Raums
-  // oben, dann Beleuchtung, Store, Medien, alles Übrige unter „Weitere“.
+  // Ein einzelner Raum wird nach Kategorien gegliedert: Beleuchtung,
+  // Store, Medien, dann jede weitere Geräteart. Die Szenen stehen davor
+  // im Raumkopf, nicht als Gruppe zwischen den Kacheln.
   // Leere Kategorien werden weggelassen. „Store“ (Storen/Rollläden)
   // erscheint so von selbst nur in Räumen mit solchen Geräten.
   const categorized =
@@ -1704,8 +1705,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Nicht nur das room-Feld: Eine Szene erscheint in jedem Raum, dessen
   // Geräte sie schaltet. «Feierabend» stand vorher in höchstens einem.
   const roomScenes = useMemo(
-    () => (categorized ? szenenFuerRaum(scenes, entities, room) : []),
-    [categorized, scenes, entities, room]
+    () => (categorized ? raumSzenen(scenes, entities, room, shown) : []),
+    [categorized, scenes, entities, room, shown]
+  );
+  // Eine Lichtszene der Bridge ist ein Gerät: Sie wird mit «activate»
+  // geschaltet und nicht über die Szenen-Route des Hubs. Welche von
+  // beiden ein Knopf ist, sagt seine Kennung (lib/szenen.ts).
+  const szeneAusloesen = useCallback(
+    (sceneId: string) => {
+      const geraet = szeneGeraet(sceneId);
+      if (geraet) guardedCommand(geraet, 'activate');
+      else activateScene(sceneId);
+    },
+    [activateScene, guardedCommand]
   );
   // Jede Geräteart bekommt ihre Überschrift statt eines Topfs «Weitere» –
   // in einem Bad mit Thermostat, Feuchtefühler und Handtuchtrockner war
@@ -3037,6 +3049,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 ) : null}
               </View>
               {raumKopf ? <Text style={styles.raumFakten}>{raumKopf}</Text> : null}
+              {/* Die Szenen des Zimmers gehören hierher, nicht unter die
+                  Kacheln: Sie sind der erste Griff beim Betreten
+                  («Kino», «Sternenhimmel»), und man soll ihn nicht
+                  suchen. Bisher lagen sie an zwei Stellen weiter unten -
+                  die Szenen des Hubs als Gruppe, die Lichtszenen der
+                  Bridge als eigene Kategorie hinter allen Geräten. */}
+              {roomScenes.length > 0 ? (
+                <SceneRow scenes={roomScenes} onActivate={szeneAusloesen} />
+              ) : null}
             </View>
           ) : null}
           {/* Kacheln anpassen heisst: verschieben, ausblenden, sperren,
@@ -3263,7 +3284,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           {section === 'home' && room !== ALL_ROOMS && istKueche(room) ? (
             <KitchenTimer settings={settings} />
           ) : null}
-          {/* Ein Raum: nach Kategorien (Szenen, Beleuchtung, Store, Medien). */}
+          {/* Ein Raum: nach Kategorien (Beleuchtung, Store, Medien …). */}
           {categorized ? (
             <>
               {/* Temperatur und Faktenzeile stehen jetzt oben im
@@ -3353,12 +3374,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   </>
                 ) : null}
               </View>
-              {roomScenes.length > 0 ? (
-                <View style={styles.group}>
-                  <Text style={styles.groupLabel}>Szenen</Text>
-                  <SceneRow scenes={roomScenes} onActivate={activateScene} />
-                </View>
-              ) : null}
               {categories.map((group, gruppenIndex) => (
                 <View
                   key={group.key}

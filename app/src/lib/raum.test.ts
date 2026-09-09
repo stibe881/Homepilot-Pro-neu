@@ -125,6 +125,18 @@ describe('raumKategorien', () => {
     // Der Fühler steht im Raumkopf, nicht als Kachel.
     expect(kategorien.flatMap((k) => k.items.map((e) => e.id))).not.toContain('f1');
   });
+
+  it('gibt den Lichtszenen der Bridge keine eigene Kategorie mehr', () => {
+    // Sie stand ganz unten, hinter Beleuchtung, Store und Medien - und
+    // damit weit weg von den Szenen des Hubs, die dasselbe tun. Beide
+    // stehen jetzt oben im Raumkopf (lib/szenen.ts, raumSzenen).
+    const kategorien = raumKategorien(
+      [geraet({ id: 'l1', kind: 'light' }), geraet({ id: 'sz1', kind: 'scene' })],
+      () => 'Lichtszene'
+    );
+    expect(kategorien.map((k) => k.label)).toEqual(['Beleuchtung']);
+    expect(kategorien.flatMap((k) => k.items.map((e) => e.id))).not.toContain('sz1');
+  });
 });
 
 describe('raumMesswerte', () => {
