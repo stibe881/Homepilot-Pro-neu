@@ -191,6 +191,89 @@ def start_rueckstand(streaming: dict | None) -> float:
     return max(0.5, min(10.0, sekunden))
 
 
+def ohne_luecken(text: str) -> str:
+    """Führende Lücken-Häppchen aus der Wiedergabeliste nehmen (rein, testbar).
+
+    Gemessen im Haus, 9. September 2026, als eine Kamera im Vollbild
+    schwarz blieb. Die Liste sah beim Anlaufen so aus::
+
+        #EXT-X-MEDIA-SEQUENCE:1
+        #EXT-X-MAP:URI="…_init.mp4"
+        #EXT-X-GAP
+        #EXTINF:1.00000,
+        gap.mp4            ← sechsmal
+        #EXTINF:1.00000,
+        …_seg7.mp4         ← das einzige echte, 195 KB
+
+    mediamtx füllt ein frisches Fenster mit Platzhaltern auf, damit die
+    Nummerierung stimmt. ``gap.mp4`` gibt es nicht, und das ist richtig
+    so: ``#EXT-X-GAP`` heisst «diesen Eintrag nicht laden».
+
+    Nur nützt das dem Player wenig, wenn er *dort* einsteigen soll. Für
+    Apple nehmen wir die Bruchstücke heraus und setzen
+    ``EXT-X-START:TIME-OFFSET=-2`` - zwei Sekunden hinter dem Live-Rand,
+    und genau dort liegen beim Anlaufen die Löcher. Der Player setzt die
+    Nadel ins Leere und bleibt stehen: schwarz, ohne Fehler, ohne
+    Protokolleintrag. Sechs Sekunden später sind die Lücken aus dem
+    Fenster gerutscht - erlebt hat man dann längst «die Kamera ist
+    kaputt».
+
+    Deshalb: Was *vor* dem ersten echten Häppchen liegt, fliegt raus, und
+    ``EXT-X-MEDIA-SEQUENCE`` zählt um so viel weiter. Nur führende, und
+    nur bis zum ersten echten - eine Lücke *mitten* in der Liste ist
+    eine echte Lücke in der Aufnahme, und die zu verschweigen hiesse,
+    dem Player eine lückenlose Zeit vorzugaukeln.
+
+    Besteht die Liste ausschliesslich aus Lücken, bleibt sie, wie sie
+    ist: Der Strom hat dann noch gar kein Bild, und eine leere Liste
+    wäre keine bessere Auskunft.
+    """
+    ergebnis: list[str] = []
+    puffer: list[str] = []
+    weggelassen = 0
+    echtes = False
+    for zeile in text.splitlines():
+        # Diese beiden Zeilen gehören zum nächsten Häppchen und
+        # entscheiden mit, ob es eines ist.
+        if zeile.startswith(("#EXT-X-GAP", "#EXTINF")):
+            puffer.append(zeile)
+            continue
+        if zeile.startswith("#") or not zeile.strip():
+            ergebnis.extend(puffer)
+            puffer = []
+            ergebnis.append(zeile)
+            continue
+        # Eine Adresse: Hier endet ein Häppchen.
+        luecke = any(z.startswith("#EXT-X-GAP") for z in puffer)
+        if luecke and not echtes:
+            weggelassen += 1
+            puffer = []
+            continue
+        echtes = echtes or not luecke
+        ergebnis.extend(puffer)
+        puffer = []
+        ergebnis.append(zeile)
+    ergebnis.extend(puffer)
+    if weggelassen == 0 or not echtes:
+        return text
+
+    gezaehlt: list[str] = []
+    for zeile in ergebnis:
+        if zeile.startswith("#EXT-X-MEDIA-SEQUENCE:"):
+            try:
+                nummer = int(zeile.split(":", 1)[1].strip())
+            except ValueError:
+                gezaehlt.append(zeile)
+                continue
+            # Ohne dieses Weiterzählen hielte der Player die verbliebenen
+            # Häppchen für die weggelassenen und lüde sie beim nächsten
+            # Abruf ein zweites Mal.
+            gezaehlt.append(f"#EXT-X-MEDIA-SEQUENCE:{nummer + weggelassen}")
+        else:
+            gezaehlt.append(zeile)
+    return "\n".join(gezaehlt) + "\n"
+
+
 def strip_low_latency(text: str, rueckstand: float = START_RUECKSTAND) -> str:
     """Macht aus einer Low-Latency-Liste gewöhnliches HLS (rein, testbar).
 

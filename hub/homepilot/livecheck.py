@@ -136,11 +136,34 @@ def medienstueck(playlist):
     meldete «die Kette liefert» - während der Player kurz darauf an den
     Video-Häppchen scheiterte und eine schwarze Fläche zeigte. Genau so
     gemeldet worden.
+
+    Lücken zählen dabei nicht als Häppchen: ``#EXT-X-GAP`` heisst «hier
+    ist mit Absicht nichts», und ``gap.mp4`` gibt es nie zu holen. Wer
+    das übersieht, misst einen 404 und hält ihn für den Fehler - der
+    zweite falsche Freispruch, nur in die andere Richtung.
     """
+    luecke = False
     for line in playlist.decode("utf-8", "replace").splitlines():
-        if not line.startswith("#") and line.strip():
-            return line.strip()
+        if line.startswith("#EXT-X-GAP"):
+            luecke = True
+            continue
+        if line.startswith("#") or not line.strip():
+            continue
+        if luecke:
+            luecke = False
+            continue
+        return line.strip()
     return None
+
+
+def luecken(playlist):
+    """Wie viele Platzhalter in der Liste stehen (``#EXT-X-GAP``).
+
+    Beim Anlaufen füllt mediamtx das Fenster damit auf. Der Hub nimmt
+    die führenden heraus (core/streams.py, ohne_luecken) - stehen hier
+    trotzdem welche, läuft ein Abbild von vor dieser Änderung.
+    """
+    return playlist.decode("utf-8", "replace").count("#EXT-X-GAP")
 
 
 def bruchstueck(playlist):
@@ -253,6 +276,10 @@ def main():
             if status != 200:
                 print(f"   → {short(data, 300)}")
 
+        fehlend = luecken(media)
+        if fehlend:
+            print(f"   ✗ {fehlend} Lücken-Platzhalter in der Liste - der Hub "
+                  "sollte sie herausnehmen (ohne_luecken); altes Abbild?")
         piece = medienstueck(media)
         print(f"   erstes Häppchen: {piece}")
         if not piece:

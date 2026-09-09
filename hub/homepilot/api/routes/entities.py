@@ -28,6 +28,7 @@ from ...core.streams import (
     StreamError,
     apple_player,
     apple_schnell,
+    ohne_luecken,
     rewrite_playlist,
     start_rueckstand,
     strip_low_latency,
@@ -535,6 +536,11 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 prefix,
                 request.query_params.get("token"),
             )
+            # Die Platzhalter eines frisch angelaufenen Stroms raus, bevor
+            # ein Player darin einsteigt (core/streams.py: ohne_luecken).
+            # Für alle, nicht nur für Apple: Auch hls.js hat an diesen
+            # Löchern nichts zu holen.
+            text = ohne_luecken(text)
             # Apple-Player (AVPlayer in der App, Safari) scheitern an den
             # zitternden Part-Dauern der Protect-Kameras – sie bekommen die
             # Liste ohne Low-Latency-Teile und spielen gewöhnliches HLS.

@@ -13,7 +13,7 @@ in einem Test: Init, Häppchen und Bruchstück sind drei verschiedene
 Zeilenarten, und wer sie verwechselt, misst am Fehler vorbei.
 """
 
-from homepilot.livecheck import bruchstueck, first_url, medienstueck
+from homepilot.livecheck import bruchstueck, first_url, luecken, medienstueck
 
 LOW_LATENCY = b"""#EXTM3U
 #EXT-X-VERSION:10
@@ -49,3 +49,25 @@ def test_eine_liste_ohne_haeppchen_gibt_nichts_vor():
     nur_kopf = b"#EXTM3U\n#EXT-X-VERSION:10\n#EXT-X-MAP:URI=\"init.mp4\"\n"
     assert medienstueck(nur_kopf) is None
     assert bruchstueck(nur_kopf) is None
+
+
+MIT_LUECKEN = b"""#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:1
+#EXT-X-MAP:URI="cb30_video1_init.mp4"
+#EXT-X-GAP
+#EXTINF:1.00000,
+gap.mp4
+#EXTINF:1.00000,
+cb30_video1_seg7.mp4
+"""
+
+
+def test_ein_platzhalter_ist_kein_haeppchen():
+    """Sonst misst die Prüfung einen 404 und hält ihn für den Fehler.
+
+    «gap.mp4» gibt es nie zu holen - `#EXT-X-GAP` heisst «hier ist mit
+    Absicht nichts». Gesucht ist das erste echte Häppchen dahinter.
+    """
+    assert medienstueck(MIT_LUECKEN) == "cb30_video1_seg7.mp4"
+    assert luecken(MIT_LUECKEN) == 1
+    assert luecken(LOW_LATENCY) == 0
