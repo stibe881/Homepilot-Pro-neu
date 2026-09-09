@@ -192,7 +192,18 @@ export const makeStyles = (colors: Colors) =>
     // Genau so sieht der abgeschnittene rechte Rand auf dem iPad aus. Im
     // Browser bei 1180 Punkten liess er sich nicht nachstellen - die Zeile
     // kostet nichts und nimmt die wahrscheinlichste Ursache weg.
-    main: { flex: 1, minWidth: 0 },
+    /**
+     * Die Hauptspalte, wenn rechts die Seitenspalte steht.
+     *
+     * Sie hatte keinen Abstand zwischen ihren Blöcken - anders als
+     * `stack`, das auf dem Telefon dieselben Blöcke trägt. Auf dem
+     * Telefon lagen also 20 Punkte zwischen Raumkopf, Szenen-Chips,
+     * Küchen-Timer und «Alles aus»; im Browser und auf dem iPad klebten
+     * sie aneinander, und die Sortierzeile darüber stiess direkt an den
+     * Raumkopf. Dieselben Blöcke, zwei Abstände - der Unterschied war
+     * kein Entwurf, sondern ein vergessenes `gap`.
+     */
+    main: { flex: 1, minWidth: 0, gap: space.gap * 1.4 },
     backRow: {
       flexDirection: 'row',
       alignItems: 'center',
