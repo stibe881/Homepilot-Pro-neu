@@ -14,6 +14,7 @@ import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 import aiohttp
 from fastapi import (
@@ -40,6 +41,24 @@ from ..context import ApiContext
 from ..models import ConfigEditRequest, ConfigRequest, UpdateTriggerRequest
 
 log = logging.getLogger(__name__)
+
+
+def vorschau_frage(ab: str, gebaut: str | None) -> str:
+    """Die Frage an den Update-Dienst (rein, testbar).
+
+    Zwei Angaben statt einer, und die zweite ist die, die im Haus
+    wirklich hilft: Kennt GitHub den laufenden Stand nicht - er entsteht
+    beim Bauen aus mehreren Zweigen -, kann der Dienst über die
+    **Bauzeit** nachschlagen, was damals auf dem Zweig stand. Das Abbild
+    trägt sie ohnehin (HOMEPILOT_BUILD_TIME), und anders als der
+    Basis-Commit hängt sie nicht daran, dass sich das Bau-Skript zuerst
+    selbst aufgefrischt hat.
+    """
+    felder = {"ab": ab}
+    zeit = str(gebaut or "").strip()
+    if zeit and zeit != "unbekannt":
+        felder["gebaut"] = zeit
+    return urlencode(felder)
 
 
 def vergleichsstand(basis: str | None, laufend: str | None) -> str:
@@ -555,13 +574,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         url = str((hub.config.update or {}).get("webhook_url") or "")
         if not url.rstrip("/").endswith("/update"):
             return {"available": False}
-        vorschau_url = (
-            url.rstrip("/")[: -len("/update")]
-            + "/vorschau?ab="
-            + vergleichsstand(
+        vorschau_url = url.rstrip("/")[: -len("/update")] + "/vorschau?" + vorschau_frage(
+            vergleichsstand(
                 os.environ.get("HOMEPILOT_BASE_COMMIT"),
                 os.environ.get("HOMEPILOT_COMMIT"),
-            )
+            ),
+            os.environ.get("HOMEPILOT_BUILD_TIME"),
         )
         secret = str((hub.config.update or {}).get("token") or "")
         headers = {"Authorization": f"Bearer {secret}"} if secret else {}

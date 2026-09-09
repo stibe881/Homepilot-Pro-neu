@@ -33,3 +33,30 @@ def test_ohne_basis_bleibt_es_beim_bisherigen_verhalten():
 def test_ganz_ohne_angaben_wird_nichts_erfunden():
     assert vergleichsstand(None, None) == "unbekannt"
     assert vergleichsstand("unbekannt", "unbekannt") == "unbekannt"
+
+
+# ── Der zweite Weg: über die Bauzeit ───────────────────────────────────
+#
+# Der Basis-Commit ist der genauere Weg, aber er hängt daran, dass sich
+# rebuild-hub.sh zuerst selbst aufgefrischt hat - das kostet einen
+# zusätzlichen Update-Lauf. Die Bauzeit steht dagegen in jedem Abbild.
+
+
+def test_die_frage_nennt_stand_und_bauzeit():
+    from homepilot.api.routes.system import vorschau_frage
+
+    frage = vorschau_frage("a1b2c3", "2026-09-09T04:34:11Z")
+    assert "ab=a1b2c3" in frage
+    # Als Parameter kodiert - der Doppelpunkt gehört nicht roh in eine URL.
+    assert "gebaut=2026-09-09T04%3A34%3A11Z" in frage
+
+
+def test_ohne_bauzeit_bleibt_die_frage_wie_bisher():
+    """Ein Abbild von vor dieser Änderung schickt nichts mit - dann darf
+    auch kein leeres Feld mitgehen, das der Dienst deuten müsste."""
+    from homepilot.api.routes.system import vorschau_frage
+
+    assert vorschau_frage("a1b2c3", None) == "ab=a1b2c3"
+    assert vorschau_frage("a1b2c3", "") == "ab=a1b2c3"
+    # «unbekannt» ist der Vorgabewert des Dockerfiles, kein Zeitpunkt.
+    assert vorschau_frage("a1b2c3", "unbekannt") == "ab=a1b2c3"

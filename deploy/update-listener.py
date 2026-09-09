@@ -40,6 +40,7 @@ In der config.yaml des Hubs:
 
 from __future__ import annotations
 
+import datetime
 import hmac
 import http.server
 import json
@@ -184,19 +185,80 @@ def _github(pfad: str, token: str) -> Any:
 _vorschau_cache: tuple[float, str, dict] | None = None
 
 
-def vorschau(ab: str) -> dict[str, Any]:
+def bauzeit_sauber(gebaut: str) -> str:
+    """Die Bauzeit als Zeitpunkt, den GitHub annimmt (rein, testbar).
+
+    Sie wandert in eine URL, also wird sie geprüft und nicht bloss
+    weitergereicht: Nur ein ISO-Zeitpunkt kommt durch, alles andere wird
+    zu ''. Der Hub schickt sie aus HOMEPILOT_BUILD_TIME, und das ist ein
+    Wert aus dem Abbild - aber Prüfen kostet nichts, und eine Zeichenkette
+    aus der Ferne gehört nie ungeprüft in eine Adresse.
+    """
+    text = str(gebaut or "").strip()
+    if not text:
+        return ""
+    versuch = text[:-1] + "+00:00" if text.endswith("Z") else text
+    try:
+        zeit = datetime.datetime.fromisoformat(versuch)
+    except ValueError:
+        return ""
+    if zeit.tzinfo is None:
+        zeit = zeit.replace(tzinfo=datetime.timezone.utc)
+    return zeit.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _basis_zur_bauzeit(branch: str, gebaut: str, token: str) -> str:
+    """Welcher Commit stand auf dem Zweig, als das Abbild gebaut wurde?
+
+    Der Umweg, der die Auskunft überhaupt erst verlässlich macht. Der
+    laufende Stand ist eine örtliche Zusammenführung (HOMEPILOT_MERGE_ALL);
+    GitHub kennt ihn nicht und beantwortet «was kam seither dazu?» mit
+    404. Die Bauzeit dagegen kennt der Hub immer - sie steht als
+    HOMEPILOT_BUILD_TIME in jedem Abbild -, und der jüngste Commit vor
+    ihr ist genau der Stand, aus dem gebaut wurde.
+
+    Das ist mit Absicht der zweite Weg. Der erste ist der Commit, den das
+    Bau-Skript selbst festhält (GIT_BASE → HOMEPILOT_BASE_COMMIT); er ist
+    genauer, weil er nicht an der Uhr hängt. Nur greift er erst, wenn das
+    Skript sich aufgefrischt hat - und dieser Weg hier greift sofort,
+    weil dieser Dienst nach jedem Lauf neu startet.
+    """
+    zeit = bauzeit_sauber(gebaut)
+    if not zeit:
+        return ""
+    pfad = (
+        f"/repos/{REPO}/commits?sha={urllib.parse.quote(branch)}"
+        f"&until={urllib.parse.quote(zeit)}&per_page=1"
+    )
+    payload = _github(pfad, token)
+    if isinstance(payload, list) and payload and isinstance(payload[0], dict):
+        return str(payload[0].get("sha") or "")
+    return ""
+
+
+def vorschau(ab: str, gebaut: str = "") -> dict[str, Any]:
     """Was ein Update jetzt brächte: Betreffzeilen seit dem Stand ``ab``.
 
     Der Hub kennt sein Git nicht, und das Bau-Skript klont erst beim
     Bauen - die Frage «was käme?» kann vorher nur dieser Dienst
     beantworten, mit den GitHub-Zugängen, die ohnehin auf dem Host
-    liegen. Kennt GitHub den laufenden Stand nicht (eine örtliche
-    Zusammenführung), kommen ersatzweise die jüngsten Betreffzeilen des
-    Zweigs, als ``exact: false`` gekennzeichnet.
+    liegen.
+
+    Kennt GitHub ``ab`` nicht (eine örtliche Zusammenführung), wird über
+    die Bauzeit nachgeschlagen, was damals auf dem Zweig stand. Erst wenn
+    auch das nicht geht, kommen ersatzweise die jüngsten Betreffzeilen
+    des Zweigs, als ``exact: false`` gekennzeichnet - und die App zeigt
+    sie dann bewusst nicht als Liste, weil eine Liste, die im Zweifel
+    schon Ausgeliefertes nennt, schlimmer ist als keine.
     """
     global _vorschau_cache
     jetzt = time.time()
-    if _vorschau_cache and _vorschau_cache[1] == ab and jetzt - _vorschau_cache[0] < 60:
+    schluessel = f"{ab}|{gebaut}"
+    if (
+        _vorschau_cache
+        and _vorschau_cache[1] == schluessel
+        and jetzt - _vorschau_cache[0] < 60
+    ):
         return _vorschau_cache[2]
 
     werte = zugangswerte_lesen(CREDENTIALS_FILE)
@@ -209,28 +271,37 @@ def vorschau(ab: str) -> dict[str, Any]:
     if not token:
         return {"error": "Auf dem Host liegt kein GITHUB_TOKEN"}
 
+    def vergleiche(von: str) -> dict[str, Any]:
+        payload = _github(f"/repos/{REPO}/compare/{von}...{branch}", token)
+        # /compare liefert älteste zuerst - die App zeigt wie
+        # changes.txt das Neueste zuoberst.
+        return {
+            "commits": list(reversed(betreffzeilen(payload.get("commits")))),
+            "exact": True,
+            "branch": branch,
+        }
+
     daten: dict[str, Any]
-    if ab and ab != "unbekannt":
+    # Zwei Anläufe, in dieser Reihenfolge: der Commit, den das Bau-Skript
+    # festgehalten hat, sonst der Umweg über die Bauzeit.
+    for kandidat, ueber_zeit in ((ab, False), ("", True)):
         try:
-            payload = _github(f"/repos/{REPO}/compare/{ab}...{branch}", token)
-            # /compare liefert älteste zuerst - die App zeigt wie
-            # changes.txt das Neueste zuoberst.
-            daten = {
-                "commits": list(reversed(betreffzeilen(payload.get("commits")))),
-                "exact": True,
-                "branch": branch,
-            }
-            _vorschau_cache = (jetzt, ab, daten)
+            von = kandidat
+            if ueber_zeit:
+                von = _basis_zur_bauzeit(branch, gebaut, token)
+            if not von or von == "unbekannt":
+                continue
+            daten = vergleiche(von)
+            _vorschau_cache = (jetzt, schluessel, daten)
             return daten
         except urllib.error.HTTPError as err:
             if err.code != 404:
                 raise
-            # 404: GitHub kennt den laufenden Stand nicht - weiter unten
-            # der Rückfall auf die jüngsten Zeilen.
+            # 404: Diesen Stand kennt GitHub nicht - der nächste Anlauf.
 
     payload = _github(f"/repos/{REPO}/commits?sha={branch}&per_page=10", token)
     daten = {"commits": betreffzeilen(payload), "exact": False, "branch": branch}
-    _vorschau_cache = (jetzt, ab, daten)
+    _vorschau_cache = (jetzt, schluessel, daten)
     return daten
 
 # Damit nicht zwei Bauläufe gleichzeitig starten, wenn jemand zweimal tippt.
@@ -679,9 +750,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not self._authorized():
                 self._answer(403, "Nicht erlaubt\n")
                 return
-            ab = (urllib.parse.parse_qs(query).get("ab") or [""])[0]
+            felder = urllib.parse.parse_qs(query)
+            ab = (felder.get("ab") or [""])[0]
+            gebaut = (felder.get("gebaut") or [""])[0]
             try:
-                daten = vorschau(ab)
+                daten = vorschau(ab, gebaut)
             except Exception as err:
                 # GitHub nicht erreichbar, Token abgelaufen - der Grund
                 # steht im Journal, die App fällt auf ihren alten Text

@@ -1188,6 +1188,19 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
                 </Text>
               );
             }
+            if (inhalt.art === 'ungefaehr') {
+              // Kein Aufzählen ohne genauen Vergleich - siehe
+              // lib/updatevorschau.ts. Der Satz sagt, warum die Auskunft
+              // fehlt, und dass ein Update trotzdem das Richtige tut.
+              return (
+                <Text style={styles.updateAskText}>
+                  Was noch aussteht, lässt sich gerade nicht sagen: Der laufende
+                  Stand entsteht beim Bauen aus mehreren Zweigen, und GitHub kennt
+                  ihn nicht. Ein Update holt in jedem Fall den neusten Stand –
+                  liegt nichts Neues vor, baut es denselben noch einmal.
+                </Text>
+              );
+            }
             if (inhalt.art === 'keine') {
               return (
                 <Text style={styles.updateAskText}>

@@ -55,12 +55,19 @@ describe('vorschauZeilen', () => {
     ).toBe('nichts');
   });
 
-  it('kennzeichnet die Näherung', () => {
+  it('zählt ohne genauen Vergleich gar nichts auf', () => {
+    // Gemeldet aus dem Haus: «momentan stehen da auch Sachen drin, die
+    // bereits im letzten Update gemacht wurden.» Die Näherung zeigte
+    // die neusten Commits des Zweigs - ob sie laufen oder nicht -, und
+    // die Klammer daneben las niemand als Warnung. Wer vor dem Knopf
+    // steht, will wissen, was *noch* kommt.
     const ergebnis = vorschauZeilen({
       available: true,
       exact: false,
-      commits: ['Jüngste Änderung'],
+      commits: ['Läuft längst', 'Läuft auch längst'],
     });
     expect(ergebnis.art).toBe('ungefaehr');
+    expect(ergebnis.zeilen).toEqual([]);
+    expect(ergebnis.mehr).toBe(0);
   });
 });

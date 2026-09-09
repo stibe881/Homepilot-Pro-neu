@@ -337,3 +337,77 @@ def test_die_vorschau_liest_betreffzeilen_und_zugangswerte(monkeypatch, credenti
     assert werte["HOMEPILOT_BRANCH"] == "main"
     # Eine fehlende Datei ist kein Fehler, nur eine leere Auskunft.
     assert listener.zugangswerte_lesen(str(tmp_path / "fehlt.env")) == {}
+
+
+# ── Die Bauzeit als Rückfallebene der Vorschau ─────────────────────────
+#
+# Gemeldet aus dem Haus: «ich möchte hier sehen, was das nächste update
+# mitbringt. momentan stehen da auch sachen drin, die bereits im letzten
+# update gemacht wurden.» Der laufende Stand ist eine örtliche
+# Zusammenführung, die GitHub nicht kennt - der Vergleich scheiterte
+# jedes Mal. Die Bauzeit kennt der Hub dagegen immer.
+
+
+def test_bauzeit_wird_geprueft_und_vereinheitlicht(monkeypatch, credentials):
+    modul = load_listener(monkeypatch, credentials, None)
+    # Beide Schreibweisen ergeben denselben Zeitpunkt in UTC.
+    assert modul.bauzeit_sauber("2026-09-09T04:34:11Z") == "2026-09-09T04:34:11Z"
+    assert modul.bauzeit_sauber("2026-09-09T06:34:11+02:00") == "2026-09-09T04:34:11Z"
+
+
+def test_was_keine_zeit_ist_kommt_nicht_in_die_adresse(monkeypatch, credentials):
+    """Sie wandert in eine URL - da gehört nichts Ungeprüftes hinein."""
+    modul = load_listener(monkeypatch, credentials, None)
+    assert modul.bauzeit_sauber("unbekannt") == ""
+    assert modul.bauzeit_sauber("") == ""
+    assert modul.bauzeit_sauber(None) == ""
+    assert modul.bauzeit_sauber("../../etwas") == ""
+
+
+def test_die_vorschau_schlaegt_ueber_die_bauzeit_nach(monkeypatch, credentials):
+    """Der eigentliche Fall: GitHub kennt den laufenden Stand nicht."""
+    import urllib.error
+
+    modul = load_listener(monkeypatch, credentials, None)
+    credentials.write_text("GITHUB_TOKEN=t\n", encoding="utf-8")
+    modul._vorschau_cache = None
+    gefragt: list[str] = []
+
+    def fake_github(pfad, token):
+        gefragt.append(pfad)
+        if pfad.startswith(f"/repos/{modul.REPO}/compare/a81bb71"):
+            # Der zusammengeführte Stand - den kennt GitHub nicht.
+            raise urllib.error.HTTPError(pfad, 404, "Not Found", None, None)
+        if "until=" in pfad:
+            return [{"sha": "7f1987e"}]
+        if pfad.startswith(f"/repos/{modul.REPO}/compare/7f1987e"):
+            return {"commits": [{"commit": {"message": "Etwas Neues"}, "parents": [{}]}]}
+        raise AssertionError(f"unerwartet: {pfad}")
+
+    monkeypatch.setattr(modul, "_github", fake_github)
+    antwort = modul.vorschau("a81bb71", "2026-09-09T04:34:11Z")
+
+    assert antwort["exact"] is True
+    assert antwort["commits"] == ["Etwas Neues"]
+    # Und der Umweg wurde wirklich gegangen, nicht geraten.
+    assert any("until=" in pfad for pfad in gefragt)
+
+
+def test_ohne_bauzeit_bleibt_es_bei_der_alten_naeherung(monkeypatch, credentials):
+    """Ein älteres Abbild schickt keine Bauzeit - dann wie bisher, und
+    ehrlich als «nicht genau» gekennzeichnet."""
+    import urllib.error
+
+    modul = load_listener(monkeypatch, credentials, None)
+    credentials.write_text("GITHUB_TOKEN=t\n", encoding="utf-8")
+    modul._vorschau_cache = None
+
+    def fake_github(pfad, token):
+        if "/compare/" in pfad:
+            raise urllib.error.HTTPError(pfad, 404, "Not Found", None, None)
+        return [{"commit": {"message": "Jüngstes"}, "parents": [{}]}]
+
+    monkeypatch.setattr(modul, "_github", fake_github)
+    antwort = modul.vorschau("a81bb71", "")
+    assert antwort["exact"] is False
+    assert antwort["commits"] == ["Jüngstes"]
