@@ -46,20 +46,32 @@ export function brauchtKopplung(entity: Entity): boolean {
 /**
  * Lässt sich dieses Gerät überhaupt koppeln? (rein, testbar)
  *
- * Am Vorhandensein des Schlüssels, nicht an seinem Wert: `paired` setzt
- * einzig die Android-TV-Integration, und zwar auf jedem ihrer Geräte.
+ * Zwei Bedingungen, und die zweite kam aus dem Haus: «Weshalb sind hier
+ * die Timer auch vorhanden zum Koppeln?»
  *
- * Der Grund für diese zweite Frage: Zuerst gab es nur `brauchtKopplung`,
- * und damit stand «Fernseher koppeln» ausschliesslich da, wo der Hub die
- * Kopplung schon als abgelehnt erlebt hatte. Aus dem Haus kam prompt
- * «Wo finde ich nun das Verbinden zu einem Android TV?» - zu Recht: Ein
- * Weg, den man nur sieht, wenn es bereits zu spät ist, ist keiner. Und
- * es gibt den Fall, in dem der Fernseher verbindet und trotzdem keine
- * Taste wirkt (Daten des Remote-Dienstes am Gerät gelöscht); dann steht
- * `paired` auf «ja» und man käme sonst nie an den Ausweg.
+ * 1. Der Hub führt `paired` - das setzt einzig die Android-TV-
+ *    Integration, und zwar auf **jedem** ihrer Geräte. Absichtlich:
+ *    Auch die Einschlaf-Timer-Kachel soll sagen können, dass die
+ *    Kopplung fehlt, denn dort fällt es abends auf.
+ * 2. Es ist der Fernseher selbst (`media_player`) und nicht sein
+ *    Timer. Gekoppelt wird das Gerät, nicht seine Funktionen - der
+ *    Timer hängt an derselben Kopplung wie die Fernbedienung. Auf der
+ *    Verbindungen-Seite standen sonst vier Karten für zwei Fernseher,
+ *    jede mit «Fernseher koppeln», und man suchte den Unterschied
+ *    zwischen «Fernseher Wohnzimmer» und «Fernseher Wohnzimmer Timer».
+ *
+ * Der Grund für diese zweite Frage überhaupt: Zuerst gab es nur
+ * `brauchtKopplung`, und damit stand «Fernseher koppeln» ausschliesslich
+ * da, wo der Hub die Kopplung schon als abgelehnt erlebt hatte. Aus dem
+ * Haus kam prompt «Wo finde ich nun das Verbinden zu einem Android TV?»
+ * - zu Recht: Ein Weg, den man nur sieht, wenn es bereits zu spät ist,
+ * ist keiner. Und es gibt den Fall, in dem der Fernseher verbindet und
+ * trotzdem keine Taste wirkt (Daten des Remote-Dienstes am Gerät
+ * gelöscht); dann steht `paired` auf «ja» und man käme sonst nie an den
+ * Ausweg.
  */
 export function kannKoppeln(entity: Entity): boolean {
-  return typeof entity?.state?.paired === 'boolean';
+  return typeof entity?.state?.paired === 'boolean' && entity.kind === 'media_player';
 }
 
 /**
