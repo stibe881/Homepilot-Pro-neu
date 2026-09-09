@@ -15,12 +15,15 @@ export function CameraLive({
   uri,
   muted = true,
   onFailed,
+  onReady,
   label = 'Live-Bild der Kamera',
 }: {
   uri: string;
   style?: ViewStyle;
   muted?: boolean;
   onFailed?: (message: string) => void;
+  /** Der Strom läuft wirklich - siehe CameraLive.tsx. */
+  onReady?: () => void;
   /** Was hier zu sehen ist – für die Sprachausgabe. */
   label?: string;
 }) {
@@ -31,6 +34,8 @@ export function CameraLive({
   // Bild ruckelte im Sekundentakt.
   const failedRef = useRef(onFailed);
   failedRef.current = onFailed;
+  const readyRef = useRef(onReady);
+  readyRef.current = onReady;
 
   useEffect(() => {
     const video = ref.current;
@@ -42,18 +47,26 @@ export function CameraLive({
       failedRef.current?.(message);
     };
 
+    // «playing» und nicht «canplay»: Gemeint ist der Moment, in dem
+    // wirklich Bilder kommen - bis dahin zeigt der Aufrufer das
+    // Standbild weiter.
+    const laeuft = () => readyRef.current?.();
+    video.addEventListener('playing', laeuft);
+
     // Safari und die Browser auf iOS können HLS direkt.
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = uri;
       // Autoplay darf der Browser verweigern - dann startet der erste Tipp.
       video.play().catch(() => {});
       return () => {
+        video.removeEventListener('playing', laeuft);
         video.removeAttribute('src');
         video.load();
       };
     }
 
     if (!Hls.isSupported()) {
+      video.removeEventListener('playing', laeuft);
       fail('Dieser Browser kann kein Live-Bild anzeigen');
       return;
     }
@@ -83,7 +96,10 @@ export function CameraLive({
     // Wie oben: verweigertes Autoplay heisst nur «erst antippen».
     video.play().catch(() => {});
 
-    return () => hls.destroy();
+    return () => {
+      video.removeEventListener('playing', laeuft);
+      hls.destroy();
+    };
   }, [uri]);
 
   if (failed) {
