@@ -196,6 +196,7 @@ nicht `test_mode_2`.
 | an der Kinderseite arbeitest | `app/src/lib/kindseite.ts` + `app/src/screens/family/kindseite.tsx` – Stundenplan und Wöchentliches liegen als Familienlisten `lessons` und `activities` beim Hub |
 | an der Familienseite arbeitest | `app/src/screens/FamilyScreen.tsx` – Zwischenspeicher und Warteschlange in `screens/family/ablage.ts`, der Babysitter-Abend in `screens/family/babysitter.ts` |
 | eine Zeile hast, die nicht auf den Bildschirm passt | `app/src/lib/lauftext.ts` + `components/Lauftext.tsx` – sie wandert einmal durch, statt bei «…» aufzuhören; die Browser-Probe misst das |
+| HomePilot im Auto anfassen willst | `app/src/lib/auto.ts` (welche Knöpfe taugen) + `lib/autoablage.ts` + `app/modules/auto-ablage/` (Kotlin: Ablage und Autodienst) – Übersicht, DHU-Prüfstand und der Apple-Antrag in `docs/auto.md`. Android Auto läuft; CarPlay braucht eine Berechtigung von Apple und ist deshalb **nicht** vorgebaut |
 | eine Gerätekachel änderst | `app/src/components/EntityCard.tsx` |
 | an den Raumkacheln arbeitest | `app/src/components/RoomCard.tsx` + `lib/raumkarte.ts`; die Fotos liegen im Hub unter `core/raumbilder.py` und `api/routes/raeume.py` |
 | Zigbee-Geräte anbindest | `hub/homepilot/integrations/zigbee2mqtt.py` – Übersicht in `docs/zigbee.md` |

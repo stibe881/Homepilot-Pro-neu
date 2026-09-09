@@ -16,12 +16,14 @@ import { Entity, Scene } from '../api/types';
 import { Card } from './Card';
 import { WidgetSetting } from './WidgetSetting';
 import { ablageStand, huelleZeile } from '../lib/huelle';
+import { autoSatz } from '../lib/auto';
 import { Ablage, abgelegteKnoepfe, ablageEinblick, widgetSpur } from '../lib/widget';
 import {
   MAX_BUTTONS,
   STANDARD,
   addableButtons,
   darfDirekt,
+  mitDirekt,
   moveButton,
   resolveButtons,
 } from '../lib/widgetButtons';
@@ -86,6 +88,14 @@ export function Widgets({
   // Nicht aus `keys`, sondern aus dem Aufgelösten: Was es nicht mehr
   // gibt, soll auch nicht als «schon drin» gelten.
   const drin = gewaehlt.map((knopf) => knopf.key);
+  // Fürs Auto zählt, ob ein Knopf *selbst* schaltet - und das steht
+  // nicht in der aufgelösten Liste, sondern kommt erst mit `mitDirekt`
+  // dazu. Ohne diesen Schritt sagte die Auto-Zeile immer «keiner
+  // schaltet selbst», auch wenn alle es tun.
+  const fuersAuto = useMemo(
+    () => mitDirekt(gewaehlt, direct, entities, dataEnabled, tuerOhneRueckfrage),
+    [gewaehlt, direct, entities, dataEnabled, tuerOhneRueckfrage]
+  );
   const angebot = useMemo(
     () => addableButtons(drin, scenes, entities),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -367,6 +377,26 @@ export function Widgets({
       </Card>
 
       <WidgetSetting enabled={dataEnabled} onChange={onDataEnabled} />
+
+      {/* Dieselben Knöpfe fahren mit ins Auto - deshalb steht die
+          Auskunft hier und nicht auf einer eigenen Seite. Wer sie dort
+          sucht, sucht sie bei den Knöpfen. */}
+      <Card style={styles.card}>
+        <Text style={styles.heading}>Im Auto</Text>
+        <Text style={styles.hint}>{autoSatz(fuersAuto)}</Text>
+        <Text style={styles.hint}>
+          Android Auto zeigt sie als Kachelwand, sobald das Telefon am Auto
+          hängt; ein Tipp schaltet, ohne dass das Telefon in die Hand muss.
+          Nur Knöpfe mit ⚡ kommen mit: Im Auto gibt es nichts zu öffnen –
+          eine Kachel, die bloss die App aufmachen würde, täte dort nichts.
+        </Text>
+        <Text style={styles.hint}>
+          Auf CarPlay fehlt es noch, und das liegt nicht am Code: Apple
+          lässt nur bestimmte Arten von Apps auf den Autobildschirm, und
+          eine Haussteuerung ist keine davon. Die Freigabe dafür muss
+          Apple erteilen (docs/auto.md).
+        </Text>
+      </Card>
 
       <Card style={styles.card}>
         <Text style={styles.heading}>So kommt es auf den Bildschirm</Text>
