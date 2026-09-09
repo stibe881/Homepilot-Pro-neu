@@ -1923,6 +1923,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           ? (value) => setEntityMeta(entity.id, { room_only: value })
           : undefined
       }
+      // «Kontakt an: Fenster / Türe» - der Raumkopf sagt das eine oder
+      // das andere, und raten muss er nur, solange es niemand weiss.
+      onContactKind={
+        darfAnpassen
+          ? (value) => setEntityMeta(entity.id, { contact_kind: value })
+          : undefined
+      }
       doorConfirm={prefs.doorConfirm}
       kino={kinoImBlatt}
       onKino={activateScene}

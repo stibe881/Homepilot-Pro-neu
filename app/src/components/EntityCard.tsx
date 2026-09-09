@@ -8,6 +8,7 @@ import { CommandData, Entity, KalenderEintrag } from '../api/types';
 import { Doppelaktion, FENSTER_MS, merkbar } from '../lib/doppeltipp';
 import { Reihe, linienPunkte } from '../lib/funkenlinie';
 import { istKlimaFuehler } from '../lib/klimachip';
+import { istKontakt, kontaktArt } from '../lib/offen';
 import { abschaltSatz } from '../lib/abschaltung';
 import { offlineSatz } from '../lib/funkstille';
 import { uebernahmeZeile, zustandsText } from '../lib/haushalt';
@@ -154,6 +155,9 @@ interface Props {
   /** Nur für Temperatur- und Feuchtefühler: «Gilt für - nur diesen Raum»
    *  umlegen. Fehlt er, steht die Zeile nicht im Anpassen-Blatt. */
   onRoomOnly?: (value: boolean) => void;
+  /** Nur für Fenster- und Türkontakte: «Kontakt an - Fenster/Türe»
+   *  umlegen. Fehlt er, steht die Zeile nicht im Anpassen-Blatt. */
+  onContactKind?: (value: 'window' | 'door') => void;
   /** Anpassen-Modus: Gerät einer Gruppe zuordnen (oder lösen). */
   groups?: string[];
   onSetGroup?: (group: string | null) => void;
@@ -218,6 +222,7 @@ export function EntityCard({
   onRename,
   onSceneToggles,
   onRoomOnly,
+  onContactKind,
   groups,
   onSetGroup,
   doorConfirm,
@@ -1277,6 +1282,28 @@ export function EntityCard({
                     aktiv: !!entity.room_only,
                     // Blatt bleibt offen, wie beim Favoriten.
                     onPress: () => onRoomOnly(!entity.room_only),
+                  },
+                ]
+              : []),
+            // Nur bei Fenster- und Türkontakten: Homematic meldet
+            // beides als «contact» und weiss den Unterschied nicht.
+            // Geraten wird sonst am Namen - und ein Kontakt, der
+            // «Waschküche» heisst, galt damit als Fenster. Im Raumkopf
+            // steht aber «Fenster zu» oder «Türen zu».
+            ...(onContactKind && istKontakt(entity)
+              ? [
+                  {
+                    key: 'kontaktart',
+                    icon: (kontaktArt(entity) === 'window'
+                      ? 'grid-outline'
+                      : 'log-in-outline') as keyof typeof Ionicons.glyphMap,
+                    label: 'Kontakt an',
+                    wert: kontaktArt(entity) === 'window' ? 'Fenster' : 'Türe',
+                    // Blatt bleibt offen, wie beim Favoriten.
+                    onPress: () =>
+                      onContactKind(
+                        kontaktArt(entity) === 'window' ? 'door' : 'window'
+                      ),
                   },
                 ]
               : []),

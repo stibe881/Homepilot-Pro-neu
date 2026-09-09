@@ -4,6 +4,7 @@ import {
   alphabetisch,
   inBeschattung,
   raeumeSortiert,
+  kontaktZeile,
   raumKategorien,
   raumFakten,
   raumKlima,
@@ -317,5 +318,84 @@ describe('Fühler, die nur für ihren Raum zählen', () => {
 
   it('bleibt aus der Zeile der Raumübersicht heraus', () => {
     expect(raumZeile([rack])).toBe('');
+  });
+});
+
+describe('kontaktZeile', () => {
+  const kontakt = (name: string, offen: boolean, patch: Partial<Entity> = {}): Entity =>
+    geraet({
+      kind: 'binary_sensor',
+      name,
+      state: { state: offen ? 'on' : 'off', device_class: 'contact' },
+      ...patch,
+    });
+
+  it('schweigt in einem Raum ohne Kontakt', () => {
+    // «Fenster zu» wäre dort eine Behauptung über etwas, das niemand
+    // misst.
+    expect(kontaktZeile([geraet({ kind: 'light' })])).toBe('');
+  });
+
+  it('trennt Fenster und Türen, wenn alles zu ist', () => {
+    expect(kontaktZeile([kontakt('Küchenfenster', false)])).toBe('Fenster zu');
+    expect(kontaktZeile([kontakt('Waschküche', false)])).toBe('Türen zu');
+    expect(
+      kontaktZeile([kontakt('Küchenfenster', false), kontakt('Balkontüre', false)])
+    ).toBe('Fenster und Türen zu');
+  });
+
+  it('nennt den einen, der offen steht, beim Namen', () => {
+    // «Küchenfenster offen» ist die Auskunft, «1 Fenster offen» die
+    // halbe.
+    expect(
+      kontaktZeile([kontakt('Küchenfenster', true), kontakt('Balkontüre', false)])
+    ).toBe('Küchenfenster offen');
+  });
+
+  it('zählt, sobald mehr als eines offen steht', () => {
+    expect(
+      kontaktZeile([
+        kontakt('Küchenfenster', true),
+        kontakt('Badfenster', true),
+        kontakt('Balkontüre', true),
+      ])
+    ).toBe('2 Fenster und 1 Türe offen');
+  });
+
+  it('folgt der eingetragenen Art, nicht dem Namen', () => {
+    expect(kontaktZeile([kontakt('Fenster Rack', false, { contact_kind: 'door' })])).toBe(
+      'Türen zu'
+    );
+  });
+});
+
+describe('raumKategorien ohne Kontaktkacheln', () => {
+  it('lässt Fenster- und Türkontakte weg - sie stehen im Raumkopf', () => {
+    const kategorien = raumKategorien(
+      [
+        geraet({ kind: 'light', name: 'Deckenlicht' }),
+        geraet({
+          kind: 'binary_sensor',
+          name: 'Waschküche',
+          state: { state: 'off', device_class: 'contact' },
+        }),
+      ],
+      () => 'Fenster-/Türkontakt'
+    );
+    expect(kategorien.map((gruppe) => gruppe.label)).toEqual(['Beleuchtung']);
+  });
+
+  it('behält Melder, die keine Öffnung melden', () => {
+    const kategorien = raumKategorien(
+      [
+        geraet({
+          kind: 'binary_sensor',
+          name: 'Bewegung',
+          state: { state: 'off', device_class: 'motion' },
+        }),
+      ],
+      () => 'Bewegungsmelder'
+    );
+    expect(kategorien.map((gruppe) => gruppe.label)).toEqual(['Bewegungsmelder']);
   });
 });

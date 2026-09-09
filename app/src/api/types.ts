@@ -71,6 +71,13 @@ export interface Entity {
    *  Wohnung - Kopfzeile, Raumübersicht, Hitze-Hinweis - ist sie
    *  falsch. Wer das gesetzt hat, bleibt dort draussen. */
   room_only?: boolean;
+  /** Hängt dieser Kontakt an einem Fenster oder an einer Türe?
+   *
+   *  Homematic meldet beides als `contact` und weiss es selbst nicht -
+   *  ein Kontakt namens «Waschküche» galt darum als Fenster. Der
+   *  Raumkopf sagt aber «Fenster zu» oder «Türe zu». Leer heisst
+   *  «raten» (lib/offen.ts, kontaktArt). */
+  contact_kind?: 'window' | 'door' | null;
   /** Kennung der Leuchte, in der dieses Licht aufgeht.
    *
    *  Eine Deckenlampe mit fünf Spots ist ein Licht, nicht fünf: Wer das

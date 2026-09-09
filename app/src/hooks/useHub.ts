@@ -586,6 +586,8 @@ export function useHub(url: string | null, token: string | null) {
         scene_toggles?: boolean;
         /** Nur Klimafühler: Der Wert zählt nur für seinen Raum. */
         room_only?: boolean;
+        /** Nur Fenster- und Türkontakte: «window» oder «door». */
+        contact_kind?: 'window' | 'door' | null;
       }
     ) => {
       setEntityMap((prev) => {
@@ -597,6 +599,7 @@ export function useHub(url: string | null, token: string | null) {
         if (meta.group !== undefined) next.group = meta.group;
         if (meta.scene_toggles !== undefined) next.scene_toggles = meta.scene_toggles;
         if (meta.room_only !== undefined) next.room_only = meta.room_only;
+        if (meta.contact_kind !== undefined) next.contact_kind = meta.contact_kind;
         return { ...prev, [entityId]: next };
       });
       try {

@@ -176,3 +176,22 @@ async def test_a_sensor_counts_house_wide_unless_someone_says_otherwise():
     registry.meta_provider = {}.get
     await registry.add(make_light())
     assert registry.get("demo.light").room_only is False
+
+
+async def test_meta_says_whether_a_contact_hangs_on_a_window_or_a_door():
+    """Homematic meldet beides als «contact» - hier steht, was gilt.
+
+    Geraten wird sonst am Namen, und ein Kontakt namens «Waschküche»
+    galt damit als Fenster. Was jemand einträgt, muss stärker sein als
+    das Raten - und alles ausser «window» und «door» heisst «weiss ich
+    nicht».
+    """
+    registry = EntityRegistry(EventBus())
+    registry.meta_provider = {"demo.light": {"contact_kind": "door"}}.get
+    await registry.add(make_light())
+    assert registry.get("demo.light").contact_kind == "door"
+
+    zweite = EntityRegistry(EventBus())
+    zweite.meta_provider = {"demo.light": {"contact_kind": "tuer"}}.get
+    await zweite.add(make_light())
+    assert zweite.get("demo.light").contact_kind is None
