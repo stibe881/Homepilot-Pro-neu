@@ -30,10 +30,8 @@ import { isTelevision, zeigtStopp } from '../lib/geraeteart';
 import { medienSchalter } from '../lib/medienschalter';
 import { musiklisteMoeglich } from '../lib/blattgrund';
 import { fernbedienungMoeglich, tvKopf, tvTeile } from '../lib/fernsehkachel';
-import { brauchtKopplung, kannKoppeln } from '../lib/fernsehkopplung';
 import { TvApps, appsOf } from './TvApps';
 import { TvVolume } from './TvVolume';
-import { TvKopplung } from './TvKopplung';
 import { TvSleep } from './TvSleep';
 import { TvRemote } from './TvRemote';
 import { TvSteuerkreuz } from './TvSteuerkreuz';
@@ -552,17 +550,7 @@ export function EntityCard({
       // Bedienung wie in der Fernsehkachel, nur ohne den Fernseher drum
       // herum. Der Hub spiegelt den Timer auf beide.
       case 'timer':
-        // Erst die Kopplung, dann der Timer: Aus dem Haus gemeldet wurde
-        // genau diese Kachel («wenn ich den Timer für den Fernseher
-        // einschalten will»), und ohne Kopplung geht von hier gar nichts.
-        return (
-          <View style={styles.stack}>
-            {kannKoppeln(entity) ? (
-              <TvKopplung entity={entity} dringend={brauchtKopplung(entity)} />
-            ) : null}
-            <TvSleep entity={entity} onCommand={onCommand} />
-          </View>
-        );
+        return <TvSleep entity={entity} onCommand={onCommand} />;
 
       case 'binary_sensor': {
         // Tür-/Fensterkontakte sagen offen/geschlossen, Bewegungsmelder
@@ -734,9 +722,6 @@ export function EntityCard({
                 braucht man erst danach. */}
             {entity.commands.includes('launch_app') ? (
               <TvApps entity={entity} onCommand={onCommand} />
-            ) : null}
-            {kannKoppeln(entity) ? (
-              <TvKopplung entity={entity} dringend={brauchtKopplung(entity)} />
             ) : null}
             {(fernseher ? teile.timer : entity.commands.includes('sleep_timer')) ? (
               <TvSleep entity={entity} onCommand={onCommand} />

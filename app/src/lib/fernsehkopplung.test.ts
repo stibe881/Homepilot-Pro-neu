@@ -5,6 +5,7 @@ import {
   codeSauber,
   codeVollstaendig,
   kannKoppeln,
+  kopplungsZeile,
 } from './fernsehkopplung';
 
 const geraet = (state: Record<string, unknown>): Entity =>
@@ -62,5 +63,25 @@ describe('codeVollstaendig', () => {
   it('lässt erst bei sechs Zeichen bestätigen', () => {
     expect(codeVollstaendig('12345')).toBe(false);
     expect(codeVollstaendig('1 2 3 4 5 6')).toBe(true);
+  });
+});
+
+describe('kopplungsZeile', () => {
+  it('unterscheidet «nicht gekoppelt» von «nicht erreichbar»', () => {
+    // Zwei ganz verschiedene nächste Schritte: einmal muss jemand vor
+    // den Fernseher, einmal braucht es nur Strom und Netz.
+    expect(kopplungsZeile(geraet({ paired: false }))).toBe('Nicht gekoppelt');
+    expect(
+      kopplungsZeile({ ...geraet({ paired: true }), available: false })
+    ).toBe('Gekoppelt · gerade nicht erreichbar');
+    expect(kopplungsZeile(geraet({ paired: true }))).toBe('Gekoppelt');
+  });
+
+  it('sagt «nicht gekoppelt» auch bei einem Gerät, das gerade weg ist', () => {
+    // Sonst schickte die Zeile jemanden zum Sicherungskasten, obwohl
+    // der Fernseher läuft und nur die Anmeldung ablehnt.
+    expect(
+      kopplungsZeile({ ...geraet({ paired: false }), available: false })
+    ).toBe('Nicht gekoppelt');
   });
 });

@@ -2520,6 +2520,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             onSave={onSaveSettings}
             user={user}
             darfDienste={(user?.capabilities ?? []).includes('edit_config')}
+            entities={entities}
           />
         </View>
       );
