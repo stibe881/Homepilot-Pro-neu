@@ -1,6 +1,7 @@
 import pytest
 
 from homepilot.core.config import ApiConfig, HubConfig
+from homepilot.core.entity import Entity, EntityKind
 from homepilot.core.errors import ConfigError, HomePilotError
 from homepilot.core.hub import Hub
 from homepilot.core.scenes import parse_scenes
@@ -223,3 +224,73 @@ def test_toggles_ist_voreingestellt_an():
     (aus,) = parse_scenes([{"id": "x", "actions": [], "toggles": False}])
     assert aus.toggles is False
     assert szene.as_dict()["toggles"] is True
+
+
+async def test_fremde_szene_merkt_sich_den_zustand_und_nimmt_zurueck():
+    """Die Hue-Szene als Umschalter - was die Bridge nicht kann.
+
+    Sie kann eine Szene aufrufen, aber nicht zurücknehmen: Sie kennt kein
+    «vorher». Der Hub hält vor dem Aufrufen fest, wie die Lampen standen,
+    und der zweite Druck stellt genau das wieder her.
+    """
+    hub = await make_hub([])
+    try:
+        lampe = hub.registry.get("demo.light_livingroom")
+        await hub.integrations.dispatch_command(lampe.id, "turn_off")
+        szene = Entity(
+            id="hue.scene_s1",
+            kind=EntityKind.SCENE,
+            name="Entspannen",
+            integration="hue",
+            state={"state": "idle", "lights": [lampe.id]},
+            commands=["activate"],
+        )
+        await hub.registry.add(szene)
+
+        # Erster Druck: Zustand merken. Das «activate» selbst geht ins
+        # Leere - die Integration «hue» läuft in diesem Test nicht -,
+        # und genau das ist in Ordnung: Gemerkt wird trotzdem.
+        try:
+            await hub.scenes.fremde_szene(hub.registry.get(szene.id))
+        except Exception:
+            pass
+        rueckweg = hub.scenes.undo_fuer(szene.id)
+        assert rueckweg and rueckweg[0]["entity_id"] == lampe.id
+
+        # Die Bridge meldet die Szene als geltend, die Lampe brennt.
+        await hub.integrations.dispatch_command(lampe.id, "turn_on")
+        await hub.registry.update_state(szene.id, {"state": "active"})
+        antwort = await hub.scenes.fremde_szene(hub.registry.get(szene.id))
+        assert antwort["reverted"] is True
+        assert hub.registry.get(lampe.id).state["state"] == "off"
+        # Der Rückweg ist verbraucht - ein dritter Druck ruft wieder auf.
+        assert hub.scenes.undo_fuer(szene.id) == []
+    finally:
+        await hub.stop()
+
+
+async def test_fremde_szene_ohne_gedaechtnis_loest_nur_aus():
+    """«Löst nur aus»: kein Rückweg, kein zweiter Druck, der zurücknimmt."""
+    hub = await make_hub([])
+    try:
+        szene = Entity(
+            id="hue.scene_s2",
+            kind=EntityKind.SCENE,
+            name="Gute Nacht",
+            integration="hue",
+            state={"state": "idle", "lights": ["demo.light_livingroom"]},
+            commands=["activate"],
+        )
+        await hub.registry.add(szene)
+        # Über den Weg, den auch die App geht: Der Merker liegt im
+        # Meta-Speicher des Hubs, nicht an der Entität selbst - beim
+        # nächsten Start baut die Integration sie neu auf.
+        await hub.set_entity_meta(szene.id, scene_toggles=False)
+        assert hub.registry.get(szene.id).scene_toggles is False
+        try:
+            await hub.scenes.fremde_szene(hub.registry.get(szene.id))
+        except Exception:
+            pass
+        assert hub.scenes.undo_fuer(szene.id) == []
+    finally:
+        await hub.stop()

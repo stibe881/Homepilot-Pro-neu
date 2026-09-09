@@ -306,8 +306,29 @@ class SceneManager:
             raise HomePilotError(
                 f"Für '{scene.name}' ist nichts zum Zurücknehmen gespeichert"
             )
+        failed = await self._rueckweg_gehen(scene.id, scene.name, befehle)
+        self._undo_setzen(scene_id, None)
+        # Eine noch laufende Uhr hat nichts mehr zu tun.
+        uhr = self._uhren.pop(scene_id, None)
+        if uhr is not None:
+            uhr.cancel()
+        log.info(
+            "Szene '%s' zurückgenommen (%d Geräte)", scene.name, len(befehle) - len(failed)
+        )
+        return {"scene": scene.as_dict(), "failed": failed, "reverted": True}
+
+    async def _rueckweg_gehen(
+        self, scene_id: str, name: str, befehle: list[dict[str, Any]]
+    ) -> list[dict[str, str]]:
+        """Die gespeicherten Rückbefehle ausführen, einzeln abgesichert.
+
+        Herausgelöst, weil ihn zwei gehen: die eigene Szene und die der
+        Bridge (siehe fremde_szene). Ein Gerät, das nicht antwortet, darf
+        den Rest des Rückwegs nicht aufhalten - sonst bleibt der halbe
+        Raum stehen, wie die Szene ihn gesetzt hat.
+        """
         failed: list[dict[str, str]] = []
-        with as_source(scene_source(scene.id, f"{scene.name} zurück")):
+        with as_source(scene_source(scene_id, f"{name} zurück")):
             for befehl in befehle:
                 try:
                     await self.hub.integrations.dispatch_command(
@@ -318,7 +339,7 @@ class SceneManager:
                 except Exception as err:
                     log.warning(
                         "Szene '%s' zurücknehmen: %s ging nicht (%s)",
-                        scene.name,
+                        name,
                         befehl.get("entity_id"),
                         err,
                     )
@@ -326,15 +347,60 @@ class SceneManager:
                         {"entity_id": str(befehl.get("entity_id")), "error": str(err)}
                     )
                 await asyncio.sleep(0)
-        self._undo_setzen(scene_id, None)
-        # Eine noch laufende Uhr hat nichts mehr zu tun.
-        uhr = self._uhren.pop(scene_id, None)
-        if uhr is not None:
-            uhr.cancel()
-        log.info(
-            "Szene '%s' zurückgenommen (%d Geräte)", scene.name, len(befehle) - len(failed)
-        )
-        return {"scene": scene.as_dict(), "failed": failed, "reverted": True}
+        return failed
+
+    async def fremde_szene(self, entity: Any) -> dict[str, Any]:
+        """Eine Szene drücken, die einer Integration gehört (Hue).
+
+        Die Bridge kann eine Szene aufrufen, aber nicht zurücknehmen -
+        sie kennt kein «vorher». Der Hub kann es: Vor dem Aufrufen hält
+        er fest, wie die Lampen der Szene standen, und der zweite Druck
+        stellt genau das wieder her. Damit verhält sich eine Hue-Szene
+        wie eine eigene, und «Bleibt aktiv» heisst überall dasselbe.
+
+        Welche Lampen dazugehören, sagt die Szene selbst: Die Bridge
+        führt sie in ihren Aktionen mit, die Integration schreibt sie als
+        `lights` in den Zustand (integrations/hue.py).
+
+        Zurückgestellt wird alles, was dazugehört - nicht nur, was die
+        Szene wirklich verändert hat. Den Unterschied kennt hier niemand:
+        Was die Bridge in ihrer Szene gespeichert hat, sagt sie nicht.
+        Eine Lampe, die schon richtig stand, bekommt damit ihren
+        eigenen Zustand noch einmal gesetzt - das sieht man nicht.
+        """
+        lights = [str(x) for x in (entity.state.get("lights") or []) if str(x)]
+        merkt_sich = bool(getattr(entity, "scene_toggles", True)) and bool(lights)
+        aktiv = str(entity.state.get("state") or "") == "active"
+        rueckweg = self.undo_fuer(entity.id)
+
+        if merkt_sich and aktiv and rueckweg:
+            failed = await self._rueckweg_gehen(entity.id, entity.label, rueckweg)
+            self._undo_setzen(entity.id, None)
+            log.info("Hue-Szene '%s' zurückgenommen", entity.label)
+            return {"reverted": True, "failed": failed}
+
+        if merkt_sich:
+            stand = self._geraete_stand(lights)
+            befehle = [
+                {"entity_id": entity_id, **befehl}
+                for entity_id, info in stand.items()
+                if (
+                    befehl := szenenrueckweg.rueckbefehl(
+                        str(info.get("kind") or ""),
+                        list(info.get("commands") or []),
+                        dict(info.get("state") or {}),
+                    )
+                )
+            ]
+            self._undo_setzen(entity.id, befehle or None)
+        else:
+            # Ohne Gedächtnis auch kein alter Rückweg: Wer «Löst nur aus»
+            # einstellt, soll beim nächsten Druck nicht plötzlich einen
+            # Zustand von vorgestern zurückbekommen.
+            self._undo_setzen(entity.id, None)
+
+        await self.hub.integrations.dispatch_command(entity.id, "activate", {})
+        return {"reverted": False, "failed": []}
 
     async def activate(self, scene_id: str) -> dict[str, Any]:
         """Führt alle Aktionen aus und meldet, was nicht geklappt hat.

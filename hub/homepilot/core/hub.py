@@ -531,6 +531,7 @@ class Hub:
         name: Any = UNSET,
         favorite: Any = UNSET,
         group: Any = UNSET,
+        scene_toggles: Any = UNSET,
     ) -> None:
         """Setzt Anzeigename, Favorit-Flag oder Gruppe einer Entität.
 
@@ -548,8 +549,17 @@ class Hub:
             current["favorite"] = bool(favorite)
         if group is not UNSET:
             current["group"] = (group or "").strip() or None
+        if scene_toggles is not UNSET:
+            current["scene_toggles"] = bool(scene_toggles)
         # Leere Felder entfernen, damit der Eintrag nicht anwächst.
+        #
+        # `scene_toggles` geht andersherum: Der Normalfall ist «ja»,
+        # aufzuheben ist nur das «nein». Ohne diese Ausnahme fiele genau
+        # der Wert heraus, den jemand gesetzt hat - False ist hier eine
+        # Aussage und kein leeres Feld.
         cleaned = {k: v for k, v in current.items() if v}
+        if current.get("scene_toggles") is False:
+            cleaned["scene_toggles"] = False
         if cleaned:
             self._meta_by_entity[entity_id] = {"entity_id": entity_id, **cleaned}
         else:

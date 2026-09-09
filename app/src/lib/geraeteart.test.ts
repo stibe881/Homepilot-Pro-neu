@@ -239,14 +239,18 @@ describe('kachelHerkunft', () => {
     expect(kachelHerkunft(store({}))).toBe('ohne Raum');
   });
 
-  it('weicht auf die Art aus, wo Gerät und Raum gleich heissen', () => {
-    // «Essbereich» über «Essbereich» ist dieselbe Auskunft zweimal.
+  it('nennt Art und Raum, wo Gerät und Raum gleich heissen', () => {
+    // Zuerst stand hier nur die Art: «Essbereich» über «Essbereich» ist
+    // dieselbe Auskunft zweimal. Aus dem Haus kam dazu, dass die Zeile
+    // damit als Einzige die Frage «wo steht das?» nicht mehr
+    // beantwortet - und die Kachel aussieht, als hätte sie keinen Raum.
     expect(kachelHerkunft(store({ name: 'Essbereich', room: 'Essbereich' }))).toBe(
-      'Store / Rollladen'
+      'Store / Rollladen · Essbereich'
     );
-    // Gross- und Kleinschreibung zählt dabei nicht.
+    // Gross- und Kleinschreibung zählt dabei nicht; hingeschrieben wird
+    // der Raum so, wie er im Haus heisst.
     expect(kachelHerkunft(store({ name: 'Terrasse', room: 'terrasse' }))).toBe(
-      'Store / Rollladen'
+      'Store / Rollladen · terrasse'
     );
   });
 });

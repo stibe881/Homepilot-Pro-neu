@@ -395,17 +395,26 @@ export function geraeteUntertitel(entity: Entity, alle: Entity[]): string {
  * Drei Fälle, drei Antworten:
  *
  * - Das Gerät hat einen Raum, der anders heisst als es selbst: der Raum.
- * - Es heisst wie sein Raum («Essbereich» im Essbereich): die Art.
- *   Denselben Namen zweimal untereinander liest niemand zweimal.
+ * - Es heisst wie sein Raum («Essbereich» im Essbereich): die Art *und*
+ *   der Raum, «Store / Rollladen · Essbereich».
  * - Es hat gar keinen Raum: das steht dann auch da. Das ist die einzige
  *   Auskunft, mit der man etwas anfangen kann - sie sagt, warum die
  *   Kachel anders aussieht, und was in der config.yaml fehlt.
+ *
+ * Der mittlere Fall stand zuerst nur mit der Art da - denselben Namen
+ * zweimal untereinander liest niemand zweimal. Aus dem Haus kam dazu:
+ * «Auch die Storen Essbereich und Terrasse sind einem Raum zugeordnet,
+ * jedoch steht der Ort trotzdem nicht da wie bei den anderen.» Genau
+ * so ist es: Die Zeile beantwortet auf jeder anderen Kachel die Frage
+ * «wo steht das?», und wo sie das plötzlich nicht tut, liest man
+ * «dieses hier hat keinen Raum». Der Raum gehört also hin - und die Art
+ * davor macht aus der Wiederholung eine Auskunft.
  */
 export function kachelHerkunft(entity: Entity): string {
   const raum = String(entity?.room ?? '').trim();
   if (!raum) return 'ohne Raum';
   if (raum.toLowerCase() === String(entity?.name ?? '').trim().toLowerCase()) {
-    return deviceKindLabel(entity);
+    return `${deviceKindLabel(entity)} · ${raum}`;
   }
   return raum;
 }

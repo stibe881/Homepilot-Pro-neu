@@ -55,6 +55,15 @@ export interface Entity {
   room?: string | null;
   /** In der App als Favorit markiert – erscheint auf der Startseite. */
   favorite?: boolean;
+  /**
+   * Nur bei Szenen einer Integration (Hue): Bleibt die Szene aktiv?
+   *
+   * Dann merkt sich der Hub vor dem Aufrufen, wie die Lampen standen,
+   * und der zweite Druck stellt es wieder her - dasselbe «Bleibt aktiv»,
+   * das eigene Szenen als `toggles` tragen. Die Bridge selbst kann eine
+   * Szene nicht zurücknehmen.
+   */
+  scene_toggles?: boolean;
   /** Kennung der Leuchte, in der dieses Licht aufgeht.
    *
    *  Eine Deckenlampe mit fünf Spots ist ein Licht, nicht fünf: Wer das

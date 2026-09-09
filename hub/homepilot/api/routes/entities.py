@@ -182,9 +182,21 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             daten = {**(body.data or {}), "require_pin": True}
         try:
             with as_source(user_source(user.name)):
-                entity = await hub.integrations.dispatch_command(
-                    entity_id, body.command, daten
-                )
+                # Szenen einer Integration (Hue) gehen über die
+                # Szenen-Verwaltung: Die Bridge kann eine Szene nur
+                # aufrufen, das Zurücknehmen beim zweiten Druck merkt
+                # sich der Hub selbst (core/scenes.py, fremde_szene).
+                if (
+                    body.command == "activate"
+                    and str(getattr(entity.kind, "value", entity.kind)) == "scene"
+                    and entity.state.get("lights")
+                ):
+                    await hub.scenes.fremde_szene(entity)
+                    entity = hub.registry.get(entity_id) or entity
+                else:
+                    entity = await hub.integrations.dispatch_command(
+                        entity_id, body.command, daten
+                    )
         except UnknownEntityError as err:
             raise HTTPException(status_code=404, detail=str(err)) from err
         except UnsupportedCommandError as err:

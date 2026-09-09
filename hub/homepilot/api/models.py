@@ -615,6 +615,9 @@ class MetaRequest(BaseModel):
     name: str | None = None
     favorite: bool | None = None
     group: str | None = None
+    #: Nur für Szenen einer Integration: Bleibt sie aktiv (zweiter Druck
+    #: nimmt zurück) oder löst sie nur aus? Siehe core/scenes.py.
+    scene_toggles: bool | None = None
 
 
 

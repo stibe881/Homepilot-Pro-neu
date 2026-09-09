@@ -173,3 +173,41 @@ async def test_hub_scene_can_contain_a_bridge_scene():
     finally:
         await hub.stop()
 
+
+
+def test_scene_lights_kommen_aus_den_aktionen():
+    """Welche Lampen die Szene stellt - für den Rückweg.
+
+    Die Bridge kann eine Szene nicht zurücknehmen. Der Hub kann es, aber
+    nur, wenn er weiss, welche Lampen dazugehören: Jede Aktion der Szene
+    nennt ihr Ziel.
+    """
+    from homepilot.integrations.hue import scene_lights
+
+    entry = {
+        "actions": [
+            {"target": {"rid": "l-1", "rtype": "light"}, "action": {}},
+            {"target": {"rid": "l-2", "rtype": "light"}, "action": {}},
+            # Doppelte und Fremdes fallen weg - gebraucht wird die Menge
+            # der Lampen, nicht die Liste der Aktionen.
+            {"target": {"rid": "l-1", "rtype": "light"}, "action": {}},
+            {"target": {"rid": "g-9", "rtype": "grouped_light"}, "action": {}},
+            "kaputt",
+        ]
+    }
+    assert scene_lights(entry) == ("l-1", "l-2")
+    assert scene_lights({}) == ()
+
+
+async def test_szenen_entitaet_kennt_ihre_lampen():
+    """Sie stehen im Zustand - die App zeigt daran «Bleibt aktiv» an."""
+    hub, hue = await _hue()
+    payload = bridge_scenes(("s-1", "Entspannen", "r-1"))
+    payload["data"][0]["actions"] = [
+        {"target": {"rid": "l-7", "rtype": "light"}, "action": {}}
+    ]
+    hue._scenes = parse_scenes(payload, {})
+    await hue._apply_scenes(hue._scenes)
+    entity = hub.registry.get("hue.scene_s-1")
+    assert entity is not None
+    assert entity.state["lights"] == ["hue.l-7"]
