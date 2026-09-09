@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { anzeigedauer, istLang } from '../lib/meldung';
 import { Colors, radius, useColors } from '../theme';
 
 /**
@@ -9,6 +10,15 @@ import { Colors, radius, useColors } from '../theme';
  *
  * Verschwindet von selbst, lässt sich aber wegtippen – eine Fehlermeldung,
  * die man wegklicken muss, unterbricht beim Bedienen mehr als sie hilft.
+ *
+ * Bei den Meldungen, die wirklich weiterhelfen, war beides zu wenig: Der
+ * Hub erklärt einen Funk-Timeout der CCU in vier Zeilen, und was zu
+ * prüfen ist, steht am Ende. Drei Zeilen und fünf Sekunden schnitten
+ * genau das ab - aus dem Haus kam ein Bild davon: «… Prüfen: St…».
+ *
+ * Jetzt wächst die Zeit mit dem Text (lib/meldung.ts), und eine lange
+ * Meldung klappt beim ersten Tipp auf, statt zu verschwinden: Wer
+ * hinschaut, will lesen, nicht wegräumen. Der zweite Tipp räumt weg.
  */
 export function Toast({
   message,
@@ -21,25 +31,42 @@ export function Toast({
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [offen, setOffen] = useState(false);
+  const lang = istLang(message);
+
+  // Eine neue Meldung fängt zugeklappt an - sonst stünde die nächste
+  // kurze Absage in der Höhe der langen von vorhin.
+  useEffect(() => setOffen(false), [message]);
+
   useEffect(() => {
     if (!message) return;
-    const timer = setTimeout(onDismiss, 5000);
+    // Aufgeklappt läuft keine Uhr: Wer aufgeklappt hat, liest gerade.
+    if (offen) return;
+    const timer = setTimeout(onDismiss, anzeigedauer(message));
     return () => clearTimeout(timer);
-  }, [message, onDismiss]);
+  }, [message, offen, onDismiss]);
 
   if (!message) return null;
 
   return (
     <Pressable
-      onPress={onDismiss}
+      onPress={() => (lang && !offen ? setOffen(true) : onDismiss())}
       accessibilityRole="alert"
+      accessibilityLabel={
+        lang && !offen ? `${message}. Antippen zum Aufklappen` : message
+      }
       style={[styles.wrapper, { bottom: bottomInset + 20 }]}
     >
       <View style={styles.toast}>
         <Ionicons name="alert-circle-outline" size={20} color={colors.danger} />
-        <Text style={styles.text} numberOfLines={3}>
-          {message}
-        </Text>
+        <View style={{ flexShrink: 1 }}>
+          <Text style={styles.text} numberOfLines={offen ? undefined : 3}>
+            {message}
+          </Text>
+          {lang && !offen ? (
+            <Text style={styles.mehr}>Antippen für den ganzen Text</Text>
+          ) : null}
+        </View>
       </View>
     </Pressable>
   );
@@ -178,6 +205,9 @@ const makeStyles = (colors: Colors) =>
     fontSize: 14,
     flexShrink: 1,
   },
+  /** Der Hinweis, dass da noch mehr steht. Leise: Er ist die Ausnahme -
+   *  die meisten Meldungen sind ein Satz. */
+  mehr: { color: colors.inkFaint, fontSize: 12, marginTop: 3 },
   action: {
     paddingHorizontal: 10,
     paddingVertical: 4,

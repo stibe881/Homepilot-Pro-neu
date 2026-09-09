@@ -1,5 +1,5 @@
 import { Entity } from '../api/types';
-import { klimaLabel, klimaSensor } from './klimachip';
+import { istKlimaFuehler, klimaLabel, klimaSensor } from './klimachip';
 
 const sensor = (over: Partial<Entity> & { id: string }): Entity =>
   ({
@@ -56,5 +56,25 @@ describe('Welcher Wert oben in der Kopfzeile steht', () => {
   it('sagt vor, was die Zahl bedeutet und woher sie kommt', () => {
     const entity = sensor({ id: 'x', name: 'Feuchte', room: 'Wohnzimmer', state: { state: 46.4, unit: '%' } });
     expect(klimaLabel(entity, 'humidity')).toBe('Luftfeuchtigkeit Wohnzimmer, Feuchte: 46.4 Prozent');
+  });
+});
+
+describe('Fühler, die nur für ihren Raum zählen', () => {
+  it('stehen nicht in der Kopfzeile', () => {
+    // Der Fühler neben dem Rack in der Waschküche misst 30 Grad. Oben
+    // wäre das die Temperatur der Wohnung - und die stimmte dann nie.
+    const rack = {
+      id: 'demo.rack',
+      kind: 'sensor',
+      name: 'Rack',
+      room: 'Waschküche',
+      room_only: true,
+      state: { state: 30, unit: '°C', device_class: 'temperature' },
+      commands: [],
+      available: true,
+    } as unknown as Entity;
+    expect(klimaSensor([rack], 'temperature')).toBeUndefined();
+    // Als Klimafühler gilt er weiterhin - der Raumkopf zeigt ihn.
+    expect(istKlimaFuehler(rack, 'temperature')).toBe(true);
   });
 });

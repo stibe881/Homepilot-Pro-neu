@@ -128,6 +128,9 @@ class AlarmIntegration(Integration):
         # eigener Timer neben self._timer, weil der nach dem Auslösen
         # schon fürs Wiederscharfschalten gebraucht wird.
         self._eskalation_task: asyncio.Task | None = None
+        # Schaltbefehle, die auf ihre Frist warten (siehe _run_actions).
+        # Sie gehören abgebrochen, sobald jemand entschärft.
+        self._spaeter: list[asyncio.Task] = []
         # Ob die Eskalation in diesem Alarm wirklich gefeuert hat. Nur
         # dann schaltet das Entschärfen die Sirenen aus - sonst bekämen
         # Geräte bei jedem Entschärfen Befehle, obwohl nie etwas lief.
@@ -177,6 +180,7 @@ class AlarmIntegration(Integration):
             self._clip_task.cancel()
             self._clip_task = None
         self._cancel_escalation()
+        self._cancel_spaeter()
         if self._unsubscribe is not None:
             self._unsubscribe()
             self._unsubscribe = None
@@ -375,6 +379,10 @@ class AlarmIntegration(Integration):
         # ihre Frist da - ein Fehlalarm, der rechtzeitig entschärft wird,
         # bleibt für die Nachbarschaft unhörbar.
         self._cancel_escalation()
+        # Auch die Befehle, die noch auf ihre Frist warten: Eine Sirene,
+        # die eine Minute nach dem Unscharfschalten losgeht, wäre der
+        # Fehler, den niemand verzeiht.
+        self._cancel_spaeter()
         was = self._state
         self._state = DISARMED
         self._mode = None
@@ -865,20 +873,60 @@ class AlarmIntegration(Integration):
         Jeder einzeln abgesichert: Eine Sirene, die nicht antwortet, darf
         nicht verhindern, dass danach die Lichter angehen – und schon gar
         nicht, dass die Anlage ihren Zustand sauber zu Ende bringt.
+
+        Wer eine Frist trägt, wartet: «Licht sofort, Sirene nach dreissig
+        Sekunden, Storen hoch nach zwei Minuten» ist damit eine
+        gewöhnliche Einstellung. Die Wartenden laufen als eigene
+        Aufgaben, damit die übrigen nicht hinter ihnen anstehen - und sie
+        werden abgebrochen, sobald jemand entschärft: Eine Sirene, die
+        eine Minute nach dem Unscharfschalten losgeht, wäre der Fehler,
+        den niemand verzeiht.
         """
         for action in self._actions.get(slot) or []:
-            try:
-                await self.hub.integrations.dispatch_command(
-                    action["entity_id"], action["command"], action.get("data") or {}
+            frist = float(action.get("after") or 0)
+            if frist > 0:
+                self._spaeter.append(
+                    asyncio.create_task(self._nach_frist(frist, slot, action))
                 )
-            except Exception as err:
-                log.warning(
-                    "Alarm-Aktion %s (%s %s) fehlgeschlagen: %s",
-                    slot,
-                    action["entity_id"],
-                    action["command"],
-                    err,
-                )
+                continue
+            await self._befehl(slot, action)
+
+    async def _befehl(self, slot: str, action: dict[str, Any]) -> None:
+        """Ein einzelner Schaltbefehl, abgesichert."""
+        try:
+            await self.hub.integrations.dispatch_command(
+                action["entity_id"], action["command"], action.get("data") or {}
+            )
+        except Exception as err:
+            log.warning(
+                "Alarm-Aktion %s (%s %s) fehlgeschlagen: %s",
+                slot,
+                action["entity_id"],
+                action["command"],
+                err,
+            )
+
+    async def _nach_frist(self, frist: float, slot: str, action: dict[str, Any]) -> None:
+        """Einen Befehl nach seiner Frist ausführen - wenn er noch gilt.
+
+        Geprüft wird kurz vor dem Schalten noch einmal: Zwischen dem
+        Auslösen und dem Ablauf der Frist kann jemand entschärft haben,
+        und dann ist die Lage eine andere. Für «Beim Unscharfschalten»
+        gilt das Gegenteil - der läuft, weil unscharf ist.
+        """
+        try:
+            await asyncio.sleep(frist)
+        except asyncio.CancelledError:
+            return
+        if slot in ("trigger", "warning") and self._state == DISARMED:
+            return
+        await self._befehl(slot, action)
+
+    def _cancel_spaeter(self) -> None:
+        """Alle wartenden Befehle abbrechen."""
+        for aufgabe in self._spaeter:
+            aufgabe.cancel()
+        self._spaeter.clear()
 
     async def _snapshot_url(self, camera: str | None) -> str | None:
         """Ein Standbild der Kamera für die Nachricht selbst.

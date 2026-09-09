@@ -26,6 +26,7 @@ import {
   durchbruchUmschalten,
 } from '../lib/saugerdurchbruch';
 import {
+  BEFEHLSFRISTEN,
   DURCHSAGEZIELE,
   Eskalation,
   FRIST_STUFEN,
@@ -99,6 +100,14 @@ interface AlarmState {
 interface AlarmAction {
   entity_id: string;
   command: string;
+  /** Sekunden bis zum Schalten; fehlt sie, geschieht es sofort.
+   *
+   *  Damit lässt sich staffeln - «Licht sofort, Sirene nach dreissig
+   *  Sekunden, Storen hoch nach zwei Minuten». Der Schalter «Alle
+   *  Lichter einschalten» der Eskalation ist damit überflüssig
+   *  geworden: Er konnte genau eine Sache und sagte nicht, welche
+   *  Lampen er meint. */
+  after?: number;
 }
 
 interface After {
@@ -1312,12 +1321,6 @@ function EskalationKarte({
               ) : null}
             </View>
 
-            <Toggle
-              label="Alle Lichter einschalten"
-              detail="Einbrecher mögen kein Rampenlicht – und wer nachschauen geht, keinen dunklen Flur. Beim Entschärfen gehen nur die Sirenen wieder aus."
-              value={eskalation.all_lights}
-              onChange={(value) => onSave({ ...eskalation, all_lights: value })}
-            />
 
             <View style={styles.field}>
               <Text style={styles.label}>Durchsage auf die Boxen</Text>
@@ -1571,12 +1574,19 @@ function RearmMinutes({
 
 /** Verzögerungen und Benachrichtigungen. Eigene Komponente auf Modulebene,
  *  damit die Zahlenfelder beim Tippen nicht neu montiert werden. */
+/** «an», «aus», «auf», «zu» – wie der Befehl auf dem Chip heisst. */
+function wortFuerBefehl(command: string): string {
+  if (command === 'open') return 'auf';
+  if (command === 'close') return 'zu';
+  return command === 'turn_off' ? 'aus' : 'an';
+}
+
 /** Anlässe, zu denen die Anlage selbst schaltet. */
 const SLOTS = [
   {
     key: 'trigger',
     label: 'Beim Auslösen',
-    hint: 'Sirene, alle Lichter, Storen hoch. Eine Nachricht informiert nur – erst Lärm und Licht vertreiben jemanden.',
+    hint: 'Sirene, Licht, Storen hoch. Eine Nachricht informiert nur – erst Lärm und Licht vertreiben jemanden. Jeder Befehl kann eine Frist tragen: Licht sofort, Sirene nach einer halben Minute.',
   },
   {
     key: 'warning',
@@ -1636,16 +1646,41 @@ function AlarmActions({
     });
   };
 
+  /** Die Frist eines gewählten Befehls setzen (0 = sofort). */
+  const setFrist = (slot: string, entityId: string, command: string, after: number) => {
+    onSave({
+      ...actions,
+      [slot]: (actions[slot] ?? []).map((entry) =>
+        entry.entity_id === entityId && entry.command === command
+          ? { entity_id: entry.entity_id, command: entry.command, ...(after > 0 ? { after } : {}) }
+          : entry
+      ),
+    });
+  };
+
   if (schaltbar.length === 0) return null;
 
   return (
     <Card style={styles.card}>
       <Klappe label="Was wann geschaltet wird" stand={geschaltetStand(actions)}>
+      {/* Je Zeitpunkt eine eigene Klappe.
+          Vorher standen die drei Überschriften mitten in einer Liste,
+          die jedes schaltbare Gerät des Hauses dreimal führt - sechzig
+          Zeilen, dann «Beim Hereinkommen», wieder sechzig, dann «Beim
+          Unscharfschalten». Wer scrollte, verlor die Überschrift aus
+          den Augen und wusste nicht mehr, welchen Zeitpunkt er gerade
+          einstellt. Zugeklappt sind es jetzt drei Zeilen, jede mit
+          ihrem Stand daneben - und die lange Liste sieht nur, wer sie
+          gerade braucht. */}
       {SLOTS.map((slot) => {
         const chosen = actions[slot.key] ?? [];
         return (
-          <View key={slot.key} style={styles.field}>
-            <Text style={styles.label}>{slot.label}</Text>
+          <View key={slot.key} style={styles.zeitpunkt}>
+            <Klappe
+              label={slot.label}
+              stand={geschaltetStand({ [slot.key]: chosen })}
+              zuBeginnZu
+            >
             <Text style={styles.hint}>{slot.hint}</Text>
             <View style={styles.actionWrap}>
               {schaltbar.map((entity) => {
@@ -1657,8 +1692,17 @@ function AlarmActions({
                 const aus = chosen.some(
                   (entry) => entry.entity_id === entity.id && entry.command === ausCommand
                 );
+                // Die gewählten Zeilen bekommen ihre Frist darunter -
+                // eine je Befehl, denn «Licht sofort, Sirene nach dreissig
+                // Sekunden» ist genau der Fall, für den es sie gibt.
+                const gewaehlt = chosen.filter(
+                  (entry) =>
+                    entry.entity_id === entity.id &&
+                    (entry.command === einCommand || entry.command === ausCommand)
+                );
                 return (
-                  <View key={entity.id} style={styles.actionRow}>
+                  <View key={entity.id} style={styles.actionBlock}>
+                  <View style={styles.actionRow}>
                     {/* Die Art dazu: In der Liste stehen «Büro», «Büro»
                         und «Essbereich» zweimal untereinander - erst das
                         Wort daneben sagt, welches davon das Licht ist
@@ -1694,9 +1738,45 @@ function AlarmActions({
                       </Text>
                     </Pressable>
                   </View>
+
+                  {gewaehlt.map((eintrag) => (
+                    <View key={eintrag.command} style={styles.fristZeile}>
+                      <Text style={styles.fristWort}>
+                        {wortFuerBefehl(eintrag.command)}
+                      </Text>
+                      {BEFEHLSFRISTEN.map((sekunden) => {
+                        const on = Number(eintrag.after ?? 0) === sekunden;
+                        return (
+                          <Pressable
+                            key={sekunden}
+                            onPress={() =>
+                              setFrist(slot.key, entity.id, eintrag.command, sekunden)
+                            }
+                            accessibilityRole="radio"
+                            accessibilityState={{ selected: on }}
+                            accessibilityLabel={`${entity.name} ${wortFuerBefehl(
+                              eintrag.command
+                            )} ${fristLabel(sekunden)}`}
+                            style={[styles.fristChip, on && styles.actionChipOn]}
+                          >
+                            <Text
+                              style={[
+                                styles.fristChipText,
+                                on && styles.actionChipTextOn,
+                              ]}
+                            >
+                              {fristLabel(sekunden)}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  ))}
+                  </View>
                 );
               })}
             </View>
+            </Klappe>
           </View>
         );
       })}
@@ -2059,7 +2139,37 @@ const makeStyles = (colors: Colors) =>
     clipHint: { color: '#B9C2D0', fontSize: 12 },
     clipText: { color: colors.accent, fontSize: 13, fontWeight: '700' },
     actionWrap: { gap: 6, marginTop: 4 },
+    /** Ein Zeitpunkt als eigener Block: Linie darüber, etwas Luft.
+     *  Die drei Überschriften gingen in der langen Geräteliste unter -
+     *  sechzig Zeilen, dann die nächste, und wer scrollte, wusste nicht
+     *  mehr, welchen Zeitpunkt er gerade einstellt. */
+    zeitpunkt: {
+      gap: 8,
+      paddingTop: 12,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.surfaceBorder,
+    },
+    actionBlock: { gap: 4 },
     actionRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    /** Die Fristzeile unter einem gewählten Befehl: eingerückt, damit
+     *  sie zu ihm gehört und nicht zum nächsten Gerät. */
+    fristZeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: 4,
+      paddingLeft: 12,
+      paddingBottom: 4,
+    },
+    fristWort: { color: colors.inkFaint, fontSize: 11, marginRight: 2 },
+    fristChip: {
+      paddingVertical: 3,
+      paddingHorizontal: 9,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    fristChipText: { color: colors.inkSoft, fontSize: 11, fontWeight: '600' },
     actionName: { color: colors.ink, fontSize: 14 },
     actionArt: { color: colors.inkFaint, fontSize: 11, marginTop: 1 },
     /** «Weitere Schalter (7)» - eine Zeile zum Aufklappen, kein Knopf:

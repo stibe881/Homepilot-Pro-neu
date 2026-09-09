@@ -159,11 +159,18 @@ def innentemperatur(entities: list[Any]) -> float | None:
     Genommen wird, was einen Raum hat und plausibel misst - entweder ein
     `temperature`-Attribut (Thermostate) oder ein °C-Sensor. Ausreisser
     ausserhalb von -10 bis 45 Grad sind Backöfen und kaputte Fühler.
+
+    Wer am Gerät «zählt nur für seinen Raum» gesetzt bekommen hat, bleibt
+    draussen: Der Fühler in der Waschküche steht neben dem Rack und misst
+    30 Grad. Er läge innerhalb der Plausibilitätsgrenzen und zöge das
+    Mittel so weit hoch, dass der Hitze-Hinweis an einem kühlen Tag käme.
     """
     werte: list[float] = []
     for entity in entities:
         raum = str(getattr(entity, "room", "") or "")
         if not raum or any(wort in raum.lower() for wort in _DRAUSSEN):
+            continue
+        if getattr(entity, "room_only", False):
             continue
         state = getattr(entity, "state", None) or {}
         wert = state.get("temperature")

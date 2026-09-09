@@ -83,7 +83,6 @@ def test_parse_escalation_uebernimmt_und_begrenzt_die_werte():
             "enabled": True,
             "after": 10,
             "sirens": ["hm.sirene", "", None],
-            "all_lights": 1,
             "announce": "  Alarm im Haus  ",
             "volume": 250,
         }
@@ -93,7 +92,6 @@ def test_parse_escalation_uebernimmt_und_begrenzt_die_werte():
     # Leere Kennungen fliegen raus - ein halber Eintrag scheiterte sonst
     # genau im Alarmfall.
     assert parsed["sirens"] == ["hm.sirene"]
-    assert parsed["all_lights"] is True
     assert parsed["announce"] == "Alarm im Haus"
     assert parsed["volume"] == 100
 
@@ -139,33 +137,29 @@ def test_durchsage_in_den_raum_des_melders():
 
 def test_eskalation_wirkt_nur_wenn_sie_etwas_tun_wuerde():
     assert not eskalation_wirkt(parse_escalation(None))
-    # Eingeschaltet, aber ohne Sirene, Licht und Durchsage: ein Timer ins
+    # Eingeschaltet, aber ohne Sirene und ohne Durchsage: ein Timer ins
     # Leere - der wird gar nicht erst gestellt.
     assert not eskalation_wirkt(parse_escalation({"enabled": True}))
     assert eskalation_wirkt(parse_escalation({"enabled": True, "sirens": ["a"]}))
-    assert eskalation_wirkt(parse_escalation({"enabled": True, "all_lights": True}))
     assert eskalation_wirkt(parse_escalation({"enabled": True, "announce": "Hallo"}))
+    # «Alle Lichter einschalten» gibt es nicht mehr: Dasselbe geht über
+    # eine Zeile mit Frist unter «Was wann geschaltet wird».
+    assert not eskalation_wirkt(parse_escalation({"enabled": True, "all_lights": True}))
     # Nicht eingeschaltet schlägt alles - auch mit konfigurierter Sirene.
     assert not eskalation_wirkt(parse_escalation({"sirens": ["a"]}))
 
 
-def test_eskalations_befehle_schalten_sirene_und_alle_lichter():
+def test_eskalation_schaltet_nur_noch_die_sirenen():
+    """«Alle Lichter einschalten» ist weg - und zwar mit Absicht.
+
+    Der Schalter konnte genau eine Sache und erklärte sie nicht. Licht
+    zum Alarm gehört jetzt als gewöhnliche Zeile mit Frist unter «Was
+    wann geschaltet wird»: «Licht an, nach 30 Sekunden».
+    """
     escalation = parse_escalation(
         {"enabled": True, "sirens": ["hm.sirene"], "all_lights": True}
     )
-    entities = [light("a.licht"), light("b.licht"), contact("c.kontakt")]
-    befehle = eskalations_befehle(escalation, entities)
-    # Sirene zuerst: Der Lärm ist der Zweck, das Licht die Zugabe.
-    assert befehle[0] == {"entity_id": "hm.sirene", "command": "turn_on"}
-    assert {"entity_id": "a.licht", "command": "turn_on"} in befehle
-    assert {"entity_id": "b.licht", "command": "turn_on"} in befehle
-    # Der Kontakt ist kein Licht und bekommt nichts.
-    assert all(befehl["entity_id"] != "c.kontakt" for befehl in befehle)
-
-
-def test_ohne_all_lights_bleiben_die_lichter_aus():
-    escalation = parse_escalation({"enabled": True, "sirens": ["hm.sirene"]})
-    befehle = eskalations_befehle(escalation, [light("a.licht")])
+    befehle = eskalations_befehle(escalation, [light("a.licht"), contact("c.kontakt")])
     assert befehle == [{"entity_id": "hm.sirene", "command": "turn_on"}]
 
 

@@ -4,6 +4,7 @@ import {
   alphabetisch,
   inBeschattung,
   raeumeSortiert,
+  kontaktZeile,
   raumKategorien,
   raumFakten,
   raumKlima,
@@ -94,6 +95,9 @@ describe('raumSymbol', () => {
     expect(raumSymbol('Küche')).toBe('restaurant-outline');
     expect(raumSymbol('Schlafzimmer')).toBe('bed-outline');
     expect(raumSymbol('Hobbyraum')).toBe('cube-outline');
+    // «Waschküche» enthält «küche» - und trug darum ein Besteck im
+    // Raumkopf. Dieselbe Falle wie beim Küchentimer (istKueche).
+    expect(raumSymbol('Waschküche')).toBe('shirt-outline');
   });
 });
 
@@ -253,5 +257,145 @@ describe('raumDunkel', () => {
     // abgedunkelt sähe er aus wie ein Fehler, nicht wie eine Auskunft.
     expect(raumDunkel([geraet({ kind: 'camera', state: { state: 'on' } })])).toBe(false);
     expect(raumDunkel([])).toBe(false);
+  });
+});
+
+describe('raumKlima mit eigenem Feuchtefühler', () => {
+  it('nimmt den zweiten Fühler, wenn der erste keine Feuchte meldet', () => {
+    // In der Waschküche sind Temperatur und Feuchte zwei Geräte. Die
+    // Feuchte lag darum als Chip unter dem Kopf statt daneben.
+    const klima = raumKlima([
+      geraet({ kind: 'sensor', name: 'Temperatur', state: { state: 30, unit: '°C' } }),
+      geraet({
+        kind: 'sensor',
+        name: 'Luftfeuchtigkeit Rack',
+        state: { state: 37.4, unit: '%', device_class: 'humidity' },
+      }),
+    ]);
+    expect(klima?.temp).toBe('30,0°');
+    expect(klima?.feuchte).toBe('37 % Feuchte');
+    expect(klima?.feuchteFuehler?.name).toBe('Luftfeuchtigkeit Rack');
+  });
+
+  it('lässt den Akkustand nicht als Luftfeuchtigkeit durchgehen', () => {
+    // Prozent misst auch der Akku - und der Sendespeicher des
+    // Funkmoduls (lib/klimachip.ts).
+    const klima = raumKlima([
+      geraet({ kind: 'sensor', name: 'Temperatur', state: { state: 21, unit: '°C' } }),
+      geraet({ kind: 'sensor', name: 'Batterie', state: { state: 100, unit: '%' } }),
+    ]);
+    expect(klima?.feuchte).toBeNull();
+  });
+
+  it('zeigt die Feuchte auch ohne Temperaturfühler', () => {
+    const klima = raumKlima([
+      geraet({
+        kind: 'sensor',
+        name: 'Feuchte',
+        state: { state: 55, unit: '%', device_class: 'humidity' },
+      }),
+    ]);
+    expect(klima?.temp).toBeNull();
+    expect(klima?.feuchte).toBe('55 % Feuchte');
+  });
+});
+
+describe('Fühler, die nur für ihren Raum zählen', () => {
+  // Der Temperatur- und Feuchtefühler in der Waschküche steht neben dem
+  // Rack und misst 30 Grad. Im Raum ist die Zahl richtig; als «die»
+  // Temperatur der Wohnung ist sie es nie.
+  const rack = geraet({
+    kind: 'sensor',
+    name: 'Rack',
+    room: 'Waschküche',
+    room_only: true,
+    state: { state: 30, unit: '°C', device_class: 'temperature' },
+  });
+
+  it('steht im Raumkopf weiterhin gross da', () => {
+    expect(raumKlima([rack])?.temp).toBe('30,0°');
+  });
+
+  it('bleibt aus der Zeile der Raumübersicht heraus', () => {
+    expect(raumZeile([rack])).toBe('');
+  });
+});
+
+describe('kontaktZeile', () => {
+  const kontakt = (name: string, offen: boolean, patch: Partial<Entity> = {}): Entity =>
+    geraet({
+      kind: 'binary_sensor',
+      name,
+      state: { state: offen ? 'on' : 'off', device_class: 'contact' },
+      ...patch,
+    });
+
+  it('schweigt in einem Raum ohne Kontakt', () => {
+    // «Fenster zu» wäre dort eine Behauptung über etwas, das niemand
+    // misst.
+    expect(kontaktZeile([geraet({ kind: 'light' })])).toBe('');
+  });
+
+  it('trennt Fenster und Türen, wenn alles zu ist', () => {
+    expect(kontaktZeile([kontakt('Küchenfenster', false)])).toBe('Fenster zu');
+    expect(kontaktZeile([kontakt('Waschküche', false)])).toBe('Türen zu');
+    expect(
+      kontaktZeile([kontakt('Küchenfenster', false), kontakt('Balkontüre', false)])
+    ).toBe('Fenster und Türen zu');
+  });
+
+  it('nennt den einen, der offen steht, beim Namen', () => {
+    // «Küchenfenster offen» ist die Auskunft, «1 Fenster offen» die
+    // halbe.
+    expect(
+      kontaktZeile([kontakt('Küchenfenster', true), kontakt('Balkontüre', false)])
+    ).toBe('Küchenfenster offen');
+  });
+
+  it('zählt, sobald mehr als eines offen steht', () => {
+    expect(
+      kontaktZeile([
+        kontakt('Küchenfenster', true),
+        kontakt('Badfenster', true),
+        kontakt('Balkontüre', true),
+      ])
+    ).toBe('2 Fenster und 1 Türe offen');
+  });
+
+  it('folgt der eingetragenen Art, nicht dem Namen', () => {
+    expect(kontaktZeile([kontakt('Fenster Rack', false, { contact_kind: 'door' })])).toBe(
+      'Türen zu'
+    );
+  });
+});
+
+describe('raumKategorien ohne Kontaktkacheln', () => {
+  it('lässt Fenster- und Türkontakte weg - sie stehen im Raumkopf', () => {
+    const kategorien = raumKategorien(
+      [
+        geraet({ kind: 'light', name: 'Deckenlicht' }),
+        geraet({
+          kind: 'binary_sensor',
+          name: 'Waschküche',
+          state: { state: 'off', device_class: 'contact' },
+        }),
+      ],
+      () => 'Fenster-/Türkontakt'
+    );
+    expect(kategorien.map((gruppe) => gruppe.label)).toEqual(['Beleuchtung']);
+  });
+
+  it('behält Melder, die keine Öffnung melden', () => {
+    const kategorien = raumKategorien(
+      [
+        geraet({
+          kind: 'binary_sensor',
+          name: 'Bewegung',
+          state: { state: 'off', device_class: 'motion' },
+        }),
+      ],
+      () => 'Bewegungsmelder'
+    );
+    expect(kategorien.map((gruppe) => gruppe.label)).toEqual(['Bewegungsmelder']);
   });
 });
