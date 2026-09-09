@@ -30,6 +30,7 @@ import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { Tastaturplatz } from '../components/Tastaturplatz';
 import { einladungFrist } from '../lib/einladung';
+import { ROLE_LABELS } from '../lib/rollen';
 import {
   besitzerZahl,
   darfRolleAendern,
@@ -62,15 +63,7 @@ function isoInDays(days: number): string {
  * und sind hier nur lesbar.
  */
 
-export const ROLE_LABELS: Record<string, string> = {
-  besitzer: 'Besitzer',
-  bewohner: 'Mitbewohner',
-  // Punkt 245 der Werkbank: zwischen Mitbewohner und Gast - ein Kind
-  // war vorher ein Bewohner mit fünf verstreuten Einschränkungsfeldern,
-  // und wer eines vergass, hatte ein Kind mit Systemsicht.
-  kind: 'Kind',
-  gast: 'Gast',
-};
+
 
 const ROLE_HINTS: Record<string, string> = {
   besitzer: 'darf alles, auch Benutzer und Konfiguration verwalten',

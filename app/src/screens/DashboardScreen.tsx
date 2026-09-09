@@ -121,6 +121,7 @@ import {
 } from '../lib/tageszeit';
 import { hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
+import { Abschnitt } from '../components/Abschnitt';
 import { BesuchKarte } from '../components/BesuchKarte';
 import { GaesteWlanKarte } from '../components/GaesteWlan';
 import { Auftritt } from '../components/Auftritt';
@@ -2486,6 +2487,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'account') {
       return (
         <View style={styles.stack}>
+          {/* Die Reihenfolge der Seite entsteht im SettingsScreen - er
+              hält den Zustand (Name, Thema, Ortung), und zwei Fassungen
+              davon nebeneinander schrieben sich gegenseitig zu. Was
+              hier steht, sind die Karten, die anderswo wohnen und dort
+              in ihren Block gereicht werden. */}
           <SettingsScreen
             initial={settings}
             onSave={onSaveSettings}
@@ -2493,31 +2499,46 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             embedded
             nur="konto"
             onRenamed={benutzerNeuLaden}
+            sicherheit={
+              <Abschnitt
+                titel="Anmeldung und Sicherheit"
+                hinweis="Wer mit deinem Konto ins Haus kommt - und womit."
+              >
+                {/* Punkt 244 der Werkbank: Passwort wechseln und «Meine
+                    Geräte» - beides beantwortet dieselbe Frage. */}
+                <KontoBlatt settings={settings} user={user} />
+                <BioLock enabled={!!prefs.bioLock} onChange={setBioLock} />
+                {/* Nur für die Besitzerin: Die Hürde vor der Haustüre gilt
+                    fürs ganze Haus, ihr Abräumen ist keine Ansichtssache. */}
+                {istBesitzer ? (
+                  <TuerRueckfrage enabled={prefs.doorConfirm} onChange={setDoorConfirm} />
+                ) : null}
+              </Abschnitt>
+            }
+            geraet={
+              // Nur für Menschen mit eigenem iPhone - am Wandpanel und für
+              // Gäste hätte die Karte keinen Ort.
+              !user?.shared && user?.role !== 'gast' ? (
+                <LiveTuerSchalter
+                  settings={settings}
+                  enabled={eigenePrefs.liveTuer !== false}
+                  onChange={setLiveTuer}
+                  aus={eigenePrefs.liveAus ?? []}
+                  onAus={setLiveAus}
+                  tuerKnopf={eigenePrefs.tuerKnopf === true}
+                  onTuerKnopf={setTuerKnopf}
+                />
+              ) : null
+            }
+            weiteres={
+              <Abschnitt
+                titel="Benachrichtigungen"
+                hinweis="Was aufs Telefon kommt - und was nicht."
+              >
+                <PushPrefs settings={settings} />
+              </Abschnitt>
+            }
           />
-          {/* Punkt 244 der Werkbank: Passwort wechseln und «Meine
-              Geräte» - direkt beim Profil, denn beides ist die Frage
-              «wer kommt mit meinem Konto herein?». */}
-          <KontoBlatt settings={settings} user={user} />
-          <BioLock enabled={!!prefs.bioLock} onChange={setBioLock} />
-          {/* Nur für die Besitzerin: Die Hürde vor der Haustüre gilt fürs
-              ganze Haus, ihr Abräumen ist keine Ansichtssache. */}
-          {istBesitzer ? (
-            <TuerRueckfrage enabled={prefs.doorConfirm} onChange={setDoorConfirm} />
-          ) : null}
-          {/* Nur für Menschen mit eigenem iPhone - am Wandpanel und für
-              Gäste hätte die Karte keinen Ort. */}
-          {!user?.shared && user?.role !== 'gast' ? (
-            <LiveTuerSchalter
-              settings={settings}
-              enabled={eigenePrefs.liveTuer !== false}
-              onChange={setLiveTuer}
-              aus={eigenePrefs.liveAus ?? []}
-              onAus={setLiveAus}
-              tuerKnopf={eigenePrefs.tuerKnopf === true}
-              onTuerKnopf={setTuerKnopf}
-            />
-          ) : null}
-          <PushPrefs settings={settings} />
         </View>
       );
     }

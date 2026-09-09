@@ -22,7 +22,7 @@ import { Card } from '../components/Card';
 import { Maintenance } from '../components/Maintenance';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { ConfigCard } from './system/konfiguration';
-import { ROLE_LABELS } from './UsersScreen';
+import { ROLE_LABELS } from '../lib/rollen';
 import { datumUhr } from '../lib/format';
 import { integrationDetail } from '../lib/integrationszeile';
 import { LaufArt, LetzterLauf, letzterLaufSatz } from '../lib/letzterlauf';
