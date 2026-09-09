@@ -16,6 +16,7 @@ import Svg, { Circle } from 'react-native-svg';
 import { HubFehler, hubClient } from '../api/client';
 import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
+import { Bar } from '../components/Bar';
 import { Klappe } from '../components/Klappe';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { useTakt } from '../hooks/useTakt';
@@ -25,17 +26,20 @@ import {
   durchbruchUmschalten,
 } from '../lib/saugerdurchbruch';
 import {
+  DURCHSAGEZIELE,
   Eskalation,
   FRIST_STUFEN,
+  boxenKandidaten,
   eskalationLesen,
   eskalationStand,
   fristLabel,
+  geschaltetStand,
   sensorenStand,
-  sirenenKandidaten,
+  sirenenGruppen,
   verlaufPasst,
 } from '../lib/eskalation';
 import { datumUhr } from '../lib/format';
-import { melderArt } from '../lib/geraeteart';
+import { deviceKindLabel, melderArt } from '../lib/geraeteart';
 import { BlattZeile, blattWuerdig, blattZeilen } from '../lib/ereignisblatt';
 import { ringAnteil } from '../lib/alarmring';
 import { tapped, triggered } from '../lib/haptics';
@@ -768,16 +772,20 @@ export function AlarmScreen({
         </Klappe>
       </Card>
 
-      <EskalationKarte
-        raw={data.escalation}
-        entities={entities}
-        onSave={(escalation) => save({ escalation })}
-      />
-
+      {/* Erst was sofort geschieht, dann was nach der Frist kommt - so
+          läuft es auch ab. Umgekehrt stand die zweite Stufe über der
+          ersten, und wer die Seite von oben las, begann mitten in der
+          Geschichte. */}
       <AlarmActions
         actions={data.actions ?? {}}
         entities={entities}
         onSave={(actions) => save({ actions })}
+      />
+
+      <EskalationKarte
+        raw={data.escalation}
+        entities={entities}
+        onSave={(escalation) => save({ escalation })}
       />
 
       <AfterTrigger
@@ -1165,24 +1173,47 @@ function EskalationKarte({
   // Textfelder lokal, Übernahme beim Verlassen – wie bei den
   // Verzögerungen: Jeder Tastendruck als PUT wäre ein Dauerfeuer.
   const [announce, setAnnounce] = useState(eskalation.announce);
-  const [volume, setVolume] = useState(
-    eskalation.volume == null ? '' : String(eskalation.volume)
-  );
-  const kandidaten = useMemo(() => sirenenKandidaten(entities), [entities]);
+  // Die gewöhnlichen Schalter liegen hinter einem Tipp: Sie sind die
+  // Ausnahme (eine Sirene an der Steckdose), nicht der Normalfall.
+  const [alleSchalter, setAlleSchalter] = useState(false);
+  const { sirenen, schalter } = useMemo(() => sirenenGruppen(entities), [entities]);
+  const boxen = useMemo(() => boxenKandidaten(entities), [entities]);
 
-  const commitTexte = () =>
-    onSave({
-      ...eskalation,
-      announce: announce.trim(),
-      // Leer heisst «Vorgabe des Hubs», nicht «stumm».
-      volume: volume.trim() === '' ? null : Math.max(0, Math.min(100, Number(volume) || 0)),
-    });
+  const commitTexte = () => onSave({ ...eskalation, announce: announce.trim() });
 
   const toggleSirene = (entityId: string) => {
     const sirens = eskalation.sirens.includes(entityId)
       ? eskalation.sirens.filter((id) => id !== entityId)
       : [...eskalation.sirens, entityId];
     onSave({ ...eskalation, sirens });
+  };
+
+  const toggleBox = (entityId: string) => {
+    const gewaehlt = eskalation.announce_speakers.includes(entityId)
+      ? eskalation.announce_speakers.filter((id) => id !== entityId)
+      : [...eskalation.announce_speakers, entityId];
+    onSave({ ...eskalation, announce_speakers: gewaehlt });
+  };
+
+  /** Ein Gerät als Chip - dieselbe Zeile für Sirenen und Schalter. */
+  const sireneChip = (entity: Entity) => {
+    const on = eskalation.sirens.includes(entity.id);
+    return (
+      <Pressable
+        key={entity.id}
+        onPress={() => toggleSirene(entity.id)}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: on }}
+        accessibilityLabel={`${entity.name} beim Alarm einschalten`}
+        style={({ pressed }) => [
+          styles.chip,
+          on && styles.chipOn,
+          pressed && { opacity: 0.7 },
+        ]}
+      >
+        <Text style={[styles.chipText, on && { color: '#FFFFFF' }]}>{entity.name}</Text>
+      </Pressable>
+    );
   };
 
   return (
@@ -1233,37 +1264,52 @@ function EskalationKarte({
             </View>
 
             <View style={styles.field}>
-              <Text style={styles.label}>Sirenen</Text>
-              {kandidaten.length === 0 ? (
+              <Text style={styles.label}>Was Lärm macht</Text>
+              {/* «Sirenen» stand hier als Überschrift, und darunter
+                  stand im Haus ein einziger Vorschlag: «Tumbler». Das
+                  ist keine Sirene, sondern die Steckdose, an der einer
+                  hängt - und als einziger Eintrag unter dieser
+                  Überschrift liest es sich wie ein Fehler des
+                  Programms. Jetzt steht dabei, was gemeint ist, und die
+                  gewöhnlichen Schalter liegen hinter einem Tipp. */}
+              <Text style={styles.hint}>
+                Was beim Alarm eingeschaltet wird: eine Sirene, ein Gong -
+                oder die Steckdose, an der so etwas hängt. Beim Entschärfen
+                geht genau das wieder aus.
+              </Text>
+              {sirenen.length === 0 && !alleSchalter ? (
                 <Text style={styles.hint}>
-                  Kein schaltbares Gerät gefunden, das als Sirene taugt.
-                  Sirenen und Schalter erscheinen hier automatisch.
+                  Der Hub kennt keine Sirene. Hängt eine an einer
+                  schaltbaren Steckdose, steht sie unter «Weitere Schalter».
                 </Text>
-              ) : (
+              ) : null}
+              {sirenen.length > 0 ? (
                 <View style={styles.chipRow}>
-                  {kandidaten.map((entity) => {
-                    const on = eskalation.sirens.includes(entity.id);
-                    return (
-                      <Pressable
-                        key={entity.id}
-                        onPress={() => toggleSirene(entity.id)}
-                        accessibilityRole="checkbox"
-                        accessibilityState={{ checked: on }}
-                        accessibilityLabel={`${entity.name} als Sirene einschalten`}
-                        style={({ pressed }) => [
-                          styles.chip,
-                          on && styles.chipOn,
-                          pressed && { opacity: 0.7 },
-                        ]}
-                      >
-                        <Text style={[styles.chipText, on && { color: '#FFFFFF' }]}>
-                          {entity.name}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
+                  {sirenen.map((entity) => sireneChip(entity))}
                 </View>
-              )}
+              ) : null}
+              {schalter.length > 0 ? (
+                <Pressable
+                  onPress={() => setAlleSchalter((offen) => !offen)}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: alleSchalter }}
+                  style={({ pressed }) => [styles.mehrZeile, pressed && { opacity: 0.7 }]}
+                >
+                  <Ionicons
+                    name={alleSchalter ? 'chevron-down' : 'chevron-forward'}
+                    size={14}
+                    color={colors.inkSoft}
+                  />
+                  <Text style={styles.mehrText}>
+                    Weitere Schalter ({schalter.length})
+                  </Text>
+                </Pressable>
+              ) : null}
+              {alleSchalter ? (
+                <View style={styles.chipRow}>
+                  {schalter.map((entity) => sireneChip(entity))}
+                </View>
+              ) : null}
             </View>
 
             <Toggle
@@ -1286,19 +1332,124 @@ function EskalationKarte({
               />
             </View>
 
+            {announce.trim() !== '' ? (
+              <View style={[styles.field, styles.unterpunkt]}>
+                <Text style={styles.label}>Wohin die Durchsage geht</Text>
+                <View style={styles.chipRow}>
+                  {DURCHSAGEZIELE.map((ziel) => {
+                    const on = eskalation.announce_target === ziel.key;
+                    return (
+                      <Pressable
+                        key={ziel.key}
+                        onPress={() =>
+                          onSave({ ...eskalation, announce_target: ziel.key })
+                        }
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected: on }}
+                        accessibilityLabel={`${ziel.label}: ${ziel.hinweis}`}
+                        style={({ pressed }) => [
+                          styles.chip,
+                          on && styles.chipOn,
+                          pressed && { opacity: 0.7 },
+                        ]}
+                      >
+                        <Text style={[styles.chipText, on && { color: '#FFFFFF' }]}>
+                          {ziel.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <Text style={styles.hint}>
+                  {DURCHSAGEZIELE.find(
+                    (ziel) => ziel.key === eskalation.announce_target
+                  )?.hinweis ?? ''}
+                </Text>
+
+                {eskalation.announce_target === 'auswahl' ? (
+                  boxen.length === 0 ? (
+                    <Text style={styles.hint}>
+                      Der Hub kennt keine Box, die eine Durchsage abspielen
+                      kann.
+                    </Text>
+                  ) : (
+                    <>
+                      <View style={styles.chipRow}>
+                        {boxen.map((box) => {
+                          const on = eskalation.announce_speakers.includes(box.id);
+                          return (
+                            <Pressable
+                              key={box.id}
+                              onPress={() => toggleBox(box.id)}
+                              accessibilityRole="checkbox"
+                              accessibilityState={{ checked: on }}
+                              accessibilityLabel={`Durchsage auf ${box.name}`}
+                              style={({ pressed }) => [
+                                styles.chip,
+                                on && styles.chipOn,
+                                pressed && { opacity: 0.7 },
+                              ]}
+                            >
+                              <Text
+                                style={[styles.chipText, on && { color: '#FFFFFF' }]}
+                              >
+                                {box.name}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                      {eskalation.announce_speakers.length === 0 ? (
+                        // Ehrlich statt still: Der Hub schickt die
+                        // Durchsage dann an alle - eine, die beim
+                        // Einbruch nirgends ankommt, wäre der
+                        // schlimmere Fehler.
+                        <Text style={styles.hint}>
+                          Nichts gewählt - die Durchsage geht dann an alle
+                          Boxen.
+                        </Text>
+                      ) : null}
+                    </>
+                  )
+                ) : null}
+              </View>
+            ) : null}
+
             <View style={styles.field}>
-              <Text style={styles.label}>Lautstärke der Durchsage (0–100)</Text>
-              <TextInput
-                style={styles.input}
-                value={volume}
-                onChangeText={(text) => setVolume(text.replace(/[^0-9]/g, ''))}
-                onBlur={commitTexte}
-                keyboardType="number-pad"
-                maxLength={3}
-                placeholder="Vorgabe"
-                placeholderTextColor={colors.inkFaint}
-                accessibilityLabel="Lautstärke der Eskalations-Durchsage"
+              <Text style={styles.label}>
+                Lautstärke der Durchsage
+                {eskalation.volume == null ? ' · Vorgabe' : ` · ${eskalation.volume} %`}
+              </Text>
+              {/* Ein Zahlenfeld für eine Lautstärke ist eine Zumutung:
+                  Man tippt «70» und weiss nicht, ob das laut ist. Der
+                  Balken zeigt es, und «Vorgabe» bleibt als eigener
+                  Knopf - das ist keine Zahl, sondern die Entscheidung,
+                  dem Hub die Wahl zu lassen. */}
+              <Bar
+                value={eskalation.volume ?? 60}
+                onChange={(wert) => onSave({ ...eskalation, volume: wert })}
+                height={38}
               />
+              <Pressable
+                onPress={() => onSave({ ...eskalation, volume: null })}
+                accessibilityRole="button"
+                accessibilityState={{ selected: eskalation.volume == null }}
+                style={({ pressed }) => [
+                  styles.chip,
+                  { alignSelf: 'flex-start' },
+                  eskalation.volume == null && styles.chipOn,
+                  pressed && { opacity: 0.7 },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.chipText,
+                    eskalation.volume == null && { color: '#FFFFFF' },
+                  ]}
+                >
+                  Vorgabe des Hubs
+                </Text>
+              </Pressable>
             </View>
 
             {eskalationStand(eskalation) === 'an, aber ohne Wirkung' ? (
@@ -1440,7 +1591,13 @@ const SLOTS = [
 ];
 
 /**
- * Was die Anlage selbst schaltet.
+ * Was wann geschaltet wird.
+ *
+ * Die Karte hiess «Was die Anlage selbst schaltet» - ein Satz, der
+ * erklärt, wer schaltet, aber nicht, worum es hier geht. Es geht um
+ * zwei Dinge zugleich: *welche* Geräte und zu *welchem* Zeitpunkt
+ * (Auslösen, Hereinkommen, Unscharfschalten). Genau das steht jetzt
+ * darüber.
  *
  * Bewusst hier und nicht in einem Ablauf: Eine Alarmanlage, die nur eine
  * Nachricht schickt, informiert bloss. Und wer den Alarm in einen Ablauf
@@ -1483,7 +1640,7 @@ function AlarmActions({
 
   return (
     <Card style={styles.card}>
-      <Klappe label="Was die Anlage selbst schaltet">
+      <Klappe label="Was wann geschaltet wird" stand={geschaltetStand(actions)}>
       {SLOTS.map((slot) => {
         const chosen = actions[slot.key] ?? [];
         return (
@@ -1502,9 +1659,20 @@ function AlarmActions({
                 );
                 return (
                   <View key={entity.id} style={styles.actionRow}>
-                    <Text style={styles.actionName} numberOfLines={1}>
-                      {entity.name}
-                    </Text>
+                    {/* Die Art dazu: In der Liste stehen «Büro», «Büro»
+                        und «Essbereich» zweimal untereinander - erst das
+                        Wort daneben sagt, welches davon das Licht ist
+                        und welches die Store. Dieselbe Auskunft wie bei
+                        den Sensoren oben (lib/geraeteart.ts). */}
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={styles.actionName} numberOfLines={1}>
+                        {entity.name}
+                      </Text>
+                      <Text style={styles.actionArt} numberOfLines={1}>
+                        {deviceKindLabel(entity)}
+                        {entity.room ? ` · ${entity.room}` : ''}
+                      </Text>
+                    </View>
                     <Pressable
                       onPress={() => toggle(slot.key, entity, einCommand)}
                       accessibilityRole="switch"
@@ -1624,9 +1792,17 @@ function AlarmSettings({
           kein Tier, und die Kamera weiss das. Nur Kameras mit
           Erkennung (UniFi Protect) - eine, die bloss Bewegung meldet,
           kann den Unterschied nicht sehen. */}
+      {/* Eingerückt und mit einer Linie am Rand: Die Chips gehören zum
+          Schalter darüber, nicht zur Karte. Ohne das stand «Löst
+          trotzdem aus» wie eine eigene Einstellung da - «löst was
+          trotzdem aus?», fragte man sich, und die Antwort («während der
+          Sauger fährt») stand zwei Zeilen höher in einem anderen
+          Absatz. */}
       {settings.ignore_vacuum !== false ? (
-        <View style={styles.field}>
-          <Text style={styles.label}>Löst trotzdem aus</Text>
+        <View style={[styles.field, styles.unterpunkt]}>
+          <Text style={styles.label}>
+            Löst trotzdem aus, während der Sauger fährt
+          </Text>
           <View style={styles.chipRow}>
             {DURCHBRUCH.map((eintrag) => {
               const gewaehlt = durchbruchAn(settings.vacuum_detections, eintrag.key);
@@ -1884,7 +2060,21 @@ const makeStyles = (colors: Colors) =>
     clipText: { color: colors.accent, fontSize: 13, fontWeight: '700' },
     actionWrap: { gap: 6, marginTop: 4 },
     actionRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    actionName: { color: colors.ink, fontSize: 14, flex: 1 },
+    actionName: { color: colors.ink, fontSize: 14 },
+    actionArt: { color: colors.inkFaint, fontSize: 11, marginTop: 1 },
+    /** «Weitere Schalter (7)» - eine Zeile zum Aufklappen, kein Knopf:
+     *  Sie soll dastehen wie eine Fussnote und nicht wie eine Wahl. */
+    mehrZeile: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4 },
+    mehrText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
+    /** Ein Unterpunkt zum Schalter darüber: eingerückt, mit einer
+     *  Linie am Rand. Ohne sie las sich «Löst trotzdem aus» wie eine
+     *  eigene Einstellung, deren Bezug zwei Zeilen höher stand. */
+    unterpunkt: {
+      marginLeft: 8,
+      paddingLeft: 12,
+      borderLeftWidth: 2,
+      borderLeftColor: colors.surfaceBorder,
+    },
     actionChip: {
       paddingVertical: 5,
       paddingHorizontal: 12,

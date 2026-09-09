@@ -74,6 +74,7 @@ from .alarm_rules import (  # noqa: F401
     TRIGGERED,
     camera_for,
     camera_motion_due,
+    durchsage_boxen,
     eskalation_wirkt,
     eskalations_befehle,
     eskalations_ende_befehle,
@@ -675,12 +676,26 @@ class AlarmIntegration(Integration):
         )
         text = str(self._escalation.get("announce") or "")
         if text:
+            # Wohin sie geht, entscheidet die Einstellung: alle Boxen, eine
+            # feste Auswahl oder der Raum, in dem der Melder ausgelöst hat.
+            # Für den Raum braucht es den Melder von vorhin - er steht in
+            # self._last, und seine Entität kennt das Zimmer.
+            ausloeser = (self._last or {}).get("entity_id")
+            quelle = self.hub.registry.get(str(ausloeser)) if ausloeser else None
+            boxen = durchsage_boxen(
+                self._escalation,
+                self.hub.registry.all(),
+                getattr(quelle, "room", None),
+            )
             # Derselbe Weg wie die broadcast-Aktion der Abläufe. Abgesichert,
             # weil die Durchsage Netz oder eine bekannte Hub-Adresse braucht -
             # und eine stumme Box die Sirene nicht aufhalten darf.
             try:
                 await say.speak(
-                    self.hub, text, volume=self._escalation.get("volume")
+                    self.hub,
+                    text,
+                    speakers=boxen,
+                    volume=self._escalation.get("volume"),
                 )
             except Exception as err:
                 log.warning("Eskalations-Durchsage fehlgeschlagen: %s", err)

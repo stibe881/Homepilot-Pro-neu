@@ -17,6 +17,7 @@ from homepilot.integrations.alarm import (
     ARMED,
     DISARMED,
     TRIGGERED,
+    durchsage_boxen,
     eskalation_wirkt,
     eskalations_befehle,
     eskalations_ende_befehle,
@@ -33,6 +34,18 @@ def contact(entity_id: str, state: str = "off") -> Entity:
         name=entity_id,
         integration="test",
         state={"state": state, "device_class": "contact"},
+    )
+
+
+def box(entity_id: str, room: str | None = None) -> Entity:
+    return Entity(
+        id=entity_id,
+        kind=EntityKind.MEDIA_PLAYER,
+        name=entity_id,
+        integration="test",
+        state={"state": "idle"},
+        commands=["play_url"],
+        room=room,
     )
 
 
@@ -83,6 +96,45 @@ def test_parse_escalation_uebernimmt_und_begrenzt_die_werte():
     assert parsed["all_lights"] is True
     assert parsed["announce"] == "Alarm im Haus"
     assert parsed["volume"] == 100
+
+
+def test_parse_escalation_nimmt_das_ziel_der_durchsage():
+    parsed = parse_escalation(
+        {"announce_target": "raum", "announce_speakers": ["cast.kueche", ""]}
+    )
+    assert parsed["announce_target"] == "raum"
+    assert parsed["announce_speakers"] == ["cast.kueche"]
+    # Ein Ziel, das es nicht gibt, fällt auf «alle» zurück - im Alarmfall
+    # ist eine Durchsage überallhin besser als gar keine.
+    assert parse_escalation({"announce_target": "kueche"})["announce_target"] == "alle"
+
+
+def test_durchsage_geht_ohne_wahl_an_alle():
+    # None heisst «alle» - genau das, was say.speak ohne Liste tut.
+    assert durchsage_boxen(parse_escalation(None), [], None) is None
+
+
+def test_durchsage_an_die_ausgewaehlten_boxen():
+    eskalation = parse_escalation(
+        {"announce_target": "auswahl", "announce_speakers": ["cast.flur"]}
+    )
+    assert durchsage_boxen(eskalation, [box("cast.flur")], None) == ["cast.flur"]
+
+
+def test_leere_auswahl_geht_an_alle_statt_ins_leere():
+    # Der schlimmere Fehler wäre eine Durchsage, die beim Einbruch
+    # nirgends ankommt: Der Sinn ist, dass es im Haus laut wird.
+    eskalation = parse_escalation({"announce_target": "auswahl"})
+    assert durchsage_boxen(eskalation, [box("cast.flur")], None) is None
+
+
+def test_durchsage_in_den_raum_des_melders():
+    eskalation = parse_escalation({"announce_target": "raum"})
+    boxen = [box("cast.kueche", "Küche"), box("cast.stube", "Stube")]
+    assert durchsage_boxen(eskalation, boxen, "Küche") == ["cast.kueche"]
+    # Ein Raum ohne Box - und ein Melder ohne Raum - fallen auf «alle».
+    assert durchsage_boxen(eskalation, boxen, "Estrich") is None
+    assert durchsage_boxen(eskalation, boxen, None) is None
 
 
 def test_eskalation_wirkt_nur_wenn_sie_etwas_tun_wuerde():
