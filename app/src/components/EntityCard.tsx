@@ -147,6 +147,9 @@ interface Props {
    *  bekommt hier nichts – besser als ein Knopf, der ein «nicht erlaubt»
    *  einträgt. */
   onRename?: (name: string) => void;
+  /** Nur für Szenen einer Integration (Hue): «Bleibt aktiv» umlegen.
+   *  Fehlt er, steht die Zeile nicht im Anpassen-Blatt. */
+  onSceneToggles?: (value: boolean) => void;
   /** Anpassen-Modus: Gerät einer Gruppe zuordnen (oder lösen). */
   groups?: string[];
   onSetGroup?: (group: string | null) => void;
@@ -209,6 +212,7 @@ export function EntityCard({
   rooms,
   onSetRoom,
   onRename,
+  onSceneToggles,
   groups,
   onSetGroup,
   doorConfirm,
@@ -1225,6 +1229,25 @@ export function EntityCard({
                       setBlattOffen(false);
                       setGroupPickerOpen(true);
                     },
+                  },
+                ]
+              : []),
+            // Nur bei Szenen, die der Hub zurücknehmen kann - er
+            // braucht dafür die Lampen der Szene (state.lights, siehe
+            // integrations/hue.py). Eigene Szenen tragen dieselbe
+            // Einstellung in ihrem Editor.
+            ...(onSceneToggles && entity.kind === 'scene' && entity.state?.lights
+              ? [
+                  {
+                    key: 'szene-toggle',
+                    icon: 'repeat-outline' as const,
+                    label: 'Nach dem Auslösen',
+                    wert:
+                      entity.scene_toggles === false ? 'Löst nur aus' : 'Bleibt aktiv',
+                    aktiv: entity.scene_toggles !== false,
+                    // Das Blatt bleibt offen, wie beim Favoriten: Wer
+                    // hier ist, legt meist mehrere Schalter um.
+                    onPress: () => onSceneToggles(entity.scene_toggles === false),
                   },
                 ]
               : []),

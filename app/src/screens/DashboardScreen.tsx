@@ -1900,6 +1900,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         // lange Druck auf die Kachel.
         darfAnpassen ? (name) => setEntityMeta(entity.id, { name }) : undefined
       }
+      // «Bleibt aktiv» für die Szenen der Bridge - dieselbe Frage, die
+      // der Szenen-Editor für eigene Szenen stellt. Der Hub merkt sich
+      // dafür den Zustand der Lampen (core/scenes.py, fremde_szene).
+      onSceneToggles={
+        darfAnpassen
+          ? (value) => setEntityMeta(entity.id, { scene_toggles: value })
+          : undefined
+      }
       doorConfirm={prefs.doorConfirm}
       kino={kinoImBlatt}
       onKino={activateScene}

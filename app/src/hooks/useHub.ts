@@ -577,7 +577,14 @@ export function useHub(url: string | null, token: string | null) {
   const setEntityMeta = useCallback(
     async (
       entityId: string,
-      meta: { name?: string | null; favorite?: boolean; group?: string | null }
+      meta: {
+        name?: string | null;
+        favorite?: boolean;
+        group?: string | null;
+        /** Nur Szenen einer Integration: Bleibt sie aktiv, nimmt der
+         *  zweite Druck sie zurück (Hub: core/scenes.py). */
+        scene_toggles?: boolean;
+      }
     ) => {
       setEntityMap((prev) => {
         const entity = prev[entityId];
@@ -586,6 +593,7 @@ export function useHub(url: string | null, token: string | null) {
         if (meta.name !== undefined) next.name = meta.name || entity.name;
         if (meta.favorite !== undefined) next.favorite = meta.favorite;
         if (meta.group !== undefined) next.group = meta.group;
+        if (meta.scene_toggles !== undefined) next.scene_toggles = meta.scene_toggles;
         return { ...prev, [entityId]: next };
       });
       try {

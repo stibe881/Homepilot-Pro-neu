@@ -47,6 +47,9 @@ class EntityRegistry:
         entity.display_name = meta.get("name") or None
         entity.favorite = bool(meta.get("favorite"))
         entity.group = meta.get("group") or None
+        # Vorgabe «ja»: Gespeichert wird nur die Abweichung, damit der
+        # Eintrag klein bleibt (siehe hub.set_entity_meta).
+        entity.scene_toggles = meta.get("scene_toggles", True) is not False
 
     def _aus_protokoll(self, entity: Entity, state: dict[str, Any]) -> bool:
         """«Seit wann steht das so?» aus dem Protokoll holen (in place).
@@ -150,6 +153,7 @@ class EntityRegistry:
         entity.display_name = meta.get("name") or None
         entity.favorite = bool(meta.get("favorite"))
         entity.group = meta.get("group") or None
+        entity.scene_toggles = meta.get("scene_toggles", True) is not False
         await self.bus.publish(
             "state_changed",
             {

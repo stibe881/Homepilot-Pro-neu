@@ -43,6 +43,13 @@ class HueScene:
     label: str
     #: «active», solange die Lampen so stehen, wie die Szene sie setzte.
     state: str = "idle"
+    #: Die Lampen, die sie stellt - als Kennungen der Bridge.
+    #:
+    #: Die Bridge kann eine Szene nicht zurücknehmen; wer den Knopf ein
+    #: zweites Mal drücken und den Zustand von vorher wiederhaben will,
+    #: braucht die Liste der betroffenen Lampen (core/scenes.py). Sie
+    #: steht in der Szene selbst - jede Aktion nennt ihr Ziel.
+    lights: tuple[str, ...] = ()
 
     @property
     def object_id(self) -> str:
@@ -77,6 +84,27 @@ def scene_state(entry: dict[str, Any]) -> str:
     """
     aktiv = str((entry.get("status") or {}).get("active") or "").strip()
     return "active" if aktiv and aktiv != "inactive" else "idle"
+
+
+def scene_lights(entry: dict[str, Any]) -> tuple[str, ...]:
+    """Welche Lampen diese Szene stellt (rein, testbar).
+
+    Jede Aktion der Szene nennt ihr Ziel (``target.rid``); uns
+    interessieren die Lampen. Reihenfolge und Doppelte spielen keine
+    Rolle - gebraucht wird die Menge, um vor dem Aufrufen zu merken, wie
+    sie standen.
+    """
+    lights: list[str] = []
+    for aktion in entry.get("actions") or []:
+        if not isinstance(aktion, dict):
+            continue
+        ziel = aktion.get("target") or {}
+        if str(ziel.get("rtype") or "") != "light":
+            continue
+        rid = str(ziel.get("rid") or "").strip()
+        if rid and rid not in lights:
+            lights.append(rid)
+    return tuple(lights)
 
 
 def parse_scenes(
@@ -128,6 +156,7 @@ def parse_scenes(
                 room=room,
                 label=label,
                 state=scene_state(entry),
+                lights=scene_lights(entry),
             )
         )
     return scenes
@@ -237,6 +266,12 @@ class HueIntegration(Integration):
                 # der Aktion «Hue-Szene» eines Ablaufs.
                 "scene": scene.label,
                 "hue_room": scene.room,
+                # Die Lampen als Entitäten des Hubs: Damit kann die
+                # Szenen-Verwaltung vor dem Aufrufen festhalten, wie sie
+                # standen, und der zweite Druck stellt es wieder her -
+                # dasselbe «Bleibt aktiv» wie bei eigenen Szenen. Die
+                # Bridge selbst kann das nicht.
+                "lights": [self.entity_id(rid) for rid in scene.lights],
             }
             if self.hub.registry.get(entity_id) is None:
                 await self.add_entity(

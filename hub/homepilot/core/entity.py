@@ -100,6 +100,17 @@ class Entity:
     # Frei wählbare Anzeige-Kategorie (z.B. «Decke»), rein zum Sortieren
     # innerhalb eines Raums. Sie fasst nichts zusammen.
     group: str | None = None
+    # Nur für Szenen einer Integration (Hue): Bleibt die Szene aktiv, so
+    # dass der zweite Druck den Zustand von vorher wiederherstellt - oder
+    # löst sie nur aus?
+    #
+    # Eigene Szenen tragen dasselbe als `toggles` in ihrer Konfiguration
+    # (core/scenes.py). Die Bridge kann eine Szene nicht zurücknehmen;
+    # den Rückweg merkt sich der Hub selbst, und hier steht, ob er ihn
+    # überhaupt merken soll. Vorgabe «ja»: So verhalten sich die eigenen
+    # Szenen auch, und ein Knopf, der zurücknimmt, überrascht weniger als
+    # einer, der es nicht tut.
+    scene_toggles: bool = True
     # Kennung der Lampe, in der diese Entität aufgeht – gesetzt, wenn sie
     # Mitglied einer zusammengefassten Leuchte ist. Eine Deckenlampe mit
     # fünf Spots soll ein Licht sein, nicht fünf: Wer das hier stehen hat,
@@ -150,6 +161,7 @@ class Entity:
             "room": self.room,
             "favorite": self.favorite,
             "group": self.group,
+            "scene_toggles": self.scene_toggles,
             "combined_into": self.combined_into,
             "last_seen": self.last_seen,
             "last_change": self.last_change,
