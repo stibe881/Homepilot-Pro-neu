@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
-import { Image, Linking, Modal, Pressable, Text, View } from 'react-native';
+import { Image, Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Entity, HubSettings } from '../../api/types';
 import { CameraLive } from '../../components/CameraLive';
@@ -19,6 +19,12 @@ import { DashboardStile } from './stile';
  * Vollbild, wenn es an der Haustüre klingelt: Kamerabild gross, ein Knopf
  * zum Öffnen (mit Zwei-Schritt-Bestätigung), einer zum Schliessen. Gedacht
  * fürs Wandpanel genauso wie fürs Telefon in der Hosentasche.
+ *
+ * Das Standbild liegt unter dem Livestrom und bleibt sichtbar, bis der
+ * wirklich läuft - hier noch dringender als bei den Kameras
+ * (Kameravollbild.tsx): Wer klingelt, steht keine fünf Sekunden vor der
+ * Türe und wartet, bis mediamtx angelaufen ist. Bis dahin war die Fläche
+ * schwarz, obwohl längst ein Bild dagewesen wäre.
  */
 export function DoorbellOverlay({
   ausloeser,
@@ -49,8 +55,10 @@ export function DoorbellOverlay({
   const [confirm, setConfirm] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const [liveFailed, setLiveFailed] = useState<string | null>(null);
+  // Läuft der Strom, braucht es das Standbild darunter nicht mehr.
+  const [liveLaeuft, setLiveLaeuft] = useState(false);
   // Alle 3 Sekunden ein frisches Bild, solange das Vollbild offen ist.
-  useTakt(() => setTick((value) => value + 1), 3000);
+  useTakt(() => setTick((value) => value + 1), liveLaeuft ? null : 3000);
 
   // Rücklauf: Am Wandpanel bliebe sonst ein Bild der Strasse stehen, bis
   // es jemand bemerkt. Jede Berührung setzt ihn zurück - während man
@@ -100,17 +108,37 @@ export function DoorbellOverlay({
             klingelt» die halbe Auskunft, und man drückt den falschen
             Knopf. */}
         <Text style={styles.doorbellTitle}>🔔 Es klingelt · {ausloeser.name}</Text>
-        {live ? (
+        {uri ? (
           <View style={styles.videoBox}>
-            <CameraLive
-              uri={`${base}/stream.m3u8?token=${token}`}
-              label="Live-Bild der Türklingel"
-              style={styles.videoFrame}
-              onFailed={(message) => setLiveFailed(message)}
-            />
+            {!liveLaeuft ? (
+              <Image source={{ uri }} style={styles.doorbellImage} resizeMode="cover" />
+            ) : null}
+            {/* Der Strom liegt darüber und ist durchsichtig, solange er
+                anläuft - eingehängt muss er trotzdem sein, sonst beginnt
+                er gar nicht zu laden. */}
+            {live ? (
+              <View
+                style={[
+                  StyleSheet.absoluteFill,
+                  { justifyContent: 'center' },
+                  !liveLaeuft && { opacity: 0 },
+                ]}
+              >
+                <CameraLive
+                  uri={`${base}/stream.m3u8?token=${token}`}
+                  label="Live-Bild der Türklingel"
+                  style={styles.videoFrame}
+                  onFailed={(message) => {
+                    setLiveFailed(message);
+                    // Bricht der Strom nach dem Anlaufen ab, muss das
+                    // Standbild zurückkommen.
+                    setLiveLaeuft(false);
+                  }}
+                  onReady={() => setLiveLaeuft(true)}
+                />
+              </View>
+            ) : null}
           </View>
-        ) : uri ? (
-          <Image source={{ uri }} style={styles.doorbellImage} resizeMode="cover" />
         ) : (
           // Kein Bild, also auch kein halber Bildschirm dafür: Eine
           // Gegensprechanlage hat keine Kamera, und die schwarze Fläche

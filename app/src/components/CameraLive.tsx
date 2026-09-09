@@ -20,12 +20,21 @@ export function CameraLive({
   style,
   muted = true,
   onFailed,
+  onReady,
   label = 'Live-Bild der Kamera',
 }: {
   uri: string;
   style?: ViewStyle;
   muted?: boolean;
   onFailed?: (message: string) => void;
+  /** Der Strom läuft wirklich - erst jetzt hat er ein Bild zu zeigen.
+   *
+   *  Dazwischen liegen Sekunden: Der Hub zapft die Kamera erst an, wenn
+   *  jemand zuschaut, ffmpeg oder mediamtx müssen anlaufen, und der
+   *  Player braucht sein erstes Häppchen. Wer das nicht weiss, sieht ein
+   *  schwarzes Rechteck und hält die Kamera für kaputt - deshalb sagt
+   *  die Komponente Bescheid, statt den Aufrufer raten zu lassen. */
+  onReady?: () => void;
   /** Was hier zu sehen ist – für die Sprachausgabe. Ohne bleibt vom
    *  Livebild nur eine schwarze Fläche ohne Namen. */
   label?: string;
@@ -36,6 +45,8 @@ export function CameraLive({
   // nicht in die Abhängigkeiten, sonst hängt sich der Zuhörer laufend neu an.
   const failedRef = useRef(onFailed);
   failedRef.current = onFailed;
+  const readyRef = useRef(onReady);
+  readyRef.current = onReady;
 
   const player = useVideoPlayer(uri, (instance) => {
     instance.muted = muted;
@@ -51,6 +62,7 @@ export function CameraLive({
         failedRef.current?.(message);
       } else if (status === 'readyToPlay') {
         setFailed(null);
+        readyRef.current?.();
       }
     });
     return () => subscription.remove();
