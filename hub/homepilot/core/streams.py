@@ -161,6 +161,15 @@ def apple_schnell(streaming: dict | None) -> bool:
     AVPlayer heute mitspielen. Beweisen lässt sich das nur am Gerät, und
     ein Fehlversuch heisst schwarzes Bild statt einer Sekunde weniger
     Rückstand. Deshalb: ausprobierbar, nicht aufgezwungen.
+
+    **Ausprobiert, am 9. September 2026, im Haus in Zell.** Der Schalter
+    stand eine Weile auf `true` - und das Vollbild einer Kamera blieb
+    schwarz, während unten rot «Live» stand. Kein Fehler, kein Eintrag im
+    Protokoll: AVPlayer steigt bei ungleichen Part-Dauern wortlos aus.
+    Die feste Bildrate und der fehlende Ton reichen also nicht; es bleibt
+    beim Herausnehmen für Apple. Wer es erneut versuchen will, tut das
+    mit einem Gerät in der Hand und nicht auf gut Glück - und weiss
+    jetzt, wonach es aussieht, wenn es scheitert.
     """
     return bool((streaming or {}).get("apple_low_latency", False))
 
