@@ -466,6 +466,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // auf der Einkaufsliste» → Einkauf). Getrennt vom Riegel-Modul: Das
   // eine ist ein Weg um eine Sperre herum, das andere ein Ziel.
   const [familienModul, setFamilienModul] = useState<string | null>(null);
+  // Zählt hoch, wenn im Menü ein Bereich gewählt wurde. Bildschirme, die
+  // ihre Unterseite selbst führen (Familie), kommen davon auf ihre
+  // Übersicht zurück - ein Zurücksetzen hier draussen erreicht sie
+  // nicht.
+  const [heimSignal, setHeimSignal] = useState(0);
   // Welches Gerät gerade nach einer Frist gefragt wird («sag mir in zwei
   // Stunden Bescheid»).
   const [erinnernAn, setErinnernAn] = useState<Entity | null>(null);
@@ -2187,7 +2192,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const geheZuPunkt = (key: string) => {
     const punkt = sichtbarePunkte.find((item) => item.key === key);
     if (punkt?.onPress) punkt.onPress();
-    else setSection(key as Section);
+    // Über denselben Weg wie die Leiste: Sonst räumte der eine
+    // Menü-Zugang auf und der andere nicht.
+    else waehleBereich(key as Section);
   };
 
   /**
@@ -2228,7 +2235,42 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
    * sah es aus, als hätte man danebengetippt - und die Übersicht, von
    * der aus alles andere erreichbar ist, war nirgends mehr zu holen.
    */
-  const waehleBereich = (ziel: Section) => setSection(ziel);
+  const waehleBereich = (ziel: Section) => {
+    setSection(ziel);
+    // ... und zwar auf deren *Anfang*. Das war die zweite Hälfte
+    // derselben Meldung: «Dasselbe bei den anderen Menüpunkten.» Wer im
+    // Wohnzimmer stand und «Räume» tippte, blieb im Wohnzimmer; wer im
+    // Einkauf stand und «Familie» tippte, blieb im Einkauf. Von aussen
+    // sieht das aus, als hätte der Tipp nichts getan.
+    //
+    // Zurückgesetzt wird nur, was Weg ist - kein halb Getipptes: Der
+    // Ablauf-Editor etwa liegt als Blatt über der Leiste, dort ist der
+    // Menüpunkt gar nicht erreichbar, und so bleibt er auch.
+    setRoom(ALL_ROOMS); // Räume: zurück zur Raumliste
+    setFamilienModul(null);
+    // Auch die Abkürzung am Riegel vorbei endet hier: Sie gilt «nur für
+    // dieses eine Modul» (siehe unten, offeneModule) - wer im Menü
+    // weitergeht, hat es verlassen.
+    setRiegelModul(null);
+    setHeimSignal((n) => n + 1); // Familie führt ihre Ansicht selbst
+    setExpanded(null); // Geräte: keine aufgeklappte Kachel
+    setQuery('');
+    setEditing(false);
+    // Und alles, was gerade darüber liegt: «egal wo man ist» heisst
+    // auch «egal was gerade offen ist».
+    setFullscreen(null);
+    setHistoryFor(null);
+    setBildFuer(null);
+    setErinnernAn(null);
+    setRaumMenue(false);
+    setWechselOffen(false);
+    setReorderOpen(false);
+    setRoomsReorderOpen(false);
+    setBatterienOffen(false);
+    setSorgenOffen(false);
+    setHilfeOffen(false);
+    setWandOffen(false);
+  };
 
   const content = () => {
     // Der Riegel vor Familie und Konto - siehe lib/bereichsriegel.ts. Er
@@ -2325,6 +2367,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           changedAt={familyChangedAt}
           startModul={riegelModul ?? familienModul}
           startKind={kindPanelName ?? undefined}
+          heimSignal={heimSignal}
         />
       );
     }

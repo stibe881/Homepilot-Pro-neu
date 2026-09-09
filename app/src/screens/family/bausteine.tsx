@@ -61,6 +61,14 @@ export interface Props {
   /** Gleich auf der Kinderseite dieses Kindes aufmachen - der
    *  Kindermodus des Wandpanels (HubSettings.kindPanel). */
   startKind?: string | null;
+  /** Zählt hoch, wenn im Menü «Familie» getippt wurde: dann zurück auf
+   *  die Kachelwand, egal in welchem Modul man gerade war.
+   *
+   *  Ein Zähler und kein `false`: Zweimal hintereinander im Menü tippen
+   *  soll zweimal wirken, und ein Zustand, der nur einmal umspringt,
+   *  könnte das nicht. Denselben Griff benutzt die Startseite für
+   *  «Alles aus» (DashboardScreen, allOffSignal). */
+  heimSignal?: number;
 }
 
 export type ModuleKey =
