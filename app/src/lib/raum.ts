@@ -189,7 +189,12 @@ export function wichtigeZuerst(items: Entity[], favorites: string[]): Entity[] {
  */
 export function raumSymbol(name: string): keyof typeof Ionicons.glyphMap {
   const n = name.toLowerCase();
-  if (/küche|kueche|kitchen/.test(n)) return 'restaurant-outline';
+  // Dieselbe Falle wie beim Küchentimer (istKueche weiter unten):
+  // «Waschküche» enthält «küche», und weil diese Zeile die erste war,
+  // trug die Waschküche im Kopf ein Besteck. Deutsche Zusammensetzungen
+  // hängen das Grundwort hinten an - also zählt nur ein «Küche», das
+  // für sich steht.
+  if (istKueche(name) || /kitchen/.test(n)) return 'restaurant-outline';
   if (/bad|dusche|wc|toilette/.test(n)) return 'water-outline';
   if (/schlaf|bett/.test(n)) return 'bed-outline';
   if (/kinder|nino|baby/.test(n)) return 'happy-outline';

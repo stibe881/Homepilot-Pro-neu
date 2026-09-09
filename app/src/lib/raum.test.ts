@@ -94,6 +94,9 @@ describe('raumSymbol', () => {
     expect(raumSymbol('Küche')).toBe('restaurant-outline');
     expect(raumSymbol('Schlafzimmer')).toBe('bed-outline');
     expect(raumSymbol('Hobbyraum')).toBe('cube-outline');
+    // «Waschküche» enthält «küche» - und trug darum ein Besteck im
+    // Raumkopf. Dieselbe Falle wie beim Küchentimer (istKueche).
+    expect(raumSymbol('Waschküche')).toBe('shirt-outline');
   });
 });
 
