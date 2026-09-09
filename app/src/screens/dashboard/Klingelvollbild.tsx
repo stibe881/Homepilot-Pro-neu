@@ -135,6 +135,10 @@ export function DoorbellOverlay({
                     setLiveLaeuft(false);
                   }}
                   onReady={() => setLiveLaeuft(true)}
+                  // An der Türe braucht es keinen zweiten Satz: Das
+                  // Standbild steht ohnehin da, und die Knöpfe darunter
+                  // sind das, worauf es in dem Moment ankommt.
+                  onStalled={() => undefined}
                 />
               </View>
             ) : null}

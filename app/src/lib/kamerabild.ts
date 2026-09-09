@@ -25,6 +25,11 @@ export interface Kamerastand {
   liveMoeglich: boolean;
   /** Läuft er wirklich - erst dann hat er ein Bild zu zeigen. */
   liveLaeuft: boolean;
+  /** Die Frist ist um und es kam kein Bild - und auch kein Fehler.
+   *  Kein Abbruch: Der Strom bleibt eingehängt und darf später doch
+   *  noch anlaufen. Nur sagen muss man es, sonst steht «Live-Bild
+   *  startet …» in alle Ewigkeit da. */
+  liveHaengt?: boolean;
 }
 
 /** Welche Schichten das Vollbild zeigt (rein, testbar). */
@@ -73,10 +78,14 @@ export function kameraSatz(
 ): string {
   const kopf = stand.liveLaeuft
     ? '● Live'
-    : stand.liveMoeglich && stand.online
-      ? 'Standbild – Live-Bild startet …'
-      : liveFehler
-        ? `Live-Bild nicht verfügbar (${liveFehler}) – Standbild alle 3 Sekunden`
-        : 'Standbild alle 3 Sekunden';
+    : stand.liveMoeglich && stand.online && stand.liveHaengt
+      ? // Die Frist ist um. Nicht «nicht verfügbar»: Er kann noch
+        // kommen - aber warten soll niemand mehr darauf.
+        'Live-Bild kommt nicht – es bleibt beim Standbild'
+      : stand.liveMoeglich && stand.online
+        ? 'Standbild – Live-Bild startet …'
+        : liveFehler
+          ? `Live-Bild nicht verfügbar (${liveFehler}) – Standbild alle 3 Sekunden`
+          : 'Standbild alle 3 Sekunden';
   return bewegung ? `${kopf} · Bewegung erkannt` : kopf;
 }
