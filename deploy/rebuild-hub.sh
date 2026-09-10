@@ -917,6 +917,60 @@ if [ -d "$DOCKER_ROOT/containers" ]; then
   fi
 fi
 
+# ── Was Portainer selbst sagt ─────────────────────────────────────────
+#
+# Portainer läuft als Container auf demselben Rechner, und der Webhook
+# beantwortet nur «angenommen». Was danach schiefgeht, steht in seinem
+# Protokoll: ein gescheiterter Klon (Zugangsdaten abgelaufen), ein
+# Compose-Fehler, ein Abbild, das er ziehen wollte. Bisher stand hier
+# «steht allein in Portainers Protokoll» - eine Auskunft, die man sich
+# per SSH holen musste, während dieses Skript ohnehin mit Docker
+# spricht.
+portainer_container() {
+  docker ps --format '{{.Names}}|{{.Image}}' 2>/dev/null \
+    | awk -F'|' '$2 ~ /portainer/ {print $1; exit}'
+}
+
+portainer_sagt() {
+  local name zeilen
+  name=$(portainer_container)
+  [ -n "$name" ] || return 0
+  # Nur ab dem Webhook und nur die Zeilen, die nach einem Fehler
+  # aussehen: Portainer schreibt im Betrieb viel, und die halbe Ausgabe
+  # eines Dienstes in eine Fehlermeldung zu kippen hilft niemandem.
+  zeilen=$(docker logs --since "${HOOK_ZEIT:-5m}" "$name" 2>&1 \
+    | grep -Ei 'err|fail|denied|fatal|unable|stack' \
+    | tail -6 || true)
+  [ -n "$zeilen" ] || return 0
+  echo "  Portainer schreibt seit dem Webhook:"
+  echo "$zeilen" | cut -c1-160 | sed 's/^/    /'
+}
+
+# Wurde stattdessen ein *anderer* Stack neu ausgerollt, gehört der
+# Webhook zu ihm. Das ist der dritte der drei Verdächtigen unten - hier
+# nachgewiesen statt geraten: Ein Container, der seit dem Webhook neu
+# entstanden ist und nicht unserer ist, kann nur von diesem Ausrollen
+# stammen.
+fremder_stack() {
+  local jung
+  jung=$(docker ps --format '{{.Names}}' 2>/dev/null | while read -r name; do
+    [ "$name" = "$CONTAINER" ] && continue
+    created=$(docker inspect -f '{{.Created}}' "$name" 2>/dev/null || echo "")
+    stack=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' \
+      "$name" 2>/dev/null || echo "")
+    # Zeichenweiser Vergleich genügt: Beide Zeitangaben sind UTC in
+    # derselben Schreibweise (RFC 3339), und dort ist «später» dasselbe
+    # wie «grösser».
+    if [ -n "$created" ] && [ "$created" \> "${HOOK_ZEIT:-9999}" ]; then
+      echo "$name${stack:+ (Stack «$stack»)}"
+    fi
+  done | head -3)
+  [ -n "$jung" ] || return 0
+  echo "  Neu gestartet wurde stattdessen:"
+  echo "$jung" | sed 's/^/    /'
+  echo "    Der Webhook gehört also zu einem anderen Stack."
+}
+
 if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
   # Der alte Container bleibt bewusst stehen: Den Tausch macht Portainer
   # beim Ausrollen selbst. Scheitert es dort (etwa am Re-pull eines lokal
@@ -956,6 +1010,11 @@ if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
   # Genau das hat die Suche nach diesem Fehler unnötig lange gemacht.
   HOOK_BODY=$(mktemp)
   CURL_CODE=0
+  # Ab wann Portainers eigenes Protokoll interessant wird. Es läuft als
+  # Container auf demselben Rechner - was dort ab jetzt steht, gehört zu
+  # diesem Ausrollen und beantwortet die Frage, die dieses Skript sonst
+  # nur stellen kann («steht allein in Portainers Protokoll»).
+  HOOK_ZEIT=$(date -u +%Y-%m-%dT%H:%M:%S)
   # shellcheck disable=SC2086
   HTTP_CODE=$(curl -sS $INSECURE -o "$HOOK_BODY" -w '%{http_code}' \
     --max-time 60 -X POST "$HOOK_URL") || CURL_CODE=$?
@@ -1109,9 +1168,19 @@ if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
     if [ -n "$NOW_COMMIT" ]; then
       echo "  Im Container steckt weiterhin $NOW_COMMIT, gebaut ist $COMMIT."
     fi
+    # Portainers Protokoll, gefiltert auf die Zeilen ab dem Webhook.
+    # Genau hier stand bisher «steht allein in Portainers Protokoll» -
+    # eine Auskunft, die man nur per SSH bekam, während dieses Skript
+    # ohnehin mit Docker spricht und das Protokoll lesen kann. Fast
+    # immer steht dort der Klartext: ein gescheiterter Klon (Zugangsdaten
+    # abgelaufen), ein Compose-Fehler, ein fehlendes Abbild.
+    portainer_sagt
+    # Wurde stattdessen ein *anderer* Stack neu ausgerollt, gehört der
+    # Webhook zu ihm - Punkt 3 unten, nur eben nachgewiesen statt geraten.
+    fremder_stack
     echo "  Der Webhook meldet nur «angenommen»; was danach schiefgeht,"
-    echo "  steht allein in Portainers Protokoll - und das führt fast"
-    echo "  immer auf einen dieser drei Punkte:"
+    echo "  steht sonst allein in Portainers Protokoll - und das führt"
+    echo "  fast immer auf einen dieser drei Punkte:"
     echo "    1. «Re-pull image» ist im Stack an. Das Abbild entsteht hier"
     echo "       und liegt in keiner Registry, das Ziehen scheitert und"
     echo "       reisst das ganze Ausrollen mit. Ausschalten."

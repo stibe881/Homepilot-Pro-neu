@@ -267,6 +267,38 @@ In `rebuild-hub.sh` nach dem Bauen `docker tag homepilot-hub
 zurück auf den eigenen Rechner und gelingt. Mehr Aufwand, dafür
 unabhängig davon, was Portainer beim Ausrollen tut.
 
+## «Portainer hat den Container nicht gewechselt»
+
+Der Webhook kam durch (er antwortet mit «angenommen»), das Abbild ist
+gebaut – und im Container steckt trotzdem noch der alte Commit. Portainer
+hat den Stack also gar nicht neu ausgerollt.
+
+`rebuild-hub.sh` liest in diesem Fall neu **Portainers eigenes
+Protokoll** und stellt die Zeilen ab dem Webhook dazu; dort steht fast
+immer der Klartext. Von Hand ist es dieselbe Auskunft:
+
+```bash
+docker logs --since 10m portainer | grep -Ei 'err|fail|denied|stack'
+```
+
+Die drei Ursachen, in der Reihenfolge ihrer Häufigkeit:
+
+1. **Der Klon scheitert.** Bei einem Repo-Stack holt Portainer vor dem
+   Ausrollen das Repository – mit *seinen* Zugangsdaten, nicht denen aus
+   `github-credentials.env`. Läuft der Token ab, steht im Protokoll
+   «authentication required». Zu ändern in **Stacks → homepilot →
+   Repository → Authentication**.
+2. **Der Stack zeigt auf einen anderen Zweig** als den gebauten (`main`).
+   Dann klont Portainer etwas anderes, und der Stand im Container passt
+   zu keinem Bau.
+3. **Der Webhook gehört zu einem anderen Stack.** Auch das weist das
+   Skript neu nach: Es nennt die Container, die seit dem Webhook neu
+   gestartet sind – steht dort ein fremder Stack, ist es dieser Fall.
+
+Ausrollen von Hand geht immer über **Stacks → homepilot → Update the
+stack → Re-pull image AUS → Deploy**; der alte Stand läuft bis dahin
+unverändert weiter, das Haus ist also nicht offline.
+
 ## Damit der Platz nicht mehr knapp wird
 
 Drei Schritte, danach ist Ruhe. Der erste ist der wichtige.
