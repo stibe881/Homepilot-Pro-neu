@@ -293,7 +293,7 @@ function Schaubild({
     return (
       <View style={styles.schaubild}>
         <View style={styles.suchfeld}>
-          <Ionicons name="search-outline" size={16} color={colors.inkFaint} />
+          <Ionicons name="search" size={16} color={colors.inkFaint} />
           <Text style={styles.suchfeldText}>«ess» findet die Esstisch-Lampe</Text>
         </View>
       </View>

@@ -448,6 +448,27 @@ export const makeStyles = (colors: Colors) =>
       justifyContent: 'space-between',
       gap: 12,
     },
+    /** Szenen und Musik in einer Zeile - und wenn es eng wird,
+     *  untereinander: `wrap` statt zweier Zeilen von Anfang an. Auf dem
+     *  Telefon steht der Streifen damit unter den Szenen und nimmt die
+     *  ganze Breite, auf dem Tablet daneben im Feld, das vorher leer
+     *  war. */
+    raumUnterzeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      flexWrap: 'wrap',
+    },
+    /** Die Szenen nehmen, was übrig bleibt. `minWidth: 0` ist nicht
+     *  Zierde: Ohne das wächst die waagrechte Liste über ihren Platz
+     *  hinaus, und der Kopf schiebt die Seite seitlich hinaus. */
+    raumSzenen: { flexGrow: 1, flexShrink: 1, flexBasis: 220, minWidth: 0 },
+    /** Die aufgeklappte Musikkarte hängt unter ihrem Streifen, statt
+     *  sich über den ganzen Raum zu ziehen: Sie ist für eine Spalte
+     *  gebaut, und ein Lautstärkeregler von tausend Punkten Breite ist
+     *  kein Regler mehr, sondern ein Balken. Auf dem Telefon bleibt es
+     *  bei der vollen Breite - dort ist sie ohnehin nur eine. */
+    raumMusikkarte: { alignSelf: 'flex-end', width: '100%', maxWidth: 420 },
     raumKlimaBlock: { alignItems: 'flex-end' },
     raumKlimaTemp: {
       color: colors.onGradient,
@@ -460,6 +481,21 @@ export const makeStyles = (colors: Colors) =>
     },
     raumKlimaSub: { color: colors.onGradientSoft, fontSize: 12 },
     raumFakten: { color: colors.onGradientSoft, fontSize: 14, marginTop: 2 },
+    /** Faktenzeile und Männchen nebeneinander: «Alles aus · Türen zu»
+     *  und, solange sich etwas rührt, das Zeichen dahinter. */
+    raumFaktenZeile: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    /** Ein Kreis um das Männchen - auf dem Verlauf des Raumkopfs geht
+     *  ein blosses Strichmännchen unter, und es soll auffallen: Es steht
+     *  nur da, wenn wirklich jemand da ist. */
+    raumBewegung: {
+      width: 24,
+      height: 24,
+      borderRadius: radius.pill,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.surfaceSoft,
+      marginTop: 2,
+    },
     reorderButton: {
       flexDirection: 'row',
       alignItems: 'center',

@@ -1463,7 +1463,7 @@ function RecipeDetail({
                 accessibilityRole="button"
                 accessibilityLabel="Rezept bearbeiten"
               >
-                <Ionicons name="pencil-outline" size={19} color="#FFFFFF" />
+                <Ionicons name="create-outline" size={19} color="#FFFFFF" />
               </Pressable>
               <Pressable
                 onPress={() => {
@@ -2298,7 +2298,7 @@ export function RecipeBook({
               accessibilityRole="button"
               style={styles.vorschlagWurf}
             >
-              <Ionicons name="refresh" size={15} color={colors.accent} />
+              <Ionicons name="refresh-outline" size={15} color={colors.accent} />
               <Text style={styles.vorschlagWurfText}>Nochmal würfeln</Text>
             </Pressable>
           </View>

@@ -575,7 +575,7 @@ export function Musikzentrale({
           accessibilityLabel="Lautstärke nach Tageszeit einrichten"
           style={({ pressed }) => [styles.schalter, pressed && { opacity: 0.7 }]}
         >
-          <Ionicons name="add-circle-outline" size={16} color={colors.accent} />
+          <Ionicons name="add" size={16} color={colors.accent} />
           <Text style={styles.schalterText}>
             Einrichten – morgens leise, tagsüber laut, nachts fast aus
           </Text>
@@ -606,7 +606,7 @@ export function Musikzentrale({
               accessibilityLabel="Weiteren Plan für andere Boxen anlegen"
               style={({ pressed }) => [styles.schalter, pressed && { opacity: 0.7 }]}
             >
-              <Ionicons name="add-circle-outline" size={16} color={colors.accent} />
+              <Ionicons name="add" size={16} color={colors.accent} />
               <Text style={styles.schalterText}>
                 Eigener Plan für andere Boxen
               </Text>

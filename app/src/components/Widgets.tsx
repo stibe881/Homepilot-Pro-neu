@@ -301,7 +301,7 @@ export function Widgets({
                     ]}
                   >
                     <Ionicons
-                      name="add-circle-outline"
+                      name="add"
                       size={18}
                       color={colors.accent}
                     />
@@ -324,7 +324,7 @@ export function Widgets({
             neben die Liste, um die es geht. */}
         {ablage === 'ok' ? (
           <View style={styles.warn}>
-            <Ionicons name="checkmark-circle-outline" size={18} color={colors.on} />
+            <Ionicons name="checkmark-circle" size={18} color={colors.on} />
             <Text style={styles.warnText}>
               Die geteilte Ablage antwortet – Knöpfe und Hausstand
               liegen für das Widget bereit. Zeigt es trotzdem die
@@ -391,10 +391,11 @@ export function Widgets({
           eine Kachel, die bloss die App aufmachen würde, täte dort nichts.
         </Text>
         <Text style={styles.hint}>
-          Auf CarPlay fehlt es noch, und das liegt nicht am Code: Apple
-          lässt nur bestimmte Arten von Apps auf den Autobildschirm, und
-          eine Haussteuerung ist keine davon. Die Freigabe dafür muss
-          Apple erteilen (docs/auto.md).
+          In CarPlay stehen sie auf der Widget-Seite (ab iOS 26): nach
+          rechts wischen, oben rechts das Widget hinzufügen, HomePilot
+          wählen. Es sind die ersten vier Knöpfe, als Kachelwand mit
+          Beschriftung. Dafür braucht es keine Freigabe von Apple – die
+          bräuchte nur eine eigene CarPlay-App (docs/auto.md).
         </Text>
       </Card>
 

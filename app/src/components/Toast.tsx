@@ -111,7 +111,7 @@ export function Bestaetigung({
       style={[styles.wrapper, { bottom: bottomInset + 20 }]}
     >
       <View style={styles.toast}>
-        <Ionicons name="checkmark-circle-outline" size={20} color={colors.on} />
+        <Ionicons name="checkmark-circle" size={20} color={colors.on} />
         <Text style={styles.text} numberOfLines={2}>
           {text}
         </Text>
@@ -155,7 +155,7 @@ export function UndoToast({
   return (
     <View style={[styles.wrapper, { bottom: bottomInset + 20 }]} pointerEvents="box-none">
       <View style={styles.toast}>
-        <Ionicons name="checkmark-circle-outline" size={20} color={colors.on} />
+        <Ionicons name="checkmark-circle" size={20} color={colors.on} />
         <Text style={styles.text} numberOfLines={2}>
           {what.name} {what.label}
         </Text>

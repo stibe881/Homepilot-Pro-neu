@@ -7,6 +7,15 @@
 import {
   Gutschein,
   ablaufSatz,
+  bilanzSatz,
+  buchungSatz,
+  gebunden,
+  nachLaden,
+  restHinweis,
+  stornieren,
+  stornoPruefen,
+  uebergeben,
+  verfallen,
   ablaufStufe,
   abziehen,
   abzugPruefen,
@@ -209,7 +218,14 @@ describe('abziehen', () => {
     const neu = abziehen(brack, 30, 'Sandra', jetzt);
     expect(neu.left).toBe(50);
     expect(neu.transactions).toHaveLength(2);
-    expect(neu.transactions?.[1]).toEqual({ at: jetzt.toISOString(), amount: 30, by: 'Sandra' });
+    expect(neu.transactions?.[1]).toEqual({
+      at: jetzt.toISOString(),
+      amount: 30,
+      by: 'Sandra',
+      // Seit Punkt 302 trägt jede Buchung ihre Art - ohne sie liesse
+      // sich ein Abzug nicht von seiner Rücknahme unterscheiden.
+      art: 'abzug',
+    });
     // Das Original bleibt, wie es war.
     expect(brack.left).toBe(80);
   });
@@ -523,5 +539,120 @@ describe('Karte mitbringen', () => {
 
   test('ein neuer Gutschein verlangt die Karte nicht von selbst', () => {
     expect(leeresFormular().physical).toBe(false);
+  });
+});
+
+describe('Buchung zurücknehmen (Punkt 302)', () => {
+  const heute = new Date('2026-09-10T12:00:00Z');
+  // Zwei Zeitpunkte: `verlauf` sortiert nach `at`, und bei gleichem
+  // Zeitstempel wäre «die jüngste Buchung» eine Münze.
+  const spaeter = new Date('2026-09-10T12:05:00Z');
+  const basis = (): Gutschein =>
+    alsGutschein({
+      shop: 'Brack',
+      unit: 'chf',
+      total: 100,
+      left: 100,
+      expires: null,
+      shared: 'familie',
+    });
+
+  it('bucht zurück, statt die Zeile zu löschen', () => {
+    // Der Verlauf ist die Antwort auf «wer hat den Gutschein
+    // gebraucht?» - einer, aus dem Zeilen verschwinden, beantwortet sie
+    // nicht mehr.
+    const abgezogen = abziehen(basis(), 30, 'Stefan', heute);
+    const buchung = verlauf(abgezogen)[0];
+    expect(stornoPruefen(abgezogen, buchung)).toBeNull();
+    const zurueck = stornieren(abgezogen, buchung, 'Stefan', spaeter);
+    expect(zurueck.left).toBe(100);
+    expect(zurueck.transactions).toHaveLength(2);
+    expect(buchungSatz(zurueck, verlauf(zurueck)[0])).toBe('30.00 CHF zurückgebucht');
+  });
+
+  it('lässt denselben Abzug nicht zweimal zurücknehmen', () => {
+    const abgezogen = abziehen(basis(), 30, 'Stefan', heute);
+    const buchung = verlauf(abgezogen)[0];
+    const zurueck = stornieren(abgezogen, buchung, 'Stefan', spaeter);
+    expect(stornoPruefen(zurueck, buchung)).toBe('Dieser Abzug ist schon zurückgenommen.');
+  });
+
+  it('nimmt keine Rücknahme zurück', () => {
+    const abgezogen = abziehen(basis(), 30, 'Stefan', heute);
+    const zurueck = stornieren(abgezogen, verlauf(abgezogen)[0], 'Stefan', spaeter);
+    expect(stornoPruefen(zurueck, verlauf(zurueck)[0])).toBe(
+      'Eine Rücknahme lässt sich nicht zurücknehmen.'
+    );
+  });
+});
+
+describe('Übergeben (Punkt 306)', () => {
+  it('wechselt den Besitzer und hält es im Verlauf fest', () => {
+    // Geteilt heisst «alle sehen ihn», übergeben heisst «er gehört
+    // jetzt dir» - bei einem privaten Gutschein der einzige Weg.
+    const eintrag = alsGutschein({
+      shop: 'Kino',
+      unit: 'chf',
+      total: 50,
+      left: 50,
+      expires: null,
+      shared: 'privat',
+      author: 'Stefan',
+    });
+    const neu = uebergeben(eintrag, 'Bine', 'Stefan', new Date('2026-09-10T12:00:00Z'));
+    expect(neu.author).toBe('Bine');
+    expect(buchungSatz(neu, verlauf(neu)[0])).toBe('Übergeben an Bine');
+    expect(neu.left).toBe(50);
+  });
+});
+
+describe('Restwert und Läden (Punkt 303, 305)', () => {
+  it('sagt beim kleinen Rest, dass sich die Fahrt nicht lohnt', () => {
+    expect(restHinweis({ left: 3.2, total: 100, unit: 'chf' })).toBe(
+      'Kleiner Rest – beim nächsten Einkauf mitnehmen'
+    );
+    expect(restHinweis({ left: 60, total: 100, unit: 'chf' })).toBe('');
+    // Bei kleinen Gutscheinen wäre ein Zehntel zu wenig - fünf Franken
+    // sind die Untergrenze.
+    expect(restHinweis({ left: 4, total: 20, unit: 'chf' })).toBe(
+      'Kleiner Rest – beim nächsten Einkauf mitnehmen'
+    );
+    expect(restHinweis({ left: 0, total: 20, unit: 'chf' })).toBe('');
+  });
+
+  it('fasst je Laden zusammen, das meiste Guthaben zuerst', () => {
+    const heute = '2026-09-10';
+    const mach = (shop: string, left: number, unit: 'chf' | 'stk' = 'chf') =>
+      alsGutschein({ shop, unit, total: left, left, expires: null, shared: 'familie' });
+    const gruppen = nachLaden(
+      [mach('Coop', 20), mach('Coop', 30), mach('Kino', 100), mach('Bad', 5, 'stk')],
+      heute
+    );
+    expect(gruppen.map((gruppe) => [gruppe.shop, gruppe.summe])).toEqual([
+      ['Kino', 100],
+      ['Coop', 50],
+      // Fünf Eintritte plus nichts sind keine fünf Franken.
+      ['Bad', 0],
+    ]);
+  });
+});
+
+describe('Kennzahlen (Punkt 307)', () => {
+  const mach = (left: number, expires: string | null) =>
+    alsGutschein({ shop: 'X', unit: 'chf', total: left, left, expires, shared: 'familie' });
+
+  it('zählt, was bereitliegt - ohne das Verfallene', () => {
+    const heute = '2026-09-10';
+    const liste = [mach(100, null), mach(50, '2027-01-01'), mach(30, '2026-01-01')];
+    expect(gebunden(liste, heute)).toBe(150);
+    expect(verfallen(liste, heute)).toEqual({ summe: 30, anzahl: 1 });
+  });
+
+  it('nennt die unangenehme Zahl nur, wenn es sie gibt', () => {
+    const heute = '2026-09-10';
+    expect(bilanzSatz([mach(100, null)], heute)).toBe('100.00 CHF liegen bereit');
+    expect(bilanzSatz([mach(100, null), mach(30, '2026-01-01')], heute)).toBe(
+      '100.00 CHF liegen bereit · 30.00 CHF verfallen'
+    );
   });
 });

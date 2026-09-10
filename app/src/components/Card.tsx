@@ -10,6 +10,8 @@ import {
   ViewStyle,
 } from 'react-native';
 
+import { dauer, hinweis } from '../lib/langdruck';
+
 import { Colors, radius, type, useColors } from '../theme';
 
 /** Gemeinsame Glaskachel: Fläche, Rundung, Schatten. */
@@ -69,8 +71,17 @@ export function Card({
       <Pressable
         onPress={onPress}
         onLongPress={onLongPress}
+        // Eine Dauer fürs ganze Haus statt der Vorgabe von React Native:
+        // Was eine Kachel per Langdruck öffnet, ist ein Blatt oder ein
+        // Menü - nichts, was kaputtgeht, und dafür ist die Vorgabe von
+        // einer halben Sekunde zu lang (lib/langdruck.ts).
+        delayLongPress={dauer('schnell')}
         accessibilityRole="button"
         accessibilityLabel={label}
+        // Ohne das ist der Langdruck für jemanden, der die App vorlesen
+        // lässt, schlicht nicht da: VoiceOver liest onLongPress nicht
+        // von selbst vor.
+        accessibilityHint={onLongPress ? hinweis('Zeigt mehr zu dieser Kachel', 'schnell') : undefined}
         style={({ pressed }) => [...content, pressed && { opacity: 0.85 }]}
       >
         {inhalt}

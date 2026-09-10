@@ -97,6 +97,26 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # ohne_pin_erlaubt() - dort steht, warum das kein Loch in der PIN ist
     # und wann man den Schalter trotzdem umlegt.
     "automation_disarm": True,
+    # Löst gemeldete Sabotage wirklich aus, oder wird sie nur gemeldet?
+    # Aus, und das ist eine bewusste Abweichung von dem, was echte
+    # Anlagen tun - die Begründung steht in core/alarmwache.py: Um drei
+    # Uhr nachts wegen einer leeren Knopfzelle geweckt zu werden, ist
+    # der schnellste Weg zu einer Anlage, die niemand mehr scharf
+    # schaltet.
+    "sabotage_alarm": False,
+    # Meldet die Anlage überhaupt, wenn ihr während scharf die Sicht
+    # abhandenkommt? An: Ein Ausfall, der sich als Ruhe tarnt, ist
+    # genau das, was man nicht selbst bemerkt.
+    "notify_blind": True,
+    # Nach einem Alarm eine Zusammenfassung schicken - was zuerst kam,
+    # was folgte, wer beendet hat (core/alarmbericht.py).
+    "notify_bericht": True,
+    # Was bei Anwesenheit von selbst geschieht: «aus», «vorschlagen»
+    # oder «automatisch» (core/alarmanwesenheit.py). Scharf zu schalten
+    # ist die harmlose Richtung und darf deshalb weiter gehen als das
+    # Entschärfen, das mit einem fremden Telefon die Anlage aufhebt.
+    "presence_arm": "vorschlagen",
+    "presence_disarm": "vorschlagen",
 }
 
 def ohne_pin_erlaubt(quelle: Any, settings: dict[str, Any]) -> bool:

@@ -26,6 +26,15 @@ export interface Transaktion {
   amount: number;
   by: string;
   note?: string;
+  /** Was für eine Buchung das ist (Punkt 302/306 der Werkbank).
+   *
+   *  Fehlt sie, ist es ein Abzug - so standen alle Buchungen da, bevor
+   *  es etwas anderes gab. `storno` nimmt einen Abzug zurück (mit
+   *  negativem `amount`), `uebergabe` hält fest, dass der Gutschein den
+   *  Besitzer gewechselt hat. */
+  art?: 'abzug' | 'storno' | 'uebergabe';
+  /** Auf welche Buchung sich ein Storno bezieht (deren `at`). */
+  storniert?: string;
 }
 
 /** Ein Gutschein, wie er in der Familiensammlung `vouchers` liegt. */
@@ -640,6 +649,7 @@ export function abziehen(entry: Gutschein, betrag: number, by: string, now: Date
     at: now.toISOString(),
     amount: Math.round(Math.min(abzug, entry.left) * 100) / 100,
     by: String(by ?? '').trim() || '?',
+    art: 'abzug',
   };
   return { ...entry, left, transactions: [...(entry.transactions ?? []), buchung] };
 }
@@ -823,4 +833,205 @@ export function verlaufLeerbild(): Leerbild {
     titel: 'Bisher keine Einlösungen erfasst.',
     satz: 'Jeder Abzug landet hier – mit Datum und wer es war.',
   };
+}
+
+// ── Korrigieren, weitergeben, zusammenzählen ─────────────────────────────
+
+/**
+ * Ist diese Buchung schon zurückgenommen? (rein, testbar)
+ *
+ * Damit derselbe Abzug nicht zweimal storniert wird - zweimal wäre der
+ * Rest zu hoch, und das merkt man erst an der Kasse.
+ */
+export function schonStorniert(entry: Gutschein, buchung: Transaktion): boolean {
+  return (entry.transactions ?? []).some(
+    (eintrag) => eintrag.art === 'storno' && eintrag.storniert === buchung.at
+  );
+}
+
+/**
+ * Warum eine Buchung nicht zurückgenommen werden kann - oder null
+ * (rein, testbar).
+ */
+export function stornoPruefen(entry: Gutschein, buchung: Transaktion): string | null {
+  if (buchung.art === 'storno') return 'Eine Rücknahme lässt sich nicht zurücknehmen.';
+  if (buchung.art === 'uebergabe') return 'Eine Übergabe ist kein Abzug.';
+  if (schonStorniert(entry, buchung)) return 'Dieser Abzug ist schon zurückgenommen.';
+  const zurueck = Math.round((entry.left + buchung.amount) * 100) / 100;
+  if (zurueck > entry.total + 0.005) {
+    return 'Damit stünde mehr drauf, als je drauf war.';
+  }
+  return null;
+}
+
+/**
+ * Einen Abzug zurücknehmen (rein, testbar).
+ *
+ * Abziehen ging, korrigieren nicht - wer sich vertippte, hatte einen
+ * falschen Restwert für immer. Zurückgenommen wird durch eine
+ * Gegenbuchung und nicht durch Löschen: Der Verlauf ist die Antwort auf
+ * «wer hat den Brack-Gutschein gebraucht?», und ein Verlauf, aus dem
+ * Zeilen verschwinden, beantwortet sie nicht mehr.
+ */
+export function stornieren(
+  entry: Gutschein,
+  buchung: Transaktion,
+  by: string,
+  now: Date
+): Gutschein {
+  const left = Math.min(
+    entry.total,
+    Math.round((entry.left + buchung.amount) * 100) / 100
+  );
+  const gegen: Transaktion = {
+    at: now.toISOString(),
+    amount: -buchung.amount,
+    by: String(by ?? '').trim() || '?',
+    art: 'storno',
+    storniert: buchung.at,
+  };
+  return { ...entry, left, transactions: [...(entry.transactions ?? []), gegen] };
+}
+
+/**
+ * Den Gutschein jemandem im Haushalt übergeben (rein, testbar).
+ *
+ * Nicht dasselbe wie Teilen: Geteilt heisst «alle sehen ihn», übergeben
+ * heisst «er gehört jetzt dir». Bei einem privaten Gutschein ist das
+ * der einzige Weg, ihn weiterzugeben, ohne ihn allen zu zeigen - und
+ * der Verlauf hält fest, wer ihn wann bekommen hat. Sonst sucht ihn
+ * später jemand bei sich, während er längst bei einem anderen liegt.
+ */
+export function uebergeben(
+  entry: Gutschein,
+  an: string,
+  von: string,
+  now: Date
+): Gutschein {
+  const empfaenger = String(an ?? '').trim();
+  if (!empfaenger) return entry;
+  const buchung: Transaktion = {
+    at: now.toISOString(),
+    amount: 0,
+    by: String(von ?? '').trim() || '?',
+    art: 'uebergabe',
+    note: `an ${empfaenger}`,
+  };
+  return { ...entry, author: empfaenger, transactions: [...(entry.transactions ?? []), buchung] };
+}
+
+/**
+ * Was eine Verlaufszeile sagt (rein, testbar).
+ *
+ * Ein negativer Betrag mit Minuszeichen wäre für eine Rücknahme
+ * mathematisch richtig und zum Lesen falsch: «-20.00» steht schon beim
+ * Abzug da. Hier steht, was passiert ist.
+ */
+export function buchungSatz(entry: Gutschein, buchung: Transaktion): string {
+  const betrag = betragText(Math.abs(buchung.amount), entry.unit);
+  if (buchung.art === 'storno') return `${betrag} zurückgebucht`;
+  if (buchung.art === 'uebergabe') return `Übergeben ${buchung.note ?? ''}`.trim();
+  return `${betrag} abgezogen`;
+}
+
+/**
+ * Ab wann der Rest die Fahrt nicht mehr lohnt (rein, testbar).
+ *
+ * Ein Zehntel des ursprünglichen Werts, mindestens aber fünf Franken:
+ * «Noch CHF 3.20 drauf» ist eine andere Auskunft als «CHF 3.20 übrig» -
+ * sie sagt, dass man den Gutschein beim nächsten Einkauf mitnimmt,
+ * statt für ihn loszufahren.
+ */
+export function restHinweis(entry: Pick<Gutschein, 'left' | 'total' | 'unit'>): string {
+  if (entry.left <= 0) return '';
+  if (entry.unit === 'stk') return entry.left === 1 ? 'Noch einmal' : '';
+  const schwelle = Math.max(5, entry.total * 0.1);
+  if (entry.left > schwelle) return '';
+  return 'Kleiner Rest – beim nächsten Einkauf mitnehmen';
+}
+
+/**
+ * Die Gutscheine je Laden, mit Summe (rein, testbar).
+ *
+ * Drei Gutscheine bei Coop sind ein Betrag, keine drei Karten. Läden
+ * mit dem meisten Guthaben zuerst - das ist die Reihenfolge, in der man
+ * sie beim Einkaufen braucht.
+ */
+export function nachLaden(
+  list: Gutschein[],
+  heute: string | Date
+): { shop: string; summe: number; eintraege: Gutschein[] }[] {
+  const topf = new Map<string, Gutschein[]>();
+  for (const eintrag of verfuegbar(list ?? [])) {
+    if (ablaufStufe(eintrag.expires, heute) === 'abgelaufen') continue;
+    const name = String(eintrag.shop ?? '').trim() || 'Ohne Laden';
+    topf.set(name, [...(topf.get(name) ?? []), eintrag]);
+  }
+  return [...topf.entries()]
+    .map(([shop, eintraege]) => ({
+      shop,
+      // Nur Franken zählen zusammen: Fünf Eintritte plus zwanzig Franken
+      // sind keine fünfundzwanzig von irgendetwas.
+      summe:
+        Math.round(
+          eintraege
+            .filter((eintrag) => eintrag.unit === 'chf')
+            .reduce((wert, eintrag) => wert + eintrag.left, 0) * 100
+        ) / 100,
+      eintraege,
+    }))
+    .sort((a, b) => b.summe - a.summe || a.shop.localeCompare(b.shop));
+}
+
+/**
+ * Wie viel Geld gerade gebunden daliegt (rein, testbar).
+ *
+ * Die Zahl, die das Modul rechtfertigt - und die vorher nirgends stand.
+ * Abgelaufene zählen nicht mit: Sie sind kein Guthaben mehr, sondern
+ * eine Lehre.
+ */
+export function gebunden(list: Gutschein[], heute: string | Date): number {
+  return summe(
+    (list ?? []).filter((eintrag) => ablaufStufe(eintrag.expires, heute) !== 'abgelaufen'),
+    heute
+  );
+}
+
+/**
+ * Was verfallen ist, seit einem Stichtag (rein, testbar).
+ *
+ * Die unangenehme Zahl, und genau darum die wichtige: Sie ist das
+ * Argument dafür, die Ablauf-Erinnerung ernst zu nehmen.
+ */
+export function verfallen(
+  list: Gutschein[],
+  heute: string | Date,
+  seit?: string
+): { summe: number; anzahl: number } {
+  const abgelaufen = (list ?? []).filter(
+    (eintrag) =>
+      ablaufStufe(eintrag.expires, heute) === 'abgelaufen' &&
+      eintrag.left > 0 &&
+      eintrag.unit === 'chf' &&
+      (!seit || (eintrag.expires ?? '') >= seit)
+  );
+  return {
+    summe: Math.round(abgelaufen.reduce((wert, eintrag) => wert + eintrag.left, 0) * 100) / 100,
+    anzahl: abgelaufen.length,
+  };
+}
+
+/**
+ * Der Satz über der Sammlung (rein, testbar).
+ *
+ * Zwei Zahlen, mehr nicht: was da ist, und was letztes Jahr verfallen
+ * ist. Die zweite steht nur da, wenn es sie gibt - «CHF 0.00 verfallen»
+ * ist eine Zeile ohne Auskunft.
+ */
+export function bilanzSatz(list: Gutschein[], heute: string | Date, seit?: string): string {
+  const da = gebunden(list, heute);
+  const weg = verfallen(list, heute, seit);
+  const kopf = da > 0 ? `${betragText(da, 'chf')} liegen bereit` : 'Kein Guthaben';
+  if (weg.summe <= 0) return kopf;
+  return `${kopf} · ${betragText(weg.summe, 'chf')} verfallen`;
 }

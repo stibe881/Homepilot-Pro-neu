@@ -20,7 +20,14 @@ from fastapi import (
     Response,
 )
 
-from ...core import bilder, dateien, familienbuch, gutscheine, rezeptimport
+from ...core import (
+    beleglesen,
+    bilder,
+    dateien,
+    familienbuch,
+    gutscheine,
+    rezeptimport,
+)
 from ...core import shopping as shopping_module
 from ...core import trash as trash_module
 from ...core import vorrat as vorrat_module
@@ -375,6 +382,38 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         if collection not in dateien.ORDNER:
             raise HTTPException(status_code=404, detail="Diese Liste führt keine Dateien")
         return datei_liefern(collection, item_id, request, v)
+
+    @app.get("/api/family/{collection}/{item_id}/belegtext")
+    async def family_file_text(
+        collection: str, item_id: str, request: Request
+    ) -> dict[str, Any]:
+        """Der Text des angehängten Belegs (Punkt 298 der Werkbank).
+
+        Damit die App Betrag, Nummer und Ablaufdatum vorschlagen kann,
+        statt dass jemand sie abtippt - gelesen wird der Text drüben
+        (lib/gutscheinlesen.ts), hier wird er nur herausgeholt.
+
+        Dieselbe Sichtbarkeitsprüfung wie bei der Datei selbst: Der Text
+        eines privaten Gutscheins ist der Gutschein.
+
+        Fehlt das Extra `pypdf`, kommt `verfuegbar: false` zurück und
+        kein Fehler - der Knopf bleibt dann dunkel, eintragen geht
+        weiterhin von Hand.
+        """
+        if collection not in dateien.ORDNER:
+            raise HTTPException(status_code=404, detail="Diese Liste führt keine Dateien")
+        user = family_user(request)
+        ordner = dateien_ordner(collection)
+        kennung = bilder.safe_id(item_id)
+        if ordner is None or kennung is None:
+            raise HTTPException(status_code=404, detail="Keine Datei")
+        anhang_eintrag(collection, kennung, user, "Keine Datei")
+        for datei in sorted(ordner.glob(f"{kennung}.*")) if ordner.exists() else []:
+            text = beleglesen.aus_datei(
+                datei.read_bytes(), dateien.media_type(datei.name)
+            )
+            return {"text": text, "verfuegbar": beleglesen.verfuegbar()}
+        raise HTTPException(status_code=404, detail="Keine Datei")
 
     @app.get("/api/family")
     async def family_all(request: Request) -> dict[str, Any]:

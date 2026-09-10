@@ -129,6 +129,10 @@ def unwetter(state: dict[str, Any]) -> dict[str, str] | None:
             "grund": grund,
             "severity": str(alert.get("severity") or ""),
             "bis": str(alert.get("expires") or ""),
+            # Ab wann die Warnung gilt. Stand schon immer in den Daten
+            # (integrations/meteoalarm.py), wurde aber nirgends benutzt -
+            # jetzt hängt die Vorwarnung daran (core/sturmvorwarnung.py).
+            "onset": str(alert.get("onset") or ""),
         }
         if bester is None or rang[grund] > rang[bester["grund"]]:
             bester = treffer

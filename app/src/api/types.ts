@@ -213,6 +213,12 @@ export interface HubSettings {
    *  Wandpanel im Flur will den Plan, das Telefon in der Tasche die
    *  Kacheln, und beide gehören derselben Person. */
   grundriss?: boolean;
+  /** Wie eng die Kacheln stehen: «luftig», «normal», «eng»
+   *  (lib/dichte.ts). Am Gerät und nicht an der Person - genau wie der
+   *  Grundriss darüber: Das Wandpanel im Flur liest man aus zwei
+   *  Metern und will grosse Kacheln, das iPad auf dem Sofa will die
+   *  Wohnung auf einen Blick, und beide gehören derselben Person. */
+  dichte?: string;
   /** Kindermodus: Dieses Gerät zeigt nur die Kinderseite des genannten
    *  Kindes - für das Tablet im Kinderzimmer. Ohne Alarm, Storen und
    *  den Rest der Wohnung; nur die Einstellungen bleiben erreichbar,

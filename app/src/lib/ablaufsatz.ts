@@ -209,8 +209,13 @@ function aktionSatz(
       return `Szene «${scenes.find((s) => s.id === action.scene)?.name ?? action.scene}»`;
     case 'hue_scene':
       return `Hue-Szene «${action.scene}»`;
-    case 'notify':
-      return 'Nachricht';
+    case 'notify': {
+      // «5 s später» gehört in die Zeile: Sonst sieht ein Ablauf, der
+      // absichtlich wartet, genauso aus wie einer, der sofort meldet -
+      // und man sucht den Unterschied im Editor.
+      const wartet = Number(action.delay) || 0;
+      return wartet > 0 ? `Nachricht, ${wartet} s später` : 'Nachricht';
+    }
     case 'broadcast':
       return 'Durchsage';
     case 'presence':

@@ -1,6 +1,8 @@
 import type { Ionicons } from '@expo/vector-icons';
 
 import { Entity } from '../api/types';
+import { istBewegungsmelder } from './bewegung';
+import { zaehltAlsAn } from './geraeteart';
 import { istKlimaFuehler } from './klimachip';
 import { istKontakt, kontaktArt, openContacts } from './offen';
 import { aktiveVorgabe } from './storenvorgaben';
@@ -140,9 +142,7 @@ export function raumFakten(items: Entity[], hidden: string[] = []): string {
   const sichtbar = items.filter(
     (entity) => !entity.combined_into && !hidden.includes(entity.id)
   );
-  const bedienbar = sichtbar.filter(
-    (entity) => entity.kind !== 'sensor' && entity.commands.length > 0
-  );
+  const bedienbar = sichtbar.filter(zaehltAlsAn);
   const an = bedienbar.filter(
     (entity) => entity.state.state === 'on' || entity.state.state === 'playing'
   ).length;
@@ -362,7 +362,13 @@ export function raumKategorien(
       // eine Kachel je Kontakt - für eine Auskunft, die «zu» lautet.
       // Bedienen lässt sich ein Kontakt ohnehin nicht; wer seine
       // Batterie sehen will, findet ihn unter Geräte.
-      !istKontakt(entity)
+      !istKontakt(entity) &&
+      // Und aus demselben Grund die Bewegungsmelder: eine ganze
+      // Kategorie «Bewegungsmelder» für die Auskunft «Ruhig». Bewegt
+      // sich etwas, sagt es das Männchen im Raumkopf und auf der
+      // Raumkachel (lib/bewegung.ts) - und das steht dort, wo man
+      // hinsieht, statt eine Kachelreihe weiter unten.
+      !istBewegungsmelder(entity)
   );
   const labels = Array.from(new Set(rest.map(kindLabel))).sort((a, b) =>
     a.localeCompare(b)

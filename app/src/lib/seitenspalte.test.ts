@@ -1,10 +1,9 @@
-import { panelContent, showsRoomPlayer } from './seitenspalte';
+import { panelContent } from './seitenspalte';
 
 const ALLES = {
   inRoom: false,
   weather: true,
   housePlayer: true,
-  roomPlayer: true,
 };
 
 describe('panelContent', () => {
@@ -12,7 +11,6 @@ describe('panelContent', () => {
     expect(panelContent(ALLES)).toEqual({
       weather: true,
       housePlayer: true,
-      roomPlayer: true,
       anything: true,
     });
   });
@@ -25,8 +23,12 @@ describe('panelContent', () => {
     expect(imRaum.housePlayer).toBe(false);
   });
 
-  it('behält im Zimmer die Box dieses Raums', () => {
-    expect(panelContent({ ...ALLES, inRoom: true }).roomPlayer).toBe(true);
+  it('lässt die Spalte im Zimmer ganz weg', () => {
+    // Auch die Box des Zimmers stand hier einmal. Sie steht jetzt oben
+    // im Raumkopf (components/Raumspieler.tsx) - damit bleibt für die
+    // Spalte im Zimmer nichts übrig, und die Kacheln bekommen die
+    // Breite.
+    expect(panelContent({ ...ALLES, inRoom: true }).anything).toBe(false);
   });
 
   it('trägt keine Wetterwarnung mehr', () => {
@@ -37,61 +39,10 @@ describe('panelContent', () => {
   });
 
   it('meldet eine leere Spalte, statt Platz zu beanspruchen', () => {
-    // Im Zimmer ohne eigene Box bleibt nichts übrig - dann darf dort
-    // auch keine Fläche stehen.
-    const leer = panelContent({
-      inRoom: true,
-      weather: true,
-      housePlayer: true,
-      roomPlayer: false,
-    });
-    expect(leer.anything).toBe(false);
+    // Eine Spalte, die ihre 340 Punkte für nichts beansprucht, hatte
+    // die Startseite schon einmal.
     expect(
-      panelContent({
-        ...ALLES,
-        weather: false,
-        housePlayer: false,
-        roomPlayer: false,
-      }).anything
+      panelContent({ inRoom: false, weather: false, housePlayer: false }).anything
     ).toBe(false);
-  });
-});
-
-describe('showsRoomPlayer', () => {
-  it('zeigt die Raumbox, wenn sie eine andere ist als die des Hauses', () => {
-    expect(
-      showsRoomPlayer({
-        inRoom: false,
-        roomPlayerId: 'sonos.kueche',
-        housePlayerId: 'spotify.player',
-      })
-    ).toBe(true);
-  });
-
-  it('zeigt dieselbe Box nicht zweimal, solange die Hauskarte dasteht', () => {
-    expect(
-      showsRoomPlayer({
-        inRoom: false,
-        roomPlayerId: 'sonos.kueche',
-        housePlayerId: 'sonos.kueche',
-      })
-    ).toBe(false);
-  });
-
-  it('zeigt sie im Zimmer auch dann, wenn es dieselbe ist', () => {
-    // Die Karte des Hauses ist dort weg - ohne diese Ausnahme
-    // verschwände die Musik ausgerechnet im Zimmer, in dem sie spielt.
-    expect(
-      showsRoomPlayer({
-        inRoom: true,
-        roomPlayerId: 'sonos.kueche',
-        housePlayerId: 'sonos.kueche',
-      })
-    ).toBe(true);
-  });
-
-  it('zeigt nichts, wo keine Box steht', () => {
-    expect(showsRoomPlayer({ inRoom: true, roomPlayerId: null })).toBe(false);
-    expect(showsRoomPlayer({ inRoom: false })).toBe(false);
   });
 });

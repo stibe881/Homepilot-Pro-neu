@@ -47,6 +47,7 @@ from . import (
     livekarten,
     metrics,
     persistence,
+    pushruhe,
     pushverlauf,
     raumbilder,
     stromrueckkehr,
@@ -276,6 +277,7 @@ class Hub:
             self.data.set("push_prefs", gewandelt)
             log.info("Push-Einstellungen: «Nachricht aus einem Ablauf» aufgeteilt")
         self.push.muted = push_service.parse_muted(self.data.get("push_prefs"))
+        self.push_einstellungen_lesen()
         # Angemeldete Telefone zurückholen und künftige Änderungen sichern.
         # Ohne das wäre nach jedem Neustart niemand erreichbar, bis alle
         # ihre App wieder geöffnet haben - und ausgerechnet nach einem
@@ -293,6 +295,11 @@ class Hub:
                 self.data.get(pushverlauf.STORE_KEY), eintrag, time.time()
             ),
         )
+        # Der Tagesdeckel: Der Push-Dienst fragt, der Hub zählt. Der
+        # Zählerstand muss einen Neustart überstehen, sonst wäre ein
+        # Update das Rezept, um den Deckel zu umgehen - und ausgerechnet
+        # nach einem Update wird viel gemeldet.
+        self.push.bremse = self._push_deckel
         for problem in self._config_problems():
             log.warning("Konfiguration: %s", problem)
         log.info(
@@ -604,6 +611,46 @@ class Hub:
         # Muss vor dem Setup der Integrationen stehen, damit neu angelegte
         # Entitäten ihren gespeicherten Zustand mitbekommen.
         self.registry.state_provider = store.restored_state
+
+    def push_einstellungen_lesen(self) -> None:
+        """Ruhezeiten und Stillgestelltes in den Push-Dienst spiegeln.
+
+        Wie ``muted``: Der Dienst soll die Ablage nicht kennen müssen,
+        aber die Auswahl der Empfänger ist die eine Stelle, an der über
+        persönliche Einstellungen entschieden wird. Wird nach jedem
+        Speichern erneut gerufen - sonst gölte die neue Ruhezeit erst
+        nach dem nächsten Neustart, und genau das sucht man dann eine
+        Stunde lang.
+        """
+        jetzt = time.time()
+        ruhe: dict[str, Any] = {}
+        still: dict[str, dict[str, float]] = {}
+        for eintrag in self.data.get("push_prefs") or []:
+            if not isinstance(eintrag, dict):
+                continue
+            name = str(eintrag.get("user") or "")
+            if not name:
+                continue
+            ruhe[name] = pushruhe.ruhe_lesen(eintrag.get("ruhe"))
+            still[name] = pushruhe.still_lesen(eintrag.get("still"), jetzt)
+        self.push.ruhe = ruhe
+        self.push.still = still
+
+    def _push_deckel(self, category: str) -> str | None:
+        """Ist der Tagesdeckel dieser Kategorie erreicht? (siehe pushruhe.py)
+
+        Zählt gleich mit, wenn nicht: Der Push-Dienst ruft das genau
+        einmal je Meldung, und ein getrenntes Hochzählen wäre eine
+        zweite Stelle, die jemand vergessen kann.
+        """
+        tag = datetime.now().strftime("%Y-%m-%d")
+        stand = self.data.get(pushruhe.DECKEL_KEY)
+        if pushruhe.ueber_deckel(stand, category, tag):
+            return pushruhe.GRUND_DECKEL
+        neu = pushruhe.hochzaehlen(stand, category, tag)
+        if neu != stand:
+            self.data.set(pushruhe.DECKEL_KEY, neu)
+        return None
 
     def _config_problems(self) -> list[str]:
         """Was in der config.yaml auffällt – einmal beim Start ins Log.

@@ -1,10 +1,10 @@
 # HomePilot im Auto
 
 Was im Auto möglich ist, entscheiden nicht wir, sondern Google und
-Apple. Beide lassen nur bestimmte Arten von Apps auf den
-Autobildschirm, und beide geben Vorlagen vor statt einer eigenen
-Oberfläche. Das ist keine Schikane: Es ist der Grund, warum man das
-Ganze während der Fahrt überhaupt bedienen darf.
+Apple. Beide lassen keine eigene Oberfläche auf den Autobildschirm,
+sondern nur Vorgefertigtes: bei Google Vorlagen, bei Apple ein Widget.
+Das ist keine Schikane, sondern der Grund, warum man das Ganze während
+der Fahrt überhaupt bedienen darf.
 
 Deshalb steht hier zuerst, was geht und was nicht – und erst danach,
 wie es gebaut ist.
@@ -16,13 +16,25 @@ eine eigene Schublade (`androidx.car.app.category.IOT`), und in die
 passen wir hinein. Es braucht niemandes Erlaubnis, solange die App
 nicht in den Play Store soll.
 
-**CarPlay: nicht gebaut, weil es nicht darf.** Apples Liste der
-zugelassenen Arten kennt Audio, Navigation, Parken, Laden, Tanken,
-Essensbestellung, Nachrichten, öffentliche Sicherheit und
-«Fahraufgaben» – eine Haussteuerung ist keine davon. Ohne eine
-Berechtigung von Apple erscheint die App auf keinem CarPlay-Bildschirm,
-auch nicht auf dem eigenen, auch nicht über TestFlight. Der Antrag
-steht unten.
+**CarPlay: gebaut – über das Widget, nicht über eine CarPlay-App.**
+Hier steckt die Unterscheidung, an der man sich zuerst verrennt:
+
+- Eine **eigene CarPlay-App** (ein `UIApplicationSceneManifest` mit
+  `CPTemplateApplicationScene`) braucht eine Berechtigung von Apple.
+  Deren Liste kennt Audio, Navigation, Parken, Laden, Tanken,
+  Essensbestellung, Nachrichten, öffentliche Sicherheit und
+  «Fahraufgaben» – eine Haussteuerung ist keine davon. Ohne die
+  Berechtigung läuft so eine App auf keinem CarPlay-Bildschirm, auch
+  nicht auf dem eigenen.
+- Die **Widget-Seite in CarPlay** – seit iOS 26 – nimmt ganz normale
+  WidgetKit-Widgets an, ohne Berechtigung, ohne Antrag, ohne App Store.
+  Wer ein Widget hat, das `.systemSmall` kann, ist schon dort.
+
+Deshalb ist die iOS-Seite **nicht** über eine CarPlay-App gebaut,
+sondern über das Widget, das es ohnehin gibt. Dass in der alten
+Haussteuerung «CarPlay einfach funktionierte, ohne einen Antrag zu
+stellen», ist genau dieser Weg: Was ohne Apples Zutun im Auto landet,
+sind Widgets und Siri – nicht eine App mit eigenen CarPlay-Bildschirmen.
 
 ## Was im Auto steht
 
@@ -40,12 +52,18 @@ Eine zweite Liste zu pflegen wäre eine zweite Liste zum Vergessen.
 
 ```
 App (Widget-Einstellungen)
-  └── lib/auto.ts          Welche Knöpfe taugen fürs Auto (rein, testbar)
-       └── lib/autoablage.ts   schreibt sie in den Topf
-            └── AutoAblageModule.kt   SharedPreferences «homepilot_auto»
-                 └── HomePilotAutoDienst.kt   liest sie, zeichnet Kacheln,
-                     schickt den Befehl an den Hub
+  ├── Android: lib/auto.ts   Welche Knöpfe taugen fürs Auto (rein, testbar)
+  │    └── lib/autoablage.ts   schreibt sie in den Topf
+  │         └── AutoAblageModule.kt   SharedPreferences «homepilot_auto»
+  │              └── HomePilotAutoDienst.kt   liest sie, zeichnet Kacheln,
+  │                  schickt den Befehl an den Hub
+  └── iOS: lib/widget.ts     schreibt sie in die App-Gruppe
+       └── targets/widget/index.swift   dasselbe Widget wie am Homescreen,
+           in CarPlay als Knopfwand (KleineFassung → AutoKnopfwand)
 ```
+
+Auf iOS gibt es also keine eigene Auto-Ablage: Das Widget steht schon
+da, und CarPlay zeigt es. Nur die Darstellung ist eine andere.
 
 Der Autodienst startet, wenn jemand das Telefon einsteckt – oft ohne
 dass die App je offen war. Er kann deshalb nichts erfragen: Adresse,
@@ -76,40 +94,40 @@ starten»**. Ohne «Unbekannte Quellen» zeigt Android Auto nur Apps aus
 dem Play Store – die eigene erscheint nicht, und man sucht den Fehler
 im Code.
 
-## Der Antrag bei Apple
+## Die Widget-Seite in CarPlay
 
-Ohne Berechtigung kein CarPlay. Beantragt wird sie unter
-<https://developer.apple.com/contact/carplay/> mit dem
-Entwickler-Konto, das die App baut. Was dort hineingehört – zum
-Abschreiben:
+Auf dem Autobildschirm nach rechts wischen, oben rechts das Plus,
+HomePilot wählen. Danach steht es dort, solange das Telefon am Auto
+hängt – wie ein Widget auf dem Homescreen, nur breiter als hoch.
 
-> **App:** HomePilot (ch.stibe.homepilot)
-> **Kategorie:** Driving task
->
-> HomePilot steuert das eigene Zuhause. Im Auto braucht es davon genau
-> drei Dinge, und alle drei betreffen die Fahrt selbst: das Garagentor
-> öffnen, während man in die Einfahrt einbiegt; die Alarmanlage scharf
-> schalten, nachdem man losgefahren ist; das Licht einschalten, bevor
-> man ankommt.
->
-> Die App zeigt dafür eine feste Kachelwand mit höchstens acht
-> Knöpfen, die der Benutzer vorher am Telefon zusammenstellt. Keine
-> Listen, kein Scrollen, keine Eingabe, keine Bilder, kein Video, kein
-> Ton. Ein Tipp schickt genau einen Befehl an den eigenen Hub im
-> Haushalt; danach steht eine Zeile Rückmeldung da.
->
-> Die App wird nicht im App Store verkauft; sie läuft in einem
-> Haushalt und wird über TestFlight verteilt.
+Gezeigt wird dieselbe kleine Grösse wie auf dem Homescreen, aber mit
+einem anderen Inhalt (`app/targets/widget/index.swift`,
+`KleineFassung`). Woran das Widget merkt, wo es steht:
 
-Erfahrungsgemäss ist die Antwort auf so etwas oft ein Nein – eine
-Haussteuerung steht nicht auf Apples Liste. Deshalb ist die iOS-Seite
-bewusst **nicht** vorgebaut: Ein `UIApplicationSceneManifest` für
-CarPlay in der `Info.plist` fasst den Start der ganzen App an, und
-dafür ein Risiko einzugehen, solange die Berechtigung fehlt, wäre die
-falsche Reihenfolge. Kommt die Zusage, ist die Arbeit klein: Die
-Knopfliste liegt schon fertig da (`lib/auto.ts`), es fehlt eine
-`CPTemplateApplicationScene` mit einem `CPGridTemplate` – dieselben
-Kacheln, dieselben Befehle.
+```swift
+@Environment(\.showsWidgetContainerBackground) var mitHintergrund
+```
+
+Das ist falsch, wo das System keinen Kasten hinter das Widget zeichnet –
+in StandBy und in CarPlay. Dort erscheint statt Hausstand, Maschine und
+einer Reihe blosser Symbole (`KleinAufHomescreen`) eine Knopfwand
+(`AutoKnopfwand`): zwei mal zwei, jeder Knopf mit Beschriftung und mit
+einer Fläche zum Treffen. Der Grund steht am Code – am Steuer ist
+«welcher war noch der linke?» die falsche Frage, und die Trefferfläche
+eines blossen Symbols sind seine Striche.
+
+Geschaltet wird über denselben `SchaltIntent` wie auf dem Homescreen:
+`Button(intent:)` statt `Link`, also ohne dass das Telefon aufwacht.
+Ein Knopf ohne ⚡ bleibt ein `Link` und täte im Auto nichts – deshalb
+lohnt es, fürs Auto die ersten vier auf «direkt schalten» zu stellen.
+
+Was es dafür **nicht** braucht: keinen Antrag, keine Berechtigung, kein
+`UIApplicationSceneManifest`, keine Zeile im nativen Projekt. Das Widget
+gibt es seit `runtimeVersion` 5/6 ohnehin; CarPlay holt es sich selbst.
+
+Bleibt es nach einem Update leer, ist es der übliche Verdächtige: Das
+Widget liest aus der App-Gruppe, und die füllt die App beim Öffnen
+(`lib/widget.ts`). Einmal HomePilot am Telefon starten genügt.
 
 ## Was bewusst fehlt
 

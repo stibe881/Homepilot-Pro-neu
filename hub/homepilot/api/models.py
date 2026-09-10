@@ -196,6 +196,26 @@ class PushPrefsRequest(BaseModel):
     muted: list[str] = []
 
 
+class PushRuhezeitRequest(BaseModel):
+    """Die Nacht einer Person: von wann bis wann nichts brummt.
+
+    Ganze Stunden, weil man seine Nachtruhe in ganzen Stunden denkt -
+    «ab 22:15» wäre eine Genauigkeit, die niemand braucht und die den
+    Einsteller doppelt so gross macht.
+    """
+
+    enabled: bool = False
+    von: int = 22
+    bis: int = 7
+
+
+class PushStillRequest(BaseModel):
+    """Eine Kategorie auf Zeit stillstellen (0 hebt es wieder auf)."""
+
+    category: str
+    stunden: float = 24.0
+
+
 class BatteryPrefsRequest(BaseModel):
     """Erinnerungsstunde und Schwelle der Batteriewarnung (Punkt 258)."""
 

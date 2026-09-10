@@ -26,6 +26,13 @@ interface Props {
   bereich?: string;
   /** Statt der Standardmeldung etwas Eigenes zeigen. */
   fallback?: React.ReactNode;
+  /** Ins Absturzbuch des Geräts eintragen (hooks/useAbstuerze.ts).
+   *
+   *  Ohne das erfährt niemand davon: Auf dem Telefon tippt man auf
+   *  «Nochmals», es geht weiter, und beim nächsten Mal denkt man «das
+   *  war schon mal». Auf dem Wandpanel im Flur sieht es überhaupt
+   *  keiner. */
+  onFehler?: (bereich: string, meldung: string) => void;
 }
 
 interface State {
@@ -43,7 +50,10 @@ export class Auffangnetz extends React.Component<Props, State> {
     // In die Konsole, nicht zum Hub: Ein Zeichenfehler in der App ist
     // nichts, was der Hub beheben könnte, und ein Fehlerbericht, der bei
     // jedem Bildaufbau erneut abgeht, wäre schlimmer als der Fehler.
-    console.error(`Fehler in «${this.props.bereich ?? 'der Ansicht'}»:`, fehler, info);
+    const bereich = this.props.bereich ?? 'der Ansicht';
+    console.error(`Fehler in «${bereich}»:`, fehler, info);
+    // Und ins Buch auf dem Gerät, damit es unter System nachzulesen ist.
+    this.props.onFehler?.(bereich, String(fehler?.message || fehler));
   }
 
   private nochmal = () => this.setState({ fehler: null });

@@ -4,6 +4,7 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Entity, Scene } from '../api/types';
 import { raumDunkel, raumSymbol, raumZeile } from '../lib/raum';
+import { bewegungImRaum } from '../lib/bewegung';
 import { Raumaktion, kachelKnoepfe, raumFarben, raumStand } from '../lib/raumkarte';
 import { useJetzt } from '../hooks/useRestzeit';
 import { Colors, radius, useColors } from '../theme';
@@ -88,6 +89,11 @@ export function RoomCard({
   // wo Licht brennt. Räume ohne Lampen bleiben, wie sie sind
   // (lib/raum.ts: raumDunkel).
   const dunkel = useMemo(() => raumDunkel(items), [items]);
+  // Bewegt sich etwas im Zimmer, steht ein Männchen hinter «alles
+  // ruhig» - die Auskunft, für die der Melder früher eine eigene Kachel
+  // im Raum hatte (lib/bewegung.ts). Auf der Übersicht ist sie am
+  // meisten wert: Man sieht von aussen hin, ohne das Zimmer zu öffnen.
+  const bewegung = useMemo(() => bewegungImRaum(items), [items]);
 
   return (
     <Card style={{ ...styles.karte, width }} onPress={onOpen} onLongPress={onLongPress}>
@@ -160,9 +166,20 @@ export function RoomCard({
       </View>
 
       <View style={styles.unten}>
-        <Text style={styles.stand} numberOfLines={1}>
-          {stand}
-        </Text>
+        <View style={styles.standZeile}>
+          <Text style={[styles.stand, { flexShrink: 1 }]} numberOfLines={1}>
+            {stand}
+          </Text>
+          {bewegung ? (
+            <View
+              accessibilityRole="image"
+              accessibilityLabel={`Bewegung in ${name}`}
+              style={styles.bewegung}
+            >
+              <Ionicons name="walk" size={13} color={colors.on} />
+            </View>
+          ) : null}
+        </View>
         {aktionen.length > 0 ? (
           <View style={styles.knoepfe}>
             {aktionen.map((aktion) => (
@@ -264,6 +281,20 @@ const makeStyles = (colors: Colors) =>
     // einer höheren Kachel klaffte dort ein Loch.
     unten: { flex: 1, padding: 14, gap: 10 },
     stand: { color: colors.inkSoft, fontSize: 13 },
+    standZeile: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    /** Das Männchen in der Farbe, die auf dieser Kachel «hier ist
+     *  etwas» heisst - dieselbe wie ein eingeschalteter Knopf. Ein
+     *  grauer Strich neben grauem Text läse sich als Verzierung. */
+    bewegung: {
+      width: 20,
+      height: 20,
+      borderRadius: radius.pill,
+      alignItems: 'center',
+      justifyContent: 'center',
+      // Derselbe grüne Hauch wie ein eingeschalteter Zustand
+      // (`onSoft`): Er heisst auf jeder Kachel «hier ist gerade etwas».
+      backgroundColor: colors.onSoft,
+    },
     // Ans untere Ende: So stehen die Knöpfe zweier Kacheln nebeneinander
     // auf derselben Linie, auch wenn die eine mehr zu sagen hat.
     knoepfe: { flexDirection: 'row', gap: 8, marginTop: 'auto' },

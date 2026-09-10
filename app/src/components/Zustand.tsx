@@ -41,6 +41,54 @@ export function Laedt({ was, klein }: { was: string; klein?: boolean }) {
 }
 
 /**
+ * Ein Umriss von dem, was gleich kommt.
+ *
+ * Der Unterschied zum {@link Laedt} darüber ist nicht Zierde: Ein
+ * Spinner sagt «warte», ein Umriss sagt «hier kommen drei Kacheln hin».
+ * Das erste beantwortet die Frage nicht, die man beim Öffnen einer Seite
+ * hat - *ist da etwas?* -, und deshalb tippt man in der Wartezeit
+ * herum, statt hinzusehen. Und wenn die Kacheln dann kommen, springt
+ * die Seite: Der Spinner nahm eine Zeile ein, der Inhalt nimmt
+ * fünfhundert Punkte.
+ *
+ * Deshalb hat der Umriss die Grösse dessen, was er ersetzt. Wo er
+ * steht, steht danach etwas gleich Grosses, und nichts springt.
+ *
+ * Bewusst ohne Animation: Ein pulsierender Block, der eine halbe
+ * Sekunde lang zu sehen ist, ist Unruhe ohne Auskunft - und im Haus ist
+ * der Hub im selben Netz, also ist es fast immer eine halbe Sekunde.
+ * Wer die App von unterwegs öffnet, sieht ihn länger, und dann ist ein
+ * ruhiger Umriss angenehmer als ein blinkender.
+ */
+export function Umriss({
+  zeilen = 3,
+  hoehe = 64,
+  was,
+}: {
+  /** Wie viele Blöcke - so viele, wie danach dastehen werden. */
+  zeilen?: number;
+  /** Wie hoch einer davon ist. Kachelhöhe, Zeilenhöhe, was passt. */
+  hoehe?: number;
+  /** Was hier geladen wird - für die Vorlesehilfe. Ein Umriss ohne das
+   *  ist für jemanden, der die App vorlesen lässt, gar nichts. */
+  was: string;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return (
+    <View
+      style={styles.umrissBlock}
+      accessibilityRole="progressbar"
+      accessibilityLabel={`${was} werden geladen`}
+    >
+      {Array.from({ length: Math.max(1, zeilen) }, (_, index) => (
+        <View key={index} style={[styles.umriss, { height: hoehe }]} />
+      ))}
+    </View>
+  );
+}
+
+/**
  * Angekommen, aber leer.
  *
  * `hinweis` ist der wichtigere Teil: Ein leerer Bildschirm, der nur «Keine
@@ -113,6 +161,13 @@ export function Fehlschlag({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
+    umrissBlock: { gap: 10 },
+    umriss: {
+      borderRadius: radius.card,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
     reihe: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     reiheKlein: { paddingVertical: 4 },
     reiheGross: { paddingVertical: 18, justifyContent: 'center' },

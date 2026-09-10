@@ -306,6 +306,39 @@ Jede Erkennung führt zusätzlich einen Zeitstempel (`last_baby_cry`).
 Deshalb löst auch das zweite Schreien aus, wenn das Feld noch auf «on»
 steht – ohne den Stempel liesse die Änderungsprüfung es durchfallen.
 
+## Das Bild in der Nachricht – und wann es entsteht
+
+Eine Nachricht aus einem Ablauf kann ein Kamerabild mitbringen. Aufgenommen
+wird es **beim Senden**, nicht beim Anschauen: Bis jemand das Telefon aus
+der Tasche zieht, ist der Besucher längst weg.
+
+Damit auf dem Bild auch jemand zu sehen ist, gibt es zwei Wege – und sie
+greifen ineinander:
+
+- **Von selbst.** Kann die Kamera Personen erkennen, wartet der Hub im
+  Hintergrund bis zu zehn Sekunden darauf, dass sie eine meldet, und
+  reicht das Bild von *diesem* Moment nach. Die Nachricht selbst wartet
+  dabei nie: Sie trägt nur eine Adresse, die das Telefon abruft
+  (`hub/homepilot/core/personenbild.py`).
+- **Von Hand, je Nachricht.** Im Ablauf-Editor steht beim Schritt
+  «Nachricht» eine Zeile **Sofort / Nach 3 s / Nach 5 s / Nach 10 s**.
+  Damit geht die ganze Nachricht später raus – und das Bild entsteht
+  erst dann.
+
+Der zweite Weg ist für die Fälle, in denen der erste nichts ausrichten
+kann: Ein Türkontakt meldet, während die Person noch hinter der Türe
+steht. Gemeldet aus dem Haus als «Jemand hat die Türe geöffnet» – mit
+einem Bild von einem leeren Raum. Fünf Sekunden später steht sie im Bild.
+
+Bei der Türklingel wäre dieselbe Verzögerung ein Fehler: Dort steht der
+Besucher schon da, und die Meldung soll sofort kommen. Deshalb je
+Nachricht einstellbar und nicht fest.
+
+Der Rest des Ablaufs wartet nicht mit – Licht und Szene laufen sofort.
+Wer den *ganzen* Ablauf anhalten will, nimmt den Schritt «Warten».
+Länger als eine Minute wartet keine Nachricht: Was so spät kommt, ist
+keine Meldung mehr, sondern ein Eintrag im Protokoll.
+
 ## Reihenfolge der Kacheln
 
 Auf der Seite **Kameras** steht über den Kacheln ein Schalter mit zwei

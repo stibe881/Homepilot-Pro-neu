@@ -422,6 +422,91 @@ struct KnopfInhalt<Inhalt: View>: View {
     }
 }
 
+/// Die kleine Grösse auf dem Homescreen: Hausstand, Maschine, Knöpfe.
+struct KleinAufHomescreen: View {
+    var entry: Provider.Entry
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            StatusZeile(glance: entry.glance)
+            // Nur die erste: Auf dem kleinen Widget nimmt jede weitere
+            // Zeile den Knöpfen ihren Platz, und sie stehen ohnehin nach
+            // Restzeit - oben ist die, für die man aufsteht.
+            if let maschine = entry.maschinen.first {
+                MaschinenZeile(maschine: maschine)
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: 14) {
+                // Nur die ersten vier: Mehr Symbole laufen auf der
+                // kleinen Grösse ineinander.
+                ForEach(Array(entry.shortcuts.prefix(4)), id: \.url) { knopf in
+                    KnopfInhalt(knopf: knopf) {
+                        Image(systemName: knopf.symbol)
+                    }
+                }
+            }
+        }
+        .padding(4)
+    }
+}
+
+/// Dieselbe Grösse, aber sie sieht nach, wo sie steht.
+///
+/// `showsWidgetContainerBackground` ist falsch, wo das System keinen
+/// Hintergrund hinter das Widget zeichnet: in StandBy und **auf dem
+/// CarPlay-Bildschirm**. Seit iOS 26 hat CarPlay eine Widget-Seite -
+/// deshalb braucht HomePilot für den Autobildschirm keine CarPlay-App
+/// und keine Berechtigung von Apple (docs/auto.md).
+@available(iOS 17.0, *)
+struct KleineFassung: View {
+    @Environment(\.showsWidgetContainerBackground) var mitHintergrund
+    var entry: Provider.Entry
+
+    var body: some View {
+        if mitHintergrund {
+            KleinAufHomescreen(entry: entry)
+        } else {
+            AutoKnopfwand(knoepfe: Array(entry.shortcuts.prefix(4)))
+        }
+    }
+}
+
+/// Die Knopfwand für StandBy und CarPlay.
+///
+/// Zwei mal zwei statt einer Reihe zu vier: Auf dem Autobildschirm ist
+/// die Fläche breiter als hoch, und ein Symbol, das man im Fahren
+/// treffen soll, darf nicht so gross sein wie eines, das man auf dem
+/// Homescreen sucht. Beschriftet sind sie trotzdem - «welcher war noch
+/// der linke?» ist am Steuer die falsche Frage.
+struct AutoKnopfwand: View {
+    let knoepfe: [Shortcut]
+
+    var body: some View {
+        let spalten = [GridItem(.flexible()), GridItem(.flexible())]
+        LazyVGrid(columns: spalten, spacing: 10) {
+            ForEach(knoepfe, id: \.url) { knopf in
+                KnopfInhalt(knopf: knopf) {
+                    VStack(spacing: 4) {
+                        Image(systemName: knopf.symbol)
+                            .font(.title2)
+                            .frame(height: 24)
+                        Text(knopf.title)
+                            .font(.caption2)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    // Eine Fläche zum Treffen, nicht nur ein Symbol:
+                    // Ohne den Hintergrund ist die Trefferfläche genau
+                    // so gross wie die Striche des Symbols.
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+                }
+            }
+        }
+    }
+}
+
 struct HomePilotWidgetView: View {
     @Environment(\.widgetFamily) var family
     var entry: Provider.Entry
@@ -462,27 +547,15 @@ struct HomePilotWidgetView: View {
                 }
             }
         case .systemSmall:
-            VStack(alignment: .leading, spacing: 8) {
-                StatusZeile(glance: entry.glance)
-                // Nur die erste: Auf dem kleinen Widget nimmt jede
-                // weitere Zeile den Knöpfen ihren Platz, und sie stehen
-                // ohnehin nach Restzeit - oben ist die, für die man
-                // aufsteht.
-                if let maschine = entry.maschinen.first {
-                    MaschinenZeile(maschine: maschine)
-                }
-                Spacer(minLength: 0)
-                HStack(spacing: 14) {
-                    // Nur die ersten vier: Mehr Symbole laufen auf der
-                    // kleinen Grösse ineinander.
-                    ForEach(Array(entry.shortcuts.prefix(4)), id: \.url) { knopf in
-                        KnopfInhalt(knopf: knopf) {
-                            Image(systemName: knopf.symbol)
-                        }
-                    }
-                }
+            if #available(iOS 17.0, *) {
+                // Ab iOS 17 weiss das Widget, ob das System einen
+                // Hintergrund hinter es zeichnet - und damit, ob es auf
+                // dem Homescreen steht oder frei in StandBy bzw. auf dem
+                // CarPlay-Bildschirm.
+                KleineFassung(entry: entry)
+            } else {
+                KleinAufHomescreen(entry: entry)
             }
-            .padding(4)
         default:
             VStack(alignment: .leading, spacing: 8) {
                 HStack {

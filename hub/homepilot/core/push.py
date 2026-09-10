@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
 import aiohttp
 
+from . import pushruhe
 from .users import Role
 
 log = logging.getLogger(__name__)
@@ -145,6 +147,28 @@ KNOEPFE_OFFEN = "offen"
 #: wieder, als wäre nichts geschehen.
 KNOEPFE_GIESSEN = "giessen"
 
+# Einmal durch alle Kategorien gegangen, und die Frage war jedes Mal
+# dieselbe: Gibt es hier einen Handgriff, den man mit einem Daumen auf
+# dem Sperrbildschirm erledigen kann - und stimmt seine Beschriftung?
+#
+# Drei Gruppen sind absichtlich leer geblieben:
+#
+# - **Da läuft man hin.** Wasser, Klingel, ein weinendes Kind, der
+#   abgelaufene Timer, der vorgeheizte Ofen. Wer «später» drückt,
+#   verschiebt nichts, er verpasst es.
+# - **Da gibt es nichts zu tun.** Ausfall, Flattern, gefahrene Storen,
+#   die Morgen-Zusammenfassung, der Wochenausblick, das leere Telefon,
+#   die scharf geschaltete Anlage. Ein Knopf wäre eine Attrappe.
+# - **Da wäre «später» die falsche Auskunft.** Termin und Losfahren
+#   hängen an einer Uhrzeit; in dreissig Minuten ist der Termin
+#   vorbei. Und beim Alarm gehört das, was hilft, ohnehin nicht auf
+#   einen Bildschirm, den jeder sieht, der das Telefon vom Tisch nimmt.
+#
+# «Erledigt» steht nur dort, wo der Druck wirklich etwas quittiert -
+# also bei der Batterie, die ihre Kennung mitschickt. Bei der Wartung
+# stand er auch einmal, ohne dass eine Kennung mitreiste: Die App fand
+# nichts zu quittieren und tat schlicht nichts. Ein Knopf, der nichts
+# tut und «Erledigt» heisst, ist schlimmer als keiner.
 _KNOEPFE: dict[str, str] = {
     "open": KNOEPFE_OFFEN,
     "plants": KNOEPFE_GIESSEN,
@@ -152,7 +176,25 @@ _KNOEPFE: dict[str, str] = {
     "shopping": KNOEPFE_SPAETER,
     "medication": KNOEPFE_SPAETER,
     "battery": KNOEPFE_ERLEDIGT,
-    "maintenance": KNOEPFE_ERLEDIGT,
+    # Nachsehen geht man, wenn man ohnehin unten ist.
+    "device_down": KNOEPFE_SPAETER,
+    "maintenance": KNOEPFE_SPAETER,
+    "vacuum": KNOEPFE_SPAETER,
+    # Aufräumen tut man am Rechner, nicht am Telefon - erinnern lassen
+    # ist hier der einzig ehrliche Handgriff.
+    "disk": KNOEPFE_SPAETER,
+    # Die Pflanzen holt man herein, wenn man das nächste Mal aufsteht.
+    "frost": KNOEPFE_SPAETER,
+    "rain": KNOEPFE_SPAETER,
+    # Ein Vorschlag, kein Befehl: In einer halben Stunde nochmal fragen
+    # ist genau das, was man damit macht.
+    "heat_covers": KNOEPFE_SPAETER,
+    # «Erledigt» wäre gelogen, solange der Druck das Ämtli nicht
+    # wirklich abhakt - «später» ist es nicht.
+    "tasks": KNOEPFE_SPAETER,
+    "birthday": KNOEPFE_SPAETER,
+    "packlist": KNOEPFE_SPAETER,
+    "vouchers": KNOEPFE_SPAETER,
 }
 
 
@@ -465,12 +507,18 @@ class PushResult:
     accepted: int = 0
     errors: list[str] = field(default_factory=list)
     ticket_ids: list[str] = field(default_factory=list)
+    #: Gesetzt, wenn gar nicht erst gesendet wurde - Tagesdeckel,
+    #: Ruhezeit, stillgestellt. Kein Fehler: Die Meldung steht auf dem
+    #: Nachlese-Zettel, sie hat bloss nicht gebrummt. Ohne dieses Feld
+    #: sähe «0 angenommen, 0 Fehler» aus wie ein stiller Ausfall.
+    zurueckgehalten: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "accepted": self.accepted,
             "errors": list(self.errors),
             "ticket_ids": list(self.ticket_ids),
+            "zurueckgehalten": self.zurueckgehalten,
         }
 
 
@@ -568,6 +616,13 @@ class PushService:
     # Benutzername → abbestellte Kategorien. Der Hub füllt das aus den
     # gespeicherten Einstellungen.
     muted: dict[str, set[str]]
+    # Benutzername → Ruhezeit, und Benutzername → was gerade auf Zeit
+    # stillsteht. Aus derselben Quelle wie ``muted`` und aus demselben
+    # Grund hier: Der Push-Dienst soll die Ablage nicht kennen müssen,
+    # aber die Auswahl der Empfänger ist die eine Stelle, an der über
+    # persönliche Einstellungen entschieden wird (core/pushruhe.py).
+    ruhe: dict[str, dict[str, Any]]
+    still: dict[str, dict[str, float]]
 
     def __init__(self, session_factory=None) -> None:
         self._devices: dict[str, PushDevice] = {}
@@ -580,6 +635,14 @@ class PushService:
         # wie bei on_change: kein DataStore hier drin.
         self.on_sent: Any = None
         self.muted = {}
+        self.ruhe = {}
+        self.still = {}
+        # Wird vom Hub gesetzt: «Darf diese Kategorie jetzt noch?» Der
+        # Tagesdeckel braucht einen Zählerstand, der Neustarts übersteht,
+        # und der liegt in der hub.data. Ein Rückruf statt eines
+        # DataStore - derselbe Schnitt wie bei on_change und on_sent.
+        # Gibt den Grund zurück oder None.
+        self.bremse: Any = None
         self._session_factory = session_factory or (
             lambda: aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15))
         )
@@ -640,6 +703,26 @@ class PushService:
             self._changed()
         return gone
 
+    def zurueckhaltung(self, name: str, category: str | None) -> str | None:
+        """Warum diese Person diese Meldung gerade nicht bekommt (rein genug).
+
+        Nicht das Abbestellen - das ist eine Entscheidung auf Dauer und
+        steht in ``muted``. Hier geht es um das, was von selbst wieder
+        aufhört: die Nacht und das Stillstellen auf Zeit. Was nie
+        zurückgehalten wird, steht in ``pushruhe.IMMER_DURCH``.
+
+        Die Stunde kommt aus der Ortszeit des Hubs - dieselbe Uhr, nach
+        der der Wächter seine Morgenmeldung schickt.
+        """
+        if not category:
+            return None
+        return pushruhe.haelt_zurueck(
+            category,
+            ruhe=self.ruhe.get(name),
+            still=self.still.get(name),
+            stunde=time.localtime().tm_hour,
+        )
+
     def recipients(
         self, users: list[Any], to: str = "all", category: str | None = None
     ) -> list[str]:
@@ -651,7 +734,9 @@ class PushService:
         ``category`` ist die Art der Nachricht. Wer sie in seinem Profil
         abbestellt hat, fällt hier heraus – das ist die einzige Stelle, an
         der das geprüft wird, damit keine Nachrichtenart die Einstellung
-        versehentlich übergeht.
+        versehentlich übergeht. Dasselbe gilt seit Neuestem für die
+        Ruhezeit und das Stillstellen auf Zeit: Auch sie gehören hierher
+        und nicht an die dreissig Stellen, die melden.
         """
         by_name = {user.name: user for user in users}
         tokens = []
@@ -660,6 +745,8 @@ class PushService:
             if user is None:
                 continue
             if category and category in self.muted.get(device.user, set()):
+                continue
+            if self.zurueckhaltung(device.user, category) is not None:
                 continue
             if to == "all":
                 if user.role != Role.GUEST:
@@ -695,9 +782,40 @@ class PushService:
         Zeitpunkt noch gar nicht. Was das bedeutet, steht in
         ``core/snapshots.py``.
         """
-        if not tokens:
-            return PushResult()
         valid = [token for token in tokens if is_expo_token(token)]
+
+        # Wer ein Telefon angemeldet hat, die Kategorie nicht abbestellt
+        # hat und trotzdem nichts bekommt: Ruhezeit oder stillgestellt.
+        # ``recipients`` hat diese Tokens schon aussortiert - hier wird
+        # bloss noch aufgeschrieben, wem etwas entgeht. Ohne das wäre die
+        # Nacht ein Loch: Die Meldung käme nirgends an und stünde auch
+        # auf keinem Zettel.
+        durchgelassen = set(valid)
+        zurueck: dict[str, str] = {}
+        for device in self.devices:
+            if not device.user or device.token in durchgelassen:
+                continue
+            if category and category in self.muted.get(device.user, set()):
+                continue
+            grund = self.zurueckhaltung(device.user, category)
+            if grund is not None:
+                zurueck[device.user] = grund
+
+        # Der Tagesdeckel gilt fürs Haus, nicht für eine Person: Er
+        # begrenzt, was der Hub *schickt*. Erreicht heisst, dass niemand
+        # sie bekommt - nachlesen kann man sie trotzdem.
+        deckel = self.bremse(category) if (category and self.bremse is not None) else None
+        if deckel:
+            valid = []
+
+        grund = deckel or (sorted(set(zurueck.values()))[0] if zurueck else None)
+        if not tokens and grund is None:
+            # Kein Telefon angemeldet - das ist kein Zurückhalten, und
+            # ein Zettel, den niemand lesen kann, hilft niemandem. Auf
+            # ``tokens`` geprüft und nicht auf ``valid``: Ein Token, den
+            # Expo nie ausgestellt hat, ist ein Fehler und soll unten
+            # als solcher gemeldet werden, nicht hier still verschwinden.
+            return PushResult()
         stufe = dringlichkeit(category)
         kategorie_knoepfe = knoepfe(category)
         # Die Kategorie reist auch in den Nutzdaten mit: Beim
@@ -726,8 +844,6 @@ class PushService:
             }
             for token in valid
         ]
-        if not messages:
-            return PushResult(errors=["Kein gültiger Expo-Push-Token angemeldet"])
 
         if self.on_sent is not None:
             # Vor dem Versand vermerkt: Auch eine Meldung, die bei Expo
@@ -741,6 +857,11 @@ class PushService:
                 }
             )
             alle = {device.user for device in self.devices if device.user}
+            # Wer zurückgehalten wurde, steht mit auf dem Zettel - für
+            # ihn ist es genau die Meldung, die er verpasst hat. Der
+            # Grund reist mit, sonst liest sich der Zettel wie eine
+            # Meldung, die man übersehen hat.
+            gesehen = sorted(set(empfaenger) | set(zurueck))
             self.on_sent(
                 {
                     "title": title,
@@ -748,9 +869,17 @@ class PushService:
                     "category": category,
                     # Ging es an alle Telefone, bleibt die Liste leer -
                     # «an alle» soll auch für morgen Angemeldete gelten.
-                    "to": [] if set(empfaenger) >= alle else empfaenger,
+                    "to": [] if set(gesehen) >= alle and not zurueck else gesehen,
+                    "held": grund,
+                    "held_for": sorted(zurueck),
                 }
             )
+
+        if not messages:
+            if grund is not None:
+                log.info("Push «%s» zurückgehalten: %s", title, grund)
+                return PushResult(zurueckgehalten=grund)
+            return PushResult(errors=["Kein gültiger Expo-Push-Token angemeldet"])
 
         session = self._session_factory()
         try:

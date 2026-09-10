@@ -60,7 +60,8 @@ Alles läuft ohne Netz und in unter einer Minute:
 cd hub && pip install -e ".[dev]"
 pytest -q            # ~620 Tests
 ruff check .         # muss sauber sein
-mypy homepilot       # noch nicht bindend, aber lies, was es sagt
+python3 tools/mypy_sauber.py   # bindend: die Module in mypy-sauber.txt
+mypy homepilot       # der Rest - zur Ansicht, noch nicht bindend
 
 # App
 cd app && npm ci
@@ -185,7 +186,7 @@ nicht `test_mode_2`.
 | etwas dauerhaft speichern willst | `hub.data` (`core/persistence.py`) – **nie** Geheimnisse ins Repo |
 | eine Push-Nachricht anlegst | `hub/homepilot/core/pushziel.py` – jede Kategorie braucht ein Ziel, ein Test hält das fest |
 | eine Einstellung der Oberfläche anlegst | `app/src/hooks/usePrefs.ts` (ganze Bildschirme) oder `app/src/lib/persoenlich.ts` (einzelne Schlüssel tief in einer Kachel) – **nie** in den Speicher der App: Übersicht in `docs/einstellungen.md` |
-| an der Startseite arbeitest | `app/src/screens/DashboardScreen.tsx`, `components/TopStrip.tsx`, `SidePanel.tsx` – die Vollbilder (Klingel, Kamera, Erinnerung) und die Stiltafel liegen in `screens/dashboard/` |
+| an der Startseite arbeitest | `app/src/screens/DashboardScreen.tsx`, `components/TopStrip.tsx`, `SidePanel.tsx` – die Vollbilder (Klingel, Kamera, Erinnerung) und die Stiltafel liegen in `screens/dashboard/`. Im offenen Zimmer bleibt die Spalte rechts leer: Wetter und Hausmusik gehören dort nicht hin, und die Box des Zimmers steht im Raumkopf (`components/Raumspieler.tsx`, `lib/kopfmusik.ts`) |
 | einen Punkt in den Einstellungen anlegst | die Liste in `app/src/screens/DashboardScreen.tsx` **und** eine Gruppe in `app/src/lib/einstellungsgruppen.ts` – sonst steht er auf dem Telefon unter «Weitere» |
 | wissen willst, was der Hub über die Storen weiss | `docker exec homepilot-hub python -m homepilot.storencheck` – oben, was der Hub meint (Zustand, Stellung, ob nur angenommen, wie alt), darunter, was das Gateway roh meldet und was sich ändert, wenn man es nachlesen lässt; `--funk` fragt zusätzlich jede Store einzeln über Funk (`advancedRefresh`) – das ist die Antwort auf «das Gateway gibt seit Stunden dieselbe alte Stellung heraus» |
 | einen Android TV koppeln willst | in der App unter Einstellungen → Verbindungen, Abschnitt «Fernseher» (der Fernseher muss dabei an sein) – Code in `app/src/screens/VerbindungenScreen.tsx` + `components/TvKopplung.tsx` + `lib/fernsehkopplung.ts`, Hub in `integrations/androidtv.py` (`pair_start`/`pair_finish`) + `api/routes/androidtv.py`. **Nicht** auf die Gerätekachel zurückholen: Eine Kopplung richtet man einmal ein, und dort steht sie neben dem Einschlaf-Timer, den man jeden Abend braucht |
@@ -196,9 +197,9 @@ nicht `test_mode_2`.
 | an der Kinderseite arbeitest | `app/src/lib/kindseite.ts` + `app/src/screens/family/kindseite.tsx` – Stundenplan und Wöchentliches liegen als Familienlisten `lessons` und `activities` beim Hub |
 | an der Familienseite arbeitest | `app/src/screens/FamilyScreen.tsx` – Zwischenspeicher und Warteschlange in `screens/family/ablage.ts`, der Babysitter-Abend in `screens/family/babysitter.ts` |
 | eine Zeile hast, die nicht auf den Bildschirm passt | `app/src/lib/lauftext.ts` + `components/Lauftext.tsx` – sie wandert einmal durch, statt bei «…» aufzuhören; die Browser-Probe misst das |
-| HomePilot im Auto anfassen willst | `app/src/lib/auto.ts` (welche Knöpfe taugen) + `lib/autoablage.ts` + `app/modules/auto-ablage/` (Kotlin: Ablage und Autodienst) – Übersicht, DHU-Prüfstand und der Apple-Antrag in `docs/auto.md`. Android Auto läuft; CarPlay braucht eine Berechtigung von Apple und ist deshalb **nicht** vorgebaut |
+| HomePilot im Auto anfassen willst | Android Auto: `app/src/lib/auto.ts` (welche Knöpfe taugen) + `lib/autoablage.ts` + `app/modules/auto-ablage/` (Kotlin: Ablage und Autodienst). CarPlay: keine eigene App, sondern das Widget – `app/targets/widget/index.swift` (`KleineFassung` → `AutoKnopfwand`), das CarPlay seit iOS 26 auf seiner Widget-Seite zeigt. Eine Berechtigung von Apple bräuchte nur eine **CarPlay-App**, kein Widget. Übersicht und DHU-Prüfstand in `docs/auto.md` |
 | eine Gerätekachel änderst | `app/src/components/EntityCard.tsx` |
-| an den Raumkacheln arbeitest | `app/src/components/RoomCard.tsx` + `lib/raumkarte.ts`; die Fotos liegen im Hub unter `core/raumbilder.py` und `api/routes/raeume.py` |
+| an den Raumkacheln arbeitest | `app/src/components/RoomCard.tsx` + `lib/raumkarte.ts`; die Fotos liegen im Hub unter `core/raumbilder.py` und `api/routes/raeume.py`. Bewegt sich etwas im Zimmer, steht ein Männchen hinter der Zustandszeile – Melder und Kameras zusammen in `lib/bewegung.ts`; eine Kachel bekommt ein Bewegungsmelder im Raum **nicht** mehr |
 | Zigbee-Geräte anbindest | `hub/homepilot/integrations/zigbee2mqtt.py` – Übersicht in `docs/zigbee.md` |
 | am Gäste-WLAN arbeitest | `hub/homepilot/core/wlanschein.py` + `api/routes/haus.py` + `app/src/lib/wlanaufkleber.ts` – Übersicht in `docs/gaeste-wlan.md` |
 | dich fragst, warum nach einem Stromausfall alles Licht brennt | `hub/homepilot/core/stromrueckkehr.py` (erkennt den Kaltstart) + der Auslöser «Nach Stromausfall» in `core/automation.py` – was dann gilt, steht in einem Ablauf; den Blitz selbst verhindert nur die Einstellung am Gerät |
@@ -307,6 +308,8 @@ mitgeliefert oder nachgeladen ist.
 ## Was als Nächstes ansteht
 
 Die durchnummerierte Werkbank-Liste steht in `docs/werkbank.md`
-(221 Punkte, aus dem Code gelesen). Ein Kommentar «Punkt NNN der
-Werkbank» im Code meint genau diese Nummer – deshalb wird dort nie
-umnummeriert; Neues bekommt die nächste freie Nummer.
+(353 Punkte, aus dem Code gelesen und auf Zuruf ergänzt). Ein Kommentar
+«Punkt NNN der Werkbank» im Code meint genau diese Nummer – deshalb
+wird dort nie umnummeriert; Neues bekommt die nächste freie Nummer. Das
+gilt auch für Nummern, die vergeben, aber nie gebaut wurden: Ein
+späterer «Punkt 273» zeigte sonst auf etwas anderes als gemeint.

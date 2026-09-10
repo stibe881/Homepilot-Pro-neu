@@ -6,6 +6,7 @@ import { Image, Linking, Modal, Pressable, ScrollView, Share, Text, TextInput, V
 
 import { hubClient } from '../api/client';
 import { Card } from '../components/Card';
+import { type Ort } from '../lib/ladenkarte';
 import { sternProtokoll, sternZiel, wochenSterne } from '../lib/aemtlisterne';
 import { modusSatz } from '../lib/babysitter';
 import { gruppiereModule } from '../lib/familiemodule';
@@ -47,7 +48,7 @@ import {
   zusammenfassung,
 } from '../lib/anwesenheitskarte';
 import { Rueckeintrag, bandSatz, nochGueltig } from '../lib/rueckband';
-import { haushalt, mitglieder, pruefeName, rolleWort } from '../lib/mitglieder';
+import { haushalt, mitglieder, namen, pruefeName, rolleWort } from '../lib/mitglieder';
 import { Person } from '../lib/personen';
 import {
   ABEND_FELDER,
@@ -1641,7 +1642,7 @@ export function FamilyScreen({
                 accessibilityRole="button"
                 style={styles.vorschlagWurf}
               >
-                <Ionicons name="refresh" size={15} color={colors.accent} />
+                <Ionicons name="refresh-outline" size={15} color={colors.accent} />
                 <Text style={styles.vorschlagWurfText}>Nochmal würfeln</Text>
               </Pressable>
             </View>
@@ -4004,7 +4005,7 @@ export function FamilyScreen({
                   accessibilityRole="button"
                   accessibilityLabel={`Erinnerung «${String(erinnerung.text ?? '')}» bestätigen`}
                 >
-                  <Ionicons name="checkmark-circle-outline" size={22} color={colors.on} />
+                  <Ionicons name="checkmark-circle" size={22} color={colors.on} />
                 </Pressable>
               ) : null}
               <Pressable
@@ -4014,7 +4015,7 @@ export function FamilyScreen({
                 accessibilityLabel={`Erinnerung «${String(erinnerung.text ?? '')}» bearbeiten`}
               >
                 <Ionicons
-                  name="pencil"
+                  name="create-outline"
                   size={18}
                   color={
                     erinnerungBearbeiten?.id === erinnerung.id
@@ -4249,6 +4250,14 @@ export function FamilyScreen({
         eintraege={data.vouchers ?? []}
         settings={settings}
         ich={currentUser?.name ?? ''}
+        // Wer einen Gutschein übernehmen kann: der Haushalt ohne Gäste
+        // und ohne die Wandtablets (lib/mitglieder.ts).
+        haushalt={namen(haushalt(members))}
+        // Die Läden vom Einkaufszettel: Sie tragen die Koordinaten, und
+        // daraus wird der Weg zum Laden auf dem Gutschein
+        // (lib/ladenkarte.ts). Kein zweites Ortssystem - wer einen Laden
+        // anlegt, legt ihn dort an, wo er ohnehin hingehört.
+        orte={((data.shops ?? []) as unknown as Ort[]).filter((ort) => ort?.name)}
         fehler={error}
         hinweis={standHinweis}
         jetzt={new Date()}
@@ -4385,7 +4394,7 @@ export function FamilyScreen({
       {/* Punkt 166: Eine Suche über alle Listen – siebzehn Module sind zu
           viele, um sie der Reihe nach durchzugehen. */}
       <View style={styles.suchRow}>
-        <Ionicons name="search-outline" size={16} color={colors.inkSoft} />
+        <Ionicons name="search" size={16} color={colors.inkSoft} />
         <TextInput
           style={[styles.input, { flex: 1 }]}
           value={suchtext}

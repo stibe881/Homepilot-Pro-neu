@@ -21,8 +21,9 @@
 
 import { Entity } from '../api/types';
 import { naechsteAbschaltung, restText } from './abschaltung';
+import { bewegungImRaum } from './bewegung';
 import { fernbedienungMoeglich } from './fernsehkachel';
-import { isTelevision } from './geraeteart';
+import { isTelevision, zaehltAlsAn } from './geraeteart';
 
 export type AktionsArt = 'licht' | 'storen' | 'musik' | 'geraet';
 
@@ -410,11 +411,22 @@ export function raumSchleier(name: string, staerke = 0.26): [string, string] {
  * wirklich etwas sagt. «0 an» ist keine Auskunft, «alles ruhig» schon.
  */
 export function raumStand(items: Entity[], zeile: string, jetzt?: number): string {
+  // Nur was man auch ausschalten könnte (lib/geraeteart.ts,
+  // zaehltAlsAn): Ein Bewegungsmelder meldet `on`, sobald jemand
+  // vorbeigeht - daraus wurde hier «1 an», und daneben stand das
+  // Männchen, das dasselbe schon sagte.
   const an = items.filter(
-    (entity) => entity.state.state === 'on' || entity.state.state === 'playing'
+    (entity) =>
+      zaehltAlsAn(entity) &&
+      (entity.state.state === 'on' || entity.state.state === 'playing')
   ).length;
   const teile = zeile ? [zeile] : [];
-  teile.push(an > 0 ? `${an} an` : 'alles ruhig');
+  // «alles ruhig», solange nichts an ist - aber nicht, während das
+  // Männchen daneben sagt, dass jemand durchs Zimmer geht. Zwei
+  // Auskünfte auf derselben Zeile, die einander widersprechen, sind
+  // schlimmer als eine Auskunft weniger.
+  if (an > 0) teile.push(`${an} an`);
+  else if (!bewegungImRaum(items)) teile.push('alles ruhig');
   // Läuft im Raum eine Frist («Licht geht in 12 Min aus»), gehört sie
   // hierher: Die Raumkarte ist der Ort, an dem man von aussen hinsieht,
   // ohne das Zimmer zu öffnen. Die nächste zählt - brennen zwei Lichter

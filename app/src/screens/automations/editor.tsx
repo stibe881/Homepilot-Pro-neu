@@ -4,6 +4,7 @@
  * Herausgelöst aus AutomationsScreen.tsx (Punkt 21 der Werkbank).
  */
 import { Ionicons } from '@expo/vector-icons';
+
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 
@@ -40,6 +41,7 @@ import {
   Picker,
 } from './felder';
 import { makeStyles } from './stil';
+import { tiefen } from '../../lib/ablaufhilfen';
 import { mitschalter, mitschalterSatz } from '../../lib/verweise';
 import { zuletztGefeuert } from '../../lib/verwaist';
 import { NachrichtenZiel } from './nachrichtenziel';
@@ -59,6 +61,7 @@ export function Editor({
   onChange,
   onSave,
   onDelete,
+  onDuplizieren,
   onTest,
   onDryRun,
   onSimulation,
@@ -88,6 +91,10 @@ export function Editor({
   onChange: (draft: Draft) => void;
   onSave: () => void;
   onDelete?: () => void;
+  /** Den Ablauf kopieren (Punkt 313 der Werkbank). «Wie der für die
+   *  Küche, aber fürs Bad» ist der häufigste zweite Ablauf - und ihn
+   *  von Hand nachzubauen heisst, sieben Felder erneut zu treffen. */
+  onDuplizieren?: () => void;
   /** Nur bei gespeicherten Abläufen: einmal sofort ausführen. */
   onTest?: () => void;
   /** Nur bei gespeicherten Abläufen: zeigen, was jetzt passieren würde. */
@@ -117,6 +124,15 @@ export function Editor({
   if (!draft) return null;
 
   const set = (patch: Partial<Draft>) => onChange({ ...draft, ...patch });
+  // Die Sammelfrage «ist überhaupt noch jemand da?» - dieselbe Entität,
+  // die die Kopfzeile für «jemand da» liest. Fehlt sie (kein Geofence
+  // eingerichtet), steht der Schnellknopf gar nicht erst da: Ein Knopf,
+  // der eine Bedingung auf ein nicht vorhandenes Gerät baut, ist ein
+  // Ablauf, der nie läuft.
+  const anwesenheit = entities.find((entity) => entity.id === 'geofence.anyone_home');
+  const hatAnwesenheitsbedingung = draft.stateConditions.some(
+    (eintrag) => eintrag.entity_id === anwesenheit?.id
+  );
 
   const setTrigger = (index: number, patch: Partial<TriggerDraft>) =>
     set({
@@ -530,6 +546,40 @@ export function Editor({
               </View>
             );
           })}
+
+          {/* Die zwei Bedingungen, die fast jeder Ablauf braucht, als
+              ein Tipp (Punkt 315 der Werkbank). Bauen liessen sie sich
+              vorher auch - man musste nur wissen, dass «nur wenn jemand
+              zuhause» eine Gerätebedingung auf `geofence.anyone_home`
+              ist und «nur wenn dunkel» oben unter «Wann» steht. Genau
+              dieses Wissen hat, wer schon fünf Abläufe gebaut hat. */}
+          <View style={styles.pausenKnoepfe}>
+            {anwesenheit && !hatAnwesenheitsbedingung ? (
+              <Pressable
+                onPress={() =>
+                  set({
+                    stateConditions: [
+                      ...draft.stateConditions,
+                      { entity_id: anwesenheit.id, op: 'is' as Compare, value: 'on' },
+                    ],
+                  })
+                }
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.template, pressed && { opacity: 0.75 }]}
+              >
+                <Text style={styles.templateText}>+ nur wenn jemand zuhause</Text>
+              </Pressable>
+            ) : null}
+            {draft.conditionKind !== 'sun' ? (
+              <Pressable
+                onPress={() => set({ conditionKind: 'sun', conditionSun: 'down' })}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.template, pressed && { opacity: 0.75 }]}
+              >
+                <Text style={styles.templateText}>+ nur wenn dunkel</Text>
+              </Pressable>
+            ) : null}
+          </View>
 
           <Pressable
             onPress={() =>
@@ -996,6 +1046,16 @@ export function Editor({
         ) : null}
         {onVersions && onRestoreVersion ? (
           <VersionsSection load={onVersions} restore={onRestoreVersion} />
+        ) : null}
+        {onDuplizieren ? (
+          <Pressable
+            style={styles.template}
+            onPress={onDuplizieren}
+            accessibilityRole="button"
+            accessibilityLabel="Diesen Ablauf kopieren"
+          >
+            <Text style={styles.templateText}>Als Kopie anlegen</Text>
+          </Pressable>
         ) : null}
         {onDelete ? (
           <Pressable style={styles.delete} onPress={onDelete} accessibilityRole="button">
@@ -1757,10 +1817,26 @@ export function StepList({
     onChange(next);
   };
 
+  // Was zu einem `if` oder `repeat` gehört, rückt ein (Punkt 316 der
+  // Werkbank). Ohne das steht ein fünfschrittiger Ablauf als flache
+  // Liste da, und man sieht nicht, was zur Bedingung gehört und was
+  // danach kommt - beim Lesen einer fremden Automation ist das der
+  // Unterschied zwischen «verstanden» und «nachbauen».
+  const einrueckung = tiefen(steps);
+
   return (
     <>
       {steps.map((step, index) => (
-        <View key={index} style={styles.stepBox}>
+        <View
+          key={index}
+          style={{
+            ...styles.stepBox,
+            marginLeft: einrueckung[index] * 16,
+            ...(einrueckung[index] > 0
+              ? { borderLeftWidth: 2, borderLeftColor: colors.accent }
+              : {}),
+          }}
+        >
           <View style={styles.stepHead}>
             <Text style={styles.stepNumber}>{index + 1}.</Text>
             <View style={{ flex: 1 }} />
@@ -2042,6 +2118,32 @@ export function StepList({
                   value={step.notifyCamera}
                   onSelect={(notifyCamera) => setStep(index, { notifyCamera })}
                 />
+              ) : null}
+              {/* Wann gemeldet wird - der gemeldete Fall: «Jemand hat
+                  die Türe geöffnet», und auf dem Bild steht niemand.
+                  Der Kontakt meldet, während die Person noch hinter der
+                  Türe ist. Das Bild entsteht beim Senden, wartet also
+                  mit; alles nach diesem Schritt läuft trotzdem sofort
+                  weiter. */}
+              <Choice
+                options={[
+                  { key: '0', label: 'Sofort' },
+                  { key: '3', label: 'Nach 3 s' },
+                  { key: '5', label: 'Nach 5 s' },
+                  { key: '10', label: 'Nach 10 s' },
+                ]}
+                value={String(step.notifyVerzoegerung ?? 0)}
+                onSelect={(key) =>
+                  setStep(index, { notifyVerzoegerung: Number(key) || 0 })
+                }
+              />
+              {step.notifyVerzoegerung > 0 ? (
+                <Text style={styles.triggerNote}>
+                  Die Nachricht geht {step.notifyVerzoegerung} Sekunden nach dem
+                  Auslöser raus – und das Bild entsteht erst dann. Genau dafür
+                  ist es da: Ein Türkontakt meldet, während die Person noch
+                  hinter der Türe ist. Der Rest des Ablaufs wartet nicht mit.
+                </Text>
               ) : null}
               <NachrichtenZiel
                 ziel={step.notifyZiel}

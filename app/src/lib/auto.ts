@@ -1,7 +1,7 @@
 import { WidgetButton } from './widgetButtons';
 
 /**
- * Die Knöpfe im Auto - CarPlay und Android Auto.
+ * Die Knöpfe im Auto - für Android Auto.
  *
  * Es sind dieselben, die im Sperrbildschirm-Widget stehen: Wer sie dort
  * zusammengestellt hat, hat damit schon gesagt, was ihm die drei
@@ -18,15 +18,22 @@ import { WidgetButton } from './widgetButtons';
  * nichts tut - schlimmer als eine Kachel, die fehlt.
  *
  * Und die Symbole sind andere. Das Widget nennt SF-Symbole, die es nur
- * auf Apple-Geräten gibt; das Auto braucht einen Namen, den beide
- * Seiten kennen. Deshalb die Übersetzung hier - einmal, statt zweimal
- * nativ.
+ * auf Apple-Geräten gibt; Android braucht einen eigenen Vektor.
+ * Deshalb die Übersetzung hier - einmal in TypeScript, statt im
+ * Kotlin.
+ *
+ * **Nur Android.** CarPlay läuft nicht über diese Datei, sondern über
+ * das Widget selbst: Seit iOS 26 hat CarPlay eine Widget-Seite, und
+ * dort steht dieselbe kleine Grösse wie am Homescreen - nur mit einer
+ * Knopfwand statt einer Symbolreihe (`targets/widget/index.swift`,
+ * `KleineFassung`). Die SF-Symbole passen dort von selbst, und eine
+ * eigene CarPlay-App - die eine Berechtigung von Apple bräuchte -
+ * gibt es bewusst nicht (docs/auto.md).
  */
 
-/** Die Symbole, die beide Auto-Seiten zeichnen können. Bewusst wenige:
- *  Jedes muss als Vektor für Android *und* als SF-Symbol für CarPlay
- *  vorliegen, und ein Symbol, das eine Seite nicht kennt, ist eine
- *  leere Kachel. */
+/** Die Symbole, die der Autobildschirm zeichnen kann. Bewusst wenige:
+ *  Jedes muss als Vektor im Android-Modul liegen, und ein Symbol, das
+ *  dort fehlt, ist eine leere Kachel. */
 export type Autosymbol =
   | 'tuer'
   | 'aus'

@@ -189,7 +189,7 @@ export function DeviceTools({
           accessibilityRole="button"
           style={({ pressed }) => [styles.button, (pressed || busy) && { opacity: 0.7 }]}
         >
-          <Ionicons name="trash-bin-outline" size={17} color={colors.ink} />
+          <Ionicons name="trash-outline" size={17} color={colors.ink} />
           <Text style={styles.buttonText}>Verwaistes aufräumen</Text>
         </Pressable>
       </View>

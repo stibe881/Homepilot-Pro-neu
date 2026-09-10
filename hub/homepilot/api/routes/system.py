@@ -673,11 +673,25 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             for eintrag in hub.config.integrations
             if isinstance(eintrag, dict) and eintrag.get("integration")
         }
-        zeilen = extras.stand(angebunden, apns=bool(hub.config.apns))
+        # Ob ein Beleg-Leser fehlt, steht nicht in der Konfiguration,
+        # sondern in den Daten: Wer nie eine Datei an einen Gutschein
+        # hängt, soll hier nicht lesen, dass ihm etwas fehlt.
+        belege = any(
+            isinstance(eintrag, dict) and eintrag.get("file")
+            for eintrag in hub.data.get("family_vouchers") or []
+        )
+        zeilen = extras.stand(
+            angebunden, apns=bool(hub.config.apns), belege=belege
+        )
         return {
             "extras": zeilen,
             "summary": extras.satz(zeilen),
+            # Der Befehl richtet sich danach, wo dieser Hub wirklich
+            # läuft: Im Container half «pip install» im Hub-Ordner
+            # nicht - der Ordner liegt dort gar nicht, und der Host hat
+            # kein pip (siehe core/extras.py, befehl).
             "command": extras.befehl(zeilen),
+            "note": extras.hinweis(zeilen),
         }
 
     @app.get("/api/system/changes")

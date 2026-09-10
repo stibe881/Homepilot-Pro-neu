@@ -107,22 +107,43 @@ async function einfuehrungWegtippen(seite) {
   }
 }
 
+/** Misst die offene Seite: Ragt etwas über den rechten Rand? */
+async function messeUeberlauf(seite) {
+  return seite.evaluate(() => ({
+    zuBreit: document.documentElement.scrollWidth > window.innerWidth,
+    schuldige: [...document.querySelectorAll('div')]
+      .filter((el) => el.getBoundingClientRect().right > window.innerWidth + 1)
+      .slice(0, 3)
+      .map((el) => el.className || el.tagName),
+  }));
+}
+
 /** 1. Ragt etwas seitlich hinaus? */
 async function ueberlauf(browser) {
   for (const groesse of GROESSEN) {
     const seite = await angemeldeteSeite(browser, groesse);
-    const befund = await seite.evaluate(() => ({
-      zuBreit: document.documentElement.scrollWidth > window.innerWidth,
-      schuldige: [...document.querySelectorAll('div')]
-        .filter((el) => el.getBoundingClientRect().right > window.innerWidth + 1)
-        .slice(0, 3)
-        .map((el) => el.className || el.tagName),
-    }));
+    const start = await messeUeberlauf(seite);
     pruefe(
-      !befund.zuBreit,
+      !start.zuBreit,
       `${groesse.name}: nichts ragt seitlich hinaus`,
-      befund.schuldige.join(' | ')
+      start.schuldige.join(' | ')
     );
+    // Und dasselbe im Zimmer: Dort liegen im Kopf die Szenenknöpfe als
+    // waagrechte Liste neben dem Musikstreifen, der eine Mindestbreite
+    // hat (components/Raumspieler.tsx). Zwei Nachbarn, von denen einer
+    // nicht schrumpfen will, sind der klassische Weg, eine Seite
+    // seitlich hinauszuschieben - und auf der Startseite ist davon
+    // nichts zu sehen.
+    if (await inDenRaum(seite)) {
+      const raum = await messeUeberlauf(seite);
+      pruefe(
+        !raum.zuBreit,
+        `${groesse.name}: auch im Raumkopf ragt nichts hinaus`,
+        raum.schuldige.join(' | ')
+      );
+    } else {
+      pruefe(false, `${groesse.name}: der Weg ins Zimmer steht offen`);
+    }
     await seite.close();
   }
 }

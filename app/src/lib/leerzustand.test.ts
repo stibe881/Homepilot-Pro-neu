@@ -20,3 +20,11 @@ test('ganz ohne Geräte zeigt der Satz auf die config.yaml', () => {
   expect(leerbild('home', null, true).satz).toContain('config.yaml');
   expect(leerbild('home', null, true).aktion).toBeUndefined();
 });
+
+test('ein Zimmer mit nur einem Melder ist nicht «noch leer»', () => {
+  // Es hängt ja etwas an der Wand - es hat nur keine Kachel mehr:
+  // Fühler, Kontakte und Bewegungsmelder stehen im Raumkopf.
+  const bild = leerbild('home', 'Flur', true, true);
+  expect(bild.titel).toBe('In Flur gibt es nichts zu bedienen');
+  expect(bild.satz).toContain('Kopf des Raums');
+});

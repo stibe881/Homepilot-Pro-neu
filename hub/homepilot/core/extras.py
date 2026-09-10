@@ -37,6 +37,19 @@ from typing import Any
 #: der config.yaml.
 EXTRAS: list[dict[str, Any]] = [
     {
+        "key": "beleg",
+        "module": "pypdf",
+        "title": "Gutschein-Belege lesen",
+        "detail": "Betrag, Nummer und Ablaufdatum aus dem angehängten PDF "
+        "vorschlagen, statt sie abzutippen. Ohne das Paket bleibt der "
+        "Knopf «Aus Beleg übernehmen» dunkel; eintragen kann man alles "
+        "weiterhin von Hand.",
+        # Kein Integrationsname: Die Gutscheine sind ein Familien-Modul
+        # und hängen an keiner Anbindung. Ob das Extra gebraucht wird,
+        # entscheiden die Daten - siehe `stand(belege=...)`.
+        "integration": None,
+    },
+    {
         "key": "speech",
         "module": "gtts",
         "title": "Sprachausgabe",
@@ -118,22 +131,36 @@ def vorhanden(modul: str) -> bool:
         return False
 
 
+#: Extras, deren Bedarf nicht an einer Integration hängt, sondern an
+#: einem eigenen Merkmal. Der Name zeigt auf den Parameter von `stand`.
+OHNE_INTEGRATION = {"apns": "apns", "beleg": "belege"}
+
+
 def stand(
-    integrationen: set[str] | None = None, apns: bool = False
+    integrationen: set[str] | None = None,
+    apns: bool = False,
+    belege: bool = False,
 ) -> list[dict[str, Any]]:
     """Der Zustand aller Extras für die Systemseite (rein, testbar).
 
     ``integrationen`` sind die angebundenen Integrationen, ``apns`` sagt,
-    ob ein apns-Block in der config.yaml steht. Beides entscheidet über
-    ``needed``: ob das Fehlen hier überhaupt jemanden stört.
+    ob ein apns-Block in der config.yaml steht, ``belege``, ob an einem
+    Gutschein überhaupt eine Datei hängt. Alles drei entscheidet über
+    ``needed``: ob das Fehlen hier jemanden stört.
+
+    Der Bedarf für das Beleg-Extra steht in den Daten und nicht in der
+    Konfiguration - wer nie einen Beleg anhängt, soll auf der Systemseite
+    nicht lesen, dass ihm etwas fehlt.
     """
     angebunden = integrationen or set()
+    merkmale = {"apns": apns, "belege": belege}
     zeilen = []
     for extra in EXTRAS:
+        schluessel = OHNE_INTEGRATION.get(str(extra["key"]))
         noetig = (
             extra["integration"] in angebunden
             if extra["integration"]
-            else (apns if extra["key"] == "apns" else True)
+            else (merkmale[schluessel] if schluessel else True)
         )
         zeilen.append(
             {
@@ -167,14 +194,76 @@ def satz(zeilen: list[dict[str, Any]]) -> str:
     return f"{len(luecken)} Teile fehlen: {namen}."
 
 
-def befehl(zeilen: list[dict[str, Any]]) -> str | None:
+#: Wie der Container heisst, in dem der Hub wohnt (docker-compose.yml).
+CONTAINER = "homepilot-hub"
+
+
+def im_abbild() -> bool:
+    """Läuft dieser Hub in einem Container?
+
+    An ``/.dockerenv``, die Docker in jeden Container legt. Nicht rein,
+    aber die einzige Stelle hier, die es nicht ist - und der Grund ist
+    das Gegenteil von Bequemlichkeit: Ein Befehl, der auf der falschen
+    Maschine läuft, ist schlimmer als keiner.
+    """
+    from pathlib import Path
+
+    return Path("/.dockerenv").exists()
+
+
+def befehl(zeilen: list[dict[str, Any]], abbild: bool | None = None) -> str | None:
     """Wie man das Fehlende nachinstalliert - oder nichts.
 
-    Ein Befehl zum Abtippen und kein Knopf: Der Hub läuft im Abbild, und
-    ein `pip install` darin wäre beim nächsten Update wieder weg. Was
-    wirklich hilft, ist die Zeile in der eigenen Abbild-Beschreibung.
+    Ein Befehl zum Abtippen und kein Knopf: Ein `pip install` im
+    laufenden Container wäre beim nächsten Update wieder weg. Was
+    wirklich hilft, ist die Zeile in der Abbild-Beschreibung - und
+    genau die steht deshalb im Hinweis daneben (siehe `hinweis`).
+
+    **Warum es zwei Fassungen gibt**, und das ist die Lehre aus einem
+    Fehlerbericht aus dem Haus: Hier stand nur `pip install -e '.[…]'`,
+    und die Karte sagte «im Hub-Ordner». Auf einem Docker-Hub ist das
+    dreifach falsch - der Hub wohnt im Container und nicht auf dem
+    Host, der Host hat gar kein pip, und `-e` zeigte auf einen Ordner,
+    den es dort nicht gibt. Die Antwort war «Command 'pip' not found»,
+    und damit stand jemand vor einer Karte, die ihm einen Weg nannte,
+    den es nicht gab.
+
+    Im Container also der `docker exec`-Weg, samt `-u root`: Der Hub
+    läuft als eigener Benutzer (siehe Dockerfile), und pip dürfte sonst
+    nicht schreiben.
     """
     luecken = fehlend(zeilen)
     if not luecken:
         return None
-    return "pip install -e '.[" + ",".join(zeile["key"] for zeile in luecken) + "]'"
+    schluessel = ",".join(zeile["key"] for zeile in luecken)
+    if abbild is None:
+        abbild = im_abbild()
+    if abbild:
+        return f"docker exec -u root {CONTAINER} pip install '.[{schluessel}]'"
+    return f"pip install -e '.[{schluessel}]'"
+
+
+def hinweis(zeilen: list[dict[str, Any]], abbild: bool | None = None) -> str | None:
+    """Was neben dem Befehl steht - oder nichts.
+
+    Der Befehl hilft jetzt, dieser Satz hilft dauerhaft. Im Container
+    ist das keine Feinheit: Ein `pip install` darin überlebt das
+    nächste Ausrollen nicht, und wer das nicht weiss, installiert
+    dasselbe alle paar Wochen neu und hält den Hub für kaputt.
+
+    Steht ein Extra bereits in der Abbild-Zeile (der Normalfall, ein
+    Test hält es fest), fehlt es nur, weil hier noch ein älteres Abbild
+    läuft - dann ist das Update der ganze Weg.
+    """
+    if not fehlend(zeilen):
+        return None
+    if abbild is None:
+        abbild = im_abbild()
+    if not abbild:
+        return None
+    return (
+        "Das gilt bis zum nächsten Ausrollen. Dauerhaft steht es in der "
+        "Installationszeile von hub/Dockerfile - und wenn es dort schon "
+        "steht, genügt ein Update: Dann läuft hier bloss noch ein älteres "
+        "Abbild."
+    )

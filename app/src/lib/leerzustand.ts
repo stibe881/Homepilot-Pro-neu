@@ -27,7 +27,11 @@ export interface Leerbild {
 export function leerbild(
   section: Section,
   room: string | null,
-  connected: boolean
+  connected: boolean,
+  /** Der Raum hat Geräte, aber keines davon bekommt eine Kachel -
+   *  Fühler und Bewegungsmelder stehen im Raumkopf. «Noch leer» wäre
+   *  dort falsch: Es hängt ja etwas an der Wand. */
+  ohneKachel = false
 ): Leerbild {
   if (!connected) {
     return {
@@ -55,6 +59,14 @@ export function leerbild(
       icon: 'videocam-outline',
       titel: 'Noch keine Kamera angebunden',
       satz: 'Kameras kommen über eine Integration in der config.yaml des Hubs – z.B. ring oder unifi_protect.',
+    };
+  }
+  if (room && ohneKachel) {
+    return {
+      icon: 'walk-outline',
+      titel: `In ${room} gibt es nichts zu bedienen`,
+      satz: 'Hier hängen nur Fühler und Melder – was sie sagen, steht oben im Kopf des Raums.',
+      aktion: 'Geräte zuordnen',
     };
   }
   if (room) {

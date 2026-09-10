@@ -121,7 +121,7 @@ export function KitchenTimer({ settings }: { settings: HubSettings }) {
             accessibilityLabel="Timer abbrechen"
             hitSlop={8}
           >
-            <Ionicons name="close-circle-outline" size={20} color={colors.inkSoft} />
+            <Ionicons name="close-circle" size={20} color={colors.inkSoft} />
           </Pressable>
         </View>
       ))}
