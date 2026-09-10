@@ -1242,11 +1242,8 @@ function DurchsageFenster({
 
   // Die Sekundenanzeige läuft nur, solange aufgenommen wird - ein
   // Ticker, der immer läuft, zeichnet das Blatt bei jedem Tippen neu.
-  useEffect(() => {
-    if (seit === null) return;
-    const takt = setInterval(() => setJetzt(Date.now()), 250);
-    return () => clearInterval(takt);
-  }, [seit]);
+  // Punkt 345: über den gemeinsamen Takt statt einem eigenen setInterval.
+  useTakt(() => setJetzt(Date.now()), seit === null ? null : 250);
 
   // Beim Schliessen des Blattes das Mikrofon loslassen. Sonst bliebe im
   // Browser der rote Punkt im Tab stehen, und auf dem Wandpanel sähe

@@ -13,6 +13,7 @@ import { gruppiereModule } from '../lib/familiemodule';
 import { DraggableList } from '../components/DraggableList';
 import { Shops } from '../components/Shops';
 import { useOrte } from '../hooks/useOrte';
+import { useTakt } from '../hooks/useTakt';
 import { ortKennung } from '../lib/orte';
 import { Colors, useColors } from '../theme';
 import { RecipeBook } from './RecipeBook';
@@ -588,12 +589,9 @@ export function FamilyScreen({
 
   // Der Takt fürs Band: Es verschwindet von selbst, und ohne diesen
   // Tick bliebe es stehen, bis der Bildschirm aus einem anderen Grund
-  // neu zeichnet.
-  useEffect(() => {
-    if (!zurueck) return undefined;
-    const takt = setInterval(() => setJetztTick(Date.now()), 1000);
-    return () => clearInterval(takt);
-  }, [zurueck]);
+  // neu zeichnet. Punkt 345: über den gemeinsamen Takt statt einem
+  // eigenen setInterval.
+  useTakt(() => setJetztTick(Date.now()), zurueck ? 1000 : null);
 
   // Was der Hub nebenbei weiss: fällige Standardartikel, die Hausadresse
   // und wer gerade da ist. Alles drei ohne Aufhebens - fehlt es, bleibt

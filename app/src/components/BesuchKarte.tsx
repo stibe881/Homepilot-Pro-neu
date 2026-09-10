@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
+import { useTakt } from '../hooks/useTakt';
 import { BabysitterStand, restText, seitText } from '../lib/babysitter';
 import { Colors, radius, useColors } from '../theme';
 
@@ -78,11 +79,11 @@ export function BesuchKarte({
   // Die Restzeit tickt mit, solange die Karte steht. Das alte Blatt fror
   // sie beim Öffnen ein - eine Seite kann eine Viertelstunde offen
   // liegen, und «Läuft noch 2 Std» wäre dann eine alte Auskunft.
-  useEffect(() => {
-    if (!stand?.active || !stand.until) return;
-    const uhr = setInterval(() => setJetzt(Date.now()), 30_000);
-    return () => clearInterval(uhr);
-  }, [stand?.active, stand?.until]);
+  // Punkt 345: über den gemeinsamen Takt statt einem eigenen setInterval.
+  useTakt(
+    () => setJetzt(Date.now()),
+    stand?.active && stand.until ? 30_000 : null
+  );
 
   const schalten = async (aktiv: boolean) => {
     setBusy(true);

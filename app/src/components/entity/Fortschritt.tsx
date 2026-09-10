@@ -10,10 +10,11 @@
  * spielt – ein Timer, der auf einer pausierten Kachel weiterläuft,
  * kostet Strom für eine Zahl, die sich nicht ändert.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Text, View } from 'react-native';
 
 import { CommandData, Entity } from '../../api/types';
+import { useTakt } from '../../hooks/useTakt';
 import { darfSpringen, fortschritt, sprungziel } from '../../lib/fortschritt';
 import { useColors } from '../../theme';
 import { Bar } from '../Bar';
@@ -30,13 +31,10 @@ export function Fortschritt({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const spielt = String(entity.state.state) === 'playing';
-  // Der Takt: einmal pro Sekunde, aber nur beim Spielen.
+  // Der Takt: einmal pro Sekunde, aber nur beim Spielen. Punkt 345: über
+  // den gemeinsamen Takt statt einem eigenen setInterval.
   const [, tick] = useState(0);
-  useEffect(() => {
-    if (!spielt) return undefined;
-    const timer = setInterval(() => tick((wert) => wert + 1), 1000);
-    return () => clearInterval(timer);
-  }, [spielt]);
+  useTakt(() => tick((wert) => wert + 1), spielt ? 1000 : null);
 
   const stand = fortschritt(entity.state);
   if (!stand) return null;
