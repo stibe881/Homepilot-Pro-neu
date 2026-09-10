@@ -576,6 +576,7 @@ class Watchdog:
         await self._check_access()
         await self._check_spaeter()
         await self._check_babysitter()
+        await self._check_alarmwache()
         down = down_integrations(entities)
 
         # Strikes hochzählen bzw. zurücksetzen.
@@ -2397,6 +2398,19 @@ class Watchdog:
             "Die Frist ist um - die Abläufe laufen wieder.",
             category="maintenance",
         )
+
+    async def _check_alarmwache(self) -> None:
+        """Der Anlage ihren Minutentakt geben.
+
+        Zwei Dinge, auf die keine Zustandsänderung hört, weil beide ein
+        Ausbleiben sind: der Sensor, der schweigt, und «alle sind weg».
+        Hier statt in einer eigenen Uhr - dieselbe Überlegung wie beim
+        Aufräumen der Kamera-Clips weiter oben.
+        """
+        alarm = self.hub.integrations.get("alarm")
+        takt = getattr(alarm, "takt", None)
+        if takt is not None:
+            await takt()
 
     async def _check_spaeter(self) -> None:
         """Weggeschobene Meldungen, deren Zeit um ist (core/spaeter.py).

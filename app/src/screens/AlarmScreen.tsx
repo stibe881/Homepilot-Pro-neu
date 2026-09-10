@@ -39,6 +39,13 @@ import {
   sirenenGruppen,
   verlaufPasst,
 } from '../lib/eskalation';
+import {
+  ANWESENHEIT,
+  artSymbol,
+  artWort,
+  blindStufe,
+  blindTitel,
+} from '../lib/alarmblind';
 import { datumUhr } from '../lib/format';
 import { deviceKindLabel, melderArt } from '../lib/geraeteart';
 import { BlattZeile, blattWuerdig, blattZeilen } from '../lib/ereignisblatt';
@@ -94,6 +101,12 @@ interface AlarmState {
   } | null;
   /** Zum Entschärfen braucht es die PIN. */
   pin_required?: boolean;
+  /** Was der Anlage gerade die Sicht nimmt (hub/core/alarmwache.py).
+   *
+   *  Im Zustand und nicht bloss als Nachricht: Eine weggewischte Meldung
+   *  ist weg, ein grünes Schild über einem stillen Sensor bleibt - und
+   *  genau das soll es nicht mehr geben. */
+  blind?: { entity_id: string; label: string; art: string }[];
 }
 
 /** Ein Schaltbefehl, den die Anlage selbst auslöst. */
@@ -295,6 +308,9 @@ export function AlarmScreen({
   // Namen der offenen Sensoren aus der letzten Scharfschalt-Absage.
   const [offenBeimScharfschalten, setOffenBeimScharfschalten] = useState<string[]>([]);
   const [testNote, setTestNote] = useState<string | null>(null);
+  // Was der Panikknopf zurückmeldet - er tut viel und sieht dabei nach
+  // nichts aus, solange man nicht danebensteht.
+  const [panikNote, setPanikNote] = useState<string | null>(null);
 
   const headers: Record<string, string> = settings.token
     ? { Authorization: `Bearer ${settings.token}` }
@@ -377,6 +393,27 @@ export function AlarmScreen({
       setOffenBeimScharfschalten([]);
     } catch (err) {
       setNote(String(err instanceof Error ? err.message : err));
+    }
+    load();
+  };
+
+  // Alarm von Hand. Ohne PIN und aus jedem Zustand - warum, steht im
+  // Hub bei panic(): Wer den Knopf drückt, ist in Bedrängnis, und eine
+  // Tastatur zwischen Bedrängnis und Sirene ist ein Fehler.
+  const panik = async () => {
+    setPanikNote('Löst aus …');
+    try {
+      const response = await fetch(`${settings.url}/api/alarm/panik`, {
+        method: 'POST',
+        headers,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
+      }
+      setPanikNote('Alarm läuft – alle sind benachrichtigt.');
+    } catch (err) {
+      setPanikNote(err instanceof Error ? err.message : String(err));
     }
     load();
   };
@@ -556,6 +593,64 @@ export function AlarmScreen({
             style={({ pressed }) => [styles.disarm, pressed && { opacity: 0.85 }]}
           >
             <Text style={styles.disarmText}>Unscharf schalten</Text>
+          </Pressable>
+        ) : null}
+
+        {/* Blinde Flecken, solange die Anlage scharf ist. Hier oben und
+            nicht in einer eigenen Karte weiter unten: Das grüne «scharf»
+            darüber ist genau dann eine Halbwahrheit, und die beiden
+            gehören nebeneinander. */}
+        {(data.state.blind ?? []).length > 0 ? (
+          <View
+            style={[
+              styles.blindKasten,
+              {
+                borderColor:
+                  blindStufe(data.state.blind!) === 'sabotage'
+                    ? colors.danger
+                    : colors.warn,
+              },
+            ]}
+          >
+            <Text style={styles.blindTitel}>{blindTitel(data.state.blind!)}</Text>
+            {data.state.blind!.map((zeile) => (
+              <View key={`${zeile.entity_id}:${zeile.art}`} style={styles.blindZeile}>
+                <Ionicons
+                  name={artSymbol(zeile.art) as never}
+                  size={15}
+                  color={colors.inkSoft}
+                />
+                <Text style={styles.blindText}>
+                  {zeile.label}: {artWort(zeile.art)}
+                </Text>
+              </View>
+            ))}
+            <Text style={styles.hint}>
+              Solange das so bleibt, ist dieser Teil des Hauses nicht
+              überwacht – auch wenn die Anlage oben scharf sagt.
+            </Text>
+          </View>
+        ) : null}
+
+        {/* Der Panikknopf. Zwei Griffe, nicht einer: Ein Daumen, der
+            beim Scrollen darüberfährt, darf nicht die Sirene starten -
+            und zwei Sekunden sind kurz genug, wenn man es wirklich
+            meint. Auch aus «unscharf» heraus: Eine Anlage, die erst
+            scharf geschaltet werden muss, bevor man um Hilfe rufen
+            kann, hilft nicht. */}
+        {data.state.state !== 'ausgeloest' ? (
+          <Pressable
+            onLongPress={panik}
+            delayLongPress={2000}
+            accessibilityRole="button"
+            accessibilityLabel="Alarm von Hand auslösen – zwei Sekunden gedrückt halten"
+            accessibilityHint="Löst Sirene, Licht und eine Nachricht an alle aus."
+            style={({ pressed }) => [styles.panik, pressed && { opacity: 0.85 }]}
+          >
+            <Ionicons name="warning-outline" size={16} color={colors.danger} />
+            <Text style={styles.panikText}>
+              {panikNote ?? 'Alarm auslösen – 2 Sekunden halten'}
+            </Text>
           </Pressable>
         ) : null}
 
@@ -1930,6 +2025,81 @@ function AlarmSettings({
           öffnet sich beim Antippen trotzdem.
         </Text>
       ) : null}
+      {/* Der Ausfall, der sich als Ruhe tarnt: Ein Funkkontakt meldet
+          sich nicht mehr, die Anlage steht weiter auf «scharf», und
+          niemand erfährt, dass dort seit Stunden nichts überwacht wird.
+          Aus Sicht der Anlage ist das kein Ereignis - es kommt bloss
+          nichts mehr. */}
+      <Toggle
+        label="Melden, wenn ein Sensor ausfällt"
+        detail="Solange die Anlage scharf ist: Sabotage, Funkstille, leere Batterie. Ein Sensor, der schweigt, sieht von aussen aus wie Ruhe."
+        value={settings.notify_blind !== false}
+        onChange={(value) => onSave({ ...settings, notify_blind: value })}
+      />
+      {settings.notify_blind !== false ? (
+        <View style={[styles.field, styles.unterpunkt]}>
+          <Toggle
+            label="Gemeldete Sabotage löst aus"
+            detail="Nur wenn ein Melder selbst Sabotage meldet – nie bei Funkstille, die ist von einer leeren Batterie nicht zu unterscheiden. Aus, weil eine Anlage, die wegen einer Knopfzelle um drei Uhr nachts heult, nicht mehr scharf geschaltet wird."
+            value={settings.sabotage_alarm === true}
+            onChange={(value) => onSave({ ...settings, sabotage_alarm: value })}
+          />
+        </View>
+      ) : null}
+      <Toggle
+        label="Nachbericht nach einem Alarm"
+        detail="Was zuerst auslöste, was folgte, wie lange es dauerte und wer beendet hat – als eine Nachricht. Zehn Minuten später steht man in der Küche und weiss es sonst nicht mehr."
+        value={settings.notify_bericht !== false}
+        onChange={(value) => onSave({ ...settings, notify_bericht: value })}
+      />
+      {/* Der häufigste Fehler an einer Alarmanlage ist nicht ein
+          Fehlalarm, sondern eine Anlage, die niemand scharf geschaltet
+          hat. Zwei Richtungen, absichtlich getrennt: Scharf schalten ist
+          die harmlose, unscharf die gefährliche - ein Telefon in fremder
+          Hand hebt damit die Anlage auf. */}
+      {(
+        [
+          {
+            key: 'presence_arm' as const,
+            label: 'Wenn alle weg sind',
+            hint: 'Zehn Minuten nach dem letzten Weggehen – nicht sofort, sonst schaltet ein kurzer Aussetzer der Ortung scharf, während jemand im Garten steht. Offene Fenster halten auch die Automatik auf.',
+          },
+          {
+            key: 'presence_disarm' as const,
+            label: 'Wenn jemand heimkommt',
+            hint: 'Sofort, ohne Nachlauf – wer heimkommt, steht in der Eingangsverzögerung. «Automatisch» heisst: Ein Telefon in fremder Hand hebt die Anlage auf.',
+          },
+        ] as const
+      ).map((zeile) => (
+        <View key={zeile.key} style={styles.field}>
+          <Text style={styles.label}>{zeile.label}</Text>
+          <View style={styles.chipRow}>
+            {ANWESENHEIT.map((stufe) => {
+              const gewaehlt =
+                (settings[zeile.key] ?? 'vorschlagen') === stufe.key;
+              return (
+                <Pressable
+                  key={stufe.key}
+                  onPress={() => onSave({ ...settings, [zeile.key]: stufe.key })}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: gewaehlt }}
+                  accessibilityLabel={`${zeile.label}: ${stufe.label}`}
+                  style={({ pressed }) => [
+                    styles.chip,
+                    gewaehlt && styles.chipOn,
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <Text style={[styles.chipText, gewaehlt && { color: '#FFFFFF' }]}>
+                    {stufe.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={styles.hint}>{zeile.hint}</Text>
+        </View>
+      ))}
       </Klappe>
     </Card>
   );
@@ -2327,4 +2497,28 @@ const makeStyles = (colors: Colors) =>
       paddingVertical: 11,
       fontSize: 16,
     },
+    blindKasten: {
+      gap: 6,
+      padding: 12,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      backgroundColor: colors.surfaceSoft,
+    },
+    blindTitel: { color: colors.ink, fontSize: 14, fontWeight: '700' },
+    blindZeile: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    blindText: { color: colors.inkSoft, fontSize: 13, flexShrink: 1 },
+    // Bewusst unauffällig: Ein roter Knopf in der Mitte der Seite wird
+    // gedrückt, weil er da ist. Dieser hier wird gesucht.
+    panik: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      paddingVertical: 10,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surfaceSoft,
+    },
+    panikText: { color: colors.danger, fontSize: 13, fontWeight: '600' },
   });

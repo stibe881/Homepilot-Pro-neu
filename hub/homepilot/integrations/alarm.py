@@ -46,7 +46,18 @@ import secrets
 import time
 from typing import Any
 
-from ..core import bildarchiv, cliparchiv, personenbild, say, snapshots, source, streams
+from ..core import (
+    alarmanwesenheit,
+    alarmbericht,
+    alarmwache,
+    bildarchiv,
+    cliparchiv,
+    personenbild,
+    say,
+    snapshots,
+    source,
+    streams,
+)
 from ..core.entity import Entity, EntityKind
 from ..core.errors import HomePilotError
 from ..core.integration import Integration
@@ -146,6 +157,21 @@ class AlarmIntegration(Integration):
         # nicht bei jeder Bewegung einen: Ein Protokoll, das man nicht
         # mehr liest, ist so gut wie keines.
         self._sauger_notiert = False
+        # Je Sensor, seit wann er nicht mehr antwortet - Grundlage der
+        # Funkstille-Frist (core/alarmwache.py). Ein Aussetzer ist der
+        # Normalfall; erst das Ausbleiben über Minuten ist ein Befund.
+        self._stumm_seit: dict[str, float] = {}
+        # Was zuletzt gemeldet wurde, damit derselbe blinde Fleck nicht
+        # jede Minute erneut meldet. Ein Protokoll, das man nicht mehr
+        # liest, ist so gut wie keines - und eine Nachricht, die jede
+        # Minute kommt, ist genau das.
+        self._blind_gemeldet: set[str] = set()
+        # Seit wann ausdrücklich niemand mehr zuhause ist. ``None``
+        # heisst: Es ist jemand da (oder der Hub weiss es nicht).
+        self._weg_seit: float | None = None
+        # Was zuletzt vorgeschlagen wurde - ein Vorschlag, der jede
+        # Minute wiederkommt, ist eine Belästigung.
+        self._anwesenheit_gemeldet: str | None = None
 
         stored = self.hub.data.get("alarm")
         config = stored[0] if stored else {}
@@ -171,6 +197,9 @@ class AlarmIntegration(Integration):
                 "turn_on",
                 "turn_off",
                 "toggle",
+                # Von Hand auslösen - für den Wandtaster neben der
+                # Haustüre und den Knopf in der App (Punkt 334).
+                "panic",
             ],
         )
         self._unsubscribe = self.hub.bus.subscribe("state_changed", self._on_state_changed)
@@ -209,6 +238,15 @@ class AlarmIntegration(Integration):
             "last_trigger": self._last,
             # Die App zeigt daraus das PIN-Feld vor dem Entschärfen.
             "pin_required": self.pin_required(),
+            # Blinde Flecken, solange scharf ist (core/alarmwache.py).
+            # Im Zustand und nicht bloss als Nachricht: Eine weggewischte
+            # Meldung ist weg, ein grünes Schild über einem stillen
+            # Sensor bleibt - und genau das soll es nicht mehr geben.
+            "blind": alarmwache.blindstellen(
+                self.guarding(self._mode) if self._mode else [],
+                time.time(),
+                self._stumm_seit,
+            ),
         }
 
     async def _publish(self) -> None:
@@ -402,6 +440,68 @@ class AlarmIntegration(Integration):
             await self._notify(
                 "Alarmanlage unscharf", "Die Anlage ist aus.", "alarm_arming"
             )
+        # Der Nachbericht - aber nur, wenn es einen Vorfall gab. Zehn
+        # Minuten später steht man in der Küche und weiss nicht mehr,
+        # was eigentlich passiert ist; die Zeilen dafür stehen im
+        # Verlauf, aber eine Liste beantwortet die Frage nicht
+        # (core/alarmbericht.py).
+        if was == TRIGGERED and self._settings.get("notify_bericht", True):
+            gefunden = alarmbericht.bericht(
+                self._history, by or "automatisch", time.time()
+            )
+            if gefunden is not None:
+                titel, text = gefunden
+                self._note("bericht", text, "")
+                await self._notify(titel, text, "alarm_arming")
+        return {"ok": True, "state": self._state}
+
+    # ── Panikknopf (Punkt 334 der Werkbank) ────────────────────────────────
+
+    async def panic(self, by: str = "") -> dict[str, Any]:
+        """Alarm von Hand auslösen - jetzt, aus jedem Zustand.
+
+        Der Fall, für den es das gibt, hat nichts mit einem Einbruch zu
+        tun: Jemand steht vor der Türe und geht nicht weg, im Keller
+        stimmt etwas nicht, ein Kind ist gestürzt. Was man dann will,
+        ist genau das, was die Anlage ohnehin kann - Lärm, Licht, eine
+        Nachricht an alle -, bloss ohne Sensor.
+
+        **Ohne PIN**, und das ist Absicht: Wer den Knopf drückt, ist in
+        Bedrängnis, und eine Tastatur zwischen Bedrängnis und Sirene
+        ist ein Fehler. Die PIN steht vor dem *Abstellen* - dort ist sie
+        richtig, denn dort verhindert sie, dass jemand den Alarm
+        beendet, der ihn nicht beenden darf.
+
+        **Ohne Rücksicht auf den Modus**: Auch aus «unscharf» heraus.
+        Eine Anlage, die erst scharf geschaltet werden muss, bevor man
+        um Hilfe rufen kann, hilft nicht.
+        """
+        self._cancel_timer()
+        self._mode = self._mode or "ausser_haus"
+        self._state = TRIGGERED
+        self._until = None
+        self._next = None
+        self._last = {
+            "entity_id": None,
+            "name": "Panikknopf",
+            "at": time.time(),
+            "mode": self._mode,
+            # Damit die App den Vorfall unterscheiden kann: Ein von Hand
+            # ausgelöster Alarm braucht kein Kamerabild vom Flur.
+            "panik": True,
+        }
+        await self._publish()
+        self._note("triggered", f"Alarm von Hand ausgelöst ({by or 'unbekannt'})", by)
+        await self._notify(
+            "🚨 Alarm von Hand ausgelöst",
+            f"{by or 'Jemand'} hat den Panikknopf gedrückt.",
+        )
+        await self._run_actions("trigger")
+        # Sofort laut, ohne die Frist der Eskalation: Sie ist dafür da,
+        # einem Fehlalarm Zeit zum Entschärfen zu geben. Wer den Knopf
+        # selbst drückt, meint es.
+        self._eskaliert = True
+        await self._run_commands(eskalations_befehle(self._escalation), "eskalation")
         return {"ok": True, "state": self._state}
 
     async def _finish_arming(self) -> None:
@@ -966,6 +1066,151 @@ class AlarmIntegration(Integration):
             category=category,
         )
 
+    # ── Takt (vom Wächter, einmal je Minute) ───────────────────────────────
+
+    async def takt(self) -> None:
+        """Was regelmässig zu prüfen ist, aber auf kein Ereignis hört.
+
+        Beides ist ein Ausbleiben, kein Eintreten - und deshalb hört
+        keine Zustandsänderung darauf: Ein Sensor, der schweigt, schickt
+        nichts, und «alle sind weg» ist die Abwesenheit von Meldungen.
+        Gerufen wird das vom Wächter, der ohnehin jede Minute läuft; eine
+        zweite Uhr müsste jemand warten.
+        """
+        jetzt = time.time()
+        try:
+            await self._wache(jetzt)
+            await self._anwesenheit(jetzt)
+        except Exception:
+            log.exception("Alarm-Takt gestolpert")
+
+    async def _wache(self, jetzt: float) -> None:
+        """Blinde Flecken, solange scharf ist (core/alarmwache.py)."""
+        wachend = self.guarding(self._mode) if self._mode else []
+        # Die Vorgeschichte wird immer geführt, auch unscharf: Sonst
+        # begänne die Frist beim Scharfschalten neu, und ein Sensor, der
+        # seit dem Mittag weg ist, fiele erst am Abend auf.
+        for entity in self.candidates():
+            if entity.available:
+                self._stumm_seit.pop(entity.id, None)
+            else:
+                self._stumm_seit.setdefault(entity.id, jetzt)
+
+        if self._state not in (ARMED, ARMING) or not self._settings.get(
+            "notify_blind", True
+        ):
+            self._blind_gemeldet.clear()
+            return
+
+        stellen = alarmwache.blindstellen(wachend, jetzt, self._stumm_seit)
+        neu = [
+            zeile
+            for zeile in stellen
+            if f"{zeile['entity_id']}:{zeile['art']}" not in self._blind_gemeldet
+        ]
+        # Behoben heisst: wieder scharf. Wer die Batterie wechselt, soll
+        # beim nächsten Mal wieder gewarnt werden.
+        self._blind_gemeldet = {
+            f"{zeile['entity_id']}:{zeile['art']}" for zeile in stellen
+        }
+        if not neu:
+            return
+
+        self._note("blind", alarmwache.satz(neu), "")
+        await self._notify(alarmwache.titel(neu), alarmwache.satz(neu), "alarm")
+        await self._publish()
+
+        if alarmwache.loest_aus(neu, self._settings):
+            # Nur gemeldete Sabotage, nie die Funkstille, und nur wenn
+            # jemand den Schalter umgelegt hat - warum, steht in
+            # core/alarmwache.py.
+            betroffen = self.hub.registry.get(neu[0]["entity_id"])
+            if betroffen is not None:
+                await self._trigger(betroffen)
+
+    async def _anwesenheit(self, jetzt: float) -> None:
+        """Scharf schalten, wenn alle weg sind (core/alarmanwesenheit.py)."""
+        zustaende = self._anwesenheitszustaende()
+        if not zustaende:
+            return
+        weg = alarmanwesenheit.alle_weg(zustaende)
+        if weg:
+            # Ausdrücklich auf None geprüft und nicht auf «falsch»: Ein
+            # Zeitstempel 0 ist ein gültiger Zeitpunkt, und `or` würde
+            # ihn jede Minute neu setzen - der Nachlauf käme nie zum
+            # Ende.
+            if self._weg_seit is None:
+                self._weg_seit = jetzt
+        else:
+            self._weg_seit = None
+
+        scharf_stufe = alarmanwesenheit.stufe_lesen(self._settings.get("presence_arm"))
+        unscharf_stufe = alarmanwesenheit.stufe_lesen(
+            self._settings.get("presence_disarm")
+        )
+
+        if alarmanwesenheit.soll_scharf(
+            zustaende,
+            stufe=scharf_stufe,
+            state=self._state,
+            weg_seit=self._weg_seit,
+            jetzt=jetzt,
+        ):
+            await self._anwesenheit_handeln("scharf", scharf_stufe)
+            return
+
+        if alarmanwesenheit.soll_unscharf(
+            zustaende, stufe=unscharf_stufe, state=self._state
+        ):
+            await self._anwesenheit_handeln("unscharf", unscharf_stufe)
+            return
+
+        # Zurückgesetzt, sobald die Lage wieder gewöhnlich ist - sonst
+        # käme der Vorschlag beim nächsten Mal nicht mehr.
+        self._anwesenheit_gemeldet = None
+
+    async def _anwesenheit_handeln(self, richtung: str, stufe: str) -> None:
+        if self._anwesenheit_gemeldet == richtung:
+            return
+        self._anwesenheit_gemeldet = richtung
+        text = alarmanwesenheit.satz(richtung, stufe)
+        if stufe == alarmanwesenheit.VORSCHLAGEN:
+            # Ein Vorschlag, kein stilles Schalten: Der Tipp darauf führt
+            # zur Anlage (core/pushziel.py), und dort entscheidet ein
+            # Mensch. Ein Knopf am Sperrbildschirm, der entschärft, wäre
+            # genau das, wogegen es die PIN gibt.
+            await self._notify("Alarmanlage", text, "alarm_arming")
+            return
+        if richtung == "scharf":
+            # Über arm(), nicht am Zustand vorbei: Die Prüfung auf
+            # offene Fenster und blinde Sensoren soll auch für die
+            # selbsttätige Schaltung gelten.
+            ergebnis = await self.arm(alarmanwesenheit.MODUS, by="Anwesenheit")
+            if not ergebnis.get("ok"):
+                await self._notify(
+                    "Konnte nicht scharf schalten",
+                    "Niemand mehr zuhause – aber es steht noch etwas offen.",
+                    "alarm_arming",
+                )
+                return
+        else:
+            await self.disarm(by="Anwesenheit")
+        await self._notify("Alarmanlage", text, "alarm_arming")
+
+    def _anwesenheitszustaende(self) -> list[str]:
+        """Der Zustand jeder Person, wie der Geofence ihn führt.
+
+        Über die Entitäten und nicht über den Geofence selbst: So
+        funktioniert es auch mit von Hand gesetzter Anwesenheit, und die
+        Anlage muss keine Integration kennen, die es vielleicht gar
+        nicht gibt.
+        """
+        return [
+            str(entity.state.get("state") or "")
+            for entity in self.hub.registry.all()
+            if str(entity.state.get("device_class") or "") == "presence"
+        ]
+
     # ── Verlauf ────────────────────────────────────────────────────────────
 
     def _note(self, kind: str, text: str, by: str) -> None:
@@ -1030,6 +1275,12 @@ class AlarmIntegration(Integration):
         wer = quellen_name(source.current())
         if command in ("disarm", "turn_off"):
             await self.disarm(by=wer, pin=pin, require_pin=require_pin)
+            return
+        if command == "panic":
+            # Ohne PIN und aus jedem Zustand - die Begründung steht bei
+            # panic() selbst. Auch als Kommando, damit ein Wandtaster
+            # neben der Haustüre ihn auslösen kann.
+            await self.panic(by=wer or "Panikknopf")
             return
         if command == "toggle":
             if self._state == DISARMED:
