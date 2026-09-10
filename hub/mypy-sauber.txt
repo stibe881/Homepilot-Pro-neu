@@ -75,6 +75,7 @@ homepilot/core/giessen.py
 homepilot/core/goodnight.py
 homepilot/core/guestpass.py
 homepilot/core/gutscheine.py
+homepilot/core/gutscheinort.py
 homepilot/core/hausblatt.py
 homepilot/core/heimgruss.py
 homepilot/core/hub.py
@@ -125,6 +126,7 @@ homepilot/core/stand.py
 homepilot/core/store.py
 homepilot/core/streams.py
 homepilot/core/stromrueckkehr.py
+homepilot/core/sturmvorwarnung.py
 homepilot/core/suggest.py
 homepilot/core/supabase.py
 homepilot/core/supabase_auth.py

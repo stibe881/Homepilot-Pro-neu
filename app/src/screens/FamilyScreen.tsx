@@ -6,6 +6,7 @@ import { Image, Linking, Modal, Pressable, ScrollView, Share, Text, TextInput, V
 
 import { hubClient } from '../api/client';
 import { Card } from '../components/Card';
+import { type Ort } from '../lib/ladenkarte';
 import { sternProtokoll, sternZiel, wochenSterne } from '../lib/aemtlisterne';
 import { modusSatz } from '../lib/babysitter';
 import { gruppiereModule } from '../lib/familiemodule';
@@ -4252,6 +4253,11 @@ export function FamilyScreen({
         // Wer einen Gutschein übernehmen kann: der Haushalt ohne Gäste
         // und ohne die Wandtablets (lib/mitglieder.ts).
         haushalt={namen(haushalt(members))}
+        // Die Läden vom Einkaufszettel: Sie tragen die Koordinaten, und
+        // daraus wird der Weg zum Laden auf dem Gutschein
+        // (lib/ladenkarte.ts). Kein zweites Ortssystem - wer einen Laden
+        // anlegt, legt ihn dort an, wo er ohnehin hingehört.
+        orte={((data.shops ?? []) as unknown as Ort[]).filter((ort) => ort?.name)}
         fehler={error}
         hinweis={standHinweis}
         jetzt={new Date()}

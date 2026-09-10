@@ -103,6 +103,8 @@ import {
 } from '../../lib/gutscheine';
 import { datumUhr } from '../../lib/format';
 import { tapped } from '../../lib/haptics';
+import { appleMapsRoute, googleMapsRoute } from '../../components/TopStrip';
+import { type Ort, kartenZiel, ortFuer } from '../../lib/ladenkarte';
 import { Colors, radius } from '../../theme';
 import { bildUri } from '../RecipeBook';
 import { BackHead, FamilyItem, Styles } from './bausteine';
@@ -426,6 +428,7 @@ function Detail({
   onStorno,
   onUebergeben,
   haushalt = [],
+  orte = [],
   onBearbeiten,
   onLoeschen,
   styles,
@@ -443,6 +446,9 @@ function Detail({
   onUebergeben?: (an: string) => void;
   /** Wer im Haushalt in Frage kommt - ohne mich selbst. */
   haushalt?: string[];
+  /** Die Läden mit Koordinaten, wie der Einkaufszettel sie führt -
+   *  daraus wird der Weg zum Laden (lib/ladenkarte.ts). */
+  orte?: Ort[];
   onBearbeiten: () => void;
   onLoeschen: () => void;
   styles: Styles;
@@ -563,6 +569,36 @@ function Detail({
           <Text style={[eigen.gueltigText, { color: ablaufFarbe(stufe, colors) }]}>
             {ablaufSatz(entry.expires, heute)}
           </Text>
+        ) : null}
+        {/* Der Weg zum Laden. Der Name allein genügt, um den Gutschein
+            wiederzufinden - nicht, um hinzufahren; wer die Adresse
+            sucht, tippt den Namen in eine Kartenapp ab, und bei
+            «Chrüterhüsli» tippt er ihn falsch ab. Ist der Laden als Ort
+            angelegt (beim Einkaufszettel), führt die Karte an die Tür
+            statt an die Hauptfiliale, die zufällig denselben Namen
+            trägt (lib/ladenkarte.ts). */}
+        {kartenZiel(entry.shop, orte) ? (
+          <Pressable
+            onPress={() => {
+              const ziel = kartenZiel(entry.shop, orte);
+              if (!ziel) return;
+              const adresse =
+                Platform.OS === 'android'
+                  ? googleMapsRoute(ziel)
+                  : appleMapsRoute(ziel);
+              Linking.openURL(adresse).catch(() => {});
+            }}
+            accessibilityRole="link"
+            accessibilityLabel={`Route zu ${entry.shop} öffnen`}
+            style={eigen.linkZeile}
+          >
+            <Ionicons name="location-outline" size={16} color={colors.accent} />
+            <Text style={eigen.linkText} numberOfLines={1}>
+              {ortFuer(entry.shop, orte)
+                ? `Route zu ${ortFuer(entry.shop, orte)?.name}`
+                : `${entry.shop} auf der Karte suchen`}
+            </Text>
+          </Pressable>
         ) : null}
         {entry.url ? (
           <Pressable
@@ -1360,6 +1396,7 @@ export function Gutscheine({
   settings,
   ich,
   haushalt = [],
+  orte = [],
   fehler,
   hinweis,
   jetzt,
@@ -1377,6 +1414,8 @@ export function Gutscheine({
   ich: string;
   /** Wer im Haushalt einen Gutschein übernehmen kann (Punkt 306). */
   haushalt?: string[];
+  /** Die Läden mit Koordinaten - für den Weg zum Laden. */
+  orte?: Ort[];
   fehler?: string | null;
   hinweis?: string | null;
   jetzt: Date;
@@ -1454,6 +1493,7 @@ export function Gutscheine({
           entry={entry}
           heute={heute}
           settings={settings}
+          orte={orte}
           onBack={() => setSeite({ art: 'liste' })}
           onAbziehen={() => setAbzugId(entry.id ?? null)}
           onStorno={(buchung) => {

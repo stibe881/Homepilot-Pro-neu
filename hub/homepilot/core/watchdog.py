@@ -43,6 +43,7 @@ from . import (
     gemeldet,
     giessen,
     gutscheine,
+    gutscheinort,
     kamera,
     losfahren,
     maintenance,
@@ -58,6 +59,7 @@ from . import (
     shopping,
     spaeter,
     storenwaechter,
+    sturmvorwarnung,
     trash,
     users,
     uvwarnung,
@@ -560,6 +562,7 @@ class Watchdog:
         await self._check_giessen(entities)
         await self._check_maintenance()
         await self._check_shopping(entities)
+        await self._check_gutschein_ort(entities)
         await self._check_vorrat()
         await self._check_wlanscheine()
         await self._check_medications()
@@ -657,6 +660,37 @@ class Watchdog:
         elevation, _azimut = astro.sun_position(datetime.now(), lat, lon)
         return elevation
 
+    async def _sturm_vorwarnen(
+        self, lage: dict[str, str] | None, entities: list[Any]
+    ) -> None:
+        """Bescheid sagen, bevor es losgeht (core/sturmvorwarnung.py).
+
+        Der Sturmwächter darunter fährt die Storen hoch und meldet, dass
+        er es getan hat. Das ist der richtige Griff für die Lamellen -
+        und beantwortet die andere Hälfte nicht: Der Sonnenschirm, die
+        Kissen, das Trampolin. Dafür braucht man Vorlauf, und den gibt
+        ``onset`` her.
+        """
+        jetzt = datetime.now()
+        if not sturmvorwarnung.faellig(lage, jetzt):
+            return
+        assert lage is not None
+        kennung = sturmvorwarnung.marke(lage)
+        gewarnt = self.hub.data.get(sturmvorwarnung.STORE_KEY)
+        if sturmvorwarnung.schon_gewarnt(gewarnt, kennung):
+            return
+        # Vormerken *bevor* die Meldung rausgeht: Scheitert der Versand,
+        # soll er nicht im nächsten Takt erneut versucht werden -
+        # dasselbe Muster wie beim Verwaisten-Hinweis.
+        self.hub.data.set(
+            sturmvorwarnung.STORE_KEY,
+            sturmvorwarnung.vermerken(gewarnt, kennung, time.time()),
+        )
+        titel, text = sturmvorwarnung.text(
+            lage, [e.label for e in open_contacts(entities)], jetzt
+        )
+        await self._notify(titel, text, category="storm_covers")
+
     async def _check_storm_covers(self, entities: list[Any]) -> None:
         """Sturm, Hagel oder Gewitter angekündigt: die Storen hochfahren.
 
@@ -674,6 +708,11 @@ class Watchdog:
         if warnung is None:
             return
         lage = storenwaechter.unwetter(getattr(warnung, "state", None) or {})
+        # Erst die Vorwarnung, dann das Fahren: Was der Hub hochfahren
+        # kann, fährt er; was draussen liegt, muss ein Mensch
+        # hereinholen - und dafür braucht er Vorlauf
+        # (core/sturmvorwarnung.py).
+        await self._sturm_vorwarnen(lage, entities)
         gemerkt = self.hub.data.get(storenwaechter.STURM_STORE_KEY)
         schritt, neu = storenwaechter.sturm_schritt(lage, gemerkt, time.time())
         if schritt == "entwarnen":
@@ -979,6 +1018,68 @@ class Watchdog:
                 continue
             titel, text = shopping.describe(shop, offen)
             await self._notify(titel, text, category="shopping", to=empfaenger)
+
+    async def _check_gutschein_ort(self, entities: list[Any]) -> None:
+        """Den Gutschein melden, während man im Laden steht.
+
+        Die Verfalls-Erinnerung (Punkt 264) hilft gegen den vergessenen
+        Gutschein. Sie hilft nicht gegen den Fehler, der öfter vorkommt:
+        Man steht bei Ochsner Sport, kauft Turnschuhe, und der Gutschein
+        liegt zuhause in der App. Gemerkt hat man ihn sich beim
+        Frühstück; im Laden dachte man an die Schuhgrösse.
+
+        Dieselbe Maschinerie wie beim Einkaufszettel - die Orte, das
+        Betreten, das Merken je Aufenthalt. Zusammengeführt wird über
+        den Ladennamen (core/gutscheinort.py); eigene Zonen bringt das
+        hier nicht mit.
+        """
+        shops = self.hub.data.get("family_shops")
+        if not shops:
+            return
+        gutscheine = self.hub.data.get("family_vouchers")
+        if not gutscheine:
+            return
+        zonen = {}
+        namen = {}
+        for entity in entities:
+            if not entity.id.startswith("geofence."):
+                continue
+            zone_id = entity.id.split(".", 1)[1]
+            zonen[zone_id] = entity.state
+            namen[zone_id] = entity.name
+        jetzt = time.time()
+        for shop in shops:
+            if not isinstance(shop, dict):
+                continue
+            ort = str(shop.get("name") or "").strip()
+            treffer = gutscheinort.hier_gueltig(gutscheine, ort, jetzt)
+            if not treffer:
+                continue
+            zone_id, stand, marke = shopping.wer_steht_dort(shop, zonen)
+            if stand is None:
+                continue
+            # Einmal je Aufenthalt, wie beim Einkaufszettel: Verglichen
+            # wird der Zeitpunkt des Betretens. Beim nächsten Besuch ist
+            # der ein anderer, und die Erinnerung kommt wieder.
+            betreten = stand.get("changed_at")
+            schluessel = f"gutschein:{marke}"
+            if self._shop_reminded.get(schluessel) == betreten:
+                continue
+            self._shop_reminded[schluessel] = betreten
+            empfaenger = self._benutzer_zur_zone(zone_id, namen)
+            if empfaenger is None:
+                continue
+            # Nur an den, der dort steht - und private Gutscheine gehen
+            # ohnehin nur ihren Besitzer etwas an.
+            eigene = [
+                zeile
+                for zeile in treffer
+                if not zeile.get("private") or zeile.get("owner") == empfaenger
+            ]
+            if not eigene:
+                continue
+            titel, text = gutscheinort.satz(eigene, ort)
+            await self._notify(titel, text, category="vouchers", to=empfaenger)
 
     async def _check_vorrat(self) -> None:
         """Standardartikel mit Takt selbst auf die Einkaufsliste setzen.
