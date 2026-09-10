@@ -89,16 +89,23 @@ export function rolleWort(mitglied: Mitglied): string {
 }
 
 /**
- * Nur der Haushalt – Gäste bleiben draussen (rein, testbar).
+ * Nur die Menschen des Haushalts (rein, testbar).
  *
  * Die Avatar-Reihe auf der Familienseite zeigt, wer hierher gehört.
  * Ein Gast-Zugang (der Babysitter, der Besuch mit Link) darf Licht
  * schalten, ist aber kein Mitglied – er stand trotzdem in der Reihe,
  * sobald jemand ihm spontan Zugang gab, und mit jedem geht die Reihe
  * weiter auseinander.
+ *
+ * Und die Gemeinschaftsgeräte: Das Wandtablet im Flur ist als Bewohner
+ * angelegt, damit es das Haus bedienen darf – ein Mensch wird es
+ * dadurch nicht. Es stand zwischen Stibe und Bine, mit «Mitbewohner»
+ * unter dem Namen, und zählte in der Kopfzeile als jemand, der nicht
+ * zuhause ist. Dieselbe Unterscheidung trifft «Wer dazugehört»
+ * (lib/benutzergruppen.ts, gruppeVon) schon.
  */
 export function haushalt(reihe: Mitglied[]): Mitglied[] {
-  return reihe.filter((mitglied) => mitglied.role !== 'gast');
+  return reihe.filter((mitglied) => mitglied.role !== 'gast' && !mitglied.shared);
 }
 
 /**

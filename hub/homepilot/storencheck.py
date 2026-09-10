@@ -110,7 +110,7 @@ def vor_wie_lange(wann: object) -> str:
     return f"vor {int(alter / 3600)} Std"
 
 
-def gateway_teil() -> None:
+def gateway_teil(geraete_nachlesen: bool = False) -> None:
     """Den rohen Gateway-Bericht anhängen - wenn Overkiz eingerichtet ist.
 
     Die Tabelle oben sagt, was der Hub *meint*. Sie sagt nicht, woher er
@@ -128,7 +128,7 @@ def gateway_teil() -> None:
     print()
     print("Was das Gateway selbst meldet (eigene Sitzung, roh):")
     try:
-        zeilen = asyncio.run(gateway_bericht(CONFIG))
+        zeilen = asyncio.run(gateway_bericht(CONFIG, geraete_nachlesen))
     except Exception as err:
         print(f"  nicht abrufbar: {err}")
         return
@@ -136,7 +136,7 @@ def gateway_teil() -> None:
         print(zeile)
 
 
-def main() -> None:
+def main(geraete_nachlesen: bool = False) -> None:
     token, port = token_und_port()
     if not token:
         raise SystemExit(f"Kein Token – weder in der Umgebung noch in {CONFIG}")
@@ -183,18 +183,29 @@ def main() -> None:
         )
     print()
     print(
-        "«zuletzt» ist die Frage, mit der man hier anfängt. Steht überall eine\n"
-        "Stellung, die nicht stimmt, und daneben «vor Stunden», dann ist der\n"
-        "Wert nicht falsch gerechnet, sondern alt: Das Gateway gibt seinen\n"
-        "Zwischenspeicher heraus, und der wird nur aufgefrischt, wenn jemand\n"
-        "ausdrücklich nachlesen lässt (integrations/overkiz.py,\n"
-        "_zustaende_nachlesen - genau das tut die TaHoma-App beim Öffnen).\n"
-        "Steht daneben «vor Minuten», stimmt die Umrechnung nicht - dann\n"
-        "gehört cover_state() angesehen. Welcher der beiden Fälle es ist,\n"
-        "entscheidet der Teil darunter: Er fragt das Gateway direkt."
+        "«zuletzt» sagt, wie alt die Zeile ist; der Takt fragt jede Minute.\n"
+        "Stimmt eine Stellung nicht, entscheidet der Teil darunter, woran es\n"
+        "liegt - er fragt das Gateway direkt:\n"
+        "  · Das Gateway meldet dasselbe Falsche → das Gerät hat sich noch\n"
+        "    nicht gemeldet; niemand weiss es besser, auch die TaHoma-App nicht.\n"
+        "  · Das Gateway meldet es richtig → der Hub hinkt hinterher, und die\n"
+        "    Frage ist der Ereigniskanal oder der Takt (ABFRAGE_INTERVALL).\n"
+        "  · Der rohe Wert passt nicht zu dem, was oben steht → dann gehört\n"
+        "    cover_state() angesehen."
     )
-    gateway_teil()
+    gateway_teil(geraete_nachlesen)
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    _parser = argparse.ArgumentParser(description=__doc__)
+    _parser.add_argument(
+        "--funk",
+        action="store_true",
+        help=(
+            "jede Store zusätzlich einzeln über Funk fragen, wo sie steht "
+            "(advancedRefresh) - bewegt nichts, löst aber Funkverkehr aus"
+        ),
+    )
+    main(_parser.parse_args().funk)

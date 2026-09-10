@@ -29,7 +29,7 @@ import {
 } from '../lib/einkauf';
 import { LernEintrag, mitLernen } from '../lib/ladenlernen';
 import { uhr, wochentagDatum, wochentagUhr } from '../lib/format';
-import { klimaLabel, klimaSensor } from '../lib/klimachip';
+import { type Messgroesse, klimaKandidaten, klimaLabel } from '../lib/klimachip';
 import { geburtstagsSatz, terminSatz } from '../lib/startkarte';
 import { Person, anwesenheitsListe, werIstDaHinweis } from '../lib/ortung';
 import { tapped } from '../lib/haptics';
@@ -231,8 +231,16 @@ export function TopStrip({
   // Nicht «der erste mit der passenden Einheit»: Homematic legt je
   // Funkschnittstelle einen Sensor «Sendespeicher» an, ebenfalls in
   // Prozent - siehe lib/klimachip.
-  const temperature = klimaSensor(entities, 'temperature');
-  const humidity = klimaSensor(entities, 'humidity');
+  const tempFuehler = klimaKandidaten(entities, 'temperature');
+  const feuchteFuehler = klimaKandidaten(entities, 'humidity');
+  const temperature = tempFuehler[0];
+  const humidity = feuchteFuehler[0];
+  // Welcher Chip gerade erklärt wird. «Warum steht da 29,7 Grad?» war
+  // von der Oberfläche aus nicht zu beantworten: Der Chip nennt eine
+  // Zahl, und wer sie loswerden will, muss das Gerät finden, das sie
+  // liefert - unter zwanzig Fühlern mit derselben Einheit.
+  const [klimaOffen, setKlimaOffen] = useState<Messgroesse | null>(null);
+  useEscape(klimaOffen !== null, () => setKlimaOffen(null));
   // Nur der Geofence, nie `unifi.anyone_home`: Das WLAN beantwortet «ist
   // eines der verfolgten Geräte im Netz», nicht «ist jemand zuhause».
   // Genau daran stimmte die Startseite nicht mehr mit dem Fenster
@@ -522,6 +530,62 @@ export function TopStrip({
               <OffenListe entities={entities} jetzt={Date.now()} />
             </ScrollView>
             <Pressable onPress={() => setOpenOpen(false)} style={styles.close}>
+              <Text style={styles.closeText}>Schliessen</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* «Woher kommt diese Zahl?» - die Frage, die der Chip aufwirft
+          und bisher nicht beantwortete. Gezeigt wird immer nur ein
+          Fühler; welcher, entscheidet lib/klimachip.ts. Wer den Wert
+          hier nicht haben will, muss genau dieses Gerät finden, und
+          zwischen zwanzig Fühlern mit derselben Einheit ist das
+          Raten. */}
+      <Modal
+        visible={klimaOffen !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setKlimaOffen(null)}
+      >
+        <Pressable style={styles.backdrop} onPress={() => setKlimaOffen(null)}>
+          <Pressable style={styles.sheet} onPress={() => {}}>
+            <Text style={styles.heading}>
+              {klimaOffen === 'humidity' ? 'Luftfeuchtigkeit' : 'Temperatur'}
+            </Text>
+            <ScrollView style={{ maxHeight: 360 }}>
+              {(klimaOffen === 'humidity' ? feuchteFuehler : tempFuehler).map(
+                (fuehler, platz) => (
+                  <View key={fuehler.id} style={styles.klimaZeile}>
+                    <Ionicons
+                      name={platz === 0 ? 'ellipse' : 'ellipse-outline'}
+                      size={10}
+                      color={platz === 0 ? colors.on : colors.inkFaint}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.klimaName} numberOfLines={1}>
+                        {fuehler.name}
+                      </Text>
+                      <Text style={styles.klimaOrt} numberOfLines={1}>
+                        {fuehler.room ?? 'Kein Raum'}
+                        {platz === 0 ? ' · steht oben' : ''}
+                      </Text>
+                    </View>
+                    <Text style={styles.klimaWert}>
+                      {round(fuehler.state.state)}
+                      {klimaOffen === 'humidity' ? ' %' : ' °C'}
+                    </Text>
+                  </View>
+                )
+              )}
+            </ScrollView>
+            <Text style={styles.sheetHint}>
+              Aufgeführt ist, was für die ganze Wohnung zählt. Ein Fühler, der nur
+              für sein Zimmer steht, gehört nicht dazu: Geräte → Anpassen → «Gilt
+              für». Jeder Messwert ist dabei ein eigenes Gerät – ein Thermostat
+              liefert Temperatur und Feuchte getrennt.
+            </Text>
+            <Pressable onPress={() => setKlimaOffen(null)} style={styles.close}>
               <Text style={styles.closeText}>Schliessen</Text>
             </Pressable>
           </Pressable>
@@ -941,6 +1005,7 @@ export function TopStrip({
           icon="thermometer-outline"
           text={`${round(temperature.state.state)} °C`}
           label={klimaLabel(temperature, 'temperature')}
+          onPress={() => setKlimaOffen('temperature')}
         />
       ) : null}
       {humidity ? (
@@ -948,6 +1013,7 @@ export function TopStrip({
           icon="water-outline"
           text={`${round(humidity.state.state)} %`}
           label={klimaLabel(humidity, 'humidity')}
+          onPress={() => setKlimaOffen('humidity')}
         />
       ) : null}
     </>
@@ -1139,6 +1205,7 @@ export function TopStrip({
             icon="thermometer-outline"
             text={`${round(temperature.state.state)} °C`}
             label={klimaLabel(temperature, 'temperature')}
+            onPress={() => setKlimaOffen('temperature')}
           />
         ) : null}
         {humidity ? (
@@ -1146,6 +1213,7 @@ export function TopStrip({
             icon="water-outline"
             text={`${round(humidity.state.state)} %`}
             label={klimaLabel(humidity, 'humidity')}
+            onPress={() => setKlimaOffen('humidity')}
           />
         ) : null}
         {people ? (
@@ -1692,4 +1760,8 @@ const makeStyles = (colors: Colors) =>
   // «lightRoom» (inkFaint, 12) ist für eine Zeile unter einem Gerätenamen
   // gedacht, nicht für einen Satz, den jemand im Laden liest.
   sheetHint: { color: colors.inkSoft, fontSize: 13, lineHeight: 18 },
+  klimaZeile: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
+  klimaName: { color: colors.ink, fontSize: 15 },
+  klimaOrt: { color: colors.inkFaint, fontSize: 12 },
+  klimaWert: { color: colors.ink, fontSize: 15, fontWeight: '700' },
 });

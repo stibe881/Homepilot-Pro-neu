@@ -114,14 +114,37 @@ WIEDERHOLPAUSE = 3.0
 #: grau - auch wenn sie längst wieder da war.
 ABWESEND_SCHWELLE = 3
 
-#: Takt, in dem die Geräteliste beim Gateway nachgefragt wird.
+# ── Live, nicht im Takt ────────────────────────────────────────────────
+#
+# Wie eine Store in die App kommt, ist keine Frage des Abfragens: Das
+# Gateway hat einen Ereigniskanal, der jede Änderung binnen Sekunden
+# meldet - auch die vom Wandschalter. Der Hub hört daran durchgehend zu
+# (`_event_loop`), und was hereinkommt, ist sofort auf dem Telefon.
+#
+# Der Takt darunter ist nur ein Netz für das, was der Kanal nicht
+# hergibt: die Zeit, in der er unterbrochen war, und die Meldung, dass
+# ein Gerät wieder antwortet. Er war lange mehr als das - nicht weil er
+# sollte, sondern weil der Kanal ins Leere lief: Der zwischengespeicherte
+# `get_devices()` schrieb den Stand vom Hub-Start jedes Mal wieder über
+# das, was der Kanal Sekunden zuvor richtig gemeldet hatte. Genau das
+# sah man auf dem Telefon: Die Store fuhr auf, und kurz darauf stand sie
+# wieder zu.
+#
+# Deshalb richtet sich der Takt jetzt danach, ob der Kanal lebt.
+
+#: Solange der Ereigniskanal innerhalb dieser Frist etwas hergegeben hat
+#: - auch eine leere Antwort zählt, sie beweist die Verbindung -, gilt er
+#: als lebendig.
+KANAL_FRIST = 120.0
+
+#: Takt, solange der Kanal lebt. Reines Netz; wer live bedient wird,
+#: braucht keine Abfrage.
 ABFRAGE_INTERVALL = 300.0
 
-#: Wie lange nach dem Nachlesen gewartet wird, bevor erneut gefragt wird.
-#: Das Gateway fragt die Geräte über Funk ab, und die Antworten tröpfeln
-#: über Sekunden herein. Sofort wieder nachzusehen zeigt nur denselben
-#: alten Stand - und damit wäre der Vergleich wertlos.
-NACHLESE_WARTEN = 6.0
+#: Takt, solange der Kanal schweigt. Dann ist das Abfragen die einzige
+#: Quelle, und fünf Minuten wären zu lang, um sich richtig anzufühlen.
+ABFRAGE_STUMM = 60.0
+
 
 
 def verfuegbarkeit(
@@ -138,6 +161,49 @@ def verfuegbarkeit(
         return 0, True
     neu = zaehler + 1
     return neu, neu < schwelle
+
+
+def takt_pause(kanal_alter: float | None) -> float:
+    """Wie lange bis zur nächsten Abfrage (rein, testbar).
+
+    ``kanal_alter`` ist die Zeit seit der letzten Antwort des
+    Ereigniskanals, oder None, wenn er noch nie eine gab. Lebt er, ist
+    die Abfrage nur ein Netz und darf selten sein; schweigt er, ist sie
+    die einzige Quelle und muss häufig sein.
+    """
+    if kanal_alter is not None and kanal_alter <= KANAL_FRIST:
+        return ABFRAGE_INTERVALL
+    return ABFRAGE_STUMM
+
+
+def kanal_satz(stand: str, meldungen: int, alter: float | None) -> str:
+    """Ein Satz darüber, ob die Anzeige gerade live ist (rein, testbar).
+
+    Die Frage «wird das live angezeigt oder nur abgefragt?» liess sich
+    von aussen nicht beantworten - man sah nur den Stand, nicht seinen
+    Weg. Deshalb steht sie jetzt unter «Nicht in Ordnung», wo man
+    nachsieht, wenn etwas nicht stimmt.
+    """
+    if alter is None:
+        return f"Ereigniskanal: {stand} - noch keine Antwort, der Stand kommt aus der Abfrage."
+    if alter > KANAL_FRIST:
+        return (
+            f"Ereigniskanal: {stand}, seit {int(alter)} s still - der Stand kommt "
+            "aus der Abfrage, nicht live."
+        )
+    return f"Live über den Ereigniskanal ({meldungen} Meldungen)."
+
+
+def ist_cover(device: Any) -> bool:
+    """Ob dieses Overkiz-Gerät eine Store ist (rein, testbar).
+
+    Am Gateway hängen auch Funk-Sticks, Brücken und die Box selbst -
+    die haben weder Stellung noch Lamellen.
+    """
+    return (
+        str(getattr(device, "widget", "")) in COVER_WIDGETS
+        or str(getattr(device, "ui_class", "")) in COVER_UI_CLASSES
+    )
 
 
 def cover_state(states: dict[str, Any]) -> dict[str, Any]:
@@ -260,6 +326,12 @@ def learned_travel(
 class OverkizIntegration(Integration):
     name = "overkiz"
 
+    # Vorbelegt, damit `health()` auch dann etwas sagen kann, wenn die
+    # Einrichtung gar nicht so weit kam.
+    _kanal_gehoert: float | None = None
+    _kanal_meldungen = 0
+    _kanal_stand = "wird aufgebaut"
+
     async def setup(self) -> None:
         host = self.config.get("host")
         if not host:
@@ -318,12 +390,26 @@ class OverkizIntegration(Integration):
         self._cmd_by_entity: dict[str, dict[str, list[str]]] = {}
         # Wie oft ein Gerät hintereinander als abwesend gemeldet wurde.
         self._abwesend: dict[str, int] = {}
+        # Ob das Gateway «Zustände neu lesen» überhaupt kennt. Das lokale
+        # kennt es nicht - dann wird nicht endlos weitergefragt.
+        self._nachlesen_geht = True
+        # Wann der Ereigniskanal zuletzt geantwortet hat (monotone Uhr),
+        # wie viele Meldungen er gebracht hat und ob er gerade steht.
+        # Daran hängt der Takt - und die Antwort auf «wird das live
+        # angezeigt?», die vorher niemand geben konnte.
+        self._kanal_gehoert: float | None = None
+        self._kanal_meldungen = 0
+        self._kanal_stand = "wird aufgebaut"
+        # Was das Gateway zuletzt je Gerät gesagt hat - roh. Damit lässt
+        # sich «hat sich etwas geändert» von «dieselbe alte Auskunft»
+        # unterscheiden; siehe _geraete_auffrischen.
+        self._roh: dict[str, dict[str, Any]] = {}
         # Nur ein Befehl aufs Mal, mit Pause: Funktelegramme, die sich
         # überlagern, gehen verloren - siehe Kopf dieser Datei.
         self._funk = asyncio.Lock()
         self._zuletzt_gesendet = 0.0
         for device in await self._client.get_devices():
-            if not self._is_cover(device):
+            if not ist_cover(device):
                 continue
             states = {state.name: state.value for state in device.states or []}
             supported = {
@@ -366,6 +452,7 @@ class OverkizIntegration(Integration):
                 available=True,
             )
             self._devices[device.device_url] = entity.id
+            self._roh[device.device_url] = states
             self._url_by_entity[entity.id] = device.device_url
             self._cmd_by_entity[entity.id] = cmd_map
             self._abwesend[entity.id] = (
@@ -383,15 +470,9 @@ class OverkizIntegration(Integration):
         # der Stand aus dem Zwischenspeicher des Gateways - also womöglich
         # der von gestern Abend.
         self.start_polling(
-            self._geraete_auffrischen, interval=ABFRAGE_INTERVALL, sofort=True
+            self._geraete_auffrischen, interval=self._takt_pause, sofort=True
         )
 
-    @staticmethod
-    def _is_cover(device: Any) -> bool:
-        return (
-            str(getattr(device, "widget", "")) in COVER_WIDGETS
-            or str(getattr(device, "ui_class", "")) in COVER_UI_CLASSES
-        )
 
     def _token_file(self) -> Path:
         return tokenstore.token_file(self.hub.config.data_file, self.config, "overkiz")
@@ -427,19 +508,62 @@ class OverkizIntegration(Integration):
             ],
         )
 
+    def _takt_pause(self) -> float:
+        """Wie lange bis zur nächsten Abfrage - je nachdem, ob der Kanal lebt."""
+        alter = (
+            None
+            if self._kanal_gehoert is None
+            else time.monotonic() - self._kanal_gehoert
+        )
+        return takt_pause(alter)
+
     async def _event_loop(self) -> None:
-        """Live-Updates über den Ereigniskanal des Gateways."""
+        """Live-Updates über den Ereigniskanal des Gateways.
+
+        Das ist der Weg, auf dem eine Store in die App kommt: Das
+        Gateway meldet jede Änderung binnen Sekunden - auch die vom
+        Wandschalter -, und der Hub gibt sie sofort weiter. Der Takt
+        daneben ist nur ein Netz.
+
+        Zwei Dinge, die vorher fehlten und beide aus demselben Fehler
+        stammen - man konnte von aussen nicht sehen, ob der Kanal
+        überhaupt läuft:
+
+        - Jede Antwort wird vermerkt, auch die leere. Sie beweist die
+          Verbindung, und daran hängt, wie oft der Takt abfragt.
+        - Nach einer Unterbrechung wird einmal nachgeholt. Was während
+          der Lücke geschah, meldet der Kanal nicht nach; ohne das
+          Nachholen bliebe es bis zum nächsten Takt beim alten Stand.
+        """
+        gelaufen = False
         while True:
             try:
                 await self._client.register_event_listener()
+                if gelaufen:
+                    self.log.info("Overkiz-Ereigniskanal steht wieder - hole nach")
+                    await self._geraete_auffrischen()
+                else:
+                    self.log.info("Overkiz-Ereigniskanal steht")
+                gelaufen = True
+                self._kanal_stand = "läuft"
                 while True:
-                    for event in await self._client.fetch_events():
+                    ereignisse = await self._client.fetch_events()
+                    # Auch eine leere Antwort zählt: Sie beweist, dass der
+                    # Kanal steht - und genau das entscheidet den Takt.
+                    self._kanal_gehoert = time.monotonic()
+                    for event in ereignisse:
+                        self._kanal_meldungen += 1
                         await self._handle_event(event)
                     await asyncio.sleep(2)
             except asyncio.CancelledError:
                 raise
             except Exception as err:
-                self.log.debug("Overkiz-Ereigniskanal unterbrochen (%s), neu in 15s", err)
+                self._kanal_stand = f"unterbrochen ({err})"
+                self.log.warning(
+                    "Overkiz-Ereigniskanal unterbrochen (%s) - neuer Versuch in 15 s. "
+                    "Bis dahin kommt der Stand aus der Abfrage.",
+                    err,
+                )
                 await asyncio.sleep(15)
 
     async def _zustaende_nachlesen(self) -> bool:
@@ -450,38 +574,71 @@ class OverkizIntegration(Integration):
         offen waren. Beide fragen dasselbe Gateway - nur fragt es die
         Storen nicht von selbst.
 
-        ``get_devices()`` liefert den **zwischengespeicherten** Stand des
-        Gateways. Der wird von zwei Dingen aufgefrischt: von Meldungen
-        der Geräte über den Ereigniskanal - und davon, dass jemand
-        ausdrücklich «lies neu» sagt. Genau das tut die TaHoma-App beim
-        Öffnen, und deshalb stimmt sie. Wer nur zuhört, bekommt hingegen
-        nur mit, was passiert, *während* er zuhört: Was der Hub verpasst
-        hat (Neustart, unterbrochener Kanal, Bedienung am Wandschalter),
-        bleibt für ihn für immer beim alten Wert stehen - und das ist
-        dann die zuletzt selbst gefahrene Stellung.
+        Für die **Wolke** ist das der richtige Aufruf. Das **lokale**
+        Gateway kennt ihn nicht: Es antwortet mit «Unknown object», und
+        zwar jedes Mal. Hier im Haus lief er also monatelang bei jedem
+        Takt ins Leere, und in dieser Datei stand er trotzdem als
+        Erklärung dafür, warum die TaHoma-App stimmt und der Hub nicht -
+        eine Erklärung, die nie zutraf und die Suche nach der echten
+        Ursache zweimal in die falsche Richtung geschickt hat. Die echte
+        Ursache war der Takt: fünf Minuten sind lang genug, um beim
+        Hinsehen falsch zu wirken (siehe ABFRAGE_INTERVALL).
 
-        Deshalb hier bei jedem Takt einmal ausdrücklich nachlesen
-        lassen. Die Antworten kommen anschliessend über den
-        Ereigniskanal herein; dieser Aufruf stösst sie nur an. Zurück
-        kommt, ob überhaupt nachgelesen wurde - denn wer danach den
-        Zwischenspeicher liest, muss den Funkantworten erst Zeit lassen.
-
-        Nicht bindend: Ältere Fassungen der Bibliothek kennen den Aufruf
-        nicht, und Somfy bremst ihn, wenn er zu oft kommt. Ein
-        Fehlschlag hier darf den übrigen Takt nicht mitnehmen - dann
-        bleibt es beim bisherigen Verhalten.
+        Deshalb wird eine Absage jetzt gemerkt. Wer nicht antwortet,
+        wird nicht alle sechzig Sekunden erneut gefragt - und einmal
+        sichtbar im Protokoll steht sie auch, statt nur im Debug-Rauschen
+        unterzugehen.
         """
+        if not self._nachlesen_geht:
+            return False
         nachlesen = getattr(self._client, "refresh_states", None)
         if not callable(nachlesen):
+            self._nachlesen_geht = False
             return False
         try:
             await nachlesen()
         except asyncio.CancelledError:
             raise
         except Exception as err:
-            self.log.debug("Overkiz: «Zustände neu lesen» ging nicht (%s)", err)
+            self._nachlesen_geht = False
+            self.log.info(
+                "Overkiz: Das Gateway kennt «Zustände neu lesen» nicht (%s) - der "
+                "Stand kommt aus dem Takt und dem Ereigniskanal.",
+                err,
+            )
             return False
         return True
+
+    async def _geraete_holen(self) -> list[Any]:
+        """Die Geräteliste wirklich beim Gateway holen, nicht aus dem Zwischenspeicher.
+
+        Hier steckte der Fehler, der vier Runden gekostet hat.
+        ``pyoverkiz`` merkt sich die Liste in der Sitzung::
+
+            async def get_devices(self, refresh: bool = False):
+                if self.devices and not refresh:
+                    return self.devices
+
+        Der Hub hält eine Sitzung, solange er läuft. Sein erster Abruf
+        beim Start füllte den Zwischenspeicher, und **jeder** spätere
+        Takt bekam danach exakt dieselben Objekte zurück - den Stand vom
+        Start, für immer. Das sah aus wie ein Gateway, das nichts
+        mitbekommt, war aber ein Hub, der nie wieder fragte:
+
+        - Nach jedem Neustart stimmte die Anzeige, danach fror sie ein.
+        - `storencheck` widersprach dem Hub, weil es eine eigene, frische
+          Sitzung aufmacht - dort gab es nichts zwischenzuspeichern.
+        - Ein schnellerer Takt half nicht; er wiederholte denselben alten
+          Wert nur öfter.
+
+        Deshalb ausdrücklich ``refresh=True``. Ältere Fassungen der
+        Bibliothek kennen den Schalter nicht - dann eben ohne, sonst
+        stünde jede Minute «Geräteliste nicht abrufbar» im Protokoll.
+        """
+        try:
+            return list(await self._client.get_devices(refresh=True))
+        except TypeError:
+            return list(await self._client.get_devices())
 
     async def _geraete_auffrischen(self) -> None:
         """Beim Gateway nachfragen, wer da ist - und wie es steht.
@@ -493,21 +650,28 @@ class OverkizIntegration(Integration):
         lief.
 
         Und er meldet auch nicht, was während einer Unterbrechung
-        geschah - dafür das Nachlesen davor.
+        geschah - dafür das Nachlesen.
+
+        Die Reihenfolge ist der Punkt: **erst lesen, dann nachlesen
+        lassen.** Nachlesen ist nur ein Anstoss - das Gateway fragt die
+        Storen über Funk ab, und die Antworten tröpfeln über Sekunden
+        herein. Wer unmittelbar danach `get_devices()` ruft, liest den
+        Zwischenspeicher mitten in dieser Auffrischung aus und schreibt
+        einen Übergangsstand als Wahrheit fest. Genau so standen
+        anschliessend alle sechs Storen auf «offen», auch die vier
+        heruntergefahrenen - und zwar alle mit demselben Wert, was für
+        sich schon verrät, dass er nicht von den Geräten stammt.
+
+        So herum liest jeder Takt, was das Nachlesen des *vorigen* Takts
+        ergeben hat. Das hatte fünf Minuten Zeit, sich zu setzen, und
+        eine Wartezeit, die man raten müsste, braucht es nicht.
         """
-        if await self._zustaende_nachlesen():
-            # Den Funkantworten Zeit lassen. Das Nachlesen ist nur ein
-            # Anstoss: Das Gateway fragt die Geräte über Funk ab, und
-            # deren Antworten tröpfeln über Sekunden herein. Wer sofort
-            # wieder liest, bekommt genau denselben alten Stand - dann
-            # war das Nachlesen umsonst, und es bliebe beim Fehler, der
-            # gemeldet wurde. Der Takt läuft im Hintergrund; diese
-            # Sekunden kosten niemanden etwas.
-            await asyncio.sleep(NACHLESE_WARTEN)
         try:
-            geraete = await self._client.get_devices()
+            geraete = await self._geraete_holen()
         except Exception as err:
             self.log.debug("Overkiz: Geräteliste nicht abrufbar (%s)", err)
+            # Das Nachlesen für den nächsten Takt trotzdem anstossen.
+            await self._zustaende_nachlesen()
             return
         for device in geraete:
             entity_id = self._devices.get(getattr(device, "device_url", None))
@@ -526,9 +690,37 @@ class OverkizIntegration(Integration):
                     entity.label,
                     "meldet sich wieder" if erreichbar else "meldet sich nicht mehr",
                 )
+            url = getattr(device, "device_url", None)
+            if states == self._roh.get(url):
+                # Dieselbe Auskunft wie beim letzten Mal ist keine
+                # Neuigkeit - und darf deshalb nichts überschreiben.
+                #
+                # Der Fall aus dem Haus: Alle sechs Storen morgens
+                # hochgefahren, vier standen weiter als «Beschattung» da -
+                # mit haargenau den Werten vom Vorabend. Eine io-Store
+                # meldet dem Gateway nicht von sich aus, dass sie gefahren
+                # ist; das Gateway gab also stundenlang dieselbe alte Zahl
+                # heraus. Der Takt schrieb sie jedes Mal neu - und löschte
+                # dabei über `angenommen` die Auskunft aus dem Befehl, den
+                # der Hub selbst gerade geschickt hatte. Aus «wir haben
+                # eben aufgefahren» wurde so im Minutentakt wieder
+                # «geschlossen».
+                #
+                # Die Verfügbarkeit gehört trotzdem aufgefrischt: Dass
+                # sich ein Gerät wieder meldet, ist die eine Neuigkeit,
+                # die in einer unveränderten Zustandsliste steckt.
+                await self.hub.registry.update_state(
+                    entity_id, {}, available=erreichbar
+                )
+                continue
+            self._roh[url] = states
             await self.hub.registry.update_state(
                 entity_id, cover_state(states), available=erreichbar
             )
+
+        # Und jetzt das Nachlesen anstossen - für den nächsten Takt, nicht
+        # für diesen. Bis dahin sind die Funkantworten längst da.
+        await self._zustaende_nachlesen()
 
     def health(self) -> dict[str, Any]:
         """Welche Storen sich gerade nicht melden.
@@ -543,14 +735,24 @@ class OverkizIntegration(Integration):
                 continue
             entity = self.hub.registry.get(entity_id)
             still.append(entity.label if entity else entity_id)
+        kanal = kanal_satz(
+            self._kanal_stand,
+            self._kanal_meldungen,
+            None
+            if self._kanal_gehoert is None
+            else time.monotonic() - self._kanal_gehoert,
+        )
         if not still:
-            return {"ok": True, "detail": f"{len(self._devices)} Storen, alle melden sich."}
+            return {
+                "ok": True,
+                "detail": f"{len(self._devices)} Storen, alle melden sich. {kanal}",
+            }
         return {
             "ok": True,
             "detail": (
                 f"Meldet sich nicht: {', '.join(sorted(still))}. Befehle gehen "
                 "trotzdem hinaus - bei Funk heisst «meldet sich nicht» nicht "
-                "«hört nicht zu»."
+                f"«hört nicht zu». {kanal}"
             ),
         }
 
@@ -563,6 +765,11 @@ class OverkizIntegration(Integration):
         if not changed:
             return
         states = {state.name: state.value for state in changed}
+        # Das Ereignis ist die frischere Auskunft - sie gehört in den
+        # Merker, sonst hielte der nächste Takt seinen alten Stand für
+        # eine Änderung und schriebe ihn wieder darüber.
+        if device_url in self._roh:
+            self._roh[device_url].update(states)
         updates = cover_state(states)
         # Nur melden, was das Event wirklich enthielt (kein Zustand erfunden).
         if "position" not in updates and CLOSURE not in states:
@@ -841,13 +1048,35 @@ def nachlese_unterschiede(vorher: Any, nachher: Any) -> list[str]:
     return zeilen
 
 
-async def gateway_bericht(config_path: str) -> list[str]:
+#: Wie lange der Bericht nach dem Nachlesen wartet, bevor er erneut fragt.
+#: Das Gateway fragt die Storen über Funk ab, und die Antworten tröpfeln
+#: über Sekunden herein. Zu früh wieder nachzusehen zeigt einen
+#: Übergangsstand - und der Vergleich wäre wertlos. Grosszügig gewählt:
+#: Hier wartet ein Mensch vor der Ausgabe, nicht ein Takt im Hintergrund.
+NACHLESE_WARTEN = 15.0
+
+
+#: Der Befehl, mit dem sich eine einzelne io-Store fragen lässt, wo sie
+#: steht. Das globale «Zustände neu lesen» gibt es lokal nicht - dieser
+#: Befehl steht dafür in der Kommandoliste jeder EVB. Er bewegt nichts,
+#: er fragt.
+GERAET_NACHLESEN = "advancedRefresh"
+
+
+async def gateway_bericht(config_path: str, geraete_nachlesen: bool = False) -> list[str]:
     """Was das Gateway roh meldet - vor und nach dem Nachlesen.
 
     Nicht über den Hub, sondern in einer eigenen Sitzung direkt beim
     Gateway. Wirft `ConfigError`, wenn Zugang oder Block fehlen.
+
+    ``geraete_nachlesen`` fragt zusätzlich jede Store einzeln über Funk
+    (`advancedRefresh`). Das ist die offene Frage, wenn das Gateway
+    stundenlang dieselbe alte Stellung herausgibt: Eine io-Store meldet
+    von sich aus nicht, dass jemand sie am Wandschalter gefahren hat.
+    Ausdrücklich einzuschalten, weil es Funkverkehr auslöst.
     """
     from pyoverkiz.client import OverkizClient
+    from pyoverkiz.models import Command
     from pyoverkiz.utils import generate_local_server
 
     from ..core.config import load_config
@@ -877,16 +1106,42 @@ async def gateway_bericht(config_path: str) -> list[str]:
         await client.login()
         vorher = list(await client.get_devices())
         zeilen = geraete_zeilen(vorher)
+        angestossen = ""
         nachlesen = getattr(client, "refresh_states", None)
-        if not callable(nachlesen):
+        if callable(nachlesen):
+            try:
+                await nachlesen()
+                angestossen = "refresh_states"
+            except Exception as err:
+                zeilen.append("")
+                zeilen.append(f"Nachlesen im Ganzen abgewiesen: {err}")
+        else:
             zeilen.append("")
-            zeilen.append("Dieses pyoverkiz kennt kein refresh_states - nichts nachgelesen.")
-            return zeilen
-        try:
-            await nachlesen()
-        except Exception as err:
-            zeilen.append("")
-            zeilen.append(f"Nachlesen abgewiesen: {err}")
+            zeilen.append("Dieses pyoverkiz kennt kein refresh_states.")
+        if geraete_nachlesen:
+            gefragt = 0
+            for device in vorher:
+                if not ist_cover(device):
+                    continue
+                try:
+                    await client.execute_command(
+                        device.device_url, Command(GERAET_NACHLESEN, [])
+                    )
+                    gefragt += 1
+                except Exception as err:
+                    zeilen.append(
+                        f"  {getattr(device, 'label', '?')}: {GERAET_NACHLESEN} "
+                        f"abgewiesen ({err})"
+                    )
+                # Funktelegramme, die sich überlagern, gehen verloren -
+                # deshalb eines nach dem anderen, wie beim Fahren auch.
+                await asyncio.sleep(BEFEHLSPAUSE)
+            if gefragt:
+                zeilen.append("")
+                zeilen.append(f"{gefragt} Storen einzeln über Funk gefragt.")
+                angestossen = GERAET_NACHLESEN
+        if not angestossen:
+            zeilen.append("Nichts angestossen - der Vergleich unten entfällt.")
             return zeilen
         await asyncio.sleep(NACHLESE_WARTEN)
         nachher = list(await client.get_devices())
@@ -895,22 +1150,24 @@ async def gateway_bericht(config_path: str) -> list[str]:
     unterschiede = nachlese_unterschiede(vorher, nachher)
     if unterschiede:
         zeilen.append(
-            f"Nach dem Nachlesen ({NACHLESE_WARTEN:.0f} s gewartet) hat sich geändert:"
+            f"Nach «{angestossen}» ({NACHLESE_WARTEN:.0f} s gewartet) hat sich "
+            "geändert:"
         )
         zeilen.extend(unterschiede)
         zeilen.append(
-            "  → Der alte Wert war bloss alt. Genau dieses Nachlesen macht der "
-            "Hub jetzt vor jedem Takt (_zustaende_nachlesen)."
+            "  → Der alte Wert war bloss alt, und dieser Anstoss holt ihn. Damit "
+            "gehört er in den Takt des Hubs."
         )
     else:
         zeilen.append(
-            f"Nach dem Nachlesen ({NACHLESE_WARTEN:.0f} s gewartet) hat sich nichts "
-            "geändert."
+            f"Nach «{angestossen}» ({NACHLESE_WARTEN:.0f} s gewartet) hat sich "
+            "nichts geändert."
         )
         zeilen.append(
-            "  → Das Gateway meint es so. Stimmt die Stellung trotzdem nicht, "
-            "gehört cover_state() angesehen - oder das Gerät funkt nur in eine "
-            "Richtung (RTS) und niemand weiss die Stellung wirklich."
+            "  → Dieser Anstoss holt den Stand nicht. Stimmt die Stellung nicht, "
+            "weiss das Gateway sie schlicht nicht - dann ist die Auskunft aus dem "
+            "letzten Befehl das Beste, was es gibt, und sie gehört als "
+            "«angenommen» angeschrieben."
         )
     return zeilen
 

@@ -44,14 +44,16 @@ export function istKlimaFuehler(entity: Entity, art: Messgroesse): boolean {
 }
 
 /**
- * Der Sensor für die Kopfzeile (rein, testbar).
+ * Alle Fühler, die für die Kopfzeile in Frage kommen - der gezeigte
+ * zuerst (rein, testbar).
  *
- * Die Reihenfolge ist Absicht: Wer sich ausdrücklich als Feuchte- oder
- * Temperaturmesser ausweist, hat Vorrang vor dem, der bloss zufällig
- * dieselbe Einheit trägt.
+ * Die Liste und nicht nur der Erste, weil die Frage «warum steht da
+ * 29,7 Grad?» sonst unbeantwortbar ist: Der Chip nennt eine Zahl, und
+ * welcher Fühler dahintersteckt, wusste nur der Code. Wer den Wert
+ * loswerden will, muss aber genau dieses Gerät finden.
  */
-export function klimaSensor(entities: Entity[], art: Messgroesse): Entity | undefined {
-  // «Zählt nur für seinen Raum» (Geräte → Anpassen) bleibt hier
+export function klimaKandidaten(entities: Entity[], art: Messgroesse): Entity[] {
+  // «Gilt für: nur diesen Raum» (Geräte → Anpassen) bleibt hier
   // draussen: Der Fühler neben dem Rack in der Waschküche misst
   // 30 Grad. Oben stünde das als die Temperatur der Wohnung - und die
   // stimmte dann nie. Im Raumkopf der Waschküche zeigt ihn derselbe
@@ -59,11 +61,19 @@ export function klimaSensor(entities: Entity[], art: Messgroesse): Entity | unde
   const kandidaten = entities.filter(
     (entity) => istKlimaFuehler(entity, art) && !entity.room_only
   );
-  return (
-    kandidaten.find((entity) => entity.state?.device_class === art) ??
-    kandidaten.find((entity) => !entity.room) ??
-    kandidaten[0]
-  );
+  // Wer sich ausdrücklich als Feuchte- oder Temperaturmesser ausweist,
+  // vor dem, der bloss zufällig dieselbe Einheit trägt; dann der ohne
+  // Raum, denn das ist meist der von draussen.
+  const rang = (entity: Entity) =>
+    entity.state?.device_class === art ? 0 : !entity.room ? 1 : 2;
+  return kandidaten
+    .map((entity, index) => ({ entity, index }))
+    .sort((a, b) => rang(a.entity) - rang(b.entity) || a.index - b.index)
+    .map((eintrag) => eintrag.entity);
+}
+
+export function klimaSensor(entities: Entity[], art: Messgroesse): Entity | undefined {
+  return klimaKandidaten(entities, art)[0];
 }
 
 /** Was der Tropfen bzw. das Thermometer vorliest - mit Herkunft, damit

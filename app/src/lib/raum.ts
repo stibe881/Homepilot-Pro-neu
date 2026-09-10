@@ -123,12 +123,24 @@ export function kontaktZeile(items: Entity[]): string {
  * Die Faktenzeile unter dem Raumnamen (rein, testbar): «1 von 4 an ·
  * Fenster zu · Musik läuft». Ohne Klima - das steht gross daneben.
  *
+ * Gezählt wird, was der Raum auch zeigt. Vorher war es alles, was der
+ * Raum *enthält* - und über vier Lampenkacheln stand «1 von 14 an». Die
+ * zehn übrigen waren die einzelnen Spots der beiden Leuchten: Wer eine
+ * Deckenlampe aus fünf Spots zusammenfasst, hat damit gesagt, dass es
+ * eine Lampe ist (`combined_into`). Ebenso die ausgeblendeten Kacheln -
+ * eine Zahl, die Geräte mitzählt, die man nicht sieht, kann man nicht
+ * nachzählen, und eine Zahl, die man nicht nachzählen kann, glaubt man
+ * beim nächsten Mal nicht mehr.
+ *
  * «Fenster zu» steht nur, wenn der Raum überhaupt Kontakte hat: In
  * einem Raum ohne Fenstersensor wäre die Beruhigung eine Behauptung.
  */
-export function raumFakten(items: Entity[]): string {
+export function raumFakten(items: Entity[], hidden: string[] = []): string {
   const teile: string[] = [];
-  const bedienbar = items.filter(
+  const sichtbar = items.filter(
+    (entity) => !entity.combined_into && !hidden.includes(entity.id)
+  );
+  const bedienbar = sichtbar.filter(
     (entity) => entity.kind !== 'sensor' && entity.commands.length > 0
   );
   const an = bedienbar.filter(
@@ -137,10 +149,10 @@ export function raumFakten(items: Entity[]): string {
   if (bedienbar.length > 0) {
     teile.push(an === 0 ? 'Alles aus' : `${an} von ${bedienbar.length} an`);
   }
-  const kontaktsatz = kontaktZeile(items);
+  const kontaktsatz = kontaktZeile(sichtbar);
   if (kontaktsatz) teile.push(kontaktsatz);
   if (
-    items.some(
+    sichtbar.some(
       (entity) => entity.kind === 'media_player' && entity.state.state === 'playing'
     )
   ) {

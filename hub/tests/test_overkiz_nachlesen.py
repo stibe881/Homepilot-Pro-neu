@@ -1,16 +1,15 @@
-"""Das Gateway muss gebeten werden, die Storen wirklich zu fragen.
+"""Woher der Hub weiss, wie die Storen stehen - und wie schnell.
 
-Der Fall aus dem Haus: «Es sind alle Storen geöffnet, es zeigt aber fast
-alle als geschlossen an. In der TaHoma-App werden alle Storen und
-Lamellen als geöffnet angezeigt.»
+Der Fall aus dem Haus, dreimal gemeldet: «Vier Storen sind unten,
+HomePilot zeigt alle offen.»
 
-Beide fragen dasselbe Gateway. Der Unterschied: ``get_devices()``
-liefert dessen *Zwischenspeicher*, und der wird nur aufgefrischt, wenn
-jemand ausdrücklich «lies neu» sagt - was die TaHoma-App beim Öffnen tut
-und der Hub bisher nie. Wer nur am Ereigniskanal zuhört, bekommt mit,
-was passiert, *während* er zuhört; was er verpasst hat (Neustart,
-unterbrochener Kanal, Bedienung am Wandschalter), bleibt für ihn für
-immer beim alten Wert - der zuletzt selbst gefahrenen Stellung.
+Die Antwort stand am Ende in der rohen Gateway-Ausgabe. Das Gateway
+wusste es richtig - fünfzig Sekunden nach dem Absenken meldete es für
+genau diese vier `ClosureState 100`. Der Hub lag also nie falsch,
+sondern **zu spät**: Er fragte nur alle fünf Minuten. Und was in dieser
+Datei als Erklärung stand - das ausdrückliche «lies neu» -, gibt es auf
+dem lokalen Gateway gar nicht; es antwortet «Unknown object», und zwar
+jedes Mal.
 """
 
 import asyncio
@@ -18,19 +17,7 @@ import time
 
 import pytest
 
-from homepilot.integrations import overkiz as overkiz_modul
 from homepilot.integrations.overkiz import OverkizIntegration
-
-
-@pytest.fixture(autouse=True)
-def ohne_warten(monkeypatch):
-    """Die Wartezeit gehört ins Haus, nicht in die Prüfung.
-
-    Im Betrieb sind es sechs Sekunden - hier würde jede Prüfung so lange
-    stehen, ohne dass es etwas belegt. Wer das Warten selbst prüft, setzt
-    den Wert in seinem Test wieder hoch.
-    """
-    monkeypatch.setattr(overkiz_modul, "NACHLESE_WARTEN", 0)
 
 
 class FakeClient:
@@ -58,10 +45,13 @@ def _integration(hub, client) -> OverkizIntegration:
     integration._client = client
     integration._devices = {}
     integration._abwesend = {}
+    integration._nachlesen_geht = True
     return integration
 
 
-async def test_vor_dem_abfragen_wird_nachlesen_angestossen(hub):
+async def test_jeder_takt_stoesst_ein_nachlesen_an(hub):
+    """Ohne Anstoss bleibt der Zwischenspeicher des Gateways stehen - dann
+    zeigt der Hub bis zum Neustart den Stand von gestern Abend."""
     client = FakeClient()
     integration = _integration(hub, client)
     await integration._geraete_auffrischen()
@@ -124,47 +114,91 @@ def test_ein_leeres_ereignis_erfindet_keine_stellung():
     assert "position" not in cover_state({"core:StatusState": "available"})
 
 
-async def test_nach_dem_nachlesen_wird_den_funkantworten_zeit_gelassen(hub, monkeypatch):
-    """Nachlesen ist nur ein Anstoss - sonst liest man denselben alten Stand.
+async def test_erst_lesen_dann_nachlesen_lassen(hub):
+    """Die Reihenfolge ist der ganze Fix.
 
-    Das Gateway fragt die Storen über Funk ab; die Antworten brauchen
-    Sekunden. Käme ``get_devices()`` unmittelbar danach, gäbe es wieder
-    den Zwischenspeicher von vorher heraus, und das Nachlesen hätte am
-    gemeldeten Fehler nichts geändert.
+    Der Fall aus dem Haus: Nach dem Nachlesen standen alle sechs Storen
+    auf «offen», auch die vier heruntergefahrenen - alle mit demselben
+    Wert. So etwas kommt nicht von sechs Geräten, sondern aus einem
+    Zwischenspeicher, der gerade mitten in der Auffrischung steckte.
+    Deshalb liest jeder Takt, was das Nachlesen des *vorigen* ergab.
     """
-    monkeypatch.setattr(overkiz_modul, "NACHLESE_WARTEN", 0.05)
-    zeiten: list[tuple[str, float]] = []
+    reihenfolge: list[str] = []
 
-    class MessenderClient(FakeClient):
+    class MerkenderClient(FakeClient):
         async def _refresh_states(self):
-            zeiten.append(("nachgelesen", time.monotonic()))
+            reihenfolge.append("nachgelesen")
             return await super()._refresh_states()
 
         async def get_devices(self):
-            zeiten.append(("gefragt", time.monotonic()))
+            reihenfolge.append("gelesen")
             return await super().get_devices()
 
-    integration = _integration(hub, MessenderClient())
+    integration = _integration(hub, MerkenderClient())
     await integration._geraete_auffrischen()
-    assert [name for name, _ in zeiten] == ["nachgelesen", "gefragt"]
-    assert zeiten[1][1] - zeiten[0][1] >= 0.05
+    assert reihenfolge == ["gelesen", "nachgelesen"]
 
 
-async def test_ohne_nachlesen_wird_auch_nicht_gewartet(hub, monkeypatch):
-    """Kennt die Bibliothek den Aufruf nicht, gibt es nichts abzuwarten -
-    dann soll der Takt nicht künstlich stehen."""
-    monkeypatch.setattr(overkiz_modul, "NACHLESE_WARTEN", 5)
-    integration = _integration(hub, FakeClient(kann_nachlesen=False))
+async def test_auch_ohne_geraeteliste_wird_nachgelesen(hub):
+    """Sonst käme der Takt nach einer Störung nie wieder an frische Werte:
+    Ohne Anstoss bleibt der Zwischenspeicher des Gateways stehen."""
+
+    class StoerenderClient(FakeClient):
+        async def get_devices(self):
+            raise RuntimeError("Gateway gerade weg")
+
+    client = StoerenderClient()
+    integration = _integration(hub, client)
+    await integration._geraete_auffrischen()
+    assert client.nachgelesen == 1
+
+
+async def test_der_takt_wartet_nicht(hub):
+    """Gewartet wird nicht mehr - die Reihenfolge erledigt das. Eine
+    Wartezeit müsste man raten, und zu kurz geraten war der Fehler."""
     begonnen = time.monotonic()
+    integration = _integration(hub, FakeClient())
     await integration._geraete_auffrischen()
     assert time.monotonic() - begonnen < 1
 
 
-async def test_ein_gebremstes_nachlesen_laesst_den_takt_nicht_warten(hub, monkeypatch):
-    """Weist Somfy das Nachlesen ab, ist nichts angestossen worden - dann
-    wäre das Warten reine Verzögerung."""
-    monkeypatch.setattr(overkiz_modul, "NACHLESE_WARTEN", 5)
-    integration = _integration(hub, FakeClient(nachlesen_kaputt=True))
-    begonnen = time.monotonic()
+async def test_eine_abgewiesene_nachlese_wird_nicht_endlos_wiederholt(hub):
+    """Das lokale Gateway kennt den Aufruf nicht - es antwortet «Unknown
+    object», jedes Mal. Ihn im Minutentakt trotzdem zu schicken bringt
+    nichts und verdeckt im Protokoll, dass er gar nie funktioniert hat."""
+    client = FakeClient(nachlesen_kaputt=True)
+    integration = _integration(hub, client)
     await integration._geraete_auffrischen()
-    assert time.monotonic() - begonnen < 1
+    await integration._geraete_auffrischen()
+    await integration._geraete_auffrischen()
+    assert client.nachgelesen == 1
+    assert client.geraete_gefragt == 3
+
+
+async def test_eine_fehlende_nachlese_wird_nur_einmal_gesucht(hub):
+    client = FakeClient(kann_nachlesen=False)
+    integration = _integration(hub, client)
+    await integration._geraete_auffrischen()
+    await integration._geraete_auffrischen()
+    assert integration._nachlesen_geht is False
+    assert client.geraete_gefragt == 2
+
+
+def test_der_takt_richtet_sich_nach_dem_ereigniskanal():
+    """Live kommt vom Kanal, nicht vom Abfragen. Solange er liefert, ist
+    die Abfrage nur ein Netz und darf selten sein; schweigt er, ist sie
+    die einzige Quelle - dann wären fünf Minuten zu lang."""
+    from homepilot.integrations.overkiz import (
+        ABFRAGE_INTERVALL,
+        ABFRAGE_STUMM,
+        KANAL_FRIST,
+        takt_pause,
+    )
+
+    assert takt_pause(3.0) == ABFRAGE_INTERVALL
+    assert takt_pause(KANAL_FRIST) == ABFRAGE_INTERVALL
+    assert takt_pause(KANAL_FRIST + 1) == ABFRAGE_STUMM
+    # Vor der ersten Antwort weiss niemand, ob der Kanal steht - dann
+    # lieber häufig fragen als sich auf ihn verlassen.
+    assert takt_pause(None) == ABFRAGE_STUMM
+    assert ABFRAGE_STUMM < ABFRAGE_INTERVALL
