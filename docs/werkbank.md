@@ -3275,6 +3275,130 @@ Fall. Keine Quittung nötig, kein neues Datenmodell - nur ein Merker im
 Wächter (`_leak_since`, `_leak_escalated`), analog zum bestehenden
 Muster bei offenen Fenstern.
 
+### Eine Nummer, zweimal vergeben (341, 345)
+
+Die 49-Punkte-Liste dieses Auftrags zählte ab 338 weiter, weil die
+Werkbank zu dem Zeitpunkt bei 267 endete. Während der Umsetzung liefen
+aber weitere Commits ein, die 268–353 unabhängig davon nachtrugen -
+darunter «341, 342, 345, 349, 352» (Zeile oben) mit ganz anderem
+Inhalt. Die Kollision fiel erst auf, als die Punkte unten schon
+gebaut, getestet und mit «Punkt 341»/«Punkt 345» im Code kommentiert
+waren. Umzunummerieren hätte geheissen, bereits gepushte Commits samt
+ihren Codekommentaren nachträglich zu ändern - mehr Risiko als der
+Nutzen einer sauberen Zahl. Die Einträge unten bleiben darum bei 341
+und 345, mit diesem Verweis als Auflösung. Künftige Funde aus dieser
+Liste zählen ab 423 weiter, nicht mittendrin.
+
+### 341 (App-Liste). Gleichzeitiges Bearbeiten an Familienlisten absichern ✓ erledigt
+
+Familienlisten wurden per PUT ganz überschrieben - speichern zwei
+Telefone denselben Eintrag kurz nacheinander, gewann bisher schlicht,
+wer zuletzt sendet, und trug dabei still den Stand von vor der ersten
+Änderung zurück. Jeder Eintrag trägt jetzt `updated` (vom Hub gesetzt);
+`family_update` vergleicht den mitgeschickten Stempel mit dem
+gespeicherten (`core/gleichzeitig.py`, `stempel_passt`) und weist mit
+409 ab, wenn sie auseinanderlaufen - weich für ältere Apps und nie
+zuvor gespeicherte Einträge, die den Stempel nicht kennen.
+`useFamilienablage.update()` (`screens/family/ablage.ts`) trägt ihn
+automatisch in jede Änderung ein (`lib/familiecache.ts`, `mitStempel`)
+und lädt bei 409 neu. Bewusst aussen vor: die schnellen Häkchen und
+Mengenänderungen auf der Startseite (`hooks/useFamilienlisten.ts`) -
+einzelne, meist additive Felder, bei denen «wer zuletzt» kein echter
+Verlust ist, anders als ein frei getippter Text.
+
+### 344. Die Prüfwerkzeuge aus der App aufrufbar ✓ erledigt
+
+`storencheck`, `livecheck`, `tvcheck`, `saugercheck`, `pushcheck`
+brauchten `docker exec`. Die neue Route `/api/diagnose/{werkzeug}` baut
+sie nicht um - sie lesen schon heute Token und Host aus derselben
+Konfiguration wie der Hub selbst und sprechen ihn über HTTP an wie
+jeder Client. Die Route startet dasselbe Programm als Unterprozess im
+selben Container und reicht die Textausgabe unverändert weiter; die
+zwei dokumentierten Sonderläufe (`--funk`, `--kalt`) über eine
+Flag-Allowlist je Werkzeug. Besitzer-Ebene, weil die Ausgabe
+Token-Stände und rohe Gerätezustände nennt. Ein neuer Bildschirm
+(`DiagnoseScreen.tsx`) unter Einstellungen → Prüfwerkzeuge zeigt sie.
+
+### 345 (App-Liste). Ein gemeinsamer Takt statt eigener setInterval ✓ erledigt
+
+`useTakt` (Werkbank 241) hält im Hintergrund an und lädt beim
+Zurückkommen sofort einmal neu - sieben Stellen bauten sich trotzdem
+weiter ihren eigenen `setInterval`: Kamerawand, BesuchKarte,
+Fortschritt, medienextras, `useSensorlinien`, der Aufnahme-Ticker in
+OverviewScreen und der Bandtakt in FamilyScreen. Am Wandtablet, das
+durchgehend läuft, macht das den Unterschied. Bewusst nicht angefasst:
+Der Update-Poll in SystemScreen.tsx - der Kommentar dort begründet,
+warum er gerade im Hintergrund nicht schweigen darf.
+
+### 357. Einführungskapitel «Was das Haus von selbst tut» ✓ erledigt
+
+Ein vierter Schritt in der Einführung - Nachtruhe, Abläufe,
+Alarm-Kopplung -, genau das überrascht neue Mitbewohner am meisten,
+wenn ein Licht ohne Tipp angeht. `EINFUEHRUNG_STAND` auf 3, damit es
+auch sieht, wer die Einführung längst weggeklickt hat.
+
+### 362. Feste Ziffernbreite auch in Listen ✓ erledigt
+
+Punkt 296 gab der grossen Kennzahl feste Ziffernbreite; Listen mit
+Beträgen (Gutscheine, Energie) blieben aussen vor - eine Liste ruckte
+seitwärts, sobald sich eine Ziffer änderte. `betragGross`,
+`betragEinheit`, `detailZahl`, `verlaufBetrag` (Gutscheine) sowie
+`factValue`, `rowValue` (Energie) bekommen dieselbe Auszeichnung; ein
+Test liest die Stildefinitionen und hält es fest.
+
+### 365. Ein Umriss statt der Leere beim allerersten Öffnen ✓ erledigt
+
+Abläufe hatte den Umriss (Punkt 284) schon - Familie fiel beim ersten
+Öffnen (weder Zwischenspeicher noch Hub haben geantwortet) auf die
+Leer-Ansicht jedes einzelnen Moduls zurück und sah aus, als gäbe es
+siebzehn leere Listen. `stand` ist für genau diesen Fall `null`
+(`screens/family/ablage.ts`) - jetzt steht dort ein Umriss.
+
+### 366. Kontrast der Signalfarben auf dem Verlauf ✓ erledigt
+
+Der Kontrasttest rechnete bisher nur weisse Schrift direkt auf dem
+Verlauf (`onGradient`). Nachgerechnet zeigt sich, warum nie Rot oder
+Orange: Ein fester Farbton kann nicht zugleich gegen das helle und das
+dunkle Ende eines Verlaufs abstechen - im Hellen und im Sand-Bild sinkt
+roh aufgelegtes Rot/Orange auf rund 1. Genau das traf auf die
+Unwetterwarnung der Startkarte zu (`TopStrip.karteWarn`); sie bekommt
+jetzt einen deckenden Grund (`karteWarnPille`) - im Hellen steigt der
+Kontrast von 1.1 auf 3.4. Ein neuer Test hält je Palette fest, wie
+schwach das rohe Rot/Orange bleibt, damit es nicht unbemerkt schwächer
+wird.
+
+### 367. Druckansicht für einen Ablauf ✓ erledigt
+
+Ein Druck-Knopf neben Kopieren/Bearbeiten in den Abläufen, für den
+Ordner oder den Babysitter. `ablaufseite.ts` zieht dieselben Sätze, die
+schon im Editor mitlaufen (`ablaufsatz.ts`), in eine Liste auseinander
+- Wenn, Nur wenn, Dann, Sonst - neben das Rezeptblatt aus Punkt 191/149.
+
+### 415. Personenbilder für die Anwesenheit ✓ erledigt
+
+Ein Gesicht statt des Symbols in «Wer ist da». `core/personenbilder.py`
+ist ein dünner Wrapper um `core/raumbilder.py` - Hashen, Entpacken,
+Schreiben, Aufräumen sind für ein Zimmer und eine Person dasselbe
+Rechnen, nur der Ordner ist ein anderer. Neue Routen unter
+`/api/persons/{name}/image`: lesen darf jeder Angemeldete, setzen und
+entfernen jeder für sich selbst, für eine fremde Person nur mit
+`MANAGE_USERS`. App-seitig ein Bild-Knopf im Benutzer-Detail
+(`components/Personenbild.tsx`), und TopStrip zeigt das Foto in der
+Anwesenheitsliste, wo eines gesetzt ist.
+
+### 419. Musik folgt der Person ✓ erledigt, verengt
+
+Neuer Musik-Schritt `follow`: übernimmt den laufenden Radiosender einer
+Box auf eine andere und pausiert die erste. Bewusst nur der Sender,
+nicht «was auch immer gerade läuft» - eine Playlist oder ein
+Streaming-Dienst liesse sich über keine der angebundenen Integrationen
+hinweg ehrlich fortsetzen, ein Radiosender ist dieselbe Auskunft, die
+auch ein Favorit schon nutzt (`play_radio`/`station`). Der Editor
+bekommt zwei Boxenwähler (woher/wohin); eine Vorlage («Musik folgt:
+Raum → Raum») schlägt den wahrscheinlichsten Weg vor - die erste Box in
+den Raum mit einem eigenen Bewegungsmelder -, ausgeschaltet geliefert:
+Welche zwei Räume gemeint sind, weiss nur der Haushalt.
+
 ### Nicht umgesetzt, mit Begründung
 
 - **370** (Beleg-Erkennung aus einem Foto) – keine OCR-Anbindung; eine
@@ -3292,9 +3416,28 @@ Muster bei offenen Fenstern.
 - **405** (Watch-App) – ohne Xcode/watchOS-Werkzeuge hier nicht
   verifizierbar zu bauen.
 - **353/340** (Lauftext misst sich falsch) – zwei frühere Versuche
-  stehen oben als gescheitert; ohne die Browser-Probe zur Verifikation
-  kein dritter Versuch auf Verdacht.
-- Der Rest der App-/UX-/Design-Liste (339, 341, 344-345, 354, 356-367,
-  415, 417, 419) ist in dieser Runde nicht mehr an die Reihe gekommen.
+  stehen oben als gescheitert; ohne eine mit Messung belegte dritte
+  Fassung kein Versuch auf Verdacht.
+- **363** (Abstandsraster als Test) – 913 Stellen im Code tragen heute
+  eine nackte `padding`-Zahl statt eines `space`-Werts; sie alle auf
+  das heutige, sehr kleine `space`-Raster (`gap`, `page`) umzustellen
+  wäre ein Umbau quer durch die ganze Oberfläche, nicht ein Test dazu.
+- **339** (DashboardScreen.tsx aufteilen) – bleibt bei «begonnen»
+  (Punkt 268): mit 4417 Zeilen kaum gewachsen; ein sauberer Schnitt
+  jetzt, obendrauf auf alles, was diese Runde sonst noch an dieser
+  Datei geändert hat, wäre der riskanteste Einzelschritt der ganzen
+  Liste gewesen.
+- **354** (Widget-Rückmeldung) – natives WidgetKit/SwiftUI
+  (`targets/widget/index.swift`), hier ohne Xcode nicht verifizierbar.
+- **356, 359, 360, 361, 364** (Wisch-Übergänge am Rail,
+  Kachelhöhen-Regel, Farbcodierung des Rails, Paletten-Bilddiff,
+  iPhone-Quer) – alle fünf sind Layout- oder Design-Entscheidungen, die
+  erst über mehrere Erscheinungsbilder und Bildschirmgrössen hinweg
+  sichtbar richtig oder falsch sind; ohne eine Sitzung an der
+  Browser-Probe mit echtem Hin- und Herschauen wäre das Raten statt
+  Prüfen.
+- **417** (Familienbuch als Jahresband) – ein eigenes Druck-Layout über
+  Rezepte, Ämtli-Sterne und Kontakte eines ganzen Jahres hinweg; vom
+  Umfang her ein eigener Auftrag, nicht mehr an die Reihe gekommen.
 
-Stellen: `hub/homepilot/core/gutscheine.py`, `hub/homepilot/core/ablaufpruefung.py`, `hub/homepilot/core/automation.py`, `hub/homepilot/core/watchdog.py`, `hub/homepilot/core/watchrules.py`, `hub/homepilot/core/alarmbericht.py`, `hub/homepilot/integrations/alarm.py`, `hub/homepilot/integrations/alarm_rules.py`, `hub/homepilot/api/routes/family.py`, `hub/homepilot/api/routes/automations.py`, `hub/homepilot/api/routes/alarm.py`, `app/src/lib/gutscheine.ts`, `app/src/screens/family/gutscheine.tsx`, `app/src/components/QrScanner.tsx`, `app/src/screens/automations/entwurf.ts`, `app/src/lib/mitteilungsknoepfe.ts`, `app/src/screens/AlarmScreen.tsx`
+Stellen: `hub/homepilot/core/gutscheine.py`, `hub/homepilot/core/ablaufpruefung.py`, `hub/homepilot/core/automation.py`, `hub/homepilot/core/watchdog.py`, `hub/homepilot/core/watchrules.py`, `hub/homepilot/core/alarmbericht.py`, `hub/homepilot/core/gleichzeitig.py`, `hub/homepilot/core/personenbilder.py`, `hub/homepilot/api/routes/diagnose.py`, `hub/homepilot/integrations/alarm.py`, `hub/homepilot/integrations/alarm_rules.py`, `hub/homepilot/api/routes/family.py`, `hub/homepilot/api/routes/automations.py`, `hub/homepilot/api/routes/alarm.py`, `hub/homepilot/api/routes/users.py`, `app/src/lib/gutscheine.ts`, `app/src/screens/family/gutscheine.tsx`, `app/src/components/QrScanner.tsx`, `app/src/screens/automations/entwurf.ts`, `app/src/screens/automations/vorlagen.ts`, `app/src/lib/ablaufseite.ts`, `app/src/lib/mitteilungsknoepfe.ts`, `app/src/screens/AlarmScreen.tsx`, `app/src/screens/family/ablage.ts`, `app/src/lib/familiecache.ts`, `app/src/components/Personenbild.tsx`, `app/src/screens/DiagnoseScreen.tsx`
