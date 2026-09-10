@@ -1,4 +1,4 @@
-import { code128Bits, eanPruefziffer, istEan, strichbild } from './strichcode';
+import { code128Bits, eanPruefziffer, gescannteArt, istEan, kassenart, strichbild } from './strichcode';
 
 describe('EAN-13', () => {
   it('rechnet die Prüfziffer wie die Kasse', () => {
@@ -69,5 +69,50 @@ describe('strichbild', () => {
       (balken, index) => index === 0 || balken.an !== bild!.balken[index - 1].an
     );
     expect(wechsel).toBe(true);
+  });
+});
+
+// ── Welches Bild an die Kasse gehört (Punkt 420) ─────────────────────────
+
+describe('kassenart', () => {
+  it('zeigt einen QR-Code, wenn am Gutschein einer steht', () => {
+    expect(kassenart('ABCD-1234', 'qr')).toBe('qr');
+    expect(kassenart('ABCD-1234', 'strich')).toBe('strich');
+  });
+
+  it('ohne Angabe entscheidet die Nummer - so bekommen auch alte Gutscheine das richtige Bild', () => {
+    expect(kassenart('7612345678900')).toBe('strich');
+    expect(kassenart('ABCD-1234-EFGH')).toBe('strich');
+    // Eine Adresse ist keine Nummer: Als Code 128 wäre sie so breit,
+    // dass keine Kasse sie mehr liest.
+    expect(kassenart('https://brack.ch/gutschein/AB12CD34')).toBe('qr');
+    expect(kassenart('A'.repeat(40))).toBe('qr');
+  });
+
+  it('ein ausdrückliches «Strichcode» gilt nicht gegen die Physik', () => {
+    // Angetippt oder nicht - was als Strichcode unlesbar wäre, wird als
+    // QR gezeigt. Sonst stünde man mit einem Bild an der Kasse, das
+    // niemand scannen kann.
+    expect(kassenart('https://beispiel.ch/sehr/langer/pfad/AB12', 'strich')).toBe('qr');
+  });
+
+  it('ohne Nummer gar nichts - ein leeres Feld an der Kasse ist schlimmer als keins', () => {
+    expect(kassenart('')).toBeNull();
+    expect(kassenart(null)).toBeNull();
+    expect(kassenart('   ', 'qr')).toBeNull();
+  });
+});
+
+describe('gescannteArt', () => {
+  it('nur ein gelesener QR-Code wird zu einem QR-Code', () => {
+    expect(gescannteArt('qr')).toBe('qr');
+    expect(gescannteArt('QR')).toBe('qr');
+    expect(gescannteArt('ean13')).toBe('strich');
+    expect(gescannteArt('code128')).toBe('strich');
+    // Flächenschriften, die wir gar nicht zeichnen können: Sie als QR
+    // auszugeben hiesse, an der Kasse ein Bild zu zeigen, das dort nie
+    // stand. Was daraus kein Strichcode werden kann, fängt kassenart ab.
+    expect(gescannteArt('datamatrix')).toBe('strich');
+    expect(gescannteArt(undefined)).toBe('strich');
   });
 });

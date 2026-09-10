@@ -51,8 +51,13 @@ export function QrScanner({
   onClose: () => void;
   /** Für den Einrichtungs-Code (Vorgabe): erkennt nur echtes Setup-JSON. */
   onScanned?: (setup: ScannedSetup) => void;
-  /** Für jeden anderen Zweck: jeder gelesene Text zählt. */
-  onText?: (text: string) => void;
+  /** Für jeden anderen Zweck: jeder gelesene Text zählt.
+   *
+   *  `art` ist, was die Kamera gelesen hat («qr», «ean13», «code128»).
+   *  Sie weiss es ohnehin, und nur so kommt der Gutschein an der Kasse
+   *  mit demselben Bild heraus, das auf der Karte steht (Punkt 420).
+   *  Wer die Schrift nicht braucht, lässt den zweiten Wert einfach weg. */
+  onText?: (text: string, art: string) => void;
   barcodeTypes?: BarcodeType[];
   titel?: string;
   hinweis?: string;
@@ -75,11 +80,11 @@ export function QrScanner({
     }
   }, [visible]);
 
-  const handleScan = (raw: string) => {
+  const handleScan = (raw: string, art: string) => {
     if (handled) return;
     if (onText) {
       setHandled(true);
-      onText(raw);
+      onText(raw, art);
       onClose();
       return;
     }
@@ -123,7 +128,7 @@ export function QrScanner({
           style={styles.camera}
           facing="back"
           barcodeScannerSettings={{ barcodeTypes }}
-          onBarcodeScanned={({ data }) => handleScan(data)}
+          onBarcodeScanned={({ data, type }) => handleScan(data, String(type ?? ''))}
         />
         <View style={styles.frame} pointerEvents="none" />
       </View>

@@ -1353,3 +1353,33 @@ def test_die_route_fuer_eine_abgelehnte_uebergabe():
         ).json()
         assert abgelehnt["author"] == "Stefan" and abgelehnt["pending_transfer_to"] is None
         assert client.get("/api/family/vouchers/eingehend", headers=auth("t-livia")).json() == []
+
+
+# ── Der Code auf der Karte (Punkt 420 der Werkbank) ─────────────────────
+
+
+def test_der_hub_haelt_nur_die_beiden_bekannten_codearten_fest():
+    assert gutscheine.bereinigen({"code": "qr"})["code"] == "qr"
+    assert gutscheine.bereinigen({"code": "STRICH"})["code"] == "strich"
+
+
+def test_eine_fehlende_codeart_wird_nicht_erfunden():
+    """Ohne Angabe bleibt das Feld weg - und die App rechnet es aus.
+
+    Anders als bei `unit` und `shared` wäre ein eingesetztes «strich»
+    eine Behauptung über eine Karte, die niemand angesehen hat. Es
+    stünde dann einem QR-Code im Weg, den die App am Inhalt der Nummer
+    längst erkannt hätte - etwa bei einer Adresse, die als Strichcode
+    ohnehin unlesbar wäre.
+    """
+    assert "code" not in gutscheine.bereinigen({"total": 10})
+    assert "code" not in gutscheine.bereinigen({"code": "aztec"})
+    assert "code" not in gutscheine.bereinigen({"code": ""})
+    assert "code" not in gutscheine.bereinigen({"code": None})
+
+
+def test_das_buch_druckt_die_codeart_nicht():
+    """Auf Papier hilft sie niemandem - einen Scanner hat man da nicht."""
+    rows = [{"id": "a", "shop": "Brack.ch", "shared": "familie", "code": "qr", "number": "574"}]
+    buch = gutscheine.fuers_buch(rows)
+    assert "code" not in buch[0] and buch[0]["number"] == "574"

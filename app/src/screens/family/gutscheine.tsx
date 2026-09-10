@@ -50,11 +50,13 @@ import { belegLesen, belegSatz } from '../../lib/gutscheinlesen';
 import { Card } from '../../components/Card';
 import { Tastaturplatz } from '../../components/Tastaturplatz';
 import { Leerzustand } from '../../components/Leerzustand';
-import { Strichcode } from '../../components/Strichcode';
 import { QrScanner } from '../../components/QrScanner';
+import { Kassencode } from '../../components/Kassencode';
+import { gescannteArt, kassenart } from '../../lib/strichcode';
 import {
   Ablaufstufe,
   DATEI_TYPEN,
+  CODEARTEN,
   EINHEITEN,
   EINLOESEN,
   Formular,
@@ -706,7 +708,14 @@ function Detail({
               accessibilityLabel="An der Kasse zeigen"
               style={({ pressed }) => [eigen.sekundaerKnopf, pressed && { opacity: 0.8 }]}
             >
-              <Ionicons name="barcode-outline" size={18} color={colors.ink} />
+              {/* Das Symbol zeigt schon, was gleich kommt - wer den
+                  QR-Code sucht, erkennt am Strichcode-Symbol sonst
+                  nicht, dass er hier richtig ist. */}
+              <Ionicons
+                name={kassenart(entry.number, entry.code) === 'qr' ? 'qr-code-outline' : 'barcode-outline'}
+                size={18}
+                color={colors.ink}
+              />
               <Text style={eigen.sekundaerText}>An der Kasse</Text>
             </Pressable>
           ) : null}
@@ -872,7 +881,7 @@ function Detail({
           <Text style={{ color: '#000000', fontSize: 22, fontWeight: '700' }}>
             {entry.shop}
           </Text>
-          <Strichcode nummer={entry.number} hoehe={120} />
+          <Kassencode nummer={entry.number} art={entry.code} hoehe={120} />
           {entry.pin ? (
             <Text style={{ color: '#000000', fontSize: 16 }}>PIN {entry.pin}</Text>
           ) : null}
@@ -1105,6 +1114,32 @@ function FormularBlatt({
           <Ionicons name="barcode-outline" size={16} color={colors.accent} />
           <Text style={eigen.fotoAktionText}>Nummer scannen</Text>
         </Pressable>
+        {/* Womit die Kasse liest (Punkt 420). Steht direkt bei der
+            Nummer, weil es zu ihr gehört - und nicht bei den Bildern,
+            wo man es beim Erfassen nicht mehr sucht. */}
+        <View style={eigen.formFeld}>
+          <Text style={eigen.formLabel}>Code auf der Karte</Text>
+          <View style={styles.chipRow}>
+            {CODEARTEN.map((wahl) => (
+              <Pressable
+                key={wahl.key}
+                onPress={() => setze('code', wahl.key)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: form.code === wahl.key }}
+                style={[styles.chip, form.code === wahl.key && styles.chipActive]}
+              >
+                <Text style={[styles.chipText, form.code === wahl.key && styles.chipTextActive]}>
+                  {wahl.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={styles.formHintSmall}>
+            Das Bild, das «An der Kasse» über den Scanner geht. Beim Scannen stellt es sich
+            selbst ein. Eine Nummer, die als Strichcode gar nicht lesbar wäre – eine lange
+            Adresse etwa –, wird ohnehin als QR-Code gezeigt.
+          </Text>
+        </View>
         {eingabe('PIN', 'pin', { placeholder: 'falls vorhanden', autoCapitalize: 'none' })}
 
         <View style={eigen.formFeld}>
@@ -1351,7 +1386,13 @@ function FormularBlatt({
       <QrScanner
         visible={scannerOffen}
         onClose={() => setScannerOffen(false)}
-        onText={(text) => setze('number', text)}
+        onText={(text, art) => {
+          setze('number', text);
+          // Die Kamera weiss, welche Schrift sie gelesen hat - und das
+          // ist die verlässlichste Auskunft darüber, was auf der Karte
+          // steht (Punkt 420). Von Hand umstellen kann man es darunter.
+          setze('code', gescannteArt(art));
+        }}
         // EAN-13 und Code 128 sind die üblichen Strichcodes auf einer
         // Gutschein-Karte (dieselben zwei, die lib/strichcode.ts an der
         // Kasse zeichnet, Punkt 299/300); QR für den selteneren Fall.

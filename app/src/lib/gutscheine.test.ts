@@ -791,3 +791,38 @@ describe('vorlageFuerLaden (Punkt 375)', () => {
     expect(vorlageFuerLaden([alt, neu], '  ')).toBeNull();
   });
 });
+
+// ── Der Code auf der Karte (Punkt 420) ───────────────────────────────────
+
+describe('Code auf der Karte', () => {
+  test('nur die beiden bekannten Wörter kommen vom Hub durch', () => {
+    expect(alsGutschein({ shop: 'x', total: 1, code: 'qr' }).code).toBe('qr');
+    expect(alsGutschein({ shop: 'x', total: 1, code: 'strich' }).code).toBe('strich');
+    // Alles andere heisst «nicht gesagt» - und dann rechnet es die App
+    // aus der Nummer aus, statt einen Strichcode zu behaupten.
+    expect(alsGutschein({ shop: 'x', total: 1, code: 'aztec' }).code).toBeUndefined();
+    expect(alsGutschein({ shop: 'x', total: 1 }).code).toBeUndefined();
+  });
+
+  test('das Formular hält die Wahl fest', () => {
+    const { eintrag } = formularPruefen(
+      { ...leeresFormular(), shop: 'Migros', total: '50', number: 'AB12', code: 'qr' },
+      null
+    );
+    expect(eintrag?.code).toBe('qr');
+    expect(formularVon(eintrag as Gutschein).code).toBe('qr');
+  });
+
+  test('ein alter Gutschein mit Adresse zeigt im Formular, was an der Kasse wirklich käme', () => {
+    // Ohne Angabe stünde sonst «Strichcode» im Formular, während der
+    // Gutschein längst als QR angezeigt wird - und wer dann speichert,
+    // schriebe die falsche Angabe fest.
+    const alt: Gutschein = { ...kino, number: 'https://brack.ch/gc/AB12CD34', code: undefined };
+    expect(formularVon(alt).code).toBe('qr');
+    expect(formularVon({ ...kino, number: '7612345678900' }).code).toBe('strich');
+  });
+
+  test('ein neuer Gutschein steht auf Strichcode', () => {
+    expect(leeresFormular().code).toBe('strich');
+  });
+});

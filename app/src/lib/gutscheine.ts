@@ -15,6 +15,7 @@
  * «1 Stk.» – Schweizer Schreibweise mit Punkt, nicht Komma.
  */
 import type { Leerbild } from './leerzustand';
+import { Codeart, kassenart } from './strichcode';
 
 export type Einheit = 'chf' | 'stk';
 export type Geteilt = 'privat' | 'familie';
@@ -49,6 +50,12 @@ export interface Gutschein {
   left: number;
   number?: string;
   pin?: string;
+  /** Womit die Kasse liest (Punkt 420 der Werkbank): Strichcode oder
+   *  QR-Code. Beim Scannen merkt sich die App, was die Kamera gelesen
+   *  hat; im Formular lässt es sich umstellen. Fehlt das Feld, ist es
+   *  ein Eintrag von vor der Frage - dann entscheidet die Nummer selbst
+   *  (`kassenart` in lib/strichcode.ts). */
+  code?: Codeart;
   /** «YYYY-MM-DD» – oder null für «unbegrenzt gültig». */
   expires: string | null;
   category?: string;
@@ -104,6 +111,14 @@ export const GETEILT: { key: Geteilt; label: string }[] = [
   { key: 'familie', label: 'Familie' },
 ];
 
+/** Womit die Kasse liest. «Automatisch» steht bewusst nicht zur Wahl:
+ *  Beim Erfassen weiss man, was auf der Karte steht, und ein Feld, das
+ *  «kommt drauf an» sagt, muss man an der Kasse erst wieder auflösen. */
+export const CODEARTEN: { key: Codeart; label: string }[] = [
+  { key: 'strich', label: 'Strichcode' },
+  { key: 'qr', label: 'QR-Code' },
+];
+
 /** Wie eingelöst wird – beide Seiten benannt, nicht ein einzelner
  *  Schalter: Bei «Karte mitbringen: aus» müsste man raten, was das
  *  Gegenteil ist. So steht es da. */
@@ -145,6 +160,9 @@ export function alsGutschein(item: Record<string, unknown>): Gutschein {
     left: Math.min(Math.max(0, left), total),
     number: String(item.number ?? '').trim(),
     pin: String(item.pin ?? '').trim(),
+    // Nur die beiden bekannten Wörter; alles andere heisst «nicht
+    // gesagt», und dann rechnet kassenart() es aus der Nummer aus.
+    code: item.code === 'qr' ? 'qr' : item.code === 'strich' ? 'strich' : undefined,
     expires: /^\d{4}-\d{2}-\d{2}$/.test(expires) ? expires : null,
     category: String(item.category ?? '').trim(),
     // Wie der Hub (core/gutscheine.py): ohne Angabe gehört er der Familie.
@@ -773,6 +791,7 @@ export interface Formular {
   total: string;
   number: string;
   pin: string;
+  code: Codeart;
   /** Leer heisst «unbegrenzt». */
   expires: string;
   category: string;
@@ -793,6 +812,9 @@ export function leeresFormular(): Formular {
     total: '',
     number: '',
     pin: '',
+    // Der häufigere Fall auf einer Gutscheinkarte. Wer scannt, muss
+    // ohnehin nichts wählen - die Kamera meldet die Schrift mit.
+    code: 'strich',
     expires: '',
     category: '',
     shared: 'familie',
@@ -815,6 +837,10 @@ export function formularVon(entry: Gutschein): Formular {
     total: betragZahl(entry.total, entry.unit),
     number: entry.number ?? '',
     pin: entry.pin ?? '',
+    // Ohne Angabe zeigt das Formular, was an der Kasse tatsächlich
+    // herauskäme - sonst stünde dort «Strichcode», während der
+    // Gutschein längst als QR angezeigt wird.
+    code: kassenart(entry.number, entry.code) ?? 'strich',
     expires: datumText(entry.expires),
     category: entry.category ?? '',
     shared: entry.shared,
@@ -873,6 +899,7 @@ export function formularPruefen(
       left,
       number: form.number.trim(),
       pin: form.pin.trim(),
+      code: form.code,
       expires,
       category: form.category.trim(),
       shared: form.shared,

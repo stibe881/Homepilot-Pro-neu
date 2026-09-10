@@ -3441,3 +3441,43 @@ Welche zwei Räume gemeint sind, weiss nur der Haushalt.
   Umfang her ein eigener Auftrag, nicht mehr an die Reihe gekommen.
 
 Stellen: `hub/homepilot/core/gutscheine.py`, `hub/homepilot/core/ablaufpruefung.py`, `hub/homepilot/core/automation.py`, `hub/homepilot/core/watchdog.py`, `hub/homepilot/core/watchrules.py`, `hub/homepilot/core/alarmbericht.py`, `hub/homepilot/core/gleichzeitig.py`, `hub/homepilot/core/personenbilder.py`, `hub/homepilot/api/routes/diagnose.py`, `hub/homepilot/integrations/alarm.py`, `hub/homepilot/integrations/alarm_rules.py`, `hub/homepilot/api/routes/family.py`, `hub/homepilot/api/routes/automations.py`, `hub/homepilot/api/routes/alarm.py`, `hub/homepilot/api/routes/users.py`, `app/src/lib/gutscheine.ts`, `app/src/screens/family/gutscheine.tsx`, `app/src/components/QrScanner.tsx`, `app/src/screens/automations/entwurf.ts`, `app/src/screens/automations/vorlagen.ts`, `app/src/lib/ablaufseite.ts`, `app/src/lib/mitteilungsknoepfe.ts`, `app/src/screens/AlarmScreen.tsx`, `app/src/screens/family/ablage.ts`, `app/src/lib/familiecache.ts`, `app/src/components/Personenbild.tsx`, `app/src/screens/DiagnoseScreen.tsx`
+
+### 420. An der Kasse das Bild, das auf der Karte steht ✓ erledigt
+
+*lohnt sich · Aufwand: klein · Hub + App*
+
+«An der Kasse» (Punkt 299/300) zeichnete immer einen Strichcode - auch
+für die Gutscheine, die auf der Karte einen QR-Code tragen. Aus einem
+QR-Inhalt einen Code 128 zu machen ist keine Übersetzung: Die Kasse
+erwartet das eine Bild und bekommt das andere. Gemerkt hat man es dort,
+wo die Schlange steht.
+
+Am Gutschein steht neu, womit die Kasse liest. Die App erfährt es aus
+zwei Quellen, und die verlässlichere ist die stille: Beim Scannen
+meldet `expo-camera` die gelesene Schrift ohnehin mit - sie wandert
+jetzt durch `onText` bis ans Formular, das sich selbst umstellt. Von
+Hand geht es darunter, gleich bei der Nummer.
+
+Zwei Entscheidungen, die dahinter stecken:
+
+**Ohne Angabe entscheidet die Nummer.** Sonst hätten alle Gutscheine
+von vor dieser Frage weiter den falschen Code gezeigt. Was aussieht wie
+eine Adresse oder länger als vierundzwanzig Zeichen ist, wird als
+QR-Code gezeigt - als Code 128 wären das über dreihundert Module, auf
+sieben Zentimetern Bildschirm dünner als ein Fünftelmillimeter je
+Modul. Gezeichnet würde er trotzdem; gelesen von keiner Kasse.
+
+**Nur ein gelesener QR-Code wird zu einem QR-Code.** Datamatrix und
+Aztec kann die App nicht zeichnen, und sie als QR auszugeben hiesse, an
+der Kasse ein Bild zu zeigen, das dort nie stand. Was daraus kein
+Strichcode werden kann, fängt die Regel oben am Inhalt wieder ab.
+
+Der QR-Code selbst kostete nichts: `react-native-qrcode-svg` steckt
+seit dem Gäste-WLAN im Paket, ist reines JavaScript über
+react-native-svg und rührt die `runtimeVersion` nicht an.
+
+Nachgewiesen rot: Mit dem alten Verhalten (immer Strichcode) fallen
+zwei der vier Messungen in `Kassencode.test.tsx` um. Ein Prüfstand, der
+nie rot wird, ist keiner.
+
+Stellen: `app/src/lib/strichcode.ts`, `app/src/components/Kassencode.tsx`, `app/src/components/QrScanner.tsx`, `app/src/screens/family/gutscheine.tsx`, `hub/homepilot/core/gutscheine.py`

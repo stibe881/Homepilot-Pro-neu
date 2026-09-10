@@ -36,6 +36,10 @@ KEY = "family_vouchers"
 UNITS: tuple[str, ...] = ("chf", "stk")
 #: Wer ihn sieht.
 SHARED: tuple[str, ...] = ("privat", "familie")
+#: Womit die Kasse liest (Punkt 420 der Werkbank). Die App entscheidet,
+#: welches Bild sie zeichnet; der Hub hält nur fest, was dort steht -
+#: und dass es eines der beiden Wörter ist.
+CODES: tuple[str, ...] = ("strich", "qr")
 
 #: Wo die Erinnerungsstufen liegen (hub.data). Der Schlüssel steht hier,
 #: weil Wächter und Push-Route ihn beide brauchen. Abgelegt als Liste
@@ -218,6 +222,18 @@ def bereinigen(entry: dict[str, Any]) -> dict[str, Any]:
 
     wann = datum(sauber.get("expires"))
     sauber["expires"] = wann.isoformat() if wann else None
+
+    # Womit die Kasse liest (Punkt 420). Anders als bei `unit` und
+    # `shared` gibt es hier keinen Ersatzwert: Fehlt die Angabe, bleibt
+    # sie weg, und die App rechnet sie sich aus der Nummer aus. Ein
+    # hier eingesetztes «strich» wäre eine Behauptung über eine Karte,
+    # die niemand angesehen hat - und stünde dann einem QR-Code im Weg,
+    # den die App am Inhalt längst erkannt hätte.
+    code = str(sauber.get("code") or "").strip().lower()
+    if code in CODES:
+        sauber["code"] = code
+    else:
+        sauber.pop("code", None)
 
     # Muss das Original vorgezeigt werden? (Punkt 267 der Werkbank)
     # Immer gesetzt, nicht nur wenn es mitkommt: Ein Eintrag von vor der
@@ -575,7 +591,11 @@ def empfaenger(entry: dict[str, Any]) -> str | None:
 # siehe oben), und die PIN kommt nicht mit: Nummer und PIN zusammen sind
 # Bargeld auf einem Blatt Papier. Wer die Nummer hat, kann beim Laden
 # den Stand erfragen und den Rest sichern - mehr braucht das Buch nicht.
-BUCH_OHNE = frozenset({"pin", "transactions", "image_url", "shared"})
+# `code` gehört dazu, obwohl es kein Geheimnis ist: Auf einer
+# gedruckten Seite steht die Nummer ausgeschrieben, und ob der Laden sie
+# einst als Strichcode oder QR-Code aufgedruckt hatte, hilft dort
+# niemandem - einen Scanner hat man an dem Tag ohnehin nicht.
+BUCH_OHNE = frozenset({"pin", "transactions", "image_url", "shared", "code"})
 
 
 def _buchzeile(row: dict[str, Any]) -> dict[str, Any]:
