@@ -556,7 +556,7 @@ def letzter_lauf(
 
 
 #: Was ein Musik-Schritt tun kann. Der Schlüssel steht in `do`.
-MUSIK_TATEN = ("favorite", "sleep", "pause_all", "night", "fade")
+MUSIK_TATEN = ("favorite", "sleep", "pause_all", "night", "fade", "follow")
 
 
 def musik_satz(action: dict[str, Any], named: Any) -> str:
@@ -585,6 +585,11 @@ def musik_satz(action: dict[str, Any], named: Any) -> str:
         return (
             f"{named(action.get('entity_id'))}: leise starten bis "
             f"{action.get('volume', 30)} %"
+        )
+    if tat == "follow":
+        return (
+            f"Musik von {named(action.get('entity_id'))} nach "
+            f"{named(action.get('target'))} mitnehmen"
         )
     return f"unbekannter Musik-Schritt «{tat or 'nichts'}»"
 
@@ -2936,6 +2941,35 @@ class AutomationEngine:
                 int(action.get("volume", 30)),
                 float(action.get("seconds", 8)),
             )
+            return None
+
+        if tat == "follow":
+            # Punkt 419: Wer den Raum wechselt, nimmt die Musik mit - aber
+            # nur den Sender, nicht «was auch immer gerade läuft». Ein
+            # Radiosender ist die eine Auskunft, die jede Box gleich
+            # versteht (play_radio/station, dieselbe Zuordnung wie bei
+            # einem Favoriten); eine Spotify-Wiedergabe liesse sich so
+            # nicht ehrlich fortsetzen, darum bleibt es beim Sender.
+            quelle_id = str(action.get("entity_id") or "")
+            ziel_id = str(action.get("target") or "")
+            if not quelle_id or not ziel_id:
+                return "Musik folgt: Quelle oder Ziel fehlt"
+            quelle = self.hub.registry.get(quelle_id)
+            if quelle is None or str(quelle.state.get("state")) not in (
+                "playing",
+                "buffering",
+            ):
+                return "es lief nichts, das hätte folgen können"
+            station = str(quelle.state.get("station") or "").strip()
+            if not station:
+                return "kein Sender erkennbar, der sich übernehmen liesse"
+            await self.hub.integrations.dispatch_command(
+                ziel_id, "play_radio", {"station": station}
+            )
+            if "pause" in quelle.commands:
+                # Pause, nicht Stopp: Kommt man zurück, ist die Box nicht
+                # einfach still, sondern bereit, wo sie aufgehört hat.
+                await self.hub.integrations.dispatch_command(quelle_id, "pause", {})
             return None
 
         log.warning("Unbekannter Musik-Schritt in '%s': %s", automation.alias, tat)

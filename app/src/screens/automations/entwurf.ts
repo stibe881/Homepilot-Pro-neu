@@ -649,7 +649,7 @@ export interface NotifyKnopf {
 export type StepKind = 'command' | 'toggle_all' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'presence' | 'delay' | 'wait_until' | 'fade' | 'music' | 'if' | 'repeat';
 
 /** Was ein Musik-Schritt tun kann. */
-export type MusikTat = 'favorite' | 'sleep' | 'pause_all' | 'night' | 'fade';
+export type MusikTat = 'favorite' | 'sleep' | 'pause_all' | 'night' | 'fade' | 'follow';
 export type ConditionKind = 'none' | 'sun' | 'time';
 
 /** Ein einzelner Auslöser – ein Ablauf kann mehrere haben («oder»). */
@@ -803,6 +803,9 @@ export interface StepDraft {
   musikMinuten: string;
   musikLautstaerke: string;
   musikAn: boolean;
+  /** Wohin «Musik folgt» spielt (Punkt 419) - eigenes Feld, weil
+   *  musikEntityId hier die Quelle ist, nicht das Ziel. */
+  musikZiel: string;
   /** «Wenn …» mitten in der Aktionsliste (Punkt 251): Bedingungen wie
    *  überall, dann/sonst als eigene Unterlisten aus Schritten. Was der
    *  Editor an Bedingungen nicht bauen kann (Zeitfenster, Gruppen aus
@@ -853,6 +856,7 @@ export const EMPTY_STEP: StepDraft = {
   musikMinuten: '30',
   musikLautstaerke: '30',
   musikAn: true,
+  musikZiel: '',
   ifConditions: [],
   ifMatch: 'all',
   ifExtra: [],
@@ -1638,6 +1642,18 @@ export function musikSchrittZuAktion(step: StepDraft): BausteinConfig[] {
       },
     ];
   }
+  if (tat === 'follow') {
+    return step.musikZiel
+      ? [
+          {
+            type: 'music',
+            do: 'follow',
+            entity_id: step.musikEntityId,
+            target: step.musikZiel,
+          },
+        ]
+      : [];
+  }
   return [
     {
       type: 'music',
@@ -1983,6 +1999,7 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
         musikMinuten: action.minutes ? String(action.minutes) : '30',
         musikLautstaerke: action.volume ? String(action.volume) : '30',
         musikAn: action.on !== false,
+        musikZiel: action.target ? String(action.target) : '',
       });
     } else if (type === 'notify') {
       steps.push({

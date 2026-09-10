@@ -344,6 +344,9 @@ def test_musik_satz_ist_lesbar():
     assert musik_satz({"do": "fade", "entity_id": "cast.kueche"}, named) == (
         "Küche: leise starten bis 30 %"
     )
+    assert musik_satz(
+        {"do": "follow", "entity_id": "cast.kueche", "target": "cast.bad"}, named
+    ) == "Musik von Küche nach cast.bad mitnehmen"
     # Ein Tippfehler soll im Trockenlauf auffallen, nicht erst nachts.
     assert "unbekannt" in musik_satz({"do": "quatsch"}, named)
 
@@ -400,6 +403,55 @@ async def test_ablauf_schaltet_die_nachtruhe(hub):
     assert hub.ton.nachtruhe()["on"] is True
     await _ablauf_laufen_lassen(hub, {"type": "music", "do": "night", "on": False})
     assert hub.ton.nachtruhe()["on"] is False
+
+
+async def test_ablauf_musik_folgt_in_einen_anderen_raum(hub):  # Punkt 419
+    protokoll = await _radio_bauen(hub)
+    await hub.registry.update_state(
+        "testradio.box", {"state": "playing", "volume": 40, "station": "SRF 3"}
+    )
+    await _ablauf_laufen_lassen(
+        hub,
+        {
+            "type": "music",
+            "do": "follow",
+            "entity_id": "testradio.box",
+            "target": "testradio.radio",
+        },
+    )
+    assert ("testradio.radio", "play_radio", {"station": "SRF 3"}) in protokoll.befehle
+    # Pause, nicht Stopp - die Box weiss beim Zurückkommen noch, wo sie war.
+    assert ("testradio.box", "pause", {}) in protokoll.befehle
+
+
+async def test_ablauf_musik_folgt_meldet_wenn_nichts_lief(hub):
+    await _radio_bauen(hub)
+    notiz = await _ablauf_laufen_lassen(
+        hub,
+        {
+            "type": "music",
+            "do": "follow",
+            "entity_id": "testradio.radio",  # steht auf idle
+            "target": "testradio.box",
+        },
+    )
+    assert notiz == "es lief nichts, das hätte folgen können"
+
+
+async def test_ablauf_musik_folgt_ohne_erkennbaren_sender(hub):
+    # Läuft etwas, das kein Sender ist (z.B. eine Playlist), gibt es
+    # nichts, das ehrlich übernommen werden könnte.
+    await _radio_bauen(hub)
+    notiz = await _ablauf_laufen_lassen(
+        hub,
+        {
+            "type": "music",
+            "do": "follow",
+            "entity_id": "testradio.box",
+            "target": "testradio.radio",
+        },
+    )
+    assert notiz == "kein Sender erkennbar, der sich übernehmen liesse"
 
 
 async def test_ablauf_stellt_einen_schlummer_timer(hub):

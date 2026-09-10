@@ -194,6 +194,11 @@ export function musikSatz(action: Roh, entities: Entity[]): string {
       return `${nameVon(entities, action.entity_id)} nach ${action.minutes ?? 30} Min aus`;
     case 'fade':
       return `${nameVon(entities, action.entity_id)} leise starten`;
+    case 'follow':
+      return `Musik von ${nameVon(entities, action.entity_id)} nach ${nameVon(
+        entities,
+        action.target
+      )} mitnehmen`;
     default:
       return 'Musik';
   }

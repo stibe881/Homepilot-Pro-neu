@@ -2315,6 +2315,7 @@ export function StepList({
                   { key: 'sleep', label: 'Schlummer' },
                   { key: 'fade', label: 'Leise starten' },
                   { key: 'night', label: 'Nachtruhe' },
+                  { key: 'follow', label: 'Musik folgt' },
                 ]}
                 value={step.musikTat}
                 onSelect={(musikTat) =>
@@ -2355,6 +2356,36 @@ export function StepList({
                   Pause auf jeder Box, auf der etwas läuft – nicht «aus». Eine
                   Box, die pausiert, weiss noch, wo sie war.
                 </Text>
+              ) : step.musikTat === 'follow' ? (
+                <>
+                  <EntityPicker
+                    entities={entities.filter(
+                      (entity) =>
+                        entity.kind === 'media_player' &&
+                        entity.commands.includes('set_volume')
+                    )}
+                    value={step.musikEntityId}
+                    placeholder="Woher – Box suchen …"
+                    onSelect={(musikEntityId) => setStep(index, { musikEntityId })}
+                  />
+                  <EntityPicker
+                    entities={entities.filter(
+                      (entity) =>
+                        entity.kind === 'media_player' &&
+                        entity.commands.includes('set_volume') &&
+                        entity.id !== step.musikEntityId
+                    )}
+                    value={step.musikZiel}
+                    placeholder="Wohin – Box suchen …"
+                    onSelect={(musikZiel) => setStep(index, { musikZiel })}
+                  />
+                  <Text style={styles.triggerNote}>
+                    Übernimmt den Radiosender von der ersten Box auf die
+                    zweite und pausiert die erste - eine Playlist oder ein
+                    Streaming-Dienst lässt sich so nicht ehrlich fortsetzen
+                    und bleibt darum unangetastet.
+                  </Text>
+                </>
               ) : (
                 <>
                   <EntityPicker
