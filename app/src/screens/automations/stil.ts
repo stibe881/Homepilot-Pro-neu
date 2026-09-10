@@ -507,4 +507,18 @@ export const makeStyles = (colors: Colors) =>
     saveText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
     delete: { alignItems: 'center', paddingVertical: 12 },
     deleteText: { color: colors.danger, fontSize: 15, fontWeight: '600' },
-  });
+    /** Der Hinweis auf gegenläufige Abläufe (Punkt 312). Warnfarbe, aber
+   *  kein Rot: Es ist ein Hinweis, kein Ausfall - vielleicht ist es
+   *  sogar Absicht. */
+  konfliktKasten: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    padding: 10,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    borderColor: colors.warn,
+    backgroundColor: colors.surfaceSoft,
+    marginBottom: 8,
+  },
+});

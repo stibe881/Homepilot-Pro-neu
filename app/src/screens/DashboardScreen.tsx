@@ -602,6 +602,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Was `<Auffangnetz>` abfängt, gehört ins Buch dieses Geräts - sonst
   // erfährt niemand davon (Punkt 272, hooks/useAbstuerze.ts).
   const { merkeAbsturz } = useAbstuerze();
+  /** Das Gerät, aus dem drüben ein Ablauf werden soll (Punkt 317). */
+  const [ablaufSaat, setAblaufSaat] = useState<string | null>(null);
   // Ist gerade jemand da? Beim Öffnen der Einstellungen fragen,
   // nicht dauernd: Die Zeile im Menü ist der einzige Ort, an dem die
   // Antwort gebraucht wird - und dort steht sie eine Sekunde später.
@@ -2532,7 +2534,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               geschah - sie ist schneller, aber sie fängt bei jedem
               Start wieder von vorne an. */}
           <HausRueckblick settings={settings} />
-          <ActivityCard activity={activity} />
+          {/* Der beste Zeitpunkt für einen Ablauf ist der, an dem man
+              das Muster bemerkt (Punkt 317). Von hier aus mit dem
+              Gerät im Gepäck - vorher musste man es sich merken und
+              drüben wiederfinden. */}
+          <ActivityCard
+            activity={activity}
+            onAblauf={(eintrag) => {
+              setAblaufSaat(eintrag.id);
+              setSection('automations');
+            }}
+          />
         </View>
       );
     }
@@ -2661,6 +2673,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             scenes={scenes}
             onScenesChanged={reloadScenes}
             onNote={setNote}
+            // Mit einem Gerät im Gepäck angekommen? Dann steht der
+            // Editor schon offen und der Auslöser ist gesetzt.
+            saatGeraet={ablaufSaat}
+            onSaatVerbraucht={() => setAblaufSaat(null)}
           />
         </View>
       );

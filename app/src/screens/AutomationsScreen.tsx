@@ -24,8 +24,15 @@ import {
 } from '../lib/szenen';
 import { BabysitterStand, LEERER_BABYSITTER, istFreigegeben, modusSatz, seitText } from '../lib/babysitter';
 import { Editor, Fassung } from './automations/editor';
-import { Automation, Draft, DryRun, EMPTY, EMPTY_STEP, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, namensVorschlag, newTrigger, runLine, search, stepToActions, stepsToActions, symbolFuerNamen, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, wirkungText, zeitpunktLabel } from './automations/entwurf';
+import { Automation, Draft, DryRun, EMPTY, EMPTY_STEP, EMPTY_TRIGGER, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, namensVorschlag, newTrigger, runLine, search, stepToActions, stepsToActions, symbolFuerNamen, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, wirkungText, zeitpunktLabel } from './automations/entwurf';
 import { Groups, SearchBox } from './automations/felder';
+import {
+  PAUSEN,
+  dupliziere,
+  pauseBis,
+  ruht,
+  warumNicht,
+} from '../lib/ablaufhilfen';
 import { laeuft, tippLabel, unterzeile } from '../lib/szenenzeile';
 import { szenenFarben } from '../lib/szenenfarben';
 import { bandReihenfolge, bandZeile } from '../lib/tagesband';
@@ -68,6 +75,8 @@ export function AutomationsScreen({
   scenes,
   onScenesChanged,
   onNote,
+  saatGeraet,
+  onSaatVerbraucht,
 }: {
   settings: HubSettings;
   user: User | null;
@@ -77,6 +86,10 @@ export function AutomationsScreen({
   /** Kurze Bestätigung nach oben melden – dort hängt die Einblendung
    *  am Bildschirm statt an der mitscrollenden Liste. */
   onNote?: (text: string) => void;
+  /** Ein Gerät, aus dem gerade ein Ablauf werden soll - kommt vom
+   *  Ereignisprotokoll (Punkt 317 der Werkbank). */
+  saatGeraet?: string | null;
+  onSaatVerbraucht?: () => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -104,7 +117,18 @@ export function AutomationsScreen({
   const [versteckteVorlagen, setVersteckteVorlagen] = useState<string[]>([]);
   // Eingeklappt: Die Vorlagen sind ein Anfang für den seltenen Fall
   // «neuer Ablauf», nicht die Liste, die man täglich liest.
+  // Zugeklappt, sobald es Abläufe gibt - und offen, solange es keine
+  // gibt (Punkt 310 der Werkbank). Eine gepflegte Vorlagenliste hinter
+  // einem zugeklappten Dreieck, während daneben «Noch keine Abläufe»
+  // steht, ist die Antwort auf eine Frage, die niemand gestellt
+  // bekommen hat.
   const [vorlagenOffen, setVorlagenOffen] = useState(false);
+  const [vorlagenGesehen, setVorlagenGesehen] = useState(false);
+  useEffect(() => {
+    if (vorlagenGesehen || automations === null) return;
+    if (automations.length === 0) setVorlagenOffen(true);
+    setVorlagenGesehen(true);
+  }, [automations, vorlagenGesehen]);
   // Bereits abgehakte Widersprüche - eingeklappt hinter «3 quittiert».
   const [quittiert, setQuittiert] = useState<Konflikt[]>([]);
   const [zeigeQuittierte, setZeigeQuittierte] = useState(false);
@@ -272,6 +296,34 @@ export function AutomationsScreen({
   }, [hub]);
 
   useEffect(load, [load]);
+
+  // Mit einem Gerät im Gepäck angekommen: Der Editor geht auf, der
+  // Auslöser steht schon. Genau einmal - `onSaatVerbraucht` räumt die
+  // Saat weg, sonst risse der Editor bei jedem Rendern wieder auf.
+  useEffect(() => {
+    if (!saatGeraet) return;
+    const geraet = entities.find((entity) => entity.id === saatGeraet);
+    setDraft({
+      ...EMPTY,
+      alias: geraet ? `Wenn ${geraet.name} …` : '',
+      triggers: [{ ...EMPTY_TRIGGER, kind: 'state', entityId: saatGeraet }],
+    });
+    onSaatVerbraucht?.();
+  }, [saatGeraet, entities, onSaatVerbraucht]);
+
+  /** Einen einzelnen Ablauf ruhen lassen - oder wieder wecken.
+   *
+   *  Denselben Eingriff gibt es fürs Ganze (die Zeile oben); hier
+   *  gezielt, weil man in den Ferien nicht alles ruhen lassen will -
+   *  nur das Bewegungslicht im Flur (Punkt 311 der Werkbank). */
+  const ruhenLassen = useCallback(
+    (automation: Automation, bis: number | null) => {
+      hub
+        .put(`/api/automations/${automation.id}`, { quiet_until: bis }, { fallback: null })
+        .then(() => load());
+    },
+    [hub, load]
+  );
 
   /** Vorlagen: sichern, löschen, ein- und ausblenden. */
   const vorlagenAntwort = (
@@ -1224,8 +1276,9 @@ export function AutomationsScreen({
 
       {automations.length === 0 ? (
         <Text style={styles.note}>
-          Noch keine Abläufe. Sie entstehen hier oder im Abschnitt „automations“
-          der config.yaml des Hubs.
+          Noch keine Abläufe – oben stehen Vorlagen, die schon zu deinen Geräten
+          passen. Sonst entstehen sie hier oder im Abschnitt „automations“ der
+          config.yaml des Hubs.
         </Text>
       ) : (
         <>
@@ -1337,11 +1390,40 @@ export function AutomationsScreen({
                         {verwaistZeile(automation.last_fired)}
                       </Text>
                     ) : null}
-                    {automation.quiet_until &&
-                    automation.quiet_until * 1000 > Date.now() ? (
-                      <Text style={[styles.detail, { color: colors.warn }]}>
-                        Ruht bis {zeitpunktLabel(automation.quiet_until)}
-                      </Text>
+                    {/* Ruhen statt löschen (Punkt 311 der Werkbank): In
+                        den Ferien löschte man Abläufe - und baute sie
+                        danach neu. Die Pause reicht bis morgens um
+                        sechs des Zieltags, nicht «24 Stunden weit»: Wer
+                        abends um elf pausiert, will das Bewegungslicht
+                        nicht um elf Uhr nachts zurück. */}
+                    {ruht(automation, new Date()) ? (
+                      <View style={styles.pausenKnoepfe}>
+                        <Text style={[styles.detail, { color: colors.warn, flex: 1 }]}>
+                          Ruht bis {zeitpunktLabel(automation.quiet_until!)}
+                        </Text>
+                        <Pressable
+                          onPress={() => ruhenLassen(automation, null)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${automation.alias} wieder laufen lassen`}
+                          style={({ pressed }) => [styles.template, pressed && { opacity: 0.75 }]}
+                        >
+                          <Text style={styles.templateText}>Wieder laufen</Text>
+                        </Pressable>
+                      </View>
+                    ) : mayEdit ? (
+                      <View style={styles.pausenKnoepfe}>
+                        {PAUSEN.map((pause) => (
+                          <Pressable
+                            key={pause.key}
+                            onPress={() => ruhenLassen(automation, pauseBis(pause.tage, new Date()))}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${automation.alias} pausieren: ${pause.label}`}
+                            style={({ pressed }) => [styles.template, pressed && { opacity: 0.75 }]}
+                          >
+                            <Text style={styles.templateText}>{pause.label}</Text>
+                          </Pressable>
+                        ))}
+                      </View>
                     ) : null}
                     {/* Antippbar: die letzten Läufe samt Begründung. «Warum
                         lief das nicht?» steht dann da - z.B. «übersprungen:
@@ -1372,6 +1454,22 @@ export function AutomationsScreen({
                       accessibilityRole="button"
                       accessibilityState={{ expanded: runsFor === automation.id }}
                     >
+                      {/* «Warum lief das nicht?» gehört an die Zeile und
+                          nicht erst hinter das Aufklappen: Genau danach
+                          sucht man, wenn ein Ablauf schweigt - und ohne
+                          die Antwort baut man ihn um, obwohl bloss eine
+                          Bedingung nicht passte (Punkt 309). */}
+                      {(() => {
+                        const letzter = runs.find(
+                          (run) => run.automation_id === automation.id
+                        );
+                        const grund = warumNicht(letzter);
+                        return grund ? (
+                          <Text style={[styles.detail, { color: colors.inkSoft }]}>
+                            {grund}
+                          </Text>
+                        ) : null;
+                      })()}
                       <Text style={styles.detail}>
                         {lastRunText(runs, automation.id)}
                         {runs.some((run) => run.automation_id === automation.id)
@@ -1847,6 +1945,25 @@ export function AutomationsScreen({
         onChange={setDraft}
         onSave={save}
         onDelete={draft?.id ? () => remove(draft.id!) : undefined}
+        onDuplizieren={
+          draft?.id
+            ? () => {
+                // Die Kopie kommt ausgeschaltet und ohne Kennung in den
+                // Editor: Wer sie sofort mitlaufen liesse, schaltete
+                // dasselbe Gerät ein zweites Mal - bevor jemand sie
+                // angepasst hat (lib/ablaufhilfen.ts).
+                const quelle = (automations ?? []).find(
+                  (eintrag) => eintrag.id === draft.id
+                );
+                if (!quelle) return;
+                const kopie = dupliziere(
+                  quelle,
+                  (automations ?? []).map((eintrag) => eintrag.alias)
+                );
+                setDraft(toDraft(kopie));
+              }
+            : undefined
+        }
         onTest={draft?.id ? () => test(draft.id!) : undefined}
         onDryRun={draft?.id ? () => dryRun(draft.id!) : undefined}
         onSimulation={draft?.id ? () => simulation(draft.id!) : undefined}

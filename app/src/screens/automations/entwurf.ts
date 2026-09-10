@@ -271,8 +271,49 @@ export function stateOptions(entity?: Entity): StateOption[] {
 /** Melder, deren «an» in Wahrheit «offen» heisst. */
 const OFFEN_KLASSEN = ['contact', 'door', 'window', 'garage', 'opening'];
 
+/**
+ * Was ein Wandtaster meldet (Punkt 314 der Werkbank).
+ *
+ * Ein Taster hat keinen Zustand, den man ablesen könnte - er meldet
+ * einen Druck, und *welchen*, steht als Wort im Zustand
+ * (`integrations/zigbee2mqtt.py`). Der Editor kannte bisher nur den
+ * zuletzt gemeldeten Wert: Wer «doppelt drücken» bauen wollte, musste
+ * am Taster erst doppelt drücken, damit der Zustand kurz danach im
+ * Editor auftauchte - und ihn dann treffen, bevor der nächste Druck ihn
+ * überschrieb.
+ *
+ * Die Liste ist Zigbee2MQTTs Wortschatz, in der Reihenfolge, in der man
+ * sie braucht. Was ein bestimmter Taster wirklich kann, sagt sein
+ * Datenblatt; ein Auslöser auf ein Wort, das er nie sendet, feuert eben
+ * nicht - das ist derselbe Fall wie ein Ablauf aus früherer Zeit, und
+ * `unbekannterZustand` sagt es dann auch.
+ */
+const TASTERDRUECKE: { key: string; label: string }[] = [
+  { key: 'single', label: 'einmal drücken' },
+  { key: 'double', label: 'doppelt drücken' },
+  { key: 'triple', label: 'dreimal drücken' },
+  { key: 'hold', label: 'gedrückt halten' },
+  { key: 'release', label: 'loslassen' },
+  { key: 'on', label: 'obere Wippe' },
+  { key: 'off', label: 'untere Wippe' },
+  { key: 'brightness_move_up', label: 'heller halten' },
+  { key: 'brightness_move_down', label: 'dunkler halten' },
+];
+
 /** Die Zustände des Felds `state` selbst, je Geräteart. */
 export function plainStates(entity?: Entity): { key: string; label: string }[] {
+  // Der Taster zuerst: Sein «Zustand» ist der letzte Druck, und die
+  // möglichen Drücke stehen nicht im Gerät, sondern in seinem
+  // Datenblatt (siehe TASTERDRUECKE). Der zuletzt gemeldete Wert wandert
+  // nach vorn, wenn er nicht ohnehin dabei ist - dann hat man den, den
+  // dieser Taster wirklich sendet, mit einem Tipp.
+  if (entity?.kind === 'button') {
+    const gemeldet = String(entity.state?.state ?? '').trim();
+    const bekannt = TASTERDRUECKE.some((druck) => druck.key === gemeldet);
+    return gemeldet && !bekannt
+      ? [{ key: gemeldet, label: gemeldet }, ...TASTERDRUECKE]
+      : TASTERDRUECKE;
+  }
   // Anwesenheit zählt nicht in «an/aus», sondern in «zuhause/weg». Die
   // Geofence-Entitäten erkennt man am Feld `place`; ohne diesen Zweig
   // stand im Editor «an», und der Ablauf wartete auf einen Zustand, den
