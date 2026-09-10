@@ -60,7 +60,8 @@ Alles läuft ohne Netz und in unter einer Minute:
 cd hub && pip install -e ".[dev]"
 pytest -q            # ~620 Tests
 ruff check .         # muss sauber sein
-mypy homepilot       # noch nicht bindend, aber lies, was es sagt
+python3 tools/mypy_sauber.py   # bindend: die Module in mypy-sauber.txt
+mypy homepilot       # der Rest - zur Ansicht, noch nicht bindend
 
 # App
 cd app && npm ci

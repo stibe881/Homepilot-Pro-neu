@@ -181,6 +181,7 @@ import {
 } from '../lib/widgetButtons';
 import { HubProvider } from '../hooks/HubContext';
 import { useFamilienlisten } from '../hooks/useFamilienlisten';
+import { useAbstuerze } from '../hooks/useAbstuerze';
 import { useKachelnutzung } from '../hooks/useKachelnutzung';
 import { useRaumnutzung } from '../hooks/useRaumnutzung';
 import { gelernt, hinweisGelernt, nachGewohnheit } from '../lib/kachellernen';
@@ -598,6 +599,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Und wie oft welches Gerät zu welcher Tageszeit
   // (hooks/useKachelnutzung.ts) - daraus wird die gelernte Reihenfolge.
   const { kachelZaehler, zaehleKachel } = useKachelnutzung();
+  // Was `<Auffangnetz>` abfängt, gehört ins Buch dieses Geräts - sonst
+  // erfährt niemand davon (Punkt 272, hooks/useAbstuerze.ts).
+  const { merkeAbsturz } = useAbstuerze();
   // Ist gerade jemand da? Beim Öffnen der Einstellungen fragen,
   // nicht dauernd: Die Zeile im Menü ist der einzige Ort, an dem die
   // Antwort gebraucht wird - und dort steht sie eine Sekunde später.
@@ -693,7 +697,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     return () => {
       alive = false;
     };
-  }, [settings.url, settings.token, status, riegelFrage]);
+  }, [hub, settings.url, settings.token, status, riegelFrage]);
 
   // Beim Verlassen der Geräteliste die Suche zurücksetzen – wer später
   // zurückkommt, will die volle Liste sehen, nicht den alten Suchbegriff.
@@ -884,9 +888,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // Autodienst startet, wenn niemand die App offen hat: Was er
     // braucht, muss vorher dastehen.
     syncAuto(settings, widgetButtons);
+    // `settings` ganz und nicht nur url und token: syncWidget und
+    // syncAuto lesen mehr aus dem Objekt heraus (Thema, Panel-Modus),
+    // und wer nur zwei Felder aufzählt, verpasst genau die Änderungen,
+    // die man am Wandtablet macht.
   }, [
-    settings.url,
-    settings.token,
+    settings,
     prefs.widgetData,
     widgetButtons,
     entities.length,
@@ -1033,11 +1040,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     () => eigenePrefs.favorites ?? favoritenVon(entities),
     [eigenePrefs.favorites, entities]
   );
-  const hidden = prefs.hidden ?? [];
-  const locked = prefs.locked ?? [];
+  // Festgehalten und nicht je Rendern neu: `prefs.locked ?? []` ist bei
+  // jedem Durchlauf eine andere leere Liste, und die hängt an den
+  // Abhängigkeiten von guardedCommand - der wurde damit auch neu, und
+  // mit ihm alles, was ihn weiterreicht. Ein Kachelraster, das sich bei
+  // jedem Tastendruck neu aufbaut, ist genau der Fehler, den die
+  // Browser-Probe an der Fernbedienung misst.
+  const hidden = useMemo(() => prefs.hidden ?? [], [prefs.hidden]);
+  const locked = useMemo(() => prefs.locked ?? [], [prefs.locked]);
   // Zählt in der «3 an» oben nicht mit – bleibt aber auf der Startseite
   // stehen. Zwei verschiedene Listen, siehe lib/zaehlung.ts.
-  const ungezaehlt = prefs.ungezaehlt ?? [];
+  const ungezaehlt = useMemo(() => prefs.ungezaehlt ?? [], [prefs.ungezaehlt]);
 
   // Einmalige Übernahme der alten, gerätelokalen Favoriten. Danach wird
   // die lokale Liste geleert, damit dieselben Sterne nicht bei jedem
@@ -1910,6 +1923,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       locked={locked.includes(entity.id)}
       onToggleLocked={() => setLocked(toggleIn(locked, entity.id))}
       ungezaehlt={ungezaehlt.includes(entity.id)}
+      // Ohne Verbindung zeigt die Kachel den letzten bekannten Stand -
+      // gedämpft und mit «Stand 17:42» (Punkt 271, lib/altwert.ts).
+      verbunden={status === 'connected'}
       onToggleUngezaehlt={() => setUngezaehlt(toggleIn(ungezaehlt, entity.id))}
       rooms={editing ? roomOrder : undefined}
       onSetRoom={editing ? (room) => setEntityRoom(entity.id, room) : undefined}
@@ -3707,7 +3723,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 </Text>
               </View>
             ) : null}
-            <Auffangnetz bereich="Die Kopfzeile">
+            <Auffangnetz bereich="Die Kopfzeile" onFehler={merkeAbsturz}>
               <TopStrip
                 entities={entities}
                 status={status}
@@ -3840,7 +3856,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               Vierteln geht, ist mehr wert als eines, das gar nicht mehr
               reagiert. Der Schlüssel wechselt mit dem Bereich, damit ein
               gefangener Fehler beim Weiterblättern nicht kleben bleibt. */}
-            <Auffangnetz key={section} bereich={SECTION_LABEL[section] ?? 'Dieser Bereich'}>
+            <Auffangnetz
+              key={section}
+              bereich={SECTION_LABEL[section] ?? 'Dieser Bereich'}
+              onFehler={merkeAbsturz}
+            >
               {zweispaltig ? (
                 <View style={styles.settingsSplit}>
                   <View style={styles.settingsRail}>
