@@ -515,17 +515,30 @@ export function SceneDevices({
                         onSelect={(key) => setPosition(entity.id, Number(key))}
                       />
                     ) : null}
-                    {action!.command === 'set_brightness' ? (
+                    {/* Die Helligkeit: fest unter «ein, gedimmt» - und
+                        beim Umschalten als Zugabe, sofern die Lampe
+                        überhaupt dimmen kann. Dort heisst sie «wenn sie
+                        angeht, dann so», und «Helligkeit lassen» ist die
+                        Vorgabe: Ein Taster, der jedes Mal auf 50 %
+                        zwingt, nimmt einem das Dimmen von Hand weg. */}
+                    {action!.command === 'set_brightness' ||
+                    (action!.command === 'toggle' &&
+                      lichtFein &&
+                      entity.commands.includes('set_brightness')) ? (
                       <>
                         <Choice
                           options={
                             lichtFein
                               ? helligkeitsOptionen(
-                                  hatLux || raumHatLux(entities, entity)
+                                  hatLux || raumHatLux(entities, entity),
+                                  action!.command === 'toggle'
                                 )
                               : STUFEN
                           }
-                          value={chipWert(action!)}
+                          value={chipWert(
+                            action!,
+                            action!.command === 'toggle' ? '' : '50'
+                          )}
                           onSelect={(key) => setField(entity.id, chipWahl(key))}
                         />
                         {/* Woher die Helligkeit kommt, gehört

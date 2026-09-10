@@ -21,6 +21,8 @@ Bedingungen:
 
 Aktionen:
   - {type: command, entity_id, command, data?}
+  - {type: light, entity_id, brightness?, color?, color_temp?, off_after?,
+     toggle?}   # «mach sie an, und zwar so» - toggle: brennt sie, geht sie aus
   - {type: delay, seconds}
   - {type: scene, scene} / {type: hue_scene, scene}
   - {type: music, do: favorite|sleep|pause_all|night|fade, …} – siehe docs/musik.md
@@ -487,6 +489,10 @@ def describe_action(action: dict[str, Any], name_of: Any = None) -> str:
         if action.get("color_temp"):
             teile.append(f"{round(1_000_000 / float(action['color_temp']))} K")
         wie = ", ".join(teile) if teile else "an"
+        # «umschalten» ist eine andere Zusage als «an»: Brennt die Lampe,
+        # geht sie aus - und dann gilt nichts von dem, was daneben steht.
+        if action.get("toggle"):
+            wie = f"umschalten, beim Einschalten {wie}" if teile else "umschalten"
         nachlauf = _seconds(action.get("off_after"))
         # «und in 4 Min wieder aus» gehört in den Trockenlauf: Sonst steht
         # da nur, dass das Licht angeht, und die Frage «und wann geht es
@@ -2992,6 +2998,11 @@ class AutomationEngine:
         hintereinanderzuhängen, zwischen denen die Lampe sichtbar
         umspringt.
 
+        Mit ``toggle: true`` gilt dasselbe für einen Wandtaster: Brennt
+        die Lampe, geht sie aus; brennt sie nicht, geht sie so an, wie es
+        hier steht. Ohne das musste man sich zwischen «immer an» und
+        «umschalten ohne Vorgaben» entscheiden.
+
         Für die Helligkeit gibt es drei Wege, und der Unterschied
         entscheidet, ob abends jemand geblendet wird:
 
@@ -3012,6 +3023,19 @@ class AutomationEngine:
                 entity_id,
             )
             return None
+
+        # Umschalten mit Vorgaben: Brennt sie, geht sie aus - und alles
+        # Weitere entfällt. Der Wandtaster im Flur ist genau dieser Fall:
+        # ein Knopf, und wenn er einschaltet, dann bitte nachts gedämpft
+        # und warm. Ohne diesen Zweig musste man sich zwischen «immer an»
+        # und «ohne Vorgaben» entscheiden.
+        if action.get("toggle") and str(entity.state.get("state") or "") == "on":
+            await self.hub.integrations.dispatch_command(entity_id, "turn_off", {})
+            # Auch den Nachlauf abbestellen: Sonst liefe der Zeitgeber
+            # von vorhin weiter und schaltete die Lampe aus, die
+            # inzwischen jemand von Hand wieder angemacht hat.
+            self._nachlauf_stoppen(entity_id)
+            return "war an - ausgeschaltet"
 
         notiz: str | None = None
         helligkeit: float | None = None
@@ -3235,6 +3259,17 @@ class AutomationEngine:
         self._run_tasks.add(task)
         task.add_done_callback(self._run_tasks.discard)
 
+    def _nachlauf_stoppen(self, entity_id: str) -> None:
+        """Den laufenden Nachlauf dieser Lampe abbestellen (falls einer läuft).
+
+        Die «geht in 4 Min aus»-Anzeige räumt der Rückruf der Aufgabe
+        selbst weg (_countdown_aufraeumen) - ein Abbruch zählt für ihn
+        wie ein Ende.
+        """
+        laufend = self._nachlauf.pop(entity_id, None)
+        if laufend is not None and not laufend[0].done():
+            laufend[0].cancel()
+
     def _plan_off(self, automation: Automation, entity_id: str, seconds: float) -> None:
         """Die Lampe nach der Nachlaufzeit wieder ausschalten.
 
@@ -3247,9 +3282,7 @@ class AutomationEngine:
         verlängert ihn. Zwei Zeitgeber nebeneinander hiessen, dass das
         Licht beim ersten ausgeht, obwohl gerade jemand im Flur steht.
         """
-        laufend = self._nachlauf.pop(entity_id, None)
-        if laufend is not None and not laufend[0].done():
-            laufend[0].cancel()
+        self._nachlauf_stoppen(entity_id)
         faellig = time.time() + seconds
 
         async def warten() -> None:

@@ -11,6 +11,7 @@ import {
   istOrtsmelder,
   ortsSatz,
 } from './ortsausloeser';
+import { weissWort } from './weisston';
 
 /**
  * Der Ablauf als Satz – während man ihn baut.
@@ -199,6 +200,27 @@ export function musikSatz(action: Roh, entities: Entity[]): string {
   }
 }
 
+/**
+ * Wie ein Licht-Schritt eingestellt ist (rein, testbar).
+ *
+ * «ein» ist die Grundaussage; alles Weitere steht nur da, wenn es auch
+ * eingestellt wurde. Beim Umschalten steht es hinter dem Doppelpunkt:
+ * Brennt die Lampe, geht sie aus - die Vorgaben gelten nur für den
+ * anderen Fall, und das soll die Zeile sagen.
+ */
+export function lichtSatz(action: Roh): string {
+  const teile: string[] = [];
+  const helligkeit = action.brightness;
+  if (helligkeit === 'adaptive') teile.push('nach Raumhelligkeit');
+  else if (helligkeit === 'tageszeit') teile.push('nach Tageszeit');
+  else if (typeof helligkeit === 'number') teile.push(`${helligkeit} %`);
+  if (action.color) teile.push('farbig');
+  else if (action.color_temp) teile.push(weissWort(Number(action.color_temp)));
+  const wie = teile.length > 0 ? teile.join(', ') : 'ein';
+  if (!action.toggle) return wie;
+  return teile.length > 0 ? `umschalten, beim Einschalten ${wie}` : 'umschalten';
+}
+
 function aktionSatz(
   action: Roh,
   entities: Entity[],
@@ -230,6 +252,12 @@ function aktionSatz(
     }
     case 'wait_until':
       return `warten bis ${nameVon(entities, action.entity_id)} passt`;
+    case 'light':
+      // Der Licht-Schritt trägt gar keinen Befehl, sondern Vorgaben.
+      // Ohne diesen Fall landete er unten im Regelfall und las sich als
+      // «Deckenlampe undefined» - eine Zeile, die niemandem sagt, was
+      // der Ablauf tut.
+      return `${nameVon(entities, action.entity_id)} ${lichtSatz(action)}`;
     case 'music':
       return musikSatz(action, entities);
     // Kontrollfluss (Punkt 251): Die Zweige rekursiv als Sätze - der

@@ -23,8 +23,18 @@ class DemoIntegration(Integration):
             "light_livingroom",
             EntityKind.LIGHT,
             "Licht Wohnzimmer",
-            state={"state": "off", "brightness": 100},
-            commands=["turn_on", "turn_off", "toggle", "set_brightness"],
+            state={"state": "off", "brightness": 100, "color": None, "color_temp": 370},
+            # Mit Farbe und Weisston: Ohne eine solche Lampe liess sich
+            # der halbe Licht-Schritt eines Ablaufs gar nicht ansehen -
+            # Farbe und Weiss stehen dort nur, wo die Lampe sie kann.
+            commands=[
+                "turn_on",
+                "turn_off",
+                "toggle",
+                "set_brightness",
+                "set_color",
+                "set_color_temp",
+            ],
         )
         await self.add_entity(
             "light_bedroom",
@@ -369,6 +379,16 @@ class DemoIntegration(Integration):
         elif command == "set_brightness":
             changes["brightness"] = max(0, min(100, int(data.get("brightness", 100))))
             changes["state"] = "on" if changes["brightness"] > 0 else "off"
+        elif command == "set_color":
+            # Farbe und Weisston schliessen sich aus - wie an einer
+            # echten Lampe: Sie leuchtet in einem von beidem.
+            changes["color"] = str(data.get("color") or "")
+            changes["color_temp"] = None
+            changes["state"] = "on"
+        elif command == "set_color_temp":
+            changes["color_temp"] = float(data.get("color_temp") or 370)
+            changes["color"] = None
+            changes["state"] = "on"
         elif command in ("open", "close") and entity.kind == EntityKind.COVER:
             hoch = command == "open"
             changes.update(

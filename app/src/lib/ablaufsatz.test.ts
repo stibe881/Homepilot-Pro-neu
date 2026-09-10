@@ -342,6 +342,31 @@ describe('Kontrollfluss und die neuen Auslöser (Punkte 251/252)', () => {
     expect(satz).toContain('wenn dunkel: Licht Flur ein; sonst Nachricht');
   });
 
+  it('liest einen Licht-Schritt samt Vorgaben', () => {
+    // Ohne eigenen Fall stand hier «Licht Flur undefined»: Der
+    // Licht-Schritt trägt keinen Befehl, sondern Vorgaben.
+    const satz = ablaufSatz(
+      {
+        triggers: [{ type: 'state', entity_id: 'hm.taster', to: 'on' }],
+        conditions: [],
+        actions: [
+          {
+            type: 'light',
+            entity_id: 'hue.flur',
+            toggle: true,
+            brightness: 20,
+            color_temp: 370,
+          },
+        ],
+        otherwise: [],
+        match: 'all',
+      },
+      entities,
+      scenes
+    );
+    expect(satz).toContain('umschalten, beim Einschalten 20 %, warmweiss');
+  });
+
   it('sagt, wenn eine Nachricht absichtlich wartet', () => {
     // Sonst sieht ein Ablauf, der fünf Sekunden auf das Bild wartet,
     // genauso aus wie einer, der sofort meldet.

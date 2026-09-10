@@ -50,8 +50,14 @@ LIGHT_COMMANDS = (
     "toggle",
     "set_brightness",
     "set_color",
-    "set_temperature",
-    "set_white",
+    # Die Farbtemperatur heisst überall `set_color_temp` (hue.py,
+    # zigbee2mqtt.py, tuya.py). Hier standen stattdessen `set_temperature`
+    # - das ist der Sollwert eines Thermostats - und `set_white`, das es
+    # in keiner Integration gibt. Folge: Eine Deckenlampe aus fünf Spots
+    # liess sich nirgends auf Warmweiss stellen, obwohl jeder einzelne
+    # Spot es kann; in Ablauf und Szene stand die Wahl gar nicht erst zur
+    # Verfügung, weil beide fragen, was das Gerät kann.
+    "set_color_temp",
     "set_effect",
 )
 SWITCH_COMMANDS = ("turn_on", "turn_off", "toggle")

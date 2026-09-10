@@ -3,6 +3,7 @@ import { Entity } from '../api/types';
 import {
   NACH_RAUM,
   NACH_TAGESZEIT,
+  UNVERAENDERT,
   chipWahl,
   chipWert,
   helligkeitsOptionen,
@@ -84,5 +85,30 @@ describe('helligkeitsOptionen', () => {
     expect(ohne).not.toContain(NACH_RAUM);
     expect(ohne).toContain(NACH_TAGESZEIT);
     expect(helligkeitsOptionen(true).map((o) => o.key)).toContain(NACH_RAUM);
+  });
+});
+
+describe('Helligkeit beim Umschalten', () => {
+  it('lässt sie weg, wenn niemand eine gewählt hat', () => {
+    // Ein Taster, der die Lampe jedes Mal auf 50 % zwingt, nimmt einem
+    // das Dimmen von Hand wieder weg. Unter «ein, gedimmt» bleibt es
+    // dagegen bei einer Zahl - dort muss die Lampe eine bekommen.
+    expect(chipWert({}, UNVERAENDERT)).toBe(UNVERAENDERT);
+    expect(chipWert({ brightness: 20 }, UNVERAENDERT)).toBe('20');
+    expect(chipWert({})).toBe('50');
+  });
+
+  it('macht aus «lassen» keine null Prozent', () => {
+    // `Number('')` wäre 0 - eine Lampe, die auf null Prozent «angeht».
+    expect(chipWahl(UNVERAENDERT)).toEqual({
+      adaptive: undefined,
+      nachTageszeit: undefined,
+      brightness: undefined,
+    });
+  });
+
+  it('stellt «Helligkeit lassen» nur beim Umschalten voran', () => {
+    expect(helligkeitsOptionen(false, true)[0].key).toBe(UNVERAENDERT);
+    expect(helligkeitsOptionen(false).map((o) => o.key)).not.toContain(UNVERAENDERT);
   });
 });

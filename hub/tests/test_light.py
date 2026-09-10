@@ -345,6 +345,86 @@ async def test_feste_helligkeit_farbe_und_weiss_gehen_in_einem_zug():
 
 
 @pytest.mark.asyncio
+async def test_umschalten_setzt_beim_einschalten_die_vorgaben():
+    """Der Wandtaster im Flur: ein Knopf, und wenn er einschaltet, dann
+    bitte gedämpft und warm. Vorher musste man sich zwischen «immer an»
+    und «umschalten ohne Vorgaben» entscheiden."""
+    hub = await hub_mit([])
+    try:
+        lampe = Entity(
+            id="hue.flur",
+            name="Flurlicht",
+            kind="light",
+            integration="demo",
+            state={"state": "off"},
+            commands=["turn_on", "turn_off", "toggle", "set_brightness", "set_color_temp"],
+        )
+        await hub.registry.add(lampe)
+        gesendet: list[tuple[str, str, dict]] = []
+
+        async def merken(entity_id, command, data=None):
+            gesendet.append((entity_id, command, data or {}))
+
+        hub.integrations.dispatch_command = merken  # type: ignore[method-assign]
+        schritt = {
+            "type": "light",
+            "entity_id": "hue.flur",
+            "toggle": True,
+            "brightness": 20,
+            "color_temp": 400,
+        }
+        await hub.automations.probe_action(schritt)
+        assert [befehl for _, befehl, _ in gesendet] == ["set_brightness", "set_color_temp"]
+        assert gesendet[0][2]["brightness"] == 20
+    finally:
+        await hub.stop()
+
+
+@pytest.mark.asyncio
+async def test_umschalten_macht_die_brennende_lampe_aus():
+    hub = await hub_mit([])
+    try:
+        lampe = Entity(
+            id="hue.flur",
+            name="Flurlicht",
+            kind="light",
+            integration="demo",
+            state={"state": "on"},
+            commands=["turn_on", "turn_off", "toggle", "set_brightness"],
+        )
+        await hub.registry.add(lampe)
+        gesendet: list[tuple[str, str, dict]] = []
+
+        async def merken(entity_id, command, data=None):
+            gesendet.append((entity_id, command, data or {}))
+
+        hub.integrations.dispatch_command = merken  # type: ignore[method-assign]
+        notiz = await hub.automations.probe_action(
+            {
+                "type": "light",
+                "entity_id": "hue.flur",
+                "toggle": True,
+                "brightness": 20,
+            }
+        )
+        # Nur aus - und keine Helligkeit hinterher, die niemand sieht.
+        assert [befehl for _, befehl, _ in gesendet] == ["turn_off"]
+        assert notiz is None or "aus" in str(notiz)
+    finally:
+        await hub.stop()
+
+
+def test_der_trockenlauf_sagt_umschalten_dazu():
+    # «Licht 20 %» an einem Schritt, der auch ausschalten kann, wäre die
+    # halbe Wahrheit.
+    satz = describe_action(
+        {"type": "light", "entity_id": "hue.flur", "toggle": True, "brightness": 20},
+        lambda entity_id: "Flurlicht",
+    )
+    assert "umschalten" in satz and "20 %" in satz
+
+
+@pytest.mark.asyncio
 async def test_farbe_schlaegt_weiss_statt_beides_zu_setzen():
     # Beides hintereinander hiesse: Die Lampe springt sichtbar um, und was
     # am Ende leuchtet, hinge an der Reihenfolge im Ablauf.

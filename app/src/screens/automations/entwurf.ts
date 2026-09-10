@@ -1511,16 +1511,10 @@ export function geraetePlatzhalter(
   ];
 }
 
-/** Weisstöne, die zur Auswahl stehen: Mirek und was man dazu sagt.
- *
- * Mirek statt Kelvin, weil die Lampen so rechnen (153 = 6500 K, 500 =
- * 2000 K) – auf dem Knopf steht trotzdem die Kelvin-Zahl, die auf jeder
- * Glühbirnen-Packung steht. */
-export const WEISSTOENE: { key: string; label: string; mirek: number }[] = [
-  { key: 'warm', label: 'warmweiss', mirek: 370 },
-  { key: 'neutral', label: 'neutralweiss', mirek: 286 },
-  { key: 'kalt', label: 'tageslichtweiss', mirek: 200 },
-];
+/** Die Weisstöne liegen in lib/weisston.ts - dort holt sie auch die
+ *  Zeile, die einen Ablauf vorliest. Hier weitergereicht, damit der
+ *  Szenen-Editor seinen Import nicht ändern muss. */
+export { WEISSTOENE } from '../../lib/weisston';
 
 /** Die angebotenen Nachlaufzeiten (Sekunden als Schlüssel).
  *
@@ -1563,11 +1557,16 @@ export function nachlaufLabel(seconds: string | number): string {
  * Nur dann wird daraus ein Licht-Schritt. Ein blosses «einschalten»
  * bleibt das schlichte Kommando, das es immer war. */
 export function istAnschalten(command: string): boolean {
-  return command === 'turn_on' || command === 'set_brightness';
+  // «umschalten» zählt mit: Wenn es einschaltet, soll es so einschalten.
+  // Ein Wandtaster ist genau das - ein Knopf, und nachts bitte gedämpft
+  // und warm. Brennt die Lampe, geht sie aus, und alles Weitere ist
+  // dann gegenstandslos (hub: core/automation.py, _light mit `toggle`).
+  return command === 'turn_on' || command === 'set_brightness' || command === 'toggle';
 }
 
 export function istLichtFein(action: {
   command: string;
+  brightness?: number;
   color?: string;
   colorTemp?: number;
   adaptive?: boolean;
@@ -1590,7 +1589,11 @@ export function istLichtFein(action: {
     action.nachTageszeit ||
     action.color ||
     action.colorTemp ||
-    action.offAfter
+    action.offAfter ||
+    // Beim Umschalten gehört auch die blosse Helligkeit dazu: Dafür gibt
+    // es keinen eigenen Chip «umschalten, gedimmt» - die Zahl steht
+    // unter demselben Knopf.
+    (action.command === 'toggle' && typeof action.brightness === 'number')
   );
 }
 
@@ -1792,10 +1795,17 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
       // war; ein bestehender Ablauf ändert sich durch Öffnen nicht.
       if (istLichtFein(action)) {
         const licht: BausteinConfig = { type: 'light', entity_id: action.entity_id };
+        // «Umschalten, und wenn es angeht, dann so»: Der Hub prüft dann
+        // erst den Zustand (core/automation.py, _light).
+        if (action.command === 'toggle') licht.toggle = true;
         if (action.adaptive) licht.brightness = 'adaptive';
         else if (action.nachTageszeit) licht.brightness = 'tageszeit';
         else if (action.command === 'set_brightness') {
           licht.brightness = action.brightness ?? 50;
+        } else if (action.command === 'toggle' && typeof action.brightness === 'number') {
+          // Beim Umschalten ist die Helligkeit freiwillig - ohne Angabe
+          // bleibt sie, wie sie war, statt bei 50 % zu landen.
+          licht.brightness = action.brightness;
         }
         if (action.color) licht.color = action.color;
         else if (action.colorTemp) licht.color_temp = action.colorTemp;
@@ -1936,8 +1946,9 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
       const nachTageszeit = wort === 'tageszeit';
       const entry = {
         entity_id: action.entity_id,
-        command:
-          adaptive || nachTageszeit || typeof action.brightness === 'number'
+        command: action.toggle
+          ? 'toggle'
+          : adaptive || nachTageszeit || typeof action.brightness === 'number'
             ? 'set_brightness'
             : 'turn_on',
         rooms: [],
