@@ -541,6 +541,64 @@ export function Choice({
   );
 }
 
+/**
+ * Eine Art wählen – als Kachelraster mit Bild, nicht als Wortwand.
+ *
+ * Elf bis dreizehn gleich aussehende Wörter nebeneinander («Messwert»,
+ * «Uhrzeit», «Sonnenstand», «Regelmässig», …) sagen erst beim Lesen,
+ * worum es geht – man muss jedes einzelne durchgehen. Ein Zeichen
+ * erkennt man, bevor man liest, und dieselben Zeichen stehen später in
+ * der Liste der Abläufe wieder (`triggerIcon`, `entwurf.ts`) – wer hier
+ * die Sonne wählt, sieht sie dort wieder, nicht bloss ein anderes Wort.
+ *
+ * Bewusst kein `Choice` mit Symbol daneben: Bei elf Einträgen bräuchte
+ * das eine so schmale Spalte, dass Symbol und Wort auseinanderfallen.
+ * Das Kachelraster gibt jedem Eintrag denselben Platz, den auch der
+ * `Choice`-Knopf zum Schalten eines einzelnen Geräts bekommt (App-Icons
+ * auf einem Homescreen, nicht eine Speisekarte).
+ */
+export function Kachelauswahl({
+  options,
+  value,
+  onSelect,
+}: {
+  options: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap }[];
+  value?: string;
+  onSelect: (key: string) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return (
+    <View style={styles.kachelraster}>
+      {options.map((option) => {
+        const aktiv = value === option.key;
+        return (
+          <Pressable
+            key={option.key}
+            onPress={() => onSelect(option.key)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: aktiv }}
+            accessibilityLabel={option.label}
+            style={[styles.kachel, aktiv && styles.kachelAktiv]}
+          >
+            <Ionicons
+              name={option.icon}
+              size={22}
+              color={aktiv ? '#FFFFFF' : colors.inkSoft}
+            />
+            <Text
+              style={[styles.kachelText, aktiv && styles.kachelTextAktiv]}
+              numberOfLines={2}
+            >
+              {option.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 /** Auswahlliste als Knopfreihe – ein echtes Auswahlmenü gibt es in React
     Native nicht plattformübergreifend, und bei einer Handvoll Geräten ist
     das ohnehin schneller. */

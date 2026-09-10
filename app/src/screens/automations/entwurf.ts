@@ -4,6 +4,8 @@
  * Herausgelöst aus AutomationsScreen.tsx (Punkt 21 der Werkbank).
  */
 
+import type { Ionicons } from '@expo/vector-icons';
+
 import { Entity } from '../../api/types';
 import { datumUhr, dauerText } from '../../lib/format';
 import {
@@ -1354,6 +1356,45 @@ export function szenenSymbol(scene: { name: string; icon?: string }): string {
   if (gewaehlt !== SZENEN_STANDARD) return gewaehlt;
   return symbolFuerNamen(scene.name) ?? SZENEN_STANDARD;
 }
+
+/**
+ * Das Symbol je Auslöserart, für die Kachelauswahl beim Bauen eines
+ * Auslösers (felder.tsx). Dieselben Zeichen wie `triggerIcon` unten
+ * verwendet, wo sie zusammentreffen - wer hier die Sonne wählt, sieht
+ * später in der Liste der Abläufe dasselbe Zeichen wieder, nicht ein
+ * anderes für dieselbe Sache.
+ */
+export const TRIGGER_KIND_ICON: Record<TriggerKind, keyof typeof Ionicons.glyphMap> = {
+  state: 'radio-button-on-outline',
+  threshold: 'analytics-outline',
+  interval: 'repeat-outline',
+  time: 'time-outline',
+  sun: 'sunny-outline',
+  calendar: 'calendar-outline',
+  geofence: 'location-outline',
+  presence: 'person-outline',
+  weather_warning: 'thunderstorm-outline',
+  power_restore: 'flash-outline',
+  availability: 'pulse-outline',
+};
+
+/** Dieselbe Idee für die Art eines Schritts (Kachelauswahl beim Bauen
+ *  einer Aktion). */
+export const STEP_KIND_ICON: Record<StepKind, keyof typeof Ionicons.glyphMap> = {
+  command: 'toggle-outline',
+  toggle_all: 'layers-outline',
+  scene: 'sparkles-outline',
+  hue_scene: 'color-palette-outline',
+  notify: 'notifications-outline',
+  broadcast: 'megaphone-outline',
+  presence: 'person-outline',
+  delay: 'hourglass-outline',
+  wait_until: 'flag-outline',
+  fade: 'bulb-outline',
+  music: 'volume-medium-outline',
+  if: 'git-branch-outline',
+  repeat: 'repeat-outline',
+};
 
 /** Das Symbol zur Auslöserart (Punkt 162) - der Zeilenanfang der Liste
  *  sagt damit auf einen Blick, WORAUF ein Ablauf hört (rein, testbar). */

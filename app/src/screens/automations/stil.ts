@@ -498,6 +498,32 @@ export const makeStyles = (colors: Colors) =>
     choiceActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     choiceText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
     choiceTextActive: { color: '#FFFFFF' },
+    // Das Kachelraster einer Art-Wahl (Kachelauswahl, felder.tsx) - drei
+    // je Zeile auf einem Telefon, mehr auf einem breiteren Bildschirm;
+    // `flexBasis` statt einer festen Breite lässt das offen.
+    kachelraster: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    kachel: {
+      flexBasis: '30%',
+      flexGrow: 1,
+      minHeight: 74,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 5,
+      paddingHorizontal: 6,
+      paddingVertical: 10,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    kachelAktiv: { backgroundColor: colors.accent, borderColor: colors.accent },
+    kachelText: {
+      color: colors.inkSoft,
+      fontSize: 12,
+      fontWeight: '600',
+      textAlign: 'center',
+    },
+    kachelTextAktiv: { color: '#FFFFFF' },
     save: {
       backgroundColor: colors.accent,
       borderRadius: radius.control,
