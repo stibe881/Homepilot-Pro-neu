@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Entity, HubSettings, Scene, User } from '../api/types';
+import { ablaufAlsSeite } from '../lib/ablaufseite';
 import { SimulationsBericht } from '../lib/ablaufsimulation';
 import { Card } from '../components/Card';
 import { PushRules } from '../components/PushRules';
@@ -1661,6 +1662,24 @@ export function AutomationsScreen({
                       </Pressable>
                     </>
                   ) : null}
+                  {/* Punkt 367: für den Ordner oder den Babysitter - was
+                      das Haus tut, als lesbares Blatt statt als Editor. */}
+                  <Pressable
+                    onPress={async () => {
+                      try {
+                        const Print = await import('expo-print');
+                        await Print.printAsync({
+                          html: ablaufAlsSeite(automation, entities, scenes),
+                        });
+                      } catch {
+                        // Kein Drucker, kein Modul (Web) – dann eben nicht.
+                      }
+                    }}
+                    accessibilityLabel={`${automation.alias} drucken`}
+                    style={styles.iconButton}
+                  >
+                    <Ionicons name="print-outline" size={20} color={colors.inkSoft} />
+                  </Pressable>
                   {/* Läuft dieser Ablauf, wenn der Babysitter da ist?
                       Bewusst auch bei Abläufen aus der config.yaml: Die
                       Freigabe liegt neben den Abläufen, nicht in ihnen -

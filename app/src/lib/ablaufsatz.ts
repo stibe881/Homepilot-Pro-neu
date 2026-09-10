@@ -32,7 +32,7 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Roh = Record<string, any>;
 
-interface Benannt {
+export interface Benannt {
   triggers: Roh[];
   conditions: Roh[];
   actions: Roh[];
@@ -50,7 +50,7 @@ export function nameVon(entities: Entity[], id: string | undefined): string {
   return entities.find((entity) => entity.id === id)?.name ?? id;
 }
 
-function triggerSatz(trigger: Roh, entities: Entity[]): string {
+export function triggerSatz(trigger: Roh, entities: Entity[]): string {
   const wer = nameVon(entities, trigger.entity_id);
   const dauer = trigger.for ? ` seit ${Math.round(Number(trigger.for) / 60)} Min` : '';
   switch (trigger.type) {
@@ -94,7 +94,7 @@ function triggerSatz(trigger: Roh, entities: Entity[]): string {
   }
 }
 
-function bedingungSatz(condition: Roh, entities: Entity[]): string {
+export function bedingungSatz(condition: Roh, entities: Entity[]): string {
   if (condition.type === 'group') {
     // Geschachtelte und/oder-Gruppen des Hubs – in Klammern, damit die
     // Verknüpfung im Satz lesbar bleibt: «(Wochenende oder Ferien) und dunkel».
@@ -199,7 +199,7 @@ export function musikSatz(action: Roh, entities: Entity[]): string {
   }
 }
 
-function aktionSatz(
+export function aktionSatz(
   action: Roh,
   entities: Entity[],
   scenes: Scene[]

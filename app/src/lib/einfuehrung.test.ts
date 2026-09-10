@@ -119,6 +119,17 @@ describe('schritteFuer', () => {
     expect(alles).toContain('Fragezeichen');
   });
 
+  it('erklärt, was das Haus von selbst tut (Punkt 357)', () => {
+    // Nachtruhe, Abläufe, Alarm-Kopplung - genau das überrascht neue
+    // Mitbewohner, weil sie es nie angetippt haben.
+    const alles = schritteFuer({ role: 'bewohner' })
+      .map((schritt) => `${schritt.titel} ${schritt.text}`)
+      .join(' ');
+    expect(alles).toContain('Nachtruhe');
+    expect(alles).toContain('Abläufe');
+    expect(alles).toContain('Alarmanlage');
+  });
+
   it('erklärt Kindern nur ihre Zimmer mit den grossen Knöpfen', () => {
     const schritte = schritteFuer({ role: 'kind' });
     expect(schritte).toHaveLength(1);

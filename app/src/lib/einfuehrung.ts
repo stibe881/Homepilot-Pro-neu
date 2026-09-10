@@ -23,7 +23,10 @@ import type { Ionicons } from '@expo/vector-icons';
 // Von 1 auf 2, als die Seitenhilfe dazukam: Der letzte Schritt sagt
 // jetzt etwas anderes - dass es auf jeder Seite ein Fragezeichen gibt -,
 // und das soll auch sehen, wer die Einführung längst weggeklickt hat.
-export const EINFUEHRUNG_STAND = 2;
+// Von 2 auf 3, als der Schritt «Was das Haus von selbst tut» dazukam
+// (Punkt 357): Genau das überrascht neue Mitbewohner am meisten - ein
+// Licht, das ohne Tipp angeht, ist kein Zeichen für einen Fehler.
+export const EINFUEHRUNG_STAND = 3;
 
 /** Ein Schritt des Blatts: Symbol, Überschrift, zwei, drei Sätze -
  *  und auf Wunsch ein Schaubild, das zeigt statt zu beschreiben. */
@@ -219,6 +222,22 @@ export function schritteFuer(
       text:
         'Unter Einstellungen → Suche findest du jedes Gerät, jeden Raum, ' +
         'jede Szene und jeden Ablauf mit drei getippten Buchstaben.',
+    },
+    {
+      icon: 'moon-outline',
+      titel: 'Was das Haus von selbst tut',
+      // Kein Schaubild dafür: Was hier passiert, sieht man nicht auf
+      // einen Blick antippen, sondern höchstens später bemerken - und
+      // genau das soll diese Einführung vorwegnehmen. Ohne sie wirkt ein
+      // Licht, das von selbst angeht, wie ein Fehler und nicht wie eine
+      // Einstellung.
+      text:
+        'Nachts bleiben laute Meldungen von selbst still (Einstellungen ' +
+        '→ Nachtruhe). Abläufe schalten Licht und Storen nach Zeit, ' +
+        'Anwesenheit oder Wetter, ohne dass jemand tippt. Und wer die ' +
+        'Alarmanlage scharf schaltet, nimmt oft Storen oder Licht gleich ' +
+        'mit. Geht etwas von selbst an oder zu - unter Abläufe steht, ' +
+        'welcher es war.',
     },
     {
       icon: 'help-circle-outline',
