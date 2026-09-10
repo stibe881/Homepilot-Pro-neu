@@ -57,6 +57,7 @@ import { LiveTuerSchalter } from '../components/LiveTuerSchalter';
 import { PushPrefs } from '../components/PushPrefs';
 import { ActivityCard, MediaPanel, SidePanel } from '../components/SidePanel';
 import { Raumspieler } from '../components/Raumspieler';
+import { useMusikwahl } from '../hooks/useMusikwahl';
 import { Bestaetigung, Toast, UndoToast } from '../components/Toast';
 import { TopStrip } from '../components/TopStrip';
 import { useHub } from '../hooks/useHub';
@@ -470,8 +471,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const ausfall = useAusfall(status);
   const [gridWidth, setGridWidth] = useState(0);
   // Die Musik des Zimmers steht im Raumkopf: zugeklappt als Streifen
-  // neben den Szenen, aufgeklappt als ganze Karte darunter. Hier steht,
-  // welche Box gezeigt wird und ob die Karte offen ist.
+  // neben den Szenen, aufgeklappt als ganze Karte darunter. Welche Box
+  // gezeigt wird, hält der Haken (hooks/useMusikwahl.ts) - hier nur, ob
+  // die Karte offen ist.
   //
   // Vorher lag sie rechts in der Spalte - auf dem Tablet unter dem
   // Raumkopf, auf dem Telefon unter allen Kacheln. Damit die Karte dort
@@ -479,7 +481,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Gruppentitel, Raster) und schob die Spalte um deren Summe nach
   // unten. Genau dieses Feld daneben blieb dabei leer - und in ihm
   // steht die Musik jetzt.
-  const [kopfBoxId, setKopfBoxId] = useState<string | null>(null);
   const [musikOffen, setMusikOffen] = useState(false);
   const [editing, setEditing] = useState(false);
   // «Räume ordnen»: Die Reihenfolge kam aus der config.yaml – wer sie
@@ -1638,13 +1639,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Die Musik des Raums steht oben im Raumkopf - deshalb hier nicht
   // noch einmal zwischen den Lampen.
   const raumBoxen = musikboxenImRaum(inRoom, offenerRaum);
-  // Die gezeigte Box: die von Hand gewählte, solange es sie in diesem
-  // Zimmer gibt, sonst die naheliegende (pickPlayer - was spielt, sonst
-  // was Playlists kann). Beim Raumwechsel fällt die Wahl von selbst
-  // zurück, weil die Box des vorigen Zimmers hier nicht mehr steht.
-  const kopfSpieler =
-    (kopfBoxId ? raumBoxen.find((box) => box.id === kopfBoxId) : undefined) ??
-    pickPlayer(raumBoxen);
+  // Zur Wahl stehen dieselben Boxen und Quellen wie auf der Startseite;
+  // **vorgewählt** ist die Box dieses Zimmers. Beides gehört zusammen:
+  // Wer im Wohnzimmer steht, will dort hören - und wer die Playlist
+  // trotzdem in die Küche schieben will, soll dafür nicht auf die
+  // Startseite zurück (hooks/useMusikwahl.ts).
+  //
+  // Der Raumname als Schlüssel: Beim Wechsel ins nächste Zimmer gilt
+  // wieder dessen Vorwahl, statt der Box, die man nebenan angetippt hat.
+  const musik = useMusikwahl(entities, guardedCommand, pickPlayer(raumBoxen), room);
+  // Der Streifen steht nur, wo das Zimmer eine eigene Box hat. Sonst
+  // wäre er die Musik des Nachbarzimmers im Kopf dieses Zimmers - und
+  // genau das soll er nicht sein.
+  const kopfSpieler = raumBoxen.length > 0 ? musik.player : undefined;
 
   // Ausgeblendete und in einer Leuchte aufgegangene Spots verschwinden
   // aus den Alltagsansichten, bleiben aber unter „Geräte“ sichtbar –
@@ -3365,14 +3372,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             <View style={styles.raumMusikkarte}>
               <MediaPanel
                 entity={kopfSpieler}
-                players={raumBoxen}
+                players={musik.players}
                 titel={room}
-                // Eine Box hier antippen heisst: Diese Box ansehen. Die
-                // Musik dorthin zu ziehen kann die Karte des Hauses auf
-                // der Startseite - hier stünde am Ende eine Box, die gar
-                // nicht in diesem Zimmer steht.
-                onSelect={(box) => setKopfBoxId(box.id)}
+                activeDevice={musik.activeDevice}
+                // Dieselbe Wahl wie auf der Startseite: Kennt die
+                // gezeigte Quelle die angetippte Box, zieht die Musik
+                // dorthin um - sonst wechselt nur die Ansicht
+                // (lib/musikwahl.ts).
+                onSelect={musik.waehlen}
                 onCommand={guardedCommand}
+                wunschBox={musik.wunschBox}
               />
             </View>
           ) : null}

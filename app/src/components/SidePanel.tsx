@@ -4,17 +4,12 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 
 import { Activity, CommandData, Entity, EntityState } from '../api/types';
 import { uhr, wochentag } from '../lib/format';
-import {
-  hatEigeneAuswahl,
-  istMusikbox,
-  pickPlayer,
-  quellenSymbol,
-  zeigtStopp,
-} from '../lib/geraeteart';
+import { useMusikwahl } from '../hooks/useMusikwahl';
+import { hatEigeneAuswahl, quellenSymbol, zeigtStopp } from '../lib/geraeteart';
 import { hatWarteschlange } from '../lib/musikliste';
 import { trockenSatz } from '../lib/giessen';
 import { Regenstand, balkenHoehen, regenSatz } from '../lib/regen';
-import { boxLabel, boxWechsel } from '../lib/boxwahl';
+import { boxLabel } from '../lib/boxwahl';
 import { panelContent } from '../lib/seitenspalte';
 import { stundenZeilen } from '../lib/stundenwetter';
 import { uvWort } from '../lib/uv';
@@ -63,48 +58,13 @@ export function SidePanel({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const weather = entities.find((entity) => entity.kind === 'weather');
-  // Warnung nur zeigen, wenn es wirklich eine gibt (für den gewählten Ort).
-  const players = useMemo(() => entities.filter(istMusikbox), [entities]);
-  // Von Hand gewählte Box, solange es sie noch gibt – sonst die naheliegende
-  // (siehe pickPlayer): So sieht man immer nur eine Karte, aber jede Box
-  // lässt sich ansehen und bedienen, nicht nur die gerade spielende.
-  const [chosenId, setChosenId] = useState<string | null>(null);
-  // Die zuletzt im Wähler bestimmte Box - reist bis zum Startbefehl mit.
-  // Ohne dieses Gedächtnis startete eine Playlist auf der zuletzt
-  // aktiven Box statt auf der gewählten: Der Umzug per play_on bleibt
-  // bei stillem Spotify nicht haften (siehe lib/boxwahl).
-  const [wunschBox, setWunschBox] = useState<string | null>(null);
-  const player =
-    (chosenId ? players.find((entity) => entity.id === chosenId) : undefined) ??
-    pickPlayer(entities);
-
-  // Der Wähler übernimmt auch das Verschieben: Kennt die gezeigte Quelle
-  // die Box, zieht die Musik dorthin um (wie früher die «Abspielen
-  // auf»-Chips) und die Karte der Quelle bleibt stehen. Fremde Boxen
-  // wechseln nur die Ansicht.
-  //
-  // Früher galt das nur für Spotify. Seit das Radio danebensteht, war
-  // dessen Boxenwahl auf der Startseite gar nicht erreichbar: Sein
-  // eigenes Panel blendet sie hier aus, weil sie oben in der Kopfzeile
-  // sitzt – nur zog die dann Spotify um statt das Radio.
-  const choose = (ziel: Entity) => {
-    const quelle = player && hatEigeneAuswahl(player) ? player : undefined;
-    // Eine gewählte *Box* ist immer eine Ansage, wohin die Musik soll -
-    // auch wenn die gezeigte Quelle gerade nicht umziehen kann. Der
-    // Wunsch gehört deshalb dem Wähler und nicht der Quelle: Er
-    // überlebt den Wechsel auf «Radio» und gilt, bis jemand eine andere
-    // Box wählt (lib/boxwahl.ts, boxLabel erklärt den gemeldeten Fall).
-    if (!hatEigeneAuswahl(ziel)) setWunschBox(ziel.name);
-    // Die Entscheidung selbst liegt in lib/boxwahl.ts - dieselbe, die
-    // auch das Musik-Blatt über der Raumkachel trifft.
-    const wechsel = boxWechsel(quelle ? wechselQuelle(quelle) : null, ziel);
-    if (wechsel.art === 'umzug' && quelle) {
-      onCommand?.(quelle.id, 'play_on', { device: wechsel.device, play: wechsel.play });
-      setChosenId(quelle.id);
-    } else {
-      setChosenId(ziel.id);
-    }
-  };
+  // Welche Quelle gezeigt wird und was ein Tipp im Wähler bewirkt, liegt
+  // im Haken - dieselbe Wahl trifft das Blatt über der Raumkachel und
+  // der Streifen im Raumkopf (hooks/useMusikwahl.ts).
+  const musik = useMusikwahl(entities, (id, command, data) =>
+    onCommand?.(id, command, data)
+  );
+  const player = musik.player;
 
   // Was die Spalte hier zeigt. Im Zimmer bleiben Wetter und die Musik
   // des Hauses weg - beides beantwortet keine Frage, die man im Zimmer
@@ -129,15 +89,11 @@ export function SidePanel({
       {zeigt.housePlayer && player && onCommand ? (
         <MediaPanel
           entity={player}
-          players={players}
-          // Die Box der *gezeigten* Quelle, nicht immer die von Spotify:
-          // Sonst stünde auf der Radio-Karte, wo Spotify spielt.
-          activeDevice={
-            hatEigeneAuswahl(player) ? ((player.state.device as string) ?? null) : null
-          }
-          onSelect={choose}
+          players={musik.players}
+          activeDevice={musik.activeDevice}
+          onSelect={musik.waehlen}
           onCommand={onCommand}
-          wunschBox={wunschBox}
+          wunschBox={musik.wunschBox}
         />
       ) : null}
     </View>
@@ -148,16 +104,6 @@ export function SidePanel({
  *
  * In der Kachelreihe der Startseite zwang der Spotify-Bereich die
  * Nachbarkacheln auf seine Höhe; hier stört er niemanden. */
-/** Die gezeigte Quelle, wie `boxWechsel` sie braucht. */
-export function wechselQuelle(quelle: Entity) {
-  return {
-    id: quelle.id,
-    kannUmziehen: quelle.commands.includes('play_on'),
-    devices: Array.isArray(quelle.state.devices) ? (quelle.state.devices as string[]) : [],
-    spielt: quelle.state.state === 'playing',
-  };
-}
-
 export function MediaPanel({
   entity,
   players,
