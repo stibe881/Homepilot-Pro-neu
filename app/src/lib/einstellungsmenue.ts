@@ -34,6 +34,7 @@ export type Bereich =
   | 'energy'
   | 'system'
   | 'activity'
+  | 'diagnose'
   | 'widgets'
   | 'account';
 
@@ -52,6 +53,9 @@ const NOETIG: Record<Bereich, string | null> = {
   energy: 'manage_users',
   system: 'manage_users',
   activity: 'manage_users',
+  // Die Prüfwerkzeuge (Punkt 344) - dieselbe Regel wie System: Ihre
+  // Ausgabe nennt Token-Stände und rohe Gerätezustände.
+  diagnose: 'manage_users',
 };
 
 /** Sieht jemand mit diesen Rechten diesen Bereich? (rein, testbar) */
@@ -83,6 +87,7 @@ export const ADMIN_PUNKTE: readonly string[] = [
   'sorgen',
   'system',
   'activity',
+  'diagnose',
 ] as const;
 
 export type Menuegruppe = 'haus' | 'admin';

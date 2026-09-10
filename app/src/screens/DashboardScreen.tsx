@@ -146,6 +146,7 @@ import { VerbindungenScreen } from './VerbindungenScreen';
 import { AlarmScreen } from './AlarmScreen';
 import { EnergyScreen } from './EnergyScreen';
 import { SpeakersScreen } from './SpeakersScreen';
+import { DiagnoseScreen } from './DiagnoseScreen';
 import { SystemScreen } from './SystemScreen';
 import { EntityHistory } from '../components/EntityHistory';
 import { MusikBlatt } from '../components/MusikBlatt';
@@ -2304,6 +2305,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       show: sieht('activity'),
     },
     {
+      key: 'diagnose',
+      icon: 'medkit-outline',
+      label: 'Prüfwerkzeuge',
+      detail: 'Storen, Kamera, Fernseher, Sauger, Push',
+      show: sieht('diagnose'),
+    },
+    {
       key: 'widgets',
       icon: 'apps-outline',
       label: 'Widgets',
@@ -2803,6 +2811,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       return (
         <View style={styles.stack}>
           <SystemScreen settings={settings} user={user} entities={entities} push={push} />
+        </View>
+      );
+    }
+    if (section === 'diagnose') {
+      return (
+        <View style={styles.stack}>
+          <DiagnoseScreen settings={settings} />
         </View>
       );
     }

@@ -63,6 +63,9 @@ from .routes import (
     dashboard as routes_dashboard,
 )
 from .routes import (
+    diagnose as routes_diagnose,
+)
+from .routes import (
     einladungen as routes_einladungen,
 )
 from .routes import (
@@ -309,6 +312,7 @@ def create_app(hub: Hub) -> FastAPI:
         routes_verbindungen.register,
         routes_funk.register,
         routes_androidtv.register,
+        routes_diagnose.register,
     ):
         register(app, ctx)
 
