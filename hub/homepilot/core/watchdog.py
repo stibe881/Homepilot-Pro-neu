@@ -86,6 +86,8 @@ from .watchrules import (  # noqa: F401
     frost_night,
     klingel_gesperrt,
     leaks,
+    leck_dauer_text,
+    leck_eskalation_faellig,
     low_batteries,
     offen_satz,
     offene_meldungen_lesen,
@@ -180,6 +182,11 @@ class Watchdog:
         self._open_since: dict[str, float] = {}
         # Wassermelder, die schon gemeldet wurden.
         self._reported_leak: set[str] = set()
+        # Je Wassermelder, seit wann er ununterbrochen nass ist - Grundlage
+        # der Eskalation (Punkt 391), und wer davon schon ein zweites Mal
+        # gemeldet wurde.
+        self._leak_since: dict[str, float] = {}
+        self._leak_escalated: set[str] = set()
         # Die zuletzt beantwortete Unwetterwarnung (Grund + Ablaufzeit):
         # Dieselbe Warnung soll die Storen nur einmal fahren - erst eine
         # neue (oder dieselbe nach Warnungsende) zählt wieder.
@@ -2254,20 +2261,45 @@ class Watchdog:
         Ein Wassermelder, der nur meldet, wenn die Anlage scharf ist, wäre
         nutzlos: Der Waschmaschinenschlauch platzt am liebsten, während man
         zuhause ist und nichts hört.
+
+        Bleibt ein Melder danach ununterbrochen nass, kommt nach
+        ``LECK_ESKALATION_MINUTEN`` eine zweite, eindringlichere Meldung
+        (Punkt 391) - die erste kann in der Tasche verschwunden sein,
+        während die Küche weiter unter Wasser steht.
         """
-        nass = {entity.id for entity in leaks(entities)}
-        for entity in leaks(entities):
-            if entity.id in self._reported_leak:
+        aktuell = leaks(entities)
+        nass = {entity.id for entity in aktuell}
+        jetzt = time.time()
+        for entity in aktuell:
+            if entity.id not in self._reported_leak:
+                self._reported_leak.add(entity.id)
+                self._leak_since[entity.id] = jetzt
+                await self._notify(
+                    f"Wasser: {entity.label}",
+                    "Der Melder meldet Wasser. Zuerst den Haupthahn, dann den "
+                    "Strom in diesem Bereich.",
+                    "leak",
+                    entity_id=entity.id,
+                )
+
+        faellig = leck_eskalation_faellig(self._leak_since, self._leak_escalated, nass, jetzt)
+        for entity in aktuell:
+            if entity.id not in faellig:
                 continue
-            self._reported_leak.add(entity.id)
+            self._leak_escalated.add(entity.id)
             await self._notify(
-                f"Wasser: {entity.label}",
-                "Der Melder meldet Wasser. Zuerst den Haupthahn, dann den "
-                "Strom in diesem Bereich.",
+                f"Immer noch nass: {entity.label}",
+                f"Der Melder meldet {leck_dauer_text(self._leak_since[entity.id], jetzt)} "
+                "ununterbrochen Wasser - offenbar hat noch niemand nachgesehen.",
                 "leak",
                 entity_id=entity.id,
             )
+
         self._reported_leak &= nass
+        for entity_id in list(self._leak_since):
+            if entity_id not in nass:
+                self._leak_since.pop(entity_id, None)
+                self._leak_escalated.discard(entity_id)
 
     async def _check_sauger(self, entities: list[Any]) -> None:
         """Der Sauger meldet ein Problem - Tank leer, festgefahren, voll.

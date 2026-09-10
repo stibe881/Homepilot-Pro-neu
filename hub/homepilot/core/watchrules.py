@@ -198,6 +198,45 @@ def leaks(entities: list[Any]) -> list[Any]:
     ]
 
 
+#: Nach so vielen Minuten ununterbrochen nass gilt die erste Meldung als
+#: übersehen - Punkt 391 der Werkbank. Sie kann in der Tasche verschwunden
+#: sein, während die Küche weiter unter Wasser steht; eine zweite,
+#: eindringlichere Meldung ist dann kein Spam, sondern die einzige Chance,
+#: dass es noch jemand merkt.
+LECK_ESKALATION_MINUTEN = 15.0
+
+
+def leck_eskalation_faellig(
+    seit: dict[str, float],
+    eskaliert: set[str],
+    nass: set[str],
+    jetzt: float,
+    minuten: float = LECK_ESKALATION_MINUTEN,
+) -> set[str]:
+    """Melder, die seit ``minuten`` ununterbrochen nass sind und noch
+    nicht ein zweites Mal gemeldet wurden (rein, testbar).
+
+    ``seit`` hält je Melder fest, wann er zuerst nass gemeldet wurde -
+    nicht der Alarmverlauf, sondern ein einfacher Merker im Wächter.
+    Trocknet ein Melder zwischendurch und wird später wieder nass, zählt
+    das als neuer Fall: ``seit`` wird dafür beim Trocknen gelöscht, hier
+    wird nur geprüft, nicht aufgeräumt.
+    """
+    return {
+        entity_id
+        for entity_id in nass
+        if entity_id in seit
+        and entity_id not in eskaliert
+        and jetzt - seit[entity_id] >= minuten * 60
+    }
+
+
+def leck_dauer_text(seit: float, jetzt: float) -> str:
+    """«seit 12 Minuten» für die Eskalationsmeldung (rein, testbar)."""
+    minuten = max(1, round((jetzt - seit) / 60))
+    return "seit einer Minute" if minuten == 1 else f"seit {minuten} Minuten"
+
+
 #: Was die häufigsten Sauger-Meldungen auf Deutsch heissen. Die Namen
 #: stammen aus der Roborock-Bibliothek (error_code_name und
 #: dock_error_status_name); die Liste muss nicht vollständig sein - was

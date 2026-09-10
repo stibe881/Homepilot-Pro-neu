@@ -3219,6 +3219,62 @@ Ein dritter Knopf neben «Später»/«Erledigt», stellt die ganze Kategorie
 für den Rest des Tages still – ohne den Umweg über Konto →
 Benachrichtigungen.
 
+### 398-400, 403, 407. Alarmzonen, eigene PIN je Person, Zwangs-PIN, Sensor-Testlauf, Fehlalarm-Statistik ✓ erledigt (e80e296)
+
+Fünf Punkte auf einmal, weil sie an denselben Stellen sitzen
+(`integrations/alarm.py`, `alarm_rules.py`):
+
+- **398 Zonen** – jeder Sensor trägt jetzt ein `zone`-Feld (frei
+  eingebbar, kein fester Katalog), `arm()` nimmt eine Zone entgegen und
+  wertet nur deren Sensoren aus. Ohne Zone verhält sich alles wie
+  bisher - die Übersichtsroute meldet die bereits vergebenen Zonen zum
+  Anwählen, damit niemand neue Schreibweisen erfindet.
+- **399 eigene PIN je Person** – `set_pin` war bisher eine einzelne,
+  geteilte PIN. Jetzt legt jede Person ihre eigene an
+  (Selbstbedienung); eine fremde zu setzen bleibt
+  `MANAGE_USERS` vorbehalten. `check_pin` prüft alle hinterlegten PINs
+  und meldet zurück, wer entschärft hat - auf einem geteilten Gerät
+  überschreibt das die sonst passende Vermutung, auf dem eigenen
+  Telefon bleibt die eigene Identität massgebend.
+- **400 Zwangs-PIN** – eine zweite, unauffällige PIN, die genauso
+  entschärft, aber im Hintergrund eine eigene Meldung nur an die
+  *anderen* Bewohner auslöst (nie ans eigene Telefon - eine Nachricht
+  dort wäre der Zwang selbst). Setzbar erst, wenn die eigene normale
+  PIN schon existiert, und nicht identisch mit ihr.
+- **403 Sensor-Testlauf** – nur bei unscharfer Anlage startbar: jeden
+  gewählten Sensor einmal auslösen, der Hub hakt beim Eintreffen ab.
+  Verhindert das «scharf gestellt, aber der Fenstersensor hängt seit
+  Wochen» - ohne dafür die Anlage scharf zu stellen.
+- **407 Fehlalarm-Statistik** – `alarmbericht.fehlalarm_kandidaten()`
+  geht den Verlauf chronologisch durch und zählt, welcher Sensor
+  auffällig oft schnell (< 60 s) und ohne dass die Eskalation je lief
+  entschärft wurde. Die neue Route löst die Gerätekennung zum Namen
+  auf; in der App ein «Auf verzögert stellen»-Knopf direkt bei der
+  Kandidatenzeile.
+
+Dazu, weil unmittelbar zusammenhängend: `pin_users` in der Übersicht
+(wer hat überhaupt eine PIN gesetzt), und eine reale Alterung behoben -
+`set_pin`/`set_duress_pin` schrieben bisher nur in `hub.data`, ohne den
+gecachten Anlagenzustand zu erneuern; eine frisch gesetzte PIN fehlte
+in der Übersicht bis zur nächsten Zustandsänderung.
+
+**401 (Zeitfenster für automatisches Scharfstellen)** stand schon vor
+dieser Runde im Code - keine eigene Arbeit nötig.
+
+### 391. Eskalation bei einem Wassermelder, der nass bleibt ✓ erledigt, verengt
+
+Ursprünglich als allgemeine Quittungs-Verfolgung gedacht - dafür hätte
+`push.py`, `pushverlauf.py` und eine neue, hausweite Route eine
+Quittierung je Meldung mitschreiben müssen, ein Umbau für sich. Verengt
+auf den einen Fall, in dem das Fehlen am teuersten ist: Wasser. Der
+Melder selbst sagt, ob noch jemand nachgesehen hat - bleibt er nach der
+ersten Meldung `LECK_ESKALATION_MINUTEN` (15) am Stück nass, kommt eine
+zweite, eindringlichere («Immer noch nass») statt stillem Weiterlaufen.
+Trocknet er zwischendurch, zählt ein erneutes Nasswerden als neuer
+Fall. Keine Quittung nötig, kein neues Datenmodell - nur ein Merker im
+Wächter (`_leak_since`, `_leak_escalated`), analog zum bestehenden
+Muster bei offenen Fenstern.
+
 ### Nicht umgesetzt, mit Begründung
 
 - **370** (Beleg-Erkennung aus einem Foto) – keine OCR-Anbindung; eine
@@ -3231,22 +3287,14 @@ Benachrichtigungen.
 - **389** (Posteingang für Push) – teilweise schon da: «Zuletzt
   gemeldet» in den Push-Einstellungen zeigt die letzten Meldungen,
   ohne Bilder und ohne eigenen Bildschirm.
-- **391** (Eskalation bei ausbleibender Quittung) – der Push-Verlauf
-  hält heute keine Quittierung je Meldung fest; bräuchte eine neue,
-  hausweite Zustandsverfolgung.
 - **392** (kritische Meldungen als «critical alert») – braucht eine
   gesonderte Berechtigung von Apple.
-- **398-407 grösstenteils** (Alarmzonen, eigene PIN je Person,
-  Zwangs-PIN, Sirenenstufen, Sensor-Testlauf, Uhr-Anbindung,
-  Fehlalarm-Statistik) – der Alarmblock (329-337) ist bereits ein
-  eigener, grosser Umbau; ein zweiter in derselben Runde hätte keine
-  der Änderungen mehr verifizieren können. **407** zusätzlich: Der
-  Alarm-Verlauf hält bisher keine Gerätekennung je Auslösung fest, nur
-  einen Text – bräuchte zuerst eine Erweiterung des Datenmodells.
+- **405** (Watch-App) – ohne Xcode/watchOS-Werkzeuge hier nicht
+  verifizierbar zu bauen.
 - **353/340** (Lauftext misst sich falsch) – zwei frühere Versuche
   stehen oben als gescheitert; ohne die Browser-Probe zur Verifikation
   kein dritter Versuch auf Verdacht.
 - Der Rest der App-/UX-/Design-Liste (339, 341, 344-345, 354, 356-367,
   415, 417, 419) ist in dieser Runde nicht mehr an die Reihe gekommen.
 
-Stellen: `hub/homepilot/core/gutscheine.py`, `hub/homepilot/core/ablaufpruefung.py`, `hub/homepilot/core/automation.py`, `hub/homepilot/api/routes/family.py`, `hub/homepilot/api/routes/automations.py`, `app/src/lib/gutscheine.ts`, `app/src/screens/family/gutscheine.tsx`, `app/src/components/QrScanner.tsx`, `app/src/screens/automations/entwurf.ts`, `app/src/lib/mitteilungsknoepfe.ts`
+Stellen: `hub/homepilot/core/gutscheine.py`, `hub/homepilot/core/ablaufpruefung.py`, `hub/homepilot/core/automation.py`, `hub/homepilot/core/watchdog.py`, `hub/homepilot/core/watchrules.py`, `hub/homepilot/core/alarmbericht.py`, `hub/homepilot/integrations/alarm.py`, `hub/homepilot/integrations/alarm_rules.py`, `hub/homepilot/api/routes/family.py`, `hub/homepilot/api/routes/automations.py`, `hub/homepilot/api/routes/alarm.py`, `app/src/lib/gutscheine.ts`, `app/src/screens/family/gutscheine.tsx`, `app/src/components/QrScanner.tsx`, `app/src/screens/automations/entwurf.ts`, `app/src/lib/mitteilungsknoepfe.ts`, `app/src/screens/AlarmScreen.tsx`

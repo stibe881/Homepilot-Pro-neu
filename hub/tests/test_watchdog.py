@@ -491,6 +491,84 @@ async def test_water_is_reported_immediately_no_matter_the_alarm_state():
         await hub.stop()
 
 
+def test_leck_dauer_text_pure():
+    from homepilot.core.watchdog import leck_dauer_text
+
+    assert leck_dauer_text(1000.0, 1000.0 + 30) == "seit einer Minute"
+    assert leck_dauer_text(1000.0, 1000.0 + 12 * 60) == "seit 12 Minuten"
+
+
+def test_leck_eskalation_faellig_pure():
+    """Reine Funktion hinter Punkt 391 - erst nach der Schwelle, nur
+    einmal, nur für Melder, die auch wirklich (noch) nass sind."""
+    from homepilot.core.watchdog import leck_eskalation_faellig
+
+    seit = {"hm.keller": 1000.0}
+    # Zu früh - noch keine 15 Minuten.
+    assert leck_eskalation_faellig(seit, set(), {"hm.keller"}, 1000.0 + 5 * 60) == set()
+    # Schwelle erreicht.
+    assert leck_eskalation_faellig(seit, set(), {"hm.keller"}, 1000.0 + 15 * 60) == {
+        "hm.keller"
+    }
+    # Schon eskaliert - nicht ein zweites Mal.
+    assert (
+        leck_eskalation_faellig(seit, {"hm.keller"}, {"hm.keller"}, 1000.0 + 30 * 60)
+        == set()
+    )
+    # Inzwischen trocken - fehlt in ``nass``, zählt nicht mehr.
+    assert leck_eskalation_faellig(seit, set(), set(), 1000.0 + 30 * 60) == set()
+
+
+async def test_a_leak_that_stays_wet_escalates_once():
+    """Die erste Meldung kann in der Tasche verschwinden - nach der
+    Schwelle kommt eine zweite, eindringlichere (Punkt 391)."""
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        sent: list[str] = []
+
+        async def fake_send(tokens, title, body, data=None, image=None, **_):
+            sent.append(title)
+            return len(tokens)
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+
+        keller = melder("hm.keller", "moisture")
+        hub.registry.all = lambda: [keller]  # type: ignore[assignment]
+
+        await hub.watchdog.check()
+        assert any("Wasser" in title for title in sent)
+        assert not any("Immer noch nass" in title for title in sent)
+
+        # Noch keine 15 Minuten vergangen - keine zweite Meldung.
+        before = len(sent)
+        await hub.watchdog.check()
+        assert len(sent) == before
+
+        # 15 Minuten weiter, immer noch nass.
+        hub.watchdog._leak_since["hm.keller"] -= 15 * 60
+        await hub.watchdog.check()
+        assert any("Immer noch nass" in title for title in sent)
+
+        # Und danach nicht bei jeder Runde erneut.
+        before = len(sent)
+        await hub.watchdog.check()
+        assert len(sent) == before
+
+        # Trocken und wieder nass: ein neuer Fall, die Uhr läuft neu.
+        keller.state = {"state": "off", "device_class": "moisture"}
+        await hub.watchdog.check()
+        assert "hm.keller" not in hub.watchdog._leak_since
+        assert "hm.keller" not in hub.watchdog._leak_escalated
+        keller.state = {"state": "on", "device_class": "moisture"}
+        await hub.watchdog.check()
+        assert "hm.keller" in hub.watchdog._leak_since
+        assert "hm.keller" not in hub.watchdog._leak_escalated
+    finally:
+        await hub.stop()
+
+
 def test_open_contacts_counts_the_door_sensor_in_a_lock():
     """Der Riegel sagt nichts darüber, ob die Türe offen *steht*."""
     from homepilot.core.watchdog import open_contacts
