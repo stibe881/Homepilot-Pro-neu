@@ -40,7 +40,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 
-from . import lautplan
+from . import klingelton, lautplan, say
 from .errors import HomePilotError
 from .source import as_source
 from .source import current as aktuelle_quelle
@@ -851,7 +851,49 @@ class Tonmeister:
         return bool(an)
 
     def _on_klingeln(self, _event_type: str, _data: dict[str, Any]) -> None:
-        """Der Bus ruft synchron - hier nur den Sprung anstossen."""
-        if not self.daempfen_an():
-            return
-        asyncio.create_task(self.daempfen())
+        """Der Bus ruft synchron - hier nur die Sprünge anstossen.
+
+        Dämpfen und Klingelton sind unabhängig voneinander: Wer keine
+        Musik laufen hat, dämpft nichts - der Ton soll trotzdem spielen,
+        wenn dafür Boxen gewählt sind.
+        """
+        if self.daempfen_an():
+            asyncio.create_task(self.daempfen())
+        asyncio.create_task(self._klingelton_versuchen())
+
+    async def _klingelton_versuchen(self) -> None:
+        try:
+            await self.klingelton_abspielen()
+        except Exception as err:
+            log.info("Klingelton liess sich nicht abspielen: %s", err)
+
+    async def klingelton_abspielen(
+        self, sound: str | None = None, speakers: list[str] | None = None
+    ) -> list[str]:
+        """Den Klingelton auf den gewählten Boxen spielen.
+
+        Ohne Übersteuerung gilt die gespeicherte Wahl (core/klingelton.py);
+        die Testtaste in der App übergibt Ton und Boxen dagegen direkt, um
+        eine Wahl anzuhören, bevor sie gespeichert wird. Ohne gewählte
+        Boxen passiert nichts - siehe Kopf von klingelton.py, warum eine
+        leere Auswahl hier nicht «alle» heisst.
+
+        Gibt die Namen der Boxen zurück, die den Ton bekommen haben.
+        """
+        stand = klingelton.einstellung_lesen(self.hub.data.get(klingelton.DATA_KEY))
+        ziel_speakers = speakers if speakers is not None else stand["speakers"]
+        if not ziel_speakers:
+            return []
+        ziel_sound = sound or stand["sound"]
+        address = say.base_url(self.hub)
+        if not address:
+            return []
+        audio = klingelton.klang_wav(ziel_sound)
+        ergebnis = await say.play_audio(
+            self.hub,
+            audio,
+            address,
+            speakers=ziel_speakers,
+            volume=klingelton.LAUTSTAERKE,
+        )
+        return list(ergebnis.get("sent", []))

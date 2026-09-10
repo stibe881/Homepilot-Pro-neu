@@ -22,6 +22,7 @@ from fastapi import (
 from ...core import (
     batterie,
     gutscheine,
+    klingelton,
     liveaktivitaet,
     livekarten,
     notifyrules,
@@ -41,6 +42,8 @@ from ..context import ApiContext
 from ..models import (
     BatteryPrefsRequest,
     CoverGuardRequest,
+    DoorbellSoundRequest,
+    DoorbellSoundTestRequest,
     LaundryRequest,
     LiveActivityTokenRequest,
     NotifyRuleRequest,
@@ -479,6 +482,75 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "cover_guard", [stand] if (stand["storm"] or stand["heat"]) else []
         )
         return await cover_guard(request)
+
+    # ── Der Klingelton (gehört zur Regel «Es klingelt») ─────────────────────
+    #
+    # Wie bei der Waschküchentüre und den Storen darüber: kein Parameter der
+    # Regel selbst (core/notifyrules.py kennt nur Zahlen mit Grenzen),
+    # sondern eine eigene Wahl - hier gleich zwei, Ton und Boxen, darum eine
+    # eigene Route statt eines einzelnen Feldes.
+
+    def _klingelton_kandidaten() -> list[dict[str, Any]]:
+        return [
+            {"id": entity.id, "name": entity.label, "room": entity.room}
+            for entity in hub.registry.all()
+            if "play_url" in entity.commands
+        ]
+
+    @app.get("/api/push/doorbell-sound")
+    async def doorbell_sound(request: Request) -> dict[str, Any]:
+        current_user(request)
+        stand = klingelton.einstellung_lesen(hub.data.get(klingelton.DATA_KEY))
+        return {
+            "sound": stand["sound"],
+            "speakers": stand["speakers"],
+            "sounds": [
+                {"key": klang["key"], "label": klang["label"]}
+                for klang in klingelton.KLAENGE
+            ],
+            "candidates": _klingelton_kandidaten(),
+        }
+
+    @app.put("/api/push/doorbell-sound")
+    async def set_doorbell_sound(
+        body: DoorbellSoundRequest, request: Request
+    ) -> dict[str, Any]:
+        require(request, Capability.EDIT_AUTOMATIONS)
+        bisher = klingelton.einstellung_lesen(hub.data.get(klingelton.DATA_KEY))
+        sound = body.sound if body.sound is not None else bisher["sound"]
+        if sound not in klingelton.BY_KEY:
+            raise HTTPException(status_code=404, detail="Diesen Klingelton kennt der Hub nicht")
+        if body.speakers is None:
+            speakers = bisher["speakers"]
+        else:
+            bekannt = {kandidat["id"] for kandidat in _klingelton_kandidaten()}
+            fremd = [eintrag for eintrag in body.speakers if eintrag not in bekannt]
+            if fremd:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Diese Lautsprecher kennt der Hub nicht: {', '.join(fremd)}",
+                )
+            speakers = [str(eintrag) for eintrag in body.speakers]
+        hub.data.set(klingelton.DATA_KEY, [{"sound": sound, "speakers": speakers}])
+        return await doorbell_sound(request)
+
+    @app.post("/api/push/doorbell-sound/test")
+    async def test_doorbell_sound(
+        body: DoorbellSoundTestRequest, request: Request
+    ) -> dict[str, Any]:
+        """Einen Ton anhören, bevor er gespeichert wird - auf den gerade
+        gewählten Boxen, auch wenn sie noch nicht gespeichert sind."""
+        current_user(request)
+        if body.sound is not None and body.sound not in klingelton.BY_KEY:
+            raise HTTPException(status_code=404, detail="Diesen Klingelton kennt der Hub nicht")
+        gespielt = await hub.ton.klingelton_abspielen(
+            sound=body.sound, speakers=body.speakers
+        )
+        if not gespielt:
+            raise HTTPException(
+                status_code=400, detail="Kein Lautsprecher gewählt oder erreichbar"
+            )
+        return {"ok": True, "sent": gespielt}
 
     @app.post("/api/appliances/{entity_id}/claim")
     async def claim_appliance(entity_id: str, request: Request) -> dict[str, Any]:

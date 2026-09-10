@@ -17,6 +17,12 @@ import {
   tuerSatz,
 } from '../lib/waschkueche';
 import { GuardStand, dabei, storenSatz, umschalten } from '../lib/storenwahl';
+import {
+  Klingeltonstand,
+  boxUmschalten,
+  klingeltonSatz,
+  lautsprecherName,
+} from '../lib/klingelton';
 import { Automation, triggerIcon } from '../screens/automations/entwurf';
 
 /**
@@ -129,6 +135,12 @@ export function PushRules({
   // Die Storen der Wächter-Regeln (Sturm/Hitze) - geladen wie die Türe,
   // erst beim Aufklappen.
   const [guard, setGuard] = useState<GuardStand | null>(null);
+  // Ton und Boxen des Klingeltons - gehört zur Regel «Es klingelt» und
+  // steht deshalb in deren Karte, wie die Türe bei «Haushaltgerät».
+  const [klingel, setKlingel] = useState<Klingeltonstand | null>(null);
+  // Während die Testtaste einen Ton abspielt, damit sie nicht zehnmal
+  // hintereinander antippbar ist.
+  const [klingelTestLaeuft, setKlingelTestLaeuft] = useState(false);
   // Ab welcher Schwelle und zu welcher Stunde die Batterie erinnert, und
   // wie viele Tage vorher der Gutschein. Beides stand in den
   // Einstellungen unter Benachrichtigungen - also an einem anderen Ort
@@ -179,6 +191,10 @@ export function PushRules({
       .get<Gutscheinstand>('/api/push/vouchers', { still: true })
       .then(setGutschein)
       .catch(() => setGutschein(null));
+    hub
+      .get<Klingeltonstand>('/api/push/doorbell-sound', { still: true })
+      .then(setKlingel)
+      .catch(() => setKlingel(null));
   }, [hub, open]);
 
   /** Beide Einstellungen gehen denselben Weg: hinschicken, was sich
@@ -220,6 +236,42 @@ export function PushRules({
       setTuer(await hub.put<Tuerstand>('/api/laundry', { door: naechste }, { still: true }));
     } catch (err) {
       setError(String(err instanceof Error ? err.message : err));
+    }
+  };
+
+  const klingelSoundWaehlen = async (sound: string) => {
+    try {
+      setKlingel(
+        await hub.put<Klingeltonstand>('/api/push/doorbell-sound', { sound }, { still: true })
+      );
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+    }
+  };
+
+  const klingelBoxWaehlen = async (id: string) => {
+    if (!klingel) return;
+    try {
+      setKlingel(
+        await hub.put<Klingeltonstand>(
+          '/api/push/doorbell-sound',
+          { speakers: boxUmschalten(klingel.speakers, id) },
+          { still: true }
+        )
+      );
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+    }
+  };
+
+  const klingelTesten = async () => {
+    setKlingelTestLaeuft(true);
+    try {
+      await hub.post('/api/push/doorbell-sound/test', {}, { still: true });
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+    } finally {
+      setKlingelTestLaeuft(false);
     }
   };
 
@@ -365,6 +417,22 @@ export function PushRules({
                     </View>
                   ))
                 : null}
+
+              {/* Welcher Klang auf welchen Boxen spielt, wenn es klingelt -
+                  zusätzlich zur Push-Nachricht, nicht statt ihr. Siehe
+                  lib/klingelton.ts. */}
+              {rule.key === 'doorbell' && rule.enabled && klingel ? (
+                <Klingeltonwahl
+                  stand={klingel}
+                  mayEdit={mayEdit}
+                  testLaeuft={klingelTestLaeuft}
+                  onSound={klingelSoundWaehlen}
+                  onBox={klingelBoxWaehlen}
+                  onTesten={klingelTesten}
+                  styles={styles}
+                  colors={colors}
+                />
+              ) : null}
 
               {/* Woran der Hub abliest, dass jemand die volle Maschine
                   gesehen hat. Ohne diese Türe bleibt es bei einer
@@ -753,6 +821,114 @@ function StorenWahl({
             );
           })
         : null}
+    </View>
+  );
+}
+
+/**
+ * Ton und Boxen des Klingeltons.
+ *
+ * Dieselbe Form wie StorenWahl darüber (Chip zum Aufklappen, dann eine
+ * Liste mit Häkchen) - nur mit zwei Auswahlen statt einer: zuerst der
+ * Klang als Chip-Reihe wie bei der Batterie-Schwelle, darunter die
+ * Boxen. Ohne gewählte Box bleibt die Testtaste weg - anhören kann man
+ * nur, was auch beim echten Klingeln spielen würde.
+ */
+function Klingeltonwahl({
+  stand,
+  mayEdit,
+  testLaeuft,
+  onSound,
+  onBox,
+  onTesten,
+  styles,
+  colors,
+}: {
+  stand: Klingeltonstand;
+  mayEdit: boolean;
+  testLaeuft: boolean;
+  onSound: (sound: string) => void;
+  onBox: (id: string) => void;
+  onTesten: () => void;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Colors;
+}) {
+  const [offen, setOffen] = useState(false);
+
+  return (
+    <View style={styles.tuerBlock}>
+      <Text style={styles.tuerTitel}>Klingelton auf den Boxen</Text>
+      <View style={styles.wahlZeile}>
+        {stand.sounds.map((klang) => {
+          const an = stand.sound === klang.key;
+          return (
+            <Pressable
+              key={klang.key}
+              onPress={() => onSound(klang.key)}
+              disabled={!mayEdit}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: an, disabled: !mayEdit }}
+              accessibilityLabel={klang.label}
+              style={[styles.wahlChip, an && styles.wahlChipAn]}
+            >
+              <Text style={[styles.wahlText, an && styles.wahlTextAn]}>{klang.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <Text style={styles.detail}>{klingeltonSatz(stand)}</Text>
+      {mayEdit && stand.candidates.length > 0 ? (
+        <Pressable
+          onPress={() => setOffen((wert) => !wert)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: offen }}
+          accessibilityLabel="Boxen für den Klingelton wählen"
+          style={styles.tuerChip}
+        >
+          <Ionicons name="volume-medium-outline" size={14} color={colors.inkSoft} />
+          <Text style={styles.tuerChipText}>Boxen wählen</Text>
+          <Ionicons
+            name={offen ? 'chevron-up' : 'chevron-down'}
+            size={14}
+            color={colors.inkSoft}
+          />
+        </Pressable>
+      ) : null}
+      {offen
+        ? stand.candidates.map((box) => {
+            const an = stand.speakers.includes(box.id);
+            return (
+              <Pressable
+                key={box.id}
+                onPress={() => onBox(box.id)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: an }}
+                style={styles.tuerZeile}
+              >
+                <Ionicons
+                  name={an ? 'checkbox' : 'square-outline'}
+                  size={16}
+                  color={an ? colors.on : colors.inkFaint}
+                />
+                <Text style={[styles.tuerZeileText, an && { color: colors.ink }]}>
+                  {lautsprecherName(box)}
+                </Text>
+              </Pressable>
+            );
+          })
+        : null}
+      {mayEdit && stand.speakers.length > 0 ? (
+        <Pressable
+          onPress={onTesten}
+          disabled={testLaeuft}
+          accessibilityRole="button"
+          accessibilityLabel="Klingelton anhören"
+          style={[styles.tuerChip, testLaeuft && { opacity: 0.5 }]}
+        >
+          <Ionicons name="play-outline" size={14} color={colors.inkSoft} />
+          <Text style={styles.tuerChipText}>{testLaeuft ? 'Spielt…' : 'Anhören'}</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }

@@ -262,6 +262,27 @@ class CoverGuardRequest(BaseModel):
     heat: list[str] | None = None
 
 
+class DoorbellSoundRequest(BaseModel):
+    """Welcher Klingelton auf welchen Boxen spielt, wenn es klingelt.
+
+    Anders als bei den Storen darüber heisst eine leere Liste hier nicht
+    «alle», sondern «keine» - siehe Kopf von core/klingelton.py.
+    """
+
+    sound: str | None = None
+    speakers: list[str] | None = None
+
+
+class DoorbellSoundTestRequest(BaseModel):
+    """Die Testtaste: Ton und Boxen anhören, bevor sie gespeichert werden.
+
+    Beides optional - ohne Angabe gilt die schon gespeicherte Wahl.
+    """
+
+    sound: str | None = None
+    speakers: list[str] | None = None
+
+
 class GoodNightRequest(BaseModel):
     """Einstellungen des Gute-Nacht-Knopfs."""
 
