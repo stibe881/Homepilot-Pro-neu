@@ -20,10 +20,20 @@ RUN apt-get update \
 # jedes Mal neu installiert. Im Container sind alle optionalen
 # Integrationsbibliotheken dabei (Ring, Roborock, Cast, Android TV, Tuya) –
 # auf einem Hub-Server zählt Vollständigkeit mehr als Abbildgrösse.
+#
+# **Die Liste muss alle Extras aus core/extras.py enthalten.** Ein Test
+# hält das fest (tests/test_extras_abbild.py), und zwar weil genau das
+# schiefging: `beleg` (pypdf, für das Lesen von Gutschein-Belegen) kam
+# als Extra dazu, aber nicht hierher. Im Haus stand danach auf der
+# Systemseite «Gutschein-Belege lesen fehlt» samt einem Befehl zum
+# Nachinstallieren - und der lief auf dem Docker-Host, wo es gar kein
+# pip gibt und der Hub gar nicht wohnt. Ein Extra, das hier fehlt, ist
+# auf einem Abbild-Hub nicht nachinstallierbar, sondern schlicht nicht
+# da.
 WORKDIR /app
 COPY pyproject.toml ./
 COPY homepilot ./homepilot
-RUN pip install --no-cache-dir ".[roborock,cast,androidtv,ring,overkiz,pitboss,speech,tuya,apns]"
+RUN pip install --no-cache-dir ".[roborock,cast,androidtv,ring,overkiz,pitboss,speech,tuya,apns,beleg]"
 
 # Nicht als root laufen lassen.
 RUN useradd --create-home --uid 1000 homepilot
