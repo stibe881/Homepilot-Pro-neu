@@ -41,7 +41,7 @@ import {
 } from '../lib/rollenwahl';
 import { DoorPass } from '../components/DoorPass';
 import { GaesteWlanKarte } from '../components/GaesteWlan';
-import { Fehlschlag, Laedt } from '../components/Zustand';
+import { Fehlschlag, Umriss } from '../components/Zustand';
 import { Colors, radius, space, type, useColors } from '../theme';
 
 /** ISO-Datum für «in n Tagen ab heute» - für die Ablauf-Schnellwahl. */
@@ -493,7 +493,7 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
         Bereiche einschränken und jederzeit sperren – ohne neues Token.
       </Text>
 
-      {users === null && !error ? <Laedt was="Benutzer" /> : null}
+      {users === null && !error ? <Umriss was="Benutzer" zeilen={3} hoehe={72} /> : null}
       {error ? <Fehlschlag text={error} onRetry={load} /> : null}
 
       {/* Nach Gruppen statt in einer Liste: Die Liste wächst nur in eine

@@ -18,7 +18,7 @@ import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { Bar } from '../components/Bar';
 import { Klappe } from '../components/Klappe';
-import { Fehlschlag, Laedt } from '../components/Zustand';
+import { Fehlschlag, Umriss } from '../components/Zustand';
 import { useTakt } from '../hooks/useTakt';
 import {
   DURCHBRUCH,
@@ -39,6 +39,7 @@ import {
   sirenenGruppen,
   verlaufPasst,
 } from '../lib/eskalation';
+import { dauer, hinweis } from '../lib/langdruck';
 import {
   ANWESENHEIT,
   artSymbol,
@@ -464,7 +465,7 @@ export function AlarmScreen({
   };
 
   if (error) return <Fehlschlag text={`Alarmanlage nicht abrufbar: ${error}`} onRetry={load} />;
-  if (!data) return <Laedt was="Alarmanlage" />;
+  if (!data) return <Umriss was="Alarmanlage" zeilen={3} hoehe={110} />;
 
   const look = stateLook(data.state, colors);
   const assigned = new Map(data.sensors.map((entry) => [entry.entity_id, entry]));
@@ -641,10 +642,10 @@ export function AlarmScreen({
         {data.state.state !== 'ausgeloest' ? (
           <Pressable
             onLongPress={panik}
-            delayLongPress={2000}
+            delayLongPress={dauer('absicht')}
             accessibilityRole="button"
             accessibilityLabel="Alarm von Hand auslösen – zwei Sekunden gedrückt halten"
-            accessibilityHint="Löst Sirene, Licht und eine Nachricht an alle aus."
+            accessibilityHint={hinweis('Löst Sirene, Licht und eine Nachricht an alle aus', 'absicht')}
             style={({ pressed }) => [styles.panik, pressed && { opacity: 0.85 }]}
           >
             <Ionicons name="warning-outline" size={16} color={colors.danger} />

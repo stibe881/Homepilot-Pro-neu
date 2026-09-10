@@ -21,6 +21,7 @@ import { TagesZeile } from '../components/TagesZeile';
 import { VacuumHome } from '../components/VacuumHome';
 import { Tastaturplatz } from '../components/Tastaturplatz';
 import { useTakt } from '../hooks/useTakt';
+import { dauer } from '../lib/langdruck';
 import { FAVORIT_LUECKE, FAVORIT_MINDEST, kachelBreite, spalten } from '../lib/raster';
 import { schnellposten } from '../lib/schnellordnung';
 import { warnungSchonOben } from '../lib/warnzeile';
@@ -1090,7 +1091,7 @@ function FavoriteChip({
       // weiter. disabled fällt deshalb weg, sobald es ein onRename gibt:
       // Ein deaktiviertes Pressable schluckt auch den langen Druck.
       onLongPress={onRename}
-      delayLongPress={350}
+      delayLongPress={dauer('schnell')}
       disabled={!switchable && !onRename}
       accessibilityRole={switchable || onRename ? 'button' : undefined}
       accessibilityLabel={entity.name}

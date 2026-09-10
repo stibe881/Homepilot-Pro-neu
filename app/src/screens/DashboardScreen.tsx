@@ -14,9 +14,17 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import { CommandData, Entity, HubSettings } from '../api/types';
 import { begruessung } from '../lib/begruessung';
 import {
+  SCHLUESSEL as WIEDERAUFNAHME,
+  merkbar,
+  zurueckZu,
+} from '../lib/wiederaufnahme';
+import {
+  ADMIN_PUNKTE,
   Bereich,
   gruppeVon,
   siehtBereich,
@@ -363,6 +371,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     (user?.capabilities ?? []).includes('edit_config');
 
   const [section, setSection] = useState<Section>('start');
+  // Da weitermachen, wo man war (lib/wiederaufnahme.ts). Der Fall: Man
+  // steht in den Abläufen, das Telefon sperrt sich, man entsperrt es -
+  // und ist auf der Startseite. Nur die Seite, nicht der Zustand darin:
+  // Ein Bearbeitungsblatt, das von selbst wieder aufgeht, ist
+  // erschreckend, weil man nicht weiss, ob man gespeichert hat.
+  const wiederaufnahmeGeprueft = useRef(false);
   // Solange eine Zeile in einem Ordnen-Blatt am Finger hängt, darf das
   // Blatt nicht scrollen: Der Capture-Anspruch der Zeile hält zwar die
   // Geste, aber ein ScrollView, der daneben weiter scrollen darf,
@@ -713,6 +727,41 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Ein Gemeinschaftsgerät ist ein Wandpanel - dafür ist es da. Der
   // Schalter in den Einstellungen bleibt für alle anderen Geräte.
   usePanelMode(!!settings.panel || !!user?.shared);
+
+  // Beim ersten Aufbau einmal nachsehen, ob man vor Kurzem woanders war.
+  // Genau einmal: Danach ist jeder Wechsel eine Entscheidung, und die
+  // soll kein gespeicherter Stand überschreiben.
+  //
+  // Im Speicher des Telefons und nicht beim Hub - die Ausnahme von der
+  // Regel in der CLAUDE.md, und mit Grund: «Wo war ich vor zehn Minuten»
+  // ist keine Einstellung, sondern eine Beobachtung über *dieses* Gerät.
+  // Auf dem zweiten Telefon wäre sie falsch, nach zehn Minuten wertlos,
+  // und beim Hub abgelegt hinge sie an einem Abruf, der beim Start
+  // ohnehin schon zu viele hat.
+  useEffect(() => {
+    if (wiederaufnahmeGeprueft.current) return;
+    wiederaufnahmeGeprueft.current = true;
+    AsyncStorage.getItem(WIEDERAUFNAHME)
+      .then((roh) => {
+        const ziel = zurueckZu(roh ? JSON.parse(roh) : null, Date.now(), {
+          // Am Wandtablet ist die Startseite kein Standardwert, sondern
+          // der Zweck: Es hängt im Flur und soll zeigen, wie es im Haus
+          // steht.
+          tablet: !!settings.panel || !!user?.shared,
+        });
+        if (ziel) setSection(ziel);
+      })
+      .catch(() => {});
+  }, [settings.panel, user?.shared]);
+
+  // Und beim Verlassen einer Seite vermerken, wo man war.
+  useEffect(() => {
+    if (!merkbar(section)) return;
+    AsyncStorage.setItem(
+      WIEDERAUFNAHME,
+      JSON.stringify({ section, at: Date.now() })
+    ).catch(() => {});
+  }, [section]);
   // Und nachts wird es dunkler. `now` tickt ohnehin jede halbe Minute
   // weiter; damit der Schleier nach einer Berührung nicht bis zum
   // nächsten Tick hell bleibt, hängt er auch an lastTouch.
@@ -4197,9 +4246,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           // Tastendruck - durch die Sperre, mit Face ID und PIN, wo sie
           // verlangt sind.
           onCommand={darfSchalten ? guardedCommand : undefined}
+          // Nur Seiten anbieten, die diese Person auch sehen darf: Ein
+          // Treffer, den der Hub danach abweist, ist schlimmer als
+          // keiner (lib/einstellungsmenue.ts kennt die Regel).
+          darfSeite={(ziel) => !ADMIN_PUNKTE.includes(ziel) || istBesitzer}
           onPick={(hit) => {
             setSearchOpen(false);
-            if (hit.kind === 'room') {
+            if (hit.kind === 'seite') {
+              // Die Kennung *ist* der Bereich (lib/seitensuche.ts).
+              setSection(hit.id as Section);
+            } else if (hit.kind === 'room') {
               setSection('home');
               setRoom(hit.id);
             } else if (hit.kind === 'scene') {

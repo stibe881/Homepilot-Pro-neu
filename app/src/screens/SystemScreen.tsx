@@ -23,7 +23,7 @@ import { AccessLog } from '../components/AccessLog';
 import { Einrichtungsprotokoll } from '../components/Einrichtungsprotokoll';
 import { Card } from '../components/Card';
 import { Maintenance } from '../components/Maintenance';
-import { Fehlschlag, Laedt } from '../components/Zustand';
+import { Fehlschlag, Laedt, Umriss } from '../components/Zustand';
 import { ConfigCard } from './system/konfiguration';
 import { ROLE_LABELS } from '../lib/rollen';
 import { datumUhr } from '../lib/format';
@@ -88,7 +88,7 @@ export function SystemScreen({
     return <Fehlschlag text={`Systemzustand nicht abrufbar: ${error}`} onRetry={load} />;
   }
   if (!status) {
-    return <Laedt was="Systemzustand" />;
+    return <Umriss was="Systemzustand" zeilen={4} hoehe={90} />;
   }
 
   // Die Seite in vier Blöcken, in der Reihenfolge, in der man sie

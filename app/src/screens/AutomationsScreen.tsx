@@ -6,7 +6,7 @@ import { Entity, HubSettings, Scene, User } from '../api/types';
 import { SimulationsBericht } from '../lib/ablaufsimulation';
 import { Card } from '../components/Card';
 import { PushRules } from '../components/PushRules';
-import { Fehlschlag, Laedt } from '../components/Zustand';
+import { Fehlschlag, Umriss } from '../components/Zustand';
 import { useColors } from '../theme';
 import { HubFehler, hubClient } from '../api/client';
 import { datumKurz, uhr } from '../lib/format';
@@ -848,7 +848,7 @@ export function AutomationsScreen({
     return <Fehlschlag text={`Abläufe nicht abrufbar: ${error}`} onRetry={load} />;
   }
   if (!automations) {
-    return <Laedt was="Abläufe" />;
+    return <Umriss was="Abläufe" zeilen={4} hoehe={78} />;
   }
 
   const restore = async (kind: string, id: string) => {
