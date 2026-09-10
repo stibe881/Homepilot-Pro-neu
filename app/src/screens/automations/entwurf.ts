@@ -4,6 +4,8 @@
  * Herausgelöst aus AutomationsScreen.tsx (Punkt 21 der Werkbank).
  */
 
+import type { Ionicons } from '@expo/vector-icons';
+
 import { Entity } from '../../api/types';
 import { datumUhr, dauerText } from '../../lib/format';
 import {
@@ -58,6 +60,9 @@ export interface Automation {
   /** Nachts (22–8 Uhr) keine Nachricht und keine Durchsage – der Rest
    *  des Ablaufs läuft weiter. */
   quiet_night?: boolean;
+  /** Eigene Stunden statt 22-8 (Punkt 379) - fehlend heisst die Vorgabe. */
+  quiet_from?: number | null;
+  quiet_to?: number | null;
   countdown?: boolean;
   /** Ruht bis (Unix-Sekunden) - «aus bis morgen», Punkt 159. */
   quiet_until?: number | null;
@@ -432,6 +437,21 @@ export function fittingState(entity: Entity | undefined, current: string): strin
  *
  *  Was keine Uhrzeit ist, bleibt unverändert stehen: Es kommentarlos zu
  *  löschen wäre die unfreundlichere Antwort auf einen Tippfehler. */
+/**
+ * Eine Stunde 0-23 aus freier Eingabe (rein, testbar) - für die eigenen
+ * Nachtruhe-Stunden eines Ablaufs (Punkt 379 der Werkbank).
+ *
+ * Leer oder unlesbar wird null, nicht geklemmt: Ein Tippfehler soll auf
+ * die Vorgabe (22-8) zurückfallen, nicht still auf 0 oder 23 rutschen -
+ * dasselbe Gegenstück wie `parse_stunde` im Hub (core/automation.py).
+ */
+export function stundeAusText(roh: string): number | null {
+  const text = String(roh ?? '').trim();
+  if (!text || !/^\d{1,2}$/.test(text)) return null;
+  const stunde = parseInt(text, 10);
+  return stunde >= 0 && stunde <= 23 ? stunde : null;
+}
+
 export function normalisiereZeit(roh: string): string {
   const text = String(roh ?? '').trim().replace(/\./g, ':').replace(/\s/g, '');
   if (!text) return '';
@@ -631,7 +651,7 @@ export interface NotifyKnopf {
 export type StepKind = 'command' | 'toggle_all' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'presence' | 'delay' | 'wait_until' | 'fade' | 'music' | 'if' | 'repeat';
 
 /** Was ein Musik-Schritt tun kann. */
-export type MusikTat = 'favorite' | 'sleep' | 'pause_all' | 'night' | 'fade';
+export type MusikTat = 'favorite' | 'sleep' | 'pause_all' | 'night' | 'fade' | 'follow';
 export type ConditionKind = 'none' | 'sun' | 'time';
 
 /** Ein einzelner Auslöser – ein Ablauf kann mehrere haben («oder»). */
@@ -792,6 +812,9 @@ export interface StepDraft {
   musikMinuten: string;
   musikLautstaerke: string;
   musikAn: boolean;
+  /** Wohin «Musik folgt» spielt (Punkt 419) - eigenes Feld, weil
+   *  musikEntityId hier die Quelle ist, nicht das Ziel. */
+  musikZiel: string;
   /** «Wenn …» mitten in der Aktionsliste (Punkt 251): Bedingungen wie
    *  überall, dann/sonst als eigene Unterlisten aus Schritten. Was der
    *  Editor an Bedingungen nicht bauen kann (Zeitfenster, Gruppen aus
@@ -843,6 +866,7 @@ export const EMPTY_STEP: StepDraft = {
   musikMinuten: '30',
   musikLautstaerke: '30',
   musikAn: true,
+  musikZiel: '',
   ifConditions: [],
   ifMatch: 'all',
   ifExtra: [],
@@ -954,6 +978,10 @@ export interface Draft {
   /** Nachts nichts melden: Nachricht und Durchsage bleiben zwischen 22
    *  und 8 Uhr aus. Für das, was ohnehin bis zum Morgen Zeit hat. */
   nachtsStill: boolean;
+  /** Eigene Stunden statt 22-8 (Punkt 379 der Werkbank) - null heisst
+   *  «die Vorgabe». Nur von Belang, solange `nachtsStill` an ist. */
+  nachtsVon: number | null;
+  nachtsBis: number | null;
   /** Restzeit anzeigen: «geht in 12 Min aus» an der Gerätekachel, in der
    *  Raumkarte und im «Lichter an»-Blatt, solange der Ablauf wartet. */
   restzeitZeigen: boolean;
@@ -987,6 +1015,8 @@ export const EMPTY: Draft = {
   category: '',
   enabled: true,
   nachtsStill: false,
+  nachtsVon: null,
+  nachtsBis: null,
   restzeitZeigen: false,
 };
 
@@ -1327,6 +1357,45 @@ export function szenenSymbol(scene: { name: string; icon?: string }): string {
   return symbolFuerNamen(scene.name) ?? SZENEN_STANDARD;
 }
 
+/**
+ * Das Symbol je Auslöserart, für die Kachelauswahl beim Bauen eines
+ * Auslösers (felder.tsx). Dieselben Zeichen wie `triggerIcon` unten
+ * verwendet, wo sie zusammentreffen - wer hier die Sonne wählt, sieht
+ * später in der Liste der Abläufe dasselbe Zeichen wieder, nicht ein
+ * anderes für dieselbe Sache.
+ */
+export const TRIGGER_KIND_ICON: Record<TriggerKind, keyof typeof Ionicons.glyphMap> = {
+  state: 'radio-button-on-outline',
+  threshold: 'analytics-outline',
+  interval: 'repeat-outline',
+  time: 'time-outline',
+  sun: 'sunny-outline',
+  calendar: 'calendar-outline',
+  geofence: 'location-outline',
+  presence: 'person-outline',
+  weather_warning: 'thunderstorm-outline',
+  power_restore: 'flash-outline',
+  availability: 'pulse-outline',
+};
+
+/** Dieselbe Idee für die Art eines Schritts (Kachelauswahl beim Bauen
+ *  einer Aktion). */
+export const STEP_KIND_ICON: Record<StepKind, keyof typeof Ionicons.glyphMap> = {
+  command: 'toggle-outline',
+  toggle_all: 'layers-outline',
+  scene: 'sparkles-outline',
+  hue_scene: 'color-palette-outline',
+  notify: 'notifications-outline',
+  broadcast: 'megaphone-outline',
+  presence: 'person-outline',
+  delay: 'hourglass-outline',
+  wait_until: 'flag-outline',
+  fade: 'bulb-outline',
+  music: 'volume-medium-outline',
+  if: 'git-branch-outline',
+  repeat: 'repeat-outline',
+};
+
 /** Das Symbol zur Auslöserart (Punkt 162) - der Zeilenanfang der Liste
  *  sagt damit auf einen Blick, WORAUF ein Ablauf hört (rein, testbar). */
 export function triggerIcon(automation: Automation): string {
@@ -1624,6 +1693,18 @@ export function musikSchrittZuAktion(step: StepDraft): BausteinConfig[] {
         minutes: Number(step.musikMinuten) || 30,
       },
     ];
+  }
+  if (tat === 'follow') {
+    return step.musikZiel
+      ? [
+          {
+            type: 'music',
+            do: 'follow',
+            entity_id: step.musikEntityId,
+            target: step.musikZiel,
+          },
+        ]
+      : [];
   }
   return [
     {
@@ -1979,6 +2060,7 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
         musikMinuten: action.minutes ? String(action.minutes) : '30',
         musikLautstaerke: action.volume ? String(action.volume) : '30',
         musikAn: action.on !== false,
+        musikZiel: action.target ? String(action.target) : '',
       });
     } else if (type === 'notify') {
       steps.push({
@@ -2165,6 +2247,8 @@ export function toDraft(automation: Automation): Draft {
     category: automation.category ?? '',
     enabled: automation.enabled !== false,
     nachtsStill: automation.quiet_night === true,
+    nachtsVon: typeof automation.quiet_from === 'number' ? automation.quiet_from : null,
+    nachtsBis: typeof automation.quiet_to === 'number' ? automation.quiet_to : null,
     restzeitZeigen: automation.countdown === true,
   };
 }

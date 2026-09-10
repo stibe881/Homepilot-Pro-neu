@@ -31,6 +31,7 @@ export type Section =
   | 'users'
   | 'personen'
   | 'activity'
+  | 'diagnose'
   | 'widgets'
   | 'account'
   // «Konto & Verbindung» war beides zugleich: Wer sein Erscheinungsbild
@@ -62,6 +63,7 @@ export const SECTION_LABEL: Record<Section, string> = {
   users: 'Benutzer',
   personen: 'Familie und Freunde',
   activity: 'Zuletzt passiert',
+  diagnose: 'Prüfwerkzeuge',
   widgets: 'Widgets',
   account: 'Konto',
   connection: 'Verbindungen',

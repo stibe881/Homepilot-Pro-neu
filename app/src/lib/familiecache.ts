@@ -110,6 +110,23 @@ export function abgelehnt(status: number | null): boolean {
 }
 
 /**
+ * Den Gleichzeitig-Stempel eines Eintrags in die Änderung mischen (rein,
+ * testbar) - Punkt 341 der Werkbank.
+ *
+ * Zwei Telefone können denselben Eintrag laden und kurz nacheinander
+ * speichern; ohne den Stempel überschreibt das zweite PUT die Änderung
+ * des ersten still, weil es noch den alten Stand aller Felder schickt.
+ * Der Hub vergleicht den mitgeschickten `updated`-Wert mit seinem eigenen
+ * und weist mit 409 ab, wenn sie auseinanderlaufen (core/gleichzeitig.py).
+ * Diese Funktion trägt ihn automatisch in jede Änderung ein, damit kein
+ * Aufruf im Bildschirm selbst daran denken muss - fehlt der bisherige
+ * Eintrag (etwa ein lokal frisch angelegter), bleibt er einfach weg.
+ */
+export function mitStempel(patch: Zeile, bisher: Zeile | undefined): Zeile {
+  return bisher?.updated === undefined ? patch : { updated: bisher.updated, ...patch };
+}
+
+/**
  * Den zwischengespeicherten Stand mit dem überlagern, was noch wartet
  * (rein, testbar).
  *

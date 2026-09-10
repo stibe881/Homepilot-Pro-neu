@@ -135,9 +135,12 @@ class AutomationRequest(BaseModel):
     # Frühestens wieder nach so vielen Sekunden – gegen den zuckenden
     # Melder im Wind, der aus einer Durchsage zwanzig macht.
     cooldown: float = 0
-    # Nachts (22–8 Uhr) keine Nachricht und keine Durchsage; der Rest
-    # des Ablaufs läuft weiter.
+    # Nachts (22–8 Uhr, oder die zwei Stunden unten) keine Nachricht und
+    # keine Durchsage; der Rest des Ablaufs läuft weiter.
     quiet_night: bool = False
+    # Eigene Stunden statt 22-8 (Punkt 379). None heisst: die Vorgabe.
+    quiet_from: int | None = None
+    quiet_to: int | None = None
     # Restzeit anzeigen: «geht in 12 Min aus» an Kachel, Raumkarte und
     # im «Lichter an»-Blatt (core/abschaltung.py).
     countdown: bool = False
@@ -257,6 +260,27 @@ class CoverGuardRequest(BaseModel):
 
     storm: list[str] | None = None
     heat: list[str] | None = None
+
+
+class DoorbellSoundRequest(BaseModel):
+    """Welcher Klingelton auf welchen Boxen spielt, wenn es klingelt.
+
+    Anders als bei den Storen darüber heisst eine leere Liste hier nicht
+    «alle», sondern «keine» - siehe Kopf von core/klingelton.py.
+    """
+
+    sound: str | None = None
+    speakers: list[str] | None = None
+
+
+class DoorbellSoundTestRequest(BaseModel):
+    """Die Testtaste: Ton und Boxen anhören, bevor sie gespeichert werden.
+
+    Beides optional - ohne Angabe gilt die schon gespeicherte Wahl.
+    """
+
+    sound: str | None = None
+    speakers: list[str] | None = None
 
 
 class GoodNightRequest(BaseModel):
@@ -615,6 +639,9 @@ class AlarmArmRequest(BaseModel):
     # Trotz offener Fenster scharf schalten – bewusste Entscheidung des
     # Benutzers, nachdem ihm gesagt wurde, was offen ist.
     force: bool = False
+    # Nur diese Zone (Punkt 398 der Werkbank) - leer/fehlend heisst das
+    # ganze Haus, wie bisher.
+    zone: str | None = None
 
 
 class AlarmDisarmRequest(BaseModel):
@@ -624,9 +651,26 @@ class AlarmDisarmRequest(BaseModel):
 
 
 class AlarmPinRequest(BaseModel):
-    """PIN fürs Entschärfen setzen; leer = entfernen."""
+    """PIN fürs Entschärfen setzen; leer = entfernen.
+
+    Punkt 399 der Werkbank: je Person. Ohne ``user`` gilt die eigene -
+    das ist der Regelfall (Selbstverwaltung). Eine fremde zu setzen
+    braucht die Benutzerverwaltung, siehe die Route.
+    """
 
     pin: str = ""
+    user: str | None = None
+
+
+class AlarmZwangPinRequest(BaseModel):
+    """Die Zwangs-PIN setzen oder entfernen (Punkt 400)."""
+
+    pin: str = ""
+    user: str | None = None
+
+
+class AlarmSensorTestRequest(BaseModel):
+    mode: str
 
 
 class MetaRequest(BaseModel):
@@ -721,5 +765,12 @@ class RaumbildRequest(BaseModel):
     Verkleinern ohnehin als Base64 in der Hand (siehe RecipeBook), und ein
     zweiter Weg mit multipart bringt nichts als eine zweite Fehlerquelle.
     """
+
+    image: str
+
+
+class PersonenbildRequest(BaseModel):
+    """Das Foto einer Person, als data-URI (Punkt 415) - dieselbe Form wie
+    beim Zimmerfoto, aus demselben Grund."""
 
     image: str

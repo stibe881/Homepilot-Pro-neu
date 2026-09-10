@@ -43,6 +43,7 @@ const sichtbar = (rechte: string[]) =>
       'energy',
       'system',
       'activity',
+      'diagnose',
       'widgets',
       'account',
     ] as Bereich[]
@@ -63,7 +64,7 @@ describe('siehtBereich', () => {
   });
 
   it('behält die Einrichtung bei der Besitzerin', () => {
-    for (const bereich of ['users', 'alarm', 'speakers', 'energy', 'system', 'activity'] as Bereich[]) {
+    for (const bereich of ['users', 'alarm', 'speakers', 'energy', 'system', 'activity', 'diagnose'] as Bereich[]) {
       expect(siehtBereich(MITBEWOHNER, bereich)).toBe(false);
       expect(siehtBereich(BESITZERIN, bereich)).toBe(true);
     }
@@ -101,7 +102,7 @@ describe('Was unter Administrator liegt', () => {
    * das Haus eingerichtet ist – oder bedient er es?
    */
   it('nimmt die Einrichtung', () => {
-    for (const key of ['users', 'personen', 'devices', 'sorgen', 'system', 'activity']) {
+    for (const key of ['users', 'personen', 'devices', 'sorgen', 'system', 'activity', 'diagnose']) {
       expect(gruppeVon(key)).toBe('admin');
     }
   });
@@ -122,8 +123,8 @@ describe('Was unter Administrator liegt', () => {
     }
   });
 
-  it('kennt genau sechs Punkte – nicht mehr aus Versehen', () => {
-    expect(ADMIN_PUNKTE).toHaveLength(6);
+  it('kennt genau sieben Punkte – nicht mehr aus Versehen', () => {
+    expect(ADMIN_PUNKTE).toHaveLength(7);
   });
 
   it('unbekannte Punkte landen im Haus, nicht hinter der Tür', () => {

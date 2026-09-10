@@ -5,7 +5,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { Activity, CommandData, Entity, EntityState } from '../api/types';
 import { uhr, wochentag } from '../lib/format';
 import { useMusikwahl } from '../hooks/useMusikwahl';
-import { hatEigeneAuswahl, quellenSymbol, zeigtStopp } from '../lib/geraeteart';
+import { hatEigeneAuswahl, istMusikbox, quellenSymbol, zeigtStopp } from '../lib/geraeteart';
 import { hatWarteschlange } from '../lib/musikliste';
 import { trockenSatz } from '../lib/giessen';
 import { Regenstand, balkenHoehen, regenSatz } from '../lib/regen';
@@ -35,11 +35,10 @@ import { RadioPanel, ShuffleRepeat, SpotifyPanel } from './EntityCard';
  *
  * Die Box des offenen Zimmers stand hier zuletzt als zweite Karte -
  * unter dem Raumkopf, auf dem Telefon unter allen Kacheln. Sie ist
- * hinaufgewandert in den Raumkopf selbst (components/Raumspieler.tsx):
- * ein Streifen neben den Szenen, der sich zu genau dieser Karte
- * aufklappt. Damit steht die Musik des Zimmers dort, wo man beim
- * Betreten hinsieht - und das Feld rechts neben den Szenenknöpfen ist
- * nicht mehr leer.
+ * hinaufgewandert in den Raumkopf selbst: derselbe MediaPanel hier
+ * unten, direkt unter den Szenenknöpfen des Zimmers (nicht mehr hinter
+ * einem Streifen zum Aufklappen - siehe DashboardScreen). Damit steht
+ * die Musik des Zimmers dort, wo man beim Betreten hinsieht.
  */
 export function SidePanel({
   entities,
@@ -58,11 +57,25 @@ export function SidePanel({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const weather = entities.find((entity) => entity.kind === 'weather');
+  // Ohne eigenes Zimmer hat die Startseite keine naheliegende Box, wie
+  // sie ein Raum in seiner eigenen hätte - ohne Wunsch stünde der
+  // Wähler leer auf «Box wählen», bis jemand selbst tippt. Per
+  // Namenserkennung wie bei den Schnellaktions-Szenen («Kino», siehe
+  // OverviewScreen) gilt die Lautsprechergruppe fürs ganze Haus als
+  // Vorwahl.
+  const hausbox = useMemo(
+    () => entities.filter(istMusikbox).find((box) => /wohnung/i.test(box.name))?.name ?? null,
+    [entities]
+  );
   // Welche Quelle gezeigt wird und was ein Tipp im Wähler bewirkt, liegt
   // im Haken - dieselbe Wahl trifft das Blatt über der Raumkachel und
   // der Streifen im Raumkopf (hooks/useMusikwahl.ts).
-  const musik = useMusikwahl(entities, (id, command, data) =>
-    onCommand?.(id, command, data)
+  const musik = useMusikwahl(
+    entities,
+    (id, command, data) => onCommand?.(id, command, data),
+    undefined,
+    '',
+    hausbox
   );
   const player = musik.player;
 

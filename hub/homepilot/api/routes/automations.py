@@ -17,6 +17,7 @@ from fastapi import (
     Request,
 )
 
+from ...core import ablaufpruefung
 from ...core import automation as automation_module
 from ...core import babysitter as babysitter_module
 from ...core import editversions as editversions_module
@@ -611,11 +612,21 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     def stored_automations() -> list[dict[str, Any]]:
         return hub.data.get("automations")
 
+    def _unbekannte_bausteine_ablehnen(body: AutomationRequest) -> None:
+        """Punkt 378 der Werkbank: ein Tippfehler im Typ soll beim
+        Speichern auffallen, nicht erst beim stillen Ausführen."""
+        fehler = ablaufpruefung.pruefen(
+            {"action": body.action, "otherwise": body.otherwise, "condition": body.condition}
+        )
+        if fehler:
+            raise HTTPException(status_code=400, detail="; ".join(fehler))
+
     @app.post("/api/automations")
     async def create_automation(
         body: AutomationRequest, request: Request
     ) -> dict[str, Any]:
         require(request, Capability.EDIT_AUTOMATIONS)
+        _unbekannte_bausteine_ablehnen(body)
         import secrets as _secrets
 
         entry = {
@@ -632,6 +643,8 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "quiet_until": body.quiet_until,
             "cooldown": body.cooldown,
             "quiet_night": body.quiet_night,
+            "quiet_from": body.quiet_from,
+            "quiet_to": body.quiet_to,
             "countdown": body.countdown,
         }
         hub.data.set("automations", [*stored_automations(), entry])
@@ -644,6 +657,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         automation_id: str, body: AutomationRequest, request: Request
     ) -> dict[str, Any]:
         require(request, Capability.EDIT_AUTOMATIONS)
+        _unbekannte_bausteine_ablehnen(body)
         stored = stored_automations()
         if not any(entry["id"] == automation_id for entry in stored):
             # Aus der config.yaml stammende gehören der Datei, nicht der App.
@@ -673,8 +687,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 "category": body.category,
                 "quiet_until": body.quiet_until,
                 "cooldown": body.cooldown,
-            "quiet_night": body.quiet_night,
-            "countdown": body.countdown,
+                "quiet_night": body.quiet_night,
+                "quiet_from": body.quiet_from,
+                "quiet_to": body.quiet_to,
+                "countdown": body.countdown,
             }
             if entry["id"] == automation_id
             else entry

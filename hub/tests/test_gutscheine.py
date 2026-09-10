@@ -318,6 +318,7 @@ def test_das_familienbuch_zeigt_gutscheine_ohne_pin_und_ohne_private():
 USERS = [
     {"name": "Stefan", "role": "besitzer", "token": "t-owner"},
     {"name": "Livia", "role": "bewohner", "token": "t-livia"},
+    {"name": "Sandra", "role": "bewohner", "token": "t-sandra"},
 ]
 
 # 1×1 Pixel als PNG – klein genug für einen Test, echt genug für den Decoder.
@@ -378,11 +379,17 @@ def test_ein_privater_gutschein_bleibt_dem_besitzer_des_hubs_verborgen():
             ).status_code
             == 403
         )
-        # Livia selbst darf.
+        # Livia selbst darf - über eine Buchung (Punkt 371 der Werkbank);
+        # ein blosses «left» ohne Verlauf bewegt seit dieser Absicherung
+        # nichts mehr.
         assert (
             client.put(
                 f"/api/family/vouchers/{privat['id']}",
-                json={"left": 20},
+                json={
+                    "transactions": [
+                        {"at": "2026-09-07T10:00:00", "amount": 80, "by": "Livia"}
+                    ]
+                },
                 headers=auth("t-livia"),
             ).json()["left"]
             == 20
@@ -417,7 +424,12 @@ def test_der_papierkorb_verraet_keinen_privaten_gutschein():
         )
 
 
-def test_abziehen_ist_ein_put_und_der_hub_klemmt_nur():
+def test_abziehen_ist_ein_put_und_der_hub_rechnet_den_rest_aus_dem_verlauf():
+    """Punkt 371 der Werkbank: `left` folgt dem Verlauf, nicht dem, was
+    die App im selben PUT mitschickt - sonst überschreibt ein zweites
+    Telefon still den Abzug des ersten (siehe transaktionen_zusammenfuehren
+    in core/gutscheine.py). Ein blosses «left» ohne passende Buchung
+    bewegt seither nichts mehr."""
     with make_client() as client:
         gutschein = client.post(
             "/api/family/vouchers",
@@ -430,7 +442,7 @@ def test_abziehen_ist_ein_put_und_der_hub_klemmt_nur():
         antwort = client.put(
             f"/api/family/vouchers/{gutschein['id']}",
             json={
-                "left": 80,
+                "left": 999,  # wird ignoriert - massgeblich ist die Buchung
                 "transactions": [{"at": "2026-09-07T10:00:00", "amount": 20, "by": "Stefan"}],
             },
             headers=auth("t-owner"),
@@ -439,16 +451,104 @@ def test_abziehen_ist_ein_put_und_der_hub_klemmt_nur():
         # Zu viel abgezogen: geklemmt, nicht abgelehnt.
         antwort = client.put(
             f"/api/family/vouchers/{gutschein['id']}",
-            json={"left": -30},
+            json={
+                "transactions": antwort["transactions"]
+                + [{"at": "2026-09-07T11:00:00", "amount": 500, "by": "Stefan"}]
+            },
             headers=auth("t-owner"),
         )
         assert antwort.status_code == 200 and antwort.json()["left"] == 0
+        # Aufgebraucht heisst automatisch archiviert (Punkt 372).
+        assert antwort.json()["archived"] is True
         antwort = client.put(
             f"/api/family/vouchers/{gutschein['id']}",
             json={"left": 500, "shared": "quatsch"},
             headers=auth("t-owner"),
         ).json()
-        assert antwort["left"] == 100 and antwort["shared"] == "familie"
+        assert antwort["left"] == 0 and antwort["shared"] == "familie"
+
+
+def test_zwei_geraete_ziehen_gleichzeitig_ab_beide_buchungen_bleiben():
+    """Punkt 371: Zwei Telefone kennen beide nur ihren eigenen Verlauf -
+    keines darf die Buchung des anderen wortlos überschreiben."""
+    with make_client() as client:
+        gutschein = client.post(
+            "/api/family/vouchers",
+            json={"shop": "Brack.ch", "total": 100, "shared": "familie"},
+            headers=auth("t-owner"),
+        ).json()
+        # Handy A sieht den frischen Gutschein und bucht 30 ab.
+        a = client.put(
+            f"/api/family/vouchers/{gutschein['id']}",
+            json={
+                "transactions": [{"at": "2026-09-07T10:00:00", "amount": 30, "by": "Stefan"}]
+            },
+            headers=auth("t-owner"),
+        ).json()
+        assert a["left"] == 70
+        # Handy B hatte den Gutschein VORHER geladen (kennt A's Buchung
+        # nicht) und bucht unabhängig 20 ab - sein PUT trägt nur die
+        # eigene Buchung, nicht die von A.
+        b = client.put(
+            f"/api/family/vouchers/{gutschein['id']}",
+            json={
+                "transactions": [{"at": "2026-09-07T10:05:00", "amount": 20, "by": "Livia"}]
+            },
+            headers=auth("t-owner"),
+        ).json()
+        # Beide Buchungen stehen im Verlauf, und der Rest ist 100-30-20=50 -
+        # nicht 80 (wie bei einem blossen Ersetzen, das A's Buchung verlöre).
+        assert b["left"] == 50
+        assert {t["by"] for t in b["transactions"]} == {"Stefan", "Livia"}
+
+
+def test_derselbe_storno_zweimal_geschickt_wird_nur_einmal_gutgeschrieben():
+    """Zwei Telefone, die dieselbe Buchung im selben Moment zurücknehmen,
+    sollen den Betrag nicht doppelt gutschreiben."""
+    with make_client() as client:
+        gutschein = client.post(
+            "/api/family/vouchers",
+            json={"shop": "Brack.ch", "total": 100, "shared": "familie"},
+            headers=auth("t-owner"),
+        ).json()
+        abzug = client.put(
+            f"/api/family/vouchers/{gutschein['id']}",
+            json={
+                "transactions": [{"at": "2026-09-07T10:00:00", "amount": 40, "by": "Stefan"}]
+            },
+            headers=auth("t-owner"),
+        ).json()
+        assert abzug["left"] == 60
+        ziel = "2026-09-07T10:00:00"
+        # Zwei verschiedene Geräte, jedes mit eigenem Zeitstempel, nehmen
+        # unabhängig voneinander denselben Abzug zurück.
+        storno_a = {
+            "at": "2026-09-07T11:00:00",
+            "amount": -40,
+            "by": "Stefan",
+            "art": "storno",
+            "storniert": ziel,
+        }
+        storno_b = {
+            "at": "2026-09-07T11:00:05",
+            "amount": -40,
+            "by": "Livia",
+            "art": "storno",
+            "storniert": ziel,
+        }
+        erste = client.put(
+            f"/api/family/vouchers/{gutschein['id']}",
+            json={"transactions": abzug["transactions"] + [storno_a]},
+            headers=auth("t-owner"),
+        ).json()
+        assert erste["left"] == 100
+        zweite = client.put(
+            f"/api/family/vouchers/{gutschein['id']}",
+            json={"transactions": abzug["transactions"] + [storno_b]},
+            headers=auth("t-owner"),
+        ).json()
+        assert zweite["left"] == 100
+        assert len(zweite["transactions"]) == 2
 
 
 def test_das_gutscheinfoto_wird_datei_und_folgt_der_privatsphaere(tmp_path):
@@ -763,6 +863,51 @@ async def test_ein_aufgebrauchter_gutschein_darf_still_verfallen(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_der_waechter_meldet_den_tag_nach_dem_verfall_und_archiviert(monkeypatch):
+    """Punkt 372 der Werkbank: die letzte Meldung, dann ins Archiv."""
+    rows = [
+        {"id": "b1", "author": "Livia", "shop": "Brack.ch", "unit": "chf", "total": 100,
+         "left": 30, "expires": "2030-06-05", "shared": "privat"},
+    ]
+    # Am Ablauftag selbst: nur die reguläre Stufe (Ablauftag-Erinnerung),
+    # noch kein «verfallen» - dafür ist es erst einen Tag zu früh.
+    hub, gesendet = await wach(monkeypatch, datetime(2030, 6, 5, 9, 0), rows)
+    try:
+        await hub.watchdog._check_vouchers()
+        assert [body for _, body, _ in gesendet] == [
+            "Brack.ch: 30 CHF verfallen heute (05.06.2030)"
+        ]
+        assert hub.data.get(gutscheine.KEY)[0].get("archived") is not True
+        gemerkt = hub.data.get("notified")
+    finally:
+        await hub.stop()
+
+    hub, gesendet = await wach(monkeypatch, datetime(2030, 6, 6, 9, 0), rows)
+    try:
+        hub.data.set("notified", gemerkt)
+        await hub.watchdog._check_vouchers()
+        assert gesendet == [
+            ("vouchers", "Brack.ch: 30 CHF sind verfallen und weg.", "Livia")
+        ]
+        assert hub.data.get(gutscheine.KEY)[0]["archived"] is True
+        gemerkt = hub.data.get("notified")
+    finally:
+        await hub.stop()
+
+    # Ein zweiter Lauf am Folgetag meldet nichts mehr - der Gutschein
+    # ist jetzt archiviert (dieselben Objekte wurden oben in place
+    # verändert, wie es der Wächter auch am echten hub.data täte).
+    assert rows[0]["archived"] is True
+    hub, gesendet = await wach(monkeypatch, datetime(2030, 6, 7, 9, 0), rows)
+    try:
+        hub.data.set("notified", gemerkt)
+        await hub.watchdog._check_vouchers()
+        assert gesendet == []
+    finally:
+        await hub.stop()
+
+
+@pytest.mark.asyncio
 async def test_was_aus_dem_korb_faellt_nimmt_sein_bild_mit(monkeypatch, tmp_path):
     """Vorher blieben die Fotos für immer liegen - ein Gutscheinfoto mit
     Nummer und Strichcode soll nicht länger auf der Platte sein als der
@@ -1019,3 +1164,192 @@ def test_das_buch_druckt_die_karte_als_satz_und_das_gegenteil_gar_nicht():
     assert "physical" not in buch[0] and "physical" not in buch[1]
     assert buch[0]["mitbringen"] == "Karte, Bon oder Ausdruck nötig"
     assert "mitbringen" not in buch[1]
+
+
+def test_rest_aus_transaktionen_zaehlt_abzug_und_storno_nicht_die_uebergabe():
+    tx = [
+        {"amount": 30, "art": "abzug"},
+        {"amount": -10, "art": "storno"},  # Gegenbuchung: gibt 10 zurück
+        {"amount": 0, "art": "uebergabe"},
+    ]
+    assert gutscheine.rest_aus_transaktionen(100, tx, False) == 80
+    # Geklemmt bei 0 und beim Gesamtwert.
+    assert gutscheine.rest_aus_transaktionen(100, [{"amount": 500}], False) == 0
+    assert gutscheine.rest_aus_transaktionen(100, [{"amount": -500, "art": "storno"}], False) == 100
+
+
+def test_transaktionen_zusammenfuehren_haengt_nur_unbekannte_an():
+    bisherige = [{"at": "10:00", "amount": 20, "art": "abzug"}]
+    neue = [
+        {"at": "10:00", "amount": 20, "art": "abzug"},  # schon bekannt
+        {"at": "10:05", "amount": 15, "art": "abzug"},  # neu
+    ]
+    ergebnis = gutscheine.transaktionen_zusammenfuehren(bisherige, neue)
+    assert [t["at"] for t in ergebnis] == ["10:00", "10:05"]
+
+
+def test_transaktionen_zusammenfuehren_verschluckt_den_doppelten_storno():
+    bisherige = [
+        {"at": "10:00", "amount": 20, "art": "abzug"},
+        {"at": "10:05", "amount": -20, "art": "storno", "storniert": "10:00"},
+    ]
+    # Ein zweites Gerät nimmt dieselbe Buchung mit anderem Zeitstempel
+    # ebenfalls zurück - das darf nicht ein zweites Mal gutschreiben.
+    neue = bisherige + [{"at": "10:06", "amount": -20, "art": "storno", "storniert": "10:00"}]
+    ergebnis = gutscheine.transaktionen_zusammenfuehren(bisherige, neue)
+    assert len(ergebnis) == 2
+
+
+def test_frisch_verfallen_nur_mit_restwert_und_noch_nicht_archiviert():
+    heute = date(2030, 6, 5)
+    rows = [
+        {"id": "a", "left": 50, "expires": "2030-06-01"},  # verfallen, hat noch was
+        {"id": "b", "left": 0, "expires": "2030-06-01"},  # aufgebraucht - egal
+        {"id": "c", "left": 50, "expires": "2030-06-01", "archived": True},  # schon erledigt
+        {"id": "d", "left": 50, "expires": "2030-06-30"},  # noch nicht verfallen
+        {"id": "e", "left": 50, "expires": None},  # unbegrenzt
+    ]
+    treffer = [row["id"] for row in gutscheine.frisch_verfallen(rows, heute)]
+    assert treffer == ["a"]
+
+
+def test_verfalls_meldung_nennt_laden_und_betrag():
+    titel, text = gutscheine.verfalls_meldung({"shop": "Brack.ch", "left": 80})
+    assert titel == "Gutschein verfallen"
+    assert text == "Brack.ch: 80 CHF sind verfallen und weg."
+
+
+def test_verfallen_zeitraum_zaehlt_nur_innerhalb_der_grenzen_und_ohne_stueck():
+    rows = [
+        {"shop": "A", "unit": "chf", "left": 30, "expires": "2030-06-15"},  # im Monat
+        {"shop": "B", "unit": "chf", "left": 20, "expires": "2030-05-31"},  # davor
+        {"shop": "C", "unit": "chf", "left": 0, "expires": "2030-06-10"},  # leer
+        {"shop": "D", "unit": "stk", "left": 2, "expires": "2030-06-10"},  # kein Betrag
+    ]
+    ergebnis = gutscheine.verfallen_zeitraum(rows, date(2030, 6, 1), date(2030, 6, 30))
+    assert ergebnis == {"summe": 30, "anzahl": 1}
+
+
+def test_aufgebraucht_kennt_rappenreste_als_leer():
+    assert gutscheine.aufgebraucht({"left": 0}) is True
+    assert gutscheine.aufgebraucht({"left": 0.004}) is True
+    assert gutscheine.aufgebraucht({"left": 0.01}) is False
+
+
+# ── Übergabe mit Annahme (Punkt 377) ───────────────────────────────────────
+
+
+def test_uebergabe_vorschlagen_aendert_den_besitzer_noch_nicht():
+    entry = {"id": "v1", "author": "Stefan", "shop": "Brack.ch", "transactions": []}
+    neu = gutscheine.uebergabe_vorschlagen(entry, "Livia", "Stefan", datetime(2026, 1, 1))
+    assert neu["author"] == "Stefan"  # unverändert
+    assert neu["pending_transfer_to"] == "Livia"
+    assert neu["transactions"][-1]["art"] == "uebergabe_vorschlag"
+    # Ein leerer Name schlägt nichts vor.
+    assert gutscheine.uebergabe_vorschlagen(entry, "  ", "Stefan", datetime(2026, 1, 1)) is entry
+
+
+def test_uebergabe_annehmen_nur_durch_die_eingeladene_person():
+    entry = {
+        "id": "v1", "author": "Stefan", "shop": "Brack.ch",
+        "pending_transfer_to": "Livia", "transactions": [],
+    }
+    neu, fehler = gutscheine.uebergabe_annehmen(entry, "Sandra", datetime(2026, 1, 2))
+    assert neu is None and fehler is not None
+    neu, fehler = gutscheine.uebergabe_annehmen(entry, "Livia", datetime(2026, 1, 2))
+    assert fehler is None
+    assert neu["author"] == "Livia"
+    assert neu["pending_transfer_to"] is None
+    assert neu["transactions"][-1] == {
+        "at": datetime(2026, 1, 2).isoformat(),
+        "amount": 0,
+        "by": "Livia",
+        "art": "uebergabe",
+        "note": "angenommen",
+    }
+
+
+def test_uebergabe_ablehnen_durch_absender_oder_empfaenger():
+    entry = {
+        "id": "v1", "author": "Stefan", "shop": "Brack.ch",
+        "pending_transfer_to": "Livia", "transactions": [],
+    }
+    neu, fehler = gutscheine.uebergabe_ablehnen(entry, "Sandra", datetime(2026, 1, 2))
+    assert neu is None and fehler is not None
+    neu, _ = gutscheine.uebergabe_ablehnen(dict(entry), "Livia", datetime(2026, 1, 2))
+    assert neu["pending_transfer_to"] is None and neu["author"] == "Stefan"
+    neu, _ = gutscheine.uebergabe_ablehnen(dict(entry), "Stefan", datetime(2026, 1, 2))
+    assert neu["pending_transfer_to"] is None
+
+
+def test_ohne_vorgeschlagene_uebergabe_geht_weder_annehmen_noch_ablehnen():
+    entry = {"id": "v1", "author": "Stefan", "shop": "Brack.ch"}
+    assert gutscheine.uebergabe_annehmen(entry, "Livia", datetime(2026, 1, 1))[1] is not None
+    assert gutscheine.uebergabe_ablehnen(entry, "Livia", datetime(2026, 1, 1))[1] is not None
+
+
+def test_eingehende_uebergaben_nennt_nur_das_noetigste():
+    rows = [
+        {"id": "v1", "shop": "Brack.ch", "left": 40, "unit": "chf", "author": "Stefan",
+         "pending_transfer_to": "Livia", "pin": "9999", "number": "geheim"},
+        {"id": "v2", "shop": "Coop", "pending_transfer_to": "Sandra"},
+        {"id": "v3", "shop": "Zalando"},  # keine Übergabe
+    ]
+    treffer = gutscheine.eingehende_uebergaben(rows, "Livia")
+    assert treffer == [{"id": "v1", "shop": "Brack.ch", "left": 40, "unit": "chf", "by": "Stefan"}]
+    assert "pin" not in treffer[0] and "number" not in treffer[0]
+
+
+def test_die_route_fuer_eine_uebergabe_mit_annahme():
+    with make_client() as client:
+        gutschein = client.post(
+            "/api/family/vouchers",
+            json={"shop": "Brack.ch", "total": 100, "shared": "privat"},
+            headers=auth("t-owner"),
+        ).json()
+        # Stefan schlägt Livia vor.
+        vorgeschlagen = client.put(
+            f"/api/family/vouchers/{gutschein['id']}",
+            json={"pending_transfer_to": "Livia"},
+            headers=auth("t-owner"),
+        ).json()
+        assert vorgeschlagen["author"] == "Stefan"
+        # Livia sieht ihn nicht in der vollen Liste (noch fremd, privat) …
+        assert client.get("/api/family/vouchers", headers=auth("t-livia")).json() == []
+        # … aber im schmalen Eingangs-Auszug.
+        eingehend = client.get("/api/family/vouchers/eingehend", headers=auth("t-livia")).json()
+        assert eingehend == [{"id": gutschein["id"], "shop": "Brack.ch", "left": 100.0, "unit": "chf", "by": "Stefan"}]
+        # Sandra darf nicht annehmen - der Vorschlag war nicht an sie.
+        assert (
+            client.post(
+                f"/api/family/vouchers/{gutschein['id']}/annehmen", headers=auth("t-sandra")
+            ).status_code
+            == 403
+        )
+        angenommen = client.post(
+            f"/api/family/vouchers/{gutschein['id']}/annehmen", headers=auth("t-livia")
+        ).json()
+        assert angenommen["author"] == "Livia"
+        assert angenommen["pending_transfer_to"] is None
+        # Jetzt gehört er Livia - Stefan sieht ihn nicht mehr in seiner Liste.
+        assert client.get("/api/family/vouchers", headers=auth("t-owner")).json() == []
+        assert len(client.get("/api/family/vouchers", headers=auth("t-livia")).json()) == 1
+
+
+def test_die_route_fuer_eine_abgelehnte_uebergabe():
+    with make_client() as client:
+        gutschein = client.post(
+            "/api/family/vouchers",
+            json={"shop": "Brack.ch", "total": 100, "shared": "privat"},
+            headers=auth("t-owner"),
+        ).json()
+        client.put(
+            f"/api/family/vouchers/{gutschein['id']}",
+            json={"pending_transfer_to": "Livia"},
+            headers=auth("t-owner"),
+        )
+        abgelehnt = client.post(
+            f"/api/family/vouchers/{gutschein['id']}/ablehnen", headers=auth("t-livia")
+        ).json()
+        assert abgelehnt["author"] == "Stefan" and abgelehnt["pending_transfer_to"] is None
+        assert client.get("/api/family/vouchers/eingehend", headers=auth("t-livia")).json() == []

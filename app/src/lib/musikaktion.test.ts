@@ -1,5 +1,9 @@
 import { musikSatz } from './ablaufsatz';
-import { EMPTY_STEP, musikSchrittZuAktion } from '../screens/automations/entwurf';
+import {
+  EMPTY_STEP,
+  actionsToSteps,
+  musikSchrittZuAktion,
+} from '../screens/automations/entwurf';
 import type { Entity } from '../api/types';
 
 const boxen = [
@@ -31,6 +35,25 @@ describe('musikSchrittZuAktion', () => {
   it('ergibt ohne Box weder Schlummer noch Einblenden', () => {
     expect(musikSchrittZuAktion({ ...EMPTY_STEP, musikTat: 'sleep' })).toEqual([]);
     expect(musikSchrittZuAktion({ ...EMPTY_STEP, musikTat: 'fade' })).toEqual([]);
+  });
+
+  it('«Musik folgt» braucht Quelle und Ziel (Punkt 419)', () => {
+    expect(musikSchrittZuAktion({ ...EMPTY_STEP, musikTat: 'follow' })).toEqual([]);
+    expect(
+      musikSchrittZuAktion({
+        ...EMPTY_STEP,
+        musikTat: 'follow',
+        musikEntityId: 'cast.kueche',
+      }),
+    ).toEqual([]);
+    expect(
+      musikSchrittZuAktion({
+        ...EMPTY_STEP,
+        musikTat: 'follow',
+        musikEntityId: 'cast.kueche',
+        musikZiel: 'cast.bad',
+      }),
+    ).toEqual([{ type: 'music', do: 'follow', entity_id: 'cast.kueche', target: 'cast.bad' }]);
   });
 
   it('nimmt Minuten und Lautstärke als Zahl mit', () => {
@@ -76,5 +99,21 @@ describe('musikSatz', () => {
     expect(musikSatz({ do: 'fade', entity_id: 'cast.kueche' }, boxen)).toBe(
       'Küche leise starten',
     );
+    expect(
+      musikSatz({ do: 'follow', entity_id: 'cast.kueche', target: 'cast.bad' }, boxen),
+    ).toBe('Musik von Küche nach cast.bad mitnehmen');
+  });
+});
+
+describe('«Musik folgt» beim erneuten Öffnen (Punkt 419)', () => {
+  it('liest Quelle und Ziel aus der gespeicherten Aktion zurück', () => {
+    const schritte = actionsToSteps([
+      { type: 'music', do: 'follow', entity_id: 'cast.kueche', target: 'cast.bad' },
+    ]);
+    expect(schritte).toHaveLength(1);
+    expect(schritte[0].kind).toBe('music');
+    expect(schritte[0].musikTat).toBe('follow');
+    expect(schritte[0].musikEntityId).toBe('cast.kueche');
+    expect(schritte[0].musikZiel).toBe('cast.bad');
   });
 });

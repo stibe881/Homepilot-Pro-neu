@@ -50,6 +50,26 @@ export function gezeigteQuelle(
   );
 }
 
+/**
+ * Der Wunsch, wie ihn der Wähler anschreibt (rein, testbar).
+ *
+ * Ohne eigene Wahl gilt die Hausbox als Wunsch - für die Startseite, die
+ * anders als ein Zimmer keine naheliegende Box hat und ohne das leer
+ * «Box wählen» zeigte, bis jemand selbst tippt. Eine einmal getroffene
+ * Wahl sticht das immer, und die Hausbox gilt nur, solange sie wirklich
+ * unter den Boxen steht - eine, die es (noch) nicht gibt oder nicht mehr
+ * gibt, soll nicht als Ziel gelten.
+ */
+export function effektiverWunsch(
+  gewaehlterWunsch: string | null,
+  hausbox: string | null | undefined,
+  players: Entity[]
+): string | null {
+  if (gewaehlterWunsch) return gewaehlterWunsch;
+  if (hausbox && players.some((box) => box.name === hausbox)) return hausbox;
+  return null;
+}
+
 /** Was ein Tipp im Wähler bewirkt. */
 export type Wahlwirkung =
   | {

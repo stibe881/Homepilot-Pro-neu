@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 
 import { CommandData, Entity } from '../api/types';
 import { hatEigeneAuswahl, istMusikbox } from '../lib/geraeteart';
-import { gezeigteQuelle, wahlWirkung } from '../lib/musikwahl';
+import { effektiverWunsch, gezeigteQuelle, wahlWirkung } from '../lib/musikwahl';
 
 /**
  * Der Zustand hinter dem Player: welche Quelle gezeigt wird und wohin
@@ -40,7 +40,11 @@ export function useMusikwahl(
   entities: Entity[],
   onCommand: (entityId: string, command: string, data?: CommandData) => void,
   vorwahl?: Entity | null,
-  schluessel = ''
+  schluessel = '',
+  /** Name der Box, die ohne eigene Wahl als Wunsch gilt - für die
+   *  Startseite, die anders als ein Zimmer keine naheliegende Box hat
+   *  (siehe unten). */
+  hausbox?: string | null
 ): Musikwahl {
   const [stand, setStand] = useState<Stand>({ schluessel, id: null, wunsch: null });
   // Kein Effekt fürs Zurücksetzen: Der Schlüssel steht im Zustand mit
@@ -51,6 +55,11 @@ export function useMusikwahl(
 
   const players = useMemo(() => entities.filter(istMusikbox), [entities]);
   const player = gezeigteQuelle(players, gilt.id, vorwahl, entities);
+
+  // Errechnet, nicht gemerkt: Kommen die Geräte erst nach dem ersten
+  // Bildaufbau nach (die Startseite hat noch keine Liste), greift die
+  // Hausbox trotzdem, sobald sie auftaucht (lib/musikwahl.ts).
+  const wunschBox = effektiverWunsch(gilt.wunsch, hausbox, players);
 
   const waehlen = (ziel: Entity) => {
     const wirkung = wahlWirkung(player, ziel);
@@ -73,7 +82,7 @@ export function useMusikwahl(
     // Sonst stünde auf der Radio-Karte, wo Spotify spielt.
     activeDevice:
       player && hatEigeneAuswahl(player) ? ((player.state.device as string) ?? null) : null,
-    wunschBox: gilt.wunsch,
+    wunschBox,
     waehlen,
   };
 }

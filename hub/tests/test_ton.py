@@ -11,7 +11,7 @@ import asyncio
 
 import pytest
 
-from homepilot.core import ton
+from homepilot.core import klingelton, say, ton
 from homepilot.core.entity import EntityKind
 from homepilot.core.errors import HomePilotError
 
@@ -225,6 +225,59 @@ async def test_verschieben_sagt_wenn_es_nicht_geht(hub):
     _, box_id = await _box_bauen(hub)
     with pytest.raises(HomePilotError, match="Spotify oder Radio"):
         await hub.ton.verschieben(box_id, "Wohnzimmer")
+
+
+# ── Klingelton ─────────────────────────────────────────────────────────────
+
+
+async def test_klingelton_spielt_ohne_gewaehlte_box_nicht(hub):
+    """Kopf von klingelton.py: keine Auswahl heisst still, nicht «alle»."""
+    say.remember_base(hub, "http://10.10.1.20:8123")
+    assert await hub.ton.klingelton_abspielen() == []
+
+
+async def test_klingelton_spielt_auf_der_gewaehlten_box(hub):
+    protokoll, box_id = await _box_bauen(hub)
+    say.remember_base(hub, "http://10.10.1.20:8123")
+    hub.data.set(klingelton.DATA_KEY, [{"sound": "hupe", "speakers": [box_id]}])
+
+    gespielt = await hub.ton.klingelton_abspielen()
+
+    assert gespielt == ["Küche"]
+    befehle = [name for name, _ in protokoll.befehle if name == "play_url"]
+    assert befehle == ["play_url"]
+
+
+async def test_klingelton_testtaste_uebersteuert_die_gespeicherte_wahl(hub):
+    """Die Testtaste in der App hört einen Ton an, bevor sie ihn speichert."""
+    protokoll, box_id = await _box_bauen(hub)
+    say.remember_base(hub, "http://10.10.1.20:8123")
+    hub.data.set(klingelton.DATA_KEY, [{"sound": "dingdong", "speakers": []}])
+
+    gespielt = await hub.ton.klingelton_abspielen(sound="tusch", speakers=[box_id])
+
+    assert gespielt == ["Küche"]
+    assert any(name == "play_url" for name, _ in protokoll.befehle)
+
+
+async def test_klingelton_bleibt_still_ohne_bekannte_hub_adresse(hub):
+    _, box_id = await _box_bauen(hub)
+    hub.data.set(klingelton.DATA_KEY, [{"sound": "dingdong", "speakers": [box_id]}])
+    assert await hub.ton.klingelton_abspielen() == []
+
+
+async def test_klingeln_loest_daempfen_und_klingelton_unabhaengig_aus(hub, monkeypatch):
+    """Wer keine Musik laufen hat, dämpft nichts - der Ton spielt trotzdem."""
+    protokoll, box_id = await _box_bauen(hub, zustand={"state": "paused", "volume": 40})
+    say.remember_base(hub, "http://10.10.1.20:8123")
+    hub.data.set(klingelton.DATA_KEY, [{"sound": "dingdong", "speakers": [box_id]}])
+
+    hub.ton._on_klingeln("doorbell", {})
+    for _ in range(40):
+        await asyncio.sleep(0.02)
+        if any(name == "play_url" for name, _ in protokoll.befehle):
+            break
+    assert any(name == "play_url" for name, _ in protokoll.befehle)
 
 
 async def test_verschieben_unbekannte_box(hub):

@@ -435,6 +435,85 @@ describe('vorlagenGruppe', () => {
   });
 });
 
+// ── Musik folgt der Person (Punkt 419) ───────────────────────────────────
+
+const BOX_KUECHE = {
+  id: 'cast.kueche',
+  kind: 'media_player',
+  name: 'Box Küche',
+  integration: 'google_cast',
+  state: { state: 'idle' },
+  commands: ['play_radio', 'play', 'pause', 'set_volume'],
+  room: 'Küche',
+  available: true,
+} as unknown as Entity;
+
+const BOX_WOHNZIMMER = {
+  id: 'cast.wohnzimmer2',
+  kind: 'media_player',
+  name: 'Box Wohnzimmer',
+  integration: 'google_cast',
+  state: { state: 'idle' },
+  commands: ['play_radio', 'play', 'pause', 'set_volume'],
+  room: 'Wohnzimmer',
+  available: true,
+} as unknown as Entity;
+
+const MELDER_WOHNZIMMER = {
+  id: 'hm.bewegung_wohnzimmer',
+  kind: 'binary_sensor',
+  name: 'Bewegung Wohnzimmer',
+  integration: 'homematic',
+  state: { state: 'off', device_class: 'motion' },
+  commands: [],
+  room: 'Wohnzimmer',
+  available: true,
+} as unknown as Entity;
+
+describe('Musik folgt der Person', () => {
+  const vorlage = () =>
+    buildTemplates([BOX_KUECHE, BOX_WOHNZIMMER, MELDER_WOHNZIMMER], []).find(
+      (eintrag) => eintrag.label === 'Musik folgt: Küche → Wohnzimmer'
+    );
+
+  it('liefert ausgeschaltet - erst hinschauen, dann einschalten', () => {
+    expect(vorlage()?.draft.enabled).toBe(false);
+  });
+
+  it('löst über den Melder im Zielraum aus, nur wenn die Quelle spielt', () => {
+    const draft = vorlage()?.draft;
+    expect(draft?.triggers?.[0]).toMatchObject({
+      entityId: 'hm.bewegung_wohnzimmer',
+      toState: 'on',
+    });
+    expect(draft?.stateConditions).toEqual([
+      { entity_id: 'cast.kueche', op: 'is', value: 'playing' },
+    ]);
+  });
+
+  it('nimmt die Musik von der Küche mit, nicht umgekehrt', () => {
+    const schritt = vorlage()?.draft.steps?.[0];
+    expect(schritt?.kind).toBe('music');
+    expect(schritt?.musikTat).toBe('follow');
+    expect(schritt?.musikEntityId).toBe('cast.kueche');
+    expect(schritt?.musikZiel).toBe('cast.wohnzimmer2');
+  });
+
+  it('bleibt weg, ohne einen Melder im Zielraum', () => {
+    expect(
+      buildTemplates([BOX_KUECHE, BOX_WOHNZIMMER], []).map((eintrag) => eintrag.label)
+    ).not.toContain('Musik folgt: Küche → Wohnzimmer');
+  });
+
+  it('bleibt weg, wenn es nur eine Box gibt', () => {
+    expect(
+      buildTemplates([BOX_KUECHE, MELDER_WOHNZIMMER], []).some((eintrag) =>
+        eintrag.label.startsWith('Musik folgt:')
+      )
+    ).toBe(false);
+  });
+});
+
 describe('gruppiereVorlagen', () => {
   it('stellt Eigene zuerst und hält die feste Reihenfolge', () => {
     const zeilen = mischeVorlagen(

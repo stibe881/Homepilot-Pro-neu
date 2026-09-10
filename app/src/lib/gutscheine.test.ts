@@ -7,15 +7,22 @@
 import {
   Gutschein,
   ablaufSatz,
+  archivieren,
+  archivListe,
   bilanzSatz,
   buchungSatz,
   gebunden,
+  istArchiviert,
   nachLaden,
   restHinweis,
+  schonStorniert,
   stornieren,
   stornoPruefen,
   uebergeben,
   verfallen,
+  verfuegbar,
+  wartetAufAnnahme,
+  wiederherstellen,
   ablaufStufe,
   abziehen,
   abzugPruefen,
@@ -47,7 +54,9 @@ import {
   sortiert,
   summe,
   teilText,
+  Transaktion,
   verlauf,
+  vorlageFuerLaden,
 } from './gutscheine';
 
 const HEUTE = '2026-09-07';
@@ -586,10 +595,11 @@ describe('Buchung zurücknehmen (Punkt 302)', () => {
   });
 });
 
-describe('Übergeben (Punkt 306)', () => {
-  it('wechselt den Besitzer und hält es im Verlauf fest', () => {
+describe('Übergeben (Punkt 306, Annahme seit Punkt 377)', () => {
+  it('schlägt nur vor - der Besitzer wechselt noch nicht', () => {
     // Geteilt heisst «alle sehen ihn», übergeben heisst «er gehört
-    // jetzt dir» - bei einem privaten Gutschein der einzige Weg.
+    // jetzt dir» - bei einem privaten Gutschein der einzige Weg. Der
+    // Hub verlangt seit Punkt 377 eine Annahme, bevor es so weit ist.
     const eintrag = alsGutschein({
       shop: 'Kino',
       unit: 'chf',
@@ -599,10 +609,27 @@ describe('Übergeben (Punkt 306)', () => {
       shared: 'privat',
       author: 'Stefan',
     });
-    const neu = uebergeben(eintrag, 'Bine', 'Stefan', new Date('2026-09-10T12:00:00Z'));
-    expect(neu.author).toBe('Bine');
-    expect(buchungSatz(neu, verlauf(neu)[0])).toBe('Übergeben an Bine');
-    expect(neu.left).toBe(50);
+    const neu = uebergeben(eintrag, 'Bine');
+    expect(neu.author).toBe('Stefan');
+    expect(neu.pending_transfer_to).toBe('Bine');
+    expect(wartetAufAnnahme(neu)).toBe(true);
+    expect(wartetAufAnnahme(eintrag)).toBe(false);
+  });
+
+  it('ein leerer Name schlägt nichts vor', () => {
+    const eintrag = alsGutschein({ shop: 'Kino', total: 50, left: 50 });
+    expect(uebergeben(eintrag, '  ')).toBe(eintrag);
+  });
+
+  it('buchungSatz unterscheidet Vorschlag und vollzogene Übergabe', () => {
+    const vorschlag: Transaktion = { at: 't', amount: 0, by: 'Stefan', art: 'uebergabe_vorschlag', note: 'an Bine' };
+    const vollzogen: Transaktion = { at: 't', amount: 0, by: 'Bine', art: 'uebergabe', note: 'angenommen' };
+    expect(buchungSatz(alsGutschein({ shop: 'x', total: 1 }), vorschlag)).toBe(
+      'Übergabe vorgeschlagen an Bine'
+    );
+    expect(buchungSatz(alsGutschein({ shop: 'x', total: 1 }), vollzogen)).toBe(
+      'Übergeben angenommen'
+    );
   });
 });
 
@@ -654,5 +681,113 @@ describe('Kennzahlen (Punkt 307)', () => {
     expect(bilanzSatz([mach(100, null), mach(30, '2026-01-01')], heute)).toBe(
       '100.00 CHF liegen bereit · 30.00 CHF verfallen'
     );
+  });
+});
+
+// ── Archiv (Punkt 372) ────────────────────────────────────────────────────
+
+describe('Archiv', () => {
+  const aktiv = alsGutschein({ shop: 'Aktiv', total: 50, left: 50 });
+  const archiviert = alsGutschein({ shop: 'Erledigt', total: 20, left: 0, archived: true });
+  const trotzRestArchiviert = alsGutschein({
+    shop: 'Verfallen',
+    total: 40,
+    left: 40,
+    archived: true,
+  });
+
+  test('istArchiviert', () => {
+    expect(istArchiviert(aktiv)).toBe(false);
+    expect(istArchiviert(archiviert)).toBe(true);
+  });
+
+  test('verfuegbar lässt Archiviertes weg, auch mit Restwert', () => {
+    expect(verfuegbar([aktiv, archiviert, trotzRestArchiviert])).toEqual([aktiv]);
+  });
+
+  test('aufgeteilt zeigt Archiviertes weder offen noch in der leeren Gruppe', () => {
+    const { offen, leer: leere } = aufgeteilt([aktiv, archiviert, trotzRestArchiviert], HEUTE);
+    expect(offen).toEqual([aktiv]);
+    expect(leere).toEqual([]);
+  });
+
+  test('archivListe zeigt nur Archiviertes, jüngste Buchung zuerst', () => {
+    const alt = alsGutschein({
+      shop: 'Alt',
+      total: 10,
+      left: 0,
+      archived: true,
+      transactions: [{ at: '2026-01-01T10:00:00.000Z', amount: 10, by: 'Stibe' }],
+    });
+    const neu = alsGutschein({
+      shop: 'Neu',
+      total: 10,
+      left: 0,
+      archived: true,
+      transactions: [{ at: '2026-06-01T10:00:00.000Z', amount: 10, by: 'Stibe' }],
+    });
+    expect(archivListe([aktiv, alt, neu]).map((e) => e.shop)).toEqual(['Neu', 'Alt']);
+  });
+
+  test('archivieren und wiederherstellen setzen nur das eine Feld', () => {
+    expect(archivieren(aktiv).archived).toBe(true);
+    expect(archivieren(aktiv).left).toBe(50);
+    expect(wiederherstellen(archiviert).archived).toBe(false);
+  });
+});
+
+describe('alsGutschein behält art und storniert der Buchungen', () => {
+  test('ohne das wäre eine Rücknahme nach dem Neuladen nicht mehr erkennbar', () => {
+    const e = alsGutschein({
+      shop: 'X',
+      total: 100,
+      left: 100,
+      transactions: [
+        { at: '10:00', amount: 40, by: 'A' },
+        { at: '11:00', amount: -40, by: 'A', art: 'storno', storniert: '10:00' },
+        { at: '12:00', amount: 0, by: 'A', art: 'uebergabe', note: 'an B' },
+      ],
+    });
+    expect(e.transactions?.[0].art).toBe('abzug');
+    expect(e.transactions?.[1].art).toBe('storno');
+    expect(e.transactions?.[1].storniert).toBe('10:00');
+    expect(e.transactions?.[2].art).toBe('uebergabe');
+    // Damit erkennt schonStorniert() die Rücknahme auch nach einem
+    // Neuladen wieder - genau der Fehler, den es hier zu vermeiden galt.
+    expect(schonStorniert(e, e.transactions![0])).toBe(true);
+  });
+});
+
+describe('vorlageFuerLaden (Punkt 375)', () => {
+  const alt = alsGutschein({
+    shop: 'Coop',
+    total: 20,
+    left: 20,
+    category: 'Essen',
+    unit: 'chf',
+    physical: false,
+    created: '2026-01-01T10:00:00.000Z',
+  });
+  const neu = alsGutschein({
+    shop: 'Coop',
+    total: 30,
+    left: 30,
+    category: 'Shopping',
+    unit: 'chf',
+    physical: true,
+    created: '2026-06-01T10:00:00.000Z',
+  });
+
+  test('nimmt den jüngsten Treffer desselben Ladens', () => {
+    expect(vorlageFuerLaden([alt, neu], 'coop')).toEqual({
+      category: 'Shopping',
+      unit: 'chf',
+      physical: true,
+    });
+  });
+
+  test('ohne Treffer oder leeren Laden: null', () => {
+    expect(vorlageFuerLaden([alt, neu], 'Digitec')).toBeNull();
+    expect(vorlageFuerLaden([alt, neu], '  ')).toBeNull();
   });
 });

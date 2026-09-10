@@ -6,6 +6,7 @@ import { Image, Linking, Modal, Pressable, ScrollView, Share, Text, TextInput, V
 
 import { hubClient } from '../api/client';
 import { Card } from '../components/Card';
+import { Umriss } from '../components/Zustand';
 import { type Ort } from '../lib/ladenkarte';
 import { sternProtokoll, sternZiel, wochenSterne } from '../lib/aemtlisterne';
 import { modusSatz } from '../lib/babysitter';
@@ -13,6 +14,7 @@ import { gruppiereModule } from '../lib/familiemodule';
 import { DraggableList } from '../components/DraggableList';
 import { Shops } from '../components/Shops';
 import { useOrte } from '../hooks/useOrte';
+import { useTakt } from '../hooks/useTakt';
 import { ortKennung } from '../lib/orte';
 import { Colors, useColors } from '../theme';
 import { RecipeBook } from './RecipeBook';
@@ -588,12 +590,9 @@ export function FamilyScreen({
 
   // Der Takt fürs Band: Es verschwindet von selbst, und ohne diesen
   // Tick bliebe es stehen, bis der Bildschirm aus einem anderen Grund
-  // neu zeichnet.
-  useEffect(() => {
-    if (!zurueck) return undefined;
-    const takt = setInterval(() => setJetztTick(Date.now()), 1000);
-    return () => clearInterval(takt);
-  }, [zurueck]);
+  // neu zeichnet. Punkt 345: über den gemeinsamen Takt statt einem
+  // eigenen setInterval.
+  useTakt(() => setJetztTick(Date.now()), zurueck ? 1000 : null);
 
   // Was der Hub nebenbei weiss: fällige Standardartikel, die Hausadresse
   // und wer gerade da ist. Alles drei ohne Aufhebens - fehlt es, bleibt
@@ -4354,6 +4353,14 @@ export function FamilyScreen({
     merkeGesehen(key);
     setView(key);
   };
+
+  // Punkt 365: Ein Umriss statt der Leere, solange weder der
+  // Zwischenspeicher noch der Hub geantwortet haben - `stand` ist genau
+  // dafür `null` (screens/family/ablage.ts). Sonst sah die Seite beim
+  // allerersten Öffnen aus, als gäbe es siebzehn leere Module.
+  if (stand === null) {
+    return <Umriss was="Familie" zeilen={5} hoehe={72} />;
+  }
 
   return (
     <View style={styles.stack}>

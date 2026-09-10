@@ -43,6 +43,20 @@ export interface TagesGriff {
   befehle: TagesBefehl[];
 }
 
+/**
+ * Der Szenen-Griff, der abends neben «Licht aus» und «Storen zu» steht.
+ *
+ * Anders als die Geräte-Griffe oben ohne Rückfrage: Eine Szene («Kino»,
+ * «Schlafen») schaltet, was jemand im Ablauf-Editor dafür festgelegt
+ * hat - das noch einmal aufzuzählen wäre dieselbe Liste an zwei Orten.
+ */
+export interface TagesSzenenGriff {
+  key: 'abend_szene';
+  sceneId: string;
+  label: string;
+  icon: string;
+}
+
 /** Name und Raum an den Befehl heften (rein, testbar). */
 function befehl(entity: Entity, command: string): TagesBefehl {
   return { entityId: entity.id, command, name: entity.name, room: entity.room };
@@ -78,6 +92,16 @@ export function griffLabel(anzahl: number, einzahl: string, mehrzahl: string): s
   return anzahl === 1 ? einzahl : `${anzahl} ${mehrzahl}`;
 }
 
+/** Ist gerade der Abend, in dem «Licht aus» und «Storen zu» erscheinen?
+ *  (rein, testbar) Ab 21 Uhr und über Mitternacht hinaus bis 2: Wer um
+ *  halb eins den letzten Gang macht, brennt genauso Licht wie um halb
+ *  elf. Dieselbe Uhr wie in tagesGriffe - eine zweite Zahl für dasselbe
+ *  Fenster liefe irgendwann auseinander. */
+export function istAbendfenster(now: Date): boolean {
+  const stunde = now.getHours();
+  return stunde >= 21 || stunde < 2;
+}
+
 /**
  * Die Griffe, die zur Stunde passen (rein, testbar).
  *
@@ -106,7 +130,7 @@ export function tagesGriffe(entities: Entity[], now: Date): TagesGriff[] {
     return griffe;
   }
 
-  if (stunde >= 21 || stunde < 2) {
+  if (istAbendfenster(now)) {
     const an = brennende(entities);
     if (an.length > 0) {
       griffe.push({
@@ -134,4 +158,19 @@ export function tagesGriffe(entities: Entity[], now: Date): TagesGriff[] {
   }
 
   return griffe;
+}
+
+/**
+ * Der Szenen-Griff für die Abendzeile (rein, testbar).
+ *
+ * Ohne Szene oder ausserhalb des Abendfensters gibt es keinen - die
+ * Startseite soll «Kino» nicht auch um vier am Nachmittag anbieten,
+ * nur weil jemand einmal eine so benannte Szene angelegt hat.
+ */
+export function abendSzenenGriff(
+  szene: { id: string; name: string; icon: string } | null | undefined,
+  now: Date
+): TagesSzenenGriff | null {
+  if (!szene || !istAbendfenster(now)) return null;
+  return { key: 'abend_szene', sceneId: szene.id, label: szene.name, icon: szene.icon };
 }

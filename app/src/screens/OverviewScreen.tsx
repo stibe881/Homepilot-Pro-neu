@@ -335,8 +335,12 @@ export function OverviewScreen({
   // Szenen. Solange keine markiert ist, springen «Kino» und «Schlafen»
   // (per Namenserkennung) ein, damit die Knöpfe nicht leer starten.
   const flagged = scenes.filter((scene) => scene.on_start);
+  // Dieselbe Namenserkennung liefert auch den Abend-Griff neben «Licht
+  // aus» und «Storen zu» (TagesZeile) - beim Aufräumen vorm Film liegt
+  // «Kino» genau dort, wo man ohnehin gerade hintippt.
+  const kinoSzene = scenes.find((scene) => /kino/i.test(scene.name));
   const fallback = [
-    scenes.find((scene) => /kino/i.test(scene.name)),
+    kinoSzene,
     scenes.find((scene) => /schlaf/i.test(scene.name)),
   ].filter(Boolean) as typeof scenes;
   const startScenes = flagged.length > 0 ? flagged : fallback;
@@ -998,8 +1002,20 @@ export function OverviewScreen({
 
       {/* Der Handgriff zur Tageszeit: morgens «Storen auf», abends
           «Licht aus» und «Storen zu» - nur, wenn es etwas zu tun gibt
-          (Punkt 257 der Werkbank, lib/tageszeile.ts). */}
-      <TagesZeile entities={entities} now={now} onCommand={onCommand} />
+          (Punkt 257 der Werkbank, lib/tageszeile.ts). Daneben, zur
+          selben Abendzeit, der Griff zur Kino-Szene - falls es eine
+          gibt. */}
+      <TagesZeile
+        entities={entities}
+        now={now}
+        abendSzene={
+          kinoSzene
+            ? { id: kinoSzene.id, name: kinoSzene.name, icon: sceneIcon(kinoSzene) }
+            : null
+        }
+        onCommand={onCommand}
+        onActivateScene={onActivateScene}
+      />
       {/* Zugang steht immer gleich unter den Schnellaktionen. Danach
           tauschen Haushalt und Heute je nach Tageszeit den Platz: morgens
           zuerst der Tag (Termine, Musik), abends zuerst die Wohnung. */}
@@ -1242,11 +1258,8 @@ function DurchsageFenster({
 
   // Die Sekundenanzeige läuft nur, solange aufgenommen wird - ein
   // Ticker, der immer läuft, zeichnet das Blatt bei jedem Tippen neu.
-  useEffect(() => {
-    if (seit === null) return;
-    const takt = setInterval(() => setJetzt(Date.now()), 250);
-    return () => clearInterval(takt);
-  }, [seit]);
+  // Punkt 345: über den gemeinsamen Takt statt einem eigenen setInterval.
+  useTakt(() => setJetzt(Date.now()), seit === null ? null : 250);
 
   // Beim Schliessen des Blattes das Mikrofon loslassen. Sonst bliebe im
   // Browser der rote Punkt im Tab stehen, und auf dem Wandpanel sähe

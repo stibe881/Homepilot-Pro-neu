@@ -56,7 +56,6 @@ import { Grundriss } from '../components/Grundriss';
 import { LiveTuerSchalter } from '../components/LiveTuerSchalter';
 import { PushPrefs } from '../components/PushPrefs';
 import { ActivityCard, MediaPanel, SidePanel } from '../components/SidePanel';
-import { Raumspieler } from '../components/Raumspieler';
 import { useMusikwahl } from '../hooks/useMusikwahl';
 import { Bestaetigung, Toast, UndoToast } from '../components/Toast';
 import { TopStrip } from '../components/TopStrip';
@@ -134,7 +133,7 @@ import {
   jetzigerAbschnitt,
   lohntSich,
 } from '../lib/tageszeit';
-import { hubClient, onHubFehler } from '../api/client';
+import { HubFehler, hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
 import { Abschnitt } from '../components/Abschnitt';
 import { BesuchKarte } from '../components/BesuchKarte';
@@ -149,6 +148,7 @@ import { VerbindungenScreen } from './VerbindungenScreen';
 import { AlarmScreen } from './AlarmScreen';
 import { EnergyScreen } from './EnergyScreen';
 import { SpeakersScreen } from './SpeakersScreen';
+import { DiagnoseScreen } from './DiagnoseScreen';
 import { SystemScreen } from './SystemScreen';
 import { EntityHistory } from '../components/EntityHistory';
 import { MusikBlatt } from '../components/MusikBlatt';
@@ -470,18 +470,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Ob die Trennung Bestand hat - erst dann kommt der Ausfall-Balken.
   const ausfall = useAusfall(status);
   const [gridWidth, setGridWidth] = useState(0);
-  // Die Musik des Zimmers steht im Raumkopf: zugeklappt als Streifen
-  // neben den Szenen, aufgeklappt als ganze Karte darunter. Welche Box
-  // gezeigt wird, hält der Haken (hooks/useMusikwahl.ts) - hier nur, ob
-  // die Karte offen ist.
-  //
-  // Vorher lag sie rechts in der Spalte - auf dem Tablet unter dem
-  // Raumkopf, auf dem Telefon unter allen Kacheln. Damit die Karte dort
-  // nicht neben dem Raumtitel klebte, mass die Seite drei Höhen (Kopf,
-  // Gruppentitel, Raster) und schob die Spalte um deren Summe nach
-  // unten. Genau dieses Feld daneben blieb dabei leer - und in ihm
-  // steht die Musik jetzt.
-  const [musikOffen, setMusikOffen] = useState(false);
   const [editing, setEditing] = useState(false);
   // «Räume ordnen»: Die Reihenfolge kam aus der config.yaml – wer sie
   // ändern wollte, brauchte den Rechner.
@@ -557,6 +545,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Zeitstempel hängt an der Bildadresse: Ohne ihn zeigte ein Telefon
   // nach dem Wechseln wochenlang das alte Foto aus seinem Speicher.
   const [raumbilder, setRaumbilder] = useState<Record<string, number>>({});
+  // Welche Person ein Bild hat, und von wann - für «Wer ist da» (Punkt
+  // 415). Anders als raumbilder erst beim Öffnen des Blatts geholt, nicht
+  // beim Verbinden: Eine Liste, die selten jemand öffnet, braucht ihr
+  // Bild nicht auf Vorrat.
+  const [personenbilder, setPersonenbilder] = useState<Record<string, number>>({});
   // Für welchen Raum das Blatt «Bild wählen» offen steht.
   // Für welchen Raum der Player offen steht (Musik-Knopf der Raumkachel).
   const [musikBlattRaum, setMusikBlattRaum] = useState<string | null>(null);
@@ -964,6 +957,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     [raumbilder, settings.url, settings.token]
   );
 
+  /** Dieselbe Rechnung für das Bild einer Person (Punkt 415). */
+  const personenbildUrl = useCallback(
+    (name: string): string | null => {
+      const stand = personenbilder[name];
+      if (!stand) return null;
+      const token = settings.token ? `token=${encodeURIComponent(settings.token)}&` : '';
+      return `${settings.url}/api/persons/${encodeURIComponent(name)}/image?${token}v=${stand}`;
+    },
+    [personenbilder, settings.url, settings.token]
+  );
+
   const [widgetAblage, setWidgetAblage] = useState<Ablage>('kein-widget');
   useEffect(() => {
     // Erst, wenn etwas da ist: Vor der ersten Antwort des Hubs sind
@@ -1024,6 +1028,31 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           )
           .then(() => setNote('Erinnerung in 30 Minuten'))
           .catch(() => {});
+        return;
+      }
+      // «Heute nicht mehr» (Punkt 397): stellt die ganze Kategorie für
+      // den Rest des Tages still, direkt aus der Mitteilung heraus -
+      // ohne den Umweg über Konto → Benachrichtigungen. 24 Std., dieselbe
+      // Vorgabe wie der gleichnamige Knopf dort (components/PushPrefs.tsx).
+      //
+      // Der Knopf steht unter jeder Kategorie, die ihre iOS/Android-
+      // Mitteilungsgruppe mit anderen teilt (mitteilungsknoepfe.ts) -
+      // darunter auch «medication», die sich laut Hub nie stillstellen
+      // lässt (core/pushruhe.py:IMMER_DURCH). Deshalb hier die Antwort
+      // des Hubs zeigen statt sie stumm zu verschlucken: Ein Knopf, der
+      // ohne Auskunft nichts tut, ist schlimmer als eine Fehlermeldung.
+      if (druck.handlung === 'still') {
+        if (!druck.category) return;
+        hub
+          .post(
+            '/api/push/still',
+            { category: druck.category, stunden: 24 },
+            { still: true }
+          )
+          .then(() => setNote('Heute nicht mehr – bis morgen ist Ruhe'))
+          .catch((err) =>
+            setNote(err instanceof HubFehler ? err.message : 'Das liess sich nicht stillstellen')
+          );
         return;
       }
       // «Gegossen» unter der Giess-Erinnerung: zählt wie Regen - die
@@ -1648,9 +1677,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Der Raumname als Schlüssel: Beim Wechsel ins nächste Zimmer gilt
   // wieder dessen Vorwahl, statt der Box, die man nebenan angetippt hat.
   const musik = useMusikwahl(entities, guardedCommand, pickPlayer(raumBoxen), room);
-  // Der Streifen steht nur, wo das Zimmer eine eigene Box hat. Sonst
-  // wäre er die Musik des Nachbarzimmers im Kopf dieses Zimmers - und
-  // genau das soll er nicht sein.
+  // Der Medienplayer steht nur, wo das Zimmer eine eigene Box hat.
+  // Sonst wäre es die Musik des Nachbarzimmers im Kopf dieses Zimmers -
+  // und genau das soll er nicht sein.
   const kopfSpieler = raumBoxen.length > 0 ? musik.player : undefined;
 
   // Ausgeblendete und in einer Leuchte aufgegangene Spots verschwinden
@@ -2294,6 +2323,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       show: sieht('activity'),
     },
     {
+      key: 'diagnose',
+      icon: 'medkit-outline',
+      label: 'Prüfwerkzeuge',
+      detail: 'Storen, Kamera, Fernseher, Sauger, Push',
+      show: sieht('diagnose'),
+    },
+    {
       key: 'widgets',
       icon: 'apps-outline',
       label: 'Widgets',
@@ -2793,6 +2829,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       return (
         <View style={styles.stack}>
           <SystemScreen settings={settings} user={user} entities={entities} push={push} />
+        </View>
+      );
+    }
+    if (section === 'diagnose') {
+      return (
+        <View style={styles.stack}>
+          <DiagnoseScreen settings={settings} />
         </View>
       );
     }
@@ -3340,35 +3383,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   suchen. Bisher lagen sie an zwei Stellen weiter unten -
                   die Szenen des Hubs als Gruppe, die Lichtszenen der
                   Bridge als eigene Kategorie hinter allen Geräten. */}
-              {/* Szenen links, die Musik des Zimmers rechts - beide in
-                  einer Zeile, weil rechts neben den Szenenknöpfen bisher
-                  ein leeres Feld stand. Wird es eng (Telefon, schmales
-                  Fenster), rutscht der Streifen auf eine eigene Zeile,
-                  statt die Szenen zu quetschen. */}
-              {roomScenes.length > 0 || kopfSpieler ? (
+              {roomScenes.length > 0 ? (
                 <View style={styles.raumUnterzeile}>
                   <View style={styles.raumSzenen}>
-                    {roomScenes.length > 0 ? (
-                      <SceneRow scenes={roomScenes} onActivate={szeneAusloesen} />
-                    ) : null}
+                    <SceneRow scenes={roomScenes} onActivate={szeneAusloesen} />
                   </View>
-                  {kopfSpieler ? (
-                    <Raumspieler
-                      entity={kopfSpieler}
-                      offen={musikOffen}
-                      onToggle={() => setMusikOffen((offen) => !offen)}
-                      onCommand={guardedCommand}
-                    />
-                  ) : null}
                 </View>
               ) : null}
             </View>
           ) : null}
-          {/* Aufgeklappt dieselbe Karte, die früher rechts in der Spalte
-              stand: Playlist, Sender, Box, Warteschlange, Lautstärke.
-              Sie steht unter dem Kopf und über den Kacheln - dort, wo
-              der Streifen sie ankündigt. */}
-          {musikOffen && kopfSpieler && section === 'home' && room !== ALL_ROOMS ? (
+          {/* Der komplette Medienplayer, nicht mehr hinter einem
+              Streifen zum Aufklappen: Wer ein Zimmer öffnet, will die
+              Musik dort sehen und bedienen, nicht erst antippen, dass
+              sie überhaupt erscheint - dieselbe Karte, die früher
+              rechts in der Spalte stand (Playlist, Sender, Box,
+              Warteschlange, Lautstärke). */}
+          {kopfSpieler && section === 'home' && room !== ALL_ROOMS ? (
             <View style={styles.raumMusikkarte}>
               <MediaPanel
                 entity={kopfSpieler}
@@ -3900,16 +3930,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 showClock={!!settings.panel}
                 queued={queued}
                 // Erst beim Antippen holen: Ein Dauerabruf für ein Fenster,
-                // das selten jemand öffnet, wäre Verschwendung.
+                // das selten jemand öffnet, wäre Verschwendung. Die Bilder
+                // gleich mit - dieselbe Gelegenheit, derselbe Moment.
                 onLoadPresence={async () => {
-                  const antwort = await hub.get<{ people?: Person[] } | null>(
-                    '/api/presence',
-                    {
+                  const [antwort, bilder] = await Promise.all([
+                    hub.get<{ people?: Person[] } | null>('/api/presence', {
                       still: true,
-                    }
-                  );
+                    }),
+                    hub.get<{ images?: Record<string, number> } | null>(
+                      '/api/persons/images',
+                      { fallback: null, still: true }
+                    ),
+                  ]);
+                  setPersonenbilder(bilder?.images ?? {});
                   return antwort?.people ?? [];
                 }}
+                personenbildUrl={personenbildUrl}
                 // Auf der Startseite wird die Kopfzeile zur gerahmten
                 // Begrüssungskarte - gleiche Angaben, gleiche Fenster,
                 // nur als Karte. Begrüssung und Randnotizen ziehen mit

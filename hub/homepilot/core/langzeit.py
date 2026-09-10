@@ -31,6 +31,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Any
 
 from . import energy
+from . import gutscheine as gutscheine_module
 from .entity import EntityKind
 
 if TYPE_CHECKING:
@@ -263,6 +264,17 @@ async def erstellen(
     if not licht:
         fehlt.append("licht: im Zeitraum ist kein Einschalten protokolliert")
 
+    # Gutscheine: rein lokal, wie Strom und Licht (Punkt 372 der
+    # Werkbank). Die unangenehme Zahl - was in diesem Monat oder Jahr an
+    # Guthaben verfallen ist - ist die, die den Rückblick zu etwas macht,
+    # das man ernst nimmt statt nur überfliegt.
+    gutscheine_rueckblick = gutscheine_module.verfallen_zeitraum(
+        hub.data.get(gutscheine_module.KEY), start, tag
+    )
+    gutscheine: dict[str, Any] | None = (
+        gutscheine_rueckblick if gutscheine_rueckblick["anzahl"] > 0 else None
+    )
+
     # Temperatur: der Supabase-Teil - der einzige, denn nur die
     # state_history reicht Wochen zurück.
     temperatur: dict[str, Any] | None = None
@@ -314,5 +326,6 @@ async def erstellen(
         # Hitparade eine Untergrenze, keine Wahrheit.
         "licht_vollstaendig": bool(licht_vollstaendig),
         "temperatur": temperatur,
+        "gutscheine": gutscheine,
         "fehlt": fehlt,
     }

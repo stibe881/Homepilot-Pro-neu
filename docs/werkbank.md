@@ -3136,3 +3136,308 @@ gemessenen Breite. Danach mit einem künstlichen Zusatz-Aufbau
 gegenprüfen, dass die Probe grün bleibt.
 
 Stellen: `app/src/components/Lauftext.tsx`, `scripts/probe.mjs`
+
+## Gutscheine, Abläufe, Push (369, 371-372, 375-379, 397)
+
+Aus einer Liste von neunundvierzig Vorschlägen (App, User Experience,
+Design, Gutscheine, Abläufe, Push, Alarm, selbst gewählt), die zuerst
+selbst zu erstellen war. Zwei Durchsichten vorweg ersparten drei
+Punkte: **368** (Gutschein-Adresse und Erinnerung in der Nähe) war
+zwischen Vorschlag und Umsetzung schon über den Hauptzweig eingegangen;
+**381** (Toast nach dem Speichern eines Ablaufs) und **385**
+(Massen-Bearbeitung bei Gerätetausch) gab es bereits – `save()` ruft
+schon `onNote(...)`, und «Gerät ersetzen» in den Geräte-Werkzeugen
+aktualisiert längst Szenen, Abläufe, Raumzuordnung und Leuchtengruppen.
+
+### 371. Sichere Buchungen ✓ erledigt (dc6fbc1)
+
+Zwei Telefone, die im selben Moment abziehen, sahen beide denselben
+alten Rest – wessen PUT zuletzt ankam, überschrieb die Buchung des
+anderen wortlos. Jetzt führt die Route die Verläufe zusammen (an `at`
+erkannt, `transaktionen_zusammenfuehren`) statt sie zu ersetzen, und
+`left` folgt immer aus dem Verlauf, nie aus dem, was die App schickt.
+
+### 372. Archiv ✓ erledigt (dc6fbc1)
+
+Ein aufgebrauchter Gutschein wandert jetzt automatisch aus der Liste,
+sobald eine frische Buchung ihn auf null bringt – und wieder heraus per
+Knopf im Detail. Einen Tag nach dem Ablauf kommt eine letzte Meldung mit
+dem Betrag, der weg ist, und der Gutschein wird archiviert; die Summe
+verfallener Gutscheine steht jetzt auch im Monats- und Jahresrückblick.
+
+### 375. Vorlagen je Laden ✓ erledigt (dc6fbc1)
+
+Kategorie, Einheit und Einlöseart füllen sich beim zweiten Gutschein
+desselben Ladens – nur beim Anlegen und nur, solange noch nichts anderes
+eingestellt ist.
+
+### 376. Stückgutscheine ✓ erledigt (dc6fbc1)
+
+«1 einlösen» als eigener Knopf statt erst eine Eins eintippen und
+bestätigen – der Normalfall bei Kinoeintritten.
+
+### 377. Übergabe mit Annahme ✓ erledigt (dc6fbc1)
+
+Der Besitzer wechselte bisher sofort, sobald jemand «Übergeben»
+antippte – ein vertippter Name verschenkte den Gutschein an die falsche
+Person. Jetzt ist es ein Vorschlag; erst die Annahme über eine eigene
+Route ändert den Besitzer, mit Push-Nachricht an die eingeladene Person
+und einem schmalen Auszug `/api/family/vouchers/eingehend` – der volle,
+private Gutschein bleibt bis dahin unsichtbar für sie.
+
+### 369. Nummer scannen ✓ erledigt (dc6fbc1)
+
+`QrScanner` ist jetzt allgemein: `onText` lässt jeden gelesenen Code
+durch statt nur das Einrichtungs-JSON. Ein Knopf beim Nummer-Feld
+scannt die Karte statt sie abzutippen.
+
+Dabei zwei echte Fehler gefunden: `alsGutschein()` liess `art` und
+`storniert` jeder Buchung beim Einlesen vom Hub unter den Tisch fallen
+– nach jedem Neuladen sah eine Rücknahme wie ein gewöhnlicher Abzug aus.
+Und `QrScanner` liess seine Sperre gegen doppeltes Auslösen über einen
+Neuöffnen-Zyklus hinweg stehen – ein zweiter Scan hätte still nichts
+mehr gemeldet.
+
+### 378. Unbekannte Bausteine ablehnen ✓ erledigt (50e7ed7)
+
+Ein Tippfehler im Aktions- oder Bedingungstyp liess sich bisher
+speichern – der Ablauf lief dann und tat nichts, nur ein `log.warning`
+beim Ausführen verriet es. Jetzt prüft `core/ablaufpruefung.py` beim
+Speichern rekursiv gegen die bekannten Wörter und weist mit 400 ab.
+Auslöser bleiben aussen vor – ihre Formen sind über zu viele Stellen
+verteilt, um sie vollständig und ohne falsche Abweisungen aufzuzählen.
+
+### 379. Eigene Nachtruhe-Stunden je Ablauf ✓ erledigt (50e7ed7)
+
+`quiet_from`/`quiet_to` (0-23) statt der festen 22-8 Uhr – ohne Angabe
+gilt weiter die Vorgabe, und die Nachtruhe des ganzen Hauses bleibt für
+alle anderen Stellen unverändert.
+
+### 397. «Heute nicht mehr» aus der Mitteilung ✓ erledigt (50e7ed7)
+
+Ein dritter Knopf neben «Später»/«Erledigt», stellt die ganze Kategorie
+für den Rest des Tages still – ohne den Umweg über Konto →
+Benachrichtigungen.
+
+### 398-400, 403, 407. Alarmzonen, eigene PIN je Person, Zwangs-PIN, Sensor-Testlauf, Fehlalarm-Statistik ✓ erledigt (e80e296)
+
+Fünf Punkte auf einmal, weil sie an denselben Stellen sitzen
+(`integrations/alarm.py`, `alarm_rules.py`):
+
+- **398 Zonen** – jeder Sensor trägt jetzt ein `zone`-Feld (frei
+  eingebbar, kein fester Katalog), `arm()` nimmt eine Zone entgegen und
+  wertet nur deren Sensoren aus. Ohne Zone verhält sich alles wie
+  bisher - die Übersichtsroute meldet die bereits vergebenen Zonen zum
+  Anwählen, damit niemand neue Schreibweisen erfindet.
+- **399 eigene PIN je Person** – `set_pin` war bisher eine einzelne,
+  geteilte PIN. Jetzt legt jede Person ihre eigene an
+  (Selbstbedienung); eine fremde zu setzen bleibt
+  `MANAGE_USERS` vorbehalten. `check_pin` prüft alle hinterlegten PINs
+  und meldet zurück, wer entschärft hat - auf einem geteilten Gerät
+  überschreibt das die sonst passende Vermutung, auf dem eigenen
+  Telefon bleibt die eigene Identität massgebend.
+- **400 Zwangs-PIN** – eine zweite, unauffällige PIN, die genauso
+  entschärft, aber im Hintergrund eine eigene Meldung nur an die
+  *anderen* Bewohner auslöst (nie ans eigene Telefon - eine Nachricht
+  dort wäre der Zwang selbst). Setzbar erst, wenn die eigene normale
+  PIN schon existiert, und nicht identisch mit ihr.
+- **403 Sensor-Testlauf** – nur bei unscharfer Anlage startbar: jeden
+  gewählten Sensor einmal auslösen, der Hub hakt beim Eintreffen ab.
+  Verhindert das «scharf gestellt, aber der Fenstersensor hängt seit
+  Wochen» - ohne dafür die Anlage scharf zu stellen.
+- **407 Fehlalarm-Statistik** – `alarmbericht.fehlalarm_kandidaten()`
+  geht den Verlauf chronologisch durch und zählt, welcher Sensor
+  auffällig oft schnell (< 60 s) und ohne dass die Eskalation je lief
+  entschärft wurde. Die neue Route löst die Gerätekennung zum Namen
+  auf; in der App ein «Auf verzögert stellen»-Knopf direkt bei der
+  Kandidatenzeile.
+
+Dazu, weil unmittelbar zusammenhängend: `pin_users` in der Übersicht
+(wer hat überhaupt eine PIN gesetzt), und eine reale Alterung behoben -
+`set_pin`/`set_duress_pin` schrieben bisher nur in `hub.data`, ohne den
+gecachten Anlagenzustand zu erneuern; eine frisch gesetzte PIN fehlte
+in der Übersicht bis zur nächsten Zustandsänderung.
+
+**401 (Zeitfenster für automatisches Scharfstellen)** stand schon vor
+dieser Runde im Code - keine eigene Arbeit nötig.
+
+### 391. Eskalation bei einem Wassermelder, der nass bleibt ✓ erledigt, verengt
+
+Ursprünglich als allgemeine Quittungs-Verfolgung gedacht - dafür hätte
+`push.py`, `pushverlauf.py` und eine neue, hausweite Route eine
+Quittierung je Meldung mitschreiben müssen, ein Umbau für sich. Verengt
+auf den einen Fall, in dem das Fehlen am teuersten ist: Wasser. Der
+Melder selbst sagt, ob noch jemand nachgesehen hat - bleibt er nach der
+ersten Meldung `LECK_ESKALATION_MINUTEN` (15) am Stück nass, kommt eine
+zweite, eindringlichere («Immer noch nass») statt stillem Weiterlaufen.
+Trocknet er zwischendurch, zählt ein erneutes Nasswerden als neuer
+Fall. Keine Quittung nötig, kein neues Datenmodell - nur ein Merker im
+Wächter (`_leak_since`, `_leak_escalated`), analog zum bestehenden
+Muster bei offenen Fenstern.
+
+### Eine Nummer, zweimal vergeben (341, 345)
+
+Die 49-Punkte-Liste dieses Auftrags zählte ab 338 weiter, weil die
+Werkbank zu dem Zeitpunkt bei 267 endete. Während der Umsetzung liefen
+aber weitere Commits ein, die 268–353 unabhängig davon nachtrugen -
+darunter «341, 342, 345, 349, 352» (Zeile oben) mit ganz anderem
+Inhalt. Die Kollision fiel erst auf, als die Punkte unten schon
+gebaut, getestet und mit «Punkt 341»/«Punkt 345» im Code kommentiert
+waren. Umzunummerieren hätte geheissen, bereits gepushte Commits samt
+ihren Codekommentaren nachträglich zu ändern - mehr Risiko als der
+Nutzen einer sauberen Zahl. Die Einträge unten bleiben darum bei 341
+und 345, mit diesem Verweis als Auflösung. Künftige Funde aus dieser
+Liste zählen ab 423 weiter, nicht mittendrin.
+
+### 341 (App-Liste). Gleichzeitiges Bearbeiten an Familienlisten absichern ✓ erledigt
+
+Familienlisten wurden per PUT ganz überschrieben - speichern zwei
+Telefone denselben Eintrag kurz nacheinander, gewann bisher schlicht,
+wer zuletzt sendet, und trug dabei still den Stand von vor der ersten
+Änderung zurück. Jeder Eintrag trägt jetzt `updated` (vom Hub gesetzt);
+`family_update` vergleicht den mitgeschickten Stempel mit dem
+gespeicherten (`core/gleichzeitig.py`, `stempel_passt`) und weist mit
+409 ab, wenn sie auseinanderlaufen - weich für ältere Apps und nie
+zuvor gespeicherte Einträge, die den Stempel nicht kennen.
+`useFamilienablage.update()` (`screens/family/ablage.ts`) trägt ihn
+automatisch in jede Änderung ein (`lib/familiecache.ts`, `mitStempel`)
+und lädt bei 409 neu. Bewusst aussen vor: die schnellen Häkchen und
+Mengenänderungen auf der Startseite (`hooks/useFamilienlisten.ts`) -
+einzelne, meist additive Felder, bei denen «wer zuletzt» kein echter
+Verlust ist, anders als ein frei getippter Text.
+
+### 344. Die Prüfwerkzeuge aus der App aufrufbar ✓ erledigt
+
+`storencheck`, `livecheck`, `tvcheck`, `saugercheck`, `pushcheck`
+brauchten `docker exec`. Die neue Route `/api/diagnose/{werkzeug}` baut
+sie nicht um - sie lesen schon heute Token und Host aus derselben
+Konfiguration wie der Hub selbst und sprechen ihn über HTTP an wie
+jeder Client. Die Route startet dasselbe Programm als Unterprozess im
+selben Container und reicht die Textausgabe unverändert weiter; die
+zwei dokumentierten Sonderläufe (`--funk`, `--kalt`) über eine
+Flag-Allowlist je Werkzeug. Besitzer-Ebene, weil die Ausgabe
+Token-Stände und rohe Gerätezustände nennt. Ein neuer Bildschirm
+(`DiagnoseScreen.tsx`) unter Einstellungen → Prüfwerkzeuge zeigt sie.
+
+### 345 (App-Liste). Ein gemeinsamer Takt statt eigener setInterval ✓ erledigt
+
+`useTakt` (Werkbank 241) hält im Hintergrund an und lädt beim
+Zurückkommen sofort einmal neu - sieben Stellen bauten sich trotzdem
+weiter ihren eigenen `setInterval`: Kamerawand, BesuchKarte,
+Fortschritt, medienextras, `useSensorlinien`, der Aufnahme-Ticker in
+OverviewScreen und der Bandtakt in FamilyScreen. Am Wandtablet, das
+durchgehend läuft, macht das den Unterschied. Bewusst nicht angefasst:
+Der Update-Poll in SystemScreen.tsx - der Kommentar dort begründet,
+warum er gerade im Hintergrund nicht schweigen darf.
+
+### 357. Einführungskapitel «Was das Haus von selbst tut» ✓ erledigt
+
+Ein vierter Schritt in der Einführung - Nachtruhe, Abläufe,
+Alarm-Kopplung -, genau das überrascht neue Mitbewohner am meisten,
+wenn ein Licht ohne Tipp angeht. `EINFUEHRUNG_STAND` auf 3, damit es
+auch sieht, wer die Einführung längst weggeklickt hat.
+
+### 362. Feste Ziffernbreite auch in Listen ✓ erledigt
+
+Punkt 296 gab der grossen Kennzahl feste Ziffernbreite; Listen mit
+Beträgen (Gutscheine, Energie) blieben aussen vor - eine Liste ruckte
+seitwärts, sobald sich eine Ziffer änderte. `betragGross`,
+`betragEinheit`, `detailZahl`, `verlaufBetrag` (Gutscheine) sowie
+`factValue`, `rowValue` (Energie) bekommen dieselbe Auszeichnung; ein
+Test liest die Stildefinitionen und hält es fest.
+
+### 365. Ein Umriss statt der Leere beim allerersten Öffnen ✓ erledigt
+
+Abläufe hatte den Umriss (Punkt 284) schon - Familie fiel beim ersten
+Öffnen (weder Zwischenspeicher noch Hub haben geantwortet) auf die
+Leer-Ansicht jedes einzelnen Moduls zurück und sah aus, als gäbe es
+siebzehn leere Listen. `stand` ist für genau diesen Fall `null`
+(`screens/family/ablage.ts`) - jetzt steht dort ein Umriss.
+
+### 366. Kontrast der Signalfarben auf dem Verlauf ✓ erledigt
+
+Der Kontrasttest rechnete bisher nur weisse Schrift direkt auf dem
+Verlauf (`onGradient`). Nachgerechnet zeigt sich, warum nie Rot oder
+Orange: Ein fester Farbton kann nicht zugleich gegen das helle und das
+dunkle Ende eines Verlaufs abstechen - im Hellen und im Sand-Bild sinkt
+roh aufgelegtes Rot/Orange auf rund 1. Genau das traf auf die
+Unwetterwarnung der Startkarte zu (`TopStrip.karteWarn`); sie bekommt
+jetzt einen deckenden Grund (`karteWarnPille`) - im Hellen steigt der
+Kontrast von 1.1 auf 3.4. Ein neuer Test hält je Palette fest, wie
+schwach das rohe Rot/Orange bleibt, damit es nicht unbemerkt schwächer
+wird.
+
+### 367. Druckansicht für einen Ablauf ✓ erledigt
+
+Ein Druck-Knopf neben Kopieren/Bearbeiten in den Abläufen, für den
+Ordner oder den Babysitter. `ablaufseite.ts` zieht dieselben Sätze, die
+schon im Editor mitlaufen (`ablaufsatz.ts`), in eine Liste auseinander
+- Wenn, Nur wenn, Dann, Sonst - neben das Rezeptblatt aus Punkt 191/149.
+
+### 415. Personenbilder für die Anwesenheit ✓ erledigt
+
+Ein Gesicht statt des Symbols in «Wer ist da». `core/personenbilder.py`
+ist ein dünner Wrapper um `core/raumbilder.py` - Hashen, Entpacken,
+Schreiben, Aufräumen sind für ein Zimmer und eine Person dasselbe
+Rechnen, nur der Ordner ist ein anderer. Neue Routen unter
+`/api/persons/{name}/image`: lesen darf jeder Angemeldete, setzen und
+entfernen jeder für sich selbst, für eine fremde Person nur mit
+`MANAGE_USERS`. App-seitig ein Bild-Knopf im Benutzer-Detail
+(`components/Personenbild.tsx`), und TopStrip zeigt das Foto in der
+Anwesenheitsliste, wo eines gesetzt ist.
+
+### 419. Musik folgt der Person ✓ erledigt, verengt
+
+Neuer Musik-Schritt `follow`: übernimmt den laufenden Radiosender einer
+Box auf eine andere und pausiert die erste. Bewusst nur der Sender,
+nicht «was auch immer gerade läuft» - eine Playlist oder ein
+Streaming-Dienst liesse sich über keine der angebundenen Integrationen
+hinweg ehrlich fortsetzen, ein Radiosender ist dieselbe Auskunft, die
+auch ein Favorit schon nutzt (`play_radio`/`station`). Der Editor
+bekommt zwei Boxenwähler (woher/wohin); eine Vorlage («Musik folgt:
+Raum → Raum») schlägt den wahrscheinlichsten Weg vor - die erste Box in
+den Raum mit einem eigenen Bewegungsmelder -, ausgeschaltet geliefert:
+Welche zwei Räume gemeint sind, weiss nur der Haushalt.
+
+### Nicht umgesetzt, mit Begründung
+
+- **370** (Beleg-Erkennung aus einem Foto) – keine OCR-Anbindung; eine
+  hinzuzufügen wäre eine grössere, eigene Entscheidung.
+- **373** (eigenes Gutschein-Widget) – natives Modul, hier ohne
+  Xcode/Gradle nicht verifizierbar zu bauen.
+- **383** (Variablen im Ablauf) – ein eigener Schritt-Typ quer durch
+  Hub-Logik und Editor-Oberfläche, vom Umfang vergleichbar mit dem
+  ganzen Gutschein-Block dieser Runde.
+- **389** (Posteingang für Push) – teilweise schon da: «Zuletzt
+  gemeldet» in den Push-Einstellungen zeigt die letzten Meldungen,
+  ohne Bilder und ohne eigenen Bildschirm.
+- **392** (kritische Meldungen als «critical alert») – braucht eine
+  gesonderte Berechtigung von Apple.
+- **405** (Watch-App) – ohne Xcode/watchOS-Werkzeuge hier nicht
+  verifizierbar zu bauen.
+- **353/340** (Lauftext misst sich falsch) – zwei frühere Versuche
+  stehen oben als gescheitert; ohne eine mit Messung belegte dritte
+  Fassung kein Versuch auf Verdacht.
+- **363** (Abstandsraster als Test) – 913 Stellen im Code tragen heute
+  eine nackte `padding`-Zahl statt eines `space`-Werts; sie alle auf
+  das heutige, sehr kleine `space`-Raster (`gap`, `page`) umzustellen
+  wäre ein Umbau quer durch die ganze Oberfläche, nicht ein Test dazu.
+- **339** (DashboardScreen.tsx aufteilen) – bleibt bei «begonnen»
+  (Punkt 268): mit 4417 Zeilen kaum gewachsen; ein sauberer Schnitt
+  jetzt, obendrauf auf alles, was diese Runde sonst noch an dieser
+  Datei geändert hat, wäre der riskanteste Einzelschritt der ganzen
+  Liste gewesen.
+- **354** (Widget-Rückmeldung) – natives WidgetKit/SwiftUI
+  (`targets/widget/index.swift`), hier ohne Xcode nicht verifizierbar.
+- **356, 359, 360, 361, 364** (Wisch-Übergänge am Rail,
+  Kachelhöhen-Regel, Farbcodierung des Rails, Paletten-Bilddiff,
+  iPhone-Quer) – alle fünf sind Layout- oder Design-Entscheidungen, die
+  erst über mehrere Erscheinungsbilder und Bildschirmgrössen hinweg
+  sichtbar richtig oder falsch sind; ohne eine Sitzung an der
+  Browser-Probe mit echtem Hin- und Herschauen wäre das Raten statt
+  Prüfen.
+- **417** (Familienbuch als Jahresband) – ein eigenes Druck-Layout über
+  Rezepte, Ämtli-Sterne und Kontakte eines ganzen Jahres hinweg; vom
+  Umfang her ein eigener Auftrag, nicht mehr an die Reihe gekommen.
+
+Stellen: `hub/homepilot/core/gutscheine.py`, `hub/homepilot/core/ablaufpruefung.py`, `hub/homepilot/core/automation.py`, `hub/homepilot/core/watchdog.py`, `hub/homepilot/core/watchrules.py`, `hub/homepilot/core/alarmbericht.py`, `hub/homepilot/core/gleichzeitig.py`, `hub/homepilot/core/personenbilder.py`, `hub/homepilot/api/routes/diagnose.py`, `hub/homepilot/integrations/alarm.py`, `hub/homepilot/integrations/alarm_rules.py`, `hub/homepilot/api/routes/family.py`, `hub/homepilot/api/routes/automations.py`, `hub/homepilot/api/routes/alarm.py`, `hub/homepilot/api/routes/users.py`, `app/src/lib/gutscheine.ts`, `app/src/screens/family/gutscheine.tsx`, `app/src/components/QrScanner.tsx`, `app/src/screens/automations/entwurf.ts`, `app/src/screens/automations/vorlagen.ts`, `app/src/lib/ablaufseite.ts`, `app/src/lib/mitteilungsknoepfe.ts`, `app/src/screens/AlarmScreen.tsx`, `app/src/screens/family/ablage.ts`, `app/src/lib/familiecache.ts`, `app/src/components/Personenbild.tsx`, `app/src/screens/DiagnoseScreen.tsx`

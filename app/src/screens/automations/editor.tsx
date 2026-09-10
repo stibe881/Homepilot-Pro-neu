@@ -27,12 +27,13 @@ import {
   begrenzteAnzahl,
 } from '../../lib/kontrollfluss';
 import { ZUHAUSE, anwesenheitsPersonen, istOrtsmelder, ortsauswahl } from '../../lib/ortsausloeser';
-import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StateCondition, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, geraetePlatzhalter, KAMERA_AUSLOESER, kopieSchritt, PLATZHALTER, hatWartezeit, schaltetSpaeterAus, measurableAttributes, meldetEtwas, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis } from './entwurf';
+import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, STEP_KIND_ICON, StateCondition, StepDraft, StepKind, TRIGGER_KIND_ICON, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, geraetePlatzhalter, KAMERA_AUSLOESER, kopieSchritt, PLATZHALTER, hatWartezeit, schaltetSpaeterAus, measurableAttributes, meldetEtwas, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis, stundeAusText } from './entwurf';
 import {
   Abschnitt,
   CategoryField,
   Choice,
   EditorRahmen,
+  Kachelauswahl,
   Klappe,
   EntityPicker,
   Field,
@@ -848,13 +849,41 @@ export function Editor({
                 onSelect={(wahl) => set({ nachtsStill: wahl === 'still' })}
               />
               {draft.nachtsStill ? (
-                <Text style={styles.triggerNote}>
-                  Zwischen 22 und 8 Uhr bleiben Nachricht und Durchsage aus;
-                  alles andere im Ablauf läuft weiter. Für das, was bis zum
-                  Morgen Zeit hat – die Maschine räumt um drei Uhr niemand
-                  aus. Was nachts kommen muss («jemand weint im
-                  Kinderzimmer»), bleibt auf «melden wie sonst».
-                </Text>
+                <>
+                  <Text style={styles.triggerNote}>
+                    Zwischen {draft.nachtsVon ?? 22} und {draft.nachtsBis ?? 8} Uhr
+                    bleiben Nachricht und Durchsage aus; alles andere im Ablauf
+                    läuft weiter. Für das, was bis zum Morgen Zeit hat – die
+                    Maschine räumt um drei Uhr niemand aus. Was nachts kommen
+                    muss («jemand weint im Kinderzimmer»), bleibt auf
+                    «melden wie sonst».
+                  </Text>
+                  {/* Eigene Stunden statt der üblichen 22-8 (Punkt 379) -
+                      leer heisst die Vorgabe, deshalb keine Pflichtfelder. */}
+                  <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+                    <Text style={styles.triggerNote}>Von</Text>
+                    <TextInput
+                      style={[styles.input, { width: 56, textAlign: 'center' }]}
+                      value={draft.nachtsVon === null ? '' : String(draft.nachtsVon)}
+                      onChangeText={(text) => set({ nachtsVon: stundeAusText(text) })}
+                      placeholder="22"
+                      placeholderTextColor={colors.inkFaint}
+                      keyboardType="number-pad"
+                      accessibilityLabel="Nachtruhe beginnt um"
+                    />
+                    <Text style={styles.triggerNote}>bis</Text>
+                    <TextInput
+                      style={[styles.input, { width: 56, textAlign: 'center' }]}
+                      value={draft.nachtsBis === null ? '' : String(draft.nachtsBis)}
+                      onChangeText={(text) => set({ nachtsBis: stundeAusText(text) })}
+                      placeholder="8"
+                      placeholderTextColor={colors.inkFaint}
+                      keyboardType="number-pad"
+                      accessibilityLabel="Nachtruhe endet um"
+                    />
+                    <Text style={styles.triggerNote}>Uhr</Text>
+                  </View>
+                </>
               ) : null}
             </>
           ) : null}
@@ -1236,41 +1265,62 @@ export function TriggerRow({
           </Pressable>
         </View>
       ) : null}
-      <Choice
+      <Kachelauswahl
         options={[
           // «Gerät wechselt» stimmt bei einem Taster nicht: Der wechselt
           // nichts, er wird gedrückt.
           {
             key: 'state',
             label: chosen?.kind === 'button' ? 'Taster gedrückt' : 'Gerät wechselt',
+            icon: TRIGGER_KIND_ICON.state,
           },
-          { key: 'threshold', label: 'Messwert' },
-          { key: 'time', label: 'Uhrzeit' },
-          { key: 'sun', label: 'Sonnenstand' },
-          { key: 'interval', label: 'Regelmässig' },
-          { key: 'availability', label: 'Meldet sich nicht' },
+          { key: 'threshold', label: 'Messwert', icon: TRIGGER_KIND_ICON.threshold },
+          { key: 'time', label: 'Uhrzeit', icon: TRIGGER_KIND_ICON.time },
+          { key: 'sun', label: 'Sonnenstand', icon: TRIGGER_KIND_ICON.sun },
+          { key: 'interval', label: 'Regelmässig', icon: TRIGGER_KIND_ICON.interval },
+          {
+            key: 'availability',
+            label: 'Meldet sich nicht',
+            icon: TRIGGER_KIND_ICON.availability,
+          },
           // Der seltenste Auslöser, deshalb hinten - aber der, den man
           // sucht, wenn nachts um drei das ganze Haus brennt.
-          { key: 'power_restore', label: 'Nach Stromausfall' },
+          {
+            key: 'power_restore',
+            label: 'Nach Stromausfall',
+            icon: TRIGGER_KIND_ICON.power_restore,
+          },
           // Nur anbieten, wenn es auch Zonen gibt – ein leerer Auslöser
           // wäre ein Versprechen, das der Hub nicht halten kann.
           ...(entities.some((entity) => istOrtsmelder(entity.id))
-            ? [{ key: 'geofence', label: 'Ort' }]
+            ? [{ key: 'geofence', label: 'Ort', icon: TRIGGER_KIND_ICON.geofence }]
             : []),
           // Punkt 252: Kommen und Gehen als eigener Auslöser - nur, wo
           // es überhaupt gemeldete Personen gibt.
           ...(anwesenheitsPersonen(entities).length > 0
-            ? [{ key: 'presence', label: 'Person kommt/geht' }]
+            ? [
+                {
+                  key: 'presence',
+                  label: 'Person kommt/geht',
+                  icon: TRIGGER_KIND_ICON.presence,
+                },
+              ]
             : []),
           // Dito die Wetterwarnung: ohne MeteoAlarm-Gerät gäbe es
           // nichts zu hören.
           ...(entities.some((entity) => entity.kind === 'alert')
-            ? [{ key: 'weather_warning', label: 'Wetterwarnung' }]
+            ? [
+                {
+                  key: 'weather_warning',
+                  label: 'Wetterwarnung',
+                  icon: TRIGGER_KIND_ICON.weather_warning,
+                },
+              ]
             : []),
           // Dito für den Kalender (Punkt 153): ohne angebundenen Kalender
           // gäbe es nichts zu hören.
           ...(entities.some((entity) => Array.isArray(entity.state?.events))
-            ? [{ key: 'calendar', label: 'Termin' }]
+            ? [{ key: 'calendar', label: 'Termin', icon: TRIGGER_KIND_ICON.calendar }]
             : []),
         ]}
         value={trigger.kind}
@@ -1910,42 +1960,54 @@ export function StepList({
             </Pressable>
           </View>
 
-          <Choice
+          <Kachelauswahl
             options={[
-              { key: 'command', label: 'Gerät schalten' },
+              { key: 'command', label: 'Gerät schalten', icon: STEP_KIND_ICON.command },
               // Ein Wandtaster, zwei Räume, ein Zustand (siehe unten).
-              { key: 'toggle_all', label: 'Gemeinsam umschalten' },
-              { key: 'scene', label: 'Szene' },
-              ...(hueScenes.length > 0 ? [{ key: 'hue_scene', label: 'Hue-Szene' }] : []),
-              { key: 'notify', label: 'Nachricht' },
+              {
+                key: 'toggle_all',
+                label: 'Gemeinsam umschalten',
+                icon: STEP_KIND_ICON.toggle_all,
+              },
+              { key: 'scene', label: 'Szene', icon: STEP_KIND_ICON.scene },
+              ...(hueScenes.length > 0
+                ? [{ key: 'hue_scene', label: 'Hue-Szene', icon: STEP_KIND_ICON.hue_scene }]
+                : []),
+              { key: 'notify', label: 'Nachricht', icon: STEP_KIND_ICON.notify },
               ...(entities.some((entity) => entity.commands.includes('play_url'))
-                ? [{ key: 'broadcast', label: 'Durchsage' }]
+                ? [{ key: 'broadcast', label: 'Durchsage', icon: STEP_KIND_ICON.broadcast }]
                 : []),
               // «X ist da» ohne Telefon - nur, wo es überhaupt Personen
               // gibt, für die sich das melden liesse.
               ...(anwesenheitsPersonen(entities).length > 0
-                ? [{ key: 'presence', label: 'Anwesenheit melden' }]
+                ? [
+                    {
+                      key: 'presence',
+                      label: 'Anwesenheit melden',
+                      icon: STEP_KIND_ICON.presence,
+                    },
+                  ]
                 : []),
               // Dimmen über Zeit (Punkt 157) - nur wenn eine Lampe die
               // Helligkeit überhaupt kann.
               ...(entities.some((entity) => entity.commands.includes('set_brightness'))
-                ? [{ key: 'fade', label: 'Dimmen' }]
+                ? [{ key: 'fade', label: 'Dimmen', icon: STEP_KIND_ICON.fade }]
                 : []),
               // Musik-Schritte: Favorit, Schlummer, überall Pause,
               // Nachtruhe. Nur, wo es überhaupt eine Box gibt.
               ...(entities.some((entity) => entity.kind === 'media_player')
-                ? [{ key: 'music', label: 'Musik' }]
+                ? [{ key: 'music', label: 'Musik', icon: STEP_KIND_ICON.music }]
                 : []),
-              { key: 'delay', label: 'Warten' },
-              { key: 'wait_until', label: 'Warten bis' },
+              { key: 'delay', label: 'Warten', icon: STEP_KIND_ICON.delay },
+              { key: 'wait_until', label: 'Warten bis', icon: STEP_KIND_ICON.wait_until },
               // Kontrollfluss (Punkt 251). In der tiefsten Ebene nur
               // dann anbieten, wenn der Schritt schon so heisst - sonst
               // stünde ein gespeicherter Schritt ohne seinen Chip da.
               ...(kontrolleErlaubt || step.kind === 'if'
-                ? [{ key: 'if', label: 'Wenn …' }]
+                ? [{ key: 'if', label: 'Wenn …', icon: STEP_KIND_ICON.if }]
                 : []),
               ...(kontrolleErlaubt || step.kind === 'repeat'
-                ? [{ key: 'repeat', label: 'Wiederholen' }]
+                ? [{ key: 'repeat', label: 'Wiederholen', icon: STEP_KIND_ICON.repeat }]
                 : []),
             ]}
             value={step.kind}
@@ -2313,6 +2375,7 @@ export function StepList({
                   { key: 'sleep', label: 'Schlummer' },
                   { key: 'fade', label: 'Leise starten' },
                   { key: 'night', label: 'Nachtruhe' },
+                  { key: 'follow', label: 'Musik folgt' },
                 ]}
                 value={step.musikTat}
                 onSelect={(musikTat) =>
@@ -2353,6 +2416,36 @@ export function StepList({
                   Pause auf jeder Box, auf der etwas läuft – nicht «aus». Eine
                   Box, die pausiert, weiss noch, wo sie war.
                 </Text>
+              ) : step.musikTat === 'follow' ? (
+                <>
+                  <EntityPicker
+                    entities={entities.filter(
+                      (entity) =>
+                        entity.kind === 'media_player' &&
+                        entity.commands.includes('set_volume')
+                    )}
+                    value={step.musikEntityId}
+                    placeholder="Woher – Box suchen …"
+                    onSelect={(musikEntityId) => setStep(index, { musikEntityId })}
+                  />
+                  <EntityPicker
+                    entities={entities.filter(
+                      (entity) =>
+                        entity.kind === 'media_player' &&
+                        entity.commands.includes('set_volume') &&
+                        entity.id !== step.musikEntityId
+                    )}
+                    value={step.musikZiel}
+                    placeholder="Wohin – Box suchen …"
+                    onSelect={(musikZiel) => setStep(index, { musikZiel })}
+                  />
+                  <Text style={styles.triggerNote}>
+                    Übernimmt den Radiosender von der ersten Box auf die
+                    zweite und pausiert die erste - eine Playlist oder ein
+                    Streaming-Dienst lässt sich so nicht ehrlich fortsetzen
+                    und bleibt darum unangetastet.
+                  </Text>
+                </>
               ) : (
                 <>
                   <EntityPicker

@@ -25,6 +25,7 @@ from ...core import (
     bilder,
     dateien,
     familienbuch,
+    gleichzeitig,
     gutscheine,
     rezeptimport,
 )
@@ -503,6 +504,79 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         except Exception as err:  # eine Nachricht ist kein Grund zu scheitern
             log.warning("Zuweisungs-Nachricht an %s fehlgeschlagen: %s", wer, err)
 
+    # ── Eine Übergabe braucht eine Annahme (Punkt 377 der Werkbank) ────────
+    #
+    # Drei eigene Routen statt eines PUT auf die Sammlung: Ein
+    # vorgeschlagener Gutschein bleibt bis zur Annahme fremd (siehe
+    # gutscheine.darf_sehen) - die eingeladene Person darf ihn also nicht
+    # per GET sehen. Der schmale Auszug hier ist eigens dafür da.
+
+    @app.get("/api/family/vouchers/eingehend")
+    async def vouchers_eingehend(request: Request) -> list[dict[str, Any]]:
+        """Was auf mich zur Annahme wartet."""
+        user = family_user(request)
+        return gutscheine.eingehende_uebergaben(
+            hub.data.get(gutscheine.KEY), user.name
+        )
+
+    @app.post("/api/family/vouchers/{item_id}/annehmen")
+    async def voucher_annehmen(item_id: str, request: Request) -> dict[str, Any]:
+        user = family_user(request)
+        rows = hub.data.get(gutscheine.KEY)
+        for row in rows:
+            if row.get("id") != item_id:
+                continue
+            neu, fehler = gutscheine.uebergabe_annehmen(row, user.name, datetime.now())
+            if fehler:
+                raise HTTPException(status_code=403, detail=fehler)
+            assert neu is not None
+            row.clear()
+            row.update(neu)
+            hub.data.set(gutscheine.KEY, rows)
+            await family_changed("vouchers")
+            return row
+        raise HTTPException(status_code=404, detail="Gutschein nicht gefunden")
+
+    @app.post("/api/family/vouchers/{item_id}/ablehnen")
+    async def voucher_ablehnen(item_id: str, request: Request) -> dict[str, Any]:
+        user = family_user(request)
+        rows = hub.data.get(gutscheine.KEY)
+        for row in rows:
+            if row.get("id") != item_id:
+                continue
+            neu, fehler = gutscheine.uebergabe_ablehnen(row, user.name, datetime.now())
+            if fehler:
+                raise HTTPException(status_code=403, detail=fehler)
+            assert neu is not None
+            row.clear()
+            row.update(neu)
+            hub.data.set(gutscheine.KEY, rows)
+            await family_changed("vouchers")
+            return row
+        raise HTTPException(status_code=404, detail="Gutschein nicht gefunden")
+
+    async def tell_the_recipient_of_transfer(
+        item: dict[str, Any], empfaenger_name: str, von: str
+    ) -> None:
+        """Ohne diese Nachricht wüsste die eingeladene Person nie, dass
+        etwas auf sie wartet - der Gutschein selbst bleibt bis zur
+        Annahme unsichtbar für sie (siehe gutscheine.darf_sehen)."""
+        tokens = hub.push.recipients(hub.users.users, to=empfaenger_name, category="vouchers")
+        if not tokens:
+            return
+        shop = str(item.get("shop") or "Gutschein").strip()
+        try:
+            await hub.push.send(
+                tokens,
+                "Gutschein für dich",
+                f"{von} möchte dir den Gutschein «{shop}» übergeben - unter "
+                "Familie → Gutscheine → Eingehend annehmen oder ablehnen.",
+                data={"kind": "family", "collection": "vouchers", "id": item.get("id")},
+                category="vouchers",
+            )
+        except Exception as err:  # eine Nachricht ist kein Grund zu scheitern
+            log.warning("Übergabe-Nachricht an %s fehlgeschlagen: %s", empfaenger_name, err)
+
     @app.get("/api/calendar/events")
     async def calendar_events(request: Request, month: str = "") -> dict[str, Any]:
         """Termine eines Monats – für die Monatsansicht in der App.
@@ -578,10 +652,15 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
         user = family_user(request)
         key = family_key(collection)
-        item = {k: v for k, v in body.items() if k not in ("id", "author", "created")}
+        item = {
+            k: v for k, v in body.items() if k not in ("id", "author", "created", "updated")
+        }
         item["id"] = secrets.token_urlsafe(8)
         item["author"] = user.name
         item["created"] = datetime.now().isoformat(timespec="seconds")
+        # Der Startwert für den Gleichzeitig-Stempel (Punkt 341) - erst ab
+        # hier gibt es etwas, womit ein späteres PUT verglichen werden kann.
+        item["updated"] = time.time()
         # Die Datei vor dem Bereinigen: bereinigen() wirft alles weg, was
         # kein fertiger Block ist - der data-URI wäre danach fort.
         if collection in dateien.ORDNER:
@@ -628,6 +707,16 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         for item in items:
             if item.get("id") == item_id:
                 sichtbar_oder_403(collection, item, user)
+                # Gleichzeitiges Bearbeiten (Punkt 341): Der Stempel, den
+                # diese App beim Laden gesehen hat, muss noch zum
+                # gespeicherten passen - sonst hat ein anderes Telefon
+                # inzwischen gespeichert, und dieses PUT trüge dessen
+                # Änderung sonst still wieder weg.
+                if not gleichzeitig.stempel_passt(item.get("updated"), body.get("updated")):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Der Eintrag wurde inzwischen von jemand anderem geändert.",
+                    )
                 # Die Datei zuerst, noch bevor am Eintrag etwas steht:
                 # Eine zu grosse oder verbotene Datei wirft hier, und
                 # dann soll der Gutschein unverändert geblieben sein -
@@ -640,18 +729,57 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 )
                 vorher = str(item.get("member") or "")
                 war_erledigt = bool(item.get("done"))
+                # Vor dem Überschreiben festhalten, was der Hub am
+                # Verlauf schon kennt (Punkt 371 der Werkbank) - danach
+                # ist item["transactions"] schon die Sicht der App, und
+                # genau die darf hier nicht einfach ersetzen, was ein
+                # anderes Telefon inzwischen gebucht hat.
+                vorherige_buchungen = [
+                    t for t in (item.get("transactions") or []) if isinstance(t, dict)
+                ]
+                # Für die Nachricht bei einer vorgeschlagenen Übergabe
+                # (Punkt 377): nur bei einem frischen Vorschlag melden,
+                # nicht bei jedem weiteren Speichern desselben Gutscheins.
+                vorher_pending = str(item.get("pending_transfer_to") or "")
                 item.update(
-                    {k: v for k, v in body.items() if k not in ("id", "author", "created")}
+                    {
+                        k: v
+                        for k, v in body.items()
+                        if k not in ("id", "author", "created", "updated")
+                    }
                 )
                 if anhang is not None:
                     item["file"] = anhang
                 if collection == "vouchers":
-                    # Abziehen ist ein normales PUT: Die App schreibt
-                    # `left` und `transactions` selbst. Der Hub klemmt
-                    # nur, was es nicht geben kann (Rest unter null,
-                    # Rest über dem Gesamtwert) - in place, weil die
-                    # Liste gleich als Ganzes zurückgeschrieben wird.
+                    neue_buchungen = body.get("transactions")
+                    frische_buchung = False
+                    if isinstance(neue_buchungen, list):
+                        zusammengefuehrt = gutscheine.transaktionen_zusammenfuehren(
+                            vorherige_buchungen, neue_buchungen
+                        )
+                        frische_buchung = len(zusammengefuehrt) > len(vorherige_buchungen)
+                        item["transactions"] = zusammengefuehrt
+                    # `left` klemmt bereinigen() nicht mehr nach dem, was
+                    # die App schickt, sondern rechnet es aus dem
+                    # zusammengeführten Verlauf - das ist die andere
+                    # Hälfte der Absicherung.
                     sauber = gutscheine.bereinigen(item)
+                    # Wer den Gutschein damit auf null gebracht hat (eine
+                    # frische Buchung, kein blosses Formular-Speichern),
+                    # bekommt ihn automatisch aus der Liste genommen
+                    # (Punkt 372 der Werkbank) - ein leerer Gutschein ist
+                    # erledigt, kein offener Posten mehr.
+                    if frische_buchung and gutscheine.aufgebraucht(sauber):
+                        sauber["archived"] = True
+                    # Ein frischer Übergabe-Vorschlag (Punkt 377): über
+                    # die reine Funktion, damit er dieselbe Merkzeile im
+                    # Verlauf bekommt wie die spätere Annahme/Ablehnung -
+                    # nicht nur ein stilles Feld.
+                    neuer_vorschlag = str(sauber.get("pending_transfer_to") or "")
+                    if neuer_vorschlag and neuer_vorschlag != vorher_pending:
+                        sauber = gutscheine.uebergabe_vorschlagen(
+                            sauber, neuer_vorschlag, user.name, datetime.now()
+                        )
                     item.clear()
                     item.update(sauber)
                 # Wer den Anhang wegnimmt, nimmt ihn ganz weg: Bliebe die
@@ -680,8 +808,16 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                     item.pop("done_at", None)
                 if collection in bilder.ORDNER:
                     bild_ablegen(collection, item)
+                # Der neue Stempel - unabhängig vom Gutschein-Zweig oben
+                # (der item.clear()/item.update() nutzt), damit jede
+                # Änderung, gleich welcher Art, einen frischen bekommt.
+                item["updated"] = time.time()
                 hub.data.set(key, items)
                 await tell_the_assignee(collection, item, user.name, vorher)
+                if collection == "vouchers":
+                    neu_pending = str(item.get("pending_transfer_to") or "")
+                    if neu_pending and neu_pending != vorher_pending:
+                        await tell_the_recipient_of_transfer(item, neu_pending, user.name)
                 await family_changed(collection)
                 return item
         raise HTTPException(status_code=404, detail="Eintrag nicht gefunden")

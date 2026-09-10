@@ -9,9 +9,10 @@
  * Telefon schob es die Lampen unter den Bildschirmrand.
  *
  * Was blieb, war die Box **dieses** Raums - und auch die steht jetzt
- * woanders: oben im Raumkopf, als Streifen neben den Szenen
- * (components/Raumspieler.tsx). Im Zimmer bleibt die Spalte damit ganz
- * weg, und die Kacheln bekommen die Breite.
+ * woanders: oben im Raumkopf, als kompletter Medienplayer unter den
+ * Szenen des Zimmers (DashboardScreen, components/SidePanel.tsx:
+ * MediaPanel). Im Zimmer bleibt die Spalte damit ganz weg, und die
+ * Kacheln bekommen die Breite.
  *
  * Die Wetterwarnung stand hier lange mit dem Argument, sie sei der
  * Grund, aus dem es die Spalte gibt. Sie steht aber längst oben in der

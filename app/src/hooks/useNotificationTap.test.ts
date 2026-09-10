@@ -49,6 +49,18 @@ describe('knopfAusResponse', () => {
     expect(tapFromResponse(roh)?.camera).toBe('ring.haustuere');
   });
 
+  it('erkennt «Heute nicht mehr» samt Kategorie (Punkt 397)', () => {
+    const druck = knopfAusResponse(
+      antwort('heutenichtmehr', {
+        title: 'Batterie schwach: Rauchmelder Flur',
+        body: '',
+        data: { entity_id: 'hm.rauchmelder', category: 'battery' },
+      })
+    );
+    expect(druck?.handlung).toBe('still');
+    expect(druck?.category).toBe('battery');
+  });
+
   it('kommt mit einer Meldung ohne Titel nicht durcheinander', () => {
     // Ohne Titel liesse sich nichts zurücklegen - der Titel ist der
     // Schlüssel der Warteschlange im Hub.

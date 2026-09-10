@@ -9,6 +9,14 @@ version = '1.0.0'
 
 android {
   namespace 'ch.stibe.homepilot.auto'
+  // expo-module-gradle-plugin braucht das für seine eigene lokale
+  // Maven-Veröffentlichung (group:artifactId:version, siehe
+  // MavenPublicationExtension.kt) - ohne das bricht die Konfiguration
+  // mit "'android.defaultConfig.versionName' is not defined" ab.
+  // Derselbe Stand wie die Gradle-Version oben.
+  defaultConfig {
+    versionName '1.0.0'
+  }
 }
 
 dependencies {

@@ -1,6 +1,6 @@
 /** Die tageszeitliche Schnellzeile: was sie wann anbietet. */
 import { Entity } from '../api/types';
-import { griffLabel, tagesGriffe } from './tageszeile';
+import { abendSzenenGriff, griffLabel, istAbendfenster, tagesGriffe } from './tageszeile';
 
 const geraet = (patch: Partial<Entity>): Entity =>
   ({
@@ -113,5 +113,38 @@ describe('griffLabel', () => {
   it('lässt die Eins weg - eine Eins vor dem einzigen Storen wäre Buchhaltung', () => {
     expect(griffLabel(1, 'Store auf', 'Storen auf')).toBe('Store auf');
     expect(griffLabel(3, 'Store auf', 'Storen auf')).toBe('3 Storen auf');
+  });
+});
+
+describe('istAbendfenster', () => {
+  it('gilt ab 21 Uhr und bis kurz vor 2 Uhr, sonst nicht', () => {
+    expect(istAbendfenster(um(21))).toBe(true);
+    expect(istAbendfenster(um(23))).toBe(true);
+    expect(istAbendfenster(um(1))).toBe(true);
+    expect(istAbendfenster(um(2))).toBe(false);
+    expect(istAbendfenster(um(14))).toBe(false);
+    expect(istAbendfenster(um(7))).toBe(false);
+  });
+});
+
+describe('abendSzenenGriff', () => {
+  const kino = { id: 'scene.kino', name: 'Kino', icon: 'film-outline' };
+
+  it('zeigt die Szene abends, zur selben Zeit wie Licht aus und Storen zu', () => {
+    expect(abendSzenenGriff(kino, um(22))).toEqual({
+      key: 'abend_szene',
+      sceneId: 'scene.kino',
+      label: 'Kino',
+      icon: 'film-outline',
+    });
+  });
+
+  it('bleibt ausserhalb des Abendfensters weg', () => {
+    expect(abendSzenenGriff(kino, um(14))).toBeNull();
+  });
+
+  it('bleibt ohne Szene weg', () => {
+    expect(abendSzenenGriff(null, um(22))).toBeNull();
+    expect(abendSzenenGriff(undefined, um(22))).toBeNull();
   });
 });

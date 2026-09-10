@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { Entity, Scene } from '../../api/types';
 import { istOrtsmelder } from '../../lib/ortsausloeser';
-import { Compare, ConditionKind, Draft, EMPTY, EMPTY_STEP, EMPTY_TRIGGER, StepDraft, StepKind, TriggerKind, vacuumRooms } from './entwurf';
+import { Compare, ConditionKind, Draft, EMPTY, EMPTY_STEP, EMPTY_TRIGGER, MusikTat, StepDraft, StepKind, TriggerKind, vacuumRooms } from './entwurf';
 
 export interface Template {
   label: string;
@@ -1066,6 +1066,63 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
             commandActions: [
               { entity_id: aussenlicht.id, command: 'turn_on', offAfter: 180 },
             ],
+          },
+        ],
+      },
+    });
+  }
+
+  // Punkt 419: Musik folgt der Person. Keine automatische Erkennung über
+  // alle Räume - welche zwei Boxen gemeint sind, weiss nur der Haushalt,
+  // und eine Musik, die unaufgefordert von Zimmer zu Zimmer wandert, ist
+  // ein Schreck und kein Komfort. Die Vorlage zeigt darum nur den einen
+  // wahrscheinlichsten Weg (die erste Box in den Raum mit einem eigenen
+  // Bewegungsmelder) und liefert ausgeschaltet: Erst wer sie ansieht und
+  // einschaltet, hat sie auch gemeint.
+  const boxenMitRaum = entities.filter(
+    (entity) =>
+      entity.kind === 'media_player' &&
+      entity.commands.includes('set_volume') &&
+      entity.room
+  );
+  const boxVon = boxenMitRaum[0];
+  const boxNach = boxVon
+    ? boxenMitRaum.find((entity) => entity.room !== boxVon.room)
+    : undefined;
+  const melderImZielraum = boxNach
+    ? entities.find(
+        (entity) =>
+          entity.room === boxNach.room &&
+          (entity.state?.device_class === 'motion' ||
+            /bewegung|motion/i.test(entity.name))
+      )
+    : undefined;
+  if (boxVon && boxNach && melderImZielraum) {
+    templates.push({
+      label: `Musik folgt: ${boxVon.room} → ${boxNach.room}`,
+      icon: 'musical-notes-outline',
+      draft: {
+        ...EMPTY,
+        alias: `Musik folgt nach ${boxNach.room}`,
+        enabled: false,
+        triggers: [
+          {
+            ...EMPTY_TRIGGER,
+            entityId: melderImZielraum.id,
+            toState: 'on',
+            attribute: 'motion' in (melderImZielraum.state ?? {}) ? 'motion' : '',
+          },
+        ],
+        // Nur wenn dort wirklich ein Sender lief - sonst schaltete jede
+        // Bewegung im Zielraum eine Box ein, die niemand angefragt hat.
+        stateConditions: [{ entity_id: boxVon.id, op: 'is' as Compare, value: 'playing' }],
+        steps: [
+          {
+            ...EMPTY_STEP,
+            kind: 'music' as StepKind,
+            musikTat: 'follow' as MusikTat,
+            musikEntityId: boxVon.id,
+            musikZiel: boxNach.id,
           },
         ],
       },

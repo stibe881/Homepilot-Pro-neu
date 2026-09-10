@@ -3,7 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Entity } from '../api/types';
-import { TagesGriff, tagesGriffe } from '../lib/tageszeile';
+import { TagesGriff, abendSzenenGriff, tagesGriffe } from '../lib/tageszeile';
 import { Colors, radius, type, useColors } from '../theme';
 
 /**
@@ -22,15 +22,25 @@ import { Colors, radius, type, useColors } from '../theme';
  * Häkchen wie bei «Alles aus» (AllOff.tsx), nur ohne dessen
  * Sonderregel für laufende Haushaltgeräte: Hier stehen ohnehin nur
  * Lichter und Storen.
+ *
+ * Daneben, zur selben Abendzeit: der Griff zur Abend-Szene («Kino») -
+ * ohne Rückfrage, denn eine Szene schaltet, was jemand im Ablauf-Editor
+ * dafür festgelegt hat (lib/tageszeile.ts: abendSzenenGriff).
  */
 export function TagesZeile({
   entities,
   now,
+  abendSzene,
   onCommand,
+  onActivateScene,
 }: {
   entities: Entity[];
   now: Date;
+  /** Die Szene, die abends neben «Licht aus» und «Storen zu» steht -
+   *  meist die per Namenserkennung gefundene «Kino» (OverviewScreen). */
+  abendSzene?: { id: string; name: string; icon: string } | null;
   onCommand: (entityId: string, command: string) => void;
+  onActivateScene?: (sceneId: string) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -45,6 +55,7 @@ export function TagesZeile({
   // er sagt - das Häkchen ist zum Ausnehmen da, nicht zum Auswählen.
   const [ohne, setOhne] = useState<string[]>([]);
   const griffe = tagesGriffe(entities, now);
+  const szenenGriff = abendSzenenGriff(abendSzene, now);
 
   // Das offene Blatt lebt vom frisch gerechneten Griff und nicht von
   // dem, der beim Tippen galt: Geht währenddessen ein Licht aus,
@@ -58,7 +69,7 @@ export function TagesZeile({
     for (const befehl of dran) onCommand(befehl.entityId, befehl.command);
   };
 
-  if (griffe.length === 0) return null;
+  if (griffe.length === 0 && !szenenGriff) return null;
 
   return (
     <View style={styles.zeile}>
@@ -77,6 +88,21 @@ export function TagesZeile({
           <Text style={styles.text}>{griff.label}</Text>
         </Pressable>
       ))}
+      {szenenGriff ? (
+        <Pressable
+          onPress={() => onActivateScene?.(szenenGriff.sceneId)}
+          accessibilityRole="button"
+          accessibilityLabel={`Szene ${szenenGriff.label} starten`}
+          style={({ pressed }) => [styles.griff, pressed && { opacity: 0.5 }]}
+        >
+          <Ionicons
+            name={szenenGriff.icon as keyof typeof Ionicons.glyphMap}
+            size={15}
+            color={colors.accent}
+          />
+          <Text style={styles.text}>{szenenGriff.label}</Text>
+        </Pressable>
+      ) : null}
 
       <Modal
         visible={blatt !== null}

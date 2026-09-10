@@ -66,6 +66,57 @@ def test_family_roundtrip():
         assert data["tasks"] == []
 
 
+def test_gleichzeitiges_bearbeiten_verliert_nicht_still(): # Punkt 341
+    """Zwei Telefone laden denselben Eintrag, beide speichern - das
+    zweite darf die Änderung des ersten nicht kommentarlos wegwischen."""
+    with make_client() as client:
+        item = client.post(
+            "/api/family/tasks",
+            json={"text": "Ämtli", "done": False},
+            headers=auth("t-resident"),
+        ).json()
+        alter_stempel = item["updated"]
+        assert isinstance(alter_stempel, (int, float))
+
+        # Telefon A speichert mit dem Stand, den beide gesehen haben.
+        response_a = client.put(
+            f"/api/family/tasks/{item['id']}",
+            json={"text": "Ämtli erledigt", "updated": alter_stempel},
+            headers=auth("t-resident"),
+        )
+        assert response_a.status_code == 200
+        neuer_stempel = response_a.json()["updated"]
+        assert neuer_stempel != alter_stempel
+
+        # Telefon B kennt noch den alten Stempel - sein PUT wird abgewiesen,
+        # statt «Ämtli erledigt» still wieder zu überschreiben.
+        response_b = client.put(
+            f"/api/family/tasks/{item['id']}",
+            json={"text": "Ämtli (Duplikat)", "updated": alter_stempel},
+            headers=auth("t-owner"),
+        )
+        assert response_b.status_code == 409
+        aktuell = client.get("/api/family/tasks", headers=auth("t-owner")).json()
+        assert aktuell[0]["text"] == "Ämtli erledigt"
+
+        # Lädt B neu, sieht den aktuellen Stempel und kann speichern.
+        response_b2 = client.put(
+            f"/api/family/tasks/{item['id']}",
+            json={"text": "Ämtli wirklich erledigt", "updated": neuer_stempel},
+            headers=auth("t-owner"),
+        )
+        assert response_b2.status_code == 200
+
+        # Eine ältere App-Fassung, die den Stempel nie mitschickt, wird
+        # nicht plötzlich blockiert - der Übergang bleibt weich.
+        response_alt = client.put(
+            f"/api/family/tasks/{item['id']}",
+            json={"text": "Ohne Stempel gespeichert"},
+            headers=auth("t-resident"),
+        )
+        assert response_alt.status_code == 200
+
+
 def test_family_blocks_guests_and_unknown_lists():
     with make_client() as client:
         assert client.get("/api/family", headers=auth("t-guest")).status_code == 403

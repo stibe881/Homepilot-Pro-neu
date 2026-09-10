@@ -32,7 +32,7 @@ export interface Transaktion {
    *  es etwas anderes gab. `storno` nimmt einen Abzug zurück (mit
    *  negativem `amount`), `uebergabe` hält fest, dass der Gutschein den
    *  Besitzer gewechselt hat. */
-  art?: 'abzug' | 'storno' | 'uebergabe';
+  art?: 'abzug' | 'storno' | 'uebergabe' | 'uebergabe_vorschlag';
   /** Auf welche Buchung sich ein Storno bezieht (deren `at`). */
   storniert?: string;
 }
@@ -69,6 +69,17 @@ export interface Gutschein {
   file?: GutscheinDatei | null;
   transactions?: Transaktion[];
   notes?: string;
+  /** Erledigt und aus der offenen Liste genommen (Punkt 372 der
+   *  Werkbank). Der Hub setzt es selbst, sobald eine Buchung den
+   *  Gutschein auf null bringt oder ein Tag nach dem Ablauf noch etwas
+   *  offen war - von Hand geht es über `archivieren`/`wiederherstellen`
+   *  ebenfalls, für den Gutschein, den man nie mehr braucht oder den man
+   *  sich doch noch aufheben will. */
+  archived?: boolean;
+  /** Wartet auf Annahme durch diese Person (Punkt 377 der Werkbank) -
+   *  der Besitzer wechselt erst, wenn sie zugesagt hat. Siehe
+   *  `uebergeben`. */
+  pending_transfer_to?: string | null;
 }
 
 /** Ab so vielen Tagen vor dem Ablauf wird gewarnt. Ein Monat: lang genug,
@@ -142,12 +153,25 @@ export function alsGutschein(item: Record<string, unknown>): Gutschein {
     url: String(item.url ?? '').trim(),
     image_url: item.image_url ? String(item.image_url) : null,
     file: alsDatei(item.file),
+    archived: item.archived === true,
+    pending_transfer_to: item.pending_transfer_to ? String(item.pending_transfer_to) : null,
     transactions: Array.isArray(item.transactions)
       ? (item.transactions as Record<string, unknown>[]).map((t) => ({
           at: String(t?.at ?? ''),
           amount: zahl(t?.amount),
           by: String(t?.by ?? ''),
           note: t?.note ? String(t.note) : undefined,
+          // Ohne die beiden hier sieht eine Rücknahme nach dem nächsten
+          // Neuladen wie ein gewöhnlicher Abzug aus - buchungSatz() zeigt
+          // «abgezogen» statt «zurückgebucht», und schonStorniert() lässt
+          // dieselbe Buchung ein zweites Mal zurücknehmen, weil sie das
+          // erste Storno nicht mehr als solches erkennt. Ein echter, alter
+          // Fehler, gefunden beim Bauen von Punkt 371.
+          art:
+            t?.art === 'storno' || t?.art === 'uebergabe' || t?.art === 'uebergabe_vorschlag'
+              ? t.art
+              : 'abzug',
+          storniert: t?.storniert ? String(t.storniert) : undefined,
         }))
       : [],
     notes: String(item.notes ?? '').trim(),
@@ -486,9 +510,28 @@ export function anteil(entry: Pick<Gutschein, 'left' | 'total'>): number {
 
 // ── Liste ────────────────────────────────────────────────────────────────
 
-/** Wer in der Liste steht (noch etwas drauf) – vor allen anderen. */
+/** Erledigt und aus der offenen Liste genommen (Punkt 372 der Werkbank) -
+ *  ob automatisch (aufgebraucht, verfallen) oder von Hand. */
+export function istArchiviert(entry: Pick<Gutschein, 'archived'>): boolean {
+  return entry.archived === true;
+}
+
+/** Wer in der Liste steht (noch etwas drauf, nicht archiviert) – vor
+ *  allen anderen. */
 export function verfuegbar(list: Gutschein[]): Gutschein[] {
-  return list.filter((entry) => !aufgebraucht(entry));
+  return list.filter((entry) => !aufgebraucht(entry) && !istArchiviert(entry));
+}
+
+/** Ins Archiv legen bzw. von dort zurückholen (rein, testbar) - für den
+ *  Gutschein, den man nie mehr braucht, oder den man sich doch noch
+ *  aufheben will. Ein aufgebrauchter Gutschein landet ohnehin beim
+ *  nächsten Abzug wieder automatisch dort (siehe Hub, Punkt 372). */
+export function archivieren(entry: Gutschein): Gutschein {
+  return { ...entry, archived: true };
+}
+
+export function wiederherstellen(entry: Gutschein): Gutschein {
+  return { ...entry, archived: false };
 }
 
 /**
@@ -513,15 +556,31 @@ export function sortiert(list: Gutschein[], heute: string | Date): Gutschein[] {
 }
 
 /** Offene und aufgebrauchte getrennt – die zweite Gruppe steht
- *  eingeklappt unter der Liste. Beide sortiert. */
+ *  eingeklappt unter der Liste. Beide ohne Archiviertes und sortiert:
+ *  Wer archiviert hat, wollte den Gutschein aus dem Weg haben, auch aus
+ *  der eingeklappten «leer»-Gruppe. */
 export function aufgeteilt(
   list: Gutschein[],
   heute: string | Date
 ): { offen: Gutschein[]; leer: Gutschein[] } {
+  const sichtbar = list.filter((entry) => !istArchiviert(entry));
   return {
-    offen: sortiert(list.filter((entry) => !aufgebraucht(entry)), heute),
-    leer: sortiert(list.filter(aufgebraucht), heute),
+    offen: sortiert(sichtbar.filter((entry) => !aufgebraucht(entry)), heute),
+    leer: sortiert(sichtbar.filter(aufgebraucht), heute),
   };
+}
+
+/** Das Archiv – erledigte Gutscheine, jüngste Buchung zuoberst statt
+ *  nach Ablaufdatum: Man sucht dort «was war das noch mal, letzte
+ *  Woche?», nicht «was läuft als Nächstes ab» - das ist vorbei. */
+export function archivListe(list: Gutschein[]): Gutschein[] {
+  return list
+    .filter(istArchiviert)
+    .sort((a, b) => {
+      const letzte = (entry: Gutschein) =>
+        verlauf(entry)[0]?.at ?? entry.created ?? '';
+      return letzte(b).localeCompare(letzte(a));
+    });
 }
 
 /**
@@ -563,6 +622,29 @@ export function kategorien(list: Gutschein[]): string[] {
   const alle = new Set<string>(KATEGORIEN_START);
   for (const entry of list) if (entry.category) alle.add(entry.category);
   return [...alle].sort((a, b) => a.localeCompare(b, 'de-CH'));
+}
+
+/**
+ * Was der letzte Gutschein desselben Ladens ausfüllen würde (rein,
+ * testbar) - Punkt 375 der Werkbank.
+ *
+ * Der zweite Coop-Gutschein braucht nicht noch einmal dieselbe
+ * Kategorie und dieselbe Einlöseart getippt. Nur die drei Felder, die
+ * am Laden hängen, nicht der Betrag oder die Nummer - die sind bei
+ * jedem Gutschein neu. Der jüngste Treffer gewinnt: Was zuletzt galt,
+ * ist die bessere Vermutung als der allererste Eintrag.
+ */
+export function vorlageFuerLaden(
+  list: Gutschein[],
+  shop: string
+): Pick<Formular, 'category' | 'unit' | 'physical'> | null {
+  const gesucht = shop.trim().toLowerCase();
+  if (!gesucht) return null;
+  const treffer = list
+    .filter((entry) => entry.shop.trim().toLowerCase() === gesucht)
+    .sort((a, b) => String(b.created ?? '').localeCompare(String(a.created ?? '')))[0];
+  if (!treffer) return null;
+  return { category: treffer.category ?? '', unit: treffer.unit, physical: treffer.physical === true };
 }
 
 /** Trifft die Suche Laden, Titel, Kategorie, Nummer oder Notiz? (rein, testbar) */
@@ -894,30 +976,26 @@ export function stornieren(
 }
 
 /**
- * Den Gutschein jemandem im Haushalt übergeben (rein, testbar).
+ * Eine Übergabe vorschlagen (rein, testbar) - Punkt 377 der Werkbank.
  *
  * Nicht dasselbe wie Teilen: Geteilt heisst «alle sehen ihn», übergeben
- * heisst «er gehört jetzt dir». Bei einem privaten Gutschein ist das
- * der einzige Weg, ihn weiterzugeben, ohne ihn allen zu zeigen - und
- * der Verlauf hält fest, wer ihn wann bekommen hat. Sonst sucht ihn
- * später jemand bei sich, während er längst bei einem anderen liegt.
+ * heisst «er gehört jetzt dir» - bei einem privaten Gutschein ist das
+ * der einzige Weg, ihn weiterzugeben, ohne ihn allen zu zeigen. Der
+ * Besitzer wechselt aber erst mit der Annahme (Routen
+ * `/api/family/vouchers/{id}/annehmen|ablehnen` beim Hub): Wer sich
+ * beim Namen vertippt, hätte den Gutschein sonst sofort und endgültig
+ * an die falsche Person verschenkt. Hier steht nur der Vorschlag - der
+ * Hub trägt beim Speichern die Merkzeile im Verlauf selbst nach.
  */
-export function uebergeben(
-  entry: Gutschein,
-  an: string,
-  von: string,
-  now: Date
-): Gutschein {
+export function uebergeben(entry: Gutschein, an: string): Gutschein {
   const empfaenger = String(an ?? '').trim();
   if (!empfaenger) return entry;
-  const buchung: Transaktion = {
-    at: now.toISOString(),
-    amount: 0,
-    by: String(von ?? '').trim() || '?',
-    art: 'uebergabe',
-    note: `an ${empfaenger}`,
-  };
-  return { ...entry, author: empfaenger, transactions: [...(entry.transactions ?? []), buchung] };
+  return { ...entry, pending_transfer_to: empfaenger };
+}
+
+/** Wartet dieser Gutschein auf eine Annahme? (rein, testbar) */
+export function wartetAufAnnahme(entry: Pick<Gutschein, 'pending_transfer_to'>): boolean {
+  return !!entry.pending_transfer_to;
 }
 
 /**
@@ -931,6 +1009,9 @@ export function buchungSatz(entry: Gutschein, buchung: Transaktion): string {
   const betrag = betragText(Math.abs(buchung.amount), entry.unit);
   if (buchung.art === 'storno') return `${betrag} zurückgebucht`;
   if (buchung.art === 'uebergabe') return `Übergeben ${buchung.note ?? ''}`.trim();
+  if (buchung.art === 'uebergabe_vorschlag') {
+    return `Übergabe vorgeschlagen ${buchung.note ?? ''}`.trim();
+  }
   return `${betrag} abgezogen`;
 }
 

@@ -5,6 +5,7 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   Animated,
+  Image,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -96,6 +97,7 @@ export function TopStrip({
   showClock = false,
   queued = 0,
   onLoadPresence,
+  personenbildUrl,
   onVacuum,
   karte = false,
   gruss,
@@ -176,6 +178,9 @@ export function TopStrip({
    *  wäre Verschwendung. Ohne diese Angabe bleibt der Chip reine
    *  Anzeige. */
   onLoadPresence?: () => Promise<Person[]>;
+  /** Das Bild einer Person, statt des Symbols in der «Wer ist
+   *  da»-Liste (Punkt 415) - `null`, wenn es keines gibt. */
+  personenbildUrl?: (name: string) => string | null;
   /** Ein Tipp auf «saugt» führt zur Karte des Saugroboters - der Chip
    *  sagt sonst nur, DASS gesaugt wird, und wer wissen will, wo er
    *  steht oder ihn heimschicken will, musste das Gerät suchen. */
@@ -392,13 +397,19 @@ export function TopStrip({
               </Text>
             ) : (
               <ScrollView style={{ maxHeight: 360 }}>
-                {anwesenheitsListe(wer, now).map((zeile) => (
+                {anwesenheitsListe(wer, now).map((zeile) => {
+                  const bild = personenbildUrl?.(zeile.name) ?? null;
+                  return (
                   <View key={zeile.key} style={styles.lightRow}>
-                    <Ionicons
-                      name={zeile.zuhause ? 'person' : 'person-outline'}
-                      size={18}
-                      color={zeile.zuhause ? colors.on : colors.inkFaint}
-                    />
+                    {bild ? (
+                      <Image source={{ uri: bild }} style={styles.werDaBild} />
+                    ) : (
+                      <Ionicons
+                        name={zeile.zuhause ? 'person' : 'person-outline'}
+                        size={18}
+                        color={zeile.zuhause ? colors.on : colors.inkFaint}
+                      />
+                    )}
                     <View style={{ flex: 1 }}>
                       <Text style={styles.lightName}>{zeile.name}</Text>
                       <Text style={styles.lightRoom}>
@@ -413,7 +424,8 @@ export function TopStrip({
                       ) : null}
                     </View>
                   </View>
-                ))}
+                  );
+                })}
               </ScrollView>
             )}
             {/* Der Hub führt auch Zugänge als Benutzer – «Hub-Token»,
@@ -1178,13 +1190,15 @@ export function TopStrip({
                 {/* Auch hier: «Verbreitet heftige Gewitter möglich,
                     schwer, bis 22:00» endet sonst bei «schwer,…» - und
                     das «bis wann» ist das, wonach man abends sieht. */}
-                <Lauftext
-                  style={styles.karteWarn}
-                  icon="warning-outline"
-                  iconFarbe={colors.danger}
-                >
-                  {warnText(alerts.state)}
-                </Lauftext>
+                <View style={styles.karteWarnPille}>
+                  <Lauftext
+                    style={styles.karteWarn}
+                    icon="warning-outline"
+                    iconFarbe={colors.danger}
+                  >
+                    {warnText(alerts.state)}
+                  </Lauftext>
+                </View>
               </Pressable>
             </Blinkend>
           ) : null}
@@ -1565,6 +1579,18 @@ const makeStyles = (colors: Colors) =>
   karteZeilenGriff: { flexShrink: 1 },
   // Rot, nicht orange - siehe lib/warnzeile.ts.
   karteWarn: { color: colors.danger, fontSize: 13, fontWeight: '600' },
+  // Ein deckender Grund statt des rohen Verlaufs (Punkt 366): Rot auf
+  // dem Verlauf misst zwischen 1.1 und 1.5 - je nach Erscheinungsbild
+  // kaum von der Fläche zu unterscheiden. Auf `panel` (derselbe deckende
+  // Grund, der auch Knöpfe trägt) steht dieselbe Zeile im Hellen bei
+  // 3.4 statt 1.1.
+  karteWarnPille: {
+    backgroundColor: colors.panel,
+    borderRadius: radius.control,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    alignSelf: 'flex-start',
+  },
   karteChips: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1690,6 +1716,8 @@ const makeStyles = (colors: Colors) =>
     gap: 12,
     paddingVertical: 7,
   },
+  // Punkt 415: ein Gesicht statt des Symbols, wo eines gesetzt ist.
+  werDaBild: { width: 18, height: 18, borderRadius: 9 },
   // Der Griff zum Abhaken nimmt die ganze übrige Breite: Wer im Laden
   // mit einer Hand tippt, trifft sonst die kleinen Knöpfe daneben.
   einkaufTap: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },

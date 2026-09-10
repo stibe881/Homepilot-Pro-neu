@@ -111,7 +111,7 @@ def test_der_panikknopf_wird_sofort_laut(anlage):
 def test_der_panikknopf_braucht_keine_pin(anlage):
     """Eine Tastatur zwischen Bedrängnis und Sirene ist ein Fehler."""
     hub, service, _ = anlage
-    asyncio.run(service.set_pin("1234") or asyncio.sleep(0))
+    asyncio.run(service.set_pin("Stefan", "1234") or asyncio.sleep(0))
     asyncio.run(service.panic(by="Stefan"))
     assert service._entity.state["state"] == TRIGGERED
 

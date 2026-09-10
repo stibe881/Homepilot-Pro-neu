@@ -12,10 +12,11 @@
  * tippt es an – dann öffnet sich die Vollbildansicht, die es schon gibt.
  */
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Image, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { Entity } from '../api/types';
+import { useTakt } from '../hooks/useTakt';
 import { spalten } from '../lib/kamerawand';
 import { Colors, radius, type, useColors } from '../theme';
 
@@ -41,10 +42,10 @@ export function Kamerawand({
   // Bild aus seinem Zwischenspeicher, und die Wand steht still.
   const [runde, setRunde] = useState(0);
 
-  useEffect(() => {
-    const takt = setInterval(() => setRunde((wert) => wert + 1), TAKT_MS);
-    return () => clearInterval(takt);
-  }, []);
+  // Punkt 345: ein gemeinsamer Takt statt ein eigener setInterval - hält
+  // im Hintergrund an, statt Bilder für ein Tablet zu holen, das niemand
+  // ansieht.
+  useTakt(() => setRunde((wert) => wert + 1), TAKT_MS);
 
   const anzahl = kameras.length;
   const je = spalten(width, anzahl);

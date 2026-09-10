@@ -168,15 +168,21 @@ def datum(value: Any) -> date | None:
 def bereinigen(entry: dict[str, Any]) -> dict[str, Any]:
     """Einen Gutschein in seine Grenzen zwingen (rein, testbar).
 
-    Die App rechnet «Rest» und die Abzüge selbst und schickt beides als
-    normales PUT - der Hub prüft nur, dass das Ergebnis eines ist, das
-    es geben kann: Der Rest liegt zwischen 0 und dem Gesamtwert, Stück
-    sind ganze Zahlen, Einheit und Sichtbarkeit sind eines der bekannten
-    Wörter, das Ablaufdatum ist ein Datum oder nichts.
+    Die App rechnet den Rest zur Anzeige selbst - der Hub glaubt ihr aber
+    nicht mehr aufs Wort: Der Rest wird **immer** aus dem Verlauf
+    (`transactions`) hergeleitet, nie aus dem mitgeschickten `left`
+    (Punkt 371 der Werkbank, siehe `rest_aus_transaktionen`). Zwei
+    Telefone, die im selben Moment abziehen, schicken sonst beide ihren
+    eigenen, je unvollständigen Verlauf - wessen PUT zuletzt ankommt,
+    überschreibt die Buchung des anderen wortlos. Das Zusammenführen der
+    Verläufe (`transaktionen_zusammenfuehren`) passiert vorher in der
+    Route, weil nur sie den bisherigen Stand kennt; hier zählt nur noch,
+    was am Ende in `transactions` steht.
 
-    Geklemmt, nicht abgelehnt: Was hier ankommt, hat ein Mensch in ein
-    Formular getippt, und ein Rest von -5 heisst «alles aufgebraucht»,
-    nicht «bitte noch einmal von vorn». Eine 422 für einen Tippfehler
+    Was sonst noch geklemmt wird: Stück sind ganze Zahlen, Einheit und
+    Sichtbarkeit sind eines der bekannten Wörter, das Ablaufdatum ist ein
+    Datum oder nichts. Geklemmt, nicht abgelehnt: Was hier ankommt, hat
+    ein Mensch in ein Formular getippt, und eine 422 für einen Tippfehler
     im Betrag wäre die Art Fehlermeldung, wegen der man die Kachel nicht
     mehr benutzt.
     """
@@ -192,10 +198,23 @@ def bereinigen(entry: dict[str, Any]) -> dict[str, Any]:
     sauber["shared"] = shared if shared in SHARED else "familie"
 
     total = max(_zahl(sauber.get("total"), ganz), 0)
-    # Fehlt der Rest, ist der Gutschein neu und unangetastet.
-    left = _zahl(sauber.get("left"), ganz) if "left" in sauber else total
     sauber["total"] = total
-    sauber["left"] = min(max(left, 0), total)
+
+    transactions = sauber.get("transactions")
+    sauber["transactions"] = (
+        [t for t in transactions if isinstance(t, dict)]
+        if isinstance(transactions, list)
+        else None
+    )
+    if sauber["transactions"] is not None:
+        sauber["left"] = rest_aus_transaktionen(total, sauber["transactions"], ganz)
+    else:
+        # Kein Verlauf im Bild (ein sehr alter Aufruf, der das Feld gar
+        # nicht kennt): dann bleibt `left` die einzige Quelle, geklemmt
+        # wie eh und je.
+        left = _zahl(sauber.get("left"), ganz) if "left" in sauber else total
+        sauber["left"] = min(max(left, 0), total)
+        sauber["transactions"] = []
 
     wann = datum(sauber.get("expires"))
     sauber["expires"] = wann.isoformat() if wann else None
@@ -207,16 +226,14 @@ def bereinigen(entry: dict[str, Any]) -> dict[str, Any]:
     # zweierlei Bedeutung von «nicht da».
     sauber["physical"] = bool(sauber.get("physical"))
 
+    # Archiviert? (Punkt 372 der Werkbank) Immer gesetzt, aus demselben
+    # Grund wie oben bei «physical»: ein Eintrag von vor der Frage soll
+    # ein ehrliches False tragen, nicht das Feld weiter schuldig bleiben.
+    sauber["archived"] = bool(sauber.get("archived"))
+
     for feld in ("shop", "title", "number", "pin", "category", "url", "notes"):
         if feld in sauber:
             sauber[feld] = str(sauber.get(feld) or "").strip()
-
-    transactions = sauber.get("transactions")
-    sauber["transactions"] = (
-        [t for t in transactions if isinstance(t, dict)]
-        if isinstance(transactions, list)
-        else []
-    )
 
     # Die angehängte Datei (Punkt 266 der Werkbank): Was keine Adresse
     # hat, ist keine - der Block fliegt raus und wird null, statt als
@@ -227,6 +244,70 @@ def bereinigen(entry: dict[str, Any]) -> dict[str, Any]:
     if "file" in sauber:
         sauber["file"] = dateien.bereinigen(sauber.get("file"))
     return sauber
+
+
+def rest_aus_transaktionen(
+    total: float, transactions: list[dict[str, Any]], ganz: bool
+) -> float | int:
+    """`left` aus dem Verlauf rechnen statt der App zu glauben (rein, testbar).
+
+    Abzug und Storno tragen ihren Betrag schon mit dem richtigen
+    Vorzeichen (eine Rücknahme ist die Gegenbuchung mit negativem Betrag,
+    siehe `abziehen`/`stornieren` in lib/gutscheine.ts) - Übergaben zählen
+    nicht mit, ihr Betrag ist immer 0. Geklemmt zwischen 0 und dem
+    Gesamtwert, dieselbe Grenze wie früher bei `left` direkt.
+    """
+    verbraucht = sum(
+        _zahl(t.get("amount"), False)
+        for t in transactions
+        if isinstance(t, dict) and t.get("art") != "uebergabe"
+    )
+    rest = min(max(total - verbraucht, 0), total)
+    return int(round(rest)) if ganz else round(rest, 2)
+
+
+def transaktionen_zusammenfuehren(
+    bisherige: list[dict[str, Any]], neue: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Neue Buchungen anfügen statt die Liste zu ersetzen (rein, testbar).
+
+    Der Grund, warum es diese Funktion braucht (Punkt 371 der Werkbank):
+    Die App schickt beim Abziehen, Stornieren oder Übergeben den ganzen
+    Gutschein per PUT, mit ihrer eigenen Sicht auf `transactions`. Zwei
+    Telefone, die im selben Moment abziehen, kennen beide nur ihre
+    eigene Buchung; ein blosses Ersetzen liesse die des anderen
+    verschwinden. Hier wird angefügt: Jede Buchung, die der Hub am
+    Zeitstempel `at` noch nicht kennt, kommt dazu - was er schon hat,
+    bleibt unverändert liegen, auch in anderer Reihenfolge geschickt.
+
+    Eine Rücknahme, die ein Ziel schon zurückgenommen hat, kommt kein
+    zweites Mal hinein - sonst würde ein Abzug, den zwei
+    Familienmitglieder im selben Moment stornieren, doppelt
+    gutgeschrieben.
+    """
+    bekannt = {t.get("at") for t in bisherige if isinstance(t, dict)}
+    schon_storniert = {
+        t.get("storniert")
+        for t in bisherige
+        if isinstance(t, dict) and t.get("art") == "storno"
+    }
+    ergebnis = list(bisherige)
+    for t in neue:
+        if not isinstance(t, dict) or t.get("at") in bekannt:
+            continue
+        if t.get("art") == "storno" and t.get("storniert") in schon_storniert:
+            continue
+        ergebnis.append(t)
+        bekannt.add(t.get("at"))
+        if t.get("art") == "storno":
+            schon_storniert.add(t.get("storniert"))
+    return ergebnis
+
+
+def aufgebraucht(entry: dict[str, Any]) -> bool:
+    """Ist nichts mehr drauf? (rein, testbar) Gegenstück zu `aufgebraucht()`
+    in lib/gutscheine.ts - ein Rest unter einem Rappen zählt als leer."""
+    return _zahl(entry.get("left"), False) < 0.005
 
 
 def ablaufende(
@@ -272,6 +353,64 @@ def ablaufende(
     return treffer
 
 
+def frisch_verfallen(rows: Any, heute: date) -> list[dict[str, Any]]:
+    """Gutscheine, die gerade erst verfallen sind (rein, testbar).
+
+    Das Gegenstück zu `ablaufende()`: Die schliesst Verfallenes aus -
+    dafür ist es zu spät, um noch loszufahren. Hier ist genau das
+    gefragt, mit Restwert und noch nicht archiviert: der Gutschein, für
+    den die letzte Meldung fällig ist (Punkt 372 der Werkbank). Der
+    Wächter ruft das einmal täglich; ob die Meldung wirklich neu ist,
+    entscheidet die Einmal-Marke dort, nicht ein exakter Tagesabstand -
+    war der Hub am eigentlichen Tag aus, soll sie trotzdem noch kommen.
+    """
+    treffer: list[dict[str, Any]] = []
+    for row in rows or []:
+        if not isinstance(row, dict) or row.get("archived"):
+            continue
+        wann = datum(row.get("expires"))
+        if wann is None or wann >= heute:
+            continue
+        if _zahl(row.get("left"), False) <= 0:
+            continue
+        treffer.append(row)
+    return treffer
+
+
+def verfalls_meldung(entry: dict[str, Any]) -> tuple[str, str]:
+    """Titel und Text der letzten Meldung - der Betrag, der weg ist (rein, testbar).
+
+    Anders als `meldung()` (die vor dem Ablauf warnt) gibt es hier
+    nichts mehr zu tun - nur noch zu wissen, was verloren ist.
+    """
+    wo = str(entry.get("shop") or entry.get("title") or "Gutschein").strip()
+    return "Gutschein verfallen", f"{wo}: {restwert(entry)} sind verfallen und weg."
+
+
+def verfallen_zeitraum(rows: Any, von: date, bis: date) -> dict[str, Any]:
+    """Was zwischen zwei Tagen verfallen ist - für den Rückblick (rein, testbar).
+
+    Dieselbe Zahl wie `verfallen()` auf dem Telefon (lib/gutscheine.ts),
+    dort aber «seit einem Stichtag bis heute» gerechnet; der Rückblick
+    (Punkt 253/372) fragt nach einem Monat oder einem Jahr, nicht nach
+    der ganzen Geschichte - deshalb hier auf einen Zeitraum eingegrenzt.
+    Nur Franken zählen: Stück-Gutscheine haben keinen Betrag, den man
+    verlieren könnte, nur eine Zahl Einlösungen.
+    """
+    treffer = []
+    for row in rows or []:
+        if not isinstance(row, dict) or row.get("unit") == "stk":
+            continue
+        wann = datum(row.get("expires"))
+        if wann is None or not (von <= wann <= bis):
+            continue
+        if _zahl(row.get("left"), False) <= 0:
+            continue
+        treffer.append(row)
+    summe = sum(_zahl(row.get("left"), False) for row in treffer)
+    return {"summe": round(summe, 2), "anzahl": len(treffer)}
+
+
 def restwert(entry: dict[str, Any]) -> str:
     """«80 CHF» oder «1 Stück» - wie ein Mensch es sagt (rein, testbar)."""
     ganz = str(entry.get("unit") or "").lower() == "stk"
@@ -314,6 +453,104 @@ def marke(entry: dict[str, Any], index: int) -> str:
     """
     name = STUFEN_NAMEN[index] if 0 <= index < len(STUFEN_NAMEN) else str(index)
     return f"voucher:{entry.get('id')}:{entry.get('expires')}:{name}"
+
+
+def uebergabe_vorschlagen(
+    entry: dict[str, Any], an: str, von: str, jetzt: Any
+) -> dict[str, Any]:
+    """Eine Übergabe vorschlagen statt sie sofort zu vollziehen (rein,
+    testbar) - Punkt 377 der Werkbank.
+
+    Bisher wechselte der Gutschein den Besitzer, sobald jemand
+    «Übergeben» antippte, ohne dass die andere Seite je gefragt wurde -
+    wer sich beim Namen vertippte, hatte den Gutschein an die falsche
+    Person verschenkt, bis die ihn zufällig fand. Jetzt bleibt der
+    bisherige Besitzer Besitzer, bis der Vorschlag angenommen ist; nur
+    `pending_transfer_to` und eine Merkzeile im Verlauf stehen dafür da.
+    """
+    empfaenger_name = str(an or "").strip()
+    if not empfaenger_name:
+        return entry
+    neu = dict(entry)
+    neu["pending_transfer_to"] = empfaenger_name
+    buchung = {
+        "at": jetzt.isoformat(),
+        "amount": 0,
+        "by": str(von or "").strip() or "?",
+        "art": "uebergabe_vorschlag",
+        "note": f"an {empfaenger_name}",
+    }
+    neu["transactions"] = [*(entry.get("transactions") or []), buchung]
+    return neu
+
+
+def uebergabe_annehmen(
+    entry: dict[str, Any], user: str, jetzt: Any
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Eine vorgeschlagene Übergabe annehmen (rein, testbar).
+
+    Nur wer als Empfänger vorgeschlagen ist, darf - alles andere wäre,
+    als könnte man sich einen fremden Gutschein selbst zusprechen.
+    """
+    ziel = str(entry.get("pending_transfer_to") or "").strip()
+    if not ziel:
+        return None, "Für diesen Gutschein liegt keine Übergabe vor."
+    if ziel != str(user or ""):
+        return None, "Diese Übergabe ist nicht an dich adressiert."
+    neu = dict(entry)
+    neu["author"] = ziel
+    neu["pending_transfer_to"] = None
+    buchung = {
+        "at": jetzt.isoformat(),
+        "amount": 0,
+        "by": ziel,
+        "art": "uebergabe",
+        "note": "angenommen",
+    }
+    neu["transactions"] = [*(entry.get("transactions") or []), buchung]
+    return neu, None
+
+
+def uebergabe_ablehnen(
+    entry: dict[str, Any], user: str, jetzt: Any
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Eine vorgeschlagene Übergabe ablehnen oder zurückziehen (rein,
+    testbar). Beide Seiten dürfen: die eingeladene Person («doch nicht
+    für mich») und wer sie vorgeschlagen hat («war ein Versehen»)."""
+    ziel = str(entry.get("pending_transfer_to") or "").strip()
+    if not ziel:
+        return None, "Für diesen Gutschein liegt keine Übergabe vor."
+    if str(user or "") not in (ziel, str(entry.get("author") or "")):
+        return None, "Das darfst du nicht entscheiden."
+    neu = dict(entry)
+    neu["pending_transfer_to"] = None
+    return neu, None
+
+
+def eingehende_uebergaben(rows: Any, user: str) -> list[dict[str, Any]]:
+    """Was auf diese Person zur Annahme wartet (rein, testbar).
+
+    Eigener, schmaler Auszug statt der vollen Liste: Ein privater
+    Gutschein bleibt bis zur Annahme fremd, aber wer ihn annehmen soll,
+    muss wenigstens wissen, dass und was da wartet - Laden, Rest, wer ihn
+    schickt. Nummer und PIN gehören nicht dazu, dafür ist die Annahme da.
+    """
+    treffer = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("pending_transfer_to") or "") != str(user or ""):
+            continue
+        treffer.append(
+            {
+                "id": row.get("id"),
+                "shop": row.get("shop"),
+                "left": row.get("left"),
+                "unit": row.get("unit"),
+                "by": row.get("author"),
+            }
+        )
+    return treffer
 
 
 def empfaenger(entry: dict[str, Any]) -> str | None:

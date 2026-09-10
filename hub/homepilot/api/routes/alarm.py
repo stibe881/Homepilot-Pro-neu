@@ -17,13 +17,20 @@ from fastapi import (
     Response,
 )
 
-from ...core import bildarchiv, cliparchiv
+from ...core import alarmbericht, bildarchiv, cliparchiv
 from ...core import throttle as throttle_module
 from ...core.errors import HomePilotError
 from ...core.users import Capability
 from ...integrations import alarm as alarm_module
+from ...integrations.alarm_rules import zonen
 from ..context import ApiContext
-from ..models import AlarmArmRequest, AlarmDisarmRequest, AlarmPinRequest
+from ..models import (
+    AlarmArmRequest,
+    AlarmDisarmRequest,
+    AlarmPinRequest,
+    AlarmSensorTestRequest,
+    AlarmZwangPinRequest,
+)
 
 log = logging.getLogger(__name__)
 
@@ -49,9 +56,13 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """
         require(request, Capability.EDIT_CONFIG)
         service = alarm_service()
+        config = service.config_dict()
         return {
             "state": service._entity.as_dict()["state"],
-            **service.config_dict(),
+            **config,
+            # Alle vergebenen Zonennamen (Punkt 398) - für die Auswahl
+            # beim Scharfschalten, aus den Sensoren selbst abgeleitet.
+            "zones": zonen(service._sensors),
             "history": service.history,
             # Ob überhaupt ein Bild in einer Nachricht landen kann: Ohne
             # `push.public_url` gibt es keine Adresse, die das Telefon ohne
@@ -88,7 +99,9 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         user = require(request, Capability.CONTROL)
         service = alarm_service()
         try:
-            return await service.arm(body.mode, force=body.force, by=user.name)
+            return await service.arm(
+                body.mode, force=body.force, by=user.name, zone=body.zone
+            )
         except HomePilotError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
 
@@ -148,17 +161,75 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
     @app.put("/api/alarm/pin")
     async def alarm_set_pin(body: AlarmPinRequest, request: Request) -> dict[str, Any]:
-        """PIN fürs Entschärfen setzen oder (leer) entfernen.
+        """Die eigene PIN fürs Entschärfen setzen oder (leer) entfernen -
+        je Person (Punkt 399 der Werkbank).
 
-        Nur Besitzer: Wer die PIN ändern darf, kann sie auch aushebeln -
-        das gehört in dieselben Hände wie die Benutzerverwaltung.
+        Die eigene braucht nur ``CONTROL``, wie ein Passwort im eigenen
+        Konto. Eine fremde zu setzen - etwa weil sie vergessen wurde -
+        bleibt der Benutzerverwaltung vorbehalten.
         """
-        require(request, Capability.MANAGE_USERS)
+        user = require(request, Capability.CONTROL)
+        ziel = (body.user or "").strip() or user.name
+        if ziel != user.name:
+            require(request, Capability.MANAGE_USERS)
         try:
-            alarm_service().set_pin(body.pin or None)
+            await alarm_service().set_pin(ziel, body.pin or None)
         except HomePilotError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
         return {"ok": True, "pin_required": alarm_service().pin_required()}
+
+    @app.put("/api/alarm/pin/zwang")
+    async def alarm_set_zwang_pin(
+        body: AlarmZwangPinRequest, request: Request
+    ) -> dict[str, Any]:
+        """Die Zwangs-PIN setzen oder entfernen (Punkt 400 der Werkbank) -
+        dieselbe Person, die ihre eigene PIN setzt, oder die
+        Benutzerverwaltung für eine fremde."""
+        user = require(request, Capability.CONTROL)
+        ziel = (body.user or "").strip() or user.name
+        if ziel != user.name:
+            require(request, Capability.MANAGE_USERS)
+        try:
+            await alarm_service().set_duress_pin(ziel, body.pin or None)
+        except HomePilotError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        return {"ok": True}
+
+    # ── Sensor-Testlauf (Punkt 403 der Werkbank) ────────────────────────────
+
+    @app.post("/api/alarm/sensortest/start")
+    async def alarm_sensor_test_start(
+        body: AlarmSensorTestRequest, request: Request
+    ) -> dict[str, Any]:
+        require(request, Capability.EDIT_CONFIG)
+        try:
+            return alarm_service().start_sensor_test(body.mode)
+        except HomePilotError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+    @app.get("/api/alarm/sensortest")
+    async def alarm_sensor_test_state(request: Request) -> dict[str, Any]:
+        require(request, Capability.EDIT_CONFIG)
+        return alarm_service().sensor_test_state()
+
+    @app.post("/api/alarm/sensortest/stop")
+    async def alarm_sensor_test_stop(request: Request) -> dict[str, Any]:
+        require(request, Capability.EDIT_CONFIG)
+        return alarm_service().stop_sensor_test()
+
+    # ── Fehlalarm-Statistik (Punkt 407 der Werkbank) ────────────────────────
+
+    @app.get("/api/alarm/fehlalarme")
+    async def alarm_fehlalarme(request: Request) -> dict[str, Any]:
+        """Sensoren, die auffällig oft schnell und ohne Eskalation
+        entschärft wurden - Kandidaten fürs Umstellen auf «verzögert»."""
+        require(request, Capability.EDIT_CONFIG)
+        service = alarm_service()
+        kandidaten = alarmbericht.fehlalarm_kandidaten(service.history)
+        for eintrag in kandidaten:
+            entity = hub.registry.get(eintrag["entity_id"])
+            eintrag["name"] = entity.label if entity is not None else eintrag["entity_id"]
+        return {"kandidaten": kandidaten}
 
     # ── Das Ereignisblatt ──────────────────────────────────────────────────
     #

@@ -13,6 +13,7 @@ import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { hubClient } from '../../api/client';
 import { CommandData, Entity } from '../../api/types';
 import { useEntities, useSettings } from '../../hooks/HubContext';
+import { useTakt } from '../../hooks/useTakt';
 import { einzelBoxen } from '../../lib/hausmusik';
 import { warteschlange } from '../../lib/musikliste';
 import { useColors } from '../../theme';
@@ -198,12 +199,9 @@ export function Schlummer({ entity }: { entity: Entity }) {
     };
   }, [hub, entity.id]);
 
-  // Nur ticken, solange ein Timer läuft.
-  useEffect(() => {
-    if (endetUm === null) return undefined;
-    const takt = setInterval(() => setJetzt(Date.now() / 1000), 10000);
-    return () => clearInterval(takt);
-  }, [endetUm]);
+  // Nur ticken, solange ein Timer läuft. Punkt 345: über den gemeinsamen
+  // Takt statt einem eigenen setInterval.
+  useTakt(() => setJetzt(Date.now() / 1000), endetUm === null ? null : 10000);
 
   const restMinuten = endetUm === null ? 0 : Math.max(0, Math.round((endetUm - jetzt) / 60));
 

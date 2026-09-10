@@ -1,5 +1,5 @@
 import { Entity } from '../api/types';
-import { gezeigteQuelle, wahlWirkung, wechselQuelle } from './musikwahl';
+import { effektiverWunsch, gezeigteQuelle, wahlWirkung, wechselQuelle } from './musikwahl';
 
 function box(id: string, name: string, extra: Partial<Entity> = {}): Entity {
   return {
@@ -81,6 +81,27 @@ describe('wahlWirkung', () => {
     // Terrasse»: Genau daran hing das. Eine Quelle sagt nichts darüber,
     // wo gespielt werden soll.
     expect(wahlWirkung(kueche, spotify).wunsch).toBeNull();
+  });
+});
+
+describe('effektiverWunsch', () => {
+  const players = [spotify, kueche, buero];
+
+  it('nimmt die Hausbox, solange niemand selbst gewählt hat', () => {
+    expect(effektiverWunsch(null, 'Küche', players)).toBe('Küche');
+  });
+
+  it('lässt eine getroffene Wahl immer stechen', () => {
+    expect(effektiverWunsch('Büro', 'Küche', players)).toBe('Büro');
+  });
+
+  it('gilt nicht für eine Hausbox, die es unter den Boxen nicht gibt', () => {
+    expect(effektiverWunsch(null, 'Garage', players)).toBeNull();
+  });
+
+  it('bleibt ohne Hausbox leer', () => {
+    expect(effektiverWunsch(null, null, players)).toBeNull();
+    expect(effektiverWunsch(null, undefined, players)).toBeNull();
   });
 });
 

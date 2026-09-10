@@ -60,7 +60,7 @@ export const GRUPPEN: readonly { key: string; titel: string; keys: readonly stri
   {
     key: 'einrichten',
     titel: 'Einrichtung und Rückblick',
-    keys: ['system', 'activity'],
+    keys: ['system', 'activity', 'diagnose'],
   },
   // Eine eigene Gruppe für einen einzelnen Punkt - mit Absicht: Hilfe
   // sucht, wer sich gerade nicht auskennt, und unter einer fremden
@@ -101,6 +101,7 @@ const FARBEN: Record<string, string> = {
   connection: '#12A594',
   system: '#5D6572',
   activity: '#0091FF',
+  diagnose: '#946800',
   hilfe: '#00A2C7',
 };
 
