@@ -91,6 +91,27 @@ export function CameraLive({
     // Ein abgerissenes Häppchen im WLAN ist normal und kein Grund, gleich
     // aufs Standbild zurückzufallen – erst nach einem Rettungsversuch.
     let recovered = false;
+    // Ein stehender Puffer ist die häufigste Art, wie das Live-Bild hier
+    // scheitert: schwarze Fläche, «Live» steht rot daneben, kein Fehler.
+    // hls.js meldet das als *nicht* tödlich und wartet auf Häppchen, die
+    // nicht mehr kommen – etwa, weil es an einer Liste hängt, die beim
+    // Anlaufen nur Platzhalter enthielt. Dagegen hilft, an den Live-Rand
+    // zu springen: Dort liegen die Häppchen, die es wirklich gibt.
+    // Gezählt, weil ein zweiter Versuch etwas bringt und ein zehnter nur
+    // noch zappelt.
+    let nachgeholt = 0;
+    const anDenRand = () => {
+      if (nachgeholt >= 3) return;
+      nachgeholt += 1;
+      const ende = video.buffered.length
+        ? video.buffered.end(video.buffered.length - 1)
+        : NaN;
+      if (Number.isFinite(ende) && ende - video.currentTime > 0.1) {
+        video.currentTime = ende;
+      }
+      hls.startLoad();
+      video.play().catch(() => {});
+    };
     hls.on(Hls.Events.ERROR, (_event, data) => {
       // Jede Klage in die Konsole, auch die nicht tödliche. Der Grund
       // steht in einem Bildschirmfoto einer schwarzen Fläche: hls.js
@@ -104,7 +125,15 @@ export function CameraLive({
           `${data.fatal ? ' · endgültig' : ''}` +
           `${data.response?.code ? ` · HTTP ${data.response.code}` : ''}`
       );
-      if (!data.fatal) return;
+      if (!data.fatal) {
+        if (
+          data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR ||
+          data.details === Hls.ErrorDetails.BUFFER_NUDGE_ON_STALL
+        ) {
+          anDenRand();
+        }
+        return;
+      }
       if (!recovered && data.type === Hls.ErrorTypes.NETWORK_ERROR) {
         recovered = true;
         hls.startLoad();

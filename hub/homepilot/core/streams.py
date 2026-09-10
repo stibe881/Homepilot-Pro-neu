@@ -274,6 +274,47 @@ def ohne_luecken(text: str) -> str:
     return "\n".join(gezaehlt) + "\n"
 
 
+#: Wie lange die erste Wiedergabeliste warten darf, bis der Strom wirklich
+#: ein Bild hat, und in welchem Takt dabei nachgesehen wird.
+#:
+#: Gemeldet als «im Browser bleibt es schwarz, auf dem Handy geht es -
+#: und danach geht es auch im Browser». Genau das ist der Unterschied
+#: zwischen einem geduldigen und einem ungeduldigen Player: mediamtx
+#: zapft die Kamera erst an, wenn jemand zusieht, und eine Protect-Kamera
+#: braucht bis zum ersten vollständigen Bild vier bis acht Sekunden. So
+#: lange besteht die Liste nur aus Platzhaltern. AVPlayer fragt in dieser
+#: Zeit einfach weiter - deshalb kommt auf dem Telefon nach drei bis fünf
+#: Sekunden ein Bild. hls.js hängt sich an die leere Liste und bleibt
+#: stehen, ohne Fehler und ohne Bild. Wer danach den Browser neu lud,
+#: sah es: Der Strom lief ja inzwischen.
+#:
+#: Also wartet der Hub, statt eine Liste ohne Bilder herauszugeben. Er
+#: weiss als Einziger, dass der Strom gerade anläuft.
+BILD_FRIST = 10.0
+BILD_TAKT = 0.3
+
+
+def hat_echtes_haeppchen(text: str) -> bool:
+    """Steht in dieser Wiedergabeliste ein Häppchen, das es gibt? (rein, testbar)
+
+    Ein Platzhalter (``#EXT-X-GAP``) zählt nicht: Er heisst ausdrücklich
+    «diesen Eintrag nicht laden». Eine Liste, die nur daraus besteht, ist
+    für einen Player wertlos - er hat nichts zu holen und zeigt schwarz.
+    """
+    luecke = False
+    for zeile in text.splitlines():
+        if zeile.startswith("#EXT-X-GAP"):
+            luecke = True
+            continue
+        if zeile.startswith("#") or not zeile.strip():
+            continue
+        # Eine Adresse: Hier endet ein Häppchen.
+        if not luecke:
+            return True
+        luecke = False
+    return False
+
+
 def strip_low_latency(text: str, rueckstand: float = START_RUECKSTAND) -> str:
     """Macht aus einer Low-Latency-Liste gewöhnliches HLS (rein, testbar).
 
