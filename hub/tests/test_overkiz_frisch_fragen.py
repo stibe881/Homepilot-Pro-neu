@@ -69,3 +69,40 @@ async def test_jeder_takt_fragt_erneut(hub):
     await integration._geraete_auffrischen()
     await integration._geraete_auffrischen()
     assert client.gefragt == [True, True, True]
+
+
+def test_der_kanal_sagt_ob_es_live_ist():
+    """«Wird das live angezeigt oder nur abgefragt?» war von aussen nicht
+    zu beantworten - man sah nur den Stand, nicht seinen Weg."""
+    from homepilot.integrations.overkiz import KANAL_FRIST, kanal_satz
+
+    assert "Live" in kanal_satz("läuft", 12, 3.0)
+    assert "12" in kanal_satz("läuft", 12, 3.0)
+    assert "nicht live" in kanal_satz("läuft", 12, KANAL_FRIST + 1)
+    assert "noch keine Antwort" in kanal_satz("wird aufgebaut", 0, None)
+
+
+async def test_eine_leere_antwort_zaehlt_als_lebenszeichen(hub):
+    """Sie beweist die Verbindung - und daran hängt, wie oft der Takt
+    abfragt. Nur auf Meldungen zu warten hiesse: eine ruhige Nacht ohne
+    Storenbewegung sähe aus wie ein toter Kanal."""
+    import asyncio
+
+    from homepilot.integrations.overkiz import ABFRAGE_INTERVALL
+
+    class StillerKanal(SammelnderClient):
+        async def register_event_listener(self):
+            return "eins"
+
+        async def fetch_events(self):
+            return []
+
+    integration = _integration(hub, StillerKanal())
+    lauf = asyncio.ensure_future(integration._event_loop())
+    for _ in range(50):
+        await asyncio.sleep(0)
+        if integration._kanal_gehoert is not None:
+            break
+    lauf.cancel()
+    assert integration._kanal_gehoert is not None
+    assert integration._takt_pause() == ABFRAGE_INTERVALL

@@ -114,17 +114,36 @@ WIEDERHOLPAUSE = 3.0
 #: grau - auch wenn sie längst wieder da war.
 ABWESEND_SCHWELLE = 3
 
-#: Takt, in dem die Geräteliste beim Gateway nachgefragt wird.
-#:
-#: Eine Minute, nicht fünf. `get_devices()` gibt den Stand heraus, den
-#: das Gateway wirklich hat - das ist belegt: Sekunden nach dem Absenken
-#: von vier Storen meldete es für genau diese vier `ClosureState 100`.
-#: Der Hub lag also nie falsch, sondern zu spät, und mit fünf Minuten
-#: Takt hiess «zu spät» im schlimmsten Fall fünf Minuten. So lange sieht
-#: man auf dem Telefon eine offene Store, die längst unten ist, und hält
-#: den Hub für kaputt. Der Aufruf geht über das lokale Netz ans Gateway
-#: und kostet nichts, was eine Minute nicht hergäbe.
-ABFRAGE_INTERVALL = 60.0
+# ── Live, nicht im Takt ────────────────────────────────────────────────
+#
+# Wie eine Store in die App kommt, ist keine Frage des Abfragens: Das
+# Gateway hat einen Ereigniskanal, der jede Änderung binnen Sekunden
+# meldet - auch die vom Wandschalter. Der Hub hört daran durchgehend zu
+# (`_event_loop`), und was hereinkommt, ist sofort auf dem Telefon.
+#
+# Der Takt darunter ist nur ein Netz für das, was der Kanal nicht
+# hergibt: die Zeit, in der er unterbrochen war, und die Meldung, dass
+# ein Gerät wieder antwortet. Er war lange mehr als das - nicht weil er
+# sollte, sondern weil der Kanal ins Leere lief: Der zwischengespeicherte
+# `get_devices()` schrieb den Stand vom Hub-Start jedes Mal wieder über
+# das, was der Kanal Sekunden zuvor richtig gemeldet hatte. Genau das
+# sah man auf dem Telefon: Die Store fuhr auf, und kurz darauf stand sie
+# wieder zu.
+#
+# Deshalb richtet sich der Takt jetzt danach, ob der Kanal lebt.
+
+#: Solange der Ereigniskanal innerhalb dieser Frist etwas hergegeben hat
+#: - auch eine leere Antwort zählt, sie beweist die Verbindung -, gilt er
+#: als lebendig.
+KANAL_FRIST = 120.0
+
+#: Takt, solange der Kanal lebt. Reines Netz; wer live bedient wird,
+#: braucht keine Abfrage.
+ABFRAGE_INTERVALL = 300.0
+
+#: Takt, solange der Kanal schweigt. Dann ist das Abfragen die einzige
+#: Quelle, und fünf Minuten wären zu lang, um sich richtig anzufühlen.
+ABFRAGE_STUMM = 60.0
 
 
 
@@ -142,6 +161,37 @@ def verfuegbarkeit(
         return 0, True
     neu = zaehler + 1
     return neu, neu < schwelle
+
+
+def takt_pause(kanal_alter: float | None) -> float:
+    """Wie lange bis zur nächsten Abfrage (rein, testbar).
+
+    ``kanal_alter`` ist die Zeit seit der letzten Antwort des
+    Ereigniskanals, oder None, wenn er noch nie eine gab. Lebt er, ist
+    die Abfrage nur ein Netz und darf selten sein; schweigt er, ist sie
+    die einzige Quelle und muss häufig sein.
+    """
+    if kanal_alter is not None and kanal_alter <= KANAL_FRIST:
+        return ABFRAGE_INTERVALL
+    return ABFRAGE_STUMM
+
+
+def kanal_satz(stand: str, meldungen: int, alter: float | None) -> str:
+    """Ein Satz darüber, ob die Anzeige gerade live ist (rein, testbar).
+
+    Die Frage «wird das live angezeigt oder nur abgefragt?» liess sich
+    von aussen nicht beantworten - man sah nur den Stand, nicht seinen
+    Weg. Deshalb steht sie jetzt unter «Nicht in Ordnung», wo man
+    nachsieht, wenn etwas nicht stimmt.
+    """
+    if alter is None:
+        return f"Ereigniskanal: {stand} - noch keine Antwort, der Stand kommt aus der Abfrage."
+    if alter > KANAL_FRIST:
+        return (
+            f"Ereigniskanal: {stand}, seit {int(alter)} s still - der Stand kommt "
+            "aus der Abfrage, nicht live."
+        )
+    return f"Live über den Ereigniskanal ({meldungen} Meldungen)."
 
 
 def ist_cover(device: Any) -> bool:
@@ -276,6 +326,12 @@ def learned_travel(
 class OverkizIntegration(Integration):
     name = "overkiz"
 
+    # Vorbelegt, damit `health()` auch dann etwas sagen kann, wenn die
+    # Einrichtung gar nicht so weit kam.
+    _kanal_gehoert: float | None = None
+    _kanal_meldungen = 0
+    _kanal_stand = "wird aufgebaut"
+
     async def setup(self) -> None:
         host = self.config.get("host")
         if not host:
@@ -337,6 +393,13 @@ class OverkizIntegration(Integration):
         # Ob das Gateway «Zustände neu lesen» überhaupt kennt. Das lokale
         # kennt es nicht - dann wird nicht endlos weitergefragt.
         self._nachlesen_geht = True
+        # Wann der Ereigniskanal zuletzt geantwortet hat (monotone Uhr),
+        # wie viele Meldungen er gebracht hat und ob er gerade steht.
+        # Daran hängt der Takt - und die Antwort auf «wird das live
+        # angezeigt?», die vorher niemand geben konnte.
+        self._kanal_gehoert: float | None = None
+        self._kanal_meldungen = 0
+        self._kanal_stand = "wird aufgebaut"
         # Was das Gateway zuletzt je Gerät gesagt hat - roh. Damit lässt
         # sich «hat sich etwas geändert» von «dieselbe alte Auskunft»
         # unterscheiden; siehe _geraete_auffrischen.
@@ -407,7 +470,7 @@ class OverkizIntegration(Integration):
         # der Stand aus dem Zwischenspeicher des Gateways - also womöglich
         # der von gestern Abend.
         self.start_polling(
-            self._geraete_auffrischen, interval=ABFRAGE_INTERVALL, sofort=True
+            self._geraete_auffrischen, interval=self._takt_pause, sofort=True
         )
 
 
@@ -445,19 +508,62 @@ class OverkizIntegration(Integration):
             ],
         )
 
+    def _takt_pause(self) -> float:
+        """Wie lange bis zur nächsten Abfrage - je nachdem, ob der Kanal lebt."""
+        alter = (
+            None
+            if self._kanal_gehoert is None
+            else time.monotonic() - self._kanal_gehoert
+        )
+        return takt_pause(alter)
+
     async def _event_loop(self) -> None:
-        """Live-Updates über den Ereigniskanal des Gateways."""
+        """Live-Updates über den Ereigniskanal des Gateways.
+
+        Das ist der Weg, auf dem eine Store in die App kommt: Das
+        Gateway meldet jede Änderung binnen Sekunden - auch die vom
+        Wandschalter -, und der Hub gibt sie sofort weiter. Der Takt
+        daneben ist nur ein Netz.
+
+        Zwei Dinge, die vorher fehlten und beide aus demselben Fehler
+        stammen - man konnte von aussen nicht sehen, ob der Kanal
+        überhaupt läuft:
+
+        - Jede Antwort wird vermerkt, auch die leere. Sie beweist die
+          Verbindung, und daran hängt, wie oft der Takt abfragt.
+        - Nach einer Unterbrechung wird einmal nachgeholt. Was während
+          der Lücke geschah, meldet der Kanal nicht nach; ohne das
+          Nachholen bliebe es bis zum nächsten Takt beim alten Stand.
+        """
+        gelaufen = False
         while True:
             try:
                 await self._client.register_event_listener()
+                if gelaufen:
+                    self.log.info("Overkiz-Ereigniskanal steht wieder - hole nach")
+                    await self._geraete_auffrischen()
+                else:
+                    self.log.info("Overkiz-Ereigniskanal steht")
+                gelaufen = True
+                self._kanal_stand = "läuft"
                 while True:
-                    for event in await self._client.fetch_events():
+                    ereignisse = await self._client.fetch_events()
+                    # Auch eine leere Antwort zählt: Sie beweist, dass der
+                    # Kanal steht - und genau das entscheidet den Takt.
+                    self._kanal_gehoert = time.monotonic()
+                    for event in ereignisse:
+                        self._kanal_meldungen += 1
                         await self._handle_event(event)
                     await asyncio.sleep(2)
             except asyncio.CancelledError:
                 raise
             except Exception as err:
-                self.log.debug("Overkiz-Ereigniskanal unterbrochen (%s), neu in 15s", err)
+                self._kanal_stand = f"unterbrochen ({err})"
+                self.log.warning(
+                    "Overkiz-Ereigniskanal unterbrochen (%s) - neuer Versuch in 15 s. "
+                    "Bis dahin kommt der Stand aus der Abfrage.",
+                    err,
+                )
                 await asyncio.sleep(15)
 
     async def _zustaende_nachlesen(self) -> bool:
@@ -629,14 +735,24 @@ class OverkizIntegration(Integration):
                 continue
             entity = self.hub.registry.get(entity_id)
             still.append(entity.label if entity else entity_id)
+        kanal = kanal_satz(
+            self._kanal_stand,
+            self._kanal_meldungen,
+            None
+            if self._kanal_gehoert is None
+            else time.monotonic() - self._kanal_gehoert,
+        )
         if not still:
-            return {"ok": True, "detail": f"{len(self._devices)} Storen, alle melden sich."}
+            return {
+                "ok": True,
+                "detail": f"{len(self._devices)} Storen, alle melden sich. {kanal}",
+            }
         return {
             "ok": True,
             "detail": (
                 f"Meldet sich nicht: {', '.join(sorted(still))}. Befehle gehen "
                 "trotzdem hinaus - bei Funk heisst «meldet sich nicht» nicht "
-                "«hört nicht zu»."
+                f"«hört nicht zu». {kanal}"
             ),
         }
 

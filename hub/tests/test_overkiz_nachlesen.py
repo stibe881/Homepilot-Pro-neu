@@ -184,9 +184,21 @@ async def test_eine_fehlende_nachlese_wird_nur_einmal_gesucht(hub):
     assert client.geraete_gefragt == 2
 
 
-def test_der_takt_fragt_jede_minute():
-    """Fünf Minuten waren zu lang: So lange zeigte das Telefon eine offene
-    Store, die längst unten war - und das sah aus wie ein Fehler."""
-    from homepilot.integrations.overkiz import ABFRAGE_INTERVALL
+def test_der_takt_richtet_sich_nach_dem_ereigniskanal():
+    """Live kommt vom Kanal, nicht vom Abfragen. Solange er liefert, ist
+    die Abfrage nur ein Netz und darf selten sein; schweigt er, ist sie
+    die einzige Quelle - dann wären fünf Minuten zu lang."""
+    from homepilot.integrations.overkiz import (
+        ABFRAGE_INTERVALL,
+        ABFRAGE_STUMM,
+        KANAL_FRIST,
+        takt_pause,
+    )
 
-    assert ABFRAGE_INTERVALL == 60.0
+    assert takt_pause(3.0) == ABFRAGE_INTERVALL
+    assert takt_pause(KANAL_FRIST) == ABFRAGE_INTERVALL
+    assert takt_pause(KANAL_FRIST + 1) == ABFRAGE_STUMM
+    # Vor der ersten Antwort weiss niemand, ob der Kanal steht - dann
+    # lieber häufig fragen als sich auf ihn verlassen.
+    assert takt_pause(None) == ABFRAGE_STUMM
+    assert ABFRAGE_STUMM < ABFRAGE_INTERVALL
