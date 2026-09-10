@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -14,6 +15,7 @@ import QRCode from 'react-native-qrcode-svg';
 
 import { Abschnitt } from '../components/Abschnitt';
 import { Klappe } from '../components/Klappe';
+import { Personenbild } from '../components/Personenbild';
 import {
   artStand,
   ersterWeg,
@@ -322,6 +324,10 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
 
   const [users, setUsers] = useState<HubUser[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Welche Person ein Bild hat und von wann - für «Wer ist da» (Punkt 415).
+  const [personenbilder, setPersonenbilder] = useState<Record<string, number>>({});
+  // Wer sein Bild gerade ändert - `null` heisst: das Blatt bleibt zu.
+  const [personenbildFuer, setPersonenbildFuer] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   // Initialpasswort (optional): Damit meldet sich die Person mit ihrem
@@ -359,9 +365,33 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
       .get<HubUser[]>('/api/users', { still: true })
       .then(setUsers)
       .catch((err) => setError(err instanceof HubFehler ? err.message : String(err)));
+    hub
+      .get<{ images?: Record<string, number> } | null>('/api/persons/images', {
+        fallback: null,
+        still: true,
+      })
+      .then((antwort) => setPersonenbilder(antwort?.images ?? {}));
   }, [hub]);
 
   useEffect(load, [load]);
+
+  /**
+   * Die Adresse des Personenbilds - oder nichts, wenn es keines gibt.
+   *
+   * Der Zeitstempel hängt mit dran, wie beim Raumbild (components/
+   * Raumbild.tsx): Der Hub lässt das Bild ein Jahr lang zwischenspeichern,
+   * und ein neues Foto ist damit eine neue Adresse statt eines alten
+   * Bildes aus dem Speicher des Telefons.
+   */
+  const personenbildUrl = useCallback(
+    (name: string): string | null => {
+      const stand = personenbilder[name];
+      if (!stand) return null;
+      const token = settings.token ? `token=${encodeURIComponent(settings.token)}&` : '';
+      return `${settings.url}/api/persons/${encodeURIComponent(name)}/image?${token}v=${stand}`;
+    },
+    [personenbilder, settings.url, settings.token]
+  );
 
   const openDetail = async (user: HubUser) => {
     setDetail(user);
@@ -510,6 +540,11 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                     «F» für den Flur sähe aus wie eine Person namens F. */}
                 {user.shared ? (
                   <Ionicons name="tablet-landscape-outline" size={20} color="#FFFFFF" />
+                ) : personenbildUrl(user.name) ? (
+                  <Image
+                    source={{ uri: personenbildUrl(user.name)! }}
+                    style={styles.avatarBild}
+                  />
                 ) : (
                   <Text style={styles.avatarText}>
                     {user.name.slice(0, 1).toUpperCase()}
@@ -701,6 +736,37 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                       <Ionicons name="close" size={26} color={colors.ink} />
                     </Pressable>
                   </View>
+                  {!detail.shared ? (
+                    // Punkt 415: das Bild, das bei «Wer ist da» statt des
+                    // Symbols steht. Kein Gerät (Wandpanel, Hub-Token) -
+                    // ein Bild «von» einem Tablet wäre Unsinn.
+                    <Pressable
+                      onPress={() => setPersonenbildFuer(detail.name)}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        personenbildUrl(detail.name)
+                          ? `Bild für ${detail.name} ändern`
+                          : `Bild für ${detail.name} hinzufügen`
+                      }
+                      style={styles.personenbildZeile}
+                    >
+                      <View style={styles.avatar}>
+                        {personenbildUrl(detail.name) ? (
+                          <Image
+                            source={{ uri: personenbildUrl(detail.name)! }}
+                            style={styles.avatarBild}
+                          />
+                        ) : (
+                          <Text style={styles.avatarText}>
+                            {detail.name.slice(0, 1).toUpperCase()}
+                          </Text>
+                        )}
+                      </View>
+                      <Text style={styles.personenbildText}>
+                        {personenbilder[detail.name] ? 'Bild ändern' : 'Bild hinzufügen'}
+                      </Text>
+                    </Pressable>
+                  ) : null}
                   <Text style={styles.userRole}>
                     {ROLE_LABELS[detail.role] ?? detail.role}
                     {!detail.editable ? ' · aus config.yaml' : ''}
@@ -1409,6 +1475,13 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
         </View>
         </Tastaturplatz>
       </Modal>
+      <Personenbild
+        person={personenbildFuer}
+        settings={settings}
+        hatBild={!!(personenbildFuer && personenbilder[personenbildFuer])}
+        onClose={() => setPersonenbildFuer(null)}
+        onChanged={setPersonenbilder}
+      />
     </View>
   );
 }
@@ -1480,6 +1553,14 @@ const makeStyles = (colors: Colors) =>
     },
     avatarDisabled: { backgroundColor: colors.inkFaint },
     avatarText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
+    avatarBild: { width: 42, height: 42, borderRadius: 21 },
+    personenbildZeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      marginBottom: 4,
+    },
+    personenbildText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
     userName: { color: colors.ink, fontSize: 16, fontWeight: '600' },
     userRole: { color: colors.inkSoft, fontSize: 13, marginTop: 1 },
     disabledBadge: {

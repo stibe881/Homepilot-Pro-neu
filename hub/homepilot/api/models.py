@@ -746,3 +746,10 @@ class RaumbildRequest(BaseModel):
     """
 
     image: str
+
+
+class PersonenbildRequest(BaseModel):
+    """Das Foto einer Person, als data-URI (Punkt 415) - dieselbe Form wie
+    beim Zimmerfoto, aus demselben Grund."""
+
+    image: str

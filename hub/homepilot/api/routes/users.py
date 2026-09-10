@@ -14,17 +14,24 @@ from fastapi import (
     FastAPI,
     HTTPException,
     Request,
+    Response,
 )
 
 from ...core import bereich as bereich_module
-from ...core import personen, presence
+from ...core import personen, personenbilder, presence
 from ...core import throttle as throttle_module
 from ...core import users as users_module
 from ...core.errors import HomePilotError
 from ...core.users import GUEST_FEATURES, Capability, Role
 from ...integrations import geofence
 from ..context import ApiContext
-from ..models import AreaUnlockRequest, SelfNameRequest, UserRequest, UserUpdateRequest
+from ..models import (
+    AreaUnlockRequest,
+    PersonenbildRequest,
+    SelfNameRequest,
+    UserRequest,
+    UserUpdateRequest,
+)
 
 log = logging.getLogger(__name__)
 
@@ -325,6 +332,98 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 hub.config.api.host, hub.config.api.port, target.token, target.name
             ),
             "enabled": target.enabled,
+        }
+
+    # ── Personenbilder (Punkt 415) ────────────────────────────────────────
+    #
+    # Ein Gesicht in der Anwesenheitsliste statt nur eines von zwei
+    # Symbolen. Lesen darf jeder Angemeldete - dieselbe Regel wie bei den
+    # Raumbildern; Setzen und Entfernen darf man für sich selbst, für eine
+    # fremde Person nur mit MANAGE_USERS.
+
+    def personenbilder_ordner():
+        return personenbilder.ordner(hub.config.data_file)
+
+    def bekannte_person(name: str) -> str:
+        user = hub.users.by_name(name)
+        if user is None or user.system:
+            raise HTTPException(status_code=404, detail=f"Unbekannter Benutzer: {name}")
+        return user.name
+
+    def personennamen() -> list[str]:
+        return [user.name for user in hub.users.users if not user.system]
+
+    @app.get("/api/persons/images")
+    async def person_images(request: Request) -> dict[str, Any]:
+        """Welche Person ein Bild hat und von wann - eine Abfrage für alle,
+        wie bei den Zimmern (siehe api/routes/raeume.py)."""
+        current_user(request)
+        return {"images": personenbilder.stand(personenbilder_ordner(), personennamen())}
+
+    @app.get("/api/persons/{name}/image")
+    async def person_image(name: str, request: Request) -> Response:
+        """Das Foto einer Person."""
+        current_user(request)
+        folder = personenbilder_ordner()
+        datei = personenbilder.pfad(folder, bekannte_person(name)) if folder else None
+        if datei is None:
+            raise HTTPException(status_code=404, detail=f"Kein Bild für {name}")
+        try:
+            inhalt = datei.read_bytes()
+        except OSError as err:
+            raise HTTPException(status_code=500, detail=f"Bild nicht lesbar: {err}") from err
+        art = {".jpg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
+        return Response(
+            content=inhalt,
+            media_type=art.get(datei.suffix, "image/jpeg"),
+            # In der Adresse steht der Zeitstempel des Bildes (siehe
+            # /api/persons/images) - ein neues Foto ist also eine neue
+            # Adresse, und ein Jahr Zwischenspeicher ist gefahrlos.
+            headers={"Cache-Control": "private, max-age=31536000, immutable"},
+        )
+
+    @app.put("/api/persons/{name}/image")
+    async def set_person_image(
+        name: str, body: PersonenbildRequest, request: Request
+    ) -> dict[str, Any]:
+        """Ein Foto für diese Person setzen (ersetzt das bisherige)."""
+        steller = current_user(request)
+        ziel = bekannte_person(name)
+        if steller.name != ziel:
+            require(request, Capability.MANAGE_USERS)
+        folder = personenbilder_ordner()
+        if folder is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Dieser Hub hat keine Datendatei - Bilder brauchen einen Ort.",
+            )
+        try:
+            daten, suffix = personenbilder.entpacke(body.image)
+        except personenbilder.BildFehler as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        try:
+            personenbilder.schreiben(folder, ziel, daten, suffix)
+        except OSError as err:
+            raise HTTPException(
+                status_code=500, detail=f"Bild liess sich nicht ablegen: {err}"
+            ) from err
+        log.info("Personenbild für '%s' gesetzt (%d KB)", ziel, len(daten) // 1000)
+        return {"ok": True, "images": personenbilder.stand(folder, personennamen())}
+
+    @app.delete("/api/persons/{name}/image")
+    async def delete_person_image(name: str, request: Request) -> dict[str, Any]:
+        """Das Foto wieder entfernen - die Liste fällt auf ihr Symbol zurück."""
+        steller = current_user(request)
+        ziel = bekannte_person(name)
+        if steller.name != ziel:
+            require(request, Capability.MANAGE_USERS)
+        weg = personenbilder.loeschen(personenbilder_ordner(), ziel)
+        if weg:
+            log.info("Personenbild für '%s' entfernt", ziel)
+        return {
+            "ok": True,
+            "removed": weg,
+            "images": personenbilder.stand(personenbilder_ordner(), personennamen()),
         }
 
     @app.delete("/api/users/{name}")

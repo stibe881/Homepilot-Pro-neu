@@ -554,6 +554,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Zeitstempel hängt an der Bildadresse: Ohne ihn zeigte ein Telefon
   // nach dem Wechseln wochenlang das alte Foto aus seinem Speicher.
   const [raumbilder, setRaumbilder] = useState<Record<string, number>>({});
+  // Welche Person ein Bild hat, und von wann - für «Wer ist da» (Punkt
+  // 415). Anders als raumbilder erst beim Öffnen des Blatts geholt, nicht
+  // beim Verbinden: Eine Liste, die selten jemand öffnet, braucht ihr
+  // Bild nicht auf Vorrat.
+  const [personenbilder, setPersonenbilder] = useState<Record<string, number>>({});
   // Für welchen Raum das Blatt «Bild wählen» offen steht.
   // Für welchen Raum der Player offen steht (Musik-Knopf der Raumkachel).
   const [musikBlattRaum, setMusikBlattRaum] = useState<string | null>(null);
@@ -952,6 +957,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       return `${settings.url}/api/rooms/${encodeURIComponent(name)}/image?${token}v=${stand}`;
     },
     [raumbilder, settings.url, settings.token]
+  );
+
+  /** Dieselbe Rechnung für das Bild einer Person (Punkt 415). */
+  const personenbildUrl = useCallback(
+    (name: string): string | null => {
+      const stand = personenbilder[name];
+      if (!stand) return null;
+      const token = settings.token ? `token=${encodeURIComponent(settings.token)}&` : '';
+      return `${settings.url}/api/persons/${encodeURIComponent(name)}/image?${token}v=${stand}`;
+    },
+    [personenbilder, settings.url, settings.token]
   );
 
   const [widgetAblage, setWidgetAblage] = useState<Ablage>('kein-widget');
@@ -3865,16 +3881,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 showClock={!!settings.panel}
                 queued={queued}
                 // Erst beim Antippen holen: Ein Dauerabruf für ein Fenster,
-                // das selten jemand öffnet, wäre Verschwendung.
+                // das selten jemand öffnet, wäre Verschwendung. Die Bilder
+                // gleich mit - dieselbe Gelegenheit, derselbe Moment.
                 onLoadPresence={async () => {
-                  const antwort = await hub.get<{ people?: Person[] } | null>(
-                    '/api/presence',
-                    {
+                  const [antwort, bilder] = await Promise.all([
+                    hub.get<{ people?: Person[] } | null>('/api/presence', {
                       still: true,
-                    }
-                  );
+                    }),
+                    hub.get<{ images?: Record<string, number> } | null>(
+                      '/api/persons/images',
+                      { fallback: null, still: true }
+                    ),
+                  ]);
+                  setPersonenbilder(bilder?.images ?? {});
                   return antwort?.people ?? [];
                 }}
+                personenbildUrl={personenbildUrl}
                 // Auf der Startseite wird die Kopfzeile zur gerahmten
                 // Begrüssungskarte - gleiche Angaben, gleiche Fenster,
                 // nur als Karte. Begrüssung und Randnotizen ziehen mit
