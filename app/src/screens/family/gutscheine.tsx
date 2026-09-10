@@ -29,7 +29,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Image,
   Linking,
@@ -51,6 +51,7 @@ import { Card } from '../../components/Card';
 import { Tastaturplatz } from '../../components/Tastaturplatz';
 import { Leerzustand } from '../../components/Leerzustand';
 import { Strichcode } from '../../components/Strichcode';
+import { QrScanner } from '../../components/QrScanner';
 import {
   Ablaufstufe,
   DATEI_TYPEN,
@@ -64,6 +65,12 @@ import {
   ablaufSatz,
   ablaufStufe,
   abziehen,
+  archivieren,
+  archivListe,
+  istArchiviert,
+  vorlageFuerLaden,
+  wartetAufAnnahme,
+  wiederherstellen,
   Transaktion,
   abzugPruefen,
   bilanzSatz,
@@ -431,6 +438,7 @@ function Detail({
   orte = [],
   onBearbeiten,
   onLoeschen,
+  onArchivieren,
   styles,
   eigen,
   colors,
@@ -451,6 +459,8 @@ function Detail({
   orte?: Ort[];
   onBearbeiten: () => void;
   onLoeschen: () => void;
+  /** Ins Archiv legen bzw. von dort zurückholen (Punkt 372). */
+  onArchivieren: () => void;
   styles: Styles;
   eigen: Eigen;
   colors: Colors;
@@ -699,7 +709,7 @@ function Detail({
               <Text style={eigen.sekundaerText}>An der Kasse</Text>
             </Pressable>
           ) : null}
-          {onUebergeben && haushalt.length > 0 ? (
+          {onUebergeben && haushalt.length > 0 && !wartetAufAnnahme(entry) ? (
             <Pressable
               onPress={() => setUebergabeOffen((wert) => !wert)}
               accessibilityRole="button"
@@ -742,13 +752,22 @@ function Detail({
             <Text style={eigen.sekundaerText}>Bearbeiten</Text>
           </Pressable>
         </View>
+        {wartetAufAnnahme(entry) ? (
+          // Punkt 377: solange die Annahme aussteht, gehört der
+          // Gutschein noch dem bisherigen Besitzer - das soll auch hier
+          // stehen, nicht nur im Verlauf.
+          <Text style={styles.checkSub}>
+            Wartet auf Annahme von {entry.pending_transfer_to}.
+          </Text>
+        ) : null}
         {uebergabeOffen && onUebergeben ? (
           <View style={{ gap: 6 }}>
             {/* Nicht dasselbe wie Teilen: Geteilt heisst «alle sehen
                 ihn», übergeben heisst «er gehört jetzt dir» - bei einem
                 privaten Gutschein der einzige Weg, ihn weiterzugeben,
-                ohne ihn allen zu zeigen. */}
-            <Text style={styles.checkSub}>An wen geht er?</Text>
+                ohne ihn allen zu zeigen. Der Besitzer wechselt aber erst
+                mit der Annahme (Punkt 377). */}
+            <Text style={styles.checkSub}>Wem vorschlagen?</Text>
             <View style={eigen.knopfReihe}>
               {haushalt.map((name) => (
                 <Pressable
@@ -758,7 +777,7 @@ function Detail({
                     onUebergeben(name);
                   }}
                   accessibilityRole="button"
-                  accessibilityLabel={`An ${name} übergeben`}
+                  accessibilityLabel={`${name} vorschlagen`}
                   style={({ pressed }) => [eigen.sekundaerKnopf, pressed && { opacity: 0.8 }]}
                 >
                   <Text style={eigen.sekundaerText}>{name}</Text>
@@ -767,6 +786,28 @@ function Detail({
             </View>
           </View>
         ) : null}
+        <Pressable
+          onPress={() => {
+            tapped();
+            onArchivieren();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={
+            istArchiviert(entry)
+              ? `${entry.shop} aus dem Archiv holen`
+              : `${entry.shop} archivieren`
+          }
+          style={({ pressed }) => [eigen.loeschKnopf, pressed && { opacity: 0.7 }]}
+        >
+          <Ionicons
+            name={istArchiviert(entry) ? 'arrow-undo-outline' : 'archive-outline'}
+            size={16}
+            color={colors.inkSoft}
+          />
+          <Text style={[eigen.loeschText, { color: colors.inkSoft }]}>
+            {istArchiviert(entry) ? 'Aus dem Archiv holen' : 'Archivieren'}
+          </Text>
+        </Pressable>
         {loeschFrage ? (
           <View style={styles.confirmRow}>
             <Text style={[styles.checkText, { flex: 1 }]}>
@@ -853,6 +894,7 @@ function FormularBlatt({
   bisher,
   vorhandeneKategorien,
   vorhandeneLaeden,
+  vorlagenQuelle,
   settings,
   onSave,
   onCancel,
@@ -866,6 +908,8 @@ function FormularBlatt({
    *  aus dieser Liste («noreply» als Ladennamen hat niemandem
    *  geholfen). */
   vorhandeneLaeden: string[];
+  /** Alle Gutscheine, für die Vorlage je Laden (Punkt 375 der Werkbank). */
+  vorlagenQuelle: Gutschein[];
   settings: HubSettings;
   onSave: (eintrag: Gutschein) => void;
   onCancel: () => void;
@@ -878,6 +922,8 @@ function FormularBlatt({
   // Der Grund einer abgelehnten Datei steht beim Abschnitt, nicht unten
   // beim Speichern-Knopf: Dort schaut in dem Moment niemand hin.
   const [dateiFehler, setDateiFehler] = useState<string | null>(null);
+  // Die Nummer scannen statt abtippen (Punkt 369).
+  const [scannerOffen, setScannerOffen] = useState(false);
   const setze = <K extends keyof Formular>(key: K, wert: Formular[K]) =>
     setForm((vorher) => ({ ...vorher, [key]: wert }));
   const bild = bildUri(form.image_url, settings);
@@ -1007,7 +1053,19 @@ function FormularBlatt({
         colors={colors}
       />
       <Card style={styles.formCard}>
-        {eingabe('Laden', 'shop', { placeholder: 'z.B. Brack.ch', autoFocus: !bisher })}
+        {eingabe('Laden', 'shop', {
+          placeholder: 'z.B. Brack.ch',
+          autoFocus: !bisher,
+          // Vorlage je Laden (Punkt 375): nur bei einem neuen Gutschein
+          // und nur, solange noch nichts anderes eingestellt wurde -
+          // sonst würde die Vorlage überschreiben, was der Beleg-Leser
+          // oder die Person selbst schon eingetragen hat.
+          onBlur: () => {
+            if (bisher || form.category || form.unit !== 'chf' || form.physical) return;
+            const vorlage = vorlageFuerLaden(vorlagenQuelle, form.shop);
+            if (vorlage) setForm((vorher) => ({ ...vorher, ...vorlage }));
+          },
+        })}
         {eingabe('Titel', 'title', { placeholder: 'z.B. Gutschein, Geschenk' })}
 
         <View style={eigen.formFeld}>
@@ -1033,6 +1091,19 @@ function FormularBlatt({
           keyboardType: form.unit === 'stk' ? 'number-pad' : 'decimal-pad',
         })}
         {eingabe('Nummer', 'number', { placeholder: 'Gutschein-Nummer oder Code', autoCapitalize: 'none' })}
+        {/* Scannen statt abtippen (Punkt 369 der Werkbank) - dort
+            passieren die Zahlendreher, die man erst an der Kasse merkt,
+            und viele Gutschein-Karten tragen ihre Nummer ohnehin als
+            Strichcode. */}
+        <Pressable
+          onPress={() => setScannerOffen(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Nummer scannen"
+          style={({ pressed }) => [eigen.fotoAktion, pressed && { opacity: 0.7 }]}
+        >
+          <Ionicons name="barcode-outline" size={16} color={colors.accent} />
+          <Text style={eigen.fotoAktionText}>Nummer scannen</Text>
+        </Pressable>
         {eingabe('PIN', 'pin', { placeholder: 'falls vorhanden', autoCapitalize: 'none' })}
 
         <View style={eigen.formFeld}>
@@ -1276,6 +1347,17 @@ function FormularBlatt({
           <Text style={styles.resetText}>Abbrechen</Text>
         </Pressable>
       </Card>
+      <QrScanner
+        visible={scannerOffen}
+        onClose={() => setScannerOffen(false)}
+        onText={(text) => setze('number', text)}
+        // EAN-13 und Code 128 sind die üblichen Strichcodes auf einer
+        // Gutschein-Karte (dieselben zwei, die lib/strichcode.ts an der
+        // Kasse zeichnet, Punkt 299/300); QR für den selteneren Fall.
+        barcodeTypes={['ean13', 'code128', 'qr']}
+        titel="Nummer scannen"
+        hinweis="Den Strichcode oder QR-Code auf der Gutschein-Karte ins Bild halten."
+      />
     </View>
   );
 }
@@ -1351,6 +1433,20 @@ function AbziehenDialog({
                 <Text style={eigen.dialogEinheit}>{einheitText(entry.unit)}</Text>
               </View>
               <View style={styles.chipRow}>
+                {/* Der Normalfall bei Stück-Gutscheinen (Punkt 376 der
+                    Werkbank): «einen einlösen», nicht erst eine Zahl
+                    eintippen und bestätigen. Fünf Kinoeintritte werden
+                    einzeln gebraucht, nicht auf einen Schlag. */}
+                {entry.unit === 'stk' && entry.left >= 1 ? (
+                  <Pressable
+                    onPress={() => onBestaetigen(1)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Einen einlösen"
+                    style={[styles.chip, eigen.stueckKnopf]}
+                  >
+                    <Text style={[styles.chipText, eigen.stueckKnopfText]}>1 einlösen</Text>
+                  </Pressable>
+                ) : null}
                 <Pressable
                   onPress={() => {
                     setText(betragZahl(entry.left, entry.unit));
@@ -1431,11 +1527,50 @@ export function Gutscheine({
   const alle = useMemo(() => eintraege.map(alsGutschein), [eintraege]);
   const [seite, setSeite] = useState<Seite>({ art: 'liste' });
   const [suchtext, setSuchtext] = useState('');
+
+  // ── Eingehende Übergaben (Punkt 377) ────────────────────────────────
+  //
+  // Ein eigener, schmaler Abruf statt der vollen Liste: Ein privater
+  // Gutschein bleibt bis zur Annahme fremd, dieser Auszug ist die
+  // einzige Stelle, an der die eingeladene Person überhaupt erfährt,
+  // dass da etwas wartet. Neu geladen, sobald sich an den Gutscheinen
+  // etwas ändert - dieselbe Familienseite meldet das schon über den
+  // WebSocket (family_changed), was hier als geänderte `eintraege`
+  // ankommt.
+  const [eingehend, setEingehend] = useState<
+    { id: string; shop: string; left: number; unit: 'chf' | 'stk'; by: string }[]
+  >([]);
+  useEffect(() => {
+    let abgebrochen = false;
+    hubClient(settings.url, settings.token)
+      .get<typeof eingehend>('/api/family/vouchers/eingehend', { still: true, fallback: [] })
+      .then((liste) => {
+        if (!abgebrochen) setEingehend(liste ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      abgebrochen = true;
+    };
+  }, [eintraege, settings.url, settings.token]);
+
+  const uebergabeEntscheiden = async (id: string, annehmen: boolean) => {
+    tapped();
+    try {
+      await hubClient(settings.url, settings.token).post(
+        `/api/family/vouchers/${encodeURIComponent(id)}/${annehmen ? 'annehmen' : 'ablehnen'}`,
+        {}
+      );
+      setEingehend((vorher) => vorher.filter((e) => e.id !== id));
+    } catch {
+      // Der nächste Abruf (oben) zeigt den wahren Stand ohnehin wieder.
+    }
+  };
   const [filterOffen, setFilterOffen] = useState(false);
   const [kategorie, setKategorie] = useState<string | null>(null);
   const [geteilt, setGeteilt] = useState<Geteilt | null>(null);
   const [nurBald, setNurBald] = useState(false);
   const [leerOffen, setLeerOffen] = useState(false);
+  const [archivOffen, setArchivOffen] = useState(false);
   const [abzugId, setAbzugId] = useState<string | null>(null);
   // Drei Gutscheine bei Coop sind ein Betrag, keine drei Karten
   // (Punkt 305 der Werkbank). Gezeigt wird die Zeile nur, wo es etwas
@@ -1455,6 +1590,7 @@ export function Gutscheine({
 
   const gefunden = gefiltert(alle, suchtext, { kategorie, geteilt, bald: nurBald }, heute);
   const { offen, leer } = aufgeteilt(gefunden, heute);
+  const archivierte = archivListe(gefunden);
   const gefiltertAktiv = !!(suchtext.trim() || kategorie || geteilt || nurBald);
   const kats = useMemo(() => kategorien(alle), [alle]);
   const abzug = abzugId ? (alle.find((entry) => entry.id === abzugId) ?? null) : null;
@@ -1503,14 +1639,25 @@ export function Gutscheine({
           }}
           onUebergeben={(an) => {
             if (!entry.id) return;
-            const neu = uebergeben(entry, an, ich, new Date());
-            onUpdate(entry.id, { author: neu.author, transactions: neu.transactions });
+            // Nur ein Vorschlag (Punkt 377) - der Hub sagt der
+            // eingeladenen Person per Push Bescheid, und erst ihre
+            // Annahme ändert den Besitzer.
+            const neu = uebergeben(entry, an);
+            onUpdate(entry.id, { pending_transfer_to: neu.pending_transfer_to });
           }}
           haushalt={haushalt.filter((name) => name !== (entry.author ?? ich))}
           onBearbeiten={() => setSeite({ art: 'form', id: entry.id })}
           onLoeschen={() => {
             if (entry.id) onRemove(entry.id);
             setSeite({ art: 'liste' });
+          }}
+          onArchivieren={() => {
+            if (!entry.id) return;
+            // Nur das eine Feld, nicht den ganzen Eintrag ummodeln - der
+            // Hub rechnet den Rest ohnehin aus dem Verlauf (Punkt 371),
+            // hier geht es nur um das Archiv-Feld selbst.
+            const neu = istArchiviert(entry) ? wiederherstellen(entry) : archivieren(entry);
+            onUpdate(entry.id, { archived: neu.archived });
           }}
           styles={styles}
           eigen={eigen}
@@ -1537,6 +1684,7 @@ export function Gutscheine({
         bisher={bisher}
         vorhandeneKategorien={kats}
         vorhandeneLaeden={alleLaeden}
+        vorlagenQuelle={alle}
         settings={settings}
         onSave={(eintrag) => speichern(eintrag, seite.id)}
         onCancel={() => setSeite(seite.id ? { art: 'detail', id: seite.id } : { art: 'liste' })}
@@ -1594,6 +1742,39 @@ export function Gutscheine({
           <Ionicons name="add" size={22} color="#FFFFFF" />
         </Pressable>
       </View>
+
+      {/* Eingehende Übergaben (Punkt 377): ganz oben, nicht in der Liste
+          versteckt - wer einen Gutschein bekommen soll, weiss davon erst
+          hier, denn er steht sonst nirgends (privat, noch nicht
+          angenommen). */}
+      {eingehend.length > 0 ? (
+        <Card style={styles.listCard}>
+          <Text style={eigen.formLabel}>Für dich vorgeschlagen</Text>
+          {eingehend.map((e) => (
+            <View key={e.id} style={[eigen.feld, { flexDirection: 'row', alignItems: 'center' }]}>
+              <Text style={{ flex: 1, color: colors.ink }}>
+                {e.shop} von {e.by} · {betragText(e.left, e.unit)}
+              </Text>
+              <Pressable
+                onPress={() => uebergabeEntscheiden(e.id, true)}
+                accessibilityRole="button"
+                accessibilityLabel={`Gutschein von ${e.by} annehmen`}
+                style={({ pressed }) => [eigen.primaerKnopf, pressed && { opacity: 0.8 }]}
+              >
+                <Ionicons name="checkmark" size={18} color="#FFFFFF" />
+              </Pressable>
+              <Pressable
+                onPress={() => uebergabeEntscheiden(e.id, false)}
+                accessibilityRole="button"
+                accessibilityLabel={`Gutschein von ${e.by} ablehnen`}
+                style={({ pressed }) => [eigen.sekundaerKnopf, pressed && { opacity: 0.8 }]}
+              >
+                <Ionicons name="close" size={18} color={colors.ink} />
+              </Pressable>
+            </View>
+          ))}
+        </Card>
+      ) : null}
 
       {laeden.length > 0 ? (
         <View style={styles.chipRow}>
@@ -1698,6 +1879,36 @@ export function Gutscheine({
       ) : null}
       {leerOffen
         ? leer.map((entry) => (
+            <GutscheinKarte
+              key={entry.id ?? entry.shop}
+              entry={entry}
+              heute={heute}
+              onOpen={() => entry.id && setSeite({ art: 'detail', id: entry.id })}
+              onAbziehen={() => {}}
+              eigen={eigen}
+              colors={colors}
+            />
+          ))
+        : null}
+
+      {/* Das Archiv (Punkt 372): erledigte Gutscheine, ob automatisch
+          hineingelegt (aufgebraucht, verfallen) oder von Hand. Noch
+          eingeklappter als «Aufgebraucht» - wer archiviert hat, wollte
+          den Gutschein aus dem Weg haben. */}
+      {archivierte.length > 0 ? (
+        <Pressable
+          onPress={() => setArchivOffen(!archivOffen)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: archivOffen }}
+          style={styles.clearButton}
+        >
+          <Text style={styles.resetText}>
+            {archivOffen ? 'Archiv ausblenden' : `Archiv (${archivierte.length})`}
+          </Text>
+        </Pressable>
+      ) : null}
+      {archivOffen
+        ? archivierte.map((entry) => (
             <GutscheinKarte
               key={entry.id ?? entry.shop}
               entry={entry}
@@ -1869,6 +2080,10 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     sekundaerText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+    // Der Knopf «1 einlösen» bei Stück-Gutscheinen (Punkt 376) - hervor-
+    // gehoben, weil das der Tipp ist, den man neunmal von zehn braucht.
+    stueckKnopf: { backgroundColor: colors.accent, borderColor: colors.accent },
+    stueckKnopfText: { color: '#FFFFFF' },
     loeschKnopf: {
       flexDirection: 'row',
       alignItems: 'center',

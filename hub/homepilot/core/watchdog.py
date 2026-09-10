@@ -1610,6 +1610,10 @@ class Watchdog:
         Private Gutscheine gehen an den, der sie eingetragen hat; die
         anderen erfahren nicht einmal, dass es sie gibt. Geteilte gehen
         an alle - jeder könnte ihn einlösen (core/gutscheine.py).
+
+        Danach eine vierte, andere Meldung (Punkt 372 der Werkbank): der
+        Tag nach dem Verfall, mit dem Betrag, der jetzt weg ist - und der
+        Gutschein wandert dabei ins Archiv.
         """
         # Der Schalter der Regel «Gutschein läuft bald ab» (Abläufe →
         # Push). Bisher gab es ihn nicht: Die Erinnerung liess sich nur
@@ -1637,6 +1641,34 @@ class Watchdog:
                 to=gutscheine.empfaenger(eintrag),
                 data={"kind": "family", "collection": "vouchers", "id": eintrag.get("id")},
             )
+        # Die letzte Meldung, einen Tag nach dem Verfall (Punkt 372 der
+        # Werkbank): Was bis hier nicht abgezogen wurde, ist weg - und
+        # der Gutschein gehört danach nicht mehr in die offene Liste.
+        # Eigene Marke statt einer vierten Stufe in STUFEN: Die drei dort
+        # sind Tage *vor* dem Ablauf und fest verdrahtet mit den
+        # Einstellungen (first_days/second_days); diese Meldung hängt an
+        # keiner Einstellung und soll auch nicht mitwandern, wenn jemand
+        # die Fristen ändert.
+        frisch = gutscheine.frisch_verfallen(rows, jetzt.date())
+        if frisch:
+            geaendert = False
+            for eintrag in frisch:
+                if not self._einmal(f"voucher-verfallen:{eintrag.get('id')}", jetzt.timestamp()):
+                    continue
+                titel, text = gutscheine.verfalls_meldung(eintrag)
+                await self._notify(
+                    titel,
+                    text,
+                    category="vouchers",
+                    to=gutscheine.empfaenger(eintrag),
+                    data={"kind": "family", "collection": "vouchers", "id": eintrag.get("id")},
+                )
+                eintrag["archived"] = True
+                geaendert = True
+            # Nur schreiben, wenn wirklich etwas dazukam - sonst würde
+            # jede Stunde ein identischer Stand neu abgelegt.
+            if geaendert:
+                self.hub.data.set(gutscheine.KEY, rows)
 
     async def _check_meal_plan(self) -> None:
         """Der Wochenplan füttert «zuletzt gekocht» (Punkt 218).

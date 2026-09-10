@@ -168,6 +168,39 @@ def test_ohne_supabase_kommt_der_rest_trotzdem(tmp_path):
     assert antwort["zeitraum"] == "monat"
 
 
+def test_verfallene_gutscheine_stehen_im_rueckblick(tmp_path):
+    """Punkt 372 der Werkbank: die Zahl, die den Rückblick unbequem macht."""
+
+    async def run():
+        hub = make_hub(tmp_path)
+        await hub.start()
+        heute = date(2030, 6, 15)
+        hub.data.set(
+            "family_vouchers",
+            [
+                {"shop": "Brack.ch", "unit": "chf", "left": 40, "expires": "2030-06-10"},
+                {"shop": "Zalando", "unit": "chf", "left": 0, "expires": "2030-06-10"},
+            ],
+        )
+        antwort = await langzeit.erstellen(hub, "monat", heute=heute)
+        await hub.stop()
+        return antwort
+
+    antwort = asyncio.run(run())
+    assert antwort["gutscheine"] == {"summe": 40, "anzahl": 1}
+
+
+def test_ohne_verfallene_gutscheine_steht_dort_nichts(tmp_path):
+    async def run():
+        hub = make_hub(tmp_path)
+        await hub.start()
+        antwort = await langzeit.erstellen(hub, "monat", heute=date.today())
+        await hub.stop()
+        return antwort
+
+    assert asyncio.run(run())["gutscheine"] is None
+
+
 def test_route_liefert_den_rueckblick_und_prueft_den_zeitraum(tmp_path):
     with TestClient(create_app(make_hub(tmp_path))) as client:
         auth = {"Authorization": "Bearer t-owner"}

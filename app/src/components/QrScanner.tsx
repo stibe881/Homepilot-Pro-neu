@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { CameraView, useCameraPermissions } from 'expo-camera';
-import React, { useMemo, useState } from 'react';
+import { BarcodeType, CameraView, useCameraPermissions } from 'expo-camera';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { HubSettings } from '../api/types';
@@ -27,19 +27,35 @@ export function parseSetup(raw: string): ScannedSetup | null {
 }
 
 /**
- * Scanner für den Einrichtungs-Code, den der Hub beim Start ausgibt.
+ * Scanner für den Einrichtungs-Code, den der Hub beim Start ausgibt - und
+ * seit Punkt 369 der Werkbank ebenso für jeden anderen Code, den man auf
+ * ein Feld übernehmen will (die Nummer auf einer Gutschein-Karte etwa):
+ * `onText` statt `onScanned` lässt jeden gelesenen Wert durch, ohne ihn
+ * als Einrichtungs-JSON zu prüfen.
  *
  * IP-Adresse und Token von Hand abzutippen ist der unschönste Moment der
- * App – ausgerechnet der erste.
+ * App – ausgerechnet der erste, und eine abgetippte Gutschein-Nummer ist
+ * derselbe Fehler in Klein: genau dort passieren die Zahlendreher, die
+ * man erst an der Kasse merkt.
  */
 export function QrScanner({
   visible,
   onClose,
   onScanned,
+  onText,
+  barcodeTypes = ['qr'],
+  titel = 'QR-Code scannen',
+  hinweis = 'Der Hub gibt den Code beim Start aus. Er enthält Adresse, Token und deinen Namen.',
 }: {
   visible: boolean;
   onClose: () => void;
-  onScanned: (setup: ScannedSetup) => void;
+  /** Für den Einrichtungs-Code (Vorgabe): erkennt nur echtes Setup-JSON. */
+  onScanned?: (setup: ScannedSetup) => void;
+  /** Für jeden anderen Zweck: jeder gelesene Text zählt. */
+  onText?: (text: string) => void;
+  barcodeTypes?: BarcodeType[];
+  titel?: string;
+  hinweis?: string;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -47,16 +63,33 @@ export function QrScanner({
   const [error, setError] = useState<string | null>(null);
   // Ohne Sperre feuert die Kamera denselben Code mehrfach hintereinander.
   const [handled, setHandled] = useState(false);
+  // Die Komponente bleibt zwischen zwei Scans eingehängt (nur `visible`
+  // wechselt) - ohne diesen Reset bliebe `handled` vom ersten Scan
+  // stehen, und ein zweiter Versuch (zweites Feld, zweite Person) würde
+  // stillschweigend nichts mehr melden. Gefunden beim Wiederverwenden
+  // für die Gutschein-Nummer (Punkt 369), wo genau das vorkommt.
+  useEffect(() => {
+    if (visible) {
+      setHandled(false);
+      setError(null);
+    }
+  }, [visible]);
 
   const handleScan = (raw: string) => {
     if (handled) return;
+    if (onText) {
+      setHandled(true);
+      onText(raw);
+      onClose();
+      return;
+    }
     const setup = parseSetup(raw);
     if (!setup) {
       setError('Das war kein HomePilot-Code. Der Hub zeigt ihn beim Start im Terminal.');
       return;
     }
     setHandled(true);
-    onScanned(setup);
+    onScanned?.(setup);
     onClose();
   };
 
@@ -89,7 +122,7 @@ export function QrScanner({
         <CameraView
           style={styles.camera}
           facing="back"
-          barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+          barcodeScannerSettings={{ barcodeTypes }}
           onBarcodeScanned={({ data }) => handleScan(data)}
         />
         <View style={styles.frame} pointerEvents="none" />
@@ -101,17 +134,14 @@ export function QrScanner({
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.screen}>
         <View style={styles.header}>
-          <Text style={styles.title}>QR-Code scannen</Text>
+          <Text style={styles.title}>{titel}</Text>
           <Pressable onPress={onClose} accessibilityLabel="Scannen abbrechen">
             <Ionicons name="close" size={26} color={colors.ink} />
           </Pressable>
         </View>
         {body()}
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        <Text style={styles.hint}>
-          Der Hub gibt den Code beim Start aus. Er enthält Adresse, Token und
-          deinen Namen.
-        </Text>
+        <Text style={styles.hint}>{hinweis}</Text>
       </View>
     </Modal>
   );
