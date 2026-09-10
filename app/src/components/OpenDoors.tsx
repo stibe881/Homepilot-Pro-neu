@@ -49,7 +49,7 @@ export function OpenDoors({ entities }: { entities: Entity[] }) {
         accessibilityLabel={`${heading}: ${names(open)} – seit wann?`}
         style={({ pressed }) => [styles.card, pressed && { opacity: 0.7 }]}
       >
-        <Ionicons name="alert-circle" size={22} color={colors.warn} />
+        <Ionicons name="alert-circle-outline" size={22} color={colors.warn} />
         <View style={styles.text}>
           <Text style={styles.heading}>{heading}</Text>
           <Text style={styles.names} numberOfLines={2}>

@@ -14,9 +14,19 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import { CommandData, Entity, HubSettings } from '../api/types';
 import { begruessung } from '../lib/begruessung';
+import { useBlaetter } from './dashboard/blaetter';
+import { lesen as dichteLesen, masse } from '../lib/dichte';
 import {
+  SCHLUESSEL as WIEDERAUFNAHME,
+  merkbar,
+  zurueckZu,
+} from '../lib/wiederaufnahme';
+import {
+  ADMIN_PUNKTE,
   Bereich,
   gruppeVon,
   siehtBereich,
@@ -183,6 +193,7 @@ import {
 } from '../lib/widgetButtons';
 import { HubProvider } from '../hooks/HubContext';
 import { useFamilienlisten } from '../hooks/useFamilienlisten';
+import { useAbstuerze } from '../hooks/useAbstuerze';
 import { useKachelnutzung } from '../hooks/useKachelnutzung';
 import { useRaumnutzung } from '../hooks/useRaumnutzung';
 import { gelernt, hinweisGelernt, nachGewohnheit } from '../lib/kachellernen';
@@ -364,6 +375,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     (user?.capabilities ?? []).includes('edit_config');
 
   const [section, setSection] = useState<Section>('start');
+  // Da weitermachen, wo man war (lib/wiederaufnahme.ts). Der Fall: Man
+  // steht in den Abläufen, das Telefon sperrt sich, man entsperrt es -
+  // und ist auf der Startseite. Nur die Seite, nicht der Zustand darin:
+  // Ein Bearbeitungsblatt, das von selbst wieder aufgeht, ist
+  // erschreckend, weil man nicht weiss, ob man gespeichert hat.
+  const wiederaufnahmeGeprueft = useRef(false);
   // Solange eine Zeile in einem Ordnen-Blatt am Finger hängt, darf das
   // Blatt nicht scrollen: Der Capture-Anspruch der Zeile hält zwar die
   // Geste, aber ein ScrollView, der daneben weiter scrollen darf,
@@ -372,17 +389,50 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [ordnenZieht, setOrdnenZieht] = useState(false);
   // Die grosse Liste, damit ein Wechsel oben anfängt (siehe unten).
   const blatt = useRef<ScrollView>(null);
+  // Was gerade über der Seite liegt, an einem Ort - samt `allesZu()`
+  // für den Bereichswechsel (screens/dashboard/blaetter.ts). Vorher
+  // standen die vierzehn Zustände hier verstreut und weiter unten
+  // dieselben vierzehn Setzer von Hand aufgezählt; wer ein fünfzehntes
+  // Blatt baute, vergass die zweite Liste, und es blieb beim Wechsel
+  // offen liegen.
+  const {
+    fullscreen,
+    setFullscreen,
+    historyFor,
+    setHistoryFor,
+    bildFuer,
+    setBildFuer,
+    erinnernAn,
+    setErinnernAn,
+    raumMenue,
+    setRaumMenue,
+    wechselOffen,
+    setWechselOffen,
+    reorderOpen,
+    setReorderOpen,
+    roomsReorderOpen,
+    setRoomsReorderOpen,
+    batterienOffen,
+    setBatterienOffen,
+    sorgenOffen,
+    setSorgenOffen,
+    hilfeOffen,
+    setHilfeOffen,
+    seitenhilfe,
+    setSeitenhilfe,
+    wandOffen,
+    setWandOffen,
+    searchOpen,
+    setSearchOpen,
+    allesZu,
+  } = useBlaetter();
   // Aufgeklappt kommt man nur über die Batteriewarnung hierher; sonst
   // entscheidet die Karte selbst (siehe DeviceHealth).
-  const [batterienOffen, setBatterienOffen] = useState(false);
   // Das Blatt «was ist gerade nicht in Ordnung» - offen oder zu.
-  const [sorgenOffen, setSorgenOffen] = useState(false);
   // Das Hilfeblatt (Einstellungen → Hilfe) und die von dort aus erneut
   // angeforderte Einführung. Ob sie beim ersten Öffnen von selbst kommt,
   // entscheidet sie selbst (components/Einfuehrung.tsx).
-  const [hilfeOffen, setHilfeOffen] = useState(false);
   // Die Hilfe zur Seite, auf der man gerade steht (lib/seitenhilfe.ts).
-  const [seitenhilfe, setSeitenhilfe] = useState(false);
   const [einfuehrungErzwungen, setEinfuehrungErzwungen] = useState(false);
   // Was der Hub über «Besuch oder Babysitter» sagt - für die Zeile im
   // Menü; die Seite selbst (screens/BesuchScreen.tsx) fragt ihn frisch.
@@ -432,10 +482,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [kopfBoxId, setKopfBoxId] = useState<string | null>(null);
   const [musikOffen, setMusikOffen] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [reorderOpen, setReorderOpen] = useState(false);
   // «Räume ordnen»: Die Reihenfolge kam aus der config.yaml – wer sie
   // ändern wollte, brauchte den Rechner.
-  const [roomsReorderOpen, setRoomsReorderOpen] = useState(false);
   // Suchbegriff der Geräteliste.
   const [query, setQuery] = useState('');
   // Filter und Sortierung der Geräteliste – die vier Fragen, mit denen
@@ -447,13 +495,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Das ···-Menü im Raumkopf: klappt «Anpassen» und «Reihenfolge» auf.
   // Je Raum frisch zu - was man im Büro aufgeklappt hat, soll im
   // Schlafzimmer nicht offen stehen.
-  const [raumMenue, setRaumMenue] = useState(false);
   // «Szene aufnehmen» steht hinter dem ···-Menü und klappt darunter auf.
   const [szeneAufnehmen, setSzeneAufnehmen] = useState(false);
   useEffect(() => {
     setRaumMenue(false);
     setSzeneAufnehmen(false);
-  }, [room, section]);
+    // `setRaumMenue` kommt jetzt aus useBlaetter und ist damit für den
+    // Prüfer eine fremde Grösse - sie ist ein useState-Setzer und
+    // wechselt nie, aber der Prüfer weiss das nicht.
+  }, [room, section, setRaumMenue]);
   const [lastTouch, setLastTouch] = useState(() => Date.now());
   // Zählt hoch, wenn der Widget-Knopf «Alles aus» gedrückt wurde – die
   // Rückfrage öffnet sich dann von selbst, statt dass die App nur
@@ -485,9 +535,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [heimSignal, setHeimSignal] = useState(0);
   // Welches Gerät gerade nach einer Frist gefragt wird («sag mir in zwei
   // Stunden Bescheid»).
-  const [erinnernAn, setErinnernAn] = useState<Entity | null>(null);
   // Das Blatt hinter dem Titel einer Einstellungsseite (components/einstellungen).
-  const [wechselOffen, setWechselOffen] = useState(false);
   // Der Weg zu einem Ziel aus einer Nachricht. Über eine Ref, weil der
   // Tipp-Haken früh gebraucht wird und der Weg selbst erst weiter unten
   // steht - dort, wo die Räume bekannt sind.
@@ -501,18 +549,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     knoepfe: PushKnopf[];
   } | null>(null);
   // Angetippte Kamera im Vollbild (Entitäts-ID, damit Live-Updates ankommen).
-  const [fullscreen, setFullscreen] = useState<string | null>(null);
   // Alle Kameras nebeneinander - fürs Tablet im Flur die einzige
   // sinnvolle Ansicht (siehe components/Kamerawand.tsx).
-  const [wandOffen, setWandOffen] = useState(false);
   // Gerät, dessen Verlauf gerade offen ist (Geräte-Ansicht, Tipp auf die Kachel).
-  const [historyFor, setHistoryFor] = useState<string | null>(null);
   // Welcher Raum ein Foto auf seiner Kachel hat, und von wann. Der
   // Zeitstempel hängt an der Bildadresse: Ohne ihn zeigte ein Telefon
   // nach dem Wechseln wochenlang das alte Foto aus seinem Speicher.
   const [raumbilder, setRaumbilder] = useState<Record<string, number>>({});
   // Für welchen Raum das Blatt «Bild wählen» offen steht.
-  const [bildFuer, setBildFuer] = useState<string | null>(null);
   // Für welchen Raum der Player offen steht (Musik-Knopf der Raumkachel).
   const [musikBlattRaum, setMusikBlattRaum] = useState<string | null>(null);
   // Welcher Fernseher seine Fernbedienung offen hat. Sie hängt nicht an
@@ -523,7 +567,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [startCountdowns, setStartCountdowns] = useState<
     { text: string; date: string; on_start?: boolean }[]
   >([]);
-  const [searchOpen, setSearchOpen] = useState(false);
   // Abläufe – nur für die Suche; die Liste selbst lebt im Ablauf-Screen.
   const [automations, setAutomations] = useState<SuchAblauf[]>([]);
   // Läuft der Babysitter-Modus? Nur dann hält der Riegel vor Familie und
@@ -600,6 +643,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Und wie oft welches Gerät zu welcher Tageszeit
   // (hooks/useKachelnutzung.ts) - daraus wird die gelernte Reihenfolge.
   const { kachelZaehler, zaehleKachel } = useKachelnutzung();
+  // Was `<Auffangnetz>` abfängt, gehört ins Buch dieses Geräts - sonst
+  // erfährt niemand davon (Punkt 272, hooks/useAbstuerze.ts).
+  const { merkeAbsturz } = useAbstuerze();
+  /** Das Gerät, aus dem drüben ein Ablauf werden soll (Punkt 317). */
+  const [ablaufSaat, setAblaufSaat] = useState<string | null>(null);
   // Ist gerade jemand da? Beim Öffnen der Einstellungen fragen,
   // nicht dauernd: Die Zeile im Menü ist der einzige Ort, an dem die
   // Antwort gebraucht wird - und dort steht sie eine Sekunde später.
@@ -695,7 +743,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     return () => {
       alive = false;
     };
-  }, [settings.url, settings.token, status, riegelFrage]);
+  }, [hub, settings.url, settings.token, status, riegelFrage]);
 
   // Beim Verlassen der Geräteliste die Suche zurücksetzen – wer später
   // zurückkommt, will die volle Liste sehen, nicht den alten Suchbegriff.
@@ -709,6 +757,41 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Ein Gemeinschaftsgerät ist ein Wandpanel - dafür ist es da. Der
   // Schalter in den Einstellungen bleibt für alle anderen Geräte.
   usePanelMode(!!settings.panel || !!user?.shared);
+
+  // Beim ersten Aufbau einmal nachsehen, ob man vor Kurzem woanders war.
+  // Genau einmal: Danach ist jeder Wechsel eine Entscheidung, und die
+  // soll kein gespeicherter Stand überschreiben.
+  //
+  // Im Speicher des Telefons und nicht beim Hub - die Ausnahme von der
+  // Regel in der CLAUDE.md, und mit Grund: «Wo war ich vor zehn Minuten»
+  // ist keine Einstellung, sondern eine Beobachtung über *dieses* Gerät.
+  // Auf dem zweiten Telefon wäre sie falsch, nach zehn Minuten wertlos,
+  // und beim Hub abgelegt hinge sie an einem Abruf, der beim Start
+  // ohnehin schon zu viele hat.
+  useEffect(() => {
+    if (wiederaufnahmeGeprueft.current) return;
+    wiederaufnahmeGeprueft.current = true;
+    AsyncStorage.getItem(WIEDERAUFNAHME)
+      .then((roh) => {
+        const ziel = zurueckZu(roh ? JSON.parse(roh) : null, Date.now(), {
+          // Am Wandtablet ist die Startseite kein Standardwert, sondern
+          // der Zweck: Es hängt im Flur und soll zeigen, wie es im Haus
+          // steht.
+          tablet: !!settings.panel || !!user?.shared,
+        });
+        if (ziel) setSection(ziel);
+      })
+      .catch(() => {});
+  }, [settings.panel, user?.shared]);
+
+  // Und beim Verlassen einer Seite vermerken, wo man war.
+  useEffect(() => {
+    if (!merkbar(section)) return;
+    AsyncStorage.setItem(
+      WIEDERAUFNAHME,
+      JSON.stringify({ section, at: Date.now() })
+    ).catch(() => {});
+  }, [section]);
   // Und nachts wird es dunkler. `now` tickt ohnehin jede halbe Minute
   // weiter; damit der Schleier nach einer Berührung nicht bis zum
   // nächsten Tick hell bleibt, hängt er auch an lastTouch.
@@ -886,9 +969,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // Autodienst startet, wenn niemand die App offen hat: Was er
     // braucht, muss vorher dastehen.
     syncAuto(settings, widgetButtons);
+    // `settings` ganz und nicht nur url und token: syncWidget und
+    // syncAuto lesen mehr aus dem Objekt heraus (Thema, Panel-Modus),
+    // und wer nur zwei Felder aufzählt, verpasst genau die Änderungen,
+    // die man am Wandtablet macht.
   }, [
-    settings.url,
-    settings.token,
+    settings,
     prefs.widgetData,
     widgetButtons,
     entities.length,
@@ -1035,11 +1121,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     () => eigenePrefs.favorites ?? favoritenVon(entities),
     [eigenePrefs.favorites, entities]
   );
-  const hidden = prefs.hidden ?? [];
-  const locked = prefs.locked ?? [];
+  // Festgehalten und nicht je Rendern neu: `prefs.locked ?? []` ist bei
+  // jedem Durchlauf eine andere leere Liste, und die hängt an den
+  // Abhängigkeiten von guardedCommand - der wurde damit auch neu, und
+  // mit ihm alles, was ihn weiterreicht. Ein Kachelraster, das sich bei
+  // jedem Tastendruck neu aufbaut, ist genau der Fehler, den die
+  // Browser-Probe an der Fernbedienung misst.
+  const hidden = useMemo(() => prefs.hidden ?? [], [prefs.hidden]);
+  const locked = useMemo(() => prefs.locked ?? [], [prefs.locked]);
   // Zählt in der «3 an» oben nicht mit – bleibt aber auf der Startseite
   // stehen. Zwei verschiedene Listen, siehe lib/zaehlung.ts.
-  const ungezaehlt = prefs.ungezaehlt ?? [];
+  const ungezaehlt = useMemo(() => prefs.ungezaehlt ?? [], [prefs.ungezaehlt]);
 
   // Einmalige Übernahme der alten, gerätelokalen Favoriten. Danach wird
   // die lokale Liste geleert, damit dieselben Sterne nicht bei jedem
@@ -1387,11 +1479,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Schwelle lag genau zwischen den Geräten: iPhone Max zweispaltig,
   // jedes kleinere einspaltig. Kameras brauchen mehr Fläche und
   // bekommen darum weniger Spalten (siehe lib/raster).
+  // Wie eng die Kacheln stehen, hängt am Gerät (lib/dichte.ts): Am
+  // Wandtablet liest man aus zwei Metern, auf dem Sofa will man die
+  // Wohnung auf einen Blick. Kameras bleiben davon unberührt - ihr
+  // Vorschaubild braucht seine 260 Punkte, egal was jemand einstellt.
+  const dichte = useMemo(() => masse(dichteLesen(settings.dichte)), [settings.dichte]);
   const columns = spalten(
     gridWidth,
-    section === 'cameras' ? { mindest: KAMERA_MINDEST, hoechstens: 2 } : { hoechstens: 3 }
+    section === 'cameras'
+      ? { mindest: KAMERA_MINDEST, hoechstens: 2 }
+      : { mindest: dichte.mindest, luecke: dichte.luecke, hoechstens: 3 }
   );
-  const cardWidth = gridWidth > 0 ? kachelBreite(gridWidth, columns) : undefined;
+  const cardWidth =
+    gridWidth > 0 ? kachelBreite(gridWidth, columns, dichte.luecke) : undefined;
 
   // Räume in der Reihenfolge aus der config.yaml (meistgenutzte zuerst),
   // nicht alphabetisch. Räume mit Geräten, die (noch) nicht in der Config
@@ -1927,6 +2027,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       locked={locked.includes(entity.id)}
       onToggleLocked={() => setLocked(toggleIn(locked, entity.id))}
       ungezaehlt={ungezaehlt.includes(entity.id)}
+      // Ohne Verbindung zeigt die Kachel den letzten bekannten Stand -
+      // gedämpft und mit «Stand 17:42» (Punkt 271, lib/altwert.ts).
+      verbunden={status === 'connected'}
       onToggleUngezaehlt={() => setUngezaehlt(toggleIn(ungezaehlt, entity.id))}
       rooms={editing ? roomOrder : undefined}
       onSetRoom={editing ? (room) => setEntityRoom(entity.id, room) : undefined}
@@ -2338,19 +2441,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setQuery('');
     setEditing(false);
     // Und alles, was gerade darüber liegt: «egal wo man ist» heisst
-    // auch «egal was gerade offen ist».
-    setFullscreen(null);
-    setHistoryFor(null);
-    setBildFuer(null);
-    setErinnernAn(null);
-    setRaumMenue(false);
-    setWechselOffen(false);
-    setReorderOpen(false);
-    setRoomsReorderOpen(false);
-    setBatterienOffen(false);
-    setSorgenOffen(false);
-    setHilfeOffen(false);
-    setWandOffen(false);
+    // auch «egal was gerade offen ist». Ein Aufruf statt einer Liste -
+    // die Liste war die Stelle, an der man sich vergisst
+    // (screens/dashboard/blaetter.ts). Sie machte übrigens die
+    // Seitenhilfe und das Suchfeld nie zu; jetzt schon.
+    allesZu();
   };
 
   const content = () => {
@@ -2533,7 +2628,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               geschah - sie ist schneller, aber sie fängt bei jedem
               Start wieder von vorne an. */}
           <HausRueckblick settings={settings} />
-          <ActivityCard activity={activity} />
+          {/* Der beste Zeitpunkt für einen Ablauf ist der, an dem man
+              das Muster bemerkt (Punkt 317). Von hier aus mit dem
+              Gerät im Gepäck - vorher musste man es sich merken und
+              drüben wiederfinden. */}
+          <ActivityCard
+            activity={activity}
+            onAblauf={(eintrag) => {
+              setAblaufSaat(eintrag.id);
+              setSection('automations');
+            }}
+          />
         </View>
       );
     }
@@ -2662,6 +2767,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             scenes={scenes}
             onScenesChanged={reloadScenes}
             onNote={setNote}
+            // Mit einem Gerät im Gepäck angekommen? Dann steht der
+            // Editor schon offen und der Auslöser ist gesetzt.
+            saatGeraet={ablaufSaat}
+            onSaatVerbraucht={() => setAblaufSaat(null)}
           />
         </View>
       );
@@ -3751,7 +3860,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 </Text>
               </View>
             ) : null}
-            <Auffangnetz bereich="Die Kopfzeile">
+            <Auffangnetz bereich="Die Kopfzeile" onFehler={merkeAbsturz}>
               <TopStrip
                 entities={entities}
                 status={status}
@@ -3884,7 +3993,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               Vierteln geht, ist mehr wert als eines, das gar nicht mehr
               reagiert. Der Schlüssel wechselt mit dem Bereich, damit ein
               gefangener Fehler beim Weiterblättern nicht kleben bleibt. */}
-            <Auffangnetz key={section} bereich={SECTION_LABEL[section] ?? 'Dieser Bereich'}>
+            <Auffangnetz
+              key={section}
+              bereich={SECTION_LABEL[section] ?? 'Dieser Bereich'}
+              onFehler={merkeAbsturz}
+            >
               {zweispaltig ? (
                 <View style={styles.settingsSplit}>
                   <View style={styles.settingsRail}>
@@ -4205,9 +4318,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           // Tastendruck - durch die Sperre, mit Face ID und PIN, wo sie
           // verlangt sind.
           onCommand={darfSchalten ? guardedCommand : undefined}
+          // Nur Seiten anbieten, die diese Person auch sehen darf: Ein
+          // Treffer, den der Hub danach abweist, ist schlimmer als
+          // keiner (lib/einstellungsmenue.ts kennt die Regel).
+          darfSeite={(ziel) => !ADMIN_PUNKTE.includes(ziel) || istBesitzer}
           onPick={(hit) => {
             setSearchOpen(false);
-            if (hit.kind === 'room') {
+            if (hit.kind === 'seite') {
+              // Die Kennung *ist* der Bereich (lib/seitensuche.ts).
+              setSection(hit.id as Section);
+            } else if (hit.kind === 'room') {
               setSection('home');
               setRoom(hit.id);
             } else if (hit.kind === 'scene') {

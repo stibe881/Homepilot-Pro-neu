@@ -16,7 +16,7 @@ import { hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
 import { Abschnitt } from '../components/Abschnitt';
 import { Card } from '../components/Card';
-import { Fehlschlag, Laedt, Leer } from '../components/Zustand';
+import { Fehlschlag, Leer, Umriss } from '../components/Zustand';
 import { Tastaturplatz } from '../components/Tastaturplatz';
 import { useTakt } from '../hooks/useTakt';
 import { einladungFrist, passwortHinweis } from '../lib/einladung';
@@ -349,7 +349,7 @@ export function PersonenScreen({
   if (fehler && daten === null) {
     return <Fehlschlag text="Familie und Freunde liessen sich nicht laden." onRetry={laden} />;
   }
-  if (daten === null) return <Laedt was="Familie und Freunde" />;
+  if (daten === null) return <Umriss was="Familie und Freunde" zeilen={3} hoehe={96} />;
 
   const leute = sortiert(daten.people);
 

@@ -466,9 +466,17 @@ export function MediaPanel({
 export function ActivityCard({
   activity,
   limit = 30,
+  onAblauf,
 }: {
   activity: Activity[];
   limit?: number;
+  /** «Daraus einen Ablauf» (Punkt 317 der Werkbank).
+   *
+   *  Der beste Zeitpunkt für einen Ablauf ist der, an dem man das
+   *  Muster bemerkt - «schon wieder ging um 22:04 das Flurlicht an».
+   *  Bisher musste man sich das Gerät merken, auf die Abläufe wechseln,
+   *  einen neuen anlegen und es dort wiederfinden. */
+  onAblauf?: (item: Activity) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -491,6 +499,16 @@ export function ActivityCard({
                 {item.source && item.sourceKind !== 'device' ? ` · ${item.source}` : ''}
               </Text>
               <Text style={styles.activityTime}>{uhr(item.at)}</Text>
+              {onAblauf ? (
+                <Pressable
+                  onPress={() => onAblauf(item)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Aus «${item.name}: ${item.summary}» einen Ablauf machen`}
+                  hitSlop={8}
+                >
+                  <Ionicons name="git-branch-outline" size={14} color={colors.inkFaint} />
+                </Pressable>
+              ) : null}
             </View>
           ))}
         </View>

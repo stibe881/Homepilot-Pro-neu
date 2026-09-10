@@ -60,7 +60,8 @@ Alles läuft ohne Netz und in unter einer Minute:
 cd hub && pip install -e ".[dev]"
 pytest -q            # ~620 Tests
 ruff check .         # muss sauber sein
-mypy homepilot       # noch nicht bindend, aber lies, was es sagt
+python3 tools/mypy_sauber.py   # bindend: die Module in mypy-sauber.txt
+mypy homepilot       # der Rest - zur Ansicht, noch nicht bindend
 
 # App
 cd app && npm ci
@@ -307,6 +308,8 @@ mitgeliefert oder nachgeladen ist.
 ## Was als Nächstes ansteht
 
 Die durchnummerierte Werkbank-Liste steht in `docs/werkbank.md`
-(221 Punkte, aus dem Code gelesen). Ein Kommentar «Punkt NNN der
-Werkbank» im Code meint genau diese Nummer – deshalb wird dort nie
-umnummeriert; Neues bekommt die nächste freie Nummer.
+(353 Punkte, aus dem Code gelesen und auf Zuruf ergänzt). Ein Kommentar
+«Punkt NNN der Werkbank» im Code meint genau diese Nummer – deshalb
+wird dort nie umnummeriert; Neues bekommt die nächste freie Nummer. Das
+gilt auch für Nummern, die vergeben, aber nie gebaut wurden: Ein
+späterer «Punkt 273» zeigte sonst auf etwas anderes als gemeint.

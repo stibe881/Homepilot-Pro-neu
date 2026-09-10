@@ -46,6 +46,13 @@ def anhaengen(
             "category": str(eintrag.get("category") or "") or None,
             # Leer heisst: an alle. Sonst die Namen der Empfänger.
             "to": sorted(str(name) for name in (eintrag.get("to") or [])),
+            # Warum sie nicht (bei allen) gebrummt hat: Ruhezeit,
+            # stillgestellt, Tagesdeckel. Ohne das läse sich der Zettel
+            # wie eine Meldung, die man bloss übersehen hat - und das
+            # ist der Unterschied zwischen «ich habe geschlafen» und
+            # «das Haus hat mich schlafen lassen».
+            "held": str(eintrag.get("held") or "") or None,
+            "held_for": sorted(str(name) for name in (eintrag.get("held_for") or [])),
             "at": float(jetzt),
         }
     )
@@ -60,8 +67,19 @@ def fuer(rows: Any, name: str) -> list[dict[str, Any]]:
     erinnert wurde, geht die übrigen Telefone nichts an.
     """
     eigene = [
-        row
+        {**row, "verpasst": name in (row.get("held_for") or [])}
         for row in (rows or [])
         if isinstance(row, dict) and (not row.get("to") or name in row.get("to", []))
     ]
     return sorted(eigene, key=lambda row: -float(row.get("at") or 0))
+
+
+def verpasst(rows: Any, name: str) -> list[dict[str, Any]]:
+    """Nur das, was diese Person nie gehört hat (rein, testbar).
+
+    Der Unterschied zur ganzen Liste: Hier steht, was das Haus
+    absichtlich für sich behalten hat - während der Nacht, während
+    etwas stillgestellt war, über dem Tagesdeckel. Das ist die Liste,
+    die man am Morgen durchgeht; die andere ist die zum Nachschlagen.
+    """
+    return [row for row in fuer(rows, name) if row.get("verpasst")]

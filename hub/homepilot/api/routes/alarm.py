@@ -112,6 +112,26 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             # Falsche oder fehlende PIN - lesbar zurück, kein Stacktrace.
             raise HTTPException(status_code=403, detail=str(err)) from err
 
+    @app.post("/api/alarm/panik")
+    async def alarm_panik(request: Request) -> dict[str, Any]:
+        """Alarm von Hand auslösen - jetzt, aus jedem Zustand.
+
+        **Ohne PIN**, und das ist Absicht: Wer den Knopf drückt, ist in
+        Bedrängnis, und eine Tastatur zwischen Bedrängnis und Sirene ist
+        ein Fehler. Die PIN steht vor dem *Abstellen* - dort verhindert
+        sie, dass jemand den Alarm beendet, der ihn nicht beenden darf.
+
+        ``CONTROL`` und nicht ``EDIT_CONFIG`` wie beim Probealarm: Ein
+        Probealarm ist eine Einstellungssache, ein Notruf nicht. Wer im
+        Haus etwas schalten darf, darf auch um Hilfe rufen. Gäste
+        bleiben aussen vor - die haben kein CONTROL.
+        """
+        user = require(request, Capability.CONTROL)
+        try:
+            return await alarm_service().panic(by=user.name)
+        except HomePilotError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
     @app.post("/api/alarm/test")
     async def alarm_test(request: Request) -> dict[str, Any]:
         """Probealarm: Sirene, Lichter und Nachricht einmal durchspielen.

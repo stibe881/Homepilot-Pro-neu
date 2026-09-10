@@ -921,7 +921,7 @@ export function RadioSheet({
               style={styles.playlistRow}
             >
               <View style={styles.playlistTap}>
-                <Ionicons name="add-circle-outline" size={18} color={colors.accent} />
+                <Ionicons name="add" size={18} color={colors.accent} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.playlistName} numberOfLines={1}>
                     {station.name}

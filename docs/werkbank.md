@@ -18,9 +18,11 @@ steht sie hier, in vier Teilen entstanden:
 | 165–221 | Familie & Haushalt | Familienlisten, Kontakte, Ortung |
 | 224–243 | Zweite Durchsicht | Wärme, Strom, Betrieb, und die Fehler einer Woche |
 | 244–267 | Auf Zuruf (September 2026) | Benutzer und Zugang, Bedienung, Abläufe, Sicherheit |
+| 268–353 | Achtundachtzig Vorschläge (September 2026) | App, Bedienung, Gestaltung, Gutscheine, Abläufe, Push, Alarm, Haus |
 
 Stand beim Einchecken: **alle 221 Punkte erledigt**, bis auf Punkt 94
-(bewusst gestrichen). Die Häkchen tragen die Commit-Kürzel von den
+(bewusst gestrichen). Teil VII kam später dazu; dort steht bei jedem
+Punkt, ob er umgesetzt wurde, schon da war oder offen ist. Die Häkchen tragen die Commit-Kürzel von den
 Werkbank-Seiten; ganz alte können hinter der flachen Klon-Grenze
 liegen. Die Begründungen («warum») bleiben absichtlich stehen – sie
 beschreiben den Fehlerfall, gegen den der Code heute geschützt ist,
@@ -2695,3 +2697,442 @@ in der einen Richtung: «physical False» auf einer gedruckten Seite
 liest sich wie ein Fehler.
 
 Stellen: `app/src/lib/gutscheine.ts`, `app/src/screens/family/gutscheine.tsx`, `hub/homepilot/core/gutscheine.py`
+
+# Teil VII: Achtundachtzig Vorschläge (268–352)
+
+Eine Runde Vorschläge vom September 2026, auf Zuruf in acht Bereichen
+gesammelt: die App allgemein, Bedienung, Gestaltung, Gutscheine,
+Abläufe, Push-Nachrichten, Alarmanlage und freie Wahl. Daraus wurden
+sechsundsechzig ausgewählt und in neun Blöcken umgesetzt.
+
+**Zu den Lücken in der Nummerierung**: 273, 274, 277, 286, 289, 293,
+308, 323, 328, 333, 338, 339, 343, 344, 346–348, 350 und 351 stammen aus
+derselben Runde, wurden aber nicht ausgewählt. Ihre Beschreibungen sind
+nicht ins Repo gekommen. Die Nummern bleiben trotzdem vergeben und
+werden nicht neu benutzt – die Regel oben gilt auch für das, was nie
+gebaut wurde, sonst zeigte ein späterer «Punkt 273» im Code auf etwas
+anderes als gemeint.
+
+**Ein Drittel war schon da.** Beim Umsetzen zeigte sich Block für Block,
+dass ein guter Teil der Vorschläge längst gebaut ist – teils besser, als
+sie vorgeschlagen waren. Das ist unten jeweils vermerkt, samt der
+Stelle, an der es steht. Es ist der Grund, aus dem die CLAUDE.md mit
+«Schau nach, ob es das schon gibt» anfängt: Beim Bauen von Punkt 312
+(Konflikte zwischen Abläufen) entstand die Prüfung ein zweites Mal in
+der App, obwohl `core/automation.py:find_conflicts` sie längst im Hub
+rechnet. Sie wurde wieder herausgenommen.
+
+## Fundament (268–277)
+
+### 268. DashboardScreen.tsx aufteilen ◐ begonnen (4cb7895)
+
+4373 Zeilen, davon eine einzige Funktion von rund 4000. Der erste
+Schnitt ist gemacht: Die vierzehn Zustände für Blätter, Menüs und
+Vollbilder liegen samt `allesZu()` in `screens/dashboard/blaetter.ts`.
+Vorher standen sie im Bauteil verstreut und weiter unten dieselben
+vierzehn Setzer noch einmal von Hand aufgezählt – die klassische Stelle,
+an der man sich vergisst. Und es *war* schon passiert: Die Seitenhilfe
+und das Suchfeld standen nicht in der zweiten Liste und blieben beim
+Bereichswechsel offen liegen.
+
+Der Schnitt, der wirklich teilt, sind die Zweige von `content()` – je
+Bereich ein Bauteil. Er geht nicht ohne vorheriges Bündeln der
+Requisiten, sonst tauscht man 4000 Zeilen gegen 4000 Zeilen Requisiten.
+
+Stellen: `app/src/screens/dashboard/blaetter.ts`, `app/src/screens/DashboardScreen.tsx`
+
+### 269. Typprüfung, die bindend ist ✓ erledigt (7eb5805)
+
+`mypy homepilot` meldete 213 Fehler in 48 Dateien, und die Prüfung stand
+deshalb auf «darf rot sein» – eine Zahl, die immer rot ist, liest
+niemand. Jetzt andersherum: Was heute sauber ist, steht in
+`mypy-sauber.txt` und wird geprüft; der Rest bleibt aussen vor, bis ihn
+jemand aufräumt. Die Liste kann nur wachsen.
+
+Die Lektion beim Bauen: immer über das **ganze** Paket prüfen und
+danach filtern. Ein Prüflauf über die Teilmenge allein meldet die Fehler
+der Nachbarn – beim ersten Versuch 95 Stück, die es gar nicht gab.
+
+Stellen: `hub/mypy-sauber.txt`, `hub/tools/mypy_sauber.py`, `.github/workflows/pruefung.yml`
+
+### 270. Die Abhängigkeiten der Haken bindend prüfen ✓ erledigt (7eb5805)
+
+`react-hooks/exhaustive-deps` stand auf «Warnung» und meldete drei echte
+Fehler, die niemand mehr las. Jetzt bindend, die drei sind behoben.
+
+Stellen: `app/eslint.config.js`, `app/src/screens/DashboardScreen.tsx`
+
+### 271. Alte Werte kenntlich machen ✓ erledigt (7eb5805)
+
+Ein Fühler, der seit Stunden schweigt, zeigt weiter seine letzte
+Temperatur – und die sieht aus wie die aktuelle. Neu blasst die Kachel
+ab und trägt «Stand HH:MM». Die Regel darin: erst prüfen, ob die
+Verbindung steht. Ein Fensterkontakt, der stundenlang nichts meldet,
+ist der Normalfall, solange er verbunden ist.
+
+Stellen: `app/src/lib/altwert.ts`, `app/src/components/EntityCard.tsx`
+
+### 272. Ein Absturzbuch ✓ erledigt (7eb5805)
+
+Ein Absturz war bisher nur ein weisser Bildschirm. Jetzt merkt sich die
+App die letzten, mit Bereich und Meldung, und der System-Bildschirm
+zeigt sie.
+
+Stellen: `app/src/lib/absturzbuch.ts`, `app/src/hooks/useAbstuerze.ts`, `app/src/components/Auffangnetz.tsx`
+
+### 275. Sichern und Zurückholen in der App ✓ war schon da
+
+`/api/system/backups` listet, `/api/system/backup` legt an, dazu
+Herunterladen, Zurückholen und die Kopie ausserhalb des Hubs – alles
+unter System bedienbar.
+
+Stellen: `hub/homepilot/api/routes/system.py`, `app/src/screens/SystemScreen.tsx`
+
+### 276. Ein Ort für «nicht in Ordnung» ✓ war schon da
+
+`lib/sorgen.ts` und `SorgenBlatt.tsx` tragen Batterien,
+Nichterreichbares, Wartungen und die Funkstille zusammen. Vorher musste
+man an vier Stellen nachsehen und die vierte kennen.
+
+Stellen: `app/src/lib/sorgen.ts`, `app/src/components/SorgenBlatt.tsx`
+
+## Bedienung (278–287)
+
+### 278. Rückgängig ✓ war schon da
+
+An beiden Stellen, an denen es wehtut: Schaltbefehle
+(`lib/rueckgaengig.ts`, `useHub`) und gelöschte Familieneinträge
+(`lib/rueckband.ts`, das Band mit acht Sekunden Frist).
+
+### 279. Die Einstellungen mitsuchen ✓ erledigt (91e474c)
+
+Die Suche fand Geräte, Räume, Szenen und Abläufe – nur die App selbst
+nicht. Wer die Ruhezeit suchte, musste wissen, dass sie unter «Konto» in
+der Karte «Benachrichtigungen» steht; das weiss, wer sie eingebaut hat,
+und sonst niemand. Jetzt haben die Seiten Stichwörter, und der Treffer
+sagt, weswegen er einer ist: «Konto · nachtruhe» statt bloss «Konto».
+Nur Seiten, die man auch sehen darf – ein Treffer, den der Hub danach
+abweist, ist schlimmer als keiner.
+
+Stellen: `app/src/lib/seitensuche.ts`, `app/src/components/GlobalSearch.tsx`
+
+### 280. Da weitermachen, wo man war ✓ erledigt (91e474c)
+
+Man steht in den Abläufen, das Telefon sperrt sich, man entsperrt es –
+und ist auf der Startseite. Zehn Minuten Frist, nur die Seite und nicht
+der Zustand darin (ein Bearbeitungsblatt, das von selbst wieder aufgeht,
+ist erschreckend). Nicht zur Alarmanlage oder zur Benutzerverwaltung
+zurück, und am Wandtablet gar nicht: Dort ist die Startseite kein
+Standardwert, sondern der Zweck.
+
+Im Speicher des Telefons, nicht beim Hub – die Ausnahme von der Regel in
+der CLAUDE.md, und mit Grund: «Wo war ich vor zehn Minuten» ist keine
+Einstellung, sondern eine Beobachtung über *dieses* Gerät. Zuerst lag es
+beim Hub, und der eine zusätzliche Abruf legte die wandernde
+Terminzeile still (siehe 353).
+
+Stellen: `app/src/lib/wiederaufnahme.ts`, `app/src/screens/DashboardScreen.tsx`
+
+### 281. Bestätigungen, die etwas sagen ✓ war schon da
+
+«Alles aus» zeigt vorher, was es ausschaltet und wie viele
+(`components/AllOff.tsx`); die Türe fragt nach (`TuerRueckfrage`), das
+Scharfschalten nennt die offenen Fenster beim Namen.
+
+### 282. Einheitliches Langdrücken ✓ erledigt (91e474c)
+
+Die Dauer stand nirgends: React Native nimmt ohne Angabe 500 ms, eine
+Stelle setzte 350, eine andere 2000. Jede Zahl für sich begründbar,
+zusammen ein Haus, in dem man nie lernt, wie lange man halten muss. Drei
+benannte Absichten, und die Regel darunter: Was per Langdruck erreichbar
+ist, muss auch anders erreichbar sein. Dazu der Satz für die
+Vorlesehilfe – VoiceOver liest ein `onLongPress` nicht von selbst vor,
+und damit ist ein Langdruck-Menü für jemanden, der die App vorlesen
+lässt, schlicht nicht da.
+
+Stellen: `app/src/lib/langdruck.ts`, `app/src/components/Card.tsx`
+
+### 283. «Woher kommt diese Zahl» ✓ war schon da
+
+`lib/ursache.ts` am Gerät, die Herkunft am Klima-Chip.
+
+### 284. Umrisse statt Spinner ✓ erledigt (91e474c)
+
+Ein Spinner sagt «warte», ein Umriss sagt «hier kommen drei Kacheln
+hin» – und beantwortet damit die Frage, die man beim Öffnen einer Seite
+hat. Ausserdem springt nichts mehr: Der Spinner nahm eine Zeile ein, der
+Inhalt nimmt fünfhundert Punkte. Bewusst ohne Animation.
+
+Stellen: `app/src/components/Zustand.tsx`
+
+### 285. Systemschriftgrösse ✓ war schon da
+
+`allowFontScaling` ist überall an, `MAX_SCHRIFT` begrenzt nur die engen
+Stellen (`lib/schrift.ts`, Punkt 66).
+
+### 287. Fehlermeldungen mit einem Ausweg ✓ war schon da
+
+`fehlerText()` macht aus «403» einen Satz, `Fehlschlag` hat den Knopf
+«Nochmal versuchen».
+
+## Gestaltung (288–297)
+
+### 288. Das Musterblatt ✓ erledigt (2358301)
+
+Eine Gestaltung, die nur in den Köpfen steht, driftet: Man braucht ein
+Grau, nimmt eines, das passt, und ein halbes Jahr später gibt es sieben,
+von denen drei fast gleich aussehen. Von Auge merkt man das nie, weil
+man immer nur einen Bildschirm auf einmal sieht. Das Blatt zeigt
+Flächen, Schriftfarben, Schriftgrössen, Zahlen, Rundungen, Abstände und
+die Symbolsprache – **aus dem Code erzeugt**, nicht abgemalt: Ein
+abgemaltes Musterblatt wäre nach der ersten Änderung eine Lüge, und
+eine, der man glaubt, weil sie so ordentlich aussieht.
+
+Es heisst bewusst nicht «Stiltafel» – so heisst hier schon die
+StyleSheet-Datei `screens/dashboard/stile.ts`.
+
+Stellen: `app/src/components/Musterblatt.tsx`, `app/src/screens/SystemScreen.tsx`
+
+### 290. Den Hellmodus messen ✓ war schon da
+
+`lib/kontrast.test.ts` rechnet alle fünf Erscheinungsbilder nach – hell,
+dunkel, pink, mitternacht, sand –, je für Fliesstext, Nebentext,
+Beiläufiges, Signalfarben und weisse Schrift auf dem Verlauf.
+
+### 291. Eine zweite Kachelgrösse ✓ war schon da
+
+`doppeltBreit` in `lib/raster.ts` gibt Kamera, Thermostat und Grill die
+doppelte Breite; die kurze Liste ist dort auch begründet.
+
+### 292. Zustandsübergänge ○ nicht umgesetzt
+
+Für den Ortswechsel gibt es sie (`components/Auftritt.tsx`, mit
+Rücksicht auf «Bewegung reduzieren»). Weiter zu gehen wäre gegen die
+Regel, die sich das Haus dort selbst gegeben hat: «Eine Oberfläche, in
+der sich ständig etwas bewegt, ist unruhig, und Unruhe ist teurer als
+der Gewinn.» Jede Kachel beim Schalten überblenden zu lassen ist damit
+eine Entscheidung und keine Umsetzung.
+
+### 294. Eine Symbolsprache ✓ erledigt (2358301)
+
+Ionicons hat für jeden Begriff mehrere Zeichen, und über fünfundvierzig
+Dateien hinweg hat sich jede Stelle ihres ausgesucht: «Bearbeiten» mal
+`create-outline`, mal `pencil-outline`, mal `pencil`. Jetzt steht je
+Begriff ein Zeichen fest, und ein Test liest die Quelldateien und wird
+rot, sobald daneben ein gleichbedeutendes im Umlauf ist. Er hat beim
+ersten Lauf **28 Stellen in 20 Dateien** gefunden. Dazu die Umrissregel:
+gefüllt heisst «das gilt jetzt», Umriss heisst «das kannst du tun».
+
+Stellen: `app/src/lib/symbole.ts`, `app/src/lib/symbole.test.ts`
+
+### 295. Dichte ✓ erledigt (2358301)
+
+Die 150 Punkte Mindestbreite sind gemessen und begründet – aber sie
+beantworten «was ist das Minimum», nicht die Frage, die im Haus gestellt
+wird: Am Wandtablet liest man aus zwei Metern, auf dem Sofa will man die
+Wohnung auf einen Blick. Drei Stufen, am **Gerät** gespeichert wie der
+Grundriss und das App-Symbol. Was sich nicht ändert: Schrift und Namen –
+eine Dichte, die auch die Schrift schrumpfen lässt, wäre ein zweiter
+Schriftgrössen-Einsteller, und den gibt es im Betriebssystem schon.
+
+Stellen: `app/src/lib/dichte.ts`, `app/src/screens/SettingsScreen.tsx`
+
+### 296. Die Zahl führt ✓ erledigt (2358301)
+
+Messwerte standen als ein Stück Text da – «21.5 °C» in einer Grösse,
+einer Farbe. Damit ist die Zahl, die man sucht, gleich wichtig wie das
+Zeichen dahinter, das man längst kennt. Jetzt: Zahl gross, Einheit klein
+auf der Grundlinie daneben, Beschriftung darunter. Und Ziffern mit
+fester Breite – ohne sie ist die «1» schmaler als die «8», und eine
+Temperatur, die von 19.8 auf 21.1 geht, ruckt seitwärts. Der
+Zwischenraum folgt dem Duden: «21 °C», aber «63%».
+
+Stellen: `app/src/lib/kennzahl.ts`, `app/src/components/Kennzahl.tsx`
+
+### 297. Druck- und Teilen-Ansichten ✓ war schon da
+
+An den Stellen, wo man sie braucht: Gutschein teilen, Familienbuch,
+WLAN-Aufkleber, Türzugang, Rezept.
+
+## Gutscheine (298–307)
+
+### 298–307 ✓ erledigt (41c2156, 861646d)
+
+Beleg lesen (Betrag, Nummer, Ablauf aus einem Foto oder PDF),
+Strichcode auf dem Gutschein (immer schwarz auf weiss, egal welches
+Erscheinungsbild – die Kasse liest kein Dunkelgrau), Rücknahme eines
+Abzugs, Übergabe an jemanden im Haushalt, Läden als Chips, die Bilanz
+unter dem Kopf.
+
+Drei Regeln aus dem Beleglesen, jede aus einem Fehlversuch: Der Betrag
+ist der grösste Wert **mit Währung**; Nummer und PIN werden nur
+**nach** dem Stichwort gesucht und müssen eine Ziffer enthalten; ein
+Datum zählt nur mit «gültig bis» davor. Ohne die erste las der Leser
+«CHF 2027.00» aus einer Jahreszahl vor «Freundliche Grüsse», ohne die
+zweite das Wort «GUTSCHEINCODE» als Code.
+
+**304** (Ladenadresse und «in der Nähe») kam später, mit Block I:
+Der Weg zum Laden steht auf dem Gutschein, und wer davorsteht, wird an
+ihn erinnert.
+
+Stellen: `app/src/lib/gutscheinlesen.ts`, `app/src/lib/strichcode.ts`, `app/src/lib/ladenkarte.ts`, `hub/homepilot/core/beleglesen.py`, `hub/homepilot/core/gutscheinort.py`
+
+## Abläufe (309–317)
+
+### 309–317 ✓ erledigt (0f0a077)
+
+Kopieren, Ruhenlassen mit Frist, eingerückte Schritte, «warum lief der
+nicht», Vorlagen beim leeren Bildschirm, Schnell-Bedingungen,
+Taster-Drücke im Entwurf, ein Ablauf aus einer Aktivität heraus.
+
+**312 (Konflikte) wurde wieder herausgenommen – es gab sie schon.**
+`core/automation.py:find_conflicts` rechnet sie im Hub,
+`/api/automations/conflicts` liefert sie, und der Bildschirm zeigt sie
+samt Quittieren. Beim Bauen entstand die Prüfung ein zweites Mal in der
+App: genau der Fehler, wegen dem es die CLAUDE.md gibt. In
+`lib/ablaufhilfen.ts` steht seither ein Absatz, der auf die richtige
+Stelle zeigt.
+
+Stellen: `app/src/lib/ablaufhilfen.ts`, `app/src/screens/AutomationsScreen.tsx`, `app/src/screens/automations/editor.tsx`
+
+## Push-Nachrichten (318–327)
+
+### 318–327 ✓ erledigt (283e0c2)
+
+Die Kette zwischen «der Hub will melden» und «das Telefon brummt» hatte
+genau einen Schalter: abbestellt oder nicht, ganz oder gar nicht, für
+immer.
+
+Neu: **Ruhezeit je Person** (320) mit einer namentlich aufgezählten
+Liste dessen, was sie nie aufhält – Alarm, Wasser, Klingel, ein
+weinendes Kind, der Timer. Eine Ruhezeit, die den Wasseralarm
+verschluckt, ist ein Fehler, kein Komfort. **Stillstellen auf Zeit**
+(325), das von selbst abläuft: Wer im September den Trockner abbestellt,
+merkt es im März nicht mehr. **Tagesdeckel** (326), dessen Zählerstand
+den Neustart übersteht – sonst wäre ein Update das Rezept, ihn zu
+umgehen. **Bündeln** (319): Der Wächter prüft einmal je Minute alles auf
+einmal, und drei offene Fenster waren drei Vibrationen; die Klingel wird
+bewusst nie gebündelt. **Vorschau und Testversand je Kategorie** (318),
+erkennbar am «Probe:» vorn im Titel – ohne das läuft jemand los, weil
+«Wasser gemeldet» auf dem Telefon steht. **Dringlichkeit sichtbar**
+(321). **Alle Knöpfe durchgegangen** (322): zehn Kategorien haben einen
+dazubekommen, drei Gruppen bleiben bewusst leer.
+
+**Nichts geht dabei verloren** (324) – das war der gefährliche Teil:
+Die Ruhezeit sortiert die Empfänger aus, `send` findet keine Tokens und
+kehrt um, und die Meldung wäre nirgends gewesen, auch nicht im
+Nachlesen.
+
+Dabei ein echter Fehler gefunden: Unter «Wartung fällig» stand
+«Erledigt», die Meldung schickt aber keine Gerätekennung mit – die App
+fand nichts zu quittieren und tat schlicht nichts.
+
+**327** ist die Runde über alle Meldungstexte: jede Kategorie hat ein
+Beispiel, eine Gruppe, keinen zu langen Titel, kein «ß», jeder Knopf
+gehört zu einer echten Kategorie, und was keine Ruhezeit aufhält, ist
+auch dringend zugestellt.
+
+Stellen: `hub/homepilot/core/pushruhe.py`, `pushbuendel.py`, `pushbeispiel.py`, `hub/tests/test_pushtexte.py`, `app/src/components/PushPrefs.tsx`
+
+## Alarmanlage (329–337)
+
+### 329, 330, 332, 336 ✓ war schon da
+
+Eingangs- und Ausgangsverzögerung samt Countdown-Ring, der Verlauf, der
+Probealarm und das Kamerabild in der Alarm-Nachricht.
+
+### 331. Sabotage und Funkstille als eigener Zustand ✓ erledigt (9f36ab4)
+
+Der Fall tarnt sich als Ruhe: Ein Funkkontakt am Kellerfenster meldet
+sich nicht mehr, die Anlage steht weiter auf «scharf», die App zeigt ein
+grünes Schild, und niemand erfährt, dass dort seit vier Stunden nichts
+überwacht wird. Aus Sicht der Anlage ist das kein Ereignis – es kommt
+bloss nichts mehr.
+
+Geprüft wurde das bisher nur *vor* dem Scharfschalten. Jetzt läuft es im
+Minutentakt weiter, und die blinden Flecken stehen im *Zustand*, nicht
+nur in einer Nachricht: Eine weggewischte Meldung ist weg, ein grünes
+Schild über einem stillen Sensor bleibt.
+
+**Die Sirene bleibt dabei still**, und das weicht bewusst von dem ab,
+was echte Anlagen tun: Um drei Uhr nachts wegen einer leeren Knopfzelle
+geweckt zu werden, ist der schnellste Weg zu einer Anlage, die niemand
+mehr scharf schaltet.
+
+Stellen: `hub/homepilot/core/alarmwache.py`, `app/src/lib/alarmblind.ts`
+
+### 334. Panikknopf ✓ erledigt (9f36ab4)
+
+Ohne PIN – wer den Knopf drückt, ist in Bedrängnis, und eine Tastatur
+zwischen Bedrängnis und Sirene ist ein Fehler. Aus jedem Zustand, auch
+aus «unscharf»: Eine Anlage, die erst scharf geschaltet werden muss,
+bevor man um Hilfe rufen kann, hilft nicht. In der App zwei Sekunden
+Halten statt eines Tipps.
+
+### 335. An die Anwesenheit gekoppelt ✓ erledigt (9f36ab4)
+
+Der häufigste Fehler an einer Alarmanlage ist nicht ein Fehlalarm,
+sondern eine Anlage, die niemand scharf geschaltet hat. Zwei Richtungen,
+getrennt eingestellt, weil sie verschieden gefährlich sind – die Vorgabe
+ist beidseits «vorschlagen». Zehn Minuten Nachlauf vor dem
+Scharfschalten, keiner beim Heimkommen.
+
+Stellen: `hub/homepilot/core/alarmanwesenheit.py`
+
+### 337. Nachbericht ✓ erledigt (9f36ab4)
+
+Zehn Minuten nach einem Alarm steht man in der Küche und weiss nicht
+mehr, was passiert ist. Steht im Bericht «von selbst, ohne dass jemand
+hinsah», ist das die wichtigste Zeile darin.
+
+Stellen: `hub/homepilot/core/alarmbericht.py`
+
+## Haus (340–352)
+
+### 340. Sturm-Vorwarnung ✓ erledigt (861646d)
+
+Der Sturmwächter fährt die Storen hoch und meldet danach, dass er es
+getan hat. Was er nicht hochfahren kann, muss ein Mensch hereinholen:
+der Sonnenschirm, die Kissen, das Trampolin. Der Zeitpunkt dafür stand
+seit je in den Daten und wurde nie benutzt – `onset`. Jetzt kommt die
+Vorwarnung vierzig Minuten vorher, mit den offenen Fenstern und der
+Frage nach dem, was draussen steht.
+
+Stellen: `hub/homepilot/core/sturmvorwarnung.py`
+
+### 341, 342, 345, 349, 352 ✓ war schon da
+
+Musikwecker (`core/musik.py`), Anwesenheitssimulation
+(`integrations/presence_sim.py`), Gästemodus mit Besuch und Babysitter
+zusammengeführt (`core/babysitter.py`), Ämtli-Sterne auf der Kinderseite
+(`lib/aemtlisterne.ts`, Punkt 260) und der Monats- und Jahresrückblick
+(`api/routes/rueckblick.py`, Punkt 253).
+
+## Was dabei aufgefallen ist (353)
+
+### 353. Der Lauftext misst je nach Zahl der Aufbauten anders ○ offen
+
+Beim Bauen von Punkt 280 gefunden: Ein einziger zusätzlicher Abruf beim
+Start der Startseite genügte, damit die wandernde Terminzeile
+stehenblieb – die Browser-Probe wurde rot («wandert nach links – nur 0
+Punkte»).
+
+Die Ursache liegt in `components/Lauftext.tsx`: Der Text misst sich in
+einem 4000-Punkte-Kasten, der nach der Messung auf die gemessene Breite
+schrumpft; ein weiterer Layout-Durchgang lässt `onLayout` erneut feuern,
+und dann meldet der Text die Breite des Fensters statt seine eigene. Aus
+«muss wandern» wird «passt», und die Zeile bleibt mit Pünktchen stehen,
+als wäre der Lauftext nie eingebaut worden.
+
+Zwei Versuche (nur in der Messphase annehmen, `flexShrink: 0`) haben es
+nicht behoben und wurden zurückgenommen – halb verstanden ist an dieser
+Stelle schlechter als gar nicht. Punkt 280 liegt jetzt im
+Telefonspeicher und braucht den Abruf nicht mehr; die Zerbrechlichkeit
+bleibt und trifft den Nächsten, der auf der Startseite etwas hinzufügt.
+
+Zu tun: Messung und Anzeige trennen – ein unsichtbarer Messkasten, der
+immer 4000 Punkte breit bleibt, und daneben der animierte Kasten mit der
+gemessenen Breite. Danach mit einem künstlichen Zusatz-Aufbau
+gegenprüfen, dass die Probe grün bleibt.
+
+Stellen: `app/src/components/Lauftext.tsx`, `scripts/probe.mjs`

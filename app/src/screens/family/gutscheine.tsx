@@ -44,10 +44,13 @@ import {
   View,
 } from 'react-native';
 
+import { hubClient } from '../../api/client';
 import { HubSettings } from '../../api/types';
+import { belegLesen, belegSatz } from '../../lib/gutscheinlesen';
 import { Card } from '../../components/Card';
 import { Tastaturplatz } from '../../components/Tastaturplatz';
 import { Leerzustand } from '../../components/Leerzustand';
+import { Strichcode } from '../../components/Strichcode';
 import {
   Ablaufstufe,
   DATEI_TYPEN,
@@ -61,7 +64,15 @@ import {
   ablaufSatz,
   ablaufStufe,
   abziehen,
+  Transaktion,
   abzugPruefen,
+  bilanzSatz,
+  buchungSatz,
+  nachLaden,
+  restHinweis,
+  stornieren,
+  stornoPruefen,
+  uebergeben,
   alsGutschein,
   anteil,
   aufgeteilt,
@@ -92,6 +103,8 @@ import {
 } from '../../lib/gutscheine';
 import { datumUhr } from '../../lib/format';
 import { tapped } from '../../lib/haptics';
+import { appleMapsRoute, googleMapsRoute } from '../../components/TopStrip';
+import { type Ort, kartenZiel, ortFuer } from '../../lib/ladenkarte';
 import { Colors, radius } from '../../theme';
 import { bildUri } from '../RecipeBook';
 import { BackHead, FamilyItem, Styles } from './bausteine';
@@ -381,6 +394,13 @@ function GutscheinKarte({
           <Text style={[eigen.gueltigText, { color: ablaufFarbe(stufe, colors) }]}>
             {ablaufSatz(entry.expires, heute)}
           </Text>
+          {/* «Noch CHF 3.20 drauf» ist eine andere Auskunft als
+              «CHF 3.20 übrig»: Sie sagt, dass man den Gutschein beim
+              nächsten Einkauf mitnimmt, statt für ihn loszufahren
+              (Punkt 303 der Werkbank). */}
+          {!leer && restHinweis(entry) ? (
+            <Text style={eigen.kategorieText}>{restHinweis(entry)}</Text>
+          ) : null}
         </View>
         {!leer ? (
           <Pressable
@@ -405,6 +425,10 @@ function Detail({
   settings,
   onBack,
   onAbziehen,
+  onStorno,
+  onUebergeben,
+  haushalt = [],
+  orte = [],
   onBearbeiten,
   onLoeschen,
   styles,
@@ -416,6 +440,15 @@ function Detail({
   settings: HubSettings;
   onBack: () => void;
   onAbziehen: () => void;
+  /** Einen Abzug zurücknehmen (Punkt 302). */
+  onStorno?: (buchung: Transaktion) => void;
+  /** Den Gutschein jemandem im Haushalt übergeben (Punkt 306). */
+  onUebergeben?: (an: string) => void;
+  /** Wer im Haushalt in Frage kommt - ohne mich selbst. */
+  haushalt?: string[];
+  /** Die Läden mit Koordinaten, wie der Einkaufszettel sie führt -
+   *  daraus wird der Weg zum Laden (lib/ladenkarte.ts). */
+  orte?: Ort[];
   onBearbeiten: () => void;
   onLoeschen: () => void;
   styles: Styles;
@@ -423,6 +456,9 @@ function Detail({
   colors: Colors;
 }) {
   const [pinSichtbar, setPinSichtbar] = useState(false);
+  // An der Kasse wird gescannt, nicht vorgelesen (Punkt 299/300).
+  const [kasse, setKasse] = useState(false);
+  const [uebergabeOffen, setUebergabeOffen] = useState(false);
   // Zwei Schritte fürs Löschen: erst die Frage, dann der Tipp. Und was
   // weg ist, liegt dreissig Tage im Papierkorb der Familienseite.
   const [loeschFrage, setLoeschFrage] = useState(false);
@@ -534,6 +570,36 @@ function Detail({
             {ablaufSatz(entry.expires, heute)}
           </Text>
         ) : null}
+        {/* Der Weg zum Laden. Der Name allein genügt, um den Gutschein
+            wiederzufinden - nicht, um hinzufahren; wer die Adresse
+            sucht, tippt den Namen in eine Kartenapp ab, und bei
+            «Chrüterhüsli» tippt er ihn falsch ab. Ist der Laden als Ort
+            angelegt (beim Einkaufszettel), führt die Karte an die Tür
+            statt an die Hauptfiliale, die zufällig denselben Namen
+            trägt (lib/ladenkarte.ts). */}
+        {kartenZiel(entry.shop, orte) ? (
+          <Pressable
+            onPress={() => {
+              const ziel = kartenZiel(entry.shop, orte);
+              if (!ziel) return;
+              const adresse =
+                Platform.OS === 'android'
+                  ? googleMapsRoute(ziel)
+                  : appleMapsRoute(ziel);
+              Linking.openURL(adresse).catch(() => {});
+            }}
+            accessibilityRole="link"
+            accessibilityLabel={`Route zu ${entry.shop} öffnen`}
+            style={eigen.linkZeile}
+          >
+            <Ionicons name="location-outline" size={16} color={colors.accent} />
+            <Text style={eigen.linkText} numberOfLines={1}>
+              {ortFuer(entry.shop, orte)
+                ? `Route zu ${ortFuer(entry.shop, orte)?.name}`
+                : `${entry.shop} auf der Karte suchen`}
+            </Text>
+          </Pressable>
+        ) : null}
         {entry.url ? (
           <Pressable
             onPress={() => Linking.openURL(String(entry.url)).catch(() => {})}
@@ -584,21 +650,67 @@ function Detail({
         {buchungen.length === 0 ? (
           <Leerzustand bild={verlaufLeerbild()} />
         ) : (
-          buchungen.map((buchung, index) => (
-            <View key={`${buchung.at}-${index}`} style={eigen.verlaufZeile}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.checkText}>{buchung.by || '?'}</Text>
-                <Text style={styles.checkSub}>
-                  {buchung.at ? datumUhr(new Date(buchung.at)) : ''}
-                  {buchung.note ? ` · ${buchung.note}` : ''}
-                </Text>
+          buchungen.map((buchung, index) => {
+            // Warum eine Zeile steht, sagt sie selbst: «30.00 CHF
+            // abgezogen», «zurückgebucht», «Übergeben an Bine» - ein
+            // blosses «−30.00» liesse Abzug und Rücknahme gleich
+            // aussehen (Punkt 302 der Werkbank).
+            const hindernis = stornoPruefen(entry, buchung);
+            return (
+              <View key={`${buchung.at}-${index}`} style={eigen.verlaufZeile}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.checkText}>{buchung.by || '?'}</Text>
+                  <Text style={styles.checkSub}>
+                    {buchung.at ? datumUhr(new Date(buchung.at)) : ''}
+                    {buchung.note ? ` · ${buchung.note}` : ''}
+                  </Text>
+                </View>
+                <Text style={eigen.verlaufBetrag}>{buchungSatz(entry, buchung)}</Text>
+                {hindernis === null && onStorno ? (
+                  <Pressable
+                    onPress={() => onStorno(buchung)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${buchungSatz(entry, buchung)} zurücknehmen`}
+                    hitSlop={8}
+                  >
+                    <Ionicons name="arrow-undo-outline" size={16} color={colors.inkSoft} />
+                  </Pressable>
+                ) : null}
               </View>
-              <Text style={eigen.verlaufBetrag}>−{betragText(buchung.amount, entry.unit)}</Text>
-            </View>
-          ))
+            );
+          })
         )}
 
         <View style={eigen.knopfReihe}>
+          {/* An der Kasse wird gescannt, nicht vorgelesen. Der Knopf
+              steht nur da, wenn es eine Nummer gibt - ein leerer Code
+              ist schlimmer als keiner, weil man mit ihm losfährt. */}
+          {entry.number ? (
+            <Pressable
+              onPress={() => {
+                tapped();
+                setKasse(true);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="An der Kasse zeigen"
+              style={({ pressed }) => [eigen.sekundaerKnopf, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name="barcode-outline" size={18} color={colors.ink} />
+              <Text style={eigen.sekundaerText}>An der Kasse</Text>
+            </Pressable>
+          ) : null}
+          {onUebergeben && haushalt.length > 0 ? (
+            <Pressable
+              onPress={() => setUebergabeOffen((wert) => !wert)}
+              accessibilityRole="button"
+              accessibilityLabel="Gutschein übergeben"
+              accessibilityState={{ expanded: uebergabeOffen }}
+              style={({ pressed }) => [eigen.sekundaerKnopf, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name="swap-horizontal-outline" size={18} color={colors.ink} />
+              <Text style={eigen.sekundaerText}>Übergeben</Text>
+            </Pressable>
+          ) : null}
           {entry.left >= 0.005 ? (
             <Pressable
               onPress={onAbziehen}
@@ -630,6 +742,31 @@ function Detail({
             <Text style={eigen.sekundaerText}>Bearbeiten</Text>
           </Pressable>
         </View>
+        {uebergabeOffen && onUebergeben ? (
+          <View style={{ gap: 6 }}>
+            {/* Nicht dasselbe wie Teilen: Geteilt heisst «alle sehen
+                ihn», übergeben heisst «er gehört jetzt dir» - bei einem
+                privaten Gutschein der einzige Weg, ihn weiterzugeben,
+                ohne ihn allen zu zeigen. */}
+            <Text style={styles.checkSub}>An wen geht er?</Text>
+            <View style={eigen.knopfReihe}>
+              {haushalt.map((name) => (
+                <Pressable
+                  key={name}
+                  onPress={() => {
+                    setUebergabeOffen(false);
+                    onUebergeben(name);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`An ${name} übergeben`}
+                  style={({ pressed }) => [eigen.sekundaerKnopf, pressed && { opacity: 0.8 }]}
+                >
+                  <Text style={eigen.sekundaerText}>{name}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        ) : null}
         {loeschFrage ? (
           <View style={styles.confirmRow}>
             <Text style={[styles.checkText, { flex: 1 }]}>
@@ -667,6 +804,45 @@ function Detail({
           </Pressable>
         )}
       </Card>
+
+      {/* An der Kasse (Punkt 299/300 der Werkbank).
+          Weiss, gross und ohne alles: Ein Scanner misst den Unterschied
+          zwischen hell und dunkel, und der Kassiererin hilft eine Seite
+          mit Code, Nummer und Laden - nicht die halbe App drumherum.
+          Der Bildschirm bleibt dabei an; die Systemhelligkeit lässt
+          sich ohne natives Modul nicht hochdrehen, aber ein weisser
+          Grund über den ganzen Bildschirm bringt den grössten Teil
+          davon ohnehin. */}
+      <Modal visible={kasse} animationType="slide" onRequestClose={() => setKasse(false)}>
+        <Pressable
+          onPress={() => setKasse(false)}
+          accessibilityRole="button"
+          accessibilityLabel="Schliessen"
+          style={{
+            flex: 1,
+            backgroundColor: '#FFFFFF',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+            gap: 18,
+          }}
+        >
+          <Text style={{ color: '#000000', fontSize: 22, fontWeight: '700' }}>
+            {entry.shop}
+          </Text>
+          <Strichcode nummer={entry.number} hoehe={120} />
+          {entry.pin ? (
+            <Text style={{ color: '#000000', fontSize: 16 }}>PIN {entry.pin}</Text>
+          ) : null}
+          <Text style={{ color: '#000000', fontSize: 18, fontWeight: '700' }}>
+            {restText(entry)}
+          </Text>
+          {entry.physical ? (
+            <Text style={{ color: '#B45309', fontSize: 14 }}>{MITNEHMEN}</Text>
+          ) : null}
+          <Text style={{ color: '#666666', fontSize: 13 }}>Tippen zum Schliessen</Text>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -676,6 +852,7 @@ function Detail({
 function FormularBlatt({
   bisher,
   vorhandeneKategorien,
+  vorhandeneLaeden,
   settings,
   onSave,
   onCancel,
@@ -685,6 +862,10 @@ function FormularBlatt({
 }: {
   bisher: Gutschein | null;
   vorhandeneKategorien: string[];
+  /** Die Läden, die es schon gibt - der Beleg-Leser rät den Laden nur
+   *  aus dieser Liste («noreply» als Ladennamen hat niemandem
+   *  geholfen). */
+  vorhandeneLaeden: string[];
   settings: HubSettings;
   onSave: (eintrag: Gutschein) => void;
   onCancel: () => void;
@@ -700,6 +881,82 @@ function FormularBlatt({
   const setze = <K extends keyof Formular>(key: K, wert: Formular[K]) =>
     setForm((vorher) => ({ ...vorher, [key]: wert }));
   const bild = bildUri(form.image_url, settings);
+
+  // ── Aus dem Beleg übernehmen (Punkt 298 der Werkbank) ──────────────
+  //
+  // Drei Wege zum Text, und alle drei sind derselbe Knopf: Ein
+  // angehängter Klartext lässt sich hier lesen, ein schon beim Hub
+  // liegendes PDF holt der Hub (`/belegtext`, braucht das Extra
+  // `pypdf`), und wenn beides nichts hergibt, klappt ein Feld auf, in
+  // das man den Text der Mail einfügt. Der letzte Weg ist der, der
+  // immer funktioniert - deshalb ist er nicht versteckt, sondern die
+  // Antwort auf «nichts gefunden».
+  //
+  // Übernommen wird als *Vorschlag*: Die Felder füllen sich, wer
+  // hinsieht, korrigiert. Bei Geld wäre ein stiller Automatismus die
+  // falsche Zusage.
+  const [belegText, setBelegText] = useState('');
+  const [belegOffen, setBelegOffen] = useState(false);
+  const [belegMeldung, setBelegMeldung] = useState<string | null>(null);
+
+  const uebernehmen = (text: string) => {
+      const fund = belegLesen(text, vorhandeneLaeden);
+    setBelegMeldung(belegSatz(fund));
+    setForm((vorher) => ({
+      ...vorher,
+      shop: fund.shop ?? vorher.shop,
+      unit: fund.unit ?? vorher.unit,
+      total:
+        fund.total !== undefined
+          ? fund.unit === 'stk'
+            ? String(fund.total)
+            : fund.total.toFixed(2)
+          : vorher.total,
+      number: fund.number ?? vorher.number,
+      pin: fund.pin ?? vorher.pin,
+      expires: fund.expires ? datumText(fund.expires) : vorher.expires,
+    }));
+    return Object.keys(fund).length > 0;
+  };
+
+  const belegLesenLassen = async () => {
+    tapped();
+    // Klartext-Anhang: hier lesbar, ohne den Hub zu fragen.
+    const roh = form.file?.data ?? '';
+    if (roh.startsWith('data:text/')) {
+      const teil = roh.slice(roh.indexOf(',') + 1);
+      try {
+        // `atob` gibt es im Browser und in Hermes; wo nicht, greift der
+        // catch und der nächste Weg. Ein fehlender Dekodierer ist kein
+        // Grund für eine Fehlermeldung.
+        const text = roh.includes(';base64,')
+          ? globalThis.atob(teil)
+          : decodeURIComponent(teil);
+        if (uebernehmen(text)) return;
+      } catch {
+        // Unlesbar heisst: den nächsten Weg versuchen.
+      }
+    }
+    if (bisher?.id) {
+      const antwort = await hubClient(settings.url, settings.token).get<{
+        text?: string;
+        verfuegbar?: boolean;
+      } | null>(`/api/family/vouchers/${encodeURIComponent(bisher.id)}/belegtext`, {
+        fallback: null,
+        still: true,
+      });
+      if (antwort?.text && uebernehmen(antwort.text)) return;
+      if (antwort && antwort.verfuegbar === false) {
+        setBelegMeldung(
+          'Der Hub kann PDF nicht lesen – unter System → Zusatzteile nachinstallieren.'
+        );
+        setBelegOffen(true);
+        return;
+      }
+    }
+    setBelegMeldung('Nichts gefunden – Text der Mail hier einfügen:');
+    setBelegOffen(true);
+  };
 
   const dateiWaehlen = async () => {
     const wahl = await holeDatei();
@@ -953,7 +1210,7 @@ function FormularBlatt({
                 accessibilityRole="button"
                 accessibilityLabel={`Datei ${form.file.name} entfernen`}
               >
-                <Ionicons name="close-circle-outline" size={22} color={colors.inkSoft} />
+                <Ionicons name="close-circle" size={22} color={colors.inkSoft} />
               </Pressable>
             </View>
           ) : null}
@@ -969,6 +1226,39 @@ function FormularBlatt({
             </Text>
           </Pressable>
           {dateiFehler ? <Text style={styles.error}>{dateiFehler}</Text> : null}
+          <Pressable
+            onPress={belegLesenLassen}
+            accessibilityRole="button"
+            accessibilityLabel="Betrag, Nummer und Ablaufdatum aus dem Beleg übernehmen"
+            style={({ pressed }) => [eigen.fotoAktion, pressed && { opacity: 0.7 }]}
+          >
+            <Ionicons name="sparkles-outline" size={16} color={colors.accent} />
+            <Text style={eigen.fotoAktionText}>Aus Beleg übernehmen</Text>
+          </Pressable>
+          {belegMeldung ? <Text style={styles.checkSub}>{belegMeldung}</Text> : null}
+          {belegOffen ? (
+            <View style={{ gap: 6 }}>
+              <TextInput
+                style={[styles.input, { minHeight: 90, textAlignVertical: 'top' }]}
+                value={belegText}
+                onChangeText={setBelegText}
+                multiline
+                placeholder="Text aus der Bestätigungsmail einfügen …"
+                placeholderTextColor={colors.inkFaint}
+                accessibilityLabel="Text des Belegs"
+              />
+              <Pressable
+                onPress={() => {
+                  if (uebernehmen(belegText)) setBelegOffen(false);
+                }}
+                accessibilityRole="button"
+                style={({ pressed }) => [eigen.fotoAktion, pressed && { opacity: 0.7 }]}
+              >
+                <Ionicons name="download-outline" size={16} color={colors.accent} />
+                <Text style={eigen.fotoAktionText}>Aus diesem Text übernehmen</Text>
+              </Pressable>
+            </View>
+          ) : null}
           <Text style={styles.formHintSmall}>
             Foto und Datei dürfen beide dran sein: Das Foto zeigt die Karte, die Datei ist
             der Beleg – meist das PDF aus der Bestätigungsmail. Bis 10 MB, als PDF, Bild,
@@ -1105,6 +1395,8 @@ export function Gutscheine({
   eintraege,
   settings,
   ich,
+  haushalt = [],
+  orte = [],
   fehler,
   hinweis,
   jetzt,
@@ -1120,6 +1412,10 @@ export function Gutscheine({
   settings: HubSettings;
   /** Der angemeldete Name – steht als «by» in jeder Buchung. */
   ich: string;
+  /** Wer im Haushalt einen Gutschein übernehmen kann (Punkt 306). */
+  haushalt?: string[];
+  /** Die Läden mit Koordinaten - für den Weg zum Laden. */
+  orte?: Ort[];
   fehler?: string | null;
   hinweis?: string | null;
   jetzt: Date;
@@ -1141,6 +1437,21 @@ export function Gutscheine({
   const [nurBald, setNurBald] = useState(false);
   const [leerOffen, setLeerOffen] = useState(false);
   const [abzugId, setAbzugId] = useState<string | null>(null);
+  // Drei Gutscheine bei Coop sind ein Betrag, keine drei Karten
+  // (Punkt 305 der Werkbank). Gezeigt wird die Zeile nur, wo es etwas
+  // zusammenzufassen gibt - bei lauter Einzelstücken wäre sie eine
+  // zweite Liste derselben Läden.
+  const laeden = useMemo(
+    () => nachLaden(alle, heute).filter((gruppe) => gruppe.eintraege.length > 1),
+    [alle, heute]
+  );
+  // Für das Raten im Beleg zählen *alle* Läden, nicht nur die mit
+  // mehreren Gutscheinen - der neue Gutschein ist ja meist der erste
+  // seines Ladens.
+  const alleLaeden = useMemo(
+    () => Array.from(new Set(alle.map((eintrag) => eintrag.shop).filter(Boolean))),
+    [alle]
+  );
 
   const gefunden = gefiltert(alle, suchtext, { kategorie, geteilt, bald: nurBald }, heute);
   const { offen, leer } = aufgeteilt(gefunden, heute);
@@ -1182,8 +1493,20 @@ export function Gutscheine({
           entry={entry}
           heute={heute}
           settings={settings}
+          orte={orte}
           onBack={() => setSeite({ art: 'liste' })}
           onAbziehen={() => setAbzugId(entry.id ?? null)}
+          onStorno={(buchung) => {
+            if (!entry.id) return;
+            const neu = stornieren(entry, buchung, ich, new Date());
+            onUpdate(entry.id, { left: neu.left, transactions: neu.transactions });
+          }}
+          onUebergeben={(an) => {
+            if (!entry.id) return;
+            const neu = uebergeben(entry, an, ich, new Date());
+            onUpdate(entry.id, { author: neu.author, transactions: neu.transactions });
+          }}
+          haushalt={haushalt.filter((name) => name !== (entry.author ?? ich))}
           onBearbeiten={() => setSeite({ art: 'form', id: entry.id })}
           onLoeschen={() => {
             if (entry.id) onRemove(entry.id);
@@ -1213,6 +1536,7 @@ export function Gutscheine({
         key={seite.id ?? 'neu'}
         bisher={bisher}
         vorhandeneKategorien={kats}
+        vorhandeneLaeden={alleLaeden}
         settings={settings}
         onSave={(eintrag) => speichern(eintrag, seite.id)}
         onCancel={() => setSeite(seite.id ? { art: 'detail', id: seite.id } : { art: 'liste' })}
@@ -1251,9 +1575,16 @@ export function Gutscheine({
       {hinweis ? <Text style={styles.checkSub}>{hinweis}</Text> : null}
 
       <View style={eigen.kopfZeile}>
-        <Text style={eigen.kopfZahl} accessibilityRole="header">
-          {kopfText(alle)}
-        </Text>
+        <View style={{ flex: 1 }}>
+          <Text style={eigen.kopfZahl} accessibilityRole="header">
+            {kopfText(alle)}
+          </Text>
+          {/* Die zwei Zahlen, die vorher nirgends standen: was
+              bereitliegt, und was verfallen ist. Die zweite ist die
+              unangenehme und darum die wichtige - sie ist das Argument
+              dafür, die Ablauf-Erinnerung ernst zu nehmen (Punkt 307). */}
+          <Text style={styles.checkSub}>{bilanzSatz(alle, heute)}</Text>
+        </View>
         <Pressable
           onPress={() => setSeite({ art: 'form' })}
           accessibilityRole="button"
@@ -1264,8 +1595,30 @@ export function Gutscheine({
         </Pressable>
       </View>
 
+      {laeden.length > 0 ? (
+        <View style={styles.chipRow}>
+          {laeden.map((gruppe) => (
+            <Pressable
+              key={gruppe.shop}
+              onPress={() => setSuchtext(suchtext === gruppe.shop ? '' : gruppe.shop)}
+              accessibilityRole="button"
+              accessibilityLabel={`${gruppe.shop}: ${gruppe.eintraege.length} Gutscheine${
+                gruppe.summe > 0 ? `, zusammen ${betragText(gruppe.summe, 'chf')}` : ''
+              }`}
+              accessibilityState={{ selected: suchtext === gruppe.shop }}
+              style={[styles.chip, suchtext === gruppe.shop && styles.chipActive]}
+            >
+              <Text style={styles.chipText}>
+                {gruppe.shop}
+                {gruppe.summe > 0 ? ` · ${betragText(gruppe.summe, 'chf')}` : ''}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
       <View style={styles.suchRow}>
-        <Ionicons name="search-outline" size={16} color={colors.inkSoft} />
+        <Ionicons name="search" size={16} color={colors.inkSoft} />
         <TextInput
           style={[styles.input, { flex: 1 }]}
           value={suchtext}

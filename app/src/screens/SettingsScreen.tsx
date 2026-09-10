@@ -7,6 +7,7 @@ import { Abschnitt } from '../components/Abschnitt';
 import { Card } from '../components/Card';
 import { useOrtung } from '../hooks/useOrtung';
 import { ConnectionStatus } from '../hooks/useHub';
+import { DICHTEN, type Dichte, lesen as dichteLesen } from '../lib/dichte';
 import { defaultHubUrl } from '../lib/origin';
 import { VERBINDUNGSWORT, verbindungsFarbe } from '../lib/verbindungsstand';
 import { PAUSEN, ortungsHinweis, pauseBis, pausiert } from '../lib/ortung';
@@ -143,6 +144,13 @@ export function SettingsScreen({
   // Die Grundriss-Ansicht: wie das App-Symbol eine Eigenschaft dieses
   // Geräts, nicht der Person - und wie das Erscheinungsbild sofort
   // gespeichert, nicht erst mit «Speichern & verbinden».
+  // Wie das Erscheinungsbild: Antippen ist Speichern, mit den abgelegten
+  // Einstellungen statt mit dem halb ausgefüllten Formular daneben.
+  const [dichte, setDichte] = useState<Dichte>(dichteLesen(initial?.dichte));
+  const dichteWaehlen = (wahl: Dichte) => {
+    setDichte(wahl);
+    if (initial) onSave({ ...initial, dichte: wahl });
+  };
   const [grundriss, setGrundriss] = useState(!!initial?.grundriss);
   const grundrissWaehlen = (an: boolean) => {
     setGrundriss(an);
@@ -473,6 +481,41 @@ export function SettingsScreen({
           «Nach Sonnenstand» wird bei Sonnenuntergang dunkel und bei
           Sonnenaufgang wieder hell, «System» folgt der Geräteeinstellung.
           Wirkt sofort.
+        </Text>
+      </View>
+
+      {/* Wie eng die Kacheln stehen. Hier und nicht bei den persönlichen
+          Einstellungen: Es ist eine Eigenschaft dieses Geräts, wie der
+          Grundriss darunter - das Wandpanel im Flur liest man aus zwei
+          Metern, das iPad auf dem Sofa aus dreissig Zentimetern, und
+          beide gehören derselben Person. */}
+      <View style={styles.field}>
+        <Text style={styles.label}>Kacheln</Text>
+        <View style={styles.modes}>
+          {DICHTEN.map((stufe) => (
+            <Pressable
+              key={stufe.key}
+              onPress={() => dichteWaehlen(stufe.key)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: dichte === stufe.key }}
+              style={({ pressed }) => [
+                styles.mode,
+                dichte === stufe.key && styles.modeActive,
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              <Text
+                style={[styles.modeText, dichte === stufe.key && styles.modeTextActive]}
+              >
+                {stufe.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text style={styles.modeHint}>
+          {DICHTEN.find((stufe) => stufe.key === dichte)?.hinweis}
+          {' '}Nur die Anzahl nebeneinander ändert sich – Schrift und Namen
+          bleiben, wie sie sind.
         </Text>
       </View>
 

@@ -107,7 +107,7 @@ export function Maintenance({ settings }: { settings: HubSettings }) {
       {faellig.map((item) => (
         <View key={item.id} style={styles.row}>
           <Ionicons
-            name="alert-circle"
+            name="alert-circle-outline"
             size={18}
             color={(item.days_left ?? 0) < 0 ? colors.danger : colors.warn}
           />

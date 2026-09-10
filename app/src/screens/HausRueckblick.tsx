@@ -129,7 +129,7 @@ export function HausRueckblick({ settings }: { settings: HubSettings }) {
           accessibilityLabel="Neu laden"
           hitSlop={8}
         >
-          <Ionicons name="refresh" size={18} color={colors.inkSoft} />
+          <Ionicons name="refresh-outline" size={18} color={colors.inkSoft} />
         </Pressable>
       </View>
 

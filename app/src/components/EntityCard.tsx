@@ -10,6 +10,7 @@ import { Reihe, linienPunkte } from '../lib/funkenlinie';
 import { istKlimaFuehler } from '../lib/klimachip';
 import { istKontakt, kontaktArt } from '../lib/offen';
 import { abschaltSatz } from '../lib/abschaltung';
+import { altZusatz, deckkraft, frische } from '../lib/altwert';
 import { offlineSatz } from '../lib/funkstille';
 import { uebernahmeZeile, zustandsText } from '../lib/haushalt';
 import { KachelEintrag, kachelAktionen } from '../lib/kachelmenue';
@@ -99,6 +100,12 @@ function Funkenlinie({ reihe, breite }: { reihe: Reihe | undefined; breite: numb
 
 interface Props {
   entity: Entity;
+  /** Antwortet der Hub gerade? Ohne Verbindung zeigt die Kachel den
+   *  letzten bekannten Stand - und sagt es auch (Punkt 271 der
+   *  Werkbank, lib/altwert.ts). Vorher stand die Auskunft nur als
+   *  Banner ganz oben, und wer die Kachel ansieht - dafür ist sie da -
+   *  las eine Behauptung über jetzt. */
+  verbunden?: boolean;
   /** Die letzten Stunden des Messwerts – [Unix-Sekunden, Wert]. */
   trend?: Reihe;
   /** Die gemerkte Doppeltipp-Aktion dieses Geräts (lib/doppeltipp.ts). */
@@ -196,6 +203,7 @@ interface Props {
 /** Warnstufen brauchen je nach Palette andere Farben. */
 export function EntityCard({
   entity,
+  verbunden = true,
   trend,
   doppelAktion,
   doppelLabel,
@@ -337,6 +345,13 @@ export function EntityCard({
   const offlineText = offlineSatz(
     entity,
     entity.last_seen ? sinceLabel(entity.last_seen) : null
+  );
+  // Ohne Verbindung zeigt die Kachel den letzten bekannten Stand. Dass
+  // er alt ist, gehört an den Wert und nicht nur in ein Banner oben
+  // (Punkt 271 der Werkbank): Gedämpft, mit der Uhrzeit dahinter.
+  const alter = frische(entity.last_seen, Date.now(), verbunden);
+  const altText = altZusatz(alter, entity.last_seen, (zeit) =>
+    zeit.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })
   );
   /**
    * Kacheln, die selbst der Knopf sind und ihren Namen selbst tragen.
@@ -1117,7 +1132,13 @@ export function EntityCard({
 
   return (
     <Card
-      style={kameraVoll ? { width, padding: 0, overflow: 'hidden', gap: 0 } : { width }}
+      style={{
+        ...(kameraVoll ? { width, padding: 0, overflow: 'hidden', gap: 0 } : { width }),
+        // Ein alter Wert bleibt lesbar, sieht aber nicht mehr aus wie
+        // eine frische Messung. Nicht ausblenden: Er ist die beste
+        // Auskunft, die es gerade gibt (lib/altwert.ts).
+        ...(alter !== 'frisch' ? { opacity: deckkraft(alter) } : {}),
+      }}
       // Eine offene Türe ist keine Nebensache: Die Kachel färbt sich, statt
       // es nur danebenzuschreiben. Beim Aufsperren dreht das Schloss noch
       // (unlocking) - erst wenn es wirklich offen ist, färbt es sich.
@@ -1475,7 +1496,16 @@ export function EntityCard({
         <CardFooter
           title={entity.name}
           subtitle={
-            pending ? 'wird geschaltet …' : entity.available ? subtitle : offlineText
+            pending
+              ? 'wird geschaltet …'
+              : !entity.available
+                ? offlineText
+                : // Ohne Verbindung sagt die Zeile, von wann der Wert ist -
+                  // «21,5 °C» und «21,5 °C · Stand 17:42» sind zwei
+                  // verschiedene Aussagen, und die zweite ist die ehrliche.
+                  altText
+                  ? `${subtitle ? `${subtitle} · ` : ''}Stand ${altText}`
+                  : subtitle
           }
           on={isOn || !!boxSchalter?.an}
           onToggle={toggleMitDoppeltipp}

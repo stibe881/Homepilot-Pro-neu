@@ -906,7 +906,7 @@ export function TopStrip({
               {(alerts?.state.alerts ?? []).map((warning: Record<string, string | undefined>, index: number) => (
                 <View key={index} style={styles.alertRow}>
                   <Ionicons
-                    name="warning"
+                    name="warning-outline"
                     size={18}
                     color={severityTone(colors, warning.severity)}
                   />

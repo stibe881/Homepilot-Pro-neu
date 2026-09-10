@@ -32,6 +32,14 @@ module.exports = tseslint.config(
     },
     rules: {
       ...hooks.configs.recommended.rules,
+      // Als Fehler, nicht als Warnung (Punkt 270 der Werkbank). Die
+      // Zusage lautete «0 Fehler; Warnungen dürfen nicht mehr werden» -
+      // nur zählt die niemand nach, und drei Stück standen jahrelang.
+      // Sie waren echt: Ein Effekt ohne `hub` in den Abhängigkeiten
+      // lief mit einem veralteten Griff, und `prefs.locked ?? []` war
+      // je Rendern eine andere leere Liste, an der der ganze Baum
+      // hing. Jetzt sind es null, und die Regel hält sie dort.
+      'react-hooks/exhaustive-deps': 'error',
       // `any` gibt es noch reichlich (siehe Vorschlag 41 der Werkbank).
       // Als Fehler würde die Regel heute nur betäuben; als Warnung zählt
       // sie mit und die Zahl kann sinken.

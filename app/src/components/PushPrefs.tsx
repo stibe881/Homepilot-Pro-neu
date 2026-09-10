@@ -6,6 +6,15 @@ import { HubFehler, hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
 import { Card } from './Card';
 import { nachGruppen } from '../lib/pushgruppen';
+import {
+  RUHE_AUS,
+  type Ruhezeit,
+  STUNDEN,
+  ruhesatz,
+  stillsatz,
+  uhr,
+  verpasstsatz,
+} from '../lib/pushruhe';
 import { epochTime } from '../lib/zeit';
 import { Colors, type, useColors } from '../theme';
 
@@ -31,6 +40,16 @@ interface Category {
   label: string;
   /** Unterkategorie, wie der Hub sie vergibt (core/push.py). */
   group?: string;
+  /** Titel und Text, wie sie im Ernstfall dastehen (core/pushbeispiel.py). */
+  beispiel?: [string, string] | null;
+  /** Kommt sofort durch, auch im Fokus – oder darf warten. */
+  dringend?: boolean;
+  /** Lässt sich nicht stillstellen (Alarm, Wasser, Klingel, weinendes Kind). */
+  immer?: boolean;
+  /** Bis wann stillgestellt, in Unix-Sekunden. */
+  still_bis?: number | null;
+  /** Wie viele Meldungen dieser Art der Hub am Tag höchstens schickt. */
+  deckel?: number | null;
 }
 
 /** Die Kategorien in ihre Unterkategorien, wie der Hub sie vergibt.
@@ -69,8 +88,27 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
   // Der Nachlese-Zettel: die letzten Meldungen, auch die weggewischten.
   const [logOffen, setLogOffen] = useState(false);
   const [log, setLog] = useState<
-    { title: string; body: string; at: number; category?: string | null }[] | null
+    {
+      title: string;
+      body: string;
+      at: number;
+      category?: string | null;
+      /** Warum sie nicht gebrummt hat – Ruhezeit, stillgestellt, Deckel. */
+      held?: string | null;
+      /** Ob genau diese Person sie deswegen nie gehört hat. */
+      verpasst?: boolean;
+    }[] | null
   >(null);
+  // Die eigene Nachtruhe. Der Hub hält sie je Person (core/pushruhe.py);
+  // was nie zurückgehalten wird, entscheidet ebenfalls er – eine
+  // Ruhezeit, die den Wasseralarm verschluckt, wäre ein Fehler.
+  const [ruhe, setRuhe] = useState<Ruhezeit>(RUHE_AUS);
+  const [ruheOffen, setRuheOffen] = useState(false);
+  // Welche Kategorie gerade aufgeklappt ist (Vorschau, Test, stillstellen).
+  // Eine, nicht mehrere: Aufgeklappt ist die Liste sonst zwei Bildschirme
+  // lang, und man sucht den Schalter, den man eben noch sah.
+  const [detail, setDetail] = useState<string | null>(null);
+  const [probe, setProbe] = useState<{ key: string; text: string } | null>(null);
 
   const hub = useMemo(
     () => hubClient(settings.url, settings.token),
@@ -84,11 +122,13 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
         categories?: Category[];
         groups?: string[];
         muted?: string[];
+        ruhe?: Ruhezeit;
       }>('/api/push/categories', { still: true })
       .then((data) => {
         setCategories(data.categories ?? []);
         setGroupOrder(data.groups ?? []);
         setMuted(data.muted ?? []);
+        setRuhe(data.ruhe ?? RUHE_AUS);
       })
       .catch((err) => setError(err instanceof HubFehler ? err.message : String(err)));
   }, [hub]);
@@ -116,6 +156,71 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
     } catch (err) {
       setError(String(err instanceof Error ? err.message : err));
       load();
+    }
+  };
+
+  // Die Ruhezeit sofort umschalten und den Hub bestätigen lassen –
+  // dasselbe Muster wie beim Abbestellen darüber.
+  const ruheSetzen = async (naechste: Ruhezeit) => {
+    setRuhe(naechste);
+    try {
+      const data = await hub.put<{ ruhe?: Ruhezeit }>(
+        '/api/push/ruhe',
+        { enabled: naechste.enabled, von: naechste.from, bis: naechste.to },
+        { still: true }
+      );
+      if (data.ruhe) setRuhe(data.ruhe);
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+      load();
+    }
+  };
+
+  // «Heute nicht mehr» – und es läuft von selbst ab. Der Unterschied zum
+  // Abbestellen ist der ganze Zweck: Wer im September den Trockner
+  // abbestellt, merkt es im März nicht mehr.
+  const stillstellen = async (key: string, stunden: number) => {
+    try {
+      const data = await hub.post<{ still_bis?: number | null }>(
+        '/api/push/still',
+        { category: key, stunden },
+        { still: true }
+      );
+      setCategories((war) =>
+        (war ?? []).map((eintrag) =>
+          eintrag.key === key
+            ? { ...eintrag, still_bis: data.still_bis ?? null }
+            : eintrag
+        )
+      );
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+    }
+  };
+
+  // Genau diese Art Meldung ans eigene Telefon – mit ihren Knöpfen,
+  // ihrer Dringlichkeit und durch die eigenen Einstellungen hindurch.
+  // Der allgemeine Test daneben beantwortet nur «kommt überhaupt etwas
+  // an?»; die häufigere Frage ist «warum kommt ausgerechnet das nicht?».
+  const kategorieTesten = async (key: string) => {
+    setProbe({ key, text: 'Sendet …' });
+    try {
+      const data = await hub.post<{
+        sent?: number;
+        warum?: string | null;
+        errors?: string[];
+      }>(`/api/push/test/${encodeURIComponent(key)}`, undefined, { still: true });
+      const problems = Array.isArray(data.errors) ? data.errors : [];
+      const text = problems.length
+        ? problems.join(' ')
+        : data.warum
+          ? `Kam nicht an: ${data.warum}.`
+          : Number(data.sent ?? 0) > 0
+            ? `Zugestellt an ${data.sent} Gerät(e).`
+            : 'Kein Gerät angemeldet.';
+      setProbe({ key, text });
+    } catch (err) {
+      setProbe({ key, text: String(err instanceof Error ? err.message : err) });
     }
   };
 
@@ -182,6 +287,84 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
       </View>
       {testNote ? <Text style={styles.hint}>{testNote}</Text> : null}
 
+      {/* Die Nachtruhe. Sie steht vor der Liste, nicht dahinter: Sie
+          betrifft jede Zeile darunter, und wer sie sucht, sucht sie
+          zuerst. Was nie zurückgehalten wird – Alarm, Wasser, Klingel,
+          ein weinendes Kind –, entscheidet der Hub, nicht diese Karte. */}
+      <Pressable
+        onPress={() => setRuheOffen((war) => !war)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: ruheOffen }}
+        style={styles.logKopf}
+      >
+        <Ionicons name="moon-outline" size={15} color={colors.inkSoft} />
+        <Text style={styles.logTitel}>Ruhezeit</Text>
+        <Text style={styles.hint} numberOfLines={1}>
+          {ruhe.enabled ? `${uhr(ruhe.from)} – ${uhr(ruhe.to)}` : 'aus'}
+        </Text>
+        <Ionicons
+          name={ruheOffen ? 'chevron-up' : 'chevron-down'}
+          size={15}
+          color={colors.inkSoft}
+        />
+      </Pressable>
+      {ruheOffen ? (
+        <View style={styles.ruheKasten}>
+          <Pressable
+            onPress={() => ruheSetzen({ ...ruhe, enabled: !ruhe.enabled })}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: ruhe.enabled }}
+            style={styles.row}
+          >
+            <Ionicons
+              name={ruhe.enabled ? 'checkmark-circle' : 'ellipse-outline'}
+              size={20}
+              color={ruhe.enabled ? colors.on : colors.inkFaint}
+            />
+            <Text style={styles.rowTitle}>Nachts still</Text>
+          </Pressable>
+          <Text style={styles.hint}>{ruhesatz(ruhe)}</Text>
+          {ruhe.enabled ? (
+            <>
+              {(['from', 'to'] as const).map((seite) => (
+                <View key={seite} style={styles.stundenBlock}>
+                  <Text style={styles.stundenTitel}>
+                    {seite === 'from' ? 'Ab' : 'Wieder ab'}
+                  </Text>
+                  <View style={styles.stundenReihe}>
+                    {STUNDEN.map((stunde) => {
+                      const gewaehlt = ruhe[seite] === stunde;
+                      return (
+                        <Pressable
+                          key={stunde}
+                          onPress={() => ruheSetzen({ ...ruhe, [seite]: stunde })}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: gewaehlt }}
+                          style={[styles.stunde, gewaehlt && styles.stundeAn]}
+                        >
+                          <Text
+                            style={[
+                              styles.stundeText,
+                              gewaehlt && { color: colors.ink, fontWeight: '700' },
+                            ]}
+                          >
+                            {stunde}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              ))}
+              <Text style={styles.hint}>
+                Alarm, Wasser, Klingel, ein weinendes Kind und der Timer kommen
+                trotzdem – die halten keine Ruhezeit auf.
+              </Text>
+            </>
+          ) : null}
+        </View>
+      ) : null}
+
       {/* Was zuletzt gemeldet wurde - eine weggewischte Mitteilung war
           bisher unauffindbar, und «was hat vorhin gebrummt?» ist genau
           die Frage, die man mit dem Telefon in der Jacke hatte. */}
@@ -228,6 +411,15 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
                     {eintrag.body}
                   </Text>
                 ) : null}
+                {/* Der Unterschied zwischen «ich habe es übersehen» und
+                    «das Haus hat es für sich behalten». Ohne diese Zeile
+                    liest sich der Zettel wie das Erste, und man sucht den
+                    Fehler bei sich. */}
+                {eintrag.verpasst ? (
+                  <Text style={styles.verpasstMarke}>
+                    {verpasstsatz(eintrag.held)}
+                  </Text>
+                ) : null}
               </View>
             </View>
           ))
@@ -247,26 +439,119 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
             <View style={styles.sectionRows}>
               {section.items.map((category) => {
                 const on = !muted.includes(category.key);
+                const offen = detail === category.key;
+                const still = stillsatz(category.still_bis, Date.now() / 1000);
                 return (
-                  <Pressable
-                    key={category.key}
-                    onPress={() => toggle(category.key)}
-                    accessibilityRole="switch"
-                    accessibilityState={{ checked: on }}
-                    style={styles.row}
-                  >
-                    <Ionicons
-                      name={on ? 'checkmark-circle' : 'ellipse-outline'}
-                      size={20}
-                      color={on ? colors.on : colors.inkFaint}
-                    />
-                    <Text
-                      style={[styles.rowTitle, !on && { color: colors.inkFaint }]}
-                      numberOfLines={1}
-                    >
-                      {category.label}
-                    </Text>
-                  </Pressable>
+                  <View key={category.key} style={styles.rowBlock}>
+                    <View style={styles.row}>
+                      <Pressable
+                        onPress={() => toggle(category.key)}
+                        accessibilityRole="switch"
+                        accessibilityState={{ checked: on }}
+                        accessibilityLabel={category.label}
+                        style={styles.rowSchalter}
+                      >
+                        <Ionicons
+                          name={on ? 'checkmark-circle' : 'ellipse-outline'}
+                          size={20}
+                          color={on ? colors.on : colors.inkFaint}
+                        />
+                        <Text
+                          style={[styles.rowTitle, !on && { color: colors.inkFaint }]}
+                          numberOfLines={1}
+                        >
+                          {category.label}
+                        </Text>
+                      </Pressable>
+                      {/* Stillgestellt gehört auf die Zeile selbst: Es
+                          läuft ab, und wer es nicht sieht, sucht den
+                          Fehler beim Push-Dienst. */}
+                      {still ? <Text style={styles.stillMarke}>{still}</Text> : null}
+                      <Pressable
+                        onPress={() => {
+                          setDetail(offen ? null : category.key);
+                          setProbe(null);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${category.label}: Vorschau und Test`}
+                        accessibilityState={{ expanded: offen }}
+                        hitSlop={8}
+                      >
+                        <Ionicons
+                          name={offen ? 'chevron-up' : 'ellipsis-horizontal'}
+                          size={16}
+                          color={colors.inkFaint}
+                        />
+                      </Pressable>
+                    </View>
+                    {offen ? (
+                      <View style={styles.detail}>
+                        {/* Was auf dem Sperrbildschirm stehen wird. Ohne
+                            das bestellt man eine Überschrift ab und weiss
+                            nicht, was darunter läuft. */}
+                        {category.beispiel ? (
+                          <View style={styles.vorschau}>
+                            <Text style={styles.vorschauTitel} numberOfLines={2}>
+                              {category.beispiel[0]}
+                            </Text>
+                            <Text style={styles.hint} numberOfLines={3}>
+                              {category.beispiel[1]}
+                            </Text>
+                          </View>
+                        ) : null}
+                        <Text style={styles.hint}>
+                          {category.dringend
+                            ? 'Kommt sofort – auch wenn ein Fokus läuft.'
+                            : 'Darf warten – kommt, wenn das Telefon ohnehin wach ist.'}
+                          {category.deckel
+                            ? ` Höchstens ${category.deckel}× am Tag.`
+                            : ''}
+                          {category.immer
+                            ? ' Keine Ruhezeit hält sie auf.'
+                            : ''}
+                        </Text>
+                        <View style={styles.detailKnoepfe}>
+                          <Pressable
+                            onPress={() => kategorieTesten(category.key)}
+                            accessibilityRole="button"
+                            style={styles.testButton}
+                          >
+                            <Ionicons
+                              name="paper-plane-outline"
+                              size={13}
+                              color={colors.ink}
+                            />
+                            <Text style={styles.testText}>Probe schicken</Text>
+                          </Pressable>
+                          {category.immer ? null : (
+                            <Pressable
+                              onPress={() =>
+                                stillstellen(category.key, category.still_bis ? 0 : 24)
+                              }
+                              accessibilityRole="button"
+                              style={styles.testButton}
+                            >
+                              <Ionicons
+                                name={
+                                  category.still_bis
+                                    ? 'volume-high-outline'
+                                    : 'notifications-off-outline'
+                                }
+                                size={13}
+                                color={colors.ink}
+                              />
+                              <Text style={styles.testText}>
+                                {category.still_bis ? 'Wieder melden' : '24 h still'}
+                              </Text>
+                            </Pressable>
+                          )}
+                        </View>
+                        {probe?.key === category.key ? (
+                          <Text style={styles.hint}>{probe.text}</Text>
+                        ) : null}
+                      </View>
+                    ) : null}
+                  </View>
                 );
               })}
             </View>
@@ -312,22 +597,70 @@ const makeStyles = (colors: Colors) =>
       marginBottom: 4,
     },
     sectionRows: { flexDirection: 'row', flexWrap: 'wrap' },
+    // Der Block trägt die Breite; die Zeile darin ist nur noch die
+    // Zeile, damit die aufgeklappte Vorschau darunter passt und nicht
+    // daneben.
+    rowBlock: {
+      minWidth: 290,
+      flexGrow: 1,
+      flexBasis: 290,
+      maxWidth: 420,
+      paddingRight: 16,
+    },
     row: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 10,
       paddingVertical: 6,
-      paddingRight: 16,
-      // Breit genug für die längste Beschriftung, schmal genug, dass auf
-      // einem breiten Schirm zwei bis drei nebeneinander stehen.
-      minWidth: 290,
-      flexGrow: 1,
-      flexBasis: 290,
-      maxWidth: 420,
+    },
+    rowSchalter: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      flex: 1,
     },
     rowTitle: { color: colors.ink, fontSize: 14, fontWeight: '600', flexShrink: 1 },
     logKopf: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     logTitel: { color: colors.inkSoft, fontSize: 13, fontWeight: '700', flex: 1 },
     logZeile: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
     logZeit: { color: colors.inkFaint, fontSize: 12, minWidth: 92, paddingTop: 1 },
+    verpasstMarke: { color: colors.warn, fontSize: 12, lineHeight: 17 },
+    ruheKasten: {
+      gap: 8,
+      paddingLeft: 21,
+      paddingBottom: 4,
+      borderLeftWidth: 2,
+      borderLeftColor: colors.surfaceBorder,
+      marginLeft: 6,
+    },
+    stundenBlock: { gap: 4 },
+    stundenTitel: { color: colors.inkSoft, fontSize: 12, fontWeight: '700' },
+    stundenReihe: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
+    stunde: {
+      minWidth: 30,
+      paddingVertical: 4,
+      paddingHorizontal: 6,
+      borderRadius: 8,
+      alignItems: 'center',
+      backgroundColor: colors.surfaceSoft,
+    },
+    stundeAn: { backgroundColor: colors.accent },
+    stundeText: { color: colors.inkSoft, fontSize: 12 },
+    detail: {
+      gap: 8,
+      paddingLeft: 30,
+      paddingBottom: 8,
+      flexBasis: '100%',
+    },
+    detailKnoepfe: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    vorschau: {
+      gap: 2,
+      padding: 10,
+      borderRadius: 12,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    vorschauTitel: { color: colors.ink, fontSize: 13, fontWeight: '700' },
+    stillMarke: { color: colors.inkFaint, fontSize: 11, flexShrink: 0 },
   });

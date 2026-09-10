@@ -11,6 +11,8 @@ import {
 } from 'react-native';
 
 import { CommandData, Entity, Scene } from '../api/types';
+import type { Section } from '../lib/bereiche';
+import { seitenSuchen } from '../lib/seitensuche';
 import { befehlAusText } from '../lib/suchbefehl';
 import { Tastaturplatz } from './Tastaturplatz';
 import { Colors, radius, useColors } from '../theme';
@@ -26,7 +28,7 @@ import { Colors, radius, useColors } from '../theme';
  * die zufällig «Bad» im Namen tragen.
  */
 
-export type HitKind = 'entity' | 'scene' | 'automation' | 'room';
+export type HitKind = 'entity' | 'scene' | 'automation' | 'room' | 'seite';
 
 export interface Hit {
   kind: HitKind;
@@ -40,6 +42,7 @@ const ICONS: Record<HitKind, keyof typeof Ionicons.glyphMap> = {
   scene: 'sparkles-outline',
   automation: 'git-branch-outline',
   room: 'home-outline',
+  seite: 'settings-outline',
 };
 
 const LABELS: Record<HitKind, string> = {
@@ -47,6 +50,7 @@ const LABELS: Record<HitKind, string> = {
   scene: 'Szene',
   automation: 'Ablauf',
   room: 'Raum',
+  seite: 'Einstellung',
 };
 
 /**
@@ -62,7 +66,10 @@ export function search(
   entities: Entity[],
   scenes: Scene[],
   automations: { id: string; alias: string; category?: string | null }[],
-  rooms: string[]
+  rooms: string[],
+  /** Welche Einstellungsseiten diese Person sehen darf. Ohne Angabe
+   *  alle - der Bildschirm weiss es, die reine Funktion nicht. */
+  darfSeite?: (section: Section) => boolean
 ): Hit[] {
   const needle = query.trim().toLowerCase();
   if (needle.length < 2) return [];
@@ -100,6 +107,21 @@ export function search(
   ];
 
   const matched = hits.filter((hit) => hit.label.toLowerCase().includes(needle));
+
+  // Die Einstellungsseiten kommen ans Ende: Wer «Bad» tippt, sucht das
+  // Bad und nicht eine Seite, auf der «Bad» vorkommt. Wer dagegen
+  // «Nachtruhe» tippt, findet sonst überhaupt nichts - und das war der
+  // Anlass (lib/seitensuche.ts).
+  const seiten: Hit[] = seitenSuchen(query, darfSeite).map((treffer) => ({
+    kind: 'seite' as const,
+    id: treffer.section,
+    label: treffer.label,
+    // Weswegen getroffen wurde: «Konto · nachtruhe» sagt einem, dass
+    // man richtig ist; «Konto» allein nicht.
+    detail:
+      treffer.wegen === treffer.label ? 'Einstellungen' : treffer.wegen,
+  }));
+
   return matched
     .map((hit, index) => ({
       hit,
@@ -109,6 +131,7 @@ export function search(
     }))
     .sort((a, b) => a.rank - b.rank || a.index - b.index)
     .map((entry) => entry.hit)
+    .concat(seiten)
     .slice(0, 40);
 }
 
@@ -121,6 +144,7 @@ export function GlobalSearch({
   onClose,
   onPick,
   onCommand,
+  darfSeite,
 }: {
   visible: boolean;
   entities: Entity[];
@@ -129,6 +153,9 @@ export function GlobalSearch({
   rooms: string[];
   onClose: () => void;
   onPick: (hit: Hit) => void;
+  /** Welche Einstellungsseiten diese Person sehen darf. Ein Treffer auf
+   *  eine Seite, die der Hub dann abweist, ist schlimmer als keiner. */
+  darfSeite?: (section: Section) => boolean;
   /** Ohne diesen Weg bleibt die Suche eine Suche - dann fehlt die
    *  Ausführen-Zeile ganz, statt einen Knopf ohne Wirkung zu zeigen. */
   onCommand?: (entityId: string, command: string, data?: CommandData) => void;
@@ -137,7 +164,7 @@ export function GlobalSearch({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [query, setQuery] = useState('');
 
-  const hits = search(query, entities, scenes, automations, rooms);
+  const hits = search(query, entities, scenes, automations, rooms, darfSeite);
   // «licht küche aus» ist eine Ansage, keine Suche (lib/suchbefehl.ts).
   const befehl = onCommand ? befehlAusText(query, entities) : null;
 
@@ -154,7 +181,7 @@ export function GlobalSearch({
               style={styles.input}
               value={query}
               onChangeText={setQuery}
-              placeholder="Gerät, Raum, Szene oder Ablauf …"
+              placeholder="Gerät, Raum, Szene, Ablauf oder Einstellung …"
               placeholderTextColor={colors.inkFaint}
               autoFocus
               autoCorrect={false}
@@ -193,8 +220,9 @@ export function GlobalSearch({
 
           {query.trim().length < 2 ? (
             <Text style={styles.hint}>
-              Ab zwei Zeichen wird gesucht – über Geräte, Räume, Szenen und
-              Abläufe hinweg. Wer gleich schalten will, schreibt es hin:
+              Ab zwei Zeichen wird gesucht – über Geräte, Räume, Szenen,
+              Abläufe und die Einstellungen hinweg («Nachtruhe», «Update»,
+              «Batterie»). Wer gleich schalten will, schreibt es hin:
               «licht küche aus», «store wohnzimmer 40».
             </Text>
           ) : hits.length === 0 ? (

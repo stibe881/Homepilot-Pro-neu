@@ -301,7 +301,7 @@ export function Widgets({
                     ]}
                   >
                     <Ionicons
-                      name="add-circle-outline"
+                      name="add"
                       size={18}
                       color={colors.accent}
                     />
@@ -324,7 +324,7 @@ export function Widgets({
             neben die Liste, um die es geht. */}
         {ablage === 'ok' ? (
           <View style={styles.warn}>
-            <Ionicons name="checkmark-circle-outline" size={18} color={colors.on} />
+            <Ionicons name="checkmark-circle" size={18} color={colors.on} />
             <Text style={styles.warnText}>
               Die geteilte Ablage antwortet – Knöpfe und Hausstand
               liegen für das Widget bereit. Zeigt es trotzdem die

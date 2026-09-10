@@ -27,7 +27,10 @@ from ...core import (
     notifyrules,
     presence,
     push,
+    pushbeispiel,
+    pushruhe,
     pushverlauf,
+    pushziel,
     snapshots,
     spaeter,
     storenwaechter,
@@ -44,7 +47,9 @@ from ..models import (
     PushPrefsRequest,
     PushQuittierenRequest,
     PushRegistration,
+    PushRuhezeitRequest,
     PushSnoozeRequest,
+    PushStillRequest,
     VoucherPrefsRequest,
 )
 
@@ -87,6 +92,34 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             headers={"Cache-Control": "no-store"},
         )
 
+    def _meine_zeile(name: str) -> dict[str, Any]:
+        """Die gespeicherte Push-Zeile einer Person - leer, wenn keine da.
+
+        Abbestellungen, Ruhezeit und Stillgestelltes liegen in derselben
+        Zeile (``push_prefs``): Es ist dasselbe Thema, und drei Listen
+        nebeneinander liefen früher oder später auseinander - genau wie
+        es die Kategorien-Einteilung schon einmal tat.
+        """
+        for eintrag in hub.data.get("push_prefs") or []:
+            if isinstance(eintrag, dict) and eintrag.get("user") == name:
+                return eintrag
+        return {}
+
+    def _zeile_schreiben(name: str, **felder: Any) -> dict[str, Any]:
+        """Felder in die eigene Push-Zeile einsetzen und übernehmen."""
+        stored = {
+            entry["user"]: entry
+            for entry in hub.data.get("push_prefs")
+            if isinstance(entry, dict) and entry.get("user")
+        }
+        zeile = {**stored.get(name, {"user": name, "muted": []}), **felder}
+        stored[name] = zeile
+        hub.data.set("push_prefs", list(stored.values()))
+        # Sofort übernehmen: Sonst gölte die neue Ruhezeit erst nach dem
+        # nächsten Neustart, und danach sucht man eine Stunde.
+        hub.push_einstellungen_lesen()
+        return zeile
+
     @app.get("/api/push/categories")
     async def push_categories(request: Request) -> dict[str, Any]:
         """Welche Arten von Nachrichten es gibt – und was ich abbestellt habe.
@@ -108,12 +141,33 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             for gruppe in dict.fromkeys(zeile["group"] for zeile in aus_ablaeufen)
             if gruppe not in push.group_order()
         ]
+        jetzt = time.time()
+        still = pushruhe.still_lesen(_meine_zeile(user.name).get("still"), jetzt)
         return {
             "categories": [
                 # Die Gruppe kommt mit: Die App soll dieselbe Einteilung
                 # zeigen wie die Liste unter «Abläufe → Push», und die
                 # kennt nur der Hub.
-                {"key": key, "label": label, "group": push.group_of(key)}
+                {
+                    "key": key,
+                    "label": label,
+                    "group": push.group_of(key),
+                    # Was auf dem Sperrbildschirm stehen wird. Ohne das
+                    # bestellt man eine Überschrift ab und weiss nicht,
+                    # was darunter läuft (core/pushbeispiel.py).
+                    "beispiel": pushbeispiel.beispiel(key),
+                    # Dringend heisst: kommt sofort, auch im Fokus.
+                    # Sichtbar, weil es sonst nirgends steht und die
+                    # Frage «warum kommt das eine sofort und das andere
+                    # zwanzig Minuten später» sonst unbeantwortet bleibt.
+                    "dringend": key not in push.LEISE,
+                    # Was sich nie zurückhalten lässt - die App soll den
+                    # Knopf «24 h still» dort gar nicht erst anbieten.
+                    "immer": key in pushruhe.IMMER_DURCH,
+                    # Bis wann stillgestellt (Unix-Sekunden) oder None.
+                    "still_bis": still.get(key),
+                    "deckel": pushruhe.deckel_fuer(key),
+                }
                 for key, label in push.CATEGORIES.items()
             ]
             + aus_ablaeufen,
@@ -122,6 +176,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             # Ordnung nicht durcheinanderbringen.
             "groups": push.group_order() + eigene_gruppen,
             "muted": muted,
+            "ruhe": pushruhe.ruhe_lesen(_meine_zeile(user.name).get("ruhe")),
         }
 
     @app.put("/api/push/categories")
@@ -150,6 +205,71 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         hub.data.set("push_prefs", list(stored.values()))
         hub.push.muted = push.parse_muted(hub.data.get("push_prefs"))
         return {"ok": True, "muted": sorted(hub.push.muted.get(user.name, set()))}
+
+    # ── Ruhezeit und Stillstellen (core/pushruhe.py) ───────────────────────
+    #
+    # Beides gilt je Person und beides endet von selbst - das ist der
+    # Unterschied zum Abbestellen darüber. Was nie zurückgehalten wird
+    # (Alarm, Wasser, Klingel, ein weinendes Kind), steht im Hub und
+    # nicht in der App: Eine Ruhezeit, die den Wasseralarm verschluckt,
+    # wäre ein Fehler, kein Komfort.
+
+    @app.put("/api/push/ruhe")
+    async def set_push_ruhe(
+        body: PushRuhezeitRequest, request: Request
+    ) -> dict[str, Any]:
+        """Die eigene Nachtruhe setzen."""
+        user = current_user(request)
+        zeile = _zeile_schreiben(
+            user.name,
+            ruhe={
+                "enabled": bool(body.enabled),
+                "from": int(body.von) % 24,
+                "to": int(body.bis) % 24,
+            },
+        )
+        return {"ok": True, "ruhe": pushruhe.ruhe_lesen(zeile.get("ruhe"))}
+
+    @app.post("/api/push/still")
+    async def set_push_still(
+        body: PushStillRequest, request: Request
+    ) -> dict[str, Any]:
+        """Eine Kategorie auf Zeit stillstellen - «heute nicht mehr».
+
+        Der Unterschied zum Abbestellen ist der wichtigste Teil: Das
+        hier läuft von selbst ab. Wer im September den Trockner
+        abbestellt, merkt es im März nicht mehr.
+        """
+        user = current_user(request)
+        if not push.known(body.category):
+            raise HTTPException(status_code=404, detail="Unbekannte Kategorie")
+        if not pushruhe.darf_zurueckgehalten(body.category):
+            raise HTTPException(
+                status_code=400,
+                detail="Diese Meldung lässt sich nicht stillstellen.",
+            )
+        jetzt = time.time()
+        stand = pushruhe.still_setzen(
+            _meine_zeile(user.name).get("still"), body.category, body.stunden, jetzt
+        )
+        _zeile_schreiben(user.name, still=stand)
+        return {"ok": True, "still_bis": stand.get(body.category)}
+
+    @app.get("/api/push/verpasst")
+    async def push_verpasst(request: Request) -> dict[str, Any]:
+        """Was das Haus für mich zurückgehalten hat.
+
+        Nicht dasselbe wie «zuletzt gemeldet»: Hier steht nur, was
+        absichtlich nicht gebrummt hat - in der Nacht, während etwas
+        stillgestellt war, über dem Tagesdeckel. Das ist die Liste, die
+        man am Morgen durchgeht.
+        """
+        user = current_user(request)
+        return {
+            "verpasst": pushverlauf.verpasst(
+                hub.data.get(pushverlauf.STORE_KEY), user.name
+            )
+        }
 
     # ── Batterie-Erinnerung (Punkt 258 der Werkbank) ───────────────────────
 
@@ -534,6 +654,52 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "sent": result.accepted,
             "devices": len(tokens),
             "errors": problems,
+        }
+
+    @app.post("/api/push/test/{category}")
+    async def test_push_kategorie(category: str, request: Request) -> dict[str, Any]:
+        """Genau diese Art Meldung ans eigene Telefon - mit allem, was dranhängt.
+
+        Der allgemeine Test oben beantwortet «kommt überhaupt etwas
+        an?». Diese Frage ist eine andere: Kommt *diese* Art durch -
+        durch die eigene Abbestellung, durch die Ruhezeit, mit ihren
+        Knöpfen und ihrer Dringlichkeit? Deshalb geht sie bewusst *mit*
+        Kategorie raus und wird unterwegs von denselben Regeln behandelt
+        wie im Ernstfall.
+
+        Erkennbar bleibt sie trotzdem: «Probe:» steht vorn im Titel
+        (core/pushbeispiel.py). Ohne das läuft jemand los, weil «Wasser
+        gemeldet» auf dem Telefon steht.
+        """
+        user = current_user(request)
+        if not push.known(category):
+            raise HTTPException(status_code=404, detail="Unbekannte Kategorie")
+        titel, text = pushbeispiel.als_meldung(category)
+        tokens = hub.push.recipients(hub.users.users, user.name, category)
+        result = await hub.push.send(
+            tokens,
+            title=titel,
+            body=text,
+            data={"ziel": pushziel.ziel_fuer(category)} if pushziel.ziel_fuer(category) else None,
+            category=category,
+        )
+        # Der ehrlichste Teil der Antwort: Warum nichts kam. «0
+        # zugestellt» allein sähe aus wie ein kaputter Push-Dienst,
+        # während in Wahrheit die eigene Ruhezeit läuft.
+        warum = result.zurueckgehalten
+        if not tokens and warum is None:
+            warum = (
+                "abbestellt"
+                if category in hub.push.muted.get(user.name, set())
+                else "kein Gerät angemeldet"
+            )
+        return {
+            "ok": not result.errors and warum is None,
+            "sent": result.accepted,
+            "errors": list(result.errors),
+            "warum": warum,
+            "titel": titel,
+            "text": text,
         }
 
     # ── Haustür-Live-Aktivität (core/liveaktivitaet.py) ────────────────────

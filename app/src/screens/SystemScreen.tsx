@@ -15,13 +15,16 @@ import * as Updates from 'expo-updates';
 
 import { HubFehler, hubClient } from '../api/client';
 import { Entity, HubSettings, LogEntry, SystemStatus, User } from '../api/types';
+import { absturzSatz, nachBereich } from '../lib/absturzbuch';
 import { Extra, geordnet, luecken, zustand } from '../lib/extras';
+import { useAbstuerze } from '../hooks/useAbstuerze';
 import { PushState, pushHint } from '../hooks/usePushRegistration';
+import { Musterblatt } from '../components/Musterblatt';
 import { AccessLog } from '../components/AccessLog';
 import { Einrichtungsprotokoll } from '../components/Einrichtungsprotokoll';
 import { Card } from '../components/Card';
 import { Maintenance } from '../components/Maintenance';
-import { Fehlschlag, Laedt } from '../components/Zustand';
+import { Fehlschlag, Laedt, Umriss } from '../components/Zustand';
 import { ConfigCard } from './system/konfiguration';
 import { ROLE_LABELS } from '../lib/rollen';
 import { datumUhr } from '../lib/format';
@@ -86,7 +89,7 @@ export function SystemScreen({
     return <Fehlschlag text={`Systemzustand nicht abrufbar: ${error}`} onRetry={load} />;
   }
   if (!status) {
-    return <Laedt was="Systemzustand" />;
+    return <Umriss was="Systemzustand" zeilen={4} hoehe={90} />;
   }
 
   // Die Seite in vier Blöcken, in der Reihenfolge, in der man sie
@@ -153,6 +156,7 @@ export function SystemScreen({
         ) : null}
         {status.build ? <WebVersionNote hubCommit={status.build.commit} /> : null}
         <AppVersionNote />
+        <AbsturzNote />
         <StartfehlerNote />
         <WasIstNeu settings={settings} />
 
@@ -314,6 +318,12 @@ export function SystemScreen({
       <ShortcutsCard settings={settings} />
 
       <VoiceHelpCard />
+
+      {/* Werkzeug für den, der etwas baut - keine Einstellung für den,
+          der hier wohnt. Deshalb ganz unten, zugeklappt und unter
+          «Auf diesem Gerät»: Es zeigt, wie das gerade eingestellte
+          Erscheinungsbild wirklich aussieht. */}
+      <Musterblatt />
     </View>
   );
 }
@@ -694,6 +704,58 @@ function WasIstNeu({ settings }: { settings: HubSettings }) {
  * sie, zeigt die App alten Code, obwohl TestFlight gerade Neues gebracht
  * hat. Genau das steht hier: mitgeliefert oder nachgeladen.
  */
+/**
+ * Wie oft die App beim Zeichnen gestolpert ist (Punkt 272 der Werkbank).
+ *
+ * `<Auffangnetz>` fängt einen Fehler ab und zeigt eine Ersatzfläche - und
+ * genau deshalb erfuhr davon niemand: Auf dem Telefon tippt man auf
+ * «Nochmals», es geht weiter, und beim nächsten Mal denkt man «das war
+ * schon mal». Auf dem Wandpanel im Flur sieht es überhaupt keiner.
+ *
+ * Steht nur da, wenn etwas passiert ist: «0 Abstürze» ist eine Zeile,
+ * die man ab dem zweiten Mal überliest - und dann übersieht man sie an
+ * dem Tag, an dem eine Zahl darin steht.
+ */
+function AbsturzNote() {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { abstuerze, abstuerzeVergessen } = useAbstuerze();
+  const [offen, setOffen] = useState(false);
+  const satz = absturzSatz(abstuerze);
+  if (!satz) return null;
+  return (
+    <View style={{ marginTop: 8 }}>
+      <Pressable
+        onPress={() => setOffen((wert) => !wert)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: offen }}
+        style={styles.row}
+      >
+        <Ionicons name="warning-outline" size={16} color={colors.warn} />
+        <Text style={[styles.rowDetail, { flex: 1, color: colors.warn }]}>{satz}</Text>
+        <Ionicons
+          name={offen ? 'chevron-up' : 'chevron-down'}
+          size={14}
+          color={colors.inkFaint}
+        />
+      </Pressable>
+      {offen ? (
+        <>
+          {nachBereich(abstuerze).map((gruppe) => (
+            <Text key={gruppe.bereich} style={styles.rowDetail}>
+              {gruppe.bereich}: {gruppe.anzahl}× · zuletzt{' '}
+              {datumUhr(new Date(gruppe.zuletzt))}
+            </Text>
+          ))}
+          <Pressable onPress={abstuerzeVergessen} accessibilityRole="button">
+            <Text style={[styles.rowDetail, { color: colors.accent }]}>Liste leeren</Text>
+          </Pressable>
+        </>
+      ) : null}
+    </View>
+  );
+}
+
 function AppVersionNote() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -1302,7 +1364,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
           accessibilityLabel="Update abbrechen - nichts ausrollen"
           style={({ pressed }) => [styles.updateAbbruch, pressed && { opacity: 0.7 }]}
         >
-          <Ionicons name="close-circle-outline" size={15} color={colors.danger} />
+          <Ionicons name="close-circle" size={15} color={colors.danger} />
           <Text style={styles.updateAbbruchText}>Abbrechen – nichts ausrollen</Text>
         </Pressable>
       ) : null}
