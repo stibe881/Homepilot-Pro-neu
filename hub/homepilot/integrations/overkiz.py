@@ -144,6 +144,18 @@ def verfuegbarkeit(
     return neu, neu < schwelle
 
 
+def ist_cover(device: Any) -> bool:
+    """Ob dieses Overkiz-Gerät eine Store ist (rein, testbar).
+
+    Am Gateway hängen auch Funk-Sticks, Brücken und die Box selbst -
+    die haben weder Stellung noch Lamellen.
+    """
+    return (
+        str(getattr(device, "widget", "")) in COVER_WIDGETS
+        or str(getattr(device, "ui_class", "")) in COVER_UI_CLASSES
+    )
+
+
 def cover_state(states: dict[str, Any]) -> dict[str, Any]:
     """Übersetzt Overkiz-Zustände in Entitäts-Attribute (rein, testbar).
 
@@ -325,12 +337,16 @@ class OverkizIntegration(Integration):
         # Ob das Gateway «Zustände neu lesen» überhaupt kennt. Das lokale
         # kennt es nicht - dann wird nicht endlos weitergefragt.
         self._nachlesen_geht = True
+        # Was das Gateway zuletzt je Gerät gesagt hat - roh. Damit lässt
+        # sich «hat sich etwas geändert» von «dieselbe alte Auskunft»
+        # unterscheiden; siehe _geraete_auffrischen.
+        self._roh: dict[str, dict[str, Any]] = {}
         # Nur ein Befehl aufs Mal, mit Pause: Funktelegramme, die sich
         # überlagern, gehen verloren - siehe Kopf dieser Datei.
         self._funk = asyncio.Lock()
         self._zuletzt_gesendet = 0.0
         for device in await self._client.get_devices():
-            if not self._is_cover(device):
+            if not ist_cover(device):
                 continue
             states = {state.name: state.value for state in device.states or []}
             supported = {
@@ -373,6 +389,7 @@ class OverkizIntegration(Integration):
                 available=True,
             )
             self._devices[device.device_url] = entity.id
+            self._roh[device.device_url] = states
             self._url_by_entity[entity.id] = device.device_url
             self._cmd_by_entity[entity.id] = cmd_map
             self._abwesend[entity.id] = (
@@ -393,12 +410,6 @@ class OverkizIntegration(Integration):
             self._geraete_auffrischen, interval=ABFRAGE_INTERVALL, sofort=True
         )
 
-    @staticmethod
-    def _is_cover(device: Any) -> bool:
-        return (
-            str(getattr(device, "widget", "")) in COVER_WIDGETS
-            or str(getattr(device, "ui_class", "")) in COVER_UI_CLASSES
-        )
 
     def _token_file(self) -> Path:
         return tokenstore.token_file(self.hub.config.data_file, self.config, "overkiz")
@@ -542,6 +553,30 @@ class OverkizIntegration(Integration):
                     entity.label,
                     "meldet sich wieder" if erreichbar else "meldet sich nicht mehr",
                 )
+            url = getattr(device, "device_url", None)
+            if states == self._roh.get(url):
+                # Dieselbe Auskunft wie beim letzten Mal ist keine
+                # Neuigkeit - und darf deshalb nichts überschreiben.
+                #
+                # Der Fall aus dem Haus: Alle sechs Storen morgens
+                # hochgefahren, vier standen weiter als «Beschattung» da -
+                # mit haargenau den Werten vom Vorabend. Eine io-Store
+                # meldet dem Gateway nicht von sich aus, dass sie gefahren
+                # ist; das Gateway gab also stundenlang dieselbe alte Zahl
+                # heraus. Der Takt schrieb sie jedes Mal neu - und löschte
+                # dabei über `angenommen` die Auskunft aus dem Befehl, den
+                # der Hub selbst gerade geschickt hatte. Aus «wir haben
+                # eben aufgefahren» wurde so im Minutentakt wieder
+                # «geschlossen».
+                #
+                # Die Verfügbarkeit gehört trotzdem aufgefrischt: Dass
+                # sich ein Gerät wieder meldet, ist die eine Neuigkeit,
+                # die in einer unveränderten Zustandsliste steckt.
+                await self.hub.registry.update_state(
+                    entity_id, {}, available=erreichbar
+                )
+                continue
+            self._roh[url] = states
             await self.hub.registry.update_state(
                 entity_id, cover_state(states), available=erreichbar
             )
@@ -583,6 +618,11 @@ class OverkizIntegration(Integration):
         if not changed:
             return
         states = {state.name: state.value for state in changed}
+        # Das Ereignis ist die frischere Auskunft - sie gehört in den
+        # Merker, sonst hielte der nächste Takt seinen alten Stand für
+        # eine Änderung und schriebe ihn wieder darüber.
+        if device_url in self._roh:
+            self._roh[device_url].update(states)
         updates = cover_state(states)
         # Nur melden, was das Event wirklich enthielt (kein Zustand erfunden).
         if "position" not in updates and CLOSURE not in states:
@@ -869,13 +909,27 @@ def nachlese_unterschiede(vorher: Any, nachher: Any) -> list[str]:
 NACHLESE_WARTEN = 15.0
 
 
-async def gateway_bericht(config_path: str) -> list[str]:
+#: Der Befehl, mit dem sich eine einzelne io-Store fragen lässt, wo sie
+#: steht. Das globale «Zustände neu lesen» gibt es lokal nicht - dieser
+#: Befehl steht dafür in der Kommandoliste jeder EVB. Er bewegt nichts,
+#: er fragt.
+GERAET_NACHLESEN = "advancedRefresh"
+
+
+async def gateway_bericht(config_path: str, geraete_nachlesen: bool = False) -> list[str]:
     """Was das Gateway roh meldet - vor und nach dem Nachlesen.
 
     Nicht über den Hub, sondern in einer eigenen Sitzung direkt beim
     Gateway. Wirft `ConfigError`, wenn Zugang oder Block fehlen.
+
+    ``geraete_nachlesen`` fragt zusätzlich jede Store einzeln über Funk
+    (`advancedRefresh`). Das ist die offene Frage, wenn das Gateway
+    stundenlang dieselbe alte Stellung herausgibt: Eine io-Store meldet
+    von sich aus nicht, dass jemand sie am Wandschalter gefahren hat.
+    Ausdrücklich einzuschalten, weil es Funkverkehr auslöst.
     """
     from pyoverkiz.client import OverkizClient
+    from pyoverkiz.models import Command
     from pyoverkiz.utils import generate_local_server
 
     from ..core.config import load_config
@@ -905,16 +959,42 @@ async def gateway_bericht(config_path: str) -> list[str]:
         await client.login()
         vorher = list(await client.get_devices())
         zeilen = geraete_zeilen(vorher)
+        angestossen = ""
         nachlesen = getattr(client, "refresh_states", None)
-        if not callable(nachlesen):
+        if callable(nachlesen):
+            try:
+                await nachlesen()
+                angestossen = "refresh_states"
+            except Exception as err:
+                zeilen.append("")
+                zeilen.append(f"Nachlesen im Ganzen abgewiesen: {err}")
+        else:
             zeilen.append("")
-            zeilen.append("Dieses pyoverkiz kennt kein refresh_states - nichts nachgelesen.")
-            return zeilen
-        try:
-            await nachlesen()
-        except Exception as err:
-            zeilen.append("")
-            zeilen.append(f"Nachlesen abgewiesen: {err}")
+            zeilen.append("Dieses pyoverkiz kennt kein refresh_states.")
+        if geraete_nachlesen:
+            gefragt = 0
+            for device in vorher:
+                if not ist_cover(device):
+                    continue
+                try:
+                    await client.execute_command(
+                        device.device_url, Command(GERAET_NACHLESEN, [])
+                    )
+                    gefragt += 1
+                except Exception as err:
+                    zeilen.append(
+                        f"  {getattr(device, 'label', '?')}: {GERAET_NACHLESEN} "
+                        f"abgewiesen ({err})"
+                    )
+                # Funktelegramme, die sich überlagern, gehen verloren -
+                # deshalb eines nach dem anderen, wie beim Fahren auch.
+                await asyncio.sleep(BEFEHLSPAUSE)
+            if gefragt:
+                zeilen.append("")
+                zeilen.append(f"{gefragt} Storen einzeln über Funk gefragt.")
+                angestossen = GERAET_NACHLESEN
+        if not angestossen:
+            zeilen.append("Nichts angestossen - der Vergleich unten entfällt.")
             return zeilen
         await asyncio.sleep(NACHLESE_WARTEN)
         nachher = list(await client.get_devices())
@@ -923,22 +1003,24 @@ async def gateway_bericht(config_path: str) -> list[str]:
     unterschiede = nachlese_unterschiede(vorher, nachher)
     if unterschiede:
         zeilen.append(
-            f"Nach dem Nachlesen ({NACHLESE_WARTEN:.0f} s gewartet) hat sich geändert:"
+            f"Nach «{angestossen}» ({NACHLESE_WARTEN:.0f} s gewartet) hat sich "
+            "geändert:"
         )
         zeilen.extend(unterschiede)
         zeilen.append(
-            "  → Der alte Wert war bloss alt. Genau dieses Nachlesen macht der "
-            "Hub jetzt vor jedem Takt (_zustaende_nachlesen)."
+            "  → Der alte Wert war bloss alt, und dieser Anstoss holt ihn. Damit "
+            "gehört er in den Takt des Hubs."
         )
     else:
         zeilen.append(
-            f"Nach dem Nachlesen ({NACHLESE_WARTEN:.0f} s gewartet) hat sich nichts "
-            "geändert."
+            f"Nach «{angestossen}» ({NACHLESE_WARTEN:.0f} s gewartet) hat sich "
+            "nichts geändert."
         )
         zeilen.append(
-            "  → Das Gateway meint es so. Stimmt die Stellung trotzdem nicht, "
-            "gehört cover_state() angesehen - oder das Gerät funkt nur in eine "
-            "Richtung (RTS) und niemand weiss die Stellung wirklich."
+            "  → Dieser Anstoss holt den Stand nicht. Stimmt die Stellung nicht, "
+            "weiss das Gateway sie schlicht nicht - dann ist die Auskunft aus dem "
+            "letzten Befehl das Beste, was es gibt, und sie gehört als "
+            "«angenommen» angeschrieben."
         )
     return zeilen
 

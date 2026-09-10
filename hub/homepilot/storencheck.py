@@ -110,7 +110,7 @@ def vor_wie_lange(wann: object) -> str:
     return f"vor {int(alter / 3600)} Std"
 
 
-def gateway_teil() -> None:
+def gateway_teil(geraete_nachlesen: bool = False) -> None:
     """Den rohen Gateway-Bericht anhängen - wenn Overkiz eingerichtet ist.
 
     Die Tabelle oben sagt, was der Hub *meint*. Sie sagt nicht, woher er
@@ -128,7 +128,7 @@ def gateway_teil() -> None:
     print()
     print("Was das Gateway selbst meldet (eigene Sitzung, roh):")
     try:
-        zeilen = asyncio.run(gateway_bericht(CONFIG))
+        zeilen = asyncio.run(gateway_bericht(CONFIG, geraete_nachlesen))
     except Exception as err:
         print(f"  nicht abrufbar: {err}")
         return
@@ -136,7 +136,7 @@ def gateway_teil() -> None:
         print(zeile)
 
 
-def main() -> None:
+def main(geraete_nachlesen: bool = False) -> None:
     token, port = token_und_port()
     if not token:
         raise SystemExit(f"Kein Token – weder in der Umgebung noch in {CONFIG}")
@@ -193,8 +193,19 @@ def main() -> None:
         "  · Der rohe Wert passt nicht zu dem, was oben steht → dann gehört\n"
         "    cover_state() angesehen."
     )
-    gateway_teil()
+    gateway_teil(geraete_nachlesen)
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    _parser = argparse.ArgumentParser(description=__doc__)
+    _parser.add_argument(
+        "--funk",
+        action="store_true",
+        help=(
+            "jede Store zusätzlich einzeln über Funk fragen, wo sie steht "
+            "(advancedRefresh) - bewegt nichts, löst aber Funkverkehr aus"
+        ),
+    )
+    main(_parser.parse_args().funk)
