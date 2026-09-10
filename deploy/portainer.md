@@ -326,7 +326,7 @@ docker exec homepilot-hub printenv HOMEPILOT_COMMIT
 ```
 
 Weicht er von dem ab, was das Skript gebaut hat, hat Portainer den
-Container nicht gewechselt – die drei üblichen Gründe nennt das Skript
+Container noch nicht gewechselt – die drei üblichen Gründe nennt das Skript
 am Ende seiner Ausgabe.
 
 ### Warum «Stand unbekannt»?

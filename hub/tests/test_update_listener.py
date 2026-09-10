@@ -154,6 +154,43 @@ def test_indented_lines_elsewhere_do_not_land_in_the_warning(monkeypatch, creden
     assert "frei: 12G" not in listener._status["warnings"][0]
 
 
+def test_the_last_line_of_an_error_survives_the_cap(monkeypatch, credentials):
+    """Der Deckel darf nicht auf die Abhilfe fallen.
+
+    Gemeldet mit einem Bildschirmfoto: «Portainer hat den Container nicht
+    gewechselt …» endete in der App mitten im Satz - «Von Hand: Portainer
+    → Stacks → homepilot →». Die Zeile, die sagt, was dort zu tun ist,
+    lag genau eine hinter dem Deckel.
+    """
+    listener = load_listener(monkeypatch, credentials, None)
+    listener._handle_line("✗ Portainer hat den Container noch nicht gewechselt - der alte")
+    folge = [
+        "  läuft weiter (das Haus ist also nicht offline).",
+        "  Im Container steckt weiterhin 01b8bd89, gebaut ist a7e1a1e2.",
+        "  Portainer schreibt seit dem Webhook:",
+        "    failed to clone git repository: authentication required",
+        "  Der Webhook meldet nur «angenommen»; was danach schiefgeht,",
+        "  steht sonst allein in Portainers Protokoll - und das führt",
+        "  fast immer auf einen dieser drei Punkte:",
+        "    1. «Re-pull image» ist im Stack an. Das Abbild entsteht hier",
+        "       und liegt in keiner Registry, das Ziehen scheitert und",
+        "       reisst das ganze Ausrollen mit. Ausschalten.",
+        "    2. Der Stack zeigt auf einen anderen Zweig als den gebauten",
+        "       (main). Dann klont Portainer etwas anderes.",
+        "    3. Der Webhook gehört zu einem anderen Stack.",
+        "  Von Hand: Portainer → Stacks → homepilot →",
+        "  Update the stack → Re-pull image AUS → Deploy.",
+    ]
+    for zeile in folge:
+        listener._handle_line(zeile)
+
+    detail = listener._status["detail"] or ""
+    # Die Ursache, die neu aus Portainers Protokoll kommt …
+    assert "authentication required" in detail
+    # … und der Satz, der sagt, was jetzt zu tun ist.
+    assert detail.strip().endswith("Update the stack → Re-pull image AUS → Deploy.")
+
+
 def test_a_new_run_starts_without_the_previous_warning_open(monkeypatch, credentials):
     """Zwei Läufe hintereinander: Der zweite beginnt mit leerer Liste.
 

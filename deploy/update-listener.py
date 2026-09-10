@@ -508,7 +508,15 @@ _status = {
 
 # So viele Folgezeilen einer Fehlermeldung werden mitgenommen. Genug für
 # die Ursache samt Abhilfe, zu wenig, um eine Bauausgabe durchzureichen.
-DETAIL_LINES = 12
+#
+# Waren einmal 12, und der Deckel fiel ausgerechnet auf die Zeile mit der
+# Abhilfe: Beim gemeldeten «Portainer hat den Container nicht gewechselt»
+# endete die Meldung in der App mitten im Satz - «Von Hand: Portainer →
+# Stacks → homepilot →», und wie es dort weitergeht, stand nirgends.
+# Seither zählt die Meldung mehr Zeilen (Portainers eigenes Protokoll
+# kommt neu dazu), und der Deckel liegt so, dass die letzte Zeile
+# hineinpasst.
+DETAIL_LINES = 24
 
 # Dasselbe für eine Warnung. Ihre Abhilfe steht in den eingerückten
 # Zeilen darunter - etwa die Schritte im Apple-Portal, ohne die kein

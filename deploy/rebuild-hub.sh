@@ -917,6 +917,82 @@ if [ -d "$DOCKER_ROOT/containers" ]; then
   fi
 fi
 
+# ── Was Portainer selbst sagt ─────────────────────────────────────────
+#
+# Portainer läuft als Container auf demselben Rechner, und der Webhook
+# beantwortet nur «angenommen». Was danach schiefgeht, steht in seinem
+# Protokoll: ein gescheiterter Klon (Zugangsdaten abgelaufen), ein
+# Compose-Fehler, ein Abbild, das er ziehen wollte. Bisher stand hier
+# «steht allein in Portainers Protokoll» - eine Auskunft, die man sich
+# per SSH holen musste, während dieses Skript ohnehin mit Docker
+# spricht.
+portainer_container() {
+  docker ps --format '{{.Names}}|{{.Image}}' 2>/dev/null \
+    | awk -F'|' '$2 ~ /portainer/ {print $1; exit}'
+}
+
+portainer_sagt() {
+  local name zeilen
+  name=$(portainer_container)
+  [ -n "$name" ] || return 0
+  # Nur ab dem Webhook und nur die Zeilen, die nach einem Fehler
+  # aussehen: Portainer schreibt im Betrieb viel, und die halbe Ausgabe
+  # eines Dienstes in eine Fehlermeldung zu kippen hilft niemandem.
+  zeilen=$(docker logs --since "${HOOK_ZEIT:-5m}" "$name" 2>&1 \
+    | grep -Ei 'err|fail|denied|fatal|unable|stack' \
+    | tail -6 || true)
+  [ -n "$zeilen" ] || return 0
+  echo "  Portainer schreibt seit dem Webhook:"
+  echo "$zeilen" | cut -c1-160 | sed 's/^/    /'
+}
+
+# Zu welchem Stack unser Container überhaupt gehört. Die Frage klingt
+# nach einer Selbstverständlichkeit und ist der stillste aller Fälle:
+# Wurde der Container einmal von Hand gestartet (docker run, oder ein
+# Stack, den jemand später gelöscht hat), trägt er keine Compose-Marken -
+# und dann wechselt ihn kein «Update the stack», egal wie oft der Webhook
+# durchkommt. Portainer schreibt dazu nichts, weil bei ihm auch nichts
+# schiefgeht.
+unser_stack() {
+  local stack dienst
+  stack=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' \
+    "$CONTAINER" 2>/dev/null || echo "")
+  dienst=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.service"}}' \
+    "$CONTAINER" 2>/dev/null || echo "")
+  if [ -z "$stack" ]; then
+    echo "  Achtung: $CONTAINER gehört zu keinem Stack - er trägt keine"
+    echo "  Compose-Marken. Ein «Update the stack» fasst ihn dann nie an."
+    return 0
+  fi
+  echo "  Unser Container gehört zum Stack «$stack»${dienst:+ (Dienst $dienst)} -"
+  echo "  der Webhook muss zu genau diesem gehören."
+}
+
+# Wurde stattdessen ein *anderer* Stack neu ausgerollt, gehört der
+# Webhook zu ihm. Das ist der dritte der drei Verdächtigen unten - hier
+# nachgewiesen statt geraten: Ein Container, der seit dem Webhook neu
+# entstanden ist und nicht unserer ist, kann nur von diesem Ausrollen
+# stammen.
+fremder_stack() {
+  local jung
+  jung=$(docker ps --format '{{.Names}}' 2>/dev/null | while read -r name; do
+    [ "$name" = "$CONTAINER" ] && continue
+    created=$(docker inspect -f '{{.Created}}' "$name" 2>/dev/null || echo "")
+    stack=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' \
+      "$name" 2>/dev/null || echo "")
+    # Zeichenweiser Vergleich genügt: Beide Zeitangaben sind UTC in
+    # derselben Schreibweise (RFC 3339), und dort ist «später» dasselbe
+    # wie «grösser».
+    if [ -n "$created" ] && [ "$created" \> "${HOOK_ZEIT:-9999}" ]; then
+      echo "$name${stack:+ (Stack «$stack»)}"
+    fi
+  done | head -3)
+  [ -n "$jung" ] || return 0
+  echo "  Neu gestartet wurde stattdessen:"
+  echo "$jung" | sed 's/^/    /'
+  echo "    Der Webhook gehört also zu einem anderen Stack."
+}
+
 if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
   # Der alte Container bleibt bewusst stehen: Den Tausch macht Portainer
   # beim Ausrollen selbst. Scheitert es dort (etwa am Re-pull eines lokal
@@ -956,6 +1032,11 @@ if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
   # Genau das hat die Suche nach diesem Fehler unnötig lange gemacht.
   HOOK_BODY=$(mktemp)
   CURL_CODE=0
+  # Ab wann Portainers eigenes Protokoll interessant wird. Es läuft als
+  # Container auf demselben Rechner - was dort ab jetzt steht, gehört zu
+  # diesem Ausrollen und beantwortet die Frage, die dieses Skript sonst
+  # nur stellen kann («steht allein in Portainers Protokoll»).
+  HOOK_ZEIT=$(date -u +%Y-%m-%dT%H:%M:%S)
   # shellcheck disable=SC2086
   HTTP_CODE=$(curl -sS $INSECURE -o "$HOOK_BODY" -w '%{http_code}' \
     --max-time 60 -X POST "$HOOK_URL") || CURL_CODE=$?
@@ -1023,8 +1104,15 @@ if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
   # erstellt dann den Container, und der Hub braucht seinen Start. 90
   # Sekunden waren dafür zu knapp - das Skript meldete «nicht gewechselt»,
   # während Portainer noch mitten in der Arbeit steckte.
+  #
+  # Fünf Minuten waren es auch: Gemeldet aus dem Haus mit dem Satz «im
+  # Container steckt weiterhin 01b8bd89» - und eine halbe Stunde später
+  # lief genau das gebaute Abbild. Portainer hatte gewechselt, nur eben
+  # nach dem Ende der Wartezeit, und die Meldung behauptete etwas
+  # Falsches. Zehn Minuten kosten nichts (der alte Stand läuft ja
+  # weiter), und die Meldung darunter sagt seither «noch nicht».
   TICK=0
-  for _ in $(seq 1 150); do
+  for _ in $(seq 1 300); do
     sleep 2
     TICK=$((TICK + 1))
     if [ $((TICK % 15)) -eq 0 ]; then
@@ -1104,14 +1192,35 @@ if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
     fi
     exit 0
   else
-    echo "✗ Portainer hat den Container nicht gewechselt - der alte Stand"
-    echo "  läuft weiter (das Haus ist also nicht offline)."
+    echo "✗ Portainer hat den Container noch nicht gewechselt - der alte"
+    echo "  Stand läuft weiter (das Haus ist also nicht offline)."
     if [ -n "$NOW_COMMIT" ]; then
       echo "  Im Container steckt weiterhin $NOW_COMMIT, gebaut ist $COMMIT."
     fi
+    # «Noch nicht» und nicht «nicht»: Dieselbe Meldung stand schon einmal
+    # da, während Portainer bloss langsam war - eine halbe Stunde später
+    # lief das gebaute Abbild. Wer das nicht weiss, sucht einen Fehler,
+    # den es nicht gibt.
+    echo "  Es kann auch bloss länger dauern. Ob es doch noch kam:"
+    echo "    docker exec $CONTAINER printenv HOMEPILOT_COMMIT"
+    echo "  Steht dort später $COMMIT, war es nur langsam - dann ist"
+    echo "  nichts zu tun."
+    # Portainers Protokoll, gefiltert auf die Zeilen ab dem Webhook.
+    # Genau hier stand bisher «steht allein in Portainers Protokoll» -
+    # eine Auskunft, die man nur per SSH bekam, während dieses Skript
+    # ohnehin mit Docker spricht und das Protokoll lesen kann. Fast
+    # immer steht dort der Klartext: ein gescheiterter Klon (Zugangsdaten
+    # abgelaufen), ein Compose-Fehler, ein fehlendes Abbild.
+    portainer_sagt
+    # Schreibt Portainer gar nichts, ist die nächste Frage, ob es
+    # überhaupt zuständig ist: zu welchem Stack unser Container gehört -
+    # und ob stattdessen ein anderer neu ausgerollt wurde (Punkt 3 unten,
+    # nachgewiesen statt geraten).
+    unser_stack
+    fremder_stack
     echo "  Der Webhook meldet nur «angenommen»; was danach schiefgeht,"
-    echo "  steht allein in Portainers Protokoll - und das führt fast"
-    echo "  immer auf einen dieser drei Punkte:"
+    echo "  steht sonst allein in Portainers Protokoll - und das führt"
+    echo "  fast immer auf einen dieser drei Punkte:"
     echo "    1. «Re-pull image» ist im Stack an. Das Abbild entsteht hier"
     echo "       und liegt in keiner Registry, das Ziehen scheitert und"
     echo "       reisst das ganze Ausrollen mit. Ausschalten."

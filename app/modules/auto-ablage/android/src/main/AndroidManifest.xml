@@ -1,15 +1,25 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-  <!-- Android Auto: Das Telefon spiegelt auf den Autobildschirm. Ohne
-       diese Angabe erscheint die App dort gar nicht - sie ist die
-       Anmeldung, nicht bloss eine Notiz. -->
-  <uses-feature
-      android:name="android.hardware.type.automotive"
-      android:required="false" />
+  <!-- Hier stand einmal
+         <uses-feature android:name="android.hardware.type.automotive" />
+       mit dem Kommentar, ohne sie erscheine die App im Auto gar nicht.
+       Das war falsch und hat die Einreichung im Play Store gekostet:
+
+         «The app cannot declare 'android.hardware.type.automotive'
+          device feature and 'com.google.android.gms.car.application'
+          metadata at the same time.»
+
+       Die beiden meinen zwei verschiedene Welten. `automotive` ist
+       **Android Automotive OS** - das Betriebssystem *im* Auto, ohne
+       Telefon. Was HomePilot macht, ist **Android Auto**: Das Telefon
+       spiegelt auf den Bildschirm, und dafür genügt die Meta-Angabe
+       unten samt dem Dienst. Beides zusammen widerspricht sich, und
+       Google lehnt es ab. -->
 
   <application>
-    <!-- Sagt Android Auto, dass wir mit Vorlagen arbeiten (und nicht
-         etwa Medien ausliefern). -->
+    <!-- Die Anmeldung bei Android Auto: Sie sagt, dass wir mit Vorlagen
+         arbeiten (und nicht etwa Medien ausliefern). Ohne sie erscheint
+         die App auf dem Autobildschirm gar nicht. -->
     <meta-data
         android:name="com.google.android.gms.car.application"
         android:resource="@xml/automotive_app_desc" />
