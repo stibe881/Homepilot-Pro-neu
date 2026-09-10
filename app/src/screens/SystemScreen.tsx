@@ -1460,6 +1460,9 @@ function ExtrasCard({ settings }: { settings: HubSettings }) {
     extras: Extra[];
     summary: string;
     command: string | null;
+    /** Warum der Befehl allein nicht reicht - im Container steht hier
+     *  etwas, sonst nichts (hub/core/extras.py: hinweis). */
+    note?: string | null;
   } | null>(null);
   const [offen, setOffen] = useState(false);
 
@@ -1467,7 +1470,12 @@ function ExtrasCard({ settings }: { settings: HubSettings }) {
     hubClient(settings.url, settings.token)
       // Ein Hub, der die Route noch nicht kennt, soll hier keine rote
       // Karte hinterlassen - dann fällt sie einfach weg.
-      .get<{ extras: Extra[]; summary: string; command: string | null } | null>(
+      .get<{
+        extras: Extra[];
+        summary: string;
+        command: string | null;
+        note?: string | null;
+      } | null>(
         '/api/system/extras',
         { fallback: null, still: true }
       )
@@ -1538,13 +1546,17 @@ function ExtrasCard({ settings }: { settings: HubSettings }) {
           Abbild-Beschreibung. */}
       {stand.command ? (
         <>
-          <Text style={styles.hint}>
-            Nachinstallieren im Hub-Ordner - und ins Abbild aufnehmen, sonst
-            ist es nach dem nächsten Update wieder weg:
-          </Text>
+          {/* Kein «im Hub-Ordner» mehr: Der Hub weiss selbst, ob er im
+              Container läuft, und schickt den Befehl, der dort wirklich
+              geht. Vorher stand hier eine Zeile, die auf dem
+              Docker-Host mit «Command 'pip' not found» endete - und
+              damit stand jemand vor einer Karte, die einen Weg nannte,
+              den es nicht gab. */}
+          <Text style={styles.hint}>Nachinstallieren:</Text>
           <Text selectable style={styles.befehl}>
             {stand.command}
           </Text>
+          {stand.note ? <Text style={styles.hint}>{stand.note}</Text> : null}
         </>
       ) : null}
     </Card>
