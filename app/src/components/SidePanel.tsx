@@ -125,6 +125,7 @@ export function MediaPanel({
   onSelect,
   onCommand,
   wunschBox = null,
+  imKopf = false,
 }: {
   entity: Entity;
   /** Alle Medien-Geräte, nicht nur das gerade gezeigte – für die
@@ -139,6 +140,11 @@ export function MediaPanel({
   onCommand: (entityId: string, command: string, data?: CommandData) => void;
   /** Im Wähler bestimmte Box - fürs Starten von Playlist und Sender. */
   wunschBox?: string | null;
+  /** Im Raumkopf: ohne Kartenrand und ohne eigene Überschrift. Der
+   *  Raumname steht dort schon gross darüber - ein zweites Mal in der
+   *  Karte wäre dasselbe Wort zweimal; und eine Karte im Kopf sähe aus
+   *  wie ein Fremdkörper, nicht wie ein Teil davon. */
+  imKopf?: boolean;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -171,10 +177,14 @@ export function MediaPanel({
   );
 
   return (
-    <Card style={styles.mediaCard}>
+    <Card style={imKopf ? { ...styles.mediaCard, ...styles.mediaCardImKopf } : styles.mediaCard}>
       <View style={styles.mediaHead}>
-        <Ionicons name="musical-notes-outline" size={18} color={colors.inkSoft} />
-        <Text style={styles.heading}>{titel}</Text>
+        {!imKopf ? (
+          <>
+            <Ionicons name="musical-notes-outline" size={18} color={colors.inkSoft} />
+            <Text style={styles.heading}>{titel}</Text>
+          </>
+        ) : null}
         {boxen.length > 0 ? (
           <Pressable
             onPress={() => setPickerOpen((v) => !v)}
@@ -670,6 +680,15 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     column: { gap: 14 },
     mediaCard: { gap: 8, minHeight: 0 },
+    /** Im Raumkopf trägt der Schein des Zimmers den Grund - die Karte
+     *  bringt keinen eigenen mit, keinen Rand und keinen Schatten. */
+    mediaCardImKopf: {
+      backgroundColor: 'transparent',
+      borderWidth: 0,
+      padding: 0,
+      shadowOpacity: 0,
+      elevation: 0,
+    },
     mediaHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     speakerPicker: {
       flexDirection: 'row',
