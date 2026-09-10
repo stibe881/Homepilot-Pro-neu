@@ -78,6 +78,7 @@ from .watchrules import (  # noqa: F401
     OPEN_REPORTED_KEY,
     cycle_stats,
     disk_usage,
+    dock_thema,
     down_integrations,
     frost_night,
     klingel_gesperrt,
@@ -87,6 +88,7 @@ from .watchrules import (  # noqa: F401
     offene_meldungen_lesen,
     offene_meldungen_zeilen,
     open_contacts,
+    sauger_erreichbar,
     sauger_probleme,
     schon_gemahnt,
     watched_entities,
@@ -2102,12 +2104,15 @@ class Watchdog:
         Meldung ohnehin (error und dock.error am Gerät) - sie soll
         denselben Weg gehen wie alle anderen Sorgen im Haus.
 
-        Sofort melden, dann täglich erinnern, bis das Problem weg ist -
-        dieselbe Haltung wie bei den Batterien (Punkt 258), und aus
-        demselben Grund: Ein voller Schmutzwassertank ist genau die Art
-        Sache, die man beim ersten Lesen wegwischt und dann vergisst,
-        bis der Sauger drei Tage später immer noch dasteht. Die Stunde
-        ist dieselbe wie dort - wer sie umstellt, stellt beide um.
+        Gemeldet wird die *Änderung*, nicht der Zustand: einmal, wenn
+        das Problem auftaucht, und wieder, wenn es nach einer Weile
+        erneut auftaucht. Anfangs erinnerte der Hub zusätzlich jeden
+        Morgen, solange das Problem blieb - dieselbe Haltung wie bei den
+        Batterien (Punkt 258). Aus dem Haus kam dazu ein klares Urteil:
+        Ein Schwall Nachrichten am Morgen, in dem nichts Neues steht,
+        ist einer, den man wegwischt - und damit wischt man die eine
+        Nachricht mit weg, die etwas Neues sagt. Die Tankstände stehen
+        ohnehin auf der Saugerkarte, wenn man hinsieht.
 
         Das Gedächtnis liegt in der `hub.data` und überlebt darum den
         Neustart. Vorher stand es im Arbeitsspeicher, und wer abends
@@ -2116,15 +2121,23 @@ class Watchdog:
         Vergessen wird ein Problem, sobald es verschwindet: Wer den Tank
         leert und ihn nächste Woche wieder vollmacht, bekommt wieder
         eine Nachricht.
+
+        Vergessen wird aber nur, was ein Sauger auch *widerrufen* hat.
+        Ein Sauger, der gerade gar nichts sagt - Wolke nicht erreichbar,
+        oder der erste Abruf nach einem Neustart ist noch unterwegs -,
+        sah bisher aus wie einer, bei dem alles in Ordnung ist. Dann war
+        das Gedächtnis leer, und beim nächsten Durchgang ging jedes
+        offene Problem als neue Nachricht hinaus. Alle auf einmal, und
+        genau so ist es an einem Morgen passiert (sauger_erreichbar).
         """
         jetzt = time.time()
-        stunde = batterie.prefs_lesen(self.hub.data.get(batterie.PREFS_KEY))["hour"]
         rows = self.hub.data.get(SAUGER_STORE_KEY)
         aktuell: set[str] = set()
         for entity, schluessel, text in sauger_probleme(entities):
             kennung = f"{entity.id}:{schluessel}"
             aktuell.add(kennung)
-            if not batterie.soll_melden(rows, kennung, jetzt, stunde):
+            # Schon gemeldet heisst: nichts geändert, also nichts zu sagen.
+            if batterie.zeile(rows, kennung) is not None:
                 continue
             # Vormerken *bevor* die Meldung rausgeht - wie überall hier:
             # Scheitert der Versand, soll er nicht in der nächsten Minute
@@ -2135,11 +2148,16 @@ class Watchdog:
                 f"🧹 {entity.label}", text, "vacuum", entity_id=entity.id
             )
         # Behobene Probleme verlassen das Gedächtnis, damit dasselbe
-        # Problem beim nächsten Mal wieder sofort meldet.
+        # Problem beim nächsten Mal wieder sofort meldet - aber nur bei
+        # Saugern, die diese Runde geantwortet haben.
+        redet = sauger_erreichbar(entities)
         erledigt = [
-            str(row.get("entity_id"))
+            kennung
             for row in rows or []
-            if isinstance(row, dict) and str(row.get("entity_id")) not in aktuell
+            if isinstance(row, dict)
+            for kennung in [str(row.get("entity_id"))]
+            if kennung not in aktuell
+            and any(kennung.startswith(f"{geraet}:") for geraet in redet)
         ]
         if erledigt:
             self.hub.data.set(SAUGER_STORE_KEY, batterie.vergiss(rows, erledigt))
