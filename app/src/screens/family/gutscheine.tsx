@@ -110,6 +110,7 @@ import {
 } from '../../lib/gutscheine';
 import { datumUhr } from '../../lib/format';
 import { tapped } from '../../lib/haptics';
+import { ZIFFERN } from '../../lib/schriftart';
 import { appleMapsRoute, googleMapsRoute } from '../../components/TopStrip';
 import { type Ort, kartenZiel, ortFuer } from '../../lib/ladenkarte';
 import { Colors, radius } from '../../theme';
@@ -1966,8 +1967,8 @@ const makeStyles = (colors: Colors) =>
     laden: { color: colors.ink, fontSize: 17, fontWeight: '700' },
     titel: { color: colors.inkSoft, fontSize: 13 },
     betragZeile: { flexDirection: 'row', alignItems: 'baseline', gap: 4 },
-    betragGross: { color: colors.ink, fontSize: 24, fontWeight: '800' },
-    betragEinheit: { color: colors.inkSoft, fontSize: 12, fontWeight: '700' },
+    betragGross: { color: colors.ink, fontSize: 24, fontWeight: '800', ...ZIFFERN },
+    betragEinheit: { color: colors.inkSoft, fontSize: 12, fontWeight: '700', ...ZIFFERN },
     balken: {
       height: 6,
       borderRadius: 3,
@@ -2031,7 +2032,7 @@ const makeStyles = (colors: Colors) =>
     },
     vonText: { color: colors.inkSoft, fontSize: 12, fontWeight: '600' },
     detailBetrag: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
-    detailZahl: { color: colors.ink, fontSize: 40, fontWeight: '800' },
+    detailZahl: { color: colors.ink, fontSize: 40, fontWeight: '800', ...ZIFFERN },
     detailEinheit: { color: colors.inkSoft, fontSize: 18, fontWeight: '800' },
     vonGesamt: { color: colors.inkSoft, fontSize: 14 },
     feldRaster: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
@@ -2054,7 +2055,7 @@ const makeStyles = (colors: Colors) =>
     notiz: { color: colors.inkSoft, fontSize: 14, lineHeight: 20 },
     trenner: { height: 1, backgroundColor: colors.surfaceBorder },
     verlaufZeile: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
-    verlaufBetrag: { color: colors.ink, fontSize: 15, fontWeight: '700' },
+    verlaufBetrag: { color: colors.ink, fontSize: 15, fontWeight: '700', ...ZIFFERN },
     knopfReihe: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
     primaerKnopf: {
       flexDirection: 'row',

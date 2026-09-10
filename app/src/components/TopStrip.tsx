@@ -1178,13 +1178,15 @@ export function TopStrip({
                 {/* Auch hier: «Verbreitet heftige Gewitter möglich,
                     schwer, bis 22:00» endet sonst bei «schwer,…» - und
                     das «bis wann» ist das, wonach man abends sieht. */}
-                <Lauftext
-                  style={styles.karteWarn}
-                  icon="warning-outline"
-                  iconFarbe={colors.danger}
-                >
-                  {warnText(alerts.state)}
-                </Lauftext>
+                <View style={styles.karteWarnPille}>
+                  <Lauftext
+                    style={styles.karteWarn}
+                    icon="warning-outline"
+                    iconFarbe={colors.danger}
+                  >
+                    {warnText(alerts.state)}
+                  </Lauftext>
+                </View>
               </Pressable>
             </Blinkend>
           ) : null}
@@ -1565,6 +1567,18 @@ const makeStyles = (colors: Colors) =>
   karteZeilenGriff: { flexShrink: 1 },
   // Rot, nicht orange - siehe lib/warnzeile.ts.
   karteWarn: { color: colors.danger, fontSize: 13, fontWeight: '600' },
+  // Ein deckender Grund statt des rohen Verlaufs (Punkt 366): Rot auf
+  // dem Verlauf misst zwischen 1.1 und 1.5 - je nach Erscheinungsbild
+  // kaum von der Fläche zu unterscheiden. Auf `panel` (derselbe deckende
+  // Grund, der auch Knöpfe trägt) steht dieselbe Zeile im Hellen bei
+  // 3.4 statt 1.1.
+  karteWarnPille: {
+    backgroundColor: colors.panel,
+    borderRadius: radius.control,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    alignSelf: 'flex-start',
+  },
   karteChips: {
     flexDirection: 'row',
     flexWrap: 'wrap',

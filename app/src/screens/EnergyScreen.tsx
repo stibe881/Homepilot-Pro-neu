@@ -6,6 +6,7 @@ import { HubFehler, hubClient } from '../api/client';
 import { Entity, HubSettings, SystemStatus } from '../api/types';
 import { Card } from '../components/Card';
 import { HistoryChart } from '../components/HistoryChart';
+import { ZIFFERN } from '../lib/schriftart';
 import { Colors, radius, space, type, useColors } from '../theme';
 
 /**
@@ -648,7 +649,7 @@ const makeStyles = (colors: Colors) =>
     hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },
     facts: { flexDirection: 'row', flexWrap: 'wrap', gap: 18 },
     fact: { minWidth: 96 },
-    factValue: { color: colors.ink, fontSize: 22, fontWeight: '700' },
+    factValue: { color: colors.ink, fontSize: 22, fontWeight: '700', ...ZIFFERN },
     factLabel: { color: colors.inkSoft, fontSize: 12, marginTop: 2 },
     row: {
       flexDirection: 'row',
@@ -660,7 +661,7 @@ const makeStyles = (colors: Colors) =>
     },
     rowHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     rowTitle: { color: colors.ink, fontSize: 15, fontWeight: '600', flex: 1 },
-    rowValue: { color: colors.ink, fontSize: 15, fontWeight: '700' },
+    rowValue: { color: colors.ink, fontSize: 15, fontWeight: '700', ...ZIFFERN },
     rowDetail: { color: colors.inkSoft, fontSize: 12 },
     bar: {
       height: 6,

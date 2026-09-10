@@ -11,17 +11,26 @@ import { darkColors, lightColors, mitternachtColors, pinkColors, sandColors } fr
 import { contrast, parseColor, textContrast } from './kontrast';
 
 // Die mittlere Verlaufsfarbe ist das, was hinter den Glaskacheln liegt.
+//
+// Je Palette dazu die schwächste Stelle, die Rot (danger) und Orange
+// (warn) heute über alle drei Verlaufsstufen erreichen, roh und ohne
+// Grund darunter - siehe den Test «kennt die Grenzen …» weiter unten.
 const paletten = [
-  { name: 'hell', colors: lightColors, hinter: lightColors.gradient[1] },
-  { name: 'dunkel', colors: darkColors, hinter: darkColors.gradient[1] },
+  { name: 'hell', colors: lightColors, hinter: lightColors.gradient[1], rohRand: [1, 1.3] },
+  { name: 'dunkel', colors: darkColors, hinter: darkColors.gradient[1], rohRand: [5, 7.5] },
   // Pink war bisher nicht geprüft - und genau dort wurde am Grund
   // geschraubt, weil er violett statt pink las.
-  { name: 'pink', colors: pinkColors, hinter: pinkColors.gradient[1] },
-  { name: 'mitternacht', colors: mitternachtColors, hinter: mitternachtColors.gradient[1] },
-  { name: 'sand', colors: sandColors, hinter: sandColors.gradient[1] },
+  { name: 'pink', colors: pinkColors, hinter: pinkColors.gradient[1], rohRand: [6, 12] },
+  {
+    name: 'mitternacht',
+    colors: mitternachtColors,
+    hinter: mitternachtColors.gradient[1],
+    rohRand: [5.5, 8.5],
+  },
+  { name: 'sand', colors: sandColors, hinter: sandColors.gradient[1], rohRand: [1, 1.1] },
 ];
 
-describe.each(paletten)('Palette $name', ({ colors, hinter }) => {
+describe.each(paletten)('Palette $name', ({ colors, hinter, rohRand }) => {
   it('hält Fliesstext gut lesbar (ink)', () => {
     expect(textContrast(colors.ink, colors.surface, hinter)).toBeGreaterThanOrEqual(7);
     expect(textContrast(colors.ink, colors.panel, colors.panel)).toBeGreaterThanOrEqual(7);
@@ -59,6 +68,30 @@ describe.each(paletten)('Palette $name', ({ colors, hinter }) => {
     expect(
       contrast(parseColor(colors.onGradient), parseColor(hinter))
     ).toBeGreaterThanOrEqual(4);
+  });
+
+  it('kennt die Grenzen von Rot und Orange auf dem rohen Verlauf', () => {
+    // Punkt 366: Bisher rechnete nur der obige Test weisse Schrift direkt
+    // auf dem Verlauf - Rot und Orange nie. Nachgerechnet zeigt sich,
+    // warum: Ein Verlauf reicht von hell bis dunkel, ein Signalton hat
+    // aber eine feste, mittlere Leuchtdichte - er kann nicht gegen beide
+    // Enden zugleich gut abstechen. Im Hellen und im Sand-Bild sinkt der
+    // Kontrast dadurch auf rund 1 - kaum von der Fläche zu unterscheiden.
+    // Deshalb steht «Rot auf dem Verlauf» nirgends im Code (siehe
+    // TopStrip.karteWarnPille): Wo eine Meldung auf der Verlaufskarte
+    // liegt, trägt sie einen deckenden Grund. Dieser Test hält nur fest,
+    // dass das *rohe* Rot/Orange nicht unter den heutigen Stand fällt -
+    // sinkt er weiter, ist irgendwo ein Grund weggefallen, der eine
+    // solche Stelle eigentlich decken sollte.
+    const [dangerRand, warnRand] = rohRand;
+    for (const stufe of colors.gradient) {
+      expect(
+        contrast(parseColor(colors.danger), parseColor(stufe))
+      ).toBeGreaterThanOrEqual(dangerRand);
+      expect(
+        contrast(parseColor(colors.warn), parseColor(stufe))
+      ).toBeGreaterThanOrEqual(warnRand);
+    }
   });
 });
 
