@@ -7,7 +7,6 @@ import { uhr, wochentag } from '../lib/format';
 import {
   hatEigeneAuswahl,
   istMusikbox,
-  musikboxenImRaum,
   pickPlayer,
   quellenSymbol,
   zeigtStopp,
@@ -16,7 +15,7 @@ import { hatWarteschlange } from '../lib/musikliste';
 import { trockenSatz } from '../lib/giessen';
 import { Regenstand, balkenHoehen, regenSatz } from '../lib/regen';
 import { boxLabel, boxWechsel } from '../lib/boxwahl';
-import { panelContent, showsRoomPlayer } from '../lib/seitenspalte';
+import { panelContent } from '../lib/seitenspalte';
 import { stundenZeilen } from '../lib/stundenwetter';
 import { uvWort } from '../lib/uv';
 import { Colors, radius, type, useColors } from '../theme';
@@ -29,8 +28,7 @@ import { RadioPanel, ShuffleRepeat, SpotifyPanel } from './EntityCard';
  * Breite Spalte rechts (Tablet) bzw. Abschnitt unten (Telefon):
  * Wetterlage, Musik und was zuletzt im Haus passiert ist.
  *
- * Steht ein Raum offen, zeigt die Spalte **nur** dessen Box – Wetter und
- * die Musik des Hauses bleiben weg. Wer «Küche» öffnet, will die Küche
+ * **Nur ausserhalb der Zimmer.** Wer «Küche» öffnet, will die Küche
  * sehen und nicht das Wetter von Zell und die Box, die im Wohnzimmer
  * spielt; auf dem Telefon schob beides die Lampen unter den Rand.
  * Welche Karte wann steht, entscheidet lib/seitenspalte.ts.
@@ -40,30 +38,27 @@ import { RadioPanel, ShuffleRepeat, SpotifyPanel } from './EntityCard';
  * blinkend, und ein Tipp darauf öffnet die ganze Liste
  * (components/TopStrip.tsx, lib/warnzeile.ts).
  *
- * Die Box des Raums lag früher als Kachel zwischen seinen Lampen: Man
- * bediente die Musik des Wohnzimmers also an einer anderen Stelle als
- * die Musik des Hauses, und beim Wechsel in den nächsten Raum sprang sie
- * wieder woanders hin. Musik gehört in die Musik-Spalte.
+ * Die Box des offenen Zimmers stand hier zuletzt als zweite Karte -
+ * unter dem Raumkopf, auf dem Telefon unter allen Kacheln. Sie ist
+ * hinaufgewandert in den Raumkopf selbst (components/Raumspieler.tsx):
+ * ein Streifen neben den Szenen, der sich zu genau dieser Karte
+ * aufklappt. Damit steht die Musik des Zimmers dort, wo man beim
+ * Betreten hinsieht - und das Feld rechts neben den Szenenknöpfen ist
+ * nicht mehr leer.
  */
 export function SidePanel({
   entities,
   width,
   room,
   onCommand,
-  topOffset = 0,
 }: {
   entities: Entity[];
   width?: number;
-  /** Offener Raum – dessen Box kommt als zweite Karte dazu. Ohne Raum
-   *  («Alle», Geräteseiten) bleibt es bei der einen. */
+  /** Offener Raum – dann bleibt die Spalte ganz weg: Seine Musik steht
+   *  im Raumkopf, Wetter und Hausmusik gehören dort nicht hin. */
   room?: string | null;
   /** Für den Player – ohne ihn bleibt er weg statt tot dazustehen. */
   onCommand?: (entityId: string, command: string, data?: CommandData) => void;
-  /** Versatz nach unten, in Punkten. Im offenen Raum die gemessene Höhe
-   *  des Raumkopfs: Die Karte des Raums soll unter dem Titel beginnen,
-   *  nicht neben ihm um dieselbe Zeile streiten (nur als Spalte rechts -
-   *  auf dem Telefon steht der Abschnitt ohnehin unter allem). */
-  topOffset?: number;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -111,20 +106,6 @@ export function SidePanel({
     }
   };
 
-  // Die Box des offenen Raums – immer die des Raums, in dem man gerade
-  // steht. Läuft sie ohnehin schon oben (weil sie die spielende des
-  // Hauses ist), bleibt es bei der einen Karte statt zweimal derselben.
-  const raumBoxen = useMemo(() => musikboxenImRaum(entities, room), [entities, room]);
-  const [chosenRoomId, setChosenRoomId] = useState<string | null>(null);
-  const raumPlayer =
-    (chosenRoomId ? raumBoxen.find((entity) => entity.id === chosenRoomId) : undefined) ??
-    pickPlayer(raumBoxen);
-  const zeigtRaumPlayer = showsRoomPlayer({
-    inRoom: !!room,
-    roomPlayerId: raumPlayer?.id,
-    housePlayerId: player?.id,
-  });
-
   // Was die Spalte hier zeigt. Im Zimmer bleiben Wetter und die Musik
   // des Hauses weg - beides beantwortet keine Frage, die man im Zimmer
   // stellt (siehe lib/seitenspalte.ts).
@@ -139,18 +120,11 @@ export function SidePanel({
     inRoom: !!room,
     weather: !!weather,
     housePlayer: !!player && !!onCommand,
-    roomPlayer: zeigtRaumPlayer && !!onCommand,
   });
   if (!zeigt.anything) return null;
 
   return (
-    <View
-      style={[
-        styles.column,
-        width ? { width } : { flex: 1 },
-        topOffset > 0 && { marginTop: topOffset },
-      ]}
-    >
+    <View style={[styles.column, width ? { width } : { flex: 1 }]}>
       {zeigt.weather ? <WeatherPanel entity={weather!} /> : null}
       {zeigt.housePlayer && player && onCommand ? (
         <MediaPanel
@@ -164,20 +138,6 @@ export function SidePanel({
           onSelect={choose}
           onCommand={onCommand}
           wunschBox={wunschBox}
-        />
-      ) : null}
-      {/* Und darunter der Raum, in dem man steht. Eine Box hier
-          anzutippen wechselt nur die Ansicht innerhalb des Raums – die
-          Musik dorthin zu ziehen wäre der Umzug, den die grosse Karte
-          oben schon kann, und würde die Karte mit einer Box füllen, die
-          gar nicht in diesem Raum steht. */}
-      {zeigt.roomPlayer && onCommand ? (
-        <MediaPanel
-          entity={raumPlayer!}
-          players={raumBoxen}
-          titel={room ?? 'Musik'}
-          onSelect={(speaker) => setChosenRoomId(speaker.id)}
-          onCommand={onCommand}
         />
       ) : null}
     </View>

@@ -42,6 +42,11 @@ trap aufraeumen EXIT
 #
 # Die Demo-Integration bringt alles mit, was die Probe braucht: Licht,
 # Bewegung, Storen, eine Musikbox und einen Fernseher mit Steuerkreuz.
+# Die Box steht mit im Wohnzimmer, damit im Raumkopf wirklich etwas zu
+# messen gibt: Dort liegen Szenenknöpfe und Musikstreifen in einer Zeile
+# (components/Raumspieler.tsx), und eine waagrechte Liste neben einem
+# Streifen mit Mindestbreite ist genau die Art Zeile, die eine Seite
+# seitlich hinausschiebt.
 # Früher legte jede Sitzung dafür eine eigene Wegwerf-Integration an.
 # Der Gremlin liefert dazu den zappeligen Fernseher: einen, der nach
 # jedem Tastendruck seinen Zustand neu meldet, wie ein echter Android TV.
@@ -55,7 +60,7 @@ integrations:
 rooms:
   Wohnzimmer:
     [demo.light_livingroom, demo.tv_livingroom, demo.cover_livingroom, gremlin.tv_zappelig,
-     demo.scene_relax]
+     demo.scene_relax, demo.speaker_kitchen]
   Flur: [demo.motion_hall]
 automations: []
 YAML

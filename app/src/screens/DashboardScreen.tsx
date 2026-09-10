@@ -45,7 +45,8 @@ import { GlobalSearch } from '../components/GlobalSearch';
 import { Grundriss } from '../components/Grundriss';
 import { LiveTuerSchalter } from '../components/LiveTuerSchalter';
 import { PushPrefs } from '../components/PushPrefs';
-import { ActivityCard, SidePanel } from '../components/SidePanel';
+import { ActivityCard, MediaPanel, SidePanel } from '../components/SidePanel';
+import { Raumspieler } from '../components/Raumspieler';
 import { Bestaetigung, Toast, UndoToast } from '../components/Toast';
 import { TopStrip } from '../components/TopStrip';
 import { useHub } from '../hooks/useHub';
@@ -72,7 +73,7 @@ import {
   klingeltGerade,
   vollbildZeigen,
 } from '../lib/klingel';
-import { deviceKindLabel, musikboxenImRaum } from '../lib/geraeteart';
+import { deviceKindLabel, musikboxenImRaum, pickPlayer } from '../lib/geraeteart';
 import { rueckangebot } from '../lib/rueckgriff';
 import { gemerkteAktion, menuLabel } from '../lib/doppeltipp';
 import { leerbild } from '../lib/leerzustand';
@@ -417,18 +418,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Ob die Trennung Bestand hat - erst dann kommt der Ausfall-Balken.
   const ausfall = useAusfall(status);
   const [gridWidth, setGridWidth] = useState(0);
-  // Gemessene Höhe des Raumkopfs (raumBuehne): Um so viel rückt die
-  // Spalte rechts nach unten, damit die Medienkarte nicht neben dem
-  // Raumtitel klebt, sondern erst unter ihm beginnt.
-  const [raumKopfHoehe, setRaumKopfHoehe] = useState(0);
-  // Genauer, sobald messbar: Die Oberkante des ersten Kartenrasters im
-  // Raum (Gruppe + Raster, beide relativ zu ihrem Elternteil gemessen).
-  // Nur mit der Kopfhöhe sass die Medienkarte auf Höhe der Szenen-Zeile
-  // - der gemeldete Fall: Sie soll mit der ersten Kachel links bündig
-  // sein, und was dazwischen liegt (Szenen, Gruppentitel), ist je Raum
-  // verschieden hoch.
-  const [raumGruppeY, setRaumGruppeY] = useState(0);
-  const [raumRasterY, setRaumRasterY] = useState(0);
+  // Die Musik des Zimmers steht im Raumkopf: zugeklappt als Streifen
+  // neben den Szenen, aufgeklappt als ganze Karte darunter. Hier steht,
+  // welche Box gezeigt wird und ob die Karte offen ist.
+  //
+  // Vorher lag sie rechts in der Spalte - auf dem Tablet unter dem
+  // Raumkopf, auf dem Telefon unter allen Kacheln. Damit die Karte dort
+  // nicht neben dem Raumtitel klebte, mass die Seite drei Höhen (Kopf,
+  // Gruppentitel, Raster) und schob die Spalte um deren Summe nach
+  // unten. Genau dieses Feld daneben blieb dabei leer - und in ihm
+  // steht die Musik jetzt.
+  const [kopfBoxId, setKopfBoxId] = useState<string | null>(null);
+  const [musikOffen, setMusikOffen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [reorderOpen, setReorderOpen] = useState(false);
   // «Räume ordnen»: Die Reihenfolge kam aus der config.yaml – wer sie
@@ -1526,9 +1527,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // «Weitere» über einer Box, die irgendwo steht, sagt nichts.
   const offenerRaum =
     section === 'home' && room !== ALL_ROOMS && room !== NO_ROOM ? room : null;
-  // Die Musik des Raums liegt rechts in der Spalte, unter der grossen
-  // Musikkarte - deshalb hier nicht noch einmal zwischen den Lampen.
+  // Die Musik des Raums steht oben im Raumkopf - deshalb hier nicht
+  // noch einmal zwischen den Lampen.
   const raumBoxen = musikboxenImRaum(inRoom, offenerRaum);
+  // Die gezeigte Box: die von Hand gewählte, solange es sie in diesem
+  // Zimmer gibt, sonst die naheliegende (pickPlayer - was spielt, sonst
+  // was Playlists kann). Beim Raumwechsel fällt die Wahl von selbst
+  // zurück, weil die Box des vorigen Zimmers hier nicht mehr steht.
+  const kopfSpieler =
+    (kopfBoxId ? raumBoxen.find((box) => box.id === kopfBoxId) : undefined) ??
+    pickPlayer(raumBoxen);
 
   // Ausgeblendete und in einer Leuchte aufgegangene Spots verschwinden
   // aus den Alltagsansichten, bleiben aber unter „Geräte“ sichtbar –
@@ -3086,10 +3094,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               Der Titel bleibt auch im Anpassen-Modus stehen: Gerade dort
               darf man sich nicht im Zimmer irren. */}
           {section === 'home' && room !== ALL_ROOMS ? (
-            <View
-              style={styles.raumBuehne}
-              onLayout={(event) => setRaumKopfHoehe(event.nativeEvent.layout.height)}
-            >
+            <View style={styles.raumBuehne}>
               {/* Der Farbton des Zimmers, derselbe wie auf seiner Kachel
                   in der Übersicht (lib/raumkarte.ts). Er zieht sich damit
                   durch: Man weiss beim Hinsehen, wo man ist, bevor man
@@ -3190,9 +3195,47 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   suchen. Bisher lagen sie an zwei Stellen weiter unten -
                   die Szenen des Hubs als Gruppe, die Lichtszenen der
                   Bridge als eigene Kategorie hinter allen Geräten. */}
-              {roomScenes.length > 0 ? (
-                <SceneRow scenes={roomScenes} onActivate={szeneAusloesen} />
+              {/* Szenen links, die Musik des Zimmers rechts - beide in
+                  einer Zeile, weil rechts neben den Szenenknöpfen bisher
+                  ein leeres Feld stand. Wird es eng (Telefon, schmales
+                  Fenster), rutscht der Streifen auf eine eigene Zeile,
+                  statt die Szenen zu quetschen. */}
+              {roomScenes.length > 0 || kopfSpieler ? (
+                <View style={styles.raumUnterzeile}>
+                  <View style={styles.raumSzenen}>
+                    {roomScenes.length > 0 ? (
+                      <SceneRow scenes={roomScenes} onActivate={szeneAusloesen} />
+                    ) : null}
+                  </View>
+                  {kopfSpieler ? (
+                    <Raumspieler
+                      entity={kopfSpieler}
+                      offen={musikOffen}
+                      onToggle={() => setMusikOffen((offen) => !offen)}
+                      onCommand={guardedCommand}
+                    />
+                  ) : null}
+                </View>
               ) : null}
+            </View>
+          ) : null}
+          {/* Aufgeklappt dieselbe Karte, die früher rechts in der Spalte
+              stand: Playlist, Sender, Box, Warteschlange, Lautstärke.
+              Sie steht unter dem Kopf und über den Kacheln - dort, wo
+              der Streifen sie ankündigt. */}
+          {musikOffen && kopfSpieler && section === 'home' && room !== ALL_ROOMS ? (
+            <View style={styles.raumMusikkarte}>
+              <MediaPanel
+                entity={kopfSpieler}
+                players={raumBoxen}
+                titel={room}
+                // Eine Box hier antippen heisst: Diese Box ansehen. Die
+                // Musik dorthin zu ziehen kann die Karte des Hauses auf
+                // der Startseite - hier stünde am Ende eine Box, die gar
+                // nicht in diesem Zimmer steht.
+                onSelect={(box) => setKopfBoxId(box.id)}
+                onCommand={guardedCommand}
+              />
             </View>
           ) : null}
           {/* Kacheln anpassen heisst: verschieben, ausblenden, sperren,
@@ -3510,27 +3553,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   </>
                 ) : null}
               </View>
-              {categories.map((group, gruppenIndex) => (
-                <View
-                  key={group.key}
-                  style={styles.group}
-                  // Nur die erste Gruppe wird vermessen: An ihrer ersten
-                  // Kachel richtet sich die Medienkarte rechts aus.
-                  onLayout={
-                    gruppenIndex === 0
-                      ? (event) => setRaumGruppeY(event.nativeEvent.layout.y)
-                      : undefined
-                  }
-                >
+              {categories.map((group) => (
+                <View key={group.key} style={styles.group}>
                   <Text style={styles.groupLabel}>{group.label}</Text>
-                  <View
-                    style={styles.grid}
-                    onLayout={
-                      gruppenIndex === 0
-                        ? (event) => setRaumRasterY(event.nativeEvent.layout.y)
-                        : undefined
-                    }
-                  >
+                  <View style={styles.grid}>
                     {/* `imRaumblock`: Man steht in einem Zimmer, jede
                         Kachel darin gehört dazu. Ohne das stand unter
                         jedem der sechs Bürolichter noch einmal «Büro» -
@@ -3611,26 +3637,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           ) : null}
         </View>
 
+        {/* Im Zimmer bleibt die Spalte ganz weg: Wetter und die Musik
+            des Hauses gehören dort nicht hin (lib/seitenspalte.ts), und
+            die Box des Zimmers steht jetzt oben im Raumkopf. Damit
+            entfällt auch das Ausrichten der Medienkarte auf die erste
+            Kachel - drei gemessene Höhen weniger. */}
         <SidePanel
           entities={entities}
           width={hasSidePanel ? panelWidth : undefined}
           room={offenerRaum}
           onCommand={guardedCommand}
-          // Im Raum beginnt die Spalte bündig mit der ersten Kachel
-          // links - gemessen, kein fester Wert: Was darüber liegt
-          // (Raumkopf, Szenen, Gruppentitel), ist je Raum verschieden
-          // hoch. Solange die Messung noch fehlt, wenigstens unter den
-          // Raumkopf - die Medienkarte stritt sonst mit «‹ Räume» und
-          // dem Raumnamen um dieselbe Zeile.
-          topOffset={
-            hasSidePanel && offenerRaum
-              ? raumGruppeY + raumRasterY > 0
-                ? raumGruppeY + raumRasterY
-                : raumKopfHoehe > 0
-                  ? raumKopfHoehe + space.gap
-                  : 0
-              : 0
-          }
         />
       </View>
     );
