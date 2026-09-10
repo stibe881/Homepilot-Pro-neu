@@ -3136,3 +3136,117 @@ gemessenen Breite. Danach mit einem künstlichen Zusatz-Aufbau
 gegenprüfen, dass die Probe grün bleibt.
 
 Stellen: `app/src/components/Lauftext.tsx`, `scripts/probe.mjs`
+
+## Gutscheine, Abläufe, Push (369, 371-372, 375-379, 397)
+
+Aus einer Liste von neunundvierzig Vorschlägen (App, User Experience,
+Design, Gutscheine, Abläufe, Push, Alarm, selbst gewählt), die zuerst
+selbst zu erstellen war. Zwei Durchsichten vorweg ersparten drei
+Punkte: **368** (Gutschein-Adresse und Erinnerung in der Nähe) war
+zwischen Vorschlag und Umsetzung schon über den Hauptzweig eingegangen;
+**381** (Toast nach dem Speichern eines Ablaufs) und **385**
+(Massen-Bearbeitung bei Gerätetausch) gab es bereits – `save()` ruft
+schon `onNote(...)`, und «Gerät ersetzen» in den Geräte-Werkzeugen
+aktualisiert längst Szenen, Abläufe, Raumzuordnung und Leuchtengruppen.
+
+### 371. Sichere Buchungen ✓ erledigt (dc6fbc1)
+
+Zwei Telefone, die im selben Moment abziehen, sahen beide denselben
+alten Rest – wessen PUT zuletzt ankam, überschrieb die Buchung des
+anderen wortlos. Jetzt führt die Route die Verläufe zusammen (an `at`
+erkannt, `transaktionen_zusammenfuehren`) statt sie zu ersetzen, und
+`left` folgt immer aus dem Verlauf, nie aus dem, was die App schickt.
+
+### 372. Archiv ✓ erledigt (dc6fbc1)
+
+Ein aufgebrauchter Gutschein wandert jetzt automatisch aus der Liste,
+sobald eine frische Buchung ihn auf null bringt – und wieder heraus per
+Knopf im Detail. Einen Tag nach dem Ablauf kommt eine letzte Meldung mit
+dem Betrag, der weg ist, und der Gutschein wird archiviert; die Summe
+verfallener Gutscheine steht jetzt auch im Monats- und Jahresrückblick.
+
+### 375. Vorlagen je Laden ✓ erledigt (dc6fbc1)
+
+Kategorie, Einheit und Einlöseart füllen sich beim zweiten Gutschein
+desselben Ladens – nur beim Anlegen und nur, solange noch nichts anderes
+eingestellt ist.
+
+### 376. Stückgutscheine ✓ erledigt (dc6fbc1)
+
+«1 einlösen» als eigener Knopf statt erst eine Eins eintippen und
+bestätigen – der Normalfall bei Kinoeintritten.
+
+### 377. Übergabe mit Annahme ✓ erledigt (dc6fbc1)
+
+Der Besitzer wechselte bisher sofort, sobald jemand «Übergeben»
+antippte – ein vertippter Name verschenkte den Gutschein an die falsche
+Person. Jetzt ist es ein Vorschlag; erst die Annahme über eine eigene
+Route ändert den Besitzer, mit Push-Nachricht an die eingeladene Person
+und einem schmalen Auszug `/api/family/vouchers/eingehend` – der volle,
+private Gutschein bleibt bis dahin unsichtbar für sie.
+
+### 369. Nummer scannen ✓ erledigt (dc6fbc1)
+
+`QrScanner` ist jetzt allgemein: `onText` lässt jeden gelesenen Code
+durch statt nur das Einrichtungs-JSON. Ein Knopf beim Nummer-Feld
+scannt die Karte statt sie abzutippen.
+
+Dabei zwei echte Fehler gefunden: `alsGutschein()` liess `art` und
+`storniert` jeder Buchung beim Einlesen vom Hub unter den Tisch fallen
+– nach jedem Neuladen sah eine Rücknahme wie ein gewöhnlicher Abzug aus.
+Und `QrScanner` liess seine Sperre gegen doppeltes Auslösen über einen
+Neuöffnen-Zyklus hinweg stehen – ein zweiter Scan hätte still nichts
+mehr gemeldet.
+
+### 378. Unbekannte Bausteine ablehnen ✓ erledigt (50e7ed7)
+
+Ein Tippfehler im Aktions- oder Bedingungstyp liess sich bisher
+speichern – der Ablauf lief dann und tat nichts, nur ein `log.warning`
+beim Ausführen verriet es. Jetzt prüft `core/ablaufpruefung.py` beim
+Speichern rekursiv gegen die bekannten Wörter und weist mit 400 ab.
+Auslöser bleiben aussen vor – ihre Formen sind über zu viele Stellen
+verteilt, um sie vollständig und ohne falsche Abweisungen aufzuzählen.
+
+### 379. Eigene Nachtruhe-Stunden je Ablauf ✓ erledigt (50e7ed7)
+
+`quiet_from`/`quiet_to` (0-23) statt der festen 22-8 Uhr – ohne Angabe
+gilt weiter die Vorgabe, und die Nachtruhe des ganzen Hauses bleibt für
+alle anderen Stellen unverändert.
+
+### 397. «Heute nicht mehr» aus der Mitteilung ✓ erledigt (50e7ed7)
+
+Ein dritter Knopf neben «Später»/«Erledigt», stellt die ganze Kategorie
+für den Rest des Tages still – ohne den Umweg über Konto →
+Benachrichtigungen.
+
+### Nicht umgesetzt, mit Begründung
+
+- **370** (Beleg-Erkennung aus einem Foto) – keine OCR-Anbindung; eine
+  hinzuzufügen wäre eine grössere, eigene Entscheidung.
+- **373** (eigenes Gutschein-Widget) – natives Modul, hier ohne
+  Xcode/Gradle nicht verifizierbar zu bauen.
+- **383** (Variablen im Ablauf) – ein eigener Schritt-Typ quer durch
+  Hub-Logik und Editor-Oberfläche, vom Umfang vergleichbar mit dem
+  ganzen Gutschein-Block dieser Runde.
+- **389** (Posteingang für Push) – teilweise schon da: «Zuletzt
+  gemeldet» in den Push-Einstellungen zeigt die letzten Meldungen,
+  ohne Bilder und ohne eigenen Bildschirm.
+- **391** (Eskalation bei ausbleibender Quittung) – der Push-Verlauf
+  hält heute keine Quittierung je Meldung fest; bräuchte eine neue,
+  hausweite Zustandsverfolgung.
+- **392** (kritische Meldungen als «critical alert») – braucht eine
+  gesonderte Berechtigung von Apple.
+- **398-407 grösstenteils** (Alarmzonen, eigene PIN je Person,
+  Zwangs-PIN, Sirenenstufen, Sensor-Testlauf, Uhr-Anbindung,
+  Fehlalarm-Statistik) – der Alarmblock (329-337) ist bereits ein
+  eigener, grosser Umbau; ein zweiter in derselben Runde hätte keine
+  der Änderungen mehr verifizieren können. **407** zusätzlich: Der
+  Alarm-Verlauf hält bisher keine Gerätekennung je Auslösung fest, nur
+  einen Text – bräuchte zuerst eine Erweiterung des Datenmodells.
+- **353/340** (Lauftext misst sich falsch) – zwei frühere Versuche
+  stehen oben als gescheitert; ohne die Browser-Probe zur Verifikation
+  kein dritter Versuch auf Verdacht.
+- Der Rest der App-/UX-/Design-Liste (339, 341, 344-345, 354, 356-367,
+  415, 417, 419) ist in dieser Runde nicht mehr an die Reihe gekommen.
+
+Stellen: `hub/homepilot/core/gutscheine.py`, `hub/homepilot/core/ablaufpruefung.py`, `hub/homepilot/core/automation.py`, `hub/homepilot/api/routes/family.py`, `hub/homepilot/api/routes/automations.py`, `app/src/lib/gutscheine.ts`, `app/src/screens/family/gutscheine.tsx`, `app/src/components/QrScanner.tsx`, `app/src/screens/automations/entwurf.ts`, `app/src/lib/mitteilungsknoepfe.ts`
