@@ -1996,6 +1996,21 @@ def test_parse_hhmm_nimmt_was_man_tippt():
     assert parse_hhmm(None) is None
 
 
+def test_parse_stunde_klemmt_nicht_sondern_faellt_auf_none_zurueck():
+    """Punkt 379 der Werkbank: eine unlesbare Stunde soll auf die
+    Vorgabe (22-8) zurückfallen, nicht still auf 0 oder 23 rutschen."""
+    from homepilot.core.automation import parse_stunde
+
+    assert parse_stunde(6) == 6
+    assert parse_stunde("6") == 6
+    assert parse_stunde(0) == 0
+    assert parse_stunde(23) == 23
+    assert parse_stunde(24) is None
+    assert parse_stunde(-1) is None
+    assert parse_stunde("abends") is None
+    assert parse_stunde(None) is None
+
+
 def test_ungueltige_uhrzeit_laesst_die_bedingung_scheitern():
     """Nicht überspringen: Aus «nur nachts» würde sonst «immer»."""
     from datetime import datetime

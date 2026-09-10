@@ -31,6 +31,12 @@ export const KNOPF_ERLEDIGT = 'erledigt';
 export const KNOPF_ICHMACHS = 'ichmachs';
 export const KNOPF_PASST = 'passtso';
 export const KNOPF_GEGOSSEN = 'gegossen';
+/** «Heute nicht mehr» (Punkt 397 der Werkbank) - stellt die Kategorie der
+ *  Meldung für den Rest des Tages still (`/api/push/still`), ohne den
+ *  Umweg über Konto → Benachrichtigungen. Steht neben «Später», nicht
+ *  statt ihm: «Später» verschiebt diese eine Meldung, «Heute nicht mehr»
+ *  die ganze Kategorie. */
+export const KNOPF_STILL = 'heutenichtmehr';
 
 /**
  * Was dieser Knopf bedeutet (rein, testbar).
@@ -42,12 +48,13 @@ export const KNOPF_GEGOSSEN = 'gegossen';
  */
 export function knopfHandlung(
   id: string | undefined
-): 'spaeter' | 'erledigt' | 'ichmachs' | 'passt' | 'gegossen' | null {
+): 'spaeter' | 'erledigt' | 'ichmachs' | 'passt' | 'gegossen' | 'still' | null {
   if (id === KNOPF_SPAETER) return 'spaeter';
   if (id === KNOPF_ERLEDIGT) return 'erledigt';
   if (id === KNOPF_ICHMACHS) return 'ichmachs';
   if (id === KNOPF_PASST) return 'passt';
   if (id === KNOPF_GEGOSSEN) return 'gegossen';
+  if (id === KNOPF_STILL) return 'still';
   return null;
 }
 
@@ -102,21 +109,35 @@ export async function knoepfeAnmelden(): Promise<void> {
     buttonTitle: 'Gegossen',
     options: { opensAppToForeground: false },
   };
-  await Notifications.setNotificationCategoryAsync(KATEGORIE_SPAETER, [spaeter]);
+  // «Heute nicht mehr» unter jeder Meldung, die überhaupt einen Knopf
+  // hat (Punkt 397) - keine dieser Kategorien gehört zu den wenigen, die
+  // sich nie stillstellen lassen (Alarm, Wasser, Klingel, weinendes
+  // Kind, Timer: core/pushruhe.py:IMMER_DURCH), sonst stünde der Knopf
+  // da und täte beim Drücken nichts.
+  const still = {
+    identifier: KNOPF_STILL,
+    buttonTitle: 'Heute nicht mehr',
+    options: { opensAppToForeground: false, isDestructive: true },
+  };
+  await Notifications.setNotificationCategoryAsync(KATEGORIE_SPAETER, [spaeter, still]);
   await Notifications.setNotificationCategoryAsync(KATEGORIE_ERLEDIGT, [
     erledigt,
     spaeter,
+    still,
   ]);
   await Notifications.setNotificationCategoryAsync(KATEGORIE_WAESCHE, [
     ichmachs,
     spaeter,
+    still,
   ]);
   await Notifications.setNotificationCategoryAsync(KATEGORIE_OFFEN, [
     passt,
     spaeter,
+    still,
   ]);
   await Notifications.setNotificationCategoryAsync(KATEGORIE_GIESSEN, [
     gegossen,
     passt,
+    still,
   ]);
 }

@@ -89,6 +89,42 @@ async def test_am_tag_meldet_derselbe_ablauf(hub, monkeypatch):
     assert gesendet == ["Geschirrspüler ist fertig"]
 
 
+async def test_eigene_stunden_statt_22_bis_8(hub, monkeypatch):
+    """Punkt 379 der Werkbank: eigene Stunden je Ablauf, ohne die
+    Nachtruhe des ganzen Hauses (core/nachtruhe.py) anzufassen."""
+    gerufen: list[tuple[int, int]] = []
+
+    def fake_still(jetzt, von=nachtruhe.VON, bis=nachtruhe.BIS):
+        gerufen.append((von, bis))
+        return True
+
+    monkeypatch.setattr(nachtruhe, "still", fake_still)
+    ablauf = Automation(
+        id="a", alias="Früh", triggers=[], actions=[],
+        quiet_night=True, quiet_from=5, quiet_to=7,
+    )
+    gesendet = await _sammle(hub)
+    await hub.automations._execute_action(
+        ablauf, {"type": "notify", "title": "x", "body": "x"}
+    )
+    assert gerufen == [(5, 7)]
+    assert gesendet == []
+
+
+async def test_ohne_eigene_stunden_gilt_die_vorgabe(hub, monkeypatch):
+    gerufen: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        nachtruhe,
+        "still",
+        lambda jetzt, von=nachtruhe.VON, bis=nachtruhe.BIS: gerufen.append((von, bis)) or True,
+    )
+    ablauf = Automation(id="a", alias="x", triggers=[], actions=[], quiet_night=True)
+    await hub.automations._execute_action(
+        ablauf, {"type": "notify", "title": "x", "body": "x"}
+    )
+    assert gerufen == [(nachtruhe.VON, nachtruhe.BIS)]
+
+
 async def test_ohne_schalter_bleibt_alles_wie_bisher(hub, monkeypatch):
     """Nachts nicht zu melden ist die Ausnahme, nicht die Regel: «Jemand
     weint im Kinderzimmer» muss um drei Uhr durchkommen."""

@@ -135,9 +135,12 @@ class AutomationRequest(BaseModel):
     # Frühestens wieder nach so vielen Sekunden – gegen den zuckenden
     # Melder im Wind, der aus einer Durchsage zwanzig macht.
     cooldown: float = 0
-    # Nachts (22–8 Uhr) keine Nachricht und keine Durchsage; der Rest
-    # des Ablaufs läuft weiter.
+    # Nachts (22–8 Uhr, oder die zwei Stunden unten) keine Nachricht und
+    # keine Durchsage; der Rest des Ablaufs läuft weiter.
     quiet_night: bool = False
+    # Eigene Stunden statt 22-8 (Punkt 379). None heisst: die Vorgabe.
+    quiet_from: int | None = None
+    quiet_to: int | None = None
     # Restzeit anzeigen: «geht in 12 Min aus» an Kachel, Raumkarte und
     # im «Lichter an»-Blatt (core/abschaltung.py).
     countdown: bool = False

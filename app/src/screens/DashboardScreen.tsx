@@ -131,7 +131,7 @@ import {
   jetzigerAbschnitt,
   lohntSich,
 } from '../lib/tageszeit';
-import { hubClient, onHubFehler } from '../api/client';
+import { HubFehler, hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
 import { Abschnitt } from '../components/Abschnitt';
 import { BesuchKarte } from '../components/BesuchKarte';
@@ -1014,6 +1014,31 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           )
           .then(() => setNote('Erinnerung in 30 Minuten'))
           .catch(() => {});
+        return;
+      }
+      // «Heute nicht mehr» (Punkt 397): stellt die ganze Kategorie für
+      // den Rest des Tages still, direkt aus der Mitteilung heraus -
+      // ohne den Umweg über Konto → Benachrichtigungen. 24 Std., dieselbe
+      // Vorgabe wie der gleichnamige Knopf dort (components/PushPrefs.tsx).
+      //
+      // Der Knopf steht unter jeder Kategorie, die ihre iOS/Android-
+      // Mitteilungsgruppe mit anderen teilt (mitteilungsknoepfe.ts) -
+      // darunter auch «medication», die sich laut Hub nie stillstellen
+      // lässt (core/pushruhe.py:IMMER_DURCH). Deshalb hier die Antwort
+      // des Hubs zeigen statt sie stumm zu verschlucken: Ein Knopf, der
+      // ohne Auskunft nichts tut, ist schlimmer als eine Fehlermeldung.
+      if (druck.handlung === 'still') {
+        if (!druck.category) return;
+        hub
+          .post(
+            '/api/push/still',
+            { category: druck.category, stunden: 24 },
+            { still: true }
+          )
+          .then(() => setNote('Heute nicht mehr – bis morgen ist Ruhe'))
+          .catch((err) =>
+            setNote(err instanceof HubFehler ? err.message : 'Das liess sich nicht stillstellen')
+          );
         return;
       }
       // «Gegossen» unter der Giess-Erinnerung: zählt wie Regen - die

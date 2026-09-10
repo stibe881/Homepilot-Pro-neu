@@ -41,6 +41,7 @@ import {
   bedingungStand,
   namensVorschlag,
   sonstStand,
+  stundeAusText,
 } from './entwurf';
 import { Draft, StepDraft } from './entwurf';
 import { Entity } from '../../api/types';
@@ -1346,6 +1347,18 @@ describe('Nachtruhe eines Ablaufs', () => {
     expect(toDraft(auto).nachtsStill).toBe(true);
     expect(toDraft({ ...auto, quiet_night: undefined }).nachtsStill).toBe(false);
   });
+
+  it('eigene Nachtruhe-Stunden statt der Vorgabe (Punkt 379)', () => {
+    const auto = {
+      id: 'a', alias: 'Früh', triggers: [], conditions: [], actions: [],
+      editable: true, quiet_night: true, quiet_from: 5, quiet_to: 7,
+    };
+    const draft = toDraft(auto);
+    expect(draft.nachtsVon).toBe(5);
+    expect(draft.nachtsBis).toBe(7);
+    // Ohne Angabe: die Vorgabe, nicht 0.
+    expect(toDraft({ ...auto, quiet_from: undefined, quiet_to: undefined }).nachtsVon).toBeNull();
+  });
 });
 
 describe('Wenn/Sonst und Wiederholen als Schritte (Punkt 251)', () => {
@@ -1806,5 +1819,19 @@ describe('Helligkeit nach der Uhr', () => {
   it('zählt als Licht-Feinheit', () => {
     // Sonst würde daraus beim Speichern ein blosses «einschalten».
     expect(istLichtFein({ command: 'set_brightness', nachTageszeit: true })).toBe(true);
+  });
+});
+
+describe('stundeAusText (Punkt 379)', () => {
+  it('liest 0-23, sonst null', () => {
+    expect(stundeAusText('5')).toBe(5);
+    expect(stundeAusText('05')).toBe(5);
+    expect(stundeAusText('0')).toBe(0);
+    expect(stundeAusText('23')).toBe(23);
+    expect(stundeAusText('24')).toBeNull();
+    expect(stundeAusText('')).toBeNull();
+    expect(stundeAusText('  ')).toBeNull();
+    expect(stundeAusText('abends')).toBeNull();
+    expect(stundeAusText('-1')).toBeNull();
   });
 });

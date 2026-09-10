@@ -58,6 +58,9 @@ export interface Automation {
   /** Nachts (22–8 Uhr) keine Nachricht und keine Durchsage – der Rest
    *  des Ablaufs läuft weiter. */
   quiet_night?: boolean;
+  /** Eigene Stunden statt 22-8 (Punkt 379) - fehlend heisst die Vorgabe. */
+  quiet_from?: number | null;
+  quiet_to?: number | null;
   countdown?: boolean;
   /** Ruht bis (Unix-Sekunden) - «aus bis morgen», Punkt 159. */
   quiet_until?: number | null;
@@ -432,6 +435,21 @@ export function fittingState(entity: Entity | undefined, current: string): strin
  *
  *  Was keine Uhrzeit ist, bleibt unverändert stehen: Es kommentarlos zu
  *  löschen wäre die unfreundlichere Antwort auf einen Tippfehler. */
+/**
+ * Eine Stunde 0-23 aus freier Eingabe (rein, testbar) - für die eigenen
+ * Nachtruhe-Stunden eines Ablaufs (Punkt 379 der Werkbank).
+ *
+ * Leer oder unlesbar wird null, nicht geklemmt: Ein Tippfehler soll auf
+ * die Vorgabe (22-8) zurückfallen, nicht still auf 0 oder 23 rutschen -
+ * dasselbe Gegenstück wie `parse_stunde` im Hub (core/automation.py).
+ */
+export function stundeAusText(roh: string): number | null {
+  const text = String(roh ?? '').trim();
+  if (!text || !/^\d{1,2}$/.test(text)) return null;
+  const stunde = parseInt(text, 10);
+  return stunde >= 0 && stunde <= 23 ? stunde : null;
+}
+
 export function normalisiereZeit(roh: string): string {
   const text = String(roh ?? '').trim().replace(/\./g, ':').replace(/\s/g, '');
   if (!text) return '';
@@ -946,6 +964,10 @@ export interface Draft {
   /** Nachts nichts melden: Nachricht und Durchsage bleiben zwischen 22
    *  und 8 Uhr aus. Für das, was ohnehin bis zum Morgen Zeit hat. */
   nachtsStill: boolean;
+  /** Eigene Stunden statt 22-8 (Punkt 379 der Werkbank) - null heisst
+   *  «die Vorgabe». Nur von Belang, solange `nachtsStill` an ist. */
+  nachtsVon: number | null;
+  nachtsBis: number | null;
   /** Restzeit anzeigen: «geht in 12 Min aus» an der Gerätekachel, in der
    *  Raumkarte und im «Lichter an»-Blatt, solange der Ablauf wartet. */
   restzeitZeigen: boolean;
@@ -979,6 +1001,8 @@ export const EMPTY: Draft = {
   category: '',
   enabled: true,
   nachtsStill: false,
+  nachtsVon: null,
+  nachtsBis: null,
   restzeitZeigen: false,
 };
 
@@ -2144,6 +2168,8 @@ export function toDraft(automation: Automation): Draft {
     category: automation.category ?? '',
     enabled: automation.enabled !== false,
     nachtsStill: automation.quiet_night === true,
+    nachtsVon: typeof automation.quiet_from === 'number' ? automation.quiet_from : null,
+    nachtsBis: typeof automation.quiet_to === 'number' ? automation.quiet_to : null,
     restzeitZeigen: automation.countdown === true,
   };
 }

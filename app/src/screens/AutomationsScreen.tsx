@@ -409,6 +409,8 @@ export function AutomationsScreen({
       enabled: draft.enabled,
       category: draft.category.trim() || null,
       quiet_night: draft.nachtsStill,
+      quiet_from: draft.nachtsVon,
+      quiet_to: draft.nachtsBis,
       countdown: draft.restzeitZeigen,
     };
     try {

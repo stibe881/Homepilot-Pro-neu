@@ -27,7 +27,7 @@ import {
   begrenzteAnzahl,
 } from '../../lib/kontrollfluss';
 import { ZUHAUSE, anwesenheitsPersonen, istOrtsmelder, ortsauswahl } from '../../lib/ortsausloeser';
-import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StateCondition, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, geraetePlatzhalter, KAMERA_AUSLOESER, kopieSchritt, PLATZHALTER, hatWartezeit, schaltetSpaeterAus, measurableAttributes, meldetEtwas, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis } from './entwurf';
+import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StateCondition, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, geraetePlatzhalter, KAMERA_AUSLOESER, kopieSchritt, PLATZHALTER, hatWartezeit, schaltetSpaeterAus, measurableAttributes, meldetEtwas, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis, stundeAusText } from './entwurf';
 import {
   Abschnitt,
   CategoryField,
@@ -848,13 +848,41 @@ export function Editor({
                 onSelect={(wahl) => set({ nachtsStill: wahl === 'still' })}
               />
               {draft.nachtsStill ? (
-                <Text style={styles.triggerNote}>
-                  Zwischen 22 und 8 Uhr bleiben Nachricht und Durchsage aus;
-                  alles andere im Ablauf läuft weiter. Für das, was bis zum
-                  Morgen Zeit hat – die Maschine räumt um drei Uhr niemand
-                  aus. Was nachts kommen muss («jemand weint im
-                  Kinderzimmer»), bleibt auf «melden wie sonst».
-                </Text>
+                <>
+                  <Text style={styles.triggerNote}>
+                    Zwischen {draft.nachtsVon ?? 22} und {draft.nachtsBis ?? 8} Uhr
+                    bleiben Nachricht und Durchsage aus; alles andere im Ablauf
+                    läuft weiter. Für das, was bis zum Morgen Zeit hat – die
+                    Maschine räumt um drei Uhr niemand aus. Was nachts kommen
+                    muss («jemand weint im Kinderzimmer»), bleibt auf
+                    «melden wie sonst».
+                  </Text>
+                  {/* Eigene Stunden statt der üblichen 22-8 (Punkt 379) -
+                      leer heisst die Vorgabe, deshalb keine Pflichtfelder. */}
+                  <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+                    <Text style={styles.triggerNote}>Von</Text>
+                    <TextInput
+                      style={[styles.input, { width: 56, textAlign: 'center' }]}
+                      value={draft.nachtsVon === null ? '' : String(draft.nachtsVon)}
+                      onChangeText={(text) => set({ nachtsVon: stundeAusText(text) })}
+                      placeholder="22"
+                      placeholderTextColor={colors.inkFaint}
+                      keyboardType="number-pad"
+                      accessibilityLabel="Nachtruhe beginnt um"
+                    />
+                    <Text style={styles.triggerNote}>bis</Text>
+                    <TextInput
+                      style={[styles.input, { width: 56, textAlign: 'center' }]}
+                      value={draft.nachtsBis === null ? '' : String(draft.nachtsBis)}
+                      onChangeText={(text) => set({ nachtsBis: stundeAusText(text) })}
+                      placeholder="8"
+                      placeholderTextColor={colors.inkFaint}
+                      keyboardType="number-pad"
+                      accessibilityLabel="Nachtruhe endet um"
+                    />
+                    <Text style={styles.triggerNote}>Uhr</Text>
+                  </View>
+                </>
               ) : null}
             </>
           ) : null}

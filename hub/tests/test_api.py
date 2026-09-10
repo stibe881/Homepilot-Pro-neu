@@ -136,6 +136,51 @@ def test_trigger_unknown_automation_is_404():
         assert client.post("/api/automations/nope/trigger").status_code == 404
 
 
+def test_ein_unbekannter_aktionstyp_wird_beim_speichern_abgelehnt():
+    """Punkt 378 der Werkbank: ein Tippfehler soll beim Speichern
+    auffallen, nicht erst beim stillen Ausführen."""
+    with make_client() as client:
+        antwort = client.post(
+            "/api/automations",
+            json={
+                "alias": "Kaputt",
+                "trigger": [{"type": "time", "at": "03:00"}],
+                "condition": [],
+                "action": [{"type": "nofify", "title": "x", "message": "y"}],
+            },
+        )
+        assert antwort.status_code == 400
+        assert "nofify" in antwort.json()["detail"]
+        # Nicht angelegt.
+        assert client.get("/api/automations").json()["automations"] == []
+
+
+def test_ein_unbekannter_typ_wird_auch_beim_aendern_abgelehnt():
+    with make_client() as client:
+        created = client.post(
+            "/api/automations",
+            json={
+                "alias": "Sauber",
+                "trigger": [{"type": "time", "at": "03:00"}],
+                "condition": [],
+                "action": [
+                    {"type": "command", "entity_id": "demo.light_livingroom", "command": "turn_on"}
+                ],
+            },
+        ).json()["automation"]
+        antwort = client.put(
+            f"/api/automations/{created['id']}",
+            json={
+                "alias": "Sauber",
+                "trigger": [{"type": "time", "at": "03:00"}],
+                "condition": [{"type": "quatsch"}],
+                "action": created["action"],
+            },
+        )
+        assert antwort.status_code == 400
+        assert "quatsch" in antwort.json()["detail"]
+
+
 def test_push_test_endpoint_reports_recipient_count():
     with make_client() as client:
         # Ohne registriertes Gerät geht die Nachricht an niemanden.

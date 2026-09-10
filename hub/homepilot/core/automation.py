@@ -248,6 +248,15 @@ class Automation:
     # weint im Kinderzimmer» ist genau die Nachricht, die nachts kommen
     # muss, und eine Nachtruhe für alle hätte sie mit verschluckt.
     quiet_night: bool = False
+    # Die Stunden dazu (Punkt 379 der Werkbank) - None heisst «die
+    # üblichen 22 bis 8», wie es das Wort «Nachtruhe» im Editor
+    # verspricht. Eigene Stunden sind der Ausnahmefall: Wer früh
+    # aufsteht und der Ablauf schon um sechs sprechen soll, ändert nur
+    # diesen einen Ablauf, nicht die Nachtruhe des ganzen Hauses (die
+    # hängt weiter fest an core/nachtruhe.py und bleibt für alle anderen
+    # Stellen unverändert - Push-Ruhezeit etwa hat ihre eigene).
+    quiet_from: int | None = None
+    quiet_to: int | None = None
     # Restzeit anzeigen: Schaltet dieser Ablauf etwas nach einer
     # Wartezeit wieder aus, schreibt die Maschine den Zeitpunkt als
     # «off_at» an die betroffenen Geräte - und die App zeigt «geht in
@@ -275,6 +284,8 @@ class Automation:
             "match": self.match,
             "category": self.category,
             "quiet_night": self.quiet_night,
+            "quiet_from": self.quiet_from,
+            "quiet_to": self.quiet_to,
             "countdown": self.countdown,
         }
 
@@ -294,6 +305,8 @@ class Automation:
             "match": self.match,
             "category": self.category,
             "quiet_night": self.quiet_night,
+            "quiet_from": self.quiet_from,
+            "quiet_to": self.quiet_to,
             "countdown": self.countdown,
         }
 
@@ -1174,10 +1187,25 @@ def parse_automations(
                 match="any" if str(config.get("match")) == "any" else "all",
                 category=str(config["category"]) if config.get("category") else None,
                 quiet_night=bool(config.get("quiet_night")),
+                quiet_from=parse_stunde(config.get("quiet_from")),
+                quiet_to=parse_stunde(config.get("quiet_to")),
                 countdown=bool(config.get("countdown")),
             )
         )
     return automations
+
+
+def parse_stunde(value: Any) -> int | None:
+    """Eine Stunde 0-23 (rein, testbar) - für die eigenen Nachtruhe-
+    Stunden eines Ablaufs (Punkt 379 der Werkbank). Alles ausserhalb
+    davon wird None, nicht geklemmt: Eine falsch getippte Stunde soll auf
+    die Vorgabe (22-8) zurückfallen, nicht still auf 0 oder 23 rutschen.
+    """
+    try:
+        stunde = int(value)
+    except (TypeError, ValueError):
+        return None
+    return stunde if 0 <= stunde <= 23 else None
 
 
 def parse_hhmm(value: Any) -> tuple[int, int] | None:
@@ -2803,8 +2831,15 @@ class AutomationEngine:
         Nur die meldenden Schritte fallen weg, nicht der ganze Lauf: Wer
         nachts das Licht löschen und dabei nichts sagen will, hat einen
         Ablauf und nicht zwei.
+
+        Eigene Stunden, falls gesetzt (Punkt 379 der Werkbank) - sonst
+        die üblichen 22 bis 8 aus core/nachtruhe.py.
         """
-        return automation.quiet_night and nachtruhe.still(time.time())
+        if not automation.quiet_night:
+            return False
+        von = automation.quiet_from if automation.quiet_from is not None else nachtruhe.VON
+        bis = automation.quiet_to if automation.quiet_to is not None else nachtruhe.BIS
+        return nachtruhe.still(time.time(), von=von, bis=bis)
 
     async def _anwesenheit(self, action: dict[str, Any]) -> str | None:
         """«Levin ist da» – gemeldet von einem Ablauf statt von einem Telefon.
