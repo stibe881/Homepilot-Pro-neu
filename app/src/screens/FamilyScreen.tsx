@@ -6,6 +6,7 @@ import { Image, Linking, Modal, Pressable, ScrollView, Share, Text, TextInput, V
 
 import { hubClient } from '../api/client';
 import { Card } from '../components/Card';
+import { Umriss } from '../components/Zustand';
 import { type Ort } from '../lib/ladenkarte';
 import { sternProtokoll, sternZiel, wochenSterne } from '../lib/aemtlisterne';
 import { modusSatz } from '../lib/babysitter';
@@ -4352,6 +4353,14 @@ export function FamilyScreen({
     merkeGesehen(key);
     setView(key);
   };
+
+  // Punkt 365: Ein Umriss statt der Leere, solange weder der
+  // Zwischenspeicher noch der Hub geantwortet haben - `stand` ist genau
+  // dafür `null` (screens/family/ablage.ts). Sonst sah die Seite beim
+  // allerersten Öffnen aus, als gäbe es siebzehn leere Module.
+  if (stand === null) {
+    return <Umriss was="Familie" zeilen={5} hoehe={72} />;
+  }
 
   return (
     <View style={styles.stack}>
