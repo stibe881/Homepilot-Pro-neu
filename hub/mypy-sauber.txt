@@ -100,6 +100,9 @@ homepilot/core/platzhalter.py
 homepilot/core/portalport.py
 homepilot/core/presence.py
 homepilot/core/push.py
+homepilot/core/pushbeispiel.py
+homepilot/core/pushbuendel.py
+homepilot/core/pushruhe.py
 homepilot/core/pushverlauf.py
 homepilot/core/pushziel.py
 homepilot/core/raumbilder.py

@@ -52,6 +52,7 @@ from . import (
     packliste,
     personen,
     presence,
+    pushbuendel,
     pushziel,
     regen,
     shopping,
@@ -145,6 +146,11 @@ class Watchdog:
         self._heartbeat_sent = 0.0
         # Integration → Anzahl Fehlrunden in Folge.
         self._strikes: dict[str, int] = {}
+        # Was diese Runde an Meldungen ergeben hat. ``None`` heisst:
+        # gerade keine Runde - dann geht jede Meldung sofort raus. Das
+        # ist der Fall, wenn ein Test eine einzelne Prüfung aufruft, und
+        # er soll sich nicht anders verhalten als der Betrieb.
+        self._eimer: list[dict[str, Any]] | None = None
         # Gerät → Fehlrunden in Folge, und was schon gemeldet wurde.
         self._device_strikes: dict[str, int] = {}
         self._reported_down: set[str] = set()
@@ -494,6 +500,40 @@ class Watchdog:
         }
 
     async def check(self) -> None:
+        """Eine Runde - und was sie an Meldungen ergibt, geht am Ende raus.
+
+        Gesammelt statt sofort verschickt: In einer Runde wird alles auf
+        einmal geprüft, und drei offene Fenster sind dann drei
+        Vibrationen hintereinander, von denen man die dritte nicht mehr
+        liest. Was sich sammeln lässt, sagt ``core/pushbuendel.py``;
+        alles andere geht unverändert raus, bloss am Ende der Runde
+        statt mittendrin - und die dauert Millisekunden, verzögert also
+        nichts.
+
+        Der Eimer wird auch dann geleert, wenn eine Prüfung stolpert:
+        Sonst hinge die Meldung über den Wasserschaden an einem Fehler
+        in der Gutschein-Erinnerung.
+        """
+        self._eimer = []
+        try:
+            await self._runde()
+        finally:
+            eimer, self._eimer = self._eimer, None
+            await self._eimer_leeren(eimer or [])
+
+    async def _eimer_leeren(self, meldungen: list[dict[str, Any]]) -> None:
+        """Was die Runde ergeben hat, verschicken (gebündelt, wo es passt)."""
+        for meldung in pushbuendel.buendeln(meldungen):
+            await self._senden(
+                str(meldung.get("title") or ""),
+                str(meldung.get("body") or ""),
+                category=str(meldung.get("category") or "outage"),
+                to=meldung.get("to"),
+                data=meldung.get("data"),
+                entity_id=meldung.get("entity_id"),
+            )
+
+    async def _runde(self) -> None:
         # Frisch lesen, nicht cachen: Die App ändert die Regeln im
         # Datenspeicher, und die nächste Runde soll sie schon kennen.
         self.rules = notifyrules.effective(self.hub.data.get("notify_rules"))
@@ -2413,6 +2453,37 @@ class Watchdog:
             log.info("%s – %s (Regel '%s' abgeschaltet)", title, body, category)
             return
         log.warning("%s – %s", title, body)
+        if self._eimer is not None:
+            # Mitten in einer Runde: erst sammeln. Verschickt wird am
+            # Ende, gebündelt wo es zusammengehört (siehe `check`).
+            self._eimer.append(
+                {
+                    "title": title,
+                    "body": body,
+                    "category": category,
+                    "to": to,
+                    "data": data,
+                    "entity_id": entity_id,
+                }
+            )
+            return
+        await self._senden(title, body, category, to, data, entity_id)
+
+    async def _senden(
+        self,
+        title: str,
+        body: str,
+        category: str = "outage",
+        to: str | None = None,
+        data: dict[str, Any] | None = None,
+        entity_id: str | None = None,
+    ) -> None:
+        """Wirklich verschicken - der Teil von `_notify` ohne die Regeln.
+
+        Getrennt, weil eine Sammelmeldung diesen Teil braucht und den
+        anderen nicht: Ob die Regel eingeschaltet ist, wurde für jede
+        ihrer Einzelmeldungen schon geprüft.
+        """
         ziel = pushziel.ziel_fuer(category, entity_id)
         nutzlast: dict[str, Any] = dict(data or {})
         if entity_id and "entity_id" not in nutzlast:
