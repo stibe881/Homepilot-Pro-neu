@@ -503,6 +503,37 @@ class OverkizIntegration(Integration):
             return False
         return True
 
+    async def _geraete_holen(self) -> list[Any]:
+        """Die Geräteliste wirklich beim Gateway holen, nicht aus dem Zwischenspeicher.
+
+        Hier steckte der Fehler, der vier Runden gekostet hat.
+        ``pyoverkiz`` merkt sich die Liste in der Sitzung::
+
+            async def get_devices(self, refresh: bool = False):
+                if self.devices and not refresh:
+                    return self.devices
+
+        Der Hub hält eine Sitzung, solange er läuft. Sein erster Abruf
+        beim Start füllte den Zwischenspeicher, und **jeder** spätere
+        Takt bekam danach exakt dieselben Objekte zurück - den Stand vom
+        Start, für immer. Das sah aus wie ein Gateway, das nichts
+        mitbekommt, war aber ein Hub, der nie wieder fragte:
+
+        - Nach jedem Neustart stimmte die Anzeige, danach fror sie ein.
+        - `storencheck` widersprach dem Hub, weil es eine eigene, frische
+          Sitzung aufmacht - dort gab es nichts zwischenzuspeichern.
+        - Ein schnellerer Takt half nicht; er wiederholte denselben alten
+          Wert nur öfter.
+
+        Deshalb ausdrücklich ``refresh=True``. Ältere Fassungen der
+        Bibliothek kennen den Schalter nicht - dann eben ohne, sonst
+        stünde jede Minute «Geräteliste nicht abrufbar» im Protokoll.
+        """
+        try:
+            return list(await self._client.get_devices(refresh=True))
+        except TypeError:
+            return list(await self._client.get_devices())
+
     async def _geraete_auffrischen(self) -> None:
         """Beim Gateway nachfragen, wer da ist - und wie es steht.
 
@@ -530,7 +561,7 @@ class OverkizIntegration(Integration):
         eine Wartezeit, die man raten müsste, braucht es nicht.
         """
         try:
-            geraete = await self._client.get_devices()
+            geraete = await self._geraete_holen()
         except Exception as err:
             self.log.debug("Overkiz: Geräteliste nicht abrufbar (%s)", err)
             # Das Nachlesen für den nächsten Takt trotzdem anstossen.
