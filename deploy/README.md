@@ -267,11 +267,22 @@ In `rebuild-hub.sh` nach dem Bauen `docker tag homepilot-hub
 zurück auf den eigenen Rechner und gelingt. Mehr Aufwand, dafür
 unabhängig davon, was Portainer beim Ausrollen tut.
 
-## «Portainer hat den Container nicht gewechselt»
+## «Portainer hat den Container noch nicht gewechselt»
 
 Der Webhook kam durch (er antwortet mit «angenommen»), das Abbild ist
-gebaut – und im Container steckt trotzdem noch der alte Commit. Portainer
-hat den Stack also gar nicht neu ausgerollt.
+gebaut – und im Container steckt trotzdem noch der alte Commit.
+
+**Zuerst die harmlose Möglichkeit:** Es dauert länger als die zehn
+Minuten, die das Skript wartet. Genau so kam der Fall aus dem Haus –
+Meldung «steckt weiterhin 01b8bd89», und eine halbe Stunde später lief
+das gebaute Abbild. Nachsehen:
+
+```bash
+docker exec homepilot-hub printenv HOMEPILOT_COMMIT
+```
+
+Steht dort der gebaute Commit, war es nur langsam. Steht dort weiterhin
+der alte, hat Portainer den Stack nicht neu ausgerollt.
 
 `rebuild-hub.sh` liest in diesem Fall neu **Portainers eigenes
 Protokoll** und stellt die Zeilen ab dem Webhook dazu; dort steht fast

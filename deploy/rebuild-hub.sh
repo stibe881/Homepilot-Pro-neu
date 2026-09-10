@@ -1104,8 +1104,15 @@ if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
   # erstellt dann den Container, und der Hub braucht seinen Start. 90
   # Sekunden waren dafür zu knapp - das Skript meldete «nicht gewechselt»,
   # während Portainer noch mitten in der Arbeit steckte.
+  #
+  # Fünf Minuten waren es auch: Gemeldet aus dem Haus mit dem Satz «im
+  # Container steckt weiterhin 01b8bd89» - und eine halbe Stunde später
+  # lief genau das gebaute Abbild. Portainer hatte gewechselt, nur eben
+  # nach dem Ende der Wartezeit, und die Meldung behauptete etwas
+  # Falsches. Zehn Minuten kosten nichts (der alte Stand läuft ja
+  # weiter), und die Meldung darunter sagt seither «noch nicht».
   TICK=0
-  for _ in $(seq 1 150); do
+  for _ in $(seq 1 300); do
     sleep 2
     TICK=$((TICK + 1))
     if [ $((TICK % 15)) -eq 0 ]; then
@@ -1185,11 +1192,19 @@ if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
     fi
     exit 0
   else
-    echo "✗ Portainer hat den Container nicht gewechselt - der alte Stand"
-    echo "  läuft weiter (das Haus ist also nicht offline)."
+    echo "✗ Portainer hat den Container noch nicht gewechselt - der alte"
+    echo "  Stand läuft weiter (das Haus ist also nicht offline)."
     if [ -n "$NOW_COMMIT" ]; then
       echo "  Im Container steckt weiterhin $NOW_COMMIT, gebaut ist $COMMIT."
     fi
+    # «Noch nicht» und nicht «nicht»: Dieselbe Meldung stand schon einmal
+    # da, während Portainer bloss langsam war - eine halbe Stunde später
+    # lief das gebaute Abbild. Wer das nicht weiss, sucht einen Fehler,
+    # den es nicht gibt.
+    echo "  Es kann auch bloss länger dauern. Ob es doch noch kam:"
+    echo "    docker exec $CONTAINER printenv HOMEPILOT_COMMIT"
+    echo "  Steht dort später $COMMIT, war es nur langsam - dann ist"
+    echo "  nichts zu tun."
     # Portainers Protokoll, gefiltert auf die Zeilen ab dem Webhook.
     # Genau hier stand bisher «steht allein in Portainers Protokoll» -
     # eine Auskunft, die man nur per SSH bekam, während dieses Skript

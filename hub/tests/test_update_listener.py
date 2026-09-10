@@ -163,7 +163,7 @@ def test_the_last_line_of_an_error_survives_the_cap(monkeypatch, credentials):
     lag genau eine hinter dem Deckel.
     """
     listener = load_listener(monkeypatch, credentials, None)
-    listener._handle_line("✗ Portainer hat den Container nicht gewechselt - der alte Stand")
+    listener._handle_line("✗ Portainer hat den Container noch nicht gewechselt - der alte")
     folge = [
         "  läuft weiter (das Haus ist also nicht offline).",
         "  Im Container steckt weiterhin 01b8bd89, gebaut ist a7e1a1e2.",
