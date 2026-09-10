@@ -281,6 +281,17 @@ immer der Klartext. Von Hand ist es dieselbe Auskunft:
 docker logs --since 10m portainer | grep -Ei 'err|fail|denied|stack'
 ```
 
+Steht dort **gar nichts** über den Stack, ist Portainer nicht das
+Problem: Dann hat der Webhook zwar «angenommen» geantwortet, bei diesem
+Portainer aber nichts ausgelöst. (Die Zeile
+`unexpected status code | status_code=403` aus
+`http/client/client.go` gehört nicht dazu – das ist Portainers eigene
+Versionsprüfung bei api.github.com, die dort in eine Ratenbremse läuft,
+[portainer#8077](https://github.com/portainer/portainer/issues/8077).)
+Das Skript nennt in diesem Fall den Stack, zu dem unser Container
+gehört – trägt er gar keine Compose-Marken, wurde er von Hand gestartet,
+und ein «Update the stack» fasst ihn nie an.
+
 Die drei Ursachen, in der Reihenfolge ihrer Häufigkeit:
 
 1. **Der Klon scheitert.** Bei einem Repo-Stack holt Portainer vor dem

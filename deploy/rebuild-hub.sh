@@ -946,6 +946,28 @@ portainer_sagt() {
   echo "$zeilen" | cut -c1-160 | sed 's/^/    /'
 }
 
+# Zu welchem Stack unser Container überhaupt gehört. Die Frage klingt
+# nach einer Selbstverständlichkeit und ist der stillste aller Fälle:
+# Wurde der Container einmal von Hand gestartet (docker run, oder ein
+# Stack, den jemand später gelöscht hat), trägt er keine Compose-Marken -
+# und dann wechselt ihn kein «Update the stack», egal wie oft der Webhook
+# durchkommt. Portainer schreibt dazu nichts, weil bei ihm auch nichts
+# schiefgeht.
+unser_stack() {
+  local stack dienst
+  stack=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' \
+    "$CONTAINER" 2>/dev/null || echo "")
+  dienst=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.service"}}' \
+    "$CONTAINER" 2>/dev/null || echo "")
+  if [ -z "$stack" ]; then
+    echo "  Achtung: $CONTAINER gehört zu keinem Stack - er trägt keine"
+    echo "  Compose-Marken. Ein «Update the stack» fasst ihn dann nie an."
+    return 0
+  fi
+  echo "  Unser Container gehört zum Stack «$stack»${dienst:+ (Dienst $dienst)} -"
+  echo "  der Webhook muss zu genau diesem gehören."
+}
+
 # Wurde stattdessen ein *anderer* Stack neu ausgerollt, gehört der
 # Webhook zu ihm. Das ist der dritte der drei Verdächtigen unten - hier
 # nachgewiesen statt geraten: Ein Container, der seit dem Webhook neu
@@ -1175,8 +1197,11 @@ if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
     # immer steht dort der Klartext: ein gescheiterter Klon (Zugangsdaten
     # abgelaufen), ein Compose-Fehler, ein fehlendes Abbild.
     portainer_sagt
-    # Wurde stattdessen ein *anderer* Stack neu ausgerollt, gehört der
-    # Webhook zu ihm - Punkt 3 unten, nur eben nachgewiesen statt geraten.
+    # Schreibt Portainer gar nichts, ist die nächste Frage, ob es
+    # überhaupt zuständig ist: zu welchem Stack unser Container gehört -
+    # und ob stattdessen ein anderer neu ausgerollt wurde (Punkt 3 unten,
+    # nachgewiesen statt geraten).
+    unser_stack
     fremder_stack
     echo "  Der Webhook meldet nur «angenommen»; was danach schiefgeht,"
     echo "  steht sonst allein in Portainers Protokoll - und das führt"
