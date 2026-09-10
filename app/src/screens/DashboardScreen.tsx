@@ -18,6 +18,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { CommandData, Entity, HubSettings } from '../api/types';
 import { begruessung } from '../lib/begruessung';
+import { useBlaetter } from './dashboard/blaetter';
 import { lesen as dichteLesen, masse } from '../lib/dichte';
 import {
   SCHLUESSEL as WIEDERAUFNAHME,
@@ -386,17 +387,50 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [ordnenZieht, setOrdnenZieht] = useState(false);
   // Die grosse Liste, damit ein Wechsel oben anfängt (siehe unten).
   const blatt = useRef<ScrollView>(null);
+  // Was gerade über der Seite liegt, an einem Ort - samt `allesZu()`
+  // für den Bereichswechsel (screens/dashboard/blaetter.ts). Vorher
+  // standen die vierzehn Zustände hier verstreut und weiter unten
+  // dieselben vierzehn Setzer von Hand aufgezählt; wer ein fünfzehntes
+  // Blatt baute, vergass die zweite Liste, und es blieb beim Wechsel
+  // offen liegen.
+  const {
+    fullscreen,
+    setFullscreen,
+    historyFor,
+    setHistoryFor,
+    bildFuer,
+    setBildFuer,
+    erinnernAn,
+    setErinnernAn,
+    raumMenue,
+    setRaumMenue,
+    wechselOffen,
+    setWechselOffen,
+    reorderOpen,
+    setReorderOpen,
+    roomsReorderOpen,
+    setRoomsReorderOpen,
+    batterienOffen,
+    setBatterienOffen,
+    sorgenOffen,
+    setSorgenOffen,
+    hilfeOffen,
+    setHilfeOffen,
+    seitenhilfe,
+    setSeitenhilfe,
+    wandOffen,
+    setWandOffen,
+    searchOpen,
+    setSearchOpen,
+    allesZu,
+  } = useBlaetter();
   // Aufgeklappt kommt man nur über die Batteriewarnung hierher; sonst
   // entscheidet die Karte selbst (siehe DeviceHealth).
-  const [batterienOffen, setBatterienOffen] = useState(false);
   // Das Blatt «was ist gerade nicht in Ordnung» - offen oder zu.
-  const [sorgenOffen, setSorgenOffen] = useState(false);
   // Das Hilfeblatt (Einstellungen → Hilfe) und die von dort aus erneut
   // angeforderte Einführung. Ob sie beim ersten Öffnen von selbst kommt,
   // entscheidet sie selbst (components/Einfuehrung.tsx).
-  const [hilfeOffen, setHilfeOffen] = useState(false);
   // Die Hilfe zur Seite, auf der man gerade steht (lib/seitenhilfe.ts).
-  const [seitenhilfe, setSeitenhilfe] = useState(false);
   const [einfuehrungErzwungen, setEinfuehrungErzwungen] = useState(false);
   // Was der Hub über «Besuch oder Babysitter» sagt - für die Zeile im
   // Menü; die Seite selbst (screens/BesuchScreen.tsx) fragt ihn frisch.
@@ -446,10 +480,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [raumGruppeY, setRaumGruppeY] = useState(0);
   const [raumRasterY, setRaumRasterY] = useState(0);
   const [editing, setEditing] = useState(false);
-  const [reorderOpen, setReorderOpen] = useState(false);
   // «Räume ordnen»: Die Reihenfolge kam aus der config.yaml – wer sie
   // ändern wollte, brauchte den Rechner.
-  const [roomsReorderOpen, setRoomsReorderOpen] = useState(false);
   // Suchbegriff der Geräteliste.
   const [query, setQuery] = useState('');
   // Filter und Sortierung der Geräteliste – die vier Fragen, mit denen
@@ -461,13 +493,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Das ···-Menü im Raumkopf: klappt «Anpassen» und «Reihenfolge» auf.
   // Je Raum frisch zu - was man im Büro aufgeklappt hat, soll im
   // Schlafzimmer nicht offen stehen.
-  const [raumMenue, setRaumMenue] = useState(false);
   // «Szene aufnehmen» steht hinter dem ···-Menü und klappt darunter auf.
   const [szeneAufnehmen, setSzeneAufnehmen] = useState(false);
   useEffect(() => {
     setRaumMenue(false);
     setSzeneAufnehmen(false);
-  }, [room, section]);
+    // `setRaumMenue` kommt jetzt aus useBlaetter und ist damit für den
+    // Prüfer eine fremde Grösse - sie ist ein useState-Setzer und
+    // wechselt nie, aber der Prüfer weiss das nicht.
+  }, [room, section, setRaumMenue]);
   const [lastTouch, setLastTouch] = useState(() => Date.now());
   // Zählt hoch, wenn der Widget-Knopf «Alles aus» gedrückt wurde – die
   // Rückfrage öffnet sich dann von selbst, statt dass die App nur
@@ -499,9 +533,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [heimSignal, setHeimSignal] = useState(0);
   // Welches Gerät gerade nach einer Frist gefragt wird («sag mir in zwei
   // Stunden Bescheid»).
-  const [erinnernAn, setErinnernAn] = useState<Entity | null>(null);
   // Das Blatt hinter dem Titel einer Einstellungsseite (components/einstellungen).
-  const [wechselOffen, setWechselOffen] = useState(false);
   // Der Weg zu einem Ziel aus einer Nachricht. Über eine Ref, weil der
   // Tipp-Haken früh gebraucht wird und der Weg selbst erst weiter unten
   // steht - dort, wo die Räume bekannt sind.
@@ -515,18 +547,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     knoepfe: PushKnopf[];
   } | null>(null);
   // Angetippte Kamera im Vollbild (Entitäts-ID, damit Live-Updates ankommen).
-  const [fullscreen, setFullscreen] = useState<string | null>(null);
   // Alle Kameras nebeneinander - fürs Tablet im Flur die einzige
   // sinnvolle Ansicht (siehe components/Kamerawand.tsx).
-  const [wandOffen, setWandOffen] = useState(false);
   // Gerät, dessen Verlauf gerade offen ist (Geräte-Ansicht, Tipp auf die Kachel).
-  const [historyFor, setHistoryFor] = useState<string | null>(null);
   // Welcher Raum ein Foto auf seiner Kachel hat, und von wann. Der
   // Zeitstempel hängt an der Bildadresse: Ohne ihn zeigte ein Telefon
   // nach dem Wechseln wochenlang das alte Foto aus seinem Speicher.
   const [raumbilder, setRaumbilder] = useState<Record<string, number>>({});
   // Für welchen Raum das Blatt «Bild wählen» offen steht.
-  const [bildFuer, setBildFuer] = useState<string | null>(null);
   // Für welchen Raum der Player offen steht (Musik-Knopf der Raumkachel).
   const [musikBlattRaum, setMusikBlattRaum] = useState<string | null>(null);
   // Welcher Fernseher seine Fernbedienung offen hat. Sie hängt nicht an
@@ -537,7 +565,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [startCountdowns, setStartCountdowns] = useState<
     { text: string; date: string; on_start?: boolean }[]
   >([]);
-  const [searchOpen, setSearchOpen] = useState(false);
   // Abläufe – nur für die Suche; die Liste selbst lebt im Ablauf-Screen.
   const [automations, setAutomations] = useState<SuchAblauf[]>([]);
   // Läuft der Babysitter-Modus? Nur dann hält der Riegel vor Familie und
@@ -2397,19 +2424,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setQuery('');
     setEditing(false);
     // Und alles, was gerade darüber liegt: «egal wo man ist» heisst
-    // auch «egal was gerade offen ist».
-    setFullscreen(null);
-    setHistoryFor(null);
-    setBildFuer(null);
-    setErinnernAn(null);
-    setRaumMenue(false);
-    setWechselOffen(false);
-    setReorderOpen(false);
-    setRoomsReorderOpen(false);
-    setBatterienOffen(false);
-    setSorgenOffen(false);
-    setHilfeOffen(false);
-    setWandOffen(false);
+    // auch «egal was gerade offen ist». Ein Aufruf statt einer Liste -
+    // die Liste war die Stelle, an der man sich vergisst
+    // (screens/dashboard/blaetter.ts). Sie machte übrigens die
+    // Seitenhilfe und das Suchfeld nie zu; jetzt schon.
+    allesZu();
   };
 
   const content = () => {
