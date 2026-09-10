@@ -40,6 +40,9 @@ homepilot/core/__init__.py
 homepilot/core/ablaufsimulation.py
 homepilot/core/abschaltung.py
 homepilot/core/aenderungen.py
+homepilot/core/alarmanwesenheit.py
+homepilot/core/alarmbericht.py
+homepilot/core/alarmwache.py
 homepilot/core/astro.py
 homepilot/core/audit.py
 homepilot/core/babysitter.py
