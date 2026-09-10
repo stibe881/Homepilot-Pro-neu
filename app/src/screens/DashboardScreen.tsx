@@ -56,7 +56,6 @@ import { Grundriss } from '../components/Grundriss';
 import { LiveTuerSchalter } from '../components/LiveTuerSchalter';
 import { PushPrefs } from '../components/PushPrefs';
 import { ActivityCard, MediaPanel, SidePanel } from '../components/SidePanel';
-import { Raumspieler } from '../components/Raumspieler';
 import { useMusikwahl } from '../hooks/useMusikwahl';
 import { Bestaetigung, Toast, UndoToast } from '../components/Toast';
 import { TopStrip } from '../components/TopStrip';
@@ -471,18 +470,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Ob die Trennung Bestand hat - erst dann kommt der Ausfall-Balken.
   const ausfall = useAusfall(status);
   const [gridWidth, setGridWidth] = useState(0);
-  // Die Musik des Zimmers steht im Raumkopf: zugeklappt als Streifen
-  // neben den Szenen, aufgeklappt als ganze Karte darunter. Welche Box
-  // gezeigt wird, hält der Haken (hooks/useMusikwahl.ts) - hier nur, ob
-  // die Karte offen ist.
-  //
-  // Vorher lag sie rechts in der Spalte - auf dem Tablet unter dem
-  // Raumkopf, auf dem Telefon unter allen Kacheln. Damit die Karte dort
-  // nicht neben dem Raumtitel klebte, mass die Seite drei Höhen (Kopf,
-  // Gruppentitel, Raster) und schob die Spalte um deren Summe nach
-  // unten. Genau dieses Feld daneben blieb dabei leer - und in ihm
-  // steht die Musik jetzt.
-  const [musikOffen, setMusikOffen] = useState(false);
   const [editing, setEditing] = useState(false);
   // «Räume ordnen»: Die Reihenfolge kam aus der config.yaml – wer sie
   // ändern wollte, brauchte den Rechner.
@@ -1690,9 +1677,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Der Raumname als Schlüssel: Beim Wechsel ins nächste Zimmer gilt
   // wieder dessen Vorwahl, statt der Box, die man nebenan angetippt hat.
   const musik = useMusikwahl(entities, guardedCommand, pickPlayer(raumBoxen), room);
-  // Der Streifen steht nur, wo das Zimmer eine eigene Box hat. Sonst
-  // wäre er die Musik des Nachbarzimmers im Kopf dieses Zimmers - und
-  // genau das soll er nicht sein.
+  // Der Medienplayer steht nur, wo das Zimmer eine eigene Box hat.
+  // Sonst wäre es die Musik des Nachbarzimmers im Kopf dieses Zimmers -
+  // und genau das soll er nicht sein.
   const kopfSpieler = raumBoxen.length > 0 ? musik.player : undefined;
 
   // Ausgeblendete und in einer Leuchte aufgegangene Spots verschwinden
@@ -3396,35 +3383,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   suchen. Bisher lagen sie an zwei Stellen weiter unten -
                   die Szenen des Hubs als Gruppe, die Lichtszenen der
                   Bridge als eigene Kategorie hinter allen Geräten. */}
-              {/* Szenen links, die Musik des Zimmers rechts - beide in
-                  einer Zeile, weil rechts neben den Szenenknöpfen bisher
-                  ein leeres Feld stand. Wird es eng (Telefon, schmales
-                  Fenster), rutscht der Streifen auf eine eigene Zeile,
-                  statt die Szenen zu quetschen. */}
-              {roomScenes.length > 0 || kopfSpieler ? (
+              {roomScenes.length > 0 ? (
                 <View style={styles.raumUnterzeile}>
                   <View style={styles.raumSzenen}>
-                    {roomScenes.length > 0 ? (
-                      <SceneRow scenes={roomScenes} onActivate={szeneAusloesen} />
-                    ) : null}
+                    <SceneRow scenes={roomScenes} onActivate={szeneAusloesen} />
                   </View>
-                  {kopfSpieler ? (
-                    <Raumspieler
-                      entity={kopfSpieler}
-                      offen={musikOffen}
-                      onToggle={() => setMusikOffen((offen) => !offen)}
-                      onCommand={guardedCommand}
-                    />
-                  ) : null}
                 </View>
               ) : null}
             </View>
           ) : null}
-          {/* Aufgeklappt dieselbe Karte, die früher rechts in der Spalte
-              stand: Playlist, Sender, Box, Warteschlange, Lautstärke.
-              Sie steht unter dem Kopf und über den Kacheln - dort, wo
-              der Streifen sie ankündigt. */}
-          {musikOffen && kopfSpieler && section === 'home' && room !== ALL_ROOMS ? (
+          {/* Der komplette Medienplayer, nicht mehr hinter einem
+              Streifen zum Aufklappen: Wer ein Zimmer öffnet, will die
+              Musik dort sehen und bedienen, nicht erst antippen, dass
+              sie überhaupt erscheint - dieselbe Karte, die früher
+              rechts in der Spalte stand (Playlist, Sender, Box,
+              Warteschlange, Lautstärke). */}
+          {kopfSpieler && section === 'home' && room !== ALL_ROOMS ? (
             <View style={styles.raumMusikkarte}>
               <MediaPanel
                 entity={kopfSpieler}

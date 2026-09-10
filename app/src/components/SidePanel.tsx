@@ -35,11 +35,10 @@ import { RadioPanel, ShuffleRepeat, SpotifyPanel } from './EntityCard';
  *
  * Die Box des offenen Zimmers stand hier zuletzt als zweite Karte -
  * unter dem Raumkopf, auf dem Telefon unter allen Kacheln. Sie ist
- * hinaufgewandert in den Raumkopf selbst (components/Raumspieler.tsx):
- * ein Streifen neben den Szenen, der sich zu genau dieser Karte
- * aufklappt. Damit steht die Musik des Zimmers dort, wo man beim
- * Betreten hinsieht - und das Feld rechts neben den Szenenknöpfen ist
- * nicht mehr leer.
+ * hinaufgewandert in den Raumkopf selbst: derselbe MediaPanel hier
+ * unten, direkt unter den Szenenknöpfen des Zimmers (nicht mehr hinter
+ * einem Streifen zum Aufklappen - siehe DashboardScreen). Damit steht
+ * die Musik des Zimmers dort, wo man beim Betreten hinsieht.
  */
 export function SidePanel({
   entities,

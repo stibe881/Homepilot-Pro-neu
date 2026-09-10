@@ -25,7 +25,7 @@ describe('panelContent', () => {
 
   it('lässt die Spalte im Zimmer ganz weg', () => {
     // Auch die Box des Zimmers stand hier einmal. Sie steht jetzt oben
-    // im Raumkopf (components/Raumspieler.tsx) - damit bleibt für die
+    // im Raumkopf, als kompletter Medienplayer - damit bleibt für die
     // Spalte im Zimmer nichts übrig, und die Kacheln bekommen die
     // Breite.
     expect(panelContent({ ...ALLES, inRoom: true }).anything).toBe(false);
