@@ -391,10 +391,11 @@ export function Widgets({
           eine Kachel, die bloss die App aufmachen würde, täte dort nichts.
         </Text>
         <Text style={styles.hint}>
-          Auf CarPlay fehlt es noch, und das liegt nicht am Code: Apple
-          lässt nur bestimmte Arten von Apps auf den Autobildschirm, und
-          eine Haussteuerung ist keine davon. Die Freigabe dafür muss
-          Apple erteilen (docs/auto.md).
+          In CarPlay stehen sie auf der Widget-Seite (ab iOS 26): nach
+          rechts wischen, oben rechts das Widget hinzufügen, HomePilot
+          wählen. Es sind die ersten vier Knöpfe, als Kachelwand mit
+          Beschriftung. Dafür braucht es keine Freigabe von Apple – die
+          bräuchte nur eine eigene CarPlay-App (docs/auto.md).
         </Text>
       </Card>
 
