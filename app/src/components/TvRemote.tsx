@@ -247,7 +247,7 @@ export function TvRemote({
               gelöst und standen danach nur noch im Weg. */}
           {fehler ? (
             <View style={styles.absage}>
-              <Ionicons name="alert-circle" size={16} color={colors.danger} />
+              <Ionicons name="alert-circle-outline" size={16} color={colors.danger} />
               <Text style={styles.absageText}>{fehler}</Text>
             </View>
           ) : null}

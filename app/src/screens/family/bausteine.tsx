@@ -1561,7 +1561,7 @@ export function MealRow({
           accessibilityRole="button"
           accessibilityLabel={`${day} bearbeiten`}
         >
-          <Ionicons name="pencil-outline" size={16} color={colors.inkSoft} />
+          <Ionicons name="create-outline" size={16} color={colors.inkSoft} />
         </Pressable>
       </View>
     );

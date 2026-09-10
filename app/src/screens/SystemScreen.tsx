@@ -19,6 +19,7 @@ import { absturzSatz, nachBereich } from '../lib/absturzbuch';
 import { Extra, geordnet, luecken, zustand } from '../lib/extras';
 import { useAbstuerze } from '../hooks/useAbstuerze';
 import { PushState, pushHint } from '../hooks/usePushRegistration';
+import { Musterblatt } from '../components/Musterblatt';
 import { AccessLog } from '../components/AccessLog';
 import { Einrichtungsprotokoll } from '../components/Einrichtungsprotokoll';
 import { Card } from '../components/Card';
@@ -317,6 +318,12 @@ export function SystemScreen({
       <ShortcutsCard settings={settings} />
 
       <VoiceHelpCard />
+
+      {/* Werkzeug für den, der etwas baut - keine Einstellung für den,
+          der hier wohnt. Deshalb ganz unten, zugeklappt und unter
+          «Auf diesem Gerät»: Es zeigt, wie das gerade eingestellte
+          Erscheinungsbild wirklich aussieht. */}
+      <Musterblatt />
     </View>
   );
 }
@@ -1357,7 +1364,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
           accessibilityLabel="Update abbrechen - nichts ausrollen"
           style={({ pressed }) => [styles.updateAbbruch, pressed && { opacity: 0.7 }]}
         >
-          <Ionicons name="close-circle-outline" size={15} color={colors.danger} />
+          <Ionicons name="close-circle" size={15} color={colors.danger} />
           <Text style={styles.updateAbbruchText}>Abbrechen – nichts ausrollen</Text>
         </Pressable>
       ) : null}

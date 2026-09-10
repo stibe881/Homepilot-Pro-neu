@@ -762,7 +762,7 @@ export function OverviewScreen({
           />
           {alert && !ohneKopf ? (
             <View style={styles.alertRow}>
-              <Ionicons name="warning" size={14} color={colors.danger} />
+              <Ionicons name="warning-outline" size={14} color={colors.danger} />
               <Text style={styles.alertText} numberOfLines={1}>
                 {String(alert.state.headline ?? alert.state.event ?? 'Wetterwarnung')}
               </Text>
@@ -1538,7 +1538,7 @@ function DurchsageFenster({
                       accessibilityLabel={`${text} bearbeiten`}
                       hitSlop={8}
                     >
-                      <Ionicons name="pencil-outline" size={16} color={colors.inkSoft} />
+                      <Ionicons name="create-outline" size={16} color={colors.inkSoft} />
                     </Pressable>
                     <Pressable
                       onPress={() => loeschen(text)}
@@ -1799,7 +1799,7 @@ function FernsehTimerFenster({
               accessibilityLabel="Timer abbrechen"
               style={({ pressed }) => [styles.timerAbbruch, pressed && { opacity: 0.7 }]}
             >
-              <Ionicons name="close-circle-outline" size={18} color={colors.danger} />
+              <Ionicons name="close-circle" size={18} color={colors.danger} />
               <Text style={[styles.timerChipText, { color: colors.danger }]}>
                 Timer abbrechen
               </Text>

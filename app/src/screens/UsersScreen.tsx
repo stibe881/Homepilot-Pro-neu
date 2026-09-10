@@ -877,7 +877,7 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                                 pressed && { opacity: 0.7 },
                               ]}
                             >
-                              <Ionicons name="close-outline" size={15} color={colors.ink} />
+                              <Ionicons name="close" size={15} color={colors.ink} />
                               <Text style={styles.rotateText}>Einladung zurückziehen</Text>
                             </Pressable>
                           </>

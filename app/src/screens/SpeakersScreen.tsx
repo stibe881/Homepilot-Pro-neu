@@ -257,7 +257,7 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
               accessibilityRole="button"
               accessibilityLabel={`${boxName(entry)} umbenennen`}
             >
-              <Ionicons name="pencil-outline" size={18} color={colors.inkSoft} />
+              <Ionicons name="create-outline" size={18} color={colors.inkSoft} />
             </Pressable>
           </>
         )}

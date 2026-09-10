@@ -1174,7 +1174,7 @@ function FormularBlatt({
                 accessibilityRole="button"
                 accessibilityLabel={`Datei ${form.file.name} entfernen`}
               >
-                <Ionicons name="close-circle-outline" size={22} color={colors.inkSoft} />
+                <Ionicons name="close-circle" size={22} color={colors.inkSoft} />
               </Pressable>
             </View>
           ) : null}
@@ -1578,7 +1578,7 @@ export function Gutscheine({
       ) : null}
 
       <View style={styles.suchRow}>
-        <Ionicons name="search-outline" size={16} color={colors.inkSoft} />
+        <Ionicons name="search" size={16} color={colors.inkSoft} />
         <TextInput
           style={[styles.input, { flex: 1 }]}
           value={suchtext}

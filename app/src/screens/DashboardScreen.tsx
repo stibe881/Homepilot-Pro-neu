@@ -18,6 +18,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { CommandData, Entity, HubSettings } from '../api/types';
 import { begruessung } from '../lib/begruessung';
+import { lesen as dichteLesen, masse } from '../lib/dichte';
 import {
   SCHLUESSEL as WIEDERAUFNAHME,
   merkbar,
@@ -1449,11 +1450,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Schwelle lag genau zwischen den Geräten: iPhone Max zweispaltig,
   // jedes kleinere einspaltig. Kameras brauchen mehr Fläche und
   // bekommen darum weniger Spalten (siehe lib/raster).
+  // Wie eng die Kacheln stehen, hängt am Gerät (lib/dichte.ts): Am
+  // Wandtablet liest man aus zwei Metern, auf dem Sofa will man die
+  // Wohnung auf einen Blick. Kameras bleiben davon unberührt - ihr
+  // Vorschaubild braucht seine 260 Punkte, egal was jemand einstellt.
+  const dichte = useMemo(() => masse(dichteLesen(settings.dichte)), [settings.dichte]);
   const columns = spalten(
     gridWidth,
-    section === 'cameras' ? { mindest: KAMERA_MINDEST, hoechstens: 2 } : { hoechstens: 3 }
+    section === 'cameras'
+      ? { mindest: KAMERA_MINDEST, hoechstens: 2 }
+      : { mindest: dichte.mindest, luecke: dichte.luecke, hoechstens: 3 }
   );
-  const cardWidth = gridWidth > 0 ? kachelBreite(gridWidth, columns) : undefined;
+  const cardWidth =
+    gridWidth > 0 ? kachelBreite(gridWidth, columns, dichte.luecke) : undefined;
 
   // Räume in der Reihenfolge aus der config.yaml (meistgenutzte zuerst),
   // nicht alphabetisch. Räume mit Geräten, die (noch) nicht in der Config

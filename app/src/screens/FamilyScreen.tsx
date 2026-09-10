@@ -1641,7 +1641,7 @@ export function FamilyScreen({
                 accessibilityRole="button"
                 style={styles.vorschlagWurf}
               >
-                <Ionicons name="refresh" size={15} color={colors.accent} />
+                <Ionicons name="refresh-outline" size={15} color={colors.accent} />
                 <Text style={styles.vorschlagWurfText}>Nochmal würfeln</Text>
               </Pressable>
             </View>
@@ -4004,7 +4004,7 @@ export function FamilyScreen({
                   accessibilityRole="button"
                   accessibilityLabel={`Erinnerung «${String(erinnerung.text ?? '')}» bestätigen`}
                 >
-                  <Ionicons name="checkmark-circle-outline" size={22} color={colors.on} />
+                  <Ionicons name="checkmark-circle" size={22} color={colors.on} />
                 </Pressable>
               ) : null}
               <Pressable
@@ -4014,7 +4014,7 @@ export function FamilyScreen({
                 accessibilityLabel={`Erinnerung «${String(erinnerung.text ?? '')}» bearbeiten`}
               >
                 <Ionicons
-                  name="pencil"
+                  name="create-outline"
                   size={18}
                   color={
                     erinnerungBearbeiten?.id === erinnerung.id
@@ -4388,7 +4388,7 @@ export function FamilyScreen({
       {/* Punkt 166: Eine Suche über alle Listen – siebzehn Module sind zu
           viele, um sie der Reihe nach durchzugehen. */}
       <View style={styles.suchRow}>
-        <Ionicons name="search-outline" size={16} color={colors.inkSoft} />
+        <Ionicons name="search" size={16} color={colors.inkSoft} />
         <TextInput
           style={[styles.input, { flex: 1 }]}
           value={suchtext}
