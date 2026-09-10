@@ -37,6 +37,19 @@ from typing import Any
 #: der config.yaml.
 EXTRAS: list[dict[str, Any]] = [
     {
+        "key": "beleg",
+        "module": "pypdf",
+        "title": "Gutschein-Belege lesen",
+        "detail": "Betrag, Nummer und Ablaufdatum aus dem angehängten PDF "
+        "vorschlagen, statt sie abzutippen. Ohne das Paket bleibt der "
+        "Knopf «Aus Beleg übernehmen» dunkel; eintragen kann man alles "
+        "weiterhin von Hand.",
+        # Kein Integrationsname: Die Gutscheine sind ein Familien-Modul
+        # und hängen an keiner Anbindung. Ob das Extra gebraucht wird,
+        # entscheiden die Daten - siehe `stand(belege=...)`.
+        "integration": None,
+    },
+    {
         "key": "speech",
         "module": "gtts",
         "title": "Sprachausgabe",
@@ -118,22 +131,36 @@ def vorhanden(modul: str) -> bool:
         return False
 
 
+#: Extras, deren Bedarf nicht an einer Integration hängt, sondern an
+#: einem eigenen Merkmal. Der Name zeigt auf den Parameter von `stand`.
+OHNE_INTEGRATION = {"apns": "apns", "beleg": "belege"}
+
+
 def stand(
-    integrationen: set[str] | None = None, apns: bool = False
+    integrationen: set[str] | None = None,
+    apns: bool = False,
+    belege: bool = False,
 ) -> list[dict[str, Any]]:
     """Der Zustand aller Extras für die Systemseite (rein, testbar).
 
     ``integrationen`` sind die angebundenen Integrationen, ``apns`` sagt,
-    ob ein apns-Block in der config.yaml steht. Beides entscheidet über
-    ``needed``: ob das Fehlen hier überhaupt jemanden stört.
+    ob ein apns-Block in der config.yaml steht, ``belege``, ob an einem
+    Gutschein überhaupt eine Datei hängt. Alles drei entscheidet über
+    ``needed``: ob das Fehlen hier jemanden stört.
+
+    Der Bedarf für das Beleg-Extra steht in den Daten und nicht in der
+    Konfiguration - wer nie einen Beleg anhängt, soll auf der Systemseite
+    nicht lesen, dass ihm etwas fehlt.
     """
     angebunden = integrationen or set()
+    merkmale = {"apns": apns, "belege": belege}
     zeilen = []
     for extra in EXTRAS:
+        schluessel = OHNE_INTEGRATION.get(str(extra["key"]))
         noetig = (
             extra["integration"] in angebunden
             if extra["integration"]
-            else (apns if extra["key"] == "apns" else True)
+            else (merkmale[schluessel] if schluessel else True)
         )
         zeilen.append(
             {

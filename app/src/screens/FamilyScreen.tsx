@@ -47,7 +47,7 @@ import {
   zusammenfassung,
 } from '../lib/anwesenheitskarte';
 import { Rueckeintrag, bandSatz, nochGueltig } from '../lib/rueckband';
-import { haushalt, mitglieder, pruefeName, rolleWort } from '../lib/mitglieder';
+import { haushalt, mitglieder, namen, pruefeName, rolleWort } from '../lib/mitglieder';
 import { Person } from '../lib/personen';
 import {
   ABEND_FELDER,
@@ -4249,6 +4249,9 @@ export function FamilyScreen({
         eintraege={data.vouchers ?? []}
         settings={settings}
         ich={currentUser?.name ?? ''}
+        // Wer einen Gutschein übernehmen kann: der Haushalt ohne Gäste
+        // und ohne die Wandtablets (lib/mitglieder.ts).
+        haushalt={namen(haushalt(members))}
         fehler={error}
         hinweis={standHinweis}
         jetzt={new Date()}
