@@ -713,6 +713,10 @@ def test_karte_ohne_token_bleibt_vorgemerkt_und_endet_beim_nachtragen():
     # Fernseher aus, bevor die App ihr Token melden konnte.
     rows, _, _, beenden = abgleich(rows, [], ["Stibe"], 1100.0)
     assert beenden[0]["tokens"] == []
+    # Art und Person kommen mit: Sonst stand im Protokoll nur «Ende
+    # ohne Token - vorgemerkt», und beim nächsten «die Karte liegt
+    # immer noch da» war daraus nicht zu lesen, um welche es ging.
+    assert beenden[0]["art"] == "tv:cast.wz" and beenden[0]["user"] == "Stibe"
     assert hat_karte(rows, "Stibe", "tv:cast.wz")
 
     # Jetzt kommt das Token - es landet an der vorgemerkten Zeile.

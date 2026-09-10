@@ -75,6 +75,19 @@ def test_a_lamp_can_do_what_any_of_its_spots_can():
     assert "set_color" not in merged_commands(members, False)
 
 
+def test_die_leuchte_reicht_die_farbtemperatur_weiter():
+    """Hier stand einmal `set_temperature` (der Sollwert eines
+    Thermostats) und `set_white` (gibt es in keiner Integration) - die
+    Farbtemperatur heisst überall `set_color_temp`. Folge: Eine
+    Deckenlampe aus fünf Spots liess sich nirgends auf Warmweiss stellen,
+    obwohl jeder Spot es kann."""
+    members = [FakeMember({}, ["turn_on", "turn_off", "set_color_temp"])]
+    assert "set_color_temp" in merged_commands(members, True)
+    # Und nichts Erfundenes: Was kein Mitglied kann, steht auch nicht da.
+    assert "set_temperature" not in merged_commands(members, True)
+    assert "set_white" not in merged_commands(members, True)
+
+
 def _hub():
     return Hub(
         make_config(

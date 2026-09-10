@@ -418,3 +418,19 @@ export function kachelHerkunft(entity: Entity): string {
   }
   return raum;
 }
+
+/**
+ * Zählt dieses Gerät mit, wenn ein Raum sagt, wie viel «an» ist?
+ * (rein, testbar)
+ *
+ * Nur was man auch ausschalten könnte. Fühler und Melder melden `on`,
+ * wenn sie etwas sehen - der Bewegungsmelder im Flur machte daraus «1
+ * an», sobald jemand vorbeiging, und der offene Fensterkontakt
+ * ebenfalls. Beides steht im Raumkopf, wo es hingehört: als Zeile
+ * («Fenster offen») und als Männchen (lib/bewegung.ts).
+ */
+export function zaehltAlsAn(entity: Entity): boolean {
+  if (entity.kind === 'sensor' || entity.kind === 'binary_sensor') return false;
+  return entity.commands.length > 0;
+}
+

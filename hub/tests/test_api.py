@@ -23,7 +23,11 @@ def test_list_entities_and_command():
             json={"command": "turn_on", "data": {"brightness": 42}},
         )
         assert response.status_code == 200
-        assert response.json()["entity"]["state"] == {"state": "on", "brightness": 42}
+        # Nur die beiden Felder prüfen, um die es hier geht: Die
+        # Demo-Lampe kann seit Kurzem auch Farbe und Weisston, und ein
+        # Vergleich des ganzen Zustands hinge an jedem neuen Feld.
+        zustand = response.json()["entity"]["state"]
+        assert zustand["state"] == "on" and zustand["brightness"] == 42
 
 
 def test_unknown_entity_and_command():

@@ -1,16 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { Modal, Pressable, StyleSheet } from 'react-native';
 
 import { CommandData, Entity } from '../api/types';
-import { boxWechsel } from '../lib/boxwahl';
-import {
-  hatEigeneAuswahl,
-  istMusikbox,
-  musikboxenImRaum,
-  pickPlayer,
-} from '../lib/geraeteart';
+import { useMusikwahl } from '../hooks/useMusikwahl';
+import { musikboxenImRaum, pickPlayer } from '../lib/geraeteart';
 import { Colors, radius, space, useColors } from '../theme';
-import { MediaPanel, wechselQuelle } from './SidePanel';
+import { MediaPanel } from './SidePanel';
 
 /**
  * Der Player der Startseite als Blatt über der Raumkachel.
@@ -40,38 +35,15 @@ export function MusikBlatt({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const players = useMemo(() => entities.filter(istMusikbox), [entities]);
   // Vorgewählt ist die Box des Raums - deswegen ist man ja hier. Hat der
   // Raum keine (mehr), fällt das Blatt auf die naheliegende des Hauses
-  // zurück, statt leer dazustehen.
+  // zurück, statt leer dazustehen (hooks/useMusikwahl.ts).
   const raumBox = useMemo(
     () => pickPlayer(musikboxenImRaum(entities, raum)),
     [entities, raum]
   );
-  const [chosenId, setChosenId] = useState<string | null>(raumBox?.id ?? null);
-  const [wunschBox, setWunschBox] = useState<string | null>(null);
-  const player =
-    (chosenId ? players.find((entity) => entity.id === chosenId) : undefined) ??
-    raumBox ??
-    pickPlayer(entities);
-
-  const choose = (ziel: Entity) => {
-    const quelle = player && hatEigeneAuswahl(player) ? player : undefined;
-    const wechsel = boxWechsel(quelle ? wechselQuelle(quelle) : null, ziel);
-    if (wechsel.art === 'umzug' && quelle) {
-      onCommand(quelle.id, 'play_on', { device: wechsel.device, play: wechsel.play });
-      setChosenId(quelle.id);
-      setWunschBox(wechsel.device);
-    } else {
-      setChosenId(ziel.id);
-    }
-  };
-
-  // Wie im SidePanel: Sobald die gewünschte Box die aktive ist, hat der
-  // Wunsch seinen Dienst getan.
-  useEffect(() => {
-    if (wunschBox && player?.state.device === wunschBox) setWunschBox(null);
-  }, [wunschBox, player?.state.device]);
+  const musik = useMusikwahl(entities, onCommand, raumBox, raum);
+  const player = musik.player;
 
   if (!player) return null;
   return (
@@ -84,14 +56,12 @@ export function MusikBlatt({
         <Pressable style={styles.blatt} onPress={() => {}}>
           <MediaPanel
             entity={player}
-            players={players}
+            players={musik.players}
             titel={raum}
-            activeDevice={
-              hatEigeneAuswahl(player) ? ((player.state.device as string) ?? null) : null
-            }
-            onSelect={choose}
+            activeDevice={musik.activeDevice}
+            onSelect={musik.waehlen}
             onCommand={onCommand}
-            wunschBox={wunschBox}
+            wunschBox={musik.wunschBox}
           />
         </Pressable>
       </Pressable>

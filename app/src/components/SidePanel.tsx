@@ -4,19 +4,13 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 
 import { Activity, CommandData, Entity, EntityState } from '../api/types';
 import { uhr, wochentag } from '../lib/format';
-import {
-  hatEigeneAuswahl,
-  istMusikbox,
-  musikboxenImRaum,
-  pickPlayer,
-  quellenSymbol,
-  zeigtStopp,
-} from '../lib/geraeteart';
+import { useMusikwahl } from '../hooks/useMusikwahl';
+import { hatEigeneAuswahl, quellenSymbol, zeigtStopp } from '../lib/geraeteart';
 import { hatWarteschlange } from '../lib/musikliste';
 import { trockenSatz } from '../lib/giessen';
 import { Regenstand, balkenHoehen, regenSatz } from '../lib/regen';
-import { boxLabel, boxWechsel } from '../lib/boxwahl';
-import { panelContent, showsRoomPlayer } from '../lib/seitenspalte';
+import { boxLabel } from '../lib/boxwahl';
+import { panelContent } from '../lib/seitenspalte';
 import { stundenZeilen } from '../lib/stundenwetter';
 import { uvWort } from '../lib/uv';
 import { Colors, radius, type, useColors } from '../theme';
@@ -29,8 +23,7 @@ import { RadioPanel, ShuffleRepeat, SpotifyPanel } from './EntityCard';
  * Breite Spalte rechts (Tablet) bzw. Abschnitt unten (Telefon):
  * Wetterlage, Musik und was zuletzt im Haus passiert ist.
  *
- * Steht ein Raum offen, zeigt die Spalte **nur** dessen Box – Wetter und
- * die Musik des Hauses bleiben weg. Wer «Küche» öffnet, will die Küche
+ * **Nur ausserhalb der Zimmer.** Wer «Küche» öffnet, will die Küche
  * sehen und nicht das Wetter von Zell und die Box, die im Wohnzimmer
  * spielt; auf dem Telefon schob beides die Lampen unter den Rand.
  * Welche Karte wann steht, entscheidet lib/seitenspalte.ts.
@@ -40,90 +33,38 @@ import { RadioPanel, ShuffleRepeat, SpotifyPanel } from './EntityCard';
  * blinkend, und ein Tipp darauf öffnet die ganze Liste
  * (components/TopStrip.tsx, lib/warnzeile.ts).
  *
- * Die Box des Raums lag früher als Kachel zwischen seinen Lampen: Man
- * bediente die Musik des Wohnzimmers also an einer anderen Stelle als
- * die Musik des Hauses, und beim Wechsel in den nächsten Raum sprang sie
- * wieder woanders hin. Musik gehört in die Musik-Spalte.
+ * Die Box des offenen Zimmers stand hier zuletzt als zweite Karte -
+ * unter dem Raumkopf, auf dem Telefon unter allen Kacheln. Sie ist
+ * hinaufgewandert in den Raumkopf selbst (components/Raumspieler.tsx):
+ * ein Streifen neben den Szenen, der sich zu genau dieser Karte
+ * aufklappt. Damit steht die Musik des Zimmers dort, wo man beim
+ * Betreten hinsieht - und das Feld rechts neben den Szenenknöpfen ist
+ * nicht mehr leer.
  */
 export function SidePanel({
   entities,
   width,
   room,
   onCommand,
-  topOffset = 0,
 }: {
   entities: Entity[];
   width?: number;
-  /** Offener Raum – dessen Box kommt als zweite Karte dazu. Ohne Raum
-   *  («Alle», Geräteseiten) bleibt es bei der einen. */
+  /** Offener Raum – dann bleibt die Spalte ganz weg: Seine Musik steht
+   *  im Raumkopf, Wetter und Hausmusik gehören dort nicht hin. */
   room?: string | null;
   /** Für den Player – ohne ihn bleibt er weg statt tot dazustehen. */
   onCommand?: (entityId: string, command: string, data?: CommandData) => void;
-  /** Versatz nach unten, in Punkten. Im offenen Raum die gemessene Höhe
-   *  des Raumkopfs: Die Karte des Raums soll unter dem Titel beginnen,
-   *  nicht neben ihm um dieselbe Zeile streiten (nur als Spalte rechts -
-   *  auf dem Telefon steht der Abschnitt ohnehin unter allem). */
-  topOffset?: number;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const weather = entities.find((entity) => entity.kind === 'weather');
-  // Warnung nur zeigen, wenn es wirklich eine gibt (für den gewählten Ort).
-  const players = useMemo(() => entities.filter(istMusikbox), [entities]);
-  // Von Hand gewählte Box, solange es sie noch gibt – sonst die naheliegende
-  // (siehe pickPlayer): So sieht man immer nur eine Karte, aber jede Box
-  // lässt sich ansehen und bedienen, nicht nur die gerade spielende.
-  const [chosenId, setChosenId] = useState<string | null>(null);
-  // Die zuletzt im Wähler bestimmte Box - reist bis zum Startbefehl mit.
-  // Ohne dieses Gedächtnis startete eine Playlist auf der zuletzt
-  // aktiven Box statt auf der gewählten: Der Umzug per play_on bleibt
-  // bei stillem Spotify nicht haften (siehe lib/boxwahl).
-  const [wunschBox, setWunschBox] = useState<string | null>(null);
-  const player =
-    (chosenId ? players.find((entity) => entity.id === chosenId) : undefined) ??
-    pickPlayer(entities);
-
-  // Der Wähler übernimmt auch das Verschieben: Kennt die gezeigte Quelle
-  // die Box, zieht die Musik dorthin um (wie früher die «Abspielen
-  // auf»-Chips) und die Karte der Quelle bleibt stehen. Fremde Boxen
-  // wechseln nur die Ansicht.
-  //
-  // Früher galt das nur für Spotify. Seit das Radio danebensteht, war
-  // dessen Boxenwahl auf der Startseite gar nicht erreichbar: Sein
-  // eigenes Panel blendet sie hier aus, weil sie oben in der Kopfzeile
-  // sitzt – nur zog die dann Spotify um statt das Radio.
-  const choose = (ziel: Entity) => {
-    const quelle = player && hatEigeneAuswahl(player) ? player : undefined;
-    // Eine gewählte *Box* ist immer eine Ansage, wohin die Musik soll -
-    // auch wenn die gezeigte Quelle gerade nicht umziehen kann. Der
-    // Wunsch gehört deshalb dem Wähler und nicht der Quelle: Er
-    // überlebt den Wechsel auf «Radio» und gilt, bis jemand eine andere
-    // Box wählt (lib/boxwahl.ts, boxLabel erklärt den gemeldeten Fall).
-    if (!hatEigeneAuswahl(ziel)) setWunschBox(ziel.name);
-    // Die Entscheidung selbst liegt in lib/boxwahl.ts - dieselbe, die
-    // auch das Musik-Blatt über der Raumkachel trifft.
-    const wechsel = boxWechsel(quelle ? wechselQuelle(quelle) : null, ziel);
-    if (wechsel.art === 'umzug' && quelle) {
-      onCommand?.(quelle.id, 'play_on', { device: wechsel.device, play: wechsel.play });
-      setChosenId(quelle.id);
-    } else {
-      setChosenId(ziel.id);
-    }
-  };
-
-  // Die Box des offenen Raums – immer die des Raums, in dem man gerade
-  // steht. Läuft sie ohnehin schon oben (weil sie die spielende des
-  // Hauses ist), bleibt es bei der einen Karte statt zweimal derselben.
-  const raumBoxen = useMemo(() => musikboxenImRaum(entities, room), [entities, room]);
-  const [chosenRoomId, setChosenRoomId] = useState<string | null>(null);
-  const raumPlayer =
-    (chosenRoomId ? raumBoxen.find((entity) => entity.id === chosenRoomId) : undefined) ??
-    pickPlayer(raumBoxen);
-  const zeigtRaumPlayer = showsRoomPlayer({
-    inRoom: !!room,
-    roomPlayerId: raumPlayer?.id,
-    housePlayerId: player?.id,
-  });
+  // Welche Quelle gezeigt wird und was ein Tipp im Wähler bewirkt, liegt
+  // im Haken - dieselbe Wahl trifft das Blatt über der Raumkachel und
+  // der Streifen im Raumkopf (hooks/useMusikwahl.ts).
+  const musik = useMusikwahl(entities, (id, command, data) =>
+    onCommand?.(id, command, data)
+  );
+  const player = musik.player;
 
   // Was die Spalte hier zeigt. Im Zimmer bleiben Wetter und die Musik
   // des Hauses weg - beides beantwortet keine Frage, die man im Zimmer
@@ -139,45 +80,20 @@ export function SidePanel({
     inRoom: !!room,
     weather: !!weather,
     housePlayer: !!player && !!onCommand,
-    roomPlayer: zeigtRaumPlayer && !!onCommand,
   });
   if (!zeigt.anything) return null;
 
   return (
-    <View
-      style={[
-        styles.column,
-        width ? { width } : { flex: 1 },
-        topOffset > 0 && { marginTop: topOffset },
-      ]}
-    >
+    <View style={[styles.column, width ? { width } : { flex: 1 }]}>
       {zeigt.weather ? <WeatherPanel entity={weather!} /> : null}
       {zeigt.housePlayer && player && onCommand ? (
         <MediaPanel
           entity={player}
-          players={players}
-          // Die Box der *gezeigten* Quelle, nicht immer die von Spotify:
-          // Sonst stünde auf der Radio-Karte, wo Spotify spielt.
-          activeDevice={
-            hatEigeneAuswahl(player) ? ((player.state.device as string) ?? null) : null
-          }
-          onSelect={choose}
+          players={musik.players}
+          activeDevice={musik.activeDevice}
+          onSelect={musik.waehlen}
           onCommand={onCommand}
-          wunschBox={wunschBox}
-        />
-      ) : null}
-      {/* Und darunter der Raum, in dem man steht. Eine Box hier
-          anzutippen wechselt nur die Ansicht innerhalb des Raums – die
-          Musik dorthin zu ziehen wäre der Umzug, den die grosse Karte
-          oben schon kann, und würde die Karte mit einer Box füllen, die
-          gar nicht in diesem Raum steht. */}
-      {zeigt.roomPlayer && onCommand ? (
-        <MediaPanel
-          entity={raumPlayer!}
-          players={raumBoxen}
-          titel={room ?? 'Musik'}
-          onSelect={(speaker) => setChosenRoomId(speaker.id)}
-          onCommand={onCommand}
+          wunschBox={musik.wunschBox}
         />
       ) : null}
     </View>
@@ -188,16 +104,6 @@ export function SidePanel({
  *
  * In der Kachelreihe der Startseite zwang der Spotify-Bereich die
  * Nachbarkacheln auf seine Höhe; hier stört er niemanden. */
-/** Die gezeigte Quelle, wie `boxWechsel` sie braucht. */
-export function wechselQuelle(quelle: Entity) {
-  return {
-    id: quelle.id,
-    kannUmziehen: quelle.commands.includes('play_on'),
-    devices: Array.isArray(quelle.state.devices) ? (quelle.state.devices as string[]) : [],
-    spielt: quelle.state.state === 'playing',
-  };
-}
-
 export function MediaPanel({
   entity,
   players,

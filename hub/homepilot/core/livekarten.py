@@ -926,6 +926,12 @@ def abgleich(
         tokens = alt.get("activity_tokens") or []
         beenden.append(
             {
+                # Art und Person nur fürs Protokoll: Ohne sie hiess die
+                # Zeile im Log «Ende ohne Token - vorgemerkt», und beim
+                # dritten «die Fernseher-Karte liegt immer noch da» war
+                # daraus nicht zu lesen, um welche Karte es ging.
+                "art": alt.get("art"),
+                "user": alt.get("user"),
                 "tokens": tokens,
                 "state": ende.get("state"),
                 "sichtbar": float(ende.get("sichtbar") or 0),
@@ -1139,7 +1145,14 @@ async def _runde(hub: Any, versand: liveaktivitaet.ApnsVersand) -> None:
         if not auftrag["tokens"]:
             # Kein Token, kein Ende - die Karte bleibt vorgemerkt
             # (abgleich, ende_offen), bis die App ihres nachmeldet.
-            log.info("Live-Karte: Ende ohne Token - vorgemerkt")
+            # Sie kommt, sobald die App einmal läuft: Beim Start per
+            # Push weckt iOS sie kurz auf, damit sie das Token abholt
+            # (app/modules/live-aktivitaet, LiveAktivitaetModule).
+            log.info(
+                "Live-Karte %s für %s: Ende ohne Token - vorgemerkt",
+                auftrag.get("art"),
+                auftrag.get("user"),
+            )
             continue
         for token in auftrag["tokens"]:
             await versand.senden(

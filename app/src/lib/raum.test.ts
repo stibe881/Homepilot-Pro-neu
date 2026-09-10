@@ -385,9 +385,13 @@ describe('raumKategorien ohne Kontaktkacheln', () => {
     expect(kategorien.map((gruppe) => gruppe.label)).toEqual(['Beleuchtung']);
   });
 
-  it('behält Melder, die keine Öffnung melden', () => {
+  it('lässt auch die Bewegungsmelder weg', () => {
+    // Eine ganze Kategorie für die Auskunft «Ruhig». Bewegt sich etwas,
+    // sagt es das Männchen im Raumkopf und auf der Raumkachel
+    // (lib/bewegung.ts); bedienen kann man einen Melder ohnehin nicht.
     const kategorien = raumKategorien(
       [
+        geraet({ kind: 'light', name: 'Deckenlicht' }),
         geraet({
           kind: 'binary_sensor',
           name: 'Bewegung',
@@ -396,11 +400,23 @@ describe('raumKategorien ohne Kontaktkacheln', () => {
       ],
       () => 'Bewegungsmelder'
     );
-    expect(kategorien.map((gruppe) => gruppe.label)).toEqual(['Bewegungsmelder']);
+    expect(kategorien.map((gruppe) => gruppe.label)).toEqual(['Beleuchtung']);
   });
 });
 
 describe('raumFakten zählt, was der Raum zeigt', () => {
+  it('lässt Melder aus der Zählung heraus', () => {
+    // «1 an», weil jemand durch den Flur ging - daneben sagt es das
+    // Männchen ohnehin (lib/bewegung.ts).
+    const melder = geraet({
+      kind: 'binary_sensor',
+      name: 'Bewegung',
+      commands: ['turn_on', 'turn_off'],
+      state: { state: 'on', device_class: 'motion' },
+    });
+    expect(raumFakten([melder])).toBe('');
+  });
+
   const lampe = (name: string, an: boolean, patch: Partial<Entity> = {}): Entity =>
     geraet({
       kind: 'light',

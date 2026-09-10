@@ -55,7 +55,9 @@ import { GlobalSearch } from '../components/GlobalSearch';
 import { Grundriss } from '../components/Grundriss';
 import { LiveTuerSchalter } from '../components/LiveTuerSchalter';
 import { PushPrefs } from '../components/PushPrefs';
-import { ActivityCard, SidePanel } from '../components/SidePanel';
+import { ActivityCard, MediaPanel, SidePanel } from '../components/SidePanel';
+import { Raumspieler } from '../components/Raumspieler';
+import { useMusikwahl } from '../hooks/useMusikwahl';
 import { Bestaetigung, Toast, UndoToast } from '../components/Toast';
 import { TopStrip } from '../components/TopStrip';
 import { useHub } from '../hooks/useHub';
@@ -82,7 +84,8 @@ import {
   klingeltGerade,
   vollbildZeigen,
 } from '../lib/klingel';
-import { deviceKindLabel, musikboxenImRaum } from '../lib/geraeteart';
+import { deviceKindLabel, musikboxenImRaum, pickPlayer } from '../lib/geraeteart';
+import { bewegungImRaum } from '../lib/bewegung';
 import { rueckangebot } from '../lib/rueckgriff';
 import { gemerkteAktion, menuLabel } from '../lib/doppeltipp';
 import { leerbild } from '../lib/leerzustand';
@@ -468,18 +471,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Ob die Trennung Bestand hat - erst dann kommt der Ausfall-Balken.
   const ausfall = useAusfall(status);
   const [gridWidth, setGridWidth] = useState(0);
-  // Gemessene Höhe des Raumkopfs (raumBuehne): Um so viel rückt die
-  // Spalte rechts nach unten, damit die Medienkarte nicht neben dem
-  // Raumtitel klebt, sondern erst unter ihm beginnt.
-  const [raumKopfHoehe, setRaumKopfHoehe] = useState(0);
-  // Genauer, sobald messbar: Die Oberkante des ersten Kartenrasters im
-  // Raum (Gruppe + Raster, beide relativ zu ihrem Elternteil gemessen).
-  // Nur mit der Kopfhöhe sass die Medienkarte auf Höhe der Szenen-Zeile
-  // - der gemeldete Fall: Sie soll mit der ersten Kachel links bündig
-  // sein, und was dazwischen liegt (Szenen, Gruppentitel), ist je Raum
-  // verschieden hoch.
-  const [raumGruppeY, setRaumGruppeY] = useState(0);
-  const [raumRasterY, setRaumRasterY] = useState(0);
+  // Die Musik des Zimmers steht im Raumkopf: zugeklappt als Streifen
+  // neben den Szenen, aufgeklappt als ganze Karte darunter. Welche Box
+  // gezeigt wird, hält der Haken (hooks/useMusikwahl.ts) - hier nur, ob
+  // die Karte offen ist.
+  //
+  // Vorher lag sie rechts in der Spalte - auf dem Tablet unter dem
+  // Raumkopf, auf dem Telefon unter allen Kacheln. Damit die Karte dort
+  // nicht neben dem Raumtitel klebte, mass die Seite drei Höhen (Kopf,
+  // Gruppentitel, Raster) und schob die Spalte um deren Summe nach
+  // unten. Genau dieses Feld daneben blieb dabei leer - und in ihm
+  // steht die Musik jetzt.
+  const [musikOffen, setMusikOffen] = useState(false);
   const [editing, setEditing] = useState(false);
   // «Räume ordnen»: Die Reihenfolge kam aus der config.yaml – wer sie
   // ändern wollte, brauchte den Rechner.
@@ -849,10 +852,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     schreiben: setEinkaufLernen,
   };
 
-  // Die Haustür-Karte für unterwegs - tut nur auf einem iPhone mit dem
-  // passenden Build etwas (hooks/useLiveAktivitaet.ts). Hängt am
-  // Profil-Schalter: aus heisst, dieses Gerät meldet gar keine Tokens an.
-  useLiveAktivitaet(settings, status === 'connected' && eigenePrefs.liveTuer !== false);
+  // Die Karten auf dem Sperrbildschirm - tut nur auf einem iPhone mit
+  // dem passenden Build etwas (hooks/useLiveAktivitaet.ts). Hängt am
+  // Profil-Schalter: aus heisst, dieses Gerät meldet gar keine Tokens
+  // an.
+  //
+  // Bewusst *ohne* «verbunden»: Weckt iOS die App kurz auf, weil der
+  // Hub gerade eine Karte gestartet hat, steht der WebSocket noch
+  // nicht - und genau in diesem Fenster gibt es das Token, mit dem der
+  // Hub die Karte später wieder beenden kann. Wer darauf wartet,
+  // verpasst es und behält die Karte, bis jemand die App öffnet.
+  useLiveAktivitaet(settings, eigenePrefs.liveTuer !== false);
 
   // Der Apple Watch die Zugangsdaten hinüberreichen - tut nur auf einem
   // iPhone mit dem passenden Build etwas (hooks/useWatchSync.ts).
@@ -1668,9 +1678,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // «Weitere» über einer Box, die irgendwo steht, sagt nichts.
   const offenerRaum =
     section === 'home' && room !== ALL_ROOMS && room !== NO_ROOM ? room : null;
-  // Die Musik des Raums liegt rechts in der Spalte, unter der grossen
-  // Musikkarte - deshalb hier nicht noch einmal zwischen den Lampen.
+  // Die Musik des Raums steht oben im Raumkopf - deshalb hier nicht
+  // noch einmal zwischen den Lampen.
   const raumBoxen = musikboxenImRaum(inRoom, offenerRaum);
+  // Zur Wahl stehen dieselben Boxen und Quellen wie auf der Startseite;
+  // **vorgewählt** ist die Box dieses Zimmers. Beides gehört zusammen:
+  // Wer im Wohnzimmer steht, will dort hören - und wer die Playlist
+  // trotzdem in die Küche schieben will, soll dafür nicht auf die
+  // Startseite zurück (hooks/useMusikwahl.ts).
+  //
+  // Der Raumname als Schlüssel: Beim Wechsel ins nächste Zimmer gilt
+  // wieder dessen Vorwahl, statt der Box, die man nebenan angetippt hat.
+  const musik = useMusikwahl(entities, guardedCommand, pickPlayer(raumBoxen), room);
+  // Der Streifen steht nur, wo das Zimmer eine eigene Box hat. Sonst
+  // wäre er die Musik des Nachbarzimmers im Kopf dieses Zimmers - und
+  // genau das soll er nicht sein.
+  const kopfSpieler = raumBoxen.length > 0 ? musik.player : undefined;
 
   // Ausgeblendete und in einer Leuchte aufgegangene Spots verschwinden
   // aus den Alltagsansichten, bleiben aber unter „Geräte“ sichtbar –
@@ -1899,6 +1922,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // stehen, während sie spielt. Was nicht mitzählt (aufgegangene Spots,
   // Ausgeblendetes), sortiert raumFakten selbst aus.
   const raumKopf = categorized ? raumFakten(inRoom, hidden) : '';
+  // Bewegt sich gerade etwas im Zimmer? Der Melder hat dafür keine
+  // Kachel mehr - ein Männchen hinter der Faktenzeile sagt es, und nur
+  // solange es stimmt (lib/bewegung.ts).
+  const raumBewegung = categorized && bewegungImRaum(inRoom, hidden);
+  // Ein Zimmer, in dem etwas hängt, aber nichts eine Kachel bekommt:
+  // Seit Fühler, Kontakte und Bewegungsmelder im Kopf stehen, gibt es
+  // solche Zimmer (ein Flur mit einem einzigen Melder).
+  const ohneKachel = categorized && inRoom.length > 0 && categories.length === 0;
   // Von der linken Kante nach rechts: zurück zur Raumliste. Derselbe
   // Weg wie «‹ Räume» oben links - nur erreichbar, ohne umzugreifen
   // (lib/zurueckwischen.ts). Beim Anpassen bleibt sie aus: Dort zieht
@@ -3251,10 +3282,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               Der Titel bleibt auch im Anpassen-Modus stehen: Gerade dort
               darf man sich nicht im Zimmer irren. */}
           {section === 'home' && room !== ALL_ROOMS ? (
-            <View
-              style={styles.raumBuehne}
-              onLayout={(event) => setRaumKopfHoehe(event.nativeEvent.layout.height)}
-            >
+            <View style={styles.raumBuehne}>
               {/* Der Farbton des Zimmers, derselbe wie auf seiner Kachel
                   in der Übersicht (lib/raumkarte.ts). Er zieht sich damit
                   durch: Man weiss beim Hinsehen, wo man ist, bevor man
@@ -3348,16 +3376,69 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   </View>
                 ) : null}
               </View>
-              {raumKopf ? <Text style={styles.raumFakten}>{raumKopf}</Text> : null}
+              {raumKopf || raumBewegung ? (
+                <View style={styles.raumFaktenZeile}>
+                  {raumKopf ? <Text style={styles.raumFakten}>{raumKopf}</Text> : null}
+                  {raumBewegung ? (
+                    <View
+                      accessibilityRole="image"
+                      accessibilityLabel="Bewegung im Raum"
+                      style={styles.raumBewegung}
+                    >
+                      <Ionicons name="walk" size={15} color={colors.onGradient} />
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
               {/* Die Szenen des Zimmers gehören hierher, nicht unter die
                   Kacheln: Sie sind der erste Griff beim Betreten
                   («Kino», «Sternenhimmel»), und man soll ihn nicht
                   suchen. Bisher lagen sie an zwei Stellen weiter unten -
                   die Szenen des Hubs als Gruppe, die Lichtszenen der
                   Bridge als eigene Kategorie hinter allen Geräten. */}
-              {roomScenes.length > 0 ? (
-                <SceneRow scenes={roomScenes} onActivate={szeneAusloesen} />
+              {/* Szenen links, die Musik des Zimmers rechts - beide in
+                  einer Zeile, weil rechts neben den Szenenknöpfen bisher
+                  ein leeres Feld stand. Wird es eng (Telefon, schmales
+                  Fenster), rutscht der Streifen auf eine eigene Zeile,
+                  statt die Szenen zu quetschen. */}
+              {roomScenes.length > 0 || kopfSpieler ? (
+                <View style={styles.raumUnterzeile}>
+                  <View style={styles.raumSzenen}>
+                    {roomScenes.length > 0 ? (
+                      <SceneRow scenes={roomScenes} onActivate={szeneAusloesen} />
+                    ) : null}
+                  </View>
+                  {kopfSpieler ? (
+                    <Raumspieler
+                      entity={kopfSpieler}
+                      offen={musikOffen}
+                      onToggle={() => setMusikOffen((offen) => !offen)}
+                      onCommand={guardedCommand}
+                    />
+                  ) : null}
+                </View>
               ) : null}
+            </View>
+          ) : null}
+          {/* Aufgeklappt dieselbe Karte, die früher rechts in der Spalte
+              stand: Playlist, Sender, Box, Warteschlange, Lautstärke.
+              Sie steht unter dem Kopf und über den Kacheln - dort, wo
+              der Streifen sie ankündigt. */}
+          {musikOffen && kopfSpieler && section === 'home' && room !== ALL_ROOMS ? (
+            <View style={styles.raumMusikkarte}>
+              <MediaPanel
+                entity={kopfSpieler}
+                players={musik.players}
+                titel={room}
+                activeDevice={musik.activeDevice}
+                // Dieselbe Wahl wie auf der Startseite: Kennt die
+                // gezeigte Quelle die angetippte Box, zieht die Musik
+                // dorthin um - sonst wechselt nur die Ansicht
+                // (lib/musikwahl.ts).
+                onSelect={musik.waehlen}
+                onCommand={guardedCommand}
+                wunschBox={musik.wunschBox}
+              />
             </View>
           ) : null}
           {/* Kacheln anpassen heisst: verschieben, ausblenden, sperren,
@@ -3675,27 +3756,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   </>
                 ) : null}
               </View>
-              {categories.map((group, gruppenIndex) => (
-                <View
-                  key={group.key}
-                  style={styles.group}
-                  // Nur die erste Gruppe wird vermessen: An ihrer ersten
-                  // Kachel richtet sich die Medienkarte rechts aus.
-                  onLayout={
-                    gruppenIndex === 0
-                      ? (event) => setRaumGruppeY(event.nativeEvent.layout.y)
-                      : undefined
-                  }
-                >
+              {categories.map((group) => (
+                <View key={group.key} style={styles.group}>
                   <Text style={styles.groupLabel}>{group.label}</Text>
-                  <View
-                    style={styles.grid}
-                    onLayout={
-                      gruppenIndex === 0
-                        ? (event) => setRaumRasterY(event.nativeEvent.layout.y)
-                        : undefined
-                    }
-                  >
+                  <View style={styles.grid}>
                     {/* `imRaumblock`: Man steht in einem Zimmer, jede
                         Kachel darin gehört dazu. Ohne das stand unter
                         jedem der sechs Bürolichter noch einmal «Büro» -
@@ -3764,38 +3828,34 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             <View style={styles.grid}>{cardWidth ? rest.map(renderCell) : null}</View>
           ) : null}
 
-          {inRoom.length === 0 ? (
+          {/* Leer ist auch ein Zimmer, in dem zwar etwas hängt, aber
+              nichts davon eine Kachel bekommt: Fühler und
+              Bewegungsmelder stehen im Raumkopf. Ohne diesen Fall
+              stünde dort eine weisse Fläche - und die sieht aus wie ein
+              Fehler, nicht wie eine Auskunft. */}
+          {inRoom.length === 0 || ohneKachel ? (
             <Leerzustand
               bild={leerbild(
                 section,
                 section === 'home' && room !== ALL_ROOMS && room !== NO_ROOM ? room : null,
-                status === 'connected'
+                status === 'connected',
+                ohneKachel
               )}
               onAktion={() => setSection('devices')}
             />
           ) : null}
         </View>
 
+        {/* Im Zimmer bleibt die Spalte ganz weg: Wetter und die Musik
+            des Hauses gehören dort nicht hin (lib/seitenspalte.ts), und
+            die Box des Zimmers steht jetzt oben im Raumkopf. Damit
+            entfällt auch das Ausrichten der Medienkarte auf die erste
+            Kachel - drei gemessene Höhen weniger. */}
         <SidePanel
           entities={entities}
           width={hasSidePanel ? panelWidth : undefined}
           room={offenerRaum}
           onCommand={guardedCommand}
-          // Im Raum beginnt die Spalte bündig mit der ersten Kachel
-          // links - gemessen, kein fester Wert: Was darüber liegt
-          // (Raumkopf, Szenen, Gruppentitel), ist je Raum verschieden
-          // hoch. Solange die Messung noch fehlt, wenigstens unter den
-          // Raumkopf - die Medienkarte stritt sonst mit «‹ Räume» und
-          // dem Raumnamen um dieselbe Zeile.
-          topOffset={
-            hasSidePanel && offenerRaum
-              ? raumGruppeY + raumRasterY > 0
-                ? raumGruppeY + raumRasterY
-                : raumKopfHoehe > 0
-                  ? raumKopfHoehe + space.gap
-                  : 0
-              : 0
-          }
         />
       </View>
     );

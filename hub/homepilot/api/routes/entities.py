@@ -7,6 +7,7 @@ Sachgebiet statt 3800 Zeilen am Stück. Die Routen selbst sind unverändert
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any
@@ -20,6 +21,7 @@ from fastapi import (
 
 from ...core import batterie, cliparchiv, kurzverlauf, spaeter, widgetkarten
 from ...core import replace as replace_module
+from ...core import streams as streams_modul
 from ...core import throttle as throttle_module
 from ...core.errors import HomePilotError, UnknownEntityError, UnsupportedCommandError
 from ...core.source import as_source, user_source
@@ -28,6 +30,7 @@ from ...core.streams import (
     StreamError,
     apple_player,
     apple_schnell,
+    hat_echtes_haeppchen,
     ohne_luecken,
     rewrite_playlist,
     start_rueckstand,
@@ -523,26 +526,56 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     # Zeile nicht bei jedem Häppchen.
     apple_gemeldet = False
 
-    async def deliver(target, request: Request, prefix: str) -> Response:
+    async def deliver(
+        target, request: Request, prefix: str, auf_bilder: bool = False
+    ) -> Response:
         """Wiedergabeliste oder Häppchen ausliefern – aus Datei oder mediamtx.
 
         Wiedergabelisten werden dabei umgeschrieben: Ein Videoplayer schickt
         beim Abarbeiten keine eigenen Kopfzeilen mit, das Token muss also in
         jeder Adresse stehen.
+
+        ``auf_bilder`` wartet, bis wirklich ein Häppchen in der Liste
+        steht - siehe unten und core/streams.py, BILD_FRIST.
         """
         query = str(request.url.query or "")
-        if target.url:
-            content, media_type = await hub.streams.fetch(target, query)
-        else:
+
+        async def holen() -> tuple[bytes, str]:
+            if target.url:
+                return await hub.streams.fetch(target, query)
             if not target.path.is_file():
                 raise HTTPException(status_code=404, detail="Häppchen nicht mehr vorhanden")
-            content = target.path.read_bytes()
-            media_type = (
+            return target.path.read_bytes(), (
                 "application/vnd.apple.mpegurl"
                 if target.path.suffix == ".m3u8"
                 else "video/mp2t"
             )
+
+        content, media_type = await holen()
         if "mpegurl" in media_type or str(target.path or target.url).endswith(".m3u8"):
+            # Auf das erste echte Häppchen warten, statt eine Liste
+            # herauszugeben, in der nichts zu holen ist.
+            #
+            # Gemeldet als «im Browser schwarz, auf dem Handy geht es -
+            # und danach geht es auch im Browser». Genau der Unterschied
+            # zwischen einem geduldigen und einem ungeduldigen Player:
+            # mediamtx zapft die Kamera erst an, wenn jemand zusieht, und
+            # bis zum ersten vollständigen Bild vergehen vier bis acht
+            # Sekunden. AVPlayer fragt so lange weiter, hls.js hängt sich
+            # an die leere Liste und bleibt stehen - ohne Fehler, ohne
+            # Bild. Der Hub weiss als Einziger, dass der Strom gerade
+            # anläuft; also wartet er hier, statt das jedem Player
+            # einzeln beizubringen.
+            if auf_bilder:
+                # Über das Modul gelesen, nicht als Wert übernommen: So
+                # gilt eine Änderung sofort - und der Prüfstand kann die
+                # Frist herunterdrehen, statt zehn Sekunden zu warten.
+                ende = time.monotonic() + streams_modul.BILD_FRIST
+                while not hat_echtes_haeppchen(
+                    content.decode("utf-8", "replace")
+                ) and time.monotonic() < ende:
+                    await asyncio.sleep(streams_modul.BILD_TAKT)
+                    content, media_type = await holen()
             text = rewrite_playlist(
                 content.decode("utf-8", "replace"),
                 prefix,
@@ -606,7 +639,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             target = await hub.streams.playlist(entity_id, source)
             # Die Häppchen liegen unter .../stream/ – von der Liste aus
             # gesehen also ein Verzeichnis tiefer.
-            return await deliver(target, request, prefix="stream/")
+            return await deliver(target, request, prefix="stream/", auf_bilder=True)
         except StreamError as err:
             # Auch ins Log: Die App zeigt nur «nicht verfügbar», die
             # Ursache steht sonst nirgends.

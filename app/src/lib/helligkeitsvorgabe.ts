@@ -26,6 +26,10 @@ import { Entity } from '../api/types';
  *  mit keiner Stufe. */
 export const NACH_RAUM = 'lux';
 export const NACH_TAGESZEIT = 'uhr';
+/** «Helligkeit lassen, wie sie war» - beim Umschalten die Vorgabe: Ein
+ *  Taster, der die Lampe jedes Mal auf 50 % zwingt, nimmt einem das
+ *  Dimmen von Hand wieder weg. */
+export const UNVERAENDERT = '';
 
 export type Helligkeitsquelle = 'zahl' | 'raum' | 'tageszeit';
 
@@ -65,16 +69,26 @@ export function quelleVon(action: {
   return 'zahl';
 }
 
-/** Der Wert für die Chip-Reihe (rein, testbar). */
-export function chipWert(action: {
-  adaptive?: boolean;
-  nachTageszeit?: boolean;
-  brightness?: number;
-}): string {
+/**
+ * Der Wert für die Chip-Reihe (rein, testbar).
+ *
+ * `standard` ist, was ohne eigene Angabe gilt: bei «ein, gedimmt» die
+ * halbe Helligkeit (irgendeine Zahl muss die Lampe bekommen), beim
+ * Umschalten dagegen «unverändert» - dort ist die Helligkeit eine
+ * Zugabe, keine Pflicht.
+ */
+export function chipWert(
+  action: {
+    adaptive?: boolean;
+    nachTageszeit?: boolean;
+    brightness?: number;
+  },
+  standard = '50'
+): string {
   const quelle = quelleVon(action);
   if (quelle === 'raum') return NACH_RAUM;
   if (quelle === 'tageszeit') return NACH_TAGESZEIT;
-  return String(action?.brightness ?? 50);
+  return action?.brightness === undefined ? standard : String(action.brightness);
 }
 
 /**
@@ -91,14 +105,23 @@ export function chipWahl(key: string): {
 } {
   if (key === NACH_RAUM) return { adaptive: true, nachTageszeit: undefined };
   if (key === NACH_TAGESZEIT) return { adaptive: undefined, nachTageszeit: true };
+  // `Number('')` wäre 0 - eine Lampe, die auf null Prozent «angeht».
+  if (key === UNVERAENDERT) {
+    return { adaptive: undefined, nachTageszeit: undefined, brightness: undefined };
+  }
   return { adaptive: undefined, nachTageszeit: undefined, brightness: Number(key) };
 }
 
 /** Die Stufen und die beiden Quellen, in dieser Reihenfolge (rein, testbar). */
 export function helligkeitsOptionen(
-  raumMoeglich: boolean
+  raumMoeglich: boolean,
+  mitUnveraendert = false
 ): { key: string; label: string }[] {
   return [
+    // Nur beim Umschalten: Dort ist die Helligkeit eine Zugabe zum
+    // «geht an», und wer sie nicht angibt, will sie nicht angerührt
+    // haben.
+    ...(mitUnveraendert ? [{ key: UNVERAENDERT, label: 'Helligkeit lassen' }] : []),
     { key: '10', label: '10 %' },
     { key: '25', label: '25 %' },
     { key: '50', label: '50 %' },

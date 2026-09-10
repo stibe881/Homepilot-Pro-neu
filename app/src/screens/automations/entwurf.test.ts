@@ -104,6 +104,40 @@ describe('Nachricht-Empfänger (Punkt 158)', () => {
   });
 });
 
+describe('Nachricht mit Verzögerung', () => {
+  it('lässt «sofort» ganz weg', () => {
+    // Ein `delay: 0` in jedem Ablauf wäre Ballast in der Datei - und
+    // beim Vergleichen zweier Abläufe ein Unterschied, der keiner ist.
+    const [action] = stepToActions({
+      ...EMPTY_STEP,
+      kind: 'notify',
+      title: 'Hallo',
+      body: '',
+    });
+    expect(action.delay).toBeUndefined();
+  });
+
+  it('trägt die Sekunden hin und zurück', () => {
+    // Der Fall: «Jemand hat die Türe geöffnet» mit einem Bild, auf dem
+    // niemand steht - das Bild entsteht beim Senden und wartet mit.
+    const [action] = stepToActions({
+      ...EMPTY_STEP,
+      kind: 'notify',
+      title: 'Türe',
+      body: '',
+      notifyCamera: 'unifi.keller',
+      notifyVerzoegerung: 5,
+    });
+    expect(action.delay).toBe(5);
+    expect(actionsToSteps([action])[0].notifyVerzoegerung).toBe(5);
+  });
+
+  it('nimmt Unsinn aus einer alten Datei als «sofort»', () => {
+    expect(actionsToSteps([{ type: 'notify', delay: 'gleich' }])[0].notifyVerzoegerung).toBe(0);
+    expect(actionsToSteps([{ type: 'notify' }])[0].notifyVerzoegerung).toBe(0);
+  });
+});
+
 describe('Und/Oder-Gruppen (Punkt 152)', () => {
   const basis = {
     id: 'x',
@@ -389,14 +423,54 @@ describe('Licht mit Feinheiten', () => {
     expect(istLichtFein({ command: 'set_brightness', colorTemp: 286 })).toBe(true);
   });
 
+  it('nimmt das Umschalten mit - der Wandtaster', () => {
+    // Der Hub kennt seit Kurzem `toggle` am Licht-Schritt: Brennt die
+    // Lampe, geht sie aus; brennt sie nicht, geht sie so an, wie es
+    // hier steht. Vorher fielen die Feinheiten beim Umschalten
+    // stillschweigend weg, und man musste sich zwischen «immer an» und
+    // «umschalten ohne Vorgaben» entscheiden.
+    expect(istLichtFein({ command: 'toggle', colorTemp: 286 })).toBe(true);
+    // Auch die blosse Helligkeit zählt: Einen Chip «umschalten,
+    // gedimmt» gibt es nicht, die Zahl steht unter demselben Knopf.
+    expect(istLichtFein({ command: 'toggle', brightness: 20 })).toBe(true);
+    // Ohne Vorgabe bleibt es das schlichte Kommando von früher.
+    expect(istLichtFein({ command: 'toggle' })).toBe(false);
+  });
+
   it('nur beim Einschalten - «aus» hat keine Feinheiten', () => {
     // Der Aktionstyp 'light' heisst beim Hub «mach sie an, und zwar so»;
-    // einen Befehl trägt er gar nicht mit. Eine Farbe, die vom
+    // einen Befehl trägt er nur als `toggle`. Eine Farbe, die vom
     // Einschalten stehen geblieben ist, darf ein «aus» nicht dorthin
     // schicken.
     expect(istLichtFein({ command: 'turn_off', color: '#FFD9A0' })).toBe(false);
     expect(istLichtFein({ command: 'turn_off', offAfter: 300 })).toBe(false);
-    expect(istLichtFein({ command: 'toggle', colorTemp: 286 })).toBe(false);
+  });
+
+  it('trägt das Umschalten samt Vorgaben hin und zurück', () => {
+    const step = licht({ command: 'toggle', brightness: 20, colorTemp: 400 });
+    const [gespeichert] = stepToActions(step);
+    expect(gespeichert).toMatchObject({
+      type: 'light',
+      toggle: true,
+      brightness: 20,
+      color_temp: 400,
+    });
+    const [zurueck] = actionsToSteps([gespeichert]);
+    expect(zurueck.commandActions[0]).toMatchObject({
+      command: 'toggle',
+      brightness: 20,
+      colorTemp: 400,
+    });
+  });
+
+  it('lässt die Helligkeit beim Umschalten weg, wenn keine gewählt ist', () => {
+    // «Helligkeit lassen» ist dort die Vorgabe - ein Taster, der jedes
+    // Mal auf 50 % zwingt, nähme einem das Dimmen von Hand weg.
+    const [gespeichert] = stepToActions(
+      licht({ command: 'toggle', brightness: undefined, color: '#FFD9A0' })
+    );
+    expect(gespeichert.toggle).toBe(true);
+    expect(gespeichert.brightness).toBeUndefined();
   });
 
   it('«aus» bleibt «aus» - auch mit stehen gebliebener Farbe', () => {

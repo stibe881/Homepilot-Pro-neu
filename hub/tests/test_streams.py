@@ -482,3 +482,130 @@ def test_ffmpeg_wartet_nicht_erst_fuenf_sekunden_auf_seine_analyse(tmp_path):
     rueckfall = ffmpeg_command("rtsp://10.10.1.10:7447/abc", tmp_path)
     assert rueckfall.index("-probesize") < rueckfall.index("-i")
     assert rueckfall.index("-fflags") < rueckfall.index("-i")
+
+
+# ── Warten, bis der Strom wirklich ein Bild hat ───────────────────────────
+#
+# Gemeldet als «im Browser bleibt es schwarz, auf dem Handy geht es - und
+# danach geht es auch im Browser». mediamtx zapft die Kamera erst an, wenn
+# jemand zusieht, und eine Protect-Kamera braucht bis zum ersten
+# vollständigen Bild vier bis acht Sekunden. So lange besteht die Liste nur
+# aus Platzhaltern. AVPlayer fragt in dieser Zeit weiter, hls.js hängt sich
+# an die leere Liste und bleibt stehen.
+
+NUR_LUECKEN = """#EXTM3U
+#EXT-X-VERSION:10
+#EXT-X-TARGETDURATION:1
+#EXT-X-MEDIA-SEQUENCE:1
+#EXT-X-MAP:URI="cb30_video1_init.mp4"
+#EXT-X-GAP
+#EXTINF:1.00000,
+gap.mp4
+#EXT-X-GAP
+#EXTINF:1.00000,
+gap.mp4
+#EXT-X-PRELOAD-HINT:TYPE=PART,URI="cb30_video1_part5.mp4"
+"""
+
+
+def test_eine_liste_aus_lauter_platzhaltern_hat_kein_bild():
+    """Genau daran hing der Browser: Es gibt nichts zu laden, aber auch
+    nichts zu melden - also schwarz, ohne Fehler."""
+    from homepilot.core.streams import hat_echtes_haeppchen
+
+    assert hat_echtes_haeppchen(NUR_LUECKEN) is False
+
+
+def test_ein_einziges_echtes_haeppchen_genuegt():
+    """Sobald eines da ist, kann der Player loslegen - auf das zweite muss
+    er nicht warten."""
+    from homepilot.core.streams import hat_echtes_haeppchen
+
+    assert hat_echtes_haeppchen(MIT_LUECKEN) is True
+
+
+def test_eine_gewoehnliche_liste_hat_selbstverstaendlich_ein_bild():
+    from homepilot.core.streams import hat_echtes_haeppchen
+
+    assert hat_echtes_haeppchen(PLAYLIST) is True
+    assert hat_echtes_haeppchen(LOW_LATENCY) is True
+
+
+def test_eine_liste_ganz_ohne_haeppchen_hat_kein_bild():
+    """Der allererste Augenblick: mediamtx hat den Pfad angelegt, die
+    Kamera hat noch nichts geliefert."""
+    from homepilot.core.streams import hat_echtes_haeppchen
+
+    assert hat_echtes_haeppchen("#EXTM3U\n#EXT-X-VERSION:10\n") is False
+    assert hat_echtes_haeppchen("") is False
+
+
+def test_eine_luecke_hinter_einem_echten_haeppchen_zaehlt_nicht_dagegen():
+    """`#EXT-X-GAP` gilt nur für den unmittelbar folgenden Eintrag - was
+    davor steht, bleibt ein Bild."""
+    from homepilot.core.streams import hat_echtes_haeppchen
+
+    liste = (
+        "#EXTM3U\n#EXTINF:1.0,\nseg1.mp4\n#EXT-X-GAP\n#EXTINF:1.0,\ngap.mp4\n"
+    )
+    assert hat_echtes_haeppchen(liste) is True
+
+
+def test_die_liste_wird_erst_ausgeliefert_wenn_ein_bild_da_ist(tmp_path, monkeypatch):
+    """Der schwarze Browser beim Umschalten auf Live.
+
+    mediamtx zapft die Kamera erst an, wenn jemand zusieht, und bis zum
+    ersten vollständigen Bild vergehen Sekunden. So lange besteht die
+    Liste nur aus Platzhaltern. AVPlayer fragt einfach weiter - deshalb
+    kommt auf dem Handy nach drei bis fünf Sekunden ein Bild. hls.js
+    hängt sich an die leere Liste und bleibt stehen, ohne Fehler. Wer
+    danach den Browser neu lud, sah es dann doch: Der Strom lief ja.
+
+    Also wartet der Hub. Er weiss als Einziger, dass der Strom gerade
+    anläuft.
+    """
+    from homepilot.core import streams as streams_modul
+
+    monkeypatch.setattr(streams_modul, "BILD_TAKT", 0.01)
+    hub, patch = make_client(tmp_path)
+    liste = tmp_path / "index.m3u8"
+    liste.write_text(NUR_LUECKEN)
+    abrufe = {"n": 0}
+    echte_datei = liste.read_bytes
+
+    def langsam_ein_bild():
+        abrufe["n"] += 1
+        if abrufe["n"] >= 3:
+            liste.write_text(MIT_LUECKEN)
+        return echte_datei()
+
+    monkeypatch.setattr(Path, "read_bytes", lambda self: (
+        langsam_ein_bild() if self == liste else echte_datei()
+    ))
+    with TestClient(create_app(hub)) as client:
+        patch()
+        antwort = client.get(
+            "/api/entities/demo.light_livingroom/stream.m3u8?token=geheim"
+        )
+    assert antwort.status_code == 200
+    assert "cb30_video1_seg7.mp4" in antwort.text
+    assert abrufe["n"] >= 3
+
+
+def test_der_hub_wartet_nicht_ewig(tmp_path, monkeypatch):
+    """Liefert die Kamera gar nichts, kommt die Liste trotzdem heraus -
+    dann sagt der Player selbst, dass nichts kommt. Ewig zu warten hiesse,
+    die App am offenen Abruf hängen zu lassen."""
+    from homepilot.core import streams as streams_modul
+
+    monkeypatch.setattr(streams_modul, "BILD_TAKT", 0.001)
+    monkeypatch.setattr(streams_modul, "BILD_FRIST", 0.01)
+    hub, patch = make_client(tmp_path)
+    (tmp_path / "index.m3u8").write_text(NUR_LUECKEN)
+    with TestClient(create_app(hub)) as client:
+        patch()
+        antwort = client.get(
+            "/api/entities/demo.light_livingroom/stream.m3u8?token=geheim"
+        )
+    assert antwort.status_code == 200
+    assert antwort.text.startswith("#EXTM3U")

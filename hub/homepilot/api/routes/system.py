@@ -686,7 +686,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         return {
             "extras": zeilen,
             "summary": extras.satz(zeilen),
+            # Der Befehl richtet sich danach, wo dieser Hub wirklich
+            # läuft: Im Container half «pip install» im Hub-Ordner
+            # nicht - der Ordner liegt dort gar nicht, und der Host hat
+            # kein pip (siehe core/extras.py, befehl).
             "command": extras.befehl(zeilen),
+            "note": extras.hinweis(zeilen),
         }
 
     @app.get("/api/system/changes")
