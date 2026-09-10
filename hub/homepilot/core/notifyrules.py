@@ -204,9 +204,10 @@ RULES: list[dict[str, Any]] = [
         "title": "Saugroboter meldet ein Problem",
         "detail": "Sofort, wenn der Sauger oder seine Station nicht "
         "weiterkommen - leerer Wassertank, voller Schmutzwassertank, "
-        "festgefahren. Einmal je Problem; nach dem Beheben ist die "
-        "Meldung wieder scharf. Bisher stand das nur in der "
-        "Hersteller-App.",
+        "festgefahren. Einmal je Problem, und erst wieder, wenn es nach "
+        "dem Beheben erneut auftritt - keine tägliche Erinnerung: Was "
+        "sich nicht ändert, hat nichts Neues zu sagen. Bisher stand das "
+        "nur in der Hersteller-App.",
         "params": [],
     },
     {

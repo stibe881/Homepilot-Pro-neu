@@ -881,6 +881,146 @@ async def test_ein_sauger_problem_wird_einmal_gemeldet_und_ist_danach_wieder_sch
         await hub.stop()
 
 
+def test_die_station_meldet_denselben_tank_nicht_zweimal():
+    """Aus dem `saugercheck` im Haus: drei Nachrichten für zwei Sachen.
+
+    Der volle Schmutzwassertank stand gleichzeitig als
+    `error: waste_water_tank_full` und als `dirty_water:
+    full_not_installed` da - zwei Nachrichten für einen Tank. Wer zwei
+    bekommt, liest die zweite nicht mehr.
+    """
+    from homepilot.core.watchdog import sauger_probleme
+
+    entities = [
+        sauger(
+            "roborock.olga",
+            {
+                "state": "charging",
+                "dock": {
+                    "error": "waste_water_tank_full",
+                    "dirty_water": "full_not_installed",
+                    "clear_water": "empty_not_installed",
+                },
+            },
+        )
+    ]
+    gefunden = sauger_probleme(entities)
+    texte = [text for (_, _, text) in gefunden]
+    # Einmal der Schmutzwassertank - mit dem genaueren Satz aus `error` -
+    # und einmal der Frischwassertank, der eine eigene Sache ist.
+    assert texte == [
+        "Der Schmutzwassertank ist voll.",
+        "Der Frischwassertank ist leer oder nicht eingesetzt.",
+    ]
+
+
+def test_dock_thema_faellt_auf_das_feld_zurueck():
+    """Ein unbekannter Wert in `error` ist eine eigene Sache und darf
+    keine andere Meldung verdrängen."""
+    from homepilot.core.watchdog import dock_thema
+
+    assert dock_thema("error", "waste_water_tank_full") == "dirty_water"
+    assert dock_thema("dirty_water", "full_not_installed") == "dirty_water"
+    assert dock_thema("error", "vertical_bumper_pressed") == "error"
+
+
+def test_sauger_erreichbar_zaehlt_nur_wer_wirklich_geantwortet_hat():
+    """Ein schweigender Sauger ist kein Sauger ohne Probleme.
+
+    Daran hing der Schwall an einem Morgen: Das Gedächtnis der schon
+    gemeldeten Probleme wurde geleert, sobald ein Sauger nichts mehr
+    meldete - und ein Sauger, dessen Wolke gerade nicht antwortet,
+    meldet nichts.
+    """
+    from types import SimpleNamespace
+
+    from homepilot.core.watchdog import sauger_erreichbar
+
+    redet = SimpleNamespace(
+        id="roborock.z70", kind="vacuum", available=True, state={"state": "docked"}
+    )
+    offline = SimpleNamespace(
+        id="roborock.alt", kind="vacuum", available=False, state={"state": "docked"}
+    )
+    leer = SimpleNamespace(id="roborock.neu", kind="vacuum", available=True, state={})
+    licht = SimpleNamespace(id="demo.light", kind="light", available=True, state={"state": "on"})
+
+    assert sauger_erreichbar([redet, offline, leer, licht]) == {"roborock.z70"}
+
+
+async def test_a_lasting_vacuum_problem_is_not_repeated_every_morning():
+    """Gemeldet wird die Änderung, nicht der Zustand.
+
+    Der gemeldete Fall: An einem Morgen kamen alle Sauger- und
+    Stationsmeldungen auf einmal - Tankstände, die seit Tagen so waren.
+    Die tägliche Erinnerung stammte von den Batterien; beim Sauger ist
+    sie falsch, weil sich nichts geändert hat. Ein Schwall, in dem
+    nichts Neues steht, ist einer, den man wegwischt - samt der einen
+    Nachricht, die etwas Neues sagt.
+    """
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        sent: list[str] = []
+
+        async def fake_send(tokens, title, body, data=None, image=None, **_):
+            sent.append(body)
+            return len(tokens)
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+
+        kaputt = [sauger("roborock.z70", {"state": "docked", "dock": {"error": "water_empty"}})]
+        await hub.watchdog._check_sauger(kaputt)
+        assert len(sent) == 1
+
+        # Zwei Tage später, Problem unverändert: kein Wort mehr.
+        rows = hub.data.get("vacuum_notified")
+        for row in rows:
+            row["at"] = time.time() - 2 * 24 * 3600
+        hub.data.set("vacuum_notified", rows)
+        await hub.watchdog._check_sauger(kaputt)
+        assert len(sent) == 1
+    finally:
+        await hub.stop()
+
+
+async def test_a_silent_vacuum_does_not_clear_what_was_already_reported():
+    """Schweigen ist kein «alles in Ordnung».
+
+    Roborock hängt an einer Wolke, und nach einem Neustart des Hubs
+    steht die Entität schon da, bevor der erste Abruf zurück ist. Wurde
+    das als «Problem behoben» gelesen, war das Gedächtnis leer - und
+    beim nächsten Durchgang ging jedes offene Problem wieder als neue
+    Nachricht hinaus. Alle auf einmal.
+    """
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        sent: list[str] = []
+
+        async def fake_send(tokens, title, body, data=None, image=None, **_):
+            sent.append(body)
+            return len(tokens)
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+
+        kaputt = [sauger("roborock.z70", {"state": "docked", "dock": {"error": "water_empty"}})]
+        stumm = [sauger("roborock.z70", {})]
+
+        await hub.watchdog._check_sauger(kaputt)
+        assert len(sent) == 1
+
+        # Der Sauger sagt eine Runde lang gar nichts - und danach steht
+        # dasselbe Problem wieder da.
+        await hub.watchdog._check_sauger(stumm)
+        await hub.watchdog._check_sauger(kaputt)
+        assert len(sent) == 1
+    finally:
+        await hub.stop()
+
+
 async def test_open_reminder_survives_a_hub_restart():
     """«Terrasse steht offen» kam nach jedem Update erneut - der Merker
     lebte nur im Arbeitsspeicher, und jedes Update startet den Hub neu.

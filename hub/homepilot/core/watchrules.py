@@ -251,6 +251,38 @@ SAUGER_OK = frozenset({"none", "ok", "okay", "0"})
 DOCK_MELDER = ("error", "dirty_water", "clear_water", "dust_bag", "water_shortage")
 
 
+#: Worum es bei einer Stationsmeldung geht - für die Fälle, in denen die
+#: Station dieselbe Sache zweimal meldet.
+#:
+#: Der gemeldete Fall, aus dem `saugercheck` im Haus: Ein voller
+#: Schmutzwassertank steht gleichzeitig als ``error:
+#: waste_water_tank_full`` *und* als ``dirty_water: full_not_installed``
+#: da. Das sind zwei Nachrichten für einen Tank - und wer zwei bekommt,
+#: liest die zweite nicht mehr. Gemeldet wird die erste; `error` steht
+#: in DOCK_MELDER vorn, und sein Satz ist der genauere («ist voll» statt
+#: «ist voll oder nicht eingesetzt»).
+DOCK_THEMA: dict[str, str] = {
+    "waste_water_tank_full": "dirty_water",
+    "full_not_installed": "dirty_water",
+    "drain_error": "dirty_water",
+    "dirty_tank_latch_open": "dirty_water",
+    "water_empty": "clear_water",
+    "empty_not_installed": "clear_water",
+    "cleaning_tank_full_or_blocked": "clear_water",
+    "no_dustbin": "dust_bag",
+    "no_dustbin_or_filter": "dust_bag",
+}
+
+
+def dock_thema(feld: str, wert: str) -> str:
+    """Worum es bei dieser Stationsmeldung geht (rein, testbar).
+
+    Sonst das Feld selbst: Ein unbekannter Wert in `error` ist eine
+    eigene Sache und soll keine andere Meldung verdrängen.
+    """
+    return DOCK_THEMA.get(str(wert or "").strip().lower(), str(feld))
+
+
 def sauger_wort(name: str) -> str:
     """Eine Sauger-Meldung in einen lesbaren Satz bringen (rein, testbar)."""
     kern = str(name or "").strip().lower()
@@ -318,18 +350,52 @@ def sauger_probleme(entities: list[Any]) -> list[tuple[Any, str, str]]:
             ergebnis.append((entity, f"fehler:{fehler}", sauger_wort(fehler)))
         dock = state.get("dock")
         if isinstance(dock, dict):
+            # Je Sache eine Nachricht, nicht je Feld: Die Station meldet
+            # denselben vollen Tank in zwei Feldern (dock_thema).
+            themen: set[str] = set()
             for feld in DOCK_MELDER:
                 wert = str(dock.get(feld) or "").strip()
-                if wert and wert.lower() not in SAUGER_OK:
-                    ergebnis.append(
-                        (entity, f"dock:{feld}:{wert}", sauger_wort(wert))
-                    )
+                if not wert or wert.lower() in SAUGER_OK:
+                    continue
+                thema = dock_thema(feld, wert)
+                if thema in themen:
+                    continue
+                themen.add(thema)
+                ergebnis.append((entity, f"dock:{feld}:{wert}", sauger_wort(wert)))
         # Und der Lauf selbst: Er endet manchmal, ohne dass irgendwo ein
         # Fehler steht - der Sauger kam schlicht nicht überall durch.
         lauf = lauf_meldung(state)
         if lauf is not None:
             ergebnis.append((entity, lauf[0], lauf[1]))
     return ergebnis
+
+
+def sauger_erreichbar(entities: list[Any]) -> set[str]:
+    """Welche Sauger diese Runde überhaupt geantwortet haben (rein, testbar).
+
+    Klingt nach einer Nebensache, ist aber der Grund für einen ganzen
+    Schwall Nachrichten an einem Morgen: Das Gedächtnis der schon
+    gemeldeten Probleme wird geleert, sobald ein Problem verschwindet -
+    damit dasselbe Problem beim nächsten Mal wieder sofort meldet. Ein
+    Sauger, der gerade *gar nichts* sagt, sieht dabei aus wie einer, bei
+    dem alles in Ordnung ist.
+
+    Und schweigen tut er regelmässig: Roborock hängt an einer Wolke,
+    und direkt nach einem Neustart des Hubs steht die Entität schon da,
+    bevor der erste Abruf zurück ist. Dann wurde alles vergessen - und
+    beim nächsten Durchgang war jedes offene Problem wieder «noch nie
+    gemeldet» und ging als neue Nachricht hinaus. Alle auf einmal.
+
+    «Geantwortet» heisst: erreichbar und mit einem Zustand, in dem etwas
+    steht.
+    """
+    return {
+        str(getattr(entity, "id", ""))
+        for entity in entities
+        if getattr(entity, "kind", None) == "vacuum"
+        and getattr(entity, "available", True)
+        and (getattr(entity, "state", None) or {})
+    }
 
 
 #: So lange nach einer Klingel-Nachricht wird keine zweite verschickt.
