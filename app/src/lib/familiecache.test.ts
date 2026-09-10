@@ -9,6 +9,7 @@ import {
   anwenden,
   frisch,
   merke,
+  mitStempel,
   standText,
   vorlaeufigeId,
   Vorgemerkt,
@@ -107,5 +108,27 @@ describe('abgelehnt', () => {
   test('Zeitüberschreitung und zu viele Anfragen heilen sich beim nächsten Versuch', () => {
     expect(abgelehnt(408)).toBe(false);
     expect(abgelehnt(429)).toBe(false);
+  });
+});
+
+describe('mitStempel', () => {
+  // Punkt 341: Zwei Telefone speichern denselben Eintrag - ohne den
+  // Stempel gewinnt stillschweigend, wer zuletzt sendet.
+  test('trägt den bisherigen Stempel in die Änderung ein', () => {
+    expect(mitStempel({ text: 'Neu' }, { id: 'a', updated: 100 })).toEqual({
+      updated: 100,
+      text: 'Neu',
+    });
+  });
+
+  test('lässt einen ausdrücklich gesetzten Stempel in der Änderung gewinnen', () => {
+    expect(mitStempel({ text: 'Neu', updated: 200 }, { id: 'a', updated: 100 })).toEqual({
+      text: 'Neu',
+      updated: 200,
+    });
+  });
+
+  test('bleibt ohne bisherigen Eintrag unverändert - etwa ein lokal frisch angelegter', () => {
+    expect(mitStempel({ text: 'Neu' }, undefined)).toEqual({ text: 'Neu' });
   });
 });

@@ -18,6 +18,7 @@ import {
   frisch,
   istVorlaeufig,
   merke,
+  mitStempel,
   vorlaeufigeId,
 } from '../../lib/familiecache';
 import { Rueckeintrag, eintragName } from '../../lib/rueckband';
@@ -229,11 +230,19 @@ export function useFamilienablage({
 
   const update = useCallback(
     async (collection: string, id: string, patch: FamilyItem) => {
+      // Gleichzeitiges Bearbeiten (Punkt 341): den Stempel mitschicken,
+      // den diese App zuletzt für den Eintrag gesehen hat - kein
+      // Aufrufer im ganzen Bildschirm muss ihn dafür selbst kennen. Zwei
+      // Telefone speichern denselben Eintrag, der Hub weist das zweite
+      // mit 409 ab, statt die Änderung des ersten still zu überschreiben.
+      const bisher = ((data as Record<string, unknown>)[collection] as
+        | FamilyItem[]
+        | undefined)?.find((posten) => posten.id === id);
       const eintrag: Vorgemerkt = {
         kind: 'update',
         collection,
         id,
-        body: patch,
+        body: mitStempel(patch, bisher),
         at: Date.now(),
       };
       const ergebnis = await senden(eintrag);
@@ -243,12 +252,16 @@ export function useFamilienablage({
       }
       if (ergebnis.abgewiesen) {
         setError(`Nicht gespeichert: ${ergebnis.abgewiesen}`);
+        // Ein 409 heisst: ein anderes Telefon war zuerst. Der eigene
+        // Stand ist jetzt veraltet - neu laden, statt auf dem alten
+        // sitzen zu bleiben, bis zufällig etwas anderes es tut.
+        load();
         return;
       }
       setVerbunden(false);
       setOffen((vorher) => merke(vorher, eintrag));
     },
-    [senden, load]
+    [senden, load, data]
   );
 
   const remove = useCallback(

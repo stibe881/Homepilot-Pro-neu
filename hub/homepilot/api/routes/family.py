@@ -25,6 +25,7 @@ from ...core import (
     bilder,
     dateien,
     familienbuch,
+    gleichzeitig,
     gutscheine,
     rezeptimport,
 )
@@ -651,10 +652,15 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
         user = family_user(request)
         key = family_key(collection)
-        item = {k: v for k, v in body.items() if k not in ("id", "author", "created")}
+        item = {
+            k: v for k, v in body.items() if k not in ("id", "author", "created", "updated")
+        }
         item["id"] = secrets.token_urlsafe(8)
         item["author"] = user.name
         item["created"] = datetime.now().isoformat(timespec="seconds")
+        # Der Startwert für den Gleichzeitig-Stempel (Punkt 341) - erst ab
+        # hier gibt es etwas, womit ein späteres PUT verglichen werden kann.
+        item["updated"] = time.time()
         # Die Datei vor dem Bereinigen: bereinigen() wirft alles weg, was
         # kein fertiger Block ist - der data-URI wäre danach fort.
         if collection in dateien.ORDNER:
@@ -701,6 +707,16 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         for item in items:
             if item.get("id") == item_id:
                 sichtbar_oder_403(collection, item, user)
+                # Gleichzeitiges Bearbeiten (Punkt 341): Der Stempel, den
+                # diese App beim Laden gesehen hat, muss noch zum
+                # gespeicherten passen - sonst hat ein anderes Telefon
+                # inzwischen gespeichert, und dieses PUT trüge dessen
+                # Änderung sonst still wieder weg.
+                if not gleichzeitig.stempel_passt(item.get("updated"), body.get("updated")):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Der Eintrag wurde inzwischen von jemand anderem geändert.",
+                    )
                 # Die Datei zuerst, noch bevor am Eintrag etwas steht:
                 # Eine zu grosse oder verbotene Datei wirft hier, und
                 # dann soll der Gutschein unverändert geblieben sein -
@@ -726,7 +742,11 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 # nicht bei jedem weiteren Speichern desselben Gutscheins.
                 vorher_pending = str(item.get("pending_transfer_to") or "")
                 item.update(
-                    {k: v for k, v in body.items() if k not in ("id", "author", "created")}
+                    {
+                        k: v
+                        for k, v in body.items()
+                        if k not in ("id", "author", "created", "updated")
+                    }
                 )
                 if anhang is not None:
                     item["file"] = anhang
@@ -788,6 +808,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                     item.pop("done_at", None)
                 if collection in bilder.ORDNER:
                     bild_ablegen(collection, item)
+                # Der neue Stempel - unabhängig vom Gutschein-Zweig oben
+                # (der item.clear()/item.update() nutzt), damit jede
+                # Änderung, gleich welcher Art, einen frischen bekommt.
+                item["updated"] = time.time()
                 hub.data.set(key, items)
                 await tell_the_assignee(collection, item, user.name, vorher)
                 if collection == "vouchers":
