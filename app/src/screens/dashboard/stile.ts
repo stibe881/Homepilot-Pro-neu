@@ -481,6 +481,21 @@ export const makeStyles = (colors: Colors) =>
     },
     raumKlimaSub: { color: colors.onGradientSoft, fontSize: 12 },
     raumFakten: { color: colors.onGradientSoft, fontSize: 14, marginTop: 2 },
+    /** Faktenzeile und Männchen nebeneinander: «Alles aus · Türen zu»
+     *  und, solange sich etwas rührt, das Zeichen dahinter. */
+    raumFaktenZeile: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    /** Ein Kreis um das Männchen - auf dem Verlauf des Raumkopfs geht
+     *  ein blosses Strichmännchen unter, und es soll auffallen: Es steht
+     *  nur da, wenn wirklich jemand da ist. */
+    raumBewegung: {
+      width: 24,
+      height: 24,
+      borderRadius: radius.pill,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.surfaceSoft,
+      marginTop: 2,
+    },
     reorderButton: {
       flexDirection: 'row',
       alignItems: 'center',

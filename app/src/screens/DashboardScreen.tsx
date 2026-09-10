@@ -74,6 +74,7 @@ import {
   vollbildZeigen,
 } from '../lib/klingel';
 import { deviceKindLabel, musikboxenImRaum, pickPlayer } from '../lib/geraeteart';
+import { bewegungImRaum } from '../lib/bewegung';
 import { rueckangebot } from '../lib/rueckgriff';
 import { gemerkteAktion, menuLabel } from '../lib/doppeltipp';
 import { leerbild } from '../lib/leerzustand';
@@ -1765,6 +1766,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // stehen, während sie spielt. Was nicht mitzählt (aufgegangene Spots,
   // Ausgeblendetes), sortiert raumFakten selbst aus.
   const raumKopf = categorized ? raumFakten(inRoom, hidden) : '';
+  // Bewegt sich gerade etwas im Zimmer? Der Melder hat dafür keine
+  // Kachel mehr - ein Männchen hinter der Faktenzeile sagt es, und nur
+  // solange es stimmt (lib/bewegung.ts).
+  const raumBewegung = categorized && bewegungImRaum(inRoom, hidden);
+  // Ein Zimmer, in dem etwas hängt, aber nichts eine Kachel bekommt:
+  // Seit Fühler, Kontakte und Bewegungsmelder im Kopf stehen, gibt es
+  // solche Zimmer (ein Flur mit einem einzigen Melder).
+  const ohneKachel = categorized && inRoom.length > 0 && categories.length === 0;
   // Von der linken Kante nach rechts: zurück zur Raumliste. Derselbe
   // Weg wie «‹ Räume» oben links - nur erreichbar, ohne umzugreifen
   // (lib/zurueckwischen.ts). Beim Anpassen bleibt sie aus: Dort zieht
@@ -3188,7 +3197,20 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   </View>
                 ) : null}
               </View>
-              {raumKopf ? <Text style={styles.raumFakten}>{raumKopf}</Text> : null}
+              {raumKopf || raumBewegung ? (
+                <View style={styles.raumFaktenZeile}>
+                  {raumKopf ? <Text style={styles.raumFakten}>{raumKopf}</Text> : null}
+                  {raumBewegung ? (
+                    <View
+                      accessibilityRole="image"
+                      accessibilityLabel="Bewegung im Raum"
+                      style={styles.raumBewegung}
+                    >
+                      <Ionicons name="walk" size={15} color={colors.onGradient} />
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
               {/* Die Szenen des Zimmers gehören hierher, nicht unter die
                   Kacheln: Sie sind der erste Griff beim Betreten
                   («Kino», «Sternenhimmel»), und man soll ihn nicht
@@ -3625,12 +3647,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             <View style={styles.grid}>{cardWidth ? rest.map(renderCell) : null}</View>
           ) : null}
 
-          {inRoom.length === 0 ? (
+          {/* Leer ist auch ein Zimmer, in dem zwar etwas hängt, aber
+              nichts davon eine Kachel bekommt: Fühler und
+              Bewegungsmelder stehen im Raumkopf. Ohne diesen Fall
+              stünde dort eine weisse Fläche - und die sieht aus wie ein
+              Fehler, nicht wie eine Auskunft. */}
+          {inRoom.length === 0 || ohneKachel ? (
             <Leerzustand
               bild={leerbild(
                 section,
                 section === 'home' && room !== ALL_ROOMS && room !== NO_ROOM ? room : null,
-                status === 'connected'
+                status === 'connected',
+                ohneKachel
               )}
               onAktion={() => setSection('devices')}
             />

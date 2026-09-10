@@ -142,6 +142,33 @@ describe('raumStand', () => {
   it('zählt laufende Musik mit', () => {
     expect(raumStand([lampe('a', true), box('m', true)], '')).toBe('2 an');
   });
+
+  it('sagt nicht «alles ruhig», während sich etwas bewegt', () => {
+    // Daneben steht das Männchen - beides zusammen widerspräche sich.
+    const melder = geraet(
+      'melder',
+      'binary_sensor',
+      { state: 'on', device_class: 'motion' },
+      []
+    );
+    expect(raumStand([melder], '21,3°')).toBe('21,3°');
+  });
+
+  it('zählt einen Bewegungsmelder nicht als «an»', () => {
+    // Er meldet `on`, sobald jemand vorbeigeht - daraus wurde «1 an»,
+    // und daneben stand das Männchen, das dasselbe schon sagte
+    // (lib/bewegung.ts).
+    // Mit `off`, damit hier wirklich nur die Zählung gemessen wird:
+    // Ein Melder, der gerade jemanden sieht, nimmt der Zeile das «alles
+    // ruhig» ohnehin (Messung darüber).
+    const melder = geraet(
+      'melder',
+      'binary_sensor',
+      { state: 'off', device_class: 'motion' },
+      ['turn_on', 'turn_off']
+    );
+    expect(raumStand([melder, lampe('a', true)], '')).toBe('1 an');
+  });
 });
 
 describe('die Wahl der Knöpfe', () => {
