@@ -36,6 +36,30 @@ Haussteuerung «CarPlay einfach funktionierte, ohne einen Antrag zu
 stellen», ist genau dieser Weg: Was ohne Apples Zutun im Auto landet,
 sind Widgets und Siri – nicht eine App mit eigenen CarPlay-Bildschirmen.
 
+### Android Auto ist nicht Android Automotive
+
+Zwei Namen, die fast gleich klingen und zwei Welten meinen:
+
+- **Android Auto** – das Telefon spiegelt auf den Bildschirm im Auto.
+  Das ist HomePilot. Im Manifest steht dafür die Meta-Angabe
+  `com.google.android.gms.car.application` und der `CarAppService`.
+- **Android Automotive OS** – das System läuft *im* Auto, ohne Telefon.
+  Dafür stünde `<uses-feature android:name="android.hardware.type.automotive">`
+  im Manifest.
+
+Beides zusammen widerspricht sich, und Google Play nimmt es nicht an:
+
+```
+The app cannot declare 'android.hardware.type.automotive' device feature
+and 'com.google.android.gms.car.application' metadata at the same time.
+```
+
+Genau daran ist eine Einreichung gescheitert – die `uses-feature`-Zeile
+stand im Modul, mit dem Kommentar, ohne sie erscheine die App im Auto
+gar nicht. Ein Test hält das seither fest
+(`app/src/lib/automanifest.test.ts`); auffallen würde es sonst erst im
+Play Store, eine halbe Stunde nach dem Bau.
+
 ## Was im Auto steht
 
 Dieselben Knöpfe wie im Sperrbildschirm-Widget – aber nur die, die
