@@ -481,7 +481,6 @@ export function PushRules({
                 <>
                   <Chipzeile
                     wort="1. Erinnerung"
-                    breit
                     werte={VORLAUF_TAGE}
                     gewaehlt={gutschein.first_days}
                     beschriftung={(tage) => `${tage} T.`}
@@ -492,7 +491,6 @@ export function PushRules({
                   />
                   <Chipzeile
                     wort="2. Erinnerung"
-                    breit
                     werte={VORLAUF_TAGE}
                     gewaehlt={gutschein.second_days}
                     beschriftung={(tage) => `${tage} T.`}
@@ -616,17 +614,23 @@ export function PushRules({
 }
 
 /**
- * Eine Zeile Chips: ein Wort links, dahinter die Wahlmöglichkeiten.
+ * Eine Wahl mit Beschriftung darüber und den Chips darunter.
  *
  * Für Einstellungen, die zu einer Nachricht gehören und trotzdem keine
  * Regel-Parameter sind: «ab 10 %», «um 8 Uhr», «30 Tage vorher». Als
  * Plus-Minus-Knöpfe wie bei den Parametern wären es fünf Tipser bis zur
  * gewünschten Zahl - und bei den Gutscheinen liesse sich unterwegs eine
  * zweite Erinnerung einstellen, die vor der ersten läge.
+ *
+ * Die Beschriftung stand früher links neben den Chips, in einer Zeile
+ * mit ihnen. Bei sechs Werten (Gutschein-Vorlauf) brach das um - und
+ * die zweite Zeile begann dann links unter der Beschriftung, nicht
+ * unter dem ersten Chip: ein Versatz, der wie ein Fehler aussah. Die
+ * Beschriftung steht deshalb jetzt für sich, die Chips darunter in
+ * einem eigenen, sauber umbrechenden Raster.
  */
 function Chipzeile({
   wort,
-  breit,
   werte,
   gewaehlt,
   beschriftung,
@@ -636,9 +640,6 @@ function Chipzeile({
   styles,
 }: {
   wort: string;
-  /** Für lange Wörter («1. Erinnerung») eine feste, breitere Spalte -
-   *  sonst stehen die Chip-Reihen zweier Zeilen versetzt. */
-  breit?: boolean;
   werte: number[];
   gewaehlt: number;
   beschriftung: (wert: number) => string;
@@ -648,26 +649,28 @@ function Chipzeile({
   styles: ReturnType<typeof makeStyles>;
 }) {
   return (
-    <View style={styles.wahlZeile}>
-      <Text style={[styles.wahlWort, breit && styles.wahlWortBreit]}>{wort}</Text>
-      {werte.map((wert) => {
-        const an = gewaehlt === wert;
-        return (
-          <Pressable
-            key={wert}
-            onPress={() => onWaehlen(wert)}
-            disabled={!mayEdit}
-            accessibilityRole="radio"
-            accessibilityState={{ selected: an, disabled: !mayEdit }}
-            accessibilityLabel={vorlesen(wert)}
-            style={[styles.wahlChip, an && styles.wahlChipAn]}
-          >
-            <Text style={[styles.wahlText, an && styles.wahlTextAn]}>
-              {beschriftung(wert)}
-            </Text>
-          </Pressable>
-        );
-      })}
+    <View style={styles.wahlBlock}>
+      <Text style={styles.wahlWort}>{wort}</Text>
+      <View style={styles.wahlZeile}>
+        {werte.map((wert) => {
+          const an = gewaehlt === wert;
+          return (
+            <Pressable
+              key={wert}
+              onPress={() => onWaehlen(wert)}
+              disabled={!mayEdit}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: an, disabled: !mayEdit }}
+              accessibilityLabel={vorlesen(wert)}
+              style={[styles.wahlChip, an && styles.wahlChipAn]}
+            >
+              <Text style={[styles.wahlText, an && styles.wahlTextAn]}>
+                {beschriftung(wert)}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -936,13 +939,14 @@ function Klingeltonwahl({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     note: { color: colors.onGradientSoft, fontSize: 13 },
-    // Die Chip-Zeilen der Einstellungen, die zu einer Nachricht gehören
-    // (Batterie, Gutschein). Dieselbe Form wie vorher in den
-    // Einstellungen unter Benachrichtigungen - nur eben dort, wo die
-    // Nachricht steht, um die es geht.
+    // Die Chip-Auswahlen der Einstellungen, die zu einer Nachricht gehören
+    // (Batterie, Gutschein, Klingelton). Beschriftung und Chips stehen
+    // in eigenen Zeilen - bei sechs Werten (Gutschein-Vorlauf) bricht die
+    // Chip-Reihe sonst um, und die zweite Zeile begann früher links unter
+    // der Beschriftung statt unter dem ersten Chip.
+    wahlBlock: { gap: 6 },
     wahlZeile: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
-    wahlWort: { color: colors.inkSoft, fontSize: 13, fontWeight: '600', minWidth: 24 },
-    wahlWortBreit: { minWidth: 96 },
+    wahlWort: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
     wahlChip: {
       paddingVertical: 6,
       paddingHorizontal: 12,
