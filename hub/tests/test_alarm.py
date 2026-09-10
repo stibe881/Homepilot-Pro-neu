@@ -297,7 +297,13 @@ def test_config_survives_a_restart(tmp_path):
     asyncio.run(first())
     config = asyncio.run(second())
     assert config["sensors"] == [
-        {"entity_id": "test.tuer", "modes": ["urlaub"], "delayed": False, "bypass": False}
+        {
+            "entity_id": "test.tuer",
+            "modes": ["urlaub"],
+            "delayed": False,
+            "bypass": False,
+            "zone": "",
+        }
     ]
 
 

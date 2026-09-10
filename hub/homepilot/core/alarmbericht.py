@@ -128,3 +128,66 @@ def bericht(history: Any, beendet_von: str, bis: float) -> tuple[str, str] | Non
 
     titel = "Was war: " + str(anlass.get("text") or "Alarm").replace("Alarm ausgelöst: ", "")
     return titel, " ".join(satz for satz in saetze if satz)
+
+
+#: Innert so vielen Sekunden entschärft und ohne dass die Eskalation je
+#: lief, zählt ein Auslösen als «schnell weggedrückt» - meist kein
+#: Einbruch, sondern ein Melder, der zu empfindlich sitzt.
+FEHLALARM_SCHWELLE = 60.0
+
+#: Erst ab so vielen Malen wird daraus ein Kandidat. Ein einzelnes
+#: schnelles Entschärfen ist der Normalfall (man steht selbst an der
+#: Tür), nicht das Muster, das die Statistik finden soll.
+FEHLALARM_MINDEST = 3
+
+
+def fehlalarm_kandidaten(
+    history: Any,
+    schwelle: float = FEHLALARM_SCHWELLE,
+    mindest: int = FEHLALARM_MINDEST,
+) -> list[dict[str, Any]]:
+    """Sensoren, die auffällig oft schnell und ohne Eskalation entschärft
+    wurden (rein, testbar) - Punkt 407 der Werkbank.
+
+    Der Verlauf ist eine flache Liste aller Zeilenarten, jüngste zuerst
+    (siehe ``_note`` in der Integration); hier wird sie chronologisch
+    durchgegangen und je Auslösen mit dem nächsten Entschärfen gepaart.
+    Lief dazwischen die Eskalation, zählt es nicht - dann hat die Anlage
+    ihre Zeit bekommen, und ein spätes Entschärfen sagt nichts über den
+    Sensor.
+    """
+    zeilen = list(reversed([row for row in (history or []) if isinstance(row, dict)]))
+    offen: dict[str, Any] | None = None
+    zaehler: dict[str, int] = {}
+    for zeile in zeilen:
+        art = zeile.get("kind")
+        if art == "triggered":
+            entity_id = str(zeile.get("entity_id") or "")
+            offen = (
+                {"entity_id": entity_id, "at": zeile.get("at"), "eskaliert": False}
+                if entity_id
+                else None
+            )
+            continue
+        if art == "escalated":
+            if offen is not None:
+                offen["eskaliert"] = True
+            continue
+        if art == "disarmed":
+            if offen is not None and not offen["eskaliert"]:
+                ende = zeile.get("at")
+                anfang = offen.get("at")
+                dauer_s = (
+                    float(ende) - float(anfang)
+                    if isinstance(ende, (int, float)) and isinstance(anfang, (int, float))
+                    else None
+                )
+                if dauer_s is not None and 0 <= dauer_s <= schwelle:
+                    eid = offen["entity_id"]
+                    zaehler[eid] = zaehler.get(eid, 0) + 1
+            offen = None
+    return [
+        {"entity_id": entity_id, "anzahl": anzahl}
+        for entity_id, anzahl in sorted(zaehler.items(), key=lambda kv: (-kv[1], kv[0]))
+        if anzahl >= mindest
+    ]

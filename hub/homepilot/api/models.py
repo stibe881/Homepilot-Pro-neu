@@ -618,6 +618,9 @@ class AlarmArmRequest(BaseModel):
     # Trotz offener Fenster scharf schalten – bewusste Entscheidung des
     # Benutzers, nachdem ihm gesagt wurde, was offen ist.
     force: bool = False
+    # Nur diese Zone (Punkt 398 der Werkbank) - leer/fehlend heisst das
+    # ganze Haus, wie bisher.
+    zone: str | None = None
 
 
 class AlarmDisarmRequest(BaseModel):
@@ -627,9 +630,26 @@ class AlarmDisarmRequest(BaseModel):
 
 
 class AlarmPinRequest(BaseModel):
-    """PIN fürs Entschärfen setzen; leer = entfernen."""
+    """PIN fürs Entschärfen setzen; leer = entfernen.
+
+    Punkt 399 der Werkbank: je Person. Ohne ``user`` gilt die eigene -
+    das ist der Regelfall (Selbstverwaltung). Eine fremde zu setzen
+    braucht die Benutzerverwaltung, siehe die Route.
+    """
 
     pin: str = ""
+    user: str | None = None
+
+
+class AlarmZwangPinRequest(BaseModel):
+    """Die Zwangs-PIN setzen oder entfernen (Punkt 400)."""
+
+    pin: str = ""
+    user: str | None = None
+
+
+class AlarmSensorTestRequest(BaseModel):
+    mode: str
 
 
 class MetaRequest(BaseModel):

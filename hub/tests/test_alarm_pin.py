@@ -41,9 +41,16 @@ def test_disarm_needs_the_pin_once_set():
         stefan = {"Authorization": "Bearer t-stefan"}
         livia = {"Authorization": "Bearer t-livia"}
 
-        # PIN setzen darf nur, wer Benutzer verwaltet.
+        # Die eigene PIN darf jede Person selbst setzen (Punkt 399) …
         assert (
-            client.put("/api/alarm/pin", json={"pin": "2580"}, headers=livia).status_code
+            client.put("/api/alarm/pin", json={"pin": "12"}, headers=livia).status_code
+            == 400
+        )
+        # … eine fremde nur, wer Benutzer verwaltet.
+        assert (
+            client.put(
+                "/api/alarm/pin", json={"pin": "2580", "user": "Stefan"}, headers=livia
+            ).status_code
             == 403
         )
         assert (
@@ -146,7 +153,7 @@ def test_the_history_names_who_switched():
 async def _mit_pin(hub, pin="2580"):
     """Anlage scharf, PIN gesetzt - der Zustand, in dem es scheiterte."""
     anlage = hub.integrations.get("alarm")
-    anlage.set_pin(pin)
+    await anlage.set_pin("Stefan", pin)
     await anlage.arm("ausser_haus", force=True)
     return anlage
 

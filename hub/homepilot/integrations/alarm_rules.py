@@ -31,6 +31,21 @@ def valid_pin(entry: dict[str, Any], pin: str) -> bool:
         hash_pin(pin, salt), str(entry.get("hash") or "")
     )
 
+
+def valid_duress_pin(entry: dict[str, Any], pin: str) -> bool:
+    """Stimmt die PIN mit der hinterlegten Zwangs-PIN überein? (rein)
+
+    Punkt 400 der Werkbank. Dieselbe Prüfung wie `valid_pin`, nur gegen
+    das zweite Feldpaar - ein Eintrag ohne Zwangs-PIN hat keins und
+    stimmt folgerichtig nie überein.
+    """
+    if not entry.get("duress_hash"):
+        return False
+    salt = str(entry.get("duress_salt") or "")
+    return bool(salt) and secrets.compare_digest(
+        hash_pin(pin, salt), str(entry.get("duress_hash") or "")
+    )
+
 # Die scharfen Modi. «aus» ist kein Modus, sondern deren Abwesenheit.
 MODES = ("nacht", "ausser_haus", "urlaub")
 
@@ -470,8 +485,18 @@ def parse_sensors(raw: Any) -> dict[str, dict[str, Any]]:
             # Vorübergehend überbrückt: Der Sensor bleibt zugeordnet, wacht
             # aber nicht mit – für das Fenster, das gerade offen bleiben soll.
             "bypass": bool(entry.get("bypass")),
+            # Freier Name (Punkt 398 der Werkbank) - «Garage», «Keller».
+            # Leer heisst: keiner Zone zugeteilt, wacht nur bei einem
+            # Scharfschalten ohne Zonen-Angabe.
+            "zone": str(entry.get("zone") or "").strip(),
         }
     return result
+
+
+def zonen(sensors: dict[str, dict[str, Any]]) -> list[str]:
+    """Alle vergebenen Zonennamen, sortiert (rein, testbar) - für die
+    Auswahl beim Scharfschalten."""
+    return sorted({entry["zone"] for entry in sensors.values() if entry.get("zone")})
 
 
 def motion_started(old_state: Any, new_state: Any) -> bool:
@@ -603,11 +628,85 @@ def sauger_deckt(
     return blind_bis is not None and jetzt < blind_bis
 
 
-def guards(sensors: dict[str, dict[str, Any]], entity_id: str, mode: str) -> bool:
-    """Wacht dieser Sensor im angegebenen Modus? (rein, testbar)"""
+def guards(
+    sensors: dict[str, dict[str, Any]],
+    entity_id: str,
+    mode: str,
+    zone: str | None = None,
+) -> bool:
+    """Wacht dieser Sensor im angegebenen Modus? (rein, testbar)
+
+    Mit `zone` scharf geschaltet, wacht nur, wer genau dieser Zone
+    zugeteilt ist (Punkt 398 der Werkbank) - «nur die Garage», nicht das
+    ganze Haus. Ohne `zone` (der gewöhnliche Fall) gilt weiter, was
+    schon immer galt: jeder Sensor, der in diesem Modus wacht, gleich in
+    welcher oder ganz ohne Zone.
+    """
     entry = sensors.get(entity_id)
     if entry is None or entry.get("bypass"):
         return False
-    return mode in entry.get("modes", [])
+    if mode not in entry.get("modes", []):
+        return False
+    if zone is not None and entry.get("zone") != zone:
+        return False
+    return True
 
 
+
+
+# ── PIN je Person (Punkt 399 der Werkbank) ──────────────────────────────
+
+
+def pin_row(rows: Any, user: str) -> dict[str, Any] | None:
+    """Der PIN-Eintrag dieser Person, falls vorhanden (rein, testbar)."""
+    for row in rows or []:
+        if isinstance(row, dict) and str(row.get("user") or "") == user:
+            return row
+    return None
+
+
+def pin_users(rows: Any) -> list[str]:
+    """Wer eine PIN gesetzt hat (rein, testbar) - für die Übersicht unter
+    Alarm → PIN. Nicht, welche - das bliebe geheim."""
+    return sorted(
+        str(row.get("user"))
+        for row in (rows or [])
+        if isinstance(row, dict) and row.get("hash") and row.get("user")
+    )
+
+
+# ── Sensor-Testlauf (Punkt 403 der Werkbank) ────────────────────────────
+#
+# Der Probealarm (test_run) prüft Sirene, Licht und Nachricht - nicht, ob
+# jeder einzelne Melder wirklich meldet. Ein Fensterkontakt mit leerer
+# Batterie fällt sonst erst auf, wenn er wirklich gebraucht würde. Hier
+# geht man einmal durchs Haus und öffnet jeden zugeordneten Sensor; wer
+# sich meldet, wandert von «steht noch aus» zu «gemeldet».
+
+
+def sensortest_start(
+    sensors: dict[str, dict[str, Any]], mode: str, jetzt: float
+) -> dict[str, Any]:
+    """Ein Testlauf beginnt mit jedem Sensor, der in diesem Modus wacht
+    (rein, testbar) - überbrückte zählen nicht, die wachen ja nicht."""
+    kandidaten = sorted(
+        entity_id
+        for entity_id, entry in sensors.items()
+        if mode in entry.get("modes", []) and not entry.get("bypass")
+    )
+    return {"mode": mode, "pending": kandidaten, "confirmed": [], "started_at": jetzt}
+
+
+def sensortest_bestaetigen(test: dict[str, Any], entity_id: str) -> dict[str, Any]:
+    """Einen Sensor als gemeldet abhaken (rein, testbar).
+
+    Steht er nicht (mehr) aus, ändert sich nichts - ein zweites Öffnen
+    desselben Fensters soll die Liste nicht verdoppeln.
+    """
+    if entity_id not in test.get("pending", []):
+        return test
+    return {
+        **test,
+        "pending": [e for e in test["pending"] if e != entity_id],
+        "confirmed": [*test.get("confirmed", []), entity_id],
+    }

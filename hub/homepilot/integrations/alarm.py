@@ -99,11 +99,17 @@ from .alarm_rules import (  # noqa: F401
     parse_after,
     parse_escalation,
     parse_sensors,
+    pin_row,
+    pin_users,
     quellen_name,
     sauger_deckt,
     sauger_unterwegs,
     sensor_open,
+    sensortest_bestaetigen,
+    sensortest_start,
+    valid_duress_pin,
     valid_pin,
+    zonen,
 )
 
 log = logging.getLogger(__name__)
@@ -172,6 +178,13 @@ class AlarmIntegration(Integration):
         # Was zuletzt vorgeschlagen wurde - ein Vorschlag, der jede
         # Minute wiederkommt, ist eine Belästigung.
         self._anwesenheit_gemeldet: str | None = None
+        # Nur diese Zone scharf, wenn gesetzt (Punkt 398 der Werkbank);
+        # None heisst wie bisher das ganze Haus.
+        self._zone: str | None = None
+        # Der laufende Sensor-Testlauf (Punkt 403), oder None - lebt nur
+        # im Speicher: Ein Testlauf, der einen Neustart überlebt, wäre
+        # ein Testlauf, an den sich niemand mehr erinnert.
+        self._sensor_test: dict[str, Any] | None = None
 
         stored = self.hub.data.get("alarm")
         config = stored[0] if stored else {}
@@ -238,12 +251,16 @@ class AlarmIntegration(Integration):
             "last_trigger": self._last,
             # Die App zeigt daraus das PIN-Feld vor dem Entschärfen.
             "pin_required": self.pin_required(),
+            # Wer eine PIN hat - nicht welche (Punkt 399 der Werkbank).
+            "pin_users": pin_users(self.hub.data.get("alarm_pin")),
+            # Nur diese Zone ist scharf, oder das ganze Haus (Punkt 398).
+            "zone": self._zone,
             # Blinde Flecken, solange scharf ist (core/alarmwache.py).
             # Im Zustand und nicht bloss als Nachricht: Eine weggewischte
             # Meldung ist weg, ein grünes Schild über einem stillen
             # Sensor bleibt - und genau das soll es nicht mehr geben.
             "blind": alarmwache.blindstellen(
-                self.guarding(self._mode) if self._mode else [],
+                self.guarding(self._mode, self._zone) if self._mode else [],
                 time.time(),
                 self._stumm_seit,
             ),
@@ -265,23 +282,24 @@ class AlarmIntegration(Integration):
         """Alle Entitäten, die sich als Sensor eignen."""
         return [entity for entity in self.hub.registry.all() if is_sensor(entity)]
 
-    def guarding(self, mode: str) -> list[Entity]:
-        """Alle Sensoren, die in diesem Modus wachen."""
+    def guarding(self, mode: str, zone: str | None = None) -> list[Entity]:
+        """Alle Sensoren, die in diesem Modus (und, falls gesetzt, dieser
+        Zone - Punkt 398 der Werkbank) wachen."""
         return [
             entity
             for entity in self.candidates()
-            if guards(self._sensors, entity.id, mode)
+            if guards(self._sensors, entity.id, mode, zone)
         ]
 
-    def open_sensors(self, mode: str) -> list[Entity]:
+    def open_sensors(self, mode: str, zone: str | None = None) -> list[Entity]:
         """Sensoren, die in diesem Modus wachen und gerade offen sind.
 
         Grundlage der Bereitschaftsprüfung: Scharfschalten mit offenem
         Fenster wäre ein Alarm in dem Moment, in dem die Verzögerung endet.
         """
-        return [entity for entity in self.guarding(mode) if sensor_open(entity)]
+        return [entity for entity in self.guarding(mode, zone) if sensor_open(entity)]
 
-    def blind_sensors(self, mode: str) -> dict[str, list[str]]:
+    def blind_sensors(self, mode: str, zone: str | None = None) -> dict[str, list[str]]:
         """Sensoren, auf die in diesem Modus kein Verlass ist.
 
         Ein offenes Fenster sieht man; einen Sensor mit leerer Batterie
@@ -291,7 +309,7 @@ class AlarmIntegration(Integration):
         """
         offline: list[str] = []
         battery: list[str] = []
-        for entity in self.guarding(mode):
+        for entity in self.guarding(mode, zone):
             if not entity.available:
                 offline.append(entity.label)
             elif entity.state.get("low_battery") is True:
@@ -300,12 +318,21 @@ class AlarmIntegration(Integration):
 
     # ── Bedienung ──────────────────────────────────────────────────────────
 
-    async def arm(self, mode: str, force: bool = False, by: str = "") -> dict[str, Any]:
-        """Scharf schalten. Gibt zurück, was daraus geworden ist."""
+    async def arm(
+        self, mode: str, force: bool = False, by: str = "", zone: str | None = None
+    ) -> dict[str, Any]:
+        """Scharf schalten. Gibt zurück, was daraus geworden ist.
+
+        `zone` (Punkt 398 der Werkbank): Nur die Sensoren dieser einen
+        Zone werden geprüft und bewachen - «nur die Garage», ohne dass
+        das übrige Haus scharf würde. Ohne Angabe gilt weiter das ganze
+        Haus, wie bisher.
+        """
         if mode not in MODES:
             raise HomePilotError(f"Unbekannter Alarm-Modus: {mode}")
-        open_now = self.open_sensors(mode)
-        blind = self.blind_sensors(mode)
+        zone = zone or None
+        open_now = self.open_sensors(mode, zone)
+        blind = self.blind_sensors(mode, zone)
         if (open_now or blind["offline"] or blind["battery"]) and not force:
             # Nicht einfach trotzdem scharf schalten: Der Benutzer soll
             # entscheiden, ob er das Fenster schliesst oder überbrückt – und
@@ -319,6 +346,10 @@ class AlarmIntegration(Integration):
 
         self._cancel_timer()
         self._mode = mode
+        self._zone = zone
+        # Ein laufender Sensor-Testlauf ergibt scharf keinen Sinn mehr -
+        # er endet mit dem Scharfschalten von selbst.
+        self._sensor_test = None
         delay = float(self._settings.get("exit_delay") or 0)
         if delay > 0:
             self._state = ARMING
@@ -331,7 +362,8 @@ class AlarmIntegration(Integration):
             self._until = None
             self._next = None
         await self._publish()
-        self._note("armed", f"{MODE_LABELS[mode]} scharf geschaltet", by)
+        zone_zusatz = f" ({zone})" if zone else ""
+        self._note("armed", f"{MODE_LABELS[mode]} scharf geschaltet{zone_zusatz}", by)
         if self._settings.get("notify_arming"):
             await self._notify(
                 "Alarmanlage scharf", f"Modus {MODE_LABELS[mode]}", "alarm_arming"
@@ -345,29 +377,82 @@ class AlarmIntegration(Integration):
     # (auch Szenen und Abläufe): Eine Hintertür, die der PIN ausweicht,
     # wäre keine PIN.
 
-    def _pin_entry(self) -> dict[str, Any] | None:
-        for entry in self.hub.data.get("alarm_pin"):
-            if isinstance(entry, dict) and entry.get("hash"):
-                return entry
-        return None
+    def _pin_entries(self) -> list[dict[str, Any]]:
+        return [
+            entry
+            for entry in self.hub.data.get("alarm_pin")
+            if isinstance(entry, dict) and entry.get("hash")
+        ]
 
     def pin_required(self) -> bool:
-        return self._pin_entry() is not None
+        return bool(self._pin_entries())
 
-    def set_pin(self, pin: str | None) -> None:
-        """PIN setzen oder (mit leerem Wert) entfernen - nur Besitzer."""
-        if not pin:
-            self.hub.data.set("alarm_pin", [])
-            return
-        if not pin.isdigit() or not (4 <= len(pin) <= 8):
-            raise HomePilotError("Die PIN muss aus 4 bis 8 Ziffern bestehen.")
-        salt = secrets.token_hex(8)
-        self.hub.data.set("alarm_pin", [{"salt": salt, "hash": hash_pin(pin, salt)}])
+    async def set_pin(self, user: str, pin: str | None) -> None:
+        """Die PIN einer Person setzen oder (mit leerem Wert) entfernen
+        (Punkt 399 der Werkbank).
+
+        Geteilt heisst bisher: eine PIN für alle, und der Nachbericht
+        konnte nie sagen, wer entschärft hat, nur dass es die Anlage
+        selbst war. Jetzt trägt jede Person ihre eigene; wer sie kennt,
+        steht danach im Verlauf. Eine leere PIN entfernt auch eine
+        allfällige Zwangs-PIN mit - eine Zwangs-PIN ohne die echte
+        daneben wäre nur eine zweite PIN, keine Ausnahme mehr.
+
+        Async, weil danach neu veröffentlicht wird - `pin_required` und
+        `pin_users` stehen im Zustand und sollen nicht erst beim
+        nächsten Scharfschalten nachziehen. Ein echter, hier gefundener
+        Fehler: Genau das fehlte bisher, und die App hätte eine gerade
+        gesetzte PIN erst nach dem nächsten Auslöser gesehen.
+        """
+        user = str(user or "").strip()
+        if not user:
+            raise HomePilotError("Ohne Namen keine PIN.")
+        rows = [row for row in self.hub.data.get("alarm_pin") if row.get("user") != user]
+        if pin:
+            if not pin.isdigit() or not (4 <= len(pin) <= 8):
+                raise HomePilotError("Die PIN muss aus 4 bis 8 Ziffern bestehen.")
+            salt = secrets.token_hex(8)
+            rows.append({"user": user, "salt": salt, "hash": hash_pin(pin, salt)})
+        self.hub.data.set("alarm_pin", rows)
+        await self._publish()
+
+    async def set_duress_pin(self, user: str, pin: str | None) -> None:
+        """Die Zwangs-PIN einer Person setzen oder entfernen (Punkt 400).
+
+        Braucht die echte PIN daneben - eine Zwangs-PIN ohne eine, von
+        der sie sich unterscheidet, wäre bloss eine zweite normale PIN.
+        Und die beiden müssen sich unterscheiden: Wären sie gleich,
+        meldete jedes Entschärfen einen Zwang, den es nicht gab.
+        """
+        user = str(user or "").strip()
+        row = pin_row(self.hub.data.get("alarm_pin"), user)
+        if row is None or not row.get("hash"):
+            raise HomePilotError("Erst die eigene PIN setzen, dann die Zwangs-PIN.")
+        rows = [r for r in self.hub.data.get("alarm_pin") if r.get("user") != user]
+        neu = dict(row)
+        if pin:
+            if not pin.isdigit() or not (4 <= len(pin) <= 8):
+                raise HomePilotError("Die PIN muss aus 4 bis 8 Ziffern bestehen.")
+            if valid_pin(row, pin):
+                raise HomePilotError(
+                    "Die Zwangs-PIN muss sich von der eigenen PIN unterscheiden."
+                )
+            salt = secrets.token_hex(8)
+            neu["duress_salt"] = salt
+            neu["duress_hash"] = hash_pin(pin, salt)
+        else:
+            neu.pop("duress_salt", None)
+            neu.pop("duress_hash", None)
+        rows.append(neu)
+        self.hub.data.set("alarm_pin", rows)
+        await self._publish()
 
     def check_pin(
         self, pin: str | None, address: str = "app", require_pin: bool = False
-    ) -> None:
-        """Wirft einen lesbaren Fehler, wenn die PIN fehlt oder falsch ist.
+    ) -> tuple[str | None, bool]:
+        """Wirft einen lesbaren Fehler, wenn die PIN fehlt oder falsch ist -
+        sonst wer sie eingegeben hat, und ob es die Zwangs-PIN war
+        (Punkt 399/400 der Werkbank).
 
         Mit Drossel: Fünf Fehlversuche, dann fünf Minuten Pause - eine
         vierstellige PIN ohne Drossel wäre in Minuten durchprobiert.
@@ -378,20 +463,20 @@ class AlarmIntegration(Integration):
         durchgewinkt, sondern abgelehnt: Ein Wandtablet ohne PIN ist
         genau der Fall, den die PIN verhindern soll.
         """
-        entry = self._pin_entry()
-        if entry is None:
+        rows = self._pin_entries()
+        if not rows:
             if require_pin:
                 raise HomePilotError(
                     "An diesem Gerät braucht das Entschärfen eine PIN. Sie "
                     "wird unter Alarm → PIN gesetzt."
                 )
-            return
+            return None, False
         # Ein Ablauf hat keine Tastatur. Vorher scheiterte er bei jeder
         # Heimkehr still am fehlenden Code, und die Anlage blieb scharf -
         # siehe ohne_pin_erlaubt() für die ganze Begründung und den
         # Schalter, mit dem man es wieder streng stellt.
         if ohne_pin_erlaubt(source.current(), self._settings):
-            return
+            return None, False
         wait = self._pin_throttle.blocked_for(address)
         if wait > 0:
             raise HomePilotError(
@@ -399,10 +484,15 @@ class AlarmIntegration(Integration):
             )
         if not pin:
             raise HomePilotError("Zum Entschärfen braucht es die PIN.")
-        if not valid_pin(entry, str(pin)):
-            self._pin_throttle.failed(address)
-            raise HomePilotError("Falsche PIN.")
-        self._pin_throttle.succeeded(address)
+        for row in rows:
+            if valid_pin(row, str(pin)):
+                self._pin_throttle.succeeded(address)
+                return str(row.get("user") or "") or None, False
+            if valid_duress_pin(row, str(pin)):
+                self._pin_throttle.succeeded(address)
+                return str(row.get("user") or "") or None, True
+        self._pin_throttle.failed(address)
+        raise HomePilotError("Falsche PIN.")
 
     async def disarm(
         self,
@@ -411,7 +501,14 @@ class AlarmIntegration(Integration):
         address: str = "app",
         require_pin: bool = False,
     ) -> dict[str, Any]:
-        self.check_pin(pin, address, require_pin)
+        matched_user, war_zwang = self.check_pin(pin, address, require_pin)
+        if matched_user and (require_pin or not by):
+            # Nur wo der Kontoname unsicher ist - am geteilten Gerät
+            # (require_pin) oder wenn gar keiner mitkam (Karte, Szene).
+            # Am eigenen, bereits angemeldeten Telefon bleibt der eigene
+            # Name massgeblich, auch wenn dort zufällig eine fremde PIN
+            # getippt wurde (Punkt 399 der Werkbank).
+            by = matched_user
         self._cancel_timer()
         # Die Eskalation bricht mit dem Entschärfen ab: Genau dafür ist
         # ihre Frist da - ein Fehlalarm, der rechtzeitig entschärft wird,
@@ -424,6 +521,7 @@ class AlarmIntegration(Integration):
         was = self._state
         self._state = DISARMED
         self._mode = None
+        self._zone = None
         self._until = None
         self._next = None
         await self._publish()
@@ -453,7 +551,37 @@ class AlarmIntegration(Integration):
                 titel, text = gefunden
                 self._note("bericht", text, "")
                 await self._notify(titel, text, "alarm_arming")
+        if war_zwang:
+            await self._zwang_melden(by)
         return {"ok": True, "state": self._state}
+
+    async def _zwang_melden(self, wer: str) -> None:
+        """Eine Zwangs-PIN wurde benutzt - still, ohne dass es an diesem
+        Gerät auffällt (Punkt 400 der Werkbank).
+
+        Die Anlage tut nach aussen genau das, was ein gewöhnliches
+        Entschärfen auch täte - keine Sirene, keine besondere Meldung an
+        diesem Gerät. Nur die anderen erfahren es, und nicht auf dem
+        Telefon der Person, deren PIN gerade benutzt wurde: Ein
+        Sperrbildschirm mit «Zwangs-PIN verwendet» läge womöglich genau
+        dort, wo es niemand sehen darf.
+        """
+        alle = set(self.hub.push.recipients(self.hub.users.users, "all", "alarm"))
+        eigene = set(self.hub.push.recipients(self.hub.users.users, wer, "alarm"))
+        ziel = list(alle - eigene)
+        if not ziel:
+            return
+        try:
+            await self.hub.push.send(
+                ziel,
+                "🚨 Zwangs-PIN verwendet",
+                f"{wer or 'Jemand'} hat die Anlage mit der Zwangs-PIN entschärft - "
+                "bitte unauffällig nachsehen.",
+                data={"type": "alarm", "ziel": "bereich:alarm"},
+                category="alarm",
+            )
+        except Exception as err:
+            log.warning("Zwangs-PIN-Meldung fehlgeschlagen: %s", err)
 
     # ── Panikknopf (Punkt 334 der Werkbank) ────────────────────────────────
 
@@ -520,6 +648,15 @@ class AlarmIntegration(Integration):
     # ── Überwachung ────────────────────────────────────────────────────────
 
     async def _on_state_changed(self, _event_type: str, payload: dict[str, Any]) -> None:
+        # Der Sensor-Testlauf hört immer mit, auch unscharf - er darf nur
+        # anfangen, wenn die Anlage unscharf ist (siehe start_sensor_test),
+        # aber während er läuft, geht man ja durchs Haus.
+        if self._sensor_test is not None:
+            entity_fuer_test = self.hub.registry.get(str(payload.get("entity_id")))
+            if entity_fuer_test is not None and sensor_open(entity_fuer_test):
+                self._sensor_test = sensortest_bestaetigen(
+                    self._sensor_test, entity_fuer_test.id
+                )
         if self._state not in (ARMED, ARMING):
             return
         entity_id = payload.get("entity_id")
@@ -530,7 +667,7 @@ class AlarmIntegration(Integration):
         if self._sauger_deckt(entity):
             return
         await self._camera_motion(entity, payload)
-        if not guards(self._sensors, entity.id, self._mode):
+        if not guards(self._sensors, entity.id, self._mode, self._zone):
             return
         if not sensor_open(entity):
             return
@@ -667,7 +804,7 @@ class AlarmIntegration(Integration):
             "mode": mode,
         }
         await self._publish()
-        self._note("triggered", f"Alarm ausgelöst: {entity.label}", "")
+        self._note("triggered", f"Alarm ausgelöst: {entity.label}", "", entity_id=entity.id)
 
         if self._settings.get("notify_trigger"):
             # Die Kamera im selben Raum kommt zweimal mit: als Kennung,
@@ -740,7 +877,7 @@ class AlarmIntegration(Integration):
         self._until = None
         self._next = None
         await self._publish()
-        still_open = [entity.label for entity in self.open_sensors(mode)]
+        still_open = [entity.label for entity in self.open_sensors(mode, self._zone)]
         text = f"Wieder scharf geschaltet ({MODE_LABELS[mode]})"
         if still_open:
             text += " – noch offen: " + ", ".join(still_open)
@@ -967,6 +1104,52 @@ class AlarmIntegration(Integration):
         return {"ok": True, "hinweis": "Probealarm durchgespielt – Sirene, "
                 "Lichter und Nachricht liefen einmal an und wieder aus."}
 
+    # ── Sensor-Testlauf (Punkt 403 der Werkbank) ────────────────────────────
+    #
+    # Der Probealarm prüft Sirene, Licht und Nachricht - nicht, ob jeder
+    # einzelne Melder wirklich meldet. Hier geht man einmal durchs Haus
+    # und öffnet jeden zugeordneten Sensor; wer antwortet, wandert von
+    # «steht noch aus» zu «gemeldet» (siehe _on_state_changed).
+
+    def start_sensor_test(self, mode: str) -> dict[str, Any]:
+        if mode not in MODES:
+            raise HomePilotError(f"Unbekannter Alarm-Modus: {mode}")
+        if self._state != DISARMED:
+            raise HomePilotError(
+                "Der Sensor-Testlauf geht nur bei unscharfer Anlage - "
+                "sonst löst das Öffnen der Fenster den Alarm selbst aus."
+            )
+        self._sensor_test = sensortest_start(self._sensors, mode, time.time())
+        return self.sensor_test_state()
+
+    def stop_sensor_test(self) -> dict[str, Any]:
+        self._sensor_test = None
+        return self.sensor_test_state()
+
+    def sensor_test_state(self) -> dict[str, Any]:
+        """Der laufende Testlauf, mit Namen statt blossen Kennungen -
+        oder ``{"running": False}``, wenn keiner läuft."""
+        if self._sensor_test is None:
+            return {"running": False}
+
+        def zeilen(ids: list[str]) -> list[dict[str, Any]]:
+            zeilen_ = []
+            for entity_id in ids:
+                entity = self.hub.registry.get(entity_id)
+                zeilen_.append({
+                    "entity_id": entity_id,
+                    "name": entity.label if entity is not None else entity_id,
+                    "room": entity.room if entity is not None else None,
+                })
+            return zeilen_
+
+        return {
+            "running": True,
+            "mode": self._sensor_test["mode"],
+            "pending": zeilen(self._sensor_test["pending"]),
+            "confirmed": zeilen(self._sensor_test["confirmed"]),
+        }
+
     async def _run_actions(self, slot: str) -> None:
         """Die eingestellten Schaltbefehle für diesen Anlass ausführen.
 
@@ -1086,7 +1269,7 @@ class AlarmIntegration(Integration):
 
     async def _wache(self, jetzt: float) -> None:
         """Blinde Flecken, solange scharf ist (core/alarmwache.py)."""
-        wachend = self.guarding(self._mode) if self._mode else []
+        wachend = self.guarding(self._mode, self._zone) if self._mode else []
         # Die Vorgeschichte wird immer geführt, auch unscharf: Sonst
         # begänne die Frist beim Scharfschalten neu, und ein Sensor, der
         # seit dem Mittag weg ist, fiele erst am Abend auf.
@@ -1213,8 +1396,14 @@ class AlarmIntegration(Integration):
 
     # ── Verlauf ────────────────────────────────────────────────────────────
 
-    def _note(self, kind: str, text: str, by: str) -> None:
-        self._history.insert(0, {"kind": kind, "text": text, "by": by, "at": time.time()})
+    def _note(self, kind: str, text: str, by: str, entity_id: str | None = None) -> None:
+        zeile: dict[str, Any] = {"kind": kind, "text": text, "by": by, "at": time.time()}
+        # Nur bei einem Auslösen mitgeführt (Punkt 407 der Werkbank) - die
+        # Fehlalarm-Statistik braucht die Gerätekennung, alle anderen
+        # Zeilenarten kamen bisher ohne sie aus und sollen es weiter tun.
+        if entity_id:
+            zeile["entity_id"] = entity_id
+        self._history.insert(0, zeile)
         limit = int(self._settings.get("history_limit") or 50)
         del self._history[limit:]
         self._save()

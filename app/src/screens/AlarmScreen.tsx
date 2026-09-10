@@ -72,6 +72,9 @@ interface Sensor {
   modes: string[];
   delayed?: boolean;
   bypass?: boolean;
+  /** Freier Name (Punkt 398 der Werkbank) - «Garage», «Keller». Leer
+   *  heisst: keiner Zone zugeteilt. */
+  zone?: string;
 }
 
 interface Candidate {
@@ -102,6 +105,10 @@ interface AlarmState {
   } | null;
   /** Zum Entschärfen braucht es die PIN. */
   pin_required?: boolean;
+  /** Wer eine PIN hat - nicht welche (Punkt 399 der Werkbank). */
+  pin_users?: string[];
+  /** Nur diese Zone ist scharf, oder das ganze Haus (Punkt 398). */
+  zone?: string | null;
   /** Was der Anlage gerade die Sicht nimmt (hub/core/alarmwache.py).
    *
    *  Im Zustand und nicht bloss als Nachricht: Eine weggewischte Meldung
@@ -141,6 +148,9 @@ interface Overview {
   actions: Record<string, AlarmAction[]>;
   history: { kind: string; text: string; by?: string; at: number }[];
   candidates: Candidate[];
+  /** Alle vergebenen Zonennamen (Punkt 398), für die Auswahl beim
+   *  Scharfschalten - aus den Sensoren selbst abgeleitet. */
+  zones?: string[];
   /** Kann der Hub überhaupt ein Bild mitschicken? Dafür braucht es
    *  `push.public_url` in der config.yaml – ohne kommt die Nachricht
    *  ohne Bild, und das soll dort stehen, wo man es erwartet. */
@@ -291,6 +301,9 @@ export function AlarmScreen({
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [pendingMode, setPendingMode] = useState<string | null>(null);
+  // Nur diese Zone scharf statt des ganzen Hauses (Punkt 398 der
+  // Werkbank) - null heisst wie bisher alles.
+  const [selectedZone, setSelectedZone] = useState<string | null>(null);
   // PIN-Abfrage vor dem Entschärfen (nur wenn eine PIN gesetzt ist).
   const [pinAsk, setPinAsk] = useState(false);
   const [pinValue, setPinValue] = useState('');
@@ -352,7 +365,7 @@ export function AlarmScreen({
     load();
   };
 
-  const arm = async (mode: string, force = false) => {
+  const arm = async (mode: string, force = false, zone: string | null = selectedZone) => {
     // Scharfschalten ist die folgenreichste Schaltung der App – und man
     // macht sie oft im Weggehen, mit dem Blick schon an der Tür.
     triggered();
@@ -362,7 +375,7 @@ export function AlarmScreen({
       const response = await fetch(`${settings.url}/api/alarm/arm`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode, force }),
+        body: JSON.stringify({ mode, force, zone }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
@@ -560,9 +573,43 @@ export function AlarmScreen({
           </View>
         </View>
 
+        {/* Nur eine Zone scharf schalten (Punkt 398) - nur sichtbar, wo es
+            überhaupt Sensoren mit einer Zone gibt. «Ganzes Haus» ist die
+            Vorgabe und steht immer zuerst. */}
+        {(data.zones ?? []).length > 0 ? (
+          <View style={styles.chipRow}>
+            <Pressable
+              onPress={() => setSelectedZone(null)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: selectedZone === null }}
+              style={[styles.chip, selectedZone === null && styles.chipOn]}
+            >
+              <Text style={[styles.chipText, selectedZone === null && { color: '#FFFFFF' }]}>
+                Ganzes Haus
+              </Text>
+            </Pressable>
+            {(data.zones ?? []).map((zone) => (
+              <Pressable
+                key={zone}
+                onPress={() => setSelectedZone(zone)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: selectedZone === zone }}
+                style={[styles.chip, selectedZone === zone && styles.chipOn]}
+              >
+                <Text style={[styles.chipText, selectedZone === zone && { color: '#FFFFFF' }]}>
+                  {zone}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+
         <View style={styles.modeRow}>
           {MODES.map((mode) => {
-            const active = data.state.mode === mode.key && data.state.state !== 'unscharf';
+            const active =
+              data.state.mode === mode.key &&
+              data.state.state !== 'unscharf' &&
+              data.state.zone === selectedZone;
             return (
               <Pressable
                 key={mode.key}
@@ -831,6 +878,20 @@ export function AlarmScreen({
                       ) : null}
                     </Pressable>
                     {on ? (
+                      <>
+                      <View style={styles.chipRow}>
+                        {/* Frei getippt statt einer Liste - «Garage»,
+                            «Keller», nichts, was der Hub vorgeben müsste
+                            (Punkt 398 der Werkbank). */}
+                        <TextInput
+                          style={styles.zoneInput}
+                          value={entry?.zone ?? ''}
+                          onChangeText={(text) => setSensor(candidate.entity_id, { zone: text })}
+                          placeholder="Zone (optional)"
+                          placeholderTextColor={colors.inkFaint}
+                          accessibilityLabel={`Zone von ${candidate.name}`}
+                        />
+                      </View>
                       <View style={styles.chipRow}>
                         <Pressable
                           onPress={() =>
@@ -861,6 +922,7 @@ export function AlarmScreen({
                           </Text>
                         </Pressable>
                       </View>
+                      </>
                     ) : null}
                   </View>
                 );
@@ -876,6 +938,13 @@ export function AlarmScreen({
           </Text>
         </Klappe>
       </Card>
+
+      <SensorTestCard hub={settings} />
+
+      <FehlalarmCard
+        hub={settings}
+        onSetDelayed={(entityId) => setSensor(entityId, { delayed: true })}
+      />
 
       {/* Erst was sofort geschieht, dann was nach der Frist kommt - so
           läuft es auch ab. Umgekehrt stand die zweite Stufe über der
@@ -912,6 +981,7 @@ export function AlarmScreen({
         hub={settings}
         required={!!data.state.pin_required}
         pflicht={pinFehlt}
+        pinUsers={data.state.pin_users ?? []}
         alarmSettings={data.settings}
         onSaveSettings={(next) => save({ settings: next })}
         onChanged={load}
@@ -2139,6 +2209,182 @@ function Toggle({
   );
 }
 
+interface SensorTestZeile {
+  entity_id: string;
+  name: string;
+  room?: string | null;
+}
+
+interface SensorTestState {
+  running: boolean;
+  mode?: string;
+  pending?: SensorTestZeile[];
+  confirmed?: SensorTestZeile[];
+}
+
+/**
+ * Sensor-Testlauf (Punkt 403 der Werkbank): einmal durchs Haus, jeden
+ * zugeordneten Sensor öffnen, und hier abhaken, wer sich meldet.
+ *
+ * Anders als der Probealarm (der Sirene, Licht und Nachricht prüft)
+ * geht es hier um die einzelnen Melder selbst - ein Fensterkontakt mit
+ * leerer Batterie fällt sonst erst auf, wenn er gebraucht würde.
+ */
+function SensorTestCard({ hub }: { hub: HubSettings }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const client = useMemo(() => hubClient(hub.url, hub.token), [hub.url, hub.token]);
+  const [state, setState] = useState<SensorTestState>({ running: false });
+  const [error, setError] = useState<string | null>(null);
+
+  const laden = useCallback(() => {
+    client
+      .get<SensorTestState>('/api/alarm/sensortest', { still: true, fallback: { running: false } })
+      .then(setState)
+      .catch(() => {});
+  }, [client]);
+
+  // Alle paar Sekunden nachsehen, solange ein Testlauf läuft - dieselbe
+  // Idee wie der Countdown-Takt oben, nur gemächlicher: Hier geht man
+  // selbst durchs Haus, nicht die Sekunden zählen.
+  useTakt(laden, state.running ? 2000 : 20000);
+
+  const starten = async (mode: string) => {
+    setError(null);
+    try {
+      setState(await client.post<SensorTestState>('/api/alarm/sensortest/start', { mode }));
+    } catch (err) {
+      setError(err instanceof HubFehler ? err.message : String(err));
+    }
+  };
+
+  const stoppen = async () => {
+    setState(await client.post<SensorTestState>('/api/alarm/sensortest/stop', {}, { fallback: { running: false } }));
+  };
+
+  return (
+    <Card style={styles.card}>
+      <Klappe
+        label="Sensor-Testlauf"
+        stand={state.running ? `läuft · ${state.mode}` : 'aus'}
+      >
+        <Text style={styles.rowDetail}>
+          Einmal durchs Haus: jeden zugeordneten Sensor öffnen und hier
+          abhaken lassen, wer sich meldet - ein stummer Melder fällt so
+          auf, bevor er gebraucht wird, nicht erst dann.
+        </Text>
+        {!state.running ? (
+          <View style={styles.modeRow}>
+            {MODES.map((mode) => (
+              <Pressable
+                key={mode.key}
+                onPress={() => starten(mode.key)}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.mode, pressed && { opacity: 0.8 }]}
+              >
+                <Ionicons name={mode.icon} size={18} color={colors.ink} />
+                <Text style={styles.modeText}>{mode.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : (
+          <>
+            <Text style={styles.rowDetail}>
+              Noch offen: {(state.pending ?? []).length}, gemeldet:{' '}
+              {(state.confirmed ?? []).length}.
+            </Text>
+            {(state.pending ?? []).map((zeile) => (
+              <View key={zeile.entity_id} style={styles.sensorHead}>
+                <Ionicons name="ellipse-outline" size={20} color={colors.inkFaint} />
+                <Text style={styles.rowTitle}>{zeile.name}</Text>
+              </View>
+            ))}
+            {(state.confirmed ?? []).map((zeile) => (
+              <View key={zeile.entity_id} style={styles.sensorHead}>
+                <Ionicons name="checkmark-circle" size={20} color={colors.on} />
+                <Text style={styles.rowTitle}>{zeile.name}</Text>
+              </View>
+            ))}
+            <Pressable
+              onPress={stoppen}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.pinRemove, pressed && { opacity: 0.7 }]}
+            >
+              <Text style={styles.pinRemoveText}>Testlauf beenden</Text>
+            </Pressable>
+          </>
+        )}
+        {error ? <Text style={styles.warn}>{error}</Text> : null}
+      </Klappe>
+    </Card>
+  );
+}
+
+/**
+ * Fehlalarm-Statistik (Punkt 407 der Werkbank): Sensoren, die auffällig
+ * oft schnell und ohne Eskalation entschärft wurden - meist kein
+ * Einbruch, sondern ein Melder, der zu empfindlich sitzt.
+ */
+function FehlalarmCard({
+  hub,
+  onSetDelayed,
+}: {
+  hub: HubSettings;
+  onSetDelayed: (entityId: string) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const client = useMemo(() => hubClient(hub.url, hub.token), [hub.url, hub.token]);
+  const [kandidaten, setKandidaten] = useState<
+    { entity_id: string; name: string; anzahl: number }[]
+  >([]);
+  const [erledigt, setErledigt] = useState<string[]>([]);
+
+  useEffect(() => {
+    client
+      .get<{ kandidaten?: typeof kandidaten } | null>('/api/alarm/fehlalarme', {
+        still: true,
+        fallback: null,
+      })
+      .then((data) => setKandidaten(data?.kandidaten ?? []))
+      .catch(() => {});
+  }, [client]);
+
+  const uebrig = kandidaten.filter((k) => !erledigt.includes(k.entity_id));
+  if (uebrig.length === 0) return null;
+
+  return (
+    <Card style={styles.card}>
+      <Text style={styles.heading}>Häufig schnell entschärft</Text>
+      <Text style={styles.rowDetail}>
+        Diese Sensoren wurden mehrfach ausgelöst und innert einer Minute
+        wieder entschärft, ohne dass die Eskalation je lief - meist kein
+        Einbruch, sondern ein Melder, der zu empfindlich sitzt.
+      </Text>
+      {uebrig.map((k) => (
+        <View key={k.entity_id} style={styles.sensorHead}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.rowTitle} numberOfLines={1}>
+              {k.name}
+            </Text>
+            <Text style={styles.hint}>{k.anzahl}× schnell entschärft</Text>
+          </View>
+          <Pressable
+            onPress={() => {
+              onSetDelayed(k.entity_id);
+              setErledigt((vorher) => [...vorher, k.entity_id]);
+            }}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.pinConfirm, pressed && { opacity: 0.8 }]}
+          >
+            <Text style={styles.pinConfirmText}>Auf verzögert stellen</Text>
+          </Pressable>
+        </View>
+      ))}
+    </Card>
+  );
+}
+
 /** PIN fürs Entschärfen: setzen, ändern, entfernen (nur Besitzer).
  *
  * Die Anlage lässt sich aus der App entschärfen, sobald das Telefon
@@ -2156,6 +2402,7 @@ function PinCard({
   hub,
   required,
   pflicht = false,
+  pinUsers = [],
   alarmSettings,
   onSaveSettings,
   onChanged,
@@ -2164,6 +2411,9 @@ function PinCard({
   required: boolean;
   /** Dieses Gerät braucht eine PIN, es ist aber keine gesetzt. */
   pflicht?: boolean;
+  /** Wer im Haus eine PIN gesetzt hat (Punkt 399 der Werkbank) - nicht
+   *  welche. */
+  pinUsers?: string[];
   /** Die Einstellungen der Anlage - für den Ablauf-Schalter unten. Er
    *  steht hier und nicht bei den übrigen Einstellungen: Er ergibt nur
    *  Sinn, solange eine PIN gesetzt ist, und die setzt man hier. */
@@ -2175,6 +2425,8 @@ function PinCard({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [value, setValue] = useState('');
   const [note, setNote] = useState<string | null>(null);
+  const [zwang, setZwang] = useState('');
+  const [zwangNote, setZwangNote] = useState<string | null>(null);
 
   const submit = async (pin: string) => {
     setNote(null);
@@ -2197,22 +2449,49 @@ function PinCard({
     }
   };
 
+  // Zwangs-PIN (Punkt 400 der Werkbank): entschärft wie die eigene,
+  // meldet es aber leise den anderen - für den Fall, dass jemand dazu
+  // gezwungen wird. Braucht die eigene PIN zuerst (der Hub prüft das).
+  const submitZwang = async (pin: string) => {
+    setZwangNote(null);
+    try {
+      const response = await fetch(`${hub.url}/api/alarm/pin/zwang`, {
+        method: 'PUT',
+        headers: {
+          ...(hub.token ? { Authorization: `Bearer ${hub.token}` } : {}),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ pin }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
+      setZwang('');
+      setZwangNote(pin ? 'Zwangs-PIN gesetzt.' : 'Zwangs-PIN entfernt.');
+    } catch (err) {
+      setZwangNote(String(err instanceof Error ? err.message : err));
+    }
+  };
+
   return (
     <Card style={styles.card}>
       <Klappe label="PIN fürs Entschärfen" stand={required ? 'gesetzt' : 'keine'}>
       <Text style={[styles.rowDetail, pflicht && styles.warn]}>
         {required
-          ? 'Eine PIN ist gesetzt - Entschärfen geht nur noch mit ihr, auch aus Szenen und von Karten. Abläufe sind ausgenommen, siehe unten.'
+          ? 'Jede Person setzt ihre eigene PIN - Entschärfen geht nur noch damit, auch aus Szenen und von Karten. Abläufe sind ausgenommen, siehe unten.'
           : pflicht
             ? 'Dieses Gerät gehört allen und hängt offen im Raum - hier geht Entschärfen nur mit PIN. Solange keine gesetzt ist, lässt sich die Anlage von hier aus nicht ausschalten. 4 bis 8 Ziffern.'
             : 'Ohne PIN kann jeder mit entsperrtem Telefon die Anlage entschärfen. 4 bis 8 Ziffern.'}
       </Text>
+      {pinUsers.length > 0 ? (
+        <Text style={styles.rowDetail}>Hat eine PIN gesetzt: {pinUsers.join(', ')}.</Text>
+      ) : null}
+      <Text style={styles.hint}>Meine PIN:</Text>
       <View style={styles.pinRow}>
         <TextInput
           style={styles.pinInput}
           value={value}
           onChangeText={(text) => setValue(text.replace(/[^0-9]/g, ''))}
-          placeholder={required ? 'Neue PIN' : 'PIN wählen'}
+          placeholder="PIN wählen oder ändern"
           placeholderTextColor={colors.inkFaint}
           keyboardType="number-pad"
           secureTextEntry
@@ -2227,19 +2506,56 @@ function PinCard({
             (pressed || value.length < 4) && { opacity: 0.6 },
           ]}
         >
-          <Text style={styles.pinConfirmText}>{required ? 'Ändern' : 'Setzen'}</Text>
+          <Text style={styles.pinConfirmText}>Setzen</Text>
         </Pressable>
-        {required ? (
-          <Pressable
-            onPress={() => submit('')}
-            accessibilityRole="button"
-            style={({ pressed }) => [styles.pinRemove, pressed && { opacity: 0.7 }]}
-          >
-            <Text style={styles.pinRemoveText}>Entfernen</Text>
-          </Pressable>
-        ) : null}
+        <Pressable
+          onPress={() => submit('')}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.pinRemove, pressed && { opacity: 0.7 }]}
+        >
+          <Text style={styles.pinRemoveText}>Entfernen</Text>
+        </Pressable>
       </View>
       {note ? <Text style={styles.rowDetail}>{note}</Text> : null}
+
+      {/* Zwangs-PIN (Punkt 400): eine zweite, die genauso entschärft,
+          aber leise die anderen alarmiert - für den Fall, dass jemand
+          dazu gezwungen wird. */}
+      <Text style={styles.hint}>
+        Zwangs-PIN (entschärft wie gewöhnlich, meldet es aber leise den
+        anderen):
+      </Text>
+      <View style={styles.pinRow}>
+        <TextInput
+          style={styles.pinInput}
+          value={zwang}
+          onChangeText={(text) => setZwang(text.replace(/[^0-9]/g, ''))}
+          placeholder="Zwangs-PIN wählen"
+          placeholderTextColor={colors.inkFaint}
+          keyboardType="number-pad"
+          secureTextEntry
+          maxLength={8}
+        />
+        <Pressable
+          onPress={() => submitZwang(zwang)}
+          disabled={zwang.length < 4}
+          accessibilityRole="button"
+          style={({ pressed }) => [
+            styles.pinConfirm,
+            (pressed || zwang.length < 4) && { opacity: 0.6 },
+          ]}
+        >
+          <Text style={styles.pinConfirmText}>Setzen</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => submitZwang('')}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.pinRemove, pressed && { opacity: 0.7 }]}
+        >
+          <Text style={styles.pinRemoveText}>Entfernen</Text>
+        </Pressable>
+      </View>
+      {zwangNote ? <Text style={styles.rowDetail}>{zwangNote}</Text> : null}
 
       {/* Der Fall, für den es diesen Schalter gibt: Die Anlage schaltete
           sich bei der Heimkehr nicht mehr ab. Der Ablauf war
@@ -2407,6 +2723,17 @@ const makeStyles = (colors: Colors) =>
     },
     modeActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     modeText: { color: colors.ink, fontSize: 12, fontWeight: '700' },
+    zoneInput: {
+      flex: 1,
+      backgroundColor: colors.surfaceSoft,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      color: colors.ink,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      fontSize: 13,
+    },
     pinRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     pinInput: {
       flex: 1,
