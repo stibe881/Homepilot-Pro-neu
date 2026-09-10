@@ -342,6 +342,23 @@ describe('Kontrollfluss und die neuen Auslöser (Punkte 251/252)', () => {
     expect(satz).toContain('wenn dunkel: Licht Flur ein; sonst Nachricht');
   });
 
+  it('sagt, wenn eine Nachricht absichtlich wartet', () => {
+    // Sonst sieht ein Ablauf, der fünf Sekunden auf das Bild wartet,
+    // genauso aus wie einer, der sofort meldet.
+    const satz = ablaufSatz(
+      {
+        triggers: [{ type: 'state', entity_id: 'hm.fenster', to: 'on' }],
+        conditions: [],
+        actions: [{ type: 'notify', title: 'Türe', camera: 'unifi.keller', delay: 5 }],
+        otherwise: [],
+        match: 'all',
+      },
+      entities,
+      scenes
+    );
+    expect(satz).toContain('Nachricht, 5 s später');
+  });
+
   it('liest einen wiederholen-Schritt samt Obergrenze vor', () => {
     const satz = ablaufSatz(
       {

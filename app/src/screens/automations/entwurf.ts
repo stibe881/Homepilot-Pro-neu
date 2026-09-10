@@ -755,6 +755,13 @@ export interface StepDraft {
   /** Handgriffe, die unter der Nachricht zur Wahl stehen. Höchstens
    *  drei - mehr liest dort niemand. */
   notifyKnoepfe: NotifyKnopf[];
+  /** Sekunden, die die Nachricht auf sich warten lässt. 0 = sofort.
+   *
+   *  Der Fall: «Jemand hat die Türe geöffnet» - mit einem Bild, auf dem
+   *  niemand steht. Der Kontakt meldet, während die Person noch hinter
+   *  der Türe ist; fünf Sekunden später steht sie im Bild. Das Bild
+   *  entsteht beim Senden, wartet also mit. */
+  notifyVerzoegerung: number;
   /** Wartezeit in Sekunden. */
   seconds: string;
   /** «Warten bis»: worauf, und wie lange höchstens. */
@@ -817,6 +824,7 @@ export const EMPTY_STEP: StepDraft = {
   notifyTo: '',
   notifyZiel: '',
   notifyKnoepfe: [],
+  notifyVerzoegerung: 0,
   seconds: '60',
   waitEntityId: '',
   waitOp: 'is',
@@ -1725,6 +1733,7 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
         ...(step.notifyCamera ? { camera: step.notifyCamera } : {}),
         ...(step.notifyZiel ? { open: step.notifyZiel } : {}),
         ...(knoepfe.length > 0 ? { buttons: knoepfe } : {}),
+        ...(step.notifyVerzoegerung > 0 ? { delay: step.notifyVerzoegerung } : {}),
       },
     ];
   }
@@ -1969,6 +1978,7 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
         notifyCamera: action.camera ?? '',
         notifyTo: action.to && action.to !== 'all' ? String(action.to) : '',
         notifyZiel: typeof action.open === 'string' ? action.open : '',
+        notifyVerzoegerung: Number(action.delay) > 0 ? Number(action.delay) : 0,
         notifyKnoepfe: Array.isArray(action.buttons)
           ? action.buttons
               .filter((knopf: unknown) => !!knopf && typeof knopf === 'object')

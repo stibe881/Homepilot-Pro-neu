@@ -117,6 +117,38 @@ log = logging.getLogger(__name__)
 # keines mehr - und die Kachel in der App zeigt es dann trotzdem.
 BILD_WARTEZEIT = 4.0
 
+#: Länger als so lange wartet keine Nachricht auf sich - eine Meldung,
+#: die eine Minute nach dem Ereignis kommt, ist keine Meldung mehr,
+#: sondern ein Eintrag im Protokoll. Wer wirklich lange warten will,
+#: nimmt einen «Warten»-Schritt davor: Der hält den ganzen Ablauf an und
+#: sagt das auch.
+MELDE_VERZOEGERUNG_MAX = 60.0
+
+
+def notify_verzoegerung(action: dict[str, Any]) -> float:
+    """Wie viele Sekunden diese Nachricht auf sich warten lässt (rein, testbar).
+
+    Der Fall aus dem Haus: «Jemand hat die Türe im Highlight geöffnet» -
+    mit einem Bild, auf dem niemand steht. Kein Fehler, sondern
+    Reihenfolge: Der Türkontakt meldet, während die Person noch hinter
+    der Türe ist. Fünf Sekunden später steht sie im Bild.
+
+    Deshalb je Nachricht einstellbar und nicht fest: Bei der Türklingel
+    wäre dieselbe Verzögerung ein Fehler - dort steht der Besucher schon
+    da, und die Meldung soll sofort kommen.
+
+    Unsinn (Text, negative Zahlen) zählt als «sofort»: Eine Nachricht,
+    die wegen eines Tippfehlers gar nicht mehr käme, wäre der schlimmere
+    Fall.
+    """
+    try:
+        zahl = float(action.get("delay") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    if zahl <= 0:
+        return 0.0
+    return min(zahl, MELDE_VERZOEGERUNG_MAX)
+
 
 def crosses_threshold(
     old: Any, new: Any, above: Any = None, below: Any = None
@@ -481,7 +513,12 @@ def describe_action(action: dict[str, Any], name_of: Any = None) -> str:
     if atype == "notify":
         wer = action.get("to") or "alle"
         bild = " mit Kamerabild" if action.get("camera") else ""
-        return f"Nachricht an {wer}: «{action.get('title') or action.get('body') or ''}»{bild}"
+        wartet = notify_verzoegerung(action)
+        spaeter = f", {wartet:g} s später" if wartet else ""
+        return (
+            f"Nachricht an {wer}: «{action.get('title') or action.get('body') or ''}»"
+            f"{bild}{spaeter}"
+        )
     if atype == "presence":
         richtung = str(action.get("event") or "enter").strip().lower()
         wohin = "weg" if richtung in ("leave", "left", "exit", "away", "out") else "zuhause"
@@ -1346,6 +1383,11 @@ class AutomationEngine:
         self._unsubscribe = None
         self._timer_tasks: list[asyncio.Task] = []
         self._run_tasks: set[asyncio.Task] = set()
+        # Nachrichten, die ein paar Sekunden auf sich warten lassen
+        # (notify_verzoegerung). Sie laufen neben dem Ablauf weiter -
+        # gehalten wird die Referenz nur, damit der Sammler sie nicht
+        # mittendrin abräumt.
+        self._spaetere_meldungen: set[asyncio.Task] = set()
         self._running: set[str] = set()
         # Der laufende Durchgang je Ablauf - nur «restart» braucht ihn,
         # um ihn abbrechen zu können.
@@ -1466,9 +1508,18 @@ class AutomationEngine:
         for task, _ in self._nachlauf.values():
             task.cancel()
         self._nachlauf.clear()
-        for task in [*self._timer_tasks, *self._run_tasks, *self._held_tasks.values()]:
+        # Die verzögerten Nachrichten gehen mit: Sie hängen an keinem
+        # Durchgang mehr, und eine Meldung, die nach dem Neustart des
+        # Hubs eintrifft, wäre älter als alles, was sie meldet.
+        warten = [
+            *self._timer_tasks,
+            *self._run_tasks,
+            *self._held_tasks.values(),
+            *self._spaetere_meldungen,
+        ]
+        for task in warten:
             task.cancel()
-        for task in [*self._timer_tasks, *self._run_tasks, *self._held_tasks.values()]:
+        for task in warten:
             try:
                 await task
             except (asyncio.CancelledError, Exception):
@@ -1476,6 +1527,7 @@ class AutomationEngine:
         self._timer_tasks.clear()
         self._run_tasks.clear()
         self._held_tasks.clear()
+        self._spaetere_meldungen.clear()
         # Sonst hielte die Zuordnung Ablauf → Durchgang nach dem Halt
         # abgebrochene Tasks fest.
         self._tasks_by_id.clear()
@@ -3544,13 +3596,65 @@ class AutomationEngine:
         action: dict[str, Any],
         ausloeser: str | None = None,
     ) -> None:
-        """Eine Push-Nachricht aus einem Ablauf.
+        """Eine Push-Nachricht aus einem Ablauf - sofort oder ein paar
+        Sekunden später.
 
-        Text und Kamera dürfen sich auf den Auslöser beziehen: «Jemand
+        Die Verzögerung läuft **neben** dem Ablauf und nicht in ihm: Was
+        nach der Nachricht steht (Licht an, Szene), soll nicht auf sie
+        warten - es hängt ja nichts davon ab. Wer den ganzen Ablauf
+        anhalten will, nimmt den Schritt «Warten».
+
+        Wozu überhaupt gewartet wird, steht bei `notify_verzoegerung`:
+        Der Türkontakt meldet, während die Person noch hinter der Türe
+        ist, und das Bild zeigt einen leeren Raum.
+        """
+        wartet = notify_verzoegerung(action)
+        if wartet <= 0:
+            await self._notify_senden(automation, action, ausloeser)
+            return
+        aufgabe = asyncio.create_task(
+            self._notify_spaeter(wartet, automation, action, ausloeser)
+        )
+        # Die Referenz halten: Die Ereignisschleife hält eine Aufgabe nur
+        # schwach fest, und der Sammler dürfte sie mittendrin abräumen -
+        # das wäre eine Nachricht, die nie ankommt, und niemand sähe
+        # warum (dieselbe Falle wie in core/personenbild.py).
+        self._spaetere_meldungen.add(aufgabe)
+        aufgabe.add_done_callback(self._spaetere_meldungen.discard)
+
+    async def _notify_spaeter(
+        self,
+        sekunden: float,
+        automation: Automation,
+        action: dict[str, Any],
+        ausloeser: str | None,
+    ) -> None:
+        try:
+            await asyncio.sleep(sekunden)
+            await self._notify_senden(automation, action, ausloeser)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Eine Nachricht, die neben dem Ablauf läuft, hat niemanden
+            # mehr, der ihren Fehler auffängt - ohne dieses Protokoll
+            # bliebe sie einfach aus.
+            log.exception("Verzögerte Nachricht aus '%s' fehlgeschlagen", automation.alias)
+
+    async def _notify_senden(
+        self,
+        automation: Automation,
+        action: dict[str, Any],
+        ausloeser: str | None = None,
+    ) -> None:
+        """Text und Kamera dürfen sich auf den Auslöser beziehen: «Jemand
         weint im Zimmer {raum}» und «die Kamera, die ausgelöst hat» gelten
         damit für alle Kinderzimmer auf einmal. Vorher brauchte jede
         Kamera einen eigenen Ablauf mit eigenem Text - fünf Zimmer, fünf
         fast gleiche Abläufe, und beim Ändern findet man den fünften nie.
+
+        Das Bild entsteht **hier** und nicht beim Auslösen: Wartet die
+        Nachricht fünf Sekunden, wartet das Bild mit - genau darum geht
+        es.
         """
         quelle = self.hub.registry.get(ausloeser or "") if ausloeser else None
         camera = str(action.get("camera") or "") or None

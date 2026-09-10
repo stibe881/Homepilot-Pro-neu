@@ -2119,6 +2119,32 @@ export function StepList({
                   onSelect={(notifyCamera) => setStep(index, { notifyCamera })}
                 />
               ) : null}
+              {/* Wann gemeldet wird - der gemeldete Fall: «Jemand hat
+                  die Türe geöffnet», und auf dem Bild steht niemand.
+                  Der Kontakt meldet, während die Person noch hinter der
+                  Türe ist. Das Bild entsteht beim Senden, wartet also
+                  mit; alles nach diesem Schritt läuft trotzdem sofort
+                  weiter. */}
+              <Choice
+                options={[
+                  { key: '0', label: 'Sofort' },
+                  { key: '3', label: 'Nach 3 s' },
+                  { key: '5', label: 'Nach 5 s' },
+                  { key: '10', label: 'Nach 10 s' },
+                ]}
+                value={String(step.notifyVerzoegerung ?? 0)}
+                onSelect={(key) =>
+                  setStep(index, { notifyVerzoegerung: Number(key) || 0 })
+                }
+              />
+              {step.notifyVerzoegerung > 0 ? (
+                <Text style={styles.triggerNote}>
+                  Die Nachricht geht {step.notifyVerzoegerung} Sekunden nach dem
+                  Auslöser raus – und das Bild entsteht erst dann. Genau dafür
+                  ist es da: Ein Türkontakt meldet, während die Person noch
+                  hinter der Türe ist. Der Rest des Ablaufs wartet nicht mit.
+                </Text>
+              ) : null}
               <NachrichtenZiel
                 ziel={step.notifyZiel}
                 onZiel={(notifyZiel) => setStep(index, { notifyZiel })}

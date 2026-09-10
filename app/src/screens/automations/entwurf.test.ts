@@ -103,6 +103,40 @@ describe('Nachricht-Empfänger (Punkt 158)', () => {
   });
 });
 
+describe('Nachricht mit Verzögerung', () => {
+  it('lässt «sofort» ganz weg', () => {
+    // Ein `delay: 0` in jedem Ablauf wäre Ballast in der Datei - und
+    // beim Vergleichen zweier Abläufe ein Unterschied, der keiner ist.
+    const [action] = stepToActions({
+      ...EMPTY_STEP,
+      kind: 'notify',
+      title: 'Hallo',
+      body: '',
+    });
+    expect(action.delay).toBeUndefined();
+  });
+
+  it('trägt die Sekunden hin und zurück', () => {
+    // Der Fall: «Jemand hat die Türe geöffnet» mit einem Bild, auf dem
+    // niemand steht - das Bild entsteht beim Senden und wartet mit.
+    const [action] = stepToActions({
+      ...EMPTY_STEP,
+      kind: 'notify',
+      title: 'Türe',
+      body: '',
+      notifyCamera: 'unifi.keller',
+      notifyVerzoegerung: 5,
+    });
+    expect(action.delay).toBe(5);
+    expect(actionsToSteps([action])[0].notifyVerzoegerung).toBe(5);
+  });
+
+  it('nimmt Unsinn aus einer alten Datei als «sofort»', () => {
+    expect(actionsToSteps([{ type: 'notify', delay: 'gleich' }])[0].notifyVerzoegerung).toBe(0);
+    expect(actionsToSteps([{ type: 'notify' }])[0].notifyVerzoegerung).toBe(0);
+  });
+});
+
 describe('Und/Oder-Gruppen (Punkt 152)', () => {
   const basis = {
     id: 'x',
