@@ -49,10 +49,20 @@ jobs:
       # shellcheck hält es sauber, bevor es auf dem Host landet.
       - name: Auslieferungs-Skripte (shellcheck)
         run: shellcheck --severity=warning deploy/*.sh scripts/*.sh
-      # Die Typprüfung darf vorerst rot sein, ohne den Lauf zu stoppen:
-      # Sie kommt in ein gewachsenes Projekt und meldet zu Beginn viel.
-      # Sobald die Zahl bei null ist, kommt das continue-on-error weg.
-      - name: Typen (noch nicht bindend)
+      # Die Typprüfung ist bindend - aber nur dort, wo sie es sein kann.
+      #
+      # `mypy homepilot` meldete 213 Fehler in 48 Dateien und stand
+      # deshalb jahrelang auf continue-on-error. Eine Prüfung, die immer
+      # rot sein darf, liest niemand: Sie ist dann Hintergrundrauschen.
+      #
+      # Jetzt führt `hub/mypy-sauber.txt` die Module, die sauber sind
+      # (152 von 200), und genau die müssen sauber bleiben. Der Rest
+      # wartet, bis ihn jemand aufräumt; die Liste kann nur wachsen.
+      - name: Typen (die sauberen Module bindend)
+        working-directory: hub
+        run: python3 tools/mypy_sauber.py
+      # Was noch offen ist, bleibt sichtbar - ohne den Lauf zu stoppen.
+      - name: Typen (der Rest, zur Ansicht)
         working-directory: hub
         continue-on-error: true
         run: mypy homepilot

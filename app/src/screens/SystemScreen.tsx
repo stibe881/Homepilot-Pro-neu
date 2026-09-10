@@ -15,7 +15,9 @@ import * as Updates from 'expo-updates';
 
 import { HubFehler, hubClient } from '../api/client';
 import { Entity, HubSettings, LogEntry, SystemStatus, User } from '../api/types';
+import { absturzSatz, nachBereich } from '../lib/absturzbuch';
 import { Extra, geordnet, luecken, zustand } from '../lib/extras';
+import { useAbstuerze } from '../hooks/useAbstuerze';
 import { PushState, pushHint } from '../hooks/usePushRegistration';
 import { AccessLog } from '../components/AccessLog';
 import { Einrichtungsprotokoll } from '../components/Einrichtungsprotokoll';
@@ -153,6 +155,7 @@ export function SystemScreen({
         ) : null}
         {status.build ? <WebVersionNote hubCommit={status.build.commit} /> : null}
         <AppVersionNote />
+        <AbsturzNote />
         <StartfehlerNote />
         <WasIstNeu settings={settings} />
 
@@ -694,6 +697,58 @@ function WasIstNeu({ settings }: { settings: HubSettings }) {
  * sie, zeigt die App alten Code, obwohl TestFlight gerade Neues gebracht
  * hat. Genau das steht hier: mitgeliefert oder nachgeladen.
  */
+/**
+ * Wie oft die App beim Zeichnen gestolpert ist (Punkt 272 der Werkbank).
+ *
+ * `<Auffangnetz>` fängt einen Fehler ab und zeigt eine Ersatzfläche - und
+ * genau deshalb erfuhr davon niemand: Auf dem Telefon tippt man auf
+ * «Nochmals», es geht weiter, und beim nächsten Mal denkt man «das war
+ * schon mal». Auf dem Wandpanel im Flur sieht es überhaupt keiner.
+ *
+ * Steht nur da, wenn etwas passiert ist: «0 Abstürze» ist eine Zeile,
+ * die man ab dem zweiten Mal überliest - und dann übersieht man sie an
+ * dem Tag, an dem eine Zahl darin steht.
+ */
+function AbsturzNote() {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { abstuerze, abstuerzeVergessen } = useAbstuerze();
+  const [offen, setOffen] = useState(false);
+  const satz = absturzSatz(abstuerze);
+  if (!satz) return null;
+  return (
+    <View style={{ marginTop: 8 }}>
+      <Pressable
+        onPress={() => setOffen((wert) => !wert)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: offen }}
+        style={styles.row}
+      >
+        <Ionicons name="warning-outline" size={16} color={colors.warn} />
+        <Text style={[styles.rowDetail, { flex: 1, color: colors.warn }]}>{satz}</Text>
+        <Ionicons
+          name={offen ? 'chevron-up' : 'chevron-down'}
+          size={14}
+          color={colors.inkFaint}
+        />
+      </Pressable>
+      {offen ? (
+        <>
+          {nachBereich(abstuerze).map((gruppe) => (
+            <Text key={gruppe.bereich} style={styles.rowDetail}>
+              {gruppe.bereich}: {gruppe.anzahl}× · zuletzt{' '}
+              {datumUhr(new Date(gruppe.zuletzt))}
+            </Text>
+          ))}
+          <Pressable onPress={abstuerzeVergessen} accessibilityRole="button">
+            <Text style={[styles.rowDetail, { color: colors.accent }]}>Liste leeren</Text>
+          </Pressable>
+        </>
+      ) : null}
+    </View>
+  );
+}
+
 function AppVersionNote() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
