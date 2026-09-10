@@ -845,10 +845,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     schreiben: setEinkaufLernen,
   };
 
-  // Die Haustür-Karte für unterwegs - tut nur auf einem iPhone mit dem
-  // passenden Build etwas (hooks/useLiveAktivitaet.ts). Hängt am
-  // Profil-Schalter: aus heisst, dieses Gerät meldet gar keine Tokens an.
-  useLiveAktivitaet(settings, status === 'connected' && eigenePrefs.liveTuer !== false);
+  // Die Karten auf dem Sperrbildschirm - tut nur auf einem iPhone mit
+  // dem passenden Build etwas (hooks/useLiveAktivitaet.ts). Hängt am
+  // Profil-Schalter: aus heisst, dieses Gerät meldet gar keine Tokens
+  // an.
+  //
+  // Bewusst *ohne* «verbunden»: Weckt iOS die App kurz auf, weil der
+  // Hub gerade eine Karte gestartet hat, steht der WebSocket noch
+  // nicht - und genau in diesem Fenster gibt es das Token, mit dem der
+  // Hub die Karte später wieder beenden kann. Wer darauf wartet,
+  // verpasst es und behält die Karte, bis jemand die App öffnet.
+  useLiveAktivitaet(settings, eigenePrefs.liveTuer !== false);
 
   // Der Apple Watch die Zugangsdaten hinüberreichen - tut nur auf einem
   // iPhone mit dem passenden Build etwas (hooks/useWatchSync.ts).
