@@ -4410,6 +4410,17 @@ wofür der Broker nebenan eigens auf 127.0.0.1 eingesperrt ist.
 Gebraucht wird es hier nicht - der Hub liest die Themen selbst. Jetzt
 aus, mit einer Prüfung dagegen.
 
+**Dritter Nachtrag - alles blass.** Nach dem ersten Anlernen stand in
+der App kein einziges Zigbee-Gerät als erreichbar da, obwohl
+Zigbee2MQTT lief. Zwei Hälften, jede für sich richtig: Die Integration
+abonniert `<name>/availability` und legt jedes Gerät zunächst als nicht
+erreichbar an - ein Zigbee-Sensor meldet sich ja erst, wenn sich etwas
+ändert. In der Vorlage fehlte dagegen der Abschnitt `availability`, und
+Zigbee2MQTT hat ihn von Haus aus aus. Die Meldung, auf die der Hub
+wartet, kam also nie, und ein Erschütterungssensor wäre bis zum
+nächsten Rütteln grau geblieben. Jetzt `availability: enabled: true`,
+mit einer Prüfung, die beide Hälften zusammenbindet.
+
 Stellen: `docker-compose.yml`, `docker-compose.portainer.yml`, `deploy/mosquitto.conf`, `deploy/zigbee2mqtt.example.yaml`, `deploy/portainer.md`, `docs/zigbee.md`, `docs/integrationen.md`, `hub/config.example.yaml`, `hub/tests/test_compose_pfade.py`, `hub/tests/test_zigbee_stack.py`, `.gitignore`
 
 # Teil XII: Auf Zuruf (537)
@@ -4861,6 +4872,27 @@ Fassungen, dafür `WebVersionNote`). Was nur nativ passiert, beantwortet
 der Browser nicht.
 
 Stellen: `app/src/lib/appstand.ts`, `app/src/screens/SystemScreen.tsx`, `app/app.json`, `deploy/rebuild-hub.sh`, `CLAUDE.md`
+
+### 546. «unknown» in grossen Buchstaben auf frischen Kacheln ✓ erledigt
+
+*lohnt sich · Aufwand: klein · App*
+
+Vier frisch angelernte Zigbee-Klimafühler standen auf der Geräteseite
+mit **unknown** als Messwert - in der grössten Schrift, die die Kachel
+hat. Das sieht aus wie ein Defekt und ist keiner: Der Hub setzt genau
+diesen Platzhalter, bis ein Gerät sich zum ersten Mal meldet
+(`integrations/zigbee2mqtt.py`), und ein Zigbee-Sensor meldet sich erst,
+wenn sich etwas ändert. Nach der ersten Messung steht dort «21.5 °C».
+
+`format()` in `components/entity/teile.tsx` reichte unbekannte Werte
+unverändert durch. Das ist für einen echten Fehlerwert richtig - «error»
+auf der Kachel ist hässlich, aber wahr und man kann danach suchen. Für
+den eigenen Platzhalter ist es nur ein englisches Wort aus dem Inneren,
+das nach aussen dringt. Jetzt wird das knappe Häufchen Werte, die
+ausdrücklich «noch keine Messung» heissen (`unknown`, `unavailable`,
+`none`, `null`, leer), zum Strich; alles andere bleibt, wie es kommt.
+
+Stellen: `app/src/components/entity/teile.tsx`, `app/src/components/entity/teile.test.ts`
 
 ### 547. Der Nachlauf zählt ab der letzten Bewegung ✓ erledigt
 
