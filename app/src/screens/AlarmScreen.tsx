@@ -51,6 +51,8 @@ import { datumUhr } from '../lib/format';
 import { deviceKindLabel, melderArt } from '../lib/geraeteart';
 import { BlattZeile, blattWuerdig, blattZeilen } from '../lib/ereignisblatt';
 import { ringAnteil } from '../lib/alarmring';
+import { MODUS_SYMBOLE, type Modus, modiAus, modusFehler } from '../lib/alarmmodi';
+import { confirm as confirmBiometrie } from '../lib/biometrie';
 import { tapped, triggered } from '../lib/haptics';
 import { Colors, radius, space, type, useColors } from '../theme';
 
@@ -155,13 +157,10 @@ interface Overview {
    *  `push.public_url` in der config.yaml – ohne kommt die Nachricht
    *  ohne Bild, und das soll dort stehen, wo man es erwartet. */
   images?: boolean;
+  /** Alle Modi, eingebaute und eigene (Punkt 426) - lib/alarmmodi.ts
+   *  macht daraus die Knöpfe. Fehlt bei einem älteren Hub. */
+  modes?: { key: string; label: string; icon?: string; builtin?: boolean }[];
 }
-
-const MODES = [
-  { key: 'nacht', label: 'Nacht', icon: 'moon-outline' as const },
-  { key: 'ausser_haus', label: 'Ausser Haus', icon: 'exit-outline' as const },
-  { key: 'urlaub', label: 'Urlaub', icon: 'airplane-outline' as const },
-];
 
 /** Farbe und Text zum Zustand der Anlage (rein, testbar). */
 export function stateLook(
@@ -177,6 +176,11 @@ export function stateLook(
       return { text: 'Eintritt – jetzt unscharf schalten', color: colors.warn };
     case 'ausgeloest':
       return { text: 'Alarm ausgelöst', color: colors.danger };
+    // Der Voralarm (Punkt 427): ein Melder hat angeschlagen, die Sirene
+    // wartet noch. Dieselbe Farbe wie der Eintritt - beides heisst
+    // «jetzt unscharf schalten, wenn du es bist».
+    case 'verdacht':
+      return { text: 'Verdacht – gleich Alarm', color: colors.warn };
     default:
       return { text: 'Unscharf', color: colors.inkSoft };
   }
@@ -285,6 +289,7 @@ export function AlarmScreen({
   onEntity,
   entities = [],
   user,
+  bioLock = false,
 }: {
   settings: HubSettings;
   /** Einen Sensor in der Geräteliste zeigen – für die antippbaren Namen
@@ -294,10 +299,16 @@ export function AlarmScreen({
   entities?: Entity[];
   /** Wer gerade bedient. Am Gemeinschaftsgerät ist die PIN Pflicht. */
   user?: { shared?: boolean } | null;
+  /** Face ID vor dem Entschärfen (Punkt 428) - derselbe Schalter wie für
+   *  die Türe (Konto → Face-ID-Sperre). */
+  bioLock?: boolean;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [data, setData] = useState<Overview | null>(null);
+  // Die Knöpfe aus der Liste des Hubs (Punkt 426) - vor den frühen
+  // Rückgaben unten, weil ein Hook nicht hinter ihnen stehen darf.
+  const modi = useMemo(() => modiAus(data?.modes), [data?.modes]);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [pendingMode, setPendingMode] = useState<string | null>(null);
@@ -446,6 +457,12 @@ export function AlarmScreen({
       );
       return;
     }
+    // Face ID zuerst, und nur beim ersten Anlauf (Punkt 428): Wer die PIN
+    // schon tippt, hat das Gesicht eben gezeigt. Ohne Biometrie am Gerät
+    // lässt confirm() durch - die PIN des Hubs bleibt die eigentliche Hürde.
+    if (bioLock && pin === undefined && !(await confirmBiometrie('disarm'))) {
+      return;
+    }
     // Mit gesetzter PIN erst das Feld zeigen - der Hub würde ohne PIN
     // ohnehin ablehnen, aber die App soll fragen statt fehlschlagen.
     if (data?.state.pin_required && pin === undefined) {
@@ -492,7 +509,7 @@ export function AlarmScreen({
     save({ sensors });
   };
 
-  const tabLabel = MODES.find((mode) => mode.key === tab)?.label ?? '';
+  const tabLabel = modi.find((mode) => mode.key === tab)?.label ?? '';
   // Was im Kopf der zugeklappten Sensoren-Karte steht: wie viele Sensoren
   // im gerade gewählten Modus wachen. «0» ist dabei die wichtigste Zahl -
   // eine scharfe Anlage ohne zugeordneten Sensor bewacht nichts.
@@ -605,7 +622,7 @@ export function AlarmScreen({
         ) : null}
 
         <View style={styles.modeRow}>
-          {MODES.map((mode) => {
+          {modi.map((mode) => {
             const active =
               data.state.mode === mode.key &&
               data.state.state !== 'unscharf' &&
@@ -783,7 +800,7 @@ export function AlarmScreen({
       <Card style={styles.card}>
         <Klappe label="Sensoren" stand={sensorenKopf} zuBeginnZu>
           <View style={styles.tabRow}>
-            {MODES.map((mode) => {
+            {modi.map((mode) => {
               const on = tab === mode.key;
               const count = data.sensors.filter((entry) =>
                 entry.modes.includes(mode.key)
@@ -939,7 +956,7 @@ export function AlarmScreen({
         </Klappe>
       </Card>
 
-      <SensorTestCard hub={settings} />
+      <SensorTestCard hub={settings} modi={modi} />
 
       <FehlalarmCard
         hub={settings}
@@ -963,6 +980,7 @@ export function AlarmScreen({
       />
 
       <AfterTrigger
+        modi={modi}
         after={data.after_trigger ?? {}}
         onSave={(mode, patch) => {
           const current = data.after_trigger ?? {};
@@ -989,6 +1007,7 @@ export function AlarmScreen({
 
       <AlarmSettings
         settings={data.settings}
+        modi={modi}
         images={data.images !== false}
         onSave={(next) => save({ settings: next })}
       />
@@ -1645,9 +1664,11 @@ const AFTER_CHOICES = [
  * Eigene Komponente auf Modulebene, damit das Zahlenfeld beim Tippen nicht
  * neu montiert wird. */
 function AfterTrigger({
+  modi,
   after,
   onSave,
 }: {
+  modi: Modus[];
   after: Record<string, After>;
   onSave: (mode: string, patch: Partial<After>) => void;
 }) {
@@ -1664,7 +1685,7 @@ function AfterTrigger({
         Urlaub tut das niemand.
       </Text>
 
-      {MODES.map((mode) => {
+      {modi.map((mode) => {
         const entry = after[mode.key] ?? { action: 'stay', after: 300 };
         return (
           <View key={mode.key} style={styles.afterBlock}>
@@ -1953,10 +1974,13 @@ function AlarmActions({
 
 function AlarmSettings({
   settings,
+  modi,
   images,
   onSave,
 }: {
   settings: AlarmConfig;
+  /** Alle Modi - für die Liste der eigenen und die Doppelt-Prüfung. */
+  modi: Modus[];
   /** Ob der Hub Bilder mitschicken kann (push.public_url gesetzt). */
   images: boolean;
   onSave: (settings: AlarmConfig) => void;
@@ -1965,12 +1989,45 @@ function AlarmSettings({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [exit, setExit] = useState(String(settings.exit_delay ?? 45));
   const [entry, setEntry] = useState(String(settings.entry_delay ?? 30));
+  // Der Voralarm (Punkt 427): 0 heisst aus, wie bisher.
+  const [verdacht, setVerdacht] = useState(String(settings.suspect_delay ?? 0));
+  // Ein neuer eigener Modus (Punkt 426): Name und Symbol.
+  const [neuerName, setNeuerName] = useState('');
+  const [neuesSymbol, setNeuesSymbol] = useState(MODUS_SYMBOLE[0]);
+  const [modusHinweis, setModusHinweis] = useState<string | null>(null);
+  const eigene = modi.filter((modus) => !modus.builtin);
 
   const commit = () =>
     onSave({
       ...settings,
       exit_delay: Number(exit) || 0,
       entry_delay: Number(entry) || 0,
+      suspect_delay: Math.max(0, Number(verdacht) || 0),
+    });
+
+  const modusAnlegen = () => {
+    const fehler = modusFehler(neuerName, modi);
+    if (fehler) {
+      setModusHinweis(fehler);
+      return;
+    }
+    onSave({
+      ...settings,
+      custom_modes: [
+        ...eigene.map((modus) => ({ key: modus.key, label: modus.label, icon: modus.icon })),
+        { label: neuerName.trim(), icon: neuesSymbol },
+      ],
+    });
+    setNeuerName('');
+    setModusHinweis(null);
+  };
+
+  const modusEntfernen = (key: string) =>
+    onSave({
+      ...settings,
+      custom_modes: eigene
+        .filter((modus) => modus.key !== key)
+        .map((modus) => ({ key: modus.key, label: modus.label, icon: modus.icon })),
     });
 
   return (
@@ -2000,6 +2057,89 @@ function AlarmSettings({
         />
         <Text style={styles.hint}>
           Zeit zum Unscharfschalten, nachdem ein verzögerter Sensor ausgelöst hat.
+        </Text>
+      </View>
+
+      <View style={styles.field}>
+        <Text style={styles.label}>Voralarm (Sekunden, 0 = aus)</Text>
+        <TextInput
+          style={styles.input}
+          value={verdacht}
+          onChangeText={setVerdacht}
+          onBlur={commit}
+          keyboardType="number-pad"
+        />
+        <Text style={styles.hint}>
+          Der erste Melder allein macht die Anlage nur misstrauisch: Nachricht
+          mit Bild und die Vorwarnung, aber noch keine Sirene. Meldet sich in
+          dieser Zeit ein zweiter Melder, wird es sofort laut; wer entschärft,
+          hat einen Fehlalarm, von dem die Nachbarn nichts gehört haben.
+        </Text>
+      </View>
+
+      {/* Eigene Modi (Punkt 426): «Nur Erdgeschoss», «Gäste da». Welche
+          Sensoren darin wachen, stellt man oben bei den Sensoren ein -
+          der neue Modus bekommt dort seinen eigenen Reiter. */}
+      <View style={styles.field}>
+        <Text style={styles.label}>Eigene Modi</Text>
+        {eigene.map((modus) => (
+          <View key={modus.key} style={styles.sensorHead}>
+            <Ionicons name={modus.icon} size={18} color={colors.inkSoft} />
+            <Text style={[styles.rowTitle, { flex: 1 }]}>{modus.label}</Text>
+            <Pressable
+              onPress={() => modusEntfernen(modus.key)}
+              accessibilityRole="button"
+              accessibilityLabel={`Modus ${modus.label} entfernen`}
+              hitSlop={8}
+            >
+              <Ionicons name="trash-outline" size={18} color={colors.inkFaint} />
+            </Pressable>
+          </View>
+        ))}
+        <TextInput
+          style={styles.input}
+          value={neuerName}
+          onChangeText={(text) => {
+            setNeuerName(text);
+            setModusHinweis(null);
+          }}
+          placeholder="Neuer Modus, z. B. Nur Erdgeschoss"
+          placeholderTextColor={colors.inkFaint}
+          onSubmitEditing={modusAnlegen}
+          returnKeyType="done"
+        />
+        <View style={styles.chipRow}>
+          {MODUS_SYMBOLE.map((symbol) => {
+            const on = neuesSymbol === symbol;
+            return (
+              <Pressable
+                key={symbol}
+                onPress={() => setNeuesSymbol(symbol)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: on }}
+                accessibilityLabel={`Symbol ${symbol}`}
+                style={[styles.chip, on && styles.chipOn]}
+              >
+                <Ionicons name={symbol} size={16} color={on ? '#FFFFFF' : colors.ink} />
+              </Pressable>
+            );
+          })}
+        </View>
+        <Pressable
+          onPress={modusAnlegen}
+          disabled={!neuerName.trim()}
+          accessibilityRole="button"
+          style={({ pressed }) => [
+            styles.mode,
+            (pressed || !neuerName.trim()) && { opacity: 0.6 },
+          ]}
+        >
+          <Ionicons name="add" size={18} color={colors.ink} />
+          <Text style={styles.modeText}>Modus anlegen</Text>
+        </Pressable>
+        <Text style={styles.hint}>
+          {modusHinweis ??
+            'Welche Sensoren im neuen Modus wachen, stellst du oben unter «Sensoren» ein – er bekommt dort seinen eigenen Reiter. Abläufe erreichen ihn über den Befehl «arm» mit dem Modus als Wert.'}
         </Text>
       </View>
 
@@ -2230,7 +2370,7 @@ interface SensorTestState {
  * geht es hier um die einzelnen Melder selbst - ein Fensterkontakt mit
  * leerer Batterie fällt sonst erst auf, wenn er gebraucht würde.
  */
-function SensorTestCard({ hub }: { hub: HubSettings }) {
+function SensorTestCard({ hub, modi }: { hub: HubSettings; modi: Modus[] }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const client = useMemo(() => hubClient(hub.url, hub.token), [hub.url, hub.token]);
@@ -2275,7 +2415,7 @@ function SensorTestCard({ hub }: { hub: HubSettings }) {
         </Text>
         {!state.running ? (
           <View style={styles.modeRow}>
-            {MODES.map((mode) => (
+            {modi.map((mode) => (
               <Pressable
                 key={mode.key}
                 onPress={() => starten(mode.key)}

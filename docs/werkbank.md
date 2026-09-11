@@ -3486,7 +3486,7 @@ nie rot wird, ist keiner.
 
 Stellen: `app/src/lib/strichcode.ts`, `app/src/components/Kassencode.tsx`, `app/src/components/QrScanner.tsx`, `app/src/screens/family/gutscheine.tsx`, `hub/homepilot/core/gutscheine.py`
 
-## Zweite Vorschlagsrunde (421–425)
+## Zweite Vorschlagsrunde (421–428)
 
 Aus einer Liste von fünfundachtzig Vorschlägen (allgemein, Bedienung,
 Gestaltung, Gutscheine, Abläufe, Push, Alarmanlage, selbst gewählt),
@@ -3552,3 +3552,43 @@ Person unter Konto → Benachrichtigungen, und der Hub nimmt sie, wenn
 die App keine mitschickt. Nebenbei behoben: Das Abbestellen einer
 Kategorie ersetzte die ganze Push-Zeile der Person und warf Ruhezeit
 und Stillgestelltes mit weg.
+
+### 426. Eigene Alarm-Modi ✓ erledigt
+
+*lohnt sich · Aufwand: mittel · Hub + App*
+
+«Nacht», «Ausser Haus», «Urlaub» decken das Übliche - nicht «Nur
+Erdgeschoss» oder «Gäste da». Ein eigener Modus ist ein Name, ein
+Symbol und ein Schlüssel daraus (`alarm_rules.modus_schluessel`);
+welche Sensoren darin wachen, steht wie bei den eingebauten an den
+Sensoren, die dafür einen eigenen Reiter bekommen. Die Modi kommen
+als Liste vom Hub (`config_dict()["modes"]`), die App zeichnet ihre
+Knöpfe daraus statt drei feste zu kennen (`lib/alarmmodi.ts`).
+Abläufe erreichen einen eigenen Modus über den Befehl `arm` mit
+`mode` als Wert. Wird ein Modus gestrichen, verschwindet er auch aus
+den Sensoren und dem Nachverhalten - sonst wachte er als Geist weiter.
+
+### 427. Voralarm «Verdacht» ✓ erledigt
+
+*lohnt sich · Aufwand: klein · Hub + App*
+
+Der erste sofortige Melder allein machte die Anlage laut. Mit
+`suspect_delay` (Sekunden, 0 = aus) wird sie erst misstrauisch:
+Zustand `verdacht`, Nachricht mit Bild, die Vorwarn-Befehle - aber
+keine Sirene. Meldet sich ein *zweiter* Melder, ist es keine
+Vermutung mehr und der Alarm kommt sofort; derselbe Melder noch einmal
+zählt nicht. Wer in der Frist entschärft, hat einen Fehlalarm, von dem
+die Nachbarn nichts gehört haben. Die Eingangsverzögerung bleibt, was
+sie war: Sie gilt den verzögerten Sensoren, der Voralarm den
+sofortigen.
+
+### 428. Face ID vor dem Entschärfen ✓ erledigt
+
+*Aufwand: klein · App*
+
+Die Face-ID-Sperre (Konto) galt für Türe und Kacheln, nicht für den
+grossen Knopf «Unscharf schalten» auf dem Alarm-Bildschirm. Jetzt
+fragt er zuerst das Gesicht, dann die PIN - und nur beim ersten
+Anlauf: Wer die PIN schon tippt, hat das Gesicht eben gezeigt. Ohne
+Biometrie am Gerät lässt die Sperre durch; die PIN des Hubs bleibt die
+eigentliche Hürde.

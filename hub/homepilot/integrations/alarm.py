@@ -83,15 +83,19 @@ from .alarm_rules import (  # noqa: F401
     STAY,
     TEST_SIREN_SECONDS,
     TRIGGERED,
+    VERDACHT,
+    alle_modi,
     camera_for,
     camera_motion_due,
     durchsage_boxen,
+    eigene_modi_lesen,
     eskalation_wirkt,
     eskalations_befehle,
     eskalations_ende_befehle,
     guards,
     hash_pin,
     is_sensor,
+    modus_schluessel,
     motion_started,
     nearest_camera,
     ohne_pin_erlaubt,
@@ -188,9 +192,14 @@ class AlarmIntegration(Integration):
 
         stored = self.hub.data.get("alarm")
         config = stored[0] if stored else {}
-        self._sensors = parse_sensors(config.get("sensors"))
+        # Erst die Einstellungen: Die eigenen Modi darin entscheiden, was
+        # bei den Sensoren und im Nachverhalten ein bekannter Modus ist.
         self._settings = {**DEFAULT_SETTINGS, **(config.get("settings") or {})}
-        self._after_trigger = parse_after(config.get("after_trigger"))
+        self._sensors = parse_sensors(config.get("sensors"), self.modi_keys())
+        self._after_trigger = parse_after(config.get("after_trigger"), modes=self.modi_keys())
+        # Welcher Melder den Voralarm gestartet hat (Punkt 427): Meldet er
+        # sich noch einmal, ist das kein zweiter Beweis.
+        self._verdacht_von: str | None = None
         self._actions = parse_actions(config.get("actions"))
         self._escalation = parse_escalation(config.get("escalation"))
         self._history: list[dict[str, Any]] = list(config.get("history") or [])
@@ -205,6 +214,9 @@ class AlarmIntegration(Integration):
                 "arm_night",
                 "arm_away",
                 "arm_vacation",
+                # Beliebiger Modus per data.mode - der Weg für eigene Modi
+                # (Punkt 426), die keinen festen Befehl haben können.
+                "arm",
                 # Damit die Anlage auch dort schaltbar ist, wo nur ein
                 # einfacher Ein/Aus-Knopf sitzt (Startseite, Szenen).
                 "turn_on",
@@ -231,11 +243,21 @@ class AlarmIntegration(Integration):
 
     # ── Zustand ────────────────────────────────────────────────────────────
 
+    def modi(self) -> dict[str, str]:
+        """Schlüssel → Name aller Modi, eingebaute und eigene (Punkt 426)."""
+        return alle_modi(self._settings)
+
+    def modi_keys(self) -> tuple[str, ...]:
+        return tuple(self.modi())
+
+    def mode_label(self, mode: str | None) -> str:
+        return self.modi().get(mode or "", mode or "?")
+
     def _state_dict(self) -> dict[str, Any]:
         return {
             "state": self._state,
             "mode": self._mode,
-            "mode_label": MODE_LABELS.get(self._mode or "", ""),
+            "mode_label": self.mode_label(self._mode) if self._mode else "",
             # Wie lange die laufende Verzögerung noch dauert – die App
             # zeigt daraus den Countdown.
             "seconds_left": (
@@ -328,7 +350,7 @@ class AlarmIntegration(Integration):
         das übrige Haus scharf würde. Ohne Angabe gilt weiter das ganze
         Haus, wie bisher.
         """
-        if mode not in MODES:
+        if mode not in self.modi():
             raise HomePilotError(f"Unbekannter Alarm-Modus: {mode}")
         zone = zone or None
         open_now = self.open_sensors(mode, zone)
@@ -363,10 +385,10 @@ class AlarmIntegration(Integration):
             self._next = None
         await self._publish()
         zone_zusatz = f" ({zone})" if zone else ""
-        self._note("armed", f"{MODE_LABELS[mode]} scharf geschaltet{zone_zusatz}", by)
+        self._note("armed", f"{self.mode_label(mode)} scharf geschaltet{zone_zusatz}", by)
         if self._settings.get("notify_arming"):
             await self._notify(
-                "Alarmanlage scharf", f"Modus {MODE_LABELS[mode]}", "alarm_arming"
+                "Alarmanlage scharf", f"Modus {self.mode_label(mode)}", "alarm_arming"
             )
         return {"ok": True, "state": self._state}
 
@@ -524,6 +546,7 @@ class AlarmIntegration(Integration):
         self._zone = None
         self._until = None
         self._next = None
+        self._verdacht_von = None
         await self._publish()
         self._note("disarmed", "Unscharf geschaltet", by)
         # Sirene aus, Licht zurück – sonst heult sie weiter, obwohl die
@@ -657,7 +680,7 @@ class AlarmIntegration(Integration):
                 self._sensor_test = sensortest_bestaetigen(
                     self._sensor_test, entity_fuer_test.id
                 )
-        if self._state not in (ARMED, ARMING):
+        if self._state not in (ARMED, ARMING, VERDACHT):
             return
         entity_id = payload.get("entity_id")
         entity = self.hub.registry.get(str(entity_id))
@@ -701,7 +724,52 @@ class AlarmIntegration(Integration):
                 )
             return
 
+        # Der Voralarm (Punkt 427): Der erste sofortige Melder macht die
+        # Anlage misstrauisch, noch nicht laut. Im Verdacht selbst zählt
+        # ein *zweiter* Melder als Bestätigung - derselbe, der sich noch
+        # einmal meldet, nicht.
+        verdacht = float(self._settings.get("suspect_delay") or 0)
+        if self._state == VERDACHT and entity.id == self._verdacht_von:
+            return
+        if verdacht > 0 and self._state == ARMED:
+            await self._verdacht(entity, verdacht)
+            return
+
         await self._trigger(entity)
+
+    async def _verdacht(self, entity: Entity, frist: float) -> None:
+        """Voralarm: melden und warten, bevor es laut wird (Punkt 427).
+
+        Nachricht mit Bild wie beim Alarm, dazu die Vorwarn-Befehle
+        (Slot «warning», etwa ein kurzer Piepser) - aber nicht die
+        Sirene. Läuft die Frist ab, ohne dass jemand entschärft, kommt
+        der Alarm mit allem, was dazugehört.
+        """
+        self._cancel_timer()
+        self._state = VERDACHT
+        self._verdacht_von = entity.id
+        self._until = time.time() + frist
+        self._gesamt = frist
+        self._next = "trigger"
+        self._timer = asyncio.create_task(self._after(frist, lambda: self._trigger(entity)))
+        await self._publish()
+        self._note(
+            "verdacht",
+            f"Verdacht: {entity.label} – Alarm in {round(frist)} Sekunden, "
+            "wenn niemand entschärft",
+            "",
+            entity_id=entity.id,
+        )
+        await self._run_actions("warning")
+        if self._settings.get("notify_trigger"):
+            camera = camera_for(entity, self.hub.registry.all())
+            await self._notify(
+                "Verdacht – Alarm gleich",
+                f"{entity.label} hat angeschlagen. In {round(frist)} Sekunden "
+                "wird es laut, wenn niemand entschärft.",
+                data={"entity_id": entity.id, "camera": camera},
+                image=await self._snapshot_url(camera),
+            )
 
     def _sauger_merken(self, entity: Entity) -> None:
         """Den Nachlauf stellen, sobald der Sauger stehen bleibt.
@@ -795,6 +863,7 @@ class AlarmIntegration(Integration):
         self._cancel_timer()
         mode = self._mode
         self._state = TRIGGERED
+        self._verdacht_von = None
         self._until = None
         self._next = None
         self._last = {
@@ -815,7 +884,7 @@ class AlarmIntegration(Integration):
             camera = camera_for(entity, self.hub.registry.all())
             await self._notify(
                 "🚨 Alarm ausgelöst",
-                f"{entity.label} – Modus {MODE_LABELS.get(mode or '', '?')}",
+                f"{entity.label} – Modus {self.mode_label(mode)}",
                 data={"entity_id": entity.id, "camera": camera},
                 image=await self._snapshot_url(camera),
             )
@@ -878,7 +947,7 @@ class AlarmIntegration(Integration):
         self._next = None
         await self._publish()
         still_open = [entity.label for entity in self.open_sensors(mode, self._zone)]
-        text = f"Wieder scharf geschaltet ({MODE_LABELS[mode]})"
+        text = f"Wieder scharf geschaltet ({self.mode_label(mode)})"
         if still_open:
             text += " – noch offen: " + ", ".join(still_open)
         self._note("armed", text, "automatisch")
@@ -1112,7 +1181,7 @@ class AlarmIntegration(Integration):
     # «steht noch aus» zu «gemeldet» (siehe _on_state_changed).
 
     def start_sensor_test(self, mode: str) -> dict[str, Any]:
-        if mode not in MODES:
+        if mode not in self.modi():
             raise HomePilotError(f"Unbekannter Alarm-Modus: {mode}")
         if self._state != DISARMED:
             raise HomePilotError(
@@ -1426,6 +1495,16 @@ class AlarmIntegration(Integration):
             },
             "actions": {slot: list(entries) for slot, entries in self._actions.items()},
             "escalation": dict(self._escalation),
+            # Alle Modi in Reihenfolge, eingebaute zuerst (Punkt 426): Die
+            # App zeichnet daraus die Knöpfe, statt drei feste zu kennen.
+            "modes": [
+                {"key": key, "label": label, "builtin": True, "icon": ""}
+                for key, label in MODE_LABELS.items()
+            ]
+            + [
+                {**eintrag, "builtin": False}
+                for eintrag in eigene_modi_lesen(self._settings.get("custom_modes"))
+            ],
         }
 
     def _save(self) -> None:
@@ -1433,12 +1512,20 @@ class AlarmIntegration(Integration):
 
     async def update_config(self, patch: dict[str, Any]) -> None:
         """Sensorzuordnung und Einstellungen aus der App übernehmen."""
-        if "sensors" in patch:
-            self._sensors = parse_sensors(patch["sensors"])
+        # Einstellungen zuerst: Sie bringen die eigenen Modi mit, und erst
+        # dann steht fest, welche Modi bei den Sensoren gelten.
         if "settings" in patch:
             self._settings = {**self._settings, **(patch["settings"] or {})}
+            # Ein gestrichener Modus verschwindet auch aus den Sensoren
+            # und dem Nachverhalten - sonst wachte er als Geist weiter.
+            self._sensors = parse_sensors(self.config_dict()["sensors"], self.modi_keys())
+            self._after_trigger = parse_after({}, self._after_trigger, self.modi_keys())
+        if "sensors" in patch:
+            self._sensors = parse_sensors(patch["sensors"], self.modi_keys())
         if "after_trigger" in patch:
-            self._after_trigger = parse_after(patch["after_trigger"], self._after_trigger)
+            self._after_trigger = parse_after(
+                patch["after_trigger"], self._after_trigger, self.modi_keys()
+            )
         if "actions" in patch:
             self._actions = parse_actions(patch["actions"])
         if "escalation" in patch:
@@ -1483,6 +1570,10 @@ class AlarmIntegration(Integration):
             "arm_vacation": "urlaub",
             "turn_on": "ausser_haus",
         }.get(command)
+        if command == "arm":
+            # Der Modus kommt mit - so erreicht ein Ablauf auch einen
+            # eigenen Modus (Punkt 426). arm() prüft, ob es ihn gibt.
+            mode = str(data.get("mode") or "ausser_haus")
         if mode is None:
             await super().handle_command(entity, command, data)
             return

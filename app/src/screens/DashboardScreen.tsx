@@ -2624,6 +2624,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             settings={settings}
             entities={entities}
             user={user}
+            bioLock={!!prefs.bioLock}
             onEntity={(name) => {
               // Der Name aus der «noch offen»-Warnung führt in die
               // Geräteliste, vorgefiltert – statt tot dazustehen.

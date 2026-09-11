@@ -55,6 +55,69 @@ MODE_LABELS = {
     "urlaub": "Urlaub",
 }
 
+
+# ── Eigene Modi (Punkt 426) ─────────────────────────────────────────────
+#
+# «Nacht», «Ausser Haus», «Urlaub» decken das Übliche - nicht aber «Nur
+# Erdgeschoss», «Gäste da» oder «Werkstatt». Ein eigener Modus ist ein
+# Name und ein Schlüssel; welche Sensoren darin wachen, steht wie bei den
+# eingebauten an den Sensoren selbst. Die eingebauten bleiben, was sie
+# sind: Abläufe, Szenen und der Ein/Aus-Knopf kennen sie beim Namen.
+
+#: Was ein Schlüssel höchstens lang wird - er steht in URLs und Ablagen.
+MODUS_SCHLUESSEL_MAX = 24
+#: Mehr eigene Modi passen auf keinen Bildschirm - und wer acht braucht,
+#: braucht eigentlich Zonen (Punkt 398).
+EIGENE_MODI_MAX = 5
+
+
+def modus_schluessel(label: str) -> str:
+    """Aus «Nur Erdgeschoss» wird «nur_erdgeschoss» (rein, testbar).
+
+    Kleinbuchstaben, Umlaute ausgeschrieben, alles andere zum
+    Unterstrich - damit der Schlüssel in Ablauf-Schritten und in der
+    Ablage stehen kann, ohne dass jemand ihn je tippen muss.
+    """
+    text = str(label or "").strip().lower()
+    for von, nach in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("ß", "ss")):
+        text = text.replace(von, nach)
+    teile = "".join(zeichen if zeichen.isalnum() else "_" for zeichen in text)
+    schluessel = "_".join(teil for teil in teile.split("_") if teil)
+    return schluessel[:MODUS_SCHLUESSEL_MAX].strip("_")
+
+
+def eigene_modi_lesen(raw: Any) -> list[dict[str, str]]:
+    """Die eigenen Modi aus den Einstellungen (rein, testbar).
+
+    Ein Eintrag braucht einen Namen; der Schlüssel folgt daraus, wenn
+    keiner mitkommt. Was mit einem eingebauten Modus zusammenfällt oder
+    doppelt ist, fliegt raus - sonst wachte «Nacht» plötzlich unter
+    zwei Namen.
+    """
+    modi: list[dict[str, str]] = []
+    gesehen: set[str] = set(MODES)
+    for row in raw or []:
+        if not isinstance(row, dict):
+            continue
+        label = str(row.get("label") or "").strip()
+        key = modus_schluessel(str(row.get("key") or "") or label)
+        if not label or not key or key in gesehen:
+            continue
+        gesehen.add(key)
+        modi.append({"key": key, "label": label, "icon": str(row.get("icon") or "")})
+        if len(modi) >= EIGENE_MODI_MAX:
+            break
+    return modi
+
+
+def alle_modi(settings: dict[str, Any] | None) -> dict[str, str]:
+    """Schlüssel → Name, eingebaute zuerst (rein, testbar)."""
+    modi = dict(MODE_LABELS)
+    for eintrag in eigene_modi_lesen((settings or {}).get("custom_modes")):
+        modi[eintrag["key"]] = eintrag["label"]
+    return modi
+
+
 # Zustände der Anlage.
 DISARMED = "unscharf"
 # Wie lange die Sirene beim Probealarm läuft.
@@ -63,6 +126,11 @@ ARMING = "scharfschaltend"
 ARMED = "scharf"
 ENTRY = "eintritt"
 TRIGGERED = "ausgeloest"
+#: Der Voralarm (Punkt 427): Ein einzelner Melder hat angeschlagen, die
+#: Anlage wartet die eingestellte Frist ab, bevor es laut wird. Wer in
+#: dieser Zeit entschärft, hat einen Fehlalarm ohne Sirene; meldet sich
+#: ein zweiter Sensor, ist es keiner mehr - dann sofort.
+VERDACHT = "verdacht"
 
 #: Was auch während der Saugerfahrt auslöst.
 #:
@@ -132,6 +200,14 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # Entschärfen, das mit einem fremden Telefon die Anlage aufhebt.
     "presence_arm": "vorschlagen",
     "presence_disarm": "vorschlagen",
+    # Sekunden Voralarm (Punkt 427): Der erste Melder allein macht die
+    # Anlage nur misstrauisch - Nachricht und Vorwarnung, aber noch keine
+    # Sirene. 0 heisst aus: Der erste Melder löst aus, wie bisher. Die
+    # Eingangsverzögerung bleibt davon unberührt; sie gilt den
+    # verzögerten Sensoren, der Voralarm den sofortigen.
+    "suspect_delay": 0,
+    # Eigene Modi (Punkt 426): [{key, label, icon}], siehe eigene_modi_lesen.
+    "custom_modes": [],
 }
 
 def ohne_pin_erlaubt(quelle: Any, settings: dict[str, Any]) -> bool:
@@ -400,7 +476,9 @@ DEFAULT_AFTER: dict[str, Any] = {"action": STAY, "after": 300}
 
 
 def parse_after(
-    raw: Any, base: dict[str, dict[str, Any]] | None = None
+    raw: Any,
+    base: dict[str, dict[str, Any]] | None = None,
+    modes: tuple[str, ...] | list[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Nachverhalten je Modus einlesen (rein, testbar).
 
@@ -409,13 +487,14 @@ def parse_after(
     schaltet sich unbemerkt ab. Beim Speichern ist ``base`` der bisherige
     Stand, damit die App nur den Modus schicken muss, den sie geändert hat.
     """
+    bekannt = tuple(modes) if modes else MODES
     result = {
-        mode: {**DEFAULT_AFTER, **((base or {}).get(mode) or {})} for mode in MODES
+        mode: {**DEFAULT_AFTER, **((base or {}).get(mode) or {})} for mode in bekannt
     }
     if not isinstance(raw, dict):
         return result
     for mode, entry in raw.items():
-        if mode not in MODES or not isinstance(entry, dict):
+        if mode not in bekannt or not isinstance(entry, dict):
             continue
         action = str(entry.get("action") or "")
         if action in AFTER_ACTIONS:
@@ -465,12 +544,17 @@ def sensor_open(entity: Entity) -> bool:
     return str(entity.state.get("state")) == "on"
 
 
-def parse_sensors(raw: Any) -> dict[str, dict[str, Any]]:
+def parse_sensors(
+    raw: Any, modes: tuple[str, ...] | list[str] | None = None
+) -> dict[str, dict[str, Any]]:
     """Gespeicherte Sensorzuordnung einlesen (rein, testbar).
 
     Unbekannte Modi fliegen raus, damit ein Tippfehler in der Datei nicht
-    stillschweigend einen Sensor stilllegt.
+    stillschweigend einen Sensor stilllegt. ``modes`` sind die im Haus
+    bekannten - eingebaute plus eigene (alle_modi); ohne Angabe nur die
+    eingebauten.
     """
+    bekannt = tuple(modes) if modes else MODES
     result: dict[str, dict[str, Any]] = {}
     for entry in raw or []:
         if not isinstance(entry, dict):
@@ -478,9 +562,9 @@ def parse_sensors(raw: Any) -> dict[str, dict[str, Any]]:
         entity_id = str(entry.get("entity_id") or "")
         if not entity_id:
             continue
-        modes = [mode for mode in (entry.get("modes") or []) if mode in MODES]
+        modes_hier = [mode for mode in (entry.get("modes") or []) if mode in bekannt]
         result[entity_id] = {
-            "modes": modes,
+            "modes": modes_hier,
             "delayed": bool(entry.get("delayed")),
             # Vorübergehend überbrückt: Der Sensor bleibt zugeordnet, wacht
             # aber nicht mit – für das Fenster, das gerade offen bleiben soll.
