@@ -83,7 +83,12 @@ import {
   klingeltGerade,
   vollbildZeigen,
 } from '../lib/klingel';
-import { deviceKindLabel, musikboxenImRaum, pickPlayer } from '../lib/geraeteart';
+import {
+  deviceKindLabel,
+  istMusikbox,
+  musikboxenImRaum,
+  pickPlayer,
+} from '../lib/geraeteart';
 import { bewegungImRaum } from '../lib/bewegung';
 import { rueckangebot } from '../lib/rueckgriff';
 import { gemerkteAktion, menuLabel } from '../lib/doppeltipp';
@@ -1672,11 +1677,42 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   //
   // Der Raumname als Schlüssel: Beim Wechsel ins nächste Zimmer gilt
   // wieder dessen Vorwahl, statt der Box, die man nebenan angetippt hat.
-  const musik = useMusikwahl(entities, guardedCommand, pickPlayer(raumBoxen), room);
+  //
+  // Ohne offenes Zimmer (die Raumliste) gibt es keine naheliegende Box -
+  // dann gilt, wie auf der Startseite, die Lautsprechergruppe fürs ganze
+  // Haus als Vorwahl. Dieselbe Namenserkennung wie dort
+  // (components/SidePanel.tsx).
+  const hausbox = useMemo(
+    () => entities.filter(istMusikbox).find((box) => /wohnung/i.test(box.name))?.name ?? null,
+    [entities]
+  );
+  const musik = useMusikwahl(
+    entities,
+    guardedCommand,
+    pickPlayer(raumBoxen),
+    room,
+    offenerRaum ? null : hausbox
+  );
   // Der Medienplayer steht nur, wo das Zimmer eine eigene Box hat.
   // Sonst wäre es die Musik des Nachbarzimmers im Kopf dieses Zimmers -
   // und genau das soll er nicht sein.
   const kopfSpieler = raumBoxen.length > 0 ? musik.player : undefined;
+  /**
+   * Derselbe Player oben auf der Raumliste - neben der Begrüssung.
+   *
+   * Im Zimmer steht er seit Punkt 275 im Raumkopf; auf der Raumliste
+   * stand er in der Spalte rechts, und die ist dort weg (Punkt 507).
+   * Im Kopf kostet er keine Kachelspalte: Neben «Guten Morgen, Stefan»
+   * lag ohnehin nichts als Luft.
+   *
+   * Nur ab Tablet-Breite. Auf dem Telefon läge er über den Raumkacheln
+   * und schöbe sie unter den Rand - genau der Grund, aus dem die Spalte
+   * dort nie stand.
+   */
+  const grussSpieler =
+    section === 'home' && room === ALL_ROOMS && hasRail && darfSchalten
+      ? musik.player
+      : undefined;
 
   // Ausgeblendete und in einer Leuchte aufgegangene Spots verschwinden
   // aus den Alltagsansichten, bleiben aber unter „Geräte“ sichtbar –
@@ -3106,7 +3142,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   mit Knöpfen beginnen, die man einmal am Tag braucht –
                   «Alles aus» steht deshalb unten, nach den Räumen, und
                   der Widget-Knopf öffnet seine Rückfrage direkt. */}
-              <ClimateOverview settings={settings} entities={entities} />
+              {/* Die Klimazeile steht seit Punkt 509 oben im Kopf, neben
+                  der Begrüssung - hier bliebe sie eine Zeile zwischen
+                  Kopf und Kacheln, während der Platz neben «Guten
+                  Morgen» leer stünde. */}
               {/* Ohne Knopf: Auf der Startseite stand «Alles aus» im
                   Weg - dort will man Licht und Storen, nicht das Haus
                   abschalten. Für einen Raum bleibt er (Räume →
@@ -3958,6 +3997,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 Betreten der Startseite schon gelesen hat. */}
             {einstellungsKopf ??
               (section === 'start' || (section === 'home' && room !== ALL_ROOMS) ? null : (
+              <View style={grussSpieler ? styles.grussReihe : undefined}>
+              <View style={grussSpieler ? styles.grussLinks : undefined}>
               <View style={styles.greetingRow}>
                 <View style={styles.greeting}>
                   {/* Eine Zeile, nicht zwei: «Hallo Stefan,» mit «Guten
@@ -3981,6 +4022,36 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   <RunningAppliances entities={entities} />
                   <OpenDoors entities={entities} />
                 </View>
+              </View>
+              {/* Das Klima unter der Begrüssung, nicht mehr als eigene
+                  Zeile über den Kacheln: So trägt die linke Hälfte des
+                  Kopfs etwas - wie im Zimmer, wo dort Name, Klima und
+                  Fakten stehen - und die Seite wird um eine Zeile
+                  kürzer statt um eine länger. */}
+              {section === 'home' && room === ALL_ROOMS ? (
+                <ClimateOverview settings={settings} entities={entities} />
+              ) : null}
+              </View>
+              {/* Und rechts daneben der Medienplayer - dieselbe Karte,
+                  die im Zimmer im Raumkopf steht (imKopf: ohne Rand,
+                  ohne eigene Überschrift). Sie stand auf der Raumliste
+                  bis vor Kurzem in der Spalte rechts; die ist dort weg
+                  (Punkt 507), und die Musik des Hauses war damit auch
+                  weg. Im Kopf kostet sie keine Kachelspalte, denn neben
+                  «Guten Morgen» lag ohnehin nichts. */}
+              {grussSpieler ? (
+                <View style={styles.grussMusikkarte}>
+                  <MediaPanel
+                    entity={grussSpieler}
+                    players={musik.players}
+                    activeDevice={musik.activeDevice}
+                    onSelect={musik.waehlen}
+                    onCommand={guardedCommand}
+                    wunschBox={musik.wunschBox}
+                    imKopf
+                  />
+                </View>
+              ) : null}
               </View>
               ))}
 

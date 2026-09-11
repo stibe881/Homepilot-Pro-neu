@@ -14,9 +14,10 @@
  *      ein Wegblinken; hier ist es eine Zahl.
  *   3. Kommt ein Druck am Hub an?  Die Fernbedienung war monatelang
  *      stumm, und niemand konnte sagen, wo der Druck stirbt.
- *   5. Steht auf der Raumliste die Wetter-/Musikspalte, die dort nicht
- *      hingehört?  Auf dem Telefon steht sie nie - wer nur dort
- *      nachsieht, hält jede Regel darüber für erfüllt.
+ *   5. Steht der Medienplayer auf der Raumliste im Kopf statt als
+ *      Spalte daneben?  Beides zeigt denselben Player - nur die Lage
+ *      unterscheidet sie, und die sieht man von Auge erst, wenn man
+ *      beide Fassungen nebeneinander hält.
  *   4. Wandert die zu lange Terminzeile durch?  Sie endete auf «Si…»,
  *      und der zweite Termin des Tages stand damit nirgends. Beim
  *      Beheben zeigte sich der eigentliche Fehler: Der Griff um die
@@ -169,38 +170,76 @@ async function inDenRaum(seite) {
 }
 
 /**
- * 5. Steht auf der Raumliste die Wetter-/Musikspalte?
+ * 5. Bekommen die Raumkacheln die volle Breite - und steht der Player im Kopf?
  *
- * Sie soll dort weg sein (lib/seitenspalte.ts): «Räume» ist die Seite,
- * auf der man ein Zimmer sucht, und die Raumkacheln leben von der
- * Breite ihrer Fotos. Von Auge ist das leicht zu übersehen - auf dem
- * Telefon steht die Spalte ohnehin nie, und wer nur dort nachsieht,
- * hält es für erledigt. Gemessen wird darum auf iPad-Breite, und zwar
- * am Wetter: Es ist das einzige, was nur die Spalte zeigt.
+ * Die Spalte rechts ist auf der Raumliste weg (Punkt 507): Dort sucht
+ * man ein Zimmer, und die Raumkacheln leben von der Breite ihrer Fotos.
+ * Die Musik des Hauses steht seither oben im Kopf, neben der
+ * Begrüssung (Punkt 509) - wie im Zimmer.
+ *
+ * Gemessen wird an der **Breite der Raumkachel**, nicht daran, ob ein
+ * Player dasteht: Spalte und Kopf zeigen denselben Player, und beim
+ * ersten Versuch war die Messung deshalb auch für die alte Fassung
+ * grün. Was die zwei unterscheidet, ist, was den Kacheln bleibt - mit
+ * Spalte 340 Punkte weniger.
+ *
+ * Auf dem Telefon gehört der Player nicht in den Kopf: Dort schöbe er
+ * die Kacheln unter den Rand - genau der Grund, aus dem die Spalte dort
+ * nie stand.
  */
-async function raumlisteOhneSpalte(browser) {
-  const seite = await angemeldeteSeite(browser, GROESSEN[0]);
-  // Gemessen am Lautsprecher-Wähler der Musikkarte: Er steht in der
-  // Spalte und sonst nirgends auf diesen beiden Seiten. Am Wetter wäre
-  // es das Naheliegende, aber der Demo-Hub hat keines - eine Messung,
-  // die schon am Prüfstand nichts findet, misst die Regel nicht.
-  const spalteDa = async () =>
-    (await seite.getByLabel('Lautsprecher wählen', { exact: true }).count()) > 0;
-  // Die Gegenprobe zuerst: Auf der Startseite muss die Spalte stehen -
-  // sonst wäre die Zeile darunter für eine kaputte App auch grün.
-  const aufStart = await spalteDa();
-  const raeume = seite.getByRole('tab', { name: 'Räume' }).first();
-  if (!(await raeume.isVisible().catch(() => false))) {
-    pruefe(false, 'Die Raumliste war erreichbar');
+async function raumlisteKopfspieler(browser) {
+  for (const groesse of GROESSEN) {
+    const seite = await angemeldeteSeite(browser, groesse);
+    const waehler = () => seite.getByLabel('Lautsprecher wählen', { exact: true }).first();
+    const schmal = groesse.width < 700;
+    // Die Gegenprobe: Auf der Startseite steht der Player immer - sonst
+    // wäre alles Weitere auch für eine kaputte App grün.
+    pruefe(
+      (await waehler().count()) > 0,
+      `${groesse.name}: die Startseite zeigt den Medienplayer`
+    );
+    const raeume = seite.getByRole('tab', { name: 'Räume' }).first();
+    if (!(await raeume.isVisible().catch(() => false))) {
+      pruefe(false, `${groesse.name}: die Raumliste war erreichbar`);
+      await seite.close();
+      continue;
+    }
+    await raeume.click();
+    await seite.waitForTimeout(1200);
+
+    // Die Raumkachel: vom Namen aus hinauf bis zu dem Vorfahren, der
+    // wirklich die Kachel ist (die erste Fläche über 250 Punkten).
+    const kachel = await seite.evaluate(() => {
+      let el = [...document.querySelectorAll('div')].find(
+        (kandidat) => kandidat.textContent?.trim() === 'Flur'
+      );
+      while (el && el.getBoundingClientRect().width < 250) el = el.parentElement;
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { rechts: r.right, fensterBreite: window.innerWidth };
+    });
+    if (!kachel) {
+      pruefe(false, `${groesse.name}: die Raumkachel «Flur» war messbar`);
+      await seite.close();
+      continue;
+    }
+    // 80 Punkte Reserve für den Seitenrand der Seite; eine Spalte kostet
+    // 340 und fällt damit weit durch.
+    pruefe(
+      kachel.rechts > kachel.fensterBreite - 80,
+      `${groesse.name}: die Raumkacheln bekommen die volle Breite`,
+      `Kachel endet bei ${Math.round(kachel.rechts)} von ${kachel.fensterBreite}`
+    );
+
+    const da = (await waehler().count()) > 0;
+    pruefe(
+      schmal ? !da : da,
+      schmal
+        ? 'iPhone: die Raumliste trägt keinen Medienplayer im Kopf'
+        : `${groesse.name}: die Raumliste trägt den Medienplayer im Kopf`
+    );
     await seite.close();
-    return;
   }
-  await raeume.click();
-  await seite.waitForTimeout(1200);
-  const aufRaeumen = await spalteDa();
-  pruefe(aufStart, 'Die Startseite behält die Wetter- und Musikspalte');
-  pruefe(!aufRaeumen, 'Die Raumliste zeigt keine Wetter- und Musikspalte');
-  await seite.close();
 }
 
 /** Das volle Fernbedienungs-Blatt öffnen.
@@ -441,7 +480,7 @@ try {
   await druckKommtAn(browser);
   await terminWandert(browser);
   await kachelnStehenGleich(browser);
-  await raumlisteOhneSpalte(browser);
+  await raumlisteKopfspieler(browser);
 } finally {
   await browser.close();
 }

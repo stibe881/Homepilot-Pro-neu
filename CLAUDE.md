@@ -308,8 +308,8 @@ mitgeliefert oder nachgeladen ist.
 ## Was als Nächstes ansteht
 
 Die durchnummerierte Werkbank-Liste steht in `docs/werkbank.md`
-(404 Punkte, aus dem Code gelesen und auf Zuruf ergänzt; die höchste
-vergebene Nummer ist 508 - Anzahl und Nummer laufen auseinander, weil
+(405 Punkte, aus dem Code gelesen und auf Zuruf ergänzt; die höchste
+vergebene Nummer ist 509 - Anzahl und Nummer laufen auseinander, weil
 nie umnummeriert wird). Ein Kommentar
 «Punkt NNN der Werkbank» im Code meint genau diese Nummer – deshalb
 wird dort nie umnummeriert; Neues bekommt die nächste freie Nummer. Das

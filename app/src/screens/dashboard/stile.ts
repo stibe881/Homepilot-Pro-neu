@@ -113,6 +113,31 @@ export const makeStyles = (colors: Colors) =>
       gap: space.gap,
     },
     greeting: { gap: 2, flexShrink: 1 },
+    /**
+     * Begrüssung und Medienplayer nebeneinander (Raumliste, ab Tablet).
+     *
+     * Gebaut wie der Raumkopf (`raumKopfReihe`): eine Reihe, die
+     * umbricht. Bricht sie, rutscht der Player unter die Begrüssung und
+     * nimmt die volle Breite, statt den Satz zu quetschen - «Guten
+     * Morgen, Stefan» auf zwei Zeilen ist schlimmer als ein Player
+     * darunter.
+     */
+    grussReihe: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      alignItems: 'flex-start',
+      gap: space.gap,
+    },
+    grussLinks: { flexGrow: 1, flexShrink: 1, flexBasis: 320, minWidth: 0 },
+    /** Wie `raumMusikkarte`: Ein Lautstärkeregler über die halbe
+     *  Bildschirmbreite ist kein Regler mehr, sondern ein Balken. */
+    grussMusikkarte: {
+      flexGrow: 1,
+      flexShrink: 1,
+      flexBasis: 340,
+      maxWidth: 420,
+      minWidth: 0,
+    },
     // Hinweise rechts der Begrüssung. Auf schmalen Geräten stapeln sie sich,
     // damit weder Türhinweis noch Haushalt abgeschnitten wird.
     greetingNotes: {

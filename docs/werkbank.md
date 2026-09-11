@@ -4205,3 +4205,36 @@ Abschnitts-Überschrift *und* zwei Zeilen darunter als Kartentitel
 (jetzt nur noch als Karte).
 
 Stellen: `app/src/screens/SettingsScreen.tsx`, `app/src/components/Schalterzeile.tsx`, `app/src/lib/themenprobe.ts`, `app/src/screens/DashboardScreen.tsx`, `app/src/lib/einstellungsgruppen.ts`, `docs/einstellungen.md`
+
+### 509. Der Medienplayer steht auch auf der Raumliste im Kopf ✓ erledigt
+
+*lohnt sich · Aufwand: klein · App*
+
+Punkt 507 hat die Spalte rechts von der Raumliste genommen - mit ihr
+ging die Musik des Hauses weg, und die war das Einzige daran, das man
+dort wirklich bediente. Sie kommt zurück, aber nicht als Spalte: oben
+im Kopf, neben der Begrüssung, als dieselbe Karte, die im Zimmer im
+Raumkopf steht (`imKopf` - ohne Rand, ohne eigene Überschrift).
+
+Das kostet keine Kachelspalte: Neben «Guten Morgen, Stefan» lag ohnehin
+nichts als Luft. Damit die linke Hälfte auch etwas trägt, ist die
+Klimazeile mitgewandert - sie stand als eigene Zeile zwischen Kopf und
+Kacheln, und dort war sie eine Zeile Höhe für eine Zahl. Jetzt ist der
+Kopf gebaut wie der Raumkopf: links Begrüssung und Klima, rechts die
+Musik.
+
+**Ab Tablet-Breite, nicht auf dem Telefon.** Dort schöbe der Player die
+Raumkacheln unter den Rand - genau der Grund, aus dem die Spalte auf
+dem Telefon nie stand.
+
+Vorgewählt ist die Lautsprechergruppe fürs ganze Haus, wie auf der
+Startseite: Ohne offenes Zimmer gibt es keine naheliegende Box, und der
+Wähler stünde sonst leer auf «Box wählen», bis jemand selbst tippt.
+
+Nachgewiesen rot, und zwar erst im zweiten Anlauf: Die erste Messung
+zählte, ob ein Player dasteht - das tut er in beiden Fassungen, also
+war sie auch für die alte grün. Ein Prüfstand, der nie rot wird, ist
+keiner. Gemessen wird jetzt, was die zwei wirklich unterscheidet: was
+den Raumkacheln an Breite bleibt.
+
+Stellen: `app/src/screens/DashboardScreen.tsx`, `app/src/screens/dashboard/stile.ts`, `scripts/probe.mjs`
