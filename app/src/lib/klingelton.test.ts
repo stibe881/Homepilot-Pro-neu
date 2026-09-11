@@ -9,6 +9,7 @@ import {
   lautsprecherName,
   spanneSatz,
   uhrzeitSauber,
+  nachtSatz,
 } from './klingelton';
 
 describe('lautsprecherName', () => {
@@ -142,5 +143,16 @@ describe('Lautstärke und Zeit je Box', () => {
   it('kennt den Stand einer Box, auch wenn sie nicht gewählt ist', () => {
     expect(boxStand([], 'neu').volume).toBe(LAUTSTAERKE_VORGABE);
     expect(boxStand([box('a', { volume: 20 })], 'a').volume).toBe(20);
+  });
+});
+
+describe('nachtSatz', () => {
+  it('schweigt bei «wie am Tag» und nennt sonst Fenster und Wirkung', () => {
+    expect(nachtSatz(undefined)).toBe('');
+    expect(nachtSatz({ mode: 'normal', from: 22, to: 7 })).toBe('');
+    expect(nachtSatz({ mode: 'leise', from: 22, to: 7 })).toBe(
+      'Nachts (von 22 bis 7 Uhr) spielt er leiser.'
+    );
+    expect(nachtSatz({ mode: 'still', from: 23, to: 6 })).toMatch(/still – nur die Push/);
   });
 });

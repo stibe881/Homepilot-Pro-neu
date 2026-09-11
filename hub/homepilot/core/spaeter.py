@@ -47,6 +47,24 @@ def minuten_pruefen(wert: Any) -> int:
     return min(minuten, MAX_MINUTEN)
 
 
+#: Die Wartezeiten, die die App zur Wahl stellt - und die Vorgabe.
+WAHL_MINUTEN = (15, 30, 60, 120)
+VORGABE_MINUTEN = 30
+
+
+def eigene_minuten(zeile: Any) -> int:
+    """Wie lange «Später» für diese Person heisst (rein, testbar).
+
+    Der Knopf in der Mitteilung hiess fest «In 30 Min nochmal». Wer am
+    Herd steht, meint eine Viertelstunde; wer im Bett liegt, den
+    Morgen. Die Zahl steht seither in der Push-Zeile der Person
+    (``push_prefs``); ohne Eintrag bleibt es die halbe Stunde.
+    """
+    if not isinstance(zeile, dict):
+        return VORGABE_MINUTEN
+    return minuten_pruefen(zeile.get("snooze_minutes"))
+
+
 def einreihen(
     rows: Any, eintrag: dict[str, Any], jetzt: float, minuten: Any = 30
 ) -> list[dict[str, Any]]:

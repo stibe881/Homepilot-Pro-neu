@@ -352,7 +352,10 @@ class Zigbee2MqttIntegration(Integration):
     name = "zigbee2mqtt"
 
     async def setup(self) -> None:
-        self._broker = self.config.get("broker")
+        # Als Text: aiomqtt verlangt einen str, und ohne Eintrag soll der
+        # Fehler «kein Broker» lesbar aus dem Verbindungsversuch kommen,
+        # nicht als Typfehler aus dem Aufbau.
+        self._broker = str(self.config.get("broker") or "")
         if not self._broker:
             raise ConfigError("zigbee2mqtt braucht 'broker' in der Konfiguration")
         self._port = int(self.config.get("port", 1883))

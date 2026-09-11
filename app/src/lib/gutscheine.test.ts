@@ -38,6 +38,9 @@ import {
   dateiGroesse,
   dateiPruefen,
   dateiSatz,
+  anhaenge,
+  anhaengeSatz,
+  alsDateien,
   dateiSymbol,
   formularPruefen,
   MITNEHMEN,
@@ -511,11 +514,11 @@ describe('Datei am Gutschein', () => {
 
   test('eine neue Datei geht als data-URI hinaus, «entfernen» als null', () => {
     const neu = { data: 'data:application/pdf;base64,AAA', name: 'Neu.pdf' };
-    const angehaengt = formularPruefen({ ...formularVon(brack), file: neu }, brack);
+    const angehaengt = formularPruefen({ ...formularVon(brack), files: [neu] }, brack);
     expect(angehaengt.eintrag?.file).toEqual(neu);
     // Entfernen heisst null, nicht «Feld weglassen» - sonst behält der
-    // Hub die alte Datei.
-    const weg = formularPruefen({ ...formularVon({ ...brack, file: beleg }), file: null }, brack);
+    // Hub die alte Datei. Seit Punkt 431 zählt die Liste; `file` folgt ihr.
+    const weg = formularPruefen({ ...formularVon({ ...brack, file: beleg }), files: [] }, brack);
     expect(weg.eintrag?.file).toBeNull();
     // Und wer nie eine anhängt, schickt auch null.
     expect(formularPruefen(leeresFormular2(), null).eintrag?.file).toBeNull();
@@ -1048,5 +1051,42 @@ describe('Wenn die Karte weg ist', () => {
     };
     expect(ladenAnfrage(entry, '2030-09-11')).toContain('Bisher nicht eingelöst');
     expect(ladenAnfrage(entry, '2030-09-11')).toContain('Unbegrenzt gültig');
+  });
+});
+
+describe('mehrere Belege (Punkt 520)', () => {
+  const pdf = { url: '/api/family/vouchers/1/datei?v=a', name: 'Gutschein.pdf', bytes: 1000 };
+  const txt = { url: '/api/family/vouchers/1/datei?f=ab12&v=b', name: 'Bestellung.txt', id: 'ab12' };
+
+  test('anhaenge nimmt die Liste, sonst den einen file', () => {
+    expect(anhaenge({ files: [pdf, txt] })).toEqual([pdf, txt]);
+    expect(anhaenge({ file: pdf })).toEqual([pdf]);
+    expect(anhaenge({ file: null })).toEqual([]);
+  });
+
+  test('anhaengeSatz zählt ab zwei', () => {
+    expect(anhaengeSatz([])).toBe('');
+    expect(anhaengeSatz([pdf])).toBe('Gutschein.pdf, 1000 B');
+    expect(anhaengeSatz([pdf, txt])).toBe('2 Belege: Gutschein.pdf, Bestellung.txt');
+  });
+
+  test('alsDateien liest die Liste mit Kennung und fällt auf file zurück', () => {
+    expect(alsDateien([pdf, txt, 'quatsch'])).toEqual([
+      { url: pdf.url, name: 'Gutschein.pdf', bytes: 1000 },
+      { url: txt.url, name: 'Bestellung.txt', id: 'ab12' },
+    ]);
+    expect(alsDateien(undefined, pdf)).toEqual([{ url: pdf.url, name: 'Gutschein.pdf', bytes: 1000 }]);
+    expect(alsGutschein({ shop: 'Brack', total: 100, files: [pdf, txt] }).files).toHaveLength(2);
+  });
+
+  test('das Formular führt die Liste und spiegelt den ersten in file', () => {
+    const form = { ...formularVon({ ...brack, files: [pdf, txt] }), total: '100' };
+    expect(form.files).toEqual([pdf, txt]);
+    const ergebnis = formularPruefen(form, brack);
+    expect(ergebnis.eintrag?.files).toEqual([pdf, txt]);
+    expect(ergebnis.eintrag?.file).toEqual(pdf);
+    const ohne = formularPruefen({ ...form, files: [] }, brack);
+    expect(ohne.eintrag?.file).toBeNull();
+    expect(ohne.eintrag?.files).toEqual([]);
   });
 });

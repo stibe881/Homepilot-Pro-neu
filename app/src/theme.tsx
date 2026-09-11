@@ -311,6 +311,24 @@ export function typFuer(panel: boolean): Typmass {
 }
 
 /**
+ * Drei Stufen für Symbole (Punkt 526). Über die Dateien hinweg standen
+ * 12, 13, 14, 15, 16, 18, 20, 22 und 24 - jede Stelle hatte sich ihre
+ * Zahl ausgesucht, und zwei Zeichen nebeneinander waren selten gleich
+ * gross. Klein neben Fliesstext und in Chips, mittel neben einer
+ * Kartenzeile, gross als Kachel- und Leistenzeichen.
+ */
+export const icon = { klein: 16, mittel: 18, gross: 22 };
+
+/**
+ * Die Kachelhöhen-Regel (Punkt 528): Jede Kachel ist mindestens so hoch,
+ * und in einer Zeile des Rasters sind alle gleich hoch - die höchste
+ * gibt vor (`alignItems: 'stretch'` am Raster). Vorher stand die 138
+ * nur in der Karte, und eine Zeile mit einer Lichtkachel neben einem
+ * Sensor wirkte wie eine Treppe.
+ */
+export const kachel = { mindesthoehe: 138 };
+
+/**
  * Ab dieser Breite ist Platz für Seitenleiste und rechte Spalte.
  *
  * Die Zahlen stammen aus dieser Wohnung und nicht aus der Browser-Welt.

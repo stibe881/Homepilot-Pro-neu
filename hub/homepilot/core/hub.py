@@ -652,6 +652,13 @@ class Hub:
         self.push.still = still
         self.push.geraete_muted = geraete_muted
         self.push.geraete_ruhe = geraete_ruhe
+        # Dringlichkeit je Kategorie und die Empfängergruppen: fürs Haus,
+        # nicht je Person - deshalb eigene Schlüssel neben push_prefs.
+        self.push.stufen = push_service.stufen_lesen(self.data.get(push_service.STUFEN_KEY))
+        self.push.gruppen = push_service.gruppen_lesen(
+            self.data.get(push_service.GRUPPEN_KEY)
+        )
+        self.push.kritisch_erlaubt = bool((self.config.push or {}).get("critical_alerts"))
 
     def _push_vermerken(self, eintrag: dict[str, Any]) -> float:
         """Eine verschickte Meldung auf den Nachlese-Zettel schreiben.

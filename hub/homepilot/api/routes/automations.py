@@ -15,9 +15,10 @@ from fastapi import (
     FastAPI,
     HTTPException,
     Request,
+    Response,
 )
 
-from ...core import ablaufpruefung
+from ...core import ablaufpruefung, bildarchiv
 from ...core import automation as automation_module
 from ...core import babysitter as babysitter_module
 from ...core import editversions as editversions_module
@@ -849,6 +850,24 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """
         require(request, Capability.VIEW_AUTOMATIONS)
         return {"runs": hub.automations.runs}
+
+    @app.get("/api/automations/bild/{kennung}")
+    async def automation_bild(kennung: str, request: Request) -> Response:
+        """Das Standbild zu einem Lauf mit Kamera-Auslöser (Punkt 510).
+
+        Dasselbe Archiv wie beim Alarm (core/bildarchiv.py), aber unter
+        dem Recht, den Verlauf zu sehen: Wer die Läufe lesen darf, darf
+        auch sehen, was die Kamera dabei gesehen hat.
+        """
+        require(request, Capability.VIEW_AUTOMATIONS)
+        daten = bildarchiv.lesen(bildarchiv.ordner(hub.config.data_file), kennung)
+        if daten is None:
+            raise HTTPException(status_code=404, detail="Dieses Bild gibt es nicht mehr")
+        return Response(
+            content=daten,
+            media_type="image/png" if daten.startswith(b"\x89PNG") else "image/jpeg",
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
 
     @app.post("/api/automations/{automation_id}/duplicate")
     async def duplicate_automation(automation_id: str, request: Request) -> dict[str, Any]:

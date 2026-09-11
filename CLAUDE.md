@@ -234,7 +234,7 @@ Zwei Dinge, die dabei überraschen:
   die hochgezählte Versionsnummer täuschte dabei Aktualität vor. So
   gingen mehrere Lieferungen am Haus vorbei, ohne dass es auffiel: Der
   Hub war neu, die App nicht.
-- Deshalb steht dort jetzt eine feste `runtimeVersion` (zurzeit `"7"`).
+- Deshalb steht dort jetzt eine feste `runtimeVersion` (zurzeit `"8"`).
   Sie gehört zur **nativen** Hülle, nicht zur Auslieferung:
   - **`version` bei jeder Auslieferung hochzählen** – wie bisher. Sie
     ist die Nummer, die im App Store und in TestFlight steht, und sie
@@ -269,6 +269,10 @@ Zwei Dinge, die dabei überraschen:
     unmittelbar folgt. Zwischen Erhöhung und Build ist das Haus von
     Nachladungen abgeschnitten, und diese Lücke gehört so kurz wie
     möglich.
+    Von `"7"` auf `"8"` ging es für die Kassenansicht (`expo-brightness`,
+    Punkt 532): Sie dreht die Helligkeit auf voll und hält den Bildschirm
+    wach, solange der Code an der Kasse steht. Auch hier: im selben
+    Commit wie das Modul, und der TestFlight-Build gehört direkt dahinter.
     Von `"5"` auf `"6"` ging es, als die Widget-Ablage zum **lokalen**
     Modul wurde (`modules/widget-ablage`): Das `ExtensionStorage`-Modul
     des Pakets kam in keinem EAS-Build je an – die Innenansicht der

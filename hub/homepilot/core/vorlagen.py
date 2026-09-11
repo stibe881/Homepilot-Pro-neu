@@ -46,7 +46,7 @@ def read(roh: Any) -> list[dict[str, Any]]:
     soll die Liste nicht mitreissen - im schlimmsten Fall fehlt eine
     Vorlage, und das merkt man beim nächsten Blick.
     """
-    eintraege = []
+    eintraege: list[dict[str, Any]] = []
     for eintrag in roh or []:
         if not isinstance(eintrag, dict):
             continue

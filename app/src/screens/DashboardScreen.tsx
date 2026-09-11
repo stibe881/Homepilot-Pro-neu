@@ -39,7 +39,12 @@ import { skyFromIcon } from '../components/CoverVisual';
 import { HistoryChart } from '../components/HistoryChart';
 import { OpenDoors } from '../components/OpenDoors';
 import { RunningAppliances } from '../components/RunningAppliances';
-import { SECTION_LABEL, Rail, Section } from '../components/Rail';
+import { SECTION_LABEL, Rail, Section, sichtbareBereiche } from '../components/Rail';
+import { nachbarBereich } from '../lib/bereiche';
+import { useBereichWischen } from '../hooks/useBereichWischen';
+import { Posteingang } from '../components/Posteingang';
+import { ungelesen } from '../lib/posteingang';
+import { persoenlichSetzen, persoenlichWert } from '../lib/persoenlich';
 import { AllOff } from '../components/AllOff';
 import { BesuchScreen } from './BesuchScreen';
 import { BabysitterStand, modusZeile } from '../lib/babysitter';
@@ -49,7 +54,7 @@ import { DeviceHealth } from '../components/DeviceHealth';
 import { RoomTabs } from '../components/RoomTabs';
 import { RoomCard } from '../components/RoomCard';
 import { Raumbild } from '../components/Raumbild';
-import { raumSchleier, raumaktionen, waehlbareGeraete } from '../lib/raumkarte';
+import { raumSchleier, raumTon, raumaktionen, waehlbareGeraete } from '../lib/raumkarte';
 import { SceneRow } from '../components/SceneRow';
 import { GlobalSearch } from '../components/GlobalSearch';
 import { Grundriss } from '../components/Grundriss';
@@ -538,6 +543,37 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     text?: string;
     knoepfe: PushKnopf[];
   } | null>(null);
+  // Der Posteingang (Punkt 524): was das Haus für mich zurückgehalten
+  // hat, hinter der Glocke oben. Die Zahl an der Glocke ist, was seit
+  // dem letzten Öffnen dazukam - der Zeitpunkt liegt beim Hub
+  // (lib/persoenlich.ts), damit das iPad nicht zeigt, was das Telefon
+  // längst gelesen hat.
+  const [posteingangOffen, setPosteingangOffen] = useState(false);
+  const [verpasste, setVerpasste] = useState<{ at: number }[]>([]);
+  const [posteingangGesehen, setPosteingangGesehen] = useState(0);
+  const verpassteLaden = useCallback(() => {
+    hub
+      .get<{ verpasst?: { at: number }[] } | null>('/api/push/verpasst', {
+        fallback: null,
+        still: true,
+      })
+      .then((antwort) => setVerpasste(antwort?.verpasst ?? []))
+      .catch(() => {});
+    persoenlichWert<number>(settings, 'posteingang.gesehen', 0)
+      .then(setPosteingangGesehen)
+      .catch(() => {});
+  }, [hub, settings]);
+  useEffect(verpassteLaden, [verpassteLaden]);
+  // Alle paar Minuten - eine zurückgehaltene Meldung kommt selten, und
+  // wer die Glocke sieht, hat Zeit.
+  useTakt(verpassteLaden, 5 * 60 * 1000);
+  const posteingangZaehler = ungelesen(verpasste, posteingangGesehen);
+  const posteingangOeffnen = () => {
+    setPosteingangOffen(true);
+    const jetzt = Date.now() / 1000;
+    setPosteingangGesehen(jetzt);
+    persoenlichSetzen(settings, 'posteingang.gesehen', jetzt);
+  };
   // Angetippte Kamera im Vollbild (Entitäts-ID, damit Live-Updates ankommen).
   // Alle Kameras nebeneinander - fürs Tablet im Flur die einzige
   // sinnvolle Ansicht (siehe components/Kamerawand.tsx).
@@ -1016,18 +1052,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const onKnopf = useCallback(
     (druck: Knopfdruck) => {
       if (druck.handlung === 'spaeter') {
+        // Ohne Minuten: Der Hub nimmt, was die Person eingestellt hat
+        // (Punkt 514) - und sagt zurück, wie lange es geworden ist.
         hub
-          .post(
+          .post<{ minutes?: number }>(
             '/api/push/snooze',
             {
               title: druck.title,
               body: druck.body,
               category: druck.category,
-              minutes: 30,
             },
             { still: true }
           )
-          .then(() => setNote('Erinnerung in 30 Minuten'))
+          .then((antwort) => setNote(`Erinnerung in ${antwort?.minutes ?? 30} Minuten`))
           .catch(() => {});
         return;
       }
@@ -1951,6 +1988,20 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     section === 'home' && room !== ALL_ROOMS && !editing,
     () => setRoom(ALL_ROOMS)
   );
+  // Wischen zwischen den Bereichen (Punkt 522) - nur auf dem Telefon,
+  // wo die Leiste unten liegt; mit Seitenleiste tippt man sie. Nicht im
+  // Zimmer (dort heisst Wischen «zurück») und nicht beim Anpassen.
+  const bereichWischen = useBereichWischen(
+    !hasRail && !editing && room === ALL_ROOMS,
+    (richtung) => {
+      const ziel = nachbarBereich(
+        sichtbareBereiche(user?.capabilities ?? [], hiddenSections),
+        railAktiv,
+        richtung
+      );
+      if (ziel) waehleBereich(ziel);
+    }
+  );
   const raumSchein = categorized && raumLeuchtet(inRoom);
   // Der Klimafühler steht gross im Kopf - als Chip daneben stünde er
   // doppelt, wie früher die Temperatur.
@@ -2434,6 +2485,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Vorher stand dort nichts hervorgehoben, sobald man eine Seite offen
   // hatte - und auf einem breiten Bildschirm ist man ab dem ersten Tipp
   // immer auf einer Seite. Man sah dann nirgends mehr, wo man ist.
+  // Die Farbe des Orts auf der Leiste (Punkt 525): im Zimmer die des
+  // Raums, sonst entscheidet die Leiste selbst nach Bereich.
+  const leistenTon =
+    section === 'home' && room !== ALL_ROOMS ? raumTon(room) : undefined;
   const railAktiv: Section = sichtbarePunkte.some((item) => item.key === section)
     ? 'settings'
     : section;
@@ -2649,6 +2704,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             settings={settings}
             entities={entities}
             user={user}
+            bioLock={!!prefs.bioLock}
             onEntity={(name) => {
               // Der Name aus der «noch offen»-Warnung führt in die
               // Geräteliste, vorgefiltert – statt tot dazustehen.
@@ -3825,7 +3881,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         onTouchStart={() => setLastTouch(Date.now())}
         {...zurueckWischen}
       >
-        <View style={[styles.frame, { paddingTop: insets.top }]}>
+        {/* Auch links und rechts (Punkt 523): Im Querformat liegt die
+            Aussparung des iPhones seitlich, und ohne diese Ränder sass
+            die Leiste unter ihr. */}
+        <View
+          style={[
+            styles.frame,
+            { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right },
+          ]}
+          {...bereichWischen}
+        >
           {hasRail ? (
             <Rail
               active={railAktiv}
@@ -3833,6 +3898,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               vertical
               capabilities={user?.capabilities ?? []}
               hidden={hiddenSections}
+              ton={leistenTon}
             />
           ) : null}
 
@@ -3898,6 +3964,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 ungezaehlt={ungezaehlt}
                 locked={locked}
                 onCommand={guardedCommand}
+                onPosteingang={posteingangOeffnen}
+                posteingangZaehler={posteingangZaehler}
                 {...(hiddenSections.includes('family')
                   ? {}
                   : {
@@ -4148,6 +4216,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             bottomInset={insets.bottom}
             capabilities={user?.capabilities ?? []}
             hidden={hiddenSections}
+            ton={leistenTon}
           />
         ) : null}
 
@@ -4218,6 +4287,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             }}
             onSchliessen={() => setErinnernAn(null)}
           />
+        ) : null}
+
+        {posteingangOffen ? (
+          <Posteingang settings={settings} onSchliessen={() => setPosteingangOffen(false)} />
         ) : null}
 
         {pushBlatt ? (

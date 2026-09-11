@@ -28,6 +28,8 @@ export type KachelAktion =
   | 'zaehlung'
   | 'verlauf'
   | 'erinnern'
+  | 'favorit'
+  | 'raum'
   | 'doppeltipp';
 
 export interface KachelEintrag {
@@ -45,9 +47,19 @@ const EINTRAEGE: Record<KachelAktion, KachelEintrag> = {
   // «Die Waschmaschine läuft, ich gehe aus dem Haus, sag mir in zwei
   // Stunden Bescheid.» Ohne diesen Eintrag baut man dafür einen Ablauf.
   erinnern: { id: 'erinnern', label: 'Später erinnern', icon: 'alarm-outline' },
+  // Die zwei häufigsten Handgriffe aus dem Blatt (Punkt 521): Ein Stern
+  // und ein Raum sind schneller gesetzt, als das Blatt geöffnet ist.
+  favorit: { id: 'favorit', label: 'Als Favorit', icon: 'star-outline' },
+  raum: { id: 'raum', label: 'In anderen Raum', icon: 'home-outline' },
   // Die Beschriftung kommt von aussen (lib/doppeltipp.ts): Sie nennt
   // den Wert, der gemerkt würde - «Doppeltipp merken: 40 %».
   doppeltipp: { id: 'doppeltipp', label: 'Doppeltipp merken', icon: 'flash-outline' },
+};
+
+const KEIN_FAVORIT: KachelEintrag = {
+  id: 'favorit',
+  label: 'Kein Favorit mehr',
+  icon: 'star',
 };
 
 /** Beschriftung, die sagt, was der Griff bewirkt – nicht, was gerade gilt. */
@@ -87,6 +99,12 @@ export function kachelAktionen(moeglich: {
   verlauf?: boolean;
   /** «Sag mir später Bescheid» – für alles, was läuft oder offen steht. */
   erinnern?: boolean;
+  /** Stern setzen oder nehmen (Punkt 521). */
+  favorit?: boolean;
+  /** Ist das Gerät schon ein Favorit? */
+  istFavorit?: boolean;
+  /** Den Raum wechseln - dieselbe Berechtigung wie beim Umbenennen. */
+  raum?: boolean;
   /** Beschriftung für den Doppeltipp-Eintrag - fehlt sie, gibt es am
    *  Gerät nichts zu merken (ein Schalter kennt nur an und aus). */
   doppeltipp?: string | null;
@@ -96,7 +114,11 @@ export function kachelAktionen(moeglich: {
   // Gleich hinter dem Verlauf: Beides sind Fragen an das Gerät, nicht
   // Einstellungen daran.
   if (moeglich.erinnern) eintraege.push(EINTRAEGE.erinnern);
+  // Der Stern vor dem Umbenennen: Er ist der Griff, den man täglich
+  // macht; umbenannt wird ein Gerät einmal.
+  if (moeglich.favorit) eintraege.push(moeglich.istFavorit ? KEIN_FAVORIT : EINTRAEGE.favorit);
   if (moeglich.umbenennen) eintraege.push(EINTRAEGE.umbenennen);
+  if (moeglich.raum) eintraege.push(EINTRAEGE.raum);
   // Die Sperre gab es nur im Anpassen-Modus. Gebraucht wird sie in dem
   // Moment, in dem man fast die Waschmaschine erwischt hätte - also
   // hier, an der Kachel.

@@ -28,6 +28,8 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
+
+import { useKassenlicht } from '../../hooks/useKassenlicht';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -88,6 +90,9 @@ import {
   betragLesen,
   betragText,
   betragZahl,
+  MAX_DATEIEN,
+  anhaenge,
+  anhaengeSatz,
   dateiGroesse,
   dateiPruefen,
   dateiSatz,
@@ -374,7 +379,7 @@ function GutscheinKarte({
         heute
       )}, ${entry.shared === 'familie' ? 'Familie' : 'Privat'}${
         entry.physical ? `, ${MITNEHMEN}` : ''
-      }${entry.file ? `, mit Beleg: ${dateiSatz(entry.file)}` : ''}`}
+      }${anhaenge(entry).length > 0 ? `, mit Beleg: ${anhaengeSatz(anhaenge(entry))}` : ''}`}
     >
       <View style={eigen.karteKopf}>
         <View style={eigen.ladenBox}>
@@ -413,6 +418,9 @@ function GutscheinKarte({
                 size={14}
                 color={colors.inkSoft}
               />
+            ) : null}
+            {anhaenge(entry).length > 1 ? (
+              <Text style={eigen.dateiMass}>{anhaenge(entry).length}</Text>
             ) : null}
             {entry.category ? <Text style={eigen.kategorieText}>{entry.category}</Text> : null}
           </View>
@@ -489,6 +497,8 @@ function Detail({
   const [pinSichtbar, setPinSichtbar] = useState(false);
   // An der Kasse wird gescannt, nicht vorgelesen (Punkt 299/300).
   const [kasse, setKasse] = useState(false);
+  // Hell und wach, solange sie offen ist (Punkt 532).
+  useKassenlicht(kasse);
   const [uebergabeOffen, setUebergabeOffen] = useState(false);
   // Zwei Schritte fürs Löschen: erst die Frage, dann der Tipp. Und was
   // weg ist, liegt dreissig Tage im Papierkorb der Familienseite.
@@ -644,32 +654,35 @@ function Detail({
             </Text>
           </Pressable>
         ) : null}
-        {entry.file ? (
+        {/* Alle Belege (Punkt 520): Bestellbestätigung und Gutschein-PDF
+            gehören beide dran, jeder mit eigener Adresse. */}
+        {anhaenge(entry).map((datei, index) => (
           <Pressable
+            key={datei.id ?? datei.url ?? index}
             onPress={() => {
               // Die Datei liegt beim Hub und braucht den Token - dieselbe
               // Adresse wie das Bild, deshalb derselbe Griff.
-              const ziel = bildUri(entry.file?.url, settings);
+              const ziel = bildUri(datei.url, settings);
               if (ziel) Linking.openURL(ziel).catch(() => {});
             }}
             accessibilityRole="button"
-            accessibilityLabel={`${dateiSatz(entry.file)} – öffnen`}
+            accessibilityLabel={`${dateiSatz(datei)} – öffnen`}
             style={({ pressed }) => [eigen.dateiZeile, pressed && { opacity: 0.8 }]}
           >
             <Ionicons
-              name={dateiSymbol(entry.file.type) as keyof typeof Ionicons.glyphMap}
+              name={dateiSymbol(datei.type) as keyof typeof Ionicons.glyphMap}
               size={22}
               color={colors.accent}
             />
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={eigen.dateiName} numberOfLines={1}>
-                {entry.file.name}
+                {datei.name}
               </Text>
-              <Text style={eigen.dateiMass}>{dateiGroesse(entry.file.bytes) || 'Beleg'}</Text>
+              <Text style={eigen.dateiMass}>{dateiGroesse(datei.bytes) || 'Beleg'}</Text>
             </View>
             <Ionicons name="open-outline" size={18} color={colors.inkSoft} />
           </Pressable>
-        ) : null}
+        ))}
         {entry.notes ? (
           <Text style={eigen.notiz} selectable>
             {entry.notes}
@@ -915,10 +928,9 @@ function Detail({
           Weiss, gross und ohne alles: Ein Scanner misst den Unterschied
           zwischen hell und dunkel, und der Kassiererin hilft eine Seite
           mit Code, Nummer und Laden - nicht die halbe App drumherum.
-          Der Bildschirm bleibt dabei an; die Systemhelligkeit lässt
-          sich ohne natives Modul nicht hochdrehen, aber ein weisser
-          Grund über den ganzen Bildschirm bringt den grössten Teil
-          davon ohnehin. */}
+          Der Bildschirm bleibt dabei an und wird voll hell
+          (hooks/useKassenlicht.ts, Punkt 532); der weisse Grund über
+          den ganzen Bildschirm tut den Rest. */}
       <Modal visible={kasse} animationType="slide" onRequestClose={() => setKasse(false)}>
         <Pressable
           onPress={() => setKasse(false)}
@@ -1038,31 +1050,42 @@ function FormularBlatt({
 
   const belegLesenLassen = async () => {
     tapped();
-    // Klartext-Anhang: hier lesbar, ohne den Hub zu fragen.
-    const roh = form.file?.data ?? '';
-    if (roh.startsWith('data:text/')) {
+    // Klartext-Anhänge: hier lesbar, ohne den Hub zu fragen - alle
+    // hintereinander, der Betrag steht im einen, die Nummer im anderen.
+    const klartext: string[] = [];
+    for (const datei of form.files) {
+      const roh = datei.data ?? '';
+      if (!roh.startsWith('data:text/')) continue;
       const teil = roh.slice(roh.indexOf(',') + 1);
       try {
         // `atob` gibt es im Browser und in Hermes; wo nicht, greift der
         // catch und der nächste Weg. Ein fehlender Dekodierer ist kein
         // Grund für eine Fehlermeldung.
-        const text = roh.includes(';base64,')
-          ? globalThis.atob(teil)
-          : decodeURIComponent(teil);
-        if (uebernehmen(text)) return;
+        klartext.push(roh.includes(';base64,') ? globalThis.atob(teil) : decodeURIComponent(teil));
       } catch {
         // Unlesbar heisst: den nächsten Weg versuchen.
       }
     }
+    if (klartext.length > 0 && uebernehmen(klartext.join('\n\n'))) return;
     if (bisher?.id) {
       const antwort = await hubClient(settings.url, settings.token).get<{
         text?: string;
         verfuegbar?: boolean;
+        ocr?: boolean;
       } | null>(`/api/family/vouchers/${encodeURIComponent(bisher.id)}/belegtext`, {
         fallback: null,
         still: true,
       });
       if (antwort?.text && uebernehmen(antwort.text)) return;
+      const nurBilder =
+        form.files.length > 0 && form.files.every((d) => (d.type ?? '').startsWith('image/'));
+      if (antwort && nurBilder && antwort.ocr === false) {
+        setBelegMeldung(
+          'Der Hub kann Fotos nicht lesen – unter System → Zusatzteile «Belege fotografiert lesen» nachinstallieren.'
+        );
+        setBelegOffen(true);
+        return;
+      }
       if (antwort && antwort.verfuegbar === false) {
         setBelegMeldung(
           'Der Hub kann PDF nicht lesen – unter System → Zusatzteile nachinstallieren.'
@@ -1084,7 +1107,12 @@ function FormularBlatt({
     }
     tapped();
     setDateiFehler(null);
-    setze('file', wahl.datei);
+    // Anhängen, nicht ersetzen (Punkt 520) - bis zur Grenze des Hubs.
+    if (form.files.length >= MAX_DATEIEN) {
+      setDateiFehler(`Mehr als ${MAX_DATEIEN} Belege nimmt der Hub nicht an.`);
+      return;
+    }
+    setze('files', [...form.files, wahl.datei]);
   };
 
   // Erst, wenn genug dasteht, um überhaupt eine Aussage zu erlauben -
@@ -1390,44 +1418,44 @@ function FormularBlatt({
         </View>
 
         <View style={eigen.formFeld}>
-          <Text style={eigen.formLabel}>Datei</Text>
-          {form.file ? (
-            <View style={eigen.dateiZeile}>
+          <Text style={eigen.formLabel}>Belege</Text>
+          {form.files.map((datei, index) => (
+            <View key={datei.id ?? datei.url ?? `${datei.name}-${index}`} style={eigen.dateiZeile}>
               <Ionicons
-                name={dateiSymbol(form.file.type) as keyof typeof Ionicons.glyphMap}
+                name={dateiSymbol(datei.type) as keyof typeof Ionicons.glyphMap}
                 size={22}
                 color={colors.accent}
               />
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={eigen.dateiName} numberOfLines={1}>
-                  {form.file.name}
+                  {datei.name}
                 </Text>
                 <Text style={eigen.dateiMass}>
-                  {dateiGroesse(form.file.bytes) || (form.file.url ? 'Beim Hub abgelegt' : 'Bereit')}
+                  {dateiGroesse(datei.bytes) || (datei.url ? 'Beim Hub abgelegt' : 'Bereit')}
                 </Text>
               </View>
               <Pressable
                 onPress={() => {
-                  setze('file', null);
+                  setze('files', form.files.filter((_, i) => i !== index));
                   setDateiFehler(null);
                 }}
                 hitSlop={8}
                 accessibilityRole="button"
-                accessibilityLabel={`Datei ${form.file.name} entfernen`}
+                accessibilityLabel={`Datei ${datei.name} entfernen`}
               >
                 <Ionicons name="close-circle" size={22} color={colors.inkSoft} />
               </Pressable>
             </View>
-          ) : null}
+          ))}
           <Pressable
             onPress={dateiWaehlen}
             accessibilityRole="button"
-            accessibilityLabel={form.file ? 'Andere Datei wählen' : 'PDF oder Dokument wählen'}
+            accessibilityLabel={form.files.length > 0 ? 'Weiteren Beleg anhängen' : 'PDF oder Dokument wählen'}
             style={({ pressed }) => [eigen.fotoAktion, pressed && { opacity: 0.7 }]}
           >
             <Ionicons name="attach-outline" size={16} color={colors.accent} />
             <Text style={eigen.fotoAktionText}>
-              {form.file ? 'Andere Datei wählen' : 'PDF oder Dokument wählen'}
+              {form.files.length > 0 ? 'Weiteren Beleg anhängen' : 'PDF oder Dokument wählen'}
             </Text>
           </Pressable>
           {dateiFehler ? <Text style={styles.error}>{dateiFehler}</Text> : null}

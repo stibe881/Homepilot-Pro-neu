@@ -67,7 +67,8 @@ class PushSnoozeRequest(BaseModel):
     title: str
     body: str = ""
     category: str | None = None
-    minutes: int = 30
+    # Ohne Angabe gilt, was die Person eingestellt hat (spaeter.eigene_minuten).
+    minutes: int | None = None
 
 
 class PushQuittierenRequest(BaseModel):
@@ -213,6 +214,28 @@ class PushPrefsRequest(BaseModel):
     # Für welches Gerät (Punkt 471) - leer heisst «für mich, überall».
     # Der Token, nicht der Anzeigename: Der ändert sich, der Token nicht.
     token: str = ""
+    # Wie lange «Später» in der Mitteilung heisst; None lässt es, wie es ist.
+    snooze_minutes: int | None = None
+
+
+class PushStufeRequest(BaseModel):
+    """Die Dringlichkeit einer Kategorie ändern - fürs ganze Haus."""
+
+    category: str
+    stufe: str
+
+
+class PushGruppeRequest(BaseModel):
+    """Eine Empfängergruppe (push.gruppen_lesen)."""
+
+    name: str
+    members: list[str] = []
+
+
+class PushGruppenRequest(BaseModel):
+    """Alle Empfängergruppen auf einmal - die Liste ist klein."""
+
+    groups: list[PushGruppeRequest] = []
 
 
 class PushRuhezeitRequest(BaseModel):
@@ -318,6 +341,11 @@ class DoorbellSoundRequest(BaseModel):
 
     sound: str | None = None
     speakers: list[DoorbellSpeaker | str] | None = None
+    # Nachts (Punkt 518): {mode: normal|leise|still, from, to} in Stunden.
+    night: dict[str, Any] | None = None
+    # Die Ansage nach dem Ton (Punkt 519) - an/aus und der Satz.
+    announce: bool | None = None
+    announce_text: str | None = None
 
 
 class DoorbellSoundTestRequest(BaseModel):

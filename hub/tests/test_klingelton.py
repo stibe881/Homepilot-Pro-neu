@@ -82,14 +82,10 @@ def test_catalog_keys_are_unique():
 def test_einstellung_lesen_defaults_to_standard_and_silence():
     """Ohne gespeicherte Wahl: der Standardton, aber keine Box - ein
     Klingelton soll erst losgehen, wenn ihn jemand eingerichtet hat."""
-    assert klingelton.einstellung_lesen(None) == {
-        "sound": klingelton.STANDARD,
-        "speakers": [],
-    }
-    assert klingelton.einstellung_lesen([]) == {
-        "sound": klingelton.STANDARD,
-        "speakers": [],
-    }
+    for leer in (None, []):
+        stand = klingelton.einstellung_lesen(leer)
+        assert stand["sound"] == klingelton.STANDARD
+        assert stand["speakers"] == []
 
 
 def test_einstellung_lesen_reads_stored_choice():
@@ -100,23 +96,14 @@ def test_einstellung_lesen_reads_stored_choice():
     stiller oder lauter, nur weil eine Auslieferung dazwischenlag.
     """
     rows = [{"sound": "hupe", "speakers": ["demo.kueche", "demo.wohnzimmer"]}]
-    assert klingelton.einstellung_lesen(rows) == {
-        "sound": "hupe",
-        "speakers": [
-            {
-                "id": "demo.kueche",
-                "volume": klingelton.LAUTSTAERKE,
-                "from": "00:00",
-                "to": "24:00",
-            },
-            {
-                "id": "demo.wohnzimmer",
-                "volume": klingelton.LAUTSTAERKE,
-                "from": "00:00",
-                "to": "24:00",
-            },
-        ],
-    }
+    stand = klingelton.einstellung_lesen(rows)
+    assert stand["sound"] == "hupe"
+    assert [box["id"] for box in stand["speakers"]] == ["demo.kueche", "demo.wohnzimmer"]
+    assert all(box["volume"] == klingelton.LAUTSTAERKE for box in stand["speakers"])
+    assert all((box["from"], box["to"]) == ("00:00", "24:00") for box in stand["speakers"])
+    # Ohne Eintrag gelten die Vorgaben für Nacht und Ansage (Punkt 518/430).
+    assert stand["night"] == klingelton.NACHT_STANDARD
+    assert stand["announce"] is False
 
 
 def test_einstellung_lesen_falls_back_on_unknown_sound():
@@ -271,3 +258,49 @@ def test_die_lautstaerken_kommen_als_zuordnung():
     fürs ganze Haus."""
     boxen = [{"id": "flur", "volume": 70}, {"id": "kind", "volume": 20}]
     assert klingelton.lautstaerken(boxen) == {"flur": 70, "kind": 20}
+# ── Nacht und Ansage (Punkt 518/430) ───────────────────────────────────────
+
+
+def test_nacht_lesen_falls_back_to_the_default_on_nonsense():
+    from homepilot.core.klingelton import NACHT_STANDARD, nacht_lesen
+
+    assert nacht_lesen(None) == NACHT_STANDARD
+    assert nacht_lesen({"mode": "laut", "from": 99, "to": "x"}) == NACHT_STANDARD
+    assert nacht_lesen({"mode": "leise", "from": 21, "to": 6}) == {
+        "mode": "leise",
+        "from": 21,
+        "to": 6,
+    }
+
+
+def test_lautstaerke_jetzt_dims_or_silences_at_night():
+    import time as _time
+
+    from homepilot.core.klingelton import (
+        LAUTSTAERKE,
+        NACHT_LAUTSTAERKE,
+        einstellung_lesen,
+        lautstaerke_jetzt,
+    )
+
+    # 23 Uhr und 14 Uhr, Ortszeit - wie nachtruhe.still rechnet.
+    nacht = _time.mktime((2026, 9, 11, 23, 0, 0, 0, 0, -1))
+    tag = _time.mktime((2026, 9, 11, 14, 0, 0, 0, 0, -1))
+    normal = einstellung_lesen([{"sound": "dingdong"}])
+    assert lautstaerke_jetzt(normal, nacht) == LAUTSTAERKE
+    leise = einstellung_lesen([{"night": {"mode": "leise"}}])
+    assert lautstaerke_jetzt(leise, nacht) == NACHT_LAUTSTAERKE
+    assert lautstaerke_jetzt(leise, tag) == LAUTSTAERKE
+    still = einstellung_lesen([{"night": {"mode": "still"}}])
+    assert lautstaerke_jetzt(still, nacht) is None
+    assert lautstaerke_jetzt(still, tag) == LAUTSTAERKE
+
+
+def test_einstellung_lesen_carries_the_announcement():
+    from homepilot.core.klingelton import ANSAGE_STANDARD, einstellung_lesen
+
+    stand = einstellung_lesen([{"announce": True, "announce_text": "  Besuch!  "}])
+    assert stand["announce"] is True
+    assert stand["announce_text"] == "Besuch!"
+    assert einstellung_lesen([{"announce_text": ""}])["announce_text"] == ANSAGE_STANDARD
+    assert einstellung_lesen(None)["announce"] is False

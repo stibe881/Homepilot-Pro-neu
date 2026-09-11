@@ -327,7 +327,8 @@ class GeofenceIntegration(Integration):
         self._eigene_places = presence.parse_places(self.config.get("places"))
         # Erst beim ersten Suchen angelegt: Wer nie einen Laden erfasst,
         # soll dafür keine Verbindung offen haben.
-        self._suchsession = None
+        # Getippt, damit mypy die spätere Zuweisung einer Sitzung versteht.
+        self._suchsession: Any = None
         self._orte_bauen()
         # Kennung → Entitäts-ID, und je Person die Orte, in denen sie steckt.
         self._zones: dict[str, str] = {}

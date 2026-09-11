@@ -234,7 +234,7 @@ class WeatherIntegration(Integration):
 
     async def _refresh(self) -> None:
         entity_id = self.entity_id("forecast")
-        params = {
+        params: dict[str, str | int | float] = {
             "latitude": self._lat,
             "longitude": self._lon,
             "current": "temperature_2m,weather_code",
@@ -257,9 +257,9 @@ class WeatherIntegration(Integration):
             # mehr geregnet hat (core/giessen.py). Sie stehen in
             # derselben Antwort - eine zweite Anfrage dafür wäre eine
             # zweite Fehlerquelle.
-            "past_days": 5,
+            "past_days": "5",
             "timezone": "Europe/Zurich",
-            "forecast_days": 7,
+            "forecast_days": "7",
         }
         try:
             async with self._session.get(API, params=params) as response:

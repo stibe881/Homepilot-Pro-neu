@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Entity, HubSettings, Scene, User } from '../api/types';
 import { ablaufAlsSeite } from '../lib/ablaufseite';
@@ -26,7 +26,7 @@ import {
 import { BabysitterStand, LEERER_BABYSITTER, istFreigegeben, modusSatz, seitText } from '../lib/babysitter';
 import { Editor, Fassung } from './automations/editor';
 import { andersAls, merken, zurueck } from '../lib/entwurfsverlauf';
-import { Automation, Draft, DryRun, EMPTY, EMPTY_STEP, EMPTY_TRIGGER, Run, StepDraft, TriggerHealth, buildConditions, datumNachIso, describe, groupByCategory, lastRunText, namensVorschlag, newTrigger, runLine, search, stepToActions, stepsToActions, symbolFuerNamen, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, wirkungText, zeitpunktLabel } from './automations/entwurf';
+import { Automation, Draft, DryRun, EMPTY, EMPTY_STEP, EMPTY_TRIGGER, GRUPPE_PREFIX, Run, StepDraft, TriggerHealth, buildConditions, datumNachIso, describe, groupByCategory, lastRunText, namensVorschlag, newTrigger, runLine, search, stepToActions, stepsToActions, symbolFuerNamen, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, wirkungText, zeitpunktLabel } from './automations/entwurf';
 import { Groups, SearchBox } from './automations/felder';
 import {
   PAUSEN,
@@ -314,11 +314,19 @@ export function AutomationsScreen({
         setFavoriten((data?.favorites ?? []).map((zeile) => String(zeile.name ?? ''))),
       );
     hub
-      .get<{ names?: string[] } | null>('/api/push/targets', {
+      .get<{ names?: string[]; groups?: string[] } | null>('/api/push/targets', {
         fallback: null,
         still: true,
       })
-      .then((data) => setEmpfaenger(data?.names ?? []));
+      // Gruppen (Punkt 513) hinter den Namen, mit dem Vorsatz des Hubs:
+      // Das to-Feld des Ablaufs trägt «gruppe:Eltern», die Auswahl zeigt
+      // «Eltern (Gruppe)» (entwurf.ts: empfaengerLabel).
+      .then((data) =>
+        setEmpfaenger([
+          ...(data?.names ?? []),
+          ...(data?.groups ?? []).map((name) => `${GRUPPE_PREFIX}${name}`),
+        ])
+      );
     hub
       .get<{ agenda?: AgendaEintrag[] } | null>('/api/automations/agenda', {
         fallback: null,
@@ -1579,6 +1587,20 @@ export function AutomationsScreen({
                           .map((run, index) => (
                             <View key={index}>
                               <Text style={styles.triggerNote}>{runLine(run)}</Text>
+                              {/* Was die Kamera sah, als sie auslöste
+                                  (Punkt 510). Das Token steht in der
+                                  Adresse, weil <Image> keine Kopfzeilen
+                                  mitschickt - wie beim Ereignisblatt. */}
+                              {run.image ? (
+                                <Image
+                                  source={{
+                                    uri: `${settings.url.replace(/\/+$/, '')}/api/automations/bild/${encodeURIComponent(run.image)}?token=${encodeURIComponent(settings.token)}`,
+                                  }}
+                                  style={styles.laufBild}
+                                  resizeMode="cover"
+                                  accessibilityLabel="Standbild der auslösenden Kamera"
+                                />
+                              ) : null}
                               {/* «Ausgeführt» heisst nur: abgeschickt. Ob
                                   das Gerät danach auch so stand, hat der
                                   Hub ein paar Sekunden später nachgesehen -

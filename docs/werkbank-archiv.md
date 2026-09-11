@@ -32,6 +32,8 @@ werden sie archiviert und nicht gelöscht.
 | 244–267 | Auf Zuruf (September 2026) | Benutzer und Zugang, Bedienung, Abläufe, Sicherheit |
 | 268–420 | Achtundachtzig Vorschläge (September 2026) | App, Bedienung, Gestaltung, Gutscheine, Abläufe, Push, Alarm, Haus |
 | 421–505 | Fünfundachtzig Vorschläge (September 2026) | dieselben acht Bereiche, eine Runde später |
+| 506–509 | Auf einem anderen Zweig, derselbe Abend | Klingeltöne, Räume-Seite, Kontoeinstellungen |
+| 510–533 | Zweite Vorschlagsrunde des anderen Zweigs | Abläufe, Push, Alarm, Gutscheine, Gestaltung |
 
 Die Häkchen tragen die Commit-Kürzel von den Werkbank-Seiten; ganz alte
 können hinter der flachen Klon-Grenze liegen.
@@ -3339,7 +3341,11 @@ Welche zwei Räume gemeint sind, weiss nur der Haushalt.
   gemeldet» in den Push-Einstellungen zeigt die letzten Meldungen,
   ohne Bilder und ohne eigenen Bildschirm.
 - **392** (kritische Meldungen als «critical alert») – braucht eine
-  gesonderte Berechtigung von Apple.
+  gesonderte Berechtigung von Apple. Vorbereitet ist es (Punkt 512):
+  Eine Kategorie lässt sich auf «kritisch» stellen, die App fragt die
+  Erlaubnis dafür beim Anmelden mit, und der Hub schickt den kritischen
+  Ton, sobald `push.critical_alerts: true` in der config.yaml steht.
+  Fehlt nur noch der Antrag bei Apple und das Entitlement in der Hülle.
 - **405** (Watch-App) – ohne Xcode/watchOS-Werkzeuge hier nicht
   verifizierbar zu bauen.
 - **353/340** (Lauftext misst sich falsch) – zwei frühere Versuche
@@ -3928,3 +3934,321 @@ keiner. Gemessen wird jetzt, was die zwei wirklich unterscheidet: was
 den Raumkacheln an Breite bleibt.
 
 Stellen: `app/src/screens/DashboardScreen.tsx`, `app/src/screens/dashboard/stile.ts`, `scripts/probe.mjs`
+
+# Teil XI: Zweite Vorschlagsrunde des anderen Zweigs (510–533)
+
+Vierundzwanzig Punkte, die eine zweite Sitzung derselben Woche gebaut
+hat - aus derselben Liste von fünfundachtzig Vorschlägen wie Teil IX,
+nur anders ausgewählt.
+
+**Warum sie nicht 421–444 heissen.** Genau so standen sie auf ihrem
+Zweig, und genau so heissen in Teil IX die Vorschläge selbst. Zum
+dritten Mal an einem Abend hatten zwei Sitzungen dieselben Nummern
+vergeben; 506–509 sind schon einmal aus demselben Grund gewandert.
+Verschoben wurde wieder der Block, der für sich steht - die
+fünfundachtzig Vorschläge hängen an Dutzenden Dateien mit «Punkt NNN
+der Werkbank» im Kommentar und an der Gliederung dieses Archivs. Die
+Verweise im Code dieses Blocks sind mitgewandert (111 Zeilen in 52
+Dateien).
+
+Daraus die Regel, die in der CLAUDE.md steht und hier zum dritten Mal
+ihren Beleg bekommt: **vor dem Vergeben einer Nummer nachsehen, was auf
+den anderen Zweigen liegt** - `python3 deploy/zweige.py pruefen`.
+
+### 510. Standbild im Lauf-Verlauf ✓ erledigt
+
+*lohnt sich · Aufwand: klein · Hub + App*
+
+«Bewegung an der Kamera Garten → Licht an» stand im Verlauf nur als
+Satz; was die Kamera dabei sah, war nach zehn Minuten weg
+(core/snapshots.py). Löst eine Kamera aus, holt der Lauf jetzt beim
+Start ein Standbild – vor den Schritten, nicht danach, sonst ist die
+Person längst aus dem Bild – und legt es ins Bildarchiv des Alarms
+(core/bildarchiv.py, dieselbe Frist). Der Lauf trägt die Kennung, die
+App zeigt die Vorschau unter dem Lauf; Route
+`/api/automations/bild/{kennung}` unter dem Verlaufs-Recht.
+
+### 511. Ablauf-Editor aufgeteilt ✓ erledigt
+
+*Aufwand: mittel · App*
+
+`editor.tsx` war auf 2900 Zeilen angewachsen. Jetzt drei Dateien:
+`editor.tsx` (Editor, Fassungen, Simulation), `ausloeser.tsx`
+(TriggerRow) und `schritte.tsx` (StepList, Bedingungen, Wiederholung).
+Die alten Exporte bleiben unter `editor.tsx` erreichbar. Im selben
+Zug nennt jede eingebaute Vorlage ihre Gruppe als Feld statt über
+einen Regex auf den Titel (`vorlagen.ts`).
+
+### 512. Dringlichkeit je Kategorie ✓ erledigt
+
+*lohnt sich · Aufwand: klein · Hub + App*
+
+Was warten darf, stand fest im Code (`LEISE`). Jetzt hat jede
+Kategorie eine Stufe fürs Haus – leise, dringend, kritisch –, die
+unter Konto → Benachrichtigungen im Detail der Kategorie steht, für
+die, die Einstellungen ändern dürfen. Fürs Haus und nicht je Person,
+weil die Stufe beschreibt, was die Meldung *ist*; wer sie für sich
+nicht will, bestellt sie ab. Ablage `push_stufen`, Route
+`PUT /api/push/stufe`. «Kritisch» ist die Vorbereitung auf 392.
+
+### 513. Empfängergruppen ✓ erledigt
+
+*lohnt sich · Aufwand: klein · Hub + App*
+
+«Eltern» statt «Stefan» und «Livia» in jedem Ablauf. Eine Gruppe ist
+im Ablauf-Editor ein Ziel (`to: "gruppe:Eltern"`), bei den
+Erinnerungen ebenso, und wird unter Konto → Benachrichtigungen
+gepflegt. Mitglieder, die es als Benutzer nicht gibt, fallen still
+weg; eine Gruppe ohne Mitglieder erreicht niemanden und wird gar nicht
+erst geführt. Ablage `push_gruppen`, Routen `/api/push/gruppen`.
+
+### 514. «Später» mit eigener Dauer ✓ erledigt
+
+*Aufwand: klein · Hub + App*
+
+Der Knopf in der Mitteilung hiess fest «In 30 Min nochmal». Am Herd
+meint man eine Viertelstunde, im Bett den Morgen. Der Knopf heisst
+jetzt «Später nochmal», die Zahl (15 min, 30 min, 1 h, 2 h) steht je
+Person unter Konto → Benachrichtigungen, und der Hub nimmt sie, wenn
+die App keine mitschickt. Nebenbei behoben: Das Abbestellen einer
+Kategorie ersetzte die ganze Push-Zeile der Person und warf Ruhezeit
+und Stillgestelltes mit weg.
+
+### 515. Eigene Alarm-Modi ✓ erledigt
+
+*lohnt sich · Aufwand: mittel · Hub + App*
+
+«Nacht», «Ausser Haus», «Urlaub» decken das Übliche - nicht «Nur
+Erdgeschoss» oder «Gäste da». Ein eigener Modus ist ein Name, ein
+Symbol und ein Schlüssel daraus (`alarm_rules.modus_schluessel`);
+welche Sensoren darin wachen, steht wie bei den eingebauten an den
+Sensoren, die dafür einen eigenen Reiter bekommen. Die Modi kommen
+als Liste vom Hub (`config_dict()["modes"]`), die App zeichnet ihre
+Knöpfe daraus statt drei feste zu kennen (`lib/alarmmodi.ts`).
+Abläufe erreichen einen eigenen Modus über den Befehl `arm` mit
+`mode` als Wert. Wird ein Modus gestrichen, verschwindet er auch aus
+den Sensoren und dem Nachverhalten - sonst wachte er als Geist weiter.
+
+### 516. Voralarm «Verdacht» ✓ erledigt
+
+*lohnt sich · Aufwand: klein · Hub + App*
+
+Der erste sofortige Melder allein machte die Anlage laut. Mit
+`suspect_delay` (Sekunden, 0 = aus) wird sie erst misstrauisch:
+Zustand `verdacht`, Nachricht mit Bild, die Vorwarn-Befehle - aber
+keine Sirene. Meldet sich ein *zweiter* Melder, ist es keine
+Vermutung mehr und der Alarm kommt sofort; derselbe Melder noch einmal
+zählt nicht. Wer in der Frist entschärft, hat einen Fehlalarm, von dem
+die Nachbarn nichts gehört haben. Die Eingangsverzögerung bleibt, was
+sie war: Sie gilt den verzögerten Sensoren, der Voralarm den
+sofortigen.
+
+### 517. Face ID vor dem Entschärfen ✓ erledigt
+
+*Aufwand: klein · App*
+
+Die Face-ID-Sperre (Konto) galt für Türe und Kacheln, nicht für den
+grossen Knopf «Unscharf schalten» auf dem Alarm-Bildschirm. Jetzt
+fragt er zuerst das Gesicht, dann die PIN - und nur beim ersten
+Anlauf: Wer die PIN schon tippt, hat das Gesicht eben gezeigt. Ohne
+Biometrie am Gerät lässt die Sperre durch; die PIN des Hubs bleibt die
+eigentliche Hürde.
+
+### 518. Klingelton nachts leiser oder still ✓ erledigt
+
+*Aufwand: klein · Hub + App*
+
+Ein Gong um Mitternacht weckt das ganze Haus - dabei ist der Pöstler um
+diese Zeit ohnehin nicht da. Die Klingelton-Karte (Abläufe → Push →
+«Es klingelt») hat jetzt eine Nachtregel: wie am Tag, leiser (30 %)
+oder still, mit Stunden «ab» und «bis». Die Push-Nachricht kommt in
+jedem Fall; die Testtaste hört auch nachts etwas
+(`klingelton.lautstaerke_jetzt`, rechnet wie `nachtruhe.still`).
+
+### 519. «Es klingelt» als Ansage - auch auf dem Fernseher ✓ erledigt, verengt
+
+*Aufwand: klein · Hub + App*
+
+Gewünscht war eine Meldung auf dem Fernseher, wenn es klingelt (die
+Klingel hat keine Kamera, also nur der Satz). Ein Bild einblenden kann
+der Hub auf einem Android TV nicht: Die Fernbedienungs-Schnittstelle
+kennt nur Tasten und App-Starts, keine Einblendung. Was geht: der Satz
+als Ansage. Nach dem Gong spricht der Hub «Es klingelt.» (Text
+einstellbar) auf denselben Boxen - und ein Fernseher mit Google Cast
+ist eine solche Box; er steht in der Boxen-Auswahl der Klingelton-Karte.
+Auf einem Fernseher ohne Cast bleibt es bei der Push-Nachricht.
+
+### 520. Mehrere Belege je Gutschein ✓ erledigt
+
+*lohnt sich · Aufwand: mittel · Hub + App*
+
+Bestellbestätigung und Gutschein-PDF gehören beide an den Eintrag,
+und bisher passte nur eines. Jetzt führt der Gutschein `files`, eine
+Liste von Datei-Blöcken; jede weitere Datei trägt eine Kennung und
+liegt als `<eintrag>_f_<kennung>.<endung>` neben der ersten, die ihren
+alten Namen behält. `file` bleibt der erste Block, damit ältere
+App-Fassungen weiter einen Beleg sehen; wer eine Datei aus der Liste
+nimmt, nimmt sie von der Platte (`dateien.aufraeumen`). «Aus Beleg
+übernehmen» liest alle Belege hintereinander - der Betrag steht im
+einen, die Nummer im anderen. Höchstens sechs je Gutschein.
+
+### 521. Stern und Raum im Langdruck-Menü ✓ erledigt
+
+*Aufwand: klein · App*
+
+Das Langdruck-Menü der Kachel gab es schon (Verlauf, Erinnern,
+Umbenennen, Sperren, Zählung, Doppeltipp). Dazu kommen die zwei
+Handgriffe, für die man sonst das Blatt öffnete: «Als Favorit» (oder
+«Kein Favorit mehr») und «In anderen Raum». Der Stern steht vor dem
+Umbenennen - er ist der Griff, den man täglich macht
+(`lib/kachelmenue.ts`).
+
+### 522. Wischen zwischen den Bereichen ✓ erledigt
+
+*lohnt sich · Aufwand: klein · App*
+
+Auf dem Telefon wechselt ein waagrechtes Wischen über die Seite zum
+Nachbarn in der Leiste - nach links «weiter», nach rechts «zurück», am
+Rand endet es. Nur ohne Seitenleiste, nicht im Zimmer (dort heisst
+Wischen «zurück», lib/zurueckwischen.ts) und nicht beim Anpassen. Die
+Geste wird erst während der Bewegung beansprucht, damit Wischdimmer,
+Kachel am Finger und Storen-Leiste Vorrang behalten
+(`lib/bereichwischen.ts`, `hooks/useBereichWischen.ts`).
+
+### 523. iPhone im Querformat ✓ erledigt, verengt
+
+*Aufwand: klein · App*
+
+Die Ausrichtung war nie gesperrt (`orientation: default`), und ab
+700 Punkten Breite kommt die Seitenleiste - im Querformat also auch
+auf dem Telefon. Was fehlte, waren die seitlichen Sicherheitsabstände:
+Die Aussparung des iPhones liegt quer an der Seite, und die Leiste
+sass darunter. Der Rahmen nimmt jetzt auch `insets.left/right`.
+Ob das auf dem Gerät so aussieht wie gedacht, sagt nur das Gerät
+(CLAUDE.md: was der Browser nicht beantwortet).
+
+### 524. Posteingang hinter der Glocke ✓ erledigt
+
+*lohnt sich · Aufwand: klein · App*
+
+Werkbank 389, fertig gemacht: Eine Glocke in der Kopfzeile der
+Startseite öffnet den Posteingang (`components/Posteingang.tsx`).
+Zuoberst, was das Haus für mich zurückgehalten hat (Ruhezeit,
+stillgestellt, Tagesdeckel - `/api/push/verpasst`), darunter zum
+Nachschlagen die letzten Tage. Die Zahl an der Glocke ist, was seit
+dem letzten Öffnen dazukam; der Zeitpunkt liegt beim Hub
+(`posteingang.gesehen` in lib/persoenlich.ts), damit das iPad nicht
+zeigt, was das Telefon längst gelesen hat.
+
+### 525. Die Leiste in der Farbe des Orts ✓ erledigt
+
+*Aufwand: klein · App*
+
+Werkbank 360, gebaut: Der gewählte Punkt der Leiste trägt eine
+durchscheinende Tönung im Farbwinkel des Bereichs (`lib/bereiche.ts`:
+bereichTon - Licht warm, Kameras kühl, sieben feste Winkel) und im
+Zimmer im Winkel des Raums (`raumTon`, dieselbe Farbe wie die
+Raumkachel und der Raumkopf). So weiss man beim Hinsehen, wo man ist,
+bevor man den Namen liest. Durchscheinend, damit sie auf jedem
+Erscheinungsbild neben der Leistenfläche besteht.
+
+### 526. Drei Stufen für Symbole ✓ erledigt, verengt
+
+*Aufwand: klein · App*
+
+`theme.icon = { klein: 16, mittel: 18, gross: 22 }`. Über die Dateien
+hinweg standen 12 bis 24, jede Stelle hatte sich ihre Zahl ausgesucht.
+Umgestellt sind Kopfzeile, Leiste und Posteingang; der Rest folgt
+Stelle für Stelle, wenn man ohnehin dort ist - ein Massensuchlauf über
+fünfzig Dateien tauschte auch Zahlen, die absichtlich abweichen.
+
+### 527. Der Übergang beim Schalten ✓ erledigt, beim Zusammenführen in Punkt 443 aufgegangen
+
+*Aufwand: klein · App*
+
+Werkbank 292 hatte entschieden, Kacheln nicht überblenden zu lassen:
+«Unruhe ist teurer als der Gewinn». Auf Wunsch des Hauses jetzt doch,
+aber so klein wie möglich: Der Punkt der Lichtkachel blendet in 150 ms
+von aus nach an, statt umzuspringen - kurz genug, dass nichts wackelt,
+lang genug, dass das Auge den Wechsel als Antwort liest. Wer «Bewegung
+reduzieren» eingestellt hat, bekommt den Sprung
+(`hooks/useBewegungReduziert.ts`, auch von `Auftritt` benutzt).
+
+### 528. Die Kachelhöhen-Regel ✓ erledigt
+
+*Aufwand: klein · App*
+
+Werkbank 359: Jede Kachel ist mindestens `theme.kachel.mindesthoehe`
+hoch (138, vorher eine nackte Zahl in `Card.tsx`), und in einer Zeile
+des Rasters gibt die höchste die Höhe vor - `alignItems: 'stretch'`
+ausdrücklich am Raster, nicht als Zufall der Vorgabe.
+
+### 529. Deckel fürs Mitwachsen auf der Lichtkachel ✓ erledigt
+
+*Aufwand: klein · App*
+
+Werkbank 66, eine Stelle weiter: Wert, Name und Unterzeile der
+Lichtkachel und der grosse Wert der übrigen Kacheln wachsen bis 160 %
+mit der Systemschrift mit und halten dann (`lib/schrift.ts`:
+MAX_SCHRIFT) - bei 200 % schob der Wert sonst den Namen aus der Kachel.
+Fliesstext wächst weiter unbegrenzt mit; das soll so bleiben.
+
+### 530. Lauftext: Messung und Anzeige getrennt ✓ umgebaut, Nachweis offen
+
+*Aufwand: klein · App*
+
+Werkbank 353, so gebaut wie dort beschrieben: Der Messkasten bleibt
+immer 4000 Punkte breit und unsichtbar (`position: absolute`, im
+Fenster abgeschnitten), der Text darin meldet bei jedem Durchgang
+seine eigene Breite; der animierte Kasten daneben hat die gemessene
+Breite und misst nichts. Die Browser-Probe hat dazu eine Messung
+bekommen: Ein Gerät schaltet beim Start und noch einmal nach der
+ersten Wanderung (die Startseite baut sich über den WebSocket neu
+auf), danach muss die Zeile weiter wandern.
+
+Ehrlich dazu: Diese Messung war auch mit der alten Fassung grün - der
+Fall aus 353 («ein zusätzlicher Abruf beim Start») liess sich in der
+Probe nicht nachstellen, weder über einen Zustandswechsel noch über
+eine Fenstergrösse. Der Umbau ist damit die vorgeschlagene, sauberere
+Bauart, aber kein bewiesener Fehlerfix. Wer den alten Fehler wieder
+sieht, hat mit der neuen Messung wenigstens einen Platz, an dem er
+ihn festhalten kann.
+
+### 531. mypy-sauber ohne rote Module ✓ erledigt
+
+*Aufwand: klein · Hub*
+
+`tools/mypy_sauber.py` meldete fünf Module aus `mypy-sauber.txt` rot
+(vorlagen, geofence, mqtt, weather, zigbee2mqtt) - je ein Typfehler:
+eine unannotierte Liste, eine Sitzung, die als `None` getippt war, der
+Broker als `Any | None` statt `str`, und die Wetter-Parameter als
+`dict[str, object]`. Alle fünf behoben, ohne einen Eintrag zu
+streichen; die Prüfung ist wieder bindend: «Typen sauber: 160 Module».
+
+### 532. Kassenansicht hell und wach ✓ erledigt (nativ, runtimeVersion 8)
+
+*lohnt sich · Aufwand: klein · App*
+
+«An der Kasse» blieb an, konnte aber die Helligkeit nicht hochdrehen -
+das ging ohne natives Modul nicht. Jetzt tut es `expo-brightness`:
+Solange die Ansicht offen ist, steht der Bildschirm auf voll und
+schläft nicht ein (`hooks/useKassenlicht.ts`); beim Schliessen kommt
+der alte Wert zurück, sofern er dunkler war (`lib/kassenlicht.ts`).
+Im Browser gibt es keine Helligkeit, dort bleibt es beim Wachhalten.
+Weil das Modul nativ ist, ging die `runtimeVersion` auf 8 - **der
+TestFlight-Build muss unmittelbar folgen**, sonst erreicht keine
+Nachladung mehr ein Telefon (CLAUDE.md, «Ausliefern»).
+
+### 533. Fotografierte Belege lesen ✓ erledigt
+
+*lohnt sich · Aufwand: klein · Hub + Abbild*
+
+«Aus Beleg übernehmen» las nur PDF und Text. Ein Foto oder Scan des
+Belegs geht jetzt auf dem Hub durch Tesseract (`beleglesen.aus_bild`,
+Deutsch und Englisch): neues Extra `ocr` (pytesseract, Pillow) in
+der pyproject.toml, `tesseract-ocr` samt `deu` per apt im Abbild, in
+der pip-Zeile des Dockerfiles, und auf der Systemseite als «Belege
+fotografiert lesen». Auf dem Hub und nicht auf dem Telefon: Ein
+natives OCR-Modul hätte eine weitere neue Hülle gebraucht; ein
+apt-Paket im Abbild braucht keine. Ohne das Extra sagt die App beim
+Foto, was fehlt, statt still nichts zu finden.

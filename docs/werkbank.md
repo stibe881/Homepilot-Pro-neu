@@ -10,7 +10,7 @@ sucht.
 **Die Nummern bleiben, wo sie sind.** Nie umnummerieren, auch nicht bei
 Erledigtem oder Gestrichenem: Ein späterer «Punkt 273» zeigte sonst auf
 etwas anderes als gemeint. Neues bekommt die nächste freie Nummer -
-zurzeit **510**. Ist ein Punkt gebaut, wandert er samt Begründung ins
+zurzeit **534**. Ist ein Punkt gebaut, wandert er samt Begründung ins
 Archiv; er wird nicht hier abgehakt. Dass jede Nummer genau einmal
 vorkommt, prüft `scripts/werkbank.py` (und mit ihr der Prüflauf).
 

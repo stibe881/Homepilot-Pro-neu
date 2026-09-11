@@ -869,15 +869,23 @@ class Tonmeister:
             log.info("Klingelton liess sich nicht abspielen: %s", err)
 
     async def klingelton_abspielen(
-        self, sound: str | None = None, speakers: list[str] | None = None
+        self,
+        sound: str | None = None,
+        speakers: list[str] | None = None,
+        nacht: bool = True,
     ) -> list[str]:
         """Den Klingelton auf den gewählten Boxen spielen.
 
         Ohne Übersteuerung gilt die gespeicherte Wahl (core/klingelton.py);
         die Testtaste in der App übergibt Ton und Boxen dagegen direkt, um
-        eine Wahl anzuhören, bevor sie gespeichert wird. Ohne gewählte
-        Boxen passiert nichts - siehe Kopf von klingelton.py, warum eine
-        leere Auswahl hier nicht «alle» heisst.
+        eine Wahl anzuhören, bevor sie gespeichert wird - und mit
+        ``nacht=False``, damit sie auch um elf Uhr abends etwas hört.
+        Ohne gewählte Boxen passiert nichts - siehe Kopf von
+        klingelton.py, warum eine leere Auswahl hier nicht «alle» heisst.
+
+        Nachts (Punkt 518) spielt der Ton leiser oder gar nicht; danach
+        folgt, wenn gewünscht, die Ansage (Punkt 519) auf denselben
+        Boxen - der Fernseher ist über Cast eine davon.
 
         Gibt die Namen der Boxen zurück, die den Ton bekommen haben.
         """
@@ -908,12 +916,42 @@ class Tonmeister:
         address = say.base_url(self.hub)
         if not address:
             return []
+        volume: int | None = (
+            klingelton.lautstaerke_jetzt(stand, time.time()) if nacht else klingelton.LAUTSTAERKE
+        )
+        if volume is None:
+            log.info("Klingelton nachts still - nur die Nachricht geht hinaus")
+            return []
         audio = klingelton.klang_wav(ziel_sound)
+        ziel_speakers = [box["id"] for box in boxen]
+        # Je Box ihre eigene Lautstärke (die Wahl in der App), nachts
+        # gedeckelt: «leise» ist eine Obergrenze, keine feste Zahl -
+        # sonst würde eine bewusst leise gestellte Box nachts *lauter*.
+        ziel_volume = klingelton.lautstaerken(boxen)
+        if volume < klingelton.LAUTSTAERKE:
+            ziel_volume = {
+                kennung: min(wert, volume) for kennung, wert in ziel_volume.items()
+            }
         ergebnis = await say.play_audio(
             self.hub,
             audio,
             address,
-            speakers=[box["id"] for box in boxen],
-            volume=klingelton.lautstaerken(boxen),
+            speakers=ziel_speakers,
+            volume=ziel_volume,
         )
-        return list(ergebnis.get("sent", []))
+        gespielt = list(ergebnis.get("sent", []))
+        if stand["announce"] and gespielt:
+            # Erst der Gong, dann der Satz - und der Satz darf den Gong
+            # nicht zu Fall bringen: Eine Ansage, die scheitert (kein
+            # Internet für die Stimme), ist ein Protokolleintrag.
+            try:
+                await say.speak(
+                    self.hub,
+                    stand["announce_text"],
+                    speakers=ziel_speakers,
+                    volume=volume,
+                    base=address,
+                )
+            except Exception as err:
+                log.info("Klingel-Ansage liess sich nicht sprechen: %s", err)
+        return gespielt

@@ -67,11 +67,15 @@ def fill(text: Any, entity: Entity | None) -> str:
     name = entity.label if entity is not None else ""
     raum = (entity.room if entity is not None else "") or ""
     meldung = str((entity.state.get("headline") if entity is not None else "") or "")
+    # {wert}: was das Gerät gerade meldet («on», «21.5») - für «{gerät}
+    # meldet {wert}» ohne dass man die Gerätekennung des Auslösers kennt.
+    zustand = entity.state.get("state") if entity is not None else None
     for schluessel, wert in (
         ("{gerät}", name),
         ("{geraet}", name),
         ("{raum}", raum),
         ("{meldung}", meldung),
+        ("{wert}", "" if zustand is None else str(zustand)),
     ):
         satz = satz.replace(schluessel, wert)
     # Doppelte Leerzeichen, wo ein Platzhalter leer blieb: «Jemand weint

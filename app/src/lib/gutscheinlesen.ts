@@ -52,6 +52,21 @@ const ABLAUF_WORT =
  * dasteht. Zahlen ohne Währung bleiben aussen vor, sonst gewänne die
  * Bestellnummer.
  */
+/** Aus «1'250,50», «1’250.–», «1 250.50» und «1.250,00» eine Zahl (rein, testbar).
+ *
+ *  Schweizer Belege trennen Tausender mit Apostroph oder schmalem
+ *  Leerzeichen; deutsche Webshops, die in die Schweiz liefern, mit dem
+ *  Punkt und dem Komma als Dezimalzeichen. Ein Punkt gefolgt von genau
+ *  drei Ziffern und danach nichts oder ein Komma ist deshalb ein
+ *  Tausender - «20.50» bleibt zwanzig Franken fünfzig. */
+export function zahlAusBeleg(text: string): number {
+  const eng = String(text ?? '').replace(/[’'\u00a0\u202f ]/g, '');
+  if (/^[0-9]{1,3}(?:\.[0-9]{3})+(?:,[0-9]{1,2})?$/.test(eng)) {
+    return parseFloat(eng.replace(/\./g, '').replace(',', '.'));
+  }
+  return parseFloat(eng.replace(',', '.'));
+}
+
 export function betragAusText(text: string): { total: number; unit: Einheit } | null {
   const roh = String(text ?? '');
   const werte: number[] = [];
@@ -60,13 +75,10 @@ export function betragAusText(text: string): { total: number; unit: Einheit } | 
   // einen Betrag von 2027 Franken - die Leerzeilen wanderten mit, und
   // «Fr» stand im nächsten Wort.
   const muster =
-    /(?:chf|fr\.?|sfr\.?)[ \t]*([0-9]{1,6}(?:[’'\u00a0 ][0-9]{3})*(?:[.,][0-9]{1,2})?)|([0-9]{1,6}(?:[’'\u00a0 ][0-9]{3})*(?:[.,][0-9]{1,2})?)[ \t]*(?:chf|fr\.?|franken)(?![a-zäöüA-ZÄÖÜ])/gi;
+    /(?:chf|fr\.?|sfr\.?)[ \t]*([0-9]{1,6}(?:[’'\u00a0\u202f .][0-9]{3})*(?:[.,][0-9]{1,2})?)|([0-9]{1,6}(?:[’'\u00a0\u202f .][0-9]{3})*(?:[.,][0-9]{1,2})?)[ \t]*(?:chf|fr\.?|franken)(?![a-zäöüA-ZÄÖÜ])/gi;
   let treffer: RegExpExecArray | null;
   while ((treffer = muster.exec(roh)) !== null) {
-    const zahl = (treffer[1] ?? treffer[2] ?? '')
-      .replace(/[’'\s]/g, '')
-      .replace(',', '.');
-    const wert = parseFloat(zahl);
+    const wert = zahlAusBeleg(treffer[1] ?? treffer[2] ?? '');
     if (Number.isFinite(wert) && wert > 0) werte.push(wert);
   }
   if (werte.length > 0) {
