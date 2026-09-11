@@ -47,6 +47,14 @@ from dataclasses import dataclass
 # stand hier ein claude/-Zweig zuoberst, und das Werkzeug mass damit
 # gegen einen Zweig, den der Bau gar nicht nimmt: Die Meldung «dort wird
 # gebaut» stimmte nicht mehr, seit der Knopf main baut.
+#
+# Zum *Stossen* zählt nur diese Liste - ein Push auf sechzehn Zweige ist
+# etwas anderes als ein Blick darauf. Zum *Prüfen* fragt das Werkzeug
+# den Server (`alle_fernzweige`), und zwar seit dem Abend, an dem der
+# Bau «Nicht hineingenommen (Konflikt mit main)» für einen Zweig meldete,
+# den `pruefen` gar nicht kannte: Er stand nicht auf dieser Liste, und
+# eine Liste, die jemand nachführen muss, wird irgendwann nicht
+# nachgeführt. Zehn Commits lagen darauf, geprüft und grün und nirgends.
 VORGABE = (
     "main",
     "claude/besuch-babysitter-page-redesign-kvedqh",
@@ -119,6 +127,22 @@ def alles_gleich(staende: list[Zweigstand]) -> bool:
     return all(urteil(stand) == "gleichauf" for stand in staende)
 
 
+def zum_pruefen(gelistet: tuple[str, ...], fern: list[str]) -> tuple[str, ...]:
+    """Welche Zweige gemessen werden (rein, testbar).
+
+    Der Auslieferzweig zuerst - gegen ihn wird gemessen, und die Meldung
+    darüber hängt daran. Danach alles, was der Server kennt, egal ob es
+    auf der Liste steht: Genau der ungelistete Zweig ist der, der still
+    zurückfällt. Was gelistet ist, aber auf dem Server fehlt, bleibt
+    trotzdem drin - «gibt es nicht» ist eine Auskunft.
+    """
+    reihe = list(gelistet)
+    for zweig in fern:
+        if zweig not in reihe:
+            reihe.append(zweig)
+    return tuple(reihe)
+
+
 def zweige_aus_umgebung(roh: str | None) -> tuple[str, ...]:
     """Die Zweigliste aus `HOMEPILOT_ZWEIGE` lesen (rein, testbar).
 
@@ -142,6 +166,23 @@ def _git(*args: str, still: bool = False) -> tuple[int, str]:
     if fertig.returncode and not still:
         print(f"  git {' '.join(args)}: {fertig.stderr.strip()}", file=sys.stderr)
     return fertig.returncode, fertig.stdout.strip()
+
+
+def alle_fernzweige() -> list[str]:
+    """Die Zweige, die der Server kennt - leer, wenn er nicht antwortet.
+
+    Ohne Netz misst das Werkzeug eben die Liste; eine Fehlermeldung wäre
+    hier die schlechtere Antwort als eine kürzere Auskunft.
+    """
+    code, roh = _git("ls-remote", "--heads", "origin", still=True)
+    if code:
+        return []
+    namen = []
+    for zeile in roh.splitlines():
+        teile = zeile.split()
+        if len(teile) == 2 and teile[1].startswith("refs/heads/"):
+            namen.append(teile[1][len("refs/heads/") :])
+    return sorted(namen)
 
 
 def _holen(zweig: str) -> bool:
@@ -223,12 +264,12 @@ def main(argv: list[str]) -> int:
     zweige = zweige_aus_umgebung(os.environ.get("HOMEPILOT_ZWEIGE"))
     befehl = argv[1] if len(argv) > 1 else "pruefen"
     if befehl == "pruefen":
-        return pruefen(zweige)
+        return pruefen(zum_pruefen(zweige, alle_fernzweige()))
     if befehl == "stossen":
         ergebnis = stossen(zweige)
         if ergebnis == 0:
             print()
-            return pruefen(zweige)
+            return pruefen(zum_pruefen(zweige, alle_fernzweige()))
         return ergebnis
     print(__doc__)
     return 2

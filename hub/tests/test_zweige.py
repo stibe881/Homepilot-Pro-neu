@@ -77,3 +77,33 @@ def test_ohne_umgebung_gilt_die_vorgabe():
     # ein claude/-Zweig, und das Werkzeug mass gegen einen Zweig, den
     # der Knopf gar nicht baut.
     assert zweige.VORGABE[0] == "main"
+
+
+def test_geprueft_wird_auch_ein_zweig_der_nicht_auf_der_liste_steht():
+    """Der teure Fall: Auf einem ungelisteten Zweig lagen zehn Commits,
+    geprüft und grün - und `pruefen` meldete ihn nicht, weil er nicht
+    auf der Liste stand. Gemerkt hat es erst der Bau, mit «Nicht
+    hineingenommen (Konflikt mit main)»."""
+    gelistet = ("main", "claude/bekannt")
+    fern = ["claude/bekannt", "claude/vergessen", "main"]
+    assert zweige.zum_pruefen(gelistet, fern) == (
+        "main",
+        "claude/bekannt",
+        "claude/vergessen",
+    )
+
+
+def test_der_auslieferzweig_bleibt_vorne():
+    """Gegen ihn wird gemessen, und die Meldung «dort wird gebaut»
+    hängt an der ersten Stelle (siehe pruefen)."""
+    assert zweige.zum_pruefen(("main",), ["aaa", "zzz"])[0] == "main"
+
+
+def test_ein_gelisteter_zweig_bleibt_drin_auch_ohne_den_server():
+    """«Gibt es auf dem Server nicht» ist eine Auskunft - sie fällt weg,
+    wenn die Liste stillschweigend durch die Serverliste ersetzt wird."""
+    assert "claude/weg" in zweige.zum_pruefen(("main", "claude/weg"), ["main"])
+
+
+def test_ohne_antwort_vom_server_bleibt_die_liste():
+    assert zweige.zum_pruefen(("main", "a"), []) == ("main", "a")
