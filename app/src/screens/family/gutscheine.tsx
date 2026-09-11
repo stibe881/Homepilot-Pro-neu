@@ -28,6 +28,8 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
+
+import { useKassenlicht } from '../../hooks/useKassenlicht';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -477,6 +479,8 @@ function Detail({
   const [pinSichtbar, setPinSichtbar] = useState(false);
   // An der Kasse wird gescannt, nicht vorgelesen (Punkt 299/300).
   const [kasse, setKasse] = useState(false);
+  // Hell und wach, solange sie offen ist (Punkt 443).
+  useKassenlicht(kasse);
   const [uebergabeOffen, setUebergabeOffen] = useState(false);
   // Zwei Schritte fürs Löschen: erst die Frage, dann der Tipp. Und was
   // weg ist, liegt dreissig Tage im Papierkorb der Familienseite.
@@ -869,10 +873,9 @@ function Detail({
           Weiss, gross und ohne alles: Ein Scanner misst den Unterschied
           zwischen hell und dunkel, und der Kassiererin hilft eine Seite
           mit Code, Nummer und Laden - nicht die halbe App drumherum.
-          Der Bildschirm bleibt dabei an; die Systemhelligkeit lässt
-          sich ohne natives Modul nicht hochdrehen, aber ein weisser
-          Grund über den ganzen Bildschirm bringt den grössten Teil
-          davon ohnehin. */}
+          Der Bildschirm bleibt dabei an und wird voll hell
+          (hooks/useKassenlicht.ts, Punkt 443); der weisse Grund über
+          den ganzen Bildschirm tut den Rest. */}
       <Modal visible={kasse} animationType="slide" onRequestClose={() => setKasse(false)}>
         <Pressable
           onPress={() => setKasse(false)}
@@ -1007,11 +1010,21 @@ function FormularBlatt({
       const antwort = await hubClient(settings.url, settings.token).get<{
         text?: string;
         verfuegbar?: boolean;
+        ocr?: boolean;
       } | null>(`/api/family/vouchers/${encodeURIComponent(bisher.id)}/belegtext`, {
         fallback: null,
         still: true,
       });
       if (antwort?.text && uebernehmen(antwort.text)) return;
+      const nurBilder =
+        form.files.length > 0 && form.files.every((d) => (d.type ?? '').startsWith('image/'));
+      if (antwort && nurBilder && antwort.ocr === false) {
+        setBelegMeldung(
+          'Der Hub kann Fotos nicht lesen – unter System → Zusatzteile «Belege fotografiert lesen» nachinstallieren.'
+        );
+        setBelegOffen(true);
+        return;
+      }
       if (antwort && antwort.verfuegbar === false) {
         setBelegMeldung(
           'Der Hub kann PDF nicht lesen – unter System → Zusatzteile nachinstallieren.'

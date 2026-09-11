@@ -490,6 +490,9 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         return {
             "text": "\n\n".join(t for t in texte if t),
             "verfuegbar": beleglesen.verfuegbar(),
+            # Ob auch Fotos lesbar sind (Punkt 444) - die App sagt sonst
+            # beim Bild «kann Fotos nicht lesen» statt «PDF».
+            "ocr": beleglesen.ocr_verfuegbar(),
         }
 
     @app.get("/api/family")

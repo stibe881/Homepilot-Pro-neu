@@ -34,6 +34,26 @@ def verfuegbar() -> bool:
     return find_spec("pypdf") is not None
 
 
+def ocr_verfuegbar() -> bool:
+    """Kann der Hub fotografierte Belege lesen? (Punkt 444)
+
+    Drei Teile, alle drei nötig: das Python-Paket `pytesseract`, `Pillow`
+    zum Öffnen des Bilds und das Programm `tesseract` selbst (im Abbild
+    über apt, samt deutschem Sprachpaket). Fehlt eines, bleibt der Knopf
+    für Bilder dunkel - und die Systemseite sagt, welches.
+    """
+    import shutil
+
+    try:
+        return (
+            find_spec("pytesseract") is not None
+            and find_spec("PIL") is not None
+            and shutil.which("tesseract") is not None
+        )
+    except (ImportError, ValueError):
+        return False
+
+
 def kuerzen(text: str) -> str:
     """Auf ein Mass bringen, das durch eine Antwort passt (rein, testbar).
 
@@ -67,11 +87,36 @@ def aus_pdf(daten: bytes) -> str:
         return ""
 
 
+def aus_bild(daten: bytes) -> str:
+    """Den Text eines fotografierten Belegs - per Tesseract (Punkt 444).
+
+    Auf dem Hub und nicht auf dem Telefon: Ein natives OCR-Modul in der
+    App hiesse eine neue Hülle für alle Telefone; Tesseract im Abbild
+    kostet ein apt-Paket. Deutsch und Englisch zusammen - Schweizer
+    Belege mischen beides («Gutschein», «Voucher», «valid until»).
+    Jeder Fehler heisst «kein Text»: Ein unscharfes Foto ist kein Grund
+    für eine Fehlermeldung, man tippt dann eben.
+    """
+    if not ocr_verfuegbar():
+        return ""
+    try:
+        import io
+
+        import pytesseract
+        from PIL import Image
+
+        bild = Image.open(io.BytesIO(daten))
+        return kuerzen(pytesseract.image_to_string(bild, lang="deu+eng"))
+    except Exception:  # noqa: BLE001 - jeder Fehler heisst hier «kein Text»
+        return ""
+
+
 def aus_datei(daten: bytes, mime: str) -> str:
-    """Den Text eines Anhangs - PDF oder Klartext (rein genug, testbar).
+    """Den Text eines Anhangs - PDF, Bild oder Klartext (rein genug, testbar).
 
     Reiner Text braucht keine Bibliothek: Wer die Bestätigungsmail als
     .txt anhängt, soll denselben Vorschlag bekommen wie mit dem PDF.
+    Ein Bild geht durch Tesseract (aus_bild), wenn es das Extra gibt.
     """
     art = str(mime or "").lower()
     if art.startswith("text/"):
@@ -81,4 +126,6 @@ def aus_datei(daten: bytes, mime: str) -> str:
             return ""
     if "pdf" in art:
         return aus_pdf(daten)
+    if art.startswith("image/"):
+        return aus_bild(daten)
     return ""

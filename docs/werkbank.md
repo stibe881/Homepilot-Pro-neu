@@ -3486,7 +3486,7 @@ nie rot wird, ist keiner.
 
 Stellen: `app/src/lib/strichcode.ts`, `app/src/components/Kassencode.tsx`, `app/src/components/QrScanner.tsx`, `app/src/screens/family/gutscheine.tsx`, `hub/homepilot/core/gutscheine.py`
 
-## Zweite Vorschlagsrunde (421–442)
+## Zweite Vorschlagsrunde (421–444)
 
 Aus einer Liste von fünfundachtzig Vorschlägen (allgemein, Bedienung,
 Gestaltung, Gutscheine, Abläufe, Push, Alarmanlage, selbst gewählt),
@@ -3774,3 +3774,31 @@ eine unannotierte Liste, eine Sitzung, die als `None` getippt war, der
 Broker als `Any | None` statt `str`, und die Wetter-Parameter als
 `dict[str, object]`. Alle fünf behoben, ohne einen Eintrag zu
 streichen; die Prüfung ist wieder bindend: «Typen sauber: 160 Module».
+
+### 443. Kassenansicht hell und wach ✓ erledigt (nativ, runtimeVersion 8)
+
+*lohnt sich · Aufwand: klein · App*
+
+«An der Kasse» blieb an, konnte aber die Helligkeit nicht hochdrehen -
+das ging ohne natives Modul nicht. Jetzt tut es `expo-brightness`:
+Solange die Ansicht offen ist, steht der Bildschirm auf voll und
+schläft nicht ein (`hooks/useKassenlicht.ts`); beim Schliessen kommt
+der alte Wert zurück, sofern er dunkler war (`lib/kassenlicht.ts`).
+Im Browser gibt es keine Helligkeit, dort bleibt es beim Wachhalten.
+Weil das Modul nativ ist, ging die `runtimeVersion` auf 8 - **der
+TestFlight-Build muss unmittelbar folgen**, sonst erreicht keine
+Nachladung mehr ein Telefon (CLAUDE.md, «Ausliefern»).
+
+### 444. Fotografierte Belege lesen ✓ erledigt
+
+*lohnt sich · Aufwand: klein · Hub + Abbild*
+
+«Aus Beleg übernehmen» las nur PDF und Text. Ein Foto oder Scan des
+Belegs geht jetzt auf dem Hub durch Tesseract (`beleglesen.aus_bild`,
+Deutsch und Englisch): neues Extra `ocr` (pytesseract, Pillow) in
+der pyproject.toml, `tesseract-ocr` samt `deu` per apt im Abbild, in
+der pip-Zeile des Dockerfiles, und auf der Systemseite als «Belege
+fotografiert lesen». Auf dem Hub und nicht auf dem Telefon: Ein
+natives OCR-Modul hätte eine weitere neue Hülle gebraucht; ein
+apt-Paket im Abbild braucht keine. Ohne das Extra sagt die App beim
+Foto, was fehlt, statt still nichts zu finden.

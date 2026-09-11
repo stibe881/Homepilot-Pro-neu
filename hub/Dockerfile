@@ -14,6 +14,7 @@ ENV PYTHONUNBUFFERED=1
 # Live-Bild – neu codiert wird dabei nichts, das kostet also kaum Rechenzeit.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg \
+        tesseract-ocr tesseract-ocr-deu \
     && rm -rf /var/lib/apt/lists/*
 
 # Abhängigkeiten zuerst, damit Docker sie beim Ändern von Code nicht
@@ -33,7 +34,7 @@ RUN apt-get update \
 WORKDIR /app
 COPY pyproject.toml ./
 COPY homepilot ./homepilot
-RUN pip install --no-cache-dir ".[roborock,cast,androidtv,ring,overkiz,pitboss,speech,tuya,apns,beleg]"
+RUN pip install --no-cache-dir ".[roborock,cast,androidtv,ring,overkiz,pitboss,speech,tuya,apns,beleg,ocr]"
 
 # Nicht als root laufen lassen.
 RUN useradd --create-home --uid 1000 homepilot
