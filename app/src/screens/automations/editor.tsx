@@ -27,9 +27,13 @@ import {
   begrenzteAnzahl,
 } from '../../lib/kontrollfluss';
 import { ZUHAUSE, anwesenheitsPersonen, istOrtsmelder, ortsauswahl } from '../../lib/ortsausloeser';
-import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, STEP_KIND_ICON, StateCondition, StepDraft, StepKind, TRIGGER_KIND_ICON, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, geraetePlatzhalter, KAMERA_AUSLOESER, kopieSchritt, PLATZHALTER, hatWartezeit, schaltetSpaeterAus, measurableAttributes, meldetEtwas, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis, stundeAusText } from './entwurf';
+import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, STEP_KIND_ICON, StateCondition, StepDraft, StepKind, TRIGGER_KIND_ICON, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions,
+  dannStand,
+  feinStand,
+  wennStand, conditionOptions, delayLabel, fittingState, fittingTrigger, geraetePlatzhalter, KAMERA_AUSLOESER, kopieSchritt, PLATZHALTER, hatWartezeit, schaltetSpaeterAus, measurableAttributes, meldetEtwas, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis, stundeAusText } from './entwurf';
 import {
   Abschnitt,
+  Spalten,
   CategoryField,
   Choice,
   EditorRahmen,
@@ -220,8 +224,19 @@ export function Editor({
       ? 'Ablauf bearbeiten'
       : 'Neuer Ablauf';
 
+  // Ein bestehender Ablauf fängt zugeklappt an, ein neuer offen.
+  //
+  // «Steht etwas drin, geh auf» war beim Anlegen richtig - beim
+  // Bearbeiten steht überall etwas drin, also stand alles offen, und man
+  // scrollte an einem fertigen Ablauf vorbei, statt ihn zu sehen.
+  // Zugeklappt steht in jeder Kopfzeile, was drin ist («Bewegung Flur»,
+  // «2 Schritte»), und ein Tipp öffnet genau den einen Abschnitt, den
+  // man ändern will.
+  const bearbeitet = !!draft.id;
+
   return (
     <EditorRahmen
+      breit
       titel={titel}
       onCancel={onCancel}
       onSave={onSave}
@@ -343,9 +358,20 @@ export function Editor({
 
         {/* Die vier Hauptabschnitte als nummerierte Karten - die Nummern
             erzählen den Satz: 1 Wenn, 2 Nur wenn, 3 Dann, 4 Sonst. */}
+        {/* Der Satz nebeneinander statt untereinander, wo Platz ist:
+            links das Wenn, rechts das Dann. Auf dem Telefon stapeln sie
+            sich wie bisher. Gemessen hat den Anlass der Browser: 575
+            Punkte Formular neben 605 Punkten Leere, und das Ganze 2,7
+            Bildschirme hoch. */}
+        <Spalten
+          links={
+            <>
         <Abschnitt
           nummer="1"
           titel={draft.triggers.length > 1 ? 'Wenn eines passiert' : 'Wenn … passiert'}
+          stand={wennStand(draft, entities)}
+          zuklappbar
+          anfangsOffen={!bearbeitet}
         >
           {draft.triggers.map((trigger, index) => (
             <TriggerRow
@@ -870,8 +896,17 @@ export function Editor({
             «wenn der Taster gedrückt wird – aber nur, wenn es dunkel ist».
           </Text>
         </Abschnitt>
-
-        <Abschnitt nummer="3" titel="… dann das tun">
+            </>
+          }
+          rechts={
+            <>
+        <Abschnitt
+          nummer="3"
+          titel="… dann das tun"
+          stand={dannStand(draft, entities)}
+          zuklappbar
+          anfangsOffen={!bearbeitet}
+        >
           <StepList
             steps={draft.steps}
             entities={entities}
@@ -887,6 +922,51 @@ export function Editor({
             styles={styles}
             onChange={(steps) => set({ steps })}
           />
+        </Abschnitt>
+
+        <Abschnitt nummer="4" titel="… sonst" stand={sonstStand(draft)} zuklappbar>
+          {draft.elseSteps.length === 0 ? (
+            <>
+              <Pressable
+                onPress={() => set({ elseSteps: [{ ...EMPTY_STEP }] })}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.75 }]}
+              >
+                <Ionicons name="git-branch-outline" size={16} color={colors.accent} />
+                <Text style={styles.addRowText}>Zweig für «Bedingung passt nicht»</Text>
+              </Pressable>
+              <Text style={styles.triggerNote}>
+                Ohne diesen Zweig passiert schlicht nichts, wenn eine
+                Bedingung nicht stimmt. Mit ihm spart man sich den zweiten
+                Ablauf mit gegenteiliger Bedingung – den man sonst beim
+                Ändern jedes Mal mit anfassen muss.
+              </Text>
+            </>
+          ) : (
+            <StepList
+              steps={draft.elseSteps}
+              entities={entities}
+              scenes={scenes}
+              andereAblaeufe={andereAblaeufe}
+              eigeneId={draft.id}
+              hueScenes={hueScenes}
+              favoriten={favoriten}
+              empfaenger={empfaenger}
+              luxSensors={luxSensors}
+              onProbeStep={onProbeStep}
+              colors={colors}
+              styles={styles}
+              onChange={(elseSteps) => set({ elseSteps })}
+            />
+          )}
+        </Abschnitt>
+              <Abschnitt
+                nummer="5"
+                titel="Feineinstellungen"
+                stand={feinStand(draft)}
+                zuklappbar
+                anfangsOffen={false}
+              >
           <Text style={styles.label}>Frühestens wieder nach</Text>
           <Choice
             options={[
@@ -1042,44 +1122,10 @@ export function Editor({
             kleineren Zahl zuerst – «erst Storen hoch, dann Kaffee». 0 heisst
             egal, und das ist bei fast allen die Wahrheit.
           </Text>
-        </Abschnitt>
-
-        <Abschnitt nummer="4" titel="… sonst" stand={sonstStand(draft)} zuklappbar>
-          {draft.elseSteps.length === 0 ? (
-            <>
-              <Pressable
-                onPress={() => set({ elseSteps: [{ ...EMPTY_STEP }] })}
-                accessibilityRole="button"
-                style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.75 }]}
-              >
-                <Ionicons name="git-branch-outline" size={16} color={colors.accent} />
-                <Text style={styles.addRowText}>Zweig für «Bedingung passt nicht»</Text>
-              </Pressable>
-              <Text style={styles.triggerNote}>
-                Ohne diesen Zweig passiert schlicht nichts, wenn eine
-                Bedingung nicht stimmt. Mit ihm spart man sich den zweiten
-                Ablauf mit gegenteiliger Bedingung – den man sonst beim
-                Ändern jedes Mal mit anfassen muss.
-              </Text>
+              </Abschnitt>
             </>
-          ) : (
-            <StepList
-              steps={draft.elseSteps}
-              entities={entities}
-              scenes={scenes}
-              andereAblaeufe={andereAblaeufe}
-              eigeneId={draft.id}
-              hueScenes={hueScenes}
-              favoriten={favoriten}
-              empfaenger={empfaenger}
-              luxSensors={luxSensors}
-              onProbeStep={onProbeStep}
-              colors={colors}
-              styles={styles}
-              onChange={(elseSteps) => set({ elseSteps })}
-            />
-          )}
-        </Abschnitt>
+          }
+        />
 
         {/* Widersprüche (Punkt 462 der Werkbank): Dieselbe Auskunft wie
             in der Liste unter «Widersprüche» - nur in dem Moment, in dem

@@ -1407,6 +1407,27 @@ export const TRIGGER_KIND_ICON: Record<TriggerKind, keyof typeof Ionicons.glyphM
   availability: 'pulse-outline',
 };
 
+/**
+ * Ein Wort je Auslöser-Art - für die Zeile, die zugeklappt im Kopf steht.
+ *
+ * Die Kacheln im Editor beschriften sich teils abhängig vom gewählten
+ * Gerät («Taster gedrückt» statt «Gerät wechselt»); hier genügt das
+ * kürzere Wort, denn daneben steht ohnehin der Gerätename.
+ */
+export const TRIGGER_WORT: Record<TriggerKind, string> = {
+  state: 'Gerät wechselt',
+  threshold: 'Messwert',
+  interval: 'Regelmässig',
+  time: 'Uhrzeit',
+  sun: 'Sonnenstand',
+  calendar: 'Termin',
+  geofence: 'Ort',
+  presence: 'Person kommt/geht',
+  weather_warning: 'Wetterwarnung',
+  power_restore: 'Nach Stromausfall',
+  availability: 'Meldet sich nicht',
+};
+
 /** Dieselbe Idee für die Art eines Schritts (Kachelauswahl beim Bauen
  *  einer Aktion). */
 export const STEP_KIND_ICON: Record<StepKind, keyof typeof Ionicons.glyphMap> = {
@@ -2619,6 +2640,50 @@ export function angabenStand(draft: Draft): string {
 }
 
 /** Was im zugeklappten «sonst» steht (rein, testbar). */
+/**
+ * Was im «Wenn» steht, in einer Zeile (rein, testbar).
+ *
+ * Zugeklappt steht das im Kopf des Abschnitts. Ohne diese Zeile hiesse
+ * Zuklappen «verstecken» - und dann macht man es beim Bearbeiten sofort
+ * wieder auf, womit nichts gewonnen wäre.
+ */
+export function wennStand(draft: Draft, entities: Entity[]): string {
+  const namen = draft.triggers
+    .map((trigger) => {
+      // Wo ein Gerät dranhängt, ist sein Name die bessere Auskunft als
+      // die Art: «Bewegung Flur» sagt mehr als «Gerät wechselt».
+      const entity = entities.find((eintrag) => eintrag.id === trigger.entityId);
+      return entity?.name || TRIGGER_WORT[trigger.kind] || '';
+    })
+    .filter(Boolean);
+  if (namen.length === 0) return '';
+  if (namen.length <= 2) return namen.join(' oder ');
+  return `${namen.length} Auslöser`;
+}
+
+/** Und dasselbe fürs «Dann» (rein, testbar). */
+export function dannStand(draft: Draft, entities: Entity[]): string {
+  const anzahl = draft.steps.length;
+  if (anzahl === 0) return '';
+  const erstesGeraet = draft.steps
+    .flatMap((step) => step.commandActions ?? [])
+    .map((aktion) => entities.find((eintrag) => eintrag.id === aktion.entity_id)?.name)
+    .find(Boolean);
+  if (anzahl === 1 && erstesGeraet) return erstesGeraet;
+  return anzahl === 1 ? '1 Schritt' : `${anzahl} Schritte`;
+}
+
+/** Und für die Feineinstellungen (rein, testbar). */
+export function feinStand(draft: Draft): string {
+  const teile: string[] = [];
+  if (draft.cooldownMinutes) teile.push(minutenLabel(draft.cooldownMinutes));
+  if (draft.gueltigBis) teile.push(`bis ${draft.gueltigBis}`);
+  if (draft.reihenfolge && draft.reihenfolge !== '0') {
+    teile.push(`Reihenfolge ${draft.reihenfolge}`);
+  }
+  return teile.join(' · ');
+}
+
 export function sonstStand(draft: Draft): string {
   const anzahl = draft.elseSteps.length;
   if (anzahl === 0) return '';

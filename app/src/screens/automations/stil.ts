@@ -366,6 +366,14 @@ export const makeStyles = (colors: Colors) =>
     },
     editor: { flex: 1, backgroundColor: colors.panel },
     editorContent: { padding: 22, paddingTop: 18, gap: 18, maxWidth: 620, width: '100%' },
+    // Zwei Spalten brauchen mehr als 620 - siehe felder.tsx, Spalten.
+    editorContentBreit: { maxWidth: 1120, alignSelf: 'center' },
+    spalten: { flexDirection: 'row', gap: 18, alignItems: 'flex-start' },
+    // `minWidth: 0` ist der Unterschied zwischen «zwei Spalten» und
+    // «eine Spalte und ein Rest»: Ohne ihn wächst eine Spalte mit einer
+    // langen Gerätezeile über ihren Anteil hinaus und drückt die andere
+    // zusammen.
+    spalte: { flex: 1, minWidth: 0, gap: 18 },
     /**
      * Die Kopfleiste des Editors – fest, nicht mitscrollend.
      *
