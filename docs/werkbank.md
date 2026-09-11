@@ -3486,13 +3486,24 @@ nie rot wird, ist keiner.
 
 Stellen: `app/src/lib/strichcode.ts`, `app/src/components/Kassencode.tsx`, `app/src/components/QrScanner.tsx`, `app/src/screens/family/gutscheine.tsx`, `hub/homepilot/core/gutscheine.py`
 
-## Zweite Vorschlagsrunde (421–430)
+## Zweite Vorschlagsrunde (421–431)
 
 Aus einer Liste von fünfundachtzig Vorschlägen (allgemein, Bedienung,
 Gestaltung, Gutscheine, Abläufe, Push, Alarmanlage, selbst gewählt),
 von denen der Haushalt dreiunddreissig ausgewählt hat. Was davon schon
 da war: das Zurückspielen eines Backups aus der App (System → Backups,
-`restore()` mit doppeltem Tipp) – nicht noch einmal gebaut.
+`restore()` mit doppeltem Tipp) – nicht noch einmal gebaut. Und der
+Betrag «1'000» im Beleg: `betragAusText` las Apostroph und schmales
+Leerzeichen längst; dazugekommen ist nur der deutsche Tausenderpunkt
+(«1.250,00 CHF», `zahlAusBeleg`).
+
+Was nicht geht: ein **Wallet-Pass** je Gutschein. Apple nimmt nur
+signierte `.pkpass`-Dateien an, und die Signatur braucht ein Pass Type
+ID-Zertifikat aus dem Apple-Entwicklerkonto samt dem WWDR-Zertifikat;
+Google Wallet verlangt ein Aussteller-Konto. Ohne diese Zertifikate
+zeigt das Telefon den Pass gar nicht erst an - eine unsignierte Datei
+zu erzeugen wäre ein Knopf, der nie etwas tut. Der Weg an der Kasse
+bleibt «An der Kasse» (Punkt 299/300/420) mit dem Code als Bild.
 
 ### 421. Standbild im Lauf-Verlauf ✓ erledigt
 
@@ -3616,3 +3627,17 @@ als Ansage. Nach dem Gong spricht der Hub «Es klingelt.» (Text
 einstellbar) auf denselben Boxen - und ein Fernseher mit Google Cast
 ist eine solche Box; er steht in der Boxen-Auswahl der Klingelton-Karte.
 Auf einem Fernseher ohne Cast bleibt es bei der Push-Nachricht.
+
+### 431. Mehrere Belege je Gutschein ✓ erledigt
+
+*lohnt sich · Aufwand: mittel · Hub + App*
+
+Bestellbestätigung und Gutschein-PDF gehören beide an den Eintrag,
+und bisher passte nur eines. Jetzt führt der Gutschein `files`, eine
+Liste von Datei-Blöcken; jede weitere Datei trägt eine Kennung und
+liegt als `<eintrag>_f_<kennung>.<endung>` neben der ersten, die ihren
+alten Namen behält. `file` bleibt der erste Block, damit ältere
+App-Fassungen weiter einen Beleg sehen; wer eine Datei aus der Liste
+nimmt, nimmt sie von der Platte (`dateien.aufraeumen`). «Aus Beleg
+übernehmen» liest alle Belege hintereinander - der Betrag steht im
+einen, die Nummer im anderen. Höchstens sechs je Gutschein.

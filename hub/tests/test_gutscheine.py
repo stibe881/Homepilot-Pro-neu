@@ -677,6 +677,64 @@ def test_wer_den_anhang_wegnimmt_nimmt_ihn_ganz_weg(tmp_path):
         assert client.get(adresse, headers=auth("t-livia")).status_code == 404
 
 
+def test_mehrere_belege_an_einem_gutschein(tmp_path):
+    """Punkt 431: Bestellbestätigung und Gutschein-PDF gehören beide dran.
+
+    `file` bleibt der erste Block, damit ältere App-Fassungen weiter
+    einen Beleg sehen; jede weitere Datei trägt ihre Kennung in der
+    Adresse. Wer eine wegnimmt, nimmt sie von der Platte.
+    """
+    txt = "data:text/plain;base64," + base64.b64encode(b"Gutscheincode ABCD-1234").decode()
+    with make_client(tmp_path) as client:
+        gutschein = client.post(
+            "/api/family/vouchers",
+            json={
+                "shop": "Brack.ch",
+                "total": 100,
+                "files": [
+                    {"data": PDF, "name": "Gutschein.pdf"},
+                    {"data": txt, "name": "Bestellung.txt"},
+                ],
+            },
+            headers=auth("t-livia"),
+        ).json()
+        assert [b["name"] for b in gutschein["files"]] == ["Gutschein.pdf", "Bestellung.txt"]
+        assert gutschein["file"] == gutschein["files"][0]
+        assert all(b.get("id") for b in gutschein["files"])
+        assert "f=" in gutschein["files"][1]["url"]
+        ordner = tmp_path / "gutscheindateien"
+        assert len(list(ordner.glob(f"{gutschein['id']}_f_*"))) == 2
+
+        # Jede Datei unter ihrer eigenen Adresse, mit ihrem Namen.
+        zweite = client.get(gutschein["files"][1]["url"], headers=auth("t-livia"))
+        assert zweite.status_code == 200
+        assert zweite.content == b"Gutscheincode ABCD-1234"
+        assert 'filename="Bestellung.txt"' in zweite.headers["content-disposition"]
+        erste = client.get(gutschein["files"][0]["url"], headers=auth("t-livia"))
+        assert erste.content == PDF_ROH
+
+        # Der Belegtext sammelt alle Dateien - die Nummer steht in der zweiten.
+        text = client.get(
+            f"/api/family/vouchers/{gutschein['id']}/belegtext", headers=auth("t-livia")
+        ).json()["text"]
+        assert "ABCD-1234" in text
+
+        # Eine wegnehmen: Liste, `file` und Platte folgen.
+        nachher = client.put(
+            f"/api/family/vouchers/{gutschein['id']}",
+            json={"files": [gutschein["files"][1]]},
+            headers=auth("t-livia"),
+        ).json()
+        assert [b["name"] for b in nachher["files"]] == ["Bestellung.txt"]
+        assert nachher["file"]["name"] == "Bestellung.txt"
+        assert len(list(ordner.glob(f"{gutschein['id']}*"))) == 1
+        assert client.get(gutschein["files"][0]["url"], headers=auth("t-livia")).status_code == 404
+
+        # Ins Buch kommen die Namen, nicht die Adressen.
+        zeile = gutscheine.fuers_buch([{**nachher, "files": gutschein["files"]}])[0]
+        assert zeile["file"] == "Gutschein.pdf, Bestellung.txt"
+
+
 def test_eine_zu_grosse_datei_und_ein_verbotener_typ_werden_abgelehnt(tmp_path):
     """413 und 415 statt Klemmen - eine halbe Datei ist keine.
 

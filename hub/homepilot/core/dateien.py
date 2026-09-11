@@ -27,6 +27,7 @@ api/routes/family.py.
 
 from __future__ import annotations
 
+import secrets
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -90,6 +91,15 @@ ENDUNGEN: dict[str, str] = {endung: typ for typ, endung in TYPES.items()}
 # Partition, auf der die Datendatei liegt. Was hier nicht hineinpasst,
 # gehört nicht an einen Gutschein, sondern in eine Cloud.
 MAX_BYTES = 10 * 1024 * 1024
+
+#: Mehrere Dateien je Eintrag (Punkt 431): Jede weitere trägt eine eigene
+#: kurze Kennung und liegt als «<eintrag>_f_<kennung>.<endung>» im Ordner.
+#: Die erste Datei aus der Zeit davor heisst weiter «<eintrag>.<endung>»
+#: und hat keine Kennung - so bleibt jede alte Adresse gültig.
+TRENNER = "_f_"
+#: Mehr Belege hängt niemand an einen Gutschein - und die Liste in der
+#: Kachel soll auf den Bildschirm passen.
+MAX_DATEIEN = 6
 
 #: Wie lang ein Dateiname höchstens sein darf. Nicht aus technischer
 #: Not (der Name steht im Eintrag, nicht auf der Platte), sondern weil
@@ -162,12 +172,79 @@ def ordner(data_path: Any, collection: str) -> Path | None:
 
 
 def loeschen(folder: Path | None, item_id: Any) -> None:
-    """Die Datei eines Eintrags wegräumen – ohne Klage, wenn es keine gibt.
+    """Alle Dateien eines Eintrags wegräumen – ohne Klage, wenn es keine gibt.
 
     Dasselbe Aufräumen wie beim Bild; unterschieden werden die beiden
-    durch den Ordner, nicht durch den Code.
+    durch den Ordner, nicht durch den Code - plus die weiteren Dateien
+    mit Kennung (Punkt 431).
     """
     bilder.loeschen(folder, item_id)
+    kennung = bilder.safe_id(item_id)
+    if folder is None or kennung is None or not folder.exists():
+        return
+    for datei in folder.glob(f"{kennung}{TRENNER}*"):
+        datei.unlink(missing_ok=True)
+
+
+def neue_kennung() -> str:
+    """Die Kennung einer weiteren Datei - kurz, zufällig, dateinamensicher."""
+    return secrets.token_hex(4)
+
+
+def datei_name(item_id: str, fileid: str, endung: str) -> str:
+    """Der Dateiname im Ordner (rein, testbar) - ohne Kennung die alte Form."""
+    return f"{item_id}{TRENNER}{fileid}.{endung}" if fileid else f"{item_id}.{endung}"
+
+
+def datei_muster(item_id: str, fileid: str) -> str:
+    """Das Glob-Muster zu einer Datei, gleich welcher Endung (rein, testbar)."""
+    return f"{item_id}{TRENNER}{fileid}.*" if fileid else f"{item_id}.*"
+
+
+def kennung_aus_name(item_id: str, name: str) -> str:
+    """Die Datei-Kennung aus einem Dateinamen im Ordner (rein, testbar).
+
+    Leer für die alte, kennungslose Datei.
+    """
+    stamm = name.rsplit(".", 1)[0]
+    vorsatz = f"{item_id}{TRENNER}"
+    return stamm[len(vorsatz):] if stamm.startswith(vorsatz) else ""
+
+
+def anhaenge(row: Any) -> list[dict[str, Any]]:
+    """Alle Datei-Blöcke eines Eintrags (rein, testbar).
+
+    ``files`` ist die Liste (Punkt 431); ein Eintrag aus der Zeit davor
+    hat nur ``file``, und der zählt dann als die eine Datei. Beides
+    zugleich gibt es nicht: Die Route hält ``file`` als ersten Eintrag
+    von ``files`` nach, damit ältere App-Fassungen ihn weiter sehen.
+    """
+    if not isinstance(row, dict):
+        return []
+    liste = row.get("files")
+    if isinstance(liste, list):
+        return [eintrag for eintrag in liste if isinstance(eintrag, dict)]
+    einzeln = row.get("file")
+    return [einzeln] if isinstance(einzeln, dict) else []
+
+
+def aufraeumen(folder: Path | None, item_id: Any, behalten: set[str]) -> int:
+    """Dateien wegräumen, die am Eintrag nicht mehr stehen.
+
+    ``behalten`` sind die Kennungen der Blöcke, die noch dran sind - die
+    leere Kennung steht für die alte, kennungslose Datei. Was nicht
+    darin vorkommt, bliebe sonst unter seiner alten Adresse abrufbar,
+    obwohl am Gutschein nichts mehr davon steht.
+    """
+    kennung = bilder.safe_id(item_id)
+    if folder is None or kennung is None or not folder.exists():
+        return 0
+    weg = 0
+    for datei in list(folder.glob(f"{kennung}.*")) + list(folder.glob(f"{kennung}{TRENNER}*")):
+        if kennung_aus_name(kennung, datei.name) not in behalten:
+            datei.unlink(missing_ok=True)
+            weg += 1
+    return weg
 
 
 def media_type(name: str) -> str:
@@ -227,15 +304,21 @@ def disposition(name: Any) -> str:
     return f"inline; filename=\"{einfach}\"; filename*=UTF-8''{quote(sauber, safe='')}"
 
 
-def block(url: str, name: str, typ: str, groesse: int) -> dict[str, Any]:
+def block(
+    url: str, name: str, typ: str, groesse: int, fileid: str = ""
+) -> dict[str, Any]:
     """Der Datei-Block, wie er am Eintrag steht (rein, testbar).
 
     Genau diese vier Felder, und sie sind der Vertrag mit der App: Sie
     zeigt `name` und `bytes` in der Kachel (ein Name allein sagt nicht,
     ob das Laden über Mobilfunk eine gute Idee ist), wählt am `type` das
-    Symbol und öffnet `url`.
+    Symbol und öffnet `url`. Dazu seit Punkt 431 die Kennung `id` bei
+    jeder Datei, die nicht die erste alte ist.
     """
-    return {"url": url, "name": name, "type": typ, "bytes": int(groesse)}
+    ergebnis = {"url": url, "name": name, "type": typ, "bytes": int(groesse)}
+    if fileid:
+        ergebnis["id"] = fileid
+    return ergebnis
 
 
 def bereinigen(value: Any) -> dict[str, Any] | None:
@@ -267,4 +350,5 @@ def bereinigen(value: Any) -> dict[str, Any] | None:
         sauberer_name(value.get("name")),
         typ if typ in TYPES else "application/octet-stream",
         groesse,
+        bilder.safe_id(value.get("id")) or "",
     )

@@ -74,6 +74,9 @@ export interface Gutschein {
   /** Der Beleg zum Gutschein – meist das PDF aus der Bestätigungsmail
    *  (Punkt 266 der Werkbank). Fehlt oder null, wenn keiner dranhängt. */
   file?: GutscheinDatei | null;
+  /** Alle Belege (Punkt 431) - `file` ist der erste davon, für ältere
+   *  Fassungen. Fehlt bei einem älteren Hub; dann zählt `file`. */
+  files?: GutscheinDatei[];
   transactions?: Transaktion[];
   notes?: string;
   /** Erledigt und aus der offenen Liste genommen (Punkt 372 der
@@ -171,6 +174,7 @@ export function alsGutschein(item: Record<string, unknown>): Gutschein {
     url: String(item.url ?? '').trim(),
     image_url: item.image_url ? String(item.image_url) : null,
     file: alsDatei(item.file),
+    files: alsDateien(item.files, item.file),
     archived: item.archived === true,
     pending_transfer_to: item.pending_transfer_to ? String(item.pending_transfer_to) : null,
     transactions: Array.isArray(item.transactions)
@@ -218,7 +222,12 @@ export interface GutscheinDatei {
   name: string;
   type?: string;
   bytes?: number;
+  /** Die Kennung beim Hub (Punkt 431) - die erste alte Datei hat keine. */
+  id?: string;
 }
+
+/** Mehr hängt niemand an einen Gutschein - dieselbe Grenze wie im Hub. */
+export const MAX_DATEIEN = 6;
 
 /** Was der Hub annimmt. Grösser abzulehnen ist billiger, als es erst
  *  nach dem Hochladen zu erfahren – deshalb steht die Grenze auch hier. */
@@ -370,6 +379,29 @@ export function dateiSatz(datei: GutscheinDatei | null | undefined): string {
   return groesse ? `${datei.name}, ${groesse}` : datei.name;
 }
 
+/** Alle Belege eines Gutscheins (rein, testbar) - `files`, sonst der
+ *  eine `file` eines älteren Hubs. */
+export function anhaenge(entry: { file?: GutscheinDatei | null; files?: GutscheinDatei[] }): GutscheinDatei[] {
+  if (Array.isArray(entry.files)) return entry.files;
+  return entry.file ? [entry.file] : [];
+}
+
+/** «2 Belege: Gutschein.pdf, Bestellung.txt» - fürs Vorlesezeichen (rein, testbar). */
+export function anhaengeSatz(dateien: GutscheinDatei[]): string {
+  if (dateien.length === 0) return '';
+  if (dateien.length === 1) return dateiSatz(dateien[0]);
+  return `${dateien.length} Belege: ${dateien.map((d) => d.name).join(', ')}`;
+}
+
+/** Die Liste vom Hub lesen (rein, testbar) - ohne Liste der eine `file`. */
+export function alsDateien(liste: unknown, einzeln?: unknown): GutscheinDatei[] {
+  if (Array.isArray(liste)) {
+    return liste.map(alsDatei).filter((d): d is GutscheinDatei => d != null);
+  }
+  const eine = alsDatei(einzeln);
+  return eine ? [eine] : [];
+}
+
 /**
  * Einen Datei-Block vom Hub lesen (rein, testbar).
  *
@@ -384,12 +416,14 @@ export function alsDatei(wert: unknown): GutscheinDatei | null {
   if (!url && !data) return null;
   const bytes = Number(roh.bytes);
   const type = String(roh.type ?? '').trim();
+  const id = String(roh.id ?? '').trim();
   return {
     ...(url ? { url } : {}),
     ...(data ? { data } : {}),
     name: String(roh.name ?? '').trim() || 'Datei',
     ...(type ? { type } : {}),
     ...(Number.isFinite(bytes) && bytes > 0 ? { bytes } : {}),
+    ...(id ? { id } : {}),
   };
 }
 
@@ -799,8 +833,11 @@ export interface Formular {
   physical: boolean;
   url: string;
   image_url: string;
-  /** Der Beleg – null heisst «keiner dran». */
+  /** Der Beleg – null heisst «keiner dran». Seit Punkt 431 nur noch der
+   *  Spiegel von `files[0]`; das Formular arbeitet mit der Liste. */
   file: GutscheinDatei | null;
+  /** Alle Belege (Punkt 431). */
+  files: GutscheinDatei[];
   notes: string;
 }
 
@@ -824,6 +861,7 @@ export function leeresFormular(): Formular {
     url: '',
     image_url: '',
     file: null,
+    files: [],
     notes: '',
   };
 }
@@ -851,6 +889,7 @@ export function formularVon(entry: Gutschein): Formular {
     // den Betrag korrigiert, soll den Beleg nicht verlieren - genau das
     // ist der übliche Fehler bei so einem Feld.
     file: entry.file ?? null,
+    files: anhaenge(entry),
     notes: entry.notes ?? '',
   };
 }
@@ -907,7 +946,9 @@ export function formularPruefen(
       url,
       image_url: form.image_url || null,
       // null (nicht «weglassen»): So versteht der Hub auch das Entfernen.
-      file: form.file ?? null,
+      // Die Liste ist massgeblich (Punkt 431); `file` spiegelt den ersten.
+      file: form.files[0] ?? null,
+      files: form.files,
       notes: form.notes.trim(),
       transactions: bisher?.transactions ?? [],
     },

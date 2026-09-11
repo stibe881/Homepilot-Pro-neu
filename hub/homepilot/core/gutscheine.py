@@ -259,6 +259,11 @@ def bereinigen(entry: dict[str, Any]) -> dict[str, Any]:
     # davor sollen die Dateien ja bewahren (siehe core/dateien.py).
     if "file" in sauber:
         sauber["file"] = dateien.bereinigen(sauber.get("file"))
+    # Mehrere Belege (Punkt 431): dieselbe Bereinigung je Block, und
+    # was keiner ist, fliegt still heraus.
+    if "files" in sauber:
+        bloecke = [dateien.bereinigen(eintrag) for eintrag in (sauber.get("files") or [])]
+        sauber["files"] = [b for b in bloecke if b is not None]
     return sauber
 
 
@@ -618,7 +623,17 @@ def _buchzeile(row: dict[str, Any]) -> dict[str, Any]:
     if schmal.pop("physical", False):
         schmal["mitbringen"] = "Karte, Bon oder Ausdruck nötig"
     anhang = schmal.get("file")
-    if isinstance(anhang, dict):
+    namen = [
+        str(eintrag.get("name") or "").strip()
+        for eintrag in dateien.anhaenge(schmal)
+        if str(eintrag.get("name") or "").strip()
+    ]
+    schmal.pop("files", None)
+    if len(namen) > 1:
+        # Mehrere Belege (Punkt 431): alle Namen, durch Komma - im Buch
+        # zählt, dass es sie gab und wie sie hiessen.
+        schmal["file"] = ", ".join(namen)
+    elif isinstance(anhang, dict):
         schmal["file"] = str(anhang.get("name") or "").strip()
     elif not isinstance(anhang, str):
         # Kein Anhang (None) und nichts Lesbares kommt weg. Ein blosser
