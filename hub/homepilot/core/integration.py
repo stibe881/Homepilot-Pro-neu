@@ -555,8 +555,8 @@ class IntegrationManager:
         )
         # Die Alarmanlage steht oft nicht in der Datei – sie gehört zum
         # Haus und wird beim Start still ergänzt. Gleiches Recht hier.
-        if config is None and name == "alarm":
-            config = {"integration": "alarm"}
+        if config is None and name in ("alarm", "brand"):
+            config = {"integration": name}
         if config is None:
             raise HomePilotError(
                 f"'{name}' steht nicht (mehr) in der config.yaml – zum "

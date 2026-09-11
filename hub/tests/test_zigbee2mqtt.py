@@ -306,7 +306,7 @@ def test_die_eigene_batteriewarnung_des_geraets_sticht_den_prozentwert():
     assert heil["low_battery"] is False
 
 
-# ── Ein Melder, der selbst Lärm macht (Punkt 543) ───────────────────────
+# ── Ein Melder, der selbst Lärm macht (Punkt 544) ───────────────────────
 
 
 def _melder_mit_sirene():
@@ -405,3 +405,40 @@ def test_ein_signal_an_ein_stummes_geraet_wird_abgewiesen():
     """Lieber ein Fehler als ein Befehl, der ins Leere geht."""
     with pytest.raises(ConfigError):
         z.set_nutzlast("binary_sensor", "sound_alarm", {}, None)
+
+
+def test_der_aqara_summer_sticht_die_gemeinsame_vokabel():
+    """Zwei Sprachen für dasselbe - aber nie beide am selben Gerät.
+
+    Aqara spricht «buzzer» (Punkt 543), der Zigbee-Standard «warning»
+    und Tuya «alarm» (Punkt 544). Zwei Chips «Signal geben»
+    nebeneinander wären zweimal dieselbe Frage; der Summer sticht, weil
+    er die Vokabel des Geräts selbst ist.
+    """
+    beides = [
+        {"type": "binary", "property": "smoke", "name": "smoke", "access": 1},
+        {"type": "enum", "property": "buzzer", "name": "buzzer", "access": 2},
+        {"type": "binary", "property": "alarm", "name": "alarm", "access": 7},
+    ]
+    art, befehle = z.art_und_befehle(beides)
+    assert art == "binary_sensor"
+    assert befehle == ["buzzer_alarm", "mute"]
+
+
+def test_ein_gemeldeter_selbsttest_ist_kein_knopf():
+    """`test` im Zustand heisst «ich teste gerade», nicht «teste jetzt».
+
+    Punkt 542 führt das Feld als Wert; ein Chip dafür wäre eine
+    Attrappe, und der Hub schickte ein Feld, das das Gerät nicht kennt.
+    """
+    nur_meldung = [
+        {"type": "binary", "property": "smoke", "name": "smoke", "access": 1},
+        {"type": "binary", "property": "test", "name": "test", "access": 1},
+    ]
+    assert z.art_und_befehle(nur_meldung)[1] == []
+
+    echter_knopf = [
+        {"type": "binary", "property": "smoke", "name": "smoke", "access": 1},
+        {"type": "binary", "property": "self_test", "name": "self_test", "access": 2},
+    ]
+    assert z.art_und_befehle(echter_knopf)[1] == ["self_test"]

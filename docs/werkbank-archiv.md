@@ -4696,7 +4696,50 @@ vorher.
 
 Stellen: `app/src/lib/rauchmelder.ts`, `app/src/lib/raum.ts`, `app/src/screens/SystemScreen.tsx`, `hub/homepilot/integrations/zigbee2mqtt.py`, `hub/homepilot/integrations/demo.py`, `scripts/probe.sh`, `scripts/probe.mjs`
 
-### 543. Ein Melder, der selbst Lärm macht – als Schritt im Ablauf ✓ erledigt
+### 543. Brandmeldeanlage ✓ erledigt
+
+*lohnt sich sehr · Aufwand: mittel · Hub + App*
+
+Der Anlass: Aqara-Rauchmelder im Haus, und die Doku versprach «warnt
+sofort, unabhängig von der Alarmanlage» - getan hat das nur der
+Wassermelder. Ein Rauchalarm um drei Uhr blieb ohne Ablauf still, die
+Alarmanlage hätte ihn nur scharf gehört. Feuer hält sich nicht an
+Betriebsarten.
+
+Jetzt eine eigene Anlage neben der Alarmanlage, unter Einstellungen →
+Brandmeldeanlage, für jeden sichtbar, der schalten darf (nachts
+quittiert, wer als Erster wach ist):
+
+- **Melder von selbst:** alle `binary_sensor` mit `device_class`
+  `smoke` oder `gas`, dazu Kameras, die einen Melder hören
+  (`detected_smoke_alarm`, `detected_co_alarm`). Jeder einzeln
+  abschaltbar (der in der Werkstatt beim Schweissen).
+- **Beim Auslösen, in dieser Reihenfolge:** Push «Rauch gemeldet» mit
+  Raum und Bild der nächsten Kamera (Kategorie `smoke`, nie
+  zurückgehalten, Ziel: diese Seite), Durchsage auf allen Boxen
+  («Achtung, Rauch in Küche…», Text einstellbar), alle Lichter voll,
+  Storen hoch, auf Wunsch Türen entriegelt, die übrigen Aqara-Melder
+  heulen mit (`buzzer: alarm`). Dazu das Bus-Ereignis `fire`.
+- **Wiederholung** alle N Minuten, bis jemand quittiert; **Entwarnung**
+  als Nachricht, sobald alle Melder ruhig sind.
+- **Quittieren, Stumm (Aqara `buzzer: mute`), Probealarm** (anderthalb
+  Sekunden halten).
+- **Prüfung:** je Melder «Geprüft» mit Datum, Erinnerung als
+  Wartungsmeldung alle 3/6/12 Monate, höchstens einmal im Monat.
+- **Verlauf** mit Auslösen, Quittieren, Entwarnung, Prüfungen.
+- Zigbee2MQTT gibt Rauch- und Gasmeldern die Befehle `mute`,
+  `buzzer_alarm` und `self_test`, sofern die Exposes sie nennen.
+
+Die Alarmanlage bleibt unberührt; wer einen Melder zusätzlich dort
+einträgt, bekommt beides. Passt zu 542 (Liste der Melder unter System,
+Kachel nur im Alarm): Dort steht, was der Melder misst; hier, was das
+Haus tut, wenn er anschlägt. Was die Anlage nicht tut, tut ein Ablauf:
+Auslöser «Brandmeldeanlage wird ausgelöst» (die Entität `brand.anlage`)
+oder der einzelne Melder.
+
+Stellen: `hub/homepilot/core/brandmelder.py`, `hub/homepilot/integrations/brand.py`, `hub/homepilot/api/routes/brand.py`, `hub/homepilot/integrations/zigbee2mqtt.py`, `hub/homepilot/core/push.py`, `app/src/screens/BrandScreen.tsx`, `app/src/lib/brand.ts`
+
+### 544. Ein Melder, der selbst Lärm macht – als Schritt im Ablauf ✓ erledigt
 
 Gemeldet im Haus: «Ich kann in den Abläufen nicht machen, dass wenn
 etwas passiert, der Rauchwarnmelder ein Signal gibt.»
@@ -4747,4 +4790,25 @@ Decke ist das die einzige Art, den Ton je zu hören, ohne Rauch zu
 machen. Gäste sehen ihn nicht: dieselbe Hürde wie beim Antippen einer
 Kachel.
 
-Stellen: `hub/homepilot/integrations/zigbee2mqtt.py`, `hub/homepilot/integrations/demo.py`, `app/src/screens/automations/szenengeraete.ts`, `app/src/lib/ablaufsatz.ts`, `app/src/lib/rauchmelder.ts`, `app/src/screens/SystemScreen.tsx`, `app/src/screens/DashboardScreen.tsx`, `scripts/probe.mjs`
+**Zwei Sitzungen, ein Abend, dieselbe Nummer - und diesmal auch
+dieselbe Sache.** Punkt 543 (Brandmeldeanlage) hat parallel den Summer
+der Aqara-Melder angebunden (`buzzer: alarm` / `buzzer: mute`,
+`self_test`); hier kam der Zigbee-Standard und Tuya dazu. Die Nummer
+wanderte nach der Regel: zehn Anker gegen fünfzehn, also wanderte
+dieser Block auf 544.
+
+Beim Zusammenführen fiel auf, dass die beiden Hälften einander
+brauchten. Die Aqara-Befehle standen im Hub, aber in keinem Chip des
+Ablauf-Editors - auf einem Aqara-Melder wäre die Bitte also weiterhin
+unerfüllt geblieben. Und die Prüfung «kann das Gerät das?» lief dort
+über alle Merkmale statt nur über die stellbaren: Ein Melder, der
+`test` bloss *meldet* (Punkt 542 führt es als Wert), hätte einen Knopf
+«Selbsttest» bekommen, der ein Feld schickt, das das Gerät nicht kennt.
+
+Am Gerät gilt jetzt **eine** Sprache: Wo ein Summer steht, sticht er,
+sonst gilt `warning`/`alarm`. Zwei Chips «Signal geben» nebeneinander
+wären zweimal dieselbe Frage. Im Satz des Editors heisst `mute` an
+einer Box weiterhin «stumm» und an einem Melder «Signal aus» -
+«Rauchmelder Flur stumm» liest sich sonst wie eine Lautstärke.
+
+Stellen: `hub/homepilot/integrations/zigbee2mqtt.py`, `hub/homepilot/integrations/demo.py`, `app/src/screens/automations/szenengeraete.ts`, `app/src/lib/ablaufsatz.ts`, `app/src/screens/automations/entwurf.ts`, `app/src/lib/rauchmelder.ts`, `app/src/screens/SystemScreen.tsx`, `app/src/screens/DashboardScreen.tsx`, `scripts/probe.mjs`

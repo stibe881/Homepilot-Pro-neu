@@ -230,6 +230,10 @@ class Hub:
         integrations = list(self.config.integrations)
         if not any(entry.get("integration") == "alarm" for entry in integrations):
             integrations.append({"integration": "alarm"})
+        # Die Brandmeldeanlage ebenso (Punkt 543): Feuer hält sich nicht an
+        # Betriebsarten, und ein Rauchmelder soll melden, sobald er hängt.
+        if not any(entry.get("integration") == "brand" for entry in integrations):
+            integrations.append({"integration": "brand"})
         await self.integrations.setup_all(integrations)
         self.scenes.load(self.config.scenes, self.data.get("scenes"))
         await self.automations.start(

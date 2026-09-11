@@ -81,7 +81,7 @@ export interface Melderzeile {
    *  Hängt am Modell: Die meisten Rauchmelder haben zwar eine Sirene,
    *  aber nur ihre eigene - auslösen kann sie niemand sonst. Wo es
    *  geht, steht der Melder auch im Ablauf-Editor zur Wahl
-   *  (Punkt 543); wo nicht, sagt die Karte es, statt die Frage offen
+   *  (Punkt 544); wo nicht, sagt die Karte es, statt die Frage offen
    *  zu lassen, warum er dort fehlt. */
   kannSignal: boolean;
 }

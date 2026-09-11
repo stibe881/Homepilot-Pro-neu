@@ -49,7 +49,7 @@ describe('isSceneDevice', () => {
   });
 
   it('nimmt einen Melder auf, der selbst Lärm machen kann', () => {
-    // Punkt 543, gemeldet im Haus: «Ich kann in den Abläufen nicht
+    // Punkt 544, gemeldet im Haus: «Ich kann in den Abläufen nicht
     // machen, dass wenn etwas passiert, der Rauchwarnmelder ein Signal
     // gibt.» Er stand dort nicht zur Wahl, weil ein Melder für den Hub
     // nur meldete - Befehle hatte er keine.

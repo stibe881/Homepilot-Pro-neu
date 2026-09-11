@@ -26,6 +26,8 @@ export type Section =
   | 'system'
   | 'energy'
   | 'alarm'
+  // Die Brandmeldeanlage (Punkt 543) - neben der Alarmanlage.
+  | 'brand'
   | 'besuch'
   | 'speakers'
   | 'users'
@@ -103,6 +105,7 @@ export const SECTION_LABEL: Record<Section, string> = {
   system: 'System',
   energy: 'Energie',
   alarm: 'Alarmanlage',
+  brand: 'Brandmeldeanlage',
   besuch: 'Besuch',
   speakers: 'Boxen',
   users: 'Benutzer',

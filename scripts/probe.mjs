@@ -791,7 +791,7 @@ async function rauchmelderNichtImZimmer(browser) {
   await seite.close();
 }
 
-/** 10. Steht der Melder im Ablauf-Editor mit «Signal geben»? (Punkt 543)
+/** 10. Steht der Melder im Ablauf-Editor mit «Signal geben»? (Punkt 544)
  *
  * Gemeldet im Haus: «Ich kann in den Abläufen nicht machen, dass wenn
  * etwas passiert, der Rauchwarnmelder ein Signal gibt.» Er stand dort

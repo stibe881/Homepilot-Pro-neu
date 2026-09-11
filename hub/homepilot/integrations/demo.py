@@ -88,7 +88,7 @@ class DemoIntegration(Integration):
                 "tamper": "off",
                 "test": False,
                 "linkquality": 94,
-                # Ob der Melder gerade selbst lärmt (Punkt 543).
+                # Ob der Melder gerade selbst lärmt (Punkt 544).
                 "signal": "off",
             },
             # Ein Melder mit eingebauter Sirene. Ohne einen solchen liesse

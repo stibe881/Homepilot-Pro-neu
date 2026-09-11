@@ -172,7 +172,7 @@ describe('rauchmelderListe', () => {
   });
 
   it('merkt sich, ob der Melder von aussen lärmen kann', () => {
-    // Punkt 543. Hängt am Modell: Die meisten Rauchmelder haben zwar
+    // Punkt 544. Hängt am Modell: Die meisten Rauchmelder haben zwar
     // eine Sirene, aber nur ihre eigene. Ohne dieses Feld bliebe die
     // Frage offen, warum der Melder im Ablauf-Editor fehlt.
     const [laut] = rauchmelderListe([

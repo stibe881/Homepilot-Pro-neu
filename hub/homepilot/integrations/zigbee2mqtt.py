@@ -269,11 +269,35 @@ def art_und_befehle(exposes: Any) -> tuple[str, list[str]]:
         return EntityKind.BUTTON, []
     # Ein Melder mit eingebauter Sirene bleibt ein Melder - im Alltag ist
     # er das, was er meldet. Er bekommt aber Befehle, und erst damit
-    # steht er im Ablauf-Editor überhaupt zur Wahl (Punkt 543).
-    laerm = SIRENE_BEFEHLE if sirene_art(exposes) else []
+    # steht er im Ablauf-Editor überhaupt zur Wahl (Punkt 544).
+    laerm = list(SIRENE_BEFEHLE) if sirene_art(exposes) else []
+    stellbar = schreibbare_merkmale(exposes)
     for name in MELDER:
         if name in merkmale:
-            return EntityKind.BINARY_SENSOR, list(laerm)
+            befehle = list(laerm)
+            # Rauch- und Gasmelder (Aqara, Punkt 543): Summer stumm oder von
+            # Hand auslösen, Selbsttest anstossen - je nach dem, was das
+            # Gerät in seinen Exposes nennt.
+            #
+            # Aqara spricht «buzzer», der Zigbee-Standard spricht
+            # «warning» und Tuya «alarm» (Punkt 544). Ein Gerät hat
+            # immer nur eine dieser Sprachen, darum stehen sie
+            # nebeneinander statt in einem Entweder-oder.
+            if name in ("smoke", "gas"):
+                if "buzzer" in stellbar:
+                    # Nur **eine** Sprache je Gerät: Zwei Chips «Signal
+                    # geben» nebeneinander wären zweimal dieselbe Frage.
+                    # Der Summer sticht, weil er die Vokabel des Geräts
+                    # selbst ist und nicht der gemeinsame Nenner.
+                    befehle = ["buzzer_alarm", "mute"]
+                # Nur ein wirklich stellbares `self_test`. Ein blosses
+                # `test` im Zustand ist die Auskunft «ich bin gerade im
+                # Selbsttest» (Punkt 542 führt sie als Wert) und kein
+                # Knopf - ein Chip dafür wäre eine Attrappe, und der
+                # Hub schickte ein Feld, das das Gerät nicht kennt.
+                if "self_test" in stellbar:
+                    befehle.append("self_test")
+            return EntityKind.BINARY_SENSOR, befehle
     return EntityKind.SENSOR, list(laerm)
 
 
@@ -469,6 +493,13 @@ def set_nutzlast(
         return {"color_temp": int(data.get("color_temp", 370))}
     if command == "set_color":
         return {"color": {"hex": str(data.get("color") or "#ffffff")}}
+    # Rauchmelder (Punkt 543): Aqara nimmt «buzzer: mute» und «buzzer: alarm».
+    if command == "mute":
+        return {"buzzer": "mute"}
+    if command == "buzzer_alarm":
+        return {"buzzer": "alarm"}
+    if command == "self_test":
+        return {"self_test": True}
     raise ConfigError(f"Zigbee2MQTT kennt das Kommando '{command}' nicht")
 
 

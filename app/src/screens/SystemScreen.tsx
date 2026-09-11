@@ -54,7 +54,7 @@ export function SystemScreen({
   user: User | null;
   /** Alle Geräte – für die Liste hinter «nicht erreichbar». */
   entities?: Entity[];
-  /** Einen Rauchwarnmelder von Hand lärmen lassen (Punkt 543). */
+  /** Einen Rauchwarnmelder von Hand lärmen lassen (Punkt 544). */
   onSignal?: (entityId: string, command: string) => void;
   /** Stand der Push-Anmeldung dieses Geräts. */
   push?: PushState;

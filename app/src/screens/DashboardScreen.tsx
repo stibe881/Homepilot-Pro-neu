@@ -31,7 +31,7 @@ import {
   gruppeVon,
   siehtBereich,
 } from '../lib/einstellungsmenue';
-import { alarmPlakette } from '../lib/einstellungsgruppen';
+import { alarmPlakette, brandPlakette } from '../lib/einstellungsgruppen';
 import { DraggableList } from '../components/DraggableList';
 import { CellLayout, DragCell, reorderByDrop } from '../components/DragGrid';
 import { EntityCard } from '../components/EntityCard';
@@ -160,6 +160,7 @@ import { OverviewScreen } from './OverviewScreen';
 import { SettingsScreen } from './SettingsScreen';
 import { VerbindungenScreen } from './VerbindungenScreen';
 import { AlarmScreen } from './AlarmScreen';
+import { BrandScreen } from './BrandScreen';
 import { EnergyScreen } from './EnergyScreen';
 import { SpeakersScreen } from './SpeakersScreen';
 import { DiagnoseScreen } from './DiagnoseScreen';
@@ -716,8 +717,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // echte Alarm-Entität - dieselbe Reihenfolge wie im Überblick.
   const alarmGeraet = useMemo(
     () =>
-      entities.find((entity) => entity.kind === 'alarm') ??
+      entities.find((entity) => entity.kind === 'alarm' && entity.integration !== 'brand') ??
       entities.find((entity) => /alarm/i.test(entity.name) && entity.kind === 'switch'),
+    [entities]
+  );
+  // Die Brandmeldeanlage (Punkt 543) führt ihre eigene Entität derselben
+  // Art - die Alarmanlage darf sie nicht für sich halten.
+  const brandGeraet = useMemo(
+    () => entities.find((entity) => entity.kind === 'alarm' && entity.integration === 'brand'),
     [entities]
   );
 
@@ -2342,6 +2349,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       show: sieht('alarm'),
     },
     {
+      key: 'brand',
+      icon: 'flame-outline',
+      label: 'Brandmeldeanlage',
+      detail: 'Rauchmelder, Quittieren, Prüfung',
+      // Dieselbe Frage wie bei der Alarmanlage: Ist etwas? Die Plakette
+      // sagt «Rauch!», bevor man tippt (Punkt 543).
+      plakette: brandGeraet ? brandPlakette(String(brandGeraet.state.state ?? '')) : undefined,
+      show: sieht('brand'),
+    },
+    {
       key: 'devices',
       icon: 'list-outline',
       label: 'Geräte',
@@ -2707,6 +2724,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       );
     }
 
+    if (section === 'brand') {
+      return (
+        <View style={styles.stack}>
+          <BrandScreen
+            settings={settings}
+            darfEinrichten={Boolean(user?.capabilities?.includes('edit_config'))}
+          />
+        </View>
+      );
+    }
     if (section === 'alarm') {
       return (
         <View style={styles.stack}>

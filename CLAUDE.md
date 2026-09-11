@@ -204,6 +204,7 @@ nicht `test_mode_2`.
 | Zigbee-Geräte anbindest | `hub/homepilot/integrations/zigbee2mqtt.py` – Übersicht in `docs/zigbee.md` |
 | am Gäste-WLAN arbeitest | `hub/homepilot/core/wlanschein.py` + `api/routes/haus.py` + `app/src/lib/wlanaufkleber.ts` – Übersicht in `docs/gaeste-wlan.md` |
 | dich fragst, warum nach einem Stromausfall alles Licht brennt | `hub/homepilot/core/stromrueckkehr.py` (erkennt den Kaltstart) + der Auslöser «Nach Stromausfall» in `core/automation.py` – was dann gilt, steht in einem Ablauf; den Blitz selbst verhindert nur die Einstellung am Gerät |
+| an der Brandmeldeanlage arbeitest | `hub/homepilot/core/brandmelder.py` (was gilt) + `integrations/brand.py` (was geschieht) + `api/routes/brand.py`, App in `app/src/screens/BrandScreen.tsx` + `lib/brand.ts`. Rauch- und Gasmelder landen von selbst darin; sie löst **immer** aus, scharf oder nicht – die Alarmanlage kennt Betriebsarten, Feuer nicht |
 | an der Musik arbeitest | `hub/homepilot/core/ton.py` + `core/musik.py` + `app/src/components/Musikzentrale.tsx` – Übersicht in `docs/musik.md` |
 
 ## Was nie ins Repository gehört
