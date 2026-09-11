@@ -39,7 +39,11 @@ import { MAX_SCHRIFT } from '../lib/schrift';
 import { abschaltSatz } from '../lib/abschaltung';
 import { OHNE_RAUM, gezaehlteLichter, lichterAus, lichterNachRaum } from '../lib/zaehlung';
 import { ConnectionStatus } from '../hooks/useHub';
-import { VERBINDUNGSWORT, verbindungsFarbe } from '../lib/verbindungsstand';
+import {
+  verbindungsAnsage,
+  verbindungsFarbe,
+  verbindungsZusatz,
+} from '../lib/verbindungsstand';
 import { useEscape } from '../hooks/useEscape';
 import { useJetzt } from '../hooks/useRestzeit';
 import { Colors, icon, radius, type, useColors } from '../theme';
@@ -49,7 +53,6 @@ import { Lauftext } from './Lauftext';
 // Die Wörter und die Ampel wohnen in lib/verbindungsstand.ts: Die
 // Verbindungen-Seite gibt oben dieselbe Auskunft, und zwei Fassungen
 // davon liefen auseinander.
-const STATUS_LABEL = VERBINDUNGSWORT;
 const statusColor = verbindungsFarbe;
 
 /** Der nächste echte Termin – dasselbe Ereignis, das der Hub in
@@ -1127,15 +1130,23 @@ export function TopStrip({
                   <Ionicons name="wifi" size={icon.klein} color={colors.ink} />
                 </Pressable>
               ) : null}
-              <View style={styles.chip}>
+              {/* Nur der Punkt. Das Wort daneben sagte dasselbe und
+                  stand fast immer auf «verbunden» - siehe
+                  lib/verbindungsstand.ts. Was dort weiterhin steht,
+                  wenn es etwas gibt: die Wartezahl. */}
+              <View
+                style={styles.chip}
+                accessibilityRole="text"
+                accessibilityLabel={verbindungsAnsage(status, queued)}
+              >
                 <View
                   style={[styles.dot, { backgroundColor: statusColor(colors, status) }]}
                 />
-                <Text style={styles.chipText} maxFontSizeMultiplier={MAX_SCHRIFT}>
-                  {queued > 0
-                    ? `${STATUS_LABEL[status]} · ${queued} wartet`
-                    : STATUS_LABEL[status]}
-                </Text>
+                {verbindungsZusatz(queued) ? (
+                  <Text style={styles.chipText} maxFontSizeMultiplier={MAX_SCHRIFT}>
+                    {verbindungsZusatz(queued)}
+                  </Text>
+                ) : null}
               </View>
             </View>
           </View>
@@ -1361,16 +1372,21 @@ export function TopStrip({
       </View>
 
       <View style={styles.chips}>
-        <View style={styles.chip}>
+        <View
+          style={styles.chip}
+          accessibilityRole="text"
+          accessibilityLabel={verbindungsAnsage(status, queued)}
+        >
           <View style={[styles.dot, { backgroundColor: statusColor(colors, status) }]} />
           {/* Ohne diese Zahl ist ein Tipp im Funkloch nicht von einem
               verschluckten Befehl zu unterscheiden – beides sieht nach
-              «nichts passiert» aus. */}
-          <Text style={styles.chipText} maxFontSizeMultiplier={MAX_SCHRIFT}>
-            {queued > 0
-              ? `${STATUS_LABEL[status]} · ${queued} wartet`
-              : STATUS_LABEL[status]}
-          </Text>
+              «nichts passiert» aus. Das Wort davor ist weg, die Zahl
+              bleibt (lib/verbindungsstand.ts). */}
+          {verbindungsZusatz(queued) ? (
+            <Text style={styles.chipText} maxFontSizeMultiplier={MAX_SCHRIFT}>
+              {verbindungsZusatz(queued)}
+            </Text>
+          ) : null}
         </View>
         {/* Nur auf dem Wandpanel. Telefon und Rechner zeigen die Uhrzeit
             ohnehin am Bildschirmrand - hier wäre sie ein zweites Mal

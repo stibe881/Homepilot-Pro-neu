@@ -4288,3 +4288,29 @@ Nachgewiesen rot: Ohne die drei Zeilen in `_recompute` fällt
 Leuchte bleibt bei den drei Schaltbefehlen, obwohl ihr Spot Farbe kann.
 
 Stellen: `hub/homepilot/integrations/group.py`, `hub/homepilot/core/registry.py`
+
+### 535. In der Kopfzeile steht nur noch der Punkt ✓ erledigt
+
+*lohnt sich · Aufwand: klein · App*
+
+«verbunden» stand neunundneunzig Prozent der Zeit neben einem grünen
+Punkt und sagte dasselbe wie er - zwei Zeichen für eine Auskunft, und
+ausgerechnet die langweiligste nahm den meisten Platz in der Ecke der
+Begrüssungskarte. Die Ampel trägt es allein: grün, gelb, rot.
+
+**Die Wartezahl bleibt**, und zwar aus dem Grund, aus dem sie hinzukam:
+Ohne sie ist ein Tipp im Funkloch nicht von einem verschluckten Befehl
+zu unterscheiden - beides sieht nach «nichts passiert» aus. Sie ist
+keine Zustandsbeschreibung, sondern eine Zahl, die man sonst nirgends
+bekommt. Steht also «2 wartet» da, ist etwas los; steht nichts da, ist
+nichts los.
+
+**Das Wort wandert in die Vorlesefunktion.** Ein farbiger Kreis ohne
+Beschriftung ist für VoiceOver eine leere Fläche - und für wen Farben
+schwer zu unterscheiden sind, die einzige Auskunft, die er nicht
+bekommt. `verbindungsAnsage` sagt weiterhin «getrennt · 2 wartet».
+
+Auf der Verbindungen-Seite bleibt das Wort sichtbar: Dort ist es der
+Inhalt und nicht die Verzierung eines Punktes.
+
+Stellen: `app/src/lib/verbindungsstand.ts`, `app/src/components/TopStrip.tsx`
