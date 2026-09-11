@@ -1248,10 +1248,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
    * bekommt gar keine Funktion und damit auch keine Kachel.
    */
   const sendeDurchsage = useCallback(
-    async (text: string, speakers: string[]) =>
+    async (text: string, speakers: string[], volume: number) =>
       hub.post<{ sent?: string[]; errors?: string[] }>(
         '/api/broadcast',
-        { text, speakers },
+        { text, speakers, volume },
         { still: true }
       ),
     [hub]
@@ -1265,9 +1265,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
    * sagt. Die Empfänger stehen darum in der Adresse.
    */
   const sendeSprachnotiz = useCallback(
-    async (aufnahme: Blob, speakers: string[]) =>
+    async (aufnahme: Blob, speakers: string[], volume: number) =>
       hub.roh<{ sent?: string[]; errors?: string[] }>(
-        `/api/broadcast/voice?speakers=${encodeURIComponent(speakers.join(','))}`,
+        `/api/broadcast/voice?speakers=${encodeURIComponent(speakers.join(','))}&volume=${volume}`,
         aufnahme,
         { still: true }
       ),
@@ -1282,9 +1282,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
    * wie bei der Sprachnotiz.
    */
   const hinterlegeHeimgruss = useCallback(
-    async (aufnahme: Blob, speakers: string[]) =>
+    async (aufnahme: Blob, speakers: string[], volume: number) =>
       hub.roh<{ message?: HeimgrussStand | null }>(
-        `/api/heimgruss/voice?speakers=${encodeURIComponent(speakers.join(','))}`,
+        `/api/heimgruss/voice?speakers=${encodeURIComponent(speakers.join(','))}&volume=${volume}`,
         aufnahme,
         { still: true }
       ),
@@ -3325,6 +3325,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   ) : null}
                 </View>
               ) : null}
+              {/* Links Name, Klima, Fakten und Szenen - rechts der
+                  Medienplayer, in dem Feld, das neben dem Titel sonst
+                  leer blieb. Wird es eng (Telefon), wickelt die Reihe:
+                  Der Player rutscht unter die Szenen und nimmt die
+                  ganze Breite, statt den Titel zu quetschen. */}
+              <View style={styles.raumKopfReihe}>
+              <View style={styles.raumKopfLinks}>
               <View style={styles.raumHeld}>
                 <Text
                   style={[styles.raumTitel, { flexShrink: 1 }]}
@@ -3390,29 +3397,33 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   </View>
                 </View>
               ) : null}
-            </View>
-          ) : null}
-          {/* Der komplette Medienplayer, nicht mehr hinter einem
-              Streifen zum Aufklappen: Wer ein Zimmer öffnet, will die
-              Musik dort sehen und bedienen, nicht erst antippen, dass
-              sie überhaupt erscheint - dieselbe Karte, die früher
-              rechts in der Spalte stand (Playlist, Sender, Box,
-              Warteschlange, Lautstärke). */}
-          {kopfSpieler && section === 'home' && room !== ALL_ROOMS ? (
-            <View style={styles.raumMusikkarte}>
-              <MediaPanel
-                entity={kopfSpieler}
-                players={musik.players}
-                titel={room}
-                activeDevice={musik.activeDevice}
-                // Dieselbe Wahl wie auf der Startseite: Kennt die
-                // gezeigte Quelle die angetippte Box, zieht die Musik
-                // dorthin um - sonst wechselt nur die Ansicht
-                // (lib/musikwahl.ts).
-                onSelect={musik.waehlen}
-                onCommand={guardedCommand}
-                wunschBox={musik.wunschBox}
-              />
+              </View>
+              {/* Der komplette Medienplayer - im Kopf selbst, nicht als
+                  eigene Karte darunter: Wer ein Zimmer öffnet, will die
+                  Musik dort sehen und bedienen, wo Name und Szenen
+                  stehen. Dieselbe Karte, die früher rechts in der Spalte
+                  stand (Playlist, Sender, Box, Warteschlange,
+                  Lautstärke), nur ohne Kartenrand und ohne zweiten
+                  Raumnamen (imKopf). */}
+              {kopfSpieler ? (
+                <View style={styles.raumMusikkarte}>
+                  <MediaPanel
+                    entity={kopfSpieler}
+                    players={musik.players}
+                    titel={room}
+                    activeDevice={musik.activeDevice}
+                    // Dieselbe Wahl wie auf der Startseite: Kennt die
+                    // gezeigte Quelle die angetippte Box, zieht die
+                    // Musik dorthin um - sonst wechselt nur die Ansicht
+                    // (lib/musikwahl.ts).
+                    onSelect={musik.waehlen}
+                    onCommand={guardedCommand}
+                    wunschBox={musik.wunschBox}
+                    imKopf
+                  />
+                </View>
+              ) : null}
+              </View>
             </View>
           ) : null}
           {/* Kacheln anpassen heisst: verschieben, ausblenden, sperren,

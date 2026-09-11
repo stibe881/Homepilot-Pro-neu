@@ -38,6 +38,8 @@ import {
   bestaetigung,
   boxen as boxenVon,
   gueltigesZiel,
+  LAUTSTAERKEN,
+  lautstaerkeVon,
   nachDemSenden,
   saetze as saetzeVon,
   satzAendern,
@@ -125,7 +127,8 @@ interface Props {
    *  ohne Recht zu schalten wäre sie eine Attrappe. */
   onDurchsage?: (
     text: string,
-    speakers: string[]
+    speakers: string[],
+    volume: number
   ) => Promise<{ sent?: string[]; errors?: string[] }>;
   /** Zuletzt gewählte Box und selbst getippte Sätze - siehe usePrefs. */
   durchsage?: DurchsagePrefs;
@@ -134,7 +137,8 @@ interface Props {
    *  App, kein Mikrofon), zeigt das Blatt den Knopf gar nicht erst. */
   onSprachnotiz?: (
     aufnahme: Blob,
-    speakers: string[]
+    speakers: string[],
+    volume: number
   ) => Promise<{ sent?: string[]; errors?: string[] }>;
   /** Der Anrufbeantworter des Hauses (Punkt 259 der Werkbank): eine
    *  Sprachnotiz fürs nächste Heimkommen hinterlegen statt sofort
@@ -142,7 +146,8 @@ interface Props {
    *  Schaltrecht), zeigt das Blatt den Schalter gar nicht erst. */
   onHeimgruss?: (
     aufnahme: Blob,
-    speakers: string[]
+    speakers: string[],
+    volume: number
   ) => Promise<{ message?: HeimgrussStand | null }>;
   /** Liegt schon eine Nachricht? Wird beim Öffnen des Blatts gefragt -
    *  ein Dauerabruf für ein Blatt, das meist zu ist, wäre Verkehr für
@@ -1184,15 +1189,18 @@ function DurchsageFenster({
   onPrefs?: (prefs: DurchsagePrefs) => void;
   onSenden: (
     text: string,
-    speakers: string[]
+    speakers: string[],
+    volume: number
   ) => Promise<{ sent?: string[]; errors?: string[] }>;
   onSprachnotiz?: (
     aufnahme: Blob,
-    speakers: string[]
+    speakers: string[],
+    volume: number
   ) => Promise<{ sent?: string[]; errors?: string[] }>;
   onHeimgruss?: (
     aufnahme: Blob,
-    speakers: string[]
+    speakers: string[],
+    volume: number
   ) => Promise<{ message?: HeimgrussStand | null }>;
   onHeimgrussStand?: () => Promise<HeimgrussStand | null>;
   onHeimgrussZurueck?: () => Promise<void>;
@@ -1218,6 +1226,9 @@ function DurchsageFenster({
   // selbst getippt hat, steht gleichberechtigt nebeneinander und lässt
   // sich gleich behandeln.
   const texte = useMemo(() => saetzeVon(prefs ?? {}), [prefs]);
+  // Die Lautstärke reist mit jeder Sendung mit - getippt, gesprochen
+  // oder hinterlegt - und wird wie das Ziel gemerkt.
+  const lautstaerke = lautstaerkeVon(prefs ?? {});
 
   // Die Sprachnotiz: laufende Aufnahme, ihr Beginn (für die Uhr) und
   // ob dieser Browser überhaupt ein Mikrofon hergibt. `kannAufnehmen`
@@ -1293,13 +1304,13 @@ function DurchsageFenster({
         if (heimkommen && onHeimgruss) {
           // Aufs Band statt auf die Boxen: Die Nachricht wartet beim Hub
           // auf den nächsten Ankömmling (Punkt 259 der Werkbank).
-          const antwort = await onHeimgruss(ton, sprecherFuer(ziel));
+          const antwort = await onHeimgruss(ton, sprecherFuer(ziel), lautstaerke);
           setHinterlegt(antwort?.message ?? null);
           setNote(hinterlegtText(zielText(ziel, boxen)));
           // Der Schalter fällt zurück: Er galt dieser einen Nachricht.
           setHeimkommen(false);
         } else {
-          const antwort = await onSprachnotiz?.(ton, sprecherFuer(ziel));
+          const antwort = await onSprachnotiz?.(ton, sprecherFuer(ziel), lautstaerke);
           setNote(bestaetigung(antwort ?? {}));
         }
       } catch (err) {
@@ -1384,7 +1395,7 @@ function DurchsageFenster({
     setBusy(true);
     setNote(null);
     try {
-      const antwort = await onSenden(sauber, sprecherFuer(ziel));
+      const antwort = await onSenden(sauber, sprecherFuer(ziel), lautstaerke);
       setNote(bestaetigung(antwort ?? {}));
       setFrei('');
       // Ein selbst getippter Satz landet in derselben Liste wie alle
@@ -1491,6 +1502,36 @@ function DurchsageFenster({
             </ScrollView>
           ) : (
             <>
+          {/* Wie laut - direkt unter dem Wohin, mit derselben Merkregel:
+              Was zuletzt galt, gilt wieder. Vier Stufen statt Schieber
+              (lib/durchsage.ts, LAUTSTAERKEN). Beim Pflegen der Sätze
+              bleibt die Zeile weg - dort wird nichts gesendet. */}
+          {!verwalten ? (
+            <View style={styles.durchsageLautstaerke}>
+              <Ionicons name="volume-high-outline" size={18} color={colors.inkSoft} />
+              {LAUTSTAERKEN.map((stufe) => {
+                const an = stufe === lautstaerke;
+                return (
+                  <Pressable
+                    key={stufe}
+                    onPress={() => onPrefs?.({ ...prefs, ziel, lautstaerke: stufe })}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: an }}
+                    accessibilityLabel={`Lautstärke ${stufe} Prozent`}
+                    style={({ pressed }) => [
+                      styles.durchsageStufe,
+                      an && styles.durchsageStufeAn,
+                      pressed && { opacity: 0.7 },
+                    ]}
+                  >
+                    <Text style={[styles.durchsageStufeText, an && styles.durchsageStufeTextAn]}>
+                      {stufe} %
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
           {/* Ein Tippen auf den Satz sendet ihn - das ist der ganze Sinn
               der Kachel. Ein zweiter Knopf «Senden» daneben machte aus
               zwei Tippern drei. */}
@@ -2228,6 +2269,22 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.surface,
     },
     durchsageZielText: { color: colors.ink, fontSize: 16, fontWeight: '600', flex: 1 },
+    /** Die vier Lautstärkestufen: Chips in einer Zeile hinter dem
+     *  Lautsprecher-Sinnbild - dieselbe Form wie die Wahl-Chips bei den
+     *  Push-Regeln, damit «eine Stufe wählen» überall gleich aussieht. */
+    durchsageLautstaerke: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    durchsageStufe: {
+      flex: 1,
+      alignItems: 'center',
+      paddingVertical: 8,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surfaceSoft,
+    },
+    durchsageStufeAn: { backgroundColor: colors.ink, borderColor: colors.ink },
+    durchsageStufeText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
+    durchsageStufeTextAn: { color: colors.panel },
     // Fünfzehn Boxen wären eine Seite für sich; hier scrollt die Liste in
     // sich, damit die Sätze darunter sichtbar bleiben.
     durchsageListe: {
