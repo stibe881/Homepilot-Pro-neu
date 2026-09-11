@@ -55,6 +55,20 @@ homeassistant:
   enabled: false
 
 advanced:
+  # Aus. Zigbee2MQTT sagt es in seinem eigenen Schema deutlich: «can
+  # execute arbitrary user-provided code».
+  #
+  # Die Weboberfläche auf 8099 hat keine Anmeldung und hängt am
+  # host-Netz - sie ist aus dem ganzen WLAN erreichbar. Mit dieser
+  # Einstellung darf jeder, der sie öffnet, beliebigen Code im Container
+  # ausführen. Nebenan ist der Broker mit Bedacht auf 127.0.0.1
+  # eingesperrt; eine offene Tür daneben macht das zunichte.
+  #
+  # Gebraucht wird es hier nicht: Der Hub liest die Themen selbst, eigene
+  # Konverter kommen nicht vor. Wer später ein exotisches Gerät anbindet,
+  # das einen braucht, stellt es für die Dauer wieder an - bewusst und
+  # nicht aus Versehen.
+  enable_external_js: false
   # Beim ersten Start erzeugt und danach in dieser Datei festgehalten.
   # Wer ihn später ändert, muss jedes Gerät neu anlernen.
   network_key: GENERATE

@@ -4400,4 +4400,14 @@ als die paar Zeilen im Protokoll, zumal dort der Deckel aus der
 docker-compose.yml greift. Jetzt `info`, mit einer Prüfung dagegen und
 einem Abschnitt in `docs/zigbee.md`, der genau dieses Bild zeigt.
 
+Beim Nachsehen im laufenden Betrieb (`zigbee2mqtt/bridge/info`) fiel
+dann noch `enable_external_js: true` auf - die Vorgabe von Zigbee2MQTT.
+Dessen eigenes Schema warnt davor: «can execute arbitrary user-provided
+code». Die Weboberfläche auf 8099 hat keine Anmeldung und hängt am
+host-Netz, ist also aus dem ganzen WLAN erreichbar; wer sie öffnet,
+dürfte damit beliebigen Code im Container ausführen. Das hebt auf,
+wofür der Broker nebenan eigens auf 127.0.0.1 eingesperrt ist.
+Gebraucht wird es hier nicht - der Hub liest die Themen selbst. Jetzt
+aus, mit einer Prüfung dagegen.
+
 Stellen: `docker-compose.yml`, `docker-compose.portainer.yml`, `deploy/mosquitto.conf`, `deploy/zigbee2mqtt.example.yaml`, `deploy/portainer.md`, `docs/zigbee.md`, `docs/integrationen.md`, `hub/config.example.yaml`, `hub/tests/test_compose_pfade.py`, `hub/tests/test_zigbee_stack.py`, `.gitignore`

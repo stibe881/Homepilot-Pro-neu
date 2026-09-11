@@ -89,6 +89,18 @@ def test_beide_compose_dateien_kennen_die_zwei_dienste():
         assert "zigbee2mqtt" in dienste, pfad.name
 
 
+def test_die_weboberflaeche_fuehrt_keinen_fremden_code_aus():
+    """Die Oberfläche auf 8099 hat keine Anmeldung.
+
+    Sie hängt am host-Netz und ist damit aus dem ganzen WLAN erreichbar.
+    Mit `enable_external_js` darf jeder, der sie öffnet, beliebigen Code
+    im Container ausführen - Zigbee2MQTT warnt im eigenen Schema davor.
+    Nebenan sitzt der Broker mit Bedacht auf 127.0.0.1; diese Tür
+    daneben hebt das auf.
+    """
+    assert _beispiel()["advanced"]["enable_external_js"] is False
+
+
 def test_beim_ersten_start_sagt_zigbee2mqtt_etwas():
     """Ein stiller Dienst sieht aus wie ein hängender.
 
