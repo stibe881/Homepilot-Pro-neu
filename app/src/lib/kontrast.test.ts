@@ -58,7 +58,7 @@ describe.each(paletten)('Palette $name', ({ colors, hinter, rohRand }) => {
   });
 
   it('lässt auf dem Akzent-Hauch weiter Fliesstext zu (accentSoft)', () => {
-    // Punkt 534 der Werkbank: Jedes gewählte Gerät im Ablauf-Editor
+    // Punkt 537 der Werkbank: Jedes gewählte Gerät im Ablauf-Editor
     // trägt seine Einstellungen auf `accentSoft`. Der Ton ist bewusst
     // blass - er soll zusammenfassen, nicht zum Knopf werden -, und
     // genau deshalb muss hier geprüft sein, dass er nichts verdunkelt:

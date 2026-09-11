@@ -115,7 +115,7 @@ describe('Helligkeit beim Umschalten', () => {
   });
 });
 
-// ── Zwei Fragen statt einer Reihe (Punkt 534 der Werkbank) ────────────
+// ── Zwei Fragen statt einer Reihe (Punkt 537 der Werkbank) ────────────
 //
 // «10 % · 25 % · 50 % · 75 % · 100 % · nach Raumhelligkeit · nach
 // Tageszeit» stand als eine Reihe da. Sieben Chips passen auf kein

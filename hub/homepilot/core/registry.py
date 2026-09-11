@@ -129,6 +129,38 @@ class EntityRegistry:
             },
         )
 
+    async def set_commands(self, entity_id: str, commands: list[str]) -> None:
+        """Was eine Entität kann, hat sich geändert - und die App muss es
+        erfahren.
+
+        Für die zusammengefassten Leuchten (integrations/group.py): Was
+        eine Leuchte kann, steht erst fest, wenn ihre Mitglieder da sind
+        - und eine Hue-Bridge meldet sich langsamer, als der Hub startet.
+        Wurde die Leuchte vorher angelegt, blieb ihre Befehlsliste für
+        immer bei «ein, aus, umschalten», auch wenn alle fünf Spots
+        längst Farbe können. In der App hiess das: Beim Ablauf-Schritt
+        fehlten Helligkeit, Farbe und Weissanteil, denn die drei hängen
+        genau an dieser Liste.
+
+        Meldet über ``state_changed`` wie ``set_combined`` - der Zustand
+        bleibt dabei, wie er ist; die App ersetzt die ganze Entität und
+        sieht damit die neue Liste.
+        """
+        entity = self._entities.get(entity_id)
+        if entity is None or list(entity.commands) == list(commands):
+            return
+        entity.commands = list(commands)
+        await self.bus.publish(
+            "state_changed",
+            {
+                "entity_id": entity_id,
+                "old_state": dict(entity.state),
+                "new_state": dict(entity.state),
+                "entity": entity.as_dict(),
+                "source": current_source(),
+            },
+        )
+
     async def set_room(self, entity_id: str, room: str | None) -> None:
         """Ändert die Raumzuordnung einer Entität und meldet es der App."""
         entity = self._entities.get(entity_id)

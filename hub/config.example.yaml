@@ -175,6 +175,21 @@ integrations:
   #       name: Licht Bad
   #       kind: light
 
+  # Zigbee über Zigbee2MQTT. Der Hub sieht den Funkstick nie - er liest
+  # nur die Themen, die Zigbee2MQTT in den Broker schreibt, und legt aus
+  # dessen Geräteliste die Kacheln an. Eintragen muss man kein Gerät.
+  #
+  # Broker und Zigbee2MQTT laufen im selben Stack auf diesem Rechner
+  # (docker-compose.yml), deshalb 127.0.0.1 und kein Passwort: Der Broker
+  # nimmt nur von hier Verbindungen an. Übersicht in docs/zigbee.md, die
+  # Einstellungen des Dongles in deploy/zigbee2mqtt.example.yaml.
+  # - integration: zigbee2mqtt
+  #   broker: 127.0.0.1
+  #   port: 1883
+  #   base_topic: zigbee2mqtt    # so heisst es in Zigbee2MQTT selbst
+  #   ignore:                    # optional: was der Hub nicht führen soll
+  #     - Repeater Keller
+
   # Homematic über die XML-RPC-Schnittstelle der CCU.
   # 'port' ist die Standard-Schnittstelle: 2001 = Funk (BidCos-RF),
   # 2010 = Homematic IP, 2000 = Wired. Einzelne Geräte dürfen einen eigenen

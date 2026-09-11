@@ -19,9 +19,15 @@ Dieselbe Liste von Hand nachzubauen wäre Arbeit, die der Bridge-Dienst
 längst gemacht hat, und sie wäre nach dem ersten neuen Sensor falsch.
 
 **Warum ohne Wolke.** Ein Aqara-Kontakt über Zigbee2MQTT redet mit dem
-Stick am Hub. Derselbe Kontakt über die Hersteller-App redet mit einem
-Rechenzentrum, und wenn dort etwas ausfällt, steht die Wohnung. Das ist
-der ganze Grund für Zigbee.
+eigenen Koordinator im Haus. Derselbe Kontakt über die Hersteller-App
+redet mit einem Rechenzentrum, und wenn dort etwas ausfällt, steht die
+Wohnung. Das ist der ganze Grund für Zigbee.
+
+**Wo das Funkstück steckt, ist hier nicht zu sehen** - und das ist
+Absicht. Diese Integration liest MQTT-Themen; ob ein USB-Stick am Server
+hängt oder ein Kästchen am Netzwerkkabel (hier: ein SONOFF Dongle Max
+über PoE), weiss nur Zigbee2MQTT. Aufbau und Einstellungen des Dongles:
+docs/zigbee.md.
 
 Der Hub führt **ein Gerät als eine Kachel**, nicht als sieben. Ein
 Bewegungsmelder, der Bewegung, Helligkeit, Temperatur und Batterie

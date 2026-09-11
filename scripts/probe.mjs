@@ -556,7 +556,7 @@ async function kachelnStehenGleich(browser) {
   }
 }
 
-/** 7. Ragt im Ablauf-Editor etwas hinaus? (Punkt 534)
+/** 7. Ragt im Ablauf-Editor etwas hinaus? (Punkt 537)
  *
  * Der gemeldete Fall: Beim gewählten Gerät stand «eigene Zeit» *neben*
  * dem Blatt, ausserhalb des sichtbaren Rands. Die Ursache war eine

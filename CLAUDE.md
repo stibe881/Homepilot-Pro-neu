@@ -34,7 +34,8 @@ Das ist ein Netz, kein Ersatz – was auf `main` liegt, ist gebaut; alles
 andere hängt daran, dass es sich konfliktfrei hineinnehmen lässt.
 
 Wer auf mehreren Zweigen gleichzeitig arbeitet, fragt nicht von Auge,
-sondern:
+sondern (`pruefen` misst alle Zweige, die der Server kennt - nicht nur
+die in `deploy/zweige.py` aufgezählten):
 
 ```bash
 python3 deploy/zweige.py pruefen    # nur nachsehen
@@ -331,10 +332,16 @@ zeigte sonst auf etwas anderes als gemeint.
 
 **Vor dem Vergeben einer Nummer nachsehen, was auf den anderen Zweigen
 liegt** - `python3 deploy/zweige.py pruefen`. Die höchste Nummer in den
-Dateien auf `main` ist nicht die höchste vergebene: Zweimal an einem
-Abend haben zwei Sitzungen unabhängig dieselbe nächste Nummer genommen
-(421, dann 422/423), und beide Male musste eine davon nachträglich
-wandern.
+Dateien auf `main` ist nicht die höchste vergebene: Dreimal an einem
+Abend haben Sitzungen unabhängig dieselbe nächste Nummer genommen -
+erst die 421, dann 422/423, zuletzt der ganze Block 421-444. Jedes Mal
+musste eine Seite nachträglich wandern, beim dritten Mal
+vierundzwanzig Punkte samt 111 Kommentarzeilen in 52 Dateien.
+
+Wenn es doch passiert: **Es wandert die Seite mit den wenigeren
+Ankern**, und ihre Kommentare wandern mit - Zeile für Zeile aus dem
+Diff des Zweigs gelesen, nicht über den ganzen Baum gesucht, sonst
+trifft es, was zufällig dieselbe Zahl trägt.
 
 **Ist ein Punkt gebaut, wandert er ins Archiv** – verschieben, nicht
 kopieren. Sonst steht er in der einen Datei als offen und in der

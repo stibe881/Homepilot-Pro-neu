@@ -1,5 +1,5 @@
 /**
- * Die Geräteauswahl im Ablauf- und Szenen-Editor (Punkt 534 der Werkbank).
+ * Die Geräteauswahl im Ablauf- und Szenen-Editor (Punkt 537 der Werkbank).
  *
  * Geprüft wird, was beim Umbau versprochen wurde: dass jede Chip-Reihe
  * ihre Frage trägt und dass ein eingestelltes Gerät nicht mehr

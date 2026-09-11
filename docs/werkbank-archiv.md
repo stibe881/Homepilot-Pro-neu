@@ -4253,10 +4253,124 @@ natives OCR-Modul hätte eine weitere neue Hülle gebraucht; ein
 apt-Paket im Abbild braucht keine. Ohne das Extra sagt die App beim
 Foto, was fehlt, statt still nichts zu finden.
 
+### 534. Die Leuchte lernt dazu, wenn ihre Spots später kommen ✓ erledigt
 
-# Teil XII: Auf Zuruf (534)
+*lohnt sich · Aufwand: klein · Hub*
 
-### 534. Die Geräteauswahl im Ablauf-Editor ✓ erledigt
+Aus dem Haus: «Hier kann ich immer noch nicht die Helligkeit, Farbe und
+wie weiss das Licht sein soll einstellen» - im Ablauf-Editor, an zwei
+Leuchten aus mehreren Lampen. Es sah nach einem fehlenden Bedienelement
+aus und war eine falsche Auskunft des Hubs.
+
+Was die Leuchte kann, rechnet `merged_commands` beim **Anlegen** aus
+ihren Mitgliedern aus - aus denen, die in dem Moment schon registriert
+sind. Eine Hue-Bridge meldet sich langsamer, als der Hub startet: Dann
+ist keines da, und die Leuchte bleibt bei «ein, aus, umschalten».
+Kommen die Spots später, zog `_recompute` bisher nur den **Zustand**
+nach, nie die Befehlsliste. Sie blieb falsch, bis zufällig ein Neustart
+die andere Reihenfolge brachte.
+
+In der App hängen genau drei Dinge an dieser Liste: Helligkeit
+(`set_brightness`), Farbe (`set_color`) und Weissanteil
+(`set_color_temp`). Sie fehlten deshalb im Ablauf-Schritt - und in der
+Szene, und auf der Kachel. Dass es mal ging und mal nicht, machte es
+schwer zu fassen: «immer noch nicht» ist die Beschreibung eines
+Fehlers, der zwischendurch weg war.
+
+`_recompute` zieht die Befehle jetzt mit nach, über ein neues
+`registry.set_commands` - dieselbe Art zu melden wie `set_combined`, mit
+`state_changed` und der ganzen Entität, sodass die App die neue Liste
+sieht. Sie heilt sich damit von selbst: Beim ersten Zustandswechsel
+eines Mitglieds steht sie richtig, spätestens Sekunden nach dem Start.
+
+Nachgewiesen rot: Ohne die drei Zeilen in `_recompute` fällt
+`test_die_leuchte_lernt_dazu_wenn_ihre_spots_spaeter_kommen` um - die
+Leuchte bleibt bei den drei Schaltbefehlen, obwohl ihr Spot Farbe kann.
+
+Stellen: `hub/homepilot/integrations/group.py`, `hub/homepilot/core/registry.py`
+
+### 535. In der Kopfzeile steht nur noch der Punkt ✓ erledigt
+
+*lohnt sich · Aufwand: klein · App*
+
+«verbunden» stand neunundneunzig Prozent der Zeit neben einem grünen
+Punkt und sagte dasselbe wie er - zwei Zeichen für eine Auskunft, und
+ausgerechnet die langweiligste nahm den meisten Platz in der Ecke der
+Begrüssungskarte. Die Ampel trägt es allein: grün, gelb, rot.
+
+**Die Wartezahl bleibt**, und zwar aus dem Grund, aus dem sie hinzukam:
+Ohne sie ist ein Tipp im Funkloch nicht von einem verschluckten Befehl
+zu unterscheiden - beides sieht nach «nichts passiert» aus. Sie ist
+keine Zustandsbeschreibung, sondern eine Zahl, die man sonst nirgends
+bekommt. Steht also «2 wartet» da, ist etwas los; steht nichts da, ist
+nichts los.
+
+**Das Wort wandert in die Vorlesefunktion.** Ein farbiger Kreis ohne
+Beschriftung ist für VoiceOver eine leere Fläche - und für wen Farben
+schwer zu unterscheiden sind, die einzige Auskunft, die er nicht
+bekommt. `verbindungsAnsage` sagt weiterhin «getrennt · 2 wartet».
+
+Auf der Verbindungen-Seite bleibt das Wort sichtbar: Dort ist es der
+Inhalt und nicht die Verzierung eines Punktes.
+
+Stellen: `app/src/lib/verbindungsstand.ts`, `app/src/components/TopStrip.tsx`
+
+### 536. Zigbee über den Dongle am Netzwerkkabel ✓ erledigt
+
+*lohnt sich · Aufwand: mittel · Hub-Stack + Doku*
+
+Die Zigbee-Integration gibt es seit Langem, aber im Haus lief nichts
+damit: Es fehlten die zwei Dienste davor. Der Hub liest MQTT-Themen -
+wer sie hineinschreibt, war nirgends eingerichtet. Im Stack standen
+Hub, mediamtx und Matter; ein Broker kam darin nicht vor, und
+`MQTT_USER` war eine Variable ohne Gegenstück.
+
+Neu im Stack: **Mosquitto** und **Zigbee2MQTT**, beide im host-Netz, wie
+alles andere. Die Kette ist damit vollständig:
+
+    Zigbee-Gerät  ~funk~  Dongle  ~LAN~  Zigbee2MQTT  →  Mosquitto  →  Hub
+
+**Der Dongle hängt am Netzwerkkabel, nicht am USB-Anschluss** - ein
+SONOFF Dongle Max (Dongle-M) mit PoE. Deshalb steht in der
+docker-compose.yml kein `devices:`-Eintrag, wie ihn jede Anleitung
+zeigt: Der Koordinator ist kein Gerät dieses Rechners, sondern eine
+Adresse im Netz (`tcp://…:6638`). Das ist nicht bloss bequem - Zigbee
+ist ein Funknetz, und im Serverschrank neben zwei Netzteilen und einem
+WLAN-Router steht ein Koordinator schlecht.
+
+Drei Dinge, an denen es sonst scheitert, stehen in
+`deploy/zigbee2mqtt.example.yaml` und in `docs/zigbee.md`:
+
+- **`adapter: ember`, nicht `zstack`.** Im Dongle Max sitzt ein
+  EFR32MG24 von Silicon Labs. `zstack` ist der TI-Stick aus den meisten
+  Anleitungen im Netz; damit verbindet sich hier nichts, und die
+  Fehlermeldung sagt es nicht deutlich.
+- **Eine feste Adresse im Router.** `Dongle-M.local` steht in der
+  Anleitung von SONOFF und geht über mDNS - aber eben nur, solange mDNS
+  geht. Fällt es aus, sieht das aus wie ein defekter Dongle.
+- **Erst benennen, dann den Hub lesen lassen.** Die Kennung einer
+  Kachel leitet sich vom Namen in Zigbee2MQTT ab; wer später umbenennt,
+  bekommt eine neue Kachel, und Raum, Favorit und Abläufe zeigen auf die
+  alte.
+
+**Der Broker horcht nur auf 127.0.0.1**, und darum steht auch kein
+Passwort darin. Wer ihn aus dem WLAN erreichte, hörte jeden
+Fensterkontakt mit und dürfte jedes Licht schalten - MQTT kennt keine
+Rechte je Thema. Ein Passwort in einer Datei, das niemanden abhält,
+wäre schlechter als keines: Es sähe nach Sicherheit aus. Sollen später
+Tasmota-Geräte aus dem WLAN dazukommen, ändern sich Listener und
+Passwort zusammen; die drei Zeilen dafür stehen in der Datei.
+
+Der Datenordner liegt als Ordner neben der config.yaml und nicht in
+einem Docker-Volume - wie bei Matter, aus demselben Grund: Er wandert
+mit ins Backup, ein Volume übersieht man. Und ohne ihn muss jedes
+Zigbee-Gerät neu angelernt werden.
+
+Stellen: `docker-compose.yml`, `docker-compose.portainer.yml`, `deploy/mosquitto.conf`, `deploy/zigbee2mqtt.example.yaml`, `deploy/portainer.md`, `docs/zigbee.md`, `docs/integrationen.md`, `hub/config.example.yaml`, `.gitignore`
+
+# Teil XII: Auf Zuruf (537)
+
+### 537. Die Geräteauswahl im Ablauf-Editor ✓ erledigt
 
 *tut weh · Aufwand: mittel · App*
 
@@ -4314,4 +4428,3 @@ und eine Zeile darin ist ein Ziel, das man am Wandpanel im Vorbeigehen
 trifft.
 
 Stellen: `app/src/screens/automations/szenen-editor.tsx`, `app/src/screens/automations/felder.tsx`, `app/src/screens/automations/stil.ts`, `app/src/lib/helligkeitsvorgabe.ts`, `app/src/theme.tsx`, `scripts/probe.mjs`
-

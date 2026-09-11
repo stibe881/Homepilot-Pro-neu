@@ -227,8 +227,22 @@ class GroupIntegration(Integration):
 
     async def _recompute(self, group_id: str) -> None:
         members = [self.hub.registry.get(m) for m in self._members.get(group_id, [])]
+        is_light = self._is_light.get(group_id, True)
         await self.hub.registry.update_state(
-            group_id, combined_state(members, self._is_light.get(group_id, True))
+            group_id, combined_state(members, is_light)
+        )
+        # Und was die Leuchte kann - nicht nur, wie sie gerade steht.
+        #
+        # `_build` rechnet die Befehlsliste aus den Mitgliedern aus, die
+        # in dem Moment schon da sind. Eine Hue-Bridge meldet sich
+        # langsamer, als der Hub startet: Dann sind es keine, und die
+        # Leuchte bleibt bei «ein, aus, umschalten» - für immer, denn
+        # hier wurde bisher nur der Zustand nachgezogen. Im Ablauf-Editor
+        # fehlten dadurch Helligkeit, Farbe und Weissanteil; die drei
+        # hängen an genau dieser Liste. Dass es mal ging und mal nicht,
+        # lag an der Reihenfolge beim Start.
+        await self.hub.registry.set_commands(
+            group_id, merged_commands(members, is_light)
         )
 
     async def handle_command(
