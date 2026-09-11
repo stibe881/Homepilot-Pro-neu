@@ -4366,7 +4366,51 @@ einem Docker-Volume - wie bei Matter, aus demselben Grund: Er wandert
 mit ins Backup, ein Volume übersieht man. Und ohne ihn muss jedes
 Zigbee-Gerät neu angelernt werden.
 
-Stellen: `docker-compose.yml`, `docker-compose.portainer.yml`, `deploy/mosquitto.conf`, `deploy/zigbee2mqtt.example.yaml`, `deploy/portainer.md`, `docs/zigbee.md`, `docs/integrationen.md`, `hub/config.example.yaml`, `.gitignore`
+**Nachtrag - der Stack startete zuerst gar nicht.** Portainer meldete:
+«Are you trying to mount a directory onto a file (or vice-versa)?» für
+`/data/compose/61/deploy/mosquitto.conf`. In der Portainer-Fassung stand
+für die Broker-Konfiguration ein Repo-Pfad (`./deploy/mosquitto.conf`),
+obwohl im Kopf genau dieser Datei steht, dass dort alles aus
+`/opt/homepilot` kommt. Von Hand stimmt der Pfad - man ruft Compose ja
+im Klon auf; ein Repository-Stack klont sich aber dorthin, wo Portainer
+ihn hinlegt. Was Docker dort nicht findet, legt es wortlos als leeres
+*Verzeichnis* an, und darüber lässt sich die Datei aus dem Abbild nicht
+legen. Nicht nur der Broker fiel damit aus, sondern der ganze Stack.
+
+Der Fehler war von Auge nicht zu sehen: `compose_abgleich.py` vergleicht
+bewusst nur die Volume-*Ziele*, weil sich die Quellen je Aufstellung
+unterscheiden dürfen. Was es nicht prüfte, war die Regel darüber - in
+der Portainer-Fassung darf die Quelle eben *nicht* aus dem Klon kommen.
+Das hält jetzt `hub/tests/test_compose_pfade.py` fest (und wird rot mit
+dem alten Pfad).
+
+Dazu die zweite Überraschung: Der Broker läuft im Abbild als Benutzer
+`mosquitto`, **1883** und nicht 1000 wie der Hub. Gehört ihm sein
+Datenordner nicht, startet er nicht - in `deploy/portainer.md` steht
+beides jetzt getrennt.
+
+**Zweiter Nachtrag - der Dienst schwieg.** Nach dem Ausrollen stand der
+Container zwölf Minuten auf `Up` und hatte seit den Migrationsnotizen
+nichts mehr gesagt. Gesucht wurde am Dongle, an der Firmware und am
+Broker; kaputt war nichts. In der Vorlage stand `log_level: warning`,
+und die Zeilen des ersten Starts - «Starting Zigbee2MQTT version …»,
+«Connecting to MQTT server», «Adapter ready» - sind alle `info`. Ein
+Dienst, der schweigt, sieht aus wie einer, der hängt; das kostet mehr
+als die paar Zeilen im Protokoll, zumal dort der Deckel aus der
+docker-compose.yml greift. Jetzt `info`, mit einer Prüfung dagegen und
+einem Abschnitt in `docs/zigbee.md`, der genau dieses Bild zeigt.
+
+Beim Nachsehen im laufenden Betrieb (`zigbee2mqtt/bridge/info`) fiel
+dann noch `enable_external_js: true` auf - die Vorgabe von Zigbee2MQTT.
+Dessen eigenes Schema warnt davor: «can execute arbitrary user-provided
+code». Die Weboberfläche auf 8099 hat keine Anmeldung und hängt am
+host-Netz, ist also aus dem ganzen WLAN erreichbar; wer sie öffnet,
+dürfte damit beliebigen Code im Container ausführen. Das hebt auf,
+wofür der Broker nebenan eigens auf 127.0.0.1 eingesperrt ist.
+Gebraucht wird es hier nicht - der Hub liest die Themen selbst. Jetzt
+aus, mit einer Prüfung dagegen.
+
+Stellen: `docker-compose.yml`, `docker-compose.portainer.yml`, `deploy/mosquitto.conf`, `deploy/zigbee2mqtt.example.yaml`, `deploy/portainer.md`, `docs/zigbee.md`, `docs/integrationen.md`, `hub/config.example.yaml`, `hub/tests/test_compose_pfade.py`, `hub/tests/test_zigbee_stack.py`, `.gitignore`
 
 # Teil XII: Auf Zuruf (537)
 
@@ -4512,4 +4556,3 @@ dieses eine Zimmer; eine ältere Fassung des Hubs liest `room` aus der
 Datendatei und bekommt den Standort. Beides ist geprüft.
 
 Stellen: `hub/homepilot/core/entity.py`, `hub/homepilot/core/registry.py`, `hub/homepilot/core/hub.py`, `hub/homepilot/api/routes/entities.py`, `app/src/lib/raum.ts`, `app/src/components/entity/anpassen.tsx`, `app/src/hooks/useHub.ts`, `docs/erste-stunde.md`
-

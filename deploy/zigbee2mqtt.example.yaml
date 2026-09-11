@@ -5,10 +5,13 @@
 # hinein, und der ist das Geheimnis, mit dem man das ganze Zigbee-Netz
 # mithört. Der Ordner steht deshalb in der .gitignore.
 #
-#   sudo mkdir -p /opt/homepilot/hub/zigbee2mqtt
+# Im Portainer-Stack liegt der Ordner unter /opt/homepilot, von Hand
+# unter hub/ im Klon - siehe die beiden Compose-Dateien:
+#
+#   sudo mkdir -p /opt/homepilot/zigbee2mqtt
 #   sudo cp deploy/zigbee2mqtt.example.yaml \
-#           /opt/homepilot/hub/zigbee2mqtt/configuration.yaml
-#   sudo chown -R 1000:1000 /opt/homepilot/hub/zigbee2mqtt
+#           /opt/homepilot/zigbee2mqtt/configuration.yaml
+#   sudo chown -R 1000:1000 /opt/homepilot/zigbee2mqtt
 
 mqtt:
   base_topic: zigbee2mqtt
@@ -52,6 +55,20 @@ homeassistant:
   enabled: false
 
 advanced:
+  # Aus. Zigbee2MQTT sagt es in seinem eigenen Schema deutlich: «can
+  # execute arbitrary user-provided code».
+  #
+  # Die Weboberfläche auf 8099 hat keine Anmeldung und hängt am
+  # host-Netz - sie ist aus dem ganzen WLAN erreichbar. Mit dieser
+  # Einstellung darf jeder, der sie öffnet, beliebigen Code im Container
+  # ausführen. Nebenan ist der Broker mit Bedacht auf 127.0.0.1
+  # eingesperrt; eine offene Tür daneben macht das zunichte.
+  #
+  # Gebraucht wird es hier nicht: Der Hub liest die Themen selbst, eigene
+  # Konverter kommen nicht vor. Wer später ein exotisches Gerät anbindet,
+  # das einen braucht, stellt es für die Dauer wieder an - bewusst und
+  # nicht aus Versehen.
+  enable_external_js: false
   # Beim ersten Start erzeugt und danach in dieser Datei festgehalten.
   # Wer ihn später ändert, muss jedes Gerät neu anlernen.
   network_key: GENERATE
@@ -61,4 +78,15 @@ advanced:
   # und 11 - auf einem anderen wird Zigbee genau dann unzuverlässig,
   # wenn jemand Netflix schaut.
   channel: 25
-  log_level: warning
+  # `info` und nicht `warning`, obwohl es mehr Zeilen sind.
+  #
+  # Beim ersten Start sind die interessanten Meldungen allesamt `info`:
+  # «Starting Zigbee2MQTT version …», «Connecting to MQTT server»,
+  # «Adapter ready». Auf `warning` schweigt der Dienst stattdessen
+  # vollständig - und ein Container, der oben ist und nichts sagt, sieht
+  # genau aus wie einer, der hängt. Hier ist nach dem Ausrollen zehn
+  # Minuten lang gesucht worden, wo gar nichts kaputt war.
+  #
+  # Die Menge kostet nichts: Das Protokoll geht ins Docker-Log, und dort
+  # greift der Deckel aus der docker-compose.yml (10 MB × 3).
+  log_level: info

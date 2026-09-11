@@ -89,6 +89,34 @@ def test_beide_compose_dateien_kennen_die_zwei_dienste():
         assert "zigbee2mqtt" in dienste, pfad.name
 
 
+def test_die_weboberflaeche_fuehrt_keinen_fremden_code_aus():
+    """Die Oberfläche auf 8099 hat keine Anmeldung.
+
+    Sie hängt am host-Netz und ist damit aus dem ganzen WLAN erreichbar.
+    Mit `enable_external_js` darf jeder, der sie öffnet, beliebigen Code
+    im Container ausführen - Zigbee2MQTT warnt im eigenen Schema davor.
+    Nebenan sitzt der Broker mit Bedacht auf 127.0.0.1; diese Tür
+    daneben hebt das auf.
+    """
+    assert _beispiel()["advanced"]["enable_external_js"] is False
+
+
+def test_beim_ersten_start_sagt_zigbee2mqtt_etwas():
+    """Ein stiller Dienst sieht aus wie ein hängender.
+
+    Hier stand `log_level: warning`. Damit verschluckt Zigbee2MQTT genau
+    die Zeilen des ersten Starts - «Starting Zigbee2MQTT version …»,
+    «Connecting to MQTT server», «Adapter ready» sind alle `info`. Der
+    Container war oben und schwieg; gesucht wurde danach am Dongle, an
+    der Firmware und am Broker, obwohl nichts kaputt war.
+    """
+    stufe = _beispiel()["advanced"]["log_level"]
+    assert stufe not in ("warning", "error"), (
+        f"log_level {stufe}: Dann schweigt der Dienst beim ersten Start, "
+        "und das sieht aus wie ein Fehler."
+    )
+
+
 def test_der_schluessel_des_zigbee_netzes_bleibt_draussen():
     """In der configuration.yaml steht nach dem ersten Start der
     Netzwerkschlüssel - damit hört man das ganze Zigbee-Netz mit. Die

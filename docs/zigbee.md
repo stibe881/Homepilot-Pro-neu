@@ -59,11 +59,16 @@ hört man das ganze Zigbee-Netz mit.
 2. `deploy/zigbee2mqtt.example.yaml` nach
    `hub/zigbee2mqtt/configuration.yaml` kopieren, die Adresse eintragen,
    den Ordner `chown -R 1000:1000` geben.
-3. Stack ausrollen. Die Weboberfläche von Zigbee2MQTT steht danach auf
+3. Dem Broker seinen Datenordner anlegen: `hub/mosquitto/data`, und zwar
+   `chown -R 1883:1883` - im Abbild läuft Mosquitto als Benutzer
+   `mosquitto` (1883), nicht als 1000 wie der Hub. Im Portainer-Stack
+   liegen beide Ordner unter `/opt/homepilot`, und dort gehört auch die
+   `mosquitto.conf` selbst hin: [`deploy/portainer.md`](../deploy/portainer.md).
+4. Stack ausrollen. Die Weboberfläche von Zigbee2MQTT steht danach auf
    Port **8099**.
-4. Dort «Permit join» für ein paar Minuten öffnen und die Geräte
+5. Dort «Permit join» für ein paar Minuten öffnen und die Geräte
    anlernen - und **gleich benennen**, siehe unten.
-5. Im Hub die Integration eintragen (nächster Abschnitt) und neu starten.
+6. Im Hub die Integration eintragen (nächster Abschnitt) und neu starten.
 
 ## Was der Hub braucht
 
@@ -146,6 +151,35 @@ Fensterkontakt meldet sich nur, wenn sich etwas ändert; bei einem selten
 benutzten Fenster kann das Tage dauern. Bis dahin steht die Kachel blass
 da. Das ist ehrlicher als ein «alles in Ordnung», das niemand geprüft
 hat.
+
+## Wenn der Container oben ist und nichts sagt
+
+Sieht so aus:
+
+```
+Using '/app/data' as data directory
+Starting Zigbee2MQTT without watchdog.
+Migration notes written in /app/data/migration-1-to-2.log
+...
+[CHANGE] Migrated settings to version 5
+```
+
+...und danach minutenlang nichts, obwohl `docker ps` den Container als
+`Up` führt. Das ist **kein** Hängen: Die Zeilen, die man jetzt sucht -
+«Starting Zigbee2MQTT version …», «Connecting to MQTT server»,
+«Adapter ready» - sind allesamt `info`. Stand in der configuration.yaml
+`log_level: warning`, verschluckt der Dienst genau sie. Kein Fehler zu
+sehen heisst dann: bis hierher kein Fehler passiert.
+
+Ob er wirklich läuft, sagt die Weboberfläche, nicht das Protokoll:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8099
+```
+
+Die Migrationsnotizen davor sind harmlos: Zigbee2MQTT 2.x zieht eine
+ältere configuration.yaml durch alle Schema-Stufen und schreibt sie
+danach in der neuen Form zurück.
 
 ## Wenn man umbenennt
 
