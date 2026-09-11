@@ -284,6 +284,11 @@ export function EntityCard({
         ungezaehlt: Boolean(ungezaehlt),
         verlauf: Boolean(onLongPress),
         erinnern: Boolean(onErinnern),
+        // Stern und Raum direkt im Menü (Punkt 432) - das Blatt bleibt
+        // für alles, was seltener ist.
+        favorit: Boolean(onToggleFavorite),
+        istFavorit: Boolean(favorite),
+        raum: Boolean(onRename),
         // Nur wo es etwas zu merken gibt und wer schalten darf.
         doppeltipp: onDoppeltipp ? doppelLabel : null,
       });
@@ -294,6 +299,8 @@ export function EntityCard({
     if (eintrag.id === 'zaehlung') onToggleUngezaehlt?.();
     if (eintrag.id === 'verlauf') onLongPress?.();
     if (eintrag.id === 'erinnern') onErinnern?.();
+    if (eintrag.id === 'favorit') onToggleFavorite?.();
+    if (eintrag.id === 'raum') setRoomPickerOpen(true);
     if (eintrag.id === 'doppeltipp') {
       // Steht schon dasselbe gemerkt, ist der Eintrag das Vergessen -
       // die Beschriftung sagt es, und lib/doppeltipp entscheidet es.

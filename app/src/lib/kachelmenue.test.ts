@@ -75,3 +75,17 @@ describe('Sperren', () => {
     );
   });
 });
+
+describe('Favorit und Raum (Punkt 432)', () => {
+  it('stehen zwischen Erinnern und Umbenennen, der Stern sagt, was er tut', () => {
+    expect(
+      kachelAktionen({ verlauf: true, favorit: true, umbenennen: true, raum: true }).map(
+        (e) => e.id
+      )
+    ).toEqual(['verlauf', 'favorit', 'umbenennen', 'raum']);
+    expect(kachelAktionen({ favorit: true })[0].label).toBe('Als Favorit');
+    expect(kachelAktionen({ favorit: true, istFavorit: true })[0].label).toBe(
+      'Kein Favorit mehr'
+    );
+  });
+});

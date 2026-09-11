@@ -3486,7 +3486,7 @@ nie rot wird, ist keiner.
 
 Stellen: `app/src/lib/strichcode.ts`, `app/src/components/Kassencode.tsx`, `app/src/components/QrScanner.tsx`, `app/src/screens/family/gutscheine.tsx`, `hub/homepilot/core/gutscheine.py`
 
-## Zweite Vorschlagsrunde (421–431)
+## Zweite Vorschlagsrunde (421–435)
 
 Aus einer Liste von fünfundachtzig Vorschlägen (allgemein, Bedienung,
 Gestaltung, Gutscheine, Abläufe, Push, Alarmanlage, selbst gewählt),
@@ -3641,3 +3641,51 @@ App-Fassungen weiter einen Beleg sehen; wer eine Datei aus der Liste
 nimmt, nimmt sie von der Platte (`dateien.aufraeumen`). «Aus Beleg
 übernehmen» liest alle Belege hintereinander - der Betrag steht im
 einen, die Nummer im anderen. Höchstens sechs je Gutschein.
+
+### 432. Stern und Raum im Langdruck-Menü ✓ erledigt
+
+*Aufwand: klein · App*
+
+Das Langdruck-Menü der Kachel gab es schon (Verlauf, Erinnern,
+Umbenennen, Sperren, Zählung, Doppeltipp). Dazu kommen die zwei
+Handgriffe, für die man sonst das Blatt öffnete: «Als Favorit» (oder
+«Kein Favorit mehr») und «In anderen Raum». Der Stern steht vor dem
+Umbenennen - er ist der Griff, den man täglich macht
+(`lib/kachelmenue.ts`).
+
+### 433. Wischen zwischen den Bereichen ✓ erledigt
+
+*lohnt sich · Aufwand: klein · App*
+
+Auf dem Telefon wechselt ein waagrechtes Wischen über die Seite zum
+Nachbarn in der Leiste - nach links «weiter», nach rechts «zurück», am
+Rand endet es. Nur ohne Seitenleiste, nicht im Zimmer (dort heisst
+Wischen «zurück», lib/zurueckwischen.ts) und nicht beim Anpassen. Die
+Geste wird erst während der Bewegung beansprucht, damit Wischdimmer,
+Kachel am Finger und Storen-Leiste Vorrang behalten
+(`lib/bereichwischen.ts`, `hooks/useBereichWischen.ts`).
+
+### 434. iPhone im Querformat ✓ erledigt, verengt
+
+*Aufwand: klein · App*
+
+Die Ausrichtung war nie gesperrt (`orientation: default`), und ab
+700 Punkten Breite kommt die Seitenleiste - im Querformat also auch
+auf dem Telefon. Was fehlte, waren die seitlichen Sicherheitsabstände:
+Die Aussparung des iPhones liegt quer an der Seite, und die Leiste
+sass darunter. Der Rahmen nimmt jetzt auch `insets.left/right`.
+Ob das auf dem Gerät so aussieht wie gedacht, sagt nur das Gerät
+(CLAUDE.md: was der Browser nicht beantwortet).
+
+### 435. Posteingang hinter der Glocke ✓ erledigt
+
+*lohnt sich · Aufwand: klein · App*
+
+Werkbank 389, fertig gemacht: Eine Glocke in der Kopfzeile der
+Startseite öffnet den Posteingang (`components/Posteingang.tsx`).
+Zuoberst, was das Haus für mich zurückgehalten hat (Ruhezeit,
+stillgestellt, Tagesdeckel - `/api/push/verpasst`), darunter zum
+Nachschlagen die letzten Tage. Die Zahl an der Glocke ist, was seit
+dem letzten Öffnen dazukam; der Zeitpunkt liegt beim Hub
+(`posteingang.gesehen` in lib/persoenlich.ts), damit das iPad nicht
+zeigt, was das Telefon längst gelesen hat.

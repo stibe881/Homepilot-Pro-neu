@@ -45,6 +45,22 @@ export type Section =
  * zeigt nur sieben davon; die übrigen erreicht man über Einstellungen und
  * brauchen trotzdem einen Namen.
  */
+/** Der Nachbar in der Leiste (rein, testbar) - null am Rand.
+ *
+ *  Punkt 433: Auf dem Telefon wischt man zwischen den Bereichen, statt
+ *  nach unten zur Leiste zu greifen. Die Reihenfolge ist die der Leiste;
+ *  am Rand endet die Geste, statt umzulaufen - ein Wischen, das von
+ *  «Einstellungen» wieder auf «Start» springt, verwirrt mehr als es hilft. */
+export function nachbarBereich(
+  sichtbar: Section[],
+  aktiv: Section,
+  richtung: 1 | -1
+): Section | null {
+  const index = sichtbar.indexOf(aktiv);
+  if (index < 0) return null;
+  return sichtbar[index + richtung] ?? null;
+}
+
 export const SECTION_LABEL: Record<Section, string> = {
   start: 'Start',
   home: 'Räume',

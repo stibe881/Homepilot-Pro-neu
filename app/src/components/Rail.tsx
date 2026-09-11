@@ -30,6 +30,16 @@ const ITEMS: {
   { key: 'settings', icon: 'settings-outline', label: 'Einstellungen' },
 ];
 
+/** Welche Bereiche die Leiste für diese Person zeigt, in ihrer
+ *  Reihenfolge (rein, testbar) - dieselbe Liste, aus der die Leiste
+ *  ihre Knöpfe baut, und der die Wischgeste folgt (Punkt 433). */
+export function sichtbareBereiche(capabilities: string[] = [], hidden: Section[] = []): Section[] {
+  return ITEMS.filter(
+    (item) =>
+      (!item.needs || capabilities.includes(item.needs)) && !hidden.includes(item.key)
+  ).map((item) => item.key);
+}
+
 interface Props {
   active: Section;
   onSelect: (section: Section) => void;

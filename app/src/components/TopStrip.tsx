@@ -107,6 +107,8 @@ export function TopStrip({
   gaesteWlan,
   besuch,
   besuchLaeuft = false,
+  onPosteingang,
+  posteingangZaehler = 0,
 }: {
   entities: Entity[];
   /** Die Gäste-WLAN-Karte fürs Blatt hinter dem WLAN-Symbol. Als Element
@@ -135,6 +137,10 @@ export function TopStrip({
    *  aussieht wie sonst - man schaltet ihn abends ein und denkt am
    *  nächsten Morgen nicht mehr daran. */
   besuchLaeuft?: boolean;
+  /** Die Glocke (Punkt 435): öffnet den Posteingang; die Zahl daran ist,
+   *  was das Haus seit dem letzten Öffnen für mich zurückgehalten hat. */
+  onPosteingang?: () => void;
+  posteingangZaehler?: number;
   status: ConnectionStatus;
   now: Date;
   /** Ausgeblendete Geräte – wer eine Lampe aus den Alltagsansichten
@@ -1084,6 +1090,32 @@ export function TopStrip({
                   />
                 </Pressable>
               ) : null}
+              {onPosteingang ? (
+                <Pressable
+                  onPress={onPosteingang}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    posteingangZaehler > 0
+                      ? `Posteingang, ${posteingangZaehler} neu`
+                      : 'Posteingang'
+                  }
+                  hitSlop={8}
+                  style={({ pressed }) => [styles.chip, pressed && { opacity: 0.6 }]}
+                >
+                  <Ionicons
+                    name={posteingangZaehler > 0 ? 'notifications' : 'notifications-outline'}
+                    size={16}
+                    color={colors.ink}
+                  />
+                  {posteingangZaehler > 0 ? (
+                    <View style={styles.glockenZahl}>
+                      <Text style={styles.glockenZahlText}>
+                        {posteingangZaehler > 9 ? '9+' : posteingangZaehler}
+                      </Text>
+                    </View>
+                  ) : null}
+                </Pressable>
+              ) : null}
               {gaesteWlan ? (
                 <Pressable
                   onPress={() => setWlanOffen(true)}
@@ -1617,6 +1649,18 @@ const makeStyles = (colors: Colors) =>
     alignItems: 'center',
     gap: 6,
   },
+  // Die Zahl an der Glocke (Punkt 435): klein, rot, und nur da, wenn
+  // es etwas gibt - eine leere Null wäre eine Glocke, die ständig ruft.
+  glockenZahl: {
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    backgroundColor: colors.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  glockenZahlText: { color: '#FFFFFF', fontSize: 10, fontWeight: '700' },
   /** Das Leute-Zeichen der Begrüssungskarte. Eigener Stil und nicht
    *  `chip`: Es bekommt im eingeschalteten Zustand eine Füllung, und
    *  der Platz dafür muss auch vorher schon da sein - sonst rückt die
