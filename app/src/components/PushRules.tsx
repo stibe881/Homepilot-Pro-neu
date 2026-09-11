@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { HubSettings } from '../api/types';
 import { Card } from './Card';
@@ -18,9 +18,16 @@ import {
 } from '../lib/waschkueche';
 import { GuardStand, dabei, storenSatz, umschalten } from '../lib/storenwahl';
 import {
+  Klingelbox,
   Klingeltonstand,
+  LAUTSTAERKEN,
+  boxAendern,
+  boxStand,
   boxUmschalten,
+  istGewaehlt,
   klingeltonSatz,
+  spanneSatz,
+  uhrzeitSauber,
   lautsprecherName,
 } from '../lib/klingelton';
 import { klingeltonUrl } from '../lib/klingeltonprobe';
@@ -146,6 +153,10 @@ export function PushRules({
   // Welcher Ton gerade *hier* spielen soll - auf dem Gerät in der Hand,
   // nicht auf den Boxen. `takt` zählt die Anklicks, damit derselbe Ton
   // beim zweiten Tippen wieder von vorn beginnt (siehe Klingelprobe).
+  // Was schiefging, als der Ton hier spielen sollte. Vorher verschwand
+  // jeder Fehlschlag lautlos - «es kommt kein Ton» war von «der Ton ist
+  // leise» nicht zu unterscheiden.
+  const [klingelProbeFehler, setKlingelProbeFehler] = useState<string | null>(null);
   const [klingelProbe, setKlingelProbe] = useState<{ sound: string; takt: number } | null>(
     null
   );
@@ -266,23 +277,40 @@ export function PushRules({
    * auseinander. Wer nur zuhören darf, hört wenigstens zu.
    */
   const klingelAntippen = (sound: string) => {
+    setKlingelProbeFehler(null);
     setKlingelProbe((vorher) => ({ sound, takt: (vorher?.takt ?? 0) + 1 }));
     if (mayEdit) void klingelSoundWaehlen(sound);
   };
 
-  const klingelBoxWaehlen = async (id: string) => {
-    if (!klingel) return;
+  const klingelBoxenSchreiben = async (speakers: Klingelbox[]) => {
     try {
       setKlingel(
         await hub.put<Klingeltonstand>(
           '/api/push/doorbell-sound',
-          { speakers: boxUmschalten(klingel.speakers, id) },
+          { speakers },
           { still: true }
         )
       );
     } catch (err) {
       setError(String(err instanceof Error ? err.message : err));
     }
+  };
+
+  const klingelBoxWaehlen = async (id: string) => {
+    if (!klingel) return;
+    await klingelBoxenSchreiben(boxUmschalten(klingel.speakers, id));
+  };
+
+  /** Wie laut es auf genau dieser Box klingelt. */
+  const klingelBoxLaut = async (id: string, volume: number) => {
+    if (!klingel) return;
+    await klingelBoxenSchreiben(boxAendern(klingel.speakers, id, { volume }));
+  };
+
+  /** Und in welcher Zeitspanne. */
+  const klingelBoxZeit = async (id: string, spanne: { from?: string; to?: string }) => {
+    if (!klingel) return;
+    await klingelBoxenSchreiben(boxAendern(klingel.speakers, id, spanne));
   };
 
   const klingelTesten = async () => {
@@ -449,6 +477,8 @@ export function PushRules({
                   testLaeuft={klingelTestLaeuft}
                   onSound={klingelAntippen}
                   onBox={klingelBoxWaehlen}
+                  onBoxLaut={klingelBoxLaut}
+                  onBoxZeit={klingelBoxZeit}
                   onTesten={klingelTesten}
                   probeUrl={
                     klingelProbe
@@ -456,6 +486,8 @@ export function PushRules({
                       : null
                   }
                   probeTakt={klingelProbe?.takt ?? 0}
+                  probeFehler={klingelProbeFehler}
+                  onProbeFehler={setKlingelProbeFehler}
                   styles={styles}
                   colors={colors}
                 />
@@ -864,15 +896,70 @@ function StorenWahl({
  * Boxen. Ohne gewählte Box bleibt die Testtaste weg - anhören kann man
  * nur, was auch beim echten Klingeln spielen würde.
  */
+/**
+ * Ein Feld für eine Uhrzeit, wie beim Wecker (components/WeckerFormular).
+ *
+ * Getippt wird frei, gelesen wird erst beim Verlassen: Wer «7» tippt,
+ * meint 07:00, und wer mittendrin bei «7:» steht, soll nicht schon ein
+ * «07:00» unter den Fingern haben. Was gar nicht geht, fällt auf die
+ * Vorgabe zurück - eine kaputte Eingabe darf dazu führen, dass es zu oft
+ * klingelt, nicht dass es nie klingelt.
+ */
+function Zeitfeld({
+  wert,
+  vorgabe,
+  label,
+  onFertig,
+  styles,
+  colors,
+}: {
+  wert: string;
+  vorgabe: string;
+  label: string;
+  onFertig: (zeit: string) => void;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Colors;
+}) {
+  const [entwurf, setEntwurf] = useState(wert);
+  useEffect(() => setEntwurf(wert), [wert]);
+  return (
+    <TextInput
+      style={styles.zeitfeld}
+      value={entwurf}
+      onChangeText={setEntwurf}
+      onBlur={() => {
+        const sauber = uhrzeitSauber(entwurf, vorgabe);
+        setEntwurf(sauber);
+        if (sauber !== wert) onFertig(sauber);
+      }}
+      onSubmitEditing={() => {
+        const sauber = uhrzeitSauber(entwurf, vorgabe);
+        setEntwurf(sauber);
+        if (sauber !== wert) onFertig(sauber);
+      }}
+      keyboardType="numbers-and-punctuation"
+      maxLength={5}
+      placeholder={vorgabe}
+      placeholderTextColor={colors.inkFaint}
+      accessibilityLabel={label}
+    />
+  );
+}
+
+
 function Klingeltonwahl({
   stand,
   mayEdit,
   testLaeuft,
   onSound,
   onBox,
+  onBoxLaut,
+  onBoxZeit,
   onTesten,
   probeUrl,
   probeTakt,
+  probeFehler,
+  onProbeFehler,
   styles,
   colors,
 }: {
@@ -881,10 +968,17 @@ function Klingeltonwahl({
   testLaeuft: boolean;
   onSound: (sound: string) => void;
   onBox: (id: string) => void;
+  /** Wie laut es auf *dieser* Box klingelt. */
+  onBoxLaut: (id: string, volume: number) => void;
+  /** Und wann - «from», «to» oder beides. */
+  onBoxZeit: (id: string, spanne: { from?: string; to?: string }) => void;
   onTesten: () => void;
   /** Der Ton, der gerade hier spielen soll - null, solange keiner. */
   probeUrl: string | null;
   probeTakt: number;
+  /** Warum hier nichts zu hören war - null, solange alles gut ging. */
+  probeFehler: string | null;
+  onProbeFehler: (satz: string) => void;
   styles: ReturnType<typeof makeStyles>;
   colors: Colors;
 }) {
@@ -917,7 +1011,12 @@ function Klingeltonwahl({
         })}
       </View>
       {/* Unsichtbar, einen Punkt gross: der Abspieler für die Probe. */}
-      <Klingelprobe uri={probeUrl} takt={probeTakt} />
+      <Klingelprobe uri={probeUrl} takt={probeTakt} onFehler={onProbeFehler} />
+      {/* Und wenn er nicht spielt, steht es da. Stille ohne Erklärung
+          ist die schlechteste Rückmeldung: Sie sieht aus wie ein Gerät,
+          das kaputt ist, und lässt sich von «zu leise» nicht
+          unterscheiden. */}
+      {probeFehler ? <Text style={styles.probeFehler}>{probeFehler}</Text> : null}
       <Text style={styles.detail}>{klingeltonSatz(stand)}</Text>
       <Text style={styles.origin}>
         Antippen spielt den Ton hier ab – die Boxen im Haus bleiben still.
@@ -941,27 +1040,98 @@ function Klingeltonwahl({
       ) : null}
       {offen
         ? stand.candidates.map((box) => {
-            const an = stand.speakers.includes(box.id);
+            const an = istGewaehlt(stand.speakers, box.id);
+            const eigen = boxStand(stand.speakers, box.id);
             return (
-              <Pressable
-                key={box.id}
-                onPress={() => onBox(box.id)}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: an }}
-                style={styles.tuerZeile}
-              >
-                <Ionicons
-                  name={an ? 'checkbox' : 'square-outline'}
-                  size={16}
-                  color={an ? colors.on : colors.inkFaint}
-                />
-                <Text style={[styles.tuerZeileText, an && { color: colors.ink }]}>
-                  {lautsprecherName(box)}
-                </Text>
-              </Pressable>
+              <View key={box.id}>
+                <Pressable
+                  onPress={() => onBox(box.id)}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: an }}
+                  style={styles.tuerZeile}
+                >
+                  <Ionicons
+                    name={an ? 'checkbox' : 'square-outline'}
+                    size={16}
+                    color={an ? colors.on : colors.inkFaint}
+                  />
+                  <Text style={[styles.tuerZeileText, an && { color: colors.ink }]}>
+                    {lautsprecherName(box)}
+                  </Text>
+                  {an ? (
+                    <Text style={styles.boxKurz}>
+                      {eigen.volume} % · {spanneSatz(eigen)}
+                    </Text>
+                  ) : null}
+                </Pressable>
+                {/* Wie laut und wann - je Box, nicht fürs Haus. Die
+                    Küchenbox steht neben dem Esstisch und darf leise
+                    sein, im Keller hört man sonst nichts; und im
+                    Kinderzimmer soll es abends still bleiben, während
+                    der Flur weiter klingelt. Beides steht eingerückt
+                    unter *ihrer* Zeile, damit kein Zweifel bleibt,
+                    wofür es gilt. */}
+                {an && mayEdit ? (
+                  <View style={styles.boxBlock}>
+                    <View style={styles.wahlZeile}>
+                      <Text style={styles.wahlWort}>Laut</Text>
+                      {LAUTSTAERKEN.map((laut) => (
+                        <Pressable
+                          key={laut}
+                          onPress={() => onBoxLaut(box.id, laut)}
+                          accessibilityRole="radio"
+                          accessibilityState={{ selected: eigen.volume === laut }}
+                          accessibilityLabel={`${lautsprecherName(box)}: ${laut} Prozent`}
+                          style={[
+                            styles.wahlChip,
+                            eigen.volume === laut && styles.wahlChipAn,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.wahlText,
+                              eigen.volume === laut && styles.wahlTextAn,
+                            ]}
+                          >
+                            {laut} %
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                    <View style={styles.wahlZeile}>
+                      <Text style={styles.wahlWort}>Von</Text>
+                      <Zeitfeld
+                        wert={eigen.from}
+                        vorgabe="00:00"
+                        label={`${lautsprecherName(box)}: ab wann`}
+                        onFertig={(zeit) => onBoxZeit(box.id, { from: zeit })}
+                        styles={styles}
+                        colors={colors}
+                      />
+                      <Text style={styles.wahlWort}>bis</Text>
+                      <Zeitfeld
+                        wert={eigen.to}
+                        vorgabe="24:00"
+                        label={`${lautsprecherName(box)}: bis wann`}
+                        onFertig={(zeit) => onBoxZeit(box.id, { to: zeit })}
+                        styles={styles}
+                        colors={colors}
+                      />
+                    </View>
+                  </View>
+                ) : null}
+              </View>
             );
           })
         : null}
+      {/* Einmal unter der Liste statt unter jeder Box: Derselbe Satz
+          dreimal untereinander liest sich wie drei verschiedene. */}
+      {offen && mayEdit && stand.speakers.length > 0 ? (
+        <Text style={styles.origin}>
+          Gleiche Zeiten heissen «immer». Über Mitternacht hinweg gilt die Spanne
+          umgekehrt: 22:00 bis 07:00 ist die Nacht.
+        </Text>
+      ) : null}
       {mayEdit && stand.speakers.length > 0 ? (
         <Pressable
           onPress={onTesten}
@@ -989,6 +1159,25 @@ const makeStyles = (colors: Colors) =>
     // Chip-Reihe sonst um, und die zweite Zeile begann früher links unter
     // der Beschriftung statt unter dem ersten Chip.
     wahlBlock: { gap: 6 },
+    // Was zu *einer* Box gehört, steht eingerückt unter ihrer Zeile -
+    // sonst bliebe offen, für welche der drei gewählten Boxen die
+    // Lautstärke gerade gilt.
+    boxBlock: { gap: 6, paddingLeft: 24, paddingBottom: 8 },
+    boxKurz: { color: colors.inkFaint, fontSize: 12, marginLeft: 'auto' },
+    probeFehler: { color: colors.warn, fontSize: 12 },
+    zeitfeld: {
+      color: colors.ink,
+      fontSize: 13,
+      paddingVertical: 6,
+      paddingHorizontal: 10,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surfaceSoft,
+      width: 78,
+      flexGrow: 0,
+      textAlign: 'center',
+    },
     wahlZeile: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
     wahlWort: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
     wahlChip: {

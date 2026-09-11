@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..core import guestpass
 from ..core.users import Role
@@ -278,15 +278,40 @@ class CoverGuardRequest(BaseModel):
     heat: list[str] | None = None
 
 
+class DoorbellSpeaker(BaseModel):
+    """Eine gewählte Box - mit ihrer eigenen Lautstärke und Zeitspanne.
+
+    Beides gehört je Box und nicht ins Haus: Die Küchenbox steht neben
+    dem Esstisch und darf leise sein, im Keller hört man sonst nichts;
+    und die Box im Kinderzimmer soll abends nicht mehr losgehen, während
+    die im Flur immer darf.
+    """
+
+    id: str
+    volume: int | None = None
+    #: Von wann bis wann es auf dieser Box klingelt («07:00»). Über
+    #: Mitternacht hinweg gilt die Spanne umgekehrt - siehe
+    #: core/klingelton.py, in_spanne.
+    from_: str | None = Field(default=None, alias="from")
+    to: str | None = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class DoorbellSoundRequest(BaseModel):
     """Welcher Klingelton auf welchen Boxen spielt, wenn es klingelt.
 
     Anders als bei den Storen darüber heisst eine leere Liste hier nicht
     «alle», sondern «keine» - siehe Kopf von core/klingelton.py.
+
+    ``speakers`` nimmt beide Formen: blosse Kennungen wie früher (dann
+    gelten die Vorgaben) oder Einträge mit Lautstärke und Zeitspanne.
+    Eine ältere App darf weiter schreiben, ohne dabei Einstellungen zu
+    löschen, die sie gar nicht kennt.
     """
 
     sound: str | None = None
-    speakers: list[str] | None = None
+    speakers: list[DoorbellSpeaker | str] | None = None
 
 
 class DoorbellSoundTestRequest(BaseModel):

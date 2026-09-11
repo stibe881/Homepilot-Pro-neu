@@ -68,7 +68,11 @@ def test_choice_is_stored_and_validated(client):
     assert antwort.status_code == 200
     daten = antwort.json()
     assert daten["sound"] == "hupe"
-    assert daten["speakers"] == [box]
+    # Eine blosse Kennung kommt mit ihren Vorgaben zurück - eine ältere
+    # App darf weiter schreiben, ohne etwas zu verlieren.
+    assert [eintrag["id"] for eintrag in daten["speakers"]] == [box]
+    assert daten["speakers"][0]["volume"] == 55
+    assert daten["speakers"][0]["from"] == "00:00"
 
     # Ein unbekannter Ton wird abgelehnt, nicht stillschweigend übernommen.
     antwort = client.put(
@@ -90,7 +94,7 @@ def test_choice_is_stored_and_validated(client):
     # überschreibt nichts.
     antwort = client.get("/api/push/doorbell-sound", headers=auth("t-owner"))
     assert antwort.json()["sound"] == "hupe"
-    assert antwort.json()["speakers"] == [box]
+    assert [eintrag["id"] for eintrag in antwort.json()["speakers"]] == [box]
 
 
 def test_omitting_a_field_leaves_it_untouched(client):
@@ -112,7 +116,9 @@ def test_omitting_a_field_leaves_it_untouched(client):
     )
     assert antwort.json() == {
         "sound": "tusch",
-        "speakers": [box],
+        "speakers": [
+            {"id": box, "volume": 55, "from": "00:00", "to": "24:00"}
+        ],
         "sounds": antwort.json()["sounds"],
         "candidates": antwort.json()["candidates"],
     }

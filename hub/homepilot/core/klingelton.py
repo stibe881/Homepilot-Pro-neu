@@ -389,6 +389,118 @@ def klang_wav(key: str) -> bytes:
     )
 
 
+# ── Je Box: wie laut, und wann überhaupt ──────────────────────────────
+#
+# «Bei jedem Lautsprecher, den man aktiviert, soll man die Lautstärke
+# einzeln definieren» und «die Zeit, wann es da klingelt».
+#
+# Beides sind Fragen, die nur je Box eine Antwort haben. Die Küchenbox
+# steht neben dem Esstisch und darf leise sein; im Keller hört man sonst
+# nichts. Und die Box im Kinderzimmer soll abends nicht mehr losgehen,
+# während die im Flur immer darf. Eine Zahl fürs ganze Haus beantwortet
+# davon keine.
+
+#: Zeitspanne einer Box, wenn nichts anderes dasteht: den ganzen Tag.
+#: Bewusst nicht «ab jetzt still» - wer eine Box wählt, will sie hören.
+GANZER_TAG = ("00:00", "24:00")
+
+
+def uhrzeit_lesen(wert: Any, vorgabe: str) -> str:
+    """«7:5» → «07:05» (rein, testbar).
+
+    Was nicht als Uhrzeit lesbar ist, fällt auf die Vorgabe zurück statt
+    die Box stumm zu schalten: Eine kaputte Einstellung darf dazu führen,
+    dass es zu oft klingelt, nicht dass es nie klingelt.
+    """
+    text = str(wert or "").strip()
+    if text in ("24:00", "2400"):
+        return "24:00"
+    teile = text.split(":")
+    if len(teile) != 2:
+        return vorgabe
+    try:
+        stunde, minute = int(teile[0]), int(teile[1])
+    except ValueError:
+        return vorgabe
+    if not (0 <= stunde <= 23 and 0 <= minute <= 59):
+        return vorgabe
+    return f"{stunde:02d}:{minute:02d}"
+
+
+def box_lesen(eintrag: Any) -> dict[str, Any] | None:
+    """Eine gewählte Box aus dem Datenspeicher (rein, testbar).
+
+    Zwei Formen, weil die ältere im Haus schon gespeichert ist: früher
+    stand hier bloss die Kennung als Text, heute ein Eintrag mit
+    Lautstärke und Zeitspanne. Wer aus der alten Form liest, bekommt die
+    Vorgaben - laut wie bisher, den ganzen Tag. Nichts wird stiller oder
+    lauter, nur weil eine Auslieferung dazwischenlag.
+    """
+    if isinstance(eintrag, str):
+        kennung = eintrag.strip()
+        if not kennung:
+            return None
+        return {
+            "id": kennung,
+            "volume": LAUTSTAERKE,
+            "from": GANZER_TAG[0],
+            "to": GANZER_TAG[1],
+        }
+    if not isinstance(eintrag, dict):
+        return None
+    kennung = str(eintrag.get("id") or "").strip()
+    if not kennung:
+        return None
+    try:
+        laut = int(eintrag.get("volume", LAUTSTAERKE))
+    except (TypeError, ValueError):
+        laut = LAUTSTAERKE
+    return {
+        "id": kennung,
+        "volume": max(0, min(100, laut)),
+        "from": uhrzeit_lesen(eintrag.get("from"), GANZER_TAG[0]),
+        "to": uhrzeit_lesen(eintrag.get("to"), GANZER_TAG[1]),
+    }
+
+
+def in_spanne(jetzt: str, von: str, bis: str) -> bool:
+    """Liegt diese Uhrzeit in der Spanne? (rein, testbar)
+
+    Über Mitternacht hinweg gilt die Spanne umgekehrt: «22:00 bis 07:00»
+    heisst abends *und* morgens, nicht nie. Das ist der Fall, der ohne
+    eigene Zeile falsch herauskommt - und es ist genau die Spanne, die
+    man für ein Kinderzimmer einstellt.
+    """
+    if von == bis:
+        # Kein Fenster, sondern gar keine Einschränkung.
+        return True
+    if bis == "24:00":
+        return jetzt >= von
+    if von < bis:
+        return von <= jetzt < bis
+    return jetzt >= von or jetzt < bis
+
+
+def klingelt_jetzt(box: dict[str, Any], jetzt: str) -> bool:
+    """Klingelt es auf dieser Box zu dieser Uhrzeit? (rein, testbar)"""
+    return in_spanne(jetzt, str(box.get("from") or GANZER_TAG[0]),
+                     str(box.get("to") or GANZER_TAG[1]))
+
+
+def aktive_boxen(speakers: Any, jetzt: str) -> list[dict[str, Any]]:
+    """Die Boxen, auf denen es jetzt wirklich klingelt (rein, testbar)."""
+    return [box for box in (speakers or []) if klingelt_jetzt(box, jetzt)]
+
+
+def lautstaerken(speakers: Any) -> dict[str, int]:
+    """Kennung → Lautstärke (rein, testbar) - für say.play_audio."""
+    return {
+        str(box["id"]): int(box.get("volume", LAUTSTAERKE))
+        for box in (speakers or [])
+        if box.get("id")
+    }
+
+
 def einstellung_lesen(rows: Any) -> dict[str, Any]:
     """Die gespeicherte Wahl - Ton und Boxen (rein, testbar).
 
@@ -398,6 +510,10 @@ def einstellung_lesen(rows: Any) -> dict[str, Any]:
     Klang umbenennt, niemanden mit einer kaputten Einstellung
     zurücklässt. Keine Boxen gewählt heisst still - siehe Kopf dieser
     Datei.
+
+    Jede Box kommt als Eintrag mit Lautstärke und Zeitspanne heraus,
+    auch wenn im Speicher noch die alte Form (nur die Kennung) steht -
+    siehe ``box_lesen``.
     """
     for row in rows or []:
         if isinstance(row, dict):
@@ -405,12 +521,11 @@ def einstellung_lesen(rows: Any) -> dict[str, Any]:
             if sound not in BY_KEY:
                 sound = STANDARD
             boxen = row.get("speakers")
-            return {
-                "sound": sound,
-                "speakers": (
-                    [str(eintrag) for eintrag in boxen if str(eintrag)]
-                    if isinstance(boxen, list)
-                    else []
-                ),
-            }
+            gelesen = []
+            if isinstance(boxen, list):
+                for eintrag in boxen:
+                    box = box_lesen(eintrag)
+                    if box is not None:
+                        gelesen.append(box)
+            return {"sound": sound, "speakers": gelesen}
     return {"sound": STANDARD, "speakers": []}
