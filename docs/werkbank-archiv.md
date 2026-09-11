@@ -4252,3 +4252,39 @@ fotografiert lesen». Auf dem Hub und nicht auf dem Telefon: Ein
 natives OCR-Modul hätte eine weitere neue Hülle gebraucht; ein
 apt-Paket im Abbild braucht keine. Ohne das Extra sagt die App beim
 Foto, was fehlt, statt still nichts zu finden.
+
+### 534. Die Leuchte lernt dazu, wenn ihre Spots später kommen ✓ erledigt
+
+*lohnt sich · Aufwand: klein · Hub*
+
+Aus dem Haus: «Hier kann ich immer noch nicht die Helligkeit, Farbe und
+wie weiss das Licht sein soll einstellen» - im Ablauf-Editor, an zwei
+Leuchten aus mehreren Lampen. Es sah nach einem fehlenden Bedienelement
+aus und war eine falsche Auskunft des Hubs.
+
+Was die Leuchte kann, rechnet `merged_commands` beim **Anlegen** aus
+ihren Mitgliedern aus - aus denen, die in dem Moment schon registriert
+sind. Eine Hue-Bridge meldet sich langsamer, als der Hub startet: Dann
+ist keines da, und die Leuchte bleibt bei «ein, aus, umschalten».
+Kommen die Spots später, zog `_recompute` bisher nur den **Zustand**
+nach, nie die Befehlsliste. Sie blieb falsch, bis zufällig ein Neustart
+die andere Reihenfolge brachte.
+
+In der App hängen genau drei Dinge an dieser Liste: Helligkeit
+(`set_brightness`), Farbe (`set_color`) und Weissanteil
+(`set_color_temp`). Sie fehlten deshalb im Ablauf-Schritt - und in der
+Szene, und auf der Kachel. Dass es mal ging und mal nicht, machte es
+schwer zu fassen: «immer noch nicht» ist die Beschreibung eines
+Fehlers, der zwischendurch weg war.
+
+`_recompute` zieht die Befehle jetzt mit nach, über ein neues
+`registry.set_commands` - dieselbe Art zu melden wie `set_combined`, mit
+`state_changed` und der ganzen Entität, sodass die App die neue Liste
+sieht. Sie heilt sich damit von selbst: Beim ersten Zustandswechsel
+eines Mitglieds steht sie richtig, spätestens Sekunden nach dem Start.
+
+Nachgewiesen rot: Ohne die drei Zeilen in `_recompute` fällt
+`test_die_leuchte_lernt_dazu_wenn_ihre_spots_spaeter_kommen` um - die
+Leuchte bleibt bei den drei Schaltbefehlen, obwohl ihr Spot Farbe kann.
+
+Stellen: `hub/homepilot/integrations/group.py`, `hub/homepilot/core/registry.py`
