@@ -1,6 +1,6 @@
 """Die Brandmeldeanlage - Rauch- und Gasmelder als eigene Anlage.
 
-Punkt 445 der Werkbank. Was sie tut, wenn ein Melder anschlägt, und
+Punkt 543 der Werkbank. Was sie tut, wenn ein Melder anschlägt, und
 warum sie keine Betriebsart kennt, steht in ``core/brandmelder.py``;
 hier sind die Seiteneffekte: Push mit Bild, Durchsage, Lichter, Storen,
 Türen, die übrigen Melder, der Verlauf - und das Quittieren.

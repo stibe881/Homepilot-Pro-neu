@@ -1,5 +1,5 @@
 /**
- * Die Brandmeldeanlage in der App (Punkt 445) - das Rechnen.
+ * Die Brandmeldeanlage in der App (Punkt 543) - das Rechnen.
  *
  * Der Hub entscheidet, ob es brennt (core/brandmelder.py); hier steht
  * nur, wie das auf dem Bildschirm heisst und wie sich die Melderliste

@@ -10,7 +10,7 @@ import { verpasstsatz } from '../lib/pushruhe';
 import { Colors, icon, radius, space, type, useColors } from '../theme';
 
 /**
- * Der Posteingang (Punkt 435) - hinter der Glocke auf der Startseite.
+ * Der Posteingang (Punkt 524) - hinter der Glocke auf der Startseite.
  *
  * «Zuletzt gemeldet» in den Push-Einstellungen gab es schon, drei
  * Tipps tief und ohne Unterschied zwischen «ich habe es übersehen» und

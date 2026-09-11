@@ -1,4 +1,4 @@
-"""Eigene Alarm-Modi (Punkt 426) und der Voralarm (Punkt 427).
+"""Eigene Alarm-Modi (Punkt 515) und der Voralarm (Punkt 516).
 
 Drei feste Modi decken das Übliche, nicht «Nur Erdgeschoss» oder
 «Gäste da». Und der erste Melder allein machte die Anlage bisher sofort

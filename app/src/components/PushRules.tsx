@@ -16,18 +16,35 @@ import {
   naechsteWahl,
   tuerSatz,
 } from '../lib/waschkueche';
-import { GuardStand, dabei, storenSatz, umschalten } from '../lib/storenwahl';
 import {
+  GuardStand,
+  dabei,
+  fuehlerDabei,
+  fuehlerSatz,
+  fuehlerUmschalten,
+  storenSatz,
+  umschalten,
+} from '../lib/storenwahl';
+import {
+  Klingelbox,
   Klingeltonstand,
+  LAUTSTAERKEN,
+  boxAendern,
+  boxStand,
   NACHT_BIS,
   NACHT_MODI,
   NACHT_VON,
   type NachtRegel,
   boxUmschalten,
+  istGewaehlt,
   klingeltonSatz,
+  spanneSatz,
+  uhrzeitSauber,
   lautsprecherName,
   nachtSatz,
 } from '../lib/klingelton';
+import { klingeltonUrl } from '../lib/klingeltonprobe';
+import { Klingelprobe } from './Klingelprobe';
 import { Automation, triggerIcon } from '../screens/automations/entwurf';
 
 /**
@@ -146,6 +163,16 @@ export function PushRules({
   // Während die Testtaste einen Ton abspielt, damit sie nicht zehnmal
   // hintereinander antippbar ist.
   const [klingelTestLaeuft, setKlingelTestLaeuft] = useState(false);
+  // Welcher Ton gerade *hier* spielen soll - auf dem Gerät in der Hand,
+  // nicht auf den Boxen. `takt` zählt die Anklicks, damit derselbe Ton
+  // beim zweiten Tippen wieder von vorn beginnt (siehe Klingelprobe).
+  // Was schiefging, als der Ton hier spielen sollte. Vorher verschwand
+  // jeder Fehlschlag lautlos - «es kommt kein Ton» war von «der Ton ist
+  // leise» nicht zu unterscheiden.
+  const [klingelProbeFehler, setKlingelProbeFehler] = useState<string | null>(null);
+  const [klingelProbe, setKlingelProbe] = useState<{ sound: string; takt: number } | null>(
+    null
+  );
   // Ab welcher Schwelle und zu welcher Stunde die Batterie erinnert, und
   // wie viele Tage vorher der Gutschein. Beides stand in den
   // Einstellungen unter Benachrichtigungen - also an einem anderen Ort
@@ -235,6 +262,19 @@ export function PushRules({
     }
   };
 
+  // Welche Fühler der Hitze-Hinweis berücksichtigt (Punkt 540). Kam aus
+  // dem Haus mit einem Bild der Push: «Es sollen nicht alle Sensoren
+  // berücksichtigt werden.»
+  const fuehlerWaehlen = async (art: 'temp' | 'humidity', id: string) => {
+    if (!guard) return;
+    const neu = fuehlerUmschalten(guard[art], id);
+    try {
+      setGuard(await hub.put<GuardStand>('/api/coverguard', { [art]: neu }, { still: true }));
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+    }
+  };
+
   const tuerWaehlen = async (id: string) => {
     const naechste = naechsteWahl(tuer, id);
     try {
@@ -254,19 +294,49 @@ export function PushRules({
     }
   };
 
-  const klingelBoxWaehlen = async (id: string) => {
-    if (!klingel) return;
+  /**
+   * Ein Klang wurde angetippt: sofort hier hörbar machen, und wenn es
+   * die Rechte erlauben, auch gleich wählen.
+   *
+   * Beides an einem Tipp, weil beim Aussuchen genau das die Frage ist -
+   * «wie klingt der» und «den nehme ich» liegen einen Wimpernschlag
+   * auseinander. Wer nur zuhören darf, hört wenigstens zu.
+   */
+  const klingelAntippen = (sound: string) => {
+    setKlingelProbeFehler(null);
+    setKlingelProbe((vorher) => ({ sound, takt: (vorher?.takt ?? 0) + 1 }));
+    if (mayEdit) void klingelSoundWaehlen(sound);
+  };
+
+  const klingelBoxenSchreiben = async (speakers: Klingelbox[]) => {
     try {
       setKlingel(
         await hub.put<Klingeltonstand>(
           '/api/push/doorbell-sound',
-          { speakers: boxUmschalten(klingel.speakers, id) },
+          { speakers },
           { still: true }
         )
       );
     } catch (err) {
       setError(String(err instanceof Error ? err.message : err));
     }
+  };
+
+  const klingelBoxWaehlen = async (id: string) => {
+    if (!klingel) return;
+    await klingelBoxenSchreiben(boxUmschalten(klingel.speakers, id));
+  };
+
+  /** Wie laut es auf genau dieser Box klingelt. */
+  const klingelBoxLaut = async (id: string, volume: number) => {
+    if (!klingel) return;
+    await klingelBoxenSchreiben(boxAendern(klingel.speakers, id, { volume }));
+  };
+
+  /** Und in welcher Zeitspanne. */
+  const klingelBoxZeit = async (id: string, spanne: { from?: string; to?: string }) => {
+    if (!klingel) return;
+    await klingelBoxenSchreiben(boxAendern(klingel.speakers, id, spanne));
   };
 
   // Nacht und Ansage (Punkt 429/430) - dieselbe Route, ein Feld auf einmal.
@@ -452,11 +522,21 @@ export function PushRules({
                   stand={klingel}
                   mayEdit={mayEdit}
                   testLaeuft={klingelTestLaeuft}
-                  onSound={klingelSoundWaehlen}
+                  onSound={klingelAntippen}
                   onBox={klingelBoxWaehlen}
+                  onBoxLaut={klingelBoxLaut}
+                  onBoxZeit={klingelBoxZeit}
                   onNacht={klingelNachtWaehlen}
                   onAnsage={klingelAnsageWaehlen}
                   onTesten={klingelTesten}
+                  probeUrl={
+                    klingelProbe
+                      ? klingeltonUrl(settings.url, settings.token, klingelProbe.sound)
+                      : null
+                  }
+                  probeTakt={klingelProbe?.takt ?? 0}
+                  probeFehler={klingelProbeFehler}
+                  onProbeFehler={setKlingelProbeFehler}
                   styles={styles}
                   colors={colors}
                 />
@@ -545,6 +625,30 @@ export function PushRules({
                   styles={styles}
                   colors={colors}
                 />
+              ) : null}
+
+              {/* Und worauf sie hört. Nur bei der Hitze: Der Sturm
+                  richtet sich nach der Wetterwarnung, nicht nach einem
+                  Fühler im Haus. */}
+              {rule.key === 'heat_covers' && rule.enabled && guard ? (
+                <>
+                  <FuehlerWahl
+                    art="temp"
+                    stand={guard}
+                    mayEdit={mayEdit}
+                    onWaehlen={fuehlerWaehlen}
+                    styles={styles}
+                    colors={colors}
+                  />
+                  <FuehlerWahl
+                    art="humidity"
+                    stand={guard}
+                    mayEdit={mayEdit}
+                    onWaehlen={fuehlerWaehlen}
+                    styles={styles}
+                    colors={colors}
+                  />
+                </>
               ) : null}
             </Card>
           ))}
@@ -857,6 +961,104 @@ function StorenWahl({
 }
 
 /**
+ * Welche Fühler der Hitze-Hinweis berücksichtigt (Punkt 540).
+ *
+ * Dieselbe Form wie `StorenWahl` darüber - Chip zum Aufklappen, dann
+ * eine Liste mit Häkchen -, und aus demselben Grund in derselben Karte:
+ * Es ist dieselbe Regel, und wer hier etwas ändert, will wissen, was
+ * die Nachricht daneben sagt.
+ *
+ * Zwei Unterschiede zu den Storen, beide bewusst:
+ *
+ * - **Die Liste kommt vom Hub**, nicht aus allen Geräten. Er hat schon
+ *   gefiltert: drinnen, plausibel messend, nicht «zählt nur für seinen
+ *   Raum». Wer hier etwas anhaken könnte, das danach doch nicht zählt,
+ *   hätte eine Einstellung, die scheinbar nichts tut.
+ * - **Leer heisst bei der Feuchte «keine»**, nicht «alle». Ohne
+ *   angehakten Fühler nennt die Nachricht gar keine Luftfeuchtigkeit -
+ *   so war es bisher, und so bleibt es ohne Zutun.
+ */
+function FuehlerWahl({
+  art,
+  stand,
+  mayEdit,
+  onWaehlen,
+  styles,
+  colors,
+}: {
+  art: 'temp' | 'humidity';
+  stand: GuardStand;
+  mayEdit: boolean;
+  onWaehlen: (art: 'temp' | 'humidity', id: string) => void;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Colors;
+}) {
+  const [offen, setOffen] = useState(false);
+  const gewaehlt = stand[art];
+  // Ein Hub, der die Fühlerwahl noch nicht kennt, schickt die Listen gar
+  // nicht - dann bleibt der Abschnitt weg, statt die ganze Regelliste
+  // mit «Cannot read properties of undefined» abstürzen zu lassen.
+  const fuehler = (art === 'temp' ? stand.temp_sensors : stand.humidity_sensors) ?? [];
+  if (fuehler.length === 0) return null;
+
+  return (
+    <View style={styles.tuerBlock}>
+      <Text style={styles.tuerTitel}>
+        {art === 'temp'
+          ? 'Diese Fühler sagen, wie warm es drinnen ist'
+          : 'Und diese, wie feucht'}
+      </Text>
+      <Text style={styles.detail}>{fuehlerSatz(gewaehlt, fuehler, art)}</Text>
+      {mayEdit ? (
+        <Pressable
+          onPress={() => setOffen((wert) => !wert)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: offen }}
+          accessibilityLabel={art === 'temp' ? 'Temperaturfühler wählen' : 'Feuchtefühler wählen'}
+          style={styles.tuerChip}
+        >
+          <Ionicons
+            name={art === 'temp' ? 'thermometer-outline' : 'water-outline'}
+            size={14}
+            color={colors.inkSoft}
+          />
+          <Text style={styles.tuerChipText}>Fühler wählen</Text>
+          <Ionicons
+            name={offen ? 'chevron-up' : 'chevron-down'}
+            size={14}
+            color={colors.inkSoft}
+          />
+        </Pressable>
+      ) : null}
+      {offen
+        ? fuehler.map((eintrag) => {
+            const an = fuehlerDabei(gewaehlt, eintrag.id);
+            return (
+              <Pressable
+                key={eintrag.id}
+                onPress={() => onWaehlen(art, eintrag.id)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: an }}
+                style={styles.tuerZeile}
+              >
+                <Ionicons
+                  name={an ? 'checkbox' : 'square-outline'}
+                  size={16}
+                  color={an ? colors.on : colors.inkFaint}
+                />
+                <Text style={[styles.tuerZeileText, an && { color: colors.ink }]}>
+                  {eintrag.name}
+                  {eintrag.room ? ` · ${eintrag.room}` : ''}
+                </Text>
+              </Pressable>
+            );
+          })
+        : null}
+    </View>
+  );
+}
+
+/**
  * Ton und Boxen des Klingeltons.
  *
  * Dieselbe Form wie StorenWahl darüber (Chip zum Aufklappen, dann eine
@@ -865,15 +1067,72 @@ function StorenWahl({
  * Boxen. Ohne gewählte Box bleibt die Testtaste weg - anhören kann man
  * nur, was auch beim echten Klingeln spielen würde.
  */
+/**
+ * Ein Feld für eine Uhrzeit, wie beim Wecker (components/WeckerFormular).
+ *
+ * Getippt wird frei, gelesen wird erst beim Verlassen: Wer «7» tippt,
+ * meint 07:00, und wer mittendrin bei «7:» steht, soll nicht schon ein
+ * «07:00» unter den Fingern haben. Was gar nicht geht, fällt auf die
+ * Vorgabe zurück - eine kaputte Eingabe darf dazu führen, dass es zu oft
+ * klingelt, nicht dass es nie klingelt.
+ */
+function Zeitfeld({
+  wert,
+  vorgabe,
+  label,
+  onFertig,
+  styles,
+  colors,
+}: {
+  wert: string;
+  vorgabe: string;
+  label: string;
+  onFertig: (zeit: string) => void;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Colors;
+}) {
+  const [entwurf, setEntwurf] = useState(wert);
+  useEffect(() => setEntwurf(wert), [wert]);
+  return (
+    <TextInput
+      style={styles.zeitfeld}
+      value={entwurf}
+      onChangeText={setEntwurf}
+      onBlur={() => {
+        const sauber = uhrzeitSauber(entwurf, vorgabe);
+        setEntwurf(sauber);
+        if (sauber !== wert) onFertig(sauber);
+      }}
+      onSubmitEditing={() => {
+        const sauber = uhrzeitSauber(entwurf, vorgabe);
+        setEntwurf(sauber);
+        if (sauber !== wert) onFertig(sauber);
+      }}
+      keyboardType="numbers-and-punctuation"
+      maxLength={5}
+      placeholder={vorgabe}
+      placeholderTextColor={colors.inkFaint}
+      accessibilityLabel={label}
+    />
+  );
+}
+
+
 function Klingeltonwahl({
   stand,
   mayEdit,
   testLaeuft,
   onSound,
   onBox,
+  onBoxLaut,
+  onBoxZeit,
   onNacht,
   onAnsage,
   onTesten,
+  probeUrl,
+  probeTakt,
+  probeFehler,
+  onProbeFehler,
   styles,
   colors,
 }: {
@@ -882,9 +1141,19 @@ function Klingeltonwahl({
   testLaeuft: boolean;
   onSound: (sound: string) => void;
   onBox: (id: string) => void;
+  /** Wie laut es auf *dieser* Box klingelt. */
+  onBoxLaut: (id: string, volume: number) => void;
+  /** Und wann - «from», «to» oder beides. */
+  onBoxZeit: (id: string, spanne: { from?: string; to?: string }) => void;
   onNacht: (night: NachtRegel) => void;
   onAnsage: (patch: { announce?: boolean; announce_text?: string }) => void;
   onTesten: () => void;
+  /** Der Ton, der gerade hier spielen soll - null, solange keiner. */
+  probeUrl: string | null;
+  probeTakt: number;
+  /** Warum hier nichts zu hören war - null, solange alles gut ging. */
+  probeFehler: string | null;
+  onProbeFehler: (satz: string) => void;
   styles: ReturnType<typeof makeStyles>;
   colors: Colors;
 }) {
@@ -897,6 +1166,9 @@ function Klingeltonwahl({
   return (
     <View style={styles.tuerBlock}>
       <Text style={styles.tuerTitel}>Klingelton auf den Boxen</Text>
+      {/* Die Chips sind auch ohne Bearbeitungsrecht antippbar: Dann
+          wählen sie nichts, spielen den Ton aber hier ab. Zuhören darf
+          jeder. */}
       <View style={styles.wahlZeile}>
         {stand.sounds.map((klang) => {
           const an = stand.sound === klang.key;
@@ -904,10 +1176,12 @@ function Klingeltonwahl({
             <Pressable
               key={klang.key}
               onPress={() => onSound(klang.key)}
-              disabled={!mayEdit}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: an, disabled: !mayEdit }}
+              accessibilityRole={mayEdit ? 'radio' : 'button'}
+              accessibilityState={{ selected: an }}
               accessibilityLabel={klang.label}
+              accessibilityHint={
+                mayEdit ? 'Spielt den Ton hier ab und wählt ihn' : 'Spielt den Ton hier ab'
+              }
               style={[styles.wahlChip, an && styles.wahlChipAn]}
             >
               <Text style={[styles.wahlText, an && styles.wahlTextAn]}>{klang.label}</Text>
@@ -915,7 +1189,17 @@ function Klingeltonwahl({
           );
         })}
       </View>
+      {/* Unsichtbar, einen Punkt gross: der Abspieler für die Probe. */}
+      <Klingelprobe uri={probeUrl} takt={probeTakt} onFehler={onProbeFehler} />
+      {/* Und wenn er nicht spielt, steht es da. Stille ohne Erklärung
+          ist die schlechteste Rückmeldung: Sie sieht aus wie ein Gerät,
+          das kaputt ist, und lässt sich von «zu leise» nicht
+          unterscheiden. */}
+      {probeFehler ? <Text style={styles.probeFehler}>{probeFehler}</Text> : null}
       <Text style={styles.detail}>{klingeltonSatz(stand)}</Text>
+      <Text style={styles.origin}>
+        Antippen spielt den Ton hier ab – die Boxen im Haus bleiben still.
+      </Text>
       {mayEdit && stand.candidates.length > 0 ? (
         <Pressable
           onPress={() => setOffen((wert) => !wert)}
@@ -935,27 +1219,98 @@ function Klingeltonwahl({
       ) : null}
       {offen
         ? stand.candidates.map((box) => {
-            const an = stand.speakers.includes(box.id);
+            const an = istGewaehlt(stand.speakers, box.id);
+            const eigen = boxStand(stand.speakers, box.id);
             return (
-              <Pressable
-                key={box.id}
-                onPress={() => onBox(box.id)}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: an }}
-                style={styles.tuerZeile}
-              >
-                <Ionicons
-                  name={an ? 'checkbox' : 'square-outline'}
-                  size={16}
-                  color={an ? colors.on : colors.inkFaint}
-                />
-                <Text style={[styles.tuerZeileText, an && { color: colors.ink }]}>
-                  {lautsprecherName(box)}
-                </Text>
-              </Pressable>
+              <View key={box.id}>
+                <Pressable
+                  onPress={() => onBox(box.id)}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: an }}
+                  style={styles.tuerZeile}
+                >
+                  <Ionicons
+                    name={an ? 'checkbox' : 'square-outline'}
+                    size={16}
+                    color={an ? colors.on : colors.inkFaint}
+                  />
+                  <Text style={[styles.tuerZeileText, an && { color: colors.ink }]}>
+                    {lautsprecherName(box)}
+                  </Text>
+                  {an ? (
+                    <Text style={styles.boxKurz}>
+                      {eigen.volume} % · {spanneSatz(eigen)}
+                    </Text>
+                  ) : null}
+                </Pressable>
+                {/* Wie laut und wann - je Box, nicht fürs Haus. Die
+                    Küchenbox steht neben dem Esstisch und darf leise
+                    sein, im Keller hört man sonst nichts; und im
+                    Kinderzimmer soll es abends still bleiben, während
+                    der Flur weiter klingelt. Beides steht eingerückt
+                    unter *ihrer* Zeile, damit kein Zweifel bleibt,
+                    wofür es gilt. */}
+                {an && mayEdit ? (
+                  <View style={styles.boxBlock}>
+                    <View style={styles.wahlZeile}>
+                      <Text style={styles.wahlWort}>Laut</Text>
+                      {LAUTSTAERKEN.map((laut) => (
+                        <Pressable
+                          key={laut}
+                          onPress={() => onBoxLaut(box.id, laut)}
+                          accessibilityRole="radio"
+                          accessibilityState={{ selected: eigen.volume === laut }}
+                          accessibilityLabel={`${lautsprecherName(box)}: ${laut} Prozent`}
+                          style={[
+                            styles.wahlChip,
+                            eigen.volume === laut && styles.wahlChipAn,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.wahlText,
+                              eigen.volume === laut && styles.wahlTextAn,
+                            ]}
+                          >
+                            {laut} %
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                    <View style={styles.wahlZeile}>
+                      <Text style={styles.wahlWort}>Von</Text>
+                      <Zeitfeld
+                        wert={eigen.from}
+                        vorgabe="00:00"
+                        label={`${lautsprecherName(box)}: ab wann`}
+                        onFertig={(zeit) => onBoxZeit(box.id, { from: zeit })}
+                        styles={styles}
+                        colors={colors}
+                      />
+                      <Text style={styles.wahlWort}>bis</Text>
+                      <Zeitfeld
+                        wert={eigen.to}
+                        vorgabe="24:00"
+                        label={`${lautsprecherName(box)}: bis wann`}
+                        onFertig={(zeit) => onBoxZeit(box.id, { to: zeit })}
+                        styles={styles}
+                        colors={colors}
+                      />
+                    </View>
+                  </View>
+                ) : null}
+              </View>
             );
           })
         : null}
+      {/* Einmal unter der Liste statt unter jeder Box: Derselbe Satz
+          dreimal untereinander liest sich wie drei verschiedene. */}
+      {offen && mayEdit && stand.speakers.length > 0 ? (
+        <Text style={styles.origin}>
+          Gleiche Zeiten heissen «immer». Über Mitternacht hinweg gilt die Spanne
+          umgekehrt: 22:00 bis 07:00 ist die Nacht.
+        </Text>
+      ) : null}
       {stand.speakers.length > 0 ? (
         <>
           {/* Nachts (Punkt 429): Ein Gong um Mitternacht weckt das ganze
@@ -1063,11 +1418,13 @@ function Klingeltonwahl({
           onPress={onTesten}
           disabled={testLaeuft}
           accessibilityRole="button"
-          accessibilityLabel="Klingelton anhören"
+          accessibilityLabel="Klingelton auf den gewählten Boxen abspielen"
           style={[styles.tuerChip, testLaeuft && { opacity: 0.5 }]}
         >
           <Ionicons name="play-outline" size={14} color={colors.inkSoft} />
-          <Text style={styles.tuerChipText}>{testLaeuft ? 'Spielt…' : 'Anhören'}</Text>
+          <Text style={styles.tuerChipText}>
+            {testLaeuft ? 'Spielt…' : 'Auf den Boxen'}
+          </Text>
         </Pressable>
       ) : null}
     </View>
@@ -1083,6 +1440,25 @@ const makeStyles = (colors: Colors) =>
     // Chip-Reihe sonst um, und die zweite Zeile begann früher links unter
     // der Beschriftung statt unter dem ersten Chip.
     wahlBlock: { gap: 6 },
+    // Was zu *einer* Box gehört, steht eingerückt unter ihrer Zeile -
+    // sonst bliebe offen, für welche der drei gewählten Boxen die
+    // Lautstärke gerade gilt.
+    boxBlock: { gap: 6, paddingLeft: 24, paddingBottom: 8 },
+    boxKurz: { color: colors.inkFaint, fontSize: 12, marginLeft: 'auto' },
+    probeFehler: { color: colors.warn, fontSize: 12 },
+    zeitfeld: {
+      color: colors.ink,
+      fontSize: 13,
+      paddingVertical: 6,
+      paddingHorizontal: 10,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surfaceSoft,
+      width: 78,
+      flexGrow: 0,
+      textAlign: 'center',
+    },
     wahlZeile: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
     wahlWort: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
     wahlChip: {

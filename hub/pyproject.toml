@@ -36,7 +36,7 @@ speech = ["gTTS>=2.5"]
 # Gutschein-Belege: Text aus dem angehängten PDF ziehen, damit Betrag,
 # Nummer und Ablaufdatum nicht abgetippt werden müssen (Punkt 298).
 beleg = ["pypdf>=4.0"]
-# Fotografierte Belege (Punkt 444): Tesseract über pytesseract; das
+# Fotografierte Belege (Punkt 533): Tesseract über pytesseract; das
 # Programm selbst kommt im Abbild per apt (tesseract-ocr + deu).
 ocr = ["pytesseract>=0.3.10", "Pillow>=10"]
 # Haustür-Live-Aktivität: direkter APNs-Versand (HTTP/2 + ES256-Signatur).

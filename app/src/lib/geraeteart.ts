@@ -281,7 +281,43 @@ export function melderArt(
  */
 export function zeigtStopp(entity: Entity): boolean {
   if (!entity.commands.includes('turn_off')) return false;
-  return ['playing', 'paused', 'buffering'].includes(String(entity.state.state ?? ''));
+  return LAEUFT.includes(String(entity.state.state ?? ''));
+}
+
+/** Zustände, in denen eine Sitzung steht - auch die pausierte. */
+const LAEUFT = ['playing', 'paused', 'buffering'];
+
+/**
+ * Welches Gerät der Stopp-Knopf beendet - null heisst: kein Knopf
+ * (rein, testbar).
+ *
+ * Die Medienkarte zeigt nicht immer eine Box: Auf der Startseite zeigt
+ * sie meist Spotify oder das Radio, im Zimmer die Box des Zimmers
+ * (lib/musikwahl.ts, pickPlayer). Spotify und Radio kennen kein
+ * `turn_off` - sie sind nur die Quelle, besetzt ist die Box. Darum
+ * fehlte der Stopp-Knopf auf der Startseite, während er im Zimmer
+ * stand: dieselbe Karte, zwei verschiedene Geräte darin.
+ *
+ * Steht also eine Quelle vor uns, sucht der Knopf die Box, auf der sie
+ * gerade spielt (`state.device`, in der App unter dem Anzeigenamen -
+ * derselbe Abgleich wie in der Boxen-Liste der Karte). Nicht die
+ * gewünschte Box: Auf der ist nichts zu beenden, solange dort nichts
+ * läuft.
+ */
+export function stoppZiel(
+  gezeigt: Entity,
+  players: Entity[],
+  activeDevice?: string | null
+): Entity | null {
+  if (zeigtStopp(gezeigt)) return gezeigt;
+  if (!hatEigeneAuswahl(gezeigt)) return null;
+  if (!LAEUFT.includes(String(gezeigt.state.state ?? ''))) return null;
+  const name = (activeDevice ?? '').trim();
+  if (!name) return null;
+  // Der Zustand der Box selbst zählt hier absichtlich nicht: Läuft
+  // Spotify auf ihr, meldet die Cast-Integration je nach Empfänger
+  // «idle» - die Sitzung besteht trotzdem, und genau die soll weg.
+  return players.find((box) => box.name === name && box.commands.includes('turn_off')) ?? null;
 }
 
 export function istMusikbox(entity: Entity): boolean {

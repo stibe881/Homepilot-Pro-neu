@@ -143,6 +143,74 @@ def stale_entity_rows(
     return weg
 
 
+# ── Einen Raum umbenennen (Punkt 495 der Werkbank) ────────────────────────
+#
+# «Gerät ersetzen» oben schreibt eine *Kennung* um. Ein Raum hat keine:
+# Sein Name ist sein Schlüssel, und er steht an sieben Stellen - an den
+# Geräten, an den Szenen, in der Kachel-Reihenfolge («room:Küche»), in
+# den ausgeblendeten Kacheln, an den Raumfotos. Wer ihn in der
+# config.yaml von «Büro» auf «Arbeitszimmer» ändert, hat danach ein
+# Zimmer ohne Foto, ohne Reihenfolge und ohne seine Szenen - und nichts
+# sagt es, weil nichts fehlschlägt: Der Hub überspringt still, was er
+# nicht kennt. Dieselbe Sorte stiller Ausfall wie beim Gerätetausch, nur
+# an einem Namen statt an einer Kennung.
+
+#: Die Schlüssel, unter denen Kachel-Reihenfolgen je Raum liegen.
+RAUM_PRAEFIX = "room:"
+
+
+def swap_room_in_rows(rows: list[dict[str, Any]], alt: str, neu: str) -> int:
+    """Das Feld ``room`` in einer Zeilenliste umschreiben (rein, testbar)."""
+    treffer = 0
+    for row in rows:
+        if row.get("room") == alt:
+            row["room"] = neu
+            treffer += 1
+    return treffer
+
+
+def swap_room_in_order(order: Any, alt: str, neu: str) -> int:
+    """Die Kachel-Reihenfolge eines Raums mitnehmen (rein, testbar).
+
+    Der Schlüssel heisst «room:Küche». Gibt es unter dem neuen Namen
+    schon eine Reihenfolge, gewinnt sie: Wer dorthin umbenennt, wo
+    schon etwas steht, hat den Raum vermutlich zusammengelegt - und die
+    Reihenfolge des Ziels ist die, die man vor Augen hat.
+    """
+    if not isinstance(order, dict):
+        return 0
+    alt_key, neu_key = f"{RAUM_PRAEFIX}{alt}", f"{RAUM_PRAEFIX}{neu}"
+    if alt_key not in order:
+        return 0
+    wert = order.pop(alt_key)
+    if neu_key not in order:
+        order[neu_key] = wert
+    return 1
+
+
+def swap_room_in_values(values: Any, alt: str, neu: str) -> int:
+    """Einen Raumnamen in einer flachen Liste umschreiben (rein, testbar).
+
+    Für die ausgeblendeten Kacheln und die Raum-Reihenfolge selbst.
+    Doppelte entstehen dabei nicht: Steht der neue Name schon drin,
+    fällt der alte einfach weg.
+    """
+    if not isinstance(values, list):
+        return 0
+    treffer = 0
+    raus: list[Any] = []
+    for wert in values:
+        if wert == alt:
+            treffer += 1
+            if neu not in raus and neu not in values:
+                raus.append(neu)
+            continue
+        raus.append(wert)
+    if treffer:
+        values[:] = raus
+    return treffer
+
+
 def swap_in_list(values: list[Any], old: str, new: str) -> int:
     """Blosse Kennungslisten (Favoriten, Ausgeblendete, Gesperrte) (rein).
 

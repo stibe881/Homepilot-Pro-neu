@@ -12,10 +12,44 @@ export interface Ruhezeit {
   enabled: boolean;
   from: number;
   to: number;
+  /** An welchen Wochentagen sie gilt (0 = Montag). Leer heisst «alle» –
+   *  so war sie, bevor es die Tage gab (Punkt 479 der Werkbank).
+   *  Samstagmorgen ist nicht Dienstagmorgen, und die Ferienwoche keine
+   *  Arbeitswoche. */
+  days?: number[];
 }
 
 /** Die Vorgabe, solange der Hub noch nichts geschickt hat. */
-export const RUHE_AUS: Ruhezeit = { enabled: false, from: 22, to: 7 };
+export const RUHE_AUS: Ruhezeit = { enabled: false, from: 22, to: 7, days: [] };
+
+/** Die Wochentage, wie sie auf den Knöpfen stehen – 0 = Montag, wie im
+ *  Hub und wie in den Abläufen. */
+export const WOCHENTAGE = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+
+/**
+ * Die Wochentage einer Ruhezeit ordnen (rein, testbar).
+ *
+ * Alle sieben werden zu leer, weil das dasselbe ist: Wer alle anklickt,
+ * meint «egal», und zwei Schreibweisen für einen Zustand laufen
+ * auseinander. Dieselbe Regel wie im Hub (core/pushruhe.py).
+ */
+export function tageOrdnen(tage: number[] | undefined): number[] {
+  const gewaehlt = [...new Set((tage ?? []).filter((tag) => tag >= 0 && tag <= 6))];
+  return gewaehlt.length === 7 ? [] : gewaehlt.sort((a, b) => a - b);
+}
+
+/** «Mo–Fr», «Sa, So» oder «jeden Tag» (rein, testbar). */
+export function tageSatz(tage: number[] | undefined): string {
+  const gewaehlt = tageOrdnen(tage);
+  if (gewaehlt.length === 0) return 'jeden Tag';
+  // Eine zusammenhängende Woche als Spanne: «Mo–Fr» liest sich in einem
+  // Blick, «Mo, Di, Mi, Do, Fr» muss man zählen.
+  const luecke = gewaehlt.some((tag, index) => index > 0 && tag !== gewaehlt[index - 1] + 1);
+  if (!luecke && gewaehlt.length > 2) {
+    return `${WOCHENTAGE[gewaehlt[0]]}–${WOCHENTAGE[gewaehlt[gewaehlt.length - 1]]}`;
+  }
+  return gewaehlt.map((tag) => WOCHENTAGE[tag]).join(', ');
+}
 
 /** Zur Auswahl stehende Stunden – ganze, weil man seine Nacht so denkt. */
 export const STUNDEN = Array.from({ length: 24 }, (_, n) => n);
@@ -36,7 +70,11 @@ export function ruhesatz(ruhe: Ruhezeit): string {
   if (!ruhe.enabled) return 'Aus – alles kommt, wann es kommt.';
   if (ruhe.from === ruhe.to) return 'Aus – Anfang und Ende sind gleich.';
   const spanne = (ruhe.to - ruhe.from + 24) % 24;
-  return `Still von ${uhr(ruhe.from)} bis ${uhr(ruhe.to)} – ${spanne} Stunden.`;
+  const tage = tageOrdnen(ruhe.days);
+  // Die Tage nur, wenn sie etwas einschränken: «jeden Tag» dahinter
+  // wäre eine Zeile, die nichts sagt.
+  const wann = tage.length > 0 ? ` (${tageSatz(tage)})` : '';
+  return `Still von ${uhr(ruhe.from)} bis ${uhr(ruhe.to)}${wann} – ${spanne} Stunden.`;
 }
 
 /**

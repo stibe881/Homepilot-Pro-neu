@@ -1,5 +1,5 @@
 /**
- * Die Modi der Alarmanlage - eingebaute und eigene (Punkt 426).
+ * Die Modi der Alarmanlage - eingebaute und eigene (Punkt 515).
  *
  * «Nacht», «Ausser Haus», «Urlaub» kennt der Hub fest; dazu kommen die
  * eigenen aus den Einstellungen («Nur Erdgeschoss», «Gäste da»). Der

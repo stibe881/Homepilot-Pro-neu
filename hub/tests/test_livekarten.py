@@ -456,9 +456,17 @@ def test_abgleich_startet_aktualisiert_und_beendet():
     rows, starten, aktualisieren, beenden = abgleich(rows, [], ["Stibe", "Bine"], 3000.0)
     assert len(beenden) == 2
     assert sorted(len(b["tokens"]) for b in beenden) == [0, 1]
-    # Die mit Token ist erledigt; die ohne bleibt vorgemerkt, sonst
-    # wüsste der Hub nichts mehr von der Karte, die noch liegt.
-    assert [(r["user"], r.get("ende_offen")) for r in rows] == [("Bine", True)]
+    # **Beide** bleiben vorgemerkt, auch die mit Token. `abgleich`
+    # rechnet nur; ob das Ende wirklich draussen war, weiss erst der
+    # Takt - und nur er darf die Zeile dann austragen (`_runde`,
+    # beendet). Stand das früher hier, verschwand die Zeile auch dann,
+    # wenn Apple gerade nicht erreichbar war, und die Karte lag bis zum
+    # Abend auf dem Sperrbildschirm, ohne dass noch jemand von ihr
+    # wusste.
+    assert sorted((r["user"], r.get("ende_offen")) for r in rows) == [
+        ("Bine", True),
+        ("Stibe", True),
+    ]
 
 
 def test_wer_das_haus_verlaesst_verliert_die_fernseher_karte():
@@ -496,11 +504,17 @@ def test_wer_das_haus_verlaesst_verliert_die_fernseher_karte():
     # noch vor dem Fernseher.
     assert [auftrag["tokens"] for auftrag in beenden] == [["tok-stefan"]]
     assert beenden[0]["sichtbar"] == 0.0 and beenden[0]["state"] is None
-    assert [row["user"] for row in neue] == ["Bine"]
     assert starten == []
+    # Stefans Zeile bleibt vorgemerkt, bis der Takt das Ende wirklich
+    # losgeworden ist (siehe test_abgleich_startet_aktualisiert_und_beendet).
+    assert sorted((row["user"], row.get("ende_offen")) for row in neue) == [
+        ("Bine", None),
+        ("Stefan", True),
+    ]
 
     # Kommt Stefan heim (und der Fernseher läuft noch), startet seine
-    # Karte frisch.
+    # Karte frisch: Eine vorgemerkte Zeile zählt nicht als laufend
+    # (liegt_noch), sonst käme nie wieder eine Karte.
     ohne_ohne = {**karte}
     ohne_ohne.pop("ohne")
     _, wieder, _, _ = abgleich(neue, [ohne_ohne], ["Stefan", "Bine"], 2000.0)
@@ -719,11 +733,15 @@ def test_karte_ohne_token_bleibt_vorgemerkt_und_endet_beim_nachtragen():
     assert beenden[0]["art"] == "tv:cast.wz" and beenden[0]["user"] == "Stibe"
     assert hat_karte(rows, "Stibe", "tv:cast.wz")
 
-    # Jetzt kommt das Token - es landet an der vorgemerkten Zeile.
+    # Jetzt kommt das Token - es landet an der vorgemerkten Zeile, und
+    # der Auftrag zum Beenden trägt es mit.
     rows = token_merken(rows, "Stibe", "tv:cast.wz", "act-7")
     rows, _, _, beenden = abgleich(rows, [], ["Stibe"], 1200.0)
     assert [b["tokens"] for b in beenden] == [["act-7"]]
-    assert rows == []
+    # Vorgemerkt bleibt sie auch jetzt noch: Ausgetragen wird sie erst,
+    # wenn das Ende wirklich bei Apple angekommen ist - und das weiss
+    # nur der Takt (`_runde`, beendet).
+    assert [r.get("ende_offen") for r in rows] == [True]
 
 
 def test_vorgemerkte_karte_faellt_nach_dem_nachhall_weg():
@@ -869,5 +887,228 @@ async def test_ein_start_der_nie_ankam_wird_nicht_als_laufend_verbucht():
         assert hub.data.get(modul.KARTEN_KEY) == []
         # Und das tote Telefon ist ausgetragen.
         assert hub.data.get(modul.START_KEY) == []
+    finally:
+        await hub.stop()
+
+
+async def test_ein_ende_das_nie_ankam_wird_im_naechsten_takt_erneut_versucht():
+    """Der gemeldete Fall, vierte Runde: «Die Live-Aktivität verschwindet
+    immer noch nicht von alleine, wenn der Fernseher ausschaltet.»
+
+    Die drei Runden davor drehten sich darum, ob der Hub die Karte noch
+    *will* (Geisterbild, Erreichbarkeit, leeres Soll) und ob er ein
+    Token zum Beenden *hat*. Beides war behoben - und die Karte lag
+    trotzdem weiter da, weil niemand prüfte, ob das Ende überhaupt
+    ankam.
+
+    `senden` gibt False zurück, wenn Apple nicht erreichbar ist oder
+    ablehnt. Das wurde verworfen, während die Zeile in `live_cards`
+    zugleich verschwand: Danach wusste der Hub nichts mehr von der
+    Karte, kein späterer Takt konnte sie abräumen, und sie lag bis zum
+    Ende des Tages auf dem Sperrbildschirm. Im tvcheck sah das aus wie
+    «eine Leiche aus einer früheren Fassung» - dabei entstand sie
+    gerade eben.
+    """
+    from homepilot.core import livekarten as modul
+    from homepilot.core.hub import Hub
+
+    from .conftest import make_config
+
+    hub = Hub(
+        make_config(
+            users=[{"name": "Stefan", "role": "besitzer", "token": "t"}],
+            integrations=[{"integration": "demo"}],
+        )
+    )
+    await hub.start()
+    try:
+        hub.data.set(modul.START_KEY, [{"user": "Stefan", "token": "start-1"}])
+        hub.data.set(
+            modul.KARTEN_KEY,
+            [
+                {
+                    "user": "Stefan",
+                    "art": "tv:cast.wz",
+                    "stand": "{}",
+                    "activity_tokens": ["act-1"],
+                    "aktualisiert": time.time(),
+                }
+            ],
+        )
+        versuche: list[str] = []
+
+        class Versand:
+            """Apple ist gerade nicht erreichbar."""
+
+            tote: set[str] = set()
+
+            def __init__(self) -> None:
+                self.klappt = False
+
+            async def senden(self, token: str, payload: dict) -> bool:
+                if payload["aps"]["event"] == "end":
+                    versuche.append(token)
+                return self.klappt
+
+        versand = Versand()
+        await modul._runde(hub, versand)
+
+        # Das Ende ging raus, kam aber nicht an - die Zeile bleibt, sonst
+        # weiss im nächsten Takt niemand mehr von der Karte.
+        assert versuche == ["act-1"]
+        zeilen = [
+            row
+            for row in hub.data.get(modul.KARTEN_KEY)
+            if row.get("art") == "tv:cast.wz"
+        ]
+        assert len(zeilen) == 1
+        assert zeilen[0]["ende_offen"] is True
+        assert zeilen[0]["activity_tokens"] == ["act-1"]
+
+        # Nächster Takt, Apple antwortet wieder: Jetzt geht sie weg.
+        # Geprüft wird nur diese eine Zeile - was die Demo-Integration
+        # daneben an eigenen Karten hervorbringt, gehört nicht zur Frage.
+        versand.klappt = True
+        await modul._runde(hub, versand)
+        assert versuche == ["act-1", "act-1"]
+        assert [
+            row
+            for row in hub.data.get(modul.KARTEN_KEY)
+            if row.get("art") == "tv:cast.wz"
+        ] == []
+    finally:
+        await hub.stop()
+
+
+async def test_ein_totes_token_haelt_keine_karte_fest():
+    """Die Gegenprobe zum Test darüber: Lehnt Apple das Token endgültig
+    ab, ist die Aktivität dahinter längst vorbei. Es erneut zu versuchen
+    hiesse, zwölf Stunden lang alle zwanzig Sekunden gegen eine Wand zu
+    klopfen - und die Zeile bliebe dabei für immer stehen."""
+    from homepilot.core import livekarten as modul
+    from homepilot.core.hub import Hub
+
+    from .conftest import make_config
+
+    hub = Hub(
+        make_config(
+            users=[{"name": "Stefan", "role": "besitzer", "token": "t"}],
+            integrations=[{"integration": "demo"}],
+        )
+    )
+    await hub.start()
+    try:
+        hub.data.set(modul.START_KEY, [{"user": "Stefan", "token": "start-1"}])
+        hub.data.set(
+            modul.KARTEN_KEY,
+            [
+                {
+                    "user": "Stefan",
+                    "art": "tv:cast.wz",
+                    "stand": "{}",
+                    "activity_tokens": ["act-tot"],
+                    "aktualisiert": time.time(),
+                }
+            ],
+        )
+
+        class Versand:
+            def __init__(self) -> None:
+                self.tote: set[str] = set()
+
+            async def senden(self, token: str, payload: dict) -> bool:
+                if payload["aps"]["event"] == "end":
+                    self.tote.add(token)
+                return False
+
+        await modul._runde(hub, Versand())
+        assert [
+            row
+            for row in hub.data.get(modul.KARTEN_KEY)
+            if row.get("art") == "tv:cast.wz"
+        ] == []
+    finally:
+        await hub.stop()
+
+
+async def test_eine_haengende_karte_meldet_sich_einmal_und_nicht_alle_zwanzig_sekunden(
+    caplog,
+):
+    """Aus dem Protokoll des Hauses, vierzig Zeilen am Stück:
+
+        08:42:15 Live-Karte tv:androidtv.10_10_1_37 für Tablet: Ende ohne Token
+        08:42:15 Live-Karte erinnerung:SoK6… für Tablet: Ende ohne Token
+        08:42:15 Live-Karte tv:androidtv.10_10_1_240 für Tablet: Ende ohne Token
+        08:42:35 … dieselben drei …
+
+    Ein Wandtablet meldete zu keiner Karte je ein Token. Der Takt läuft
+    alle zwanzig Sekunden, eine Zeile bleibt bis zu zwölf Stunden
+    vorgemerkt - das sind über zweitausend gleiche Zeilen je Karte.
+    Docker hält 3 × 10 MB; nach ein paar Tagen stand nichts anderes mehr
+    darin.
+
+    Das ist nicht bloss unschön: Es hat die Fehlersuche gekostet. Auf
+    die Frage «kam das Ende bei Apple an?» hätte die Antwort im
+    Protokoll gestanden - überschrieben von der Meldung über genau
+    dieses Problem.
+    """
+    import logging
+
+    from homepilot.core import livekarten as modul
+    from homepilot.core.hub import Hub
+
+    from .conftest import make_config
+
+    hub = Hub(
+        make_config(
+            users=[
+                {"name": "Stefan", "role": "besitzer", "token": "t"},
+                # Das Wandtablet - es meldet nie ein Aktivitäts-Token.
+                {"name": "Tablet", "role": "bewohner", "token": "t2"},
+            ],
+            integrations=[{"integration": "demo"}],
+        )
+    )
+    await hub.start()
+    try:
+        hub.data.set(modul.START_KEY, [{"user": "Tablet", "token": "start-1"}])
+        hub.data.set(
+            modul.KARTEN_KEY,
+            [
+                {
+                    "user": "Tablet",
+                    "art": "tv:androidtv.wz",
+                    "stand": "{}",
+                    "activity_tokens": [],
+                    "aktualisiert": time.time(),
+                }
+            ],
+        )
+
+        class Versand:
+            tote: set[str] = set()
+
+            async def senden(self, token: str, payload: dict) -> bool:
+                return True
+
+        versand = Versand()
+        with caplog.at_level(logging.INFO, logger="homepilot.core.livekarten"):
+            for _ in range(5):
+                await modul._runde(hub, versand)
+
+        gemeldet = [
+            eintrag
+            for eintrag in caplog.records
+            if "Ende ohne Token" in eintrag.getMessage()
+            and "tv:androidtv.wz" in eintrag.getMessage()
+        ]
+        assert len(gemeldet) == 1, [e.getMessage() for e in gemeldet]
+        # Vorgemerkt bleibt sie trotzdem - geschwiegen wird über den
+        # Zustand, nicht über die Karte.
+        assert [
+            row
+            for row in hub.data.get(modul.KARTEN_KEY)
+            if row.get("art") == "tv:androidtv.wz"
+        ]
     finally:
         await hub.stop()

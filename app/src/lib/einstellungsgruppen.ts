@@ -121,7 +121,7 @@ const STICHWORTE: Record<string, readonly string[]> = {
   // «sitzung», «abmelden», «geräte»: Seit Punkt 244 wohnen der
   // Passwort-Wechsel und «Meine Geräte» im Konto - wer sein verlorenes
   // Telefon hinauswerfen will, tippt eines dieser Wörter, nicht «Konto».
-  account: ['push', 'benachrichtigung', 'mitteilung', 'profil', 'darstellung', 'design', 'farbe', 'symbol', 'sperre', 'passwort', 'sitzung', 'sitzungen', 'abmelden', 'geräte'],
+  account: ['push', 'benachrichtigung', 'mitteilung', 'profil', 'darstellung', 'design', 'farbe', 'symbol', 'sperre', 'passwort', 'sitzung', 'sitzungen', 'abmelden', 'geräte', 'reihenfolge', 'sortierung', 'kacheln', 'tageszeit', 'wandpanel', 'grundriss'],
   connection: ['token', 'hub', 'adresse', 'server', 'url', 'anmelden', 'kalender', 'spotify', 'google', 'mail', 'dienst', 'dienste'],
   automations: ['szene', 'szenen', 'automation', 'regel', 'zeitplan'],
   besuch: ['wlan', 'gast', 'gäste', 'babysitter', 'qr'],
@@ -211,7 +211,7 @@ export function filtere<T extends Eintrag>(punkte: readonly T[], suche: string):
  * `kind` unterscheidet die echte Anlage des Hubs von einem Schalter, der
  * bloss «Alarm» heisst: Der kennt nur ein und aus.
  */
-/** Die Plakette der Brandmeldeanlage (rein, testbar) - Punkt 445. */
+/** Die Plakette der Brandmeldeanlage (rein, testbar) - Punkt 543. */
 export function brandPlakette(zustand: string | null | undefined): Plakette | undefined {
   const wert = String(zustand ?? '').trim();
   if (!wert) return undefined;

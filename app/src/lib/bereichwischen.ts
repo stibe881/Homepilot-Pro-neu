@@ -1,5 +1,5 @@
 /**
- * Die Wischgeste zwischen den Bereichen (Punkt 433) - das Rechnen.
+ * Die Wischgeste zwischen den Bereichen (Punkt 522) - das Rechnen.
  *
  * Anders als die Zurück-Geste (lib/zurueckwischen.ts) beginnt sie
  * überall, nicht nur an der Kante: Sie meint kein «zurück», sondern

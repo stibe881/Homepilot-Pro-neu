@@ -53,14 +53,20 @@ def test_die_liste_nennt_alle_fuenf():
     with make_client() as client:
         antwort = client.get("/api/diagnose", headers=auth("t-owner"))
         assert antwort.status_code == 200
-        namen = {zeile["key"] for zeile in antwort.json()["werkzeuge"]}
+        werkzeuge = antwort.json()["werkzeuge"]
+        namen = {zeile["key"] for zeile in werkzeuge}
         assert namen == {
+            # Punkt 491 der Werkbank: das eine, das alle fünf ruft -
+            # und es steht zuoberst, weil man es zuerst greift, wenn man
+            # nicht weiss, woran es liegt.
+            "hauscheck",
             "storencheck",
             "livecheck",
             "tvcheck",
             "saugercheck",
             "pushcheck",
         }
+        assert werkzeuge[0]["key"] == "hauscheck"
 
 
 def test_ein_unbekanntes_werkzeug_gibt_404():

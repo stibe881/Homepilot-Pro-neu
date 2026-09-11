@@ -117,7 +117,7 @@ export function Lauftext({
     };
   }, [laeuft, plan.weite, plan.wanderMs, versatz]);
 
-  // Messung und Anzeige sind getrennt (Punkt 441, Werkbank 353): Der
+  // Messung und Anzeige sind getrennt (Punkt 530, Werkbank 353): Der
   // Messkasten bleibt immer 4000 Punkte breit und unsichtbar, damit der
   // Text darin seine eigene Breite meldet - bei jedem Layout-Durchgang,
   // nicht nur beim ersten. Vorher schrumpfte derselbe Kasten nach der

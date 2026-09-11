@@ -339,7 +339,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     def anhaenge_aufnehmen(
         collection: str, item_id: Any, body: dict[str, Any]
     ) -> list[dict[str, Any]] | None:
-        """Die Liste ``files`` (Punkt 431) ablegen - None ohne diese Liste.
+        """Die Liste ``files`` (Punkt 520) ablegen - None ohne diese Liste.
 
         Neue Dateien (mit ``data``) bekommen eine Kennung und werden
         abgelegt; fertige Blöcke reisen unverändert weiter. Ohne die
@@ -442,7 +442,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     ) -> Response:
         """Die Datei eines Eintrags, für jede Sammlung mit Dateiordner.
 
-        ``f`` ist die Kennung einer weiteren Datei (Punkt 431); ohne sie
+        ``f`` ist die Kennung einer weiteren Datei (Punkt 520); ohne sie
         kommt die erste, wie bisher.
         """
         if collection not in dateien.ORDNER:
@@ -474,7 +474,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         if ordner is None or kennung is None:
             raise HTTPException(status_code=404, detail="Keine Datei")
         anhang_eintrag(collection, kennung, user, "Keine Datei")
-        # Alle Belege hintereinander (Punkt 431): Der Betrag steht im
+        # Alle Belege hintereinander (Punkt 520): Der Betrag steht im
         # einen, die Nummer im anderen - die App sucht in beidem.
         dateien_hier = (
             sorted(ordner.glob(f"{kennung}.*")) + sorted(ordner.glob(f"{kennung}{dateien.TRENNER}*"))
@@ -490,7 +490,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         return {
             "text": "\n\n".join(t for t in texte if t),
             "verfuegbar": beleglesen.verfuegbar(),
-            # Ob auch Fotos lesbar sind (Punkt 444) - die App sagt sonst
+            # Ob auch Fotos lesbar sind (Punkt 533) - die App sagt sonst
             # beim Bild «kann Fotos nicht lesen» statt «PDF».
             "ocr": beleglesen.ocr_verfuegbar(),
         }

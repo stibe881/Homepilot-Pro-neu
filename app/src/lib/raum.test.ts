@@ -2,13 +2,15 @@
 import { Entity } from '../api/types';
 import {
   alphabetisch,
+  imRaum,
   inBeschattung,
-  raeumeSortiert,
   kontaktZeile,
-  raumKategorien,
-  raumFakten,
-  raumKlima,
+  raeumeSortiert,
+  raeumeVon,
   raumDunkel,
+  raumFakten,
+  raumKategorien,
+  raumKlima,
   raumLeuchtet,
   raumMesswerte,
   raumSymbol,
@@ -29,13 +31,8 @@ const geraet = (patch: Partial<Entity>): Entity =>
   }) as Entity;
 
 describe('raumZeile', () => {
-  it('nennt Temperatur, offenes Fenster und laufende Musik', () => {
+  it('nennt offenes Fenster und laufende Musik', () => {
     const zeile = raumZeile([
-      geraet({
-        kind: 'sensor',
-        name: 'Temperatur Bad',
-        state: { state: 21.53, unit: '°C', humidity: 45 },
-      }),
       geraet({
         kind: 'binary_sensor',
         name: 'Fenster Bad',
@@ -43,7 +40,21 @@ describe('raumZeile', () => {
       }),
       geraet({ kind: 'media_player', name: 'Box', state: { state: 'playing' } }),
     ]);
-    expect(zeile).toBe('21,5° · 45 % · Fenster Bad offen · Musik läuft');
+    expect(zeile).toBe('Fenster Bad offen · Musik läuft');
+  });
+
+  it('lässt Temperatur und Feuchte weg - die stehen oben in der Ecke', () => {
+    // Punkt 538: Sie standen hier *und* seit dem Umbau im Bild darüber.
+    // Dieselbe Auskunft zweimal auf einer Kachel, zwei Zeilen
+    // auseinander - und die untere ist die, die keiner sucht.
+    const zeile = raumZeile([
+      geraet({
+        kind: 'sensor',
+        name: 'Temperatur Bad',
+        state: { state: 21.53, unit: '°C', humidity: 45 },
+      }),
+    ]);
+    expect(zeile).toBe('');
   });
 
   it('meldet Beschattung - unten, aber mit offenen Lamellen', () => {
@@ -140,6 +151,43 @@ describe('raumKategorien', () => {
     );
     expect(kategorien.map((k) => k.label)).toEqual(['Beleuchtung']);
     expect(kategorien.flatMap((k) => k.items.map((e) => e.id))).not.toContain('sz1');
+  });
+
+  it('gibt dem ruhigen Rauchwarnmelder keine Kachel mehr', () => {
+    // Punkt 542: Er hängt an der Decke, bedienen lässt sich nichts, und
+    // die Kachel sagte immer dasselbe. Was man wissen will, steht unter
+    // Einstellungen → System.
+    const kategorien = raumKategorien(
+      [
+        geraet({ id: 'l1', kind: 'light' }),
+        geraet({
+          id: 'r1',
+          kind: 'binary_sensor',
+          name: 'Rauchmelder Flur',
+          state: { state: 'off', device_class: 'smoke' },
+        }),
+      ],
+      () => 'Rauchmelder'
+    );
+    expect(kategorien.flatMap((k) => k.items.map((e) => e.id))).not.toContain('r1');
+  });
+
+  it('stellt den meldenden Rauchwarnmelder trotzdem ins Zimmer', () => {
+    // Die halbe Regel ist «solange sie ruhig sind». Eine ausgeblendete
+    // Brandmeldung wäre kein aufgeräumter Bildschirm, sondern ein
+    // Fehler.
+    const kategorien = raumKategorien(
+      [
+        geraet({
+          id: 'r1',
+          kind: 'binary_sensor',
+          name: 'Rauchmelder Flur',
+          state: { state: 'on', device_class: 'smoke' },
+        }),
+      ],
+      () => 'Rauchmelder'
+    );
+    expect(kategorien.flatMap((k) => k.items.map((e) => e.id))).toContain('r1');
   });
 });
 
@@ -448,5 +496,42 @@ describe('raumFakten zählt, was der Raum zeigt', () => {
       ['weg']
     );
     expect(zeile).toBe('1 von 1 an');
+  });
+});
+
+// ── Ein Gerät in mehreren Zimmern (Punkt 539) ─────────────────────────
+//
+// Gewünscht im Haus: «man soll einen Sensor auch mehreren Räumen
+// zuweisen können». Der Fall ist der offene Wohnbereich - ein
+// Klimafühler, zwei Zimmer.
+
+describe('raeumeVon', () => {
+  it('nimmt die Liste, wenn der Hub eine schickt', () => {
+    const fuehler = geraet({ kind: 'sensor', rooms: ['Wohnzimmer', 'Esszimmer'] });
+    expect(raeumeVon(fuehler)).toEqual(['Wohnzimmer', 'Esszimmer']);
+  });
+
+  it('kommt mit einem älteren Hub zurecht, der nur `room` kennt', () => {
+    // Sonst verschwänden nach einem Hub-Update sämtliche Geräte aus
+    // ihren Zimmern, bis jemand den Hub neu startet.
+    expect(raeumeVon(geraet({ kind: 'sensor', room: 'Bad' }))).toEqual(['Bad']);
+    expect(raeumeVon(geraet({ kind: 'sensor' }))).toEqual([]);
+  });
+});
+
+describe('imRaum', () => {
+  it('findet das Gerät in jedem seiner Zimmer', () => {
+    const fuehler = geraet({ kind: 'sensor', rooms: ['Wohnzimmer', 'Esszimmer'] });
+    expect(imRaum(fuehler, 'Wohnzimmer')).toBe(true);
+    expect(imRaum(fuehler, 'Esszimmer')).toBe(true);
+    expect(imRaum(fuehler, 'Bad')).toBe(false);
+  });
+
+  it('sagt ohne Zimmer nein statt zu allem ja', () => {
+    // `entity.room === undefined` wäre für einen Aufruf mit undefined
+    // wahr - und dann stünde jedes raumlose Gerät in jedem Zimmer.
+    expect(imRaum(geraet({ kind: 'sensor' }), undefined)).toBe(false);
+    expect(imRaum(geraet({ kind: 'sensor' }), '')).toBe(false);
+    expect(imRaum(geraet({ kind: 'sensor', room: 'Bad' }), null)).toBe(false);
   });
 });

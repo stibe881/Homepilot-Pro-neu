@@ -92,7 +92,7 @@ ENDUNGEN: dict[str, str] = {endung: typ for typ, endung in TYPES.items()}
 # gehört nicht an einen Gutschein, sondern in eine Cloud.
 MAX_BYTES = 10 * 1024 * 1024
 
-#: Mehrere Dateien je Eintrag (Punkt 431): Jede weitere trägt eine eigene
+#: Mehrere Dateien je Eintrag (Punkt 520): Jede weitere trägt eine eigene
 #: kurze Kennung und liegt als «<eintrag>_f_<kennung>.<endung>» im Ordner.
 #: Die erste Datei aus der Zeit davor heisst weiter «<eintrag>.<endung>»
 #: und hat keine Kennung - so bleibt jede alte Adresse gültig.
@@ -176,7 +176,7 @@ def loeschen(folder: Path | None, item_id: Any) -> None:
 
     Dasselbe Aufräumen wie beim Bild; unterschieden werden die beiden
     durch den Ordner, nicht durch den Code - plus die weiteren Dateien
-    mit Kennung (Punkt 431).
+    mit Kennung (Punkt 520).
     """
     bilder.loeschen(folder, item_id)
     kennung = bilder.safe_id(item_id)
@@ -214,7 +214,7 @@ def kennung_aus_name(item_id: str, name: str) -> str:
 def anhaenge(row: Any) -> list[dict[str, Any]]:
     """Alle Datei-Blöcke eines Eintrags (rein, testbar).
 
-    ``files`` ist die Liste (Punkt 431); ein Eintrag aus der Zeit davor
+    ``files`` ist die Liste (Punkt 520); ein Eintrag aus der Zeit davor
     hat nur ``file``, und der zählt dann als die eine Datei. Beides
     zugleich gibt es nicht: Die Route hält ``file`` als ersten Eintrag
     von ``files`` nach, damit ältere App-Fassungen ihn weiter sehen.
@@ -312,7 +312,7 @@ def block(
     Genau diese vier Felder, und sie sind der Vertrag mit der App: Sie
     zeigt `name` und `bytes` in der Kachel (ein Name allein sagt nicht,
     ob das Laden über Mobilfunk eine gute Idee ist), wählt am `type` das
-    Symbol und öffnet `url`. Dazu seit Punkt 431 die Kennung `id` bei
+    Symbol und öffnet `url`. Dazu seit Punkt 520 die Kennung `id` bei
     jeder Datei, die nicht die erste alte ist.
     """
     ergebnis = {"url": url, "name": name, "type": typ, "bytes": int(groesse)}

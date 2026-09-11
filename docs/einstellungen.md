@@ -37,7 +37,9 @@ Was Gewohnheit ist und darum jedem selbst gehört:
 eigene Favoriten und ihre Reihenfolge · die Reihenfolge der
 Schnellaktionen ganz oben (Szenen und die zwei Storen-Knöpfe) · Kameras
 nach Betrieb sortieren ·
-Ansichten nach Tageszeit · Live-Karten auf dem Sperrbildschirm und welche
+Ansichten nach Tageszeit und meistbenutzte Räume zuerst (beide Schalter
+stehen unter Einstellungen → Konto → «Kacheln»; sie standen bis Punkt 507
+auf der Räume-Seite selbst) · Live-Karten auf dem Sperrbildschirm und welche
 Arten davon · Durchsage-Box und die eigenen Sätze · **der gewählte
 Anblick** (hell, dunkel, Pink, Mitternacht, Sand …) · **Reihenfolge und
 Ausgeblendetes der Playlists je Musikkarte** · **welche Box ein Rezept

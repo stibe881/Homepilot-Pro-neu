@@ -38,6 +38,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from . import klingelton, lautplan, say
@@ -882,15 +883,34 @@ class Tonmeister:
         Ohne gewählte Boxen passiert nichts - siehe Kopf von
         klingelton.py, warum eine leere Auswahl hier nicht «alle» heisst.
 
-        Nachts (Punkt 429) spielt der Ton leiser oder gar nicht; danach
-        folgt, wenn gewünscht, die Ansage (Punkt 430) auf denselben
+        Nachts (Punkt 518) spielt der Ton leiser oder gar nicht; danach
+        folgt, wenn gewünscht, die Ansage (Punkt 519) auf denselben
         Boxen - der Fernseher ist über Cast eine davon.
 
         Gibt die Namen der Boxen zurück, die den Ton bekommen haben.
         """
         stand = klingelton.einstellung_lesen(self.hub.data.get(klingelton.DATA_KEY))
-        ziel_speakers = speakers if speakers is not None else stand["speakers"]
-        if not ziel_speakers:
+        if speakers is not None:
+            # Die Testtaste in der App: Sie übergibt die eben angetippten
+            # Boxen, auch wenn sie noch nicht gespeichert sind. Die
+            # Zeitspanne gilt hier bewusst *nicht* - wer auf «anhören»
+            # tippt, will hören, auch um Mitternacht. Die Lautstärke
+            # dagegen schon, sonst probierte man etwas anderes aus, als
+            # man später bekommt.
+            gewaehlt = [{"id": str(eintrag)} for eintrag in speakers]
+            bekannt = klingelton.lautstaerken(stand["speakers"])
+            boxen = [
+                {"id": box["id"], "volume": bekannt.get(box["id"], klingelton.LAUTSTAERKE)}
+                for box in gewaehlt
+            ]
+        else:
+            # Der echte Klingelknopf: Hier entscheidet die Zeitspanne je
+            # Box mit. Abends soll es im Kinderzimmer still bleiben,
+            # während es im Flur weiter klingelt.
+            boxen = klingelton.aktive_boxen(
+                stand["speakers"], datetime.now().strftime("%H:%M")
+            )
+        if not boxen:
             return []
         ziel_sound = sound or stand["sound"]
         address = say.base_url(self.hub)
@@ -903,12 +923,21 @@ class Tonmeister:
             log.info("Klingelton nachts still - nur die Nachricht geht hinaus")
             return []
         audio = klingelton.klang_wav(ziel_sound)
+        ziel_speakers = [box["id"] for box in boxen]
+        # Je Box ihre eigene Lautstärke (die Wahl in der App), nachts
+        # gedeckelt: «leise» ist eine Obergrenze, keine feste Zahl -
+        # sonst würde eine bewusst leise gestellte Box nachts *lauter*.
+        ziel_volume = klingelton.lautstaerken(boxen)
+        if volume < klingelton.LAUTSTAERKE:
+            ziel_volume = {
+                kennung: min(wert, volume) for kennung, wert in ziel_volume.items()
+            }
         ergebnis = await say.play_audio(
             self.hub,
             audio,
             address,
             speakers=ziel_speakers,
-            volume=volume,
+            volume=ziel_volume,
         )
         gespielt = list(ergebnis.get("sent", []))
         if stand["announce"] and gespielt:

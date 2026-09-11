@@ -316,7 +316,7 @@ const makeStyles = (colors: Colors) =>
     card: { gap: 10 },
     heading: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
     hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },
-    note: { color: colors.warn, fontSize: 12, lineHeight: 18 },
+    note: { color: colors.warnInk, fontSize: 12, lineHeight: 18 },
     chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     chip: {
       flexDirection: 'row',

@@ -76,7 +76,7 @@ describe('Sperren', () => {
   });
 });
 
-describe('Favorit und Raum (Punkt 432)', () => {
+describe('Favorit und Raum (Punkt 521)', () => {
   it('stehen zwischen Erinnern und Umbenennen, der Stern sagt, was er tut', () => {
     expect(
       kachelAktionen({ verlauf: true, favorit: true, umbenennen: true, raum: true }).map(

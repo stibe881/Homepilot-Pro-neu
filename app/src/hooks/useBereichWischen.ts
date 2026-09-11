@@ -1,5 +1,5 @@
 /**
- * Wischen zwischen den Bereichen (Punkt 433) - das Anmelden der Geste.
+ * Wischen zwischen den Bereichen (Punkt 522) - das Anmelden der Geste.
  *
  * Beansprucht wird sie erst *während* der Bewegung und nicht in der
  * Capture-Fassung, damit die Kinder Vorrang haben: Der Wischdimmer

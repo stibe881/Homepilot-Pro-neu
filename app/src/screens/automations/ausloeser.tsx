@@ -1,7 +1,7 @@
 /**
  * Der Auslöser eines Ablaufs im Editor: welche Art, welches Gerät, wann.
  *
- * Herausgelöst aus editor.tsx (Punkt 422): Der Editor
+ * Herausgelöst aus editor.tsx (Punkt 511): Der Editor
  * war auf über 3000 Zeilen gewachsen - Auslöser, Schritte und
  * Bedingungen je in einer Datei, wie es das Dashboard vorgemacht hat.
  */
@@ -195,7 +195,7 @@ export function TriggerRow({
               nicht gibt - dann läuft er nie und nennt keinen Grund.
               Ohne diesen Satz steht hier bloss kein Chip ausgewählt. */}
           {unbekannterZustand(chosen, trigger.attribute, trigger.toState) ? (
-            <Text style={[styles.triggerNote, { color: colors.warn }]}>
+            <Text style={[styles.triggerNote, { color: colors.warnInk }]}>
               {unbekannterZustand(chosen, trigger.attribute, trigger.toState)}
             </Text>
           ) : null}

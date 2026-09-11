@@ -7,6 +7,8 @@ import {
   chipWahl,
   chipWert,
   helligkeitsOptionen,
+  helligkeitsQuellen,
+  helligkeitsStufen,
   misstLux,
   quelleVon,
   raumHatLux,
@@ -110,5 +112,48 @@ describe('Helligkeit beim Umschalten', () => {
   it('stellt «Helligkeit lassen» nur beim Umschalten voran', () => {
     expect(helligkeitsOptionen(false, true)[0].key).toBe(UNVERAENDERT);
     expect(helligkeitsOptionen(false).map((o) => o.key)).not.toContain(UNVERAENDERT);
+  });
+});
+
+// ── Zwei Fragen statt einer Reihe (Punkt 537 der Werkbank) ────────────
+//
+// «10 % · 25 % · 50 % · 75 % · 100 % · nach Raumhelligkeit · nach
+// Tageszeit» stand als eine Reihe da. Sieben Chips passen auf kein
+// Telefon in eine Zeile, und so stand «nach Tageszeit» allein in der
+// zweiten - wie ein sechster Prozentwert, nur mit Worten statt Zahlen.
+
+describe('helligkeitsStufen', () => {
+  it('führt nur Zahlen, keine Quellen', () => {
+    const keys = helligkeitsStufen().map((o) => o.key);
+    expect(keys).toEqual(['10', '25', '50', '75', '100']);
+    expect(keys).not.toContain(NACH_RAUM);
+    expect(keys).not.toContain(NACH_TAGESZEIT);
+  });
+
+  it('stellt «Helligkeit lassen» voran, wo es das gibt', () => {
+    expect(helligkeitsStufen(true)[0].key).toBe(UNVERAENDERT);
+    expect(helligkeitsStufen().map((o) => o.key)).not.toContain(UNVERAENDERT);
+  });
+});
+
+describe('helligkeitsQuellen', () => {
+  it('bietet die Uhr immer an, den Raum nur mit Fühler', () => {
+    // Ohne Messwert wäre «nach Raumhelligkeit» eine Attrappe; die Uhr
+    // braucht kein Gerät.
+    expect(helligkeitsQuellen(false).map((o) => o.key)).toEqual([NACH_TAGESZEIT]);
+    expect(helligkeitsQuellen(true).map((o) => o.key)).toEqual([
+      NACH_RAUM,
+      NACH_TAGESZEIT,
+    ]);
+  });
+
+  it('ergibt zusammen mit den Stufen wieder die alte Reihe', () => {
+    // Damit die Teilung nichts verliert: Was vorher in einer Reihe
+    // stand, steht jetzt in zweien - aber vollständig.
+    const geteilt = [
+      ...helligkeitsStufen(true).map((o) => o.key),
+      ...helligkeitsQuellen(true).map((o) => o.key),
+    ];
+    expect(geteilt).toEqual(helligkeitsOptionen(true, true).map((o) => o.key));
   });
 });

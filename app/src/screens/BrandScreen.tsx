@@ -14,7 +14,7 @@ import { tapped, triggered } from '../lib/haptics';
 import { Colors, icon, radius, space, type, useColors } from '../theme';
 
 /**
- * Die Brandmeldeanlage (Punkt 445) - Einstellungen → Brandmeldeanlage.
+ * Die Brandmeldeanlage (Punkt 543) - Einstellungen → Brandmeldeanlage.
  *
  * Eine eigene Seite neben der Alarmanlage, weil sie eine andere Frage
  * beantwortet: Die Alarmanlage fragt «ist jemand drin, der nicht

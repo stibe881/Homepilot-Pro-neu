@@ -5,11 +5,20 @@
  */
 import { StyleSheet } from 'react-native';
 
-import { Colors, radius, type } from '../../theme';
+import { Colors, Typmass, radius, type } from '../../theme';
 import { ZIFFERN, schrift } from '../../lib/schriftart';
 
 
-export const makeStyles = (colors: Colors) =>
+/**
+ * Die Stile der Gerätekachel.
+ *
+ * ``typ`` ist die Schriftgrösse dieses Bildschirms (Punkt 445 der
+ * Werkbank) - am Wandpanel grösser als in der Hand. Voreingestellt auf
+ * die gewohnte Grösse, damit die zweihundert Aufrufe von `makeStyles`
+ * quer durch die App unverändert weiterlaufen: Wer die grössere Schrift
+ * will, reicht sie durch, der Rest merkt nichts.
+ */
+export const makeStyles = (colors: Colors, typ: Typmass = type) =>
   StyleSheet.create({
   body: { gap: 8 },
   stack: { gap: 8 },
@@ -175,7 +184,21 @@ export const makeStyles = (colors: Colors) =>
     borderRadius: radius.control,
   },
   roomOptionActive: { backgroundColor: colors.surfaceSoft },
-  roomOptionText: { fontSize: 15, color: colors.ink },
+  roomOptionText: { fontSize: 15, color: colors.ink, flex: 1 },
+  /** «Standort» neben dem ersten gewählten Zimmer - die Reihenfolge
+   *  bedeutet hier etwas (dort liegt die Kachel), und das muss
+   *  dastehen, sonst sieht die Liste aus wie eine beliebige
+   *  Mehrfachauswahl. */
+  roomStandort: { color: colors.accent, fontSize: 12, fontWeight: '700', marginRight: 6 },
+  roomHinweis: { color: colors.inkFaint, fontSize: 12, lineHeight: 17, marginTop: 8 },
+  roomFertig: {
+    marginTop: 10,
+    paddingVertical: 12,
+    borderRadius: radius.control,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+  },
+  roomFertigText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
   renameInput: {
     backgroundColor: colors.surfaceSoft,
     borderRadius: radius.control,
@@ -230,7 +253,7 @@ export const makeStyles = (colors: Colors) =>
   partOfText: { color: colors.inkFaint, fontSize: 11, fontWeight: '600', flex: 1 },
   // Grill: Störung nach vorne – ein leerer Pelletbehälter lässt das
   // Fleisch kalt werden, während man drinnen sitzt.
-  grillProblem: { color: colors.warn, fontSize: 13, fontWeight: '700' },
+  grillProblem: { color: colors.warnInk, fontSize: 13, fontWeight: '700' },
   grillRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   grillStep: {
     width: 30,
@@ -382,7 +405,7 @@ export const makeStyles = (colors: Colors) =>
     // lesbar sein, ohne dass das Bild darunter verschwindet.
     backgroundColor: 'rgba(0,0,0,0.42)',
   },
-  kameraName: { color: '#FFFFFF', fontSize: type.cardTitle, fontWeight: '700' },
+  kameraName: { color: '#FFFFFF', fontSize: typ.cardTitle, fontWeight: '700' },
   kameraZeile: { color: 'rgba(255,255,255,0.82)', fontSize: 12, marginTop: 1 },
   kameraMeldung: {
     color: '#FFD9A0',
@@ -435,9 +458,9 @@ export const makeStyles = (colors: Colors) =>
   lichtPunkt: { width: 10, height: 10, borderRadius: 5 },
   // Der grosse Wert auf der Lichtkachel trägt die Display-Schrift -
   // eine der wenigen Stellen mit Platz dafür (lib/schriftart.ts).
-  lichtWert: { fontSize: type.value, fontWeight: '600', ...schrift(), ...ZIFFERN },
-  lichtName: { fontSize: type.cardTitle, fontWeight: '700', marginTop: 2 },
-  lichtUnter: { fontSize: type.cardSub, opacity: 0.85, marginTop: 1 },
+  lichtWert: { fontSize: typ.value, fontWeight: '600', ...schrift(), ...ZIFFERN },
+  lichtName: { fontSize: typ.cardTitle, fontWeight: '700', marginTop: 2 },
+  lichtUnter: { fontSize: typ.cardSub, opacity: 0.85, marginTop: 1 },
   szeneStand: { fontSize: 12, fontWeight: '600', opacity: 0.8, marginTop: 3 },
   lockButton: {
     flexDirection: 'row',
@@ -484,18 +507,18 @@ export const makeStyles = (colors: Colors) =>
   },
   value: {
     color: colors.ink,
-    fontSize: type.value,
+    fontSize: typ.value,
     fontWeight: '600',
     ...schrift(),
     ...ZIFFERN,
   },
   hint: {
     color: colors.inkSoft,
-    fontSize: type.cardSub,
+    fontSize: typ.cardSub,
   },
   // Wie hint, nur nicht zu übersehen: Er steht dort, wo sonst ein
   // Bedienelement wäre, und erklärt, warum es fehlt.
-  warnHint: { color: colors.warn, fontSize: 12, lineHeight: 17 },
+  warnHint: { color: colors.warnInk, fontSize: 12, lineHeight: 17 },
   detail: {
     color: colors.inkSoft,
     fontSize: 12,

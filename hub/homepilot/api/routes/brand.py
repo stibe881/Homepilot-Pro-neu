@@ -1,4 +1,4 @@
-"""Die Brandmeldeanlage (Punkt 445): Überblick, Quittieren, Stumm, Probe.
+"""Die Brandmeldeanlage (Punkt 543): Überblick, Quittieren, Stumm, Probe.
 
 Anders als bei der Alarmanlage darf hier jeder Bewohner hinein: Wer
 nachts vom Rauchmelder geweckt wird, muss quittieren und stummschalten

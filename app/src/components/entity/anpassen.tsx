@@ -12,6 +12,22 @@ import { useColors } from '../../theme';
 import { Tastaturplatz } from '../Tastaturplatz';
 import { makeStyles } from './stil';
 
+/**
+ * Die Zimmer eines Geräts wählen - eines oder mehrere (Punkt 539).
+ *
+ * Gewünscht im Haus: «man soll einen Sensor auch mehreren Räumen
+ * zuweisen können». Der Fall ist der offene Wohnbereich: ein
+ * Klimafühler, und Wohnzimmer wie Esszimmer sollen ihn zeigen.
+ *
+ * Das erste gewählte Zimmer ist der **Standort** - dort liegt die
+ * Kachel des Geräts, und daher kommt sein Namensvorschlag. Es steht
+ * darum ausdrücklich als solcher da: Ohne den Hinweis sähe die Liste
+ * aus wie eine beliebige Mehrfachauswahl, und dass die Reihenfolge
+ * etwas bedeutet, merkte man erst, wenn die Kachel woanders auftaucht.
+ *
+ * Geschlossen wird von Hand und nicht beim ersten Tipp - wer zwei
+ * Zimmer wählen will, käme sonst nie zum zweiten.
+ */
 export function RoomPicker({
   visible,
   current,
@@ -20,41 +36,81 @@ export function RoomPicker({
   onSelect,
 }: {
   visible: boolean;
-  current: string | null;
+  /** Die zugewiesenen Zimmer, Standort zuerst. */
+  current: string[];
   rooms: string[];
   onClose: () => void;
-  onSelect: (room: string | null) => void;
+  onSelect: (rooms: string[]) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const options: { key: string; label: string; value: string | null }[] = [
-    { key: '__none', label: 'Kein Raum', value: null },
-    ...rooms.map((name) => ({ key: name, label: name, value: name })),
-  ];
+  const [gewaehlt, setGewaehlt] = useState<string[]>(current);
+  // Beim Öffnen den gespeicherten Stand nehmen: Das Blatt bleibt
+  // montiert, und ohne das stünde beim zweiten Öffnen die Wahl von
+  // vorhin da - auch wenn sie inzwischen verworfen wurde.
+  useEffect(() => {
+    if (visible) setGewaehlt(current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
+  const umschalten = (name: string) =>
+    setGewaehlt((vorher) =>
+      vorher.includes(name) ? vorher.filter((eintrag) => eintrag !== name) : [...vorher, name]
+    );
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.roomBackdrop} onPress={onClose}>
         <Pressable style={styles.roomSheet} onPress={() => {}}>
-          <Text style={styles.roomSheetTitle}>Raum wählen</Text>
+          <Text style={styles.roomSheetTitle}>Räume wählen</Text>
           <ScrollView>
-            {options.map((option) => {
-              const active = option.value === current;
+            <Pressable
+              onPress={() => setGewaehlt([])}
+              accessibilityRole="button"
+              accessibilityState={{ selected: gewaehlt.length === 0 }}
+              style={[styles.roomOption, gewaehlt.length === 0 && styles.roomOptionActive]}
+            >
+              <Text style={styles.roomOptionText}>Kein Raum</Text>
+              {gewaehlt.length === 0 ? (
+                <Ionicons name="checkmark" size={20} color={colors.accent} />
+              ) : null}
+            </Pressable>
+            {rooms.map((name) => {
+              const rang = gewaehlt.indexOf(name);
+              const aktiv = rang >= 0;
               return (
                 <Pressable
-                  key={option.key}
-                  onPress={() => onSelect(option.value)}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: active }}
-                  style={[styles.roomOption, active && styles.roomOptionActive]}
+                  key={name}
+                  onPress={() => umschalten(name)}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: aktiv }}
+                  accessibilityLabel={
+                    rang === 0 ? `${name}, Standort` : name
+                  }
+                  style={[styles.roomOption, aktiv && styles.roomOptionActive]}
                 >
-                  <Text style={styles.roomOptionText}>{option.label}</Text>
-                  {active ? (
+                  <Text style={styles.roomOptionText}>{name}</Text>
+                  {rang === 0 ? <Text style={styles.roomStandort}>Standort</Text> : null}
+                  {aktiv ? (
                     <Ionicons name="checkmark" size={20} color={colors.accent} />
                   ) : null}
                 </Pressable>
               );
             })}
           </ScrollView>
+          {gewaehlt.length > 1 ? (
+            <Text style={styles.roomHinweis}>
+              Das Gerät zählt in allen gewählten Zimmern. Seine Kachel steht im
+              Standort – das ist das zuerst gewählte.
+            </Text>
+          ) : null}
+          <Pressable
+            onPress={() => onSelect(gewaehlt)}
+            accessibilityRole="button"
+            style={styles.roomFertig}
+          >
+            <Text style={styles.roomFertigText}>Fertig</Text>
+          </Pressable>
         </Pressable>
       </Pressable>
     </Modal>

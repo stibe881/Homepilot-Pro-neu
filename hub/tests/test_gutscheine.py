@@ -678,7 +678,7 @@ def test_wer_den_anhang_wegnimmt_nimmt_ihn_ganz_weg(tmp_path):
 
 
 def test_mehrere_belege_an_einem_gutschein(tmp_path):
-    """Punkt 431: Bestellbestätigung und Gutschein-PDF gehören beide dran.
+    """Punkt 520: Bestellbestätigung und Gutschein-PDF gehören beide dran.
 
     `file` bleibt der erste Block, damit ältere App-Fassungen weiter
     einen Beleg sehen; jede weitere Datei trägt ihre Kennung in der
@@ -1285,7 +1285,20 @@ def test_verfallen_zeitraum_zaehlt_nur_innerhalb_der_grenzen_und_ohne_stueck():
         {"shop": "D", "unit": "stk", "left": 2, "expires": "2030-06-10"},  # kein Betrag
     ]
     ergebnis = gutscheine.verfallen_zeitraum(rows, date(2030, 6, 1), date(2030, 6, 30))
-    assert ergebnis == {"summe": 30, "anzahl": 1}
+    assert ergebnis == {"summe": 30, "anzahl": 1, "je_waehrung": {"CHF": 30}}
+
+
+def test_verfallen_zeitraum_haelt_waehrungen_auseinander():
+    """Punkt 451: Euro und Franken stehen nebeneinander, nie zusammen."""
+    rows = [
+        {"shop": "A", "unit": "chf", "left": 30, "expires": "2030-06-15"},
+        {"shop": "B", "unit": "eur", "left": 40, "expires": "2030-06-20"},
+    ]
+    ergebnis = gutscheine.verfallen_zeitraum(rows, date(2030, 6, 1), date(2030, 6, 30))
+    assert ergebnis["anzahl"] == 2
+    # `summe` bleibt die Franken-Zahl - der Rückblick liest genau die.
+    assert ergebnis["summe"] == 30
+    assert ergebnis["je_waehrung"] == {"CHF": 30, "EUR": 40}
 
 
 def test_aufgebraucht_kennt_rappenreste_als_leer():
@@ -1441,3 +1454,255 @@ def test_das_buch_druckt_die_codeart_nicht():
     rows = [{"id": "a", "shop": "Brack.ch", "shared": "familie", "code": "qr", "number": "574"}]
     buch = gutscheine.fuers_buch(rows)
     assert "code" not in buch[0] and buch[0]["number"] == "574"
+
+
+# ── Mehrere Nummern an einem Gutschein (Punkt 452) ─────────────────────────
+
+
+def test_bereinigen_macht_aus_der_einen_nummer_eine_liste():
+    """Der Eintrag von vor der Frage verliert seine Nummer nicht."""
+    sauber = gutscheine.bereinigen({"shop": "Kino", "number": "ABC-1"})
+    assert sauber["codes"] == [{"value": "ABC-1", "used": None}]
+    assert sauber["number"] == "ABC-1"
+
+
+def test_bereinigen_wirft_doppelte_und_leere_nummern_weg():
+    sauber = gutscheine.bereinigen(
+        {"shop": "Hallenbad", "codes": ["A", " A ", "", "B"]}
+    )
+    assert [e["value"] for e in sauber["codes"]] == ["A", "B"]
+    # `number` wird abgeleitet, nicht getrennt gepflegt.
+    assert sauber["number"] == "A"
+
+
+def test_bereinigen_haelt_die_gebraucht_marke_fest():
+    sauber = gutscheine.bereinigen(
+        {
+            "shop": "Kino",
+            "codes": [
+                {"value": "A", "used": "2030-01-02T10:00:00"},
+                {"value": "B"},
+            ],
+        }
+    )
+    assert sauber["codes"][0]["used"] == "2030-01-02T10:00:00"
+    assert sauber["codes"][1]["used"] is None
+
+
+def test_naechster_code_nimmt_die_erste_unbenutzte():
+    entry = gutscheine.bereinigen(
+        {"shop": "Kino", "codes": [{"value": "A", "used": "2030-01-02"}, "B", "C"]}
+    )
+    assert gutscheine.naechster_code(entry) == "B"
+    assert gutscheine.offene_codes(entry) == ["B", "C"]
+
+
+def test_naechster_code_zeigt_die_letzte_wenn_alle_gebraucht_sind():
+    """Ein leerer Bildschirm an der Kasse sagt nicht, was los ist."""
+    entry = gutscheine.bereinigen(
+        {"shop": "Kino", "codes": [{"value": "A", "used": "x"}, {"value": "B", "used": "y"}]}
+    )
+    assert gutscheine.offene_codes(entry) == []
+    assert gutscheine.naechster_code(entry) == "B"
+
+
+def test_code_verbrauchen_markiert_nur_den_gemeinten():
+    entry = gutscheine.bereinigen({"shop": "Kino", "codes": ["A", "B"]})
+    neu = gutscheine.code_verbrauchen(entry, "A", datetime(2030, 5, 1, 12, 0))
+    assert neu["codes"][0]["used"] == "2030-05-01T12:00:00"
+    assert neu["codes"][1]["used"] is None
+    # Die Vorlage bleibt unverändert - reine Funktion.
+    assert entry["codes"][0]["used"] is None
+
+
+def test_code_verbrauchen_laesst_eine_schon_gebrauchte_nummer_in_ruhe():
+    entry = gutscheine.bereinigen(
+        {"shop": "Kino", "codes": [{"value": "A", "used": "2030-01-01T08:00:00"}]}
+    )
+    neu = gutscheine.code_verbrauchen(entry, "A", datetime(2030, 5, 1, 12, 0))
+    assert neu["codes"][0]["used"] == "2030-01-01T08:00:00"
+
+
+# ── Währung (Punkt 451) ────────────────────────────────────────────────────
+
+
+def test_euro_ist_eine_einheit_und_wird_nicht_zu_franken():
+    sauber = gutscheine.bereinigen({"shop": "Media Markt", "unit": "eur", "total": 40})
+    assert sauber["unit"] == "eur"
+    assert gutscheine.restwert(sauber) == "40 EUR"
+    assert gutscheine.ist_geld("eur") is True
+    assert gutscheine.ist_geld("stk") is False
+
+
+def test_unbekannte_einheit_wird_weiterhin_zu_franken():
+    assert gutscheine.bereinigen({"shop": "X", "unit": "dollar"})["unit"] == "chf"
+
+
+def test_meldung_nennt_die_waehrung_des_gutscheins():
+    titel, text = gutscheine.meldung(
+        {"shop": "Media Markt", "unit": "eur", "left": 40, "expires": "2030-06-30"}, 7
+    )
+    assert "40 EUR" in text
+
+
+# ── Fast leer (Punkt 457) ──────────────────────────────────────────────────
+
+
+def test_fast_leer_nur_bei_angebrochenen_gutscheinen():
+    assert gutscheine.fast_leer({"unit": "chf", "total": 100, "left": 12}) is True
+    # Frisch geschenkter Zwanziger: ein Gutschein, kein Rest.
+    assert gutscheine.fast_leer({"unit": "chf", "total": 20, "left": 20}) is False
+    assert gutscheine.fast_leer({"unit": "chf", "total": 100, "left": 60}) is False
+    assert gutscheine.fast_leer({"unit": "chf", "total": 100, "left": 0}) is False
+    assert gutscheine.fast_leer({"unit": "stk", "total": 10, "left": 1}) is False
+
+
+# ── Doppelt erfasst (Punkt 456) ────────────────────────────────────────────
+
+
+def test_doppelte_findet_die_gleiche_nummer():
+    rows = [
+        {"id": "1", "shop": "Brack", "number": "XY-9", "codes": [{"value": "XY-9"}]},
+        {"id": "2", "shop": "Coop", "number": "AB-1", "codes": [{"value": "AB-1"}]},
+    ]
+    neu = {"id": "3", "shop": "brack.ch", "number": "xy-9", "codes": [{"value": "xy-9"}]}
+    assert [t["id"] for t in gutscheine.doppelte(rows, neu)] == ["1"]
+
+
+def test_doppelte_vermutet_ohne_nummer_nur_bei_voller_uebereinstimmung():
+    rows = [
+        {"id": "1", "shop": "Coop", "unit": "chf", "total": 50, "expires": "2030-01-01"},
+        {"id": "2", "shop": "Coop", "unit": "chf", "total": 80, "expires": "2030-01-01"},
+    ]
+    gleich = {"shop": "coop", "unit": "chf", "total": 50, "expires": "2030-01-01"}
+    assert [t["id"] for t in gutscheine.doppelte(rows, gleich)] == ["1"]
+    anders = {"shop": "coop", "unit": "chf", "total": 50, "expires": "2031-01-01"}
+    assert gutscheine.doppelte(rows, anders) == []
+
+
+def test_doppelte_zaehlt_verschiedene_nummern_als_gegenbeweis():
+    rows = [{"id": "1", "shop": "Coop", "number": "A", "unit": "chf", "total": 50}]
+    neu = {"shop": "Coop", "number": "B", "unit": "chf", "total": 50}
+    assert gutscheine.doppelte(rows, neu) == []
+
+
+def test_doppelte_uebergeht_sich_selbst_und_das_archiv():
+    rows = [
+        {"id": "1", "shop": "Coop", "number": "A"},
+        {"id": "2", "shop": "Coop", "number": "A", "archived": True},
+    ]
+    assert gutscheine.doppelte(rows, rows[0]) == []
+
+
+# ── Lange leer (Punkt 455) ─────────────────────────────────────────────────
+
+
+def test_lange_leer_nimmt_nur_was_lange_genug_leer_ist():
+    rows = [
+        {
+            "id": "alt",
+            "left": 0,
+            "transactions": [{"at": "2030-01-01T10:00:00", "amount": 50}],
+        },
+        {
+            "id": "frisch",
+            "left": 0,
+            "transactions": [{"at": "2030-05-20T10:00:00", "amount": 50}],
+        },
+        {"id": "voll", "left": 20, "created": "2030-01-01T10:00:00"},
+        {"id": "schon_weg", "left": 0, "archived": True, "created": "2030-01-01"},
+    ]
+    treffer = gutscheine.lange_leer(rows, date(2030, 6, 1), tage=30)
+    assert [t["id"] for t in treffer] == ["alt"]
+
+
+def test_lange_leer_laesst_einen_eintrag_ohne_datum_liegen():
+    """Was niemand datieren kann, verschwindet nicht auf Verdacht."""
+    assert gutscheine.lange_leer([{"id": "x", "left": 0}], date(2030, 6, 1)) == []
+
+
+# ── Bilanz (Punkt 454) ─────────────────────────────────────────────────────
+
+
+def test_bilanz_zaehlt_eingeloest_verfallen_und_erfasst():
+    rows = [
+        {
+            "id": "1",
+            "unit": "chf",
+            "total": 100,
+            "left": 40,
+            "created": "2030-02-01T09:00:00",
+            "transactions": [
+                {"at": "2030-03-01T10:00:00", "amount": 60, "art": "abzug"},
+                {"at": "2029-12-01T10:00:00", "amount": 10, "art": "abzug"},
+            ],
+        },
+        {
+            "id": "2",
+            "unit": "eur",
+            "total": 40,
+            "left": 40,
+            "expires": "2030-04-01",
+            "created": "2029-11-01T09:00:00",
+        },
+        {
+            "id": "3",
+            "unit": "stk",
+            "total": 10,
+            "left": 8,
+            "transactions": [{"at": "2030-05-01T10:00:00", "amount": 2}],
+        },
+    ]
+    b = gutscheine.bilanz(rows, date(2030, 1, 1), date(2030, 12, 31))
+    assert b["eingeloest"] == {"CHF": 60}
+    assert b["eingeloest_stk"] == 2
+    assert b["verfallen"] == {"EUR": 40}
+    assert b["verfallen_anzahl"] == 1
+    assert b["erfasst"] == 1
+
+
+def test_bilanz_zieht_ein_storno_wieder_ab():
+    rows = [
+        {
+            "unit": "chf",
+            "transactions": [
+                {"at": "2030-03-01T10:00:00", "amount": 60, "art": "abzug"},
+                {"at": "2030-03-02T10:00:00", "amount": -60, "art": "storno"},
+            ],
+        }
+    ]
+    b = gutscheine.bilanz(rows, date(2030, 1, 1), date(2030, 12, 31))
+    assert b["eingeloest"] == {"CHF": 0}
+
+
+@pytest.mark.asyncio
+async def test_der_waechter_legt_lange_leere_gutscheine_ins_archiv(monkeypatch):
+    """Punkt 455: die zugeklappte Gruppe «leer» räumt sich selbst."""
+    rows = [
+        {
+            "id": "alt",
+            "shop": "Coop",
+            "unit": "chf",
+            "total": 50,
+            "left": 0,
+            "transactions": [{"at": "2030-01-02T10:00:00", "amount": 50}],
+        },
+        {
+            "id": "frisch",
+            "shop": "Migros",
+            "unit": "chf",
+            "total": 50,
+            "left": 0,
+            "transactions": [{"at": "2030-05-28T10:00:00", "amount": 50}],
+        },
+        {"id": "voll", "shop": "Brack", "unit": "chf", "total": 50, "left": 50},
+    ]
+    hub, gesendet = await wach(monkeypatch, datetime(2030, 6, 1, 9, 0), rows)
+    try:
+        await hub.watchdog._check_vouchers()
+        stand = {row["id"]: row.get("archived") for row in hub.data.get(gutscheine.KEY)}
+        assert stand == {"alt": True, "frisch": None, "voll": None}
+        # Aufräumen ist keine Nachricht wert.
+        assert gesendet == []
+    finally:
+        await hub.stop()

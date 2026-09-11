@@ -54,7 +54,7 @@ EXTRAS: list[dict[str, Any]] = [
         "module": "pytesseract",
         "title": "Belege fotografiert lesen",
         "detail": "Betrag, Nummer und Ablaufdatum auch aus einem Foto oder "
-        "Scan des Belegs vorschlagen (Tesseract, Punkt 444). Ohne das Paket "
+        "Scan des Belegs vorschlagen (Tesseract, Punkt 533). Ohne das Paket "
         "liest der Hub nur PDF und Text; eintragen geht weiterhin von Hand.",
         "integration": None,
     },

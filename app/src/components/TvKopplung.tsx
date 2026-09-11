@@ -256,7 +256,7 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.surfaceSoft,
     },
     kopf: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    kopfText: { color: colors.warn, fontSize: 13, fontWeight: '700', flex: 1 },
+    kopfText: { color: colors.warnInk, fontSize: 13, fontWeight: '700', flex: 1 },
     hinweis: { color: colors.inkSoft, fontSize: 12, lineHeight: 18 },
     feld: {
       backgroundColor: colors.panel,

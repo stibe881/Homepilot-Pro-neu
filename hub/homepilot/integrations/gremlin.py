@@ -15,6 +15,16 @@ Der Gremlin macht kaputt, was man zum Prüfen braucht, und zwar planbar:
   - ``sensor_wild``  - misst brav, liefert aber ab und zu einen Ausreisser.
   - ``tv_zappelig``  - meldet nach jedem Tastendruck seinen Zustand neu und
     sagt dazwischen kurz «aus», wie ein echter Android TV es tut.
+  - ``cover_gestrig`` - meldet stur die Stellung von vorhin, egal was man
+    fährt (Punkt 504). Der Fall aus dem Haus: «Das Gateway gibt seit
+    Stunden dieselbe alte Stellung heraus» - dafür gibt es
+    ``homepilot.storencheck --funk``, und geprüft wurde er nie.
+  - ``sensor_luegner`` - liefert Unsinn statt Zahlen: einen Text, eine
+    negative Temperatur, ein leeres Feld. Jeder davon hat hier schon
+    einmal eine Karte weiss werden lassen.
+  - ``schalter_lahm`` - antwortet erst nach Sekunden. Die Kachel steht
+    so lange auf «wird geschaltet», und genau diese Frist stand nirgends
+    auf dem Prüfstand.
 
 Konfiguration:
   - integration: gremlin
@@ -34,6 +44,22 @@ from typing import Any
 from ..core.entity import Entity, EntityKind
 from ..core.errors import HomePilotError
 from ..core.integration import Integration
+
+#: Was der lügende Sensor statt einer Zahl meldet (Punkt 504).
+#:
+#: Jeder Eintrag stammt aus einem Fehler, der hier wirklich passiert
+#: ist: ein Text aus einem Gateway, das «--» für «kein Wert» schreibt;
+#: eine Temperatur unterhalb des absoluten Nullpunkts aus einem Sensor
+#: mit leerer Batterie; ein leeres Feld; und ``None``, das durch jede
+#: Prüfung rutscht, die nur auf den Typ sieht.
+UNSINN: tuple[Any, ...] = ("--", -999.0, "", None)
+
+#: Wie lange der lahme Schalter braucht (Punkt 504 der Werkbank).
+#:
+#: Vier Sekunden, knapp unter der Frist, nach der die App ihre Vermutung
+#: aufgibt (PENDING_TIMEOUT in hooks/useHub.ts, sechs Sekunden). Darüber
+#: prüfte man das Verfallen der Anzeige, darunter sähe man sie gar nicht.
+LAHM_SEKUNDEN = 4.0
 
 
 class GremlinIntegration(Integration):
@@ -98,6 +124,42 @@ class GremlinIntegration(Integration):
                 "home", "back",
             ],
         )
+        # Eine Store, die eine alte Stellung behauptet (Punkt 504 der
+        # Werkbank). Der gemeldete Fall aus dem Haus: «Das Gateway gibt
+        # seit Stunden dieselbe alte Stellung heraus.» Dafür gibt es
+        # `homepilot.storencheck --funk` - und geprüft war der Fall nie,
+        # weil sich am Demo-Gerät alles sofort bewegt.
+        await self.add_entity(
+            "cover_gestrig",
+            EntityKind.COVER,
+            "Gestrige Store",
+            state={"state": "open", "position": 100},
+            commands=["open", "close", "stop", "set_position"],
+        )
+        # Ein Sensor, der Unsinn meldet. Nicht «kein Wert» - das ist der
+        # Fall daneben und heisst «nicht erreichbar» -, sondern ein
+        # Wert, den niemand erwartet: ein Text, eine negative
+        # Temperatur, ein leeres Feld. Jeder davon hat hier schon einmal
+        # eine Karte weiss werden lassen, weil irgendwo `toFixed` auf
+        # einer Zeichenkette stand.
+        await self.add_entity(
+            "sensor_luegner",
+            EntityKind.SENSOR,
+            "Lügender Sensor",
+            state={"state": 21.0, "unit": "°C"},
+        )
+        # Ein Schalter, der sich Zeit lässt. Die Kachel steht so lange
+        # auf «wird geschaltet» (PENDING_TIMEOUT in hooks/useHub.ts, sechs
+        # Sekunden) - und ob sie danach den richtigen Zustand zeigt oder
+        # in ihrer Vermutung hängen bleibt, sah man nur am echten
+        # Funkgerät im Keller.
+        await self.add_entity(
+            "schalter_lahm",
+            EntityKind.SWITCH,
+            "Lahmer Schalter",
+            state={"state": "off"},
+            commands=["turn_on", "turn_off", "toggle"],
+        )
         self.start_task(self._misbehave())
 
     async def _misbehave(self) -> None:
@@ -136,6 +198,18 @@ class GremlinIntegration(Integration):
                 await self.hub.registry.update_state(
                     wild, {"state": round(45 + self._rng.uniform(0.0, 10.0), 1)}
                 )
+            # Der Lügner (Punkt 504): in jedem dritten Takt etwas, das
+            # keine Temperatur ist. Reihum, nicht zufällig - so kommt
+            # jede Sorte Unsinn vor, statt dass eine davon wochenlang
+            # ausbleibt und genau die den Fehler enthält.
+            luegner = self.entity_id("sensor_luegner")
+            if schritt % 3 == 0:
+                unsinn: Any = UNSINN[(schritt // 3) % len(UNSINN)]
+                await self.hub.registry.update_state(luegner, {"state": unsinn})
+            else:
+                await self.hub.registry.update_state(
+                    luegner, {"state": round(20 + self._rng.uniform(0.0, 2.0), 1)}
+                )
 
     async def _tv_meldet_sich(self, entity_id: str) -> None:
         """Die Rückmeldung eines Android TV nach einem Tastendruck.
@@ -162,6 +236,28 @@ class GremlinIntegration(Integration):
             self.start_task(self._tv_meldet_sich(entity.id))
             return
 
+        # Die gestrige Store nimmt den Befehl an und tut nichts (Punkt
+        # 504 der Werkbank). Kein Fehler: Genau das ist der gemeldete
+        # Fall - «das Gateway gibt seit Stunden dieselbe alte Stellung
+        # heraus». Wer den Befehl abwiese, prüfte den anderen Fall, und
+        # den gibt es schon (launisches Licht).
+        if entity.id.endswith(".cover_gestrig"):
+            return
+
+        # Der lahme Schalter antwortet - irgendwann (Punkt 504). Die
+        # Kachel steht so lange auf «wird geschaltet»; die Frist dafür
+        # ist sechs Sekunden (PENDING_TIMEOUT in hooks/useHub.ts), und
+        # vier liegen knapp darunter: So sieht man die Anzeige und das
+        # richtige Ende, statt die Vermutung verfallen zu sehen.
+        if entity.id.endswith(".schalter_lahm"):
+            ziel = "off" if entity.state.get("state") == "on" else "on"
+            if command == "turn_on":
+                ziel = "on"
+            elif command == "turn_off":
+                ziel = "off"
+            self.start_task(self._lahm_antworten(entity.id, ziel))
+            return
+
         # Jeder dritte Befehl scheitert - deterministisch gezählt, nicht
         # gewürfelt: «beim dritten Mal klemmt es» lässt sich so gezielt
         # vorführen und in Tests nachstellen.
@@ -180,6 +276,21 @@ class GremlinIntegration(Integration):
             changes["state"] = "on" if changes["brightness"] > 0 else "off"
         if changes:
             await self.hub.registry.update_state(entity.id, changes)
+
+
+    async def _lahm_antworten(self, entity_id: str, ziel: str) -> None:
+        """Erst warten, dann schalten (Punkt 504 der Werkbank).
+
+        Vier Sekunden: knapp unter der Frist, nach der die App ihre
+        Vermutung aufgibt (PENDING_TIMEOUT in hooks/useHub.ts). Darüber
+        prüfte man das Verfallen, darunter sähe man die Anzeige gar
+        nicht - hier sieht man beides, die Wartezeit und das richtige
+        Ende.
+        """
+        await asyncio.sleep(LAHM_SEKUNDEN)
+        if self.hub.registry.get(entity_id) is None:
+            return
+        await self.hub.registry.update_state(entity_id, {"state": ziel})
 
 
 INTEGRATION = GremlinIntegration

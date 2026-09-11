@@ -34,7 +34,8 @@ Das ist ein Netz, kein Ersatz – was auf `main` liegt, ist gebaut; alles
 andere hängt daran, dass es sich konfliktfrei hineinnehmen lässt.
 
 Wer auf mehreren Zweigen gleichzeitig arbeitet, fragt nicht von Auge,
-sondern:
+sondern (`pruefen` misst alle Zweige, die der Server kennt - nicht nur
+die in `deploy/zweige.py` aufgezählten):
 
 ```bash
 python3 deploy/zweige.py pruefen    # nur nachsehen
@@ -271,7 +272,7 @@ Zwei Dinge, die dabei überraschen:
     Nachladungen abgeschnitten, und diese Lücke gehört so kurz wie
     möglich.
     Von `"7"` auf `"8"` ging es für die Kassenansicht (`expo-brightness`,
-    Punkt 443): Sie dreht die Helligkeit auf voll und hält den Bildschirm
+    Punkt 532): Sie dreht die Helligkeit auf voll und hält den Bildschirm
     wach, solange der Code an der Kasse steht. Auch hier: im selben
     Commit wie das Modul, und der TestFlight-Build gehört direkt dahinter.
     Von `"5"` auf `"6"` ging es, als die Widget-Ablage zum **lokalen**
@@ -312,9 +313,38 @@ mitgeliefert oder nachgeladen ist.
 
 ## Was als Nächstes ansteht
 
-Die durchnummerierte Werkbank-Liste steht in `docs/werkbank.md`
-(353 Punkte, aus dem Code gelesen und auf Zuruf ergänzt). Ein Kommentar
-«Punkt NNN der Werkbank» im Code meint genau diese Nummer – deshalb
-wird dort nie umnummeriert; Neues bekommt die nächste freie Nummer. Das
-gilt auch für Nummern, die vergeben, aber nie gebaut wurden: Ein
-späterer «Punkt 273» zeigte sonst auf etwas anderes als gemeint.
+Die durchnummerierte Werkbank-Liste steht in **zwei** Dateien:
+
+- `docs/werkbank.md` – was offen ist. Kurz genug, dass die Frage «was
+  ist offen?» in dreissig Sekunden beantwortet ist.
+- `docs/werkbank-archiv.md` – was erledigt ist, samt der Begründung,
+  aus der es entstand. Dort wird nichts gelöscht: Die Begründung
+  beschreibt den Fehlerfall, gegen den der Code heute geschützt ist.
+
+Getrennt sind sie, seit die eine Datei viertausend Zeilen hatte, zu
+neunzig Prozent erledigt (Punkt 505). Wer einen Punkt sucht, sucht in
+beiden: `grep -n "^### 155\.\|^\*\*155\." docs/werkbank*.md`.
+
+Ein Kommentar «Punkt NNN der Werkbank» im Code meint genau diese Nummer
+– deshalb wird nie umnummeriert; Neues bekommt die nächste freie Nummer
+(`python3 scripts/werkbank.py --zahlen` sagt, welche). Das gilt auch für
+Nummern, die vergeben, aber nie gebaut wurden: Ein späterer «Punkt 273»
+zeigte sonst auf etwas anderes als gemeint.
+
+**Vor dem Vergeben einer Nummer nachsehen, was auf den anderen Zweigen
+liegt** - `python3 deploy/zweige.py pruefen`. Die höchste Nummer in den
+Dateien auf `main` ist nicht die höchste vergebene: Dreimal an einem
+Abend haben Sitzungen unabhängig dieselbe nächste Nummer genommen -
+erst die 421, dann 422/423, zuletzt der ganze Block 421-444. Jedes Mal
+musste eine Seite nachträglich wandern, beim dritten Mal
+vierundzwanzig Punkte samt 111 Kommentarzeilen in 52 Dateien.
+
+Wenn es doch passiert: **Es wandert die Seite mit den wenigeren
+Ankern**, und ihre Kommentare wandern mit - Zeile für Zeile aus dem
+Diff des Zweigs gelesen, nicht über den ganzen Baum gesucht, sonst
+trifft es, was zufällig dieselbe Zahl trägt.
+
+**Ist ein Punkt gebaut, wandert er ins Archiv** – verschieben, nicht
+kopieren. Sonst steht er in der einen Datei als offen und in der
+anderen als erledigt, und beide sehen für sich richtig aus.
+`scripts/werkbank.py` prüft das im Prüflauf mit.

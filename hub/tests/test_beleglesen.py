@@ -38,7 +38,7 @@ def test_kaputtes_pdf_ist_kein_fehler():
 
 
 def test_ocr_braucht_paket_und_programm(monkeypatch):
-    """Punkt 444: Drei Teile, alle nötig - fehlt das Programm, ist es nicht da."""
+    """Punkt 533: Drei Teile, alle nötig - fehlt das Programm, ist es nicht da."""
     import shutil
 
     from homepilot.core import beleglesen

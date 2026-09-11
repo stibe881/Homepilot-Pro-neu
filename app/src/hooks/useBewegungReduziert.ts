@@ -3,7 +3,7 @@
  *
  * Einmal gefragt, dann gemerkt - dieselbe Abfrage stand in
  * components/Auftritt.tsx; seit die Kacheln beim Schalten überblenden
- * (Punkt 438), brauchen zwei Stellen dieselbe Antwort. Nicht abfragbar
+ * (Punkt 527), brauchen zwei Stellen dieselbe Antwort. Nicht abfragbar
  * heisst: normal animieren.
  */
 import { useEffect, useState } from 'react';

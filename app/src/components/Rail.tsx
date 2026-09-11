@@ -32,7 +32,7 @@ const ITEMS: {
 
 /** Welche Bereiche die Leiste für diese Person zeigt, in ihrer
  *  Reihenfolge (rein, testbar) - dieselbe Liste, aus der die Leiste
- *  ihre Knöpfe baut, und der die Wischgeste folgt (Punkt 433). */
+ *  ihre Knöpfe baut, und der die Wischgeste folgt (Punkt 522). */
 export function sichtbareBereiche(capabilities: string[] = [], hidden: Section[] = []): Section[] {
   return ITEMS.filter(
     (item) =>
@@ -50,7 +50,7 @@ interface Props {
   capabilities?: string[];
   /** Für Gäste ausgeblendete Bereiche (nicht freigegebene Features). */
   hidden?: Section[];
-  /** Der Farbwinkel des Orts (Punkt 436): im Zimmer der des Raums,
+  /** Der Farbwinkel des Orts (Punkt 525): im Zimmer der des Raums,
    *  sonst der des Bereichs. Ohne Angabe färbt die Leiste nach Bereich. */
   ton?: number | null;
 }
@@ -89,7 +89,7 @@ export function Rail({
             style={({ pressed }) => [
               vertical ? styles.railItem : styles.barItem,
               selected && styles.selected,
-              // Die Farbe des Orts auf dem gewählten Punkt (Punkt 436).
+              // Die Farbe des Orts auf dem gewählten Punkt (Punkt 525).
               selected && {
                 backgroundColor:
                   bereichTint(ton === undefined ? bereichTon(item.key) : ton) ??

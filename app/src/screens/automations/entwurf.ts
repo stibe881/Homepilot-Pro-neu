@@ -64,6 +64,16 @@ export interface Automation {
   quiet_from?: number | null;
   quiet_to?: number | null;
   countdown?: boolean;
+  /** Bis wann der Ablauf überhaupt gilt, «YYYY-MM-DD» (Punkt 464).
+   *  Danach schaltet der Hub ihn aus - nicht dasselbe wie `quiet_until`,
+   *  das eine Pause ist, nach der es weitergeht. */
+  valid_until?: string | null;
+  /** In welcher Reihenfolge er drankommt, wenn mehrere gleichzeitig dran
+   *  sind (Punkt 466). Kleiner zuerst, 0 heisst «egal». */
+  order?: number;
+  /** Steht er gerade mitten in einem Durchgang? (Punkt 461) Nur dann
+   *  hat der Abbrechen-Knopf etwas zu tun. */
+  running?: boolean;
   /** Ruht bis (Unix-Sekunden) - «aus bis morgen», Punkt 159. */
   quiet_until?: number | null;
   /** Nächster geplanter Lauf (Unix-Sekunden), nur Zeit/Sonne - Punkt 161. */
@@ -110,7 +120,7 @@ export interface Run {
   skipped: string[];
   /** Die Schritt-Spur (Punkt 160): was wann dran war, und was hing. */
   steps?: { label: string; after: number; note?: string; error?: string }[];
-  /** Punkt 421: Löste eine Kamera aus, liegt ihr Standbild im Bildarchiv
+  /** Punkt 510: Löste eine Kamera aus, liegt ihr Standbild im Bildarchiv
    *  des Hubs - das ist seine Kennung für /api/automations/bild/… */
   image?: string;
   /** Ob der Lauf auch gewirkt hat – ein paar Sekunden nach dem Lauf am
@@ -200,7 +210,7 @@ export const GRUPPE_PREFIX = 'gruppe:';
 
 /** Wie ein Empfänger in der Auswahl heisst (rein, testbar).
  *
- *  Eine Gruppe (Punkt 424) steht als «Eltern (Gruppe)» neben den Namen -
+ *  Eine Gruppe (Punkt 513) steht als «Eltern (Gruppe)» neben den Namen -
  *  so sieht man, dass sich dahinter mehrere Telefone verbergen, ohne
  *  dass die Kennung «gruppe:Eltern» auf dem Bildschirm steht. */
 export function empfaengerLabel(key: string): string {
@@ -1081,6 +1091,12 @@ export interface Draft {
   /** «ausser an Feiertagen» (Punkt 154): Auffahrt ist ein Donnerstag,
    *  aber kein Werktag - der Hub kennt die Luzerner Feiertage. */
   exceptHolidays: boolean;
+  /** «ausser in den Schulferien» (Punkt 470 der Werkbank). Die Luzerner
+   *  Ferientermine liegen seit je im Hub, benutzt hat sie nur die
+   *  Simulation - «Wecklicht um 06:30» war im Juli falsch, und
+   *  abgestellt hat das jeden Sommer jemand von Hand. Eigener Haken
+   *  neben den Feiertagen: Wer beides will, setzt beide. */
+  exceptSchoolHolidays: boolean;
   /** Was der Ablauf tut – der Reihe nach. */
   steps: StepDraft[];
   /** Was stattdessen läuft, wenn die Bedingungen nicht passen. */
@@ -1104,6 +1120,16 @@ export interface Draft {
   /** Restzeit anzeigen: «geht in 12 Min aus» an der Gerätekachel, in der
    *  Raumkarte und im «Lichter an»-Blatt, solange der Ablauf wartet. */
   restzeitZeigen: boolean;
+  /** Bis wann der Ablauf gilt, als «TT.MM.JJJJ» - leer heisst
+   *  unbefristet (Punkt 464 der Werkbank). Danach schaltet der Hub ihn
+   *  aus und lässt ihn stehen: «Bis Ende der Ferien» kommt nächstes Jahr
+   *  wieder. Nicht dasselbe wie «Aus bis morgen» (Punkt 159) - das ist
+   *  eine Pause, nach der es weitergeht. */
+  gueltigBis: string;
+  /** In welcher Reihenfolge er drankommt, wenn mehrere gleichzeitig dran
+   *  sind (Punkt 466). Als Text, weil es ein Eingabefeld ist; leer und
+   *  «0» heissen dasselbe: egal. */
+  reihenfolge: string;
   /** Gesetzt, solange dieser Entwurf eine *Vorlage* ist und kein Ablauf:
    *  «neu» für eine frische, sonst die Kennung der gespeicherten. Der
    *  Editor sieht daran, dass beim Speichern eine Vorlage entsteht und
@@ -1128,6 +1154,7 @@ export const EMPTY: Draft = {
   match: 'all',
   weekdays: [],
   exceptHolidays: false,
+  exceptSchoolHolidays: false,
   steps: [{ ...EMPTY_STEP }],
   elseSteps: [],
   mode: 'single',
@@ -1138,6 +1165,8 @@ export const EMPTY: Draft = {
   nachtsVon: null,
   nachtsBis: null,
   restzeitZeigen: false,
+  gueltigBis: '',
+  reihenfolge: '',
 };
 
 /** Einen Trigger-Entwurf in die gespeicherte Form bringen (rein, testbar). */
@@ -1611,12 +1640,14 @@ export function buildConditions(draft: Draft): BausteinConfig[] {
       condition.weekdays = [...draft.weekdays].sort((a, b) => a - b);
     }
     if (draft.exceptHolidays) condition.except_holidays = true;
+    if (draft.exceptSchoolHolidays) condition.except_school_holidays = true;
     // Eine Bedingung ganz ohne Angabe wäre sinnlos – dann keine.
     if (
       condition.after ||
       condition.before ||
       condition.weekdays ||
-      condition.except_holidays
+      condition.except_holidays ||
+      condition.except_school_holidays
     ) {
       conditions.push(condition);
     }
@@ -2396,6 +2427,7 @@ export function toDraft(automation: Automation): Draft {
     match: automation.match === 'any' ? 'any' : 'all',
     weekdays: Array.isArray(condition.weekdays) ? condition.weekdays.map(Number) : [],
     exceptHolidays: condition.except_holidays === true,
+    exceptSchoolHolidays: condition.except_school_holidays === true,
     steps: withAtLeastOne(actionsToSteps(automation.actions ?? [])),
     elseSteps: actionsToSteps(automation.otherwise ?? []),
     mode: automation.mode === 'restart' ? 'restart' : 'single',
@@ -2408,7 +2440,35 @@ export function toDraft(automation: Automation): Draft {
     nachtsVon: typeof automation.quiet_from === 'number' ? automation.quiet_from : null,
     nachtsBis: typeof automation.quiet_to === 'number' ? automation.quiet_to : null,
     restzeitZeigen: automation.countdown === true,
+    gueltigBis: automation.valid_until ? datumAusIso(automation.valid_until) : '',
+    reihenfolge: automation.order ? String(automation.order) : '',
   };
+}
+
+/** «2030-06-30» als «30.06.2030» (rein, testbar) - so, wie man ein
+ *  Datum liest und tippt. Dieselbe Schreibweise wie bei den Gutscheinen;
+ *  ein Ablauf-Editor, der ISO verlangt, wäre der einzige Ort in der App,
+ *  an dem das Jahr vorn steht. */
+export function datumAusIso(iso: string): string {
+  const treffer = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso ?? ''));
+  return treffer ? `${treffer[3]}.${treffer[2]}.${treffer[1]}` : '';
+}
+
+/** «30.6.2030» oder «30.06.30» zurück nach «2030-06-30» (rein, testbar).
+ *  Unlesbares wird null - dann fragt der Editor nach, statt still
+ *  «unbefristet» zu speichern und den Ablauf für immer laufen zu lassen. */
+export function datumNachIso(text: string): string | null {
+  const roh = String(text ?? '').trim();
+  if (!roh) return null;
+  const treffer = /^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})$/.exec(roh);
+  if (!treffer) return /^\d{4}-\d{2}-\d{2}$/.test(roh) ? roh : null;
+  const jahr = treffer[3].length === 2 ? `20${treffer[3]}` : treffer[3];
+  const iso = `${jahr}-${treffer[2].padStart(2, '0')}-${treffer[1].padStart(2, '0')}`;
+  const [j, m, t] = iso.split('-').map(Number);
+  const d = new Date(Date.UTC(j, m - 1, t));
+  const echt =
+    d.getUTCFullYear() === j && d.getUTCMonth() === m - 1 && d.getUTCDate() === t;
+  return echt ? iso : null;
 }
 
 /** Ein Ablauf ohne einen einzigen Schritt wäre im Editor eine leere Seite. */
@@ -2701,6 +2761,7 @@ export function bedingungStand(draft: Draft): string {
   }
   if (draft.weekdays.length > 0) teile.push('Wochentage');
   if (draft.exceptHolidays) teile.push('ohne Feiertage');
+  if (draft.exceptSchoolHolidays) teile.push('ohne Schulferien');
   if (draft.extraConditions.length > 0) teile.push('aus der Konfiguration');
   return teile.join(' · ');
 }

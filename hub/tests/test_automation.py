@@ -1,11 +1,15 @@
 import asyncio
 import time
+from datetime import date, datetime
 
 import pytest
 
 from homepilot.core.automation import (
     Automation,
+    abgelaufen,
     describe_condition,
+    konflikte_mit,
+    nach_reihenfolge,
     parse_automations,
 )
 from homepilot.core.config import ApiConfig, HubConfig
@@ -2059,5 +2063,289 @@ async def test_ein_freigegebener_ablauf_laeuft_im_modus_weiter():
         await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
         await settle()
         assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
+    finally:
+        await hub.stop()
+
+
+# ── Befristung (Punkt 464) ────────────────────────────────────────────────
+
+
+def test_frist_laeuft_erst_nach_dem_letzten_tag_ab():
+    """«Gültig bis 30.06.» heisst am 30.06. noch gültig."""
+    ablauf = Automation(id="a", alias="Ferienlicht", triggers=[], valid_until="2030-06-30")
+    assert abgelaufen(ablauf, date(2030, 6, 30)) is False
+    assert abgelaufen(ablauf, date(2030, 7, 1)) is True
+    assert abgelaufen(Automation(id="b", alias="B", triggers=[]), date(2030, 7, 1)) is False
+
+
+def test_eine_unlesbare_frist_macht_den_ablauf_nicht_stumm():
+    """Ein Tippfehler darf nicht dazu führen, dass ab morgen nichts läuft."""
+    assert parse_automations([{"id": "a", "valid_until": "morgen"}])[0].valid_until is None
+    assert parse_automations([{"id": "a", "valid_until": "2030-06-30"}])[0].valid_until == (
+        "2030-06-30"
+    )
+
+
+@pytest.mark.asyncio
+async def test_abgelaufene_ablaeufe_werden_ausgeschaltet_und_nicht_geloescht(tmp_path):
+    hub = Hub(
+        HubConfig(
+            api=ApiConfig(),
+            integrations=[{"integration": "demo"}],
+            data_file=str(tmp_path / "d.json"),
+        )
+    )
+    await hub.start()
+    try:
+        hub.data.set(
+            "automations",
+            [
+                {
+                    "id": "app_alt",
+                    "alias": "Ferienlicht",
+                    "trigger": [],
+                    "action": [],
+                    "valid_until": "2000-01-01",
+                },
+                {"id": "app_neu", "alias": "Flurlicht", "trigger": [], "action": []},
+            ],
+        )
+        await hub.reload_automations()
+        gesendet: list[tuple[str, str]] = []
+
+        async def merken(tokens, title, body, **_):
+            gesendet.append((title, body))
+
+        hub.push.send = merken  # type: ignore[method-assign]
+        faellig = await hub.automations.fristen_pruefen()
+        assert [a.id for a in faellig] == ["app_alt"]
+        # Ausgeschaltet, nicht gelöscht - nächstes Jahr braucht man ihn wieder.
+        gespeichert = {row["id"]: row for row in hub.data.get("automations")}
+        assert gespeichert["app_alt"]["enabled"] is False
+        assert gespeichert["app_alt"]["valid_until"] == "2000-01-01"
+        assert gespeichert["app_neu"].get("enabled", True) is not False
+        assert gesendet and "Ferienlicht" in gesendet[0][1]
+        # Die zweite Runde findet nichts mehr.
+        assert await hub.automations.fristen_pruefen() == []
+    finally:
+        await hub.stop()
+
+
+# ── Reihenfolge (Punkt 466) ───────────────────────────────────────────────
+
+
+def test_reihenfolge_nach_zahl_dann_name():
+    ablaeufe = [
+        Automation(id="c", alias="Zuletzt", triggers=[], order=5),
+        Automation(id="a", alias="storen", triggers=[], order=-1),
+        Automation(id="b", alias="Kaffee", triggers=[]),
+        Automation(id="d", alias="Anderes", triggers=[]),
+    ]
+    assert [a.id for a in nach_reihenfolge(ablaeufe)] == ["a", "d", "b", "c"]
+
+
+def test_die_reihenfolge_zahl_wird_geklemmt_und_nie_geraten():
+    assert parse_automations([{"id": "a", "order": 500}])[0].order == 99
+    assert parse_automations([{"id": "a", "order": "zwei"}])[0].order == 0
+    assert parse_automations([{"id": "a"}])[0].order == 0
+
+
+# ── Widerspruch beim Entwurf (Punkt 462) ──────────────────────────────────
+
+
+def test_konflikte_mit_findet_nur_den_eigenen_widerspruch():
+    bestehend = [
+        Automation(
+            id="alt",
+            alias="Gute Nacht",
+            triggers=[],
+            actions=[{"type": "command", "entity_id": "demo.light", "command": "turn_off"}],
+        ),
+        Automation(
+            id="fremd",
+            alias="Nichts damit zu tun",
+            triggers=[],
+            actions=[{"type": "command", "entity_id": "demo.andere", "command": "turn_on"}],
+        ),
+    ]
+    entwurf = Automation(
+        id="__entwurf__",
+        alias="Neu",
+        triggers=[],
+        actions=[{"type": "command", "entity_id": "demo.light", "command": "turn_on"}],
+    )
+    zeilen = konflikte_mit(entwurf, bestehend)
+    assert len(zeilen) == 1
+    assert zeilen[0]["entity_id"] == "demo.light"
+    assert {teil["id"] for teil in zeilen[0]["automations"]} == {"__entwurf__", "alt"}
+
+
+def test_ein_ablauf_widerspricht_beim_bearbeiten_nicht_sich_selbst():
+    """Sonst meldete jeder Ablauf, der ein- und ausschaltet, sich selbst."""
+    gespeichert = Automation(
+        id="a1",
+        alias="Flur",
+        triggers=[],
+        actions=[
+            {"type": "command", "entity_id": "demo.light", "command": "turn_on"},
+            {"type": "command", "entity_id": "demo.light", "command": "turn_off"},
+        ],
+    )
+    entwurf = Automation(
+        id="a1",
+        alias="Flur",
+        triggers=[],
+        actions=[{"type": "command", "entity_id": "demo.light", "command": "turn_on"}],
+    )
+    assert konflikte_mit(entwurf, [gespeichert]) == []
+
+
+# ── Schulferien als Bedingung (Punkt 470) ─────────────────────────────────
+
+
+def test_die_zeitbedingung_kennt_die_schulferien(tmp_path, monkeypatch):
+    async def run():
+        hub = Hub(
+            HubConfig(
+                api=ApiConfig(),
+                integrations=[{"integration": "demo"}],
+                data_file=str(tmp_path / "d.json"),
+            )
+        )
+        await hub.start()
+        hub.data.set(
+            "schulferien",
+            [{"name": "Sommerferien", "from": "2030-07-06", "to": "2030-08-16"}],
+        )
+        bedingung = {"type": "time", "except_school_holidays": True}
+
+        class Uhr(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime(2030, 7, 10, 6, 30)
+
+        monkeypatch.setattr("homepilot.core.automation.datetime", Uhr)
+        in_ferien = hub.automations._check_condition(bedingung)
+
+        class Uhr2(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime(2030, 9, 10, 6, 30)
+
+        monkeypatch.setattr("homepilot.core.automation.datetime", Uhr2)
+        in_schule = hub.automations._check_condition(bedingung)
+        await hub.stop()
+        return in_ferien, in_schule
+
+    in_ferien, in_schule = asyncio.run(run())
+    assert in_ferien is False
+    assert in_schule is True
+
+
+def test_der_grund_nennt_die_ferien_beim_namen():
+    satz = describe_condition(
+        {"type": "time", "except_school_holidays": True}, None, "Sommerferien"
+    )
+    assert satz == "Heute sind Schulferien (Sommerferien)"
+
+
+# ── Abbrechen (Punkt 461) ─────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_ein_laufender_ablauf_laesst_sich_anhalten(tmp_path):
+    """Zwölf Minuten «Gute Nacht» - und jemand sitzt noch im Wohnzimmer."""
+    hub = Hub(
+        HubConfig(
+            api=ApiConfig(),
+            integrations=[{"integration": "demo"}],
+            automations=[
+                {
+                    "id": "nacht",
+                    "alias": "Gute Nacht",
+                    "trigger": [],
+                    "action": [
+                        {
+                            "type": "command",
+                            "entity_id": "demo.light_livingroom",
+                            "command": "turn_on",
+                        },
+                        {"type": "delay", "seconds": 30},
+                        {
+                            "type": "command",
+                            "entity_id": "demo.cover_livingroom",
+                            "command": "close",
+                        },
+                    ],
+                }
+            ],
+            data_file=str(tmp_path / "d.json"),
+        )
+    )
+    await hub.start()
+    try:
+        ablauf = hub.automations.automations[0]
+        hub.automations._schedule(ablauf)
+        await asyncio.sleep(0.05)
+        assert hub.automations.laufend == {"nacht"}
+        assert hub.automations.abbrechen("nacht") is True
+        await asyncio.sleep(0.05)
+        assert hub.automations.laufend == set()
+        # Der zweite Versuch findet nichts mehr.
+        assert hub.automations.abbrechen("nacht") is False
+        # Im Protokoll steht, dass jemand angehalten hat - sonst bliebe
+        # offen, ob der Ablauf überhaupt lief.
+        letzter = hub.automations.runs[-1]
+        assert letzter["executed"] is False
+        assert "abgebrochen" in letzter["skipped"][0].lower()
+        # Was schon geschaltet war, bleibt geschaltet: Ein Abbruch nimmt
+        # nichts zurück - er hält nur an.
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
+    finally:
+        await hub.stop()
+
+
+# ── Ein gestolperter Schritt meldet sich (Punkt 465) ──────────────────────
+
+
+@pytest.mark.asyncio
+async def test_ein_gestolperter_schritt_schickt_eine_nachricht(tmp_path):
+    hub = Hub(
+        HubConfig(
+            api=ApiConfig(),
+            integrations=[{"integration": "demo"}],
+            automations=[
+                {
+                    "id": "nacht",
+                    "alias": "Gute Nacht",
+                    "trigger": [],
+                    "action": [
+                        {
+                            "type": "command",
+                            "entity_id": "demo.gibtsnicht",
+                            "command": "turn_off",
+                        }
+                    ],
+                }
+            ],
+            data_file=str(tmp_path / "d.json"),
+        )
+    )
+    await hub.start()
+    try:
+        gesendet: list[tuple[str, str]] = []
+
+        async def merken(tokens, title, body, **_):
+            gesendet.append((title, body))
+
+        hub.push.send = merken  # type: ignore[method-assign]
+        ablauf = hub.automations.automations[0]
+        await hub.automations._run(ablauf)
+        assert gesendet and gesendet[0][0] == "Ablauf gestolpert"
+        assert "Gute Nacht" in gesendet[0][1]
+        # Höchstens einmal am Tag: Ein totes Gerät macht sonst aus jeder
+        # Bewegung im Flur eine Push-Nachricht.
+        await hub.automations._run(ablauf)
+        assert len(gesendet) == 1
     finally:
         await hub.stop()

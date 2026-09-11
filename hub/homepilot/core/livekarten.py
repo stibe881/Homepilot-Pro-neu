@@ -932,19 +932,45 @@ def abgleich(
                 # daraus nicht zu lesen, um welche Karte es ging.
                 "art": alt.get("art"),
                 "user": alt.get("user"),
+                # Stand die Zeile schon in der vorigen Runde als
+                # vorgemerkt da? Dann ist das hier keine Neuigkeit mehr,
+                # und der Takt schweigt darüber (siehe `_runde`).
+                "schon_vorgemerkt": bool(alt.get("ende_offen")),
                 "tokens": tokens,
                 "state": ende.get("state"),
                 "sichtbar": float(ende.get("sichtbar") or 0),
             }
         )
-        # Ohne Token geht das Ende ins Leere - und mit der Zeile wäre
-        # auch das Wissen weg, dass da noch eine Karte liegt. Also
-        # vorgemerkt lassen statt vergessen: Meldet die App ihr Token
-        # nach (/api/liveactivity/activity), landet es an genau dieser
-        # Zeile, und der nächste Takt beendet die Karte wirklich. Der
-        # Umweg über VERWAIST_KEY greift nur, wenn der Hub die Art gar
-        # nicht mehr kennt - er ist das Netz darunter, nicht der Weg.
-        if not tokens and jetzt_s - float(alt.get("aktualisiert") or 0) < NACHHALL_SEKUNDEN:
+        # Die Zeile bleibt stehen, bis das Ende wirklich draussen war.
+        # Ausgetragen wird sie erst vom Takt, und nur für die Karten,
+        # deren Ende Apple angenommen hat (`_runde`, beendet).
+        #
+        # Zwei Fälle, in denen das Ende nicht rausgeht, und beide kamen
+        # aus dem Haus:
+        #
+        # - **Kein Token.** Die Karte startete per Push, während das
+        #   Telefon gesperrt war; ihr Token meldet die App erst beim
+        #   nächsten Öffnen. Meldet sie es nach
+        #   (/api/liveactivity/activity), landet es an genau dieser
+        #   Zeile, und der nächste Takt beendet die Karte wirklich.
+        # - **Der Versand scheiterte.** Apple nicht erreichbar, ein
+        #   Zeitüberlauf, ein abgelehnter Schlüssel - `senden` gibt dann
+        #   False zurück. Das wurde hier lange verworfen: Die Zeile fiel
+        #   weg, der Hub wusste nichts mehr von der Karte, und sie lag
+        #   bis zum Ende des Tages auf dem Sperrbildschirm. Kein
+        #   späterer Takt konnte sie noch abräumen - er kannte sie nicht
+        #   mehr. Genau so wurde es dreimal gemeldet («der Fernseher ist
+        #   aus, die Karte ist immer noch da»), und genau danach sah es
+        #   im tvcheck aus wie «eine Leiche aus einer früheren Fassung».
+        #
+        # Das ist dieselbe Lehre wie beim Starten ein paar Zeilen
+        # weiter unten, bloss in die andere Richtung: Eine Zeile
+        # entsteht mit der Karte und verschwindet mit ihrem Ende - nicht
+        # mit dem Auftrag dazu.
+        #
+        # Der Umweg über VERWAIST_KEY greift nur, wenn der Hub die Art
+        # gar nicht mehr kennt - er ist das Netz darunter, nicht der Weg.
+        if jetzt_s - float(alt.get("aktualisiert") or 0) < NACHHALL_SEKUNDEN:
             neue.append({**alt, "ende_offen": True})
     return neue, starten, aktualisieren, beenden
 
@@ -1141,23 +1167,67 @@ async def _runde(hub: Any, versand: liveaktivitaet.ApnsVersand) -> None:
     for auftrag in aktualisieren:
         for token in auftrag["tokens"]:
             await versand.senden(str(token), update_payload(auftrag["state"], jetzt))
+    # Enden, die wirklich draussen waren - nur deren Zeile darf weg.
+    # Alles andere bleibt vorgemerkt und wird im nächsten Takt erneut
+    # versucht (siehe abgleich, ende_offen).
+    beendet: set[tuple[str, str]] = set()
     for auftrag in beenden:
+        schluessel = (str(auftrag.get("user")), str(auftrag.get("art")))
         if not auftrag["tokens"]:
             # Kein Token, kein Ende - die Karte bleibt vorgemerkt
             # (abgleich, ende_offen), bis die App ihres nachmeldet.
             # Sie kommt, sobald die App einmal läuft: Beim Start per
             # Push weckt iOS sie kurz auf, damit sie das Token abholt
             # (app/modules/live-aktivitaet, LiveAktivitaetModule).
-            log.info(
-                "Live-Karte %s für %s: Ende ohne Token - vorgemerkt",
-                auftrag.get("art"),
-                auftrag.get("user"),
-            )
+            #
+            # **Einmal je Karte, nicht in jeder Runde.** Der Takt läuft
+            # alle zwanzig Sekunden, eine Zeile bleibt bis zu zwölf
+            # Stunden vorgemerkt - das sind über zweitausend gleiche
+            # Zeilen je Karte. Im Haus hing ein Wandtablet, das zu
+            # keiner Karte je ein Token meldete: drei Karten, alle
+            # zwanzig Sekunden drei Zeilen, Tag und Nacht. Docker hält
+            # 3 × 10 MB (docker-compose.yml); nach ein paar Tagen stand
+            # nichts anderes mehr im Protokoll. Als es darauf ankam -
+            # «warum verschwindet die Karte nicht?» -, war die Antwort
+            # darin längst überschrieben, und zwar von der Meldung über
+            # genau dieses Problem.
+            #
+            # Wie es gerade steht, sagt der tvcheck; ein Protokoll ist
+            # für Ereignisse da, nicht für Zustände.
+            if not auftrag.get("schon_vorgemerkt"):
+                log.info(
+                    "Live-Karte %s für %s: Ende ohne Token - vorgemerkt, "
+                    "bis die App eines nachmeldet",
+                    auftrag.get("art"),
+                    auftrag.get("user"),
+                )
             continue
+        offen = 0
         for token in auftrag["tokens"]:
-            await versand.senden(
+            if await versand.senden(
                 str(token), ende_payload(auftrag["state"], auftrag["sichtbar"], jetzt)
-            )
+            ):
+                continue
+            # Ein Token, das Apple endgültig ablehnt, hält keine Karte
+            # mehr fest - die Aktivität dahinter ist längst vorbei.
+            # Erneut zu senden hiesse, zwölf Stunden lang alle zwanzig
+            # Sekunden gegen eine Wand zu klopfen.
+            if str(token) not in versand.tote:
+                offen += 1
+        if offen:
+            # Auch hier nur beim ersten Mal - aus demselben Grund wie
+            # oben. Klappt es später, verschwindet die Zeile; scheitert
+            # es erneut, steht es wieder da.
+            if not auftrag.get("schon_vorgemerkt"):
+                log.warning(
+                    "Live-Karte %s für %s: Ende kam nicht an (%d Token) - "
+                    "bleibt vorgemerkt, nächster Takt erneut",
+                    auftrag.get("art"),
+                    auftrag.get("user"),
+                    offen,
+                )
+            continue
+        beendet.add(schluessel)
     # Eine Zeile entsteht mit dem Auftrag, nicht mit der Karte - und das
     # war falsch: Lehnt Apple den Start ab (totes push-to-start-Token,
     # abgelaufener Schlüssel), liegt keine Karte, aber die Zeile sagt
@@ -1169,6 +1239,19 @@ async def _runde(hub: Any, versand: liveaktivitaet.ApnsVersand) -> None:
             row
             for row in neue
             if (str(row.get("user")), str(row.get("art"))) not in gescheitert
+        ]
+    # Und die Gegenrichtung: Was beendet ist, darf die Liste verlassen.
+    # Ohne das stünde jede beendete Karte zwölf Stunden lang als
+    # «ende_offen» darin und liesse den Takt alle zwanzig Sekunden ein
+    # Ende an eine Karte schicken, die es nicht mehr gibt.
+    if beendet:
+        neue = [
+            row
+            for row in neue
+            if not (
+                row.get("ende_offen")
+                and (str(row.get("user")), str(row.get("art"))) in beendet
+            )
         ]
     # Telefone, deren Token Apple endgültig abgelehnt hat, austragen -
     # dieselbe Regel wie bei der Haustür-Karte (liveaktivitaet.tuer_loop).

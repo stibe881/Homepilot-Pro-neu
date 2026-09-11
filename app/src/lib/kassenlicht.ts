@@ -1,5 +1,5 @@
 /**
- * Die Kassenansicht: hell und wach (Punkt 443) - das Rechnen dazu.
+ * Die Kassenansicht: hell und wach (Punkt 532) - das Rechnen dazu.
  *
  * Ein Scanner misst den Unterschied zwischen hell und dunkel; ein
  * Telefon, das auf 30 % Helligkeit steht und nach zwanzig Sekunden

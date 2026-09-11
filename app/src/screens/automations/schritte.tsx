@@ -2,7 +2,7 @@
  * Die Schritte eines Ablaufs im Editor - und die Bedingungslisten, die
  * «wenn» und «wiederholen» darin brauchen.
  *
- * Herausgelöst aus editor.tsx (Punkt 422): Der Editor
+ * Herausgelöst aus editor.tsx (Punkt 511): Der Editor
  * war auf über 3000 Zeilen gewachsen - Auslöser, Schritte und
  * Bedingungen je in einer Datei, wie es das Dashboard vorgemacht hat.
  */
@@ -885,7 +885,7 @@ export function StepList({
               {/* Ein Schritt aus der config.yaml kann tiefer stecken, als
                   der Hub ausführt - das gehört gesagt, nicht versteckt. */}
               {tiefe > MAX_SCHACHTELUNG ? (
-                <Text style={[styles.triggerNote, { color: colors.warn }]}>
+                <Text style={[styles.triggerNote, { color: colors.warnInk }]}>
                   Tiefer als {MAX_SCHACHTELUNG} Ebenen führt der Hub nicht
                   aus – dieser Zweig würde beim Lauf übersprungen.
                 </Text>
@@ -962,7 +962,7 @@ export function StepList({
                 />
               </View>
               {tiefe > MAX_SCHACHTELUNG ? (
-                <Text style={[styles.triggerNote, { color: colors.warn }]}>
+                <Text style={[styles.triggerNote, { color: colors.warnInk }]}>
                   Tiefer als {MAX_SCHACHTELUNG} Ebenen führt der Hub nicht
                   aus – diese Wiederholung würde beim Lauf übersprungen.
                 </Text>

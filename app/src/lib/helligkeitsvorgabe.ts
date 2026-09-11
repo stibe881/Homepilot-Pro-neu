@@ -112,6 +112,44 @@ export function chipWahl(key: string): {
   return { adaptive: undefined, nachTageszeit: undefined, brightness: Number(key) };
 }
 
+/**
+ * Nur die festen Stufen - ohne die Quellen (rein, testbar).
+ *
+ * Bis hierher standen Stufen und Quellen in *einer* Reihe: «10 % · 25 %
+ * · 50 % · 75 % · 100 % · nach Raumhelligkeit · nach Tageszeit». Sieben
+ * gleich aussehende Chips, von denen fünf eine Zahl sind und zwei eine
+ * Rechnung - und weil sie nicht mehr auf eine Zeile passten, stand «nach
+ * Tageszeit» allein in der zweiten und sah aus wie ein sechster
+ * Prozentwert. Zwei Fragen, zwei Reihen, jede mit ihrer Überschrift.
+ */
+export function helligkeitsStufen(
+  mitUnveraendert = false
+): { key: string; label: string }[] {
+  return [
+    // Nur beim Umschalten: Dort ist die Helligkeit eine Zugabe zum
+    // «geht an», und wer sie nicht angibt, will sie nicht angerührt
+    // haben.
+    ...(mitUnveraendert ? [{ key: UNVERAENDERT, label: 'Helligkeit lassen' }] : []),
+    { key: '10', label: '10 %' },
+    { key: '25', label: '25 %' },
+    { key: '50', label: '50 %' },
+    { key: '75', label: '75 %' },
+    { key: '100', label: '100 %' },
+  ];
+}
+
+/** Die beiden Quellen, die statt einer festen Zahl rechnen (rein, testbar). */
+export function helligkeitsQuellen(
+  raumMoeglich: boolean
+): { key: string; label: string }[] {
+  return [
+    // Nur wo ein Fühler steht - sonst wäre die Wahl eine Attrappe.
+    ...(raumMoeglich ? [{ key: NACH_RAUM, label: 'nach Raumhelligkeit' }] : []),
+    // Die Uhr geht immer: Sie braucht kein Gerät.
+    { key: NACH_TAGESZEIT, label: 'nach Tageszeit' },
+  ];
+}
+
 /** Die Stufen und die beiden Quellen, in dieser Reihenfolge (rein, testbar). */
 export function helligkeitsOptionen(
   raumMoeglich: boolean,

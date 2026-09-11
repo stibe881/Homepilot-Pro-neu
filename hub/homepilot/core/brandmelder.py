@@ -1,6 +1,6 @@
 """Die Brandmeldeanlage - das Rechnen (alle Funktionen rein, testbar).
 
-Punkt 445 der Werkbank. Rauchmelder waren im Hub bisher gewöhnliche
+Punkt 543 der Werkbank. Rauchmelder waren im Hub bisher gewöhnliche
 Melder: eine Kachel, ein Auslöser für Abläufe, ein Sensor für die
 Alarmanlage. Die Doku versprach «warnt sofort, unabhängig von der
 Alarmanlage» - getan hat das nur der Wassermelder. Ein Rauchalarm um

@@ -70,7 +70,7 @@ export async function knoepfeAnmelden(): Promise<void> {
   const spaeter = {
     identifier: KNOPF_SPAETER,
     // Ohne Zahl: Wie lange «später» ist, stellt jede Person selbst ein
-    // (Konto → Benachrichtigungen, Punkt 425); der Hub kennt die Zahl.
+    // (Konto → Benachrichtigungen, Punkt 514); der Hub kennt die Zahl.
     buttonTitle: 'Später nochmal',
     // Ohne die App zu öffnen: Der ganze Zweck ist, das Telefon in der
     // Tasche zu lassen.

@@ -26,7 +26,7 @@ export type Section =
   | 'system'
   | 'energy'
   | 'alarm'
-  // Die Brandmeldeanlage (Punkt 445) - neben der Alarmanlage.
+  // Die Brandmeldeanlage (Punkt 543) - neben der Alarmanlage.
   | 'brand'
   | 'besuch'
   | 'speakers'
@@ -47,7 +47,7 @@ export type Section =
  * zeigt nur sieben davon; die übrigen erreicht man über Einstellungen und
  * brauchen trotzdem einen Namen.
  */
-/** Der Farbwinkel eines Bereichs (rein, testbar) - Punkt 436.
+/** Der Farbwinkel eines Bereichs (rein, testbar) - Punkt 525.
  *
  *  Die Leiste färbt den gewählten Punkt in der Farbe des Bereichs,
  *  im Zimmer in der des Raums (lib/raumkarte.ts: raumTon) - so weiss
@@ -78,7 +78,7 @@ export function bereichTint(ton: number | null): string | null {
 
 /** Der Nachbar in der Leiste (rein, testbar) - null am Rand.
  *
- *  Punkt 433: Auf dem Telefon wischt man zwischen den Bereichen, statt
+ *  Punkt 522: Auf dem Telefon wischt man zwischen den Bereichen, statt
  *  nach unten zur Leiste zu greifen. Die Reihenfolge ist die der Leiste;
  *  am Rand endet die Geste, statt umzulaufen - ein Wischen, das von
  *  «Einstellungen» wieder auf «Start» springt, verwirrt mehr als es hilft. */

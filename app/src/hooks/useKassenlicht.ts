@@ -1,5 +1,5 @@
 /**
- * Hell und wach, solange die Kassenansicht offen ist (Punkt 443).
+ * Hell und wach, solange die Kassenansicht offen ist (Punkt 532).
  *
  * `expo-brightness` ist ein natives Modul - deshalb ging mit ihm die
  * `runtimeVersion` auf 8 (CLAUDE.md, «Ausliefern»). Im Browser gibt es

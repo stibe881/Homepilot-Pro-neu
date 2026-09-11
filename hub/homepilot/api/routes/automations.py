@@ -486,6 +486,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         # 90-Tage-Grenze steht nur hier (core/verwaist.py), damit App und
         # Hub nie zwei Meinungen haben.
         feuer_rows = hub.data.get(verwaist_module.STORE_KEY)
+        laufend = hub.automations.laufend
         jetzt = time.time()
         gefeuert = verwaist_module.letzte_feuer(feuer_rows)
         tote = {
@@ -508,6 +509,9 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 | {
                     "last_fired": gefeuert.get(automation.id),
                     "orphaned": automation.id in tote,
+                    # Steht er gerade mitten in einem Durchgang (Punkt
+                    # 461)? Nur dann zeigt die App den Abbrechen-Knopf.
+                    "running": automation.id in laufend,
                 }
                 for automation in hub.automations.automations
             ],
@@ -647,6 +651,8 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "quiet_from": body.quiet_from,
             "quiet_to": body.quiet_to,
             "countdown": body.countdown,
+            "valid_until": body.valid_until,
+            "order": body.order,
         }
         hub.data.set("automations", [*stored_automations(), entry])
         await hub.reload_automations()
@@ -692,6 +698,8 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 "quiet_from": body.quiet_from,
                 "quiet_to": body.quiet_to,
                 "countdown": body.countdown,
+                "valid_until": body.valid_until,
+                "order": body.order,
             }
             if entry["id"] == automation_id
             else entry
@@ -735,6 +743,56 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         hub.data.set("automations", updated)
         await hub.reload_automations()
         return {"ok": True, "quiet_until": until}
+
+    @app.post("/api/automations/{automation_id}/abbrechen")
+    async def abbrechen_automation(
+        automation_id: str, request: Request
+    ) -> dict[str, Any]:
+        """Einen laufenden Durchgang anhalten (Punkt 461 der Werkbank).
+
+        «Gute Nacht» mit drei Wartezeiten läuft zwölf Minuten; wer nach
+        der ersten merkt, dass noch jemand im Wohnzimmer sitzt, hatte
+        bisher keinen Knopf. Was schon geschaltet ist, bleibt geschaltet
+        - ein Abbruch, der heimlich zurückschaltet, wäre ein zweiter
+        Ablauf, den niemand gebaut hat.
+
+        Wer pausieren darf, darf auch abbrechen: Beides hält denselben
+        Ablauf an, nur für verschieden lang.
+        """
+        require(request, Capability.PAUSE_AUTOMATIONS)
+        lief = hub.automations.abbrechen(automation_id)
+        return {"ok": True, "abgebrochen": lief}
+
+    @app.post("/api/automations/probe-konflikt")
+    async def probe_konflikt(
+        body: AutomationRequest, request: Request, id: str = ""
+    ) -> dict[str, Any]:
+        """Womit sich dieser Entwurf beisst (Punkt 462 der Werkbank).
+
+        Die Liste unter «Widersprüche» gibt es seit je - sie zeigt sie
+        aber erst, wenn der Ablauf gespeichert ist, und angesehen wird
+        sie, wenn ein Licht flackert. Hier beantwortet derselbe
+        Rechenweg dieselbe Frage in dem Moment, in dem der Widerspruch
+        entsteht.
+
+        Ein Hinweis, keine Ablehnung: «Der eine schaltet ein, der andere
+        später aus» ist oft genau das Gewollte.
+        """
+        require(request, Capability.EDIT_AUTOMATIONS)
+        # `id` ist die Kennung des Ablaufs, der gerade bearbeitet wird -
+        # ohne sie läge beim Bearbeiten die gespeicherte Fassung im
+        # Vergleich, und jeder Ablauf, der ein Gerät ein- und ausschaltet,
+        # widerspräche sich selbst.
+        entwurf = automation_module.Automation(
+            id=id.strip() or "__entwurf__",
+            alias=body.alias,
+            triggers=body.trigger,
+            conditions=body.condition,
+            actions=body.action,
+            otherwise=body.otherwise,
+        )
+        zeilen = automation_module.konflikte_mit(entwurf, hub.automations.automations)
+        return {"conflicts": zeilen}
 
     @app.post("/api/automations/probestep")
     async def probe_step(body: ProbeStepRequest, request: Request) -> dict[str, Any]:
@@ -795,7 +853,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
     @app.get("/api/automations/bild/{kennung}")
     async def automation_bild(kennung: str, request: Request) -> Response:
-        """Das Standbild zu einem Lauf mit Kamera-Auslöser (Punkt 421).
+        """Das Standbild zu einem Lauf mit Kamera-Auslöser (Punkt 510).
 
         Dasselbe Archiv wie beim Alarm (core/bildarchiv.py), aber unter
         dem Recht, den Verlauf zu sehen: Wer die Läufe lesen darf, darf

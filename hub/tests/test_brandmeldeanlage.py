@@ -1,4 +1,4 @@
-"""Die Brandmeldeanlage (Punkt 445).
+"""Die Brandmeldeanlage (Punkt 543).
 
 Der Fall, für den es sie gibt: Ein Rauchmelder schlägt um drei Uhr an,
 die Alarmanlage ist unscharf, kein Ablauf hört zu - und trotzdem muss

@@ -35,7 +35,7 @@ def verfuegbar() -> bool:
 
 
 def ocr_verfuegbar() -> bool:
-    """Kann der Hub fotografierte Belege lesen? (Punkt 444)
+    """Kann der Hub fotografierte Belege lesen? (Punkt 533)
 
     Drei Teile, alle drei nötig: das Python-Paket `pytesseract`, `Pillow`
     zum Öffnen des Bilds und das Programm `tesseract` selbst (im Abbild
@@ -88,7 +88,7 @@ def aus_pdf(daten: bytes) -> str:
 
 
 def aus_bild(daten: bytes) -> str:
-    """Den Text eines fotografierten Belegs - per Tesseract (Punkt 444).
+    """Den Text eines fotografierten Belegs - per Tesseract (Punkt 533).
 
     Auf dem Hub und nicht auf dem Telefon: Ein natives OCR-Modul in der
     App hiesse eine neue Hülle für alle Telefone; Tesseract im Abbild

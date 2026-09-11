@@ -1,8 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Image, Pressable, Text, View } from 'react-native';
+import React, { useMemo, useRef, useState } from 'react';
+import { Image, Pressable, Text, View } from 'react-native';
 
-import { useBewegungReduziert } from '../hooks/useBewegungReduziert';
 import { MAX_SCHRIFT } from '../lib/schrift';
 
 import Svg, { Polyline } from 'react-native-svg';
@@ -24,7 +23,7 @@ import { szenenfarbe } from '../lib/szenenfarbe';
 import { ketteSatz, ursacheSatz } from '../lib/ursache';
 import { zaehlbar } from '../lib/zaehlung';
 import { useJetzt } from '../hooks/useRestzeit';
-import { useColors } from '../theme';
+import { useColors, useTyp } from '../theme';
 import { warnZahl, warnZahlSatz } from '../lib/warnzeile';
 import { Bar } from './Bar';
 import { Card, CardFooter } from './Card';
@@ -67,6 +66,20 @@ import { Wischdimmer } from './entity/wischdimmer';
 import { MediaButton, RadioPanel, ShuffleRepeat, SpotifyPanel } from './entity/medien';
 import { MedienExtras } from './entity/medienextras';
 import { makeStyles } from './entity/stil';
+import { Zustandspunkt } from './Zustandspunkt';
+import { raeumeVon } from '../lib/raum';
+
+/** Was in der Anpassen-Zeile neben «Raum» steht (rein, testbar).
+ *
+ * Ein Gerät kann für mehrere Zimmer zählen (Punkt 539). Alle
+ * hinzuschreiben sprengt die Zeile - «Bad +1» sagt, dass es mehr als
+ * eines ist, und welche, sieht man beim Öffnen. */
+export function raumWert(entity: Entity): string {
+  const zimmer = raeumeVon(entity);
+  if (zimmer.length === 0) return 'Kein Raum';
+  if (zimmer.length === 1) return zimmer[0];
+  return `${zimmer[0]} +${zimmer.length - 1}`;
+}
 import {
   BigValue,
   Pill,
@@ -150,7 +163,9 @@ interface Props {
   imRaumblock?: boolean;
   /** Anpassen-Modus: Raum dieser Kachel setzen. */
   rooms?: string[];
-  onSetRoom?: (room: string | null) => void;
+  /** Alle Zimmer, für die das Gerät zählen soll - das erste ist
+   *  sein Standort (Punkt 539). Leer nimmt es aus allen. */
+  onSetRoom?: (rooms: string[] | null) => void;
   /** Gerät umbenennen – im Anpassen-Modus über den Stift, sonst über
    *  einen langen Druck auf die Kachel.
    *
@@ -250,7 +265,11 @@ export function EntityCard({
   onErinnern,
 }: Props) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  // Am Wandpanel grösser (Punkt 445 der Werkbank): Die Kachel ist das,
+  // was man dort aus zwei Metern liest - eine 13-Punkt-Zeile ist an der
+  // Wand ein grauer Strich.
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   const [remoteOpen, setRemoteOpen] = useState(false);
   // Helligkeit unter dem Finger, solange über die Kachel gestrichen wird
   // (components/entity/wischdimmer.tsx). null heisst: der Hub führt.
@@ -269,21 +288,6 @@ export function EntityCard({
   const [menueOffen, setMenueOffen] = useState(false);
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
   const isOn = entity.state.state === 'on';
-  // Der Übergang beim Schalten (Punkt 438): Der Punkt der Lichtkachel
-  // blendet in 150 ms von aus nach an, statt umzuspringen. Kurz genug,
-  // dass nichts «wackelt» (Werkbank 292: Unruhe ist teurer als der
-  // Gewinn), lang genug, dass das Auge den Wechsel als Antwort liest.
-  // Wer weniger Bewegung eingestellt hat, bekommt den Sprung.
-  const ruhig = useBewegungReduziert();
-  const schaltung = useRef(new Animated.Value(isOn ? 1 : 0)).current;
-  useEffect(() => {
-    Animated.timing(schaltung, {
-      toValue: isOn ? 1 : 0,
-      duration: ruhig ? 0 : 150,
-      useNativeDriver: false,
-    }).start();
-  }, [isOn, ruhig, schaltung]);
-
 
   // Was ein langer Druck anbietet. Im Anpassen-Modus nichts: Dort hält
   // dieselbe Geste die Kachel zum Verschieben fest, und die Knöpfe für
@@ -301,7 +305,7 @@ export function EntityCard({
         ungezaehlt: Boolean(ungezaehlt),
         verlauf: Boolean(onLongPress),
         erinnern: Boolean(onErinnern),
-        // Stern und Raum direkt im Menü (Punkt 432) - das Blatt bleibt
+        // Stern und Raum direkt im Menü (Punkt 521) - das Blatt bleibt
         // für alles, was seltener ist.
         favorit: Boolean(onToggleFavorite),
         istFavorit: Boolean(favorite),
@@ -532,16 +536,17 @@ export function EntityCard({
                   size={22}
                   color={isOn ? tinte : colors.inkSoft}
                 />
-                <Animated.View
-                  style={[
-                    styles.lichtPunkt,
-                    {
-                      backgroundColor: schaltung.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [colors.off, colors.on],
-                      }),
-                    },
-                  ]}
+                {/* Mit Übergang statt Sprung (Punkt 292/443 der
+                    Werkbank): Wer tippt und nichts sieht, tippt ein
+                    zweites Mal - und dann geht das Licht an und gleich
+                    wieder aus. Die Dauer hängt daran, wer geschaltet
+                    hat - siehe lib/uebergang.ts. */}
+                <Zustandspunkt
+                  an={isOn}
+                  anFarbe={colors.on}
+                  ausFarbe={colors.off}
+                  getipptAt={pending ? Date.now() : null}
+                  style={styles.lichtPunkt}
                 />
               </View>
               <View>
@@ -1272,8 +1277,10 @@ export function EntityCard({
                   {
                     key: 'raum',
                     icon: 'home-outline' as const,
-                    label: 'Raum',
-                    wert: entity.room ?? 'Kein Raum',
+                    label: raeumeVon(entity).length > 1 ? 'Räume' : 'Raum',
+                    // Mehrere Zimmer stehen als «Bad +1» da: Der
+                    // Standort zuerst, die Zahl sagt, dass es mehr ist.
+                    wert: raumWert(entity),
                     onPress: () => {
                       setBlattOffen(false);
                       setRoomPickerOpen(true);
@@ -1463,12 +1470,12 @@ export function EntityCard({
       {onSetRoom && rooms ? (
         <RoomPicker
           visible={roomPickerOpen}
-          current={entity.room ?? null}
+          current={raeumeVon(entity)}
           rooms={rooms}
           onClose={() => setRoomPickerOpen(false)}
-          onSelect={(room) => {
+          onSelect={(gewaehlt) => {
             setRoomPickerOpen(false);
-            onSetRoom(room);
+            onSetRoom(gewaehlt);
           }}
         />
       ) : null}

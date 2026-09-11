@@ -157,41 +157,114 @@ def storen_auswahl(entities: list[Any], gewaehlt: list[str]) -> list[Any]:
 _DRAUSSEN = ("aussen", "draussen", "terrasse", "balkon", "garten", "sitzplatz")
 
 
-def innentemperatur(entities: list[Any]) -> float | None:
-    """Der Mittelwert der Raumfühler (rein, testbar).
+#: Was ein Fühler misst - und in welchen Grenzen das plausibel ist.
+#:
+#: Ausreisser sind Backöfen, Grillsonden und kaputte Geräte; bei der
+#: Feuchte ist alles ausserhalb von 0 bis 100 Prozent schlicht keine.
+_GRENZEN = {"temperature": (-10.0, 45.0), "humidity": (0.0, 100.0)}
+_EINHEIT = {"temperature": "°C", "humidity": "%"}
 
-    Genommen wird, was einen Raum hat und plausibel misst - entweder ein
-    `temperature`-Attribut (Thermostate) oder ein °C-Sensor. Ausreisser
-    ausserhalb von -10 bis 45 Grad sind Backöfen und kaputte Fühler.
+#: Prozente, die keine Luftfeuchtigkeit sind.
+#:
+#: Die Einheit allein genügt nicht: Akkustand, Funkauslastung und
+#: Filterlaufzeit zählen alle in Prozent. Dieselbe Lehre wie in der App
+#: (lib/klimachip.ts), wo der Tropfen oben einmal die Auslastung des
+#: Funkmoduls zeigte - eine Zahl, die niemand deuten kann, ist schlimmer
+#: als keine. Hier stünde sie in der Auswahlliste und liesse sich
+#: anhaken.
+_KEINE_FEUCHTE = re.compile(
+    r"duty[_ ]?cycle|sendespeicher|batter|akku|filter|signal|wlan|lautst", re.I
+)
 
-    Wer am Gerät «zählt nur für seinen Raum» gesetzt bekommen hat, bleibt
-    draussen: Der Fühler in der Waschküche steht neben dem Rack und misst
-    30 Grad. Er läge innerhalb der Plausibilitätsgrenzen und zöge das
-    Mittel so weit hoch, dass der Hitze-Hinweis an einem kühlen Tag käme.
+
+def _messwert(entity: Any, art: str) -> float | None:
+    """Was dieses Gerät gerade misst - oder nichts (rein, testbar).
+
+    Zwei Formen, weil es zwei Sorten Gerät gibt: Ein Thermostat trägt
+    seine Werte als Attribut (`temperature`, `humidity`) neben dem
+    Zustand, ein Fühler hat sie *als* Zustand mit einer Einheit daneben.
     """
-    werte: list[float] = []
+    state = getattr(entity, "state", None) or {}
+    if art == "humidity" and _KEINE_FEUCHTE.search(
+        f"{getattr(entity, 'id', '')} {getattr(entity, 'name', '')}"
+    ):
+        return None
+    wert = state.get(art)
+    if not isinstance(wert, (int, float)):
+        if getattr(entity, "kind", "") != "sensor":
+            return None
+        if str(state.get("unit") or "") != _EINHEIT[art]:
+            return None
+        try:
+            wert = float(state.get("state"))
+        except (TypeError, ValueError):
+            return None
+    unten, oben = _GRENZEN[art]
+    return float(wert) if unten <= float(wert) <= oben else None
+
+
+def klimafuehler(entities: list[Any], art: str) -> list[Any]:
+    """Alle Geräte, die für den Hitze-Hinweis in Frage kommen (rein, testbar).
+
+    Dieselbe Vorauswahl, die `innenwert` trifft - hier als Liste, damit
+    die App daraus die Häkchen bauen kann, ohne die Regeln zu kennen.
+
+    Draussen bleibt draussen, und «zählt nur für seinen Raum» ebenso:
+    Der Fühler in der Waschküche steht neben dem Rack und misst 30 Grad.
+    Er läge innerhalb der Plausibilitätsgrenzen und zöge das Mittel so
+    weit hoch, dass der Hitze-Hinweis an einem kühlen Tag käme.
+    """
+    passend = []
     for entity in entities:
         raum = str(getattr(entity, "room", "") or "")
         if not raum or any(wort in raum.lower() for wort in _DRAUSSEN):
             continue
         if getattr(entity, "room_only", False):
             continue
-        state = getattr(entity, "state", None) or {}
-        wert = state.get("temperature")
-        if not isinstance(wert, (int, float)):
-            if getattr(entity, "kind", "") != "sensor":
-                continue
-            if str(state.get("unit") or "") != "°C":
-                continue
-            try:
-                wert = float(state.get("state"))
-            except (TypeError, ValueError):
-                continue
-        if -10 <= float(wert) <= 45:
-            werte.append(float(wert))
+        if _messwert(entity, art) is not None:
+            passend.append(entity)
+    return passend
+
+
+def innenwert(
+    entities: list[Any], art: str, gewaehlt: list[str] | None = None
+) -> float | None:
+    """Der Mittelwert der gewählten Raumfühler (rein, testbar).
+
+    ``gewaehlt`` nennt die Geräte, die zählen sollen - leer heisst alle,
+    dieselbe Regel wie bei den Storen (`storen_auswahl`). Der Grund für
+    die Wahl kam aus dem Haus: Gemittelt wurde über *jeden* Fühler mit
+    einem Raum, und darunter sind welche, die nichts über die Wohnstube
+    sagen - der im Serverschrank, der an der Fussbodenheizung, der im
+    Estrich unterm Ziegeldach. Ein einziger davon hebt das Mittel um
+    Grade, und dann kommt «Drinnen wird es warm» an einem Tag, an dem es
+    das nicht ist.
+    """
+    erlaubt = {str(eintrag) for eintrag in (gewaehlt or []) if str(eintrag)}
+    werte: list[float] = []
+    for entity in klimafuehler(entities, art):
+        if erlaubt and str(getattr(entity, "id", "")) not in erlaubt:
+            continue
+        wert = _messwert(entity, art)
+        if wert is not None:
+            werte.append(wert)
     if not werte:
         return None
     return round(sum(werte) / len(werte), 1)
+
+
+def innentemperatur(
+    entities: list[Any], gewaehlt: list[str] | None = None
+) -> float | None:
+    """Der Mittelwert der Temperaturfühler (rein, testbar)."""
+    return innenwert(entities, "temperature", gewaehlt)
+
+
+def innenfeuchte(
+    entities: list[Any], gewaehlt: list[str] | None = None
+) -> float | None:
+    """Der Mittelwert der Feuchtefühler (rein, testbar)."""
+    return innenwert(entities, "humidity", gewaehlt)
 
 
 def hitze_tagsueber(

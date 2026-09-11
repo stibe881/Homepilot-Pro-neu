@@ -59,7 +59,7 @@ async def test_unknown_entity_raises():
 async def test_room_provider_assigns_room():
     bus = EventBus()
     registry = EntityRegistry(bus)
-    registry.room_provider = {"demo.light": "Wohnzimmer"}.get
+    registry.rooms_provider = {"demo.light": ["Wohnzimmer"]}.get
 
     events = []
     bus.subscribe("entity_added", lambda t, d: events.append(d["entity"]))
@@ -70,9 +70,60 @@ async def test_room_provider_assigns_room():
     assert events[0]["room"] == "Wohnzimmer"
 
 
+async def test_ein_geraet_kann_in_mehreren_zimmern_zaehlen():
+    """Punkt 539: Ein Klimafühler im offenen Wohnbereich gehört in beide
+    Zimmer. Bisher gewann wortlos das zuletzt genannte."""
+    bus = EventBus()
+    registry = EntityRegistry(bus)
+    registry.rooms_provider = {"demo.light": ["Wohnzimmer", "Esszimmer"]}.get
+
+    events = []
+    bus.subscribe("entity_added", lambda t, d: events.append(d["entity"]))
+    await registry.add(make_light())
+
+    entity = registry.get("demo.light")
+    assert entity.rooms == ["Wohnzimmer", "Esszimmer"]
+    # Der Standort bleibt das erste Zimmer - dort liegt seine Kachel.
+    assert entity.room == "Wohnzimmer"
+    assert events[0]["rooms"] == ["Wohnzimmer", "Esszimmer"]
+
+
+async def test_ein_zimmer_aus_der_integration_steht_auch_in_der_liste():
+    """Die meisten Integrationen setzen nur `room`. Ohne diese Zeile
+    müsste jede Abfrage beide Felder zusammensuchen."""
+    bus = EventBus()
+    registry = EntityRegistry(bus)
+    licht = make_light()
+    licht.room = "Bad"
+    await registry.add(licht)
+    assert registry.get("demo.light").rooms == ["Bad"]
+
+
+async def test_set_room_nimmt_mehrere_und_meldet_es_der_app():
+    bus = EventBus()
+    registry = EntityRegistry(bus)
+    await registry.add(make_light())
+    events = []
+    bus.subscribe("state_changed", lambda t, d: events.append(d["entity"]))
+
+    await registry.set_room("demo.light", ["Wohnzimmer", "Esszimmer"])
+    assert registry.get("demo.light").rooms == ["Wohnzimmer", "Esszimmer"]
+    assert events[-1]["rooms"] == ["Wohnzimmer", "Esszimmer"]
+
+    # Ein einzelner Name geht weiter - so ruft die ältere App.
+    await registry.set_room("demo.light", "Bad")
+    assert registry.get("demo.light").rooms == ["Bad"]
+    assert registry.get("demo.light").room == "Bad"
+
+    # Und nichts nimmt es aus allen Zimmern.
+    await registry.set_room("demo.light", None)
+    assert registry.get("demo.light").rooms == []
+    assert registry.get("demo.light").room is None
+
+
 async def test_entity_without_room_stays_none():
     registry = EntityRegistry(EventBus())
-    registry.room_provider = {}.get
+    registry.rooms_provider = {}.get
     await registry.add(make_light())
     assert registry.get("demo.light").room is None
 

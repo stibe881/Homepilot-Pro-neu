@@ -19,9 +19,15 @@ Dieselbe Liste von Hand nachzubauen wäre Arbeit, die der Bridge-Dienst
 längst gemacht hat, und sie wäre nach dem ersten neuen Sensor falsch.
 
 **Warum ohne Wolke.** Ein Aqara-Kontakt über Zigbee2MQTT redet mit dem
-Stick am Hub. Derselbe Kontakt über die Hersteller-App redet mit einem
-Rechenzentrum, und wenn dort etwas ausfällt, steht die Wohnung. Das ist
-der ganze Grund für Zigbee.
+eigenen Koordinator im Haus. Derselbe Kontakt über die Hersteller-App
+redet mit einem Rechenzentrum, und wenn dort etwas ausfällt, steht die
+Wohnung. Das ist der ganze Grund für Zigbee.
+
+**Wo das Funkstück steckt, ist hier nicht zu sehen** - und das ist
+Absicht. Diese Integration liest MQTT-Themen; ob ein USB-Stick am Server
+hängt oder ein Kästchen am Netzwerkkabel (hier: ein SONOFF Dongle Max
+über PoE), weiss nur Zigbee2MQTT. Aufbau und Einstellungen des Dongles:
+docs/zigbee.md.
 
 Der Hub führt **ein Gerät als eine Kachel**, nicht als sieben. Ein
 Bewegungsmelder, der Bewegung, Helligkeit, Temperatur und Batterie
@@ -57,6 +63,17 @@ MESSWERTE = {
     "voltage": "voltage",
     "current": "current",
     "linkquality": "linkquality",
+    # Was ein Rauchwarnmelder ausser «Rauch ja/nein» führt (Punkt 542).
+    # Vorher fiel das alles hier durch: Diese Liste ist eine Auswahl,
+    # kein Durchlass, und was nicht darin steht, kommt beim Hub nie an.
+    # Gefragt war «Status, Batterie, Smoke density, Smoke density dbm
+    # usw.» - und die beiden Dichten sind genau die Zahlen, an denen man
+    # sieht, ob ein Melder noch misst oder nur noch hängt.
+    "smoke_density": "smoke_density",
+    "smoke_density_dbm": "smoke_density_dbm",
+    # Der Melder im Selbsttest. Ohne dieses Feld sieht «Rauch» nach
+    # Feuer aus, obwohl jemand nur den Knopf gedrückt hat.
+    "test": "test",
 }
 
 #: Melder, deren «true» etwas bedeutet - und was der Hub daraus macht.
@@ -173,7 +190,7 @@ def art_und_befehle(exposes: Any) -> tuple[str, list[str]]:
     for name in MELDER:
         if name in merkmale:
             befehle = []
-            # Rauch- und Gasmelder (Aqara, Punkt 445): Summer stumm oder von
+            # Rauch- und Gasmelder (Aqara, Punkt 543): Summer stumm oder von
             # Hand auslösen, Selbsttest anstossen - je nach dem, was das
             # Gerät in seinen Exposes nennt.
             if name in ("smoke", "gas"):
@@ -254,7 +271,13 @@ def zustand_aus_payload(
         if zigbee in payload and payload[zigbee] is not None:
             changes[feld] = payload[zigbee]
 
-    if "battery" in changes:
+    # Sagt das Gerät selbst «Batterie schwach», gilt das. Der Prozentwert
+    # ist bei Meldern oft geraten (drei Stufen, als 100/50/0 gemeldet),
+    # die eigene Warnung des Geräts nicht - sie kommt vom Hersteller und
+    # ist der Grund, aus dem der Melder nachts piept.
+    if "battery_low" in payload and payload["battery_low"] is not None:
+        changes["low_battery"] = bool(payload["battery_low"])
+    elif "battery" in changes:
         try:
             changes["low_battery"] = float(changes["battery"]) <= 15
         except (TypeError, ValueError):
@@ -331,7 +354,7 @@ def set_nutzlast(kind: str, command: str, data: dict[str, Any]) -> dict[str, Any
         return {"color_temp": int(data.get("color_temp", 370))}
     if command == "set_color":
         return {"color": {"hex": str(data.get("color") or "#ffffff")}}
-    # Rauchmelder (Punkt 445): Aqara nimmt «buzzer: mute» und «buzzer: alarm».
+    # Rauchmelder (Punkt 543): Aqara nimmt «buzzer: mute» und «buzzer: alarm».
     if command == "mute":
         return {"buzzer": "mute"}
     if command == "buzzer_alarm":

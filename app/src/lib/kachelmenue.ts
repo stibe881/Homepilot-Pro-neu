@@ -47,7 +47,7 @@ const EINTRAEGE: Record<KachelAktion, KachelEintrag> = {
   // «Die Waschmaschine läuft, ich gehe aus dem Haus, sag mir in zwei
   // Stunden Bescheid.» Ohne diesen Eintrag baut man dafür einen Ablauf.
   erinnern: { id: 'erinnern', label: 'Später erinnern', icon: 'alarm-outline' },
-  // Die zwei häufigsten Handgriffe aus dem Blatt (Punkt 432): Ein Stern
+  // Die zwei häufigsten Handgriffe aus dem Blatt (Punkt 521): Ein Stern
   // und ein Raum sind schneller gesetzt, als das Blatt geöffnet ist.
   favorit: { id: 'favorit', label: 'Als Favorit', icon: 'star-outline' },
   raum: { id: 'raum', label: 'In anderen Raum', icon: 'home-outline' },
@@ -99,7 +99,7 @@ export function kachelAktionen(moeglich: {
   verlauf?: boolean;
   /** «Sag mir später Bescheid» – für alles, was läuft oder offen steht. */
   erinnern?: boolean;
-  /** Stern setzen oder nehmen (Punkt 432). */
+  /** Stern setzen oder nehmen (Punkt 521). */
   favorit?: boolean;
   /** Ist das Gerät schon ein Favorit? */
   istFavorit?: boolean;

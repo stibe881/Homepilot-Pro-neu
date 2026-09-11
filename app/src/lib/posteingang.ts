@@ -1,5 +1,5 @@
 /**
- * Der Posteingang (Punkt 435): was das Haus für mich zurückgehalten hat.
+ * Der Posteingang (Punkt 524): was das Haus für mich zurückgehalten hat.
  *
  * Der Hub führt die Liste (core/pushverlauf.py: verpasst); hier steht
  * nur das Zählen für die Glocke und das Sortieren fürs Blatt.

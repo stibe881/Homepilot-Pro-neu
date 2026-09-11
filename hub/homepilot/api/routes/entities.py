@@ -36,7 +36,7 @@ from ...core.streams import (
     start_rueckstand,
     strip_low_latency,
 )
-from ...core.users import Capability
+from ...core.users import Capability, kind_darf_schalten
 from ..context import ApiContext
 from ..models import (
     CommandRequest,
@@ -173,6 +173,16 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         entity = hub.registry.get(entity_id)
         if entity is None or not user.may_see(entity.id, entity.kind, entity.integration, entity.room):
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
+        # Was ein Kind nie schaltet (Punkt 497 der Werkbank): Türschloss
+        # und Alarmanlage. Die Kinder-Ansicht bietet beides nicht an -
+        # aber das ist ein Bildschirm und keine Regel, und wer die
+        # Adresse kennt, kommt daran vorbei. Sehen darf es beides
+        # weiterhin; «ist abgeschlossen?» beruhigt.
+        if not kind_darf_schalten(user.role, str(getattr(entity.kind, "value", entity.kind))):
+            raise HTTPException(
+                status_code=403,
+                detail="Türschloss und Alarmanlage schalten die Erwachsenen.",
+            )
         hub.audit.record(
             user.name, entity, body.command, throttle_module.client_address(request)
         )
@@ -217,18 +227,29 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         Bleibt in der homepilot-data.json erhalten und hat Vorrang vor der
         config.yaml – so ordnet man Geräte den Räumen zu, ohne die Datei
         anzufassen. EDIT_DEVICES statt EDIT_CONFIG: Das ist Einrichten der
-        Ansicht, nicht der Anlage - auch Mitbewohner dürfen es."""
+        Ansicht, nicht der Anlage - auch Mitbewohner dürfen es.
+
+        Ein Gerät darf in mehreren Zimmern zählen (Punkt 539): `rooms`
+        nennt sie alle, `room` den Standort. Kommt nur `room`, gilt genau
+        dieses eine - eine ältere App soll keine Mehrfachzuordnung
+        löschen, von der sie nichts weiss, und schickt darum `rooms` gar
+        nicht mit."""
         user = require(request, Capability.EDIT_DEVICES)
         entity = hub.registry.get(entity_id)
         if entity is None:
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
-        await hub.set_entity_room(entity_id, body.room or None)
-        hub.aenderungen.merken(
-            user,
-            "geraet",
-            f"in den Raum «{body.room}» gelegt" if body.room else "aus dem Raum genommen",
-            entity.label,
-        )
+        if body.rooms is not None:
+            zimmer = [name for name in body.rooms if name]
+        else:
+            zimmer = [body.room] if body.room else []
+        await hub.set_entity_room(entity_id, zimmer)
+        if not zimmer:
+            was = "aus dem Raum genommen"
+        elif len(zimmer) == 1:
+            was = f"in den Raum «{zimmer[0]}» gelegt"
+        else:
+            was = "den Räumen " + ", ".join(f"«{name}»" for name in zimmer) + " zugewiesen"
+        hub.aenderungen.merken(user, "geraet", was, entity.label)
         return {"ok": True, "entity": hub.registry.get(entity_id).as_dict()}
 
     @app.put("/api/entities/{entity_id}/meta")
@@ -337,6 +358,13 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                     "muted": batterie.ist_stumm(
                         [row], str(row.get("entity_id")), jetzt
                     ),
+                    # Wer sie stillgestellt hat (Punkt 478 der Werkbank).
+                    # Die Quittung gilt fürs Haus - das ist richtig, sonst
+                    # laufen zwei wegen derselben Batterie in den Keller.
+                    # Falsch war, dass sie unsichtbar für alle galt.
+                    "ack": batterie.quittung(
+                        [row], str(row.get("entity_id")), jetzt
+                    ),
                 }
                 for row in hub.data.get(batterie.STORE_KEY)
                 if isinstance(row, dict) and row.get("entity_id")
@@ -351,7 +379,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         Hub noch einmal. Wer die Batterie bis dahin gewechselt hat, hört
         nichts mehr – wer sie liegen lässt, wird erinnert.
         """
-        require(request, Capability.CONTROL)
+        user = require(request, Capability.CONTROL)
         if hub.registry.get(entity_id) is None:
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         jetzt = time.time()
@@ -359,13 +387,14 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         # sonst käme die Erinnerung früher, als die Einstellung verspricht.
         stunde = batterie.prefs_lesen(hub.data.get(batterie.PREFS_KEY))["hour"]
         rows = batterie.quittiere(
-            hub.data.get(batterie.STORE_KEY), entity_id, jetzt, stunde
+            hub.data.get(batterie.STORE_KEY), entity_id, jetzt, stunde, by=user.name
         )
         hub.data.set(batterie.STORE_KEY, rows)
         return {
             "ok": True,
             "entity_id": entity_id,
             "muted_until": batterie.stumm_bis(jetzt, stunde),
+            "ack": batterie.quittung(rows, entity_id, jetzt),
         }
 
     @app.delete("/api/batteries/{entity_id}/ack")
