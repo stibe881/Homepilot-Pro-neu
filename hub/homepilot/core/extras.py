@@ -50,6 +50,15 @@ EXTRAS: list[dict[str, Any]] = [
         "integration": None,
     },
     {
+        "key": "ocr",
+        "module": "pytesseract",
+        "title": "Belege fotografiert lesen",
+        "detail": "Betrag, Nummer und Ablaufdatum auch aus einem Foto oder "
+        "Scan des Belegs vorschlagen (Tesseract, Punkt 533). Ohne das Paket "
+        "liest der Hub nur PDF und Text; eintragen geht weiterhin von Hand.",
+        "integration": None,
+    },
+    {
         "key": "speech",
         "module": "gtts",
         "title": "Sprachausgabe",
@@ -133,7 +142,7 @@ def vorhanden(modul: str) -> bool:
 
 #: Extras, deren Bedarf nicht an einer Integration hängt, sondern an
 #: einem eigenen Merkmal. Der Name zeigt auf den Parameter von `stand`.
-OHNE_INTEGRATION = {"apns": "apns", "beleg": "belege"}
+OHNE_INTEGRATION = {"apns": "apns", "beleg": "belege", "ocr": "belege"}
 
 
 def stand(

@@ -60,6 +60,9 @@ from .routes import (
     automations as routes_automations,
 )
 from .routes import (
+    brand as routes_brand,
+)
+from .routes import (
     dashboard as routes_dashboard,
 )
 from .routes import (
@@ -296,6 +299,7 @@ def create_app(hub: Hub) -> FastAPI:
         routes_push.register,
         routes_prefs.register,
         routes_alarm.register,
+        routes_brand.register,
         routes_users.register,
         routes_family.register,
         routes_auth.register,

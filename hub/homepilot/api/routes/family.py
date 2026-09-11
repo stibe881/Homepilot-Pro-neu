@@ -284,7 +284,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         return f"/api/family/{collection}/{kennung}/datei"
 
     def datei_aufnehmen(
-        collection: str, item_id: Any, anhang: Any
+        collection: str, item_id: Any, anhang: Any, fileid: str = ""
     ) -> dict[str, Any] | None:
         """Eine mitgeschickte Datei ablegen und ihren Block zurückgeben.
 
@@ -314,9 +314,9 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             ordner.mkdir(parents=True, exist_ok=True)
             # Alte Fassung mit anderer Endung wegräumen, sonst lägen zwei
             # Dateien da und die ausgelieferte wäre Zufall.
-            for vorher in ordner.glob(f"{kennung}.*"):
+            for vorher in ordner.glob(dateien.datei_muster(kennung, fileid)):
                 vorher.unlink(missing_ok=True)
-            (ordner / f"{kennung}.{endung}").write_bytes(roh)
+            (ordner / dateien.datei_name(kennung, fileid, endung)).write_bytes(roh)
         except OSError as err:
             # Hier anders als beim Bild: Ein Foto, das nicht auf die
             # Platte kam, ist ein fehlendes Foto; eine Datei, die nicht
@@ -327,17 +327,68 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 status_code=500, detail="Die Datei liess sich nicht ablegen"
             ) from err
         return dateien.block(
-            f"{datei_adresse(collection, kennung)}?v={bilder.fingerprint(roh)}",
+            f"{datei_adresse(collection, kennung)}?"
+            + (f"f={fileid}&" if fileid else "")
+            + f"v={bilder.fingerprint(roh)}",
             dateien.sauberer_name(anhang.get("name"), endung),
             typ,
             len(roh),
+            fileid,
+        )
+
+    def anhaenge_aufnehmen(
+        collection: str, item_id: Any, body: dict[str, Any]
+    ) -> list[dict[str, Any]] | None:
+        """Die Liste ``files`` (Punkt 520) ablegen - None ohne diese Liste.
+
+        Neue Dateien (mit ``data``) bekommen eine Kennung und werden
+        abgelegt; fertige Blöcke reisen unverändert weiter. Ohne die
+        Liste schickt eine ältere App-Fassung nur ``file`` - dann gilt
+        der alte Weg über datei_aufnehmen.
+        """
+        if "files" not in body or not isinstance(body.get("files"), list):
+            return None
+        bloecke: list[dict[str, Any]] = []
+        for eintrag in body["files"][: dateien.MAX_DATEIEN]:
+            if not isinstance(eintrag, dict):
+                continue
+            if "data" in eintrag:
+                # Die erste neue Datei ohne alte Vorgängerin darf die alte,
+                # kennungslose Form nehmen - sonst immer mit Kennung.
+                neu = datei_aufnehmen(collection, item_id, eintrag, dateien.neue_kennung())
+                if neu is not None:
+                    bloecke.append(neu)
+                continue
+            fertig = dateien.bereinigen(eintrag)
+            if fertig is not None:
+                bloecke.append(fertig)
+        return bloecke
+
+    def anhaenge_abgleichen(collection: str, item: dict[str, Any]) -> None:
+        """``file`` und ``files`` zusammenhalten und Verwaistes wegräumen.
+
+        ``file`` bleibt der erste Block - ältere App-Fassungen sehen so
+        weiterhin einen Beleg. Was auf der Platte liegt und an keinem
+        Block mehr hängt, verschwindet: Es bliebe sonst unter seiner
+        alten Adresse abrufbar, obwohl am Gutschein nichts mehr steht.
+        """
+        bloecke = dateien.anhaenge(item)
+        item["files"] = bloecke
+        if bloecke:
+            item["file"] = bloecke[0]
+        elif "file" in item:
+            item["file"] = None
+        dateien.aufraeumen(
+            dateien_ordner(collection),
+            item.get("id"),
+            {str(block.get("id") or "") for block in bloecke},
         )
 
     def datei_loeschen(collection: str, item_id: str) -> None:
         dateien.loeschen(dateien_ordner(collection), item_id)
 
     def datei_liefern(
-        collection: str, item_id: str, request: Request, v: str
+        collection: str, item_id: str, request: Request, v: str, f: str = ""
     ) -> Response:
         """Die Datei eines Eintrags – wie das Bild, nur mit Namen.
 
@@ -355,9 +406,19 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         if ordner is None or kennung is None:
             raise HTTPException(status_code=404, detail="Keine Datei")
         eintrag = anhang_eintrag(collection, kennung, user, "Keine Datei") or {}
-        anhang = eintrag.get("file")
+        fileid = bilder.safe_id(f) or "" if f else ""
+        anhang = next(
+            (
+                block
+                for block in dateien.anhaenge(eintrag)
+                if str(block.get("id") or "") == fileid
+            ),
+            eintrag.get("file"),
+        )
         gewuenscht = anhang.get("name") if isinstance(anhang, dict) else ""
-        for datei in sorted(ordner.glob(f"{kennung}.*")) if ordner.exists() else []:
+        for datei in (
+            sorted(ordner.glob(dateien.datei_muster(kennung, fileid))) if ordner.exists() else []
+        ):
             return Response(
                 content=datei.read_bytes(),
                 media_type=dateien.media_type(datei.name),
@@ -377,12 +438,16 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
     @app.get("/api/family/{collection}/{item_id}/datei")
     async def family_file(
-        collection: str, item_id: str, request: Request, v: str = ""
+        collection: str, item_id: str, request: Request, v: str = "", f: str = ""
     ) -> Response:
-        """Die Datei eines Eintrags, für jede Sammlung mit Dateiordner."""
+        """Die Datei eines Eintrags, für jede Sammlung mit Dateiordner.
+
+        ``f`` ist die Kennung einer weiteren Datei (Punkt 520); ohne sie
+        kommt die erste, wie bisher.
+        """
         if collection not in dateien.ORDNER:
             raise HTTPException(status_code=404, detail="Diese Liste führt keine Dateien")
-        return datei_liefern(collection, item_id, request, v)
+        return datei_liefern(collection, item_id, request, v, f)
 
     @app.get("/api/family/{collection}/{item_id}/belegtext")
     async def family_file_text(
@@ -409,12 +474,26 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         if ordner is None or kennung is None:
             raise HTTPException(status_code=404, detail="Keine Datei")
         anhang_eintrag(collection, kennung, user, "Keine Datei")
-        for datei in sorted(ordner.glob(f"{kennung}.*")) if ordner.exists() else []:
-            text = beleglesen.aus_datei(
-                datei.read_bytes(), dateien.media_type(datei.name)
-            )
-            return {"text": text, "verfuegbar": beleglesen.verfuegbar()}
-        raise HTTPException(status_code=404, detail="Keine Datei")
+        # Alle Belege hintereinander (Punkt 520): Der Betrag steht im
+        # einen, die Nummer im anderen - die App sucht in beidem.
+        dateien_hier = (
+            sorted(ordner.glob(f"{kennung}.*")) + sorted(ordner.glob(f"{kennung}{dateien.TRENNER}*"))
+            if ordner.exists()
+            else []
+        )
+        if not dateien_hier:
+            raise HTTPException(status_code=404, detail="Keine Datei")
+        texte = [
+            beleglesen.aus_datei(datei.read_bytes(), dateien.media_type(datei.name))
+            for datei in dateien_hier
+        ]
+        return {
+            "text": "\n\n".join(t for t in texte if t),
+            "verfuegbar": beleglesen.verfuegbar(),
+            # Ob auch Fotos lesbar sind (Punkt 533) - die App sagt sonst
+            # beim Bild «kann Fotos nicht lesen» statt «PDF».
+            "ocr": beleglesen.ocr_verfuegbar(),
+        }
 
     @app.get("/api/family")
     async def family_all(request: Request) -> dict[str, Any]:
@@ -664,11 +743,17 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         # Die Datei vor dem Bereinigen: bereinigen() wirft alles weg, was
         # kein fertiger Block ist - der data-URI wäre danach fort.
         if collection in dateien.ORDNER:
-            anhang = datei_aufnehmen(collection, item["id"], item.get("file"))
-            if anhang is not None:
-                item["file"] = anhang
+            bloecke = anhaenge_aufnehmen(collection, item["id"], item)
+            if bloecke is not None:
+                item["files"] = bloecke
+            else:
+                anhang = datei_aufnehmen(collection, item["id"], item.get("file"))
+                if anhang is not None:
+                    item["file"] = anhang
         if collection == "vouchers":
             item = gutscheine.bereinigen(item)
+        if collection in dateien.ORDNER:
+            anhaenge_abgleichen(collection, item)
         if collection in bilder.ORDNER:
             bild_ablegen(collection, item)
         hub.data.set(key, [*hub.data.get(key), item])
@@ -722,9 +807,14 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 # dann soll der Gutschein unverändert geblieben sein -
                 # die Einträge in `items` sind dieselben Objekte wie im
                 # Datenspeicher.
+                bloecke = (
+                    anhaenge_aufnehmen(collection, item_id, body)
+                    if collection in dateien.ORDNER
+                    else None
+                )
                 anhang = (
                     datei_aufnehmen(collection, item_id, body.get("file"))
-                    if collection in dateien.ORDNER
+                    if collection in dateien.ORDNER and bloecke is None
                     else None
                 )
                 vorher = str(item.get("member") or "")
@@ -748,8 +838,16 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                         if k not in ("id", "author", "created", "updated")
                     }
                 )
-                if anhang is not None:
+                if bloecke is not None:
+                    item["files"] = bloecke
+                elif anhang is not None:
                     item["file"] = anhang
+                    # Die alte App schickt nur `file`: Dann ist die Liste
+                    # genau diese eine Datei.
+                    item["files"] = [anhang]
+                elif "file" in body and bloecke is None:
+                    # `file: null` einer älteren App heisst: keine Datei mehr.
+                    item["files"] = [body["file"]] if isinstance(body.get("file"), dict) else []
                 if collection == "vouchers":
                     neue_buchungen = body.get("transactions")
                     frische_buchung = False
@@ -782,11 +880,11 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                         )
                     item.clear()
                     item.update(sauber)
-                # Wer den Anhang wegnimmt, nimmt ihn ganz weg: Bliebe die
+                # Wer einen Anhang wegnimmt, nimmt ihn ganz weg: Bliebe die
                 # Datei liegen, wäre sie unter ihrer alten Adresse weiter
                 # abrufbar, obwohl am Gutschein nichts mehr davon steht.
-                if collection in dateien.ORDNER and item.get("file") is None:
-                    datei_loeschen(collection, item_id)
+                if collection in dateien.ORDNER:
+                    anhaenge_abgleichen(collection, item)
                 # Wann etwas abgehakt wurde, weiss sonst niemand - und
                 # ohne das kann Erledigtes nicht von selbst verschwinden
                 # (Punkt 170).

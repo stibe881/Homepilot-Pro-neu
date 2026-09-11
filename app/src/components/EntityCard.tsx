@@ -2,6 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useRef, useState } from 'react';
 import { Image, Pressable, Text, View } from 'react-native';
 
+import { MAX_SCHRIFT } from '../lib/schrift';
+
 import Svg, { Polyline } from 'react-native-svg';
 
 import { CommandData, Entity, KalenderEintrag } from '../api/types';
@@ -65,6 +67,19 @@ import { MediaButton, RadioPanel, ShuffleRepeat, SpotifyPanel } from './entity/m
 import { MedienExtras } from './entity/medienextras';
 import { makeStyles } from './entity/stil';
 import { Zustandspunkt } from './Zustandspunkt';
+import { raeumeVon } from '../lib/raum';
+
+/** Was in der Anpassen-Zeile neben «Raum» steht (rein, testbar).
+ *
+ * Ein Gerät kann für mehrere Zimmer zählen (Punkt 539). Alle
+ * hinzuschreiben sprengt die Zeile - «Bad +1» sagt, dass es mehr als
+ * eines ist, und welche, sieht man beim Öffnen. */
+export function raumWert(entity: Entity): string {
+  const zimmer = raeumeVon(entity);
+  if (zimmer.length === 0) return 'Kein Raum';
+  if (zimmer.length === 1) return zimmer[0];
+  return `${zimmer[0]} +${zimmer.length - 1}`;
+}
 import {
   BigValue,
   Pill,
@@ -148,7 +163,9 @@ interface Props {
   imRaumblock?: boolean;
   /** Anpassen-Modus: Raum dieser Kachel setzen. */
   rooms?: string[];
-  onSetRoom?: (room: string | null) => void;
+  /** Alle Zimmer, für die das Gerät zählen soll - das erste ist
+   *  sein Standort (Punkt 539). Leer nimmt es aus allen. */
+  onSetRoom?: (rooms: string[] | null) => void;
   /** Gerät umbenennen – im Anpassen-Modus über den Stift, sonst über
    *  einen langen Druck auf die Kachel.
    *
@@ -272,7 +289,6 @@ export function EntityCard({
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
   const isOn = entity.state.state === 'on';
 
-
   // Was ein langer Druck anbietet. Im Anpassen-Modus nichts: Dort hält
   // dieselbe Geste die Kachel zum Verschieben fest, und die Knöpfe für
   // Name, Raum und Gruppe stehen ohnehin offen auf der Kachel.
@@ -289,6 +305,11 @@ export function EntityCard({
         ungezaehlt: Boolean(ungezaehlt),
         verlauf: Boolean(onLongPress),
         erinnern: Boolean(onErinnern),
+        // Stern und Raum direkt im Menü (Punkt 521) - das Blatt bleibt
+        // für alles, was seltener ist.
+        favorit: Boolean(onToggleFavorite),
+        istFavorit: Boolean(favorite),
+        raum: Boolean(onRename),
         // Nur wo es etwas zu merken gibt und wer schalten darf.
         doppeltipp: onDoppeltipp ? doppelLabel : null,
       });
@@ -299,6 +320,8 @@ export function EntityCard({
     if (eintrag.id === 'zaehlung') onToggleUngezaehlt?.();
     if (eintrag.id === 'verlauf') onLongPress?.();
     if (eintrag.id === 'erinnern') onErinnern?.();
+    if (eintrag.id === 'favorit') onToggleFavorite?.();
+    if (eintrag.id === 'raum') setRoomPickerOpen(true);
     if (eintrag.id === 'doppeltipp') {
       // Steht schon dasselbe gemerkt, ist der Eintrag das Vergessen -
       // die Beschriftung sagt es, und lib/doppeltipp entscheidet es.
@@ -516,7 +539,8 @@ export function EntityCard({
                 {/* Mit Übergang statt Sprung (Punkt 292/443 der
                     Werkbank): Wer tippt und nichts sieht, tippt ein
                     zweites Mal - und dann geht das Licht an und gleich
-                    wieder aus. */}
+                    wieder aus. Die Dauer hängt daran, wer geschaltet
+                    hat - siehe lib/uebergang.ts. */}
                 <Zustandspunkt
                   an={isOn}
                   anFarbe={colors.on}
@@ -527,6 +551,7 @@ export function EntityCard({
               </View>
               <View>
                 <Text
+                  maxFontSizeMultiplier={MAX_SCHRIFT}
                   style={[
                     styles.lichtWert,
                     { color: isOn ? tinte : colors.inkSoft },
@@ -546,12 +571,14 @@ export function EntityCard({
                 </Text>
                 <Text
                   numberOfLines={2}
+                  maxFontSizeMultiplier={MAX_SCHRIFT}
                   style={[styles.lichtName, { color: isOn ? tinte : colors.ink }]}
                 >
                   {entity.name}
                 </Text>
                 <Text
                   numberOfLines={1}
+                  maxFontSizeMultiplier={MAX_SCHRIFT}
                   style={[styles.lichtUnter, { color: isOn ? tinte : colors.inkSoft }]}
                 >
                   {pending
@@ -677,7 +704,7 @@ export function EntityCard({
                 />
               ) : null}
               <View style={{ flex: 1 }}>
-                <Text style={styles.value} numberOfLines={2}>
+                <Text style={styles.value} numberOfLines={2} maxFontSizeMultiplier={MAX_SCHRIFT}>
                   {/* Ohne Titel den Zustand nennen: «Pausiert» und
                       «Nichts an» sind zwei verschiedene Auskünfte, und
                       «Nichts läuft» war für beide dieselbe. */}
@@ -982,7 +1009,7 @@ export function EntityCard({
         const events: KalenderEintrag[] = entity.state.events ?? [];
         return (
           <View style={styles.stack}>
-            <Text style={styles.value} numberOfLines={1}>
+            <Text style={styles.value} numberOfLines={1} maxFontSizeMultiplier={MAX_SCHRIFT}>
               {entity.state.state === 'frei' ? 'Keine Termine' : entity.state.state}
             </Text>
             {entity.state.next_start ? (
@@ -1250,8 +1277,10 @@ export function EntityCard({
                   {
                     key: 'raum',
                     icon: 'home-outline' as const,
-                    label: 'Raum',
-                    wert: entity.room ?? 'Kein Raum',
+                    label: raeumeVon(entity).length > 1 ? 'Räume' : 'Raum',
+                    // Mehrere Zimmer stehen als «Bad +1» da: Der
+                    // Standort zuerst, die Zahl sagt, dass es mehr ist.
+                    wert: raumWert(entity),
                     onPress: () => {
                       setBlattOffen(false);
                       setRoomPickerOpen(true);
@@ -1441,12 +1470,12 @@ export function EntityCard({
       {onSetRoom && rooms ? (
         <RoomPicker
           visible={roomPickerOpen}
-          current={entity.room ?? null}
+          current={raeumeVon(entity)}
           rooms={rooms}
           onClose={() => setRoomPickerOpen(false)}
-          onSelect={(room) => {
+          onSelect={(gewaehlt) => {
             setRoomPickerOpen(false);
-            onSetRoom(room);
+            onSetRoom(gewaehlt);
           }}
         />
       ) : null}

@@ -80,17 +80,22 @@ export function NumberField({
   value,
   onCommit,
   placeholder,
+  einheit,
 }: {
   value: string;
   onCommit: (value: string) => void;
   placeholder: string;
+  /** Steht rechts im Feld, sobald eine Zahl darin steht. Ohne sie steht
+   *  dort «4», und ob das Sekunden, Minuten oder Prozent sind, weiss nur,
+   *  wer den Platzhalter von vorhin noch im Kopf hat. */
+  einheit?: string;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [text, setText] = useState(value);
-  return (
+  const feld = (
     <TextInput
-      style={styles.input}
+      style={einheit ? styles.zahlFeld : styles.input}
       value={text}
       onChangeText={setText}
       onBlur={() => onCommit(String(Number(text) || 0))}
@@ -98,6 +103,13 @@ export function NumberField({
       placeholderTextColor={colors.inkFaint}
       keyboardType="numbers-and-punctuation"
     />
+  );
+  if (!einheit) return feld;
+  return (
+    <View style={styles.zahlZeile}>
+      {feld}
+      <Text style={styles.zahlEinheit}>{einheit}</Text>
+    </View>
   );
 }
 
@@ -131,8 +143,6 @@ export function MinutenWahl({
   onChange: (minutes: string) => void;
   placeholder?: string;
 }) {
-  const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
   const vorgabe = options.some((option) => option.key === value);
   // Ein Wert, den keine Vorgabe trifft, klappt das Feld von selbst auf –
   // sonst stünde ein gespeichertes «120» da, ohne dass eine Auswahl
@@ -142,30 +152,29 @@ export function MinutenWahl({
 
   return (
     <>
-      <View style={styles.rowGap}>
-        <Choice
-          options={[
-            ...options,
-            {
-              key: EIGEN,
-              label: eigen && value && !vorgabe ? minutenLabel(value) : 'eigene Zeit',
-            },
-          ]}
-          value={eigen ? EIGEN : value}
-          onSelect={(key) => {
-            if (key === EIGEN) {
-              setOffen(true);
-              return;
-            }
-            setOffen(false);
-            onChange(key);
-          }}
-        />
-      </View>
+      <Choice
+        options={[
+          ...options,
+          {
+            key: EIGEN,
+            label: eigen && value && !vorgabe ? minutenLabel(value) : 'eigene Zeit',
+          },
+        ]}
+        value={eigen ? EIGEN : value}
+        onSelect={(key) => {
+          if (key === EIGEN) {
+            setOffen(true);
+            return;
+          }
+          setOffen(false);
+          onChange(key);
+        }}
+      />
       {eigen ? (
         <NumberField
           value={value}
           placeholder={placeholder}
+          einheit="Min."
           onCommit={(text) => onChange(minutenWert(text))}
         />
       ) : null}
@@ -189,38 +198,35 @@ export function NachlaufWahl({
   value: string;
   onChange: (seconds: string) => void;
 }) {
-  const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
   const vorgabe = NACHLAUF_STUFEN.some((stufe) => stufe.key === value);
   const [offen, setOffen] = useState(!vorgabe && !!value);
   const eigen = offen || (!vorgabe && !!value);
 
   return (
     <>
-      <View style={styles.rowGap}>
-        <Choice
-          options={[
-            ...NACHLAUF_STUFEN,
-            {
-              key: EIGEN,
-              label: eigen && value && !vorgabe ? nachlaufLabel(value) : 'eigene Zeit',
-            },
-          ]}
-          value={eigen ? EIGEN : value}
-          onSelect={(key) => {
-            if (key === EIGEN) {
-              setOffen(true);
-              return;
-            }
-            setOffen(false);
-            onChange(key);
-          }}
-        />
-      </View>
+      <Choice
+        options={[
+          ...NACHLAUF_STUFEN,
+          {
+            key: EIGEN,
+            label: eigen && value && !vorgabe ? nachlaufLabel(value) : 'eigene Zeit',
+          },
+        ]}
+        value={eigen ? EIGEN : value}
+        onSelect={(key) => {
+          if (key === EIGEN) {
+            setOffen(true);
+            return;
+          }
+          setOffen(false);
+          onChange(key);
+        }}
+      />
       {eigen ? (
         <NumberField
           value={value ? String(Math.round(Number(value) / 60)) : ''}
           placeholder="Minuten, z.B. 15"
+          einheit="Min."
           onCommit={(text) => onChange(sekundenWert(text))}
         />
       ) : null}
@@ -619,6 +625,41 @@ export function Choice({
           </Text>
         </Pressable>
       ))}
+    </View>
+  );
+}
+
+/**
+ * Eine Chip-Reihe mit ihrer Frage darüber.
+ *
+ * Am gewählten Gerät standen fünf solche Reihen untereinander, und
+ * beschriftet war eine davon. Man sah: «ein / ein, gedimmt / aus /
+ * umschalten», darunter «Helligkeit lassen / 10 % / … / 100 %»,
+ * darunter allein «nach Tageszeit» - drei Fragen, keine gestellt. Wer
+ * sie nicht ohnehin kannte, las Wörter und riet, welches zu welcher
+ * gehört; «nach Tageszeit» sah aus wie ein sechster Helligkeitswert.
+ *
+ * Die Frage kostet eine Zeile und beantwortet das. Sie steht
+ * ausgeschrieben da und nicht als Stichwort - «Woher die Helligkeit?»
+ * sagt, was zur Wahl steht, «Helligkeitsquelle» sagt es nicht.
+ */
+export function Unterfrage({
+  label,
+  hinweis,
+  children,
+}: {
+  label: string;
+  /** Ein Satz unter der Frage, wo die Wahl Folgen hat, die man nicht sieht. */
+  hinweis?: string;
+  children: React.ReactNode;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return (
+    <View style={styles.unterfrage}>
+      <Text style={styles.unterfrageLabel}>{label}</Text>
+      {hinweis ? <Text style={styles.unterfrageHinweis}>{hinweis}</Text> : null}
+      {children}
     </View>
   );
 }

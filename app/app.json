@@ -88,6 +88,6 @@
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
     },
-    "runtimeVersion": "7"
+    "runtimeVersion": "8"
   }
 }

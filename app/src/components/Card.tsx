@@ -12,7 +12,7 @@ import {
 
 import { dauer, hinweis } from '../lib/langdruck';
 
-import { Colors, radius, type, useColors } from '../theme';
+import { Colors, kachel, radius, type, useColors } from '../theme';
 
 /** Gemeinsame Glaskachel: Fläche, Rundung, Schatten. */
 export function Card({
@@ -199,7 +199,7 @@ const makeStyles = (colors: Colors) =>
     padding: 16,
     justifyContent: 'space-between',
     gap: 12,
-    minHeight: 138,
+    minHeight: kachel.mindesthoehe,
     shadowColor: '#2A3444',
     shadowOpacity: 0.12,
     shadowRadius: 18,

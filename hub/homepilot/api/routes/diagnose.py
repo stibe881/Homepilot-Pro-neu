@@ -1,7 +1,8 @@
 """Die Prüfwerkzeuge aus der App aufrufen (Punkt 344).
 
 Fünf kleine Programme (``homepilot.storencheck``, ``livecheck``,
-``tvcheck``, ``saugercheck``, ``pushcheck``) beantworten seit Längerem
+``tvcheck``, ``saugercheck``, ``pushcheck``) und seit Punkt 491 eines,
+das alle fünf ruft (``hauscheck``), beantworten seit Längerem
 schon «warum zeigt das Gateway eine alte Stellung», «warum braucht das
 Live-Bild so lange» und ähnliche Fragen aus der Werkbank-Tabelle - aber
 nur, wer eine Kommandozeile *im Container* hat (``docker exec
@@ -42,6 +43,14 @@ log = logging.getLogger(__name__)
 #: nennt), aber nicht irgendeinen Text an einen Unterprozess reichen, den
 #: der Hub selbst startet.
 WERKZEUGE: dict[str, dict[str, Any]] = {
+    # Zuerst das eine, das alle fragt (Punkt 491 der Werkbank): Wer im
+    # Haus steht und *weiss*, woran es liegt, greift zum richtigen der
+    # fünf. Wer es nicht weiss - und das ist der Normalfall, sonst würde
+    # man nicht prüfen -, braucht dieses hier.
+    "hauscheck": {
+        "satz": "Alles auf einmal prüfen und sagen, was auffällt.",
+        "flags": {"lang": "--lang"},
+    },
     "storencheck": {
         "satz": "Storen und Kontakte: was der Hub meint, was das Gateway roh meldet.",
         "flags": {"funk": "--funk"},
@@ -81,6 +90,30 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 {"key": key, "satz": eintrag["satz"], "flags": list(eintrag["flags"])}
                 for key, eintrag in WERKZEUGE.items()
             ]
+        }
+
+    @app.get("/api/diagnose/ablage")
+    async def diagnose_ablage(request: Request) -> dict[str, Any]:
+        """Wie gross die Datendatei ist - und welche Sammlung sie füllt.
+
+        Punkt 426 der Werkbank: Abläufe, Verlauf, Familienlisten und das
+        Zugriffsprotokoll liegen in *einer* Datei, die bei jedem
+        Schreiben ganz gelesen und ganz geschrieben wird. Die
+        Platten-Warnung meldet, wenn es zu spät ist; hier steht die Zahl
+        davor.
+
+        Steht vor der Werkzeug-Route, sonst hielte die diese Adresse für
+        ein Werkzeug namens «ablage».
+        """
+        require(request, Capability.EDIT_CONFIG)
+        zeilen = ctx.hub.data.umfang()
+        return {
+            "datei_bytes": ctx.hub.data.datei_bytes(),
+            "sammlungen": zeilen,
+            # Die Summe der Sammlungen liegt unter der Dateigrösse (JSON
+            # braucht Klammern und Namen) - beides steht da, damit
+            # niemand die Differenz für einen Fehler hält.
+            "summe_bytes": sum(int(zeile["bytes"]) for zeile in zeilen),
         }
 
     @app.get("/api/diagnose/{werkzeug}")

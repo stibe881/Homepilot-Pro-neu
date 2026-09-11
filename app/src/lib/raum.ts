@@ -4,6 +4,7 @@ import { Entity } from '../api/types';
 import { istBewegungsmelder } from './bewegung';
 import { zaehltAlsAn } from './geraeteart';
 import { istKlimaFuehler } from './klimachip';
+import { rauchmelderVerstecken } from './rauchmelder';
 import { istKontakt, kontaktArt, openContacts } from './offen';
 import { aktiveVorgabe } from './storenvorgaben';
 
@@ -53,6 +54,15 @@ export function raumKlima(items: Entity[]): {
   temp: string | null;
   feuchteFuehler: Entity | null;
   feuchte: string | null;
+  /** Dieselben Werte als Zahl - für Anzeigen, die anders formatieren.
+   *
+   *  Die Raumkachel hat für «48 % Feuchte» keinen Platz und schreibt
+   *  «48 %»; sie soll dafür aber nicht ein zweites Mal entscheiden,
+   *  *welcher* Fühler gilt. Diese Frage ist die schwierige daran
+   *  (Akkustand und Sendespeicher zählen auch in Prozent), und sie
+   *  gehört genau einmal beantwortet. */
+  grad: number | null;
+  prozent: number | null;
 } | null {
   const fuehler = temperatur(items) ?? null;
   // Der eigene Feuchtefühler zählt nur, wenn der Temperaturfühler die
@@ -75,7 +85,31 @@ export function raumKlima(items: Entity[]): {
       : null,
     feuchteFuehler: eigen ?? null,
     feuchte: prozent === null ? null : `${Math.round(prozent)} % Feuchte`,
+    grad: fuehler ? Number(fuehler.state.state) : null,
+    prozent,
   };
+}
+
+/**
+ * Alle Zimmer, für die ein Gerät zählt (rein, testbar).
+ *
+ * Punkt 539: Ein Klimafühler im offenen Wohnbereich gehört in
+ * Wohnzimmer *und* Esszimmer. Der Hub führt das als Liste; ein älterer
+ * Hub schickt nur `room`, und dann ist die Liste genau dieser eine
+ * Raum. Wer die Frage «gehört das hierhin?» stellt, fragt `imRaum` -
+ * ein blosses `entity.room === name` übersieht das zweite Zimmer.
+ */
+export function raeumeVon(entity: Entity): string[] {
+  if (Array.isArray(entity.rooms) && entity.rooms.length > 0) {
+    return entity.rooms.filter(Boolean) as string[];
+  }
+  return entity.room ? [entity.room] : [];
+}
+
+/** Zählt dieses Gerät für dieses Zimmer? (rein, testbar) */
+export function imRaum(entity: Entity, raum: string | null | undefined): boolean {
+  if (!raum) return false;
+  return raeumeVon(entity).includes(raum);
 }
 
 /** Mehrzahl, wo sie hingehört: «1 Fenster», «2 Fenster», «2 Türen». */
@@ -207,18 +241,11 @@ export function inBeschattung(entity: Entity): boolean {
 
 export function raumZeile(items: Entity[]): string {
   const teile: string[] = [];
-  // Auf der Übersicht liest man die Räume nebeneinander wie einen Blick
-  // durch die Wohnung. Ein Fühler, der «nur für seinen Raum» zählt
-  // (Geräte → Anpassen), gehört da nicht hin: Die 30 Grad neben dem
-  // Rack in der Waschküche stünden zwischen lauter Wohntemperaturen.
-  // Im Raum selbst steht er weiterhin gross im Kopf (raumKlima).
-  const fuehler = temperatur(items.filter((entity) => !entity.room_only));
-  if (fuehler) {
-    teile.push(`${Number(fuehler.state.state).toFixed(1).replace('.', ',')}°`);
-    if (typeof fuehler.state.humidity === 'number') {
-      teile.push(`${Math.round(fuehler.state.humidity)} %`);
-    }
-  }
+  // Temperatur und Feuchte standen hier - jetzt stehen sie oben in der
+  // Ecke des Bildes (Punkt 538, lib/raumkarte.ts: kachelKlima). Beides
+  // wäre dieselbe Auskunft zweimal auf derselben Kachel, zwei Zeilen
+  // auseinander; die Zeile hat dafür Platz für das, was man nicht schon
+  // am Bild sieht.
   const offen = openContacts(items);
   if (offen.length === 1) teile.push(`${offen[0].name} offen`);
   else if (offen.length > 1) teile.push(`${offen.length} offen`);
@@ -326,7 +353,9 @@ export function raeumeSortiert(rooms: string[], order?: string[]): string[] {
  *
  * Messwerte tauchen gar nicht auf: Sie stehen als Zeile im Raumkopf
  * statt als volle Kacheln zwischen dem Bedienbaren. Ebenso die Fenster-
- * und Türkontakte - aus demselben Grund. Ebenso die
+ * und Türkontakte - aus demselben Grund. Ebenso die ruhigen
+ * Rauchwarnmelder, die unter Einstellungen → System eine eigene Liste
+ * haben (Punkt 542) - meldet einer Rauch, steht er wieder hier. Ebenso die
  * Lichtszenen der Bridge: Sie hatten eine eigene Kategorie
  * «Lichtszene» ganz unten, hinter Beleuchtung, Store und Medien - und
  * standen damit weit weg von den Szenen des Hubs, die dasselbe tun.
@@ -368,7 +397,18 @@ export function raumKategorien(
       // sich etwas, sagt es das Männchen im Raumkopf und auf der
       // Raumkachel (lib/bewegung.ts) - und das steht dort, wo man
       // hinsieht, statt eine Kachelreihe weiter unten.
-      !istBewegungsmelder(entity)
+      !istBewegungsmelder(entity) &&
+      // Und die Rauchwarnmelder, solange sie ruhig sind (Punkt 542).
+      // Sie hängen an der Decke, bedienen lässt sich nichts, und die
+      // Kachel sagte immer dasselbe. Was man an ihnen wirklich wissen
+      // will - meldet er noch, wie voll ist die Batterie, was misst er
+      // gerade -, steht unter Einstellungen → System.
+      //
+      // **Solange sie ruhig sind** ist dabei die halbe Regel: Meldet
+      // einer Rauch, steht er wieder im Zimmer (lib/rauchmelder.ts).
+      // Eine ausgeblendete Brandmeldung wäre kein aufgeräumter
+      // Bildschirm, sondern ein Fehler.
+      !rauchmelderVerstecken(entity)
   );
   const labels = Array.from(new Set(rest.map(kindLabel))).sort((a, b) =>
     a.localeCompare(b)

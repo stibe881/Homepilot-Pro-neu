@@ -380,3 +380,51 @@ def test_changing_a_lamp_keeps_the_rules_that_apply_when_creating_one():
             ).status_code
             == 404
         )
+
+
+async def test_die_leuchte_lernt_dazu_wenn_ihre_spots_spaeter_kommen():
+    """Der Fall aus dem Haus: «Hier kann ich immer noch nicht die
+    Helligkeit, Farbe und wie weiss das Licht sein soll einstellen.»
+
+    Die Befehlsliste einer Leuchte entsteht beim Anlegen aus den
+    Mitgliedern, die *in dem Moment* schon registriert sind. Eine
+    Hue-Bridge meldet sich langsamer, als der Hub startet: Dann ist
+    keines da, und die Leuchte bleibt bei «ein, aus, umschalten» -
+    bisher für immer, denn nachgezogen wurde nur der Zustand. Im
+    Ablauf-Editor fehlten damit Helligkeit, Farbe und Weissanteil; die
+    drei hängen an genau dieser Liste. Dass es mal ging und mal nicht,
+    lag an der Reihenfolge beim Start.
+    """
+    from homepilot.core.entity import Entity, EntityKind
+
+    hub = _hub()
+    await hub.start()
+    try:
+        gruppe = hub.integrations.get("group")
+        # Eine Leuchte, deren Spot es noch gar nicht gibt.
+        await gruppe._build(
+            [{"id": "decke", "name": "Decke", "members": ["hue.spot_1"]}]
+        )
+        leuchte = hub.registry.get("group.decke")
+        assert leuchte is not None
+        assert leuchte.commands == ["turn_on", "turn_off", "toggle"]
+
+        # Jetzt meldet sich die Bridge.
+        await hub.registry.add(
+            Entity(
+                id="hue.spot_1",
+                kind=EntityKind.LIGHT,
+                name="Spot 1",
+                integration="hue",
+                commands=["turn_on", "turn_off", "set_brightness", "set_color", "set_color_temp"],
+                state={"state": "off"},
+            )
+        )
+        await gruppe._recompute("group.decke")
+
+        kann = hub.registry.get("group.decke").commands
+        assert "set_brightness" in kann
+        assert "set_color" in kann
+        assert "set_color_temp" in kann
+    finally:
+        await hub.stop()

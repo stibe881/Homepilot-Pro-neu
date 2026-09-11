@@ -184,7 +184,21 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
     borderRadius: radius.control,
   },
   roomOptionActive: { backgroundColor: colors.surfaceSoft },
-  roomOptionText: { fontSize: 15, color: colors.ink },
+  roomOptionText: { fontSize: 15, color: colors.ink, flex: 1 },
+  /** «Standort» neben dem ersten gewählten Zimmer - die Reihenfolge
+   *  bedeutet hier etwas (dort liegt die Kachel), und das muss
+   *  dastehen, sonst sieht die Liste aus wie eine beliebige
+   *  Mehrfachauswahl. */
+  roomStandort: { color: colors.accent, fontSize: 12, fontWeight: '700', marginRight: 6 },
+  roomHinweis: { color: colors.inkFaint, fontSize: 12, lineHeight: 17, marginTop: 8 },
+  roomFertig: {
+    marginTop: 10,
+    paddingVertical: 12,
+    borderRadius: radius.control,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+  },
+  roomFertigText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
   renameInput: {
     backgroundColor: colors.surfaceSoft,
     borderRadius: radius.control,

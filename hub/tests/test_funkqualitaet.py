@@ -240,7 +240,16 @@ def test_the_funk_route_serves_value_trend_and_direction():
         data = client.get("/api/funk").json()
         radios = {row["entity_id"]: row for row in data["radios"]}
         # Nur Geräte mit linkquality - der Rest des Hauses funkt anders.
-        assert set(radios) == {entity.id}
+        # Der Rauchmelder der Demo funkt seit Punkt 542 mit, und das ist
+        # richtig so: Ein Zigbee-Melder meldet seine Funkgüte wie jedes
+        # andere Gerät. Darum nicht mehr «genau dieses eine», sondern
+        # «genau die mit linkquality».
+        assert set(radios) == {
+            geraet.id
+            for geraet in hub.registry.all()
+            if geraet.state.get("linkquality") is not None
+        }
+        assert entity.id in radios
         row = radios[entity.id]
         assert row["value"] == 34.0
         assert row["mean_from"] == 180
@@ -255,7 +264,9 @@ def test_the_funk_route_invents_no_trend_for_young_series():
         entity = hub.registry.get("demo.temp_livingroom")
         entity.state["linkquality"] = 120
         data = client.get("/api/funk").json()
-        row = data["radios"][0]
+        # Nach Kennung und nicht nach Platz: Seit im Haus mehr als ein
+        # Gerät funkt, hängt die Reihenfolge nicht mehr am Zufall.
+        row = next(zeile for zeile in data["radios"] if zeile["entity_id"] == entity.id)
         assert row["mean_from"] is None
         assert row["direction"] is None
         assert row["weak"] is False

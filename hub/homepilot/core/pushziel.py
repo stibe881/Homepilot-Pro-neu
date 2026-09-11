@@ -55,6 +55,9 @@ ZIELE: dict[str, str] = {
     "test": "start",
     "open": "offen",
     "leak": "sorgen",
+    # Rauch: die Brandmeldeanlage selbst - dort steht Quittieren und
+    # Stummschalten, und die Liste der Melder mit dem, der anschlägt.
+    "smoke": "bereich:brand",
     "doorbell": "klingel",
     # Ohne Kamera bleibt nur die Startseite - der Normalfall steht in
     # AN_DER_KAMERA: Man will sehen und hören, was im Zimmer los ist.

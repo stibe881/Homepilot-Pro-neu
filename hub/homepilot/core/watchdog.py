@@ -40,6 +40,7 @@ from . import (
     familie,
     flattern,
     funkqualitaet,
+    gastspur,
     gemeldet,
     giessen,
     gutscheine,
@@ -582,6 +583,8 @@ class Watchdog:
         await self._check_losfahren(entities)
         await self._check_family_cleanup()
         await self._check_vouchers()
+        # Was abgelaufene Gäste hinterlassen (Punkt 498 der Werkbank).
+        await self._gastspuren_aufraeumen()
         await self._check_meal_plan()
         await self._check_access()
         await self._check_spaeter()
@@ -657,7 +660,12 @@ class Watchdog:
             )
 
     def _cover_guard(self, art: str) -> list[str]:
-        """Die gespeicherte Storen-Auswahl («storm» oder «heat»)."""
+        """Eine gespeicherte Auswahl der Wächter-Regeln.
+
+        Vier Arten in derselben Zeile: «storm» und «heat» sind Storen,
+        «temp» und «humidity» die Fühler, auf die der Hitze-Hinweis
+        hört (Punkt 540). Leer heisst überall alle.
+        """
         return storenwaechter.guard_auswahl(self.hub.data.get("cover_guard"), art)
 
     def _sonnenhoehe(self) -> float:
@@ -792,9 +800,22 @@ class Watchdog:
         regel = self.rules.get("heat_covers", {})
         if not regel.get("enabled", True):
             return
-        innen = storenwaechter.innentemperatur(entities)
+        # Welche Fühler zählen, steht neben der Storen-Auswahl derselben
+        # Regel (Punkt 540). Leer heisst alle - wie bei den Storen.
+        innen = storenwaechter.innentemperatur(entities, self._cover_guard("temp"))
         if innen is None:
             return
+        # Die Feuchte nur, wenn jemand Fühler dafür angehakt hat - anders
+        # als bei der Temperatur heisst leer hier *nicht* «alle». Die
+        # Nachricht nannte bisher keine Feuchte, und das soll sie ohne
+        # Zutun weiterhin nicht: Eine Zahl, die niemand ausgesucht hat,
+        # taucht sonst nach einem Update einfach auf.
+        feuchtefuehler = self._cover_guard("humidity")
+        feuchte = (
+            storenwaechter.innenfeuchte(entities, feuchtefuehler)
+            if feuchtefuehler
+            else None
+        )
         schwelle = float(regel.get("params", {}).get("innen_ab", 25))
         jetzt = datetime.now()
         heute = jetzt.strftime("%Y-%m-%d")
@@ -802,11 +823,17 @@ class Watchdog:
 
         if storenwaechter.hitze_tagsueber(innen, schwelle, elevation, jetzt.hour):
             if self._einmal(f"heat-tag:{heute}"):
+                # Die Feuchte nur, wo jemand einen Fühler dafür
+                # angehakt hat: Sonst stünde eine Zahl in der Nachricht,
+                # die niemand ausgesucht hat - und bei 28 Grad ist es
+                # gerade die Feuchte, die «warm» von «schwül»
+                # unterscheidet.
+                schwuel = f" bei {feuchte:g} % Luftfeuchtigkeit" if feuchte is not None else ""
                 await self._notify(
                     "Drinnen wird es warm",
-                    f"Im Haus sind es {innen:g} °C und die Sonne steht hoch. "
-                    "Storen auf der Sonnenseite unten halten die Wärme "
-                    "draussen - je früher, desto mehr bringt es.",
+                    f"Im Haus sind es {innen:g} °C{schwuel} und die Sonne "
+                    "steht hoch. Storen auf der Sonnenseite unten halten die "
+                    "Wärme draussen - je früher, desto mehr bringt es.",
                     category="heat_covers",
                 )
             return
@@ -1174,6 +1201,49 @@ class Watchdog:
                 )
         log.info("Gäste-WLAN: %s abgelaufene Gutscheine weggeräumt", len(weg))
         self.hub.data.set("wifi_vouchers", gueltig)
+
+    async def _gastspuren_aufraeumen(self) -> None:
+        """Was abgelaufene Gäste hinterlassen (Punkt 498 der Werkbank).
+
+        Der Gastpass läuft ab, und das tut er zuverlässig - in der Liste
+        bleibt er sichtbar, damit man weiss, wem man den Zugang gegeben
+        hat. Was nicht aufhörte, ist alles daneben: die offene Sitzung
+        am Token und der WLAN-Schein mit eigener Frist. Nach einem Jahr
+        Gästen ist das die längste Liste im Haus.
+
+        Der Benutzer selbst bleibt stehen: Ihn zu löschen wäre eine
+        Entscheidung, und die trifft ein Mensch in der Benutzerliste.
+        Hier verschwinden nur die Spuren, die niemand je angelegt hat -
+        die entstanden beim Anmelden.
+
+        Einmal am Tag, nicht im Minutentakt: Es eilt nichts, und eine
+        Aufräumrunde, die stündlich über alle Sitzungen geht, ist die
+        Sorte Hintergrundarbeit, die man erst bemerkt, wenn sie klemmt.
+        """
+        jetzt = datetime.now()
+        if jetzt.hour != 4:
+            return
+        heute = jetzt.strftime("%Y-%m-%d")
+        if not self._einmal(f"gastspuren:{heute}", jetzt.timestamp()):
+            return
+        namen = gastspur.abgelaufene_gaeste(self.hub.users.users, heute)
+        if not namen:
+            return
+        sitzungen = self.hub.data.get("sessions")
+        uebrig = gastspur.sitzungen_ohne(sitzungen, namen)
+        weniger_sitzungen = len(sitzungen) - len(uebrig)
+        if weniger_sitzungen:
+            self.hub.data.set("sessions", uebrig)
+
+        scheine = self.hub.data.get("wifi_vouchers")
+        rest = gastspur.scheine_ohne(scheine, namen)
+        weniger_scheine = len(scheine) - len(rest)
+        if weniger_scheine:
+            self.hub.data.set("wifi_vouchers", rest)
+
+        satz = gastspur.bericht(namen, weniger_sitzungen, weniger_scheine)
+        if satz:
+            log.info("%s", satz)
 
     def _benutzer_zur_zone(
         self, zone_id: str | None, namen: dict[str, str]
@@ -2592,10 +2662,11 @@ class Watchdog:
         Hier statt in einer eigenen Uhr - dieselbe Überlegung wie beim
         Aufräumen der Kamera-Clips weiter oben.
         """
-        alarm = self.hub.integrations.get("alarm")
-        takt = getattr(alarm, "takt", None)
-        if takt is not None:
-            await takt()
+        for name in ("alarm", "brand"):
+            anlage = self.hub.integrations.get(name)
+            takt = getattr(anlage, "takt", None)
+            if takt is not None:
+                await takt()
 
     async def _check_spaeter(self) -> None:
         """Weggeschobene Meldungen, deren Zeit um ist (core/spaeter.py).

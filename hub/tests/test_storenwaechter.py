@@ -126,6 +126,10 @@ CONFIG = """\
 api: {{ host: 127.0.0.1, port: 18190 }}
 integrations:
   - integration: demo
+# Mit Zimmer, denn ein Fühler ohne Raum zählt nicht als «drinnen» -
+# er könnte ebenso gut am Balkongeländer hängen (core/storenwaechter.py).
+rooms:
+  Wohnzimmer: [demo.light_livingroom, demo.temp_livingroom]
 users:
   - name: Stefan
     role: besitzer
@@ -300,3 +304,53 @@ def test_der_merker_uebersteht_einen_neustart():
     gemerkt = [{"grund": "Gewitter", "seit": 1000.0}]
     schritt, _ = sturm_schritt({"grund": "Gewitter", "bis": "18:00"}, gemerkt, 5000.0)
     assert schritt == "nichts"
+
+
+# ── Welche Fühler der Hitze-Hinweis berücksichtigt (Punkt 540) ─────────
+
+
+def test_die_fuehler_stehen_in_derselben_auswahl_wie_die_storen(client):
+    """Gemeldet mit einem Bild der Push: «Es sollen nicht alle Sensoren
+    berücksichtigt werden.» Die Wahl gehört in dieselbe Karte wie die
+    Storen - es ist dieselbe Regel."""
+    daten = client.get("/api/coverguard", headers=auth("t-owner")).json()
+    assert daten["temp"] == [] and daten["humidity"] == []
+    fuehler = [eintrag["id"] for eintrag in daten["temp_sensors"]]
+    assert fuehler, "die Demo-Integration hat einen Temperaturfühler"
+    # Und die Liste nennt den Raum, sonst sind zwei «Temperatur»
+    # nicht auseinanderzuhalten.
+    assert "room" in daten["temp_sensors"][0]
+
+
+def test_ein_angehakter_fuehler_wird_gespeichert(client):
+    daten = client.get("/api/coverguard", headers=auth("t-owner")).json()
+    fuehler = daten["temp_sensors"][0]["id"]
+    antwort = client.put(
+        "/api/coverguard", json={"temp": [fuehler]}, headers=auth("t-owner")
+    )
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json()["temp"] == [fuehler]
+    # Die Storen-Auswahl bleibt unangetastet.
+    assert antwort.json()["storm"] == []
+
+
+def test_ein_fremder_fuehler_wird_abgelehnt(client):
+    """Mit dem Namen dessen, was gemeint war - «Diese Storen kennt der
+    Hub nicht» wäre bei einem Fühler die falsche Auskunft."""
+    antwort = client.put(
+        "/api/coverguard", json={"temp": ["gibt.esnicht"]}, headers=auth("t-owner")
+    )
+    assert antwort.status_code == 404
+    assert "Temperaturfühler" in antwort.json()["detail"]
+
+
+def test_eine_store_taugt_nicht_als_fuehler(client):
+    """Beide Auswahlen liegen in derselben Zeile - ohne getrennte Prüfung
+    liesse sich eine Store als Temperaturfühler anhaken."""
+    daten = client.get("/api/coverguard", headers=auth("t-owner")).json()
+    store = daten["covers"][0]["id"]
+    antwort = client.put(
+        "/api/coverguard", json={"temp": [store]}, headers=auth("t-owner")
+    )
+    assert antwort.status_code == 404
+

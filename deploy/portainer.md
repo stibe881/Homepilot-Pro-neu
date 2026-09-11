@@ -47,6 +47,45 @@ Der Ordner `/opt/homepilot` ist danach das Zuhause des Hubs: Neben der
 Benutzer und Abläufe) sowie Kopplungs-Dateien (Android-TV-Zertifikate,
 Ring-Token). **Diesen Ordner ins Backup aufnehmen.**
 
+### Zigbee (nur wenn ein Dongle da ist)
+
+Zum Stack gehören zwei weitere Dienste: ein MQTT-Broker und
+Zigbee2MQTT. Beide brauchen ihren Ordner, bevor der Stack startet -
+sonst legt Docker sie als root an, und die Dienste dürfen nicht
+hineinschreiben:
+
+```bash
+sudo mkdir -p /opt/homepilot/zigbee2mqtt /opt/homepilot/mosquitto/data
+
+# Zigbee2MQTT: Vorlage kopieren, Adresse des Dongles eintragen.
+sudo cp deploy/zigbee2mqtt.example.yaml \
+        /opt/homepilot/zigbee2mqtt/configuration.yaml
+sudo nano /opt/homepilot/zigbee2mqtt/configuration.yaml
+sudo chown -R 1000:1000 /opt/homepilot/zigbee2mqtt
+
+# Broker: der Inhalt von deploy/mosquitto.conf, hierher kopiert.
+sudo nano /opt/homepilot/mosquitto/mosquitto.conf
+sudo chown -R 1883:1883 /opt/homepilot/mosquitto
+```
+
+Zwei Dinge daran überraschen, und beide haben schon einen Stack
+lahmgelegt:
+
+- **Die `mosquitto.conf` muss wirklich dort liegen, bevor der Stack
+  startet.** Ein Repository-Stack klont sich nach `/data/compose/<n>`;
+  ein Quellpfad, den Docker dort nicht findet, wird wortlos zum leeren
+  *Verzeichnis*, und weil das Abbild an dieser Stelle eine Datei
+  mitbringt, bricht der ganze Stack ab: «Are you trying to mount a
+  directory onto a file». Deshalb kommt in der Portainer-Fassung alles
+  aus `/opt/homepilot` - eine Prüfung hält das fest
+  (`hub/tests/test_compose_pfade.py`).
+- **1883, nicht 1000.** Der Broker läuft im Abbild als Benutzer
+  `mosquitto`; gehört ihm sein Datenordner nicht, startet er nicht.
+
+In der `configuration.yaml` steht später der **Netzwerkschlüssel des
+Zigbee-Netzes** und die Geräteliste - sie gehört ins Backup und nie ins Repository.
+Was einzutragen ist und warum: [`docs/zigbee.md`](../docs/zigbee.md).
+
 ## Schritt 2: Stack in Portainer anlegen
 
 1. Portainer öffnen → **Stacks** → **Add stack**.

@@ -195,3 +195,30 @@ def _still_weg(datei: Path) -> bool:
     except OSError:
         log.warning("Raumbild %s liess sich nicht entfernen", datei.name)
         return False
+
+
+def umbenennen(folder: Path | None, alt: str, neu: str) -> bool:
+    """Das Foto eines Zimmers auf den neuen Namen umziehen (Punkt 495).
+
+    Die Datei heisst nach dem Zimmer (siehe ``dateiname``) - ohne diesen
+    Umzug hätte ein umbenanntes Zimmer kein Bild mehr, und das alte läge
+    für immer daneben, ohne dass es jemand je wieder sieht.
+
+    ``False``, wenn es nichts zu tun gab: kein Ordner, kein Bild, oder am
+    Ziel liegt schon eines. Das Letztere ist Absicht - ein bestehendes
+    Foto zu überschreiben wäre ein Verlust, der sich nicht zurücknehmen
+    lässt.
+    """
+    if folder is None:
+        return False
+    quelle = pfad(folder, alt)
+    if quelle is None or not quelle.exists():
+        return False
+    ziel = folder / dateiname(neu, quelle.suffix)
+    if ziel.exists():
+        return False
+    try:
+        quelle.rename(ziel)
+    except OSError:
+        return False
+    return True

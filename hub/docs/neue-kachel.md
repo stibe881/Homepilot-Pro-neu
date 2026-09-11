@@ -92,7 +92,7 @@ Bei `binary_sensor` entscheidet sie über Anzeige *und* Warnungen:
 | `contact` | Offen/Geschlossen | offenem Fenster beim Weggehen |
 | `motion` | Bewegung | – |
 | `presence` | Anwesend | – |
-| `smoke` | Rauch | sofort, unabhängig von der Alarmanlage |
+| `smoke`, `gas` | Rauch | sofort, unabhängig von der Alarmanlage – über die Brandmeldeanlage (`integrations/brand.py`, Punkt 543) |
 | `moisture` | Wasser | sofort |
 
 Ohne sie ist der Melder für den Hub bloss ein Ja/Nein, und der Wächter

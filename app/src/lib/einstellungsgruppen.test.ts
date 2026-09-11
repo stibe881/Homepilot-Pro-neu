@@ -1,4 +1,5 @@
 import {
+  brandPlakette,
   GRUPPEN,
   alarmPlakette,
   farbeVon,
@@ -119,5 +120,15 @@ describe('alarmPlakette', () => {
   it('schweigt ohne Zustand, statt etwas zu behaupten', () => {
     expect(alarmPlakette('alarm', '')).toBeUndefined();
     expect(alarmPlakette('alarm', null)).toBeUndefined();
+  });
+});
+
+describe('brandPlakette', () => {
+  it('warnt bei Rauch und zeigt sonst Bereit', () => {
+    expect(brandPlakette('ausgeloest')).toEqual({ text: 'Rauch!', ton: 'warnung' });
+    expect(brandPlakette('quittiert')).toEqual({ text: 'Quittiert', ton: 'warnung' });
+    expect(brandPlakette('bereit')).toEqual({ text: 'Bereit', ton: 'gut' });
+    expect(brandPlakette('unbesetzt')).toEqual({ text: 'Keine Melder', ton: 'ruhig' });
+    expect(brandPlakette('')).toBeUndefined();
   });
 });

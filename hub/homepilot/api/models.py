@@ -67,7 +67,8 @@ class PushSnoozeRequest(BaseModel):
     title: str
     body: str = ""
     category: str | None = None
-    minutes: int = 30
+    # Ohne Angabe gilt, was die Person eingestellt hat (spaeter.eigene_minuten).
+    minutes: int | None = None
 
 
 class PushQuittierenRequest(BaseModel):
@@ -200,6 +201,12 @@ class PlaceRequest(BaseModel):
     id: str | None = None
 
 
+class RaumNameRequest(BaseModel):
+    """Der neue Name eines Zimmers (Punkt 495 der Werkbank)."""
+
+    name: str
+
+
 class PushPrefsRequest(BaseModel):
     """Abbestellte Nachrichtenarten eines Benutzers."""
 
@@ -207,6 +214,28 @@ class PushPrefsRequest(BaseModel):
     # Für welches Gerät (Punkt 471) - leer heisst «für mich, überall».
     # Der Token, nicht der Anzeigename: Der ändert sich, der Token nicht.
     token: str = ""
+    # Wie lange «Später» in der Mitteilung heisst; None lässt es, wie es ist.
+    snooze_minutes: int | None = None
+
+
+class PushStufeRequest(BaseModel):
+    """Die Dringlichkeit einer Kategorie ändern - fürs ganze Haus."""
+
+    category: str
+    stufe: str
+
+
+class PushGruppeRequest(BaseModel):
+    """Eine Empfängergruppe (push.gruppen_lesen)."""
+
+    name: str
+    members: list[str] = []
+
+
+class PushGruppenRequest(BaseModel):
+    """Alle Empfängergruppen auf einmal - die Liste ist klein."""
+
+    groups: list[PushGruppeRequest] = []
 
 
 class PushRuhezeitRequest(BaseModel):
@@ -267,13 +296,20 @@ class LaundryRequest(BaseModel):
 
 
 class CoverGuardRequest(BaseModel):
-    """Welche Storen die Wächter anfassen dürfen.
+    """Worauf die Wächter-Regeln sehen und was sie anfassen.
 
     `None` lässt die jeweilige Auswahl unangetastet; eine leere Liste
-    heisst «alle Storen» - das ist die Vorgabe, mit der die Wächter auch
-    ohne jede Einstellung wirken (core/storenwaechter.py).
+    heisst «alle» - das ist die Vorgabe, mit der die Wächter auch ohne
+    jede Einstellung wirken (core/storenwaechter.py).
+
+    `storm` und `heat` sind Storen, `temp` und `humidity` die Fühler,
+    auf die der Hitze-Hinweis hört (Punkt 540).
     """
 
+    #: Temperaturfühler, die im Mittel für «drinnen» stehen.
+    temp: list[str] | None = None
+    #: Feuchtefühler - ohne Auswahl steht keine Feuchte in der Nachricht.
+    humidity: list[str] | None = None
     storm: list[str] | None = None
     heat: list[str] | None = None
 
@@ -312,6 +348,11 @@ class DoorbellSoundRequest(BaseModel):
 
     sound: str | None = None
     speakers: list[DoorbellSpeaker | str] | None = None
+    # Nachts (Punkt 518): {mode: normal|leise|still, from, to} in Stunden.
+    night: dict[str, Any] | None = None
+    # Die Ansage nach dem Ton (Punkt 519) - an/aus und der Satz.
+    announce: bool | None = None
+    announce_text: str | None = None
 
 
 class DoorbellSoundTestRequest(BaseModel):
@@ -672,7 +713,12 @@ class ConfigEditRequest(BaseModel):
 
 
 class RoomRequest(BaseModel):
+    #: Der Standort - wo das Gerät steht. Null nimmt es aus allen Zimmern.
     room: str | None = None
+    #: Alle Zimmer, für die es zählt (Punkt 539). Fehlt das Feld, gilt
+    #: allein `room` - so schreibt eine ältere App weiter, ohne dass sie
+    #: dabei eine Mehrfachzuordnung löscht, die sie gar nicht kennt.
+    rooms: list[str] | None = None
 
 
 class AlarmArmRequest(BaseModel):

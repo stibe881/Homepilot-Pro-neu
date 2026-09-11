@@ -69,7 +69,9 @@ export async function knoepfeAnmelden(): Promise<void> {
   if (Platform.OS === 'web') return;
   const spaeter = {
     identifier: KNOPF_SPAETER,
-    buttonTitle: 'In 30 Min nochmal',
+    // Ohne Zahl: Wie lange «später» ist, stellt jede Person selbst ein
+    // (Konto → Benachrichtigungen, Punkt 514); der Hub kennt die Zahl.
+    buttonTitle: 'Später nochmal',
     // Ohne die App zu öffnen: Der ganze Zweck ist, das Telefon in der
     // Tasche zu lassen.
     options: { opensAppToForeground: false },

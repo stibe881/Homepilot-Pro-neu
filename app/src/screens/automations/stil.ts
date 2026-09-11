@@ -65,6 +65,67 @@ export const makeStyles = (colors: Colors) =>
     },
     deviceHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     deviceName: { color: colors.ink, fontSize: 15, fontWeight: '600', flex: 1 },
+    /** Ein gewähltes Gerät samt seinen Einstellungen - als eigene Karte.
+     *
+     * Vorher standen zwei gewählte Geräte als zwei Blöcke untereinander,
+     * getrennt nur durch eine Haarlinie. Die fünf Chip-Reihen des ersten
+     * und der Name des zweiten hatten damit denselben linken Rand und
+     * dieselbe Fläche - man sah eine lange Liste und musste am Häkchen
+     * abzählen, wo das eine Gerät aufhört. Die Karte beantwortet das,
+     * bevor man liest. */
+    geraetKarte: {
+      gap: 10,
+      padding: 12,
+      borderRadius: radius.control,
+      backgroundColor: colors.accentSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    geraetKopf: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    /** Das Symbol der Geräteart im Kreis - dieselbe Sprache wie auf der
+     *  Kachel, damit «Licht» hier aussieht wie dort. */
+    geraetZeichen: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    /** Die Trennlinie zwischen Kopf und Einstellungen der Karte. */
+    geraetStrich: { height: 1, backgroundColor: colors.surfaceBorder },
+    /** Eine Zeile im Angebot - grösseres Ziel als die alten 8 Punkte
+     *  Abstand: Am Wandpanel trifft man im Vorbeigehen keine Zeile, die
+     *  nur so hoch ist wie ihre Schrift. */
+    angebotZeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      paddingVertical: 10,
+      paddingHorizontal: 4,
+      borderRadius: radius.control,
+    },
+    /** Der Raumname über seiner Gruppe im Angebot. */
+    raumLabel: {
+      color: colors.inkFaint,
+      fontSize: 11.5,
+      fontWeight: '700',
+      letterSpacing: 0.6,
+      textTransform: 'uppercase',
+      marginTop: 10,
+      marginBottom: 2,
+    },
+    /** Die Überschrift über «Ausgewählt» bzw. «Hinzufügen» samt Zahl. */
+    wahlKopf: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 8,
+      marginTop: 4,
+    },
+    wahlZahl: { color: colors.inkFaint, fontSize: 12.5 },
     deviceSearch: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -289,6 +350,17 @@ export const makeStyles = (colors: Colors) =>
     agendaName: { color: colors.inkSoft, fontSize: 12, flexShrink: 1 },
     // Eine Zeile der Schritt-Spur im Lauf-Verlauf (Punkt 160).
     runStep: { color: colors.inkFaint, fontSize: 12, paddingLeft: 14, lineHeight: 17 },
+    // Das Standbild des Kamera-Auslösers (Punkt 510): klein wie eine
+    // Vorschau, 16:9 wie die Kamera - gross genug, um zu sehen, ob da
+    // die Katze war oder der Pöstler.
+    laufBild: {
+      width: 176,
+      height: 99,
+      borderRadius: 8,
+      marginLeft: 14,
+      marginTop: 4,
+      backgroundColor: colors.surfaceSoft,
+    },
     weekday: {
       paddingVertical: 6,
       paddingHorizontal: 10,
@@ -522,6 +594,20 @@ export const makeStyles = (colors: Colors) =>
       paddingVertical: 12,
       fontSize: 16,
     },
+    /** Zahlenfeld mit Einheit: «4» allein sagt nicht, ob Sekunden,
+     *  Minuten oder Prozent gemeint sind - und genau so stand es da,
+     *  sobald jemand «eigene Zeit» antippte. */
+    zahlZeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surfaceSoft,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      paddingRight: 14,
+    },
+    zahlFeld: { flex: 1, color: colors.ink, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16 },
+    zahlEinheit: { color: colors.inkSoft, fontSize: 14, fontWeight: '600' },
     picker: { flexGrow: 0 },
     choices: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     /** Die Farbwahl einer Lampe im Ablauf – dieselben Punkte wie auf der
@@ -548,17 +634,29 @@ export const makeStyles = (colors: Colors) =>
     },
     /** «Farbe unverändert»: der Punkt ohne Farbe, mit Kreuz. */
     farbLeer: { backgroundColor: colors.surfaceSoft },
+    /** Ein Chip - ungewählt flach, gewählt gefüllt.
+     *
+     * Vorher war *jeder* Chip eine gefüllte Fläche: ungewählt grau,
+     * gewählt blau. Auf einem Gerät mit fünf Reihen ergab das dreissig
+     * Kacheln, von denen fünf blau waren - ein Mosaik, in dem die
+     * Antwort genauso laut ist wie alles, was man nicht gewählt hat.
+     * Ungewählt ist jetzt nur noch eine Haarlinie. Gefüllt ist damit
+     * ausschliesslich, was gilt, und das Auge findet es ohne zu lesen. */
     choice: {
       paddingHorizontal: 14,
       paddingVertical: 9,
       borderRadius: radius.pill,
-      backgroundColor: colors.surfaceSoft,
+      backgroundColor: 'transparent',
       borderWidth: 1,
       borderColor: colors.surfaceBorder,
     },
     choiceActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     choiceText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
     choiceTextActive: { color: '#FFFFFF' },
+    /** Die Frage über einer Chip-Reihe (felder.tsx, Unterfrage). */
+    unterfrage: { gap: 6 },
+    unterfrageLabel: { color: colors.inkSoft, fontSize: 12.5, fontWeight: '700' },
+    unterfrageHinweis: { color: colors.inkFaint, fontSize: 12, lineHeight: 17 },
     // Das Kachelraster einer Art-Wahl (Kachelauswahl, felder.tsx) - drei
     // je Zeile auf einem Telefon, mehr auf einem breiteren Bildschirm;
     // `flexBasis` statt einer festen Breite lässt das offen.

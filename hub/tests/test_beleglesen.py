@@ -35,3 +35,47 @@ def test_kaputtes_pdf_ist_kein_fehler():
     """Ein Scan ohne Textebene oder eine kaputte Datei sind kein Grund
     für eine Fehlermeldung - der Vorschlag bleibt eben aus."""
     assert beleglesen.aus_pdf(b"keine gueltige PDF-Datei") == ""
+
+
+def test_ocr_braucht_paket_und_programm(monkeypatch):
+    """Punkt 533: Drei Teile, alle nötig - fehlt das Programm, ist es nicht da."""
+    import shutil
+
+    from homepilot.core import beleglesen
+
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    assert beleglesen.ocr_verfuegbar() is False
+    assert beleglesen.aus_datei(b"\x89PNG", "image/png") == ""
+
+
+def test_ein_foto_geht_durch_tesseract(monkeypatch):
+    """Mit vorhandenem Tesseract liest der Hub das Bild - gekürzt und
+    ohne Leerzeilenwüste, wie beim PDF."""
+    import sys
+    import types
+
+    from homepilot.core import beleglesen
+
+    gelesen: list[str] = []
+
+    class Bild:
+        pass
+
+    pil = types.ModuleType("PIL")
+    image = types.ModuleType("PIL.Image")
+    image.open = lambda daten: Bild()  # type: ignore[attr-defined]
+    pil.Image = image  # type: ignore[attr-defined]
+    tess = types.ModuleType("pytesseract")
+
+    def image_to_string(bild, lang=""):
+        gelesen.append(lang)
+        return "Gutschein\n\n\nCHF 50.00\n\n"
+
+    tess.image_to_string = image_to_string  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "PIL", pil)
+    monkeypatch.setitem(sys.modules, "PIL.Image", image)
+    monkeypatch.setitem(sys.modules, "pytesseract", tess)
+    monkeypatch.setattr(beleglesen, "ocr_verfuegbar", lambda: True)
+
+    assert beleglesen.aus_datei(b"\x89PNG", "image/png") == "Gutschein\nCHF 50.00"
+    assert gelesen == ["deu+eng"]

@@ -38,7 +38,9 @@ from typing import Any
 #: den Alarm beschreiben, nicht die Woche davor.
 ANLASS = "triggered"
 ENDE = "disarmed"
-DABEI = frozenset({"triggered", "entry", "motion", "camera", "escalation", "clip"})
+DABEI = frozenset(
+    {"triggered", "entry", "verdacht", "motion", "camera", "escalation", "clip"}
+)
 
 #: Höchstens so viele Zwischenschritte - mehr liest niemand in einer
 #: Nachricht, und der ganze Verlauf steht ohnehin daneben.

@@ -209,8 +209,74 @@ def knoepfe(category: str | None) -> str | None:
     return _KNOEPFE.get(str(category or ""))
 
 
-def dringlichkeit(category: str | None) -> dict[str, Any]:
+#: Die drei Stufen, die eine Kategorie haben kann. «kritisch» ist
+#: Apples «critical alert»: durchbricht auch «Nicht stören» und den
+#: Stummschalter - und braucht eine gesonderte Berechtigung von Apple
+#: (Punkt 392). Ohne sie (``push.critical_alerts`` in der config.yaml
+#: fehlt) verhält sich «kritisch» wie «dringend».
+STUFEN = ("leise", "dringend", "kritisch")
+STUFE_LEISE, STUFE_DRINGEND, STUFE_KRITISCH = STUFEN
+#: Schlüssel in hub.data, unter dem die geänderten Stufen liegen.
+STUFEN_KEY = "push_stufen"
+
+
+def stufe_standard(category: str | None) -> str:
+    """Die eingebaute Stufe einer Kategorie (rein, testbar)."""
+    if category is not None and category in LEISE:
+        return STUFE_LEISE
+    return STUFE_DRINGEND
+
+
+def stufen_lesen(rows: Any) -> dict[str, str]:
+    """Die geänderten Stufen aus der Ablage (rein, testbar).
+
+    Nur bekannte Kategorien und nur die drei Stufen: Eine umbenannte
+    Kategorie soll nicht als Geist weiterleben, und ein Tippfehler in
+    der Datei nicht zu einer vierten Stufe werden.
+    """
+    stufen: dict[str, str] = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        category = str(row.get("category") or "")
+        stufe = str(row.get("stufe") or "")
+        if known(category) and stufe in STUFEN and stufe != stufe_standard(category):
+            stufen[category] = stufe
+    return stufen
+
+
+def stufen_setzen(rows: Any, category: str, stufe: str) -> list[dict[str, Any]]:
+    """Eine Stufe ändern - zurück auf den Standard heisst: Zeile weg (rein, testbar)."""
+    uebrig = [
+        row
+        for row in rows or []
+        if isinstance(row, dict) and str(row.get("category") or "") != category
+    ]
+    if stufe in STUFEN and stufe != stufe_standard(category):
+        uebrig.append({"category": category, "stufe": stufe})
+    return uebrig
+
+
+def stufe_von(category: str | None, stufen: dict[str, str] | None = None) -> str:
+    """Die geltende Stufe: die geänderte, sonst die eingebaute (rein, testbar)."""
+    if category is not None and stufen and category in stufen:
+        return stufen[category]
+    return stufe_standard(category)
+
+
+def dringlichkeit(
+    category: str | None,
+    stufen: dict[str, str] | None = None,
+    kritisch_erlaubt: bool = False,
+) -> dict[str, Any]:
     """Die Zustellfelder für eine Kategorie (rein, testbar).
+
+    ``stufen`` sind die im Haus geänderten Stufen (``stufen_lesen``):
+    Wer die Batteriewarnung dringend haben will, bekommt sie so - und wer
+    die Gäste-Ankunft leise, auch. ``kritisch_erlaubt`` sagt, ob Apple
+    dem Haus critical alerts gestattet hat; ohne das wird «kritisch» zu
+    «dringend», damit die Meldung nicht an einem Schlüssel scheitert,
+    den das Telefon nicht kennt.
 
     ``priority`` entscheidet, ob Android die Nachricht durch Doze
     durchlässt und ob Apple sie sofort ausliefert. ``channelId`` sagt
@@ -220,8 +286,18 @@ def dringlichkeit(category: str | None) -> dict[str, Any]:
     nützt die hohe Priorität nichts, sobald ein Fokus aktiv ist - die
     Nachricht ist dann sofort da und wird bloss nicht gezeigt.
     """
-    if category is not None and category in LEISE:
+    stufe = stufe_von(category, stufen)
+    if stufe == STUFE_LEISE:
         return {"priority": "normal", "channelId": KANAL_LEISE}
+    if stufe == STUFE_KRITISCH and kritisch_erlaubt:
+        return {
+            "priority": "high",
+            "channelId": KANAL_DRINGEND,
+            "interruptionLevel": "critical",
+            # Der Ton macht die Meldung kritisch, nicht die Stufe: Erst
+            # ``critical`` im Ton lässt iOS den Stummschalter übergehen.
+            "sound": {"critical": True, "name": "default", "volume": 1.0},
+        }
     return {
         "priority": "high",
         "channelId": KANAL_DRINGEND,
@@ -249,6 +325,9 @@ CATEGORIES: dict[str, str] = {
     "battery": "Batterie schwach",
     "open": "Fenster/Tür steht offen",
     "leak": "Wasser gemeldet",
+    # Die Brandmeldeanlage (Punkt 543): Rauch oder Gas gemeldet, die
+    # Wiederholung, die Entwarnung und der Probealarm.
+    "smoke": "Rauch gemeldet",
     "doorbell": "Es klingelt an der Türe",
     "baby_cry": "Ein Baby weint",
     "disk": "Speicherplatz wird knapp",
@@ -294,7 +373,7 @@ GROUPS: list[tuple[str, tuple[str, ...]]] = [
     # Die Klingel steht ganz vorn: Sie ist die Nachricht, auf die man
     # sofort reagiert - und die einzige, bei der ein paar Sekunden
     # Verzögerung den Zweck zunichte machen.
-    ("Sicherheit", ("doorbell", "alarm", "alarm_arming", "camera_motion", "leak")),
+    ("Sicherheit", ("doorbell", "alarm", "alarm_arming", "camera_motion", "leak", "smoke")),
     ("Haus", ("open", "appliance", "oven", "vacuum", "frost", "rain",
               "storm_covers", "heat_covers", "plants", "timer", "maintenance")),
     # «Baby weint» steht vorn und bei der Familie, nicht bei der
@@ -502,6 +581,43 @@ APNS_HINTS = {
 }
 
 
+#: Vorsatz, mit dem ein Empfänger «eine Gruppe» heisst: to="gruppe:Eltern".
+GRUPPE_PREFIX = "gruppe:"
+#: Schlüssel in hub.data für die Empfängergruppen.
+GRUPPEN_KEY = "push_gruppen"
+
+
+def gruppen_lesen(rows: Any) -> dict[str, list[str]]:
+    """Empfängergruppen aus der Ablage (rein, testbar).
+
+    «Eltern» statt «Stefan und Livia» in jedem Ablauf: Kommt ein Kind
+    dazu oder zieht jemand aus, ändert man eine Liste, nicht zwanzig
+    Abläufe. Leere Gruppen fliegen raus - eine Gruppe ohne Mitglieder
+    ist ein Ziel, das niemanden erreicht, und das merkt man erst, wenn
+    die Meldung ausbleibt.
+    """
+    gruppen: dict[str, list[str]] = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()
+        mitglieder = [
+            str(m).strip()
+            for m in row.get("members") or []
+            if isinstance(m, str) and str(m).strip()
+        ]
+        if name and mitglieder:
+            gruppen[name] = list(dict.fromkeys(mitglieder))
+    return gruppen
+
+
+def gruppe_aus(to: str | None) -> str | None:
+    """Der Gruppenname aus einem Ziel - oder None (rein, testbar)."""
+    if to and to.startswith(GRUPPE_PREFIX):
+        return to[len(GRUPPE_PREFIX):].strip() or None
+    return None
+
+
 def is_expo_token(token: str) -> bool:
     return token.startswith("ExponentPushToken[") or token.startswith("ExpoPushToken[")
 
@@ -662,6 +778,13 @@ class PushService:
         self.still = {}
         self.geraete_muted = {}
         self.geraete_ruhe = {}
+        # Im Haus geänderte Dringlichkeiten (``stufen_lesen``) und ob
+        # Apple critical alerts erlaubt - beides setzt der Hub aus der
+        # Ablage und der config.yaml, derselbe Schnitt wie bei ``muted``.
+        self.stufen: dict[str, str] = {}
+        self.kritisch_erlaubt = False
+        # Empfängergruppen: Name → Benutzernamen (``gruppen_lesen``).
+        self.gruppen: dict[str, list[str]] = {}
         # Wird vom Hub gesetzt: «Darf diese Kategorie jetzt noch?» Der
         # Tagesdeckel braucht einen Zählerstand, der Neustarts übersteht,
         # und der liegt in der hub.data. Ein Rückruf statt eines
@@ -768,8 +891,9 @@ class PushService:
     ) -> list[str]:
         """Wählt die Empfänger aus.
 
-        ``to`` ist "all", eine Rolle ("bewohner") oder ein Benutzername.
-        Gäste bekommen nur etwas, wenn sie ausdrücklich gemeint sind.
+        ``to`` ist "all", eine Rolle ("bewohner"), ein Benutzername oder
+        eine Gruppe ("gruppe:Eltern", siehe ``gruppen_lesen``). Gäste
+        bekommen nur etwas, wenn sie ausdrücklich gemeint sind.
 
         ``category`` ist die Art der Nachricht. Wer sie in seinem Profil
         abbestellt hat, fällt hier heraus – das ist die einzige Stelle, an
@@ -779,6 +903,8 @@ class PushService:
         und nicht an die dreissig Stellen, die melden.
         """
         by_name = {user.name: user for user in users}
+        gruppe = gruppe_aus(to)
+        mitglieder = set(self.gruppen.get(gruppe, ())) if gruppe else set()
         tokens = []
         for device in self._devices.values():
             user = by_name.get(device.user)
@@ -798,6 +924,9 @@ class PushService:
                     tokens.append(device.token)
             elif to in Role.ALL:
                 if user.role == to:
+                    tokens.append(device.token)
+            elif gruppe is not None:
+                if device.user in mitglieder:
                     tokens.append(device.token)
             elif to == device.user:
                 tokens.append(device.token)
@@ -861,7 +990,7 @@ class PushService:
             # Expo nie ausgestellt hat, ist ein Fehler und soll unten
             # als solcher gemeldet werden, nicht hier still verschwinden.
             return PushResult()
-        stufe = dringlichkeit(category)
+        stufe = dringlichkeit(category, self.stufen, self.kritisch_erlaubt)
         kategorie_knoepfe = knoepfe(category)
         # Die Kategorie reist auch in den Nutzdaten mit: Beim
         # «Später»-Knopf reicht die App sie an /api/push/snooze zurück,

@@ -39,17 +39,20 @@ import { MAX_SCHRIFT } from '../lib/schrift';
 import { abschaltSatz } from '../lib/abschaltung';
 import { OHNE_RAUM, gezaehlteLichter, lichterAus, lichterNachRaum } from '../lib/zaehlung';
 import { ConnectionStatus } from '../hooks/useHub';
-import { VERBINDUNGSWORT, verbindungsFarbe } from '../lib/verbindungsstand';
+import {
+  verbindungsAnsage,
+  verbindungsFarbe,
+  verbindungsZusatz,
+} from '../lib/verbindungsstand';
 import { useEscape } from '../hooks/useEscape';
 import { useJetzt } from '../hooks/useRestzeit';
-import { Colors, radius, type, useColors } from '../theme';
+import { Colors, icon, radius, type, useColors } from '../theme';
 import { warnText, warnZahl, warnZahlSatz } from '../lib/warnzeile';
 import { Lauftext } from './Lauftext';
 
 // Die Wörter und die Ampel wohnen in lib/verbindungsstand.ts: Die
 // Verbindungen-Seite gibt oben dieselbe Auskunft, und zwei Fassungen
 // davon liefen auseinander.
-const STATUS_LABEL = VERBINDUNGSWORT;
 const statusColor = verbindungsFarbe;
 
 /** Der nächste echte Termin – dasselbe Ereignis, das der Hub in
@@ -107,6 +110,8 @@ export function TopStrip({
   gaesteWlan,
   besuch,
   besuchLaeuft = false,
+  onPosteingang,
+  posteingangZaehler = 0,
 }: {
   entities: Entity[];
   /** Die Gäste-WLAN-Karte fürs Blatt hinter dem WLAN-Symbol. Als Element
@@ -135,6 +140,10 @@ export function TopStrip({
    *  aussieht wie sonst - man schaltet ihn abends ein und denkt am
    *  nächsten Morgen nicht mehr daran. */
   besuchLaeuft?: boolean;
+  /** Die Glocke (Punkt 524): öffnet den Posteingang; die Zahl daran ist,
+   *  was das Haus seit dem letzten Öffnen für mich zurückgehalten hat. */
+  onPosteingang?: () => void;
+  posteingangZaehler?: number;
   status: ConnectionStatus;
   now: Date;
   /** Ausgeblendete Geräte – wer eine Lampe aus den Alltagsansichten
@@ -406,7 +415,7 @@ export function TopStrip({
                     ) : (
                       <Ionicons
                         name={zeile.zuhause ? 'person' : 'person-outline'}
-                        size={18}
+                        size={icon.mittel}
                         color={zeile.zuhause ? colors.on : colors.inkFaint}
                       />
                     )}
@@ -488,7 +497,7 @@ export function TopStrip({
                   ) : null}
                   {gruppe.lichter.map((entity) => (
                     <View key={entity.id} style={styles.lightRow}>
-                      <Ionicons name="bulb" size={18} color={colors.warn} />
+                      <Ionicons name="bulb" size={icon.mittel} color={colors.warn} />
                       {/* Läuft eine Frist, steht sie unter dem Namen:
                           Wer die Liste öffnet, will wissen, was noch
                           brennt - und was von selbst wieder ausgeht, muss
@@ -693,7 +702,7 @@ export function TopStrip({
                       accessibilityLabel={`${neuerArtikel.trim()} eintragen`}
                       hitSlop={8}
                     >
-                      <Ionicons name="arrow-forward-circle" size={22} color={colors.accent} />
+                      <Ionicons name="arrow-forward-circle" size={icon.gross} color={colors.accent} />
                     </Pressable>
                   ) : null}
                 </View>
@@ -847,7 +856,7 @@ export function TopStrip({
                       pressed && { opacity: 0.7 },
                     ]}
                   >
-                    <Ionicons name="location-outline" size={16} color={colors.accent} />
+                    <Ionicons name="location-outline" size={icon.klein} color={colors.accent} />
                     <Text style={[styles.eventLocation, { color: colors.accent }]}>
                       {event.location}
                     </Text>
@@ -919,7 +928,7 @@ export function TopStrip({
                 <View key={index} style={styles.alertRow}>
                   <Ionicons
                     name="warning-outline"
-                    size={18}
+                    size={icon.mittel}
                     color={severityTone(colors, warning.severity)}
                   />
                   <View style={{ flex: 1 }}>
@@ -1079,9 +1088,35 @@ export function TopStrip({
                       betrifft. */}
                   <Ionicons
                     name="people"
-                    size={16}
+                    size={icon.klein}
                     color={besuchLaeuft ? '#FFFFFF' : colors.ink}
                   />
+                </Pressable>
+              ) : null}
+              {onPosteingang ? (
+                <Pressable
+                  onPress={onPosteingang}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    posteingangZaehler > 0
+                      ? `Posteingang, ${posteingangZaehler} neu`
+                      : 'Posteingang'
+                  }
+                  hitSlop={8}
+                  style={({ pressed }) => [styles.chip, pressed && { opacity: 0.6 }]}
+                >
+                  <Ionicons
+                    name={posteingangZaehler > 0 ? 'notifications' : 'notifications-outline'}
+                    size={icon.klein}
+                    color={colors.ink}
+                  />
+                  {posteingangZaehler > 0 ? (
+                    <View style={styles.glockenZahl}>
+                      <Text style={styles.glockenZahlText}>
+                        {posteingangZaehler > 9 ? '9+' : posteingangZaehler}
+                      </Text>
+                    </View>
+                  ) : null}
                 </Pressable>
               ) : null}
               {gaesteWlan ? (
@@ -1092,18 +1127,26 @@ export function TopStrip({
                   hitSlop={8}
                   style={({ pressed }) => [styles.chip, pressed && { opacity: 0.6 }]}
                 >
-                  <Ionicons name="wifi" size={16} color={colors.ink} />
+                  <Ionicons name="wifi" size={icon.klein} color={colors.ink} />
                 </Pressable>
               ) : null}
-              <View style={styles.chip}>
+              {/* Nur der Punkt. Das Wort daneben sagte dasselbe und
+                  stand fast immer auf «verbunden» - siehe
+                  lib/verbindungsstand.ts. Was dort weiterhin steht,
+                  wenn es etwas gibt: die Wartezahl. */}
+              <View
+                style={styles.chip}
+                accessibilityRole="text"
+                accessibilityLabel={verbindungsAnsage(status, queued)}
+              >
                 <View
                   style={[styles.dot, { backgroundColor: statusColor(colors, status) }]}
                 />
-                <Text style={styles.chipText} maxFontSizeMultiplier={MAX_SCHRIFT}>
-                  {queued > 0
-                    ? `${STATUS_LABEL[status]} · ${queued} wartet`
-                    : STATUS_LABEL[status]}
-                </Text>
+                {verbindungsZusatz(queued) ? (
+                  <Text style={styles.chipText} maxFontSizeMultiplier={MAX_SCHRIFT}>
+                    {verbindungsZusatz(queued)}
+                  </Text>
+                ) : null}
               </View>
             </View>
           </View>
@@ -1329,16 +1372,21 @@ export function TopStrip({
       </View>
 
       <View style={styles.chips}>
-        <View style={styles.chip}>
+        <View
+          style={styles.chip}
+          accessibilityRole="text"
+          accessibilityLabel={verbindungsAnsage(status, queued)}
+        >
           <View style={[styles.dot, { backgroundColor: statusColor(colors, status) }]} />
           {/* Ohne diese Zahl ist ein Tipp im Funkloch nicht von einem
               verschluckten Befehl zu unterscheiden – beides sieht nach
-              «nichts passiert» aus. */}
-          <Text style={styles.chipText} maxFontSizeMultiplier={MAX_SCHRIFT}>
-            {queued > 0
-              ? `${STATUS_LABEL[status]} · ${queued} wartet`
-              : STATUS_LABEL[status]}
-          </Text>
+              «nichts passiert» aus. Das Wort davor ist weg, die Zahl
+              bleibt (lib/verbindungsstand.ts). */}
+          {verbindungsZusatz(queued) ? (
+            <Text style={styles.chipText} maxFontSizeMultiplier={MAX_SCHRIFT}>
+              {verbindungsZusatz(queued)}
+            </Text>
+          ) : null}
         </View>
         {/* Nur auf dem Wandpanel. Telefon und Rechner zeigen die Uhrzeit
             ohnehin am Bildschirmrand - hier wäre sie ein zweites Mal
@@ -1617,6 +1665,18 @@ const makeStyles = (colors: Colors) =>
     alignItems: 'center',
     gap: 6,
   },
+  // Die Zahl an der Glocke (Punkt 524): klein, rot, und nur da, wenn
+  // es etwas gibt - eine leere Null wäre eine Glocke, die ständig ruft.
+  glockenZahl: {
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    backgroundColor: colors.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  glockenZahlText: { color: '#FFFFFF', fontSize: 10, fontWeight: '700' },
   /** Das Leute-Zeichen der Begrüssungskarte. Eigener Stil und nicht
    *  `chip`: Es bekommt im eingeschalteten Zustand eine Füllung, und
    *  der Platz dafür muss auch vorher schon da sein - sonst rückt die

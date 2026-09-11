@@ -25,6 +25,11 @@ hub/**/*-token.json
 # Die Matter-Fabric: Schlüssel und Zertifikate der gekoppelten Geräte.
 # Gehört ins Backup, aber nie ins Repository.
 hub/matter/
+# Zigbee2MQTT: Netzwerkschlüssel des Zigbee-Netzes und die Geräteliste.
+# Der Schlüssel ist das Geheimnis, mit dem man jeden Fensterkontakt im
+# Haus mithört - die Vorlage dafür steht in deploy/.
+hub/zigbee2mqtt/
+hub/mosquitto/
 
 # Node / Expo
 node_modules/

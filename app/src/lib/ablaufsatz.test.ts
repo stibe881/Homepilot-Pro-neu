@@ -5,7 +5,7 @@
  * hat, liest es hier – deshalb prüft der Test genau diese Wörter.
  */
 import { Entity, Scene } from '../api/types';
-import { ablaufSatz, kuerze } from './ablaufsatz';
+import { ablaufSatz, befehlWort, kuerze } from './ablaufsatz';
 
 const entities = [
   { id: 'hm.bewegung', name: 'Bewegung Flur' },
@@ -443,4 +443,23 @@ test('der Stromausfall-Auslöser liest sich als Satz', () => {
     scenes
   );
   expect(satz).toContain('der Strom zurückkommt');
+});
+
+describe('befehlWort', () => {
+  it('sagt «stumm» an der Box und «Signal aus» am Melder', () => {
+    // Derselbe Befehl, zwei Bedeutungen: An einer Box ist `mute` der
+    // Ton weg, während die Musik weiterläuft. An einem Rauchmelder ist
+    // es der Knopf, der den heulenden Summer beruhigt (Punkt 543) - und
+    // «Rauchmelder Flur stumm» liest sich dort wie eine Lautstärke.
+    const box = { id: 'b', kind: 'media_player' } as Entity;
+    const melder = { id: 'm', kind: 'binary_sensor' } as Entity;
+    expect(befehlWort('mute', box)).toBe('stumm');
+    expect(befehlWort('mute', melder)).toBe('Signal aus');
+  });
+
+  it('kommt ohne Gerät aus', () => {
+    // Die Listenzeile hat nicht immer eines zur Hand.
+    expect(befehlWort('turn_off')).toBe('aus');
+    expect(befehlWort('sound_alarm')).toBe('Signal geben');
+  });
 });

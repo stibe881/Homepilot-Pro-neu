@@ -60,8 +60,14 @@ integrations:
 rooms:
   Wohnzimmer:
     [demo.light_livingroom, demo.tv_livingroom, demo.cover_livingroom, gremlin.tv_zappelig,
-     demo.scene_relax, demo.speaker_kitchen]
-  Flur: [demo.motion_hall]
+     demo.scene_relax, demo.speaker_kitchen, demo.temp_livingroom]
+  # Derselbe Fühler ein zweites Mal: Ein Gerät darf für mehrere Zimmer
+  # zählen (Punkt 539), und ohne ein Zimmer, das nur so entsteht, liesse
+  # sich das im Browser nicht messen.
+  Esszimmer: [demo.temp_livingroom]
+  # Der Rauchwarnmelder gehört in ein Zimmer, sonst lässt sich nicht
+  # messen, dass er dort **keine** Kachel bekommt (Punkt 542).
+  Flur: [demo.motion_hall, demo.smoke_hall]
 automations: []
 YAML
 
@@ -85,6 +91,17 @@ if ! curl -sf -o /dev/null "http://127.0.0.1:$HUB_PORT/api/health"; then
   echo "✗ Der Demo-Hub kam nicht hoch. Log: $ARBEIT/hub.log"
   exit 1
 fi
+
+# «Gilt für: nur diesen Raum» auf den Klimafühler - der Normalfall im
+# Bad, und genau der, in dem die Ecke leer blieb (Punkt 541). Der
+# Schalter gehört nicht in die config.yaml: Er ist ein Vermerk am Gerät
+# und wird über dieselbe Route gesetzt wie in der App.
+curl -sf -o /dev/null -X PUT \
+  "http://127.0.0.1:$HUB_PORT/api/entities/demo.temp_livingroom/meta" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"room_only": true}' ||
+  { echo "✗ room_only liess sich nicht setzen."; exit 1; }
 
 # ── Web-Fassung ───────────────────────────────────────────────────────
 if [ "$OHNE_BAU" = "0" ] || [ ! -d "$ARBEIT/web" ]; then

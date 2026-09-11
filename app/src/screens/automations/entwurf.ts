@@ -120,6 +120,9 @@ export interface Run {
   skipped: string[];
   /** Die Schritt-Spur (Punkt 160): was wann dran war, und was hing. */
   steps?: { label: string; after: number; note?: string; error?: string }[];
+  /** Punkt 510: Löste eine Kamera aus, liegt ihr Standbild im Bildarchiv
+   *  des Hubs - das ist seine Kennung für /api/automations/bild/… */
+  image?: string;
   /** Ob der Lauf auch gewirkt hat – ein paar Sekunden nach dem Lauf am
    *  Gerät nachgesehen (hub/core/wirkung.py). Fehlt bei Läufen, an denen
    *  es nichts Prüfbares gab, und bei allen aus der Zeit davor. */
@@ -201,6 +204,20 @@ export interface StateOption {
 }
 
 /** Schlüssel aus dem, was im Ablauf steht – fürs Wiederfinden der Auswahl. */
+/** Vorsatz einer Empfängergruppe im Ziel - derselbe wie im Hub
+ *  (core/push.py: GRUPPE_PREFIX). */
+export const GRUPPE_PREFIX = 'gruppe:';
+
+/** Wie ein Empfänger in der Auswahl heisst (rein, testbar).
+ *
+ *  Eine Gruppe (Punkt 513) steht als «Eltern (Gruppe)» neben den Namen -
+ *  so sieht man, dass sich dahinter mehrere Telefone verbergen, ohne
+ *  dass die Kennung «gruppe:Eltern» auf dem Bildschirm steht. */
+export function empfaengerLabel(key: string): string {
+  if (key.startsWith(GRUPPE_PREFIX)) return `${key.slice(GRUPPE_PREFIX.length)} (Gruppe)`;
+  return key;
+}
+
 export function optionKey(attribute: string | undefined, to: string): string {
   return attribute ? `${attribute}:${to}` : to;
 }
@@ -643,7 +660,8 @@ export type TriggerKind =
   | 'presence'
   | 'weather_warning'
   | 'power_restore'
-  | 'availability';
+  | 'availability'
+  | 'window';
 /**
  * Ein Handgriff unter einer Nachricht.
  *
@@ -658,7 +676,7 @@ export interface NotifyKnopf {
   command?: string;
 }
 
-export type StepKind = 'command' | 'toggle_all' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'presence' | 'delay' | 'wait_until' | 'fade' | 'music' | 'if' | 'repeat';
+export type StepKind = 'command' | 'toggle_all' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'presence' | 'delay' | 'wait_until' | 'fade' | 'music' | 'if' | 'repeat' | 'automation';
 
 /** Was ein Musik-Schritt tun kann. */
 export type MusikTat = 'favorite' | 'sleep' | 'pause_all' | 'night' | 'fade' | 'follow';
@@ -713,6 +731,11 @@ export interface TriggerDraft {
   /** Wetterwarnungs-Auslöser (Punkt 252): ab welcher Stufe (leer =
    *  jede). Das Warn-Gerät steht in `entityId`; leer heisst jedes. */
   minSeverity: string;
+  /** «Zeitraum»: feuert um `at` und lässt den Ablauf nur bis `until`
+   *  laufen - der Hub macht daraus selbst die Zeitbedingung. Vorher
+   *  brauchte das einen Zeit-Auslöser und eine Zeit-Bedingung mit
+   *  denselben zwei Uhrzeiten, und wer eine änderte, vergass die andere. */
+  until: string;
 }
 
 /**
@@ -841,6 +864,10 @@ export interface StepDraft {
   repeatArt: 'count' | 'while';
   repeatCount: string;
   repeatWhile: StateCondition[];
+  /** «Ablauf starten»: die Kennung des anderen Ablaufs. Der Hub konnte
+   *  das längst (`type: automation`) - der Editor kannte den Schritt
+   *  nicht und warf ihn beim Öffnen und Speichern still weg. */
+  automationId: string;
   repeatWhileExtra: BausteinConfig[];
   repeatMax: string;
   repeatSteps: StepDraft[];
@@ -888,6 +915,7 @@ export const EMPTY_STEP: StepDraft = {
   repeatWhileExtra: [],
   repeatMax: '10',
   repeatSteps: [],
+  automationId: '',
 };
 
 /** Ein neuer Auslöser für dieses Gerät – mit einem Zustand, den es auch
@@ -923,6 +951,7 @@ export const EMPTY_TRIGGER: TriggerDraft = {
   presencePerson: '',
   presenceEvent: 'arrives',
   minSeverity: '',
+  until: '22:00',
 };
 
 /** «ist» vergleicht den Zustand, «über»/«unter» eine Zahl – für Helligkeit,
@@ -947,6 +976,93 @@ export interface ConditionGroup {
   conditions: StateCondition[];
 }
 
+/** Die Arten der Kontext-Bedingungen - die vier Auslöser aus Punkt
+ *  252/153 als Dauerzustand (core/automation.py, _check_condition). */
+export type KontextArt = 'presence' | 'availability' | 'weather_warning' | 'calendar';
+
+/**
+ * Eine Bedingung, die nicht an einem Gerätezustand hängt.
+ *
+ * «Nur wenn Livia daheim ist» musste man bisher als Gerätebedingung auf
+ * die Zonen-Entität nachbauen - und dafür deren Kennung kennen. Hier
+ * steht sie so, wie man sie sagt: eine Person, ein Gerät, das sich
+ * meldet, eine laufende Wetterwarnung, ein laufender Termin. `nicht`
+ * kehrt sie um («nur wenn niemand da ist»).
+ */
+export interface KontextCondition {
+  art: KontextArt;
+  /** Person (presence), Gerät (availability), Warn-Gerät oder Kalender
+   *  (leer = das erste, das der Hub findet). */
+  ziel: string;
+  /** Zone (presence, leer = zuhause), Mindeststufe (weather_warning)
+   *  oder Wort im Termin-Titel (calendar). */
+  wert: string;
+  nicht: boolean;
+}
+
+/** Was gespeichert wird (rein, testbar). */
+export function kontextConditionToConfig(entry: KontextCondition): BausteinConfig {
+  if (entry.art === 'presence') {
+    return {
+      type: 'presence',
+      person: entry.ziel,
+      ...(entry.wert && entry.wert !== ZUHAUSE ? { zone: entry.wert } : {}),
+      ...(entry.nicht ? { state: 'absent' } : {}),
+    };
+  }
+  if (entry.art === 'availability') {
+    return { type: 'availability', entity_id: entry.ziel, available: !entry.nicht };
+  }
+  if (entry.art === 'weather_warning') {
+    return {
+      type: 'weather_warning',
+      ...(entry.ziel ? { entity_id: entry.ziel } : {}),
+      ...(entry.wert ? { min_severity: entry.wert } : {}),
+      ...(entry.nicht ? { active: false } : {}),
+    };
+  }
+  return {
+    type: 'calendar',
+    ...(entry.ziel ? { entity_id: entry.ziel } : {}),
+    ...(entry.wert.trim() ? { contains: entry.wert.trim() } : {}),
+    ...(entry.nicht ? { active: false } : {}),
+  };
+}
+
+export const KONTEXT_ARTEN: KontextArt[] = [
+  'presence',
+  'availability',
+  'weather_warning',
+  'calendar',
+];
+
+/** Kann der Editor diese Bedingung als Kontext-Bedingung zeigen? */
+export function istKontextBedingung(entry: BausteinConfig): boolean {
+  return KONTEXT_ARTEN.includes(entry?.type as KontextArt);
+}
+
+/** Umgekehrt: gespeicherte Form → Editor (rein, testbar). */
+export function kontextConditionFromConfig(entry: BausteinConfig): KontextCondition {
+  const art = entry.type as KontextArt;
+  if (art === 'presence') {
+    return {
+      art,
+      ziel: String(entry.person ?? ''),
+      wert: String(entry.zone ?? '') || ZUHAUSE,
+      nicht: entry.state === 'absent',
+    };
+  }
+  if (art === 'availability') {
+    return { art, ziel: String(entry.entity_id ?? ''), wert: '', nicht: entry.available === false };
+  }
+  return {
+    art,
+    ziel: String(entry.entity_id ?? ''),
+    wert: String(art === 'weather_warning' ? (entry.min_severity ?? '') : (entry.contains ?? '')),
+    nicht: entry.active === false,
+  };
+}
+
 export interface Draft {
   id?: string;
   alias: string;
@@ -961,6 +1077,9 @@ export interface Draft {
   stateConditions: StateCondition[];
   /** Und/Oder-Gruppen aus Gerätebedingungen (Punkt 152). */
   groups: ConditionGroup[];
+  /** Kontext-Bedingungen: Person daheim, Gerät erreichbar, Warnung
+   *  läuft, Termin läuft. */
+  kontextConditions: KontextCondition[];
   /** Bedingungen, die der Editor (noch) nicht bauen kann – etwa
    *  geschachtelte und/oder-Gruppen aus der config.yaml. Sie werden
    *  unverändert mitgespeichert, statt beim Öffnen stumm zu verschwinden. */
@@ -1030,6 +1149,7 @@ export const EMPTY: Draft = {
   conditionBefore: '',
   stateConditions: [],
   groups: [],
+  kontextConditions: [],
   extraConditions: [],
   match: 'all',
   weekdays: [],
@@ -1062,6 +1182,16 @@ export function triggerToConfig(t: TriggerDraft): BausteinConfig {
   }
   if (t.kind === 'time') {
     return { type: 'time', at: t.at, ...(jitter > 0 ? { jitter } : {}) };
+  }
+  if (t.kind === 'window') {
+    // «Zeitraum»: der Hub feuert um `after` und lässt den Ablauf nur bis
+    // `before` laufen (zeitfenster_bedingungen in core/automation.py).
+    return {
+      type: 'window',
+      after: t.at,
+      before: t.until,
+      ...(jitter > 0 ? { jitter } : {}),
+    };
   }
   if (t.kind === 'calendar') {
     const vorlauf = Math.max(0, Number(t.calendarBefore) || 0);
@@ -1165,6 +1295,8 @@ export function triggerFromConfig(t: BausteinConfig): TriggerDraft {
     kind:
       t?.type === 'time'
         ? 'time'
+        : t?.type === 'window'
+          ? 'window'
         : t?.type === 'calendar'
           ? 'calendar'
         : t?.type === 'presence'
@@ -1206,7 +1338,8 @@ export function triggerFromConfig(t: BausteinConfig): TriggerDraft {
       t?.type === 'weather_warning' ? String(t?.min_severity ?? '') : '',
     fromState: t?.from ?? '',
     attribute: t?.attribute ?? '',
-    at: t?.at ?? EMPTY_TRIGGER.at,
+    at: t?.at ?? (t?.type === 'window' ? String(t?.after ?? EMPTY_TRIGGER.at) : EMPTY_TRIGGER.at),
+    until: t?.type === 'window' ? String(t?.before ?? EMPTY_TRIGGER.until) : EMPTY_TRIGGER.until,
     sunEvent: t?.event === 'sunrise' ? 'sunrise' : 'sunset',
     sunOffset: String(t?.offset ?? 0),
     thresholdOp: t?.above !== undefined ? 'above' : 'below',
@@ -1405,6 +1538,7 @@ export const TRIGGER_KIND_ICON: Record<TriggerKind, keyof typeof Ionicons.glyphM
   weather_warning: 'thunderstorm-outline',
   power_restore: 'flash-outline',
   availability: 'pulse-outline',
+  window: 'timer-outline',
 };
 
 /**
@@ -1426,6 +1560,7 @@ export const TRIGGER_WORT: Record<TriggerKind, string> = {
   weather_warning: 'Wetterwarnung',
   power_restore: 'Nach Stromausfall',
   availability: 'Meldet sich nicht',
+  window: 'Zeitraum',
 };
 
 /** Dieselbe Idee für die Art eines Schritts (Kachelauswahl beim Bauen
@@ -1444,6 +1579,7 @@ export const STEP_KIND_ICON: Record<StepKind, keyof typeof Ionicons.glyphMap> = 
   music: 'volume-medium-outline',
   if: 'git-branch-outline',
   repeat: 'repeat-outline',
+  automation: 'play-forward-outline',
 };
 
 /** Das Symbol zur Auslöserart (Punkt 162) - der Zeilenanfang der Liste
@@ -1552,6 +1688,13 @@ export function buildConditions(draft: Draft): BausteinConfig[] {
       conditions.push({ type: 'group', match: gruppe.match, conditions: subs });
     }
   }
+  // Kontext: Person, Erreichbarkeit, Warnung, Termin. Eine Person ohne
+  // Namen und ein Gerät ohne Kennung ergäben eine Bedingung, die nie
+  // gilt - die fällt weg.
+  for (const entry of draft.kontextConditions ?? []) {
+    if ((entry.art === 'presence' || entry.art === 'availability') && !entry.ziel) continue;
+    conditions.push(kontextConditionToConfig(entry));
+  }
   // Was der Editor nicht kennt (tiefere Gruppen u.ä.), bleibt erhalten.
   conditions.push(...(draft.extraConditions ?? []));
   return conditions;
@@ -1606,6 +1749,9 @@ export const PLATZHALTER: { key: string; label: string }[] = [
   // Punkt 251: Die Uhrzeit des Auslösens - «Bewegung um {time}» sagt
   // beim Nachlesen am Morgen, wann es wirklich war.
   { key: '{time}', label: '+ Uhrzeit' },
+  // Was der Auslöser gerade meldet - «{gerät} meldet {wert}» gilt für
+  // alle Melder auf einmal (core/kamera.py, fill).
+  { key: '{wert}', label: '+ Wert' },
 ];
 
 /**
@@ -1791,6 +1937,11 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
   }
   if (step.kind === 'music') {
     return musikSchrittZuAktion(step);
+  }
+  if (step.kind === 'automation') {
+    return step.automationId
+      ? [{ type: 'automation', automation_id: step.automationId }]
+      : [];
   }
   if (step.kind === 'if') {
     // Ohne Bedingung hiesse der Schritt beim Hub «gilt immer», ohne
@@ -2208,6 +2359,12 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
       });
     } else if (type === 'delay') {
       steps.push({ ...EMPTY_STEP, kind: 'delay', seconds: String(action.seconds ?? 60) });
+    } else if (type === 'automation') {
+      steps.push({
+        ...EMPTY_STEP,
+        kind: 'automation',
+        automationId: String(action.automation_id ?? action.automation ?? ''),
+      });
     } else if (type === 'wait_until') {
       steps.push({
         ...EMPTY_STEP,
@@ -2281,11 +2438,13 @@ export function toDraft(automation: Automation): Draft {
     // Zeitfenster), unverändert mittragen – sonst löscht «Öffnen und
     // Speichern» genau die Bedingung, die jemand in der config.yaml
     // gebaut hat.
+    kontextConditions: all.filter(istKontextBedingung).map(kontextConditionFromConfig),
     extraConditions: all.filter(
       (entry) =>
         entry !== condition &&
         !((entry.type ?? 'state') === 'state' && entry.entity_id) &&
-        !editierbareGruppe(entry)
+        !editierbareGruppe(entry) &&
+        !istKontextBedingung(entry)
     ),
     match: automation.match === 'any' ? 'any' : 'all',
     weekdays: Array.isArray(condition.weekdays) ? condition.weekdays.map(Number) : [],
@@ -2432,7 +2591,10 @@ export function describe(automation: Automation, entities: Entity[] = []): strin
             ? `${nameVon(entities, action.entity_id)}: ${
                 action.data?.rooms?.length ?? 0
               } Räume saugen`
-            : `${nameVon(entities, action.entity_id)} ${befehlWort(action.command)}`;
+            : `${nameVon(entities, action.entity_id)} ${befehlWort(
+                action.command,
+                entities.find((entity) => entity.id === action.entity_id)
+              )}`;
   const mehr = automation.triggers.length > 1 ? ` (+${automation.triggers.length - 1})` : '';
   // Wie viele Schritte noch folgen – seit ein Ablauf mehrere Arten mischen
   // kann, sagt die erste Aktion allein zu wenig.
@@ -2587,6 +2749,7 @@ const SCHRITT_WORT: Record<StepKind, string> = {
   music: 'Musik',
   if: 'Wenn …',
   repeat: 'Wiederholen',
+  automation: 'Ablauf starten',
 };
 
 /**

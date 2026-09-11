@@ -42,6 +42,8 @@ IMMER_DURCH: frozenset[str] = frozenset(
         "alarm_arming",
         "camera_motion",
         "leak",
+        # Rauch erst recht: Die eine Meldung, die man nachts haben will.
+        "smoke",
         "doorbell",
         "baby_cry",
         "timer",

@@ -20,7 +20,7 @@ from fastapi import (
 from ...core import alarmbericht, alarmpflege, bildarchiv, cliparchiv
 from ...core import throttle as throttle_module
 from ...core.errors import HomePilotError
-from ...core.users import Capability
+from ...core.users import Capability, kind_darf_schalten
 from ...integrations import alarm as alarm_module
 from ...integrations.alarm_rules import zonen
 from ..context import ApiContext
@@ -41,6 +41,26 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     require = ctx.require
 
     # ── Alarmanlage ────────────────────────────────────────────────────────
+
+    def nicht_fuer_kinder(user: Any) -> None:
+        """Die Anlage schalten die Erwachsenen (Punkt 497 der Werkbank).
+
+        Die Kinder-Ansicht bietet die Anlage nicht an - aber das ist ein
+        Bildschirm und keine Regel, und wer die Adresse kennt oder eine
+        ältere App-Fassung benutzt, kommt daran vorbei. Entschärfen hebt
+        die Anlage auf, scharf schalten sperrt die Familie aus; beides
+        ist nichts, was zwischen zwei Hausaufgaben passieren soll.
+
+        Der Panikknopf bleibt ausdrücklich offen: Wer in Bedrängnis ist,
+        soll um Hilfe rufen können - auch ein Kind. Das ist der ganze
+        Zweck dieses Knopfs, und eine Rolle davorzuschieben wäre der
+        Fehler, den man nur einmal macht.
+        """
+        if not kind_darf_schalten(getattr(user, "role", ""), "alarm"):
+            raise HTTPException(
+                status_code=403,
+                detail="Die Alarmanlage schalten die Erwachsenen.",
+            )
 
     def alarm_service():
         service = hub.integrations.get("alarm")
@@ -99,6 +119,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """Scharf schalten. Offene Fenster melden statt blind loszulaufen –
         sonst schlägt die Anlage los, sobald die Verzögerung endet."""
         user = require(request, Capability.CONTROL)
+        nicht_fuer_kinder(user)
         service = alarm_service()
         try:
             return await service.arm(
@@ -115,6 +136,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         body: AlarmDisarmRequest | None = None,
     ) -> dict[str, Any]:
         user = require(request, Capability.CONTROL)
+        nicht_fuer_kinder(user)
         try:
             return await alarm_service().disarm(
                 by=user.name,

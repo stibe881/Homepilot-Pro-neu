@@ -38,11 +38,37 @@ export interface Klingelbox {
   to: string;
 }
 
+/** Nachts (Punkt 518): normal wie am Tag, leise gedämpft, still gar nicht. */
+export type NachtModus = 'normal' | 'leise' | 'still';
+
+export interface NachtRegel {
+  mode: NachtModus;
+  from: number;
+  to: number;
+}
+
+export const NACHT_MODI: { key: NachtModus; label: string }[] = [
+  { key: 'normal', label: 'Wie am Tag' },
+  { key: 'leise', label: 'Leiser' },
+  { key: 'still', label: 'Still' },
+];
+
+/** Die Stunden zur Wahl - abends und morgens, nicht alle 24: Wer den
+ *  Gong um 15 Uhr dämpfen will, meint keine Nacht. */
+export const NACHT_VON = [20, 21, 22, 23, 0];
+export const NACHT_BIS = [5, 6, 7, 8, 9];
+
 export interface Klingeltonstand {
   sound: string;
   speakers: Klingelbox[];
   sounds: Klang[];
   candidates: Lautsprecher[];
+  /** Fehlt bei einem älteren Hub - dann gilt «wie am Tag». */
+  night?: NachtRegel;
+  /** Die Ansage nach dem Ton (Punkt 519): «Es klingelt» als Satz auf
+   *  denselben Boxen - der Fernseher ist über Cast eine davon. */
+  announce?: boolean;
+  announce_text?: string;
 }
 
 /** Lautstärke einer Box, solange niemand daran gedreht hat. */
@@ -148,6 +174,15 @@ export function spanneSatz(box: Klingelbox): string {
     return 'immer';
   }
   return `${box.from} – ${box.to === '24:00' ? '24:00' : box.to}`;
+}
+
+/** Was nachts gilt, in einem Satz (rein, testbar) - leer bei «wie am Tag». */
+export function nachtSatz(regel: NachtRegel | undefined): string {
+  if (!regel || regel.mode === 'normal') return '';
+  const fenster = `von ${regel.from} bis ${regel.to} Uhr`;
+  return regel.mode === 'still'
+    ? `Nachts (${fenster}) bleibt es still – nur die Push-Nachricht kommt.`
+    : `Nachts (${fenster}) spielt er leiser.`;
 }
 
 /**

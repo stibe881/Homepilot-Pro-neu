@@ -72,7 +72,30 @@ class DemoIntegration(Integration):
             "Rauchmelder Flur",
             # Mit schwacher Batterie: Ohne ein solches Gerät liess sich die
             # Batterienliste samt Quittieren nie ansehen.
-            state={"state": "off", "device_class": "smoke", "low_battery": True},
+            #
+            # Und mit den Rauchdichten, die ein Zigbee-Melder mitschickt
+            # (Punkt 542): Die Liste unter Einstellungen → System zeigt
+            # alles, was ein Melder führt - an einem Demo-Melder, der nur
+            # «aus» kann, sähe man davon nichts und hielte die leere
+            # Karte für richtig.
+            state={
+                "state": "off",
+                "device_class": "smoke",
+                "low_battery": True,
+                "battery": 12,
+                "smoke_density": 0.0,
+                "smoke_density_dbm": 0.05,
+                "tamper": "off",
+                "test": False,
+                "linkquality": 94,
+                # Ob der Melder gerade selbst lärmt (Punkt 544).
+                "signal": "off",
+            },
+            # Ein Melder mit eingebauter Sirene. Ohne einen solchen liesse
+            # sich «wenn etwas passiert, gibt der Rauchmelder ein Signal»
+            # nirgends ansehen - und die meisten echten Melder können es
+            # nicht, die Auswahl im Ablauf-Editor bliebe also leer.
+            commands=["sound_alarm", "silence_alarm"],
         )
         await self.add_entity(
             "window_kitchen",
@@ -102,11 +125,15 @@ class DemoIntegration(Integration):
             state={"state": "open", "position": 100, "tilt": 100},
             commands=["open", "close", "stop", "set_position", "set_tilt"],
         )
+        # Mit Feuchte, wie sie die meisten Funkfühler mitliefern: Die
+        # Raumkachel zeigt beide Werte in einer Ecke (Punkt 538), und
+        # ohne einen Fühler, der beides meldet, liesse sich der Fall im
+        # Browser gar nicht ansehen.
         await self.add_entity(
             "temp_livingroom",
             EntityKind.SENSOR,
             "Temperatur Wohnzimmer",
-            state={"state": 21.5, "unit": "°C"},
+            state={"state": 21.5, "unit": "°C", "humidity": 47.0},
         )
         # Eine Box, wie ein Chromecast eine ist: Sie nimmt eine Tonadresse
         # entgegen. Ohne sie liessen sich Durchsage und Radio im Browser
@@ -292,7 +319,13 @@ class DemoIntegration(Integration):
 
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
         changes: dict[str, Any] = {}
-        if command == "turn_on":
+        if command in ("sound_alarm", "silence_alarm"):
+            # Der Melder heult, ohne dass darum Rauch im Zimmer wäre:
+            # `state` bleibt, was er misst, und das Signal steht daneben.
+            # Beides in einen Wert zu legen hiesse, dass ein Probealarm
+            # die Alarmanlage weckt.
+            changes["signal"] = "on" if command == "sound_alarm" else "off"
+        elif command == "turn_on":
             changes["state"] = "on"
         elif command == "turn_off":
             # Eine Box wird nicht «off», sie wird leer: Der Empfänger ist
