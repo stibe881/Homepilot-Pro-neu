@@ -262,7 +262,7 @@ export function Editor({
               <View style={[styles.satzBox, { borderColor: colors.warn }]}>
                 <Ionicons name="alert-circle-outline" size={15} color={colors.warn} />
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.satzText, { color: colors.warn }]}>
+                  <Text style={[styles.satzText, { color: colors.warnInk }]}>
                     Es fehlt noch:
                   </Text>
                   {fehlt.map((was, index) => (
@@ -1208,7 +1208,7 @@ export function Editor({
             (Punkt 254) rechnet nach, ob der Ablauf überhaupt hätte
             feuern können, oder ob Gerät und Bedingung ins Leere zeigen. */}
         {verwaist ? (
-          <Text style={[styles.snapshotHint, { color: colors.warn }]}>
+          <Text style={[styles.snapshotHint, { color: colors.warnInk }]}>
             Dieser Ablauf hat{' '}
             {verwaist.lastFired
               ? `zuletzt ${zuletztGefeuert(verwaist.lastFired)}`
@@ -1358,7 +1358,7 @@ export function SimulationsBlatt({
         </Text>
       ))}
       {obergrenzeSatz(bericht) ? (
-        <Text style={[styles.previewLine, { color: colors.warn }]}>
+        <Text style={[styles.previewLine, { color: colors.warnInk }]}>
           {obergrenzeSatz(bericht)}
         </Text>
       ) : null}
@@ -1386,7 +1386,7 @@ export function SimulationsBlatt({
       {/* Der Hub sagt selbst, wenn sein Protokoll den Zeitraum nicht
           deckt - der Satz kommt fertig und gehört unverändert hin. */}
       {bericht.hinweis ? (
-        <Text style={[styles.previewLine, { color: colors.warn }]}>
+        <Text style={[styles.previewLine, { color: colors.warnInk }]}>
           {bericht.hinweis}
         </Text>
       ) : null}
@@ -1565,7 +1565,7 @@ export function TriggerRow({
               nicht gibt - dann läuft er nie und nennt keinen Grund.
               Ohne diesen Satz steht hier bloss kein Chip ausgewählt. */}
           {unbekannterZustand(chosen, trigger.attribute, trigger.toState) ? (
-            <Text style={[styles.triggerNote, { color: colors.warn }]}>
+            <Text style={[styles.triggerNote, { color: colors.warnInk }]}>
               {unbekannterZustand(chosen, trigger.attribute, trigger.toState)}
             </Text>
           ) : null}
@@ -2754,7 +2754,7 @@ export function StepList({
               {/* Ein Schritt aus der config.yaml kann tiefer stecken, als
                   der Hub ausführt - das gehört gesagt, nicht versteckt. */}
               {tiefe > MAX_SCHACHTELUNG ? (
-                <Text style={[styles.triggerNote, { color: colors.warn }]}>
+                <Text style={[styles.triggerNote, { color: colors.warnInk }]}>
                   Tiefer als {MAX_SCHACHTELUNG} Ebenen führt der Hub nicht
                   aus – dieser Zweig würde beim Lauf übersprungen.
                 </Text>
@@ -2831,7 +2831,7 @@ export function StepList({
                 />
               </View>
               {tiefe > MAX_SCHACHTELUNG ? (
-                <Text style={[styles.triggerNote, { color: colors.warn }]}>
+                <Text style={[styles.triggerNote, { color: colors.warnInk }]}>
                   Tiefer als {MAX_SCHACHTELUNG} Ebenen führt der Hub nicht
                   aus – diese Wiederholung würde beim Lauf übersprungen.
                 </Text>

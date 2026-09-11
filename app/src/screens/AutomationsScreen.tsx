@@ -974,7 +974,7 @@ export function AutomationsScreen({
           <Text
             style={[
               styles.pausenText,
-              pausiertBis || babysitter.active ? { color: colors.warn } : null,
+              pausiertBis || babysitter.active ? { color: colors.warnInk } : null,
             ]}
           >
             {automations.length} Abläufe ·{' '}
@@ -1056,7 +1056,7 @@ export function AutomationsScreen({
           Läuft er, bleibt der Satz stehen und sagt zusätzlich, wie man
           einen Ablauf davon ausnimmt. */}
       {mayPause && automations.length > 0 ? (
-        <Text style={[styles.triggerNote, babysitter.active && { color: colors.warn }]}>
+        <Text style={[styles.triggerNote, babysitter.active && { color: colors.warnInk }]}>
           {babysitter.active
             ? `${modusSatz(babysitter, automations.length)} Freigegeben wird je Ablauf – das Schild neben dem Stift. Melder für Wasser und Rauch, die Alarmanlage selbst und die Meldungen des Wächters laufen unabhängig davon weiter.`
             : modusSatz(babysitter, automations.length)}
@@ -1461,7 +1461,7 @@ export function AutomationsScreen({
                         <Text
                           style={[
                             styles.detail,
-                            zeile.ton === 'warn' && { color: colors.warn },
+                            zeile.ton === 'warn' && { color: colors.warnInk },
                             zeile.ton === 'still' && { color: colors.inkFaint },
                           ]}
                           numberOfLines={laufzeilenGrenze(zeile.ton)}
@@ -1478,7 +1478,7 @@ export function AutomationsScreen({
                         «zuletzt gefeuert», nicht aus dem gedeckelten
                         Lauf-Verlauf darüber. */}
                     {automation.orphaned ? (
-                      <Text style={[styles.detail, { color: colors.warn }]}>
+                      <Text style={[styles.detail, { color: colors.warnInk }]}>
                         {verwaistZeile(automation.last_fired)}
                       </Text>
                     ) : null}
@@ -1490,7 +1490,7 @@ export function AutomationsScreen({
                         nicht um elf Uhr nachts zurück. */}
                     {ruht(automation, new Date()) ? (
                       <View style={styles.pausenKnoepfe}>
-                        <Text style={[styles.detail, { color: colors.warn, flex: 1 }]}>
+                        <Text style={[styles.detail, { color: colors.warnInk, flex: 1 }]}>
                           Ruht bis {zeitpunktLabel(automation.quiet_until!)}
                         </Text>
                         <Pressable
@@ -1584,7 +1584,7 @@ export function AutomationsScreen({
                                   Hub ein paar Sekunden später nachgesehen -
                                   gemeldet wird nur, was nicht wirkte. */}
                               {wirkungText(run) ? (
-                                <Text style={[styles.runStep, { color: colors.warn }]}>
+                                <Text style={[styles.runStep, { color: colors.warnInk }]}>
                                   · {wirkungText(run)}
                                 </Text>
                               ) : null}
@@ -1622,7 +1622,7 @@ export function AutomationsScreen({
                           .map((t, index) => (
                             <Text
                               key={`d${index}`}
-                              style={[styles.triggerNote, { color: colors.warn }]}
+                              style={[styles.triggerNote, { color: colors.warnInk }]}
                             >
                               {t.hinweis}
                             </Text>

@@ -753,7 +753,7 @@ function Detail({
               und nicht nur auf der Karte: Wer den Gutschein offen hat,
               entscheidet gerade, ob er ihn heute mitnimmt. */}
           {restHinweis(entry) ? (
-            <Text style={[styles.checkSub, { color: colors.warn }]}>{restHinweis(entry)}</Text>
+            <Text style={[styles.checkSub, { color: colors.warnInk }]}>{restHinweis(entry)}</Text>
           ) : null}
           {entry.left >= 0.005 ? (
             <Pressable
@@ -1481,7 +1481,7 @@ function FormularBlatt({
         {dublettenSatz ? (
           <View style={eigen.hinweisZeile}>
             <Ionicons name="copy-outline" size={16} color={colors.warn} />
-            <Text style={[styles.formHintSmall, { color: colors.warn, flex: 1 }]}>
+            <Text style={[styles.formHintSmall, { color: colors.warnInk, flex: 1 }]}>
               {dublettenSatz}
             </Text>
           </View>

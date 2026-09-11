@@ -817,7 +817,7 @@ function AppVersionNote() {
         {nachgeladen ? ' · nachgeladen' : ' · mitgeliefert'}
       </Text>
       {nachgeladen ? (
-        <Text style={[styles.hint, { color: colors.warn }]}>
+        <Text style={[styles.hint, { color: colors.warnInk }]}>
           Diese App führt nicht ihren eigenen Stand aus, sondern eine über die Luft
           nachgeladene Fassung – die kann älter sein als das, was TestFlight gerade gebracht
           hat. Fehlt eine Änderung, die im Build drin sein müsste, ist das der
@@ -830,7 +830,7 @@ function AppVersionNote() {
           Öffnen und führt sie erst beim übernächsten Start aus. Zweimal
           die App wegwischen ist keine Bedienung, die man erraten kann. */}
       {zeile.text ? (
-        <Text style={[styles.hint, lage !== 'aktuell' && { color: colors.warn }]}>
+        <Text style={[styles.hint, lage !== 'aktuell' && { color: colors.warnInk }]}>
           {zeile.text}
         </Text>
       ) : null}
@@ -880,7 +880,7 @@ function StartfehlerNote() {
   const { titel, text } = fehlerZeilen(letzter);
   return (
     <>
-      <Text style={[styles.hint, { color: colors.warn }]}>
+      <Text style={[styles.hint, { color: colors.warnInk }]}>
         Beim Start ist etwas schiefgegangen. Die App läuft weiter, aber eine
         Nebensache fehlt vermutlich.
       </Text>
@@ -924,7 +924,7 @@ function WebVersionNote({ hubCommit }: { hubCommit: string }) {
     return null;
   }
   return (
-    <Text style={[styles.hint, { color: colors.warn }]}>
+    <Text style={[styles.hint, { color: colors.warnInk }]}>
       Die geladene Web-Fassung ist Stand {webCommit}, der Hub läuft mit {hubCommit}. Die
       Seite einmal komplett neu laden – zeigt sie danach immer noch den alten Stand, ist
       beim Update der Web-Bau fehlgeschlagen (die Meldung dazu erscheint nach dem nächsten
@@ -1373,7 +1373,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
           style={[
             styles.noteText,
             noteArt === 'fehler' && { color: colors.danger },
-            noteArt === 'hinweis' && { color: colors.warn },
+            noteArt === 'hinweis' && { color: colors.warnInk },
           ]}
           selectable
         >
@@ -1495,7 +1495,7 @@ function ExtrasCard({ settings }: { settings: HubSettings }) {
         style={styles.integrationHead}
       >
         <Text style={[styles.heading, { flex: 1 }]}>Zusatzteile</Text>
-        <Text style={[styles.rowDetail, fehlt > 0 && { color: colors.warn }]}>
+        <Text style={[styles.rowDetail, fehlt > 0 && { color: colors.warnInk }]}>
           {fehlt === 0 ? 'vollständig' : fehlt === 1 ? '1 fehlt' : `${fehlt} fehlen`}
         </Text>
         <Ionicons
@@ -1639,7 +1639,7 @@ function IntegrationsCard({
         <Text
           style={[
             styles.rowDetail,
-            gestoert.length > 0 && { color: colors.warn },
+            gestoert.length > 0 && { color: colors.warnInk },
             broken.length > 0 && { color: colors.danger },
           ]}
         >
@@ -2124,7 +2124,7 @@ function BackupCard({ settings }: { settings: HubSettings }) {
         </Text>
       ) : null}
       {offsite ? (
-        <Text style={[styles.rowDetail, !offsite.ok && { color: colors.warn }]} selectable>
+        <Text style={[styles.rowDetail, !offsite.ok && { color: colors.warnInk }]} selectable>
           {offsite.ok
             ? `Off-Site-Kopie in Supabase: zuletzt ${datumUhr(offsite.at * 1000)}`
             : `Off-Site-Kopie fehlgeschlagen: ${offsite.error ?? 'unbekannt'}`}
@@ -2242,7 +2242,7 @@ const makeStyles = (colors: Colors) =>
     rowDetail: { color: colors.inkSoft, fontSize: 13 },
     // Der Grund, warum nichts ankommt. In der Warnfarbe, weil er eine
     // Aufgabe ist, und mit Zeilenabstand, weil er ein Satz ist.
-    rowProblem: { color: colors.warn, fontSize: 12, lineHeight: 17, marginTop: 2 },
+    rowProblem: { color: colors.warnInk, fontSize: 12, lineHeight: 17, marginTop: 2 },
     hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },
     /** Ein Befehl zum Abtippen - Festbreitenschrift, damit man Klammern
      *  und Kommas auseinanderhält. */

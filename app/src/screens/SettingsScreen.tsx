@@ -704,7 +704,7 @@ export function SettingsScreen({
             leer. Wirkt sofort, ohne Speichern.
           </Text>
           {ortung.stand.hinweis ? (
-            <Text style={[styles.panelHint, { color: colors.warn }]}>
+            <Text style={[styles.panelHint, { color: colors.warnInk }]}>
               {ortung.stand.hinweis}
             </Text>
           ) : null}

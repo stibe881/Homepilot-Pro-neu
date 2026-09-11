@@ -2923,7 +2923,7 @@ const makeStyles = (colors: Colors) =>
     actionChipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
     actionChipText: { color: colors.inkSoft, fontSize: 12, fontWeight: '700' },
     actionChipTextOn: { color: '#FFFFFF' },
-    warn: { color: colors.warn, fontSize: 13, lineHeight: 19, fontWeight: '600' },
+    warn: { color: colors.warnInk, fontSize: 13, lineHeight: 19, fontWeight: '600' },
 
     stateHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     lamp: { width: 14, height: 14, borderRadius: 7 },
@@ -3036,7 +3036,7 @@ const makeStyles = (colors: Colors) =>
      *  Türe, und nachts gehört nur das eine dazu. */
     artZeile: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 },
     art: { color: colors.inkFaint, fontSize: 12, flexShrink: 1 },
-    offline: { color: colors.warn, fontSize: 11, fontWeight: '700' },
+    offline: { color: colors.warnInk, fontSize: 11, fontWeight: '700' },
     chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
     chip: {
       paddingHorizontal: 12,

@@ -587,7 +587,7 @@ export function PushPrefs({
                       Telefon erreicht hat, genauso aus wie eine, die
                       man übersehen hat. */}
                   {eintrag.nicht_zugestellt?.length ? (
-                    <Text style={[styles.verpasstMarke, { color: colors.warn }]}>
+                    <Text style={[styles.verpasstMarke, { color: colors.warnInk }]}>
                       Nicht zugestellt: {eintrag.nicht_zugestellt[0]}
                     </Text>
                   ) : null}
@@ -855,7 +855,7 @@ const makeStyles = (colors: Colors) =>
     logTitel: { color: colors.inkSoft, fontSize: 13, fontWeight: '700', flex: 1 },
     logZeile: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
     logZeit: { color: colors.inkFaint, fontSize: 12, minWidth: 92, paddingTop: 1 },
-    verpasstMarke: { color: colors.warn, fontSize: 12, lineHeight: 17 },
+    verpasstMarke: { color: colors.warnInk, fontSize: 12, lineHeight: 17 },
     ruheKasten: {
       gap: 8,
       paddingLeft: 21,

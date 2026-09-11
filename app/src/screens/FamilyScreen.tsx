@@ -2273,7 +2273,7 @@ export function FamilyScreen({
               autoCapitalize="none"
             />
             {babysitterNote ? (
-              <Text style={[styles.checkSub, { color: colors.warn }]}>
+              <Text style={[styles.checkSub, { color: colors.warnInk }]}>
                 {babysitterNote}
               </Text>
             ) : null}
@@ -3191,7 +3191,7 @@ export function FamilyScreen({
                   accessibilityRole="button"
                   style={[styles.chip, { flex: 1, alignItems: 'center' }]}
                 >
-                  <Text style={[styles.chipText, { color: colors.warn, fontWeight: '700' }]}>
+                  <Text style={[styles.chipText, { color: colors.warnInk, fontWeight: '700' }]}>
                     Trotzdem abhaken
                   </Text>
                 </Pressable>
@@ -3433,7 +3433,7 @@ export function FamilyScreen({
                     {contact.text}
                   </Text>
                   <Text
-                    style={[styles.checkSub, days === 0 && { color: colors.warn, fontWeight: '700' }]}
+                    style={[styles.checkSub, days === 0 && { color: colors.warnInk, fontWeight: '700' }]}
                   >
                     {birthdayLabel(contact.birthday)}
                   </Text>
@@ -3580,7 +3580,7 @@ export function FamilyScreen({
                 {/* Punkt 182: Eine falsche Nummer merkt man sonst genau
                     dann, wenn man sie braucht. */}
                 {kontaktVeraltet(contact, heute) ? (
-                  <Text style={[styles.checkSub, { color: colors.warn }]}>
+                  <Text style={[styles.checkSub, { color: colors.warnInk }]}>
                     Seit zwei Jahren unangetastet – stimmt das noch?
                   </Text>
                 ) : null}
@@ -3987,7 +3987,7 @@ export function FamilyScreen({
               />
               <View style={{ flex: 1 }}>
                 <Text style={styles.checkText}>{String(erinnerung.text ?? '')}</Text>
-                <Text style={[styles.checkSub, faellig && { color: colors.warn }]}>
+                <Text style={[styles.checkSub, faellig && { color: colors.warnInk }]}>
                   {faellig
                     ? `Fällig seit ${datumUhr(at)} - wartet auf Bestätigung`
                     : datumUhr(at) + zusatz}
@@ -4506,7 +4506,7 @@ export function FamilyScreen({
               Ortung stehenbleibt - und dann stimmt die Überschrift
               nicht mehr. */}
           {!daOffen && warnZeile(anwesend) ? (
-            <Text style={[styles.daDetail, { color: colors.warn }]}>
+            <Text style={[styles.daDetail, { color: colors.warnInk }]}>
               {warnZeile(anwesend)}
             </Text>
           ) : null}
@@ -4559,7 +4559,7 @@ export function FamilyScreen({
                       <Text
                         style={[
                           styles.daAkku,
-                          strom.knapp && { color: colors.warn },
+                          strom.knapp && { color: colors.warnInk },
                         ]}
                       >
                         {strom.prozent} %
