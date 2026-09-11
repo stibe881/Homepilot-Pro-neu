@@ -1248,10 +1248,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
    * bekommt gar keine Funktion und damit auch keine Kachel.
    */
   const sendeDurchsage = useCallback(
-    async (text: string, speakers: string[]) =>
+    async (text: string, speakers: string[], volume: number) =>
       hub.post<{ sent?: string[]; errors?: string[] }>(
         '/api/broadcast',
-        { text, speakers },
+        { text, speakers, volume },
         { still: true }
       ),
     [hub]
@@ -1265,9 +1265,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
    * sagt. Die Empfänger stehen darum in der Adresse.
    */
   const sendeSprachnotiz = useCallback(
-    async (aufnahme: Blob, speakers: string[]) =>
+    async (aufnahme: Blob, speakers: string[], volume: number) =>
       hub.roh<{ sent?: string[]; errors?: string[] }>(
-        `/api/broadcast/voice?speakers=${encodeURIComponent(speakers.join(','))}`,
+        `/api/broadcast/voice?speakers=${encodeURIComponent(speakers.join(','))}&volume=${volume}`,
         aufnahme,
         { still: true }
       ),
@@ -1282,9 +1282,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
    * wie bei der Sprachnotiz.
    */
   const hinterlegeHeimgruss = useCallback(
-    async (aufnahme: Blob, speakers: string[]) =>
+    async (aufnahme: Blob, speakers: string[], volume: number) =>
       hub.roh<{ message?: HeimgrussStand | null }>(
-        `/api/heimgruss/voice?speakers=${encodeURIComponent(speakers.join(','))}`,
+        `/api/heimgruss/voice?speakers=${encodeURIComponent(speakers.join(','))}&volume=${volume}`,
         aufnahme,
         { still: true }
       ),

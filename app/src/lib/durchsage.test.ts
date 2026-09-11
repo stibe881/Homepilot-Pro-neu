@@ -1,10 +1,13 @@
 import {
   HOECHSTENS_EIGENE,
+  LAUTSTAERKEN,
   STANDARDTEXTE,
+  STANDARD_LAUTSTAERKE,
   ZIEL_ALLE,
   bestaetigung,
   boxen,
   gueltigesZiel,
+  lautstaerkeVon,
   nachDemSenden,
   saetze,
   satzAendern,
@@ -235,5 +238,25 @@ describe('bestaetigung', () => {
 
   it('sagt es, wenn gar nichts lief', () => {
     expect(bestaetigung({})).toBe('Keine Box erreicht');
+  });
+});
+
+describe('lautstaerkeVon', () => {
+  it('nimmt ohne Wahl die feste Vorgabe des Hubs', () => {
+    expect(lautstaerkeVon({})).toBe(STANDARD_LAUTSTAERKE);
+    expect(STANDARD_LAUTSTAERKE).toBe(70);
+    expect(LAUTSTAERKEN).toContain(STANDARD_LAUTSTAERKE);
+  });
+
+  it('gibt die gespeicherte Stufe zurück', () => {
+    expect(lautstaerkeVon({ lautstaerke: 30 })).toBe(30);
+    expect(lautstaerkeVon({ lautstaerke: 90 })).toBe(90);
+  });
+
+  it('klemmt Unsinn ein, statt die Durchsage scheitern zu lassen', () => {
+    expect(lautstaerkeVon({ lautstaerke: 140 })).toBe(100);
+    expect(lautstaerkeVon({ lautstaerke: -5 })).toBe(0);
+    expect(lautstaerkeVon({ lautstaerke: Number.NaN })).toBe(STANDARD_LAUTSTAERKE);
+    expect(lautstaerkeVon({ lautstaerke: 49.6 })).toBe(50);
   });
 });
