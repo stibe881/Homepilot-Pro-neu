@@ -65,7 +65,34 @@ def darf_zurueckgehalten(category: str | None) -> bool:
 
 #: Die Vorgabe: aus. Eine Ruhezeit, die niemand eingeschaltet hat, wäre
 #: eine Nachricht, die niemand vermisst - und dann auch niemand sucht.
-RUHE_AUS: dict[str, Any] = {"enabled": False, "from": 22, "to": 7}
+#:
+#: ``days`` ist leer und heisst dann «alle Tage» - so war die Ruhezeit,
+#: bevor es die Wochentage gab (Punkt 479 der Werkbank). Eine leere
+#: Liste und nicht alle sieben: Wer alle sieben anklickt, meint dasselbe
+#: wie «egal», und zwei Schreibweisen für denselben Zustand laufen
+#: auseinander.
+RUHE_AUS: dict[str, Any] = {"enabled": False, "from": 22, "to": 7, "days": []}
+
+
+def tage_lesen(raw: Any) -> list[int]:
+    """Die Wochentage einer Ruhezeit (rein, testbar) - 0 = Montag.
+
+    Leer heisst «alle Tage». Sortiert und ohne Doppelte, damit zwei
+    gleiche Einstellungen auch gleich aussehen; alle sieben werden zu
+    leer, weil das dasselbe ist und sonst zwei Schreibweisen für einen
+    Zustand nebeneinander lägen.
+    """
+    if not isinstance(raw, list):
+        return []
+    tage = set()
+    for wert in raw:
+        try:
+            tag = int(wert)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= tag <= 6:
+            tage.add(tag)
+    return [] if len(tage) == 7 else sorted(tage)
 
 
 def ruhe_lesen(raw: Any) -> dict[str, Any]:
@@ -87,16 +114,29 @@ def ruhe_lesen(raw: Any) -> dict[str, Any]:
         "enabled": raw.get("enabled") is True,
         "from": stunde(raw.get("from"), 22),
         "to": stunde(raw.get("to"), 7),
+        "days": tage_lesen(raw.get("days")),
     }
 
 
-def in_der_ruhe(ruhe: dict[str, Any], stunde: int) -> bool:
+def in_der_ruhe(
+    ruhe: dict[str, Any], stunde: int, wochentag: int | None = None
+) -> bool:
     """Liegt diese Stunde in der Ruhezeit? (rein, testbar)
 
     Über Mitternacht hinweg ist der Normalfall - 22 bis 7 heisst «22, 23,
     0 … 6». Gleiche Zahlen heissen «keine Ruhezeit»: Ein Fenster von
     null Stunden ist verständlicher als eines von vierundzwanzig, und
     wer wirklich nie etwas will, stellt die Kategorie ab.
+
+    ``wochentag`` (0 = Montag) entscheidet, ob die Ruhezeit heute
+    überhaupt gilt (Punkt 479 der Werkbank): Samstagmorgen ist nicht
+    Dienstagmorgen, und die Ferienwoche keine Arbeitswoche. Ohne Angabe
+    gilt sie an jedem Tag - so, wie sie es immer tat.
+
+    **Der Tag zählt am Anfang des Fensters.** Eine Ruhezeit «Fr–Sa, 23
+    bis 8» ist am Samstag um zwei Uhr die von Freitagnacht. Andersherum
+    gerechnet müsste man den Sonntag ankreuzen, um am Samstagabend Ruhe
+    zu haben - und das versteht niemand.
     """
     if not ruhe.get("enabled"):
         return False
@@ -105,6 +145,13 @@ def in_der_ruhe(ruhe: dict[str, Any], stunde: int) -> bool:
     if von == bis:
         return False
     jetzt = int(stunde) % 24
+    tage = tage_lesen(ruhe.get("days"))
+    if tage and wochentag is not None:
+        heute = int(wochentag) % 7
+        # Über Mitternacht: Die frühen Stunden gehören zum Vortag.
+        gemeint = heute if (von < bis or jetzt >= von) else (heute - 1) % 7
+        if gemeint not in tage:
+            return False
     if von < bis:
         return von <= jetzt < bis
     return jetzt >= von or jetzt < bis
@@ -269,6 +316,7 @@ def haelt_zurueck(
     ruhe: dict[str, Any] | None = None,
     still: dict[str, float] | None = None,
     stunde: int = 12,
+    wochentag: int | None = None,
 ) -> str | None:
     """Hält es diese Meldung für diese Person zurück? (rein, testbar)
 
@@ -278,7 +326,7 @@ def haelt_zurueck(
     """
     if not darf_zurueckgehalten(category):
         return None
-    if ruhe and in_der_ruhe(ruhe, stunde):
+    if ruhe and in_der_ruhe(ruhe, stunde, wochentag):
         return GRUND_RUHE
     if still and str(category) in still:
         return GRUND_STILL

@@ -29,6 +29,7 @@ from ...core import (
     config_edit,
     confighistory,
     extras,
+    gutscheine,
     watchdog,
 )
 from ...core import energy as energy_module
@@ -894,9 +895,25 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         Push-Geräte und das Zugriffsprotokoll (siehe `SECRETS` in
         persistence.py) – und deshalb darf ihn auch nur auslösen, wer
         ohnehin alles ändern könnte.
+
+        Fremde private Gutscheine fehlen ebenfalls (Punkt 460 der
+        Werkbank). Das Gutschein-Modul verspricht «privat heisst privat,
+        auch vor dem Verwalter» - und genau der ist es, der diesen Knopf
+        drücken darf. Bis hierher landete Livias privater Gutschein samt
+        Nummer und PIN in Stefans Exportdatei, also in einer Mail oder
+        einer Cloud, ohne dass irgendwo etwas anderes behauptet worden
+        wäre als das Gegenteil.
+
+        Die *Sicherung* behält sie: Sie bleibt im Haus und ist die Datei,
+        aus der der Hub wieder entsteht - eine Sicherung, die Daten
+        weglässt, ist keine.
         """
-        require(request, Capability.EDIT_CONFIG)
+        user = require(request, Capability.EDIT_CONFIG)
         daten = hub.data.export()
+        if gutscheine.KEY in daten:
+            daten[gutscheine.KEY] = gutscheine.sichtbar(
+                daten[gutscheine.KEY], user.name
+            )
         # Ohne Datum im Namen liegen nach dem dritten Mal drei Dateien
         # namens «homepilot-export.json» im Ordner.
         tag = datetime.now().strftime("%Y-%m-%d")

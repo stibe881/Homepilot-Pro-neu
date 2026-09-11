@@ -238,5 +238,5 @@ const makeStyles = (colors: Colors) =>
     },
     title: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
     hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 17 },
-    warn: { color: colors.warn, fontSize: 12, lineHeight: 17 },
+    warn: { color: colors.warnInk, fontSize: 12, lineHeight: 17 },
   });

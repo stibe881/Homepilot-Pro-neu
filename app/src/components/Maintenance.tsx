@@ -232,7 +232,7 @@ const makeStyles = (colors: Colors) =>
     card: { gap: 10, minHeight: 0 },
     head: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     heading: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
-    badge: { color: colors.warn, fontSize: 12, fontWeight: '700' },
+    badge: { color: colors.warnInk, fontSize: 12, fontWeight: '700' },
     row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     rowTitle: { color: colors.ink, fontSize: 14, fontWeight: '600' },
     rowFaint: { color: colors.inkFaint, fontSize: 11 },

@@ -268,11 +268,21 @@ async def erstellen(
     # Werkbank). Die unangenehme Zahl - was in diesem Monat oder Jahr an
     # Guthaben verfallen ist - ist die, die den Rückblick zu etwas macht,
     # das man ernst nimmt statt nur überfliegt.
-    gutscheine_rueckblick = gutscheine_module.verfallen_zeitraum(
-        hub.data.get(gutscheine_module.KEY), start, tag
-    )
+    #
+    # Seit Punkt 454 steht die Gegenzahl daneben: was im selben Zeitraum
+    # eingelöst wurde. Allein gelesen ist «80 CHF verfallen» ein Vorwurf;
+    # neben «340 CHF eingelöst» ist es eine Bilanz, und erst die
+    # beantwortet, ob sich das Eintragen lohnt.
+    gutschein_zeilen = hub.data.get(gutscheine_module.KEY)
+    gutscheine_rueckblick = gutscheine_module.bilanz(gutschein_zeilen, start, tag)
     gutscheine: dict[str, Any] | None = (
-        gutscheine_rueckblick if gutscheine_rueckblick["anzahl"] > 0 else None
+        gutscheine_rueckblick
+        if (
+            gutscheine_rueckblick["verfallen_anzahl"] > 0
+            or gutscheine_rueckblick["eingeloest"]
+            or gutscheine_rueckblick["eingeloest_stk"]
+        )
+        else None
     )
 
     # Temperatur: der Supabase-Teil - der einzige, denn nur die

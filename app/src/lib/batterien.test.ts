@@ -6,7 +6,7 @@
  * quittieren – die App muss dafür wissen, was quittiert ist und bis wann.
  */
 import type { Entity } from '../api/types';
-import { batteryRows, stummBis } from './batterien';
+import { batteryRows, quittungSatz, stummBis } from './batterien';
 
 const geraet = (teile: Partial<Entity>): Entity =>
   ({
@@ -126,5 +126,36 @@ describe('Telefone in der Batterieliste', () => {
       geraet({ id: 'matter.schloss', name: 'Wohnungstüre', state: { battery: 77 } }),
     ]);
     expect(zeilen.map((zeile) => zeile.entity.id)).toEqual(['matter.schloss']);
+  });
+});
+
+// ── Wer hat quittiert (Punkt 478) ──────────────────────────────────────────
+
+describe('Die Quittung ist sichtbar, nicht nur wirksam', () => {
+  const jetzt = 1_700_000_000_000;
+  const spaeter = jetzt / 1000 + 3600;
+
+  it('nennt, wer stillgestellt hat', () => {
+    const vermerke = [
+      { entity_id: 'a', ack: { by: 'Stefan', at: 1, until: spaeter } },
+    ];
+    expect(quittungSatz(vermerke, 'a', jetzt)).toBe('Von Stefan stillgestellt');
+  });
+
+  it('schweigt, wo niemand gedrückt hat oder es vorbei ist', () => {
+    expect(quittungSatz([{ entity_id: 'a' }], 'a', jetzt)).toBeNull();
+    expect(
+      quittungSatz(
+        [{ entity_id: 'a', ack: { by: 'Stefan', until: jetzt / 1000 - 10 } }],
+        'a',
+        jetzt
+      )
+    ).toBeNull();
+    expect(quittungSatz([], 'a', jetzt)).toBeNull();
+  });
+
+  it('kommt ohne Namen aus', () => {
+    const vermerke = [{ entity_id: 'a', ack: { by: null, until: spaeter } }];
+    expect(quittungSatz(vermerke, 'a', jetzt)).toBe('Stillgestellt');
   });
 });

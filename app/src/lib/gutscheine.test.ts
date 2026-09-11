@@ -57,6 +57,19 @@ import {
   Transaktion,
   verlauf,
   vorlageFuerLaden,
+  ladenAnfrage,
+  betragText,
+  codeStand,
+  codeVerbrauchen,
+  codesLesen,
+  doppelte,
+  doppelteSatz,
+  einheitText,
+  fastLeer,
+  naechsterCode,
+  offeneCodes,
+  summen,
+  summenText,
 } from './gutscheine';
 
 const HEUTE = '2026-09-07';
@@ -672,7 +685,11 @@ describe('Kennzahlen (Punkt 307)', () => {
     const heute = '2026-09-10';
     const liste = [mach(100, null), mach(50, '2027-01-01'), mach(30, '2026-01-01')];
     expect(gebunden(liste, heute)).toBe(150);
-    expect(verfallen(liste, heute)).toEqual({ summe: 30, anzahl: 1 });
+    expect(verfallen(liste, heute)).toEqual({
+      summe: 30,
+      anzahl: 1,
+      jeWaehrung: { chf: 30 },
+    });
   });
 
   it('nennt die unangenehme Zahl nur, wenn es sie gibt', () => {
@@ -824,5 +841,212 @@ describe('Code auf der Karte', () => {
 
   test('ein neuer Gutschein steht auf Strichcode', () => {
     expect(leeresFormular().code).toBe('strich');
+  });
+});
+
+// ── Währung (Punkt 451) ────────────────────────────────────────────────────
+
+describe('Währungen bleiben getrennt', () => {
+  const eur: Gutschein = {
+    shop: 'Media Markt',
+    unit: 'eur',
+    total: 40,
+    left: 40,
+    expires: null,
+    shared: 'familie',
+  };
+  const chf: Gutschein = { ...eur, shop: 'Coop', unit: 'chf', total: 60, left: 60 };
+
+  it('schreibt die Währung an den Betrag', () => {
+    expect(betragText(40, 'eur')).toBe('40.00 EUR');
+    expect(betragText(40, 'chf')).toBe('40.00 CHF');
+    expect(einheitText('eur')).toBe('EUR');
+  });
+
+  it('zählt Euro nie zu Franken', () => {
+    expect(summen([eur, chf], '2026-01-01')).toEqual({ eur: 40, chf: 60 });
+    // `summe` bleibt die Franken-Zahl - daran hängen Kachel und Rückblick.
+    expect(summe([eur, chf], '2026-01-01')).toBe(60);
+    expect(summenText([eur, chf], '2026-01-01')).toBe('60.00 CHF · 40.00 EUR');
+  });
+
+  it('nennt auf der Kachel beide Währungen', () => {
+    expect(kachelText([eur, chf], '2026-01-01')).toBe('2 verfügbar · 60.00 CHF · 40.00 EUR');
+  });
+
+  it('liest «eur» vom Hub und erfindet sonst nichts', () => {
+    expect(alsGutschein({ shop: 'X', unit: 'eur', total: 10 }).unit).toBe('eur');
+    expect(alsGutschein({ shop: 'X', unit: 'dollar', total: 10 }).unit).toBe('chf');
+  });
+});
+
+// ── Mehrere Nummern (Punkt 452) ────────────────────────────────────────────
+
+describe('Ein Gutschein mit zehn Nummern', () => {
+  const karte: Gutschein = {
+    shop: 'Hallenbad',
+    unit: 'stk',
+    total: 3,
+    left: 3,
+    expires: null,
+    shared: 'familie',
+    number: 'A',
+    codes: [{ value: 'A', used: '2030-01-01T10:00:00Z' }, { value: 'B' }, { value: 'C' }],
+  };
+
+  it('zeigt an der Kasse die erste unbenutzte', () => {
+    expect(naechsterCode(karte)).toBe('B');
+    expect(offeneCodes(karte)).toEqual(['B', 'C']);
+    expect(codeStand(karte)).toBe('Nummer 2 von 3');
+  });
+
+  it('zeigt die letzte, wenn alle gebraucht sind - nie gar nichts', () => {
+    const leer = { ...karte, codes: karte.codes!.map((c) => ({ ...c, used: 'x' })) };
+    expect(naechsterCode(leer)).toBe('C');
+    expect(codeStand(leer)).toBe('Alle 3 eingelöst');
+  });
+
+  it('kommt mit dem Gutschein von vor der Frage zurecht', () => {
+    const alt = alsGutschein({ shop: 'Brack', number: 'XY-1', total: 50 });
+    expect(alt.codes).toEqual([{ value: 'XY-1', used: null }]);
+    expect(naechsterCode(alt)).toBe('XY-1');
+    expect(codeStand(alt)).toBe('');
+  });
+
+  it('markiert nur die gemeinte Nummer als gebraucht', () => {
+    const neu = codeVerbrauchen(karte, 'B', new Date('2030-05-01T12:00:00Z'));
+    expect(neu.codes![1].used).toBe('2030-05-01T12:00:00.000Z');
+    expect(neu.codes![2].used).toBeFalsy();
+    expect(karte.codes![1].used).toBeFalsy();
+  });
+
+  it('verliert beim Bearbeiten nicht, was schon eingelöst war', () => {
+    const form = formularVon(karte);
+    expect(form.weitereCodes).toBe('B\nC');
+    const { eintrag } = formularPruefen({ ...form, shop: 'Hallenbad Sursee' }, karte);
+    expect(eintrag!.codes).toEqual([
+      { value: 'A', used: '2030-01-01T10:00:00Z' },
+      { value: 'B', used: null },
+      { value: 'C', used: null },
+    ]);
+  });
+
+  it('liest Nummern aus Zeilen, Kommas und Strichpunkten', () => {
+    expect(codesLesen('A\n B ,C; \n')).toEqual(['A', 'B', 'C']);
+  });
+
+  it('gibt beim Teilen nur die offenen Nummern weiter', () => {
+    expect(teilText(karte)).toContain('Nummern: B, C');
+  });
+});
+
+// ── Fast leer (Punkt 457) ──────────────────────────────────────────────────
+
+describe('Der Rest, den man liegen lässt', () => {
+  const basis: Pick<Gutschein, 'unit' | 'left' | 'total'> = {
+    unit: 'chf',
+    total: 100,
+    left: 12,
+  };
+
+  it('meldet sich erst bei angebrochenen Gutscheinen', () => {
+    expect(fastLeer(basis)).toBe(true);
+    // Frisch geschenkter Zwanziger: ein Gutschein, kein Rest.
+    expect(fastLeer({ unit: 'chf', total: 20, left: 20 })).toBe(false);
+    expect(fastLeer({ unit: 'chf', total: 100, left: 60 })).toBe(false);
+    expect(fastLeer({ unit: 'chf', total: 100, left: 0 })).toBe(false);
+    expect(fastLeer({ unit: 'stk', total: 10, left: 1 })).toBe(false);
+  });
+
+  it('sagt es mit demselben Satz wie die Karte', () => {
+    expect(restHinweis(basis)).toBe('Kleiner Rest – beim nächsten Einkauf mitnehmen');
+    expect(restHinweis({ unit: 'chf', total: 100, left: 60 })).toBe('');
+  });
+});
+
+// ── Doppelt erfasst (Punkt 456) ────────────────────────────────────────────
+
+describe('Dieselbe Karte zweimal', () => {
+  const mach = (over: Partial<Gutschein>): Gutschein => ({
+    shop: 'Coop',
+    unit: 'chf',
+    total: 50,
+    left: 50,
+    expires: null,
+    shared: 'familie',
+    ...over,
+  });
+
+  it('erkennt die gleiche Nummer über Schreibweisen hinweg', () => {
+    const liste = [mach({ id: '1', shop: 'Brack', number: 'XY-9', codes: [{ value: 'XY-9' }] })];
+    const neu = mach({ shop: 'brack.ch', number: 'xy-9', codes: [{ value: 'xy-9' }] });
+    expect(doppelte(liste, neu).map((t) => t.id)).toEqual(['1']);
+  });
+
+  it('vermutet ohne Nummer nur bei voller Übereinstimmung', () => {
+    const liste = [mach({ id: '1', expires: '2030-01-01' }), mach({ id: '2', total: 80 })];
+    expect(doppelte(liste, mach({ expires: '2030-01-01' })).map((t) => t.id)).toEqual(['1']);
+    expect(doppelte(liste, mach({ expires: '2031-01-01' }))).toEqual([]);
+  });
+
+  it('zählt eine andere Nummer als Gegenbeweis', () => {
+    const liste = [mach({ id: '1', number: 'A', codes: [{ value: 'A' }] })];
+    expect(doppelte(liste, mach({ number: 'B', codes: [{ value: 'B' }] }))).toEqual([]);
+  });
+
+  it('übergeht sich selbst und das Archiv', () => {
+    const eigen = mach({ id: '1', number: 'A', codes: [{ value: 'A' }] });
+    const liste = [eigen, mach({ id: '2', number: 'A', codes: [{ value: 'A' }], archived: true })];
+    expect(doppelte(liste, eigen)).toEqual([]);
+  });
+
+  it('sagt es in einem Satz', () => {
+    expect(doppelteSatz([])).toBeNull();
+    expect(doppelteSatz([mach({ shop: 'Coop' })])).toContain('Coop');
+    expect(doppelteSatz([mach({}), mach({})])).toContain('2 Gutscheine');
+  });
+});
+
+// ── Anfrage beim Laden (Punkt 459) ─────────────────────────────────────────
+
+describe('Wenn die Karte weg ist', () => {
+  it('stellt zusammen, was der Laden hören will', () => {
+    const entry: Gutschein = {
+      id: 'g1',
+      shop: 'Ochsner Sport',
+      unit: 'chf',
+      total: 100,
+      left: 40,
+      number: 'ABC-1',
+      pin: '9999',
+      created: '2030-02-01T09:00:00',
+      expires: '2031-06-30',
+      shared: 'familie',
+      file: { name: 'Gutschein.pdf', url: '/x', type: 'application/pdf', bytes: 100 },
+      transactions: [{ at: '2030-03-05T10:00:00', amount: 60, by: 'Stefan', art: 'abzug' }],
+    };
+    const text = ladenAnfrage(entry, '2030-09-11');
+    expect(text).toContain('Ochsner Sport');
+    expect(text).toContain('Nummer: ABC-1');
+    expect(text).toContain('Offen laut unserer Aufstellung: 40.00 CHF');
+    expect(text).toContain('Erfasst am 01.02.2030');
+    expect(text).toContain('Zuletzt eingelöst am 05.03.2030 über 60.00 CHF');
+    expect(text).toContain('Beleg: Gutschein.pdf (liegt bei)');
+    expect(text).toContain('Stand: 11.09.2030');
+    // Nummer und PIN zusammen sind Bargeld - und das hier geht in eine Mail.
+    expect(text).not.toContain('9999');
+  });
+
+  it('sagt auch, wenn noch nie eingelöst wurde', () => {
+    const entry: Gutschein = {
+      shop: 'Coop',
+      unit: 'chf',
+      total: 50,
+      left: 50,
+      expires: null,
+      shared: 'familie',
+    };
+    expect(ladenAnfrage(entry, '2030-09-11')).toContain('Bisher nicht eingelöst');
+    expect(ladenAnfrage(entry, '2030-09-11')).toContain('Unbegrenzt gültig');
   });
 });

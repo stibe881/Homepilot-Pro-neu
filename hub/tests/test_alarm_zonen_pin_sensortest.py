@@ -360,6 +360,95 @@ def test_fehlalarme_route_nennt_den_namen(tmp_path):
             "/api/alarm/fehlalarme", headers={"Authorization": "Bearer t-stefan"}
         )
         kandidaten = antwort.json()["kandidaten"]
+        # `modes` kam mit Punkt 485 dazu: «stell ihn um» ohne die Modi,
+        # in denen er heute wacht, ist ein Rat ohne Adresse.
         assert kandidaten == [
-            {"entity_id": "test.fenster", "anzahl": 3, "name": "test.fenster"}
+            {
+                "entity_id": "test.fenster",
+                "anzahl": 3,
+                "name": "test.fenster",
+                "modes": ["ausser_haus"],
+            }
         ]
+        # Von Hand eingeordnet wurde nichts - die Liste daneben ist leer.
+        assert antwort.json()["eingeordnet"] == []
+
+
+# ── Wartungsmodus, Einordnung, Blatt (Punkte 484, 489, 490) ────────────────
+
+
+def test_der_wartungsmodus_schaltet_danach_wieder_scharf(tmp_path):
+    """Fensterputzen - und am Nachmittag ist die Anlage wieder da."""
+
+    async def lauf(hub):
+        service = hub.integrations.get("alarm")
+        await service.arm("ausser_haus", force=True, by="Stefan")
+        await service.wartung_starten(2, by="Stefan")
+        assert service._state == "unscharf"
+        zustand = service._state_dict()
+        assert "Wartung" in (zustand["wartung"] or "")
+        assert zustand["wartung_bis"] is not None
+        # Von Hand beendet: Die Anlage kommt in den Modus zurück, in dem
+        # sie vorher stand - nicht auf «aus».
+        await service.wartung_beenden(by="Stefan")
+        assert service._state_dict()["wartung"] is None
+        return service._state, service._mode
+
+    hub = _hub(tmp_path)
+    with _client(hub):
+        zustand, modus = asyncio.run(lauf(hub))
+    assert zustand in ("scharf", "scharfschaltend")
+    assert modus == "ausser_haus"
+
+
+def test_ein_alarm_laesst_sich_von_hand_einordnen(tmp_path):
+    hub = _hub(tmp_path)
+    with _client(hub) as client:
+        service = hub.integrations.get("alarm")
+        service._history = [
+            {"kind": "disarmed", "at": 200.0, "text": "Unscharf"},
+            {"kind": "triggered", "at": 100.0, "entity_id": "test.fenster", "text": "Alarm"},
+        ]
+        kopf = {"Authorization": "Bearer t-stefan"}
+        offen = client.get("/api/alarm/einordnung", headers=kopf).json()
+        assert offen["offen"]["entity_id"] == "test.fenster"
+
+        antwort = client.post(
+            "/api/alarm/einordnung", json={"urteil": "fehlalarm"}, headers=kopf
+        )
+        assert antwort.json() == {"ok": True, "urteil": "fehlalarm"}
+        # Zweimal fragen gibt es nicht - die Frage ist beantwortet.
+        assert client.get("/api/alarm/einordnung", headers=kopf).json()["offen"] is None
+        # Und unbekannte Antworten werden abgelehnt statt gespeichert.
+        assert (
+            client.post(
+                "/api/alarm/einordnung", json={"urteil": "vielleicht"}, headers=kopf
+            ).status_code
+            == 400
+        )
+
+
+def test_das_blatt_nennt_zeiten_sensoren_und_seine_eigene_grenze(tmp_path):
+    """Punkt 484: dasselbe wie der Nachbericht, aber zum Weitergeben."""
+    hub = _hub(tmp_path)
+    with _client(hub) as client:
+        service = hub.integrations.get("alarm")
+        service._history = [
+            {"kind": "disarmed", "at": 1_000_240.0, "text": "Unscharf", "by": "Stefan"},
+            {"kind": "escalation", "at": 1_000_060.0, "text": "Sirene"},
+            {
+                "kind": "triggered",
+                "at": 1_000_000.0,
+                "entity_id": "test.fenster",
+                "text": "Alarm ausgelöst: Fenster",
+            },
+        ]
+        text = client.get(
+            "/api/alarm/blatt", headers={"Authorization": "Bearer t-stefan"}
+        ).text
+    assert "Alarmprotokoll HomePilot" in text
+    assert "Ausgelöst durch: test.fenster" in text
+    assert "Beendet:" in text and "Stefan" in text
+    assert "Sirene" in text
+    # Ehrlich benannt: Es ist eine Abschrift, kein amtlicher Nachweis.
+    assert "Abschrift" in text

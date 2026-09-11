@@ -379,6 +379,60 @@ async function terminWandert(browser) {
   await seite.close();
 }
 
+/** 5. Stehen die Kacheln einer Reihe gleich hoch? (Punkt 448 der Werkbank)
+ *
+ *  Der Fall: Eine Kachel mit zweizeiligem Namen wächst, die daneben
+ *  nicht - und die Reihe steht sichtbar schief. Von Auge sieht man es
+ *  erst, wenn man danach sucht; gemessen fällt es beim ersten Lauf auf.
+ *
+ *  Gemessen wird nicht «alle gleich hoch» - Kacheln dürfen verschieden
+ *  gross sein (Punkt 291: zwei Kachelgrössen). Gemessen wird, ob
+ *  Kacheln, die in derselben Zeile *beginnen*, auch gleich enden. Genau
+ *  das ist die Schieflage, die man sieht.
+ */
+async function kachelnStehenGleich(browser) {
+  for (const groesse of GROESSEN) {
+    const seite = await angemeldeteSeite(browser, groesse);
+    if (!(await inDenRaum(seite))) {
+      pruefe(false, `${groesse.name}: der Weg ins Zimmer steht offen`);
+      await seite.close();
+      continue;
+    }
+    const schief = await seite.evaluate(() => {
+      // Die Gerätekacheln sind die Elemente mit einer Umschaltrolle
+      // darin - dieselbe Spur, der auch der Tipp-Test folgt.
+      const kacheln = [...document.querySelectorAll('[role="switch"]')]
+        .map((el) => el.closest('div[class]')?.parentElement)
+        .filter((el) => el instanceof HTMLElement)
+        .map((el) => el.getBoundingClientRect())
+        .filter((box) => box.width > 60 && box.height > 40);
+      // Nach Zeilen gruppieren: Was innerhalb von acht Punkten gleich
+      // hoch beginnt, steht nebeneinander. Acht, weil ein Rand oder ein
+      // Schatten die Oberkante um ein, zwei Punkte verschiebt.
+      const zeilen = new Map();
+      for (const box of kacheln) {
+        const schluessel = Math.round(box.top / 8);
+        zeilen.set(schluessel, [...(zeilen.get(schluessel) ?? []), box]);
+      }
+      let schlimmste = 0;
+      for (const reihe of zeilen.values()) {
+        if (reihe.length < 2) continue;
+        const hoehen = reihe.map((box) => box.height);
+        schlimmste = Math.max(schlimmste, Math.max(...hoehen) - Math.min(...hoehen));
+      }
+      return { schlimmste: Math.round(schlimmste), reihen: zeilen.size };
+    });
+    // Vier Punkte Spielraum: Darunter sieht niemand etwas, und ein
+    // Prüfstand, der auf einen halben Punkt besteht, wird abgeschaltet.
+    pruefe(
+      schief.schlimmste <= 4,
+      `${groesse.name}: Kacheln einer Reihe stehen gleich hoch`,
+      `${schief.schlimmste} Punkte Unterschied in einer Reihe`
+    );
+    await seite.close();
+  }
+}
+
 const { chromium } = playwrightLaden();
 const browser = await chromium.launch({ executablePath: browserOrt() });
 try {
@@ -386,6 +440,7 @@ try {
   await blattBleibt(browser);
   await druckKommtAn(browser);
   await terminWandert(browser);
+  await kachelnStehenGleich(browser);
   await raumlisteOhneSpalte(browser);
 } finally {
   await browser.close();

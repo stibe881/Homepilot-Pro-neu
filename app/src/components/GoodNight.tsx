@@ -359,7 +359,7 @@ const makeStyles = (colors: Colors) =>
     editToggle: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     editToggleText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
     okLine: { color: colors.on, fontSize: 13, lineHeight: 19 },
-    warnLine: { color: colors.warn, fontSize: 13, lineHeight: 19, fontWeight: '600' },
+    warnLine: { color: colors.warnInk, fontSize: 13, lineHeight: 19, fontWeight: '600' },
     actions: { flexDirection: 'row', gap: 10, marginTop: 4 },
     cancel: {
       flex: 1,

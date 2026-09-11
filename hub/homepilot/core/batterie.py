@@ -179,9 +179,22 @@ def merke_meldung(rows: Any, entity_id: str, at: float) -> list[dict[str, Any]]:
 
 
 def quittiere(
-    rows: Any, entity_id: str, now: float, stunde: int = MORGENSTUNDE
+    rows: Any,
+    entity_id: str,
+    now: float,
+    stunde: int = MORGENSTUNDE,
+    by: str = "",
 ) -> list[dict[str, Any]]:
-    """«Bis morgen stumm» für dieses Gerät (rein, testbar)."""
+    """«Bis morgen stumm» für dieses Gerät (rein, testbar).
+
+    ``by`` ist, wer gedrückt hat (Punkt 478 der Werkbank). Die Quittung
+    gilt weiterhin fürs ganze Haus - das ist richtig so, sonst laufen
+    zwei Leute wegen derselben Batterie in den Keller. Falsch war, dass
+    sie *unsichtbar* für alle galt: Wer nachts die Warnung wegdrückte,
+    drückte sie auch dem anderen weg, und der suchte am Morgen eine
+    Meldung, die es nie mehr gab. Jetzt steht am Gerät, wer sie
+    stillgestellt hat und bis wann - zurücknehmen kann es jeder.
+    """
     eintrag = zeile(rows, entity_id) or {}
     return _setze(
         rows,
@@ -189,9 +202,28 @@ def quittiere(
             "entity_id": entity_id,
             "at": _zahl(eintrag.get("at")) or now,
             "until": stumm_bis(now, stunde),
+            "by": str(by or "").strip() or None,
+            "acked_at": now,
         },
         now,
     )
+
+
+def quittung(rows: Any, entity_id: str, now: float) -> dict[str, Any] | None:
+    """Wer die Warnung dieses Geräts stillgestellt hat - oder None (rein).
+
+    Nur, solange sie wirklich stumm ist: Eine abgelaufene Quittung ist
+    keine Auskunft mehr, sondern eine Zeile, die Ruhe behauptet, wo
+    längst wieder gemeldet wird.
+    """
+    eintrag = zeile(rows, entity_id)
+    if eintrag is None or _zahl(eintrag.get("until")) <= now:
+        return None
+    return {
+        "by": eintrag.get("by") or None,
+        "at": _zahl(eintrag.get("acked_at")) or None,
+        "until": _zahl(eintrag.get("until")),
+    }
 
 
 def vergiss(rows: Any, entity_ids: Any) -> list[dict[str, Any]]:

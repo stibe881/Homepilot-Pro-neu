@@ -2669,7 +2669,7 @@ const makeStyles = (colors: Colors) =>
     ingredientRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
     ingredientDivider: { borderTopWidth: 1, borderTopColor: colors.surfaceBorder },
     ingredientAmount: {
-      color: colors.warn,
+      color: colors.warnInk,
       fontSize: 15,
       fontWeight: '700',
       minWidth: 84,

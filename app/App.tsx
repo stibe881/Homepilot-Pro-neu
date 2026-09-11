@@ -234,7 +234,10 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <ThemeProvider mode={settings?.theme ?? 'system'}>
+      {/* Das Wandpanel schreibt grösser (Punkt 445 der Werkbank) - ein
+          Bildschirm, der immer an ist und aus zwei Metern gelesen wird,
+          braucht andere Schriftgrössen als eine Hand voll iPhone. */}
+      <ThemeProvider mode={settings?.theme ?? 'system'} panel={!!settings?.panel}>
         <Background>
           {settings === undefined || !fontsSettled ? null : settings === null ? (
             // Beim ersten Start die Anmeldung mit E-Mail und Passwort; der

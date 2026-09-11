@@ -559,7 +559,7 @@ function WeatherPanel({ entity }: { entity: Entity }) {
           <Text
             style={[
               styles.uv,
-              Number(entity.state.uv_today) >= 6 && { color: colors.warn },
+              Number(entity.state.uv_today) >= 6 && { color: colors.warnInk },
             ]}
           >
             UV heute {uvWort(entity.state.uv_today)} ({String(entity.state.uv_today)})
@@ -839,7 +839,7 @@ const makeStyles = (colors: Colors) =>
     dayLow: { color: colors.inkFaint, fontSize: 12, fontVariant: ['tabular-nums'] },
     // Eine Zeile, kein Kasten: Die Vorwarnung gehört zum Wetter und
     // nicht daneben.
-    regen: { color: colors.warn, fontSize: 13, fontWeight: '600', marginTop: 2 },
+    regen: { color: colors.warnInk, fontSize: 13, fontWeight: '600', marginTop: 2 },
     trocken: { color: colors.inkSoft, fontSize: 13, marginTop: 2 },
     regenReihe: { marginTop: 6, gap: 2 },
     regenBalken: {

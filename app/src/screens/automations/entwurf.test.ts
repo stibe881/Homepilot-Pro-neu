@@ -42,6 +42,8 @@ import {
   namensVorschlag,
   sonstStand,
   stundeAusText,
+  datumAusIso,
+  datumNachIso,
 } from './entwurf';
 import { Draft, StepDraft } from './entwurf';
 import { Entity } from '../../api/types';
@@ -1907,5 +1909,74 @@ describe('stundeAusText (Punkt 379)', () => {
     expect(stundeAusText('  ')).toBeNull();
     expect(stundeAusText('abends')).toBeNull();
     expect(stundeAusText('-1')).toBeNull();
+  });
+});
+
+// ── Frist und Reihenfolge (Punkt 464, 466) ─────────────────────────────────
+
+describe('Ein Ablauf mit Frist', () => {
+  it('liest das Datum so, wie man es tippt', () => {
+    expect(datumNachIso('30.6.2030')).toBe('2030-06-30');
+    expect(datumNachIso('30.06.30')).toBe('2030-06-30');
+    expect(datumNachIso('2030-06-30')).toBe('2030-06-30');
+    expect(datumNachIso('')).toBeNull();
+    // Unlesbares wird null, nicht stillschweigend «unbefristet».
+    expect(datumNachIso('morgen')).toBeNull();
+    expect(datumNachIso('31.02.2030')).toBeNull();
+  });
+
+  it('zeigt das Datum, wie man es liest', () => {
+    expect(datumAusIso('2030-06-30')).toBe('30.06.2030');
+    expect(datumAusIso('')).toBe('');
+  });
+
+  it('nimmt Frist und Reihenfolge in den Entwurf auf', () => {
+    const draft = toDraft({
+      id: 'a1',
+      alias: 'Ferienlicht',
+      triggers: [],
+      conditions: [],
+      actions: [],
+      editable: true,
+      valid_until: '2030-06-30',
+      order: -2,
+    });
+    expect(draft.gueltigBis).toBe('30.06.2030');
+    expect(draft.reihenfolge).toBe('-2');
+  });
+});
+
+// ── Schulferien als Bedingung (Punkt 470) ──────────────────────────────────
+
+describe('Ausser in den Schulferien', () => {
+  it('baut den Haken in die Zeitbedingung', () => {
+    const conditions = buildConditions({
+      ...EMPTY,
+      conditionKind: 'time',
+      exceptSchoolHolidays: true,
+    });
+    expect(conditions).toEqual([{ type: 'time', except_school_holidays: true }]);
+  });
+
+  it('liest ihn wieder heraus und sagt es im Satz', () => {
+    const draft = toDraft({
+      id: 'a1',
+      alias: 'Wecklicht',
+      triggers: [],
+      conditions: [{ type: 'time', except_school_holidays: true }],
+      actions: [],
+      editable: true,
+    });
+    expect(draft.exceptSchoolHolidays).toBe(true);
+    expect(bedingungStand(draft)).toContain('ohne Schulferien');
+  });
+
+  it('lässt Feiertage und Schulferien getrennt', () => {
+    const conditions = buildConditions({
+      ...EMPTY,
+      conditionKind: 'time',
+      exceptHolidays: true,
+    });
+    expect(conditions[0].except_school_holidays).toBeUndefined();
   });
 });

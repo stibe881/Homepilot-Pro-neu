@@ -45,6 +45,18 @@ describe.each(paletten)('Palette $name', ({ colors, hinter, rohRand }) => {
     expect(textContrast(colors.inkFaint, colors.surface, hinter)).toBeGreaterThanOrEqual(2);
   });
 
+  it('hält Warn-Text wirklich lesbar (warnInk)', () => {
+    // Punkt 442/444 der Werkbank. `warn` darunter ist eine Signalfarbe
+    // an einem Symbol und darf schwach sein - als *Schrift* trug sie
+    // nichts: Im hellen Bild 1,6:1, im Sand-Bild 2,1, und in genau
+    // dieser Farbe standen zwanzig Hinweiszeilen quer durch die App.
+    // 4,5 ist die WCAG-Schwelle für Fliesstext, und hier gilt sie.
+    expect(textContrast(colors.warnInk, colors.surface, hinter)).toBeGreaterThanOrEqual(4.5);
+    expect(
+      textContrast(colors.warnInk, colors.panel, colors.panel)
+    ).toBeGreaterThanOrEqual(4.5);
+  });
+
   it('hält die Signalfarben erkennbar (accent, danger)', () => {
     expect(textContrast(colors.accent, colors.surface, hinter)).toBeGreaterThanOrEqual(3);
     expect(textContrast(colors.danger, colors.surface, hinter)).toBeGreaterThanOrEqual(3);

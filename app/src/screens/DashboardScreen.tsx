@@ -2755,7 +2755,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             // «Benachrichtigungen» und sagt darunter, worum es geht -
             // die Überschrift stand nur zwei Zeilen darüber noch
             // einmal dasselbe.
-            weiteres={<PushPrefs settings={settings} />}
+            weiteres={
+              <PushPrefs
+                settings={settings}
+                // Der Posteingang führt dorthin, wo die Meldung
+                // hingehört (Punkt 472 der Werkbank) - über denselben
+                // Weg wie ein Tipp auf die Mitteilung selbst, damit
+                // es nicht zwei Wege zu demselben Ort gibt.
+                onZiel={(schluessel) => {
+                  const ziel = zielAus({ ziel: schluessel });
+                  if (ziel) zumZiel.current?.(ziel);
+                }}
+              />
+            }
           />
         </View>
       );

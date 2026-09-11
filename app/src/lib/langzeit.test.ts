@@ -10,6 +10,7 @@ import {
   temperaturSatz,
   trendText,
   zeitraumTitel,
+  gutscheinSaetze,
 } from './langzeit';
 
 describe('kwhText', () => {
@@ -188,5 +189,47 @@ describe('fussnoten', () => {
     expect(
       fussnoten({ fehlt: [], licht: [], licht_vollstaendig: true })
     ).toHaveLength(0);
+  });
+});
+
+// ── Gutschein-Bilanz (Punkt 454) ───────────────────────────────────────────
+
+describe('Die Gutschein-Bilanz im Rückblick', () => {
+  it('stellt Eingelöstes vor Verfallenes', () => {
+    const saetze = gutscheinSaetze({
+      eingeloest: { CHF: 340 },
+      eingeloest_stk: 0,
+      verfallen: { CHF: 80 },
+      verfallen_anzahl: 2,
+      erfasst: 3,
+    });
+    expect(saetze).toEqual([
+      '340.00 CHF eingelöst',
+      '80.00 CHF verfallen – 2 Gutscheine',
+      '3 neu erfasst',
+    ]);
+  });
+
+  it('lässt weg, was null ist', () => {
+    expect(
+      gutscheinSaetze({
+        eingeloest: { CHF: 0 },
+        eingeloest_stk: 0,
+        verfallen: {},
+        verfallen_anzahl: 0,
+        erfasst: 0,
+      })
+    ).toEqual([]);
+  });
+
+  it('zählt Währungen nebeneinander und Eintritte für sich', () => {
+    const saetze = gutscheinSaetze({
+      eingeloest: { CHF: 20, EUR: 15 },
+      eingeloest_stk: 1,
+      verfallen: {},
+      verfallen_anzahl: 0,
+      erfasst: 0,
+    });
+    expect(saetze).toEqual(['20.00 CHF · 15.00 EUR eingelöst', '1 Eintritt eingelöst']);
   });
 });

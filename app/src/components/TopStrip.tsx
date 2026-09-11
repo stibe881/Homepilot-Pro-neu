@@ -1708,7 +1708,7 @@ const makeStyles = (colors: Colors) =>
   },
   // Bis die Anwesenheit da ist – der Hub wird erst beim Öffnen gefragt.
   daLaedt: { paddingVertical: 24, alignItems: 'center' },
-  daHinweis: { color: colors.warn, fontSize: 13, lineHeight: 18 },
+  daHinweis: { color: colors.warnInk, fontSize: 13, lineHeight: 18 },
   einkaufMass: { color: colors.inkFaint, fontWeight: '400' },
   lightRow: {
     flexDirection: 'row',

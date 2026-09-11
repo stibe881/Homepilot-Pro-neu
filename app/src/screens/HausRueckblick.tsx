@@ -25,6 +25,7 @@ import {
 } from '../lib/hausrueckblick';
 import {
   LangzeitAntwort,
+  gutscheinSaetze,
   fussnoten,
   istJahr,
   lichtDetail,
@@ -371,6 +372,24 @@ function LangzeitKarte({ hub }: { hub: HubClient }) {
             <Text style={styles.langzeitTitel}>Temperatur</Text>
           </View>
           <Text style={styles.satz}>{temperaturSatz(antwort.temperatur)}</Text>
+        </View>
+      ) : null}
+
+      {/* Die Gutschein-Bilanz (Punkt 454 der Werkbank). Der Hub rechnet
+          sie seit Punkt 372, gezeigt hat sie nie jemand: «340 CHF
+          eingelöst, 80 verfallen» ist die eine Zahl, die das ganze
+          Modul rechtfertigt oder widerlegt. */}
+      {antwort?.gutscheine && gutscheinSaetze(antwort.gutscheine).length > 0 ? (
+        <View style={styles.langzeitBlock}>
+          <View style={styles.langzeitKopf}>
+            <Ionicons name="gift-outline" size={16} color={colors.inkSoft} />
+            <Text style={styles.langzeitTitel}>Gutscheine</Text>
+          </View>
+          {gutscheinSaetze(antwort.gutscheine).map((satz) => (
+            <Text key={satz} style={styles.satz}>
+              {satz}
+            </Text>
+          ))}
         </View>
       ) : null}
 

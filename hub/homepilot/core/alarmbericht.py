@@ -191,3 +191,133 @@ def fehlalarm_kandidaten(
         for entity_id, anzahl in sorted(zaehler.items(), key=lambda kv: (-kv[1], kv[0]))
         if anzahl >= mindest
     ]
+
+
+# ── Das Blatt für Polizei und Versicherung (Punkt 484 der Werkbank) ────────
+#
+# Der Nachbericht oben ist ein Absatz für das Telefon: «Was war das
+# gerade?» Was fehlte, ist dasselbe als Blatt - mit Zeiten, Sensoren und
+# dem Hinweis auf die Aufnahmen, in der Stunde danach und nicht drei Tage
+# später aus der Erinnerung.
+#
+# Bewusst Text und kein PDF: Ein Blatt, das man weiterschickt, muss
+# überall lesbar sein - im Mailfenster einer Versicherung ebenso wie
+# ausgedruckt am Schalter. Dieselbe Entscheidung wie beim Hausblatt
+# (core/hausblatt.py).
+
+#: So weit reicht ein Blatt zurück. Ein Alarm dauert Minuten; alles, was
+#: eine Stunde davor lag, gehört zu einem anderen Vorfall.
+BLATT_FENSTER = 3600.0
+
+
+def _blattzeit(at: Any) -> str:
+    try:
+        return datetime.fromtimestamp(float(at)).strftime("%d.%m.%Y %H:%M:%S")
+    except (TypeError, ValueError, OSError):
+        return "?"
+
+
+def vorfall_zeilen(history: Any, at: Any = None) -> list[dict[str, Any]]:
+    """Die Verlaufszeilen eines einzelnen Alarms (rein, testbar).
+
+    ``at`` ist der Zeitpunkt des Auslösens; ohne Angabe der jüngste
+    Alarm. Zurück kommt alles von diesem Auslösen bis zum
+    Unscharfschalten, in zeitlicher Reihenfolge - so, wie es passiert
+    ist und wie man es einem Dritten erzählt.
+    """
+    zeilen = list(reversed([row for row in (history or []) if isinstance(row, dict)]))
+    anfang: int | None = None
+    for index, zeile in enumerate(zeilen):
+        if zeile.get("kind") != ANLASS:
+            continue
+        if at is None or str(zeile.get("at")) == str(at):
+            anfang = index
+            if at is not None:
+                break
+    if anfang is None:
+        return []
+    raus = []
+    for zeile in zeilen[anfang:]:
+        raus.append(zeile)
+        if zeile.get("kind") == ENDE:
+            break
+    return raus
+
+
+def blatt(
+    history: Any,
+    at: Any = None,
+    *,
+    haus: str = "",
+    name_von: Any = None,
+) -> str:
+    """Ein Alarm als Blatt zum Weitergeben (rein, testbar).
+
+    ``name_von`` bildet eine Gerätekennung auf den Anzeigenamen ab -
+    «hm.fenster_kueche» sagt einem Polizisten nichts, «Fenster Küche»
+    schon. Ohne die Funktion steht die Kennung da; das ist immer noch
+    besser als eine Lücke.
+    """
+    zeilen = vorfall_zeilen(history, at)
+    if not zeilen:
+        return "Kein Alarm gefunden."
+
+    def benannt(entity_id: Any) -> str:
+        kennung = str(entity_id or "")
+        if not kennung:
+            return ""
+        if callable(name_von):
+            return str(name_von(kennung) or kennung)
+        return kennung
+
+    anlass = zeilen[0]
+    kopf = ["Alarmprotokoll HomePilot"]
+    if haus:
+        kopf.append(haus)
+    kopf.append(f"Ausgelöst: {_blattzeit(anlass.get('at'))}")
+    ausloeser = benannt(anlass.get("entity_id"))
+    if ausloeser:
+        kopf.append(f"Ausgelöst durch: {ausloeser}")
+
+    ende = next((z for z in reversed(zeilen) if z.get("kind") == ENDE), None)
+    if ende is not None:
+        wer = str(ende.get("by") or "").strip()
+        kopf.append(
+            f"Beendet: {_blattzeit(ende.get('at'))}"
+            + (f" von {wer}" if wer and wer != "automatisch" else " (automatisch)")
+        )
+        try:
+            kopf.append(
+                "Dauer: " + dauer(float(ende["at"]) - float(anlass["at"]))
+            )
+        except (TypeError, ValueError, KeyError):
+            pass
+    else:
+        kopf.append("Beendet: noch nicht")
+
+    ablauf = ["", "Ablauf:"]
+    for zeile in zeilen:
+        text = str(zeile.get("text") or zeile.get("kind") or "").strip()
+        gerät = benannt(zeile.get("entity_id"))
+        zusatz = f" [{gerät}]" if gerät and gerät not in text else ""
+        ablauf.append(f"  {_blattzeit(zeile.get('at'))}  {text}{zusatz}")
+
+    urteil = next(
+        (z for z in reversed(zeilen) if z.get("kind") == "urteil"), None
+    )
+    schluss = [""]
+    if urteil is not None:
+        wer = str(urteil.get("by") or "").strip()
+        schluss.append(
+            "Einordnung: "
+            + str(urteil.get("text") or "")
+            + (f" ({wer})" if wer else "")
+        )
+    # Ehrlich benannt: Das Blatt ist eine Abschrift des Hub-Protokolls,
+    # kein amtlicher Nachweis. Wer es weitergibt, soll das nicht
+    # behaupten müssen und nicht dabei ertappt werden.
+    schluss.append(
+        "Dieses Blatt ist eine Abschrift des HomePilot-Protokolls. "
+        "Aufnahmen liegen, soweit vorhanden, im Clip-Archiv des Hubs."
+    )
+    return "\n".join([*kopf, *ablauf, *schluss])

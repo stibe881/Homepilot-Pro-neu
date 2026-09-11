@@ -134,5 +134,5 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.accent,
     },
     knopfText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
-    fehler: { color: colors.warn, fontSize: 12, lineHeight: 18 },
+    fehler: { color: colors.warnInk, fontSize: 12, lineHeight: 18 },
   });
