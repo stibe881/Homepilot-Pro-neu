@@ -21,13 +21,17 @@ MetaProvider = Callable[[str], "dict[str, Any] | None"]
 #: Zustand begann (core/eventlog.py: letzter_wechsel).
 ChangeProvider = Callable[[str, str, "dict[str, Any]"], "dict[str, Any] | None"]
 
+#: entity_id → alle Zimmer, für die das Gerät zählt (erstes = Standort).
+RoomsProvider = Callable[[str], "list[str] | None"]
+
 
 class EntityRegistry:
     def __init__(self, bus: EventBus) -> None:
         self._entities: dict[str, Entity] = {}
         self.bus = bus
         self.state_provider: StateProvider | None = None
-        self.room_provider: RoomProvider | None = None
+        #: Liefert *alle* Zimmer einer Entität, das erste ist ihr Standort.
+        self.rooms_provider: RoomsProvider | None = None
         # Liefert {name?, favorite?, group?} pro Entität (in der App gesetzt).
         self.meta_provider: MetaProvider | None = None
         # Liefert die Kennung der zusammengefassten Leuchte, in der eine
@@ -92,8 +96,20 @@ class EntityRegistry:
         return list(self._entities.values())
 
     async def add(self, entity: Entity) -> None:
-        if self.room_provider is not None:
-            entity.room = self.room_provider(entity.id) or entity.room
+        if self.rooms_provider is not None:
+            # Die Zuordnung aus config.yaml und App sticht, was die
+            # Integration selbst vorgeschlagen hat - aber nur, wenn es
+            # eine gibt. Leer heisst «nichts zugewiesen», nicht «in
+            # keinem Zimmer».
+            zimmer = self.rooms_provider(entity.id)
+            if zimmer:
+                entity.rooms = list(zimmer)
+                entity.room = zimmer[0]
+        if not entity.rooms and entity.room:
+            # Eine Integration, die nur ``room`` setzt (die meisten tun
+            # das), soll trotzdem in der Liste stehen - sonst müsste
+            # jede Abfrage beide Felder zusammensuchen.
+            entity.rooms = [entity.room]
         self._apply_meta(entity)
         if entity.available:
             entity.last_seen = time.time()
@@ -161,14 +177,21 @@ class EntityRegistry:
             },
         )
 
-    async def set_room(self, entity_id: str, room: str | None) -> None:
-        """Ändert die Raumzuordnung einer Entität und meldet es der App."""
+    async def set_room(self, entity_id: str, rooms: list[str] | str | None) -> None:
+        """Ändert die Raumzuordnung einer Entität und meldet es der App.
+
+        Nimmt einen Raum oder mehrere (Punkt 539). Der erste ist der
+        Standort - er bleibt in ``room``, weil daran die Kachel und der
+        Namensvorschlag hängen.
+        """
         entity = self._entities.get(entity_id)
         if entity is None:
             raise UnknownEntityError(entity_id)
-        if entity.room == room:
+        liste = [rooms] if isinstance(rooms, str) else list(rooms or [])
+        if entity.rooms == liste:
             return
-        entity.room = room
+        entity.rooms = liste
+        entity.room = liste[0] if liste else None
         await self.bus.publish(
             "state_changed",
             {

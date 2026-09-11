@@ -227,18 +227,29 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         Bleibt in der homepilot-data.json erhalten und hat Vorrang vor der
         config.yaml – so ordnet man Geräte den Räumen zu, ohne die Datei
         anzufassen. EDIT_DEVICES statt EDIT_CONFIG: Das ist Einrichten der
-        Ansicht, nicht der Anlage - auch Mitbewohner dürfen es."""
+        Ansicht, nicht der Anlage - auch Mitbewohner dürfen es.
+
+        Ein Gerät darf in mehreren Zimmern zählen (Punkt 539): `rooms`
+        nennt sie alle, `room` den Standort. Kommt nur `room`, gilt genau
+        dieses eine - eine ältere App soll keine Mehrfachzuordnung
+        löschen, von der sie nichts weiss, und schickt darum `rooms` gar
+        nicht mit."""
         user = require(request, Capability.EDIT_DEVICES)
         entity = hub.registry.get(entity_id)
         if entity is None:
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
-        await hub.set_entity_room(entity_id, body.room or None)
-        hub.aenderungen.merken(
-            user,
-            "geraet",
-            f"in den Raum «{body.room}» gelegt" if body.room else "aus dem Raum genommen",
-            entity.label,
-        )
+        if body.rooms is not None:
+            zimmer = [name for name in body.rooms if name]
+        else:
+            zimmer = [body.room] if body.room else []
+        await hub.set_entity_room(entity_id, zimmer)
+        if not zimmer:
+            was = "aus dem Raum genommen"
+        elif len(zimmer) == 1:
+            was = f"in den Raum «{zimmer[0]}» gelegt"
+        else:
+            was = "den Räumen " + ", ".join(f"«{name}»" for name in zimmer) + " zugewiesen"
+        hub.aenderungen.merken(user, "geraet", was, entity.label)
         return {"ok": True, "entity": hub.registry.get(entity_id).as_dict()}
 
     @app.put("/api/entities/{entity_id}/meta")

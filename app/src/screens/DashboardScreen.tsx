@@ -112,8 +112,10 @@ import {
 import { verweisText, verweiseAuf } from '../lib/verweise';
 import {
   alphabetisch,
+  imRaum,
   istKueche,
   raeumeSortiert,
+  raeumeVon,
   raumFakten,
   raumKategorien,
   raumKlima,
@@ -1406,7 +1408,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         // Waschmaschine → Waschküche): in den Raum, in dem es steht.
         // Den Namen schickt der Hub kodiert mit (core/livekarten.py,
         // raum_url); entschlüsselt ist er oben schon.
-        if (!entities.some((entity) => entity.room === id)) return entities.length > 0;
+        if (!entities.some((entity) => imRaum(entity, id))) return entities.length > 0;
         setSection('home');
         setRoom(id);
       } else if (what === 'fernbedienung' && id) {
@@ -1572,9 +1574,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // nicht alphabetisch. Räume mit Geräten, die (noch) nicht in der Config
   // stehen, kommen hinten dran, damit nie eines verlorengeht.
   const rooms = useMemo(() => {
-    const withDevices = new Set(
-      entities.map((entity) => entity.room).filter(Boolean) as string[]
-    );
+    // Jedes Zimmer, für das ein Gerät zählt - nicht nur sein Standort
+    // (Punkt 539). Sonst fehlte das Esszimmer, dessen einziges Gerät
+    // der Klimafühler von nebenan ist: Er stünde in der Klimaübersicht
+    // unter «Esszimmer», eine Raumkachel dafür gäbe es aber nicht.
+    const withDevices = new Set(entities.flatMap(raeumeVon));
     const ordered = roomOrder.filter((name) => withDevices.has(name));
     const extra = Array.from(withDevices)
       .filter((name) => !roomOrder.includes(name))
@@ -1696,7 +1700,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       ? base
       : room === NO_ROOM
         ? base.filter((entity) => !entity.room)
-        : base.filter((entity) => entity.room === room);
+        : base.filter((entity) => imRaum(entity, room));
 
   // Welcher Raum steht offen? Nur dann bekommt die Spalte rechts die Box
   // dieses Raums. «Weitere» (alles ohne Raum) ist keiner: Eine Karte
@@ -2152,7 +2156,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       verbunden={status === 'connected'}
       onToggleUngezaehlt={() => setUngezaehlt(toggleIn(ungezaehlt, entity.id))}
       rooms={editing ? roomOrder : undefined}
-      onSetRoom={editing ? (room) => setEntityRoom(entity.id, room) : undefined}
+      onSetRoom={editing ? (zimmer) => setEntityRoom(entity.id, zimmer) : undefined}
       onRename={
         // Nicht mehr nur im Anpassen-Modus: Ausserhalb hängt daran der
         // lange Druck auf die Kachel.
@@ -3542,7 +3546,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             <Einrichtungshilfe
               entities={entities}
               raeume={rooms.filter((name) => name !== ALL_ROOMS)}
-              onRaum={(entityId, raum) => setEntityRoom(entityId, raum)}
+              onRaum={(entityId, raum) => setEntityRoom(entityId, [raum])}
               onName={(entityId, name) => setEntityMeta(entityId, { name })}
             />
           ) : null}
@@ -3614,7 +3618,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 .filter((name) => name !== ALL_ROOMS)
                 .map((name) => ({
                   name,
-                  items: shown.filter((entity) => entity.room === name),
+                  items: shown.filter((entity) => imRaum(entity, name)),
                 }))
                 .concat(
                   shown.some((entity) => !entity.room)
@@ -4354,7 +4358,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           // einem Raum ohne Storen wäre ein Schalter ohne Draht.
           knoepfe={
             bildFuer
-              ? raumaktionen(entities.filter((entity) => entity.room === bildFuer)).map(
+              ? raumaktionen(entities.filter((entity) => imRaum(entity, bildFuer))).map(
                   (aktion) => ({ art: aktion.art, label: aktion.label })
                 )
               : []
@@ -4365,7 +4369,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           geraete={
             bildFuer
               ? waehlbareGeraete(
-                  entities.filter((entity) => entity.room === bildFuer)
+                  entities.filter((entity) => imRaum(entity, bildFuer))
                 ).map((aktion) => ({ art: aktion.id ?? aktion.art, label: aktion.label }))
               : []
           }

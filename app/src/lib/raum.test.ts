@@ -2,13 +2,15 @@
 import { Entity } from '../api/types';
 import {
   alphabetisch,
+  imRaum,
   inBeschattung,
-  raeumeSortiert,
   kontaktZeile,
-  raumKategorien,
-  raumFakten,
-  raumKlima,
+  raeumeSortiert,
+  raeumeVon,
   raumDunkel,
+  raumFakten,
+  raumKategorien,
+  raumKlima,
   raumLeuchtet,
   raumMesswerte,
   raumSymbol,
@@ -457,5 +459,42 @@ describe('raumFakten zählt, was der Raum zeigt', () => {
       ['weg']
     );
     expect(zeile).toBe('1 von 1 an');
+  });
+});
+
+// ── Ein Gerät in mehreren Zimmern (Punkt 539) ─────────────────────────
+//
+// Gewünscht im Haus: «man soll einen Sensor auch mehreren Räumen
+// zuweisen können». Der Fall ist der offene Wohnbereich - ein
+// Klimafühler, zwei Zimmer.
+
+describe('raeumeVon', () => {
+  it('nimmt die Liste, wenn der Hub eine schickt', () => {
+    const fuehler = geraet({ kind: 'sensor', rooms: ['Wohnzimmer', 'Esszimmer'] });
+    expect(raeumeVon(fuehler)).toEqual(['Wohnzimmer', 'Esszimmer']);
+  });
+
+  it('kommt mit einem älteren Hub zurecht, der nur `room` kennt', () => {
+    // Sonst verschwänden nach einem Hub-Update sämtliche Geräte aus
+    // ihren Zimmern, bis jemand den Hub neu startet.
+    expect(raeumeVon(geraet({ kind: 'sensor', room: 'Bad' }))).toEqual(['Bad']);
+    expect(raeumeVon(geraet({ kind: 'sensor' }))).toEqual([]);
+  });
+});
+
+describe('imRaum', () => {
+  it('findet das Gerät in jedem seiner Zimmer', () => {
+    const fuehler = geraet({ kind: 'sensor', rooms: ['Wohnzimmer', 'Esszimmer'] });
+    expect(imRaum(fuehler, 'Wohnzimmer')).toBe(true);
+    expect(imRaum(fuehler, 'Esszimmer')).toBe(true);
+    expect(imRaum(fuehler, 'Bad')).toBe(false);
+  });
+
+  it('sagt ohne Zimmer nein statt zu allem ja', () => {
+    // `entity.room === undefined` wäre für einen Aufruf mit undefined
+    // wahr - und dann stünde jedes raumlose Gerät in jedem Zimmer.
+    expect(imRaum(geraet({ kind: 'sensor' }), undefined)).toBe(false);
+    expect(imRaum(geraet({ kind: 'sensor' }), '')).toBe(false);
+    expect(imRaum(geraet({ kind: 'sensor', room: 'Bad' }), null)).toBe(false);
   });
 });

@@ -253,14 +253,29 @@ async function raumlisteKopfspieler(browser) {
 
     // Die Raumkachel: vom Namen aus hinauf bis zu dem Vorfahren, der
     // wirklich die Kachel ist (die erste Fläche über 250 Punkten).
+    //
+    // Gemessen wird dann die *rechteste* Kachel der Reihe, nicht die
+    // gefundene: Ob «Flur» links oder rechts steht, hängt davon ab, wie
+    // viele Zimmer davor kommen - und die Messung fiel prompt um, als
+    // ein Zimmer dazukam. Die Frage ist «reicht das Raster bis an den
+    // Rand», und die beantwortet die letzte Kachel der Reihe.
     const kachel = await seite.evaluate(() => {
       let el = [...document.querySelectorAll('div')].find(
         (kandidat) => kandidat.textContent?.trim() === 'Flur'
       );
       while (el && el.getBoundingClientRect().width < 250) el = el.parentElement;
       if (!el) return null;
-      const r = el.getBoundingClientRect();
-      return { rechts: r.right, fensterBreite: window.innerWidth };
+      // Alle Kacheln des Rasters: dieselbe Breite wie die gefundene.
+      // Über die Eltern zu gehen führt hier in die Irre - zwischen
+      // Kachel und Raster liegt je Spalte ein eigener Kasten.
+      const breite = el.getBoundingClientRect().width;
+      const rechts = Math.max(
+        ...[...document.querySelectorAll('div')]
+          .map((kandidat) => kandidat.getBoundingClientRect())
+          .filter((r) => Math.abs(r.width - breite) < 20)
+          .map((r) => r.right)
+      );
+      return { rechts, fensterBreite: window.innerWidth };
     });
     if (!kachel) {
       pruefe(false, `${groesse.name}: die Raumkachel «Flur» war messbar`);
@@ -556,6 +571,56 @@ async function kachelnStehenGleich(browser) {
   }
 }
 
+/** 8. Zählt ein Fühler für zwei Zimmer? (Punkt 539)
+ *
+ * Der Prüfstand hat den Klimafühler des Wohnzimmers zusätzlich im
+ * Esszimmer stehen - einem Zimmer, das *nur* dadurch entsteht. Beide
+ * Kacheln müssen seine Werte tragen.
+ *
+ * Gemessen und nicht bloss gelesen, weil die Kette lang ist: Der Hub
+ * muss zwei Zimmer melden statt des zuletzt genannten, die App muss die
+ * Raumliste aus allen Mitgliedschaften bilden statt aus dem Standort,
+ * und die Kachel muss den Fühler in beiden Zimmern finden. Jedes Glied
+ * war vorher einwertig.
+ */
+async function fuehlerInZweiZimmern(browser) {
+  const seite = await angemeldeteSeite(browser, GROESSEN[0]);
+  if (!(await zurSeite(seite, 'Räume'))) {
+    await seite.close();
+    return;
+  }
+  const werte = await seite.evaluate(() => {
+    const kachel = (name) => {
+      // Über die Höhe hinauf und nicht über die Breite: Der Raumname
+      // liegt in einem Kasten, der bereits die volle Kachelbreite hat -
+      // eine Suche nach «breit genug» bliebe an ihm hängen und läse nur
+      // den Namen. Die ganze Kachel ist die erste Fläche über 150
+      // Punkten Höhe.
+      let el = [...document.querySelectorAll('div')].find(
+        (kandidat) => kandidat.textContent?.trim() === name
+      );
+      while (el && el.getBoundingClientRect().height < 150) el = el.parentElement;
+      return el ? (el.textContent || '') : '';
+    };
+    return { wohnzimmer: kachel('Wohnzimmer'), esszimmer: kachel('Esszimmer') };
+  });
+  // Der Demo-Fühler meldet 21,5 Grad; die Zahl wandert um ein Zehntel,
+  // weil die Demo sie driften lässt - darum nur auf das Gradzeichen und
+  // das Prozent sehen.
+  const traegt = (text) => /\d+,\d+°/.test(text) && /\d+\s?%/.test(text);
+  pruefe(
+    traegt(werte.wohnzimmer),
+    'Der Fühler steht auf der Kachel seines Standorts',
+    werte.wohnzimmer.slice(0, 60)
+  );
+  pruefe(
+    traegt(werte.esszimmer),
+    'Und ebenso im zweiten Zimmer, dem er zugewiesen ist',
+    werte.esszimmer.slice(0, 60) || 'keine Kachel «Esszimmer»'
+  );
+  await seite.close();
+}
+
 /** 7. Ragt im Ablauf-Editor etwas hinaus? (Punkt 537)
  *
  * Der gemeldete Fall: Beim gewählten Gerät stand «eigene Zeit» *neben*
@@ -664,6 +729,7 @@ try {
   await raumlisteKopfspieler(browser);
   await weitereSeiten(browser);
   await ablaufEditorPasst(browser);
+  await fuehlerInZweiZimmern(browser);
 } finally {
   await browser.close();
 }

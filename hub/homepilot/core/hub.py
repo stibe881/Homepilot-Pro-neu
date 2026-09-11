@@ -186,19 +186,31 @@ class Hub:
             log.warning(
                 "Der vorige Lauf endete nicht geordnet - vermutlich Stromausfall."
             )
-        self._rooms_by_entity = {
-            entity_id: room
-            for room, members in self.config.rooms.items()
-            for entity_id in members
-        }
+        # Ein Gerät darf in mehreren Zimmern stehen (Punkt 539): Wer es
+        # in der config.yaml unter zwei Räumen aufführt, meinte bisher
+        # zwei - bekam aber wortlos nur den zuletzt genannten, weil hier
+        # ein Dict mit einem Schlüssel je Gerät stand. Jetzt sammelt es
+        # sie in der Reihenfolge der Datei; der erste ist der Standort.
+        self._rooms_by_entity: dict[str, list[str]] = {}
+        for room, members in self.config.rooms.items():
+            for entity_id in members:
+                zimmer = self._rooms_by_entity.setdefault(entity_id, [])
+                if room not in zimmer:
+                    zimmer.append(room)
         for entry in self.data.get("entity_rooms"):
-            entity_id, room = entry.get("entity_id"), entry.get("room")
-            if entity_id:
-                if room:
-                    self._rooms_by_entity[entity_id] = room
-                else:
-                    self._rooms_by_entity.pop(entity_id, None)
-        self.registry.room_provider = self._rooms_by_entity.get
+            kennung = str(entry.get("entity_id") or "")
+            if not kennung:
+                continue
+            # Ältere Einträge kennen nur `room`; beide Formen lesen.
+            roh = entry.get("rooms")
+            if not isinstance(roh, list):
+                roh = [entry["room"]] if entry.get("room") else []
+            zimmer = [str(name) for name in roh if name]
+            if zimmer:
+                self._rooms_by_entity[kennung] = zimmer
+            else:
+                self._rooms_by_entity.pop(kennung, None)
+        self.registry.rooms_provider = self._rooms_by_entity.get
         # In der App gesetzte Metadaten (Name, Favorit, Gruppe) pro Entität.
         self._meta_by_entity = {
             entry["entity_id"]: entry
@@ -503,33 +515,53 @@ class Hub:
         """Alle Räume: aus der config.yaml plus die per App zugewiesenen,
         Reihenfolge der config zuerst."""
         rooms = list(self.config.rooms.keys())
-        for room in self._rooms_by_entity.values():
-            if room and room not in rooms:
-                rooms.append(room)
+        for zimmer in self._rooms_by_entity.values():
+            for room in zimmer:
+                if room and room not in rooms:
+                    rooms.append(room)
         return rooms
 
-    async def set_entity_room(self, entity_id: str, room: str | None) -> None:
-        """Weist einer Entität in der App einen Raum zu (oder entfernt ihn).
+    async def set_entity_room(
+        self, entity_id: str, rooms: list[str] | str | None
+    ) -> None:
+        """Weist einer Entität in der App Zimmer zu (oder nimmt sie weg).
 
-        Wirkt sofort und bleibt über Neustarts erhalten – gespeichert wird
+        Ein Zimmer oder mehrere (Punkt 539) - der erste ist der Standort.
+        Wirkt sofort und bleibt über Neustarts erhalten; gespeichert wird
         die Zuordnung in der homepilot-data.json, nicht in der config.yaml.
         """
-        if room:
-            self._rooms_by_entity[entity_id] = room
+        liste = [rooms] if isinstance(rooms, str) else list(rooms or [])
+        # Doppelte weg, Reihenfolge behalten: «Bad, Bad» ist ein Tippfehler
+        # und kein zweites Zimmer.
+        zimmer: list[str] = []
+        for name in liste:
+            sauber = str(name).strip()
+            if sauber and sauber not in zimmer:
+                zimmer.append(sauber)
+        if zimmer:
+            self._rooms_by_entity[entity_id] = zimmer
         else:
             self._rooms_by_entity.pop(entity_id, None)
 
         # In der App gesetzte Zuordnungen persistieren (config-Einträge
         # bleiben in der config.yaml und werden hier nicht dupliziert).
+        # `room` steht mit in der Zeile, damit eine ältere Fassung des
+        # Hubs die Datei noch lesen kann - sie nimmt dann den Standort.
         stored = [
             entry
             for entry in self.data.get("entity_rooms")
             if entry.get("entity_id") != entity_id
         ]
-        stored.append({"entity_id": entity_id, "room": room})
+        stored.append(
+            {
+                "entity_id": entity_id,
+                "room": zimmer[0] if zimmer else None,
+                "rooms": zimmer,
+            }
+        )
         self.data.set("entity_rooms", stored)
 
-        await self.registry.set_room(entity_id, room)
+        await self.registry.set_room(entity_id, zimmer)
 
     async def set_entity_meta(
         self,
@@ -857,6 +889,6 @@ class Hub:
         # Platte - der Takt dafür ist oben schon beendet.
         self.data.flush()
         self.registry.state_provider = None
-        self.registry.room_provider = None
+        self.registry.rooms_provider = None
         self.registry.meta_provider = None
         self.registry.change_provider = None

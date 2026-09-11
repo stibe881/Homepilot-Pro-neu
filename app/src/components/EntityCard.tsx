@@ -67,6 +67,19 @@ import { MediaButton, RadioPanel, ShuffleRepeat, SpotifyPanel } from './entity/m
 import { MedienExtras } from './entity/medienextras';
 import { makeStyles } from './entity/stil';
 import { Zustandspunkt } from './Zustandspunkt';
+import { raeumeVon } from '../lib/raum';
+
+/** Was in der Anpassen-Zeile neben «Raum» steht (rein, testbar).
+ *
+ * Ein Gerät kann für mehrere Zimmer zählen (Punkt 539). Alle
+ * hinzuschreiben sprengt die Zeile - «Bad +1» sagt, dass es mehr als
+ * eines ist, und welche, sieht man beim Öffnen. */
+export function raumWert(entity: Entity): string {
+  const zimmer = raeumeVon(entity);
+  if (zimmer.length === 0) return 'Kein Raum';
+  if (zimmer.length === 1) return zimmer[0];
+  return `${zimmer[0]} +${zimmer.length - 1}`;
+}
 import {
   BigValue,
   Pill,
@@ -150,7 +163,9 @@ interface Props {
   imRaumblock?: boolean;
   /** Anpassen-Modus: Raum dieser Kachel setzen. */
   rooms?: string[];
-  onSetRoom?: (room: string | null) => void;
+  /** Alle Zimmer, für die das Gerät zählen soll - das erste ist
+   *  sein Standort (Punkt 539). Leer nimmt es aus allen. */
+  onSetRoom?: (rooms: string[] | null) => void;
   /** Gerät umbenennen – im Anpassen-Modus über den Stift, sonst über
    *  einen langen Druck auf die Kachel.
    *
@@ -1262,8 +1277,10 @@ export function EntityCard({
                   {
                     key: 'raum',
                     icon: 'home-outline' as const,
-                    label: 'Raum',
-                    wert: entity.room ?? 'Kein Raum',
+                    label: raeumeVon(entity).length > 1 ? 'Räume' : 'Raum',
+                    // Mehrere Zimmer stehen als «Bad +1» da: Der
+                    // Standort zuerst, die Zahl sagt, dass es mehr ist.
+                    wert: raumWert(entity),
                     onPress: () => {
                       setBlattOffen(false);
                       setRoomPickerOpen(true);
@@ -1453,12 +1470,12 @@ export function EntityCard({
       {onSetRoom && rooms ? (
         <RoomPicker
           visible={roomPickerOpen}
-          current={entity.room ?? null}
+          current={raeumeVon(entity)}
           rooms={rooms}
           onClose={() => setRoomPickerOpen(false)}
-          onSelect={(room) => {
+          onSelect={(gewaehlt) => {
             setRoomPickerOpen(false);
-            onSetRoom(room);
+            onSetRoom(gewaehlt);
           }}
         />
       ) : null}

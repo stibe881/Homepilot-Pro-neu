@@ -4468,3 +4468,48 @@ liefert, liesse sich der Fall im Browser gar nicht ansehen.
 
 Stellen: `app/src/lib/raumkarte.ts`, `app/src/lib/raum.ts`, `app/src/components/RoomCard.tsx`, `hub/homepilot/integrations/demo.py`, `scripts/probe.sh`
 
+### 539. Ein Sensor für mehrere Zimmer ✓ erledigt
+
+*lohnt sich · Aufwand: mittel · Hub + App*
+
+Gewünscht im Haus, gleich nach der Klimaecke auf der Raumkachel: «man
+soll einen Sensor auch mehreren Räumen zuweisen können». Der Fall ist
+der offene Wohnbereich - *ein* Klimafühler, und Wohnzimmer wie
+Esszimmer sollen ihn zeigen.
+
+**Bisher gewann wortlos das zuletzt genannte Zimmer.** Die Zuordnung
+war ein Dict mit einem Schlüssel je Gerät (`_rooms_by_entity`). Wer den
+Fühler in der config.yaml unter beiden Räumen aufführte, bekam keinen
+Fehler und kein zweites Zimmer - nur das spätere. Genau die Sorte
+Fehler, gegen die diese Datei geschrieben ist: Von aussen sah es aus
+wie gemacht.
+
+**`room` bleibt, `rooms` kommt dazu.** Die Entität führt beides: `room`
+beantwortet «wo *steht* das Gerät» - dort liegt seine Kachel, daher
+kommt sein Namensvorschlag, und daran hängt zu viel, um es zu einer
+Liste zu machen. `rooms` beantwortet die andere Frage: «für welche
+Zimmer zählt es mit». Das erste der Liste ist der Standort.
+
+**In der App fragt das eine Stelle**, nicht sechsundzwanzig: `imRaum`
+(lib/raum.ts). Ein blosses `entity.room === name` übersieht das zweite
+Zimmer, und es stand an sechsundzwanzig Stellen. Umgestellt sind die
+acht, die wirklich «gehört das hierhin?» fragen - Raumkacheln,
+Raumgruppen, Kinderseite, Klimaübersicht. Wo es um «wo steht es» geht
+(Namensvorschlag, Anzeige des Standorts), bleibt `room` richtig.
+
+**Die Raumliste kommt aus den Mitgliedschaften.** Ohne das fehlte das
+Esszimmer als Kachel, dessen einziges Gerät der Fühler von nebenan ist:
+Die Klimaübersicht zählte es, eine Kachel dafür gab es nicht.
+
+**Der Wähler schliesst nicht mehr beim ersten Tipp.** Wer zwei Zimmer
+wählen will, käme sonst nie zum zweiten. Das erste gewählte trägt
+«Standort» - ohne den Hinweis sähe die Liste aus wie eine beliebige
+Mehrfachauswahl, und dass die Reihenfolge etwas bedeutet, merkte man
+erst, wenn die Kachel woanders auftaucht.
+
+Eine ältere App schickt weiterhin nur `room` und meint dann genau
+dieses eine Zimmer; eine ältere Fassung des Hubs liest `room` aus der
+Datendatei und bekommt den Standort. Beides ist geprüft.
+
+Stellen: `hub/homepilot/core/entity.py`, `hub/homepilot/core/registry.py`, `hub/homepilot/core/hub.py`, `hub/homepilot/api/routes/entities.py`, `app/src/lib/raum.ts`, `app/src/components/entity/anpassen.tsx`, `app/src/hooks/useHub.ts`, `docs/erste-stunde.md`
+

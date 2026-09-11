@@ -706,7 +706,12 @@ class ConfigEditRequest(BaseModel):
 
 
 class RoomRequest(BaseModel):
+    #: Der Standort - wo das Gerät steht. Null nimmt es aus allen Zimmern.
     room: str | None = None
+    #: Alle Zimmer, für die es zählt (Punkt 539). Fehlt das Feld, gilt
+    #: allein `room` - so schreibt eine ältere App weiter, ohne dass sie
+    #: dabei eine Mehrfachzuordnung löscht, die sie gar nicht kennt.
+    rooms: list[str] | None = None
 
 
 class AlarmArmRequest(BaseModel):

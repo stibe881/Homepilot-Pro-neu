@@ -61,6 +61,10 @@ rooms:
   Wohnzimmer:
     [demo.light_livingroom, demo.tv_livingroom, demo.cover_livingroom, gremlin.tv_zappelig,
      demo.scene_relax, demo.speaker_kitchen, demo.temp_livingroom]
+  # Derselbe Fühler ein zweites Mal: Ein Gerät darf für mehrere Zimmer
+  # zählen (Punkt 539), und ohne ein Zimmer, das nur so entsteht, liesse
+  # sich das im Browser nicht messen.
+  Esszimmer: [demo.temp_livingroom]
   Flur: [demo.motion_hall]
 automations: []
 YAML

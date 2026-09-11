@@ -53,6 +53,10 @@ export interface Entity {
   available: boolean;
   /** Raum aus der Hub-Konfiguration; die App gruppiert danach. */
   room?: string | null;
+  /** Alle Zimmer, für die das Gerät zählt - `room` ist das erste
+   *  davon (Punkt 539). Ein älterer Hub schickt das Feld nicht;
+   *  dann gilt `room` allein - siehe lib/raum.ts, `imRaum`. */
+  rooms?: string[] | null;
   /** In der App als Favorit markiert – erscheint auf der Startseite. */
   favorite?: boolean;
   /**

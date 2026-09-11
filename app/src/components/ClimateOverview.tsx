@@ -7,6 +7,7 @@ import { Entity, HubSettings } from '../api/types';
 import { FEUCHTE_MAX, FEUCHTE_MIN, bandPosition, klimaUrteil } from '../lib/komfort';
 import { Card } from './Card';
 import { Colors, type, useColors } from '../theme';
+import { raeumeVon } from '../lib/raum';
 
 /**
  * Klima-Übersicht: Temperatur (und Feuchte) aller Räume auf einen Blick.
@@ -40,8 +41,12 @@ export function isTemperature(entity: Entity): boolean {
 export function climateRows(entities: Entity[]): ClimateRow[] {
   const byRoom = new Map<string, Entity[]>();
   for (const entity of entities) {
-    if (!entity.room) continue;
-    byRoom.set(entity.room, [...(byRoom.get(entity.room) ?? []), entity]);
+    // Ein Fühler kann für mehrere Zimmer zählen (Punkt 539) - dann
+    // steht er unter jedem. Doppelt gezählt wird dabei nichts: Es ist
+    // derselbe Wert, und er gilt in beiden Zimmern.
+    for (const raum of raeumeVon(entity)) {
+      byRoom.set(raum, [...(byRoom.get(raum) ?? []), entity]);
+    }
   }
   const rows: ClimateRow[] = [];
   for (const [room, here] of byRoom) {

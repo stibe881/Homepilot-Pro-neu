@@ -89,6 +89,28 @@ export function raumKlima(items: Entity[]): {
   };
 }
 
+/**
+ * Alle Zimmer, für die ein Gerät zählt (rein, testbar).
+ *
+ * Punkt 539: Ein Klimafühler im offenen Wohnbereich gehört in
+ * Wohnzimmer *und* Esszimmer. Der Hub führt das als Liste; ein älterer
+ * Hub schickt nur `room`, und dann ist die Liste genau dieser eine
+ * Raum. Wer die Frage «gehört das hierhin?» stellt, fragt `imRaum` -
+ * ein blosses `entity.room === name` übersieht das zweite Zimmer.
+ */
+export function raeumeVon(entity: Entity): string[] {
+  if (Array.isArray(entity.rooms) && entity.rooms.length > 0) {
+    return entity.rooms.filter(Boolean) as string[];
+  }
+  return entity.room ? [entity.room] : [];
+}
+
+/** Zählt dieses Gerät für dieses Zimmer? (rein, testbar) */
+export function imRaum(entity: Entity, raum: string | null | undefined): boolean {
+  if (!raum) return false;
+  return raeumeVon(entity).includes(raum);
+}
+
 /** Mehrzahl, wo sie hingehört: «1 Fenster», «2 Fenster», «2 Türen». */
 function stueck(anzahl: number, art: 'window' | 'door'): string {
   if (art === 'window') return `${anzahl} Fenster`;
