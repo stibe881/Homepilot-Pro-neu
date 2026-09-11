@@ -64,6 +64,9 @@ describe('Wohin ein Tipp auf eine Nachricht führt', () => {
     });
     expect(zielAus({ type: 'battery' })).toEqual({ art: 'batterien' });
     expect(zielAus({ type: 'alarm' })).toEqual({ art: 'bereich', bereich: 'alarm' });
+    // Die Brandmeldeanlage (Punkt 543): Rauch und Prüf-Erinnerung führen dorthin.
+    expect(zielAus({ ziel: 'bereich:brand' })).toEqual({ art: 'bereich', bereich: 'brand' });
+    expect(zielAus({ type: 'smoke' })).toEqual({ art: 'bereich', bereich: 'brand' });
     expect(zielAus({ type: 'doorbell', entityId: 'ring.tuer' })).toEqual({
       art: 'klingel',
       entityId: 'ring.tuer',
