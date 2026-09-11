@@ -45,6 +45,35 @@ export type Section =
  * zeigt nur sieben davon; die übrigen erreicht man über Einstellungen und
  * brauchen trotzdem einen Namen.
  */
+/** Der Farbwinkel eines Bereichs (rein, testbar) - Punkt 436.
+ *
+ *  Die Leiste färbt den gewählten Punkt in der Farbe des Bereichs,
+ *  im Zimmer in der des Raums (lib/raumkarte.ts: raumTon) - so weiss
+ *  man beim Hinsehen, wo man ist, bevor man den Namen liest. Feste
+ *  Winkel statt gerechneter: Die sieben Bereiche sollen sich klar
+ *  unterscheiden, und Licht darf warm sein, Kameras kühl. */
+const BEREICH_TON: Partial<Record<Section, number>> = {
+  start: 210,
+  home: 150,
+  light: 42,
+  covers: 265,
+  cameras: 190,
+  family: 330,
+  settings: 0,
+};
+
+export function bereichTon(section: Section): number | null {
+  const ton = BEREICH_TON[section];
+  return typeof ton === 'number' ? ton : null;
+}
+
+/** Die Tönung eines gewählten Leistenpunkts aus dem Winkel (rein, testbar).
+ *  Durchscheinend, damit sie auf jedem Erscheinungsbild neben der
+ *  Fläche der Leiste besteht - ein voller Ton schlüge das Symbol tot. */
+export function bereichTint(ton: number | null): string | null {
+  return ton === null ? null : `hsla(${ton}, 55%, 50%, 0.28)`;
+}
+
 /** Der Nachbar in der Leiste (rein, testbar) - null am Rand.
  *
  *  Punkt 433: Auf dem Telefon wischt man zwischen den Bereichen, statt

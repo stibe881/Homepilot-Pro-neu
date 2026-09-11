@@ -336,6 +336,10 @@ export const makeStyles = (colors: Colors) =>
       flexWrap: 'wrap',
       gap: space.gap,
       marginTop: space.gap,
+      // Die Kachelhöhen-Regel (Punkt 439, theme.tsx: kachel): In einer
+      // Zeile gibt die höchste Kachel die Höhe vor - ausdrücklich, nicht
+      // als Zufall der Vorgabe.
+      alignItems: 'stretch',
     },
     // Nur zum Messen der Breite, ohne eigenen Abstand.
     measure: { height: 0 },

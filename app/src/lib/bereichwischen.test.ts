@@ -1,5 +1,5 @@
 import { WEG, bereichsRichtung } from './bereichwischen';
-import { nachbarBereich } from './bereiche';
+import { bereichTint, bereichTon, nachbarBereich } from './bereiche';
 
 describe('bereichsRichtung', () => {
   it('nach links heisst weiter, nach rechts zurück', () => {
@@ -21,5 +21,14 @@ describe('nachbarBereich', () => {
     expect(nachbarBereich([...leiste], 'home', -1)).toBe('start');
     expect(nachbarBereich([...leiste], 'light', 1)).toBeNull();
     expect(nachbarBereich([...leiste], 'devices', 1)).toBeNull();
+  });
+});
+
+describe('bereichTon', () => {
+  it('kennt die sieben Punkte der Leiste, sonst nichts', () => {
+    expect(bereichTon('light')).toBe(42);
+    expect(bereichTon('devices')).toBeNull();
+    expect(bereichTint(42)).toBe('hsla(42, 55%, 50%, 0.28)');
+    expect(bereichTint(null)).toBeNull();
   });
 });

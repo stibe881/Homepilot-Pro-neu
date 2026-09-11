@@ -54,7 +54,7 @@ import { DeviceHealth } from '../components/DeviceHealth';
 import { RoomTabs } from '../components/RoomTabs';
 import { RoomCard } from '../components/RoomCard';
 import { Raumbild } from '../components/Raumbild';
-import { raumSchleier, raumaktionen, waehlbareGeraete } from '../lib/raumkarte';
+import { raumSchleier, raumTon, raumaktionen, waehlbareGeraete } from '../lib/raumkarte';
 import { SceneRow } from '../components/SceneRow';
 import { GlobalSearch } from '../components/GlobalSearch';
 import { Grundriss } from '../components/Grundriss';
@@ -2459,6 +2459,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Vorher stand dort nichts hervorgehoben, sobald man eine Seite offen
   // hatte - und auf einem breiten Bildschirm ist man ab dem ersten Tipp
   // immer auf einer Seite. Man sah dann nirgends mehr, wo man ist.
+  // Die Farbe des Orts auf der Leiste (Punkt 436): im Zimmer die des
+  // Raums, sonst entscheidet die Leiste selbst nach Bereich.
+  const leistenTon =
+    section === 'home' && room !== ALL_ROOMS ? raumTon(room) : undefined;
   const railAktiv: Section = sichtbarePunkte.some((item) => item.key === section)
     ? 'settings'
     : section;
@@ -3922,6 +3926,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               vertical
               capabilities={user?.capabilities ?? []}
               hidden={hiddenSections}
+              ton={leistenTon}
             />
           ) : null}
 
@@ -4207,6 +4212,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             bottomInset={insets.bottom}
             capabilities={user?.capabilities ?? []}
             hidden={hiddenSections}
+            ton={leistenTon}
           />
         ) : null}
 

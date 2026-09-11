@@ -3486,7 +3486,7 @@ nie rot wird, ist keiner.
 
 Stellen: `app/src/lib/strichcode.ts`, `app/src/components/Kassencode.tsx`, `app/src/components/QrScanner.tsx`, `app/src/screens/family/gutscheine.tsx`, `hub/homepilot/core/gutscheine.py`
 
-## Zweite Vorschlagsrunde (421–435)
+## Zweite Vorschlagsrunde (421–440)
 
 Aus einer Liste von fünfundachtzig Vorschlägen (allgemein, Bedienung,
 Gestaltung, Gutscheine, Abläufe, Push, Alarmanlage, selbst gewählt),
@@ -3689,3 +3689,56 @@ Nachschlagen die letzten Tage. Die Zahl an der Glocke ist, was seit
 dem letzten Öffnen dazukam; der Zeitpunkt liegt beim Hub
 (`posteingang.gesehen` in lib/persoenlich.ts), damit das iPad nicht
 zeigt, was das Telefon längst gelesen hat.
+
+### 436. Die Leiste in der Farbe des Orts ✓ erledigt
+
+*Aufwand: klein · App*
+
+Werkbank 360, gebaut: Der gewählte Punkt der Leiste trägt eine
+durchscheinende Tönung im Farbwinkel des Bereichs (`lib/bereiche.ts`:
+bereichTon - Licht warm, Kameras kühl, sieben feste Winkel) und im
+Zimmer im Winkel des Raums (`raumTon`, dieselbe Farbe wie die
+Raumkachel und der Raumkopf). So weiss man beim Hinsehen, wo man ist,
+bevor man den Namen liest. Durchscheinend, damit sie auf jedem
+Erscheinungsbild neben der Leistenfläche besteht.
+
+### 437. Drei Stufen für Symbole ✓ erledigt, verengt
+
+*Aufwand: klein · App*
+
+`theme.icon = { klein: 16, mittel: 18, gross: 22 }`. Über die Dateien
+hinweg standen 12 bis 24, jede Stelle hatte sich ihre Zahl ausgesucht.
+Umgestellt sind Kopfzeile, Leiste und Posteingang; der Rest folgt
+Stelle für Stelle, wenn man ohnehin dort ist - ein Massensuchlauf über
+fünfzig Dateien tauschte auch Zahlen, die absichtlich abweichen.
+
+### 438. Der Übergang beim Schalten ✓ erledigt, verengt
+
+*Aufwand: klein · App*
+
+Werkbank 292 hatte entschieden, Kacheln nicht überblenden zu lassen:
+«Unruhe ist teurer als der Gewinn». Auf Wunsch des Hauses jetzt doch,
+aber so klein wie möglich: Der Punkt der Lichtkachel blendet in 150 ms
+von aus nach an, statt umzuspringen - kurz genug, dass nichts wackelt,
+lang genug, dass das Auge den Wechsel als Antwort liest. Wer «Bewegung
+reduzieren» eingestellt hat, bekommt den Sprung
+(`hooks/useBewegungReduziert.ts`, auch von `Auftritt` benutzt).
+
+### 439. Die Kachelhöhen-Regel ✓ erledigt
+
+*Aufwand: klein · App*
+
+Werkbank 359: Jede Kachel ist mindestens `theme.kachel.mindesthoehe`
+hoch (138, vorher eine nackte Zahl in `Card.tsx`), und in einer Zeile
+des Rasters gibt die höchste die Höhe vor - `alignItems: 'stretch'`
+ausdrücklich am Raster, nicht als Zufall der Vorgabe.
+
+### 440. Deckel fürs Mitwachsen auf der Lichtkachel ✓ erledigt
+
+*Aufwand: klein · App*
+
+Werkbank 66, eine Stelle weiter: Wert, Name und Unterzeile der
+Lichtkachel und der grosse Wert der übrigen Kacheln wachsen bis 160 %
+mit der Systemschrift mit und halten dann (`lib/schrift.ts`:
+MAX_SCHRIFT) - bei 200 % schob der Wert sonst den Namen aus der Kachel.
+Fliesstext wächst weiter unbegrenzt mit; das soll so bleiben.

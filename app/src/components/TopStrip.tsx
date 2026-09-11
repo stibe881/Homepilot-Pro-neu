@@ -42,7 +42,7 @@ import { ConnectionStatus } from '../hooks/useHub';
 import { VERBINDUNGSWORT, verbindungsFarbe } from '../lib/verbindungsstand';
 import { useEscape } from '../hooks/useEscape';
 import { useJetzt } from '../hooks/useRestzeit';
-import { Colors, radius, type, useColors } from '../theme';
+import { Colors, icon, radius, type, useColors } from '../theme';
 import { warnText, warnZahl, warnZahlSatz } from '../lib/warnzeile';
 import { Lauftext } from './Lauftext';
 
@@ -412,7 +412,7 @@ export function TopStrip({
                     ) : (
                       <Ionicons
                         name={zeile.zuhause ? 'person' : 'person-outline'}
-                        size={18}
+                        size={icon.mittel}
                         color={zeile.zuhause ? colors.on : colors.inkFaint}
                       />
                     )}
@@ -494,7 +494,7 @@ export function TopStrip({
                   ) : null}
                   {gruppe.lichter.map((entity) => (
                     <View key={entity.id} style={styles.lightRow}>
-                      <Ionicons name="bulb" size={18} color={colors.warn} />
+                      <Ionicons name="bulb" size={icon.mittel} color={colors.warn} />
                       {/* Läuft eine Frist, steht sie unter dem Namen:
                           Wer die Liste öffnet, will wissen, was noch
                           brennt - und was von selbst wieder ausgeht, muss
@@ -699,7 +699,7 @@ export function TopStrip({
                       accessibilityLabel={`${neuerArtikel.trim()} eintragen`}
                       hitSlop={8}
                     >
-                      <Ionicons name="arrow-forward-circle" size={22} color={colors.accent} />
+                      <Ionicons name="arrow-forward-circle" size={icon.gross} color={colors.accent} />
                     </Pressable>
                   ) : null}
                 </View>
@@ -853,7 +853,7 @@ export function TopStrip({
                       pressed && { opacity: 0.7 },
                     ]}
                   >
-                    <Ionicons name="location-outline" size={16} color={colors.accent} />
+                    <Ionicons name="location-outline" size={icon.klein} color={colors.accent} />
                     <Text style={[styles.eventLocation, { color: colors.accent }]}>
                       {event.location}
                     </Text>
@@ -925,7 +925,7 @@ export function TopStrip({
                 <View key={index} style={styles.alertRow}>
                   <Ionicons
                     name="warning-outline"
-                    size={18}
+                    size={icon.mittel}
                     color={severityTone(colors, warning.severity)}
                   />
                   <View style={{ flex: 1 }}>
@@ -1085,7 +1085,7 @@ export function TopStrip({
                       betrifft. */}
                   <Ionicons
                     name="people"
-                    size={16}
+                    size={icon.klein}
                     color={besuchLaeuft ? '#FFFFFF' : colors.ink}
                   />
                 </Pressable>
@@ -1104,7 +1104,7 @@ export function TopStrip({
                 >
                   <Ionicons
                     name={posteingangZaehler > 0 ? 'notifications' : 'notifications-outline'}
-                    size={16}
+                    size={icon.klein}
                     color={colors.ink}
                   />
                   {posteingangZaehler > 0 ? (
@@ -1124,7 +1124,7 @@ export function TopStrip({
                   hitSlop={8}
                   style={({ pressed }) => [styles.chip, pressed && { opacity: 0.6 }]}
                 >
-                  <Ionicons name="wifi" size={16} color={colors.ink} />
+                  <Ionicons name="wifi" size={icon.klein} color={colors.ink} />
                 </Pressable>
               ) : null}
               <View style={styles.chip}>

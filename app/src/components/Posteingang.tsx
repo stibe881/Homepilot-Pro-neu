@@ -7,7 +7,7 @@ import { HubSettings } from '../api/types';
 import { datumUhr } from '../lib/format';
 import { Meldung, sortiert } from '../lib/posteingang';
 import { verpasstsatz } from '../lib/pushruhe';
-import { Colors, radius, space, type, useColors } from '../theme';
+import { Colors, icon, radius, space, type, useColors } from '../theme';
 
 /**
  * Der Posteingang (Punkt 435) - hinter der Glocke auf der Startseite.
@@ -64,10 +64,10 @@ export function Posteingang({
       <Pressable style={styles.grund_} onPress={onSchliessen} accessibilityLabel="Schliessen">
         <Pressable style={styles.blatt} onPress={() => {}}>
           <View style={styles.kopf}>
-            <Ionicons name="notifications-outline" size={18} color={colors.ink} />
+            <Ionicons name="notifications-outline" size={icon.mittel} color={colors.ink} />
             <Text style={styles.ueberschrift}>Posteingang</Text>
             <Pressable onPress={onSchliessen} hitSlop={10} accessibilityRole="button" accessibilityLabel="Schliessen">
-              <Ionicons name="close" size={20} color={colors.inkSoft} />
+              <Ionicons name="close" size={icon.gross} color={colors.inkSoft} />
             </Pressable>
           </View>
           <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 520 }}>

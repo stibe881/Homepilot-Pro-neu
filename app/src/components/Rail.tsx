@@ -2,14 +2,14 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Colors, radius, useColors } from '../theme';
+import { Colors, icon, radius, useColors } from '../theme';
 import { MAX_SCHRIFT } from '../lib/schrift';
 
 // Die Liste der Bereiche und ihre Namen wohnen in lib/bereiche.ts -
 // sie werden auch ohne Leiste gebraucht (Auffangnetz, Riegel,
 // Seitenhilfe). Hier durchgereicht, damit die bisherigen Importe
 // «aus der Leiste» weiter gelten.
-import type { Section } from '../lib/bereiche';
+import { bereichTint, bereichTon, type Section } from '../lib/bereiche';
 
 export type { Section } from '../lib/bereiche';
 export { SECTION_LABEL } from '../lib/bereiche';
@@ -50,6 +50,9 @@ interface Props {
   capabilities?: string[];
   /** Für Gäste ausgeblendete Bereiche (nicht freigegebene Features). */
   hidden?: Section[];
+  /** Der Farbwinkel des Orts (Punkt 436): im Zimmer der des Raums,
+   *  sonst der des Bereichs. Ohne Angabe färbt die Leiste nach Bereich. */
+  ton?: number | null;
 }
 
 export function Rail({
@@ -59,6 +62,7 @@ export function Rail({
   bottomInset = 0,
   capabilities = [],
   hidden = [],
+  ton,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -85,12 +89,18 @@ export function Rail({
             style={({ pressed }) => [
               vertical ? styles.railItem : styles.barItem,
               selected && styles.selected,
+              // Die Farbe des Orts auf dem gewählten Punkt (Punkt 436).
+              selected && {
+                backgroundColor:
+                  bereichTint(ton === undefined ? bereichTon(item.key) : ton) ??
+                  colors.surfaceStrong,
+              },
               pressed && { opacity: 0.7 },
             ]}
           >
             <Ionicons
               name={item.icon}
-              size={vertical ? 24 : 22}
+              size={vertical ? icon.gross + 2 : icon.gross}
               color={selected ? colors.ink : colors.onGradientSoft}
             />
             {!vertical && (

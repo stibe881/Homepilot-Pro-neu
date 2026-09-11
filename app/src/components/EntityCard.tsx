@@ -1,6 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo, useRef, useState } from 'react';
-import { Image, Pressable, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Image, Pressable, Text, View } from 'react-native';
+
+import { useBewegungReduziert } from '../hooks/useBewegungReduziert';
+import { MAX_SCHRIFT } from '../lib/schrift';
 
 import Svg, { Polyline } from 'react-native-svg';
 
@@ -266,6 +269,20 @@ export function EntityCard({
   const [menueOffen, setMenueOffen] = useState(false);
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
   const isOn = entity.state.state === 'on';
+  // Der Übergang beim Schalten (Punkt 438): Der Punkt der Lichtkachel
+  // blendet in 150 ms von aus nach an, statt umzuspringen. Kurz genug,
+  // dass nichts «wackelt» (Werkbank 292: Unruhe ist teurer als der
+  // Gewinn), lang genug, dass das Auge den Wechsel als Antwort liest.
+  // Wer weniger Bewegung eingestellt hat, bekommt den Sprung.
+  const ruhig = useBewegungReduziert();
+  const schaltung = useRef(new Animated.Value(isOn ? 1 : 0)).current;
+  useEffect(() => {
+    Animated.timing(schaltung, {
+      toValue: isOn ? 1 : 0,
+      duration: ruhig ? 0 : 150,
+      useNativeDriver: false,
+    }).start();
+  }, [isOn, ruhig, schaltung]);
 
 
   // Was ein langer Druck anbietet. Im Anpassen-Modus nichts: Dort hält
@@ -515,15 +532,21 @@ export function EntityCard({
                   size={22}
                   color={isOn ? tinte : colors.inkSoft}
                 />
-                <View
+                <Animated.View
                   style={[
                     styles.lichtPunkt,
-                    { backgroundColor: isOn ? colors.on : colors.off },
+                    {
+                      backgroundColor: schaltung.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [colors.off, colors.on],
+                      }),
+                    },
                   ]}
                 />
               </View>
               <View>
                 <Text
+                  maxFontSizeMultiplier={MAX_SCHRIFT}
                   style={[
                     styles.lichtWert,
                     { color: isOn ? tinte : colors.inkSoft },
@@ -543,12 +566,14 @@ export function EntityCard({
                 </Text>
                 <Text
                   numberOfLines={2}
+                  maxFontSizeMultiplier={MAX_SCHRIFT}
                   style={[styles.lichtName, { color: isOn ? tinte : colors.ink }]}
                 >
                   {entity.name}
                 </Text>
                 <Text
                   numberOfLines={1}
+                  maxFontSizeMultiplier={MAX_SCHRIFT}
                   style={[styles.lichtUnter, { color: isOn ? tinte : colors.inkSoft }]}
                 >
                   {pending
@@ -674,7 +699,7 @@ export function EntityCard({
                 />
               ) : null}
               <View style={{ flex: 1 }}>
-                <Text style={styles.value} numberOfLines={2}>
+                <Text style={styles.value} numberOfLines={2} maxFontSizeMultiplier={MAX_SCHRIFT}>
                   {/* Ohne Titel den Zustand nennen: «Pausiert» und
                       «Nichts an» sind zwei verschiedene Auskünfte, und
                       «Nichts läuft» war für beide dieselbe. */}
@@ -979,7 +1004,7 @@ export function EntityCard({
         const events: KalenderEintrag[] = entity.state.events ?? [];
         return (
           <View style={styles.stack}>
-            <Text style={styles.value} numberOfLines={1}>
+            <Text style={styles.value} numberOfLines={1} maxFontSizeMultiplier={MAX_SCHRIFT}>
               {entity.state.state === 'frei' ? 'Keine Termine' : entity.state.state}
             </Text>
             {entity.state.next_start ? (
