@@ -152,6 +152,43 @@ describe('raumKategorien', () => {
     expect(kategorien.map((k) => k.label)).toEqual(['Beleuchtung']);
     expect(kategorien.flatMap((k) => k.items.map((e) => e.id))).not.toContain('sz1');
   });
+
+  it('gibt dem ruhigen Rauchwarnmelder keine Kachel mehr', () => {
+    // Punkt 542: Er hängt an der Decke, bedienen lässt sich nichts, und
+    // die Kachel sagte immer dasselbe. Was man wissen will, steht unter
+    // Einstellungen → System.
+    const kategorien = raumKategorien(
+      [
+        geraet({ id: 'l1', kind: 'light' }),
+        geraet({
+          id: 'r1',
+          kind: 'binary_sensor',
+          name: 'Rauchmelder Flur',
+          state: { state: 'off', device_class: 'smoke' },
+        }),
+      ],
+      () => 'Rauchmelder'
+    );
+    expect(kategorien.flatMap((k) => k.items.map((e) => e.id))).not.toContain('r1');
+  });
+
+  it('stellt den meldenden Rauchwarnmelder trotzdem ins Zimmer', () => {
+    // Die halbe Regel ist «solange sie ruhig sind». Eine ausgeblendete
+    // Brandmeldung wäre kein aufgeräumter Bildschirm, sondern ein
+    // Fehler.
+    const kategorien = raumKategorien(
+      [
+        geraet({
+          id: 'r1',
+          kind: 'binary_sensor',
+          name: 'Rauchmelder Flur',
+          state: { state: 'on', device_class: 'smoke' },
+        }),
+      ],
+      () => 'Rauchmelder'
+    );
+    expect(kategorien.flatMap((k) => k.items.map((e) => e.id))).toContain('r1');
+  });
 });
 
 describe('raumMesswerte', () => {

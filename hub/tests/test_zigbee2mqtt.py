@@ -242,3 +242,65 @@ def test_erreichbarkeit_in_beiden_schreibweisen():
     assert z.ist_erreichbar("") is None
     assert z.ist_erreichbar("was auch immer") is None
     assert z.ist_erreichbar("{kaputt") is None
+
+
+def test_der_rauchmelder_bringt_seine_dichten_mit():
+    """Punkt 542: Was ein Rauchwarnmelder ausser «Rauch» meldet.
+
+    Vorher fiel das alles durch: MESSWERTE ist eine Auswahl, kein
+    Durchlass, und `smoke_density` stand nicht darin. Unter
+    Einstellungen → System stünde dann eine Liste mit Status und sonst
+    nichts - für Geräte, die man nie anfasst, ist das genau die
+    Auskunft, die fehlt.
+    """
+    changes = z.zustand_aus_payload(
+        {
+            "smoke": False,
+            "battery": 87,
+            "smoke_density": 0,
+            "smoke_density_dbm": 0.05,
+            "tamper": False,
+            "test": False,
+            "linkquality": 94,
+        },
+        "binary_sensor",
+        "smoke",
+        None,
+    )
+    assert changes["state"] == "off"
+    assert changes["smoke_density"] == 0
+    assert changes["smoke_density_dbm"] == 0.05
+    assert changes["battery"] == 87
+    assert changes["linkquality"] == 94
+    # Der Selbsttest, damit «Rauch» nicht nach Feuer aussieht, wenn
+    # jemand nur den Knopf gedrückt hat.
+    assert changes["test"] is False
+    # Sabotage kommt über MELDER, weil dieses Gerät ein Rauchmelder ist
+    # und kein Sabotagekontakt.
+    assert changes["tamper"] == "off"
+
+
+def test_die_eigene_batteriewarnung_des_geraets_sticht_den_prozentwert():
+    """Melder melden den Stand oft in drei Stufen - 100, 50, 0.
+
+    Ein Melder, der «battery: 50» und zugleich «battery_low: true»
+    schickt, ist leer und nicht halbvoll: Die Warnung kommt vom
+    Hersteller, der Prozentwert ist geraten. Vorher rechnete der Hub sie
+    aus dem Prozentwert nach und überschrieb damit genau die Auskunft,
+    auf die es ankommt.
+    """
+    changes = z.zustand_aus_payload(
+        {"smoke": False, "battery": 50, "battery_low": True},
+        "binary_sensor",
+        "smoke",
+        None,
+    )
+    assert changes["low_battery"] is True
+
+    heil = z.zustand_aus_payload(
+        {"smoke": False, "battery": 50, "battery_low": False},
+        "binary_sensor",
+        "smoke",
+        None,
+    )
+    assert heil["low_battery"] is False

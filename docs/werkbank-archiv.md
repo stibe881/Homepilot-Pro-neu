@@ -4641,3 +4641,57 @@ einen Fühler auf, den niemand ausgeblendet und niemand umgestellt hatte
 die Probe prompt zwei rote Messungen.
 
 Stellen: `app/src/lib/raumkarte.ts`, `app/src/components/RoomCard.tsx`, `app/src/screens/DashboardScreen.tsx`, `scripts/probe.sh`, `scripts/probe.mjs`
+
+### 542. Rauchwarnmelder: keine Kachel im Zimmer, dafür eine Liste unter System ✓ erledigt
+
+Gewünscht im Haus: «Die Rauchwarnmelder-Kachel soll es in den Räumen
+nicht anzeigen. Es soll aber in Einstellungen → System die
+Rauchwarnmelder anzeigen mit Status, Batterie, Smoke density, Smoke
+density dbm usw.»
+
+**Die Kachel fällt weg - solange der Melder ruhig ist.** Dieselbe Lehre
+wie bei den Fenster- und Türkontakten (Punkt 47) und den
+Bewegungsmeldern: Was man nicht bedienen kann, ist ein Zeichen wert,
+keine Kachel. Die Melder hängen an der Decke, und ihre Kachel sagte
+jeden Tag dasselbe. Die halbe Regel ist aber das «solange»: Meldet einer
+Rauch, steht er wieder im Zimmer. Eine ausgeblendete Brandmeldung wäre
+kein aufgeräumter Bildschirm, sondern ein Fehler. Ein Melder, den der
+Hub gar nicht erreicht, gilt dabei nicht als meldend - «on» von einem
+Gerät, das seit Tagen still ist, ist der letzte bekannte Wert und keine
+Meldung; er steht dafür zuoberst in der Liste unter System.
+
+**Und deshalb braucht es die Liste.** Ein Rauchmelder ist genau das
+Gerät, bei dem niemand merkt, dass es still geworden ist - man fasst ihn
+nie an. Unter Einstellungen → System steht er jetzt mit Status, Raum,
+Batterie, Rauchdichte, Rauchdichte in dB/m, Sabotage, Testmodus und
+Funkgüte. Zugeklappt zeigt die Karte nur, was meldet oder nicht
+erreichbar ist; eine Brandmeldung hinter einem Pfeil wäre der Fehler,
+den die Karte gerade vermeiden soll.
+
+**Die Werte kommen aus dem Gerät, nicht aus einer festen Liste.** Das
+«usw.» in der Bitte ist der Punkt: Welche Werte ein Melder führt, hängt
+am Modell. Bekanntes bekommt eine deutsche Beschriftung, alles Übrige
+steht trotzdem da, mit seinem Feldnamen. Eine Liste, die nur zeigt, was
+jemand vorher aufgezählt hat, lässt genau das weg, wonach man sucht.
+
+**Im Hub kamen die Rauchdichten gar nie an.** `MESSWERTE` in
+`integrations/zigbee2mqtt.py` ist eine Auswahl und kein Durchlass - was
+nicht darin steht, fällt weg. `smoke_density` und `smoke_density_dbm`
+standen nicht darin, die Liste hätte also Status und sonst nichts
+gezeigt. Dabei kam ein zweiter Fehler heraus: Meldet ein Gerät selbst
+«Batterie schwach», rechnete der Hub die Warnung aus dem Prozentwert
+nach und überschrieb sie. Melder melden ihren Stand oft in drei Stufen
+(100/50/0) - «50 % und schwach» heisst leer, nicht halbvoll.
+
+**Zwei Spalten hiessen beide «Rauchdichte».** Bei Zigbee2MQTT heissen
+beide Zahlen «smoke density», und nebeneinander standen zwei gleich
+benannte Spalten mit verschiedener Zahl. Im Browser gesehen, nicht
+gelesen; die Einheit steht jetzt in der Beschriftung, weil sie hier das
+ist, was die zwei unterscheidet.
+
+Die Probe misst beide Hälften. Nur die erste zu messen wäre die
+gefährlichere Variante: Eine Kachel wegzunehmen ist leicht, und wenn die
+Liste dann fehlt, ist der Melder nirgends mehr zu sehen - schlimmer als
+vorher.
+
+Stellen: `app/src/lib/rauchmelder.ts`, `app/src/lib/raum.ts`, `app/src/screens/SystemScreen.tsx`, `hub/homepilot/integrations/zigbee2mqtt.py`, `hub/homepilot/integrations/demo.py`, `scripts/probe.sh`, `scripts/probe.mjs`

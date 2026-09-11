@@ -4,6 +4,7 @@ import { Entity } from '../api/types';
 import { istBewegungsmelder } from './bewegung';
 import { zaehltAlsAn } from './geraeteart';
 import { istKlimaFuehler } from './klimachip';
+import { rauchmelderVerstecken } from './rauchmelder';
 import { istKontakt, kontaktArt, openContacts } from './offen';
 import { aktiveVorgabe } from './storenvorgaben';
 
@@ -352,7 +353,9 @@ export function raeumeSortiert(rooms: string[], order?: string[]): string[] {
  *
  * Messwerte tauchen gar nicht auf: Sie stehen als Zeile im Raumkopf
  * statt als volle Kacheln zwischen dem Bedienbaren. Ebenso die Fenster-
- * und Türkontakte - aus demselben Grund. Ebenso die
+ * und Türkontakte - aus demselben Grund. Ebenso die ruhigen
+ * Rauchwarnmelder, die unter Einstellungen → System eine eigene Liste
+ * haben (Punkt 542) - meldet einer Rauch, steht er wieder hier. Ebenso die
  * Lichtszenen der Bridge: Sie hatten eine eigene Kategorie
  * «Lichtszene» ganz unten, hinter Beleuchtung, Store und Medien - und
  * standen damit weit weg von den Szenen des Hubs, die dasselbe tun.
@@ -394,7 +397,18 @@ export function raumKategorien(
       // sich etwas, sagt es das Männchen im Raumkopf und auf der
       // Raumkachel (lib/bewegung.ts) - und das steht dort, wo man
       // hinsieht, statt eine Kachelreihe weiter unten.
-      !istBewegungsmelder(entity)
+      !istBewegungsmelder(entity) &&
+      // Und die Rauchwarnmelder, solange sie ruhig sind (Punkt 542).
+      // Sie hängen an der Decke, bedienen lässt sich nichts, und die
+      // Kachel sagte immer dasselbe. Was man an ihnen wirklich wissen
+      // will - meldet er noch, wie voll ist die Batterie, was misst er
+      // gerade -, steht unter Einstellungen → System.
+      //
+      // **Solange sie ruhig sind** ist dabei die halbe Regel: Meldet
+      // einer Rauch, steht er wieder im Zimmer (lib/rauchmelder.ts).
+      // Eine ausgeblendete Brandmeldung wäre kein aufgeräumter
+      // Bildschirm, sondern ein Fehler.
+      !rauchmelderVerstecken(entity)
   );
   const labels = Array.from(new Set(rest.map(kindLabel))).sort((a, b) =>
     a.localeCompare(b)

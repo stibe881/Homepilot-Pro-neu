@@ -63,6 +63,17 @@ MESSWERTE = {
     "voltage": "voltage",
     "current": "current",
     "linkquality": "linkquality",
+    # Was ein Rauchwarnmelder ausser «Rauch ja/nein» führt (Punkt 542).
+    # Vorher fiel das alles hier durch: Diese Liste ist eine Auswahl,
+    # kein Durchlass, und was nicht darin steht, kommt beim Hub nie an.
+    # Gefragt war «Status, Batterie, Smoke density, Smoke density dbm
+    # usw.» - und die beiden Dichten sind genau die Zahlen, an denen man
+    # sieht, ob ein Melder noch misst oder nur noch hängt.
+    "smoke_density": "smoke_density",
+    "smoke_density_dbm": "smoke_density_dbm",
+    # Der Melder im Selbsttest. Ohne dieses Feld sieht «Rauch» nach
+    # Feuer aus, obwohl jemand nur den Knopf gedrückt hat.
+    "test": "test",
 }
 
 #: Melder, deren «true» etwas bedeutet - und was der Hub daraus macht.
@@ -251,7 +262,13 @@ def zustand_aus_payload(
         if zigbee in payload and payload[zigbee] is not None:
             changes[feld] = payload[zigbee]
 
-    if "battery" in changes:
+    # Sagt das Gerät selbst «Batterie schwach», gilt das. Der Prozentwert
+    # ist bei Meldern oft geraten (drei Stufen, als 100/50/0 gemeldet),
+    # die eigene Warnung des Geräts nicht - sie kommt vom Hersteller und
+    # ist der Grund, aus dem der Melder nachts piept.
+    if "battery_low" in payload and payload["battery_low"] is not None:
+        changes["low_battery"] = bool(payload["battery_low"])
+    elif "battery" in changes:
         try:
             changes["low_battery"] = float(changes["battery"]) <= 15
         except (TypeError, ValueError):

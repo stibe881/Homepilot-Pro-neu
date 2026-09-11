@@ -725,6 +725,72 @@ async function zumEditor(seite) {
   return true;
 }
 
+/** 9. Der Rauchwarnmelder: keine Kachel im Zimmer, dafür eine Liste
+ * unter System. (Punkt 542)
+ *
+ * Gewünscht im Haus: «Die Rauchwarnmelder-Kachel soll es in den Räumen
+ * nicht anzeigen. Es soll aber in Einstellungen → System die
+ * Rauchwarnmelder anzeigen mit Status, Batterie, Smoke density, Smoke
+ * density dbm usw.»
+ *
+ * Beide Hälften gemessen und nicht nur die erste: Eine Kachel
+ * wegzunehmen ist leicht, und wenn die Liste dann fehlt, ist der Melder
+ * nirgends mehr zu sehen - schlimmer als vorher. Die Kette ist dabei
+ * länger, als sie aussieht: Der Hub muss die Rauchdichten überhaupt
+ * durchlassen (MESSWERTE in integrations/zigbee2mqtt.py liess sie
+ * fallen), und die Karte muss sie ohne feste Liste finden.
+ */
+async function rauchmelderNichtImZimmer(browser) {
+  const seite = await angemeldeteSeite(browser, GROESSEN[0]);
+  if (!(await zurSeite(seite, 'Räume'))) {
+    await seite.close();
+    return;
+  }
+  const flur = seite.getByText('Flur', { exact: true }).first();
+  if (await flur.isVisible().catch(() => false)) {
+    await flur.click();
+    await seite.waitForTimeout(1200);
+    const imZimmer = await seite.evaluate(() =>
+      document.body.innerText.includes('Rauchmelder Flur')
+    );
+    pruefe(!imZimmer, 'Im Zimmer steht keine Kachel für den ruhigen Rauchmelder');
+  }
+
+  if (!(await zurSeite(seite, 'Einstellungen'))) {
+    await seite.close();
+    return;
+  }
+  const system = seite.getByText('System', { exact: true }).first();
+  if (!(await system.isVisible().catch(() => false))) {
+    pruefe(false, 'Die Systemseite war erreichbar');
+    await seite.close();
+    return;
+  }
+  await system.click();
+  await seite.waitForTimeout(2000);
+  const kopf = seite.getByText('Rauchwarnmelder', { exact: true }).first();
+  if (!(await kopf.isVisible().catch(() => false))) {
+    pruefe(false, 'Unter System steht die Liste der Rauchwarnmelder');
+    await seite.close();
+    return;
+  }
+  // Zugeklappt zeigt die Karte nur, was meldet - der Demo-Melder ist
+  // ruhig und steht erst nach dem Aufklappen da.
+  await kopf.click();
+  await seite.waitForTimeout(700);
+  const text = await seite.evaluate(() => document.body.innerText);
+  pruefe(
+    text.includes('Rauchmelder Flur'),
+    'Unter System steht die Liste der Rauchwarnmelder'
+  );
+  // Genau die beiden Zahlen, nach denen gefragt wurde. Sie fielen im
+  // Hub durch, bevor sie je eine Oberfläche erreichten - ohne diese
+  // Messung wäre das wieder unbemerkt möglich.
+  pruefe(text.includes('Rauchdichte'), 'Und die Rauchdichte dabei');
+  pruefe(text.includes('Rauchdichte (dB/m)'), 'Und die Rauchdichte in dB/m daneben');
+  await seite.close();
+}
+
 const { chromium } = playwrightLaden();
 const browser = await chromium.launch({ executablePath: browserOrt() });
 try {
@@ -737,6 +803,7 @@ try {
   await weitereSeiten(browser);
   await ablaufEditorPasst(browser);
   await fuehlerInZweiZimmern(browser);
+  await rauchmelderNichtImZimmer(browser);
 } finally {
   await browser.close();
 }

@@ -65,7 +65,9 @@ rooms:
   # zählen (Punkt 539), und ohne ein Zimmer, das nur so entsteht, liesse
   # sich das im Browser nicht messen.
   Esszimmer: [demo.temp_livingroom]
-  Flur: [demo.motion_hall]
+  # Der Rauchwarnmelder gehört in ein Zimmer, sonst lässt sich nicht
+  # messen, dass er dort **keine** Kachel bekommt (Punkt 542).
+  Flur: [demo.motion_hall, demo.smoke_hall]
 automations: []
 YAML
 

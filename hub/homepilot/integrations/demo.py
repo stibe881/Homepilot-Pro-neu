@@ -72,7 +72,23 @@ class DemoIntegration(Integration):
             "Rauchmelder Flur",
             # Mit schwacher Batterie: Ohne ein solches Gerät liess sich die
             # Batterienliste samt Quittieren nie ansehen.
-            state={"state": "off", "device_class": "smoke", "low_battery": True},
+            #
+            # Und mit den Rauchdichten, die ein Zigbee-Melder mitschickt
+            # (Punkt 542): Die Liste unter Einstellungen → System zeigt
+            # alles, was ein Melder führt - an einem Demo-Melder, der nur
+            # «aus» kann, sähe man davon nichts und hielte die leere
+            # Karte für richtig.
+            state={
+                "state": "off",
+                "device_class": "smoke",
+                "low_battery": True,
+                "battery": 12,
+                "smoke_density": 0.0,
+                "smoke_density_dbm": 0.05,
+                "tamper": "off",
+                "test": False,
+                "linkquality": 94,
+            },
         )
         await self.add_entity(
             "window_kitchen",
