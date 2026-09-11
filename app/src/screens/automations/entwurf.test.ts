@@ -6,7 +6,14 @@ import {
   lastRunText,
   EMPTY_STEP,
   EMPTY_TRIGGER,
+  ASSISTENT_SCHRITTE,
+  assistentNoetig,
   buildConditions,
+  dannFehlt,
+  dannStand,
+  feinStand,
+  wennFehlt,
+  wennStand,
   plainStates,
   stateOptions,
   stepToActions,
@@ -1978,5 +1985,98 @@ describe('Ausser in den Schulferien', () => {
       exceptHolidays: true,
     });
     expect(conditions[0].except_school_holidays).toBeUndefined();
+  });
+});
+
+// ── Der geführte Weg für einen neuen Ablauf ─────────────────────────────
+//
+// Gemeldet: «Einen Ablauf erstellen oder bearbeiten ist eine
+// Katastrophe. Unübersichtlich, nicht intuitiv, verwirrend.» Für einen
+// bestehenden ist die Übersicht die Antwort; für einen neuen der
+// Assistent, der nacheinander fragt.
+
+describe('Assistent', () => {
+  const leer = () => ({ ...EMPTY });
+
+  it('führt einen leeren neuen Ablauf', () => {
+    expect(assistentNoetig(leer())).toBe(true);
+  });
+
+  it('führt einen bestehenden Ablauf nicht', () => {
+    // Wer eine Kleinigkeit ändern will, soll sich nicht durch drei
+    // Schritte klicken - genau das macht Assistenten unbeliebt.
+    expect(assistentNoetig({ ...leer(), id: 'app_1' })).toBe(false);
+  });
+
+  it('führt eine vorbefüllte Vorlage nicht', () => {
+    expect(assistentNoetig({ ...leer(), templateId: 'licht-bewegung' })).toBe(false);
+  });
+
+  it('führt nicht, wenn schon ein Auslöser gewählt ist', () => {
+    // Mit einem Gerät im Gepäck angekommen (aus einer Kachel heraus):
+    // Dann ist die erste Frage längst beantwortet.
+    const draft = {
+      ...leer(),
+      triggers: [{ ...EMPTY_TRIGGER, entityId: 'demo.motion_hall' }],
+    };
+    expect(assistentNoetig(draft)).toBe(false);
+  });
+
+  it('trennt, was im Wenn fehlt, von dem, was im Dann fehlt', () => {
+    // Daran hängt, wann «Weiter» grau ist: Ein fehlendes Gerät im Dann
+    // darf den ersten Schritt nicht blockieren.
+    const draft = leer();
+    expect(wennFehlt(draft).join(' ')).toMatch(/Wenn/);
+    expect(wennFehlt(draft).join(' ')).not.toMatch(/Dann/);
+    expect(dannFehlt(draft).join(' ')).toMatch(/Dann/);
+    expect(dannFehlt(draft).join(' ')).not.toMatch(/Wenn/);
+  });
+
+  it('hat für jeden Schritt eine Frage', () => {
+    expect(ASSISTENT_SCHRITTE).toHaveLength(3);
+    ASSISTENT_SCHRITTE.forEach((frage) => expect(frage).toMatch(/\?$/));
+  });
+});
+
+describe('Zusammenfassungen der Abschnitte', () => {
+  // Zugeklappt steht das im Kopf. Ohne diese Zeilen hiesse Zuklappen
+  // «verstecken», und man macht beim Bearbeiten sofort alles wieder auf.
+  const entities = [
+    { id: 'demo.motion_hall', name: 'Bewegung Flur', kind: 'binary_sensor' },
+    { id: 'demo.light_livingroom', name: 'Licht Wohnzimmer', kind: 'light' },
+  ] as never;
+
+  it('nennt im Wenn den Gerätenamen statt der Art', () => {
+    const draft = {
+      ...EMPTY,
+      triggers: [{ ...EMPTY_TRIGGER, entityId: 'demo.motion_hall' }],
+    };
+    expect(wennStand(draft, entities)).toBe('Bewegung Flur');
+  });
+
+  it('zählt ab drei Auslösern', () => {
+    const draft = {
+      ...EMPTY,
+      triggers: [
+        { ...EMPTY_TRIGGER, entityId: 'demo.motion_hall' },
+        { ...EMPTY_TRIGGER, entityId: 'demo.light_livingroom' },
+        { ...EMPTY_TRIGGER, kind: 'sun' as const },
+      ],
+    };
+    expect(wennStand(draft, entities)).toBe('3 Auslöser');
+  });
+
+  it('bleibt leer, solange nichts gewählt ist', () => {
+    expect(wennStand(EMPTY, entities)).toBe('');
+    expect(dannStand(EMPTY, entities)).toBe('');
+  });
+
+  it('nennt in den Feineinstellungen nur, was gesetzt ist', () => {
+    expect(feinStand(EMPTY)).toBe('');
+    expect(feinStand({ ...EMPTY, gueltigBis: '31.12.2026' })).toBe('bis 31.12.2026');
+    // Die 0 ist die Vorgabe und keine Einstellung - sie gehört nicht in
+    // die Kopfzeile, sonst steht dort bei jedem Ablauf etwas.
+    expect(feinStand({ ...EMPTY, reihenfolge: '0' })).toBe('');
+    expect(feinStand({ ...EMPTY, reihenfolge: '3' })).toBe('Reihenfolge 3');
   });
 });

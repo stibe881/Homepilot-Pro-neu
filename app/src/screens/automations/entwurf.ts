@@ -2472,6 +2472,59 @@ const AUSLOESER_MIT_GERAET: readonly TriggerKind[] = [
  * Reihenfolge ist die des Formulars, damit man von oben nach unten
  * abarbeiten kann.
  */
+// ── Der geführte Weg für einen neuen Ablauf ─────────────────────────────
+//
+// Gemeldet: «Einen Ablauf erstellen oder bearbeiten ist eine
+// Katastrophe. Unübersichtlich, nicht intuitiv, verwirrend.»
+//
+// Für einen *bestehenden* Ablauf ist die Übersicht die Antwort: alles
+// auf einem Bildschirm, jeder Abschnitt zugeklappt mit seinem Stand.
+// Für einen *neuen* ist sie es nicht - dort steht man vor fünf leeren
+// Abschnitten und weiss nicht, wo man anfängt. Deshalb fragt der
+// Assistent nacheinander: erst wann, dann was, dann wie er heissen
+// soll.
+//
+// Er ist kein zweiter Editor, sondern derselbe mit einem Fenster davor:
+// Es sind dieselben Abschnitte, nur zeigt er jeweils einen. Zwei
+// Oberflächen, die dasselbe bauen, laufen sonst auseinander - das ist
+// der Fehler, den diese Datei an anderer Stelle schon einmal gekostet
+// hat.
+
+/** Die Überschriften der drei Schritte - eine Frage je Schritt. */
+export const ASSISTENT_SCHRITTE = [
+  'Wann soll es losgehen?',
+  'Was soll dann passieren?',
+  'Passt das so?',
+];
+
+/**
+ * Fängt dieser Entwurf bei null an? (rein, testbar)
+ *
+ * Nur dann führt der Assistent. Ein bestehender Ablauf und eine
+ * vorbefüllte Vorlage öffnen direkt die Übersicht: Wer eine Kleinigkeit
+ * ändern will, soll sich nicht durch drei Schritte klicken.
+ */
+export function assistentNoetig(draft: Draft): boolean {
+  if (draft.id || draft.templateId) return false;
+  const wenn = wasFehlt(draft).some(
+    (zeile) => zeile.startsWith('Wenn') || zeile.startsWith('Auslöser')
+  );
+  const dann = stepsToActions(draft.steps).length === 0;
+  return wenn && dann;
+}
+
+/** Was im «Wenn» noch fehlt (rein, testbar). */
+export function wennFehlt(draft: Draft): string[] {
+  return wasFehlt(draft).filter(
+    (zeile) => zeile.startsWith('Wenn') || zeile.startsWith('Auslöser')
+  );
+}
+
+/** Und was im «Dann» (rein, testbar). */
+export function dannFehlt(draft: Draft): string[] {
+  return wasFehlt(draft).filter((zeile) => zeile.startsWith('Dann'));
+}
+
 export function wasFehlt(draft: Draft): string[] {
   const fehlt: string[] = [];
 
@@ -2653,7 +2706,12 @@ export function wennStand(draft: Draft, entities: Entity[]): string {
       // Wo ein Gerät dranhängt, ist sein Name die bessere Auskunft als
       // die Art: «Bewegung Flur» sagt mehr als «Gerät wechselt».
       const entity = entities.find((eintrag) => eintrag.id === trigger.entityId);
-      return entity?.name || TRIGGER_WORT[trigger.kind] || '';
+      if (entity) return entity.name;
+      // Ein Auslöser, der ein Gerät bräuchte und keines hat, ist noch
+      // nichts - «Gerät wechselt» im Kopf zu behaupten wäre falsch, und
+      // beim leeren neuen Ablauf stünde es sofort da.
+      if (AUSLOESER_MIT_GERAET.includes(trigger.kind)) return '';
+      return TRIGGER_WORT[trigger.kind] || '';
     })
     .filter(Boolean);
   if (namen.length === 0) return '';
@@ -2663,6 +2721,11 @@ export function wennStand(draft: Draft, entities: Entity[]): string {
 
 /** Und dasselbe fürs «Dann» (rein, testbar). */
 export function dannStand(draft: Draft, entities: Entity[]): string {
+  // Was dabei herauskommt zählt, nicht wie viele Schritte dastehen: Ein
+  // Schritt «Gerät schalten» ohne angekreuztes Gerät sieht im Formular
+  // aus wie einer und tut nichts. «1 Schritt» im Kopf eines leeren
+  // neuen Ablaufs wäre eine Behauptung.
+  if (stepsToActions(draft.steps).length === 0) return '';
   const anzahl = draft.steps.length;
   if (anzahl === 0) return '';
   const erstesGeraet = draft.steps

@@ -463,14 +463,18 @@ export const SPALTEN_AB = 980;
 export function Spalten({
   links,
   rechts,
+  aus = false,
 }: {
   links: React.ReactNode;
   rechts: React.ReactNode;
+  /** Untereinander, auch wenn Platz wäre - der Assistent zeigt einen
+   *  Abschnitt aufs Mal, und der gehört nicht in eine halbe Spalte. */
+  aus?: boolean;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { width } = useWindowDimensions();
-  if (width < SPALTEN_AB) {
+  if (aus || width < SPALTEN_AB) {
     return (
       <>
         {links}
@@ -491,6 +495,7 @@ export function Abschnitt({
   titel,
   stand,
   zuklappbar = false,
+  versteckt = false,
   anfangsOffen,
   children,
 }: {
@@ -500,6 +505,12 @@ export function Abschnitt({
    *  Abschnitt von selbst. */
   stand?: string;
   zuklappbar?: boolean;
+  /** Ganz weg, ohne den Abschnitt anders aufzubauen.
+   *
+   *  Der Assistent zeigt einen Abschnitt aufs Mal. Ihn dort neu zu
+   *  bauen hiesse, dieselben Felder zweimal zu pflegen - und genau so
+   *  laufen zwei Oberflächen auseinander, die dasselbe bauen sollen. */
+  versteckt?: boolean;
   /** Überstimmt, ob der Abschnitt offen anfängt.
    *
    *  «Steht etwas drin, geh auf» ist beim Anlegen richtig und beim
@@ -514,6 +525,8 @@ export function Abschnitt({
   const [offen, setOffen] = useState(
     anfangsOffen ?? (!zuklappbar || !!stand)
   );
+
+  if (versteckt) return null;
 
   return (
     <View style={styles.abschnitt}>
