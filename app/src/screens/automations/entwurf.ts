@@ -110,6 +110,9 @@ export interface Run {
   skipped: string[];
   /** Die Schritt-Spur (Punkt 160): was wann dran war, und was hing. */
   steps?: { label: string; after: number; note?: string; error?: string }[];
+  /** Punkt 49: Löste eine Kamera aus, liegt ihr Standbild im Bildarchiv
+   *  des Hubs - das ist seine Kennung für /api/automations/bild/… */
+  image?: string;
   /** Ob der Lauf auch gewirkt hat – ein paar Sekunden nach dem Lauf am
    *  Gerät nachgesehen (hub/core/wirkung.py). Fehlt bei Läufen, an denen
    *  es nichts Prüfbares gab, und bei allen aus der Zeit davor. */

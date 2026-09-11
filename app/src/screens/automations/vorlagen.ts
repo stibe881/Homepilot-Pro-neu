@@ -13,6 +13,9 @@ export interface Template {
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   draft: Draft;
+  /** Die Gruppe in der Vorlagenliste - als Feld, nicht am Namen geraten:
+   *  Eine umbenannte Vorlage rutschte sonst still nach «Weitere». */
+  gruppe: VorlagenGruppe;
 }
 
 /** Eine selbst gesicherte Vorlage, wie sie vom Hub kommt. */
@@ -36,13 +39,15 @@ export const VORLAGEN_GRUPPEN = [
   'Weitere',
 ] as const;
 
+export type VorlagenGruppe = (typeof VORLAGEN_GRUPPEN)[number];
+
 /**
- * In welche Gruppe eine Vorlage gehört (rein, testbar).
+ * In welche Gruppe eine Vorlage gehört, wenn sie kein Feld trägt
+ * (rein, testbar).
  *
- * Am Namen statt an einem Feld je Vorlage: 32 Zeilen in einer flachen
- * Liste liest niemand mehr - aber die Namen sagen alle, wovon sie
- * handeln. Die Reihenfolge der Regeln zählt: «Wäsche meldet sich erst
- * beim Heimkommen» ist Haushalt, nicht Kommen & Gehen.
+ * Nur noch der Rückfall: Die eingebauten Vorlagen tragen ihre Gruppe
+ * als Feld, seit eine umbenannte Vorlage («Storen» → «Rollos») still
+ * nach «Weitere» rutschte. Der Name ist ein Hinweis, kein Vertrag.
  */
 export function vorlagenGruppe(label: string): string {
   if (/klingel|kamera/i.test(label)) return 'Klingel & Kameras';
@@ -62,7 +67,7 @@ export function gruppiereVorlagen(
 ): { titel: string; zeilen: VorlagenZeile[] }[] {
   const gruppen = new Map<string, VorlagenZeile[]>();
   for (const zeile of zeilen) {
-    const titel = zeile.eigen ? 'Eigene' : vorlagenGruppe(zeile.label);
+    const titel = zeile.eigen ? 'Eigene' : (zeile.gruppe ?? vorlagenGruppe(zeile.label));
     const liste = gruppen.get(titel) ?? [];
     liste.push(zeile);
     gruppen.set(titel, liste);
@@ -82,6 +87,8 @@ export interface VorlagenZeile {
   draft: Partial<Draft>;
   /** Selbst gesichert? Dann löschbar; sonst nur ausblendbar. */
   eigen: boolean;
+  /** Die Gruppe der eingebauten Vorlage; eigene stehen unter «Eigene». */
+  gruppe?: VorlagenGruppe;
 }
 
 /**
@@ -120,6 +127,7 @@ export function mischeVorlagen(
       icon: vorlage.icon,
       draft: vorlage.draft,
       eigen: false,
+      gruppe: vorlage.gruppe,
     }));
   return [...meine, ...gebaut];
 }
@@ -189,6 +197,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
       allLights[0];
     templates.push({
       label: 'Licht bei Bewegung, mit Nachlauf',
+      gruppe: 'Licht',
       icon: 'walk-outline',
       draft: {
         ...EMPTY,
@@ -256,6 +265,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
     // nur der Haushalt selbst.
     templates.push({
       label: 'Der Erste kommt heim',
+      gruppe: 'Kommen & Gehen',
       icon: 'enter-outline',
       draft: {
         ...EMPTY,
@@ -268,6 +278,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
     });
     templates.push({
       label: 'Der Letzte geht',
+      gruppe: 'Kommen & Gehen',
       icon: 'exit-outline',
       draft: {
         ...EMPTY,
@@ -285,6 +296,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
   if (presence && (offScene || allLights.length > 0)) {
     templates.push({
       label: 'Alles aus, wenn niemand da',
+      gruppe: 'Kommen & Gehen',
       icon: 'exit-outline',
       draft: {
         ...EMPTY,
@@ -313,6 +325,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
     // machen: Von Hand scharf schalten vergisst man genau einmal.
     templates.push({
       label: 'Scharf, wenn der Letzte geht',
+      gruppe: 'Sicherheit',
       icon: 'lock-closed-outline',
       draft: {
         ...EMPTY,
@@ -325,6 +338,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
     });
     templates.push({
       label: 'Unscharf beim Heimkommen',
+      gruppe: 'Sicherheit',
       icon: 'lock-open-outline',
       draft: {
         ...EMPTY,
@@ -345,6 +359,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
       ) ?? allLights[0];
     templates.push({
       label: 'Ferienmodus: Anwesenheit simulieren',
+      gruppe: 'Kommen & Gehen',
       icon: 'airplane-outline',
       draft: {
         ...EMPTY,
@@ -381,6 +396,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
   if (doorbell) {
     templates.push({
       label: 'Push, wenn es klingelt',
+      gruppe: 'Klingel & Kameras',
       icon: 'notifications-outline',
       draft: {
         ...EMPTY,
@@ -403,6 +419,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
       // sie über die Boxen trotzdem.
       templates.push({
         label: 'Klingel-Ansage auf den Boxen',
+        gruppe: 'Klingel & Kameras',
         icon: 'megaphone-outline',
         draft: {
           ...EMPTY,
@@ -424,6 +441,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
   if (appliance) {
     templates.push({
       label: 'Push, wenn das Gerät fertig ist',
+      gruppe: 'Haushalt',
       icon: 'checkmark-done-outline',
       draft: {
         ...EMPTY,
@@ -449,6 +467,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
     if (presence && kannDurchsagen) {
       templates.push({
         label: 'Wäsche meldet sich erst beim Heimkommen',
+        gruppe: 'Haushalt',
         icon: 'home-outline',
         draft: {
           ...EMPTY,
@@ -488,6 +507,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
   if (alert) {
     templates.push({
       label: 'Unwetterwarnung als Push',
+      gruppe: 'Storen & Wetter',
       icon: 'thunderstorm-outline',
       draft: {
         ...EMPTY,
@@ -513,6 +533,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
     const startet = vacuum.commands.includes('start');
     templates.push({
       label: 'Morgens saugen',
+      gruppe: 'Haushalt',
       icon: 'sparkles-outline',
       draft: {
         ...EMPTY,
@@ -556,6 +577,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
       // Listen.
       templates.push({
         label: 'Sturmwarnung: Storen hoch',
+        gruppe: 'Storen & Wetter',
         icon: 'shield-outline',
         draft: {
           ...EMPTY,
@@ -605,6 +627,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
   if (grill) {
     templates.push({
       label: 'Grill: Sonde meldet',
+      gruppe: 'Haushalt',
       icon: 'flame-outline',
       draft: {
         ...EMPTY,
@@ -634,6 +657,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
   if (batteries.length > 0) {
     templates.push({
       label: 'Batterie wird schwach',
+      gruppe: 'Haushalt',
       icon: 'battery-half-outline',
       draft: {
         ...EMPTY,
@@ -670,6 +694,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
     const wer = zone.name;
     templates.push({
       label: `${wer} ist angekommen`,
+      gruppe: 'Kommen & Gehen',
       icon: 'location-outline',
       draft: {
         ...EMPTY,
@@ -694,6 +719,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
     // Die stille Umkehrung, die man erst schätzt, wenn sie fehlt.
     templates.push({
       label: `${wer} ist um 17:30 noch nicht da`,
+      gruppe: 'Kommen & Gehen',
       icon: 'alarm-outline',
       draft: {
         ...EMPTY,
@@ -741,6 +767,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
       );
       templates.push({
         label: 'Es klingelt mitten im Film',
+        gruppe: 'Klingel & Kameras',
         icon: 'pause-circle-outline',
         draft: {
           ...EMPTY,
@@ -779,6 +806,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
     }
     templates.push({
       label: 'Licht an, wenn der Fernseher spätabends ausgeht',
+      gruppe: 'Licht',
       icon: 'tv-outline',
       draft: {
         ...EMPTY,
@@ -834,6 +862,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
     }
     templates.push({
       label: 'Wenn niemand mehr zuhause ist',
+      gruppe: 'Kommen & Gehen',
       icon: 'walk-outline',
       draft: {
         ...EMPTY,
@@ -870,6 +899,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
     }
     templates.push({
       label: 'Willkommen zuhause',
+      gruppe: 'Kommen & Gehen',
       icon: 'home-outline',
       draft: {
         ...EMPTY,
@@ -900,6 +930,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
   if (covers.length > 0) {
     templates.push({
       label: 'Storen mit der Sonne auf',
+      gruppe: 'Storen & Wetter',
       icon: 'sunny-outline',
       draft: {
         ...EMPTY,
@@ -924,6 +955,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
     });
     templates.push({
       label: 'Storen mit der Sonne zu',
+      gruppe: 'Storen & Wetter',
       icon: 'moon-outline',
       draft: {
         ...EMPTY,
@@ -947,6 +979,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
   if (wetter && covers.length > 0) {
     templates.push({
       label: 'Hitzeschutz: Storen bei Sommerhitze',
+      gruppe: 'Storen & Wetter',
       icon: 'thermometer-outline',
       draft: {
         ...EMPTY,
@@ -1007,6 +1040,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
   if (kindZone) {
     templates.push({
       label: 'Nachricht, wenn ein Kind heimkommt',
+      gruppe: 'Kommen & Gehen',
       icon: 'home-outline',
       draft: {
         ...EMPTY,
@@ -1044,6 +1078,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
   if (kamera && aussenlicht) {
     templates.push({
       label: 'Kameralicht bei Person in der Nacht',
+      gruppe: 'Klingel & Kameras',
       icon: 'videocam-outline',
       draft: {
         ...EMPTY,
@@ -1100,6 +1135,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
   if (boxVon && boxNach && melderImZielraum) {
     templates.push({
       label: `Musik folgt: ${boxVon.room} → ${boxNach.room}`,
+      gruppe: 'Weitere',
       icon: 'musical-notes-outline',
       draft: {
         ...EMPTY,

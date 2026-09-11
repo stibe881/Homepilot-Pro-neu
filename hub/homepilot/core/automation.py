@@ -79,6 +79,8 @@ from . import (
     abschaltung,
     astro,
     babysitter,
+    bildarchiv,
+    cliparchiv,
     feiertage,
     gemeldet,
     kamera,
@@ -1227,6 +1229,28 @@ def neue_warnungen(
                 continue
         neu.append(alert)
     return neu
+
+
+def standbild_meta(automation: Automation, entity: Any, jetzt: float) -> dict[str, Any]:
+    """Die Metadaten für das Standbild eines Kamera-Auslösers (rein, testbar).
+
+    Dieselbe Bauart wie beim Alarm (integrations/alarm.py): Das Bild liegt
+    im Bildarchiv neben der Datendatei, mit derselben Frist wie die
+    Alarm-Clips. Zusätzlich trägt der Eintrag die Kennung des Ablaufs,
+    damit das Ereignisblatt ein Ablauf-Bild von einem Alarm-Bild
+    unterscheiden kann.
+    """
+    meta = cliparchiv.eintrag(
+        cliparchiv.neue_kennung(jetzt),
+        entity.id,
+        f"Ablauf «{automation.alias}»",
+        jetzt,
+        name=entity.label,
+        room=entity.room,
+        integration=entity.integration,
+    )
+    meta["automation_id"] = automation.id
+    return meta
 
 
 def warnung_aktiv(state: dict[str, Any], min_severity: Any = None) -> bool:
@@ -2450,6 +2474,10 @@ class AutomationEngine:
         # trotzdem weiter - siehe unten in der Schleife.
         gestolpert: list[tuple[str, str]] = []
         start_ts = time.time()
+        # Löst eine Kamera aus, hält der Lauf den Moment fest (Punkt 49):
+        # Das Bild wird jetzt angestossen, nicht erst nach den Schritten -
+        # danach wäre die Person längst aus dem Bild.
+        standbild = self._standbild_starten(automation, ausloeser)
 
         def name_of(entity_id: str) -> str:
             entity = self.hub.registry.get(entity_id)
@@ -2591,6 +2619,8 @@ class AutomationEngine:
             skipped=[] if executed else failed,
             steps=spur,
         )
+        if standbild is not None:
+            await self._standbild_anhaengen(eintrag, standbild)
         if executed and error is None:
             self._wirkung_planen(eintrag, actions)
         if executed:
@@ -2603,6 +2633,74 @@ class AutomationEngine:
                     "error": error,
                 },
             )
+
+    def _standbild_starten(
+        self, automation: Automation, ausloeser: str | None
+    ) -> asyncio.Task[str | None] | None:
+        """Ein Standbild der auslösenden Kamera holen - nebenher.
+
+        Nur wenn der Auslöser eine Kamera ist und es ein Archiv gibt
+        (Tests und die Demo im Speicher haben keines). Das Holen läuft
+        als eigene Aufgabe: Die Schritte des Ablaufs warten nicht auf
+        eine Kamera, die vielleicht erst aufwachen muss.
+        """
+        from .entity import EntityKind
+
+        if not ausloeser:
+            return None
+        entity = self.hub.registry.get(ausloeser)
+        if entity is None or entity.kind != EntityKind.CAMERA:
+            return None
+        folder = bildarchiv.ordner(self.hub.config.data_file)
+        integration = self.hub.integrations.get(entity.integration)
+        if folder is None or integration is None:
+            return None
+
+        async def holen() -> str | None:
+            try:
+                daten = await asyncio.wait_for(integration.snapshot(entity), BILD_WARTEZEIT)
+            except Exception as err:
+                log.debug("Kein Standbild von %s für den Lauf: %s", entity.id, err)
+                return None
+            if not daten:
+                return None
+            abgelegt = bildarchiv.ablegen(
+                folder, daten, standbild_meta(automation, entity, time.time())
+            )
+            return str(abgelegt["id"]) if abgelegt else None
+
+        task = asyncio.create_task(holen())
+        self._run_tasks.add(task)
+        task.add_done_callback(self._run_tasks.discard)
+        return task
+
+    async def _standbild_anhaengen(
+        self, eintrag: dict[str, Any], standbild: asyncio.Task[str | None]
+    ) -> None:
+        """Die Kennung des Standbilds an den Lauf hängen.
+
+        Meist ist das Bild längst da, wenn die Schritte durch sind; dann
+        steht es schon im ersten Abruf des Verlaufs. Wenn nicht, wird kurz
+        gewartet - länger als die Kamera-Frist kann es nicht dauern - und
+        sonst nachgetragen, sobald es kommt.
+        """
+        try:
+            kennung = await asyncio.wait_for(asyncio.shield(standbild), BILD_WARTEZEIT)
+        except TimeoutError:
+
+            def nachtragen(task: asyncio.Task[str | None]) -> None:
+                spaet = task.result() if not task.cancelled() and not task.exception() else None
+                if spaet:
+                    eintrag["image"] = spaet
+                    self._verlauf_sichern()
+
+            standbild.add_done_callback(nachtragen)
+            return
+        except Exception:
+            return
+        if kennung:
+            eintrag["image"] = kennung
+            self._verlauf_sichern()
 
     def _wirkung_planen(
         self, eintrag: dict[str, Any], actions: list[dict[str, Any]]

@@ -16,8 +16,9 @@ import {
 } from './vorlagen';
 import { Entity } from '../../api/types';
 
-const eingebaut = (label: string): Template => ({
+const eingebaut = (label: string, gruppe = vorlagenGruppe(label)): Template => ({
   label,
+  gruppe: gruppe as Template['gruppe'],
   icon: 'flash-outline',
   draft: { ...EMPTY, alias: label },
 });
@@ -531,3 +532,20 @@ describe('gruppiereVorlagen', () => {
   });
 });
 
+
+describe('Gruppe als Feld', () => {
+  it('hält eine umbenannte Vorlage in ihrer Gruppe', () => {
+    // Am Namen geraten rutschte «Rollos zu bei Sturm» nach «Weitere» -
+    // das Feld sagt, wohin sie gehört, egal wie sie heisst.
+    const zeilen = mischeVorlagen([eingebaut('Rollos zu bei Wind', 'Storen & Wetter')], [], []);
+    const gruppen = gruppiereVorlagen(zeilen);
+    expect(gruppen.map((g) => g.titel)).toEqual(['Storen & Wetter']);
+  });
+
+  it('rät nur noch, wo kein Feld steht', () => {
+    const zeilen = mischeVorlagen([eingebaut('Licht im Flur')], [], []);
+    expect(gruppiereVorlagen(zeilen.map((z) => ({ ...z, gruppe: undefined })))[0].titel).toBe(
+      'Licht'
+    );
+  });
+});

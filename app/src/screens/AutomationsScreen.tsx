@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Entity, HubSettings, Scene, User } from '../api/types';
 import { ablaufAlsSeite } from '../lib/ablaufseite';
@@ -1490,6 +1490,20 @@ export function AutomationsScreen({
                           .map((run, index) => (
                             <View key={index}>
                               <Text style={styles.triggerNote}>{runLine(run)}</Text>
+                              {/* Was die Kamera sah, als sie auslöste
+                                  (Punkt 49). Das Token steht in der
+                                  Adresse, weil <Image> keine Kopfzeilen
+                                  mitschickt - wie beim Ereignisblatt. */}
+                              {run.image ? (
+                                <Image
+                                  source={{
+                                    uri: `${settings.url.replace(/\/+$/, '')}/api/automations/bild/${encodeURIComponent(run.image)}?token=${encodeURIComponent(settings.token)}`,
+                                  }}
+                                  style={styles.laufBild}
+                                  resizeMode="cover"
+                                  accessibilityLabel="Standbild der auslösenden Kamera"
+                                />
+                              ) : null}
                               {/* «Ausgeführt» heisst nur: abgeschickt. Ob
                                   das Gerät danach auch so stand, hat der
                                   Hub ein paar Sekunden später nachgesehen -
