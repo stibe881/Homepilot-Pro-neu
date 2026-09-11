@@ -98,6 +98,51 @@ BY_KEY: dict[str, dict[str, Any]] = {klang["key"]: klang for klang in KLAENGE}
 #: Der Ton, der gilt, solange niemand einen anderen gewählt hat.
 STANDARD = "dingdong"
 
+#: Die Note des Eingangs-Countdowns (Punkt 487 der Werkbank).
+#:
+#: Ein einzelner kurzer Piep, hoch genug, um durch eine geschlossene Tür
+#: zu kommen, und kurz genug, dass er in einen Sekundentakt passt.
+PIEP_HZ = 1046.0
+PIEP_DAUER = 0.12
+
+#: Wie eng die Piepser gegen Ende zusammenrücken.
+#:
+#: Der Ton soll nicht nur sagen «die Uhr läuft», sondern «sie läuft
+#: ab» - und das ist der Unterschied zwischen einem Wecker und einer
+#: Anlage. Zwei Sekunden Abstand am Anfang, eine halbe am Schluss: Wer
+#: zur Tür hereinkommt, hört an der Dichte, wie viel Zeit bleibt, ohne
+#: etwas anzusehen.
+PIEP_ABSTAND_START = 2.0
+PIEP_ABSTAND_ENDE = 0.5
+
+
+def countdown_noten(sekunden: float) -> list[Note]:
+    """Der Ton der Eingangsverzögerung (rein, testbar) - Punkt 487.
+
+    Die Verzögerung lief im Hub korrekt ab und war nur zu sehen, wer die
+    App öffnete - dann sind zehn der dreissig Sekunden weg. Ein Ton, der
+    schneller wird, sagt dasselbe ohne Bildschirm und ohne Hände.
+
+    Ein Stück Stille am Schluss bleibt bewusst weg: Die letzte Sekunde
+    gehört dem Alarm, nicht dem Countdown.
+    """
+    dauer = max(0.0, float(sekunden))
+    noten: list[Note] = []
+    vergangen = 0.0
+    while True:
+        anteil = min(1.0, vergangen / dauer) if dauer > 0 else 1.0
+        abstand = PIEP_ABSTAND_START + anteil * (PIEP_ABSTAND_ENDE - PIEP_ABSTAND_START)
+        if vergangen + PIEP_DAUER + abstand > dauer:
+            break
+        noten.append((PIEP_HZ, PIEP_DAUER))
+        noten.append((0.0, abstand))
+        vergangen += PIEP_DAUER + abstand
+    # Die letzte Pause weg: Sie würde die Wiedergabe künstlich in die
+    # Sekunde hineinziehen, in der der Alarm losgeht.
+    if noten and noten[-1][0] == 0.0:
+        noten.pop()
+    return noten
+
 
 def ton_samples(frequenz: float, dauer: float, samplerate: int = SAMPLERATE) -> list[float]:
     """Ein Sinuston als Werte zwischen -1 und 1 (rein, testbar).

@@ -685,6 +685,27 @@ class AlarmZwangPinRequest(BaseModel):
     user: str | None = None
 
 
+class AlarmWartungRequest(BaseModel):
+    """Den Wartungsmodus starten (Punkt 489 der Werkbank).
+
+    Fensterputzen, Handwerker, Umzugstag: Alles steht offen, und die
+    einzige Antwort darauf war «ganz unscharf» - danach blieb sie es.
+    """
+
+    # Stunden; geklemmt in core/alarmpflege.py statt hier abgelehnt.
+    stunden: float = 3.0
+
+
+class AlarmUrteilRequest(BaseModel):
+    """War das echt? (Punkt 490 der Werkbank)
+
+    «echt», «fehlalarm» oder «test» - mehr braucht es nicht. Wer mehr
+    Abstufungen anbietet, bekommt Antworten, die niemand auswertet.
+    """
+
+    urteil: str
+
+
 class AlarmSensorTestRequest(BaseModel):
     mode: str
 

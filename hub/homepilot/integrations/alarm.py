@@ -44,14 +44,17 @@ import asyncio
 import logging
 import secrets
 import time
+from datetime import datetime
 from typing import Any
 
 from ..core import (
     alarmanwesenheit,
     alarmbericht,
+    alarmpflege,
     alarmwache,
     bildarchiv,
     cliparchiv,
+    klingelton,
     personenbild,
     say,
     snapshots,
@@ -78,6 +81,7 @@ from .alarm_rules import (  # noqa: F401
     ENTRY,
     MODE_LABELS,
     MODES,
+    PET_DURCHBRUCH,
     REARM,
     SAUGER_NACHLAUF,
     STAY,
@@ -91,6 +95,7 @@ from .alarm_rules import (  # noqa: F401
     eskalations_ende_befehle,
     guards,
     hash_pin,
+    haustier_deckt,
     is_sensor,
     motion_started,
     nearest_camera,
@@ -119,6 +124,20 @@ log = logging.getLogger(__name__)
 # Frist: Eine Kamera, die nicht antwortet, ist kein Grund, den Alarm
 # später zu melden.
 BILD_WARTEZEIT = 4.0
+
+#: Wie oft die Anlage nach ihrer eigenen Pflege sieht (Punkt 481 der
+#: Werkbank). Stündlich: Der Selbsttest selbst läuft nur mittags und nur
+#: alle neunzig Tage - hier geht es bloss darum, diesen einen Mittag
+#: nicht zu verpassen, wenn der Hub dazwischen neu gestartet wurde.
+PFLEGE_TAKT = 3600.0
+
+#: So lange wartet der Hub, nachdem das Aufnahmefenster vorbei ist,
+#: bevor er die Kamera danach fragt (Punkt 482 der Werkbank).
+#:
+#: Protect schreibt die Aufnahme nicht in derselben Sekunde exportierbar
+#: weg. Zwei Sekunden sind genug für den Normalfall; wer länger wartet,
+#: verzögert das Video im Alarm-Blatt, ohne mehr zu bekommen.
+CLIP_EXPORT_GEDULD = 2.0
 
 
 class AlarmIntegration(Integration):
@@ -185,6 +204,17 @@ class AlarmIntegration(Integration):
         # im Speicher: Ein Testlauf, der einen Neustart überlebt, wäre
         # ein Testlauf, an den sich niemand mehr erinnert.
         self._sensor_test: dict[str, Any] | None = None
+        # Der Wartungsmodus (Punkt 489 der Werkbank): {until, by, at}
+        # oder None. Er überlebt einen Neustart bewusst nicht: Ein
+        # Handwerker-Vormittag, der nach dem Update weiterläuft, wäre
+        # eine Anlage, die aus ist und behauptet, sie ruhe nur kurz.
+        self._wartung: dict[str, Any] | None = None
+        # Der Zeitgeber, der die Wartung beendet.
+        self._wartung_task: asyncio.Task | None = None
+        # Der Takt, der nach dem Sirenen-Selbsttest sieht (Punkt 481).
+        self._pflege_task: asyncio.Task | None = None
+        # Die Töne der Eingangsverzögerung (Punkt 487).
+        self._piep_task: asyncio.Task | None = None
 
         stored = self.hub.data.get("alarm")
         config = stored[0] if stored else {}
@@ -216,8 +246,16 @@ class AlarmIntegration(Integration):
             ],
         )
         self._unsubscribe = self.hub.bus.subscribe("state_changed", self._on_state_changed)
+        # Nach der eigenen Sirene sehen (Punkt 481 der Werkbank).
+        self._pflege_task = asyncio.create_task(self._pflege_loop())
 
     async def teardown(self) -> None:
+        for task in (self._wartung_task, self._pflege_task, self._piep_task):
+            if task is not None:
+                task.cancel()
+        self._wartung_task = None
+        self._pflege_task = None
+        self._piep_task = None
         if self._clip_task is not None:
             self._clip_task.cancel()
             self._clip_task = None
@@ -236,6 +274,14 @@ class AlarmIntegration(Integration):
             "state": self._state,
             "mode": self._mode,
             "mode_label": MODE_LABELS.get(self._mode or "", ""),
+            # Der Wartungsmodus (Punkt 489 der Werkbank): Was hier steht,
+            # zeigt die App als Zeile - eine Anlage, die «unscharf» sagt,
+            # ohne zu sagen warum, ist der Zustand, in dem man sie
+            # vergisst.
+            "wartung": alarmpflege.wartung_satz(self._wartung, time.time()),
+            "wartung_bis": (self._wartung or {}).get("until")
+            if alarmpflege.wartung_laeuft(self._wartung, time.time())
+            else None,
             # Wie lange die laufende Verzögerung noch dauert – die App
             # zeigt daraus den Countdown.
             "seconds_left": (
@@ -525,6 +571,9 @@ class AlarmIntegration(Integration):
         self._until = None
         self._next = None
         await self._publish()
+        # Der Countdown-Ton hat seinen Zweck erfüllt (Punkt 487) - er
+        # soll nicht weiterpiepen, während die Anlage schon aus ist.
+        self._piep_stoppen()
         self._note("disarmed", "Unscharf geschaltet", by)
         # Sirene aus, Licht zurück – sonst heult sie weiter, obwohl die
         # Anlage aus ist.
@@ -666,6 +715,17 @@ class AlarmIntegration(Integration):
         self._sauger_merken(entity)
         if self._sauger_deckt(entity):
             return
+        # Die Katze (Punkt 488 der Werkbank). Nach dem Sauger geprüft und
+        # nicht davor: Der Sauger-Zweig schreibt einen Verlaufseintrag,
+        # und der soll nicht ausfallen, bloss weil derselbe Melder auch
+        # auf der Haustier-Liste steht.
+        if haustier_deckt(
+            entity,
+            bool(self._settings.get("pet_mode")),
+            self._settings.get("pet_sensors") or (),
+            self._settings.get("pet_detections", PET_DURCHBRUCH),
+        ):
+            return
         await self._camera_motion(entity, payload)
         if not guards(self._sensors, entity.id, self._mode, self._zone):
             return
@@ -692,6 +752,11 @@ class AlarmIntegration(Integration):
             # dem Berechtigten «schalt mich ab» – und dem Unberechtigten,
             # dass die Uhr läuft. Beides ist besser als Stille.
             await self._run_actions("warning")
+            # Und der Ton, der schneller wird (Punkt 487 der Werkbank):
+            # Wie viel Zeit bleibt, stand bisher nur in der App - wer sie
+            # zur Tür herein öffnet, hat davon zehn der dreissig
+            # Sekunden verloren.
+            self._piep_starten(delay)
             if self._settings.get("notify_entry"):
                 await self._notify(
                     "Eingangsverzögerung läuft",
@@ -1017,10 +1082,27 @@ class AlarmIntegration(Integration):
         # geleert, und bei jedem Alarm käme ein Eintrag dazu.
         if self._clip_task and not self._clip_task.done():
             self._clip_task.cancel()
-        self._clip_task = asyncio.create_task(self._record_clip(camera, seconds))
+        self._clip_task = asyncio.create_task(
+            self._record_clip(camera, seconds, time.time())
+        )
 
-    async def _record_clip(self, camera: str, seconds: int) -> None:
+    async def _record_clip(
+        self, camera: str, seconds: int, ausgeloest: float | None = None
+    ) -> None:
         """Ein paar Sekunden mitschneiden und beim letzten Auslösen ablegen.
+
+        Zuerst wird die Kamera nach ihrer eigenen Aufnahme gefragt - und
+        zwar ab ein paar Sekunden *vor* dem Auslösen (Punkt 482 der
+        Werkbank). Bisher begann die Aufnahme beim Auslösen, also erst,
+        wenn schon jemand drin ist; die interessanten Sekunden liegen
+        davor, und Protect hält sie ohnehin vor. Wer hereinkam, sieht man
+        nur mit Vorlauf; wer schon da ist, auch ohne.
+
+        Die Kamera braucht einen Moment, bis die Aufnahme exportierbar
+        ist - deshalb wird erst das Ende des Fensters abgewartet und dann
+        gefragt. Liefert sie nichts (keine Aufnahme-Funktion, kein
+        Protect), bleibt der Weg von vorher: live mitschneiden, ohne
+        Vorlauf.
 
         Alles hier ist Zugabe: Fehlt ffmpeg oder liefert die Kamera kein
         RTSP, bleibt es beim Standbild. Ein Alarm darf daran nicht
@@ -1029,10 +1111,16 @@ class AlarmIntegration(Integration):
         try:
             entity = self.hub.registry.get(camera)
             integration = self.hub.integrations.get(entity.integration) if entity else None
-            source = await integration.stream_url(entity) if integration else None
-            if not source:
+            if integration is None or entity is None:
                 return
-            data = await streams.record_clip(source, seconds)
+            data = await self._clip_mit_vorlauf(
+                integration, entity, seconds, ausgeloest
+            )
+            if data is None:
+                source = await integration.stream_url(entity)
+                if not source:
+                    return
+                data = await streams.record_clip(source, seconds)
             if not data or self._last is None:
                 return
             # Zusätzlich ins Archiv (Punkt 256 der Werkbank): Der
@@ -1049,6 +1137,35 @@ class AlarmIntegration(Integration):
             raise
         except Exception as err:
             log.warning("Mitschnitt zum Alarm fehlgeschlagen: %s", err)
+
+    async def _clip_mit_vorlauf(
+        self,
+        integration: Any,
+        entity: Entity,
+        seconds: int,
+        ausgeloest: float | None,
+    ) -> bytes | None:
+        """Die Aufnahme der Kamera samt Vorlauf holen - oder None.
+
+        ``None`` heisst «geht hier nicht» und nicht «ging schief»: Der
+        Aufrufer nimmt dann den alten Weg. Eine Ausnahme wäre hier die
+        falsche Antwort, denn beides ist ein gewöhnlicher Fall - eine
+        Ring-Kamera kennt keinen Export, eine Protect-Kamera schon.
+        """
+        vorlauf = int(self._settings.get("clip_vorlauf") or 0)
+        getter = getattr(integration, "clip", None)
+        if vorlauf <= 0 or not callable(getter) or ausgeloest is None:
+            return None
+        start = int(ausgeloest - vorlauf)
+        ende = int(ausgeloest + seconds)
+        # Erst warten, bis das Fenster wirklich vorbei ist: Eine Kamera
+        # kann nicht exportieren, was noch nicht aufgenommen ist.
+        await asyncio.sleep(max(0.0, ende - time.time()) + CLIP_EXPORT_GEDULD)
+        try:
+            return await getter(entity, start, ende)
+        except Exception as err:
+            log.info("Kamera-Aufnahme mit Vorlauf nicht abrufbar (%s) - live", err)
+            return None
 
     def _archive_clip(self, camera: str, data: bytes) -> None:
         """Den Alarm-Mitschnitt dauerhaft ablegen - still bei jedem Fehler.
@@ -1103,6 +1220,204 @@ class AlarmIntegration(Integration):
         self._note("test", "Probealarm ausgeführt", by)
         return {"ok": True, "hinweis": "Probealarm durchgespielt – Sirene, "
                 "Lichter und Nachricht liefen einmal an und wieder aus."}
+
+    # ── Der hörbare Countdown (Punkt 487 der Werkbank) ──────────────────────
+
+    def _piep_starten(self, sekunden: float) -> None:
+        """Den Ton der Eingangsverzögerung anstossen - nebenher.
+
+        Nebenher und nicht im Auslöseweg: Eine Box, die nicht antwortet,
+        darf die Verzögerung nicht aufhalten - sonst entscheidet der
+        Lautsprecher darüber, wann die Sirene losgeht.
+
+        Ohne gewählte Box bleibt es still, wie beim Klingelton: Ein
+        Countdown, der nach der Auslieferung ungefragt auf jeder Box im
+        Haus loslegt, wäre die Art Überraschung, nach der man ihn
+        abstellt und nie wieder einschaltet.
+        """
+        boxen = [str(box) for box in self._settings.get("entry_beep_speakers") or []]
+        if not boxen or sekunden <= 0:
+            return
+        self._piep_stoppen()
+        self._piep_task = asyncio.create_task(self._piep_spielen(boxen, sekunden))
+
+    def _piep_stoppen(self) -> None:
+        if self._piep_task is not None:
+            self._piep_task.cancel()
+            self._piep_task = None
+
+    async def _piep_spielen(self, boxen: list[str], sekunden: float) -> None:
+        try:
+            noten = klingelton.countdown_noten(sekunden)
+            if not noten:
+                return
+            address = say.base_url(self.hub)
+            if not address:
+                # Ohne öffentliche Adresse kommt keine Box an den Ton -
+                # derselbe Fall wie beim Klingelton (core/ton.py).
+                return
+            audio = klingelton.wav_bytes(klingelton.noten_zu_samples(noten))
+            await say.play_audio(
+                self.hub,
+                audio,
+                address,
+                speakers=boxen,
+                volume=klingelton.LAUTSTAERKE,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.debug("Countdown-Ton nicht abspielbar", exc_info=True)
+
+    # ── Sirenen-Selbsttest (Punkt 481 der Werkbank) ─────────────────────────
+    #
+    # Es gibt den Probealarm (von Hand) und den Sensor-Testlauf darunter.
+    # Was fehlte, ist der Lauf, den niemand anstossen muss: Eine Sirene,
+    # die seit dem Einbau nicht mehr geheult hat, heult vielleicht auch
+    # beim Einbruch nicht - und das merkt man dann.
+
+    async def _pflege_loop(self) -> None:
+        while True:
+            await asyncio.sleep(PFLEGE_TAKT)
+            try:
+                await self.sirenentest_pruefen()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Ein fehlgeschlagener Selbsttest darf die Anlage nicht
+                # mitreissen - sie ist das Wichtigere.
+                log.debug("Sirenen-Selbsttest fehlgeschlagen", exc_info=True)
+
+    async def sirenentest_pruefen(self) -> bool:
+        """Die Sirene prüfen, wenn sie dran ist (Punkt 481).
+
+        Nur unscharf: Ein Ton, während die Anlage wacht, wäre von einem
+        Alarm nicht zu unterscheiden - dieselbe Überlegung wie beim
+        Probealarm. Ist sie gerade scharf, wartet der Test bis zum
+        nächsten Mittag; ein Quartal ist grosszügig genug dafür.
+        """
+        if not self._settings.get("siren_selftest", True):
+            return False
+        if self._state != DISARMED:
+            return False
+        if not alarmpflege.sirenentest_faellig(
+            self._settings.get("siren_tested_at"), datetime.now()
+        ):
+            return False
+        await self._notify(
+            "Sirenen-Prüfung",
+            "Die Anlage prüft gleich für drei Sekunden ihre Sirene. "
+            "Das ist kein Alarm.",
+            "alarm_test",
+        )
+        await self._run_actions("trigger")
+        await asyncio.sleep(TEST_SIREN_SECONDS)
+        await self._run_actions("clear")
+        self._settings["siren_tested_at"] = time.time()
+        self._note("test", "Sirene selbst geprüft", "automatisch")
+        self._save()
+        return True
+
+    # ── Wartungsmodus (Punkt 489 der Werkbank) ──────────────────────────────
+
+    async def wartung_starten(self, stunden: Any, by: str = "") -> dict[str, Any]:
+        """Fensterputzen, Handwerker, Umzugstag.
+
+        Alles steht offen, und die einzige Antwort darauf war «ganz
+        unscharf» - und danach blieb sie es, weil niemand daran denkt.
+        Hier schaltet die Anlage von selbst zurück, und zwar in den
+        Modus, in dem sie vorher stand: Wer nachts um elf Wartung
+        anmeldet, will danach wieder den Nachtmodus und nicht «aus».
+        """
+        vorher = self._mode if self._state in (ARMED, ARMING) else None
+        self._wartung = alarmpflege.wartung_setzen(stunden, time.time(), by)
+        self._wartung["mode"] = vorher
+        if self._state != DISARMED:
+            await self.disarm(by=by or "Wartung")
+        if self._wartung_task is not None:
+            self._wartung_task.cancel()
+        rest = float(self._wartung["until"]) - time.time()
+        self._wartung_task = asyncio.create_task(self._wartung_beenden_nach(rest))
+        self._note(
+            "wartung",
+            alarmpflege.wartung_satz(self._wartung, time.time()) or "Wartung",
+            by,
+        )
+        await self._publish()
+        return {"ok": True, "wartung": self._wartung}
+
+    async def wartung_beenden(self, by: str = "") -> dict[str, Any]:
+        """Die Wartung von Hand beenden - und wieder scharf schalten.
+
+        Ohne das Scharfschalten wäre «beenden» nur ein Löschen einer
+        Zeile: Die Anlage stünde unscharf da, und genau das ist der
+        Zustand, gegen den es den Modus gibt.
+        """
+        vorher = (self._wartung or {}).get("mode")
+        self._wartung = None
+        if self._wartung_task is not None:
+            self._wartung_task.cancel()
+            self._wartung_task = None
+        self._note("wartung", "Wartung beendet", by or "automatisch")
+        if vorher in MODES and self._state == DISARMED:
+            # Mit force: Nach einer Wartung steht oft noch ein Fenster
+            # offen, und eine Rückfrage, die niemand liest, hiesse: Die
+            # Anlage bleibt aus. Der Verlauf hält fest, was dabei nicht
+            # wachte - das ist die ehrliche Hälfte davon.
+            offen = [entity.label for entity in self.open_sensors(vorher)]
+            ergebnis = await self.arm(vorher, force=True, by=by or "automatisch")
+            if offen:
+                self._note(
+                    "wartung",
+                    "Nach der Wartung scharf, ohne: " + ", ".join(offen),
+                    by or "automatisch",
+                )
+            await self._publish()
+            return {"ok": True, "wartung": None, **ergebnis}
+        await self._publish()
+        return {"ok": True, "wartung": None}
+
+    async def _wartung_beenden_nach(self, sekunden: float) -> None:
+        try:
+            await asyncio.sleep(max(0.0, sekunden))
+        except asyncio.CancelledError:
+            return
+        await self.wartung_beenden()
+
+    # ── Einen Alarm einordnen (Punkt 490 der Werkbank) ──────────────────────
+
+    def offene_einordnung(self) -> dict[str, Any] | None:
+        """Der Alarm, für den die Frage «war das echt?» noch offensteht."""
+        return alarmpflege.offener_alarm(self._history)
+
+    def einordnen(self, urteil: str, by: str = "") -> dict[str, Any]:
+        """Den letzten Alarm einordnen.
+
+        Die Fehlalarm-Statistik riet ihn sich bisher aus: unter sechzig
+        Sekunden entschärft, mindestens dreimal. Ein echter Einbruch, den
+        jemand schnell entschärft, zählt damit als Fehlalarm; ein
+        Fehlalarm, den zehn Minuten lang niemand bemerkt, als echt. Die
+        eine Frage ersetzt die ganze Schätzung.
+        """
+        gewaehlt = alarmpflege.urteil_lesen(urteil)
+        if gewaehlt is None:
+            raise HomePilotError(f"Unbekannte Einordnung: {urteil}")
+        offen = self.offene_einordnung()
+        if offen is None:
+            raise HomePilotError("Es steht kein Alarm zur Einordnung offen.")
+        eintrag = {
+            "kind": "urteil",
+            "text": alarmpflege.URTEIL_TEXT[gewaehlt],
+            "by": by,
+            "at": time.time(),
+            "urteil": gewaehlt,
+            "entity_id": offen.get("entity_id"),
+        }
+        self._history.insert(0, eintrag)
+        grenze = int(self._settings.get("history_limit") or 50)
+        del self._history[grenze:]
+        self._save()
+        return {"ok": True, "urteil": gewaehlt}
 
     # ── Sensor-Testlauf (Punkt 403 der Werkbank) ────────────────────────────
     #

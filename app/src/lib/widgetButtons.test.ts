@@ -1,5 +1,12 @@
 import { Entity } from '../api/types';
-import { direktMoeglich, standardDirekt } from './widgetButtons';
+import {
+  addableButtons,
+  darfDirekt,
+  direktMoeglich,
+  mitDirekt,
+  resolveButtons,
+  standardDirekt,
+} from './widgetButtons';
 
 
 describe('Warum ein Widget-Knopf nicht schaltet', () => {
@@ -55,5 +62,34 @@ describe('Warum ein Widget-Knopf nicht schaltet', () => {
     ).toEqual(['entity:hue.wohnzimmer', 'entity:nuki.haustuer']);
     // Szenen dürfen immer.
     expect(standardDirekt(['scene:kino'], [])).toEqual(['scene:kino']);
+  });
+});
+
+// ── Die Anlage am Widget und im Auto (Punkt 486) ───────────────────────────
+
+describe('Scharf schalten geht direkt, unscharf nie', () => {
+  it('lässt «Scharf» selbst schalten und «Alarm» den Umweg gehen', () => {
+    expect(darfDirekt('alarm_arm', [])).toBe(true);
+    // Unscharf am Widget hiesse: Wer das Telefon vom Tisch nimmt, hebt
+    // die Anlage auf, ohne es zu entsperren.
+    expect(darfDirekt('alarm', [])).toBe(false);
+  });
+
+  it('schaltet in den Modus, in dem man gerade weggeht', () => {
+    const [knopf] = mitDirekt(
+      resolveButtons(['alarm_arm'], [], []),
+      ['alarm_arm'],
+      [],
+      true
+    );
+    expect(knopf.direct).toBe(true);
+    expect(knopf.actionPath).toBe('/api/alarm/arm');
+    expect(JSON.parse(knopf.actionBody as string)).toEqual({ mode: 'ausser_haus' });
+  });
+
+  it('steht als eigener Knopf zur Auswahl', () => {
+    const angebot = addableButtons([], [], []).map((knopf) => knopf.key);
+    expect(angebot).toContain('alarm_arm');
+    expect(angebot).toContain('alarm');
   });
 });

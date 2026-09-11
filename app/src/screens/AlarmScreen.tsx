@@ -5,6 +5,7 @@ import {
   Modal,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -91,6 +92,11 @@ interface AlarmState {
   state: string;
   mode?: string | null;
   mode_label?: string;
+  /** Der Wartungsmodus (Punkt 489 der Werkbank) als Satz - null, wenn
+   *  keiner läuft. Eine Anlage, die «unscharf» sagt, ohne zu sagen
+   *  warum, ist der Zustand, in dem man sie vergisst. */
+  wartung?: string | null;
+  wartung_bis?: number | null;
   seconds_left?: number | null;
   /** Wie lang die laufende Frist insgesamt war – für den Ring. */
   seconds_total?: number | null;
@@ -325,6 +331,14 @@ export function AlarmScreen({
   // Was der Panikknopf zurückmeldet - er tut viel und sieht dabei nach
   // nichts aus, solange man nicht danebensteht.
   const [panikNote, setPanikNote] = useState<string | null>(null);
+  // Steht ein Alarm zur Einordnung offen? (Punkt 490 der Werkbank)
+  const [einordnung, setEinordnung] = useState<{
+    offen: { at?: number; entity_id?: string; name?: string } | null;
+  } | null>(null);
+  // Das Protokoll für die Anzeige (Punkt 484) - erst geholt, wenn eine
+  // Einordnung offen ist: Ein Blatt ohne Alarm gibt es nicht, und den
+  // Text bei jedem Laden mitzuschleppen wäre Verschwendung.
+  const [blatt, setBlatt] = useState<string | null>(null);
 
   const headers: Record<string, string> = settings.token
     ? { Authorization: `Bearer ${settings.token}` }
@@ -346,6 +360,41 @@ export function AlarmScreen({
   }, [client]);
 
   useEffect(load, [load]);
+
+  // Die Frage «war das echt?» und das Blatt dazu (Punkte 490, 484).
+  // Getrennt vom Hauptaufruf: Sie hängen am Verlauf und nicht am
+  // Zustand, und sie ändern sich nur, wenn ein Alarm endet.
+  useEffect(() => {
+    let lebt = true;
+    client
+      .get<{ offen: { at?: number; entity_id?: string; name?: string } | null } | null>(
+        '/api/alarm/einordnung',
+        { still: true, fallback: null }
+      )
+      .then((antwort) => {
+        if (!lebt) return;
+        setEinordnung(antwort ?? null);
+        if (!antwort?.offen) {
+          setBlatt(null);
+          return;
+        }
+        fetch(`${settings.url}/api/alarm/blatt`, { headers })
+          .then((response) => (response.ok ? response.text() : null))
+          .then((text) => {
+            if (lebt) setBlatt(text);
+          })
+          .catch(() => {
+            if (lebt) setBlatt(null);
+          });
+      })
+      .catch(() => {
+        if (lebt) setEinordnung(null);
+      });
+    return () => {
+      lebt = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client, data?.state.state]);
 
   // Während einer Verzögerung läuft ein Countdown – da muss die Anzeige
   // öfter nachziehen als sonst.
@@ -572,6 +621,64 @@ export function AlarmScreen({
             ) : null}
           </View>
         </View>
+
+        {/* War das echt? (Punkt 490 der Werkbank)
+            Die Fehlalarm-Statistik riet sich die Antwort bisher aus der
+            Zeit bis zum Entschärfen zusammen: Ein echter Einbruch, den
+            jemand schnell entschärft, zählte als Fehlalarm; ein
+            Fehlalarm, den zehn Minuten lang niemand bemerkt, als echt.
+            Die Frage steht oben und nicht in den Einstellungen - sie
+            stellt sich genau jetzt, direkt nach dem Entschärfen. */}
+        {einordnung?.offen ? (
+          <View style={styles.einordnung}>
+            <Text style={styles.rowDetail}>
+              War der Alarm von {einordnung.offen.name ?? 'vorhin'} echt?
+            </Text>
+            <View style={styles.chipRow}>
+              {(
+                [
+                  ['echt', 'Echt'],
+                  ['fehlalarm', 'Fehlalarm'],
+                  ['test', 'Test'],
+                ] as const
+              ).map(([wert, beschriftung]) => (
+                <Pressable
+                  key={wert}
+                  onPress={async () => {
+                    await fetch(`${settings.url}/api/alarm/einordnung`, {
+                      method: 'POST',
+                      headers: { ...headers, 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ urteil: wert }),
+                    });
+                    setEinordnung(null);
+                    load();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Alarm als ${beschriftung} einordnen`}
+                  style={({ pressed }) => [styles.chip, pressed && { opacity: 0.7 }]}
+                >
+                  <Text style={styles.chipText}>{beschriftung}</Text>
+                </Pressable>
+              ))}
+            </View>
+            {/* Das Blatt für Polizei oder Versicherung (Punkt 484) -
+                hier, weil man es in derselben Stunde braucht und nicht
+                drei Tage später aus der Erinnerung. */}
+            <Pressable
+              onPress={() =>
+                Share.share({
+                  message: blatt ?? 'Das Protokoll liess sich nicht laden.',
+                }).catch(() => {})
+              }
+              accessibilityRole="button"
+              accessibilityLabel="Protokoll teilen"
+              style={({ pressed }) => [styles.clipRow, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name="document-text-outline" size={18} color={colors.accent} />
+              <Text style={styles.clipText}>Protokoll für die Anzeige</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         {/* Nur eine Zone scharf schalten (Punkt 398) - nur sichtbar, wo es
             überhaupt Sensoren mit einer Zone gibt. «Ganzes Haus» ist die
@@ -990,8 +1097,73 @@ export function AlarmScreen({
       <AlarmSettings
         settings={data.settings}
         images={data.images !== false}
+        // Nur Melder und Kameras: Ein Fensterkontakt im Haustier-Modus
+        // wäre ein Loch in der Anlage (Punkt 488).
+        melder={data.candidates
+          .filter(
+            (entity) =>
+              entity.kind === 'camera' ||
+              entity.device_class === 'motion' ||
+              entity.device_class === 'occupancy'
+          )
+          .map((entity) => ({ id: entity.entity_id, name: entity.name }))}
         onSave={(next) => save({ settings: next })}
       />
+
+      {/* Wartung (Punkt 489 der Werkbank). Fensterputzen, ein Handwerker
+          im Haus, ein Umzugstag: Alles steht offen, und die einzige
+          Antwort darauf war «ganz unscharf» - danach blieb sie es, bis
+          es jemandem auffiel. */}
+      <Card style={styles.card}>
+        <Klappe label="Wartung">
+          {data.state.wartung ? (
+            <>
+              <Text style={styles.hint}>{data.state.wartung}</Text>
+              <Pressable
+                onPress={async () => {
+                  await fetch(`${settings.url}/api/alarm/wartung`, {
+                    method: 'DELETE',
+                    headers,
+                  });
+                  load();
+                }}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.smallButton, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={styles.smallButtonText}>Jetzt beenden und scharf schalten</Text>
+              </Pressable>
+            </>
+          ) : (
+            <>
+              <Text style={styles.hint}>
+                Für den Vormittag, an dem alle Fenster offen stehen. Die Anlage
+                schaltet danach von selbst wieder in den Modus, in dem sie vorher
+                war – anders als «unscharf», das niemand zurücknimmt.
+              </Text>
+              <View style={styles.chipRow}>
+                {[1, 3, 6].map((stunden) => (
+                  <Pressable
+                    key={stunden}
+                    onPress={async () => {
+                      await fetch(`${settings.url}/api/alarm/wartung`, {
+                        method: 'POST',
+                        headers: { ...headers, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ stunden }),
+                      });
+                      load();
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Wartung für ${stunden} Stunden`}
+                    style={({ pressed }) => [styles.chip, pressed && { opacity: 0.7 }]}
+                  >
+                    <Text style={styles.chipText}>{stunden} Std.</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          )}
+        </Klappe>
+      </Card>
 
       {/* Probealarm: Ob Sirene, Lichter und Nachricht überhaupt
           funktionieren, erfährt man sonst beim ersten echten Einbruch. */}
@@ -1954,11 +2126,15 @@ function AlarmActions({
 function AlarmSettings({
   settings,
   images,
+  melder,
   onSave,
 }: {
   settings: AlarmConfig;
   /** Ob der Hub Bilder mitschicken kann (push.public_url gesetzt). */
   images: boolean;
+  /** Bewegungsmelder und Kameras - nur die kann ein Tier auslösen
+   *  (Punkt 488 der Werkbank). */
+  melder: { id: string; name: string }[];
   onSave: (settings: AlarmConfig) => void;
 }) {
   const colors = useColors();
@@ -2025,6 +2201,61 @@ function AlarmSettings({
         value={settings.notify_camera_motion !== false}
         onChange={(value) => onSave({ ...settings, notify_camera_motion: value })}
       />
+      {/* Haustier-Modus (Punkt 488 der Werkbank). Dieselbe Überlegung
+          wie beim Sauger darunter, nur dauerhaft - und mit einem
+          Unterschied, der alles trägt: Beim Sauger löst ein erkanntes
+          Tier aus (dann ist es kein Sauger), hier gerade nicht. */}
+      <Toggle
+        label="Haustier-Modus"
+        detail="Ausgewählte Bewegungsmelder lösen nicht aus. Türen und Fenster bleiben in jedem Fall scharf – eine Katze öffnet keine Türe."
+        value={!!settings.pet_mode}
+        onChange={(value) => onSave({ ...settings, pet_mode: value })}
+      />
+      {settings.pet_mode ? (
+        <View style={[styles.field, styles.unterpunkt]}>
+          <Text style={styles.label}>Diese Melder erreicht das Tier</Text>
+          <View style={styles.chipRow}>
+            {melder.map((entity) => {
+              const gewaehlt = (settings.pet_sensors ?? []).includes(entity.id);
+              return (
+                <Pressable
+                  key={entity.id}
+                  onPress={() =>
+                    onSave({
+                      ...settings,
+                      pet_sensors: gewaehlt
+                        ? (settings.pet_sensors ?? []).filter(
+                            (eintrag: string) => eintrag !== entity.id
+                          )
+                        : [...(settings.pet_sensors ?? []), entity.id],
+                    })
+                  }
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: gewaehlt }}
+                  accessibilityLabel={`${entity.name} ruht im Haustier-Modus`}
+                  style={({ pressed }) => [
+                    styles.chip,
+                    gewaehlt && styles.chipOn,
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <Text style={[styles.chipText, gewaehlt && { color: '#FFFFFF' }]}>
+                    {entity.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={styles.hint}>
+            Ausdrücklich und nicht «alle»: Der Melder im Keller, wo die Katze nie
+            hinkommt, soll weiter wachen – sonst deckt der Modus das halbe Haus
+            ab. Eine Kamera mit Erkennung löst weiter aus, wenn sie eine Person
+            sieht; ein blosser Melder kann das nicht unterscheiden und bleibt
+            still. Das ist der Preis des Modus.
+          </Text>
+        </View>
+      ) : null}
+
       {/* Der Fall, für den es den Schalter gibt: Das Haus schickt beim
           Weggehen den Sauger los und schaltet die Anlage scharf. Der
           erste Bewegungsmelder sieht ihn - und die Sirene geht. */}
@@ -2590,6 +2821,15 @@ const makeStyles = (colors: Colors) =>
     note: { color: colors.onGradientSoft, fontSize: 14, marginTop: 20 },
     hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },
     clipRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
+    // Die Frage «war das echt?» (Punkt 490 der Werkbank) - abgesetzt,
+    // damit sie nicht wie ein Teil der Zustandszeile aussieht.
+    einordnung: {
+      gap: 8,
+      marginTop: 12,
+      paddingTop: 12,
+      borderTopWidth: 1,
+      borderTopColor: colors.surfaceBorder,
+    },
     // Das Ereignisblatt: eine Karte über abgedunkeltem Grund - wie der
     // Player, nur hell genug zum Lesen.
     blattGrund: {

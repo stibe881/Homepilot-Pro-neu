@@ -76,6 +76,13 @@ TRIGGERED = "ausgeloest"
 #: nicht unterscheiden, ob er den Sauger sieht oder jemanden.
 DURCHBRUCH = ("person", "animal")
 
+#: Was trotz Haustier-Modus auslöst (Punkt 488 der Werkbank).
+#:
+#: Nur «person» - und genau darin liegt der Unterschied zu DURCHBRUCH
+#: oben: Beim Sauger ist eine Katze im Bild ein Grund auszulösen, hier
+#: ist sie der Grund für den Modus.
+PET_DURCHBRUCH = ("person",)
+
 DEFAULT_SETTINGS: dict[str, Any] = {
     # Sekunden zum Verlassen des Hauses nach dem Scharfschalten.
     "exit_delay": 45,
@@ -132,7 +139,37 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # Entschärfen, das mit einem fremden Telefon die Anlage aufhebt.
     "presence_arm": "vorschlagen",
     "presence_disarm": "vorschlagen",
+    # Haustier-Modus (Punkt 488 der Werkbank). Dieselbe Überlegung wie
+    # beim Saugroboter, nur dauerhaft: Eine Katze ist keine Person, und
+    # Kameras, die Erkennung mitliefern, wissen das - die melden weiter,
+    # wenn ein Mensch durchs Bild läuft. Aus als Vorgabe: Wer kein Tier
+    # hat, soll keine Ausnahme geschenkt bekommen, die er nicht kennt.
+    "pet_mode": False,
+    # Was trotz Haustier-Modus auslöst. Dieselbe Liste wie beim Sauger,
+    # nur ohne «animal» - genau das ist ja der Unterschied.
+    "pet_detections": list(PET_DURCHBRUCH),
+    # Welche Melder das Tier erreicht. Ausdrücklich und nicht «alle»:
+    # Der im Keller, wo die Katze nie hinkommt, soll weiter wachen -
+    # sonst deckt der Modus das halbe Haus ab.
+    "pet_sensors": [],
+    # Ein paar Sekunden Bild *vor* dem Auslösen (Punkt 482 der Werkbank).
+    # Die Aufnahme begann bisher beim Auslösen - also erst, wenn schon
+    # jemand drin ist; die interessanten Sekunden liegen davor, und
+    # Protect hält sie ohnehin vor. 0 heisst: wie bisher.
+    "clip_vorlauf": 6,
+    # Die Eingangsverzögerung hörbar machen (Punkt 487). Sie lief im Hub
+    # korrekt ab und war nur zu sehen, wer die App öffnete - dann sind
+    # zehn der dreissig Sekunden weg. Leer heisst: kein Ton, wie bisher.
+    "entry_beep_speakers": [],
+    # Wann die Sirene sich zuletzt selbst geprüft hat (Punkt 481) -
+    # Unix-Sekunden, 0 heisst nie.
+    "siren_tested_at": 0,
+    # Und ob sie das überhaupt soll. An: Eine Sirene, die seit dem
+    # Einbau nicht mehr geheult hat, heult vielleicht auch beim Einbruch
+    # nicht.
+    "siren_selftest": True,
 }
+
 
 def ohne_pin_erlaubt(quelle: Any, settings: dict[str, Any]) -> bool:
     """Darf diese Quelle ohne PIN entschärfen? (rein, testbar)
@@ -602,6 +639,41 @@ def erkennt_durchbruch(entity: Entity, felder: Any = DURCHBRUCH) -> bool:
         str(entity.state.get(f"detected_{feld}") or "") == "on"
         for feld in (felder or ())
     )
+
+
+def haustier_deckt(
+    entity: Entity,
+    aktiv: bool,
+    ausgenommen: Any = (),
+    durchbruch: Any = PET_DURCHBRUCH,
+) -> bool:
+    """Schweigt dieser Sensor wegen des Haustiers? (rein, testbar)
+
+    Punkt 488 der Werkbank. Dieselbe Überlegung wie beim Saugroboter
+    darunter, nur dauerhaft statt während einer Fahrt - und mit einem
+    Unterschied, der alles trägt: Beim Sauger bricht «animal» durch (eine
+    Katze im Bild ist dann kein Sauger), hier gerade nicht (sie ist der
+    Grund für den Modus).
+
+    Drei Bedingungen, und alle drei sind nötig:
+
+    - Der Modus ist an.
+    - Es ist ein Bewegungsmelder oder eine Kamera. Türen und Fenster nie:
+      Eine Katze öffnet keine Türe, und ein Kontakt, der wegen eines
+      Tieres schweigt, wäre ein Loch statt einer Rücksicht.
+    - Der Sensor steht ausdrücklich auf der Liste. Nicht «alle
+      Bewegungsmelder»: Der im Keller, wo die Katze nie hinkommt, soll
+      weiter wachen - sonst deckt der Modus das halbe Haus ab.
+
+    Eine Kamera, die «person» meldet, löst weiter aus. Ein blosser
+    Melder ohne Erkennung schweigt - das ist die ehrliche Grenze und der
+    Preis des Modus, genau wie beim Sauger.
+    """
+    if not aktiv or not ist_bewegung(entity):
+        return False
+    if entity.id not in {str(eid) for eid in ausgenommen or ()}:
+        return False
+    return not erkennt_durchbruch(entity, durchbruch)
 
 
 def sauger_deckt(
