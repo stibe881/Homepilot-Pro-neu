@@ -50,6 +50,7 @@ BEISPIELE: dict[str, tuple[str, str]] = {
     "battery": ("Batterie schwach", "Bewegungsmelder Flur meldet eine schwache Batterie."),
     "open": ("Fenster Bad steht offen", "Seit 2 Stunden offen, draussen sind es 4 °C."),
     "leak": ("Wasser gemeldet", "Der Melder in der Waschküche meldet Wasser."),
+    "smoke": ("🔥 Rauch gemeldet", "Rauchmelder Küche – Küche meldet Rauch. Das Haus verlassen, dann 118 anrufen."),
     "doorbell": ("Es klingelt", "Jemand steht an der Haustüre."),
     "baby_cry": ("Ein Baby weint", "Die Kamera im Kinderzimmer hört ein Kind."),
     "disk": ("Speicherplatz wird knapp", "Die Platte ist zu 87 % belegt."),

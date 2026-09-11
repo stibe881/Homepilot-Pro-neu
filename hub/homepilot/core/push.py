@@ -324,6 +324,9 @@ CATEGORIES: dict[str, str] = {
     "battery": "Batterie schwach",
     "open": "Fenster/Tür steht offen",
     "leak": "Wasser gemeldet",
+    # Die Brandmeldeanlage (Punkt 445): Rauch oder Gas gemeldet, die
+    # Wiederholung, die Entwarnung und der Probealarm.
+    "smoke": "Rauch gemeldet",
     "doorbell": "Es klingelt an der Türe",
     "baby_cry": "Ein Baby weint",
     "disk": "Speicherplatz wird knapp",
@@ -369,7 +372,7 @@ GROUPS: list[tuple[str, tuple[str, ...]]] = [
     # Die Klingel steht ganz vorn: Sie ist die Nachricht, auf die man
     # sofort reagiert - und die einzige, bei der ein paar Sekunden
     # Verzögerung den Zweck zunichte machen.
-    ("Sicherheit", ("doorbell", "alarm", "alarm_arming", "camera_motion", "leak")),
+    ("Sicherheit", ("doorbell", "alarm", "alarm_arming", "camera_motion", "leak", "smoke")),
     ("Haus", ("open", "appliance", "oven", "vacuum", "frost", "rain",
               "storm_covers", "heat_covers", "plants", "timer", "maintenance")),
     # «Baby weint» steht vorn und bei der Familie, nicht bei der

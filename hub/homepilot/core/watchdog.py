@@ -2572,10 +2572,11 @@ class Watchdog:
         Hier statt in einer eigenen Uhr - dieselbe Überlegung wie beim
         Aufräumen der Kamera-Clips weiter oben.
         """
-        alarm = self.hub.integrations.get("alarm")
-        takt = getattr(alarm, "takt", None)
-        if takt is not None:
-            await takt()
+        for name in ("alarm", "brand"):
+            anlage = self.hub.integrations.get(name)
+            takt = getattr(anlage, "takt", None)
+            if takt is not None:
+                await takt()
 
     async def _check_spaeter(self) -> None:
         """Weggeschobene Meldungen, deren Zeit um ist (core/spaeter.py).

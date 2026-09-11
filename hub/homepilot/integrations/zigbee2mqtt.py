@@ -172,7 +172,16 @@ def art_und_befehle(exposes: Any) -> tuple[str, list[str]]:
         return EntityKind.BUTTON, []
     for name in MELDER:
         if name in merkmale:
-            return EntityKind.BINARY_SENSOR, []
+            befehle = []
+            # Rauch- und Gasmelder (Aqara, Punkt 445): Summer stumm oder von
+            # Hand auslösen, Selbsttest anstossen - je nach dem, was das
+            # Gerät in seinen Exposes nennt.
+            if name in ("smoke", "gas"):
+                if "buzzer" in merkmale:
+                    befehle += ["mute", "buzzer_alarm"]
+                if "self_test" in merkmale or "test" in merkmale:
+                    befehle.append("self_test")
+            return EntityKind.BINARY_SENSOR, befehle
     return EntityKind.SENSOR, []
 
 
@@ -322,6 +331,13 @@ def set_nutzlast(kind: str, command: str, data: dict[str, Any]) -> dict[str, Any
         return {"color_temp": int(data.get("color_temp", 370))}
     if command == "set_color":
         return {"color": {"hex": str(data.get("color") or "#ffffff")}}
+    # Rauchmelder (Punkt 445): Aqara nimmt «buzzer: mute» und «buzzer: alarm».
+    if command == "mute":
+        return {"buzzer": "mute"}
+    if command == "buzzer_alarm":
+        return {"buzzer": "alarm"}
+    if command == "self_test":
+        return {"self_test": True}
     raise ConfigError(f"Zigbee2MQTT kennt das Kommando '{command}' nicht")
 
 
