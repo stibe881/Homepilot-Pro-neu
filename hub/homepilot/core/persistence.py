@@ -292,6 +292,54 @@ class DataStore:
         """
         return dict(self._data)
 
+    def umfang(self) -> list[dict[str, Any]]:
+        """Wie gross jede Sammlung ist (Punkt 426 der Werkbank).
+
+        Abläufe, Verlauf, Familienlisten, Clip-Verweise und das
+        Zugriffsprotokoll liegen in einer Datei, die bei jedem Schreiben
+        ganz gelesen und ganz geschrieben wird. Die Platten-Warnung
+        meldet, wenn es zu spät ist; was fehlte, ist die Zahl davor -
+        welche Sammlung wie viele Zeilen hat und wie viel davon Bytes
+        sind.
+
+        Grösste zuerst: Wer hier nachsieht, sucht die eine Sammlung, die
+        aus dem Ruder läuft, nicht die vierzig, die es nicht tun.
+
+        Die Bytes je Sammlung werden einzeln gerechnet und nicht aus der
+        Dateigrösse verteilt: Eine Liste mit tausend kurzen Zeilen und
+        eine mit zehn langen sehen an der Zeilenzahl gleich harmlos aus,
+        und genau die zweite ist das Problem.
+        """
+        zeilen = []
+        for key, wert in self._data.items():
+            try:
+                bytes_ = len(json.dumps(wert, ensure_ascii=False).encode("utf-8"))
+            except (TypeError, ValueError):
+                # Eine Sammlung, die sich nicht schreiben lässt, ist ein
+                # eigener Befund - aber keiner, der diese Übersicht
+                # aufhalten darf.
+                bytes_ = 0
+            zeilen.append(
+                {
+                    "key": key,
+                    "zeilen": len(wert) if isinstance(wert, list) else 1,
+                    "bytes": bytes_,
+                    # Was nie in einen Export darf, ist hier gekennzeichnet -
+                    # sonst wundert sich jemand, warum «audit» gross ist
+                    # und in seiner Exportdatei fehlt.
+                    "geheim": key in SECRETS,
+                }
+            )
+        return sorted(zeilen, key=lambda zeile: -int(zeile["bytes"]))
+
+    def datei_bytes(self) -> int:
+        """Wie gross die Datendatei auf der Platte ist - 0, wenn es sie
+        noch nicht gibt (der allererste Start)."""
+        try:
+            return self.path.stat().st_size if self.path else 0
+        except OSError:
+            return 0
+
     def family_book(self, stamp: str) -> Path | None:
         """Die Familiendaten als lesbare Seite neben die Sicherungen legen.
 
