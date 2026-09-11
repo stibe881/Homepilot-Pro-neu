@@ -571,7 +571,7 @@ async function kachelnStehenGleich(browser) {
   }
 }
 
-/** 8. Zählt ein Fühler für zwei Zimmer? (Punkt 539)
+/** 8. Zählt ein Fühler für zwei Zimmer? (Punkt 539, 541)
  *
  * Der Prüfstand hat den Klimafühler des Wohnzimmers zusätzlich im
  * Esszimmer stehen - einem Zimmer, das *nur* dadurch entsteht. Beide
@@ -582,6 +582,13 @@ async function kachelnStehenGleich(browser) {
  * Raumliste aus allen Mitgliedschaften bilden statt aus dem Standort,
  * und die Kachel muss den Fühler in beiden Zimmern finden. Jedes Glied
  * war vorher einwertig.
+ *
+ * Seit Punkt 541 steht der Fühler dabei auf «Gilt für: nur diesen
+ * Raum» (gesetzt in probe.sh). Das war der gemeldete Fehler: Im Bad
+ * ist es wärmer und feuchter als im Rest der Wohnung, also stellt man
+ * genau dort den Schalter um - und ausgerechnet dann blieb die Ecke
+ * leer, weil die Kachel den Fühler aussortierte. Der Schalter hält ihn
+ * aus der Kopfzeile des Hauses heraus; die Kachel *ist* der Raum.
  */
 async function fuehlerInZweiZimmern(browser) {
   const seite = await angemeldeteSeite(browser, GROESSEN[0]);

@@ -3,6 +3,7 @@ import {
   geraetAktion,
   kachelKlima,
   kachelKnoepfe,
+  klimaGeraeteImRaum,
   raumFarben,
   raumSchleier,
   raumTon,
@@ -370,6 +371,46 @@ describe('raumTon und raumSchleier', () => {
 const fuehler = (id: string, state: Record<string, unknown>) =>
   geraet(id, 'sensor', state, []);
 
+describe('klimaGeraeteImRaum', () => {
+  const imZimmer = (id: string, raum: string | null, state: Record<string, unknown>) => {
+    const entity = geraet(id, 'sensor', state, []) as unknown as {
+      room: string | null;
+      rooms?: string[];
+    };
+    entity.room = raum;
+    if (raum) entity.rooms = [raum];
+    return entity as unknown as Entity;
+  };
+
+  it('nimmt auch den Fühler, den die Startseite ausblendet', () => {
+    // Der zweite Grund, aus dem im Bad nichts stand. Ausblenden heisst
+    // «ich will die Kachel nicht sehen», nicht «der Fühler gehört nicht
+    // mehr ins Zimmer» - gewünscht war «wenn im Raum ein Sensor
+    // zugewiesen ist».
+    const alle = [
+      imZimmer('Bad-Fühler', 'Bad', { state: 24.2, unit: '°C' }),
+      imZimmer('Küchen-Fühler', 'Küche', { state: 19, unit: '°C' }),
+    ];
+    expect(klimaGeraeteImRaum(alle, 'Bad').map((e) => e.id)).toEqual(['Bad-Fühler']);
+  });
+
+  it('zählt einen Fühler in jedem Zimmer, dem er zugewiesen ist', () => {
+    // Punkt 539: Ein Fühler im Flur darf auch fürs Bad gelten.
+    const flur = imZimmer('Flur-Fühler', 'Flur', { state: 22, unit: '°C' });
+    (flur as { rooms: string[] }).rooms = ['Flur', 'Bad'];
+    expect(klimaGeraeteImRaum([flur], 'Bad').map((e) => e.id)).toEqual(['Flur-Fühler']);
+    expect(klimaGeraeteImRaum([flur], 'Flur').map((e) => e.id)).toEqual(['Flur-Fühler']);
+  });
+
+  it('sammelt für «Weitere», was in keinem Zimmer steht', () => {
+    const alle = [
+      imZimmer('heimatlos', null, { state: 8, unit: '°C' }),
+      imZimmer('Bad-Fühler', 'Bad', { state: 24, unit: '°C' }),
+    ];
+    expect(klimaGeraeteImRaum(alle, null).map((e) => e.id)).toEqual(['heimatlos']);
+  });
+});
+
 describe('kachelKlima', () => {
   it('zeigt beide Werte, wenn ein Fühler beide meldet', () => {
     const klima = kachelKlima([fuehler('Klima', { state: 21.53, unit: '°C', humidity: 47.6 })]);
@@ -411,6 +452,21 @@ describe('kachelKlima', () => {
     ]);
     expect(klima?.temp).toBeNull();
     expect(klima?.feuchte).toBe('55 %');
+  });
+
+  it('zeigt den Fühler, der nur für seinen Raum gilt', () => {
+    // Der Fehler, wegen dem im Bad nichts stand: «Gilt für: nur diesen
+    // Raum» schloss den Fühler von der Raumkachel aus. Genau falsch
+    // herum - die Kachel *ist* der Raum. Der Schalter hält den Wert aus
+    // der Kopfzeile des Hauses und aus dem Hitze-Hinweis heraus, und
+    // core/entity.py sagt es selbst: «Im Raum selbst ist die Zahl
+    // richtig - dort bleibt sie auch stehen.» Im Bad ist das der
+    // Normalfall: Dort ist es wärmer und feuchter als im Rest.
+    const bad = fuehler('Bad', { state: 24.2, unit: '°C', humidity: 71 });
+    (bad as { room_only?: boolean }).room_only = true;
+    const klima = kachelKlima([bad]);
+    expect(klima?.temp).toBe('24,2°');
+    expect(klima?.feuchte).toBe('71 %');
   });
 
   it('sagt einer Vorlesestimme, was die Zahlen messen', () => {

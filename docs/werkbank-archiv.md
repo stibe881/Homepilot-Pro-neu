@@ -4605,3 +4605,39 @@ Mittel.
 
 Stellen: `hub/homepilot/core/storenwaechter.py`, `hub/homepilot/core/watchdog.py`, `hub/homepilot/api/routes/push.py`, `hub/homepilot/api/models.py`, `app/src/lib/storenwahl.ts`, `app/src/components/PushRules.tsx`
 
+
+### 541. Die Raumkachel zeigte gerade dort kein Klima, wo man es braucht ✓ erledigt
+
+Gemeldet mit demselben Bild wie Punkt 538, und dem Satz: «weshalb wurde
+dann dies nicht gemacht?» - getestet mit dem neuen Stand, nicht mit dem
+alten. Die Ecke der Bad-Kachel blieb leer, obwohl dem Zimmer ein Fühler
+zugewiesen war. Zwei Fehler, beide aus Punkt 538, beide für sich allein
+schon ausreichend.
+
+**«Gilt für: nur diesen Raum» schloss den Fühler von seiner eigenen
+Kachel aus.** Genau falsch herum. Der Schalter (Geräte → Anpassen) hält
+einen Fühler aus der Kopfzeile des Hauses und aus dem Hitze-Hinweis
+heraus - dort spräche der Fühler neben dem Rack in der Waschküche mit
+seinen 30 Grad für die ganze Wohnung. `core/entity.py` sagt es beim
+Schalter selbst: «Im Raum selbst ist die Zahl richtig - dort bleibt sie
+auch stehen.» Die Raumkachel *ist* der Raum, und Punkt 538 filterte sie
+trotzdem weg. Im Bad fällt das zuerst auf: Dort ist es wärmer und
+feuchter als im Rest der Wohnung, also ist es der Normalfall, den
+Schalter umzustellen - und ausgerechnet dann blieb die Ecke leer.
+
+**Ein ausgeblendeter Fühler galt als nicht zugewiesen.** Die Kachel las
+dieselbe Liste wie die Startseite, und die lässt weg, was jemand
+ausgeblendet hat. Bei Temperaturfühlern ist das der Regelfall - man will
+keine Kachel voller Zahlen, sondern die Zahl. Gewünscht war aber «wenn
+im entsprechenden Raum ein Sensor zugewiesen ist», und ausblenden heisst
+nicht abmelden. Temperatur und Feuchte kommen jetzt aus allen Geräten
+des Zimmers (`klimaGeraeteImRaum`), alles Übrige an der Kachel weiter
+aus den gezeigten.
+
+**Die Probe hätte beides sehen müssen und sah es nicht.** Sie stellte
+einen Fühler auf, den niemand ausgeblendet und niemand umgestellt hatte
+- den einzigen Fall, der schon vorher ging. `probe.sh` setzt jetzt
+`room_only` über dieselbe Route wie die App; mit dem alten Filter meldet
+die Probe prompt zwei rote Messungen.
+
+Stellen: `app/src/lib/raumkarte.ts`, `app/src/components/RoomCard.tsx`, `app/src/screens/DashboardScreen.tsx`, `scripts/probe.sh`, `scripts/probe.mjs`

@@ -45,6 +45,7 @@ export function RoomCard({
   knoepfeAuswahl,
   scenes = [],
   onScene,
+  klimaGeraete,
 }: {
   name: string;
   items: Entity[];
@@ -64,6 +65,11 @@ export function RoomCard({
   /** Die Szenen dieses Raums – höchstens zwei, vorausgewählt. */
   scenes?: Scene[];
   onScene?: (sceneId: string) => void;
+  /** Woraus Temperatur und Feuchte kommen. Getrennt von `items`, weil
+   *  dort nur steht, was die Startseite zeigt: Ein ausgeblendeter Fühler
+   *  ist deswegen nicht aus dem Zimmer (lib/raumkarte.ts,
+   *  `klimaGeraeteImRaum`). Fehlt der Griff, gilt `items`. */
+  klimaGeraete?: Entity[];
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -97,7 +103,10 @@ export function RoomCard({
   // Temperatur und Feuchte des Zimmers - nur, wenn ihm wirklich ein
   // Fühler zugewiesen ist. Welcher gilt, rechnet lib/raumkarte.ts mit
   // derselben Regel wie der Raumkopf.
-  const klima = useMemo(() => kachelKlima(items), [items]);
+  const klima = useMemo(
+    () => kachelKlima(klimaGeraete ?? items),
+    [klimaGeraete, items]
+  );
 
   return (
     <Card style={{ ...styles.karte, width }} onPress={onOpen} onLongPress={onLongPress}>

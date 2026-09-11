@@ -54,7 +54,13 @@ import { DeviceHealth } from '../components/DeviceHealth';
 import { RoomTabs } from '../components/RoomTabs';
 import { RoomCard } from '../components/RoomCard';
 import { Raumbild } from '../components/Raumbild';
-import { raumSchleier, raumTon, raumaktionen, waehlbareGeraete } from '../lib/raumkarte';
+import {
+  klimaGeraeteImRaum,
+  raumSchleier,
+  raumTon,
+  raumaktionen,
+  waehlbareGeraete,
+} from '../lib/raumkarte';
 import { SceneRow } from '../components/SceneRow';
 import { GlobalSearch } from '../components/GlobalSearch';
 import { Grundriss } from '../components/Grundriss';
@@ -3619,10 +3625,20 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 .map((name) => ({
                   name,
                   items: shown.filter((entity) => imRaum(entity, name)),
+                  // Temperatur und Feuchte aus allen Geräten des
+                  // Zimmers, nicht nur den gezeigten: Wer den Fühler
+                  // ausblendet, hat ihn nicht aus dem Raum genommen.
+                  klima: klimaGeraeteImRaum(entities, name),
                 }))
                 .concat(
                   shown.some((entity) => !entity.room)
-                    ? [{ name: NO_ROOM, items: shown.filter((entity) => !entity.room) }]
+                    ? [
+                        {
+                          name: NO_ROOM,
+                          items: shown.filter((entity) => !entity.room),
+                          klima: klimaGeraeteImRaum(entities, null),
+                        },
+                      ]
                     : []
                 )
                 .filter((tile) => tile.items.length > 0)
@@ -3631,6 +3647,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     key={tile.name}
                     name={tile.name}
                     items={tile.items}
+                    klimaGeraete={tile.klima}
                     width={hasRail ? Math.floor((gridWidth - space.gap) / 2) : gridWidth}
                     imageUri={raumbildUrl(tile.name)}
                     onOpen={() => setRoom(tile.name)}

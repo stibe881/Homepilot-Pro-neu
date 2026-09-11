@@ -90,6 +90,17 @@ if ! curl -sf -o /dev/null "http://127.0.0.1:$HUB_PORT/api/health"; then
   exit 1
 fi
 
+# «Gilt für: nur diesen Raum» auf den Klimafühler - der Normalfall im
+# Bad, und genau der, in dem die Ecke leer blieb (Punkt 541). Der
+# Schalter gehört nicht in die config.yaml: Er ist ein Vermerk am Gerät
+# und wird über dieselbe Route gesetzt wie in der App.
+curl -sf -o /dev/null -X PUT \
+  "http://127.0.0.1:$HUB_PORT/api/entities/demo.temp_livingroom/meta" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"room_only": true}' ||
+  { echo "✗ room_only liess sich nicht setzen."; exit 1; }
+
 # ── Web-Fassung ───────────────────────────────────────────────────────
 if [ "$OHNE_BAU" = "0" ] || [ ! -d "$ARBEIT/web" ]; then
   echo "→ Web-Fassung bauen …"
