@@ -635,6 +635,13 @@ class Hub:
             still[name] = pushruhe.still_lesen(eintrag.get("still"), jetzt)
         self.push.ruhe = ruhe
         self.push.still = still
+        # Dringlichkeit je Kategorie und die Empfängergruppen: fürs Haus,
+        # nicht je Person - deshalb eigene Schlüssel neben push_prefs.
+        self.push.stufen = push_service.stufen_lesen(self.data.get(push_service.STUFEN_KEY))
+        self.push.gruppen = push_service.gruppen_lesen(
+            self.data.get(push_service.GRUPPEN_KEY)
+        )
+        self.push.kritisch_erlaubt = bool((self.config.push or {}).get("critical_alerts"))
 
     def _push_deckel(self, category: str) -> str | None:
         """Ist der Tagesdeckel dieser Kategorie erreicht? (siehe pushruhe.py)

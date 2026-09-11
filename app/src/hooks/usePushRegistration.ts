@@ -60,7 +60,16 @@ export function usePushRegistration(
         const existing = await Notifications.getPermissionsAsync();
         let granted = existing.granted;
         if (!granted && existing.canAskAgain) {
-          granted = (await Notifications.requestPermissionsAsync()).granted;
+          // Mit «kritisch» gefragt (Punkt 392): iOS gewährt das nur,
+          // wenn Apple dem Build die Berechtigung gegeben hat - sonst
+          // ist die Frage ohne Folgen, und die Meldung kommt als
+          // «dringend». So muss beim Tag X nur die Hülle neu, nicht die
+          // Erlaubnis noch einmal eingeholt werden.
+          granted = (
+            await Notifications.requestPermissionsAsync({
+              ios: { allowCriticalAlerts: true, allowAlert: true, allowBadge: true, allowSound: true },
+            })
+          ).granted;
         }
         if (cancelled) return;
         if (!granted) {

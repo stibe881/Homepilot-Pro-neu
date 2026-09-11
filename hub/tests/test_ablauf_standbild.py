@@ -1,4 +1,4 @@
-"""Punkt 49: Löst eine Kamera einen Ablauf aus, hält der Lauf den Moment fest.
+"""Punkt 421: Löst eine Kamera einen Ablauf aus, hält der Lauf den Moment fest.
 
 «Bewegung an der Kamera Garten → Licht an» stand bisher im Verlauf nur
 als Satz. Was die Kamera dabei sah, war nach zehn Minuten weg

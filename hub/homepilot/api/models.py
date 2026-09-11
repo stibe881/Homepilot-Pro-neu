@@ -67,7 +67,8 @@ class PushSnoozeRequest(BaseModel):
     title: str
     body: str = ""
     category: str | None = None
-    minutes: int = 30
+    # Ohne Angabe gilt, was die Person eingestellt hat (spaeter.eigene_minuten).
+    minutes: int | None = None
 
 
 class PushQuittierenRequest(BaseModel):
@@ -197,6 +198,28 @@ class PushPrefsRequest(BaseModel):
     """Abbestellte Nachrichtenarten eines Benutzers."""
 
     muted: list[str] = []
+    # Wie lange «Später» in der Mitteilung heisst; None lässt es, wie es ist.
+    snooze_minutes: int | None = None
+
+
+class PushStufeRequest(BaseModel):
+    """Die Dringlichkeit einer Kategorie ändern - fürs ganze Haus."""
+
+    category: str
+    stufe: str
+
+
+class PushGruppeRequest(BaseModel):
+    """Eine Empfängergruppe (push.gruppen_lesen)."""
+
+    name: str
+    members: list[str] = []
+
+
+class PushGruppenRequest(BaseModel):
+    """Alle Empfängergruppen auf einmal - die Liste ist klein."""
+
+    groups: list[PushGruppeRequest] = []
 
 
 class PushRuhezeitRequest(BaseModel):

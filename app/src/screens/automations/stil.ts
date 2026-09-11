@@ -276,7 +276,7 @@ export const makeStyles = (colors: Colors) =>
     agendaName: { color: colors.inkSoft, fontSize: 12, flexShrink: 1 },
     // Eine Zeile der Schritt-Spur im Lauf-Verlauf (Punkt 160).
     runStep: { color: colors.inkFaint, fontSize: 12, paddingLeft: 14, lineHeight: 17 },
-    // Das Standbild des Kamera-Auslösers (Punkt 49): klein wie eine
+    // Das Standbild des Kamera-Auslösers (Punkt 421): klein wie eine
     // Vorschau, 16:9 wie die Kamera - gross genug, um zu sehen, ob da
     // die Katze war oder der Pöstler.
     laufBild: {

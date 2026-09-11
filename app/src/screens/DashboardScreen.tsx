@@ -1015,18 +1015,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const onKnopf = useCallback(
     (druck: Knopfdruck) => {
       if (druck.handlung === 'spaeter') {
+        // Ohne Minuten: Der Hub nimmt, was die Person eingestellt hat
+        // (Punkt 425) - und sagt zurück, wie lange es geworden ist.
         hub
-          .post(
+          .post<{ minutes?: number }>(
             '/api/push/snooze',
             {
               title: druck.title,
               body: druck.body,
               category: druck.category,
-              minutes: 30,
             },
             { still: true }
           )
-          .then(() => setNote('Erinnerung in 30 Minuten'))
+          .then((antwort) => setNote(`Erinnerung in ${antwort?.minutes ?? 30} Minuten`))
           .catch(() => {});
         return;
       }

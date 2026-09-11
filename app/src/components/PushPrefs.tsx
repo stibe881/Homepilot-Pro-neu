@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { HubFehler, hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
@@ -35,6 +35,21 @@ import { Colors, type, useColors } from '../theme';
  * Einstellung fürs ganze Haus gilt.
  */
 
+type Stufe = 'leise' | 'dringend' | 'kritisch';
+
+const STUFEN_WORT: Record<Stufe, string> = {
+  leise: 'Darf warten',
+  dringend: 'Sofort',
+  kritisch: 'Kritisch',
+};
+
+/** Eine Empfängergruppe (Punkt 424): «Eltern» statt zwei Namen in
+ *  jedem Ablauf. Gepflegt hier, weil sie zu den Nachrichten gehört. */
+interface Gruppe {
+  name: string;
+  members: string[];
+}
+
 interface Category {
   key: string;
   label: string;
@@ -44,6 +59,10 @@ interface Category {
   beispiel?: [string, string] | null;
   /** Kommt sofort durch, auch im Fokus – oder darf warten. */
   dringend?: boolean;
+  /** Die Stufe fürs Haus (Punkt 423): leise, dringend oder kritisch -
+   *  und daneben die eingebaute, für «zurück auf Standard». */
+  stufe?: Stufe;
+  stufe_standard?: Stufe;
   /** Lässt sich nicht stillstellen (Alarm, Wasser, Klingel, weinendes Kind). */
   immer?: boolean;
   /** Bis wann stillgestellt, in Unix-Sekunden. */
@@ -103,6 +122,19 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
   // was nie zurückgehalten wird, entscheidet ebenfalls er – eine
   // Ruhezeit, die den Wasseralarm verschluckt, wäre ein Fehler.
   const [ruhe, setRuhe] = useState<Ruhezeit>(RUHE_AUS);
+  // Wie lange «Später» in der Mitteilung heisst (Punkt 425). Der Hub
+  // hält die Zahl je Person; der Knopf selbst trägt keine mehr.
+  const [snoozeMinuten, setSnoozeMinuten] = useState(30);
+  const [snoozeWahl, setSnoozeWahl] = useState<number[]>([15, 30, 60, 120]);
+  // Die Stufen fürs Haus darf ändern, wer die Einstellungen ändern darf;
+  // dasselbe gilt für die Empfängergruppen.
+  const [darfStufen, setDarfStufen] = useState(false);
+  const [kritischErlaubt, setKritischErlaubt] = useState(false);
+  const [gruppen, setGruppen] = useState<Gruppe[]>([]);
+  const [gruppenOffen, setGruppenOffen] = useState(false);
+  const [neueGruppe, setNeueGruppe] = useState('');
+  // Wer Mitglied sein kann: dieselbe Liste wie die Empfänger im Ablauf-Editor.
+  const [namen, setNamen] = useState<string[]>([]);
   const [ruheOffen, setRuheOffen] = useState(false);
   // Welche Kategorie gerade aufgeklappt ist (Vorschau, Test, stillstellen).
   // Eine, nicht mehrere: Aufgeklappt ist die Liste sonst zwei Bildschirme
@@ -123,12 +155,28 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
         groups?: string[];
         muted?: string[];
         ruhe?: Ruhezeit;
+        snooze_minutes?: number;
+        snooze_wahl?: number[];
+        darf_stufen?: boolean;
+        critical_alerts?: boolean;
+        empfaengergruppen?: Gruppe[];
       }>('/api/push/categories', { still: true })
       .then((data) => {
         setCategories(data.categories ?? []);
         setGroupOrder(data.groups ?? []);
         setMuted(data.muted ?? []);
         setRuhe(data.ruhe ?? RUHE_AUS);
+        setSnoozeMinuten(data.snooze_minutes ?? 30);
+        if (data.snooze_wahl?.length) setSnoozeWahl(data.snooze_wahl);
+        setDarfStufen(Boolean(data.darf_stufen));
+        setKritischErlaubt(Boolean(data.critical_alerts));
+        setGruppen(data.empfaengergruppen ?? []);
+        if (data.darf_stufen) {
+          hub
+            .get<{ names?: string[] } | null>('/api/push/targets', { fallback: null, still: true })
+            .then((ziele) => setNamen(ziele?.names ?? []))
+            .catch(() => setNamen([]));
+        }
       })
       .catch((err) => setError(err instanceof HubFehler ? err.message : String(err)));
   }, [hub]);
@@ -153,6 +201,54 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
         { still: true }
       );
       setMuted(data.muted ?? next);
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+      load();
+    }
+  };
+
+  const snoozeSetzen = async (minuten: number) => {
+    setSnoozeMinuten(minuten);
+    try {
+      const data = await hub.put<{ snooze_minutes?: number }>(
+        '/api/push/categories',
+        { muted, snooze_minutes: minuten },
+        { still: true }
+      );
+      setSnoozeMinuten(data.snooze_minutes ?? minuten);
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+      load();
+    }
+  };
+
+  // Die Stufe einer Kategorie fürs Haus (Punkt 423). Sofort in der Liste,
+  // der Hub bestätigt - wie beim Abbestellen.
+  const stufeSetzen = async (key: string, stufe: Stufe) => {
+    setCategories((alte) =>
+      (alte ?? []).map((eintrag) =>
+        eintrag.key === key ? { ...eintrag, stufe, dringend: stufe !== 'leise' } : eintrag
+      )
+    );
+    try {
+      await hub.put('/api/push/stufe', { category: key, stufe }, { still: true });
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+      load();
+    }
+  };
+
+  // Die Empfängergruppen als Ganzes speichern - die Liste ist klein, und
+  // ein Stand statt drei Einzeloperationen lässt sich nicht halb speichern.
+  const gruppenSpeichern = async (naechste: Gruppe[]) => {
+    setGruppen(naechste);
+    try {
+      const data = await hub.put<{ groups?: Gruppe[] }>(
+        '/api/push/gruppen',
+        { groups: naechste },
+        { still: true }
+      );
+      setGruppen(data.groups ?? naechste);
     } catch (err) {
       setError(String(err instanceof Error ? err.message : err));
       load();
@@ -365,6 +461,158 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
         </View>
       ) : null}
 
+      {/* «Später» in der Mitteilung (Punkt 425): Der Knopf hiess fest
+          «In 30 Min nochmal». Am Herd meint man eine Viertelstunde, im
+          Bett den Morgen - die Zahl steht jetzt hier, je Person. */}
+      <View style={styles.logKopf}>
+        <Ionicons name="alarm-outline" size={15} color={colors.inkSoft} />
+        <Text style={styles.logTitel}>«Später» heisst</Text>
+        <View style={styles.stundenReihe}>
+          {snoozeWahl.map((minuten) => {
+            const gewaehlt = snoozeMinuten === minuten;
+            return (
+              <Pressable
+                key={minuten}
+                onPress={() => snoozeSetzen(minuten)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: gewaehlt }}
+                style={[styles.stunde, gewaehlt && styles.stundeAn]}
+              >
+                <Text
+                  style={[
+                    styles.stundeText,
+                    gewaehlt && { color: colors.ink, fontWeight: '700' },
+                  ]}
+                >
+                  {minuten >= 60 ? `${minuten / 60} h` : `${minuten} min`}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* Empfängergruppen (Punkt 424) - nur für die, die sie ändern
+          dürfen; alle anderen sehen sie im Ablauf-Editor als Ziel. */}
+      {darfStufen ? (
+        <>
+          <Pressable
+            onPress={() => setGruppenOffen((war) => !war)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: gruppenOffen }}
+            style={styles.logKopf}
+          >
+            <Ionicons name="people-outline" size={15} color={colors.inkSoft} />
+            <Text style={styles.logTitel}>Empfängergruppen</Text>
+            <Text style={styles.hint} numberOfLines={1}>
+              {gruppen.length === 0 ? 'keine' : gruppen.map((g) => g.name).join(', ')}
+            </Text>
+            <Ionicons
+              name={gruppenOffen ? 'chevron-up' : 'chevron-down'}
+              size={15}
+              color={colors.inkSoft}
+            />
+          </Pressable>
+          {gruppenOffen ? (
+            <View style={styles.ruheKasten}>
+              <Text style={styles.hint}>
+                «Eltern» statt zwei Namen in jedem Ablauf: Eine Gruppe ist im
+                Ablauf-Editor und bei den Erinnerungen ein Ziel. Kommt jemand
+                dazu, ändert man die Gruppe - nicht zwanzig Abläufe.
+              </Text>
+              {gruppen.map((gruppe) => (
+                <View key={gruppe.name} style={styles.stundenBlock}>
+                  <View style={styles.logKopf}>
+                    <Text style={styles.stundenTitel}>{gruppe.name}</Text>
+                    <View style={{ flex: 1 }} />
+                    <Pressable
+                      onPress={() =>
+                        gruppenSpeichern(gruppen.filter((g) => g.name !== gruppe.name))
+                      }
+                      accessibilityRole="button"
+                      accessibilityLabel={`Gruppe ${gruppe.name} entfernen`}
+                      hitSlop={8}
+                    >
+                      <Ionicons name="trash-outline" size={15} color={colors.inkFaint} />
+                    </Pressable>
+                  </View>
+                  <View style={styles.stundenReihe}>
+                    {namen.map((name) => {
+                      const drin = gruppe.members.includes(name);
+                      return (
+                        <Pressable
+                          key={name}
+                          onPress={() =>
+                            gruppenSpeichern(
+                              gruppen.map((g) =>
+                                g.name === gruppe.name
+                                  ? {
+                                      ...g,
+                                      members: drin
+                                        ? g.members.filter((m) => m !== name)
+                                        : [...g.members, name],
+                                    }
+                                  : g
+                              )
+                            )
+                          }
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: drin }}
+                          style={[styles.stunde, drin && styles.stundeAn]}
+                        >
+                          <Text
+                            style={[
+                              styles.stundeText,
+                              drin && { color: colors.ink, fontWeight: '700' },
+                            ]}
+                          >
+                            {name}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              ))}
+              <View style={styles.logKopf}>
+                <TextInput
+                  value={neueGruppe}
+                  onChangeText={setNeueGruppe}
+                  placeholder="Neue Gruppe, z. B. Eltern"
+                  placeholderTextColor={colors.inkFaint}
+                  style={styles.eingabe}
+                  accessibilityLabel="Name der neuen Gruppe"
+                  returnKeyType="done"
+                  onSubmitEditing={() => {
+                    const name = neueGruppe.trim();
+                    if (!name || gruppen.some((g) => g.name === name)) return;
+                    gruppenSpeichern([...gruppen, { name, members: [] }]);
+                    setNeueGruppe('');
+                  }}
+                />
+                <Pressable
+                  onPress={() => {
+                    const name = neueGruppe.trim();
+                    if (!name || gruppen.some((g) => g.name === name)) return;
+                    gruppenSpeichern([...gruppen, { name, members: [] }]);
+                    setNeueGruppe('');
+                  }}
+                  accessibilityRole="button"
+                  style={styles.testButton}
+                >
+                  <Ionicons name="add" size={13} color={colors.ink} />
+                  <Text style={styles.testText}>Anlegen</Text>
+                </Pressable>
+              </View>
+              <Text style={styles.hint}>
+                Eine Gruppe ohne Mitglieder erreicht niemanden - der Hub lässt
+                sie weg, bis jemand drin ist.
+              </Text>
+            </View>
+          ) : null}
+        </>
+      ) : null}
+
       {/* Was zuletzt gemeldet wurde - eine weggewischte Mitteilung war
           bisher unauffindbar, und «was hat vorhin gebrummt?» ist genau
           die Frage, die man mit dem Telefon in der Jacke hatte. */}
@@ -510,6 +758,44 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
                             ? ' Keine Ruhezeit hält sie auf.'
                             : ''}
                         </Text>
+                        {/* Die Stufe fürs Haus (Punkt 423): Wer die
+                            Batteriewarnung sofort will, stellt es hier
+                            ein - für alle, denn sie beschreibt, was die
+                            Meldung ist, nicht wer sie liest. */}
+                        {darfStufen && category.stufe ? (
+                          <View style={styles.stundenReihe}>
+                            {(['leise', 'dringend', 'kritisch'] as const).map((stufe) => {
+                              const gewaehlt = category.stufe === stufe;
+                              return (
+                                <Pressable
+                                  key={stufe}
+                                  onPress={() => stufeSetzen(category.key, stufe)}
+                                  accessibilityRole="button"
+                                  accessibilityState={{ selected: gewaehlt }}
+                                  style={[styles.stunde, gewaehlt && styles.stundeAn]}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.stundeText,
+                                      gewaehlt && { color: colors.ink, fontWeight: '700' },
+                                    ]}
+                                  >
+                                    {STUFEN_WORT[stufe]}
+                                    {stufe === category.stufe_standard ? ' ·' : ''}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                        ) : null}
+                        {category.stufe === 'kritisch' && !kritischErlaubt ? (
+                          <Text style={styles.hint}>
+                            «Kritisch» durchbricht Stummschalter und «Nicht
+                            stören» - dafür braucht der Build eine Berechtigung
+                            von Apple (push.critical_alerts im Hub). Bis dahin
+                            kommt die Meldung als «Sofort».
+                          </Text>
+                        ) : null}
                         <View style={styles.detailKnoepfe}>
                           <Pressable
                             onPress={() => kategorieTesten(category.key)}
@@ -645,6 +931,15 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.surfaceSoft,
     },
     stundeAn: { backgroundColor: colors.accent },
+    eingabe: {
+      flex: 1,
+      color: colors.ink,
+      fontSize: 13,
+      paddingVertical: 6,
+      paddingHorizontal: 10,
+      borderRadius: 8,
+      backgroundColor: colors.surfaceSoft,
+    },
     stundeText: { color: colors.inkSoft, fontSize: 12 },
     detail: {
       gap: 8,

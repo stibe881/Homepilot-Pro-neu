@@ -2,7 +2,7 @@
  * Die Schritte eines Ablaufs im Editor - und die Bedingungslisten, die
  * «wenn» und «wiederholen» darin brauchen.
  *
- * Herausgelöst aus editor.tsx (Punkt 50 der Vorschlagsliste): Der Editor
+ * Herausgelöst aus editor.tsx (Punkt 422): Der Editor
  * war auf über 3000 Zeilen gewachsen - Auslöser, Schritte und
  * Bedingungen je in einer Datei, wie es das Dashboard vorgemacht hat.
  */
@@ -19,7 +19,7 @@ import {
   begrenzteAnzahl,
 } from '../../lib/kontrollfluss';
 import { anwesenheitsPersonen } from '../../lib/ortsausloeser';
-import { Compare, EMPTY_STEP, STEP_KIND_ICON, StateCondition, StepDraft, StepKind, conditionOptions, delayLabel, fittingState, geraetePlatzhalter, KAMERA_AUSLOESER, kopieSchritt, PLATZHALTER, measurableAttributes } from './entwurf';
+import { Compare, EMPTY_STEP, STEP_KIND_ICON, StateCondition, StepDraft, StepKind, conditionOptions, delayLabel, empfaengerLabel, fittingState, geraetePlatzhalter, KAMERA_AUSLOESER, kopieSchritt, PLATZHALTER, measurableAttributes } from './entwurf';
 import {
   Choice,
   Kachelauswahl,
@@ -437,7 +437,7 @@ export function StepList({
                 <Choice
                   options={[
                     { key: '', label: 'An alle' },
-                    ...empfaenger.map((name) => ({ key: name, label: name })),
+                    ...empfaenger.map((name) => ({ key: name, label: empfaengerLabel(name) })),
                   ]}
                   value={step.notifyTo}
                   onSelect={(notifyTo) => setStep(index, { notifyTo })}

@@ -2474,7 +2474,7 @@ class AutomationEngine:
         # trotzdem weiter - siehe unten in der Schleife.
         gestolpert: list[tuple[str, str]] = []
         start_ts = time.time()
-        # Löst eine Kamera aus, hält der Lauf den Moment fest (Punkt 49):
+        # Löst eine Kamera aus, hält der Lauf den Moment fest (Punkt 421):
         # Das Bild wird jetzt angestossen, nicht erst nach den Schritten -
         # danach wäre die Person längst aus dem Bild.
         standbild = self._standbild_starten(automation, ausloeser)

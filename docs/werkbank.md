@@ -3412,7 +3412,11 @@ Welche zwei Räume gemeint sind, weiss nur der Haushalt.
   gemeldet» in den Push-Einstellungen zeigt die letzten Meldungen,
   ohne Bilder und ohne eigenen Bildschirm.
 - **392** (kritische Meldungen als «critical alert») – braucht eine
-  gesonderte Berechtigung von Apple.
+  gesonderte Berechtigung von Apple. Vorbereitet ist es (Punkt 423):
+  Eine Kategorie lässt sich auf «kritisch» stellen, die App fragt die
+  Erlaubnis dafür beim Anmelden mit, und der Hub schickt den kritischen
+  Ton, sobald `push.critical_alerts: true` in der config.yaml steht.
+  Fehlt nur noch der Antrag bei Apple und das Entitlement in der Hülle.
 - **405** (Watch-App) – ohne Xcode/watchOS-Werkzeuge hier nicht
   verifizierbar zu bauen.
 - **353/340** (Lauftext misst sich falsch) – zwei frühere Versuche
@@ -3481,3 +3485,70 @@ zwei der vier Messungen in `Kassencode.test.tsx` um. Ein Prüfstand, der
 nie rot wird, ist keiner.
 
 Stellen: `app/src/lib/strichcode.ts`, `app/src/components/Kassencode.tsx`, `app/src/components/QrScanner.tsx`, `app/src/screens/family/gutscheine.tsx`, `hub/homepilot/core/gutscheine.py`
+
+## Zweite Vorschlagsrunde (421–425)
+
+Aus einer Liste von fünfundachtzig Vorschlägen (allgemein, Bedienung,
+Gestaltung, Gutscheine, Abläufe, Push, Alarmanlage, selbst gewählt),
+von denen der Haushalt dreiunddreissig ausgewählt hat. Was davon schon
+da war: das Zurückspielen eines Backups aus der App (System → Backups,
+`restore()` mit doppeltem Tipp) – nicht noch einmal gebaut.
+
+### 421. Standbild im Lauf-Verlauf ✓ erledigt
+
+*lohnt sich · Aufwand: klein · Hub + App*
+
+«Bewegung an der Kamera Garten → Licht an» stand im Verlauf nur als
+Satz; was die Kamera dabei sah, war nach zehn Minuten weg
+(core/snapshots.py). Löst eine Kamera aus, holt der Lauf jetzt beim
+Start ein Standbild – vor den Schritten, nicht danach, sonst ist die
+Person längst aus dem Bild – und legt es ins Bildarchiv des Alarms
+(core/bildarchiv.py, dieselbe Frist). Der Lauf trägt die Kennung, die
+App zeigt die Vorschau unter dem Lauf; Route
+`/api/automations/bild/{kennung}` unter dem Verlaufs-Recht.
+
+### 422. Ablauf-Editor aufgeteilt ✓ erledigt
+
+*Aufwand: mittel · App*
+
+`editor.tsx` war auf 2900 Zeilen angewachsen. Jetzt drei Dateien:
+`editor.tsx` (Editor, Fassungen, Simulation), `ausloeser.tsx`
+(TriggerRow) und `schritte.tsx` (StepList, Bedingungen, Wiederholung).
+Die alten Exporte bleiben unter `editor.tsx` erreichbar. Im selben
+Zug nennt jede eingebaute Vorlage ihre Gruppe als Feld statt über
+einen Regex auf den Titel (`vorlagen.ts`).
+
+### 423. Dringlichkeit je Kategorie ✓ erledigt
+
+*lohnt sich · Aufwand: klein · Hub + App*
+
+Was warten darf, stand fest im Code (`LEISE`). Jetzt hat jede
+Kategorie eine Stufe fürs Haus – leise, dringend, kritisch –, die
+unter Konto → Benachrichtigungen im Detail der Kategorie steht, für
+die, die Einstellungen ändern dürfen. Fürs Haus und nicht je Person,
+weil die Stufe beschreibt, was die Meldung *ist*; wer sie für sich
+nicht will, bestellt sie ab. Ablage `push_stufen`, Route
+`PUT /api/push/stufe`. «Kritisch» ist die Vorbereitung auf 392.
+
+### 424. Empfängergruppen ✓ erledigt
+
+*lohnt sich · Aufwand: klein · Hub + App*
+
+«Eltern» statt «Stefan» und «Livia» in jedem Ablauf. Eine Gruppe ist
+im Ablauf-Editor ein Ziel (`to: "gruppe:Eltern"`), bei den
+Erinnerungen ebenso, und wird unter Konto → Benachrichtigungen
+gepflegt. Mitglieder, die es als Benutzer nicht gibt, fallen still
+weg; eine Gruppe ohne Mitglieder erreicht niemanden und wird gar nicht
+erst geführt. Ablage `push_gruppen`, Routen `/api/push/gruppen`.
+
+### 425. «Später» mit eigener Dauer ✓ erledigt
+
+*Aufwand: klein · Hub + App*
+
+Der Knopf in der Mitteilung hiess fest «In 30 Min nochmal». Am Herd
+meint man eine Viertelstunde, im Bett den Morgen. Der Knopf heisst
+jetzt «Später nochmal», die Zahl (15 min, 30 min, 1 h, 2 h) steht je
+Person unter Konto → Benachrichtigungen, und der Hub nimmt sie, wenn
+die App keine mitschickt. Nebenbei behoben: Das Abbestellen einer
+Kategorie ersetzte die ganze Push-Zeile der Person und warf Ruhezeit
+und Stillgestelltes mit weg.

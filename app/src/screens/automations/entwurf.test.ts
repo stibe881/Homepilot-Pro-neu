@@ -1992,3 +1992,11 @@ describe('Kontext-Bedingungen', () => {
     ).toEqual([]);
   });
 });
+
+describe('Empfängergruppen', () => {
+  const { empfaengerLabel } = jest.requireActual('./entwurf');
+  it('zeigt eine Gruppe als solche, einen Namen unverändert', () => {
+    expect(empfaengerLabel('gruppe:Eltern')).toBe('Eltern (Gruppe)');
+    expect(empfaengerLabel('Stefan')).toBe('Stefan');
+  });
+});

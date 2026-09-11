@@ -1,7 +1,7 @@
 /**
  * Der Auslöser eines Ablaufs im Editor: welche Art, welches Gerät, wann.
  *
- * Herausgelöst aus editor.tsx (Punkt 50 der Vorschlagsliste): Der Editor
+ * Herausgelöst aus editor.tsx (Punkt 422): Der Editor
  * war auf über 3000 Zeilen gewachsen - Auslöser, Schritte und
  * Bedingungen je in einer Datei, wie es das Dashboard vorgemacht hat.
  */

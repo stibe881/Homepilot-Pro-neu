@@ -47,12 +47,14 @@ from ..models import (
     LaundryRequest,
     LiveActivityTokenRequest,
     NotifyRuleRequest,
+    PushGruppenRequest,
     PushPrefsRequest,
     PushQuittierenRequest,
     PushRegistration,
     PushRuhezeitRequest,
     PushSnoozeRequest,
     PushStillRequest,
+    PushStufeRequest,
     VoucherPrefsRequest,
 )
 
@@ -163,7 +165,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                     # Sichtbar, weil es sonst nirgends steht und die
                     # Frage «warum kommt das eine sofort und das andere
                     # zwanzig Minuten später» sonst unbeantwortet bleibt.
-                    "dringend": key not in push.LEISE,
+                    "dringend": push.stufe_von(key, hub.push.stufen) != push.STUFE_LEISE,
+                    # Die Stufe selbst, änderbar fürs Haus (PUT /api/push/stufe),
+                    # und daneben die eingebaute - damit die App «zurück auf
+                    # Standard» anbieten kann, ohne die Liste zu kennen.
+                    "stufe": push.stufe_von(key, hub.push.stufen),
+                    "stufe_standard": push.stufe_standard(key),
                     # Was sich nie zurückhalten lässt - die App soll den
                     # Knopf «24 h still» dort gar nicht erst anbieten.
                     "immer": key in pushruhe.IMMER_DURCH,
@@ -180,6 +187,21 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "groups": push.group_order() + eigene_gruppen,
             "muted": muted,
             "ruhe": pushruhe.ruhe_lesen(_meine_zeile(user.name).get("ruhe")),
+            # Wie lange «Später» in der Mitteilung heisst (core/spaeter.py).
+            "snooze_minutes": spaeter.eigene_minuten(_meine_zeile(user.name)),
+            "snooze_wahl": list(spaeter.WAHL_MINUTEN),
+            # Die Stufen gelten fürs Haus - ändern darf sie, wer die
+            # Einstellungen ändern darf; die App blendet die Wahl sonst aus.
+            "stufen": list(push.STUFEN),
+            "darf_stufen": user.can(Capability.EDIT_CONFIG),
+            # Ob Apple dem Haus «kritisch» gestattet (push.critical_alerts
+            # in der config.yaml). Ohne das zeigt die App die Stufe mit
+            # dem Hinweis, dass sie vorerst wie «dringend» wirkt.
+            "critical_alerts": hub.push.kritisch_erlaubt,
+            "empfaengergruppen": [
+                {"name": name, "members": mitglieder}
+                for name, mitglieder in hub.push.gruppen.items()
+            ],
         }
 
     @app.put("/api/push/categories")
@@ -193,21 +215,89 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         ohne dass der Hub die Datei anfasst.
         """
         user = current_user(request)
-        stored = {
-            entry["user"]: entry
-            for entry in hub.data.get("push_prefs")
-            if isinstance(entry, dict) and entry.get("user")
-        }
-        stored[user.name] = {
-            "user": user.name,
+        felder: dict[str, Any] = {
             # Auch die Schlüssel aus Abläufen (automation:<id>) - ob es
             # den Ablauf noch gibt, prüft hier bewusst niemand: Ein
             # pausierter Ablauf soll seine Abbestellung behalten.
             "muted": [key for key in body.muted if push.known(key)],
         }
-        hub.data.set("push_prefs", list(stored.values()))
+        if body.snooze_minutes is not None:
+            felder["snooze_minutes"] = spaeter.minuten_pruefen(body.snooze_minutes)
+        # In die bestehende Zeile hinein, nicht darüber: Ruhezeit und
+        # Stillgestelltes liegen in derselben Zeile und gingen sonst mit
+        # jedem Abbestellen verloren.
+        zeile = _zeile_schreiben(user.name, **felder)
         hub.push.muted = push.parse_muted(hub.data.get("push_prefs"))
-        return {"ok": True, "muted": sorted(hub.push.muted.get(user.name, set()))}
+        return {
+            "ok": True,
+            "muted": sorted(hub.push.muted.get(user.name, set())),
+            "snooze_minutes": spaeter.eigene_minuten(zeile),
+        }
+
+    @app.put("/api/push/stufe")
+    async def set_push_stufe(body: PushStufeRequest, request: Request) -> dict[str, Any]:
+        """Die Dringlichkeit einer Kategorie ändern - fürs ganze Haus.
+
+        Fürs Haus und nicht je Person, weil sie beschreibt, was die
+        Meldung *ist*: Ob die Batteriewarnung warten darf, hängt nicht
+        davon ab, wer sie liest. Wer sie für sich nicht will, bestellt
+        sie ab; wer sie leiser will, stellt seine Ruhezeit ein.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        if not push.known(body.category):
+            raise HTTPException(status_code=404, detail="Unbekannte Kategorie")
+        if body.stufe not in push.STUFEN:
+            raise HTTPException(status_code=400, detail="Unbekannte Stufe")
+        hub.data.set(
+            push.STUFEN_KEY,
+            push.stufen_setzen(hub.data.get(push.STUFEN_KEY), body.category, body.stufe),
+        )
+        hub.push_einstellungen_lesen()
+        return {
+            "ok": True,
+            "category": body.category,
+            "stufe": push.stufe_von(body.category, hub.push.stufen),
+        }
+
+    @app.get("/api/push/gruppen")
+    async def push_gruppen(request: Request) -> dict[str, Any]:
+        """Die Empfängergruppen des Hauses (push.gruppen_lesen)."""
+        user = current_user(request)
+        if user.role == Role.GUEST:
+            raise HTTPException(status_code=403, detail="Für Gäste nicht sichtbar")
+        return {
+            "groups": [
+                {"name": name, "members": mitglieder}
+                for name, mitglieder in hub.push.gruppen.items()
+            ]
+        }
+
+    @app.put("/api/push/gruppen")
+    async def set_push_gruppen(body: PushGruppenRequest, request: Request) -> dict[str, Any]:
+        """Alle Gruppen auf einmal speichern - «Eltern», «Kinder», «Zuhause».
+
+        Mitglieder, die es als Benutzer nicht gibt, fallen still weg:
+        Ein Tippfehler im Namen wäre sonst ein Mitglied, das nie eine
+        Meldung bekommt, und das merkt niemand.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        bekannt = {user.name for user in hub.users.users if not user.system}
+        rows = [
+            {
+                "name": gruppe.name.strip(),
+                "members": [name for name in gruppe.members if name in bekannt],
+            }
+            for gruppe in body.groups
+        ]
+        hub.data.set(push.GRUPPEN_KEY, [row for row in rows if row["name"]])
+        hub.push_einstellungen_lesen()
+        return {
+            "ok": True,
+            "groups": [
+                {"name": name, "members": mitglieder}
+                for name, mitglieder in hub.push.gruppen.items()
+            ],
+        }
 
     # ── Ruhezeit und Stillstellen (core/pushruhe.py) ───────────────────────
     #
@@ -610,6 +700,8 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 if not user.system and user.role != Role.GUEST
             ],
             "roles": sorted(Role.ALL),
+            # Gruppen als Ziel: to="gruppe:<Name>" (push.GRUPPE_PREFIX).
+            "groups": sorted(hub.push.gruppen),
         }
 
     @app.post("/api/push/register")
@@ -657,6 +749,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         wegschiebt, geht die anderen Telefone nichts an.
         """
         user = current_user(request)
+        # Ohne Zahl gilt die eigene Vorgabe: Der Knopf in der Mitteilung
+        # kennt keine Auswahl, die Person hat sie in den Einstellungen
+        # getroffen (core/spaeter.py: eigene_minuten).
+        minuten = (
+            body.minutes if body.minutes else spaeter.eigene_minuten(_meine_zeile(user.name))
+        )
         hub.data.set(
             spaeter.SCHLANGE,
             spaeter.einreihen(
@@ -668,10 +766,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                     "to": user.name,
                 },
                 time.time(),
-                body.minutes,
+                minuten,
             ),
         )
-        return {"ok": True, "minutes": spaeter.minuten_pruefen(body.minutes)}
+        return {"ok": True, "minutes": spaeter.minuten_pruefen(minuten)}
 
     @app.post("/api/push/quittieren")
     async def quittiere_push(

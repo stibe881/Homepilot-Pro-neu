@@ -795,7 +795,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
     @app.get("/api/automations/bild/{kennung}")
     async def automation_bild(kennung: str, request: Request) -> Response:
-        """Das Standbild zu einem Lauf mit Kamera-Auslöser (Punkt 49).
+        """Das Standbild zu einem Lauf mit Kamera-Auslöser (Punkt 421).
 
         Dasselbe Archiv wie beim Alarm (core/bildarchiv.py), aber unter
         dem Recht, den Verlauf zu sehen: Wer die Läufe lesen darf, darf

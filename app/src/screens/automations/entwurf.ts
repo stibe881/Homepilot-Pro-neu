@@ -110,7 +110,7 @@ export interface Run {
   skipped: string[];
   /** Die Schritt-Spur (Punkt 160): was wann dran war, und was hing. */
   steps?: { label: string; after: number; note?: string; error?: string }[];
-  /** Punkt 49: Löste eine Kamera aus, liegt ihr Standbild im Bildarchiv
+  /** Punkt 421: Löste eine Kamera aus, liegt ihr Standbild im Bildarchiv
    *  des Hubs - das ist seine Kennung für /api/automations/bild/… */
   image?: string;
   /** Ob der Lauf auch gewirkt hat – ein paar Sekunden nach dem Lauf am
@@ -194,6 +194,20 @@ export interface StateOption {
 }
 
 /** Schlüssel aus dem, was im Ablauf steht – fürs Wiederfinden der Auswahl. */
+/** Vorsatz einer Empfängergruppe im Ziel - derselbe wie im Hub
+ *  (core/push.py: GRUPPE_PREFIX). */
+export const GRUPPE_PREFIX = 'gruppe:';
+
+/** Wie ein Empfänger in der Auswahl heisst (rein, testbar).
+ *
+ *  Eine Gruppe (Punkt 424) steht als «Eltern (Gruppe)» neben den Namen -
+ *  so sieht man, dass sich dahinter mehrere Telefone verbergen, ohne
+ *  dass die Kennung «gruppe:Eltern» auf dem Bildschirm steht. */
+export function empfaengerLabel(key: string): string {
+  if (key.startsWith(GRUPPE_PREFIX)) return `${key.slice(GRUPPE_PREFIX.length)} (Gruppe)`;
+  return key;
+}
+
 export function optionKey(attribute: string | undefined, to: string): string {
   return attribute ? `${attribute}:${to}` : to;
 }

@@ -25,7 +25,7 @@ import {
 } from '../lib/szenen';
 import { BabysitterStand, LEERER_BABYSITTER, istFreigegeben, modusSatz, seitText } from '../lib/babysitter';
 import { Editor, Fassung } from './automations/editor';
-import { Automation, Draft, DryRun, EMPTY, EMPTY_STEP, EMPTY_TRIGGER, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, namensVorschlag, newTrigger, runLine, search, stepToActions, stepsToActions, symbolFuerNamen, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, wirkungText, zeitpunktLabel } from './automations/entwurf';
+import { Automation, Draft, DryRun, EMPTY, EMPTY_STEP, EMPTY_TRIGGER, GRUPPE_PREFIX, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, namensVorschlag, newTrigger, runLine, search, stepToActions, stepsToActions, symbolFuerNamen, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, wirkungText, zeitpunktLabel } from './automations/entwurf';
 import { Groups, SearchBox } from './automations/felder';
 import {
   PAUSEN,
@@ -283,11 +283,19 @@ export function AutomationsScreen({
         setFavoriten((data?.favorites ?? []).map((zeile) => String(zeile.name ?? ''))),
       );
     hub
-      .get<{ names?: string[] } | null>('/api/push/targets', {
+      .get<{ names?: string[]; groups?: string[] } | null>('/api/push/targets', {
         fallback: null,
         still: true,
       })
-      .then((data) => setEmpfaenger(data?.names ?? []));
+      // Gruppen (Punkt 424) hinter den Namen, mit dem Vorsatz des Hubs:
+      // Das to-Feld des Ablaufs trägt «gruppe:Eltern», die Auswahl zeigt
+      // «Eltern (Gruppe)» (entwurf.ts: empfaengerLabel).
+      .then((data) =>
+        setEmpfaenger([
+          ...(data?.names ?? []),
+          ...(data?.groups ?? []).map((name) => `${GRUPPE_PREFIX}${name}`),
+        ])
+      );
     hub
       .get<{ agenda?: AgendaEintrag[] } | null>('/api/automations/agenda', {
         fallback: null,
@@ -1491,7 +1499,7 @@ export function AutomationsScreen({
                             <View key={index}>
                               <Text style={styles.triggerNote}>{runLine(run)}</Text>
                               {/* Was die Kamera sah, als sie auslöste
-                                  (Punkt 49). Das Token steht in der
+                                  (Punkt 421). Das Token steht in der
                                   Adresse, weil <Image> keine Kopfzeilen
                                   mitschickt - wie beim Ereignisblatt. */}
                               {run.image ? (
