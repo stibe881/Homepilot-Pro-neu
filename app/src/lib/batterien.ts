@@ -24,6 +24,32 @@ export interface BatterieVermerk {
   entity_id: string;
   muted_until?: number | null;
   muted?: boolean;
+  /** Wer sie stillgestellt hat und wann (Punkt 478 der Werkbank). */
+  ack?: { by?: string | null; at?: number | null; until?: number | null } | null;
+}
+
+/**
+ * Wer diese Warnung stillgestellt hat – als Satz (rein, testbar).
+ *
+ * Punkt 478 der Werkbank: Die Quittung gilt fürs ganze Haus, und das ist
+ * richtig so - sonst laufen zwei Leute wegen derselben Batterie in den
+ * Keller. Falsch war, dass sie *unsichtbar* für alle galt: Wer nachts
+ * die Warnung wegdrückte, drückte sie auch dem anderen weg, und der
+ * suchte am Morgen eine Meldung, die es nie mehr gab.
+ *
+ * `null`, wo niemand gedrückt hat oder die Quittung abgelaufen ist -
+ * dann steht da nichts statt einer Zeile, die Ruhe behauptet.
+ */
+export function quittungSatz(
+  vermerke: BatterieVermerk[],
+  entityId: string,
+  jetzt: number
+): string | null {
+  const treffer = vermerke.find((eintrag) => eintrag.entity_id === entityId);
+  const ack = treffer?.ack;
+  if (!ack?.until || ack.until * 1000 <= jetzt) return null;
+  const wer = String(ack.by ?? '').trim();
+  return wer ? `Von ${wer} stillgestellt` : 'Stillgestellt';
 }
 
 /** Bis wann eine Warnung quittiert ist – null, wenn nicht (rein, testbar).

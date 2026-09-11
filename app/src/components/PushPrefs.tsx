@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { HubFehler, hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
@@ -10,11 +10,14 @@ import {
   RUHE_AUS,
   type Ruhezeit,
   STUNDEN,
+  WOCHENTAGE,
   ruhesatz,
   stillsatz,
+  tageOrdnen,
   uhr,
   verpasstsatz,
 } from '../lib/pushruhe';
+import { eigenerPushToken } from '../hooks/usePushRegistration';
 import { epochTime } from '../lib/zeit';
 import { Colors, type, useColors } from '../theme';
 
@@ -68,7 +71,36 @@ export function groupCategories(
   );
 }
 
-export function PushPrefs({ settings }: { settings: HubSettings }) {
+/**
+ * Die Kategorien zu einer Suche (rein, testbar) - Punkt 477 der Werkbank.
+ *
+ * Über vierzig Kategorien in acht Gruppen: Wer etwas abstellen will,
+ * sucht - und schaltet im Zweifel die ganze Gruppe ab, in der auch das
+ * Wichtige steckt. Gesucht wird in dem, was dasteht: Beschriftung,
+ * Gruppe und das Beispiel, denn oft erinnert man den Satz auf dem
+ * Sperrbildschirm und nicht den Namen der Kategorie.
+ *
+ * Leere Suche heisst alles - ein Filter, der nichts findet, wäre bei
+ * leerem Feld die schlechteste aller Antworten.
+ */
+export function passtZurSuche(category: Category, frage: string): boolean {
+  const gesucht = String(frage ?? '').trim().toLowerCase();
+  if (!gesucht) return true;
+  return [category.label, category.group, ...(category.beispiel ?? [])]
+    .map((teil) => String(teil ?? '').toLowerCase())
+    .some((teil) => teil.includes(gesucht));
+}
+
+export function PushPrefs({
+  settings,
+  onZiel,
+}: {
+  settings: HubSettings;
+  /** Einen Eintrag des Posteingangs öffnen (Punkt 472 der Werkbank).
+   *  Fehlt er, bleiben die Zeilen Zeilen - ein Tipp, der nichts tut,
+   *  ist schlimmer als keiner. */
+  onZiel?: (ziel: string) => void;
+}) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [categories, setCategories] = useState<Category[] | null>(null);
@@ -97,6 +129,12 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
       held?: string | null;
       /** Ob genau diese Person sie deswegen nie gehört hat. */
       verpasst?: boolean;
+      /** Wohin ein Tipp führt (core/pushziel.py) – Punkt 472. */
+      ziel?: string | null;
+      /** Was der Push-Dienst beanstandet hat (Punkt 475). Leer heisst
+       *  zugestellt; eine Zeile hier heisst: Es sah aus wie gemeldet,
+       *  und niemand hat etwas gehört. */
+      nicht_zugestellt?: string[] | null;
     }[] | null
   >(null);
   // Die eigene Nachtruhe. Der Hub hält sie je Person (core/pushruhe.py);
@@ -109,6 +147,22 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
   // lang, und man sucht den Schalter, den man eben noch sah.
   const [detail, setDetail] = useState<string | null>(null);
   const [probe, setProbe] = useState<{ key: string; text: string } | null>(null);
+  // Der eigene Push-Token (Punkt 471 der Werkbank) - ohne ihn steht die
+  // Wahl «nur auf diesem Gerät» nicht da, und alles gilt wie vorher für
+  // alle Geräte der Person.
+  const [eigenerToken, setEigenerToken] = useState<string | null>(null);
+  // Gilt das, was hier eingestellt wird, nur für dieses Gerät?
+  const [nurHier, setNurHier] = useState(false);
+  // Hat dieses Gerät schon eine eigene Einstellung? Der Hub sagt es -
+  // sonst sähe «Ruhezeit aus» am iPad gleich aus, ob sie dort
+  // abgeschaltet wurde oder überall.
+  const [geraetEigen, setGeraetEigen] = useState(false);
+  // Wie viele Meldungen es zum Nachlesen gibt (Punkt 472).
+  const [suchtext, setSuchtext] = useState('');
+
+  useEffect(() => {
+    eigenerPushToken().then(setEigenerToken);
+  }, []);
 
   const hub = useMemo(
     () => hubClient(settings.url, settings.token),
@@ -123,15 +177,24 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
         groups?: string[];
         muted?: string[];
         ruhe?: Ruhezeit;
-      }>('/api/push/categories', { still: true })
+        geraet_eigen?: boolean;
+      }>(
+        // Mit dem eigenen Token holt der Hub die Sicht *dieses* Geräts
+        // (Punkt 471); ohne ihn die der Person, wie bisher.
+        nurHier && eigenerToken
+          ? `/api/push/categories?token=${encodeURIComponent(eigenerToken)}`
+          : '/api/push/categories',
+        { still: true }
+      )
       .then((data) => {
         setCategories(data.categories ?? []);
         setGroupOrder(data.groups ?? []);
         setMuted(data.muted ?? []);
         setRuhe(data.ruhe ?? RUHE_AUS);
+        setGeraetEigen(data.geraet_eigen === true);
       })
       .catch((err) => setError(err instanceof HubFehler ? err.message : String(err)));
-  }, [hub]);
+  }, [hub, nurHier, eigenerToken]);
 
   // Erst laden, wenn jemand hinsieht: Zugeklappt ist die Antwort des
   // Hubs nichts wert, und beim Öffnen der Einstellungen laufen ohnehin
@@ -149,7 +212,8 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
     try {
       const data = await hub.put<{ muted?: string[] }>(
         '/api/push/categories',
-        { muted: next },
+        // Nur für dieses Gerät, wenn «nur hier» gewählt ist (Punkt 471).
+        { muted: next, token: nurHier ? (eigenerToken ?? '') : '' },
         { still: true }
       );
       setMuted(data.muted ?? next);
@@ -166,7 +230,15 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
     try {
       const data = await hub.put<{ ruhe?: Ruhezeit }>(
         '/api/push/ruhe',
-        { enabled: naechste.enabled, von: naechste.from, bis: naechste.to },
+        {
+          enabled: naechste.enabled,
+          von: naechste.from,
+          bis: naechste.to,
+          tage: tageOrdnen(naechste.days),
+          // Für dieses Gerät, wenn es eine eigene Ruhezeit führt
+          // (Punkt 471) - sonst für mich überall, wie bisher.
+          token: nurHier ? (eigenerToken ?? '') : '',
+        },
         { still: true }
       );
       if (data.ruhe) setRuhe(data.ruhe);
@@ -356,12 +428,96 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
                   </View>
                 </View>
               ))}
+              {/* An welchen Tagen (Punkt 479 der Werkbank). Bis hierher
+                  war die Ruhezeit eine Zahl von-bis für die ganze Woche -
+                  Samstagmorgen ist aber nicht Dienstagmorgen, und die
+                  Ferienwoche keine Arbeitswoche. Keiner angetippt heisst
+                  «jeden Tag»: So war sie immer, und wer nichts einstellt,
+                  soll nichts verlieren. */}
+              <View style={styles.stundenBlock}>
+                <Text style={styles.stundenTitel}>An diesen Tagen</Text>
+                <View style={styles.stundenReihe}>
+                  {WOCHENTAGE.map((name, tag) => {
+                    const gewaehlt = tageOrdnen(ruhe.days).includes(tag);
+                    return (
+                      <Pressable
+                        key={name}
+                        onPress={() =>
+                          ruheSetzen({
+                            ...ruhe,
+                            days: tageOrdnen(
+                              gewaehlt
+                                ? (ruhe.days ?? []).filter((eintrag) => eintrag !== tag)
+                                : [...(ruhe.days ?? []), tag]
+                            ),
+                          })
+                        }
+                        accessibilityRole="button"
+                        accessibilityLabel={name}
+                        accessibilityState={{ selected: gewaehlt }}
+                        style={[styles.stunde, gewaehlt && styles.stundeAn]}
+                      >
+                        <Text
+                          style={[
+                            styles.stundeText,
+                            gewaehlt && { color: colors.ink, fontWeight: '700' },
+                          ]}
+                        >
+                          {name}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <Text style={styles.hint}>
+                  Keiner angetippt heisst jeden Tag. Eine Nacht zählt zu dem Tag,
+                  an dem sie beginnt – «Fr» deckt die Nacht auf Samstag ab.
+                </Text>
+              </View>
               <Text style={styles.hint}>
                 Alarm, Wasser, Klingel, ein weinendes Kind und der Timer kommen
                 trotzdem – die halten keine Ruhezeit auf.
               </Text>
+              {/* Punkt 480 der Werkbank: Dass ein aktiver Fokus auch den
+                  Alarm stumm stellt, stand bisher nirgends - und das ist
+                  keine Technikfrage, sondern eine Sicherheitsauskunft. */}
+              <Text style={styles.hint}>
+                Ein «Nicht stören» des Telefons hält auch den Alarm auf. Damit er
+                durchkommt, muss HomePilot dort unter «Zugelassene Mitteilungen»
+                stehen – der Hub kann das nicht für dich entscheiden.
+              </Text>
             </>
           ) : null}
+        </View>
+      ) : null}
+
+      {/* Für wen gilt das hier (Punkt 471 der Werkbank)? Wer sich mit
+          Telefon und iPad anmeldet, bekam auf beiden dasselbe - auch die
+          Ruhezeit. Das iPad liegt nachts im Wohnzimmer und darf
+          klingeln, das Telefon liegt neben dem Bett. Steht nur da, wo
+          der eigene Token bekannt ist: im Browser gibt es keinen. */}
+      {eigenerToken ? (
+        <View style={styles.ruheKasten}>
+          <Pressable
+            onPress={() => setNurHier(!nurHier)}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: nurHier }}
+            style={styles.row}
+          >
+            <Ionicons
+              name={nurHier ? 'checkmark-circle' : 'ellipse-outline'}
+              size={20}
+              color={nurHier ? colors.on : colors.inkFaint}
+            />
+            <Text style={styles.rowTitle}>Nur auf diesem Gerät</Text>
+          </Pressable>
+          <Text style={styles.hint}>
+            {nurHier
+              ? geraetEigen
+                ? 'Dieses Gerät hat eine eigene Einstellung. Die anderen folgen weiter dir.'
+                : 'Was du jetzt änderst, gilt nur hier – die anderen Geräte bleiben, wie sie sind.'
+              : 'Gilt für alle deine Geräte. Für das iPad im Wohnzimmer oder das Wandpanel lohnt sich oft etwas anderes als fürs Telefon neben dem Bett.'}
+          </Text>
         </View>
       ) : null}
 
@@ -386,7 +542,7 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
         style={styles.logKopf}
       >
         <Ionicons name="time-outline" size={15} color={colors.inkSoft} />
-        <Text style={styles.logTitel}>Zuletzt gemeldet</Text>
+        <Text style={styles.logTitel}>Posteingang</Text>
         <Ionicons
           name={logOffen ? 'chevron-up' : 'chevron-down'}
           size={15}
@@ -399,39 +555,114 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
         ) : log.length === 0 ? (
           <Text style={styles.hint}>In den letzten Tagen kam nichts.</Text>
         ) : (
-          log.slice(0, 20).map((eintrag, index) => (
-            <View key={index} style={styles.logZeile}>
-              <Text style={styles.logZeit}>{epochTime(eintrag.at)}</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.rowTitle} numberOfLines={1}>
-                  {eintrag.title}
-                </Text>
-                {eintrag.body ? (
-                  <Text style={styles.hint} numberOfLines={2}>
-                    {eintrag.body}
+          log.slice(0, 20).map((eintrag, index) => {
+            // Tippbar, wo der Hub ein Ziel mitgeschickt hat (Punkt 472
+            // der Werkbank): Eine weggewischte Klingel war bisher
+            // endgültig weg, obwohl das Standbild im Hub liegt. Ohne
+            // Ziel bleibt die Zeile eine Zeile - ein Tipp, der nichts
+            // tut, ist schlimmer als keiner.
+            const inhalt = (
+              <>
+                <Text style={styles.logZeit}>{epochTime(eintrag.at)}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.rowTitle} numberOfLines={1}>
+                    {eintrag.title}
                   </Text>
+                  {eintrag.body ? (
+                    <Text style={styles.hint} numberOfLines={2}>
+                      {eintrag.body}
+                    </Text>
+                  ) : null}
+                  {/* Der Unterschied zwischen «ich habe es übersehen» und
+                      «das Haus hat es für sich behalten». Ohne diese Zeile
+                      liest sich der Zettel wie das Erste, und man sucht den
+                      Fehler bei sich. */}
+                  {eintrag.verpasst ? (
+                    <Text style={styles.verpasstMarke}>
+                      {verpasstsatz(eintrag.held)}
+                    </Text>
+                  ) : null}
+                  {/* «Angenommen» heisst nicht «angekommen» (Punkt 475).
+                      Ohne diese Zeile sieht eine Meldung, die nie ein
+                      Telefon erreicht hat, genauso aus wie eine, die
+                      man übersehen hat. */}
+                  {eintrag.nicht_zugestellt?.length ? (
+                    <Text style={[styles.verpasstMarke, { color: colors.warn }]}>
+                      Nicht zugestellt: {eintrag.nicht_zugestellt[0]}
+                    </Text>
+                  ) : null}
+                </View>
+                {eintrag.ziel ? (
+                  <Ionicons name="chevron-forward" size={15} color={colors.inkFaint} />
                 ) : null}
-                {/* Der Unterschied zwischen «ich habe es übersehen» und
-                    «das Haus hat es für sich behalten». Ohne diese Zeile
-                    liest sich der Zettel wie das Erste, und man sucht den
-                    Fehler bei sich. */}
-                {eintrag.verpasst ? (
-                  <Text style={styles.verpasstMarke}>
-                    {verpasstsatz(eintrag.held)}
-                  </Text>
-                ) : null}
-              </View>
-            </View>
-          ))
+              </>
+            );
+            if (!eintrag.ziel || !onZiel) {
+              return (
+                <View key={index} style={styles.logZeile}>
+                  {inhalt}
+                </View>
+              );
+            }
+            return (
+              <Pressable
+                key={index}
+                onPress={() => onZiel(eintrag.ziel as string)}
+                accessibilityRole="button"
+                accessibilityLabel={`${eintrag.title} öffnen`}
+                style={({ pressed }) => [styles.logZeile, pressed && { opacity: 0.7 }]}
+              >
+                {inhalt}
+              </Pressable>
+            );
+          })
         )
+      ) : null}
+
+      {/* Suche über die Kategorien (Punkt 477 der Werkbank). Über
+          vierzig Schalter in acht Gruppen: Wer «Sauger» abstellen will,
+          scrollt sonst durch alles und schaltet im Zweifel die Gruppe
+          ab, in der auch das Wichtige steckt. Steht erst da, wenn es
+          wirklich viele sind - bei zehn Schaltern ist ein Suchfeld
+          Ballast. */}
+      {categories != null && categories.length > 15 ? (
+        <View style={styles.suchZeile}>
+          <Ionicons name="search" size={15} color={colors.inkSoft} />
+          <TextInput
+            style={styles.suchFeld}
+            value={suchtext}
+            onChangeText={setSuchtext}
+            placeholder="Nachrichtenart suchen"
+            placeholderTextColor={colors.inkFaint}
+            accessibilityLabel="Nachrichtenart suchen"
+          />
+          {suchtext ? (
+            <Pressable
+              onPress={() => setSuchtext('')}
+              accessibilityRole="button"
+              accessibilityLabel="Suche leeren"
+            >
+              <Ionicons name="close-circle" size={16} color={colors.inkFaint} />
+            </Pressable>
+          ) : null}
+        </View>
       ) : null}
 
       {error ? (
         <Text style={styles.hint}>Nicht abrufbar: {error}</Text>
       ) : categories == null ? (
         <Text style={styles.hint}>Wird geladen …</Text>
+      ) : categories.filter((category) => passtZurSuche(category, suchtext)).length ===
+        0 ? (
+        <Text style={styles.hint}>
+          Nichts passt zu «{suchtext}». Gesucht wird in Name, Gruppe und dem
+          Beispielsatz.
+        </Text>
       ) : (
-        groupCategories(categories, groupOrder).map((section) => (
+        groupCategories(
+          categories.filter((category) => passtZurSuche(category, suchtext)),
+          groupOrder
+        ).map((section) => (
           <View key={section.title} style={styles.section}>
             <Text style={styles.sectionTitle}>{section.title}</Text>
             {/* flexWrap: Auf dem Telefon eine Spalte, auf dem breiten
@@ -633,6 +864,17 @@ const makeStyles = (colors: Colors) =>
       borderLeftColor: colors.surfaceBorder,
       marginLeft: 6,
     },
+    // Die Suche über die Kategorien (Punkt 477 der Werkbank).
+    suchZeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 10,
+      backgroundColor: colors.surfaceSoft,
+    },
+    suchFeld: { flex: 1, color: colors.ink, fontSize: 14, paddingVertical: 2 },
     stundenBlock: { gap: 4 },
     stundenTitel: { color: colors.inkSoft, fontSize: 12, fontWeight: '700' },
     stundenReihe: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },

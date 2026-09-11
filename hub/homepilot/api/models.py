@@ -204,6 +204,9 @@ class PushPrefsRequest(BaseModel):
     """Abbestellte Nachrichtenarten eines Benutzers."""
 
     muted: list[str] = []
+    # Für welches Gerät (Punkt 471) - leer heisst «für mich, überall».
+    # Der Token, nicht der Anzeigename: Der ändert sich, der Token nicht.
+    token: str = ""
 
 
 class PushRuhezeitRequest(BaseModel):
@@ -217,6 +220,12 @@ class PushRuhezeitRequest(BaseModel):
     enabled: bool = False
     von: int = 22
     bis: int = 7
+    # An welchen Wochentagen sie gilt (0 = Montag), leer = alle
+    # (Punkt 479 der Werkbank). Samstagmorgen ist nicht Dienstagmorgen.
+    tage: list[int] = []
+    # Für welches Gerät (Punkt 471) - leer heisst «für mich, überall».
+    # Der Token, nicht der Anzeigename: Der ändert sich, der Token nicht.
+    token: str = ""
 
 
 class PushStillRequest(BaseModel):

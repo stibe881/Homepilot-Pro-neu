@@ -47,6 +47,7 @@ from . import (
     livekarten,
     metrics,
     persistence,
+    pushgeraet,
     pushruhe,
     pushverlauf,
     raumbilder,
@@ -289,12 +290,11 @@ class Hub:
         self.push.on_change = lambda rows: self.data.set("push_devices", rows)
         # Jede verschickte Meldung auf den Nachlese-Zettel - eine
         # weggewischte Mitteilung ist sonst unauffindbar (pushverlauf.py).
-        self.push.on_sent = lambda eintrag: self.data.set(
-            pushverlauf.STORE_KEY,
-            pushverlauf.anhaengen(
-                self.data.get(pushverlauf.STORE_KEY), eintrag, time.time()
-            ),
-        )
+        self.push.on_sent = self._push_vermerken
+        # Und der Nachtrag, ob sie wirklich ankam (Punkt 475 der
+        # Werkbank): Der Push-Dienst fragt die Quittung ab, der Hub
+        # schreibt sie an die Zeile, die er selbst angelegt hat.
+        self.push.on_receipt = self._push_zustellung
         # Der Tagesdeckel: Der Push-Dienst fragt, der Hub zählt. Der
         # Zählerstand muss einen Neustart überstehen, sonst wäre ein
         # Update das Rezept, um den Deckel zu umgehen - und ausgerechnet
@@ -625,6 +625,12 @@ class Hub:
         jetzt = time.time()
         ruhe: dict[str, Any] = {}
         still: dict[str, dict[str, float]] = {}
+        # Was einzelne Geräte abweichend eingestellt haben (Punkt 471):
+        # Token → eigene Abbestellungen bzw. eigene Ruhezeit. Nur, was
+        # wirklich abweicht - ein Gerät ohne Eintrag folgt der Person,
+        # und das ist der Normalfall.
+        geraete_muted: dict[str, set[str]] = {}
+        geraete_ruhe: dict[str, dict[str, Any]] = {}
         for eintrag in self.data.get("push_prefs") or []:
             if not isinstance(eintrag, dict):
                 continue
@@ -633,8 +639,45 @@ class Hub:
                 continue
             ruhe[name] = pushruhe.ruhe_lesen(eintrag.get("ruhe"))
             still[name] = pushruhe.still_lesen(eintrag.get("still"), jetzt)
+            for token, abweichung in pushgeraet.lesen(eintrag).items():
+                if "muted" in abweichung:
+                    geraete_muted[token] = {
+                        str(key)
+                        for key in abweichung.get("muted") or []
+                        if push_service.known(str(key))
+                    }
+                if "ruhe" in abweichung:
+                    geraete_ruhe[token] = pushruhe.ruhe_lesen(abweichung.get("ruhe"))
         self.push.ruhe = ruhe
         self.push.still = still
+        self.push.geraete_muted = geraete_muted
+        self.push.geraete_ruhe = geraete_ruhe
+
+    def _push_vermerken(self, eintrag: dict[str, Any]) -> float:
+        """Eine verschickte Meldung auf den Nachlese-Zettel schreiben.
+
+        Gibt den Zeitstempel der Zeile zurück - daran hängt später der
+        Vermerk, ob sie wirklich zugestellt wurde (Punkt 475). Ohne ihn
+        müsste der Nachtrag die «neueste» Zeile suchen, und zwischen
+        Senden und Quittung liegen Sekunden, in denen etwas anderes
+        gemeldet worden sein kann.
+        """
+        jetzt = time.time()
+        self.data.set(
+            pushverlauf.STORE_KEY,
+            pushverlauf.anhaengen(
+                self.data.get(pushverlauf.STORE_KEY), eintrag, jetzt
+            ),
+        )
+        return jetzt
+
+    def _push_zustellung(self, marke: float, probleme: list[str]) -> None:
+        """Nachtragen, dass eine Meldung nicht ankam (Punkt 475)."""
+        neu = pushverlauf.zustellung_vermerken(
+            self.data.get(pushverlauf.STORE_KEY), marke, probleme
+        )
+        if neu is not None:
+            self.data.set(pushverlauf.STORE_KEY, neu)
 
     def _push_deckel(self, category: str) -> str | None:
         """Ist der Tagesdeckel dieser Kategorie erreicht? (siehe pushruhe.py)

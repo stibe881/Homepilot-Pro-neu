@@ -8,6 +8,7 @@ Tests hier.
 from types import SimpleNamespace
 
 from homepilot.core import push as push_module
+from homepilot.core import pushverlauf
 from homepilot.core.push import (
     PushService,
     is_expo_token,
@@ -312,3 +313,35 @@ def test_giess_erinnerung_traegt_ihre_knoepfe():
     from homepilot.core.push import knoepfe
 
     assert knoepfe("plants") == "giessen"
+
+
+# ── Zustell-Quittung nachtragen (Punkt 475) ───────────────────────────────
+
+
+def test_eine_nicht_zugestellte_meldung_wird_am_zettel_vermerkt():
+    """«Angenommen» heisst nicht «angekommen» - beim Alarm ist das der
+    teuerste stille Fehler des Systems."""
+    rows = [
+        {"title": "Alt", "at": 100.0},
+        {"title": "Wasser im Keller", "at": 200.0},
+    ]
+    neu = pushverlauf.zustellung_vermerken(rows, 200.0, ["Gerät abgemeldet"])
+    assert neu is not None
+    assert neu[1]["nicht_zugestellt"] == ["Gerät abgemeldet"]
+    # Die andere Zeile bleibt unberührt - zwischen Senden und Quittung
+    # liegen Sekunden, in denen etwas anderes gemeldet worden sein kann.
+    assert "nicht_zugestellt" not in neu[0]
+
+
+def test_ohne_beanstandung_wird_nichts_geschrieben():
+    """Der Normalfall kostet keinen Schreibvorgang auf die Platte."""
+    assert pushverlauf.zustellung_vermerken([{"at": 1.0}], 1.0, []) is None
+    assert pushverlauf.zustellung_vermerken([{"at": 1.0}], 2.0, ["weg"]) is None
+
+
+def test_das_ziel_steht_auf_dem_zettel():
+    """Punkt 472: ohne Ziel ist der Posteingang eine Liste zum Ansehen."""
+    rows = pushverlauf.anhaengen([], {"title": "Klingel", "ziel": "klingel"}, 1.0)
+    assert rows[0]["ziel"] == "klingel"
+    # Ohne Angabe bleibt es ehrlich leer statt zu raten.
+    assert pushverlauf.anhaengen([], {"title": "X"}, 1.0)[0]["ziel"] is None

@@ -9,6 +9,7 @@ Ohne angemeldetes Gerät passiert schlicht nichts – der Hub läuft weiter.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -442,6 +443,16 @@ def parse_muted(raw: Any) -> dict[str, set[str]]:
     return result
 EXPO_RECEIPTS = "https://exp.host/--/api/v2/push/getReceipts"
 
+#: So lange wird nach dem Senden gewartet, bevor der Hub nach der
+#: Zustell-Quittung fragt (Punkt 475 der Werkbank).
+#:
+#: Expo braucht ein paar Sekunden, bis eine dasteht; sofort zu fragen
+#: hiesse, immer «noch nicht da» zu lesen. Fünfzehn Sekunden sind lang
+#: genug für den Normalfall und kurz genug, dass die Antwort noch zur
+#: Meldung gehört - wer nach einer Minute nachsieht, hat die Frage
+#: «kam das an?» längst anders beantwortet.
+QUITTUNG_NACH = 15.0
+
 # Fehler, nach denen ein Token dauerhaft tot ist – App deinstalliert oder
 # Berechtigung entzogen. Das Gerät fliegt dann aus der Liste.
 DEAD_TOKEN_ERRORS = frozenset({"DeviceNotRegistered"})
@@ -623,6 +634,11 @@ class PushService:
     # persönliche Einstellungen entschieden wird (core/pushruhe.py).
     ruhe: dict[str, dict[str, Any]]
     still: dict[str, dict[str, float]]
+    # Abweichungen je Gerät (Punkt 471 der Werkbank): Token → eigene
+    # Abbestellungen bzw. eigene Ruhezeit. Wer hier fehlt, folgt der
+    # Person - das ist der Normalfall und war bis Punkt 471 der einzige.
+    geraete_muted: dict[str, set[str]]
+    geraete_ruhe: dict[str, dict[str, Any]]
 
     def __init__(self, session_factory=None) -> None:
         self._devices: dict[str, PushDevice] = {}
@@ -634,9 +650,18 @@ class PushService:
         # für den Nachlese-Zettel (core/pushverlauf.py). Derselbe Schnitt
         # wie bei on_change: kein DataStore hier drin.
         self.on_sent: Any = None
+        # Wird vom Hub gesetzt: Trag nach, dass eine Meldung nicht
+        # zugestellt wurde (Punkt 475). Derselbe Schnitt wie on_sent -
+        # der Push-Dienst kennt die Ablage nicht.
+        self.on_receipt: Any = None
+        # Die laufenden Quittungs-Abfragen. Gehalten nur, damit der
+        # Sammler sie nicht mitten im Warten abräumt.
+        self._quittungen: set[asyncio.Task] = set()
         self.muted = {}
         self.ruhe = {}
         self.still = {}
+        self.geraete_muted = {}
+        self.geraete_ruhe = {}
         # Wird vom Hub gesetzt: «Darf diese Kategorie jetzt noch?» Der
         # Tagesdeckel braucht einen Zählerstand, der Neustarts übersteht,
         # und der liegt in der hub.data. Ein Rückruf statt eines
@@ -703,7 +728,9 @@ class PushService:
             self._changed()
         return gone
 
-    def zurueckhaltung(self, name: str, category: str | None) -> str | None:
+    def zurueckhaltung(
+        self, name: str, category: str | None, token: str | None = None
+    ) -> str | None:
         """Warum diese Person diese Meldung gerade nicht bekommt (rein genug).
 
         Nicht das Abbestellen - das ist eine Entscheidung auf Dauer und
@@ -711,16 +738,29 @@ class PushService:
         aufhört: die Nacht und das Stillstellen auf Zeit. Was nie
         zurückgehalten wird, steht in ``pushruhe.IMMER_DURCH``.
 
-        Die Stunde kommt aus der Ortszeit des Hubs - dieselbe Uhr, nach
-        der der Wächter seine Morgenmeldung schickt.
+        Die Stunde *und der Wochentag* kommen aus der Ortszeit des Hubs -
+        dieselbe Uhr, nach der der Wächter seine Morgenmeldung schickt.
+        Der Wochentag seit Punkt 479: Samstagmorgen ist nicht
+        Dienstagmorgen.
+
+        ``token`` ist das Gerät (Punkt 471). Hat es eine eigene Ruhezeit,
+        gilt die - das iPad im Wohnzimmer darf nachts klingeln, das
+        Telefon neben dem Bett nicht.
         """
         if not category:
             return None
+        jetzt = time.localtime()
+        ruhe = self.ruhe.get(name)
+        if token is not None:
+            eigene = self.geraete_ruhe.get(token)
+            if eigene is not None:
+                ruhe = eigene
         return pushruhe.haelt_zurueck(
             category,
-            ruhe=self.ruhe.get(name),
+            ruhe=ruhe,
             still=self.still.get(name),
-            stunde=time.localtime().tm_hour,
+            stunde=jetzt.tm_hour,
+            wochentag=jetzt.tm_wday,
         )
 
     def recipients(
@@ -744,9 +784,14 @@ class PushService:
             user = by_name.get(device.user)
             if user is None:
                 continue
-            if category and category in self.muted.get(device.user, set()):
+            # Abbestellt - je Gerät, wo es dort etwas Eigenes gibt
+            # (Punkt 471), sonst wie bisher je Person.
+            stumm = self.geraete_muted.get(device.token)
+            if stumm is None:
+                stumm = self.muted.get(device.user, set())
+            if category and category in stumm:
                 continue
-            if self.zurueckhaltung(device.user, category) is not None:
+            if self.zurueckhaltung(device.user, category, device.token) is not None:
                 continue
             if to == "all":
                 if user.role != Role.GUEST:
@@ -845,6 +890,10 @@ class PushService:
             for token in valid
         ]
 
+        # Der Zeitstempel der Zeile auf dem Nachlese-Zettel - daran
+        # hängt der Quittungs-Vermerk (Punkt 475). None, wenn kein Zettel
+        # geführt wird.
+        marke: Any = None
         if self.on_sent is not None:
             # Vor dem Versand vermerkt: Auch eine Meldung, die bei Expo
             # hängenbleibt, war eine Meldung - und der Zettel soll nicht
@@ -862,7 +911,7 @@ class PushService:
             # Grund reist mit, sonst liest sich der Zettel wie eine
             # Meldung, die man übersehen hat.
             gesehen = sorted(set(empfaenger) | set(zurueck))
-            self.on_sent(
+            marke = self.on_sent(
                 {
                     "title": title,
                     "body": body,
@@ -872,6 +921,9 @@ class PushService:
                     "to": [] if set(gesehen) >= alle and not zurueck else gesehen,
                     "held": grund,
                     "held_for": sorted(zurueck),
+                    # Wohin ein Tipp führt - der Posteingang braucht es
+                    # (Punkt 472), und die Zeile kennt es ohnehin schon.
+                    "ziel": nutzdaten.get("ziel"),
                 }
             )
 
@@ -922,7 +974,51 @@ class PushService:
             len(messages),
             f", {len(result.errors)} abgelehnt" if result.errors else "",
         )
+        # Ob sie wirklich ankam, weiss erst die Quittung (Punkt 475 der
+        # Werkbank). Nebenher und nicht hier: Der Ablauf, der gemeldet
+        # hat, soll nicht zwanzig Sekunden auf Apple warten.
+        if result.ticket_ids and marke is not None:
+            self._quittung_nachfassen(result.ticket_ids, marke, title)
         return result
+
+    def _quittung_nachfassen(
+        self, ticket_ids: list[str], marke: Any, title: str
+    ) -> None:
+        """Nach den Zustell-Quittungen sehen - später und nebenher.
+
+        Expo braucht ein paar Sekunden, bis eine Quittung dasteht; sofort
+        zu fragen hiesse, immer «noch nicht da» zu lesen. Fünfzehn
+        Sekunden sind lang genug für den Normalfall und kurz genug, dass
+        die Antwort noch zur Meldung gehört.
+
+        Fehler werden geschluckt: Eine Quittung, die sich nicht abholen
+        lässt, ist kein Grund, irgendetwas anderes scheitern zu lassen.
+        Der Zettel bleibt dann eben ohne Vermerk - das ist derselbe Stand
+        wie vor Punkt 475.
+        """
+
+        async def nachsehen() -> None:
+            try:
+                await asyncio.sleep(QUITTUNG_NACH)
+                probleme = await self.delivered(ticket_ids)
+                if probleme and self.on_receipt is not None:
+                    self.on_receipt(marke, probleme)
+                    log.warning(
+                        "Push «%s» nicht zugestellt: %s", title, "; ".join(probleme)
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.debug("Quittung nicht auswertbar", exc_info=True)
+
+        try:
+            task = asyncio.create_task(nachsehen())
+        except RuntimeError:
+            # Kein laufender Ereignisschleifen-Kontext (Test, Skript) -
+            # dann gibt es eben keinen Vermerk.
+            return
+        self._quittungen.add(task)
+        task.add_done_callback(self._quittungen.discard)
 
     async def delivered(self, ticket_ids: list[str]) -> list[str]:
         """Holt die Zustell-Quittungen zu bereits gesendeten Nachrichten.
