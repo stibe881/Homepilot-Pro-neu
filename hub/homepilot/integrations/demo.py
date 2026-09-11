@@ -88,7 +88,14 @@ class DemoIntegration(Integration):
                 "tamper": "off",
                 "test": False,
                 "linkquality": 94,
+                # Ob der Melder gerade selbst lärmt (Punkt 544).
+                "signal": "off",
             },
+            # Ein Melder mit eingebauter Sirene. Ohne einen solchen liesse
+            # sich «wenn etwas passiert, gibt der Rauchmelder ein Signal»
+            # nirgends ansehen - und die meisten echten Melder können es
+            # nicht, die Auswahl im Ablauf-Editor bliebe also leer.
+            commands=["sound_alarm", "silence_alarm"],
         )
         await self.add_entity(
             "window_kitchen",
@@ -312,7 +319,13 @@ class DemoIntegration(Integration):
 
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
         changes: dict[str, Any] = {}
-        if command == "turn_on":
+        if command in ("sound_alarm", "silence_alarm"):
+            # Der Melder heult, ohne dass darum Rauch im Zimmer wäre:
+            # `state` bleibt, was er misst, und das Signal steht daneben.
+            # Beides in einen Wert zu legen hiesse, dass ein Probealarm
+            # die Alarmanlage weckt.
+            changes["signal"] = "on" if command == "sound_alarm" else "off"
+        elif command == "turn_on":
             changes["state"] = "on"
         elif command == "turn_off":
             # Eine Box wird nicht «off», sie wird leer: Der Empfänger ist

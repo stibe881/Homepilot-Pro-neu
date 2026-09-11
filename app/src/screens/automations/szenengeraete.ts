@@ -163,6 +163,28 @@ export function baseCommandOptions(entity: Entity): { key: string; label: string
   // Art hier nie jemand eingetragen hat – und ein Fühler ohne Befehle
   // bleibt draussen, statt ein wirkungsloses «ein/aus» zu bekommen.
   return nimm([
+    // Melder mit eingebauter Sirene (Punkt 544). Gemeldet im Haus: «Ich
+    // kann in den Abläufen nicht machen, dass wenn etwas passiert, der
+    // Rauchwarnmelder ein Signal gibt.» Er stand dort nicht zur Wahl,
+    // weil ein Melder für den Hub nur meldete und keine Befehle hatte.
+    //
+    // Dass die Chips gerade hier unten stehen, ist kein Zufall: Diese
+    // Liste fragt das Gerät und nicht eine Tabelle von Gerätearten.
+    // Kann ein Melder keinen Lärm machen - und die meisten können es
+    // nicht -, bleibt er weiterhin draussen, statt einen Knopf zu
+    // bekommen, der nichts tut.
+    ['sound_alarm', 'Signal geben'],
+    ['silence_alarm', 'Signal aus'],
+    // Dasselbe in der Sprache der Aqara-Melder (Punkt 543). Zwei
+    // Vokabeln, ein Sinn - welche gilt, sagt das Gerät, und keines
+    // kennt beide (integrations/zigbee2mqtt.py, art_und_befehle).
+    // «stumm» heisst hier nicht «Ton leiser» wie bei einer Box: Es ist
+    // der Knopf, der den heulenden Melder beruhigt.
+    ['buzzer_alarm', 'Signal geben'],
+    ['mute', 'Signal aus'],
+    // Der Selbsttest gehört dazu, weil er der Grund ist, aus dem man
+    // einen Melder überhaupt je anfasst - einmal im Jahr.
+    ['self_test', 'Selbsttest'],
     ['turn_on', 'ein'],
     // «ein mit Helligkeit» nur, wo das Gerät wirklich dimmen kann – ein
     // Schalter mit Helligkeitsregler wäre ein Knopf, der nichts tut.

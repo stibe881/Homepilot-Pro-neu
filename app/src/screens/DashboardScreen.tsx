@@ -2965,7 +2965,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'system') {
       return (
         <View style={styles.stack}>
-          <SystemScreen settings={settings} user={user} entities={entities} push={push} />
+          <SystemScreen
+            settings={settings}
+            user={user}
+            entities={entities}
+            push={push}
+            // Dieselbe Hürde wie beim Antippen einer Kachel: Wer nicht
+            // schalten darf, löst auch keine Sirene aus.
+            onSignal={
+              darfSchalten
+                ? (entityId, command) => guardedCommand(entityId, command)
+                : undefined
+            }
+          />
         </View>
       );
     }

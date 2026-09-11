@@ -2569,7 +2569,10 @@ export function describe(automation: Automation, entities: Entity[] = []): strin
             ? `${nameVon(entities, action.entity_id)}: ${
                 action.data?.rooms?.length ?? 0
               } Räume saugen`
-            : `${nameVon(entities, action.entity_id)} ${befehlWort(action.command)}`;
+            : `${nameVon(entities, action.entity_id)} ${befehlWort(
+                action.command,
+                entities.find((entity) => entity.id === action.entity_id)
+              )}`;
   const mehr = automation.triggers.length > 1 ? ` (+${automation.triggers.length - 1})` : '';
   // Wie viele Schritte noch folgen – seit ein Ablauf mehrere Arten mischen
   // kann, sagt die erste Aktion allein zu wenig.

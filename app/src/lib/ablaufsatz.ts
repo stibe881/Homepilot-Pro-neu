@@ -150,14 +150,37 @@ const BEFEHL: Record<string, string> = {
   arm_vacation: 'scharf (Urlaub)',
   disarm: 'unscharf',
   activate: 'aufrufen',
+  // Melder mit eingebauter Sirene (Punkt 544). «Signal» und nicht
+  // «ein»: Ein Rauchmelder, den man einschaltet, klingt nach «scharf
+  // stellen» - gemeint ist «mach jetzt Lärm».
+  sound_alarm: 'Signal geben',
+  silence_alarm: 'Signal aus',
+  buzzer_alarm: 'Signal geben',
+  self_test: 'Selbsttest',
+};
+
+/** Ein Befehl, der auf zweierlei Geräten etwas anderes heisst.
+ *
+ *  `mute` ist an einer Box «stumm» - der Ton weg, die Musik läuft
+ *  weiter. An einem Rauchmelder ist es der Knopf, der den heulenden
+ *  Summer beruhigt (Punkt 543), und «Rauchmelder Flur stumm» liest sich
+ *  dort wie eine Lautstärke. */
+const BEFEHL_AM_MELDER: Record<string, string> = {
+  mute: 'Signal aus',
 };
 
 /** Das Wort für einen Befehl – «aus» statt turn_off (rein, testbar).
  *
  *  Auch für die Listenzeile: Dort stand «demo.light_livingroom
- *  turn_off», und das liest niemand als «Licht Wohnzimmer aus». */
-export function befehlWort(command: unknown): string {
+ *  turn_off», und das liest niemand als «Licht Wohnzimmer aus».
+ *
+ *  Das Gerät darf fehlen: Wer nur den Befehl hat, bekommt das
+ *  allgemeine Wort. */
+export function befehlWort(command: unknown, entity?: Entity | null): string {
   const name = String(command ?? '');
+  if (entity?.kind === 'binary_sensor' && BEFEHL_AM_MELDER[name]) {
+    return BEFEHL_AM_MELDER[name];
+  }
   return BEFEHL[name] ?? name;
 }
 
