@@ -932,6 +932,10 @@ def abgleich(
                 # daraus nicht zu lesen, um welche Karte es ging.
                 "art": alt.get("art"),
                 "user": alt.get("user"),
+                # Stand die Zeile schon in der vorigen Runde als
+                # vorgemerkt da? Dann ist das hier keine Neuigkeit mehr,
+                # und der Takt schweigt darüber (siehe `_runde`).
+                "schon_vorgemerkt": bool(alt.get("ende_offen")),
                 "tokens": tokens,
                 "state": ende.get("state"),
                 "sichtbar": float(ende.get("sichtbar") or 0),
@@ -1175,11 +1179,28 @@ async def _runde(hub: Any, versand: liveaktivitaet.ApnsVersand) -> None:
             # Sie kommt, sobald die App einmal läuft: Beim Start per
             # Push weckt iOS sie kurz auf, damit sie das Token abholt
             # (app/modules/live-aktivitaet, LiveAktivitaetModule).
-            log.info(
-                "Live-Karte %s für %s: Ende ohne Token - vorgemerkt",
-                auftrag.get("art"),
-                auftrag.get("user"),
-            )
+            #
+            # **Einmal je Karte, nicht in jeder Runde.** Der Takt läuft
+            # alle zwanzig Sekunden, eine Zeile bleibt bis zu zwölf
+            # Stunden vorgemerkt - das sind über zweitausend gleiche
+            # Zeilen je Karte. Im Haus hing ein Wandtablet, das zu
+            # keiner Karte je ein Token meldete: drei Karten, alle
+            # zwanzig Sekunden drei Zeilen, Tag und Nacht. Docker hält
+            # 3 × 10 MB (docker-compose.yml); nach ein paar Tagen stand
+            # nichts anderes mehr im Protokoll. Als es darauf ankam -
+            # «warum verschwindet die Karte nicht?» -, war die Antwort
+            # darin längst überschrieben, und zwar von der Meldung über
+            # genau dieses Problem.
+            #
+            # Wie es gerade steht, sagt der tvcheck; ein Protokoll ist
+            # für Ereignisse da, nicht für Zustände.
+            if not auftrag.get("schon_vorgemerkt"):
+                log.info(
+                    "Live-Karte %s für %s: Ende ohne Token - vorgemerkt, "
+                    "bis die App eines nachmeldet",
+                    auftrag.get("art"),
+                    auftrag.get("user"),
+                )
             continue
         offen = 0
         for token in auftrag["tokens"]:
@@ -1194,13 +1215,17 @@ async def _runde(hub: Any, versand: liveaktivitaet.ApnsVersand) -> None:
             if str(token) not in versand.tote:
                 offen += 1
         if offen:
-            log.warning(
-                "Live-Karte %s für %s: Ende kam nicht an (%d Token) - "
-                "bleibt vorgemerkt, nächster Takt erneut",
-                auftrag.get("art"),
-                auftrag.get("user"),
-                offen,
-            )
+            # Auch hier nur beim ersten Mal - aus demselben Grund wie
+            # oben. Klappt es später, verschwindet die Zeile; scheitert
+            # es erneut, steht es wieder da.
+            if not auftrag.get("schon_vorgemerkt"):
+                log.warning(
+                    "Live-Karte %s für %s: Ende kam nicht an (%d Token) - "
+                    "bleibt vorgemerkt, nächster Takt erneut",
+                    auftrag.get("art"),
+                    auftrag.get("user"),
+                    offen,
+                )
             continue
         beendet.add(schluessel)
     # Eine Zeile entsteht mit dem Auftrag, nicht mit der Karte - und das

@@ -1029,3 +1029,86 @@ async def test_ein_totes_token_haelt_keine_karte_fest():
         ] == []
     finally:
         await hub.stop()
+
+
+async def test_eine_haengende_karte_meldet_sich_einmal_und_nicht_alle_zwanzig_sekunden(
+    caplog,
+):
+    """Aus dem Protokoll des Hauses, vierzig Zeilen am Stück:
+
+        08:42:15 Live-Karte tv:androidtv.10_10_1_37 für Tablet: Ende ohne Token
+        08:42:15 Live-Karte erinnerung:SoK6… für Tablet: Ende ohne Token
+        08:42:15 Live-Karte tv:androidtv.10_10_1_240 für Tablet: Ende ohne Token
+        08:42:35 … dieselben drei …
+
+    Ein Wandtablet meldete zu keiner Karte je ein Token. Der Takt läuft
+    alle zwanzig Sekunden, eine Zeile bleibt bis zu zwölf Stunden
+    vorgemerkt - das sind über zweitausend gleiche Zeilen je Karte.
+    Docker hält 3 × 10 MB; nach ein paar Tagen stand nichts anderes mehr
+    darin.
+
+    Das ist nicht bloss unschön: Es hat die Fehlersuche gekostet. Auf
+    die Frage «kam das Ende bei Apple an?» hätte die Antwort im
+    Protokoll gestanden - überschrieben von der Meldung über genau
+    dieses Problem.
+    """
+    import logging
+
+    from homepilot.core import livekarten as modul
+    from homepilot.core.hub import Hub
+
+    from .conftest import make_config
+
+    hub = Hub(
+        make_config(
+            users=[
+                {"name": "Stefan", "role": "besitzer", "token": "t"},
+                # Das Wandtablet - es meldet nie ein Aktivitäts-Token.
+                {"name": "Tablet", "role": "bewohner", "token": "t2"},
+            ],
+            integrations=[{"integration": "demo"}],
+        )
+    )
+    await hub.start()
+    try:
+        hub.data.set(modul.START_KEY, [{"user": "Tablet", "token": "start-1"}])
+        hub.data.set(
+            modul.KARTEN_KEY,
+            [
+                {
+                    "user": "Tablet",
+                    "art": "tv:androidtv.wz",
+                    "stand": "{}",
+                    "activity_tokens": [],
+                    "aktualisiert": time.time(),
+                }
+            ],
+        )
+
+        class Versand:
+            tote: set[str] = set()
+
+            async def senden(self, token: str, payload: dict) -> bool:
+                return True
+
+        versand = Versand()
+        with caplog.at_level(logging.INFO, logger="homepilot.core.livekarten"):
+            for _ in range(5):
+                await modul._runde(hub, versand)
+
+        gemeldet = [
+            eintrag
+            for eintrag in caplog.records
+            if "Ende ohne Token" in eintrag.getMessage()
+            and "tv:androidtv.wz" in eintrag.getMessage()
+        ]
+        assert len(gemeldet) == 1, [e.getMessage() for e in gemeldet]
+        # Vorgemerkt bleibt sie trotzdem - geschwiegen wird über den
+        # Zustand, nicht über die Karte.
+        assert [
+            row
+            for row in hub.data.get(modul.KARTEN_KEY)
+            if row.get("art") == "tv:androidtv.wz"
+        ]
+    finally:
+        await hub.stop()
