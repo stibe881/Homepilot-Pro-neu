@@ -202,7 +202,29 @@ def _messen(zweig: str, gegen: str) -> Zweigstand:
     return Zweigstand(zweig, int(links), int(rechts))
 
 
-def pruefen(zweige: tuple[str, ...], gegen: str = "HEAD") -> int:
+def nur_hinterher(staende: list[Zweigstand], stossbar: tuple[str, ...]) -> bool:
+    """Hinken bloss Zweige hinterher, auf die gar nicht gestossen wird?
+    (rein, testbar)
+
+    Seit `pruefen` alle Zweige des Servers misst, stehen darunter welche,
+    die `stossen` nicht anfasst - sie hinken um die letzten Commits
+    hinterher, und das ist in Ordnung. Nur darf darunter nicht
+    «Zum Angleichen: stossen» stehen: Das Skript würde genau diese
+    Zweige nicht angleichen, und wer es zweimal aufruft, glaubt an einen
+    Fehler.
+    """
+    for stand in staende:
+        if urteil(stand) == "gleichauf":
+            continue
+        if urteil(stand) == "hinterher" and stand.name not in stossbar:
+            continue
+        return False
+    return True
+
+
+def pruefen(
+    zweige: tuple[str, ...], gegen: str = "HEAD", stossbar: tuple[str, ...] | None = None
+) -> int:
     print(f"Gemessen gegen {gegen}:\n")
     staende = [_messen(zweig, gegen) for zweig in zweige]
     for stand in staende:
@@ -211,6 +233,12 @@ def pruefen(zweige: tuple[str, ...], gegen: str = "HEAD") -> int:
     print()
     if alles_gleich(staende):
         print("Alle Zweige sind gleichauf.")
+        return 0
+    if nur_hinterher(staende, stossbar if stossbar is not None else zweige):
+        print(
+            "Nirgends liegt Arbeit, die hier fehlt. Was hinterherhinkt, sind "
+            "Zweige,\ndie dieses Skript nicht stösst - siehe VORGABE."
+        )
         return 0
     if any(urteil(stand) == "hinterher" for stand in staende[:1]):
         print(
@@ -264,12 +292,12 @@ def main(argv: list[str]) -> int:
     zweige = zweige_aus_umgebung(os.environ.get("HOMEPILOT_ZWEIGE"))
     befehl = argv[1] if len(argv) > 1 else "pruefen"
     if befehl == "pruefen":
-        return pruefen(zum_pruefen(zweige, alle_fernzweige()))
+        return pruefen(zum_pruefen(zweige, alle_fernzweige()), stossbar=zweige)
     if befehl == "stossen":
         ergebnis = stossen(zweige)
         if ergebnis == 0:
             print()
-            return pruefen(zum_pruefen(zweige, alle_fernzweige()))
+            return pruefen(zum_pruefen(zweige, alle_fernzweige()), stossbar=zweige)
         return ergebnis
     print(__doc__)
     return 2

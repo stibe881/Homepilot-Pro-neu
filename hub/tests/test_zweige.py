@@ -22,8 +22,8 @@ sys.modules["zweige"] = zweige
 _spec.loader.exec_module(zweige)
 
 
-def stand(voraus: int = 0, hinterher: int = 0, da: bool = True):
-    return zweige.Zweigstand("claude/beispiel", voraus, hinterher, da)
+def stand(voraus: int = 0, hinterher: int = 0, da: bool = True, name: str = "claude/beispiel"):
+    return zweige.Zweigstand(name, voraus, hinterher, da)
 
 
 def test_gleichauf_heisst_nichts_zu_tun():
@@ -107,3 +107,22 @@ def test_ein_gelisteter_zweig_bleibt_drin_auch_ohne_den_server():
 
 def test_ohne_antwort_vom_server_bleibt_die_liste():
     assert zweige.zum_pruefen(("main", "a"), []) == ("main", "a")
+
+
+def test_ein_ungestossener_zweig_der_hinterherhinkt_ist_kein_alarm():
+    """Seit `pruefen` alle Zweige des Servers misst, hinken die
+    ungelisteten naturgemäss hinterher. «Zum Angleichen: stossen» wäre
+    dort falsch - stossen fasst sie gar nicht an, und wer es zweimal
+    aufruft, glaubt an einen Fehler."""
+    staende = [stand(name="main"), stand(name="claude/fremd", hinterher=3)]
+    assert zweige.nur_hinterher(staende, ("main",)) is True
+
+
+def test_arbeit_die_hier_fehlt_bleibt_ein_alarm():
+    """Der Fall, wegen dem es das Skript gibt: Auf einem Zweig liegt
+    etwas, das der Auslieferzweig nicht hat."""
+    staende = [stand(name="main"), stand(name="claude/fremd", voraus=2)]
+    assert zweige.nur_hinterher(staende, ("main",)) is False
+    # Und ein *gelisteter* Zweig, der hinterherhinkt, auch: Den stösst
+    # das Skript, also soll es das auch sagen.
+    assert zweige.nur_hinterher([stand(name="a", hinterher=1)], ("a",)) is False
