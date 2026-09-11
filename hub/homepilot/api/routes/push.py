@@ -624,13 +624,27 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             speakers = bisher["speakers"]
         else:
             bekannt = {kandidat["id"] for kandidat in _klingelton_kandidaten()}
-            fremd = [eintrag for eintrag in body.speakers if eintrag not in bekannt]
+            gewuenscht = [
+                eintrag if isinstance(eintrag, str) else eintrag.model_dump(by_alias=True)
+                for eintrag in body.speakers
+            ]
+            kennungen = [
+                eintrag if isinstance(eintrag, str) else str(eintrag.get("id") or "")
+                for eintrag in gewuenscht
+            ]
+            fremd = [kennung for kennung in kennungen if kennung not in bekannt]
             if fremd:
                 raise HTTPException(
                     status_code=404,
                     detail=f"Diese Lautsprecher kennt der Hub nicht: {', '.join(fremd)}",
                 )
-            speakers = [str(eintrag) for eintrag in body.speakers]
+            # Durch den Leser des Kerns und nicht roh gespeichert: Er
+            # setzt die Vorgaben, klemmt die Lautstärke und macht aus
+            # «7:5» eine «07:05». Was hier hineinkommt, ist damit auch
+            # dann brauchbar, wenn eine ältere App nur Kennungen schickt.
+            speakers = klingelton.einstellung_lesen(
+                [{"sound": sound, "speakers": gewuenscht}]
+            )["speakers"]
         hub.data.set(klingelton.DATA_KEY, [{"sound": sound, "speakers": speakers}])
         return await doorbell_sound(request)
 

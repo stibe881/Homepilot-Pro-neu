@@ -38,6 +38,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from . import klingelton, lautplan, say
@@ -881,8 +882,27 @@ class Tonmeister:
         Gibt die Namen der Boxen zurück, die den Ton bekommen haben.
         """
         stand = klingelton.einstellung_lesen(self.hub.data.get(klingelton.DATA_KEY))
-        ziel_speakers = speakers if speakers is not None else stand["speakers"]
-        if not ziel_speakers:
+        if speakers is not None:
+            # Die Testtaste in der App: Sie übergibt die eben angetippten
+            # Boxen, auch wenn sie noch nicht gespeichert sind. Die
+            # Zeitspanne gilt hier bewusst *nicht* - wer auf «anhören»
+            # tippt, will hören, auch um Mitternacht. Die Lautstärke
+            # dagegen schon, sonst probierte man etwas anderes aus, als
+            # man später bekommt.
+            gewaehlt = [{"id": str(eintrag)} for eintrag in speakers]
+            bekannt = klingelton.lautstaerken(stand["speakers"])
+            boxen = [
+                {"id": box["id"], "volume": bekannt.get(box["id"], klingelton.LAUTSTAERKE)}
+                for box in gewaehlt
+            ]
+        else:
+            # Der echte Klingelknopf: Hier entscheidet die Zeitspanne je
+            # Box mit. Abends soll es im Kinderzimmer still bleiben,
+            # während es im Flur weiter klingelt.
+            boxen = klingelton.aktive_boxen(
+                stand["speakers"], datetime.now().strftime("%H:%M")
+            )
+        if not boxen:
             return []
         ziel_sound = sound or stand["sound"]
         address = say.base_url(self.hub)
@@ -893,7 +913,7 @@ class Tonmeister:
             self.hub,
             audio,
             address,
-            speakers=ziel_speakers,
-            volume=klingelton.LAUTSTAERKE,
+            speakers=[box["id"] for box in boxen],
+            volume=klingelton.lautstaerken(boxen),
         )
         return list(ergebnis.get("sent", []))

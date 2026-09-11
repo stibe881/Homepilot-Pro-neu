@@ -260,6 +260,74 @@ async def test_klingelton_testtaste_uebersteuert_die_gespeicherte_wahl(hub):
     assert any(name == "play_url" for name, _ in protokoll.befehle)
 
 
+async def test_klingelton_nimmt_je_box_ihre_eigene_lautstaerke(hub):
+    """Gewünscht im Haus: «Bei jedem Lautsprecher soll man die Lautstärke
+    einzeln definieren.» Eine Zahl fürs ganze Haus beantwortet das nicht -
+    die Küchenbox steht neben dem Esstisch, im Keller hört man sonst
+    nichts."""
+    protokoll, box_id = await _box_bauen(hub)
+    say.remember_base(hub, "http://10.10.1.20:8123")
+    hub.data.set(
+        klingelton.DATA_KEY,
+        [{"sound": "hupe", "speakers": [{"id": box_id, "volume": 18}]}],
+    )
+
+    assert await hub.ton.klingelton_abspielen() == ["Küche"]
+
+    gespielt = [daten for name, daten in protokoll.befehle if name == "play_url"]
+    assert gespielt and gespielt[0]["volume"] == 18
+
+
+async def test_klingelton_schweigt_auf_einer_box_ausserhalb_ihrer_zeit(hub, monkeypatch):
+    """Gewünscht im Haus: «die Zeit definieren, wann es da klingelt».
+    Abends soll das Kinderzimmer still bleiben."""
+    from homepilot.core import ton as ton_modul
+
+    protokoll, box_id = await _box_bauen(hub)
+    say.remember_base(hub, "http://10.10.1.20:8123")
+    hub.data.set(
+        klingelton.DATA_KEY,
+        [{"speakers": [{"id": box_id, "from": "07:00", "to": "20:00"}]}],
+    )
+
+    class Abend:
+        @staticmethod
+        def now():
+            import datetime as _dt
+
+            return _dt.datetime(2026, 9, 11, 22, 30)
+
+    monkeypatch.setattr(ton_modul, "datetime", Abend)
+    assert await hub.ton.klingelton_abspielen() == []
+    assert not [name for name, _ in protokoll.befehle if name == "play_url"]
+
+
+async def test_die_testtaste_hoert_auch_ausserhalb_der_zeit(hub, monkeypatch):
+    """Wer auf «anhören» tippt, will hören - auch um Mitternacht. Die
+    Lautstärke der Box gilt dabei trotzdem, sonst probierte man etwas
+    anderes aus, als man später bekommt."""
+    from homepilot.core import ton as ton_modul
+
+    protokoll, box_id = await _box_bauen(hub)
+    say.remember_base(hub, "http://10.10.1.20:8123")
+    hub.data.set(
+        klingelton.DATA_KEY,
+        [{"speakers": [{"id": box_id, "volume": 33, "from": "07:00", "to": "20:00"}]}],
+    )
+
+    class Abend:
+        @staticmethod
+        def now():
+            import datetime as _dt
+
+            return _dt.datetime(2026, 9, 11, 22, 30)
+
+    monkeypatch.setattr(ton_modul, "datetime", Abend)
+    assert await hub.ton.klingelton_abspielen(speakers=[box_id]) == ["Küche"]
+    gespielt = [daten for name, daten in protokoll.befehle if name == "play_url"]
+    assert gespielt and gespielt[0]["volume"] == 33
+
+
 async def test_klingelton_bleibt_still_ohne_bekannte_hub_adresse(hub):
     _, box_id = await _box_bauen(hub)
     hub.data.set(klingelton.DATA_KEY, [{"sound": "dingdong", "speakers": [box_id]}])

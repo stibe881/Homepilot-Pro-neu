@@ -93,10 +93,29 @@ def test_einstellung_lesen_defaults_to_standard_and_silence():
 
 
 def test_einstellung_lesen_reads_stored_choice():
+    """Die alte Speicherform - nur Kennungen - bleibt lesbar.
+
+    Sie liegt im Haus schon auf der Platte. Wer sie liest, bekommt die
+    Vorgaben dazu: so laut wie bisher, den ganzen Tag. Nichts wird
+    stiller oder lauter, nur weil eine Auslieferung dazwischenlag.
+    """
     rows = [{"sound": "hupe", "speakers": ["demo.kueche", "demo.wohnzimmer"]}]
     assert klingelton.einstellung_lesen(rows) == {
         "sound": "hupe",
-        "speakers": ["demo.kueche", "demo.wohnzimmer"],
+        "speakers": [
+            {
+                "id": "demo.kueche",
+                "volume": klingelton.LAUTSTAERKE,
+                "from": "00:00",
+                "to": "24:00",
+            },
+            {
+                "id": "demo.wohnzimmer",
+                "volume": klingelton.LAUTSTAERKE,
+                "from": "00:00",
+                "to": "24:00",
+            },
+        ],
     }
 
 
@@ -169,3 +188,86 @@ def test_the_original_six_sounds_stay_in_the_catalog():
     """
     for key in ("dingdong", "dreiklang", "kuckuck", "hupe", "quietscheente", "tusch"):
         assert key in klingelton.BY_KEY, key
+
+
+# ── Je Box: wie laut, und wann überhaupt ─────────────────────────────────
+#
+# Gewünscht im Haus: «Bei jedem Lautsprecher, den man aktiviert, soll man
+# die Lautstärke einzeln definieren» und «die Zeit, wann es da klingelt».
+# Beides hat nur je Box eine Antwort: Die Küchenbox steht neben dem
+# Esstisch, im Keller hört man sonst nichts - und im Kinderzimmer soll es
+# abends still bleiben, während der Flur weiter klingelt.
+
+
+def test_eine_box_mit_eigener_lautstaerke_und_spanne():
+    rows = [{
+        "sound": "hupe",
+        "speakers": [{"id": "demo.kind", "volume": 20, "from": "07:00", "to": "20:00"}],
+    }]
+    box = klingelton.einstellung_lesen(rows)["speakers"][0]
+    assert box == {"id": "demo.kind", "volume": 20, "from": "07:00", "to": "20:00"}
+
+
+def test_eine_unlesbare_uhrzeit_macht_die_box_nicht_stumm():
+    """Eine kaputte Einstellung darf dazu führen, dass es zu oft klingelt -
+    nicht dass es nie klingelt. Wer nichts hört, sucht den Fehler nicht."""
+    rows = [{"speakers": [{"id": "demo.flur", "from": "sieben", "to": "25:99"}]}]
+    box = klingelton.einstellung_lesen(rows)["speakers"][0]
+    assert box["from"] == "00:00"
+    assert box["to"] == "24:00"
+
+
+def test_eine_lautstaerke_ausserhalb_der_skala_wird_geklemmt():
+    rows = [{"speakers": [
+        {"id": "a", "volume": 400}, {"id": "b", "volume": -5}, {"id": "c", "volume": "laut"},
+    ]}]
+    boxen = klingelton.einstellung_lesen(rows)["speakers"]
+    assert [box["volume"] for box in boxen] == [100, 0, klingelton.LAUTSTAERKE]
+
+
+def test_uhrzeit_lesen_fuellt_auf():
+    assert klingelton.uhrzeit_lesen("7:5", "00:00") == "07:05"
+    assert klingelton.uhrzeit_lesen("23:59", "00:00") == "23:59"
+    assert klingelton.uhrzeit_lesen("24:00", "00:00") == "24:00"
+    assert klingelton.uhrzeit_lesen("", "08:00") == "08:00"
+
+
+def test_eine_spanne_ueber_mitternacht_gilt_abends_und_morgens():
+    """Der Fall, der ohne eigene Zeile falsch herauskommt - und genau der,
+    den man für ein Kinderzimmer einstellt."""
+    assert klingelton.in_spanne("23:00", "22:00", "07:00") is True
+    assert klingelton.in_spanne("03:00", "22:00", "07:00") is True
+    assert klingelton.in_spanne("12:00", "22:00", "07:00") is False
+
+
+def test_eine_gewoehnliche_spanne_gilt_dazwischen():
+    assert klingelton.in_spanne("08:00", "07:00", "20:00") is True
+    assert klingelton.in_spanne("06:59", "07:00", "20:00") is False
+    assert klingelton.in_spanne("20:00", "07:00", "20:00") is False
+
+
+def test_der_ganze_tag_gilt_immer():
+    for uhrzeit in ("00:00", "12:00", "23:59"):
+        assert klingelton.in_spanne(uhrzeit, "00:00", "24:00") is True
+
+
+def test_gleiche_zeiten_heissen_keine_einschraenkung():
+    """«07:00 bis 07:00» ist keine Minute, sondern kein Fenster. Wer beide
+    Felder gleich stellt, meint nicht «nie»."""
+    assert klingelton.in_spanne("03:00", "07:00", "07:00") is True
+
+
+def test_nur_die_boxen_deren_zeit_gerade_laeuft():
+    boxen = [
+        {"id": "flur", "volume": 55, "from": "00:00", "to": "24:00"},
+        {"id": "kind", "volume": 20, "from": "07:00", "to": "20:00"},
+    ]
+    assert [b["id"] for b in klingelton.aktive_boxen(boxen, "12:00")] == ["flur", "kind"]
+    assert [b["id"] for b in klingelton.aktive_boxen(boxen, "22:30")] == ["flur"]
+
+
+def test_die_lautstaerken_kommen_als_zuordnung():
+    """So nimmt say.play_audio sie entgegen - eine Zahl je Box statt einer
+    fürs ganze Haus."""
+    boxen = [{"id": "flur", "volume": 70}, {"id": "kind", "volume": 20}]
+    assert klingelton.lautstaerken(boxen) == {"flur": 70, "kind": 20}
