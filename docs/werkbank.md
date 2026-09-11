@@ -4131,3 +4131,77 @@ also weg gewesen, ohne dass es jemand merkt. Ein Test hält die sechs
 ursprünglichen Schlüssel jetzt fest.
 
 Stellen: `hub/homepilot/core/klingelton.py`, `hub/homepilot/api/routes/push.py`, `app/src/lib/klingeltonprobe.ts`, `app/src/components/Klingelprobe.tsx`, `app/src/components/Klingelprobe.web.tsx`, `app/src/components/PushRules.tsx`
+
+### 507. Die Räume-Seite gehört den Räumen ✓ erledigt
+
+*lohnt sich · Aufwand: klein · App*
+
+(Geschrieben als 422/423 und sofort weitergerückt: Die Nummern gehören
+den fünfundachtzig Vorschlägen oben, die eine andere Sitzung am selben
+Abend vergeben hat. Dasselbe war schon der 421 passiert - wer hier eine
+Nummer vergibt, sieht zuerst nach, was auf den anderen Zweigen liegt:
+`python3 deploy/zweige.py pruefen`.)
+
+Rechts neben den Raumkacheln stand die Spalte mit Wetter und
+Hausmusik, und darüber zwei breite Schaltzeilen («Feste Reihenfolge»,
+«Feste Raum-Reihenfolge»). Beides beantwortet keine Frage, die man auf
+dieser Seite stellt: Wer «Räume» öffnet, sucht ein Zimmer.
+
+**Die Spalte fällt weg** - aus demselben Grund, aus dem sie im offenen
+Zimmer schon weg war (Punkt 275, `lib/seitenspalte.ts`). Neu heisst
+der Grund nicht nur «beantwortet nichts», sondern auch: Die
+Raumkacheln tragen Fotos, und 340 Punkte daneben kosteten auf dem iPad
+eine ganze Kachelspalte. Die Startseite behält sie - sie ist die
+Seite, auf der man stehen bleibt.
+
+**Die zwei Schalter ziehen um** in die Kontoeinstellungen, unter
+«Kacheln» (Punkt 508). Eine Reihenfolge stellt man einmal ein; bis
+dahin nahmen sie den Platz von zwei Raumkacheln weg, und zwar auf
+jedem Gerät bei jedem Öffnen.
+
+Nachgewiesen rot: Die Browser-Probe misst neu beides - dass die
+Startseite die Spalte behält und dass die Raumliste sie nicht hat. Mit
+dem alten Verhalten fällt die zweite Messung um, mit einem kaputten
+Messpunkt die erste. Gemessen wird am Lautsprecher-Wähler der
+Musikkarte und nicht am Wetter: Der Demo-Hub hat kein Wetter, und eine
+Messung, die schon am Prüfstand nichts findet, misst die Regel nicht.
+
+Stellen: `app/src/lib/seitenspalte.ts`, `app/src/components/SidePanel.tsx`, `app/src/screens/DashboardScreen.tsx`, `scripts/probe.mjs`
+
+### 508. Kontoeinstellungen: drei Karten statt einer Wand ✓ erledigt
+
+*lohnt sich · Aufwand: mittel · App*
+
+Unter «Erscheinungsbild» standen sechs Dinge untereinander, die
+miteinander nichts zu tun haben: Farbe, Kachelgrösse, App-Symbol,
+Grundriss, Wandpanel-Modus, Kindermodus. Die Überschrift passte auf
+das erste. Wer den Wandpanel-Modus suchte, scrollte an drei
+Chipreihen vorbei und fand ihn dort, wo er ihn nicht vermutete.
+
+**Jede Karte beantwortet jetzt eine Frage.** «Erscheinungsbild» (Farbe
+und App-Symbol), «Kacheln» (Grösse und Reihenfolge), «Fest montiert»
+(Grundriss, Wandpanel, Kindermodus) - Letztere zuletzt im Block, weil
+sie auf den meisten Geräten im Haus die Antwort auf eine Frage ist,
+die niemand stellt.
+
+**Ein Schalter sieht überall gleich aus.** Dieselbe Sache sah bisher je
+nach Ort anders aus: in den Einstellungen ein Schieber mit Knopf, auf
+der Startseite ein `toggle`-Symbol in Akzentfarbe. Neu gibt es eine
+Zeile für alle (`components/Schalterzeile.tsx`), und die ganze Zeile
+ist der Schalter, nicht nur der Schieber rechts - ein Ziel von 48
+Punkten neben einer dreizeiligen Erklärung trifft man am Wandpanel im
+Vorbeigehen nicht.
+
+**Die Farbwahl zeigt Farbe.** Sieben gleich aussehende Wortpillen:
+«Neonpink», «Mitternacht», «Sand». Was davon hell ist und was dunkel,
+erfuhr man nur durchs Ausprobieren - und wer eines antippte, musste
+sich durch die anderen zurücktippen. Neben jedem Wort steht jetzt ein
+Fleck aus beiden Enden des Verlaufs (`lib/themenprobe.ts`). «System»
+und «Nach Sonnenstand» zeigen hell über dunkel, weil sie beides sind.
+
+Dazu zwei Doppelungen weg: «Kacheln» stand als Kartentitel *und* als
+Feldbeschriftung darunter (jetzt «Grösse»), «Benachrichtigungen» als
+Abschnitts-Überschrift *und* zwei Zeilen darunter als Kartentitel
+(jetzt nur noch als Karte).
+
+Stellen: `app/src/screens/SettingsScreen.tsx`, `app/src/components/Schalterzeile.tsx`, `app/src/lib/themenprobe.ts`, `app/src/screens/DashboardScreen.tsx`, `app/src/lib/einstellungsgruppen.ts`, `docs/einstellungen.md`

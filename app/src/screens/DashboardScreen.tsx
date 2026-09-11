@@ -128,11 +128,7 @@ import { Wechselblatt } from '../components/einstellungen/Wechselblatt';
 import { Kamerawand } from '../components/Kamerawand';
 import { HausRueckblick } from './HausRueckblick';
 import { nachBewegung } from '../lib/kameraordnung';
-import {
-  hinweis as tageszeitHinweis,
-  jetzigerAbschnitt,
-  lohntSich,
-} from '../lib/tageszeit';
+import { jetzigerAbschnitt, lohntSich } from '../lib/tageszeit';
 import { HubFehler, hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
 import { Abschnitt } from '../components/Abschnitt';
@@ -197,7 +193,7 @@ import { useFamilienlisten } from '../hooks/useFamilienlisten';
 import { useAbstuerze } from '../hooks/useAbstuerze';
 import { useKachelnutzung } from '../hooks/useKachelnutzung';
 import { useRaumnutzung } from '../hooks/useRaumnutzung';
-import { gelernt, hinweisGelernt, nachGewohnheit } from '../lib/kachellernen';
+import { nachGewohnheit } from '../lib/kachellernen';
 import { useSensorlinien } from '../hooks/useSensorlinien';
 import { useAusfall } from '../hooks/useAusfall';
 import { useZurueckWischen } from '../hooks/useZurueckWischen';
@@ -1781,12 +1777,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // sonst hielte die Seite jeden Zufall für die Regel.
   const nachZeit = <T extends { id: string; kind: string }>(liste: T[]): T[] =>
     abschnitt ? nachGewohnheit(liste, abschnitt, kachelZaehler, now.getTime()) : liste;
-  // Ob die Gewohnheit gerade wirklich mitredet - der Hinweis oben soll
-  // den Unterschied sagen, sonst hält man die umsortierte Seite für
-  // einen Fehler.
-  const gewohnheitWirkt =
-    abschnitt != null && gelernt(kachelZaehler, abschnitt.key, now.getTime()).length > 0;
-
   const rest =
     section === 'home'
       ? customOrdered
@@ -2347,7 +2337,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       // seither auch hier - die Beschreibung muss sie nennen, sonst
       // sucht man sie in der Benutzerverwaltung.
       label: 'Konto',
-      detail: 'Profil, Passwort, Geräte, Benachrichtigungen',
+      detail: 'Profil, Passwort, Ansicht, Benachrichtigungen',
       show: true,
     },
     {
@@ -2721,6 +2711,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             embedded
             nur="konto"
             onRenamed={benutzerNeuLaden}
+            // Die zwei Reihenfolge-Schalter standen auf der Räume-Seite
+            // selbst - zwei breite Zeilen über den Raumkacheln, dort,
+            // wo man ein Zimmer sucht und nichts einstellt. Sie liegen
+            // im Gerätespeicher der Person, darum gehen Wert und
+            // Rückruf von hier aus mit (hooks/usePrefs.ts).
+            tageszeit={!!eigenePrefs.tageszeit}
+            onTageszeit={setTageszeit}
+            raumNutzung={!!eigenePrefs.raumNutzung}
+            onRaumNutzung={setRaumNutzung}
             sicherheit={
               <Abschnitt
                 titel="Anmeldung und Sicherheit"
@@ -2752,23 +2751,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 />
               ) : null
             }
+            // Ohne Abschnitts-Überschrift: Die Karte heisst selbst
+            // «Benachrichtigungen» und sagt darunter, worum es geht -
+            // die Überschrift stand nur zwei Zeilen darüber noch
+            // einmal dasselbe.
             weiteres={
-              <Abschnitt
-                titel="Benachrichtigungen"
-                hinweis="Was aufs Telefon kommt - und was nicht."
-              >
-                <PushPrefs
-                  settings={settings}
-                  // Der Posteingang führt dorthin, wo die Meldung
-                  // hingehört (Punkt 472 der Werkbank) - über denselben
-                  // Weg wie ein Tipp auf die Mitteilung selbst, damit
-                  // es nicht zwei Wege zu demselben Ort gibt.
-                  onZiel={(schluessel) => {
-                    const ziel = zielAus({ ziel: schluessel });
-                    if (ziel) zumZiel.current?.(ziel);
-                  }}
-                />
-              </Abschnitt>
+              <PushPrefs
+                settings={settings}
+                // Der Posteingang führt dorthin, wo die Meldung
+                // hingehört (Punkt 472 der Werkbank) - über denselben
+                // Weg wie ein Tipp auf die Mitteilung selbst, damit
+                // es nicht zwei Wege zu demselben Ort gibt.
+                onZiel={(schluessel) => {
+                  const ziel = zielAus({ ziel: schluessel });
+                  if (ziel) zumZiel.current?.(ziel);
+                }}
+              />
             }
           />
         </View>
@@ -3056,93 +3054,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               />
             </Pressable>
           ) : null}
-          {/* Der Schalter für die Tageszeit steht dort, wo sie wirkt -
-              auf der Startseite. Aus, bis jemand ihn einschaltet: Eine
-              Wohnung, die sich von selbst umsortiert, ohne dass man es
-              bestellt hat, ist keine eingerichtete Wohnung, sondern eine,
-              in der man morgens sucht. Und je Person, weil es Gewohnheit
-              ist: Wer um sechs aufsteht, meint mit «Morgen» etwas
-              anderes als wer um neun anfängt. */}
-          {section === 'home' && !editing && !searching && lohntSich(shown) ? (
-            <Pressable
-              onPress={() => setTageszeit(!eigenePrefs.tageszeit)}
-              accessibilityRole="switch"
-              accessibilityState={{ checked: !!eigenePrefs.tageszeit }}
-              accessibilityLabel={
-                eigenePrefs.tageszeit
-                  ? 'Kacheln wieder in fester Reihenfolge zeigen'
-                  : 'Kacheln nach Tageszeit sortieren'
-              }
-              style={({ pressed }) => [styles.kameraSort, pressed && { opacity: 0.8 }]}
-            >
-              <Ionicons
-                name={eigenePrefs.tageszeit ? 'sunny' : 'list-outline'}
-                size={18}
-                color={eigenePrefs.tageszeit ? colors.accent : colors.onGradientSoft}
-              />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.reorderText}>
-                  {abschnitt
-                    ? gewohnheitWirkt
-                      ? hinweisGelernt(abschnitt)
-                      : tageszeitHinweis(abschnitt)
-                    : 'Feste Reihenfolge'}
-                </Text>
-                <Text style={styles.kameraSortHint}>
-                  {!eigenePrefs.tageszeit
-                    ? 'Immer dieselbe Reihenfolge, egal wie spät es ist.'
-                    : gewohnheitWirkt
-                      ? 'Was du um diese Zeit oft anfasst, steht vorn – gezählt auf diesem Gerät, und es verblasst wieder.'
-                      : 'Morgens Storen, abends Licht – die Reihenfolge wandert mit dem Tag. Gilt nur für dich.'}
-                </Text>
-              </View>
-              <Ionicons
-                name={eigenePrefs.tageszeit ? 'toggle' : 'toggle-outline'}
-                size={30}
-                color={eigenePrefs.tageszeit ? colors.accent : colors.inkFaint}
-              />
-            </Pressable>
-          ) : null}
-          {/* Und der Schalter für die Raum-Reihenfolge - dort, wo die
-              Räume stehen. Dieselbe Regel wie bei der Tageszeit: aus,
-              bis jemand ihn einschaltet, und je Gerät gezählt - am
-              Wandpanel bedient man anderes als auf dem Telefon. */}
-          {section === 'home' && room === ALL_ROOMS && !editing && rooms.length > 3 ? (
-            <Pressable
-              onPress={() => setRaumNutzung(!eigenePrefs.raumNutzung)}
-              accessibilityRole="switch"
-              accessibilityState={{ checked: !!eigenePrefs.raumNutzung }}
-              accessibilityLabel={
-                eigenePrefs.raumNutzung
-                  ? 'Räume wieder in fester Reihenfolge zeigen'
-                  : 'Meistbenutzte Räume zuerst zeigen'
-              }
-              style={({ pressed }) => [styles.kameraSort, pressed && { opacity: 0.8 }]}
-            >
-              <Ionicons
-                name={eigenePrefs.raumNutzung ? 'trending-up' : 'list-outline'}
-                size={18}
-                color={eigenePrefs.raumNutzung ? colors.accent : colors.onGradientSoft}
-              />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.reorderText}>
-                  {eigenePrefs.raumNutzung
-                    ? 'Meistbenutzte Räume zuerst'
-                    : 'Feste Raum-Reihenfolge'}
-                </Text>
-                <Text style={styles.kameraSortHint}>
-                  {eigenePrefs.raumNutzung
-                    ? 'Was du auf diesem Gerät oft bedienst, steht oben. Ältere Bedienungen verblassen.'
-                    : 'Die Reihenfolge aus der Einrichtung – egal, was du oft anfasst.'}
-                </Text>
-              </View>
-              <Ionicons
-                name={eigenePrefs.raumNutzung ? 'toggle' : 'toggle-outline'}
-                size={30}
-                color={eigenePrefs.raumNutzung ? colors.accent : colors.inkFaint}
-              />
-            </Pressable>
-          ) : null}
+          {/* Die zwei Schalter für die Reihenfolge - Kacheln nach
+              Tageszeit und Räume nach Nutzung - standen hier, als zwei
+              breite Zeilen über den Raumkacheln. Sie wohnen jetzt in
+              den Kontoeinstellungen unter «Kacheln»: Eine Reihenfolge
+              stellt man einmal ein, und bis dahin nahmen sie auf der
+              Seite, auf der man ein Zimmer sucht, den Platz von zwei
+              Raumkacheln weg. Was sie bewirken, steht unverändert in
+              lib/tageszeit.ts und in der Sortierung der Raumliste. */}
           <Modal
             visible={reorderOpen}
             animationType="slide"
@@ -3850,6 +3769,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           entities={entities}
           width={hasSidePanel ? panelWidth : undefined}
           room={offenerRaum}
+          // «Räume» selbst bekommt sie auch nicht: Dort sucht man ein
+          // Zimmer, und die Raumkacheln leben von der Breite ihrer
+          // Fotos (lib/seitenspalte.ts).
+          roomList={section === 'home' && room === ALL_ROOMS}
           onCommand={guardedCommand}
         />
       </View>

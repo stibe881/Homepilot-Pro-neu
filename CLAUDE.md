@@ -308,8 +308,16 @@ mitgeliefert oder nachgeladen ist.
 ## Was als Nächstes ansteht
 
 Die durchnummerierte Werkbank-Liste steht in `docs/werkbank.md`
-(354 Punkte, aus dem Code gelesen und auf Zuruf ergänzt). Ein Kommentar
+(404 Punkte, aus dem Code gelesen und auf Zuruf ergänzt; die höchste
+vergebene Nummer ist 508 - Anzahl und Nummer laufen auseinander, weil
+nie umnummeriert wird). Ein Kommentar
 «Punkt NNN der Werkbank» im Code meint genau diese Nummer – deshalb
 wird dort nie umnummeriert; Neues bekommt die nächste freie Nummer. Das
 gilt auch für Nummern, die vergeben, aber nie gebaut wurden: Ein
 späterer «Punkt 273» zeigte sonst auf etwas anderes als gemeint.
+
+**Vor dem Vergeben einer Nummer nachsehen, was auf den anderen Zweigen
+liegt** - `python3 deploy/zweige.py pruefen`. Die höchste Nummer in der
+Datei auf `main` ist nicht die höchste vergebene: Zweimal an einem Abend
+haben zwei Sitzungen unabhängig dieselbe nächste Nummer genommen (421,
+dann 422/423), und beide Male musste eine davon nachträglich wandern.

@@ -14,6 +14,9 @@
  *      ein Wegblinken; hier ist es eine Zahl.
  *   3. Kommt ein Druck am Hub an?  Die Fernbedienung war monatelang
  *      stumm, und niemand konnte sagen, wo der Druck stirbt.
+ *   5. Steht auf der Raumliste die Wetter-/Musikspalte, die dort nicht
+ *      hingehört?  Auf dem Telefon steht sie nie - wer nur dort
+ *      nachsieht, hält jede Regel darüber für erfüllt.
  *   4. Wandert die zu lange Terminzeile durch?  Sie endete auf «Si…»,
  *      und der zweite Termin des Tages stand damit nirgends. Beim
  *      Beheben zeigte sich der eigentliche Fehler: Der Griff um die
@@ -163,6 +166,41 @@ async function inDenRaum(seite) {
   await raum.click();
   await seite.waitForTimeout(1200);
   return true;
+}
+
+/**
+ * 5. Steht auf der Raumliste die Wetter-/Musikspalte?
+ *
+ * Sie soll dort weg sein (lib/seitenspalte.ts): «Räume» ist die Seite,
+ * auf der man ein Zimmer sucht, und die Raumkacheln leben von der
+ * Breite ihrer Fotos. Von Auge ist das leicht zu übersehen - auf dem
+ * Telefon steht die Spalte ohnehin nie, und wer nur dort nachsieht,
+ * hält es für erledigt. Gemessen wird darum auf iPad-Breite, und zwar
+ * am Wetter: Es ist das einzige, was nur die Spalte zeigt.
+ */
+async function raumlisteOhneSpalte(browser) {
+  const seite = await angemeldeteSeite(browser, GROESSEN[0]);
+  // Gemessen am Lautsprecher-Wähler der Musikkarte: Er steht in der
+  // Spalte und sonst nirgends auf diesen beiden Seiten. Am Wetter wäre
+  // es das Naheliegende, aber der Demo-Hub hat keines - eine Messung,
+  // die schon am Prüfstand nichts findet, misst die Regel nicht.
+  const spalteDa = async () =>
+    (await seite.getByLabel('Lautsprecher wählen', { exact: true }).count()) > 0;
+  // Die Gegenprobe zuerst: Auf der Startseite muss die Spalte stehen -
+  // sonst wäre die Zeile darunter für eine kaputte App auch grün.
+  const aufStart = await spalteDa();
+  const raeume = seite.getByRole('tab', { name: 'Räume' }).first();
+  if (!(await raeume.isVisible().catch(() => false))) {
+    pruefe(false, 'Die Raumliste war erreichbar');
+    await seite.close();
+    return;
+  }
+  await raeume.click();
+  await seite.waitForTimeout(1200);
+  const aufRaeumen = await spalteDa();
+  pruefe(aufStart, 'Die Startseite behält die Wetter- und Musikspalte');
+  pruefe(!aufRaeumen, 'Die Raumliste zeigt keine Wetter- und Musikspalte');
+  await seite.close();
 }
 
 /** Das volle Fernbedienungs-Blatt öffnen.
@@ -403,6 +441,7 @@ try {
   await druckKommtAn(browser);
   await terminWandert(browser);
   await kachelnStehenGleich(browser);
+  await raumlisteOhneSpalte(browser);
 } finally {
   await browser.close();
 }

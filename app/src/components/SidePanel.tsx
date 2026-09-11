@@ -5,7 +5,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { Activity, CommandData, Entity, EntityState } from '../api/types';
 import { uhr, wochentag } from '../lib/format';
 import { useMusikwahl } from '../hooks/useMusikwahl';
-import { hatEigeneAuswahl, istMusikbox, quellenSymbol, zeigtStopp } from '../lib/geraeteart';
+import { hatEigeneAuswahl, istMusikbox, quellenSymbol, stoppZiel } from '../lib/geraeteart';
 import { hatWarteschlange } from '../lib/musikliste';
 import { trockenSatz } from '../lib/giessen';
 import { Regenstand, balkenHoehen, regenSatz } from '../lib/regen';
@@ -44,6 +44,7 @@ export function SidePanel({
   entities,
   width,
   room,
+  roomList,
   onCommand,
 }: {
   entities: Entity[];
@@ -51,6 +52,9 @@ export function SidePanel({
   /** Offener Raum – dann bleibt die Spalte ganz weg: Seine Musik steht
    *  im Raumkopf, Wetter und Hausmusik gehören dort nicht hin. */
   room?: string | null;
+  /** Die Raumliste – dort bleibt sie aus demselben Grund weg
+   *  (lib/seitenspalte.ts). */
+  roomList?: boolean;
   /** Für den Player – ohne ihn bleibt er weg statt tot dazustehen. */
   onCommand?: (entityId: string, command: string, data?: CommandData) => void;
 }) {
@@ -91,6 +95,7 @@ export function SidePanel({
   // einmal im Browser auf iPad-Grösse gemessen wurde.
   const zeigt = panelContent({
     inRoom: !!room,
+    roomList: !!roomList,
     weather: !!weather,
     housePlayer: !!player && !!onCommand,
   });
@@ -171,6 +176,12 @@ export function MediaPanel({
   // hiess «Lautsprecher wählen» und lag hinter demselben Pfeil – die
   // Quelle war damit weder benannt noch zu sehen, ohne aufzuklappen.
   const quellen = useMemo(() => players.filter(hatEigeneAuswahl), [players]);
+  // Welches Gerät der Stopp-Knopf beendet - bei einer Quelle die Box
+  // darunter, sonst das gezeigte Gerät selbst.
+  const stopp = useMemo(
+    () => stoppZiel(entity, players, activeDevice),
+    [entity, players, activeDevice]
+  );
   const boxen = useMemo(
     () => players.filter((player) => !hatEigeneAuswahl(player)),
     [players]
@@ -361,15 +372,21 @@ export function MediaPanel({
         >
           <Ionicons name={playing ? 'pause' : 'play'} size={18} color={colors.ink} />
         </Pressable>
-        {/* Stopp neben Pause, aber nur auf Boxen mit einer Sitzung:
-            Pause hält bloss an - die Sitzung bleibt auf der Box und
-            hält sie besetzt. Stopp beendet sie (lib/geraeteart,
-            zeigtStopp). */}
-        {zeigtStopp(entity) ? (
+        {/* Stopp neben Pause, aber nur wo eine Sitzung steht: Pause
+            hält bloss an - die Sitzung bleibt auf der Box und hält sie
+            besetzt. Stopp beendet sie. Zeigt die Karte eine Quelle
+            (Spotify, Radio), trifft es die Box, auf der sie spielt -
+            die Quelle selbst kennt kein Aus (lib/geraeteart,
+            stoppZiel). */}
+        {stopp ? (
           <Pressable
-            onPress={() => command('turn_off')}
+            onPress={() => onCommand(stopp.id, 'turn_off')}
             accessibilityRole="button"
-            accessibilityLabel="Stopp – Wiedergabe beenden"
+            accessibilityLabel={
+              stopp.id === entity.id
+                ? 'Stopp – Wiedergabe beenden'
+                : `Stopp – Wiedergabe auf ${stopp.name} beenden`
+            }
             style={styles.playButton}
           >
             <Ionicons name="stop" size={18} color={colors.ink} />
