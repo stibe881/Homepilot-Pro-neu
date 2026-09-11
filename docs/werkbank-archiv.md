@@ -4389,4 +4389,15 @@ Dazu die zweite Überraschung: Der Broker läuft im Abbild als Benutzer
 Datenordner nicht, startet er nicht - in `deploy/portainer.md` steht
 beides jetzt getrennt.
 
-Stellen: `docker-compose.yml`, `docker-compose.portainer.yml`, `deploy/mosquitto.conf`, `deploy/zigbee2mqtt.example.yaml`, `deploy/portainer.md`, `docs/zigbee.md`, `docs/integrationen.md`, `hub/config.example.yaml`, `hub/tests/test_compose_pfade.py`, `.gitignore`
+**Zweiter Nachtrag - der Dienst schwieg.** Nach dem Ausrollen stand der
+Container zwölf Minuten auf `Up` und hatte seit den Migrationsnotizen
+nichts mehr gesagt. Gesucht wurde am Dongle, an der Firmware und am
+Broker; kaputt war nichts. In der Vorlage stand `log_level: warning`,
+und die Zeilen des ersten Starts - «Starting Zigbee2MQTT version …»,
+«Connecting to MQTT server», «Adapter ready» - sind alle `info`. Ein
+Dienst, der schweigt, sieht aus wie einer, der hängt; das kostet mehr
+als die paar Zeilen im Protokoll, zumal dort der Deckel aus der
+docker-compose.yml greift. Jetzt `info`, mit einer Prüfung dagegen und
+einem Abschnitt in `docs/zigbee.md`, der genau dieses Bild zeigt.
+
+Stellen: `docker-compose.yml`, `docker-compose.portainer.yml`, `deploy/mosquitto.conf`, `deploy/zigbee2mqtt.example.yaml`, `deploy/portainer.md`, `docs/zigbee.md`, `docs/integrationen.md`, `hub/config.example.yaml`, `hub/tests/test_compose_pfade.py`, `hub/tests/test_zigbee_stack.py`, `.gitignore`

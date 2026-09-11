@@ -120,6 +120,35 @@ benutzten Fenster kann das Tage dauern. Bis dahin steht die Kachel blass
 da. Das ist ehrlicher als ein «alles in Ordnung», das niemand geprüft
 hat.
 
+## Wenn der Container oben ist und nichts sagt
+
+Sieht so aus:
+
+```
+Using '/app/data' as data directory
+Starting Zigbee2MQTT without watchdog.
+Migration notes written in /app/data/migration-1-to-2.log
+...
+[CHANGE] Migrated settings to version 5
+```
+
+...und danach minutenlang nichts, obwohl `docker ps` den Container als
+`Up` führt. Das ist **kein** Hängen: Die Zeilen, die man jetzt sucht -
+«Starting Zigbee2MQTT version …», «Connecting to MQTT server»,
+«Adapter ready» - sind allesamt `info`. Stand in der configuration.yaml
+`log_level: warning`, verschluckt der Dienst genau sie. Kein Fehler zu
+sehen heisst dann: bis hierher kein Fehler passiert.
+
+Ob er wirklich läuft, sagt die Weboberfläche, nicht das Protokoll:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8099
+```
+
+Die Migrationsnotizen davor sind harmlos: Zigbee2MQTT 2.x zieht eine
+ältere configuration.yaml durch alle Schema-Stufen und schreibt sie
+danach in der neuen Form zurück.
+
 ## Wenn man umbenennt
 
 Die Kennung einer Kachel leitet sich vom Namen in Zigbee2MQTT ab. Wer
