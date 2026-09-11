@@ -53,10 +53,46 @@ def anhaengen(
             # «das Haus hat mich schlafen lassen».
             "held": str(eintrag.get("held") or "") or None,
             "held_for": sorted(str(name) for name in (eintrag.get("held_for") or [])),
+            # Wohin ein Tipp führt (core/pushziel.py) - der Posteingang
+            # braucht es, sonst ist er eine Liste zum Ansehen statt eine
+            # zum Handeln (Punkt 472 der Werkbank).
+            "ziel": str(eintrag.get("ziel") or "") or None,
             "at": float(jetzt),
         }
     )
     return frisch[-HOECHSTENS:]
+
+
+def zustellung_vermerken(
+    rows: Any, marke: float, probleme: list[str]
+) -> list[dict[str, Any]] | None:
+    """Nachtragen, ob eine Meldung wirklich ankam (Punkt 475 der Werkbank).
+
+    ``accepted`` heisst «vom Push-Dienst angenommen», nicht «beim
+    Empfänger angekommen». Ob Apple oder Google sie ausgeliefert haben,
+    steht erst in der Quittung - und die holte bis hierher nur der
+    Push-Test ab. Beim Alarm ist das der teuerste stille Fehler, den das
+    System hat: Es sieht aus wie gemeldet, und niemand hat etwas gehört.
+
+    ``marke`` ist der Zeitstempel der Meldung; genau die Zeile wird
+    ergänzt, nicht die neueste - zwischen Senden und Quittung liegen
+    Sekunden, in denen etwas anderes gemeldet worden sein kann.
+
+    ``None``, wenn nichts zu tun war: Dann muss auch nichts geschrieben
+    werden, und der Normalfall (alles zugestellt) kostet keinen
+    Schreibvorgang auf die Platte.
+    """
+    if not probleme:
+        return None
+    geaendert = False
+    frisch = []
+    for row in rows or []:
+        if isinstance(row, dict) and str(row.get("at")) == str(marke):
+            frisch.append({**row, "nicht_zugestellt": list(probleme)})
+            geaendert = True
+        else:
+            frisch.append(row)
+    return frisch if geaendert else None
 
 
 def fuer(rows: Any, name: str) -> list[dict[str, Any]]:

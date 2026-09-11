@@ -29,6 +29,7 @@ from ...core import (
     presence,
     push,
     pushbeispiel,
+    pushgeraet,
     pushruhe,
     pushverlauf,
     pushziel,
@@ -124,14 +125,27 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         return zeile
 
     @app.get("/api/push/categories")
-    async def push_categories(request: Request) -> dict[str, Any]:
+    async def push_categories(request: Request, token: str = "") -> dict[str, Any]:
         """Welche Arten von Nachrichten es gibt – und was ich abbestellt habe.
 
         Je Benutzer, nicht global: Wen die schwache Batterie im Keller nicht
         interessiert, der soll deswegen nicht den Alarm mit abschalten.
+
+        Mit ``token`` je *Gerät* (Punkt 471 der Werkbank): Wer sich mit
+        Telefon und iPad anmeldet, bekam auf beiden dasselbe - auch die
+        Ruhezeit. Das iPad liegt nachts im Wohnzimmer und darf klingeln.
+        Gefragt wird mit dem eigenen Token, den die App ohnehin hat;
+        fehlt er, steht hier wie bisher die Sicht der Person.
         """
         user = current_user(request)
-        muted = sorted(hub.push.muted.get(user.name, set()))
+        meine = _meine_zeile(user.name)
+        eigen = bool(token) and pushgeraet.weicht_ab(meine, token)
+        fuer_dieses = pushgeraet.fuer_geraet(meine, token) if token else meine
+        muted = sorted(
+            str(key)
+            for key in (fuer_dieses.get("muted") or [])
+            if push.known(str(key))
+        )
         # Jeder selbst gebaute Ablauf, der meldet, bringt seinen eigenen
         # Schalter mit - einsortiert unter seiner Kategorie. Wer seine
         # Push-Abläufe «Push» nennt, findet sie hier unter «Push». Früher
@@ -179,7 +193,24 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             # Ordnung nicht durcheinanderbringen.
             "groups": push.group_order() + eigene_gruppen,
             "muted": muted,
-            "ruhe": pushruhe.ruhe_lesen(_meine_zeile(user.name).get("ruhe")),
+            "ruhe": pushruhe.ruhe_lesen(fuer_dieses.get("ruhe")),
+            # Hat dieses Gerät eine eigene Einstellung, oder folgt es der
+            # Person? Die App soll den Unterschied zeigen können - sonst
+            # sieht «Ruhezeit aus» am iPad gleich aus, ob sie dort
+            # abgeschaltet wurde oder überall.
+            "geraet_eigen": eigen,
+            # Meine angemeldeten Geräte - damit sich die Einstellung
+            # überhaupt auf eines beziehen lässt.
+            "geraete": [
+                {
+                    "token": geraet.token,
+                    "label": geraet.label,
+                    "eigen": pushgeraet.weicht_ab(meine, geraet.token),
+                    "hier": geraet.token == token,
+                }
+                for geraet in hub.push.devices
+                if geraet.user == user.name
+            ],
         }
 
     @app.put("/api/push/categories")
@@ -193,21 +224,48 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         ohne dass der Hub die Datei anfasst.
         """
         user = current_user(request)
+        # Auch die Schlüssel aus Abläufen (automation:<id>) - ob es den
+        # Ablauf noch gibt, prüft hier bewusst niemand: Ein pausierter
+        # Ablauf soll seine Abbestellung behalten.
+        gewaehlt = [key for key in body.muted if push.known(key)]
+        if body.token:
+            # Nur für dieses eine Gerät (Punkt 471). Die Abbestellungen
+            # der Person bleiben, wie sie sind - ein Gerät weicht ab, es
+            # ersetzt nicht.
+            meines = any(
+                geraet.token == body.token and geraet.user == user.name
+                for geraet in hub.push.devices
+            )
+            if not meines:
+                raise HTTPException(status_code=404, detail="Unbekanntes Gerät")
+            neu = pushgeraet.setzen(
+                _meine_zeile(user.name), body.token, {"muted": gewaehlt}
+            )
+            _zeile_schreiben(user.name, **{pushgeraet.FELD: neu.get(pushgeraet.FELD)})
+            return {"ok": True, "token": body.token, "muted": sorted(gewaehlt)}
         stored = {
             entry["user"]: entry
             for entry in hub.data.get("push_prefs")
             if isinstance(entry, dict) and entry.get("user")
         }
-        stored[user.name] = {
-            "user": user.name,
-            # Auch die Schlüssel aus Abläufen (automation:<id>) - ob es
-            # den Ablauf noch gibt, prüft hier bewusst niemand: Ein
-            # pausierter Ablauf soll seine Abbestellung behalten.
-            "muted": [key for key in body.muted if push.known(key)],
-        }
+        stored[user.name] = {**stored.get(user.name, {}), "user": user.name, "muted": gewaehlt}
         hub.data.set("push_prefs", list(stored.values()))
+        hub.push_einstellungen_lesen()
         hub.push.muted = push.parse_muted(hub.data.get("push_prefs"))
         return {"ok": True, "muted": sorted(hub.push.muted.get(user.name, set()))}
+
+    @app.delete("/api/push/categories/{token}")
+    async def clear_device_categories(token: str, request: Request) -> dict[str, Any]:
+        """Die eigenen Abbestellungen eines Geräts aufheben (Punkt 471).
+
+        Danach folgt es wieder der Person - und die Abweichung
+        verschwindet aus dem Speicher, statt eine zu behaupten, die keine
+        mehr ist.
+        """
+        user = current_user(request)
+        neu = pushgeraet.setzen(_meine_zeile(user.name), token, {"muted": None})
+        _zeile_schreiben(user.name, **{pushgeraet.FELD: neu.get(pushgeraet.FELD)})
+        return {"ok": True, "token": token}
 
     # ── Ruhezeit und Stillstellen (core/pushruhe.py) ───────────────────────
     #
@@ -221,17 +279,59 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     async def set_push_ruhe(
         body: PushRuhezeitRequest, request: Request
     ) -> dict[str, Any]:
-        """Die eigene Nachtruhe setzen."""
+        """Die eigene Nachtruhe setzen - für mich oder für ein Gerät.
+
+        Mit ``token`` gilt sie nur für dieses eine Gerät (Punkt 471 der
+        Werkbank): Das iPad liegt nachts im Wohnzimmer und darf klingeln,
+        das Telefon liegt neben dem Bett. Ohne Token gilt sie wie bisher
+        für alle Geräte der Person - das ist der Normalfall.
+        """
         user = current_user(request)
-        zeile = _zeile_schreiben(
-            user.name,
-            ruhe={
-                "enabled": bool(body.enabled),
-                "from": int(body.von) % 24,
-                "to": int(body.bis) % 24,
-            },
-        )
+        ruhe = {
+            "enabled": bool(body.enabled),
+            "from": int(body.von) % 24,
+            "to": int(body.bis) % 24,
+            "days": pushruhe.tage_lesen(body.tage),
+        }
+        if body.token:
+            # Nur eigene Geräte: Sonst stellte man die Nachtruhe eines
+            # anderen Telefons ein, und niemand fände den Grund.
+            meines = any(
+                geraet.token == body.token and geraet.user == user.name
+                for geraet in hub.push.devices
+            )
+            if not meines:
+                raise HTTPException(status_code=404, detail="Unbekanntes Gerät")
+            zeile = _zeile_schreiben(
+                user.name,
+                **{
+                    pushgeraet.FELD: pushgeraet.setzen(
+                        _meine_zeile(user.name), body.token, {"ruhe": ruhe}
+                    ).get(pushgeraet.FELD)
+                },
+            )
+            return {
+                "ok": True,
+                "token": body.token,
+                "ruhe": pushruhe.ruhe_lesen(
+                    pushgeraet.fuer_geraet(zeile, body.token).get("ruhe")
+                ),
+            }
+        zeile = _zeile_schreiben(user.name, ruhe=ruhe)
         return {"ok": True, "ruhe": pushruhe.ruhe_lesen(zeile.get("ruhe"))}
+
+    @app.delete("/api/push/ruhe/{token}")
+    async def clear_push_ruhe(token: str, request: Request) -> dict[str, Any]:
+        """Die eigene Ruhezeit eines Geräts wieder aufheben (Punkt 471).
+
+        Danach folgt das Gerät wieder der Person - und die Zeile im
+        Speicher verschwindet, statt eine Abweichung zu behaupten, die
+        keine mehr ist.
+        """
+        user = current_user(request)
+        neu = pushgeraet.setzen(_meine_zeile(user.name), token, {"ruhe": None})
+        _zeile_schreiben(user.name, **{pushgeraet.FELD: neu.get(pushgeraet.FELD)})
+        return {"ok": True, "token": token}
 
     @app.post("/api/push/still")
     async def set_push_still(

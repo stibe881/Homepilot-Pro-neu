@@ -3482,7 +3482,606 @@ nie rot wird, ist keiner.
 
 Stellen: `app/src/lib/strichcode.ts`, `app/src/components/Kassencode.tsx`, `app/src/components/QrScanner.tsx`, `app/src/screens/family/gutscheine.tsx`, `hub/homepilot/core/gutscheine.py`
 
-### 421. Mehr Klingeltöne, und anhören darf man sie dort, wo man sitzt ✓ erledigt
+## Fünfundachtzig Vorschläge (421-505)
+
+Auf Zuruf erstellt: zehn je Bereich für App allgemein, Bedienung,
+Gestaltung, Gutscheine, Abläufe, Push und Alarmanlage, dazu fünfzehn
+selbst gewählte. Noch nichts davon ist gebaut - das hier ist die Liste,
+nicht die Arbeit. Die Nummern sind vergeben und bleiben es, auch für
+die Punkte, die nie an die Reihe kommen (dieselbe Regel wie oben).
+
+Vorweg geprüft, damit nichts doppelt dasteht: Was die Suche schon
+findet, was die Warteschlange schon auffängt, was die Alarmanlage an
+Zonen, Zwangs-PIN und Sensortest schon kann und was bei den Gutscheinen
+mit Storno, Übergabe, Beleg und Kassencode bereits erledigt ist, steht
+hier nicht noch einmal. Übrig bleibt, was wirklich fehlt.
+
+### App allgemein (421-430)
+
+**421. Die Browser-Probe sieht zwei Seiten von zwölf.** Gemessen werden
+Startseite, Räume und der Fernseher-Fall. Familienseite, Alarm, Abläufe
+und Gutscheine - die vier Bildschirme mit den meisten Formularen und
+den längsten Listen - kommen nie vor. Ein seitlicher Überlauf in der
+Gutschein-Liste auf dem iPhone fällt heute erst auf, wenn jemand mit
+einem iPhone davorsteht. Stellen: `scripts/probe.mjs`
+
+**422. Wie lange der kalte Start dauert, weiss niemand.** Die Probe
+misst Überlauf und stehende Blätter, aber keine Zeit. Dabei ist «die
+App braucht ewig» die einzige Beschwerde, die im Haus regelmässig
+fällt, und die einzige Zahl, die nirgends steht. Erst mit einer Messung
+darf sie schlechter werden; ohne merkt es niemand, bis es weh tut.
+Stellen: `scripts/probe.mjs`, `app/src/hooks/useHub.ts`
+
+**423. `FamilyScreen.tsx` ist mit 4851 Zeilen die grösste Datei im
+Baum** - grösser als die Startseite, für die Punkt 268/339 den Schnitt
+schon beschreibt. Die Startseite hat immerhin `screens/dashboard/`; die
+Familienseite hat `screens/family/` und benutzt es nur zur Hälfte. Wer
+dort etwas ändert, liest eine Datei, die auf keinen Bildschirm passt.
+Stellen: `app/src/screens/FamilyScreen.tsx`, `app/src/screens/family/`
+
+**424. Die Warteschlange gilt nur für Gerätebefehle.**
+`lib/warteschlange.ts` fängt einen Tipp auf einen Schalter auf, wenn
+der Hub gerade weg ist. Ein Ablauf, den man in derselben Minute
+speichert, ein Gutschein-Abzug an der Kasse, ein Scharfschalten an der
+Tür: die laufen ins Leere, mit einer roten Meldung und ohne zweiten
+Versuch. Die Familienlisten haben dafür ihre eigene Ablage - drei
+Lösungen für dasselbe Problem, und an den zwei wichtigsten Stellen
+keine. Stellen: `app/src/lib/warteschlange.ts`,
+`app/src/screens/family/ablage.ts`, `app/src/api/client.ts`
+
+**425. Es gibt keinen Lastprüfstand für den Hub.**
+Zweihundertsiebenundzwanzig Testdateien prüfen Logik; keine prüft, was
+bei dreihundert Entitäten und zehn offenen WebSockets passiert. Der
+Fall kommt nicht vom Wachstum, sondern von einem Fehler: eine Anbindung,
+die im Sekundentakt Zustände meldet, und der Hub schickt jedem Telefon
+jede davon einzeln. Stellen: `hub/homepilot/api/server.py`, `hub/tests/`
+
+**426. `hub.data` wächst, und niemand sieht zu.** Abläufe, Verlauf,
+Familienlisten, Clip-Verweise und das Zugriffsprotokoll liegen in einer
+Datei, die bei jedem Schreiben ganz gelesen und ganz geschrieben wird.
+Die Platten-Warnung meldet, wenn es zu spät ist; was fehlt, ist die
+Zahl davor - welche Sammlung wie viele Zeilen hat und welche in diesem
+Monat am stärksten gewachsen ist. Stellen:
+`hub/homepilot/core/persistence.py`, `hub/homepilot/api/routes/diagnose.py`
+
+**427. Die Grösse der Web-Fassung steht nirgends.** Der Export läuft in
+der Prüfung, aber niemand liest, wie gross das Ergebnis geworden ist.
+Ein versehentlich mitgezogenes Paket verdoppelt das Bündel, und das
+Wandpanel lädt ab dann spürbar länger - bemerkt wird das erst am Gerät,
+Wochen später. Eine Zeile «Bündel: 4,2 MB (+900 kB)» in der Prüfung
+genügt. Stellen: `.github/workflows/pruefung.yml`, `scripts/probe.sh`
+
+**428. Das Absturzbuch meldet sich nicht von selbst.** Es schreibt
+zuverlässig mit - nachlesen muss man es. Ein Absturz, der am selben Tag
+dreimal an derselben Stelle passiert, ist eine Push-Meldung wert; sonst
+steht er dort, bis jemand zufällig hinschaut. Stellen:
+`app/src/lib/absturzbuch.ts`, `hub/homepilot/core/push.py`
+
+**429. Die mypy-Liste wächst nicht von selbst.** Bindend sind die
+Module in `mypy-sauber.txt`, der Rest läuft «zur Ansicht». Ohne Regel
+bleibt es beim Vorsatz. «Jede Datei, die du ohnehin anfasst, kommt
+dazu» macht daraus ein Verfahren, das sich von selbst durchzieht.
+Stellen: `hub/tools/mypy_sauber.py`, `hub/mypy-sauber.txt`
+
+**430. Der Update-Knopf baut `main`, und die App sagt es nicht.** Das
+steht in CLAUDE.md, aber wer auf einem Zweig arbeitet und auf Update
+drückt, sieht einen erfolgreichen Bau ohne seine Änderung - genau der
+Fehler, für den es diese Datei gibt. Unter *System*, direkt beim Knopf,
+gehört hin, welcher Zweig gebaut wird und wann er zuletzt etwas
+bekommen hat. Stellen: `app/src/screens/SystemScreen.tsx`,
+`deploy/rebuild-hub.sh`
+
+### Bedienung (431-440)
+
+**431. Zwei Suchen, die einander nicht kennen.** Die grosse Suche
+findet Räume, Geräte, Szenen, Abläufe und Seiten; die Suche der
+Familienseite findet Rezepte, Einkauf, Kontakte und Gutscheine. Wer
+«Coop» sucht, muss vorher wissen, welche der beiden er aufmacht - und
+das ist genau die Frage, die eine Suche beantworten soll. Stellen:
+`app/src/components/GlobalSearch.tsx`, `app/src/screens/FamilyScreen.tsx`
+
+**432. Rückgängig gibt es nur beim Schalten.** Acht Sekunden lang kann
+man ein Licht zurücknehmen. Ein gelöschter Kontakt, ein verschobener
+Ämtli-Stern, ein archivierter Gutschein: weg. Der Papierkorb hilft den
+Listen, die einen haben, und nicht dem Rest. Stellen:
+`app/src/lib/rueckgaengig.ts`, `hub/homepilot/core/trash.py`
+
+**433. Formulare fragen nicht nach, wenn man sie verlässt.** Ein halb
+ausgefüllter Ablauf, ein Gutschein mit Betrag und ohne Nummer - ein
+Wisch nach rechts, und alles ist fort. Es braucht keinen Entwurf-Modus,
+nur die eine Rückfrage, wenn wirklich etwas drinsteht. Stellen:
+`app/src/hooks/useZurueckWischen.ts`, `app/src/screens/automations/editor.tsx`
+
+**434. Die App weiss nicht, wer gerade davorsteht.** Am Wandpanel im
+Flur ist «zuletzt geöffnet» eine andere Antwort als auf dem Telefon in
+der Hand: dort will man die Startseite und nichts anderes, hier die
+Stelle von vorhin. Punkt 280 macht überall dasselbe. Stellen:
+`app/src/lib/persoenlich.ts`, `app/src/hooks/usePrefs.ts`
+
+**435. Es gibt keinen Weg zurück zur letzten Meldung.** Wer eine
+Push-Nachricht wegwischt, findet sie nur in den Push-Einstellungen
+unter «Zuletzt gemeldet» wieder - drei Bildschirme tief, ohne Bild und
+ohne Knopf. Punkt 389 nennt das «teilweise da»; gemeint war der
+Posteingang. Stellen: `hub/homepilot/core/pushverlauf.py`,
+`app/src/components/PushBlatt.tsx`
+
+**436. Lange Listen haben keinen Anker.** Rezepte, Kontakte,
+Gutscheine, Geräte: wer unten war und zurückkommt, steht wieder oben.
+Bei zwanzig Einträgen egal, bei zweihundert die häufigste kleine
+Verärgerung des Tages. Stellen: `app/src/screens/RecipeBook.tsx`,
+`app/src/screens/family/gutscheine.tsx`
+
+**437. Mehrfachauswahl fehlt überall.** Fünf erledigte Einkaufsposten,
+drei abgelaufene Gutscheine, zwei tote Geräte - jedes einzeln
+antippen, jedes einzeln bestätigen. Langdrücken ist seit Punkt 282
+einheitlich; eine Auswahl daraus zu machen ist der kleine Schritt, der
+noch fehlt. Stellen: `app/src/lib/langdruck.ts`,
+`app/src/components/DraggableList.tsx`
+
+**438. Der erste Tipp nach dem Aufwachen geht oft ins Leere.** Die App
+kommt aus dem Hintergrund, zeigt den letzten Stand, und der WebSocket
+braucht noch eine Sekunde. Was man in dieser Sekunde tippt, landet in
+der Warteschlange - richtig -, aber die Kachel sieht aus wie immer. Ein
+sichtbarer Zustand «verbindet noch» für diese eine Sekunde ist ehrlicher
+als eine Kachel, die so tut, als wäre sie wach. Stellen:
+`app/src/hooks/useHub.ts`, `app/src/components/EntityCard.tsx`
+
+**439. Fehlermeldungen sagen, was nicht ging, nicht wann es wieder
+geht.** «Hub nicht erreichbar» ist richtig und hilft nicht. «Hub nicht
+erreichbar - zuletzt gesehen vor 4 Minuten, nächster Versuch in 10
+Sekunden» sagt, ob man warten oder in den Keller gehen soll. Stellen:
+`app/src/api/client.ts`, `app/src/components/Auffangnetz.tsx`
+
+**440. Der Einkaufsmodus ist der einzige Modus für draussen.** Grosse
+Zeilen und wacher Bildschirm gibt es beim Einkaufszettel. An der Kasse
+mit dem Gutschein, an der Tür mit der PIN, im Auto mit der Knopfwand
+ist die Lage dieselbe - eine Hand, schlechtes Licht, wenig Zeit - und
+die Oberfläche dieselbe wie auf dem Sofa. Stellen:
+`app/src/lib/einkauf.ts`, `app/src/components/Kassencode.tsx`
+
+### Gestaltung (441-450)
+
+**441. Neunhundertdreizehn nackte `padding`-Zahlen** stehen im Code,
+das Raster kennt zwei Werte (`gap`, `page`). Punkt 363 hat den Umbau
+zu Recht abgelehnt - aber die Richtung stimmt: ein drittes und viertes
+Mass im Raster, und die Regel gilt nur für neue Dateien. Dann schrumpft
+der Rest von selbst. Stellen: `app/src/theme.tsx`
+
+**442. Fünf Erscheinungsbilder, ein Kontrastnachweis.** Hell, dunkel,
+Pink, Mitternacht, Sand - geprüft wird der Hellmodus. Pink und Sand
+sind die beiden, bei denen ein grauer Text auf hellem Grund durchfällt,
+und niemand misst es. Stellen: `app/src/theme.tsx`,
+`docs/wcag-audit-sonnenberg-baar.md`
+
+**443. Zustandsübergänge sind weiterhin offen (Punkt 292).** Eine
+Kachel springt von aus auf an. Was dazwischen fehlt, ist nicht Zierrat:
+Der Sprung ist der Grund, warum man zweimal tippt - man hat nicht
+gesehen, dass beim ersten Mal schon etwas geschah. Stellen:
+`app/src/components/EntityCard.tsx`
+
+**444. Die Signalfarben tragen zu viel.** Rot heisst Alarm, Fehler,
+abgelaufen, offen und zu warm. Wer Rot sieht, weiss nicht, ob er
+aufstehen muss. Eine Stufe dazwischen - «schau mal» gegen «jetzt» -
+trennt das teuerste Signal vom häufigsten. Stellen:
+`app/src/theme.tsx`, `app/src/components/Zustand.tsx`
+
+**445. Das Wandpanel bekommt das Telefonlayout mit mehr Spalten.**
+Ein Bildschirm, der immer an ist und aus zwei Metern gelesen wird,
+braucht andere Schriftgrössen als eine Hand voll iPhone - nicht dieselben,
+breiter verteilt. Stellen: `app/src/theme.tsx`,
+`app/src/screens/DashboardScreen.tsx`
+
+**446. Symbole ohne Wort.** Die Symbolsprache steht (Punkt 294), aber
+an den engen Stellen steht das Symbol allein. Wer die App zweimal im
+Jahr benutzt - Babysitter, Gast, Grossmutter - rät. Stellen:
+`app/src/components/entity/`, `app/src/components/TopStrip.tsx`
+
+**447. Die Leerzustände sind nicht gleich viel wert.** Manche Liste
+sagt «nichts da», manche zeigt nur weissen Raum, manche einen Umriss,
+der nie verschwindet. Der leere Zustand ist der erste, den ein neuer
+Benutzer sieht - und der einzige, den niemand gestaltet. Stellen:
+`app/src/components/Leerzustand.tsx`
+
+**448. Die Kachelhöhe hängt am Inhalt.** Eine Reihe mit einem
+zweizeiligen Namen steht anders als die daneben. Punkt 359 nennt das
+und verschiebt es auf eine Sitzung an der Probe; die Messung dafür wäre
+eine Zeile und ginge heute. Stellen: `scripts/probe.mjs`,
+`app/src/components/RoomCard.tsx`
+
+**449. Es gibt keinen Bilddiff.** Jede Gestaltungsfrage endet bei
+«sieht das richtig aus?» und damit bei einer Person vor einem
+Bildschirm. Ein Satz gespeicherter Bilder je Erscheinungsbild und
+Grösse würde aus dieser Frage eine Messung machen - dieselbe Wendung
+wie damals bei der Probe. Stellen: `scripts/probe.mjs`
+
+**450. Druck und Teilen sehen aus wie der Bildschirm.** Ein Rezept auf
+Papier, ein Ablauf als Blatt, ein Babysitter-Zettel: alle erben Farben
+und Abstände einer Oberfläche, die es auf Papier nicht gibt. Ein
+eigenes, karges Papier-Erscheinungsbild spart Tinte und liest sich
+besser. Stellen: `app/src/screens/RecipeBook.tsx`
+
+### Gutscheine (451-460)
+
+**451. Ein Gutschein kennt nur Franken und Stück.** Wer in Konstanz
+einkauft oder online in Euro bestellt, trägt den Betrag als Zahl ohne
+Währung ein - und die Summe oben zählt Euro zu Franken. `UNITS` um
+eine Währung zu erweitern ist wenig Arbeit; die Summe dann ehrlich zu
+trennen ist die eigentliche Entscheidung. Stellen:
+`hub/homepilot/core/gutscheine.py`, `app/src/lib/gutscheine.ts`
+
+**452. Ein Gutschein hat genau einen Code.** Manche Karten tragen
+Nummer *und* PIN, manche einen Code je Teilbetrag, Kinokarten oft eine
+Nummer je Eintritt. Heute steht alles zusammen in einem Feld, und an
+der Kasse liest man vor, was die App zeichnet. Stellen:
+`hub/homepilot/core/gutscheine.py`, `app/src/components/Kassencode.tsx`
+
+**453. Die Erinnerung kennt den Kalender nicht.** Ein Gutschein, der
+im Mai verfällt, wird dreissig und sieben Tage vorher gemeldet -
+unabhängig davon, ob die Familie in diesen Wochen in den Ferien ist
+oder der Laden Betriebsferien hat. Der Hub weiss beides. Stellen:
+`hub/homepilot/core/gutscheine.py`, `hub/homepilot/core/schulferien.py`
+
+**454. Es gibt keine Jahresbilanz.** `verfallen_zeitraum` rechnet, was
+in einem Zeitraum verfallen ist - gezeigt wird es nirgends
+zusammengefasst. «2026: 340 Franken eingelöst, 80 verfallen» ist die
+eine Zahl, die das ganze Modul rechtfertigt oder widerlegt. Stellen:
+`hub/homepilot/core/gutscheine.py`, `app/src/screens/HausRueckblick.tsx`
+
+**455. Ein aufgebrauchter Gutschein verschwindet nicht von selbst.**
+Rest null, seit vier Monaten - er steht weiter in der Liste, bis
+jemand archiviert. Bei den Familienlisten räumt Punkt 170 das Erledigte
+von selbst weg; hier nicht. Stellen: `app/src/lib/gutscheine.ts`,
+`hub/homepilot/core/gutscheine.py`
+
+**456. Doppelt erfasste Gutscheine fallen niemandem auf.** Zwei
+Personen tragen dieselbe Karte ein - einmal privat, einmal für die
+Familie -, und ab dann stimmt keine Summe mehr. Gleiche Nummer plus
+gleicher Laden ist ein sicherer Hinweis, und die Rückfrage beim
+Speichern kostet nichts. Stellen: `app/src/lib/gutscheine.ts`
+
+**457. «Fast leer» ist kein Zustand.** Zwölf Franken Rest bei Interdiscount
+sind praktisch verfallen: Man löst sie nie ein, weil man nie etwas für
+zwölf Franken braucht. Eine eigene Stufe neben «bald» - mit dem
+Vorschlag, den Rest beim nächsten Einkauf mitzunehmen - holt genau das
+Geld zurück, das sonst still liegen bleibt. Stellen:
+`app/src/lib/gutscheine.ts`
+
+**458. Der Ort erinnert nur im Laden selbst.** `gutscheinort.py` führt
+Gutschein und Laden über den Namen zusammen - und meldet sich, wenn man
+davorsteht. Vor der Fahrt wäre es nützlicher: «Du fährst nach Sursee,
+dort gelten zwei Gutscheine» weiss der Hub aus dem Kalender, bevor
+jemand im Auto sitzt. Stellen: `hub/homepilot/core/gutscheinort.py`,
+`hub/homepilot/core/losfahren.py`
+
+**459. Der Beleg ist eine Sackgasse.** Seit Punkt 266 hängt eine Datei
+am Gutschein, und mehr passiert damit nicht. Wer die Karte verliert und
+beim Laden nachfragt, braucht Beleg, Nummer und Kaufdatum zusammen als
+Mail oder PDF - drei Tipper, die heute abtippen heissen. Stellen:
+`app/src/screens/family/gutscheine.tsx`, `hub/homepilot/core/dateien.py`
+
+**460. Privat heisst privat - auch beim Sichern nicht.** Die Sicherung
+nimmt `hub.data` mit, und darin stehen die privaten Gutscheine im
+Klartext. Das widerspricht nicht dem Versprechen des Moduls, aber
+niemand hat es je ausgesprochen. Entweder steht es in der Sicherung
+oder es steht in der Dokumentation - beides nicht ist die schlechteste
+Variante. Stellen: `hub/homepilot/core/snapshots.py`,
+`hub/homepilot/core/gutscheine.py`
+
+### Abläufe (461-470)
+
+**461. Ein laufender Ablauf lässt sich nicht anhalten.** «Gute Nacht»
+mit drei Wartezeiten läuft zwölf Minuten. Wer nach der ersten Minute
+merkt, dass noch jemand im Wohnzimmer sitzt, hat keinen Knopf - der
+Ablauf fährt die Storen trotzdem. Die drei Wiederanlauf-Arten (`single`,
+`restart`, `queued`) regeln den zweiten Auslöser, nicht den Abbruch.
+Stellen: `hub/homepilot/core/automation.py`,
+`hub/homepilot/api/routes/automations.py`
+
+**462. Ein Widerspruch fällt erst in der Liste auf, nicht beim
+Speichern.** `core/konflikte.py` sammelt gegensätzlich geschaltete
+Geräte, und man quittiert sie dort. Im Editor selbst - in dem Moment,
+in dem der Widerspruch entsteht - steht nichts. «Dieses Gerät schaltet
+um 22:00 auch Ablauf ‹Gute Nacht›» wäre dieselbe Auskunft, eine Woche
+früher. Stellen: `hub/homepilot/core/konflikte.py`,
+`app/src/screens/automations/editor.tsx`
+
+**463. Es gibt keine Variablen (Punkt 383) - und einen kleinen Ersatz
+dafür.** Der ganze Schritt-Typ ist ein eigener Auftrag. Vorziehen liesse
+sich das Stück, das die Hälfte der Wünsche deckt: dass eine Nachricht
+den Wert eines anderen Geräts als Platzhalter tragen darf, nicht nur
+den des Auslösers. Stellen: `app/src/screens/automations/entwurf.ts`,
+`hub/homepilot/core/automation.py`
+
+**464. Ein Ablauf lässt sich nicht befristen.** «Bis Ende der Ferien»,
+«nur diese Woche» - heute schaltet man ihn ein und vergisst ihn. Der
+Ferienmodus (Punkt 156) löst das für einen einzigen Fall; ein
+Ablaufdatum gehört an jeden Ablauf, und der Hub schaltet ihn dann selbst
+wieder ab. Stellen: `hub/homepilot/core/automation.py`
+
+**465. Ein Schritt, der scheitert, meldet sich nicht.** Ist die Store
+nicht erreichbar, steht das im Lauf-Verlauf - und sonst nirgends. Ein
+«Gute Nacht», das zur Hälfte lief, ist schlechter als eines, das gar
+nicht lief: Man glaubt, das Haus sei zu. Stellen:
+`hub/homepilot/core/automation.py`, `hub/homepilot/core/push.py`
+
+**466. Abläufe kennen keine Reihenfolge untereinander.** Zwei, die um
+07:00 starten, laufen in der Reihenfolge, in der sie zufällig in der
+Liste stehen. Solange das nirgends steht, ist es kein Verhalten,
+sondern ein Zufall, auf den sich irgendwann jemand verlässt. Stellen:
+`hub/homepilot/core/automation.py`
+
+**467. Der Editor hat kein Zurück innerhalb einer Sitzung.**
+Zurückholen gibt es - aber nur für gespeicherte Fassungen. Wer drei
+Schritte umstellt, die Bedingung ändert und es dann doch anders will,
+muss abbrechen und von vorn beginnen. Bei einem Ablauf mit zwölf
+Schritten ist das der Grund, warum man ihn lieber nicht anfasst.
+Stellen: `app/src/screens/automations/editor.tsx`
+
+**468. Ein eigener Ablauf lässt sich nicht weitergeben.** Vorlagen gibt
+es; das Ausleihen des eigenen nicht. Was hier gut läuft, ist weder zu
+sichern noch nach einem Gerätetausch neu aufzubauen noch jemandem zu
+zeigen. Ein Ablauf als Datei, mit Geräten als Platzhaltern, ist der
+ehrliche Weg. Stellen: `app/src/screens/automations/vorlagen.ts`,
+`hub/homepilot/api/routes/automations.py`
+
+**469. Ein Ablauf, der seit einem halben Jahr nie lief, meldet sich
+nicht.** Verwaiste Abläufe kennt Punkt 262 - die zeigen auf Geräte, die
+es nicht mehr gibt. Der andere Fall ist der stille: alle Geräte da,
+Bedingung nie erfüllt, seit Februar nichts. Stellen:
+`hub/homepilot/core/verwaist.py`, `hub/homepilot/core/automation.py`
+
+**470. Die Zeitbedingung kennt Feiertage, aber keine Schulferien.**
+`except_holidays` gibt es seit Punkt 154, und die Luzerner Schulferien
+liegen im Hub (`core/schulferien.py`) - benutzt werden sie nur von der
+Simulation. «Wecklicht um 06:30» ist im Juli falsch, und heute stellt
+das jemand von Hand ab. Stellen: `hub/homepilot/core/automation.py`,
+`hub/homepilot/core/schulferien.py`
+
+### Push-Benachrichtigungen (471-480)
+
+**471. Einstellungen gelten je Benutzer, nicht je Gerät.** Wer sich mit
+Telefon und iPad anmeldet, bekommt auf beiden dasselbe - auch die
+Ruhezeit gilt für beide gleich. Das iPad liegt nachts im Wohnzimmer und
+darf klingeln; das Telefon liegt neben dem Bett. `PushDevice` trägt
+bereits `label`, die Einstellungen hängen aber am Namen. Stellen:
+`hub/homepilot/core/push.py`, `hub/homepilot/core/pushruhe.py`
+
+**472. Es gibt keinen Posteingang (Punkt 389 zu Ende gedacht).**
+«Zuletzt gemeldet» steht in den Push-Einstellungen, ohne Bild, ohne
+Knöpfe, ohne Ort. Eine weggewischte Klingel ist damit endgültig weg,
+obwohl das Standbild im Hub liegt. Stellen:
+`hub/homepilot/core/pushverlauf.py`, `app/src/components/PushBlatt.tsx`
+
+**473. Der Tagesdeckel zählt, sagt aber nichts.** Wird die achte Meldung
+einer Art verschluckt, erfährt das niemand - weder der Empfänger noch
+die Einstellungen. Eine Zeile «heute 3 Meldungen zurückgehalten» macht
+aus einer stillen Bremse eine sichtbare. Stellen:
+`hub/homepilot/core/pushruhe.py`, `app/src/components/PushPrefs.tsx`
+
+**474. Was in der Ruhezeit anfällt, verschwindet.** Zurückgehalten ist
+nicht nachgeholt: Am Morgen kommt keine Sammlung dessen, was die Nacht
+über liegen blieb. Genau dafür gäbe es `pushbuendel.py` schon - es
+bündelt heute nur, was in derselben Runde entsteht. Stellen:
+`hub/homepilot/core/pushruhe.py`, `hub/homepilot/core/pushbuendel.py`
+
+**475. Eine Meldung weiss nicht, ob sie angekommen ist.** Expo liefert
+Quittungen, `parse_receipts` liest sie - für tote Token. Dass eine
+wichtige Meldung bei niemandem ankam, führt zu keinem zweiten Weg und
+zu keinem Hinweis. Beim Alarm ist das der teuerste stille Fehler, den
+das System hat. Stellen: `hub/homepilot/core/push.py`
+
+**476. Es gibt keinen zweiten Weg.** Fällt Expo aus oder ist das
+Telefon ohne Netz, endet die Kette. Eine Mail an dieselbe Adresse
+kostet wenig und wäre für genau drei Kategorien - Alarm, Wasser,
+Ausfall - der Unterschied zwischen «gemeldet» und «niemand wusste es».
+Stellen: `hub/homepilot/core/push.py`, `hub/homepilot/core/pushziel.py`
+
+**477. Die Kategorienliste wächst schneller als ihre Gruppen.** Über
+vierzig Kategorien in acht Gruppen, und die Einstellungen zeigen sie
+als lange Liste mit Schaltern. Wer etwas abstellen will, sucht - und
+schaltet im Zweifel die Gruppe ab, in der auch das Wichtige steckt.
+Stellen: `app/src/components/PushPrefs.tsx`,
+`hub/homepilot/core/push.py`
+
+**478. Ein Knopf unter der Meldung wirkt für alle.** «Ich mach's» ist
+genau richtig so. «Später» und «Passt so» sind es nicht: Wer nachts die
+Batteriewarnung wegdrückt, drückt sie auch dem anderen weg - der sie am
+Morgen gebraucht hätte. Stellen: `hub/homepilot/core/push.py`,
+`app/src/lib/mitteilungsknoepfe.ts`
+
+**479. Die Ruhezeit kennt Stunden, nicht Tage.** Eine Zahl von-bis für
+die ganze Woche. Samstagmorgen ist nicht Dienstagmorgen, und die
+Ferienwoche ist keine Arbeitswoche. Stellen:
+`hub/homepilot/core/pushruhe.py`
+
+**480. Kritische Meldungen sind bewusst nicht möglich (Punkt 392) - und
+niemandem gesagt.** Ohne Apples Berechtigung hält ein aktiver Fokus den
+Alarm auf. Wer die Anlage scharf schaltet, sollte einmal lesen, dass
+ein «Nicht stören» sie stumm stellt - das ist keine Technikfrage,
+sondern eine Sicherheitsauskunft. Stellen:
+`app/src/components/PushPrefs.tsx`, `app/src/screens/AlarmScreen.tsx`
+
+### Alarmanlage (481-490)
+
+**481. Die Sirene wird nie geprüft.** Es gibt einen Sensortest (Punkt
+403) und einen drei Sekunden langen Ton beim Prüfen der Aktionen. Was
+fehlt, ist der regelmässige Selbsttest: eine Sirene, die seit dem
+Einbau nicht mehr geheult hat, heult vielleicht auch beim Einbruch
+nicht. Einmal im Quartal, mittags, drei Sekunden - und ein Eintrag, der
+es festhält. Stellen: `hub/homepilot/integrations/alarm.py`
+
+**482. Es gibt kein Vorlauf-Bild.** Beim Auslösen beginnt die Aufnahme
+(`_start_clip`) - also erst, wenn schon jemand drin ist. Die
+interessanten fünf Sekunden liegen davor, und Protect hält sie
+ohnehin vor. Stellen: `hub/homepilot/core/cliparchiv.py`,
+`hub/homepilot/core/streams.py`
+
+**483. Niemand erinnert ans Scharfschalten.** Alle weg, 22 Uhr, Anlage
+unscharf: Der Hub weiss beides (`alarmanwesenheit.py`) und sagt nichts.
+Automatisch scharf zu schalten wäre zu viel; die Frage zu stellen ist
+genau richtig. Stellen: `hub/homepilot/core/alarmanwesenheit.py`,
+`hub/homepilot/core/watchdog.py`
+
+**484. Der Nachbericht bleibt im Haus.** Punkt 337 schreibt zusammen,
+was bei einem Alarm geschah. Für die Polizei oder die Versicherung
+braucht es dasselbe als Blatt mit Zeiten, Bildern und Sensoren - und
+zwar in der Stunde danach, nicht drei Tage später aus der Erinnerung.
+Stellen: `hub/homepilot/core/alarmbericht.py`
+
+**485. Fehlalarme werden gezählt, nicht ausgewertet.** Die Statistik
+(Punkt 407) sagt, wie viele es waren. Welcher Sensor sie verursacht hat
+und ob er in einem Modus besser schweigen sollte, muss man sich selbst
+zusammenreimen. Stellen: `hub/homepilot/integrations/alarm.py`,
+`hub/homepilot/core/alarmbericht.py`
+
+**486. Die Anlage ist nur in der App zu bedienen.** Widget und Knopfwand
+tragen Licht und Szenen; das Scharfschalten fehlt - vermutlich aus
+gutem Grund, aber nirgends aufgeschrieben. Unscharf am Widget wäre
+gefährlich, scharf zu schalten nicht. Stellen:
+`app/targets/widget/index.swift`, `app/src/lib/auto.ts`
+
+**487. Die Eingangsverzögerung sagt nicht, wie viel Zeit bleibt.** Sie
+läuft im Hub und ist dort korrekt. Wer zur Tür hereinkommt, sieht sie
+erst, wenn er die App öffnet - dann sind zehn der dreissig Sekunden
+weg. Ein Ton, der schneller wird, tut dasselbe ohne Bildschirm.
+Stellen: `hub/homepilot/integrations/alarm.py`,
+`hub/homepilot/core/klingelton.py`
+
+**488. Es gibt keinen Haustier-Modus.** Für den Saugroboter gibt es
+einen (`_sauger_deckt`, `DURCHBRUCH`) - und die Überlegung dahinter
+passt eins zu eins auf eine Katze: Kameras, die Tiere erkennen,
+schweigen; Melder, die es nicht können, sind ehrlich ausgenommen.
+Stellen: `hub/homepilot/integrations/alarm_rules.py`
+
+**489. Es gibt keinen Wartungsmodus.** Fensterputzen, ein Handwerker im
+Haus, ein Umzugstag: Alles steht offen, und die einzige Antwort darauf
+ist «ganz unscharf». Ein befristeter Modus, der sich am Abend von selbst
+wieder scharf schaltet, ist der Unterschied zwischen einer Ausnahme und
+einer Anlage, die seit dem Küchenumbau aus ist. Stellen:
+`hub/homepilot/integrations/alarm.py`,
+`hub/homepilot/integrations/alarm_rules.py`
+
+**490. Ein Alarm wird nie von Hand eingeordnet.** Die
+Fehlalarm-Statistik rät ihn sich aus: unter sechzig Sekunden entschärft,
+mindestens dreimal - dann gilt der Sensor als Kandidat. Ein echter
+Einbruch, den jemand schnell entschärft, zählt damit als Fehlalarm, und
+ein Fehlalarm, den zehn Minuten lang niemand bemerkt, zählt als echt.
+Die eine Frage beim Entschärfen - «war das echt?» - ersetzt die ganze
+Schätzung. Stellen: `hub/homepilot/core/alarmbericht.py`,
+`app/src/screens/AlarmScreen.tsx`
+
+### Selbst gewählt (491-505)
+
+**491. Die drei Prüfwerkzeuge des Hubs sind fünf.** `storencheck`,
+`livecheck`, `tvcheck`, `saugercheck`, `pushcheck` - jedes einzeln über
+`docker exec` aufzurufen, jedes mit eigener Ausgabe. Wer im Haus steht
+und nicht weiss, woran es liegt, braucht eines: «prüf alles und sag
+mir, was auffällt». Stellen: `hub/homepilot/`,
+`app/src/screens/DiagnoseScreen.tsx`
+
+**492. Der Hub weiss nicht, wann er zuletzt gesichert wurde.** Sichern
+und Zurückholen gibt es (Punkt 275). Eine Sicherung, an die sich seit
+März niemand erinnert hat, ist keine - und der einzige Zeitpunkt, an dem
+das auffällt, ist der schlechteste. Stellen:
+`hub/homepilot/core/snapshots.py`, `app/src/screens/SystemScreen.tsx`
+
+**493. Das Zurückholen wird nie geprobt.** Eine Sicherung, die noch nie
+eingespielt wurde, ist eine Vermutung. Ein Probelauf gegen einen
+zweiten, leeren Hub - einmal im Quartal, automatisch - macht daraus
+eine Tatsache. Stellen: `hub/homepilot/core/snapshots.py`,
+`.github/workflows/pruefung.yml`
+
+**494. Die Anbindungen haben kein gemeinsames Mass.** Jede meldet
+Fehler auf ihre Art; `verbindungen.py` und das Flattern (Punkt 232)
+fassen zusammen, was sich fassen lässt. Was fehlt, ist die eine Zahl je
+Anbindung - seit wann läuft sie, wie oft hat sie diese Woche neu
+verbunden, wie lange braucht sie im Schnitt. Stellen:
+`hub/homepilot/core/verbindungen.py`, `hub/homepilot/core/metrics.py`
+
+**495. Ein Gerätename ist an fünf Stellen derselbe und nirgends
+gemeinsam.** Wer ein Licht umbenennt, ändert die Kachel - Szenen,
+Abläufe, Sprachbefehle und Widgets tragen den alten Namen weiter, bis
+jemand sie einzeln anfasst. «Gerät ersetzen» kann das bereits; das
+Umbenennen kann es nicht. Stellen:
+`hub/homepilot/core/replace.py`, `hub/homepilot/core/registry.py`
+
+**496. `hub/config.yaml` ist von Hand geschrieben und ungeprüft.** Ein
+Tippfehler im Zimmernamen führt zu einem leeren Raum, ein falsch
+eingerückter Eintrag zu einer Anbindung, die es nicht gibt. Bemerkt
+wird beides beim Neustart, im Log. Ein `--pruefen`, das die Datei liest
+ohne zu starten, gehört zu einer Datei, die man im Betrieb ändert.
+Stellen: `hub/homepilot/core/config.py`, `deploy/rebuild-hub.sh`
+
+**497. Die Kinderseite hat keine Grenze.** Es gibt die Rolle «Kind»
+(Punkt 245) und eine eigene Seite. Was ein Kind darf - Licht im eigenen
+Zimmer ja, Haustür nein, Alarm nie - steht heute in der Seite und nicht
+in einer Regel, die der Hub durchsetzt. Stellen:
+`hub/homepilot/core/users.py`, `app/src/lib/kindseite.ts`
+
+**498. Der Gast-Zugang endet, das Aufgeräumte nicht.** Ein Gastpass
+läuft ab (Punkt 246) - was er hinterlässt (Sitzungen, Protokolleinträge,
+WLAN-Schein), bleibt. Nach einem Jahr Gästen ist das die längste Liste
+im Haus. Stellen: `hub/homepilot/core/guestpass.py`,
+`hub/homepilot/core/sessions.py`
+
+**499. Das Zugriffsprotokoll wird nie gelesen.** Es schreibt mit, wer
+wann was geschaltet hat - und niemand schaut hinein, weil es keinen
+Anlass gibt. Eine Zeile im Monatsrückblick («diesen Monat 4 Anmeldungen
+von neuen Geräten») gibt ihm einen. Stellen:
+`hub/homepilot/core/audit.py`, `app/src/screens/HausRueckblick.tsx`
+
+**500. Die Sprachbefehle sind eine Liste ohne Prüfstand.**
+`docs/sprachbefehle.md` beschreibt, was gehen soll. Ob es geht, weiss man
+erst, wenn man es sagt - und wer eine Entität umbenennt, merkt den
+Bruch nie. Stellen: `docs/sprachbefehle.md`,
+`hub/homepilot/api/routes/`
+
+**501. Der Stromausfall-Ablauf wird nie geprüft.**
+`core/stromrueckkehr.py` erkennt den Kaltstart, der Auslöser «Nach
+Stromausfall» hängt daran. Was dann gilt, steht in einem Ablauf, den
+niemand ausprobiert hat - und ausprobieren heisst heute: den Strom
+abstellen. Ein auslösbarer Probelauf ist ein Knopf. Stellen:
+`hub/homepilot/core/stromrueckkehr.py`,
+`hub/homepilot/core/automation.py`
+
+**502. Die App zählt keine Wege.** `useKachelnutzung` und
+`useRaumnutzung` merken sich, was oft gebraucht wird - für die
+Sortierung. Was nie gebraucht wird, folgt daraus ebenso, und das ist die
+interessantere Hälfte: Ein Bildschirm, den in sechs Monaten niemand
+geöffnet hat, gehört weg oder an einen anderen Ort. Stellen:
+`app/src/hooks/useKachelnutzung.ts`, `app/src/hooks/useRaumnutzung.ts`
+
+**503. Eine neue Integration kostet mehr Papier als Code.**
+`docs/neue-integration.md` beschreibt es gut - trotzdem sind es jedes
+Mal dieselben acht Stellen: Modul, Registrierung, Entitätstypen, Test,
+Demo-Fall, Dokumentation, Kachel, Symbol. Ein Gerüst-Skript, das die
+acht anlegt, ist eine halbe Stunde Arbeit und spart sie bei jeder
+weiteren Anbindung. Stellen: `hub/docs/neue-integration.md`,
+`hub/homepilot/integrations/`
+
+**504. Der Gremlin ist einer.** Der zappelige Fernseher hat gezeigt,
+wozu ein bösartiges Demo-Gerät taugt. Es fehlen seine Geschwister: die
+Store, die eine alte Stellung meldet; der Sensor, der Unsinn schickt;
+die Anbindung, die zehn Sekunden braucht. Jeder von ihnen entspricht
+einem Fehler, der hier wirklich passiert ist. Stellen:
+`hub/homepilot/integrations/gremlin.py`
+
+**505. Diese Datei steht an zwei Orten.** `CLAUDE.md` erklärt, wie hier
+gearbeitet wird; `docs/werkbank.md` ist die Liste dessen,
+was ansteht - und enthält längst mehr Begründung als Aufgabe. Was
+erledigt und begründet ist, gehört in ein Archiv daneben; die Werkbank
+selbst soll die Frage «was ist offen?» in dreissig Sekunden beantworten.
+Heute beantwortet sie sie in zwanzig Minuten. Stellen:
+`docs/werkbank.md`, `CLAUDE.md`
+
+*Diese Arbeit stand zuerst als Punkt 421 da. Zwei Sitzungen haben am
+selben Abend dieselbe Nummer vergeben: hier für etwas Gebautes, dort für
+den Anfang der fünfundachtzig Vorschläge darüber. Verschoben wurde
+diese, weil sie allein steht - der andere Block hängt an 43 Dateien mit
+«Punkt NNN der Werkbank» im Kommentar. Umnummeriert wird hier sonst
+nie; wer «Punkt 421» sucht, findet ihn oben, und zwar als Vorschlag.*
+
+### 506. Mehr Klingeltöne, und anhören darf man sie dort, wo man sitzt ✓ erledigt
 
 *lohnt sich · Aufwand: klein · Hub + App*
 

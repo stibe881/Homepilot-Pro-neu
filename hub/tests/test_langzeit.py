@@ -187,7 +187,40 @@ def test_verfallene_gutscheine_stehen_im_rueckblick(tmp_path):
         return antwort
 
     antwort = asyncio.run(run())
-    assert antwort["gutscheine"] == {"summe": 40, "anzahl": 1}
+    # Punkt 454: Verfallenes steht jetzt neben dem Eingelösten - hier gab
+    # es nichts einzulösen, also nur die unbequeme Hälfte.
+    assert antwort["gutscheine"]["verfallen"] == {"CHF": 40}
+    assert antwort["gutscheine"]["verfallen_anzahl"] == 1
+    assert antwort["gutscheine"]["eingeloest"] == {}
+
+
+def test_eingeloeste_gutscheine_stehen_neben_den_verfallenen(tmp_path):
+    """Punkt 454: die Zahl, die das Modul rechtfertigt."""
+
+    async def run():
+        hub = make_hub(tmp_path)
+        await hub.start()
+        hub.data.set(
+            "family_vouchers",
+            [
+                {
+                    "shop": "Coop",
+                    "unit": "chf",
+                    "total": 100,
+                    "left": 40,
+                    "transactions": [
+                        {"at": "2030-06-05T10:00:00", "amount": 60, "art": "abzug"}
+                    ],
+                }
+            ],
+        )
+        antwort = await langzeit.erstellen(hub, "monat", heute=date(2030, 6, 15))
+        await hub.stop()
+        return antwort
+
+    antwort = asyncio.run(run())
+    assert antwort["gutscheine"]["eingeloest"] == {"CHF": 60}
+    assert antwort["gutscheine"]["verfallen"] == {}
 
 
 def test_ohne_verfallene_gutscheine_steht_dort_nichts(tmp_path):

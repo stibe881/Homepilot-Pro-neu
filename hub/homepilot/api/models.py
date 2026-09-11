@@ -144,6 +144,13 @@ class AutomationRequest(BaseModel):
     # Restzeit anzeigen: «geht in 12 Min aus» an Kachel, Raumkarte und
     # im «Lichter an»-Blatt (core/abschaltung.py).
     countdown: bool = False
+    # Bis wann der Ablauf überhaupt gilt (Punkt 464): «YYYY-MM-DD», der
+    # Tag selbst zählt noch. Danach schaltet der Hub ihn aus und lässt
+    # ihn stehen - nicht dasselbe wie `quiet_until`, das eine Pause ist.
+    valid_until: str | None = None
+    # In welcher Reihenfolge er drankommt, wenn mehrere gleichzeitig
+    # dran sind (Punkt 466). Kleiner zuerst, 0 heisst «egal».
+    order: int = 0
 
 
 class SceneRequest(BaseModel):
@@ -197,6 +204,9 @@ class PushPrefsRequest(BaseModel):
     """Abbestellte Nachrichtenarten eines Benutzers."""
 
     muted: list[str] = []
+    # Für welches Gerät (Punkt 471) - leer heisst «für mich, überall».
+    # Der Token, nicht der Anzeigename: Der ändert sich, der Token nicht.
+    token: str = ""
 
 
 class PushRuhezeitRequest(BaseModel):
@@ -210,6 +220,12 @@ class PushRuhezeitRequest(BaseModel):
     enabled: bool = False
     von: int = 22
     bis: int = 7
+    # An welchen Wochentagen sie gilt (0 = Montag), leer = alle
+    # (Punkt 479 der Werkbank). Samstagmorgen ist nicht Dienstagmorgen.
+    tage: list[int] = []
+    # Für welches Gerät (Punkt 471) - leer heisst «für mich, überall».
+    # Der Token, nicht der Anzeigename: Der ändert sich, der Token nicht.
+    token: str = ""
 
 
 class PushStillRequest(BaseModel):
@@ -667,6 +683,27 @@ class AlarmZwangPinRequest(BaseModel):
 
     pin: str = ""
     user: str | None = None
+
+
+class AlarmWartungRequest(BaseModel):
+    """Den Wartungsmodus starten (Punkt 489 der Werkbank).
+
+    Fensterputzen, Handwerker, Umzugstag: Alles steht offen, und die
+    einzige Antwort darauf war «ganz unscharf» - danach blieb sie es.
+    """
+
+    # Stunden; geklemmt in core/alarmpflege.py statt hier abgelehnt.
+    stunden: float = 3.0
+
+
+class AlarmUrteilRequest(BaseModel):
+    """War das echt? (Punkt 490 der Werkbank)
+
+    «echt», «fehlalarm» oder «test» - mehr braucht es nicht. Wer mehr
+    Abstufungen anbietet, bekommt Antworten, die niemand auswertet.
+    """
+
+    urteil: str
 
 
 class AlarmSensorTestRequest(BaseModel):

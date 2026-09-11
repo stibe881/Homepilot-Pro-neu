@@ -21,7 +21,7 @@ import { szenenfarbe } from '../lib/szenenfarbe';
 import { ketteSatz, ursacheSatz } from '../lib/ursache';
 import { zaehlbar } from '../lib/zaehlung';
 import { useJetzt } from '../hooks/useRestzeit';
-import { useColors } from '../theme';
+import { useColors, useTyp } from '../theme';
 import { warnZahl, warnZahlSatz } from '../lib/warnzeile';
 import { Bar } from './Bar';
 import { Card, CardFooter } from './Card';
@@ -64,6 +64,7 @@ import { Wischdimmer } from './entity/wischdimmer';
 import { MediaButton, RadioPanel, ShuffleRepeat, SpotifyPanel } from './entity/medien';
 import { MedienExtras } from './entity/medienextras';
 import { makeStyles } from './entity/stil';
+import { Zustandspunkt } from './Zustandspunkt';
 import {
   BigValue,
   Pill,
@@ -247,7 +248,11 @@ export function EntityCard({
   onErinnern,
 }: Props) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  // Am Wandpanel grösser (Punkt 445 der Werkbank): Die Kachel ist das,
+  // was man dort aus zwei Metern liest - eine 13-Punkt-Zeile ist an der
+  // Wand ein grauer Strich.
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   const [remoteOpen, setRemoteOpen] = useState(false);
   // Helligkeit unter dem Finger, solange über die Kachel gestrichen wird
   // (components/entity/wischdimmer.tsx). null heisst: der Hub führt.
@@ -508,11 +513,16 @@ export function EntityCard({
                   size={22}
                   color={isOn ? tinte : colors.inkSoft}
                 />
-                <View
-                  style={[
-                    styles.lichtPunkt,
-                    { backgroundColor: isOn ? colors.on : colors.off },
-                  ]}
+                {/* Mit Übergang statt Sprung (Punkt 292/443 der
+                    Werkbank): Wer tippt und nichts sieht, tippt ein
+                    zweites Mal - und dann geht das Licht an und gleich
+                    wieder aus. */}
+                <Zustandspunkt
+                  an={isOn}
+                  anFarbe={colors.on}
+                  ausFarbe={colors.off}
+                  getipptAt={pending ? Date.now() : null}
+                  style={styles.lichtPunkt}
                 />
               </View>
               <View>

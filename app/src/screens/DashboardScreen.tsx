@@ -2757,7 +2757,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 titel="Benachrichtigungen"
                 hinweis="Was aufs Telefon kommt - und was nicht."
               >
-                <PushPrefs settings={settings} />
+                <PushPrefs
+                  settings={settings}
+                  // Der Posteingang führt dorthin, wo die Meldung
+                  // hingehört (Punkt 472 der Werkbank) - über denselben
+                  // Weg wie ein Tipp auf die Mitteilung selbst, damit
+                  // es nicht zwei Wege zu demselben Ort gibt.
+                  onZiel={(schluessel) => {
+                    const ziel = zielAus({ ziel: schluessel });
+                    if (ziel) zumZiel.current?.(ziel);
+                  }}
+                />
               </Abschnitt>
             }
           />

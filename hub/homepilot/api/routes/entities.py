@@ -337,6 +337,13 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                     "muted": batterie.ist_stumm(
                         [row], str(row.get("entity_id")), jetzt
                     ),
+                    # Wer sie stillgestellt hat (Punkt 478 der Werkbank).
+                    # Die Quittung gilt fürs Haus - das ist richtig, sonst
+                    # laufen zwei wegen derselben Batterie in den Keller.
+                    # Falsch war, dass sie unsichtbar für alle galt.
+                    "ack": batterie.quittung(
+                        [row], str(row.get("entity_id")), jetzt
+                    ),
                 }
                 for row in hub.data.get(batterie.STORE_KEY)
                 if isinstance(row, dict) and row.get("entity_id")
@@ -351,7 +358,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         Hub noch einmal. Wer die Batterie bis dahin gewechselt hat, hört
         nichts mehr – wer sie liegen lässt, wird erinnert.
         """
-        require(request, Capability.CONTROL)
+        user = require(request, Capability.CONTROL)
         if hub.registry.get(entity_id) is None:
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         jetzt = time.time()
@@ -359,13 +366,14 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         # sonst käme die Erinnerung früher, als die Einstellung verspricht.
         stunde = batterie.prefs_lesen(hub.data.get(batterie.PREFS_KEY))["hour"]
         rows = batterie.quittiere(
-            hub.data.get(batterie.STORE_KEY), entity_id, jetzt, stunde
+            hub.data.get(batterie.STORE_KEY), entity_id, jetzt, stunde, by=user.name
         )
         hub.data.set(batterie.STORE_KEY, rows)
         return {
             "ok": True,
             "entity_id": entity_id,
             "muted_until": batterie.stumm_bis(jetzt, stunde),
+            "ack": batterie.quittung(rows, entity_id, jetzt),
         }
 
     @app.delete("/api/batteries/{entity_id}/ack")

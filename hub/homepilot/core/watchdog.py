@@ -1677,6 +1677,26 @@ class Watchdog:
             if geaendert:
                 self.hub.data.set(gutscheine.KEY, rows)
 
+        # Aufgebrauchtes räumt sich selbst weg (Punkt 455 der Werkbank).
+        #
+        # Ein leerer Gutschein steht nicht mehr in der offenen Liste,
+        # aber in der eingeklappten Gruppe «leer» darunter - und dort
+        # blieb er, weil man eine zugeklappte Gruppe nicht aufräumt.
+        # Nach einem Monat ist die Rückfrage beim Laden ohnehin keine
+        # mehr, die man aus dem Gedächtnis stellt; ab dann gehört er ins
+        # Archiv, wo er weiterhin steht und auffindbar bleibt.
+        #
+        # Ohne Meldung, anders als beim Verfall: Verfallen ist ein
+        # Verlust, den man erfahren soll; aufgebraucht ist der
+        # Normalfall, und eine Nachricht «dein leerer Gutschein wurde
+        # aufgeräumt» wäre genau die Sorte Push, die man abbestellt.
+        aufgeraeumt = gutscheine.lange_leer(rows, jetzt.date())
+        if aufgeraeumt:
+            for eintrag in aufgeraeumt:
+                eintrag["archived"] = True
+            log.info("%d aufgebrauchte Gutscheine ins Archiv gelegt", len(aufgeraeumt))
+            self.hub.data.set(gutscheine.KEY, rows)
+
     async def _check_meal_plan(self) -> None:
         """Der Wochenplan füttert «zuletzt gekocht» (Punkt 218).
 

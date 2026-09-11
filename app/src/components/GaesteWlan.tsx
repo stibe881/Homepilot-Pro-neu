@@ -293,7 +293,7 @@ export function GaesteWlanKarte({
           </Pressable>
           <Text style={styles.qrHint}>{aufkleberSatz(aufkleber)}</Text>
           {huerde(aufkleber) ? (
-            <Text style={[styles.qrHint, { color: colors.warn }]}>
+            <Text style={[styles.qrHint, { color: colors.warnInk }]}>
               {huerde(aufkleber)}
             </Text>
           ) : null}

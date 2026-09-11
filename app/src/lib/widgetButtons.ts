@@ -68,6 +68,21 @@ const FEST: Record<string, WidgetButton> = {
     symbol: 'shield.fill',
     url: 'homepilot://alarm',
   },
+  // Scharf schalten, ohne die App zu öffnen (Punkt 486 der Werkbank).
+  //
+  // Ein eigener Knopf und nicht «Alarm» mit Direktschaltung: Scharf und
+  // unscharf sind nicht dieselbe Handlung mit umgekehrtem Vorzeichen.
+  // Scharf ist die harmlose Richtung - schlimmstenfalls steht die
+  // Anlage, wenn man sie nicht wollte, und man schaltet sie ab. Unscharf
+  // am Widget hiesse: Wer das Telefon vom Tisch nimmt, hebt die Anlage
+  // auf, ohne es zu entsperren. Deshalb gibt es hier nur die eine
+  // Richtung, und im Auto gilt dasselbe (lib/auto.ts).
+  alarm_arm: {
+    key: 'alarm_arm',
+    title: 'Scharf',
+    symbol: 'lock.shield.fill',
+    url: 'homepilot://alarm',
+  },
 };
 
 /** Symbol je Geräteart. Der Rückfall ist absichtlich ein Symbol und kein
@@ -276,6 +291,10 @@ export function darfDirekt(
   tuerOhneRueckfrage = false
 ): boolean {
   if (key.startsWith('scene:')) return true;
+  // Scharf schalten geht direkt (Punkt 486), unscharf nie - siehe die
+  // Begründung beim Knopf selbst. «alarm» bleibt beim Umweg über die
+  // App, und das ist keine Bequemlichkeitsfrage.
+  if (key === 'alarm_arm') return true;
   if (key === 'door') {
     if (!tuerOhneRueckfrage) return false;
     const tuer = haustuerFuerWatch(entities);
@@ -374,6 +393,18 @@ export function mitDirekt(
         direct: true,
         actionPath: `/api/scenes/${encodeURIComponent(id)}/activate`,
         actionBody: '',
+      };
+    }
+    if (knopf.key === 'alarm_arm') {
+      // «ausser Haus» und nicht der Nachtmodus: Wer am Widget oder im
+      // Auto scharf schaltet, geht gerade - genau dafür ist der Knopf
+      // da. Wer nachts scharf schaltet, hat das Telefon ohnehin in der
+      // Hand und die App offen.
+      return {
+        ...knopf,
+        direct: true,
+        actionPath: '/api/alarm/arm',
+        actionBody: JSON.stringify({ mode: 'ausser_haus' }),
       };
     }
     if (knopf.key === 'door') {
