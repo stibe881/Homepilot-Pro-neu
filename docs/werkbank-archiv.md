@@ -4872,3 +4872,24 @@ Fassungen, dafür `WebVersionNote`). Was nur nativ passiert, beantwortet
 der Browser nicht.
 
 Stellen: `app/src/lib/appstand.ts`, `app/src/screens/SystemScreen.tsx`, `app/app.json`, `deploy/rebuild-hub.sh`, `CLAUDE.md`
+
+### 546. «unknown» in grossen Buchstaben auf frischen Kacheln ✓ erledigt
+
+*lohnt sich · Aufwand: klein · App*
+
+Vier frisch angelernte Zigbee-Klimafühler standen auf der Geräteseite
+mit **unknown** als Messwert - in der grössten Schrift, die die Kachel
+hat. Das sieht aus wie ein Defekt und ist keiner: Der Hub setzt genau
+diesen Platzhalter, bis ein Gerät sich zum ersten Mal meldet
+(`integrations/zigbee2mqtt.py`), und ein Zigbee-Sensor meldet sich erst,
+wenn sich etwas ändert. Nach der ersten Messung steht dort «21.5 °C».
+
+`format()` in `components/entity/teile.tsx` reichte unbekannte Werte
+unverändert durch. Das ist für einen echten Fehlerwert richtig - «error»
+auf der Kachel ist hässlich, aber wahr und man kann danach suchen. Für
+den eigenen Platzhalter ist es nur ein englisches Wort aus dem Inneren,
+das nach aussen dringt. Jetzt wird das knappe Häufchen Werte, die
+ausdrücklich «noch keine Messung» heissen (`unknown`, `unavailable`,
+`none`, `null`, leer), zum Strich; alles andere bleibt, wie es kommt.
+
+Stellen: `app/src/components/entity/teile.tsx`, `app/src/components/entity/teile.test.ts`
