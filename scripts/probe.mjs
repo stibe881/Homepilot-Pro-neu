@@ -556,6 +556,103 @@ async function kachelnStehenGleich(browser) {
   }
 }
 
+/** 7. Ragt im Ablauf-Editor etwas hinaus? (Punkt 534)
+ *
+ * Der gemeldete Fall: Beim gewählten Gerät stand «eigene Zeit» *neben*
+ * dem Blatt, ausserhalb des sichtbaren Rands. Die Ursache war eine
+ * Chip-Reihe in einem Kasten, der nicht umbrechen durfte - und keine
+ * der sechs Messungen davor sah sie, weil keine den Editor je öffnete.
+ *
+ * Gemessen wird darum nicht die Seite, sondern jeder Kasten darin: Wo
+ * mehr Inhalt steht, als hineinpasst (`scrollWidth > clientWidth`),
+ * liegt etwas ausserhalb. Das findet auch den Fall, in dem die Seite
+ * selbst nicht breiter wird, weil das Blatt den Überlauf abschneidet -
+ * genau so war es hier.
+ */
+async function ablaufEditorPasst(browser) {
+  for (const groesse of GROESSEN) {
+    const seite = await angemeldeteSeite(browser, groesse);
+    const weg = await zumEditor(seite);
+    if (!weg) {
+      // Kein Fehler: Wer die Abläufe nicht bearbeiten darf, kommt hier
+      // nicht hin - und eine Messung über etwas Ungeöffnetes wäre
+      // erfunden.
+      await seite.close();
+      continue;
+    }
+    const zuBreit = await seite.evaluate(() => {
+      // Gemessen wird *im Blatt*, nicht auf der ganzen Seite: Die Leiste
+      // der Einstellungen und der Streifen über der Startseite scrollen
+      // von sich aus waagrecht und sind dabei breiter als ihr Kasten -
+      // das ist ihre Aufgabe, kein Fehler. Ausgangspunkt ist das
+      // Suchfeld der Geräteauswahl; darüber liegt der scrollende Kasten
+      // des Editors, und nur was darin steht, gehört hierher.
+      const feld = [...document.querySelectorAll('input')].find((el) =>
+        (el.placeholder || '').startsWith('Gerät oder Raum')
+      );
+      if (!feld) return ['Suchfeld der Geräteauswahl nicht gefunden'];
+      let blatt = feld.parentElement;
+      while (
+        blatt &&
+        !(blatt.scrollHeight > blatt.clientHeight + 40 && blatt.clientHeight > 200)
+      ) {
+        blatt = blatt.parentElement;
+      }
+      if (!blatt) return [];
+      return [...blatt.querySelectorAll('div')]
+        .filter((el) => el.scrollWidth > el.clientWidth + 1 && el.clientWidth > 120)
+        .slice(0, 3)
+        .map(
+          (el) =>
+            `${el.clientWidth}<${el.scrollWidth} ${(el.innerText || '')
+              .slice(0, 40)
+              .replace(/\n/g, ' / ')}`
+        );
+    });
+    pruefe(
+      zuBreit.length === 0,
+      `${groesse.name} · Ablauf-Editor: nichts steht ausserhalb seines Kastens`,
+      zuBreit.join(' | ')
+    );
+    await seite.close();
+  }
+}
+
+/** Den Weg bis zum offenen Editor mit einem gewählten Licht.
+ *
+ * Über eine Vorlage und nicht über «Neuer Ablauf»: Die Vorlage bringt
+ * Auslöser und Schritt schon mit, und gemessen werden soll das Blatt,
+ * nicht das Ausfüllen.
+ */
+async function zumEditor(seite) {
+  const einstellungen = seite.getByLabel('Einstellungen').first();
+  if (!(await einstellungen.isVisible().catch(() => false))) return false;
+  await einstellungen.click();
+  await seite.waitForTimeout(900);
+  const ablaeufe = seite.getByLabel('Abläufe').first();
+  if (!(await ablaeufe.isVisible().catch(() => false))) return false;
+  await ablaeufe.click();
+  await seite.waitForTimeout(1200);
+  const vorlage = seite
+    .getByLabel(/^Neuer Ablauf aus /)
+    .first();
+  if (!(await vorlage.isVisible().catch(() => false))) return false;
+  await vorlage.click();
+  await seite.waitForTimeout(1200);
+  // Ein Licht dazunehmen: Erst dann stehen die Chip-Reihen da, um die
+  // es geht - Helligkeit, Nachlauf, Weisston.
+  const lampe = seite.getByLabel('Licht Wohnzimmer, Licht').first();
+  if (!(await lampe.isVisible().catch(() => false))) return false;
+  await lampe.click();
+  await seite.waitForTimeout(800);
+  const um = seite.getByText('umschalten', { exact: true }).first();
+  if (await um.isVisible().catch(() => false)) {
+    await um.click();
+    await seite.waitForTimeout(600);
+  }
+  return true;
+}
+
 const { chromium } = playwrightLaden();
 const browser = await chromium.launch({ executablePath: browserOrt() });
 try {
@@ -566,6 +663,7 @@ try {
   await kachelnStehenGleich(browser);
   await raumlisteKopfspieler(browser);
   await weitereSeiten(browser);
+  await ablaufEditorPasst(browser);
 } finally {
   await browser.close();
 }

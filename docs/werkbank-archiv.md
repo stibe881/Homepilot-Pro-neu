@@ -4252,3 +4252,66 @@ fotografiert lesen». Auf dem Hub und nicht auf dem Telefon: Ein
 natives OCR-Modul hätte eine weitere neue Hülle gebraucht; ein
 apt-Paket im Abbild braucht keine. Ohne das Extra sagt die App beim
 Foto, was fehlt, statt still nichts zu finden.
+
+
+# Teil XII: Auf Zuruf (534)
+
+### 534. Die Geräteauswahl im Ablauf-Editor ✓ erledigt
+
+*tut weh · Aufwand: mittel · App*
+
+Gemeldet mit einem Bild und drei Worten: «neu, schöner, moderner und
+intuitiver». Was darauf zu sehen war, liess sich benennen:
+
+**Fünf Chip-Reihen, eine davon beschriftet.** Unter einem gewählten
+Licht standen «ein · ein, gedimmt · aus · umschalten», darunter
+«Helligkeit lassen · 10 % · … · 100 %», darunter allein «nach
+Tageszeit», dann «Wie lange an?» und zuletzt die Weisstöne. Nur die
+vierte Reihe sagte, welche Frage sie beantwortet. Jede trägt jetzt ihre
+Frage (`Unterfrage` in `felder.tsx`), ausgeschrieben und nicht als
+Stichwort.
+
+**«nach Tageszeit» sah aus wie ein sechster Prozentwert.** Es stand in
+derselben Reihe wie die Zahlen - sieben Chips, die auf kein Telefon in
+eine Zeile passen, also fiel es in die zweite und stand dort allein.
+Die Reihe ist geteilt: «Helligkeit» führt Zahlen, «Oder rechnen lassen»
+die beiden Quellen (`helligkeitsStufen`, `helligkeitsQuellen`). Ein Test
+hält fest, dass die Teilung nichts verliert.
+
+**Zwei gewählte Geräte liefen ineinander.** Getrennt waren sie durch
+eine Haarlinie; die Chip-Reihen des ersten und der Name des zweiten
+hatten denselben linken Rand. Jetzt ist jedes Gerät eine Karte auf
+`accentSoft` mit Symbol, Name und Art im Kopf - man sieht, wo eines
+aufhört, bevor man liest.
+
+**Der Name war der Ausknopf.** Wer ein Gerät eingestellt hatte und dann
+seinen Namen antippte, um nachzusehen, verlor alles daran. Wegnehmen
+geht jetzt über ein eigenes Kreuz.
+
+**Jeder Chip war eine gefüllte Fläche**, ungewählt grau, gewählt blau -
+auf fünf Reihen dreissig Kacheln, von denen fünf die Antwort waren.
+Ungewählt ist jetzt eine Haarlinie; gefüllt ist nur noch, was gilt.
+
+**Und ein echter Fehler, der dabei herausfiel:** «eigene Zeit» stand
+*neben* dem Blatt, ausserhalb des sichtbaren Rands. `MinutenWahl` und
+`NachlaufWahl` legten ihre Chip-Reihe in einen Kasten mit
+`flexDirection: row` und ohne `flexWrap` - `Choice` bringt sein
+umbrechendes Band selbst mit, der Kasten darum zwang es in eine Zeile.
+Acht Chips passen in keine Karte. Der Kasten ist weg.
+
+Nachgewiesen rot: Die Browser-Probe misst neu, ob im offenen
+Ablauf-Editor etwas ausserhalb seines Kastens steht - mit dem alten
+Wrapper meldet sie auf iPad und iPhone je drei Stellen, ohne ihn
+nichts. Gemessen wird dabei nur *im Blatt*: Die Leiste der
+Einstellungen scrollt von sich aus waagrecht und ist dabei zu Recht
+breiter als ihr Kasten.
+
+Dazu Kleinigkeiten, die beim Hinsehen auffielen: Das Feld für die
+eigene Zeit zeigte eine nackte «4» - jetzt steht «Min.» darin. Die
+Abschnitte heissen «Ausgewählt» und «Weitere hinzufügen» statt gar
+nichts. Die Räume im Angebot stehen als Versalien über ihrer Gruppe,
+und eine Zeile darin ist ein Ziel, das man am Wandpanel im Vorbeigehen
+trifft.
+
+Stellen: `app/src/screens/automations/szenen-editor.tsx`, `app/src/screens/automations/felder.tsx`, `app/src/screens/automations/stil.ts`, `app/src/lib/helligkeitsvorgabe.ts`, `app/src/theme.tsx`, `scripts/probe.mjs`
+

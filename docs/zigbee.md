@@ -22,6 +22,38 @@ und beschreibt jedes Gerät selbst – was es kann, was es misst, wie es
 heisst. Der Hub liest sie beim Verbinden und legt daraus die Kacheln an.
 Wer ein Gerät anlernt, sieht es ohne Neustart.
 
+## Der Broker
+
+Zigbee2MQTT und der Hub reden über einen MQTT-Broker; im Haus läuft
+Mosquitto als eigener Container im Stack. Seine Konfiguration liegt im
+Repo unter [`deploy/mosquitto.conf`](../deploy/mosquitto.conf) und wird
+als **Datei** in den Container gehängt.
+
+**Wenn der Stack mit «not a directory» abbricht**, ist genau das
+schiefgegangen:
+
+```
+error mounting ".../deploy/mosquitto.conf" to rootfs at
+"/mosquitto/config/mosquitto.conf": ... not a directory
+```
+
+Docker hat die Datei am Quellpfad nicht gefunden und dort wortlos einen
+**Ordner** angelegt - einen Ordner lässt sich aber nicht auf eine Datei
+legen. Das passiert, sobald der Stack die Datei erwartet, der Ordner des
+Stacks sie aber nicht hat (ein von Hand bearbeiteter Portainer-Stack hat
+gar keinen Klon des Repos darin).
+
+Der Ordner bleibt liegen und verhindert auch den nächsten Versuch, denn
+ein Klon legt keine Datei über einen bestehenden Ordner. Also erst
+wegräumen, dann neu ausrollen:
+
+```bash
+sudo rmdir /data/compose/<stack-id>/deploy/mosquitto.conf
+```
+
+Die Nummer steht im Pfad der Fehlermeldung. Danach in Portainer *Pull
+and redeploy* - der frische Klon bringt die Datei mit.
+
 ## Ein Gerät ist eine Kachel
 
 Ein Bewegungsmelder, der Bewegung, Helligkeit, Temperatur und Batterie

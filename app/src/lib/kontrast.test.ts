@@ -57,6 +57,20 @@ describe.each(paletten)('Palette $name', ({ colors, hinter, rohRand }) => {
     ).toBeGreaterThanOrEqual(4.5);
   });
 
+  it('lässt auf dem Akzent-Hauch weiter Fliesstext zu (accentSoft)', () => {
+    // Punkt 534 der Werkbank: Jedes gewählte Gerät im Ablauf-Editor
+    // trägt seine Einstellungen auf `accentSoft`. Der Ton ist bewusst
+    // blass - er soll zusammenfassen, nicht zum Knopf werden -, und
+    // genau deshalb muss hier geprüft sein, dass er nichts verdunkelt:
+    // Darauf steht `ink`, nicht der Akzent.
+    expect(
+      textContrast(colors.ink, colors.accentSoft, colors.panel)
+    ).toBeGreaterThanOrEqual(7);
+    expect(
+      textContrast(colors.inkSoft, colors.accentSoft, colors.panel)
+    ).toBeGreaterThanOrEqual(4);
+  });
+
   it('hält die Signalfarben erkennbar (accent, danger)', () => {
     expect(textContrast(colors.accent, colors.surface, hinter)).toBeGreaterThanOrEqual(3);
     expect(textContrast(colors.danger, colors.surface, hinter)).toBeGreaterThanOrEqual(3);

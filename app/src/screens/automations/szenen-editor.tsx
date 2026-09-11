@@ -9,12 +9,15 @@ import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { Entity } from '../../api/types';
 import { useColors } from '../../theme';
-import { deviceKindLabel, geraeteUntertitel } from '../../lib/geraeteart';
+import { deviceKindIcon, deviceKindLabel, geraeteUntertitel } from '../../lib/geraeteart';
 import { PALETTE } from '../../components/ColorRow';
 import {
+  UNVERAENDERT,
   chipWahl,
   chipWert,
-  helligkeitsOptionen,
+  helligkeitsQuellen,
+  helligkeitsStufen,
+  quelleVon,
   raumHatLux,
 } from '../../lib/helligkeitsvorgabe';
 import { RueckwegBefehl, SceneActionDraft, snapshotAction } from '../../lib/szenen';
@@ -36,7 +39,7 @@ import {
 } from './szenengeraete';
 
 export { baseCommandOptions, commandOptions, isSceneDevice };
-import { CategoryField, Choice, EditorRahmen, Field, NachlaufWahl } from './felder';
+import { CategoryField, Choice, EditorRahmen, Field, NachlaufWahl, Unterfrage } from './felder';
 import { makeStyles } from './stil';
 
 export interface SceneDraft {
@@ -232,7 +235,7 @@ export function SceneDevices({
     );
 
   return (
-    <View style={{ gap: 10 }}>
+    <View style={{ gap: 12 }}>
       {showSnapshot ? (
         <>
           <Pressable
@@ -270,18 +273,22 @@ export function SceneDevices({
           </Pressable>
         ) : null}
       </View>
-      {/* «1 Gerät(e)» stand da, weil niemand die Mehrzahl bilden wollte.
-          Diese Zeile liest man beim Anlegen jedes Ablaufs. */}
-      {actions.length > 0 ? (
-        <Text style={styles.snapshotHint}>
-          {actions.length === 1 ? '1 Gerät ausgewählt' : `${actions.length} Geräte ausgewählt`}
-        </Text>
-      ) : null}
 
+      {/* Zwei Abschnitte mit Überschrift statt einer durchlaufenden
+          Liste: oben, was gilt, unten, was sich dazunehmen lässt. Ohne
+          die Überschriften war das eine einzige Reihe von Gerätenamen,
+          in der nur ein Häkchen den Unterschied machte - und «1
+          Gerät(e)» stand als lose Zeile darüber, weil niemand die
+          Mehrzahl bilden wollte. */}
       {gewaehlte.length > 0 ? (
-        <View style={{ gap: 6 }}>
-          <Text style={styles.groupLabel}>Ausgewählt</Text>
-          {gewaehlte.map((entity) => geraeteZeile(entity))}
+        <View style={{ gap: 10 }}>
+          <View style={styles.wahlKopf}>
+            <Text style={styles.groupLabel}>Ausgewählt</Text>
+            <Text style={styles.wahlZahl}>
+              {gewaehlte.length === 1 ? '1 Gerät' : `${gewaehlte.length} Geräte`}
+            </Text>
+          </View>
+          {gewaehlte.map((entity) => gewaehltesGeraet(entity))}
         </View>
       ) : null}
 
@@ -292,387 +299,461 @@ export function SceneDevices({
           der Auslöser: Hundert Geräte am Stück schoben sonst den Rest
           des Editors ausser Sicht - genau das gemeldete Scrollen. */}
       {groups.length > 0 ? (
-        <ScrollView
-          style={styles.pickList}
-          nestedScrollEnabled
-          keyboardShouldPersistTaps="handled"
-        >
-          {groups.map((group) => (
-            <View key={group.room} style={{ gap: 6 }}>
-              <Text style={styles.groupLabel}>{group.room}</Text>
-              {group.items.map((entity) => geraeteZeile(entity))}
-            </View>
-          ))}
-        </ScrollView>
+        <View style={{ gap: 6 }}>
+          <View style={styles.wahlKopf}>
+            <Text style={styles.groupLabel}>
+              {gewaehlte.length > 0 ? 'Weitere hinzufügen' : 'Gerät wählen'}
+            </Text>
+          </View>
+          <ScrollView
+            style={styles.pickList}
+            nestedScrollEnabled
+            keyboardShouldPersistTaps="handled"
+          >
+            {groups.map((group) => (
+              <View key={group.room}>
+                <Text style={styles.raumLabel}>{group.room}</Text>
+                {group.items.map((entity) => angebotsZeile(entity))}
+              </View>
+            ))}
+          </ScrollView>
+        </View>
       ) : null}
     </View>
   );
 
-  /** Eine Gerätezeile: gewählt mit ihren Einstellungen darunter, im
-   *  Angebot als blosse Ankreuzzeile. Als Funktionsdeklaration nach dem
-   *  return, damit oben zuerst steht, was die Ansicht zeigt. */
-  function geraeteZeile(entity: Entity) {
-    const action = byId.get(entity.id);
-    const included = !!action;
-    const rooms = vacuumRooms(entity);
+  /** Eine Zeile im Angebot: ankreuzen, mehr nicht.
+   *
+   * Als Funktionsdeklaration nach dem return, damit oben zuerst steht,
+   * was die Ansicht zeigt.
+   */
+  function angebotsZeile(entity: Entity) {
     return (
-              <View key={entity.id} style={styles.deviceRow}>
-                <Pressable
-                  onPress={() => toggle(entity)}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: included }}
-                  accessibilityLabel={`${entity.name}, ${deviceKindLabel(entity)}`}
-                  style={styles.deviceHead}
-                >
-                  <Ionicons
-                    name={included ? 'checkmark-circle' : 'ellipse-outline'}
-                    size={24}
-                    color={included ? colors.on : colors.inkFaint}
+      <Pressable
+        key={entity.id}
+        onPress={() => toggle(entity)}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: false }}
+        accessibilityLabel={`${entity.name}, ${deviceKindLabel(entity)}`}
+        style={({ pressed }) => [
+          styles.angebotZeile,
+          pressed && { backgroundColor: colors.surfaceSoft },
+        ]}
+      >
+        <Ionicons name="ellipse-outline" size={22} color={colors.inkFaint} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.deviceName}>{entity.name}</Text>
+          {/* Wofür das Gerät steht. «Flur» allein sagt nicht, ob das
+              Licht oder der Melder gemeint ist. */}
+          <Text style={styles.pickKind}>{geraeteUntertitel(entity, entities)}</Text>
+        </View>
+      </Pressable>
+    );
+  }
+
+  /** Ein gewähltes Gerät als eigene Karte: Kopf, Strich, seine Fragen.
+   *
+   * Jede Chip-Reihe darin trägt ihre Frage (`Unterfrage`). Vorher
+   * standen bis zu fünf Reihen ohne Überschrift untereinander, und man
+   * musste aus den Wörtern erraten, welche Frage sie beantworten.
+   */
+  function gewaehltesGeraet(entity: Entity) {
+    const action = byId.get(entity.id)!;
+    const rooms = vacuumRooms(entity);
+    const quelle = quelleVon(action);
+    const dimmbar =
+      action.command === 'set_brightness' ||
+      (action.command === 'toggle' && lichtFein && entity.commands.includes('set_brightness'));
+    return (
+      <View key={entity.id} style={styles.geraetKarte}>
+        <View style={styles.geraetKopf}>
+          <View style={styles.geraetZeichen}>
+            <Ionicons
+              name={deviceKindIcon(entity) as keyof typeof Ionicons.glyphMap}
+              size={17}
+              color={colors.accent}
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.deviceName}>{entity.name}</Text>
+            <Text style={styles.pickKind}>{geraeteUntertitel(entity, entities)}</Text>
+          </View>
+          {/* Ein eigener Knopf zum Wegnehmen statt der ganzen Zeile:
+              Wer ein Gerät eingestellt hat und dann seinen Namen
+              antippt, um nachzusehen, verlor vorher alles daran. */}
+          <Pressable
+            onPress={() => toggle(entity)}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel={`${entity.name} wieder entfernen`}
+            style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+          >
+            <Ionicons name="close-circle" size={22} color={colors.inkFaint} />
+          </Pressable>
+        </View>
+
+        {nurAuswahl ? null : (
+          <>
+            <View style={styles.geraetStrich} />
+            <Unterfrage label="Was soll passieren?">
+              <Choice
+                options={commandOptions(entity, allowToggle)}
+                value={action.command}
+                onSelect={(command) => setCommand(entity.id, command)}
+              />
+            </Unterfrage>
+
+            {action.command === 'clean_rooms' && rooms.length > 0 ? (
+              <Unterfrage label="Welche Zimmer?">
+                <Choice
+                  multi
+                  options={rooms.map((room) => ({
+                    key: String(room.id),
+                    label: room.name,
+                  }))}
+                  values={(action.rooms ?? []).map(String)}
+                  onSelect={(key) => setRooms(entity.id, Number(key))}
+                />
+              </Unterfrage>
+            ) : null}
+
+            {/* Zieltemperatur des Grills. Feste Stufen, weil er ohnehin
+                nur bestimmte Sollwerte annimmt und selbst auf den
+                nächsten rundet. */}
+            {action.command === 'set_temperature' ? (
+              <Unterfrage label="Zieltemperatur">
+                <Choice
+                  options={zieltemperaturen(entity)}
+                  value={String(action.temperature ?? zieltemperaturStandard(entity))}
+                  onSelect={(key) => setField(entity.id, { temperature: Number(key) })}
+                />
+              </Unterfrage>
+            ) : null}
+
+            {action.command === 'set_volume' ? (
+              <Unterfrage label="Wie laut?">
+                <Choice
+                  options={[
+                    { key: '10', label: '10 %' },
+                    { key: '20', label: '20 %' },
+                    { key: '30', label: '30 %' },
+                    { key: '50', label: '50 %' },
+                    { key: '70', label: '70 %' },
+                  ]}
+                  value={String(action.volume ?? 30)}
+                  onSelect={(key) => setField(entity.id, { volume: Number(key) })}
+                />
+              </Unterfrage>
+            ) : null}
+
+            {/* Was «Musik an» spielen soll. Bis hierher hing die
+                Playlist an einem eigenen Chip daneben – wer die Box in
+                die Szene nahm und «Musik an» wählte, sah darunter nichts
+                und suchte sie dort, wo sie nicht war. Ohne Wahl bleibt
+                es beim Weiterspielen. */}
+            {action.command === 'play' && playlistWahl(entity) ? (
+              <>
+                <Unterfrage label="Playlist">
+                  <Choice
+                    options={[
+                      { key: '', label: 'weiterspielen' },
+                      ...playlistsVon(entity).map((name) => ({ key: name, label: name })),
+                    ]}
+                    value={action.playlist ?? ''}
+                    onSelect={(key) => setField(entity.id, { playlist: key })}
                   />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.deviceName}>{entity.name}</Text>
-                    {/* Wofür das Gerät steht. «Flur» allein sagt nicht, ob
-                        das Licht oder der Melder gemeint ist. */}
-                    <Text style={styles.pickKind}>{geraeteUntertitel(entity, entities)}</Text>
-                  </View>
-                </Pressable>
-                {included && !nurAuswahl ? (
-                  <View style={{ gap: 6 }}>
-                    <Choice
-                      options={commandOptions(entity, allowToggle)}
-                      value={action!.command}
-                      onSelect={(command) => setCommand(entity.id, command)}
-                    />
-                    {action!.command === 'clean_rooms' && rooms.length > 0 ? (
-                      <Choice
-                        multi
-                        options={rooms.map((room) => ({
-                          key: String(room.id),
-                          label: room.name,
-                        }))}
-                        values={(action!.rooms ?? []).map(String)}
-                        onSelect={(key) => setRooms(entity.id, Number(key))}
-                      />
-                    ) : null}
-                    {/* Zieltemperatur des Grills. Feste Stufen, weil er
-                        ohnehin nur bestimmte Sollwerte annimmt und selbst
-                        auf den nächsten rundet. */}
-                    {action!.command === 'set_temperature' ? (
-                      <Choice
-                        options={zieltemperaturen(entity)}
-                        value={String(
-                          action!.temperature ?? zieltemperaturStandard(entity)
-                        )}
-                        onSelect={(key) =>
-                          setField(entity.id, { temperature: Number(key) })
-                        }
-                      />
-                    ) : null}
-                    {action!.command === 'set_volume' ? (
-                      <Choice
-                        options={[
-                          { key: '10', label: '10 %' },
-                          { key: '20', label: '20 %' },
-                          { key: '30', label: '30 %' },
-                          { key: '50', label: '50 %' },
-                          { key: '70', label: '70 %' },
-                        ]}
-                        value={String(action!.volume ?? 30)}
-                        onSelect={(key) => setField(entity.id, { volume: Number(key) })}
-                      />
-                    ) : null}
-                    {/* Was «Musik an» spielen soll. Bis hierher hing die
-                        Playlist an einem eigenen Chip daneben – wer die
-                        Box in die Szene nahm und «Musik an» wählte, sah
-                        darunter nichts und suchte sie dort, wo sie nicht
-                        war. Ohne Wahl bleibt es beim Weiterspielen. */}
-                    {action!.command === 'play' && playlistWahl(entity) ? (
-                      <>
-                        {/* Zwischentitel, weil hier drei Fragen
-                            aufeinanderfolgen, die alle gleich aussehen:
-                            dreissig Playlists, dann zwölf Boxen, dann die
-                            Reihenfolge. Ohne Überschrift ist das eine
-                            einzige Chip-Wand, und «Küche» könnte ebenso
-                            gut eine Playlist sein. */}
-                        <Text style={styles.groupLabel}>Playlist</Text>
+                </Unterfrage>
+                {action.playlist ? (
+                  <>
+                    {/* Auf welcher Box. Ohne Angabe spielt sie dort, wo
+                        zuletzt Musik lief – in einer Szene ist das eine
+                        Wette. Schlafende Google-Home-Boxen stehen mit
+                        dabei; der Hub weckt sie. */}
+                    {boxenVon(entity).length > 0 ? (
+                      <Unterfrage label="Auf welcher Box">
                         <Choice
                           options={[
-                            { key: '', label: 'weiterspielen' },
-                            ...playlistsVon(entity).map((name) => ({
-                              key: name,
-                              label: name,
-                            })),
+                            { key: '', label: 'zuletzt benutzte Box' },
+                            ...boxenVon(entity).map((name) => ({ key: name, label: name })),
                           ]}
-                          value={action!.playlist ?? ''}
-                          onSelect={(key) => setField(entity.id, { playlist: key })}
+                          value={action.device ?? ''}
+                          onSelect={(key) => setField(entity.id, { device: key })}
                         />
-                        {action!.playlist ? (
-                          <>
-                            {/* Auf welcher Box. Ohne Angabe spielt sie
-                                dort, wo zuletzt Musik lief – in einer
-                                Szene ist das eine Wette. Schlafende
-                                Google-Home-Boxen stehen mit dabei; der
-                                Hub weckt sie. */}
-                            {boxenVon(entity).length > 0 ? (
-                              <>
-                                <Text style={styles.groupLabel}>Auf welcher Box</Text>
-                                <Choice
-                                  options={[
-                                    { key: '', label: 'zuletzt benutzte Box' },
-                                    ...boxenVon(entity).map((name) => ({
-                                      key: name,
-                                      label: name,
-                                    })),
-                                  ]}
-                                  value={action!.device ?? ''}
-                                  onSelect={(key) => setField(entity.id, { device: key })}
-                                />
-                              </>
-                            ) : null}
-                            {/* «Party» soll nicht jeden Abend mit
-                                demselben Titel anfangen. Ohne Wahl bleibt
-                                die Einstellung des Kontos, wie sie ist –
-                                eine Szene soll sie nicht heimlich
-                                umstellen. */}
-                            {mischenMoeglich(entity) ? (
-                              <>
-                                <Text style={styles.groupLabel}>Reihenfolge</Text>
-                                <Choice
-                                  options={[
-                                    { key: '', label: 'Reihenfolge lassen' },
-                                    { key: 'reihe', label: 'der Reihe nach' },
-                                    { key: 'zufall', label: 'zufällig' },
-                                  ]}
-                                  value={
-                                    action!.shuffle === undefined
-                                      ? ''
-                                      : action!.shuffle
-                                        ? 'zufall'
-                                        : 'reihe'
-                                  }
-                                  onSelect={(key) =>
-                                    setField(entity.id, {
-                                      shuffle: key === '' ? undefined : key === 'zufall',
-                                    })
-                                  }
-                                />
-                              </>
-                            ) : null}
-                          </>
-                        ) : null}
-                      </>
+                      </Unterfrage>
                     ) : null}
-                    {/* Radio: erst der Sender, dann die Box. Ohne Box
-                        spielt er dort, wo zuletzt Radio lief – in einer
-                        Szene «Küche morgens» ist das eine Wette. */}
-                    {action!.command === 'play_radio' ? (
-                      <>
-                        <Text style={styles.groupLabel}>Sender</Text>
+                    {/* «Party» soll nicht jeden Abend mit demselben
+                        Titel anfangen. Ohne Wahl bleibt die Einstellung
+                        des Kontos, wie sie ist – eine Szene soll sie
+                        nicht heimlich umstellen. */}
+                    {mischenMoeglich(entity) ? (
+                      <Unterfrage label="Reihenfolge">
                         <Choice
-                          options={sendersVon(entity).map((name) => ({
-                            key: name,
-                            label: name,
-                          }))}
-                          value={action!.station ?? ''}
-                          onSelect={(key) => setField(entity.id, { station: key })}
-                        />
-                        {boxenVon(entity).length > 0 ? (
-                          <>
-                            <Text style={styles.groupLabel}>Auf welcher Box</Text>
-                            <Choice
-                              options={[
-                                { key: '', label: 'zuletzt benutzte Box' },
-                                ...boxenVon(entity).map((name) => ({
-                                  key: name,
-                                  label: name,
-                                })),
-                              ]}
-                              value={action!.device ?? ''}
-                              onSelect={(key) => setField(entity.id, { device: key })}
-                            />
-                          </>
-                        ) : null}
-                      </>
-                    ) : null}
-                    {action!.command === 'launch_app' ? (
-                      <Choice
-                        options={appsVon(entity).map((eintrag) => ({
-                          key: eintrag.app,
-                          label: eintrag.name,
-                        }))}
-                        value={action!.app ?? ''}
-                        onSelect={(key) => setField(entity.id, { app: key })}
-                      />
-                    ) : null}
-                    {action!.command === 'set_position' ? (
-                      <Choice
-                        options={[
-                          { key: '25', label: '25 %' },
-                          { key: '50', label: '50 %' },
-                          { key: '75', label: '75 %' },
-                        ]}
-                        value={String(action!.position ?? 50)}
-                        onSelect={(key) => setPosition(entity.id, Number(key))}
-                      />
-                    ) : null}
-                    {/* Die Helligkeit: fest unter «ein, gedimmt» - und
-                        beim Umschalten als Zugabe, sofern die Lampe
-                        überhaupt dimmen kann. Dort heisst sie «wenn sie
-                        angeht, dann so», und «Helligkeit lassen» ist die
-                        Vorgabe: Ein Taster, der jedes Mal auf 50 %
-                        zwingt, nimmt einem das Dimmen von Hand weg. */}
-                    {action!.command === 'set_brightness' ||
-                    (action!.command === 'toggle' &&
-                      lichtFein &&
-                      entity.commands.includes('set_brightness')) ? (
-                      <>
-                        <Choice
-                          options={
-                            lichtFein
-                              ? helligkeitsOptionen(
-                                  hatLux || raumHatLux(entities, entity),
-                                  action!.command === 'toggle'
-                                )
-                              : STUFEN
+                          options={[
+                            { key: '', label: 'Reihenfolge lassen' },
+                            { key: 'reihe', label: 'der Reihe nach' },
+                            { key: 'zufall', label: 'zufällig' },
+                          ]}
+                          value={
+                            action.shuffle === undefined
+                              ? ''
+                              : action.shuffle
+                                ? 'zufall'
+                                : 'reihe'
                           }
-                          value={chipWert(
-                            action!,
-                            action!.command === 'toggle' ? '' : '50'
-                          )}
-                          onSelect={(key) => setField(entity.id, chipWahl(key))}
-                        />
-                        {/* Woher die Helligkeit kommt, gehört
-                            dazugeschrieben: «nach Raumhelligkeit» klingt
-                            wie eine Einstellung, ist aber eine Rechnung,
-                            und ohne Messwert eine andere als man denkt. */}
-                        {action!.adaptive ? (
-                          <Text style={styles.snapshotHint}>
-                            Der Hub nimmt beim Auslösen die gemessene Helligkeit
-                            {(luxSensors ?? []).length > 0
-                              ? ` von ${(luxSensors ?? []).map((m) => m.name).join(', ')}`
-                              : ' aus dem Raum der Lampe'}{' '}
-                            und rechnet daraus: stockdunkel gedämpft, am trüben
-                            Nachmittag voll. Kein Messwert heisst «an ohne
-                            Vorgabe» – dunkel bleibt die Lampe nie.
-                          </Text>
-                        ) : null}
-                        {action!.nachTageszeit ? (
-                          <Text style={styles.snapshotHint}>
-                            Der Hub nimmt die Uhrzeit: nachts gedämpft, tagsüber
-                            voll, morgens und abends dazwischen. Braucht keinen
-                            Helligkeitsfühler – dafür ist ein Gewitternachmittag
-                            für sie so hell wie ein Julitag.
-                          </Text>
-                        ) : null}
-                        {sceneTransition > 0 ? (
-                          // Beim Lichtwecker kommt die Decke über zwanzig
-                          // Minuten – die Nachttischlampe soll trotzdem
-                          // sofort an.
-                          <Choice
-                            options={[
-                              { key: 'szene', label: 'mit Übergang' },
-                              { key: 'sofort', label: 'sofort' },
-                            ]}
-                            value={action!.transition === 0 ? 'sofort' : 'szene'}
-                            onSelect={(key) =>
-                              onActions(
-                                actions.map((entry) =>
-                                  entry.entity_id === entity.id
-                                    ? {
-                                        ...entry,
-                                        transition: key === 'sofort' ? 0 : undefined,
-                                      }
-                                    : entry
-                                )
-                              )
-                            }
-                          />
-                        ) : null}
-                      </>
-                    ) : null}
-                    {/* Farbe und Weissanteil, wenn die Lampe es kann und
-                        wir in einem Ablauf sind: «wenn sich die Lampe
-                        einschaltet, dann bitte so». */}
-                    {lichtFein && istAnschalten(action!.command) &&
-                    entity.commands.includes('set_color') ? (
-                      <View style={styles.farbReihe}>
-                        <Pressable
-                          onPress={() => setField(entity.id, { color: undefined })}
-                          accessibilityRole="radio"
-                          accessibilityState={{ selected: !action!.color }}
-                          accessibilityLabel="Farbe unverändert lassen"
-                          style={[
-                            styles.farbPunkt,
-                            styles.farbLeer,
-                            !action!.color && { borderColor: colors.ink, borderWidth: 2 },
-                          ]}
-                        >
-                          <Ionicons name="close" size={13} color={colors.inkFaint} />
-                        </Pressable>
-                        {PALETTE.map((farbe) => (
-                          <Pressable
-                            key={farbe.hex}
-                            onPress={() =>
-                              setField(entity.id, {
-                                color: farbe.hex,
-                                // Farbe und Weissanteil schliessen sich aus:
-                                // Die Lampe leuchtet in einem von beidem.
-                                colorTemp: undefined,
-                              })
-                            }
-                            accessibilityRole="radio"
-                            accessibilityState={{ selected: action!.color === farbe.hex }}
-                            accessibilityLabel={farbe.name}
-                            style={[
-                              styles.farbPunkt,
-                              { backgroundColor: farbe.hex },
-                              action!.color === farbe.hex && {
-                                borderColor: colors.ink,
-                                borderWidth: 2,
-                              },
-                            ]}
-                          />
-                        ))}
-                      </View>
-                    ) : null}
-                    {/* Und wie lange sie an bleibt. Vorher brauchte das
-                        drei Schritte – an, warten, aus –, und der
-                        Warte-Schritt hielt den ganzen Ablauf auf. */}
-                    {lichtFein && istAnschalten(action!.command) ? (
-                      <>
-                        <Text style={styles.groupLabel}>Wie lange an?</Text>
-                        <NachlaufWahl
-                          value={action!.offAfter ? String(action!.offAfter) : ''}
-                          onChange={(seconds) =>
+                          onSelect={(key) =>
                             setField(entity.id, {
-                              offAfter: seconds ? Number(seconds) : undefined,
+                              shuffle: key === '' ? undefined : key === 'zufall',
                             })
                           }
                         />
-                      </>
+                      </Unterfrage>
                     ) : null}
-                    {lichtFein && istAnschalten(action!.command) &&
-                    entity.commands.includes('set_color_temp') ? (
-                      <Choice
-                        options={[
-                          { key: '', label: 'Weiss unverändert' },
-                          ...WEISSTOENE.map((ton) => ({
-                            key: String(ton.mirek),
-                            label: ton.label,
-                          })),
-                        ]}
-                        value={action!.color ? '' : String(action!.colorTemp ?? '')}
-                        onSelect={(key) =>
-                          setField(entity.id, {
-                            colorTemp: key ? Number(key) : undefined,
-                            color: key ? undefined : action!.color,
-                          })
-                        }
-                      />
-                    ) : null}
-                  </View>
+                  </>
                 ) : null}
-              </View>
+              </>
+            ) : null}
+
+            {/* Radio: erst der Sender, dann die Box. Ohne Box spielt er
+                dort, wo zuletzt Radio lief – in einer Szene «Küche
+                morgens» ist das eine Wette. */}
+            {action.command === 'play_radio' ? (
+              <>
+                <Unterfrage label="Sender">
+                  <Choice
+                    options={sendersVon(entity).map((name) => ({ key: name, label: name }))}
+                    value={action.station ?? ''}
+                    onSelect={(key) => setField(entity.id, { station: key })}
+                  />
+                </Unterfrage>
+                {boxenVon(entity).length > 0 ? (
+                  <Unterfrage label="Auf welcher Box">
+                    <Choice
+                      options={[
+                        { key: '', label: 'zuletzt benutzte Box' },
+                        ...boxenVon(entity).map((name) => ({ key: name, label: name })),
+                      ]}
+                      value={action.device ?? ''}
+                      onSelect={(key) => setField(entity.id, { device: key })}
+                    />
+                  </Unterfrage>
+                ) : null}
+              </>
+            ) : null}
+
+            {action.command === 'launch_app' ? (
+              <Unterfrage label="Welche App?">
+                <Choice
+                  options={appsVon(entity).map((eintrag) => ({
+                    key: eintrag.app,
+                    label: eintrag.name,
+                  }))}
+                  value={action.app ?? ''}
+                  onSelect={(key) => setField(entity.id, { app: key })}
+                />
+              </Unterfrage>
+            ) : null}
+
+            {action.command === 'set_position' ? (
+              <Unterfrage label="Wie weit?">
+                <Choice
+                  options={[
+                    { key: '25', label: '25 %' },
+                    { key: '50', label: '50 %' },
+                    { key: '75', label: '75 %' },
+                  ]}
+                  value={String(action.position ?? 50)}
+                  onSelect={(key) => setPosition(entity.id, Number(key))}
+                />
+              </Unterfrage>
+            ) : null}
+
+            {/* Die Helligkeit: fest unter «ein, gedimmt» - und beim
+                Umschalten als Zugabe, sofern die Lampe überhaupt dimmen
+                kann. Dort heisst sie «wenn sie angeht, dann so», und
+                «Helligkeit lassen» ist die Vorgabe: Ein Taster, der
+                jedes Mal auf 50 % zwingt, nimmt einem das Dimmen von
+                Hand weg. */}
+            {dimmbar ? (
+              <>
+                <Unterfrage label="Helligkeit">
+                  <Choice
+                    options={
+                      lichtFein
+                        ? helligkeitsStufen(action.command === 'toggle')
+                        : STUFEN
+                    }
+                    // Läuft eine Quelle, ist hier *nichts* gewählt -
+                    // `undefined` und nicht `''`: Der leere Schlüssel ist
+                    // «Helligkeit lassen» und stünde sonst markiert da.
+                    value={
+                      quelle === 'zahl'
+                        ? chipWert(action, action.command === 'toggle' ? '' : '50')
+                        : undefined
+                    }
+                    onSelect={(key) => setField(entity.id, chipWahl(key))}
+                  />
+                </Unterfrage>
+                {/* Die beiden Quellen als eigene Frage. In derselben
+                    Reihe wie die Prozentzahlen sahen sie aus wie ein
+                    sechster Prozentwert - «nach Tageszeit» stand allein
+                    in der zweiten Zeile und gehörte scheinbar nicht
+                    dazu. Ein zweiter Druck auf die gewählte Quelle geht
+                    zurück auf die feste Zahl. */}
+                {lichtFein ? (
+                  <Unterfrage label="Oder rechnen lassen">
+                    <Choice
+                      options={helligkeitsQuellen(hatLux || raumHatLux(entities, entity))}
+                      value={quelle === 'zahl' ? undefined : chipWert(action)}
+                      onSelect={(key) =>
+                        setField(
+                          entity.id,
+                          chipWahl(
+                            key === chipWert(action)
+                              ? action.command === 'toggle'
+                                ? UNVERAENDERT
+                                : '50'
+                              : key
+                          )
+                        )
+                      }
+                    />
+                  </Unterfrage>
+                ) : null}
+                {/* Woher die Helligkeit kommt, gehört dazugeschrieben:
+                    «nach Raumhelligkeit» klingt wie eine Einstellung,
+                    ist aber eine Rechnung, und ohne Messwert eine
+                    andere als man denkt. */}
+                {action.adaptive ? (
+                  <Text style={styles.snapshotHint}>
+                    Der Hub nimmt beim Auslösen die gemessene Helligkeit
+                    {(luxSensors ?? []).length > 0
+                      ? ` von ${(luxSensors ?? []).map((m) => m.name).join(', ')}`
+                      : ' aus dem Raum der Lampe'}{' '}
+                    und rechnet daraus: stockdunkel gedämpft, am trüben Nachmittag
+                    voll. Kein Messwert heisst «an ohne Vorgabe» – dunkel bleibt
+                    die Lampe nie.
+                  </Text>
+                ) : null}
+                {action.nachTageszeit ? (
+                  <Text style={styles.snapshotHint}>
+                    Der Hub nimmt die Uhrzeit: nachts gedämpft, tagsüber voll,
+                    morgens und abends dazwischen. Braucht keinen
+                    Helligkeitsfühler – dafür ist ein Gewitternachmittag für sie
+                    so hell wie ein Julitag.
+                  </Text>
+                ) : null}
+                {sceneTransition > 0 ? (
+                  // Beim Lichtwecker kommt die Decke über zwanzig
+                  // Minuten – die Nachttischlampe soll trotzdem sofort
+                  // an.
+                  <Unterfrage label="Übergang">
+                    <Choice
+                      options={[
+                        { key: 'szene', label: 'mit Übergang' },
+                        { key: 'sofort', label: 'sofort' },
+                      ]}
+                      value={action.transition === 0 ? 'sofort' : 'szene'}
+                      onSelect={(key) =>
+                        setField(entity.id, {
+                          transition: key === 'sofort' ? 0 : undefined,
+                        })
+                      }
+                    />
+                  </Unterfrage>
+                ) : null}
+              </>
+            ) : null}
+
+            {/* Farbe und Weissanteil, wenn die Lampe es kann und wir in
+                einem Ablauf sind: «wenn sich die Lampe einschaltet, dann
+                bitte so». */}
+            {lichtFein &&
+            istAnschalten(action.command) &&
+            entity.commands.includes('set_color') ? (
+              <Unterfrage label="Lichtfarbe">
+                <View style={styles.farbReihe}>
+                  <Pressable
+                    onPress={() => setField(entity.id, { color: undefined })}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: !action.color }}
+                    accessibilityLabel="Farbe unverändert lassen"
+                    style={[
+                      styles.farbPunkt,
+                      styles.farbLeer,
+                      !action.color && { borderColor: colors.ink, borderWidth: 2 },
+                    ]}
+                  >
+                    <Ionicons name="close" size={13} color={colors.inkFaint} />
+                  </Pressable>
+                  {PALETTE.map((farbe) => (
+                    <Pressable
+                      key={farbe.hex}
+                      onPress={() =>
+                        setField(entity.id, {
+                          color: farbe.hex,
+                          // Farbe und Weissanteil schliessen sich aus:
+                          // Die Lampe leuchtet in einem von beidem.
+                          colorTemp: undefined,
+                        })
+                      }
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: action.color === farbe.hex }}
+                      accessibilityLabel={farbe.name}
+                      style={[
+                        styles.farbPunkt,
+                        { backgroundColor: farbe.hex },
+                        action.color === farbe.hex && {
+                          borderColor: colors.ink,
+                          borderWidth: 2,
+                        },
+                      ]}
+                    />
+                  ))}
+                </View>
+              </Unterfrage>
+            ) : null}
+
+            {lichtFein &&
+            istAnschalten(action.command) &&
+            entity.commands.includes('set_color_temp') ? (
+              <Unterfrage label="Weisston">
+                <Choice
+                  options={[
+                    { key: '', label: 'Weiss unverändert' },
+                    ...WEISSTOENE.map((ton) => ({
+                      key: String(ton.mirek),
+                      label: ton.label,
+                    })),
+                  ]}
+                  value={action.color ? '' : String(action.colorTemp ?? '')}
+                  onSelect={(key) =>
+                    setField(entity.id, {
+                      colorTemp: key ? Number(key) : undefined,
+                      color: key ? undefined : action.color,
+                    })
+                  }
+                />
+              </Unterfrage>
+            ) : null}
+
+            {/* Und wie lange sie an bleibt. Vorher brauchte das drei
+                Schritte – an, warten, aus –, und der Warte-Schritt hielt
+                den ganzen Ablauf auf. */}
+            {lichtFein && istAnschalten(action.command) ? (
+              <Unterfrage label="Wie lange an?">
+                <NachlaufWahl
+                  value={action.offAfter ? String(action.offAfter) : ''}
+                  onChange={(seconds) =>
+                    setField(entity.id, {
+                      offAfter: seconds ? Number(seconds) : undefined,
+                    })
+                  }
+                />
+              </Unterfrage>
+            ) : null}
+          </>
+        )}
+      </View>
     );
   }
 }

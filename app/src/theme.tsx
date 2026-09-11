@@ -43,7 +43,17 @@ export const lightColors = {
   on: '#34C759',
   onSoft: 'rgba(52, 199, 89, 0.16)',
   off: 'rgba(35, 40, 51, 0.14)',
+  // Der Akzent als *Fläche* - ein Hauch davon, nicht die Farbe selbst.
+  //
+  // Wie `onSoft` und `dangerSoft` daneben: Eine ganze Karte in
+  // Akzentfarbe schreit, ein Hauch zeigt hin. Gebraucht dort, wo etwas
+  // «gehört zusammen und ist deine Wahl» sagen soll, ohne zum Knopf zu
+  // werden - im Ablauf-Editor trägt jedes gewählte Gerät seine
+  // Einstellungen auf so einer Fläche. Sie ist so blass, dass darauf
+  // weiter `ink` steht und nicht der Akzent: zwei Akzenttöne
+  // übereinander wären weder lesbar noch gemeint.
   accent: '#2F6BF6',
+  accentSoft: 'rgba(47, 107, 246, 0.10)',
   warn: '#F5A524',
   // Dieselbe Warnung als *Schrift* (Punkt 442/444 der Werkbank).
   //
@@ -93,6 +103,7 @@ export const darkColors: Colors = {
   onSoft: 'rgba(61, 220, 132, 0.18)',
   off: 'rgba(255, 255, 255, 0.16)',
   accent: '#6E9BFF',
+  accentSoft: 'rgba(110, 155, 255, 0.14)',
   warn: '#FFC061',
   // Siehe warnInk im hellen Erscheinungsbild - dort steht, warum.
   warnInk: '#FFC061',
@@ -162,6 +173,7 @@ export const pinkColors: Colors = {
   // Neonpink: Farbton 328 Grad, Sattheit 96 Prozent, volle Helligkeit.
   // Nicht 300 Grad – das wäre Magenta und damit wieder Violett.
   accent: '#FF0A8C',
+  accentSoft: 'rgba(255, 10, 140, 0.13)',
   warn: '#FFC061',
   // Siehe warnInk im hellen Erscheinungsbild - dort steht, warum.
   warnInk: '#FFC061',
@@ -207,6 +219,7 @@ export const mitternachtColors: Colors = {
   onSoft: 'rgba(61, 220, 132, 0.18)',
   off: 'rgba(226, 229, 255, 0.16)',
   accent: '#8F92FF',
+  accentSoft: 'rgba(143, 146, 255, 0.14)',
   warn: '#FFC061',
   // Siehe warnInk im hellen Erscheinungsbild - dort steht, warum.
   warnInk: '#FFC061',
@@ -252,6 +265,7 @@ export const sandColors: Colors = {
   onSoft: 'rgba(52, 199, 89, 0.16)',
   off: 'rgba(51, 41, 28, 0.14)',
   accent: '#A94E26',
+  accentSoft: 'rgba(169, 78, 38, 0.11)',
   warn: '#DF8A00',
   // Siehe warnInk im hellen Erscheinungsbild - dort steht, warum.
   warnInk: '#6B3E00',
