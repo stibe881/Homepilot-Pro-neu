@@ -59,11 +59,16 @@ hört man das ganze Zigbee-Netz mit.
 2. `deploy/zigbee2mqtt.example.yaml` nach
    `hub/zigbee2mqtt/configuration.yaml` kopieren, die Adresse eintragen,
    den Ordner `chown -R 1000:1000` geben.
-3. Stack ausrollen. Die Weboberfläche von Zigbee2MQTT steht danach auf
+3. Dem Broker seinen Datenordner anlegen: `hub/mosquitto/data`, und zwar
+   `chown -R 1883:1883` - im Abbild läuft Mosquitto als Benutzer
+   `mosquitto` (1883), nicht als 1000 wie der Hub. Im Portainer-Stack
+   liegen beide Ordner unter `/opt/homepilot`, und dort gehört auch die
+   `mosquitto.conf` selbst hin: [`deploy/portainer.md`](../deploy/portainer.md).
+4. Stack ausrollen. Die Weboberfläche von Zigbee2MQTT steht danach auf
    Port **8099**.
-4. Dort «Permit join» für ein paar Minuten öffnen und die Geräte
+5. Dort «Permit join» für ein paar Minuten öffnen und die Geräte
    anlernen - und **gleich benennen**, siehe unten.
-5. Im Hub die Integration eintragen (nächster Abschnitt) und neu starten.
+6. Im Hub die Integration eintragen (nächster Abschnitt) und neu starten.
 
 ## Was der Hub braucht
 

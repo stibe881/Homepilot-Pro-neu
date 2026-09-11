@@ -229,8 +229,16 @@ services:
     # WLAN unerreichbar (deploy/mosquitto.conf).
     network_mode: host
     volumes:
+      # Hier darf es der Repo-Ordner sein: Diese Datei ruft man von Hand
+      # aus dem Klon auf, und dann ist `./` genau dieser Ordner. In der
+      # Portainer-Fassung steht stattdessen /opt/homepilot - dort liegt
+      # der Klon woanders, und ein fehlender Pfad wird zum Verzeichnis.
       - ./deploy/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-      - ./hub/mosquitto:/mosquitto/data
+      # 1883 und nicht 1000: Im Abbild läuft der Broker als Benutzer
+      # `mosquitto`, und ohne Schreibrecht hier startet er nicht.
+      #   sudo mkdir -p hub/mosquitto/data
+      #   sudo chown -R 1883:1883 hub/mosquitto
+      - ./hub/mosquitto/data:/mosquitto/data
 
   zigbee2mqtt:
     image: ghcr.io/koenkk/zigbee2mqtt:latest

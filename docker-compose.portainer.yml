@@ -249,8 +249,22 @@ services:
     # WLAN unerreichbar (deploy/mosquitto.conf).
     network_mode: host
     volumes:
-      - ./deploy/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-      - /opt/homepilot/mosquitto:/mosquitto/data
+      # Aus /opt/homepilot und **nicht** aus dem Klon (`./deploy/...`) -
+      # siehe den Kopf dieser Datei. Der Klon liegt bei einem
+      # Repository-Stack dort, wo Portainer ihn hinlegt
+      # (/data/compose/<n>), und was dort fehlt, legt Docker wortlos als
+      # leeres *Verzeichnis* an. Das Abbild bringt an dieser Stelle aber
+      # eine Datei mit, und dann bricht der ganze Stack ab mit «Are you
+      # trying to mount a directory onto a file».
+      #
+      # Einmalig auf dem Host (Inhalt: deploy/mosquitto.conf):
+      #   sudo mkdir -p /opt/homepilot/mosquitto/data
+      #   sudo nano /opt/homepilot/mosquitto/mosquitto.conf
+      #   sudo chown -R 1883:1883 /opt/homepilot/mosquitto
+      - /opt/homepilot/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      # 1883 und nicht 1000: Im Abbild läuft der Broker als Benutzer
+      # `mosquitto`, und ohne Schreibrecht hier startet er nicht.
+      - /opt/homepilot/mosquitto/data:/mosquitto/data
 
   zigbee2mqtt:
     image: ghcr.io/koenkk/zigbee2mqtt:latest

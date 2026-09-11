@@ -4366,4 +4366,27 @@ einem Docker-Volume - wie bei Matter, aus demselben Grund: Er wandert
 mit ins Backup, ein Volume übersieht man. Und ohne ihn muss jedes
 Zigbee-Gerät neu angelernt werden.
 
-Stellen: `docker-compose.yml`, `docker-compose.portainer.yml`, `deploy/mosquitto.conf`, `deploy/zigbee2mqtt.example.yaml`, `deploy/portainer.md`, `docs/zigbee.md`, `docs/integrationen.md`, `hub/config.example.yaml`, `.gitignore`
+**Nachtrag - der Stack startete zuerst gar nicht.** Portainer meldete:
+«Are you trying to mount a directory onto a file (or vice-versa)?» für
+`/data/compose/61/deploy/mosquitto.conf`. In der Portainer-Fassung stand
+für die Broker-Konfiguration ein Repo-Pfad (`./deploy/mosquitto.conf`),
+obwohl im Kopf genau dieser Datei steht, dass dort alles aus
+`/opt/homepilot` kommt. Von Hand stimmt der Pfad - man ruft Compose ja
+im Klon auf; ein Repository-Stack klont sich aber dorthin, wo Portainer
+ihn hinlegt. Was Docker dort nicht findet, legt es wortlos als leeres
+*Verzeichnis* an, und darüber lässt sich die Datei aus dem Abbild nicht
+legen. Nicht nur der Broker fiel damit aus, sondern der ganze Stack.
+
+Der Fehler war von Auge nicht zu sehen: `compose_abgleich.py` vergleicht
+bewusst nur die Volume-*Ziele*, weil sich die Quellen je Aufstellung
+unterscheiden dürfen. Was es nicht prüfte, war die Regel darüber - in
+der Portainer-Fassung darf die Quelle eben *nicht* aus dem Klon kommen.
+Das hält jetzt `hub/tests/test_compose_pfade.py` fest (und wird rot mit
+dem alten Pfad).
+
+Dazu die zweite Überraschung: Der Broker läuft im Abbild als Benutzer
+`mosquitto`, **1883** und nicht 1000 wie der Hub. Gehört ihm sein
+Datenordner nicht, startet er nicht - in `deploy/portainer.md` steht
+beides jetzt getrennt.
+
+Stellen: `docker-compose.yml`, `docker-compose.portainer.yml`, `deploy/mosquitto.conf`, `deploy/zigbee2mqtt.example.yaml`, `deploy/portainer.md`, `docs/zigbee.md`, `docs/integrationen.md`, `hub/config.example.yaml`, `hub/tests/test_compose_pfade.py`, `.gitignore`
