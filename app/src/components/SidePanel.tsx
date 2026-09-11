@@ -44,6 +44,7 @@ export function SidePanel({
   entities,
   width,
   room,
+  roomList,
   onCommand,
 }: {
   entities: Entity[];
@@ -51,6 +52,9 @@ export function SidePanel({
   /** Offener Raum – dann bleibt die Spalte ganz weg: Seine Musik steht
    *  im Raumkopf, Wetter und Hausmusik gehören dort nicht hin. */
   room?: string | null;
+  /** Die Raumliste – dort bleibt sie aus demselben Grund weg
+   *  (lib/seitenspalte.ts). */
+  roomList?: boolean;
   /** Für den Player – ohne ihn bleibt er weg statt tot dazustehen. */
   onCommand?: (entityId: string, command: string, data?: CommandData) => void;
 }) {
@@ -91,6 +95,7 @@ export function SidePanel({
   // einmal im Browser auf iPad-Grösse gemessen wurde.
   const zeigt = panelContent({
     inRoom: !!room,
+    roomList: !!roomList,
     weather: !!weather,
     housePlayer: !!player && !!onCommand,
   });

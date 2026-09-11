@@ -5,6 +5,7 @@ import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-na
 import { HubSettings } from '../api/types';
 import { Abschnitt } from '../components/Abschnitt';
 import { Card } from '../components/Card';
+import { Schalterzeile } from '../components/Schalterzeile';
 import { useOrtung } from '../hooks/useOrtung';
 import { ConnectionStatus } from '../hooks/useHub';
 import { DICHTEN, type Dichte, lesen as dichteLesen } from '../lib/dichte';
@@ -17,6 +18,7 @@ import { SYMBOLE, Symbolwahl, gueltig } from '../lib/appsymbol';
 import { kannWechseln, symbolWechseln } from '../lib/symbolwechsel';
 import { applySetup, QrScanner } from '../components/QrScanner';
 import { Colors, radius, ThemeMode, type, useColors } from '../theme';
+import { themenprobe } from '../lib/themenprobe';
 
 /** „Automatisch" schaltet ab 20 Uhr auf dunkel – die App wird abends im
     Bett geöffnet, nicht nur tagsüber. */
@@ -62,6 +64,19 @@ interface Props {
   weiteres?: React.ReactNode;
   /** Wer die eigene Ortung sieht – für die Zeile im Profil (Punkt 197). */
   familie?: string[];
+  /**
+   * Die beiden Reihenfolge-Schalter der Kachel-Karte.
+   *
+   * Sie standen auf der Räume-Seite selbst, als zwei breite Zeilen
+   * über den Raumkacheln - dort, wo man ein Zimmer sucht und nichts
+   * einstellt. Werte und Rückrufe kommen von aussen, weil sie im
+   * Gerätespeicher der Person liegen (hooks/usePrefs.ts) und nicht in
+   * den Hub-Einstellungen, die dieser Bildschirm hält. Ohne Rückruf
+   * (Ersteinrichtung, Anmeldebildschirm) bleiben die Zeilen weg. */
+  tageszeit?: boolean;
+  onTageszeit?: (an: boolean) => void;
+  raumNutzung?: boolean;
+  onRaumNutzung?: (an: boolean) => void;
   /** Woran die App gerade ist – für die Ampel in der Hub-Karte. Ohne
    *  Angabe «verbunden»: Wer diese Seite sieht, hat den Hub erreicht. */
   stand?: ConnectionStatus;
@@ -76,6 +91,10 @@ export function SettingsScreen({
   onRenamed,
   user,
   familie = [],
+  tageszeit,
+  onTageszeit,
+  raumNutzung,
+  onRaumNutzung,
   stand = 'connected',
   sicherheit,
   geraet,
@@ -449,73 +468,59 @@ export function SettingsScreen({
       </Card>
     ) : null;
 
-  const aussehen = (
+  // Aus einer Karte wurden drei. Vorher stand hier alles untereinander
+  // in einem Block «Erscheinungsbild»: Farbe, Kachelgrösse, App-Symbol,
+  // Grundriss, Wandpanel, Kindermodus - sechs Dinge, die miteinander
+  // nichts zu tun haben, unter einer Überschrift, die nur auf das erste
+  // passte. Wer den Wandpanel-Modus suchte, scrollte an drei
+  // Chipreihen vorbei und fand ihn dort, wo er ihn nicht vermutete.
+  //
+  // Jetzt beantwortet jede Karte eine Frage: wie es aussieht, wie die
+  // Kacheln stehen, und was dieses Gerät ist, wenn es fest an der Wand
+  // hängt.
+  const erscheinungsbild = (
     <Card style={styles.card}>
       <Text style={styles.title}>Erscheinungsbild</Text>
       <View style={styles.field}>
         <View style={styles.modes}>
-          {MODES.map((option) => (
-            <Pressable
-              key={option.key}
-              onPress={() => themaWaehlen(option.key)}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: theme === option.key }}
-              style={({ pressed }) => [
-                styles.mode,
-                theme === option.key && styles.modeActive,
-                pressed && { opacity: 0.7 },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.modeText,
-                  theme === option.key && styles.modeTextActive,
+          {MODES.map((option) => {
+            const [oben, unten] = themenprobe(option.key);
+            return (
+              <Pressable
+                key={option.key}
+                onPress={() => themaWaehlen(option.key)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: theme === option.key }}
+                style={({ pressed }) => [
+                  styles.mode,
+                  styles.modeMitProbe,
+                  theme === option.key && styles.modeActive,
+                  pressed && { opacity: 0.7 },
                 ]}
               >
-                {option.label}
-              </Text>
-            </Pressable>
-          ))}
+                {/* Der Farbfleck sagt vor dem Antippen, was passiert -
+                    «Sand» und «Mitternacht» erfuhr man sonst nur durchs
+                    Ausprobieren (lib/themenprobe.ts). */}
+                <View style={styles.probe}>
+                  <View style={[styles.probeHaelfte, { backgroundColor: oben }]} />
+                  <View style={[styles.probeHaelfte, { backgroundColor: unten }]} />
+                </View>
+                <Text
+                  style={[
+                    styles.modeText,
+                    theme === option.key && styles.modeTextActive,
+                  ]}
+                >
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
         <Text style={styles.modeHint}>
           «Nach Sonnenstand» wird bei Sonnenuntergang dunkel und bei
           Sonnenaufgang wieder hell, «System» folgt der Geräteeinstellung.
           Wirkt sofort.
-        </Text>
-      </View>
-
-      {/* Wie eng die Kacheln stehen. Hier und nicht bei den persönlichen
-          Einstellungen: Es ist eine Eigenschaft dieses Geräts, wie der
-          Grundriss darunter - das Wandpanel im Flur liest man aus zwei
-          Metern, das iPad auf dem Sofa aus dreissig Zentimetern, und
-          beide gehören derselben Person. */}
-      <View style={styles.field}>
-        <Text style={styles.label}>Kacheln</Text>
-        <View style={styles.modes}>
-          {DICHTEN.map((stufe) => (
-            <Pressable
-              key={stufe.key}
-              onPress={() => dichteWaehlen(stufe.key)}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: dichte === stufe.key }}
-              style={({ pressed }) => [
-                styles.mode,
-                dichte === stufe.key && styles.modeActive,
-                pressed && { opacity: 0.7 },
-              ]}
-            >
-              <Text
-                style={[styles.modeText, dichte === stufe.key && styles.modeTextActive]}
-              >
-                {stufe.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-        <Text style={styles.modeHint}>
-          {DICHTEN.find((stufe) => stufe.key === dichte)?.hinweis}
-          {' '}Nur die Anzahl nebeneinander ändert sich – Schrift und Namen
-          bleiben, wie sie sind.
         </Text>
       </View>
 
@@ -573,55 +578,113 @@ export function SettingsScreen({
         </Text>
       </View>
 
-      {/* Beim App-Symbol, wie gewünscht: Beides sind Ansichts-Fragen
-          dieses einen Geräts. Der Schalter wirkt sofort - die Ansicht
-          selbst (Bild hinterlegen, Geräte platzieren) wohnt auf der
-          Räume-Seite, wo man sie sieht. */}
-      <Pressable
-        onPress={() => grundrissWaehlen(!grundriss)}
-        accessibilityRole="switch"
-        accessibilityState={{ checked: grundriss }}
-        style={({ pressed }) => [styles.panelRow, pressed && { opacity: 0.7 }]}
-      >
-        <View style={{ flex: 1 }}>
-          <Text style={styles.label}>Grundriss-Ansicht</Text>
-          <Text style={styles.panelHint}>
-            Die Räume-Seite zeigt zuoberst den Wohnungsplan mit den
-            Geräten als Punkten - antippen schaltet. Gedacht fürs
-            Wandpanel; Bild und Punkte richtet man direkt dort ein.
-            Wirkt sofort, nur auf diesem Gerät.
-          </Text>
-        </View>
-        <View style={[styles.switch, grundriss && styles.switchOn]}>
-          <View style={[styles.knob, grundriss && styles.knobOn]} />
-        </View>
-      </Pressable>
+      {/* Nicht doppelt: Für Personen steht das Feld im Profil - hier
+          bleibt es fürs Panel (Anrede) und für die Ersteinrichtung. */}
+      {darfUmbenennen ? null : nameFeld}
+    </Card>
+  );
 
-      {/* Beim Erscheinungsbild und nicht bei der Verbindung: Der Modus
-          ändert, wie die App aussieht und sich verhält - nicht, womit
-          sie spricht. */}
-      <Pressable
-        onPress={() => setPanel((value) => !value)}
-        accessibilityRole="switch"
-        accessibilityState={{ checked: panel }}
-        style={({ pressed }) => [styles.panelRow, pressed && { opacity: 0.7 }]}
-      >
-        <View style={{ flex: 1 }}>
-          <Text style={styles.label}>Wandpanel-Modus</Text>
-          <Text style={styles.panelHint}>
-            Bildschirm bleibt an, Ansicht kehrt nach drei Minuten zur Startseite
-            zurück, und nach Sonnenuntergang wird es dunkler – für ein fest
-            montiertes iPad. Eine Berührung macht es sofort wieder hell.
-            Und wenn es klingelt, geht hier das Kamerabild mit den
-            Türknöpfen auf – nur hier: Auf einem Telefon in der Tasche
-            wäre dasselbe Vollbild eine Störung, dort tut es die
-            Nachricht.
-          </Text>
+  // Wie die Kacheln stehen: wie viele nebeneinander, und in welcher
+  // Reihenfolge. Die beiden Reihenfolge-Schalter standen bis vor
+  // Kurzem auf der Räume-Seite selbst, als zwei breite Zeilen über den
+  // Raumkacheln - dort, wo man die Räume sucht und nicht einstellt.
+  // Sie gehören zu diesem Gerät wie die Kachelgrösse darüber.
+  const kachelKarte = (
+    <Card style={styles.card}>
+      <Text style={styles.title}>Kacheln</Text>
+      {/* Wie eng die Kacheln stehen. Hier und nicht bei den persönlichen
+          Einstellungen: Es ist eine Eigenschaft dieses Geräts, wie der
+          Grundriss darunter - das Wandpanel im Flur liest man aus zwei
+          Metern, das iPad auf dem Sofa aus dreissig Zentimetern, und
+          beide gehören derselben Person. */}
+      <View style={styles.field}>
+        {/* «Grösse» und nicht noch einmal «Kacheln»: Die Karte heisst
+            schon so, und dasselbe Wort zweimal untereinander liest
+            sich wie ein Fehler. */}
+        <Text style={styles.label}>Grösse</Text>
+        <View style={styles.modes}>
+          {DICHTEN.map((stufe) => (
+            <Pressable
+              key={stufe.key}
+              onPress={() => dichteWaehlen(stufe.key)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: dichte === stufe.key }}
+              style={({ pressed }) => [
+                styles.mode,
+                dichte === stufe.key && styles.modeActive,
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              <Text
+                style={[styles.modeText, dichte === stufe.key && styles.modeTextActive]}
+              >
+                {stufe.label}
+              </Text>
+            </Pressable>
+          ))}
         </View>
-        <View style={[styles.switch, panel && styles.switchOn]}>
-          <View style={[styles.knob, panel && styles.knobOn]} />
-        </View>
-      </Pressable>
+        <Text style={styles.modeHint}>
+          {DICHTEN.find((stufe) => stufe.key === dichte)?.hinweis}
+          {' '}Nur die Anzahl nebeneinander ändert sich – Schrift und Namen
+          bleiben, wie sie sind.
+        </Text>
+      </View>
+
+      {onTageszeit ? (
+        <Schalterzeile
+          titel="Nach Tageszeit sortieren"
+          symbol="sunny-outline"
+          an={!!tageszeit}
+          onChange={onTageszeit}
+          hinweis={
+            tageszeit
+              ? 'Morgens Storen, abends Licht - die Reihenfolge wandert mit dem Tag. Was du um diese Zeit oft anfasst, steht vorn. Gilt nur für dich.'
+              : 'Immer dieselbe Reihenfolge, egal wie spät es ist.'
+          }
+        />
+      ) : null}
+      {onRaumNutzung ? (
+        <Schalterzeile
+          titel="Meistbenutzte Räume zuerst"
+          symbol="trending-up-outline"
+          an={!!raumNutzung}
+          onChange={onRaumNutzung}
+          hinweis={
+            raumNutzung
+              ? 'Was du auf diesem Gerät oft bedienst, steht oben. Ältere Bedienungen verblassen.'
+              : 'Die Reihenfolge aus der Einrichtung - egal, was du oft anfasst.'
+          }
+        />
+      ) : null}
+    </Card>
+  );
+
+  // Alles, was ein fest montiertes Tablet betrifft - und sonst
+  // niemanden. Auf dem Telefon steht die Karte trotzdem: Wer ein altes
+  // iPad an die Wand hängt, richtet es von dort aus ein.
+  const panelKarte = (
+    <Card style={styles.card}>
+      <Text style={styles.title}>Fest montiert</Text>
+      {/* Der Schalter wirkt sofort - die Ansicht selbst (Bild
+          hinterlegen, Geräte platzieren) wohnt auf der Räume-Seite, wo
+          man sie sieht. */}
+      <Schalterzeile
+        titel="Grundriss-Ansicht"
+        symbol="map-outline"
+        an={grundriss}
+        onChange={grundrissWaehlen}
+        hinweis="Die Räume-Seite zeigt zuoberst den Wohnungsplan mit den Geräten als Punkten - antippen schaltet. Gedacht fürs Wandpanel; Bild und Punkte richtet man direkt dort ein. Wirkt sofort, nur auf diesem Gerät."
+      />
+
+      {/* Hier und nicht bei der Verbindung: Der Modus ändert, wie die
+          App aussieht und sich verhält - nicht, womit sie spricht. */}
+      <Schalterzeile
+        titel="Wandpanel-Modus"
+        symbol="tablet-landscape-outline"
+        an={panel}
+        onChange={setPanel}
+        hinweis="Bildschirm bleibt an, Ansicht kehrt nach drei Minuten zur Startseite zurück, und nach Sonnenuntergang wird es dunkler - für ein fest montiertes iPad. Eine Berührung macht es sofort wieder hell. Und wenn es klingelt, geht hier das Kamerabild mit den Türknöpfen auf - nur hier: Auf einem Telefon in der Tasche wäre dasselbe Vollbild eine Störung, dort tut es die Nachricht."
+      />
 
       {/* Der Kindermodus hängt am Panel-Schalter: Er ist die Sonderform
           des Wandpanels fürs Kinderzimmer. Antippen speichert sofort. */}
@@ -659,11 +722,17 @@ export function SettingsScreen({
           </Text>
         </View>
       ) : null}
-
-      {/* Nicht doppelt: Für Personen steht das Feld im Profil - hier
-          bleibt es fürs Panel (Anrede) und für die Ersteinrichtung. */}
-      {darfUmbenennen ? null : nameFeld}
     </Card>
+  );
+
+  // Für die Ersteinrichtung: die drei Karten am Stück, in derselben
+  // Reihenfolge wie auf der Konto-Seite.
+  const aussehen = (
+    <>
+      {erscheinungsbild}
+      {kachelKarte}
+      {panelKarte}
+    </>
   );
 
   // Punkt 197: Sobald die App selbst ortet, ändert sich die Frage –
@@ -915,9 +984,14 @@ export function SettingsScreen({
       {profil}
       {sicherheit}
       <Abschnitt titel="Dieses Gerät" hinweis="Gilt nur hier, nicht für die anderen im Haus.">
-        {aussehen}
+        {erscheinungsbild}
+        {kachelKarte}
         {ortungKarte}
         {geraet}
+        {/* Zuletzt im Block: Auf den meisten Geräten im Haus ist die
+            Karte die Antwort auf eine Frage, die niemand stellt - ein
+            Telefon hängt nicht an der Wand. */}
+        {panelKarte}
       </Abschnitt>
       {weiteres}
       {abmelden}
@@ -1174,6 +1248,17 @@ const makeStyles = (colors: Colors) =>
     borderColor: colors.surfaceBorder,
   },
   modeActive: { backgroundColor: colors.ink, borderColor: colors.ink },
+  /** Etwas weniger Luft links: Der Farbfleck bringt seine eigene mit. */
+  modeMitProbe: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 9 },
+  probe: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  probeHaelfte: { flex: 1 },
   modeText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
   // Der Grund des gewählten Knopfs ist `ink` – in hellem Erscheinungsbild
   // dunkel, in dunklem hell. Die Schrift muss also mitwandern: `panel`

@@ -31,6 +31,21 @@ describe('panelContent', () => {
     expect(panelContent({ ...ALLES, inRoom: true }).anything).toBe(false);
   });
 
+  it('lässt die Spalte auch auf der Raumliste ganz weg', () => {
+    // «Räume» ist die Seite, auf der man ein Zimmer sucht - und die
+    // Raumkacheln leben von ihren Fotos, denen die 340 Punkte fehlten.
+    const raumliste = panelContent({ ...ALLES, roomList: true });
+    expect(raumliste.weather).toBe(false);
+    expect(raumliste.housePlayer).toBe(false);
+    expect(raumliste.anything).toBe(false);
+  });
+
+  it('behält die Spalte auf der Startseite', () => {
+    // Die Gegenprobe: Sie ist die Seite, auf der man stehen bleibt -
+    // dort ist das Wetter die Frage, mit der man sie öffnet.
+    expect(panelContent({ ...ALLES, roomList: false }).anything).toBe(true);
+  });
+
   it('trägt keine Wetterwarnung mehr', () => {
     // Sie stand hier als grosse Karte «Wetterlage · 1 Warnungen» -
     // während dieselbe Warnung oben in der Kopfzeile rot blinkte.

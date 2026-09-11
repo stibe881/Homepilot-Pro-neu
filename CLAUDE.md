@@ -308,7 +308,7 @@ mitgeliefert oder nachgeladen ist.
 ## Was als Nächstes ansteht
 
 Die durchnummerierte Werkbank-Liste steht in `docs/werkbank.md`
-(354 Punkte, aus dem Code gelesen und auf Zuruf ergänzt). Ein Kommentar
+(356 Punkte, aus dem Code gelesen und auf Zuruf ergänzt). Ein Kommentar
 «Punkt NNN der Werkbank» im Code meint genau diese Nummer – deshalb
 wird dort nie umnummeriert; Neues bekommt die nächste freie Nummer. Das
 gilt auch für Nummern, die vergeben, aber nie gebaut wurden: Ein
