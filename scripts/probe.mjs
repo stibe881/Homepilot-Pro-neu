@@ -152,6 +152,50 @@ async function ueberlauf(browser) {
   }
 }
 
+/** Die übrigen Seiten, die die Probe bis Punkt 421 nie gesehen hat.
+ *
+ *  Gemessen wurden Startseite, Räume und der Fernseher-Fall. Familie,
+ *  Licht, Storen und Einstellungen - die Seiten mit den meisten
+ *  Formularen und den längsten Listen - kamen nie vor: Ein seitlicher
+ *  Überlauf in der Gutschein-Liste auf dem iPhone fiel erst auf, wenn
+ *  jemand mit einem iPhone davorstand.
+ *
+ *  Nur der Überlauf und nur die Seiten, die ohne echten Hub etwas
+ *  zeigen: Der Demo-Hub kennt kein Familienleben, aber er kennt Licht,
+ *  Storen und die Einstellungen - und genau dort stehen die Formulare,
+ *  die zu breit werden. */
+const WEITERE_SEITEN = ['Licht', 'Storen', 'Familie', 'Einstellungen'];
+
+async function zurSeite(seite, name) {
+  const knopf = seite.getByRole('tab', { name }).first();
+  if (!(await knopf.isVisible().catch(() => false))) return false;
+  await knopf.click();
+  await seite.waitForTimeout(900);
+  return true;
+}
+
+/** 6. Ragt auch auf den übrigen Seiten nichts hinaus? (Punkt 421) */
+async function weitereSeiten(browser) {
+  for (const groesse of GROESSEN) {
+    const seite = await angemeldeteSeite(browser, groesse);
+    for (const name of WEITERE_SEITEN) {
+      if (!(await zurSeite(seite, name))) {
+        // Kein Fehler: Nicht jede Seite steht jedem Benutzer offen, und
+        // die Probe meldet sich als erste Person am Demo-Hub an. Eine
+        // Messung über eine Seite, die es nicht gibt, wäre erfunden.
+        continue;
+      }
+      const mass = await messeUeberlauf(seite);
+      pruefe(
+        !mass.zuBreit,
+        `${groesse.name} · ${name}: nichts ragt seitlich hinaus`,
+        mass.schuldige.join(' | ')
+      );
+    }
+    await seite.close();
+  }
+}
+
 /** In den Wohnzimmer-Raum, wo die Gerätekacheln stehen.
  *
  *  Die Startseite zeigt Favoriten und Schnellaktionen, keine Geräte -
@@ -481,6 +525,7 @@ try {
   await terminWandert(browser);
   await kachelnStehenGleich(browser);
   await raumlisteKopfspieler(browser);
+  await weitereSeiten(browser);
 } finally {
   await browser.close();
 }

@@ -307,17 +307,32 @@ mitgeliefert oder nachgeladen ist.
 
 ## Was als Nächstes ansteht
 
-Die durchnummerierte Werkbank-Liste steht in `docs/werkbank.md`
-(405 Punkte, aus dem Code gelesen und auf Zuruf ergänzt; die höchste
-vergebene Nummer ist 509 - Anzahl und Nummer laufen auseinander, weil
-nie umnummeriert wird). Ein Kommentar
-«Punkt NNN der Werkbank» im Code meint genau diese Nummer – deshalb
-wird dort nie umnummeriert; Neues bekommt die nächste freie Nummer. Das
-gilt auch für Nummern, die vergeben, aber nie gebaut wurden: Ein
-späterer «Punkt 273» zeigte sonst auf etwas anderes als gemeint.
+Die durchnummerierte Werkbank-Liste steht in **zwei** Dateien:
+
+- `docs/werkbank.md` – was offen ist. Kurz genug, dass die Frage «was
+  ist offen?» in dreissig Sekunden beantwortet ist.
+- `docs/werkbank-archiv.md` – was erledigt ist, samt der Begründung,
+  aus der es entstand. Dort wird nichts gelöscht: Die Begründung
+  beschreibt den Fehlerfall, gegen den der Code heute geschützt ist.
+
+Getrennt sind sie, seit die eine Datei viertausend Zeilen hatte, zu
+neunzig Prozent erledigt (Punkt 505). Wer einen Punkt sucht, sucht in
+beiden: `grep -n "^### 155\.\|^\*\*155\." docs/werkbank*.md`.
+
+Ein Kommentar «Punkt NNN der Werkbank» im Code meint genau diese Nummer
+– deshalb wird nie umnummeriert; Neues bekommt die nächste freie Nummer
+(`python3 scripts/werkbank.py --zahlen` sagt, welche). Das gilt auch für
+Nummern, die vergeben, aber nie gebaut wurden: Ein späterer «Punkt 273»
+zeigte sonst auf etwas anderes als gemeint.
 
 **Vor dem Vergeben einer Nummer nachsehen, was auf den anderen Zweigen
-liegt** - `python3 deploy/zweige.py pruefen`. Die höchste Nummer in der
-Datei auf `main` ist nicht die höchste vergebene: Zweimal an einem Abend
-haben zwei Sitzungen unabhängig dieselbe nächste Nummer genommen (421,
-dann 422/423), und beide Male musste eine davon nachträglich wandern.
+liegt** - `python3 deploy/zweige.py pruefen`. Die höchste Nummer in den
+Dateien auf `main` ist nicht die höchste vergebene: Zweimal an einem
+Abend haben zwei Sitzungen unabhängig dieselbe nächste Nummer genommen
+(421, dann 422/423), und beide Male musste eine davon nachträglich
+wandern.
+
+**Ist ein Punkt gebaut, wandert er ins Archiv** – verschieben, nicht
+kopieren. Sonst steht er in der einen Datei als offen und in der
+anderen als erledigt, und beide sehen für sich richtig aus.
+`scripts/werkbank.py` prüft das im Prüflauf mit.

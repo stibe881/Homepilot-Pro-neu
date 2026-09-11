@@ -763,6 +763,15 @@ class Hub:
                 "version": __version__,
                 "commit": os.environ.get("HOMEPILOT_COMMIT", "unbekannt"),
                 "built_at": os.environ.get("HOMEPILOT_BUILD_TIME", "unbekannt"),
+                # Welcher Zweig gebaut wurde (Punkt 430 der Werkbank).
+                #
+                # Der Update-Knopf baut, was in deploy/rebuild-hub.sh
+                # unter BRANCH steht - und das ist «main». Wer auf einem
+                # anderen Zweig arbeitet und auf Update drückt, sieht
+                # einen erfolgreichen Bau ohne seine Änderung. Genau der
+                # Fehler, für den es CLAUDE.md gibt; nur stand er dort
+                # und nicht dort, wo der Knopf ist.
+                "branch": os.environ.get("HOMEPILOT_BRANCH_BUILT") or "unbekannt",
             },
             "energy": self.config.energy,
             # Was der Hub über sich selbst weiss. Bisher stand hier nur der

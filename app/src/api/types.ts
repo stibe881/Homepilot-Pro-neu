@@ -255,7 +255,16 @@ export interface SystemStatus {
   automations: { count: number; paused_until: string | null };
   push_devices: number;
   /** Welcher Stand läuft – nach einem Update die einzige Art, das zu sehen. */
-  build?: { version: string; commit: string; built_at: string };
+  build?: {
+    version: string;
+    commit: string;
+    built_at: string;
+    /** Welcher Zweig gebaut wurde (Punkt 430 der Werkbank). Der
+     *  Update-Knopf baut, was in deploy/rebuild-hub.sh unter BRANCH
+     *  steht - wer anderswo arbeitet, bekommt einen erfolgreichen Bau
+     *  ohne seine Änderung. */
+    branch?: string;
+  };
   energy: { price_per_kwh?: number; currency?: string };
   /** Ausfall-Protokoll des Wächters (jüngste zuerst). */
   outages?: { integration: string; since: number; ended: number | null }[];

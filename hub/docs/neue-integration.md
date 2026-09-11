@@ -1,5 +1,21 @@
 # Eine neue Integration schreiben
 
+## Der Anfang: ein Gerüst statt acht Handgriffe
+
+```bash
+cd hub
+python3 tools/neue_integration.py waschturm --art schalter
+python3 tools/neue_integration.py wetterstation --art sensor --takt 900
+python3 tools/neue_integration.py probe --trocken   # nur zeigen
+```
+
+Das legt das Modul, den ersten Test und die Zeile in `SCAN_INTERVALS`
+an - und sagt zum Schluss, was von Hand bleibt (Kachel, Symbol,
+Demo-Fall, diese Datei). Sorten: `licht`, `schalter`, `sensor`,
+`melder`, `store`.
+
+Der Rest dieser Seite erklärt, was in dem Gerüst steht und warum.
+
 Eine Integration übersetzt ein Gerät oder einen Dienst in Entitäten. Sie
 kennt das Protokoll ihres Geräts – der Rest des Systems kennt nur noch
 Entitäten. Mehr braucht es nicht:

@@ -148,6 +148,16 @@ export function SystemScreen({
                   {timeAgo(status.build.built_at)
                     ? ` (${timeAgo(status.build.built_at)})`
                     : ''}
+                  {/* Aus welchem Zweig (Punkt 430 der Werkbank). Der
+                      Update-Knopf baut, was in deploy/rebuild-hub.sh
+                      unter BRANCH steht - «main». Wer auf einem anderen
+                      Zweig arbeitet und hier drückt, sieht einen
+                      erfolgreichen Bau ohne seine Änderung, und das
+                      stand bisher nur in CLAUDE.md statt hier, wo der
+                      Knopf ist. */}
+                  {status.build.branch && status.build.branch !== 'unbekannt'
+                    ? ` aus ${status.build.branch}`
+                    : ''}
                 </Text>
               ) : null}
             </View>
