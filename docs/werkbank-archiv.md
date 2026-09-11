@@ -4428,3 +4428,43 @@ und eine Zeile darin ist ein Ziel, das man am Wandpanel im Vorbeigehen
 trifft.
 
 Stellen: `app/src/screens/automations/szenen-editor.tsx`, `app/src/screens/automations/felder.tsx`, `app/src/screens/automations/stil.ts`, `app/src/lib/helligkeitsvorgabe.ts`, `app/src/theme.tsx`, `scripts/probe.mjs`
+
+### 538. Temperatur und Feuchte auf der Raumkachel ✓ erledigt
+
+*lohnt sich · Aufwand: klein · App*
+
+Gewünscht mit einem Bild und einem rot eingekringelten Fleck oben rechts
+auf dem Kopfbild: «hier soll die Temperatur und Luftfeuchtigkeit
+angezeigt werden, wenn im entsprechenden Raum ein Sensor zugewiesen
+ist.»
+
+Das «wenn» ist der ganze Punkt. Eine Kachel, die «–°» zeigt, behauptet,
+es gäbe einen Fühler und er schweige; ohne Fühler bleibt die Ecke leer
+(`kachelKlima`, lib/raumkarte.ts).
+
+**Welcher Fühler gilt, entscheidet nicht die Kachel.** Sie fragt
+`raumKlima` (lib/raum.ts) - dieselbe Rechnung wie der Raumkopf. Sonst
+stünde auf der Kachel eine andere Zahl als in dem Zimmer, das sie
+öffnet, und beide wären für sich richtig. Damit gelten auch dieselben
+Ausschlüsse: Akkustand und Sendespeicher zählen ebenfalls in Prozent
+und sind keine Luftfeuchtigkeit (lib/klimachip.ts), und ein Fühler mit
+«gilt nur für diesen Raum» bleibt draussen - die 30 Grad neben dem Rack
+in der Waschküche stünden sonst zwischen lauter Wohntemperaturen.
+
+**Die Werte standen schon da - eine Zeile tiefer.** `raumZeile` führte
+sie als ersten Teil des Zustandssatzes («21,5° · 45 % · Fenster offen»).
+Stehen zu lassen hiesse dieselbe Auskunft zweimal auf einer Kachel,
+zwei Zeilen auseinander. Sie sind aus der Zeile heraus und in die Ecke
+gewandert; unten bleibt, was man am Bild nicht sieht.
+
+**Die Ecke gehörte schon jemandem.** Die Szenenknöpfe sassen oben
+rechts. Ohne Szenen fiel das nicht auf, mit zweien läge die Temperatur
+unter einem Szenennamen. Jetzt teilen sie sich eine Kopfzeile: Szenen
+links und schrumpfend, das Klima rechts und fest - die Zahl soll nicht
+auf «21…» abgeschnitten werden.
+
+Der Demo-Fühler meldet neu auch Feuchte: Ohne ein Gerät, das beides
+liefert, liesse sich der Fall im Browser gar nicht ansehen.
+
+Stellen: `app/src/lib/raumkarte.ts`, `app/src/lib/raum.ts`, `app/src/components/RoomCard.tsx`, `hub/homepilot/integrations/demo.py`, `scripts/probe.sh`
+

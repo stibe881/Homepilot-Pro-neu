@@ -29,13 +29,8 @@ const geraet = (patch: Partial<Entity>): Entity =>
   }) as Entity;
 
 describe('raumZeile', () => {
-  it('nennt Temperatur, offenes Fenster und laufende Musik', () => {
+  it('nennt offenes Fenster und laufende Musik', () => {
     const zeile = raumZeile([
-      geraet({
-        kind: 'sensor',
-        name: 'Temperatur Bad',
-        state: { state: 21.53, unit: '°C', humidity: 45 },
-      }),
       geraet({
         kind: 'binary_sensor',
         name: 'Fenster Bad',
@@ -43,7 +38,21 @@ describe('raumZeile', () => {
       }),
       geraet({ kind: 'media_player', name: 'Box', state: { state: 'playing' } }),
     ]);
-    expect(zeile).toBe('21,5° · 45 % · Fenster Bad offen · Musik läuft');
+    expect(zeile).toBe('Fenster Bad offen · Musik läuft');
+  });
+
+  it('lässt Temperatur und Feuchte weg - die stehen oben in der Ecke', () => {
+    // Punkt 538: Sie standen hier *und* seit dem Umbau im Bild darüber.
+    // Dieselbe Auskunft zweimal auf einer Kachel, zwei Zeilen
+    // auseinander - und die untere ist die, die keiner sucht.
+    const zeile = raumZeile([
+      geraet({
+        kind: 'sensor',
+        name: 'Temperatur Bad',
+        state: { state: 21.53, unit: '°C', humidity: 45 },
+      }),
+    ]);
+    expect(zeile).toBe('');
   });
 
   it('meldet Beschattung - unten, aber mit offenen Lamellen', () => {

@@ -102,11 +102,15 @@ class DemoIntegration(Integration):
             state={"state": "open", "position": 100, "tilt": 100},
             commands=["open", "close", "stop", "set_position", "set_tilt"],
         )
+        # Mit Feuchte, wie sie die meisten Funkfühler mitliefern: Die
+        # Raumkachel zeigt beide Werte in einer Ecke (Punkt 538), und
+        # ohne einen Fühler, der beides meldet, liesse sich der Fall im
+        # Browser gar nicht ansehen.
         await self.add_entity(
             "temp_livingroom",
             EntityKind.SENSOR,
             "Temperatur Wohnzimmer",
-            state={"state": 21.5, "unit": "°C"},
+            state={"state": 21.5, "unit": "°C", "humidity": 47.0},
         )
         # Eine Box, wie ein Chromecast eine ist: Sie nimmt eine Tonadresse
         # entgegen. Ohne sie liessen sich Durchsage und Radio im Browser

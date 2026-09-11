@@ -24,6 +24,7 @@ import { naechsteAbschaltung, restText } from './abschaltung';
 import { bewegungImRaum } from './bewegung';
 import { fernbedienungMoeglich } from './fernsehkachel';
 import { isTelevision, zaehltAlsAn } from './geraeteart';
+import { raumKlima } from './raum';
 
 export type AktionsArt = 'licht' | 'storen' | 'musik' | 'geraet';
 
@@ -434,4 +435,51 @@ export function raumStand(items: Entity[], zeile: string, jetzt?: number): strin
   const rest = jetzt === undefined ? null : naechsteAbschaltung(items, jetzt);
   if (rest !== null) teile.push(`geht in ${restText(rest)} aus`);
   return teile.join(' · ');
+}
+
+/** Temperatur und Feuchte, wie sie auf die Kachel passen. */
+export interface Kachelklima {
+  /** «21,5°» - null, wenn das Zimmer keine Temperatur misst. */
+  temp: string | null;
+  /** «48 %» - null, wenn niemand die Feuchte misst. */
+  feuchte: string | null;
+  /** Was eine Vorlesestimme daraus macht; die Zahlen allein sagen dort
+   *  nicht, was sie messen. */
+  label: string;
+}
+
+/**
+ * Das Klima des Zimmers für die Ecke der Kachel (rein, testbar).
+ *
+ * Gewünscht im Haus: «Temperatur und Luftfeuchtigkeit anzeigen, wenn im
+ * entsprechenden Raum ein Sensor zugewiesen ist.» Das «wenn» ist der
+ * ganze Punkt - eine Kachel, die «–°» zeigt, behauptet, es gäbe einen
+ * Fühler und er schweige. Null heisst hier: Die Ecke bleibt leer.
+ *
+ * *Welcher* Fühler gilt, entscheidet `raumKlima` (lib/raum.ts) - dieselbe
+ * Rechnung wie im Raumkopf. Sonst stünde auf der Kachel eine andere Zahl
+ * als im Zimmer, das sie öffnet, und beide wären für sich richtig.
+ *
+ * Kürzer als im Kopf: Dort steht «48 % Feuchte» unter dem Grad, hier ist
+ * neben dem Namen Platz für zwei Zahlen. Das Wort ersetzt der Tropfen
+ * daneben.
+ */
+export function kachelKlima(items: Entity[]): Kachelklima | null {
+  // «Gilt für: nur diesen Raum» (Geräte → Anpassen) bleibt draussen -
+  // dieselbe Regel, nach der diese Werte vorher in der Zeile darunter
+  // standen: Auf der Übersicht liest man die Räume nebeneinander wie
+  // einen Blick durch die Wohnung, und die 30 Grad neben dem Rack in
+  // der Waschküche stünden dort zwischen lauter Wohntemperaturen. Im
+  // Raum selbst steht der Fühler weiterhin gross im Kopf (raumKlima).
+  const klima = raumKlima(items.filter((entity) => !entity.room_only));
+  if (!klima) return null;
+  const temp = klima.temp;
+  const feuchte = klima.prozent === null ? null : `${Math.round(klima.prozent)} %`;
+  if (!temp && !feuchte) return null;
+  const teile: string[] = [];
+  if (klima.grad !== null) {
+    teile.push(`${Math.round(klima.grad * 10) / 10} Grad`.replace('.', ','));
+  }
+  if (klima.prozent !== null) teile.push(`${Math.round(klima.prozent)} Prozent Luftfeuchtigkeit`);
+  return { temp, feuchte, label: teile.join(', ') };
 }

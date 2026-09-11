@@ -53,6 +53,15 @@ export function raumKlima(items: Entity[]): {
   temp: string | null;
   feuchteFuehler: Entity | null;
   feuchte: string | null;
+  /** Dieselben Werte als Zahl - für Anzeigen, die anders formatieren.
+   *
+   *  Die Raumkachel hat für «48 % Feuchte» keinen Platz und schreibt
+   *  «48 %»; sie soll dafür aber nicht ein zweites Mal entscheiden,
+   *  *welcher* Fühler gilt. Diese Frage ist die schwierige daran
+   *  (Akkustand und Sendespeicher zählen auch in Prozent), und sie
+   *  gehört genau einmal beantwortet. */
+  grad: number | null;
+  prozent: number | null;
 } | null {
   const fuehler = temperatur(items) ?? null;
   // Der eigene Feuchtefühler zählt nur, wenn der Temperaturfühler die
@@ -75,6 +84,8 @@ export function raumKlima(items: Entity[]): {
       : null,
     feuchteFuehler: eigen ?? null,
     feuchte: prozent === null ? null : `${Math.round(prozent)} % Feuchte`,
+    grad: fuehler ? Number(fuehler.state.state) : null,
+    prozent,
   };
 }
 
@@ -207,18 +218,11 @@ export function inBeschattung(entity: Entity): boolean {
 
 export function raumZeile(items: Entity[]): string {
   const teile: string[] = [];
-  // Auf der Übersicht liest man die Räume nebeneinander wie einen Blick
-  // durch die Wohnung. Ein Fühler, der «nur für seinen Raum» zählt
-  // (Geräte → Anpassen), gehört da nicht hin: Die 30 Grad neben dem
-  // Rack in der Waschküche stünden zwischen lauter Wohntemperaturen.
-  // Im Raum selbst steht er weiterhin gross im Kopf (raumKlima).
-  const fuehler = temperatur(items.filter((entity) => !entity.room_only));
-  if (fuehler) {
-    teile.push(`${Number(fuehler.state.state).toFixed(1).replace('.', ',')}°`);
-    if (typeof fuehler.state.humidity === 'number') {
-      teile.push(`${Math.round(fuehler.state.humidity)} %`);
-    }
-  }
+  // Temperatur und Feuchte standen hier - jetzt stehen sie oben in der
+  // Ecke des Bildes (Punkt 538, lib/raumkarte.ts: kachelKlima). Beides
+  // wäre dieselbe Auskunft zweimal auf derselben Kachel, zwei Zeilen
+  // auseinander; die Zeile hat dafür Platz für das, was man nicht schon
+  // am Bild sieht.
   const offen = openContacts(items);
   if (offen.length === 1) teile.push(`${offen[0].name} offen`);
   else if (offen.length > 1) teile.push(`${offen.length} offen`);

@@ -60,7 +60,7 @@ integrations:
 rooms:
   Wohnzimmer:
     [demo.light_livingroom, demo.tv_livingroom, demo.cover_livingroom, gremlin.tv_zappelig,
-     demo.scene_relax, demo.speaker_kitchen]
+     demo.scene_relax, demo.speaker_kitchen, demo.temp_livingroom]
   Flur: [demo.motion_hall]
 automations: []
 YAML

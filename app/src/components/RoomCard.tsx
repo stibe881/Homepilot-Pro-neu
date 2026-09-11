@@ -5,7 +5,7 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Entity, Scene } from '../api/types';
 import { raumDunkel, raumSymbol, raumZeile } from '../lib/raum';
 import { bewegungImRaum } from '../lib/bewegung';
-import { Raumaktion, kachelKnoepfe, raumFarben, raumStand } from '../lib/raumkarte';
+import { Raumaktion, kachelKlima, kachelKnoepfe, raumFarben, raumStand } from '../lib/raumkarte';
 import { useJetzt } from '../hooks/useRestzeit';
 import { Colors, radius, useColors } from '../theme';
 import { Card } from './Card';
@@ -94,6 +94,10 @@ export function RoomCard({
   // im Raum hatte (lib/bewegung.ts). Auf der Übersicht ist sie am
   // meisten wert: Man sieht von aussen hin, ohne das Zimmer zu öffnen.
   const bewegung = useMemo(() => bewegungImRaum(items), [items]);
+  // Temperatur und Feuchte des Zimmers - nur, wenn ihm wirklich ein
+  // Fühler zugewiesen ist. Welcher gilt, rechnet lib/raumkarte.ts mit
+  // derselben Regel wie der Raumkopf.
+  const klima = useMemo(() => kachelKlima(items), [items]);
 
   return (
     <Card style={{ ...styles.karte, width }} onPress={onOpen} onLongPress={onLongPress}>
@@ -128,39 +132,38 @@ export function RoomCard({
         <Text style={styles.name} numberOfLines={1}>
           {name}
         </Text>
-        {onScene && scenes.length > 0 ? (
-          <View style={styles.szenen}>
-            {scenes.map((scene) => {
-              const aktiv = !!scene.active;
-              return (
-                <Pressable
-                  key={scene.id}
-                  onPress={() => onScene(scene.id)}
-                  hitSlop={6}
-                  accessibilityRole="switch"
-                  accessibilityState={{ checked: aktiv }}
-                  accessibilityLabel={
-                    aktiv
-                      ? `Szene ${scene.name} in ${name} zurücknehmen`
-                      : `Szene ${scene.name} in ${name}`
-                  }
-                  style={({ pressed }) => [
-                    styles.szene,
-                    aktiv && styles.szeneAn,
-                    pressed && { opacity: 0.6 },
-                  ]}
-                >
-                  <Ionicons
-                    name={(scene.icon as keyof typeof Ionicons.glyphMap) || 'sparkles'}
-                    size={12}
-                    color="#FFFFFF"
-                  />
-                  <Text style={styles.szeneText} numberOfLines={1}>
-                    {scene.name}
-                  </Text>
-                </Pressable>
-              );
-            })}
+        {/* Die obere Zeile des Bildes: links die Szenen, rechts das Klima.
+            Beide standen sonst in derselben Ecke - und die Ecke gehört
+            dem Klima, weil es *immer* dort steht, wenn es da ist. Die
+            Szenen weichen nach links aus, statt sich zu überlagern. */}
+        {(onScene && scenes.length > 0) || klima ? (
+          <View style={styles.kopfZeile} pointerEvents="box-none">
+            <View style={styles.szenen}>
+              {onScene && scenes.length > 0
+                ? scenes.map((scene) => szenenChip(scene))
+                : null}
+            </View>
+            {klima ? (
+              <View
+                accessibilityRole="text"
+                accessibilityLabel={`${name}: ${klima.label}`}
+                style={styles.klima}
+              >
+                {klima.temp ? (
+                  <>
+                    <Ionicons name="thermometer-outline" size={12} color="#FFFFFF" />
+                    <Text style={styles.klimaWert}>{klima.temp}</Text>
+                  </>
+                ) : null}
+                {klima.temp && klima.feuchte ? <View style={styles.klimaStrich} /> : null}
+                {klima.feuchte ? (
+                  <>
+                    <Ionicons name="water-outline" size={12} color="#FFFFFF" />
+                    <Text style={styles.klimaWert}>{klima.feuchte}</Text>
+                  </>
+                ) : null}
+              </View>
+            ) : null}
           </View>
         ) : null}
       </View>
@@ -218,6 +221,34 @@ export function RoomCard({
       </View>
     </Card>
   );
+
+  /** Ein Szenenknopf oben auf dem Bild. Nach dem return, damit oben
+   *  zuerst steht, was die Kachel zeigt. */
+  function szenenChip(scene: { id: string; name: string; icon?: string; active?: boolean }) {
+    const aktiv = !!scene.active;
+    return (
+      <Pressable
+        key={scene.id}
+        onPress={() => onScene?.(scene.id)}
+        hitSlop={6}
+        accessibilityRole="switch"
+        accessibilityState={{ checked: aktiv }}
+        accessibilityLabel={
+          aktiv ? `Szene ${scene.name} in ${name} zurücknehmen` : `Szene ${scene.name} in ${name}`
+        }
+        style={({ pressed }) => [styles.szene, aktiv && styles.szeneAn, pressed && { opacity: 0.6 }]}
+      >
+        <Ionicons
+          name={(scene.icon as keyof typeof Ionicons.glyphMap) || 'sparkles'}
+          size={12}
+          color="#FFFFFF"
+        />
+        <Text style={styles.szeneText} numberOfLines={1}>
+          {scene.name}
+        </Text>
+      </Pressable>
+    );
+  }
 }
 
 const makeStyles = (colors: Colors) =>
@@ -256,13 +287,59 @@ const makeStyles = (colors: Colors) =>
       textShadowColor: 'rgba(0, 0, 0, 0.45)',
       textShadowRadius: 12,
     },
-    szenen: {
+    /** Die obere Zeile über dem Bild: Szenen links, Klima rechts.
+     *
+     *  Beide sassen in derselben Ecke oben rechts. Ohne Szenen fiel das
+     *  nicht auf; mit zweien lag die Temperatur unter einem Szenennamen.
+     *  `box-none` lässt Tipps durch die Zeile hindurch auf die Kachel -
+     *  sonst wäre der halbe Bildkopf tot. */
+    kopfZeile: {
       position: 'absolute',
       top: 12,
+      left: 14,
       right: 14,
       flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 8,
+    },
+    szenen: {
+      flexDirection: 'row',
+      flexShrink: 1,
+      flexWrap: 'wrap',
       gap: 6,
-      maxWidth: '70%',
+    },
+    /** Temperatur und Feuchte in der Ecke - eine Pille, keine zwei.
+     *
+     *  Zwei Pillen nebeneinander läsen sich als zwei Dinge, die man
+     *  antippen kann (daneben stehen die Szenen, und die kann man). Das
+     *  hier ist eine Auskunft: ein Feld, zwei Zahlen, ein Strich
+     *  dazwischen. Nicht schrumpfend, damit die Zahl nicht auf «21…»
+     *  abgeschnitten wird - die Szenen weichen zuerst. */
+    klima: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      flexShrink: 0,
+      marginLeft: 'auto',
+      paddingHorizontal: 9,
+      paddingVertical: 5,
+      borderRadius: radius.pill,
+      backgroundColor: 'rgba(12, 16, 24, 0.38)',
+    },
+    /** Der Strich zwischen Grad und Prozent. Ein Punkt wäre zu wenig,
+     *  ein Abstand allein liesse «21,5° 48 %» als eine Zahl lesen. */
+    klimaStrich: {
+      width: 1,
+      height: 11,
+      marginHorizontal: 2,
+      backgroundColor: 'rgba(255, 255, 255, 0.35)',
+    },
+    klimaWert: {
+      color: '#FFFFFF',
+      fontSize: 12,
+      fontWeight: '600',
+      textShadowColor: 'rgba(0, 0, 0, 0.45)',
+      textShadowRadius: 8,
     },
     szene: {
       flexDirection: 'row',
