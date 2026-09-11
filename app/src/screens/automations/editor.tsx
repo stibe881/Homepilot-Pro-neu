@@ -27,7 +27,7 @@ import {
   begrenzteAnzahl,
 } from '../../lib/kontrollfluss';
 import { ZUHAUSE, anwesenheitsPersonen, istOrtsmelder, ortsauswahl } from '../../lib/ortsausloeser';
-import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, STEP_KIND_ICON, StateCondition, StepDraft, StepKind, TRIGGER_KIND_ICON, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, geraetePlatzhalter, KAMERA_AUSLOESER, kopieSchritt, PLATZHALTER, hatWartezeit, schaltetSpaeterAus, measurableAttributes, meldetEtwas, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis, stundeAusText } from './entwurf';
+import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, KontextArt, KontextCondition, STEP_KIND_ICON, StateCondition, StepDraft, StepKind, TRIGGER_KIND_ICON, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, geraetePlatzhalter, KAMERA_AUSLOESER, kopieSchritt, PLATZHALTER, hatWartezeit, schaltetSpaeterAus, measurableAttributes, meldetEtwas, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis, stundeAusText } from './entwurf';
 import {
   Abschnitt,
   CategoryField,
@@ -548,6 +548,116 @@ export function Editor({
             );
           })}
 
+          {/* Kontext-Bedingungen: Person daheim, Gerät erreichbar, Warnung
+              läuft, Termin läuft - die vier Auslöser aus Punkt 252/153 als
+              Dauerzustand. «Nur wenn Livia daheim ist» war bisher eine
+              Gerätebedingung auf die Zonen-Entität, und dafür musste man
+              deren Kennung kennen. */}
+          {draft.kontextConditions.map((entry, index) => {
+            const setEntry = (patch: Partial<KontextCondition>) =>
+              set({
+                kontextConditions: draft.kontextConditions.map((other, position) =>
+                  position === index ? { ...other, ...patch } : other
+                ),
+              });
+            return (
+              <View key={`kontext-${index}`} style={styles.triggerBox}>
+                <View style={styles.triggerHead}>
+                  <Text style={styles.triggerBadge}>nur wenn</Text>
+                  <Pressable
+                    onPress={() =>
+                      set({
+                        kontextConditions: draft.kontextConditions.filter(
+                          (_other, position) => position !== index
+                        ),
+                      })
+                    }
+                    accessibilityLabel="Bedingung entfernen"
+                    hitSlop={8}
+                  >
+                    <Ionicons name="trash-outline" size={18} color={colors.danger} />
+                  </Pressable>
+                </View>
+                <Kachelauswahl
+                  options={[
+                    { key: 'presence', label: 'Person daheim', icon: TRIGGER_KIND_ICON.presence },
+                    {
+                      key: 'availability',
+                      label: 'Gerät erreichbar',
+                      icon: TRIGGER_KIND_ICON.availability,
+                    },
+                    {
+                      key: 'weather_warning',
+                      label: 'Wetterwarnung läuft',
+                      icon: TRIGGER_KIND_ICON.weather_warning,
+                    },
+                    { key: 'calendar', label: 'Termin läuft', icon: TRIGGER_KIND_ICON.calendar },
+                  ]}
+                  value={entry.art}
+                  onSelect={(art) => setEntry({ art: art as KontextArt, ziel: '', wert: '' })}
+                />
+                {entry.art === 'presence' ? (
+                  <TextInput
+                    style={styles.input}
+                    value={entry.ziel}
+                    onChangeText={(ziel) => setEntry({ ziel })}
+                    placeholder="Name der Person, z.B. Livia"
+                    placeholderTextColor={colors.inkFaint}
+                  />
+                ) : entry.art === 'availability' ? (
+                  <EntityPicker
+                    entities={entities}
+                    value={entry.ziel}
+                    onSelect={(ziel) => setEntry({ ziel })}
+                  />
+                ) : entry.art === 'weather_warning' ? (
+                  <Choice
+                    options={[
+                      { key: '', label: 'jede Stufe' },
+                      { key: 'Moderate', label: 'ab markant' },
+                      { key: 'Severe', label: 'ab schwer' },
+                      { key: 'Extreme', label: 'nur extrem' },
+                    ]}
+                    value={entry.wert}
+                    onSelect={(wert) => setEntry({ wert })}
+                  />
+                ) : (
+                  <TextInput
+                    style={styles.input}
+                    value={entry.wert}
+                    onChangeText={(wert) => setEntry({ wert })}
+                    placeholder="Wort im Termin-Titel, z.B. Homeoffice (leer = jeder)"
+                    placeholderTextColor={colors.inkFaint}
+                  />
+                )}
+                <Choice
+                  options={[
+                    {
+                      key: 'ja',
+                      label:
+                        entry.art === 'presence'
+                          ? 'ist daheim'
+                          : entry.art === 'availability'
+                            ? 'meldet sich'
+                            : 'läuft',
+                    },
+                    {
+                      key: 'nein',
+                      label:
+                        entry.art === 'presence'
+                          ? 'ist nicht daheim'
+                          : entry.art === 'availability'
+                            ? 'meldet sich nicht'
+                            : 'läuft nicht',
+                    },
+                  ]}
+                  value={entry.nicht ? 'nein' : 'ja'}
+                  onSelect={(wahl) => setEntry({ nicht: wahl === 'nein' })}
+                />
+              </View>
+            );
+          })}
+
           {/* Die zwei Bedingungen, die fast jeder Ablauf braucht, als
               ein Tipp (Punkt 315 der Werkbank). Bauen liessen sie sich
               vorher auch - man musste nur wissen, dass «nur wenn jemand
@@ -600,6 +710,23 @@ export function Editor({
           >
             <Ionicons name="add" size={16} color={colors.accent} />
             <Text style={styles.addRowText}>Gerätebedingung hinzufügen</Text>
+          </Pressable>
+          <Pressable
+            onPress={() =>
+              set({
+                kontextConditions: [
+                  ...draft.kontextConditions,
+                  { art: 'presence', ziel: '', wert: '', nicht: false },
+                ],
+              })
+            }
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.75 }]}
+          >
+            <Ionicons name="add" size={16} color={colors.accent} />
+            <Text style={styles.addRowText}>
+              Person, Erreichbarkeit, Warnung oder Termin als Bedingung
+            </Text>
           </Pressable>
 
           {/* Und/Oder-Gruppen (Punkt 152): «dunkel und (jemand da ODER
@@ -1276,6 +1403,7 @@ export function TriggerRow({
           },
           { key: 'threshold', label: 'Messwert', icon: TRIGGER_KIND_ICON.threshold },
           { key: 'time', label: 'Uhrzeit', icon: TRIGGER_KIND_ICON.time },
+          { key: 'window', label: 'Zeitraum', icon: TRIGGER_KIND_ICON.window },
           { key: 'sun', label: 'Sonnenstand', icon: TRIGGER_KIND_ICON.sun },
           { key: 'interval', label: 'Regelmässig', icon: TRIGGER_KIND_ICON.interval },
           {
@@ -1723,6 +1851,31 @@ export function TriggerRow({
             Ferienmodus scharf schalten.
           </Text>
         </>
+      ) : trigger.kind === 'window' ? (
+        <>
+          <View style={styles.choices}>
+            <TextInput
+              style={[styles.input, { flex: 1 }]}
+              value={trigger.at}
+              onChangeText={(at) => onChange({ at })}
+              placeholder="von, z.B. 07:00"
+              placeholderTextColor={colors.inkFaint}
+            />
+            <TextInput
+              style={[styles.input, { flex: 1 }]}
+              value={trigger.until}
+              onChangeText={(until) => onChange({ until })}
+              placeholder="bis, z.B. 09:00"
+              placeholderTextColor={colors.inkFaint}
+            />
+          </View>
+          <Text style={styles.triggerNote}>
+            Feuert um {trigger.at || '…'} und lässt den Ablauf nur bis{' '}
+            {trigger.until || '…'} laufen – auch wenn ihn ein anderer Auslöser
+            anstösst. Vorher brauchte das einen Zeit-Auslöser und eine
+            Zeit-Bedingung mit denselben zwei Uhrzeiten.
+          </Text>
+        </>
       ) : (
         <TextInput
           style={styles.input}
@@ -1732,7 +1885,7 @@ export function TriggerRow({
           placeholderTextColor={colors.inkFaint}
         />
       )}
-      {trigger.kind === 'time' || trigger.kind === 'sun' ? (
+      {trigger.kind === 'time' || trigger.kind === 'sun' || trigger.kind === 'window' ? (
         <>
           <TextInput
             style={styles.input}
@@ -1970,6 +2123,15 @@ export function StepList({
                 icon: STEP_KIND_ICON.toggle_all,
               },
               { key: 'scene', label: 'Szene', icon: STEP_KIND_ICON.scene },
+              ...(andereAblaeufe.length > 0
+                ? [
+                    {
+                      key: 'automation',
+                      label: 'Ablauf starten',
+                      icon: STEP_KIND_ICON.automation,
+                    },
+                  ]
+                : []),
               ...(hueScenes.length > 0
                 ? [{ key: 'hue_scene', label: 'Hue-Szene', icon: STEP_KIND_ICON.hue_scene }]
                 : []),
@@ -2074,6 +2236,22 @@ export function StepList({
               value={step.sceneId}
               onSelect={(sceneId) => setStep(index, { sceneId })}
             />
+          ) : step.kind === 'automation' ? (
+            <>
+              <Picker
+                items={andereAblaeufe
+                  .filter((ablauf) => ablauf.id !== eigeneId)
+                  .map((ablauf) => ({ key: ablauf.id, label: ablauf.alias }))}
+                placeholder="Ablauf suchen …"
+                value={step.automationId}
+                onSelect={(automationId) => setStep(index, { automationId })}
+              />
+              <Text style={styles.triggerNote}>
+                Führt die Schritte des anderen Ablaufs aus – nur seine Schritte,
+                nicht seine Bedingungen. «Alles aus» steht so einmal und wird von
+                fünf Abläufen aufgerufen, statt fünfmal abgeschrieben.
+              </Text>
+            </>
           ) : step.kind === 'hue_scene' ? (
             <>
               <Picker
@@ -2276,23 +2454,32 @@ export function StepList({
                 maxLength={200}
               />
               {/* Punkt 251: Uhrzeit und Gerätewerte auch in der
-                  Durchsage - «Es ist {time}, die Türe steht offen».
-                  {raum}/{gerät} gibt es hier nicht: Die füllt nur die
-                  Nachricht, und ein Chip, der wörtlich stehen bliebe,
-                  wäre eine Attrappe. */}
+                  Durchsage - «Es ist {time}, die Türe steht offen». Und
+                  seit die Durchsage denselben Füller wie die Nachricht
+                  nutzt (kamera.fill): {gerät}, {raum} und {wert} des
+                  Auslösers - «{gerät} im {raum} meldet {wert}» gilt so
+                  für alle Melder auf einmal. */}
               <View style={styles.choices}>
-                <Pressable
-                  onPress={() =>
-                    setStep(index, {
-                      broadcastText: `${step.broadcastText}{time}`,
-                    })
-                  }
-                  accessibilityRole="button"
-                  accessibilityLabel="Die Uhrzeit in die Durchsage einfügen"
-                  style={({ pressed }) => [styles.template, pressed && { opacity: 0.75 }]}
-                >
-                  <Text style={styles.templateText}>+ Uhrzeit</Text>
-                </Pressable>
+                {[
+                  ['{time}', '+ Uhrzeit', 'Die Uhrzeit in die Durchsage einfügen'],
+                  ['{gerät}', '+ Gerät', 'Das auslösende Gerät in die Durchsage einfügen'],
+                  ['{raum}', '+ Raum', 'Den Raum des Auslösers in die Durchsage einfügen'],
+                  ['{wert}', '+ Wert', 'Den gemeldeten Wert in die Durchsage einfügen'],
+                ].map(([halter, label, vorlesen]) => (
+                  <Pressable
+                    key={halter}
+                    onPress={() =>
+                      setStep(index, {
+                        broadcastText: `${step.broadcastText}${halter}`,
+                      })
+                    }
+                    accessibilityRole="button"
+                    accessibilityLabel={vorlesen}
+                    style={({ pressed }) => [styles.template, pressed && { opacity: 0.75 }]}
+                  >
+                    <Text style={styles.templateText}>{label}</Text>
+                  </Pressable>
+                ))}
               </View>
               <GeraetewertZeile
                 entities={entities}

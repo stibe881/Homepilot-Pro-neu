@@ -42,6 +42,8 @@ import {
   namensVorschlag,
   sonstStand,
   stundeAusText,
+  kontextConditionFromConfig,
+  kontextConditionToConfig,
 } from './entwurf';
 import { Draft, StepDraft } from './entwurf';
 import { Entity } from '../../api/types';
@@ -1907,5 +1909,86 @@ describe('stundeAusText (Punkt 379)', () => {
     expect(stundeAusText('  ')).toBeNull();
     expect(stundeAusText('abends')).toBeNull();
     expect(stundeAusText('-1')).toBeNull();
+  });
+});
+
+describe('Zeitraum-Auslöser', () => {
+  it('speichert von/bis als window und liest beides zurück', () => {
+    const config = triggerToConfig({ ...EMPTY_TRIGGER, kind: 'window', at: '07:00', until: '09:00' });
+    expect(config).toEqual({ type: 'window', after: '07:00', before: '09:00' });
+    const zurueck = triggerFromConfig(config);
+    expect(zurueck.kind).toBe('window');
+    expect(zurueck.at).toBe('07:00');
+    expect(zurueck.until).toBe('09:00');
+  });
+});
+
+describe('Schritt «Ablauf starten»', () => {
+  it('überlebt Öffnen und Speichern', () => {
+    // Der Hub konnte den Schritt längst - der Editor warf ihn beim
+    // Öffnen still weg, und «Speichern» löschte ihn damit.
+    const steps = actionsToSteps([{ type: 'automation', automation_id: 'alles_aus' }]);
+    expect(steps).toHaveLength(1);
+    expect(steps[0].kind).toBe('automation');
+    expect(stepToActions(steps[0])).toEqual([{ type: 'automation', automation_id: 'alles_aus' }]);
+  });
+
+  it('ergibt ohne gewählten Ablauf keine Aktion', () => {
+    expect(stepToActions({ ...EMPTY_STEP, kind: 'automation' })).toEqual([]);
+  });
+});
+
+describe('Kontext-Bedingungen', () => {
+  it('baut Person, Erreichbarkeit, Warnung und Termin', () => {
+    expect(
+      kontextConditionToConfig({ art: 'presence', ziel: 'Livia', wert: 'home', nicht: false })
+    ).toEqual({ type: 'presence', person: 'Livia' });
+    expect(
+      kontextConditionToConfig({ art: 'presence', ziel: 'Livia', wert: 'schule', nicht: true })
+    ).toEqual({ type: 'presence', person: 'Livia', zone: 'schule', state: 'absent' });
+    expect(
+      kontextConditionToConfig({ art: 'availability', ziel: 'x.y', wert: '', nicht: true })
+    ).toEqual({ type: 'availability', entity_id: 'x.y', available: false });
+    expect(
+      kontextConditionToConfig({ art: 'weather_warning', ziel: '', wert: 'Severe', nicht: false })
+    ).toEqual({ type: 'weather_warning', min_severity: 'Severe' });
+    expect(
+      kontextConditionToConfig({ art: 'calendar', ziel: '', wert: ' Homeoffice ', nicht: true })
+    ).toEqual({ type: 'calendar', contains: 'Homeoffice', active: false });
+  });
+
+  it('kommt beim Öffnen unverändert zurück', () => {
+    for (const entry of [
+      { art: 'presence' as const, ziel: 'Livia', wert: 'home', nicht: false },
+      { art: 'availability' as const, ziel: 'x.y', wert: '', nicht: true },
+      { art: 'weather_warning' as const, ziel: 'm.ch', wert: 'Severe', nicht: false },
+      { art: 'calendar' as const, ziel: '', wert: 'Ferien', nicht: true },
+    ]) {
+      expect(kontextConditionFromConfig(kontextConditionToConfig(entry))).toEqual(entry);
+    }
+  });
+
+  it('steht im Entwurf statt in den unbekannten Bedingungen', () => {
+    const draft = toDraft({
+      id: 'a',
+      alias: 'A',
+      triggers: [],
+      conditions: [{ type: 'presence', person: 'Livia' }],
+      actions: [],
+    } as never);
+    expect(draft.kontextConditions).toEqual([
+      { art: 'presence', ziel: 'Livia', wert: 'home', nicht: false },
+    ]);
+    expect(draft.extraConditions).toEqual([]);
+    expect(buildConditions(draft)).toEqual([{ type: 'presence', person: 'Livia' }]);
+  });
+
+  it('lässt eine Person ohne Namen weg', () => {
+    expect(
+      buildConditions({
+        ...EMPTY,
+        kontextConditions: [{ art: 'presence', ziel: '', wert: 'home', nicht: false }],
+      })
+    ).toEqual([]);
   });
 });

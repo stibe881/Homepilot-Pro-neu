@@ -760,6 +760,30 @@ def describe_condition(condition: dict[str, Any], value: Any) -> str:
     if ctype == "sun":
         want = "Tag" if str(condition.get("state", "up")) == "up" else "Nacht"
         return f"Es ist nicht {want}"
+    if ctype == "presence":
+        wer = condition.get("person") or "die Person"
+        zone = str(condition.get("zone") or "home")
+        ort = "zuhause" if zone == "home" else f"in «{zone}»"
+        if str(condition.get("state", "present")) == "absent":
+            return f"{wer} ist {ort} - verlangt ist abwesend"
+        return f"{wer} ist nicht {ort}"
+    if ctype == "availability":
+        name = condition.get("entity_id", "Gerät")
+        if condition.get("available", True):
+            return f"{name} meldet sich nicht"
+        return f"{name} ist erreichbar - verlangt ist «meldet sich nicht»"
+    if ctype == "weather_warning":
+        stufe = condition.get("min_severity")
+        ab = f" ab Stufe {stufe}" if stufe else ""
+        if condition.get("active", True):
+            return f"Keine Wetterwarnung{ab} läuft"
+        return f"Eine Wetterwarnung{ab} läuft - verlangt ist keine"
+    if ctype == "calendar":
+        wort = condition.get("contains")
+        was = f"Termin «{wort}»" if wort else "Termin"
+        if condition.get("active", True):
+            return f"Kein {was} läuft gerade"
+        return f"Ein {was} läuft gerade - verlangt ist keiner"
     name = condition.get("entity_id", "Gerät")
     shown = "nichts" if value is None else f"«{value}»"
     if "above" in condition:
@@ -1205,6 +1229,89 @@ def neue_warnungen(
     return neu
 
 
+def warnung_aktiv(state: dict[str, Any], min_severity: Any = None) -> bool:
+    """Läuft am Warn-Gerät gerade eine Wetterwarnung? (rein, testbar)
+
+    Die Bedingung zum Auslöser aus Punkt 252: Der Auslöser feuert, wenn
+    eine Warnung *neu* kommt - «Storen nicht hochfahren, solange eine
+    Sturmwarnung läuft» braucht aber den Dauerzustand. Dieselbe
+    Stufenregel wie bei neue_warnungen: ohne lesbare Schwelle zählt
+    jede Warnung.
+    """
+    schwelle = None
+    if min_severity is not None:
+        wort = str(min_severity).strip().capitalize()
+        schwelle = WARNSTUFEN.index(wort) if wort in WARNSTUFEN else None
+    for alert in state.get("alerts") or []:
+        if not isinstance(alert, dict):
+            continue
+        if schwelle is not None:
+            stufe = str(alert.get("severity") or "")
+            if stufe in WARNSTUFEN and WARNSTUFEN.index(stufe) < schwelle:
+                continue
+        return True
+    return False
+
+
+def termin_laeuft(events: list[dict[str, Any]], contains: str, jetzt: datetime) -> bool:
+    """Läuft gerade ein Termin, dessen Titel das Wort trägt? (rein, testbar)
+
+    Die Bedingung zum Kalender-Auslöser (Punkt 153): Der feuert am
+    Beginn - «nur wenn gerade ‹Homeoffice› im Kalender steht» will den
+    laufenden Termin. Ganztägige Termine ohne Uhrzeit zählen den ganzen
+    Tag; ein Termin ohne Ende gilt bis Mitternacht.
+    """
+    needle = contains.strip().lower()
+    for event in events or []:
+        summary = str(event.get("summary") or "")
+        if needle and needle not in summary.lower():
+            continue
+        start, ende = event.get("start"), event.get("end")
+        if not start:
+            continue
+        try:
+            von = datetime.fromisoformat(str(start).replace("Z", "+00:00"))
+            bis = (
+                datetime.fromisoformat(str(ende).replace("Z", "+00:00"))
+                if ende
+                else von.replace(hour=23, minute=59, second=59)
+            )
+        except ValueError:
+            continue
+        if von.tzinfo is not None:
+            von = von.astimezone().replace(tzinfo=None)
+        if bis.tzinfo is not None:
+            bis = bis.astimezone().replace(tzinfo=None)
+        if von <= jetzt < bis:
+            return True
+    return False
+
+
+def zeitfenster_bedingungen(triggers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Die stillen Zeitbedingungen aus «Zeitraum»-Auslösern (rein, testbar).
+
+    Ein Auslöser vom Typ ``window`` feuert zu Beginn seines Fensters wie
+    ein Zeit-Auslöser - und sagt zugleich, dass der Ablauf nur *in*
+    diesem Fenster laufen soll. Bisher brauchte das zwei Bausteine, die
+    dieselben zwei Uhrzeiten trugen: einen Zeit-Auslöser und eine
+    Zeit-Bedingung. Wer eine änderte und die andere vergass, hatte einen
+    Ablauf, der um sieben feuert und um sieben nicht darf.
+    """
+    fenster: list[dict[str, Any]] = []
+    for trigger in triggers:
+        if trigger.get("type") != "window":
+            continue
+        bedingung: dict[str, Any] = {"type": "time"}
+        if trigger.get("after"):
+            bedingung["after"] = str(trigger["after"])
+        if trigger.get("before"):
+            bedingung["before"] = str(trigger["before"])
+        if trigger.get("weekdays"):
+            bedingung["weekdays"] = trigger["weekdays"]
+        fenster.append(bedingung)
+    return fenster
+
+
 def _as_list(value: Any) -> list[dict[str, Any]]:
     if value is None:
         return []
@@ -1507,6 +1614,16 @@ class AutomationEngine:
                     task = asyncio.create_task(
                         self._time_loop(
                             automation, str(trigger["at"]), jitter_minutes(trigger)
+                        )
+                    )
+                    self._timer_tasks.append(task)
+                elif trigger.get("type") == "window" and trigger.get("after"):
+                    # «Zeitraum»: feuert zu Beginn wie ein Zeit-Auslöser;
+                    # dass der Ablauf nur im Fenster laufen darf, prüft
+                    # _conditions_hold (zeitfenster_bedingungen).
+                    task = asyncio.create_task(
+                        self._time_loop(
+                            automation, str(trigger["after"]), jitter_minutes(trigger)
                         )
                     )
                     self._timer_tasks.append(task)
@@ -2667,6 +2784,15 @@ class AutomationEngine:
         «any» ohne Bedingungen wäre sonst nie erfüllt; ein Ablauf ohne
         «nur wenn» soll aber immer laufen.
         """
+        # Ein «Zeitraum»-Auslöser bringt seine Zeitbedingung selbst mit:
+        # Was ein anderer Auslöser ausserhalb des Fensters anstösst, läuft
+        # nicht - dafür ist das Fenster da (zeitfenster_bedingungen).
+        # Das Fenster gilt immer - auch bei «eine Bedingung genügt»: Es ist
+        # kein Wunsch neben anderen, sondern der Rahmen des Ablaufs.
+        fenster = zeitfenster_bedingungen(automation.triggers)
+        daneben = [f for f in fenster if not self._check_condition(f)]
+        if daneben:
+            return False, [describe_condition(f, None) for f in daneben]
         if not automation.conditions:
             return True, []
         results = [
@@ -2795,6 +2921,43 @@ class AutomationEngine:
             up = rise <= now <= set_
             want = str(condition.get("state", "up"))
             return up if want == "up" else not up
+        # Die vier Auslöser aus Punkt 252/153, hier als Dauerzustand: Der
+        # Auslöser feuert bei der Flanke (kommt an, Warnung neu, Termin
+        # beginnt), die Bedingung fragt, ob es *gerade so ist*. Ohne sie
+        # musste «nur wenn Livia daheim ist» als Gerätebedingung auf die
+        # Zonen-Entität nachgebaut werden - und dafür musste man deren
+        # Kennung kennen.
+        if ctype == "presence":
+            person = str(condition.get("person") or "")
+            zone = str(condition.get("zone") or "home").strip().lower()
+            da = any(
+                str(entity.state.get("state") or "").strip().lower() == zone
+                for entity in self.hub.registry.all()
+                if str(entity.state.get("device_class") or "") == "presence"
+                and person_matches(person, entity.id, entity.name)
+            )
+            return not da if str(condition.get("state", "present")) == "absent" else da
+        if ctype == "availability":
+            entity = self.hub.registry.get(str(condition.get("entity_id") or ""))
+            if entity is None:
+                return False
+            return bool(entity.available) == bool(condition.get("available", True))
+        if ctype == "weather_warning":
+            gesucht = str(condition.get("entity_id") or "")
+            aktiv = any(
+                warnung_aktiv(entity.state, condition.get("min_severity"))
+                for entity in self.hub.registry.all()
+                if isinstance(entity.state.get("alerts"), list)
+                and (not gesucht or entity.id == gesucht)
+            )
+            return aktiv if condition.get("active", True) else not aktiv
+        if ctype == "calendar":
+            laeuft = termin_laeuft(
+                self._calendar_events(str(condition.get("entity_id") or "")),
+                str(condition.get("contains") or ""),
+                datetime.now(),
+            )
+            return laeuft if condition.get("active", True) else not laeuft
         log.warning("Unbekannter Bedingungstyp: %s", ctype)
         return False
 
@@ -2814,8 +2977,17 @@ class AutomationEngine:
         """
         atype = action.get("type", "command")
         if atype == "command":
+            ziel = str(action["entity_id"])
+            if ziel == kamera.TRIGGER:
+                # «Das Gerät, das ausgelöst hat»: Ein Ablauf «Taster
+                # gedrückt → dieselbe Lampe umschalten» gilt so für alle
+                # Taster, statt je Taster abgeschrieben zu werden. Ohne
+                # Auslöser (von Hand gestartet) gibt es nichts zu schalten.
+                if not ausloeser:
+                    return "kein auslösendes Gerät - Schritt übersprungen"
+                ziel = ausloeser
             await self.hub.integrations.dispatch_command(
-                action["entity_id"], action["command"], action.get("data") or {}
+                ziel, action["command"], action.get("data") or {}
             )
         elif atype == "delay":
             sekunden = float(action["seconds"])
@@ -2874,9 +3046,15 @@ class AutomationEngine:
             # say.speak() überschreibt sie nicht.
             from . import say
 
+            # Dieselben Platzhalter wie in der Nachricht: {gerät}, {raum},
+            # {wert} des Auslösers (kamera.fill) - «{gerät} im {raum}
+            # meldet {wert}» gilt damit für alle Melder auf einmal.
+            quelle = self.hub.registry.get(ausloeser or "") if ausloeser else None
             await say.speak(
                 self.hub,
-                self._mit_platzhaltern(self._mit_termin(str(action.get("text") or ""))),
+                self._mit_platzhaltern(
+                    self._mit_termin(kamera.fill(str(action.get("text") or ""), quelle))
+                ),
                 speakers=[str(s) for s in action.get("speakers") or []] or None,
                 volume=action.get("volume"),
             )
