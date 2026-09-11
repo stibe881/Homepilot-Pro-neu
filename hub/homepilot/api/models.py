@@ -296,13 +296,20 @@ class LaundryRequest(BaseModel):
 
 
 class CoverGuardRequest(BaseModel):
-    """Welche Storen die Wächter anfassen dürfen.
+    """Worauf die Wächter-Regeln sehen und was sie anfassen.
 
     `None` lässt die jeweilige Auswahl unangetastet; eine leere Liste
-    heisst «alle Storen» - das ist die Vorgabe, mit der die Wächter auch
-    ohne jede Einstellung wirken (core/storenwaechter.py).
+    heisst «alle» - das ist die Vorgabe, mit der die Wächter auch ohne
+    jede Einstellung wirken (core/storenwaechter.py).
+
+    `storm` und `heat` sind Storen, `temp` und `humidity` die Fühler,
+    auf die der Hitze-Hinweis hört (Punkt 540).
     """
 
+    #: Temperaturfühler, die im Mittel für «drinnen» stehen.
+    temp: list[str] | None = None
+    #: Feuchtefühler - ohne Auswahl steht keine Feuchte in der Nachricht.
+    humidity: list[str] | None = None
     storm: list[str] | None = None
     heat: list[str] | None = None
 

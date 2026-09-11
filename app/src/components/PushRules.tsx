@@ -16,7 +16,15 @@ import {
   naechsteWahl,
   tuerSatz,
 } from '../lib/waschkueche';
-import { GuardStand, dabei, storenSatz, umschalten } from '../lib/storenwahl';
+import {
+  GuardStand,
+  dabei,
+  fuehlerDabei,
+  fuehlerSatz,
+  fuehlerUmschalten,
+  storenSatz,
+  umschalten,
+} from '../lib/storenwahl';
 import {
   Klingelbox,
   Klingeltonstand,
@@ -247,6 +255,19 @@ export function PushRules({
   const storenWaehlen = async (art: 'storm' | 'heat', id: string) => {
     if (!guard) return;
     const neu = umschalten(guard[art], id, guard.covers);
+    try {
+      setGuard(await hub.put<GuardStand>('/api/coverguard', { [art]: neu }, { still: true }));
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+    }
+  };
+
+  // Welche Fühler der Hitze-Hinweis berücksichtigt (Punkt 540). Kam aus
+  // dem Haus mit einem Bild der Push: «Es sollen nicht alle Sensoren
+  // berücksichtigt werden.»
+  const fuehlerWaehlen = async (art: 'temp' | 'humidity', id: string) => {
+    if (!guard) return;
+    const neu = fuehlerUmschalten(guard[art], id);
     try {
       setGuard(await hub.put<GuardStand>('/api/coverguard', { [art]: neu }, { still: true }));
     } catch (err) {
@@ -605,6 +626,30 @@ export function PushRules({
                   colors={colors}
                 />
               ) : null}
+
+              {/* Und worauf sie hört. Nur bei der Hitze: Der Sturm
+                  richtet sich nach der Wetterwarnung, nicht nach einem
+                  Fühler im Haus. */}
+              {rule.key === 'heat_covers' && rule.enabled && guard ? (
+                <>
+                  <FuehlerWahl
+                    art="temp"
+                    stand={guard}
+                    mayEdit={mayEdit}
+                    onWaehlen={fuehlerWaehlen}
+                    styles={styles}
+                    colors={colors}
+                  />
+                  <FuehlerWahl
+                    art="humidity"
+                    stand={guard}
+                    mayEdit={mayEdit}
+                    onWaehlen={fuehlerWaehlen}
+                    styles={styles}
+                    colors={colors}
+                  />
+                </>
+              ) : null}
             </Card>
           ))}
           </View>
@@ -906,6 +951,104 @@ function StorenWahl({
                 <Text style={[styles.tuerZeileText, an && { color: colors.ink }]}>
                   {cover.name}
                   {cover.room ? ` · ${cover.room}` : ''}
+                </Text>
+              </Pressable>
+            );
+          })
+        : null}
+    </View>
+  );
+}
+
+/**
+ * Welche Fühler der Hitze-Hinweis berücksichtigt (Punkt 540).
+ *
+ * Dieselbe Form wie `StorenWahl` darüber - Chip zum Aufklappen, dann
+ * eine Liste mit Häkchen -, und aus demselben Grund in derselben Karte:
+ * Es ist dieselbe Regel, und wer hier etwas ändert, will wissen, was
+ * die Nachricht daneben sagt.
+ *
+ * Zwei Unterschiede zu den Storen, beide bewusst:
+ *
+ * - **Die Liste kommt vom Hub**, nicht aus allen Geräten. Er hat schon
+ *   gefiltert: drinnen, plausibel messend, nicht «zählt nur für seinen
+ *   Raum». Wer hier etwas anhaken könnte, das danach doch nicht zählt,
+ *   hätte eine Einstellung, die scheinbar nichts tut.
+ * - **Leer heisst bei der Feuchte «keine»**, nicht «alle». Ohne
+ *   angehakten Fühler nennt die Nachricht gar keine Luftfeuchtigkeit -
+ *   so war es bisher, und so bleibt es ohne Zutun.
+ */
+function FuehlerWahl({
+  art,
+  stand,
+  mayEdit,
+  onWaehlen,
+  styles,
+  colors,
+}: {
+  art: 'temp' | 'humidity';
+  stand: GuardStand;
+  mayEdit: boolean;
+  onWaehlen: (art: 'temp' | 'humidity', id: string) => void;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Colors;
+}) {
+  const [offen, setOffen] = useState(false);
+  const gewaehlt = stand[art];
+  // Ein Hub, der die Fühlerwahl noch nicht kennt, schickt die Listen gar
+  // nicht - dann bleibt der Abschnitt weg, statt die ganze Regelliste
+  // mit «Cannot read properties of undefined» abstürzen zu lassen.
+  const fuehler = (art === 'temp' ? stand.temp_sensors : stand.humidity_sensors) ?? [];
+  if (fuehler.length === 0) return null;
+
+  return (
+    <View style={styles.tuerBlock}>
+      <Text style={styles.tuerTitel}>
+        {art === 'temp'
+          ? 'Diese Fühler sagen, wie warm es drinnen ist'
+          : 'Und diese, wie feucht'}
+      </Text>
+      <Text style={styles.detail}>{fuehlerSatz(gewaehlt, fuehler, art)}</Text>
+      {mayEdit ? (
+        <Pressable
+          onPress={() => setOffen((wert) => !wert)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: offen }}
+          accessibilityLabel={art === 'temp' ? 'Temperaturfühler wählen' : 'Feuchtefühler wählen'}
+          style={styles.tuerChip}
+        >
+          <Ionicons
+            name={art === 'temp' ? 'thermometer-outline' : 'water-outline'}
+            size={14}
+            color={colors.inkSoft}
+          />
+          <Text style={styles.tuerChipText}>Fühler wählen</Text>
+          <Ionicons
+            name={offen ? 'chevron-up' : 'chevron-down'}
+            size={14}
+            color={colors.inkSoft}
+          />
+        </Pressable>
+      ) : null}
+      {offen
+        ? fuehler.map((eintrag) => {
+            const an = fuehlerDabei(gewaehlt, eintrag.id);
+            return (
+              <Pressable
+                key={eintrag.id}
+                onPress={() => onWaehlen(art, eintrag.id)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: an }}
+                style={styles.tuerZeile}
+              >
+                <Ionicons
+                  name={an ? 'checkbox' : 'square-outline'}
+                  size={16}
+                  color={an ? colors.on : colors.inkFaint}
+                />
+                <Text style={[styles.tuerZeileText, an && { color: colors.ink }]}>
+                  {eintrag.name}
+                  {eintrag.room ? ` · ${eintrag.room}` : ''}
                 </Text>
               </Pressable>
             );

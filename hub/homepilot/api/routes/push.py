@@ -639,16 +639,29 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         current_user(request)
         entities = hub.registry.all()
         rows = hub.data.get("cover_guard")
+        def liste(geraete: list[Any]) -> list[dict[str, Any]]:
+            return [
+                {"id": entity.id, "name": entity.label, "room": entity.room}
+                for entity in geraete
+            ]
+
         return {
             "storm": storenwaechter.guard_auswahl(rows, "storm"),
             "heat": storenwaechter.guard_auswahl(rows, "heat"),
+            # Auf welche Fühler der Hitze-Hinweis hört (Punkt 540).
+            "temp": storenwaechter.guard_auswahl(rows, "temp"),
+            "humidity": storenwaechter.guard_auswahl(rows, "humidity"),
             # Alle Storen des Hauses - die App baut daraus die Chips,
             # ohne selbst durch die Entitäten zu gehen.
-            "covers": [
-                {"id": entity.id, "name": entity.label, "room": entity.room}
-                for entity in entities
-                if entity.kind == "cover"
-            ],
+            "covers": liste([e for e in entities if e.kind == "cover"]),
+            # Und die Fühler, die überhaupt in Frage kommen: drinnen,
+            # plausibel, nicht «nur für ihren Raum». Dieselbe Vorauswahl,
+            # die der Mittelwert trifft - sonst könnte man etwas anhaken,
+            # das danach doch nicht zählt.
+            "temp_sensors": liste(storenwaechter.klimafuehler(entities, "temperature")),
+            "humidity_sensors": liste(
+                storenwaechter.klimafuehler(entities, "humidity")
+            ),
         }
 
     @app.put("/api/coverguard")
@@ -657,23 +670,43 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     ) -> dict[str, Any]:
         require(request, Capability.EDIT_AUTOMATIONS)
         rows = hub.data.get("cover_guard")
-        stand = {
-            "storm": storenwaechter.guard_auswahl(rows, "storm"),
-            "heat": storenwaechter.guard_auswahl(rows, "heat"),
+        entities = hub.registry.all()
+        arten = ("storm", "heat", "temp", "humidity")
+        stand = {art: storenwaechter.guard_auswahl(rows, art) for art in arten}
+        storen = {entity.id for entity in entities if entity.kind == "cover"}
+        bekannt = {
+            "storm": storen,
+            "heat": storen,
+            "temp": {
+                e.id for e in storenwaechter.klimafuehler(entities, "temperature")
+            },
+            "humidity": {
+                e.id for e in storenwaechter.klimafuehler(entities, "humidity")
+            },
         }
-        known = {entity.id for entity in hub.registry.all() if entity.kind == "cover"}
-        for art, neu in (("storm", body.storm), ("heat", body.heat)):
+        wovon = {
+            "storm": "Storen",
+            "heat": "Storen",
+            "temp": "Temperaturfühler",
+            "humidity": "Feuchtefühler",
+        }
+        for art, neu in (
+            ("storm", body.storm),
+            ("heat", body.heat),
+            ("temp", body.temp),
+            ("humidity", body.humidity),
+        ):
             if neu is None:
                 continue
-            fremd = [eintrag for eintrag in neu if eintrag not in known]
+            fremd = [eintrag for eintrag in neu if eintrag not in bekannt[art]]
             if fremd:
                 raise HTTPException(
                     status_code=404,
-                    detail=f"Diese Storen kennt der Hub nicht: {', '.join(fremd)}",
+                    detail=f"Diese {wovon[art]} kennt der Hub nicht: {', '.join(fremd)}",
                 )
             stand[art] = [str(eintrag) for eintrag in neu]
         hub.data.set(
-            "cover_guard", [stand] if (stand["storm"] or stand["heat"]) else []
+            "cover_guard", [stand] if any(stand[art] for art in arten) else []
         )
         return await cover_guard(request)
 

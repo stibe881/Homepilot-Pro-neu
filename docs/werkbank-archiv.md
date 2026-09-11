@@ -4556,3 +4556,52 @@ dieses eine Zimmer; eine ältere Fassung des Hubs liest `room` aus der
 Datendatei und bekommt den Standort. Beides ist geprüft.
 
 Stellen: `hub/homepilot/core/entity.py`, `hub/homepilot/core/registry.py`, `hub/homepilot/core/hub.py`, `hub/homepilot/api/routes/entities.py`, `app/src/lib/raum.ts`, `app/src/components/entity/anpassen.tsx`, `app/src/hooks/useHub.ts`, `docs/erste-stunde.md`
+
+### 540. Welche Fühler der Hitze-Hinweis berücksichtigt ✓ erledigt
+
+*tut weh · Aufwand: mittel · Hub + App*
+
+Gemeldet als Bild einer Push: «Drinnen wird es warm - Im Haus sind es
+28.8 °C und die Sonne steht hoch.» Dazu der Satz: «Es sollen nicht alle
+Sensoren berücksichtigt werden.»
+
+**Gemittelt wurde über jeden Fühler mit einem Raum.** Draussen und
+«zählt nur für seinen Raum» waren schon ausgenommen - aber darunter
+bleiben welche, die nichts über die Wohnstube sagen: der im
+Serverschrank, der an der Fussbodenheizung, der im Estrich unterm
+Ziegeldach. Einer davon hebt das Mittel um Grade, und dann kommt der
+Hinweis an einem Tag, an dem es drinnen angenehm ist. Wer ihn abstellen
+wollte, konnte nur die ganze Regel abschalten.
+
+Neu steht die Wahl in derselben Karte wie die Storen-Wahl derselben
+Regel (`/api/coverguard`, App: Abläufe → Push → «Sommerhitze»). Zwei
+Listen: Temperatur und Feuchte.
+
+**Die Liste kommt vom Hub, nicht aus allen Geräten.** Er bietet genau
+an, was der Mittelwert auch nähme - drinnen, plausibel messend, nicht
+«nur für seinen Raum», und bei der Feuchte ohne die Prozente, die
+keine sind (Akkustand, Sendespeicher, Filterlaufzeit - dieselbe Liste
+wie in `lib/klimachip.ts`). Etwas anhaken zu können, das danach doch
+nicht zählt, wäre eine Einstellung, die scheinbar nichts tut.
+
+**Bei der Temperatur heisst leer «alle», bei der Feuchte «keine».** Das
+ist kein Versehen: Ohne Einstellung soll der Hinweis wie bisher kommen -
+also alle Temperaturfühler im Mittel. Die Feuchte stand dagegen nie in
+der Nachricht, und eine Zahl, die niemand ausgesucht hat, soll nach
+einem Update nicht einfach auftauchen. Wer einen Feuchtefühler anhakt,
+liest neu «bei 61 % Luftfeuchtigkeit» mit - bei 28 Grad ist gerade das
+der Unterschied zwischen warm und schwül. Ein Test hält beide
+Vorgaben fest.
+
+**Ein Absturz kam beim Ansehen im Browser heraus.** Der laufende
+Demo-Hub war älter als die App und schickte die neuen Listen gar nicht;
+statt der Regelliste stand «Cannot read properties of undefined
+(reading 'length')». Die Felder sind jetzt optional, der Abschnitt
+bleibt an einem älteren Hub einfach weg - mit einem Test dafür.
+
+Die Beschattung (`integrations/shading.py`) blieb unberührt: Sie hört
+ohnehin auf *einen* ausdrücklich genannten Aussenfühler, nicht auf ein
+Mittel.
+
+Stellen: `hub/homepilot/core/storenwaechter.py`, `hub/homepilot/core/watchdog.py`, `hub/homepilot/api/routes/push.py`, `hub/homepilot/api/models.py`, `app/src/lib/storenwahl.ts`, `app/src/components/PushRules.tsx`
+

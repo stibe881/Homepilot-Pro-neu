@@ -660,7 +660,12 @@ class Watchdog:
             )
 
     def _cover_guard(self, art: str) -> list[str]:
-        """Die gespeicherte Storen-Auswahl («storm» oder «heat»)."""
+        """Eine gespeicherte Auswahl der Wächter-Regeln.
+
+        Vier Arten in derselben Zeile: «storm» und «heat» sind Storen,
+        «temp» und «humidity» die Fühler, auf die der Hitze-Hinweis
+        hört (Punkt 540). Leer heisst überall alle.
+        """
         return storenwaechter.guard_auswahl(self.hub.data.get("cover_guard"), art)
 
     def _sonnenhoehe(self) -> float:
@@ -795,9 +800,22 @@ class Watchdog:
         regel = self.rules.get("heat_covers", {})
         if not regel.get("enabled", True):
             return
-        innen = storenwaechter.innentemperatur(entities)
+        # Welche Fühler zählen, steht neben der Storen-Auswahl derselben
+        # Regel (Punkt 540). Leer heisst alle - wie bei den Storen.
+        innen = storenwaechter.innentemperatur(entities, self._cover_guard("temp"))
         if innen is None:
             return
+        # Die Feuchte nur, wenn jemand Fühler dafür angehakt hat - anders
+        # als bei der Temperatur heisst leer hier *nicht* «alle». Die
+        # Nachricht nannte bisher keine Feuchte, und das soll sie ohne
+        # Zutun weiterhin nicht: Eine Zahl, die niemand ausgesucht hat,
+        # taucht sonst nach einem Update einfach auf.
+        feuchtefuehler = self._cover_guard("humidity")
+        feuchte = (
+            storenwaechter.innenfeuchte(entities, feuchtefuehler)
+            if feuchtefuehler
+            else None
+        )
         schwelle = float(regel.get("params", {}).get("innen_ab", 25))
         jetzt = datetime.now()
         heute = jetzt.strftime("%Y-%m-%d")
@@ -805,11 +823,17 @@ class Watchdog:
 
         if storenwaechter.hitze_tagsueber(innen, schwelle, elevation, jetzt.hour):
             if self._einmal(f"heat-tag:{heute}"):
+                # Die Feuchte nur, wo jemand einen Fühler dafür
+                # angehakt hat: Sonst stünde eine Zahl in der Nachricht,
+                # die niemand ausgesucht hat - und bei 28 Grad ist es
+                # gerade die Feuchte, die «warm» von «schwül»
+                # unterscheidet.
+                schwuel = f" bei {feuchte:g} % Luftfeuchtigkeit" if feuchte is not None else ""
                 await self._notify(
                     "Drinnen wird es warm",
-                    f"Im Haus sind es {innen:g} °C und die Sonne steht hoch. "
-                    "Storen auf der Sonnenseite unten halten die Wärme "
-                    "draussen - je früher, desto mehr bringt es.",
+                    f"Im Haus sind es {innen:g} °C{schwuel} und die Sonne "
+                    "steht hoch. Storen auf der Sonnenseite unten halten die "
+                    "Wärme draussen - je früher, desto mehr bringt es.",
                     category="heat_covers",
                 )
             return
