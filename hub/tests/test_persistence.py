@@ -377,3 +377,22 @@ def test_export_over_the_api_is_a_download_without_secrets(tmp_path):
         daten = response.json()
         assert daten["automations"][0]["alias"] == "Flurlicht"
         assert "sessions" not in daten
+
+
+def test_export_laesst_fremde_private_gutscheine_zuhause(tmp_path):
+    """Punkt 460: «privat» gilt auch vor dem, der exportieren darf."""
+    hub = Hub(make_config(tmp_path / "d.json"))
+    with TestClient(create_app(hub)) as client:
+        hub.data.set(
+            "family_vouchers",
+            [
+                {"id": "1", "shop": "Brack", "shared": "privat", "author": "Livia",
+                 "number": "GEHEIM"},
+                {"id": "2", "shop": "Coop", "shared": "privat", "author": "Stefan"},
+                {"id": "3", "shop": "Migros", "shared": "familie", "author": "Livia"},
+            ],
+        )
+        daten = client.get("/api/system/export", headers=auth()).json()
+        assert [row["id"] for row in daten["family_vouchers"]] == ["2", "3"]
+        # Die Sicherung dagegen behält alles - sie bleibt im Haus.
+        assert len(hub.data.get("family_vouchers")) == 3

@@ -94,6 +94,13 @@ import {
   dateiSymbol,
   datumText,
   einheitText,
+  codeStand,
+  codeVerbrauchen,
+  doppelte,
+  doppelteSatz,
+  ladenAnfrage,
+  naechsterCode,
+  offeneCodes,
   formularPruefen,
   formularVon,
   gefiltert,
@@ -120,7 +127,15 @@ import { bildUri } from '../RecipeBook';
 import { BackHead, FamilyItem, Styles } from './bausteine';
 
 /** Die Felder des Formulars, die ein Textfeld sind. */
-type TextFeld = 'shop' | 'title' | 'total' | 'number' | 'pin' | 'url' | 'notes';
+type TextFeld =
+  | 'shop'
+  | 'title'
+  | 'total'
+  | 'number'
+  | 'weitereCodes'
+  | 'pin'
+  | 'url'
+  | 'notes';
 
 type Seite =
   | { art: 'liste' }
@@ -437,6 +452,7 @@ function Detail({
   onAbziehen,
   onStorno,
   onUebergeben,
+  onCodeVerbrauchen,
   haushalt = [],
   orte = [],
   onBearbeiten,
@@ -455,6 +471,8 @@ function Detail({
   onStorno?: (buchung: Transaktion) => void;
   /** Den Gutschein jemandem im Haushalt übergeben (Punkt 306). */
   onUebergeben?: (an: string) => void;
+  /** Eine einzelne Nummer als eingelöst markieren (Punkt 452). */
+  onCodeVerbrauchen?: (wert: string) => void;
   /** Wer im Haushalt in Frage kommt - ohne mich selbst. */
   haushalt?: string[];
   /** Die Läden mit Koordinaten, wie der Einkaufszettel sie führt -
@@ -731,6 +749,12 @@ function Detail({
               <Text style={eigen.sekundaerText}>Übergeben</Text>
             </Pressable>
           ) : null}
+          {/* Der Rest, den man sonst liegen lässt (Punkt 457) - hier
+              und nicht nur auf der Karte: Wer den Gutschein offen hat,
+              entscheidet gerade, ob er ihn heute mitnimmt. */}
+          {restHinweis(entry) ? (
+            <Text style={[styles.checkSub, { color: colors.warn }]}>{restHinweis(entry)}</Text>
+          ) : null}
           {entry.left >= 0.005 ? (
             <Pressable
               onPress={onAbziehen}
@@ -743,6 +767,37 @@ function Detail({
           ) : (
             <Text style={styles.checkSub}>Aufgebraucht.</Text>
           )}
+          {/* Eine Nummer der Zehnerkarte abhaken (Punkt 452). Von Hand
+              und nicht beim Abziehen: Ob die Kasse den Code wirklich
+              angenommen hat, weiss nur der Mensch davor - eine Nummer,
+              die die App eigenmächtig verbraucht, ist ein Eintritt, den
+              niemand mehr findet. */}
+          {onCodeVerbrauchen && offeneCodes(entry).length > 1 ? (
+            <Pressable
+              onPress={() => onCodeVerbrauchen(naechsterCode(entry))}
+              accessibilityRole="button"
+              accessibilityLabel={`Nummer ${naechsterCode(entry)} als eingelöst markieren`}
+              style={({ pressed }) => [eigen.sekundaerKnopf, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name="checkmark-done-outline" size={18} color={colors.ink} />
+              <Text style={eigen.sekundaerText}>Nummer eingelöst</Text>
+            </Pressable>
+          ) : null}
+          {/* Wenn die Karte weg ist (Punkt 459): Laden, Nummer,
+              Kaufdatum, Rest und der Hinweis auf den Beleg in einem
+              Text - bis hierher tippte man das aus vier Bildschirmen
+              zusammen ab. */}
+          <Pressable
+            onPress={() =>
+              Share.share({ message: ladenAnfrage(entry, heute) }).catch(() => {})
+            }
+            accessibilityRole="button"
+            accessibilityLabel="Anfrage an den Laden teilen"
+            style={({ pressed }) => [eigen.sekundaerKnopf, pressed && { opacity: 0.8 }]}
+          >
+            <Ionicons name="help-buoy-outline" size={18} color={colors.ink} />
+            <Text style={eigen.sekundaerText}>Beim Laden nachfragen</Text>
+          </Pressable>
           <Pressable
             onPress={() => Share.share({ message: teilText(entry) }).catch(() => {})}
             accessibilityRole="button"
@@ -881,7 +936,13 @@ function Detail({
           <Text style={{ color: '#000000', fontSize: 22, fontWeight: '700' }}>
             {entry.shop}
           </Text>
-          <Kassencode nummer={entry.number} art={entry.code} hoehe={120} />
+          <Kassencode nummer={naechsterCode(entry)} art={entry.code} hoehe={120} />
+          {/* Welcher Eintritt der Zehnerkarte das ist (Punkt 452). Ohne
+              diese Zeile zeigt der Bildschirm zehnmal dasselbe Bild,
+              und niemand weiss, ob dieser Code schon an der Kasse war. */}
+          {codeStand(entry) ? (
+            <Text style={{ color: '#666666', fontSize: 14 }}>{codeStand(entry)}</Text>
+          ) : null}
           {entry.pin ? (
             <Text style={{ color: '#000000', fontSize: 16 }}>PIN {entry.pin}</Text>
           ) : null}
@@ -1026,6 +1087,15 @@ function FormularBlatt({
     setze('file', wahl.datei);
   };
 
+  // Erst, wenn genug dasteht, um überhaupt eine Aussage zu erlauben -
+  // ein leeres Formular gleicht sonst jedem Gutschein ohne Nummer.
+  const dublettenSatz = useMemo(() => {
+    if (!form.shop.trim()) return null;
+    const probe = formularPruefen(form, bisher);
+    if (probe.eintrag === null) return null;
+    return doppelteSatz(doppelte(vorlagenQuelle, probe.eintrag));
+  }, [form, bisher, vorlagenQuelle]);
+
   const speichern = () => {
     const ergebnis = formularPruefen(form, bisher);
     if (ergebnis.eintrag === null) {
@@ -1096,10 +1166,14 @@ function FormularBlatt({
             ))}
           </View>
         </View>
-        {eingabe(form.unit === 'stk' ? 'Anzahl' : 'Gesamtwert (CHF)', 'total', {
-          placeholder: form.unit === 'stk' ? '1' : '100.00',
-          keyboardType: form.unit === 'stk' ? 'number-pad' : 'decimal-pad',
-        })}
+        {eingabe(
+          form.unit === 'stk' ? 'Anzahl' : `Gesamtwert (${einheitText(form.unit)})`,
+          'total',
+          {
+            placeholder: form.unit === 'stk' ? '1' : '100.00',
+            keyboardType: form.unit === 'stk' ? 'number-pad' : 'decimal-pad',
+          }
+        )}
         {eingabe('Nummer', 'number', { placeholder: 'Gutschein-Nummer oder Code', autoCapitalize: 'none' })}
         {/* Scannen statt abtippen (Punkt 369 der Werkbank) - dort
             passieren die Zahlendreher, die man erst an der Kasse merkt,
@@ -1114,6 +1188,18 @@ function FormularBlatt({
           <Ionicons name="barcode-outline" size={16} color={colors.accent} />
           <Text style={eigen.fotoAktionText}>Nummer scannen</Text>
         </Pressable>
+        {/* Weitere Nummern (Punkt 452 der Werkbank): Eine Zehnerkarte
+            fürs Hallenbad trägt zehn, ein Kinoabo sechs. Bis dahin
+            passte davon eine ins Formular - der Rest stand in der Notiz,
+            und an der Kasse las man aus einem Fliesstext vor, welche
+            wohl noch gilt. Steht direkt unter der ersten, weil es
+            dieselbe Sache ist. */}
+        {eingabe('Weitere Nummern', 'weitereCodes', {
+          placeholder: 'Eine je Zeile – für Zehnerkarten und Abos',
+          autoCapitalize: 'none',
+          multiline: true,
+          numberOfLines: 3,
+        })}
         {/* Womit die Kasse liest (Punkt 420). Steht direkt bei der
             Nummer, weil es zu ihr gehört - und nicht bei den Bildern,
             wo man es beim Erfassen nicht mehr sucht. */}
@@ -1214,6 +1300,18 @@ function FormularBlatt({
           <Text style={styles.formHintSmall}>
             Privat sieht nur, wer ihn erfasst hat. Familie sehen alle.
           </Text>
+          {/* Punkt 460 der Werkbank: Was «privat» wirklich heisst,
+              stand bis hierher nirgends. Der Export lässt fremde
+              private Gutscheine jetzt weg - die Sicherung nicht, denn
+              eine Sicherung, die Daten weglässt, ist keine. Wer das
+              nicht weiss, hält «privat» für mehr, als es ist. */}
+          {form.shared === 'privat' ? (
+            <Text style={styles.formHintSmall}>
+              Auch der Verwalter des Hubs sieht ihn nicht – weder in der Liste noch im
+              Export. In der Sicherung des Hubs steht er mit: Sie bleibt im Haus und ist
+              die Datei, aus der alles wieder entsteht.
+            </Text>
+          ) : null}
         </View>
 
         <View style={eigen.formFeld}>
@@ -1375,6 +1473,19 @@ function FormularBlatt({
 
         {eingabe('Notiz', 'notes', { placeholder: 'z.B. nur im Laden einlösbar', multiline: true })}
 
+        {/* Doppelt erfasst (Punkt 456 der Werkbank): Zwei Personen
+            tragen dieselbe Karte ein - einmal privat, einmal für die
+            Familie -, und ab dann stimmt keine Summe mehr. Ein Hinweis,
+            keine Ablehnung: Zehn gleiche Kinokarten gibt es wirklich,
+            und wer das weiss, tippt weiter auf «Erfassen». */}
+        {dublettenSatz ? (
+          <View style={eigen.hinweisZeile}>
+            <Ionicons name="copy-outline" size={16} color={colors.warn} />
+            <Text style={[styles.formHintSmall, { color: colors.warn, flex: 1 }]}>
+              {dublettenSatz}
+            </Text>
+          </View>
+        ) : null}
         {fehler ? <Text style={styles.error}>{fehler}</Text> : null}
         <Pressable onPress={speichern} style={styles.addWide} accessibilityRole="button">
           <Text style={styles.addWideText}>{bisher ? 'Speichern' : 'Gutschein erfassen'}</Text>
@@ -1611,6 +1722,12 @@ export function Gutscheine({
   const [kategorie, setKategorie] = useState<string | null>(null);
   const [geteilt, setGeteilt] = useState<Geteilt | null>(null);
   const [nurBald, setNurBald] = useState(false);
+  // Die Reste, die man sonst liegen lässt (Punkt 457). Ein eigener
+  // Filter und keine blosse Zeile auf der Karte: Man sucht sie genau
+  // dann, wenn man ohnehin einkaufen geht - «was kann ich heute
+  // mitnehmen» ist die Frage, und die Karte beantwortet sie erst,
+  // nachdem man an ihr vorbeigescrollt ist.
+  const [nurRest, setNurRest] = useState(false);
   const [leerOffen, setLeerOffen] = useState(false);
   const [archivOffen, setArchivOffen] = useState(false);
   const [abzugId, setAbzugId] = useState<string | null>(null);
@@ -1630,10 +1747,15 @@ export function Gutscheine({
     [alle]
   );
 
-  const gefunden = gefiltert(alle, suchtext, { kategorie, geteilt, bald: nurBald }, heute);
+  const gefunden = gefiltert(
+    alle,
+    suchtext,
+    { kategorie, geteilt, bald: nurBald, fastLeer: nurRest },
+    heute
+  );
   const { offen, leer } = aufgeteilt(gefunden, heute);
   const archivierte = archivListe(gefunden);
-  const gefiltertAktiv = !!(suchtext.trim() || kategorie || geteilt || nurBald);
+  const gefiltertAktiv = !!(suchtext.trim() || kategorie || geteilt || nurBald || nurRest);
   const kats = useMemo(() => kategorien(alle), [alle]);
   const abzug = abzugId ? (alle.find((entry) => entry.id === abzugId) ?? null) : null;
 
@@ -1678,6 +1800,11 @@ export function Gutscheine({
             if (!entry.id) return;
             const neu = stornieren(entry, buchung, ich, new Date());
             onUpdate(entry.id, { left: neu.left, transactions: neu.transactions });
+          }}
+          onCodeVerbrauchen={(wert) => {
+            if (!entry.id) return;
+            const neu = codeVerbrauchen(entry, wert, new Date());
+            onUpdate(entry.id, { codes: neu.codes });
           }}
           onUebergeben={(an) => {
             if (!entry.id) return;
@@ -1865,7 +1992,7 @@ export function Gutscheine({
           <Ionicons
             name="options-outline"
             size={20}
-            color={kategorie || geteilt || nurBald ? colors.accent : colors.inkSoft}
+            color={kategorie || geteilt || nurBald || nurRest ? colors.accent : colors.inkSoft}
           />
         </Pressable>
       </View>
@@ -1874,6 +2001,7 @@ export function Gutscheine({
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View style={styles.chipRow}>
             {filterChip('Läuft bald ab', nurBald, () => setNurBald(!nurBald), 'time-outline')}
+            {filterChip('Fast leer', nurRest, () => setNurRest(!nurRest), 'battery-dead-outline')}
             {filterChip('Privat', geteilt === 'privat', () => setGeteilt(geteilt === 'privat' ? null : 'privat'), 'lock-closed-outline')}
             {filterChip('Familie', geteilt === 'familie', () => setGeteilt(geteilt === 'familie' ? null : 'familie'), 'people-outline')}
             {kats.map((kat) =>
@@ -2162,6 +2290,14 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: 4,
     },
     fotoAktionText: { color: colors.accent, fontSize: 13, fontWeight: '600' },
+    // Ein Hinweis, keine Fehlermeldung (Punkt 456): Er steht über dem
+    // Knopf und hält niemanden auf.
+    hinweisZeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 4,
+    },
 
     // ── Datei ─────────────────────────────────────────────────────────
     dateiZeile: {

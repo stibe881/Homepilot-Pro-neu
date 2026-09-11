@@ -61,8 +61,63 @@ export interface LangzeitAntwort {
   /** Reicht das Geräteprotokoll bis zum Zeitraumbeginn zurück? */
   licht_vollstaendig: boolean;
   temperatur: TemperaturTeil | null;
+  /** Die Gutschein-Bilanz des Zeitraums (Punkt 454 der Werkbank).
+   *  Der Hub schickte die verfallene Hälfte schon seit Punkt 372 - die
+   *  App las sie nie, und damit stand die unbequeme Zahl nirgends. */
+  gutscheine: GutscheinBilanz | null;
   /** Was fehlt und warum – Sätze des Hubs, hier gekürzt als Fussnote. */
   fehlt: string[];
+}
+
+/** Was in einem Monat oder Jahr eingelöst, verfallen und erfasst wurde.
+ *  Beträge je Währung, nie zusammengezählt (Punkt 451). */
+export interface GutscheinBilanz {
+  eingeloest: Record<string, number>;
+  eingeloest_stk: number;
+  verfallen: Record<string, number>;
+  verfallen_anzahl: number;
+  erfasst: number;
+}
+
+/**
+ * Die Gutschein-Bilanz in Sätzen (rein, testbar) – Punkt 454.
+ *
+ * Zwei Zahlen nebeneinander, und die Reihenfolge ist Absicht: Zuerst
+ * was eingelöst wurde, dann was verfallen ist. Allein gelesen ist «80
+ * CHF verfallen» ein Vorwurf; neben «340 CHF eingelöst» ist es eine
+ * Bilanz – und erst die beantwortet, ob sich das Eintragen lohnt.
+ *
+ * Was null ist, kommt nicht vor: «0.00 CHF verfallen» ist eine Zeile
+ * über etwas, das nicht passiert ist.
+ */
+export function gutscheinSaetze(bilanz: GutscheinBilanz): string[] {
+  const betraege = (werte: Record<string, number>): string =>
+    Object.entries(werte)
+      .filter(([, wert]) => wert > 0)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([einheit, wert]) => `${wert.toFixed(2)} ${einheit}`)
+      .join(' · ');
+
+  const saetze: string[] = [];
+  const eingeloest = betraege(bilanz.eingeloest);
+  if (eingeloest) saetze.push(`${eingeloest} eingelöst`);
+  if (bilanz.eingeloest_stk > 0) {
+    saetze.push(
+      bilanz.eingeloest_stk === 1
+        ? '1 Eintritt eingelöst'
+        : `${bilanz.eingeloest_stk} Eintritte eingelöst`
+    );
+  }
+  const verfallen = betraege(bilanz.verfallen);
+  if (verfallen) {
+    saetze.push(
+      `${verfallen} verfallen – ${bilanz.verfallen_anzahl === 1 ? 'ein Gutschein' : `${bilanz.verfallen_anzahl} Gutscheine`}`
+    );
+  }
+  if (bilanz.erfasst > 0) {
+    saetze.push(bilanz.erfasst === 1 ? '1 neu erfasst' : `${bilanz.erfasst} neu erfasst`);
+  }
+  return saetze;
 }
 
 /** Ob der Stromteil zum Jahr gehört (rein, testbar). */
