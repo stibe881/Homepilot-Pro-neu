@@ -4861,3 +4861,52 @@ Fassungen, dafür `WebVersionNote`). Was nur nativ passiert, beantwortet
 der Browser nicht.
 
 Stellen: `app/src/lib/appstand.ts`, `app/src/screens/SystemScreen.tsx`, `app/app.json`, `deploy/rebuild-hub.sh`, `CLAUDE.md`
+
+### 547. Der Nachlauf zählt ab der letzten Bewegung ✓ erledigt
+
+Gemeldet im Haus: «Wenn ich bei Abläufen eine Zeit angebe, wie lange es
+an sein soll, schaltet es nach dieser Zeit aus. Auch wenn in der
+Zwischenzeit wieder eine Bewegung erkannt wurde.»
+
+**Der Hub verlängerte den Nachlauf durchaus - nur kam die Verlängerung
+nie an.** `_plan_off` führt je Lampe genau einen Zeitgeber und
+überschreibt ihn bei jedem neuen Auslöser; ein Test hält das seit je
+fest (`test_motion_light_stays_on_while_there_is_movement`). Die
+Verlängerung hängt aber daran, dass der Melder *erneut auslöst* - und
+genau das tut ein echter Melder nicht, solange jemand im Raum steht. Er
+meldet einmal «on» und bleibt darauf, bis es ruhig wird. Ein zweites
+«on» ist für den Hub «nichts geändert» und löst nichts aus.
+
+Das Licht ging deshalb mitten im Betrieb aus - und der Melder konnte es
+nicht einmal wieder anschalten, weil er ja nie auf «off» gewesen war.
+Man stand im dunklen Flur und musste erst hinaus und wieder hinein.
+
+**Also wird am Ende der Frist nachgesehen statt ausgeschaltet.** Sagt
+der Melder immer noch «Bewegung», ist die letzte Bewegung *jetzt*, und
+die Frist zählt von vorn (`core/light.py`, `bewegung_haelt_an`). Nicht
+auf den nächsten Auslöser warten, sondern den Zustand lesen: Der steht
+ohnehin da.
+
+**Nur Melder, und im Zweifel nein.** Ein Fensterkontakt, den der Hub für
+einen Bewegungsmelder hielte, hielte das Licht an, solange das Fenster
+offen steht. Und ein Ablauf ohne Melder - «um 18:00 das Licht an» - hat
+gar keinen Auslöser mit Zustand; dort gilt die Zeit wie bisher.
+
+**Der Preis, mit offenen Augen:** Ein Melder, der auf «on» hängen
+bleibt - ein verlorenes «off» kommt bei Funkmeldern vor -, hält das
+Licht an, bis ihn jemand richtet oder das Licht von Hand ausschaltet.
+Das ist die richtige Lesart der Auskunft, die der Hub hat: Solange das
+Gerät Bewegung meldet, ist Ausschalten falsch. Der umgekehrte Fehler
+traf jeden Abend, dieser trifft ein defektes Gerät - und er ist
+sichtbar.
+
+**Zwei alte Tests hielten genau den Fehler fest.** Sie schalteten den
+Melder an und liessen ihn an, während sie erwarteten, dass das Licht
+ausgeht. Sie lassen jetzt erst Ruhe einkehren - so, wie es im Flur
+zugeht.
+
+Und die Zahl sagt jetzt selbst, was sie heisst: «Zählt ab der letzten
+Bewegung.» Sie sah aus wie ein harter Zeitgeber und wurde auch so
+gelesen.
+
+Stellen: `hub/homepilot/core/light.py`, `hub/homepilot/core/automation.py`, `app/src/screens/automations/szenen-editor.tsx`

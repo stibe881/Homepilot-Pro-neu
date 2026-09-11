@@ -66,6 +66,17 @@ describe('Ein gewähltes Gerät im Editor', () => {
     expect(gesehen).toContain('Weisston');
   });
 
+  it('sagt bei der Zeit, dass sie ab der letzten Bewegung zählt', () => {
+    // Punkt 547, gemeldet im Haus: «Wenn ich bei Abläufen eine Zeit
+    // angebe, wie lange es an sein soll, schaltet es nach dieser Zeit
+    // aus. Auch wenn in der Zwischenzeit wieder eine Bewegung erkannt
+    // wurde.» Der Hub verlängert jetzt - und die Zahl sagt es auch,
+    // statt dass man es am dunklen Flur merkt.
+    const { baum } = bauen([{ entity_id: lampe.id, command: 'toggle' }]);
+    const gesehen = texte(baum);
+    expect(gesehen.some((zeile) => zeile.includes('ab der letzten Bewegung'))).toBe(true);
+  });
+
   it('trennt die feste Zahl von der gerechneten Helligkeit', () => {
     const { baum } = bauen([{ entity_id: lampe.id, command: 'toggle' }]);
     const gesehen = texte(baum);
