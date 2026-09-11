@@ -36,7 +36,7 @@ from ...core.streams import (
     start_rueckstand,
     strip_low_latency,
 )
-from ...core.users import Capability
+from ...core.users import Capability, kind_darf_schalten
 from ..context import ApiContext
 from ..models import (
     CommandRequest,
@@ -173,6 +173,16 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         entity = hub.registry.get(entity_id)
         if entity is None or not user.may_see(entity.id, entity.kind, entity.integration, entity.room):
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
+        # Was ein Kind nie schaltet (Punkt 497 der Werkbank): Türschloss
+        # und Alarmanlage. Die Kinder-Ansicht bietet beides nicht an -
+        # aber das ist ein Bildschirm und keine Regel, und wer die
+        # Adresse kennt, kommt daran vorbei. Sehen darf es beides
+        # weiterhin; «ist abgeschlossen?» beruhigt.
+        if not kind_darf_schalten(user.role, str(getattr(entity.kind, "value", entity.kind))):
+            raise HTTPException(
+                status_code=403,
+                detail="Türschloss und Alarmanlage schalten die Erwachsenen.",
+            )
         hub.audit.record(
             user.name, entity, body.command, throttle_module.client_address(request)
         )

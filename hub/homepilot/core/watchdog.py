@@ -40,6 +40,7 @@ from . import (
     familie,
     flattern,
     funkqualitaet,
+    gastspur,
     gemeldet,
     giessen,
     gutscheine,
@@ -582,6 +583,8 @@ class Watchdog:
         await self._check_losfahren(entities)
         await self._check_family_cleanup()
         await self._check_vouchers()
+        # Was abgelaufene Gäste hinterlassen (Punkt 498 der Werkbank).
+        await self._gastspuren_aufraeumen()
         await self._check_meal_plan()
         await self._check_access()
         await self._check_spaeter()
@@ -1174,6 +1177,49 @@ class Watchdog:
                 )
         log.info("Gäste-WLAN: %s abgelaufene Gutscheine weggeräumt", len(weg))
         self.hub.data.set("wifi_vouchers", gueltig)
+
+    async def _gastspuren_aufraeumen(self) -> None:
+        """Was abgelaufene Gäste hinterlassen (Punkt 498 der Werkbank).
+
+        Der Gastpass läuft ab, und das tut er zuverlässig - in der Liste
+        bleibt er sichtbar, damit man weiss, wem man den Zugang gegeben
+        hat. Was nicht aufhörte, ist alles daneben: die offene Sitzung
+        am Token und der WLAN-Schein mit eigener Frist. Nach einem Jahr
+        Gästen ist das die längste Liste im Haus.
+
+        Der Benutzer selbst bleibt stehen: Ihn zu löschen wäre eine
+        Entscheidung, und die trifft ein Mensch in der Benutzerliste.
+        Hier verschwinden nur die Spuren, die niemand je angelegt hat -
+        die entstanden beim Anmelden.
+
+        Einmal am Tag, nicht im Minutentakt: Es eilt nichts, und eine
+        Aufräumrunde, die stündlich über alle Sitzungen geht, ist die
+        Sorte Hintergrundarbeit, die man erst bemerkt, wenn sie klemmt.
+        """
+        jetzt = datetime.now()
+        if jetzt.hour != 4:
+            return
+        heute = jetzt.strftime("%Y-%m-%d")
+        if not self._einmal(f"gastspuren:{heute}", jetzt.timestamp()):
+            return
+        namen = gastspur.abgelaufene_gaeste(self.hub.users.users, heute)
+        if not namen:
+            return
+        sitzungen = self.hub.data.get("sessions")
+        uebrig = gastspur.sitzungen_ohne(sitzungen, namen)
+        weniger_sitzungen = len(sitzungen) - len(uebrig)
+        if weniger_sitzungen:
+            self.hub.data.set("sessions", uebrig)
+
+        scheine = self.hub.data.get("wifi_vouchers")
+        rest = gastspur.scheine_ohne(scheine, namen)
+        weniger_scheine = len(scheine) - len(rest)
+        if weniger_scheine:
+            self.hub.data.set("wifi_vouchers", rest)
+
+        satz = gastspur.bericht(namen, weniger_sitzungen, weniger_scheine)
+        if satz:
+            log.info("%s", satz)
 
     def _benutzer_zur_zone(
         self, zone_id: str | None, namen: dict[str, str]

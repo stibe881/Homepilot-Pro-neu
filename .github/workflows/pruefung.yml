@@ -49,6 +49,11 @@ jobs:
       # shellcheck hält es sauber, bevor es auf dem Host landet.
       - name: Auslieferungs-Skripte (shellcheck)
         run: shellcheck --severity=warning deploy/*.sh scripts/*.sh
+      # Die Werkbank steht in zwei Dateien - offen und erledigt. Wer beim
+      # Erledigen kopiert statt verschiebt, hat einen Punkt zweimal, und
+      # beide Stellen sehen für sich richtig aus.
+      - name: Werkbank (jede Nummer genau einmal)
+        run: python3 scripts/werkbank.py
       # Die Typprüfung ist bindend - aber nur dort, wo sie es sein kann.
       #
       # `mypy homepilot` meldete 213 Fehler in 48 Dateien und stand

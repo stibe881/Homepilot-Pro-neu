@@ -200,6 +200,12 @@ class PlaceRequest(BaseModel):
     id: str | None = None
 
 
+class RaumNameRequest(BaseModel):
+    """Der neue Name eines Zimmers (Punkt 495 der Werkbank)."""
+
+    name: str
+
+
 class PushPrefsRequest(BaseModel):
     """Abbestellte Nachrichtenarten eines Benutzers."""
 
