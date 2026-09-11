@@ -3486,7 +3486,7 @@ nie rot wird, ist keiner.
 
 Stellen: `app/src/lib/strichcode.ts`, `app/src/components/Kassencode.tsx`, `app/src/components/QrScanner.tsx`, `app/src/screens/family/gutscheine.tsx`, `hub/homepilot/core/gutscheine.py`
 
-## Zweite Vorschlagsrunde (421–428)
+## Zweite Vorschlagsrunde (421–430)
 
 Aus einer Liste von fünfundachtzig Vorschlägen (allgemein, Bedienung,
 Gestaltung, Gutscheine, Abläufe, Push, Alarmanlage, selbst gewählt),
@@ -3592,3 +3592,27 @@ fragt er zuerst das Gesicht, dann die PIN - und nur beim ersten
 Anlauf: Wer die PIN schon tippt, hat das Gesicht eben gezeigt. Ohne
 Biometrie am Gerät lässt die Sperre durch; die PIN des Hubs bleibt die
 eigentliche Hürde.
+
+### 429. Klingelton nachts leiser oder still ✓ erledigt
+
+*Aufwand: klein · Hub + App*
+
+Ein Gong um Mitternacht weckt das ganze Haus - dabei ist der Pöstler um
+diese Zeit ohnehin nicht da. Die Klingelton-Karte (Abläufe → Push →
+«Es klingelt») hat jetzt eine Nachtregel: wie am Tag, leiser (30 %)
+oder still, mit Stunden «ab» und «bis». Die Push-Nachricht kommt in
+jedem Fall; die Testtaste hört auch nachts etwas
+(`klingelton.lautstaerke_jetzt`, rechnet wie `nachtruhe.still`).
+
+### 430. «Es klingelt» als Ansage - auch auf dem Fernseher ✓ erledigt, verengt
+
+*Aufwand: klein · Hub + App*
+
+Gewünscht war eine Meldung auf dem Fernseher, wenn es klingelt (die
+Klingel hat keine Kamera, also nur der Satz). Ein Bild einblenden kann
+der Hub auf einem Android TV nicht: Die Fernbedienungs-Schnittstelle
+kennt nur Tasten und App-Starts, keine Einblendung. Was geht: der Satz
+als Ansage. Nach dem Gong spricht der Hub «Es klingelt.» (Text
+einstellbar) auf denselben Boxen - und ein Fernseher mit Google Cast
+ist eine solche Box; er steht in der Boxen-Auswahl der Klingelton-Karte.
+Auf einem Fernseher ohne Cast bleibt es bei der Push-Nachricht.

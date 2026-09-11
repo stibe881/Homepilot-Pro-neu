@@ -294,6 +294,11 @@ class DoorbellSoundRequest(BaseModel):
 
     sound: str | None = None
     speakers: list[str] | None = None
+    # Nachts (Punkt 429): {mode: normal|leise|still, from, to} in Stunden.
+    night: dict[str, Any] | None = None
+    # Die Ansage nach dem Ton (Punkt 430) - an/aus und der Satz.
+    announce: bool | None = None
+    announce_text: str | None = None
 
 
 class DoorbellSoundTestRequest(BaseModel):

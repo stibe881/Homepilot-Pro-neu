@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { HubSettings } from '../api/types';
 import { Card } from './Card';
@@ -19,9 +19,14 @@ import {
 import { GuardStand, dabei, storenSatz, umschalten } from '../lib/storenwahl';
 import {
   Klingeltonstand,
+  NACHT_BIS,
+  NACHT_MODI,
+  NACHT_VON,
+  type NachtRegel,
   boxUmschalten,
   klingeltonSatz,
   lautsprecherName,
+  nachtSatz,
 } from '../lib/klingelton';
 import { Automation, triggerIcon } from '../screens/automations/entwurf';
 
@@ -264,6 +269,27 @@ export function PushRules({
     }
   };
 
+  // Nacht und Ansage (Punkt 429/430) - dieselbe Route, ein Feld auf einmal.
+  const klingelNachtWaehlen = async (night: NachtRegel) => {
+    try {
+      setKlingel(
+        await hub.put<Klingeltonstand>('/api/push/doorbell-sound', { night }, { still: true })
+      );
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+    }
+  };
+
+  const klingelAnsageWaehlen = async (patch: { announce?: boolean; announce_text?: string }) => {
+    try {
+      setKlingel(
+        await hub.put<Klingeltonstand>('/api/push/doorbell-sound', patch, { still: true })
+      );
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+    }
+  };
+
   const klingelTesten = async () => {
     setKlingelTestLaeuft(true);
     try {
@@ -428,6 +454,8 @@ export function PushRules({
                   testLaeuft={klingelTestLaeuft}
                   onSound={klingelSoundWaehlen}
                   onBox={klingelBoxWaehlen}
+                  onNacht={klingelNachtWaehlen}
+                  onAnsage={klingelAnsageWaehlen}
                   onTesten={klingelTesten}
                   styles={styles}
                   colors={colors}
@@ -843,6 +871,8 @@ function Klingeltonwahl({
   testLaeuft,
   onSound,
   onBox,
+  onNacht,
+  onAnsage,
   onTesten,
   styles,
   colors,
@@ -852,11 +882,17 @@ function Klingeltonwahl({
   testLaeuft: boolean;
   onSound: (sound: string) => void;
   onBox: (id: string) => void;
+  onNacht: (night: NachtRegel) => void;
+  onAnsage: (patch: { announce?: boolean; announce_text?: string }) => void;
   onTesten: () => void;
   styles: ReturnType<typeof makeStyles>;
   colors: Colors;
 }) {
   const [offen, setOffen] = useState(false);
+  const nacht: NachtRegel = stand.night ?? { mode: 'normal', from: 22, to: 7 };
+  // Der Ansage-Text wird erst beim Verlassen des Felds gespeichert - ein
+  // PUT je Buchstabe wäre Unsinn.
+  const [ansageText, setAnsageText] = useState(stand.announce_text ?? 'Es klingelt.');
 
   return (
     <View style={styles.tuerBlock}>
@@ -920,6 +956,108 @@ function Klingeltonwahl({
             );
           })
         : null}
+      {stand.speakers.length > 0 ? (
+        <>
+          {/* Nachts (Punkt 429): Ein Gong um Mitternacht weckt das ganze
+              Haus - dabei ist der Pöstler um diese Zeit ohnehin nicht da.
+              Die Push-Nachricht kommt in jedem Fall. */}
+          <Text style={styles.tuerTitel}>Nachts</Text>
+          <View style={styles.wahlZeile}>
+            {NACHT_MODI.map((modus) => {
+              const an = nacht.mode === modus.key;
+              return (
+                <Pressable
+                  key={modus.key}
+                  onPress={() => onNacht({ ...nacht, mode: modus.key })}
+                  disabled={!mayEdit}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: an, disabled: !mayEdit }}
+                  style={[styles.wahlChip, an && styles.wahlChipAn]}
+                >
+                  <Text style={[styles.wahlText, an && styles.wahlTextAn]}>{modus.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          {nacht.mode !== 'normal' ? (
+            <View style={styles.wahlZeile}>
+              <Text style={styles.detail}>ab</Text>
+              {NACHT_VON.map((stunde) => {
+                const an = nacht.from === stunde;
+                return (
+                  <Pressable
+                    key={`von${stunde}`}
+                    onPress={() => onNacht({ ...nacht, from: stunde })}
+                    disabled={!mayEdit}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: an }}
+                    accessibilityLabel={`ab ${stunde} Uhr`}
+                    style={[styles.wahlChip, an && styles.wahlChipAn]}
+                  >
+                    <Text style={[styles.wahlText, an && styles.wahlTextAn]}>{stunde}</Text>
+                  </Pressable>
+                );
+              })}
+              <Text style={styles.detail}>bis</Text>
+              {NACHT_BIS.map((stunde) => {
+                const an = nacht.to === stunde;
+                return (
+                  <Pressable
+                    key={`bis${stunde}`}
+                    onPress={() => onNacht({ ...nacht, to: stunde })}
+                    disabled={!mayEdit}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: an }}
+                    accessibilityLabel={`bis ${stunde} Uhr`}
+                    style={[styles.wahlChip, an && styles.wahlChipAn]}
+                  >
+                    <Text style={[styles.wahlText, an && styles.wahlTextAn]}>{stunde}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
+          {nachtSatz(nacht) ? <Text style={styles.detail}>{nachtSatz(nacht)}</Text> : null}
+
+          {/* Die Ansage (Punkt 430): «Es klingelt» als gesprochener Satz
+              nach dem Gong, auf denselben Boxen. Der Fernseher ist über
+              Cast eine davon - ein Bild einblenden kann der Hub dort
+              nicht, sagen kann er es. */}
+          <Pressable
+            onPress={() => onAnsage({ announce: !stand.announce })}
+            disabled={!mayEdit}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: !!stand.announce, disabled: !mayEdit }}
+            style={styles.tuerZeile}
+          >
+            <Ionicons
+              name={stand.announce ? 'checkbox' : 'square-outline'}
+              size={16}
+              color={stand.announce ? colors.on : colors.inkFaint}
+            />
+            <Text style={[styles.tuerZeileText, stand.announce && { color: colors.ink }]}>
+              Dazu ansagen – auch auf dem Fernseher, wenn er als Box gewählt ist
+            </Text>
+          </Pressable>
+          {stand.announce ? (
+            <TextInput
+              value={ansageText}
+              onChangeText={setAnsageText}
+              editable={mayEdit}
+              onBlur={() => {
+                if (ansageText.trim() !== (stand.announce_text ?? '')) {
+                  onAnsage({ announce_text: ansageText.trim() });
+                }
+              }}
+              placeholder="Es klingelt."
+              placeholderTextColor={colors.inkFaint}
+              maxLength={80}
+              accessibilityLabel="Text der Ansage"
+              style={styles.ansageFeld}
+            />
+          ) : null}
+        </>
+      ) : null}
       {mayEdit && stand.speakers.length > 0 ? (
         <Pressable
           onPress={onTesten}
@@ -1015,6 +1153,14 @@ const makeStyles = (colors: Colors) =>
       paddingVertical: 6,
     },
     tuerZeileText: { color: colors.inkSoft, fontSize: 13, flex: 1 },
+    ansageFeld: {
+      color: colors.ink,
+      fontSize: 13,
+      paddingVertical: 6,
+      paddingHorizontal: 10,
+      borderRadius: 8,
+      backgroundColor: colors.surfaceSoft,
+    },
     paramValue: {
       color: colors.ink,
       fontSize: 14,

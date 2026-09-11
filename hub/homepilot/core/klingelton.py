@@ -44,6 +44,23 @@ LAUTSTAERKE = 55
 #: Wo die Wahl (Ton, Boxen) in der Datendatei liegt.
 DATA_KEY = "klingelton"
 
+#: Nachts (Punkt 429): «normal» wie am Tag, «leise» gedämpft, «still»
+#: gar nicht - die Push-Nachricht kommt in jedem Fall. Ein Gong um
+#: Mitternacht weckt das ganze Haus, dabei ist der Pöstler um diese
+#: Zeit ohnehin nicht da.
+NACHT_MODI = ("normal", "leise", "still")
+NACHT_STANDARD = {"mode": "normal", "from": 22, "to": 7}
+#: So laut ist «leise» - hörbar im Zimmer, nicht im Kinderzimmer nebenan.
+NACHT_LAUTSTAERKE = 30
+
+#: Die Ansage nach dem Ton (Punkt 430): «Es klingelt» als gesprochener
+#: Satz auf denselben Boxen. Für den Fernseher gedacht, der über
+#: Google Cast eine Box ist: Ein Bild einblenden kann der Hub dort
+#: nicht (die Android-TV-Fernbedienung kennt nur Tasten), aber sagen
+#: kann er es. Ohne Kamera an der Klingel ist der Satz die Meldung.
+ANSAGE_STANDARD = "Es klingelt."
+ANSAGE_MAX = 80
+
 #: Die eingebauten Klänge, in Anzeige-Reihenfolge. Die ersten drei sind
 #: klassisch, die letzten drei zum Schmunzeln - beides darf man wollen.
 KLAENGE: list[dict[str, Any]] = [
@@ -170,8 +187,52 @@ def klang_wav(key: str) -> bytes:
     return wav_bytes(noten_zu_samples(klang["noten"]))
 
 
+def nacht_lesen(raw: Any) -> dict[str, Any]:
+    """Die Nacht-Regel aus der Ablage (rein, testbar) - Unsinn wird zur Vorgabe."""
+    if not isinstance(raw, dict):
+        return dict(NACHT_STANDARD)
+    mode = str(raw.get("mode") or NACHT_STANDARD["mode"])
+    if mode not in NACHT_MODI:
+        mode = str(NACHT_STANDARD["mode"])
+
+    def stunde(wert: Any, vorgabe: int) -> int:
+        try:
+            zahl = int(wert)
+        except (TypeError, ValueError):
+            return vorgabe
+        return zahl if 0 <= zahl <= 23 else vorgabe
+
+    return {
+        "mode": mode,
+        "from": stunde(raw.get("from"), int(NACHT_STANDARD["from"])),
+        "to": stunde(raw.get("to"), int(NACHT_STANDARD["to"])),
+    }
+
+
+def ansage_lesen(raw: Any) -> str:
+    """Der Ansage-Text - gekürzt und ohne Leerraum; leer heisst Vorgabe (rein, testbar)."""
+    text = str(raw or "").strip()
+    return text[:ANSAGE_MAX] if text else ANSAGE_STANDARD
+
+
+def lautstaerke_jetzt(stand: dict[str, Any], jetzt: float) -> int | None:
+    """Wie laut der Ton jetzt spielt - ``None`` heisst gar nicht (rein, testbar).
+
+    Die Nacht rechnet wie die Ruhezeit der Meldungen (core/nachtruhe.py):
+    «von 22 bis 7» geht über Mitternacht, «von 0 bis 0» ist keine Nacht.
+    """
+    from . import nachtruhe
+
+    nacht = stand.get("night") or NACHT_STANDARD
+    if nacht["mode"] == "normal" or not nachtruhe.still(jetzt, nacht["from"], nacht["to"]):
+        return LAUTSTAERKE
+    if nacht["mode"] == "still":
+        return None
+    return NACHT_LAUTSTAERKE
+
+
 def einstellung_lesen(rows: Any) -> dict[str, Any]:
-    """Die gespeicherte Wahl - Ton und Boxen (rein, testbar).
+    """Die gespeicherte Wahl - Ton, Boxen, Nacht und Ansage (rein, testbar).
 
     ``rows`` ist der Datenspeicher-Eintrag (höchstens ein Dict in einer
     Liste, wie beim Gute-Nacht-Knopf). Ein unbekannter Ton fällt auf
@@ -193,5 +254,14 @@ def einstellung_lesen(rows: Any) -> dict[str, Any]:
                     if isinstance(boxen, list)
                     else []
                 ),
+                "night": nacht_lesen(row.get("night")),
+                "announce": bool(row.get("announce")),
+                "announce_text": ansage_lesen(row.get("announce_text")),
             }
-    return {"sound": STANDARD, "speakers": []}
+    return {
+        "sound": STANDARD,
+        "speakers": [],
+        "night": dict(NACHT_STANDARD),
+        "announce": False,
+        "announce_text": ANSAGE_STANDARD,
+    }

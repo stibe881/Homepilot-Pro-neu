@@ -594,6 +594,9 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         return {
             "sound": stand["sound"],
             "speakers": stand["speakers"],
+            "night": stand["night"],
+            "announce": stand["announce"],
+            "announce_text": stand["announce_text"],
             "sounds": [
                 {"key": klang["key"], "label": klang["label"]}
                 for klang in klingelton.KLAENGE
@@ -621,7 +624,27 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                     detail=f"Diese Lautsprecher kennt der Hub nicht: {', '.join(fremd)}",
                 )
             speakers = [str(eintrag) for eintrag in body.speakers]
-        hub.data.set(klingelton.DATA_KEY, [{"sound": sound, "speakers": speakers}])
+        night = klingelton.nacht_lesen(body.night) if body.night is not None else bisher["night"]
+        if body.night is not None and str(body.night.get("mode") or "") not in klingelton.NACHT_MODI:
+            raise HTTPException(status_code=400, detail="Nachts gibt es nur normal, leise oder still")
+        announce = body.announce if body.announce is not None else bisher["announce"]
+        announce_text = (
+            klingelton.ansage_lesen(body.announce_text)
+            if body.announce_text is not None
+            else bisher["announce_text"]
+        )
+        hub.data.set(
+            klingelton.DATA_KEY,
+            [
+                {
+                    "sound": sound,
+                    "speakers": speakers,
+                    "night": night,
+                    "announce": announce,
+                    "announce_text": announce_text,
+                }
+            ],
+        )
         return await doorbell_sound(request)
 
     @app.post("/api/push/doorbell-sound/test")
@@ -633,8 +656,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         current_user(request)
         if body.sound is not None and body.sound not in klingelton.BY_KEY:
             raise HTTPException(status_code=404, detail="Diesen Klingelton kennt der Hub nicht")
+        # Ohne Nachtregel: Wer um elf abends die Testtaste drückt, will
+        # etwas hören - die Regel gilt dem echten Klingeln.
         gespielt = await hub.ton.klingelton_abspielen(
-            sound=body.sound, speakers=body.speakers
+            sound=body.sound, speakers=body.speakers, nacht=False
         )
         if not gespielt:
             raise HTTPException(

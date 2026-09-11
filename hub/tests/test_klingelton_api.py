@@ -110,12 +110,10 @@ def test_omitting_a_field_leaves_it_untouched(client):
     antwort = client.put(
         "/api/push/doorbell-sound", json={"sound": "tusch"}, headers=auth("t-owner")
     )
-    assert antwort.json() == {
-        "sound": "tusch",
-        "speakers": [box],
-        "sounds": antwort.json()["sounds"],
-        "candidates": antwort.json()["candidates"],
-    }
+    daten = antwort.json()
+    assert (daten["sound"], daten["speakers"]) == ("tusch", [box])
+    assert daten["night"] == klingelton.NACHT_STANDARD
+    assert daten["announce"] is False
 
 
 def test_the_test_button_plays_without_saving(client):
@@ -160,3 +158,31 @@ def test_only_edit_automations_may_save(client):
         headers=auth("t-resident"),
     )
     assert antwort.status_code == 403
+
+
+def test_night_rule_and_announcement_are_stored_and_validated(client):
+    antwort = client.put(
+        "/api/push/doorbell-sound",
+        json={
+            "night": {"mode": "leise", "from": 21, "to": 6},
+            "announce": True,
+            "announce_text": "Es klingelt an der Haustüre.",
+        },
+        headers=auth("t-owner"),
+    )
+    assert antwort.status_code == 200, antwort.text
+    daten = antwort.json()
+    assert daten["night"] == {"mode": "leise", "from": 21, "to": 6}
+    assert daten["announce"] is True
+    assert daten["announce_text"] == "Es klingelt an der Haustüre."
+    # Ein Feld allein lässt die anderen stehen.
+    client.put("/api/push/doorbell-sound", json={"sound": "hupe"}, headers=auth("t-owner"))
+    daten = client.get("/api/push/doorbell-sound", headers=auth("t-owner")).json()
+    assert daten["night"]["mode"] == "leise"
+    assert daten["announce"] is True
+    assert (
+        client.put(
+            "/api/push/doorbell-sound", json={"night": {"mode": "laut"}}, headers=auth("t-owner")
+        ).status_code
+        == 400
+    )
