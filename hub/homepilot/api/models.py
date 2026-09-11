@@ -144,6 +144,13 @@ class AutomationRequest(BaseModel):
     # Restzeit anzeigen: «geht in 12 Min aus» an Kachel, Raumkarte und
     # im «Lichter an»-Blatt (core/abschaltung.py).
     countdown: bool = False
+    # Bis wann der Ablauf überhaupt gilt (Punkt 464): «YYYY-MM-DD», der
+    # Tag selbst zählt noch. Danach schaltet der Hub ihn aus und lässt
+    # ihn stehen - nicht dasselbe wie `quiet_until`, das eine Pause ist.
+    valid_until: str | None = None
+    # In welcher Reihenfolge er drankommt, wenn mehrere gleichzeitig
+    # dran sind (Punkt 466). Kleiner zuerst, 0 heisst «egal».
+    order: int = 0
 
 
 class SceneRequest(BaseModel):

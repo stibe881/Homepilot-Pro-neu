@@ -72,7 +72,7 @@ import logging
 import random
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from . import (
@@ -86,6 +86,7 @@ from . import (
     personenbild,
     platzhalter,
     pushziel,
+    schulferien,
     stromrueckkehr,
     terminkontext,
     verwaist,
@@ -301,6 +302,27 @@ class Automation:
     # bei der Anwesenheits-Simulation gerade nicht - die soll aussehen
     # wie ein Mensch, der das Licht löscht, und nicht wie eine Schaltuhr.
     countdown: bool = False
+    # Bis wann dieser Ablauf überhaupt gilt (Punkt 464 der Werkbank) -
+    # «YYYY-MM-DD», der Tag selbst zählt noch mit.
+    #
+    # Nicht dasselbe wie `quiet_until`: Das ist eine Pause, nach der es
+    # weitergeht. Hier geht es nicht weiter - «bis Ende der Ferien»,
+    # «nur diese Woche». Ohne dieses Feld schaltete man einen solchen
+    # Ablauf ein und vergass ihn; der Ferienmodus (Punkt 156) löst es
+    # für einen einzigen Fall, gebraucht wird es an jedem.
+    #
+    # Abgelaufen heisst nicht gelöscht: Der Hub schaltet ihn aus und
+    # lässt ihn stehen - im nächsten Jahr braucht man ihn wieder.
+    valid_until: str | None = None
+    # In welcher Reihenfolge dieser Ablauf an die Reihe kommt, wenn
+    # mehrere gleichzeitig dran sind (Punkt 466 der Werkbank). Kleiner
+    # zuerst, bei Gleichstand nach Name.
+    #
+    # Vorher gab es die Frage gar nicht: Zwei Abläufe um 07:00 liefen in
+    # der Reihenfolge, in der sie zufällig in der Liste standen. Das war
+    # kein Verhalten, sondern ein Zufall - und auf einen Zufall verlässt
+    # sich irgendwann jemand («erst Storen hoch, dann Kaffee»).
+    order: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -321,6 +343,8 @@ class Automation:
             "quiet_from": self.quiet_from,
             "quiet_to": self.quiet_to,
             "countdown": self.countdown,
+            "valid_until": self.valid_until,
+            "order": self.order,
         }
 
     def as_config(self) -> dict[str, Any]:
@@ -342,6 +366,8 @@ class Automation:
             "quiet_from": self.quiet_from,
             "quiet_to": self.quiet_to,
             "countdown": self.countdown,
+            "valid_until": self.valid_until,
+            "order": self.order,
         }
 
 
@@ -733,11 +759,16 @@ def timed_actions(actions: list[dict[str, Any]], name_of: Any = None) -> list[st
     return lines
 
 
-def describe_condition(condition: dict[str, Any], value: Any) -> str:
+def describe_condition(
+    condition: dict[str, Any], value: Any, ferien_name: str | None = None
+) -> str:
     """Warum eine Bedingung nicht passte, in einem Satz (rein, testbar).
 
     «Bedingung 2 war falsch» hilft niemandem. «Helligkeit war 44, verlangt
     ist unter 30» beantwortet die Frage sofort.
+
+    ``ferien_name`` kommt von aussen herein (Punkt 470): Die Ferientermine
+    liegen in der Ablage des Hubs, und diese Funktion soll rein bleiben.
     """
     ctype = condition.get("type", "state")
     if ctype == "group":
@@ -753,6 +784,8 @@ def describe_condition(condition: dict[str, Any], value: Any) -> str:
         ):
             name = feiertage.feiertage(datetime.now().year).get(datetime.now().date(), "")
             return f"Heute ist ein Feiertag ({name})"
+        if condition.get("except_school_holidays") and ferien_name:
+            return f"Heute sind Schulferien ({ferien_name})"
         window = " bis ".join(
             part for part in (condition.get("after"), condition.get("before")) if part
         )
@@ -1238,9 +1271,71 @@ def parse_automations(
                 quiet_from=parse_stunde(config.get("quiet_from")),
                 quiet_to=parse_stunde(config.get("quiet_to")),
                 countdown=bool(config.get("countdown")),
+                valid_until=parse_gueltig_bis(config.get("valid_until")),
+                order=parse_order(config.get("order")),
             )
         )
     return automations
+
+
+def parse_gueltig_bis(value: Any) -> str | None:
+    """Bis wann dieser Ablauf gilt, eingelesen (rein, testbar) - Punkt 464.
+
+    Nur ein echtes Datum bleibt stehen; alles andere wird None, also
+    «unbefristet». Geklemmt wird nicht: Ein falsch getipptes Datum soll
+    nicht dazu führen, dass ein Ablauf ab morgen schweigt - das wäre
+    genau die Art stiller Ausfall, gegen die es die Befristung gibt.
+    """
+    text = str(value or "").strip()[:10]
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text).isoformat()
+    except ValueError:
+        return None
+
+
+def parse_order(value: Any) -> int:
+    """Die Reihenfolge-Zahl (rein, testbar) - Punkt 466 der Werkbank.
+
+    Geklemmt auf -99 bis 99: mehr Spielraum, als ein Haushalt je
+    braucht, und es schliesst die Zahl aus, die sich jemand zum
+    Sortieren von etwas anderem ausgedacht hat. Unlesbares wird 0 - die
+    Mitte, also «egal», und das ist bei fast allen Abläufen die Wahrheit.
+    """
+    try:
+        zahl = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(-99, min(99, zahl))
+
+
+def abgelaufen(automation: Automation, heute: date) -> bool:
+    """Ist die Frist dieses Ablaufs vorbei? (rein, testbar) - Punkt 464.
+
+    Der letzte Tag zählt noch mit, wie bei den Gutscheinen: «gültig bis
+    30.06.» heisst am 30.06. noch gültig.
+    """
+    if not automation.valid_until:
+        return False
+    try:
+        return date.fromisoformat(automation.valid_until) < heute
+    except ValueError:
+        return False
+
+
+def nach_reihenfolge(automations: list[Automation]) -> list[Automation]:
+    """Die Abläufe in der Reihenfolge, in der sie drankommen (rein,
+    testbar) - Punkt 466 der Werkbank.
+
+    Kleine Zahl zuerst, bei Gleichstand nach Name, zuletzt nach Kennung.
+    Der Name als zweites Kriterium und nicht die Listenreihenfolge: Die
+    ändert sich beim Bearbeiten, und dann liefe dasselbe Haus morgen
+    anders herum als heute, ohne dass jemand etwas an der Reihenfolge
+    geändert hätte.
+    """
+    return sorted(automations, key=lambda a: (a.order, a.alias.lower(), a.id))
+
 
 
 def parse_stunde(value: Any) -> int | None:
@@ -1365,6 +1460,31 @@ def _targets(actions: list[dict[str, Any]]) -> dict[str, set[str]]:
     return result
 
 
+def konflikte_mit(entwurf: Any, andere: list[Any]) -> list[dict[str, Any]]:
+    """Womit dieser eine Ablauf sich beisst (rein, testbar) - Punkt 462.
+
+    `find_conflicts` sammelt alle Widersprüche des Hauses; gefragt ist
+    hier nur der eine, der gerade entsteht. Bemerkt wurde er bisher erst
+    in der Liste unter «Widersprüche» - also Tage später, an einem
+    Licht, das flackert, und nicht in dem Moment, in dem man ihn baut.
+
+    Der Ablauf mit derselben Kennung fällt raus: Beim Bearbeiten läge
+    sonst die gespeicherte Fassung im Vergleich, und jeder Ablauf, der
+    ein Gerät ein- *und* ausschaltet, widerspräche sich selbst.
+    """
+    eigene_id = str(getattr(entwurf, "id", "") or "")
+    vergleich = [
+        automation
+        for automation in andere
+        if str(getattr(automation, "id", "") or "") != eigene_id
+    ]
+    return [
+        zeile
+        for zeile in find_conflicts([entwurf, *vergleich])
+        if any(teil["id"] == eigene_id for teil in zeile["automations"])
+    ]
+
+
 def find_conflicts(automations: list[Any]) -> list[dict[str, Any]]:
     """Abläufe, die dasselbe Gerät gegensätzlich schalten (rein, testbar).
 
@@ -1459,6 +1579,15 @@ class AutomationEngine:
         self._depth: dict[str, int] = {}
         # Laufende «bleibt so für X»-Wartezeiten je (Automation, Auslöser).
         self._held_tasks: dict[tuple[str, int], asyncio.Task] = {}
+        # Wer von Hand abgebrochen wurde (Punkt 461). Ein Abbruch sieht
+        # von innen aus wie der bei «restart» - und der gehört
+        # ausdrücklich nicht ins Protokoll. Dieser hier schon: Er ist das
+        # Einzige, was später erklärt, warum die Storen zu blieben.
+        self._abgebrochen: set[str] = set()
+        # Welcher Ablauf heute schon einmal als gestolpert gemeldet wurde
+        # (Punkt 465): «<id>:<YYYY-MM-DD>». Ein totes Gerät macht sonst
+        # aus jeder Bewegung im Flur eine Push-Nachricht.
+        self._fehlschlag_gemeldet: set[str] = set()
         # Bis zu diesem Zeitpunkt laufen keine Automationen – für Abende mit
         # Gästen oder wenn man selbst am Basteln ist.
         self.paused_until: datetime | None = None
@@ -1496,7 +1625,10 @@ class AutomationEngine:
         # Was der letzte Halt offen liess, zuerst - noch vor den Auslösern.
         self._hole_rest()
         self._unsubscribe = self.hub.bus.subscribe("state_changed", self._on_state_changed)
-        for automation in self.automations:
+        # Auch die Zeitgeber in fester Reihenfolge anlegen (Punkt 466):
+        # Zwei Abläufe um 07:00 hängen an zwei Schlafenden, die in der
+        # Reihenfolge geweckt werden, in der sie sich schlafen legten.
+        for automation in nach_reihenfolge(self.automations):
             for trigger in automation.triggers:
                 if trigger.get("type") == "interval":
                     task = asyncio.create_task(
@@ -1584,7 +1716,11 @@ class AutomationEngine:
             neuer = (data.get("new_state") or {}).get("state")
             if neuer is not None and str(neuer) != "on":
                 self._start_task(self._countdown_loeschen(entity_id))
-        for automation in self.automations:
+        # In fester Reihenfolge (Punkt 466 der Werkbank): Zwei Abläufe am
+        # selben Ereignis liefen bisher in der Reihenfolge, in der sie
+        # zufällig in der Liste standen - kein Verhalten, sondern ein
+        # Zufall, auf den sich irgendwann jemand verlässt.
+        for automation in nach_reihenfolge(self.automations):
             if not automation.enabled:
                 continue
             for index, trigger in enumerate(automation.triggers):
@@ -2105,6 +2241,19 @@ class AutomationEngine:
                 skipped=["Babysitter-Modus"],
             )
             return
+        # Befristet und vorbei (Punkt 464 der Werkbank). Vor `quiet_until`
+        # geprüft, weil das eine Pause ist, nach der es weitergeht - hier
+        # geht es nicht weiter. Der Ablauf bleibt stehen und wird nur
+        # stumm; ausgeschaltet wird er einmal täglich (_fristen_loop),
+        # damit die Liste ihn als «aus» zeigt statt als «läuft, tut aber
+        # nichts».
+        if abgelaufen(automation, date.today()):
+            log.debug(
+                "Automation '%s' übersprungen (Frist bis %s abgelaufen)",
+                automation.alias,
+                automation.valid_until,
+            )
+            return
         if automation.quiet_until and time.time() < automation.quiet_until:
             # Ruht noch. Anders als «ausgeschaltet» meldet er sich von
             # selbst zurück - deshalb hier und nicht in `enabled`.
@@ -2159,6 +2308,44 @@ class AutomationEngine:
             if self._tasks_by_id.get(key) is done
             else None
         )
+
+    @property
+    def laufend(self) -> set[str]:
+        """Welche Abläufe gerade mitten in einem Durchgang stehen.
+
+        Die App braucht das, um den Abbrechen-Knopf überhaupt zu zeigen
+        (Punkt 461) - ein Knopf, der bei fast jedem Ablauf nichts tut,
+        wäre schlimmer als keiner.
+        """
+        return {
+            auto_id for auto_id, task in self._tasks_by_id.items() if not task.done()
+        }
+
+    def abbrechen(self, automation_id: str) -> bool:
+        """Einen laufenden Durchgang abbrechen (Punkt 461 der Werkbank).
+
+        «Gute Nacht» mit drei Wartezeiten läuft zwölf Minuten. Wer nach
+        der ersten Minute merkt, dass noch jemand im Wohnzimmer sitzt,
+        hatte bisher keinen Knopf - der Ablauf fuhr die Storen trotzdem.
+        Die drei Wiederanlauf-Arten (single, restart, queued) regeln den
+        *zweiten* Auslöser, nicht den Abbruch.
+
+        Was schon geschaltet ist, bleibt geschaltet: Ein Abbruch nimmt
+        die ersten Schritte nicht zurück. Das ist die ehrliche Grenze -
+        ein Abbruch, der heimlich Licht wieder einschaltet, wäre ein
+        zweiter Ablauf, den niemand gebaut hat.
+
+        Die Warteschlange wird mit geleert: Wer abbricht, meint diesen
+        Abend, nicht nur diese Sekunde - sonst begänne bei «queued»
+        sofort der nächste aufgestaute Lauf.
+        """
+        task = self._tasks_by_id.get(automation_id)
+        if task is None or task.done():
+            return False
+        self._queued.pop(automation_id, None)
+        self._abgebrochen.add(automation_id)
+        task.cancel()
+        return True
 
     def next_run(self, automation: Automation) -> float | None:
         """Wann der nächste Zeit- oder Sonnen-Auslöser fällig ist (Punkt 161).
@@ -2436,6 +2623,15 @@ class AutomationEngine:
             self._running.discard(automation.id)
             if self._stopping and executed:
                 self._merke_rest(automation, actions, position)
+            if automation.id in self._abgebrochen:
+                self._abgebrochen.discard(automation.id)
+                self._note(
+                    automation,
+                    executed=False,
+                    error=None,
+                    skipped=[f"Von Hand abgebrochen bei Schritt {position + 1}"],
+                    steps=spur,
+                )
             raise
         except Exception as err:
             error = str(err)
@@ -2476,6 +2672,8 @@ class AutomationEngine:
         )
         if executed and error is None:
             self._wirkung_planen(eintrag, actions)
+        if executed and error is not None:
+            await self._melde_fehlschlag(automation, error)
         if executed:
             await self.hub.bus.publish(
                 "automation_run",
@@ -2486,6 +2684,41 @@ class AutomationEngine:
                     "error": error,
                 },
             )
+
+    async def _melde_fehlschlag(self, automation: Automation, fehler: str) -> None:
+        """Sagen, dass ein Ablauf gestolpert ist (Punkt 465 der Werkbank).
+
+        Bisher stand ein hängender Schritt im Lauf-Verlauf - und sonst
+        nirgends. Ein «Gute Nacht», das zur Hälfte lief, ist schlechter
+        als eines, das gar nicht lief: Man glaubt, das Haus sei zu.
+
+        Drei Entscheidungen, die man im Betrieb merkt:
+
+        - **Höchstens einmal am Tag je Ablauf.** Ein Gerät, das seit
+          Wochen tot ist, macht aus jeder Bewegung im Flur eine
+          Nachricht. Die erste ist die Auskunft, die dreissigste der
+          Grund, die Kategorie abzubestellen - und dann kommt auch die
+          nächste echte nicht mehr an.
+        - **Kategorie «maintenance».** Dieselbe wie beim verwaisten
+          Ablauf: Es ist kein Notfall, aber etwas, das jemand richten
+          muss. Damit gilt auch die Ruhezeit dafür - um drei Uhr nachts
+          ändert diese Nachricht nichts.
+        - **Der Tipp führt in den Lauf-Verlauf.** Dort steht, welcher
+          Schritt hing; die blosse Liste der Abläufe sagt es nicht.
+        """
+        heute = datetime.now().strftime("%Y-%m-%d")
+        marke = f"{automation.id}:{heute}"
+        if marke in self._fehlschlag_gemeldet:
+            return
+        self._fehlschlag_gemeldet.add(marke)
+        tokens = self.hub.push.recipients(self.hub.users.users, "all", "maintenance")
+        await self.hub.push.send(
+            tokens,
+            "Ablauf gestolpert",
+            f"{automation.alias}: {fehler}",
+            data={"ziel": f"ablauf:{automation.id}"},
+            category="maintenance",
+        )
 
     def _wirkung_planen(
         self, eintrag: dict[str, Any], actions: list[dict[str, Any]]
@@ -2616,6 +2849,69 @@ class AutomationEngine:
                 # Der Takt läuft weiter: Eine kaputte Zeile in der Datei
                 # darf die Prüfung von übermorgen nicht mitreissen.
                 log.debug("Verwaisten-Prüfung fehlgeschlagen", exc_info=True)
+            try:
+                await self.fristen_pruefen()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.debug("Fristen-Prüfung fehlgeschlagen", exc_info=True)
+
+    async def fristen_pruefen(self) -> list[Automation]:
+        """Abgelaufene Abläufe ausschalten (Punkt 464 der Werkbank).
+
+        Stumm wären sie schon (siehe `_schedule`); ausgeschaltet werden
+        sie, weil die Liste sonst «läuft» sagt und nichts tut. Das ist
+        der Zustand, in dem jemand eine Stunde sucht, warum das Licht
+        nicht angeht.
+
+        Gelöscht wird nichts: «Bis Ende der Ferien» kommt nächstes Jahr
+        wieder, und ein Ablauf, der sich selbst löscht, ist eine Arbeit,
+        die zweimal gemacht werden muss. Die Frist bleibt ebenfalls
+        stehen - wer ihn wieder einschaltet, sieht, wonach er sie neu
+        setzen muss.
+        """
+        heute = date.today()
+        faellig = [
+            automation
+            for automation in self.automations
+            if automation.enabled and abgelaufen(automation, heute)
+        ]
+        if not faellig:
+            return []
+        betroffen = {automation.id for automation in faellig}
+        for automation in faellig:
+            automation.enabled = False
+            log.info(
+                "Automation '%s' ausgeschaltet - Frist bis %s ist vorbei",
+                automation.alias,
+                automation.valid_until,
+            )
+        # Abgelegt wird wie in der Route (api/routes/automations.py): Die
+        # Abläufe aus der config.yaml stehen nicht in der hub.data und
+        # bleiben nur zur Laufzeit aus - dort gehört die Frist ohnehin
+        # von Hand gepflegt, die Datei ist die Wahrheit.
+        gespeichert = self.hub.data.get("automations")
+        if any(str(eintrag.get("id")) in betroffen for eintrag in gespeichert):
+            self.hub.data.set(
+                "automations",
+                [
+                    {**eintrag, "enabled": False}
+                    if str(eintrag.get("id")) in betroffen
+                    else eintrag
+                    for eintrag in gespeichert
+                ],
+            )
+        tokens = self.hub.push.recipients(self.hub.users.users, "all", "maintenance")
+        namen = ", ".join(automation.alias for automation in faellig[:3])
+        rest = "" if len(faellig) <= 3 else f" und {len(faellig) - 3} weitere"
+        await self.hub.push.send(
+            tokens,
+            "Frist abgelaufen",
+            f"{namen}{rest}: die Frist ist vorbei, der Ablauf ist jetzt aus.",
+            data={"ziel": "bereich:automations"},
+            category="maintenance",
+        )
+        return faellig
 
     async def _verwaiste_pruefen(self) -> None:
         jetzt = time.time()
@@ -2673,7 +2969,14 @@ class AutomationEngine:
             (condition, self._check_condition(condition))
             for condition in automation.conditions
         ]
-        failed = [describe_condition(c, self._value_of(c)) for c, ok in results if not ok]
+        ferien_name = schulferien.ferien_am(
+            self.hub.data.get(schulferien.STORE_KEY), date.today()
+        )
+        failed = [
+            describe_condition(c, self._value_of(c), ferien_name)
+            for c, ok in results
+            if not ok
+        ]
         held = (
             any(ok for _, ok in results)
             if automation.match == "any"
@@ -2778,6 +3081,18 @@ class AutomationEngine:
             # Donnerstag, aber kein Werktag - der Sauger soll das wissen.
             if condition.get("except_holidays") and feiertage.ist_feiertag(
                 datetime.now().date()
+            ):
+                return False
+            # «ausser in den Schulferien» (Punkt 470 der Werkbank). Die
+            # Luzerner Ferientermine liegen seit je im Hub, benutzt hat
+            # sie nur die Simulation - «Wecklicht um 06:30» war im Juli
+            # falsch, und abgestellt hat das jeden Sommer jemand von Hand.
+            #
+            # Feiertage sind damit nicht mit erschlagen: Wer beides will,
+            # setzt beide Haken. Ein Ferienhaken, der stillschweigend auch
+            # Auffahrt abdeckte, wäre eine zweite Bedeutung in einem Wort.
+            if condition.get("except_school_holidays") and schulferien.ferien_am(
+                self.hub.data.get(schulferien.STORE_KEY), datetime.now().date()
             ):
                 return False
             return time_in_window(

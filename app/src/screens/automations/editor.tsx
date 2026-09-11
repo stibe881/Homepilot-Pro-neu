@@ -60,6 +60,8 @@ export function Editor({
   empfaenger,
   onProbeStep,
   onChange,
+  onZurueck,
+  onKonfliktProbe,
   onSave,
   onDelete,
   onDuplizieren,
@@ -90,6 +92,16 @@ export function Editor({
   /** Einen einzelnen Schritt sofort ausführen (Punkt 164). */
   onProbeStep?: (step: StepDraft) => Promise<boolean>;
   onChange: (draft: Draft) => void;
+  /** Eine Änderung zurücknehmen (Punkt 467 der Werkbank) - fehlt, wenn
+   *  es nichts zurückzunehmen gibt. Betrifft nur diese Sitzung; für
+   *  gespeicherte Fassungen gibt es «Frühere Fassungen» daneben. */
+  onZurueck?: () => void;
+  /** Womit sich dieser Entwurf beisst (Punkt 462). Der Hub rechnet es
+   *  mit demselben Weg wie die Widerspruchs-Liste - nur jetzt statt
+   *  Tage später an einem Licht, das flackert. */
+  onKonfliktProbe?: (draft: Draft) => Promise<
+    { entity_id: string; commands: string[]; automations: { id: string; alias: string }[] }[]
+  >;
   onSave: () => void;
   onDelete?: () => void;
   /** Den Ablauf kopieren (Punkt 313 der Werkbank). «Wie der für die
@@ -122,6 +134,41 @@ export function Editor({
   // Das Blatt «Hätte gefeuert» (Punkt 254) - null heisst: noch nicht
   // geholt oder Hub nicht erreichbar.
   const [simulation, setSimulation] = useState<SimulationsBericht | null>(null);
+  // Womit sich der Entwurf beisst (Punkt 462). Nachgefragt wird eine
+  // Sekunde nach der letzten Änderung: Bei jedem Tastendruck zu fragen
+  // hiesse, dem Hub beim Tippen des Namens dreissig Anfragen zu
+  // schicken - und die Antwort auf einen halben Entwurf ist ohnehin
+  // keine.
+  const [widersprueche, setWidersprueche] = useState<
+    { entity_id: string; commands: string[]; automations: { id: string; alias: string }[] }[]
+  >([]);
+  const schritteSchluessel = JSON.stringify(draft?.steps ?? []);
+  const sonstSchluessel = JSON.stringify(draft?.elseSteps ?? []);
+  useEffect(() => {
+    if (!onKonfliktProbe || !draft) {
+      setWidersprueche([]);
+      return;
+    }
+    let lebt = true;
+    const frist = setTimeout(() => {
+      onKonfliktProbe(draft)
+        .then((zeilen) => {
+          if (lebt) setWidersprueche(zeilen);
+        })
+        .catch(() => {
+          // Ein Hinweis, der sich nicht holen lässt, soll das Bauen
+          // nicht aufhalten - dann steht er eben nicht da.
+          if (lebt) setWidersprueche([]);
+        });
+    }, 1000);
+    return () => {
+      lebt = false;
+      clearTimeout(frist);
+    };
+    // Nur die Schritte entscheiden über Widersprüche - Name, Kategorie
+    // und Nachtruhe schalten nichts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schritteSchluessel, sonstSchluessel, draft?.id]);
   if (!draft) return null;
 
   const set = (patch: Partial<Draft>) => onChange({ ...draft, ...patch });
@@ -432,6 +479,32 @@ export function Editor({
                 <Text style={styles.triggerNote}>
                   Der Hub kennt die Luzerner Feiertage – Auffahrt ist dann kein
                   Werktag, und der Sauger bleibt in der Ecke.
+                </Text>
+              ) : null}
+              {/* Schulferien (Punkt 470 der Werkbank): Die Termine liegen
+                  seit je im Hub, benutzt hat sie nur die Simulation -
+                  «Wecklicht um 06:30» war im Juli falsch, und abgestellt
+                  hat das jeden Sommer jemand von Hand. Eigener Haken
+                  neben den Feiertagen: Wer beides will, setzt beide. */}
+              <Pressable
+                onPress={() =>
+                  set({ exceptSchoolHolidays: !draft.exceptSchoolHolidays })
+                }
+                accessibilityRole="switch"
+                accessibilityState={{ checked: draft.exceptSchoolHolidays }}
+                style={styles.holidayToggle}
+              >
+                <Ionicons
+                  name={draft.exceptSchoolHolidays ? 'checkbox' : 'square-outline'}
+                  size={20}
+                  color={draft.exceptSchoolHolidays ? colors.accent : colors.inkSoft}
+                />
+                <Text style={styles.holidayText}>ausser in den Schulferien</Text>
+              </Pressable>
+              {draft.exceptSchoolHolidays ? (
+                <Text style={styles.triggerNote}>
+                  Der Hub holt die Luzerner Ferientermine selbst – das Wecklicht
+                  bleibt im Juli aus, ohne dass es jemand abstellt.
                 </Text>
               ) : null}
             </>
@@ -929,6 +1002,46 @@ export function Editor({
               </Text>
             </>
           ) : null}
+
+          {/* Befristung (Punkt 464 der Werkbank). «Bis Ende der Ferien»,
+              «nur diese Woche» - bis hierher schaltete man so einen
+              Ablauf ein und vergass ihn. Der Hub schaltet ihn nach dem
+              letzten Tag aus und lässt ihn stehen: Nächstes Jahr braucht
+              man ihn wieder. */}
+          <Text style={styles.label}>Gültig bis</Text>
+          <TextInput
+            style={styles.input}
+            value={draft.gueltigBis}
+            onChangeText={(text) => set({ gueltigBis: text })}
+            placeholder="TT.MM.JJJJ – leer heisst unbefristet"
+            placeholderTextColor={colors.inkFaint}
+            accessibilityLabel="Gültig bis"
+          />
+          <Text style={styles.triggerNote}>
+            {draft.gueltigBis
+              ? 'Der letzte Tag zählt noch mit. Danach schaltet der Hub den Ablauf aus – gelöscht wird nichts, und die Frist bleibt stehen.'
+              : 'Ohne Frist läuft er, bis ihn jemand ausschaltet. Für «bis Ende der Ferien» ist das genau der Fall, bei dem es niemand tut.'}
+          </Text>
+
+          {/* Reihenfolge (Punkt 466). Zwei Abläufe um 07:00 liefen
+              bisher in der Reihenfolge, in der sie zufällig in der Liste
+              standen - kein Verhalten, sondern ein Zufall, auf den sich
+              irgendwann jemand verlässt. */}
+          <Text style={styles.label}>Reihenfolge</Text>
+          <TextInput
+            style={styles.input}
+            value={draft.reihenfolge}
+            onChangeText={(text) => set({ reihenfolge: text })}
+            placeholder="0"
+            placeholderTextColor={colors.inkFaint}
+            keyboardType="numbers-and-punctuation"
+            accessibilityLabel="Reihenfolge"
+          />
+          <Text style={styles.triggerNote}>
+            Wenn mehrere Abläufe gleichzeitig dran sind, kommt der mit der
+            kleineren Zahl zuerst – «erst Storen hoch, dann Kaffee». 0 heisst
+            egal, und das ist bei fast allen die Wahrheit.
+          </Text>
         </Abschnitt>
 
         <Abschnitt nummer="4" titel="… sonst" stand={sonstStand(draft)} zuklappbar>
@@ -968,6 +1081,42 @@ export function Editor({
           )}
         </Abschnitt>
 
+        {/* Widersprüche (Punkt 462 der Werkbank): Dieselbe Auskunft wie
+            in der Liste unter «Widersprüche» - nur in dem Moment, in dem
+            der Widerspruch entsteht, statt Tage später an einem Licht,
+            das flackert. Ein Hinweis, keine Sperre: «Der eine schaltet
+            ein, der andere später aus» ist oft genau das Gewollte. */}
+        {widersprueche.length > 0 ? (
+          <View style={styles.konfliktBox}>
+            <View style={styles.konfliktKopf}>
+              <Ionicons name="git-compare-outline" size={16} color={colors.warn} />
+              <Text style={styles.konfliktTitel}>
+                {widersprueche.length === 1
+                  ? 'Ein Gerät wird gegensätzlich geschaltet'
+                  : `${widersprueche.length} Geräte werden gegensätzlich geschaltet`}
+              </Text>
+            </View>
+            {widersprueche.slice(0, 4).map((zeile) => {
+              const andere = zeile.automations.find(
+                (teil) => teil.id !== (draft.id ?? '__entwurf__')
+              );
+              const geraet =
+                entities.find((entity) => entity.id === zeile.entity_id)?.name ??
+                zeile.entity_id;
+              return (
+                <Text key={`${zeile.entity_id}-${andere?.id}`} style={styles.triggerNote}>
+                  {geraet}: auch «{andere?.alias ?? 'ein anderer Ablauf'}» schaltet das
+                  ({zeile.commands.join(', ')}).
+                </Text>
+              );
+            })}
+            <Text style={styles.triggerNote}>
+              Oft ist genau das gewollt – der eine schaltet ein, der andere später
+              aus. Abhaken lässt es sich danach in der Liste unter «Widersprüche».
+            </Text>
+          </View>
+        ) : null}
+
         {/* Grau, solange der Ablauf nichts täte. Nicht als Schikane:
             Oben steht als Liste, was fehlt, und die Knöpfe zeigen
             dasselbe noch einmal - man soll gar nicht erst dagegen
@@ -983,6 +1132,21 @@ export function Editor({
             {draft.templateId ? 'Vorlage sichern' : 'Speichern'}
           </Text>
         </Pressable>
+        {/* Zurück innerhalb dieser Sitzung (Punkt 467 der Werkbank).
+            «Frühere Fassungen» weiter unten holt gespeicherte Stände
+            zurück; hier geht es um die drei Handgriffe von gerade eben,
+            die es vorher nur über «Abbrechen und von vorn» gab. */}
+        {onZurueck ? (
+          <Pressable
+            style={({ pressed }) => [styles.snapshot, pressed && { opacity: 0.8 }]}
+            onPress={onZurueck}
+            accessibilityRole="button"
+            accessibilityLabel="Letzte Änderung zurücknehmen"
+          >
+            <Ionicons name="arrow-undo-outline" size={18} color={colors.accent} />
+            <Text style={styles.snapshotText}>Änderung zurücknehmen</Text>
+          </Pressable>
+        ) : null}
         {onTest ? (
           <Pressable
             style={({ pressed }) => [styles.snapshot, pressed && { opacity: 0.8 }]}

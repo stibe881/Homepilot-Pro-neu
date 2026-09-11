@@ -181,6 +181,19 @@ export const makeStyles = (colors: Colors) =>
       backgroundColor: `${colors.accent}1A`,
     },
     triggerNote: { color: colors.inkSoft, fontSize: 13, lineHeight: 18 },
+    // Der Widerspruchs-Hinweis im Editor (Punkt 462 der Werkbank).
+    // Warnfarbe und Rahmen, aber kein Rot: Es ist ein Hinweis, keine
+    // Fehlermeldung - oft ist genau das gewollt.
+    konfliktBox: {
+      gap: 6,
+      padding: 12,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.warn,
+      backgroundColor: colors.surfaceSoft,
+    },
+    konfliktKopf: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    konfliktTitel: { color: colors.warn, fontSize: 14, fontWeight: '700', flex: 1 },
     // Die Auslöser-Zeilen im Szenen-Editor: Verweise auf Abläufe.
     ausloeserZeile: {
       flexDirection: 'row',

@@ -25,7 +25,8 @@ import {
 } from '../lib/szenen';
 import { BabysitterStand, LEERER_BABYSITTER, istFreigegeben, modusSatz, seitText } from '../lib/babysitter';
 import { Editor, Fassung } from './automations/editor';
-import { Automation, Draft, DryRun, EMPTY, EMPTY_STEP, EMPTY_TRIGGER, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, namensVorschlag, newTrigger, runLine, search, stepToActions, stepsToActions, symbolFuerNamen, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, wirkungText, zeitpunktLabel } from './automations/entwurf';
+import { andersAls, merken, zurueck } from '../lib/entwurfsverlauf';
+import { Automation, Draft, DryRun, EMPTY, EMPTY_STEP, EMPTY_TRIGGER, Run, StepDraft, TriggerHealth, buildConditions, datumNachIso, describe, groupByCategory, lastRunText, namensVorschlag, newTrigger, runLine, search, stepToActions, stepsToActions, symbolFuerNamen, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, wirkungText, zeitpunktLabel } from './automations/entwurf';
 import { Groups, SearchBox } from './automations/felder';
 import {
   PAUSEN,
@@ -106,6 +107,36 @@ export function AutomationsScreen({
   const [pausiertBis, setPausiertBis] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
+  // Der Zurück-Stapel des Editors (Punkt 467 der Werkbank). Er lebt
+  // hier, wo auch der Entwurf lebt - im Editor selbst wäre er nach
+  // jedem Neuaufbau der Seite weg. Zurückgeholt werden ganze Entwürfe:
+  // Das ist die Einheit, die man im Kopf hat («wie vorhin»), nicht ein
+  // einzelnes Feld.
+  const [entwurfsverlauf, setEntwurfsverlauf] = useState<Draft[]>([]);
+
+  /** Einen Entwurf öffnen und dabei den Stapel leeren - was man vorhin
+   *  an einem anderen Ablauf getan hat, gehört nicht hierher. */
+  const oeffneEntwurf = (neu: Draft | null) => {
+    setEntwurfsverlauf([]);
+    setDraft(neu);
+  };
+
+  /** Eine Änderung übernehmen und den Stand davor merken. */
+  const aendereEntwurf = (neuerStand: Draft) => {
+    setDraft((vorher) => {
+      if (vorher && andersAls(vorher, neuerStand)) {
+        setEntwurfsverlauf((stapel) => merken(stapel, vorher));
+      }
+      return neuerStand;
+    });
+  };
+
+  const entwurfZurueck = () => {
+    const { stand, stapel } = zurueck(entwurfsverlauf);
+    if (stand === null) return;
+    setEntwurfsverlauf(stapel);
+    setDraft(stand);
+  };
   const [sceneDraft, setSceneDraft] = useState<SceneDraft | null>(null);
   // Je Abschnitt ein eigenes Suchfeld – die Listen sind unabhängig.
   const [autoQuery, setAutoQuery] = useState('');
@@ -304,7 +335,7 @@ export function AutomationsScreen({
   useEffect(() => {
     if (!saatGeraet) return;
     const geraet = entities.find((entity) => entity.id === saatGeraet);
-    setDraft({
+    oeffneEntwurf({
       ...EMPTY,
       alias: geraet ? `Wenn ${geraet.name} …` : '',
       triggers: [{ ...EMPTY_TRIGGER, kind: 'state', entityId: saatGeraet }],
@@ -367,7 +398,7 @@ export function AutomationsScreen({
       );
     }
     onNote?.(`Vorlage «${entwurf.alias || 'Ohne Namen'}» gesichert`);
-    setDraft(null);
+    oeffneEntwurf(null);
   };
 
   const vorlageLoeschen = async (id: string) => {
@@ -396,6 +427,14 @@ export function AutomationsScreen({
       await vorlageSichern(draft);
       return;
     }
+    // Die Frist (Punkt 464) wird gelesen, bevor irgendetwas gespeichert
+    // wird: Ein unlesbares Datum still als «unbefristet» abzulegen hiesse,
+    // dass der Ablauf für immer läuft, obwohl jemand ihn befristet hat.
+    const gueltigBis = draft.gueltigBis.trim() ? datumNachIso(draft.gueltigBis) : null;
+    if (draft.gueltigBis.trim() && gueltigBis === null) {
+      setError('«Gültig bis» bitte als TT.MM.JJJJ schreiben.');
+      return;
+    }
     const body = {
       // Derselbe Vorschlag, der im Namensfeld als Platzhalter steht -
       // sonst versprächen Feld und Liste Verschiedenes.
@@ -413,6 +452,8 @@ export function AutomationsScreen({
       quiet_from: draft.nachtsVon,
       quiet_to: draft.nachtsBis,
       countdown: draft.restzeitZeigen,
+      valid_until: gueltigBis,
+      order: Math.max(-99, Math.min(99, Math.round(Number(draft.reihenfolge) || 0))),
     };
     try {
       if (draft.id) {
@@ -421,7 +462,7 @@ export function AutomationsScreen({
         await hub.post('/api/automations', body, { still: true });
       }
       onNote?.(draft.id ? `«${body.alias}» gespeichert` : `«${body.alias}» angelegt`);
-      setDraft(null);
+      oeffneEntwurf(null);
       load();
     } catch (err) {
       setError(String(err instanceof Error ? err.message : err));
@@ -567,6 +608,54 @@ export function AutomationsScreen({
     }
   };
 
+  /** Womit sich der Entwurf beisst (Punkt 462 der Werkbank).
+   *
+   *  Die Liste unter «Widersprüche» gibt es seit je - sie zeigt sie aber
+   *  erst, wenn der Ablauf gespeichert ist, und angesehen wird sie, wenn
+   *  ein Licht flackert. Derselbe Rechenweg beantwortet dieselbe Frage
+   *  im Moment, in dem der Widerspruch entsteht. Bei Hub-Fehler eine
+   *  leere Liste: Ein Hinweis, der sich nicht holen lässt, soll das
+   *  Speichern nicht mit einer roten Meldung aufhalten. */
+  const konfliktProbe = async (entwurf: Draft): Promise<Konflikt[]> => {
+    const antwort = await hub.post<{ conflicts?: Konflikt[] } | null>(
+      `/api/automations/probe-konflikt${entwurf.id ? `?id=${encodeURIComponent(entwurf.id)}` : ''}`,
+      {
+        alias: entwurf.alias || 'Entwurf',
+        trigger: entwurf.triggers.map(triggerToConfig),
+        condition: buildConditions(entwurf),
+        action: stepsToActions(entwurf.steps),
+        otherwise: stepsToActions(entwurf.elseSteps),
+      },
+      { fallback: null, still: true }
+    );
+    return antwort?.conflicts ?? [];
+  };
+
+  /** Einen laufenden Durchgang anhalten (Punkt 461 der Werkbank).
+   *
+   *  «Gute Nacht» mit drei Wartezeiten läuft zwölf Minuten; wer nach der
+   *  ersten merkt, dass noch jemand im Wohnzimmer sitzt, hatte bisher
+   *  keinen Knopf. Was schon geschaltet ist, bleibt geschaltet - der
+   *  Hinweis sagt das, damit niemand ein zurückgenommenes Licht
+   *  erwartet. */
+  const abbrechen = async (id: string, alias: string) => {
+    try {
+      const antwort = await hub.post<{ abgebrochen?: boolean } | null>(
+        `/api/automations/${id}/abbrechen`,
+        undefined,
+        { fallback: null, still: true }
+      );
+      onNote?.(
+        antwort?.abgebrochen
+          ? `«${alias}» angehalten – was schon geschaltet ist, bleibt`
+          : `«${alias}» lief gerade nicht mehr`
+      );
+      load();
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+    }
+  };
+
   /** Zeigt, was der Ablauf jetzt täte – ohne dass etwas passiert. */
   const dryRun = async (id: string): Promise<DryRun | null> => {
     try {
@@ -628,7 +717,7 @@ export function AutomationsScreen({
         { still: true }
       );
       onNote?.(`Frühere Fassung von «${restored}» zurückgeholt`);
-      setDraft(null);
+      oeffneEntwurf(null);
       setSceneDraft(null);
       load();
       return true;
@@ -652,7 +741,7 @@ export function AutomationsScreen({
         ? `«${name}» in den Papierkorb gelegt`
         : `«${name}» konnte nicht gelöscht werden – Hub nicht erreichbar`
     );
-    setDraft(null);
+    oeffneEntwurf(null);
     load();
   };
 
@@ -1125,7 +1214,7 @@ export function AutomationsScreen({
           // frische Entwurf behauptete damit «Gewählt: Alarmanlage», ohne
           // dass jemand sie gewählt hätte. Wer das übersah, legte einen
           // Ablauf auf dem erstbesten Gerät der Liste an.
-          onPress={() => setDraft({ ...EMPTY })}
+          onPress={() => oeffneEntwurf({ ...EMPTY })}
           accessibilityRole="button"
           style={({ pressed }) => [styles.newButton, pressed && { opacity: 0.75 }]}
         >
@@ -1171,7 +1260,7 @@ export function AutomationsScreen({
                   {gruppe.zeilen.map((vorlage) => (
                 <View key={vorlage.key} style={styles.vorlagenZeile}>
                   <Pressable
-                    onPress={() => setDraft({ ...EMPTY, ...vorlage.draft })}
+                    onPress={() => oeffneEntwurf({ ...EMPTY, ...vorlage.draft })}
                     accessibilityRole="button"
                     accessibilityLabel={`Neuer Ablauf aus «${vorlage.label}»`}
                     style={({ pressed }) => [
@@ -1193,7 +1282,7 @@ export function AutomationsScreen({
                   </Pressable>
                   <Pressable
                     onPress={() =>
-                      setDraft({
+                      oeffneEntwurf({
                         ...EMPTY,
                         ...vorlage.draft,
                         // Der Ablauf-Teil bekommt nie die Kennung einer
@@ -1240,7 +1329,7 @@ export function AutomationsScreen({
               <View style={styles.choices}>
                 <Pressable
                   onPress={() =>
-                    setDraft({ ...EMPTY, templateId: 'neu', triggers: [newTrigger(entities[0])] })
+                    oeffneEntwurf({ ...EMPTY, templateId: 'neu', triggers: [newTrigger(entities[0])] })
                   }
                   accessibilityRole="button"
                   style={({ pressed }) => [styles.template, pressed && { opacity: 0.75 }]}
@@ -1588,6 +1677,18 @@ export function AutomationsScreen({
                       config.yaml lässt sich nicht bearbeiten, aber sehr
                       wohl ausprobieren, und genau dort fehlte der Weg
                       dazu ganz. */}
+                  {/* Anhalten (Punkt 461) - nur, solange er wirklich
+                      läuft. Ein Knopf, der bei fast jedem Ablauf nichts
+                      tut, wäre schlimmer als keiner. */}
+                  {mayEdit && automation.running ? (
+                    <Pressable
+                      onPress={() => abbrechen(automation.id, automation.alias)}
+                      accessibilityLabel={`${automation.alias} anhalten`}
+                      style={styles.iconButton}
+                    >
+                      <Ionicons name="stop-circle-outline" size={20} color={colors.warn} />
+                    </Pressable>
+                  ) : null}
                   {mayEdit ? (
                     <Pressable
                       onPress={() =>
@@ -1654,7 +1755,7 @@ export function AutomationsScreen({
                         <Ionicons name="copy-outline" size={20} color={colors.inkSoft} />
                       </Pressable>
                       <Pressable
-                        onPress={() => setDraft(toDraft(automation))}
+                        onPress={() => oeffneEntwurf(toDraft(automation))}
                         accessibilityLabel={`${automation.alias} bearbeiten`}
                         style={styles.iconButton}
                       >
@@ -1759,7 +1860,7 @@ export function AutomationsScreen({
         settings={settings}
         mayEdit={mayEdit}
         automations={automations}
-        onEdit={(automation) => setDraft(toDraft(automation))}
+        onEdit={(automation) => oeffneEntwurf(toDraft(automation))}
         onToggle={setEnabled}
       />
 
@@ -1963,7 +2064,9 @@ export function AutomationsScreen({
         favoriten={favoriten}
         empfaenger={empfaenger}
         onProbeStep={mayEdit ? probeStep : undefined}
-        onChange={setDraft}
+        onChange={aendereEntwurf}
+        onZurueck={entwurfsverlauf.length > 0 ? entwurfZurueck : undefined}
+        onKonfliktProbe={mayEdit ? konfliktProbe : undefined}
         onSave={save}
         onDelete={draft?.id ? () => remove(draft.id!) : undefined}
         onDuplizieren={
@@ -1981,7 +2084,7 @@ export function AutomationsScreen({
                   quelle,
                   (automations ?? []).map((eintrag) => eintrag.alias)
                 );
-                setDraft(toDraft(kopie));
+                oeffneEntwurf(toDraft(kopie));
               }
             : undefined
         }
@@ -1992,7 +2095,7 @@ export function AutomationsScreen({
         onRestoreVersion={
           draft?.id ? (at) => restoreVersion('automation', draft.id!, at) : undefined
         }
-        onCancel={() => setDraft(null)}
+        onCancel={() => oeffneEntwurf(null)}
         // Verwaist (Punkt 262): Das Urteil kommt fertig vom Hub - der
         // Editor zeigt dann den Hinweis samt Verweis auf «Hätte gefeuert».
         verwaist={(() => {
@@ -2041,13 +2144,13 @@ export function AutomationsScreen({
                   const gefunden = automations?.find(
                     (automation) => automation.id === automationId
                   );
-                  if (gefunden) setDraft(toDraft(gefunden));
+                  if (gefunden) oeffneEntwurf(toDraft(gefunden));
                   return;
                 }
                 // Ein neuer Auslöser: ein gewöhnlicher Ablauf, dessen
                 // einziger Schritt die Szene ist. Auslöser und Rest
                 // füllt der Ablauf-Editor - der kann das schon.
-                setDraft({
+                oeffneEntwurf({
                   ...EMPTY,
                   alias: `Szene «${szene.name || 'Ohne Namen'}»`,
                   steps: [{ ...EMPTY_STEP, kind: 'scene', sceneId: szene.id! }],
