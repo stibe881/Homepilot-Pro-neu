@@ -3481,3 +3481,54 @@ zwei der vier Messungen in `Kassencode.test.tsx` um. Ein Prüfstand, der
 nie rot wird, ist keiner.
 
 Stellen: `app/src/lib/strichcode.ts`, `app/src/components/Kassencode.tsx`, `app/src/components/QrScanner.tsx`, `app/src/screens/family/gutscheine.tsx`, `hub/homepilot/core/gutscheine.py`
+
+### 421. Mehr Klingeltöne, und anhören darf man sie dort, wo man sitzt ✓ erledigt
+
+*lohnt sich · Aufwand: klein · Hub + App*
+
+Sechs Töne standen zur Wahl, und die Testtaste spielte sie auf den
+**Boxen** im Haus. Beides zusammen macht das Aussuchen unmöglich: Zu
+wenig Auswahl, um einen zu finden, den man mag - und wer ihn hören
+will, muss neben der Küchenbox stehen, während das Telefon mit der
+Auswahl im Wohnzimmer liegt. In der Praxis hat darum niemand
+durchprobiert; es blieb beim ersten.
+
+**Achtzehn statt sechs.** Dazugekommen sind Kuckuck-Nachbarn für den
+klassischen Geschmack (Bim-Bam, Westminster, Glocke, Gong, Harfe,
+Spieluhr), zwei nüchterne Signale (Piepser, Schiffshorn, Sirene) und
+drei zum Schmunzeln (Fanfare, Roboter, «Alle meine Entchen»). Alle
+weiterhin aus Zahlen gerechnet - kein Ton liegt als Datei im Abbild,
+keiner braucht eine Lizenz.
+
+**Eine Hüllkurve macht aus Zahlen einen Klang.** Ein Sinus mit flachem
+Pegel klingt immer gleich; «Glocke» und «Hupe» wären dasselbe mit
+anderen Frequenzen gewesen. Ein Klang trägt darum neu `abklingen`:
+laut angeschlagen, dann ausschwingend. Glocken, Harfe und Gong haben
+es, Hupe und Sirene bewusst nicht - eine Hupe, die ausschwingt, ist
+keine Hupe mehr. Es kostet eine Multiplikation je Wert.
+
+**Antippen spielt hier ab.** Ein Tipp auf einen Chip wählt den Ton
+*und* spielt ihn auf dem Gerät in der Hand. Die alte Testtaste bleibt
+daneben, heisst jetzt aber «Auf den Boxen» - sie beantwortet die andere
+Frage, nämlich wie laut das im Flur ist. Wer nur zuhören darf (kein
+Bearbeitungsrecht), hört trotzdem: Der Chip spielt, wählt aber nicht.
+
+Zwei Dinge, die das billig gemacht haben:
+
+- **Kein neues natives Modul.** `expo-video` steckt seit den Aufnahmen
+  in der Hülle und spielt eine WAV-Datei wie ein Video. Damit bleibt
+  `runtimeVersion` bei `"7"` - eine Erhöhung hätte einen
+  TestFlight-Build nach sich gezogen, nur um sich Töne anzuhören.
+  `expo-audio` kam nicht in Frage (Punkt 223: drei Tage schwarzer
+  Start).
+- **Das Token steht in der Adresse.** Audio-Player schicken keine
+  eigenen Kopfzeilen mit - derselbe Weg wie bei den Aufnahmen
+  (`lib/aufnahmeurl.ts`), und `token_from` in `api/server.py` liest
+  ihn dort bereits.
+
+Beim Erweitern der Liste ist «Kuckuck» einmal herausgefallen - ein
+entfernter Schlüssel fällt still auf die Vorgabe zurück, die Wahl wäre
+also weg gewesen, ohne dass es jemand merkt. Ein Test hält die sechs
+ursprünglichen Schlüssel jetzt fest.
+
+Stellen: `hub/homepilot/core/klingelton.py`, `hub/homepilot/api/routes/push.py`, `app/src/lib/klingeltonprobe.ts`, `app/src/components/Klingelprobe.tsx`, `app/src/components/Klingelprobe.web.tsx`, `app/src/components/PushRules.tsx`

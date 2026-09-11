@@ -110,3 +110,62 @@ def test_einstellung_lesen_falls_back_on_unknown_sound():
 def test_einstellung_lesen_ignores_garbage_speakers():
     rows = [{"sound": "dingdong", "speakers": "demo.kueche"}]
     assert klingelton.einstellung_lesen(rows)["speakers"] == []
+
+
+def test_abklingen_makes_the_tone_fade_out():
+    """Ein anschlagender Ton ist am Ende deutlich leiser als am Anfang -
+    ohne das klingt jede Glocke wie ein Piepton."""
+    werte = klingelton.ton_samples(440.0, 1.0, samplerate=8000, abklingen=True)
+    anfang = max(abs(wert) for wert in werte[:2000])
+    ende = max(abs(wert) for wert in werte[-2000:])
+    assert ende < anfang / 4
+
+
+def test_without_abklingen_the_tone_keeps_its_level():
+    """Die Gegenprobe: Hupe und Sirene sollen stehen bleiben, sonst
+    misst der Test oben nur die Ausblendung am Schluss."""
+    werte = klingelton.ton_samples(440.0, 1.0, samplerate=8000)
+    anfang = max(abs(wert) for wert in werte[:2000])
+    mitte = max(abs(wert) for wert in werte[3000:5000])
+    assert mitte > anfang * 0.9
+
+
+def test_klang_wav_uses_the_decay_flag_of_the_sound():
+    """Der Schalter am Klang muss bis in die Bytes durchschlagen - er
+    stand einmal im Katalog, ohne dass ihn jemand las."""
+    mit = klingelton.klang_wav("glocke")
+    ohne = klingelton.wav_bytes(
+        klingelton.noten_zu_samples(klingelton.BY_KEY["glocke"]["noten"])
+    )
+    assert mit != ohne
+
+
+def test_catalog_offers_enough_choice():
+    """Sechs Töne waren zu wenig, um einen zu finden, den man mag."""
+    assert len(klingelton.KLAENGE) >= 12
+
+
+def test_every_catalog_sound_has_a_label_and_notes():
+    for klang in klingelton.KLAENGE:
+        assert klang["label"].strip()
+        assert klang["noten"]
+        assert all(dauer > 0 for _, dauer in klang["noten"])
+
+
+def test_no_catalog_sound_is_longer_than_a_doorbell_should_be():
+    """An der Haustür wartet niemand fünf Sekunden - und der Ton legt
+    die laufende Musik so lange leise (core/ton.py)."""
+    for klang in klingelton.KLAENGE:
+        dauer = sum(dauer for _, dauer in klang["noten"])
+        assert dauer <= 4.0, klang["key"]
+
+
+def test_the_original_six_sounds_stay_in_the_catalog():
+    """Wer einen dieser Klänge gewählt hat, soll ihn behalten: Ein
+    entfernter Schlüssel fällt still auf die Vorgabe zurück
+    (``einstellung_lesen``) - die Wahl wäre weg, ohne dass es jemand
+    merkt. Beim Erweitern des Katalogs ist genau das einmal passiert:
+    «Kuckuck» verschwand beim Umschreiben der Liste.
+    """
+    for key in ("dingdong", "dreiklang", "kuckuck", "hupe", "quietscheente", "tusch"):
+        assert key in klingelton.BY_KEY, key

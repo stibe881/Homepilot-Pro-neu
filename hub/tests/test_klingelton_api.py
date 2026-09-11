@@ -160,3 +160,32 @@ def test_only_edit_automations_may_save(client):
         headers=auth("t-resident"),
     )
     assert antwort.status_code == 403
+
+
+def test_every_sound_can_be_fetched_as_a_wav(client):
+    """Zum Anhören auf dem Gerät in der Hand: jeder Klang als Datei."""
+    for klang in klingelton.KLAENGE:
+        antwort = client.get(
+            f"/api/push/doorbell-sound/{klang['key']}.wav", headers=auth("t-owner")
+        )
+        assert antwort.status_code == 200, klang["key"]
+        assert antwort.headers["content-type"].startswith("audio/wav")
+        assert antwort.content.startswith(b"RIFF")
+
+
+def test_wav_accepts_the_token_in_the_query(client):
+    """Audio-Player schicken keine eigenen Kopfzeilen mit - ohne Token in
+    der Adresse bliebe die Probe auf dem Telefon stumm."""
+    antwort = client.get(f"/api/push/doorbell-sound/{klingelton.STANDARD}.wav?token=t-owner")
+    assert antwort.status_code == 200
+    assert antwort.content.startswith(b"RIFF")
+
+
+def test_wav_needs_a_token(client):
+    antwort = client.get(f"/api/push/doorbell-sound/{klingelton.STANDARD}.wav")
+    assert antwort.status_code == 401
+
+
+def test_unknown_sound_has_no_wav(client):
+    antwort = client.get("/api/push/doorbell-sound/nie-gehört.wav", headers=auth("t-owner"))
+    assert antwort.status_code == 404

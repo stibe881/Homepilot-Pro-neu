@@ -534,6 +534,37 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         hub.data.set(klingelton.DATA_KEY, [{"sound": sound, "speakers": speakers}])
         return await doorbell_sound(request)
 
+    @app.get("/api/push/doorbell-sound/{key}.wav")
+    async def doorbell_sound_wav(key: str, request: Request) -> Response:
+        """Der Ton als Datei - zum Anhören auf dem Gerät in der Hand.
+
+        Die Probe über ``/test`` spielt auf den *Boxen*: Sie beantwortet
+        «wie klingt das im Haus», aber nicht «welchen nehme ich», denn
+        dafür müsste man neben der Box stehen. Wer die Klänge
+        durchprobiert, sitzt aber auf dem Sofa mit dem Telefon - also
+        muss der Ton auch dorthin kommen.
+
+        Das Token darf hier in der Adresse stehen: Audio- und
+        Videoplayer schicken keine eigenen Kopfzeilen mit (dasselbe
+        Muster wie bei den Aufnahmen, app/src/lib/aufnahmeurl.ts).
+        ``token_from`` in api/server.py liest es aus der Abfrage.
+
+        Gerechnet statt gespeichert - ein Ton sind ein paar Zehntel
+        Sekunden Sinus aus Zahlen, das ist billiger als ein
+        Zwischenspeicher, der altert. Trotzdem darf der Browser ihn
+        behalten: Die Bytes zu einem Schlüssel ändern sich nur mit einer
+        neuen Auslieferung, und wer sechzehn Klänge durchtippt, soll
+        nicht sechzehnmal warten.
+        """
+        current_user(request)
+        if key not in klingelton.BY_KEY:
+            raise HTTPException(status_code=404, detail="Diesen Klingelton kennt der Hub nicht")
+        return Response(
+            content=klingelton.klang_wav(key),
+            media_type="audio/wav",
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
+
     @app.post("/api/push/doorbell-sound/test")
     async def test_doorbell_sound(
         body: DoorbellSoundTestRequest, request: Request

@@ -23,6 +23,8 @@ import {
   klingeltonSatz,
   lautsprecherName,
 } from '../lib/klingelton';
+import { klingeltonUrl } from '../lib/klingeltonprobe';
+import { Klingelprobe } from './Klingelprobe';
 import { Automation, triggerIcon } from '../screens/automations/entwurf';
 
 /**
@@ -141,6 +143,12 @@ export function PushRules({
   // Während die Testtaste einen Ton abspielt, damit sie nicht zehnmal
   // hintereinander antippbar ist.
   const [klingelTestLaeuft, setKlingelTestLaeuft] = useState(false);
+  // Welcher Ton gerade *hier* spielen soll - auf dem Gerät in der Hand,
+  // nicht auf den Boxen. `takt` zählt die Anklicks, damit derselbe Ton
+  // beim zweiten Tippen wieder von vorn beginnt (siehe Klingelprobe).
+  const [klingelProbe, setKlingelProbe] = useState<{ sound: string; takt: number } | null>(
+    null
+  );
   // Ab welcher Schwelle und zu welcher Stunde die Batterie erinnert, und
   // wie viele Tage vorher der Gutschein. Beides stand in den
   // Einstellungen unter Benachrichtigungen - also an einem anderen Ort
@@ -247,6 +255,19 @@ export function PushRules({
     } catch (err) {
       setError(String(err instanceof Error ? err.message : err));
     }
+  };
+
+  /**
+   * Ein Klang wurde angetippt: sofort hier hörbar machen, und wenn es
+   * die Rechte erlauben, auch gleich wählen.
+   *
+   * Beides an einem Tipp, weil beim Aussuchen genau das die Frage ist -
+   * «wie klingt der» und «den nehme ich» liegen einen Wimpernschlag
+   * auseinander. Wer nur zuhören darf, hört wenigstens zu.
+   */
+  const klingelAntippen = (sound: string) => {
+    setKlingelProbe((vorher) => ({ sound, takt: (vorher?.takt ?? 0) + 1 }));
+    if (mayEdit) void klingelSoundWaehlen(sound);
   };
 
   const klingelBoxWaehlen = async (id: string) => {
@@ -426,9 +447,15 @@ export function PushRules({
                   stand={klingel}
                   mayEdit={mayEdit}
                   testLaeuft={klingelTestLaeuft}
-                  onSound={klingelSoundWaehlen}
+                  onSound={klingelAntippen}
                   onBox={klingelBoxWaehlen}
                   onTesten={klingelTesten}
+                  probeUrl={
+                    klingelProbe
+                      ? klingeltonUrl(settings.url, settings.token, klingelProbe.sound)
+                      : null
+                  }
+                  probeTakt={klingelProbe?.takt ?? 0}
                   styles={styles}
                   colors={colors}
                 />
@@ -844,6 +871,8 @@ function Klingeltonwahl({
   onSound,
   onBox,
   onTesten,
+  probeUrl,
+  probeTakt,
   styles,
   colors,
 }: {
@@ -853,6 +882,9 @@ function Klingeltonwahl({
   onSound: (sound: string) => void;
   onBox: (id: string) => void;
   onTesten: () => void;
+  /** Der Ton, der gerade hier spielen soll - null, solange keiner. */
+  probeUrl: string | null;
+  probeTakt: number;
   styles: ReturnType<typeof makeStyles>;
   colors: Colors;
 }) {
@@ -861,6 +893,9 @@ function Klingeltonwahl({
   return (
     <View style={styles.tuerBlock}>
       <Text style={styles.tuerTitel}>Klingelton auf den Boxen</Text>
+      {/* Die Chips sind auch ohne Bearbeitungsrecht antippbar: Dann
+          wählen sie nichts, spielen den Ton aber hier ab. Zuhören darf
+          jeder. */}
       <View style={styles.wahlZeile}>
         {stand.sounds.map((klang) => {
           const an = stand.sound === klang.key;
@@ -868,10 +903,12 @@ function Klingeltonwahl({
             <Pressable
               key={klang.key}
               onPress={() => onSound(klang.key)}
-              disabled={!mayEdit}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: an, disabled: !mayEdit }}
+              accessibilityRole={mayEdit ? 'radio' : 'button'}
+              accessibilityState={{ selected: an }}
               accessibilityLabel={klang.label}
+              accessibilityHint={
+                mayEdit ? 'Spielt den Ton hier ab und wählt ihn' : 'Spielt den Ton hier ab'
+              }
               style={[styles.wahlChip, an && styles.wahlChipAn]}
             >
               <Text style={[styles.wahlText, an && styles.wahlTextAn]}>{klang.label}</Text>
@@ -879,7 +916,12 @@ function Klingeltonwahl({
           );
         })}
       </View>
+      {/* Unsichtbar, einen Punkt gross: der Abspieler für die Probe. */}
+      <Klingelprobe uri={probeUrl} takt={probeTakt} />
       <Text style={styles.detail}>{klingeltonSatz(stand)}</Text>
+      <Text style={styles.origin}>
+        Antippen spielt den Ton hier ab – die Boxen im Haus bleiben still.
+      </Text>
       {mayEdit && stand.candidates.length > 0 ? (
         <Pressable
           onPress={() => setOffen((wert) => !wert)}
@@ -925,11 +967,13 @@ function Klingeltonwahl({
           onPress={onTesten}
           disabled={testLaeuft}
           accessibilityRole="button"
-          accessibilityLabel="Klingelton anhören"
+          accessibilityLabel="Klingelton auf den gewählten Boxen abspielen"
           style={[styles.tuerChip, testLaeuft && { opacity: 0.5 }]}
         >
           <Ionicons name="play-outline" size={14} color={colors.inkSoft} />
-          <Text style={styles.tuerChipText}>{testLaeuft ? 'Spielt…' : 'Anhören'}</Text>
+          <Text style={styles.tuerChipText}>
+            {testLaeuft ? 'Spielt…' : 'Auf den Boxen'}
+          </Text>
         </Pressable>
       ) : null}
     </View>
