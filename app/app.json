@@ -44,7 +44,8 @@
     "extra": {
       "eas": {
         "projectId": "d98739fb-4d44-4872-824d-3f89a861749f"
-      }
+      },
+      "commit": "unbekannt"
     },
     "plugins": [
       "expo-font",

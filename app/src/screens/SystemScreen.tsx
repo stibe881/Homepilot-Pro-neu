@@ -31,6 +31,7 @@ import { datumUhr } from '../lib/format';
 import { integrationDetail } from '../lib/integrationszeile';
 import { LaufArt, LetzterLauf, letzterLaufSatz } from '../lib/letzterlauf';
 import { OtaStand, otaLage, otaZeile } from '../lib/otastand';
+import { standSatz } from '../lib/appstand';
 import { SIGNAL_AN, SIGNAL_AUS, rauchmelderListe } from '../lib/rauchmelder';
 import { UpdateVorschau, vorschauZeilen } from '../lib/updatevorschau';
 import { fehlerZeilen, letzterStartfehler, startfehlerListe } from '../lib/startfehler';
@@ -169,7 +170,10 @@ export function SystemScreen({
           </View>
         ) : null}
         {status.build ? <WebVersionNote hubCommit={status.build.commit} /> : null}
-        <AppVersionNote />
+        {/* Der Stand des Hubs gehört mit hinein: Erst im Vergleich wird
+            aus «kann älter sein» ein «ist es» oder «ist es nicht»
+            (Punkt 545). */}
+        <AppVersionNote hubCommit={status.build?.commit} />
         <AbsturzNote />
         <StartfehlerNote />
         <WasIstNeu settings={settings} />
@@ -776,7 +780,7 @@ function AbsturzNote() {
   );
 }
 
-function AppVersionNote() {
+function AppVersionNote({ hubCommit }: { hubCommit?: string | null }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   // Erst die Haken, dann die Anzeige - Hooks vertragen kein frühes
@@ -828,15 +832,35 @@ function AppVersionNote() {
   const nachgeladen = Updates.isEmbeddedLaunch === false;
   const lage = otaLage(stand);
   const zeile = otaZeile(lage);
+  // Woraus diese Fassung gebaut wurde - aus derselben `app.json`, die
+  // `eas update` in sein Manifest legt, also auch in einer
+  // nachgeladenen Fassung der Stand, aus dem sie wirklich entstand.
+  const satz = standSatz({
+    app: Constants.expoConfig?.extra?.commit as string | undefined,
+    hub: hubCommit,
+    nachgeladen,
+  });
   return (
     <>
       <Text style={styles.hint}>
         App {Constants.expoConfig?.version ?? '?'}
         {Updates.runtimeVersion ? ` · Laufzeit ${Updates.runtimeVersion}` : ''}
-        {gebaut ? ` · Stand ${gebaut}` : ''}
+        {/* «gebaut» und nicht «Stand»: Zwei Zeilen höher heisst «Stand»
+            der Commit des Hubs, und dasselbe Wort für ein Datum liest
+            sich wie dieselbe Auskunft (Punkt 545). */}
+        {gebaut ? ` · gebaut ${gebaut}` : ''}
         {nachgeladen ? ' · nachgeladen' : ' · mitgeliefert'}
       </Text>
-      {nachgeladen ? (
+      {/* Erst die Antwort, dann die Erklärung.
+          «Kann älter sein» stand hier jahrelang allein und liess den
+          Leser genau so ratlos zurück, wie er gekommen war: *Ist* sie
+          es? Seit Punkt 545 nennen beide Seiten ihren Stand, und der
+          Vergleich steht zuoberst - die Erklärung darunter braucht es
+          nur noch, wenn wirklich etwas auseinandergeht. */}
+      {satz ? (
+        <Text style={[styles.hint, satz.warnt && { color: colors.warnInk }]}>{satz.text}</Text>
+      ) : null}
+      {nachgeladen && (satz?.warnt !== false) ? (
         <Text style={[styles.hint, { color: colors.warnInk }]}>
           Diese App führt nicht ihren eigenen Stand aus, sondern eine über die Luft
           nachgeladene Fassung – die kann älter sein als das, was TestFlight gerade gebracht

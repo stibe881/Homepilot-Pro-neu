@@ -478,11 +478,23 @@ fi
 # dafür gibt es das Abbild unten. Gesetzt wird aber, bevor das Abbild
 # gebaut wird, denn es nimmt die app.json mit hinein.
 BUILD_NUMMER="$(( $(date +%s) / 60 ))"
+# Und derselbe Griff für den Stand (Punkt 545). Die App wusste bisher
+# nur, *wann* ihre Fassung gebaut wurde, nicht *woraus* - und genau das
+# ist die Frage, wenn eine Änderung fehlt. Der Hub sagt seinen Commit
+# seit je (System → Überblick), die Web-Fassung schreibt ihn in die
+# version.json; die App war die Lücke dazwischen.
+#
+# Der Wert steht in der app.json und wandert damit in beides: in den
+# iOS-Build (das Abbild nimmt die Datei mit hinein) und in die
+# OTA-Fassung (eas update legt die Konfiguration in sein Manifest).
+# Jede Fassung trägt so den Stand, aus dem sie wirklich entstand.
 sed -i -E \
   -e "s/(\"buildNumber\"[[:space:]]*:[[:space:]]*\")[0-9]+(\")/\1${BUILD_NUMMER}\2/" \
   -e "s/(\"versionCode\"[[:space:]]*:[[:space:]]*)[0-9]+/\1${BUILD_NUMMER}/" \
+  -e "s/(\"commit\"[[:space:]]*:[[:space:]]*\")[^\"]*(\")/\1${COMMIT}\2/" \
   "$WORKDIR/app/app.json"
 echo "→ Build-Nummer für Apple und Google Play: ${BUILD_NUMMER}"
+echo "→ Stand in der App-Konfiguration: ${COMMIT}"
 
 # Die Firebase-Zugangsdatei für Android-Push (docs/android.md). Sie steht
 # in der .gitignore und fehlt deshalb in jedem frischen Klon - liegt sie

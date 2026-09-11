@@ -4812,3 +4812,52 @@ einer Box weiterhin «stumm» und an einem Melder «Signal aus» -
 «Rauchmelder Flur stumm» liest sich sonst wie eine Lautstärke.
 
 Stellen: `hub/homepilot/integrations/zigbee2mqtt.py`, `hub/homepilot/integrations/demo.py`, `app/src/screens/automations/szenengeraete.ts`, `app/src/lib/ablaufsatz.ts`, `app/src/screens/automations/entwurf.ts`, `app/src/lib/rauchmelder.ts`, `app/src/screens/SystemScreen.tsx`, `app/src/screens/DashboardScreen.tsx`, `scripts/probe.mjs`
+
+### 545. Welchen Stand die App wirklich ausführt ✓ erledigt
+
+Gezeigt wurde der Hinweis, der seit je unter *System* steht: «Diese App
+führt nicht ihren eigenen Stand aus, sondern eine über die Luft
+nachgeladene Fassung – die kann älter sein als das, was TestFlight
+gerade gebracht hat. Fehlt eine Änderung, die im Build drin sein müsste,
+ist das der wahrscheinliche Grund.»
+
+**Der Satz stimmt und hilft trotzdem nicht.** Er nennt eine
+Möglichkeit, und wer ihn liest, weiss danach genau so wenig wie vorher:
+*Ist* sie es? Die einzige Art, das herauszufinden, war die App zweimal
+wegzuwischen und nachzusehen, ob die Änderung nun da ist. Das ist keine
+Auskunft, das ist eine Aufgabe.
+
+**Dabei hatte die Seite die Antwort schon halb in der Hand.** Der Hub
+nennt seinen Commit seit je («HomePilot 0.2.0 · Stand a1b2c3d»), die
+Web-Fassung schreibt ihn in ihre `version.json` - nur die App wusste von
+sich selbst bloss, *wann* sie gebaut wurde, nicht *woraus*. Sie war die
+Lücke zwischen zwei Angaben, die es längst gab.
+
+**Der Stand kommt jetzt aus der `app.json`.** `rebuild-hub.sh` schreibt
+ihn dort hinein, mit demselben `sed`, das schon die Build-Nummer setzt -
+und damit an genau der Stelle, die in beides wandert: in den iOS-Build
+(das Abbild nimmt die Datei mit hinein) und in die OTA-Fassung, weil
+`eas update` die Konfiguration in sein Manifest legt. Jede Fassung trägt
+so den Stand, aus dem sie wirklich entstand, nachgeladen oder nicht.
+
+**Geraten wird nichts.** Aus zwei Commit-Kennungen lässt sich die
+Reihenfolge nicht ablesen; «älter» oder «neuer» stünde da auf Verdacht.
+Der Satz nennt darum beide Stände und was daraus folgt - «eine Änderung,
+die nur auf einer der beiden Seiten liegt, fehlt darum auf der anderen»
+- und der alte Hinweis erscheint nur noch, wenn wirklich etwas
+auseinandergeht. Stimmen beide überein, steht dort die Bestätigung, die
+man nach einem Update sucht.
+
+**Eine App von vor diesem Punkt schweigt.** In der `app.json` steht
+`"unbekannt"`, bis der Bau den echten Stand hineinschreibt; «unbekannt ≠
+a1b2c3d» wäre eine Warnung über nichts.
+
+Nebenbei hiess dieselbe Karte zweimal «Stand» und meinte einmal einen
+Commit und einmal ein Datum. Das Datum heisst jetzt «gebaut».
+
+Nur mit Tests belegt und nicht in der Browser-Probe: Der ganze Abschnitt
+erscheint auf dem Web gar nicht (dort gibt es keine nachgeladenen
+Fassungen, dafür `WebVersionNote`). Was nur nativ passiert, beantwortet
+der Browser nicht.
+
+Stellen: `app/src/lib/appstand.ts`, `app/src/screens/SystemScreen.tsx`, `app/app.json`, `deploy/rebuild-hub.sh`, `CLAUDE.md`
