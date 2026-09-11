@@ -153,6 +153,86 @@ def _merkmale(exposes: Any) -> set[str]:
     return gefunden
 
 
+def schreibbare_merkmale(exposes: Any) -> set[str]:
+    """Nur die Eigenschaften, die man dem Gerät *schreiben* darf.
+
+    Zigbee2MQTT führt je Eigenschaft ein `access`-Bitfeld: 1 heisst «wird
+    gemeldet», 2 heisst «lässt sich über /set stellen», 4 heisst «lässt
+    sich abfragen». `_merkmale` sammelt alle Namen, auch die nur
+    lesbaren - für die Frage «was ist das für ein Gerät?» ist das
+    richtig, für «was kann man ihm befehlen?» nicht.
+
+    Der Unterschied ist hier nicht akademisch: Etliche Melder führen
+    eine Eigenschaft `alarm`, und bei den meisten ist sie der *Zustand*
+    («ich schlage gerade an») und kein Befehl. Ohne diese Trennung
+    bekäme jeder davon einen Knopf «Signal geben», der nichts tut - und
+    genau das soll die Auswahl im Ablauf-Editor nie zeigen
+    (szenengeraete.ts).
+    """
+    gefunden: set[str] = set()
+
+    def gehe(knoten: Any) -> None:
+        if isinstance(knoten, list):
+            for eintrag in knoten:
+                gehe(eintrag)
+            return
+        if not isinstance(knoten, dict):
+            return
+        name = str(knoten.get("property") or knoten.get("name") or "")
+        try:
+            zugang = int(knoten.get("access") or 0)
+        except (TypeError, ValueError):
+            zugang = 0
+        if name and zugang & 2:
+            gefunden.add(name)
+        gehe(knoten.get("features"))
+
+    gehe(exposes)
+    return gefunden
+
+
+#: Wie ein Gerät zum Lärmen gebracht wird - in der Reihenfolge, in der
+#: gesucht wird. `warning` ist der Zigbee-Standard dafür (IAS WD, das
+#: «Warngerät» der Alarm-Spezifikation) und kann Ton, Blitzlicht und
+#: Dauer; `alarm` ist die einfache Fassung vieler Tuya-Melder, ein
+#: blosses Ja/Nein.
+SIRENEN = ("warning", "alarm")
+
+#: Wie die beiden Befehle beim Hub heissen. Nicht `turn_on`/`turn_off`:
+#: Ein Rauchmelder, den man «einschaltet», klingt nach «scharf stellen» -
+#: gemeint ist «mach jetzt Lärm». Der Name steht später in jedem Ablauf,
+#: und er wird nie wieder geändert.
+SIRENE_BEFEHLE = ("sound_alarm", "silence_alarm")
+
+#: Wie lange ein Signal läuft, wenn im Ablauf nichts anderes steht.
+#: Endlich und nicht dauerhaft: Beim `warning`-Standard hört das Gerät
+#: von selbst wieder auf, und eine Sirene, die nur ein zweiter Befehl
+#: stoppt, läuft nach einem Stromausfall im Hub weiter.
+SIGNAL_SEKUNDEN = 30
+
+
+def sirene_art(exposes: Any) -> str | None:
+    """Womit dieses Gerät ein Signal gibt - oder None (rein, testbar).
+
+    Gefragt im Haus: «Ich kann in den Abläufen nicht machen, dass wenn
+    etwas passiert, der Rauchwarnmelder ein Signal gibt.» Er konnte es
+    nicht, weil ein Melder für den Hub bis dahin nur etwas *meldete* -
+    Befehle hatte er keine, und ohne Befehl steht ein Gerät im
+    Ablauf-Editor gar nicht zur Wahl.
+
+    Ob er es *kann*, hängt am Modell und nicht am Wunsch: Ein Melder
+    ohne eingebaute Sirene (oder einer, dessen Sirene nur er selbst
+    auslöst) hat hier nichts zu melden, und ein Knopf dafür wäre eine
+    Attrappe. Darum die Frage ans Gerät und nicht an eine Liste von
+    Modellnamen.
+    """
+    schreibbar = schreibbare_merkmale(exposes)
+    for name in SIRENEN:
+        if name in schreibbar:
+            return name
+    return None
+
+
 def art_und_befehle(exposes: Any) -> tuple[str, list[str]]:
     """Was für ein Gerät ist das, und was kann man damit tun?
 
@@ -187,10 +267,14 @@ def art_und_befehle(exposes: Any) -> tuple[str, list[str]]:
         # Ein Wandtaster hat keinen Zustand, den man ablesen könnte - er
         # meldet einen Druck.
         return EntityKind.BUTTON, []
+    # Ein Melder mit eingebauter Sirene bleibt ein Melder - im Alltag ist
+    # er das, was er meldet. Er bekommt aber Befehle, und erst damit
+    # steht er im Ablauf-Editor überhaupt zur Wahl (Punkt 543).
+    laerm = SIRENE_BEFEHLE if sirene_art(exposes) else []
     for name in MELDER:
         if name in merkmale:
-            return EntityKind.BINARY_SENSOR, []
-    return EntityKind.SENSOR, []
+            return EntityKind.BINARY_SENSOR, list(laerm)
+    return EntityKind.SENSOR, list(laerm)
 
 
 def melder_klasse(exposes: Any) -> str | None:
@@ -315,8 +399,48 @@ def zustand_aus_payload(
     return changes
 
 
-def set_nutzlast(kind: str, command: str, data: dict[str, Any]) -> dict[str, Any]:
+def sirene_nutzlast(art: str, command: str, data: dict[str, Any]) -> dict[str, Any]:
+    """Was ein Signal auslöst oder abstellt (rein, testbar).
+
+    Zwei Sprachen für dieselbe Sache. `warning` ist der Zigbee-Standard
+    (IAS WD): Tonart, Lautstärke, Blitzlicht und Dauer in einem Rutsch.
+    `alarm` ist das Ja/Nein vieler Tuya-Melder.
+
+    Bei `warning` steht «feuer» (`mode: fire`) und nicht die Einbruchs-
+    Tonfolge: Ein Rauchmelder, der wie eine Einbruchsirene klingt, sagt
+    dem Haus das Falsche. Wo das Gerät nur Ja/Nein kennt, spielt es
+    ohnehin seinen eigenen Ton.
+    """
+    an = command == SIRENE_BEFEHLE[0]
+    if art == "alarm":
+        return {"alarm": an}
+    if not an:
+        # «stop» und nicht `duration: 0`: Manche Geräte lesen die Null
+        # als «unbegrenzt» und heulen dann erst recht weiter.
+        return {"warning": {"mode": "stop", "strobe": False, "duration": 0}}
+    try:
+        dauer = int(data.get("duration") or SIGNAL_SEKUNDEN)
+    except (TypeError, ValueError):
+        dauer = SIGNAL_SEKUNDEN
+    return {
+        "warning": {
+            "mode": "fire",
+            "level": "very_high",
+            "strobe": True,
+            "strobe_level": "very_high",
+            "duration": max(1, min(900, dauer)),
+        }
+    }
+
+
+def set_nutzlast(
+    kind: str, command: str, data: dict[str, Any], sirene: str | None = None
+) -> dict[str, Any]:
     """Was in `<gerät>/set` geschrieben wird (rein, testbar)."""
+    if command in SIRENE_BEFEHLE:
+        if not sirene:
+            raise ConfigError("Dieses Gerät kann kein Signal geben")
+        return sirene_nutzlast(sirene, command, data)
     if kind == EntityKind.COVER:
         if command == "open":
             return {"state": "OPEN"}
@@ -397,6 +521,8 @@ class Zigbee2MqttIntegration(Integration):
         self._arten: dict[str, str] = {}
         self._klassen: dict[str, str | None] = {}
         self._haupt: dict[str, str | None] = {}
+        # Womit dieses Gerät Lärm macht - «warning», «alarm» oder gar nicht.
+        self._sirenen: dict[str, str] = {}
 
         self.start_task(self._connection_loop())
 
@@ -528,6 +654,9 @@ class Zigbee2MqttIntegration(Integration):
             self._arten[entity.id] = art
             self._klassen[entity.id] = klasse
             self._haupt[entity.id] = haupt
+            laermt = sirene_art(geraet["exposes"])
+            if laermt:
+                self._sirenen[entity.id] = laermt
             neu += 1
         if neu:
             self.log.info("%d Zigbee-Geräte übernommen", neu)
@@ -539,7 +668,12 @@ class Zigbee2MqttIntegration(Integration):
         name = self._namen.get(entity.id)
         if name is None:
             raise ConfigError("Dieses Gerät kennt Zigbee2MQTT nicht mehr")
-        nutzlast = set_nutzlast(self._arten.get(entity.id, EntityKind.SWITCH), command, data)
+        nutzlast = set_nutzlast(
+            self._arten.get(entity.id, EntityKind.SWITCH),
+            command,
+            data,
+            self._sirenen.get(entity.id),
+        )
         await client.publish(f"{self._base}/{name}/set", json.dumps(nutzlast))
         # Den neuen Zustand meldet das Gerät selbst zurück - deshalb hier
         # bewusst kein optimistisches Setzen. Bei Zigbee dauert das

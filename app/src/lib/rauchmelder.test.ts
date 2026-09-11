@@ -171,6 +171,19 @@ describe('rauchmelderListe', () => {
     expect(zeile.werte.map((w) => w.feld)).toEqual(['battery']);
   });
 
+  it('merkt sich, ob der Melder von aussen lärmen kann', () => {
+    // Punkt 543. Hängt am Modell: Die meisten Rauchmelder haben zwar
+    // eine Sirene, aber nur ihre eigene. Ohne dieses Feld bliebe die
+    // Frage offen, warum der Melder im Ablauf-Editor fehlt.
+    const [laut] = rauchmelderListe([
+      { ...melder('Flur', { state: 'off', device_class: 'smoke' }),
+        commands: ['sound_alarm', 'silence_alarm'] } as unknown as Entity,
+    ]);
+    expect(laut.kannSignal).toBe(true);
+    const [stumm] = rauchmelderListe([melder('Bad', { state: 'off', device_class: 'smoke' })]);
+    expect(stumm.kannSignal).toBe(false);
+  });
+
   it('nimmt nur Melder auf', () => {
     expect(rauchmelderListe([melder('Fenster', { state: 'on', device_class: 'contact' })])).toEqual(
       []

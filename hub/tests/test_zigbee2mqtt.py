@@ -304,3 +304,104 @@ def test_die_eigene_batteriewarnung_des_geraets_sticht_den_prozentwert():
         None,
     )
     assert heil["low_battery"] is False
+
+
+# ── Ein Melder, der selbst Lärm macht (Punkt 543) ───────────────────────
+
+
+def _melder_mit_sirene():
+    """Ein Rauchmelder mit IAS-WD-Sirene, wie Zigbee2MQTT ihn beschreibt."""
+    return [
+        {"type": "binary", "property": "smoke", "name": "smoke", "access": 1},
+        {"type": "binary", "property": "battery_low", "name": "battery_low", "access": 1},
+        {
+            "type": "composite",
+            "property": "warning",
+            "name": "warning",
+            "access": 2,
+            "features": [
+                {"name": "mode", "access": 2},
+                {"name": "level", "access": 2},
+                {"name": "strobe", "access": 2},
+                {"name": "duration", "access": 2},
+            ],
+        },
+    ]
+
+
+def test_ein_melder_ohne_sirene_bekommt_keinen_knopf():
+    """Ob er Lärm machen kann, hängt am Modell und nicht am Wunsch.
+
+    Ein Knopf «Signal geben» an einem Melder, der keine Sirene hat, wäre
+    eine Attrappe - und genau das soll die Auswahl im Ablauf-Editor nie
+    zeigen.
+    """
+    nackt = [{"type": "binary", "property": "smoke", "name": "smoke", "access": 1}]
+    art, befehle = z.art_und_befehle(nackt)
+    assert art == "binary_sensor"
+    assert befehle == []
+    assert z.sirene_art(nackt) is None
+
+
+def test_der_gemeldete_alarm_ist_kein_befehl():
+    """`alarm` heisst bei den meisten Meldern «ich schlage gerade an».
+
+    Nur lesbar (access 1) ist es ein Zustand; erst mit dem Schreibbit
+    ist es ein Befehl. Ohne diese Trennung bekäme jeder Melder mit einem
+    Alarmfeld einen Knopf, der nichts tut.
+    """
+    nur_zustand = [{"type": "binary", "property": "alarm", "name": "alarm", "access": 1}]
+    assert z.sirene_art(nur_zustand) is None
+    stellbar = [{"type": "binary", "property": "alarm", "name": "alarm", "access": 7}]
+    assert z.sirene_art(stellbar) == "alarm"
+
+
+def test_ein_melder_mit_sirene_bleibt_ein_melder_und_bekommt_befehle():
+    """Im Alltag ist er das, was er meldet - aber er steht jetzt zur Wahl.
+
+    Ohne Befehle stand er im Ablauf-Editor gar nicht erst da: Die Auswahl
+    dort zeigt, was ein Gerät wirklich kann.
+    """
+    art, befehle = z.art_und_befehle(_melder_mit_sirene())
+    assert art == "binary_sensor"
+    assert befehle == ["sound_alarm", "silence_alarm"]
+    assert z.sirene_art(_melder_mit_sirene()) == "warning"
+
+
+def test_das_signal_klingt_nach_feuer_und_hoert_von_selbst_auf():
+    """Ein Rauchmelder mit Einbruchs-Tonfolge sagt dem Haus das Falsche.
+
+    Und die Dauer gehört mit: Eine Sirene, die nur ein zweiter Befehl
+    stoppt, läuft nach einem Stromausfall im Hub weiter.
+    """
+    an = z.set_nutzlast("binary_sensor", "sound_alarm", {}, "warning")
+    assert an["warning"]["mode"] == "fire"
+    assert an["warning"]["duration"] == z.SIGNAL_SEKUNDEN
+    assert an["warning"]["strobe"] is True
+
+    laenger = z.set_nutzlast("binary_sensor", "sound_alarm", {"duration": 120}, "warning")
+    assert laenger["warning"]["duration"] == 120
+    # Nach oben begrenzt: Eine Viertelstunde Sirene ist genug, und eine
+    # vertippte Null mehr wäre eine Viertelnacht.
+    endlos = z.set_nutzlast("binary_sensor", "sound_alarm", {"duration": 99999}, "warning")
+    assert endlos["warning"]["duration"] == 900
+
+
+def test_abstellen_sagt_stop_und_nicht_dauer_null():
+    """Manche Geräte lesen die Null als «unbegrenzt»."""
+    aus = z.set_nutzlast("binary_sensor", "silence_alarm", {}, "warning")
+    assert aus["warning"]["mode"] == "stop"
+    assert aus["warning"]["duration"] == 0
+
+
+def test_der_einfache_melder_kennt_nur_ja_und_nein():
+    an = z.set_nutzlast("binary_sensor", "sound_alarm", {}, "alarm")
+    aus = z.set_nutzlast("binary_sensor", "silence_alarm", {}, "alarm")
+    assert an == {"alarm": True}
+    assert aus == {"alarm": False}
+
+
+def test_ein_signal_an_ein_stummes_geraet_wird_abgewiesen():
+    """Lieber ein Fehler als ein Befehl, der ins Leere geht."""
+    with pytest.raises(ConfigError):
+        z.set_nutzlast("binary_sensor", "sound_alarm", {}, None)

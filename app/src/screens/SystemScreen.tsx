@@ -31,7 +31,7 @@ import { datumUhr } from '../lib/format';
 import { integrationDetail } from '../lib/integrationszeile';
 import { LaufArt, LetzterLauf, letzterLaufSatz } from '../lib/letzterlauf';
 import { OtaStand, otaLage, otaZeile } from '../lib/otastand';
-import { rauchmelderListe } from '../lib/rauchmelder';
+import { SIGNAL_AN, SIGNAL_AUS, rauchmelderListe } from '../lib/rauchmelder';
 import { UpdateVorschau, vorschauZeilen } from '../lib/updatevorschau';
 import { fehlerZeilen, letzterStartfehler, startfehlerListe } from '../lib/startfehler';
 import { localTime, timeAgo } from '../lib/zeit';
@@ -48,11 +48,14 @@ export function SystemScreen({
   user,
   entities = [],
   push = { state: 'idle' },
+  onSignal,
 }: {
   settings: HubSettings;
   user: User | null;
   /** Alle Geräte – für die Liste hinter «nicht erreichbar». */
   entities?: Entity[];
+  /** Einen Rauchwarnmelder von Hand lärmen lassen (Punkt 543). */
+  onSignal?: (entityId: string, command: string) => void;
   /** Stand der Push-Anmeldung dieses Geräts. */
   push?: PushState;
 }) {
@@ -227,7 +230,7 @@ export function SystemScreen({
           ist eine Zustandsfrage - und die einzige Stelle, an der man sie
           stellen kann, seit im Zimmer keine Kachel mehr steht
           (Punkt 542). */}
-      <RauchmelderCard entities={entities} />
+      <RauchmelderCard entities={entities} onSignal={onSignal} />
 
       <IntegrationsCard
         integrations={status.integrations}
@@ -1490,7 +1493,15 @@ export function offline(entities: Entity[]): Entity[] {
  * Modell, und eine Liste, die nur Aufgezähltes zeigt, lässt genau das
  * weg, wonach man sucht.
  */
-function RauchmelderCard({ entities }: { entities: Entity[] }) {
+function RauchmelderCard({
+  entities,
+  onSignal,
+}: {
+  entities: Entity[];
+  /** Den Melder von Hand lärmen lassen. Fehlt der Griff, bleibt der
+   *  Knopf weg - Gäste lösen keine Sirene aus. */
+  onSignal?: (entityId: string, command: string) => void;
+}) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [offen, setOffen] = useState(false);
@@ -1555,6 +1566,22 @@ function RauchmelderCard({ entities }: { entities: Entity[] }) {
               </Text>
             </View>
           </View>
+          {onSignal && zeile.kannSignal ? (
+            <View style={styles.melderKnoepfe}>
+              <Button label="Signal testen" onPress={() => onSignal(zeile.id, SIGNAL_AN)} />
+              <Button label="Stopp" onPress={() => onSignal(zeile.id, SIGNAL_AUS)} />
+            </View>
+          ) : null}
+          {!zeile.kannSignal ? (
+            // Warum der Melder im Ablauf-Editor nicht zur Wahl steht.
+            // Ohne diesen Satz sucht man dort weiter - die meisten
+            // Rauchmelder haben zwar eine Sirene, aber nur ihre eigene.
+            <Text style={styles.hint}>
+              Dieses Modell lässt sich nicht von aussen auslösen – es hat keine Sirene, die
+              der Hub ansteuern kann. Darum steht es in den Abläufen auch nicht als «Signal
+              geben» zur Wahl.
+            </Text>
+          ) : null}
           {zeile.werte.length > 0 ? (
             <View style={styles.melderWerte}>
               {zeile.werte.map((wert) => (
@@ -2386,6 +2413,7 @@ const makeStyles = (colors: Colors) =>
       borderTopColor: colors.surfaceBorder,
     },
     melderWerte: { flexDirection: 'row', flexWrap: 'wrap', gap: 18, paddingLeft: 30 },
+    melderKnoepfe: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingLeft: 30 },
     /** Kleiner als `factValue`: Hier stehen vier bis acht Werte je
      *  Melder nebeneinander, nicht fünf auf der ganzen Seite. */
     melderWert: { color: colors.ink, fontSize: 15, fontWeight: '600' },

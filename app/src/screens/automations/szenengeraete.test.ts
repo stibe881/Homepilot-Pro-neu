@@ -48,6 +48,25 @@ describe('isSceneDevice', () => {
     expect(isSceneDevice(geraet('camera', []))).toBe(false);
   });
 
+  it('nimmt einen Melder auf, der selbst Lärm machen kann', () => {
+    // Punkt 543, gemeldet im Haus: «Ich kann in den Abläufen nicht
+    // machen, dass wenn etwas passiert, der Rauchwarnmelder ein Signal
+    // gibt.» Er stand dort nicht zur Wahl, weil ein Melder für den Hub
+    // nur meldete - Befehle hatte er keine.
+    const melder = geraet('binary_sensor', ['sound_alarm', 'silence_alarm'], {
+      device_class: 'smoke',
+    });
+    expect(isSceneDevice(melder)).toBe(true);
+    expect(schluessel(melder)).toEqual(['sound_alarm', 'silence_alarm']);
+  });
+
+  it('lässt den Melder ohne Sirene weiterhin draussen', () => {
+    // Und das ist die halbe Sache: Ob er Lärm machen kann, hängt am
+    // Modell. Ein Knopf «Signal geben» an einem Melder, der keine
+    // Sirene hat, wäre eine Attrappe.
+    expect(isSceneDevice(geraet('binary_sensor', [], { device_class: 'smoke' }))).toBe(false);
+  });
+
   it('nimmt weiterhin Licht, Schalter, Storen, Schloss, Boxen, Sauger und Alarm', () => {
     expect(isSceneDevice(geraet('light', ['turn_on', 'turn_off']))).toBe(true);
     expect(isSceneDevice(geraet('switch', ['turn_on', 'turn_off']))).toBe(true);

@@ -791,6 +791,59 @@ async function rauchmelderNichtImZimmer(browser) {
   await seite.close();
 }
 
+/** 10. Steht der Melder im Ablauf-Editor mit «Signal geben»? (Punkt 543)
+ *
+ * Gemeldet im Haus: «Ich kann in den Abläufen nicht machen, dass wenn
+ * etwas passiert, der Rauchwarnmelder ein Signal gibt.» Er stand dort
+ * nicht zur Wahl, weil ein Melder für den Hub bis dahin nur *meldete* -
+ * Befehle hatte er keine, und die Geräteliste im Editor zeigt nur, was
+ * ein Gerät wirklich kann.
+ *
+ * Gemessen im Browser und nicht nur im Test, weil die Kette über drei
+ * Schichten läuft: Der Hub muss die Sirene im Gerät erkennen
+ * (`sirene_art`), sie als Befehle mitschicken, und der Editor muss aus
+ * den Befehlen Chips machen. Jede Schicht war für sich grün, als die
+ * Auswahl leer blieb.
+ */
+async function melderGibtSignal(browser) {
+  const seite = await angemeldeteSeite(browser, GROESSEN[0]);
+  const einstellungen = seite.getByLabel('Einstellungen').first();
+  if (!(await einstellungen.isVisible().catch(() => false))) {
+    await seite.close();
+    return;
+  }
+  await einstellungen.click();
+  await seite.waitForTimeout(900);
+  const ablaeufe = seite.getByLabel('Abläufe').first();
+  if (!(await ablaeufe.isVisible().catch(() => false))) {
+    await seite.close();
+    return;
+  }
+  await ablaeufe.click();
+  await seite.waitForTimeout(1300);
+  const vorlage = seite.getByLabel(/^Neuer Ablauf aus /).first();
+  if (!(await vorlage.isVisible().catch(() => false))) {
+    await seite.close();
+    return;
+  }
+  await vorlage.click();
+  await seite.waitForTimeout(1300);
+
+  const melder = seite.getByLabel(/Rauchmelder Flur/).first();
+  if (!(await melder.isVisible().catch(() => false))) {
+    pruefe(false, 'Der Rauchmelder steht im Ablauf-Editor zur Wahl');
+    await seite.close();
+    return;
+  }
+  pruefe(true, 'Der Rauchmelder steht im Ablauf-Editor zur Wahl');
+  await melder.click();
+  await seite.waitForTimeout(900);
+  const text = await seite.evaluate(() => document.body.innerText);
+  pruefe(text.includes('Signal geben'), 'Und bietet «Signal geben» an');
+  pruefe(text.includes('Signal aus'), 'Und «Signal aus» daneben');
+  await seite.close();
+}
+
 const { chromium } = playwrightLaden();
 const browser = await chromium.launch({ executablePath: browserOrt() });
 try {
@@ -804,6 +857,7 @@ try {
   await ablaufEditorPasst(browser);
   await fuehlerInZweiZimmern(browser);
   await rauchmelderNichtImZimmer(browser);
+  await melderGibtSignal(browser);
 } finally {
   await browser.close();
 }

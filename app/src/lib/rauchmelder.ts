@@ -76,7 +76,20 @@ export interface Melderzeile {
   /** Der Zustand als Wort - «Ruhig», «RAUCH», «nicht erreichbar». */
   status: string;
   werte: Melderwert[];
+  /** Lässt sich dieser Melder von aussen zum Lärmen bringen?
+   *
+   *  Hängt am Modell: Die meisten Rauchmelder haben zwar eine Sirene,
+   *  aber nur ihre eigene - auslösen kann sie niemand sonst. Wo es
+   *  geht, steht der Melder auch im Ablauf-Editor zur Wahl
+   *  (Punkt 543); wo nicht, sagt die Karte es, statt die Frage offen
+   *  zu lassen, warum er dort fehlt. */
+  kannSignal: boolean;
 }
+
+/** Die Befehle, mit denen ein Melder Lärm macht - so heissen sie im Hub
+ *  (integrations/zigbee2mqtt.py, SIRENE_BEFEHLE). */
+export const SIGNAL_AN = 'sound_alarm';
+export const SIGNAL_AUS = 'silence_alarm';
 
 /** Was der Hub sonst noch am Zustand führt und was hier nichts zu suchen
  *  hat: der Zustand selbst (steht als `status` da), die Geräteklasse
@@ -194,6 +207,7 @@ export function rauchmelderListe(entities: Entity[]): Melderzeile[] {
       erreichbar,
       status: !erreichbar ? 'nicht erreichbar' : alarm ? 'RAUCH' : 'Ruhig',
       werte,
+      kannSignal: (entity.commands ?? []).includes(SIGNAL_AN),
     };
   });
   const rang = (zeile: Melderzeile) => (zeile.alarm ? 0 : !zeile.erreichbar ? 1 : 2);

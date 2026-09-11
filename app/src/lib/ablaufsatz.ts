@@ -150,6 +150,11 @@ const BEFEHL: Record<string, string> = {
   arm_vacation: 'scharf (Urlaub)',
   disarm: 'unscharf',
   activate: 'aufrufen',
+  // Melder mit eingebauter Sirene (Punkt 543). «Signal» und nicht
+  // «ein»: Ein Rauchmelder, den man einschaltet, klingt nach «scharf
+  // stellen» - gemeint ist «mach jetzt Lärm».
+  sound_alarm: 'Signal geben',
+  silence_alarm: 'Signal aus',
 };
 
 /** Das Wort für einen Befehl – «aus» statt turn_off (rein, testbar).

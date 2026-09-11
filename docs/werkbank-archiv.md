@@ -4695,3 +4695,56 @@ Liste dann fehlt, ist der Melder nirgends mehr zu sehen - schlimmer als
 vorher.
 
 Stellen: `app/src/lib/rauchmelder.ts`, `app/src/lib/raum.ts`, `app/src/screens/SystemScreen.tsx`, `hub/homepilot/integrations/zigbee2mqtt.py`, `hub/homepilot/integrations/demo.py`, `scripts/probe.sh`, `scripts/probe.mjs`
+
+### 543. Ein Melder, der selbst Lärm macht – als Schritt im Ablauf ✓ erledigt
+
+Gemeldet im Haus: «Ich kann in den Abläufen nicht machen, dass wenn
+etwas passiert, der Rauchwarnmelder ein Signal gibt.»
+
+**Er stand dort gar nicht zur Wahl, und das war folgerichtig.** Die
+Geräteliste im Ablauf- und Szenen-Editor zeigt nur, was ein Gerät
+wirklich kann (`szenengeraete.ts`, `baseCommandOptions`) - der Hub weist
+jeden Befehl ab, der nicht in `commands` steht, und ein Chip dafür wäre
+ein Knopf, der nichts tut. Ein Melder hatte bis hierher nie Befehle: Er
+meldete, mehr nicht. Damit fehlte er in der Liste, ohne dass ein Fehler
+im Spiel war.
+
+**Ob er es kann, hängt am Modell und nicht am Wunsch.** Die meisten
+Rauchmelder haben zwar eine Sirene, aber nur ihre eigene - auslösen kann
+sie niemand sonst. Zigbee2MQTT sagt es am Gerät selbst: Jede
+Eigenschaft trägt ein `access`-Bitfeld, und erst das Schreibbit macht
+aus einer Meldung einen Befehl. Genau daran hängt es jetzt
+(`sirene_art`), und nicht an einer Liste von Modellnamen, die nach dem
+ersten neuen Melder falsch wäre.
+
+Der Unterschied ist dabei nicht akademisch: Etliche Melder führen eine
+Eigenschaft `alarm`, und bei den meisten ist sie der *Zustand* («ich
+schlage gerade an») und kein Befehl. Ohne die Trennung bekäme jeder
+davon einen Knopf, der nichts tut.
+
+**Zwei Sprachen für dieselbe Sache.** `warning` ist der Zigbee-Standard
+(IAS WD): Tonart, Lautstärke, Blitzlicht und Dauer in einem Rutsch.
+`alarm` ist das Ja/Nein vieler Tuya-Melder. Bei `warning` steht «Feuer»
+und nicht die Einbruchs-Tonfolge - ein Rauchmelder, der wie eine
+Einbruchsirene klingt, sagt dem Haus das Falsche.
+
+**Das Signal hört von selbst auf.** Dreissig Sekunden, im Ablauf
+überschreibbar, nach oben auf eine Viertelstunde begrenzt. Eine Sirene,
+die nur ein zweiter Befehl stoppt, läuft nach einem Stromausfall im Hub
+weiter - und eine vertippte Null mehr wäre eine Viertelnacht. Beim
+Abstellen steht `mode: stop` und nicht `duration: 0`: Manche Geräte
+lesen die Null als «unbegrenzt».
+
+**Die Befehle heissen `sound_alarm`/`silence_alarm` und nicht
+`turn_on`/`turn_off`.** Ein Rauchmelder, den man «einschaltet», klingt
+nach «scharf stellen»; gemeint ist «mach jetzt Lärm». Der Name steht
+später in jedem Ablauf und wird nicht mehr geändert.
+
+**Und die Karte unter System sagt, wer es nicht kann.** Sonst sucht man
+im Editor weiter nach einem Melder, der dort nie erscheinen wird. Wo es
+geht, steht daneben ein Knopf «Signal testen» - für den Melder an der
+Decke ist das die einzige Art, den Ton je zu hören, ohne Rauch zu
+machen. Gäste sehen ihn nicht: dieselbe Hürde wie beim Antippen einer
+Kachel.
+
+Stellen: `hub/homepilot/integrations/zigbee2mqtt.py`, `hub/homepilot/integrations/demo.py`, `app/src/screens/automations/szenengeraete.ts`, `app/src/lib/ablaufsatz.ts`, `app/src/lib/rauchmelder.ts`, `app/src/screens/SystemScreen.tsx`, `app/src/screens/DashboardScreen.tsx`, `scripts/probe.mjs`
