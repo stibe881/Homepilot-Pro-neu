@@ -3486,7 +3486,7 @@ nie rot wird, ist keiner.
 
 Stellen: `app/src/lib/strichcode.ts`, `app/src/components/Kassencode.tsx`, `app/src/components/QrScanner.tsx`, `app/src/screens/family/gutscheine.tsx`, `hub/homepilot/core/gutscheine.py`
 
-## Zweite Vorschlagsrunde (421–440)
+## Zweite Vorschlagsrunde (421–442)
 
 Aus einer Liste von fünfundachtzig Vorschlägen (allgemein, Bedienung,
 Gestaltung, Gutscheine, Abläufe, Push, Alarmanlage, selbst gewählt),
@@ -3742,3 +3742,35 @@ Lichtkachel und der grosse Wert der übrigen Kacheln wachsen bis 160 %
 mit der Systemschrift mit und halten dann (`lib/schrift.ts`:
 MAX_SCHRIFT) - bei 200 % schob der Wert sonst den Namen aus der Kachel.
 Fliesstext wächst weiter unbegrenzt mit; das soll so bleiben.
+
+### 441. Lauftext: Messung und Anzeige getrennt ✓ umgebaut, Nachweis offen
+
+*Aufwand: klein · App*
+
+Werkbank 353, so gebaut wie dort beschrieben: Der Messkasten bleibt
+immer 4000 Punkte breit und unsichtbar (`position: absolute`, im
+Fenster abgeschnitten), der Text darin meldet bei jedem Durchgang
+seine eigene Breite; der animierte Kasten daneben hat die gemessene
+Breite und misst nichts. Die Browser-Probe hat dazu eine Messung
+bekommen: Ein Gerät schaltet beim Start und noch einmal nach der
+ersten Wanderung (die Startseite baut sich über den WebSocket neu
+auf), danach muss die Zeile weiter wandern.
+
+Ehrlich dazu: Diese Messung war auch mit der alten Fassung grün - der
+Fall aus 353 («ein zusätzlicher Abruf beim Start») liess sich in der
+Probe nicht nachstellen, weder über einen Zustandswechsel noch über
+eine Fenstergrösse. Der Umbau ist damit die vorgeschlagene, sauberere
+Bauart, aber kein bewiesener Fehlerfix. Wer den alten Fehler wieder
+sieht, hat mit der neuen Messung wenigstens einen Platz, an dem er
+ihn festhalten kann.
+
+### 442. mypy-sauber ohne rote Module ✓ erledigt
+
+*Aufwand: klein · Hub*
+
+`tools/mypy_sauber.py` meldete fünf Module aus `mypy-sauber.txt` rot
+(vorlagen, geofence, mqtt, weather, zigbee2mqtt) - je ein Typfehler:
+eine unannotierte Liste, eine Sitzung, die als `None` getippt war, der
+Broker als `Any | None` statt `str`, und die Wetter-Parameter als
+`dict[str, object]`. Alle fünf behoben, ohne einen Eintrag zu
+streichen; die Prüfung ist wieder bindend: «Typen sauber: 160 Module».

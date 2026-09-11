@@ -221,6 +221,20 @@ async function blattBleibt(browser) {
   await seite.close();
 }
 
+/** Ein Gerät zweimal schalten, damit die Startseite sich neu aufbaut
+ *  und am Ende steht wie vorher (für terminWandert, Punkt 441). */
+async function geraetSchalten() {
+  const kopf = { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' };
+  for (const befehl of ['turn_on', 'turn_off']) {
+    await fetch(`${HUB}/api/entities/demo.light_livingroom/command`, {
+      method: 'POST',
+      headers: kopf,
+      body: JSON.stringify({ command: befehl, data: {} }),
+    });
+    await new Promise((weiter) => setTimeout(weiter, 600));
+  }
+}
+
 /** 3. Kommt ein Druck wirklich am Hub an? */
 async function druckKommtAn(browser) {
   const kopf = { Authorization: `Bearer ${TOKEN}` };
@@ -274,6 +288,10 @@ async function druckKommtAn(browser) {
  */
 async function terminWandert(browser) {
   const seite = await angemeldeteSeite(browser, GROESSEN[1]);
+  // Gleich beim Start ein Gerät schalten: Das ist der «zusätzliche
+  // Abruf beim Start der Startseite» aus Werkbank 353 - ein weiterer
+  // Aufbau, während die Zeile sich noch misst.
+  await geraetSchalten();
   // Die wandernde Ausfertigung ist die zweite – die erste ist der
   // Platzhalter, der den Platz bestimmt (components/Lauftext.tsx).
   const messen = () =>
@@ -338,6 +356,28 @@ async function terminWandert(browser) {
   // passiert, ist keine.
   const zurueck = weiteste > 20 && spur.lastIndexOf(ruhe) > spur.indexOf(Math.min(...spur));
   pruefe(zurueck, 'Die lange Terminzeile fängt wieder von vorne an', 'blieb am Ende stehen');
+
+  // Der Fall aus Werkbank 353 (Punkt 441): Ein weiterer Aufbau der
+  // Startseite - dort genügte ein einziger zusätzlicher Abruf - liess
+  // den Text früher die Breite des Fensters statt seine eigene melden;
+  // aus «muss wandern» wurde «passt», und die Zeile blieb stehen. Hier
+  // erzwingt ihn ein Gerät, das seinen Zustand ändert: Der Hub meldet
+  // es über den WebSocket, die Startseite baut sich neu auf, die Zeile
+  // muss danach weiter wandern. Zwei Schaltungen, damit das Licht am
+  // Ende steht wie vorher.
+  await geraetSchalten();
+  const danach = [];
+  for (let i = 0; i < 26; i++) {
+    await seite.waitForTimeout(400);
+    const jetzt = await messen();
+    if (jetzt) danach.push(jetzt.x);
+  }
+  const weiterhin = danach.length > 0 ? Math.max(...danach) - Math.min(...danach) : 0;
+  pruefe(
+    weiterhin > 20,
+    'Die lange Terminzeile wandert auch nach einem weiteren Aufbau',
+    `nur ${weiterhin} Punkte`
+  );
   await seite.close();
 }
 
