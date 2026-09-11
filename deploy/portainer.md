@@ -47,6 +47,25 @@ Der Ordner `/opt/homepilot` ist danach das Zuhause des Hubs: Neben der
 Benutzer und Abläufe) sowie Kopplungs-Dateien (Android-TV-Zertifikate,
 Ring-Token). **Diesen Ordner ins Backup aufnehmen.**
 
+### Zigbee (nur wenn ein Dongle da ist)
+
+Zum Stack gehören zwei weitere Dienste: ein MQTT-Broker und
+Zigbee2MQTT. Beide brauchen ihren Ordner, bevor der Stack startet -
+sonst legt Docker sie als root an, und die Dienste dürfen nicht
+hineinschreiben:
+
+```bash
+sudo mkdir -p /opt/homepilot/zigbee2mqtt /opt/homepilot/mosquitto
+sudo cp deploy/zigbee2mqtt.example.yaml \
+        /opt/homepilot/zigbee2mqtt/configuration.yaml
+sudo nano /opt/homepilot/zigbee2mqtt/configuration.yaml   # Adresse des Dongles
+sudo chown -R 1000:1000 /opt/homepilot/zigbee2mqtt /opt/homepilot/mosquitto
+```
+
+In dieser Datei steht später der **Netzwerkschlüssel des Zigbee-Netzes**
+und die Geräteliste - sie gehört ins Backup und nie ins Repository.
+Was einzutragen ist und warum: [`docs/zigbee.md`](../docs/zigbee.md).
+
 ## Schritt 2: Stack in Portainer anlegen
 
 1. Portainer öffnen → **Stacks** → **Add stack**.

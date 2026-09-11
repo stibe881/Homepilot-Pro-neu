@@ -1,0 +1,64 @@
+# Zigbee2MQTT für den SONOFF Dongle Max (Dongle-M) am Netzwerkkabel.
+#
+# Kopieren nach hub/zigbee2mqtt/configuration.yaml - **nicht** ins Repo
+# zurück: Zigbee2MQTT schreibt beim ersten Start den Netzwerkschlüssel
+# hinein, und der ist das Geheimnis, mit dem man das ganze Zigbee-Netz
+# mithört. Der Ordner steht deshalb in der .gitignore.
+#
+#   sudo mkdir -p /opt/homepilot/hub/zigbee2mqtt
+#   sudo cp deploy/zigbee2mqtt.example.yaml \
+#           /opt/homepilot/hub/zigbee2mqtt/configuration.yaml
+#   sudo chown -R 1000:1000 /opt/homepilot/hub/zigbee2mqtt
+
+mqtt:
+  base_topic: zigbee2mqtt
+  # Derselbe Rechner, deshalb die Schleife - siehe deploy/mosquitto.conf.
+  server: mqtt://127.0.0.1:1883
+
+serial:
+  # **Hier die feste Adresse des Dongles eintragen.** `Dongle-M.local`
+  # steht in der Anleitung von SONOFF und funktioniert über mDNS - aber
+  # eben nur, solange mDNS funktioniert. Fällt es aus, sieht das aus wie
+  # ein defekter Dongle: Zigbee2MQTT startet nicht, und kein Gerät
+  # meldet sich mehr. Eine feste Adresse im Router kostet fünf Minuten
+  # und nimmt diese Fehlerquelle weg.
+  port: tcp://192.168.1.60:6638
+  # Der Dongle Max trägt einen EFR32MG24 von Silicon Labs, und der
+  # spricht EmberZNet. `zstack` wäre der Texas-Instruments-Stick, den
+  # man sonst überall liest - damit verbindet sich hier nichts.
+  adapter: ember
+  baudrate: 115200
+  rtscts: false
+
+frontend:
+  # Zum Anlernen und - wichtiger - zum Benennen. Der Hub leitet die
+  # Kennung einer Kachel vom Namen in Zigbee2MQTT ab: Wer später
+  # umbenennt, bekommt eine neue Kachel, und Raum, Favorit und Abläufe
+  # zeigen auf die alte (docs/zigbee.md). Also: erst benennen, dann den
+  # Hub lesen lassen.
+  enabled: true
+  port: 8099
+
+# Aus, und zwar bewusst. Ein dauerhaft offenes Netz nimmt jedes Gerät
+# in Reichweite auf, auch das des Nachbarn - und ein fremdes Gerät im
+# eigenen Zigbee-Netz ist ein Weg hinein. Zum Anlernen macht man es in
+# der Weboberfläche für ein paar Minuten auf.
+permit_join: false
+
+# Der Hub liest die Geräteliste selbst (integrations/zigbee2mqtt.py).
+# Die Home-Assistant-Meldungen wären ein zweiter Satz Themen, den hier
+# niemand liest.
+homeassistant:
+  enabled: false
+
+advanced:
+  # Beim ersten Start erzeugt und danach in dieser Datei festgehalten.
+  # Wer ihn später ändert, muss jedes Gerät neu anlernen.
+  network_key: GENERATE
+  pan_id: GENERATE
+  ext_pan_id: GENERATE
+  # Der Kanal. 11, 15, 20 und 25 liegen zwischen den WLAN-Kanälen 1, 6
+  # und 11 - auf einem anderen wird Zigbee genau dann unzuverlässig,
+  # wenn jemand Netflix schaut.
+  channel: 25
+  log_level: warning

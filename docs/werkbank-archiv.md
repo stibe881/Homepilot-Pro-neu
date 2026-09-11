@@ -4314,3 +4314,56 @@ Auf der Verbindungen-Seite bleibt das Wort sichtbar: Dort ist es der
 Inhalt und nicht die Verzierung eines Punktes.
 
 Stellen: `app/src/lib/verbindungsstand.ts`, `app/src/components/TopStrip.tsx`
+
+### 536. Zigbee über den Dongle am Netzwerkkabel ✓ erledigt
+
+*lohnt sich · Aufwand: mittel · Hub-Stack + Doku*
+
+Die Zigbee-Integration gibt es seit Langem, aber im Haus lief nichts
+damit: Es fehlten die zwei Dienste davor. Der Hub liest MQTT-Themen -
+wer sie hineinschreibt, war nirgends eingerichtet. Im Stack standen
+Hub, mediamtx und Matter; ein Broker kam darin nicht vor, und
+`MQTT_USER` war eine Variable ohne Gegenstück.
+
+Neu im Stack: **Mosquitto** und **Zigbee2MQTT**, beide im host-Netz, wie
+alles andere. Die Kette ist damit vollständig:
+
+    Zigbee-Gerät  ~funk~  Dongle  ~LAN~  Zigbee2MQTT  →  Mosquitto  →  Hub
+
+**Der Dongle hängt am Netzwerkkabel, nicht am USB-Anschluss** - ein
+SONOFF Dongle Max (Dongle-M) mit PoE. Deshalb steht in der
+docker-compose.yml kein `devices:`-Eintrag, wie ihn jede Anleitung
+zeigt: Der Koordinator ist kein Gerät dieses Rechners, sondern eine
+Adresse im Netz (`tcp://…:6638`). Das ist nicht bloss bequem - Zigbee
+ist ein Funknetz, und im Serverschrank neben zwei Netzteilen und einem
+WLAN-Router steht ein Koordinator schlecht.
+
+Drei Dinge, an denen es sonst scheitert, stehen in
+`deploy/zigbee2mqtt.example.yaml` und in `docs/zigbee.md`:
+
+- **`adapter: ember`, nicht `zstack`.** Im Dongle Max sitzt ein
+  EFR32MG24 von Silicon Labs. `zstack` ist der TI-Stick aus den meisten
+  Anleitungen im Netz; damit verbindet sich hier nichts, und die
+  Fehlermeldung sagt es nicht deutlich.
+- **Eine feste Adresse im Router.** `Dongle-M.local` steht in der
+  Anleitung von SONOFF und geht über mDNS - aber eben nur, solange mDNS
+  geht. Fällt es aus, sieht das aus wie ein defekter Dongle.
+- **Erst benennen, dann den Hub lesen lassen.** Die Kennung einer
+  Kachel leitet sich vom Namen in Zigbee2MQTT ab; wer später umbenennt,
+  bekommt eine neue Kachel, und Raum, Favorit und Abläufe zeigen auf die
+  alte.
+
+**Der Broker horcht nur auf 127.0.0.1**, und darum steht auch kein
+Passwort darin. Wer ihn aus dem WLAN erreichte, hörte jeden
+Fensterkontakt mit und dürfte jedes Licht schalten - MQTT kennt keine
+Rechte je Thema. Ein Passwort in einer Datei, das niemanden abhält,
+wäre schlechter als keines: Es sähe nach Sicherheit aus. Sollen später
+Tasmota-Geräte aus dem WLAN dazukommen, ändern sich Listener und
+Passwort zusammen; die drei Zeilen dafür stehen in der Datei.
+
+Der Datenordner liegt als Ordner neben der config.yaml und nicht in
+einem Docker-Volume - wie bei Matter, aus demselben Grund: Er wandert
+mit ins Backup, ein Volume übersieht man. Und ohne ihn muss jedes
+Zigbee-Gerät neu angelernt werden.
+
+Stellen: `docker-compose.yml`, `docker-compose.portainer.yml`, `deploy/mosquitto.conf`, `deploy/zigbee2mqtt.example.yaml`, `deploy/portainer.md`, `docs/zigbee.md`, `docs/integrationen.md`, `hub/config.example.yaml`, `.gitignore`
