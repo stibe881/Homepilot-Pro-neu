@@ -104,6 +104,17 @@ def soll_scharf(
     return jetzt - weg_seit >= nachlauf
 
 
+def ist_person(entity: Any) -> bool:
+    """Führt dieses Gerät die Anwesenheit eines Menschen? (rein, testbar)
+
+    Über die Geräteklasse und nicht über die Integration: So zählt auch
+    die von Hand gesetzte Anwesenheit mit, und die Anlage muss keinen
+    Geofence kennen, den es vielleicht gar nicht gibt.
+    """
+    zustand = getattr(entity, "state", None) or {}
+    return str(zustand.get("device_class") or "").strip().lower() == "presence"
+
+
 def soll_unscharf(zustaende: Any, *, stufe: str, state: str) -> bool:
     """Jetzt selbsttätig unscharf schalten? (rein, testbar)
 

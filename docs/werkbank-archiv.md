@@ -5049,3 +5049,41 @@ sein, sonst wäre die Messung auch für eine App grün, in der es die
 Karte gar nicht mehr gibt.
 
 Stellen: `app/src/screens/DashboardScreen.tsx`, `app/src/components/Einrichtungshilfe.tsx`, `app/src/components/DeviceTools.tsx`, `scripts/probe.mjs`
+
+### 551. Heimkommen muss sofort zählen, nicht beim nächsten Takt ✓ erledigt
+
+Gemeldet im Haus: «Als wir heute nachhause gekommen sind, hat die
+Alarmanlage ausgelöst. Diese hätte sich doch automatisch deaktivieren
+sollen, wenn wir nachhause kommen.»
+
+**Sie hätte - nur kam sie zu spät.** Die Kopplung an die Anwesenheit gab
+es längst (Punkt 421, `core/alarmanwesenheit.py`), und ihr Docstring
+sagt das Richtige: «Wer heimkommt, steht in der Eingangsverzögerung, und
+die läuft. Zehn Minuten zu warten hiesse, die Sirene abzuwarten.»
+Geprüft wurde sie aber nur im **Takt** - und der läuft einmal je Minute
+(`core/watchdog.py`, `INTERVAL = 60`), während die Eingangsverzögerung
+dreissig Sekunden dauert (`entry_delay`). Wer heimkam, verlor dieses
+Rennen öfter, als er es gewann: erst die Sirene, dann die Nachricht, man
+könne sie abschalten.
+
+Dazu kam, dass `_on_state_changed` gleich am Anfang alles wegwarf, was
+nicht in `scharf`, `ausgang` oder `verdacht` geschah - die
+Eingangsverzögerung selbst war also gar nicht dabei. Die Heimmeldung
+wird jetzt **vor** dieser Abfrage ausgewertet, ausdrücklich auch aus
+`eintritt` und `ausgeloest` heraus: Genau dann braucht man es.
+
+**Die Gegenprobe gehört dazu.** Nur Geräte mit der Geräteklasse
+`presence` zählen (`ist_person`). Ohne diese Schranke wäre der neue Weg
+eine offene Tür: Jeder Melder, der sich meldet, schaltete die Anlage ab
+- und der erste, der sich beim Heimkommen meldet, ist der Türkontakt.
+Ein Test hält das fest.
+
+**Was das nicht behebt:** Die Vorgabe der Einstellung ist
+«vorschlagen», nicht «automatisch» - mit Absicht (ein Telefon in einer
+fremden Hand hebt sonst die Anlage auf, siehe den Kopf von
+`alarmanwesenheit.py`). Wer will, dass es von selbst geschieht, legt
+den Schalter unter Alarmanlage → Anwesenheit um. Ohne ihn kommt
+weiterhin nur eine Nachricht - jetzt allerdings sofort statt bis zu
+einer Minute später.
+
+Stellen: `hub/homepilot/integrations/alarm.py`, `hub/homepilot/core/alarmanwesenheit.py`
