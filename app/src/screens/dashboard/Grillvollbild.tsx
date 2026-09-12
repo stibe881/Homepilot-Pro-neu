@@ -454,7 +454,9 @@ export function Grillvollbild({
                   >
                     {/* Der Ring: die Spur grau, darüber der gefüllte Teil
                         in der Farbe des Fühlers - von unten weg im
-                        Uhrzeigersinn, wie am Gerät. */}
+                        Uhrzeigersinn, wie am Gerät. Der Anfang unten
+                        über den Versatz des Strichs, nicht über eine
+                        Drehung (Punkt 569, lib/grillziel.ts, ringStrich). */}
                     <Svg
                       width={kreis}
                       height={kreis}
@@ -479,9 +481,11 @@ export function Grillvollbild({
                           strokeWidth={4}
                           strokeLinecap="round"
                           fill="none"
-                          strokeDasharray={`${strich.voll} ${strich.umfang}`}
-                          rotation={90}
-                          origin={`${kreis / 2}, ${kreis / 2}`}
+                          // Als Zahlenpaar, nicht als Text: Der Text
+                          // «446 446» kam im Web an, auf dem iPhone nicht -
+                          // dort blieb der Bogen aus (Punkt 569).
+                          strokeDasharray={[strich.voll, strich.umfang]}
+                          strokeDashoffset={strich.versatz}
                         />
                       ) : null}
                     </Svg>

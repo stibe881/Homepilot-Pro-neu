@@ -168,5 +168,9 @@ describe('fuehlerAnteil und ringStrich', () => {
     expect(umfang).toBeCloseTo(2 * Math.PI * 10);
     expect(voll).toBeCloseTo(Math.PI * 10);
     expect(ringStrich(10, 2).voll).toBeCloseTo(umfang);
+    // Der Strich beginnt unten: ein Viertel zurück vom Anfang rechts
+    // (Punkt 569 - die Drehung um den Mittelpunkt kam im Web ohne
+    // Ursprung an, und der Ring lag ausserhalb des Bildes).
+    expect(ringStrich(10, 0.5).versatz).toBeCloseTo(-umfang / 4);
   });
 });

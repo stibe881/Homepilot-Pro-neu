@@ -222,9 +222,26 @@ export function fuehlerAnteil(wert: number | null, ziel: number | null): number 
   return Math.max(0, Math.min(1, wert / ziel));
 }
 
-/** Der Ring als Strichlänge auf einem Kreis (rein, testbar): Umfang und
- *  der gefüllte Teil davon - für strokeDasharray. */
-export function ringStrich(radius: number, anteil: number): { umfang: number; voll: number } {
+/**
+ * Der Ring als Strich auf einem Kreis (rein, testbar): Umfang, der
+ * gefüllte Teil davon (strokeDasharray) und der Versatz, mit dem der
+ * Strich unten beginnt (strokeDashoffset).
+ *
+ * Ein SVG-Kreis beginnt seinen Pfad rechts (drei Uhr) und läuft im
+ * Uhrzeigersinn; ein Viertel weiter ist unten. Der Versatz statt einer
+ * Drehung, weil die Drehung um den Mittelpunkt (`rotation` samt
+ * `origin`) im Web ohne Ursprung ankam - gedreht wurde um die Ecke, und
+ * der Ring lag ausserhalb des Bildes: «Es werden keine Ringe angezeigt»
+ * (Punkt 569).
+ */
+export function ringStrich(
+  radius: number,
+  anteil: number
+): { umfang: number; voll: number; versatz: number } {
   const umfang = 2 * Math.PI * radius;
-  return { umfang, voll: umfang * Math.max(0, Math.min(1, anteil)) };
+  return {
+    umfang,
+    voll: umfang * Math.max(0, Math.min(1, anteil)),
+    versatz: -umfang / 4,
+  };
 }

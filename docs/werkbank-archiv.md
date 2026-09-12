@@ -5670,3 +5670,27 @@ selbst (drei Stunden, `core/timers.py`).
 Die Probe tippt «1:15», liest «1 h 15 min» und «NOCH 74:59».
 
 Stellen: `app/src/lib/grilltimer.ts`, `app/src/screens/dashboard/Grillvollbild.tsx`, `scripts/probe.mjs`
+
+### 569. Die Ringe waren da - nur ausserhalb des Bildes ✓ erledigt
+
+Aus dem Haus, mit Bild: «Es werden keine Ringe angezeigt.» Die vier
+Kreise trugen nur die graue Spur, kein farbiger Bogen.
+
+**Gedreht um die Ecke statt um die Mitte.** Der Bogen sollte unten
+beginnen, und dafür war der Kreis um 90° gedreht - mit `rotation` und
+einem `origin` in der Mitte. Im Web kam die Drehung ohne den Ursprung
+an (`transform="rotate(90)"`, sonst nichts): gedreht um die linke obere
+Ecke, und der ganze Ring lag ausserhalb des Bildes. Sichtbar wurde das
+nicht in der Probe - sie fragte, ob die Kreise dastehen, nicht ob der
+Bogen zu sehen ist - sondern im Browser, an den Attributen der
+`<circle>`-Elemente: Spur ohne Drehung, Bogen mit `rotate(90)` ohne
+Mittelpunkt.
+
+**Der Anfang unten über den Versatz des Strichs.** Ein SVG-Kreis
+beginnt rechts und läuft im Uhrzeigersinn; ein Viertel weiter ist
+unten. `strokeDashoffset` um ein Viertel des Umfangs setzt den Anfang
+dorthin - ohne Drehung, ohne Ursprung, und damit ohne die Stelle, an
+der Web und Gerät verschieden lesen. Die Rechnung steht bei
+`ringStrich` und ist getestet.
+
+Stellen: `app/src/lib/grillziel.ts`, `app/src/screens/dashboard/Grillvollbild.tsx`
