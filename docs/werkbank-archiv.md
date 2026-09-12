@@ -4943,6 +4943,42 @@ gelesen.
 
 Stellen: `hub/homepilot/core/light.py`, `hub/homepilot/core/automation.py`, `app/src/screens/automations/szenen-editor.tsx`
 
+### 548. Ein Zigbee-Fühler ohne Einheit ist nur eine Zahl ✓ erledigt
+
+*lohnt sich · Aufwand: klein · Hub*
+
+Im Haus aufgefallen: In der Waschküche steht die Temperatur im Raumkopf
+(Homematic, «Temperatur Rack»), im Wohnzimmer nicht - dort hängt ein
+Aqara-Fühler über Zigbee. Und beim Aqara fehlte im Anpassen-Blatt die
+Zeile «Gilt für: nur diesen Raum / das ganze Haus», beim Homematic war
+sie da. Zwei Symptome, eine Ursache.
+
+Die App erkennt einen Klimafühler an der **Einheit**, nicht am Namen
+(`lib/klimachip.ts`, Punkt 467). Das ist mit Bedacht so: Ein
+Prozentwert kann Feuchte, Batteriestand oder die Auslastung eines
+Funkmoduls sein, und «°C» kann vom Grill kommen. `istKlimaFuehler()`
+prüft deshalb `state.unit` - und die Zigbee-Integration setzte nie
+eine. Für Melder vergab sie eine `device_class` (Rauch, Bewegung,
+Kontakt), für Messfühler gar nichts: Der Aqara lieferte eine nackte
+Zahl.
+
+Daran hängt mehr, als man beim Lesen der einen Zeile vermutet:
+`klimaKandidaten()` für Raumkopf und Kopfzeile, der Hitze-Hinweis, und
+eben die Zeile «Gilt für» in `EntityCard.tsx`. Ohne sie liess sich der
+Fühler nicht einmal *bitten*, in die Kopfzeile zu kommen - die
+Einstellung, mit der man es sagen würde, stand gar nicht da.
+
+Jetzt bringt jede Sensorkachel Einheit und Art ihres Hauptwerts mit
+(`messwert_merkmale`), und zwar schon beim Anlegen und nicht erst mit
+der ersten Meldung: Ein Fühler, der sich tagelang nicht rührt, wäre
+sonst so lange eine Zahl ohne Bedeutung. Bei Meldern sticht weiterhin
+die Klasse des Melders - ein Bewegungsmelder, der nebenbei Helligkeit
+misst, ist ein Bewegungsmelder, und die Alarmanlage entscheidet daran,
+ob er nachts mitwacht.
+
+Stellen: `hub/homepilot/integrations/zigbee2mqtt.py`, `hub/tests/test_zigbee2mqtt.py`
+
+
 ### 549. Wetter und Musik gehören nicht unter die Geräteliste ✓ erledigt
 
 Gemeldet im Haus, mit Bild: «Bei Einstellungen → Geräte sollen diese
