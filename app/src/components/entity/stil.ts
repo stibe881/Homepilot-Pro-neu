@@ -254,6 +254,11 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
   // Grill: Störung nach vorne – ein leerer Pelletbehälter lässt das
   // Fleisch kalt werden, während man drinnen sitzt.
   grillProblem: { color: colors.warnInk, fontSize: 13, fontWeight: '700' },
+  /** Bild links, Zahlen rechts (Punkt 559). Oben ausgerichtet, damit die
+   *  Temperatur auf der Höhe des Deckels steht und nicht irgendwo in der
+   *  Mitte zwischen Rädern und Kamin. */
+  grillZeile: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  grillInfo: { flex: 1, gap: 6, minWidth: 0 },
   /** Die Garstufen unter einer Fühlerzeile (Punkt 554) - umbrechend,
    *  weil sechs Stufen nie in eine Zeile passen. */
   garstufen: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },

@@ -1028,6 +1028,12 @@ async function grillzielSetzen(browser) {
     return;
   }
   pruefe(true, 'Die Grillkachel zeigt ihre Fühler');
+  // Und ihr Bild (Punkt 559) - je Bauart eines, hier der liegende
+  // Grill, weil der Demo-Smoker dasselbe Modell trägt wie der im Haus.
+  pruefe(
+    await seite.getByLabel('Bild: Pelletgrill').first().isVisible().catch(() => false),
+    'Und das Bild des Grills daneben'
+  );
 
   // Der Tipp auf die Kachel - auf die Zeile, die früher selbst ein
   // Griff war.

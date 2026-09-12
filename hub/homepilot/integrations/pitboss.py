@@ -106,11 +106,18 @@ def faults(state: dict[str, Any]) -> list[str]:
     return problems
 
 
-def grill_state(state: dict[str, Any]) -> dict[str, Any]:
-    """Rohzustand des Grills in die Form des Hubs bringen (rein, testbar)."""
+def grill_state(state: dict[str, Any], model: str | None = None) -> dict[str, Any]:
+    """Rohzustand des Grills in die Form des Hubs bringen (rein, testbar).
+
+    ``model`` ist die Typenbezeichnung aus der config.yaml (PB1150PS2,
+    PBV4PS2). Sie reist seit Punkt 559 mit, weil die App daran die
+    Bauart erkennt und das passende Bild zeichnet - der liegende Grill
+    oder der stehende Räucherschrank (app: lib/grillbild.ts).
+    """
     running = bool(state.get("moduleIsOn"))
     problems = faults(state)
     return {
+        **({"model": model} if model else {}),
         "state": "running" if running else "off",
         "temperature": state.get("grillTemp"),
         "target": state.get("grillSetTemp"),
@@ -241,6 +248,7 @@ class _Grill:
 
     def __init__(self, eintrag: dict[str, Any], boss: Any, entity: Entity) -> None:
         self.name: str = eintrag["name"]
+        self.model: str = eintrag["model"]
         self.may_start: bool = eintrag["allow_remote_start"]
         # Über die Cloud meldet sich der Grill von selbst, lokal nicht.
         self.pushes: bool = not eintrag["host"]
@@ -326,7 +334,9 @@ class PitBossIntegration(Integration):
                 eintrag["id"],
                 EntityKind.APPLIANCE,
                 eintrag["name"],
-                state={"state": "unknown"},
+                # Das Modell von Anfang an: Auch ein kalter, nicht
+                # erreichbarer Grill soll sein Bild bekommen.
+                state={"state": "unknown", "model": eintrag["model"]},
                 commands=commands,
                 available=False,
             )
@@ -380,7 +390,7 @@ class PitBossIntegration(Integration):
             await asyncio.sleep(self._interval)
 
     async def _publish(self, grill: _Grill, raw: dict[str, Any]) -> None:
-        shaped = grill_state(raw)
+        shaped = grill_state(raw, grill.model)
         await self.hub.registry.update_state(grill.entity.id, shaped, available=True)
 
     async def handle_command(

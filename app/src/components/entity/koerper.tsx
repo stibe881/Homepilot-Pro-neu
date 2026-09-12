@@ -12,11 +12,13 @@ import { useTakt } from '../../hooks/useTakt';
 import { herkunftText, positionText, storenstand } from '../../lib/storenstand';
 import { aktiveVorgabe, vorgaben } from '../../lib/storenvorgaben';
 import { chipSchrift, fensterHoehe } from '../../lib/storenkachel';
+import { grillBauart, grillKurzinfo } from '../../lib/grillbild';
 import { fuehlerZeile } from '../../lib/grillziel';
 import { mayOpenDirectly } from '../../lib/tuerbestaetigung';
 import { radius, useColors } from '../../theme';
 import { Bar } from '../Bar';
 import { CoverVisual, Sky } from '../CoverVisual';
+import { GrillVisual } from '../GrillVisual';
 import { useKachelDruck } from './kacheldruck';
 import { MediaButton } from './medien';
 import { makeStyles } from './stil';
@@ -275,12 +277,14 @@ export function useGlide(target: number, fullTravelSeconds: number): number {
 /**
  * Pelletgrill - die Kachel zeigt, das Blatt bedient.
  *
- * Was beim Grillen wirklich zählt, steht hier: die Temperatur im
- * Garraum, das Ziel, die Fleischfühler samt ihren Zielen - und eine
- * Störung, weil ein leerer Pelletbehälter das Fleisch kalt werden lässt,
- * während man drinnen sitzt.
+ * Links das Bild des Grills, rechts daneben, was man beim Grillen
+ * wissen will: die Temperatur gross, das Ziel darunter, dann die
+ * Fühler (Punkt 559 - «neben dem Bild vom Grill sollen kurz die
+ * wichtigsten Infos stehen»). Eine Störung gehört nach vorne, weil ein
+ * leerer Pelletbehälter das Fleisch kalt werden lässt, während man
+ * drinnen sitzt.
  *
- * Keine Griffe mehr auf der Kachel (Punkt 557). Vorher standen hier
+ * Keine Griffe auf der Kachel (Punkt 557). Vorher standen hier
  * Schritte für die Gartemperatur, je Fühler eine Zeile mit Garstufen,
  * Anzünden und ein Aus-Knopf - und «wenn ich auf die Grillkarte drücke,
  * schaltet sich der Grill aus»: Der Aus-Knopf war auf dem Grill im Haus
@@ -302,40 +306,29 @@ export function GrillBody({
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const unit = entity.state.unit ?? '°C';
-  const temperature = entity.state.temperature;
-  const target = entity.state.target;
   const running = entity.state.state === 'running';
   const probes: Record<string, number> = entity.state.probes ?? {};
   const problem = entity.state.problem;
+  const kurz = grillKurzinfo(entity.state);
 
   return (
     <View style={styles.stack}>
-      <Pill
-        label={
-          running
-            ? typeof temperature === 'number'
-              ? `${temperature} ${unit}`
-              : 'Läuft'
-            : 'Aus'
-        }
-        tone={running ? colors.accent : undefined}
-      />
+      <View style={styles.grillZeile}>
+        <GrillVisual bauart={grillBauart(entity.state.model)} laeuft={running} />
+        <View style={styles.grillInfo}>
+          <Pill label={kurz.gross} tone={running ? colors.accent : undefined} />
+          {kurz.klein ? <Text style={styles.hint}>{kurz.klein}</Text> : null}
+          {/* Je Fühler eine Zeile mit seinem Ziel (Punkt 554) -
+              gesetzt wird es im Blatt. */}
+          {Object.entries(probes).map(([number, value]) => (
+            <Text key={number} style={styles.detail}>
+              {fuehlerZeile(number, value, ziele[number] ?? null, unit)}
+            </Text>
+          ))}
+        </View>
+      </View>
 
       {problem ? <Text style={styles.grillProblem}>{problem}</Text> : null}
-
-      {running && typeof target === 'number' ? (
-        <Text style={styles.hint}>
-          Ziel {target} {unit}
-        </Text>
-      ) : null}
-
-      {/* Je Fühler eine Zeile mit seinem Ziel (Punkt 554) - gesetzt
-          wird es im Blatt. */}
-      {Object.entries(probes).map(([number, value]) => (
-        <Text key={number} style={styles.detail}>
-          {fuehlerZeile(number, value, ziele[number] ?? null, unit)}
-        </Text>
-      ))}
       <Text style={styles.detail}>Tippen für die grosse Ansicht</Text>
     </View>
   );

@@ -5430,3 +5430,31 @@ Rechnung wie im Wächter) und wer die Kategorie abbestellt hat - und
 fehlt diese Zeile in seiner Ausgabe, ist der Hub älter als Punkt 554.
 
 Stellen: `hub/homepilot/core/livekarten.py`, `hub/homepilot/grillcheck.py`, `hub/tests/test_livekarten.py`
+
+### 559. Ein Bild je Grill auf der Kachel, die Zahlen daneben ✓ erledigt
+
+Aus dem Haus, mit dem Bild des Raums «Grill»: «Hier soll ein Bild von
+je dem Grill angezeigt werden. Das Popup soll sich öffnen, wenn man auf
+den Grill tippt. Neben dem Bild vom Grill sollen kurz die wichtigsten
+Infos stehen wie die aktuelle Temperatur und die Zieltemperatur. Der
+Smoker ist ein Pit Boss PB1150PS2 und der Räucherschrank ein PBV4PS2.»
+
+**Gezeichnet, nicht fotografiert.** Wie das Fenster der Storenkachel
+(`CoverVisual`): der liegende Pelletgrill mit Trichter und Kamin, der
+stehende Räucherschrank mit Glastüre. Ein Hersteller-Foto gehört nicht
+ins Repo - und die Zeichnung kann zeigen, was das Foto nicht kann: Läuft
+der Grill, glüht der Feuerraum.
+
+**Die Bauart kommt vom Modell.** Pit Boss nennt seine stehenden
+Schränke «PBV…» (vertical); alles andere ist ein liegender Grill. Das
+Modell steht in der config.yaml und reist seit diesem Punkt mit dem
+Zustand des Geräts mit (`grill_state(…, model)`) - von Anfang an, damit
+auch ein kalter, nicht erreichbarer Grill sein Bild hat. Der Demo-Grill
+trägt dasselbe Modell wie der Smoker im Haus.
+
+**Daneben nur die zwei Zahlen**, die man beim Grillen wissen will:
+die Temperatur gross, das Ziel darunter, dann die Fühler. Ein kalter
+Grill sagt nur «Aus» - ein Ziel ohne Feuer ist keine Auskunft. Das
+Popup kommt aus Punkt 557 und öffnet weiter beim Tipp auf die Kachel.
+
+Stellen: `app/src/lib/grillbild.ts`, `app/src/components/GrillVisual.tsx`, `app/src/components/entity/koerper.tsx`, `app/src/components/entity/stil.ts`, `hub/homepilot/integrations/pitboss.py`, `hub/homepilot/integrations/demo.py`, `scripts/probe.mjs`

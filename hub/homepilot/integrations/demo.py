@@ -300,6 +300,9 @@ class DemoIntegration(Integration):
             EntityKind.APPLIANCE,
             "Smoker",
             state={
+                # Dasselbe Modell wie der Smoker im Haus - daran hängt
+                # das Bild auf der Kachel (Punkt 559).
+                "model": "PB1150PS2",
                 "state": "running",
                 "temperature": 104,
                 "target": 110,
