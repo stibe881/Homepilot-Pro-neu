@@ -1099,6 +1099,37 @@ async function grillzielSetzen(browser) {
     JSON.stringify(gespeichert)
   );
 
+  // Der Timer direkt im Blatt (Punkt 561): stellen, Restzeit lesen,
+  // abbrechen - und der Hub führt ihn als Küchen-Timer.
+  await seite.getByLabel('Timer stellen').first().click();
+  await seite.waitForTimeout(500);
+  const fuenfzehn = seite.getByText('15 Min.', { exact: true }).first();
+  if (await fuenfzehn.isVisible().catch(() => false)) {
+    await fuenfzehn.click();
+    await seite.waitForTimeout(1500);
+    const rest = await seite.getByText(/^NOCH \d+:\d\d$/).first().textContent().catch(() => null);
+    pruefe(/^NOCH 1[45]:\d\d$/.test(rest ?? ''), 'Der Timer läuft im Blatt mit Restzeit', rest ?? '');
+    const beimHub = await seite.evaluate(async ([url, token]) => {
+      const antwort = await fetch(`${url}/api/timers`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      return antwort.json();
+    }, [HUB, TOKEN]);
+    pruefe(
+      (beimHub?.timers ?? []).some((t) => t.text === 'Smoker – nachsehen'),
+      'Und der Hub führt ihn als Küchen-Timer',
+      JSON.stringify(beimHub)
+    );
+    await seite.getByLabel('Timer abbrechen').first().click();
+    await seite.waitForTimeout(800);
+    pruefe(
+      await seite.getByLabel('Timer stellen').first().isVisible().catch(() => false),
+      'Abgebrochen steht der Knopf wieder da'
+    );
+  } else {
+    pruefe(false, 'Der Timer läuft im Blatt mit Restzeit', 'keine Minuten-Stufen');
+  }
+
   // Zurück auf der Kachel steht es auch - sie holt die Ziele nicht mehr
   // selbst, sondern bekommt sie vom selben Stand wie das Blatt.
   // Über den Hintergrund und nicht über «Schliessen»: Den Namen trägt

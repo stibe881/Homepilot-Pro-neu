@@ -4656,13 +4656,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               );
             }}
             onCommand={(command, data) => guardedCommand(grillImBlatt.id, command, data)}
-            // «Timer stellen» wie in der Hersteller-App: Der Küchen-Timer
-            // wohnt in der Küche, und dieselbe Adresse nimmt auch die
-            // Live-Karte (core/livekarten.py, GRILL_LINK).
-            onTimer={() => {
-              setGrillBlattFuer(null);
-              adresseAusfuehren.current('homepilot://timer');
-            }}
             onSchliessen={() => setGrillBlattFuer(null)}
           />
         ) : null}

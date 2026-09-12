@@ -1201,10 +1201,12 @@ def test_die_grillkarte_traegt_unten_den_griff_zum_timer():
         state="running", temperature=104, target=110, unit="°C",
     )
     karte = karten_grill([grill])[0]["state"]
+    # Ins Grillblatt, nicht in die Küche (Punkt 561): Dort wird der Timer
+    # gestellt und abgelesen.
     assert karte["link"] == {
         "symbol": "timer",
         "text": "Timer stellen",
-        "url": "homepilot://timer",
+        "url": "homepilot://grill/pitboss.grill",
     }
     # Und nur der Grill: Die Waschmaschine hat keinen Timer zu stellen.
     maschine = entity(

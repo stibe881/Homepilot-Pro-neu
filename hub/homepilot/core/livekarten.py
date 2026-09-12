@@ -388,14 +388,19 @@ def fuehlerwerte(entity: Any, einheit: str) -> list[dict[str, Any]]:
     return werte
 
 
-# Was unten in der Mitte der Grillkarte steht (Punkt 556): In der
-# Hersteller-App ist es «SET TIMER», und das ist beim Grillen genau der
-# zweite Griff nach dem Blick auf die Temperatur - «in vierzig Minuten
-# nachsehen». Der Küchen-Timer des Hauses wohnt in der Küche (die App
-# löst homepilot://timer dort auf), also führt der Griff dorthin.
-# Als Inhalt vom Hub und nicht fest im Widget: Die Karte ist eine Form
-# für alles, und was auf ihr steht, entscheidet allein der Hub.
-GRILL_LINK = {"symbol": "timer", "text": "Timer stellen", "url": "homepilot://timer"}
+def grill_link(entity: Any) -> dict[str, Any]:
+    """Was unten in der Mitte der Grillkarte steht (rein, testbar).
+
+    In der Hersteller-App ist es «SET TIMER» (Punkt 556), und das ist
+    beim Grillen genau der zweite Griff nach dem Blick auf die
+    Temperatur - «in vierzig Minuten nachsehen». Gestellt wird der Timer
+    seit Punkt 561 im Grillblatt selbst, also führt der Griff dorthin -
+    vorher in die Küche zum Küchen-Timer, «und nicht auf die
+    Küchen-Timer», hiess es dann aus dem Haus.
+    Als Inhalt vom Hub und nicht fest im Widget: Die Karte ist eine Form
+    für alles, und was auf ihr steht, entscheidet allein der Hub.
+    """
+    return {"symbol": "timer", "text": "Timer stellen", "url": grill_url(entity)}
 
 
 def karten_grill(entities: list[Any]) -> list[dict[str, Any]]:
@@ -447,7 +452,7 @@ def karten_grill(entities: list[Any]) -> list[dict[str, Any]]:
                     # keinen Platz für Kreise reservieren, die es nicht
                     # gibt.
                     **({"werte": fuehler} if fuehler else {}),
-                    "link": dict(GRILL_LINK),
+                    "link": grill_link(entity),
                     # Wie nah dran - für den Fortschrittsbalken.
                     "fortschritt": (
                         max(0.0, min(1.0, float(ist) / float(ziel)))

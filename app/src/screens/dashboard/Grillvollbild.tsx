@@ -12,7 +12,9 @@
  * zwischen anderen und trägt kleine Schrift; hier steht die
  * Gartemperatur so gross, dass man sie vom Sofa aus liest. Und die
  * Kachel trägt seit Punkt 557 keine Griffe mehr - alles Bedienen
- * geschieht hier, wo Platz dafür ist.
+ * geschieht hier, wo Platz dafür ist. Auch der Timer (Punkt 561): Er
+ * ist der Küchen-Timer des Hubs, aber gestellt und abgelesen wird er
+ * hier - «und nicht auf die Küchen-Timer».
  *
  * **Vier Kreise, immer.** Auch die leeren: Man sieht auf einen Blick,
  * welcher Platz noch frei ist, statt zu zählen. Ein leerer Kreis sagt
@@ -26,10 +28,15 @@
  * Fehlgriff, der auf der alten Kachel den Grill ausschaltete.
  */
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
+import { hubClient } from '../../api/client';
 import { Entity } from '../../api/types';
+import { remainingLabel } from '../../components/KitchenTimer';
+import { useSettings } from '../../hooks/HubContext';
+import { useTakt } from '../../hooks/useTakt';
+import { GRILLTIMER_MINUTEN, Timer, grilltimer, grilltimerText } from '../../lib/grilltimer';
 import { fuehlerplaetze, garstufen, grillFortschritt } from '../../lib/grillziel';
 import { zieltemperaturen } from '../automations/szenengeraete';
 import { Colors, radius, useColors } from '../../theme';
@@ -55,7 +62,6 @@ export function Grillvollbild({
   ziele,
   onZiel,
   onCommand,
-  onTimer,
   onSchliessen,
 }: {
   entity: Entity;
@@ -63,13 +69,59 @@ export function Grillvollbild({
   ziele: Record<string, number>;
   onZiel: (nummer: string, wert: number | null) => void;
   onCommand: (command: string, data?: Record<string, unknown>) => void;
-  /** «Timer stellen» - führt zum Küchen-Timer. Ohne ihn fehlt der Knopf. */
-  onTimer?: () => void;
   onSchliessen: () => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { width } = useWindowDimensions();
+
+  // Der Timer direkt hier (Punkt 561) - derselbe Küchen-Timer des Hubs,
+  // nur gestellt und abgelesen, wo man beim Grillen hinsieht. Nicht
+  // «alle Timer», sondern die dieses Grills (lib/grilltimer.ts).
+  const settings = useSettings();
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
+  const [alleTimer, setAlleTimer] = useState<Timer[]>([]);
+  const [timerWahl, setTimerWahl] = useState(false);
+  const [jetzt, setJetzt] = useState(() => Date.now() / 1000);
+  const timerLaden = useCallback(() => {
+    hub
+      .get<{ timers?: Timer[] } | null>('/api/timers', { fallback: null, still: true })
+      .then((antwort) => {
+        if (antwort) setAlleTimer(antwort.timers ?? []);
+      });
+  }, [hub]);
+  useEffect(timerLaden, [timerLaden]);
+  const timer = grilltimer(alleTimer, entity.name);
+  // Die Uhr tickt nur, solange ein Timer läuft; ist er um, verschwindet
+  // er beim Hub von selbst - einmal nachladen genügt.
+  useTakt(
+    () => {
+      setJetzt(Date.now() / 1000);
+      if (timer.some((t) => t.ends_at <= Date.now() / 1000)) timerLaden();
+    },
+    timer.length > 0 ? 1000 : null
+  );
+  const timerStellen = async (minuten: number) => {
+    setTimerWahl(false);
+    const antwort = await hub.post<{ timers?: Timer[] } | null>(
+      '/api/timers',
+      { minutes: minuten, text: grilltimerText(entity.name) },
+      { fallback: null, still: true }
+    );
+    if (antwort) setAlleTimer(antwort.timers ?? []);
+    else timerLaden();
+  };
+  const timerAbbrechen = async (id: string) => {
+    const antwort = await hub.del<{ timers?: Timer[] } | null>(
+      `/api/timers/${encodeURIComponent(id)}`,
+      { fallback: null, still: true }
+    );
+    if (antwort) setAlleTimer(antwort.timers ?? []);
+    else timerLaden();
+  };
   // Welcher Fühler seine Garstufen offen hat - oder 'grill' für die
   // Gartemperatur selbst.
   const [waehlt, setWaehlt] = useState<string | null>(null);
@@ -193,15 +245,48 @@ export function Grillvollbild({
               <Text style={styles.problem}>{String(entity.state.problem)}</Text>
             ) : null}
 
-            {onTimer ? (
+            {/* Läuft ein Timer, steht er hier mit seiner Restzeit -
+                statt des Knopfs, denn beim Grillen läuft einer nach dem
+                andern, nicht zwei nebeneinander. */}
+            {timer.map((t) => (
+              <View key={t.id} style={styles.timerLauf}>
+                <Ionicons name="timer-outline" size={22} color={colors.ink} />
+                <Text style={styles.timerText}>NOCH {remainingLabel(t.ends_at, jetzt)}</Text>
+                <Pressable
+                  onPress={() => timerAbbrechen(t.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Timer abbrechen"
+                  hitSlop={8}
+                >
+                  <Ionicons name="close-circle" size={22} color={colors.inkSoft} />
+                </Pressable>
+              </View>
+            ))}
+            {timer.length === 0 ? (
               <Pressable
-                onPress={onTimer}
+                onPress={() => setTimerWahl((offen) => !offen)}
                 accessibilityRole="button"
+                accessibilityLabel="Timer stellen"
+                accessibilityState={{ expanded: timerWahl }}
                 style={({ pressed }) => [styles.timer, pressed && { opacity: 0.7 }]}
               >
                 <Ionicons name="timer-outline" size={22} color={colors.ink} />
                 <Text style={styles.timerText}>TIMER STELLEN</Text>
               </Pressable>
+            ) : null}
+            {timerWahl && timer.length === 0 ? (
+              <View style={styles.stufenReihe}>
+                {GRILLTIMER_MINUTEN.map((minuten) => (
+                  <Pressable
+                    key={minuten}
+                    onPress={() => timerStellen(minuten)}
+                    accessibilityRole="button"
+                    style={({ pressed }) => [styles.stufe, pressed && { opacity: 0.6 }]}
+                  >
+                    <Text style={styles.stufeText}>{minuten} Min.</Text>
+                  </Pressable>
+                ))}
+              </View>
             ) : null}
 
             {/* Die vier Fühler - zwei mal zwei, wie am Gerät. Ein leerer
@@ -393,6 +478,7 @@ const makeStyles = (colors: Colors) =>
       marginTop: 4,
     },
     timerText: { color: colors.ink, fontSize: 20, fontWeight: '300', letterSpacing: 0.5 },
+    timerLauf: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
     kreise: {
       flexDirection: 'row',
       flexWrap: 'wrap',

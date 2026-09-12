@@ -5482,3 +5482,32 @@ ohne Feuer keinen Sollwert mehr meldet - die Prüfung «ist das ein
 Grill?» kommt für das Ausgehen darum erst nach der Meldung.
 
 Stellen: `hub/homepilot/core/grillmeldung.py`, `hub/homepilot/core/watchdog.py`, `hub/tests/test_grillmeldung.py`
+
+### 561. Der Timer im Grillblatt - gestellt und abgelesen, wo man hinsieht ✓ erledigt
+
+Aus dem Haus, mit dem Bild des Blatts: «Wenn man hier den Timer
+stellt, soll man ihn direkt hier erstellen können inkl. wie lange der
+Timer noch geht, und nicht auf die Küchen-Timer.»
+
+**Derselbe Timer, ein anderer Ort.** Es bleibt der Küchen-Timer des
+Hubs (`core/timers.py`): Er klingelt als Push und über die Boxen, liegt
+als Karte auf dem Sperrbildschirm und überlebt einen Neustart. Nur
+gestellt und abgelesen wird er im Grillblatt - mit festen Stufen (5 bis
+90 Minuten, fettige Finger, keine Tastatur) und der Restzeit an der
+Stelle des Knopfs, solange er läuft. Ein zweiter Timer wird nicht
+angeboten, solange einer läuft: Beim Grillen läuft einer nach dem
+andern.
+
+**Erkannt am Text.** Der Hub führt Timer ohne Herkunft, und die einzige
+Spur, die Speichern und Neustart übersteht, ist der Text. Er heisst
+«Smoker – nachsehen» - zugleich das, was die Push beim Klingeln sagt,
+also ein Satz, der auch ohne das Blatt verständlich ist. Der Timer des
+Räucherschranks ist damit nicht der des Smokers.
+
+**Der Griff auf der Live-Karte führt jetzt ins Blatt**, nicht mehr in
+die Küche - dort wird der Timer gestellt.
+
+Gemessen: Die Probe stellt im Blatt 15 Minuten, liest «NOCH 14:59»,
+fragt den Hub nach dem Timer und bricht ihn wieder ab.
+
+Stellen: `app/src/lib/grilltimer.ts`, `app/src/screens/dashboard/Grillvollbild.tsx`, `app/src/screens/DashboardScreen.tsx`, `hub/homepilot/core/livekarten.py`, `scripts/probe.mjs`
