@@ -308,8 +308,14 @@ class BrandIntegration(Integration):
             aktive = brandmelder.alarmierend(self.hub.registry.all(), self._abgeschaltet)
             if aktive:
                 await self._melden(aktive[0], wiederholung=True)
-        letzte = [self._tests.get(e.id) for e in brandmelder.melder(self.hub.registry.all())
-                  if e.id not in self._abgeschaltet]
+        # Nur echte Melder zählen für die Prüfung - eine Kamera, die
+        # einen Melder hört, hat keine Prüftaste. Vorher stand sie mit
+        # «nie geprüft» in der Rechnung, und die Erinnerung kam sofort.
+        letzte = [
+            self._tests.get(e.id)
+            for e in brandmelder.melder(self.hub.registry.all())
+            if e.id not in self._abgeschaltet and e.kind != EntityKind.CAMERA
+        ]
         if not letzte:
             return
         aeltester = None if any(t is None for t in letzte) else min(t for t in letzte if t)

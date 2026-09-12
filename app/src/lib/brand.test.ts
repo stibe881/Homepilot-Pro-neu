@@ -26,6 +26,12 @@ describe('melderZeile', () => {
     expect(melderZeile(melder({ alarm: true, low_battery: true }), jetzt)).toBe('Meldet Rauch!');
     expect(melderZeile(melder({ active: false }), jetzt)).toBe('Abgeschaltet – zählt nicht');
   });
+  it('gibt einer Kamera keine Prüfung', () => {
+    expect(melderZeile(melder({ kind: 'camera' }), jetzt)).toBe('Hört einen piependen Melder');
+    expect(melderZeile(melder({ kind: 'camera', available: false }), jetzt)).toBe(
+      'Kamera meldet sich nicht'
+    );
+  });
   it('nennt Batterie und Prüfung', () => {
     expect(melderZeile(melder({ battery: 88.4 }), jetzt)).toBe('Batterie 88 % · nie geprüft');
     expect(melderZeile(melder({ low_battery: true, last_test: jetzt - 3 * 86400 }), jetzt)).toBe(
