@@ -5858,3 +5858,27 @@ bleibt die Spalte nur noch auf der Startseite, der einen Seite, auf
 der man stehen bleibt. Die Probe misst es an der Storenseite.
 
 Stellen: `app/src/lib/seitenspalte.ts`, `app/src/components/SidePanel.tsx`, `app/src/screens/DashboardScreen.tsx`, `scripts/probe.mjs`
+
+### 578. Das Männchen stand noch eine Stunde nach der Bewegung ✓ erledigt
+
+Aus dem Haus, mit Bild der Raumkachel «Linas Zimmer»: «Hier wird
+angezeigt, dass eine Bewegung im Zimmer ist. Diese Bewegung war aber
+vor fast einer Stunde.»
+
+**Eine Erkennung ohne Ende.** Die Kamera meldet «Person erkannt» über
+den Ereignisstrom von Protect, und der Hub setzt `detected_person` auf
+«on» - zurück auf «off» erst mit der Ende-Meldung desselben
+Ereignisses. Geht die verloren (Neustart, abgelaufene Sitzung, ein
+Rahmen, den der Hub nicht lesen kann), blieb das Feld für immer auf
+«on»: Jede Abfrage schrieb es aus Rücksicht auf «läuft noch» wieder
+hinein, und das Männchen stand den ganzen Abend. Jetzt verjährt eine
+Erkennung nach fünf Minuten ohne Ende - eine Person, die Protect so
+lange am Stück sieht, ist ein Bewohner, keine Erkennung -, und die
+nächste Abfrage räumt sie ab.
+
+**Und die App glaubt der Zeit.** Die Kamera trägt die Zeit ihrer
+letzten Bewegung (`last_motion`). Ein «on», dessen letzte Bewegung mehr
+als drei Minuten zurückliegt, ist kein Zeichen wert - auch dann nicht,
+wenn der Hub es einmal doch nicht aufräumt.
+
+Stellen: `hub/homepilot/integrations/unifi_protect.py`, `hub/tests/test_kameraerkennung.py`, `app/src/lib/bewegung.ts`

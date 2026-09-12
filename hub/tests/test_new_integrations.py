@@ -2325,6 +2325,8 @@ class _Protect:
         self.integration = UnifiProtectIntegration(hub, {})
         self.integration._cameras = {"cam-1": entity_id}
         self.integration._erkennung_ende = {}
+        # Wann eine Erkennung begann - für die Höchstdauer (Punkt 578).
+        self.integration._erkennung_start = {}
         self.integration._gesehene_ereignisse = set()
         self.integration._laufende = {}
 

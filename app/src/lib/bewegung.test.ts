@@ -64,6 +64,25 @@ describe('meldetBewegung', () => {
     expect(meldetBewegung(geraet('camera', 'Terrasse', { motion: 'off' }))).toBe(false);
   });
 
+  it('glaubt einer Kamera nicht, deren letzte Bewegung Stunden zurückliegt', () => {
+    // Punkt 578: «Diese Bewegung war aber vor fast einer Stunde.» Ein
+    // hängen gebliebenes «on» ist keine Person.
+    const jetzt = Date.parse('2026-09-12T20:00:00Z');
+    const alt = geraet('camera', 'Linas Zimmer', {
+      detected_person: 'on',
+      last_motion: '2026-09-12T19:05:00Z',
+    });
+    expect(meldetBewegung(alt, jetzt)).toBe(false);
+    const frisch = geraet('camera', 'Linas Zimmer', {
+      motion: 'on',
+      last_motion: '2026-09-12T19:59:00Z',
+    });
+    expect(meldetBewegung(frisch, jetzt)).toBe(true);
+    // Ohne Zeitangabe wie bisher - lieber ein Zeichen zu viel als eines,
+    // das man nie sieht.
+    expect(meldetBewegung(geraet('camera', 'Terrasse', { motion: 'on' }), jetzt)).toBe(true);
+  });
+
   it('lässt das Klingeln aussen vor', () => {
     // Es ist keine Bewegung, sondern ein Ereignis mit eigenem Vollbild.
     expect(meldetBewegung(geraet('camera', 'Haustüre', { ring: 'on' }))).toBe(false);

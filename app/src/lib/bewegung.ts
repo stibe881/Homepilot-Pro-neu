@@ -34,6 +34,9 @@ export function istBewegungsmelder(entity: Entity): boolean {
   return /bewegung|präsenz|prasenz|motion|presence/i.test(entity.name);
 }
 
+/** Länger als so zählt eine Kamera-Bewegung nicht als «gerade». */
+export const KAMERA_BEWEGUNG_MS = 3 * 60_000;
+
 /**
  * Meldet dieses Gerät gerade Bewegung? (rein, testbar)
  *
@@ -42,15 +45,24 @@ export function istBewegungsmelder(entity: Entity): boolean {
  * Sie meldet es als `motion` oder als erkanntes Etwas (`detected_person`
  * und Verwandte).
  *
+ * Bei der Kamera zählt dazu die Zeit der letzten Bewegung (Punkt 578):
+ * «Hier wird angezeigt, dass eine Bewegung im Zimmer ist. Diese
+ * Bewegung war aber vor fast einer Stunde.» Ein «on», dessen letzte
+ * Bewegung Stunden zurückliegt, ist ein hängen gebliebener Zustand,
+ * keine Person - der Hub räumt das seither selbst auf, aber das Zeichen
+ * hier soll auch dann nicht lügen, wenn er es einmal nicht tut.
+ *
  * Das Klingeln zählt bewusst **nicht** mit: Es ist keine Bewegung,
  * sondern ein Ereignis mit eigenem Vollbild - und es hörte nach dem
  * Läuten nicht auf, solange die Kamera den Zustand hält.
  */
-export function meldetBewegung(entity: Entity): boolean {
+export function meldetBewegung(entity: Entity, jetzt: number = Date.now()): boolean {
   if (entity.available === false) return false;
   if (istBewegungsmelder(entity)) return String(entity.state?.state ?? '') === 'on';
   if (entity.kind !== 'camera') return false;
   const state = entity.state ?? {};
+  const zuletzt = typeof state.last_motion === 'string' ? Date.parse(state.last_motion) : NaN;
+  if (Number.isFinite(zuletzt) && jetzt - zuletzt > KAMERA_BEWEGUNG_MS) return false;
   if (String(state.motion ?? '') === 'on') return true;
   return Object.entries(state).some(
     ([feld, wert]) => feld.startsWith('detected_') && String(wert) === 'on'
@@ -64,6 +76,10 @@ export function meldetBewegung(entity: Entity): boolean {
  * die Faktenzeile rechnet (raumFakten). Wer einen Melder ausblendet,
  * will von ihm nichts mehr hören, auch nicht als Zeichen.
  */
-export function bewegungImRaum(items: Entity[], hidden: string[] = []): boolean {
-  return items.some((entity) => !hidden.includes(entity.id) && meldetBewegung(entity));
+export function bewegungImRaum(
+  items: Entity[],
+  hidden: string[] = [],
+  jetzt: number = Date.now()
+): boolean {
+  return items.some((entity) => !hidden.includes(entity.id) && meldetBewegung(entity, jetzt));
 }
