@@ -62,7 +62,10 @@ def test_waschmaschine_ja_grill_nein():
 
     grills = karten_grill([maschine, grill, still])
     assert [k["art"] for k in grills] == ["grill:pitboss.grill"]
-    assert grills[0]["state"]["text"] == "182° → 200°"
+    # Die Ist-Temperatur steht seit Punkt 553 gross daneben - zweimal
+    # dieselbe Zahl auf einer Karte liest niemand zweimal.
+    assert grills[0]["state"]["gross"] == "182°"
+    assert grills[0]["state"]["text"] == "Heizt auf 200°"
     assert 0.9 < grills[0]["state"]["fortschritt"] < 0.92
 
 
@@ -1112,3 +1115,67 @@ async def test_eine_haengende_karte_meldet_sich_einmal_und_nicht_alle_zwanzig_se
         ]
     finally:
         await hub.stop()
+
+
+# ── Die Grillkarte in der Form der Hersteller-App (Punkt 553) ─────────────
+
+
+def test_die_karte_zeigt_die_eingesteckten_fuehler():
+    """Gewünscht im Haus: «Die Live-Aktivität soll so aussehen (auch
+    inkl. den Kerntemperatursensoren, 4 Stk.)»"""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", temperature=104, target=110, unit="°C",
+        probe_1=None, probe_2=36, probe_3=43, probe_4=None,
+    )
+    karte = karten_grill([grill])[0]["state"]
+    assert karte["gross"] == "104°C"
+    assert karte["text"] == "Heizt auf 110°C"
+    # Nur die eingesteckten, und jeder in seiner festen Farbe.
+    assert karte["werte"] == [
+        {"nummer": "2", "wert": "36°C", "farbe": "gelb"},
+        {"nummer": "3", "wert": "43°C", "farbe": "rot"},
+    ]
+
+
+def test_ohne_fuehler_bleibt_das_feld_weg():
+    """Die Karte soll keinen Platz für Kreise reservieren, die es nicht
+    gibt."""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", temperature=104, target=110, unit="°C",
+    )
+    assert "werte" not in karten_grill([grill])[0]["state"]
+
+
+def test_auf_temperatur_heisst_haelt_und_nicht_heizt():
+    """«Heizt auf 110°», während er seit einer Stunde 110° hält, wäre
+    falsch - und ein Pelletgrill pendelt um seinen Sollwert."""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", temperature=109, target=110, unit="°C",
+    )
+    assert karten_grill([grill])[0]["state"]["text"] == "Hält 110°C"
+
+
+def test_ein_grill_in_fahrenheit_bekommt_seine_eigene_einheit():
+    """«350°C» wäre eine Behauptung über glühendes Blech."""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", temperature=225, target=350, unit="°F", probe_1=140,
+    )
+    karte = karten_grill([grill])[0]["state"]
+    assert karte["gross"] == "225°F"
+    assert karte["text"] == "Heizt auf 350°F"
+    assert karte["werte"][0]["wert"] == "140°F"
+
+
+def test_ohne_ist_temperatur_gibt_es_keine_grosse_zahl():
+    """Sonst stünde dort ein leeres Feld, wo die Zahl sein müsste."""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", target=110, unit="°C",
+    )
+    karte = karten_grill([grill])[0]["state"]
+    assert "gross" not in karte
+    assert karte["text"] == "Ziel 110°C"

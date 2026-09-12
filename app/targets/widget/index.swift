@@ -773,6 +773,20 @@ struct HausAktivitaetAttributes: ActivityAttributes {
         /// Station). Optional und vom Hub bestimmt - eine alte Hülle
         /// überliest das Feld (Codable ignoriert unbekannte Schlüssel).
         var knoepfe: [KartenKnopf]?
+        /// Die grosse Zahl links, z.B. «104°C» (Punkt 553). Nur der
+        /// Grill setzt sie; ohne sie bleibt die Karte die schmale
+        /// Zeile, die Timer, Waschmaschine und Sauger brauchen.
+        var gross: String?
+        /// Kreise rechts, z.B. die vier Fleischfühler des Grills.
+        var werte: [KartenWert]?
+    }
+
+    /// Ein Kreis auf der Karte: Nummer, Wert und die Farbe, die der Hub
+    /// fest zugeteilt hat (core/livekarten.py, FUEHLERFARBEN).
+    public struct KartenWert: Codable, Hashable {
+        var nummer: String
+        var wert: String
+        var farbe: String?
     }
 
     /// Ein Knopf: SF-Symbol plus dem, was er beim Hub auslöst. Das
@@ -812,7 +826,42 @@ private func kartenFarbe(_ name: String?) -> Color {
     switch name {
     case "rot": return .red
     case "orange": return .orange
+    // Die Farben der Fleischfühler (Punkt 553). «gruen» ohne Umlaut:
+    // Der Name reist als JSON durch den Push, und ein «ü» darin ist
+    // überall dort eine Quelle für Ärger, die man sich sparen kann -
+    // dieselbe Regel wie bei den Zigbee-Kennungen.
+    case "gelb": return .yellow
+    case "blau": return .blue
+    case "gruen": return .green
     default: return .accentColor
+    }
+}
+
+/// Ein Fleischfühler als Kreis - Nummer oben, Temperatur darunter.
+///
+/// Die Form stammt aus der Hersteller-App und ist beim Grillen die
+/// richtige: Man sucht nicht «Fühler 2», man sucht die gelbe Zahl, weil
+/// dort das Nackenstück steckt. Deshalb trägt der Ring die Farbe und
+/// nicht bloss die Ziffer.
+@available(iOS 16.2, *)
+struct FuehlerKreis: View {
+    let wert: HausAktivitaetAttributes.KartenWert
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text(wert.nummer)
+                .font(.caption.bold())
+                .foregroundStyle(kartenFarbe(wert.farbe))
+            Text(wert.wert)
+                .font(.caption2.bold())
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+        }
+        .frame(width: 44, height: 44)
+        .overlay(
+            Circle().strokeBorder(kartenFarbe(wert.farbe).opacity(0.55), lineWidth: 2)
+        )
     }
 }
 
@@ -890,9 +939,22 @@ struct HausKarteInhalt: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: state.symbol)
-                .font(.title2)
-                .foregroundStyle(kartenFarbe(state.farbe))
+            // Die grosse Zahl ersetzt das Symbol, nicht die Zeile
+            // darunter (Punkt 553): Wer den Grill vom Sofa aus ansieht,
+            // will die Gartemperatur lesen können, ohne das Telefon in
+            // die Hand zu nehmen. Ein Flammensymbol daneben wäre der
+            // Platz, den die Zahl braucht.
+            if let gross = state.gross {
+                Text(gross)
+                    .font(.system(size: 38, weight: .bold, design: .rounded))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    .layoutPriority(1)
+            } else {
+                Image(systemName: state.symbol)
+                    .font(.title2)
+                    .foregroundStyle(kartenFarbe(state.farbe))
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(state.titel).font(.headline)
                 if !state.text.isEmpty {
@@ -906,6 +968,16 @@ struct HausKarteInhalt: View {
                 }
             }
             Spacer()
+            // Die Fühler rechts, in der Reihenfolge, die der Hub
+            // schickt. Höchstens vier - mehr hat der Grill nicht, und
+            // mehr passte auch nicht nebeneinander.
+            if let werte = state.werte, !werte.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(werte.prefix(4), id: \.nummer) { wert in
+                        FuehlerKreis(wert: wert)
+                    }
+                }
+            }
             if let knoepfe = state.knoepfe, !knoepfe.isEmpty {
                 KartenKnoepfe(knoepfe: knoepfe)
             }
@@ -948,6 +1020,16 @@ struct HausKarte: Widget {
                     )
                     .monospacedDigit()
                     .frame(maxWidth: 60)
+                } else if let gross = context.state.gross {
+                    // Der Grill hat kein Ende, auf das er zählen könnte
+                    // - dort stand in der Insel bisher nichts als die
+                    // Flamme. Die Gartemperatur ist die Zahl, für die
+                    // man hinsieht (Punkt 553).
+                    Text(gross)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .frame(maxWidth: 60)
                 }
             } minimal: {
                 Image(systemName: context.state.symbol)

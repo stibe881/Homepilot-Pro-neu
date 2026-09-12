@@ -5135,3 +5135,58 @@ mit nichts dahinter.
 der Lauf im Haus. Das Werkzeug sagt es dann in einer Zeile.
 
 Stellen: `hub/homepilot/integrations/pitboss.py`, `hub/homepilot/grillcheck.py`, `CLAUDE.md`
+
+### 553. Die Grillkarte in der Form, die man vom Sofa aus liest ✓ erledigt
+
+Gewünscht im Haus, mit einem Bild der Hersteller-App: «Die Live-Aktivität
+soll so aussehen (auch inkl. den Kerntemperatursensoren, 4 Stk.)»
+
+**Die Karte gab es (Punkt 552), sie war nur die falsche Form.** Die
+generische Live-Karte ist eine schmale Zeile: Symbol, Titel, Text,
+Balken. Für den Küchen-Timer und die Waschmaschine ist das genau
+richtig; beim Grill nicht. Dort sieht man zweimal hin - erst «ist der
+Ofen so weit», dann «ist das Fleisch so weit» -, und beides soll man
+vom Sofa aus lesen können, ohne das Telefon in die Hand zu nehmen.
+
+Jetzt steht die Gartemperatur **gross** links, darunter «Heizt auf 110°C»
+und der Balken, und rechts je ein Kreis für die eingesteckten
+Fleischfühler. Die grosse Zahl ersetzt dabei das Flammensymbol: Ein
+Symbol daneben wäre der Platz, den die Zahl braucht.
+
+**Eine Form bleibt es trotzdem.** `gross` und `werte` sind optional -
+setzt sie niemand, ist die Karte die schmale Zeile wie bisher. Der
+Grundsatz der Datei («eine Form, viele Inhalte»; was daraufsteht,
+entscheidet der Hub) gilt weiter.
+
+**Warum die Farben beim Hub liegen.** Fühler 2 ist am Montag derselbe
+wie am Sonntag, und wer «der gelbe ist das Nackenstück» denkt, soll das
+auch beim zweiten Stück Fleisch noch dürfen. Fest je Nummer, nicht der
+Reihe nach vergeben (`FUEHLERFARBEN`).
+
+**«Heizt auf» statt «104° → 110°».** Die Ist-Temperatur steht jetzt
+gross daneben; zweimal dieselbe Zahl auf einer Karte liest niemand
+zweimal. Und ist der Grill auf Temperatur, sagt die Zeile «Hält 110°C» -
+mit zwei Grad Spielraum, weil ein Pelletgrill um seinen Sollwert pendelt
+und der Satz sonst im Sekundentakt umspränge.
+
+**Die Einheit kommt vom Gerät.** Ein Grill in Fahrenheit meldet 350, und
+«350 °C» wäre eine Behauptung über glühendes Blech.
+
+**Ein Test hält die beiden Swift-Fassungen zusammen.**
+`HausAktivitaetAttributes` steht zweimal - in der App und in der
+Widget-Erweiterung. Gehen sie auseinander, merkt es niemand: Codable
+überliest unbekannte Schlüssel stillschweigend, und ein Feld, das nur
+in der App steht, kommt auf der Karte nie an - man sucht den Fehler
+dann im Hub. Für Swift gibt es in diesem Repo keinen Übersetzer, also
+prüft ein Jest-Test die Feldnamen beider Dateien gegeneinander. Seine
+Gegenprobe («findet überhaupt Felder») hat sich sofort bezahlt gemacht:
+Der erste Anlauf griff in `index.swift` die `ContentState` der
+**Haustür**-Karte und verglich zwei falsche Listen.
+
+**Was das braucht:** einen TestFlight-Build. Die Karte lebt in der
+Widget-Erweiterung, und die ist nativ - eine nachgeladene Fassung
+erreicht sie nicht. Die `runtimeVersion` bleibt trotzdem, wo sie ist:
+Es kommt kein natives Modul dazu, und ein Sprung schnitte das Haus
+ohne Not von Nachladungen ab (siehe CLAUDE.md).
+
+Stellen: `hub/homepilot/core/livekarten.py`, `app/modules/live-aktivitaet/ios/HausAktivitaetAttributes.swift`, `app/targets/widget/index.swift`, `app/src/lib/livekarte-struktur.test.ts`

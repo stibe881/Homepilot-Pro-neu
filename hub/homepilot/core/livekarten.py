@@ -305,8 +305,67 @@ def karten_geraete(
     return karten
 
 
+#: Welche Farbe welcher Fleischfühler auf der Karte bekommt.
+#:
+#: Fest je Nummer und nicht der Reihe nach vergeben: Fühler 2 ist am
+#: Sonntag derselbe wie am Montag, und wer beim Blick aufs Telefon «der
+#: gelbe ist das Nackenstück» denkt, soll das auch beim zweiten Stück
+#: Fleisch noch dürfen. Vier Farben, vier Fühler (Punkt 553).
+FUEHLERFARBEN = {1: "blau", 2: "gelb", 3: "rot", 4: "gruen"}
+
+
+def grilltext(ist: Any, ziel: float, einheit: str) -> str:
+    """Die Zeile unter der grossen Zahl (rein, testbar).
+
+    «Heizt auf 110°» statt «104° → 110°»: Die Ist-Temperatur steht auf
+    der neuen Karte gross daneben, und zweimal dieselbe Zahl auf einer
+    Karte liest niemand zweimal. Steht der Grill auf Temperatur, sagt
+    die Zeile das - «heizt auf 110°», während er seit einer Stunde 110°
+    hält, wäre falsch.
+    """
+    ziel_text = f"{round(ziel)}{einheit}"
+    if ist is None:
+        return f"Ziel {ziel_text}"
+    # Zwei Grad Spielraum: Ein Pelletgrill pendelt um seinen Sollwert,
+    # und «heizt auf» dürfte dabei nicht im Sekundentakt an- und
+    # ausgehen.
+    if float(ist) >= ziel - 2:
+        return f"Hält {ziel_text}"
+    return f"Heizt auf {ziel_text}"
+
+
+def fuehlerwerte(entity: Any, einheit: str) -> list[dict[str, Any]]:
+    """Die belegten Fleischfühler als Kreise für die Karte (rein, testbar).
+
+    Nur die eingesteckten: Ein leerer Kreis mit «–» sagt nichts und
+    nimmt den übrigen den Platz (integrations/pitboss.py,
+    probe_temperatures führt nur belegte).
+    """
+    werte = []
+    for nummer in (1, 2, 3, 4):
+        temp = entity.state.get(f"probe_{nummer}")
+        if temp is None:
+            continue
+        werte.append(
+            {
+                "nummer": str(nummer),
+                "wert": f"{round(float(temp))}{einheit}",
+                "farbe": FUEHLERFARBEN[nummer],
+            }
+        )
+    return werte
+
+
 def karten_grill(entities: list[Any]) -> list[dict[str, Any]]:
-    """Der Grill: Ist- gegen Zieltemperatur, live."""
+    """Der Grill: Ist- gegen Zieltemperatur, live - samt Fleischfühlern.
+
+    Die Form stammt aus der Hersteller-App, und zwar auf Wunsch aus dem
+    Haus (Punkt 553): die Gartemperatur gross, darunter wohin sie will
+    und ein Balken, und rechts je ein Kreis für die eingesteckten
+    Fühler. Das ist beim Grillen genau die Reihenfolge, in der man
+    hinsieht - erst «ist der Ofen so weit», dann «ist das Fleisch so
+    weit».
+    """
     karten = []
     for entity in entities:
         if entity.kind != "appliance" or entity.state.get("state") != "running":
@@ -317,7 +376,10 @@ def karten_grill(entities: list[Any]) -> list[dict[str, Any]]:
         if ziel is None:
             continue
         ist = entity.state.get("temperature")
-        text = f"{round(float(ist))}° → {round(float(ziel))}°" if ist is not None else f"Ziel {round(float(ziel))}°"
+        # Die Einheit kommt vom Gerät: Ein Grill in Fahrenheit meldet
+        # 350, und «350°C» wäre eine Behauptung über glühendes Blech.
+        einheit = str(entity.state.get("unit") or "°")
+        fuehler = fuehlerwerte(entity, einheit)
         url = raum_url(entity)
         karten.append(
             {
@@ -325,8 +387,22 @@ def karten_grill(entities: list[Any]) -> list[dict[str, Any]]:
                 "user": None,
                 "state": {
                     "titel": entity.label,
-                    "text": text,
+                    "text": grilltext(ist, float(ziel), einheit),
                     "symbol": "flame",
+                    # Die grosse Zahl. Sie macht aus der schmalen Zeile
+                    # die Karte, die man vom Sofa aus lesen kann - eine
+                    # ältere App-Hülle überliest das Feld einfach und
+                    # zeigt weiter die Zeile (Codable).
+                    **(
+                        {"gross": f"{round(float(ist))}{einheit}"}
+                        if ist is not None
+                        else {}
+                    ),
+                    # Ohne eingesteckten Fühler bleibt das Feld weg,
+                    # statt eine leere Liste zu schicken: Die Karte soll
+                    # keinen Platz für Kreise reservieren, die es nicht
+                    # gibt.
+                    **({"werte": fuehler} if fuehler else {}),
                     # Wie nah dran - für den Fortschrittsbalken.
                     "fortschritt": (
                         max(0.0, min(1.0, float(ist) / float(ziel)))
