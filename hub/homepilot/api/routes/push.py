@@ -21,6 +21,7 @@ from fastapi import (
 
 from ...core import (
     batterie,
+    grillmeldung,
     gutscheine,
     klingelton,
     liveaktivitaet,
@@ -37,6 +38,7 @@ from ...core import (
     spaeter,
     storenwaechter,
     waschkueche,
+    watchdog,
 )
 from ...core.users import Capability, Role
 from ..context import ApiContext
@@ -45,6 +47,7 @@ from ..models import (
     CoverGuardRequest,
     DoorbellSoundRequest,
     DoorbellSoundTestRequest,
+    GrillZielRequest,
     LaundryRequest,
     LiveActivityTokenRequest,
     NotifyRuleRequest,
@@ -633,6 +636,36 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     # Sturmwächter fährt bzw. von welchen die Hitze-Empfehlung spricht.
     # Aus demselben Grund wie bei der Waschküchentüre nicht als Parameter
     # der Regel: Die sind Zahlen mit Grenzen, Geräte-Ids sind keine.
+
+    @app.get("/api/grillziele")
+    async def grill_ziele(request: Request) -> dict[str, Any]:
+        """Welche Kerntemperatur-Ziele gesetzt sind (Punkt 554)."""
+        current_user(request)
+        return {"ziele": hub.data.get(watchdog.GRILLZIELE_KEY)}
+
+    @app.put("/api/grillziele")
+    async def set_grill_ziel(
+        body: GrillZielRequest, request: Request
+    ) -> dict[str, Any]:
+        # Dieselbe Hürde wie beim Schalten: Wer den Grill bedienen darf,
+        # darf auch sagen, wann er gemeldet werden will.
+        require(request, Capability.CONTROL)
+        if not 1 <= body.nummer <= 4:
+            raise HTTPException(status_code=400, detail="Fühler 1 bis 4")
+        entity = hub.registry.get(body.entity_id)
+        if entity is None:
+            raise HTTPException(status_code=404, detail="Dieses Gerät gibt es nicht")
+        # Als Zeilen: `hub.data` führt Listen, und ein Wörterbuch käme
+        # beim Lesen als Liste seiner Schlüssel zurück
+        # (core/grillmeldung.py, ziel_setzen).
+        zeilen = grillmeldung.ziel_setzen(
+            hub.data.get(watchdog.GRILLZIELE_KEY),
+            body.entity_id,
+            body.nummer,
+            body.ziel,
+        )
+        hub.data.set(watchdog.GRILLZIELE_KEY, zeilen)
+        return {"ok": True, "ziele": zeilen}
 
     @app.get("/api/coverguard")
     async def cover_guard(request: Request) -> dict[str, Any]:

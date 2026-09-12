@@ -291,6 +291,25 @@ class DemoIntegration(Integration):
                 ],
             },
         )
+        # Ein laufender Pelletgrill mit zwei eingesteckten Fühlern
+        # (Punkt 554). Ohne ihn liess sich weder die Grillkachel noch
+        # die Live-Karte je ansehen: Der Prüfstand hatte kein Gerät mit
+        # Temperaturziel, und genau daran hängen beide.
+        await self.add_entity(
+            "smoker",
+            EntityKind.APPLIANCE,
+            "Smoker",
+            state={
+                "state": "running",
+                "temperature": 104,
+                "target": 110,
+                "unit": "°C",
+                "probes": {1: 52, 2: 36},
+                "probe_1": 52,
+                "probe_2": 36,
+            },
+            commands=["turn_off", "set_temperature"],
+        )
         await self.add_entity(
             "weather_alerts",
             EntityKind.ALERT,

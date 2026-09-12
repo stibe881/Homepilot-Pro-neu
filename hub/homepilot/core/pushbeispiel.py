@@ -67,6 +67,7 @@ BEISPIELE: dict[str, tuple[str, str]] = {
     "plants": ("Pflanzen giessen", "Seit 4 Tagen kein Regen, und heute waren es 24 °C."),
     "appliance": ("Waschmaschine ist fertig", "Seit 2 Stunden fertig - die Trommel ist noch voll."),
     "oven": ("Backofen ist parat", "200 °C erreicht."),
+    "grill": ("Fühler 2 ist so weit", "Smoker: Fühler 2 hat 63 °C (Ziel 63 °C)."),
     "departure": ("Zeit loszufahren", "Zahnarzt um 14:30 - etwa 18 Minuten Fahrzeit."),
     "vacuum": ("Saugroboter steht", "Der Wassertank der Station ist leer."),
     "tasks": ("Ämtli fällig", "Abfall rausstellen ist heute dran (Lina)."),

@@ -254,6 +254,18 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
   // Grill: Störung nach vorne – ein leerer Pelletbehälter lässt das
   // Fleisch kalt werden, während man drinnen sitzt.
   grillProblem: { color: colors.warnInk, fontSize: 13, fontWeight: '700' },
+  /** Die Garstufen unter einer Fühlerzeile (Punkt 554) - umbrechend,
+   *  weil sechs Stufen nie in eine Zeile passen. */
+  garstufen: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
+  garstufe: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  garstufeAktiv: { backgroundColor: colors.accentSoft, borderColor: colors.accent },
+  garstufeText: { color: colors.ink, fontSize: 12, fontWeight: '600' },
   grillRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   grillStep: {
     width: 30,

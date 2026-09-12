@@ -988,6 +988,84 @@ async function geraetewerkzeugeUnten(browser) {
   await seite.close();
 }
 
+/** 13. Lässt sich am Fühler ein Ziel setzen? (Punkt 554)
+ *
+ * Gewünscht im Haus: «Wenn der Grill die Zieltemperatur erreicht hat,
+ * aber auch, wenn ein Kerntemperaturmesser das Ziel erreicht hat.» Die
+ * erste Meldung braucht nichts weiter - der Sollwert steht am Grill.
+ * Die zweite braucht ein Ziel je Fühler, und das setzt man auf der
+ * Kachel.
+ *
+ * Gemessen und nicht gelesen, weil die Kette über drei Schichten läuft:
+ * Die Kachel muss den Grill überhaupt als Grill erkennen (vorher hing
+ * das am Namen der Anbindung, und der Prüfstand hiess «demo»), die
+ * Chips müssen erscheinen, und der Hub muss das Ziel behalten. Der
+ * Fehler, der diese Messung wert macht, sass in der letzten Schicht:
+ * `hub.data` führt Listen, und das Ziel lag als Wörterbuch darin -
+ * geschrieben wurde es, gelesen kam nichts zurück.
+ */
+async function grillzielSetzen(browser) {
+  const seite = await angemeldeteSeite(browser, GROESSEN[0]);
+  if (!(await zurSeite(seite, 'Räume'))) {
+    await seite.close();
+    return;
+  }
+  const terrasse = seite.getByText('Terrasse', { exact: true }).first();
+  if (!(await terrasse.isVisible().catch(() => false))) {
+    pruefe(false, 'Der Raum mit dem Grill war erreichbar');
+    await seite.close();
+    return;
+  }
+  await terrasse.click();
+  await seite.waitForTimeout(1800);
+
+  const zeile = seite.getByText(/^Fühler 2:/).first();
+  if (!(await zeile.isVisible().catch(() => false))) {
+    // Die Gegenprobe steckt hier: Ohne Grillkachel gibt es keine
+    // Fühlerzeile - dann ist schon die erste Schicht kaputt.
+    pruefe(false, 'Die Grillkachel zeigt ihre Fühler');
+    await seite.close();
+    return;
+  }
+  pruefe(true, 'Die Grillkachel zeigt ihre Fühler');
+
+  await zeile.click();
+  await seite.waitForTimeout(700);
+  const stufe = seite.getByText('Schwein 63°', { exact: true }).first();
+  pruefe(
+    await stufe.isVisible().catch(() => false),
+    'Ein Tipp darauf bietet die Garstufen an'
+  );
+  if (!(await stufe.isVisible().catch(() => false))) {
+    await seite.close();
+    return;
+  }
+  await stufe.click();
+  await seite.waitForTimeout(1500);
+  const danach = await seite.getByText(/^Fühler 2:/).first().textContent();
+  pruefe(
+    /noch \d+ bis 63/.test(danach ?? ''),
+    'Und die Zeile sagt, wie weit es noch ist',
+    danach ?? ''
+  );
+
+  // Und der Hub hat es behalten - die Schicht, in der der Fehler sass.
+  const gespeichert = await seite.evaluate(async ([url, token]) => {
+    const antwort = await fetch(`${url}/api/grillziele`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return antwort.json();
+  }, [HUB, TOKEN]);
+  pruefe(
+    (gespeichert?.ziele ?? []).some(
+      (zeile) => zeile.entity_id === 'demo.smoker' && Number(zeile.ziel) === 63
+    ),
+    'Der Hub hat das Ziel behalten',
+    JSON.stringify(gespeichert)
+  );
+  await seite.close();
+}
+
 const { chromium } = playwrightLaden();
 const browser = await chromium.launch({ executablePath: browserOrt() });
 try {
@@ -1004,6 +1082,7 @@ try {
   await melderGibtSignal(browser);
   await geraetelisteOhneSpalte(browser);
   await geraetewerkzeugeUnten(browser);
+  await grillzielSetzen(browser);
 } finally {
   await browser.close();
 }

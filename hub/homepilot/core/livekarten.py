@@ -34,7 +34,7 @@ import time
 from typing import Any
 from urllib.parse import quote
 
-from . import laufzeit, liveaktivitaet, presence
+from . import grillmeldung, laufzeit, liveaktivitaet, presence
 
 log = logging.getLogger(__name__)
 
@@ -326,10 +326,11 @@ def grilltext(ist: Any, ziel: float, einheit: str) -> str:
     ziel_text = f"{round(ziel)}{einheit}"
     if ist is None:
         return f"Ziel {ziel_text}"
-    # Zwei Grad Spielraum: Ein Pelletgrill pendelt um seinen Sollwert,
-    # und «heizt auf» dürfte dabei nicht im Sekundentakt an- und
-    # ausgehen.
-    if float(ist) >= ziel - 2:
+    # Derselbe Spielraum wie bei der Meldung «ist auf Temperatur»
+    # (core/grillmeldung.py): Stünde hier eine eigene Zahl, sagte die
+    # Karte «Hält 110°», während die Push noch nicht gekommen ist - und
+    # man suchte den Fehler bei der Push.
+    if grillmeldung.auf_temperatur(ist, ziel):
         return f"Hält {ziel_text}"
     return f"Heizt auf {ziel_text}"
 

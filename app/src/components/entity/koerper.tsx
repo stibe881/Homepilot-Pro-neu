@@ -7,11 +7,14 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { Image, Pressable, Text, View } from 'react-native';
 
+import { hubClient } from '../../api/client';
 import { CommandData, Entity } from '../../api/types';
+import { useSettings } from '../../hooks/HubContext';
 import { useTakt } from '../../hooks/useTakt';
 import { herkunftText, positionText, storenstand } from '../../lib/storenstand';
 import { aktiveVorgabe, vorgaben } from '../../lib/storenvorgaben';
 import { chipSchrift, fensterHoehe } from '../../lib/storenkachel';
+import { Zielzeile, fuehlerZeile, garstufen, zieleVon } from '../../lib/grillziel';
 import { mayOpenDirectly } from '../../lib/tuerbestaetigung';
 import { radius, useColors } from '../../theme';
 import { Bar } from '../Bar';
@@ -300,6 +303,43 @@ export function GrillBody({
   const running = entity.state.state === 'running';
   const probes: Record<string, number> = entity.state.probes ?? {};
   const problem = entity.state.problem;
+  // Die Kerntemperatur-Ziele (Punkt 554). Sie liegen beim Hub und nicht
+  // am Gerät: Die Steuerplatine meldet je Fühler nur die Temperatur.
+  const settings = useSettings();
+  const [ziele, setZiele] = useState<Record<string, number>>({});
+  const [waehlt, setWaehlt] = useState<string | null>(null);
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
+
+  useEffect(() => {
+    // Still: Ein Hub, der die Route noch nicht kennt, soll hier keine
+    // rote Einblendung hinterlassen - dann bleibt es bei den Zahlen.
+    hub
+      .get<{ ziele?: Zielzeile[] } | null>('/api/grillziele', {
+        fallback: null,
+        still: true,
+      })
+      .then((antwort) => setZiele(zieleVon(antwort?.ziele, entity.id)));
+  }, [hub, entity.id]);
+
+  const zielSetzen = async (nummer: string, wert: number | null) => {
+    // Erst anzeigen, dann schicken: Beim Grillen steht man daneben und
+    // will sehen, dass der Griff angekommen ist.
+    setZiele((vorher) => {
+      const neu = { ...vorher };
+      if (wert === null) delete neu[nummer];
+      else neu[nummer] = wert;
+      return neu;
+    });
+    setWaehlt(null);
+    await hub.put(
+      '/api/grillziele',
+      { entity_id: entity.id, nummer: Number(nummer), ziel: wert },
+      { still: true }
+    );
+  };
 
   // Der Grill nimmt nur bestimmte Sollwerte an und rundet selbst auf den
   // nächsten – deshalb genügen hier grobe Schritte.
@@ -345,10 +385,50 @@ export function GrillBody({
         </View>
       ) : null}
 
+      {/* Je Fühler eine Zeile - und ein Tipp darauf setzt sein Ziel
+          (Punkt 554). Feste Stufen statt eines Zahlenfelds: Beim
+          Grillen hat man fettige Finger und sucht keine Tastatur. */}
       {Object.entries(probes).map(([number, value]) => (
-        <Text key={number} style={styles.detail}>
-          Fühler {number}: {value} {unit}
-        </Text>
+        <View key={number}>
+          <Pressable
+            onPress={() => setWaehlt((offen) => (offen === number ? null : number))}
+            accessibilityRole="button"
+            accessibilityLabel={`Ziel für Fühler ${number} setzen`}
+            accessibilityState={{ expanded: waehlt === number }}
+            style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+          >
+            <Text style={styles.detail}>
+              {fuehlerZeile(number, value, ziele[number] ?? null, unit)}
+            </Text>
+          </Pressable>
+          {waehlt === number ? (
+            <View style={styles.garstufen}>
+              {garstufen(unit).map((stufe) => (
+                <Pressable
+                  key={stufe.wert}
+                  onPress={() => zielSetzen(number, stufe.wert)}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [
+                    styles.garstufe,
+                    ziele[number] === stufe.wert && styles.garstufeAktiv,
+                    pressed && { opacity: 0.6 },
+                  ]}
+                >
+                  <Text style={styles.garstufeText}>{stufe.label}</Text>
+                </Pressable>
+              ))}
+              {ziele[number] !== undefined ? (
+                <Pressable
+                  onPress={() => zielSetzen(number, null)}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [styles.garstufe, pressed && { opacity: 0.6 }]}
+                >
+                  <Text style={styles.garstufeText}>kein Ziel</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
       ))}
 
       <View style={styles.mediaRow}>

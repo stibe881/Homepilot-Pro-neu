@@ -43,6 +43,7 @@ from . import (
     gastspur,
     gemeldet,
     giessen,
+    grillmeldung,
     gutscheine,
     gutscheinort,
     kamera,
@@ -142,6 +143,14 @@ SAUGER_STORE_KEY = "vacuum_notified"
 #: weil zwischen Vorwarnung und Regen eine Viertelstunde liegt und ein
 #: Update dazwischen der Normalfall ist.
 REGEN_KEY = "rain_warned"
+
+#: Die Kerntemperatur-Ziele je Grill: {entity_id: {"1": 63}} (Punkt 554).
+#:
+#: In der Datendatei und nicht an der Entität: Die Steuerplatine meldet
+#: je Fühler nur die Temperatur, kein Ziel. Solange offen ist, ob sie
+#: überhaupt eines führt (grillcheck druckt ihren rohen Zustand), gehört
+#: es dorthin, wo es einen Neustart überlebt.
+GRILLZIELE_KEY = "grill_probe_targets"
 
 
 class Watchdog:
@@ -249,6 +258,11 @@ class Watchdog:
         # Kochgeräte: ob das Gerät in der letzten Runde am Vorheizen war -
         # die Flanke «Vorheizen fertig» ergibt die Parat-Durchsage (ofen.py).
         self._vorheiz: dict[str, bool] = {}
+        # Grill: was schon gemeldet ist (Punkt 554). «Ist über dem Ziel»
+        # bleibt zwanzig Minuten lang wahr, und zwanzig Minuten lang zu
+        # melden wäre kein Hinweis, sondern ein Wecker. Je Grill der
+        # Sollwert, je Fühler die Nummer (core/grillmeldung.py).
+        self._grill_gemeldet: set[str] = set()
         # Losfahr-Wecker: höchstens ein Nominatim-Nachschlagen je Runde,
         # und nie schneller als hier steht - deren Regeln, nicht unsere.
         self._geo_zuletzt: float = 0.0
@@ -549,6 +563,7 @@ class Watchdog:
         self.rules = notifyrules.effective(self.hub.data.get("notify_rules"))
         entities = self.hub.registry.all()
         await self._check_appliances(entities)
+        await self._check_grill(entities)
         await self._check_devices(entities)
         await self._check_flattern()
         await self._check_batteries(entities)
@@ -1878,6 +1893,79 @@ class Watchdog:
                     "device_down",
                     entity_id=entity.id,
                 )
+
+    async def _check_grill(self, entities: list[Any]) -> None:
+        """Der Grill ist auf Temperatur - und das Fleisch ist so weit.
+
+        Gewünscht im Haus (Punkt 554): «Wenn der Grill die
+        Zieltemperatur erreicht hat, aber auch, wenn ein
+        Kerntemperaturmesser das Ziel erreicht hat.»
+
+        Gemeldet wird die **Flanke**. Was einmal gemeldet ist, steht in
+        `_grill_gemeldet` und schweigt, bis der Wert wieder deutlich
+        unter das Ziel fällt - wer den Sollwert hochdreht, bekommt die
+        Meldung also erneut, wer nur ums Ziel pendelt, nicht.
+
+        Der Grill ist am Temperaturziel als solcher erkennbar - dieselbe
+        Regel wie bei der Live-Karte (core/livekarten.py, karten_grill).
+        Eine Waschmaschine hat keines.
+        """
+        ziele_alle = self.hub.data.get(GRILLZIELE_KEY)
+        for entity in entities:
+            if entity.kind != "appliance":
+                continue
+            ziel = entity.state.get("target")
+            if ziel is None:
+                continue
+            laeuft = str(entity.state.get("state") or "") == "running"
+            einheit = str(entity.state.get("unit") or "°")
+            ist = entity.state.get("temperature")
+
+            # Aus heisst: alles vergessen. Beim nächsten Anzünden soll
+            # die Meldung wiederkommen, auch wenn der Grill noch warm
+            # ist.
+            if not laeuft:
+                self._grill_vergessen(entity.id)
+                continue
+
+            marke = f"{entity.id}:grill"
+            if grillmeldung.auf_temperatur(ist, ziel):
+                if marke not in self._grill_gemeldet:
+                    self._grill_gemeldet.add(marke)
+                    titel, text = grillmeldung.grillsatz(entity.label, ziel, einheit)
+                    await self._notify(titel, text, "grill", entity_id=entity.id)
+            elif grillmeldung.wieder_offen(ist, ziel):
+                self._grill_gemeldet.discard(marke)
+
+            for nummer, fuehlerziel in grillmeldung.fuehlerziele(
+                ziele_alle, entity.id
+            ).items():
+                wert = entity.state.get(f"probe_{nummer}")
+                # Kein Fühler eingesteckt: Das Ziel bleibt gesetzt, die
+                # Meldung wartet. Wer den Fühler ins nächste Stück
+                # steckt, soll sie bekommen.
+                if wert is None:
+                    self._grill_gemeldet.discard(f"{entity.id}:p{nummer}")
+                    continue
+                fuehlermarke = f"{entity.id}:p{nummer}"
+                # Ohne Spielraum: Die Kerntemperatur steigt langsam und
+                # stetig, und «63 statt 61» ist beim Fleisch der
+                # Unterschied, um den es geht.
+                if float(wert) >= float(fuehlerziel):
+                    if fuehlermarke not in self._grill_gemeldet:
+                        self._grill_gemeldet.add(fuehlermarke)
+                        titel, text = grillmeldung.fuehlersatz(
+                            entity.label, nummer, wert, fuehlerziel, einheit
+                        )
+                        await self._notify(titel, text, "grill", entity_id=entity.id)
+                elif grillmeldung.wieder_offen(wert, fuehlerziel):
+                    self._grill_gemeldet.discard(fuehlermarke)
+
+    def _grill_vergessen(self, entity_id: str) -> None:
+        """Alles zu diesem Grill vergessen - er ist aus."""
+        self._grill_gemeldet -= {
+            marke for marke in self._grill_gemeldet if marke.startswith(f"{entity_id}:")
+        }
 
     async def _check_appliances(self, entities: list[Any]) -> None:
         """An die fertige, aber noch volle Maschine erinnern.

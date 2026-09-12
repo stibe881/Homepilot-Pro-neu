@@ -5190,3 +5190,65 @@ Es kommt kein natives Modul dazu, und ein Sprung schnitte das Haus
 ohne Not von Nachladungen ab (siehe CLAUDE.md).
 
 Stellen: `hub/homepilot/core/livekarten.py`, `app/modules/live-aktivitaet/ios/HausAktivitaetAttributes.swift`, `app/targets/widget/index.swift`, `app/src/lib/livekarte-struktur.test.ts`
+
+### 554. Der Grill meldet sich: auf Temperatur, und das Fleisch ist so weit ✓ erledigt
+
+Gewünscht im Haus, mit einem Bild der Hersteller-App: «Diese Pushs will
+ich auch. Wenn der Grill die Zieltemperatur erreicht hat, aber auch,
+wenn ein Kerntemperaturmesser das Ziel erreicht hat.»
+
+**Zwei Momente, und sie meinen Verschiedenes.** «Der Grill ist auf
+Temperatur» heisst: jetzt legt man auf. «Fühler 2 ist so weit» heisst:
+jetzt nimmt man herunter - und das ist die Meldung, für die man beim
+Grillen aufs Telefon sieht.
+
+**Gemeldet wird die Flanke, nicht der Zustand.** «Ist über dem Ziel»
+bleibt zwanzig Minuten lang wahr, und zwanzig Minuten lang jede Runde zu
+melden wäre kein Hinweis, sondern ein Wecker. Zurückgesetzt wird, wenn
+der Wert wieder deutlich unter das Ziel fällt - wer den Sollwert
+hochdreht, bekommt die Meldung also erneut, wer bloss ums Ziel pendelt,
+nicht. Beim Grill mit zwei Grad Spielraum (ein Pelletgrill regelt über
+die Förderschnecke), beim Fühler ohne: «63 statt 61» ist beim Fleisch
+der Unterschied, um den es geht.
+
+**Das Fühlerziel liegt beim Hub.** Die Steuerplatine meldet je Fühler
+nur die Temperatur; ob sie auch ein Ziel führt, weiss erst ein Blick auf
+ihren rohen Zustand (`grillcheck` druckt ihn, Punkt 552). Gesetzt wird
+es auf der Grillkachel, mit festen Garstufen statt eines Zahlenfelds -
+beim Grillen hat man fettige Finger und sucht keine Tastatur. Und die
+Stufen tragen den Garpunkt im Namen: «63°» beantwortet die Frage nicht,
+«Schwein 63°» schon.
+
+**Der Fehler, den erst der laufende Hub zeigte.** `hub.data` führt
+Listen von Zeilen (`core/persistence.py`): `get` macht aus allem anderen
+`list(...)`. Das Ziel lag als verschachteltes Wörterbuch darin -
+geschrieben wurde es, gelesen kam eine Liste seiner *Schlüssel* zurück,
+und die Meldung wäre nie gekommen. Der erste Test war grün, weil er
+dasselbe Wörterbuch angenommen hatte wie der Code. Gefunden hat es ein
+`curl` gegen den Prüfstand.
+
+**Die Grillkachel hing am Namen der Anbindung.** `integration ===
+'pitboss'` - dasselbe Gerät, aber die falsche Frage: Ein Grill einer
+anderen Anbindung bekam die Spülmaschinen-Kachel, und der Prüfstand
+konnte die Kachel überhaupt nie zeigen. Jetzt entscheidet das
+Temperaturziel, wie im Hub schon überall (`istGrill`).
+
+**Zwei Messungen der Probe waren wertlos, und das war der lehrreichste
+Teil.** Ein Hub aus einem früheren Lauf hing noch am Port; der eigene
+kam nicht hoch, und die Gesundheitsprüfung war trotzdem zufrieden - sie
+fragt den Port, nicht den eigenen Prozess. Gemessen wurde gegen fremden
+Code: Ein absichtlich eingebauter Fehler blieb grün, und nach dem
+Beheben blieb es rot. Beides behoben: `probe.sh` bricht jetzt ab, wenn
+auf dem Port schon jemand antwortet, und räumt seinen Hub am Ende
+wirklich weg (`$HUB_PID` ist die Subshell, nicht das Python darin).
+
+**Und ein Test, den der Demo-Grill umwarf.**
+`test_die_auslieferung_haelt_die_anfrage_bis_das_bild_da_ist` hing an
+einem Personen-Fenster von einer halben Sekunde: Dauert der Aufbau unter
+Last länger, hat der Hub längst mit dem Bild vom leeren Flur
+abgeschlossen. Eine Entität mehr in der Demo genügte, und der Test fiel
+zuverlässig - ohne dass sich an der Route etwas geändert hätte. Das
+Fenster ist dort jetzt weit; wie kurz es sein darf, prüfen die Tests
+daneben.
+
+Stellen: `hub/homepilot/core/grillmeldung.py`, `hub/homepilot/core/watchdog.py`, `hub/homepilot/core/push.py`, `hub/homepilot/core/pushziel.py`, `hub/homepilot/core/pushbeispiel.py`, `hub/homepilot/core/livekarten.py`, `hub/homepilot/api/routes/push.py`, `hub/homepilot/api/models.py`, `hub/homepilot/integrations/demo.py`, `app/src/lib/grillziel.ts`, `app/src/components/entity/koerper.tsx`, `app/src/components/EntityCard.tsx`, `scripts/probe.sh`, `scripts/probe.mjs`

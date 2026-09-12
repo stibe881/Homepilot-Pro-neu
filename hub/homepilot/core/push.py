@@ -338,6 +338,7 @@ CATEGORIES: dict[str, str] = {
     "plants": "Pflanzen giessen",
     "appliance": "Haushaltgerät fertig",
     "oven": "Backofen parat/fertig",
+    "grill": "Grill auf Temperatur / Fühler am Ziel",
     "departure": "Losfahren zum Termin",
     "vacuum": "Saugroboter meldet ein Problem",
     "tasks": "Fällige Aufgaben",
@@ -374,7 +375,7 @@ GROUPS: list[tuple[str, tuple[str, ...]]] = [
     # sofort reagiert - und die einzige, bei der ein paar Sekunden
     # Verzögerung den Zweck zunichte machen.
     ("Sicherheit", ("doorbell", "alarm", "alarm_arming", "camera_motion", "leak", "smoke")),
-    ("Haus", ("open", "appliance", "oven", "vacuum", "frost", "rain",
+    ("Haus", ("open", "appliance", "oven", "grill", "vacuum", "frost", "rain",
               "storm_covers", "heat_covers", "plants", "timer", "maintenance")),
     # «Baby weint» steht vorn und bei der Familie, nicht bei der
     # Sicherheit: Gesucht wird die Nachricht dort, wo die Kinder sind.

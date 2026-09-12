@@ -295,6 +295,21 @@ class LaundryRequest(BaseModel):
     door: str | None = None
 
 
+class GrillZielRequest(BaseModel):
+    """Das Kerntemperatur-Ziel eines Fühlers (Punkt 554).
+
+    `ziel: null` nimmt es wieder weg - «kein Ziel» ist ein gültiger
+    Wunsch, und ein Feld weglassen hiesse hier «lass, wie es ist».
+    """
+
+    #: Der Grill, an dem der Fühler steckt.
+    entity_id: str
+    #: Welcher Fühler: 1 bis 4.
+    nummer: int
+    #: In der Einheit des Grills - er meldet sie selbst mit.
+    ziel: float | None = None
+
+
 class CoverGuardRequest(BaseModel):
     """Worauf die Wächter-Regeln sehen und was sie anfassen.
 

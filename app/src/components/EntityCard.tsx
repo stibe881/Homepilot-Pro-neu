@@ -9,6 +9,7 @@ import Svg, { Polyline } from 'react-native-svg';
 import { CommandData, Entity, KalenderEintrag } from '../api/types';
 import { Doppelaktion, FENSTER_MS, merkbar } from '../lib/doppeltipp';
 import { Reihe, linienPunkte } from '../lib/funkenlinie';
+import { istGrill } from '../lib/grillziel';
 import { istKlimaFuehler } from '../lib/klimachip';
 import { istKontakt, kontaktArt } from '../lib/offen';
 import { abschaltSatz } from '../lib/abschaltung';
@@ -1032,7 +1033,9 @@ export function EntityCard({
       case 'appliance':
         // Der Grill ist zwar auch ein Gerät, aber beim Grillen zählt etwas
         // anderes als bei der Spülmaschine: Temperatur, Fühler, Pellets.
-        if (entity.integration === 'pitboss') {
+        // Erkannt am Temperaturziel und nicht am Namen der Anbindung -
+        // dieselbe Regel wie im Hub (lib/grillziel.ts, istGrill).
+        if (istGrill(entity)) {
           return <GrillBody entity={entity} onCommand={onCommand} />;
         }
         {
