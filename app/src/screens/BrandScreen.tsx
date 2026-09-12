@@ -215,7 +215,11 @@ export function BrandScreen({
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={[styles.zeileTitel, !eintrag.active && { color: colors.inkFaint }]} numberOfLines={1}>
                   {eintrag.name}
-                  {eintrag.room ? ` · ${eintrag.room}` : ''}
+                  {/* Den Raum nur, wenn er nicht schon im Namen steckt -
+                      «Balkon · Balkon» sagt nichts zweimal. */}
+                  {eintrag.room && !eintrag.name.toLowerCase().includes(eintrag.room.toLowerCase())
+                    ? ` · ${eintrag.room}`
+                    : ''}
                 </Text>
                 <Text
                   style={[
@@ -227,7 +231,7 @@ export function BrandScreen({
                 </Text>
               </View>
               <View style={styles.melderKnoepfe}>
-                {eintrag.kind !== 'camera' ? (
+                {eintrag.testable !== false && eintrag.kind !== 'camera' ? (
                   <Pressable
                     onPress={() =>
                       handgriff(

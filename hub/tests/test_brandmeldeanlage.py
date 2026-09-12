@@ -52,6 +52,21 @@ def test_melder_erkennt_rauch_gas_und_hoerende_kameras():
     assert brandmelder.ist_melder(kontakt) is False
 
 
+def test_eine_kamera_hat_keine_pruefung():
+    """Sie hört einen Melder, sie ist keiner - «nie geprüft» wäre für immer."""
+    kamera = SimpleNamespace(
+        id="cam.flur", kind="camera", label="Flur", name="Flur", room="Flur",
+        commands=[], available=True, last_seen=None,
+        state={"state": "online", "detected_smoke_alarm": "off"},
+    )
+    zeile = brandmelder.melder_zeile(kamera, set(), {}, jetzt=1.0)
+    assert zeile["testable"] is False
+    assert zeile["test_overdue"] is False
+    assert zeile["last_test"] is None
+    melder = _melder("z.a")
+    assert brandmelder.melder_zeile(melder, set(), {}, jetzt=1.0)["testable"] is True
+
+
 def test_zustand_folgt_den_meldern_und_dem_quittieren():
     ruhig = _melder("z.a")
     laut = _melder("z.b", state="on")

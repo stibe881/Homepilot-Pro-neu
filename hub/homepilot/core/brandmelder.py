@@ -249,7 +249,11 @@ def melder_zeile(entity: Any, abgeschaltet: set[str], tests: dict[str, float], j
     """Eine Zeile der Melderliste für die App (rein, testbar)."""
     moment = time.time() if jetzt is None else jetzt
     state = getattr(entity, "state", None) or {}
-    letzter_test = tests.get(entity.id)
+    # Eine Kamera hat keine Prüftaste: Sie hört einen Melder, sie ist
+    # keiner. «Nie geprüft» stünde dort für immer - und die Erinnerung
+    # käme jeden Monat für etwas, das niemand prüfen kann.
+    kamera = getattr(entity, "kind", "") == "camera"
+    letzter_test = None if kamera else tests.get(entity.id)
     return {
         "entity_id": entity.id,
         "name": str(getattr(entity, "label", getattr(entity, "name", "")) or entity.id),
@@ -263,7 +267,10 @@ def melder_zeile(entity: Any, abgeschaltet: set[str], tests: dict[str, float], j
         "low_battery": bool(state.get("low_battery")),
         "last_seen": getattr(entity, "last_seen", None),
         "last_test": letzter_test,
-        "test_overdue": letzter_test is None or (moment - letzter_test) >= 6 * 30.4375 * 86400,
+        "test_overdue": not kamera
+        and (letzter_test is None or (moment - letzter_test) >= 6 * 30.4375 * 86400),
+        # Prüfbar ist nur ein echter Melder - die Kamera hört nur mit.
+        "testable": not kamera,
         "can_mute": "mute" in (getattr(entity, "commands", []) or []),
         "can_self_test": "self_test" in (getattr(entity, "commands", []) or []),
     }

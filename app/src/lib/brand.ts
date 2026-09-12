@@ -32,6 +32,8 @@ export interface Melder {
   test_overdue?: boolean;
   can_mute?: boolean;
   can_self_test?: boolean;
+  /** Nur ein echter Melder hat eine Prüftaste - eine Kamera hört nur mit. */
+  testable?: boolean;
 }
 
 export interface BrandSettings {
@@ -74,6 +76,11 @@ export function zustandText(state: BrandState | null | undefined): {
 export function melderZeile(melder: Melder, jetzt: number = Date.now() / 1000): string {
   if (melder.alarm) return 'Meldet Rauch!';
   if (!melder.active) return 'Abgeschaltet – zählt nicht';
+  // Eine Kamera hört einen piependen Melder - prüfen lässt sie sich
+  // nicht, und «nie geprüft» stünde dort für immer.
+  if (melder.kind === 'camera') {
+    return melder.available ? 'Hört einen piependen Melder' : 'Kamera meldet sich nicht';
+  }
   const teile: string[] = [];
   if (!melder.available) teile.push('meldet sich nicht');
   if (melder.low_battery) teile.push('Batterie schwach');
