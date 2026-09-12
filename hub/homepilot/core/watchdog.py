@@ -1915,18 +1915,28 @@ class Watchdog:
             if entity.kind != "appliance":
                 continue
             ziel = entity.state.get("target")
-            if ziel is None:
-                continue
             laeuft = str(entity.state.get("state") or "") == "running"
             einheit = str(entity.state.get("unit") or "°")
             ist = entity.state.get("temperature")
 
-            # Aus heisst: alles vergessen. Beim nächsten Anzünden soll
-            # die Meldung wiederkommen, auch wenn der Grill noch warm
-            # ist.
+            # «Er lief» - die Marke, an der das Ausgehen erkennbar ist
+            # (Punkt 560). Nur die Flanke: Ein Hub, der mit kaltem Grill
+            # startet, hat nichts zu melden. Und nur ein gemeldetes
+            # «off», nicht ein unerreichbarer Grill - der behält seinen
+            # letzten Zustand, bis er wieder antwortet.
+            an_marke = f"{entity.id}:an"
             if not laeuft:
+                if an_marke in self._grill_gemeldet:
+                    titel, text = grillmeldung.aussatz(entity.label, ist, einheit)
+                    await self._notify(titel, text, "grill", entity_id=entity.id)
+                # Aus heisst: alles vergessen. Beim nächsten Anzünden
+                # soll die Meldung wiederkommen, auch wenn der Grill
+                # noch warm ist.
                 self._grill_vergessen(entity.id)
                 continue
+            if ziel is None:
+                continue
+            self._grill_gemeldet.add(an_marke)
 
             marke = f"{entity.id}:grill"
             if grillmeldung.auf_temperatur(ist, ziel):

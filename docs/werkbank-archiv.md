@@ -5458,3 +5458,27 @@ Grill sagt nur «Aus» - ein Ziel ohne Feuer ist keine Auskunft. Das
 Popup kommt aus Punkt 557 und öffnet weiter beim Tipp auf die Kachel.
 
 Stellen: `app/src/lib/grillbild.ts`, `app/src/components/GrillVisual.tsx`, `app/src/components/entity/koerper.tsx`, `app/src/components/entity/stil.ts`, `hub/homepilot/integrations/pitboss.py`, `hub/homepilot/integrations/demo.py`, `scripts/probe.mjs`
+
+### 560. Der Grill meldet auch, wenn er ausgeht ✓ erledigt
+
+Aus dem Haus: «Es soll auch eine Push geben, wenn er sich ausschaltet.»
+
+Ein Pelletgrill geht auch von selbst aus - Pellets leer, Flamme weg,
+die Zeitschaltung am Gerät -, und wer drinnen sitzt, merkt es erst am
+kalten Fleisch. Deshalb dieselbe Kategorie wie «auf Temperatur» und
+«Fühler ist so weit»: Es ist die dritte Nachricht desselben Abends.
+
+**Nur die Flanke.** Gemerkt wird «er lief»; gemeldet wird, wenn aus
+«lief» ein «aus» wird. Ein Hub, der zwischen zwei Grillabenden mit
+kaltem Grill startet, hat nichts zu sagen - «ist aus» wäre dann kein
+Hinweis, sondern Lärm. Und nur ein gemeldetes «off» zählt: Ein
+unerreichbarer Grill behält seinen letzten Zustand, bis er wieder
+antwortet, und löst nichts aus.
+
+**Die letzte Temperatur steht mit im Satz.** «aus - zuletzt 110°C»
+heisst abgestellt; «aus - zuletzt 60°C» heisst, das Feuer war schon
+länger weg. Das Ausgehen darf nicht daran scheitern, dass eine Platine
+ohne Feuer keinen Sollwert mehr meldet - die Prüfung «ist das ein
+Grill?» kommt für das Ausgehen darum erst nach der Meldung.
+
+Stellen: `hub/homepilot/core/grillmeldung.py`, `hub/homepilot/core/watchdog.py`, `hub/tests/test_grillmeldung.py`

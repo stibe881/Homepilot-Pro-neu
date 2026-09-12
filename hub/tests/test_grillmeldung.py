@@ -48,6 +48,12 @@ def test_die_saetze_nennen_zahl_und_einheit():
     assert titel == "Smoker ist auf Temperatur"
     assert "110°C" in text
 
+    titel, text = gm.aussatz("Smoker", 110, "°C")
+    assert titel == "Smoker ist aus"
+    assert "zuletzt 110°C" in text
+    # Ohne Messwert kein «zuletzt None».
+    assert gm.aussatz("Smoker", None, "°C")[1] == "Smoker wurde ausgeschaltet."
+
     titel, text = gm.fuehlersatz("Smoker", 2, 64, 63, "°C")
     assert titel == "Fühler 2 ist so weit"
     # Der Ist-Wert steht mit im Satz: Zwischen dem Erreichen und dem
@@ -168,12 +174,52 @@ def test_auf_temperatur_meldet_genau_einmal():
 
 def test_nach_dem_ausgehen_meldet_er_wieder():
     """Beim nächsten Anzünden soll die Meldung kommen, auch wenn der
-    Grill noch warm ist."""
+    Grill noch warm ist - und das Ausgehen selbst ist eine Meldung
+    (Punkt 560)."""
     w, gesendet = wache()
     lauf(w, [grill(temperature=110, target=110)])
     lauf(w, [grill(state="off", temperature=110, target=110)])
     lauf(w, [grill(temperature=110, target=110)])
-    assert len(gesendet) == 2
+    assert [titel for titel, _, _ in gesendet] == [
+        "Smoker ist auf Temperatur",
+        "Smoker ist aus",
+        "Smoker ist auf Temperatur",
+    ]
+
+
+def test_beim_ausschalten_kommt_eine_meldung():
+    """«Es soll auch eine Push geben, wenn er sich ausschaltet.» Ein
+    Pelletgrill geht auch von selbst aus, und wer drinnen sitzt, merkt
+    es erst am kalten Fleisch."""
+    w, gesendet = wache()
+    lauf(w, [grill(temperature=80, target=110)])
+    lauf(w, [grill(state="off", temperature=60, target=110)])
+    assert len(gesendet) == 1
+    titel, text, kategorie = gesendet[0]
+    assert titel == "Smoker ist aus"
+    assert "60°C" in text
+    assert kategorie == "grill"
+    # Einmal, nicht in jeder Runde, solange er aus ist.
+    lauf(w, [grill(state="off", temperature=50, target=110)])
+    assert len(gesendet) == 1
+
+
+def test_ein_kalter_grill_beim_start_meldet_nichts():
+    """Der Hub startet oft zwischen zwei Grillabenden - «ist aus» wäre
+    dann keine Nachricht, sondern Lärm."""
+    w, gesendet = wache()
+    lauf(w, [grill(state="off", temperature=21, target=110)])
+    lauf(w, [grill(state="unknown", target=None)])
+    assert gesendet == []
+
+
+def test_die_meldung_kommt_auch_wenn_der_kalte_grill_kein_ziel_mehr_meldet():
+    """Manche Platinen melden ohne Feuer keinen Sollwert - das Ausgehen
+    darf daran nicht scheitern."""
+    w, gesendet = wache()
+    lauf(w, [grill(temperature=100, target=110)])
+    lauf(w, [grill(state="off", temperature=95, target=None)])
+    assert [t for t, _, _ in gesendet] == ["Smoker ist aus"]
 
 
 def test_ein_hoeherer_sollwert_meldet_erneut():

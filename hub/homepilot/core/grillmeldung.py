@@ -91,6 +91,22 @@ def grillsatz(label: str, ziel: Any, einheit: str) -> tuple[str, str]:
     )
 
 
+def aussatz(label: str, ist: Any, einheit: str) -> tuple[str, str]:
+    """Titel und Text für «der Grill ist aus» (rein, testbar).
+
+    Gewünscht im Haus (Punkt 560): «Es soll auch eine Push geben, wenn
+    er sich ausschaltet.» Ein Pelletgrill geht auch von selbst aus -
+    Pellets leer, Flamme weg, Zeitschaltung am Gerät -, und wer drinnen
+    sitzt, merkt es erst am kalten Fleisch. Die letzte Temperatur steht
+    mit im Satz: «aus bei 110°» heisst abgestellt, «aus bei 60°» heisst,
+    das Feuer war schon länger weg.
+    """
+    text = f"{label} wurde ausgeschaltet"
+    if ist is not None:
+        text += f" - zuletzt {_zahl(ist)}{einheit}"
+    return (f"{label} ist aus", text + ".")
+
+
 def fuehlersatz(
     label: str, nummer: int, ist: Any, ziel: Any, einheit: str
 ) -> tuple[str, str]:
