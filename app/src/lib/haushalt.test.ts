@@ -1,6 +1,11 @@
 /** Die Kachel-Zeile eines Haushaltgeräts – und die Falle mit der Restzeit. */
 import { Entity } from '../api/types';
-import { applianceLine, uebernahmeZeile } from './haushalt';
+import {
+  applianceLine,
+  steckdosengeraet,
+  uebernahmeZeile,
+  workingAppliances,
+} from './haushalt';
 
 const geraet = (state: Record<string, unknown>): Entity =>
   ({
@@ -116,5 +121,57 @@ describe('uebernahmeZeile', () => {
     expect(
       uebernahmeZeile(geraet({ state: 'running', claimed_by: 'Bine' }))
     ).toBeNull();
+  });
+});
+
+describe('steckdosengeraet', () => {
+  const steckdose = (state: Record<string, unknown>): Entity =>
+    ({
+      id: 'homematic.tumbler',
+      name: 'Tumbler',
+      kind: 'switch',
+      state,
+      commands: ['turn_on', 'turn_off'],
+      available: true,
+    }) as unknown as Entity;
+
+  it('nennt den fertigen Tumbler fertig, obwohl er noch 9 W zieht', () => {
+    // Der gemeldete Fall: «Am Trocknen · 9 W» an einer längst trockenen
+    // Wäsche. Das wache Display der Maschine reicht über die alte
+    // Schwelle von 5 W - Arbeit heisst bei einem Tumbler hunderte Watt.
+    const zeile = steckdosengeraet(steckdose({ state: 'on', power: 9 }), 'Am Trocknen');
+    expect(zeile.text).toBe('Fertig');
+    expect(zeile.running).toBe(false);
+    expect(zeile.watts).toBe(9);
+  });
+
+  it('zeigt den laufenden Tumbler mit seinem eigenen Wort', () => {
+    const zeile = steckdosengeraet(steckdose({ state: 'on', power: 1142 }), 'Am Trocknen');
+    expect(zeile.text).toBe('Am Trocknen');
+    expect(zeile.running).toBe(true);
+  });
+
+  it('unterscheidet die ausgeschaltete Steckdose vom fertigen Gerät', () => {
+    // «Fertig» an einer toten Steckdose wäre eine Behauptung über die
+    // Wäsche, die niemand geprüft hat.
+    const zeile = steckdosengeraet(steckdose({ state: 'off', power: 0 }), 'Am Trocknen');
+    expect(zeile.text).toBe('Steckdose aus');
+    expect(zeile.aus).toBe(true);
+    expect(zeile.running).toBe(false);
+  });
+
+  it('hält dieselbe Schwelle wie die Begrüssungszeile', () => {
+    // Zwei Regeln für dieselbe Frage waren der Fehler; ein Gerät, das
+    // hier läuft, muss auch dort laufen.
+    const laeuft = steckdose({ state: 'on', power: 1142 });
+    const fertig = steckdose({ state: 'on', power: 9 });
+    expect(workingAppliances([laeuft]).length).toBe(1);
+    expect(workingAppliances([fertig]).length).toBe(0);
+    expect(steckdosengeraet(laeuft).running).toBe(true);
+    expect(steckdosengeraet(fertig).running).toBe(false);
+  });
+
+  it('zeigt ohne Gerät die Demo-Maschine bei der Arbeit', () => {
+    expect(steckdosengeraet(undefined, 'Am Trocknen').running).toBe(true);
   });
 });

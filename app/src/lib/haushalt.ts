@@ -162,3 +162,43 @@ export function workingAppliances(entities: Entity[]): Working[] {
   }
   return working;
 }
+
+export interface Steckdosengeraet {
+  /** Was als Zustand auf der Kachel steht. */
+  text: string;
+  /** Arbeitet das Gerät gerade? */
+  running: boolean;
+  /** Gemessene Leistung – die Zeile darunter. */
+  watts: number;
+  /** Steckdose aus; dann gibt es auch keine Leistung anzuschreiben. */
+  aus: boolean;
+}
+
+/**
+ * Ein Haushaltsgerät an der Schalt-Messsteckdose (rein, testbar).
+ *
+ * Dieselbe Schwelle wie oben - und genau daran hing der gemeldete Fall:
+ * Die Kachel auf der Startseite rechnete sich ihre Antwort selbst aus,
+ * mit «mehr als 5 W heisst läuft». Der Tumbler zieht fertig, mit wachem
+ * Display, 9 W; über der Kachel stand «Am Trocknen», während die Wäsche
+ * längst trocken war. Die Begrüssungszeile daneben, die
+ * `workingAppliances` fragt, schwieg zur selben Zeit richtig - zwei
+ * Regeln für dieselbe Frage, und die falsche stand im Bildschirm.
+ *
+ * `laufwort` ist das, was beim Arbeiten dasteht: Ein Tumbler trocknet,
+ * eine Pumpe läuft.
+ */
+export function steckdosengeraet(
+  entity: Entity | undefined,
+  laufwort = 'Läuft',
+  demoWatts = 1450
+): Steckdosengeraet {
+  const watts = entity ? Number(entity.state.power ?? 0) : demoWatts;
+  const aus = entity ? String(entity.state.state) === 'off' : false;
+  const running = !aus && Number.isFinite(watts) && watts > WORKING_WATTS;
+  // «Fertig» und nicht «Bereit»: Am Gerät an der Steckdose ist der Fall,
+  // der einen etwas angeht, das Ende eines Durchgangs - und danach steht
+  // die Trommel voll da, bis jemand sie ausräumt.
+  const text = aus ? 'Steckdose aus' : running ? laufwort : 'Fertig';
+  return { text, running, watts: Number.isFinite(watts) ? watts : 0, aus };
+}
