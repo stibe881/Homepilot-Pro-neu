@@ -464,6 +464,26 @@ def eskalation_wirkt(escalation: dict[str, Any]) -> bool:
     return bool(escalation.get("sirens") or escalation.get("announce"))
 
 
+#: Melder, die selbst Lärm machen (Punkt 544): Ein-Befehl → Aus-Befehl.
+#: Zwei Vokabeln, ein Sinn - der Zigbee-Standard «warning» und die
+#: Aqara-Sprache; welche gilt, sagt das Gerät (zigbee2mqtt.art_und_befehle).
+SIGNAL_BEFEHLE: dict[str, str] = {"sound_alarm": "silence_alarm", "buzzer_alarm": "mute"}
+
+
+def sirenen_befehl(entity: Entity | None, an: bool) -> str:
+    """Womit dieses Gerät Lärm macht - oder aufhört (rein, testbar).
+
+    Ein Rauchmelder mit Summer hat kein «turn_on»; er kennt «Signal
+    geben». Ein Schalter, an dem eine Sirene hängt, kennt nur «ein».
+    Ohne Gerät (aus der Ablage gestrichen) bleibt es beim alten Befehl -
+    der Hub meldet dann «unbekanntes Gerät» statt still nichts zu tun.
+    """
+    for befehl_an, befehl_aus in SIGNAL_BEFEHLE.items():
+        if entity is not None and befehl_an in entity.commands:
+            return befehl_an if an else befehl_aus
+    return "turn_on" if an else "turn_off"
+
+
 def eskalations_befehle(
     escalation: dict[str, Any], entities: list[Entity] | None = None
 ) -> list[dict[str, Any]]:
@@ -476,25 +496,30 @@ def eskalations_befehle(
     trägt jeder Befehl seine eigene Frist, und «Licht an nach 30
     Sekunden» ist damit eine gewöhnliche Zeile statt eines Schalters.
 
-    ``entities`` wird nicht mehr gebraucht und bleibt nur stehen, damit
-    bestehende Aufrufe nicht brechen.
+    ``entities`` entscheidet seit Punkt 544 über den Befehl: Ein Melder
+    mit Summer bekommt «Signal geben», ein Schalter «ein».
     """
+    bekannt = {entity.id: entity for entity in entities or []}
     return [
-        {"entity_id": entity_id, "command": "turn_on"}
+        {"entity_id": entity_id, "command": sirenen_befehl(bekannt.get(entity_id), True)}
         for entity_id in escalation.get("sirens") or []
     ]
 
 
-def eskalations_ende_befehle(escalation: dict[str, Any]) -> list[dict[str, Any]]:
+def eskalations_ende_befehle(
+    escalation: dict[str, Any], entities: list[Entity] | None = None
+) -> list[dict[str, Any]]:
     """Was beim Entschärfen wieder ausgeht (rein, testbar).
 
     Nur die Sirenen: Eine Sirene, die nach dem Entschärfen weiterheult,
     wäre der Fehler, den niemand verzeiht. Die Lichter bleiben bewusst an
     - wer nach einem Alarm durchs Haus geht, will nicht im Dunkeln stehen,
-    und Ausschalten ist ein Handgriff.
+    und Ausschalten ist ein Handgriff. Ein Melder mit Summer wird stumm
+    statt ausgeschaltet - ausschalten liesse er sich ohnehin nicht.
     """
+    bekannt = {entity.id: entity for entity in entities or []}
     return [
-        {"entity_id": entity_id, "command": "turn_off"}
+        {"entity_id": entity_id, "command": sirenen_befehl(bekannt.get(entity_id), False)}
         for entity_id in escalation.get("sirens") or []
     ]
 

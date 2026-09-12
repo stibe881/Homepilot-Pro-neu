@@ -605,7 +605,10 @@ class AlarmIntegration(Integration):
         # sie stehen nicht zwingend auch in den clear-Aktionen.
         if self._eskaliert:
             self._eskaliert = False
-            await self._run_commands(eskalations_ende_befehle(self._escalation), "eskalation-aus")
+            await self._run_commands(
+                eskalations_ende_befehle(self._escalation, self.hub.registry.all()),
+                "eskalation-aus",
+            )
         if self._settings.get("notify_arming") and was != DISARMED:
             await self._notify(
                 "Alarmanlage unscharf", "Die Anlage ist aus.", "alarm_arming"
@@ -701,7 +704,9 @@ class AlarmIntegration(Integration):
         # einem Fehlalarm Zeit zum Entschärfen zu geben. Wer den Knopf
         # selbst drückt, meint es.
         self._eskaliert = True
-        await self._run_commands(eskalations_befehle(self._escalation), "eskalation")
+        await self._run_commands(
+            eskalations_befehle(self._escalation, self.hub.registry.all()), "eskalation"
+        )
         return {"ok": True, "state": self._state}
 
     async def _finish_arming(self) -> None:

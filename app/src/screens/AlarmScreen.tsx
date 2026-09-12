@@ -1639,9 +1639,9 @@ function EskalationKarte({
                   Programms. Jetzt steht dabei, was gemeint ist, und die
                   gewöhnlichen Schalter liegen hinter einem Tipp. */}
               <Text style={styles.hint}>
-                Was beim Alarm eingeschaltet wird: eine Sirene, ein Gong -
-                oder die Steckdose, an der so etwas hängt. Beim Entschärfen
-                geht genau das wieder aus.
+                Was beim Alarm eingeschaltet wird: eine Sirene, ein Gong, ein
+                Rauchmelder mit Summer - oder die Steckdose, an der so etwas
+                hängt. Beim Entschärfen geht genau das wieder aus.
               </Text>
               {sirenen.length === 0 && !alleSchalter ? (
                 <Text style={styles.hint}>

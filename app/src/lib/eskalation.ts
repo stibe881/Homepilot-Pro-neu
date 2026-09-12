@@ -144,8 +144,20 @@ export function istSirene(entity: Schaltbar): boolean {
     entity.kind === 'alert' ||
     entity.kind === 'siren' ||
     entity.state?.device_class === 'siren' ||
+    kannSignal(entity) ||
     /siren|sirene|gong|hupe|horn/i.test(entity.name)
   );
+}
+
+/** Befehle, mit denen ein Melder selbst Lärm macht (Punkt 544) - der
+ *  Zigbee-Standard und die Aqara-Sprache. Dieselbe Tabelle wie im Hub
+ *  (alarm_rules.SIGNAL_BEFEHLE): Wer hier steht, darf unter «Was Lärm
+ *  macht» gewählt werden, und der Hub schickt ihm das passende Signal
+ *  statt «ein». */
+export const SIGNAL_BEFEHLE = ['sound_alarm', 'buzzer_alarm'];
+
+export function kannSignal(entity: Schaltbar): boolean {
+  return SIGNAL_BEFEHLE.some((befehl) => entity.commands.includes(befehl));
 }
 
 /**
@@ -168,7 +180,10 @@ export function istSirene(entity: Schaltbar): boolean {
 export function sirenenGruppen<T extends Schaltbar>(
   entities: T[]
 ): { sirenen: T[]; schalter: T[] } {
-  const einschaltbar = entities.filter((entity) => entity.commands.includes('turn_on'));
+  // Ein Rauchmelder mit Summer hat kein «ein» - er kann trotzdem Lärm.
+  const einschaltbar = entities.filter(
+    (entity) => entity.commands.includes('turn_on') || kannSignal(entity)
+  );
   return {
     sirenen: einschaltbar.filter(istSirene),
     schalter: einschaltbar.filter(
