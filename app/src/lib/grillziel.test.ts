@@ -1,6 +1,8 @@
 import {
   fuehlerZeile,
   fuehlerplaetze,
+  grillstufen,
+  zielSchritt,
   garstufen,
   grillFortschritt,
   istGrill,
@@ -115,5 +117,31 @@ describe('grillFortschritt', () => {
     expect(grillFortschritt(undefined, 110)).toBeNull();
     expect(grillFortschritt(55, undefined)).toBeNull();
     expect(grillFortschritt(55, 0)).toBeNull();
+  });
+});
+
+describe('grillstufen und zielSchritt', () => {
+  it('kennt die Rasten des Grills in beiden Einheiten', () => {
+    // Punkt 565: 250 °F sind 121 °C - genau die Zahl, die am Gerät steht.
+    expect(grillstufen('°C')).toContain(121);
+    expect(grillstufen('°F')).toContain(250);
+    expect(grillstufen(undefined)).toContain(121);
+  });
+
+  it('springt von Raste zu Raste, nicht um fünf Grad', () => {
+    expect(zielSchritt(121, 1, '°C')).toBe(135);
+    expect(zielSchritt(121, -1, '°C')).toBe(107);
+    // Zwischen zwei Rasten (der Grill meldet einmal 110): zur nächsten.
+    expect(zielSchritt(110, 1, '°C')).toBe(121);
+    expect(zielSchritt(110, -1, '°C')).toBe(107);
+  });
+
+  it('bleibt an den Enden stehen', () => {
+    expect(zielSchritt(260, 1, '°C')).toBe(260);
+    expect(zielSchritt(82, -1, '°C')).toBe(82);
+  });
+
+  it('hat ohne Sollwert einen brauchbaren Anfang', () => {
+    expect(grillstufen('°C')).toContain(zielSchritt(undefined, 1, '°C'));
   });
 });

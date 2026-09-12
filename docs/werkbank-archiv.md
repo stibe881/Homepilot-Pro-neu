@@ -5566,3 +5566,33 @@ der Räucherschrank bekommt seines, sobald eines da ist. Das Foto kann
 nicht glühen; dass der Grill läuft, sagt die Pille daneben.
 
 Stellen: `app/assets/grills/pb1150ps2.png`, `app/src/lib/grillbild.ts`, `app/src/components/GrillVisual.tsx`, `app/src/components/entity/koerper.tsx`, `scripts/probe.mjs`
+
+### 565. Die Zieltemperatur im Grillblatt - sichtbar, von Raste zu Raste ✓ erledigt
+
+Aus dem Haus, mit dem Bild des Blatts: «Man soll hier auch die
+Zieltemperatur angeben können.»
+
+**Der Griff war da, nur fand ihn niemand.** Seit Punkt 557 öffnete ein
+Tipp auf die grosse Zahl feste Stufen - unsichtbar, und die Stufen
+waren die groben des Ablauf-Editors (80, 110, 120 …). Jetzt steht unter
+«HÄLT 121°» eine Zeile mit − und + und der Zahl dazwischen; die Zahl
+öffnet alle Rasten.
+
+**Rasten statt Grad.** Ein Pit Boss denkt in Fahrenheit und rundet jeden
+Wunsch auf seine Raste (225, 250, 275 °F …), in Celsius also 107, 121,
+135 … Wer «120» wählte, sah am Gerät «121» und suchte den Fehler; wer
+um fünf Grad schritt, landete zwischen zwei Rasten und wurde
+stillschweigend zurückgerundet. − und + springen darum zur nächsten
+Raste, und die Liste zeigt genau die Rasten - in beiden Einheiten, die
+unterste ist die Räucherstufe.
+
+**Der Wunsch steht sofort da.** Zwischen Tipp und nächster Meldung des
+Grills liegen bis zu dreissig Sekunden; so lange zeigt die Zeile den
+gewünschten Wert, bis der Grill ihn bestätigt. Ein Knopf, der so lange
+nichts zeigt, wird dreimal gedrückt.
+
+Der Demo-Grill nimmt den Sollwert jetzt an - vorher liess sich das im
+Browser nicht messen. Die Probe tippt «+», liest «ZIEL 121°» und fragt
+den Hub.
+
+Stellen: `app/src/lib/grillziel.ts`, `app/src/screens/dashboard/Grillvollbild.tsx`, `hub/homepilot/integrations/demo.py`, `scripts/probe.mjs`

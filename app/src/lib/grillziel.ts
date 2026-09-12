@@ -159,3 +159,39 @@ export function grillFortschritt(
   if (typeof ist !== 'number' || typeof ziel !== 'number' || ziel <= 0) return null;
   return Math.max(0, Math.min(1, ist / ziel));
 }
+
+/**
+ * Die Sollwerte, die der Grill kennt (rein, testbar).
+ *
+ * Gewünscht im Haus (Punkt 565): «Man soll hier auch die Zieltemperatur
+ * angeben können.» Nicht die groben Stufen des Ablauf-Editors (80, 110,
+ * 120 …): Ein Pit Boss denkt in Fahrenheit und rundet jeden Wunsch auf
+ * seine Raste - 225, 250, 275 °F … -, und in Celsius sind das 107, 121,
+ * 135 … Wer «120» wählt, sieht am Gerät «121» und sucht den Fehler.
+ * Also gleich die Rasten, in beiden Einheiten; die unterste ist die
+ * Räucherstufe («Smoke»).
+ */
+const RASTEN_F = [180, 225, 250, 275, 300, 325, 350, 375, 400, 425, 450, 475, 500];
+const RASTEN_C = [82, 107, 121, 135, 149, 163, 177, 190, 204, 218, 232, 246, 260];
+
+export function grillstufen(einheit: string | undefined): number[] {
+  return String(einheit ?? '').includes('F') ? RASTEN_F : RASTEN_C;
+}
+
+/**
+ * Die nächste Raste über bzw. unter dem Sollwert (rein, testbar).
+ *
+ * Für die Knöpfe − und +: Ein Schritt springt zur nächsten Raste, nicht
+ * um fünf Grad - fünf Grad landeten zwischen zwei Rasten, und der Grill
+ * rundete stillschweigend zurück. An den Enden bleibt es stehen.
+ */
+export function zielSchritt(
+  ziel: number | undefined,
+  richtung: 1 | -1,
+  einheit: string | undefined
+): number {
+  const rasten = grillstufen(einheit);
+  if (ziel === undefined) return rasten[Math.floor(rasten.length / 3)];
+  if (richtung > 0) return rasten.find((r) => r > ziel) ?? rasten[rasten.length - 1];
+  return [...rasten].reverse().find((r) => r < ziel) ?? rasten[0];
+}

@@ -1062,6 +1062,26 @@ async function grillzielSetzen(browser) {
   }, [HUB, TOKEN]);
   pruefe(laeuftNoch === 'running', 'Und der Grill läuft danach noch', String(laeuftNoch));
 
+  // Die Zieltemperatur (Punkt 565): «+» springt vom Demo-Ziel 110 zur
+  // nächsten Raste 121 - und der Hub bestätigt sie.
+  await seite.getByLabel('Ziel erhöhen').first().click();
+  await seite.waitForTimeout(1500);
+  pruefe(
+    await seite.getByText('ZIEL 121°', { exact: true }).first().isVisible().catch(() => false),
+    'Ein Tipp auf + hebt das Ziel auf die nächste Raste'
+  );
+  const zielBeimHub = await seite.evaluate(async ([url, token]) => {
+    const antwort = await fetch(`${url}/api/entities`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const liste = await antwort.json();
+    const grill = (Array.isArray(liste) ? liste : liste.entities ?? []).find(
+      (e) => e.id === 'demo.smoker'
+    );
+    return grill?.state?.target;
+  }, [HUB, TOKEN]);
+  pruefe(Number(zielBeimHub) === 121, 'Und der Hub hat das neue Ziel', String(zielBeimHub));
+
   const kreis = seite.getByLabel('Fühler 2, Ziel setzen').first();
   if (!(await kreis.isVisible().catch(() => false))) {
     pruefe(false, 'Der eingesteckte Fühler lässt sich antippen');

@@ -363,6 +363,12 @@ class DemoIntegration(Integration):
                 changes["image"] = None
             else:
                 changes["state"] = "off"
+        elif command == "set_temperature":
+            # Der Demo-Grill nimmt den Sollwert wie gewünscht an - ohne
+            # die Raste des echten Geräts; die kennt die App selbst
+            # (lib/grillziel.ts, grillstufen). Ohne diesen Zweig liess
+            # sich «Ziel erhöhen» im Browser nicht messen (Punkt 565).
+            changes["target"] = float(data.get("temperature", 0))
         elif command == "toggle":
             # Eine Box kippt zwischen «spielt» und «pausiert», eine Lampe
             # zwischen an und aus. Derselbe Knopf, zwei Vokabeln – die

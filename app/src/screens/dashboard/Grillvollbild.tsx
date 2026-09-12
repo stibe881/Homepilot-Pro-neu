@@ -37,8 +37,13 @@ import { remainingLabel } from '../../components/KitchenTimer';
 import { useSettings } from '../../hooks/HubContext';
 import { useTakt } from '../../hooks/useTakt';
 import { GRILLTIMER_MINUTEN, Timer, grilltimer, grilltimerText } from '../../lib/grilltimer';
-import { fuehlerplaetze, garstufen, grillFortschritt } from '../../lib/grillziel';
-import { zieltemperaturen } from '../automations/szenengeraete';
+import {
+  fuehlerplaetze,
+  garstufen,
+  grillFortschritt,
+  grillstufen,
+  zielSchritt,
+} from '../../lib/grillziel';
 import { Colors, radius, useColors } from '../../theme';
 
 /** Die Farben, die der Grill selbst seinen Fühlern gibt - dieselbe
@@ -137,6 +142,18 @@ export function Grillvollbild({
   const probes = (entity.state.probes ?? {}) as Record<string, number>;
   const plaetze = fuehlerplaetze(probes, ziele);
   const anteil = grillFortschritt(ist, ziel);
+  // Der gewünschte Sollwert, bis der Grill ihn bestätigt: Zwischen Tipp
+  // und nächster Meldung liegen bis zu dreissig Sekunden, und ein Knopf,
+  // der so lange nichts zeigt, wird dreimal gedrückt.
+  const [wunsch, setWunsch] = useState<number | null>(null);
+  useEffect(() => {
+    setWunsch(null);
+  }, [ziel]);
+  const zielAnzeige = wunsch ?? ziel;
+  const zielSetzen = (wert: number) => {
+    setWunsch(wert);
+    onCommand('set_temperature', { temperature: wert });
+  };
   const satz =
     ziel === undefined
       ? 'Kein Ziel gesetzt'
@@ -188,13 +205,7 @@ export function Grillvollbild({
 
           <ScrollView contentContainerStyle={styles.inhalt}>
             <Text style={styles.label}>GRILL TEMP</Text>
-            <Pressable
-              onPress={() => setWaehlt((offen) => (offen === 'grill' ? null : 'grill'))}
-              accessibilityRole="button"
-              accessibilityLabel="Gartemperatur setzen"
-              accessibilityState={{ expanded: waehlt === 'grill' }}
-              style={styles.grossZeile}
-            >
+            <View style={styles.grossZeile}>
               <Text style={styles.gross} numberOfLines={1} adjustsFontSizeToFit>
                 {ist === undefined ? '- - -' : `${Math.round(ist)}`}
               </Text>
@@ -204,7 +215,7 @@ export function Grillvollbild({
                 <Text style={styles.einheitGrad}>{grad}</Text>
                 <Text style={styles.einheitBuchstabe}>{buchstabe}</Text>
               </View>
-            </Pressable>
+            </View>
 
             <View style={styles.balken}>
               <View
@@ -219,23 +230,61 @@ export function Grillvollbild({
             </View>
             <Text style={styles.satz}>{satz.toUpperCase()}</Text>
 
+            {/* Die Zieltemperatur als sichtbarer Griff (Punkt 565): − und +
+                springen von Raste zu Raste, ein Tipp auf die Zahl zeigt
+                alle Rasten. Vorher war der Griff ein Tipp auf die grosse
+                Zahl - den fand niemand. */}
+            {entity.commands.includes('set_temperature') ? (
+              <View style={styles.zielZeile}>
+                <Pressable
+                  onPress={() => zielSetzen(zielSchritt(zielAnzeige, -1, unit))}
+                  accessibilityRole="button"
+                  accessibilityLabel="Ziel senken"
+                  hitSlop={6}
+                  style={({ pressed }) => [styles.zielKnopf, pressed && { opacity: 0.6 }]}
+                >
+                  <Ionicons name="remove" size={22} color={colors.ink} />
+                </Pressable>
+                <Pressable
+                  onPress={() => setWaehlt((offen) => (offen === 'grill' ? null : 'grill'))}
+                  accessibilityRole="button"
+                  accessibilityLabel="Zieltemperatur wählen"
+                  accessibilityState={{ expanded: waehlt === 'grill' }}
+                  style={({ pressed }) => [styles.zielMitte, pressed && { opacity: 0.6 }]}
+                >
+                  <Text style={styles.zielText}>
+                    {zielAnzeige === undefined ? 'ZIEL –' : `ZIEL ${Math.round(zielAnzeige)}°`}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => zielSetzen(zielSchritt(zielAnzeige, 1, unit))}
+                  accessibilityRole="button"
+                  accessibilityLabel="Ziel erhöhen"
+                  hitSlop={6}
+                  style={({ pressed }) => [styles.zielKnopf, pressed && { opacity: 0.6 }]}
+                >
+                  <Ionicons name="add" size={22} color={colors.ink} />
+                </Pressable>
+              </View>
+            ) : null}
+
             {waehlt === 'grill' && entity.commands.includes('set_temperature') ? (
               <View style={styles.stufenReihe}>
-                {zieltemperaturen(entity).map((stufe) => (
+                {grillstufen(unit).map((stufe) => (
                   <Pressable
-                    key={stufe.key}
+                    key={stufe}
                     onPress={() => {
-                      onCommand('set_temperature', { temperature: Number(stufe.key) });
+                      zielSetzen(stufe);
                       setWaehlt(null);
                     }}
                     accessibilityRole="button"
                     style={({ pressed }) => [
                       styles.stufe,
-                      ziel === Number(stufe.key) && styles.stufeAktiv,
+                      zielAnzeige === stufe && styles.stufeAktiv,
                       pressed && { opacity: 0.6 },
                     ]}
                   >
-                    <Text style={styles.stufeText}>{stufe.label}</Text>
+                    <Text style={styles.stufeText}>{stufe}°</Text>
                   </Pressable>
                 ))}
               </View>
@@ -465,6 +514,19 @@ const makeStyles = (colors: Colors) =>
     },
     balkenFuell: { height: '100%', backgroundColor: colors.accent },
     satz: { color: colors.ink, fontSize: 28, fontWeight: '300', letterSpacing: 0.5 },
+    zielZeile: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 2 },
+    zielKnopf: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1.5,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surfaceSoft,
+    },
+    zielMitte: { paddingHorizontal: 10, paddingVertical: 6 },
+    zielText: { color: colors.inkSoft, fontSize: 18, fontWeight: '300', letterSpacing: 1 },
     problem: { color: colors.warnInk, fontSize: 13, fontWeight: '700' },
     timer: {
       flexDirection: 'row',
