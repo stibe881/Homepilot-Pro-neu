@@ -1,4 +1,4 @@
-import { grillkurven, hatVerlauf, reihenUmschalten } from './grillverlauf';
+import { grillkurven, hatVerlauf, messwert, reihenUmschalten } from './grillverlauf';
 
 const zeile = (minute: number, state: Record<string, unknown>) => ({
   recorded_at: new Date(Date.UTC(2026, 8, 12, 16, minute)).toISOString(),
@@ -45,5 +45,33 @@ describe('reihenUmschalten', () => {
     expect(reihenUmschalten([], 'P2')).toEqual(['P2']);
     expect(reihenUmschalten(['P2'], 'Ziel')).toEqual(['P2', 'Ziel']);
     expect(reihenUmschalten(['P2', 'Ziel'], 'P2')).toEqual(['Ziel']);
+  });
+});
+
+describe('messwert', () => {
+  it('lässt Lücken Lücken sein - null ist keine 0', () => {
+    // Punkt 574: Die Bruchstücke nach einem Befehl schrieben
+    // `temperature: null` in den Verlauf, und die Kurve fiel auf 0 °C.
+    expect(messwert(null)).toBeNull();
+    expect(messwert(undefined)).toBeNull();
+    expect(messwert('')).toBeNull();
+    expect(messwert(0)).toBeNull();
+    expect(messwert(108)).toBe(108);
+    expect(messwert('61')).toBe(61);
+  });
+
+  it('reisst die Kurve bei einer Lücke nicht auf den Boden', () => {
+    const zeile = (minute: number, state: Record<string, unknown>) => ({
+      recorded_at: new Date(Date.UTC(2026, 8, 12, 16, minute)).toISOString(),
+      state,
+    });
+    const kurven = grillkurven([
+      zeile(0, { temperature: 108 }),
+      zeile(1, { temperature: null, target: null }),
+      zeile(2, { temperature: 0 }),
+      zeile(3, { temperature: 110 }),
+    ]);
+    expect(kurven.temperatur.map((p) => p.value)).toEqual([108, 110]);
+    expect(kurven.ziel).toEqual([]);
   });
 });

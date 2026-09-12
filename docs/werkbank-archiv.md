@@ -5769,3 +5769,19 @@ was **aus** ist: So bleibt ein Fühler, der eben eingesteckt wurde, von
 selbst sichtbar.
 
 Stellen: `app/src/lib/grillverlauf.ts`, `app/src/components/Grillverlauf.tsx`
+
+### 574. Die Kurve fiel auf 0 °C - Lücken sind keine Nullen ✓ erledigt
+
+Aus dem Haus, mit dem Bild des Verlaufs: Der Garraum stand als Kurve
+mit senkrechten Strichen bis zum Boden da, das Ziel ebenso, und der
+Massstab reichte darum von 0 bis 130.
+
+Die Bruchstücke nach einem Befehl (Punkt 567) hatten `temperature:
+null` in den Verlauf geschrieben, und `Number(null)` ist 0 - aus jeder
+Lücke wurde eine Messung von 0 °C. Jetzt sind `null`, leer und 0 keine
+Messwerte: Ein Pit Boss meldet für einen steckenden Fühler oder einen
+laufenden Garraum nie 0, in keiner Einheit - wo eine steht, hat die
+Platine geschwiegen. Die Kurve überspringt die Stelle, und der Massstab
+bleibt bei dem, was gemessen wurde.
+
+Stellen: `app/src/lib/grillverlauf.ts`

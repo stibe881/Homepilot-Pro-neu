@@ -33,10 +33,24 @@ export const GRILL_ZEITRAEUME: { hours: number; label: string }[] = [
   { hours: 24, label: '24 h' },
 ];
 
-function zahl(wert: unknown): number | null {
+/**
+ * Ein Messwert aus einer Verlaufszeile - oder keiner (rein, testbar).
+ *
+ * `null` und «» sind Lücken, keine Nullen: `Number(null)` ist 0, und so
+ * standen im Diagramm senkrechte Striche bis zum Boden - die
+ * Bruchstücke nach einem Befehl (Punkt 567) hatten `temperature: null`
+ * in den Verlauf geschrieben, und die Kurve fiel jedes Mal auf 0 °C
+ * (Punkt 574). Eine Null selbst ist auch keine Messung: Ein Pit Boss
+ * meldet für einen steckenden Fühler oder einen laufenden Garraum nie
+ * 0, in keiner Einheit - wo sie steht, hat die Platine geschwiegen.
+ */
+export function messwert(wert: unknown): number | null {
+  if (wert === null || wert === undefined || wert === '') return null;
   const n = typeof wert === 'number' ? wert : Number(wert);
-  return Number.isFinite(n) ? n : null;
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
+
+const zahl = messwert;
 
 /**
  * Aus den Verlaufszeilen die Kurven (rein, testbar).
