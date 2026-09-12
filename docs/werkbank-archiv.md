@@ -5652,3 +5652,21 @@ so wurde aus einer Lücke ein kalter Grill. Nur Zahlen sind Messwerte;
 alles andere zeigt «- - -».
 
 Stellen: `hub/homepilot/integrations/pitboss.py`, `hub/tests/test_pitboss.py`, `app/src/screens/dashboard/Grillvollbild.tsx`
+
+### 568. Den Timer selber stellen, keine Vorauswahl ✓ erledigt
+
+Aus dem Haus, mit Bild der Chip-Reihe: «Ich will den Timer selber
+stellen und nicht eine Vorauswahl angeben.»
+
+Punkt 561 hatte feste Stufen gewählt - mit derselben Begründung wie bei
+den Garstufen: fettige Finger, keine Tastatur. Beim Timer stimmt sie
+nicht: Ein Rezept sagt «75 Minuten», und 75 stand in keiner Reihe. Also
+ein Feld, und es nimmt, was man tippt - «45», «1:30», «1h30», «1.5h» -,
+darunter steht, was daraus wird («1 h 15 min»), und «Starten» erst,
+wenn daraus ein Timer werden kann. − und + daneben bleiben für den
+schnellen Griff, in Fünfern. Die Obergrenze ist die des Küchen-Timers
+selbst (drei Stunden, `core/timers.py`).
+
+Die Probe tippt «1:15», liest «1 h 15 min» und «NOCH 74:59».
+
+Stellen: `app/src/lib/grilltimer.ts`, `app/src/screens/dashboard/Grillvollbild.tsx`, `scripts/probe.mjs`

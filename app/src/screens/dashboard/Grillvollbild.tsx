@@ -29,16 +29,34 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
 import { hubClient } from '../../api/client';
 import { Entity } from '../../api/types';
 import { Grillverlauf } from '../../components/Grillverlauf';
+import { Tastaturplatz } from '../../components/Tastaturplatz';
 import { remainingLabel } from '../../components/KitchenTimer';
 import { useSettings } from '../../hooks/HubContext';
 import { useTakt } from '../../hooks/useTakt';
-import { GRILLTIMER_MINUTEN, Timer, grilltimer, grilltimerText } from '../../lib/grilltimer';
+import { dauerText } from '../../lib/format';
+import {
+  TIMER_VORGABE,
+  Timer,
+  grilltimer,
+  grilltimerText,
+  minutenAusEingabe,
+  minutenSchritt,
+} from '../../lib/grilltimer';
 import {
   FUEHLERFARBEN,
   fuehlerAnteil,
@@ -85,6 +103,10 @@ export function Grillvollbild({
   );
   const [alleTimer, setAlleTimer] = useState<Timer[]>([]);
   const [timerWahl, setTimerWahl] = useState(false);
+  // Was im Feld steht - als Text, weil man auch «1:30» tippen darf
+  // (Punkt 568: «Ich will den Timer selber stellen»).
+  const [timerEingabe, setTimerEingabe] = useState(String(TIMER_VORGABE));
+  const timerMinuten = minutenAusEingabe(timerEingabe);
   const [jetzt, setJetzt] = useState(() => Date.now() / 1000);
   const timerLaden = useCallback(() => {
     hub
@@ -184,6 +206,9 @@ export function Grillvollbild({
       {/* Der Hintergrund als Geschwister, nicht als Eltern-Pressable:
           Verschachtelte Pressables verhalten sich im Web und nativ
           nicht gleich (siehe components/TvRemote.tsx). */}
+      {/* Die Dauer des Timers wird getippt - ohne das läge die Tastatur
+          über dem Feld (Punkt 265 der Werkbank). */}
+      <Tastaturplatz>
       <View style={styles.backdrop}>
         <Pressable
           style={StyleSheet.absoluteFill}
@@ -326,18 +351,69 @@ export function Grillvollbild({
                 <Text style={styles.timerText}>TIMER STELLEN</Text>
               </Pressable>
             ) : null}
+            {/* Die Dauer selbst tippen (Punkt 568) - Minuten, «1:30» oder
+                «1h30». − und + daneben für den schnellen Griff, und
+                «Starten» erst, wenn daraus ein Timer werden kann. */}
             {timerWahl && timer.length === 0 ? (
-              <View style={styles.stufenReihe}>
-                {GRILLTIMER_MINUTEN.map((minuten) => (
+              <View style={styles.timerFeld}>
+                <View style={styles.timerEingabeZeile}>
                   <Pressable
-                    key={minuten}
-                    onPress={() => timerStellen(minuten)}
+                    onPress={() =>
+                      setTimerEingabe(String(minutenSchritt(timerMinuten ?? TIMER_VORGABE, -1)))
+                    }
                     accessibilityRole="button"
-                    style={({ pressed }) => [styles.stufe, pressed && { opacity: 0.6 }]}
+                    accessibilityLabel="Kürzer"
+                    hitSlop={6}
+                    style={({ pressed }) => [styles.zielKnopf, pressed && { opacity: 0.6 }]}
                   >
-                    <Text style={styles.stufeText}>{minuten} Min.</Text>
+                    <Ionicons name="remove" size={22} color={colors.ink} />
                   </Pressable>
-                ))}
+                  <TextInput
+                    value={timerEingabe}
+                    onChangeText={setTimerEingabe}
+                    keyboardType="numbers-and-punctuation"
+                    selectTextOnFocus
+                    accessibilityLabel="Dauer in Minuten"
+                    placeholder="Minuten"
+                    placeholderTextColor={colors.inkFaint}
+                    style={styles.timerEingabe}
+                    onSubmitEditing={() => {
+                      if (timerMinuten !== null) timerStellen(timerMinuten);
+                    }}
+                  />
+                  <Pressable
+                    onPress={() =>
+                      setTimerEingabe(String(minutenSchritt(timerMinuten ?? TIMER_VORGABE, 1)))
+                    }
+                    accessibilityRole="button"
+                    accessibilityLabel="Länger"
+                    hitSlop={6}
+                    style={({ pressed }) => [styles.zielKnopf, pressed && { opacity: 0.6 }]}
+                  >
+                    <Ionicons name="add" size={22} color={colors.ink} />
+                  </Pressable>
+                </View>
+                <Text style={styles.timerDauer}>
+                  {timerMinuten === null
+                    ? 'Minuten, «1:30» oder «1h30» - bis 3 Stunden'
+                    : dauerText(timerMinuten)}
+                </Text>
+                <Pressable
+                  disabled={timerMinuten === null}
+                  onPress={() => {
+                    if (timerMinuten !== null) timerStellen(timerMinuten);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Timer starten"
+                  accessibilityState={{ disabled: timerMinuten === null }}
+                  style={({ pressed }) => [
+                    styles.timerStart,
+                    timerMinuten === null && { opacity: 0.4 },
+                    pressed && { opacity: 0.6 },
+                  ]}
+                >
+                  <Text style={styles.timerStartText}>STARTEN</Text>
+                </Pressable>
               </View>
             ) : null}
 
@@ -512,6 +588,7 @@ export function Grillvollbild({
           ) : null}
         </View>
       </View>
+      </Tastaturplatz>
     </Modal>
   );
 }
@@ -597,6 +674,29 @@ const makeStyles = (colors: Colors) =>
     },
     timerText: { color: colors.ink, fontSize: 20, fontWeight: '300', letterSpacing: 0.5 },
     timerLauf: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
+    timerFeld: { alignItems: 'center', gap: 8, marginTop: 2 },
+    timerEingabeZeile: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    timerEingabe: {
+      minWidth: 96,
+      textAlign: 'center',
+      color: colors.ink,
+      fontSize: 24,
+      fontWeight: '600',
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 8,
+      borderWidth: 1.5,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surfaceSoft,
+    },
+    timerDauer: { color: colors.inkSoft, fontSize: 13 },
+    timerStart: {
+      paddingHorizontal: 22,
+      paddingVertical: 8,
+      borderRadius: 8,
+      backgroundColor: colors.accent,
+    },
+    timerStartText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700', letterSpacing: 1 },
     kreise: {
       flexDirection: 'row',
       flexWrap: 'wrap',

@@ -1140,12 +1140,19 @@ async function grillzielSetzen(browser) {
   // abbrechen - und der Hub führt ihn als Küchen-Timer.
   await seite.getByLabel('Timer stellen').first().click();
   await seite.waitForTimeout(500);
-  const fuenfzehn = seite.getByText('15 Min.', { exact: true }).first();
-  if (await fuenfzehn.isVisible().catch(() => false)) {
-    await fuenfzehn.click();
+  // Selber getippt, keine Vorauswahl (Punkt 568): «1:15» sind 75 Minuten.
+  const feld = seite.getByLabel('Dauer in Minuten').first();
+  if (await feld.isVisible().catch(() => false)) {
+    await feld.fill('1:15');
+    await seite.waitForTimeout(300);
+    pruefe(
+      await seite.getByText('1 h 15 min', { exact: true }).first().isVisible().catch(() => false),
+      'Das Feld versteht «1:15»'
+    );
+    await seite.getByLabel('Timer starten').first().click();
     await seite.waitForTimeout(1500);
     const rest = await seite.getByText(/^NOCH \d+:\d\d$/).first().textContent().catch(() => null);
-    pruefe(/^NOCH 1[45]:\d\d$/.test(rest ?? ''), 'Der Timer läuft im Blatt mit Restzeit', rest ?? '');
+    pruefe(/^NOCH 7[45]:\d\d$/.test(rest ?? ''), 'Der Timer läuft im Blatt mit Restzeit', rest ?? '');
     const beimHub = await seite.evaluate(async ([url, token]) => {
       const antwort = await fetch(`${url}/api/timers`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -1164,7 +1171,7 @@ async function grillzielSetzen(browser) {
       'Abgebrochen steht der Knopf wieder da'
     );
   } else {
-    pruefe(false, 'Der Timer läuft im Blatt mit Restzeit', 'keine Minuten-Stufen');
+    pruefe(false, 'Der Timer läuft im Blatt mit Restzeit', 'kein Feld für die Dauer');
   }
 
   // Zurück auf der Kachel steht es auch - sie holt die Ziele nicht mehr

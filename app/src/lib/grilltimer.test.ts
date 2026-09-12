@@ -1,4 +1,4 @@
-import { GRILLTIMER_MINUTEN, grilltimer, grilltimerText } from './grilltimer';
+import { grilltimer, grilltimerText, minutenAusEingabe, minutenSchritt } from './grilltimer';
 
 describe('grilltimer', () => {
   it('erkennt den Timer des Grills an seinem Text', () => {
@@ -19,8 +19,26 @@ describe('grilltimer', () => {
     expect(grilltimerText('  ')).toBe('Grill – nachsehen');
   });
 
-  it('bietet die Stufen an, nach denen beim Grillen gefragt wird', () => {
-    expect(GRILLTIMER_MINUTEN[0]).toBe(5);
-    expect(GRILLTIMER_MINUTEN).toContain(90);
+  it('nimmt die Dauer, wie man sie tippt', () => {
+    // Punkt 568: selber stellen statt Vorauswahl - «45», «1:30», «1h30».
+    expect(minutenAusEingabe('45')).toBe(45);
+    expect(minutenAusEingabe(' 1:30 ')).toBe(90);
+    expect(minutenAusEingabe('1h30')).toBe(90);
+    expect(minutenAusEingabe('1 h')).toBe(60);
+    expect(minutenAusEingabe('1.5h')).toBe(90);
+  });
+
+  it('lehnt ab, was kein Timer werden kann', () => {
+    expect(minutenAusEingabe('')).toBeNull();
+    expect(minutenAusEingabe('0')).toBeNull();
+    expect(minutenAusEingabe('abc')).toBeNull();
+    // Länger als der Küchen-Timer des Hubs kann.
+    expect(minutenAusEingabe('200')).toBeNull();
+  });
+
+  it('schreitet mit − und + in Fünfern, innerhalb der Grenzen', () => {
+    expect(minutenSchritt(30, 1)).toBe(35);
+    expect(minutenSchritt(3, -1)).toBe(1);
+    expect(minutenSchritt(178, 1)).toBe(180);
   });
 });

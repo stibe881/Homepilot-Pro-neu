@@ -20,9 +20,50 @@ export interface Timer {
   ends_at: number;
 }
 
-/** Die Stufen, nach denen beim Grillen wirklich gefragt wird. Kein
- *  Zahlenfeld: fettige Finger, keine Tastatur (wie bei den Garstufen). */
-export const GRILLTIMER_MINUTEN = [5, 10, 15, 20, 30, 45, 60, 90];
+/** Die Dauer, mit der das Feld aufgeht - eine, die man oft will und
+ *  von der aus beide Richtungen kurz sind. */
+export const TIMER_VORGABE = 30;
+
+/** Der Schritt der Knöpfe − und + neben dem Feld. */
+export const TIMER_SCHRITT = 5;
+
+/** Länger geht der Küchen-Timer des Hubs nicht (core/timers.py,
+ *  MAX_MINUTES) - «ein Küchen-Timer ist kein Kalender». */
+export const TIMER_HOECHSTENS = 180;
+
+/**
+ * Was der Benutzer ins Feld getippt hat, als Minuten (rein, testbar).
+ *
+ * Gewünscht im Haus (Punkt 568): «Ich will den Timer selber stellen und
+ * nicht eine Vorauswahl angeben.» Also ein Feld, kein Chip-Raster. Es
+ * nimmt «45», «1:30» und «1h30» - wer am Grill steht, tippt, was ihm
+ * einfällt. `null` heisst: daraus wird kein Timer.
+ */
+export function minutenAusEingabe(text: string): number | null {
+  const roh = text.trim().toLowerCase().replace(',', '.');
+  if (!roh) return null;
+  let minuten: number;
+  const doppelpunkt = roh.match(/^(\d+):(\d{1,2})$/);
+  const stunden = roh.match(/^(\d+(?:\.\d+)?)\s*h(?:\s*(\d+))?$/);
+  if (doppelpunkt) {
+    minuten = Number(doppelpunkt[1]) * 60 + Number(doppelpunkt[2]);
+  } else if (stunden) {
+    minuten = Number(stunden[1]) * 60 + Number(stunden[2] ?? 0);
+  } else if (/^\d+$/.test(roh)) {
+    minuten = Number(roh);
+  } else {
+    return null;
+  }
+  minuten = Math.round(minuten);
+  if (minuten < 1 || minuten > TIMER_HOECHSTENS) return null;
+  return minuten;
+}
+
+/** Ein Schritt mit − oder +, innerhalb der Grenzen (rein, testbar). */
+export function minutenSchritt(minuten: number, richtung: 1 | -1): number {
+  const neu = minuten + richtung * TIMER_SCHRITT;
+  return Math.max(1, Math.min(TIMER_HOECHSTENS, neu));
+}
 
 /** Der Text, an dem der Grill seinen Timer wiedererkennt (rein, testbar). */
 export function grilltimerText(name: string): string {
