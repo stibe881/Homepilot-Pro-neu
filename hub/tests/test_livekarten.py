@@ -4,7 +4,9 @@ import time
 from types import SimpleNamespace
 
 from homepilot.core.livekarten import (
+    GRILL_UPDATE_ABSTAND,
     NACHHALL_SEKUNDEN,
+    UPDATE_ABSTAND,
     abgleich,
     ende_payload,
     grill_url,
@@ -471,6 +473,39 @@ def test_abgleich_startet_aktualisiert_und_beendet():
         ("Bine", True),
         ("Stibe", True),
     ]
+
+
+def test_die_grillkarte_folgt_jedem_messwert():
+    """«In der Live-Aktivität steht 108, der Grill hat aber schon 110»
+    (Punkt 558): Der Grill misst alle dreissig Sekunden, und mit dem
+    allgemeinen Abstand von 45 s auf einem 20-s-Takt hing die Karte bis
+    zu anderthalb Minuten hinterher. Seine Karte bringt darum ihren
+    eigenen, kürzeren Abstand mit - der Timer bleibt beim alten."""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", temperature=108, target=110, unit="°C",
+    )
+    karte = karten_grill([grill])[0]
+    assert karte["abstand"] == GRILL_UPDATE_ABSTAND < UPDATE_ABSTAND
+
+    rows = [
+        {
+            "user": "Stefan",
+            "art": "grill:pitboss.grill",
+            "stand": "alt",
+            "activity_tokens": ["tok"],
+            "aktualisiert": 1000.0,
+        }
+    ]
+    # Zwanzig Sekunden später, ein neuer Messwert: Die Grillkarte geht
+    # raus - eine Karte ohne eigenen Abstand müsste noch warten.
+    rows_grill, _, aktualisieren, _ = abgleich(rows, [karte], ["Stefan"], 1020.0)
+    assert [a["tokens"] for a in aktualisieren] == [["tok"]]
+    assert rows_grill[0]["aktualisiert"] == 1020.0
+
+    timer = {"art": "grill:pitboss.grill", "user": None, "state": karte["state"]}
+    _, _, aktualisieren, _ = abgleich(rows, [timer], ["Stefan"], 1020.0)
+    assert aktualisieren == []
 
 
 def test_wer_das_haus_verlaesst_verliert_die_fernseher_karte():

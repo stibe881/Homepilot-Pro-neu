@@ -40,7 +40,7 @@ import functools
 import json
 from typing import Any
 
-from .core import liveaktivitaet
+from .core import grillmeldung, liveaktivitaet, push
 from .core.config import load_config
 from .core.livekarten import START_KEY
 from .integrations.pitboss import fehlergrund, grill_entries, grill_state
@@ -140,12 +140,60 @@ async def pruefe(eintrag: dict[str, Any]) -> None:
     print("  Roh von der Platine:")
     print(f"    {json.dumps(roh, ensure_ascii=False, sort_keys=True)[:600]}")
     print(f"  {kartenlage(zustand, True)}")
+    print(f"  {meldungslage(zustand)}")
 
     try:
         await boss.stop()
     except Exception:
         # Aufräumen ist eine Höflichkeit, kein Prüfschritt.
         pass
+
+
+def meldungslage(zustand: dict[str, Any]) -> str:
+    """Käme jetzt die Push «auf Temperatur»? (rein, testbar)
+
+    Aus dem Haus (Punkt 558): «Ich habe keine Push bekommen, dass es die
+    Zieltemperatur erreicht hat.» Dieselbe Rechnung wie im Wächter
+    (core/watchdog.py, _check_grill; core/grillmeldung.py) - steht hier
+    «ja», und die Push blieb trotzdem aus, liegt es nicht am Grill,
+    sondern an der Kategorie unten oder an einem Hub, der Punkt 554 noch
+    nicht kennt (dann fehlt diese Zeile).
+    """
+    ist = zustand.get("temperature")
+    ziel = zustand.get("target")
+    if zustand.get("state") != "running":
+        return "Meldung «auf Temperatur»: nein - der Grill läuft nicht."
+    if ziel is None:
+        return "Meldung «auf Temperatur»: nein - kein Sollwert."
+    if grillmeldung.auf_temperatur(ist, ziel):
+        return (
+            f"Meldung «auf Temperatur»: ja - {ist} liegt innerhalb von "
+            f"{grillmeldung.SPIELRAUM:g} unter {ziel}. Der Wächter meldet das "
+            "einmal je Aufheizen; erneut erst, wenn der Wert um "
+            f"{grillmeldung.RUECKFALL:g} zurückfällt oder der Grill aus war."
+        )
+    return f"Meldung «auf Temperatur»: noch nicht - {ist} gegen Ziel {ziel}."
+
+
+def meldung_voraussetzungen() -> None:
+    """Wer die Kategorie abbestellt hat, bekommt nichts - von aussen die
+    unsichtbarste der Stellen (wie beim Sauger, saugercheck)."""
+    print("\n── Push «" + push.CATEGORIES.get("grill", "grill") + "» ──")
+    try:
+        with open(DATEN, encoding="utf-8") as datei:
+            daten = json.load(datei)
+    except (OSError, ValueError) as err:
+        print(f"  ? Datendatei nicht lesbar ({err}) - Abbestellungen ungeprüft.")
+        return
+    stumm = [
+        str(eintrag.get("user"))
+        for eintrag in daten.get("push_prefs") or []
+        if isinstance(eintrag, dict) and "grill" in (eintrag.get("muted") or [])
+    ]
+    print(
+        "  "
+        + (f"abbestellt von {', '.join(stumm)}" if stumm else "niemand hat sie abbestellt.")
+    )
 
 
 def live_voraussetzungen() -> None:
@@ -206,6 +254,7 @@ async def main_async() -> None:
         for eintrag in grills:
             await pruefe(eintrag)
     live_voraussetzungen()
+    meldung_voraussetzungen()
 
 
 def main() -> None:

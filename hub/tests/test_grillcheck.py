@@ -53,3 +53,21 @@ def test_die_live_karte_sagt_warum_sie_fehlt():
     assert "nicht erreichbar" in lage
     assert "«off»" in lage
     assert "Temperaturziel" in lage
+
+
+def test_meldungslage_rechnet_wie_der_waechter():
+    """Punkt 558: «Ich habe keine Push bekommen, dass es die
+    Zieltemperatur erreicht hat.» grillcheck sagt jetzt, ob sie käme -
+    mit derselben Rechnung wie der Wächter, damit beide dasselbe sagen."""
+    from homepilot.grillcheck import meldungslage
+
+    assert meldungslage({"state": "off", "temperature": 110, "target": 110}).startswith(
+        "Meldung «auf Temperatur»: nein"
+    )
+    assert "kein Sollwert" in meldungslage({"state": "running", "temperature": 110})
+    assert meldungslage({"state": "running", "temperature": 108, "target": 110}).startswith(
+        "Meldung «auf Temperatur»: ja"
+    )
+    assert meldungslage({"state": "running", "temperature": 90, "target": 110}).startswith(
+        "Meldung «auf Temperatur»: noch nicht"
+    )

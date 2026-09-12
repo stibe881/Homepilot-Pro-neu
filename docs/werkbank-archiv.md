@@ -5401,3 +5401,32 @@ Gegen den alten Stand rot gesehen: ohne den Tipp auf die Kachel bleibt
 das Blatt zu.
 
 Stellen: `app/src/components/entity/koerper.tsx`, `app/src/components/EntityCard.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/screens/dashboard/Grillvollbild.tsx`, `app/src/lib/grillziel.ts`, `hub/homepilot/core/livekarten.py`, `app/targets/widget/index.swift`, `scripts/probe.mjs`
+
+### 558. Die Grillkarte folgt jedem Messwert - und warum die Push ausblieb ✓ erledigt
+
+Aus dem Haus, mit zwei Bildern: «In der Live-Aktivität steht 108, der
+Grill hat aber schon 110 Grad erreicht. Ausserdem habe ich keine Push
+bekommen, dass es die Zieltemperatur erreicht hat.»
+
+**Die Karte hing hinterher - mit Absicht, nur zu lange.** Der Grill
+misst alle dreissig Sekunden, und die Kachel in der App zeigt jeden
+Messwert sofort über den WebSocket. Die Karte auf dem Sperrbildschirm
+dagegen durfte sich frühestens alle 45 Sekunden aktualisieren
+(`UPDATE_ABSTAND`, gegen einen Sekundentakt gedacht), und das nur im
+20-Sekunden-Takt der Live-Karten - macht bis zu anderthalb Minuten
+Rückstand, also genau «108 statt 110» und «58/73 statt 57/74». Jede
+Karte darf jetzt einen eigenen Abstand mitbringen, und die Grillkarte
+bringt einen kurzen: Jeder Takt, in dem sich etwas geändert hat,
+sendet. Öfter als der Grill misst, wird es dadurch nicht. Apples Budget
+trägt das - die App meldet häufige Updates an
+(`NSSupportsLiveActivitiesFrequentUpdates`).
+
+**Die Push gibt es erst seit Punkt 554.** «Hält 110°C» auf der Karte
+beweist nur Punkt 553 - den Text gab es dort schon, den Wächter für die
+Meldung noch nicht. Wer die Karte sieht und die Push vermisst, sieht
+darum zuerst unter *System* nach, welchen Stand der Hub ausführt.
+`grillcheck` sagt seither auch, ob die Meldung jetzt käme (dieselbe
+Rechnung wie im Wächter) und wer die Kategorie abbestellt hat - und
+fehlt diese Zeile in seiner Ausgabe, ist der Hub älter als Punkt 554.
+
+Stellen: `hub/homepilot/core/livekarten.py`, `hub/homepilot/grillcheck.py`, `hub/tests/test_livekarten.py`

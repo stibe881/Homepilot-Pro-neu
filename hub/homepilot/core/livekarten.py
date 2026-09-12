@@ -58,6 +58,17 @@ KARTEN_KEY = "live_cards"
 #: Aktivität ohnehin.
 UPDATE_ABSTAND = 45.0
 
+#: Der Grill darf öfter (Punkt 558): Er misst alle dreissig Sekunden
+#: (integrations/pitboss.py, scan_interval), die Kachel in der App zeigt
+#: jeden Messwert sofort - und die Karte auf dem Sperrbildschirm hing
+#: mit 45 s Abstand auf einem 20-s-Takt bis zu anderthalb Minuten
+#: hinterher: «In der Live-Aktivität steht 108, der Grill hat aber schon
+#: 110.» Jeder Takt, in dem sich etwas geändert hat, darf jetzt senden;
+#: öfter als der Grill misst, wird es dadurch nicht. Das Budget von
+#: Apple trägt das - die App meldet häufige Updates an
+#: (NSSupportsLiveActivitiesFrequentUpdates in app.json).
+GRILL_UPDATE_ABSTAND = 15.0
+
 #: So lange bleibt eine Karte vorgemerkt, deren Ende mangels Token nicht
 #: rausging - danach hat iOS sie ohnehin selbst abgeräumt.
 NACHHALL_SEKUNDEN = 12 * 3600.0
@@ -416,6 +427,8 @@ def karten_grill(entities: list[Any]) -> list[dict[str, Any]]:
             {
                 "art": f"grill:{entity.id}",
                 "user": None,
+                # So oft, wie der Grill misst - siehe GRILL_UPDATE_ABSTAND.
+                "abstand": GRILL_UPDATE_ABSTAND,
                 "state": {
                     "titel": entity.label,
                     "text": grilltext(ist, float(ziel), einheit),
@@ -954,7 +967,10 @@ def abgleich(
 
     Updates frühestens alle `update_abstand` Sekunden je Karte - ein
     verworfenes Update geht nicht verloren, es kommt in einer späteren
-    Runde, weil der gespeicherte Stand erst beim Senden nachzieht.
+    Runde, weil der gespeicherte Stand erst beim Senden nachzieht. Eine
+    Karte darf einen eigenen Abstand mitbringen (``abstand``): Der Grill
+    misst alle dreissig Sekunden, und seine Karte soll das auch zeigen
+    (GRILL_UPDATE_ABSTAND).
 
     Eine Karte, deren Ende mangels Token nicht rausgeht, bleibt als
     ``ende_offen`` in der Liste stehen (bis NACHHALL_SEKUNDEN). Sie
@@ -1012,10 +1028,11 @@ def abgleich(
             )
             continue
         tokens = alt.get("activity_tokens") or []
+        abstand = float(karte.get("abstand") or update_abstand)
         if (
             stand != alt.get("stand")
             and tokens
-            and jetzt_s - float(alt.get("aktualisiert") or 0) >= update_abstand
+            and jetzt_s - float(alt.get("aktualisiert") or 0) >= abstand
         ):
             aktualisieren.append({"tokens": tokens, "state": karte["state"]})
             neue.append({**alt, "stand": stand, "aktualisiert": jetzt_s})
