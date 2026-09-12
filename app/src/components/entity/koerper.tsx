@@ -12,7 +12,7 @@ import { useTakt } from '../../hooks/useTakt';
 import { herkunftText, positionText, storenstand } from '../../lib/storenstand';
 import { aktiveVorgabe, vorgaben } from '../../lib/storenvorgaben';
 import { chipSchrift, fensterHoehe } from '../../lib/storenkachel';
-import { grillBauart, grillKurzinfo } from '../../lib/grillbild';
+import { grillBauart, grillFoto, grillKurzinfo } from '../../lib/grillbild';
 import { fuehlerZeile } from '../../lib/grillziel';
 import { mayOpenDirectly } from '../../lib/tuerbestaetigung';
 import { radius, useColors } from '../../theme';
@@ -314,7 +314,11 @@ export function GrillBody({
   return (
     <View style={styles.stack}>
       <View style={styles.grillZeile}>
-        <GrillVisual bauart={grillBauart(entity.state.model)} laeuft={running} />
+        <GrillVisual
+          bauart={grillBauart(entity.state.model)}
+          foto={grillFoto(entity.state.model)}
+          laeuft={running}
+        />
         <View style={styles.grillInfo}>
           <Pill label={kurz.gross} tone={running ? colors.accent : undefined} />
           {kurz.klein ? <Text style={styles.hint}>{kurz.klein}</Text> : null}

@@ -5547,3 +5547,22 @@ Startseite, sieht «Smoker läuft · 115 °C · Ziel 121 °C» und will die
 Fühler sehen. Laufen zwei Grills zugleich, gewinnt der vordere.
 
 Stellen: `app/src/lib/haushalt.ts`, `app/src/components/RunningAppliances.tsx`, `app/src/screens/DashboardScreen.tsx`
+
+### 564. Das Foto des Smokers auf seiner Kachel ✓ erledigt
+
+Aus dem Haus, mit dem Foto des Pit Boss PB1150PS2 daneben: «Hier soll
+dieses Foto vom Grill angezeigt werden.»
+
+Punkt 559 hatte gezeichnet statt fotografiert. Das Foto kam dann aus
+dem Haus, und es ist das bessere Bild: Man erkennt den eigenen Grill,
+nicht eine Bauart. Es liegt freigestellt unter `assets/grills/` (das
+Weiss vom Rand her weggenommen, damit es auf der grauen Kachel nicht
+als Kasten steht) und wird mit der App ausgeliefert - kein Umweg über
+den Hub, kein Hochladen.
+
+**Foto, wo es eines gibt; sonst die Zeichnung.** `grillFoto(model)`
+kennt die Modelle mit Foto; die Zeichnung bleibt für alle andern -
+der Räucherschrank bekommt seines, sobald eines da ist. Das Foto kann
+nicht glühen; dass der Grill läuft, sagt die Pille daneben.
+
+Stellen: `app/assets/grills/pb1150ps2.png`, `app/src/lib/grillbild.ts`, `app/src/components/GrillVisual.tsx`, `app/src/components/entity/koerper.tsx`, `scripts/probe.mjs`

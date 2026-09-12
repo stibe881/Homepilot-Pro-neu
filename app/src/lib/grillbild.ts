@@ -62,3 +62,25 @@ export function grillKurzinfo(state: {
     typeof state.target === 'number' ? `Ziel ${Math.round(state.target)} ${einheit}` : null;
   return { gross, klein };
 }
+
+/** Die Fotos, die es gibt - je Modell eines. Der Schlüssel ist der
+ *  Dateiname unter assets/grills; die Datei selbst bindet die Komponente
+ *  ein (require kennt nur feste Pfade). */
+const FOTOS: Record<string, string> = {
+  PB1150PS2: 'pb1150ps2',
+};
+
+/**
+ * Das Foto zum Modell, wenn es eines gibt (rein, testbar).
+ *
+ * Gewünscht im Haus (Punkt 564): «Hier soll dieses Foto vom Grill
+ * angezeigt werden» - das Bild des Smokers aus dem Haus, freigestellt.
+ * Nur wo ein Foto liegt; sonst bleibt die Zeichnung. Der Räucherschrank
+ * bekommt seines, sobald eines da ist.
+ */
+export function grillFoto(model: unknown): string | null {
+  const kennung = String(model ?? '')
+    .trim()
+    .toUpperCase();
+  return FOTOS[kennung] ?? null;
+}

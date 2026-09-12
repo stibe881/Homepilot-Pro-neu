@@ -1030,9 +1030,11 @@ async function grillzielSetzen(browser) {
   pruefe(true, 'Die Grillkachel zeigt ihre Fühler');
   // Und ihr Bild (Punkt 559) - je Bauart eines, hier der liegende
   // Grill, weil der Demo-Smoker dasselbe Modell trägt wie der im Haus.
+  // Seit Punkt 564 das Foto - der Demo-Smoker trägt dasselbe Modell wie
+  // der im Haus, und für das gibt es eines.
   pruefe(
-    await seite.getByLabel('Bild: Pelletgrill').first().isVisible().catch(() => false),
-    'Und das Bild des Grills daneben'
+    await seite.getByLabel('Foto: Pelletgrill').first().isVisible().catch(() => false),
+    'Und das Foto des Grills daneben'
   );
 
   // Der Tipp auf die Kachel - auf die Zeile, die früher selbst ein

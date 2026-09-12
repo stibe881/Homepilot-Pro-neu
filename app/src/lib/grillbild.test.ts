@@ -1,4 +1,4 @@
-import { bildName, grillBauart, grillKurzinfo } from './grillbild';
+import { bildName, grillBauart, grillFoto, grillKurzinfo } from './grillbild';
 
 describe('grillBauart', () => {
   it('erkennt den stehenden Räucherschrank am PBV', () => {
@@ -38,5 +38,18 @@ describe('grillKurzinfo', () => {
       gross: 'Läuft',
       klein: 'Ziel 225 °F',
     });
+  });
+});
+
+describe('grillFoto', () => {
+  it('kennt das Foto des Smokers im Haus', () => {
+    // Punkt 564: das freigestellte Foto des PB1150PS2.
+    expect(grillFoto('PB1150PS2')).toBe('pb1150ps2');
+    expect(grillFoto(' pb1150ps2 ')).toBe('pb1150ps2');
+  });
+
+  it('bleibt ohne Foto bei der Zeichnung', () => {
+    expect(grillFoto('PBV4PS2')).toBeNull();
+    expect(grillFoto(undefined)).toBeNull();
   });
 });

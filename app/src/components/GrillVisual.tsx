@@ -1,42 +1,65 @@
 /**
  * Das Bild des Grills auf seiner Kachel (Punkt 559).
  *
- * Eine Zeichnung je Bauart, wie beim Fenster der Storenkachel
- * (CoverVisual): der liegende Pelletgrill mit Trichter und Kamin, der
- * stehende Räucherschrank mit Glastüre. Gezeichnet und nicht
- * fotografiert, weil ein Hersteller-Foto nicht ins Repo gehört - und
- * weil die Zeichnung zeigen kann, was das Foto nicht kann: Läuft der
- * Grill, glüht der Feuerraum hinter dem Fenster.
+ * Ein Foto, wo es eines gibt (Punkt 564: das Bild des Smokers aus dem
+ * Haus, freigestellt), sonst eine Zeichnung je Bauart, wie beim Fenster
+ * der Storenkachel (CoverVisual): der liegende Pelletgrill mit Trichter
+ * und Kamin, der stehende Räucherschrank mit Glastüre. Die Zeichnung
+ * zeigt, was das Foto nicht kann: Läuft der Grill, glüht der Feuerraum.
  */
 import React from 'react';
-import { View } from 'react-native';
+import { Image, View } from 'react-native';
 import Svg, { Circle, Ellipse, Line, Path, Rect } from 'react-native-svg';
 
 import { Grillbauart, bildName } from '../lib/grillbild';
 import { useColors } from '../theme';
 
+/** Die Fotos, die mitgeliefert werden (Punkt 564) - der Schlüssel kommt
+ *  aus lib/grillbild.ts (grillFoto). `require` braucht feste Pfade,
+ *  deshalb steht die Zuordnung hier und nicht in der reinen Funktion. */
+const FOTOS: Record<string, number> = {
+  // require, kein import - wie bei den Schriften in App.tsx: Nur so
+  // nimmt Metro die Datei mit ins Bundle.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  pb1150ps2: require('../../assets/grills/pb1150ps2.png'),
+};
+
 interface Props {
   bauart: Grillbauart;
+  /** Das Foto, wenn es eines gibt (grillFoto) - dann statt der Zeichnung. */
+  foto?: string | null;
   /** Läuft er? Dann glüht der Feuerraum. */
   laeuft: boolean;
   width?: number;
   height?: number;
 }
 
-export function GrillVisual({ bauart, laeuft, width = 96, height = 72 }: Props) {
+export function GrillVisual({ bauart, foto, laeuft, width = 96, height = 72 }: Props) {
   const colors = useColors();
   const blech = colors.ink;
   const glut = laeuft ? colors.warn : colors.track;
   const glas = laeuft ? 'rgba(245, 165, 36, 0.35)' : colors.track;
+  const bild = foto ? FOTOS[foto] : undefined;
 
   return (
     <View
       accessible
       accessibilityRole="image"
-      accessibilityLabel={bildName(bauart)}
+      accessibilityLabel={
+        bild ? bildName(bauart).replace('Bild: ', 'Foto: ') : bildName(bauart)
+      }
       style={{ width, height }}
     >
-      {bauart === 'schrank' ? (
+      {bild ? (
+        // Das echte Foto, freigestellt - so gewünscht im Haus. Es kann
+        // nicht glühen; dafür sagt die Pille daneben, dass er läuft.
+        <Image
+          source={bild}
+          resizeMode="contain"
+          style={{ width, height }}
+          accessibilityIgnoresInvertColors
+        />
+      ) : bauart === 'schrank' ? (
         <Svg width={width} height={height} viewBox="0 0 96 72">
           {/* Der Schrank: hoch, mit Glastüre und dem Trichter seitlich. */}
           <Rect x={28} y={6} width={40} height={56} rx={4} fill="none" stroke={blech} strokeWidth={3} />
