@@ -13,6 +13,11 @@
  * Spalte stand dort neben den Raumkacheln - und die leben von ihren
  * Fotos, denen die 340 Punkte fehlten. Die Startseite behält sie.
  *
+ * Und aus demselben Grund nicht auf der Geräteliste (Einstellungen →
+ * Geräte, Punkt 549): Dort sucht man ein bestimmtes Gerät, mit Suchfeld
+ * und Filtern darüber. Auf dem Telefon standen Wetter und Musik unter
+ * der Liste und schoben sie unter den Rand.
+ *
  * Was blieb, war die Box **dieses** Raums - und auch die steht jetzt
  * woanders: oben im Raumkopf, als kompletter Medienplayer unter den
  * Szenen des Zimmers (DashboardScreen, components/SidePanel.tsx:
@@ -42,6 +47,13 @@ export interface Spaltenwunsch {
    *  Kachelspalte. Die Startseite behält die Spalte: Sie ist die
    *  Seite, auf der man stehen bleibt. */
   roomList?: boolean;
+  /** Die Geräteliste (Einstellungen → Geräte)? Dieselbe Überlegung
+   *  wie bei der Raumliste, nur schärfer: Dort sucht man ein
+   *  *bestimmtes* Gerät, mit Suchfeld und Filtern. Das Wetter von Zell
+   *  und die Musik der Wohnung beantworten keine Frage, die man dabei
+   *  stellt - auf dem Telefon standen sie unter der Liste und schoben
+   *  sie unter den Rand, auf dem iPad kosteten sie eine Kachelspalte. */
+  deviceList?: boolean;
   /** Gibt es überhaupt ein Wettergerät? */
   weather: boolean;
   /** Gibt es eine bedienbare Box fürs Haus? */
@@ -57,7 +69,7 @@ export interface Spalteninhalt {
 
 /** Welche Karten die Spalte zeigt (rein, testbar). */
 export function panelContent(wunsch: Spaltenwunsch): Spalteninhalt {
-  const weg = wunsch.inRoom || !!wunsch.roomList;
+  const weg = wunsch.inRoom || !!wunsch.roomList || !!wunsch.deviceList;
   const inhalt = {
     weather: wunsch.weather && !weg,
     housePlayer: wunsch.housePlayer && !weg,

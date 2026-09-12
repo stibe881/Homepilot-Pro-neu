@@ -3940,16 +3940,46 @@ class AutomationEngine:
         Je Lampe genau ein Zeitgeber: Neue Bewegung während des Nachlaufs
         verlängert ihn. Zwei Zeitgeber nebeneinander hiessen, dass das
         Licht beim ersten ausgeht, obwohl gerade jemand im Flur steht.
+
+        Und wenn der Melder gar nicht neu auslöst, weil er seit der
+        ersten Bewegung ununterbrochen «on» sagt, wird am Ende der Frist
+        nachgesehen statt ausgeschaltet (Punkt 547). Das war der
+        gemeldete Fehler: Ein echter Melder meldet einmal und bleibt dann
+        darauf, bis es ruhig wird - ein zweites «on» ist für den Hub
+        «nichts geändert». Das Licht ging mitten im Betrieb aus, und der
+        Melder konnte es nicht einmal wieder anschalten, weil er nie auf
+        «off» war.
         """
         self._nachlauf_stoppen(entity_id)
         faellig = time.time() + seconds
+        # Wen man fragt, ob die Bewegung noch anhält: die Auslöser dieses
+        # Ablaufs. Ein Ablauf ohne Melder - «um 18:00 das Licht an» -
+        # hat hier keine, und dann gilt die Zeit wie bisher.
+        melder = licht.lux_sources(automation.triggers)
 
         async def warten() -> None:
-            await asyncio.sleep(seconds)
-            entity = self.hub.registry.get(entity_id)
-            if entity is None or str(entity.state.get("state")) != "on":
-                # Jemand war schneller - dann gibt es nichts auszuschalten.
-                return
+            nonlocal faellig
+            while True:
+                await asyncio.sleep(max(0.0, faellig - time.time()))
+                entity = self.hub.registry.get(entity_id)
+                if entity is None or str(entity.state.get("state")) != "on":
+                    # Jemand war schneller - dann gibt es nichts auszuschalten.
+                    return
+                if not licht.bewegung_haelt_an(self.hub.registry.all(), melder):
+                    break
+                # Der Melder sagt immer noch «Bewegung»: Die letzte
+                # Bewegung ist jetzt, also zählt der Nachlauf von vorn.
+                faellig = time.time() + seconds
+                self._nachlauf[entity_id] = (asyncio.current_task(), faellig)  # type: ignore[assignment]
+                if automation.countdown:
+                    # Sonst stünde an der Kachel weiter die alte
+                    # Restzeit und liefe auf null, während das Licht
+                    # brennt (core/abschaltung.py).
+                    self._start_task(
+                        self._countdown_setzen(
+                            entity_id, faellig, asyncio.current_task()
+                        )
+                    )
             with as_source(automation_source(automation.id, automation.alias)):
                 await self.hub.integrations.dispatch_command(entity_id, "turn_off", {})
 

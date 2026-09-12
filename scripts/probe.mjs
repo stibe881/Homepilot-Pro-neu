@@ -844,6 +844,150 @@ async function melderGibtSignal(browser) {
   await seite.close();
 }
 
+/** 11. Steht auf der Geräteliste die Spalte rechts? (Punkt 549)
+ *
+ * Gemeldet im Haus: «Bei Einstellungen → Geräte sollen diese Karten
+ * entfernt werden» - Wetter und Musik, unter der Liste.
+ *
+ * Gemessen wird mit eingebauter Gegenprobe: Auf der Startseite **muss**
+ * die Musikkarte stehen. Ohne sie wäre die Messung auch für eine App
+ * grün, in der die Spalte überall fehlt - und dieselbe Falle gab es
+ * hier schon einmal (raumlisteKopfspieler, Punkt 509).
+ *
+ * Die Wetterkarte der Spalte bleibt hier **ungemessen**, und das mit
+ * Absicht: Der Demo-Hub führt eine Wetter*warnung*, aber kein Gerät der
+ * Art «weather» - die Karte erschiene also nirgends, und eine Zeile
+ * «keine Wetterkarte» wäre immer grün, ohne etwas zu prüfen. Der
+ * Versuch, dem Prüfstand ein Wettergerät zu geben, riss sechs fremde
+ * Tests mit: Wer in seinem Test ein eigenes Wetter anlegt, bekam
+ * plötzlich das der Demo. Beide Hälften der Spalte hängen ohnehin an
+ * derselben Entscheidung (lib/seitenspalte.ts), und die ist dort
+ * geprüft.
+ */
+async function geraetelisteOhneSpalte(browser) {
+  for (const groesse of GROESSEN) {
+    const seite = await angemeldeteSeite(browser, groesse);
+    const musikkarte = () => seite.getByText('Musik', { exact: true });
+    pruefe(
+      (await musikkarte().count()) > 0,
+      `${groesse.name}: die Startseite zeigt die Musikkarte`
+    );
+    if (!(await zurSeite(seite, 'Einstellungen'))) {
+      await seite.close();
+      continue;
+    }
+    const geraete = seite.getByText('Geräte', { exact: true }).first();
+    if (!(await geraete.isVisible().catch(() => false))) {
+      pruefe(false, `${groesse.name}: die Geräteliste war erreichbar`);
+      await seite.close();
+      continue;
+    }
+    await geraete.click();
+    await seite.waitForTimeout(1500);
+    pruefe(
+      (await musikkarte().count()) === 0,
+      `${groesse.name}: die Geräteliste trägt keine Musikkarte`
+    );
+    await seite.close();
+  }
+}
+
+/** 12. Stehen Einrichten und Werkzeug unten - und zugeklappt? (Punkt 550)
+ *
+ * Gemeldet im Haus: «Die Karte ‹Noch einzurichten› und ‹Werkzeuge›
+ * sollen ganz unten angezeigt werden und sollen ausserdem eingeklappt
+ * sein.»
+ *
+ * Zwei Messungen, weil es zwei Versprechen sind. **Unten**: Beide
+ * Karten müssen tiefer liegen als die letzte Gerätekachel - von Auge
+ * ist das auf einem langen Bildschirm nicht zu sehen, weil man sie
+ * beim Scrollen ohnehin nacheinander antrifft. **Zugeklappt**: Der
+ * Inhalt darf nicht dastehen, die Überschrift schon - eine Karte, die
+ * ganz verschwindet, hätte man ebenso gut löschen können.
+ *
+ * Die Gegenprobe steckt im Aufklappen: Nach einem Tipp auf «Werkzeuge»
+ * muss der Knopf da sein. Ohne diese Zeile wäre die Messung auch für
+ * eine App grün, in der es die Karte gar nicht mehr gibt.
+ */
+async function geraetewerkzeugeUnten(browser) {
+  const seite = await angemeldeteSeite(browser, GROESSEN[0]);
+  if (!(await zurSeite(seite, 'Einstellungen'))) {
+    await seite.close();
+    return;
+  }
+  const geraete = seite.getByText('Geräte', { exact: true }).first();
+  if (!(await geraete.isVisible().catch(() => false))) {
+    pruefe(false, 'Die Geräteliste war erreichbar');
+    await seite.close();
+    return;
+  }
+  await geraete.click();
+  await seite.waitForTimeout(1800);
+
+  const kopf = (text) => seite.getByText(text, { exact: true }).first();
+  for (const titel of ['Noch einzurichten', 'Werkzeuge']) {
+    if (!(await kopf(titel).count())) {
+      pruefe(false, `«${titel}» steht auf der Geräteliste`);
+      await seite.close();
+      return;
+    }
+  }
+
+  // Wie tief liegt was? Gemessen im Dokument, nicht im Sichtbaren:
+  // Die Seite ist länger als der Bildschirm.
+  //
+  // Wogegen gemessen wird, ist der Punkt: gegen eine *Gerätekachel*.
+  // «Unten» ohne Bezug wäre keine Messung - die beiden Karten lagen
+  // vorher schon untereinander, nur eben über der Liste.
+  const lage = await seite.evaluate(() => {
+    const obenVon = (text) => {
+      const el = [...document.querySelectorAll('div')].find(
+        (kandidat) => kandidat.textContent?.trim() === text
+      );
+      return el ? el.getBoundingClientRect().top + window.scrollY : null;
+    };
+    return {
+      einrichten: obenVon('Noch einzurichten'),
+      werkzeuge: obenVon('Werkzeuge'),
+      // Eine Kachel, die der Prüfstand immer hat.
+      kachel: obenVon('Licht Wohnzimmer'),
+    };
+  });
+
+  if (lage.kachel === null) {
+    pruefe(false, 'Eine Gerätekachel war als Bezugspunkt zu finden');
+    await seite.close();
+    return;
+  }
+  pruefe(
+    lage.einrichten > lage.kachel,
+    '«Noch einzurichten» steht unter den Gerätekacheln',
+    `Karte bei ${Math.round(lage.einrichten)}, Kachel bei ${Math.round(lage.kachel)}`
+  );
+  pruefe(
+    lage.werkzeuge > lage.kachel,
+    '«Werkzeuge» steht unter den Gerätekacheln',
+    `Karte bei ${Math.round(lage.werkzeuge)}, Kachel bei ${Math.round(lage.kachel)}`
+  );
+  pruefe(
+    lage.werkzeuge > lage.einrichten,
+    'Und «Werkzeuge» unter «Noch einzurichten»'
+  );
+
+  // Zugeklappt: Der Inhalt fehlt, die Überschrift steht.
+  pruefe(
+    (await seite.getByText('Mehrere zuweisen', { exact: true }).count()) === 0,
+    '«Werkzeuge» ist zugeklappt'
+  );
+  await kopf('Werkzeuge').click();
+  await seite.waitForTimeout(600);
+  pruefe(
+    (await seite.getByText('Mehrere zuweisen', { exact: true }).count()) > 0,
+    'Und geht auf, wenn man ihn antippt'
+  );
+  await seite.close();
+}
+
 const { chromium } = playwrightLaden();
 const browser = await chromium.launch({ executablePath: browserOrt() });
 try {
@@ -858,6 +1002,8 @@ try {
   await fuehlerInZweiZimmern(browser);
   await rauchmelderNichtImZimmer(browser);
   await melderGibtSignal(browser);
+  await geraetelisteOhneSpalte(browser);
+  await geraetewerkzeugeUnten(browser);
 } finally {
   await browser.close();
 }

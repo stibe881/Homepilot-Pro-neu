@@ -740,7 +740,16 @@ export function SceneDevices({
                 Schritte – an, warten, aus –, und der Warte-Schritt hielt
                 den ganzen Ablauf auf. */}
             {lichtFein && istAnschalten(action.command) ? (
-              <Unterfrage label="Wie lange an?">
+              <Unterfrage
+                label="Wie lange an?"
+                // Was die Zahl wirklich heisst (Punkt 547). Sie sah aus
+                // wie ein harter Zeitgeber, und genau so wurde sie
+                // gelesen: «schaltet nach dieser Zeit aus, auch wenn in
+                // der Zwischenzeit wieder eine Bewegung erkannt wurde».
+                // Sie zählt ab der letzten Bewegung - das steht jetzt da,
+                // statt dass man es am dunklen Flur merkt.
+                hinweis="Zählt ab der letzten Bewegung: Löst ein Bewegungsmelder diesen Ablauf aus und meldet er weiter Bewegung, bleibt es an."
+              >
                 <NachlaufWahl
                   value={action.offAfter ? String(action.offAfter) : ''}
                   onChange={(seconds) =>

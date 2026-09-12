@@ -20,9 +20,17 @@ import {
   ungeprueftZeile,
 } from '../../lib/ablaufsimulation';
 import { datumUhr } from '../../lib/format';
-import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, KontextArt, KontextCondition, StepDraft, TRIGGER_KIND_ICON, TriggerDraft, WEEKDAY_LABELS, buildConditions, conditionOptions, fittingState, hatWartezeit, schaltetSpaeterAus, measurableAttributes, meldetEtwas, melderMitLux, newTrigger, normalisiereZeit, stepsToActions, triggerToConfig, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis, stundeAusText } from './entwurf';
+import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, KontextArt, KontextCondition, StepDraft, TRIGGER_KIND_ICON, TriggerDraft, WEEKDAY_LABELS, ASSISTENT_SCHRITTE,
+  assistentNoetig,
+  buildConditions,
+  dannFehlt,
+  dannStand,
+  feinStand,
+  wennFehlt,
+  wennStand, conditionOptions, fittingState, hatWartezeit, schaltetSpaeterAus, measurableAttributes, meldetEtwas, melderMitLux, newTrigger, normalisiereZeit, stepsToActions, triggerToConfig, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis, stundeAusText } from './entwurf';
 import {
   Abschnitt,
+  Spalten,
   CategoryField,
   Choice,
   EditorRahmen,
@@ -161,6 +169,33 @@ export function Editor({
     // und Nachtruhe schalten nichts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schritteSchluessel, sonstSchluessel, draft?.id]);
+  /**
+   * Der geführte Weg für einen neuen Ablauf: 1 wann, 2 was, 3 Name.
+   *
+   * `null` heisst «alles auf einmal» - die Übersicht. Ein bestehender
+   * Ablauf und eine vorbefüllte Vorlage fangen dort an: Wer eine
+   * Kleinigkeit ändern will, soll sich nicht durch drei Schritte
+   * klicken. Und aus dem Assistenten führt jederzeit ein Weg dorthin;
+   * ein Assistent ohne Ausgang ist eine Falle.
+   *
+   * `undefined` heisst «noch nicht entschieden»: Der Editor wird
+   * gerendert, bevor der Entwurf da ist (`if (!draft) return null`
+   * gleich darunter). Der Anfangswert eines useState wird aber nur
+   * einmal gerechnet - beim allerersten Rendern, als der Entwurf noch
+   * fehlte. Genau daran ist der Assistent zuerst nie erschienen.
+   */
+  const [schritt, setSchritt] = useState<number | null | undefined>(undefined);
+  useEffect(() => {
+    if (!draft) return;
+    setSchritt((bisher) =>
+      bisher === undefined ? (assistentNoetig(draft) ? 1 : null) : bisher
+    );
+    // Nur beim ersten Entwurf entscheiden - wer den Assistenten
+    // verlassen hat, soll nicht beim nächsten Tastendruck wieder darin
+    // stehen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!draft]);
+
   if (!draft) return null;
 
   const set = (patch: Partial<Draft>) => onChange({ ...draft, ...patch });
@@ -212,13 +247,30 @@ export function Editor({
       ? 'Ablauf bearbeiten'
       : 'Neuer Ablauf';
 
+  const assistent = typeof schritt === 'number';
+  const offeneFehler =
+    schritt === 1 ? wennFehlt(draft) : schritt === 2 ? dannFehlt(draft) : [];
+
+  // Ein bestehender Ablauf fängt zugeklappt an, ein neuer offen.
+  //
+  // «Steht etwas drin, geh auf» war beim Anlegen richtig - beim
+  // Bearbeiten steht überall etwas drin, also stand alles offen, und man
+  // scrollte an einem fertigen Ablauf vorbei, statt ihn zu sehen.
+  const bearbeitet = !!draft.id;
+
   return (
     <EditorRahmen
+      breit
       titel={titel}
       onCancel={onCancel}
       onSave={onSave}
       saveGesperrt={!speicherbar}
     >
+        {assistent ? (
+          <AssistentKopf schritt={schritt} styles={styles} colors={colors} />
+        ) : null}
+
+        {!assistent ? (
         <Text style={styles.snapshotHint}>
           {draft.templateId
             ? // Eine Vorlage schaltet nichts - sie steht bereit. Das
@@ -227,11 +279,12 @@ export function Editor({
               'Eine Vorlage läuft nicht – sie steht unter «Abläufe» bereit und öffnet sich beim Antippen als vorbefüllter Entwurf. Erst was daraus gespeichert wird, schaltet.'
             : 'Ein Ablauf ist ein Satz: „Wenn … passiert, dann … tun." Unten das Wenn und das Dann ausfüllen, oben einen Namen geben.'}
         </Text>
+        ) : null}
 
         {/* Und hier steht dieser Satz auch – mitlaufend, mit Gerätenamen.
             Wer «und» meinte und «oder» gebaut hat, liest es sofort, statt
             es erst am Abend im dunklen Flur zu merken. */}
-        {(() => {
+        {!assistent || schritt === 3 ? (() => {
           const roh = {
             triggers: draft.triggers.map(triggerToConfig),
             conditions: buildConditions(draft),
@@ -290,8 +343,9 @@ export function Editor({
               </View>
             </Pressable>
           ) : null;
-        })()}
+        })() : null}
 
+        {!assistent || schritt === 3 ? (
         <Field label="Name">
           {/* Der Platzhalter ist der Vorschlag, den auch das Speichern
               nimmt: Wer nichts eintippt, sieht vorher, wie der Ablauf
@@ -305,7 +359,10 @@ export function Editor({
             placeholderTextColor={colors.inkFaint}
           />
         </Field>
+        ) : null}
 
+        {!assistent || schritt === 3 ? (
+        <>
         {/* Beides ist Beiwerk: Ein neuer Ablauf läuft, und eine
             Kategorie vergibt man, wenn die Liste lang geworden ist -
             nicht beim Anlegen. Zusammen in einer Klappe, die sich von
@@ -332,12 +389,27 @@ export function Editor({
             </Text>
           ) : null}
         </Klappe>
+        </>
+        ) : null}
 
         {/* Die vier Hauptabschnitte als nummerierte Karten - die Nummern
             erzählen den Satz: 1 Wenn, 2 Nur wenn, 3 Dann, 4 Sonst. */}
+        {/* Der Satz nebeneinander statt untereinander, wo Platz ist:
+            links das Wenn, rechts das Dann. Auf dem Telefon stapeln sie
+            sich wie bisher. Gemessen hat den Anlass der Browser: 575
+            Punkte Formular neben 605 Punkten Leere, und das Ganze 2,7
+            Bildschirme hoch. */}
+        <Spalten
+          aus={assistent}
+          links={
+            <>
         <Abschnitt
           nummer="1"
           titel={draft.triggers.length > 1 ? 'Wenn eines passiert' : 'Wenn … passiert'}
+          stand={wennStand(draft, entities)}
+          zuklappbar
+          anfangsOffen={!bearbeitet}
+          versteckt={assistent && schritt !== 1}
         >
           {draft.triggers.map((trigger, index) => (
             <TriggerRow
@@ -370,6 +442,7 @@ export function Editor({
           titel="Nur wenn (Bedingung)"
           stand={bedingungStand(draft)}
           zuklappbar
+          versteckt={assistent && schritt !== 3}
         >
           <Choice
             options={[
@@ -989,8 +1062,18 @@ export function Editor({
             «wenn der Taster gedrückt wird – aber nur, wenn es dunkel ist».
           </Text>
         </Abschnitt>
-
-        <Abschnitt nummer="3" titel="… dann das tun">
+            </>
+          }
+          rechts={
+            <>
+        <Abschnitt
+          nummer="3"
+          titel="… dann das tun"
+          stand={dannStand(draft, entities)}
+          zuklappbar
+          anfangsOffen={!bearbeitet}
+          versteckt={assistent && schritt !== 2}
+        >
           <StepList
             steps={draft.steps}
             entities={entities}
@@ -1006,6 +1089,58 @@ export function Editor({
             styles={styles}
             onChange={(steps) => set({ steps })}
           />
+        </Abschnitt>
+
+        <Abschnitt
+                nummer="4"
+                titel="… sonst"
+                stand={sonstStand(draft)}
+                zuklappbar
+                versteckt={assistent && schritt !== 3}
+              >
+          {draft.elseSteps.length === 0 ? (
+            <>
+              <Pressable
+                onPress={() => set({ elseSteps: [{ ...EMPTY_STEP }] })}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.75 }]}
+              >
+                <Ionicons name="git-branch-outline" size={16} color={colors.accent} />
+                <Text style={styles.addRowText}>Zweig für «Bedingung passt nicht»</Text>
+              </Pressable>
+              <Text style={styles.triggerNote}>
+                Ohne diesen Zweig passiert schlicht nichts, wenn eine
+                Bedingung nicht stimmt. Mit ihm spart man sich den zweiten
+                Ablauf mit gegenteiliger Bedingung – den man sonst beim
+                Ändern jedes Mal mit anfassen muss.
+              </Text>
+            </>
+          ) : (
+            <StepList
+              steps={draft.elseSteps}
+              entities={entities}
+              scenes={scenes}
+              andereAblaeufe={andereAblaeufe}
+              eigeneId={draft.id}
+              hueScenes={hueScenes}
+              favoriten={favoriten}
+              empfaenger={empfaenger}
+              luxSensors={luxSensors}
+              onProbeStep={onProbeStep}
+              colors={colors}
+              styles={styles}
+              onChange={(elseSteps) => set({ elseSteps })}
+            />
+          )}
+        </Abschnitt>
+              <Abschnitt
+                nummer="5"
+                titel="Feineinstellungen"
+                stand={feinStand(draft)}
+                zuklappbar
+                anfangsOffen={false}
+                versteckt={assistent && schritt !== 3}
+              >
           <Text style={styles.label}>Frühestens wieder nach</Text>
           <Choice
             options={[
@@ -1161,50 +1296,46 @@ export function Editor({
             kleineren Zahl zuerst – «erst Storen hoch, dann Kaffee». 0 heisst
             egal, und das ist bei fast allen die Wahrheit.
           </Text>
-        </Abschnitt>
-
-        <Abschnitt nummer="4" titel="… sonst" stand={sonstStand(draft)} zuklappbar>
-          {draft.elseSteps.length === 0 ? (
-            <>
-              <Pressable
-                onPress={() => set({ elseSteps: [{ ...EMPTY_STEP }] })}
-                accessibilityRole="button"
-                style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.75 }]}
-              >
-                <Ionicons name="git-branch-outline" size={16} color={colors.accent} />
-                <Text style={styles.addRowText}>Zweig für «Bedingung passt nicht»</Text>
-              </Pressable>
-              <Text style={styles.triggerNote}>
-                Ohne diesen Zweig passiert schlicht nichts, wenn eine
-                Bedingung nicht stimmt. Mit ihm spart man sich den zweiten
-                Ablauf mit gegenteiliger Bedingung – den man sonst beim
-                Ändern jedes Mal mit anfassen muss.
-              </Text>
+              </Abschnitt>
             </>
-          ) : (
-            <StepList
-              steps={draft.elseSteps}
-              entities={entities}
-              scenes={scenes}
-              andereAblaeufe={andereAblaeufe}
-              eigeneId={draft.id}
-              hueScenes={hueScenes}
-              favoriten={favoriten}
-              empfaenger={empfaenger}
-              luxSensors={luxSensors}
-              onProbeStep={onProbeStep}
-              colors={colors}
-              styles={styles}
-              onChange={(elseSteps) => set({ elseSteps })}
-            />
-          )}
-        </Abschnitt>
+          }
+        />
 
         {/* Widersprüche (Punkt 462 der Werkbank): Dieselbe Auskunft wie
             in der Liste unter «Widersprüche» - nur in dem Moment, in dem
             der Widerspruch entsteht, statt Tage später an einem Licht,
             das flackert. Ein Hinweis, keine Sperre: «Der eine schaltet
             ein, der andere später aus» ist oft genau das Gewollte. */}
+        {/* Im letzten Schritt darf man zurück - sonst käme man an den
+            Auslöser nicht mehr heran, ohne alles aufzumachen. */}
+        {assistent && schritt === 3 ? (
+          <Pressable
+            onPress={() => setSchritt(2)}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.75 }]}
+          >
+            <Ionicons name="chevron-back" size={16} color={colors.accent} />
+            <Text style={styles.addRowText}>Zurück zum Was</Text>
+          </Pressable>
+        ) : null}
+
+        {/* Der Assistent führt; gespeichert wird am Ende. Knöpfe, die
+            erst nach dem Speichern etwas bedeuten (Trockenlauf, frühere
+            Fassungen, Kopie, Löschen), gehören nicht in Schritt 1 - sie
+            sind genau das Beiwerk, das die Maske unübersichtlich
+            gemacht hat. */}
+        {assistent && schritt !== 3 ? (
+          <AssistentFuss
+            schritt={schritt}
+            fehlt={offeneFehler}
+            onZurueck={() => setSchritt((wert) => Math.max(1, (wert ?? 1) - 1))}
+            onWeiter={() => setSchritt((wert) => Math.min(3, (wert ?? 1) + 1))}
+            onUebersicht={() => setSchritt(null)}
+            styles={styles}
+            colors={colors}
+          />
+        ) : (
+          <>
         {widersprueche.length > 0 ? (
           <View style={styles.konfliktBox}>
             <View style={styles.konfliktKopf}>
@@ -1374,6 +1505,8 @@ export function Editor({
             <Text style={styles.deleteText}>Ablauf löschen</Text>
           </Pressable>
         ) : null}
+          </>
+        )}
     </EditorRahmen>
   );
 }
@@ -1515,3 +1648,119 @@ export function SimulationsBlatt({
 
 /** Ein Auslöser im Editor – eigenständige Komponente auf Modulebene, damit
  *  die Texteingaben beim Tippen nicht neu montiert werden. */
+
+/**
+ * Der Kopf des Assistenten: welche Frage gerade dran ist.
+ *
+ * Drei Punkte statt einer Fortschrittsleiste - es sind drei Schritte,
+ * und ein Balken, der auf ein Drittel springt, sagt nicht mehr als das.
+ * Wichtig ist die Frage darunter: Wer sie liest, weiss, was zu tun ist,
+ * ohne das Formular zu deuten.
+ */
+export function AssistentKopf({
+  schritt,
+  styles,
+  colors,
+}: {
+  schritt: number;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Colors;
+}) {
+  return (
+    <View style={styles.assistentKopf}>
+      <View style={styles.assistentPunkte}>
+        {ASSISTENT_SCHRITTE.map((_, index) => (
+          <View
+            key={index}
+            style={[
+              styles.assistentPunkt,
+              index + 1 <= schritt && { backgroundColor: colors.accent },
+            ]}
+          />
+        ))}
+      </View>
+      <Text style={styles.assistentZaehler}>
+        Schritt {schritt} von {ASSISTENT_SCHRITTE.length}
+      </Text>
+      <Text style={styles.assistentFrage}>{ASSISTENT_SCHRITTE[schritt - 1]}</Text>
+    </View>
+  );
+}
+
+/**
+ * Und der Fuss: zurück, weiter - und der Ausgang.
+ *
+ * «Alles auf einmal» ist kein Beiwerk, sondern die Bedingung dafür, dass
+ * ein Assistent zumutbar ist: Wer weiss, was er will, soll nicht
+ * dreimal weitertippen müssen, und wer sich verklickt hat, soll nicht
+ * gefangen sein. Der Weg führt nur in eine Richtung - aus der Übersicht
+ * zurück in den Assistenten kommt man nicht, das wäre ein Rückschritt
+ * mitten in der Arbeit.
+ *
+ * Steht «Weiter» grau, steht darüber, warum. Ein Knopf, der nicht geht
+ * und nicht sagt warum, ist die häufigste Art, eine Maske zu verlassen.
+ */
+export function AssistentFuss({
+  schritt,
+  fehlt,
+  onZurueck,
+  onWeiter,
+  onUebersicht,
+  styles,
+  colors,
+}: {
+  schritt: number;
+  fehlt: string[];
+  onZurueck: () => void;
+  onWeiter: () => void;
+  onUebersicht: () => void;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Colors;
+}) {
+  const gesperrt = fehlt.length > 0;
+  return (
+    <View style={styles.assistentFuss}>
+      {gesperrt ? (
+        <Text style={styles.assistentHinweis}>{fehlt.join(' · ')}</Text>
+      ) : null}
+      <View style={styles.assistentKnoepfe}>
+        {schritt > 1 ? (
+          <Pressable
+            onPress={onZurueck}
+            accessibilityRole="button"
+            accessibilityLabel="Einen Schritt zurück"
+            style={({ pressed }) => [styles.assistentZurueck, pressed && { opacity: 0.7 }]}
+          >
+            <Ionicons name="chevron-back" size={16} color={colors.inkSoft} />
+            <Text style={styles.assistentZurueckText}>Zurück</Text>
+          </Pressable>
+        ) : (
+          <View style={{ flex: 1 }} />
+        )}
+        <Pressable
+          onPress={onWeiter}
+          disabled={gesperrt}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: gesperrt }}
+          accessibilityLabel="Weiter"
+          style={({ pressed }) => [
+            styles.assistentWeiter,
+            gesperrt && { opacity: 0.4 },
+            pressed && !gesperrt && { opacity: 0.8 },
+          ]}
+        >
+          <Text style={styles.assistentWeiterText}>Weiter</Text>
+          <Ionicons name="chevron-forward" size={16} color="#FFFFFF" />
+        </Pressable>
+      </View>
+      <Pressable
+        onPress={onUebersicht}
+        accessibilityRole="button"
+        style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.75 }]}
+      >
+        <Ionicons name="list-outline" size={16} color={colors.accent} />
+        <Text style={styles.addRowText}>Alles auf einmal zeigen</Text>
+      </Pressable>
+    </View>
+  );
+}

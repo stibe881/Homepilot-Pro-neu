@@ -5,7 +5,15 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Entity } from '../../api/types';
@@ -339,6 +347,7 @@ export function EditorRahmen({
   onCancel,
   onSave,
   saveGesperrt = false,
+  breit = false,
   children,
 }: {
   titel: string;
@@ -349,6 +358,15 @@ export function EditorRahmen({
    *  ist, sieht nach Fehler aus. Grau sieht nach «noch nicht» aus - und
    *  im Formular steht, was fehlt. */
   saveGesperrt?: boolean;
+  /** Darf der Inhalt die ganze Breite nehmen?
+   *
+   *  Gemessen im Browser: Bei 1180 Punkten Fensterbreite war die
+   *  Formularspalte 575 breit, und rechts blieben 605 Punkte leer -
+   *  während das Formular 2567 Punkte hoch war, also 2,7 Bildschirme.
+   *  Die 620er Grenze ist für *eine* Spalte richtig (längere Zeilen
+   *  liest niemand gern), für zwei nebeneinander aber genau das, was
+   *  den Editor zum Schlauch macht. */
+  breit?: boolean;
   children: React.ReactNode;
 }) {
   const colors = useColors();
@@ -398,6 +416,7 @@ export function EditorRahmen({
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={[
             styles.editorContent,
+            breit && styles.editorContentBreit,
             { paddingBottom: insets.bottom + 40 },
           ]}
         >
@@ -433,11 +452,57 @@ export function Field({ label, children }: { label: string; children: React.Reac
  * `zuklappbar` übernimmt, was vorher die Klappe tat - gleiche Regeln:
  * offen, sobald etwas drinsteht (`stand`), sonst zu.
  */
+/**
+ * Zwei Spalten, wo Platz ist - und untereinander, wo keiner ist.
+ *
+ * Ein Ablauf ist ein Satz: «Wenn … passiert, dann … tun.» Untereinander
+ * gestapelt sieht man nie beide Hälften auf einmal; auf dem iPad blieb
+ * dabei die halbe Breite leer, während man 2,7 Bildschirme scrollte.
+ * Nebeneinander steht der Satz da, wie er gemeint ist.
+ *
+ * Die Schwelle ist die Breite, ab der zwei Spalten je rund 500 Punkte
+ * bekommen - darunter wären es zwei Schläuche statt einem, und das ist
+ * schlechter als vorher.
+ */
+export const SPALTEN_AB = 980;
+
+export function Spalten({
+  links,
+  rechts,
+  aus = false,
+}: {
+  links: React.ReactNode;
+  rechts: React.ReactNode;
+  /** Untereinander, auch wenn Platz wäre - der Assistent zeigt einen
+   *  Abschnitt aufs Mal, und der gehört nicht in eine halbe Spalte. */
+  aus?: boolean;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { width } = useWindowDimensions();
+  if (aus || width < SPALTEN_AB) {
+    return (
+      <>
+        {links}
+        {rechts}
+      </>
+    );
+  }
+  return (
+    <View style={styles.spalten}>
+      <View style={styles.spalte}>{links}</View>
+      <View style={styles.spalte}>{rechts}</View>
+    </View>
+  );
+}
+
 export function Abschnitt({
   nummer,
   titel,
   stand,
   zuklappbar = false,
+  versteckt = false,
+  anfangsOffen,
   children,
 }: {
   nummer: string;
@@ -446,11 +511,28 @@ export function Abschnitt({
    *  Abschnitt von selbst. */
   stand?: string;
   zuklappbar?: boolean;
+  /** Ganz weg, ohne den Abschnitt anders aufzubauen.
+   *
+   *  Der Assistent zeigt einen Abschnitt aufs Mal. Ihn dort neu zu
+   *  bauen hiesse, dieselben Felder zweimal zu pflegen - und genau so
+   *  laufen zwei Oberflächen auseinander, die dasselbe bauen sollen. */
+  versteckt?: boolean;
+  /** Überstimmt, ob der Abschnitt offen anfängt.
+   *
+   *  «Steht etwas drin, geh auf» ist beim Anlegen richtig und beim
+   *  Bearbeiten falsch: Dort steht überall etwas drin, also stand alles
+   *  offen - und man scrollte an einem fertigen Ablauf vorbei, statt
+   *  ihn zu sehen. */
+  anfangsOffen?: boolean;
   children: React.ReactNode;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [offen, setOffen] = useState(!zuklappbar || !!stand);
+  const [offen, setOffen] = useState(
+    anfangsOffen ?? (!zuklappbar || !!stand)
+  );
+
+  if (versteckt) return null;
 
   return (
     <View style={styles.abschnitt}>

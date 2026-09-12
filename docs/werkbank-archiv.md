@@ -4410,6 +4410,17 @@ wofür der Broker nebenan eigens auf 127.0.0.1 eingesperrt ist.
 Gebraucht wird es hier nicht - der Hub liest die Themen selbst. Jetzt
 aus, mit einer Prüfung dagegen.
 
+**Dritter Nachtrag - alles blass.** Nach dem ersten Anlernen stand in
+der App kein einziges Zigbee-Gerät als erreichbar da, obwohl
+Zigbee2MQTT lief. Zwei Hälften, jede für sich richtig: Die Integration
+abonniert `<name>/availability` und legt jedes Gerät zunächst als nicht
+erreichbar an - ein Zigbee-Sensor meldet sich ja erst, wenn sich etwas
+ändert. In der Vorlage fehlte dagegen der Abschnitt `availability`, und
+Zigbee2MQTT hat ihn von Haus aus aus. Die Meldung, auf die der Hub
+wartet, kam also nie, und ein Erschütterungssensor wäre bis zum
+nächsten Rütteln grau geblieben. Jetzt `availability: enabled: true`,
+mit einer Prüfung, die beide Hälften zusammenbindet.
+
 Stellen: `docker-compose.yml`, `docker-compose.portainer.yml`, `deploy/mosquitto.conf`, `deploy/zigbee2mqtt.example.yaml`, `deploy/portainer.md`, `docs/zigbee.md`, `docs/integrationen.md`, `hub/config.example.yaml`, `hub/tests/test_compose_pfade.py`, `hub/tests/test_zigbee_stack.py`, `.gitignore`
 
 # Teil XII: Auf Zuruf (537)
@@ -4812,3 +4823,229 @@ einer Box weiterhin «stumm» und an einem Melder «Signal aus» -
 «Rauchmelder Flur stumm» liest sich sonst wie eine Lautstärke.
 
 Stellen: `hub/homepilot/integrations/zigbee2mqtt.py`, `hub/homepilot/integrations/demo.py`, `app/src/screens/automations/szenengeraete.ts`, `app/src/lib/ablaufsatz.ts`, `app/src/screens/automations/entwurf.ts`, `app/src/lib/rauchmelder.ts`, `app/src/screens/SystemScreen.tsx`, `app/src/screens/DashboardScreen.tsx`, `scripts/probe.mjs`
+
+### 545. Welchen Stand die App wirklich ausführt ✓ erledigt
+
+Gezeigt wurde der Hinweis, der seit je unter *System* steht: «Diese App
+führt nicht ihren eigenen Stand aus, sondern eine über die Luft
+nachgeladene Fassung – die kann älter sein als das, was TestFlight
+gerade gebracht hat. Fehlt eine Änderung, die im Build drin sein müsste,
+ist das der wahrscheinliche Grund.»
+
+**Der Satz stimmt und hilft trotzdem nicht.** Er nennt eine
+Möglichkeit, und wer ihn liest, weiss danach genau so wenig wie vorher:
+*Ist* sie es? Die einzige Art, das herauszufinden, war die App zweimal
+wegzuwischen und nachzusehen, ob die Änderung nun da ist. Das ist keine
+Auskunft, das ist eine Aufgabe.
+
+**Dabei hatte die Seite die Antwort schon halb in der Hand.** Der Hub
+nennt seinen Commit seit je («HomePilot 0.2.0 · Stand a1b2c3d»), die
+Web-Fassung schreibt ihn in ihre `version.json` - nur die App wusste von
+sich selbst bloss, *wann* sie gebaut wurde, nicht *woraus*. Sie war die
+Lücke zwischen zwei Angaben, die es längst gab.
+
+**Der Stand kommt jetzt aus der `app.json`.** `rebuild-hub.sh` schreibt
+ihn dort hinein, mit demselben `sed`, das schon die Build-Nummer setzt -
+und damit an genau der Stelle, die in beides wandert: in den iOS-Build
+(das Abbild nimmt die Datei mit hinein) und in die OTA-Fassung, weil
+`eas update` die Konfiguration in sein Manifest legt. Jede Fassung trägt
+so den Stand, aus dem sie wirklich entstand, nachgeladen oder nicht.
+
+**Geraten wird nichts.** Aus zwei Commit-Kennungen lässt sich die
+Reihenfolge nicht ablesen; «älter» oder «neuer» stünde da auf Verdacht.
+Der Satz nennt darum beide Stände und was daraus folgt - «eine Änderung,
+die nur auf einer der beiden Seiten liegt, fehlt darum auf der anderen»
+- und der alte Hinweis erscheint nur noch, wenn wirklich etwas
+auseinandergeht. Stimmen beide überein, steht dort die Bestätigung, die
+man nach einem Update sucht.
+
+**Eine App von vor diesem Punkt schweigt.** In der `app.json` steht
+`"unbekannt"`, bis der Bau den echten Stand hineinschreibt; «unbekannt ≠
+a1b2c3d» wäre eine Warnung über nichts.
+
+Nebenbei hiess dieselbe Karte zweimal «Stand» und meinte einmal einen
+Commit und einmal ein Datum. Das Datum heisst jetzt «gebaut».
+
+Nur mit Tests belegt und nicht in der Browser-Probe: Der ganze Abschnitt
+erscheint auf dem Web gar nicht (dort gibt es keine nachgeladenen
+Fassungen, dafür `WebVersionNote`). Was nur nativ passiert, beantwortet
+der Browser nicht.
+
+Stellen: `app/src/lib/appstand.ts`, `app/src/screens/SystemScreen.tsx`, `app/app.json`, `deploy/rebuild-hub.sh`, `CLAUDE.md`
+
+### 546. «unknown» in grossen Buchstaben auf frischen Kacheln ✓ erledigt
+
+*lohnt sich · Aufwand: klein · App*
+
+Vier frisch angelernte Zigbee-Klimafühler standen auf der Geräteseite
+mit **unknown** als Messwert - in der grössten Schrift, die die Kachel
+hat. Das sieht aus wie ein Defekt und ist keiner: Der Hub setzt genau
+diesen Platzhalter, bis ein Gerät sich zum ersten Mal meldet
+(`integrations/zigbee2mqtt.py`), und ein Zigbee-Sensor meldet sich erst,
+wenn sich etwas ändert. Nach der ersten Messung steht dort «21.5 °C».
+
+`format()` in `components/entity/teile.tsx` reichte unbekannte Werte
+unverändert durch. Das ist für einen echten Fehlerwert richtig - «error»
+auf der Kachel ist hässlich, aber wahr und man kann danach suchen. Für
+den eigenen Platzhalter ist es nur ein englisches Wort aus dem Inneren,
+das nach aussen dringt. Jetzt wird das knappe Häufchen Werte, die
+ausdrücklich «noch keine Messung» heissen (`unknown`, `unavailable`,
+`none`, `null`, leer), zum Strich; alles andere bleibt, wie es kommt.
+
+Stellen: `app/src/components/entity/teile.tsx`, `app/src/components/entity/teile.test.ts`
+
+### 547. Der Nachlauf zählt ab der letzten Bewegung ✓ erledigt
+
+Gemeldet im Haus: «Wenn ich bei Abläufen eine Zeit angebe, wie lange es
+an sein soll, schaltet es nach dieser Zeit aus. Auch wenn in der
+Zwischenzeit wieder eine Bewegung erkannt wurde.»
+
+**Der Hub verlängerte den Nachlauf durchaus - nur kam die Verlängerung
+nie an.** `_plan_off` führt je Lampe genau einen Zeitgeber und
+überschreibt ihn bei jedem neuen Auslöser; ein Test hält das seit je
+fest (`test_motion_light_stays_on_while_there_is_movement`). Die
+Verlängerung hängt aber daran, dass der Melder *erneut auslöst* - und
+genau das tut ein echter Melder nicht, solange jemand im Raum steht. Er
+meldet einmal «on» und bleibt darauf, bis es ruhig wird. Ein zweites
+«on» ist für den Hub «nichts geändert» und löst nichts aus.
+
+Das Licht ging deshalb mitten im Betrieb aus - und der Melder konnte es
+nicht einmal wieder anschalten, weil er ja nie auf «off» gewesen war.
+Man stand im dunklen Flur und musste erst hinaus und wieder hinein.
+
+**Also wird am Ende der Frist nachgesehen statt ausgeschaltet.** Sagt
+der Melder immer noch «Bewegung», ist die letzte Bewegung *jetzt*, und
+die Frist zählt von vorn (`core/light.py`, `bewegung_haelt_an`). Nicht
+auf den nächsten Auslöser warten, sondern den Zustand lesen: Der steht
+ohnehin da.
+
+**Nur Melder, und im Zweifel nein.** Ein Fensterkontakt, den der Hub für
+einen Bewegungsmelder hielte, hielte das Licht an, solange das Fenster
+offen steht. Und ein Ablauf ohne Melder - «um 18:00 das Licht an» - hat
+gar keinen Auslöser mit Zustand; dort gilt die Zeit wie bisher.
+
+**Der Preis, mit offenen Augen:** Ein Melder, der auf «on» hängen
+bleibt - ein verlorenes «off» kommt bei Funkmeldern vor -, hält das
+Licht an, bis ihn jemand richtet oder das Licht von Hand ausschaltet.
+Das ist die richtige Lesart der Auskunft, die der Hub hat: Solange das
+Gerät Bewegung meldet, ist Ausschalten falsch. Der umgekehrte Fehler
+traf jeden Abend, dieser trifft ein defektes Gerät - und er ist
+sichtbar.
+
+**Zwei alte Tests hielten genau den Fehler fest.** Sie schalteten den
+Melder an und liessen ihn an, während sie erwarteten, dass das Licht
+ausgeht. Sie lassen jetzt erst Ruhe einkehren - so, wie es im Flur
+zugeht.
+
+Und die Zahl sagt jetzt selbst, was sie heisst: «Zählt ab der letzten
+Bewegung.» Sie sah aus wie ein harter Zeitgeber und wurde auch so
+gelesen.
+
+Stellen: `hub/homepilot/core/light.py`, `hub/homepilot/core/automation.py`, `app/src/screens/automations/szenen-editor.tsx`
+
+### 548. Ein Zigbee-Fühler ohne Einheit ist nur eine Zahl ✓ erledigt
+
+*lohnt sich · Aufwand: klein · Hub*
+
+Im Haus aufgefallen: In der Waschküche steht die Temperatur im Raumkopf
+(Homematic, «Temperatur Rack»), im Wohnzimmer nicht - dort hängt ein
+Aqara-Fühler über Zigbee. Und beim Aqara fehlte im Anpassen-Blatt die
+Zeile «Gilt für: nur diesen Raum / das ganze Haus», beim Homematic war
+sie da. Zwei Symptome, eine Ursache.
+
+Die App erkennt einen Klimafühler an der **Einheit**, nicht am Namen
+(`lib/klimachip.ts`, Punkt 467). Das ist mit Bedacht so: Ein
+Prozentwert kann Feuchte, Batteriestand oder die Auslastung eines
+Funkmoduls sein, und «°C» kann vom Grill kommen. `istKlimaFuehler()`
+prüft deshalb `state.unit` - und die Zigbee-Integration setzte nie
+eine. Für Melder vergab sie eine `device_class` (Rauch, Bewegung,
+Kontakt), für Messfühler gar nichts: Der Aqara lieferte eine nackte
+Zahl.
+
+Daran hängt mehr, als man beim Lesen der einen Zeile vermutet:
+`klimaKandidaten()` für Raumkopf und Kopfzeile, der Hitze-Hinweis, und
+eben die Zeile «Gilt für» in `EntityCard.tsx`. Ohne sie liess sich der
+Fühler nicht einmal *bitten*, in die Kopfzeile zu kommen - die
+Einstellung, mit der man es sagen würde, stand gar nicht da.
+
+Jetzt bringt jede Sensorkachel Einheit und Art ihres Hauptwerts mit
+(`messwert_merkmale`), und zwar schon beim Anlegen und nicht erst mit
+der ersten Meldung: Ein Fühler, der sich tagelang nicht rührt, wäre
+sonst so lange eine Zahl ohne Bedeutung. Bei Meldern sticht weiterhin
+die Klasse des Melders - ein Bewegungsmelder, der nebenbei Helligkeit
+misst, ist ein Bewegungsmelder, und die Alarmanlage entscheidet daran,
+ob er nachts mitwacht.
+
+Stellen: `hub/homepilot/integrations/zigbee2mqtt.py`, `hub/tests/test_zigbee2mqtt.py`
+
+
+### 549. Wetter und Musik gehören nicht unter die Geräteliste ✓ erledigt
+
+Gemeldet im Haus, mit Bild: «Bei Einstellungen → Geräte sollen diese
+Karten entfernt werden» - die Wetterkarte mit Wochenvorhersage und der
+Musikplayer der Wohnung, beide unter der Geräteliste.
+
+**Dieselbe Überlegung wie im Zimmer und auf der Raumliste, nur
+schärfer.** Die Spalte rechts trägt, was man sehen will, wo man stehen
+bleibt: Wetter und Hausmusik auf der Startseite. Geräte ist das
+Gegenteil davon - dort sucht man ein *bestimmtes* Gerät, mit Suchfeld,
+Filterknöpfen und Sortierung darüber. Das Wetter von Zell beantwortet
+keine Frage, die man dabei stellt. Auf dem Telefon standen die beiden
+Karten unter der Liste und schoben sie unter den Rand; auf dem iPad
+kosteten sie eine Kachelspalte.
+
+Die Entscheidung lag schon an der richtigen Stelle
+(`lib/seitenspalte.ts`) - der Geräteliste fehlte bloss ihr Fall.
+
+**Die Probe misst es mit Gegenprobe.** Auf der Startseite *muss* die
+Musikkarte stehen: Ohne diese Zeile wäre die Messung auch für eine App
+grün, in der die Spalte überall fehlt. Dieselbe Falle gab es hier schon
+einmal (Punkt 509).
+
+**Die Wetterkarte bleibt dort ungemessen, und das steht auch so da.**
+Der Prüfstand führt eine Wetter*warnung*, aber kein Gerät der Art
+«weather» - eine Zeile «keine Wetterkarte» wäre immer grün gewesen,
+ohne etwas zu prüfen. Der Versuch, dem Demo-Hub ein Wettergerät zu
+geben, riss prompt sechs fremde Tests mit: Wer in seinem Test ein
+eigenes Wetter anlegt, bekam plötzlich das der Demo. Beide Hälften der
+Spalte hängen ohnehin an derselben Entscheidung, und die ist im Test
+der reinen Funktion geprüft - für beide.
+
+Licht, Storen und Kameras behalten die Spalte vorerst: Dort bedient man
+Geräte, statt eines zu suchen. Gebeten wurde um die Geräteliste.
+
+Stellen: `app/src/lib/seitenspalte.ts`, `app/src/components/SidePanel.tsx`, `app/src/screens/DashboardScreen.tsx`, `scripts/probe.mjs`
+
+### 550. Einrichten und Werkzeug gehören ans Ende der Geräteliste ✓ erledigt
+
+Gemeldet im Haus, mit Bild: «Die Karte ‹Noch einzurichten› und
+‹Werkzeuge› sollen ganz unten angezeigt werden und sollen ausserdem
+eingeklappt sein.»
+
+**Beide standen über der Liste - also vor dem, weswegen man die Seite
+öffnet.** Auf dem Bild: 78 Geräte ohne Raum, aufgeklappt, eine
+Bildschirmlänge lang. Wer ein bestimmtes Gerät suchte, scrollte jedes
+Mal daran vorbei. Einrichten tut man einmal je Gerät, aufräumen ein
+paarmal im Jahr; gesucht wird täglich - und was am seltensten gebraucht
+wird, gehört nach unten.
+
+**Zugeklappt, aber nicht verschwunden.** «Noch einzurichten» behält
+seine Zeile «78 ohne Raum, 2 mit dem Namen aus der Verpackung»: Das ist
+die Auskunft, an der man entscheidet, ob sich das Aufmachen lohnt. Eine
+Karte, die zugeklappt gar nichts mehr sagt, hätte man ebenso gut
+löschen können.
+
+Die Meldung der Werkzeuge («Umgehängt: …», «Nichts umzuhängen») steht
+ausserhalb des Zugeklappten: Was ein Knopf gemeldet hat, darf nicht
+verschwinden, weil man die Karte danach zumacht.
+
+**Die Probe misst beides, und zwar gegen etwas.** «Unten» ohne Bezug
+wäre keine Messung - die beiden Karten lagen vorher schon
+untereinander, nur eben über der Liste. Gemessen wird darum gegen eine
+Gerätekachel: Mit dem alten Stand meldet die Probe «Karte bei 449,
+Kachel bei 2352». Dass zugeklappt wirklich zugeklappt ist, hat seine
+eigene Gegenprobe: Nach einem Tipp auf «Werkzeuge» muss der Knopf da
+sein, sonst wäre die Messung auch für eine App grün, in der es die
+Karte gar nicht mehr gibt.
+
+Stellen: `app/src/screens/DashboardScreen.tsx`, `app/src/components/Einrichtungshilfe.tsx`, `app/src/components/DeviceTools.tsx`, `scripts/probe.mjs`

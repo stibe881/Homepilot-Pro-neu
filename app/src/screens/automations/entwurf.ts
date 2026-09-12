@@ -1541,6 +1541,28 @@ export const TRIGGER_KIND_ICON: Record<TriggerKind, keyof typeof Ionicons.glyphM
   window: 'timer-outline',
 };
 
+/**
+ * Ein Wort je Auslöser-Art - für die Zeile, die zugeklappt im Kopf steht.
+ *
+ * Die Kacheln im Editor beschriften sich teils abhängig vom gewählten
+ * Gerät («Taster gedrückt» statt «Gerät wechselt»); hier genügt das
+ * kürzere Wort, denn daneben steht ohnehin der Gerätename.
+ */
+export const TRIGGER_WORT: Record<TriggerKind, string> = {
+  state: 'Gerät wechselt',
+  threshold: 'Messwert',
+  interval: 'Regelmässig',
+  time: 'Uhrzeit',
+  sun: 'Sonnenstand',
+  calendar: 'Termin',
+  geofence: 'Ort',
+  presence: 'Person kommt/geht',
+  weather_warning: 'Wetterwarnung',
+  power_restore: 'Nach Stromausfall',
+  availability: 'Meldet sich nicht',
+  window: 'Zeitraum',
+};
+
 /** Dieselbe Idee für die Art eines Schritts (Kachelauswahl beim Bauen
  *  einer Aktion). */
 export const STEP_KIND_ICON: Record<StepKind, keyof typeof Ionicons.glyphMap> = {
@@ -2612,6 +2634,59 @@ const AUSLOESER_MIT_GERAET: readonly TriggerKind[] = [
  * Reihenfolge ist die des Formulars, damit man von oben nach unten
  * abarbeiten kann.
  */
+// ── Der geführte Weg für einen neuen Ablauf ─────────────────────────────
+//
+// Gemeldet: «Einen Ablauf erstellen oder bearbeiten ist eine
+// Katastrophe. Unübersichtlich, nicht intuitiv, verwirrend.»
+//
+// Für einen *bestehenden* Ablauf ist die Übersicht die Antwort: alles
+// auf einem Bildschirm, jeder Abschnitt zugeklappt mit seinem Stand.
+// Für einen *neuen* ist sie es nicht - dort steht man vor fünf leeren
+// Abschnitten und weiss nicht, wo man anfängt. Deshalb fragt der
+// Assistent nacheinander: erst wann, dann was, dann wie er heissen
+// soll.
+//
+// Er ist kein zweiter Editor, sondern derselbe mit einem Fenster davor:
+// Es sind dieselben Abschnitte, nur zeigt er jeweils einen. Zwei
+// Oberflächen, die dasselbe bauen, laufen sonst auseinander - das ist
+// der Fehler, den diese Datei an anderer Stelle schon einmal gekostet
+// hat.
+
+/** Die Überschriften der drei Schritte - eine Frage je Schritt. */
+export const ASSISTENT_SCHRITTE = [
+  'Wann soll es losgehen?',
+  'Was soll dann passieren?',
+  'Passt das so?',
+];
+
+/**
+ * Fängt dieser Entwurf bei null an? (rein, testbar)
+ *
+ * Nur dann führt der Assistent. Ein bestehender Ablauf und eine
+ * vorbefüllte Vorlage öffnen direkt die Übersicht: Wer eine Kleinigkeit
+ * ändern will, soll sich nicht durch drei Schritte klicken.
+ */
+export function assistentNoetig(draft: Draft): boolean {
+  if (draft.id || draft.templateId) return false;
+  const wenn = wasFehlt(draft).some(
+    (zeile) => zeile.startsWith('Wenn') || zeile.startsWith('Auslöser')
+  );
+  const dann = stepsToActions(draft.steps).length === 0;
+  return wenn && dann;
+}
+
+/** Was im «Wenn» noch fehlt (rein, testbar). */
+export function wennFehlt(draft: Draft): string[] {
+  return wasFehlt(draft).filter(
+    (zeile) => zeile.startsWith('Wenn') || zeile.startsWith('Auslöser')
+  );
+}
+
+/** Und was im «Dann» (rein, testbar). */
+export function dannFehlt(draft: Draft): string[] {
+  return wasFehlt(draft).filter((zeile) => zeile.startsWith('Dann'));
+}
+
 export function wasFehlt(draft: Draft): string[] {
   const fehlt: string[] = [];
 
@@ -2781,6 +2856,60 @@ export function angabenStand(draft: Draft): string {
 }
 
 /** Was im zugeklappten «sonst» steht (rein, testbar). */
+/**
+ * Was im «Wenn» steht, in einer Zeile (rein, testbar).
+ *
+ * Zugeklappt steht das im Kopf des Abschnitts. Ohne diese Zeile hiesse
+ * Zuklappen «verstecken» - und dann macht man es beim Bearbeiten sofort
+ * wieder auf, womit nichts gewonnen wäre.
+ */
+export function wennStand(draft: Draft, entities: Entity[]): string {
+  const namen = draft.triggers
+    .map((trigger) => {
+      // Wo ein Gerät dranhängt, ist sein Name die bessere Auskunft als
+      // die Art: «Bewegung Flur» sagt mehr als «Gerät wechselt».
+      const entity = entities.find((eintrag) => eintrag.id === trigger.entityId);
+      if (entity) return entity.name;
+      // Ein Auslöser, der ein Gerät bräuchte und keines hat, ist noch
+      // nichts - «Gerät wechselt» im Kopf zu behaupten wäre falsch, und
+      // beim leeren neuen Ablauf stünde es sofort da.
+      if (AUSLOESER_MIT_GERAET.includes(trigger.kind)) return '';
+      return TRIGGER_WORT[trigger.kind] || '';
+    })
+    .filter(Boolean);
+  if (namen.length === 0) return '';
+  if (namen.length <= 2) return namen.join(' oder ');
+  return `${namen.length} Auslöser`;
+}
+
+/** Und dasselbe fürs «Dann» (rein, testbar). */
+export function dannStand(draft: Draft, entities: Entity[]): string {
+  // Was dabei herauskommt zählt, nicht wie viele Schritte dastehen: Ein
+  // Schritt «Gerät schalten» ohne angekreuztes Gerät sieht im Formular
+  // aus wie einer und tut nichts. «1 Schritt» im Kopf eines leeren
+  // neuen Ablaufs wäre eine Behauptung.
+  if (stepsToActions(draft.steps).length === 0) return '';
+  const anzahl = draft.steps.length;
+  if (anzahl === 0) return '';
+  const erstesGeraet = draft.steps
+    .flatMap((step) => step.commandActions ?? [])
+    .map((aktion) => entities.find((eintrag) => eintrag.id === aktion.entity_id)?.name)
+    .find(Boolean);
+  if (anzahl === 1 && erstesGeraet) return erstesGeraet;
+  return anzahl === 1 ? '1 Schritt' : `${anzahl} Schritte`;
+}
+
+/** Und für die Feineinstellungen (rein, testbar). */
+export function feinStand(draft: Draft): string {
+  const teile: string[] = [];
+  if (draft.cooldownMinutes) teile.push(minutenLabel(draft.cooldownMinutes));
+  if (draft.gueltigBis) teile.push(`bis ${draft.gueltigBis}`);
+  if (draft.reihenfolge && draft.reihenfolge !== '0') {
+    teile.push(`Reihenfolge ${draft.reihenfolge}`);
+  }
+  return teile.join(' · ');
+}
+
 export function sonstStand(draft: Draft): string {
   const anzahl = draft.elseSteps.length;
   if (anzahl === 0) return '';

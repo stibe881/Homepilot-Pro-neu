@@ -307,6 +307,15 @@ Zwei Dinge, die dabei überraschen:
   `npm run release:ios` ruft es von sich aus auf.
 - Die `buildNumber` in der `app.json` ist damit nur noch ein Startwert.
   Sie mit einzuchecken ist nicht mehr nötig.
+- Dasselbe gilt für `extra.commit` (Punkt 545): Im Repo steht dort
+  `"unbekannt"`, und `rebuild-hub.sh` schreibt vor dem Bau den echten
+  Stand hinein. Von dort wandert er in **beides** - in den iOS-Build und
+  in die OTA-Fassung, weil `eas update` die Konfiguration in sein
+  Manifest legt. Unter *System* steht er dann neben dem Stand des Hubs,
+  und erst dieser Vergleich beantwortet die Frage, die der Hinweis
+  «eine nachgeladene Fassung kann älter sein» jahrelang offen liess:
+  *ist* sie es? Von Hand nichts daran ändern - ein eingecheckter Commit
+  wäre nach dem nächsten Push eine Lüge.
 
 Unter *System* zeigt die App, welchen Stand sie ausführt und ob er
 mitgeliefert oder nachgeladen ist.

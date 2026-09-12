@@ -3582,41 +3582,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             />
           ) : null}
 
-          {/* Was der Hub selbst gefunden hat, steht danach als Kachel da:
-              mit dem Namen aus der Verpackung und ohne Raum. Hier stehen
-              genau diese Geräte zusammen, statt dass man sie einzeln in
-              der Liste suchen muss. Ist nichts offen, zeigt die Karte
-              sich gar nicht erst. */}
-          {section === 'devices' && darfAnpassen ? (
-            <Einrichtungshilfe
-              entities={entities}
-              raeume={rooms.filter((name) => name !== ALL_ROOMS)}
-              onRaum={(entityId, raum) => setEntityRoom(entityId, [raum])}
-              onName={(entityId, name) => setEntityMeta(entityId, { name })}
-            />
-          ) : null}
-
-          {/* Immer sichtbar, solange man unter Geräte steht. Vorher
-              verschwand die Karte im Anpassen-Modus und beim Suchen -
-              also in genau den beiden Lagen, aus denen heraus man sie
-              braucht: Wer eine Kachel anpasst, richtet ein; wer sucht,
-              hat das Gerät gerade gefunden, um das es geht. */}
-          {section === 'devices' && istBesitzer ? (
-            <DeviceTools
-              settings={settings}
-              headers={{ Authorization: `Bearer ${settings.token}` }}
-              entities={shown}
-              // Ersetzen braucht den ganzen Bestand: Das neue Gerät heisst
-              // fast nie wie das alte, und wer nach «nuki» sucht, findet
-              // ein «Smart Lock Pro» nicht - hätte es dann aber auch nicht
-              // zur Auswahl.
-              alle={entities}
-              rooms={roomOrder}
-              groups={groupNames}
-              onDone={reloadScenes}
-            />
-          ) : null}
-
           {/* Leuchten zusammenfassen prägt die Ansicht für alle im Haus
               und ist damit Einrichtung, nicht Bedienung: Die Karte
               bleibt bei der Besitzerin. Ohne diese Bedingung stand sie
@@ -3913,6 +3878,45 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               onAktion={() => setSection('devices')}
             />
           ) : null}
+
+          {/* Einrichten und Werkzeug ganz zuletzt (Punkt 550).
+              Beides standen sie über der Geräteliste - also vor dem,
+              weswegen man die Seite öffnet. Bei achtzig Geräten ohne
+              Raum war «Noch einzurichten» eine Bildschirmlänge, durch
+              die man jedes Mal scrollte, um an ein Gerät zu kommen.
+              Einrichten tut man einmal je Gerät, aufräumen ein paarmal
+              im Jahr; gesucht wird täglich. Beide Karten sind zudem
+              zugeklappt - «Noch einzurichten» behält seine Zeile
+              «78 ohne Raum», damit man sieht, ob sich das Aufmachen
+              lohnt. */}
+          {section === 'devices' && darfAnpassen ? (
+            <Einrichtungshilfe
+              entities={entities}
+              raeume={rooms.filter((name) => name !== ALL_ROOMS)}
+              onRaum={(entityId, raum) => setEntityRoom(entityId, [raum])}
+              onName={(entityId, name) => setEntityMeta(entityId, { name })}
+            />
+          ) : null}
+
+          {/* Auch im Anpassen-Modus und beim Suchen da: genau die beiden
+              Lagen, aus denen heraus man die Werkzeuge braucht. Wer eine
+              Kachel anpasst, richtet ein; wer sucht, hat das Gerät
+              gerade gefunden, um das es geht. */}
+          {section === 'devices' && istBesitzer ? (
+            <DeviceTools
+              settings={settings}
+              headers={{ Authorization: `Bearer ${settings.token}` }}
+              entities={shown}
+              // Ersetzen braucht den ganzen Bestand: Das neue Gerät heisst
+              // fast nie wie das alte, und wer nach «nuki» sucht, findet
+              // ein «Smart Lock Pro» nicht - hätte es dann aber auch nicht
+              // zur Auswahl.
+              alle={entities}
+              rooms={roomOrder}
+              groups={groupNames}
+              onDone={reloadScenes}
+            />
+          ) : null}
         </View>
 
         {/* Im Zimmer bleibt die Spalte ganz weg: Wetter und die Musik
@@ -3928,6 +3932,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           // Zimmer, und die Raumkacheln leben von der Breite ihrer
           // Fotos (lib/seitenspalte.ts).
           roomList={section === 'home' && room === ALL_ROOMS}
+          // Und die Geräteliste ebenso wenig (Punkt 549): Dort sucht
+          // man ein bestimmtes Gerät, mit Suchfeld und Filtern darüber.
+          deviceList={section === 'devices'}
           onCommand={guardedCommand}
         />
       </View>

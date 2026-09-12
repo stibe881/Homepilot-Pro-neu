@@ -143,6 +143,69 @@ def lux_sources(triggers: list[dict[str, Any]]) -> list[str]:
     return ids
 
 
+#: Geräteklassen, die Anwesenheit melden. Dieselben drei, an denen auch
+#: die Alarmanlage entscheidet (integrations/alarm_rules.ist_bewegung) und
+#: die App (lib/bewegung.ts) - hier erneut, weil der Kern nicht von einer
+#: Integration abhängen soll.
+BEWEGUNG_KLASSEN = ("motion", "occupancy", "presence")
+
+#: Wortteile, an denen ein Melder ohne Geräteklasse zu erkennen ist.
+BEWEGUNGSWOERTER = ("bewegung", "praesenz", "präsenz", "motion", "presence", "occupancy")
+
+
+def ist_melder(entity: Any) -> bool:
+    """Meldet dieses Gerät Bewegung oder Anwesenheit? (rein, testbar)
+
+    Im Zweifel ``False``: Ein Fensterkontakt, den der Hub für einen
+    Bewegungsmelder hielte, hielte das Licht an, solange das Fenster
+    offen steht.
+    """
+    if getattr(entity, "kind", None) != "binary_sensor":
+        return False
+    zustand = getattr(entity, "state", None) or {}
+    klasse = str(zustand.get("device_class") or "").strip().lower()
+    if klasse:
+        return klasse in BEWEGUNG_KLASSEN
+    name = f"{getattr(entity, 'name', '')} {getattr(entity, 'id', '')}".lower()
+    return any(wort in name for wort in BEWEGUNGSWOERTER)
+
+
+def bewegung_haelt_an(entities: Any, ids: list[str]) -> bool:
+    """Steht einer der Auslöser immer noch auf «Bewegung»? (rein, testbar)
+
+    Der gemeldete Fall: «Wenn ich bei Abläufen eine Zeit angebe, wie
+    lange es an sein soll, schaltet es nach dieser Zeit aus. Auch wenn in
+    der Zwischenzeit wieder eine Bewegung erkannt wurde.»
+
+    Der Nachlauf beginnt neu, sobald der Melder erneut auslöst - aber
+    genau das tut ein echter Melder nicht, solange jemand im Raum steht.
+    Er meldet einmal «on» und bleibt darauf, bis es ruhig wird; ein
+    zweites «on» ist für den Hub «nichts geändert» und löst nichts aus.
+    Das Licht ging deshalb mitten im Betrieb aus, und der Melder konnte
+    es nicht einmal wieder anschalten, weil er ja nie auf «off» war.
+
+    Darum wird vor dem Ausschalten nicht auf den *nächsten* Auslöser
+    gewartet, sondern nachgesehen, was der Melder gerade sagt. Sagt er
+    «Bewegung», ist die letzte Bewegung jetzt - und der Nachlauf zählt
+    von vorn.
+
+    Nur Melder: Ein Ablauf, der um 18:00 auslöst, hat gar keinen, und
+    dann gilt die Zeit wie bisher.
+    """
+    gesucht = set(ids or ())
+    if not gesucht:
+        return False
+    for entity in entities or []:
+        if getattr(entity, "id", None) not in gesucht:
+            continue
+        if not ist_melder(entity):
+            continue
+        zustand = getattr(entity, "state", None) or {}
+        if str(zustand.get("state") or "").strip().lower() == "on":
+            return True
+    return False
+
+
 # Zustände, die als «an» zählen. Dieselbe Liste führt die group-Integration
 # für ihre eigene Frage («ist die Leuchte an?») – hier steht sie erneut,
 # weil der Kern nicht von einer Integration abhängen soll.

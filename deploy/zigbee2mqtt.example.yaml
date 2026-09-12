@@ -54,6 +54,23 @@ permit_join: false
 homeassistant:
   enabled: false
 
+# An, und das ist hier keine Geschmacksfrage.
+#
+# Der Hub abonniert `<name>/availability` und legt jedes Gerät zunächst
+# als *nicht erreichbar* an - ein Zigbee-Sensor meldet sich ja erst,
+# wenn sich etwas ändert. Bleibt dieser Abschnitt weg, steht er bei
+# Zigbee2MQTT auf `false`, die Meldungen kommen nie, und in der App ist
+# nach jedem Neustart des Hubs das ganze Zigbee-Netz blass. Bei einem
+# Erschütterungssensor bis zum nächsten Mal, an dem jemand daran
+# rüttelt.
+#
+# Batterien kostet das nichts: Aktiv angefragt werden nur Geräte am
+# Strom. Batteriegeräte gelten nach `passive.timeout` Minuten ohne
+# Lebenszeichen als weg - 25 Stunden, grosszügig genug für einen
+# Fensterkontakt, der tagelang zubleibt.
+availability:
+  enabled: true
+
 advanced:
   # Aus. Zigbee2MQTT sagt es in seinem eigenen Schema deutlich: «can
   # execute arbitrary user-provided code».

@@ -27,6 +27,7 @@ from homepilot.core.light import (
     NACHT_ENDE,
     TAG_BEGINN,
     TAG_ENDE,
+    bewegung_haelt_an,
     brightness_from_lux,
     brightness_from_time,
     raum_lux,
@@ -491,6 +492,11 @@ async def test_das_licht_geht_nach_der_nachlaufzeit_von_selbst_aus():
         await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
         await settle()
         assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
+        # Es wird wieder ruhig - erst ab hier zählt die Nachlaufzeit
+        # (Punkt 547). Vorher stand der Melder in diesem Test noch auf
+        # «Bewegung», während das Licht ausging: genau der gemeldete
+        # Fehler, nur als Erwartung festgeschrieben.
+        await hub.integrations.dispatch_command("demo.motion_hall", "turn_off")
         await asyncio.sleep(0.1)
         assert hub.registry.get("demo.light_livingroom").state["state"] == "off"
     finally:
@@ -549,6 +555,7 @@ async def test_wer_selbst_ausschaltet_wird_nicht_ueberstimmt():
     try:
         await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
         await settle()
+        await hub.integrations.dispatch_command("demo.motion_hall", "turn_off")
         await hub.integrations.dispatch_command("demo.light_livingroom", "turn_on")
         await hub.registry.update_state("demo.light_livingroom", {"brightness": 100})
         await asyncio.sleep(0.1)
@@ -575,3 +582,122 @@ async def test_ein_offener_nachlauf_ueberlebt_den_halt():
             "command": "turn_off",
         }
     ]
+
+
+# ── Der Nachlauf zählt ab der letzten Bewegung (Punkt 547) ───────────────
+
+
+def test_ein_melder_auf_on_heisst_die_bewegung_haelt_an():
+    """Die Entscheidung für sich, ohne Hub."""
+    melder = Entity(
+        id="test.melder",
+        kind="binary_sensor",
+        name="Bewegung Flur",
+        integration="test",
+        state={"state": "on", "device_class": "motion"},
+    )
+    assert bewegung_haelt_an([melder], ["test.melder"]) is True
+    melder.state["state"] = "off"
+    assert bewegung_haelt_an([melder], ["test.melder"]) is False
+
+
+def test_ein_fensterkontakt_haelt_kein_licht_an():
+    """Im Zweifel nein.
+
+    Ein Kontakt, den der Hub für einen Bewegungsmelder hielte, hielte das
+    Licht an, solange das Fenster offen steht.
+    """
+    kontakt = Entity(
+        id="test.fenster",
+        kind="binary_sensor",
+        name="Fenster Küche",
+        integration="test",
+        state={"state": "on", "device_class": "contact"},
+    )
+    assert bewegung_haelt_an([kontakt], ["test.fenster"]) is False
+
+
+def test_ohne_melder_gilt_die_zeit_wie_bisher():
+    """«Um 18:00 das Licht an» hat gar keinen Auslöser mit Zustand."""
+    assert bewegung_haelt_an([], []) is False
+
+
+def test_ein_melder_ohne_geraeteklasse_zaehlt_ueber_den_namen():
+    # Nicht jede Integration schickt eine Klasse mit.
+    melder = Entity(
+        id="hm.bewegung_flur",
+        kind="binary_sensor",
+        name="Bewegung Flur",
+        integration="homematic",
+        state={"state": "on"},
+    )
+    assert bewegung_haelt_an([melder], ["hm.bewegung_flur"]) is True
+
+
+@pytest.mark.asyncio
+async def test_das_licht_bleibt_an_solange_der_melder_bewegung_meldet():
+    """Der gemeldete Fall.
+
+    «Wenn ich bei Abläufen eine Zeit angebe, wie lange es an sein soll,
+    schaltet es nach dieser Zeit aus. Auch wenn in der Zwischenzeit
+    wieder eine Bewegung erkannt wurde.»
+
+    Ein echter Melder meldet einmal «on» und bleibt darauf, bis es ruhig
+    wird - ein zweites «on» ist für den Hub «nichts geändert» und löst
+    nichts aus. Das Licht ging deshalb mitten im Betrieb aus, und der
+    Melder konnte es nicht einmal wieder anschalten, weil er nie auf
+    «off» war.
+    """
+    hub = await hub_mit(
+        [{**NACHLAUF, "action": [{**NACHLAUF["action"][0], "off_after": 0.3}]}]
+    )
+    try:
+        licht = "demo.light_livingroom"
+        await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
+        await settle()
+        assert hub.registry.get(licht).state["state"] == "on"
+
+        # Der Mensch steht weiter im Flur: Der Melder bleibt auf «on»,
+        # ohne je erneut auszulösen.
+        await asyncio.sleep(0.5)
+        assert hub.registry.get("demo.motion_hall").state["state"] == "on"
+        assert hub.registry.get(licht).state["state"] == "on"
+
+        # Wird es ruhig, läuft der Nachlauf ab wie immer.
+        await hub.integrations.dispatch_command("demo.motion_hall", "turn_off")
+        await asyncio.sleep(0.45)
+        assert hub.registry.get(licht).state["state"] == "off"
+    finally:
+        await hub.stop()
+
+
+@pytest.mark.asyncio
+async def test_die_restzeit_an_der_kachel_laeuft_nicht_auf_null_waehrend_es_brennt():
+    """Sonst stünde «geht in 0 Min aus», während das Licht weiterbrennt.
+
+    Die Restzeit ist der zweite Weg zu derselben Auskunft
+    (core/abschaltung.py); verlängert sich der Nachlauf, muss sie mit.
+    """
+    hub = await hub_mit(
+        [
+            {
+                **NACHLAUF,
+                "countdown": True,
+                "action": [{**NACHLAUF["action"][0], "off_after": 0.3}],
+            }
+        ]
+    )
+    try:
+        licht = "demo.light_livingroom"
+        await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
+        await settle()
+        erst = hub.registry.get(licht).state.get("off_at")
+        assert erst is not None
+
+        await asyncio.sleep(0.45)
+        spaeter = hub.registry.get(licht).state.get("off_at")
+        assert spaeter is not None
+        # Neu gesetzt, nicht stehengeblieben.
+        assert spaeter > erst
+    finally:
+        await hub.stop()

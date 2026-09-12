@@ -438,6 +438,54 @@ export const makeStyles = (colors: Colors) =>
     },
     editor: { flex: 1, backgroundColor: colors.panel },
     editorContent: { padding: 22, paddingTop: 18, gap: 18, maxWidth: 620, width: '100%' },
+    // Zwei Spalten brauchen mehr als 620 - siehe felder.tsx, Spalten.
+    editorContentBreit: { maxWidth: 1120, alignSelf: 'center' },
+    spalten: { flexDirection: 'row', gap: 18, alignItems: 'flex-start' },
+    // `minWidth: 0` ist der Unterschied zwischen «zwei Spalten» und
+    // «eine Spalte und ein Rest»: Ohne ihn wächst eine Spalte mit einer
+    // langen Gerätezeile über ihren Anteil hinaus und drückt die andere
+    // zusammen.
+    spalte: { flex: 1, minWidth: 0, gap: 18 },
+
+    // ── Der Assistent für einen neuen Ablauf ────────────────────────
+    assistentKopf: { gap: 6, paddingBottom: 4 },
+    assistentPunkte: { flexDirection: 'row', gap: 6 },
+    assistentPunkt: {
+      width: 26,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.surfaceBorder,
+    },
+    assistentZaehler: { color: colors.inkFaint, fontSize: 12 },
+    assistentFrage: { color: colors.ink, fontSize: 20, fontWeight: '700' },
+    assistentFuss: { gap: 10, marginTop: 4 },
+    assistentKnoepfe: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    // Der Hinweis steht *über* den Knöpfen und nicht daneben: Neben
+    // einem grauen Knopf liest man ihn als Beschriftung, darüber als
+    // Grund.
+    assistentHinweis: { color: colors.warnInk, fontSize: 13 },
+    assistentZurueck: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    assistentZurueckText: { color: colors.inkSoft, fontSize: 15, fontWeight: '600' },
+    assistentWeiter: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 4,
+      paddingVertical: 14,
+      borderRadius: 14,
+      backgroundColor: colors.accent,
+    },
+    assistentWeiterText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
     /**
      * Die Kopfleiste des Editors – fest, nicht mitscrollend.
      *
