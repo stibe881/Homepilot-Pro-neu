@@ -888,6 +888,16 @@ async function geraetelisteOhneSpalte(browser) {
       (await musikkarte().count()) === 0,
       `${groesse.name}: die Geräteliste trägt keine Musikkarte`
     );
+    // Und die Geräteseiten ebenso (Punkt 577): «Auf der Seite Storen,
+    // Licht, Kameras soll die Wetterkachel und die Medienkachel nicht
+    // vorhanden sein.» Gemessen an der Storenseite - sie war die im Bild.
+    if (await zurSeite(seite, 'Storen')) {
+      await seite.waitForTimeout(600);
+      pruefe(
+        (await musikkarte().count()) === 0,
+        `${groesse.name}: die Storenseite trägt keine Musikkarte`
+      );
+    }
     await seite.close();
   }
 }

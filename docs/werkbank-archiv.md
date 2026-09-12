@@ -5842,3 +5842,19 @@ schneidet ab, was darüber hinausgeht, und die Schiene sitzt an seinem
 unteren Rand statt unter der letzten Latte.
 
 Stellen: `app/src/lib/storenkachel.ts`, `app/src/components/CoverVisual.tsx`
+
+### 577. Keine Wetter- und Musikkarte auf Licht, Storen und Kameras ✓ erledigt
+
+Aus dem Haus: «Auf der Seite Storen, Licht, Kameras soll die
+Wetterkachel und die Medienkachel nicht vorhanden sein.» Im Bild der
+Storenseite stand unter den Storenkacheln die Wetterkarte mit 17° und
+«Meist klar · Zell LU».
+
+Die Spalte war schon vom Zimmer, von der Raumliste und von der
+Geräteliste weg (Punkte 549 und davor), aus immer demselben Grund: Man
+steht dort nicht, um das Wetter zu lesen oder Musik zu wählen. Für die
+Geräteseiten gilt dasselbe - man will die Storen fahren -, und damit
+bleibt die Spalte nur noch auf der Startseite, der einen Seite, auf
+der man stehen bleibt. Die Probe misst es an der Storenseite.
+
+Stellen: `app/src/lib/seitenspalte.ts`, `app/src/components/SidePanel.tsx`, `app/src/screens/DashboardScreen.tsx`, `scripts/probe.mjs`

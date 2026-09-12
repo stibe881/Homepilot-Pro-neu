@@ -46,6 +46,7 @@ export function SidePanel({
   room,
   roomList,
   deviceList,
+  geraeteseite,
   onCommand,
 }: {
   entities: Entity[];
@@ -59,6 +60,9 @@ export function SidePanel({
   /** Die Geräteliste – dort bleibt die Spalte ebenfalls weg
    *  (lib/seitenspalte.ts). */
   deviceList?: boolean;
+  /** Licht, Storen, Kameras – auch dort bleibt die Spalte weg
+   *  (lib/seitenspalte.ts, Punkt 577). */
+  geraeteseite?: boolean;
   /** Für den Player – ohne ihn bleibt er weg statt tot dazustehen. */
   onCommand?: (entityId: string, command: string, data?: CommandData) => void;
 }) {
@@ -101,6 +105,7 @@ export function SidePanel({
     inRoom: !!room,
     roomList: !!roomList,
     deviceList: !!deviceList,
+    geraeteseite: !!geraeteseite,
     weather: !!weather,
     housePlayer: !!player && !!onCommand,
   });

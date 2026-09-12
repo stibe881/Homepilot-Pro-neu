@@ -54,6 +54,12 @@ export interface Spaltenwunsch {
    *  stellt - auf dem Telefon standen sie unter der Liste und schoben
    *  sie unter den Rand, auf dem iPad kosteten sie eine Kachelspalte. */
   deviceList?: boolean;
+  /** Eine der Geräteseiten - Licht, Storen, Kameras (Punkt 577)? Auch
+   *  dort steht man nicht, um das Wetter zu lesen oder Musik zu wählen:
+   *  Man will die Storen fahren, und auf dem Telefon standen Wetter
+   *  und Musik unter den Kacheln. Damit bleibt die Spalte nur noch auf
+   *  der Startseite - der einen Seite, auf der man stehen bleibt. */
+  geraeteseite?: boolean;
   /** Gibt es überhaupt ein Wettergerät? */
   weather: boolean;
   /** Gibt es eine bedienbare Box fürs Haus? */
@@ -69,7 +75,8 @@ export interface Spalteninhalt {
 
 /** Welche Karten die Spalte zeigt (rein, testbar). */
 export function panelContent(wunsch: Spaltenwunsch): Spalteninhalt {
-  const weg = wunsch.inRoom || !!wunsch.roomList || !!wunsch.deviceList;
+  const weg =
+    wunsch.inRoom || !!wunsch.roomList || !!wunsch.deviceList || !!wunsch.geraeteseite;
   const inhalt = {
     weather: wunsch.weather && !weg,
     housePlayer: wunsch.housePlayer && !weg,

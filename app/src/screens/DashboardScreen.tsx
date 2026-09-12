@@ -3989,6 +3989,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           // Und die Geräteliste ebenso wenig (Punkt 549): Dort sucht
           // man ein bestimmtes Gerät, mit Suchfeld und Filtern darüber.
           deviceList={section === 'devices'}
+          // Und Licht, Storen, Kameras (Punkt 577): Dort will man
+          // fahren und schalten, nicht das Wetter lesen.
+          geraeteseite={section === 'light' || section === 'covers' || section === 'cameras'}
           onCommand={guardedCommand}
         />
       </View>
