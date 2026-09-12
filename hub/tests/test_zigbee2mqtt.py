@@ -95,6 +95,50 @@ def test_ein_reiner_messfuehler():
 # ── Was das Gerät meldet ─────────────────────────────────────────────────
 
 
+def test_ein_fuehler_bringt_seine_einheit_mit():
+    """Ohne Einheit ist ein Fühler in der App nur eine Zahl.
+
+    `lib/klimachip.ts` erkennt einen Klimafühler an der Einheit und
+    nicht am Namen - ein Prozentwert kann Feuchte, Batterie oder
+    Funkauslastung sein. Fehlt sie, hat das zwei Folgen, und beide sind
+    im Haus aufgefallen: Der Raumkopf blieb leer, obwohl die Kachel die
+    Temperatur zeigte, und im Anpassen-Blatt fehlte die Zeile «Gilt
+    für», weil sie an derselben Prüfung hängt. Ein Aqara-Fühler liess
+    sich dadurch nicht in die Kopfzeile heben, ein Homematic daneben
+    schon.
+    """
+    changes = z.zustand_aus_payload(
+        {"temperature": 21.5, "humidity": 46, "battery": 90},
+        "sensor",
+        None,
+        "temperature",
+    )
+    assert changes["state"] == 21.5
+    assert changes["unit"] == "°C"
+    assert changes["device_class"] == "temperature"
+
+    feuchte = z.zustand_aus_payload({"humidity": 46}, "sensor", None, "humidity")
+    assert feuchte["unit"] == "%"
+    assert feuchte["device_class"] == "humidity"
+
+
+def test_ein_melder_behaelt_seine_klasse():
+    """Die Klasse des Melders sticht die des Hauptwerts.
+
+    Ein Bewegungsmelder meldet nebenbei Helligkeit und Temperatur. Wäre
+    er nach seinem Hauptwert benannt, stünde er als «Helligkeitsfühler»
+    in der Alarmanlage - und die entscheidet an der Klasse, ob er
+    nachts mitwacht.
+    """
+    changes = z.zustand_aus_payload(
+        {"occupancy": True, "illuminance_lux": 12},
+        "binary_sensor",
+        "motion",
+        "illuminance",
+    )
+    assert changes["device_class"] == "motion"
+
+
 def test_zigbee_dreht_den_fensterkontakt_um():
     """`contact: true` heisst **zu**.
 

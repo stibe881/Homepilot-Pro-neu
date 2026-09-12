@@ -76,6 +76,30 @@ MESSWERTE = {
     "test": "test",
 }
 
+#: Die Einheit hinter der Zahl - und weit mehr als Schmuck.
+#:
+#: Die App erkennt einen Klimafühler an der Einheit, nicht am Namen
+#: (`lib/klimachip.ts`): Ein Prozentwert kann Feuchte, Batterie oder
+#: Funkauslastung sein, und «°C» kann vom Grill kommen. Ohne `unit`
+#: fällt ein Fühler durch diese Prüfung - mit zwei Folgen, die beide im
+#: Haus aufgefallen sind: Im Raumkopf blieb die Temperatur leer, obwohl
+#: die Kachel sie zeigte, und im Anpassen-Blatt fehlte die Zeile «Gilt
+#: für: nur diesen Raum / das ganze Haus», weil sie an derselben Prüfung
+#: hängt. Ein Aqara-Fühler im Wohnzimmer liess sich dadurch nicht in die
+#: Kopfzeile heben, ein Homematic daneben schon - der schickt seine
+#: Einheit mit.
+EINHEITEN = {
+    "temperature": "°C",
+    "humidity": "%",
+    "pressure": "hPa",
+    "illuminance": "lx",
+    "battery": "%",
+    "power": "W",
+    "energy": "kWh",
+    "voltage": "V",
+    "current": "A",
+}
+
 #: Melder, deren «true» etwas bedeutet - und was der Hub daraus macht.
 #: `device_class` ist dieselbe Sprache, die der Wächter und die App
 #: schon sprechen (siehe core/watchrules.py).
@@ -329,6 +353,23 @@ def hauptwert(exposes: Any) -> str | None:
     return None
 
 
+def messwert_merkmale(haupt: str | None) -> dict[str, Any]:
+    """Einheit und Art zum Hauptwert einer Sensorkachel (rein, testbar).
+
+    Getrennt von `zustand_aus_payload`, weil beide Stellen sie brauchen:
+    die Zustandsmeldung und das Anlegen der Kachel. Ein Fühler, der sich
+    erst in Tagen meldet, soll nicht bis dahin als namenlose Zahl
+    dastehen.
+    """
+    if not haupt:
+        return {}
+    merkmale: dict[str, Any] = {"device_class": haupt}
+    einheit = EINHEITEN.get(haupt)
+    if einheit:
+        merkmale["unit"] = einheit
+    return merkmale
+
+
 def geraete_aus_bridge(payload: Any, ignorieren: set[str] | None = None) -> list[dict[str, Any]]:
     """Die Geräteliste von `bridge/devices` lesen (rein, testbar).
 
@@ -417,6 +458,10 @@ def zustand_aus_payload(
         changes["state"] = str(payload["action"])
     elif kind == EntityKind.SENSOR and haupt and haupt in changes:
         changes["state"] = changes[haupt]
+        # Einheit und Art des Hauptwerts - beides braucht die App, um
+        # einen Fühler von einer beliebigen Zahl zu unterscheiden
+        # (siehe EINHEITEN oben).
+        changes.update(messwert_merkmale(haupt))
 
     if klasse:
         changes["device_class"] = klasse
@@ -667,6 +712,12 @@ class Zigbee2MqttIntegration(Integration):
             klasse = melder_klasse(geraet["exposes"])
             haupt = hauptwert(geraet["exposes"])
             zustand: dict[str, Any] = {"state": "unknown"}
+            # Einheit und Art schon beim Anlegen, nicht erst mit der
+            # ersten Meldung: Ein Fensterkontakt meldet sich womöglich
+            # tagelang nicht, und bis dahin wäre der Fühler daneben eine
+            # Zahl ohne Bedeutung - ohne «Gilt für» im Anpassen-Blatt
+            # und ohne Platz im Raumkopf.
+            zustand.update(messwert_merkmale(haupt))
             if klasse:
                 zustand["device_class"] = klasse
             entity = await self.add_entity(
