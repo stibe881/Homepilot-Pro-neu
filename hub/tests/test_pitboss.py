@@ -13,6 +13,7 @@ from homepilot.core.errors import ConfigError
 from homepilot.integrations.pitboss import (
     RPC_ABFRAGE,
     _frage_rpc,
+    ausfall_zustand,
     faults,
     fundzeile,
     grill_entries,
@@ -565,3 +566,26 @@ def test_a_partial_report_keeps_what_it_does_not_mention():
     assert grill_state(zusammen)["probes"] == {2: 93, 3: 94}
     # Der erste Stand ohne Vorgänger bleibt, was er ist.
     assert zusammenlegen({}, voll) == voll
+
+
+def test_a_cold_grill_that_does_not_answer_is_off_not_unreachable():
+    """Punkt 571: «Wenn ein Smoker ausgeschaltet ist, soll es anzeigen,
+    dass er ausgeschaltet ist, und nicht ‹nicht erreichbar›.»"""
+    nachtrag, erreichbar = ausfall_zustand(False, 1000.0, 1001.0, "Not connected")
+    assert erreichbar is True
+    assert nachtrag["state"] == "off"
+    assert nachtrag["problem"] is None
+    # Kalt heisst kalt - keine Temperaturen von vorhin.
+    assert nachtrag["temperature"] is None
+    assert nachtrag["probes"] == {}
+
+
+def test_a_running_grill_that_goes_silent_is_a_fault_for_a_while():
+    """Mitten im Lauf verstummt: Störung samt Grund - bis die Karenz um
+    ist, dann ist er ausgeschaltet."""
+    nachtrag, erreichbar = ausfall_zustand(True, 1000.0, 1000.0 + 60, "Not connected")
+    assert erreichbar is False
+    assert nachtrag == {"problem": "Not connected"}
+    nachtrag, erreichbar = ausfall_zustand(True, 1000.0, 1000.0 + 11 * 60, "Not connected")
+    assert erreichbar is True
+    assert nachtrag["state"] == "off"

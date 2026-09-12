@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Any
 
 from ..core.entity import Entity, EntityKind
@@ -78,6 +79,48 @@ def probe_temperatures(state: dict[str, Any]) -> dict[int, int]:
         if isinstance(value, int) and not isinstance(value, bool):
             found[number] = value
     return found
+
+
+#: So lange gilt ein Grill, der mitten im Lauf verstummt, als Störung -
+#: danach als ausgeschaltet.
+AUSFALL_KARENZ_S = 10 * 60.0
+
+
+def ausfall_zustand(
+    lief: bool, unerreichbar_seit: float, jetzt: float, grund: str
+) -> tuple[dict[str, Any], bool]:
+    """Was die Kachel zeigt, wenn der Grill nicht antwortet (rein, testbar).
+
+    Aus dem Haus (Punkt 571): «Wenn ein Smoker ausgeschaltet ist, soll
+    es anzeigen, dass er ausgeschaltet ist, und nicht ‹nicht
+    erreichbar›.» Ein Pit Boss ohne Strom antwortet nicht - und zwischen
+    zwei Grillabenden ist das der Normalfall, kein Ausfall. Dann heisst
+    er «Aus», ist erreichbar (er steht ja da) und ohne Störung; auch aus
+    der Liste der Ausfälle fällt er damit heraus.
+
+    Die Ausnahme ist der Grill, der **mitten im Lauf** verstummt: Der
+    Strom fiel, das WLAN riss ab, oder jemand zog den Stecker mit Fleisch
+    darauf - das ist die Störung, die man wissen will, samt Grund an der
+    Kachel. Sie gilt für eine Karenz; wer den Grill nach dem Essen vom
+    Strom nimmt, hat nach zehn Minuten wieder einen ausgeschalteten
+    Grill und keinen Ausfall.
+
+    Zurück kommt der Zustands-Nachtrag und ob die Kachel erreichbar ist.
+    """
+    if lief and jetzt - unerreichbar_seit < AUSFALL_KARENZ_S:
+        return {"problem": grund}, False
+    return (
+        {
+            "state": "off",
+            "problem": None,
+            # Kalt heisst kalt: Die Temperaturen von vorhin wären eine
+            # Behauptung über ein Gerät, das nichts mehr sagt.
+            "temperature": None,
+            "probes": {},
+            **{f"probe_{nummer}": None for nummer in (1, 2, 3, 4)},
+        },
+        True,
+    )
 
 
 def zusammenlegen(alt: dict[str, Any], neu: dict[str, Any]) -> dict[str, Any]:
@@ -286,6 +329,10 @@ class _Grill:
         # *Wechsel* im Log steht und nicht alle dreissig Sekunden
         # dieselbe Zeile.
         self.erreichbar: bool | None = None
+        # Seit wann er nicht antwortet, und ob er davor lief - daran
+        # entscheidet sich «Aus» oder «Störung» (ausfall_zustand).
+        self.unerreichbar_seit: float = 0.0
+        self.lief: bool = False
 
 
 class PitBossIntegration(Integration):
@@ -395,19 +442,30 @@ class PitBossIntegration(Integration):
                 # danebensteht und sieht, dass der Smoker läuft, kann
                 # daraus nicht schliessen, woran es liegt.
                 grund = fehlergrund(err, grill.weg)
+                jetzt = time.time()
                 if grill.erreichbar is not False:
-                    self.log.warning("Grill '%s': %s", grill.name, grund)
+                    grill.unerreichbar_seit = jetzt
+                    # Ein laufender Grill, der verstummt, ist eine Warnung
+                    # wert; ein kalter zwischen zwei Abenden nicht.
+                    if grill.lief:
+                        self.log.warning("Grill '%s': %s", grill.name, grund)
+                    else:
+                        self.log.info("Grill '%s' ist aus (%s)", grill.name, grund)
                     grill.erreichbar = False
                 else:
                     self.log.debug("Grill '%s': %s", grill.name, grund)
+                nachtrag, erreichbar = ausfall_zustand(
+                    grill.lief, grill.unerreichbar_seit, jetzt, grund
+                )
                 await self.hub.registry.update_state(
-                    grill.entity.id, {"problem": grund}, available=False
+                    grill.entity.id, nachtrag, available=erreichbar
                 )
             else:
                 if isinstance(state, dict):
                     if grill.erreichbar is False:
                         self.log.info("Grill '%s' antwortet wieder", grill.name)
                     grill.erreichbar = True
+                    grill.lief = bool(state.get("moduleIsOn"))
                     # Die Abfrage ist vollständig - sie ersetzt den Stand.
                     grill.roh = dict(state)
                     await self._publish(grill, state)

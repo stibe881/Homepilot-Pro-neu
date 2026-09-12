@@ -5718,3 +5718,24 @@ mehr.
 Ein TestFlight-Build gehört dazu - das Widget ist nativ.
 
 Stellen: `hub/homepilot/core/grillmeldung.py`, `hub/homepilot/core/livekarten.py`, `hub/homepilot/core/watchdog.py`, `app/targets/widget/index.swift`, `app/modules/live-aktivitaet/ios/HausAktivitaetAttributes.swift`
+
+### 571. Ein Grill ohne Strom ist aus, nicht «nicht erreichbar» ✓ erledigt
+
+Aus dem Haus: «Wenn ein Smoker ausgeschaltet ist, soll es anzeigen,
+dass er ausgeschaltet ist, und nicht ‹nicht erreichbar›.»
+
+Ein Pit Boss ohne Strom antwortet nicht - und zwischen zwei
+Grillabenden ist das der Normalfall, kein Ausfall. Bisher stand der
+Räucherschrank darum wochenlang mit «nicht erreichbar» und einem
+Verbindungsfehler auf der Kachel und in der Liste der Ausfälle. Jetzt
+heisst er «Aus», gilt als erreichbar (er steht ja da), trägt keine
+Störung und keine Temperaturen von vorhin.
+
+**Die Ausnahme ist der Grill, der mitten im Lauf verstummt.** Der Strom
+fiel, das WLAN riss ab, jemand zog den Stecker mit Fleisch darauf - das
+ist die Störung, die man wissen will, samt Grund an der Kachel und im
+Log als Warnung. Sie gilt zehn Minuten; wer den Grill nach dem Essen
+vom Strom nimmt, hat danach wieder einen ausgeschalteten Grill und
+keinen Ausfall. Ob er lief, weiss der Hub aus der letzten Antwort.
+
+Stellen: `hub/homepilot/integrations/pitboss.py`, `hub/tests/test_pitboss.py`
