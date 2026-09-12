@@ -5511,3 +5511,24 @@ Gemessen: Die Probe stellt im Blatt 15 Minuten, liest «NOCH 14:59»,
 fragt den Hub nach dem Timer und bricht ihn wieder ab.
 
 Stellen: `app/src/lib/grilltimer.ts`, `app/src/screens/dashboard/Grillvollbild.tsx`, `app/src/screens/DashboardScreen.tsx`, `hub/homepilot/core/livekarten.py`, `scripts/probe.mjs`
+
+### 562. Die Flamme neben «Smoker läuft» ✓ erledigt
+
+Aus dem Haus, mit dem Bild der Startseite: «Hier soll dasselbe
+Flammen-Icon angezeigt werden, wie es auch in der Live-Aktivität
+anzeigt.» Neben «Smoker läuft» stand ein grauer Punkt - und darunter
+noch einmal «läuft».
+
+**Der Punkt kam aus einer Namensliste.** `applianceIcon` kannte Tumbler,
+Waschmaschine und Geschirrspüler am Namen; alles andere wurde zum
+Punkt. Jetzt bekommt das Gerät die Flamme, das ein Temperaturziel hat -
+dieselbe Regel wie auf der Kachel, im Wächter und auf der Live-Karte,
+und dasselbe Symbol wie dort (`flame`). Der Räucherschrank ist damit
+gleich mit dabei, ohne dass sein Name irgendwo stehen müsste.
+
+**Und die Zeile darunter sagt etwas.** Ein Grill hat keine Restzeit und
+kein Programm, also fiel `workingAppliances` auf «läuft» zurück -
+zweimal dasselbe Wort untereinander. Jetzt steht dort, was auch neben
+dem Bild auf der Kachel steht (Punkt 559): «115 °C · Ziel 121 °C».
+
+Stellen: `app/src/lib/haushalt.ts`, `app/src/components/RunningAppliances.tsx`

@@ -3,7 +3,7 @@ import React, { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Entity } from '../api/types';
-import { workingAppliances } from '../lib/haushalt';
+import { applianceIcon, workingAppliances } from '../lib/haushalt';
 import { Colors, useColors } from '../theme';
 
 /**
@@ -14,21 +14,6 @@ import { Colors, useColors } from '../theme';
  * verschwindet der Hinweis ganz; nur dann bleibt er beim Hinsehen etwas
  * wert.
  */
-
-/**
- * Passendes Symbol zum Gerät (rein, testbar).
- *
- * Dieselben Symbole wie auf den Haushalt-Kacheln der Startseite. Bewusst
- * kein Kreispfeil: Der steht überall für «neu laden» und lädt zum Tippen
- * ein – hier gibt es aber nichts zu tippen, der Wert aktualisiert sich von
- * selbst, sobald der Hub eine Änderung meldet.
- */
-export function applianceIcon(name: string): keyof typeof Ionicons.glyphMap {
-  if (/tumbler|trockner/i.test(name)) return 'sunny-outline';
-  if (/wasch/i.test(name)) return 'water-outline';
-  if (/geschirr|sp(ü|ue)lmaschine/i.test(name)) return 'restaurant-outline';
-  return 'ellipse';
-}
 
 export function RunningAppliances({ entities }: { entities: Entity[] }) {
   const colors = useColors();
@@ -60,7 +45,7 @@ export function RunningAppliances({ entities }: { entities: Entity[] }) {
       accessibilityLabel={detail ? `${heading}: ${detail}` : heading}
     >
       <Ionicons
-        name={working.length === 1 ? applianceIcon(working[0].entity.name) : 'ellipse'}
+        name={working.length === 1 ? applianceIcon(working[0].entity) : 'ellipse'}
         size={working.length === 1 ? 16 : 10}
         color={colors.onGradientSoft}
       />

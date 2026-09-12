@@ -5,7 +5,7 @@
  * aber niemand rechnet das im Vorbeigehen in «kurz vor vier» um.
  */
 import { Entity } from '../api/types';
-import { workingAppliances } from './haushalt';
+import { applianceIcon, workingAppliances } from './haushalt';
 
 const geraet = (teile: Partial<Entity>): Entity =>
   ({
@@ -38,6 +38,17 @@ describe('workingAppliances', () => {
       geraet({ state: { state: 'running', program: 'Eco' } }),
     ]);
     expect(lauft.note).toBe('Eco');
+  });
+
+  it('sagt beim Grill Temperatur und Ziel statt «läuft»', () => {
+    // Punkt 562: «Smoker läuft · läuft» - zweimal dasselbe Wort.
+    const [lauft] = workingAppliances([
+      geraet({
+        name: 'Smoker',
+        state: { state: 'running', temperature: 115.4, target: 121, unit: '°C' },
+      }),
+    ]);
+    expect(lauft.note).toBe('115 °C · Ziel 121 °C');
   });
 
   it('zählt ein stilles Gerät nicht mit', () => {
@@ -86,5 +97,24 @@ describe('workingAppliances', () => {
         }),
       ])
     ).toEqual([]);
+  });
+});
+
+describe('applianceIcon', () => {
+  it('gibt dem Grill die Flamme - dieselbe wie auf der Live-Karte', () => {
+    // Punkt 562: Vor der Flamme stand neben «Smoker läuft» ein grauer
+    // Punkt, weil der Name in keiner Liste stand. Erkannt wird der
+    // Grill am Temperaturziel, wie überall sonst.
+    expect(applianceIcon(geraet({ name: 'Smoker', state: { target: 121 } }))).toBe('flame');
+    expect(applianceIcon(geraet({ name: 'Räucherschrank', state: { target: 90 } }))).toBe(
+      'flame'
+    );
+  });
+
+  it('kennt die Haushaltsgeräte am Namen', () => {
+    expect(applianceIcon(geraet({ name: 'Tumbler' }))).toBe('sunny-outline');
+    expect(applianceIcon(geraet({ name: 'Waschmaschine' }))).toBe('water-outline');
+    expect(applianceIcon(geraet({ name: 'Geschirrspüler' }))).toBe('restaurant-outline');
+    expect(applianceIcon(geraet({ name: 'Irgendwas' }))).toBe('ellipse');
   });
 });

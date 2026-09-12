@@ -13,6 +13,8 @@
 
 import { Entity } from '../api/types';
 import { dauerText } from './format';
+import { grillKurzinfo } from './grillbild';
+import { istGrill } from './grillziel';
 
 export interface GeraeteZeile {
   text: string;
@@ -138,6 +140,17 @@ export function workingAppliances(entities: Entity[]): Working[] {
       const state = String(entity.state.state ?? '');
       if (state !== 'running' && state !== 'on') continue;
       const minutes = entity.state.minutes_left;
+      // Der Grill hat keine Restzeit und kein Programm - bei ihm zählt,
+      // wie heiss er ist und wohin er will (Punkt 562). «Smoker läuft ·
+      // läuft» stand vorher da, zweimal dasselbe Wort untereinander.
+      if (istGrill(entity)) {
+        const kurz = grillKurzinfo(entity.state);
+        working.push({
+          entity,
+          note: [kurz.gross, kurz.klein].filter(Boolean).join(' · '),
+        });
+        continue;
+      }
       working.push({
         entity,
         note:
@@ -201,4 +214,36 @@ export function steckdosengeraet(
   // die Trommel voll da, bis jemand sie ausräumt.
   const text = aus ? 'Steckdose aus' : running ? laufwort : 'Fertig';
   return { text, running, watts: Number.isFinite(watts) ? watts : 0, aus };
+}
+
+/** Die Symbole, die neben der Begrüssung stehen können. */
+export type Geraetesymbol =
+  | 'flame'
+  | 'sunny-outline'
+  | 'water-outline'
+  | 'restaurant-outline'
+  | 'ellipse';
+
+/**
+ * Passendes Symbol zum laufenden Gerät (rein, testbar).
+ *
+ * Dieselben Symbole wie auf den Haushalt-Kacheln der Startseite. Bewusst
+ * kein Kreispfeil: Der steht überall für «neu laden» und lädt zum Tippen
+ * ein – hier gibt es aber nichts zu tippen, der Wert aktualisiert sich von
+ * selbst, sobald der Hub eine Änderung meldet.
+ *
+ * Der Grill bekommt die Flamme - dieselbe wie auf seiner Live-Karte
+ * (hub: core/livekarten.py, symbol «flame»), so gewünscht im Haus
+ * (Punkt 562). Erkannt am Temperaturziel, nicht am Namen: «Smoker» und
+ * «Räucherschrank» stehen in keiner Namensliste, und vor der Flamme
+ * stand dort ein grauer Punkt. Hier und nicht in der Komponente, weil
+ * sich hier ohne Symbolschrift testen lässt.
+ */
+export function applianceIcon(entity: Pick<Entity, 'name' | 'kind' | 'state'>): Geraetesymbol {
+  if (istGrill(entity)) return 'flame';
+  const name = entity.name;
+  if (/tumbler|trockner/i.test(name)) return 'sunny-outline';
+  if (/wasch/i.test(name)) return 'water-outline';
+  if (/geschirr|sp(ü|ue)lmaschine/i.test(name)) return 'restaurant-outline';
+  return 'ellipse';
 }
