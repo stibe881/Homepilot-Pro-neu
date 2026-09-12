@@ -4942,3 +4942,40 @@ Bewegung.» Sie sah aus wie ein harter Zeitgeber und wurde auch so
 gelesen.
 
 Stellen: `hub/homepilot/core/light.py`, `hub/homepilot/core/automation.py`, `app/src/screens/automations/szenen-editor.tsx`
+
+### 549. Wetter und Musik gehören nicht unter die Geräteliste ✓ erledigt
+
+Gemeldet im Haus, mit Bild: «Bei Einstellungen → Geräte sollen diese
+Karten entfernt werden» - die Wetterkarte mit Wochenvorhersage und der
+Musikplayer der Wohnung, beide unter der Geräteliste.
+
+**Dieselbe Überlegung wie im Zimmer und auf der Raumliste, nur
+schärfer.** Die Spalte rechts trägt, was man sehen will, wo man stehen
+bleibt: Wetter und Hausmusik auf der Startseite. Geräte ist das
+Gegenteil davon - dort sucht man ein *bestimmtes* Gerät, mit Suchfeld,
+Filterknöpfen und Sortierung darüber. Das Wetter von Zell beantwortet
+keine Frage, die man dabei stellt. Auf dem Telefon standen die beiden
+Karten unter der Liste und schoben sie unter den Rand; auf dem iPad
+kosteten sie eine Kachelspalte.
+
+Die Entscheidung lag schon an der richtigen Stelle
+(`lib/seitenspalte.ts`) - der Geräteliste fehlte bloss ihr Fall.
+
+**Die Probe misst es mit Gegenprobe.** Auf der Startseite *muss* die
+Musikkarte stehen: Ohne diese Zeile wäre die Messung auch für eine App
+grün, in der die Spalte überall fehlt. Dieselbe Falle gab es hier schon
+einmal (Punkt 509).
+
+**Die Wetterkarte bleibt dort ungemessen, und das steht auch so da.**
+Der Prüfstand führt eine Wetter*warnung*, aber kein Gerät der Art
+«weather» - eine Zeile «keine Wetterkarte» wäre immer grün gewesen,
+ohne etwas zu prüfen. Der Versuch, dem Demo-Hub ein Wettergerät zu
+geben, riss prompt sechs fremde Tests mit: Wer in seinem Test ein
+eigenes Wetter anlegt, bekam plötzlich das der Demo. Beide Hälften der
+Spalte hängen ohnehin an derselben Entscheidung, und die ist im Test
+der reinen Funktion geprüft - für beide.
+
+Licht, Storen und Kameras behalten die Spalte vorerst: Dort bedient man
+Geräte, statt eines zu suchen. Gebeten wurde um die Geräteliste.
+
+Stellen: `app/src/lib/seitenspalte.ts`, `app/src/components/SidePanel.tsx`, `app/src/screens/DashboardScreen.tsx`, `scripts/probe.mjs`

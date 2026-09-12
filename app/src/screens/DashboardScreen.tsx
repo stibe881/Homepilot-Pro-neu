@@ -3928,6 +3928,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           // Zimmer, und die Raumkacheln leben von der Breite ihrer
           // Fotos (lib/seitenspalte.ts).
           roomList={section === 'home' && room === ALL_ROOMS}
+          // Und die Geräteliste ebenso wenig (Punkt 549): Dort sucht
+          // man ein bestimmtes Gerät, mit Suchfeld und Filtern darüber.
+          deviceList={section === 'devices'}
           onCommand={guardedCommand}
         />
       </View>

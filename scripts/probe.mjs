@@ -844,6 +844,54 @@ async function melderGibtSignal(browser) {
   await seite.close();
 }
 
+/** 11. Steht auf der Geräteliste die Spalte rechts? (Punkt 549)
+ *
+ * Gemeldet im Haus: «Bei Einstellungen → Geräte sollen diese Karten
+ * entfernt werden» - Wetter und Musik, unter der Liste.
+ *
+ * Gemessen wird mit eingebauter Gegenprobe: Auf der Startseite **muss**
+ * die Musikkarte stehen. Ohne sie wäre die Messung auch für eine App
+ * grün, in der die Spalte überall fehlt - und dieselbe Falle gab es
+ * hier schon einmal (raumlisteKopfspieler, Punkt 509).
+ *
+ * Die Wetterkarte der Spalte bleibt hier **ungemessen**, und das mit
+ * Absicht: Der Demo-Hub führt eine Wetter*warnung*, aber kein Gerät der
+ * Art «weather» - die Karte erschiene also nirgends, und eine Zeile
+ * «keine Wetterkarte» wäre immer grün, ohne etwas zu prüfen. Der
+ * Versuch, dem Prüfstand ein Wettergerät zu geben, riss sechs fremde
+ * Tests mit: Wer in seinem Test ein eigenes Wetter anlegt, bekam
+ * plötzlich das der Demo. Beide Hälften der Spalte hängen ohnehin an
+ * derselben Entscheidung (lib/seitenspalte.ts), und die ist dort
+ * geprüft.
+ */
+async function geraetelisteOhneSpalte(browser) {
+  for (const groesse of GROESSEN) {
+    const seite = await angemeldeteSeite(browser, groesse);
+    const musikkarte = () => seite.getByText('Musik', { exact: true });
+    pruefe(
+      (await musikkarte().count()) > 0,
+      `${groesse.name}: die Startseite zeigt die Musikkarte`
+    );
+    if (!(await zurSeite(seite, 'Einstellungen'))) {
+      await seite.close();
+      continue;
+    }
+    const geraete = seite.getByText('Geräte', { exact: true }).first();
+    if (!(await geraete.isVisible().catch(() => false))) {
+      pruefe(false, `${groesse.name}: die Geräteliste war erreichbar`);
+      await seite.close();
+      continue;
+    }
+    await geraete.click();
+    await seite.waitForTimeout(1500);
+    pruefe(
+      (await musikkarte().count()) === 0,
+      `${groesse.name}: die Geräteliste trägt keine Musikkarte`
+    );
+    await seite.close();
+  }
+}
+
 const { chromium } = playwrightLaden();
 const browser = await chromium.launch({ executablePath: browserOrt() });
 try {
@@ -858,6 +906,7 @@ try {
   await fuehlerInZweiZimmern(browser);
   await rauchmelderNichtImZimmer(browser);
   await melderGibtSignal(browser);
+  await geraetelisteOhneSpalte(browser);
 } finally {
   await browser.close();
 }
