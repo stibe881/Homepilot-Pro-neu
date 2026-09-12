@@ -5087,3 +5087,51 @@ weiterhin nur eine Nachricht - jetzt allerdings sofort statt bis zu
 einer Minute später.
 
 Stellen: `hub/homepilot/integrations/alarm.py`, `hub/homepilot/core/alarmanwesenheit.py`
+
+### 552. Warum der Grill ausgefallen ist – und warum keine Live-Karte kam ✓ erledigt
+
+Gemeldet im Haus, mit zwei Bildern: «Die Pit-Boss-Integration
+funktioniert nicht. Der Smoker ist eingeschaltet und läuft. Ich möchte
+auch so eine Live-Aktivität.» Das eine Bild zeigte unter *Ausfälle*
+«pitboss · 12. Sept., 07:35 – noch ausgefallen», das andere die
+Live-Aktivität der Hersteller-App.
+
+**Zwei Symptome, eine Ursache.** Die Live-Karte für den Grill gibt es
+längst (`core/livekarten.py`, `karten_grill`: Ist- gegen Zieltemperatur,
+Flammensymbol, Fortschrittsbalken). Sie verlangt drei Dinge: Der Grill
+läuft, er ist **erreichbar**, und ein Temperaturziel ist gesetzt. Genau
+die mittlere Bedingung fiel weg - also blieb auch die Karte aus. Wer
+beides getrennt meldet, sucht zwei Fehler, wo einer ist.
+
+**Warum der Ausfall nicht zu deuten war.** Die Abfrageschleife fing
+jeden Fehler ab, meldete `{}` und loggte auf `debug`. Unter *Ausfälle*
+stand damit «noch ausgefallen» und sonst nichts, und im Log stand gar
+nichts. Der Grund war weggeworfen, bevor ihn jemand lesen konnte - und
+wer danebensteht und sieht, dass der Smoker läuft, kann daraus nicht
+schliessen, woran es liegt.
+
+Jetzt steht der Grund an der Kachel (`problem`, dieselbe Stelle, die
+Homematic und V-Zug längst füllen) und der **Wechsel** im Log: einmal
+als Warnung, wenn er ausfällt, einmal als Notiz, wenn er wiederkommt.
+Nicht bei jeder Runde - zwischen zwei Grillabenden ist das Gerät
+wochenlang aus, und das ist kein Fehler, nur «nicht da».
+
+**Und ein Werkzeug, das die Frage ganz beantwortet.** `grillcheck` geht
+die Kette Schritt für Schritt durch: die Konfiguration, wie der Hub sie
+liest; den versuchten Weg (lokal oder über die Wolke); ob das Modell
+aufgelöst werden konnte (scheitert `start()` *vor* der Verbindung, ist
+es die config.yaml, sonst das Gerät); den rohen Zustand von der Platine
+neben dem, was der Hub daraus macht. Zum Schluss die drei Bedingungen
+der Live-Karte als Satz - und die drei, die nichts mit dem Grill zu tun
+haben: apns-Block in der config.yaml, ein Telefon mit Start-Token, und
+ob jemand die Live-Aktivitäten im Profil abgeschaltet hat. Ohne diese
+Zeilen sucht man den Fehler beim Grill, während er im Telefon sitzt.
+
+`fehlergrund` ist dabei die reine Hälfte: `TimeoutError()` trägt gar
+keinen Text, und ohne Übersetzung stünde auf der Kachel ein Doppelpunkt
+mit nichts dahinter.
+
+**Was das nicht behebt:** Warum der Grill nicht antwortet, weiss erst
+der Lauf im Haus. Das Werkzeug sagt es dann in einer Zeile.
+
+Stellen: `hub/homepilot/integrations/pitboss.py`, `hub/homepilot/grillcheck.py`, `CLAUDE.md`
