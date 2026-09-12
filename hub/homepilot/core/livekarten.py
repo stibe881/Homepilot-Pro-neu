@@ -373,6 +373,16 @@ def fuehlerwerte(entity: Any, einheit: str) -> list[dict[str, Any]]:
     return werte
 
 
+# Was unten in der Mitte der Grillkarte steht (Punkt 556): In der
+# Hersteller-App ist es «SET TIMER», und das ist beim Grillen genau der
+# zweite Griff nach dem Blick auf die Temperatur - «in vierzig Minuten
+# nachsehen». Der Küchen-Timer des Hauses wohnt in der Küche (die App
+# löst homepilot://timer dort auf), also führt der Griff dorthin.
+# Als Inhalt vom Hub und nicht fest im Widget: Die Karte ist eine Form
+# für alles, und was auf ihr steht, entscheidet allein der Hub.
+GRILL_LINK = {"symbol": "timer", "text": "Timer stellen", "url": "homepilot://timer"}
+
+
 def karten_grill(entities: list[Any]) -> list[dict[str, Any]]:
     """Der Grill: Ist- gegen Zieltemperatur, live - samt Fleischfühlern.
 
@@ -420,6 +430,7 @@ def karten_grill(entities: list[Any]) -> list[dict[str, Any]]:
                     # keinen Platz für Kreise reservieren, die es nicht
                     # gibt.
                     **({"werte": fuehler} if fuehler else {}),
+                    "link": dict(GRILL_LINK),
                     # Wie nah dran - für den Fortschrittsbalken.
                     "fortschritt": (
                         max(0.0, min(1.0, float(ist) / float(ziel)))

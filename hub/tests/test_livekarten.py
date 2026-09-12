@@ -1157,6 +1157,27 @@ def test_die_karte_zeigt_die_eingesteckten_fuehler():
     ]
 
 
+def test_die_grillkarte_traegt_unten_den_griff_zum_timer():
+    """Wie in der Hersteller-App (Punkt 556): unten in der Mitte «Timer
+    stellen». Der Griff kommt vom Hub, nicht aus dem Widget - die Karte
+    ist eine Form für alles, und was auf ihr steht, entscheidet der Hub."""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", temperature=104, target=110, unit="°C",
+    )
+    karte = karten_grill([grill])[0]["state"]
+    assert karte["link"] == {
+        "symbol": "timer",
+        "text": "Timer stellen",
+        "url": "homepilot://timer",
+    }
+    # Und nur der Grill: Die Waschmaschine hat keinen Timer zu stellen.
+    maschine = entity(
+        "vzug.wm", "appliance", "Waschmaschine", state="running", program="Eco"
+    )
+    assert "link" not in karten_geraete([maschine])[0]["state"]
+
+
 def test_ohne_fuehler_bleibt_das_feld_weg():
     """Die Karte soll keinen Platz für Kreise reservieren, die es nicht
     gibt."""

@@ -5310,3 +5310,45 @@ Messung, die bloss «es stehen Kreise da» prüft, wäre grün geblieben,
 während das Blatt zwei Plätze verschluckt.
 
 Stellen: `app/src/screens/dashboard/Grillvollbild.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/components/EntityCard.tsx`, `app/src/components/entity/koerper.tsx`, `app/src/lib/grillziel.ts`, `hub/homepilot/core/livekarten.py`, `scripts/probe.mjs`
+
+### 556. Die Grillkarte in der Form der Hersteller-App ✓ erledigt
+
+Gewünscht im Haus, mit dem Bild der Pit-Boss-Karte: «Die
+Live-Aktivitätskarte soll so aussehen.» Links die Gartemperatur riesig
+mit der Einheit klein daneben, darunter «Heating to 110°C» und ein
+Balken mit Knopf; in der Mitte oben der Name, unten «SET TIMER»; rechts
+die Fühler als Kreise übereinander, die Ziffer in ihrer Farbe.
+
+**Was sich gegenüber Punkt 553 ändert.** Dort stand die Zahl zwar schon
+gross, aber in der alten Zeile - Symbol links, Text daneben, Kreise in
+einer Reihe rechts. Das war die Form der Waschmaschinenkarte mit einer
+grösseren Schrift. Jetzt hat der Grill seine eigene Anordnung
+(`GrillKarte` im Widget), und die schmale Zeile bleibt, was sie war,
+für Timer, Waschmaschine und Sauger.
+
+**Zahl und Einheit trennt das Widget, nicht der Hub.** Der Hub schickt
+weiter «104°C» als einen Text, und eine ältere Hülle zeigt ihn genau so.
+Das Widget zerlegt ihn für die Typografie - die Ziffern gross, den Rest
+klein. Ein zweites Feld dafür hätte jede Hülle vor der Wahl gestellt,
+welches sie glaubt.
+
+**Der Griff unten kommt vom Hub.** «Timer stellen» führt in die Küche,
+wo der Küchen-Timer wohnt (`homepilot://timer`, dieselbe Adresse wie
+auf seiner eigenen Karte). Als Inhalt (`link`) und nicht fest im
+Widget: Die Karte ist eine Form für alles, und was auf ihr steht,
+entscheidet allein der Hub. Der Sync-Test der beiden Swift-Fassungen
+kennt die neue Struktur - ohne sie im Widget käme der Griff nie an.
+
+**Bis zwei Fühler übereinander, ab drei in zwei Spalten.** Vier
+übereinander wären 220 Punkte; mehr als 160 lässt der Sperrbildschirm
+einer Karte nicht. Die Höhe der Karte ist nach oben begrenzt, nicht
+fest: In der Dynamic Island bekommt sie weniger Platz.
+
+**Die Ziffer trägt die Farbe, der Ring bleibt grau.** So steht es im
+Bild, und die gelbe 2 auf dunklem Grund ist von weiter weg besser zu
+lesen als ein gelber Ring um eine weisse 2.
+
+Ein TestFlight-Build gehört dazu - das Widget ist nativ. Die
+`runtimeVersion` bleibt: kein neues Modul.
+
+Stellen: `app/targets/widget/index.swift`, `app/modules/live-aktivitaet/ios/HausAktivitaetAttributes.swift`, `app/src/lib/livekarte-struktur.test.ts`, `hub/homepilot/core/livekarten.py`

@@ -75,6 +75,16 @@ describe('HausAktivitaetAttributes', () => {
     expect(felder(app, 'KartenWert')).toContain('nummer');
   });
 
+  it('führt den Griff unten in beiden', () => {
+    // Punkt 556: «Timer stellen» auf der Grillkarte. Fehlte die
+    // Struktur im Widget, käme der Griff nie an - und der Hub schickt
+    // ihn trotzdem bei jeder Karte mit.
+    expect(felder(widget, 'KartenLink').sort()).toEqual(
+      felder(app, 'KartenLink').sort()
+    );
+    expect(felder(app, 'KartenLink')).toContain('url');
+  });
+
   it('führt die Knöpfe in beiden', () => {
     expect(felder(widget, 'KartenKnopf').sort()).toEqual(
       felder(app, 'KartenKnopf').sort()

@@ -34,6 +34,17 @@ struct HausAktivitaetAttributes: ActivityAttributes {
     var gross: String?
     /// Kreise rechts, z.B. die vier Fleischfühler des Grills.
     var werte: [KartenWert]?
+    /// Der Griff unten in der Mitte, z.B. «Timer stellen» beim Grill
+    /// (Punkt 556). Eine Adresse, kein Befehl: Er öffnet die App an
+    /// der richtigen Stelle, statt am Hub etwas zu schalten.
+    var link: KartenLink?
+  }
+
+  /// Ein Griff, der in die App führt: SF-Symbol, Beschriftung, Adresse.
+  public struct KartenLink: Codable, Hashable {
+    var symbol: String
+    var text: String
+    var url: String
   }
 
   /// Ein Kreis auf der Karte: die Nummer des Fühlers, sein Wert und die

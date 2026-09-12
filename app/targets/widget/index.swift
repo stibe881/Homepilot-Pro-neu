@@ -779,6 +779,16 @@ struct HausAktivitaetAttributes: ActivityAttributes {
         var gross: String?
         /// Kreise rechts, z.B. die vier Fleischfühler des Grills.
         var werte: [KartenWert]?
+        /// Der Griff unten in der Mitte, z.B. «Timer stellen» beim
+        /// Grill (Punkt 556). Eine Adresse, kein Befehl.
+        var link: KartenLink?
+    }
+
+    /// Ein Griff, der in die App führt: SF-Symbol, Beschriftung, Adresse.
+    public struct KartenLink: Codable, Hashable {
+        var symbol: String
+        var text: String
+        var url: String
     }
 
     /// Ein Kreis auf der Karte: Nummer, Wert und die Farbe, die der Hub
@@ -837,31 +847,165 @@ private func kartenFarbe(_ name: String?) -> Color {
     }
 }
 
+/// «104°C» in Zahl und Einheit zerlegt - reine Typografie: Die Zahl
+/// gross, die Einheit klein daneben, wie auf einem Thermometer. Der
+/// Hub schickt weiter einen Text, damit eine ältere Hülle ihn so
+/// anzeigen kann, wie er ist.
+private func zahlUndEinheit(_ text: String) -> (String, String) {
+    let zahl = text.prefix { $0.isNumber || $0 == "-" || $0 == "." || $0 == "," }
+    if zahl.isEmpty { return (text, "") }
+    return (String(zahl), String(text.dropFirst(zahl.count)))
+}
+
 /// Ein Fleischfühler als Kreis - Nummer oben, Temperatur darunter.
 ///
 /// Die Form stammt aus der Hersteller-App und ist beim Grillen die
 /// richtige: Man sucht nicht «Fühler 2», man sucht die gelbe Zahl, weil
-/// dort das Nackenstück steckt. Deshalb trägt der Ring die Farbe und
-/// nicht bloss die Ziffer.
+/// dort das Nackenstück steckt. Seit Punkt 556 trägt die **Ziffer** die
+/// Farbe und der Ring bleibt grau - so steht es im Bild aus dem Haus,
+/// und die gelbe 2 auf dunklem Grund ist von weiter weg besser zu lesen
+/// als ein gelber Ring um eine weisse 2.
 @available(iOS 16.2, *)
 struct FuehlerKreis: View {
     let wert: HausAktivitaetAttributes.KartenWert
 
     var body: some View {
-        VStack(spacing: 0) {
+        let (zahl, einheit) = zahlUndEinheit(wert.wert)
+        VStack(spacing: -1) {
             Text(wert.nummer)
-                .font(.caption.bold())
+                .font(.system(size: 17, weight: .heavy, design: .rounded))
                 .foregroundStyle(kartenFarbe(wert.farbe))
-            Text(wert.wert)
-                .font(.caption2.bold())
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
+            HStack(alignment: .firstTextBaseline, spacing: 1) {
+                Text(zahl)
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                Text(einheit)
+                    .font(.system(size: 9, weight: .semibold))
+            }
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
         }
-        .frame(width: 44, height: 44)
-        .overlay(
-            Circle().strokeBorder(kartenFarbe(wert.farbe).opacity(0.55), lineWidth: 2)
-        )
+        .frame(width: 50, height: 50)
+        .background(Circle().fill(.white.opacity(0.08)))
+        .overlay(Circle().strokeBorder(.white.opacity(0.4), lineWidth: 2))
+    }
+}
+
+/// Die Fühler rechts, in der Reihenfolge, die der Hub schickt.
+///
+/// Bis zwei übereinander, wie im Bild aus dem Haus. Ab drei in zwei
+/// Spalten: Vier übereinander wären 220 Punkte, und mehr als 160 lässt
+/// der Sperrbildschirm einer Karte nicht. Höchstens vier - mehr hat der
+/// Grill nicht.
+@available(iOS 16.2, *)
+struct Fuehlerspalten: View {
+    let werte: [HausAktivitaetAttributes.KartenWert]
+
+    var body: some View {
+        let vier = Array(werte.prefix(4))
+        let spalten: [[HausAktivitaetAttributes.KartenWert]] =
+            vier.count <= 2 ? [vier] : [Array(vier.prefix(2)), Array(vier.dropFirst(2))]
+        HStack(spacing: 4) {
+            ForEach(Array(spalten.enumerated()), id: \.offset) { _, spalte in
+                VStack(spacing: 4) {
+                    ForEach(spalte, id: \.nummer) { wert in
+                        FuehlerKreis(wert: wert)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Der Balken mit dem Knopf am Ende - wie ein Regler, nur dass er
+/// nichts regelt. ProgressView hat keinen Knopf, und ohne ihn sah der
+/// Balken neben der grossen Zahl aus wie ein Strich, der zufällig da
+/// liegt.
+struct Fortschrittsbalken: View {
+    let anteil: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            let x = max(0, min(1, anteil)) * geo.size.width
+            ZStack(alignment: .leading) {
+                Capsule().fill(.white.opacity(0.2)).frame(height: 5)
+                Capsule().fill(.blue).frame(width: x, height: 5)
+                Circle().fill(.white).frame(width: 14, height: 14)
+                    .offset(x: max(0, min(geo.size.width - 14, x - 7)))
+            }
+            .frame(height: 14)
+        }
+        .frame(height: 14)
+    }
+}
+
+/// Die Grillkarte - die Form aus der Hersteller-App, gewünscht im Haus
+/// mit einem Bild davon (Punkt 556): links die Gartemperatur gross mit
+/// kleiner Einheit, darunter «Heizt auf 110°C» und der Balken; in der
+/// Mitte oben der Name, unten der Griff zum Timer; rechts die Fühler
+/// als Kreise. Was fest ist, ist nur die Anordnung - jeder Inhalt
+/// kommt vom Hub, und was er weglässt, bleibt weg.
+@available(iOS 16.2, *)
+struct GrillKarte: View {
+    let state: HausAktivitaetAttributes.ContentState
+    let gross: String
+
+    var body: some View {
+        let (zahl, einheit) = zahlUndEinheit(gross)
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .top, spacing: 2) {
+                    Text(zahl)
+                        .font(.system(size: 58, weight: .heavy, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
+                    Text(einheit)
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .padding(.top, 10)
+                }
+                Spacer(minLength: 0)
+                if !state.text.isEmpty {
+                    Text(state.text)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                if let fortschritt = state.fortschritt {
+                    Fortschrittsbalken(anteil: fortschritt)
+                }
+            }
+            .frame(maxHeight: .infinity)
+            .layoutPriority(1)
+            VStack(spacing: 0) {
+                Text(state.titel.uppercased())
+                    .font(.system(size: 17, weight: .heavy, design: .rounded))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Spacer(minLength: 0)
+                if let link = state.link, let ziel = URL(string: link.url) {
+                    Link(destination: ziel) {
+                        HStack(spacing: 5) {
+                            Image(systemName: link.symbol)
+                            Text(link.text.uppercased())
+                        }
+                        .font(.system(size: 15, weight: .heavy, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if let werte = state.werte, !werte.isEmpty {
+                Fuehlerspalten(werte: werte)
+            }
+        }
+        .padding(14)
+        // Zwei Kreise übereinander samt Abstand - und die Karte nicht
+        // höher, sonst hängen Zahl und Balken in der Luft. Nur nach
+        // oben begrenzt: In der Dynamic Island bekommt die Karte
+        // weniger Platz, und eine feste Höhe würde dort abgeschnitten.
+        .frame(maxHeight: 132)
     }
 }
 
@@ -938,23 +1082,28 @@ struct HausKarteInhalt: View {
     let state: HausAktivitaetAttributes.ContentState
 
     var body: some View {
+        // Die grosse Zahl macht aus der schmalen Zeile die Grillkarte
+        // (Punkt 553, Form seit 556): Wer den Grill vom Sofa aus
+        // ansieht, will die Gartemperatur lesen können, ohne das
+        // Telefon in die Hand zu nehmen. Timer, Waschmaschine und
+        // Sauger bleiben bei der Zeile.
+        if let gross = state.gross {
+            GrillKarte(state: state, gross: gross)
+        } else {
+            SchmaleKarte(state: state)
+        }
+    }
+}
+
+@available(iOS 16.2, *)
+struct SchmaleKarte: View {
+    let state: HausAktivitaetAttributes.ContentState
+
+    var body: some View {
         HStack(spacing: 12) {
-            // Die grosse Zahl ersetzt das Symbol, nicht die Zeile
-            // darunter (Punkt 553): Wer den Grill vom Sofa aus ansieht,
-            // will die Gartemperatur lesen können, ohne das Telefon in
-            // die Hand zu nehmen. Ein Flammensymbol daneben wäre der
-            // Platz, den die Zahl braucht.
-            if let gross = state.gross {
-                Text(gross)
-                    .font(.system(size: 38, weight: .bold, design: .rounded))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.5)
-                    .layoutPriority(1)
-            } else {
-                Image(systemName: state.symbol)
-                    .font(.title2)
-                    .foregroundStyle(kartenFarbe(state.farbe))
-            }
+            Image(systemName: state.symbol)
+                .font(.title2)
+                .foregroundStyle(kartenFarbe(state.farbe))
             VStack(alignment: .leading, spacing: 2) {
                 Text(state.titel).font(.headline)
                 if !state.text.isEmpty {
@@ -968,16 +1117,6 @@ struct HausKarteInhalt: View {
                 }
             }
             Spacer()
-            // Die Fühler rechts, in der Reihenfolge, die der Hub
-            // schickt. Höchstens vier - mehr hat der Grill nicht, und
-            // mehr passte auch nicht nebeneinander.
-            if let werte = state.werte, !werte.isEmpty {
-                HStack(spacing: 6) {
-                    ForEach(werte.prefix(4), id: \.nummer) { wert in
-                        FuehlerKreis(wert: wert)
-                    }
-                }
-            }
             if let knoepfe = state.knoepfe, !knoepfe.isEmpty {
                 KartenKnoepfe(knoepfe: knoepfe)
             }
