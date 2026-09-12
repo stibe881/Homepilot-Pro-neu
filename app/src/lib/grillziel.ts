@@ -111,3 +111,51 @@ export function zieleVon(
   }
   return raus;
 }
+
+
+/** Ein Fühlerplatz auf dem Grillblatt - auch ein leerer (rein, testbar).
+ *
+ * Alle vier, immer: Die Hersteller-App zeigt vier Kreise, und drei
+ * davon stehen leer da, solange nur einer steckt. Das ist richtig so -
+ * man sieht auf einen Blick, welcher Platz noch frei ist, statt zu
+ * zählen. Ein Kreis, der erst erscheint, wenn man den Fühler einsteckt,
+ * liesse einen suchen, ob man den richtigen Anschluss erwischt hat.
+ */
+export interface Fuehlerplatz {
+  nummer: string;
+  /** Die gemessene Kerntemperatur - null heisst «nicht eingesteckt». */
+  wert: number | null;
+  ziel: number | null;
+  /** Was im Kreis steht: «43°» oder «—». */
+  anzeige: string;
+}
+
+export function fuehlerplaetze(
+  probes: Record<string, number>,
+  ziele: Record<string, number>
+): Fuehlerplatz[] {
+  return ['1', '2', '3', '4'].map((nummer) => {
+    const roh = probes[nummer];
+    const wert = typeof roh === 'number' ? roh : null;
+    return {
+      nummer,
+      wert,
+      ziel: ziele[nummer] ?? null,
+      anzeige: wert === null ? '—' : `${Math.round(wert)}°`,
+    };
+  });
+}
+
+/**
+ * Wie weit der Grill ist, als Anteil zwischen 0 und 1 (rein, testbar).
+ *
+ * `null`, wo sich nichts sagen lässt - ein Balken ohne Grundlage
+ * behauptet einen Fortschritt, den niemand gemessen hat.
+ */
+export function grillFortschritt(
+  ist: number | undefined,
+  ziel: number | undefined
+): number | null {
+  if (typeof ist !== 'number' || typeof ziel !== 'number' || ziel <= 0) return null;
+  return Math.max(0, Math.min(1, ist / ziel));
+}

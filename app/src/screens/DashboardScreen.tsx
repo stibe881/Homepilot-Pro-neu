@@ -212,12 +212,14 @@ import { useFamilienlisten } from '../hooks/useFamilienlisten';
 import { useAbstuerze } from '../hooks/useAbstuerze';
 import { useKachelnutzung } from '../hooks/useKachelnutzung';
 import { useRaumnutzung } from '../hooks/useRaumnutzung';
+import { Zielzeile, istGrill, zieleVon } from '../lib/grillziel';
 import { nachGewohnheit } from '../lib/kachellernen';
 import { useSensorlinien } from '../hooks/useSensorlinien';
 import { useAusfall } from '../hooks/useAusfall';
 import { useZurueckWischen } from '../hooks/useZurueckWischen';
 import { useTakt } from '../hooks/useTakt';
 import { ErinnerungOverlay } from './dashboard/Erinnerungsvollbild';
+import { Grillvollbild } from './dashboard/Grillvollbild';
 import { GroupControls } from './dashboard/Gruppensteuerung';
 import { CameraFullscreen } from './dashboard/Kameravollbild';
 import { DoorbellOverlay } from './dashboard/Klingelvollbild';
@@ -603,6 +605,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // der Gerätekachel, sondern hier: Der Knopf «Fernseher» auf einer
   // Raumkachel soll sie aufmachen, ohne dass man erst in den Raum geht.
   const [remoteFuer, setRemoteFuer] = useState<string | null>(null);
+  // Der Grill, dessen Blatt offen ist (Punkt 555). Über die Kennung und
+  // nicht über die Entität: Der Hub schickt alle dreissig Sekunden einen
+  // neuen Zustand, und ein festgehaltenes Objekt wäre sofort von gestern
+  // - dieselbe Überlegung wie beim Fernbedienungs-Blatt.
+  const [grillBlattFuer, setGrillBlattFuer] = useState<string | null>(null);
+  const [grillziele, setGrillziele] = useState<Zielzeile[]>([]);
   // Auf der Startseite markierte Countdowns aus dem Familie-Modul.
   const [startCountdowns, setStartCountdowns] = useState<
     { text: string; date: string; on_start?: boolean }[]
@@ -736,6 +744,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     () => entities.find((entity) => entity.id === remoteFuer) ?? null,
     [entities, remoteFuer]
   );
+  const grillImBlatt = useMemo(
+    () => entities.find((entity) => entity.id === grillBlattFuer) ?? null,
+    [entities, grillBlattFuer]
+  );
+
+  // Die Kerntemperatur-Ziele holen, sobald das Blatt aufgeht - und nicht
+  // beim Start: Sie zählen nur, solange jemand hinsieht.
+  useEffect(() => {
+    if (!grillBlattFuer) return;
+    hub
+      .get<{ ziele?: Zielzeile[] } | null>('/api/grillziele', {
+        fallback: null,
+        still: true,
+      })
+      .then((antwort) => setGrillziele(antwort?.ziele ?? []));
+  }, [hub, grillBlattFuer]);
   // Die Szene «Kino» fürs Fernbedienungs-Blatt - dieselbe Regel wie auf
   // der Live-Karte des Fernsehers (lib/kinoszene.ts).
   const kinoImBlatt = useMemo(() => kinoSzene(scenes), [scenes]);
@@ -1434,6 +1458,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         setSection('home');
         if (tv.room) setRoom(tv.room);
         setRemoteFuer(tv.id);
+      } else if (what === 'grill' && id) {
+        // Von der Grill-Live-Karte und von der Grill-Push (Punkt 555):
+        // in den Raum des Geräts und das Blatt gleich auf. Wer beim
+        // Grillen aufs Telefon tippt, will die Kerntemperatur sehen,
+        // nicht eine Raumübersicht mit einer Kachel darin.
+        const grill = entities.find((item) => item.id === id);
+        if (!grill) return entities.length > 0;
+        setSection('home');
+        if (grill.room) setRoom(grill.room);
+        setGrillBlattFuer(grill.id);
       } else if (what === 'timer') {
         // Die Karte des Küchen-Timers: Er wohnt in der Küche (die
         // Kachel steht nur dort). Die Adresse schickte der Hub schon
@@ -1642,6 +1676,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         // Raum, und dort sieht man es im Zusammenhang.
         if (geraet?.kind === 'camera') {
           setFullscreen(geraet.id);
+          return;
+        }
+        // Und der Grill genauso (Punkt 555): «Fühler 2 ist so weit»
+        // beantwortet man, indem man die Kerntemperatur ansieht - nicht,
+        // indem man in einer Raumübersicht die richtige Kachel sucht.
+        if (geraet && istGrill(geraet)) {
+          setSection('home');
+          if (geraet.room) setRoom(geraet.room);
+          setGrillBlattFuer(geraet.id);
           return;
         }
         if (geraet?.room) {
@@ -2204,6 +2247,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       onSetGroup={editing ? (group) => setEntityMeta(entity.id, { group }) : undefined}
       onCommand={(command, data) => guardedCommand(entity.id, command, data)}
       onErinnern={() => setErinnernAn(entity)}
+      // Der Grill gross (Punkt 555): Dasselbe Blatt, das die
+      // Live-Aktivität und die Push öffnen - ein Ziel, drei Wege
+      // dorthin. Beim Grillen sieht man alle paar Minuten hin, und die
+      // Kachel trägt die Gartemperatur klein zwischen anderen Kacheln.
+      onGross={
+        !editing && istGrill(entity) ? () => setGrillBlattFuer(entity.id) : undefined
+      }
       sky={entity.kind === 'cover' ? sky : undefined}
       snapshotUri={
         // Kameras: Livebild. Sauger: die Karte – beides über denselben Endpunkt.
@@ -4574,6 +4624,35 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             onFehlerWeg={dismissError}
             kino={kinoImBlatt}
             onKino={activateScene}
+          />
+        ) : null}
+        {grillImBlatt ? (
+          <Grillvollbild
+            entity={grillImBlatt}
+            ziele={zieleVon(grillziele, grillImBlatt.id)}
+            onZiel={(nummer, wert) => {
+              // Erst anzeigen, dann schicken - beim Grillen steht man
+              // daneben und will sehen, dass der Griff ankam.
+              setGrillziele((vorher) => [
+                ...vorher.filter(
+                  (zeile) =>
+                    !(
+                      zeile.entity_id === grillImBlatt.id &&
+                      String(zeile.nummer) === nummer
+                    )
+                ),
+                ...(wert === null
+                  ? []
+                  : [{ entity_id: grillImBlatt.id, nummer, ziel: wert }]),
+              ]);
+              hub.put(
+                '/api/grillziele',
+                { entity_id: grillImBlatt.id, nummer: Number(nummer), ziel: wert },
+                { still: true }
+              );
+            }}
+            onCommand={(command, data) => guardedCommand(grillImBlatt.id, command, data)}
+            onSchliessen={() => setGrillBlattFuer(null)}
           />
         ) : null}
         {musikBlattRaum ? (

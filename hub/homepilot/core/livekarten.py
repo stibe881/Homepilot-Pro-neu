@@ -225,6 +225,22 @@ def raum_url(entity: Any) -> str | None:
     return f"homepilot://raum/{quote(str(raum))}"
 
 
+def grill_url(entity: Any) -> str:
+    """Wohin ein Tipp auf die Grillkarte führt (rein, testbar).
+
+    Nicht bloss in den Raum wie bei der Waschmaschine (raum_url): Beim
+    Grill will man nach dem Tipp sofort die vier Fühler sehen und ein
+    Ziel setzen können, und das steht im Vollbild der Kachel
+    (screens/dashboard/Grillvollbild.tsx). Der Weg über den Raum liesse
+    einen auf der Raumseite stehen, mit der Kachel irgendwo dazwischen -
+    genau der Zwischenschritt, den man mit heissen Händen nicht macht.
+
+    Die Kennung wird kodiert; sie trägt einen Punkt und darf auch
+    Zeichen enthalten, die in einer Adresse etwas anderes bedeuten.
+    """
+    return f"homepilot://grill/{quote(str(entity.id), safe='')}"
+
+
 def _geraete_symbol(label: str) -> str:
     tief = label.lower()
     if "geschirr" in tief:
@@ -381,7 +397,7 @@ def karten_grill(entities: list[Any]) -> list[dict[str, Any]]:
         # 350, und «350°C» wäre eine Behauptung über glühendes Blech.
         einheit = str(entity.state.get("unit") or "°")
         fuehler = fuehlerwerte(entity, einheit)
-        url = raum_url(entity)
+        url = grill_url(entity)
         karten.append(
             {
                 "art": f"grill:{entity.id}",

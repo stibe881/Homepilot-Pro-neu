@@ -7,6 +7,7 @@ from homepilot.core.livekarten import (
     NACHHALL_SEKUNDEN,
     abgleich,
     ende_payload,
+    grill_url,
     hat_karte,
     karten_alarm,
     karten_erinnerungen,
@@ -632,17 +633,35 @@ def test_ein_tipp_auf_die_geraetekarte_fuehrt_in_den_raum():
     assert raum_url(maschine) == "homepilot://raum/Waschk%C3%BCche"
 
 
-def test_auch_grill_und_sauger_fuehren_in_ihren_raum():
-    grill = SimpleNamespace(
-        id="pitboss.grill", kind="appliance", label="Grill", room="Terrasse",
-        state={"state": "running", "target": 200, "temperature": 150},
-    )
+def test_der_sauger_fuehrt_in_seinen_raum():
     sauger = SimpleNamespace(
         id="roborock.s7", kind="vacuum", label="Sauger", room="Flur",
         state={"state": "cleaning", "battery": 80},
     )
-    assert karten_grill([grill])[0]["state"]["url"] == "homepilot://raum/Terrasse"
     assert karten_sauger([sauger])[0]["state"]["url"] == "homepilot://raum/Flur"
+
+
+def test_die_grillkarte_fuehrt_ins_vollbild_statt_nur_in_den_raum():
+    """Ein Tipp auf die Live-Aktivität soll die Fühler zeigen (Punkt 555).
+
+    Vorher führte sie in den Raum - dort steht die Kachel zwar, aber
+    man muss sie erst suchen und antippen. Mit heissen Händen am Grill
+    ist das ein Schritt zu viel.
+    """
+    grill = SimpleNamespace(
+        id="pitboss.grill", kind="appliance", label="Grill", room="Terrasse",
+        state={"state": "running", "target": 200, "temperature": 150},
+    )
+    assert karten_grill([grill])[0]["state"]["url"] == "homepilot://grill/pitboss.grill"
+    assert grill_url(grill) == "homepilot://grill/pitboss.grill"
+
+    # Auch ohne Raum - anders als bei der Waschmaschine hängt die
+    # Adresse hier am Gerät, nicht am Zimmer.
+    heimatlos = SimpleNamespace(
+        id="pitboss.grill", kind="appliance", label="Grill", room=None,
+        state={"state": "running", "target": 200, "temperature": 150},
+    )
+    assert karten_grill([heimatlos])[0]["state"]["url"] == "homepilot://grill/pitboss.grill"
 
 
 def test_die_saugerkarte_traegt_pause_weiter_und_station():

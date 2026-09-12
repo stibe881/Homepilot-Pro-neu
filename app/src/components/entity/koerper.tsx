@@ -289,9 +289,18 @@ export function useGlide(target: number, fullTravelSeconds: number): number {
 export function GrillBody({
   entity,
   onCommand,
+  onGross,
 }: {
   entity: Entity;
   onCommand: (command: string, data?: Record<string, unknown>) => void;
+  /** Öffnet das Grillblatt (Punkt 555). Als eigener Knopf und nicht als
+   *  Tipp auf die ganze Kachel: Diese Kachel ist voller Griffe - zwei
+   *  Schritte für die Gartemperatur, je eine Zeile pro Fühler,
+   *  Anzünden, Aus. Eine Kachel, die zusätzlich als Ganzes reagiert,
+   *  öffnet im Web bei jedem dieser Griffe noch das Blatt obendrauf
+   *  (react-native-web lässt den Tipp weiterlaufen; vgl. die
+   *  Privatsphäre-Taste der Kamerakachel). */
+  onGross?: () => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -452,6 +461,9 @@ export function GrillBody({
             label="Licht"
             onPress={() => onCommand(entity.state.light ? 'light_off' : 'light_on')}
           />
+        ) : null}
+        {onGross ? (
+          <MediaButton icon="expand-outline" label="Gross anzeigen" onPress={onGross} />
         ) : null}
         <MediaButton icon="power" label="Aus" onPress={() => onCommand('turn_off')} />
       </View>

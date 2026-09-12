@@ -197,6 +197,8 @@ interface Props {
   onKino?: (sceneId: string) => void;
   /** Sensorkacheln lassen sich antippen und zeigen dann ihren Verlauf. */
   onPress?: () => void;
+  /** Grillkacheln: öffnet das Grillblatt (Punkt 555). */
+  onGross?: () => void;
   /** Langes Drücken: Vorschau mit Verlauf – überall, nicht nur unter
    *  Geräte. «Warum ging das um drei Uhr an?» stellt sich dort, wo man
    *  die Kachel sieht. */
@@ -256,6 +258,7 @@ export function EntityCard({
   kino,
   onKino,
   onPress,
+  onGross,
   onLongPress,
   chart,
   snapshotUri,
@@ -1036,7 +1039,7 @@ export function EntityCard({
         // Erkannt am Temperaturziel und nicht am Namen der Anbindung -
         // dieselbe Regel wie im Hub (lib/grillziel.ts, istGrill).
         if (istGrill(entity)) {
-          return <GrillBody entity={entity} onCommand={onCommand} />;
+          return <GrillBody entity={entity} onCommand={onCommand} onGross={onGross} />;
         }
         {
           const laeuft = entity.state.state === 'running';

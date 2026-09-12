@@ -5252,3 +5252,61 @@ Fenster ist dort jetzt weit; wie kurz es sein darf, prüfen die Tests
 daneben.
 
 Stellen: `hub/homepilot/core/grillmeldung.py`, `hub/homepilot/core/watchdog.py`, `hub/homepilot/core/push.py`, `hub/homepilot/core/pushziel.py`, `hub/homepilot/core/pushbeispiel.py`, `hub/homepilot/core/livekarten.py`, `hub/homepilot/api/routes/push.py`, `hub/homepilot/api/models.py`, `hub/homepilot/integrations/demo.py`, `app/src/lib/grillziel.ts`, `app/src/components/entity/koerper.tsx`, `app/src/components/EntityCard.tsx`, `scripts/probe.sh`, `scripts/probe.mjs`
+
+### 555. Der Grill gross - ein Blatt, drei Wege dorthin ✓ erledigt
+
+Gewünscht im Haus, wieder mit einem Bild der Hersteller-App: «So eine
+Popup-Karte will ich auch im Raum Grill. Wenn man auf die
+Live-Aktivität klickt, oder auf eine Push vom Grill, soll man auf die
+Seite Grill kommen und das Popup soll sich öffnen.»
+
+**Warum ein eigenes Blatt und nicht die Kachel.** Beim Grillen steht man
+daneben und sieht alle paar Minuten hin - meist von weiter weg, oft mit
+einer Zange in der Hand. Die Kachel liegt zwischen anderen und trägt
+kleine Schrift. Auf dem Blatt steht die Gartemperatur so gross, dass man
+sie vom Sofa aus liest, darunter der Balken und wohin es geht, und
+darunter die vier Fühler als Kreise - genau die Reihenfolge, in der man
+hinsieht: erst «ist der Ofen so weit», dann «ist das Fleisch so weit».
+
+**Vier Kreise, immer - auch die leeren.** Am Demo-Grill stecken zwei
+Fühler, und eine Fassung, die nur die steckenden zeigt, sieht für sich
+richtig aus. Sie ist es nicht: Man sieht dann nicht, welcher Platz noch
+frei ist, und steht am Gerät und rät, ob man den richtigen Anschluss
+erwischt hat. Der leere Kreis sagt «—» und nicht eine Zahl: Eine geerbte
+Temperatur vom Nachbarplatz nähme man als Antwort, und dann liegt rohes
+Fleisch auf dem Teller.
+
+**Drei Wege, ein Ziel.** Die Live-Aktivität trägt jetzt
+`homepilot://grill/<id>` statt der Raumadresse; die Push des Grills
+(Punkt 554) landet über `geraet:<id>` im selben Blatt, weil die App den
+Grill am Temperaturziel erkennt; und auf der Kachel steht ein Knopf
+dafür. Der Weg über den Raum liesse einen auf der Raumseite stehen, mit
+der Kachel irgendwo dazwischen - genau der Zwischenschritt, den man mit
+heissen Händen nicht macht.
+
+**Was bewusst fehlt**, weil im Bild rot durchgestrichen: der Umschalter
+zwischen °C und °F und das Licht. Die Einheit kommt vom Gerät, und sie
+hier umzustellen hiesse, dem Grill etwas anderes zu sagen als der
+Kachel. Anzünden fehlt ebenfalls und aus dem alten Grund: Es entfacht
+ein Feuer in einem Gerät, neben dem gerade niemand stehen muss, und
+diese Entscheidung bleibt bei der Kachel mit ihrer Rückfrage.
+Ausschalten bleibt - das ist die sichere Richtung.
+
+**Kein Tipp auf die ganze Kachel, sondern ein Knopf.** Der erste Entwurf
+öffnete das Blatt beim Tipp irgendwo auf die Grillkachel, wie bei der
+Kamera. Diese Kachel ist aber voller Griffe: zwei Schritte für die
+Gartemperatur, je eine Zeile pro Fühler, Anzünden, Aus. Im Web läuft der
+Tipp durch die inneren Griffe hindurch weiter (`react-native-web` kennt
+kein Aufhören von selbst - deshalb ruft die Privatsphäre-Taste der
+Kamerakachel `stopPropagation`), und dann öffnet sich bei jedem dieser
+Griffe noch das Blatt obendrauf. Ein eigener Knopf kostet einen halben
+Quadratzentimeter und keine Überraschung.
+
+**Die Messung, die wirklich misst.** Beide neuen Prüfungen wurden gegen
+den alten Stand rot gesehen: ohne den Knopf meldet die Probe «Die
+Grillkachel hat einen Knopf zum Blatt» rot, und mit einer Fassung, die
+nur die steckenden Fühler zeigt, meldet sie «sichtbar: 1, 2». Eine
+Messung, die bloss «es stehen Kreise da» prüft, wäre grün geblieben,
+während das Blatt zwei Plätze verschluckt.
+
+Stellen: `app/src/screens/dashboard/Grillvollbild.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/components/EntityCard.tsx`, `app/src/components/entity/koerper.tsx`, `app/src/lib/grillziel.ts`, `hub/homepilot/core/livekarten.py`, `scripts/probe.mjs`

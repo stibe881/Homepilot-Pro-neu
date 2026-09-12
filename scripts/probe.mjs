@@ -1066,6 +1066,91 @@ async function grillzielSetzen(browser) {
   await seite.close();
 }
 
+/** 14. Geht das Grillblatt auf, und stehen alle vier Fühler darin? (Punkt 555)
+ *
+ * Gewünscht im Haus, mit einem Bild der Hersteller-App daneben: «So
+ * eine Popup-Karte will ich auch im Raum Grill. Wenn man auf die
+ * Live-Aktivität klickt, oder auf eine Push vom Grill, soll man auf die
+ * Seite Grill kommen und das Popup soll sich öffnen.»
+ *
+ * Gemessen wird der Weg, den man im Browser überhaupt gehen kann - der
+ * Knopf auf der Kachel. Die beiden anderen Wege (Live-Aktivität und
+ * Push) enden im selben `setGrillBlattFuer`, und die Adresse dorthin
+ * prüft der Hub (tests/test_livekarten.py: homepilot://grill/…).
+ *
+ * Der zweite Teil ist der wichtigere: Es müssen **vier** Kreise stehen,
+ * auch wenn nur zwei Fühler stecken. Am Demo-Grill sind es genau zwei -
+ * eine Messung, die nur «es stehen Kreise da» prüft, bliebe also grün,
+ * während das Blatt zwei Plätze verschluckt. Und dann sucht man am
+ * Grill, ob man den richtigen Anschluss erwischt hat.
+ */
+async function grillblattGehtAuf(browser) {
+  const seite = await angemeldeteSeite(browser, GROESSEN[0]);
+  if (!(await zurSeite(seite, 'Räume'))) {
+    await seite.close();
+    return;
+  }
+  const terrasse = seite.getByText('Terrasse', { exact: true }).first();
+  if (!(await terrasse.isVisible().catch(() => false))) {
+    pruefe(false, 'Der Raum mit dem Grill war erreichbar');
+    await seite.close();
+    return;
+  }
+  await terrasse.click();
+  await seite.waitForTimeout(1800);
+
+  const knopf = seite.getByLabel('Gross anzeigen').first();
+  if (!(await knopf.isVisible().catch(() => false))) {
+    pruefe(false, 'Die Grillkachel hat einen Knopf zum Blatt');
+    await seite.close();
+    return;
+  }
+  pruefe(true, 'Die Grillkachel hat einen Knopf zum Blatt');
+
+  await knopf.click();
+  await seite.waitForTimeout(900);
+  pruefe(
+    await seite.getByText('GARRAUM', { exact: true }).first().isVisible().catch(() => false),
+    'Das Grillblatt geht auf und zeigt die Gartemperatur gross'
+  );
+
+  const kreise = [];
+  for (const nummer of ['1', '2', '3', '4']) {
+    const kreis = seite.getByText(`P${nummer}`, { exact: true }).first();
+    if (await kreis.isVisible().catch(() => false)) kreise.push(nummer);
+  }
+  pruefe(
+    kreise.length === 4,
+    'Alle vier Fühlerplätze stehen darin - auch die leeren',
+    `sichtbar: ${kreise.join(', ') || 'keiner'}`
+  );
+
+  // Und der leere Platz sagt das auch: «—» statt einer Zahl. Sonst
+  // stünde dort die Temperatur des Nachbarn, und man würde Fleisch
+  // herausnehmen, das noch roh ist.
+  const leer = await seite.getByText('—', { exact: true }).count();
+  pruefe(leer >= 2, 'Die leeren Plätze zeigen keinen Wert', `gefunden: ${leer}`);
+
+  // Ein Ziel lässt sich auch hier setzen - das ist der Grund, warum man
+  // das Blatt aus einer Push heraus öffnet.
+  const kreis3 = seite.getByLabel('Fühler 3, Ziel setzen').first();
+  if (await kreis3.isVisible().catch(() => false)) {
+    await kreis3.click();
+    await seite.waitForTimeout(500);
+    pruefe(
+      await seite
+        .getByText('Ziel für Fühler 3', { exact: true })
+        .first()
+        .isVisible()
+        .catch(() => false),
+      'Ein Tipp auf einen Kreis bietet die Garstufen an'
+    );
+  } else {
+    pruefe(false, 'Ein Tipp auf einen Kreis bietet die Garstufen an');
+  }
+  await seite.close();
+}
+
 const { chromium } = playwrightLaden();
 const browser = await chromium.launch({ executablePath: browserOrt() });
 try {
@@ -1083,6 +1168,7 @@ try {
   await geraetelisteOhneSpalte(browser);
   await geraetewerkzeugeUnten(browser);
   await grillzielSetzen(browser);
+  await grillblattGehtAuf(browser);
 } finally {
   await browser.close();
 }

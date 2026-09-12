@@ -1,4 +1,11 @@
-import { fuehlerZeile, garstufen, istGrill, zieleVon } from './grillziel';
+import {
+  fuehlerZeile,
+  fuehlerplaetze,
+  garstufen,
+  grillFortschritt,
+  istGrill,
+  zieleVon,
+} from './grillziel';
 
 describe('garstufen', () => {
   it('nennt den Garpunkt und nicht bloss die Zahl', () => {
@@ -77,5 +84,36 @@ describe('istGrill', () => {
 
   it('nimmt nur Haushaltgeräte', () => {
     expect(istGrill({ kind: 'sensor', state: { target: 110 } })).toBe(false);
+  });
+});
+
+describe('fuehlerplaetze', () => {
+  it('zeigt alle vier, auch die leeren', () => {
+    // Man sieht auf einen Blick, welcher Platz noch frei ist, statt zu
+    // zählen - und muss nicht rätseln, ob man den richtigen Anschluss
+    // erwischt hat.
+    const plaetze = fuehlerplaetze({ '2': 43 }, { '2': 63 });
+    expect(plaetze.map((p) => p.nummer)).toEqual(['1', '2', '3', '4']);
+    expect(plaetze[0].anzeige).toBe('—');
+    expect(plaetze[1].anzeige).toBe('43°');
+    expect(plaetze[1].ziel).toBe(63);
+    expect(plaetze[0].ziel).toBeNull();
+  });
+});
+
+describe('grillFortschritt', () => {
+  it('rechnet den Anteil bis zum Ziel', () => {
+    expect(grillFortschritt(55, 110)).toBe(0.5);
+  });
+
+  it('bleibt zwischen null und eins', () => {
+    // Ein Grill, der über sein Ziel schiesst, hat keinen Balken von 120 %.
+    expect(grillFortschritt(130, 110)).toBe(1);
+  });
+
+  it('behauptet ohne Grundlage nichts', () => {
+    expect(grillFortschritt(undefined, 110)).toBeNull();
+    expect(grillFortschritt(55, undefined)).toBeNull();
+    expect(grillFortschritt(55, 0)).toBeNull();
   });
 });
