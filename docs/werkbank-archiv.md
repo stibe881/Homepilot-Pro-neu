@@ -5754,3 +5754,18 @@ true`, von der ersten Sekunde an, und die App hört auf beides: das
 Kennzeichen oder das Ziel.
 
 Stellen: `hub/homepilot/integrations/pitboss.py`, `app/src/lib/grillziel.ts`
+
+### 573. Im Verlauf die einzelnen Sensoren an- und abwählen ✓ erledigt
+
+Aus dem Haus: «Man soll im Verlauf die einzelnen Sensoren an-/abwählen
+können.»
+
+Die Legende ist der Schalter: Ein Tipp auf «P2» nimmt die Kurve weg,
+der nächste bringt sie zurück; abgewählt steht der Eintrag blass und
+durchgestrichen da, damit man sieht, dass er da wäre. Der Massstab
+folgt dem Sichtbaren - wer den Garraum wegnimmt, will die Fühler gross
+sehen, nicht in der unteren Hälfte eines leeren Bilds. Gemerkt wird,
+was **aus** ist: So bleibt ein Fühler, der eben eingesteckt wurde, von
+selbst sichtbar.
+
+Stellen: `app/src/lib/grillverlauf.ts`, `app/src/components/Grillverlauf.tsx`

@@ -12,7 +12,7 @@
  * statt eines leeren Rahmens. Die Rechnung steht in lib/grillverlauf.ts.
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Path, Line as SvgLine } from 'react-native-svg';
 
 import { Entity } from '../api/types';
@@ -23,6 +23,7 @@ import {
   Verlaufszeile,
   grillkurven,
   hatVerlauf,
+  reihenUmschalten,
 } from '../lib/grillverlauf';
 import { FUEHLERFARBEN } from '../lib/grillziel';
 import { Punkt, spanne } from '../lib/verlaufkurve';
@@ -43,6 +44,9 @@ export function Grillverlauf({
   const [kurven, setKurven] = useState<Grillkurven | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [hours, setHours] = useState(6);
+  // Was in der Legende abgewählt ist (Punkt 573) - gemerkt wird, was
+  // aus ist, damit ein neu eingesteckter Fühler von selbst erscheint.
+  const [ausgeblendet, setAusgeblendet] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -118,17 +122,21 @@ export function Grillverlauf({
       farbe: FUEHLERFARBEN[nummer] ?? colors.ink,
     })),
   ].filter((reihe) => reihe.punkte.length >= 2);
+  // Gezeichnet wird, was nicht abgewählt ist - und der Massstab folgt
+  // dem Sichtbaren: Wer den Garraum wegnimmt, will die Fühler gross
+  // sehen, nicht in der unteren Hälfte eines leeren Bilds.
+  const sichtbar = reihen.filter((reihe) => !ausgeblendet.includes(reihe.name));
 
   // Ein Massstab für alle - sonst läge der Fühler bei 60° optisch auf
   // dem Garraum bei 120°, und genau dieser Abstand ist die Auskunft.
-  const { min, max } = spanne(reihen.map((reihe) => reihe.punkte));
+  const { min, max } = spanne(sichtbar.map((reihe) => reihe.punkte));
   const span = max - min;
   const pad = 8;
   const innerWidth = Math.max(width - pad * 2, 1);
   const innerHeight = height - pad * 2;
-  const alle = reihen.flatMap((reihe) => reihe.punkte);
-  const von = Math.min(...alle.map((punkt) => punkt.at));
-  const bis = Math.max(...alle.map((punkt) => punkt.at));
+  const alle = sichtbar.flatMap((reihe) => reihe.punkte);
+  const von = alle.length ? Math.min(...alle.map((punkt) => punkt.at)) : 0;
+  const bis = alle.length ? Math.max(...alle.map((punkt) => punkt.at)) : 1;
   const dauer = Math.max(1, bis - von);
   const x = (at: number) => pad + ((at - von) / dauer) * innerWidth;
   const y = (value: number) => pad + innerHeight - ((value - min) / span) * innerHeight;
@@ -139,7 +147,10 @@ export function Grillverlauf({
   const einheit = String(entity.state.unit ?? '°');
 
   return (
-    <View style={styles.wrapper} accessibilityLabel={`Verlauf: ${reihen.map((r) => r.name).join(', ')}`}>
+    <View
+      style={styles.wrapper}
+      accessibilityLabel={`Verlauf: ${sichtbar.map((r) => r.name).join(', ') || 'alles ausgeblendet'}`}
+    >
       <Svg width={width} height={height}>
         <SvgLine
           x1={pad}
@@ -149,7 +160,7 @@ export function Grillverlauf({
           stroke={colors.track}
           strokeWidth={1}
         />
-        {reihen.map((reihe) => (
+        {sichtbar.map((reihe) => (
           <Path
             key={reihe.name}
             d={pfadVon(reihe.punkte)}
@@ -162,12 +173,32 @@ export function Grillverlauf({
       </Svg>
       <View style={styles.fuss}>
         <View style={styles.legende}>
-          {reihen.map((reihe) => (
-            <View key={reihe.name} style={styles.legendeEintrag}>
-              <View style={[styles.legendeFarbe, { backgroundColor: reihe.farbe }]} />
-              <Text style={styles.legendeText}>{reihe.name}</Text>
-            </View>
-          ))}
+          {/* Die Legende ist der Schalter (Punkt 573): ein Tipp blendet
+              die Reihe aus, der nächste wieder ein. Abgewählt: blass
+              und durchgestrichen, damit man sieht, dass sie da wäre. */}
+          {reihen.map((reihe) => {
+            const aus = ausgeblendet.includes(reihe.name);
+            return (
+              <Pressable
+                key={reihe.name}
+                onPress={() => setAusgeblendet((vorher) => reihenUmschalten(vorher, reihe.name))}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: !aus }}
+                accessibilityLabel={`${reihe.name} im Verlauf`}
+                hitSlop={6}
+                style={({ pressed }) => [styles.legendeEintrag, pressed && { opacity: 0.6 }]}
+              >
+                <View
+                  style={[
+                    styles.legendeFarbe,
+                    { backgroundColor: reihe.farbe },
+                    aus && { opacity: 0.3 },
+                  ]}
+                />
+                <Text style={[styles.legendeText, aus && styles.legendeAus]}>{reihe.name}</Text>
+              </Pressable>
+            );
+          })}
           <Text style={styles.legendeText}>
             {Math.round(min)}–{Math.round(max)}
             {einheit}
@@ -193,6 +224,7 @@ const makeStyles = (colors: Colors) =>
     legendeEintrag: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     legendeFarbe: { width: 10, height: 3, borderRadius: 2 },
     legendeText: { color: colors.inkSoft, fontSize: 11 },
+    legendeAus: { color: colors.inkFaint, textDecorationLine: 'line-through' },
     rangeRow: { flexDirection: 'row', gap: 6, paddingHorizontal: 8, paddingBottom: 4 },
     rangeChip: {
       color: colors.inkSoft,

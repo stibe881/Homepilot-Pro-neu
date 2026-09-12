@@ -78,3 +78,18 @@ export function hatVerlauf(kurven: Grillkurven): boolean {
     Object.values(kurven.fuehler).some((reihe) => reihe.length >= 2)
   );
 }
+
+/**
+ * Eine Reihe ein- oder ausblenden (rein, testbar).
+ *
+ * Gewünscht im Haus (Punkt 573): «Man soll im Verlauf die einzelnen
+ * Sensoren an-/abwählen können.» Die Legende ist der Schalter: Ein
+ * Tipp auf «P2» nimmt die Kurve weg, der nächste bringt sie zurück.
+ * Gemerkt wird, was **aus** ist - so bleibt eine neu auftauchende Reihe
+ * (ein Fühler, der eben eingesteckt wurde) von selbst sichtbar.
+ */
+export function reihenUmschalten(ausgeblendet: string[], name: string): string[] {
+  return ausgeblendet.includes(name)
+    ? ausgeblendet.filter((eintrag) => eintrag !== name)
+    : [...ausgeblendet, name];
+}

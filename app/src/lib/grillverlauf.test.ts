@@ -1,4 +1,4 @@
-import { grillkurven, hatVerlauf } from './grillverlauf';
+import { grillkurven, hatVerlauf, reihenUmschalten } from './grillverlauf';
 
 const zeile = (minute: number, state: Record<string, unknown>) => ({
   recorded_at: new Date(Date.UTC(2026, 8, 12, 16, minute)).toISOString(),
@@ -36,5 +36,14 @@ describe('grillkurven', () => {
     expect(hatVerlauf(grillkurven([zeile(0, { probe_2: 30 }), zeile(1, { probe_2: 31 })]))).toBe(
       true
     );
+  });
+});
+
+describe('reihenUmschalten', () => {
+  it('nimmt eine Reihe weg und bringt sie beim nächsten Tipp zurück', () => {
+    // Punkt 573: Die Legende ist der Schalter.
+    expect(reihenUmschalten([], 'P2')).toEqual(['P2']);
+    expect(reihenUmschalten(['P2'], 'Ziel')).toEqual(['P2', 'Ziel']);
+    expect(reihenUmschalten(['P2', 'Ziel'], 'P2')).toEqual(['Ziel']);
   });
 });
