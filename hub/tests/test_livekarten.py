@@ -1192,6 +1192,24 @@ def test_die_karte_zeigt_die_eingesteckten_fuehler():
     ]
 
 
+def test_die_fuehler_tragen_ihren_anteil_zum_ziel():
+    """Punkt 570: «Auch hier werden keine Ringe angezeigt» - der Ring auf
+    der Live-Karte wächst auf das Fühlerziel zu, wie im Grillblatt."""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", temperature=115, target=121, unit="°C",
+        probe_2=43, probe_3=38,
+    )
+    zeilen = [{"entity_id": "pitboss.grill", "nummer": 3, "ziel": 76}]
+    werte = karten_grill([grill], zeilen)[0]["state"]["werte"]
+    # Fühler 2 ohne Ziel: kein Anteil, das Widget zeichnet den vollen Ring.
+    assert "anteil" not in werte[0]
+    # Fühler 3 auf dem halben Weg.
+    assert werte[1]["anteil"] == 0.5
+    # Und ohne Ablage wie bisher.
+    assert "anteil" not in karten_grill([grill])[0]["state"]["werte"][1]
+
+
 def test_die_grillkarte_traegt_unten_den_griff_zum_timer():
     """Wie in der Hersteller-App (Punkt 556): unten in der Mitte «Timer
     stellen». Der Griff kommt vom Hub, nicht aus dem Widget - die Karte

@@ -73,6 +73,9 @@ describe('HausAktivitaetAttributes', () => {
       felder(app, 'KartenWert').sort()
     );
     expect(felder(app, 'KartenWert')).toContain('nummer');
+    // Punkt 570: der Anteil für den Ring - fehlt er im Widget, bleibt der
+    // Ring voll, obwohl der Hub ihn schickt.
+    expect(felder(widget, 'KartenWert')).toContain('anteil');
   });
 
   it('führt den Griff unten in beiden', () => {

@@ -366,23 +366,32 @@ def grilltext(ist: Any, ziel: float, einheit: str) -> str:
     return f"Heizt auf {ziel_text}"
 
 
-def fuehlerwerte(entity: Any, einheit: str) -> list[dict[str, Any]]:
+def fuehlerwerte(
+    entity: Any, einheit: str, ziele: dict[int, float] | None = None
+) -> list[dict[str, Any]]:
     """Die belegten Fleischfühler als Kreise für die Karte (rein, testbar).
 
     Nur die eingesteckten: Ein leerer Kreis mit «–» sagt nichts und
     nimmt den übrigen den Platz (integrations/pitboss.py,
     probe_temperatures führt nur belegte).
+
+    Mit Ziel trägt der Kreis seinen Anteil (Punkt 570): Der Ring wächst
+    auf das Ziel zu, wie im Grillblatt und in der Hersteller-App. Ohne
+    Ziel fehlt das Feld, und das Widget zeichnet den vollen Ring.
     """
     werte = []
     for nummer in (1, 2, 3, 4):
         temp = entity.state.get(f"probe_{nummer}")
         if temp is None:
             continue
+        ziel = (ziele or {}).get(nummer)
+        anteil = grillmeldung.fuehleranteil(temp, ziel)
         werte.append(
             {
                 "nummer": str(nummer),
                 "wert": f"{round(float(temp))}{einheit}",
                 "farbe": FUEHLERFARBEN[nummer],
+                **({"anteil": round(anteil, 3)} if anteil is not None else {}),
             }
         )
     return werte
@@ -403,7 +412,9 @@ def grill_link(entity: Any) -> dict[str, Any]:
     return {"symbol": "timer", "text": "Timer stellen", "url": grill_url(entity)}
 
 
-def karten_grill(entities: list[Any]) -> list[dict[str, Any]]:
+def karten_grill(
+    entities: list[Any], ziele_zeilen: Any = None
+) -> list[dict[str, Any]]:
     """Der Grill: Ist- gegen Zieltemperatur, live - samt Fleischfühlern.
 
     Die Form stammt aus der Hersteller-App, und zwar auf Wunsch aus dem
@@ -426,7 +437,9 @@ def karten_grill(entities: list[Any]) -> list[dict[str, Any]]:
         # Die Einheit kommt vom Gerät: Ein Grill in Fahrenheit meldet
         # 350, und «350°C» wäre eine Behauptung über glühendes Blech.
         einheit = str(entity.state.get("unit") or "°")
-        fuehler = fuehlerwerte(entity, einheit)
+        fuehler = fuehlerwerte(
+            entity, einheit, grillmeldung.fuehlerziele(ziele_zeilen, entity.id)
+        )
         url = grill_url(entity)
         karten.append(
             {
@@ -1206,7 +1219,9 @@ def _gewuenscht(hub: Any, jetzt_s: float, benutzer: list[str]) -> list[dict[str,
     return [
         *karten_timer(hub.timers.list()),
         *karten_geraete(entities, hub.data.get("appliance_cycles"), jetzt_s),
-        *karten_grill(entities),
+        # Mit den Fühlerzielen aus der Ablage - der Ring auf der Karte
+        # wächst darauf zu (Punkt 570).
+        *karten_grill(entities, hub.data.get(grillmeldung.GRILLZIELE_KEY)),
         *karten_sauger(entities),
         # Die Fernbedienung nur für die, die zuhause sind - unterwegs
         # ist sie bloss eine Karte im Weg. Die Szenen für den Kino-Griff.

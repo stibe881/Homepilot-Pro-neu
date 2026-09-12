@@ -5694,3 +5694,27 @@ der Web und Gerät verschieden lesen. Die Rechnung steht bei
 `ringStrich` und ist getestet.
 
 Stellen: `app/src/lib/grillziel.ts`, `app/src/screens/dashboard/Grillvollbild.tsx`
+
+### 570. Die Ringe auch auf der Live-Karte - und der Name daneben ✓ erledigt
+
+Aus dem Haus, mit Bild der neuen Karte: «Auch hier werden keine Ringe
+angezeigt.» Dazu stand der Name in der Mitte als «S…», und vom Griff
+«Timer stellen» war nur das Symbol übrig.
+
+**Der Ring wächst aufs Ziel zu.** Der Hub schickt je Fühler seinen
+Anteil mit (`anteil`, aus den Fühlerzielen der Ablage - dieselbe
+Rechnung wie im Grillblatt), und das Widget zeichnet ihn als Bogen in
+der Farbe des Fühlers über der grauen Spur, von unten weg im
+Uhrzeigersinn. Ohne Ziel fehlt das Feld, und der Ring ist voll. Der
+Schlüssel der Ablage wohnt darum jetzt in `core/grillmeldung.py`, wo
+Wächter und Karte ihn beide finden.
+
+**«S…» kam vom Balken.** Der Fortschrittsbalken misst sich mit einem
+GeometryReader, und der ist gierig: Er nahm der linken Spalte die
+ganze Breite, und Name und Griff in der Mitte bekamen nichts. Die
+linke Spalte ist jetzt so breit wie die Zahl braucht und keinen Punkt
+mehr.
+
+Ein TestFlight-Build gehört dazu - das Widget ist nativ.
+
+Stellen: `hub/homepilot/core/grillmeldung.py`, `hub/homepilot/core/livekarten.py`, `hub/homepilot/core/watchdog.py`, `app/targets/widget/index.swift`, `app/modules/live-aktivitaet/ios/HausAktivitaetAttributes.swift`

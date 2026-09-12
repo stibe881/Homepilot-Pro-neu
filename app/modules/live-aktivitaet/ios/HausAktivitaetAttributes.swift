@@ -55,6 +55,9 @@ struct HausAktivitaetAttributes: ActivityAttributes {
     var nummer: String
     var wert: String
     var farbe: String?
+    /// 0…1: wie weit der Ring aufs Ziel zu gewachsen ist (Punkt 570).
+    /// Ohne Ziel fehlt das Feld, und der Ring ist voll.
+    var anteil: Double?
   }
 
   /// Ein Knopf auf der Karte: SF-Symbol plus dem, was er beim Hub

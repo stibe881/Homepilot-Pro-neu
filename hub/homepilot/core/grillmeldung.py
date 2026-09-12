@@ -41,6 +41,11 @@ from __future__ import annotations
 
 from typing import Any
 
+#: Wo die Fühlerziele in `hub.data` liegen - als Zeilen
+#: {entity_id, nummer, ziel}. Hier und nicht im Wächter, weil auch die
+#: Live-Karte sie braucht (core/livekarten.py, Punkt 570).
+GRILLZIELE_KEY = "grill_probe_targets"
+
 #: Wie nah an den Sollwert der Grill heran muss, damit er als «auf
 #: Temperatur» gilt.
 #:
@@ -178,3 +183,22 @@ def ziel_setzen(
         *behalten,
         {"entity_id": entity_id, "nummer": int(nummer), "ziel": float(ziel)},
     ]
+
+
+def fuehleranteil(wert: Any, ziel: Any) -> float | None:
+    """Wie weit der Ring um den Fühler gefüllt ist, 0…1 (rein, testbar).
+
+    Dieselbe Rechnung wie im Grillblatt der App (lib/grillziel.ts,
+    fuehlerAnteil), für die Live-Karte (Punkt 570): Ohne Ziel `None` -
+    das Widget zeichnet dann den vollen Ring, es gibt nichts, wozu er
+    wachsen könnte. Über dem Ziel bleibt er voll.
+    """
+    if wert is None or ziel is None:
+        return None
+    try:
+        z = float(ziel)
+        if z <= 0:
+            return None
+        return max(0.0, min(1.0, float(wert) / z))
+    except (TypeError, ValueError):
+        return None

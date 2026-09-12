@@ -150,7 +150,9 @@ REGEN_KEY = "rain_warned"
 #: je Fühler nur die Temperatur, kein Ziel. Solange offen ist, ob sie
 #: überhaupt eines führt (grillcheck druckt ihren rohen Zustand), gehört
 #: es dorthin, wo es einen Neustart überlebt.
-GRILLZIELE_KEY = "grill_probe_targets"
+# Seit Punkt 570 in core/grillmeldung.py, weil auch die Live-Karte die
+# Ziele braucht - hier bleibt der Name, den die Routen kennen.
+GRILLZIELE_KEY = grillmeldung.GRILLZIELE_KEY
 
 
 class Watchdog:

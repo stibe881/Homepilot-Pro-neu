@@ -797,6 +797,9 @@ struct HausAktivitaetAttributes: ActivityAttributes {
         var nummer: String
         var wert: String
         var farbe: String?
+        /// 0…1: wie weit der Ring aufs Ziel zu gewachsen ist (Punkt 570).
+        /// Ohne Ziel fehlt das Feld, und der Ring ist voll.
+        var anteil: Double?
     }
 
     /// Ein Knopf: SF-Symbol plus dem, was er beim Hub auslöst. Das
@@ -888,7 +891,18 @@ struct FuehlerKreis: View {
         }
         .frame(width: 50, height: 50)
         .background(Circle().fill(.white.opacity(0.08)))
-        .overlay(Circle().strokeBorder(.white.opacity(0.4), lineWidth: 2))
+        // Die Spur grau, darüber der Ring in der Farbe des Fühlers - so
+        // weit, wie das Fleisch seinem Ziel nahe ist (Punkt 570). Von
+        // unten weg im Uhrzeigersinn wie am Gerät: trim beginnt rechts,
+        // ein Viertel gedreht ist unten. Ohne Ziel der volle Ring.
+        .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 2.5))
+        .overlay(
+            Circle()
+                .trim(from: 0, to: wert.anteil ?? 1)
+                .stroke(kartenFarbe(wert.farbe), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                .rotationEffect(.degrees(90))
+                .padding(1.25)
+        )
     }
 }
 
@@ -976,8 +990,10 @@ struct GrillKarte: View {
                     Fortschrittsbalken(anteil: fortschritt)
                 }
             }
-            .frame(maxHeight: .infinity)
-            .layoutPriority(1)
+            // Nicht breiter als die Zahl braucht: Der Balken darunter
+            // (GeometryReader) nähme sonst die ganze Breite und drückte
+            // Name und Griff in der Mitte auf «S…» zusammen (Punkt 570).
+            .frame(maxWidth: 170, maxHeight: .infinity, alignment: .leading)
             VStack(spacing: 0) {
                 Text(state.titel.uppercased())
                     .font(.system(size: 17, weight: .heavy, design: .rounded))

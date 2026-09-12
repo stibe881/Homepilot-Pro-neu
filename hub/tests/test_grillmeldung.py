@@ -290,3 +290,12 @@ def test_alle_vier_fuehler_koennen_melden(nummer):
     )
     lauf(w, [grill(temperature=80, target=110, **{f"probe_{nummer}": 70})])
     assert [t for t, _, _ in gesendet] == [f"Fühler {nummer} ist so weit"]
+
+
+def test_fuehleranteil_rechnet_wie_das_blatt():
+    """Punkt 570: derselbe Ring auf der Live-Karte wie im Grillblatt."""
+    assert gm.fuehleranteil(38, 76) == 0.5
+    assert gm.fuehleranteil(90, 76) == 1.0
+    assert gm.fuehleranteil(38, None) is None
+    assert gm.fuehleranteil(None, 76) is None
+    assert gm.fuehleranteil(38, 0) is None
