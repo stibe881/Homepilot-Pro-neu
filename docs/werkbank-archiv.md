@@ -5015,3 +5015,37 @@ Licht, Storen und Kameras behalten die Spalte vorerst: Dort bedient man
 Geräte, statt eines zu suchen. Gebeten wurde um die Geräteliste.
 
 Stellen: `app/src/lib/seitenspalte.ts`, `app/src/components/SidePanel.tsx`, `app/src/screens/DashboardScreen.tsx`, `scripts/probe.mjs`
+
+### 550. Einrichten und Werkzeug gehören ans Ende der Geräteliste ✓ erledigt
+
+Gemeldet im Haus, mit Bild: «Die Karte ‹Noch einzurichten› und
+‹Werkzeuge› sollen ganz unten angezeigt werden und sollen ausserdem
+eingeklappt sein.»
+
+**Beide standen über der Liste - also vor dem, weswegen man die Seite
+öffnet.** Auf dem Bild: 78 Geräte ohne Raum, aufgeklappt, eine
+Bildschirmlänge lang. Wer ein bestimmtes Gerät suchte, scrollte jedes
+Mal daran vorbei. Einrichten tut man einmal je Gerät, aufräumen ein
+paarmal im Jahr; gesucht wird täglich - und was am seltensten gebraucht
+wird, gehört nach unten.
+
+**Zugeklappt, aber nicht verschwunden.** «Noch einzurichten» behält
+seine Zeile «78 ohne Raum, 2 mit dem Namen aus der Verpackung»: Das ist
+die Auskunft, an der man entscheidet, ob sich das Aufmachen lohnt. Eine
+Karte, die zugeklappt gar nichts mehr sagt, hätte man ebenso gut
+löschen können.
+
+Die Meldung der Werkzeuge («Umgehängt: …», «Nichts umzuhängen») steht
+ausserhalb des Zugeklappten: Was ein Knopf gemeldet hat, darf nicht
+verschwinden, weil man die Karte danach zumacht.
+
+**Die Probe misst beides, und zwar gegen etwas.** «Unten» ohne Bezug
+wäre keine Messung - die beiden Karten lagen vorher schon
+untereinander, nur eben über der Liste. Gemessen wird darum gegen eine
+Gerätekachel: Mit dem alten Stand meldet die Probe «Karte bei 449,
+Kachel bei 2352». Dass zugeklappt wirklich zugeklappt ist, hat seine
+eigene Gegenprobe: Nach einem Tipp auf «Werkzeuge» muss der Knopf da
+sein, sonst wäre die Messung auch für eine App grün, in der es die
+Karte gar nicht mehr gibt.
+
+Stellen: `app/src/screens/DashboardScreen.tsx`, `app/src/components/Einrichtungshilfe.tsx`, `app/src/components/DeviceTools.tsx`, `scripts/probe.mjs`
