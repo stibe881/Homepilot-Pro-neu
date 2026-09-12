@@ -57,7 +57,7 @@ import {
   geburtstagsListe,
   terminGruppen,
 } from '../lib/kalenderliste';
-import { applianceLine } from '../lib/haushalt';
+import { applianceLine, steckdosengeraet } from '../lib/haushalt';
 import {
   aufnahmeFehler,
   dauerText as aufnahmeDauer,
@@ -453,14 +453,14 @@ export function OverviewScreen({
   const wash = applianceLine(washer, 'Läuft · noch 32 min');
   // Der Tumbler hängt an einer Schalt-Messsteckdose: Ob er läuft, verrät
   // erst die Leistung – eingeschaltet ist die Steckdose auch danach noch.
-  const tumblerWatts = tumbler ? Number(tumbler.state.power ?? 0) : 1450;
-  const tumblerOff = tumbler ? String(tumbler.state.state) === 'off' : false;
-  const tumblerRunning = !tumblerOff && tumblerWatts > 5;
-  const tumblerText = tumblerOff
-    ? 'Steckdose aus'
-    : tumblerRunning
-      ? 'Am Trocknen'
-      : 'Fertig';
+  // Ab wann das «arbeitet» heisst, steht in lib/haushalt.ts, damit hier
+  // und in der Begrüssungszeile dieselbe Schwelle gilt.
+  const {
+    text: tumblerText,
+    running: tumblerRunning,
+    watts: tumblerWatts,
+    aus: tumblerOff,
+  } = steckdosengeraet(tumbler, 'Am Trocknen');
 
   // Der Kalender - nur noch für die beiden Fenster. Den nächsten Termin
   // und den nächsten Geburtstag zeigt die Startkarte oben; hier stand
