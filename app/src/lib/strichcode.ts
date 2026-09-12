@@ -167,3 +167,76 @@ export function strichbild(nummer: string | null | undefined): Strichbild | null
   const bits = code128Bits(druckbar);
   return { schrift: 'code128', balken: bitsZuBalken(bits), text: druckbar, module: bits.length };
 }
+
+// ── Welches Bild an die Kasse gehört (Punkt 420 der Werkbank) ────────────
+
+/** Womit die Kasse den Gutschein liest. */
+export type Codeart = 'strich' | 'qr';
+
+/**
+ * Ab so vielen Zeichen taugt Code 128 auf einem Telefon nicht mehr.
+ *
+ * Jedes Zeichen sind elf Module; bei dreissig Zeichen liegt der Code
+ * über dreihundert Module breit, und auf einem Bildschirm von sieben
+ * Zentimetern ist ein Modul dann dünner als ein Fünftelmillimeter.
+ * Gezeichnet wird er trotzdem - lesen kann ihn keine Kasse mehr. Lieber
+ * ein QR-Code, der lange Inhalte gerade dafür gebaut hat.
+ */
+export const STRICH_MAX = 24;
+
+/**
+ * Lässt sich diese Nummer sinnvoll als Strichcode zeigen? (rein, testbar)
+ *
+ * Eine dreizehnstellige EAN immer - das ist die Schrift der
+ * Geschenkkarten. Sonst nur, was kurz genug ist und wie eine Nummer
+ * aussieht: Ein Leerzeichen oder ein «https://» darin heisst, dass da
+ * gar keine Nummer steht, sondern eine Adresse - und die stand auf der
+ * Karte mit Sicherheit als QR-Code.
+ */
+export function strichTauglich(nummer: string | null | undefined): boolean {
+  const roh = String(nummer ?? '').trim();
+  if (!roh) return false;
+  if (istEan(roh)) return true;
+  if (roh.length > STRICH_MAX) return false;
+  if (/\s|:\/\//.test(roh)) return false;
+  return strichbild(roh) !== null;
+}
+
+/**
+ * Was an der Kasse gezeigt wird - oder null (rein, testbar).
+ *
+ * `gewuenscht` ist, was am Gutschein steht: Beim Scannen merkt sich die
+ * App, welche Schrift die Kamera gelesen hat, und von Hand lässt es
+ * sich im Formular umstellen. Ohne Angabe entscheidet die Nummer
+ * selbst - so bekommen auch die Gutscheine von vor dieser Frage das
+ * richtige Bild, statt einen Strichcode, den niemand scannen kann.
+ *
+ * Null heisst: gar nichts zeigen. Ein leeres Feld an der Kasse ist
+ * schlimmer als keins, weil man mit ihm losfährt.
+ */
+export function kassenart(
+  nummer: string | null | undefined,
+  gewuenscht?: Codeart | null
+): Codeart | null {
+  const roh = String(nummer ?? '').trim();
+  if (!roh) return null;
+  if (gewuenscht === 'qr') return 'qr';
+  // Auch ein ausdrückliches «Strichcode» kann nicht gelten, wenn keine
+  // Schrift die Zeichen hergibt - dann ist QR das einzige Bild, das
+  // bleibt. Widerspricht der Angabe, ist aber das, was hilft.
+  return strichTauglich(roh) ? 'strich' : 'qr';
+}
+
+/**
+ * Was die Kamera gelesen hat, als Codeart (rein, testbar).
+ *
+ * `expo-camera` meldet die Schrift beim Scannen mit («qr», «ean13»,
+ * «code128», auch «datamatrix» oder «aztec»). Nur «qr» wird hier zu
+ * einem QR-Code: Gezeichnet werden kann ohnehin nur diese eine
+ * Flächenschrift, und die anderen als QR auszugeben hiesse, an der
+ * Kasse ein Bild zu zeigen, das dort nie stand. Was daraus kein
+ * Strichcode werden kann, fängt `kassenart` am Inhalt wieder ab.
+ */
+export function gescannteArt(art: string | null | undefined): Codeart {
+  return String(art ?? '').trim().toLowerCase() === 'qr' ? 'qr' : 'strich';
+}

@@ -9,6 +9,7 @@ Ohne angemeldetes Gerät passiert schlicht nichts – der Hub läuft weiter.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -208,8 +209,74 @@ def knoepfe(category: str | None) -> str | None:
     return _KNOEPFE.get(str(category or ""))
 
 
-def dringlichkeit(category: str | None) -> dict[str, Any]:
+#: Die drei Stufen, die eine Kategorie haben kann. «kritisch» ist
+#: Apples «critical alert»: durchbricht auch «Nicht stören» und den
+#: Stummschalter - und braucht eine gesonderte Berechtigung von Apple
+#: (Punkt 392). Ohne sie (``push.critical_alerts`` in der config.yaml
+#: fehlt) verhält sich «kritisch» wie «dringend».
+STUFEN = ("leise", "dringend", "kritisch")
+STUFE_LEISE, STUFE_DRINGEND, STUFE_KRITISCH = STUFEN
+#: Schlüssel in hub.data, unter dem die geänderten Stufen liegen.
+STUFEN_KEY = "push_stufen"
+
+
+def stufe_standard(category: str | None) -> str:
+    """Die eingebaute Stufe einer Kategorie (rein, testbar)."""
+    if category is not None and category in LEISE:
+        return STUFE_LEISE
+    return STUFE_DRINGEND
+
+
+def stufen_lesen(rows: Any) -> dict[str, str]:
+    """Die geänderten Stufen aus der Ablage (rein, testbar).
+
+    Nur bekannte Kategorien und nur die drei Stufen: Eine umbenannte
+    Kategorie soll nicht als Geist weiterleben, und ein Tippfehler in
+    der Datei nicht zu einer vierten Stufe werden.
+    """
+    stufen: dict[str, str] = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        category = str(row.get("category") or "")
+        stufe = str(row.get("stufe") or "")
+        if known(category) and stufe in STUFEN and stufe != stufe_standard(category):
+            stufen[category] = stufe
+    return stufen
+
+
+def stufen_setzen(rows: Any, category: str, stufe: str) -> list[dict[str, Any]]:
+    """Eine Stufe ändern - zurück auf den Standard heisst: Zeile weg (rein, testbar)."""
+    uebrig = [
+        row
+        for row in rows or []
+        if isinstance(row, dict) and str(row.get("category") or "") != category
+    ]
+    if stufe in STUFEN and stufe != stufe_standard(category):
+        uebrig.append({"category": category, "stufe": stufe})
+    return uebrig
+
+
+def stufe_von(category: str | None, stufen: dict[str, str] | None = None) -> str:
+    """Die geltende Stufe: die geänderte, sonst die eingebaute (rein, testbar)."""
+    if category is not None and stufen and category in stufen:
+        return stufen[category]
+    return stufe_standard(category)
+
+
+def dringlichkeit(
+    category: str | None,
+    stufen: dict[str, str] | None = None,
+    kritisch_erlaubt: bool = False,
+) -> dict[str, Any]:
     """Die Zustellfelder für eine Kategorie (rein, testbar).
+
+    ``stufen`` sind die im Haus geänderten Stufen (``stufen_lesen``):
+    Wer die Batteriewarnung dringend haben will, bekommt sie so - und wer
+    die Gäste-Ankunft leise, auch. ``kritisch_erlaubt`` sagt, ob Apple
+    dem Haus critical alerts gestattet hat; ohne das wird «kritisch» zu
+    «dringend», damit die Meldung nicht an einem Schlüssel scheitert,
+    den das Telefon nicht kennt.
 
     ``priority`` entscheidet, ob Android die Nachricht durch Doze
     durchlässt und ob Apple sie sofort ausliefert. ``channelId`` sagt
@@ -219,8 +286,18 @@ def dringlichkeit(category: str | None) -> dict[str, Any]:
     nützt die hohe Priorität nichts, sobald ein Fokus aktiv ist - die
     Nachricht ist dann sofort da und wird bloss nicht gezeigt.
     """
-    if category is not None and category in LEISE:
+    stufe = stufe_von(category, stufen)
+    if stufe == STUFE_LEISE:
         return {"priority": "normal", "channelId": KANAL_LEISE}
+    if stufe == STUFE_KRITISCH and kritisch_erlaubt:
+        return {
+            "priority": "high",
+            "channelId": KANAL_DRINGEND,
+            "interruptionLevel": "critical",
+            # Der Ton macht die Meldung kritisch, nicht die Stufe: Erst
+            # ``critical`` im Ton lässt iOS den Stummschalter übergehen.
+            "sound": {"critical": True, "name": "default", "volume": 1.0},
+        }
     return {
         "priority": "high",
         "channelId": KANAL_DRINGEND,
@@ -248,6 +325,9 @@ CATEGORIES: dict[str, str] = {
     "battery": "Batterie schwach",
     "open": "Fenster/Tür steht offen",
     "leak": "Wasser gemeldet",
+    # Die Brandmeldeanlage (Punkt 543): Rauch oder Gas gemeldet, die
+    # Wiederholung, die Entwarnung und der Probealarm.
+    "smoke": "Rauch gemeldet",
     "doorbell": "Es klingelt an der Türe",
     "baby_cry": "Ein Baby weint",
     "disk": "Speicherplatz wird knapp",
@@ -258,6 +338,7 @@ CATEGORIES: dict[str, str] = {
     "plants": "Pflanzen giessen",
     "appliance": "Haushaltgerät fertig",
     "oven": "Backofen parat/fertig",
+    "grill": "Grill auf Temperatur / Fühler am Ziel",
     "departure": "Losfahren zum Termin",
     "vacuum": "Saugroboter meldet ein Problem",
     "tasks": "Fällige Aufgaben",
@@ -293,8 +374,8 @@ GROUPS: list[tuple[str, tuple[str, ...]]] = [
     # Die Klingel steht ganz vorn: Sie ist die Nachricht, auf die man
     # sofort reagiert - und die einzige, bei der ein paar Sekunden
     # Verzögerung den Zweck zunichte machen.
-    ("Sicherheit", ("doorbell", "alarm", "alarm_arming", "camera_motion", "leak")),
-    ("Haus", ("open", "appliance", "oven", "vacuum", "frost", "rain",
+    ("Sicherheit", ("doorbell", "alarm", "alarm_arming", "camera_motion", "leak", "smoke")),
+    ("Haus", ("open", "appliance", "oven", "grill", "vacuum", "frost", "rain",
               "storm_covers", "heat_covers", "plants", "timer", "maintenance")),
     # «Baby weint» steht vorn und bei der Familie, nicht bei der
     # Sicherheit: Gesucht wird die Nachricht dort, wo die Kinder sind.
@@ -442,6 +523,16 @@ def parse_muted(raw: Any) -> dict[str, set[str]]:
     return result
 EXPO_RECEIPTS = "https://exp.host/--/api/v2/push/getReceipts"
 
+#: So lange wird nach dem Senden gewartet, bevor der Hub nach der
+#: Zustell-Quittung fragt (Punkt 475 der Werkbank).
+#:
+#: Expo braucht ein paar Sekunden, bis eine dasteht; sofort zu fragen
+#: hiesse, immer «noch nicht da» zu lesen. Fünfzehn Sekunden sind lang
+#: genug für den Normalfall und kurz genug, dass die Antwort noch zur
+#: Meldung gehört - wer nach einer Minute nachsieht, hat die Frage
+#: «kam das an?» längst anders beantwortet.
+QUITTUNG_NACH = 15.0
+
 # Fehler, nach denen ein Token dauerhaft tot ist – App deinstalliert oder
 # Berechtigung entzogen. Das Gerät fliegt dann aus der Liste.
 DEAD_TOKEN_ERRORS = frozenset({"DeviceNotRegistered"})
@@ -489,6 +580,43 @@ APNS_HINTS = {
         "«npx eas-cli credentials -p ios» und den Push-Schlüssel erneuern."
     ),
 }
+
+
+#: Vorsatz, mit dem ein Empfänger «eine Gruppe» heisst: to="gruppe:Eltern".
+GRUPPE_PREFIX = "gruppe:"
+#: Schlüssel in hub.data für die Empfängergruppen.
+GRUPPEN_KEY = "push_gruppen"
+
+
+def gruppen_lesen(rows: Any) -> dict[str, list[str]]:
+    """Empfängergruppen aus der Ablage (rein, testbar).
+
+    «Eltern» statt «Stefan und Livia» in jedem Ablauf: Kommt ein Kind
+    dazu oder zieht jemand aus, ändert man eine Liste, nicht zwanzig
+    Abläufe. Leere Gruppen fliegen raus - eine Gruppe ohne Mitglieder
+    ist ein Ziel, das niemanden erreicht, und das merkt man erst, wenn
+    die Meldung ausbleibt.
+    """
+    gruppen: dict[str, list[str]] = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()
+        mitglieder = [
+            str(m).strip()
+            for m in row.get("members") or []
+            if isinstance(m, str) and str(m).strip()
+        ]
+        if name and mitglieder:
+            gruppen[name] = list(dict.fromkeys(mitglieder))
+    return gruppen
+
+
+def gruppe_aus(to: str | None) -> str | None:
+    """Der Gruppenname aus einem Ziel - oder None (rein, testbar)."""
+    if to and to.startswith(GRUPPE_PREFIX):
+        return to[len(GRUPPE_PREFIX):].strip() or None
+    return None
 
 
 def is_expo_token(token: str) -> bool:
@@ -623,6 +751,11 @@ class PushService:
     # persönliche Einstellungen entschieden wird (core/pushruhe.py).
     ruhe: dict[str, dict[str, Any]]
     still: dict[str, dict[str, float]]
+    # Abweichungen je Gerät (Punkt 471 der Werkbank): Token → eigene
+    # Abbestellungen bzw. eigene Ruhezeit. Wer hier fehlt, folgt der
+    # Person - das ist der Normalfall und war bis Punkt 471 der einzige.
+    geraete_muted: dict[str, set[str]]
+    geraete_ruhe: dict[str, dict[str, Any]]
 
     def __init__(self, session_factory=None) -> None:
         self._devices: dict[str, PushDevice] = {}
@@ -634,9 +767,25 @@ class PushService:
         # für den Nachlese-Zettel (core/pushverlauf.py). Derselbe Schnitt
         # wie bei on_change: kein DataStore hier drin.
         self.on_sent: Any = None
+        # Wird vom Hub gesetzt: Trag nach, dass eine Meldung nicht
+        # zugestellt wurde (Punkt 475). Derselbe Schnitt wie on_sent -
+        # der Push-Dienst kennt die Ablage nicht.
+        self.on_receipt: Any = None
+        # Die laufenden Quittungs-Abfragen. Gehalten nur, damit der
+        # Sammler sie nicht mitten im Warten abräumt.
+        self._quittungen: set[asyncio.Task] = set()
         self.muted = {}
         self.ruhe = {}
         self.still = {}
+        self.geraete_muted = {}
+        self.geraete_ruhe = {}
+        # Im Haus geänderte Dringlichkeiten (``stufen_lesen``) und ob
+        # Apple critical alerts erlaubt - beides setzt der Hub aus der
+        # Ablage und der config.yaml, derselbe Schnitt wie bei ``muted``.
+        self.stufen: dict[str, str] = {}
+        self.kritisch_erlaubt = False
+        # Empfängergruppen: Name → Benutzernamen (``gruppen_lesen``).
+        self.gruppen: dict[str, list[str]] = {}
         # Wird vom Hub gesetzt: «Darf diese Kategorie jetzt noch?» Der
         # Tagesdeckel braucht einen Zählerstand, der Neustarts übersteht,
         # und der liegt in der hub.data. Ein Rückruf statt eines
@@ -703,7 +852,9 @@ class PushService:
             self._changed()
         return gone
 
-    def zurueckhaltung(self, name: str, category: str | None) -> str | None:
+    def zurueckhaltung(
+        self, name: str, category: str | None, token: str | None = None
+    ) -> str | None:
         """Warum diese Person diese Meldung gerade nicht bekommt (rein genug).
 
         Nicht das Abbestellen - das ist eine Entscheidung auf Dauer und
@@ -711,16 +862,29 @@ class PushService:
         aufhört: die Nacht und das Stillstellen auf Zeit. Was nie
         zurückgehalten wird, steht in ``pushruhe.IMMER_DURCH``.
 
-        Die Stunde kommt aus der Ortszeit des Hubs - dieselbe Uhr, nach
-        der der Wächter seine Morgenmeldung schickt.
+        Die Stunde *und der Wochentag* kommen aus der Ortszeit des Hubs -
+        dieselbe Uhr, nach der der Wächter seine Morgenmeldung schickt.
+        Der Wochentag seit Punkt 479: Samstagmorgen ist nicht
+        Dienstagmorgen.
+
+        ``token`` ist das Gerät (Punkt 471). Hat es eine eigene Ruhezeit,
+        gilt die - das iPad im Wohnzimmer darf nachts klingeln, das
+        Telefon neben dem Bett nicht.
         """
         if not category:
             return None
+        jetzt = time.localtime()
+        ruhe = self.ruhe.get(name)
+        if token is not None:
+            eigene = self.geraete_ruhe.get(token)
+            if eigene is not None:
+                ruhe = eigene
         return pushruhe.haelt_zurueck(
             category,
-            ruhe=self.ruhe.get(name),
+            ruhe=ruhe,
             still=self.still.get(name),
-            stunde=time.localtime().tm_hour,
+            stunde=jetzt.tm_hour,
+            wochentag=jetzt.tm_wday,
         )
 
     def recipients(
@@ -728,8 +892,9 @@ class PushService:
     ) -> list[str]:
         """Wählt die Empfänger aus.
 
-        ``to`` ist "all", eine Rolle ("bewohner") oder ein Benutzername.
-        Gäste bekommen nur etwas, wenn sie ausdrücklich gemeint sind.
+        ``to`` ist "all", eine Rolle ("bewohner"), ein Benutzername oder
+        eine Gruppe ("gruppe:Eltern", siehe ``gruppen_lesen``). Gäste
+        bekommen nur etwas, wenn sie ausdrücklich gemeint sind.
 
         ``category`` ist die Art der Nachricht. Wer sie in seinem Profil
         abbestellt hat, fällt hier heraus – das ist die einzige Stelle, an
@@ -739,20 +904,30 @@ class PushService:
         und nicht an die dreissig Stellen, die melden.
         """
         by_name = {user.name: user for user in users}
+        gruppe = gruppe_aus(to)
+        mitglieder = set(self.gruppen.get(gruppe, ())) if gruppe else set()
         tokens = []
         for device in self._devices.values():
             user = by_name.get(device.user)
             if user is None:
                 continue
-            if category and category in self.muted.get(device.user, set()):
+            # Abbestellt - je Gerät, wo es dort etwas Eigenes gibt
+            # (Punkt 471), sonst wie bisher je Person.
+            stumm = self.geraete_muted.get(device.token)
+            if stumm is None:
+                stumm = self.muted.get(device.user, set())
+            if category and category in stumm:
                 continue
-            if self.zurueckhaltung(device.user, category) is not None:
+            if self.zurueckhaltung(device.user, category, device.token) is not None:
                 continue
             if to == "all":
                 if user.role != Role.GUEST:
                     tokens.append(device.token)
             elif to in Role.ALL:
                 if user.role == to:
+                    tokens.append(device.token)
+            elif gruppe is not None:
+                if device.user in mitglieder:
                     tokens.append(device.token)
             elif to == device.user:
                 tokens.append(device.token)
@@ -816,7 +991,7 @@ class PushService:
             # Expo nie ausgestellt hat, ist ein Fehler und soll unten
             # als solcher gemeldet werden, nicht hier still verschwinden.
             return PushResult()
-        stufe = dringlichkeit(category)
+        stufe = dringlichkeit(category, self.stufen, self.kritisch_erlaubt)
         kategorie_knoepfe = knoepfe(category)
         # Die Kategorie reist auch in den Nutzdaten mit: Beim
         # «Später»-Knopf reicht die App sie an /api/push/snooze zurück,
@@ -845,6 +1020,10 @@ class PushService:
             for token in valid
         ]
 
+        # Der Zeitstempel der Zeile auf dem Nachlese-Zettel - daran
+        # hängt der Quittungs-Vermerk (Punkt 475). None, wenn kein Zettel
+        # geführt wird.
+        marke: Any = None
         if self.on_sent is not None:
             # Vor dem Versand vermerkt: Auch eine Meldung, die bei Expo
             # hängenbleibt, war eine Meldung - und der Zettel soll nicht
@@ -862,7 +1041,7 @@ class PushService:
             # Grund reist mit, sonst liest sich der Zettel wie eine
             # Meldung, die man übersehen hat.
             gesehen = sorted(set(empfaenger) | set(zurueck))
-            self.on_sent(
+            marke = self.on_sent(
                 {
                     "title": title,
                     "body": body,
@@ -872,6 +1051,9 @@ class PushService:
                     "to": [] if set(gesehen) >= alle and not zurueck else gesehen,
                     "held": grund,
                     "held_for": sorted(zurueck),
+                    # Wohin ein Tipp führt - der Posteingang braucht es
+                    # (Punkt 472), und die Zeile kennt es ohnehin schon.
+                    "ziel": nutzdaten.get("ziel"),
                 }
             )
 
@@ -922,7 +1104,51 @@ class PushService:
             len(messages),
             f", {len(result.errors)} abgelehnt" if result.errors else "",
         )
+        # Ob sie wirklich ankam, weiss erst die Quittung (Punkt 475 der
+        # Werkbank). Nebenher und nicht hier: Der Ablauf, der gemeldet
+        # hat, soll nicht zwanzig Sekunden auf Apple warten.
+        if result.ticket_ids and marke is not None:
+            self._quittung_nachfassen(result.ticket_ids, marke, title)
         return result
+
+    def _quittung_nachfassen(
+        self, ticket_ids: list[str], marke: Any, title: str
+    ) -> None:
+        """Nach den Zustell-Quittungen sehen - später und nebenher.
+
+        Expo braucht ein paar Sekunden, bis eine Quittung dasteht; sofort
+        zu fragen hiesse, immer «noch nicht da» zu lesen. Fünfzehn
+        Sekunden sind lang genug für den Normalfall und kurz genug, dass
+        die Antwort noch zur Meldung gehört.
+
+        Fehler werden geschluckt: Eine Quittung, die sich nicht abholen
+        lässt, ist kein Grund, irgendetwas anderes scheitern zu lassen.
+        Der Zettel bleibt dann eben ohne Vermerk - das ist derselbe Stand
+        wie vor Punkt 475.
+        """
+
+        async def nachsehen() -> None:
+            try:
+                await asyncio.sleep(QUITTUNG_NACH)
+                probleme = await self.delivered(ticket_ids)
+                if probleme and self.on_receipt is not None:
+                    self.on_receipt(marke, probleme)
+                    log.warning(
+                        "Push «%s» nicht zugestellt: %s", title, "; ".join(probleme)
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.debug("Quittung nicht auswertbar", exc_info=True)
+
+        try:
+            task = asyncio.create_task(nachsehen())
+        except RuntimeError:
+            # Kein laufender Ereignisschleifen-Kontext (Test, Skript) -
+            # dann gibt es eben keinen Vermerk.
+            return
+        self._quittungen.add(task)
+        task.add_done_callback(self._quittungen.discard)
 
     async def delivered(self, ticket_ids: list[str]) -> list[str]:
         """Holt die Zustell-Quittungen zu bereits gesendeten Nachrichten.

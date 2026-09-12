@@ -34,7 +34,8 @@ Das ist ein Netz, kein Ersatz – was auf `main` liegt, ist gebaut; alles
 andere hängt daran, dass es sich konfliktfrei hineinnehmen lässt.
 
 Wer auf mehreren Zweigen gleichzeitig arbeitet, fragt nicht von Auge,
-sondern:
+sondern (`pruefen` misst alle Zweige, die der Server kennt - nicht nur
+die in `deploy/zweige.py` aufgezählten):
 
 ```bash
 python3 deploy/zweige.py pruefen    # nur nachsehen
@@ -186,12 +187,13 @@ nicht `test_mode_2`.
 | etwas dauerhaft speichern willst | `hub.data` (`core/persistence.py`) – **nie** Geheimnisse ins Repo |
 | eine Push-Nachricht anlegst | `hub/homepilot/core/pushziel.py` – jede Kategorie braucht ein Ziel, ein Test hält das fest |
 | eine Einstellung der Oberfläche anlegst | `app/src/hooks/usePrefs.ts` (ganze Bildschirme) oder `app/src/lib/persoenlich.ts` (einzelne Schlüssel tief in einer Kachel) – **nie** in den Speicher der App: Übersicht in `docs/einstellungen.md` |
-| an der Startseite arbeitest | `app/src/screens/DashboardScreen.tsx`, `components/TopStrip.tsx`, `SidePanel.tsx` – die Vollbilder (Klingel, Kamera, Erinnerung) und die Stiltafel liegen in `screens/dashboard/`. Im offenen Zimmer bleibt die Spalte rechts leer: Wetter und Hausmusik gehören dort nicht hin, und die Box des Zimmers steht als kompletter Medienplayer im Raumkopf, unter den Szenenknöpfen (`DashboardScreen.tsx`, `MediaPanel` aus `components/SidePanel.tsx`) |
+| an der Startseite arbeitest | `app/src/screens/DashboardScreen.tsx`, `components/TopStrip.tsx`, `SidePanel.tsx` – die Vollbilder (Klingel, Kamera, Erinnerung, Grill) und die Stiltafel liegen in `screens/dashboard/`. Im offenen Zimmer bleibt die Spalte rechts leer: Wetter und Hausmusik gehören dort nicht hin, und die Box des Zimmers steht als kompletter Medienplayer im Raumkopf, unter den Szenenknöpfen (`DashboardScreen.tsx`, `MediaPanel` aus `components/SidePanel.tsx`) |
 | einen Punkt in den Einstellungen anlegst | die Liste in `app/src/screens/DashboardScreen.tsx` **und** eine Gruppe in `app/src/lib/einstellungsgruppen.ts` – sonst steht er auf dem Telefon unter «Weitere» |
 | wissen willst, was der Hub über die Storen weiss | `docker exec homepilot-hub python -m homepilot.storencheck` – oben, was der Hub meint (Zustand, Stellung, ob nur angenommen, wie alt), darunter, was das Gateway roh meldet und was sich ändert, wenn man es nachlesen lässt; `--funk` fragt zusätzlich jede Store einzeln über Funk (`advancedRefresh`) – das ist die Antwort auf «das Gateway gibt seit Stunden dieselbe alte Stellung heraus» |
 | einen Android TV koppeln willst | in der App unter Einstellungen → Verbindungen, Abschnitt «Fernseher» (der Fernseher muss dabei an sein) – Code in `app/src/screens/VerbindungenScreen.tsx` + `components/TvKopplung.tsx` + `lib/fernsehkopplung.ts`, Hub in `integrations/androidtv.py` (`pair_start`/`pair_finish`) + `api/routes/androidtv.py`. **Nicht** auf die Gerätekachel zurückholen: Eine Kopplung richtet man einmal ein, und dort steht sie neben dem Einschlaf-Timer, den man jeden Abend braucht |
 | wissen willst, warum das Live-Bild einer Kamera lange braucht | `docker exec homepilot-hub python -m homepilot.livecheck --kalt` – misst jeden Schritt der Kette mit Zeit; der grosse Posten ist die Kamera selbst (Protect sendet im Smart Codec nur alle 4–8 s ein vollständiges Bild). Der Strom läuft nur auf Abruf: `hub/homepilot/core/streams.py` |
 | wissen willst, warum eine Fernseher-Karte auf dem Sperrbildschirm liegen bleibt | `docker exec homepilot-hub python -m homepilot.tvcheck` – Zustand, Zwilling, Geisterbild und ob der Hub die Karte noch will |
+| wissen willst, warum der Grill in der App ausgefallen ist | `docker exec homepilot-hub python -m homepilot.grillcheck` – Konfiguration, der versuchte Weg (lokal oder Wolke), die aufgelöste Bauart und der rohe Zustand von der Platine, dazu die drei Bedingungen der Live-Karte auf dem Sperrbildschirm. Der Grund für einen Ausfall steht seit Punkt 552 auch an der Kachel selbst (`problem`), nicht nur im Log |
 | wissen willst, warum eine Sauger-Meldung nicht als Push ankommt | `docker exec homepilot-hub python -m homepilot.saugercheck` – Fehler, Tankstände der Station, was davon meldebar ist und wer die Kategorie abbestellt hat |
 | wissen willst, ob eine Push-Meldung zu spät kam oder erst das Ereignis | `docker exec homepilot-hub python -m homepilot.pushcheck` – Uhr und Zeitzone des Hubs, dazu je Meldung Ereigniszeit, Sendezeit und der Verzug dazwischen |
 | an der Kinderseite arbeitest | `app/src/lib/kindseite.ts` + `app/src/screens/family/kindseite.tsx` – Stundenplan und Wöchentliches liegen als Familienlisten `lessons` und `activities` beim Hub |
@@ -203,6 +205,7 @@ nicht `test_mode_2`.
 | Zigbee-Geräte anbindest | `hub/homepilot/integrations/zigbee2mqtt.py` – Übersicht in `docs/zigbee.md` |
 | am Gäste-WLAN arbeitest | `hub/homepilot/core/wlanschein.py` + `api/routes/haus.py` + `app/src/lib/wlanaufkleber.ts` – Übersicht in `docs/gaeste-wlan.md` |
 | dich fragst, warum nach einem Stromausfall alles Licht brennt | `hub/homepilot/core/stromrueckkehr.py` (erkennt den Kaltstart) + der Auslöser «Nach Stromausfall» in `core/automation.py` – was dann gilt, steht in einem Ablauf; den Blitz selbst verhindert nur die Einstellung am Gerät |
+| an der Brandmeldeanlage arbeitest | `hub/homepilot/core/brandmelder.py` (was gilt) + `integrations/brand.py` (was geschieht) + `api/routes/brand.py`, App in `app/src/screens/BrandScreen.tsx` + `lib/brand.ts`. Rauch- und Gasmelder landen von selbst darin; sie löst **immer** aus, scharf oder nicht – die Alarmanlage kennt Betriebsarten, Feuer nicht |
 | an der Musik arbeitest | `hub/homepilot/core/ton.py` + `core/musik.py` + `app/src/components/Musikzentrale.tsx` – Übersicht in `docs/musik.md` |
 
 ## Was nie ins Repository gehört
@@ -234,7 +237,7 @@ Zwei Dinge, die dabei überraschen:
   die hochgezählte Versionsnummer täuschte dabei Aktualität vor. So
   gingen mehrere Lieferungen am Haus vorbei, ohne dass es auffiel: Der
   Hub war neu, die App nicht.
-- Deshalb steht dort jetzt eine feste `runtimeVersion` (zurzeit `"7"`).
+- Deshalb steht dort jetzt eine feste `runtimeVersion` (zurzeit `"8"`).
   Sie gehört zur **nativen** Hülle, nicht zur Auslieferung:
   - **`version` bei jeder Auslieferung hochzählen** – wie bisher. Sie
     ist die Nummer, die im App Store und in TestFlight steht, und sie
@@ -269,6 +272,10 @@ Zwei Dinge, die dabei überraschen:
     unmittelbar folgt. Zwischen Erhöhung und Build ist das Haus von
     Nachladungen abgeschnitten, und diese Lücke gehört so kurz wie
     möglich.
+    Von `"7"` auf `"8"` ging es für die Kassenansicht (`expo-brightness`,
+    Punkt 532): Sie dreht die Helligkeit auf voll und hält den Bildschirm
+    wach, solange der Code an der Kasse steht. Auch hier: im selben
+    Commit wie das Modul, und der TestFlight-Build gehört direkt dahinter.
     Von `"5"` auf `"6"` ging es, als die Widget-Ablage zum **lokalen**
     Modul wurde (`modules/widget-ablage`): Das `ExtensionStorage`-Modul
     des Pakets kam in keinem EAS-Build je an – die Innenansicht der
@@ -301,15 +308,53 @@ Zwei Dinge, die dabei überraschen:
   `npm run release:ios` ruft es von sich aus auf.
 - Die `buildNumber` in der `app.json` ist damit nur noch ein Startwert.
   Sie mit einzuchecken ist nicht mehr nötig.
+- Dasselbe gilt für `extra.commit` (Punkt 545): Im Repo steht dort
+  `"unbekannt"`, und `rebuild-hub.sh` schreibt vor dem Bau den echten
+  Stand hinein. Von dort wandert er in **beides** - in den iOS-Build und
+  in die OTA-Fassung, weil `eas update` die Konfiguration in sein
+  Manifest legt. Unter *System* steht er dann neben dem Stand des Hubs,
+  und erst dieser Vergleich beantwortet die Frage, die der Hinweis
+  «eine nachgeladene Fassung kann älter sein» jahrelang offen liess:
+  *ist* sie es? Von Hand nichts daran ändern - ein eingecheckter Commit
+  wäre nach dem nächsten Push eine Lüge.
 
 Unter *System* zeigt die App, welchen Stand sie ausführt und ob er
 mitgeliefert oder nachgeladen ist.
 
 ## Was als Nächstes ansteht
 
-Die durchnummerierte Werkbank-Liste steht in `docs/werkbank.md`
-(353 Punkte, aus dem Code gelesen und auf Zuruf ergänzt). Ein Kommentar
-«Punkt NNN der Werkbank» im Code meint genau diese Nummer – deshalb
-wird dort nie umnummeriert; Neues bekommt die nächste freie Nummer. Das
-gilt auch für Nummern, die vergeben, aber nie gebaut wurden: Ein
-späterer «Punkt 273» zeigte sonst auf etwas anderes als gemeint.
+Die durchnummerierte Werkbank-Liste steht in **zwei** Dateien:
+
+- `docs/werkbank.md` – was offen ist. Kurz genug, dass die Frage «was
+  ist offen?» in dreissig Sekunden beantwortet ist.
+- `docs/werkbank-archiv.md` – was erledigt ist, samt der Begründung,
+  aus der es entstand. Dort wird nichts gelöscht: Die Begründung
+  beschreibt den Fehlerfall, gegen den der Code heute geschützt ist.
+
+Getrennt sind sie, seit die eine Datei viertausend Zeilen hatte, zu
+neunzig Prozent erledigt (Punkt 505). Wer einen Punkt sucht, sucht in
+beiden: `grep -n "^### 155\.\|^\*\*155\." docs/werkbank*.md`.
+
+Ein Kommentar «Punkt NNN der Werkbank» im Code meint genau diese Nummer
+– deshalb wird nie umnummeriert; Neues bekommt die nächste freie Nummer
+(`python3 scripts/werkbank.py --zahlen` sagt, welche). Das gilt auch für
+Nummern, die vergeben, aber nie gebaut wurden: Ein späterer «Punkt 273»
+zeigte sonst auf etwas anderes als gemeint.
+
+**Vor dem Vergeben einer Nummer nachsehen, was auf den anderen Zweigen
+liegt** - `python3 deploy/zweige.py pruefen`. Die höchste Nummer in den
+Dateien auf `main` ist nicht die höchste vergebene: Dreimal an einem
+Abend haben Sitzungen unabhängig dieselbe nächste Nummer genommen -
+erst die 421, dann 422/423, zuletzt der ganze Block 421-444. Jedes Mal
+musste eine Seite nachträglich wandern, beim dritten Mal
+vierundzwanzig Punkte samt 111 Kommentarzeilen in 52 Dateien.
+
+Wenn es doch passiert: **Es wandert die Seite mit den wenigeren
+Ankern**, und ihre Kommentare wandern mit - Zeile für Zeile aus dem
+Diff des Zweigs gelesen, nicht über den ganzen Baum gesucht, sonst
+trifft es, was zufällig dieselbe Zahl trägt.
+
+**Ist ein Punkt gebaut, wandert er ins Archiv** – verschieben, nicht
+kopieren. Sonst steht er in der einen Datei als offen und in der
+anderen als erledigt, und beide sehen für sich richtig aus.
+`scripts/werkbank.py` prüft das im Prüflauf mit.

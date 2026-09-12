@@ -242,7 +242,7 @@ async def play_audio(
     audio: bytes,
     address: str,
     speakers: list[str] | None = None,
-    volume: int | None = None,
+    volume: int | dict[str, int] | None = None,
     source: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Fertigen Ton auf die Boxen legen.
@@ -252,6 +252,12 @@ async def play_audio(
     gehen denselben Weg. Der Weg selbst ist das Heikle daran und soll
     nur einmal dastehen: kurzlebige Adresse, Lautstärke setzen, danach
     den vorherigen Zustand der Boxen wiederherstellen.
+
+    ``volume`` darf auch eine Zuordnung Kennung → Lautstärke sein. Eine
+    Zahl fürs ganze Haus reicht nämlich nicht überall: Die Küchenbox
+    steht neben dem Esstisch und darf leise sein, im Keller hört man
+    sonst nichts (Klingelton, core/klingelton.py). Was in der Zuordnung
+    fehlt, bekommt die übliche Lautstärke.
     """
     if volume is None:
         volume = DURCHSAGE_VOLUME
@@ -282,9 +288,14 @@ async def play_audio(
             # Ohne eigene Quelle die des Aufrufers behalten - ein Ablauf
             # läuft schon unter seinem Namen, den darf speak() nicht
             # mit «Gerät» überschreiben.
+            laut = (
+                volume.get(entity.id, DURCHSAGE_VOLUME)
+                if isinstance(volume, dict)
+                else volume
+            )
             with as_source(source) if source is not None else nullcontext():
                 await hub.integrations.dispatch_command(
-                    entity.id, "play_url", {"url": url, "volume": volume}
+                    entity.id, "play_url", {"url": url, "volume": laut}
                 )
             sent.append(entity.label)
         except Exception as err:

@@ -29,6 +29,7 @@ export type Bereich =
   | 'users'
   | 'automations'
   | 'alarm'
+  | 'brand'
   | 'devices'
   | 'speakers'
   | 'energy'
@@ -49,6 +50,9 @@ const NOETIG: Record<Bereich, string | null> = {
   // Einrichtung.
   users: 'manage_users',
   alarm: 'manage_users',
+  // Die Brandmeldeanlage sieht jeder, der schalten darf: Quittieren und
+  // Stummschalten muss auch, wer nachts als Erster wach ist.
+  brand: 'control',
   speakers: 'manage_users',
   energy: 'manage_users',
   system: 'manage_users',

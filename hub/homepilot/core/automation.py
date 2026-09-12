@@ -72,13 +72,15 @@ import logging
 import random
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from . import (
     abschaltung,
     astro,
     babysitter,
+    bildarchiv,
+    cliparchiv,
     feiertage,
     gemeldet,
     kamera,
@@ -86,6 +88,7 @@ from . import (
     personenbild,
     platzhalter,
     pushziel,
+    schulferien,
     stromrueckkehr,
     terminkontext,
     verwaist,
@@ -301,6 +304,27 @@ class Automation:
     # bei der Anwesenheits-Simulation gerade nicht - die soll aussehen
     # wie ein Mensch, der das Licht löscht, und nicht wie eine Schaltuhr.
     countdown: bool = False
+    # Bis wann dieser Ablauf überhaupt gilt (Punkt 464 der Werkbank) -
+    # «YYYY-MM-DD», der Tag selbst zählt noch mit.
+    #
+    # Nicht dasselbe wie `quiet_until`: Das ist eine Pause, nach der es
+    # weitergeht. Hier geht es nicht weiter - «bis Ende der Ferien»,
+    # «nur diese Woche». Ohne dieses Feld schaltete man einen solchen
+    # Ablauf ein und vergass ihn; der Ferienmodus (Punkt 156) löst es
+    # für einen einzigen Fall, gebraucht wird es an jedem.
+    #
+    # Abgelaufen heisst nicht gelöscht: Der Hub schaltet ihn aus und
+    # lässt ihn stehen - im nächsten Jahr braucht man ihn wieder.
+    valid_until: str | None = None
+    # In welcher Reihenfolge dieser Ablauf an die Reihe kommt, wenn
+    # mehrere gleichzeitig dran sind (Punkt 466 der Werkbank). Kleiner
+    # zuerst, bei Gleichstand nach Name.
+    #
+    # Vorher gab es die Frage gar nicht: Zwei Abläufe um 07:00 liefen in
+    # der Reihenfolge, in der sie zufällig in der Liste standen. Das war
+    # kein Verhalten, sondern ein Zufall - und auf einen Zufall verlässt
+    # sich irgendwann jemand («erst Storen hoch, dann Kaffee»).
+    order: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -321,6 +345,8 @@ class Automation:
             "quiet_from": self.quiet_from,
             "quiet_to": self.quiet_to,
             "countdown": self.countdown,
+            "valid_until": self.valid_until,
+            "order": self.order,
         }
 
     def as_config(self) -> dict[str, Any]:
@@ -342,6 +368,8 @@ class Automation:
             "quiet_from": self.quiet_from,
             "quiet_to": self.quiet_to,
             "countdown": self.countdown,
+            "valid_until": self.valid_until,
+            "order": self.order,
         }
 
 
@@ -733,11 +761,16 @@ def timed_actions(actions: list[dict[str, Any]], name_of: Any = None) -> list[st
     return lines
 
 
-def describe_condition(condition: dict[str, Any], value: Any) -> str:
+def describe_condition(
+    condition: dict[str, Any], value: Any, ferien_name: str | None = None
+) -> str:
     """Warum eine Bedingung nicht passte, in einem Satz (rein, testbar).
 
     «Bedingung 2 war falsch» hilft niemandem. «Helligkeit war 44, verlangt
     ist unter 30» beantwortet die Frage sofort.
+
+    ``ferien_name`` kommt von aussen herein (Punkt 470): Die Ferientermine
+    liegen in der Ablage des Hubs, und diese Funktion soll rein bleiben.
     """
     ctype = condition.get("type", "state")
     if ctype == "group":
@@ -753,6 +786,8 @@ def describe_condition(condition: dict[str, Any], value: Any) -> str:
         ):
             name = feiertage.feiertage(datetime.now().year).get(datetime.now().date(), "")
             return f"Heute ist ein Feiertag ({name})"
+        if condition.get("except_school_holidays") and ferien_name:
+            return f"Heute sind Schulferien ({ferien_name})"
         window = " bis ".join(
             part for part in (condition.get("after"), condition.get("before")) if part
         )
@@ -760,6 +795,30 @@ def describe_condition(condition: dict[str, Any], value: Any) -> str:
     if ctype == "sun":
         want = "Tag" if str(condition.get("state", "up")) == "up" else "Nacht"
         return f"Es ist nicht {want}"
+    if ctype == "presence":
+        wer = condition.get("person") or "die Person"
+        zone = str(condition.get("zone") or "home")
+        ort = "zuhause" if zone == "home" else f"in «{zone}»"
+        if str(condition.get("state", "present")) == "absent":
+            return f"{wer} ist {ort} - verlangt ist abwesend"
+        return f"{wer} ist nicht {ort}"
+    if ctype == "availability":
+        name = condition.get("entity_id", "Gerät")
+        if condition.get("available", True):
+            return f"{name} meldet sich nicht"
+        return f"{name} ist erreichbar - verlangt ist «meldet sich nicht»"
+    if ctype == "weather_warning":
+        stufe = condition.get("min_severity")
+        ab = f" ab Stufe {stufe}" if stufe else ""
+        if condition.get("active", True):
+            return f"Keine Wetterwarnung{ab} läuft"
+        return f"Eine Wetterwarnung{ab} läuft - verlangt ist keine"
+    if ctype == "calendar":
+        wort = condition.get("contains")
+        was = f"Termin «{wort}»" if wort else "Termin"
+        if condition.get("active", True):
+            return f"Kein {was} läuft gerade"
+        return f"Ein {was} läuft gerade - verlangt ist keiner"
     name = condition.get("entity_id", "Gerät")
     shown = "nichts" if value is None else f"«{value}»"
     if "above" in condition:
@@ -1205,6 +1264,111 @@ def neue_warnungen(
     return neu
 
 
+def standbild_meta(automation: Automation, entity: Any, jetzt: float) -> dict[str, Any]:
+    """Die Metadaten für das Standbild eines Kamera-Auslösers (rein, testbar).
+
+    Dieselbe Bauart wie beim Alarm (integrations/alarm.py): Das Bild liegt
+    im Bildarchiv neben der Datendatei, mit derselben Frist wie die
+    Alarm-Clips. Zusätzlich trägt der Eintrag die Kennung des Ablaufs,
+    damit das Ereignisblatt ein Ablauf-Bild von einem Alarm-Bild
+    unterscheiden kann.
+    """
+    meta = cliparchiv.eintrag(
+        cliparchiv.neue_kennung(jetzt),
+        entity.id,
+        f"Ablauf «{automation.alias}»",
+        jetzt,
+        name=entity.label,
+        room=entity.room,
+        integration=entity.integration,
+    )
+    meta["automation_id"] = automation.id
+    return meta
+
+
+def warnung_aktiv(state: dict[str, Any], min_severity: Any = None) -> bool:
+    """Läuft am Warn-Gerät gerade eine Wetterwarnung? (rein, testbar)
+
+    Die Bedingung zum Auslöser aus Punkt 252: Der Auslöser feuert, wenn
+    eine Warnung *neu* kommt - «Storen nicht hochfahren, solange eine
+    Sturmwarnung läuft» braucht aber den Dauerzustand. Dieselbe
+    Stufenregel wie bei neue_warnungen: ohne lesbare Schwelle zählt
+    jede Warnung.
+    """
+    schwelle = None
+    if min_severity is not None:
+        wort = str(min_severity).strip().capitalize()
+        schwelle = WARNSTUFEN.index(wort) if wort in WARNSTUFEN else None
+    for alert in state.get("alerts") or []:
+        if not isinstance(alert, dict):
+            continue
+        if schwelle is not None:
+            stufe = str(alert.get("severity") or "")
+            if stufe in WARNSTUFEN and WARNSTUFEN.index(stufe) < schwelle:
+                continue
+        return True
+    return False
+
+
+def termin_laeuft(events: list[dict[str, Any]], contains: str, jetzt: datetime) -> bool:
+    """Läuft gerade ein Termin, dessen Titel das Wort trägt? (rein, testbar)
+
+    Die Bedingung zum Kalender-Auslöser (Punkt 153): Der feuert am
+    Beginn - «nur wenn gerade ‹Homeoffice› im Kalender steht» will den
+    laufenden Termin. Ganztägige Termine ohne Uhrzeit zählen den ganzen
+    Tag; ein Termin ohne Ende gilt bis Mitternacht.
+    """
+    needle = contains.strip().lower()
+    for event in events or []:
+        summary = str(event.get("summary") or "")
+        if needle and needle not in summary.lower():
+            continue
+        start, ende = event.get("start"), event.get("end")
+        if not start:
+            continue
+        try:
+            von = datetime.fromisoformat(str(start).replace("Z", "+00:00"))
+            bis = (
+                datetime.fromisoformat(str(ende).replace("Z", "+00:00"))
+                if ende
+                else von.replace(hour=23, minute=59, second=59)
+            )
+        except ValueError:
+            continue
+        if von.tzinfo is not None:
+            von = von.astimezone().replace(tzinfo=None)
+        if bis.tzinfo is not None:
+            bis = bis.astimezone().replace(tzinfo=None)
+        if von <= jetzt < bis:
+            return True
+    return False
+
+
+def zeitfenster_bedingungen(triggers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Die stillen Zeitbedingungen aus «Zeitraum»-Auslösern (rein, testbar).
+
+    Ein Auslöser vom Typ ``window`` feuert zu Beginn seines Fensters wie
+    ein Zeit-Auslöser - und sagt zugleich, dass der Ablauf nur *in*
+    diesem Fenster laufen soll. Bisher brauchte das zwei Bausteine, die
+    dieselben zwei Uhrzeiten trugen: einen Zeit-Auslöser und eine
+    Zeit-Bedingung. Wer eine änderte und die andere vergass, hatte einen
+    Ablauf, der um sieben feuert und um sieben nicht darf.
+    """
+    fenster: list[dict[str, Any]] = []
+    for trigger in triggers:
+        if trigger.get("type") != "window":
+            continue
+        bedingung: dict[str, Any] = {"type": "time"}
+        if trigger.get("after"):
+            bedingung["after"] = str(trigger["after"])
+        if trigger.get("before"):
+            bedingung["before"] = str(trigger["before"])
+        if trigger.get("weekdays"):
+            bedingung["weekdays"] = trigger["weekdays"]
+        fenster.append(bedingung)
+    return fenster
+
+
 def _as_list(value: Any) -> list[dict[str, Any]]:
     if value is None:
         return []
@@ -1238,9 +1402,71 @@ def parse_automations(
                 quiet_from=parse_stunde(config.get("quiet_from")),
                 quiet_to=parse_stunde(config.get("quiet_to")),
                 countdown=bool(config.get("countdown")),
+                valid_until=parse_gueltig_bis(config.get("valid_until")),
+                order=parse_order(config.get("order")),
             )
         )
     return automations
+
+
+def parse_gueltig_bis(value: Any) -> str | None:
+    """Bis wann dieser Ablauf gilt, eingelesen (rein, testbar) - Punkt 464.
+
+    Nur ein echtes Datum bleibt stehen; alles andere wird None, also
+    «unbefristet». Geklemmt wird nicht: Ein falsch getipptes Datum soll
+    nicht dazu führen, dass ein Ablauf ab morgen schweigt - das wäre
+    genau die Art stiller Ausfall, gegen die es die Befristung gibt.
+    """
+    text = str(value or "").strip()[:10]
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text).isoformat()
+    except ValueError:
+        return None
+
+
+def parse_order(value: Any) -> int:
+    """Die Reihenfolge-Zahl (rein, testbar) - Punkt 466 der Werkbank.
+
+    Geklemmt auf -99 bis 99: mehr Spielraum, als ein Haushalt je
+    braucht, und es schliesst die Zahl aus, die sich jemand zum
+    Sortieren von etwas anderem ausgedacht hat. Unlesbares wird 0 - die
+    Mitte, also «egal», und das ist bei fast allen Abläufen die Wahrheit.
+    """
+    try:
+        zahl = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(-99, min(99, zahl))
+
+
+def abgelaufen(automation: Automation, heute: date) -> bool:
+    """Ist die Frist dieses Ablaufs vorbei? (rein, testbar) - Punkt 464.
+
+    Der letzte Tag zählt noch mit, wie bei den Gutscheinen: «gültig bis
+    30.06.» heisst am 30.06. noch gültig.
+    """
+    if not automation.valid_until:
+        return False
+    try:
+        return date.fromisoformat(automation.valid_until) < heute
+    except ValueError:
+        return False
+
+
+def nach_reihenfolge(automations: list[Automation]) -> list[Automation]:
+    """Die Abläufe in der Reihenfolge, in der sie drankommen (rein,
+    testbar) - Punkt 466 der Werkbank.
+
+    Kleine Zahl zuerst, bei Gleichstand nach Name, zuletzt nach Kennung.
+    Der Name als zweites Kriterium und nicht die Listenreihenfolge: Die
+    ändert sich beim Bearbeiten, und dann liefe dasselbe Haus morgen
+    anders herum als heute, ohne dass jemand etwas an der Reihenfolge
+    geändert hätte.
+    """
+    return sorted(automations, key=lambda a: (a.order, a.alias.lower(), a.id))
+
 
 
 def parse_stunde(value: Any) -> int | None:
@@ -1365,6 +1591,31 @@ def _targets(actions: list[dict[str, Any]]) -> dict[str, set[str]]:
     return result
 
 
+def konflikte_mit(entwurf: Any, andere: list[Any]) -> list[dict[str, Any]]:
+    """Womit dieser eine Ablauf sich beisst (rein, testbar) - Punkt 462.
+
+    `find_conflicts` sammelt alle Widersprüche des Hauses; gefragt ist
+    hier nur der eine, der gerade entsteht. Bemerkt wurde er bisher erst
+    in der Liste unter «Widersprüche» - also Tage später, an einem
+    Licht, das flackert, und nicht in dem Moment, in dem man ihn baut.
+
+    Der Ablauf mit derselben Kennung fällt raus: Beim Bearbeiten läge
+    sonst die gespeicherte Fassung im Vergleich, und jeder Ablauf, der
+    ein Gerät ein- *und* ausschaltet, widerspräche sich selbst.
+    """
+    eigene_id = str(getattr(entwurf, "id", "") or "")
+    vergleich = [
+        automation
+        for automation in andere
+        if str(getattr(automation, "id", "") or "") != eigene_id
+    ]
+    return [
+        zeile
+        for zeile in find_conflicts([entwurf, *vergleich])
+        if any(teil["id"] == eigene_id for teil in zeile["automations"])
+    ]
+
+
 def find_conflicts(automations: list[Any]) -> list[dict[str, Any]]:
     """Abläufe, die dasselbe Gerät gegensätzlich schalten (rein, testbar).
 
@@ -1459,6 +1710,15 @@ class AutomationEngine:
         self._depth: dict[str, int] = {}
         # Laufende «bleibt so für X»-Wartezeiten je (Automation, Auslöser).
         self._held_tasks: dict[tuple[str, int], asyncio.Task] = {}
+        # Wer von Hand abgebrochen wurde (Punkt 461). Ein Abbruch sieht
+        # von innen aus wie der bei «restart» - und der gehört
+        # ausdrücklich nicht ins Protokoll. Dieser hier schon: Er ist das
+        # Einzige, was später erklärt, warum die Storen zu blieben.
+        self._abgebrochen: set[str] = set()
+        # Welcher Ablauf heute schon einmal als gestolpert gemeldet wurde
+        # (Punkt 465): «<id>:<YYYY-MM-DD>». Ein totes Gerät macht sonst
+        # aus jeder Bewegung im Flur eine Push-Nachricht.
+        self._fehlschlag_gemeldet: set[str] = set()
         # Bis zu diesem Zeitpunkt laufen keine Automationen – für Abende mit
         # Gästen oder wenn man selbst am Basteln ist.
         self.paused_until: datetime | None = None
@@ -1496,7 +1756,10 @@ class AutomationEngine:
         # Was der letzte Halt offen liess, zuerst - noch vor den Auslösern.
         self._hole_rest()
         self._unsubscribe = self.hub.bus.subscribe("state_changed", self._on_state_changed)
-        for automation in self.automations:
+        # Auch die Zeitgeber in fester Reihenfolge anlegen (Punkt 466):
+        # Zwei Abläufe um 07:00 hängen an zwei Schlafenden, die in der
+        # Reihenfolge geweckt werden, in der sie sich schlafen legten.
+        for automation in nach_reihenfolge(self.automations):
             for trigger in automation.triggers:
                 if trigger.get("type") == "interval":
                     task = asyncio.create_task(
@@ -1507,6 +1770,16 @@ class AutomationEngine:
                     task = asyncio.create_task(
                         self._time_loop(
                             automation, str(trigger["at"]), jitter_minutes(trigger)
+                        )
+                    )
+                    self._timer_tasks.append(task)
+                elif trigger.get("type") == "window" and trigger.get("after"):
+                    # «Zeitraum»: feuert zu Beginn wie ein Zeit-Auslöser;
+                    # dass der Ablauf nur im Fenster laufen darf, prüft
+                    # _conditions_hold (zeitfenster_bedingungen).
+                    task = asyncio.create_task(
+                        self._time_loop(
+                            automation, str(trigger["after"]), jitter_minutes(trigger)
                         )
                     )
                     self._timer_tasks.append(task)
@@ -1584,7 +1857,11 @@ class AutomationEngine:
             neuer = (data.get("new_state") or {}).get("state")
             if neuer is not None and str(neuer) != "on":
                 self._start_task(self._countdown_loeschen(entity_id))
-        for automation in self.automations:
+        # In fester Reihenfolge (Punkt 466 der Werkbank): Zwei Abläufe am
+        # selben Ereignis liefen bisher in der Reihenfolge, in der sie
+        # zufällig in der Liste standen - kein Verhalten, sondern ein
+        # Zufall, auf den sich irgendwann jemand verlässt.
+        for automation in nach_reihenfolge(self.automations):
             if not automation.enabled:
                 continue
             for index, trigger in enumerate(automation.triggers):
@@ -2105,6 +2382,19 @@ class AutomationEngine:
                 skipped=["Babysitter-Modus"],
             )
             return
+        # Befristet und vorbei (Punkt 464 der Werkbank). Vor `quiet_until`
+        # geprüft, weil das eine Pause ist, nach der es weitergeht - hier
+        # geht es nicht weiter. Der Ablauf bleibt stehen und wird nur
+        # stumm; ausgeschaltet wird er einmal täglich (_fristen_loop),
+        # damit die Liste ihn als «aus» zeigt statt als «läuft, tut aber
+        # nichts».
+        if abgelaufen(automation, date.today()):
+            log.debug(
+                "Automation '%s' übersprungen (Frist bis %s abgelaufen)",
+                automation.alias,
+                automation.valid_until,
+            )
+            return
         if automation.quiet_until and time.time() < automation.quiet_until:
             # Ruht noch. Anders als «ausgeschaltet» meldet er sich von
             # selbst zurück - deshalb hier und nicht in `enabled`.
@@ -2159,6 +2449,44 @@ class AutomationEngine:
             if self._tasks_by_id.get(key) is done
             else None
         )
+
+    @property
+    def laufend(self) -> set[str]:
+        """Welche Abläufe gerade mitten in einem Durchgang stehen.
+
+        Die App braucht das, um den Abbrechen-Knopf überhaupt zu zeigen
+        (Punkt 461) - ein Knopf, der bei fast jedem Ablauf nichts tut,
+        wäre schlimmer als keiner.
+        """
+        return {
+            auto_id for auto_id, task in self._tasks_by_id.items() if not task.done()
+        }
+
+    def abbrechen(self, automation_id: str) -> bool:
+        """Einen laufenden Durchgang abbrechen (Punkt 461 der Werkbank).
+
+        «Gute Nacht» mit drei Wartezeiten läuft zwölf Minuten. Wer nach
+        der ersten Minute merkt, dass noch jemand im Wohnzimmer sitzt,
+        hatte bisher keinen Knopf - der Ablauf fuhr die Storen trotzdem.
+        Die drei Wiederanlauf-Arten (single, restart, queued) regeln den
+        *zweiten* Auslöser, nicht den Abbruch.
+
+        Was schon geschaltet ist, bleibt geschaltet: Ein Abbruch nimmt
+        die ersten Schritte nicht zurück. Das ist die ehrliche Grenze -
+        ein Abbruch, der heimlich Licht wieder einschaltet, wäre ein
+        zweiter Ablauf, den niemand gebaut hat.
+
+        Die Warteschlange wird mit geleert: Wer abbricht, meint diesen
+        Abend, nicht nur diese Sekunde - sonst begänne bei «queued»
+        sofort der nächste aufgestaute Lauf.
+        """
+        task = self._tasks_by_id.get(automation_id)
+        if task is None or task.done():
+            return False
+        self._queued.pop(automation_id, None)
+        self._abgebrochen.add(automation_id)
+        task.cancel()
+        return True
 
     def next_run(self, automation: Automation) -> float | None:
         """Wann der nächste Zeit- oder Sonnen-Auslöser fällig ist (Punkt 161).
@@ -2333,6 +2661,10 @@ class AutomationEngine:
         # trotzdem weiter - siehe unten in der Schleife.
         gestolpert: list[tuple[str, str]] = []
         start_ts = time.time()
+        # Löst eine Kamera aus, hält der Lauf den Moment fest (Punkt 510):
+        # Das Bild wird jetzt angestossen, nicht erst nach den Schritten -
+        # danach wäre die Person längst aus dem Bild.
+        standbild = self._standbild_starten(automation, ausloeser)
 
         def name_of(entity_id: str) -> str:
             entity = self.hub.registry.get(entity_id)
@@ -2436,6 +2768,15 @@ class AutomationEngine:
             self._running.discard(automation.id)
             if self._stopping and executed:
                 self._merke_rest(automation, actions, position)
+            if automation.id in self._abgebrochen:
+                self._abgebrochen.discard(automation.id)
+                self._note(
+                    automation,
+                    executed=False,
+                    error=None,
+                    skipped=[f"Von Hand abgebrochen bei Schritt {position + 1}"],
+                    steps=spur,
+                )
             raise
         except Exception as err:
             error = str(err)
@@ -2474,8 +2815,12 @@ class AutomationEngine:
             skipped=[] if executed else failed,
             steps=spur,
         )
+        if standbild is not None:
+            await self._standbild_anhaengen(eintrag, standbild)
         if executed and error is None:
             self._wirkung_planen(eintrag, actions)
+        if executed and error is not None:
+            await self._melde_fehlschlag(automation, error)
         if executed:
             await self.hub.bus.publish(
                 "automation_run",
@@ -2486,6 +2831,108 @@ class AutomationEngine:
                     "error": error,
                 },
             )
+
+    async def _melde_fehlschlag(self, automation: Automation, fehler: str) -> None:
+        """Sagen, dass ein Ablauf gestolpert ist (Punkt 465 der Werkbank).
+
+        Bisher stand ein hängender Schritt im Lauf-Verlauf - und sonst
+        nirgends. Ein «Gute Nacht», das zur Hälfte lief, ist schlechter
+        als eines, das gar nicht lief: Man glaubt, das Haus sei zu.
+
+        Drei Entscheidungen, die man im Betrieb merkt:
+
+        - **Höchstens einmal am Tag je Ablauf.** Ein Gerät, das seit
+          Wochen tot ist, macht aus jeder Bewegung im Flur eine
+          Nachricht. Die erste ist die Auskunft, die dreissigste der
+          Grund, die Kategorie abzubestellen - und dann kommt auch die
+          nächste echte nicht mehr an.
+        - **Kategorie «maintenance».** Dieselbe wie beim verwaisten
+          Ablauf: Es ist kein Notfall, aber etwas, das jemand richten
+          muss. Damit gilt auch die Ruhezeit dafür - um drei Uhr nachts
+          ändert diese Nachricht nichts.
+        - **Der Tipp führt in den Lauf-Verlauf.** Dort steht, welcher
+          Schritt hing; die blosse Liste der Abläufe sagt es nicht.
+        """
+        heute = datetime.now().strftime("%Y-%m-%d")
+        marke = f"{automation.id}:{heute}"
+        if marke in self._fehlschlag_gemeldet:
+            return
+        self._fehlschlag_gemeldet.add(marke)
+        tokens = self.hub.push.recipients(self.hub.users.users, "all", "maintenance")
+        await self.hub.push.send(
+            tokens,
+            "Ablauf gestolpert",
+            f"{automation.alias}: {fehler}",
+            data={"ziel": f"ablauf:{automation.id}"},
+            category="maintenance",
+        )
+    def _standbild_starten(
+        self, automation: Automation, ausloeser: str | None
+    ) -> asyncio.Task[str | None] | None:
+        """Ein Standbild der auslösenden Kamera holen - nebenher.
+
+        Nur wenn der Auslöser eine Kamera ist und es ein Archiv gibt
+        (Tests und die Demo im Speicher haben keines). Das Holen läuft
+        als eigene Aufgabe: Die Schritte des Ablaufs warten nicht auf
+        eine Kamera, die vielleicht erst aufwachen muss.
+        """
+        from .entity import EntityKind
+
+        if not ausloeser:
+            return None
+        entity = self.hub.registry.get(ausloeser)
+        if entity is None or entity.kind != EntityKind.CAMERA:
+            return None
+        folder = bildarchiv.ordner(self.hub.config.data_file)
+        integration = self.hub.integrations.get(entity.integration)
+        if folder is None or integration is None:
+            return None
+
+        async def holen() -> str | None:
+            try:
+                daten = await asyncio.wait_for(integration.snapshot(entity), BILD_WARTEZEIT)
+            except Exception as err:
+                log.debug("Kein Standbild von %s für den Lauf: %s", entity.id, err)
+                return None
+            if not daten:
+                return None
+            abgelegt = bildarchiv.ablegen(
+                folder, daten, standbild_meta(automation, entity, time.time())
+            )
+            return str(abgelegt["id"]) if abgelegt else None
+
+        task = asyncio.create_task(holen())
+        self._run_tasks.add(task)
+        task.add_done_callback(self._run_tasks.discard)
+        return task
+
+    async def _standbild_anhaengen(
+        self, eintrag: dict[str, Any], standbild: asyncio.Task[str | None]
+    ) -> None:
+        """Die Kennung des Standbilds an den Lauf hängen.
+
+        Meist ist das Bild längst da, wenn die Schritte durch sind; dann
+        steht es schon im ersten Abruf des Verlaufs. Wenn nicht, wird kurz
+        gewartet - länger als die Kamera-Frist kann es nicht dauern - und
+        sonst nachgetragen, sobald es kommt.
+        """
+        try:
+            kennung = await asyncio.wait_for(asyncio.shield(standbild), BILD_WARTEZEIT)
+        except TimeoutError:
+
+            def nachtragen(task: asyncio.Task[str | None]) -> None:
+                spaet = task.result() if not task.cancelled() and not task.exception() else None
+                if spaet:
+                    eintrag["image"] = spaet
+                    self._verlauf_sichern()
+
+            standbild.add_done_callback(nachtragen)
+            return
+        except Exception:
+            return
+        if kennung:
+            eintrag["image"] = kennung
+            self._verlauf_sichern()
 
     def _wirkung_planen(
         self, eintrag: dict[str, Any], actions: list[dict[str, Any]]
@@ -2616,6 +3063,69 @@ class AutomationEngine:
                 # Der Takt läuft weiter: Eine kaputte Zeile in der Datei
                 # darf die Prüfung von übermorgen nicht mitreissen.
                 log.debug("Verwaisten-Prüfung fehlgeschlagen", exc_info=True)
+            try:
+                await self.fristen_pruefen()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.debug("Fristen-Prüfung fehlgeschlagen", exc_info=True)
+
+    async def fristen_pruefen(self) -> list[Automation]:
+        """Abgelaufene Abläufe ausschalten (Punkt 464 der Werkbank).
+
+        Stumm wären sie schon (siehe `_schedule`); ausgeschaltet werden
+        sie, weil die Liste sonst «läuft» sagt und nichts tut. Das ist
+        der Zustand, in dem jemand eine Stunde sucht, warum das Licht
+        nicht angeht.
+
+        Gelöscht wird nichts: «Bis Ende der Ferien» kommt nächstes Jahr
+        wieder, und ein Ablauf, der sich selbst löscht, ist eine Arbeit,
+        die zweimal gemacht werden muss. Die Frist bleibt ebenfalls
+        stehen - wer ihn wieder einschaltet, sieht, wonach er sie neu
+        setzen muss.
+        """
+        heute = date.today()
+        faellig = [
+            automation
+            for automation in self.automations
+            if automation.enabled and abgelaufen(automation, heute)
+        ]
+        if not faellig:
+            return []
+        betroffen = {automation.id for automation in faellig}
+        for automation in faellig:
+            automation.enabled = False
+            log.info(
+                "Automation '%s' ausgeschaltet - Frist bis %s ist vorbei",
+                automation.alias,
+                automation.valid_until,
+            )
+        # Abgelegt wird wie in der Route (api/routes/automations.py): Die
+        # Abläufe aus der config.yaml stehen nicht in der hub.data und
+        # bleiben nur zur Laufzeit aus - dort gehört die Frist ohnehin
+        # von Hand gepflegt, die Datei ist die Wahrheit.
+        gespeichert = self.hub.data.get("automations")
+        if any(str(eintrag.get("id")) in betroffen for eintrag in gespeichert):
+            self.hub.data.set(
+                "automations",
+                [
+                    {**eintrag, "enabled": False}
+                    if str(eintrag.get("id")) in betroffen
+                    else eintrag
+                    for eintrag in gespeichert
+                ],
+            )
+        tokens = self.hub.push.recipients(self.hub.users.users, "all", "maintenance")
+        namen = ", ".join(automation.alias for automation in faellig[:3])
+        rest = "" if len(faellig) <= 3 else f" und {len(faellig) - 3} weitere"
+        await self.hub.push.send(
+            tokens,
+            "Frist abgelaufen",
+            f"{namen}{rest}: die Frist ist vorbei, der Ablauf ist jetzt aus.",
+            data={"ziel": "bereich:automations"},
+            category="maintenance",
+        )
+        return faellig
 
     async def _verwaiste_pruefen(self) -> None:
         jetzt = time.time()
@@ -2667,13 +3177,29 @@ class AutomationEngine:
         «any» ohne Bedingungen wäre sonst nie erfüllt; ein Ablauf ohne
         «nur wenn» soll aber immer laufen.
         """
+        # Ein «Zeitraum»-Auslöser bringt seine Zeitbedingung selbst mit:
+        # Was ein anderer Auslöser ausserhalb des Fensters anstösst, läuft
+        # nicht - dafür ist das Fenster da (zeitfenster_bedingungen).
+        # Das Fenster gilt immer - auch bei «eine Bedingung genügt»: Es ist
+        # kein Wunsch neben anderen, sondern der Rahmen des Ablaufs.
+        fenster = zeitfenster_bedingungen(automation.triggers)
+        daneben = [f for f in fenster if not self._check_condition(f)]
+        if daneben:
+            return False, [describe_condition(f, None) for f in daneben]
         if not automation.conditions:
             return True, []
         results = [
             (condition, self._check_condition(condition))
             for condition in automation.conditions
         ]
-        failed = [describe_condition(c, self._value_of(c)) for c, ok in results if not ok]
+        ferien_name = schulferien.ferien_am(
+            self.hub.data.get(schulferien.STORE_KEY), date.today()
+        )
+        failed = [
+            describe_condition(c, self._value_of(c), ferien_name)
+            for c, ok in results
+            if not ok
+        ]
         held = (
             any(ok for _, ok in results)
             if automation.match == "any"
@@ -2780,6 +3306,18 @@ class AutomationEngine:
                 datetime.now().date()
             ):
                 return False
+            # «ausser in den Schulferien» (Punkt 470 der Werkbank). Die
+            # Luzerner Ferientermine liegen seit je im Hub, benutzt hat
+            # sie nur die Simulation - «Wecklicht um 06:30» war im Juli
+            # falsch, und abgestellt hat das jeden Sommer jemand von Hand.
+            #
+            # Feiertage sind damit nicht mit erschlagen: Wer beides will,
+            # setzt beide Haken. Ein Ferienhaken, der stillschweigend auch
+            # Auffahrt abdeckte, wäre eine zweite Bedeutung in einem Wort.
+            if condition.get("except_school_holidays") and schulferien.ferien_am(
+                self.hub.data.get(schulferien.STORE_KEY), datetime.now().date()
+            ):
+                return False
             return time_in_window(
                 datetime.now(), condition.get("after"), condition.get("before")
             )
@@ -2795,6 +3333,43 @@ class AutomationEngine:
             up = rise <= now <= set_
             want = str(condition.get("state", "up"))
             return up if want == "up" else not up
+        # Die vier Auslöser aus Punkt 252/153, hier als Dauerzustand: Der
+        # Auslöser feuert bei der Flanke (kommt an, Warnung neu, Termin
+        # beginnt), die Bedingung fragt, ob es *gerade so ist*. Ohne sie
+        # musste «nur wenn Livia daheim ist» als Gerätebedingung auf die
+        # Zonen-Entität nachgebaut werden - und dafür musste man deren
+        # Kennung kennen.
+        if ctype == "presence":
+            person = str(condition.get("person") or "")
+            zone = str(condition.get("zone") or "home").strip().lower()
+            da = any(
+                str(entity.state.get("state") or "").strip().lower() == zone
+                for entity in self.hub.registry.all()
+                if str(entity.state.get("device_class") or "") == "presence"
+                and person_matches(person, entity.id, entity.name)
+            )
+            return not da if str(condition.get("state", "present")) == "absent" else da
+        if ctype == "availability":
+            entity = self.hub.registry.get(str(condition.get("entity_id") or ""))
+            if entity is None:
+                return False
+            return bool(entity.available) == bool(condition.get("available", True))
+        if ctype == "weather_warning":
+            gesucht = str(condition.get("entity_id") or "")
+            aktiv = any(
+                warnung_aktiv(entity.state, condition.get("min_severity"))
+                for entity in self.hub.registry.all()
+                if isinstance(entity.state.get("alerts"), list)
+                and (not gesucht or entity.id == gesucht)
+            )
+            return aktiv if condition.get("active", True) else not aktiv
+        if ctype == "calendar":
+            laeuft = termin_laeuft(
+                self._calendar_events(str(condition.get("entity_id") or "")),
+                str(condition.get("contains") or ""),
+                datetime.now(),
+            )
+            return laeuft if condition.get("active", True) else not laeuft
         log.warning("Unbekannter Bedingungstyp: %s", ctype)
         return False
 
@@ -2814,8 +3389,17 @@ class AutomationEngine:
         """
         atype = action.get("type", "command")
         if atype == "command":
+            ziel = str(action["entity_id"])
+            if ziel == kamera.TRIGGER:
+                # «Das Gerät, das ausgelöst hat»: Ein Ablauf «Taster
+                # gedrückt → dieselbe Lampe umschalten» gilt so für alle
+                # Taster, statt je Taster abgeschrieben zu werden. Ohne
+                # Auslöser (von Hand gestartet) gibt es nichts zu schalten.
+                if not ausloeser:
+                    return "kein auslösendes Gerät - Schritt übersprungen"
+                ziel = ausloeser
             await self.hub.integrations.dispatch_command(
-                action["entity_id"], action["command"], action.get("data") or {}
+                ziel, action["command"], action.get("data") or {}
             )
         elif atype == "delay":
             sekunden = float(action["seconds"])
@@ -2874,9 +3458,15 @@ class AutomationEngine:
             # say.speak() überschreibt sie nicht.
             from . import say
 
+            # Dieselben Platzhalter wie in der Nachricht: {gerät}, {raum},
+            # {wert} des Auslösers (kamera.fill) - «{gerät} im {raum}
+            # meldet {wert}» gilt damit für alle Melder auf einmal.
+            quelle = self.hub.registry.get(ausloeser or "") if ausloeser else None
             await say.speak(
                 self.hub,
-                self._mit_platzhaltern(self._mit_termin(str(action.get("text") or ""))),
+                self._mit_platzhaltern(
+                    self._mit_termin(kamera.fill(str(action.get("text") or ""), quelle))
+                ),
                 speakers=[str(s) for s in action.get("speakers") or []] or None,
                 volume=action.get("volume"),
             )
@@ -3350,16 +3940,46 @@ class AutomationEngine:
         Je Lampe genau ein Zeitgeber: Neue Bewegung während des Nachlaufs
         verlängert ihn. Zwei Zeitgeber nebeneinander hiessen, dass das
         Licht beim ersten ausgeht, obwohl gerade jemand im Flur steht.
+
+        Und wenn der Melder gar nicht neu auslöst, weil er seit der
+        ersten Bewegung ununterbrochen «on» sagt, wird am Ende der Frist
+        nachgesehen statt ausgeschaltet (Punkt 547). Das war der
+        gemeldete Fehler: Ein echter Melder meldet einmal und bleibt dann
+        darauf, bis es ruhig wird - ein zweites «on» ist für den Hub
+        «nichts geändert». Das Licht ging mitten im Betrieb aus, und der
+        Melder konnte es nicht einmal wieder anschalten, weil er nie auf
+        «off» war.
         """
         self._nachlauf_stoppen(entity_id)
         faellig = time.time() + seconds
+        # Wen man fragt, ob die Bewegung noch anhält: die Auslöser dieses
+        # Ablaufs. Ein Ablauf ohne Melder - «um 18:00 das Licht an» -
+        # hat hier keine, und dann gilt die Zeit wie bisher.
+        melder = licht.lux_sources(automation.triggers)
 
         async def warten() -> None:
-            await asyncio.sleep(seconds)
-            entity = self.hub.registry.get(entity_id)
-            if entity is None or str(entity.state.get("state")) != "on":
-                # Jemand war schneller - dann gibt es nichts auszuschalten.
-                return
+            nonlocal faellig
+            while True:
+                await asyncio.sleep(max(0.0, faellig - time.time()))
+                entity = self.hub.registry.get(entity_id)
+                if entity is None or str(entity.state.get("state")) != "on":
+                    # Jemand war schneller - dann gibt es nichts auszuschalten.
+                    return
+                if not licht.bewegung_haelt_an(self.hub.registry.all(), melder):
+                    break
+                # Der Melder sagt immer noch «Bewegung»: Die letzte
+                # Bewegung ist jetzt, also zählt der Nachlauf von vorn.
+                faellig = time.time() + seconds
+                self._nachlauf[entity_id] = (asyncio.current_task(), faellig)  # type: ignore[assignment]
+                if automation.countdown:
+                    # Sonst stünde an der Kachel weiter die alte
+                    # Restzeit und liefe auf null, während das Licht
+                    # brennt (core/abschaltung.py).
+                    self._start_task(
+                        self._countdown_setzen(
+                            entity_id, faellig, asyncio.current_task()
+                        )
+                    )
             with as_source(automation_source(automation.id, automation.alias)):
                 await self.hub.integrations.dispatch_command(entity_id, "turn_off", {})
 

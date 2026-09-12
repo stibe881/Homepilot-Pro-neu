@@ -21,6 +21,7 @@ from fastapi import (
 
 from ...core import (
     batterie,
+    grillmeldung,
     gutscheine,
     klingelton,
     liveaktivitaet,
@@ -29,6 +30,7 @@ from ...core import (
     presence,
     push,
     pushbeispiel,
+    pushgeraet,
     pushruhe,
     pushverlauf,
     pushziel,
@@ -36,6 +38,7 @@ from ...core import (
     spaeter,
     storenwaechter,
     waschkueche,
+    watchdog,
 )
 from ...core.users import Capability, Role
 from ..context import ApiContext
@@ -44,15 +47,18 @@ from ..models import (
     CoverGuardRequest,
     DoorbellSoundRequest,
     DoorbellSoundTestRequest,
+    GrillZielRequest,
     LaundryRequest,
     LiveActivityTokenRequest,
     NotifyRuleRequest,
+    PushGruppenRequest,
     PushPrefsRequest,
     PushQuittierenRequest,
     PushRegistration,
     PushRuhezeitRequest,
     PushSnoozeRequest,
     PushStillRequest,
+    PushStufeRequest,
     VoucherPrefsRequest,
 )
 
@@ -124,14 +130,27 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         return zeile
 
     @app.get("/api/push/categories")
-    async def push_categories(request: Request) -> dict[str, Any]:
+    async def push_categories(request: Request, token: str = "") -> dict[str, Any]:
         """Welche Arten von Nachrichten es gibt – und was ich abbestellt habe.
 
         Je Benutzer, nicht global: Wen die schwache Batterie im Keller nicht
         interessiert, der soll deswegen nicht den Alarm mit abschalten.
+
+        Mit ``token`` je *Gerät* (Punkt 471 der Werkbank): Wer sich mit
+        Telefon und iPad anmeldet, bekam auf beiden dasselbe - auch die
+        Ruhezeit. Das iPad liegt nachts im Wohnzimmer und darf klingeln.
+        Gefragt wird mit dem eigenen Token, den die App ohnehin hat;
+        fehlt er, steht hier wie bisher die Sicht der Person.
         """
         user = current_user(request)
-        muted = sorted(hub.push.muted.get(user.name, set()))
+        meine = _meine_zeile(user.name)
+        eigen = bool(token) and pushgeraet.weicht_ab(meine, token)
+        fuer_dieses = pushgeraet.fuer_geraet(meine, token) if token else meine
+        muted = sorted(
+            str(key)
+            for key in (fuer_dieses.get("muted") or [])
+            if push.known(str(key))
+        )
         # Jeder selbst gebaute Ablauf, der meldet, bringt seinen eigenen
         # Schalter mit - einsortiert unter seiner Kategorie. Wer seine
         # Push-Abläufe «Push» nennt, findet sie hier unter «Push». Früher
@@ -163,7 +182,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                     # Sichtbar, weil es sonst nirgends steht und die
                     # Frage «warum kommt das eine sofort und das andere
                     # zwanzig Minuten später» sonst unbeantwortet bleibt.
-                    "dringend": key not in push.LEISE,
+                    "dringend": push.stufe_von(key, hub.push.stufen) != push.STUFE_LEISE,
+                    # Die Stufe selbst, änderbar fürs Haus (PUT /api/push/stufe),
+                    # und daneben die eingebaute - damit die App «zurück auf
+                    # Standard» anbieten kann, ohne die Liste zu kennen.
+                    "stufe": push.stufe_von(key, hub.push.stufen),
+                    "stufe_standard": push.stufe_standard(key),
                     # Was sich nie zurückhalten lässt - die App soll den
                     # Knopf «24 h still» dort gar nicht erst anbieten.
                     "immer": key in pushruhe.IMMER_DURCH,
@@ -179,7 +203,41 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             # Ordnung nicht durcheinanderbringen.
             "groups": push.group_order() + eigene_gruppen,
             "muted": muted,
-            "ruhe": pushruhe.ruhe_lesen(_meine_zeile(user.name).get("ruhe")),
+            # Die Ruhezeit dieses Geräts, wenn es eine eigene hat -
+            # sonst die der Person (Punkt 471).
+            "ruhe": pushruhe.ruhe_lesen(fuer_dieses.get("ruhe")),
+            # Hat dieses Gerät eine eigene Einstellung, oder folgt es der
+            # Person? Die App soll den Unterschied zeigen können - sonst
+            # sieht «Ruhezeit aus» am iPad gleich aus, ob sie dort
+            # abgeschaltet wurde oder überall.
+            "geraet_eigen": eigen,
+            # Wie lange «Später» in der Mitteilung heisst (core/spaeter.py).
+            "snooze_minutes": spaeter.eigene_minuten(_meine_zeile(user.name)),
+            "snooze_wahl": list(spaeter.WAHL_MINUTEN),
+            # Die Stufen gelten fürs Haus - ändern darf sie, wer die
+            # Einstellungen ändern darf; die App blendet die Wahl sonst aus.
+            "stufen": list(push.STUFEN),
+            "darf_stufen": user.can(Capability.EDIT_CONFIG),
+            # Ob Apple dem Haus «kritisch» gestattet (push.critical_alerts
+            # in der config.yaml). Ohne das zeigt die App die Stufe mit
+            # dem Hinweis, dass sie vorerst wie «dringend» wirkt.
+            "critical_alerts": hub.push.kritisch_erlaubt,
+            "empfaengergruppen": [
+                {"name": name, "members": mitglieder}
+                for name, mitglieder in hub.push.gruppen.items()
+            ],
+            # Meine angemeldeten Geräte - damit sich die Einstellung
+            # überhaupt auf eines beziehen lässt.
+            "geraete": [
+                {
+                    "token": geraet.token,
+                    "label": geraet.label,
+                    "eigen": pushgeraet.weicht_ab(meine, geraet.token),
+                    "hier": geraet.token == token,
+                }
+                for geraet in hub.push.devices
+                if geraet.user == user.name
+            ],
         }
 
     @app.put("/api/push/categories")
@@ -193,21 +251,118 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         ohne dass der Hub die Datei anfasst.
         """
         user = current_user(request)
-        stored = {
-            entry["user"]: entry
-            for entry in hub.data.get("push_prefs")
-            if isinstance(entry, dict) and entry.get("user")
-        }
-        stored[user.name] = {
-            "user": user.name,
-            # Auch die Schlüssel aus Abläufen (automation:<id>) - ob es
-            # den Ablauf noch gibt, prüft hier bewusst niemand: Ein
-            # pausierter Ablauf soll seine Abbestellung behalten.
-            "muted": [key for key in body.muted if push.known(key)],
-        }
-        hub.data.set("push_prefs", list(stored.values()))
+        # Auch die Schlüssel aus Abläufen (automation:<id>) - ob es den
+        # Ablauf noch gibt, prüft hier bewusst niemand: Ein pausierter
+        # Ablauf soll seine Abbestellung behalten.
+        gewaehlt = [key for key in body.muted if push.known(key)]
+        if body.token:
+            # Nur für dieses eine Gerät (Punkt 471). Die Abbestellungen
+            # der Person bleiben, wie sie sind - ein Gerät weicht ab, es
+            # ersetzt nicht.
+            meines = any(
+                geraet.token == body.token and geraet.user == user.name
+                for geraet in hub.push.devices
+            )
+            if not meines:
+                raise HTTPException(status_code=404, detail="Unbekanntes Gerät")
+            neu = pushgeraet.setzen(
+                _meine_zeile(user.name), body.token, {"muted": gewaehlt}
+            )
+            _zeile_schreiben(user.name, **{pushgeraet.FELD: neu.get(pushgeraet.FELD)})
+            hub.push_einstellungen_lesen()
+            return {"ok": True, "token": body.token, "muted": sorted(gewaehlt)}
+        felder: dict[str, Any] = {"muted": gewaehlt}
+        if body.snooze_minutes is not None:
+            felder["snooze_minutes"] = spaeter.minuten_pruefen(body.snooze_minutes)
+        # In die bestehende Zeile hinein, nicht darüber: Ruhezeit,
+        # Stillgestelltes und die Abweichungen einzelner Geräte liegen in
+        # derselben Zeile und gingen sonst mit jedem Abbestellen verloren.
+        zeile = _zeile_schreiben(user.name, **felder)
+        hub.push_einstellungen_lesen()
         hub.push.muted = push.parse_muted(hub.data.get("push_prefs"))
-        return {"ok": True, "muted": sorted(hub.push.muted.get(user.name, set()))}
+        return {
+            "ok": True,
+            "muted": sorted(hub.push.muted.get(user.name, set())),
+            "snooze_minutes": spaeter.eigene_minuten(zeile),
+        }
+
+    @app.put("/api/push/stufe")
+    async def set_push_stufe(body: PushStufeRequest, request: Request) -> dict[str, Any]:
+        """Die Dringlichkeit einer Kategorie ändern - fürs ganze Haus.
+
+        Fürs Haus und nicht je Person, weil sie beschreibt, was die
+        Meldung *ist*: Ob die Batteriewarnung warten darf, hängt nicht
+        davon ab, wer sie liest. Wer sie für sich nicht will, bestellt
+        sie ab; wer sie leiser will, stellt seine Ruhezeit ein.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        if not push.known(body.category):
+            raise HTTPException(status_code=404, detail="Unbekannte Kategorie")
+        if body.stufe not in push.STUFEN:
+            raise HTTPException(status_code=400, detail="Unbekannte Stufe")
+        hub.data.set(
+            push.STUFEN_KEY,
+            push.stufen_setzen(hub.data.get(push.STUFEN_KEY), body.category, body.stufe),
+        )
+        hub.push_einstellungen_lesen()
+        return {
+            "ok": True,
+            "category": body.category,
+            "stufe": push.stufe_von(body.category, hub.push.stufen),
+        }
+
+    @app.get("/api/push/gruppen")
+    async def push_gruppen(request: Request) -> dict[str, Any]:
+        """Die Empfängergruppen des Hauses (push.gruppen_lesen)."""
+        user = current_user(request)
+        if user.role == Role.GUEST:
+            raise HTTPException(status_code=403, detail="Für Gäste nicht sichtbar")
+        return {
+            "groups": [
+                {"name": name, "members": mitglieder}
+                for name, mitglieder in hub.push.gruppen.items()
+            ]
+        }
+
+    @app.put("/api/push/gruppen")
+    async def set_push_gruppen(body: PushGruppenRequest, request: Request) -> dict[str, Any]:
+        """Alle Gruppen auf einmal speichern - «Eltern», «Kinder», «Zuhause».
+
+        Mitglieder, die es als Benutzer nicht gibt, fallen still weg:
+        Ein Tippfehler im Namen wäre sonst ein Mitglied, das nie eine
+        Meldung bekommt, und das merkt niemand.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        bekannt = {user.name for user in hub.users.users if not user.system}
+        rows = [
+            {
+                "name": gruppe.name.strip(),
+                "members": [name for name in gruppe.members if name in bekannt],
+            }
+            for gruppe in body.groups
+        ]
+        hub.data.set(push.GRUPPEN_KEY, [row for row in rows if row["name"]])
+        hub.push_einstellungen_lesen()
+        return {
+            "ok": True,
+            "groups": [
+                {"name": name, "members": mitglieder}
+                for name, mitglieder in hub.push.gruppen.items()
+            ],
+        }
+
+    @app.delete("/api/push/categories/{token}")
+    async def clear_device_categories(token: str, request: Request) -> dict[str, Any]:
+        """Die eigenen Abbestellungen eines Geräts aufheben (Punkt 471).
+
+        Danach folgt es wieder der Person - und die Abweichung
+        verschwindet aus dem Speicher, statt eine zu behaupten, die keine
+        mehr ist.
+        """
+        user = current_user(request)
+        neu = pushgeraet.setzen(_meine_zeile(user.name), token, {"muted": None})
+        _zeile_schreiben(user.name, **{pushgeraet.FELD: neu.get(pushgeraet.FELD)})
+        return {"ok": True, "token": token}
 
     # ── Ruhezeit und Stillstellen (core/pushruhe.py) ───────────────────────
     #
@@ -221,17 +376,59 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     async def set_push_ruhe(
         body: PushRuhezeitRequest, request: Request
     ) -> dict[str, Any]:
-        """Die eigene Nachtruhe setzen."""
+        """Die eigene Nachtruhe setzen - für mich oder für ein Gerät.
+
+        Mit ``token`` gilt sie nur für dieses eine Gerät (Punkt 471 der
+        Werkbank): Das iPad liegt nachts im Wohnzimmer und darf klingeln,
+        das Telefon liegt neben dem Bett. Ohne Token gilt sie wie bisher
+        für alle Geräte der Person - das ist der Normalfall.
+        """
         user = current_user(request)
-        zeile = _zeile_schreiben(
-            user.name,
-            ruhe={
-                "enabled": bool(body.enabled),
-                "from": int(body.von) % 24,
-                "to": int(body.bis) % 24,
-            },
-        )
+        ruhe = {
+            "enabled": bool(body.enabled),
+            "from": int(body.von) % 24,
+            "to": int(body.bis) % 24,
+            "days": pushruhe.tage_lesen(body.tage),
+        }
+        if body.token:
+            # Nur eigene Geräte: Sonst stellte man die Nachtruhe eines
+            # anderen Telefons ein, und niemand fände den Grund.
+            meines = any(
+                geraet.token == body.token and geraet.user == user.name
+                for geraet in hub.push.devices
+            )
+            if not meines:
+                raise HTTPException(status_code=404, detail="Unbekanntes Gerät")
+            zeile = _zeile_schreiben(
+                user.name,
+                **{
+                    pushgeraet.FELD: pushgeraet.setzen(
+                        _meine_zeile(user.name), body.token, {"ruhe": ruhe}
+                    ).get(pushgeraet.FELD)
+                },
+            )
+            return {
+                "ok": True,
+                "token": body.token,
+                "ruhe": pushruhe.ruhe_lesen(
+                    pushgeraet.fuer_geraet(zeile, body.token).get("ruhe")
+                ),
+            }
+        zeile = _zeile_schreiben(user.name, ruhe=ruhe)
         return {"ok": True, "ruhe": pushruhe.ruhe_lesen(zeile.get("ruhe"))}
+
+    @app.delete("/api/push/ruhe/{token}")
+    async def clear_push_ruhe(token: str, request: Request) -> dict[str, Any]:
+        """Die eigene Ruhezeit eines Geräts wieder aufheben (Punkt 471).
+
+        Danach folgt das Gerät wieder der Person - und die Zeile im
+        Speicher verschwindet, statt eine Abweichung zu behaupten, die
+        keine mehr ist.
+        """
+        user = current_user(request)
+        neu = pushgeraet.setzen(_meine_zeile(user.name), token, {"ruhe": None})
+        _zeile_schreiben(user.name, **{pushgeraet.FELD: neu.get(pushgeraet.FELD)})
+        return {"ok": True, "token": token}
 
     @app.post("/api/push/still")
     async def set_push_still(
@@ -440,21 +637,64 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     # Aus demselben Grund wie bei der Waschküchentüre nicht als Parameter
     # der Regel: Die sind Zahlen mit Grenzen, Geräte-Ids sind keine.
 
+    @app.get("/api/grillziele")
+    async def grill_ziele(request: Request) -> dict[str, Any]:
+        """Welche Kerntemperatur-Ziele gesetzt sind (Punkt 554)."""
+        current_user(request)
+        return {"ziele": hub.data.get(watchdog.GRILLZIELE_KEY)}
+
+    @app.put("/api/grillziele")
+    async def set_grill_ziel(
+        body: GrillZielRequest, request: Request
+    ) -> dict[str, Any]:
+        # Dieselbe Hürde wie beim Schalten: Wer den Grill bedienen darf,
+        # darf auch sagen, wann er gemeldet werden will.
+        require(request, Capability.CONTROL)
+        if not 1 <= body.nummer <= 4:
+            raise HTTPException(status_code=400, detail="Fühler 1 bis 4")
+        entity = hub.registry.get(body.entity_id)
+        if entity is None:
+            raise HTTPException(status_code=404, detail="Dieses Gerät gibt es nicht")
+        # Als Zeilen: `hub.data` führt Listen, und ein Wörterbuch käme
+        # beim Lesen als Liste seiner Schlüssel zurück
+        # (core/grillmeldung.py, ziel_setzen).
+        zeilen = grillmeldung.ziel_setzen(
+            hub.data.get(watchdog.GRILLZIELE_KEY),
+            body.entity_id,
+            body.nummer,
+            body.ziel,
+        )
+        hub.data.set(watchdog.GRILLZIELE_KEY, zeilen)
+        return {"ok": True, "ziele": zeilen}
+
     @app.get("/api/coverguard")
     async def cover_guard(request: Request) -> dict[str, Any]:
         current_user(request)
         entities = hub.registry.all()
         rows = hub.data.get("cover_guard")
+        def liste(geraete: list[Any]) -> list[dict[str, Any]]:
+            return [
+                {"id": entity.id, "name": entity.label, "room": entity.room}
+                for entity in geraete
+            ]
+
         return {
             "storm": storenwaechter.guard_auswahl(rows, "storm"),
             "heat": storenwaechter.guard_auswahl(rows, "heat"),
+            # Auf welche Fühler der Hitze-Hinweis hört (Punkt 540).
+            "temp": storenwaechter.guard_auswahl(rows, "temp"),
+            "humidity": storenwaechter.guard_auswahl(rows, "humidity"),
             # Alle Storen des Hauses - die App baut daraus die Chips,
             # ohne selbst durch die Entitäten zu gehen.
-            "covers": [
-                {"id": entity.id, "name": entity.label, "room": entity.room}
-                for entity in entities
-                if entity.kind == "cover"
-            ],
+            "covers": liste([e for e in entities if e.kind == "cover"]),
+            # Und die Fühler, die überhaupt in Frage kommen: drinnen,
+            # plausibel, nicht «nur für ihren Raum». Dieselbe Vorauswahl,
+            # die der Mittelwert trifft - sonst könnte man etwas anhaken,
+            # das danach doch nicht zählt.
+            "temp_sensors": liste(storenwaechter.klimafuehler(entities, "temperature")),
+            "humidity_sensors": liste(
+                storenwaechter.klimafuehler(entities, "humidity")
+            ),
         }
 
     @app.put("/api/coverguard")
@@ -463,23 +703,43 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     ) -> dict[str, Any]:
         require(request, Capability.EDIT_AUTOMATIONS)
         rows = hub.data.get("cover_guard")
-        stand = {
-            "storm": storenwaechter.guard_auswahl(rows, "storm"),
-            "heat": storenwaechter.guard_auswahl(rows, "heat"),
+        entities = hub.registry.all()
+        arten = ("storm", "heat", "temp", "humidity")
+        stand = {art: storenwaechter.guard_auswahl(rows, art) for art in arten}
+        storen = {entity.id for entity in entities if entity.kind == "cover"}
+        bekannt = {
+            "storm": storen,
+            "heat": storen,
+            "temp": {
+                e.id for e in storenwaechter.klimafuehler(entities, "temperature")
+            },
+            "humidity": {
+                e.id for e in storenwaechter.klimafuehler(entities, "humidity")
+            },
         }
-        known = {entity.id for entity in hub.registry.all() if entity.kind == "cover"}
-        for art, neu in (("storm", body.storm), ("heat", body.heat)):
+        wovon = {
+            "storm": "Storen",
+            "heat": "Storen",
+            "temp": "Temperaturfühler",
+            "humidity": "Feuchtefühler",
+        }
+        for art, neu in (
+            ("storm", body.storm),
+            ("heat", body.heat),
+            ("temp", body.temp),
+            ("humidity", body.humidity),
+        ):
             if neu is None:
                 continue
-            fremd = [eintrag for eintrag in neu if eintrag not in known]
+            fremd = [eintrag for eintrag in neu if eintrag not in bekannt[art]]
             if fremd:
                 raise HTTPException(
                     status_code=404,
-                    detail=f"Diese Storen kennt der Hub nicht: {', '.join(fremd)}",
+                    detail=f"Diese {wovon[art]} kennt der Hub nicht: {', '.join(fremd)}",
                 )
             stand[art] = [str(eintrag) for eintrag in neu]
         hub.data.set(
-            "cover_guard", [stand] if (stand["storm"] or stand["heat"]) else []
+            "cover_guard", [stand] if any(stand[art] for art in arten) else []
         )
         return await cover_guard(request)
 
@@ -504,6 +764,9 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         return {
             "sound": stand["sound"],
             "speakers": stand["speakers"],
+            "night": stand["night"],
+            "announce": stand["announce"],
+            "announce_text": stand["announce_text"],
             "sounds": [
                 {"key": klang["key"], "label": klang["label"]}
                 for klang in klingelton.KLAENGE
@@ -524,15 +787,82 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             speakers = bisher["speakers"]
         else:
             bekannt = {kandidat["id"] for kandidat in _klingelton_kandidaten()}
-            fremd = [eintrag for eintrag in body.speakers if eintrag not in bekannt]
+            gewuenscht = [
+                eintrag if isinstance(eintrag, str) else eintrag.model_dump(by_alias=True)
+                for eintrag in body.speakers
+            ]
+            kennungen = [
+                eintrag if isinstance(eintrag, str) else str(eintrag.get("id") or "")
+                for eintrag in gewuenscht
+            ]
+            fremd = [kennung for kennung in kennungen if kennung not in bekannt]
             if fremd:
                 raise HTTPException(
                     status_code=404,
                     detail=f"Diese Lautsprecher kennt der Hub nicht: {', '.join(fremd)}",
                 )
-            speakers = [str(eintrag) for eintrag in body.speakers]
-        hub.data.set(klingelton.DATA_KEY, [{"sound": sound, "speakers": speakers}])
+            # Durch den Leser des Kerns und nicht roh gespeichert: Er
+            # setzt die Vorgaben, klemmt die Lautstärke und macht aus
+            # «7:5» eine «07:05». Was hier hineinkommt, ist damit auch
+            # dann brauchbar, wenn eine ältere App nur Kennungen schickt.
+            speakers = klingelton.einstellung_lesen(
+                [{"sound": sound, "speakers": gewuenscht}]
+            )["speakers"]
+        if body.night is not None and str(body.night.get("mode") or "") not in klingelton.NACHT_MODI:
+            raise HTTPException(
+                status_code=400, detail="Nachts gibt es nur normal, leise oder still"
+            )
+        night = klingelton.nacht_lesen(body.night) if body.night is not None else bisher["night"]
+        announce = body.announce if body.announce is not None else bisher["announce"]
+        announce_text = (
+            klingelton.ansage_lesen(body.announce_text)
+            if body.announce_text is not None
+            else bisher["announce_text"]
+        )
+        hub.data.set(
+            klingelton.DATA_KEY,
+            [
+                {
+                    "sound": sound,
+                    "speakers": speakers,
+                    "night": night,
+                    "announce": announce,
+                    "announce_text": announce_text,
+                }
+            ],
+        )
         return await doorbell_sound(request)
+
+    @app.get("/api/push/doorbell-sound/{key}.wav")
+    async def doorbell_sound_wav(key: str, request: Request) -> Response:
+        """Der Ton als Datei - zum Anhören auf dem Gerät in der Hand.
+
+        Die Probe über ``/test`` spielt auf den *Boxen*: Sie beantwortet
+        «wie klingt das im Haus», aber nicht «welchen nehme ich», denn
+        dafür müsste man neben der Box stehen. Wer die Klänge
+        durchprobiert, sitzt aber auf dem Sofa mit dem Telefon - also
+        muss der Ton auch dorthin kommen.
+
+        Das Token darf hier in der Adresse stehen: Audio- und
+        Videoplayer schicken keine eigenen Kopfzeilen mit (dasselbe
+        Muster wie bei den Aufnahmen, app/src/lib/aufnahmeurl.ts).
+        ``token_from`` in api/server.py liest es aus der Abfrage.
+
+        Gerechnet statt gespeichert - ein Ton sind ein paar Zehntel
+        Sekunden Sinus aus Zahlen, das ist billiger als ein
+        Zwischenspeicher, der altert. Trotzdem darf der Browser ihn
+        behalten: Die Bytes zu einem Schlüssel ändern sich nur mit einer
+        neuen Auslieferung, und wer sechzehn Klänge durchtippt, soll
+        nicht sechzehnmal warten.
+        """
+        current_user(request)
+        if key not in klingelton.BY_KEY:
+            raise HTTPException(status_code=404, detail="Diesen Klingelton kennt der Hub nicht")
+        return Response(
+            content=klingelton.klang_wav(key),
+            media_type="audio/wav",
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
 
     @app.post("/api/push/doorbell-sound/test")
     async def test_doorbell_sound(
@@ -543,8 +873,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         current_user(request)
         if body.sound is not None and body.sound not in klingelton.BY_KEY:
             raise HTTPException(status_code=404, detail="Diesen Klingelton kennt der Hub nicht")
+        # Ohne Nachtregel: Wer um elf abends die Testtaste drückt, will
+        # etwas hören - die Regel gilt dem echten Klingeln.
         gespielt = await hub.ton.klingelton_abspielen(
-            sound=body.sound, speakers=body.speakers
+            sound=body.sound, speakers=body.speakers, nacht=False
         )
         if not gespielt:
             raise HTTPException(
@@ -610,6 +942,8 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 if not user.system and user.role != Role.GUEST
             ],
             "roles": sorted(Role.ALL),
+            # Gruppen als Ziel: to="gruppe:<Name>" (push.GRUPPE_PREFIX).
+            "groups": sorted(hub.push.gruppen),
         }
 
     @app.post("/api/push/register")
@@ -657,6 +991,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         wegschiebt, geht die anderen Telefone nichts an.
         """
         user = current_user(request)
+        # Ohne Zahl gilt die eigene Vorgabe: Der Knopf in der Mitteilung
+        # kennt keine Auswahl, die Person hat sie in den Einstellungen
+        # getroffen (core/spaeter.py: eigene_minuten).
+        minuten = (
+            body.minutes if body.minutes else spaeter.eigene_minuten(_meine_zeile(user.name))
+        )
         hub.data.set(
             spaeter.SCHLANGE,
             spaeter.einreihen(
@@ -668,10 +1008,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                     "to": user.name,
                 },
                 time.time(),
-                body.minutes,
+                minuten,
             ),
         )
-        return {"ok": True, "minutes": spaeter.minuten_pruefen(body.minutes)}
+        return {"ok": True, "minutes": spaeter.minuten_pruefen(minuten)}
 
     @app.post("/api/push/quittieren")
     async def quittiere_push(

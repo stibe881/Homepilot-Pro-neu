@@ -64,6 +64,16 @@ export interface Automation {
   quiet_from?: number | null;
   quiet_to?: number | null;
   countdown?: boolean;
+  /** Bis wann der Ablauf überhaupt gilt, «YYYY-MM-DD» (Punkt 464).
+   *  Danach schaltet der Hub ihn aus - nicht dasselbe wie `quiet_until`,
+   *  das eine Pause ist, nach der es weitergeht. */
+  valid_until?: string | null;
+  /** In welcher Reihenfolge er drankommt, wenn mehrere gleichzeitig dran
+   *  sind (Punkt 466). Kleiner zuerst, 0 heisst «egal». */
+  order?: number;
+  /** Steht er gerade mitten in einem Durchgang? (Punkt 461) Nur dann
+   *  hat der Abbrechen-Knopf etwas zu tun. */
+  running?: boolean;
   /** Ruht bis (Unix-Sekunden) - «aus bis morgen», Punkt 159. */
   quiet_until?: number | null;
   /** Nächster geplanter Lauf (Unix-Sekunden), nur Zeit/Sonne - Punkt 161. */
@@ -110,6 +120,9 @@ export interface Run {
   skipped: string[];
   /** Die Schritt-Spur (Punkt 160): was wann dran war, und was hing. */
   steps?: { label: string; after: number; note?: string; error?: string }[];
+  /** Punkt 510: Löste eine Kamera aus, liegt ihr Standbild im Bildarchiv
+   *  des Hubs - das ist seine Kennung für /api/automations/bild/… */
+  image?: string;
   /** Ob der Lauf auch gewirkt hat – ein paar Sekunden nach dem Lauf am
    *  Gerät nachgesehen (hub/core/wirkung.py). Fehlt bei Läufen, an denen
    *  es nichts Prüfbares gab, und bei allen aus der Zeit davor. */
@@ -191,6 +204,20 @@ export interface StateOption {
 }
 
 /** Schlüssel aus dem, was im Ablauf steht – fürs Wiederfinden der Auswahl. */
+/** Vorsatz einer Empfängergruppe im Ziel - derselbe wie im Hub
+ *  (core/push.py: GRUPPE_PREFIX). */
+export const GRUPPE_PREFIX = 'gruppe:';
+
+/** Wie ein Empfänger in der Auswahl heisst (rein, testbar).
+ *
+ *  Eine Gruppe (Punkt 513) steht als «Eltern (Gruppe)» neben den Namen -
+ *  so sieht man, dass sich dahinter mehrere Telefone verbergen, ohne
+ *  dass die Kennung «gruppe:Eltern» auf dem Bildschirm steht. */
+export function empfaengerLabel(key: string): string {
+  if (key.startsWith(GRUPPE_PREFIX)) return `${key.slice(GRUPPE_PREFIX.length)} (Gruppe)`;
+  return key;
+}
+
 export function optionKey(attribute: string | undefined, to: string): string {
   return attribute ? `${attribute}:${to}` : to;
 }
@@ -633,7 +660,8 @@ export type TriggerKind =
   | 'presence'
   | 'weather_warning'
   | 'power_restore'
-  | 'availability';
+  | 'availability'
+  | 'window';
 /**
  * Ein Handgriff unter einer Nachricht.
  *
@@ -648,7 +676,7 @@ export interface NotifyKnopf {
   command?: string;
 }
 
-export type StepKind = 'command' | 'toggle_all' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'presence' | 'delay' | 'wait_until' | 'fade' | 'music' | 'if' | 'repeat';
+export type StepKind = 'command' | 'toggle_all' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'presence' | 'delay' | 'wait_until' | 'fade' | 'music' | 'if' | 'repeat' | 'automation';
 
 /** Was ein Musik-Schritt tun kann. */
 export type MusikTat = 'favorite' | 'sleep' | 'pause_all' | 'night' | 'fade' | 'follow';
@@ -703,6 +731,11 @@ export interface TriggerDraft {
   /** Wetterwarnungs-Auslöser (Punkt 252): ab welcher Stufe (leer =
    *  jede). Das Warn-Gerät steht in `entityId`; leer heisst jedes. */
   minSeverity: string;
+  /** «Zeitraum»: feuert um `at` und lässt den Ablauf nur bis `until`
+   *  laufen - der Hub macht daraus selbst die Zeitbedingung. Vorher
+   *  brauchte das einen Zeit-Auslöser und eine Zeit-Bedingung mit
+   *  denselben zwei Uhrzeiten, und wer eine änderte, vergass die andere. */
+  until: string;
 }
 
 /**
@@ -831,6 +864,10 @@ export interface StepDraft {
   repeatArt: 'count' | 'while';
   repeatCount: string;
   repeatWhile: StateCondition[];
+  /** «Ablauf starten»: die Kennung des anderen Ablaufs. Der Hub konnte
+   *  das längst (`type: automation`) - der Editor kannte den Schritt
+   *  nicht und warf ihn beim Öffnen und Speichern still weg. */
+  automationId: string;
   repeatWhileExtra: BausteinConfig[];
   repeatMax: string;
   repeatSteps: StepDraft[];
@@ -878,6 +915,7 @@ export const EMPTY_STEP: StepDraft = {
   repeatWhileExtra: [],
   repeatMax: '10',
   repeatSteps: [],
+  automationId: '',
 };
 
 /** Ein neuer Auslöser für dieses Gerät – mit einem Zustand, den es auch
@@ -913,6 +951,7 @@ export const EMPTY_TRIGGER: TriggerDraft = {
   presencePerson: '',
   presenceEvent: 'arrives',
   minSeverity: '',
+  until: '22:00',
 };
 
 /** «ist» vergleicht den Zustand, «über»/«unter» eine Zahl – für Helligkeit,
@@ -937,6 +976,93 @@ export interface ConditionGroup {
   conditions: StateCondition[];
 }
 
+/** Die Arten der Kontext-Bedingungen - die vier Auslöser aus Punkt
+ *  252/153 als Dauerzustand (core/automation.py, _check_condition). */
+export type KontextArt = 'presence' | 'availability' | 'weather_warning' | 'calendar';
+
+/**
+ * Eine Bedingung, die nicht an einem Gerätezustand hängt.
+ *
+ * «Nur wenn Livia daheim ist» musste man bisher als Gerätebedingung auf
+ * die Zonen-Entität nachbauen - und dafür deren Kennung kennen. Hier
+ * steht sie so, wie man sie sagt: eine Person, ein Gerät, das sich
+ * meldet, eine laufende Wetterwarnung, ein laufender Termin. `nicht`
+ * kehrt sie um («nur wenn niemand da ist»).
+ */
+export interface KontextCondition {
+  art: KontextArt;
+  /** Person (presence), Gerät (availability), Warn-Gerät oder Kalender
+   *  (leer = das erste, das der Hub findet). */
+  ziel: string;
+  /** Zone (presence, leer = zuhause), Mindeststufe (weather_warning)
+   *  oder Wort im Termin-Titel (calendar). */
+  wert: string;
+  nicht: boolean;
+}
+
+/** Was gespeichert wird (rein, testbar). */
+export function kontextConditionToConfig(entry: KontextCondition): BausteinConfig {
+  if (entry.art === 'presence') {
+    return {
+      type: 'presence',
+      person: entry.ziel,
+      ...(entry.wert && entry.wert !== ZUHAUSE ? { zone: entry.wert } : {}),
+      ...(entry.nicht ? { state: 'absent' } : {}),
+    };
+  }
+  if (entry.art === 'availability') {
+    return { type: 'availability', entity_id: entry.ziel, available: !entry.nicht };
+  }
+  if (entry.art === 'weather_warning') {
+    return {
+      type: 'weather_warning',
+      ...(entry.ziel ? { entity_id: entry.ziel } : {}),
+      ...(entry.wert ? { min_severity: entry.wert } : {}),
+      ...(entry.nicht ? { active: false } : {}),
+    };
+  }
+  return {
+    type: 'calendar',
+    ...(entry.ziel ? { entity_id: entry.ziel } : {}),
+    ...(entry.wert.trim() ? { contains: entry.wert.trim() } : {}),
+    ...(entry.nicht ? { active: false } : {}),
+  };
+}
+
+export const KONTEXT_ARTEN: KontextArt[] = [
+  'presence',
+  'availability',
+  'weather_warning',
+  'calendar',
+];
+
+/** Kann der Editor diese Bedingung als Kontext-Bedingung zeigen? */
+export function istKontextBedingung(entry: BausteinConfig): boolean {
+  return KONTEXT_ARTEN.includes(entry?.type as KontextArt);
+}
+
+/** Umgekehrt: gespeicherte Form → Editor (rein, testbar). */
+export function kontextConditionFromConfig(entry: BausteinConfig): KontextCondition {
+  const art = entry.type as KontextArt;
+  if (art === 'presence') {
+    return {
+      art,
+      ziel: String(entry.person ?? ''),
+      wert: String(entry.zone ?? '') || ZUHAUSE,
+      nicht: entry.state === 'absent',
+    };
+  }
+  if (art === 'availability') {
+    return { art, ziel: String(entry.entity_id ?? ''), wert: '', nicht: entry.available === false };
+  }
+  return {
+    art,
+    ziel: String(entry.entity_id ?? ''),
+    wert: String(art === 'weather_warning' ? (entry.min_severity ?? '') : (entry.contains ?? '')),
+    nicht: entry.active === false,
+  };
+}
+
 export interface Draft {
   id?: string;
   alias: string;
@@ -951,6 +1077,9 @@ export interface Draft {
   stateConditions: StateCondition[];
   /** Und/Oder-Gruppen aus Gerätebedingungen (Punkt 152). */
   groups: ConditionGroup[];
+  /** Kontext-Bedingungen: Person daheim, Gerät erreichbar, Warnung
+   *  läuft, Termin läuft. */
+  kontextConditions: KontextCondition[];
   /** Bedingungen, die der Editor (noch) nicht bauen kann – etwa
    *  geschachtelte und/oder-Gruppen aus der config.yaml. Sie werden
    *  unverändert mitgespeichert, statt beim Öffnen stumm zu verschwinden. */
@@ -962,6 +1091,12 @@ export interface Draft {
   /** «ausser an Feiertagen» (Punkt 154): Auffahrt ist ein Donnerstag,
    *  aber kein Werktag - der Hub kennt die Luzerner Feiertage. */
   exceptHolidays: boolean;
+  /** «ausser in den Schulferien» (Punkt 470 der Werkbank). Die Luzerner
+   *  Ferientermine liegen seit je im Hub, benutzt hat sie nur die
+   *  Simulation - «Wecklicht um 06:30» war im Juli falsch, und
+   *  abgestellt hat das jeden Sommer jemand von Hand. Eigener Haken
+   *  neben den Feiertagen: Wer beides will, setzt beide. */
+  exceptSchoolHolidays: boolean;
   /** Was der Ablauf tut – der Reihe nach. */
   steps: StepDraft[];
   /** Was stattdessen läuft, wenn die Bedingungen nicht passen. */
@@ -985,6 +1120,16 @@ export interface Draft {
   /** Restzeit anzeigen: «geht in 12 Min aus» an der Gerätekachel, in der
    *  Raumkarte und im «Lichter an»-Blatt, solange der Ablauf wartet. */
   restzeitZeigen: boolean;
+  /** Bis wann der Ablauf gilt, als «TT.MM.JJJJ» - leer heisst
+   *  unbefristet (Punkt 464 der Werkbank). Danach schaltet der Hub ihn
+   *  aus und lässt ihn stehen: «Bis Ende der Ferien» kommt nächstes Jahr
+   *  wieder. Nicht dasselbe wie «Aus bis morgen» (Punkt 159) - das ist
+   *  eine Pause, nach der es weitergeht. */
+  gueltigBis: string;
+  /** In welcher Reihenfolge er drankommt, wenn mehrere gleichzeitig dran
+   *  sind (Punkt 466). Als Text, weil es ein Eingabefeld ist; leer und
+   *  «0» heissen dasselbe: egal. */
+  reihenfolge: string;
   /** Gesetzt, solange dieser Entwurf eine *Vorlage* ist und kein Ablauf:
    *  «neu» für eine frische, sonst die Kennung der gespeicherten. Der
    *  Editor sieht daran, dass beim Speichern eine Vorlage entsteht und
@@ -1004,10 +1149,12 @@ export const EMPTY: Draft = {
   conditionBefore: '',
   stateConditions: [],
   groups: [],
+  kontextConditions: [],
   extraConditions: [],
   match: 'all',
   weekdays: [],
   exceptHolidays: false,
+  exceptSchoolHolidays: false,
   steps: [{ ...EMPTY_STEP }],
   elseSteps: [],
   mode: 'single',
@@ -1018,6 +1165,8 @@ export const EMPTY: Draft = {
   nachtsVon: null,
   nachtsBis: null,
   restzeitZeigen: false,
+  gueltigBis: '',
+  reihenfolge: '',
 };
 
 /** Einen Trigger-Entwurf in die gespeicherte Form bringen (rein, testbar). */
@@ -1033,6 +1182,16 @@ export function triggerToConfig(t: TriggerDraft): BausteinConfig {
   }
   if (t.kind === 'time') {
     return { type: 'time', at: t.at, ...(jitter > 0 ? { jitter } : {}) };
+  }
+  if (t.kind === 'window') {
+    // «Zeitraum»: der Hub feuert um `after` und lässt den Ablauf nur bis
+    // `before` laufen (zeitfenster_bedingungen in core/automation.py).
+    return {
+      type: 'window',
+      after: t.at,
+      before: t.until,
+      ...(jitter > 0 ? { jitter } : {}),
+    };
   }
   if (t.kind === 'calendar') {
     const vorlauf = Math.max(0, Number(t.calendarBefore) || 0);
@@ -1136,6 +1295,8 @@ export function triggerFromConfig(t: BausteinConfig): TriggerDraft {
     kind:
       t?.type === 'time'
         ? 'time'
+        : t?.type === 'window'
+          ? 'window'
         : t?.type === 'calendar'
           ? 'calendar'
         : t?.type === 'presence'
@@ -1177,7 +1338,8 @@ export function triggerFromConfig(t: BausteinConfig): TriggerDraft {
       t?.type === 'weather_warning' ? String(t?.min_severity ?? '') : '',
     fromState: t?.from ?? '',
     attribute: t?.attribute ?? '',
-    at: t?.at ?? EMPTY_TRIGGER.at,
+    at: t?.at ?? (t?.type === 'window' ? String(t?.after ?? EMPTY_TRIGGER.at) : EMPTY_TRIGGER.at),
+    until: t?.type === 'window' ? String(t?.before ?? EMPTY_TRIGGER.until) : EMPTY_TRIGGER.until,
     sunEvent: t?.event === 'sunrise' ? 'sunrise' : 'sunset',
     sunOffset: String(t?.offset ?? 0),
     thresholdOp: t?.above !== undefined ? 'above' : 'below',
@@ -1376,6 +1538,29 @@ export const TRIGGER_KIND_ICON: Record<TriggerKind, keyof typeof Ionicons.glyphM
   weather_warning: 'thunderstorm-outline',
   power_restore: 'flash-outline',
   availability: 'pulse-outline',
+  window: 'timer-outline',
+};
+
+/**
+ * Ein Wort je Auslöser-Art - für die Zeile, die zugeklappt im Kopf steht.
+ *
+ * Die Kacheln im Editor beschriften sich teils abhängig vom gewählten
+ * Gerät («Taster gedrückt» statt «Gerät wechselt»); hier genügt das
+ * kürzere Wort, denn daneben steht ohnehin der Gerätename.
+ */
+export const TRIGGER_WORT: Record<TriggerKind, string> = {
+  state: 'Gerät wechselt',
+  threshold: 'Messwert',
+  interval: 'Regelmässig',
+  time: 'Uhrzeit',
+  sun: 'Sonnenstand',
+  calendar: 'Termin',
+  geofence: 'Ort',
+  presence: 'Person kommt/geht',
+  weather_warning: 'Wetterwarnung',
+  power_restore: 'Nach Stromausfall',
+  availability: 'Meldet sich nicht',
+  window: 'Zeitraum',
 };
 
 /** Dieselbe Idee für die Art eines Schritts (Kachelauswahl beim Bauen
@@ -1394,6 +1579,7 @@ export const STEP_KIND_ICON: Record<StepKind, keyof typeof Ionicons.glyphMap> = 
   music: 'volume-medium-outline',
   if: 'git-branch-outline',
   repeat: 'repeat-outline',
+  automation: 'play-forward-outline',
 };
 
 /** Das Symbol zur Auslöserart (Punkt 162) - der Zeilenanfang der Liste
@@ -1476,12 +1662,14 @@ export function buildConditions(draft: Draft): BausteinConfig[] {
       condition.weekdays = [...draft.weekdays].sort((a, b) => a - b);
     }
     if (draft.exceptHolidays) condition.except_holidays = true;
+    if (draft.exceptSchoolHolidays) condition.except_school_holidays = true;
     // Eine Bedingung ganz ohne Angabe wäre sinnlos – dann keine.
     if (
       condition.after ||
       condition.before ||
       condition.weekdays ||
-      condition.except_holidays
+      condition.except_holidays ||
+      condition.except_school_holidays
     ) {
       conditions.push(condition);
     }
@@ -1499,6 +1687,13 @@ export function buildConditions(draft: Draft): BausteinConfig[] {
     if (subs.length > 0) {
       conditions.push({ type: 'group', match: gruppe.match, conditions: subs });
     }
+  }
+  // Kontext: Person, Erreichbarkeit, Warnung, Termin. Eine Person ohne
+  // Namen und ein Gerät ohne Kennung ergäben eine Bedingung, die nie
+  // gilt - die fällt weg.
+  for (const entry of draft.kontextConditions ?? []) {
+    if ((entry.art === 'presence' || entry.art === 'availability') && !entry.ziel) continue;
+    conditions.push(kontextConditionToConfig(entry));
   }
   // Was der Editor nicht kennt (tiefere Gruppen u.ä.), bleibt erhalten.
   conditions.push(...(draft.extraConditions ?? []));
@@ -1554,6 +1749,9 @@ export const PLATZHALTER: { key: string; label: string }[] = [
   // Punkt 251: Die Uhrzeit des Auslösens - «Bewegung um {time}» sagt
   // beim Nachlesen am Morgen, wann es wirklich war.
   { key: '{time}', label: '+ Uhrzeit' },
+  // Was der Auslöser gerade meldet - «{gerät} meldet {wert}» gilt für
+  // alle Melder auf einmal (core/kamera.py, fill).
+  { key: '{wert}', label: '+ Wert' },
 ];
 
 /**
@@ -1739,6 +1937,11 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
   }
   if (step.kind === 'music') {
     return musikSchrittZuAktion(step);
+  }
+  if (step.kind === 'automation') {
+    return step.automationId
+      ? [{ type: 'automation', automation_id: step.automationId }]
+      : [];
   }
   if (step.kind === 'if') {
     // Ohne Bedingung hiesse der Schritt beim Hub «gilt immer», ohne
@@ -2156,6 +2359,12 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
       });
     } else if (type === 'delay') {
       steps.push({ ...EMPTY_STEP, kind: 'delay', seconds: String(action.seconds ?? 60) });
+    } else if (type === 'automation') {
+      steps.push({
+        ...EMPTY_STEP,
+        kind: 'automation',
+        automationId: String(action.automation_id ?? action.automation ?? ''),
+      });
     } else if (type === 'wait_until') {
       steps.push({
         ...EMPTY_STEP,
@@ -2229,15 +2438,18 @@ export function toDraft(automation: Automation): Draft {
     // Zeitfenster), unverändert mittragen – sonst löscht «Öffnen und
     // Speichern» genau die Bedingung, die jemand in der config.yaml
     // gebaut hat.
+    kontextConditions: all.filter(istKontextBedingung).map(kontextConditionFromConfig),
     extraConditions: all.filter(
       (entry) =>
         entry !== condition &&
         !((entry.type ?? 'state') === 'state' && entry.entity_id) &&
-        !editierbareGruppe(entry)
+        !editierbareGruppe(entry) &&
+        !istKontextBedingung(entry)
     ),
     match: automation.match === 'any' ? 'any' : 'all',
     weekdays: Array.isArray(condition.weekdays) ? condition.weekdays.map(Number) : [],
     exceptHolidays: condition.except_holidays === true,
+    exceptSchoolHolidays: condition.except_school_holidays === true,
     steps: withAtLeastOne(actionsToSteps(automation.actions ?? [])),
     elseSteps: actionsToSteps(automation.otherwise ?? []),
     mode: automation.mode === 'restart' ? 'restart' : 'single',
@@ -2250,7 +2462,35 @@ export function toDraft(automation: Automation): Draft {
     nachtsVon: typeof automation.quiet_from === 'number' ? automation.quiet_from : null,
     nachtsBis: typeof automation.quiet_to === 'number' ? automation.quiet_to : null,
     restzeitZeigen: automation.countdown === true,
+    gueltigBis: automation.valid_until ? datumAusIso(automation.valid_until) : '',
+    reihenfolge: automation.order ? String(automation.order) : '',
   };
+}
+
+/** «2030-06-30» als «30.06.2030» (rein, testbar) - so, wie man ein
+ *  Datum liest und tippt. Dieselbe Schreibweise wie bei den Gutscheinen;
+ *  ein Ablauf-Editor, der ISO verlangt, wäre der einzige Ort in der App,
+ *  an dem das Jahr vorn steht. */
+export function datumAusIso(iso: string): string {
+  const treffer = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso ?? ''));
+  return treffer ? `${treffer[3]}.${treffer[2]}.${treffer[1]}` : '';
+}
+
+/** «30.6.2030» oder «30.06.30» zurück nach «2030-06-30» (rein, testbar).
+ *  Unlesbares wird null - dann fragt der Editor nach, statt still
+ *  «unbefristet» zu speichern und den Ablauf für immer laufen zu lassen. */
+export function datumNachIso(text: string): string | null {
+  const roh = String(text ?? '').trim();
+  if (!roh) return null;
+  const treffer = /^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})$/.exec(roh);
+  if (!treffer) return /^\d{4}-\d{2}-\d{2}$/.test(roh) ? roh : null;
+  const jahr = treffer[3].length === 2 ? `20${treffer[3]}` : treffer[3];
+  const iso = `${jahr}-${treffer[2].padStart(2, '0')}-${treffer[1].padStart(2, '0')}`;
+  const [j, m, t] = iso.split('-').map(Number);
+  const d = new Date(Date.UTC(j, m - 1, t));
+  const echt =
+    d.getUTCFullYear() === j && d.getUTCMonth() === m - 1 && d.getUTCDate() === t;
+  return echt ? iso : null;
 }
 
 /** Ein Ablauf ohne einen einzigen Schritt wäre im Editor eine leere Seite. */
@@ -2351,7 +2591,10 @@ export function describe(automation: Automation, entities: Entity[] = []): strin
             ? `${nameVon(entities, action.entity_id)}: ${
                 action.data?.rooms?.length ?? 0
               } Räume saugen`
-            : `${nameVon(entities, action.entity_id)} ${befehlWort(action.command)}`;
+            : `${nameVon(entities, action.entity_id)} ${befehlWort(
+                action.command,
+                entities.find((entity) => entity.id === action.entity_id)
+              )}`;
   const mehr = automation.triggers.length > 1 ? ` (+${automation.triggers.length - 1})` : '';
   // Wie viele Schritte noch folgen – seit ein Ablauf mehrere Arten mischen
   // kann, sagt die erste Aktion allein zu wenig.
@@ -2391,6 +2634,59 @@ const AUSLOESER_MIT_GERAET: readonly TriggerKind[] = [
  * Reihenfolge ist die des Formulars, damit man von oben nach unten
  * abarbeiten kann.
  */
+// ── Der geführte Weg für einen neuen Ablauf ─────────────────────────────
+//
+// Gemeldet: «Einen Ablauf erstellen oder bearbeiten ist eine
+// Katastrophe. Unübersichtlich, nicht intuitiv, verwirrend.»
+//
+// Für einen *bestehenden* Ablauf ist die Übersicht die Antwort: alles
+// auf einem Bildschirm, jeder Abschnitt zugeklappt mit seinem Stand.
+// Für einen *neuen* ist sie es nicht - dort steht man vor fünf leeren
+// Abschnitten und weiss nicht, wo man anfängt. Deshalb fragt der
+// Assistent nacheinander: erst wann, dann was, dann wie er heissen
+// soll.
+//
+// Er ist kein zweiter Editor, sondern derselbe mit einem Fenster davor:
+// Es sind dieselben Abschnitte, nur zeigt er jeweils einen. Zwei
+// Oberflächen, die dasselbe bauen, laufen sonst auseinander - das ist
+// der Fehler, den diese Datei an anderer Stelle schon einmal gekostet
+// hat.
+
+/** Die Überschriften der drei Schritte - eine Frage je Schritt. */
+export const ASSISTENT_SCHRITTE = [
+  'Wann soll es losgehen?',
+  'Was soll dann passieren?',
+  'Passt das so?',
+];
+
+/**
+ * Fängt dieser Entwurf bei null an? (rein, testbar)
+ *
+ * Nur dann führt der Assistent. Ein bestehender Ablauf und eine
+ * vorbefüllte Vorlage öffnen direkt die Übersicht: Wer eine Kleinigkeit
+ * ändern will, soll sich nicht durch drei Schritte klicken.
+ */
+export function assistentNoetig(draft: Draft): boolean {
+  if (draft.id || draft.templateId) return false;
+  const wenn = wasFehlt(draft).some(
+    (zeile) => zeile.startsWith('Wenn') || zeile.startsWith('Auslöser')
+  );
+  const dann = stepsToActions(draft.steps).length === 0;
+  return wenn && dann;
+}
+
+/** Was im «Wenn» noch fehlt (rein, testbar). */
+export function wennFehlt(draft: Draft): string[] {
+  return wasFehlt(draft).filter(
+    (zeile) => zeile.startsWith('Wenn') || zeile.startsWith('Auslöser')
+  );
+}
+
+/** Und was im «Dann» (rein, testbar). */
+export function dannFehlt(draft: Draft): string[] {
+  return wasFehlt(draft).filter((zeile) => zeile.startsWith('Dann'));
+}
+
 export function wasFehlt(draft: Draft): string[] {
   const fehlt: string[] = [];
 
@@ -2453,6 +2749,7 @@ const SCHRITT_WORT: Record<StepKind, string> = {
   music: 'Musik',
   if: 'Wenn …',
   repeat: 'Wiederholen',
+  automation: 'Ablauf starten',
 };
 
 /**
@@ -2542,6 +2839,7 @@ export function bedingungStand(draft: Draft): string {
   }
   if (draft.weekdays.length > 0) teile.push('Wochentage');
   if (draft.exceptHolidays) teile.push('ohne Feiertage');
+  if (draft.exceptSchoolHolidays) teile.push('ohne Schulferien');
   if (draft.extraConditions.length > 0) teile.push('aus der Konfiguration');
   return teile.join(' · ');
 }
@@ -2558,6 +2856,60 @@ export function angabenStand(draft: Draft): string {
 }
 
 /** Was im zugeklappten «sonst» steht (rein, testbar). */
+/**
+ * Was im «Wenn» steht, in einer Zeile (rein, testbar).
+ *
+ * Zugeklappt steht das im Kopf des Abschnitts. Ohne diese Zeile hiesse
+ * Zuklappen «verstecken» - und dann macht man es beim Bearbeiten sofort
+ * wieder auf, womit nichts gewonnen wäre.
+ */
+export function wennStand(draft: Draft, entities: Entity[]): string {
+  const namen = draft.triggers
+    .map((trigger) => {
+      // Wo ein Gerät dranhängt, ist sein Name die bessere Auskunft als
+      // die Art: «Bewegung Flur» sagt mehr als «Gerät wechselt».
+      const entity = entities.find((eintrag) => eintrag.id === trigger.entityId);
+      if (entity) return entity.name;
+      // Ein Auslöser, der ein Gerät bräuchte und keines hat, ist noch
+      // nichts - «Gerät wechselt» im Kopf zu behaupten wäre falsch, und
+      // beim leeren neuen Ablauf stünde es sofort da.
+      if (AUSLOESER_MIT_GERAET.includes(trigger.kind)) return '';
+      return TRIGGER_WORT[trigger.kind] || '';
+    })
+    .filter(Boolean);
+  if (namen.length === 0) return '';
+  if (namen.length <= 2) return namen.join(' oder ');
+  return `${namen.length} Auslöser`;
+}
+
+/** Und dasselbe fürs «Dann» (rein, testbar). */
+export function dannStand(draft: Draft, entities: Entity[]): string {
+  // Was dabei herauskommt zählt, nicht wie viele Schritte dastehen: Ein
+  // Schritt «Gerät schalten» ohne angekreuztes Gerät sieht im Formular
+  // aus wie einer und tut nichts. «1 Schritt» im Kopf eines leeren
+  // neuen Ablaufs wäre eine Behauptung.
+  if (stepsToActions(draft.steps).length === 0) return '';
+  const anzahl = draft.steps.length;
+  if (anzahl === 0) return '';
+  const erstesGeraet = draft.steps
+    .flatMap((step) => step.commandActions ?? [])
+    .map((aktion) => entities.find((eintrag) => eintrag.id === aktion.entity_id)?.name)
+    .find(Boolean);
+  if (anzahl === 1 && erstesGeraet) return erstesGeraet;
+  return anzahl === 1 ? '1 Schritt' : `${anzahl} Schritte`;
+}
+
+/** Und für die Feineinstellungen (rein, testbar). */
+export function feinStand(draft: Draft): string {
+  const teile: string[] = [];
+  if (draft.cooldownMinutes) teile.push(minutenLabel(draft.cooldownMinutes));
+  if (draft.gueltigBis) teile.push(`bis ${draft.gueltigBis}`);
+  if (draft.reihenfolge && draft.reihenfolge !== '0') {
+    teile.push(`Reihenfolge ${draft.reihenfolge}`);
+  }
+  return teile.join(' · ');
+}
+
 export function sonstStand(draft: Draft): string {
   const anzahl = draft.elseSteps.length;
   if (anzahl === 0) return '';

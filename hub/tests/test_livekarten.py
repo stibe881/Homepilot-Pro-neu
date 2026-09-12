@@ -4,9 +4,12 @@ import time
 from types import SimpleNamespace
 
 from homepilot.core.livekarten import (
+    GRILL_UPDATE_ABSTAND,
     NACHHALL_SEKUNDEN,
+    UPDATE_ABSTAND,
     abgleich,
     ende_payload,
+    grill_url,
     hat_karte,
     karten_alarm,
     karten_erinnerungen,
@@ -62,7 +65,10 @@ def test_waschmaschine_ja_grill_nein():
 
     grills = karten_grill([maschine, grill, still])
     assert [k["art"] for k in grills] == ["grill:pitboss.grill"]
-    assert grills[0]["state"]["text"] == "182° → 200°"
+    # Die Ist-Temperatur steht seit Punkt 553 gross daneben - zweimal
+    # dieselbe Zahl auf einer Karte liest niemand zweimal.
+    assert grills[0]["state"]["gross"] == "182°"
+    assert grills[0]["state"]["text"] == "Heizt auf 200°"
     assert 0.9 < grills[0]["state"]["fortschritt"] < 0.92
 
 
@@ -456,9 +462,50 @@ def test_abgleich_startet_aktualisiert_und_beendet():
     rows, starten, aktualisieren, beenden = abgleich(rows, [], ["Stibe", "Bine"], 3000.0)
     assert len(beenden) == 2
     assert sorted(len(b["tokens"]) for b in beenden) == [0, 1]
-    # Die mit Token ist erledigt; die ohne bleibt vorgemerkt, sonst
-    # wüsste der Hub nichts mehr von der Karte, die noch liegt.
-    assert [(r["user"], r.get("ende_offen")) for r in rows] == [("Bine", True)]
+    # **Beide** bleiben vorgemerkt, auch die mit Token. `abgleich`
+    # rechnet nur; ob das Ende wirklich draussen war, weiss erst der
+    # Takt - und nur er darf die Zeile dann austragen (`_runde`,
+    # beendet). Stand das früher hier, verschwand die Zeile auch dann,
+    # wenn Apple gerade nicht erreichbar war, und die Karte lag bis zum
+    # Abend auf dem Sperrbildschirm, ohne dass noch jemand von ihr
+    # wusste.
+    assert sorted((r["user"], r.get("ende_offen")) for r in rows) == [
+        ("Bine", True),
+        ("Stibe", True),
+    ]
+
+
+def test_die_grillkarte_folgt_jedem_messwert():
+    """«In der Live-Aktivität steht 108, der Grill hat aber schon 110»
+    (Punkt 558): Der Grill misst alle dreissig Sekunden, und mit dem
+    allgemeinen Abstand von 45 s auf einem 20-s-Takt hing die Karte bis
+    zu anderthalb Minuten hinterher. Seine Karte bringt darum ihren
+    eigenen, kürzeren Abstand mit - der Timer bleibt beim alten."""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", temperature=108, target=110, unit="°C",
+    )
+    karte = karten_grill([grill])[0]
+    assert karte["abstand"] == GRILL_UPDATE_ABSTAND < UPDATE_ABSTAND
+
+    rows = [
+        {
+            "user": "Stefan",
+            "art": "grill:pitboss.grill",
+            "stand": "alt",
+            "activity_tokens": ["tok"],
+            "aktualisiert": 1000.0,
+        }
+    ]
+    # Zwanzig Sekunden später, ein neuer Messwert: Die Grillkarte geht
+    # raus - eine Karte ohne eigenen Abstand müsste noch warten.
+    rows_grill, _, aktualisieren, _ = abgleich(rows, [karte], ["Stefan"], 1020.0)
+    assert [a["tokens"] for a in aktualisieren] == [["tok"]]
+    assert rows_grill[0]["aktualisiert"] == 1020.0
+
+    timer = {"art": "grill:pitboss.grill", "user": None, "state": karte["state"]}
+    _, _, aktualisieren, _ = abgleich(rows, [timer], ["Stefan"], 1020.0)
+    assert aktualisieren == []
 
 
 def test_wer_das_haus_verlaesst_verliert_die_fernseher_karte():
@@ -496,11 +543,17 @@ def test_wer_das_haus_verlaesst_verliert_die_fernseher_karte():
     # noch vor dem Fernseher.
     assert [auftrag["tokens"] for auftrag in beenden] == [["tok-stefan"]]
     assert beenden[0]["sichtbar"] == 0.0 and beenden[0]["state"] is None
-    assert [row["user"] for row in neue] == ["Bine"]
     assert starten == []
+    # Stefans Zeile bleibt vorgemerkt, bis der Takt das Ende wirklich
+    # losgeworden ist (siehe test_abgleich_startet_aktualisiert_und_beendet).
+    assert sorted((row["user"], row.get("ende_offen")) for row in neue) == [
+        ("Bine", None),
+        ("Stefan", True),
+    ]
 
     # Kommt Stefan heim (und der Fernseher läuft noch), startet seine
-    # Karte frisch.
+    # Karte frisch: Eine vorgemerkte Zeile zählt nicht als laufend
+    # (liegt_noch), sonst käme nie wieder eine Karte.
     ohne_ohne = {**karte}
     ohne_ohne.pop("ohne")
     _, wieder, _, _ = abgleich(neue, [ohne_ohne], ["Stefan", "Bine"], 2000.0)
@@ -615,17 +668,35 @@ def test_ein_tipp_auf_die_geraetekarte_fuehrt_in_den_raum():
     assert raum_url(maschine) == "homepilot://raum/Waschk%C3%BCche"
 
 
-def test_auch_grill_und_sauger_fuehren_in_ihren_raum():
-    grill = SimpleNamespace(
-        id="pitboss.grill", kind="appliance", label="Grill", room="Terrasse",
-        state={"state": "running", "target": 200, "temperature": 150},
-    )
+def test_der_sauger_fuehrt_in_seinen_raum():
     sauger = SimpleNamespace(
         id="roborock.s7", kind="vacuum", label="Sauger", room="Flur",
         state={"state": "cleaning", "battery": 80},
     )
-    assert karten_grill([grill])[0]["state"]["url"] == "homepilot://raum/Terrasse"
     assert karten_sauger([sauger])[0]["state"]["url"] == "homepilot://raum/Flur"
+
+
+def test_die_grillkarte_fuehrt_ins_vollbild_statt_nur_in_den_raum():
+    """Ein Tipp auf die Live-Aktivität soll die Fühler zeigen (Punkt 555).
+
+    Vorher führte sie in den Raum - dort steht die Kachel zwar, aber
+    man muss sie erst suchen und antippen. Mit heissen Händen am Grill
+    ist das ein Schritt zu viel.
+    """
+    grill = SimpleNamespace(
+        id="pitboss.grill", kind="appliance", label="Grill", room="Terrasse",
+        state={"state": "running", "target": 200, "temperature": 150},
+    )
+    assert karten_grill([grill])[0]["state"]["url"] == "homepilot://grill/pitboss.grill"
+    assert grill_url(grill) == "homepilot://grill/pitboss.grill"
+
+    # Auch ohne Raum - anders als bei der Waschmaschine hängt die
+    # Adresse hier am Gerät, nicht am Zimmer.
+    heimatlos = SimpleNamespace(
+        id="pitboss.grill", kind="appliance", label="Grill", room=None,
+        state={"state": "running", "target": 200, "temperature": 150},
+    )
+    assert karten_grill([heimatlos])[0]["state"]["url"] == "homepilot://grill/pitboss.grill"
 
 
 def test_die_saugerkarte_traegt_pause_weiter_und_station():
@@ -719,11 +790,15 @@ def test_karte_ohne_token_bleibt_vorgemerkt_und_endet_beim_nachtragen():
     assert beenden[0]["art"] == "tv:cast.wz" and beenden[0]["user"] == "Stibe"
     assert hat_karte(rows, "Stibe", "tv:cast.wz")
 
-    # Jetzt kommt das Token - es landet an der vorgemerkten Zeile.
+    # Jetzt kommt das Token - es landet an der vorgemerkten Zeile, und
+    # der Auftrag zum Beenden trägt es mit.
     rows = token_merken(rows, "Stibe", "tv:cast.wz", "act-7")
     rows, _, _, beenden = abgleich(rows, [], ["Stibe"], 1200.0)
     assert [b["tokens"] for b in beenden] == [["act-7"]]
-    assert rows == []
+    # Vorgemerkt bleibt sie auch jetzt noch: Ausgetragen wird sie erst,
+    # wenn das Ende wirklich bei Apple angekommen ist - und das weiss
+    # nur der Takt (`_runde`, beendet).
+    assert [r.get("ende_offen") for r in rows] == [True]
 
 
 def test_vorgemerkte_karte_faellt_nach_dem_nachhall_weg():
@@ -871,3 +946,311 @@ async def test_ein_start_der_nie_ankam_wird_nicht_als_laufend_verbucht():
         assert hub.data.get(modul.START_KEY) == []
     finally:
         await hub.stop()
+
+
+async def test_ein_ende_das_nie_ankam_wird_im_naechsten_takt_erneut_versucht():
+    """Der gemeldete Fall, vierte Runde: «Die Live-Aktivität verschwindet
+    immer noch nicht von alleine, wenn der Fernseher ausschaltet.»
+
+    Die drei Runden davor drehten sich darum, ob der Hub die Karte noch
+    *will* (Geisterbild, Erreichbarkeit, leeres Soll) und ob er ein
+    Token zum Beenden *hat*. Beides war behoben - und die Karte lag
+    trotzdem weiter da, weil niemand prüfte, ob das Ende überhaupt
+    ankam.
+
+    `senden` gibt False zurück, wenn Apple nicht erreichbar ist oder
+    ablehnt. Das wurde verworfen, während die Zeile in `live_cards`
+    zugleich verschwand: Danach wusste der Hub nichts mehr von der
+    Karte, kein späterer Takt konnte sie abräumen, und sie lag bis zum
+    Ende des Tages auf dem Sperrbildschirm. Im tvcheck sah das aus wie
+    «eine Leiche aus einer früheren Fassung» - dabei entstand sie
+    gerade eben.
+    """
+    from homepilot.core import livekarten as modul
+    from homepilot.core.hub import Hub
+
+    from .conftest import make_config
+
+    hub = Hub(
+        make_config(
+            users=[{"name": "Stefan", "role": "besitzer", "token": "t"}],
+            integrations=[{"integration": "demo"}],
+        )
+    )
+    await hub.start()
+    try:
+        hub.data.set(modul.START_KEY, [{"user": "Stefan", "token": "start-1"}])
+        hub.data.set(
+            modul.KARTEN_KEY,
+            [
+                {
+                    "user": "Stefan",
+                    "art": "tv:cast.wz",
+                    "stand": "{}",
+                    "activity_tokens": ["act-1"],
+                    "aktualisiert": time.time(),
+                }
+            ],
+        )
+        versuche: list[str] = []
+
+        class Versand:
+            """Apple ist gerade nicht erreichbar."""
+
+            tote: set[str] = set()
+
+            def __init__(self) -> None:
+                self.klappt = False
+
+            async def senden(self, token: str, payload: dict) -> bool:
+                if payload["aps"]["event"] == "end":
+                    versuche.append(token)
+                return self.klappt
+
+        versand = Versand()
+        await modul._runde(hub, versand)
+
+        # Das Ende ging raus, kam aber nicht an - die Zeile bleibt, sonst
+        # weiss im nächsten Takt niemand mehr von der Karte.
+        assert versuche == ["act-1"]
+        zeilen = [
+            row
+            for row in hub.data.get(modul.KARTEN_KEY)
+            if row.get("art") == "tv:cast.wz"
+        ]
+        assert len(zeilen) == 1
+        assert zeilen[0]["ende_offen"] is True
+        assert zeilen[0]["activity_tokens"] == ["act-1"]
+
+        # Nächster Takt, Apple antwortet wieder: Jetzt geht sie weg.
+        # Geprüft wird nur diese eine Zeile - was die Demo-Integration
+        # daneben an eigenen Karten hervorbringt, gehört nicht zur Frage.
+        versand.klappt = True
+        await modul._runde(hub, versand)
+        assert versuche == ["act-1", "act-1"]
+        assert [
+            row
+            for row in hub.data.get(modul.KARTEN_KEY)
+            if row.get("art") == "tv:cast.wz"
+        ] == []
+    finally:
+        await hub.stop()
+
+
+async def test_ein_totes_token_haelt_keine_karte_fest():
+    """Die Gegenprobe zum Test darüber: Lehnt Apple das Token endgültig
+    ab, ist die Aktivität dahinter längst vorbei. Es erneut zu versuchen
+    hiesse, zwölf Stunden lang alle zwanzig Sekunden gegen eine Wand zu
+    klopfen - und die Zeile bliebe dabei für immer stehen."""
+    from homepilot.core import livekarten as modul
+    from homepilot.core.hub import Hub
+
+    from .conftest import make_config
+
+    hub = Hub(
+        make_config(
+            users=[{"name": "Stefan", "role": "besitzer", "token": "t"}],
+            integrations=[{"integration": "demo"}],
+        )
+    )
+    await hub.start()
+    try:
+        hub.data.set(modul.START_KEY, [{"user": "Stefan", "token": "start-1"}])
+        hub.data.set(
+            modul.KARTEN_KEY,
+            [
+                {
+                    "user": "Stefan",
+                    "art": "tv:cast.wz",
+                    "stand": "{}",
+                    "activity_tokens": ["act-tot"],
+                    "aktualisiert": time.time(),
+                }
+            ],
+        )
+
+        class Versand:
+            def __init__(self) -> None:
+                self.tote: set[str] = set()
+
+            async def senden(self, token: str, payload: dict) -> bool:
+                if payload["aps"]["event"] == "end":
+                    self.tote.add(token)
+                return False
+
+        await modul._runde(hub, Versand())
+        assert [
+            row
+            for row in hub.data.get(modul.KARTEN_KEY)
+            if row.get("art") == "tv:cast.wz"
+        ] == []
+    finally:
+        await hub.stop()
+
+
+async def test_eine_haengende_karte_meldet_sich_einmal_und_nicht_alle_zwanzig_sekunden(
+    caplog,
+):
+    """Aus dem Protokoll des Hauses, vierzig Zeilen am Stück:
+
+        08:42:15 Live-Karte tv:androidtv.10_10_1_37 für Tablet: Ende ohne Token
+        08:42:15 Live-Karte erinnerung:SoK6… für Tablet: Ende ohne Token
+        08:42:15 Live-Karte tv:androidtv.10_10_1_240 für Tablet: Ende ohne Token
+        08:42:35 … dieselben drei …
+
+    Ein Wandtablet meldete zu keiner Karte je ein Token. Der Takt läuft
+    alle zwanzig Sekunden, eine Zeile bleibt bis zu zwölf Stunden
+    vorgemerkt - das sind über zweitausend gleiche Zeilen je Karte.
+    Docker hält 3 × 10 MB; nach ein paar Tagen stand nichts anderes mehr
+    darin.
+
+    Das ist nicht bloss unschön: Es hat die Fehlersuche gekostet. Auf
+    die Frage «kam das Ende bei Apple an?» hätte die Antwort im
+    Protokoll gestanden - überschrieben von der Meldung über genau
+    dieses Problem.
+    """
+    import logging
+
+    from homepilot.core import livekarten as modul
+    from homepilot.core.hub import Hub
+
+    from .conftest import make_config
+
+    hub = Hub(
+        make_config(
+            users=[
+                {"name": "Stefan", "role": "besitzer", "token": "t"},
+                # Das Wandtablet - es meldet nie ein Aktivitäts-Token.
+                {"name": "Tablet", "role": "bewohner", "token": "t2"},
+            ],
+            integrations=[{"integration": "demo"}],
+        )
+    )
+    await hub.start()
+    try:
+        hub.data.set(modul.START_KEY, [{"user": "Tablet", "token": "start-1"}])
+        hub.data.set(
+            modul.KARTEN_KEY,
+            [
+                {
+                    "user": "Tablet",
+                    "art": "tv:androidtv.wz",
+                    "stand": "{}",
+                    "activity_tokens": [],
+                    "aktualisiert": time.time(),
+                }
+            ],
+        )
+
+        class Versand:
+            tote: set[str] = set()
+
+            async def senden(self, token: str, payload: dict) -> bool:
+                return True
+
+        versand = Versand()
+        with caplog.at_level(logging.INFO, logger="homepilot.core.livekarten"):
+            for _ in range(5):
+                await modul._runde(hub, versand)
+
+        gemeldet = [
+            eintrag
+            for eintrag in caplog.records
+            if "Ende ohne Token" in eintrag.getMessage()
+            and "tv:androidtv.wz" in eintrag.getMessage()
+        ]
+        assert len(gemeldet) == 1, [e.getMessage() for e in gemeldet]
+        # Vorgemerkt bleibt sie trotzdem - geschwiegen wird über den
+        # Zustand, nicht über die Karte.
+        assert [
+            row
+            for row in hub.data.get(modul.KARTEN_KEY)
+            if row.get("art") == "tv:androidtv.wz"
+        ]
+    finally:
+        await hub.stop()
+
+
+# ── Die Grillkarte in der Form der Hersteller-App (Punkt 553) ─────────────
+
+
+def test_die_karte_zeigt_die_eingesteckten_fuehler():
+    """Gewünscht im Haus: «Die Live-Aktivität soll so aussehen (auch
+    inkl. den Kerntemperatursensoren, 4 Stk.)»"""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", temperature=104, target=110, unit="°C",
+        probe_1=None, probe_2=36, probe_3=43, probe_4=None,
+    )
+    karte = karten_grill([grill])[0]["state"]
+    assert karte["gross"] == "104°C"
+    assert karte["text"] == "Heizt auf 110°C"
+    # Nur die eingesteckten, und jeder in seiner festen Farbe.
+    assert karte["werte"] == [
+        {"nummer": "2", "wert": "36°C", "farbe": "gelb"},
+        {"nummer": "3", "wert": "43°C", "farbe": "rot"},
+    ]
+
+
+def test_die_grillkarte_traegt_unten_den_griff_zum_timer():
+    """Wie in der Hersteller-App (Punkt 556): unten in der Mitte «Timer
+    stellen». Der Griff kommt vom Hub, nicht aus dem Widget - die Karte
+    ist eine Form für alles, und was auf ihr steht, entscheidet der Hub."""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", temperature=104, target=110, unit="°C",
+    )
+    karte = karten_grill([grill])[0]["state"]
+    assert karte["link"] == {
+        "symbol": "timer",
+        "text": "Timer stellen",
+        "url": "homepilot://timer",
+    }
+    # Und nur der Grill: Die Waschmaschine hat keinen Timer zu stellen.
+    maschine = entity(
+        "vzug.wm", "appliance", "Waschmaschine", state="running", program="Eco"
+    )
+    assert "link" not in karten_geraete([maschine])[0]["state"]
+
+
+def test_ohne_fuehler_bleibt_das_feld_weg():
+    """Die Karte soll keinen Platz für Kreise reservieren, die es nicht
+    gibt."""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", temperature=104, target=110, unit="°C",
+    )
+    assert "werte" not in karten_grill([grill])[0]["state"]
+
+
+def test_auf_temperatur_heisst_haelt_und_nicht_heizt():
+    """«Heizt auf 110°», während er seit einer Stunde 110° hält, wäre
+    falsch - und ein Pelletgrill pendelt um seinen Sollwert."""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", temperature=109, target=110, unit="°C",
+    )
+    assert karten_grill([grill])[0]["state"]["text"] == "Hält 110°C"
+
+
+def test_ein_grill_in_fahrenheit_bekommt_seine_eigene_einheit():
+    """«350°C» wäre eine Behauptung über glühendes Blech."""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", temperature=225, target=350, unit="°F", probe_1=140,
+    )
+    karte = karten_grill([grill])[0]["state"]
+    assert karte["gross"] == "225°F"
+    assert karte["text"] == "Heizt auf 350°F"
+    assert karte["werte"][0]["wert"] == "140°F"
+
+
+def test_ohne_ist_temperatur_gibt_es_keine_grosse_zahl():
+    """Sonst stünde dort ein leeres Feld, wo die Zahl sein müsste."""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", target=110, unit="°C",
+    )
+    karte = karten_grill([grill])[0]["state"]
+    assert "gross" not in karte
+    assert karte["text"] == "Ziel 110°C"

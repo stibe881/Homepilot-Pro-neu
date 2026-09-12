@@ -54,6 +54,12 @@ log = logging.getLogger(__name__)
 #
 # `scan_interval` in der config.yaml sticht immer. Wer einen Wert hier
 # ändert, ändert ihn für alle, die ihn nicht selbst gesetzt haben.
+#
+# Alphabetisch, und ein Test hält das fest
+# (tests/test_neue_integration.py): Das Gerüst-Skript trägt eine neue
+# Integration an ihrem Platz ein. Eine angehängte Zeile fände beim
+# nächsten Mal niemand - und dann stünde die Zahl ein zweites Mal im
+# Modul, genau der Zustand, den diese Tabelle beendet hat.
 SCAN_INTERVALS: dict[str, float] = {
     "google_calendar": 300,
     "homematic": 300,
@@ -64,8 +70,8 @@ SCAN_INTERVALS: dict[str, float] = {
     "pitboss": 30,
     "plex": 30,
     "ring": 300,
-    "schulferien": 86400,
     "roborock": 60,
+    "schulferien": 86400,
     "spotify": 30,
     "tunein": 30,
     "twinkly": 30,
@@ -549,8 +555,8 @@ class IntegrationManager:
         )
         # Die Alarmanlage steht oft nicht in der Datei – sie gehört zum
         # Haus und wird beim Start still ergänzt. Gleiches Recht hier.
-        if config is None and name == "alarm":
-            config = {"integration": "alarm"}
+        if config is None and name in ("alarm", "brand"):
+            config = {"integration": name}
         if config is None:
             raise HomePilotError(
                 f"'{name}' steht nicht (mehr) in der config.yaml – zum "

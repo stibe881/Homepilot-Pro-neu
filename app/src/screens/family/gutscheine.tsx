@@ -28,6 +28,8 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
+
+import { useKassenlicht } from '../../hooks/useKassenlicht';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -50,11 +52,13 @@ import { belegLesen, belegSatz } from '../../lib/gutscheinlesen';
 import { Card } from '../../components/Card';
 import { Tastaturplatz } from '../../components/Tastaturplatz';
 import { Leerzustand } from '../../components/Leerzustand';
-import { Strichcode } from '../../components/Strichcode';
 import { QrScanner } from '../../components/QrScanner';
+import { Kassencode } from '../../components/Kassencode';
+import { gescannteArt, kassenart } from '../../lib/strichcode';
 import {
   Ablaufstufe,
   DATEI_TYPEN,
+  CODEARTEN,
   EINHEITEN,
   EINLOESEN,
   Formular,
@@ -86,12 +90,22 @@ import {
   betragLesen,
   betragText,
   betragZahl,
+  MAX_DATEIEN,
+  anhaenge,
+  anhaengeSatz,
   dateiGroesse,
   dateiPruefen,
   dateiSatz,
   dateiSymbol,
   datumText,
   einheitText,
+  codeStand,
+  codeVerbrauchen,
+  doppelte,
+  doppelteSatz,
+  ladenAnfrage,
+  naechsterCode,
+  offeneCodes,
   formularPruefen,
   formularVon,
   gefiltert,
@@ -118,7 +132,15 @@ import { bildUri } from '../RecipeBook';
 import { BackHead, FamilyItem, Styles } from './bausteine';
 
 /** Die Felder des Formulars, die ein Textfeld sind. */
-type TextFeld = 'shop' | 'title' | 'total' | 'number' | 'pin' | 'url' | 'notes';
+type TextFeld =
+  | 'shop'
+  | 'title'
+  | 'total'
+  | 'number'
+  | 'weitereCodes'
+  | 'pin'
+  | 'url'
+  | 'notes';
 
 type Seite =
   | { art: 'liste' }
@@ -357,7 +379,7 @@ function GutscheinKarte({
         heute
       )}, ${entry.shared === 'familie' ? 'Familie' : 'Privat'}${
         entry.physical ? `, ${MITNEHMEN}` : ''
-      }${entry.file ? `, mit Beleg: ${dateiSatz(entry.file)}` : ''}`}
+      }${anhaenge(entry).length > 0 ? `, mit Beleg: ${anhaengeSatz(anhaenge(entry))}` : ''}`}
     >
       <View style={eigen.karteKopf}>
         <View style={eigen.ladenBox}>
@@ -397,6 +419,9 @@ function GutscheinKarte({
                 color={colors.inkSoft}
               />
             ) : null}
+            {anhaenge(entry).length > 1 ? (
+              <Text style={eigen.dateiMass}>{anhaenge(entry).length}</Text>
+            ) : null}
             {entry.category ? <Text style={eigen.kategorieText}>{entry.category}</Text> : null}
           </View>
           <Text style={[eigen.gueltigText, { color: ablaufFarbe(stufe, colors) }]}>
@@ -435,6 +460,7 @@ function Detail({
   onAbziehen,
   onStorno,
   onUebergeben,
+  onCodeVerbrauchen,
   haushalt = [],
   orte = [],
   onBearbeiten,
@@ -453,6 +479,8 @@ function Detail({
   onStorno?: (buchung: Transaktion) => void;
   /** Den Gutschein jemandem im Haushalt übergeben (Punkt 306). */
   onUebergeben?: (an: string) => void;
+  /** Eine einzelne Nummer als eingelöst markieren (Punkt 452). */
+  onCodeVerbrauchen?: (wert: string) => void;
   /** Wer im Haushalt in Frage kommt - ohne mich selbst. */
   haushalt?: string[];
   /** Die Läden mit Koordinaten, wie der Einkaufszettel sie führt -
@@ -469,6 +497,8 @@ function Detail({
   const [pinSichtbar, setPinSichtbar] = useState(false);
   // An der Kasse wird gescannt, nicht vorgelesen (Punkt 299/300).
   const [kasse, setKasse] = useState(false);
+  // Hell und wach, solange sie offen ist (Punkt 532).
+  useKassenlicht(kasse);
   const [uebergabeOffen, setUebergabeOffen] = useState(false);
   // Zwei Schritte fürs Löschen: erst die Frage, dann der Tipp. Und was
   // weg ist, liegt dreissig Tage im Papierkorb der Familienseite.
@@ -624,32 +654,35 @@ function Detail({
             </Text>
           </Pressable>
         ) : null}
-        {entry.file ? (
+        {/* Alle Belege (Punkt 520): Bestellbestätigung und Gutschein-PDF
+            gehören beide dran, jeder mit eigener Adresse. */}
+        {anhaenge(entry).map((datei, index) => (
           <Pressable
+            key={datei.id ?? datei.url ?? index}
             onPress={() => {
               // Die Datei liegt beim Hub und braucht den Token - dieselbe
               // Adresse wie das Bild, deshalb derselbe Griff.
-              const ziel = bildUri(entry.file?.url, settings);
+              const ziel = bildUri(datei.url, settings);
               if (ziel) Linking.openURL(ziel).catch(() => {});
             }}
             accessibilityRole="button"
-            accessibilityLabel={`${dateiSatz(entry.file)} – öffnen`}
+            accessibilityLabel={`${dateiSatz(datei)} – öffnen`}
             style={({ pressed }) => [eigen.dateiZeile, pressed && { opacity: 0.8 }]}
           >
             <Ionicons
-              name={dateiSymbol(entry.file.type) as keyof typeof Ionicons.glyphMap}
+              name={dateiSymbol(datei.type) as keyof typeof Ionicons.glyphMap}
               size={22}
               color={colors.accent}
             />
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={eigen.dateiName} numberOfLines={1}>
-                {entry.file.name}
+                {datei.name}
               </Text>
-              <Text style={eigen.dateiMass}>{dateiGroesse(entry.file.bytes) || 'Beleg'}</Text>
+              <Text style={eigen.dateiMass}>{dateiGroesse(datei.bytes) || 'Beleg'}</Text>
             </View>
             <Ionicons name="open-outline" size={18} color={colors.inkSoft} />
           </Pressable>
-        ) : null}
+        ))}
         {entry.notes ? (
           <Text style={eigen.notiz} selectable>
             {entry.notes}
@@ -706,7 +739,14 @@ function Detail({
               accessibilityLabel="An der Kasse zeigen"
               style={({ pressed }) => [eigen.sekundaerKnopf, pressed && { opacity: 0.8 }]}
             >
-              <Ionicons name="barcode-outline" size={18} color={colors.ink} />
+              {/* Das Symbol zeigt schon, was gleich kommt - wer den
+                  QR-Code sucht, erkennt am Strichcode-Symbol sonst
+                  nicht, dass er hier richtig ist. */}
+              <Ionicons
+                name={kassenart(entry.number, entry.code) === 'qr' ? 'qr-code-outline' : 'barcode-outline'}
+                size={18}
+                color={colors.ink}
+              />
               <Text style={eigen.sekundaerText}>An der Kasse</Text>
             </Pressable>
           ) : null}
@@ -722,6 +762,12 @@ function Detail({
               <Text style={eigen.sekundaerText}>Übergeben</Text>
             </Pressable>
           ) : null}
+          {/* Der Rest, den man sonst liegen lässt (Punkt 457) - hier
+              und nicht nur auf der Karte: Wer den Gutschein offen hat,
+              entscheidet gerade, ob er ihn heute mitnimmt. */}
+          {restHinweis(entry) ? (
+            <Text style={[styles.checkSub, { color: colors.warnInk }]}>{restHinweis(entry)}</Text>
+          ) : null}
           {entry.left >= 0.005 ? (
             <Pressable
               onPress={onAbziehen}
@@ -734,6 +780,37 @@ function Detail({
           ) : (
             <Text style={styles.checkSub}>Aufgebraucht.</Text>
           )}
+          {/* Eine Nummer der Zehnerkarte abhaken (Punkt 452). Von Hand
+              und nicht beim Abziehen: Ob die Kasse den Code wirklich
+              angenommen hat, weiss nur der Mensch davor - eine Nummer,
+              die die App eigenmächtig verbraucht, ist ein Eintritt, den
+              niemand mehr findet. */}
+          {onCodeVerbrauchen && offeneCodes(entry).length > 1 ? (
+            <Pressable
+              onPress={() => onCodeVerbrauchen(naechsterCode(entry))}
+              accessibilityRole="button"
+              accessibilityLabel={`Nummer ${naechsterCode(entry)} als eingelöst markieren`}
+              style={({ pressed }) => [eigen.sekundaerKnopf, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name="checkmark-done-outline" size={18} color={colors.ink} />
+              <Text style={eigen.sekundaerText}>Nummer eingelöst</Text>
+            </Pressable>
+          ) : null}
+          {/* Wenn die Karte weg ist (Punkt 459): Laden, Nummer,
+              Kaufdatum, Rest und der Hinweis auf den Beleg in einem
+              Text - bis hierher tippte man das aus vier Bildschirmen
+              zusammen ab. */}
+          <Pressable
+            onPress={() =>
+              Share.share({ message: ladenAnfrage(entry, heute) }).catch(() => {})
+            }
+            accessibilityRole="button"
+            accessibilityLabel="Anfrage an den Laden teilen"
+            style={({ pressed }) => [eigen.sekundaerKnopf, pressed && { opacity: 0.8 }]}
+          >
+            <Ionicons name="help-buoy-outline" size={18} color={colors.ink} />
+            <Text style={eigen.sekundaerText}>Beim Laden nachfragen</Text>
+          </Pressable>
           <Pressable
             onPress={() => Share.share({ message: teilText(entry) }).catch(() => {})}
             accessibilityRole="button"
@@ -851,10 +928,9 @@ function Detail({
           Weiss, gross und ohne alles: Ein Scanner misst den Unterschied
           zwischen hell und dunkel, und der Kassiererin hilft eine Seite
           mit Code, Nummer und Laden - nicht die halbe App drumherum.
-          Der Bildschirm bleibt dabei an; die Systemhelligkeit lässt
-          sich ohne natives Modul nicht hochdrehen, aber ein weisser
-          Grund über den ganzen Bildschirm bringt den grössten Teil
-          davon ohnehin. */}
+          Der Bildschirm bleibt dabei an und wird voll hell
+          (hooks/useKassenlicht.ts, Punkt 532); der weisse Grund über
+          den ganzen Bildschirm tut den Rest. */}
       <Modal visible={kasse} animationType="slide" onRequestClose={() => setKasse(false)}>
         <Pressable
           onPress={() => setKasse(false)}
@@ -872,7 +948,13 @@ function Detail({
           <Text style={{ color: '#000000', fontSize: 22, fontWeight: '700' }}>
             {entry.shop}
           </Text>
-          <Strichcode nummer={entry.number} hoehe={120} />
+          <Kassencode nummer={naechsterCode(entry)} art={entry.code} hoehe={120} />
+          {/* Welcher Eintritt der Zehnerkarte das ist (Punkt 452). Ohne
+              diese Zeile zeigt der Bildschirm zehnmal dasselbe Bild,
+              und niemand weiss, ob dieser Code schon an der Kasse war. */}
+          {codeStand(entry) ? (
+            <Text style={{ color: '#666666', fontSize: 14 }}>{codeStand(entry)}</Text>
+          ) : null}
           {entry.pin ? (
             <Text style={{ color: '#000000', fontSize: 16 }}>PIN {entry.pin}</Text>
           ) : null}
@@ -968,31 +1050,42 @@ function FormularBlatt({
 
   const belegLesenLassen = async () => {
     tapped();
-    // Klartext-Anhang: hier lesbar, ohne den Hub zu fragen.
-    const roh = form.file?.data ?? '';
-    if (roh.startsWith('data:text/')) {
+    // Klartext-Anhänge: hier lesbar, ohne den Hub zu fragen - alle
+    // hintereinander, der Betrag steht im einen, die Nummer im anderen.
+    const klartext: string[] = [];
+    for (const datei of form.files) {
+      const roh = datei.data ?? '';
+      if (!roh.startsWith('data:text/')) continue;
       const teil = roh.slice(roh.indexOf(',') + 1);
       try {
         // `atob` gibt es im Browser und in Hermes; wo nicht, greift der
         // catch und der nächste Weg. Ein fehlender Dekodierer ist kein
         // Grund für eine Fehlermeldung.
-        const text = roh.includes(';base64,')
-          ? globalThis.atob(teil)
-          : decodeURIComponent(teil);
-        if (uebernehmen(text)) return;
+        klartext.push(roh.includes(';base64,') ? globalThis.atob(teil) : decodeURIComponent(teil));
       } catch {
         // Unlesbar heisst: den nächsten Weg versuchen.
       }
     }
+    if (klartext.length > 0 && uebernehmen(klartext.join('\n\n'))) return;
     if (bisher?.id) {
       const antwort = await hubClient(settings.url, settings.token).get<{
         text?: string;
         verfuegbar?: boolean;
+        ocr?: boolean;
       } | null>(`/api/family/vouchers/${encodeURIComponent(bisher.id)}/belegtext`, {
         fallback: null,
         still: true,
       });
       if (antwort?.text && uebernehmen(antwort.text)) return;
+      const nurBilder =
+        form.files.length > 0 && form.files.every((d) => (d.type ?? '').startsWith('image/'));
+      if (antwort && nurBilder && antwort.ocr === false) {
+        setBelegMeldung(
+          'Der Hub kann Fotos nicht lesen – unter System → Zusatzteile «Belege fotografiert lesen» nachinstallieren.'
+        );
+        setBelegOffen(true);
+        return;
+      }
       if (antwort && antwort.verfuegbar === false) {
         setBelegMeldung(
           'Der Hub kann PDF nicht lesen – unter System → Zusatzteile nachinstallieren.'
@@ -1014,8 +1107,22 @@ function FormularBlatt({
     }
     tapped();
     setDateiFehler(null);
-    setze('file', wahl.datei);
+    // Anhängen, nicht ersetzen (Punkt 520) - bis zur Grenze des Hubs.
+    if (form.files.length >= MAX_DATEIEN) {
+      setDateiFehler(`Mehr als ${MAX_DATEIEN} Belege nimmt der Hub nicht an.`);
+      return;
+    }
+    setze('files', [...form.files, wahl.datei]);
   };
+
+  // Erst, wenn genug dasteht, um überhaupt eine Aussage zu erlauben -
+  // ein leeres Formular gleicht sonst jedem Gutschein ohne Nummer.
+  const dublettenSatz = useMemo(() => {
+    if (!form.shop.trim()) return null;
+    const probe = formularPruefen(form, bisher);
+    if (probe.eintrag === null) return null;
+    return doppelteSatz(doppelte(vorlagenQuelle, probe.eintrag));
+  }, [form, bisher, vorlagenQuelle]);
 
   const speichern = () => {
     const ergebnis = formularPruefen(form, bisher);
@@ -1087,10 +1194,14 @@ function FormularBlatt({
             ))}
           </View>
         </View>
-        {eingabe(form.unit === 'stk' ? 'Anzahl' : 'Gesamtwert (CHF)', 'total', {
-          placeholder: form.unit === 'stk' ? '1' : '100.00',
-          keyboardType: form.unit === 'stk' ? 'number-pad' : 'decimal-pad',
-        })}
+        {eingabe(
+          form.unit === 'stk' ? 'Anzahl' : `Gesamtwert (${einheitText(form.unit)})`,
+          'total',
+          {
+            placeholder: form.unit === 'stk' ? '1' : '100.00',
+            keyboardType: form.unit === 'stk' ? 'number-pad' : 'decimal-pad',
+          }
+        )}
         {eingabe('Nummer', 'number', { placeholder: 'Gutschein-Nummer oder Code', autoCapitalize: 'none' })}
         {/* Scannen statt abtippen (Punkt 369 der Werkbank) - dort
             passieren die Zahlendreher, die man erst an der Kasse merkt,
@@ -1105,6 +1216,44 @@ function FormularBlatt({
           <Ionicons name="barcode-outline" size={16} color={colors.accent} />
           <Text style={eigen.fotoAktionText}>Nummer scannen</Text>
         </Pressable>
+        {/* Weitere Nummern (Punkt 452 der Werkbank): Eine Zehnerkarte
+            fürs Hallenbad trägt zehn, ein Kinoabo sechs. Bis dahin
+            passte davon eine ins Formular - der Rest stand in der Notiz,
+            und an der Kasse las man aus einem Fliesstext vor, welche
+            wohl noch gilt. Steht direkt unter der ersten, weil es
+            dieselbe Sache ist. */}
+        {eingabe('Weitere Nummern', 'weitereCodes', {
+          placeholder: 'Eine je Zeile – für Zehnerkarten und Abos',
+          autoCapitalize: 'none',
+          multiline: true,
+          numberOfLines: 3,
+        })}
+        {/* Womit die Kasse liest (Punkt 420). Steht direkt bei der
+            Nummer, weil es zu ihr gehört - und nicht bei den Bildern,
+            wo man es beim Erfassen nicht mehr sucht. */}
+        <View style={eigen.formFeld}>
+          <Text style={eigen.formLabel}>Code auf der Karte</Text>
+          <View style={styles.chipRow}>
+            {CODEARTEN.map((wahl) => (
+              <Pressable
+                key={wahl.key}
+                onPress={() => setze('code', wahl.key)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: form.code === wahl.key }}
+                style={[styles.chip, form.code === wahl.key && styles.chipActive]}
+              >
+                <Text style={[styles.chipText, form.code === wahl.key && styles.chipTextActive]}>
+                  {wahl.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={styles.formHintSmall}>
+            Das Bild, das «An der Kasse» über den Scanner geht. Beim Scannen stellt es sich
+            selbst ein. Eine Nummer, die als Strichcode gar nicht lesbar wäre – eine lange
+            Adresse etwa –, wird ohnehin als QR-Code gezeigt.
+          </Text>
+        </View>
         {eingabe('PIN', 'pin', { placeholder: 'falls vorhanden', autoCapitalize: 'none' })}
 
         <View style={eigen.formFeld}>
@@ -1179,6 +1328,18 @@ function FormularBlatt({
           <Text style={styles.formHintSmall}>
             Privat sieht nur, wer ihn erfasst hat. Familie sehen alle.
           </Text>
+          {/* Punkt 460 der Werkbank: Was «privat» wirklich heisst,
+              stand bis hierher nirgends. Der Export lässt fremde
+              private Gutscheine jetzt weg - die Sicherung nicht, denn
+              eine Sicherung, die Daten weglässt, ist keine. Wer das
+              nicht weiss, hält «privat» für mehr, als es ist. */}
+          {form.shared === 'privat' ? (
+            <Text style={styles.formHintSmall}>
+              Auch der Verwalter des Hubs sieht ihn nicht – weder in der Liste noch im
+              Export. In der Sicherung des Hubs steht er mit: Sie bleibt im Haus und ist
+              die Datei, aus der alles wieder entsteht.
+            </Text>
+          ) : null}
         </View>
 
         <View style={eigen.formFeld}>
@@ -1257,44 +1418,44 @@ function FormularBlatt({
         </View>
 
         <View style={eigen.formFeld}>
-          <Text style={eigen.formLabel}>Datei</Text>
-          {form.file ? (
-            <View style={eigen.dateiZeile}>
+          <Text style={eigen.formLabel}>Belege</Text>
+          {form.files.map((datei, index) => (
+            <View key={datei.id ?? datei.url ?? `${datei.name}-${index}`} style={eigen.dateiZeile}>
               <Ionicons
-                name={dateiSymbol(form.file.type) as keyof typeof Ionicons.glyphMap}
+                name={dateiSymbol(datei.type) as keyof typeof Ionicons.glyphMap}
                 size={22}
                 color={colors.accent}
               />
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={eigen.dateiName} numberOfLines={1}>
-                  {form.file.name}
+                  {datei.name}
                 </Text>
                 <Text style={eigen.dateiMass}>
-                  {dateiGroesse(form.file.bytes) || (form.file.url ? 'Beim Hub abgelegt' : 'Bereit')}
+                  {dateiGroesse(datei.bytes) || (datei.url ? 'Beim Hub abgelegt' : 'Bereit')}
                 </Text>
               </View>
               <Pressable
                 onPress={() => {
-                  setze('file', null);
+                  setze('files', form.files.filter((_, i) => i !== index));
                   setDateiFehler(null);
                 }}
                 hitSlop={8}
                 accessibilityRole="button"
-                accessibilityLabel={`Datei ${form.file.name} entfernen`}
+                accessibilityLabel={`Datei ${datei.name} entfernen`}
               >
                 <Ionicons name="close-circle" size={22} color={colors.inkSoft} />
               </Pressable>
             </View>
-          ) : null}
+          ))}
           <Pressable
             onPress={dateiWaehlen}
             accessibilityRole="button"
-            accessibilityLabel={form.file ? 'Andere Datei wählen' : 'PDF oder Dokument wählen'}
+            accessibilityLabel={form.files.length > 0 ? 'Weiteren Beleg anhängen' : 'PDF oder Dokument wählen'}
             style={({ pressed }) => [eigen.fotoAktion, pressed && { opacity: 0.7 }]}
           >
             <Ionicons name="attach-outline" size={16} color={colors.accent} />
             <Text style={eigen.fotoAktionText}>
-              {form.file ? 'Andere Datei wählen' : 'PDF oder Dokument wählen'}
+              {form.files.length > 0 ? 'Weiteren Beleg anhängen' : 'PDF oder Dokument wählen'}
             </Text>
           </Pressable>
           {dateiFehler ? <Text style={styles.error}>{dateiFehler}</Text> : null}
@@ -1340,6 +1501,19 @@ function FormularBlatt({
 
         {eingabe('Notiz', 'notes', { placeholder: 'z.B. nur im Laden einlösbar', multiline: true })}
 
+        {/* Doppelt erfasst (Punkt 456 der Werkbank): Zwei Personen
+            tragen dieselbe Karte ein - einmal privat, einmal für die
+            Familie -, und ab dann stimmt keine Summe mehr. Ein Hinweis,
+            keine Ablehnung: Zehn gleiche Kinokarten gibt es wirklich,
+            und wer das weiss, tippt weiter auf «Erfassen». */}
+        {dublettenSatz ? (
+          <View style={eigen.hinweisZeile}>
+            <Ionicons name="copy-outline" size={16} color={colors.warn} />
+            <Text style={[styles.formHintSmall, { color: colors.warnInk, flex: 1 }]}>
+              {dublettenSatz}
+            </Text>
+          </View>
+        ) : null}
         {fehler ? <Text style={styles.error}>{fehler}</Text> : null}
         <Pressable onPress={speichern} style={styles.addWide} accessibilityRole="button">
           <Text style={styles.addWideText}>{bisher ? 'Speichern' : 'Gutschein erfassen'}</Text>
@@ -1351,7 +1525,13 @@ function FormularBlatt({
       <QrScanner
         visible={scannerOffen}
         onClose={() => setScannerOffen(false)}
-        onText={(text) => setze('number', text)}
+        onText={(text, art) => {
+          setze('number', text);
+          // Die Kamera weiss, welche Schrift sie gelesen hat - und das
+          // ist die verlässlichste Auskunft darüber, was auf der Karte
+          // steht (Punkt 420). Von Hand umstellen kann man es darunter.
+          setze('code', gescannteArt(art));
+        }}
         // EAN-13 und Code 128 sind die üblichen Strichcodes auf einer
         // Gutschein-Karte (dieselben zwei, die lib/strichcode.ts an der
         // Kasse zeichnet, Punkt 299/300); QR für den selteneren Fall.
@@ -1570,6 +1750,12 @@ export function Gutscheine({
   const [kategorie, setKategorie] = useState<string | null>(null);
   const [geteilt, setGeteilt] = useState<Geteilt | null>(null);
   const [nurBald, setNurBald] = useState(false);
+  // Die Reste, die man sonst liegen lässt (Punkt 457). Ein eigener
+  // Filter und keine blosse Zeile auf der Karte: Man sucht sie genau
+  // dann, wenn man ohnehin einkaufen geht - «was kann ich heute
+  // mitnehmen» ist die Frage, und die Karte beantwortet sie erst,
+  // nachdem man an ihr vorbeigescrollt ist.
+  const [nurRest, setNurRest] = useState(false);
   const [leerOffen, setLeerOffen] = useState(false);
   const [archivOffen, setArchivOffen] = useState(false);
   const [abzugId, setAbzugId] = useState<string | null>(null);
@@ -1589,10 +1775,15 @@ export function Gutscheine({
     [alle]
   );
 
-  const gefunden = gefiltert(alle, suchtext, { kategorie, geteilt, bald: nurBald }, heute);
+  const gefunden = gefiltert(
+    alle,
+    suchtext,
+    { kategorie, geteilt, bald: nurBald, fastLeer: nurRest },
+    heute
+  );
   const { offen, leer } = aufgeteilt(gefunden, heute);
   const archivierte = archivListe(gefunden);
-  const gefiltertAktiv = !!(suchtext.trim() || kategorie || geteilt || nurBald);
+  const gefiltertAktiv = !!(suchtext.trim() || kategorie || geteilt || nurBald || nurRest);
   const kats = useMemo(() => kategorien(alle), [alle]);
   const abzug = abzugId ? (alle.find((entry) => entry.id === abzugId) ?? null) : null;
 
@@ -1637,6 +1828,11 @@ export function Gutscheine({
             if (!entry.id) return;
             const neu = stornieren(entry, buchung, ich, new Date());
             onUpdate(entry.id, { left: neu.left, transactions: neu.transactions });
+          }}
+          onCodeVerbrauchen={(wert) => {
+            if (!entry.id) return;
+            const neu = codeVerbrauchen(entry, wert, new Date());
+            onUpdate(entry.id, { codes: neu.codes });
           }}
           onUebergeben={(an) => {
             if (!entry.id) return;
@@ -1824,7 +2020,7 @@ export function Gutscheine({
           <Ionicons
             name="options-outline"
             size={20}
-            color={kategorie || geteilt || nurBald ? colors.accent : colors.inkSoft}
+            color={kategorie || geteilt || nurBald || nurRest ? colors.accent : colors.inkSoft}
           />
         </Pressable>
       </View>
@@ -1833,6 +2029,7 @@ export function Gutscheine({
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View style={styles.chipRow}>
             {filterChip('Läuft bald ab', nurBald, () => setNurBald(!nurBald), 'time-outline')}
+            {filterChip('Fast leer', nurRest, () => setNurRest(!nurRest), 'battery-dead-outline')}
             {filterChip('Privat', geteilt === 'privat', () => setGeteilt(geteilt === 'privat' ? null : 'privat'), 'lock-closed-outline')}
             {filterChip('Familie', geteilt === 'familie', () => setGeteilt(geteilt === 'familie' ? null : 'familie'), 'people-outline')}
             {kats.map((kat) =>
@@ -2121,6 +2318,14 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: 4,
     },
     fotoAktionText: { color: colors.accent, fontSize: 13, fontWeight: '600' },
+    // Ein Hinweis, keine Fehlermeldung (Punkt 456): Er steht über dem
+    // Knopf und hält niemanden auf.
+    hinweisZeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 4,
+    },
 
     // ── Datei ─────────────────────────────────────────────────────────
     dateiZeile: {

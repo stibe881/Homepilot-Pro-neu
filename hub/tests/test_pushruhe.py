@@ -73,7 +73,7 @@ def test_kaputte_ruhezeit_wird_zur_vorgabe() -> None:
     """Eine kaputte Zeile im Datenspeicher darf den Hub nicht am Melden
     hindern - und die Vorgabe ist «aus»."""
     gelesen = pushruhe.ruhe_lesen({"enabled": "vielleicht", "from": "acht", "to": None})
-    assert gelesen == {"enabled": False, "from": 22, "to": 7}
+    assert gelesen == {"enabled": False, "from": 22, "to": 7, "days": []}
 
 
 def test_batteriewarnung_schweigt_nachts() -> None:
@@ -150,3 +150,42 @@ def test_der_alarm_hat_keinen_deckel() -> None:
 
 def test_deckel_kennt_nur_echte_kategorien() -> None:
     assert set(CATEGORIES) >= set(pushruhe.DECKEL)
+
+
+# ── Ruhezeit je Wochentag (Punkt 479) ──────────────────────────────────────
+
+
+def test_ohne_tage_gilt_die_ruhezeit_an_jedem_tag() -> None:
+    """So war sie immer - eine leere Liste ändert nichts daran."""
+    ruhe = {"enabled": True, "from": 22, "to": 7, "days": []}
+    assert pushruhe.in_der_ruhe(ruhe, 3, 0) is True
+    assert pushruhe.in_der_ruhe(ruhe, 3, 5) is True
+
+
+def test_die_ruhezeit_gilt_nur_an_den_gewaehlten_tagen() -> None:
+    # Nur Montag bis Freitag (0-4): Samstagmorgen ist nicht Dienstagmorgen.
+    ruhe = {"enabled": True, "from": 22, "to": 7, "days": [0, 1, 2, 3, 4]}
+    assert pushruhe.in_der_ruhe(ruhe, 23, 0) is True
+    assert pushruhe.in_der_ruhe(ruhe, 23, 5) is False
+
+
+def test_ueber_mitternacht_zaehlt_der_tag_des_abends() -> None:
+    """«Fr-Sa 23 bis 8» ist am Samstag um zwei die Nacht von Freitag.
+
+    Andersherum müsste man den Sonntag ankreuzen, um am Samstagabend Ruhe
+    zu haben - und das versteht niemand.
+    """
+    ruhe = {"enabled": True, "from": 23, "to": 8, "days": [4]}  # Freitag
+    # Freitag 23 Uhr: Ruhe.
+    assert pushruhe.in_der_ruhe(ruhe, 23, 4) is True
+    # Samstag 2 Uhr: gehört zur Freitagnacht - also auch Ruhe.
+    assert pushruhe.in_der_ruhe(ruhe, 2, 5) is True
+    # Freitag 2 Uhr gehört zur Donnerstagnacht - keine Ruhe.
+    assert pushruhe.in_der_ruhe(ruhe, 2, 4) is False
+
+
+def test_alle_sieben_tage_sind_dasselbe_wie_keine_angabe() -> None:
+    """Zwei Schreibweisen für einen Zustand laufen auseinander."""
+    assert pushruhe.tage_lesen([0, 1, 2, 3, 4, 5, 6]) == []
+    assert pushruhe.tage_lesen([2, 2, 9, "drei", 0]) == [0, 2]
+    assert pushruhe.tage_lesen("unsinn") == []

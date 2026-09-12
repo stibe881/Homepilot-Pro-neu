@@ -24,6 +24,7 @@ import { naechsteAbschaltung, restText } from './abschaltung';
 import { bewegungImRaum } from './bewegung';
 import { fernbedienungMoeglich } from './fernsehkachel';
 import { isTelevision, zaehltAlsAn } from './geraeteart';
+import { imRaum, raumKlima } from './raum';
 
 export type AktionsArt = 'licht' | 'storen' | 'musik' | 'geraet';
 
@@ -434,4 +435,76 @@ export function raumStand(items: Entity[], zeile: string, jetzt?: number): strin
   const rest = jetzt === undefined ? null : naechsteAbschaltung(items, jetzt);
   if (rest !== null) teile.push(`geht in ${restText(rest)} aus`);
   return teile.join(' · ');
+}
+
+/** Temperatur und Feuchte, wie sie auf die Kachel passen. */
+export interface Kachelklima {
+  /** «21,5°» - null, wenn das Zimmer keine Temperatur misst. */
+  temp: string | null;
+  /** «48 %» - null, wenn niemand die Feuchte misst. */
+  feuchte: string | null;
+  /** Was eine Vorlesestimme daraus macht; die Zahlen allein sagen dort
+   *  nicht, was sie messen. */
+  label: string;
+}
+
+/**
+ * Das Klima des Zimmers für die Ecke der Kachel (rein, testbar).
+ *
+ * Gewünscht im Haus: «Temperatur und Luftfeuchtigkeit anzeigen, wenn im
+ * entsprechenden Raum ein Sensor zugewiesen ist.» Das «wenn» ist der
+ * ganze Punkt - eine Kachel, die «–°» zeigt, behauptet, es gäbe einen
+ * Fühler und er schweige. Null heisst hier: Die Ecke bleibt leer.
+ *
+ * *Welcher* Fühler gilt, entscheidet `raumKlima` (lib/raum.ts) - dieselbe
+ * Rechnung wie im Raumkopf. Sonst stünde auf der Kachel eine andere Zahl
+ * als im Zimmer, das sie öffnet, und beide wären für sich richtig.
+ *
+ * Kürzer als im Kopf: Dort steht «48 % Feuchte» unter dem Grad, hier ist
+ * neben dem Namen Platz für zwei Zahlen. Das Wort ersetzt der Tropfen
+ * daneben.
+ */
+/**
+ * Welche Geräte eines Zimmers für Temperatur und Feuchte zählen
+ * (rein, testbar).
+ *
+ * Bewusst **alle** Geräte des Zimmers und nicht die, die auf der
+ * Startseite stehen. Der zweite Grund, aus dem im Bad nichts stand: Wer
+ * einen Fühler ausblendet (Geräte → Anpassen), will keine Kachel voller
+ * Zahlen - er hat den Fühler damit aber nicht aus dem Zimmer genommen.
+ * Gewünscht war «wenn im entsprechenden Raum ein Sensor zugewiesen
+ * ist», und zugewiesen bleibt er.
+ *
+ * `raum === null` meint die Kachel «Weitere»: alles ohne Zimmer.
+ */
+export function klimaGeraeteImRaum(alle: Entity[], raum: string | null): Entity[] {
+  return raum === null
+    ? alle.filter((entity) => !entity.room)
+    : alle.filter((entity) => imRaum(entity, raum));
+}
+
+export function kachelKlima(items: Entity[]): Kachelklima | null {
+  // «Gilt für: nur diesen Raum» (Geräte → Anpassen) zählt hier **mit**.
+  //
+  // Zuerst stand hier ein Filter dagegen - und der war genau falsch
+  // herum. Der Schalter hält einen Fühler aus der Kopfzeile des Hauses
+  // und aus dem Hitze-Hinweis heraus, wo er für die ganze Wohnung
+  // spräche (lib/klimachip.ts). Die Raumkachel *ist* aber der Raum:
+  // core/entity.py sagt es zum Schalter selbst - «Im Raum selbst ist
+  // die Zahl richtig - dort bleibt sie auch stehen.»
+  //
+  // Im Bad fiel es auf. Dort ist es wärmer und feuchter als im Rest der
+  // Wohnung, also ist es der Normalfall, den Fühler auf «nur diesen
+  // Raum» zu stellen - und ausgerechnet dann blieb die Ecke leer.
+  const klima = raumKlima(items);
+  if (!klima) return null;
+  const temp = klima.temp;
+  const feuchte = klima.prozent === null ? null : `${Math.round(klima.prozent)} %`;
+  if (!temp && !feuchte) return null;
+  const teile: string[] = [];
+  if (klima.grad !== null) {
+    teile.push(`${Math.round(klima.grad * 10) / 10} Grad`.replace('.', ','));
+  }
+  if (klima.prozent !== null) teile.push(`${Math.round(klima.prozent)} Prozent Luftfeuchtigkeit`);
+  return { temp, feuchte, label: teile.join(', ') };
 }

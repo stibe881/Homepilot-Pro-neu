@@ -58,5 +58,5 @@ const makeStyles = (colors: Colors) =>
     },
     name: { color: colors.ink, fontSize: 15, fontWeight: '600' },
     unten: { color: colors.inkSoft, fontSize: 12 },
-    dauer: { color: colors.warn, fontSize: 13, fontWeight: '600' },
+    dauer: { color: colors.warnInk, fontSize: 13, fontWeight: '600' },
   });

@@ -4,6 +4,7 @@ import {
   belegSatz,
   betragAusText,
   nummerAusText,
+  zahlAusBeleg,
 } from './gutscheinlesen';
 
 const MAIL = `Guten Tag Stefan Gross
@@ -29,6 +30,17 @@ describe('betragAusText', () => {
   it('versteht Apostroph, Komma und nachgestelltes CHF', () => {
     expect(betragAusText("Wert: 1'250,50 CHF")).toEqual({ total: 1250.5, unit: 'chf' });
     expect(betragAusText('Betrag Fr. 20.–')).toEqual({ total: 20, unit: 'chf' });
+  });
+
+  it('liest Schweizer und deutsche Tausender', () => {
+    expect(zahlAusBeleg("1'000")).toBe(1000);
+    expect(zahlAusBeleg('1’250.–')).toBe(1250);
+    expect(zahlAusBeleg('1\u202f250.50')).toBe(1250.5);
+    expect(zahlAusBeleg('1.250,00')).toBe(1250);
+    expect(zahlAusBeleg('20.50')).toBe(20.5);
+    expect(betragAusText("Wert: CHF 1'000.–")).toEqual({ total: 1000, unit: 'chf' });
+    expect(betragAusText('Gutscheinwert 1.250,00 CHF')).toEqual({ total: 1250, unit: 'chf' });
+    expect(betragAusText('Total Fr. 2’500.00')).toEqual({ total: 2500, unit: 'chf' });
   });
 
   it('erkennt einen Stück-Gutschein', () => {

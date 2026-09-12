@@ -549,11 +549,16 @@ export function useHub(url: string | null, token: string | null) {
   // Raumzuordnung einer Kachel setzen (im Anpassen-Modus). Der Hub meldet
   // die Änderung über den Eventstream zurück; optimistisch ziehen wir sie
   // sofort nach, damit die Kachel augenblicklich in den Raum wandert.
+  // Ein Gerät darf in mehreren Zimmern zählen (Punkt 539). Der erste
+  // Raum ist sein Standort - dort liegt die Kachel, daher kommt der
+  // Namensvorschlag; die weiteren zählen bloss mit.
   const setEntityRoom = useCallback(
-    async (entityId: string, room: string | null) => {
+    async (entityId: string, rooms: string[] | null) => {
+      const liste = rooms ?? [];
+      const room = liste[0] ?? null;
       setEntityMap((prev) => {
         const entity = prev[entityId];
-        return entity ? { ...prev, [entityId]: { ...entity, room } } : prev;
+        return entity ? { ...prev, [entityId]: { ...entity, room, rooms: liste } } : prev;
       });
       try {
         const response = await fetch(`${url}/api/entities/${encodeURIComponent(entityId)}/room`, {
@@ -562,7 +567,7 @@ export function useHub(url: string | null, token: string | null) {
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ room }),
+          body: JSON.stringify({ room, rooms: liste }),
         });
         if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
       } catch (err) {

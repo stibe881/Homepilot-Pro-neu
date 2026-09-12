@@ -194,7 +194,7 @@ export function VerbindungenScreen({
                   <Text
                     style={[
                       styles.tvZeile,
-                      brauchtKopplung(tv) && { color: colors.warn },
+                      brauchtKopplung(tv) && { color: colors.warnInk },
                     ]}
                   >
                     {kopplungsZeile(tv)}

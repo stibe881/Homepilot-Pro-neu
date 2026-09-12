@@ -60,11 +60,24 @@ export function Pill({ label, tone, solid }: { label: string; tone?: string; sol
   );
 }
 
+/** Werte, die «noch nichts» heissen – und nicht so aussehen sollen. */
+const OHNE_WERT = new Set(['unknown', 'unavailable', 'none', 'null', '']);
+
 export function format(value: unknown): string {
   if (typeof value === 'number') {
     return String(Math.round(value * 10) / 10);
   }
-  return String(value ?? '–');
+  // `unknown` ist kein Messwert, sondern der Platzhalter, den der Hub
+  // setzt, bis das Gerät sich zum ersten Mal meldet
+  // (integrations/zigbee2mqtt.py). Auf vier frisch angelernten
+  // Klimafühlern stand dadurch in grossen Buchstaben «unknown» - ein
+  // englisches Wort aus dem Inneren, das aussieht wie ein Defekt.
+  //
+  // Ein echter Fehlerwert («error») steht weiterhin da: Der ist die
+  // Wahrheit, und man kann danach suchen. Übersetzt wird nur, was
+  // ausdrücklich «noch keine Messung» bedeutet.
+  const text = String(value ?? '–');
+  return OHNE_WERT.has(text.trim().toLowerCase()) ? '–' : text;
 }
 
 /** «Zuletzt gesehen»-Abstand in Alltagssprache (rein, testbar). */

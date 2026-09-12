@@ -31,11 +31,32 @@ from . import dateien
 #: Sammlung im Datenspeicher (``hub.data``).
 KEY = "family_vouchers"
 
-#: Was ein Gutschein zählt: Franken oder Stück (ein Kinoeintritt, ein
+#: Was ein Gutschein zählt: Geld oder Stück (ein Kinoeintritt, ein
 #: Eintritt ins Kinderparadies).
-UNITS: tuple[str, ...] = ("chf", "stk")
+#:
+#: Euro kam mit Punkt 451 dazu. Vorher trug ein in Konstanz gekaufter
+#: Gutschein seinen Betrag als blosse Zahl, und die Summe oben zählte
+#: Euro zu Franken - eine Zahl, die nirgends stimmte und trotzdem
+#: dastand. Keine Umrechnung: Ein Kurs, der beim Erfassen galt, wäre
+#: beim Einlösen falsch, und ein Gutschein wird nicht in Franken
+#: eingelöst, sondern dort, wo er gekauft wurde.
+UNITS: tuple[str, ...] = ("chf", "stk", "eur")
+#: Welche davon Geld sind - Stück nicht. Was hier steht, darf summiert
+#: werden, aber nur mit seinesgleichen.
+WAEHRUNGEN: tuple[str, ...] = ("chf", "eur")
 #: Wer ihn sieht.
 SHARED: tuple[str, ...] = ("privat", "familie")
+#: Womit die Kasse liest (Punkt 420 der Werkbank). Die App entscheidet,
+#: welches Bild sie zeichnet; der Hub hält nur fest, was dort steht -
+#: und dass es eines der beiden Wörter ist.
+CODES: tuple[str, ...] = ("strich", "qr")
+
+#: Wie viele Nummern ein Gutschein höchstens trägt (Punkt 452 der
+#: Werkbank). Eine Zehnerkarte fürs Hallenbad hat zehn, ein Kinoabo
+#: sechs; wer mehr einträgt, hat vermutlich eine ganze Liste in ein
+#: Formular gekippt, und hundert Nummern an einem Eintrag sind keine
+#: Gutscheinverwaltung mehr.
+CODES_MAX = 50
 
 #: Wo die Erinnerungsstufen liegen (hub.data). Der Schlüssel steht hier,
 #: weil Wächter und Push-Route ihn beide brauchen. Abgelegt als Liste
@@ -104,6 +125,21 @@ def prefs_lesen(rows: Any) -> dict[str, int]:
 def stufen(prefs: dict[str, int]) -> tuple[int, ...]:
     """Die Stufen aus den Einstellungen, den Ablauftag eingeschlossen (rein)."""
     return (int(prefs["first_days"]), int(prefs["second_days"]), 0)
+
+
+def ist_geld(unit: Any) -> bool:
+    """Zählt dieser Gutschein Geld? (rein, testbar)
+
+    Nur Geld lässt sich addieren - und auch das nur je Währung. «Stück»
+    ist die Ausnahme, die es hier gibt, seit es Kinokarten gibt.
+    """
+    return str(unit or "").strip().lower() in WAEHRUNGEN
+
+
+def waehrung(entry: dict[str, Any]) -> str:
+    """Die Währung eines Gutscheins in Grossbuchstaben (rein, testbar)."""
+    unit = str(entry.get("unit") or "").strip().lower()
+    return unit.upper() if unit in WAEHRUNGEN else "CHF"
 
 
 def ist_privat(entry: dict[str, Any]) -> bool:
@@ -219,6 +255,18 @@ def bereinigen(entry: dict[str, Any]) -> dict[str, Any]:
     wann = datum(sauber.get("expires"))
     sauber["expires"] = wann.isoformat() if wann else None
 
+    # Womit die Kasse liest (Punkt 420). Anders als bei `unit` und
+    # `shared` gibt es hier keinen Ersatzwert: Fehlt die Angabe, bleibt
+    # sie weg, und die App rechnet sie sich aus der Nummer aus. Ein
+    # hier eingesetztes «strich» wäre eine Behauptung über eine Karte,
+    # die niemand angesehen hat - und stünde dann einem QR-Code im Weg,
+    # den die App am Inhalt längst erkannt hätte.
+    code = str(sauber.get("code") or "").strip().lower()
+    if code in CODES:
+        sauber["code"] = code
+    else:
+        sauber.pop("code", None)
+
     # Muss das Original vorgezeigt werden? (Punkt 267 der Werkbank)
     # Immer gesetzt, nicht nur wenn es mitkommt: Ein Eintrag von vor der
     # Frage bekommt beim ersten Speichern ein ehrliches False, statt das
@@ -235,6 +283,19 @@ def bereinigen(entry: dict[str, Any]) -> dict[str, Any]:
         if feld in sauber:
             sauber[feld] = str(sauber.get(feld) or "").strip()
 
+    # Die Nummern des Gutscheins (Punkt 452 der Werkbank). Immer gesetzt,
+    # auch für den Eintrag von vor der Frage: Der bekommt aus seiner
+    # einen `number` eine Liste mit einem Eintrag, und ab da gibt es nur
+    # noch einen Ort, an dem Nummern stehen. `number` bleibt daneben
+    # bestehen und trägt die erste - Familienbuch, Suche und die alte
+    # Kassenansicht lesen sie, und eine Liste, die dieselbe Zahl ein
+    # zweites Mal an anderer Stelle führt, läuft irgendwann auseinander.
+    # Deshalb wird sie hier abgeleitet und nicht getrennt gepflegt.
+    sauber["codes"] = _codes_bereinigen(
+        sauber.get("codes"), str(sauber.get("number") or "")
+    )
+    sauber["number"] = sauber["codes"][0]["value"] if sauber["codes"] else ""
+
     # Die angehängte Datei (Punkt 266 der Werkbank): Was keine Adresse
     # hat, ist keine - der Block fliegt raus und wird null, statt als
     # halbe Wahrheit am Gutschein zu bleiben. Das ist zugleich die
@@ -243,7 +304,278 @@ def bereinigen(entry: dict[str, Any]) -> dict[str, Any]:
     # davor sollen die Dateien ja bewahren (siehe core/dateien.py).
     if "file" in sauber:
         sauber["file"] = dateien.bereinigen(sauber.get("file"))
+    # Mehrere Belege (Punkt 520): dieselbe Bereinigung je Block, und
+    # was keiner ist, fliegt still heraus.
+    if "files" in sauber:
+        bloecke = [dateien.bereinigen(eintrag) for eintrag in (sauber.get("files") or [])]
+        sauber["files"] = [b for b in bloecke if b is not None]
     return sauber
+
+
+def _codes_bereinigen(raw: Any, number: str) -> list[dict[str, Any]]:
+    """Die Nummernliste in Form bringen (rein, testbar) - Punkt 452.
+
+    Eine Zehnerkarte fürs Hallenbad trägt zehn Nummern, ein Kinoabo
+    sechs, und bis hierher passte davon genau eine ins Formular. Wer
+    mehr hatte, schrieb sie in die Notiz - und an der Kasse las man aus
+    einem Fliesstext vor, welche wohl noch gilt.
+
+    Doppelte fliegen raus (dieselbe Nummer zweimal ist ein
+    Kopierfehler, kein zweiter Eintritt), Leeres ebenso. Was schon als
+    gebraucht markiert war, bleibt es: Diese Marke ist die einzige
+    Auskunft darüber, welcher Eintritt schon an der Kasse war.
+    """
+    roh = raw if isinstance(raw, list) else []
+    gesehen: set[str] = set()
+    sauber: list[dict[str, Any]] = []
+    for eintrag in roh:
+        if isinstance(eintrag, dict):
+            wert = str(eintrag.get("value") or "").strip()
+            benutzt = str(eintrag.get("used") or "").strip() or None
+        else:
+            wert = str(eintrag or "").strip()
+            benutzt = None
+        if not wert or wert in gesehen:
+            continue
+        gesehen.add(wert)
+        sauber.append({"value": wert, "used": benutzt})
+        if len(sauber) >= CODES_MAX:
+            break
+    # Der Eintrag von vor der Frage: seine eine Nummer wird der erste
+    # Listeneintrag, damit es danach nur noch eine Quelle gibt.
+    if not sauber and number.strip():
+        sauber.append({"value": number.strip(), "used": None})
+    return sauber
+
+
+def offene_codes(entry: dict[str, Any]) -> list[str]:
+    """Welche Nummern noch nicht an der Kasse waren (rein, testbar)."""
+    return [
+        str(eintrag.get("value") or "")
+        for eintrag in entry.get("codes") or []
+        if isinstance(eintrag, dict) and not eintrag.get("used")
+    ]
+
+
+def naechster_code(entry: dict[str, Any]) -> str:
+    """Welche Nummer die Kasse als Nächstes sehen soll (rein, testbar).
+
+    Die erste unbenutzte. Sind alle gebraucht, kommt trotzdem die
+    letzte zurück und nicht nichts: Ein leerer Bildschirm an der Kasse
+    lässt offen, ob die App nichts weiss oder der Gutschein leer ist -
+    die Zahl mit dem Hinweis «schon eingelöst» sagt beides.
+    """
+    offen = offene_codes(entry)
+    if offen:
+        return offen[0]
+    codes = [e for e in entry.get("codes") or [] if isinstance(e, dict)]
+    if codes:
+        return str(codes[-1].get("value") or "")
+    return str(entry.get("number") or "")
+
+
+def code_verbrauchen(
+    entry: dict[str, Any], wert: str, jetzt: Any
+) -> dict[str, Any]:
+    """Eine Nummer als gebraucht markieren (rein, testbar).
+
+    Von Hand und nicht automatisch beim Abziehen: Ob die Kasse den Code
+    wirklich angenommen hat, weiss nur der Mensch davor - und eine
+    Nummer, die die App eigenmächtig verbraucht, obwohl das Gerät sie
+    nicht las, ist ein Eintritt, den niemand mehr findet.
+    """
+    gesucht = str(wert or "").strip()
+    if not gesucht:
+        return entry
+    neu = dict(entry)
+    neu["codes"] = [
+        (
+            {**eintrag, "used": jetzt.isoformat(timespec="seconds")}
+            if isinstance(eintrag, dict)
+            and str(eintrag.get("value") or "") == gesucht
+            and not eintrag.get("used")
+            else eintrag
+        )
+        for eintrag in entry.get("codes") or []
+    ]
+    return neu
+
+
+#: Ab wann ein Restbetrag «fast leer» heisst (Punkt 457 der Werkbank).
+#:
+#: Zwölf Franken bei Interdiscount sind praktisch verfallen: Man löst
+#: sie nie ein, weil man nie etwas für zwölf Franken braucht. Zwanzig
+#: ist die Grenze, an der aus «da ist noch was» ein «das nehme ich beim
+#: nächsten Mal mit» wird.
+FAST_LEER = 20.0
+
+
+def fast_leer(entry: dict[str, Any]) -> bool:
+    """Ist nur noch ein Rest drauf, den man liegen lässt? (rein, testbar)
+
+    Nur für Geld und nur für angebrochene Gutscheine: Ein frisch
+    geschenkter Zwanziger ist kein Rest, sondern ein Gutschein - ihn als
+    «fast leer» zu zeigen, hiesse den Schenker zu beleidigen und die
+    Warnung abzunutzen. Erst wer schon abgezogen hat, hat einen Rest.
+    """
+    if not ist_geld(entry.get("unit")):
+        return False
+    if aufgebraucht(entry):
+        return False
+    rest = _zahl(entry.get("left"), False)
+    if rest > FAST_LEER:
+        return False
+    return rest < _zahl(entry.get("total"), False)
+
+
+def doppelte(rows: Any, entry: dict[str, Any]) -> list[dict[str, Any]]:
+    """Gutscheine, die derselbe sein dürften (rein, testbar) - Punkt 456.
+
+    Zwei Personen tragen dieselbe Karte ein - einmal privat, einmal für
+    die Familie -, und ab dann stimmt keine Summe mehr. Sie fällt auch
+    nicht auf: Die private Hälfte sieht nur einer, die geteilte alle.
+
+    Die sichere Spur ist die Nummer: Gleiche Nummer heisst derselbe
+    Gutschein, egal wie die Läden geschrieben sind. Ohne Nummer wird es
+    eine Vermutung, und die soll eng sein - Laden, Betrag und
+    Ablaufdatum müssen zusammenpassen, sonst gilt jeder zweite
+    Zwanziger von Coop als Dublette. Ein Hinweis, keine Ablehnung: Zehn
+    gleiche Kinokarten gibt es wirklich.
+    """
+    eigene_id = str(entry.get("id") or "")
+    nummern = {n.lower() for n in offene_codes(entry)} | {
+        str(entry.get("number") or "").strip().lower()
+    }
+    nummern.discard("")
+    laden = str(entry.get("shop") or "").strip().lower()
+    treffer: list[dict[str, Any]] = []
+    for row in rows or []:
+        if not isinstance(row, dict) or row.get("archived"):
+            continue
+        if str(row.get("id") or "") == eigene_id and eigene_id:
+            continue
+        andere = {n.lower() for n in offene_codes(row)} | {
+            str(row.get("number") or "").strip().lower()
+        }
+        andere.discard("")
+        if nummern and andere & nummern:
+            treffer.append(row)
+            continue
+        if nummern or andere:
+            # Eine Nummer auf einer Seite und eine andere auf der
+            # anderen ist ein Gegenbeweis, keine fehlende Angabe.
+            continue
+        if not laden or str(row.get("shop") or "").strip().lower() != laden:
+            continue
+        if str(row.get("unit") or "") != str(entry.get("unit") or ""):
+            continue
+        if _zahl(row.get("total"), False) != _zahl(entry.get("total"), False):
+            continue
+        if str(row.get("expires") or "") != str(entry.get("expires") or ""):
+            continue
+        treffer.append(row)
+    return treffer
+
+
+def lange_leer(rows: Any, heute: date, tage: int = 30) -> list[dict[str, Any]]:
+    """Aufgebrauchte Gutscheine, die lange genug herumliegen (rein,
+    testbar) - Punkt 455 der Werkbank.
+
+    Ein leerer Gutschein steht nicht mehr in der offenen Liste, aber in
+    der eingeklappten Gruppe «leer» darunter - und dort bleibt er, bis
+    ihn jemand von Hand archiviert. Getan hat das nie jemand: Die
+    Gruppe ist zu, man sieht sie nicht, und was man nicht sieht, räumt
+    man nicht auf. Nach einem Monat ist eine Rückfrage beim Laden ohnehin
+    keine mehr, die man aus dem Gedächtnis stellt.
+
+    Die Frist läuft ab der letzten Buchung, nicht ab dem Eintragen: Der
+    Gutschein, der gestern leer wurde, soll noch eine Weile greifbar
+    bleiben - genau dann fragt man an der Kasse nach.
+    """
+    treffer: list[dict[str, Any]] = []
+    for row in rows or []:
+        if not isinstance(row, dict) or row.get("archived"):
+            continue
+        if not aufgebraucht(row):
+            continue
+        zeitpunkte = [
+            str(t.get("at") or "")
+            for t in row.get("transactions") or []
+            if isinstance(t, dict)
+        ]
+        letzte = max(zeitpunkte) if zeitpunkte else str(row.get("created") or "")
+        wann = datum(letzte[:10])
+        # Ohne jeden Zeitstempel bleibt er liegen: Ein Eintrag, dessen
+        # Alter niemand kennt, soll nicht auf Verdacht verschwinden.
+        if wann is None:
+            continue
+        if (heute - wann).days < max(1, int(tage)):
+            continue
+        treffer.append(row)
+    return treffer
+
+
+def bilanz(rows: Any, von: date, bis: date) -> dict[str, Any]:
+    """Was in einem Zeitraum eingelöst, verfallen und erfasst wurde
+    (rein, testbar) - Punkt 454 der Werkbank.
+
+    Die eine Zahl, die das ganze Modul rechtfertigt oder widerlegt:
+    «2026: 340 Franken eingelöst, 80 verfallen». Ohne sie weiss niemand,
+    ob sich das Eintragen lohnt - und eine Liste, die man pflegt, ohne
+    je zu sehen, was sie bringt, pflegt man irgendwann nicht mehr.
+
+    Je Währung getrennt gezählt, aus demselben Grund wie in
+    `verfallen_zeitraum`. Stück-Gutscheine haben keinen Betrag; von
+    ihnen zählt, wie oft eingelöst wurde - eine Zahl ohne Einheit wäre
+    hier eine Behauptung über Geld, die es nicht gibt.
+
+    Storniertes zählt nicht als eingelöst: Ein Abzug, den jemand
+    zurückgenommen hat, ist kein Einkauf. Weil der Storno seinen Betrag
+    negativ trägt, ergibt das blosse Zusammenzählen der Buchungen im
+    Zeitraum genau das - vorausgesetzt, beide liegen darin. Liegt der
+    Storno später, steht er in seinem eigenen Zeitraum, und das ist
+    richtig so: Im Juni wurde eingelöst, im Juli zurückgenommen.
+    """
+    eingeloest: dict[str, float] = {}
+    eingeloest_stk = 0
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        geld = ist_geld(row.get("unit"))
+        einheit = waehrung(row) if geld else ""
+        for buchung in row.get("transactions") or []:
+            if not isinstance(buchung, dict):
+                continue
+            art = str(buchung.get("art") or "abzug")
+            if art not in ("abzug", "storno"):
+                continue
+            wann = datum(str(buchung.get("at") or "")[:10])
+            if wann is None or not (von <= wann <= bis):
+                continue
+            betrag = _zahl(buchung.get("amount"), not geld)
+            if geld:
+                eingeloest[einheit] = round(
+                    eingeloest.get(einheit, 0.0) + betrag, 2
+                )
+            else:
+                eingeloest_stk += int(betrag)
+
+    erfasst = 0
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        wann = datum(str(row.get("created") or "")[:10])
+        if wann is not None and von <= wann <= bis:
+            erfasst += 1
+
+    verfallen = verfallen_zeitraum(rows, von, bis)
+    return {
+        "eingeloest": eingeloest,
+        "eingeloest_stk": eingeloest_stk,
+        "verfallen": verfallen["je_waehrung"],
+        "verfallen_anzahl": verfallen["anzahl"],
+        "erfasst": erfasst,
+    }
 
 
 def rest_aus_transaktionen(
@@ -394,31 +726,52 @@ def verfallen_zeitraum(rows: Any, von: date, bis: date) -> dict[str, Any]:
     dort aber «seit einem Stichtag bis heute» gerechnet; der Rückblick
     (Punkt 253/372) fragt nach einem Monat oder einem Jahr, nicht nach
     der ganzen Geschichte - deshalb hier auf einen Zeitraum eingegrenzt.
-    Nur Franken zählen: Stück-Gutscheine haben keinen Betrag, den man
+    Nur Geld zählt: Stück-Gutscheine haben keinen Betrag, den man
     verlieren könnte, nur eine Zahl Einlösungen.
+
+    ``summe`` bleibt die Franken-Summe und heisst weiter so - daran
+    hängen Rückblick und Tests seit Punkt 372. Was in einer anderen
+    Währung verfallen ist, steht daneben in ``je_waehrung`` (Punkt 451);
+    zusammengezählt wird nie, denn ein Kurs, den hier jemand annähme,
+    wäre eine erfundene Zahl in einer Zeile, die Verlust behauptet.
     """
     treffer = []
+    je_waehrung: dict[str, float] = {}
     for row in rows or []:
-        if not isinstance(row, dict) or row.get("unit") == "stk":
+        if not isinstance(row, dict) or not ist_geld(row.get("unit")):
             continue
         wann = datum(row.get("expires"))
         if wann is None or not (von <= wann <= bis):
             continue
-        if _zahl(row.get("left"), False) <= 0:
+        rest = _zahl(row.get("left"), False)
+        if rest <= 0:
             continue
         treffer.append(row)
-    summe = sum(_zahl(row.get("left"), False) for row in treffer)
-    return {"summe": round(summe, 2), "anzahl": len(treffer)}
+        einheit = waehrung(row)
+        je_waehrung[einheit] = round(je_waehrung.get(einheit, 0.0) + rest, 2)
+    return {
+        "summe": je_waehrung.get("CHF", 0.0),
+        "anzahl": len(treffer),
+        "je_waehrung": je_waehrung,
+    }
 
 
 def restwert(entry: dict[str, Any]) -> str:
-    """«80 CHF» oder «1 Stück» - wie ein Mensch es sagt (rein, testbar)."""
+    """«80 CHF», «40 EUR» oder «1 Stück» - wie ein Mensch es sagt (rein,
+    testbar). Die Währung steht dabei, seit es zwei gibt (Punkt 451):
+    «40» allein wäre in einer Erinnerung die falsche Zahl für den, der
+    an Franken denkt."""
     ganz = str(entry.get("unit") or "").lower() == "stk"
     left = _zahl(entry.get("left"), ganz)
     if ganz:
         return f"{int(left)} Stück"
+    einheit = waehrung(entry)
     # Ganze Franken ohne «.00»: «80 CHF», aber «12.50 CHF».
-    return f"{int(left)} CHF" if float(left).is_integer() else f"{left:.2f} CHF"
+    return (
+        f"{int(left)} {einheit}"
+        if float(left).is_integer()
+        else f"{left:.2f} {einheit}"
+    )
 
 
 def meldung(entry: dict[str, Any], tage: int) -> tuple[str, str]:
@@ -575,7 +928,11 @@ def empfaenger(entry: dict[str, Any]) -> str | None:
 # siehe oben), und die PIN kommt nicht mit: Nummer und PIN zusammen sind
 # Bargeld auf einem Blatt Papier. Wer die Nummer hat, kann beim Laden
 # den Stand erfragen und den Rest sichern - mehr braucht das Buch nicht.
-BUCH_OHNE = frozenset({"pin", "transactions", "image_url", "shared"})
+# `code` gehört dazu, obwohl es kein Geheimnis ist: Auf einer
+# gedruckten Seite steht die Nummer ausgeschrieben, und ob der Laden sie
+# einst als Strichcode oder QR-Code aufgedruckt hatte, hilft dort
+# niemandem - einen Scanner hat man an dem Tag ohnehin nicht.
+BUCH_OHNE = frozenset({"pin", "transactions", "image_url", "shared", "code"})
 
 
 def _buchzeile(row: dict[str, Any]) -> dict[str, Any]:
@@ -597,8 +954,32 @@ def _buchzeile(row: dict[str, Any]) -> dict[str, Any]:
     # lohnt.
     if schmal.pop("physical", False):
         schmal["mitbringen"] = "Karte, Bon oder Ausdruck nötig"
+    # Die Nummernliste (Punkt 452) wird auf ihre Werte eingedampft: Auf
+    # einer gedruckten Seite hilft «{'value': 'A', 'used': None}»
+    # niemandem. Eine einzelne Nummer steht schon als `number` da und
+    # käme hier ein zweites Mal - die fällt weg.
+    codes = [
+        str(eintrag.get("value") or "")
+        for eintrag in schmal.get("codes") or []
+        if isinstance(eintrag, dict)
+    ]
+    if len(codes) > 1:
+        schmal["codes"] = codes
+    else:
+        schmal.pop("codes", None)
+
     anhang = schmal.get("file")
-    if isinstance(anhang, dict):
+    namen = [
+        str(eintrag.get("name") or "").strip()
+        for eintrag in dateien.anhaenge(schmal)
+        if str(eintrag.get("name") or "").strip()
+    ]
+    schmal.pop("files", None)
+    if len(namen) > 1:
+        # Mehrere Belege (Punkt 520): alle Namen, durch Komma - im Buch
+        # zählt, dass es sie gab und wie sie hiessen.
+        schmal["file"] = ", ".join(namen)
+    elif isinstance(anhang, dict):
         schmal["file"] = str(anhang.get("name") or "").strip()
     elif not isinstance(anhang, str):
         # Kein Anhang (None) und nichts Lesbares kommt weg. Ein blosser

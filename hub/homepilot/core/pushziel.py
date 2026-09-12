@@ -49,12 +49,19 @@ ZIELE: dict[str, str] = {
     # Ofen parat: Es gibt nichts zu tippen, also dorthin, wo man ohnehin
     # hinwill. Der Losfahr-Wecker dagegen öffnet den Termin.
     "oven": "start",
+    # Fällt die Gerätekennung einmal weg, landet man wenigstens dort,
+    # wo die Grillkachel steht - mit ihr führt der Tipp direkt hin
+    # (AM_GERAET).
+    "grill": "start",
     "departure": "familie:kalender",
     "vacuum": "start",
     "morning": "start",
     "test": "start",
     "open": "offen",
     "leak": "sorgen",
+    # Rauch: die Brandmeldeanlage selbst - dort steht Quittieren und
+    # Stummschalten, und die Liste der Melder mit dem, der anschlägt.
+    "smoke": "bereich:brand",
     "doorbell": "klingel",
     # Ohne Kamera bleibt nur die Startseite - der Normalfall steht in
     # AN_DER_KAMERA: Man will sehen und hören, was im Zimmer los ist.
@@ -86,7 +93,7 @@ ZIELE: dict[str, str] = {
 # ein Wassermelder schickt einen dorthin, wo man den Hahn zudreht. Bei
 # den anderen (Batterie, ausgefallenes Gerät) ist der Sammelplatz
 # besser: Dort steht der Knopf zum Quittieren.
-AM_GERAET = frozenset({"open", "leak", "appliance", "vacuum"})
+AM_GERAET = frozenset({"open", "leak", "appliance", "vacuum", "grill"})
 
 ## Meldungen, bei denen das Kamerabild der beste Ort ist.
 #

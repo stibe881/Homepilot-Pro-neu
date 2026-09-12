@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..core import guestpass
 from ..core.users import Role
@@ -67,7 +67,8 @@ class PushSnoozeRequest(BaseModel):
     title: str
     body: str = ""
     category: str | None = None
-    minutes: int = 30
+    # Ohne Angabe gilt, was die Person eingestellt hat (spaeter.eigene_minuten).
+    minutes: int | None = None
 
 
 class PushQuittierenRequest(BaseModel):
@@ -144,6 +145,13 @@ class AutomationRequest(BaseModel):
     # Restzeit anzeigen: «geht in 12 Min aus» an Kachel, Raumkarte und
     # im «Lichter an»-Blatt (core/abschaltung.py).
     countdown: bool = False
+    # Bis wann der Ablauf überhaupt gilt (Punkt 464): «YYYY-MM-DD», der
+    # Tag selbst zählt noch. Danach schaltet der Hub ihn aus und lässt
+    # ihn stehen - nicht dasselbe wie `quiet_until`, das eine Pause ist.
+    valid_until: str | None = None
+    # In welcher Reihenfolge er drankommt, wenn mehrere gleichzeitig
+    # dran sind (Punkt 466). Kleiner zuerst, 0 heisst «egal».
+    order: int = 0
 
 
 class SceneRequest(BaseModel):
@@ -193,10 +201,41 @@ class PlaceRequest(BaseModel):
     id: str | None = None
 
 
+class RaumNameRequest(BaseModel):
+    """Der neue Name eines Zimmers (Punkt 495 der Werkbank)."""
+
+    name: str
+
+
 class PushPrefsRequest(BaseModel):
     """Abbestellte Nachrichtenarten eines Benutzers."""
 
     muted: list[str] = []
+    # Für welches Gerät (Punkt 471) - leer heisst «für mich, überall».
+    # Der Token, nicht der Anzeigename: Der ändert sich, der Token nicht.
+    token: str = ""
+    # Wie lange «Später» in der Mitteilung heisst; None lässt es, wie es ist.
+    snooze_minutes: int | None = None
+
+
+class PushStufeRequest(BaseModel):
+    """Die Dringlichkeit einer Kategorie ändern - fürs ganze Haus."""
+
+    category: str
+    stufe: str
+
+
+class PushGruppeRequest(BaseModel):
+    """Eine Empfängergruppe (push.gruppen_lesen)."""
+
+    name: str
+    members: list[str] = []
+
+
+class PushGruppenRequest(BaseModel):
+    """Alle Empfängergruppen auf einmal - die Liste ist klein."""
+
+    groups: list[PushGruppeRequest] = []
 
 
 class PushRuhezeitRequest(BaseModel):
@@ -210,6 +249,12 @@ class PushRuhezeitRequest(BaseModel):
     enabled: bool = False
     von: int = 22
     bis: int = 7
+    # An welchen Wochentagen sie gilt (0 = Montag), leer = alle
+    # (Punkt 479 der Werkbank). Samstagmorgen ist nicht Dienstagmorgen.
+    tage: list[int] = []
+    # Für welches Gerät (Punkt 471) - leer heisst «für mich, überall».
+    # Der Token, nicht der Anzeigename: Der ändert sich, der Token nicht.
+    token: str = ""
 
 
 class PushStillRequest(BaseModel):
@@ -250,16 +295,58 @@ class LaundryRequest(BaseModel):
     door: str | None = None
 
 
-class CoverGuardRequest(BaseModel):
-    """Welche Storen die Wächter anfassen dürfen.
+class GrillZielRequest(BaseModel):
+    """Das Kerntemperatur-Ziel eines Fühlers (Punkt 554).
 
-    `None` lässt die jeweilige Auswahl unangetastet; eine leere Liste
-    heisst «alle Storen» - das ist die Vorgabe, mit der die Wächter auch
-    ohne jede Einstellung wirken (core/storenwaechter.py).
+    `ziel: null` nimmt es wieder weg - «kein Ziel» ist ein gültiger
+    Wunsch, und ein Feld weglassen hiesse hier «lass, wie es ist».
     """
 
+    #: Der Grill, an dem der Fühler steckt.
+    entity_id: str
+    #: Welcher Fühler: 1 bis 4.
+    nummer: int
+    #: In der Einheit des Grills - er meldet sie selbst mit.
+    ziel: float | None = None
+
+
+class CoverGuardRequest(BaseModel):
+    """Worauf die Wächter-Regeln sehen und was sie anfassen.
+
+    `None` lässt die jeweilige Auswahl unangetastet; eine leere Liste
+    heisst «alle» - das ist die Vorgabe, mit der die Wächter auch ohne
+    jede Einstellung wirken (core/storenwaechter.py).
+
+    `storm` und `heat` sind Storen, `temp` und `humidity` die Fühler,
+    auf die der Hitze-Hinweis hört (Punkt 540).
+    """
+
+    #: Temperaturfühler, die im Mittel für «drinnen» stehen.
+    temp: list[str] | None = None
+    #: Feuchtefühler - ohne Auswahl steht keine Feuchte in der Nachricht.
+    humidity: list[str] | None = None
     storm: list[str] | None = None
     heat: list[str] | None = None
+
+
+class DoorbellSpeaker(BaseModel):
+    """Eine gewählte Box - mit ihrer eigenen Lautstärke und Zeitspanne.
+
+    Beides gehört je Box und nicht ins Haus: Die Küchenbox steht neben
+    dem Esstisch und darf leise sein, im Keller hört man sonst nichts;
+    und die Box im Kinderzimmer soll abends nicht mehr losgehen, während
+    die im Flur immer darf.
+    """
+
+    id: str
+    volume: int | None = None
+    #: Von wann bis wann es auf dieser Box klingelt («07:00»). Über
+    #: Mitternacht hinweg gilt die Spanne umgekehrt - siehe
+    #: core/klingelton.py, in_spanne.
+    from_: str | None = Field(default=None, alias="from")
+    to: str | None = None
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class DoorbellSoundRequest(BaseModel):
@@ -267,10 +354,20 @@ class DoorbellSoundRequest(BaseModel):
 
     Anders als bei den Storen darüber heisst eine leere Liste hier nicht
     «alle», sondern «keine» - siehe Kopf von core/klingelton.py.
+
+    ``speakers`` nimmt beide Formen: blosse Kennungen wie früher (dann
+    gelten die Vorgaben) oder Einträge mit Lautstärke und Zeitspanne.
+    Eine ältere App darf weiter schreiben, ohne dabei Einstellungen zu
+    löschen, die sie gar nicht kennt.
     """
 
     sound: str | None = None
-    speakers: list[str] | None = None
+    speakers: list[DoorbellSpeaker | str] | None = None
+    # Nachts (Punkt 518): {mode: normal|leise|still, from, to} in Stunden.
+    night: dict[str, Any] | None = None
+    # Die Ansage nach dem Ton (Punkt 519) - an/aus und der Satz.
+    announce: bool | None = None
+    announce_text: str | None = None
 
 
 class DoorbellSoundTestRequest(BaseModel):
@@ -631,7 +728,12 @@ class ConfigEditRequest(BaseModel):
 
 
 class RoomRequest(BaseModel):
+    #: Der Standort - wo das Gerät steht. Null nimmt es aus allen Zimmern.
     room: str | None = None
+    #: Alle Zimmer, für die es zählt (Punkt 539). Fehlt das Feld, gilt
+    #: allein `room` - so schreibt eine ältere App weiter, ohne dass sie
+    #: dabei eine Mehrfachzuordnung löscht, die sie gar nicht kennt.
+    rooms: list[str] | None = None
 
 
 class AlarmArmRequest(BaseModel):
@@ -667,6 +769,27 @@ class AlarmZwangPinRequest(BaseModel):
 
     pin: str = ""
     user: str | None = None
+
+
+class AlarmWartungRequest(BaseModel):
+    """Den Wartungsmodus starten (Punkt 489 der Werkbank).
+
+    Fensterputzen, Handwerker, Umzugstag: Alles steht offen, und die
+    einzige Antwort darauf war «ganz unscharf» - danach blieb sie es.
+    """
+
+    # Stunden; geklemmt in core/alarmpflege.py statt hier abgelehnt.
+    stunden: float = 3.0
+
+
+class AlarmUrteilRequest(BaseModel):
+    """War das echt? (Punkt 490 der Werkbank)
+
+    «echt», «fehlalarm» oder «test» - mehr braucht es nicht. Wer mehr
+    Abstufungen anbietet, bekommt Antworten, die niemand auswertet.
+    """
+
+    urteil: str
 
 
 class AlarmSensorTestRequest(BaseModel):

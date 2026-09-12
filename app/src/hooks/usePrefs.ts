@@ -152,6 +152,10 @@ export interface Doppeltippaktion {
 export interface DurchsagePrefs {
   /** Kennung der Box; fehlt sie oder ist sie «alle», gehen alle. */
   ziel?: string;
+  /** Lautstärke der Durchsage in Prozent; fehlt sie, gilt die feste
+   *  Vorgabe des Hubs (lib/durchsage.ts, lautstaerkeVon). Gemerkt wie
+   *  das Ziel: Wer abends leise durchsagt, will es morgen wieder. */
+  lautstaerke?: number;
   /** Die Sätze des Fensters - eine Liste, in der alles gleich behandelt
    *  wird: hinzufügen, bearbeiten, löschen. `undefined` heisst «noch nie
    *  angefasst», dann gilt der mitgelieferte Startbestand; eine leere

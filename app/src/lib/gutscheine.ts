@@ -15,10 +15,38 @@
  * «1 Stk.» – Schweizer Schreibweise mit Punkt, nicht Komma.
  */
 import type { Leerbild } from './leerzustand';
+import { Codeart, kassenart } from './strichcode';
 
-export type Einheit = 'chf' | 'stk';
+/** Was der Gutschein zählt. Euro kam mit Punkt 451 dazu: Ein in
+ *  Konstanz gekaufter Gutschein trug seinen Betrag bis dahin als blosse
+ *  Zahl, und die Summe oben zählte Euro zu Franken – eine Zahl, die
+ *  nirgends stimmte und trotzdem dastand. Umgerechnet wird nie: Ein
+ *  Kurs, der beim Erfassen galt, ist beim Einlösen falsch. */
+export type Einheit = 'chf' | 'stk' | 'eur';
 export type Geteilt = 'privat' | 'familie';
 export type Ablaufstufe = 'ok' | 'bald' | 'abgelaufen' | 'unbegrenzt';
+
+/** Die Einheiten, die Geld sind – nur die lassen sich addieren, und
+ *  auch die nur mit ihresgleichen. */
+export const WAEHRUNGEN: Einheit[] = ['chf', 'eur'];
+
+/** Zählt dieser Gutschein Geld? (rein, testbar) */
+export function istGeld(unit: Einheit): boolean {
+  return WAEHRUNGEN.includes(unit);
+}
+
+/** Eine Nummer des Gutscheins (Punkt 452 der Werkbank).
+ *
+ *  Eine Zehnerkarte fürs Hallenbad trägt zehn, ein Kinoabo sechs, und
+ *  bis dahin passte davon genau eine ins Formular – wer mehr hatte,
+ *  schrieb sie in die Notiz und las an der Kasse aus einem Fliesstext
+ *  vor, welche wohl noch gilt. `used` trägt den Zeitpunkt, an dem sie
+ *  an der Kasse war, und ist das Einzige, was «schon eingelöst» von
+ *  «noch gut» unterscheidet. */
+export interface Gutscheincode {
+  value: string;
+  used?: string | null;
+}
 
 export interface Transaktion {
   /** ISO-Zeitpunkt des Abzugs. */
@@ -48,7 +76,18 @@ export interface Gutschein {
   total: number;
   left: number;
   number?: string;
+  /** Alle Nummern des Gutscheins (Punkt 452 der Werkbank) – eine
+   *  Zehnerkarte hat zehn. `number` trägt daneben die erste; der Hub
+   *  leitet sie von hier ab, damit dieselbe Zahl nicht an zwei Orten
+   *  gepflegt wird und auseinanderläuft. */
+  codes?: Gutscheincode[];
   pin?: string;
+  /** Womit die Kasse liest (Punkt 420 der Werkbank): Strichcode oder
+   *  QR-Code. Beim Scannen merkt sich die App, was die Kamera gelesen
+   *  hat; im Formular lässt es sich umstellen. Fehlt das Feld, ist es
+   *  ein Eintrag von vor der Frage - dann entscheidet die Nummer selbst
+   *  (`kassenart` in lib/strichcode.ts). */
+  code?: Codeart;
   /** «YYYY-MM-DD» – oder null für «unbegrenzt gültig». */
   expires: string | null;
   category?: string;
@@ -67,6 +106,9 @@ export interface Gutschein {
   /** Der Beleg zum Gutschein – meist das PDF aus der Bestätigungsmail
    *  (Punkt 266 der Werkbank). Fehlt oder null, wenn keiner dranhängt. */
   file?: GutscheinDatei | null;
+  /** Alle Belege (Punkt 520) - `file` ist der erste davon, für ältere
+   *  Fassungen. Fehlt bei einem älteren Hub; dann zählt `file`. */
+  files?: GutscheinDatei[];
   transactions?: Transaktion[];
   notes?: string;
   /** Erledigt und aus der offenen Liste genommen (Punkt 372 der
@@ -96,12 +138,21 @@ export const MITNEHMEN = 'Karte mitbringen';
 
 export const EINHEITEN: { key: Einheit; label: string }[] = [
   { key: 'chf', label: 'CHF' },
+  { key: 'eur', label: 'EUR' },
   { key: 'stk', label: 'Stück' },
 ];
 
 export const GETEILT: { key: Geteilt; label: string }[] = [
   { key: 'privat', label: 'Privat' },
   { key: 'familie', label: 'Familie' },
+];
+
+/** Womit die Kasse liest. «Automatisch» steht bewusst nicht zur Wahl:
+ *  Beim Erfassen weiss man, was auf der Karte steht, und ein Feld, das
+ *  «kommt drauf an» sagt, muss man an der Kasse erst wieder auflösen. */
+export const CODEARTEN: { key: Codeart; label: string }[] = [
+  { key: 'strich', label: 'Strichcode' },
+  { key: 'qr', label: 'QR-Code' },
 ];
 
 /** Wie eingelöst wird – beide Seiten benannt, nicht ein einzelner
@@ -139,12 +190,35 @@ export function alsGutschein(item: Record<string, unknown>): Gutschein {
     created: item.created ? String(item.created) : undefined,
     shop: String(item.shop ?? item.text ?? '').trim(),
     title: String(item.title ?? '').trim(),
-    unit: item.unit === 'stk' ? 'stk' : 'chf',
+    unit: item.unit === 'stk' ? 'stk' : item.unit === 'eur' ? 'eur' : 'chf',
     total,
     // Nie unter null, nie über dem Gesamtwert - was der Hub auch liefert.
     left: Math.min(Math.max(0, left), total),
     number: String(item.number ?? '').trim(),
+    // Die Nummernliste (Punkt 452). Ein Eintrag von vor der Frage hat
+    // keine – dann macht der Hub beim nächsten Speichern eine daraus,
+    // und bis dahin tut es hier dieselbe Ableitung: So gibt es nie
+    // einen Zustand, in dem die Kasse gar keine Nummer sieht.
+    codes: Array.isArray(item.codes)
+      ? (item.codes as unknown[])
+          .map((eintrag) =>
+            typeof eintrag === 'string'
+              ? { value: eintrag.trim(), used: null }
+              : {
+                  value: String((eintrag as Record<string, unknown>)?.value ?? '').trim(),
+                  used: (eintrag as Record<string, unknown>)?.used
+                    ? String((eintrag as Record<string, unknown>).used)
+                    : null,
+                }
+          )
+          .filter((eintrag) => eintrag.value !== '')
+      : String(item.number ?? '').trim()
+        ? [{ value: String(item.number).trim(), used: null }]
+        : [],
     pin: String(item.pin ?? '').trim(),
+    // Nur die beiden bekannten Wörter; alles andere heisst «nicht
+    // gesagt», und dann rechnet kassenart() es aus der Nummer aus.
+    code: item.code === 'qr' ? 'qr' : item.code === 'strich' ? 'strich' : undefined,
     expires: /^\d{4}-\d{2}-\d{2}$/.test(expires) ? expires : null,
     category: String(item.category ?? '').trim(),
     // Wie der Hub (core/gutscheine.py): ohne Angabe gehört er der Familie.
@@ -153,6 +227,7 @@ export function alsGutschein(item: Record<string, unknown>): Gutschein {
     url: String(item.url ?? '').trim(),
     image_url: item.image_url ? String(item.image_url) : null,
     file: alsDatei(item.file),
+    files: alsDateien(item.files, item.file),
     archived: item.archived === true,
     pending_transfer_to: item.pending_transfer_to ? String(item.pending_transfer_to) : null,
     transactions: Array.isArray(item.transactions)
@@ -200,7 +275,12 @@ export interface GutscheinDatei {
   name: string;
   type?: string;
   bytes?: number;
+  /** Die Kennung beim Hub (Punkt 520) - die erste alte Datei hat keine. */
+  id?: string;
 }
+
+/** Mehr hängt niemand an einen Gutschein - dieselbe Grenze wie im Hub. */
+export const MAX_DATEIEN = 6;
 
 /** Was der Hub annimmt. Grösser abzulehnen ist billiger, als es erst
  *  nach dem Hochladen zu erfahren – deshalb steht die Grenze auch hier. */
@@ -352,6 +432,29 @@ export function dateiSatz(datei: GutscheinDatei | null | undefined): string {
   return groesse ? `${datei.name}, ${groesse}` : datei.name;
 }
 
+/** Alle Belege eines Gutscheins (rein, testbar) - `files`, sonst der
+ *  eine `file` eines älteren Hubs. */
+export function anhaenge(entry: { file?: GutscheinDatei | null; files?: GutscheinDatei[] }): GutscheinDatei[] {
+  if (Array.isArray(entry.files)) return entry.files;
+  return entry.file ? [entry.file] : [];
+}
+
+/** «2 Belege: Gutschein.pdf, Bestellung.txt» - fürs Vorlesezeichen (rein, testbar). */
+export function anhaengeSatz(dateien: GutscheinDatei[]): string {
+  if (dateien.length === 0) return '';
+  if (dateien.length === 1) return dateiSatz(dateien[0]);
+  return `${dateien.length} Belege: ${dateien.map((d) => d.name).join(', ')}`;
+}
+
+/** Die Liste vom Hub lesen (rein, testbar) - ohne Liste der eine `file`. */
+export function alsDateien(liste: unknown, einzeln?: unknown): GutscheinDatei[] {
+  if (Array.isArray(liste)) {
+    return liste.map(alsDatei).filter((d): d is GutscheinDatei => d != null);
+  }
+  const eine = alsDatei(einzeln);
+  return eine ? [eine] : [];
+}
+
 /**
  * Einen Datei-Block vom Hub lesen (rein, testbar).
  *
@@ -366,12 +469,14 @@ export function alsDatei(wert: unknown): GutscheinDatei | null {
   if (!url && !data) return null;
   const bytes = Number(roh.bytes);
   const type = String(roh.type ?? '').trim();
+  const id = String(roh.id ?? '').trim();
   return {
     ...(url ? { url } : {}),
     ...(data ? { data } : {}),
     name: String(roh.name ?? '').trim() || 'Datei',
     ...(type ? { type } : {}),
     ...(Number.isFinite(bytes) && bytes > 0 ? { bytes } : {}),
+    ...(id ? { id } : {}),
   };
 }
 
@@ -398,10 +503,10 @@ export function mitMimeTyp(datenUri: string, mime: string): string {
 
 // ── Texte ────────────────────────────────────────────────────────────────
 
-/** «80.00 CHF» oder «1 Stk.» (rein, testbar). */
+/** «80.00 CHF», «40.00 EUR» oder «1 Stk.» (rein, testbar). */
 export function betragText(wert: number, unit: Einheit): string {
   if (unit === 'stk') return `${Math.round(wert)} Stk.`;
-  return `${wert.toFixed(2)} CHF`;
+  return `${wert.toFixed(2)} ${einheitText(unit)}`;
 }
 
 /** Der Restbetrag als Text – die grosse Zahl auf der Karte. */
@@ -416,7 +521,8 @@ export function betragZahl(wert: number, unit: Einheit): string {
 }
 
 export function einheitText(unit: Einheit): string {
-  return unit === 'stk' ? 'Stk.' : 'CHF';
+  if (unit === 'stk') return 'Stk.';
+  return unit === 'eur' ? 'EUR' : 'CHF';
 }
 
 /** «30.06.2030» aus «2030-06-30» (rein, testbar). */
@@ -591,10 +697,36 @@ export function archivListe(list: Gutschein[]): Gutschein[] {
  * soll sagen, was man noch ausgeben kann, nicht, was man verpasst hat.
  */
 export function summe(list: Gutschein[], heute: string | Date): number {
-  return list
-    .filter((entry) => entry.unit === 'chf' && !aufgebraucht(entry))
-    .filter((entry) => ablaufStufe(entry.expires, heute) !== 'abgelaufen')
-    .reduce((acc, entry) => acc + entry.left, 0);
+  return summen(list, heute).chf ?? 0;
+}
+
+/**
+ * Dasselbe je Währung (rein, testbar) – Punkt 451 der Werkbank.
+ *
+ * Getrennt und nie zusammengezählt: Ein Kurs, den die App hier annähme,
+ * wäre eine erfundene Zahl in einer Zeile, die Guthaben behauptet.
+ * Währungen ohne Rest kommen gar nicht erst vor – «0.00 EUR» neben der
+ * Franken-Summe ist eine Zeile über etwas, das es nicht gibt.
+ */
+export function summen(
+  list: Gutschein[],
+  heute: string | Date
+): Partial<Record<Einheit, number>> {
+  const out: Partial<Record<Einheit, number>> = {};
+  for (const entry of list) {
+    if (!istGeld(entry.unit) || aufgebraucht(entry)) continue;
+    if (ablaufStufe(entry.expires, heute) === 'abgelaufen') continue;
+    out[entry.unit] = Math.round(((out[entry.unit] ?? 0) + entry.left) * 100) / 100;
+  }
+  return out;
+}
+
+/** «640.00 CHF · 40.00 EUR» – die Summenzeile (rein, testbar). */
+export function summenText(list: Gutschein[], heute: string | Date): string {
+  const werte = summen(list, heute);
+  return WAEHRUNGEN.filter((unit) => (werte[unit] ?? 0) > 0)
+    .map((unit) => betragText(werte[unit] ?? 0, unit))
+    .join(' · ');
 }
 
 /** «30 verfügbar» – die Kopfzeile. */
@@ -611,9 +743,9 @@ export function kachelText(
   const list = (items ?? []).map((item) => alsGutschein(item as Record<string, unknown>));
   const n = verfuegbar(list).length;
   if (n === 0) return 'Noch keiner erfasst';
-  const chf = summe(list, heute);
   const stueck = `${n} verfügbar`;
-  return chf > 0 ? `${stueck} · ${betragText(chf, 'chf')}` : stueck;
+  const geld = summenText(list, heute);
+  return geld ? `${stueck} · ${geld}` : stueck;
 }
 
 /** Alle Kategorien, die die Liste kennt – plus die Vorschläge, solange
@@ -661,6 +793,8 @@ export interface Filter {
   geteilt?: Geteilt | null;
   /** Nur, was in den nächsten dreissig Tagen abläuft. */
   bald?: boolean;
+  /** Nur die Reste, die man sonst liegen lässt (Punkt 457). */
+  fastLeer?: boolean;
 }
 
 /** Suche und Filter zusammen (rein, testbar). */
@@ -675,6 +809,7 @@ export function gefiltert(
     if (filter.kategorie && entry.category !== filter.kategorie) return false;
     if (filter.geteilt && entry.shared !== filter.geteilt) return false;
     if (filter.bald && ablaufStufe(entry.expires, heute) !== 'bald') return false;
+    if (filter.fastLeer && !fastLeer(entry)) return false;
     return true;
   });
 }
@@ -741,6 +876,175 @@ export function verlauf(entry: Gutschein): Transaktion[] {
   return [...(entry.transactions ?? [])].sort((a, b) => b.at.localeCompare(a.at));
 }
 
+// ── Nummern (Punkt 452) ──────────────────────────────────────────────────
+
+/** Alle Nummern, die noch nicht an der Kasse waren (rein, testbar). */
+export function offeneCodes(entry: Pick<Gutschein, 'codes' | 'number'>): string[] {
+  const liste = entry.codes ?? [];
+  if (liste.length === 0) return entry.number ? [entry.number] : [];
+  return liste.filter((eintrag) => !eintrag.used).map((eintrag) => eintrag.value);
+}
+
+/**
+ * Welche Nummer die Kasse als Nächstes sehen soll (rein, testbar).
+ *
+ * Die erste unbenutzte. Sind alle gebraucht, kommt trotzdem die letzte
+ * zurück und nicht nichts: Ein leerer Bildschirm an der Kasse lässt
+ * offen, ob die App nichts weiss oder der Gutschein leer ist – die Zahl
+ * mit dem Hinweis «schon eingelöst» sagt beides.
+ */
+export function naechsterCode(entry: Pick<Gutschein, 'codes' | 'number'>): string {
+  const offen = offeneCodes(entry);
+  if (offen.length > 0) return offen[0];
+  const liste = entry.codes ?? [];
+  if (liste.length > 0) return liste[liste.length - 1].value;
+  return entry.number ?? '';
+}
+
+/** «Nummer 3 von 10» – oder leer, wenn es nur eine gibt (rein, testbar). */
+export function codeStand(entry: Pick<Gutschein, 'codes' | 'number'>): string {
+  const liste = entry.codes ?? [];
+  if (liste.length <= 1) return '';
+  const gebraucht = liste.filter((eintrag) => eintrag.used).length;
+  if (gebraucht >= liste.length) return `Alle ${liste.length} eingelöst`;
+  return `Nummer ${gebraucht + 1} von ${liste.length}`;
+}
+
+/**
+ * Eine Nummer als gebraucht markieren (rein, testbar).
+ *
+ * Von Hand und nicht automatisch beim Abziehen: Ob die Kasse den Code
+ * wirklich angenommen hat, weiss nur der Mensch davor – und eine
+ * Nummer, die die App eigenmächtig verbraucht, obwohl das Gerät sie
+ * nicht las, ist ein Eintritt, den niemand mehr findet.
+ */
+export function codeVerbrauchen(entry: Gutschein, wert: string, jetzt: Date): Gutschein {
+  const gesucht = String(wert ?? '').trim();
+  if (!gesucht) return entry;
+  return {
+    ...entry,
+    codes: (entry.codes ?? []).map((eintrag) =>
+      eintrag.value === gesucht && !eintrag.used
+        ? { ...eintrag, used: jetzt.toISOString() }
+        : eintrag
+    ),
+  };
+}
+
+/**
+ * Getippte Nummern mit den bisherigen zusammenführen (rein, testbar).
+ *
+ * Das Formular hält die Nummern als Text, eine je Zeile – ein Textfeld
+ * kennt kein «schon eingelöst». Ohne dieses Zusammenführen verlöre jede
+ * Korrektur am Laden die Marke an allen zehn Eintritten, und die
+ * Zehnerkarte wäre wieder voll.
+ */
+export function codesZusammenfuehren(
+  bisher: Gutscheincode[] | undefined,
+  werte: string[]
+): Gutscheincode[] {
+  const alt = new Map((bisher ?? []).map((eintrag) => [eintrag.value, eintrag.used ?? null]));
+  const gesehen = new Set<string>();
+  const out: Gutscheincode[] = [];
+  for (const roh of werte) {
+    const wert = roh.trim();
+    if (!wert || gesehen.has(wert)) continue;
+    gesehen.add(wert);
+    out.push({ value: wert, used: alt.get(wert) ?? null });
+  }
+  return out;
+}
+
+/** Den mehrzeiligen Text des Formulars in Nummern zerlegen (rein, testbar).
+ *  Zeilen, Kommas und Strichpunkte trennen – so, wie eine Nummernliste
+ *  aus einer Mail kopiert aussieht. */
+export function codesLesen(text: string): string[] {
+  return String(text ?? '')
+    .split(/[\n,;]+/)
+    .map((teil) => teil.trim())
+    .filter((teil) => teil !== '');
+}
+
+// ── Fast leer (Punkt 457) ────────────────────────────────────────────────
+
+/** Ab diesem Rest heisst es «fast leer». Zwölf Franken bei
+ *  Interdiscount sind praktisch verfallen: Man löst sie nie ein, weil
+ *  man nie etwas für zwölf Franken braucht. */
+export const FAST_LEER = 20;
+
+/** Ab welchem Rest dieser Gutschein als «fast leer» gilt: zwanzig
+ *  Franken oder ein Zehntel des ursprünglichen Werts, je nachdem was
+ *  grösser ist. Zwei Fälle, eine Regel – bei einem Hunderter sind zwölf
+ *  Franken ein Rest, bei einem Fünfhunderter sind es vierzig. */
+export function restSchwelle(entry: Pick<Gutschein, 'total'>): number {
+  return Math.max(FAST_LEER, entry.total * 0.1);
+}
+
+/**
+ * Ist nur noch ein Rest drauf, den man liegen lässt? (rein, testbar)
+ *
+ * Nur für Geld und nur für angebrochene Gutscheine: Ein frisch
+ * geschenkter Zwanziger ist kein Rest, sondern ein Gutschein – ihn als
+ * «fast leer» zu zeigen, hiesse den Schenker zu beleidigen und die
+ * Warnung abzunutzen. Erst wer schon abgezogen hat, hat einen Rest.
+ */
+export function fastLeer(entry: Pick<Gutschein, 'unit' | 'left' | 'total'>): boolean {
+  if (!istGeld(entry.unit)) return false;
+  if (entry.left < 0.005) return false;
+  return entry.left <= restSchwelle(entry) && entry.left < entry.total;
+}
+
+// ── Doppelt erfasst (Punkt 456) ──────────────────────────────────────────
+
+/**
+ * Gutscheine, die derselbe sein dürften (rein, testbar).
+ *
+ * Zwei Personen tragen dieselbe Karte ein – einmal privat, einmal für
+ * die Familie –, und ab dann stimmt keine Summe mehr. Es fällt auch
+ * nicht auf: Die private Hälfte sieht nur einer.
+ *
+ * Die sichere Spur ist die Nummer. Ohne Nummer wird es eine Vermutung,
+ * und die soll eng sein – Laden, Einheit, Betrag und Ablaufdatum müssen
+ * zusammenpassen, sonst gilt jeder zweite Zwanziger von Coop als
+ * Dublette. Ein Hinweis, keine Ablehnung: Zehn gleiche Kinokarten gibt
+ * es wirklich.
+ */
+export function doppelte(list: Gutschein[], entry: Gutschein): Gutschein[] {
+  const nummern = new Set(
+    [...(entry.codes ?? []).map((c) => c.value), entry.number ?? '']
+      .map((wert) => wert.trim().toLowerCase())
+      .filter((wert) => wert !== '')
+  );
+  const laden = (entry.shop ?? '').trim().toLowerCase();
+  return list.filter((andere) => {
+    if (andere === entry) return false;
+    if (istArchiviert(andere)) return false;
+    if (entry.id && andere.id === entry.id) return false;
+    const seine = new Set(
+      [...(andere.codes ?? []).map((c) => c.value), andere.number ?? '']
+        .map((wert) => wert.trim().toLowerCase())
+        .filter((wert) => wert !== '')
+    );
+    if (nummern.size > 0 && [...seine].some((wert) => nummern.has(wert))) return true;
+    // Eine Nummer auf der einen und eine andere auf der anderen Seite
+    // ist ein Gegenbeweis, keine fehlende Angabe.
+    if (nummern.size > 0 || seine.size > 0) return false;
+    if (!laden || (andere.shop ?? '').trim().toLowerCase() !== laden) return false;
+    if (andere.unit !== entry.unit) return false;
+    if (andere.total !== entry.total) return false;
+    return (andere.expires ?? '') === (entry.expires ?? '');
+  });
+}
+
+/** Der Hinweis über den Dubletten – oder null (rein, testbar). */
+export function doppelteSatz(treffer: Gutschein[]): string | null {
+  if (treffer.length === 0) return null;
+  if (treffer.length === 1) {
+    return `«${treffer[0].shop}» steht schon in der Liste – derselbe Gutschein?`;
+  }
+  return `${treffer.length} Gutscheine sehen gleich aus – schon erfasst?`;
+}
+
 // ── Teilen und Speichern ─────────────────────────────────────────────────
 
 /**
@@ -752,7 +1056,12 @@ export function verlauf(entry: Gutschein): Transaktion[] {
  */
 export function teilText(entry: Gutschein): string {
   const zeilen = [entry.title ? `${entry.shop} – ${entry.title}` : entry.shop];
-  if (entry.number) zeilen.push(`Nummer: ${entry.number}`);
+  const offen = offeneCodes(entry);
+  // Wer die Zehnerkarte weitergibt, gibt die offenen Eintritte weiter -
+  // die eingelösten wären eine Nummer, die an der Kasse abgelehnt wird,
+  // und der andere stünde da und wüsste nicht, warum.
+  if (offen.length > 1) zeilen.push(`Nummern: ${offen.join(', ')}`);
+  else if (offen.length === 1) zeilen.push(`Nummer: ${offen[0]}`);
   if (entry.pin) zeilen.push(`PIN: ${entry.pin}`);
   zeilen.push(`Rest: ${restText(entry)} von ${betragText(entry.total, entry.unit)}`);
   if (entry.expires) zeilen.push(`Gültig bis ${datumText(entry.expires)}`);
@@ -765,6 +1074,50 @@ export function teilText(entry: Gutschein): string {
   return zeilen.join('\n');
 }
 
+/**
+ * Was der Laden hören will, wenn die Karte weg ist (rein, testbar) –
+ * Punkt 459 der Werkbank.
+ *
+ * Seit Punkt 266 hängt ein Beleg am Gutschein, und mehr geschah damit
+ * nicht. Wer die Karte verliert und beim Laden nachfragt, braucht immer
+ * dieselben Angaben: welcher Gutschein, welche Nummer, wann gekauft,
+ * über wie viel, wie viel noch offen – und dass ein Beleg existiert.
+ * Bis hierher tippte man das aus vier Bildschirmen zusammen ab.
+ *
+ * Der Beleg selbst reist als Datei mit; hier steht nur, dass es ihn
+ * gibt. Ein Dateiname im Text und die Datei im Anhang sind zusammen die
+ * Antwort auf «haben Sie einen Kaufnachweis?».
+ */
+export function ladenAnfrage(entry: Gutschein, heute: string | Date = new Date()): string {
+  const zeilen = [
+    `Anfrage zu einem Gutschein von ${entry.shop}`,
+    '',
+    entry.title ? `Gutschein: ${entry.title}` : null,
+    `Wert: ${betragText(entry.total, entry.unit)}`,
+    `Offen laut unserer Aufstellung: ${restText(entry)}`,
+  ];
+  const nummern = (entry.codes ?? []).map((eintrag) => eintrag.value);
+  if (nummern.length > 1) zeilen.push(`Nummern: ${nummern.join(', ')}`);
+  else if (entry.number) zeilen.push(`Nummer: ${entry.number}`);
+  // Die PIN nicht: Nummer und PIN zusammen sind Bargeld, und diese
+  // Zeilen gehen in eine Mail an einen Laden.
+  if (entry.created) zeilen.push(`Erfasst am ${datumText(entry.created.slice(0, 10))}`);
+  zeilen.push(entry.expires ? `Gültig bis ${datumText(entry.expires)}` : 'Unbegrenzt gültig');
+  const gebucht = verlauf(entry).filter((buchung) => buchung.art === 'abzug');
+  if (gebucht.length > 0) {
+    const letzte = gebucht[0];
+    zeilen.push(
+      `Zuletzt eingelöst am ${datumText(letzte.at.slice(0, 10))} ` +
+        `über ${betragText(letzte.amount, entry.unit)}`
+    );
+  } else {
+    zeilen.push('Bisher nicht eingelöst');
+  }
+  if (entry.file?.name) zeilen.push(`Beleg: ${entry.file.name} (liegt bei)`);
+  zeilen.push('', `Stand: ${datumText(typeof heute === 'string' ? heute : heuteIso(heute))}`);
+  return zeilen.filter((zeile) => zeile !== null).join('\n');
+}
+
 /** Was das Formular eingetippt hat – als Text, wie die Felder es halten. */
 export interface Formular {
   shop: string;
@@ -772,7 +1125,11 @@ export interface Formular {
   unit: Einheit;
   total: string;
   number: string;
+  /** Weitere Nummern, eine je Zeile (Punkt 452). Leer bei dem
+   *  Gutschein, der nur eine hat – und das ist der Normalfall. */
+  weitereCodes: string;
   pin: string;
+  code: Codeart;
   /** Leer heisst «unbegrenzt». */
   expires: string;
   category: string;
@@ -780,8 +1137,11 @@ export interface Formular {
   physical: boolean;
   url: string;
   image_url: string;
-  /** Der Beleg – null heisst «keiner dran». */
+  /** Der Beleg – null heisst «keiner dran». Seit Punkt 520 nur noch der
+   *  Spiegel von `files[0]`; das Formular arbeitet mit der Liste. */
   file: GutscheinDatei | null;
+  /** Alle Belege (Punkt 520). */
+  files: GutscheinDatei[];
   notes: string;
 }
 
@@ -792,7 +1152,11 @@ export function leeresFormular(): Formular {
     unit: 'chf',
     total: '',
     number: '',
+    weitereCodes: '',
     pin: '',
+    // Der häufigere Fall auf einer Gutscheinkarte. Wer scannt, muss
+    // ohnehin nichts wählen - die Kamera meldet die Schrift mit.
+    code: 'strich',
     expires: '',
     category: '',
     shared: 'familie',
@@ -802,6 +1166,7 @@ export function leeresFormular(): Formular {
     url: '',
     image_url: '',
     file: null,
+    files: [],
     notes: '',
   };
 }
@@ -814,7 +1179,16 @@ export function formularVon(entry: Gutschein): Formular {
     unit: entry.unit,
     total: betragZahl(entry.total, entry.unit),
     number: entry.number ?? '',
+    // Die erste steht oben im eigenen Feld; hierher gehört der Rest.
+    weitereCodes: (entry.codes ?? [])
+      .slice(1)
+      .map((eintrag) => eintrag.value)
+      .join('\n'),
     pin: entry.pin ?? '',
+    // Ohne Angabe zeigt das Formular, was an der Kasse tatsächlich
+    // herauskäme - sonst stünde dort «Strichcode», während der
+    // Gutschein längst als QR angezeigt wird.
+    code: kassenart(entry.number, entry.code) ?? 'strich',
     expires: datumText(entry.expires),
     category: entry.category ?? '',
     shared: entry.shared,
@@ -825,6 +1199,7 @@ export function formularVon(entry: Gutschein): Formular {
     // den Betrag korrigiert, soll den Beleg nicht verlieren - genau das
     // ist der übliche Fehler bei so einem Feld.
     file: entry.file ?? null,
+    files: anhaenge(entry),
     notes: entry.notes ?? '',
   };
 }
@@ -872,7 +1247,15 @@ export function formularPruefen(
       total,
       left,
       number: form.number.trim(),
+      // Die Nummernliste entsteht aus beiden Feldern und behält dabei,
+      // was schon an der Kasse war (Punkt 452) - sonst wäre die
+      // Zehnerkarte nach jeder Korrektur am Laden wieder voll.
+      codes: codesZusammenfuehren(bisher?.codes, [
+        form.number,
+        ...codesLesen(form.weitereCodes),
+      ]),
       pin: form.pin.trim(),
+      code: form.code,
       expires,
       category: form.category.trim(),
       shared: form.shared,
@@ -880,7 +1263,9 @@ export function formularPruefen(
       url,
       image_url: form.image_url || null,
       // null (nicht «weglassen»): So versteht der Hub auch das Entfernen.
-      file: form.file ?? null,
+      // Die Liste ist massgeblich (Punkt 520); `file` spiegelt den ersten.
+      file: form.files[0] ?? null,
+      files: form.files,
       notes: form.notes.trim(),
       transactions: bisher?.transactions ?? [],
     },
@@ -1026,8 +1411,11 @@ export function buchungSatz(entry: Gutschein, buchung: Transaktion): string {
 export function restHinweis(entry: Pick<Gutschein, 'left' | 'total' | 'unit'>): string {
   if (entry.left <= 0) return '';
   if (entry.unit === 'stk') return entry.left === 1 ? 'Noch einmal' : '';
-  const schwelle = Math.max(5, entry.total * 0.1);
-  if (entry.left > schwelle) return '';
+  // Seit Punkt 457 dieselbe Regel wie `fastLeer` - vorher gab es zwei
+  // Schwellen für dieselbe Frage (hier fünf Franken, dort zwanzig), und
+  // die Karte sagte «kleiner Rest», während der Filter daneben den
+  // Gutschein nicht als fast leer führte.
+  if (!fastLeer(entry)) return '';
   return 'Kleiner Rest – beim nächsten Einkauf mitnehmen';
 }
 
@@ -1041,7 +1429,7 @@ export function restHinweis(entry: Pick<Gutschein, 'left' | 'total' | 'unit'>): 
 export function nachLaden(
   list: Gutschein[],
   heute: string | Date
-): { shop: string; summe: number; eintraege: Gutschein[] }[] {
+): { shop: string; summe: number; summeText: string; eintraege: Gutschein[] }[] {
   const topf = new Map<string, Gutschein[]>();
   for (const eintrag of verfuegbar(list ?? [])) {
     if (ablaufStufe(eintrag.expires, heute) === 'abgelaufen') continue;
@@ -1059,6 +1447,10 @@ export function nachLaden(
             .filter((eintrag) => eintrag.unit === 'chf')
             .reduce((wert, eintrag) => wert + eintrag.left, 0) * 100
         ) / 100,
+      // Seit Punkt 451 daneben der Satz über alle Währungen: Ein
+      // Media-Markt-Gutschein in Euro stand sonst mit «0.00» da, als
+      // wäre er leer.
+      summeText: summenText(eintraege, heute),
       eintraege,
     }))
     .sort((a, b) => b.summe - a.summe || a.shop.localeCompare(b.shop));
@@ -1078,6 +1470,16 @@ export function gebunden(list: Gutschein[], heute: string | Date): number {
   );
 }
 
+/** Dasselbe über alle Währungen: «640.00 CHF · 40.00 EUR» (rein,
+ *  testbar). Seit Punkt 451 die Zahl, die oben steht – `gebunden`
+ *  bleibt die Franken-Zahl für alles, was eine einzelne braucht. */
+export function gebundenText(list: Gutschein[], heute: string | Date): string {
+  return summenText(
+    (list ?? []).filter((eintrag) => ablaufStufe(eintrag.expires, heute) !== 'abgelaufen'),
+    heute
+  );
+}
+
 /**
  * Was verfallen ist, seit einem Stichtag (rein, testbar).
  *
@@ -1088,17 +1490,25 @@ export function verfallen(
   list: Gutschein[],
   heute: string | Date,
   seit?: string
-): { summe: number; anzahl: number } {
+): { summe: number; anzahl: number; jeWaehrung: Partial<Record<Einheit, number>> } {
   const abgelaufen = (list ?? []).filter(
     (eintrag) =>
       ablaufStufe(eintrag.expires, heute) === 'abgelaufen' &&
       eintrag.left > 0 &&
-      eintrag.unit === 'chf' &&
+      istGeld(eintrag.unit) &&
       (!seit || (eintrag.expires ?? '') >= seit)
   );
+  // Je Währung getrennt (Punkt 451); `summe` bleibt daneben die
+  // Franken-Zahl, weil die Kachel und der Rückblick genau die lesen.
+  const jeWaehrung: Partial<Record<Einheit, number>> = {};
+  for (const eintrag of abgelaufen) {
+    jeWaehrung[eintrag.unit] =
+      Math.round(((jeWaehrung[eintrag.unit] ?? 0) + eintrag.left) * 100) / 100;
+  }
   return {
-    summe: Math.round(abgelaufen.reduce((wert, eintrag) => wert + eintrag.left, 0) * 100) / 100,
+    summe: jeWaehrung.chf ?? 0,
     anzahl: abgelaufen.length,
+    jeWaehrung,
   };
 }
 
@@ -1110,9 +1520,12 @@ export function verfallen(
  * ist eine Zeile ohne Auskunft.
  */
 export function bilanzSatz(list: Gutschein[], heute: string | Date, seit?: string): string {
-  const da = gebunden(list, heute);
+  const da = gebundenText(list, heute);
   const weg = verfallen(list, heute, seit);
-  const kopf = da > 0 ? `${betragText(da, 'chf')} liegen bereit` : 'Kein Guthaben';
-  if (weg.summe <= 0) return kopf;
-  return `${kopf} · ${betragText(weg.summe, 'chf')} verfallen`;
+  const kopf = da ? `${da} liegen bereit` : 'Kein Guthaben';
+  const verloren = WAEHRUNGEN.filter((unit) => (weg.jeWaehrung[unit] ?? 0) > 0)
+    .map((unit) => betragText(weg.jeWaehrung[unit] ?? 0, unit))
+    .join(' · ');
+  if (!verloren) return kopf;
+  return `${kopf} · ${verloren} verfallen`;
 }

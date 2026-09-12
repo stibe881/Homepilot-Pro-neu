@@ -5,6 +5,7 @@ import {
   Modal,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -51,6 +52,8 @@ import { datumUhr } from '../lib/format';
 import { deviceKindLabel, melderArt } from '../lib/geraeteart';
 import { BlattZeile, blattWuerdig, blattZeilen } from '../lib/ereignisblatt';
 import { ringAnteil } from '../lib/alarmring';
+import { MODUS_SYMBOLE, type Modus, modiAus, modusFehler } from '../lib/alarmmodi';
+import { confirm as confirmBiometrie } from '../lib/biometrie';
 import { tapped, triggered } from '../lib/haptics';
 import { Colors, radius, space, type, useColors } from '../theme';
 
@@ -91,6 +94,11 @@ interface AlarmState {
   state: string;
   mode?: string | null;
   mode_label?: string;
+  /** Der Wartungsmodus (Punkt 489 der Werkbank) als Satz - null, wenn
+   *  keiner läuft. Eine Anlage, die «unscharf» sagt, ohne zu sagen
+   *  warum, ist der Zustand, in dem man sie vergisst. */
+  wartung?: string | null;
+  wartung_bis?: number | null;
   seconds_left?: number | null;
   /** Wie lang die laufende Frist insgesamt war – für den Ring. */
   seconds_total?: number | null;
@@ -155,13 +163,10 @@ interface Overview {
    *  `push.public_url` in der config.yaml – ohne kommt die Nachricht
    *  ohne Bild, und das soll dort stehen, wo man es erwartet. */
   images?: boolean;
+  /** Alle Modi, eingebaute und eigene (Punkt 515) - lib/alarmmodi.ts
+   *  macht daraus die Knöpfe. Fehlt bei einem älteren Hub. */
+  modes?: { key: string; label: string; icon?: string; builtin?: boolean }[];
 }
-
-const MODES = [
-  { key: 'nacht', label: 'Nacht', icon: 'moon-outline' as const },
-  { key: 'ausser_haus', label: 'Ausser Haus', icon: 'exit-outline' as const },
-  { key: 'urlaub', label: 'Urlaub', icon: 'airplane-outline' as const },
-];
 
 /** Farbe und Text zum Zustand der Anlage (rein, testbar). */
 export function stateLook(
@@ -177,6 +182,11 @@ export function stateLook(
       return { text: 'Eintritt – jetzt unscharf schalten', color: colors.warn };
     case 'ausgeloest':
       return { text: 'Alarm ausgelöst', color: colors.danger };
+    // Der Voralarm (Punkt 516): ein Melder hat angeschlagen, die Sirene
+    // wartet noch. Dieselbe Farbe wie der Eintritt - beides heisst
+    // «jetzt unscharf schalten, wenn du es bist».
+    case 'verdacht':
+      return { text: 'Verdacht – gleich Alarm', color: colors.warn };
     default:
       return { text: 'Unscharf', color: colors.inkSoft };
   }
@@ -285,6 +295,7 @@ export function AlarmScreen({
   onEntity,
   entities = [],
   user,
+  bioLock = false,
 }: {
   settings: HubSettings;
   /** Einen Sensor in der Geräteliste zeigen – für die antippbaren Namen
@@ -294,10 +305,16 @@ export function AlarmScreen({
   entities?: Entity[];
   /** Wer gerade bedient. Am Gemeinschaftsgerät ist die PIN Pflicht. */
   user?: { shared?: boolean } | null;
+  /** Face ID vor dem Entschärfen (Punkt 517) - derselbe Schalter wie für
+   *  die Türe (Konto → Face-ID-Sperre). */
+  bioLock?: boolean;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [data, setData] = useState<Overview | null>(null);
+  // Die Knöpfe aus der Liste des Hubs (Punkt 515) - vor den frühen
+  // Rückgaben unten, weil ein Hook nicht hinter ihnen stehen darf.
+  const modi = useMemo(() => modiAus(data?.modes), [data?.modes]);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [pendingMode, setPendingMode] = useState<string | null>(null);
@@ -325,6 +342,14 @@ export function AlarmScreen({
   // Was der Panikknopf zurückmeldet - er tut viel und sieht dabei nach
   // nichts aus, solange man nicht danebensteht.
   const [panikNote, setPanikNote] = useState<string | null>(null);
+  // Steht ein Alarm zur Einordnung offen? (Punkt 490 der Werkbank)
+  const [einordnung, setEinordnung] = useState<{
+    offen: { at?: number; entity_id?: string; name?: string } | null;
+  } | null>(null);
+  // Das Protokoll für die Anzeige (Punkt 484) - erst geholt, wenn eine
+  // Einordnung offen ist: Ein Blatt ohne Alarm gibt es nicht, und den
+  // Text bei jedem Laden mitzuschleppen wäre Verschwendung.
+  const [blatt, setBlatt] = useState<string | null>(null);
 
   const headers: Record<string, string> = settings.token
     ? { Authorization: `Bearer ${settings.token}` }
@@ -346,6 +371,41 @@ export function AlarmScreen({
   }, [client]);
 
   useEffect(load, [load]);
+
+  // Die Frage «war das echt?» und das Blatt dazu (Punkte 490, 484).
+  // Getrennt vom Hauptaufruf: Sie hängen am Verlauf und nicht am
+  // Zustand, und sie ändern sich nur, wenn ein Alarm endet.
+  useEffect(() => {
+    let lebt = true;
+    client
+      .get<{ offen: { at?: number; entity_id?: string; name?: string } | null } | null>(
+        '/api/alarm/einordnung',
+        { still: true, fallback: null }
+      )
+      .then((antwort) => {
+        if (!lebt) return;
+        setEinordnung(antwort ?? null);
+        if (!antwort?.offen) {
+          setBlatt(null);
+          return;
+        }
+        fetch(`${settings.url}/api/alarm/blatt`, { headers })
+          .then((response) => (response.ok ? response.text() : null))
+          .then((text) => {
+            if (lebt) setBlatt(text);
+          })
+          .catch(() => {
+            if (lebt) setBlatt(null);
+          });
+      })
+      .catch(() => {
+        if (lebt) setEinordnung(null);
+      });
+    return () => {
+      lebt = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client, data?.state.state]);
 
   // Während einer Verzögerung läuft ein Countdown – da muss die Anzeige
   // öfter nachziehen als sonst.
@@ -446,6 +506,12 @@ export function AlarmScreen({
       );
       return;
     }
+    // Face ID zuerst, und nur beim ersten Anlauf (Punkt 517): Wer die PIN
+    // schon tippt, hat das Gesicht eben gezeigt. Ohne Biometrie am Gerät
+    // lässt confirm() durch - die PIN des Hubs bleibt die eigentliche Hürde.
+    if (bioLock && pin === undefined && !(await confirmBiometrie('disarm'))) {
+      return;
+    }
     // Mit gesetzter PIN erst das Feld zeigen - der Hub würde ohne PIN
     // ohnehin ablehnen, aber die App soll fragen statt fehlschlagen.
     if (data?.state.pin_required && pin === undefined) {
@@ -492,7 +558,7 @@ export function AlarmScreen({
     save({ sensors });
   };
 
-  const tabLabel = MODES.find((mode) => mode.key === tab)?.label ?? '';
+  const tabLabel = modi.find((mode) => mode.key === tab)?.label ?? '';
   // Was im Kopf der zugeklappten Sensoren-Karte steht: wie viele Sensoren
   // im gerade gewählten Modus wachen. «0» ist dabei die wichtigste Zahl -
   // eine scharfe Anlage ohne zugeordneten Sensor bewacht nichts.
@@ -573,6 +639,64 @@ export function AlarmScreen({
           </View>
         </View>
 
+        {/* War das echt? (Punkt 490 der Werkbank)
+            Die Fehlalarm-Statistik riet sich die Antwort bisher aus der
+            Zeit bis zum Entschärfen zusammen: Ein echter Einbruch, den
+            jemand schnell entschärft, zählte als Fehlalarm; ein
+            Fehlalarm, den zehn Minuten lang niemand bemerkt, als echt.
+            Die Frage steht oben und nicht in den Einstellungen - sie
+            stellt sich genau jetzt, direkt nach dem Entschärfen. */}
+        {einordnung?.offen ? (
+          <View style={styles.einordnung}>
+            <Text style={styles.rowDetail}>
+              War der Alarm von {einordnung.offen.name ?? 'vorhin'} echt?
+            </Text>
+            <View style={styles.chipRow}>
+              {(
+                [
+                  ['echt', 'Echt'],
+                  ['fehlalarm', 'Fehlalarm'],
+                  ['test', 'Test'],
+                ] as const
+              ).map(([wert, beschriftung]) => (
+                <Pressable
+                  key={wert}
+                  onPress={async () => {
+                    await fetch(`${settings.url}/api/alarm/einordnung`, {
+                      method: 'POST',
+                      headers: { ...headers, 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ urteil: wert }),
+                    });
+                    setEinordnung(null);
+                    load();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Alarm als ${beschriftung} einordnen`}
+                  style={({ pressed }) => [styles.chip, pressed && { opacity: 0.7 }]}
+                >
+                  <Text style={styles.chipText}>{beschriftung}</Text>
+                </Pressable>
+              ))}
+            </View>
+            {/* Das Blatt für Polizei oder Versicherung (Punkt 484) -
+                hier, weil man es in derselben Stunde braucht und nicht
+                drei Tage später aus der Erinnerung. */}
+            <Pressable
+              onPress={() =>
+                Share.share({
+                  message: blatt ?? 'Das Protokoll liess sich nicht laden.',
+                }).catch(() => {})
+              }
+              accessibilityRole="button"
+              accessibilityLabel="Protokoll teilen"
+              style={({ pressed }) => [styles.clipRow, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name="document-text-outline" size={18} color={colors.accent} />
+              <Text style={styles.clipText}>Protokoll für die Anzeige</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         {/* Nur eine Zone scharf schalten (Punkt 398) - nur sichtbar, wo es
             überhaupt Sensoren mit einer Zone gibt. «Ganzes Haus» ist die
             Vorgabe und steht immer zuerst. */}
@@ -605,7 +729,7 @@ export function AlarmScreen({
         ) : null}
 
         <View style={styles.modeRow}>
-          {MODES.map((mode) => {
+          {modi.map((mode) => {
             const active =
               data.state.mode === mode.key &&
               data.state.state !== 'unscharf' &&
@@ -783,7 +907,7 @@ export function AlarmScreen({
       <Card style={styles.card}>
         <Klappe label="Sensoren" stand={sensorenKopf} zuBeginnZu>
           <View style={styles.tabRow}>
-            {MODES.map((mode) => {
+            {modi.map((mode) => {
               const on = tab === mode.key;
               const count = data.sensors.filter((entry) =>
                 entry.modes.includes(mode.key)
@@ -939,7 +1063,7 @@ export function AlarmScreen({
         </Klappe>
       </Card>
 
-      <SensorTestCard hub={settings} />
+      <SensorTestCard hub={settings} modi={modi} />
 
       <FehlalarmCard
         hub={settings}
@@ -963,6 +1087,7 @@ export function AlarmScreen({
       />
 
       <AfterTrigger
+        modi={modi}
         after={data.after_trigger ?? {}}
         onSave={(mode, patch) => {
           const current = data.after_trigger ?? {};
@@ -989,9 +1114,75 @@ export function AlarmScreen({
 
       <AlarmSettings
         settings={data.settings}
+        modi={modi}
         images={data.images !== false}
+        // Nur Melder und Kameras: Ein Fensterkontakt im Haustier-Modus
+        // wäre ein Loch in der Anlage (Punkt 488).
+        melder={data.candidates
+          .filter(
+            (entity) =>
+              entity.kind === 'camera' ||
+              entity.device_class === 'motion' ||
+              entity.device_class === 'occupancy'
+          )
+          .map((entity) => ({ id: entity.entity_id, name: entity.name }))}
         onSave={(next) => save({ settings: next })}
       />
+
+      {/* Wartung (Punkt 489 der Werkbank). Fensterputzen, ein Handwerker
+          im Haus, ein Umzugstag: Alles steht offen, und die einzige
+          Antwort darauf war «ganz unscharf» - danach blieb sie es, bis
+          es jemandem auffiel. */}
+      <Card style={styles.card}>
+        <Klappe label="Wartung">
+          {data.state.wartung ? (
+            <>
+              <Text style={styles.hint}>{data.state.wartung}</Text>
+              <Pressable
+                onPress={async () => {
+                  await fetch(`${settings.url}/api/alarm/wartung`, {
+                    method: 'DELETE',
+                    headers,
+                  });
+                  load();
+                }}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.smallButton, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={styles.smallButtonText}>Jetzt beenden und scharf schalten</Text>
+              </Pressable>
+            </>
+          ) : (
+            <>
+              <Text style={styles.hint}>
+                Für den Vormittag, an dem alle Fenster offen stehen. Die Anlage
+                schaltet danach von selbst wieder in den Modus, in dem sie vorher
+                war – anders als «unscharf», das niemand zurücknimmt.
+              </Text>
+              <View style={styles.chipRow}>
+                {[1, 3, 6].map((stunden) => (
+                  <Pressable
+                    key={stunden}
+                    onPress={async () => {
+                      await fetch(`${settings.url}/api/alarm/wartung`, {
+                        method: 'POST',
+                        headers: { ...headers, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ stunden }),
+                      });
+                      load();
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Wartung für ${stunden} Stunden`}
+                    style={({ pressed }) => [styles.chip, pressed && { opacity: 0.7 }]}
+                  >
+                    <Text style={styles.chipText}>{stunden} Std.</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          )}
+        </Klappe>
+      </Card>
 
       {/* Probealarm: Ob Sirene, Lichter und Nachricht überhaupt
           funktionieren, erfährt man sonst beim ersten echten Einbruch. */}
@@ -1448,9 +1639,9 @@ function EskalationKarte({
                   Programms. Jetzt steht dabei, was gemeint ist, und die
                   gewöhnlichen Schalter liegen hinter einem Tipp. */}
               <Text style={styles.hint}>
-                Was beim Alarm eingeschaltet wird: eine Sirene, ein Gong -
-                oder die Steckdose, an der so etwas hängt. Beim Entschärfen
-                geht genau das wieder aus.
+                Was beim Alarm eingeschaltet wird: eine Sirene, ein Gong, ein
+                Rauchmelder mit Summer - oder die Steckdose, an der so etwas
+                hängt. Beim Entschärfen geht genau das wieder aus.
               </Text>
               {sirenen.length === 0 && !alleSchalter ? (
                 <Text style={styles.hint}>
@@ -1645,9 +1836,11 @@ const AFTER_CHOICES = [
  * Eigene Komponente auf Modulebene, damit das Zahlenfeld beim Tippen nicht
  * neu montiert wird. */
 function AfterTrigger({
+  modi,
   after,
   onSave,
 }: {
+  modi: Modus[];
   after: Record<string, After>;
   onSave: (mode: string, patch: Partial<After>) => void;
 }) {
@@ -1664,7 +1857,7 @@ function AfterTrigger({
         Urlaub tut das niemand.
       </Text>
 
-      {MODES.map((mode) => {
+      {modi.map((mode) => {
         const entry = after[mode.key] ?? { action: 'stay', after: 300 };
         return (
           <View key={mode.key} style={styles.afterBlock}>
@@ -1953,24 +2146,64 @@ function AlarmActions({
 
 function AlarmSettings({
   settings,
+  modi,
   images,
+  melder,
   onSave,
 }: {
   settings: AlarmConfig;
+  /** Alle Modi - für die Liste der eigenen und die Doppelt-Prüfung. */
+  modi: Modus[];
   /** Ob der Hub Bilder mitschicken kann (push.public_url gesetzt). */
   images: boolean;
+  /** Bewegungsmelder und Kameras - nur die kann ein Tier auslösen
+   *  (Punkt 488 der Werkbank). */
+  melder: { id: string; name: string }[];
   onSave: (settings: AlarmConfig) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [exit, setExit] = useState(String(settings.exit_delay ?? 45));
   const [entry, setEntry] = useState(String(settings.entry_delay ?? 30));
+  // Der Voralarm (Punkt 516): 0 heisst aus, wie bisher.
+  const [verdacht, setVerdacht] = useState(String(settings.suspect_delay ?? 0));
+  // Ein neuer eigener Modus (Punkt 515): Name und Symbol.
+  const [neuerName, setNeuerName] = useState('');
+  const [neuesSymbol, setNeuesSymbol] = useState(MODUS_SYMBOLE[0]);
+  const [modusHinweis, setModusHinweis] = useState<string | null>(null);
+  const eigene = modi.filter((modus) => !modus.builtin);
 
   const commit = () =>
     onSave({
       ...settings,
       exit_delay: Number(exit) || 0,
       entry_delay: Number(entry) || 0,
+      suspect_delay: Math.max(0, Number(verdacht) || 0),
+    });
+
+  const modusAnlegen = () => {
+    const fehler = modusFehler(neuerName, modi);
+    if (fehler) {
+      setModusHinweis(fehler);
+      return;
+    }
+    onSave({
+      ...settings,
+      custom_modes: [
+        ...eigene.map((modus) => ({ key: modus.key, label: modus.label, icon: modus.icon })),
+        { label: neuerName.trim(), icon: neuesSymbol },
+      ],
+    });
+    setNeuerName('');
+    setModusHinweis(null);
+  };
+
+  const modusEntfernen = (key: string) =>
+    onSave({
+      ...settings,
+      custom_modes: eigene
+        .filter((modus) => modus.key !== key)
+        .map((modus) => ({ key: modus.key, label: modus.label, icon: modus.icon })),
     });
 
   return (
@@ -2003,6 +2236,89 @@ function AlarmSettings({
         </Text>
       </View>
 
+      <View style={styles.field}>
+        <Text style={styles.label}>Voralarm (Sekunden, 0 = aus)</Text>
+        <TextInput
+          style={styles.input}
+          value={verdacht}
+          onChangeText={setVerdacht}
+          onBlur={commit}
+          keyboardType="number-pad"
+        />
+        <Text style={styles.hint}>
+          Der erste Melder allein macht die Anlage nur misstrauisch: Nachricht
+          mit Bild und die Vorwarnung, aber noch keine Sirene. Meldet sich in
+          dieser Zeit ein zweiter Melder, wird es sofort laut; wer entschärft,
+          hat einen Fehlalarm, von dem die Nachbarn nichts gehört haben.
+        </Text>
+      </View>
+
+      {/* Eigene Modi (Punkt 515): «Nur Erdgeschoss», «Gäste da». Welche
+          Sensoren darin wachen, stellt man oben bei den Sensoren ein -
+          der neue Modus bekommt dort seinen eigenen Reiter. */}
+      <View style={styles.field}>
+        <Text style={styles.label}>Eigene Modi</Text>
+        {eigene.map((modus) => (
+          <View key={modus.key} style={styles.sensorHead}>
+            <Ionicons name={modus.icon} size={18} color={colors.inkSoft} />
+            <Text style={[styles.rowTitle, { flex: 1 }]}>{modus.label}</Text>
+            <Pressable
+              onPress={() => modusEntfernen(modus.key)}
+              accessibilityRole="button"
+              accessibilityLabel={`Modus ${modus.label} entfernen`}
+              hitSlop={8}
+            >
+              <Ionicons name="trash-outline" size={18} color={colors.inkFaint} />
+            </Pressable>
+          </View>
+        ))}
+        <TextInput
+          style={styles.input}
+          value={neuerName}
+          onChangeText={(text) => {
+            setNeuerName(text);
+            setModusHinweis(null);
+          }}
+          placeholder="Neuer Modus, z. B. Nur Erdgeschoss"
+          placeholderTextColor={colors.inkFaint}
+          onSubmitEditing={modusAnlegen}
+          returnKeyType="done"
+        />
+        <View style={styles.chipRow}>
+          {MODUS_SYMBOLE.map((symbol) => {
+            const on = neuesSymbol === symbol;
+            return (
+              <Pressable
+                key={symbol}
+                onPress={() => setNeuesSymbol(symbol)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: on }}
+                accessibilityLabel={`Symbol ${symbol}`}
+                style={[styles.chip, on && styles.chipOn]}
+              >
+                <Ionicons name={symbol} size={16} color={on ? '#FFFFFF' : colors.ink} />
+              </Pressable>
+            );
+          })}
+        </View>
+        <Pressable
+          onPress={modusAnlegen}
+          disabled={!neuerName.trim()}
+          accessibilityRole="button"
+          style={({ pressed }) => [
+            styles.mode,
+            (pressed || !neuerName.trim()) && { opacity: 0.6 },
+          ]}
+        >
+          <Ionicons name="add" size={18} color={colors.ink} />
+          <Text style={styles.modeText}>Modus anlegen</Text>
+        </Pressable>
+        <Text style={styles.hint}>
+          {modusHinweis ??
+            'Welche Sensoren im neuen Modus wachen, stellst du oben unter «Sensoren» ein – er bekommt dort seinen eigenen Reiter. Abläufe erreichen ihn über den Befehl «arm» mit dem Modus als Wert.'}
+        </Text>
+      </View>
+
       <Toggle
         label="Push beim Auslösen"
         detail="Alle Bewohner bekommen sofort eine Nachricht."
@@ -2025,6 +2341,61 @@ function AlarmSettings({
         value={settings.notify_camera_motion !== false}
         onChange={(value) => onSave({ ...settings, notify_camera_motion: value })}
       />
+      {/* Haustier-Modus (Punkt 488 der Werkbank). Dieselbe Überlegung
+          wie beim Sauger darunter, nur dauerhaft - und mit einem
+          Unterschied, der alles trägt: Beim Sauger löst ein erkanntes
+          Tier aus (dann ist es kein Sauger), hier gerade nicht. */}
+      <Toggle
+        label="Haustier-Modus"
+        detail="Ausgewählte Bewegungsmelder lösen nicht aus. Türen und Fenster bleiben in jedem Fall scharf – eine Katze öffnet keine Türe."
+        value={!!settings.pet_mode}
+        onChange={(value) => onSave({ ...settings, pet_mode: value })}
+      />
+      {settings.pet_mode ? (
+        <View style={[styles.field, styles.unterpunkt]}>
+          <Text style={styles.label}>Diese Melder erreicht das Tier</Text>
+          <View style={styles.chipRow}>
+            {melder.map((entity) => {
+              const gewaehlt = (settings.pet_sensors ?? []).includes(entity.id);
+              return (
+                <Pressable
+                  key={entity.id}
+                  onPress={() =>
+                    onSave({
+                      ...settings,
+                      pet_sensors: gewaehlt
+                        ? (settings.pet_sensors ?? []).filter(
+                            (eintrag: string) => eintrag !== entity.id
+                          )
+                        : [...(settings.pet_sensors ?? []), entity.id],
+                    })
+                  }
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: gewaehlt }}
+                  accessibilityLabel={`${entity.name} ruht im Haustier-Modus`}
+                  style={({ pressed }) => [
+                    styles.chip,
+                    gewaehlt && styles.chipOn,
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <Text style={[styles.chipText, gewaehlt && { color: '#FFFFFF' }]}>
+                    {entity.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={styles.hint}>
+            Ausdrücklich und nicht «alle»: Der Melder im Keller, wo die Katze nie
+            hinkommt, soll weiter wachen – sonst deckt der Modus das halbe Haus
+            ab. Eine Kamera mit Erkennung löst weiter aus, wenn sie eine Person
+            sieht; ein blosser Melder kann das nicht unterscheiden und bleibt
+            still. Das ist der Preis des Modus.
+          </Text>
+        </View>
+      ) : null}
+
       {/* Der Fall, für den es den Schalter gibt: Das Haus schickt beim
           Weggehen den Sauger los und schaltet die Anlage scharf. Der
           erste Bewegungsmelder sieht ihn - und die Sirene geht. */}
@@ -2230,7 +2601,7 @@ interface SensorTestState {
  * geht es hier um die einzelnen Melder selbst - ein Fensterkontakt mit
  * leerer Batterie fällt sonst erst auf, wenn er gebraucht würde.
  */
-function SensorTestCard({ hub }: { hub: HubSettings }) {
+function SensorTestCard({ hub, modi }: { hub: HubSettings; modi: Modus[] }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const client = useMemo(() => hubClient(hub.url, hub.token), [hub.url, hub.token]);
@@ -2275,7 +2646,7 @@ function SensorTestCard({ hub }: { hub: HubSettings }) {
         </Text>
         {!state.running ? (
           <View style={styles.modeRow}>
-            {MODES.map((mode) => (
+            {modi.map((mode) => (
               <Pressable
                 key={mode.key}
                 onPress={() => starten(mode.key)}
@@ -2590,6 +2961,15 @@ const makeStyles = (colors: Colors) =>
     note: { color: colors.onGradientSoft, fontSize: 14, marginTop: 20 },
     hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },
     clipRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
+    // Die Frage «war das echt?» (Punkt 490 der Werkbank) - abgesetzt,
+    // damit sie nicht wie ein Teil der Zustandszeile aussieht.
+    einordnung: {
+      gap: 8,
+      marginTop: 12,
+      paddingTop: 12,
+      borderTopWidth: 1,
+      borderTopColor: colors.surfaceBorder,
+    },
     // Das Ereignisblatt: eine Karte über abgedunkeltem Grund - wie der
     // Player, nur hell genug zum Lesen.
     blattGrund: {
@@ -2683,7 +3063,7 @@ const makeStyles = (colors: Colors) =>
     actionChipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
     actionChipText: { color: colors.inkSoft, fontSize: 12, fontWeight: '700' },
     actionChipTextOn: { color: '#FFFFFF' },
-    warn: { color: colors.warn, fontSize: 13, lineHeight: 19, fontWeight: '600' },
+    warn: { color: colors.warnInk, fontSize: 13, lineHeight: 19, fontWeight: '600' },
 
     stateHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     lamp: { width: 14, height: 14, borderRadius: 7 },
@@ -2796,7 +3176,7 @@ const makeStyles = (colors: Colors) =>
      *  Türe, und nachts gehört nur das eine dazu. */
     artZeile: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 },
     art: { color: colors.inkFaint, fontSize: 12, flexShrink: 1 },
-    offline: { color: colors.warn, fontSize: 11, fontWeight: '700' },
+    offline: { color: colors.warnInk, fontSize: 11, fontWeight: '700' },
     chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
     chip: {
       paddingHorizontal: 12,

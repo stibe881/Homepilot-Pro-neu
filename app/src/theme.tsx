@@ -43,8 +43,31 @@ export const lightColors = {
   on: '#34C759',
   onSoft: 'rgba(52, 199, 89, 0.16)',
   off: 'rgba(35, 40, 51, 0.14)',
+  // Der Akzent als *Fläche* - ein Hauch davon, nicht die Farbe selbst.
+  //
+  // Wie `onSoft` und `dangerSoft` daneben: Eine ganze Karte in
+  // Akzentfarbe schreit, ein Hauch zeigt hin. Gebraucht dort, wo etwas
+  // «gehört zusammen und ist deine Wahl» sagen soll, ohne zum Knopf zu
+  // werden - im Ablauf-Editor trägt jedes gewählte Gerät seine
+  // Einstellungen auf so einer Fläche. Sie ist so blass, dass darauf
+  // weiter `ink` steht und nicht der Akzent: zwei Akzenttöne
+  // übereinander wären weder lesbar noch gemeint.
   accent: '#2F6BF6',
+  accentSoft: 'rgba(47, 107, 246, 0.10)',
   warn: '#F5A524',
+  // Dieselbe Warnung als *Schrift* (Punkt 442/444 der Werkbank).
+  //
+  // `warn` oben ist eine Signalfarbe an einem Symbol - es hat eine
+  // eigene Form, und die trägt die Bedeutung. Als Text trug sie nichts:
+  // Im hellen Bild kam Orange auf einer Karte auf 1,6:1, im Sand-Bild
+  // auf 2,1 - unter jeder Lesbarkeitsschwelle, und in genau dieser Farbe
+  // standen ganze Hinweiszeilen. In den dunklen Bildern ist `warn`
+  // ohnehin lesbar; dort ist es dieselbe Farbe, und das soll so sein -
+  // zwei Orangetöne nebeneinander wären ein Fehler, kein Feinschliff.
+  //
+  // Die Regel, die daraus folgt: Symbole nehmen `warn`, Text nimmt
+  // `warnInk`. Der Test in lib/kontrast.test.ts hält beides fest.
+  warnInk: '#8A5200',
   danger: '#E5484D',
   // Wie onSoft, nur zum Warnen: eine ganze Kachel in kräftigem Rot
   // schreit, ein Hauch davon zeigt hin. Für die aufgeschlossene Türe.
@@ -80,7 +103,10 @@ export const darkColors: Colors = {
   onSoft: 'rgba(61, 220, 132, 0.18)',
   off: 'rgba(255, 255, 255, 0.16)',
   accent: '#6E9BFF',
+  accentSoft: 'rgba(110, 155, 255, 0.14)',
   warn: '#FFC061',
+  // Siehe warnInk im hellen Erscheinungsbild - dort steht, warum.
+  warnInk: '#FFC061',
   danger: '#FF7B7B',
   dangerSoft: 'rgba(255, 123, 123, 0.18)',
 
@@ -147,7 +173,10 @@ export const pinkColors: Colors = {
   // Neonpink: Farbton 328 Grad, Sattheit 96 Prozent, volle Helligkeit.
   // Nicht 300 Grad – das wäre Magenta und damit wieder Violett.
   accent: '#FF0A8C',
+  accentSoft: 'rgba(255, 10, 140, 0.13)',
   warn: '#FFC061',
+  // Siehe warnInk im hellen Erscheinungsbild - dort steht, warum.
+  warnInk: '#FFC061',
   danger: '#FF5252',
   dangerSoft: 'rgba(255, 82, 82, 0.18)',
 
@@ -190,7 +219,10 @@ export const mitternachtColors: Colors = {
   onSoft: 'rgba(61, 220, 132, 0.18)',
   off: 'rgba(226, 229, 255, 0.16)',
   accent: '#8F92FF',
+  accentSoft: 'rgba(143, 146, 255, 0.14)',
   warn: '#FFC061',
+  // Siehe warnInk im hellen Erscheinungsbild - dort steht, warum.
+  warnInk: '#FFC061',
   danger: '#FF7B7B',
   dangerSoft: 'rgba(255, 123, 123, 0.18)',
 
@@ -233,7 +265,10 @@ export const sandColors: Colors = {
   onSoft: 'rgba(52, 199, 89, 0.16)',
   off: 'rgba(51, 41, 28, 0.14)',
   accent: '#A94E26',
+  accentSoft: 'rgba(169, 78, 38, 0.11)',
   warn: '#DF8A00',
+  // Siehe warnInk im hellen Erscheinungsbild - dort steht, warum.
+  warnInk: '#6B3E00',
   // Eine Stufe tiefer als im kühlen Hell: Das Warmweiss der Flächen ist
   // etwas heller, und das Standard-Rot fiel dort unter die Lesbarkeit.
   danger: '#D63438',
@@ -253,6 +288,59 @@ export const type = {
   value: 26,
   label: 14,
 };
+
+export type Typmass = typeof type;
+
+/**
+ * Um wie viel grösser das Wandpanel schreibt (Punkt 445 der Werkbank).
+ *
+ * Das Panel im Flur bekam bisher das Telefonlayout mit mehr Spalten:
+ * dieselben Schriftgrössen, nur breiter verteilt. Ein Bildschirm, der
+ * immer an ist und aus zwei Metern gelesen wird, braucht aber andere -
+ * eine 13-Punkt-Zeile, die man in der Hand liest, ist an der Wand ein
+ * grauer Strich.
+ *
+ * Ein Fünftel und nicht die Hälfte: Grösser heisst auch weniger auf dem
+ * Bildschirm, und ein Panel, das drei Kacheln zeigt statt zwölf, ist
+ * kein Panel mehr, sondern ein grosses Telefon. Gemessen an der Wand im
+ * Flur: Bei 1,2 liest sich die Zustandszeile aus zwei Metern, ohne dass
+ * eine Reihe verlorengeht.
+ */
+export const PANEL_MASS = 1.2;
+
+/**
+ * Die Schriftgrössen für diese Art Bildschirm (rein, testbar).
+ *
+ * Gerundet, weil halbe Punkte auf keinem Bildschirm etwas ändern und
+ * zwei fast gleiche Grössen nebeneinander unruhig aussehen.
+ */
+export function typFuer(panel: boolean): Typmass {
+  if (!panel) return type;
+  return Object.fromEntries(
+    Object.entries(type).map(([name, groesse]) => [
+      name,
+      Math.round(groesse * PANEL_MASS),
+    ])
+  ) as Typmass;
+}
+
+/**
+ * Drei Stufen für Symbole (Punkt 526). Über die Dateien hinweg standen
+ * 12, 13, 14, 15, 16, 18, 20, 22 und 24 - jede Stelle hatte sich ihre
+ * Zahl ausgesucht, und zwei Zeichen nebeneinander waren selten gleich
+ * gross. Klein neben Fliesstext und in Chips, mittel neben einer
+ * Kartenzeile, gross als Kachel- und Leistenzeichen.
+ */
+export const icon = { klein: 16, mittel: 18, gross: 22 };
+
+/**
+ * Die Kachelhöhen-Regel (Punkt 528): Jede Kachel ist mindestens so hoch,
+ * und in einer Zeile des Rasters sind alle gleich hoch - die höchste
+ * gibt vor (`alignItems: 'stretch'` am Raster). Vorher stand die 138
+ * nur in der Karte, und eine Zeile mit einer Lichtkachel neben einem
+ * Sensor wirkte wie eine Treppe.
+ */
+export const kachel = { mindesthoehe: 138 };
 
 /**
  * Ab dieser Breite ist Platz für Seitenleiste und rechte Spalte.
@@ -331,19 +419,29 @@ interface ThemeValue {
   colors: Colors;
   dark: boolean;
   mode: ThemeMode;
+  /** Die Schriftgrössen dieses Bildschirms (Punkt 445 der Werkbank) -
+   *  am Wandpanel grösser als in der Hand. */
+  typ: Typmass;
 }
 
 const ThemeContext = createContext<ThemeValue>({
   colors: lightColors,
   dark: false,
   mode: 'system',
+  typ: type,
 });
 
 export function ThemeProvider({
   mode = 'system',
+  panel = false,
   children,
 }: {
   mode?: ThemeMode;
+  /** Läuft die App als Wandpanel? Dann schreibt sie grösser - ein
+   *  Bildschirm, der immer an ist und aus zwei Metern gelesen wird,
+   *  braucht andere Schriftgrössen als eine Hand voll iPhone
+   *  (Punkt 445 der Werkbank). */
+  panel?: boolean;
   children: React.ReactNode;
 }) {
   const scheme = useColorScheme();
@@ -395,14 +493,23 @@ export function ThemeProvider({
     const getoent = wandernderVerlauf
       ? { ...colors, gradient: tagesverlauf(colors.gradient, stundeVon(now), sunHours(now)) }
       : colors;
-    return { colors: getoent, dark, mode };
-  }, [mode, scheme, now, wandernderVerlauf]);
+    return { colors: getoent, dark, mode, typ: typFuer(panel) };
+  }, [mode, scheme, now, wandernderVerlauf, panel]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
 export function useColors(): Colors {
   return useContext(ThemeContext).colors;
+}
+
+/** Die Schriftgrössen dieses Bildschirms (Punkt 445 der Werkbank).
+ *
+ *  Wer sie nicht abfragt, bekommt die feste Skala aus `type` - das ist
+ *  der Normalfall und bleibt es: Umgestellt wird dort, wo aus zwei
+ *  Metern gelesen wird, nicht in jedem Formularfeld. */
+export function useTyp(): Typmass {
+  return useContext(ThemeContext).typ;
 }
 
 export function useTheme(): ThemeValue {

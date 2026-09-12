@@ -113,6 +113,31 @@ export const makeStyles = (colors: Colors) =>
       gap: space.gap,
     },
     greeting: { gap: 2, flexShrink: 1 },
+    /**
+     * Begrüssung und Medienplayer nebeneinander (Raumliste, ab Tablet).
+     *
+     * Gebaut wie der Raumkopf (`raumKopfReihe`): eine Reihe, die
+     * umbricht. Bricht sie, rutscht der Player unter die Begrüssung und
+     * nimmt die volle Breite, statt den Satz zu quetschen - «Guten
+     * Morgen, Stefan» auf zwei Zeilen ist schlimmer als ein Player
+     * darunter.
+     */
+    grussReihe: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      alignItems: 'flex-start',
+      gap: space.gap,
+    },
+    grussLinks: { flexGrow: 1, flexShrink: 1, flexBasis: 320, minWidth: 0 },
+    /** Wie `raumMusikkarte`: Ein Lautstärkeregler über die halbe
+     *  Bildschirmbreite ist kein Regler mehr, sondern ein Balken. */
+    grussMusikkarte: {
+      flexGrow: 1,
+      flexShrink: 1,
+      flexBasis: 340,
+      maxWidth: 420,
+      minWidth: 0,
+    },
     // Hinweise rechts der Begrüssung. Auf schmalen Geräten stapeln sie sich,
     // damit weder Türhinweis noch Haushalt abgeschnitten wird.
     greetingNotes: {
@@ -336,6 +361,10 @@ export const makeStyles = (colors: Colors) =>
       flexWrap: 'wrap',
       gap: space.gap,
       marginTop: space.gap,
+      // Die Kachelhöhen-Regel (Punkt 528, theme.tsx: kachel): In einer
+      // Zeile gibt die höchste Kachel die Höhe vor - ausdrücklich, nicht
+      // als Zufall der Vorgabe.
+      alignItems: 'stretch',
     },
     // Nur zum Messen der Breite, ohne eigenen Abstand.
     measure: { height: 0 },
@@ -417,7 +446,11 @@ export const makeStyles = (colors: Colors) =>
       top: -10,
       left: -space.page,
       right: -space.page,
-      height: 200,
+      // Bis zum Rand des Kopfes, nicht auf eine feste Höhe: Seit der
+      // Medienplayer im Kopf steht, ist der höher als früher - mit
+      // 200 Punkten endete der Schein mitten im Player, und der
+      // untere Teil sah aus wie eine Karte, die darunterhängt.
+      bottom: 0,
       borderTopLeftRadius: radius.card,
       borderTopRightRadius: radius.card,
     },
@@ -468,7 +501,20 @@ export const makeStyles = (colors: Colors) =>
      *  gebaut, und ein Lautstärkeregler von tausend Punkten Breite ist
      *  kein Regler mehr, sondern ein Balken. Auf dem Telefon bleibt es
      *  bei der vollen Breite - dort ist sie ohnehin nur eine. */
-    raumMusikkarte: { alignSelf: 'flex-end', width: '100%', maxWidth: 420 },
+    /** Name und Szenen links, der Medienplayer rechts - beide in einer
+     *  Reihe, die wickelt: Passen beide Sockel (320 + 360) nicht
+     *  nebeneinander (Telefon), steht der Player unter den Szenen und
+     *  nimmt die ganze Breite. Auf dem Tablet füllt er das Feld neben
+     *  dem Titel, das vorher leer war. */
+    raumKopfReihe: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 12 },
+    /** `minWidth: 0` ist nicht Zierde: Ohne das wächst die Szenenreihe
+     *  über ihren Platz hinaus und schiebt den Kopf seitlich hinaus. */
+    raumKopfLinks: { flexGrow: 1, flexShrink: 1, flexBasis: 320, minWidth: 0, gap: 4 },
+    /** Der Player ist für eine Spalte gebaut: Ein Lautstärkeregler von
+     *  tausend Punkten Breite ist kein Regler mehr, sondern ein Balken -
+     *  darum der Deckel. Auf dem Telefon bleibt es bei der vollen
+     *  Breite, dort ist sie ohnehin kleiner. */
+    raumMusikkarte: { flexGrow: 1, flexShrink: 1, flexBasis: 360, maxWidth: 420, minWidth: 0 },
     raumKlimaBlock: { alignItems: 'flex-end' },
     raumKlimaTemp: {
       color: colors.onGradient,

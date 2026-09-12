@@ -200,3 +200,70 @@ services:
     #     - BLUETOOTH_ADAPTER=0
     #   volumes:
     #     - /run/dbus:/run/dbus:ro
+
+  # ── Zigbee ──────────────────────────────────────────────────────────
+  #
+  # Zwei Dienste für eine Sache: Zigbee2MQTT redet mit dem Funkstück und
+  # schreibt alles in MQTT, der Broker verteilt es, der Hub liest mit
+  # (integrations/zigbee2mqtt.py). Der Hub sieht den Dongle nie - für
+  # ihn ist Zigbee eine Liste von Themen.
+  #
+  # Der Dongle hängt hier **am Netzwerkkabel**, nicht am USB-Anschluss:
+  # ein SONOFF Dongle Max (Dongle-M) mit PoE. Das ist der Grund, warum
+  # unten kein `devices:`-Eintrag steht, wie man ihn in jeder Anleitung
+  # sieht - der Stick ist kein Gerät dieses Rechners, sondern eine
+  # Adresse im Netz. Angenehmer Nebeneffekt: Er darf dort hängen, wo der
+  # Empfang gut ist, statt im Schrank neben dem Server.
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: homepilot-mosquitto
+    restart: unless-stopped
+    # Gleicher Deckel wie beim Hub - siehe dort.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # host-Netz wie alle anderen: So erreichen sich Broker, Zigbee2MQTT
+    # und Hub über 127.0.0.1, und der Broker bleibt trotzdem aus dem
+    # WLAN unerreichbar (deploy/mosquitto.conf).
+    network_mode: host
+    volumes:
+      # Hier darf es der Repo-Ordner sein: Diese Datei ruft man von Hand
+      # aus dem Klon auf, und dann ist `./` genau dieser Ordner. In der
+      # Portainer-Fassung steht stattdessen /opt/homepilot - dort liegt
+      # der Klon woanders, und ein fehlender Pfad wird zum Verzeichnis.
+      - ./deploy/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      # 1883 und nicht 1000: Im Abbild läuft der Broker als Benutzer
+      # `mosquitto`, und ohne Schreibrecht hier startet er nicht.
+      #   sudo mkdir -p hub/mosquitto/data
+      #   sudo chown -R 1883:1883 hub/mosquitto
+      - ./hub/mosquitto/data:/mosquitto/data
+
+  zigbee2mqtt:
+    image: ghcr.io/koenkk/zigbee2mqtt:latest
+    container_name: homepilot-zigbee2mqtt
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    network_mode: host
+    environment:
+      - TZ=Europe/Zurich
+    volumes:
+      # Hier liegt die configuration.yaml **samt Netzwerkschlüssel** und
+      # die Geräteliste. Als Ordner neben der config.yaml und nicht in
+      # einem Docker-Volume - aus demselben Grund wie bei Matter: Er
+      # wandert mit ins Backup, ein Volume übersieht man. Und ohne ihn
+      # muss jedes Zigbee-Gerät neu angelernt werden.
+      #
+      # Einmalig auf dem Host, sonst darf der Dienst nicht hineinschreiben:
+      #   sudo mkdir -p ./hub/zigbee2mqtt
+      #   sudo cp deploy/zigbee2mqtt.example.yaml \
+      #           ./hub/zigbee2mqtt/configuration.yaml
+      #   sudo chown -R 1000:1000 ./hub/zigbee2mqtt
+      - ./hub/zigbee2mqtt:/app/data

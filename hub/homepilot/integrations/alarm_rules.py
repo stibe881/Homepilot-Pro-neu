@@ -55,6 +55,69 @@ MODE_LABELS = {
     "urlaub": "Urlaub",
 }
 
+
+# ── Eigene Modi (Punkt 515) ─────────────────────────────────────────────
+#
+# «Nacht», «Ausser Haus», «Urlaub» decken das Übliche - nicht aber «Nur
+# Erdgeschoss», «Gäste da» oder «Werkstatt». Ein eigener Modus ist ein
+# Name und ein Schlüssel; welche Sensoren darin wachen, steht wie bei den
+# eingebauten an den Sensoren selbst. Die eingebauten bleiben, was sie
+# sind: Abläufe, Szenen und der Ein/Aus-Knopf kennen sie beim Namen.
+
+#: Was ein Schlüssel höchstens lang wird - er steht in URLs und Ablagen.
+MODUS_SCHLUESSEL_MAX = 24
+#: Mehr eigene Modi passen auf keinen Bildschirm - und wer acht braucht,
+#: braucht eigentlich Zonen (Punkt 398).
+EIGENE_MODI_MAX = 5
+
+
+def modus_schluessel(label: str) -> str:
+    """Aus «Nur Erdgeschoss» wird «nur_erdgeschoss» (rein, testbar).
+
+    Kleinbuchstaben, Umlaute ausgeschrieben, alles andere zum
+    Unterstrich - damit der Schlüssel in Ablauf-Schritten und in der
+    Ablage stehen kann, ohne dass jemand ihn je tippen muss.
+    """
+    text = str(label or "").strip().lower()
+    for von, nach in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("ß", "ss")):
+        text = text.replace(von, nach)
+    teile = "".join(zeichen if zeichen.isalnum() else "_" for zeichen in text)
+    schluessel = "_".join(teil for teil in teile.split("_") if teil)
+    return schluessel[:MODUS_SCHLUESSEL_MAX].strip("_")
+
+
+def eigene_modi_lesen(raw: Any) -> list[dict[str, str]]:
+    """Die eigenen Modi aus den Einstellungen (rein, testbar).
+
+    Ein Eintrag braucht einen Namen; der Schlüssel folgt daraus, wenn
+    keiner mitkommt. Was mit einem eingebauten Modus zusammenfällt oder
+    doppelt ist, fliegt raus - sonst wachte «Nacht» plötzlich unter
+    zwei Namen.
+    """
+    modi: list[dict[str, str]] = []
+    gesehen: set[str] = set(MODES)
+    for row in raw or []:
+        if not isinstance(row, dict):
+            continue
+        label = str(row.get("label") or "").strip()
+        key = modus_schluessel(str(row.get("key") or "") or label)
+        if not label or not key or key in gesehen:
+            continue
+        gesehen.add(key)
+        modi.append({"key": key, "label": label, "icon": str(row.get("icon") or "")})
+        if len(modi) >= EIGENE_MODI_MAX:
+            break
+    return modi
+
+
+def alle_modi(settings: dict[str, Any] | None) -> dict[str, str]:
+    """Schlüssel → Name, eingebaute zuerst (rein, testbar)."""
+    modi = dict(MODE_LABELS)
+    for eintrag in eigene_modi_lesen((settings or {}).get("custom_modes")):
+        modi[eintrag["key"]] = eintrag["label"]
+    return modi
+
+
 # Zustände der Anlage.
 DISARMED = "unscharf"
 # Wie lange die Sirene beim Probealarm läuft.
@@ -63,6 +126,11 @@ ARMING = "scharfschaltend"
 ARMED = "scharf"
 ENTRY = "eintritt"
 TRIGGERED = "ausgeloest"
+#: Der Voralarm (Punkt 516): Ein einzelner Melder hat angeschlagen, die
+#: Anlage wartet die eingestellte Frist ab, bevor es laut wird. Wer in
+#: dieser Zeit entschärft, hat einen Fehlalarm ohne Sirene; meldet sich
+#: ein zweiter Sensor, ist es keiner mehr - dann sofort.
+VERDACHT = "verdacht"
 
 #: Was auch während der Saugerfahrt auslöst.
 #:
@@ -75,6 +143,13 @@ TRIGGERED = "ausgeloest"
 #: währenddessen still. Das ist die ehrliche Grenze: Dort kann der Hub
 #: nicht unterscheiden, ob er den Sauger sieht oder jemanden.
 DURCHBRUCH = ("person", "animal")
+
+#: Was trotz Haustier-Modus auslöst (Punkt 488 der Werkbank).
+#:
+#: Nur «person» - und genau darin liegt der Unterschied zu DURCHBRUCH
+#: oben: Beim Sauger ist eine Katze im Bild ein Grund auszulösen, hier
+#: ist sie der Grund für den Modus.
+PET_DURCHBRUCH = ("person",)
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     # Sekunden zum Verlassen des Hauses nach dem Scharfschalten.
@@ -132,7 +207,45 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # Entschärfen, das mit einem fremden Telefon die Anlage aufhebt.
     "presence_arm": "vorschlagen",
     "presence_disarm": "vorschlagen",
+    # Haustier-Modus (Punkt 488 der Werkbank). Dieselbe Überlegung wie
+    # beim Saugroboter, nur dauerhaft: Eine Katze ist keine Person, und
+    # Kameras, die Erkennung mitliefern, wissen das - die melden weiter,
+    # wenn ein Mensch durchs Bild läuft. Aus als Vorgabe: Wer kein Tier
+    # hat, soll keine Ausnahme geschenkt bekommen, die er nicht kennt.
+    "pet_mode": False,
+    # Was trotz Haustier-Modus auslöst. Dieselbe Liste wie beim Sauger,
+    # nur ohne «animal» - genau das ist ja der Unterschied.
+    "pet_detections": list(PET_DURCHBRUCH),
+    # Welche Melder das Tier erreicht. Ausdrücklich und nicht «alle»:
+    # Der im Keller, wo die Katze nie hinkommt, soll weiter wachen -
+    # sonst deckt der Modus das halbe Haus ab.
+    "pet_sensors": [],
+    # Ein paar Sekunden Bild *vor* dem Auslösen (Punkt 482 der Werkbank).
+    # Die Aufnahme begann bisher beim Auslösen - also erst, wenn schon
+    # jemand drin ist; die interessanten Sekunden liegen davor, und
+    # Protect hält sie ohnehin vor. 0 heisst: wie bisher.
+    "clip_vorlauf": 6,
+    # Die Eingangsverzögerung hörbar machen (Punkt 487). Sie lief im Hub
+    # korrekt ab und war nur zu sehen, wer die App öffnete - dann sind
+    # zehn der dreissig Sekunden weg. Leer heisst: kein Ton, wie bisher.
+    "entry_beep_speakers": [],
+    # Wann die Sirene sich zuletzt selbst geprüft hat (Punkt 481) -
+    # Unix-Sekunden, 0 heisst nie.
+    "siren_tested_at": 0,
+    # Und ob sie das überhaupt soll. An: Eine Sirene, die seit dem
+    # Einbau nicht mehr geheult hat, heult vielleicht auch beim Einbruch
+    # nicht.
+    "siren_selftest": True,
+    # Sekunden Voralarm (Punkt 516): Der erste Melder allein macht die
+    # Anlage nur misstrauisch - Nachricht und Vorwarnung, aber noch keine
+    # Sirene. 0 heisst aus: Der erste Melder löst aus, wie bisher. Die
+    # Eingangsverzögerung bleibt davon unberührt; sie gilt den
+    # verzögerten Sensoren, der Voralarm den sofortigen.
+    "suspect_delay": 0,
+    # Eigene Modi (Punkt 515): [{key, label, icon}], siehe eigene_modi_lesen.
+    "custom_modes": [],
 }
+
 
 def ohne_pin_erlaubt(quelle: Any, settings: dict[str, Any]) -> bool:
     """Darf diese Quelle ohne PIN entschärfen? (rein, testbar)
@@ -351,6 +464,26 @@ def eskalation_wirkt(escalation: dict[str, Any]) -> bool:
     return bool(escalation.get("sirens") or escalation.get("announce"))
 
 
+#: Melder, die selbst Lärm machen (Punkt 544): Ein-Befehl → Aus-Befehl.
+#: Zwei Vokabeln, ein Sinn - der Zigbee-Standard «warning» und die
+#: Aqara-Sprache; welche gilt, sagt das Gerät (zigbee2mqtt.art_und_befehle).
+SIGNAL_BEFEHLE: dict[str, str] = {"sound_alarm": "silence_alarm", "buzzer_alarm": "mute"}
+
+
+def sirenen_befehl(entity: Entity | None, an: bool) -> str:
+    """Womit dieses Gerät Lärm macht - oder aufhört (rein, testbar).
+
+    Ein Rauchmelder mit Summer hat kein «turn_on»; er kennt «Signal
+    geben». Ein Schalter, an dem eine Sirene hängt, kennt nur «ein».
+    Ohne Gerät (aus der Ablage gestrichen) bleibt es beim alten Befehl -
+    der Hub meldet dann «unbekanntes Gerät» statt still nichts zu tun.
+    """
+    for befehl_an, befehl_aus in SIGNAL_BEFEHLE.items():
+        if entity is not None and befehl_an in entity.commands:
+            return befehl_an if an else befehl_aus
+    return "turn_on" if an else "turn_off"
+
+
 def eskalations_befehle(
     escalation: dict[str, Any], entities: list[Entity] | None = None
 ) -> list[dict[str, Any]]:
@@ -363,25 +496,30 @@ def eskalations_befehle(
     trägt jeder Befehl seine eigene Frist, und «Licht an nach 30
     Sekunden» ist damit eine gewöhnliche Zeile statt eines Schalters.
 
-    ``entities`` wird nicht mehr gebraucht und bleibt nur stehen, damit
-    bestehende Aufrufe nicht brechen.
+    ``entities`` entscheidet seit Punkt 544 über den Befehl: Ein Melder
+    mit Summer bekommt «Signal geben», ein Schalter «ein».
     """
+    bekannt = {entity.id: entity for entity in entities or []}
     return [
-        {"entity_id": entity_id, "command": "turn_on"}
+        {"entity_id": entity_id, "command": sirenen_befehl(bekannt.get(entity_id), True)}
         for entity_id in escalation.get("sirens") or []
     ]
 
 
-def eskalations_ende_befehle(escalation: dict[str, Any]) -> list[dict[str, Any]]:
+def eskalations_ende_befehle(
+    escalation: dict[str, Any], entities: list[Entity] | None = None
+) -> list[dict[str, Any]]:
     """Was beim Entschärfen wieder ausgeht (rein, testbar).
 
     Nur die Sirenen: Eine Sirene, die nach dem Entschärfen weiterheult,
     wäre der Fehler, den niemand verzeiht. Die Lichter bleiben bewusst an
     - wer nach einem Alarm durchs Haus geht, will nicht im Dunkeln stehen,
-    und Ausschalten ist ein Handgriff.
+    und Ausschalten ist ein Handgriff. Ein Melder mit Summer wird stumm
+    statt ausgeschaltet - ausschalten liesse er sich ohnehin nicht.
     """
+    bekannt = {entity.id: entity for entity in entities or []}
     return [
-        {"entity_id": entity_id, "command": "turn_off"}
+        {"entity_id": entity_id, "command": sirenen_befehl(bekannt.get(entity_id), False)}
         for entity_id in escalation.get("sirens") or []
     ]
 
@@ -400,7 +538,9 @@ DEFAULT_AFTER: dict[str, Any] = {"action": STAY, "after": 300}
 
 
 def parse_after(
-    raw: Any, base: dict[str, dict[str, Any]] | None = None
+    raw: Any,
+    base: dict[str, dict[str, Any]] | None = None,
+    modes: tuple[str, ...] | list[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Nachverhalten je Modus einlesen (rein, testbar).
 
@@ -409,13 +549,14 @@ def parse_after(
     schaltet sich unbemerkt ab. Beim Speichern ist ``base`` der bisherige
     Stand, damit die App nur den Modus schicken muss, den sie geändert hat.
     """
+    bekannt = tuple(modes) if modes else MODES
     result = {
-        mode: {**DEFAULT_AFTER, **((base or {}).get(mode) or {})} for mode in MODES
+        mode: {**DEFAULT_AFTER, **((base or {}).get(mode) or {})} for mode in bekannt
     }
     if not isinstance(raw, dict):
         return result
     for mode, entry in raw.items():
-        if mode not in MODES or not isinstance(entry, dict):
+        if mode not in bekannt or not isinstance(entry, dict):
             continue
         action = str(entry.get("action") or "")
         if action in AFTER_ACTIONS:
@@ -465,12 +606,17 @@ def sensor_open(entity: Entity) -> bool:
     return str(entity.state.get("state")) == "on"
 
 
-def parse_sensors(raw: Any) -> dict[str, dict[str, Any]]:
+def parse_sensors(
+    raw: Any, modes: tuple[str, ...] | list[str] | None = None
+) -> dict[str, dict[str, Any]]:
     """Gespeicherte Sensorzuordnung einlesen (rein, testbar).
 
     Unbekannte Modi fliegen raus, damit ein Tippfehler in der Datei nicht
-    stillschweigend einen Sensor stilllegt.
+    stillschweigend einen Sensor stilllegt. ``modes`` sind die im Haus
+    bekannten - eingebaute plus eigene (alle_modi); ohne Angabe nur die
+    eingebauten.
     """
+    bekannt = tuple(modes) if modes else MODES
     result: dict[str, dict[str, Any]] = {}
     for entry in raw or []:
         if not isinstance(entry, dict):
@@ -478,9 +624,9 @@ def parse_sensors(raw: Any) -> dict[str, dict[str, Any]]:
         entity_id = str(entry.get("entity_id") or "")
         if not entity_id:
             continue
-        modes = [mode for mode in (entry.get("modes") or []) if mode in MODES]
+        modes_hier = [mode for mode in (entry.get("modes") or []) if mode in bekannt]
         result[entity_id] = {
-            "modes": modes,
+            "modes": modes_hier,
             "delayed": bool(entry.get("delayed")),
             # Vorübergehend überbrückt: Der Sensor bleibt zugeordnet, wacht
             # aber nicht mit – für das Fenster, das gerade offen bleiben soll.
@@ -602,6 +748,41 @@ def erkennt_durchbruch(entity: Entity, felder: Any = DURCHBRUCH) -> bool:
         str(entity.state.get(f"detected_{feld}") or "") == "on"
         for feld in (felder or ())
     )
+
+
+def haustier_deckt(
+    entity: Entity,
+    aktiv: bool,
+    ausgenommen: Any = (),
+    durchbruch: Any = PET_DURCHBRUCH,
+) -> bool:
+    """Schweigt dieser Sensor wegen des Haustiers? (rein, testbar)
+
+    Punkt 488 der Werkbank. Dieselbe Überlegung wie beim Saugroboter
+    darunter, nur dauerhaft statt während einer Fahrt - und mit einem
+    Unterschied, der alles trägt: Beim Sauger bricht «animal» durch (eine
+    Katze im Bild ist dann kein Sauger), hier gerade nicht (sie ist der
+    Grund für den Modus).
+
+    Drei Bedingungen, und alle drei sind nötig:
+
+    - Der Modus ist an.
+    - Es ist ein Bewegungsmelder oder eine Kamera. Türen und Fenster nie:
+      Eine Katze öffnet keine Türe, und ein Kontakt, der wegen eines
+      Tieres schweigt, wäre ein Loch statt einer Rücksicht.
+    - Der Sensor steht ausdrücklich auf der Liste. Nicht «alle
+      Bewegungsmelder»: Der im Keller, wo die Katze nie hinkommt, soll
+      weiter wachen - sonst deckt der Modus das halbe Haus ab.
+
+    Eine Kamera, die «person» meldet, löst weiter aus. Ein blosser
+    Melder ohne Erkennung schweigt - das ist die ehrliche Grenze und der
+    Preis des Modus, genau wie beim Sauger.
+    """
+    if not aktiv or not ist_bewegung(entity):
+        return False
+    if entity.id not in {str(eid) for eid in ausgenommen or ()}:
+        return False
+    return not erkennt_durchbruch(entity, durchbruch)
 
 
 def sauger_deckt(

@@ -106,11 +106,18 @@ def faults(state: dict[str, Any]) -> list[str]:
     return problems
 
 
-def grill_state(state: dict[str, Any]) -> dict[str, Any]:
-    """Rohzustand des Grills in die Form des Hubs bringen (rein, testbar)."""
+def grill_state(state: dict[str, Any], model: str | None = None) -> dict[str, Any]:
+    """Rohzustand des Grills in die Form des Hubs bringen (rein, testbar).
+
+    ``model`` ist die Typenbezeichnung aus der config.yaml (PB1150PS2,
+    PBV4PS2). Sie reist seit Punkt 559 mit, weil die App daran die
+    Bauart erkennt und das passende Bild zeichnet - der liegende Grill
+    oder der stehende Räucherschrank (app: lib/grillbild.ts).
+    """
     running = bool(state.get("moduleIsOn"))
     problems = faults(state)
     return {
+        **({"model": model} if model else {}),
         "state": "running" if running else "off",
         "temperature": state.get("grillTemp"),
         "target": state.get("grillSetTemp"),
@@ -132,6 +139,23 @@ def grill_state(state: dict[str, Any]) -> dict[str, Any]:
         "faults": problems,
         "problem": problems[0] if problems else None,
     }
+
+
+def fehlergrund(err: BaseException, weg: str) -> str:
+    """Warum der Grill nicht antwortet - als Satz (rein, testbar).
+
+    Die Ausnahme allein taugt nicht: `TimeoutError()` hat gar keinen
+    Text, und `ClientConnectorError` trägt eine halbe Zeile Python. Auf
+    der Kachel steht der Satz unter «nicht erreichbar», und dort soll er
+    sagen, wo man nachsehen muss - nicht, welche Klasse geflogen ist.
+    """
+    art = type(err).__name__
+    text = str(err).strip()
+    if isinstance(err, TimeoutError) or "timeout" in f"{art} {text}".lower():
+        return f"Keine Antwort {weg} (Zeitüberschreitung) - steht der Grill unter Strom?"
+    if isinstance(err, (ConnectionError, OSError)) or "connect" in art.lower():
+        return f"Keine Verbindung {weg}: {text or art}"
+    return f"Fehler {weg}: {text or art}"
 
 
 def grill_entries(config: dict[str, Any]) -> list[dict[str, Any]]:
@@ -224,11 +248,22 @@ class _Grill:
 
     def __init__(self, eintrag: dict[str, Any], boss: Any, entity: Entity) -> None:
         self.name: str = eintrag["name"]
+        self.model: str = eintrag["model"]
         self.may_start: bool = eintrag["allow_remote_start"]
         # Über die Cloud meldet sich der Grill von selbst, lokal nicht.
         self.pushes: bool = not eintrag["host"]
+        # Womit es versucht wird - gehört in die Meldung, wenn es nicht
+        # geht (Punkt 552). «Grill antwortet nicht» beantwortet die
+        # Frage «warum?» nicht; «über 10.10.1.60» beantwortet sie halb.
+        self.weg: str = (
+            f"lokal über {eintrag['host']}" if eintrag["host"] else "über die Pit-Boss-Wolke"
+        )
         self.boss = boss
         self.entity = entity
+        # Ob er beim letzten Versuch erreichbar war - damit nur der
+        # *Wechsel* im Log steht und nicht alle dreissig Sekunden
+        # dieselbe Zeile.
+        self.erreichbar: bool | None = None
 
 
 class PitBossIntegration(Integration):
@@ -299,7 +334,9 @@ class PitBossIntegration(Integration):
                 eintrag["id"],
                 EntityKind.APPLIANCE,
                 eintrag["name"],
-                state={"state": "unknown"},
+                # Das Modell von Anfang an: Auch ein kalter, nicht
+                # erreichbarer Grill soll sein Bild bekommen.
+                state={"state": "unknown", "model": eintrag["model"]},
                 commands=commands,
                 available=False,
             )
@@ -325,18 +362,35 @@ class PitBossIntegration(Integration):
                 state = await grill.boss.get_state()
             except Exception as err:
                 # Zwischen zwei Grillabenden ist das Gerät wochenlang aus.
-                # Das ist kein Fehler, nur «nicht da».
-                self.log.debug("Grill '%s' nicht erreichbar: %s", grill.name, err)
+                # Das ist kein Fehler, nur «nicht da» - deshalb keine
+                # Warnung bei jeder Runde.
+                #
+                # Der *Wechsel* gehört aber ins Log, und der Grund an die
+                # Kachel (Punkt 552). Vorher stand beides nirgends: Das
+                # Log schwieg auf «debug», und der Ausfall wurde mit
+                # einem leeren Wörterbuch gemeldet - unter «Ausfälle»
+                # stand damit «noch ausgefallen» und sonst nichts. Wer
+                # danebensteht und sieht, dass der Smoker läuft, kann
+                # daraus nicht schliessen, woran es liegt.
+                grund = fehlergrund(err, grill.weg)
+                if grill.erreichbar is not False:
+                    self.log.warning("Grill '%s': %s", grill.name, grund)
+                    grill.erreichbar = False
+                else:
+                    self.log.debug("Grill '%s': %s", grill.name, grund)
                 await self.hub.registry.update_state(
-                    grill.entity.id, {}, available=False
+                    grill.entity.id, {"problem": grund}, available=False
                 )
             else:
                 if isinstance(state, dict):
+                    if grill.erreichbar is False:
+                        self.log.info("Grill '%s' antwortet wieder", grill.name)
+                    grill.erreichbar = True
                     await self._publish(grill, state)
             await asyncio.sleep(self._interval)
 
     async def _publish(self, grill: _Grill, raw: dict[str, Any]) -> None:
-        shaped = grill_state(raw)
+        shaped = grill_state(raw, grill.model)
         await self.hub.registry.update_state(grill.entity.id, shaped, available=True)
 
     async def handle_command(

@@ -13,6 +13,7 @@
  */
 
 import { Entity } from '../api/types';
+import { imRaum } from './raum';
 
 export type Raumgruppe = { key: string; label: string; items: Entity[] };
 
@@ -43,7 +44,7 @@ export function raumGruppen(
   }
 
   for (const name of raeume) {
-    const drin = items.filter((entity) => entity.room === name && !istFavorit(entity));
+    const drin = items.filter((entity) => imRaum(entity, name) && !istFavorit(entity));
     if (drin.length > 0) gruppen.push({ key: name, label: name, items: drin });
   }
 
@@ -57,7 +58,7 @@ export function raumGruppen(
     gruppen.push({
       key: raum,
       label: raum,
-      items: items.filter((other) => other.room === raum && !istFavorit(other)),
+      items: items.filter((other) => imRaum(other, raum) && !istFavorit(other)),
     });
   }
 

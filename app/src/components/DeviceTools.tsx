@@ -51,6 +51,10 @@ export function DeviceTools({
   const [neu, setNeu] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Zugeklappt, bis jemand sie braucht (Punkt 550). Drei Knöpfe für
+  // Arbeiten, die man ein paarmal im Jahr macht - sie standen bisher
+  // auf jeder Geräteseite offen da und schoben die Liste nach unten.
+  const [aufgeklappt, setAufgeklappt] = useState(false);
 
   /** Verwaiste Zuordnungen (Raum/Name) zu Geräten, die es nicht mehr
    *  gibt, obwohl ihre Integration läuft - Punkt 83 der Werkbank. Der Hub
@@ -165,7 +169,21 @@ export function DeviceTools({
 
   return (
     <Card style={styles.card}>
-      <Text style={styles.heading}>Werkzeuge</Text>
+      <Pressable
+        onPress={() => setAufgeklappt((auf) => !auf)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: aufgeklappt }}
+        accessibilityLabel={aufgeklappt ? 'Werkzeuge zuklappen' : 'Werkzeuge aufklappen'}
+        style={({ pressed }) => [styles.kopf, pressed && { opacity: 0.7 }]}
+      >
+        <Text style={[styles.heading, { flex: 1 }]}>Werkzeuge</Text>
+        <Ionicons
+          name={aufgeklappt ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={colors.inkSoft}
+        />
+      </Pressable>
+      {aufgeklappt ? (
       <View style={styles.row}>
         <Pressable
           onPress={() => setOffen('sammel')}
@@ -193,6 +211,9 @@ export function DeviceTools({
           <Text style={styles.buttonText}>Verwaistes aufräumen</Text>
         </Pressable>
       </View>
+      ) : null}
+      {/* Ausserhalb des Zugeklappten: Was ein Knopf gemeldet hat, darf
+          nicht verschwinden, weil man die Karte danach zumacht. */}
       {note ? <Text style={styles.note}>{note}</Text> : null}
 
       <Modal visible={offen !== null} animationType="slide" onRequestClose={schliessen}>
@@ -351,6 +372,7 @@ export function DeviceTools({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
+    kopf: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     card: { gap: 10, minHeight: 0 },
     heading: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
     row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

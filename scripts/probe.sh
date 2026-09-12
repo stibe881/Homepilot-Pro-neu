@@ -35,6 +35,14 @@ WEB_PID=""
 aufraeumen() {
   [ -n "$HUB_PID" ] && kill "$HUB_PID" 2>/dev/null || true
   [ -n "$WEB_PID" ] && kill "$WEB_PID" 2>/dev/null || true
+  # Und die Kinder mit: Hub und Auslieferung laufen in einer Subshell
+  # (`( cd … && python3 … ) &`), und `$HUB_PID` ist diese Subshell -
+  # nicht das Python darin. Der blieb bisher stehen, hielt den Port und
+  # bediente den nächsten Lauf mit dem Code von vorhin. Genau daran sind
+  # zwei Messungen gescheitert: ein eingebauter Fehler blieb grün, und
+  # nach dem Beheben blieb es rot.
+  pkill -f "homepilot --config $ARBEIT/config.yaml" 2>/dev/null || true
+  pkill -f "http.server $WEB_PORT" 2>/dev/null || true
 }
 trap aufraeumen EXIT
 
@@ -60,14 +68,39 @@ integrations:
 rooms:
   Wohnzimmer:
     [demo.light_livingroom, demo.tv_livingroom, demo.cover_livingroom, gremlin.tv_zappelig,
-     demo.scene_relax, demo.speaker_kitchen]
-  Flur: [demo.motion_hall]
+     demo.scene_relax, demo.speaker_kitchen, demo.temp_livingroom]
+  # Derselbe Fühler ein zweites Mal: Ein Gerät darf für mehrere Zimmer
+  # zählen (Punkt 539), und ohne ein Zimmer, das nur so entsteht, liesse
+  # sich das im Browser nicht messen.
+  Esszimmer: [demo.temp_livingroom]
+  # Der Rauchwarnmelder gehört in ein Zimmer, sonst lässt sich nicht
+  # messen, dass er dort **keine** Kachel bekommt (Punkt 542).
+  Flur: [demo.motion_hall, demo.smoke_hall]
+  # Der Grill: Ohne ein Gerät mit Temperaturziel liessen sich weder die
+  # Grillkachel noch die Kerntemperatur-Ziele je messen (Punkt 554).
+  Terrasse: [demo.smoker]
 automations: []
 YAML
 
 # Frische Datendatei: Ein Rest von gestern bringt Benutzer und Sitzungen
 # mit, und dann misst man an einem Zustand, den niemand kennt.
 rm -f "$ARBEIT/homepilot-data.json"
+
+# Steht da schon einer? Dann gehört der Port jemand anderem.
+#
+# Das kostete zwei falsche Schlüsse: Ein Hub aus einem früheren Lauf
+# hing noch am Port, der eigene kam nicht hoch («address already in
+# use»), und die Gesundheitsprüfung unten war trotzdem zufrieden - sie
+# fragt ja den Port, nicht den eigenen Prozess. Gemessen wurde dann
+# gegen fremden Code: Ein absichtlich eingebauter Fehler blieb grün,
+# und nach dem Beheben blieb es rot. Ein Prüfstand, der am falschen
+# Gerät misst, ist schlimmer als keiner.
+if curl -sf -o /dev/null "http://127.0.0.1:$HUB_PORT/api/health" 2>/dev/null; then
+  echo "✗ Auf Port $HUB_PORT antwortet schon ein Hub - der ist nicht von"
+  echo "  diesem Lauf. Erst beenden, sonst misst die Probe gegen fremden"
+  echo "  Code:  pkill -f 'homepilot --config'"
+  exit 1
+fi
 
 echo "→ Demo-Hub auf Port $HUB_PORT …"
 (
@@ -85,6 +118,17 @@ if ! curl -sf -o /dev/null "http://127.0.0.1:$HUB_PORT/api/health"; then
   echo "✗ Der Demo-Hub kam nicht hoch. Log: $ARBEIT/hub.log"
   exit 1
 fi
+
+# «Gilt für: nur diesen Raum» auf den Klimafühler - der Normalfall im
+# Bad, und genau der, in dem die Ecke leer blieb (Punkt 541). Der
+# Schalter gehört nicht in die config.yaml: Er ist ein Vermerk am Gerät
+# und wird über dieselbe Route gesetzt wie in der App.
+curl -sf -o /dev/null -X PUT \
+  "http://127.0.0.1:$HUB_PORT/api/entities/demo.temp_livingroom/meta" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"room_only": true}' ||
+  { echo "✗ room_only liess sich nicht setzen."; exit 1; }
 
 # ── Web-Fassung ───────────────────────────────────────────────────────
 if [ "$OHNE_BAU" = "0" ] || [ ! -d "$ARBEIT/web" ]; then

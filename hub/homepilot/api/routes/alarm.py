@@ -17,10 +17,10 @@ from fastapi import (
     Response,
 )
 
-from ...core import alarmbericht, bildarchiv, cliparchiv
+from ...core import alarmbericht, alarmpflege, bildarchiv, cliparchiv
 from ...core import throttle as throttle_module
 from ...core.errors import HomePilotError
-from ...core.users import Capability
+from ...core.users import Capability, kind_darf_schalten
 from ...integrations import alarm as alarm_module
 from ...integrations.alarm_rules import zonen
 from ..context import ApiContext
@@ -29,6 +29,8 @@ from ..models import (
     AlarmDisarmRequest,
     AlarmPinRequest,
     AlarmSensorTestRequest,
+    AlarmUrteilRequest,
+    AlarmWartungRequest,
     AlarmZwangPinRequest,
 )
 
@@ -39,6 +41,26 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     require = ctx.require
 
     # ── Alarmanlage ────────────────────────────────────────────────────────
+
+    def nicht_fuer_kinder(user: Any) -> None:
+        """Die Anlage schalten die Erwachsenen (Punkt 497 der Werkbank).
+
+        Die Kinder-Ansicht bietet die Anlage nicht an - aber das ist ein
+        Bildschirm und keine Regel, und wer die Adresse kennt oder eine
+        ältere App-Fassung benutzt, kommt daran vorbei. Entschärfen hebt
+        die Anlage auf, scharf schalten sperrt die Familie aus; beides
+        ist nichts, was zwischen zwei Hausaufgaben passieren soll.
+
+        Der Panikknopf bleibt ausdrücklich offen: Wer in Bedrängnis ist,
+        soll um Hilfe rufen können - auch ein Kind. Das ist der ganze
+        Zweck dieses Knopfs, und eine Rolle davorzuschieben wäre der
+        Fehler, den man nur einmal macht.
+        """
+        if not kind_darf_schalten(getattr(user, "role", ""), "alarm"):
+            raise HTTPException(
+                status_code=403,
+                detail="Die Alarmanlage schalten die Erwachsenen.",
+            )
 
     def alarm_service():
         service = hub.integrations.get("alarm")
@@ -97,6 +119,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """Scharf schalten. Offene Fenster melden statt blind loszulaufen –
         sonst schlägt die Anlage los, sobald die Verzögerung endet."""
         user = require(request, Capability.CONTROL)
+        nicht_fuer_kinder(user)
         service = alarm_service()
         try:
             return await service.arm(
@@ -113,6 +136,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         body: AlarmDisarmRequest | None = None,
     ) -> dict[str, Any]:
         user = require(request, Capability.CONTROL)
+        nicht_fuer_kinder(user)
         try:
             return await alarm_service().disarm(
                 by=user.name,
@@ -226,10 +250,107 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         require(request, Capability.EDIT_CONFIG)
         service = alarm_service()
         kandidaten = alarmbericht.fehlalarm_kandidaten(service.history)
-        for eintrag in kandidaten:
+        # Und was ein Mensch wirklich gesagt hat (Punkt 485/490 der
+        # Werkbank). Die Kandidaten oben sind geraten: unter sechzig
+        # Sekunden entschärft, dreimal. Hier steht, was jemand
+        # eingeordnet hat - und das ist die Zahl, aus der ein Handgriff
+        # folgt.
+        eingeordnet = alarmpflege.auffaellige_sensoren(service.history, mindest=2)
+        for eintrag in [*kandidaten, *eingeordnet]:
             entity = hub.registry.get(eintrag["entity_id"])
             eintrag["name"] = entity.label if entity is not None else eintrag["entity_id"]
-        return {"kandidaten": kandidaten}
+            # In welchen Modi er heute wacht - ohne das ist «stell ihn
+            # um» ein Rat ohne Adresse.
+            zeile: dict[str, Any] = next(
+                (
+                    row
+                    for row in service.config_dict().get("sensors") or []
+                    if row.get("entity_id") == eintrag["entity_id"]
+                ),
+                {},
+            )
+            eintrag["modes"] = list(zeile.get("modes") or [])
+        return {"kandidaten": kandidaten, "eingeordnet": eingeordnet}
+
+    @app.get("/api/alarm/einordnung")
+    async def alarm_einordnung(request: Request) -> dict[str, Any]:
+        """Steht ein Alarm zur Einordnung offen? (Punkt 490 der Werkbank)
+
+        Die Fehlalarm-Statistik riet sie sich bisher aus der Zeit bis zum
+        Entschärfen zusammen: Ein echter Einbruch, den jemand schnell
+        entschärft, zählte als Fehlalarm; ein Fehlalarm, den zehn Minuten
+        lang niemand bemerkt, als echt.
+        """
+        require(request, Capability.CONTROL)
+        service = alarm_service()
+        offen = service.offene_einordnung()
+        if offen is None:
+            return {"offen": None, "urteile": list(alarmpflege.URTEILE)}
+        entity = hub.registry.get(str(offen.get("entity_id") or ""))
+        return {
+            "offen": {
+                **offen,
+                "name": entity.label if entity is not None else offen.get("entity_id"),
+            },
+            "urteile": list(alarmpflege.URTEILE),
+        }
+
+    @app.post("/api/alarm/einordnung")
+    async def alarm_einordnen(
+        body: AlarmUrteilRequest, request: Request
+    ) -> dict[str, Any]:
+        """Den letzten Alarm einordnen - die Frage nach dem Entschärfen."""
+        user = require(request, Capability.CONTROL)
+        try:
+            return alarm_service().einordnen(body.urteil, by=user.name)
+        except HomePilotError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+    @app.post("/api/alarm/wartung")
+    async def alarm_wartung(
+        body: AlarmWartungRequest, request: Request
+    ) -> dict[str, Any]:
+        """Den Wartungsmodus starten (Punkt 489 der Werkbank).
+
+        Wer scharf schalten darf, darf auch die Anlage für einen
+        Vormittag ruhen lassen - es ist dieselbe Entscheidung, nur
+        andersherum, und sie endet von selbst.
+        """
+        user = require(request, Capability.CONTROL)
+        return await alarm_service().wartung_starten(body.stunden, by=user.name)
+
+    @app.delete("/api/alarm/wartung")
+    async def alarm_wartung_beenden(request: Request) -> dict[str, Any]:
+        """Die Wartung beenden - und dabei wieder scharf schalten."""
+        user = require(request, Capability.CONTROL)
+        return await alarm_service().wartung_beenden(by=user.name)
+
+    @app.get("/api/alarm/blatt")
+    async def alarm_blatt(request: Request, at: float | None = None) -> Response:
+        """Ein Alarm als Blatt für Polizei oder Versicherung (Punkt 484).
+
+        Den Nachbericht gibt es seit Punkt 337 - als Absatz fürs
+        Telefon. Für eine Anzeige braucht es dasselbe mit Zeiten,
+        Sensoren und dem Hinweis auf die Aufnahmen, und zwar in der
+        Stunde danach statt drei Tage später aus der Erinnerung.
+        """
+        require(request, Capability.CONTROL)
+        service = alarm_service()
+
+        def name_von(entity_id: str) -> str:
+            entity = hub.registry.get(entity_id)
+            return entity.label if entity is not None else entity_id
+
+        text = alarmbericht.blatt(
+            service.history,
+            at,
+            # Die Hausadresse aus der config.yaml (wie beim
+            # Babysitter-Blatt, Punkt 213): Wer eine Anzeige macht, muss
+            # als Erstes sagen, wo. Fehlt sie, bleibt die Zeile weg.
+            haus=str((hub.config.location or {}).get("address") or "").strip(),
+            name_von=name_von,
+        )
+        return Response(content=text, media_type="text/plain; charset=utf-8")
 
     # ── Das Ereignisblatt ──────────────────────────────────────────────────
     #

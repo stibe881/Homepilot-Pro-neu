@@ -28,6 +28,33 @@ struct HausAktivitaetAttributes: ActivityAttributes {
     /// Optional und vom Hub bestimmt - eine alte App-Hülle überliest
     /// das Feld einfach (Codable ignoriert unbekannte Schlüssel).
     var knoepfe: [KartenKnopf]?
+    /// Die grosse Zahl links, z.B. «104°C» (Punkt 553). Nur der Grill
+    /// setzt sie; ohne sie bleibt die Karte die schmale Zeile, die
+    /// Timer, Waschmaschine und Sauger brauchen.
+    var gross: String?
+    /// Kreise rechts, z.B. die vier Fleischfühler des Grills.
+    var werte: [KartenWert]?
+    /// Der Griff unten in der Mitte, z.B. «Timer stellen» beim Grill
+    /// (Punkt 556). Eine Adresse, kein Befehl: Er öffnet die App an
+    /// der richtigen Stelle, statt am Hub etwas zu schalten.
+    var link: KartenLink?
+  }
+
+  /// Ein Griff, der in die App führt: SF-Symbol, Beschriftung, Adresse.
+  public struct KartenLink: Codable, Hashable {
+    var symbol: String
+    var text: String
+    var url: String
+  }
+
+  /// Ein Kreis auf der Karte: die Nummer des Fühlers, sein Wert und die
+  /// Farbe, die der Hub ihm fest zugeteilt hat (core/livekarten.py,
+  /// FUEHLERFARBEN). Die Zuteilung bleibt beim Hub, damit Fühler 2 am
+  /// Montag derselbe ist wie am Sonntag.
+  public struct KartenWert: Codable, Hashable {
+    var nummer: String
+    var wert: String
+    var farbe: String?
   }
 
   /// Ein Knopf auf der Karte: SF-Symbol plus dem, was er beim Hub

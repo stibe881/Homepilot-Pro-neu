@@ -1,5 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, ViewStyle } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { Animated, ViewStyle } from 'react-native';
+
+import { useBewegungReduziert } from '../hooks/useBewegungReduziert';
 
 /**
  * Der Übergang beim Wechsel des Ortes.
@@ -42,14 +44,7 @@ export function Auftritt({
   children: React.ReactNode;
 }) {
   const fortschritt = useRef(new Animated.Value(1)).current;
-  const [ruhig, setRuhig] = useState(false);
-
-  useEffect(() => {
-    AccessibilityInfo.isReduceMotionEnabled()
-      .then(setRuhig)
-      // Nicht abfragbar heisst: normal animieren.
-      .catch(() => {});
-  }, []);
+  const ruhig = useBewegungReduziert();
 
   useEffect(() => {
     if (ruhig) {

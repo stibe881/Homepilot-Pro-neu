@@ -47,6 +47,7 @@ from . import (
     livekarten,
     metrics,
     persistence,
+    pushgeraet,
     pushruhe,
     pushverlauf,
     raumbilder,
@@ -185,19 +186,31 @@ class Hub:
             log.warning(
                 "Der vorige Lauf endete nicht geordnet - vermutlich Stromausfall."
             )
-        self._rooms_by_entity = {
-            entity_id: room
-            for room, members in self.config.rooms.items()
-            for entity_id in members
-        }
+        # Ein Gerät darf in mehreren Zimmern stehen (Punkt 539): Wer es
+        # in der config.yaml unter zwei Räumen aufführt, meinte bisher
+        # zwei - bekam aber wortlos nur den zuletzt genannten, weil hier
+        # ein Dict mit einem Schlüssel je Gerät stand. Jetzt sammelt es
+        # sie in der Reihenfolge der Datei; der erste ist der Standort.
+        self._rooms_by_entity: dict[str, list[str]] = {}
+        for room, members in self.config.rooms.items():
+            for entity_id in members:
+                zimmer = self._rooms_by_entity.setdefault(entity_id, [])
+                if room not in zimmer:
+                    zimmer.append(room)
         for entry in self.data.get("entity_rooms"):
-            entity_id, room = entry.get("entity_id"), entry.get("room")
-            if entity_id:
-                if room:
-                    self._rooms_by_entity[entity_id] = room
-                else:
-                    self._rooms_by_entity.pop(entity_id, None)
-        self.registry.room_provider = self._rooms_by_entity.get
+            kennung = str(entry.get("entity_id") or "")
+            if not kennung:
+                continue
+            # Ältere Einträge kennen nur `room`; beide Formen lesen.
+            roh = entry.get("rooms")
+            if not isinstance(roh, list):
+                roh = [entry["room"]] if entry.get("room") else []
+            zimmer = [str(name) for name in roh if name]
+            if zimmer:
+                self._rooms_by_entity[kennung] = zimmer
+            else:
+                self._rooms_by_entity.pop(kennung, None)
+        self.registry.rooms_provider = self._rooms_by_entity.get
         # In der App gesetzte Metadaten (Name, Favorit, Gruppe) pro Entität.
         self._meta_by_entity = {
             entry["entity_id"]: entry
@@ -217,6 +230,10 @@ class Hub:
         integrations = list(self.config.integrations)
         if not any(entry.get("integration") == "alarm" for entry in integrations):
             integrations.append({"integration": "alarm"})
+        # Die Brandmeldeanlage ebenso (Punkt 543): Feuer hält sich nicht an
+        # Betriebsarten, und ein Rauchmelder soll melden, sobald er hängt.
+        if not any(entry.get("integration") == "brand" for entry in integrations):
+            integrations.append({"integration": "brand"})
         await self.integrations.setup_all(integrations)
         self.scenes.load(self.config.scenes, self.data.get("scenes"))
         await self.automations.start(
@@ -289,12 +306,11 @@ class Hub:
         self.push.on_change = lambda rows: self.data.set("push_devices", rows)
         # Jede verschickte Meldung auf den Nachlese-Zettel - eine
         # weggewischte Mitteilung ist sonst unauffindbar (pushverlauf.py).
-        self.push.on_sent = lambda eintrag: self.data.set(
-            pushverlauf.STORE_KEY,
-            pushverlauf.anhaengen(
-                self.data.get(pushverlauf.STORE_KEY), eintrag, time.time()
-            ),
-        )
+        self.push.on_sent = self._push_vermerken
+        # Und der Nachtrag, ob sie wirklich ankam (Punkt 475 der
+        # Werkbank): Der Push-Dienst fragt die Quittung ab, der Hub
+        # schreibt sie an die Zeile, die er selbst angelegt hat.
+        self.push.on_receipt = self._push_zustellung
         # Der Tagesdeckel: Der Push-Dienst fragt, der Hub zählt. Der
         # Zählerstand muss einen Neustart überstehen, sonst wäre ein
         # Update das Rezept, um den Deckel zu umgehen - und ausgerechnet
@@ -503,33 +519,53 @@ class Hub:
         """Alle Räume: aus der config.yaml plus die per App zugewiesenen,
         Reihenfolge der config zuerst."""
         rooms = list(self.config.rooms.keys())
-        for room in self._rooms_by_entity.values():
-            if room and room not in rooms:
-                rooms.append(room)
+        for zimmer in self._rooms_by_entity.values():
+            for room in zimmer:
+                if room and room not in rooms:
+                    rooms.append(room)
         return rooms
 
-    async def set_entity_room(self, entity_id: str, room: str | None) -> None:
-        """Weist einer Entität in der App einen Raum zu (oder entfernt ihn).
+    async def set_entity_room(
+        self, entity_id: str, rooms: list[str] | str | None
+    ) -> None:
+        """Weist einer Entität in der App Zimmer zu (oder nimmt sie weg).
 
-        Wirkt sofort und bleibt über Neustarts erhalten – gespeichert wird
+        Ein Zimmer oder mehrere (Punkt 539) - der erste ist der Standort.
+        Wirkt sofort und bleibt über Neustarts erhalten; gespeichert wird
         die Zuordnung in der homepilot-data.json, nicht in der config.yaml.
         """
-        if room:
-            self._rooms_by_entity[entity_id] = room
+        liste = [rooms] if isinstance(rooms, str) else list(rooms or [])
+        # Doppelte weg, Reihenfolge behalten: «Bad, Bad» ist ein Tippfehler
+        # und kein zweites Zimmer.
+        zimmer: list[str] = []
+        for name in liste:
+            sauber = str(name).strip()
+            if sauber and sauber not in zimmer:
+                zimmer.append(sauber)
+        if zimmer:
+            self._rooms_by_entity[entity_id] = zimmer
         else:
             self._rooms_by_entity.pop(entity_id, None)
 
         # In der App gesetzte Zuordnungen persistieren (config-Einträge
         # bleiben in der config.yaml und werden hier nicht dupliziert).
+        # `room` steht mit in der Zeile, damit eine ältere Fassung des
+        # Hubs die Datei noch lesen kann - sie nimmt dann den Standort.
         stored = [
             entry
             for entry in self.data.get("entity_rooms")
             if entry.get("entity_id") != entity_id
         ]
-        stored.append({"entity_id": entity_id, "room": room})
+        stored.append(
+            {
+                "entity_id": entity_id,
+                "room": zimmer[0] if zimmer else None,
+                "rooms": zimmer,
+            }
+        )
         self.data.set("entity_rooms", stored)
 
-        await self.registry.set_room(entity_id, room)
+        await self.registry.set_room(entity_id, zimmer)
 
     async def set_entity_meta(
         self,
@@ -625,6 +661,12 @@ class Hub:
         jetzt = time.time()
         ruhe: dict[str, Any] = {}
         still: dict[str, dict[str, float]] = {}
+        # Was einzelne Geräte abweichend eingestellt haben (Punkt 471):
+        # Token → eigene Abbestellungen bzw. eigene Ruhezeit. Nur, was
+        # wirklich abweicht - ein Gerät ohne Eintrag folgt der Person,
+        # und das ist der Normalfall.
+        geraete_muted: dict[str, set[str]] = {}
+        geraete_ruhe: dict[str, dict[str, Any]] = {}
         for eintrag in self.data.get("push_prefs") or []:
             if not isinstance(eintrag, dict):
                 continue
@@ -633,8 +675,52 @@ class Hub:
                 continue
             ruhe[name] = pushruhe.ruhe_lesen(eintrag.get("ruhe"))
             still[name] = pushruhe.still_lesen(eintrag.get("still"), jetzt)
+            for token, abweichung in pushgeraet.lesen(eintrag).items():
+                if "muted" in abweichung:
+                    geraete_muted[token] = {
+                        str(key)
+                        for key in abweichung.get("muted") or []
+                        if push_service.known(str(key))
+                    }
+                if "ruhe" in abweichung:
+                    geraete_ruhe[token] = pushruhe.ruhe_lesen(abweichung.get("ruhe"))
         self.push.ruhe = ruhe
         self.push.still = still
+        self.push.geraete_muted = geraete_muted
+        self.push.geraete_ruhe = geraete_ruhe
+        # Dringlichkeit je Kategorie und die Empfängergruppen: fürs Haus,
+        # nicht je Person - deshalb eigene Schlüssel neben push_prefs.
+        self.push.stufen = push_service.stufen_lesen(self.data.get(push_service.STUFEN_KEY))
+        self.push.gruppen = push_service.gruppen_lesen(
+            self.data.get(push_service.GRUPPEN_KEY)
+        )
+        self.push.kritisch_erlaubt = bool((self.config.push or {}).get("critical_alerts"))
+
+    def _push_vermerken(self, eintrag: dict[str, Any]) -> float:
+        """Eine verschickte Meldung auf den Nachlese-Zettel schreiben.
+
+        Gibt den Zeitstempel der Zeile zurück - daran hängt später der
+        Vermerk, ob sie wirklich zugestellt wurde (Punkt 475). Ohne ihn
+        müsste der Nachtrag die «neueste» Zeile suchen, und zwischen
+        Senden und Quittung liegen Sekunden, in denen etwas anderes
+        gemeldet worden sein kann.
+        """
+        jetzt = time.time()
+        self.data.set(
+            pushverlauf.STORE_KEY,
+            pushverlauf.anhaengen(
+                self.data.get(pushverlauf.STORE_KEY), eintrag, jetzt
+            ),
+        )
+        return jetzt
+
+    def _push_zustellung(self, marke: float, probleme: list[str]) -> None:
+        """Nachtragen, dass eine Meldung nicht ankam (Punkt 475)."""
+        neu = pushverlauf.zustellung_vermerken(
+            self.data.get(pushverlauf.STORE_KEY), marke, probleme
+        )
+        if neu is not None:
+            self.data.set(pushverlauf.STORE_KEY, neu)
 
     def _push_deckel(self, category: str) -> str | None:
         """Ist der Tagesdeckel dieser Kategorie erreicht? (siehe pushruhe.py)
@@ -720,6 +806,15 @@ class Hub:
                 "version": __version__,
                 "commit": os.environ.get("HOMEPILOT_COMMIT", "unbekannt"),
                 "built_at": os.environ.get("HOMEPILOT_BUILD_TIME", "unbekannt"),
+                # Welcher Zweig gebaut wurde (Punkt 430 der Werkbank).
+                #
+                # Der Update-Knopf baut, was in deploy/rebuild-hub.sh
+                # unter BRANCH steht - und das ist «main». Wer auf einem
+                # anderen Zweig arbeitet und auf Update drückt, sieht
+                # einen erfolgreichen Bau ohne seine Änderung. Genau der
+                # Fehler, für den es CLAUDE.md gibt; nur stand er dort
+                # und nicht dort, wo der Knopf ist.
+                "branch": os.environ.get("HOMEPILOT_BRANCH_BUILT") or "unbekannt",
             },
             "energy": self.config.energy,
             # Was der Hub über sich selbst weiss. Bisher stand hier nur der
@@ -798,6 +893,6 @@ class Hub:
         # Platte - der Takt dafür ist oben schon beendet.
         self.data.flush()
         self.registry.state_provider = None
-        self.registry.room_provider = None
+        self.registry.rooms_provider = None
         self.registry.meta_provider = None
         self.registry.change_provider = None

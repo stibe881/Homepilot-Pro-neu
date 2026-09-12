@@ -68,7 +68,11 @@ def test_choice_is_stored_and_validated(client):
     assert antwort.status_code == 200
     daten = antwort.json()
     assert daten["sound"] == "hupe"
-    assert daten["speakers"] == [box]
+    # Eine blosse Kennung kommt mit ihren Vorgaben zurück - eine ältere
+    # App darf weiter schreiben, ohne etwas zu verlieren.
+    assert [eintrag["id"] for eintrag in daten["speakers"]] == [box]
+    assert daten["speakers"][0]["volume"] == 55
+    assert daten["speakers"][0]["from"] == "00:00"
 
     # Ein unbekannter Ton wird abgelehnt, nicht stillschweigend übernommen.
     antwort = client.put(
@@ -90,7 +94,7 @@ def test_choice_is_stored_and_validated(client):
     # überschreibt nichts.
     antwort = client.get("/api/push/doorbell-sound", headers=auth("t-owner"))
     assert antwort.json()["sound"] == "hupe"
-    assert antwort.json()["speakers"] == [box]
+    assert [eintrag["id"] for eintrag in antwort.json()["speakers"]] == [box]
 
 
 def test_omitting_a_field_leaves_it_untouched(client):
@@ -110,12 +114,11 @@ def test_omitting_a_field_leaves_it_untouched(client):
     antwort = client.put(
         "/api/push/doorbell-sound", json={"sound": "tusch"}, headers=auth("t-owner")
     )
-    assert antwort.json() == {
-        "sound": "tusch",
-        "speakers": [box],
-        "sounds": antwort.json()["sounds"],
-        "candidates": antwort.json()["candidates"],
-    }
+    daten = antwort.json()
+    assert daten["sound"] == "tusch"
+    assert daten["speakers"] == [{"id": box, "volume": 55, "from": "00:00", "to": "24:00"}]
+    assert daten["night"] == klingelton.NACHT_STANDARD
+    assert daten["announce"] is False
 
 
 def test_the_test_button_plays_without_saving(client):
@@ -160,3 +163,58 @@ def test_only_edit_automations_may_save(client):
         headers=auth("t-resident"),
     )
     assert antwort.status_code == 403
+
+
+def test_every_sound_can_be_fetched_as_a_wav(client):
+    """Zum Anhören auf dem Gerät in der Hand: jeder Klang als Datei."""
+    for klang in klingelton.KLAENGE:
+        antwort = client.get(
+            f"/api/push/doorbell-sound/{klang['key']}.wav", headers=auth("t-owner")
+        )
+        assert antwort.status_code == 200, klang["key"]
+        assert antwort.headers["content-type"].startswith("audio/wav")
+        assert antwort.content.startswith(b"RIFF")
+
+
+def test_wav_accepts_the_token_in_the_query(client):
+    """Audio-Player schicken keine eigenen Kopfzeilen mit - ohne Token in
+    der Adresse bliebe die Probe auf dem Telefon stumm."""
+    antwort = client.get(f"/api/push/doorbell-sound/{klingelton.STANDARD}.wav?token=t-owner")
+    assert antwort.status_code == 200
+    assert antwort.content.startswith(b"RIFF")
+
+
+def test_wav_needs_a_token(client):
+    antwort = client.get(f"/api/push/doorbell-sound/{klingelton.STANDARD}.wav")
+    assert antwort.status_code == 401
+
+
+def test_unknown_sound_has_no_wav(client):
+    antwort = client.get("/api/push/doorbell-sound/nie-gehört.wav", headers=auth("t-owner"))
+    assert antwort.status_code == 404
+def test_night_rule_and_announcement_are_stored_and_validated(client):
+    antwort = client.put(
+        "/api/push/doorbell-sound",
+        json={
+            "night": {"mode": "leise", "from": 21, "to": 6},
+            "announce": True,
+            "announce_text": "Es klingelt an der Haustüre.",
+        },
+        headers=auth("t-owner"),
+    )
+    assert antwort.status_code == 200, antwort.text
+    daten = antwort.json()
+    assert daten["night"] == {"mode": "leise", "from": 21, "to": 6}
+    assert daten["announce"] is True
+    assert daten["announce_text"] == "Es klingelt an der Haustüre."
+    # Ein Feld allein lässt die anderen stehen.
+    client.put("/api/push/doorbell-sound", json={"sound": "hupe"}, headers=auth("t-owner"))
+    daten = client.get("/api/push/doorbell-sound", headers=auth("t-owner")).json()
+    assert daten["night"]["mode"] == "leise"
+    assert daten["announce"] is True
+    assert (
+        client.put(
+            "/api/push/doorbell-sound", json={"night": {"mode": "laut"}}, headers=auth("t-owner")
+        ).status_code
+        == 400
+    )

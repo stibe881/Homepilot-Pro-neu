@@ -437,7 +437,7 @@ const makeStyles = (colors: Colors) =>
     heading: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
     hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },
     note: { color: colors.onGradientSoft, fontSize: 14, marginTop: 20 },
-    wait: { color: colors.warn, fontSize: 12, lineHeight: 18, fontWeight: '600' },
+    wait: { color: colors.warnInk, fontSize: 12, lineHeight: 18, fontWeight: '600' },
     /** Kopf: Titel und Zahl links, der Suchknopf rechts auf derselben
      *  Höhe – er ist die Handlung, die zu dieser Auskunft gehört. */
     kopf: { flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -486,7 +486,7 @@ const makeStyles = (colors: Colors) =>
     name: { color: colors.ink, fontSize: 15, fontWeight: '700' },
     unterzeile: { color: colors.inkSoft, fontSize: 12, lineHeight: 17 },
     leiser: { color: colors.accent, fontSize: 12, fontWeight: '600', paddingTop: 2 },
-    badgeWait: { color: colors.warn, fontSize: 11, fontWeight: '700' },
+    badgeWait: { color: colors.warnInk, fontSize: 11, fontWeight: '700' },
     badgeOk: { color: colors.on, fontSize: 11, fontWeight: '700' },
     /** «Übernehmen» ist die Handlung dieser Seite und sieht jetzt danach
      *  aus: gefüllt statt als blasser Umriss neben zwei anderen Symbolen. */

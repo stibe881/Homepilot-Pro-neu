@@ -95,6 +95,50 @@ def test_ein_reiner_messfuehler():
 # ── Was das Gerät meldet ─────────────────────────────────────────────────
 
 
+def test_ein_fuehler_bringt_seine_einheit_mit():
+    """Ohne Einheit ist ein Fühler in der App nur eine Zahl.
+
+    `lib/klimachip.ts` erkennt einen Klimafühler an der Einheit und
+    nicht am Namen - ein Prozentwert kann Feuchte, Batterie oder
+    Funkauslastung sein. Fehlt sie, hat das zwei Folgen, und beide sind
+    im Haus aufgefallen: Der Raumkopf blieb leer, obwohl die Kachel die
+    Temperatur zeigte, und im Anpassen-Blatt fehlte die Zeile «Gilt
+    für», weil sie an derselben Prüfung hängt. Ein Aqara-Fühler liess
+    sich dadurch nicht in die Kopfzeile heben, ein Homematic daneben
+    schon.
+    """
+    changes = z.zustand_aus_payload(
+        {"temperature": 21.5, "humidity": 46, "battery": 90},
+        "sensor",
+        None,
+        "temperature",
+    )
+    assert changes["state"] == 21.5
+    assert changes["unit"] == "°C"
+    assert changes["device_class"] == "temperature"
+
+    feuchte = z.zustand_aus_payload({"humidity": 46}, "sensor", None, "humidity")
+    assert feuchte["unit"] == "%"
+    assert feuchte["device_class"] == "humidity"
+
+
+def test_ein_melder_behaelt_seine_klasse():
+    """Die Klasse des Melders sticht die des Hauptwerts.
+
+    Ein Bewegungsmelder meldet nebenbei Helligkeit und Temperatur. Wäre
+    er nach seinem Hauptwert benannt, stünde er als «Helligkeitsfühler»
+    in der Alarmanlage - und die entscheidet an der Klasse, ob er
+    nachts mitwacht.
+    """
+    changes = z.zustand_aus_payload(
+        {"occupancy": True, "illuminance_lux": 12},
+        "binary_sensor",
+        "motion",
+        "illuminance",
+    )
+    assert changes["device_class"] == "motion"
+
+
 def test_zigbee_dreht_den_fensterkontakt_um():
     """`contact: true` heisst **zu**.
 
@@ -242,3 +286,203 @@ def test_erreichbarkeit_in_beiden_schreibweisen():
     assert z.ist_erreichbar("") is None
     assert z.ist_erreichbar("was auch immer") is None
     assert z.ist_erreichbar("{kaputt") is None
+
+
+def test_der_rauchmelder_bringt_seine_dichten_mit():
+    """Punkt 542: Was ein Rauchwarnmelder ausser «Rauch» meldet.
+
+    Vorher fiel das alles durch: MESSWERTE ist eine Auswahl, kein
+    Durchlass, und `smoke_density` stand nicht darin. Unter
+    Einstellungen → System stünde dann eine Liste mit Status und sonst
+    nichts - für Geräte, die man nie anfasst, ist das genau die
+    Auskunft, die fehlt.
+    """
+    changes = z.zustand_aus_payload(
+        {
+            "smoke": False,
+            "battery": 87,
+            "smoke_density": 0,
+            "smoke_density_dbm": 0.05,
+            "tamper": False,
+            "test": False,
+            "linkquality": 94,
+        },
+        "binary_sensor",
+        "smoke",
+        None,
+    )
+    assert changes["state"] == "off"
+    assert changes["smoke_density"] == 0
+    assert changes["smoke_density_dbm"] == 0.05
+    assert changes["battery"] == 87
+    assert changes["linkquality"] == 94
+    # Der Selbsttest, damit «Rauch» nicht nach Feuer aussieht, wenn
+    # jemand nur den Knopf gedrückt hat.
+    assert changes["test"] is False
+    # Sabotage kommt über MELDER, weil dieses Gerät ein Rauchmelder ist
+    # und kein Sabotagekontakt.
+    assert changes["tamper"] == "off"
+
+
+def test_die_eigene_batteriewarnung_des_geraets_sticht_den_prozentwert():
+    """Melder melden den Stand oft in drei Stufen - 100, 50, 0.
+
+    Ein Melder, der «battery: 50» und zugleich «battery_low: true»
+    schickt, ist leer und nicht halbvoll: Die Warnung kommt vom
+    Hersteller, der Prozentwert ist geraten. Vorher rechnete der Hub sie
+    aus dem Prozentwert nach und überschrieb damit genau die Auskunft,
+    auf die es ankommt.
+    """
+    changes = z.zustand_aus_payload(
+        {"smoke": False, "battery": 50, "battery_low": True},
+        "binary_sensor",
+        "smoke",
+        None,
+    )
+    assert changes["low_battery"] is True
+
+    heil = z.zustand_aus_payload(
+        {"smoke": False, "battery": 50, "battery_low": False},
+        "binary_sensor",
+        "smoke",
+        None,
+    )
+    assert heil["low_battery"] is False
+
+
+# ── Ein Melder, der selbst Lärm macht (Punkt 544) ───────────────────────
+
+
+def _melder_mit_sirene():
+    """Ein Rauchmelder mit IAS-WD-Sirene, wie Zigbee2MQTT ihn beschreibt."""
+    return [
+        {"type": "binary", "property": "smoke", "name": "smoke", "access": 1},
+        {"type": "binary", "property": "battery_low", "name": "battery_low", "access": 1},
+        {
+            "type": "composite",
+            "property": "warning",
+            "name": "warning",
+            "access": 2,
+            "features": [
+                {"name": "mode", "access": 2},
+                {"name": "level", "access": 2},
+                {"name": "strobe", "access": 2},
+                {"name": "duration", "access": 2},
+            ],
+        },
+    ]
+
+
+def test_ein_melder_ohne_sirene_bekommt_keinen_knopf():
+    """Ob er Lärm machen kann, hängt am Modell und nicht am Wunsch.
+
+    Ein Knopf «Signal geben» an einem Melder, der keine Sirene hat, wäre
+    eine Attrappe - und genau das soll die Auswahl im Ablauf-Editor nie
+    zeigen.
+    """
+    nackt = [{"type": "binary", "property": "smoke", "name": "smoke", "access": 1}]
+    art, befehle = z.art_und_befehle(nackt)
+    assert art == "binary_sensor"
+    assert befehle == []
+    assert z.sirene_art(nackt) is None
+
+
+def test_der_gemeldete_alarm_ist_kein_befehl():
+    """`alarm` heisst bei den meisten Meldern «ich schlage gerade an».
+
+    Nur lesbar (access 1) ist es ein Zustand; erst mit dem Schreibbit
+    ist es ein Befehl. Ohne diese Trennung bekäme jeder Melder mit einem
+    Alarmfeld einen Knopf, der nichts tut.
+    """
+    nur_zustand = [{"type": "binary", "property": "alarm", "name": "alarm", "access": 1}]
+    assert z.sirene_art(nur_zustand) is None
+    stellbar = [{"type": "binary", "property": "alarm", "name": "alarm", "access": 7}]
+    assert z.sirene_art(stellbar) == "alarm"
+
+
+def test_ein_melder_mit_sirene_bleibt_ein_melder_und_bekommt_befehle():
+    """Im Alltag ist er das, was er meldet - aber er steht jetzt zur Wahl.
+
+    Ohne Befehle stand er im Ablauf-Editor gar nicht erst da: Die Auswahl
+    dort zeigt, was ein Gerät wirklich kann.
+    """
+    art, befehle = z.art_und_befehle(_melder_mit_sirene())
+    assert art == "binary_sensor"
+    assert befehle == ["sound_alarm", "silence_alarm"]
+    assert z.sirene_art(_melder_mit_sirene()) == "warning"
+
+
+def test_das_signal_klingt_nach_feuer_und_hoert_von_selbst_auf():
+    """Ein Rauchmelder mit Einbruchs-Tonfolge sagt dem Haus das Falsche.
+
+    Und die Dauer gehört mit: Eine Sirene, die nur ein zweiter Befehl
+    stoppt, läuft nach einem Stromausfall im Hub weiter.
+    """
+    an = z.set_nutzlast("binary_sensor", "sound_alarm", {}, "warning")
+    assert an["warning"]["mode"] == "fire"
+    assert an["warning"]["duration"] == z.SIGNAL_SEKUNDEN
+    assert an["warning"]["strobe"] is True
+
+    laenger = z.set_nutzlast("binary_sensor", "sound_alarm", {"duration": 120}, "warning")
+    assert laenger["warning"]["duration"] == 120
+    # Nach oben begrenzt: Eine Viertelstunde Sirene ist genug, und eine
+    # vertippte Null mehr wäre eine Viertelnacht.
+    endlos = z.set_nutzlast("binary_sensor", "sound_alarm", {"duration": 99999}, "warning")
+    assert endlos["warning"]["duration"] == 900
+
+
+def test_abstellen_sagt_stop_und_nicht_dauer_null():
+    """Manche Geräte lesen die Null als «unbegrenzt»."""
+    aus = z.set_nutzlast("binary_sensor", "silence_alarm", {}, "warning")
+    assert aus["warning"]["mode"] == "stop"
+    assert aus["warning"]["duration"] == 0
+
+
+def test_der_einfache_melder_kennt_nur_ja_und_nein():
+    an = z.set_nutzlast("binary_sensor", "sound_alarm", {}, "alarm")
+    aus = z.set_nutzlast("binary_sensor", "silence_alarm", {}, "alarm")
+    assert an == {"alarm": True}
+    assert aus == {"alarm": False}
+
+
+def test_ein_signal_an_ein_stummes_geraet_wird_abgewiesen():
+    """Lieber ein Fehler als ein Befehl, der ins Leere geht."""
+    with pytest.raises(ConfigError):
+        z.set_nutzlast("binary_sensor", "sound_alarm", {}, None)
+
+
+def test_der_aqara_summer_sticht_die_gemeinsame_vokabel():
+    """Zwei Sprachen für dasselbe - aber nie beide am selben Gerät.
+
+    Aqara spricht «buzzer» (Punkt 543), der Zigbee-Standard «warning»
+    und Tuya «alarm» (Punkt 544). Zwei Chips «Signal geben»
+    nebeneinander wären zweimal dieselbe Frage; der Summer sticht, weil
+    er die Vokabel des Geräts selbst ist.
+    """
+    beides = [
+        {"type": "binary", "property": "smoke", "name": "smoke", "access": 1},
+        {"type": "enum", "property": "buzzer", "name": "buzzer", "access": 2},
+        {"type": "binary", "property": "alarm", "name": "alarm", "access": 7},
+    ]
+    art, befehle = z.art_und_befehle(beides)
+    assert art == "binary_sensor"
+    assert befehle == ["buzzer_alarm", "mute"]
+
+
+def test_ein_gemeldeter_selbsttest_ist_kein_knopf():
+    """`test` im Zustand heisst «ich teste gerade», nicht «teste jetzt».
+
+    Punkt 542 führt das Feld als Wert; ein Chip dafür wäre eine
+    Attrappe, und der Hub schickte ein Feld, das das Gerät nicht kennt.
+    """
+    nur_meldung = [
+        {"type": "binary", "property": "smoke", "name": "smoke", "access": 1},
+        {"type": "binary", "property": "test", "name": "test", "access": 1},
+    ]
+    assert z.art_und_befehle(nur_meldung)[1] == []
+
+    echter_knopf = [
+        {"type": "binary", "property": "smoke", "name": "smoke", "access": 1},
+        {"type": "binary", "property": "self_test", "name": "self_test", "access": 2},
+    ]
+    assert z.art_und_befehle(echter_knopf)[1] == ["self_test"]

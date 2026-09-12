@@ -45,6 +45,32 @@ describe.each(paletten)('Palette $name', ({ colors, hinter, rohRand }) => {
     expect(textContrast(colors.inkFaint, colors.surface, hinter)).toBeGreaterThanOrEqual(2);
   });
 
+  it('hält Warn-Text wirklich lesbar (warnInk)', () => {
+    // Punkt 442/444 der Werkbank. `warn` darunter ist eine Signalfarbe
+    // an einem Symbol und darf schwach sein - als *Schrift* trug sie
+    // nichts: Im hellen Bild 1,6:1, im Sand-Bild 2,1, und in genau
+    // dieser Farbe standen zwanzig Hinweiszeilen quer durch die App.
+    // 4,5 ist die WCAG-Schwelle für Fliesstext, und hier gilt sie.
+    expect(textContrast(colors.warnInk, colors.surface, hinter)).toBeGreaterThanOrEqual(4.5);
+    expect(
+      textContrast(colors.warnInk, colors.panel, colors.panel)
+    ).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('lässt auf dem Akzent-Hauch weiter Fliesstext zu (accentSoft)', () => {
+    // Punkt 537 der Werkbank: Jedes gewählte Gerät im Ablauf-Editor
+    // trägt seine Einstellungen auf `accentSoft`. Der Ton ist bewusst
+    // blass - er soll zusammenfassen, nicht zum Knopf werden -, und
+    // genau deshalb muss hier geprüft sein, dass er nichts verdunkelt:
+    // Darauf steht `ink`, nicht der Akzent.
+    expect(
+      textContrast(colors.ink, colors.accentSoft, colors.panel)
+    ).toBeGreaterThanOrEqual(7);
+    expect(
+      textContrast(colors.inkSoft, colors.accentSoft, colors.panel)
+    ).toBeGreaterThanOrEqual(4);
+  });
+
   it('hält die Signalfarben erkennbar (accent, danger)', () => {
     expect(textContrast(colors.accent, colors.surface, hinter)).toBeGreaterThanOrEqual(3);
     expect(textContrast(colors.danger, colors.surface, hinter)).toBeGreaterThanOrEqual(3);

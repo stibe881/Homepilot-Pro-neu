@@ -13,6 +13,7 @@ import {
   isTelevision,
   kachelHerkunft,
   melderArt,
+  stoppZiel,
   zeigtStopp,
 } from './geraeteart';
 
@@ -251,6 +252,70 @@ describe('kachelHerkunft', () => {
     // der Raum so, wie er im Haus heisst.
     expect(kachelHerkunft(store({ name: 'Terrasse', room: 'terrasse' }))).toBe(
       'Store / Rollladen · terrasse'
+    );
+  });
+});
+
+describe('stoppZiel', () => {
+  const box = (name: string, state: string) =>
+    geraet({
+      id: `cast.${name}`,
+      name,
+      kind: 'media_player',
+      integration: 'google_cast',
+      commands: ['play', 'pause', 'turn_off', 'play_url'],
+      state: { state },
+    });
+  const spotify = (state: string, device: string | null) =>
+    geraet({
+      id: 'spotify.player',
+      name: 'Spotify',
+      kind: 'media_player',
+      integration: 'spotify',
+      commands: ['play', 'pause', 'play_playlist', 'play_on'],
+      state: { state, device },
+    });
+
+  it('beendet die Box, auf der die gezeigte Quelle spielt', () => {
+    // Der Fall von der Startseite: Dort steht meist Spotify in der
+    // Karte, nicht die Box - und Spotify kennt kein Aus. Vorher fehlte
+    // der Knopf deshalb genau dort, wo im Zimmer einer steht.
+    const kueche = box('Nest Küche', 'idle');
+    const ziel = stoppZiel(spotify('playing', 'Nest Küche'), [kueche], 'Nest Küche');
+    expect(ziel?.id).toBe('cast.Nest Küche');
+  });
+
+  it('nimmt die gezeigte Box selbst, wenn eine dasteht', () => {
+    const wohnzimmer = box('Wohnzimmer', 'playing');
+    expect(stoppZiel(wohnzimmer, [wohnzimmer], null)?.id).toBe('cast.Wohnzimmer');
+  });
+
+  it('bleibt weg, solange die Quelle nichts spielt', () => {
+    const kueche = box('Nest Küche', 'idle');
+    expect(stoppZiel(spotify('idle', 'Nest Küche'), [kueche], 'Nest Küche')).toBeNull();
+  });
+
+  it('bleibt weg, wenn die Quelle keine Box nennt', () => {
+    // Spotify auf dem Handy eines Gastes: Der Hub kennt die Box nicht,
+    // und ein Knopf, der nichts erreicht, ist schlimmer als keiner.
+    expect(stoppZiel(spotify('playing', null), [box('Nest Küche', 'idle')], null)).toBeNull();
+  });
+
+  it('bleibt weg, wenn die genannte Box kein Aus kennt', () => {
+    const ohneAus = geraet({
+      id: 'sonos.bad',
+      name: 'Bad',
+      kind: 'media_player',
+      commands: ['play', 'pause'],
+      state: { state: 'playing' },
+    });
+    expect(stoppZiel(spotify('playing', 'Bad'), [ohneAus], 'Bad')).toBeNull();
+  });
+
+  it('beendet auch eine pausierte Sitzung - die besetzt die Box lautlos', () => {
+    const kueche = box('Nest Küche', 'paused');
+    expect(stoppZiel(spotify('paused', 'Nest Küche'), [kueche], 'Nest Küche')?.id).toBe(
+      'cast.Nest Küche'
     );
   });
 });

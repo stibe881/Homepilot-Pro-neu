@@ -13,10 +13,23 @@ verschiedene Dinge, und ohne diese Ausgabe rät man zwischen ihnen:
   erreicht, oder ein Steuerkreuz-Zwilling, der nicht gefunden wird.
 - Der Hub will sie nicht mehr, kann sie aber nicht beenden - ihm fehlt
   das Aktivitäts-Token des Telefons. Dann steht die Zeile unter
-  «Liegende Karten» mit ``Token: -``; sie geht weg, sobald die App
-  einmal geöffnet wird (core/livekarten.py, ende_offen).
+  «Liegende Karten» mit ``Token: -`` und ``Ende offen``; sie geht weg,
+  sobald die App einmal geöffnet wird (core/livekarten.py, ende_offen).
+- Der Hub will sie nicht mehr, hat das Token - und Apple nimmt das Ende
+  gerade nicht an. Dann steht die Zeile mit ``Token: 1`` **und** ``Ende
+  offen`` da, und der Takt versucht es alle zwanzig Sekunden erneut.
+  Warum es scheitert, steht im Protokoll («Ende kam nicht an»).
 - Der Hub weiss von keiner Karte mehr. Dann liegt auf dem Telefon eine
-  Leiche aus einer früheren Fassung - App öffnen räumt sie ab.
+  Leiche - App öffnen räumt sie ab.
+
+  Dieser letzte Fall hiess hier lange «aus einer früheren Fassung», und
+  das war falsch: Er entstand laufend. Ein Ende, das nicht ankam, wurde
+  bis Fassung X als erledigt verbucht und die Zeile gestrichen - danach
+  kannte der Hub die Karte nicht mehr und konnte sie nie abräumen.
+  Genau das war der vierte Bericht «der Fernseher ist aus, die Karte ist
+  immer noch da». Seither bleibt die Zeile stehen, bis das Ende wirklich
+  draussen war; taucht dieser Fall trotzdem noch auf, ist es wirklich
+  eine alte Leiche.
 
 Meldet Python «No module named homepilot.tvcheck», läuft noch ein altes
 Abbild - dann zuerst deploy/rebuild-hub.sh und in Portainer neu

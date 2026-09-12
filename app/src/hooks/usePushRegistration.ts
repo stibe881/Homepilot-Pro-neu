@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import { useEffect, useState } from 'react';
@@ -33,6 +34,24 @@ function projectId(): string | undefined {
  * nicht geklappt hat. Vorher verschwand jeder Fehler still, und im
  * System-Screen stand bloss «Kein Gerät angemeldet», ohne den Grund.
  */
+/** Wo der eigene Push-Token liegt (Punkt 471 der Werkbank). */
+export const EIGENER_TOKEN_KEY = 'homepilot.pushtoken';
+
+/**
+ * Der Push-Token dieses Geräts – oder null.
+ *
+ * Gebraucht von den Push-Einstellungen, um «nur auf diesem Gerät»
+ * anbieten zu können. Null heisst schlicht: Die Wahl steht nicht da,
+ * und die Einstellung gilt für alle Geräte – genau wie vor Punkt 471.
+ */
+export async function eigenerPushToken(): Promise<string | null> {
+  try {
+    return await AsyncStorage.getItem(EIGENER_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
 export function usePushRegistration(
   settings: HubSettings,
   connected: boolean
@@ -60,7 +79,16 @@ export function usePushRegistration(
         const existing = await Notifications.getPermissionsAsync();
         let granted = existing.granted;
         if (!granted && existing.canAskAgain) {
-          granted = (await Notifications.requestPermissionsAsync()).granted;
+          // Mit «kritisch» gefragt (Punkt 392): iOS gewährt das nur,
+          // wenn Apple dem Build die Berechtigung gegeben hat - sonst
+          // ist die Frage ohne Folgen, und die Meldung kommt als
+          // «dringend». So muss beim Tag X nur die Hülle neu, nicht die
+          // Erlaubnis noch einmal eingeholt werden.
+          granted = (
+            await Notifications.requestPermissionsAsync({
+              ios: { allowCriticalAlerts: true, allowAlert: true, allowBadge: true, allowSound: true },
+            })
+          ).granted;
         }
         if (cancelled) return;
         if (!granted) {
@@ -87,6 +115,17 @@ export function usePushRegistration(
         if (!response.ok) {
           setPush({ state: 'failed', detail: `Hub antwortet mit ${response.status}` });
           return;
+        }
+        // Den eigenen Token merken (Punkt 471 der Werkbank): Die
+        // Push-Einstellungen sollen «nur auf diesem Gerät» anbieten
+        // können, und dafür müssen sie wissen, welches Gerät das ist.
+        // Der Hub kann das nicht sagen - eine Anfrage trägt keinen
+        // Push-Token, nur eine Anmeldung.
+        try {
+          await AsyncStorage.setItem(EIGENER_TOKEN_KEY, pushToken);
+        } catch {
+          // Ohne den Merker fehlt nur die Wahl «nur hier» - die
+          // Einstellung gilt dann für alle Geräte, wie vor Punkt 471.
         }
         setPush({ state: 'registered', label });
       } catch (err) {

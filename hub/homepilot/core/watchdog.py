@@ -40,8 +40,10 @@ from . import (
     familie,
     flattern,
     funkqualitaet,
+    gastspur,
     gemeldet,
     giessen,
+    grillmeldung,
     gutscheine,
     gutscheinort,
     kamera,
@@ -141,6 +143,14 @@ SAUGER_STORE_KEY = "vacuum_notified"
 #: weil zwischen Vorwarnung und Regen eine Viertelstunde liegt und ein
 #: Update dazwischen der Normalfall ist.
 REGEN_KEY = "rain_warned"
+
+#: Die Kerntemperatur-Ziele je Grill: {entity_id: {"1": 63}} (Punkt 554).
+#:
+#: In der Datendatei und nicht an der Entität: Die Steuerplatine meldet
+#: je Fühler nur die Temperatur, kein Ziel. Solange offen ist, ob sie
+#: überhaupt eines führt (grillcheck druckt ihren rohen Zustand), gehört
+#: es dorthin, wo es einen Neustart überlebt.
+GRILLZIELE_KEY = "grill_probe_targets"
 
 
 class Watchdog:
@@ -248,6 +258,11 @@ class Watchdog:
         # Kochgeräte: ob das Gerät in der letzten Runde am Vorheizen war -
         # die Flanke «Vorheizen fertig» ergibt die Parat-Durchsage (ofen.py).
         self._vorheiz: dict[str, bool] = {}
+        # Grill: was schon gemeldet ist (Punkt 554). «Ist über dem Ziel»
+        # bleibt zwanzig Minuten lang wahr, und zwanzig Minuten lang zu
+        # melden wäre kein Hinweis, sondern ein Wecker. Je Grill der
+        # Sollwert, je Fühler die Nummer (core/grillmeldung.py).
+        self._grill_gemeldet: set[str] = set()
         # Losfahr-Wecker: höchstens ein Nominatim-Nachschlagen je Runde,
         # und nie schneller als hier steht - deren Regeln, nicht unsere.
         self._geo_zuletzt: float = 0.0
@@ -548,6 +563,7 @@ class Watchdog:
         self.rules = notifyrules.effective(self.hub.data.get("notify_rules"))
         entities = self.hub.registry.all()
         await self._check_appliances(entities)
+        await self._check_grill(entities)
         await self._check_devices(entities)
         await self._check_flattern()
         await self._check_batteries(entities)
@@ -582,6 +598,8 @@ class Watchdog:
         await self._check_losfahren(entities)
         await self._check_family_cleanup()
         await self._check_vouchers()
+        # Was abgelaufene Gäste hinterlassen (Punkt 498 der Werkbank).
+        await self._gastspuren_aufraeumen()
         await self._check_meal_plan()
         await self._check_access()
         await self._check_spaeter()
@@ -657,7 +675,12 @@ class Watchdog:
             )
 
     def _cover_guard(self, art: str) -> list[str]:
-        """Die gespeicherte Storen-Auswahl («storm» oder «heat»)."""
+        """Eine gespeicherte Auswahl der Wächter-Regeln.
+
+        Vier Arten in derselben Zeile: «storm» und «heat» sind Storen,
+        «temp» und «humidity» die Fühler, auf die der Hitze-Hinweis
+        hört (Punkt 540). Leer heisst überall alle.
+        """
         return storenwaechter.guard_auswahl(self.hub.data.get("cover_guard"), art)
 
     def _sonnenhoehe(self) -> float:
@@ -792,9 +815,22 @@ class Watchdog:
         regel = self.rules.get("heat_covers", {})
         if not regel.get("enabled", True):
             return
-        innen = storenwaechter.innentemperatur(entities)
+        # Welche Fühler zählen, steht neben der Storen-Auswahl derselben
+        # Regel (Punkt 540). Leer heisst alle - wie bei den Storen.
+        innen = storenwaechter.innentemperatur(entities, self._cover_guard("temp"))
         if innen is None:
             return
+        # Die Feuchte nur, wenn jemand Fühler dafür angehakt hat - anders
+        # als bei der Temperatur heisst leer hier *nicht* «alle». Die
+        # Nachricht nannte bisher keine Feuchte, und das soll sie ohne
+        # Zutun weiterhin nicht: Eine Zahl, die niemand ausgesucht hat,
+        # taucht sonst nach einem Update einfach auf.
+        feuchtefuehler = self._cover_guard("humidity")
+        feuchte = (
+            storenwaechter.innenfeuchte(entities, feuchtefuehler)
+            if feuchtefuehler
+            else None
+        )
         schwelle = float(regel.get("params", {}).get("innen_ab", 25))
         jetzt = datetime.now()
         heute = jetzt.strftime("%Y-%m-%d")
@@ -802,11 +838,17 @@ class Watchdog:
 
         if storenwaechter.hitze_tagsueber(innen, schwelle, elevation, jetzt.hour):
             if self._einmal(f"heat-tag:{heute}"):
+                # Die Feuchte nur, wo jemand einen Fühler dafür
+                # angehakt hat: Sonst stünde eine Zahl in der Nachricht,
+                # die niemand ausgesucht hat - und bei 28 Grad ist es
+                # gerade die Feuchte, die «warm» von «schwül»
+                # unterscheidet.
+                schwuel = f" bei {feuchte:g} % Luftfeuchtigkeit" if feuchte is not None else ""
                 await self._notify(
                     "Drinnen wird es warm",
-                    f"Im Haus sind es {innen:g} °C und die Sonne steht hoch. "
-                    "Storen auf der Sonnenseite unten halten die Wärme "
-                    "draussen - je früher, desto mehr bringt es.",
+                    f"Im Haus sind es {innen:g} °C{schwuel} und die Sonne "
+                    "steht hoch. Storen auf der Sonnenseite unten halten die "
+                    "Wärme draussen - je früher, desto mehr bringt es.",
                     category="heat_covers",
                 )
             return
@@ -1174,6 +1216,49 @@ class Watchdog:
                 )
         log.info("Gäste-WLAN: %s abgelaufene Gutscheine weggeräumt", len(weg))
         self.hub.data.set("wifi_vouchers", gueltig)
+
+    async def _gastspuren_aufraeumen(self) -> None:
+        """Was abgelaufene Gäste hinterlassen (Punkt 498 der Werkbank).
+
+        Der Gastpass läuft ab, und das tut er zuverlässig - in der Liste
+        bleibt er sichtbar, damit man weiss, wem man den Zugang gegeben
+        hat. Was nicht aufhörte, ist alles daneben: die offene Sitzung
+        am Token und der WLAN-Schein mit eigener Frist. Nach einem Jahr
+        Gästen ist das die längste Liste im Haus.
+
+        Der Benutzer selbst bleibt stehen: Ihn zu löschen wäre eine
+        Entscheidung, und die trifft ein Mensch in der Benutzerliste.
+        Hier verschwinden nur die Spuren, die niemand je angelegt hat -
+        die entstanden beim Anmelden.
+
+        Einmal am Tag, nicht im Minutentakt: Es eilt nichts, und eine
+        Aufräumrunde, die stündlich über alle Sitzungen geht, ist die
+        Sorte Hintergrundarbeit, die man erst bemerkt, wenn sie klemmt.
+        """
+        jetzt = datetime.now()
+        if jetzt.hour != 4:
+            return
+        heute = jetzt.strftime("%Y-%m-%d")
+        if not self._einmal(f"gastspuren:{heute}", jetzt.timestamp()):
+            return
+        namen = gastspur.abgelaufene_gaeste(self.hub.users.users, heute)
+        if not namen:
+            return
+        sitzungen = self.hub.data.get("sessions")
+        uebrig = gastspur.sitzungen_ohne(sitzungen, namen)
+        weniger_sitzungen = len(sitzungen) - len(uebrig)
+        if weniger_sitzungen:
+            self.hub.data.set("sessions", uebrig)
+
+        scheine = self.hub.data.get("wifi_vouchers")
+        rest = gastspur.scheine_ohne(scheine, namen)
+        weniger_scheine = len(scheine) - len(rest)
+        if weniger_scheine:
+            self.hub.data.set("wifi_vouchers", rest)
+
+        satz = gastspur.bericht(namen, weniger_sitzungen, weniger_scheine)
+        if satz:
+            log.info("%s", satz)
 
     def _benutzer_zur_zone(
         self, zone_id: str | None, namen: dict[str, str]
@@ -1677,6 +1762,26 @@ class Watchdog:
             if geaendert:
                 self.hub.data.set(gutscheine.KEY, rows)
 
+        # Aufgebrauchtes räumt sich selbst weg (Punkt 455 der Werkbank).
+        #
+        # Ein leerer Gutschein steht nicht mehr in der offenen Liste,
+        # aber in der eingeklappten Gruppe «leer» darunter - und dort
+        # blieb er, weil man eine zugeklappte Gruppe nicht aufräumt.
+        # Nach einem Monat ist die Rückfrage beim Laden ohnehin keine
+        # mehr, die man aus dem Gedächtnis stellt; ab dann gehört er ins
+        # Archiv, wo er weiterhin steht und auffindbar bleibt.
+        #
+        # Ohne Meldung, anders als beim Verfall: Verfallen ist ein
+        # Verlust, den man erfahren soll; aufgebraucht ist der
+        # Normalfall, und eine Nachricht «dein leerer Gutschein wurde
+        # aufgeräumt» wäre genau die Sorte Push, die man abbestellt.
+        aufgeraeumt = gutscheine.lange_leer(rows, jetzt.date())
+        if aufgeraeumt:
+            for eintrag in aufgeraeumt:
+                eintrag["archived"] = True
+            log.info("%d aufgebrauchte Gutscheine ins Archiv gelegt", len(aufgeraeumt))
+            self.hub.data.set(gutscheine.KEY, rows)
+
     async def _check_meal_plan(self) -> None:
         """Der Wochenplan füttert «zuletzt gekocht» (Punkt 218).
 
@@ -1788,6 +1893,89 @@ class Watchdog:
                     "device_down",
                     entity_id=entity.id,
                 )
+
+    async def _check_grill(self, entities: list[Any]) -> None:
+        """Der Grill ist auf Temperatur - und das Fleisch ist so weit.
+
+        Gewünscht im Haus (Punkt 554): «Wenn der Grill die
+        Zieltemperatur erreicht hat, aber auch, wenn ein
+        Kerntemperaturmesser das Ziel erreicht hat.»
+
+        Gemeldet wird die **Flanke**. Was einmal gemeldet ist, steht in
+        `_grill_gemeldet` und schweigt, bis der Wert wieder deutlich
+        unter das Ziel fällt - wer den Sollwert hochdreht, bekommt die
+        Meldung also erneut, wer nur ums Ziel pendelt, nicht.
+
+        Der Grill ist am Temperaturziel als solcher erkennbar - dieselbe
+        Regel wie bei der Live-Karte (core/livekarten.py, karten_grill).
+        Eine Waschmaschine hat keines.
+        """
+        ziele_alle = self.hub.data.get(GRILLZIELE_KEY)
+        for entity in entities:
+            if entity.kind != "appliance":
+                continue
+            ziel = entity.state.get("target")
+            laeuft = str(entity.state.get("state") or "") == "running"
+            einheit = str(entity.state.get("unit") or "°")
+            ist = entity.state.get("temperature")
+
+            # «Er lief» - die Marke, an der das Ausgehen erkennbar ist
+            # (Punkt 560). Nur die Flanke: Ein Hub, der mit kaltem Grill
+            # startet, hat nichts zu melden. Und nur ein gemeldetes
+            # «off», nicht ein unerreichbarer Grill - der behält seinen
+            # letzten Zustand, bis er wieder antwortet.
+            an_marke = f"{entity.id}:an"
+            if not laeuft:
+                if an_marke in self._grill_gemeldet:
+                    titel, text = grillmeldung.aussatz(entity.label, ist, einheit)
+                    await self._notify(titel, text, "grill", entity_id=entity.id)
+                # Aus heisst: alles vergessen. Beim nächsten Anzünden
+                # soll die Meldung wiederkommen, auch wenn der Grill
+                # noch warm ist.
+                self._grill_vergessen(entity.id)
+                continue
+            if ziel is None:
+                continue
+            self._grill_gemeldet.add(an_marke)
+
+            marke = f"{entity.id}:grill"
+            if grillmeldung.auf_temperatur(ist, ziel):
+                if marke not in self._grill_gemeldet:
+                    self._grill_gemeldet.add(marke)
+                    titel, text = grillmeldung.grillsatz(entity.label, ziel, einheit)
+                    await self._notify(titel, text, "grill", entity_id=entity.id)
+            elif grillmeldung.wieder_offen(ist, ziel):
+                self._grill_gemeldet.discard(marke)
+
+            for nummer, fuehlerziel in grillmeldung.fuehlerziele(
+                ziele_alle, entity.id
+            ).items():
+                wert = entity.state.get(f"probe_{nummer}")
+                # Kein Fühler eingesteckt: Das Ziel bleibt gesetzt, die
+                # Meldung wartet. Wer den Fühler ins nächste Stück
+                # steckt, soll sie bekommen.
+                if wert is None:
+                    self._grill_gemeldet.discard(f"{entity.id}:p{nummer}")
+                    continue
+                fuehlermarke = f"{entity.id}:p{nummer}"
+                # Ohne Spielraum: Die Kerntemperatur steigt langsam und
+                # stetig, und «63 statt 61» ist beim Fleisch der
+                # Unterschied, um den es geht.
+                if float(wert) >= float(fuehlerziel):
+                    if fuehlermarke not in self._grill_gemeldet:
+                        self._grill_gemeldet.add(fuehlermarke)
+                        titel, text = grillmeldung.fuehlersatz(
+                            entity.label, nummer, wert, fuehlerziel, einheit
+                        )
+                        await self._notify(titel, text, "grill", entity_id=entity.id)
+                elif grillmeldung.wieder_offen(wert, fuehlerziel):
+                    self._grill_gemeldet.discard(fuehlermarke)
+
+    def _grill_vergessen(self, entity_id: str) -> None:
+        """Alles zu diesem Grill vergessen - er ist aus."""
+        self._grill_gemeldet -= {
+            marke for marke in self._grill_gemeldet if marke.startswith(f"{entity_id}:")
+        }
 
     async def _check_appliances(self, entities: list[Any]) -> None:
         """An die fertige, aber noch volle Maschine erinnern.
@@ -2572,10 +2760,11 @@ class Watchdog:
         Hier statt in einer eigenen Uhr - dieselbe Überlegung wie beim
         Aufräumen der Kamera-Clips weiter oben.
         """
-        alarm = self.hub.integrations.get("alarm")
-        takt = getattr(alarm, "takt", None)
-        if takt is not None:
-            await takt()
+        for name in ("alarm", "brand"):
+            anlage = self.hub.integrations.get(name)
+            takt = getattr(anlage, "takt", None)
+            if takt is not None:
+                await takt()
 
     async def _check_spaeter(self) -> None:
         """Weggeschobene Meldungen, deren Zeit um ist (core/spaeter.py).

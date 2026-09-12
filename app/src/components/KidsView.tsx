@@ -7,6 +7,7 @@ import { Entity, HubSettings, Scene } from '../api/types';
 import { kannAnrufen, rufKnoepfe } from '../lib/elternruf';
 import { Eintrag } from '../lib/familie';
 import { Colors, radius, useColors } from '../theme';
+import { imRaum } from '../lib/raum';
 
 /**
  * Kinder-Ansicht: nur die eigenen Räume, als grosse Knöpfe.
@@ -33,7 +34,7 @@ export function kidControls(
 ): { room: string; lights: Entity[]; covers: Entity[] }[] {
   return rooms.map((room) => {
     const here = entities.filter(
-      (entity) => entity.room === room && !entity.combined_into
+      (entity) => imRaum(entity, room) && !entity.combined_into
     );
     return {
       room,

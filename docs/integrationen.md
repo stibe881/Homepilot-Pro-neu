@@ -24,7 +24,7 @@ weiter – das ist der Grund, warum Licht, Storen und Schlösser hier stehen.
 | **hue_sync** | Hue Play HDMI Sync Box | IP, Token (Knopf 3 s halten) |
 | **matter** | Matter-Geräte über den Controller-Dienst | Matter-Fabrik in `hub/matter/` |
 | **mqtt** | Sonoff und andere Tasmota-Geräte | Broker, Benutzer/Passwort |
-| **zigbee2mqtt** | Zigbee-Geräte über den eigenen Stick – Aqara, IKEA, Tuya-Zigbee | Broker, Benutzer/Passwort |
+| **zigbee2mqtt** | Zigbee-Geräte über den eigenen Dongle – Aqara, IKEA, Tuya-Zigbee | nur `broker` (läuft im selben Stack, siehe `docs/zigbee.md`) |
 | **bletags** | Bluetooth-Anhänger am Schlüssel oder im Rucksack – in welchem Zimmer? | Broker, ESP32 mit ESPresense ([Anleitung](bluetooth-anhaenger.md)) |
 | **overkiz** | Somfy TaHoma – Storen, Rollläden, Markisen | Gateway, Zugangsdaten |
 

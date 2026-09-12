@@ -6,7 +6,14 @@ import {
   lastRunText,
   EMPTY_STEP,
   EMPTY_TRIGGER,
+  ASSISTENT_SCHRITTE,
+  assistentNoetig,
   buildConditions,
+  dannFehlt,
+  dannStand,
+  feinStand,
+  wennFehlt,
+  wennStand,
   plainStates,
   stateOptions,
   stepToActions,
@@ -42,6 +49,10 @@ import {
   namensVorschlag,
   sonstStand,
   stundeAusText,
+  datumAusIso,
+  datumNachIso,
+  kontextConditionFromConfig,
+  kontextConditionToConfig,
 } from './entwurf';
 import { Draft, StepDraft } from './entwurf';
 import { Entity } from '../../api/types';
@@ -1907,5 +1918,255 @@ describe('stundeAusText (Punkt 379)', () => {
     expect(stundeAusText('  ')).toBeNull();
     expect(stundeAusText('abends')).toBeNull();
     expect(stundeAusText('-1')).toBeNull();
+  });
+});
+
+// ── Frist und Reihenfolge (Punkt 464, 466) ─────────────────────────────────
+
+describe('Ein Ablauf mit Frist', () => {
+  it('liest das Datum so, wie man es tippt', () => {
+    expect(datumNachIso('30.6.2030')).toBe('2030-06-30');
+    expect(datumNachIso('30.06.30')).toBe('2030-06-30');
+    expect(datumNachIso('2030-06-30')).toBe('2030-06-30');
+    expect(datumNachIso('')).toBeNull();
+    // Unlesbares wird null, nicht stillschweigend «unbefristet».
+    expect(datumNachIso('morgen')).toBeNull();
+    expect(datumNachIso('31.02.2030')).toBeNull();
+  });
+
+  it('zeigt das Datum, wie man es liest', () => {
+    expect(datumAusIso('2030-06-30')).toBe('30.06.2030');
+    expect(datumAusIso('')).toBe('');
+  });
+
+  it('nimmt Frist und Reihenfolge in den Entwurf auf', () => {
+    const draft = toDraft({
+      id: 'a1',
+      alias: 'Ferienlicht',
+      triggers: [],
+      conditions: [],
+      actions: [],
+      editable: true,
+      valid_until: '2030-06-30',
+      order: -2,
+    });
+    expect(draft.gueltigBis).toBe('30.06.2030');
+    expect(draft.reihenfolge).toBe('-2');
+  });
+});
+
+// ── Schulferien als Bedingung (Punkt 470) ──────────────────────────────────
+
+describe('Ausser in den Schulferien', () => {
+  it('baut den Haken in die Zeitbedingung', () => {
+    const conditions = buildConditions({
+      ...EMPTY,
+      conditionKind: 'time',
+      exceptSchoolHolidays: true,
+    });
+    expect(conditions).toEqual([{ type: 'time', except_school_holidays: true }]);
+  });
+
+  it('liest ihn wieder heraus und sagt es im Satz', () => {
+    const draft = toDraft({
+      id: 'a1',
+      alias: 'Wecklicht',
+      triggers: [],
+      conditions: [{ type: 'time', except_school_holidays: true }],
+      actions: [],
+      editable: true,
+    });
+    expect(draft.exceptSchoolHolidays).toBe(true);
+    expect(bedingungStand(draft)).toContain('ohne Schulferien');
+  });
+
+  it('lässt Feiertage und Schulferien getrennt', () => {
+    const conditions = buildConditions({
+      ...EMPTY,
+      conditionKind: 'time',
+      exceptHolidays: true,
+    });
+    expect(conditions[0].except_school_holidays).toBeUndefined();
+  });
+});
+
+describe('Zeitraum-Auslöser', () => {
+  it('speichert von/bis als window und liest beides zurück', () => {
+    const config = triggerToConfig({ ...EMPTY_TRIGGER, kind: 'window', at: '07:00', until: '09:00' });
+    expect(config).toEqual({ type: 'window', after: '07:00', before: '09:00' });
+    const zurueck = triggerFromConfig(config);
+    expect(zurueck.kind).toBe('window');
+    expect(zurueck.at).toBe('07:00');
+    expect(zurueck.until).toBe('09:00');
+  });
+});
+
+describe('Schritt «Ablauf starten»', () => {
+  it('überlebt Öffnen und Speichern', () => {
+    // Der Hub konnte den Schritt längst - der Editor warf ihn beim
+    // Öffnen still weg, und «Speichern» löschte ihn damit.
+    const steps = actionsToSteps([{ type: 'automation', automation_id: 'alles_aus' }]);
+    expect(steps).toHaveLength(1);
+    expect(steps[0].kind).toBe('automation');
+    expect(stepToActions(steps[0])).toEqual([{ type: 'automation', automation_id: 'alles_aus' }]);
+  });
+
+  it('ergibt ohne gewählten Ablauf keine Aktion', () => {
+    expect(stepToActions({ ...EMPTY_STEP, kind: 'automation' })).toEqual([]);
+  });
+});
+
+describe('Kontext-Bedingungen', () => {
+  it('baut Person, Erreichbarkeit, Warnung und Termin', () => {
+    expect(
+      kontextConditionToConfig({ art: 'presence', ziel: 'Livia', wert: 'home', nicht: false })
+    ).toEqual({ type: 'presence', person: 'Livia' });
+    expect(
+      kontextConditionToConfig({ art: 'presence', ziel: 'Livia', wert: 'schule', nicht: true })
+    ).toEqual({ type: 'presence', person: 'Livia', zone: 'schule', state: 'absent' });
+    expect(
+      kontextConditionToConfig({ art: 'availability', ziel: 'x.y', wert: '', nicht: true })
+    ).toEqual({ type: 'availability', entity_id: 'x.y', available: false });
+    expect(
+      kontextConditionToConfig({ art: 'weather_warning', ziel: '', wert: 'Severe', nicht: false })
+    ).toEqual({ type: 'weather_warning', min_severity: 'Severe' });
+    expect(
+      kontextConditionToConfig({ art: 'calendar', ziel: '', wert: ' Homeoffice ', nicht: true })
+    ).toEqual({ type: 'calendar', contains: 'Homeoffice', active: false });
+  });
+
+  it('kommt beim Öffnen unverändert zurück', () => {
+    for (const entry of [
+      { art: 'presence' as const, ziel: 'Livia', wert: 'home', nicht: false },
+      { art: 'availability' as const, ziel: 'x.y', wert: '', nicht: true },
+      { art: 'weather_warning' as const, ziel: 'm.ch', wert: 'Severe', nicht: false },
+      { art: 'calendar' as const, ziel: '', wert: 'Ferien', nicht: true },
+    ]) {
+      expect(kontextConditionFromConfig(kontextConditionToConfig(entry))).toEqual(entry);
+    }
+  });
+
+  it('steht im Entwurf statt in den unbekannten Bedingungen', () => {
+    const draft = toDraft({
+      id: 'a',
+      alias: 'A',
+      triggers: [],
+      conditions: [{ type: 'presence', person: 'Livia' }],
+      actions: [],
+    } as never);
+    expect(draft.kontextConditions).toEqual([
+      { art: 'presence', ziel: 'Livia', wert: 'home', nicht: false },
+    ]);
+    expect(draft.extraConditions).toEqual([]);
+    expect(buildConditions(draft)).toEqual([{ type: 'presence', person: 'Livia' }]);
+  });
+
+  it('lässt eine Person ohne Namen weg', () => {
+    expect(
+      buildConditions({
+        ...EMPTY,
+        kontextConditions: [{ art: 'presence', ziel: '', wert: 'home', nicht: false }],
+      })
+    ).toEqual([]);
+  });
+});
+
+describe('Empfängergruppen', () => {
+  const { empfaengerLabel } = jest.requireActual('./entwurf');
+  it('zeigt eine Gruppe als solche, einen Namen unverändert', () => {
+    expect(empfaengerLabel('gruppe:Eltern')).toBe('Eltern (Gruppe)');
+    expect(empfaengerLabel('Stefan')).toBe('Stefan');
+  });
+});
+// ── Der geführte Weg für einen neuen Ablauf ─────────────────────────────
+//
+// Gemeldet: «Einen Ablauf erstellen oder bearbeiten ist eine
+// Katastrophe. Unübersichtlich, nicht intuitiv, verwirrend.» Für einen
+// bestehenden ist die Übersicht die Antwort; für einen neuen der
+// Assistent, der nacheinander fragt.
+
+describe('Assistent', () => {
+  const leer = () => ({ ...EMPTY });
+
+  it('führt einen leeren neuen Ablauf', () => {
+    expect(assistentNoetig(leer())).toBe(true);
+  });
+
+  it('führt einen bestehenden Ablauf nicht', () => {
+    // Wer eine Kleinigkeit ändern will, soll sich nicht durch drei
+    // Schritte klicken - genau das macht Assistenten unbeliebt.
+    expect(assistentNoetig({ ...leer(), id: 'app_1' })).toBe(false);
+  });
+
+  it('führt eine vorbefüllte Vorlage nicht', () => {
+    expect(assistentNoetig({ ...leer(), templateId: 'licht-bewegung' })).toBe(false);
+  });
+
+  it('führt nicht, wenn schon ein Auslöser gewählt ist', () => {
+    // Mit einem Gerät im Gepäck angekommen (aus einer Kachel heraus):
+    // Dann ist die erste Frage längst beantwortet.
+    const draft = {
+      ...leer(),
+      triggers: [{ ...EMPTY_TRIGGER, entityId: 'demo.motion_hall' }],
+    };
+    expect(assistentNoetig(draft)).toBe(false);
+  });
+
+  it('trennt, was im Wenn fehlt, von dem, was im Dann fehlt', () => {
+    // Daran hängt, wann «Weiter» grau ist: Ein fehlendes Gerät im Dann
+    // darf den ersten Schritt nicht blockieren.
+    const draft = leer();
+    expect(wennFehlt(draft).join(' ')).toMatch(/Wenn/);
+    expect(wennFehlt(draft).join(' ')).not.toMatch(/Dann/);
+    expect(dannFehlt(draft).join(' ')).toMatch(/Dann/);
+    expect(dannFehlt(draft).join(' ')).not.toMatch(/Wenn/);
+  });
+
+  it('hat für jeden Schritt eine Frage', () => {
+    expect(ASSISTENT_SCHRITTE).toHaveLength(3);
+    ASSISTENT_SCHRITTE.forEach((frage) => expect(frage).toMatch(/\?$/));
+  });
+});
+
+describe('Zusammenfassungen der Abschnitte', () => {
+  // Zugeklappt steht das im Kopf. Ohne diese Zeilen hiesse Zuklappen
+  // «verstecken», und man macht beim Bearbeiten sofort alles wieder auf.
+  const entities = [
+    { id: 'demo.motion_hall', name: 'Bewegung Flur', kind: 'binary_sensor' },
+    { id: 'demo.light_livingroom', name: 'Licht Wohnzimmer', kind: 'light' },
+  ] as never;
+
+  it('nennt im Wenn den Gerätenamen statt der Art', () => {
+    const draft = {
+      ...EMPTY,
+      triggers: [{ ...EMPTY_TRIGGER, entityId: 'demo.motion_hall' }],
+    };
+    expect(wennStand(draft, entities)).toBe('Bewegung Flur');
+  });
+
+  it('zählt ab drei Auslösern', () => {
+    const draft = {
+      ...EMPTY,
+      triggers: [
+        { ...EMPTY_TRIGGER, entityId: 'demo.motion_hall' },
+        { ...EMPTY_TRIGGER, entityId: 'demo.light_livingroom' },
+        { ...EMPTY_TRIGGER, kind: 'sun' as const },
+      ],
+    };
+    expect(wennStand(draft, entities)).toBe('3 Auslöser');
+  });
+
+  it('bleibt leer, solange nichts gewählt ist', () => {
+    expect(wennStand(EMPTY, entities)).toBe('');
+    expect(dannStand(EMPTY, entities)).toBe('');
+  });
+
+  it('nennt in den Feineinstellungen nur, was gesetzt ist', () => {
+    expect(feinStand(EMPTY)).toBe('');
+    expect(feinStand({ ...EMPTY, gueltigBis: '31.12.2026' })).toBe('bis 31.12.2026');
+    // Die 0 ist die Vorgabe und keine Einstellung - sie gehört nicht in
+    // die Kopfzeile, sonst steht dort bei jedem Ablauf etwas.
+    expect(feinStand({ ...EMPTY, reihenfolge: '0' })).toBe('');
+    expect(feinStand({ ...EMPTY, reihenfolge: '3' })).toBe('Reihenfolge 3');
   });
 });

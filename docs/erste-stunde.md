@@ -53,6 +53,21 @@ python -m homepilot --config config.yaml
 
 Ein Token erzeugst du mit `openssl rand -base64 32`.
 
+**Ein Gerät darf in mehreren Zimmern stehen.** Führ es einfach unter
+beiden auf - der Klimafühler im offenen Wohnbereich gehört ins
+Wohnzimmer *und* ins Esszimmer:
+
+```yaml
+rooms:
+  Wohnzimmer: [demo.light_livingroom, demo.temp_livingroom]
+  Esszimmer: [demo.temp_livingroom]
+```
+
+Das zuerst genannte Zimmer ist sein **Standort**: Dort liegt seine
+Kachel, und daher kommt der Namensvorschlag. In den übrigen zählt es
+mit - die Raumkachel zeigt seine Werte, die Klimaübersicht führt es
+unter beiden. In der App geht dasselbe unter *Anpassen → Raum*.
+
 Im Browser `http://<rechner>:8123/api/health` – kommt `{"ok": true, …}`,
 läuft der Hub. Die Demo-Wohnung hat ein Licht, eine Steckdose, einen
 Bewegungsmelder und einen Fühler; alles davon lässt sich schalten.

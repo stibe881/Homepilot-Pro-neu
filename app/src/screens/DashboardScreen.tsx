@@ -31,7 +31,7 @@ import {
   gruppeVon,
   siehtBereich,
 } from '../lib/einstellungsmenue';
-import { alarmPlakette } from '../lib/einstellungsgruppen';
+import { alarmPlakette, brandPlakette } from '../lib/einstellungsgruppen';
 import { DraggableList } from '../components/DraggableList';
 import { CellLayout, DragCell, reorderByDrop } from '../components/DragGrid';
 import { EntityCard } from '../components/EntityCard';
@@ -39,7 +39,12 @@ import { skyFromIcon } from '../components/CoverVisual';
 import { HistoryChart } from '../components/HistoryChart';
 import { OpenDoors } from '../components/OpenDoors';
 import { RunningAppliances } from '../components/RunningAppliances';
-import { SECTION_LABEL, Rail, Section } from '../components/Rail';
+import { SECTION_LABEL, Rail, Section, sichtbareBereiche } from '../components/Rail';
+import { nachbarBereich } from '../lib/bereiche';
+import { useBereichWischen } from '../hooks/useBereichWischen';
+import { Posteingang } from '../components/Posteingang';
+import { ungelesen } from '../lib/posteingang';
+import { persoenlichSetzen, persoenlichWert } from '../lib/persoenlich';
 import { AllOff } from '../components/AllOff';
 import { BesuchScreen } from './BesuchScreen';
 import { BabysitterStand, modusZeile } from '../lib/babysitter';
@@ -49,7 +54,13 @@ import { DeviceHealth } from '../components/DeviceHealth';
 import { RoomTabs } from '../components/RoomTabs';
 import { RoomCard } from '../components/RoomCard';
 import { Raumbild } from '../components/Raumbild';
-import { raumSchleier, raumaktionen, waehlbareGeraete } from '../lib/raumkarte';
+import {
+  klimaGeraeteImRaum,
+  raumSchleier,
+  raumTon,
+  raumaktionen,
+  waehlbareGeraete,
+} from '../lib/raumkarte';
 import { SceneRow } from '../components/SceneRow';
 import { GlobalSearch } from '../components/GlobalSearch';
 import { Grundriss } from '../components/Grundriss';
@@ -83,7 +94,12 @@ import {
   klingeltGerade,
   vollbildZeigen,
 } from '../lib/klingel';
-import { deviceKindLabel, musikboxenImRaum, pickPlayer } from '../lib/geraeteart';
+import {
+  deviceKindLabel,
+  istMusikbox,
+  musikboxenImRaum,
+  pickPlayer,
+} from '../lib/geraeteart';
 import { bewegungImRaum } from '../lib/bewegung';
 import { rueckangebot } from '../lib/rueckgriff';
 import { gemerkteAktion, menuLabel } from '../lib/doppeltipp';
@@ -102,8 +118,10 @@ import {
 import { verweisText, verweiseAuf } from '../lib/verweise';
 import {
   alphabetisch,
+  imRaum,
   istKueche,
   raeumeSortiert,
+  raeumeVon,
   raumFakten,
   raumKategorien,
   raumKlima,
@@ -128,11 +146,7 @@ import { Wechselblatt } from '../components/einstellungen/Wechselblatt';
 import { Kamerawand } from '../components/Kamerawand';
 import { HausRueckblick } from './HausRueckblick';
 import { nachBewegung } from '../lib/kameraordnung';
-import {
-  hinweis as tageszeitHinweis,
-  jetzigerAbschnitt,
-  lohntSich,
-} from '../lib/tageszeit';
+import { jetzigerAbschnitt, lohntSich } from '../lib/tageszeit';
 import { HubFehler, hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
 import { Abschnitt } from '../components/Abschnitt';
@@ -146,6 +160,7 @@ import { OverviewScreen } from './OverviewScreen';
 import { SettingsScreen } from './SettingsScreen';
 import { VerbindungenScreen } from './VerbindungenScreen';
 import { AlarmScreen } from './AlarmScreen';
+import { BrandScreen } from './BrandScreen';
 import { EnergyScreen } from './EnergyScreen';
 import { SpeakersScreen } from './SpeakersScreen';
 import { DiagnoseScreen } from './DiagnoseScreen';
@@ -197,12 +212,14 @@ import { useFamilienlisten } from '../hooks/useFamilienlisten';
 import { useAbstuerze } from '../hooks/useAbstuerze';
 import { useKachelnutzung } from '../hooks/useKachelnutzung';
 import { useRaumnutzung } from '../hooks/useRaumnutzung';
-import { gelernt, hinweisGelernt, nachGewohnheit } from '../lib/kachellernen';
+import { Zielzeile, istGrill, zieleVon } from '../lib/grillziel';
+import { nachGewohnheit } from '../lib/kachellernen';
 import { useSensorlinien } from '../hooks/useSensorlinien';
 import { useAusfall } from '../hooks/useAusfall';
 import { useZurueckWischen } from '../hooks/useZurueckWischen';
 import { useTakt } from '../hooks/useTakt';
 import { ErinnerungOverlay } from './dashboard/Erinnerungsvollbild';
+import { Grillvollbild } from './dashboard/Grillvollbild';
 import { GroupControls } from './dashboard/Gruppensteuerung';
 import { CameraFullscreen } from './dashboard/Kameravollbild';
 import { DoorbellOverlay } from './dashboard/Klingelvollbild';
@@ -537,6 +554,37 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     text?: string;
     knoepfe: PushKnopf[];
   } | null>(null);
+  // Der Posteingang (Punkt 524): was das Haus für mich zurückgehalten
+  // hat, hinter der Glocke oben. Die Zahl an der Glocke ist, was seit
+  // dem letzten Öffnen dazukam - der Zeitpunkt liegt beim Hub
+  // (lib/persoenlich.ts), damit das iPad nicht zeigt, was das Telefon
+  // längst gelesen hat.
+  const [posteingangOffen, setPosteingangOffen] = useState(false);
+  const [verpasste, setVerpasste] = useState<{ at: number }[]>([]);
+  const [posteingangGesehen, setPosteingangGesehen] = useState(0);
+  const verpassteLaden = useCallback(() => {
+    hub
+      .get<{ verpasst?: { at: number }[] } | null>('/api/push/verpasst', {
+        fallback: null,
+        still: true,
+      })
+      .then((antwort) => setVerpasste(antwort?.verpasst ?? []))
+      .catch(() => {});
+    persoenlichWert<number>(settings, 'posteingang.gesehen', 0)
+      .then(setPosteingangGesehen)
+      .catch(() => {});
+  }, [hub, settings]);
+  useEffect(verpassteLaden, [verpassteLaden]);
+  // Alle paar Minuten - eine zurückgehaltene Meldung kommt selten, und
+  // wer die Glocke sieht, hat Zeit.
+  useTakt(verpassteLaden, 5 * 60 * 1000);
+  const posteingangZaehler = ungelesen(verpasste, posteingangGesehen);
+  const posteingangOeffnen = () => {
+    setPosteingangOffen(true);
+    const jetzt = Date.now() / 1000;
+    setPosteingangGesehen(jetzt);
+    persoenlichSetzen(settings, 'posteingang.gesehen', jetzt);
+  };
   // Angetippte Kamera im Vollbild (Entitäts-ID, damit Live-Updates ankommen).
   // Alle Kameras nebeneinander - fürs Tablet im Flur die einzige
   // sinnvolle Ansicht (siehe components/Kamerawand.tsx).
@@ -557,6 +605,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // der Gerätekachel, sondern hier: Der Knopf «Fernseher» auf einer
   // Raumkachel soll sie aufmachen, ohne dass man erst in den Raum geht.
   const [remoteFuer, setRemoteFuer] = useState<string | null>(null);
+  // Der Grill, dessen Blatt offen ist (Punkt 555). Über die Kennung und
+  // nicht über die Entität: Der Hub schickt alle dreissig Sekunden einen
+  // neuen Zustand, und ein festgehaltenes Objekt wäre sofort von gestern
+  // - dieselbe Überlegung wie beim Fernbedienungs-Blatt.
+  const [grillBlattFuer, setGrillBlattFuer] = useState<string | null>(null);
+  const [grillziele, setGrillziele] = useState<Zielzeile[]>([]);
   // Auf der Startseite markierte Countdowns aus dem Familie-Modul.
   const [startCountdowns, setStartCountdowns] = useState<
     { text: string; date: string; on_start?: boolean }[]
@@ -671,8 +725,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // echte Alarm-Entität - dieselbe Reihenfolge wie im Überblick.
   const alarmGeraet = useMemo(
     () =>
-      entities.find((entity) => entity.kind === 'alarm') ??
+      entities.find((entity) => entity.kind === 'alarm' && entity.integration !== 'brand') ??
       entities.find((entity) => /alarm/i.test(entity.name) && entity.kind === 'switch'),
+    [entities]
+  );
+  // Die Brandmeldeanlage (Punkt 543) führt ihre eigene Entität derselben
+  // Art - die Alarmanlage darf sie nicht für sich halten.
+  const brandGeraet = useMemo(
+    () => entities.find((entity) => entity.kind === 'alarm' && entity.integration === 'brand'),
     [entities]
   );
 
@@ -684,6 +744,26 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     () => entities.find((entity) => entity.id === remoteFuer) ?? null,
     [entities, remoteFuer]
   );
+  const grillImBlatt = useMemo(
+    () => entities.find((entity) => entity.id === grillBlattFuer) ?? null,
+    [entities, grillBlattFuer]
+  );
+
+  // Die Kerntemperatur-Ziele holen, sobald ein Grill da ist - und noch
+  // einmal, wenn das Blatt aufgeht. Sie stehen auch auf der Kachel
+  // («Fühler 2: 36 °C · noch 27 bis 63»), und die Kachel holt sie seit
+  // Punkt 557 nicht mehr selbst: Zwei Abfragen desselben Stands liefen
+  // auseinander, sobald man im Blatt ein Ziel setzte.
+  const hatGrill = useMemo(() => entities.some(istGrill), [entities]);
+  useEffect(() => {
+    if (!hatGrill && !grillBlattFuer) return;
+    hub
+      .get<{ ziele?: Zielzeile[] } | null>('/api/grillziele', {
+        fallback: null,
+        still: true,
+      })
+      .then((antwort) => setGrillziele(antwort?.ziele ?? []));
+  }, [hub, hatGrill, grillBlattFuer]);
   // Die Szene «Kino» fürs Fernbedienungs-Blatt - dieselbe Regel wie auf
   // der Live-Karte des Fernsehers (lib/kinoszene.ts).
   const kinoImBlatt = useMemo(() => kinoSzene(scenes), [scenes]);
@@ -1015,18 +1095,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const onKnopf = useCallback(
     (druck: Knopfdruck) => {
       if (druck.handlung === 'spaeter') {
+        // Ohne Minuten: Der Hub nimmt, was die Person eingestellt hat
+        // (Punkt 514) - und sagt zurück, wie lange es geworden ist.
         hub
-          .post(
+          .post<{ minutes?: number }>(
             '/api/push/snooze',
             {
               title: druck.title,
               body: druck.body,
               category: druck.category,
-              minutes: 30,
             },
             { still: true }
           )
-          .then(() => setNote('Erinnerung in 30 Minuten'))
+          .then((antwort) => setNote(`Erinnerung in ${antwort?.minutes ?? 30} Minuten`))
           .catch(() => {});
         return;
       }
@@ -1248,10 +1329,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
    * bekommt gar keine Funktion und damit auch keine Kachel.
    */
   const sendeDurchsage = useCallback(
-    async (text: string, speakers: string[]) =>
+    async (text: string, speakers: string[], volume: number) =>
       hub.post<{ sent?: string[]; errors?: string[] }>(
         '/api/broadcast',
-        { text, speakers },
+        { text, speakers, volume },
         { still: true }
       ),
     [hub]
@@ -1265,9 +1346,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
    * sagt. Die Empfänger stehen darum in der Adresse.
    */
   const sendeSprachnotiz = useCallback(
-    async (aufnahme: Blob, speakers: string[]) =>
+    async (aufnahme: Blob, speakers: string[], volume: number) =>
       hub.roh<{ sent?: string[]; errors?: string[] }>(
-        `/api/broadcast/voice?speakers=${encodeURIComponent(speakers.join(','))}`,
+        `/api/broadcast/voice?speakers=${encodeURIComponent(speakers.join(','))}&volume=${volume}`,
         aufnahme,
         { still: true }
       ),
@@ -1282,9 +1363,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
    * wie bei der Sprachnotiz.
    */
   const hinterlegeHeimgruss = useCallback(
-    async (aufnahme: Blob, speakers: string[]) =>
+    async (aufnahme: Blob, speakers: string[], volume: number) =>
       hub.roh<{ message?: HeimgrussStand | null }>(
-        `/api/heimgruss/voice?speakers=${encodeURIComponent(speakers.join(','))}`,
+        `/api/heimgruss/voice?speakers=${encodeURIComponent(speakers.join(','))}&volume=${volume}`,
         aufnahme,
         { still: true }
       ),
@@ -1368,7 +1449,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         // Waschmaschine → Waschküche): in den Raum, in dem es steht.
         // Den Namen schickt der Hub kodiert mit (core/livekarten.py,
         // raum_url); entschlüsselt ist er oben schon.
-        if (!entities.some((entity) => entity.room === id)) return entities.length > 0;
+        if (!entities.some((entity) => imRaum(entity, id))) return entities.length > 0;
         setSection('home');
         setRoom(id);
       } else if (what === 'fernbedienung' && id) {
@@ -1381,6 +1462,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         setSection('home');
         if (tv.room) setRoom(tv.room);
         setRemoteFuer(tv.id);
+      } else if (what === 'grill' && id) {
+        // Von der Grill-Live-Karte und von der Grill-Push (Punkt 555):
+        // in den Raum des Geräts und das Blatt gleich auf. Wer beim
+        // Grillen aufs Telefon tippt, will die Kerntemperatur sehen,
+        // nicht eine Raumübersicht mit einer Kachel darin.
+        const grill = entities.find((item) => item.id === id);
+        if (!grill) return entities.length > 0;
+        setSection('home');
+        if (grill.room) setRoom(grill.room);
+        setGrillBlattFuer(grill.id);
       } else if (what === 'timer') {
         // Die Karte des Küchen-Timers: Er wohnt in der Küche (die
         // Kachel steht nur dort). Die Adresse schickte der Hub schon
@@ -1534,9 +1625,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // nicht alphabetisch. Räume mit Geräten, die (noch) nicht in der Config
   // stehen, kommen hinten dran, damit nie eines verlorengeht.
   const rooms = useMemo(() => {
-    const withDevices = new Set(
-      entities.map((entity) => entity.room).filter(Boolean) as string[]
-    );
+    // Jedes Zimmer, für das ein Gerät zählt - nicht nur sein Standort
+    // (Punkt 539). Sonst fehlte das Esszimmer, dessen einziges Gerät
+    // der Klimafühler von nebenan ist: Er stünde in der Klimaübersicht
+    // unter «Esszimmer», eine Raumkachel dafür gäbe es aber nicht.
+    const withDevices = new Set(entities.flatMap(raeumeVon));
     const ordered = roomOrder.filter((name) => withDevices.has(name));
     const extra = Array.from(withDevices)
       .filter((name) => !roomOrder.includes(name))
@@ -1587,6 +1680,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         // Raum, und dort sieht man es im Zusammenhang.
         if (geraet?.kind === 'camera') {
           setFullscreen(geraet.id);
+          return;
+        }
+        // Und der Grill genauso (Punkt 555): «Fühler 2 ist so weit»
+        // beantwortet man, indem man die Kerntemperatur ansieht - nicht,
+        // indem man in einer Raumübersicht die richtige Kachel sucht.
+        if (geraet && istGrill(geraet)) {
+          setSection('home');
+          if (geraet.room) setRoom(geraet.room);
+          setGrillBlattFuer(geraet.id);
           return;
         }
         if (geraet?.room) {
@@ -1658,7 +1760,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       ? base
       : room === NO_ROOM
         ? base.filter((entity) => !entity.room)
-        : base.filter((entity) => entity.room === room);
+        : base.filter((entity) => imRaum(entity, room));
 
   // Welcher Raum steht offen? Nur dann bekommt die Spalte rechts die Box
   // dieses Raums. «Weitere» (alles ohne Raum) ist keiner: Eine Karte
@@ -1676,11 +1778,42 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   //
   // Der Raumname als Schlüssel: Beim Wechsel ins nächste Zimmer gilt
   // wieder dessen Vorwahl, statt der Box, die man nebenan angetippt hat.
-  const musik = useMusikwahl(entities, guardedCommand, pickPlayer(raumBoxen), room);
+  //
+  // Ohne offenes Zimmer (die Raumliste) gibt es keine naheliegende Box -
+  // dann gilt, wie auf der Startseite, die Lautsprechergruppe fürs ganze
+  // Haus als Vorwahl. Dieselbe Namenserkennung wie dort
+  // (components/SidePanel.tsx).
+  const hausbox = useMemo(
+    () => entities.filter(istMusikbox).find((box) => /wohnung/i.test(box.name))?.name ?? null,
+    [entities]
+  );
+  const musik = useMusikwahl(
+    entities,
+    guardedCommand,
+    pickPlayer(raumBoxen),
+    room,
+    offenerRaum ? null : hausbox
+  );
   // Der Medienplayer steht nur, wo das Zimmer eine eigene Box hat.
   // Sonst wäre es die Musik des Nachbarzimmers im Kopf dieses Zimmers -
   // und genau das soll er nicht sein.
   const kopfSpieler = raumBoxen.length > 0 ? musik.player : undefined;
+  /**
+   * Derselbe Player oben auf der Raumliste - neben der Begrüssung.
+   *
+   * Im Zimmer steht er seit Punkt 275 im Raumkopf; auf der Raumliste
+   * stand er in der Spalte rechts, und die ist dort weg (Punkt 507).
+   * Im Kopf kostet er keine Kachelspalte: Neben «Guten Morgen, Stefan»
+   * lag ohnehin nichts als Luft.
+   *
+   * Nur ab Tablet-Breite. Auf dem Telefon läge er über den Raumkacheln
+   * und schöbe sie unter den Rand - genau der Grund, aus dem die Spalte
+   * dort nie stand.
+   */
+  const grussSpieler =
+    section === 'home' && room === ALL_ROOMS && hasRail && darfSchalten
+      ? musik.player
+      : undefined;
 
   // Ausgeblendete und in einer Leuchte aufgegangene Spots verschwinden
   // aus den Alltagsansichten, bleiben aber unter „Geräte“ sichtbar –
@@ -1781,12 +1914,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // sonst hielte die Seite jeden Zufall für die Regel.
   const nachZeit = <T extends { id: string; kind: string }>(liste: T[]): T[] =>
     abschnitt ? nachGewohnheit(liste, abschnitt, kachelZaehler, now.getTime()) : liste;
-  // Ob die Gewohnheit gerade wirklich mitredet - der Hinweis oben soll
-  // den Unterschied sagen, sonst hält man die umsortierte Seite für
-  // einen Fehler.
-  const gewohnheitWirkt =
-    abschnitt != null && gelernt(kachelZaehler, abschnitt.key, now.getTime()).length > 0;
-
   const rest =
     section === 'home'
       ? customOrdered
@@ -1924,6 +2051,20 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const zurueckWischen = useZurueckWischen(
     section === 'home' && room !== ALL_ROOMS && !editing,
     () => setRoom(ALL_ROOMS)
+  );
+  // Wischen zwischen den Bereichen (Punkt 522) - nur auf dem Telefon,
+  // wo die Leiste unten liegt; mit Seitenleiste tippt man sie. Nicht im
+  // Zimmer (dort heisst Wischen «zurück») und nicht beim Anpassen.
+  const bereichWischen = useBereichWischen(
+    !hasRail && !editing && room === ALL_ROOMS,
+    (richtung) => {
+      const ziel = nachbarBereich(
+        sichtbareBereiche(user?.capabilities ?? [], hiddenSections),
+        railAktiv,
+        richtung
+      );
+      if (ziel) waehleBereich(ziel);
+    }
   );
   const raumSchein = categorized && raumLeuchtet(inRoom);
   // Der Klimafühler steht gross im Kopf - als Chip daneben stünde er
@@ -2075,7 +2216,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       verbunden={status === 'connected'}
       onToggleUngezaehlt={() => setUngezaehlt(toggleIn(ungezaehlt, entity.id))}
       rooms={editing ? roomOrder : undefined}
-      onSetRoom={editing ? (room) => setEntityRoom(entity.id, room) : undefined}
+      onSetRoom={editing ? (zimmer) => setEntityRoom(entity.id, zimmer) : undefined}
       onRename={
         // Nicht mehr nur im Anpassen-Modus: Ausserhalb hängt daran der
         // lange Druck auf die Kachel.
@@ -2110,6 +2251,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       onSetGroup={editing ? (group) => setEntityMeta(entity.id, { group }) : undefined}
       onCommand={(command, data) => guardedCommand(entity.id, command, data)}
       onErinnern={() => setErinnernAn(entity)}
+      grillziele={istGrill(entity) ? zieleVon(grillziele, entity.id) : undefined}
       sky={entity.kind === 'cover' ? sky : undefined}
       snapshotUri={
         // Kameras: Livebild. Sauger: die Karte – beides über denselben Endpunkt.
@@ -2120,15 +2262,21 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       onPress={
         editing
           ? undefined
-          : entity.kind === 'camera'
-            ? () => setFullscreen(entity.id)
-            : entity.kind === 'sensor'
-              ? () => setExpanded((current) => (current === entity.id ? null : entity.id))
-              : section === 'devices' && HISTORY_KINDS.has(entity.kind)
-                ? // Unter Geräte öffnet ein Tipp auf die Kachel den Verlauf
-                  // dieses Geräts - «warum ging das um drei Uhr an?».
-                  () => setHistoryFor(entity.id)
-                : undefined
+          : // Der Grill gross (Punkt 555/557): Dasselbe Blatt, das die
+            // Live-Aktivität und die Push öffnen - ein Ziel, drei Wege
+            // dorthin. Die Kachel selbst trägt keine Griffe mehr, also
+            // trifft der Tipp nichts anderes.
+            istGrill(entity)
+            ? () => setGrillBlattFuer(entity.id)
+            : entity.kind === 'camera'
+              ? () => setFullscreen(entity.id)
+              : entity.kind === 'sensor'
+                ? () => setExpanded((current) => (current === entity.id ? null : entity.id))
+                : section === 'devices' && HISTORY_KINDS.has(entity.kind)
+                  ? // Unter Geräte öffnet ein Tipp auf die Kachel den Verlauf
+                    // dieses Geräts - «warum ging das um drei Uhr an?».
+                    () => setHistoryFor(entity.id)
+                  : undefined
       }
       onLongPress={
         // Überall dasselbe: langes Drücken zeigt den Verlauf dieses
@@ -2255,6 +2403,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       show: sieht('alarm'),
     },
     {
+      key: 'brand',
+      icon: 'flame-outline',
+      label: 'Brandmeldeanlage',
+      detail: 'Rauchmelder, Quittieren, Prüfung',
+      // Dieselbe Frage wie bei der Alarmanlage: Ist etwas? Die Plakette
+      // sagt «Rauch!», bevor man tippt (Punkt 543).
+      plakette: brandGeraet ? brandPlakette(String(brandGeraet.state.state ?? '')) : undefined,
+      show: sieht('brand'),
+    },
+    {
       key: 'devices',
       icon: 'list-outline',
       label: 'Geräte',
@@ -2347,7 +2505,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       // seither auch hier - die Beschreibung muss sie nennen, sonst
       // sucht man sie in der Benutzerverwaltung.
       label: 'Konto',
-      detail: 'Profil, Passwort, Geräte, Benachrichtigungen',
+      detail: 'Profil, Passwort, Ansicht, Benachrichtigungen',
       show: true,
     },
     {
@@ -2408,6 +2566,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Vorher stand dort nichts hervorgehoben, sobald man eine Seite offen
   // hatte - und auf einem breiten Bildschirm ist man ab dem ersten Tipp
   // immer auf einer Seite. Man sah dann nirgends mehr, wo man ist.
+  // Die Farbe des Orts auf der Leiste (Punkt 525): im Zimmer die des
+  // Raums, sonst entscheidet die Leiste selbst nach Bereich.
+  const leistenTon =
+    section === 'home' && room !== ALL_ROOMS ? raumTon(room) : undefined;
   const railAktiv: Section = sichtbarePunkte.some((item) => item.key === section)
     ? 'settings'
     : section;
@@ -2616,6 +2778,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       );
     }
 
+    if (section === 'brand') {
+      return (
+        <View style={styles.stack}>
+          <BrandScreen
+            settings={settings}
+            darfEinrichten={Boolean(user?.capabilities?.includes('edit_config'))}
+          />
+        </View>
+      );
+    }
     if (section === 'alarm') {
       return (
         <View style={styles.stack}>
@@ -2623,6 +2795,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             settings={settings}
             entities={entities}
             user={user}
+            bioLock={!!prefs.bioLock}
             onEntity={(name) => {
               // Der Name aus der «noch offen»-Warnung führt in die
               // Geräteliste, vorgefiltert – statt tot dazustehen.
@@ -2721,6 +2894,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             embedded
             nur="konto"
             onRenamed={benutzerNeuLaden}
+            // Die zwei Reihenfolge-Schalter standen auf der Räume-Seite
+            // selbst - zwei breite Zeilen über den Raumkacheln, dort,
+            // wo man ein Zimmer sucht und nichts einstellt. Sie liegen
+            // im Gerätespeicher der Person, darum gehen Wert und
+            // Rückruf von hier aus mit (hooks/usePrefs.ts).
+            tageszeit={!!eigenePrefs.tageszeit}
+            onTageszeit={setTageszeit}
+            raumNutzung={!!eigenePrefs.raumNutzung}
+            onRaumNutzung={setRaumNutzung}
             sicherheit={
               <Abschnitt
                 titel="Anmeldung und Sicherheit"
@@ -2752,13 +2934,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 />
               ) : null
             }
+            // Ohne Abschnitts-Überschrift: Die Karte heisst selbst
+            // «Benachrichtigungen» und sagt darunter, worum es geht -
+            // die Überschrift stand nur zwei Zeilen darüber noch
+            // einmal dasselbe.
             weiteres={
-              <Abschnitt
-                titel="Benachrichtigungen"
-                hinweis="Was aufs Telefon kommt - und was nicht."
-              >
-                <PushPrefs settings={settings} />
-              </Abschnitt>
+              <PushPrefs
+                settings={settings}
+                // Der Posteingang führt dorthin, wo die Meldung
+                // hingehört (Punkt 472 der Werkbank) - über denselben
+                // Weg wie ein Tipp auf die Mitteilung selbst, damit
+                // es nicht zwei Wege zu demselben Ort gibt.
+                onZiel={(schluessel) => {
+                  const ziel = zielAus({ ziel: schluessel });
+                  if (ziel) zumZiel.current?.(ziel);
+                }}
+              />
             }
           />
         </View>
@@ -2828,7 +3019,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'system') {
       return (
         <View style={styles.stack}>
-          <SystemScreen settings={settings} user={user} entities={entities} push={push} />
+          <SystemScreen
+            settings={settings}
+            user={user}
+            entities={entities}
+            push={push}
+            // Dieselbe Hürde wie beim Antippen einer Kachel: Wer nicht
+            // schalten darf, löst auch keine Sirene aus.
+            onSignal={
+              darfSchalten
+                ? (entityId, command) => guardedCommand(entityId, command)
+                : undefined
+            }
+          />
         </View>
       );
     }
@@ -3046,93 +3249,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               />
             </Pressable>
           ) : null}
-          {/* Der Schalter für die Tageszeit steht dort, wo sie wirkt -
-              auf der Startseite. Aus, bis jemand ihn einschaltet: Eine
-              Wohnung, die sich von selbst umsortiert, ohne dass man es
-              bestellt hat, ist keine eingerichtete Wohnung, sondern eine,
-              in der man morgens sucht. Und je Person, weil es Gewohnheit
-              ist: Wer um sechs aufsteht, meint mit «Morgen» etwas
-              anderes als wer um neun anfängt. */}
-          {section === 'home' && !editing && !searching && lohntSich(shown) ? (
-            <Pressable
-              onPress={() => setTageszeit(!eigenePrefs.tageszeit)}
-              accessibilityRole="switch"
-              accessibilityState={{ checked: !!eigenePrefs.tageszeit }}
-              accessibilityLabel={
-                eigenePrefs.tageszeit
-                  ? 'Kacheln wieder in fester Reihenfolge zeigen'
-                  : 'Kacheln nach Tageszeit sortieren'
-              }
-              style={({ pressed }) => [styles.kameraSort, pressed && { opacity: 0.8 }]}
-            >
-              <Ionicons
-                name={eigenePrefs.tageszeit ? 'sunny' : 'list-outline'}
-                size={18}
-                color={eigenePrefs.tageszeit ? colors.accent : colors.onGradientSoft}
-              />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.reorderText}>
-                  {abschnitt
-                    ? gewohnheitWirkt
-                      ? hinweisGelernt(abschnitt)
-                      : tageszeitHinweis(abschnitt)
-                    : 'Feste Reihenfolge'}
-                </Text>
-                <Text style={styles.kameraSortHint}>
-                  {!eigenePrefs.tageszeit
-                    ? 'Immer dieselbe Reihenfolge, egal wie spät es ist.'
-                    : gewohnheitWirkt
-                      ? 'Was du um diese Zeit oft anfasst, steht vorn – gezählt auf diesem Gerät, und es verblasst wieder.'
-                      : 'Morgens Storen, abends Licht – die Reihenfolge wandert mit dem Tag. Gilt nur für dich.'}
-                </Text>
-              </View>
-              <Ionicons
-                name={eigenePrefs.tageszeit ? 'toggle' : 'toggle-outline'}
-                size={30}
-                color={eigenePrefs.tageszeit ? colors.accent : colors.inkFaint}
-              />
-            </Pressable>
-          ) : null}
-          {/* Und der Schalter für die Raum-Reihenfolge - dort, wo die
-              Räume stehen. Dieselbe Regel wie bei der Tageszeit: aus,
-              bis jemand ihn einschaltet, und je Gerät gezählt - am
-              Wandpanel bedient man anderes als auf dem Telefon. */}
-          {section === 'home' && room === ALL_ROOMS && !editing && rooms.length > 3 ? (
-            <Pressable
-              onPress={() => setRaumNutzung(!eigenePrefs.raumNutzung)}
-              accessibilityRole="switch"
-              accessibilityState={{ checked: !!eigenePrefs.raumNutzung }}
-              accessibilityLabel={
-                eigenePrefs.raumNutzung
-                  ? 'Räume wieder in fester Reihenfolge zeigen'
-                  : 'Meistbenutzte Räume zuerst zeigen'
-              }
-              style={({ pressed }) => [styles.kameraSort, pressed && { opacity: 0.8 }]}
-            >
-              <Ionicons
-                name={eigenePrefs.raumNutzung ? 'trending-up' : 'list-outline'}
-                size={18}
-                color={eigenePrefs.raumNutzung ? colors.accent : colors.onGradientSoft}
-              />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.reorderText}>
-                  {eigenePrefs.raumNutzung
-                    ? 'Meistbenutzte Räume zuerst'
-                    : 'Feste Raum-Reihenfolge'}
-                </Text>
-                <Text style={styles.kameraSortHint}>
-                  {eigenePrefs.raumNutzung
-                    ? 'Was du auf diesem Gerät oft bedienst, steht oben. Ältere Bedienungen verblassen.'
-                    : 'Die Reihenfolge aus der Einrichtung – egal, was du oft anfasst.'}
-                </Text>
-              </View>
-              <Ionicons
-                name={eigenePrefs.raumNutzung ? 'toggle' : 'toggle-outline'}
-                size={30}
-                color={eigenePrefs.raumNutzung ? colors.accent : colors.inkFaint}
-              />
-            </Pressable>
-          ) : null}
+          {/* Die zwei Schalter für die Reihenfolge - Kacheln nach
+              Tageszeit und Räume nach Nutzung - standen hier, als zwei
+              breite Zeilen über den Raumkacheln. Sie wohnen jetzt in
+              den Kontoeinstellungen unter «Kacheln»: Eine Reihenfolge
+              stellt man einmal ein, und bis dahin nahmen sie auf der
+              Seite, auf der man ein Zimmer sucht, den Platz von zwei
+              Raumkacheln weg. Was sie bewirken, steht unverändert in
+              lib/tageszeit.ts und in der Sortierung der Raumliste. */}
           <Modal
             visible={reorderOpen}
             animationType="slide"
@@ -3177,7 +3301,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   mit Knöpfen beginnen, die man einmal am Tag braucht –
                   «Alles aus» steht deshalb unten, nach den Räumen, und
                   der Widget-Knopf öffnet seine Rückfrage direkt. */}
-              <ClimateOverview settings={settings} entities={entities} />
+              {/* Die Klimazeile steht seit Punkt 509 oben im Kopf, neben
+                  der Begrüssung - hier bliebe sie eine Zeile zwischen
+                  Kopf und Kacheln, während der Platz neben «Guten
+                  Morgen» leer stünde. */}
               {/* Ohne Knopf: Auf der Startseite stand «Alles aus» im
                   Weg - dort will man Licht und Storen, nicht das Haus
                   abschalten. Für einen Raum bleibt er (Räume →
@@ -3325,6 +3452,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   ) : null}
                 </View>
               ) : null}
+              {/* Links Name, Klima, Fakten und Szenen - rechts der
+                  Medienplayer, in dem Feld, das neben dem Titel sonst
+                  leer blieb. Wird es eng (Telefon), wickelt die Reihe:
+                  Der Player rutscht unter die Szenen und nimmt die
+                  ganze Breite, statt den Titel zu quetschen. */}
+              <View style={styles.raumKopfReihe}>
+              <View style={styles.raumKopfLinks}>
               <View style={styles.raumHeld}>
                 <Text
                   style={[styles.raumTitel, { flexShrink: 1 }]}
@@ -3390,29 +3524,33 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   </View>
                 </View>
               ) : null}
-            </View>
-          ) : null}
-          {/* Der komplette Medienplayer, nicht mehr hinter einem
-              Streifen zum Aufklappen: Wer ein Zimmer öffnet, will die
-              Musik dort sehen und bedienen, nicht erst antippen, dass
-              sie überhaupt erscheint - dieselbe Karte, die früher
-              rechts in der Spalte stand (Playlist, Sender, Box,
-              Warteschlange, Lautstärke). */}
-          {kopfSpieler && section === 'home' && room !== ALL_ROOMS ? (
-            <View style={styles.raumMusikkarte}>
-              <MediaPanel
-                entity={kopfSpieler}
-                players={musik.players}
-                titel={room}
-                activeDevice={musik.activeDevice}
-                // Dieselbe Wahl wie auf der Startseite: Kennt die
-                // gezeigte Quelle die angetippte Box, zieht die Musik
-                // dorthin um - sonst wechselt nur die Ansicht
-                // (lib/musikwahl.ts).
-                onSelect={musik.waehlen}
-                onCommand={guardedCommand}
-                wunschBox={musik.wunschBox}
-              />
+              </View>
+              {/* Der komplette Medienplayer - im Kopf selbst, nicht als
+                  eigene Karte darunter: Wer ein Zimmer öffnet, will die
+                  Musik dort sehen und bedienen, wo Name und Szenen
+                  stehen. Dieselbe Karte, die früher rechts in der Spalte
+                  stand (Playlist, Sender, Box, Warteschlange,
+                  Lautstärke), nur ohne Kartenrand und ohne zweiten
+                  Raumnamen (imKopf). */}
+              {kopfSpieler ? (
+                <View style={styles.raumMusikkarte}>
+                  <MediaPanel
+                    entity={kopfSpieler}
+                    players={musik.players}
+                    titel={room}
+                    activeDevice={musik.activeDevice}
+                    // Dieselbe Wahl wie auf der Startseite: Kennt die
+                    // gezeigte Quelle die angetippte Box, zieht die
+                    // Musik dorthin um - sonst wechselt nur die Ansicht
+                    // (lib/musikwahl.ts).
+                    onSelect={musik.waehlen}
+                    onCommand={guardedCommand}
+                    wunschBox={musik.wunschBox}
+                    imKopf
+                  />
+                </View>
+              ) : null}
+              </View>
             </View>
           ) : null}
           {/* Kacheln anpassen heisst: verschieben, ausblenden, sperren,
@@ -3498,41 +3636,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             />
           ) : null}
 
-          {/* Was der Hub selbst gefunden hat, steht danach als Kachel da:
-              mit dem Namen aus der Verpackung und ohne Raum. Hier stehen
-              genau diese Geräte zusammen, statt dass man sie einzeln in
-              der Liste suchen muss. Ist nichts offen, zeigt die Karte
-              sich gar nicht erst. */}
-          {section === 'devices' && darfAnpassen ? (
-            <Einrichtungshilfe
-              entities={entities}
-              raeume={rooms.filter((name) => name !== ALL_ROOMS)}
-              onRaum={(entityId, raum) => setEntityRoom(entityId, raum)}
-              onName={(entityId, name) => setEntityMeta(entityId, { name })}
-            />
-          ) : null}
-
-          {/* Immer sichtbar, solange man unter Geräte steht. Vorher
-              verschwand die Karte im Anpassen-Modus und beim Suchen -
-              also in genau den beiden Lagen, aus denen heraus man sie
-              braucht: Wer eine Kachel anpasst, richtet ein; wer sucht,
-              hat das Gerät gerade gefunden, um das es geht. */}
-          {section === 'devices' && istBesitzer ? (
-            <DeviceTools
-              settings={settings}
-              headers={{ Authorization: `Bearer ${settings.token}` }}
-              entities={shown}
-              // Ersetzen braucht den ganzen Bestand: Das neue Gerät heisst
-              // fast nie wie das alte, und wer nach «nuki» sucht, findet
-              // ein «Smart Lock Pro» nicht - hätte es dann aber auch nicht
-              // zur Auswahl.
-              alle={entities}
-              rooms={roomOrder}
-              groups={groupNames}
-              onDone={reloadScenes}
-            />
-          ) : null}
-
           {/* Leuchten zusammenfassen prägt die Ansicht für alle im Haus
               und ist damit Einrichtung, nicht Bedienung: Die Karte
               bleibt bei der Besitzerin. Ohne diese Bedingung stand sie
@@ -3579,11 +3682,21 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 .filter((name) => name !== ALL_ROOMS)
                 .map((name) => ({
                   name,
-                  items: shown.filter((entity) => entity.room === name),
+                  items: shown.filter((entity) => imRaum(entity, name)),
+                  // Temperatur und Feuchte aus allen Geräten des
+                  // Zimmers, nicht nur den gezeigten: Wer den Fühler
+                  // ausblendet, hat ihn nicht aus dem Raum genommen.
+                  klima: klimaGeraeteImRaum(entities, name),
                 }))
                 .concat(
                   shown.some((entity) => !entity.room)
-                    ? [{ name: NO_ROOM, items: shown.filter((entity) => !entity.room) }]
+                    ? [
+                        {
+                          name: NO_ROOM,
+                          items: shown.filter((entity) => !entity.room),
+                          klima: klimaGeraeteImRaum(entities, null),
+                        },
+                      ]
                     : []
                 )
                 .filter((tile) => tile.items.length > 0)
@@ -3592,6 +3705,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     key={tile.name}
                     name={tile.name}
                     items={tile.items}
+                    klimaGeraete={tile.klima}
                     width={hasRail ? Math.floor((gridWidth - space.gap) / 2) : gridWidth}
                     imageUri={raumbildUrl(tile.name)}
                     onOpen={() => setRoom(tile.name)}
@@ -3818,6 +3932,45 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               onAktion={() => setSection('devices')}
             />
           ) : null}
+
+          {/* Einrichten und Werkzeug ganz zuletzt (Punkt 550).
+              Beides standen sie über der Geräteliste - also vor dem,
+              weswegen man die Seite öffnet. Bei achtzig Geräten ohne
+              Raum war «Noch einzurichten» eine Bildschirmlänge, durch
+              die man jedes Mal scrollte, um an ein Gerät zu kommen.
+              Einrichten tut man einmal je Gerät, aufräumen ein paarmal
+              im Jahr; gesucht wird täglich. Beide Karten sind zudem
+              zugeklappt - «Noch einzurichten» behält seine Zeile
+              «78 ohne Raum», damit man sieht, ob sich das Aufmachen
+              lohnt. */}
+          {section === 'devices' && darfAnpassen ? (
+            <Einrichtungshilfe
+              entities={entities}
+              raeume={rooms.filter((name) => name !== ALL_ROOMS)}
+              onRaum={(entityId, raum) => setEntityRoom(entityId, [raum])}
+              onName={(entityId, name) => setEntityMeta(entityId, { name })}
+            />
+          ) : null}
+
+          {/* Auch im Anpassen-Modus und beim Suchen da: genau die beiden
+              Lagen, aus denen heraus man die Werkzeuge braucht. Wer eine
+              Kachel anpasst, richtet ein; wer sucht, hat das Gerät
+              gerade gefunden, um das es geht. */}
+          {section === 'devices' && istBesitzer ? (
+            <DeviceTools
+              settings={settings}
+              headers={{ Authorization: `Bearer ${settings.token}` }}
+              entities={shown}
+              // Ersetzen braucht den ganzen Bestand: Das neue Gerät heisst
+              // fast nie wie das alte, und wer nach «nuki» sucht, findet
+              // ein «Smart Lock Pro» nicht - hätte es dann aber auch nicht
+              // zur Auswahl.
+              alle={entities}
+              rooms={roomOrder}
+              groups={groupNames}
+              onDone={reloadScenes}
+            />
+          ) : null}
         </View>
 
         {/* Im Zimmer bleibt die Spalte ganz weg: Wetter und die Musik
@@ -3829,6 +3982,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           entities={entities}
           width={hasSidePanel ? panelWidth : undefined}
           room={offenerRaum}
+          // «Räume» selbst bekommt sie auch nicht: Dort sucht man ein
+          // Zimmer, und die Raumkacheln leben von der Breite ihrer
+          // Fotos (lib/seitenspalte.ts).
+          roomList={section === 'home' && room === ALL_ROOMS}
+          // Und die Geräteliste ebenso wenig (Punkt 549): Dort sucht
+          // man ein bestimmtes Gerät, mit Suchfeld und Filtern darüber.
+          deviceList={section === 'devices'}
           onCommand={guardedCommand}
         />
       </View>
@@ -3842,7 +4002,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         onTouchStart={() => setLastTouch(Date.now())}
         {...zurueckWischen}
       >
-        <View style={[styles.frame, { paddingTop: insets.top }]}>
+        {/* Auch links und rechts (Punkt 523): Im Querformat liegt die
+            Aussparung des iPhones seitlich, und ohne diese Ränder sass
+            die Leiste unter ihr. */}
+        <View
+          style={[
+            styles.frame,
+            { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right },
+          ]}
+          {...bereichWischen}
+        >
           {hasRail ? (
             <Rail
               active={railAktiv}
@@ -3850,6 +4019,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               vertical
               capabilities={user?.capabilities ?? []}
               hidden={hiddenSections}
+              ton={leistenTon}
             />
           ) : null}
 
@@ -3915,6 +4085,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 ungezaehlt={ungezaehlt}
                 locked={locked}
                 onCommand={guardedCommand}
+                onPosteingang={posteingangOeffnen}
+                posteingangZaehler={posteingangZaehler}
                 {...(hiddenSections.includes('family')
                   ? {}
                   : {
@@ -4014,6 +4186,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 Betreten der Startseite schon gelesen hat. */}
             {einstellungsKopf ??
               (section === 'start' || (section === 'home' && room !== ALL_ROOMS) ? null : (
+              <View style={grussSpieler ? styles.grussReihe : undefined}>
+              <View style={grussSpieler ? styles.grussLinks : undefined}>
               <View style={styles.greetingRow}>
                 <View style={styles.greeting}>
                   {/* Eine Zeile, nicht zwei: «Hallo Stefan,» mit «Guten
@@ -4037,6 +4211,36 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   <RunningAppliances entities={entities} />
                   <OpenDoors entities={entities} />
                 </View>
+              </View>
+              {/* Das Klima unter der Begrüssung, nicht mehr als eigene
+                  Zeile über den Kacheln: So trägt die linke Hälfte des
+                  Kopfs etwas - wie im Zimmer, wo dort Name, Klima und
+                  Fakten stehen - und die Seite wird um eine Zeile
+                  kürzer statt um eine länger. */}
+              {section === 'home' && room === ALL_ROOMS ? (
+                <ClimateOverview settings={settings} entities={entities} />
+              ) : null}
+              </View>
+              {/* Und rechts daneben der Medienplayer - dieselbe Karte,
+                  die im Zimmer im Raumkopf steht (imKopf: ohne Rand,
+                  ohne eigene Überschrift). Sie stand auf der Raumliste
+                  bis vor Kurzem in der Spalte rechts; die ist dort weg
+                  (Punkt 507), und die Musik des Hauses war damit auch
+                  weg. Im Kopf kostet sie keine Kachelspalte, denn neben
+                  «Guten Morgen» lag ohnehin nichts. */}
+              {grussSpieler ? (
+                <View style={styles.grussMusikkarte}>
+                  <MediaPanel
+                    entity={grussSpieler}
+                    players={musik.players}
+                    activeDevice={musik.activeDevice}
+                    onSelect={musik.waehlen}
+                    onCommand={guardedCommand}
+                    wunschBox={musik.wunschBox}
+                    imKopf
+                  />
+                </View>
+              ) : null}
               </View>
               ))}
 
@@ -4133,6 +4337,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             bottomInset={insets.bottom}
             capabilities={user?.capabilities ?? []}
             hidden={hiddenSections}
+            ton={leistenTon}
           />
         ) : null}
 
@@ -4205,6 +4410,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           />
         ) : null}
 
+        {posteingangOffen ? (
+          <Posteingang settings={settings} onSchliessen={() => setPosteingangOffen(false)} />
+        ) : null}
+
         {pushBlatt ? (
           <PushBlatt
             titel={pushBlatt.titel}
@@ -4266,7 +4475,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           // einem Raum ohne Storen wäre ein Schalter ohne Draht.
           knoepfe={
             bildFuer
-              ? raumaktionen(entities.filter((entity) => entity.room === bildFuer)).map(
+              ? raumaktionen(entities.filter((entity) => imRaum(entity, bildFuer))).map(
                   (aktion) => ({ art: aktion.art, label: aktion.label })
                 )
               : []
@@ -4277,7 +4486,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           geraete={
             bildFuer
               ? waehlbareGeraete(
-                  entities.filter((entity) => entity.room === bildFuer)
+                  entities.filter((entity) => imRaum(entity, bildFuer))
                 ).map((aktion) => ({ art: aktion.id ?? aktion.art, label: aktion.label }))
               : []
           }
@@ -4419,6 +4628,42 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             onFehlerWeg={dismissError}
             kino={kinoImBlatt}
             onKino={activateScene}
+          />
+        ) : null}
+        {grillImBlatt ? (
+          <Grillvollbild
+            entity={grillImBlatt}
+            ziele={zieleVon(grillziele, grillImBlatt.id)}
+            onZiel={(nummer, wert) => {
+              // Erst anzeigen, dann schicken - beim Grillen steht man
+              // daneben und will sehen, dass der Griff ankam.
+              setGrillziele((vorher) => [
+                ...vorher.filter(
+                  (zeile) =>
+                    !(
+                      zeile.entity_id === grillImBlatt.id &&
+                      String(zeile.nummer) === nummer
+                    )
+                ),
+                ...(wert === null
+                  ? []
+                  : [{ entity_id: grillImBlatt.id, nummer, ziel: wert }]),
+              ]);
+              hub.put(
+                '/api/grillziele',
+                { entity_id: grillImBlatt.id, nummer: Number(nummer), ziel: wert },
+                { still: true }
+              );
+            }}
+            onCommand={(command, data) => guardedCommand(grillImBlatt.id, command, data)}
+            // «Timer stellen» wie in der Hersteller-App: Der Küchen-Timer
+            // wohnt in der Küche, und dieselbe Adresse nimmt auch die
+            // Live-Karte (core/livekarten.py, GRILL_LINK).
+            onTimer={() => {
+              setGrillBlattFuer(null);
+              adresseAusfuehren.current('homepilot://timer');
+            }}
+            onSchliessen={() => setGrillBlattFuer(null)}
           />
         ) : null}
         {musikBlattRaum ? (

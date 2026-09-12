@@ -31,6 +31,8 @@ import { datumUhr } from '../lib/format';
 import { integrationDetail } from '../lib/integrationszeile';
 import { LaufArt, LetzterLauf, letzterLaufSatz } from '../lib/letzterlauf';
 import { OtaStand, otaLage, otaZeile } from '../lib/otastand';
+import { standSatz } from '../lib/appstand';
+import { SIGNAL_AN, SIGNAL_AUS, rauchmelderListe } from '../lib/rauchmelder';
 import { UpdateVorschau, vorschauZeilen } from '../lib/updatevorschau';
 import { fehlerZeilen, letzterStartfehler, startfehlerListe } from '../lib/startfehler';
 import { localTime, timeAgo } from '../lib/zeit';
@@ -47,11 +49,14 @@ export function SystemScreen({
   user,
   entities = [],
   push = { state: 'idle' },
+  onSignal,
 }: {
   settings: HubSettings;
   user: User | null;
   /** Alle Geräte – für die Liste hinter «nicht erreichbar». */
   entities?: Entity[];
+  /** Einen Rauchwarnmelder von Hand lärmen lassen (Punkt 544). */
+  onSignal?: (entityId: string, command: string) => void;
   /** Stand der Push-Anmeldung dieses Geräts. */
   push?: PushState;
 }) {
@@ -148,6 +153,16 @@ export function SystemScreen({
                   {timeAgo(status.build.built_at)
                     ? ` (${timeAgo(status.build.built_at)})`
                     : ''}
+                  {/* Aus welchem Zweig (Punkt 430 der Werkbank). Der
+                      Update-Knopf baut, was in deploy/rebuild-hub.sh
+                      unter BRANCH steht - «main». Wer auf einem anderen
+                      Zweig arbeitet und hier drückt, sieht einen
+                      erfolgreichen Bau ohne seine Änderung, und das
+                      stand bisher nur in CLAUDE.md statt hier, wo der
+                      Knopf ist. */}
+                  {status.build.branch && status.build.branch !== 'unbekannt'
+                    ? ` aus ${status.build.branch}`
+                    : ''}
                 </Text>
               ) : null}
             </View>
@@ -155,7 +170,10 @@ export function SystemScreen({
           </View>
         ) : null}
         {status.build ? <WebVersionNote hubCommit={status.build.commit} /> : null}
-        <AppVersionNote />
+        {/* Der Stand des Hubs gehört mit hinein: Erst im Vergleich wird
+            aus «kann älter sein» ein «ist es» oder «ist es nicht»
+            (Punkt 545). */}
+        <AppVersionNote hubCommit={status.build?.commit} />
         <AbsturzNote />
         <StartfehlerNote />
         <WasIstNeu settings={settings} />
@@ -211,6 +229,12 @@ export function SystemScreen({
           </Text>
         </Card>
       ) : null}
+
+      {/* Noch unter «Zustand»: Ob die Melder an der Decke noch melden,
+          ist eine Zustandsfrage - und die einzige Stelle, an der man sie
+          stellen kann, seit im Zimmer keine Kachel mehr steht
+          (Punkt 542). */}
+      <RauchmelderCard entities={entities} onSignal={onSignal} />
 
       <IntegrationsCard
         integrations={status.integrations}
@@ -756,7 +780,7 @@ function AbsturzNote() {
   );
 }
 
-function AppVersionNote() {
+function AppVersionNote({ hubCommit }: { hubCommit?: string | null }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   // Erst die Haken, dann die Anzeige - Hooks vertragen kein frühes
@@ -808,16 +832,36 @@ function AppVersionNote() {
   const nachgeladen = Updates.isEmbeddedLaunch === false;
   const lage = otaLage(stand);
   const zeile = otaZeile(lage);
+  // Woraus diese Fassung gebaut wurde - aus derselben `app.json`, die
+  // `eas update` in sein Manifest legt, also auch in einer
+  // nachgeladenen Fassung der Stand, aus dem sie wirklich entstand.
+  const satz = standSatz({
+    app: Constants.expoConfig?.extra?.commit as string | undefined,
+    hub: hubCommit,
+    nachgeladen,
+  });
   return (
     <>
       <Text style={styles.hint}>
         App {Constants.expoConfig?.version ?? '?'}
         {Updates.runtimeVersion ? ` · Laufzeit ${Updates.runtimeVersion}` : ''}
-        {gebaut ? ` · Stand ${gebaut}` : ''}
+        {/* «gebaut» und nicht «Stand»: Zwei Zeilen höher heisst «Stand»
+            der Commit des Hubs, und dasselbe Wort für ein Datum liest
+            sich wie dieselbe Auskunft (Punkt 545). */}
+        {gebaut ? ` · gebaut ${gebaut}` : ''}
         {nachgeladen ? ' · nachgeladen' : ' · mitgeliefert'}
       </Text>
-      {nachgeladen ? (
-        <Text style={[styles.hint, { color: colors.warn }]}>
+      {/* Erst die Antwort, dann die Erklärung.
+          «Kann älter sein» stand hier jahrelang allein und liess den
+          Leser genau so ratlos zurück, wie er gekommen war: *Ist* sie
+          es? Seit Punkt 545 nennen beide Seiten ihren Stand, und der
+          Vergleich steht zuoberst - die Erklärung darunter braucht es
+          nur noch, wenn wirklich etwas auseinandergeht. */}
+      {satz ? (
+        <Text style={[styles.hint, satz.warnt && { color: colors.warnInk }]}>{satz.text}</Text>
+      ) : null}
+      {nachgeladen && (satz?.warnt !== false) ? (
+        <Text style={[styles.hint, { color: colors.warnInk }]}>
           Diese App führt nicht ihren eigenen Stand aus, sondern eine über die Luft
           nachgeladene Fassung – die kann älter sein als das, was TestFlight gerade gebracht
           hat. Fehlt eine Änderung, die im Build drin sein müsste, ist das der
@@ -830,7 +874,7 @@ function AppVersionNote() {
           Öffnen und führt sie erst beim übernächsten Start aus. Zweimal
           die App wegwischen ist keine Bedienung, die man erraten kann. */}
       {zeile.text ? (
-        <Text style={[styles.hint, lage !== 'aktuell' && { color: colors.warn }]}>
+        <Text style={[styles.hint, lage !== 'aktuell' && { color: colors.warnInk }]}>
           {zeile.text}
         </Text>
       ) : null}
@@ -880,7 +924,7 @@ function StartfehlerNote() {
   const { titel, text } = fehlerZeilen(letzter);
   return (
     <>
-      <Text style={[styles.hint, { color: colors.warn }]}>
+      <Text style={[styles.hint, { color: colors.warnInk }]}>
         Beim Start ist etwas schiefgegangen. Die App läuft weiter, aber eine
         Nebensache fehlt vermutlich.
       </Text>
@@ -924,7 +968,7 @@ function WebVersionNote({ hubCommit }: { hubCommit: string }) {
     return null;
   }
   return (
-    <Text style={[styles.hint, { color: colors.warn }]}>
+    <Text style={[styles.hint, { color: colors.warnInk }]}>
       Die geladene Web-Fassung ist Stand {webCommit}, der Hub läuft mit {hubCommit}. Die
       Seite einmal komplett neu laden – zeigt sie danach immer noch den alten Stand, ist
       beim Update der Web-Bau fehlgeschlagen (die Meldung dazu erscheint nach dem nächsten
@@ -1373,7 +1417,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
           style={[
             styles.noteText,
             noteArt === 'fehler' && { color: colors.danger },
-            noteArt === 'hinweis' && { color: colors.warn },
+            noteArt === 'hinweis' && { color: colors.warnInk },
           ]}
           selectable
         >
@@ -1453,6 +1497,146 @@ export function offline(entities: Entity[]): Entity[] {
  * Karte offen - eine Lücke einzuklappen hiesse, genau die Auskunft zu
  * verstecken, für die es sie gibt.
  */
+/**
+ * Die Rauchwarnmelder mit allem, was sie melden.
+ *
+ * Gewünscht im Haus: «Die Rauchwarnmelder-Kachel soll es in den Räumen
+ * nicht anzeigen. Es soll aber in Einstellungen → System die
+ * Rauchwarnmelder anzeigen mit Status, Batterie, Smoke density, Smoke
+ * density dbm usw.»
+ *
+ * Beides gehört zusammen: Die Kachel fällt weg, weil sie im Zimmer
+ * immer dasselbe sagte - also braucht es eine Stelle, an der man
+ * nachsehen kann. Ein Rauchmelder hängt an der Decke, man fasst ihn nie
+ * an, und deshalb merkt niemand, wenn er still geworden ist. Genau das
+ * beantwortet diese Karte: meldet er noch, wie voll ist die Batterie,
+ * was misst er gerade.
+ *
+ * Die Werte kommen aus dem Zustand des Geräts und nicht aus einer
+ * festen Liste (lib/rauchmelder.ts) - welche ein Melder führt, hängt am
+ * Modell, und eine Liste, die nur Aufgezähltes zeigt, lässt genau das
+ * weg, wonach man sucht.
+ */
+function RauchmelderCard({
+  entities,
+  onSignal,
+}: {
+  entities: Entity[];
+  /** Den Melder von Hand lärmen lassen. Fehlt der Griff, bleibt der
+   *  Knopf weg - Gäste lösen keine Sirene aus. */
+  onSignal?: (entityId: string, command: string) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [offen, setOffen] = useState(false);
+  const melder = useMemo(() => rauchmelderListe(entities), [entities]);
+
+  // Kein Melder im Haus, keine Karte: Eine leere Überschrift behauptet,
+  // es gäbe etwas zu sehen.
+  if (melder.length === 0) return null;
+
+  const alarme = melder.filter((zeile) => zeile.alarm).length;
+  const stumm = melder.filter((zeile) => !zeile.erreichbar).length;
+  // Was meldet, steht immer da - auch zugeklappt. Eine Brandmeldung
+  // hinter einem Pfeil wäre der Fehler, den diese Karte vermeiden soll.
+  const zeilen = offen ? melder : melder.filter((zeile) => zeile.alarm || !zeile.erreichbar);
+
+  return (
+    <Card style={styles.card}>
+      <Pressable
+        onPress={() => setOffen((wert) => !wert)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: offen }}
+        style={styles.integrationHead}
+      >
+        <Text style={[styles.heading, { flex: 1 }]}>Rauchwarnmelder</Text>
+        <Text
+          style={[
+            styles.rowDetail,
+            alarme > 0 ? { color: colors.danger } : stumm > 0 ? { color: colors.warnInk } : null,
+          ]}
+        >
+          {alarme > 0
+            ? alarme === 1
+              ? '1 meldet'
+              : `${alarme} melden`
+            : stumm > 0
+              ? stumm === 1
+                ? '1 nicht erreichbar'
+                : `${stumm} nicht erreichbar`
+              : `${melder.length} ruhig`}
+        </Text>
+        <Ionicons
+          name={offen ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={colors.inkSoft}
+        />
+      </Pressable>
+
+      {zeilen.map((zeile) => (
+        <View key={zeile.id} style={styles.melder}>
+          <View style={styles.row}>
+            <Ionicons
+              name={zeile.alarm ? 'flame' : 'flame-outline'}
+              size={18}
+              color={
+                zeile.alarm ? colors.danger : zeile.erreichbar ? colors.inkSoft : colors.warnInk
+              }
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowTitle}>{zeile.name}</Text>
+              <Text style={styles.rowDetail}>
+                {[zeile.raum, zeile.status].filter(Boolean).join(' · ')}
+              </Text>
+            </View>
+          </View>
+          {onSignal && zeile.kannSignal ? (
+            <View style={styles.melderKnoepfe}>
+              <Button label="Signal testen" onPress={() => onSignal(zeile.id, SIGNAL_AN)} />
+              <Button label="Stopp" onPress={() => onSignal(zeile.id, SIGNAL_AUS)} />
+            </View>
+          ) : null}
+          {!zeile.kannSignal ? (
+            // Warum der Melder im Ablauf-Editor nicht zur Wahl steht.
+            // Ohne diesen Satz sucht man dort weiter - die meisten
+            // Rauchmelder haben zwar eine Sirene, aber nur ihre eigene.
+            <Text style={styles.hint}>
+              Dieses Modell lässt sich nicht von aussen auslösen – es hat keine Sirene, die
+              der Hub ansteuern kann. Darum steht es in den Abläufen auch nicht als «Signal
+              geben» zur Wahl.
+            </Text>
+          ) : null}
+          {zeile.werte.length > 0 ? (
+            <View style={styles.melderWerte}>
+              {zeile.werte.map((wert) => (
+                <View key={wert.feld} style={styles.fact}>
+                  <Text style={styles.factLabel}>{wert.label}</Text>
+                  <Text
+                    style={[styles.melderWert, wert.warnt ? { color: colors.warnInk } : null]}
+                  >
+                    {wert.wert}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.hint}>
+              Dieser Melder meldet ausser seinem Zustand nichts - kein Batteriestand, keine
+              Rauchdichte. Das hängt am Modell, nicht am Hub.
+            </Text>
+          )}
+        </View>
+      ))}
+
+      <Text style={styles.hint}>
+        Im Zimmer steht kein ruhiger Melder mehr: Er lässt sich nicht bedienen, und die Kachel
+        sagte immer dasselbe. Meldet einer Rauch, steht er wieder dort - und die Push-Meldung
+        und die Alarmanlage laufen ohnehin unabhängig vom Bildschirm.
+      </Text>
+    </Card>
+  );
+}
+
 function ExtrasCard({ settings }: { settings: HubSettings }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -1495,7 +1679,7 @@ function ExtrasCard({ settings }: { settings: HubSettings }) {
         style={styles.integrationHead}
       >
         <Text style={[styles.heading, { flex: 1 }]}>Zusatzteile</Text>
-        <Text style={[styles.rowDetail, fehlt > 0 && { color: colors.warn }]}>
+        <Text style={[styles.rowDetail, fehlt > 0 && { color: colors.warnInk }]}>
           {fehlt === 0 ? 'vollständig' : fehlt === 1 ? '1 fehlt' : `${fehlt} fehlen`}
         </Text>
         <Ionicons
@@ -1639,7 +1823,7 @@ function IntegrationsCard({
         <Text
           style={[
             styles.rowDetail,
-            gestoert.length > 0 && { color: colors.warn },
+            gestoert.length > 0 && { color: colors.warnInk },
             broken.length > 0 && { color: colors.danger },
           ]}
         >
@@ -2124,7 +2308,7 @@ function BackupCard({ settings }: { settings: HubSettings }) {
         </Text>
       ) : null}
       {offsite ? (
-        <Text style={[styles.rowDetail, !offsite.ok && { color: colors.warn }]} selectable>
+        <Text style={[styles.rowDetail, !offsite.ok && { color: colors.warnInk }]} selectable>
           {offsite.ok
             ? `Off-Site-Kopie in Supabase: zuletzt ${datumUhr(offsite.at * 1000)}`
             : `Off-Site-Kopie fehlgeschlagen: ${offsite.error ?? 'unbekannt'}`}
@@ -2242,8 +2426,21 @@ const makeStyles = (colors: Colors) =>
     rowDetail: { color: colors.inkSoft, fontSize: 13 },
     // Der Grund, warum nichts ankommt. In der Warnfarbe, weil er eine
     // Aufgabe ist, und mit Zeilenabstand, weil er ein Satz ist.
-    rowProblem: { color: colors.warn, fontSize: 12, lineHeight: 17, marginTop: 2 },
+    rowProblem: { color: colors.warnInk, fontSize: 12, lineHeight: 17, marginTop: 2 },
     hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },
+    /** Ein Melder samt seinen Werten - abgesetzt, damit bei vier
+     *  Meldern nicht zwölf Zahlen in einem Block stehen. */
+    melder: {
+      gap: 8,
+      paddingTop: 10,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.surfaceBorder,
+    },
+    melderWerte: { flexDirection: 'row', flexWrap: 'wrap', gap: 18, paddingLeft: 30 },
+    melderKnoepfe: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingLeft: 30 },
+    /** Kleiner als `factValue`: Hier stehen vier bis acht Werte je
+     *  Melder nebeneinander, nicht fünf auf der ganzen Seite. */
+    melderWert: { color: colors.ink, fontSize: 15, fontWeight: '600' },
     /** Ein Befehl zum Abtippen - Festbreitenschrift, damit man Klammern
      *  und Kommas auseinanderhält. */
     befehl: {

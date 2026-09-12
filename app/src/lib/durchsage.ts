@@ -43,6 +43,29 @@ export const STANDARDTEXTE = [
 /** So viele Sätze darf die Liste führen - mehr scrollt nur. */
 export const HOECHSTENS_EIGENE = 12;
 
+/**
+ * Die wählbaren Lautstärken einer Durchsage, in Prozent.
+ *
+ * Vier Stufen statt eines Schiebers: «Essen ist fertig» braucht keine
+ * Feinabstimmung, sondern «leise, weil das Kind schläft» oder «laut,
+ * weil im Garten». 70 ist die feste Vorgabe des Hubs (DURCHSAGE_VOLUME
+ * in core/say.py) - sie steht in der Mitte, damit die alte Lautstärke
+ * die bleibt, die man ohne Wahl bekommt.
+ */
+export const LAUTSTAERKEN = [30, 50, 70, 90] as const;
+export const STANDARD_LAUTSTAERKE = 70;
+
+/** Die Lautstärke, mit der gesendet wird (rein, testbar).
+ *
+ *  Ohne gespeicherte Wahl die Vorgabe; Unsinn (Text, ausserhalb 0-100)
+ *  wird eingeklemmt statt abgewiesen - eine Durchsage, die an einer
+ *  kaputten Einstellung scheitert, wäre die schlechtere Antwort. */
+export function lautstaerkeVon(prefs: { lautstaerke?: number }): number {
+  const wert = Number(prefs.lautstaerke);
+  if (!Number.isFinite(wert)) return STANDARD_LAUTSTAERKE;
+  return Math.max(0, Math.min(100, Math.round(wert)));
+}
+
 /** Ein Satz für den Vergleich: ohne Rand, ohne Gross- und Kleinschreibung. */
 function schluessel(text: string): string {
   return text.trim().toLowerCase();

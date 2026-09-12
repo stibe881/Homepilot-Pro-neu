@@ -34,7 +34,7 @@ import time
 from typing import Any
 from urllib.parse import quote
 
-from . import laufzeit, liveaktivitaet, presence
+from . import grillmeldung, laufzeit, liveaktivitaet, presence
 
 log = logging.getLogger(__name__)
 
@@ -57,6 +57,17 @@ KARTEN_KEY = "live_cards"
 #: meldet sonst im Sekundentakt, und Apple deckelt das Budget je
 #: Aktivität ohnehin.
 UPDATE_ABSTAND = 45.0
+
+#: Der Grill darf öfter (Punkt 558): Er misst alle dreissig Sekunden
+#: (integrations/pitboss.py, scan_interval), die Kachel in der App zeigt
+#: jeden Messwert sofort - und die Karte auf dem Sperrbildschirm hing
+#: mit 45 s Abstand auf einem 20-s-Takt bis zu anderthalb Minuten
+#: hinterher: «In der Live-Aktivität steht 108, der Grill hat aber schon
+#: 110.» Jeder Takt, in dem sich etwas geändert hat, darf jetzt senden;
+#: öfter als der Grill misst, wird es dadurch nicht. Das Budget von
+#: Apple trägt das - die App meldet häufige Updates an
+#: (NSSupportsLiveActivitiesFrequentUpdates in app.json).
+GRILL_UPDATE_ABSTAND = 15.0
 
 #: So lange bleibt eine Karte vorgemerkt, deren Ende mangels Token nicht
 #: rausging - danach hat iOS sie ohnehin selbst abgeräumt.
@@ -225,6 +236,22 @@ def raum_url(entity: Any) -> str | None:
     return f"homepilot://raum/{quote(str(raum))}"
 
 
+def grill_url(entity: Any) -> str:
+    """Wohin ein Tipp auf die Grillkarte führt (rein, testbar).
+
+    Nicht bloss in den Raum wie bei der Waschmaschine (raum_url): Beim
+    Grill will man nach dem Tipp sofort die vier Fühler sehen und ein
+    Ziel setzen können, und das steht im Vollbild der Kachel
+    (screens/dashboard/Grillvollbild.tsx). Der Weg über den Raum liesse
+    einen auf der Raumseite stehen, mit der Kachel irgendwo dazwischen -
+    genau der Zwischenschritt, den man mit heissen Händen nicht macht.
+
+    Die Kennung wird kodiert; sie trägt einen Punkt und darf auch
+    Zeichen enthalten, die in einer Adresse etwas anderes bedeuten.
+    """
+    return f"homepilot://grill/{quote(str(entity.id), safe='')}"
+
+
 def _geraete_symbol(label: str) -> str:
     tief = label.lower()
     if "geschirr" in tief:
@@ -305,8 +332,82 @@ def karten_geraete(
     return karten
 
 
+#: Welche Farbe welcher Fleischfühler auf der Karte bekommt.
+#:
+#: Fest je Nummer und nicht der Reihe nach vergeben: Fühler 2 ist am
+#: Sonntag derselbe wie am Montag, und wer beim Blick aufs Telefon «der
+#: gelbe ist das Nackenstück» denkt, soll das auch beim zweiten Stück
+#: Fleisch noch dürfen. Vier Farben, vier Fühler (Punkt 553).
+# Die Farben, die der Grill selbst seinen Fühlern gibt - abgelesen aus
+# der Hersteller-App (Punkt 557): 1 grün, 2 gelb, 3 rot, 4 violett.
+# Vorher stand hier «1 blau, 4 grün», geraten; wer die gelbe 2 auf dem
+# Gerät sucht, soll auf der Karte dieselbe finden.
+FUEHLERFARBEN = {1: "gruen", 2: "gelb", 3: "rot", 4: "violett"}
+
+
+def grilltext(ist: Any, ziel: float, einheit: str) -> str:
+    """Die Zeile unter der grossen Zahl (rein, testbar).
+
+    «Heizt auf 110°» statt «104° → 110°»: Die Ist-Temperatur steht auf
+    der neuen Karte gross daneben, und zweimal dieselbe Zahl auf einer
+    Karte liest niemand zweimal. Steht der Grill auf Temperatur, sagt
+    die Zeile das - «heizt auf 110°», während er seit einer Stunde 110°
+    hält, wäre falsch.
+    """
+    ziel_text = f"{round(ziel)}{einheit}"
+    if ist is None:
+        return f"Ziel {ziel_text}"
+    # Derselbe Spielraum wie bei der Meldung «ist auf Temperatur»
+    # (core/grillmeldung.py): Stünde hier eine eigene Zahl, sagte die
+    # Karte «Hält 110°», während die Push noch nicht gekommen ist - und
+    # man suchte den Fehler bei der Push.
+    if grillmeldung.auf_temperatur(ist, ziel):
+        return f"Hält {ziel_text}"
+    return f"Heizt auf {ziel_text}"
+
+
+def fuehlerwerte(entity: Any, einheit: str) -> list[dict[str, Any]]:
+    """Die belegten Fleischfühler als Kreise für die Karte (rein, testbar).
+
+    Nur die eingesteckten: Ein leerer Kreis mit «–» sagt nichts und
+    nimmt den übrigen den Platz (integrations/pitboss.py,
+    probe_temperatures führt nur belegte).
+    """
+    werte = []
+    for nummer in (1, 2, 3, 4):
+        temp = entity.state.get(f"probe_{nummer}")
+        if temp is None:
+            continue
+        werte.append(
+            {
+                "nummer": str(nummer),
+                "wert": f"{round(float(temp))}{einheit}",
+                "farbe": FUEHLERFARBEN[nummer],
+            }
+        )
+    return werte
+
+
+# Was unten in der Mitte der Grillkarte steht (Punkt 556): In der
+# Hersteller-App ist es «SET TIMER», und das ist beim Grillen genau der
+# zweite Griff nach dem Blick auf die Temperatur - «in vierzig Minuten
+# nachsehen». Der Küchen-Timer des Hauses wohnt in der Küche (die App
+# löst homepilot://timer dort auf), also führt der Griff dorthin.
+# Als Inhalt vom Hub und nicht fest im Widget: Die Karte ist eine Form
+# für alles, und was auf ihr steht, entscheidet allein der Hub.
+GRILL_LINK = {"symbol": "timer", "text": "Timer stellen", "url": "homepilot://timer"}
+
+
 def karten_grill(entities: list[Any]) -> list[dict[str, Any]]:
-    """Der Grill: Ist- gegen Zieltemperatur, live."""
+    """Der Grill: Ist- gegen Zieltemperatur, live - samt Fleischfühlern.
+
+    Die Form stammt aus der Hersteller-App, und zwar auf Wunsch aus dem
+    Haus (Punkt 553): die Gartemperatur gross, darunter wohin sie will
+    und ein Balken, und rechts je ein Kreis für die eingesteckten
+    Fühler. Das ist beim Grillen genau die Reihenfolge, in der man
+    hinsieht - erst «ist der Ofen so weit», dann «ist das Fleisch so
+    weit».
+    """
     karten = []
     for entity in entities:
         if entity.kind != "appliance" or entity.state.get("state") != "running":
@@ -317,16 +418,36 @@ def karten_grill(entities: list[Any]) -> list[dict[str, Any]]:
         if ziel is None:
             continue
         ist = entity.state.get("temperature")
-        text = f"{round(float(ist))}° → {round(float(ziel))}°" if ist is not None else f"Ziel {round(float(ziel))}°"
-        url = raum_url(entity)
+        # Die Einheit kommt vom Gerät: Ein Grill in Fahrenheit meldet
+        # 350, und «350°C» wäre eine Behauptung über glühendes Blech.
+        einheit = str(entity.state.get("unit") or "°")
+        fuehler = fuehlerwerte(entity, einheit)
+        url = grill_url(entity)
         karten.append(
             {
                 "art": f"grill:{entity.id}",
                 "user": None,
+                # So oft, wie der Grill misst - siehe GRILL_UPDATE_ABSTAND.
+                "abstand": GRILL_UPDATE_ABSTAND,
                 "state": {
                     "titel": entity.label,
-                    "text": text,
+                    "text": grilltext(ist, float(ziel), einheit),
                     "symbol": "flame",
+                    # Die grosse Zahl. Sie macht aus der schmalen Zeile
+                    # die Karte, die man vom Sofa aus lesen kann - eine
+                    # ältere App-Hülle überliest das Feld einfach und
+                    # zeigt weiter die Zeile (Codable).
+                    **(
+                        {"gross": f"{round(float(ist))}{einheit}"}
+                        if ist is not None
+                        else {}
+                    ),
+                    # Ohne eingesteckten Fühler bleibt das Feld weg,
+                    # statt eine leere Liste zu schicken: Die Karte soll
+                    # keinen Platz für Kreise reservieren, die es nicht
+                    # gibt.
+                    **({"werte": fuehler} if fuehler else {}),
+                    "link": dict(GRILL_LINK),
                     # Wie nah dran - für den Fortschrittsbalken.
                     "fortschritt": (
                         max(0.0, min(1.0, float(ist) / float(ziel)))
@@ -846,7 +967,10 @@ def abgleich(
 
     Updates frühestens alle `update_abstand` Sekunden je Karte - ein
     verworfenes Update geht nicht verloren, es kommt in einer späteren
-    Runde, weil der gespeicherte Stand erst beim Senden nachzieht.
+    Runde, weil der gespeicherte Stand erst beim Senden nachzieht. Eine
+    Karte darf einen eigenen Abstand mitbringen (``abstand``): Der Grill
+    misst alle dreissig Sekunden, und seine Karte soll das auch zeigen
+    (GRILL_UPDATE_ABSTAND).
 
     Eine Karte, deren Ende mangels Token nicht rausgeht, bleibt als
     ``ende_offen`` in der Liste stehen (bis NACHHALL_SEKUNDEN). Sie
@@ -904,10 +1028,11 @@ def abgleich(
             )
             continue
         tokens = alt.get("activity_tokens") or []
+        abstand = float(karte.get("abstand") or update_abstand)
         if (
             stand != alt.get("stand")
             and tokens
-            and jetzt_s - float(alt.get("aktualisiert") or 0) >= update_abstand
+            and jetzt_s - float(alt.get("aktualisiert") or 0) >= abstand
         ):
             aktualisieren.append({"tokens": tokens, "state": karte["state"]})
             neue.append({**alt, "stand": stand, "aktualisiert": jetzt_s})
@@ -932,19 +1057,45 @@ def abgleich(
                 # daraus nicht zu lesen, um welche Karte es ging.
                 "art": alt.get("art"),
                 "user": alt.get("user"),
+                # Stand die Zeile schon in der vorigen Runde als
+                # vorgemerkt da? Dann ist das hier keine Neuigkeit mehr,
+                # und der Takt schweigt darüber (siehe `_runde`).
+                "schon_vorgemerkt": bool(alt.get("ende_offen")),
                 "tokens": tokens,
                 "state": ende.get("state"),
                 "sichtbar": float(ende.get("sichtbar") or 0),
             }
         )
-        # Ohne Token geht das Ende ins Leere - und mit der Zeile wäre
-        # auch das Wissen weg, dass da noch eine Karte liegt. Also
-        # vorgemerkt lassen statt vergessen: Meldet die App ihr Token
-        # nach (/api/liveactivity/activity), landet es an genau dieser
-        # Zeile, und der nächste Takt beendet die Karte wirklich. Der
-        # Umweg über VERWAIST_KEY greift nur, wenn der Hub die Art gar
-        # nicht mehr kennt - er ist das Netz darunter, nicht der Weg.
-        if not tokens and jetzt_s - float(alt.get("aktualisiert") or 0) < NACHHALL_SEKUNDEN:
+        # Die Zeile bleibt stehen, bis das Ende wirklich draussen war.
+        # Ausgetragen wird sie erst vom Takt, und nur für die Karten,
+        # deren Ende Apple angenommen hat (`_runde`, beendet).
+        #
+        # Zwei Fälle, in denen das Ende nicht rausgeht, und beide kamen
+        # aus dem Haus:
+        #
+        # - **Kein Token.** Die Karte startete per Push, während das
+        #   Telefon gesperrt war; ihr Token meldet die App erst beim
+        #   nächsten Öffnen. Meldet sie es nach
+        #   (/api/liveactivity/activity), landet es an genau dieser
+        #   Zeile, und der nächste Takt beendet die Karte wirklich.
+        # - **Der Versand scheiterte.** Apple nicht erreichbar, ein
+        #   Zeitüberlauf, ein abgelehnter Schlüssel - `senden` gibt dann
+        #   False zurück. Das wurde hier lange verworfen: Die Zeile fiel
+        #   weg, der Hub wusste nichts mehr von der Karte, und sie lag
+        #   bis zum Ende des Tages auf dem Sperrbildschirm. Kein
+        #   späterer Takt konnte sie noch abräumen - er kannte sie nicht
+        #   mehr. Genau so wurde es dreimal gemeldet («der Fernseher ist
+        #   aus, die Karte ist immer noch da»), und genau danach sah es
+        #   im tvcheck aus wie «eine Leiche aus einer früheren Fassung».
+        #
+        # Das ist dieselbe Lehre wie beim Starten ein paar Zeilen
+        # weiter unten, bloss in die andere Richtung: Eine Zeile
+        # entsteht mit der Karte und verschwindet mit ihrem Ende - nicht
+        # mit dem Auftrag dazu.
+        #
+        # Der Umweg über VERWAIST_KEY greift nur, wenn der Hub die Art
+        # gar nicht mehr kennt - er ist das Netz darunter, nicht der Weg.
+        if jetzt_s - float(alt.get("aktualisiert") or 0) < NACHHALL_SEKUNDEN:
             neue.append({**alt, "ende_offen": True})
     return neue, starten, aktualisieren, beenden
 
@@ -1141,23 +1292,67 @@ async def _runde(hub: Any, versand: liveaktivitaet.ApnsVersand) -> None:
     for auftrag in aktualisieren:
         for token in auftrag["tokens"]:
             await versand.senden(str(token), update_payload(auftrag["state"], jetzt))
+    # Enden, die wirklich draussen waren - nur deren Zeile darf weg.
+    # Alles andere bleibt vorgemerkt und wird im nächsten Takt erneut
+    # versucht (siehe abgleich, ende_offen).
+    beendet: set[tuple[str, str]] = set()
     for auftrag in beenden:
+        schluessel = (str(auftrag.get("user")), str(auftrag.get("art")))
         if not auftrag["tokens"]:
             # Kein Token, kein Ende - die Karte bleibt vorgemerkt
             # (abgleich, ende_offen), bis die App ihres nachmeldet.
             # Sie kommt, sobald die App einmal läuft: Beim Start per
             # Push weckt iOS sie kurz auf, damit sie das Token abholt
             # (app/modules/live-aktivitaet, LiveAktivitaetModule).
-            log.info(
-                "Live-Karte %s für %s: Ende ohne Token - vorgemerkt",
-                auftrag.get("art"),
-                auftrag.get("user"),
-            )
+            #
+            # **Einmal je Karte, nicht in jeder Runde.** Der Takt läuft
+            # alle zwanzig Sekunden, eine Zeile bleibt bis zu zwölf
+            # Stunden vorgemerkt - das sind über zweitausend gleiche
+            # Zeilen je Karte. Im Haus hing ein Wandtablet, das zu
+            # keiner Karte je ein Token meldete: drei Karten, alle
+            # zwanzig Sekunden drei Zeilen, Tag und Nacht. Docker hält
+            # 3 × 10 MB (docker-compose.yml); nach ein paar Tagen stand
+            # nichts anderes mehr im Protokoll. Als es darauf ankam -
+            # «warum verschwindet die Karte nicht?» -, war die Antwort
+            # darin längst überschrieben, und zwar von der Meldung über
+            # genau dieses Problem.
+            #
+            # Wie es gerade steht, sagt der tvcheck; ein Protokoll ist
+            # für Ereignisse da, nicht für Zustände.
+            if not auftrag.get("schon_vorgemerkt"):
+                log.info(
+                    "Live-Karte %s für %s: Ende ohne Token - vorgemerkt, "
+                    "bis die App eines nachmeldet",
+                    auftrag.get("art"),
+                    auftrag.get("user"),
+                )
             continue
+        offen = 0
         for token in auftrag["tokens"]:
-            await versand.senden(
+            if await versand.senden(
                 str(token), ende_payload(auftrag["state"], auftrag["sichtbar"], jetzt)
-            )
+            ):
+                continue
+            # Ein Token, das Apple endgültig ablehnt, hält keine Karte
+            # mehr fest - die Aktivität dahinter ist längst vorbei.
+            # Erneut zu senden hiesse, zwölf Stunden lang alle zwanzig
+            # Sekunden gegen eine Wand zu klopfen.
+            if str(token) not in versand.tote:
+                offen += 1
+        if offen:
+            # Auch hier nur beim ersten Mal - aus demselben Grund wie
+            # oben. Klappt es später, verschwindet die Zeile; scheitert
+            # es erneut, steht es wieder da.
+            if not auftrag.get("schon_vorgemerkt"):
+                log.warning(
+                    "Live-Karte %s für %s: Ende kam nicht an (%d Token) - "
+                    "bleibt vorgemerkt, nächster Takt erneut",
+                    auftrag.get("art"),
+                    auftrag.get("user"),
+                    offen,
+                )
+            continue
+        beendet.add(schluessel)
     # Eine Zeile entsteht mit dem Auftrag, nicht mit der Karte - und das
     # war falsch: Lehnt Apple den Start ab (totes push-to-start-Token,
     # abgelaufener Schlüssel), liegt keine Karte, aber die Zeile sagt
@@ -1169,6 +1364,19 @@ async def _runde(hub: Any, versand: liveaktivitaet.ApnsVersand) -> None:
             row
             for row in neue
             if (str(row.get("user")), str(row.get("art"))) not in gescheitert
+        ]
+    # Und die Gegenrichtung: Was beendet ist, darf die Liste verlassen.
+    # Ohne das stünde jede beendete Karte zwölf Stunden lang als
+    # «ende_offen» darin und liesse den Takt alle zwanzig Sekunden ein
+    # Ende an eine Karte schicken, die es nicht mehr gibt.
+    if beendet:
+        neue = [
+            row
+            for row in neue
+            if not (
+                row.get("ende_offen")
+                and (str(row.get("user")), str(row.get("art"))) in beendet
+            )
         ]
     # Telefone, deren Token Apple endgültig abgelehnt hat, austragen -
     # dieselbe Regel wie bei der Haustür-Karte (liveaktivitaet.tuer_loop).

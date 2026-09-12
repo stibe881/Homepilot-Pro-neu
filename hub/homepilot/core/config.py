@@ -106,6 +106,12 @@ class HubConfig:
     # Kamera mit Personenerkennung darauf, dass wirklich jemand im Bild
     # steht, bevor er das Bild nachreicht. Die Nachricht selbst wartet nie.
     # 0 schaltet das ab. Warum es das gibt: core/personenbild.py.
+    #
+    # Dazu {critical_alerts: true} - erst dann schickt der Hub Kategorien
+    # der Stufe «kritisch» als Apple-«critical alert» (Punkt 392). Der
+    # Schalter gehört in die Datei und nicht in die App, weil er nur
+    # stimmt, wenn Apple dem Build die Berechtigung gegeben hat; ohne sie
+    # kommt «kritisch» als «dringend» an (core/push.py: dringlichkeit).
     push: dict[str, Any] = field(default_factory=dict)
     # Update aus der App: {webhook_url: "https://…"} – die Adresse, die
     # angestossen wird. Ohne Eintrag bleibt der Knopf aus.

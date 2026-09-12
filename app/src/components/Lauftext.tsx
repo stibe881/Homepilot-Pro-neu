@@ -117,6 +117,14 @@ export function Lauftext({
     };
   }, [laeuft, plan.weite, plan.wanderMs, versatz]);
 
+  // Messung und Anzeige sind getrennt (Punkt 530, Werkbank 353): Der
+  // Messkasten bleibt immer 4000 Punkte breit und unsichtbar, damit der
+  // Text darin seine eigene Breite meldet - bei jedem Layout-Durchgang,
+  // nicht nur beim ersten. Vorher schrumpfte derselbe Kasten nach der
+  // Messung auf die gemessene Breite; ein weiterer Aufbau liess
+  // `onLayout` erneut feuern, der Text mass sich dann am geschrumpften
+  // Kasten, aus «muss wandern» wurde «passt», und die Zeile blieb mit
+  // Pünktchen stehen. Der animierte Kasten daneben misst gar nichts.
   const zeile = (
     <View
       style={styles.fenster}
@@ -126,30 +134,36 @@ export function Lauftext({
         {children}
       </Text>
       <View
-        style={styles.ueber}
+        style={styles.messkasten}
         pointerEvents="none"
-        // Zweimal derselbe Satz wäre für die Vorlesefunktion zweimal
-        // dasselbe zu hören; gelesen wird der Platzhalter, der ihn ganz
-        // enthält.
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
       >
-        <Animated.View
-          style={[
-            !laeuft && styles.weg,
-            { width: inhalt > 0 ? inhalt : MESSBREITE },
-            { transform: [{ translateX: versatz }] },
-          ]}
+        <Text
+          style={[style, styles.eigenbreit]}
+          numberOfLines={1}
+          onLayout={(ereignis) => setInhalt(ereignis.nativeEvent.layout.width)}
         >
-          <Text
-            style={[style, styles.eigenbreit]}
-            numberOfLines={1}
-            onLayout={(ereignis) => setInhalt(ereignis.nativeEvent.layout.width)}
-          >
-            {children}
-          </Text>
-        </Animated.View>
+          {children}
+        </Text>
       </View>
+      {laeuft ? (
+        <View
+          style={styles.ueber}
+          pointerEvents="none"
+          // Zweimal derselbe Satz wäre für die Vorlesefunktion zweimal
+          // dasselbe zu hören; gelesen wird der Platzhalter, der ihn ganz
+          // enthält.
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
+          <Animated.View style={[{ width: inhalt }, { transform: [{ translateX: versatz }] }]}>
+            <Text style={[style, styles.eigenbreit]} numberOfLines={1}>
+              {children}
+            </Text>
+          </Animated.View>
+        </View>
+      ) : null}
     </View>
   );
 
@@ -166,6 +180,17 @@ const styles = StyleSheet.create({
   reihe: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1 },
   fenster: { overflow: 'hidden', flexShrink: 1 },
   ueber: { ...StyleSheet.absoluteFillObject, flexDirection: 'row' },
+  // Der Messkasten: fest 4000 breit, nie sichtbar, nie animiert. Im
+  // Fenster (overflow hidden) abgeschnitten, damit er die Seite nicht
+  // seitlich aufzieht - die Browser-Probe misst genau das.
+  messkasten: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: MESSBREITE,
+    opacity: 0,
+    flexDirection: 'row',
+  },
   // Nicht `display: none`: Was nicht gezeichnet wird, misst sich auch
   // nicht - und dann wüsste niemand mehr, ob gewandert werden muss.
   weg: { opacity: 0 },

@@ -102,6 +102,42 @@ CAPABILITIES: dict[str, frozenset[str]] = {
     Role.GUEST: frozenset({Capability.CONTROL}),
 }
 
+# Was ein Kind nie schaltet - egal, was es sieht (Punkt 497 der Werkbank).
+#
+# Die Rolle «kind» kann seit Punkt 245 auf Räume eingeschränkt werden,
+# und das setzt der Hub durch (siehe `darf_raum`). Was er *nicht*
+# durchsetzte, war die zweite Hälfte: Innerhalb seiner Räume durfte ein
+# Kind alles, was es sah - auch das Türschloss im Flur und die
+# Alarmanlage. Dass die Kinder-Ansicht beides nicht anbietet, ist keine
+# Regel, sondern ein Bildschirm: Wer die App-Adresse kennt oder eine
+# ältere Fassung benutzt, kommt daran vorbei.
+#
+# Deshalb hier und nicht dort. Zwei Arten, und beide aus demselben
+# Grund - sie nehmen dem Haus seine Sicherung:
+#
+# - **Schlösser.** Ein Kind, das die Haustüre öffnet, ist genau der
+#   Fall, gegen den es die Rückfrage und die Biometrie gibt.
+# - **Die Alarmanlage.** Entschärfen hebt die Anlage auf; scharf
+#   schalten sperrt die Familie aus. Beides ist nichts, was zwischen
+#   zwei Hausaufgaben passieren soll.
+#
+# Sehen darf ein Kind beides weiterhin: «Ist abgeschlossen?» ist eine
+# Auskunft, die beruhigt, und sie wegzunehmen hiesse, Sicherheit mit
+# Geheimhaltung zu verwechseln.
+KID_NIE_SCHALTEN = frozenset({"lock", "alarm"})
+
+
+def kind_darf_schalten(role: str, kind: str) -> bool:
+    """Darf diese Rolle diese Geräteart überhaupt schalten? (rein, testbar)
+
+    Nur die Rolle «kind» ist hier eingeschränkt; für alle anderen gilt
+    weiter, was `may_see` und die Fähigkeiten sagen.
+    """
+    if role != Role.KID:
+        return True
+    return str(kind) not in KID_NIE_SCHALTEN
+
+
 # Was ein Gast ohne ausdrückliche Freigabe sehen darf: Licht und Schalter.
 # Kameras, Anwesenheit und Sensoren bleiben aussen vor.
 # Lichtszenen gehören dazu: Sie stellen Lampen, und Lampen darf ein Gast

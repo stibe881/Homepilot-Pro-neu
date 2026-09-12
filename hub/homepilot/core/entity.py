@@ -93,6 +93,22 @@ class Entity:
     available: bool = True
     # Raum aus der Konfiguration; die App gruppiert danach.
     room: str | None = None
+    # Alle Zimmer, für die dieses Gerät zählt - ``room`` ist das erste
+    # davon (Punkt 539 der Werkbank).
+    #
+    # Gewünscht im Haus: «man soll einen Sensor auch mehreren Räumen
+    # zuweisen können». Der Fall ist der offene Wohnbereich: *ein*
+    # Klimafühler, und Wohnzimmer wie Esszimmer sollen ihn zeigen. Wer
+    # ihn bisher unter beiden Zimmern aufführte, bekam wortlos nur das
+    # zuletzt genannte - die Zuordnung war ein Dict mit einem Schlüssel
+    # je Gerät.
+    #
+    # ``room`` bleibt daneben stehen und ist das erste der Zimmer: Es
+    # beantwortet die Frage «wo *steht* das Gerät» (dort liegt seine
+    # Kachel, daher kommt sein Namensvorschlag), und daran hängt zu
+    # viel, um es zu einer Liste zu machen. ``rooms`` beantwortet die
+    # andere Frage: «für welche Zimmer zählt es mit».
+    rooms: list[str] = field(default_factory=list)
     # In der App vergebener Anzeigename (überschreibt den der Integration).
     display_name: str | None = None
     # Auf der Startseite als Favorit anzeigen.
@@ -178,6 +194,7 @@ class Entity:
             "commands": list(self.commands),
             "available": self.available,
             "room": self.room,
+            "rooms": list(self.rooms),
             "favorite": self.favorite,
             "group": self.group,
             "scene_toggles": self.scene_toggles,

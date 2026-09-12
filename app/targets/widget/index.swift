@@ -773,6 +773,30 @@ struct HausAktivitaetAttributes: ActivityAttributes {
         /// Station). Optional und vom Hub bestimmt - eine alte Hülle
         /// überliest das Feld (Codable ignoriert unbekannte Schlüssel).
         var knoepfe: [KartenKnopf]?
+        /// Die grosse Zahl links, z.B. «104°C» (Punkt 553). Nur der
+        /// Grill setzt sie; ohne sie bleibt die Karte die schmale
+        /// Zeile, die Timer, Waschmaschine und Sauger brauchen.
+        var gross: String?
+        /// Kreise rechts, z.B. die vier Fleischfühler des Grills.
+        var werte: [KartenWert]?
+        /// Der Griff unten in der Mitte, z.B. «Timer stellen» beim
+        /// Grill (Punkt 556). Eine Adresse, kein Befehl.
+        var link: KartenLink?
+    }
+
+    /// Ein Griff, der in die App führt: SF-Symbol, Beschriftung, Adresse.
+    public struct KartenLink: Codable, Hashable {
+        var symbol: String
+        var text: String
+        var url: String
+    }
+
+    /// Ein Kreis auf der Karte: Nummer, Wert und die Farbe, die der Hub
+    /// fest zugeteilt hat (core/livekarten.py, FUEHLERFARBEN).
+    public struct KartenWert: Codable, Hashable {
+        var nummer: String
+        var wert: String
+        var farbe: String?
     }
 
     /// Ein Knopf: SF-Symbol plus dem, was er beim Hub auslöst. Das
@@ -812,7 +836,177 @@ private func kartenFarbe(_ name: String?) -> Color {
     switch name {
     case "rot": return .red
     case "orange": return .orange
+    // Die Farben der Fleischfühler (Punkt 553). «gruen» ohne Umlaut:
+    // Der Name reist als JSON durch den Push, und ein «ü» darin ist
+    // überall dort eine Quelle für Ärger, die man sich sparen kann -
+    // dieselbe Regel wie bei den Zigbee-Kennungen.
+    case "gelb": return .yellow
+    case "blau": return .blue
+    case "gruen": return .green
+    case "violett": return .purple
     default: return .accentColor
+    }
+}
+
+/// «104°C» in Zahl und Einheit zerlegt - reine Typografie: Die Zahl
+/// gross, die Einheit klein daneben, wie auf einem Thermometer. Der
+/// Hub schickt weiter einen Text, damit eine ältere Hülle ihn so
+/// anzeigen kann, wie er ist.
+private func zahlUndEinheit(_ text: String) -> (String, String) {
+    let zahl = text.prefix { $0.isNumber || $0 == "-" || $0 == "." || $0 == "," }
+    if zahl.isEmpty { return (text, "") }
+    return (String(zahl), String(text.dropFirst(zahl.count)))
+}
+
+/// Ein Fleischfühler als Kreis - Nummer oben, Temperatur darunter.
+///
+/// Die Form stammt aus der Hersteller-App und ist beim Grillen die
+/// richtige: Man sucht nicht «Fühler 2», man sucht die gelbe Zahl, weil
+/// dort das Nackenstück steckt. Seit Punkt 556 trägt die **Ziffer** die
+/// Farbe und der Ring bleibt grau - so steht es im Bild aus dem Haus,
+/// und die gelbe 2 auf dunklem Grund ist von weiter weg besser zu lesen
+/// als ein gelber Ring um eine weisse 2.
+@available(iOS 16.2, *)
+struct FuehlerKreis: View {
+    let wert: HausAktivitaetAttributes.KartenWert
+
+    var body: some View {
+        let (zahl, einheit) = zahlUndEinheit(wert.wert)
+        VStack(spacing: -1) {
+            Text(wert.nummer)
+                .font(.system(size: 17, weight: .heavy, design: .rounded))
+                .foregroundStyle(kartenFarbe(wert.farbe))
+            HStack(alignment: .firstTextBaseline, spacing: 1) {
+                Text(zahl)
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                Text(einheit)
+                    .font(.system(size: 9, weight: .semibold))
+            }
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+        }
+        .frame(width: 50, height: 50)
+        .background(Circle().fill(.white.opacity(0.08)))
+        .overlay(Circle().strokeBorder(.white.opacity(0.4), lineWidth: 2))
+    }
+}
+
+/// Die Fühler rechts, in der Reihenfolge, die der Hub schickt.
+///
+/// Bis zwei übereinander, wie im Bild aus dem Haus. Ab drei in zwei
+/// Spalten: Vier übereinander wären 220 Punkte, und mehr als 160 lässt
+/// der Sperrbildschirm einer Karte nicht. Höchstens vier - mehr hat der
+/// Grill nicht.
+@available(iOS 16.2, *)
+struct Fuehlerspalten: View {
+    let werte: [HausAktivitaetAttributes.KartenWert]
+
+    var body: some View {
+        let vier = Array(werte.prefix(4))
+        let spalten: [[HausAktivitaetAttributes.KartenWert]] =
+            vier.count <= 2 ? [vier] : [Array(vier.prefix(2)), Array(vier.dropFirst(2))]
+        HStack(spacing: 4) {
+            ForEach(Array(spalten.enumerated()), id: \.offset) { _, spalte in
+                VStack(spacing: 4) {
+                    ForEach(spalte, id: \.nummer) { wert in
+                        FuehlerKreis(wert: wert)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Der Balken mit dem Knopf am Ende - wie ein Regler, nur dass er
+/// nichts regelt. ProgressView hat keinen Knopf, und ohne ihn sah der
+/// Balken neben der grossen Zahl aus wie ein Strich, der zufällig da
+/// liegt.
+struct Fortschrittsbalken: View {
+    let anteil: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            let x = max(0, min(1, anteil)) * geo.size.width
+            ZStack(alignment: .leading) {
+                Capsule().fill(.white.opacity(0.2)).frame(height: 5)
+                Capsule().fill(.blue).frame(width: x, height: 5)
+                Circle().fill(.white).frame(width: 14, height: 14)
+                    .offset(x: max(0, min(geo.size.width - 14, x - 7)))
+            }
+            .frame(height: 14)
+        }
+        .frame(height: 14)
+    }
+}
+
+/// Die Grillkarte - die Form aus der Hersteller-App, gewünscht im Haus
+/// mit einem Bild davon (Punkt 556): links die Gartemperatur gross mit
+/// kleiner Einheit, darunter «Heizt auf 110°C» und der Balken; in der
+/// Mitte oben der Name, unten der Griff zum Timer; rechts die Fühler
+/// als Kreise. Was fest ist, ist nur die Anordnung - jeder Inhalt
+/// kommt vom Hub, und was er weglässt, bleibt weg.
+@available(iOS 16.2, *)
+struct GrillKarte: View {
+    let state: HausAktivitaetAttributes.ContentState
+    let gross: String
+
+    var body: some View {
+        let (zahl, einheit) = zahlUndEinheit(gross)
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .top, spacing: 2) {
+                    Text(zahl)
+                        .font(.system(size: 58, weight: .heavy, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
+                    Text(einheit)
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .padding(.top, 10)
+                }
+                Spacer(minLength: 0)
+                if !state.text.isEmpty {
+                    Text(state.text)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                if let fortschritt = state.fortschritt {
+                    Fortschrittsbalken(anteil: fortschritt)
+                }
+            }
+            .frame(maxHeight: .infinity)
+            .layoutPriority(1)
+            VStack(spacing: 0) {
+                Text(state.titel.uppercased())
+                    .font(.system(size: 17, weight: .heavy, design: .rounded))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Spacer(minLength: 0)
+                if let link = state.link, let ziel = URL(string: link.url) {
+                    Link(destination: ziel) {
+                        HStack(spacing: 5) {
+                            Image(systemName: link.symbol)
+                            Text(link.text.uppercased())
+                        }
+                        .font(.system(size: 15, weight: .heavy, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if let werte = state.werte, !werte.isEmpty {
+                Fuehlerspalten(werte: werte)
+            }
+        }
+        .padding(14)
+        // Zwei Kreise übereinander samt Abstand - und die Karte nicht
+        // höher, sonst hängen Zahl und Balken in der Luft. Nur nach
+        // oben begrenzt: In der Dynamic Island bekommt die Karte
+        // weniger Platz, und eine feste Höhe würde dort abgeschnitten.
+        .frame(maxHeight: 132)
     }
 }
 
@@ -889,6 +1083,24 @@ struct HausKarteInhalt: View {
     let state: HausAktivitaetAttributes.ContentState
 
     var body: some View {
+        // Die grosse Zahl macht aus der schmalen Zeile die Grillkarte
+        // (Punkt 553, Form seit 556): Wer den Grill vom Sofa aus
+        // ansieht, will die Gartemperatur lesen können, ohne das
+        // Telefon in die Hand zu nehmen. Timer, Waschmaschine und
+        // Sauger bleiben bei der Zeile.
+        if let gross = state.gross {
+            GrillKarte(state: state, gross: gross)
+        } else {
+            SchmaleKarte(state: state)
+        }
+    }
+}
+
+@available(iOS 16.2, *)
+struct SchmaleKarte: View {
+    let state: HausAktivitaetAttributes.ContentState
+
+    var body: some View {
         HStack(spacing: 12) {
             Image(systemName: state.symbol)
                 .font(.title2)
@@ -948,6 +1160,16 @@ struct HausKarte: Widget {
                     )
                     .monospacedDigit()
                     .frame(maxWidth: 60)
+                } else if let gross = context.state.gross {
+                    // Der Grill hat kein Ende, auf das er zählen könnte
+                    // - dort stand in der Insel bisher nichts als die
+                    // Flamme. Die Gartemperatur ist die Zahl, für die
+                    // man hinsieht (Punkt 553).
+                    Text(gross)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .frame(maxWidth: 60)
                 }
             } minimal: {
                 Image(systemName: context.state.symbol)

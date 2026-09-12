@@ -58,6 +58,9 @@ const BEREICHE: Section[] = [
   'system',
   'energy',
   'alarm',
+  // Die Brandmeldeanlage (Punkt 543): «Rauch gemeldet» und «Rauchmelder
+  // prüfen» führen dorthin - Quittieren, Stumm und «Geprüft» stehen dort.
+  'brand',
   'speakers',
   'users',
   'personen',
@@ -121,6 +124,7 @@ export function zielAus(data: {
   if (data.type === 'doorbell') return { art: 'klingel', entityId };
   if (data.type === 'battery') return { art: 'batterien' };
   if (data.type === 'alarm') return { art: 'bereich', bereich: 'alarm' };
+  if (data.type === 'smoke') return { art: 'bereich', bereich: 'brand' };
   return null;
 }
 

@@ -11,6 +11,7 @@ import {
   BatterieVermerk,
   HealthRow,
   batteryRows,
+  quittungSatz,
   stummBis,
 } from '../lib/batterien';
 import { FunkZeile, funkRows, funkStufe, funkWort } from '../lib/funkqualitaet';
@@ -182,6 +183,19 @@ export function DeviceHealth({
                       schlimmer als keine. */}
                   {prognose[row.entity.id] ? (
                     <Text style={styles.detail}>{prognose[row.entity.id]}</Text>
+                  ) : null}
+                  {/* Wer sie stillgestellt hat (Punkt 478 der Werkbank).
+                      Die Quittung gilt fürs ganze Haus - richtig so,
+                      sonst laufen zwei wegen derselben Batterie in den
+                      Keller. Falsch war, dass sie unsichtbar galt: Wer
+                      nachts wegdrückte, drückte sie auch dem anderen
+                      weg, und der suchte am Morgen eine Meldung, die es
+                      nie mehr gab. Zurücknehmen darf sie jeder - der
+                      Knopf daneben tut genau das. */}
+                  {quittungSatz(vermerke, row.entity.id, jetzt) ? (
+                    <Text style={styles.detail}>
+                      {quittungSatz(vermerke, row.entity.id, jetzt)}
+                    </Text>
                   ) : null}
                 </View>
                 {warnt ? (

@@ -5,7 +5,15 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Entity } from '../../api/types';
@@ -72,17 +80,22 @@ export function NumberField({
   value,
   onCommit,
   placeholder,
+  einheit,
 }: {
   value: string;
   onCommit: (value: string) => void;
   placeholder: string;
+  /** Steht rechts im Feld, sobald eine Zahl darin steht. Ohne sie steht
+   *  dort «4», und ob das Sekunden, Minuten oder Prozent sind, weiss nur,
+   *  wer den Platzhalter von vorhin noch im Kopf hat. */
+  einheit?: string;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [text, setText] = useState(value);
-  return (
+  const feld = (
     <TextInput
-      style={styles.input}
+      style={einheit ? styles.zahlFeld : styles.input}
       value={text}
       onChangeText={setText}
       onBlur={() => onCommit(String(Number(text) || 0))}
@@ -90,6 +103,13 @@ export function NumberField({
       placeholderTextColor={colors.inkFaint}
       keyboardType="numbers-and-punctuation"
     />
+  );
+  if (!einheit) return feld;
+  return (
+    <View style={styles.zahlZeile}>
+      {feld}
+      <Text style={styles.zahlEinheit}>{einheit}</Text>
+    </View>
   );
 }
 
@@ -123,8 +143,6 @@ export function MinutenWahl({
   onChange: (minutes: string) => void;
   placeholder?: string;
 }) {
-  const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
   const vorgabe = options.some((option) => option.key === value);
   // Ein Wert, den keine Vorgabe trifft, klappt das Feld von selbst auf –
   // sonst stünde ein gespeichertes «120» da, ohne dass eine Auswahl
@@ -134,30 +152,29 @@ export function MinutenWahl({
 
   return (
     <>
-      <View style={styles.rowGap}>
-        <Choice
-          options={[
-            ...options,
-            {
-              key: EIGEN,
-              label: eigen && value && !vorgabe ? minutenLabel(value) : 'eigene Zeit',
-            },
-          ]}
-          value={eigen ? EIGEN : value}
-          onSelect={(key) => {
-            if (key === EIGEN) {
-              setOffen(true);
-              return;
-            }
-            setOffen(false);
-            onChange(key);
-          }}
-        />
-      </View>
+      <Choice
+        options={[
+          ...options,
+          {
+            key: EIGEN,
+            label: eigen && value && !vorgabe ? minutenLabel(value) : 'eigene Zeit',
+          },
+        ]}
+        value={eigen ? EIGEN : value}
+        onSelect={(key) => {
+          if (key === EIGEN) {
+            setOffen(true);
+            return;
+          }
+          setOffen(false);
+          onChange(key);
+        }}
+      />
       {eigen ? (
         <NumberField
           value={value}
           placeholder={placeholder}
+          einheit="Min."
           onCommit={(text) => onChange(minutenWert(text))}
         />
       ) : null}
@@ -181,38 +198,35 @@ export function NachlaufWahl({
   value: string;
   onChange: (seconds: string) => void;
 }) {
-  const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
   const vorgabe = NACHLAUF_STUFEN.some((stufe) => stufe.key === value);
   const [offen, setOffen] = useState(!vorgabe && !!value);
   const eigen = offen || (!vorgabe && !!value);
 
   return (
     <>
-      <View style={styles.rowGap}>
-        <Choice
-          options={[
-            ...NACHLAUF_STUFEN,
-            {
-              key: EIGEN,
-              label: eigen && value && !vorgabe ? nachlaufLabel(value) : 'eigene Zeit',
-            },
-          ]}
-          value={eigen ? EIGEN : value}
-          onSelect={(key) => {
-            if (key === EIGEN) {
-              setOffen(true);
-              return;
-            }
-            setOffen(false);
-            onChange(key);
-          }}
-        />
-      </View>
+      <Choice
+        options={[
+          ...NACHLAUF_STUFEN,
+          {
+            key: EIGEN,
+            label: eigen && value && !vorgabe ? nachlaufLabel(value) : 'eigene Zeit',
+          },
+        ]}
+        value={eigen ? EIGEN : value}
+        onSelect={(key) => {
+          if (key === EIGEN) {
+            setOffen(true);
+            return;
+          }
+          setOffen(false);
+          onChange(key);
+        }}
+      />
       {eigen ? (
         <NumberField
           value={value ? String(Math.round(Number(value) / 60)) : ''}
           placeholder="Minuten, z.B. 15"
+          einheit="Min."
           onCommit={(text) => onChange(sekundenWert(text))}
         />
       ) : null}
@@ -333,6 +347,7 @@ export function EditorRahmen({
   onCancel,
   onSave,
   saveGesperrt = false,
+  breit = false,
   children,
 }: {
   titel: string;
@@ -343,6 +358,15 @@ export function EditorRahmen({
    *  ist, sieht nach Fehler aus. Grau sieht nach «noch nicht» aus - und
    *  im Formular steht, was fehlt. */
   saveGesperrt?: boolean;
+  /** Darf der Inhalt die ganze Breite nehmen?
+   *
+   *  Gemessen im Browser: Bei 1180 Punkten Fensterbreite war die
+   *  Formularspalte 575 breit, und rechts blieben 605 Punkte leer -
+   *  während das Formular 2567 Punkte hoch war, also 2,7 Bildschirme.
+   *  Die 620er Grenze ist für *eine* Spalte richtig (längere Zeilen
+   *  liest niemand gern), für zwei nebeneinander aber genau das, was
+   *  den Editor zum Schlauch macht. */
+  breit?: boolean;
   children: React.ReactNode;
 }) {
   const colors = useColors();
@@ -392,6 +416,7 @@ export function EditorRahmen({
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={[
             styles.editorContent,
+            breit && styles.editorContentBreit,
             { paddingBottom: insets.bottom + 40 },
           ]}
         >
@@ -427,11 +452,57 @@ export function Field({ label, children }: { label: string; children: React.Reac
  * `zuklappbar` übernimmt, was vorher die Klappe tat - gleiche Regeln:
  * offen, sobald etwas drinsteht (`stand`), sonst zu.
  */
+/**
+ * Zwei Spalten, wo Platz ist - und untereinander, wo keiner ist.
+ *
+ * Ein Ablauf ist ein Satz: «Wenn … passiert, dann … tun.» Untereinander
+ * gestapelt sieht man nie beide Hälften auf einmal; auf dem iPad blieb
+ * dabei die halbe Breite leer, während man 2,7 Bildschirme scrollte.
+ * Nebeneinander steht der Satz da, wie er gemeint ist.
+ *
+ * Die Schwelle ist die Breite, ab der zwei Spalten je rund 500 Punkte
+ * bekommen - darunter wären es zwei Schläuche statt einem, und das ist
+ * schlechter als vorher.
+ */
+export const SPALTEN_AB = 980;
+
+export function Spalten({
+  links,
+  rechts,
+  aus = false,
+}: {
+  links: React.ReactNode;
+  rechts: React.ReactNode;
+  /** Untereinander, auch wenn Platz wäre - der Assistent zeigt einen
+   *  Abschnitt aufs Mal, und der gehört nicht in eine halbe Spalte. */
+  aus?: boolean;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { width } = useWindowDimensions();
+  if (aus || width < SPALTEN_AB) {
+    return (
+      <>
+        {links}
+        {rechts}
+      </>
+    );
+  }
+  return (
+    <View style={styles.spalten}>
+      <View style={styles.spalte}>{links}</View>
+      <View style={styles.spalte}>{rechts}</View>
+    </View>
+  );
+}
+
 export function Abschnitt({
   nummer,
   titel,
   stand,
   zuklappbar = false,
+  versteckt = false,
+  anfangsOffen,
   children,
 }: {
   nummer: string;
@@ -440,11 +511,28 @@ export function Abschnitt({
    *  Abschnitt von selbst. */
   stand?: string;
   zuklappbar?: boolean;
+  /** Ganz weg, ohne den Abschnitt anders aufzubauen.
+   *
+   *  Der Assistent zeigt einen Abschnitt aufs Mal. Ihn dort neu zu
+   *  bauen hiesse, dieselben Felder zweimal zu pflegen - und genau so
+   *  laufen zwei Oberflächen auseinander, die dasselbe bauen sollen. */
+  versteckt?: boolean;
+  /** Überstimmt, ob der Abschnitt offen anfängt.
+   *
+   *  «Steht etwas drin, geh auf» ist beim Anlegen richtig und beim
+   *  Bearbeiten falsch: Dort steht überall etwas drin, also stand alles
+   *  offen - und man scrollte an einem fertigen Ablauf vorbei, statt
+   *  ihn zu sehen. */
+  anfangsOffen?: boolean;
   children: React.ReactNode;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [offen, setOffen] = useState(!zuklappbar || !!stand);
+  const [offen, setOffen] = useState(
+    anfangsOffen ?? (!zuklappbar || !!stand)
+  );
+
+  if (versteckt) return null;
 
   return (
     <View style={styles.abschnitt}>
@@ -537,6 +625,41 @@ export function Choice({
           </Text>
         </Pressable>
       ))}
+    </View>
+  );
+}
+
+/**
+ * Eine Chip-Reihe mit ihrer Frage darüber.
+ *
+ * Am gewählten Gerät standen fünf solche Reihen untereinander, und
+ * beschriftet war eine davon. Man sah: «ein / ein, gedimmt / aus /
+ * umschalten», darunter «Helligkeit lassen / 10 % / … / 100 %»,
+ * darunter allein «nach Tageszeit» - drei Fragen, keine gestellt. Wer
+ * sie nicht ohnehin kannte, las Wörter und riet, welches zu welcher
+ * gehört; «nach Tageszeit» sah aus wie ein sechster Helligkeitswert.
+ *
+ * Die Frage kostet eine Zeile und beantwortet das. Sie steht
+ * ausgeschrieben da und nicht als Stichwort - «Woher die Helligkeit?»
+ * sagt, was zur Wahl steht, «Helligkeitsquelle» sagt es nicht.
+ */
+export function Unterfrage({
+  label,
+  hinweis,
+  children,
+}: {
+  label: string;
+  /** Ein Satz unter der Frage, wo die Wahl Folgen hat, die man nicht sieht. */
+  hinweis?: string;
+  children: React.ReactNode;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return (
+    <View style={styles.unterfrage}>
+      <Text style={styles.unterfrageLabel}>{label}</Text>
+      {hinweis ? <Text style={styles.unterfrageHinweis}>{hinweis}</Text> : null}
+      {children}
     </View>
   );
 }

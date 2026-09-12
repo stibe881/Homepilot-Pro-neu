@@ -1,4 +1,12 @@
-import { RUHE_AUS, ruhesatz, stillsatz, uhr, verpasstsatz } from './pushruhe';
+import {
+  RUHE_AUS,
+  ruhesatz,
+  stillsatz,
+  tageOrdnen,
+  tageSatz,
+  uhr,
+  verpasstsatz,
+} from './pushruhe';
 
 describe('ruhesatz', () => {
   it('sagt, wie gross das Loch ist', () => {
@@ -54,5 +62,31 @@ describe('verpasstsatz', () => {
 
   it('reicht Unbekanntes durch, statt es zu verschlucken', () => {
     expect(verpasstsatz('etwas Neues')).toBe('etwas Neues');
+  });
+});
+
+// ── Wochentage (Punkt 479) ─────────────────────────────────────────────────
+
+describe('Die Ruhezeit kennt Wochentage', () => {
+  it('ordnet die Tage und macht aus allen sieben «egal»', () => {
+    expect(tageOrdnen([3, 1, 1])).toEqual([1, 3]);
+    expect(tageOrdnen([0, 1, 2, 3, 4, 5, 6])).toEqual([]);
+    expect(tageOrdnen(undefined)).toEqual([]);
+  });
+
+  it('liest eine zusammenhängende Woche als Spanne', () => {
+    expect(tageSatz([0, 1, 2, 3, 4])).toBe('Mo–Fr');
+    expect(tageSatz([5, 6])).toBe('Sa, So');
+    expect(tageSatz([0, 6])).toBe('Mo, So');
+    expect(tageSatz([])).toBe('jeden Tag');
+  });
+
+  it('nennt die Tage im Satz nur, wenn sie etwas einschränken', () => {
+    expect(ruhesatz({ enabled: true, from: 22, to: 7, days: [] })).toBe(
+      'Still von 22 Uhr bis 7 Uhr – 9 Stunden.'
+    );
+    expect(ruhesatz({ enabled: true, from: 22, to: 7, days: [0, 1, 2, 3, 4] })).toBe(
+      'Still von 22 Uhr bis 7 Uhr (Mo–Fr) – 9 Stunden.'
+    );
   });
 });
