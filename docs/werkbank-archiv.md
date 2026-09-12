@@ -5532,3 +5532,18 @@ zweimal dasselbe Wort untereinander. Jetzt steht dort, was auch neben
 dem Bild auf der Kachel steht (Punkt 559): «115 °C · Ziel 121 °C».
 
 Stellen: `app/src/lib/haushalt.ts`, `app/src/components/RunningAppliances.tsx`
+
+### 563. Ein Tipp auf «Smoker läuft» öffnet das Grillblatt ✓ erledigt
+
+Aus dem Haus: «Wenn man hier auf Smoker läuft klickt, soll sich das
+Popup vom jeweiligen Smoker öffnen.»
+
+Die Zeile neben der Begrüssung war bisher bewusst nichts zum Tippen -
+«eine laufende Waschmaschine ist eine Randnotiz, kein Alarm». Für die
+Waschmaschine bleibt das so; es gibt dort auch nichts zu öffnen. Läuft
+aber ein Grill, ist die Zeile der vierte Weg zum Blatt (nach Kachel,
+Live-Karte und Push), und zwar der kürzeste: Man ist auf der
+Startseite, sieht «Smoker läuft · 115 °C · Ziel 121 °C» und will die
+Fühler sehen. Laufen zwei Grills zugleich, gewinnt der vordere.
+
+Stellen: `app/src/lib/haushalt.ts`, `app/src/components/RunningAppliances.tsx`, `app/src/screens/DashboardScreen.tsx`

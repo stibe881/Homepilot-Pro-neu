@@ -5,7 +5,7 @@
  * aber niemand rechnet das im Vorbeigehen in «kurz vor vier» um.
  */
 import { Entity } from '../api/types';
-import { applianceIcon, workingAppliances } from './haushalt';
+import { applianceIcon, grillZumOeffnen, workingAppliances } from './haushalt';
 
 const geraet = (teile: Partial<Entity>): Entity =>
   ({
@@ -116,5 +116,19 @@ describe('applianceIcon', () => {
     expect(applianceIcon(geraet({ name: 'Waschmaschine' }))).toBe('water-outline');
     expect(applianceIcon(geraet({ name: 'Geschirrspüler' }))).toBe('restaurant-outline');
     expect(applianceIcon(geraet({ name: 'Irgendwas' }))).toBe('ellipse');
+  });
+});
+
+describe('grillZumOeffnen', () => {
+  it('findet den laufenden Grill hinter «Smoker läuft»', () => {
+    // Punkt 563: Der Tipp auf die Zeile öffnet das Blatt dieses Grills.
+    const smoker = geraet({ id: 'pitboss.smoker', name: 'Smoker', state: { state: 'running', target: 121 } });
+    const wama = geraet({ id: 'vzug.wama', name: 'Waschmaschine', state: { state: 'running' } });
+    expect(grillZumOeffnen(workingAppliances([wama, smoker]))?.id).toBe('pitboss.smoker');
+  });
+
+  it('hat ohne Grill nichts zu öffnen', () => {
+    const wama = geraet({ name: 'Waschmaschine', state: { state: 'running' } });
+    expect(grillZumOeffnen(workingAppliances([wama]))).toBeNull();
   });
 });

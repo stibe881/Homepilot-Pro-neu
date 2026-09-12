@@ -1195,6 +1195,31 @@ async function grillblattVierPlaetze(browser) {
   await seite.close();
 }
 
+/** 15. Öffnet «Smoker läuft» neben der Begrüssung das Grillblatt? (Punkt 563)
+ *
+ * Die Zeile war bisher bewusst nichts zum Tippen. Für den Grill ist sie
+ * der kürzeste Weg zum Blatt - und eine Zeile, die nach Knopf aussieht
+ * und keiner ist, merkt man erst am Grill.
+ */
+async function smokerLaeuftOeffnetBlatt(browser) {
+  const seite = await angemeldeteSeite(browser, GROESSEN[0]);
+  await seite.waitForTimeout(1500);
+  const zeile = seite.getByText('Smoker läuft', { exact: true }).first();
+  if (!(await zeile.isVisible().catch(() => false))) {
+    pruefe(false, '«Smoker läuft» steht neben der Begrüssung');
+    await seite.close();
+    return;
+  }
+  pruefe(true, '«Smoker läuft» steht neben der Begrüssung');
+  await zeile.click();
+  await seite.waitForTimeout(900);
+  pruefe(
+    await seite.getByText('GRILL TEMP', { exact: true }).first().isVisible().catch(() => false),
+    'Und ein Tipp darauf öffnet das Grillblatt'
+  );
+  await seite.close();
+}
+
 const { chromium } = playwrightLaden();
 const browser = await chromium.launch({ executablePath: browserOrt() });
 try {
@@ -1213,6 +1238,7 @@ try {
   await geraetewerkzeugeUnten(browser);
   await grillzielSetzen(browser);
   await grillblattVierPlaetze(browser);
+  await smokerLaeuftOeffnetBlatt(browser);
 } finally {
   await browser.close();
 }

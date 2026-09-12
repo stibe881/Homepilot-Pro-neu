@@ -247,3 +247,16 @@ export function applianceIcon(entity: Pick<Entity, 'name' | 'kind' | 'state'>): 
   if (/geschirr|sp(ü|ue)lmaschine/i.test(name)) return 'restaurant-outline';
   return 'ellipse';
 }
+
+/**
+ * Der Grill, den ein Tipp auf «Smoker läuft» öffnet (rein, testbar).
+ *
+ * Gewünscht im Haus (Punkt 563): «Wenn man hier auf Smoker läuft
+ * klickt, soll sich das Popup vom jeweiligen Smoker öffnen.» Der erste
+ * laufende Grill - laufen zwei zugleich, gewinnt der vordere; das Blatt
+ * des andern ist über seine Kachel eine Berührung entfernt. Läuft nur
+ * die Waschmaschine, gibt es nichts zu öffnen: `null`.
+ */
+export function grillZumOeffnen(working: Working[]): Entity | null {
+  return working.map((item) => item.entity).find(istGrill) ?? null;
+}

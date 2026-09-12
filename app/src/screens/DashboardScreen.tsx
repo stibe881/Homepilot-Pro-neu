@@ -4156,7 +4156,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 // doppelt da, der Chip «offen» in der Karte sagt es schon.
                 zusatz={
                   section === 'start' ? (
-                    <RunningAppliances entities={entities} />
+                    <RunningAppliances entities={entities} onGrill={(grill) => setGrillBlattFuer(grill.id)} />
                   ) : undefined
                 }
                 onKalender={
@@ -4208,7 +4208,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     stand sie neben Begrüssung und Hausstand - und nahm dort
                     Platz weg für etwas, das man selten braucht: Wer ein
                     Gerät sucht, geht ohnehin in die Geräteliste. */}
-                  <RunningAppliances entities={entities} />
+                  <RunningAppliances entities={entities} onGrill={(grill) => setGrillBlattFuer(grill.id)} />
                   <OpenDoors entities={entities} />
                 </View>
               </View>
