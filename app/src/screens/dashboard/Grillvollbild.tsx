@@ -135,8 +135,12 @@ export function Grillvollbild({
   const unit = String(entity.state.unit ?? '°C');
   const grad = '°';
   const buchstabe = unit.replace('°', '') || 'C';
-  const ist = entity.state.temperature as number | undefined;
-  const ziel = entity.state.target as number | undefined;
+  // Nur Zahlen sind Messwerte: Ein null vom Hub (Punkt 567) rundete
+  // sonst zu «0°C» und «Hält 0°» - und das liest sich wie ein kalter
+  // Grill, nicht wie eine Lücke.
+  const ist =
+    typeof entity.state.temperature === 'number' ? entity.state.temperature : undefined;
+  const ziel = typeof entity.state.target === 'number' ? entity.state.target : undefined;
   const laeuft = entity.state.state === 'running';
   const probes = (entity.state.probes ?? {}) as Record<string, number>;
   const plaetze = fuehlerplaetze(probes, ziele);

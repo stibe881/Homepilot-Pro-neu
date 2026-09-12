@@ -5626,3 +5626,29 @@ sondern lässt eine Lücke. Ohne Datenbank steht der Satz da, den auch
 der Sensor-Verlauf sagt - und genau den misst die Probe am Demo-Hub.
 
 Stellen: `app/src/lib/grillziel.ts`, `app/src/lib/grillverlauf.ts`, `app/src/components/Grillverlauf.tsx`, `app/src/screens/dashboard/Grillvollbild.tsx`, `scripts/probe.mjs`
+
+### 567. Nach dem Umstellen des Sollwerts stand 0 °C im Blatt ✓ erledigt
+
+Aus dem Haus, mit Bild: «Wenn ich die Zieltemperatur umstelle, macht es
+das» - 0 °C gross, «HÄLT 0°», alle vier Fühler leer, während der Grill
+bei 121 lief.
+
+**Das Bruchstück nach dem Befehl.** Nach `set_temperature` liest der Hub
+den Zustand sofort nach, damit man sieht, dass es angekommen ist - und
+das Gerät antwortet direkt nach einem Befehl gern mit einem Bruchstück:
+der neue Sollwert, die Temperaturen als None. `grill_state` machte
+daraus einen vollständigen Zustand mit lauter Lücken, und die Lücken
+überschrieben im Hub die guten Werte von der letzten Abfrage. Dasselbe
+konnte jede Cloud-Meldung tun.
+
+**Jetzt legt der Hub Bruchstücke auf den letzten vollen Stand.** Was
+die Meldung nicht kennt oder als None schickt, bleibt, wie es war. Nur
+die regelmässige Abfrage ersetzt den Zustand ganz - sie ist
+vollständig, und nur bei ihr darf ein ausgesteckter Fühler auch
+verschwinden.
+
+**Und die App rundet null nicht mehr zu 0.** `Math.round(null)` ist 0 -
+so wurde aus einer Lücke ein kalter Grill. Nur Zahlen sind Messwerte;
+alles andere zeigt «- - -».
+
+Stellen: `hub/homepilot/integrations/pitboss.py`, `hub/tests/test_pitboss.py`, `app/src/screens/dashboard/Grillvollbild.tsx`

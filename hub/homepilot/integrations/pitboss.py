@@ -80,6 +80,25 @@ def probe_temperatures(state: dict[str, Any]) -> dict[int, int]:
     return found
 
 
+def zusammenlegen(alt: dict[str, Any], neu: dict[str, Any]) -> dict[str, Any]:
+    """Eine Teilmeldung auf den letzten vollen Zustand legen (rein, testbar).
+
+    Aus dem Haus (Punkt 567): «Wenn ich die Zieltemperatur umstelle»,
+    stand im Blatt 0 °C, «Hält 0°», und alle vier Fühler waren leer.
+    Nach einem Befehl liest der Hub den Zustand sofort nach, und die
+    Cloud schickt zwischendurch Meldungen - beides kann ein Bruchstück
+    sein: nur der neue Sollwert, die Temperaturen als None. `grill_state`
+    machte daraus einen vollständigen Zustand mit lauter Lücken, und die
+    Lücken überschrieben im Hub die guten Werte von vorhin.
+
+    Deshalb: Was die Meldung nicht kennt oder als None schickt, bleibt,
+    wie es war. Nur die regelmässige Abfrage ersetzt den Zustand ganz -
+    sie ist vollständig, und nur bei ihr darf ein ausgesteckter Fühler
+    (None) auch verschwinden.
+    """
+    return {**alt, **{key: value for key, value in neu.items() if value is not None}}
+
+
 def faults(state: dict[str, Any]) -> list[str]:
     """Was gerade nicht stimmt, in lesbaren Worten (rein, testbar).
 
@@ -249,6 +268,9 @@ class _Grill:
     def __init__(self, eintrag: dict[str, Any], boss: Any, entity: Entity) -> None:
         self.name: str = eintrag["name"]
         self.model: str = eintrag["model"]
+        # Der letzte vollständige Rohzustand - Bruchstücke werden darauf
+        # gelegt (zusammenlegen, Punkt 567).
+        self.roh: dict[str, Any] = {}
         self.may_start: bool = eintrag["allow_remote_start"]
         # Über die Cloud meldet sich der Grill von selbst, lokal nicht.
         self.pushes: bool = not eintrag["host"]
@@ -352,7 +374,7 @@ class PitBossIntegration(Integration):
 
         async def _on_push(payload: Any) -> None:
             if isinstance(payload, dict):
-                await self._publish(grill, payload)
+                await self._teilmeldung(grill, payload)
 
         return _on_push
 
@@ -386,8 +408,16 @@ class PitBossIntegration(Integration):
                     if grill.erreichbar is False:
                         self.log.info("Grill '%s' antwortet wieder", grill.name)
                     grill.erreichbar = True
+                    # Die Abfrage ist vollständig - sie ersetzt den Stand.
+                    grill.roh = dict(state)
                     await self._publish(grill, state)
             await asyncio.sleep(self._interval)
+
+    async def _teilmeldung(self, grill: _Grill, raw: dict[str, Any]) -> None:
+        """Eine Meldung, die ein Bruchstück sein kann - auf den letzten
+        vollen Stand gelegt, statt ihn mit Lücken zu überschreiben."""
+        grill.roh = zusammenlegen(grill.roh, raw)
+        await self._publish(grill, grill.roh)
 
     async def _publish(self, grill: _Grill, raw: dict[str, Any]) -> None:
         shaped = grill_state(raw, grill.model)
@@ -426,9 +456,10 @@ class PitBossIntegration(Integration):
         except Exception as err:
             raise HomePilotError(f"Grill antwortet nicht: {err}") from err
         # Nicht auf die nächste Abfrage warten – wer schaltet, will sehen,
-        # dass es angekommen ist.
+        # dass es angekommen ist. Als Teilmeldung: Direkt nach einem
+        # Befehl kommt vom Gerät gern ein Bruchstück (Punkt 567).
         try:
-            await self._publish(grill, await grill.boss.get_state())
+            await self._teilmeldung(grill, await grill.boss.get_state())
         except Exception:
             pass
 

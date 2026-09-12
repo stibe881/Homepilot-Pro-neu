@@ -23,6 +23,7 @@ from homepilot.integrations.pitboss import (
     rpc_antwort,
     slug,
     yaml_block,
+    zusammenlegen,
     zustandszeilen,
 )
 
@@ -549,3 +550,18 @@ async def test_an_unknown_model_is_named_as_a_configuration_error(monkeypatch):
     finally:
         await integration.teardown()
         await hub.stop()
+
+
+def test_a_partial_report_keeps_what_it_does_not_mention():
+    """Punkt 567: Nach dem Umstellen des Sollwerts stand 0 °C im Blatt
+    und alle Fühler waren leer - das Bruchstück nach dem Befehl hatte
+    die guten Werte überschrieben."""
+    voll = {"moduleIsOn": True, "grillTemp": 121, "grillSetTemp": 110,
+            "p2Temp": 93, "p3Temp": 94, "isFahrenheit": False}
+    bruchstueck = {"grillSetTemp": 121, "grillTemp": None, "p2Temp": None}
+    zusammen = zusammenlegen(voll, bruchstueck)
+    assert zusammen["grillSetTemp"] == 121
+    assert zusammen["grillTemp"] == 121
+    assert grill_state(zusammen)["probes"] == {2: 93, 3: 94}
+    # Der erste Stand ohne Vorgänger bleibt, was er ist.
+    assert zusammenlegen({}, voll) == voll
