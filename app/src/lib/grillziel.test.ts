@@ -1,7 +1,9 @@
 import {
   fuehlerZeile,
+  fuehlerAnteil,
   fuehlerplaetze,
   grillstufen,
+  ringStrich,
   zielSchritt,
   garstufen,
   grillFortschritt,
@@ -143,5 +145,28 @@ describe('grillstufen und zielSchritt', () => {
 
   it('hat ohne Sollwert einen brauchbaren Anfang', () => {
     expect(grillstufen('°C')).toContain(zielSchritt(undefined, 1, '°C'));
+  });
+});
+
+describe('fuehlerAnteil und ringStrich', () => {
+  it('lässt den Ring mit der Kerntemperatur aufs Ziel zuwachsen', () => {
+    // Punkt 566: 90° von 95° - fast voll, wie im Bild der Hersteller-App.
+    expect(fuehlerAnteil(90, 95)).toBeCloseTo(90 / 95);
+    expect(fuehlerAnteil(95, 95)).toBe(1);
+    // Über dem Ziel bleibt er voll - ein Ring über 100 % wüchse in den
+    // zweiten Umlauf.
+    expect(fuehlerAnteil(120, 95)).toBe(1);
+  });
+
+  it('zeichnet ohne Fühler keinen Ring, ohne Ziel einen vollen', () => {
+    expect(fuehlerAnteil(null, 95)).toBeNull();
+    expect(fuehlerAnteil(40, null)).toBe(1);
+  });
+
+  it('rechnet den Strich für den Kreis', () => {
+    const { umfang, voll } = ringStrich(10, 0.5);
+    expect(umfang).toBeCloseTo(2 * Math.PI * 10);
+    expect(voll).toBeCloseTo(Math.PI * 10);
+    expect(ringStrich(10, 2).voll).toBeCloseTo(umfang);
   });
 });

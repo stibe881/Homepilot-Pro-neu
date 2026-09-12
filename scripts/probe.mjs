@@ -1082,7 +1082,8 @@ async function grillzielSetzen(browser) {
   }, [HUB, TOKEN]);
   pruefe(Number(zielBeimHub) === 121, 'Und der Hub hat das neue Ziel', String(zielBeimHub));
 
-  const kreis = seite.getByLabel('Fühler 2, Ziel setzen').first();
+  // Die Ansage nennt seit Punkt 566 auch den Wert («Fühler 2, 36°, Ziel setzen»).
+  const kreis = seite.getByLabel(/^Fühler 2, .*Ziel setzen$/).first();
   if (!(await kreis.isVisible().catch(() => false))) {
     pruefe(false, 'Der eingesteckte Fühler lässt sich antippen');
     await seite.close();
@@ -1101,9 +1102,23 @@ async function grillzielSetzen(browser) {
   }
   await stufe.click();
   await seite.waitForTimeout(1500);
+  // Das Ziel steht im Kreis unter dem Wert (Punkt 566) - die Ansage des
+  // Kreises nennt beides.
   pruefe(
-    await seite.getByText('ZIEL 63°', { exact: true }).first().isVisible().catch(() => false),
+    await seite.getByLabel(/^Fühler 2, .*Ziel 63°$/).first().isVisible().catch(() => false),
     'Und der Kreis zeigt das Ziel'
+  );
+  // Der Verlauf (Punkt 566): Der Demo-Hub hat keine Datenbank - dann
+  // muss genau das dastehen, kein leerer Rahmen.
+  await seite.getByLabel('Verlauf').first().click();
+  await seite.waitForTimeout(1200);
+  pruefe(
+    await seite
+      .getByText('Kein Verlauf – im Hub ist keine Datenbank eingerichtet.', { exact: true })
+      .first()
+      .isVisible()
+      .catch(() => false),
+    'Der Verlauf sagt, warum er leer ist'
   );
 
   // Und der Hub hat es behalten - die Schicht, in der der Fehler sass.

@@ -30,36 +30,31 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import Svg, { Circle } from 'react-native-svg';
 
 import { hubClient } from '../../api/client';
 import { Entity } from '../../api/types';
+import { Grillverlauf } from '../../components/Grillverlauf';
 import { remainingLabel } from '../../components/KitchenTimer';
 import { useSettings } from '../../hooks/HubContext';
 import { useTakt } from '../../hooks/useTakt';
 import { GRILLTIMER_MINUTEN, Timer, grilltimer, grilltimerText } from '../../lib/grilltimer';
 import {
+  FUEHLERFARBEN,
+  fuehlerAnteil,
   fuehlerplaetze,
   garstufen,
   grillFortschritt,
   grillstufen,
+  ringStrich,
   zielSchritt,
 } from '../../lib/grillziel';
 import { Colors, radius, useColors } from '../../theme';
 
-/** Die Farben, die der Grill selbst seinen Fühlern gibt - dieselbe
- *  Zuteilung wie auf der Live-Karte (hub: core/livekarten.py,
- *  FUEHLERFARBEN), abgelesen aus der Hersteller-App. */
-function fuehlerFarbe(nummer: string, colors: Colors): string {
-  switch (nummer) {
-    case '1':
-      return '#4CAF7D';
-    case '2':
-      return '#E8C23A';
-    case '3':
-      return colors.danger;
-    default:
-      return '#9B6FD6';
-  }
+/** Die Farbe eines Fühlers - aus lib/grillziel.ts, damit Ring, Ziffer
+ *  und Kurve im Diagramm dieselbe tragen. */
+function fuehlerFarbe(nummer: string): string {
+  return FUEHLERFARBEN[nummer] ?? '#9B6FD6';
 }
 
 export function Grillvollbild({
@@ -132,6 +127,10 @@ export function Grillvollbild({
   const [waehlt, setWaehlt] = useState<string | null>(null);
   // Die Rückfrage vor Aus bzw. Anzünden: erster Tipp fragt, zweiter tut.
   const [fragt, setFragt] = useState(false);
+  // Das Diagramm unten (Punkt 566) - zugeklappt, bis man es will: Es
+  // holt seinen Verlauf beim Öffnen, und beim Blick auf die Temperatur
+  // braucht es ihn nicht.
+  const [verlaufOffen, setVerlaufOffen] = useState(false);
 
   const unit = String(entity.state.unit ?? '°C');
   const grad = '°';
@@ -338,14 +337,19 @@ export function Grillvollbild({
               </View>
             ) : null}
 
-            {/* Die vier Fühler - zwei mal zwei, wie am Gerät. Ein leerer
-                Platz ist gedimmt und lässt sich nicht antippen: Ein Ziel
-                für einen Fühler, der nicht steckt, wäre ein Versprechen
-                ohne Messung. */}
+            {/* Die vier Fühler - zwei mal zwei, wie am Gerät. Der Ring
+                wächst mit der Kerntemperatur auf das Ziel zu (Punkt
+                566), und das Ziel steht unter dem Wert. Ein leerer Platz
+                ist gedimmt und lässt sich nicht antippen: Ein Ziel für
+                einen Fühler, der nicht steckt, wäre ein Versprechen ohne
+                Messung. */}
             <View style={styles.kreise}>
               {plaetze.map((platz) => {
-                const farbe = fuehlerFarbe(platz.nummer, colors);
+                const farbe = fuehlerFarbe(platz.nummer);
                 const leer = platz.wert === null;
+                const anteil = fuehlerAnteil(platz.wert, platz.ziel);
+                const r = kreis / 2 - 4;
+                const strich = ringStrich(r, anteil ?? 0);
                 return (
                   <Pressable
                     key={platz.nummer}
@@ -357,16 +361,50 @@ export function Grillvollbild({
                     accessibilityLabel={
                       leer
                         ? `Fühler ${platz.nummer}, nicht eingesteckt`
-                        : `Fühler ${platz.nummer}, Ziel setzen`
+                        : `Fühler ${platz.nummer}, ${platz.anzeige}${
+                            platz.ziel === null ? ', Ziel setzen' : `, Ziel ${Math.round(platz.ziel)}°`
+                          }`
                     }
                     accessibilityState={{ expanded: waehlt === platz.nummer, disabled: leer }}
                     style={({ pressed }) => [
                       styles.kreis,
-                      { width: kreis, height: kreis, borderRadius: kreis / 2 },
-                      leer && styles.kreisLeer,
+                      { width: kreis, height: kreis },
                       pressed && { opacity: 0.7 },
                     ]}
                   >
+                    {/* Der Ring: die Spur grau, darüber der gefüllte Teil
+                        in der Farbe des Fühlers - von unten weg im
+                        Uhrzeigersinn, wie am Gerät. */}
+                    <Svg
+                      width={kreis}
+                      height={kreis}
+                      style={StyleSheet.absoluteFill}
+                      pointerEvents="none"
+                    >
+                      <Circle
+                        cx={kreis / 2}
+                        cy={kreis / 2}
+                        r={r}
+                        stroke={colors.surfaceBorder}
+                        strokeWidth={4}
+                        fill="none"
+                        opacity={leer ? 0.5 : 1}
+                      />
+                      {anteil !== null ? (
+                        <Circle
+                          cx={kreis / 2}
+                          cy={kreis / 2}
+                          r={r}
+                          stroke={farbe}
+                          strokeWidth={4}
+                          strokeLinecap="round"
+                          fill="none"
+                          strokeDasharray={`${strich.voll} ${strich.umfang}`}
+                          rotation={90}
+                          origin={`${kreis / 2}, ${kreis / 2}`}
+                        />
+                      ) : null}
+                    </Svg>
                     <Text
                       style={[styles.kreisNummer, { color: farbe }, leer && { opacity: 0.4 }]}
                     >
@@ -376,7 +414,7 @@ export function Grillvollbild({
                       {platz.anzeige}
                     </Text>
                     <Text style={styles.kreisZiel}>
-                      {leer ? ' ' : platz.ziel === null ? 'SET' : `ZIEL ${Math.round(platz.ziel)}°`}
+                      {leer ? ' ' : platz.ziel === null ? 'SET' : `${Math.round(platz.ziel)}°`}
                     </Text>
                   </Pressable>
                 );
@@ -418,6 +456,20 @@ export function Grillvollbild({
                   ) : null}
                 </View>
               </View>
+            ) : null}
+            {/* «Cooking Analytics» der Hersteller-App: der Verlauf des
+                Abends als Diagramm (Punkt 566). */}
+            <Pressable
+              onPress={() => setVerlaufOffen((offen) => !offen)}
+              accessibilityRole="button"
+              accessibilityLabel="Verlauf"
+              accessibilityState={{ expanded: verlaufOffen }}
+              style={({ pressed }) => [styles.verlaufKnopf, pressed && { opacity: 0.6 }]}
+            >
+              <Text style={styles.verlaufText}>VERLAUF {verlaufOffen ? '⌄' : '›'}</Text>
+            </Pressable>
+            {verlaufOffen ? (
+              <Grillverlauf entity={entity} width={Math.min(width, 440) - 2 * 16} />
             ) : null}
           </ScrollView>
 
@@ -549,8 +601,6 @@ const makeStyles = (colors: Colors) =>
       marginTop: 10,
     },
     kreis: {
-      borderWidth: 4,
-      borderColor: colors.surfaceBorder,
       alignItems: 'center',
       justifyContent: 'center',
       gap: 6,
@@ -560,6 +610,8 @@ const makeStyles = (colors: Colors) =>
     kreisWert: { color: colors.ink, fontSize: 30, fontWeight: '400' },
     kreisWertLeer: { color: colors.inkFaint, letterSpacing: 2 },
     kreisZiel: { color: colors.ink, fontSize: 18, fontWeight: '300', letterSpacing: 1 },
+    verlaufKnopf: { paddingVertical: 8, marginTop: 6 },
+    verlaufText: { color: colors.ink, fontSize: 18, fontWeight: '300', letterSpacing: 0.5 },
     stufen: { width: '100%', gap: 8, marginTop: 4 },
     stufenKopf: { color: colors.inkSoft, fontSize: 13, fontWeight: '700' },
     stufenReihe: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'center' },

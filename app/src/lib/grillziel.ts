@@ -195,3 +195,36 @@ export function zielSchritt(
   if (richtung > 0) return rasten.find((r) => r > ziel) ?? rasten[rasten.length - 1];
   return [...rasten].reverse().find((r) => r < ziel) ?? rasten[0];
 }
+
+/** Die Farben, die der Grill selbst seinen Fühlern gibt - dieselbe
+ *  Zuteilung wie auf der Live-Karte (hub: core/livekarten.py,
+ *  FUEHLERFARBEN), abgelesen aus der Hersteller-App. Als feste Werte,
+ *  damit Ring, Ziffer und Kurve im Diagramm dieselbe Farbe tragen. */
+export const FUEHLERFARBEN: Record<string, string> = {
+  '1': '#4CAF7D',
+  '2': '#E8C23A',
+  '3': '#E5484D',
+  '4': '#9B6FD6',
+};
+
+/**
+ * Wie weit der Ring um den Fühler gefüllt ist (rein, testbar).
+ *
+ * Wie in der Hersteller-App (Punkt 566): Der Ring wächst mit der
+ * Kerntemperatur auf das Ziel zu und ist voll, wenn das Fleisch so weit
+ * ist. `null` heisst: kein Fühler eingesteckt, kein Ring. Ohne Ziel ist
+ * der Ring voll - es gibt nichts, wozu er wachsen könnte, und ein
+ * leerer Ring sähe aus wie ein leerer Platz.
+ */
+export function fuehlerAnteil(wert: number | null, ziel: number | null): number | null {
+  if (wert === null) return null;
+  if (ziel === null || ziel <= 0) return 1;
+  return Math.max(0, Math.min(1, wert / ziel));
+}
+
+/** Der Ring als Strichlänge auf einem Kreis (rein, testbar): Umfang und
+ *  der gefüllte Teil davon - für strokeDasharray. */
+export function ringStrich(radius: number, anteil: number): { umfang: number; voll: number } {
+  const umfang = 2 * Math.PI * radius;
+  return { umfang, voll: umfang * Math.max(0, Math.min(1, anteil)) };
+}

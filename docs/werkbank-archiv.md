@@ -5596,3 +5596,33 @@ Browser nicht messen. Die Probe tippt «+», liest «ZIEL 121°» und fragt
 den Hub.
 
 Stellen: `app/src/lib/grillziel.ts`, `app/src/screens/dashboard/Grillvollbild.tsx`, `hub/homepilot/integrations/demo.py`, `scripts/probe.mjs`
+
+### 566. Die Ringe der Fühler und das Diagramm des Grillabends ✓ erledigt
+
+Aus dem Haus, mit dem Bild der Hersteller-App: «Man soll hier auch die
+Zieltemperatur sehen von den Fühlern und visuell im Kreis dargestellt.
+Genau so wie hier. Ausserdem soll man auch bei den Fühlern und bei der
+Grilltemperatur eine Statistik sehen mit Diagramm.»
+
+**Der Ring wächst aufs Ziel zu.** Unter dem Wert steht das Ziel («90°»,
+darunter «95°»), und der Ring um den Kreis ist zu 90/95 gefüllt - in
+der Farbe des Fühlers, von unten weg im Uhrzeigersinn, wie am Gerät.
+Ist das Fleisch so weit, ist der Ring voll; über dem Ziel bleibt er
+voll, ein Ring über 100 % wüchse in den zweiten Umlauf. Ohne Ziel ist
+er voll - es gibt nichts, wozu er wachsen könnte, und ein leerer Ring
+sähe aus wie ein leerer Platz. Ein leerer Platz hat nur die graue Spur.
+
+**Ein Diagramm, nicht fünf.** «VERLAUF ›» am Fuss des Blatts - die
+«Cooking Analytics» der Hersteller-App - klappt den Grillabend auf:
+Garraum, Sollwert (gestrichelt) und je Fühler seine Kurve in seiner
+Farbe, alle in demselben Massstab. Genau dieser Abstand ist die
+Auskunft: wie das Fleisch dem Garraum folgt. Die Zeiträume sind die
+eines Grillabends - 3, 6, 12, 24 Stunden -, nicht die eines Sensors.
+
+**Die Daten kommen aus dem Zustandsverlauf des Hubs** (Supabase, wie
+beim Sensor-Verlauf): Jede Zeile trägt den ganzen Zustand des Grills zu
+ihrer Zeit. Ein ausgesteckter Fühler reisst seine Kurve nicht auf null,
+sondern lässt eine Lücke. Ohne Datenbank steht der Satz da, den auch
+der Sensor-Verlauf sagt - und genau den misst die Probe am Demo-Hub.
+
+Stellen: `app/src/lib/grillziel.ts`, `app/src/lib/grillverlauf.ts`, `app/src/components/Grillverlauf.tsx`, `app/src/screens/dashboard/Grillvollbild.tsx`, `scripts/probe.mjs`
