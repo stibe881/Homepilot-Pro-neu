@@ -843,6 +843,7 @@ private func kartenFarbe(_ name: String?) -> Color {
     case "gelb": return .yellow
     case "blau": return .blue
     case "gruen": return .green
+    case "violett": return .purple
     default: return .accentColor
     }
 }

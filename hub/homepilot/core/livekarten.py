@@ -327,7 +327,11 @@ def karten_geraete(
 #: Sonntag derselbe wie am Montag, und wer beim Blick aufs Telefon «der
 #: gelbe ist das Nackenstück» denkt, soll das auch beim zweiten Stück
 #: Fleisch noch dürfen. Vier Farben, vier Fühler (Punkt 553).
-FUEHLERFARBEN = {1: "blau", 2: "gelb", 3: "rot", 4: "gruen"}
+# Die Farben, die der Grill selbst seinen Fühlern gibt - abgelesen aus
+# der Hersteller-App (Punkt 557): 1 grün, 2 gelb, 3 rot, 4 violett.
+# Vorher stand hier «1 blau, 4 grün», geraten; wer die gelbe 2 auf dem
+# Gerät sucht, soll auf der Karte dieselbe finden.
+FUEHLERFARBEN = {1: "gruen", 2: "gelb", 3: "rot", 4: "violett"}
 
 
 def grilltext(ist: Any, ziel: float, einheit: str) -> str:

@@ -988,21 +988,21 @@ async function geraetewerkzeugeUnten(browser) {
   await seite.close();
 }
 
-/** 13. Lässt sich am Fühler ein Ziel setzen? (Punkt 554)
+/** 13. Öffnet der Tipp auf die Grillkachel das Blatt - und lässt sich
+ * dort ein Ziel setzen, das der Hub behält? (Punkte 554, 555, 557)
  *
- * Gewünscht im Haus: «Wenn der Grill die Zieltemperatur erreicht hat,
- * aber auch, wenn ein Kerntemperaturmesser das Ziel erreicht hat.» Die
- * erste Meldung braucht nichts weiter - der Sollwert steht am Grill.
- * Die zweite braucht ein Ziel je Fühler, und das setzt man auf der
- * Kachel.
+ * Gewünscht im Haus: «Wenn ich auf die Grillkarte drücke, schaltet sich
+ * der Grill aus» - und: «Soll der Grill beim Antippen als Popup öffnen.»
+ * Die Kachel trägt seit Punkt 557 keine Griffe mehr; der Tipp irgendwo
+ * darauf öffnet das Blatt. Gemessen wird deshalb genau das: ein Tipp auf
+ * die Fühlerzeile (die vorher selbst ein Griff war) - und danach, dass
+ * der Grill noch läuft.
  *
- * Gemessen und nicht gelesen, weil die Kette über drei Schichten läuft:
- * Die Kachel muss den Grill überhaupt als Grill erkennen (vorher hing
- * das am Namen der Anbindung, und der Prüfstand hiess «demo»), die
- * Chips müssen erscheinen, und der Hub muss das Ziel behalten. Der
- * Fehler, der diese Messung wert macht, sass in der letzten Schicht:
- * `hub.data` führt Listen, und das Ziel lag als Wörterbuch darin -
- * geschrieben wurde es, gelesen kam nichts zurück.
+ * Die Kette läuft über drei Schichten: Die Kachel muss den Grill als
+ * Grill erkennen, das Blatt muss aufgehen, und der Hub muss das Ziel
+ * behalten. Der Fehler, der diese Messung wert macht, sass in der
+ * letzten: `hub.data` führt Listen, und das Ziel lag als Wörterbuch
+ * darin - geschrieben wurde es, gelesen kam nichts zurück.
  */
 async function grillzielSetzen(browser) {
   const seite = await angemeldeteSeite(browser, GROESSEN[0]);
@@ -1029,7 +1029,38 @@ async function grillzielSetzen(browser) {
   }
   pruefe(true, 'Die Grillkachel zeigt ihre Fühler');
 
+  // Der Tipp auf die Kachel - auf die Zeile, die früher selbst ein
+  // Griff war.
   await zeile.click();
+  await seite.waitForTimeout(900);
+  const blatt = seite.getByText('GRILL TEMP', { exact: true }).first();
+  if (!(await blatt.isVisible().catch(() => false))) {
+    pruefe(false, 'Ein Tipp auf die Kachel öffnet das Grillblatt');
+    await seite.close();
+    return;
+  }
+  pruefe(true, 'Ein Tipp auf die Kachel öffnet das Grillblatt');
+
+  // Und der Grill läuft noch - das ist der Fehler aus dem Haus.
+  const laeuftNoch = await seite.evaluate(async ([url, token]) => {
+    const antwort = await fetch(`${url}/api/entities`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const liste = await antwort.json();
+    const grill = (Array.isArray(liste) ? liste : liste.entities ?? []).find(
+      (e) => e.id === 'demo.smoker'
+    );
+    return grill?.state?.state;
+  }, [HUB, TOKEN]);
+  pruefe(laeuftNoch === 'running', 'Und der Grill läuft danach noch', String(laeuftNoch));
+
+  const kreis = seite.getByLabel('Fühler 2, Ziel setzen').first();
+  if (!(await kreis.isVisible().catch(() => false))) {
+    pruefe(false, 'Der eingesteckte Fühler lässt sich antippen');
+    await seite.close();
+    return;
+  }
+  await kreis.click();
   await seite.waitForTimeout(700);
   const stufe = seite.getByText('Schwein 63°', { exact: true }).first();
   pruefe(
@@ -1042,11 +1073,9 @@ async function grillzielSetzen(browser) {
   }
   await stufe.click();
   await seite.waitForTimeout(1500);
-  const danach = await seite.getByText(/^Fühler 2:/).first().textContent();
   pruefe(
-    /noch \d+ bis 63/.test(danach ?? ''),
-    'Und die Zeile sagt, wie weit es noch ist',
-    danach ?? ''
+    await seite.getByText('ZIEL 63°', { exact: true }).first().isVisible().catch(() => false),
+    'Und der Kreis zeigt das Ziel'
   );
 
   // Und der Hub hat es behalten - die Schicht, in der der Fehler sass.
@@ -1063,56 +1092,47 @@ async function grillzielSetzen(browser) {
     'Der Hub hat das Ziel behalten',
     JSON.stringify(gespeichert)
   );
+
+  // Zurück auf der Kachel steht es auch - sie holt die Ziele nicht mehr
+  // selbst, sondern bekommt sie vom selben Stand wie das Blatt.
+  // Über den Hintergrund und nicht über «Schliessen»: Den Namen trägt
+  // auch ein Knopf unter dem Blatt, und der fing den Klick ab.
+  await seite.getByLabel('Grill schliessen').first().click({ position: { x: 5, y: 5 } });
+  await seite.waitForTimeout(700);
+  const danach = await seite.getByText(/^Fühler 2:/).first().textContent();
+  pruefe(
+    /noch \d+ bis 63/.test(danach ?? ''),
+    'Und die Kachel sagt, wie weit es noch ist',
+    danach ?? ''
+  );
   await seite.close();
 }
 
-/** 14. Geht das Grillblatt auf, und stehen alle vier Fühler darin? (Punkt 555)
+/** 14. Stehen alle vier Fühler im Blatt - auch die leeren? (Punkt 555)
  *
- * Gewünscht im Haus, mit einem Bild der Hersteller-App daneben: «So
- * eine Popup-Karte will ich auch im Raum Grill. Wenn man auf die
- * Live-Aktivität klickt, oder auf eine Push vom Grill, soll man auf die
- * Seite Grill kommen und das Popup soll sich öffnen.»
- *
- * Gemessen wird der Weg, den man im Browser überhaupt gehen kann - der
- * Knopf auf der Kachel. Die beiden anderen Wege (Live-Aktivität und
- * Push) enden im selben `setGrillBlattFuer`, und die Adresse dorthin
- * prüft der Hub (tests/test_livekarten.py: homepilot://grill/…).
- *
- * Der zweite Teil ist der wichtigere: Es müssen **vier** Kreise stehen,
- * auch wenn nur zwei Fühler stecken. Am Demo-Grill sind es genau zwei -
- * eine Messung, die nur «es stehen Kreise da» prüft, bliebe also grün,
- * während das Blatt zwei Plätze verschluckt. Und dann sucht man am
- * Grill, ob man den richtigen Anschluss erwischt hat.
+ * Am Demo-Grill stecken zwei Fühler, und eine Fassung, die nur die
+ * steckenden zeigt, sieht für sich richtig aus. Eine Messung, die nur
+ * «es stehen Kreise da» prüft, bliebe also grün, während das Blatt zwei
+ * Plätze verschluckt - und dann sucht man am Grill, ob man den richtigen
+ * Anschluss erwischt hat. Gemessen auf dem Telefon: Dort müssen die
+ * vier Kreise auch in die Breite passen.
  */
-async function grillblattGehtAuf(browser) {
-  const seite = await angemeldeteSeite(browser, GROESSEN[0]);
+async function grillblattVierPlaetze(browser) {
+  const seite = await angemeldeteSeite(browser, GROESSEN[1]);
   if (!(await zurSeite(seite, 'Räume'))) {
     await seite.close();
     return;
   }
   const terrasse = seite.getByText('Terrasse', { exact: true }).first();
   if (!(await terrasse.isVisible().catch(() => false))) {
-    pruefe(false, 'Der Raum mit dem Grill war erreichbar');
+    pruefe(false, 'Der Raum mit dem Grill war erreichbar (Telefon)');
     await seite.close();
     return;
   }
   await terrasse.click();
   await seite.waitForTimeout(1800);
-
-  const knopf = seite.getByLabel('Gross anzeigen').first();
-  if (!(await knopf.isVisible().catch(() => false))) {
-    pruefe(false, 'Die Grillkachel hat einen Knopf zum Blatt');
-    await seite.close();
-    return;
-  }
-  pruefe(true, 'Die Grillkachel hat einen Knopf zum Blatt');
-
-  await knopf.click();
+  await seite.getByText(/^Fühler 2:/).first().click();
   await seite.waitForTimeout(900);
-  pruefe(
-    await seite.getByText('GARRAUM', { exact: true }).first().isVisible().catch(() => false),
-    'Das Grillblatt geht auf und zeigt die Gartemperatur gross'
-  );
 
   const kreise = [];
   for (const nummer of ['1', '2', '3', '4']) {
@@ -1121,33 +1141,20 @@ async function grillblattGehtAuf(browser) {
   }
   pruefe(
     kreise.length === 4,
-    'Alle vier Fühlerplätze stehen darin - auch die leeren',
+    'Alle vier Fühlerplätze stehen im Blatt - auch die leeren',
     `sichtbar: ${kreise.join(', ') || 'keiner'}`
   );
-
-  // Und der leere Platz sagt das auch: «—» statt einer Zahl. Sonst
-  // stünde dort die Temperatur des Nachbarn, und man würde Fleisch
-  // herausnehmen, das noch roh ist.
-  const leer = await seite.getByText('—', { exact: true }).count();
+  // Und der leere Platz sagt das auch: «- - -°» statt einer Zahl.
+  const leer = await seite.getByText('- - -°', { exact: true }).count();
   pruefe(leer >= 2, 'Die leeren Plätze zeigen keinen Wert', `gefunden: ${leer}`);
-
-  // Ein Ziel lässt sich auch hier setzen - das ist der Grund, warum man
-  // das Blatt aus einer Push heraus öffnet.
-  const kreis3 = seite.getByLabel('Fühler 3, Ziel setzen').first();
-  if (await kreis3.isVisible().catch(() => false)) {
-    await kreis3.click();
-    await seite.waitForTimeout(500);
-    pruefe(
-      await seite
-        .getByText('Ziel für Fühler 3', { exact: true })
-        .first()
-        .isVisible()
-        .catch(() => false),
-      'Ein Tipp auf einen Kreis bietet die Garstufen an'
-    );
-  } else {
-    pruefe(false, 'Ein Tipp auf einen Kreis bietet die Garstufen an');
-  }
+  // Auf dem Telefon darf das Blatt nicht seitlich hinausragen - vier
+  // Kreise von je 150 Punkten täten das.
+  const ueber = await messeUeberlauf(seite);
+  pruefe(
+    !ueber.zuBreit,
+    'Das Grillblatt ragt auf dem Telefon nicht hinaus',
+    ueber.schuldige.join(', ')
+  );
   await seite.close();
 }
 
@@ -1168,7 +1175,7 @@ try {
   await geraetelisteOhneSpalte(browser);
   await geraetewerkzeugeUnten(browser);
   await grillzielSetzen(browser);
-  await grillblattGehtAuf(browser);
+  await grillblattVierPlaetze(browser);
 } finally {
   await browser.close();
 }

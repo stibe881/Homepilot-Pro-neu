@@ -1,59 +1,52 @@
 /**
- * Der Grill gross – wie in der Hersteller-App.
+ * Der Grill gross – die Seite aus der Hersteller-App.
  *
- * Gewünscht im Haus (Punkt 555), mit einem Bild davon: «So eine
- * Popup-Karte will ich auch im Raum Grill. Wenn man auf die Live-
- * Aktivität klickt, oder auf eine Push vom Grill, soll man auf die
- * Seite Grill kommen und das Popup soll sich öffnen.»
+ * Gewünscht im Haus (Punkt 555, Form seit 557), mit einem Bild davon:
+ * oben der Name, «GRILL TEMP», die Gartemperatur riesig mit der Einheit
+ * gestapelt daneben, ein blauer Balken, «HEIZT AUF 110°», der Knopf
+ * «Timer stellen», dann vier grosse Kreise für die Fühler, zwei mal
+ * zwei, und unten der Ein/Aus-Knopf.
  *
  * Warum es ein eigenes Blatt ist und nicht die Kachel: Beim Grillen
  * steht man daneben und sieht alle paar Minuten hin. Die Kachel liegt
  * zwischen anderen und trägt kleine Schrift; hier steht die
- * Gartemperatur so gross, dass man sie vom Sofa aus liest, und die vier
- * Fühler als Kreise darunter - in derselben Anordnung wie am Gerät.
+ * Gartemperatur so gross, dass man sie vom Sofa aus liest. Und die
+ * Kachel trägt seit Punkt 557 keine Griffe mehr - alles Bedienen
+ * geschieht hier, wo Platz dafür ist.
  *
  * **Vier Kreise, immer.** Auch die leeren: Man sieht auf einen Blick,
- * welcher Platz noch frei ist, statt zu zählen. Ein Kreis, der erst mit
- * dem Fühler erscheint, liesse einen suchen, ob man den richtigen
- * Anschluss erwischt hat.
+ * welcher Platz noch frei ist, statt zu zählen. Ein leerer Kreis sagt
+ * «- - -°», nicht eine Zahl - eine geerbte Temperatur vom Nachbarplatz
+ * nähme man als Antwort, und dann liegt rohes Fleisch auf dem Teller.
  *
- * **Was bewusst fehlt**, weil im Bild durchgestrichen: der Umschalter
- * zwischen °C und °F (die Einheit kommt vom Gerät, und sie hier zu
- * ändern hiesse, dem Grill etwas anderes zu sagen als der Kachel) und
- * das Licht. Ausschalten bleibt - das ist die sichere Richtung, und sie
- * gehört dorthin, wo man ohnehin hinsieht.
+ * **Was bewusst fehlt**, weil im Bild rot durchgestrichen: der
+ * Umschalter zwischen °C und °F (die Einheit kommt vom Gerät) und das
+ * Licht. **Was hinter einer Rückfrage steht:** Aus und Anzünden. Ein
+ * Feuer löscht oder entfacht man nicht mit einem Fehlgriff - genau der
+ * Fehlgriff, der auf der alten Kachel den Grill ausschaltete.
  */
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { Entity } from '../../api/types';
-import {
-  fuehlerplaetze,
-  garstufen,
-  grillFortschritt,
-} from '../../lib/grillziel';
+import { fuehlerplaetze, garstufen, grillFortschritt } from '../../lib/grillziel';
+import { zieltemperaturen } from '../automations/szenengeraete';
 import { Colors, radius, useColors } from '../../theme';
 
-/** Die Farben der Fühler - dieselbe Zuteilung wie auf der Live-Karte
- *  (hub: core/livekarten.py, FUEHLERFARBEN) und am Gerät selbst. */
-const FARBEN: Record<string, keyof Colors | 'gelb' | 'rot' | 'blau' | 'gruen'> = {
-  '1': 'blau',
-  '2': 'gelb',
-  '3': 'rot',
-  '4': 'gruen',
-};
-
+/** Die Farben, die der Grill selbst seinen Fühlern gibt - dieselbe
+ *  Zuteilung wie auf der Live-Karte (hub: core/livekarten.py,
+ *  FUEHLERFARBEN), abgelesen aus der Hersteller-App. */
 function fuehlerFarbe(nummer: string, colors: Colors): string {
-  switch (FARBEN[nummer]) {
-    case 'gelb':
-      return '#E8C23A';
-    case 'rot':
-      return colors.danger;
-    case 'gruen':
+  switch (nummer) {
+    case '1':
       return '#4CAF7D';
+    case '2':
+      return '#E8C23A';
+    case '3':
+      return colors.danger;
     default:
-      return colors.accent;
+      return '#9B6FD6';
   }
 }
 
@@ -62,6 +55,7 @@ export function Grillvollbild({
   ziele,
   onZiel,
   onCommand,
+  onTimer,
   onSchliessen,
 }: {
   entity: Entity;
@@ -69,26 +63,49 @@ export function Grillvollbild({
   ziele: Record<string, number>;
   onZiel: (nummer: string, wert: number | null) => void;
   onCommand: (command: string, data?: Record<string, unknown>) => void;
+  /** «Timer stellen» - führt zum Küchen-Timer. Ohne ihn fehlt der Knopf. */
+  onTimer?: () => void;
   onSchliessen: () => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { width } = useWindowDimensions();
+  // Welcher Fühler seine Garstufen offen hat - oder 'grill' für die
+  // Gartemperatur selbst.
   const [waehlt, setWaehlt] = useState<string | null>(null);
+  // Die Rückfrage vor Aus bzw. Anzünden: erster Tipp fragt, zweiter tut.
+  const [fragt, setFragt] = useState(false);
 
   const unit = String(entity.state.unit ?? '°C');
+  const grad = '°';
+  const buchstabe = unit.replace('°', '') || 'C';
   const ist = entity.state.temperature as number | undefined;
   const ziel = entity.state.target as number | undefined;
   const laeuft = entity.state.state === 'running';
   const probes = (entity.state.probes ?? {}) as Record<string, number>;
   const plaetze = fuehlerplaetze(probes, ziele);
   const anteil = grillFortschritt(ist, ziel);
-  // Derselbe Satz wie auf der Live-Karte, damit beide dasselbe sagen.
   const satz =
     ziel === undefined
       ? 'Kein Ziel gesetzt'
       : ist !== undefined && ist >= ziel - 2
-        ? `Hält ${Math.round(ziel)}${unit}`
-        : `Heizt auf ${Math.round(ziel)}${unit}`;
+        ? `Hält ${Math.round(ziel)}°`
+        : `Heizt auf ${Math.round(ziel)}°`;
+  // Zwei Kreise nebeneinander, so gross wie das Blatt sie lässt - auf dem
+  // Telefon füllen sie die Breite, auf dem iPad bleiben sie bei 150.
+  const kreis = Math.min(150, Math.floor((Math.min(width, 440) - 2 * 16 - 16) / 2));
+
+  const schalten = () => {
+    if (!fragt) {
+      setFragt(true);
+      return;
+    }
+    setFragt(false);
+    onCommand(laeuft ? 'turn_off' : 'turn_on');
+  };
+  const kannSchalten = laeuft
+    ? entity.commands.includes('turn_off')
+    : entity.commands.includes('turn_on');
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onSchliessen}>
@@ -103,74 +120,136 @@ export function Grillvollbild({
         />
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.title} numberOfLines={1}>
-              {entity.name}
-            </Text>
             <Pressable
               accessibilityLabel="Schliessen"
               onPress={onSchliessen}
+              hitSlop={8}
               style={styles.close}
             >
-              <Ionicons name="close" size={20} color={colors.inkSoft} />
+              <Ionicons name="chevron-back" size={24} color={colors.ink} />
             </Pressable>
+            <Text style={styles.title} numberOfLines={1}>
+              {entity.name}
+            </Text>
+            <View style={styles.close} />
           </View>
 
           <ScrollView contentContainerStyle={styles.inhalt}>
-            <Text style={styles.label}>GARRAUM</Text>
-            <Text style={styles.gross} numberOfLines={1} adjustsFontSizeToFit>
-              {ist === undefined ? '—' : `${Math.round(ist)}`}
-              <Text style={styles.einheit}>{unit}</Text>
-            </Text>
+            <Text style={styles.label}>GRILL TEMP</Text>
+            <Pressable
+              onPress={() => setWaehlt((offen) => (offen === 'grill' ? null : 'grill'))}
+              accessibilityRole="button"
+              accessibilityLabel="Gartemperatur setzen"
+              accessibilityState={{ expanded: waehlt === 'grill' }}
+              style={styles.grossZeile}
+            >
+              <Text style={styles.gross} numberOfLines={1} adjustsFontSizeToFit>
+                {ist === undefined ? '- - -' : `${Math.round(ist)}`}
+              </Text>
+              {/* Die Einheit gestapelt: das Grad über dem Buchstaben,
+                  wie auf dem Gerät. */}
+              <View style={styles.einheit}>
+                <Text style={styles.einheitGrad}>{grad}</Text>
+                <Text style={styles.einheitBuchstabe}>{buchstabe}</Text>
+              </View>
+            </Pressable>
 
-            {anteil !== null ? (
+            <View style={styles.balken}>
               <View
-                style={styles.balken}
+                style={[styles.balkenFuell, { width: `${(anteil ?? 0) * 100}%` }]}
                 accessibilityRole="progressbar"
-                accessibilityValue={{ min: 0, max: 100, now: Math.round(anteil * 100) }}
-              >
-                <View style={[styles.balkenFuell, { width: `${anteil * 100}%` }]} />
+                accessibilityValue={{
+                  min: 0,
+                  max: 100,
+                  now: Math.round((anteil ?? 0) * 100),
+                }}
+              />
+            </View>
+            <Text style={styles.satz}>{satz.toUpperCase()}</Text>
+
+            {waehlt === 'grill' && entity.commands.includes('set_temperature') ? (
+              <View style={styles.stufenReihe}>
+                {zieltemperaturen(entity).map((stufe) => (
+                  <Pressable
+                    key={stufe.key}
+                    onPress={() => {
+                      onCommand('set_temperature', { temperature: Number(stufe.key) });
+                      setWaehlt(null);
+                    }}
+                    accessibilityRole="button"
+                    style={({ pressed }) => [
+                      styles.stufe,
+                      ziel === Number(stufe.key) && styles.stufeAktiv,
+                      pressed && { opacity: 0.6 },
+                    ]}
+                  >
+                    <Text style={styles.stufeText}>{stufe.label}</Text>
+                  </Pressable>
+                ))}
               </View>
             ) : null}
-            <Text style={styles.satz}>{satz}</Text>
 
             {entity.state.problem ? (
               <Text style={styles.problem}>{String(entity.state.problem)}</Text>
             ) : null}
 
-            {/* Die vier Fühler - zwei nebeneinander, wie am Gerät. */}
+            {onTimer ? (
+              <Pressable
+                onPress={onTimer}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.timer, pressed && { opacity: 0.7 }]}
+              >
+                <Ionicons name="timer-outline" size={22} color={colors.ink} />
+                <Text style={styles.timerText}>TIMER STELLEN</Text>
+              </Pressable>
+            ) : null}
+
+            {/* Die vier Fühler - zwei mal zwei, wie am Gerät. Ein leerer
+                Platz ist gedimmt und lässt sich nicht antippen: Ein Ziel
+                für einen Fühler, der nicht steckt, wäre ein Versprechen
+                ohne Messung. */}
             <View style={styles.kreise}>
-              {plaetze.map((platz) => (
-                <Pressable
-                  key={platz.nummer}
-                  onPress={() =>
-                    setWaehlt((offen) => (offen === platz.nummer ? null : platz.nummer))
-                  }
-                  accessibilityRole="button"
-                  accessibilityLabel={`Fühler ${platz.nummer}, Ziel setzen`}
-                  accessibilityState={{ expanded: waehlt === platz.nummer }}
-                  style={({ pressed }) => [
-                    styles.kreis,
-                    { borderColor: fuehlerFarbe(platz.nummer, colors) },
-                    pressed && { opacity: 0.7 },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.kreisNummer,
-                      { color: fuehlerFarbe(platz.nummer, colors) },
+              {plaetze.map((platz) => {
+                const farbe = fuehlerFarbe(platz.nummer, colors);
+                const leer = platz.wert === null;
+                return (
+                  <Pressable
+                    key={platz.nummer}
+                    disabled={leer}
+                    onPress={() =>
+                      setWaehlt((offen) => (offen === platz.nummer ? null : platz.nummer))
+                    }
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      leer
+                        ? `Fühler ${platz.nummer}, nicht eingesteckt`
+                        : `Fühler ${platz.nummer}, Ziel setzen`
+                    }
+                    accessibilityState={{ expanded: waehlt === platz.nummer, disabled: leer }}
+                    style={({ pressed }) => [
+                      styles.kreis,
+                      { width: kreis, height: kreis, borderRadius: kreis / 2 },
+                      leer && styles.kreisLeer,
+                      pressed && { opacity: 0.7 },
                     ]}
                   >
-                    P{platz.nummer}
-                  </Text>
-                  <Text style={styles.kreisWert}>{platz.anzeige}</Text>
-                  <Text style={styles.kreisZiel}>
-                    {platz.ziel === null ? 'Ziel setzen' : `Ziel ${Math.round(platz.ziel)}°`}
-                  </Text>
-                </Pressable>
-              ))}
+                    <Text
+                      style={[styles.kreisNummer, { color: farbe }, leer && { opacity: 0.4 }]}
+                    >
+                      P{platz.nummer}
+                    </Text>
+                    <Text style={[styles.kreisWert, leer && styles.kreisWertLeer]}>
+                      {platz.anzeige}
+                    </Text>
+                    <Text style={styles.kreisZiel}>
+                      {leer ? ' ' : platz.ziel === null ? 'SET' : `ZIEL ${Math.round(platz.ziel)}°`}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
 
-            {waehlt ? (
+            {waehlt && waehlt !== 'grill' ? (
               <View style={styles.stufen}>
                 <Text style={styles.stufenKopf}>Ziel für Fühler {waehlt}</Text>
                 <View style={styles.stufenReihe}>
@@ -206,23 +285,41 @@ export function Grillvollbild({
                 </View>
               </View>
             ) : null}
-
-            {/* Ausschalten bleibt - die sichere Richtung. Anzünden
-                steht bewusst nicht hier: Es entfacht ein Feuer in einem
-                Gerät, neben dem gerade niemand stehen muss, und diese
-                Entscheidung gehört an die Kachel mit ihrer Rückfrage
-                (components/entity/koerper.tsx). */}
-            {laeuft && entity.commands.includes('turn_off') ? (
-              <Pressable
-                onPress={() => onCommand('turn_off')}
-                accessibilityRole="button"
-                style={({ pressed }) => [styles.aus, pressed && { opacity: 0.7 }]}
-              >
-                <Ionicons name="power" size={18} color={colors.ink} />
-                <Text style={styles.ausText}>Ausschalten</Text>
-              </Pressable>
-            ) : null}
           </ScrollView>
+
+          {/* Unten der Schalter - grün, solange der Grill läuft. Der
+              erste Tipp fragt, der zweite schaltet: Anzünden entfacht
+              ein Feuer neben dem gerade niemand stehen muss, und Aus
+              macht die Glut von zwei Stunden zunichte. */}
+          {kannSchalten ? (
+            <View style={styles.fuss}>
+              <Pressable
+                onPress={schalten}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  fragt
+                    ? laeuft
+                      ? 'Wirklich ausschalten?'
+                      : 'Wirklich anzünden?'
+                    : laeuft
+                      ? 'Grill ausschalten'
+                      : 'Grill anzünden'
+                }
+                style={({ pressed }) => [styles.schalter, pressed && { opacity: 0.7 }]}
+              >
+                <Ionicons
+                  name="power"
+                  size={26}
+                  color={laeuft ? '#4CAF7D' : colors.inkSoft}
+                />
+              </Pressable>
+              {fragt ? (
+                <Text style={styles.frage}>
+                  {laeuft ? 'Nochmals tippen zum Ausschalten' : 'Nochmals tippen zum Anzünden'}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
         </View>
       </View>
     </Modal>
@@ -240,8 +337,8 @@ const makeStyles = (colors: Colors) =>
     },
     sheet: {
       width: '100%',
-      maxWidth: 420,
-      maxHeight: '90%',
+      maxWidth: 440,
+      maxHeight: '94%',
       borderRadius: radius.card,
       backgroundColor: colors.surfaceStrong,
       overflow: 'hidden',
@@ -249,18 +346,31 @@ const makeStyles = (colors: Colors) =>
     header: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 10,
-      paddingHorizontal: 16,
-      paddingTop: 14,
+      paddingHorizontal: 8,
+      paddingTop: 10,
     },
-    title: { flex: 1, color: colors.ink, fontSize: 17, fontWeight: '700' },
-    close: { padding: 6 },
+    title: {
+      flex: 1,
+      textAlign: 'center',
+      color: colors.inkSoft,
+      fontSize: 17,
+      fontWeight: '500',
+    },
+    close: { width: 40, padding: 6, alignItems: 'center' },
     inhalt: { padding: 16, gap: 10, alignItems: 'center' },
-    label: { color: colors.inkFaint, fontSize: 12, letterSpacing: 1.2, fontWeight: '700' },
+    label: {
+      color: colors.accent,
+      fontSize: 15,
+      letterSpacing: 1,
+      fontWeight: '600',
+    },
+    grossZeile: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'center' },
     /** So gross, dass man sie vom Sofa aus liest - der ganze Grund für
      *  dieses Blatt. */
-    gross: { color: colors.ink, fontSize: 68, fontWeight: '800', lineHeight: 76 },
-    einheit: { fontSize: 24, fontWeight: '700' },
+    gross: { color: colors.ink, fontSize: 96, fontWeight: '800', lineHeight: 104 },
+    einheit: { paddingTop: 22, alignItems: 'center' },
+    einheitGrad: { color: colors.ink, fontSize: 26, fontWeight: '800', lineHeight: 26 },
+    einheitBuchstabe: { color: colors.ink, fontSize: 26, fontWeight: '800', lineHeight: 28 },
     balken: {
       width: '100%',
       height: 6,
@@ -269,30 +379,42 @@ const makeStyles = (colors: Colors) =>
       overflow: 'hidden',
     },
     balkenFuell: { height: '100%', backgroundColor: colors.accent },
-    satz: { color: colors.ink, fontSize: 16, fontWeight: '600' },
+    satz: { color: colors.ink, fontSize: 28, fontWeight: '300', letterSpacing: 0.5 },
     problem: { color: colors.warnInk, fontSize: 13, fontWeight: '700' },
+    timer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingHorizontal: 22,
+      paddingVertical: 10,
+      borderRadius: 8,
+      borderWidth: 1.5,
+      borderColor: colors.ink,
+      marginTop: 4,
+    },
+    timerText: { color: colors.ink, fontSize: 20, fontWeight: '300', letterSpacing: 0.5 },
     kreise: {
       flexDirection: 'row',
       flexWrap: 'wrap',
       justifyContent: 'center',
-      gap: 12,
-      marginTop: 6,
+      gap: 16,
+      marginTop: 10,
     },
     kreis: {
-      width: 130,
-      height: 130,
-      borderRadius: 65,
-      borderWidth: 2,
+      borderWidth: 4,
+      borderColor: colors.surfaceBorder,
       alignItems: 'center',
       justifyContent: 'center',
-      gap: 2,
+      gap: 6,
     },
-    kreisNummer: { fontSize: 14, fontWeight: '800' },
-    kreisWert: { color: colors.ink, fontSize: 26, fontWeight: '700' },
-    kreisZiel: { color: colors.inkFaint, fontSize: 11 },
+    kreisLeer: { opacity: 0.6 },
+    kreisNummer: { fontSize: 22, fontWeight: '800' },
+    kreisWert: { color: colors.ink, fontSize: 30, fontWeight: '400' },
+    kreisWertLeer: { color: colors.inkFaint, letterSpacing: 2 },
+    kreisZiel: { color: colors.ink, fontSize: 18, fontWeight: '300', letterSpacing: 1 },
     stufen: { width: '100%', gap: 8, marginTop: 4 },
     stufenKopf: { color: colors.inkSoft, fontSize: 13, fontWeight: '700' },
-    stufenReihe: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+    stufenReihe: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'center' },
     stufe: {
       paddingHorizontal: 10,
       paddingVertical: 6,
@@ -302,16 +424,15 @@ const makeStyles = (colors: Colors) =>
     },
     stufeAktiv: { backgroundColor: colors.accentSoft, borderColor: colors.accent },
     stufeText: { color: colors.ink, fontSize: 12, fontWeight: '600' },
-    aus: {
+    fuss: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
-      paddingHorizontal: 16,
+      gap: 12,
+      paddingHorizontal: 20,
       paddingVertical: 10,
-      borderRadius: radius.pill,
-      borderWidth: 1,
-      borderColor: colors.surfaceBorder,
-      marginTop: 6,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.surfaceBorder,
     },
-    ausText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+    schalter: { padding: 8 },
+    frage: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
   });

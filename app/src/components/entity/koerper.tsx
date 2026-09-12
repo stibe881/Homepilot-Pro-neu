@@ -7,14 +7,12 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { Image, Pressable, Text, View } from 'react-native';
 
-import { hubClient } from '../../api/client';
 import { CommandData, Entity } from '../../api/types';
-import { useSettings } from '../../hooks/HubContext';
 import { useTakt } from '../../hooks/useTakt';
 import { herkunftText, positionText, storenstand } from '../../lib/storenstand';
 import { aktiveVorgabe, vorgaben } from '../../lib/storenvorgaben';
 import { chipSchrift, fensterHoehe } from '../../lib/storenkachel';
-import { Zielzeile, fuehlerZeile, garstufen, zieleVon } from '../../lib/grillziel';
+import { fuehlerZeile } from '../../lib/grillziel';
 import { mayOpenDirectly } from '../../lib/tuerbestaetigung';
 import { radius, useColors } from '../../theme';
 import { Bar } from '../Bar';
@@ -275,36 +273,33 @@ export function useGlide(target: number, fullTravelSeconds: number): number {
  *  eigene Hooks braucht. Ein Knopfdruck setzt das Ziel sofort («weiss ja,
  *  wohin die Fahrt geht»), die nächste Meldung des Hubs übernimmt. */
 /**
- * Pelletgrill.
+ * Pelletgrill - die Kachel zeigt, das Blatt bedient.
  *
- * Was beim Grillen wirklich zählt, steht oben: die Temperatur im Garraum
- * und die der Fleischfühler. Alles andere ist Beiwerk – ausser einer
- * Störung, die gehört nach vorne, weil ein leerer Pelletbehälter das
- * Fleisch kalt werden lässt, während man drinnen sitzt.
+ * Was beim Grillen wirklich zählt, steht hier: die Temperatur im
+ * Garraum, das Ziel, die Fleischfühler samt ihren Zielen - und eine
+ * Störung, weil ein leerer Pelletbehälter das Fleisch kalt werden lässt,
+ * während man drinnen sitzt.
  *
- * Anzünden ist zweistufig und erscheint nur, wenn es in der config.yaml
- * freigegeben ist. Es entfacht ein Feuer in einem Gerät, neben dem gerade
- * niemand stehen muss – ein einzelner Fehlgriff soll das nicht auslösen.
+ * Keine Griffe mehr auf der Kachel (Punkt 557). Vorher standen hier
+ * Schritte für die Gartemperatur, je Fühler eine Zeile mit Garstufen,
+ * Anzünden und ein Aus-Knopf - und «wenn ich auf die Grillkarte drücke,
+ * schaltet sich der Grill aus»: Der Aus-Knopf war auf dem Grill im Haus
+ * der einzige in seiner Reihe, ein runder Knopf unten links, und wer die
+ * Kachel antippte, traf ihn. Jetzt öffnet der Tipp auf die Kachel das
+ * Grillblatt (screens/dashboard/Grillvollbild.tsx), und dort steht das
+ * Aus hinter einer Rückfrage - ein Feuer löscht man nicht aus Versehen.
  */
 export function GrillBody({
   entity,
-  onCommand,
-  onGross,
+  ziele = {},
 }: {
   entity: Entity;
-  onCommand: (command: string, data?: Record<string, unknown>) => void;
-  /** Öffnet das Grillblatt (Punkt 555). Als eigener Knopf und nicht als
-   *  Tipp auf die ganze Kachel: Diese Kachel ist voller Griffe - zwei
-   *  Schritte für die Gartemperatur, je eine Zeile pro Fühler,
-   *  Anzünden, Aus. Eine Kachel, die zusätzlich als Ganzes reagiert,
-   *  öffnet im Web bei jedem dieser Griffe noch das Blatt obendrauf
-   *  (react-native-web lässt den Tipp weiterlaufen; vgl. die
-   *  Privatsphäre-Taste der Kamerakachel). */
-  onGross?: () => void;
+  /** Die Kerntemperatur-Ziele je Fühlernummer - vom Hub, gehalten in
+   *  DashboardScreen, damit Kachel und Blatt dasselbe sagen. */
+  ziele?: Record<string, number>;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [askStart, setAskStart] = useState(false);
 
   const unit = entity.state.unit ?? '°C';
   const temperature = entity.state.temperature;
@@ -312,48 +307,6 @@ export function GrillBody({
   const running = entity.state.state === 'running';
   const probes: Record<string, number> = entity.state.probes ?? {};
   const problem = entity.state.problem;
-  // Die Kerntemperatur-Ziele (Punkt 554). Sie liegen beim Hub und nicht
-  // am Gerät: Die Steuerplatine meldet je Fühler nur die Temperatur.
-  const settings = useSettings();
-  const [ziele, setZiele] = useState<Record<string, number>>({});
-  const [waehlt, setWaehlt] = useState<string | null>(null);
-  const hub = useMemo(
-    () => hubClient(settings.url, settings.token),
-    [settings.url, settings.token]
-  );
-
-  useEffect(() => {
-    // Still: Ein Hub, der die Route noch nicht kennt, soll hier keine
-    // rote Einblendung hinterlassen - dann bleibt es bei den Zahlen.
-    hub
-      .get<{ ziele?: Zielzeile[] } | null>('/api/grillziele', {
-        fallback: null,
-        still: true,
-      })
-      .then((antwort) => setZiele(zieleVon(antwort?.ziele, entity.id)));
-  }, [hub, entity.id]);
-
-  const zielSetzen = async (nummer: string, wert: number | null) => {
-    // Erst anzeigen, dann schicken: Beim Grillen steht man daneben und
-    // will sehen, dass der Griff angekommen ist.
-    setZiele((vorher) => {
-      const neu = { ...vorher };
-      if (wert === null) delete neu[nummer];
-      else neu[nummer] = wert;
-      return neu;
-    });
-    setWaehlt(null);
-    await hub.put(
-      '/api/grillziele',
-      { entity_id: entity.id, nummer: Number(nummer), ziel: wert },
-      { still: true }
-    );
-  };
-
-  // Der Grill nimmt nur bestimmte Sollwerte an und rundet selbst auf den
-  // nächsten – deshalb genügen hier grobe Schritte.
-  const step = (delta: number) =>
-    onCommand('set_temperature', { temperature: Math.round((target ?? 100) + delta) });
 
   return (
     <View style={styles.stack}>
@@ -371,102 +324,19 @@ export function GrillBody({
       {problem ? <Text style={styles.grillProblem}>{problem}</Text> : null}
 
       {running && typeof target === 'number' ? (
-        <View style={styles.grillRow}>
-          <Pressable
-            onPress={() => step(-5)}
-            hitSlop={6}
-            accessibilityLabel="Temperatur senken"
-            style={({ pressed }) => [styles.grillStep, pressed && { opacity: 0.6 }]}
-          >
-            <Ionicons name="remove" size={16} color={colors.ink} />
-          </Pressable>
-          <Text style={styles.hint}>
-            Ziel {target} {unit}
-          </Text>
-          <Pressable
-            onPress={() => step(5)}
-            hitSlop={6}
-            accessibilityLabel="Temperatur erhöhen"
-            style={({ pressed }) => [styles.grillStep, pressed && { opacity: 0.6 }]}
-          >
-            <Ionicons name="add" size={16} color={colors.ink} />
-          </Pressable>
-        </View>
+        <Text style={styles.hint}>
+          Ziel {target} {unit}
+        </Text>
       ) : null}
 
-      {/* Je Fühler eine Zeile - und ein Tipp darauf setzt sein Ziel
-          (Punkt 554). Feste Stufen statt eines Zahlenfelds: Beim
-          Grillen hat man fettige Finger und sucht keine Tastatur. */}
+      {/* Je Fühler eine Zeile mit seinem Ziel (Punkt 554) - gesetzt
+          wird es im Blatt. */}
       {Object.entries(probes).map(([number, value]) => (
-        <View key={number}>
-          <Pressable
-            onPress={() => setWaehlt((offen) => (offen === number ? null : number))}
-            accessibilityRole="button"
-            accessibilityLabel={`Ziel für Fühler ${number} setzen`}
-            accessibilityState={{ expanded: waehlt === number }}
-            style={({ pressed }) => [pressed && { opacity: 0.6 }]}
-          >
-            <Text style={styles.detail}>
-              {fuehlerZeile(number, value, ziele[number] ?? null, unit)}
-            </Text>
-          </Pressable>
-          {waehlt === number ? (
-            <View style={styles.garstufen}>
-              {garstufen(unit).map((stufe) => (
-                <Pressable
-                  key={stufe.wert}
-                  onPress={() => zielSetzen(number, stufe.wert)}
-                  accessibilityRole="button"
-                  style={({ pressed }) => [
-                    styles.garstufe,
-                    ziele[number] === stufe.wert && styles.garstufeAktiv,
-                    pressed && { opacity: 0.6 },
-                  ]}
-                >
-                  <Text style={styles.garstufeText}>{stufe.label}</Text>
-                </Pressable>
-              ))}
-              {ziele[number] !== undefined ? (
-                <Pressable
-                  onPress={() => zielSetzen(number, null)}
-                  accessibilityRole="button"
-                  style={({ pressed }) => [styles.garstufe, pressed && { opacity: 0.6 }]}
-                >
-                  <Text style={styles.garstufeText}>kein Ziel</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          ) : null}
-        </View>
+        <Text key={number} style={styles.detail}>
+          {fuehlerZeile(number, value, ziele[number] ?? null, unit)}
+        </Text>
       ))}
-
-      <View style={styles.mediaRow}>
-        {entity.commands.includes('turn_on') ? (
-          <MediaButton
-            icon={askStart ? 'flame' : 'flame-outline'}
-            label={askStart ? 'Wirklich?' : 'Anzünden'}
-            onPress={() => {
-              if (askStart) {
-                setAskStart(false);
-                onCommand('turn_on');
-              } else {
-                setAskStart(true);
-              }
-            }}
-          />
-        ) : null}
-        {entity.commands.includes('light_on') ? (
-          <MediaButton
-            icon="bulb-outline"
-            label="Licht"
-            onPress={() => onCommand(entity.state.light ? 'light_off' : 'light_on')}
-          />
-        ) : null}
-        {onGross ? (
-          <MediaButton icon="expand-outline" label="Gross anzeigen" onPress={onGross} />
-        ) : null}
-        <MediaButton icon="power" label="Aus" onPress={() => onCommand('turn_off')} />
-      </View>
+      <Text style={styles.detail}>Tippen für die grosse Ansicht</Text>
     </View>
   );
 }

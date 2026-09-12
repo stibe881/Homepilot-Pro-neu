@@ -749,17 +749,21 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     [entities, grillBlattFuer]
   );
 
-  // Die Kerntemperatur-Ziele holen, sobald das Blatt aufgeht - und nicht
-  // beim Start: Sie zählen nur, solange jemand hinsieht.
+  // Die Kerntemperatur-Ziele holen, sobald ein Grill da ist - und noch
+  // einmal, wenn das Blatt aufgeht. Sie stehen auch auf der Kachel
+  // («Fühler 2: 36 °C · noch 27 bis 63»), und die Kachel holt sie seit
+  // Punkt 557 nicht mehr selbst: Zwei Abfragen desselben Stands liefen
+  // auseinander, sobald man im Blatt ein Ziel setzte.
+  const hatGrill = useMemo(() => entities.some(istGrill), [entities]);
   useEffect(() => {
-    if (!grillBlattFuer) return;
+    if (!hatGrill && !grillBlattFuer) return;
     hub
       .get<{ ziele?: Zielzeile[] } | null>('/api/grillziele', {
         fallback: null,
         still: true,
       })
       .then((antwort) => setGrillziele(antwort?.ziele ?? []));
-  }, [hub, grillBlattFuer]);
+  }, [hub, hatGrill, grillBlattFuer]);
   // Die Szene «Kino» fürs Fernbedienungs-Blatt - dieselbe Regel wie auf
   // der Live-Karte des Fernsehers (lib/kinoszene.ts).
   const kinoImBlatt = useMemo(() => kinoSzene(scenes), [scenes]);
@@ -2247,13 +2251,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       onSetGroup={editing ? (group) => setEntityMeta(entity.id, { group }) : undefined}
       onCommand={(command, data) => guardedCommand(entity.id, command, data)}
       onErinnern={() => setErinnernAn(entity)}
-      // Der Grill gross (Punkt 555): Dasselbe Blatt, das die
-      // Live-Aktivität und die Push öffnen - ein Ziel, drei Wege
-      // dorthin. Beim Grillen sieht man alle paar Minuten hin, und die
-      // Kachel trägt die Gartemperatur klein zwischen anderen Kacheln.
-      onGross={
-        !editing && istGrill(entity) ? () => setGrillBlattFuer(entity.id) : undefined
-      }
+      grillziele={istGrill(entity) ? zieleVon(grillziele, entity.id) : undefined}
       sky={entity.kind === 'cover' ? sky : undefined}
       snapshotUri={
         // Kameras: Livebild. Sauger: die Karte – beides über denselben Endpunkt.
@@ -2264,15 +2262,21 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       onPress={
         editing
           ? undefined
-          : entity.kind === 'camera'
-            ? () => setFullscreen(entity.id)
-            : entity.kind === 'sensor'
-              ? () => setExpanded((current) => (current === entity.id ? null : entity.id))
-              : section === 'devices' && HISTORY_KINDS.has(entity.kind)
-                ? // Unter Geräte öffnet ein Tipp auf die Kachel den Verlauf
-                  // dieses Geräts - «warum ging das um drei Uhr an?».
-                  () => setHistoryFor(entity.id)
-                : undefined
+          : // Der Grill gross (Punkt 555/557): Dasselbe Blatt, das die
+            // Live-Aktivität und die Push öffnen - ein Ziel, drei Wege
+            // dorthin. Die Kachel selbst trägt keine Griffe mehr, also
+            // trifft der Tipp nichts anderes.
+            istGrill(entity)
+            ? () => setGrillBlattFuer(entity.id)
+            : entity.kind === 'camera'
+              ? () => setFullscreen(entity.id)
+              : entity.kind === 'sensor'
+                ? () => setExpanded((current) => (current === entity.id ? null : entity.id))
+                : section === 'devices' && HISTORY_KINDS.has(entity.kind)
+                  ? // Unter Geräte öffnet ein Tipp auf die Kachel den Verlauf
+                    // dieses Geräts - «warum ging das um drei Uhr an?».
+                    () => setHistoryFor(entity.id)
+                  : undefined
       }
       onLongPress={
         // Überall dasselbe: langes Drücken zeigt den Verlauf dieses
@@ -4652,6 +4656,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               );
             }}
             onCommand={(command, data) => guardedCommand(grillImBlatt.id, command, data)}
+            // «Timer stellen» wie in der Hersteller-App: Der Küchen-Timer
+            // wohnt in der Küche, und dieselbe Adresse nimmt auch die
+            // Live-Karte (core/livekarten.py, GRILL_LINK).
+            onTimer={() => {
+              setGrillBlattFuer(null);
+              adresseAusfuehren.current('homepilot://timer');
+            }}
             onSchliessen={() => setGrillBlattFuer(null)}
           />
         ) : null}

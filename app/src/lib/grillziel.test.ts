@@ -94,7 +94,7 @@ describe('fuehlerplaetze', () => {
     // erwischt hat.
     const plaetze = fuehlerplaetze({ '2': 43 }, { '2': 63 });
     expect(plaetze.map((p) => p.nummer)).toEqual(['1', '2', '3', '4']);
-    expect(plaetze[0].anzeige).toBe('—');
+    expect(plaetze[0].anzeige).toBe('- - -°');
     expect(plaetze[1].anzeige).toBe('43°');
     expect(plaetze[1].ziel).toBe(63);
     expect(plaetze[0].ziel).toBeNull();

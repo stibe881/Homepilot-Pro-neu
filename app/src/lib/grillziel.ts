@@ -126,7 +126,7 @@ export interface Fuehlerplatz {
   /** Die gemessene Kerntemperatur - null heisst «nicht eingesteckt». */
   wert: number | null;
   ziel: number | null;
-  /** Was im Kreis steht: «43°» oder «—». */
+  /** Was im Kreis steht: «43°» oder «- - -°» - wie in der Hersteller-App. */
   anzeige: string;
 }
 
@@ -141,7 +141,7 @@ export function fuehlerplaetze(
       nummer,
       wert,
       ziel: ziele[nummer] ?? null,
-      anzeige: wert === null ? '—' : `${Math.round(wert)}°`,
+      anzeige: wert === null ? '- - -°' : `${Math.round(wert)}°`,
     };
   });
 }

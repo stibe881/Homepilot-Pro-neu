@@ -5352,3 +5352,52 @@ Ein TestFlight-Build gehört dazu - das Widget ist nativ. Die
 `runtimeVersion` bleibt: kein neues Modul.
 
 Stellen: `app/targets/widget/index.swift`, `app/modules/live-aktivitaet/ios/HausAktivitaetAttributes.swift`, `app/src/lib/livekarte-struktur.test.ts`, `hub/homepilot/core/livekarten.py`
+
+### 557. Der Tipp auf die Grillkachel öffnet das Blatt - und schaltet nichts ✓ erledigt
+
+Aus dem Haus, kurz nach Punkt 555: «Wenn ich auf die Grillkarte
+drücke, schaltet sich der Grill aus.» Und: «Soll der Grill beim
+Antippen als Popup öffnen und so aussehen» - mit dem Bild der
+Grillseite aus der Hersteller-App, °C/°F-Umschalter und Licht rot
+durchgestrichen.
+
+**Der Fehlgriff.** Die Kachel trug einen Aus-Knopf in ihrer
+Knopfreihe - und auf dem Grill im Haus war es der einzige dort:
+Anzünden ist aus gutem Grund nicht freigegeben, ein Licht hat der
+Grill nicht. Ein runder Knopf allein unten links, 38 Punkte, ohne
+Rückfrage, auf einer Kachel, die man beim Grillen alle paar Minuten
+antippt. Wer die Kachel traf, traf ihn. Punkt 555 hatte das Blatt
+bewusst über einen eigenen Knopf geöffnet statt über die Kachel, weil
+die Kachel «voller Griffe» war - das war der Fehler von der anderen
+Seite her: Nicht der Weg zum Blatt war zu ändern, sondern die Griffe
+gehörten von der Kachel weg.
+
+**Jetzt: Die Kachel zeigt, das Blatt bedient.** Auf der Kachel stehen
+Temperatur, Ziel, die Fühlerzeilen mit ihren Zielen und eine Störung -
+nichts davon ist ein Griff. Der Tipp irgendwo darauf öffnet das Blatt.
+Dort steht alles Bedienen, wo Platz dafür ist: die Gartemperatur (ein
+Tipp auf die grosse Zahl bietet die festen Stufen an, wie im
+Ablauf-Editor), je Fühler sein Ziel, «Timer stellen», und unten der
+Schalter. **Aus und Anzünden fragen nach** - erster Tipp fragt, zweiter
+tut. Ein Feuer löscht oder entfacht man nicht mit einem Fehlgriff.
+
+**Die Ziele hält die Startseite, nicht die Kachel.** Vorher holte die
+Kachel die Fühlerziele selbst vom Hub und das Blatt noch einmal - zwei
+Abfragen desselben Stands, die auseinanderliefen, sobald man im Blatt
+ein Ziel setzte. Jetzt holt `DashboardScreen` sie einmal, sobald ein
+Grill da ist, und reicht sie an beide.
+
+**Die Farben stimmen jetzt mit dem Gerät überein.** Aus dem Bild
+abgelesen: 1 grün, 2 gelb, 3 rot, 4 violett. Vorher stand «1 blau,
+4 grün» - geraten. Wer die gelbe 2 am Grill sucht, soll auf Karte und
+Blatt dieselbe finden. Die leeren Plätze sagen «- - -°», wie am Gerät.
+
+**Gemessen.** Die Probe tippt auf die Fühlerzeile der Kachel - die
+Zeile, die vorher selbst ein Griff war -, sieht das Blatt aufgehen und
+fragt den Hub, ob der Grill noch läuft. Dann setzt sie im Blatt ein
+Ziel, liest es am Hub zurück und danach auf der Kachel. Auf dem Telefon
+prüft sie zusätzlich, dass die vier Kreise nicht seitlich hinausragen.
+Gegen den alten Stand rot gesehen: ohne den Tipp auf die Kachel bleibt
+das Blatt zu.
+
+Stellen: `app/src/components/entity/koerper.tsx`, `app/src/components/EntityCard.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/screens/dashboard/Grillvollbild.tsx`, `app/src/lib/grillziel.ts`, `hub/homepilot/core/livekarten.py`, `app/targets/widget/index.swift`, `scripts/probe.mjs`
