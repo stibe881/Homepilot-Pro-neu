@@ -5785,3 +5785,22 @@ Platine geschwiegen. Die Kurve überspringt die Stelle, und der Massstab
 bleibt bei dem, was gemessen wurde.
 
 Stellen: `app/src/lib/grillverlauf.ts`
+
+### 576. Der ganz offene Store war im Bild nur zu drei Vierteln offen ✓ erledigt
+
+Aus dem Haus, mit Bildern der Storenseite: «Bei den Storen, die
+komplett offen sind, sind auf den Bildern nur 3/4 offen.» Oben im
+Fenster stand ein grauer Streifen, obwohl der Store ganz oben war.
+
+Das Storenbild zeichnet den Store als Vorhang in Fensterhöhe, der beim
+Öffnen um genau diese Höhe nach oben aus dem Bild fährt. Der Vorhang
+bestand aber aus «einer Latte mehr als nötig» plus der Schiene - er war
+höher als das Fenster, und der Überstand hing unten heraus. Solange der
+Store unten war, lag der Überstand ausserhalb des Bilds; fuhr er hoch,
+blieb genau dieser Überstand als Streifen im oberen Viertel stehen.
+
+Jetzt passen nur ganze Latten ins Fenster (`lattenZahl`), der Vorhang
+schneidet ab, was darüber hinausgeht, und die Schiene sitzt an seinem
+unteren Rand statt unter der letzten Latte.
+
+Stellen: `app/src/lib/storenkachel.ts`, `app/src/components/CoverVisual.tsx`

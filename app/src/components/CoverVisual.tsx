@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 import Svg, { Circle, Ellipse, G, Line, Polygon } from 'react-native-svg';
 
+import { LATTE, lattenZahl } from '../lib/storenkachel';
 import { radius, useTheme } from '../theme';
 
 /** Wetterlage, wie sie hinter dem Fenster erscheint. */
@@ -101,9 +102,12 @@ export function CoverVisual({ open, tilt, sky = 'clear', height = 128 }: Props) 
   // Store: volle Fensterhöhe hoch, nach oben herausgeschoben.
   const translateY = slide.interpolate({ inputRange: [0, 1], outputRange: [-height, 0] });
 
-  // Lamellen: fixe Zahl Latten, heller Spalt darunter wächst mit dem Winkel.
-  const unit = 15;
-  const count = Math.ceil(height / unit) + 1;
+  // Lamellen: so viele ganze Latten, wie ins Fenster passen (Punkt 576:
+  // eine mehr ragte über das Bild hinaus und blieb beim ganz offenen
+  // Store als Streifen oben stehen); heller Spalt darunter wächst mit
+  // dem Winkel.
+  const unit = LATTE;
+  const count = lattenZahl(height, unit);
   const maxGap = hasTilt ? unit * 0.6 : 1.2;
   const gap = slat.interpolate({ inputRange: [0, 1], outputRange: [hasTilt ? 1 : 1.2, maxGap] });
 
@@ -332,6 +336,9 @@ const makeStyles = () =>
       left: 0,
       right: 0,
       top: 0,
+      // Was nicht in die Fensterhöhe passt, gehört nicht ins Bild -
+      // sonst steht es beim Hochfahren oben (Punkt 576).
+      overflow: 'hidden',
     },
     slat: {
       flex: 1,
@@ -341,6 +348,12 @@ const makeStyles = () =>
       backgroundColor: 'rgba(255, 255, 255, 0.55)',
     },
     rail: {
+      // Am unteren Rand des Stores, nicht unter der letzten Latte:
+      // So bleibt die Schiene sichtbar, egal wie viele Latten passen.
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
       height: 6,
       backgroundColor: '#9AA1AD',
     },
