@@ -907,3 +907,117 @@ def test_the_test_run_refuses_while_armed(tmp_path):
             await hub.stop()
 
     asyncio.run(check())
+
+
+# ── Heimkommen, während die Anlage scharf ist (Punkt 551) ──────────────────
+
+
+def person(entity_id: str, state: str = "away") -> Entity:
+    return Entity(
+        id=entity_id,
+        kind=EntityKind.BINARY_SENSOR,
+        name=entity_id,
+        integration="test",
+        state={"state": state, "device_class": "presence"},
+    )
+
+
+@pytest.fixture
+def heimkehr_hub(tmp_path):
+    """Anlage mit Eingangsverzögerung, einer Person und «automatisch»."""
+
+    async def build():
+        hub = make_hub(tmp_path)
+        await hub.start()
+        await hub.registry.add(contact("test.tuer"))
+        await hub.registry.add(person("test.stefan"))
+        service = hub.integrations.get("alarm")
+        await service.update_config(
+            {
+                "sensors": [
+                    {"entity_id": "test.tuer", "modes": ["ausser_haus"], "delayed": True}
+                ],
+                "settings": {
+                    "exit_delay": 0,
+                    # Kurz, aber nicht null: Es geht um das Rennen
+                    # zwischen Verzögerung und Heimmeldung.
+                    "entry_delay": 0.4,
+                    "notify_trigger": False,
+                    # Ausdrücklich «automatisch». Auf der Vorgabe
+                    # «vorschlagen» käme nur eine Nachricht - dann misst
+                    # der Test die Einstellung und nicht den Fehler.
+                    "presence_disarm": "automatisch",
+                },
+            }
+        )
+        return hub, service
+
+    hub, service = asyncio.run(build())
+    yield hub, service
+    asyncio.run(hub.stop())
+
+
+def test_die_heimmeldung_schaltet_sofort_ab_statt_erst_beim_naechsten_takt(heimkehr_hub):
+    """Der gemeldete Fall.
+
+    «Als wir heute nachhause gekommen sind, hat die Alarmanlage
+    ausgelöst. Diese hätte sich doch automatisch deaktivieren sollen.»
+
+    Sollte sie - nur wurde die Anwesenheit bloss im Takt geprüft, und
+    der läuft einmal je Minute (core/watchdog.py, INTERVAL), während die
+    Eingangsverzögerung dreissig Sekunden dauert. Wer heimkam, verlor
+    dieses Rennen öfter, als er es gewann.
+    """
+    hub, service = heimkehr_hub
+
+    async def run():
+        await service.arm("ausser_haus", by="Test")
+        assert service._entity.state["state"] == ARMED
+
+        # Türe auf - die Eingangsverzögerung läuft.
+        await hub.registry.update_state("test.tuer", {"state": "on"})
+        await asyncio.sleep(0.05)
+        assert service._entity.state["state"] == ENTRY
+
+        # Und das Telefon meldet: zuhause.
+        await hub.registry.update_state("test.stefan", {"state": "home"})
+        await asyncio.sleep(0.05)
+        return service._entity.state["state"]
+
+    # Ohne auf den Takt zu warten - und ohne dass die Verzögerung abläuft.
+    assert asyncio.run(run()) == DISARMED
+
+
+def test_auch_aus_der_heulenden_sirene_heraus(heimkehr_hub):
+    """Genau der Fall, für den man das einschaltet: die Sirene läuft,
+    und man steht mit den Einkäufen in der Tür."""
+    hub, service = heimkehr_hub
+
+    async def run():
+        await service.arm("ausser_haus", by="Test")
+        await hub.registry.update_state("test.tuer", {"state": "on"})
+        # Die Verzögerung ganz ablaufen lassen.
+        await asyncio.sleep(0.6)
+        assert service._entity.state["state"] == TRIGGERED
+        await hub.registry.update_state("test.stefan", {"state": "home"})
+        await asyncio.sleep(0.05)
+        return service._entity.state["state"]
+
+    assert asyncio.run(run()) == DISARMED
+
+
+def test_ein_fensterkontakt_hebt_die_anlage_nicht_auf(heimkehr_hub):
+    """Die Gegenprobe: Nur Personen zählen.
+
+    Ohne sie wäre der neue Weg eine offene Tür - jeder Melder, der sich
+    meldet, schaltete die Anlage ab.
+    """
+    hub, service = heimkehr_hub
+
+    async def run():
+        await service.arm("ausser_haus", by="Test")
+        await hub.registry.update_state("test.tuer", {"state": "on"})
+        await asyncio.sleep(0.05)
+        return service._entity.state["state"]
+
+    assert asyncio.run(run()) == ENTRY

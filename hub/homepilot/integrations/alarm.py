@@ -734,6 +734,25 @@ class AlarmIntegration(Integration):
                 self._sensor_test = sensortest_bestaetigen(
                     self._sensor_test, entity_fuer_test.id
                 )
+        # Kommt jemand heim, zählt das **sofort** (Punkt 551).
+        #
+        # Der gemeldete Fall: «Als wir heute nachhause gekommen sind, hat
+        # die Alarmanlage ausgelöst. Diese hätte sich doch automatisch
+        # deaktivieren sollen.» Sollte sie - nur wurde die Anwesenheit
+        # bloss im Takt geprüft, und der läuft einmal je Minute
+        # (core/watchdog.py, INTERVAL). Die Eingangsverzögerung ist
+        # dreissig Sekunden lang. Wer heimkam, verlor dieses Rennen
+        # öfter, als er es gewann - und hörte erst die Sirene und dann
+        # den Vorschlag, sie abzuschalten.
+        #
+        # Vor der Abfrage auf «scharf» und ausdrücklich auch aus
+        # «eintritt» und «ausgeloest» heraus: Genau dann braucht man es
+        # (core/alarmanwesenheit.py, soll_unscharf).
+        person = self.hub.registry.get(str(payload.get("entity_id") or ""))
+        if person is not None and alarmanwesenheit.ist_person(person):
+            await self._anwesenheit(time.time())
+            return
+
         if self._state not in (ARMED, ARMING, VERDACHT):
             return
         entity_id = payload.get("entity_id")
@@ -1780,7 +1799,7 @@ class AlarmIntegration(Integration):
         return [
             str(entity.state.get("state") or "")
             for entity in self.hub.registry.all()
-            if str(entity.state.get("device_class") or "") == "presence"
+            if alarmanwesenheit.ist_person(entity)
         ]
 
     # ── Verlauf ────────────────────────────────────────────────────────────

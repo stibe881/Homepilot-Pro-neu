@@ -91,3 +91,28 @@ def test_selbsttaetig_wird_nie_in_den_urlaubsmodus_geschaltet() -> None:
     """Der überwacht auch Innenräume und hat keine Karenz für Bewohner -
     das soll jemand entscheiden, nicht eine Ortung."""
     assert ak.MODUS == "ausser_haus"
+
+
+# ── Wer als Person zählt (Punkt 551) ───────────────────────────────────────
+
+
+class _Gerät:
+    def __init__(self, state):
+        self.state = state
+
+
+def test_die_geraeteklasse_entscheidet_wer_eine_person_ist() -> None:
+    """Über die Klasse und nicht über die Integration.
+
+    So zählt auch die von Hand gesetzte Anwesenheit mit, und die Anlage
+    muss keinen Geofence kennen, den es vielleicht gar nicht gibt.
+    """
+    assert ak.ist_person(_Gerät({"state": "home", "device_class": "presence"}))
+    assert ak.ist_person(_Gerät({"state": "away", "device_class": "Presence"}))
+
+
+def test_ein_fensterkontakt_ist_keine_person() -> None:
+    """Sonst hübe ein geschlossenes Fenster die Anlage auf."""
+    assert not ak.ist_person(_Gerät({"state": "off", "device_class": "contact"}))
+    assert not ak.ist_person(_Gerät({"state": "on"}))
+    assert not ak.ist_person(_Gerät({}))

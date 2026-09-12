@@ -5049,3 +5049,89 @@ sein, sonst wäre die Messung auch für eine App grün, in der es die
 Karte gar nicht mehr gibt.
 
 Stellen: `app/src/screens/DashboardScreen.tsx`, `app/src/components/Einrichtungshilfe.tsx`, `app/src/components/DeviceTools.tsx`, `scripts/probe.mjs`
+
+### 551. Heimkommen muss sofort zählen, nicht beim nächsten Takt ✓ erledigt
+
+Gemeldet im Haus: «Als wir heute nachhause gekommen sind, hat die
+Alarmanlage ausgelöst. Diese hätte sich doch automatisch deaktivieren
+sollen, wenn wir nachhause kommen.»
+
+**Sie hätte - nur kam sie zu spät.** Die Kopplung an die Anwesenheit gab
+es längst (Punkt 421, `core/alarmanwesenheit.py`), und ihr Docstring
+sagt das Richtige: «Wer heimkommt, steht in der Eingangsverzögerung, und
+die läuft. Zehn Minuten zu warten hiesse, die Sirene abzuwarten.»
+Geprüft wurde sie aber nur im **Takt** - und der läuft einmal je Minute
+(`core/watchdog.py`, `INTERVAL = 60`), während die Eingangsverzögerung
+dreissig Sekunden dauert (`entry_delay`). Wer heimkam, verlor dieses
+Rennen öfter, als er es gewann: erst die Sirene, dann die Nachricht, man
+könne sie abschalten.
+
+Dazu kam, dass `_on_state_changed` gleich am Anfang alles wegwarf, was
+nicht in `scharf`, `ausgang` oder `verdacht` geschah - die
+Eingangsverzögerung selbst war also gar nicht dabei. Die Heimmeldung
+wird jetzt **vor** dieser Abfrage ausgewertet, ausdrücklich auch aus
+`eintritt` und `ausgeloest` heraus: Genau dann braucht man es.
+
+**Die Gegenprobe gehört dazu.** Nur Geräte mit der Geräteklasse
+`presence` zählen (`ist_person`). Ohne diese Schranke wäre der neue Weg
+eine offene Tür: Jeder Melder, der sich meldet, schaltete die Anlage ab
+- und der erste, der sich beim Heimkommen meldet, ist der Türkontakt.
+Ein Test hält das fest.
+
+**Was das nicht behebt:** Die Vorgabe der Einstellung ist
+«vorschlagen», nicht «automatisch» - mit Absicht (ein Telefon in einer
+fremden Hand hebt sonst die Anlage auf, siehe den Kopf von
+`alarmanwesenheit.py`). Wer will, dass es von selbst geschieht, legt
+den Schalter unter Alarmanlage → Anwesenheit um. Ohne ihn kommt
+weiterhin nur eine Nachricht - jetzt allerdings sofort statt bis zu
+einer Minute später.
+
+Stellen: `hub/homepilot/integrations/alarm.py`, `hub/homepilot/core/alarmanwesenheit.py`
+
+### 552. Warum der Grill ausgefallen ist – und warum keine Live-Karte kam ✓ erledigt
+
+Gemeldet im Haus, mit zwei Bildern: «Die Pit-Boss-Integration
+funktioniert nicht. Der Smoker ist eingeschaltet und läuft. Ich möchte
+auch so eine Live-Aktivität.» Das eine Bild zeigte unter *Ausfälle*
+«pitboss · 12. Sept., 07:35 – noch ausgefallen», das andere die
+Live-Aktivität der Hersteller-App.
+
+**Zwei Symptome, eine Ursache.** Die Live-Karte für den Grill gibt es
+längst (`core/livekarten.py`, `karten_grill`: Ist- gegen Zieltemperatur,
+Flammensymbol, Fortschrittsbalken). Sie verlangt drei Dinge: Der Grill
+läuft, er ist **erreichbar**, und ein Temperaturziel ist gesetzt. Genau
+die mittlere Bedingung fiel weg - also blieb auch die Karte aus. Wer
+beides getrennt meldet, sucht zwei Fehler, wo einer ist.
+
+**Warum der Ausfall nicht zu deuten war.** Die Abfrageschleife fing
+jeden Fehler ab, meldete `{}` und loggte auf `debug`. Unter *Ausfälle*
+stand damit «noch ausgefallen» und sonst nichts, und im Log stand gar
+nichts. Der Grund war weggeworfen, bevor ihn jemand lesen konnte - und
+wer danebensteht und sieht, dass der Smoker läuft, kann daraus nicht
+schliessen, woran es liegt.
+
+Jetzt steht der Grund an der Kachel (`problem`, dieselbe Stelle, die
+Homematic und V-Zug längst füllen) und der **Wechsel** im Log: einmal
+als Warnung, wenn er ausfällt, einmal als Notiz, wenn er wiederkommt.
+Nicht bei jeder Runde - zwischen zwei Grillabenden ist das Gerät
+wochenlang aus, und das ist kein Fehler, nur «nicht da».
+
+**Und ein Werkzeug, das die Frage ganz beantwortet.** `grillcheck` geht
+die Kette Schritt für Schritt durch: die Konfiguration, wie der Hub sie
+liest; den versuchten Weg (lokal oder über die Wolke); ob das Modell
+aufgelöst werden konnte (scheitert `start()` *vor* der Verbindung, ist
+es die config.yaml, sonst das Gerät); den rohen Zustand von der Platine
+neben dem, was der Hub daraus macht. Zum Schluss die drei Bedingungen
+der Live-Karte als Satz - und die drei, die nichts mit dem Grill zu tun
+haben: apns-Block in der config.yaml, ein Telefon mit Start-Token, und
+ob jemand die Live-Aktivitäten im Profil abgeschaltet hat. Ohne diese
+Zeilen sucht man den Fehler beim Grill, während er im Telefon sitzt.
+
+`fehlergrund` ist dabei die reine Hälfte: `TimeoutError()` trägt gar
+keinen Text, und ohne Übersetzung stünde auf der Kachel ein Doppelpunkt
+mit nichts dahinter.
+
+**Was das nicht behebt:** Warum der Grill nicht antwortet, weiss erst
+der Lauf im Haus. Das Werkzeug sagt es dann in einer Zeile.
+
+Stellen: `hub/homepilot/integrations/pitboss.py`, `hub/homepilot/grillcheck.py`, `CLAUDE.md`
