@@ -642,6 +642,31 @@ describe('Zustände, die es im Editor bisher nicht gab', () => {
     expect(plainStates(box).map((z) => z.key)).toEqual(['playing', 'paused', 'idle']);
   });
 
+  it('bietet die Ereignisse eines Erschütterungsmelders an', () => {
+    // Der Aqara DJT11LM meldet kein «vibration: true», sondern ein Wort
+    // in `action` - und ist damit für den Hub ein Taster. Im Editor
+    // stand deshalb nur der Wortschatz der Wandtaster, und ein Ablauf
+    // «wenn jemand am Briefkasten rüttelt» liess sich nicht bauen,
+    // obwohl der Sensor angelernt und die Kachel da war.
+    const melder = geraet({ kind: 'button', state: { state: 'vibration' } });
+    const schluessel = plainStates(melder).map((z) => z.key);
+    expect(schluessel).toContain('vibration');
+    expect(schluessel).toContain('tilt');
+    expect(schluessel).toContain('drop');
+    // Und zwar auf Deutsch, wie alles andere in dieser Reihe.
+    expect(plainStates(melder).find((z) => z.key === 'vibration')?.label).toBe(
+      'erschüttert'
+    );
+  });
+
+  it('bietet den Platzhalter des Hubs nicht als Auslöser an', () => {
+    // «unknown» steht dort, bis sich das Gerät zum ersten Mal meldet.
+    // Als Chip stand es zuvorderst zur Wahl - ein Auslöser, der nie
+    // feuert, und dazu das einzige englische Wort in der Reihe.
+    const frisch = geraet({ kind: 'button', state: { state: 'unknown' } });
+    expect(plainStates(frisch).map((z) => z.key)).not.toContain('unknown');
+  });
+
   it('zählt Anwesenheit in zuhause und weg', () => {
     const person = geraet({
       kind: 'binary_sensor',
