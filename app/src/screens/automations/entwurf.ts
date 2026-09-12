@@ -330,7 +330,21 @@ const TASTERDRUECKE: { key: string; label: string }[] = [
   { key: 'off', label: 'untere Wippe' },
   { key: 'brightness_move_up', label: 'heller halten' },
   { key: 'brightness_move_down', label: 'dunkler halten' },
+  // Ein Erschütterungsmelder ist technisch dasselbe: Der Aqara DJT11LM
+  // meldet kein «vibration: true», sondern ein Ereignis-Wort in
+  // `action` - und wird damit zum Taster
+  // (`integrations/zigbee2mqtt.py`, «action» in merkmale). Ohne diese
+  // drei Zeilen stand im Editor nur der Wortschatz der Wandtaster, und
+  // wer einen Ablauf «wenn jemand am Briefkasten rüttelt» wollte, fand
+  // nichts Passendes - obwohl der Sensor angelernt und die Kachel da
+  // war.
+  { key: 'vibration', label: 'erschüttert' },
+  { key: 'tilt', label: 'gekippt' },
+  { key: 'drop', label: 'fallen gelassen' },
 ];
+
+/** Werte, die «noch nichts gemeldet» heissen und kein Auslöser sind. */
+const KEIN_DRUCK = ['unknown', 'unavailable', 'none', 'null'];
 
 /** Die Zustände des Felds `state` selbst, je Geräteart. */
 export function plainStates(entity?: Entity): { key: string; label: string }[] {
@@ -342,7 +356,13 @@ export function plainStates(entity?: Entity): { key: string; label: string }[] {
   if (entity?.kind === 'button') {
     const gemeldet = String(entity.state?.state ?? '').trim();
     const bekannt = TASTERDRUECKE.some((druck) => druck.key === gemeldet);
-    return gemeldet && !bekannt
+    // «unknown» ist kein Druck, sondern der Platzhalter des Hubs, bis
+    // sich das Gerät zum ersten Mal meldet
+    // (`integrations/zigbee2mqtt.py`). Er stand als erster Chip zur
+    // Wahl - ein Auslöser, der nie feuert, und dazu das einzige
+    // englische Wort in der Reihe.
+    const echt = gemeldet && !KEIN_DRUCK.includes(gemeldet.toLowerCase());
+    return echt && !bekannt
       ? [{ key: gemeldet, label: gemeldet }, ...TASTERDRUECKE]
       : TASTERDRUECKE;
   }

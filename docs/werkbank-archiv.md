@@ -5785,3 +5785,42 @@ Platine geschwiegen. Die Kurve überspringt die Stelle, und der Massstab
 bleibt bei dem, was gemessen wurde.
 
 Stellen: `app/src/lib/grillverlauf.ts`
+
+### 575. Ein Erschütterungsmelder ist für Zigbee ein Taster ✓ erledigt
+
+*lohnt sich · Aufwand: klein · App*
+
+Aus dem Haus: «Wie soll ich mit dem Erschütterungssensor von Aqara
+einen Ablauf machen? Was muss ich bei "wenn ... passiert" angeben?» -
+und dann: «Gerät wechselt steht nicht zur Auswahl.»
+
+Beides stimmte. Der Aqara DJT11LM meldet **kein** `vibration: true`,
+sondern ein Ereignis-Wort in `action` (`vibration`, `tilt`, `drop`).
+Damit fällt er im Hub in den Zweig `if "action" in merkmale` und wird
+ein **Taster** - was technisch richtig ist: Ein Taster hat keinen
+Zustand, den man ablesen könnte, sondern meldet ein Ereignis. Die
+Auslöser-Kachel heisst deshalb «Taster gedrückt» statt «Gerät
+wechselt», und das ist dieselbe Kachel.
+
+Nur stand darunter der Wortschatz der **Wandtaster** - einmal drücken,
+obere Wippe, heller halten. Die drei Wörter, die dieses Gerät wirklich
+sendet, fehlten. Ein Ablauf «wenn jemand am Briefkasten rüttelt» liess
+sich also nicht bauen, obwohl der Sensor angelernt war und die Kachel
+im Zimmer stand. Jetzt stehen sie in der Liste, auf Deutsch:
+«erschüttert», «gekippt», «fallen gelassen».
+
+Dazu fiel auf, dass **«unknown» als erster Chip zur Wahl stand** - der
+Platzhalter, den der Hub setzt, bis ein Gerät sich zum ersten Mal
+meldet (Punkt 546). Die Liste holt den zuletzt gemeldeten Wert nach
+vorn, wenn sie ihn nicht kennt; das ist für einen Taster mit eigenem
+Wortschatz richtig, für den Platzhalter nicht. Ein Auslöser auf
+«unknown» feuert nie, und das einzige englische Wort in der Reihe war
+es obendrein.
+
+Diese Seite trug erst die 549 - dieselbe Nummer hatte am gleichen
+Abend eine andere Sitzung vergeben («Wetter und Musik gehören nicht
+unter die Geräteliste»). Gewandert ist die mit den wenigeren Ankern,
+und das war diese: Im Code stand die Zahl nirgends.
+
+Stellen: `app/src/screens/automations/entwurf.ts`, `app/src/screens/automations/entwurf.test.ts`
+
