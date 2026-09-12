@@ -92,6 +92,9 @@ def test_grill_state_carries_the_model_for_the_picture():
     """Punkt 559: Die App zeichnet je Bauart ein Bild - den liegenden
     Grill oder den stehenden Schrank - und erkennt sie am Modell."""
     assert grill_state({"moduleIsOn": True}, "PBV4PS2")["model"] == "PBV4PS2"
+    # Und «das ist ein Grill» steht ausdrücklich da (Punkt 572) - ein
+    # kalter Grill hat kein Temperaturziel, an dem man ihn erkennen könnte.
+    assert grill_state({"moduleIsOn": False})["grill"] is True
     # Ohne Modell kein leeres Feld - die App kommt ohne aus.
     assert "model" not in grill_state({"moduleIsOn": True})
 

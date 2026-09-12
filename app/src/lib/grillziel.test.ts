@@ -74,6 +74,12 @@ describe('zieleVon', () => {
 });
 
 describe('istGrill', () => {
+  it('erkennt den kalten Grill am ausdrücklichen Kennzeichen', () => {
+    // Punkt 572: kein Temperaturziel, aber `grill: true` vom Hub.
+    expect(istGrill({ kind: 'appliance', state: { grill: true, state: 'off' } })).toBe(true);
+    expect(istGrill({ kind: 'appliance', state: { state: 'running', program: 'Eco' } })).toBe(false);
+  });
+
   it('erkennt ihn am Temperaturziel', () => {
     // Dieselbe Regel wie im Hub - «erkennbar am Temperaturziel, das
     // eine Waschmaschine nicht hat».

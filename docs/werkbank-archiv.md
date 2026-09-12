@@ -5739,3 +5739,18 @@ vom Strom nimmt, hat danach wieder einen ausgeschalteten Grill und
 keinen Ausfall. Ob er lief, weiss der Hub aus der letzten Antwort.
 
 Stellen: `hub/homepilot/integrations/pitboss.py`, `hub/tests/test_pitboss.py`
+
+### 572. Auch der kalte Grill ist ein Grill ✓ erledigt
+
+Aus dem Haus, mit Bild: Der Räucherschrank stand als «Unbekannt» ohne
+Bild da, während der Smoker daneben Foto, Temperatur und Fühler hatte.
+
+Die Kachel erkannte den Grill am Temperaturziel - «das eine
+Waschmaschine nicht hat». Ein kalter Grill hat aber auch keines: Der
+Räucherschrank hatte seit dem Hub-Start nie geantwortet, sein Zustand
+war «unknown» und sonst nichts, und die Kachel fiel auf die
+Spülmaschinen-Form zurück. Jetzt sagt der Hub ausdrücklich `grill:
+true`, von der ersten Sekunde an, und die App hört auf beides: das
+Kennzeichen oder das Ziel.
+
+Stellen: `hub/homepilot/integrations/pitboss.py`, `app/src/lib/grillziel.ts`

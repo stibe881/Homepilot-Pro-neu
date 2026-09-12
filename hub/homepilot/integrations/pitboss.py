@@ -179,6 +179,11 @@ def grill_state(state: dict[str, Any], model: str | None = None) -> dict[str, An
     running = bool(state.get("moduleIsOn"))
     problems = faults(state)
     return {
+        # «Das ist ein Grill» - ausdrücklich, nicht nur am Temperaturziel
+        # erkennbar (Punkt 572): Ein kalter Grill hat keines, und seine
+        # Kachel fiel darum auf die Spülmaschinen-Form zurück -
+        # «Unbekannt», ohne Bild.
+        "grill": True,
         **({"model": model} if model else {}),
         "state": "running" if running else "off",
         "temperature": state.get("grillTemp"),
@@ -405,7 +410,7 @@ class PitBossIntegration(Integration):
                 eintrag["name"],
                 # Das Modell von Anfang an: Auch ein kalter, nicht
                 # erreichbarer Grill soll sein Bild bekommen.
-                state={"state": "unknown", "model": eintrag["model"]},
+                state={"state": "unknown", "grill": True, "model": eintrag["model"]},
                 commands=commands,
                 available=False,
             )

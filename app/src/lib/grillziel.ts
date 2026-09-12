@@ -27,12 +27,18 @@
  * Gerät, aber die falsche Frage: Ein Grill einer anderen Anbindung bekam
  * die Spülmaschinen-Kachel, und der Prüfstand konnte die Grillkachel
  * überhaupt nie zeigen.
+ *
+ * Seit Punkt 572 zählt auch das ausdrückliche `grill: true` vom Hub:
+ * Ein kalter Grill hat kein Temperaturziel, und der Räucherschrank
+ * stand darum als «Unbekannt» ohne Bild da, während der Smoker daneben
+ * seine Kachel hatte.
  */
 export function istGrill(entity: {
   kind: string;
   state: Record<string, unknown>;
 }): boolean {
-  return entity.kind === 'appliance' && typeof entity.state?.target === 'number';
+  if (entity.kind !== 'appliance') return false;
+  return entity.state?.grill === true || typeof entity.state?.target === 'number';
 }
 
 /** Eine angebotene Stufe. */
