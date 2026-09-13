@@ -5882,3 +5882,1712 @@ als drei Minuten zurückliegt, ist kein Zeichen wert - auch dann nicht,
 wenn der Hub es einmal doch nicht aufräumt.
 
 Stellen: `hub/homepilot/integrations/unifi_protect.py`, `hub/tests/test_kameraerkennung.py`, `app/src/lib/bewegung.ts`
+
+# Teil XIII: Runde 579 (579–633)
+
+Fünfundfünfzig Vorschläge auf Zuruf, fünf je Bereich, aus dem Code gelesen
+und gegen alle früheren Punkte geprüft. Umgesetzt wurden davon zweiundfünfzig
+in einer Sitzung, in zehn parallel arbeitenden Arbeitskopien, die am Ende
+zusammengeführt wurden. Was hier steht, ist je Punkt der ursprüngliche
+Befund und darunter, was gebaut wurde.
+
+### 579. Ein hinausgeworfenes Gerät hält sich für «ohne Netz» ✓ erledigt
+
+*Befund:* Der Hub
+schliesst den WebSocket bei ungültigem Token mit Code 4401
+(`api/server.py:347`), die App liest den Code nie (`useHub.ts:297`,
+`onclose` ohne Ereignis) und verbindet in Endlosschleife neu. Kopfzeile
+und Balken sagen «Keine Verbindung - gezeigt wird der letzte bekannte
+Stand», obwohl der Hub erreichbar ist; der einzige Weg zurück ist Konto
+→ Abmelden. Genau das passiert, wenn jemand unter «Meine Geräte»
+(Punkt 244) das vergessene iPad beendet oder das Passwort wechselt.
+Vorschlag: `onclose` liest `event.code`; bei 4401 ein vierter Zustand
+`abgemeldet` ohne Wiederverbinden, der Balken sagt «Dieses Gerät wurde
+abgemeldet» mit dem Knopf «Neu anmelden»; ein 401 des HTTP-Clients löst
+denselben Zustand aus. Nähe: 244 ist die Hub-Seite des Beendens, 439 setzt
+einen echten Ausfall voraus. Stellen: `app/src/hooks/useHub.ts`,
+`app/src/lib/verbindungsstand.ts`, `app/src/api/client.ts`. Aufwand:
+klein · App.
+
+`onclose` liest jetzt den Code; 4401 führt in den Zustand `signed_out`
+ohne Wiederverbinden (auch nicht beim Aufwachen), der Balken sagt «Dieses
+Gerät wurde abgemeldet» mit dem Knopf «Neu anmelden» (vergisst das tote
+Token und springt auf die Konto-Seite, deren Verbindungsfelder sich ohne
+Benutzer von selbst öffnen); ein 401 des HTTP-Clients löst denselben
+Zustand aus. Die Entscheidung ist rein (`nachSchliessen`), damit 624 und
+591 denselben Weg nehmen. Hub-seitig wird der Socket erst angenommen und
+dann geschlossen - ein `close()` vor `accept()` beantwortet der Server als
+HTTP 403, der Browser sieht 1006 statt 4401; der Code kam nie an.
+
+Stellen: `app/src/hooks/useHub.ts`, `app/src/lib/verbindungsstand.ts`, `app/src/screens/DashboardScreen.tsx`, `app/src/screens/dashboard/stile.ts`, `hub/homepilot/api/server.py`
+
+### 580. Nach «Das Gerät antwortet nicht» behauptet die Kachel weiter den Wunschzustand ✓ erledigt
+
+*Befund:* Beim Tippen setzt `send()` sofort `expectedState`
+(`useHub.ts:377`); läuft das Zeitlimit ab oder meldet der Hub `ok:false`,
+wird nur `pending` gelöscht - der optimistische Zustand bleibt stehen,
+bis zufällig ein `state_changed` kommt, und der Hub schickt bei einem
+gescheiterten Befehl keinen Zustand nach (`server.py:436`). Eine
+Homematic-Lampe mit Funk-Timeout steht damit als «an» am Wandpanel,
+obwohl sie aus ist; die Meldung nennt dazu kein Gerät. Vorschlag: den
+Zustand von vorher je pendentem Befehl mitführen, bei Absage
+zurückschreiben und die Kachel bis zum nächsten echten Zustand als
+«unbestätigt» kennzeichnen (Fragezeichen statt Punkt, wie «Stand HH:MM»
+aus 271); der Toast nennt das Gerät. Nähe: 68 ist die Phase davor, 438
+die Verbindungsphase. Stellen: `app/src/hooks/useHub.ts`,
+`app/src/lib/kachelstand.ts`, `app/src/components/EntityCard.tsx`.
+Aufwand: klein · App.
+
+`useHub` hält je pendentem Befehl den zuletzt gemeldeten Zustand fest
+(den ersten, nicht den jüngsten - beim Reglerziehen ist der zweite
+«vorher» schon der Wunsch des ersten Tippens), schreibt ihn bei Absage
+zurück und setzt die Marke `unbestaetigt` auf die Entität - nur in der
+App; der nächste echte Zustand ersetzt das Objekt und nimmt sie mit. Die
+Kachel zeigt den Wert blass mit «An · unbestätigt» (die Kachel hat keinen
+Statuspunkt, an den ein Fragezeichen käme), die Einblendung nennt das
+Gerät («Licht Küche antwortet nicht»). Nebenbei: Ein zweiter Tipp räumt
+das Zeitlimit des ersten.
+
+Stellen: `app/src/hooks/useHub.ts`, `app/src/lib/kachelstand.ts`, `app/src/api/types.ts`, `app/src/components/EntityCard.tsx`
+
+### 581. Eine Absage hinter einem offenen Blatt sieht niemand - auch nicht an der Haustür ✓ erledigt
+
+*Befund:* Fehler- und Bestätigungs-Toasts liegen im Wurzel-View
+(`DashboardScreen.tsx:4615`); native Modals decken sie zu. Deshalb
+bekommt die Fernbedienung als Einzige `fehler={error}` (`:2181`, der
+Kommentar sagt es). Alle übrigen Vollbilder nicht: `Klingelvollbild.tsx`
+schickt «aufschliessen» über `onCommand` und hat kein einziges
+Fehler-Element - ein abgelehnter Türöffner bei laufender Klingel ist
+unsichtbar; Grillvollbild, Musikblatt, Kameravollbild ebenso. Vorschlag:
+ein `MeldungsProvider` im `HubContext` mit `useMeldung()` und einem
+`<Meldungsband/>`, das im obersten offenen Blatt gerendert wird, sonst
+im Wurzel-View; Klingel und Grill zuerst, weil man dort vor dem Gerät
+steht. Nähe: 287 betrifft den Text, nicht den Ort. Stellen:
+`app/src/components/Toast.tsx`, `app/src/hooks/HubContext.tsx`,
+`app/src/screens/dashboard/Klingelvollbild.tsx`. Aufwand: mittel · App.
+
+Die drei Einblendungen (Fehler, Bestätigung, Rückgängig) liegen jetzt
+einmal im Context (`MeldungsProvider` + `useMeldung()` in
+`hooks/HubContext.tsx`), und ein `<Blatt>` direkt unter jedem `<Modal>`
+meldet sich beim Öffnen in einem Stapel an (`lib/blattstapel.ts`, rein).
+Das oberste Blatt zeichnet das `<Meldungsband/>`, sonst der Wurzel-View -
+nie beides, im Web stünde die Absage sonst durch den durchscheinenden
+Hintergrund doppelt da. Kein Raten aus dem Baum, sondern Anmelden in
+Einhäng-Reihenfolge - die entspricht der Präsentationsreihenfolge nativer
+Modals. Die Fernbedienung nimmt denselben Weg; ihre `fehler`-Props und die
+Durchreiche in `EntityCard` sind weg. Ein Test prüft, *wo* die Absage
+steht: genau einmal, im zuletzt geöffneten Blatt.
+
+Stellen: `app/src/hooks/HubContext.tsx`, `app/src/components/Blatt.tsx`, `app/src/components/Toast.tsx`, `app/src/lib/blattstapel.ts`, `app/src/components/TvRemote.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/screens/dashboard/Klingelvollbild.tsx`, `Grillvollbild.tsx`, `Kameravollbild.tsx`, `Rueckfragen.tsx`
+
+### 582. Die Drei-Minuten-Rückkehr am Wandpanel zählt Tipps in Blättern nicht - und beendet den Kochmodus mittendrin ✓ erledigt
+
+*Befund:* `lastTouch` wird nur
+über `onTouchStart` des Wurzel-Views gesetzt (`DashboardScreen.tsx:4005`);
+Tipps in nativen Modals kommen dort nicht an. Der Kochmodus ist ein
+Modal (`RecipeBook.tsx:969`): Am Panel springt `useTakt` nach 180 s auf
+die Startseite, und das Rezept ist weg, während man darin blättert.
+Dieselbe Rückkehr ruft `allesZu()` nicht, und `allesZu` kennt
+Grillblatt, Fernbedienung, Musikblatt, Posteingang und Push-Blatt gar
+nicht (`blaetter.ts:92-107` gegen `DashboardScreen.tsx:552-612`) - sie
+bleiben über der Startseite liegen. Vorschlag: `beruehrt()` im
+HubContext, ein Hook in jedem Modal; ein Flag «hält wach» (Kochmodus,
+laufende Klingel, Grillblatt) setzt die Rückkehr aus; die fünf
+fehlenden Blätter ziehen nach `blaetter.ts`, damit `blaetter.test.tsx`
+sie zählt. Nähe: 130 ist nur Keep-awake, 280/434 die Wiederaufnahme.
+Stellen: `app/src/screens/DashboardScreen.tsx`,
+`app/src/screens/dashboard/blaetter.ts`, `app/src/screens/RecipeBook.tsx`.
+Aufwand: mittel · App.
+
+Jedes `<Blatt>` meldet seine Berührungen als `beruehrt()` an die
+Startseite (derselbe Setzer wie der `onTouchStart` des Wurzel-Views).
+Kochmodus, laufende Klingel und Grillblatt tragen `haeltWach`; solange
+eines offen ist, bleibt die Rückkehr aus - die Regel steht rein in
+`lib/rueckkehr.ts` (`darfZurueck`). Feuert sie, ruft sie `allesZu()`. Die
+fünf fehlenden Blätter (Fernbedienung, Grillblatt, Musikblatt,
+Posteingang, Push-Blatt) sind nach `blaetter.ts` gezogen;
+`blaetter.test.tsx` zählt sie mit (19 statt 14). Erinnerungs-, Wechsel-,
+Sorgen-, Verlaufs- und Bildwahl-Blätter sind noch nicht angemeldet.
+
+Stellen: `app/src/screens/DashboardScreen.tsx`, `app/src/screens/dashboard/blaetter.ts`, `app/src/lib/rueckkehr.ts`, `app/src/components/Posteingang.tsx`, `app/src/components/PushBlatt.tsx`, `app/src/screens/RecipeBook.tsx`
+
+### 583. Vom Zimmer ins Nachbarzimmer führt nur der Umweg über die Raumliste ✓ erledigt
+
+*Befund:* Im offenen Zimmer heisst Wischen von der Kante «zurück»
+(`DashboardScreen.tsx:2047`), das Bereichswischen ist dort ausdrücklich
+aus (`:2055`); ein waagrechtes Wischen mitten auf der Seite ist im
+Zimmer unbelegt, `RoomTabs` gibt es nur im Anpassen-Modus. Wer abends
+Wohnzimmer → Küche → Flur abklappert, geht dreimal zurück zur Liste,
+obwohl die Räume eine Reihenfolge haben. Vorschlag: `useBereichWischen`
+im Zimmer mit der Raumliste als Nachbarschaft (`nachbarBereich` aus
+`lib/bereiche.ts` verallgemeinern); Wischdimmer und Storen-Leiste
+behalten Vorrang wie in 522; im Raumkopf kleine «‹ ›»-Pfeile mit dem
+Namen des Nachbarn als sichtbarer Weg. Nähe: 522 nennt das Zimmer als
+Ausnahme, 507 ordnet die Räume-Seite. Stellen: `app/src/lib/bereiche.ts`,
+`app/src/hooks/useBereichWischen.ts`, `app/src/screens/DashboardScreen.tsx`.
+Aufwand: klein · App.
+
+`nachbarBereich` ist zu `nachbar<T>(liste, aktiv, richtung)`
+verallgemeinert (rein, getestet). `useBereichWischen` läuft im Zimmer ein
+zweites Mal - Raumliste ohne «Alle» als Nachbarschaft, auch mit
+Seitenleiste, denn die Zimmer stehen dort nicht. Die linke Kante bleibt
+«zurück»: `zimmerRichtung(startX, dx, dy)` lässt eine Geste liegen, die an
+der Kante begonnen hat. Der Aufsetzpunkt wird in der *Capture*-Fassung
+gemerkt - die Bubble-Fassung endet bei der ersten Kachel, die den Start
+für sich will. Wischdimmer und Storen-Leiste behalten ihren Vorrang, weil
+sie als Kinder zuerst gefragt werden (wie bei 522). Sichtbar: «‹ Küche»
+und «Flur ›» mit Namen in der Kopfzeile des Raums. Die Probe kann keine
+Wischgeste mit Aufsetzpunkt simulieren; die Logik ist rein getestet.
+
+Stellen: `app/src/lib/bereiche.ts`, `app/src/lib/bereichwischen.ts`, `app/src/hooks/useBereichWischen.ts`, `app/src/screens/DashboardScreen.tsx`, `app/src/screens/dashboard/stile.ts`
+
+### 584. Der Morgengruss warnt vor UV, aber nicht vor Regen - die Regenjacke fehlt im Thek ✓ erledigt
+
+*Befund:* `morgen.zeilen()` (`core/morgen.py:56`) hat
+genau einen Wetter-Posten, den UV-Index. Dabei liegt in derselben
+Wetter-Entität `days[0].rain`, `hours[].rain` und `rain.hours`
+(`integrations/weather.py:218`, `core/regen.py:70`). Die Regen-Vorwarnung
+schaut nur zwei Stunden voraus und ist für die Wäsche gedacht, nicht für
+den Schulweg um 7:20 und den Heimweg um 15:40. Vorschlag: reine Funktion
+`schulweg_hinweis(hours, jetzt)` in `core/regen.py` - trocken jetzt, Regen
+zwischen 11 und 17 Uhr → «Regen ab etwa 13 Uhr - Regenjacke mitgeben»;
+nach derselben Regel wie UV nur, wenn etwas zu tun ist, als letzte Zeile
+im Morgengruss und als Chip auf der Wetterkarte. Stellen:
+`hub/homepilot/core/regen.py`, `hub/homepilot/core/morgen.py`,
+`hub/homepilot/core/watchdog.py`, `app/src/components/SidePanel.tsx`.
+Aufwand: klein · Hub (+ App für den Chip).
+
+`regen.schulweg_hinweis(hours, jetzt)` rechnet über den Stundenzeilen der
+Wetter-Entität: trocken jetzt, Regen zwischen 7 und 17 Uhr → «Regen ab
+etwa 13 Uhr - Regenjacke mitgeben»; regnet es schon oder ist der Schultag
+vorbei, nichts. Die Stundenzeilen tragen dafür neu die Menge `mm` neben
+der Wahrscheinlichkeit (alte Zustände fallen auf ≥ 60 % zurück). Im
+Morgengruss die letzte Zeile, nach derselben Regel wie UV; die Wetterkarte
+zeigt dieselbe Zeile. Der Wächter rechnet sie zur Meldestunde frisch.
+
+Stellen: `hub/homepilot/core/regen.py`, `hub/homepilot/core/morgen.py`, `hub/homepilot/core/watchdog.py`, `hub/homepilot/integrations/weather.py`, `app/src/components/SidePanel.tsx`
+
+### 585. Bei Schnee rechnet der Losfahr-Wecker wie im Juli - und der Morgen sagt nicht, dass man kratzen muss ✓ erledigt
+
+*Befund:* `losfahren.fahrminuten()`
+(`core/losfahren.py:118`) kennt nur Kilometer und zwei Tempi; `weather.py`
+übersetzt Schnee-Codes zwar in Text, holt aber weder `snowfall_sum` noch
+`snowfall` stündlich, und der Morgengruss hat keine Winterzeile. In Zell
+heisst «5 cm über Nacht»: Auto freikratzen, Kinder mit Stiefeln, zehn
+Minuten früher los - der Hub weiss es um 6 Uhr und sagt es nicht.
+Vorschlag: `snowfall_sum`/`snowfall` mit abrufen, im Zustand
+`snow_tonight_cm` und `winter_code`; `fahrminuten(km, winter=False)` mit
+Faktor 1.4 und zehn festen Minuten fürs Kratzen («Fahrzeit etwa 35
+Minuten (Schnee)»); Morgenzeile «Über Nacht 6 cm Schnee - Auto
+freikratzen, früher los» ab 2 cm oder bei gefrierendem Regen. Nähe: 340
+ist MeteoAlarm, der Frost-Hinweis gilt den Pflanzen. Stellen:
+`hub/homepilot/integrations/weather.py`, `hub/homepilot/core/losfahren.py`,
+`hub/homepilot/core/morgen.py`. Aufwand: klein · Hub.
+
+Die Wetter-Integration holt `snowfall` (stündlich) und `snowfall_sum` mit;
+im Zustand stehen `snow_tonight_cm` (Summe der letzten zwölf Stunden) und
+`winter_code` (aktueller Code, wenn Schnee oder gefrierend).
+`losfahren.fahrminuten(km, winter)` rechnet mal 1.4 plus zehn feste
+Minuten fürs Kratzen, `winterlage(state)` entscheidet ab 2 cm oder
+Wintercode, der Satz sagt «(Schnee)». `morgen.winter_hinweis` liefert
+«Über Nacht 6 cm Schnee - Auto freikratzen, früher los» bzw. «Gefrierender
+Regen - Glatteis, früher los» - vor UV und Regen, weil die Zeile den
+Morgen umstellt.
+
+Stellen: `hub/homepilot/integrations/weather.py`, `hub/homepilot/core/losfahren.py`, `hub/homepilot/core/morgen.py`, `hub/homepilot/core/watchdog.py`
+
+### 586. Der Losfahr-Wecker kennt Adresse und Kalender, gibt aber weder Route noch Empfänger weiter ✓ erledigt
+
+*Befund:* `_check_losfahren` schickt ohne `to` und
+ohne `data` (`watchdog.py:2166`); der Tipp führt nur in den Kalender
+(`pushziel.py:56`), obwohl die App Routen längst öffnen kann
+(`TopStrip.tsx:69`, `appleMapsRoute`). Und `calendar_ids`
+(`google_calendar.py:298`) ist eine Liste ohne Person - der Wecker geht
+an alle, auch an den, der im Büro sitzt. Vorschlag: Push mit
+`data={"ziel": "route", "location": ort}`, `lib/pushziel.ts` öffnet die
+Karten-App mit dem Ziel; je Kalender optional `person:` in der
+Konfiguration, dann geht der Wecker mit `to=` nur an diese Person -
+die Termin-Erinnerung `_remind_soon` nimmt dieselbe Zuordnung. Nähe: 158
+ist der Ablauf-Schritt, 458 die Gutscheine vor der Fahrt. Stellen:
+`hub/homepilot/core/watchdog.py`, `hub/homepilot/core/pushziel.py`,
+`hub/homepilot/integrations/google_calendar.py`, `app/src/lib/pushziel.ts`.
+Aufwand: mittel · Hub + App.
+
+`pushziel.route(ort)` baut `route:<Adresse>`; die App versteht das Ziel
+(neue Art `route` in `lib/pushziel.ts`) und öffnet die Karten-App. Die
+Adresse reist in der Ziel-Zeichenkette selbst, damit eine ältere App
+sauber auf «App öffnen» zurückfällt; `location` steht zusätzlich in
+`data`. In der Konfiguration darf ein Eintrag von `calendar_ids` ein
+Mapping `{id, person}` sein (`kalender_konfig`, rein); jeder Termin trägt
+dann `person`, der Wecker geht mit `to=` nur an sie, und `_remind_soon`
+nimmt dieselbe Zuordnung (Empfänger je Termin statt einmal für alle).
+
+Stellen: `hub/homepilot/core/pushziel.py`, `hub/homepilot/integrations/google_calendar.py`, `hub/homepilot/core/losfahren.py`, `hub/homepilot/core/watchdog.py`, `hub/config.example.yaml`, `app/src/lib/pushziel.ts`, `app/src/screens/DashboardScreen.tsx`
+
+### 587. Das Abendessen steht im Wochenplan - und nirgends sonst ✓ erledigt
+
+*Befund:* `family_meals` liest in der App nur `FamilyScreen.tsx`; im Hub schaut der
+Wächter nur nachts für den Koch-Stempel hinein (`watchdog.py:1787`), und
+der Sonntagabend-Ausblick (`familie.week_ahead`, `familie.py:378`) listet
+Termine, Ämtli, Geburtstage - nicht die geplanten Gerichte. Wer um 17 Uhr
+am Wandpanel steht, geht vier Tipps tief, um zu sehen, was heute kochen
+heisst. Vorschlag: im `TopStrip`/`SidePanel` ab 15 Uhr eine Zeile «Heute:
+Lasagne» (Tipp öffnet das Rezept im Kochmodus); in `week_ahead` ein Block
+«Essen: Mo Lasagne · Di Reis …» und am Sonntag die Zeile «Für Mittwoch
+fehlt noch ein Plan». Nähe: 139/146 spielen innerhalb der Familienseite,
+204 kennt kein Essen. Stellen: `app/src/components/TopStrip.tsx`, neu
+`app/src/lib/tagesgericht.ts`, `hub/homepilot/core/familie.py`. Aufwand:
+klein · Hub + App.
+
+Neu `app/src/lib/tagesgericht.ts`: `tagesgerichtZeile(meals, jetzt)` gibt
+ab 15 Uhr «Heute: Lasagne» (eine Zeile, die immer da ist, liest bald
+niemand). Sie steht in der Kopfkarte neben Termin und Geburtstag und als
+Chip in der schmalen Fassung; der Dashboard lädt den Essensplan im
+Countdown-Takt, weil TopStrip keinen Hub-Client hat. Der Tipp öffnet den
+Essensplan, nicht direkt den Kochmodus - dort ist das Rezept einen Tipp
+entfernt. Im Hub bekommt `week_ahead` per `meals_lines` den Block «Essen:
+Mo Lasagne · Di Reis …» und «Für Mittwoch fehlt noch ein Plan» - nur
+Mo–Fr und nur, wenn überhaupt geplant wird.
+
+Stellen: `app/src/lib/tagesgericht.ts`, `app/src/components/TopStrip.tsx`, `app/src/screens/DashboardScreen.tsx`, `hub/homepilot/core/familie.py`, `hub/homepilot/core/watchdog.py`
+
+### 590. Der Neustart-Knopf sieht für den Hub aus wie ein Stromausfall ✓ erledigt
+
+*Befund:* `/api/system/restart` und das Zurückspielen einer Sicherung beenden den
+Prozess über `threading.Timer(0.8, _exit_for_restart)`
+(`routes/system.py:333, 948`), und das ist `os._exit(0)`
+(`server.py:132`). `hub.stop()` läuft nie: kein Vermerk «beendet», kein
+Weglegen des Log-Rings, kein `data.flush()`. Beim nächsten Start gilt
+der liegengebliebene Vermerk «läuft» als Kaltstart
+(`stromrueckkehr.py:56`), und der Ablauf «Nach Stromausfall» räumt das
+Haus ab - nach einem Tipp auf «Neustart» am Nachmittag. Beim
+Zurückspielen kommt dazu: `restore_backup()` ruft `save()`, das innerhalb
+der Sammelsekunde nur vormerkt - ob der Flush vor dem `os._exit` nach
+0,8 s noch feuert, ist Zufall. Vorschlag: geordnetes Ende (SIGTERM an den
+eigenen Prozess oder `await hub.stop()` vor dem Exit), in
+`restore_backup()` direkt `_write()`; als zweites Signal in
+`stromrueckkehr` die Betriebszeit des Rechners (`/proc/uptime`) - lief
+der Host schon Stunden, war es kein Stromausfall. Nähe: 501 will den
+Ablauf *auslösen* können, hier wird er fälschlich ausgelöst; 88/89
+setzen ein geordnetes Ende voraus, das der Knopf nicht auslöst. Stellen:
+`hub/homepilot/api/server.py`, `hub/homepilot/api/routes/system.py`,
+`hub/homepilot/core/stromrueckkehr.py`. Aufwand: klein · Hub.
+
+`_exit_for_restart` war `os._exit(0)`. Jetzt geht SIGTERM an den eigenen
+Prozess - uvicorn fährt über den lifespan durch `hub.stop()` herunter, wie
+bei `docker stop`; ein Daemon-Faden beendet nach 20 s hart, falls der
+Abbau hängt. Die Tests ersetzen weiter `_exit_for_restart`. Zweites
+Signal in `stromrueckkehr.kaltstart(vermerk, betriebszeit)`: die
+Betriebszeit des Rechners aus `/proc/uptime` (im Container die des
+Hosts) - lief er länger als 15 Minuten, war es kein Stromausfall, sondern
+ein abgeschossener oder hart neu gestarteter Prozess. `restore_backup()`
+schreibt direkt statt über `save()`.
+
+Stellen: `hub/homepilot/api/server.py`, `hub/homepilot/api/routes/system.py`, `hub/homepilot/core/stromrueckkehr.py`, `hub/homepilot/core/hub.py`, `hub/homepilot/core/persistence.py`, `hub/tests/test_stromrueckkehr.py`
+
+### 591. Die Bremse gegen Fehlversuche gilt nicht für den WebSocket - und traut jedem `X-Forwarded-For` ✓ erledigt
+
+*Befund:* Der WebSocket-Handschlag prüft das Token
+ohne die Bremse (`server.py:342`): Wer über `/ws` rät, wird nie gesperrt,
+während `/api/*` nach zehn Versuchen dichtmacht. Und `client_address()`
+nimmt den Kopf `X-Forwarded-For` bedingungslos (`throttle.py:155`) - die
+Doku setzt einen Proxy voraus, nichts prüft, ob die Anfrage von ihm
+kommt. Wer den Kopf selbst setzt, umgeht die Sperre mit einer neuen
+Adresse je Versuch, sperrt fremde Adressen aus, und dieselbe Adresse
+landet im Zugriffsprotokoll von Türe und Alarm. Vorschlag: Liste
+`api.trusted_proxies` in der Konfiguration, der Kopf zählt nur von dort;
+den Handschlag durch dieselbe Bremse führen wie `current_user` (gesperrt
+→ 4429). Dazu gehört: Türe und Alarm über den WebSocket hinterlassen
+heute gar keine Adresse im Protokoll (`server.py:426` ruft
+`audit.record` ohne sie, nur der REST-Weg reicht sie mit) - beim
+Annehmen einmal bestimmen und jedem Eintrag mitgeben. Nähe: 34, 33, 35,
+244 - die Bremse selbst hat keinen Punkt. Stellen:
+`hub/homepilot/core/throttle.py`, `hub/homepilot/api/server.py`,
+`hub/homepilot/core/audit.py`, `docs/app-ohne-vpn.md`. Aufwand: klein ·
+Hub.
+
+`api.trusted_proxies` (Vorgabe leer; Adressen oder Netze wie
+`172.18.0.0/16`): Nur von dort zählt `X-Forwarded-For`;
+`adresse()`/`vertrauenswuerdig()` sind rein. Wird ein Kopf ignoriert,
+warnt das Log einmal je Adresse - sonst sperrt ein vergessener Proxy
+still das ganze Haus. Der WebSocket-Handschlag läuft durch dieselbe
+Bremse wie `current_user()`: gesperrt heisst 4429 mit Sekunden im Grund,
+Fehlversuche zählen mit Fingerabdruck, die einmal bestimmte Adresse geht
+mit jedem Befehl an `audit.record` (Türe und Alarm über den Socket hatten
+vorher keine). Zwölf Routen rufen `client_address(request)` ohne
+Konfiguration; statt alle anzufassen, setzt `create_app` die Liste einmal
+per `vertraute_proxys_setzen()` ins Modul. **Betrieb:** Ein Haus hinter
+dem Nginx Proxy Manager muss `trusted_proxies` eintragen, sonst sperrt
+die Bremse den Proxy nach zehn fremden Fehlversuchen.
+
+Stellen: `hub/homepilot/core/throttle.py`, `hub/homepilot/core/config.py`, `hub/homepilot/api/server.py`, `hub/config.example.yaml`, `docs/app-ohne-vpn.md`, `app/src/lib/verbindungsstand.ts`
+
+### 592. Das Wandpanel merkt nicht, dass seine Verbindung tot ist ✓ erledigt
+
+*Befund:* Die
+App verbindet nur neu, wenn `onclose` feuert oder sie aus dem Hintergrund
+zurückkommt (`useHub.ts:297-332`). Einen Ping schickt sie nie - der Hub
+kennt `{"type":"ping"}` (`server.py:361`), die App kennt nur den Typ
+`pong`, sendet aber nichts. Das iPad im Flur geht nie in den Hintergrund:
+Nach einem Neustart des Accesspoints oder einem NAT-Timeout bleibt der
+Socket halboffen, der Punkt bleibt grün, der Stand bleibt stehen, und ein
+Tipp endet nach 6 s in «Das Gerät antwortet nicht» - ohne dass daraufhin
+neu verbunden würde. Vorschlag: solange «verbunden», alle 30 s ein Ping
+über `useTakt`; bleibt der Pong 10 s aus, `ws.close()` - der bestehende
+`onclose`-Zweig verbindet neu; ebenso nach einem Befehl im
+`PENDING_TIMEOUT`. «Verbunden» erst nach dem ersten Pong. Nähe: 438 ist
+die Sekunde nach dem Aufwachen, 232 misst im Hub. Stellen:
+`app/src/hooks/useHub.ts`, `app/src/hooks/useTakt.ts`,
+`app/src/lib/verbindungsstand.ts`. Aufwand: klein · App.
+
+Alle 30 s ein Ping über `useTakt` (schweigt im Hintergrund), zusätzlich
+nach einem Befehl im Zeitlimit; bleibt der Pong 10 s aus, wird der Socket
+stumm geschaltet, geschlossen und sofort neu verbunden - nicht erst nach
+dem `onclose`, das bei einem halboffenen Socket Minuten später käme.
+«Verbunden» erst nach dem ersten Pong; `pongAusgeblieben` ist rein. Der
+Ping wird beim Öffnen sofort geschickt, der Schnappschuss unabhängig vom
+Status angewendet.
+
+Stellen: `app/src/hooks/useHub.ts`, `app/src/lib/verbindungsstand.ts`
+
+### 593. Die Sicherung sichert eine Datei - der Hub besteht aus einem Dutzend ✓ erledigt
+
+*Befund:* Täglich und offsite gesichert wird nur `homepilot-data.json`
+(plus Matter-Tar, Punkt 53): `persistence.backup()` (`:386`),
+`_offsite_backup` (`hub.py:382`). Daneben liegen und fehlen:
+`geraete-verlauf.json`, `gutscheindateien/` (die PDFs aus 266), Rezept-,
+Personen- und Raumbilder, der Grundriss, der Anrufbeantworter-Ton, die
+Token-Dateien von Google, Spotify, Ring, Roborock, `config.yaml`,
+`secrets.env`, `config-history/`. Nach einem Plattenschaden zeigen
+Gutscheine ins Leere, Rezepte haben kein Foto, vier Dienste wollen neu
+angemeldet werden. Und der Rückweg: Herunterladen gibt es
+(`system.py:803`), Hochladen einer Sicherung aus der App und «aus dem
+Bucket zurückholen» nicht - nach dem Totalausfall führt der Weg über SSH
+und das Supabase-Dashboard. Vorschlag: Sicherung als Tar mit denselben
+Fristen, `restore_backup()` entpackt entsprechend; zwei Routen
+`backups/upload` und `backups/offsite/{name}/fetch` unter System →
+Sicherung. Nähe: 53 hat eine dieser Lücken geschlossen, 275 zählt auf,
+was die App kann - Hochladen ist nicht darunter. Stellen:
+`hub/homepilot/core/persistence.py`, `hub/homepilot/core/offsite.py`,
+`hub/homepilot/api/routes/system.py`, `app/src/screens/SystemScreen.tsx`.
+Aufwand: mittel · Hub + App.
+
+Die Sicherung ist ein Tar-Archiv (`homepilot-data-<stempel>.tar.gz`): die
+Datendatei plus die Beilagen - `gutscheindateien/`, `gutscheinbilder/`,
+`rezeptbilder/`, `personenbilder/`, `raumbilder/`, `grundriss/`,
+`config-history/`, `geraete-verlauf.json`, `heimgruss.ton`,
+`*-token.json`, `config.yaml`, `secrets.env`. Bewusst eine Erlaubnisliste:
+In der Entwicklung liegt die Datendatei neben dem ganzen Quellbaum. Nicht
+dabei: `backups/`, `cliparchiv/`, `bildarchiv/`, `say-cache/`, `matter/`
+(eigenes Tar, Punkt 53). Alte Einzeldateien bleiben zurückspielbar.
+`restore_backup()` entpackt nur an Orte, die `archivname_erlaubt` zulässt -
+das Archiv kann hochgeladen sein. Ein Abgleich-Test hält die Liste gegen
+die Module, die Ordner anlegen. Rückweg: `POST
+/api/system/backups/upload`, `GET …/offsite`, `POST …/offsite/{name}/fetch`;
+in der App «Sicherung hochladen» und «Aus dem Bucket holen».
+
+Stellen: `hub/homepilot/core/persistence.py`, `hub/homepilot/core/offsite.py`, `hub/homepilot/api/routes/system.py`, `hub/tests/test_sicherung_tar.py`, `app/src/lib/sicherung.ts`, `app/src/screens/SystemScreen.tsx`, `deploy/README.md`
+
+### 594. Der Hub versteht «nur wenn Livia daheim ist» - und weist es beim Speichern ab ✓ erledigt
+
+*Befund:* Der Editor baut seit Commit `40cdc50` Kontext-Bedingungen
+`presence`/`availability`/`weather_warning`/`calendar`
+(`entwurf.ts:1001-1050`), der Motor prüft sie (`automation.py:3342ff`).
+Die Speicherprüfung aus Punkt 378 kennt aber nur `CONDITION_TYPES =
+{group, state, time, sun}` (`ablaufpruefung.py:53`) - die vier Typen kamen
+einen Tag *nach* der Liste dazu. `pruefen({'condition': [{'type':
+'presence', …}]})` ergibt «Unbekannter Bedingungstyp», die Route antwortet
+400: Jeder Ablauf mit Person-, Termin-, Warnungs- oder
+Erreichbarkeits-Bedingung lässt sich in der App nicht speichern. Nebenbei:
+`ablaufpruefung.py:69` prüft bei `if`-Schritten den Schlüssel `condition`,
+der Motor liest `conditions` (`automation.py:4185`) - Bedingungen in
+Verzweigungen werden gar nicht geprüft. Vorschlag: `CONDITION_TYPES` auf
+die acht Zweige von `_check_condition` erweitern, `condition` →
+`conditions` bei `if`, ein Routen-Test, der einen Ablauf mit
+Anwesenheits-Bedingung wirklich per POST anlegt, und ein Test, der die
+Liste gegen den Motor hält. Stellen: `hub/homepilot/core/ablaufpruefung.py`,
+`hub/tests/test_ablaufpruefung.py`, `hub/tests/test_automations.py`.
+Aufwand: klein · Hub.
+
+`CONDITION_TYPES` in `ablaufpruefung.py` kannte nur group/state/time/sun;
+die vier Kontext-Bedingungen kamen einen Tag nach der Liste in den Motor,
+und jeder Ablauf mit Person-, Termin-, Warnungs- oder
+Erreichbarkeits-Bedingung bekam beim Speichern 400. Dazu las die Prüfung
+am «wenn»-Schritt `condition`, der Motor liest `conditions` - Bedingungen
+in Verzweigungen (und in «solange») blieben ungeprüft. Die Liste bleibt
+bewusst von Hand gepflegt, aber ein Test hält sie seither per `inspect`
+gegen die `if ctype == …`-Zweige von `_check_condition`; ein Routen-Test
+legt einen Ablauf mit Anwesenheits-, Kalender- und
+Wetterwarnungs-Bedingung wirklich per POST an.
+
+Stellen: `hub/homepilot/core/ablaufpruefung.py`, `hub/tests/test_ablaufpruefung.py`, `hub/tests/test_automations.py`
+
+### 595. Eine Bedingung kann nicht fragen, *seit wann* ein Zustand gilt - obwohl der Hub es weiss ✓ erledigt
+
+*Befund:* `_check_condition` für `state` kennt nur
+`equals/above/below` (`automation.py:3287`); «bleibt so für» gibt es nur
+am Auslöser. Dabei führt jede Entität `last_change` (`entity.py:166`,
+nach einem Neustart aus dem Ereignisprotokoll zurückgeholt), benutzt nur
+für Anzeigen. Fälle: «Sauger starten, nur wenn seit 30 Min keine Bewegung
+im Wohnzimmer», «Willkommenslicht nur, wenn seit über 1 h niemand da war»
+(sonst meldet der Gang zum Briefkasten ein zweites Willkommen),
+«Fernseher läuft seit über 2 h → Hinweis». Vorschlag: `min_age` (Minuten)
+an der Zustandsbedingung; unbekanntes `last_change` heisst nicht erfüllt;
+`describe_condition` sagt «Flur ist erst seit 4 Min aus, verlangt sind
+30»; `wait_until` und `if` bekommen es geschenkt; im Editor ein Feld
+«seit mindestens … Minuten». Nähe: 547 ist nur der Nachlauf, 578 nur die
+Anzeige. Stellen: `hub/homepilot/core/automation.py`,
+`app/src/screens/automations/entwurf.ts`,
+`app/src/screens/automations/schritte.tsx`. Aufwand: klein · Hub + App.
+
+`min_age` (Minuten) an der Zustandsbedingung; `zustand_alt_genug` und
+`wert_passt` sind rein. Unbekanntes `last_change` heisst nicht erfüllt -
+wer «seit 30 Minuten» verlangt, will keinen Lauf nach dem Neustart, weil
+niemand weiss, seit wann. `describe_condition` sagt «Flur ist erst seit 4
+Min «off», verlangt sind 30» bzw. «…aber seit wann, weiss der Hub nicht».
+`wait_until` und der «wenn»-Schritt laufen durch dieselbe Prüfung. Im
+Editor das Feld `SeitMindestens` an jeder Gerätebedingung; der Ablaufsatz
+nennt «seit mindestens 30 Min». Am `wait_until`-Schritt gibt es das Feld
+im Editor noch nicht, der Hub nimmt es dort trotzdem an.
+
+Stellen: `hub/homepilot/core/automation.py`, `hub/tests/test_automation.py`, `app/src/screens/automations/entwurf.ts`, `editor.tsx`, `schritte.tsx`, `felder.tsx`, `app/src/lib/ablaufsatz.ts`
+
+### 596. Der Hub sieht, dass ein Lauf wirkungslos war - und tut nichts damit ✓ erledigt
+
+*Befund:* `_wirkung_planen` (`automation.py:2937`) sieht sechs Sekunden
+nach dem Lauf nach (`core/wirkung.py`) und schreibt `effect:
+wirkungslos/teilweise` in den Verlauf - mehr nicht. Die Fehlschlag-Push
+aus 465 kommt nur bei Ausnahmen; ein verlorener Funkbefehl wirft keine.
+«Gute Nacht» lässt die Stehlampe an, der Hub *weiss* es, und die Auskunft
+liegt im aufgeklappten Verlauf, den niemand nachts liest. Vorschlag: bei
+`fehlt` einmal nachfassen - für genau diese Geräte den Befehl noch einmal
+schicken, erneut prüfen, `effect.nachgefasst = true`; bleibt es
+wirkungslos, geht die Meldung über den 465-Weg («Ablauf ohne Wirkung:
+Stehlampe blieb an», einmal täglich je Ablauf). Nähe: 465 (nur
+Ausnahmen), 30 (Homematic-Sendespeicher). Stellen:
+`hub/homepilot/core/automation.py`, `hub/homepilot/core/wirkung.py`,
+`app/src/screens/automations/entwurf.ts` (`wirkungText`). Aufwand:
+mittel · Hub.
+
+Fehlt nach `WIRKUNG_NACH` etwas, geht für genau diese Geräte der *letzte*
+Schritt mit Zielzustand noch einmal hinaus (`wirkung.nachfass_aktionen`,
+rein - «an, dann aus» soll beim Nachfassen ausschalten), dem Ablauf
+zugeschrieben wie der erste Versuch, dann wird erneut nachgesehen;
+`effect.nachgefasst` sagt, dass es zwei Anläufe brauchte. Bleibt es
+wirkungslos, geht «Ablauf ohne Wirkung: Stehlampe blieb an» über den
+465-Weg: Kategorie `maintenance`, einmal täglich je Ablauf, Tipp in den
+Verlauf; Testläufe melden nicht. Nachgefasst wird nur mit Schritten, die
+`zielzustand` kennt. Die App zeigt «wirkte nicht - auch nachgefasst».
+
+Stellen: `hub/homepilot/core/automation.py`, `hub/homepilot/core/wirkung.py`, `hub/tests/test_wirkung.py`, `app/src/screens/automations/entwurf.ts`
+
+### 597. Ein Ablauf kann einen anderen starten, aber nicht ruhen lassen ✓ erledigt
+
+*Befund:* Der Schritt `automation` führt nur die Aktionen des anderen aus
+(`_run_other`, `automation.py:4113`). Ruhen lassen (`quiet_until`) gibt
+es als Route und Hand-Knopf (159), ein/aus nur per Bearbeiten, der
+Babysitter-Modus ist global. Fälle: «Termin ‹Gäste› beginnt →
+Bewegungslicht Flur ruht, bis der Termin endet», «Szene Kino →
+Bewegungslicht Wohnzimmer ruht 3 h», «Alarm auf ‹weg› →
+Anwesenheitssimulation ein, beim Entschärfen aus». Vorschlag: den Schritt
+um `do: run | snooze | enable | disable` und `minutes`/`until: "06:00"`
+erweitern (`run` bleibt Vorgabe); `snooze`/`enable`/`disable` schreiben
+wie die Route in `hub.data`, config.yaml-Abläufe nur zur Laufzeit;
+Verlaufsnotiz «‹Flurlicht› ruht bis 06:00»; Editor-Chips im Schritt
+«Ablauf starten». Nähe: 78 (starten), 75/159 (ruhen von Hand), 156
+(Ferienmodus als Vorlage). Stellen: `hub/homepilot/core/automation.py`,
+`app/src/screens/automations/entwurf.ts`,
+`app/src/screens/automations/schritte.tsx`. Aufwand: klein · Hub + App.
+
+`do: run|snooze|enable|disable` am Schritt `automation`, `run` bleibt
+Vorgabe; `snooze` mit `minutes` oder `until: "HH:MM"` (`ruhe_bis`, rein).
+Gestellt wird das lebende Objekt, geschrieben wie die Route in `hub.data` -
+**ohne** `reload_automations`, das den Motor und damit den gerade
+laufenden Schritt abwürgen würde; config.yaml-Abläufe nur zur Laufzeit.
+Dabei fiel auf, dass `_schedule` `enabled` nicht prüfte (nur
+Zustands-Auslöser taten es) - jetzt gilt «aus» an einer Stelle für alle
+Auslöser; `trigger_now` bleibt unberührt. Verlaufsnotiz «‹Flurlicht› ruht
+bis 06:00», `describe_action` kennt den Schritt endlich. Editor: vier
+Chips, bei «ruhen lassen» Minuten und «oder bis HH:MM».
+
+Stellen: `hub/homepilot/core/automation.py`, `hub/tests/test_automation.py`, `app/src/screens/automations/entwurf.ts`, `schritte.tsx`, `app/src/lib/ablaufsatz.ts`
+
+### 598. Die Zeitbedingung kennt Wochentage, Feiertage und Ferien - aber keine Jahreszeit ✓ erledigt
+
+*Befund:* Der `time`-Zweig (`automation.py:3299`) prüft
+`weekdays`, `except_holidays`, `except_school_holidays`, `after/before`;
+einen Datums- oder Monatsbereich gibt es nicht, `valid_until` (464) ist
+ein einmaliges Ende. Weihnachtsbeleuchtung 1.12.–6.1.,
+Hitzeschutz-Abläufe Mai–September, Wecklicht nur Oktober–März: heute
+jedes Jahr von Hand ein- und ausschalten. Vorschlag: `from: "MM-DD"`,
+`to: "MM-DD"` an der Zeitbedingung, über den Jahreswechsel wie
+`time_in_window` (rein: `datum_im_fenster(heute, von, bis)`);
+`describe_condition` sagt «Heute ist der 14.3., verlangt ist
+1.12.–6.1.»; die Simulation rechnet es mit; im Editor unter den
+Wochentagen eine Zeile «Nur vom … bis …». Nähe: 154, 470, 464. Stellen:
+`hub/homepilot/core/automation.py`, `hub/homepilot/core/ablaufsimulation.py`,
+`app/src/screens/automations/entwurf.ts`, `editor.tsx`. Aufwand: klein ·
+Hub + App.
+
+`from`/`to` als «MM-DD»; `datum_im_fenster` (rein) geht wie
+`time_in_window` über den Jahreswechsel, beide Ränder zählen dazu, eine
+unlesbare Angabe gilt als nicht erfüllt (aus «nur im Winter» darf kein
+«immer» werden), der 29.2. ist erlaubt. `describe_condition` sagt «Heute
+ist der 14.3., verlangt ist 1.12.–6.1.», die Simulation rechnet es mit.
+Im Editor unter den Wochentagen «Nur vom … bis …», getippt als Tag.Monat,
+gespeichert als MM-DD; der Ablaufsatz sagt «vom 1.12. bis 6.1.», die
+zugeklappte Bedingung «Jahreszeit».
+
+Stellen: `hub/homepilot/core/automation.py`, `hub/homepilot/core/ablaufsimulation.py`, `hub/tests/test_automation.py`, `hub/tests/test_ablaufsimulation.py`, `app/src/screens/automations/entwurf.ts`, `editor.tsx`, `app/src/lib/ablaufsatz.ts`
+
+### 599. Der Hub weiss, wer zuhause ist - aber kein Empfänger heisst «wer zuhause ist» ✓ erledigt
+
+*Befund:* `recipients()` kennt nur `all`, Rolle, Name und
+`gruppe:<Name>` (`push.py:869-912`). Die Anwesenheit je Person liegt
+daneben fertig (`presence.py:645`, `livekarten.nicht_zuhause`) und wird
+für keine einzige Meldung als Empfängerfilter benutzt: «Fenster Bad steht
+offen» geht um 22 Uhr auch an den, der in Zürich sitzt; «Es klingelt»
+geht an alle, obwohl die Person im Flur die Klingel hört und nur die
+Unterwegs-Person das Bild braucht. Vorschlag: zwei dynamische Ziele nach
+dem Muster von `GRUPPE_PREFIX`: `anwesend` und `unterwegs`, im
+Ablauf-Editor als Ziel, und für die Wächter-Regeln `open` und
+`appliance` ein Schalter «nur an Anwesende». Fällt niemand in die Menge,
+geht sie an alle - eine Meldung darf nicht an der Ortung scheitern.
+Nähe: 158 (eine Person), 513 (statische Gruppen). Stellen:
+`hub/homepilot/core/push.py`, `hub/homepilot/core/watchdog.py`,
+`hub/homepilot/api/routes/push.py`,
+`app/src/screens/automations/schritte.tsx`. Aufwand: mittel · Hub + App.
+
+`recipients()` kennt `anwesend` und `unterwegs` (`push.anwesende`, rein):
+«anwesend» ist, wer ausdrücklich `home` steht, «unterwegs», wer
+ausdrücklich anderswo steht; Unbekannt zählt zu keinem. Fällt niemand
+hinein, geht die Meldung an alle. Aufgelöst über den Rückruf
+`push.zustaende`, den die Geofence-Integration in `setup()` setzt (über
+`merged()`, damit Funkstille und Pause schon «unbekannt» sind). Die Regeln
+`open` und `appliance` bekommen den Schalter «Nur an Anwesende» als
+0/1-Parameter (die Regeln kennen nur Zahlen); `PushRules.tsx` zeigt ihn
+als Häkchen. `/api/push/targets` liefert `presence`, der Ablauf-Editor
+bietet «Wer zuhause ist»/«Wer unterwegs ist» an.
+
+Stellen: `hub/homepilot/core/push.py`, `hub/homepilot/integrations/geofence.py`, `hub/homepilot/core/notifyrules.py`, `hub/homepilot/core/watchdog.py`, `hub/homepilot/api/routes/push.py`, `app/src/screens/AutomationsScreen.tsx`, `app/src/components/PushRules.tsx`
+
+### 600. Eine Klingel-Meldung, die eine Stunde später ankommt, ist schlimmer als keine - und der Hub setzt kein Verfallsdatum ✓ erledigt
+
+*Befund:* Jede
+Nachricht geht ohne `ttl` an Expo (`push.py:1004-1020`); Apple und Google
+halten sie dann bis zu einem Monat zurück, wenn das Telefon ohne Netz
+ist. Genau dieser Fall steht als Anlass in `pushcheck.py:6` - das
+Werkzeug misst ihn, verhindert ihn aber nicht. Vorschlag: eine
+namentliche Tabelle `VERFALL` in Sekunden: `doorbell` 90, `timer` 300,
+`oven`/`grill` 600, `baby_cry` 300, `departure` bis Terminbeginn,
+`camera_motion` 600; alles andere ohne Verfall (Alarm, Wasser, Rauch
+sollen auch verspätet kommen). Test: Was in `IMMER_DURCH` steht, hat
+keinen Verfall unter einer Stunde, ausser den namentlich als flüchtig
+erklärten. Nähe: 512 ist *wie schnell*, nicht *wie lange gültig*.
+Stellen: `hub/homepilot/core/push.py`, `hub/tests/test_pushtexte.py`.
+Aufwand: klein · Hub.
+
+Tabelle `VERFALL` in Sekunden (`doorbell` 90, `timer` 300, `oven`/`grill`
+600, `baby_cry` 300, `camera_motion` 600, `departure` 1800, `package`
+3600); `send()` gibt sie als `ttl` in der Expo-Nachricht mit (Expo reicht
+es an `apns-expiration`/FCM-`ttl` weiter). Alles andere ohne Verfall.
+`departure` «bis Terminbeginn» hätte einen Verfall je Meldung gebraucht;
+der feste Wert reicht, weil der Wecker Fahrzeit plus Puffer vorher
+losgeht. Tests: nichts aus `IMMER_DURCH` verfällt unter einer Stunde
+ausser den namentlich flüchtigen, die Klingel trägt `ttl` im Payload, der
+Wasseralarm nicht.
+
+Stellen: `hub/homepilot/core/push.py`, `hub/tests/test_pushtexte.py`
+
+### 601. Die Fenster-Erinnerung sagt «im Winter» - auch im Juli, auch wenn die ganze Familie am Lüften ist ✓ erledigt
+
+*Befund:* `_check_open` schickt nach n Stunden
+fest «… im Winter geht so die Heizung zum Fenster hinaus»
+(`watchdog.py:2429`), unabhängig von Aussentemperatur und Anwesenheit;
+die Aussentemperatur liegt an der Wetter-Entität, und die Vorschau in
+`pushbeispiel.py` verspricht sogar «draussen sind es 4 °C», was der
+Ernstfall nicht liefert. Mit Deckel 6/Tag ist das im Sommer die häufigste
+Lärmquelle. Vorschlag: reine Funktion `offen_lohnt(aussen_temp,
+jemand_zuhause, regen_in_min)` in `watchrules.py` - über `warm_ab`
+(Vorgabe 18 °C) und jemand zuhause: schweigen; niemand zuhause: immer
+melden, aber mit dem passenden Satz («Niemand zuhause und das Fenster im
+Bad offen»), und die Zahl aus dem Wetter im Text. Nähe: 112, 340 nennen
+offene Fenster in anderen Warnungen. Stellen:
+`hub/homepilot/core/watchrules.py`, `hub/homepilot/core/watchdog.py`,
+`hub/homepilot/core/notifyrules.py`. Aufwand: klein · Hub.
+
+`offen_lohnt(aussen_temp, jemand_zuhause, warm_ab)` in `watchrules`
+(rein): draussen über `warm_ab` (Regel `open`, Vorgabe 18 °C) und jemand
+zuhause → schweigen, und die Öffnung bleibt *unvermerkt*, damit die
+nächste Runde nachholt, sobald es abkühlt oder alle gehen; niemand
+zuhause → immer melden, mit «Niemand zuhause und {Fenster} offen».
+`offen_text` trägt die Zahl aus dem Wetter mit («draussen sind es 4 °C»).
+Ohne Wetter gilt kalt, ohne Ortung «jemand da». Regen ist weggelassen:
+`regen.py` liefert keine einfache «Minuten bis Regen»-Zahl, und Regen ist
+bei `rain` schon eine eigene Meldung.
+
+Stellen: `hub/homepilot/core/watchrules.py`, `hub/homepilot/core/notifyrules.py`, `hub/homepilot/core/watchdog.py`, `hub/tests/test_watchdog.py`
+
+### 602. Wasser wird gemeldet und eskaliert - aber niemand erfährt, dass es wieder trocken ist ✓ erledigt
+
+*Befund:* `_check_leaks` meldet «Wasser: …» und nach 15
+Minuten «Immer noch nass» (391); wird der Melder trocken, wird nur der
+Merker gelöscht (`watchdog.py:2486`), keine Meldung. Für Anbindung, Gerät
+und Brandmeldeanlage gibt es das «wieder da» längst. Wer die Meldung
+unterwegs bekam, ruft an oder fährt heim, obwohl längst aufgewischt ist.
+Vorschlag: beim Übergang nass → trocken «Wieder trocken: {Melder}» mit
+Dauer («war 23 Minuten nass») unter derselben Kategorie, nur wenn die
+erste Meldung wirklich hinausging; Test gegen Flattern nass/trocken/nass.
+Stellen: `hub/homepilot/core/watchdog.py`, `hub/homepilot/core/watchrules.py`,
+`hub/tests/test_watchdog.py`. Aufwand: klein · Hub.
+
+Beim Übergang nass → trocken «Wieder trocken: {Melder}» mit Dauer
+(`trocken_satz`, rein: «War 23 Minuten nass - der Melder meldet kein
+Wasser mehr.»), unter derselben Kategorie `leak` - wer Wasser abbestellt
+hat, will auch die Entwarnung nicht. Nur wo die erste Meldung hinausging:
+Dafür steht der Merker `_leak_since`, der erst mit ihr entsteht. Test
+gegen Flattern nass/trocken/nass: je Fall eine Meldung und eine
+Entwarnung.
+
+Stellen: `hub/homepilot/core/watchrules.py`, `hub/homepilot/core/watchdog.py`, `hub/tests/test_watchdog.py`
+
+### 603. Die selbst gestellten Erinnerungen laufen an allem vorbei, was Push seit Punkt 318 kann ✓ erledigt
+
+*Befund:* `core/erinnerungen.py:195` schickt
+`hub.push.send(tokens, "⏰ Erinnerung", text)` - ohne `category`, ohne
+`data`. Folge: kein Ziel (Tipp öffnet nur die App), kein «Später»-Knopf,
+keine Zeile in den Push-Einstellungen, kein Beispiel, keine Probe, und
+auf dem Nachlese-Zettel steht `category: None`. Ausgerechnet die
+Meldung, die jemand bewusst für sich gesetzt hat, kann man am
+Sperrbildschirm nicht verschieben - die Wäsche-Mahnung schon.
+Vorschlag: Kategorie `reminder` in `CATEGORIES`, Gruppe Familie, in
+`IMMER_DURCH`, Knöpfe `KNOEPFE_SPAETER`, Ziel `familie:reminders`,
+Beispiel in `pushbeispiel.py`; die bestehenden Tests (jede Kategorie hat
+ein Ziel, ein Beispiel, eine Gruppe) ziehen sie von selbst mit. Nähe:
+322/327 gingen über alle Kategorien - die Erinnerungen fehlten dort, weil
+sie keine sind. Stellen: `hub/homepilot/core/erinnerungen.py`,
+`hub/homepilot/core/push.py`, `hub/homepilot/core/pushziel.py`,
+`hub/homepilot/core/pushbeispiel.py`. Aufwand: klein · Hub.
+
+Kategorie `reminder` («Erinnerung (selbst gestellt)», Gruppe Familie, in
+`IMMER_DURCH` - wer 23 Uhr stellt, meint 23 Uhr -, Knöpfe
+`KNOEPFE_SPAETER`, Ziel `familie:reminders`, Beispiel). Der Versand löst
+die Empfänger *mit* Kategorie auf (Abbestellen greift) und gibt `ziel` und
+`reminder_id` mit. Die Listen-Tests (Ziel/Beispiel/Gruppe je Kategorie)
+trugen die Kategorie von selbst mit.
+
+Stellen: `hub/homepilot/core/erinnerungen.py`, `hub/homepilot/core/push.py`, `hub/homepilot/core/pushruhe.py`, `hub/homepilot/core/pushziel.py`, `hub/homepilot/core/pushbeispiel.py`, `hub/tests/test_erinnerungen.py`
+
+### 604. Brennt es, sagt die Sperrbildschirm-Karte «Alarmanlage» und führt zur Einbruchanlage ✓ erledigt
+
+*Befund:* Die Brandmeldeanlage ist eine Entität der Art
+`alarm` (`brand.py:59`) mit Zustand `ausgeloest`. `karten_alarm` prüft
+nur `entity.kind != "alarm"` (`livekarten.py:891`) und baut für *jede*
+solche Entität die Karte «Alarmanlage · Alarm ausgelöst!» mit
+`homepilot://alarm`. Bei Rauch liegt also eine Karte, die die
+Einbruchanlage nennt und in deren Bereich springt; die App trennt beides
+längst über `integration === 'brand'`, der Adress-Handler kennt kein
+`brand` (`DashboardScreen.tsx:1445`). Vorschlag: eigene Kartenart
+`brand:<id>` mit Titel «Rauch»/«Gas», den auslösenden Meldern samt Raum,
+rot, Griff `homepilot://brand`, Knopf «Stumm» (`POST /api/brand/stumm` -
+harmlos; Quittieren bewusst nicht); `karten_alarm` schliesst die
+Brand-Entität aus; App bekommt die Route und den `liveAus`-Eintrag. Nähe:
+543 baut Push und Schaltbefehle, keine Karte. Stellen:
+`hub/homepilot/core/livekarten.py`, `hub/tests/test_livekarten.py`,
+`app/src/screens/DashboardScreen.tsx`,
+`app/src/components/LiveTuerSchalter.tsx`. Aufwand: klein · Hub + App.
+
+`karten_alarm` schliesst die Brand-Entität aus (`ist_brandanlage`: Art
+`alarm` und Integration `brand`), `karten_brand` legt bei `ausgeloest` und
+`quittiert` eine rote Karte `brand:<id>`: Titel «Rauch»/«Gas»/«Rauch und
+Gas» nach `device_class` der auslösenden Melder, Text die Räume, bei
+`quittiert` mit «· quittiert von X», Symbol `flame.fill`,
+`homepilot://brand`, ein Knopf «Stumm» auf `POST /api/brand/stumm`.
+Quittieren bewusst nicht auf der Karte. Die Karte bleibt auch nach dem
+Quittieren, solange ein Melder anschlägt - Quittieren heisst «ich weiss
+Bescheid», nicht «der Rauch ist weg». App: Adress-Handler `brand`,
+`liveAus`-Eintrag «Rauch- und Gasmelder».
+
+Stellen: `hub/homepilot/core/livekarten.py`, `hub/tests/test_livekarten.py`, `app/src/screens/DashboardScreen.tsx`, `app/src/components/LiveTuerSchalter.tsx`
+
+### 605. Der Küchen-Timer verschwindet vom Sperrbildschirm in der Sekunde, in der er klingelt - und hat keinen Knopf ✓ erledigt
+
+*Befund:* `_run` entfernt den Timer
+*vor* der Meldung aus der Liste (`timers.py:138`), damit fällt die Karte
+aus `karten_timer` heraus; sie hat kein `ende` (`livekarten.py:198`),
+also `dismissal-date = jetzt`. Die Waschmaschine darf dagegen 15 Minuten
+«Fertig» sagen. Und anders als Sauger und Fernseher trägt die Timer-Karte
+keine `knoepfe` - Stoppen geht nur über App oder Uhr. Vorschlag: `ende`
+«Abgelaufen - <Text>», orange, 600 s sichtbar; zwei Griffe «Stopp» und
+«+5 min» - da `KartenBefehlIntent` nur POST kann, braucht es
+`POST /api/timers/{id}/verlaengern` und `…/abbrechen` neben dem
+bestehenden DELETE; `KitchenTimers.extend()` plant den Task neu. Nähe:
+133/143 (Rezept-Uhr), 561/568 (Grill-Timer). Stellen:
+`hub/homepilot/core/timers.py`, `hub/homepilot/api/routes/haus.py`,
+`hub/homepilot/core/livekarten.py`. Aufwand: klein · Hub.
+
+`karten_timer` trägt jetzt `ende` («Abgelaufen - <Text>», orange, 600 s)
+und die Knöpfe Stopp und +5 min über `POST /api/timers/{id}/abbrechen`
+und `…/verlaengern` (Body `{minutes: 5}`). `KitchenTimers.extend()`
+rechnet ab dem alten Ende, hält die 180-Minuten-Grenze und plant neu.
+Dabei aufgefallen und behoben: `abgleich` suchte das Schluss-Bild beim
+Beenden unter den *gewünschten* Karten - dort steht eine endende Karte
+per Definition nicht mehr; das «Fertig - ausräumen» der Waschmaschine
+stand deshalb nie auf einem Sperrbildschirm. Das `ende` wandert jetzt
+beim Start/Update in die `live_cards`-Zeile und wird von dort gelesen.
+
+Stellen: `hub/homepilot/core/timers.py`, `hub/homepilot/core/livekarten.py`, `hub/homepilot/api/routes/haus.py`, `hub/tests/test_livekarten.py`, `hub/tests/test_timers_wifi.py`
+
+### 606. Die Erinnerungs-Karte liegt, bis man die App öffnet - «Erledigt» gibt es nur dort ✓ erledigt
+
+*Befund:* `karten_erinnerungen` liefert Titel, Text, Symbol,
+aber weder `url` noch `knoepfe` (`livekarten.py:840`); der Tipp öffnet
+die App-Wurzel. Quittieren läuft heute über ein PUT mit der ganzen
+`quittiert`-Liste (`useFamilienlisten.ts:203`) - vom Widget-Prozess aus
+nicht machbar. Die Push-Mitteilung derselben Kategorie trägt längst
+«Erledigt» und «Später». Vorschlag: `POST /api/family/reminders/{id}/
+quittieren` (Name aus dem Token, idempotent) und `…/spaeter`; die Karte
+bekommt beide als Knöpfe und `url: homepilot://erinnerung/<id>`, die das
+bestehende `Erinnerungsvollbild` öffnet. Nähe: 397, 514, 322 betreffen
+Push-Mitteilungen, nicht die Karte. Stellen:
+`hub/homepilot/api/routes/family.py`, `hub/homepilot/core/livekarten.py`,
+`app/src/screens/DashboardScreen.tsx`. Aufwand: klein · Hub + App.
+
+`POST /api/family/reminders/{id}/quittieren` (Name aus dem Token,
+idempotent) und `…/spaeter`; die reinen Teile `quittieren(rows, id, name)`
+und `verschieben(rows, id, jetzt_ms, minuten)` in `core/erinnerungen.py`.
+«Später» nimmt die Minuten der Person aus ihrer Push-Zeile (Vorgabe 30).
+Die Erinnerung ist geteilt, also ist es auch das Später - `at` rückt nach
+hinten, `quittiert` leer; ein Später je Person bräuchte ein Feld, das die
+Bildschirme nicht kennen. Die Karte trägt `url: homepilot://erinnerung/<id>`
+und die Knöpfe `checkmark`/`clock.arrow.circlepath`. Der Adress-Handler
+holt die Startseite; das `ErinnerungOverlay` legt sich für Fälliges
+ohnehin selbst darüber.
+
+Stellen: `hub/homepilot/api/routes/family.py`, `hub/homepilot/core/erinnerungen.py`, `hub/homepilot/core/livekarten.py`, `app/src/screens/DashboardScreen.tsx`, `hub/tests/test_family.py`, `hub/tests/test_erinnerungen.py`
+
+### 607. Die Heimweg-Karte weiss nichts vom Haus - ihr Textfeld ist immer leer ✓ erledigt
+
+*Befund:* `start_payload` schickt `content-state: {"text": ""}`
+(`liveaktivitaet.py:668`), und das Widget zeichnet ohnehin nur den festen
+Satz («… im Schnellzugriff», `index.swift:720`) - `ContentState.text`
+wird auf keiner Seite je gefüllt oder gelesen. Dabei entsteht die Karte
+300 m vor dem Haus, und der Hub weiss in diesem Moment, was man vor der
+Türe wissen will: ob die Anlage scharf ist (Eingangsverzögerung!), ob
+jemand zuhause ist, ob Licht brennt. Vorschlag: beim Start den Text aus
+dem Hauszustand füllen - rein: `heimweg_text(alarm_state, anwesende,
+lichter)` → «Alarm scharf · Livia ist zuhause» oder «Niemand zuhause · 2
+Lichter an» (Quellen wie `/api/glance`); im Widget die Zeile aus
+`context.state.text` mit Rückfall auf den heutigen Satz. Nähe: 127
+(Alarm im Widget), 487 (Eingangsverzögerung als Ton). Stellen:
+`hub/homepilot/core/liveaktivitaet.py`, `hub/tests/test_liveaktivitaet.py`,
+`app/targets/widget/index.swift`. Aufwand: klein · Hub + App
+(TestFlight-Build).
+
+`heimweg_text(alarm_state, anwesende, lichter)` (rein): «Alarm scharf ·
+Livia ist zuhause», «Niemand zuhause · 2 Lichter an»; Alarm nur bei
+scharf/scharfschaltend/ausgelöst, Licht nur bei > 0, Anwesenheit immer.
+`_haus_text(hub)` holt Alarmanlage (nicht Brand), Personen-Zonen auf
+`home` und Lichter - dieselben Quellen wie `/api/glance`; `start_payload`
+bekommt `text=`, einmal je Runde gerechnet. Widget: `TuerAktivitaet` zeigt
+`context.state.text`, bei leerem Feld den alten Satz. Der Alert-Text des
+Start-Pushes bleibt der alte. Braucht einen TestFlight-Build.
+
+Stellen: `hub/homepilot/core/liveaktivitaet.py`, `hub/tests/test_liveaktivitaet.py`, `app/targets/widget/index.swift`
+
+### 608. Die Uhr sieht, dass die Anlage unscharf ist, kann sie aber nicht scharf schalten ✓ erledigt
+
+*Befund:* `BlickView` zeigt «Alarm unscharf»
+(`targets/watch/App.swift:82`) - und das war's. Die Uhr hat Türe (mit
+Rückfrage) und Timer, aber keinen Griff für die Anlage; Widget und
+Android Auto haben seit 486 den Knopf «Scharf» (`POST /api/alarm/arm
+{mode: 'ausser_haus'}`). Beim Rausgehen mit vollen Händen - genau die
+Situation, für die die Uhr laut ihrem Kopfkommentar da ist - bleibt nur
+das Telefon. Vorschlag: unter der Alarm-Zeile ein Knopf «Scharf
+schalten», nur bei `unscharf`, mit derselben Bestätigung wie die Türe
+und derselben Regel wie 486 (nur die harmlose Richtung, nie unscharf);
+die Antwort «offene Fenster» (400) als Zeile anzeigen statt verschlucken.
+Nähe: 486 nennt Widget und Knopfwand, nicht die Uhr; 405 gilt als
+«nicht umgesetzt», die App existiert inzwischen. Stellen:
+`app/targets/watch/App.swift`, `app/targets/watch/HubClient.swift`.
+Aufwand: klein · App (Swift, TestFlight).
+
+`HubClient.alarmScharf` → `POST /api/alarm/arm {mode: 'ausser_haus'}` ohne
+`force`; die Antwort (`ok`, `open`, `offline`, `battery`) ergibt die Zeile
+«Offen: Küche, Bad» bzw. «Stumm: Flur» - der Hub antwortet bei offenen
+Fenstern mit 200 und `ok: false`, nicht mit 400, wie der Punkt vermutete.
+`BlickView` zeigt bei `unscharf` den Knopf «Scharf schalten» mit
+`confirmationDialog` wie die Türe, danach den Hinweis in Orange und lädt
+den Blick neu. Nur diese Richtung, nie unscharf (Regel aus 486). Braucht
+einen TestFlight-Build.
+
+Stellen: `app/targets/watch/App.swift`, `app/targets/watch/HubClient.swift`
+
+### 609. Grün ist als Schrift unlesbar - «An», «Scharf», «Online» stehen in der Symbolfarbe ✓ erledigt
+
+*Befund:* Punkt 442/444 hat für Orange die Regel «Symbole nehmen
+`warn`, Text nimmt `warnInk`» eingeführt. Für Grün gibt es kein
+Gegenstück: `on` steht an 31 Stellen als Schriftfarbe - der grosse Wert
+der Schalterkachel (`entity/teile.tsx:39`, 26 pt fett), «Scharf · …»
+(`AlarmScreen.tsx:178`), Erfolgszeilen in Login, Einstellungen, Gute
+Nacht, Kontoblatt. Nachgerechnet mit `lib/kontrast.ts`: 1,71:1 im Hellen,
+1,69:1 in Sand - unter jeder Schwelle, auch der 3:1 für grosse Schrift;
+der Kontrasttest prüft `accent` und `danger` als Text, `on` nie. Dasselbe
+Muster bei Weiss auf gefüllten Knöpfen: fest `'#FFFFFF'` auf `accent`
+ergibt 2,69 (dunkel) und 2,72 (Mitternacht), auf `on`/`warn` («Geöffnet»,
+«Bewegung», «Offen») 1,5–2,7 überall - und kein Test misst es.
+Vorschlag: `onInk` in alle fünf Paletten plus Tokens `onAccent`/
+`onSignal` für Schrift auf Flächen, je Palette so gewählt, dass 4,5:1
+steht; zwei Testfälle in `kontrast.test.ts`; die 31 und die neun Stellen
+umstellen, Zustandspunkt und Symbole bleiben bei `on`. Nähe: 442/444
+lösten es für Orange, 366 für Weiss auf dem Verlauf. Stellen:
+`app/src/theme.tsx`, `app/src/lib/kontrast.test.ts`,
+`app/src/components/entity/teile.tsx`, `app/src/components/entity/stil.ts`.
+Aufwand: klein · App.
+
+Nachgerechnet mit `lib/kontrast.ts`: `on` als Text 1,71:1 im Hellen, 1,69
+in Sand; fest `'#FFFFFF'` auf dem hellen Akzent der dunklen Bilder
+2,69/2,72, auf Grün und Orange 1,5–2,7 in jeder Palette. Alle fünf
+Paletten haben jetzt `onInk` (das Gegenstück zu `warnInk`), `onAccent`
+(Schrift auf Akzent **und** Rot - Weiss im Hellen/Sand, Panel-Tinte in
+Dunkel/Pink/Mitternacht) und `onSignal` (Schrift auf Grün und Orange,
+überall Tinte). Rot bekommt `onAccent`, nicht `onSignal` - im Hellen
+erreicht auf Rot weder Weiss (3,9) noch Tinte (3,4) die 4,5; Weiss ist die
+bessere Antwort, der Test hält dort 3:1 (grosse, fette Schrift) fest. Die
+Pille entscheidet zentral (`pillSchrift`, rein). 217 Farbzeilen in 67
+Dateien getauscht; Zustandspunkt, Ein-Symbole und Weiss auf Bildern
+bleiben. `kontrast.test.ts` prüft alle drei Tokens über alle fünf
+Erscheinungsbilder; das Musterblatt zeigt eine Reihe «Schrift auf
+Flächen». Nicht angefasst: `RecipeBook.actionButtonText` (derselbe Stil
+auf drei Flächen) und `RoomCard.szeneText` (auf Bild und Akzent zugleich).
+
+Stellen: `app/src/theme.tsx`, `app/src/lib/kontrast.test.ts`, `app/src/components/entity/teile.tsx`, `app/src/components/entity/stil.ts`, `app/src/components/Musterblatt.tsx`, dazu je eine Farbzeile in 62 weiteren Dateien
+
+### 610. Am Wandpanel wächst nur die Lichtkachel - alle anderen Kacheln bleiben in Telefonschrift ✓ erledigt
+
+*Befund:* Punkt 445 hat `typFuer(panel)`/`useTyp()`
+gebaut; benutzt wird es genau einmal (`EntityCard.tsx:277`). `CardFooter`
+- die Fusszeile jeder Schalter-, Sensor-, Storen-, Schloss- und
+Boxenkachel - nimmt das statische `type.cardTitle` (`Card.tsx:219`),
+`RoomCard` schreibt fest 21/13 (`:293, 369`), die Begrüssung fest 34/24
+(`TopStrip.tsx:1599`), und selbst in der Kachel, der `typ` übergeben
+wird, bleiben `detail` (12), `szeneName` (20), `pillText` (13) fest
+(`entity/stil.ts:481ff`). Ergebnis an der Wand: Lichtname 19 pt neben
+Schaltername 16 pt. Die Probe misst nur `theme: 'dark'` ohne Panel
+(`probe.mjs:46, 89`). Vorschlag: `useTyp()` in `Card`, `RoomCard`,
+`Kennzahl`, `TopStrip` durchziehen, die festen Zahlen in `stil.ts` an
+`typ` hängen, `Typmass` um `detail` und `chip` erweitern; in `probe.mjs`
+eine dritte Grösse «Wandpanel» mit `panel: true`, die misst, dass
+Kachelname und Fusszeile dort dieselbe Höhe haben wie die Lichtkachel.
+Nähe: 445 erledigte eine Kachelart und hinterliess die Ungleichheit.
+Stellen: `app/src/components/Card.tsx`, `app/src/components/entity/stil.ts`,
+`app/src/components/RoomCard.tsx`, `scripts/probe.mjs`. Aufwand:
+mittel · App.
+
+`useTyp()` zieht durch `CardFooter`, `Kennzahl`, `RoomCard`, `TopStrip`
+(Begrüssungskarte), die Gerätekörper und Pillen und die Begrüssung der
+Startseite. `Typmass` kennt `detail` 12, `chip` 13, `sceneName` 20,
+`roomTitle` 21; die festen Zahlen in `entity/stil.ts` und `RoomCard`
+hängen daran. Die Browser-Probe hat die dritte Grösse «Wandpanel» (`panel:
+true` in `homepilot.settings`) und misst: Lichtname 19 > 16, Storenname =
+Lichtname, Fusszeile der Store = Fusszeile des Lichts (Lauf bestanden).
+`medien.tsx` und `anpassen.tsx` rufen `makeStyles(colors)` weiterhin ohne
+`typ` - ihre Chips bleiben am Panel in Telefonschrift.
+
+Stellen: `app/src/theme.tsx`, `app/src/components/Card.tsx`, `Kennzahl.tsx`, `RoomCard.tsx`, `TopStrip.tsx`, `entity/stil.ts`, `entity/teile.tsx`, `entity/koerper.tsx`, `app/src/screens/dashboard/stile.ts`, `scripts/probe.mjs`
+
+### 611. Zwei Symbolwörterbücher für dieselbe Geräteart - im Grundriss ist der Bewegungsmelder ein Radioknopf und der Feuchtefühler ein Thermometer ✓ erledigt
+
+*Befund:* `lib/symbole.ts` (294) regelt Handlungen, nicht
+Gerätearten. Dafür gibt es zwei Tabellen, die einander widersprechen:
+`KIND_ICONS` in `RoomTile.tsx:21` (`sensor` → Thermometer, `binary_sensor`
+→ `radio-button-on-outline`) und `deviceKindIcon` in `geraeteart.ts:172`
+(`sensor` → Tachometer, `binary_sensor` nach `device_class`: Flamme,
+Wasser, Türe, Fenster, Männchen), dessen Docstring «dasselbe Vokabular
+wie die Kacheln» verspricht. Grundriss und Übersicht nehmen die erste,
+Ablauf- und Szeneneditor die zweite; keine kennt die Einheit eines
+`sensor` - Feuchte, Leistung, CO₂, Helligkeit sehen überall gleich aus,
+ausgerechnet am Wandpanel-Grundriss. Vorschlag: `KIND_ICONS` löschen,
+`deviceKindIcon` zur einzigen Quelle machen und um `sensor` nach
+`device_class`/`unit` erweitern (`%` → Wasser, `W`/`kWh` → Blitz, `lx` →
+Sonne, `ppm` → Blatt, `°C` → Thermometer); der Symboltest liest sie mit,
+das Musterblatt bekommt eine Reihe «Gerätearten». Nähe: 294, 526, 446.
+Stellen: `app/src/lib/geraeteart.ts`, `app/src/components/RoomTile.tsx`,
+`app/src/components/Grundriss.tsx`, `app/src/lib/symbole.test.ts`.
+Aufwand: klein · App.
+
+`KIND_ICONS` in `RoomTile.tsx` ist gelöscht; `deviceKindIcon` ist die
+einzige Quelle, liefert `Symbolname` statt `string` und kennt für
+`sensor` Geräteklasse und Einheit mit demselben Schlüssel wie das Wort
+(Thermometer, Wasser, Blitz, Sonne, Blatt, Batterie; `co2`/`ppm`
+bekommen das Wort «CO₂-Fühler»). Grundriss und Übersicht nehmen sie.
+`geraeteartMuster()` (rein) zählt je Art ein Muster auf - daraus die
+Reihe «Gerätearten» im Musterblatt, und `symbole.test.ts` prüft diese
+Sinnbilder gegen `GLEICHBEDEUTEND` wie jeden Knopf.
+
+Stellen: `app/src/lib/geraeteart.ts`, `app/src/lib/symbole.test.ts`, `app/src/components/RoomTile.tsx`, `Grundriss.tsx`, `Musterblatt.tsx`, `app/src/screens/OverviewScreen.tsx`
+
+### 612. «Bewegung» trägt vier Farben - rot auf der Kamerawand, orange auf der Kamerakachel, grün auf der Raumkachel, weiss im Raumkopf ✓ erledigt
+
+*Befund:* Dieselbe
+Auskunft, vier Signale: `Kamerawand.tsx:157` füllt das Männchen fest mit
+`#E5484D` (Rot = Alarm), die Kamerakachel zeigt `Pill «Bewegung»
+tone={colors.warn} solid` (`EntityCard.tsx:913`), die Raumkachel ein
+grünes Männchen auf `onSoft` (`RoomCard.tsx:191`), der Raumkopf ein
+weisses auf `surfaceSoft` (`dashboard/stile.ts:536`). 444 hat
+argumentiert, Rot müsse für «jetzt aufstehen» reserviert bleiben - die
+Kamerawand verwendet es für jede Katze im Garten. Vorschlag: eine
+Funktion `bewegungsSignal(colors)` in `lib/bewegung.ts` (rein) für Farbe
+und Grundfläche des Männchens, überall dieselbe, nach der Regel der
+Raumkachel; Kamerawand und Kamerakachel darauf umstellen, die Pille wird
+zum Männchen mit Wort; ein Quellen-Test wie `symbole.test.ts`. Nähe: 444,
+578, 71. Stellen: `app/src/lib/bewegung.ts`,
+`app/src/components/Kamerawand.tsx`, `app/src/components/EntityCard.tsx`,
+`app/src/screens/dashboard/stile.ts`. Aufwand: klein · App.
+
+`bewegungsSignal(colors)` in `lib/bewegung.ts` (rein) liefert Farbe (`on`)
+und Grund (`onSoft`) nach der Regel der Raumkachel - «hier ist gerade
+etwas», nicht «Gefahr». Kamerawand (vorher fest `#E5484D`), Raumkopf
+(vorher weiss auf `surfaceSoft`) und Raumkachel holen sie dort; die
+orange Pille auf der Kamerakachel ist zur `Bewegungsmarke` geworden
+(Männchen mit Wort). Ein Quellen-Test liest alle `.tsx` und verlangt, dass
+jede Datei mit einem `walk`-Zeichen `bewegungsSignal(` aufruft und kein
+fester Farbwert am Männchen steht.
+
+Stellen: `app/src/lib/bewegung.ts`, `app/src/components/Kamerawand.tsx`, `RoomCard.tsx`, `entity/teile.tsx`, `entity/stil.ts`, `EntityCard.tsx`, `app/src/screens/dashboard/stile.ts`
+
+### 613. Der Ein/Aus-Knopf ist 34 Punkte gross, der Stift 32, die Garstufe 30 - und niemand misst die Trefffläche ✓ erledigt
+
+*Befund:* `PowerButton` 34×34 ohne
+`hitSlop` (`Card.tsx:227`), `editButton` 32, `kameraRund` 32, `grillStep`
+30 (`entity/stil.ts`), die Zeitraum-Chips im Verlauf nackte `Text` mit
+`onPress`, rund 19 Punkte hoch, ohne Rolle (`HistoryChart.tsx:234`).
+Apple verlangt 44×44, WCAG 2.5.8 mindestens 24. Der Ein/Aus-Knopf ist die
+meistgedrückte Fläche im Haus - wer daneben tippt, tippt auf die Kachel,
+und die öffnet je nach Bildschirm den Verlauf. `hitSlop` steht 143-mal im
+Code, jede Stelle nach Gefühl; die Probe misst Überlauf, Blattstand,
+Lauftext, Kachelhöhen - keine Trefffläche. Vorschlag: `theme.treffer =
+{mindest: 44}`, in `Card.tsx` ein `hitSlop` aus `(44 − 34)/2`, dasselbe
+für die drei anderen; die Verlaufs-Chips zu `Pressable` mit Rolle; in
+`probe.mjs` eine Messung «keine Trefffläche unter 44 Punkten» über alle
+`[role=button|switch|tab]`, Ausnahmen benannt - dieselbe Bauart wie
+`messeUeberlauf`. Nähe: 189 (Kochmodus-Blättern), 282 (Langdrücken), 440
+(Modus für draussen). Stellen: `app/src/theme.tsx`,
+`app/src/components/Card.tsx`, `app/src/components/entity/stil.ts`,
+`app/src/components/HistoryChart.tsx`, `scripts/probe.mjs`. Aufwand:
+klein · App.
+
+`theme.treffer = {mindest: 44}` und `trefferRand(groesse)` (rein).
+Wichtigster Befund beim Bauen: **`hitSlop` wirkt im Browser nicht** -
+react-native-web kennt es an `Pressable` nicht, und am Wandpanel läuft
+der Browser. Deshalb wächst der Ein/Aus-Knopf als Kasten auf 44
+(negativer Rand um den 34er-Ring, gleicher Platz in der Zeile) statt per
+`hitSlop`. Die Zeitraum-Chips im Verlauf sind `Pressable` mit Rolle,
+Zustand und 28 Punkt Höhe; `grillStep` war toter Stil. `probe.mjs` misst
+alle `button/switch/tab`-Flächen auf Startseite und im Zimmer: kein neuer
+Knopf unter 24 (WCAG), keiner unter 44 ohne benannte Ausnahme
+(`TREFFER_AUSNAHMEN`: Chips, Steuerkreuz, Farbpunkte), und jeder
+Ein/Aus-Knopf misst 44. Was beim ersten Lauf schon unter 24 lag, steht als
+Schuld mit Namen in `TREFFER_SCHULD` (Kopfzeilen-Symbole 16×17, Kalender-,
+Warn- und Klimazeilen 14–19) - nicht in Ordnung, aber ausserhalb dieser
+Runde; jede neue kleine Fläche wird rot.
+
+Stellen: `app/src/theme.tsx`, `app/src/lib/trefferrand.test.ts`, `app/src/components/Card.tsx`, `HistoryChart.tsx`, `entity/koerper.tsx`, `entity/stil.ts`, `scripts/probe.mjs`
+
+### 614. Die Anlage schaltet scharf, obwohl die Haustür nicht abgeschlossen ist ✓ erledigt
+
+*Befund:* Die Bereitschaftsprüfung beim Scharfschalten kennt
+nur «offen» und «blind» (`alarm.py:389-412`); beim Schloss zählt
+ausdrücklich nur der Türsensor, nicht der Riegel (`alarm_rules.py:594`,
+`sensor_open`). Eine zugezogene, aber unverschlossene Nuki-Tür geht ohne
+Wort durch - bei «Abwesend» ist das Haus dann geschützt wie ohne Schloss.
+`goodnight.py:38` kennt `unlocked_locks()` schon, nur der Gute-Nacht-Knopf
+nutzt es. Vorschlag: `arm()` prüft zusätzlich `unlocked_locks()` (nach
+`alarm_rules.py` ziehen) und gibt bei Abwesend/Ferien eine dritte Antwort
+`reason: "unverschlossen"` mit den Türen zurück; in der App neben
+«Trotzdem scharf» ein Knopf «Abschliessen und scharf», der erst `lock`
+schickt, auf `locked` wartet und dann nochmals `arm()` ruft. Beim
+Nachtmodus nur ein Hinweis - nachts geht man nochmals raus. Nähe: 112
+(Kontakte, nicht Riegel), 483 (anderer Zeitpunkt), 126 (Anzeige).
+Stellen: `hub/homepilot/integrations/alarm.py`,
+`hub/homepilot/integrations/alarm_rules.py`, `hub/homepilot/core/goodnight.py`,
+`app/src/screens/AlarmScreen.tsx`. Aufwand: klein · Hub + App.
+
+`arm()` prüft jetzt zusätzlich die unverschlossenen Türen
+(`unverschlossen()` in `alarm_rules.py`, das `unlocked_locks` aus
+`core/goodnight.py` weiterreicht - die Funktion bleibt im Kern, weil der
+Kern nichts aus den Integrationen importiert). Bei Abwesend/Ferien die
+dritte Antwort `reason: "unverschlossen"` mit `unlocked: [{entity_id,
+label}]`; ein offenes Fenster geht weiterhin vor. Nachts kein Veto, nur
+ein Hinweis in Antwort und Verlauf («Nacht scharf geschaltet - nicht
+abgeschlossen: Haustüre») - nachts geht man nochmals raus. Bei einer Zone
+keine Prüfung: Ein Schloss hat keine Zone. In der App steht über
+«Trotzdem scharf» der Knopf «Abschliessen und scharf»: `lock` an jede
+Türe, bis zu 30 s nachsehen, bis jede wirklich «locked» meldet, dann
+nochmals `arm()` ohne `force`.
+
+Stellen: `hub/homepilot/integrations/alarm.py`, `hub/homepilot/integrations/alarm_rules.py`, `hub/tests/test_alarm_riegel.py`, `app/src/lib/alarmriegel.ts`, `app/src/screens/AlarmScreen.tsx`
+
+### 615. Bei Feuer nachts löst die Flucht die Einbruchmeldeanlage aus ✓ erledigt
+
+*Befund:* Brandmeldeanlage und Alarmanlage kennen einander nicht: `brand.py`
+erwähnt die Alarmanlage nirgends, `alarm.py:727-790` kennt als Ausnahmen
+nur Sauger und Haustier. Schlägt um drei Uhr ein Rauchmelder an, während
+«Nacht» scharf ist, weckt die Brandanlage alle mit Durchsage und Licht
+(`brandmelder.py:44`) - und die erste Person im Flur löst über den
+Bewegungsmelder den Einbruchalarm samt Sirene und Eskalation aus
+(`alarm.py:951`). Mit `unlock_doors: true` öffnet die Brandanlage sogar
+Türen, deren Türsensor Alarmsensor ist. Vorschlag: ein Brand-Alarm setzt
+die Alarmanlage in einen Zustand «Brand» (analog `VERDACHT`): keine
+Auslösung, laufende Eskalation abbrechen, Sirene aus, Verlaufseintrag
+«wegen Brandalarm ausgesetzt»; bei Entwarnung zurück in den vorigen
+Modus ohne Bereitschaftsprüfung (wie `_rearm`). Bei «Abwesend» bleibt der
+Einbruchweg offen - nur Nacht und Zuhause werden ausgesetzt. Nähe: 543
+schaltet Licht, Storen, Türen; 488/489 sind andere Ausnahmen. Stellen:
+`hub/homepilot/integrations/alarm.py`, `hub/homepilot/integrations/brand.py`,
+`hub/homepilot/integrations/alarm_rules.py`. Aufwand: mittel · Hub.
+
+Die Alarmanlage hört jetzt auf `fire` und das neue Gegenstück
+`fire_cleared`, das `brand.py` bei der Entwarnung sendet. Ein Brandalarm
+setzt sie in den Zustand `brand` (analog `VERDACHT`): keine Auslösung,
+laufende Fristen und die Eskalation abgebrochen, Piepser und Sirenen aus -
+Letzteres nebenher als Task, damit eine hängende Sirene die Brand-Push
+nicht aufhält. Verlaufseintrag «Wegen Brandalarm ausgesetzt (Rauchmelder
+Flur)». Bei der Entwarnung zurück in den gemerkten Modus ohne
+Bereitschaftsprüfung, wie `_rearm`; wer derweil entschärft hat, bleibt
+unscharf. Nur, wenn jemand da ist (`brand_setzt_aus`: Nacht und eigene
+Modi); bei Abwesend/Ferien bleibt der Einbruchweg offen. In `brand.py`
+geht `fire` jetzt *vor* der Nachricht hinaus, weil die bis zu vier
+Sekunden aufs Kamerabild wartet und die Durchsage bis dahin schon
+jemanden in den Flur schickt.
+
+Stellen: `hub/homepilot/integrations/alarm.py`, `hub/homepilot/integrations/alarm_rules.py`, `hub/homepilot/integrations/brand.py`, `hub/tests/test_alarm_brand.py`, `app/src/screens/AlarmScreen.tsx`
+
+### 616. Der Hub weiss, dass die Tür aufging - nicht, wer sie aufgeschlossen hat ✓ erledigt
+
+*Befund:* `nuki.py:170-195` liest nur `/smartlock` (Zustand, Batterie,
+Türsensor). Die Nuki-Web-API führt daneben `/smartlock/{id}/log` mit
+`trigger` (Keypad, Fingerprint, App, Auto-Unlock, Knopf) und `name` des
+Berechtigten; nichts davon kommt an. Das Zugriffsprotokoll hält nur
+App-Befehle fest, die Kachel sagt «Aufgeschlossen» ohne Wer und
+Seit-wann (`entity/koerper.tsx:70`). Ein Kind mit Keypad-Code kommt heim,
+und das Haus erfährt es nur über das Telefon, das es nicht hat.
+Vorschlag: beim Poll das Log ab dem letzten gesehenen Eintrag holen
+(rein: `log_eintraege(payload, seit)`), als `last_unlock: {by, via, at}`
+in den Zustand und als Bus-Ereignis `door_unlocked` - damit «wenn Livia
+per Code aufschliesst» ein Auslöser wird und der Heimgruss (259) auch
+ohne Telefon spielt; die Kachel zeigt «Aufgeschlossen · Livia (Code) ·
+15:42»; Kategorie `door`, je Person abschaltbar. Nähe: 199 und 194–203
+gehen übers Telefon, 499 zählt App-Befehle. Stellen:
+`hub/homepilot/integrations/nuki.py`, `hub/homepilot/core/pushziel.py`,
+`hub/homepilot/core/automation.py`, `app/src/components/entity/koerper.tsx`.
+Aufwand: mittel · Hub + App.
+
+`nuki.py` liest beim Poll zusätzlich `/smartlock/{id}/log?limit=20` ab dem
+zuletzt gesehenen Eintrag (rein: `log_eintraege(payload, seit)`,
+`unlock_satz`). Beim ersten Lesen wird nur der Anfang gesetzt - nach einem
+Neustart kommt nicht die Türe von gestern. Nur geglückte
+Aufschliess-Aktionen zählen. Jeder neue Eintrag landet als `last_unlock:
+{by, via, at}` im Zustand, als Bus-Ereignis `door_unlocked` und als Push
+der neuen Kategorie `door` (Gruppe Sicherheit, leise, je Person
+abschaltbar). Der Heimgruss spielt, wenn per Code, Fingerabdruck oder
+Auto-Unlock aufgeschlossen wurde - mit `zonenkennung(by)` wie beim
+Geofence; Knopf und App-Öffnen von innen sind kein Heimkommen. Die Kachel
+zeigt unter «Aufgeschlossen» die Zeile «Livia (Code) · 15:42». Was noch
+fehlt: ein Editor-Auslöser, der auf `door_unlocked` hört (Felder
+`entity_id`, `by`, `via`); der Zustands-Auslöser kann `last_unlock` nur
+grob sehen. Die Codes `source`/`autoUnlock` folgen der Nuki-Web-API-
+Beschreibung und wären am echten Keypad einmal gegenzuprüfen.
+
+Stellen: `hub/homepilot/integrations/nuki.py`, `hub/homepilot/core/push.py`, `hub/homepilot/core/pushbeispiel.py`, `hub/homepilot/core/pushziel.py`, `hub/tests/test_nuki_protokoll.py`, `app/src/lib/schlossprotokoll.ts`, `app/src/components/entity/koerper.tsx`
+
+### 617. Die Kamera erkennt das Paket, das Haus sagt es niemandem ✓ erledigt
+
+*Befund:* Protect meldet `package` als eigene Erkennung; der Hub führt
+`detected_package`/`last_package` (`unifi_protect.py:245`). Genutzt wird
+das nur als möglicher Ablauf-Auslöser; eine Push gibt es nicht, der
+Wächter hört nur Klingeln und Baby-Schreien, die Kamera-Push der
+Alarmanlage kommt nur bei scharfer Anlage und nur bei Bewegung, die
+Vorlagen bieten nur «Person erkannt» (`vorlagen.ts:1073`). Vorschlag: wie
+`_pruefe_weinen` ein `_pruefe_paket`: Wechsel off → on → Push «Paket vor
+der Haustür» mit Bild, Kategorie `package`, Sperrfrist 10 min je Kamera;
+dazu der Alltagsteil: Merker «Paket seit 14:12 draussen», und wenn es bis
+20 Uhr weder von einer Person-Erkennung abgelöst wurde noch jemand
+heimgekommen ist, «Das Paket liegt noch draussen». Nähe: 329–336
+(Kamerabild in der Alarm-Nachricht), 578 (Erkennung bleibt hängen),
+Einmal-Türlink für den Boten. Stellen: `hub/homepilot/core/watchdog.py`,
+`hub/homepilot/core/watchrules.py`, `hub/homepilot/core/pushziel.py`,
+`hub/homepilot/core/notifyrules.py`. Aufwand: klein · Hub.
+
+`_pruefe_paket` neben `_pruefe_weinen`: Flanke `detected_package` off → on
+meldet «Paket vor der Haustüre» (Kategorie `package`, Gruppe Haus, Ziel
+Kamera im Vollbild, Verfall 1 h) mit dem Bild der Kamera - ohne auf eine
+Person zu warten, das Paket ist das Motiv; Sperrfrist 10 min je Kamera.
+Alltagsteil in `hub.data` (`paket_draussen`): vermerkt, bis an derselben
+Kamera eine Person erkannt wird oder «Jemand zuhause» off → on geht; liegt
+es zur Stunde der Regel (Vorgabe 20 Uhr) noch da, einmal «Das Paket liegt
+noch draussen - seit 14:12» (nur Pakete von heute).
+
+Stellen: `hub/homepilot/core/watchdog.py`, `hub/homepilot/core/watchrules.py`, `hub/homepilot/core/push.py`, `hub/homepilot/core/pushziel.py`, `hub/homepilot/core/notifyrules.py`, `hub/tests/test_paket.py`
+
+### 619. Wochenplan, Sonntagabend-Ausblick, Wandpanel und Babysitter kennen die Kinderwoche nicht ✓ erledigt
+
+*Befund:* Die Listen `lessons`, `activities` und `gear`
+werden ausser auf der Kinderseite und im Packlisten-Push nirgends
+gelesen. Der Wochenplan baut seine Tage aus Terminen, Essen, Ämtli,
+Aufgaben und Geburtstagen (`FamilyScreen.tsx:2575`), `week_ahead`
+bekommt nur events/tasks/chores/contacts (`familie.py:378`), das
+Wandpanel-«HEUTE» nur Kalendertermine (`:4005`), und die Babysitter-Seite
+weiss nicht, dass Levin um 17:30 Fussball hat (`:1991`). Wer im
+Wochenplan «Levin» filtert, sieht weder Fussball noch «Nachmittag frei».
+Vorschlag: `wochenliste()`/`heute()` aus `lib/kindseite.ts` in den
+Wochenplan einziehen - je Tag die Wöchentlichen jedes Kindes und der
+Schulschluss als Zeile «Levin: Schule bis 15:05 · Fussball 17:30»; im Hub
+`week_ahead` um `activities` erweitern (nur mit Ort/Zeit, höchstens vier
+Zeilen); auf Wandpanel und Babysitter-Seite je Kind den `heuteSatz`.
+Nähe: 204, 171, 214 kennen nur Kalender, Ämtli, Routinen. Stellen:
+`app/src/screens/FamilyScreen.tsx`, `hub/homepilot/core/familie.py`,
+`hub/homepilot/core/watchdog.py`, `app/src/lib/kindseite.ts`. Aufwand:
+mittel · Hub + App.
+
+Der Wochenplan zeigt je Tag und Kind «Levin: Schule bis 15:05» bzw.
+«Schule bis 11:30 · Nachmittag frei» aus dem Stundenplan (`schulzeileAm`,
+mit Zweiwochen-Fächern, ohne Ferien- und Krankheitstage); die
+Wöchentlichen je Tag standen seit 621 schon dort, deshalb als eigene
+Zeile. Damit die App für jeden Tag der Woche weiss, ob Ferien sind, trägt
+`schulferien.lage()` neu `until` und `next_until` - aus «heute Ferien» und
+«in 19 Tagen die nächsten» liess sich nicht lesen, ob der Dienstag noch
+Ferien ist. Im Hub liefert `familie.kinderwoche()` dem
+Sonntagabend-Ausblick «Di: Levin - Fussball 17:30, Sursee · Stefan fährt»
+- nur Einträge mit Ort oder Zeit, höchstens vier, Ferienpause (620) und
+krank (622) berücksichtigt; eine unbesetzte Fahrt steht als «niemand
+fährt» gleich am Termin. Das Wandpanel-«HEUTE» zeigt je Kind den
+Heute-Satz, die Babysitter-Seite samt «Als Nachricht weitergeben» die
+ausführliche Fassung «Schule bis 15:05 · Fussball 17:30 in Sursee, Stefan
+holt».
+
+Stellen: `app/src/lib/kindseite.ts`, `app/src/screens/FamilyScreen.tsx`, `hub/homepilot/core/familie.py`, `hub/homepilot/core/schulferien.py`, `hub/homepilot/core/watchdog.py`, `hub/tests/test_familienlisten.py`, `hub/tests/test_schulferien.py`
+
+### 620. Stundenplan, Packliste und «Heute»-Satz wissen nichts von den Schulferien ✓ erledigt
+
+*Befund:* Der Hub kennt die Luzerner Schulferien
+(`core/schulferien.py`, `schulferien.lage()`), und die Kinderseite zeigt
+sie. `_check_packliste` (`watchdog.py:1618`) fragt ihn aber nicht:
+`packliste.morgen_zeilen` (`packliste.py:38`) rechnet nur Wochentag und
+A/B-Woche, also kommt in den Herbstferien und am Auffahrtsabend um 19 Uhr
+«Levin braucht morgen: Turnsack». `heuteSatz` (`kindseite.ts:298`) sagt
+«Schule 08:20–15:05», und darunter steht «Gerade sind Herbstferien -
+keine Schule!» - zwei Sätze, die sich widersprechen. Auch der
+Sonntagabend-Ausblick sagt nicht «Montag beginnen die Ferien».
+Vorschlag: `morgen_zeilen` bekommt den Ferienstand und lässt Schulsachen
+weg; je `gear`/`activities`-Eintrag ein Schalter «auch in den Ferien»
+(Fussballtraining läuft oft weiter, Flöte nicht); in der App `heuteSatz`
+mit `ferien`-Zustand aufrufen, Wöchentliche ohne den Schalter ausgegraut
+«(Ferienpause)»; `week_ahead` mit einer Zeile am Ferienrand. Nähe: 470
+(Abläufe), 154 (Feiertag), 453 (Gutscheine). Stellen:
+`hub/homepilot/core/packliste.py`, `hub/homepilot/core/watchdog.py`,
+`hub/homepilot/core/familie.py`, `app/src/lib/kindseite.ts`. Aufwand:
+klein · Hub + App.
+
+`packliste.morgen_zeilen(gear, morgen, ferien)` lässt in den Ferien die
+Schulsachen weg; je `gear`-/`activities`-Eintrag gibt es den Schalter
+«auch in den Ferien» (Feld `holidays`). In der App nimmt `heuteSatz` eine
+`Tageslage` (`{ferien}`): keine Schule, Wöchentliche ohne Schalter fallen
+weg («Ferien - heute steht nichts an.»), in der Liste stehen sie blass mit
+«Ferienpause»; `morgenPackSatz` ebenso. `familie.ferienrand` setzt «Mo:
+Herbstferien beginnen» bzw. «Mo: Schule beginnt wieder» als erste Zeile
+des Sonntagabend-Ausblicks. Die App kennt nur den heutigen Ferienstand;
+der Hub rechnet am Vorabend genau.
+
+Stellen: `hub/homepilot/core/packliste.py`, `hub/homepilot/core/familie.py`, `hub/homepilot/core/watchdog.py`, `app/src/lib/kindseite.ts`, `app/src/screens/family/kindseite.tsx`
+
+### 621. Ein Termin des Kindes weiss nicht, wer fährt ✓ erledigt
+
+*Befund:* Ein Wöchentliches
+trägt Tag, von/bis und einen Ort (`kindseite.tsx:242`), aber keine
+Person, die bringt oder holt - die tägliche Familienfrage «wer fährt
+Levin nach Sursee?» hat keinen Platz. Der Losfahr-Wecker
+(`core/losfahren.py`) liest nur Kalendertermine, obwohl die Aktivitäten
+den Ort schon haben. Vorschlag: Chips «bringt»/«holt» (Mitglieder) am
+Aktivitäten-Formular; Kinderseite und Wochenplan zeigen «Fussball 17:30 ·
+Stefan fährt»; unbesetzte Fahrten stehen im Sonntagabend-Ausblick («Do
+Jugi: niemand fährt»); `losfahren.kandidaten` nimmt die heutigen
+Aktivitäten mit Ort dazu und schickt «Zeit loszufahren» an die
+eingetragene Person, nicht an alle. Nähe: 258 (Losfahr-Wecker nur
+Google-Kalender), 158. Stellen: `app/src/screens/family/kindseite.tsx`,
+`app/src/lib/kindseite.ts`, `hub/homepilot/core/losfahren.py`,
+`hub/homepilot/core/watchdog.py`. Aufwand: mittel · Hub + App.
+
+`activities`-Einträge tragen `bringt` und `holt` (Chips mit der
+Personenreihe ohne das Kind). `fahrtSatz` sagt «Stefan fährt» bzw. «Stefan
+bringt · Anna holt»; mit Ort, aber ohne Person steht «niemand fährt» dran.
+Der Wochenplan zeigt je Tag die Wöchentlichen («Levin: Fussball 17:30 ·
+Stefan fährt»), der Personen-Filter kennt Kind und Fahrer.
+`familie.unbesetzte_fahrten` bringt «Do Jugi: niemand fährt» in den
+Ausblick. `losfahren.aktivitaeten_heute` macht aus den heutigen
+Aktivitäten mit Ort bis zu zwei Fahrten - Hinbringen zum Anfang, Abholen
+zum Ende -, je mit ihrer Person; der Wecker geht an sie, nicht an alle.
+
+Stellen: `app/src/lib/kindseite.ts`, `app/src/screens/family/kindseite.tsx`, `app/src/screens/FamilyScreen.tsx`, `hub/homepilot/core/losfahren.py`, `hub/homepilot/core/familie.py`, `hub/homepilot/core/watchdog.py`
+
+### 622. Ein krankes Kind kennt der Hub nicht ✓ erledigt
+
+*Befund:* Es gibt keinen Zustand
+«krank». Ist Levin mit Fieber im Bett, sagt der «Heute»-Satz «Schule
+08:20–15:05», um 19 Uhr kommt «Levin braucht morgen: Turnsack», sein
+Ämtli wird rot überfällig und steht am Wandpanel unter «ÄMTLI HEUTE»
+(`FamilyScreen.tsx:4025`), und die Nummer der Schule für die
+Absenzmeldung sucht man in den Kontakten - obwohl die Rolle «Schule/Hort»
+existiert (`familie.ts:19`). Vorschlag: ein Knopf «Heute krank» auf der
+Kinderseite (Feld `sick_until` am Mitglied). Solange er gilt: Kontakte
+mit Rolle Schule/Hort ganz oben mit Anruf-Knopf «abmelden», kein
+Schul-Satz, kein Packlisten-Push und kein Losfahr-Wecker für dieses Kind,
+fällige Ämtli mit `rotate()` (`chores.py:94`) an den Nächsten
+weitergegeben, und im Medikamente-Modul «Kur anlegen» mit dem Kind
+vorbelegt. Um Mitternacht des Enddatums ist alles wieder normal. Nähe:
+245/497 (Rechte), 214 (Abendroutine), 489 (Wartungsmodus - Alarm).
+Stellen: `app/src/screens/family/kindseite.tsx`, `app/src/lib/kindseite.ts`,
+`hub/homepilot/core/watchdog.py`, `hub/homepilot/core/packliste.py`.
+Aufwand: mittel · Hub + App.
+
+Feld `sick_until` («JJJJ-MM-TT», letzter Krankheitstag) am Eintrag in
+`members`. Solange es gilt: Kontakte mit Rolle Schule/Hort oben mit
+Anruf-Knopf «abmelden», Heute-Satz «Heute krank - gute Besserung!», keine
+Packliste, Chips «Auch morgen», «Wieder gesund», «Kur anlegen» (springt
+ins Medikamente-Modul, ohne das Kind vorzubelegen). Fällige Ämtli gehen
+beim Krankmelden an den Nächsten der Reihe (`aemtliAbgeben`, dieselbe
+Regel wie beim Abhaken; damit steht am Wandpanel der Nächste). Im Hub
+liest `familie.krank_heute` dasselbe Feld: Packlisten-Push und
+Losfahr-Wecker schweigen für das Kind. Um Mitternacht des Enddatums ist
+alles normal.
+
+Stellen: `app/src/lib/kindseite.ts`, `app/src/screens/family/kindseite.tsx`, `app/src/screens/FamilyScreen.tsx`, `hub/homepilot/core/familie.py`, `hub/homepilot/core/packliste.py`, `hub/homepilot/core/losfahren.py`, `hub/homepilot/core/watchdog.py`
+
+### 623. Der Dokumentsafe kennt kein Ablaufdatum ✓ erledigt
+
+*Befund:* Ein Dokument ist Titel
+plus Freitext (`family/module.tsx:755`); kein `expires`, keine Person,
+keine Erinnerung. Kinderpässe gelten fünf Jahre, ID, Halbtax, Vignette
+und Impfungen laufen ab - Gutscheine bekommen zwei Stufen Vorwarnung,
+Filter eine Wartungsfrist, Dokumente nichts. Vorschlag: optionales Datum
+«gültig bis» und Person je Dokument; der Wächter meldet 60 und 14 Tage
+vorher (Kategorie `documents`, Ziel `familie:documents`, abbestellbar), die
+Kachel zeigt «1 läuft bald ab», die Kinderseite «Pass gültig bis
+03.2027»; Erneuert setzt das Datum neu und hält den Verlauf (Bauart
+`maintenance.quittieren`). Nähe: 264/455/457 (nur Gutscheine), Wartung
+(nur Geräte). Stellen: `app/src/screens/family/module.tsx`, neu
+`hub/homepilot/core/dokumente.py` (rein, testbar),
+`hub/homepilot/core/watchdog.py`, `hub/homepilot/core/pushziel.py`.
+Aufwand: klein · Hub + App.
+
+Je Dokument optional `expires` (TT.MM.JJJJ, MM.JJJJ = Monatsende, oder
+ISO) und `member`. Neu `core/dokumente.py` (rein): `ablauf`, `stufe` (60,
+14, Ablauftag), `faellig` mit Marke je Stufe *und* Datum (ein erneuerter
+Pass bekommt alle Stufen wieder), `satz`, `erneuern` mit Verlauf (Bauart
+`maintenance.quittieren`), `bald`. Der Wächter meldet zur Meldestunde
+(Regel `documents`, Ziel `familie:documents`, abbestellbar, Gruppe
+Familie, mit Beispieltext). In der App: Kachel «1 läuft bald ab»,
+Ablaufendes oben im Safe mit Warnfarbe ab 14 Tagen, Knopf «Erneuert» mit
+neuem Datum und Verlauf, Formular mit «gültig bis» und Personen-Chips; die
+Kinderseite zeigt «Pass gültig bis 03.2027».
+
+Stellen: `hub/homepilot/core/dokumente.py`, `hub/homepilot/core/watchdog.py`, `hub/homepilot/core/pushziel.py`, `hub/homepilot/core/notifyrules.py`, `app/src/lib/dokumente.ts`, `app/src/screens/family/module.tsx`, `app/src/screens/family/kindseite.tsx`, `app/src/screens/FamilyScreen.tsx`
+
+### 624. Ausserhalb des Zeitfensters heisst es «Ungültiges Token» ✓ erledigt
+
+*Befund:* Das
+Zeitfenster `hours` ist «für Kinder gedacht: Licht im eigenen Zimmer ja,
+um Mitternacht nicht» (`users.py:346`). Läuft es ab, liefert
+`user_for_token` `None` (`server.py:213`), HTTP antwortet 401 «Ungültiges
+Token», der WebSocket schliesst mit 4401 - und die App unterscheidet das
+nicht von einem widerrufenen Token: Wiederverbindungsschleife, «nicht
+verbunden». Das Kind um 20:01 sieht ein kaputtes Haus, nicht
+«Feierabend». Vorschlag: `active()` um einen Grund erweitern
+(`zugangsgrund()` - rein: `gesperrt`, `abgelaufen`, `fenster_zu bis
+07:00`); für Fenster-zu antwortet der Hub 403 mit «Dein Zugang gilt ab
+07:00 wieder» und Feld `gilt_ab`, der WebSocket mit 4403; die App zeigt
+ein ruhiges Blatt («Gute Nacht - ab 07:00 geht's weiter») und verbindet
+erst zum genannten Zeitpunkt neu. Gehört zu 579 (derselbe `onclose`, ein
+weiterer Code). Nähe: 245/244 bauten Fenster und Kontoblatt, keiner sagt,
+was die App *ausserhalb* zeigt. Stellen: `hub/homepilot/core/users.py`,
+`hub/homepilot/api/server.py`, `app/src/hooks/useHub.ts`. Aufwand:
+mittel · Hub + App.
+
+`active()` ist jetzt `zugangsgrund() is None`; der Grund kennt `gesperrt`,
+`abgelaufen`, `fenster_zu` samt Zeitpunkt aus `naechster_beginn()` (rein:
+Wochentage, Fenster über Mitternacht, Ablaufdatum). Nur das Fenster kommt
+von selbst zurück, deshalb bekommt nur es eine eigene Antwort: HTTP 403
+mit `message`/`grund`/`gilt_ab`, Socket 4403 mit ISO-Zeit im Grund -
+beides ohne die Bremse zu füttern. Gesperrt und abgelaufen bleiben 401.
+`user_for_token` wurde durch `resolve_token` und `fenster_zu()` ersetzt.
+App: fünfter Zustand `paused`, Balken «Gute Nacht - ab 07:00 geht's
+weiter», Wiederverbinden erst zur genannten Zeit, gelber statt roter
+Punkt; Datum im Satz nur, wenn der Beginn mehr als 24 h entfernt ist.
+
+Stellen: `hub/homepilot/core/users.py`, `hub/homepilot/api/server.py`, `app/src/hooks/useHub.ts`, `app/src/lib/verbindungsstand.ts`, `app/src/api/client.ts`, `app/src/screens/DashboardScreen.tsx`
+
+### 625. Der Verwalter sieht die Geräte der anderen nicht ✓ erledigt
+
+*Befund:* `GET/DELETE
+/api/auth/sessions` gelten nur für den eigenen Namen (`routes/auth.py:403`);
+`SessionStore.list_for` und `revoke_user` sind aber allgemein
+(`sessions.py:174`). In der Benutzerverwaltung gibt es «Token erneuern»
+(`UsersScreen.tsx:1358`), aber keine Geräteliste. Verliert Levin sein
+Telefon, kann die Besitzerin nur den ganzen Benutzer sperren oder alle
+seine Geräte abschiessen - und «hat sich das iPad des Babysitters je
+abgemeldet?» beantwortet niemand. Vorschlag: `GET /api/users/{name}/
+sessions` und `DELETE …/{sid}` hinter `MANAGE_USERS`; im Benutzer-Detail
+eine Klappe «Angemeldete Geräte» («2 Geräte · zuletzt vor 3 Std.»), je
+Zeile «Beenden» mit Rückfrage; `lib/konto.ts` (`geraeteZeile`,
+`sortiereSitzungen`) wiederverwenden. Nähe: 244 ist ausdrücklich
+Selbstverwaltung, 498 räumt Gäste. Stellen:
+`hub/homepilot/api/routes/users.py`, `hub/homepilot/core/sessions.py`,
+`app/src/screens/UsersScreen.tsx`, `app/src/lib/konto.ts`. Aufwand:
+klein · Hub + App.
+
+`GET /api/users/{name}/sessions` und `DELETE /api/users/{name}/sessions/{sid}`
+hinter `MANAGE_USERS`; die Kennung muss zur Person gehören. In der
+Benutzerverwaltung eine zugeklappte Klappe «Angemeldete Geräte» mit Kopf
+«2 Geräte · zuletzt vor 3 Std.» (`konto.geraeteKopf`), je Zeile
+«Beenden» mit Rückfrage - dieselben Zeilen wie in «Meine Geräte».
+
+Stellen: `hub/homepilot/api/routes/users.py`, `hub/tests/test_geraete_der_anderen.py`, `app/src/screens/UsersScreen.tsx`, `app/src/lib/konto.ts`
+
+### 626. Eine neue Anmeldung erfährt nur das Log ✓ erledigt
+
+*Befund:* Jede
+Passwort-Anmeldung endet in `log.warning(…)` (`routes/auth.py:185, 271`),
+abgelehnte Versuche ebenso; eine Sitzung merkt sich Label und Zeit, aber
+keine Adresse (`sessions.py:110`); `pushziel.py` kennt keine Kategorie
+dafür. Wer sich mit Stefans Passwort auf einem fremden Gerät anmeldet,
+wird von niemandem bemerkt - und der Besitzer sieht nicht, dass der
+Babysitter-Zugang gerade von einem dritten Gerät kommt. Vorschlag: nach
+`sessions.create` eine Push an die Person selbst: «Neues Gerät angemeldet:
+iPhone von Anna - warst du das?» mit Knopf «Nicht ich → Gerät abmelden»
+(Knopf-Mechanik aus 478); bei Gast- und Kinderkonten zusätzlich an die
+Besitzer; wird eine Adresse von der Bremse gesperrt, eine einzige Push «5
+falsche Passwörter von 192.168.1.44»; Adresse in die Sitzungszeile;
+Kategorie `login` → Ziel `bereich:personen`. Nähe: 499 (offen) will eine
+Monatszeile aus dem Zugriffsprotokoll - das zählt Befehle, keine
+Anmeldungen. Stellen: `hub/homepilot/api/routes/auth.py`,
+`hub/homepilot/core/sessions.py`, `hub/homepilot/core/pushziel.py`,
+`app/src/components/KontoBlatt.tsx`. Aufwand: mittel · Hub + App.
+
+Nach jedem `sessions.create` geht im Hintergrund (die Anmeldung wartet
+nicht auf Expo) eine Push an die anderen Geräte der Person: «Neues Gerät
+angemeldet - ‹iPhone von Anna› hat sich mit deinem Konto angemeldet
+(192.168.1.44). Warst du das?» mit Knopf «Nicht ich → Gerät abmelden».
+Der Knopf ist eine dritte Knopfart neben Szene und Gerät (`{label,
+sitzung, user}`); die App beendet die eigene Sitzung über
+`/api/auth/sessions/{sid}`, eine fremde über die Route aus 625. Bei Gast-
+und Kinderkonten zusätzlich an die Besitzer mit Ziel `bereich:users`.
+Schnappt die Bremse zu: eine einzige Push «10 falsche Passwörter von …» an
+die Besitzer. Die Adresse steht in der Sitzung und in der Sitzungszeile.
+Kategorie `login` in der Gruppe Sicherheit, Ziel `bereich:account`; sie
+steht nicht in `IMMER_DURCH` - in der Ruhezeit landet sie auf dem Zettel.
+
+Stellen: `hub/homepilot/api/routes/auth.py`, `hub/homepilot/core/sessions.py`, `hub/homepilot/core/push.py`, `hub/homepilot/core/pushziel.py`, `hub/homepilot/core/pushbeispiel.py`, `hub/tests/test_anmeldung_meldung.py`, `app/src/lib/pushziel.ts`, `app/src/screens/UsersScreen.tsx`
+
+### 627. Die Ortungspause kennt nur das eigene Telefon ✓ erledigt
+
+*Befund:* «Pausieren ist
+Pausieren» steht im Hook, aber `pausiertBis` liegt nur im AsyncStorage
+des Geräts (`useOrtung.ts:69, 148`); im Hub gibt es keinen Pausenbegriff.
+Folge: Nach zwölf Stunden Stille schickt der Wächter «Meldet sich nicht
+mehr - Akku, Flugmodus oder Ortung aus?» an die ganze Familie
+(`watchdog.py:1536`, Schalter `silence` standardmässig an), die
+Familienseite zeigt «meldet sich nicht», und das zweite eigene Gerät
+weiss von der Pause nichts. Vorschlag: `POST /api/presence/{zone}/pause
+{bis}` (nur die eigene Zone), Ablage `presence_pause` in `hub.data`;
+`merged()` liefert `state: unknown, reason: paused, until`, der Wächter
+überspringt Funkstille- und Akku-Meldung für pausierte Zonen,
+`personen.aufenthalt` sagt «Ortung pausiert bis 06:00», die Profilzeile
+aus 197 liest den Stand vom Hub. Nähe: 197 baute den Schalter nur in der
+App; 202/219/220 schlagen bei einer Pause falsch an. Stellen:
+`hub/homepilot/integrations/geofence.py`, `hub/homepilot/core/presence.py`,
+`hub/homepilot/core/watchdog.py`, `app/src/hooks/useOrtung.ts`. Aufwand:
+mittel · Hub + App.
+
+`POST /api/personen/{zone}/pause {until}` (Epoch-Sekunden; `null` hebt
+auf; nur die eigene Zone, sonst 403), Ablage `presence_pause`
+(`presence.pausen_lesen`/`pause_setzen`, rein). `geofence.merged()`
+liefert für eine pausierte Zone `state: unknown, reason: paused, until` -
+nicht «weg», sonst hörte «alles aus» darauf. Der Wächter überspringt Akku-
+und Funkstille-Meldung (Merker bleiben, damit es nach der Pause kommt),
+`personen.aufenthalt` sagt «Ortung pausiert bis 06:00». App: `useOrtung`
+meldet Pause, Weiter und Ein/Aus an den Hub und gleicht beim Öffnen den
+eigenen Stand mit dem des Hubs ab (`pauseAbgleich`, rein) - so zieht das
+zweite Gerät nach. `_update_anyone` liest weiter den rohen Zustand; eine
+pausierte Person zählt für «Jemand zuhause» wie zuvor.
+
+Stellen: `hub/homepilot/core/presence.py`, `hub/homepilot/core/personen.py`, `hub/homepilot/integrations/geofence.py`, `hub/homepilot/api/routes/personen.py`, `hub/homepilot/core/watchdog.py`, `app/src/hooks/useOrtung.ts`, `app/src/lib/ortung.ts`, `hub/tests/test_ortungspause.py`
+
+### 628. Wer den Haushalt verlässt, hinterlässt alles ✓ erledigt
+
+*Befund:* `DELETE
+/api/users/{name}` ruft nur `hub.users.remove` und schreibt einen
+Änderungseintrag (`routes/users.py:426`). Was nach Namen abgelegt ist,
+bleibt: `umzug.py:35-49` zählt es selbst auf (`sessions`, `push_devices`,
+`push_prefs`, `user_prefs`, `emails`, `person_prefs`, `presence_last`,
+`presence_history`), dazu Personenbild und Ämtli-Reihen. Der
+Gastspur-Aufräumer (498) nimmt nur abgelaufene Gäste. Zieht die Au-pair
+aus, steht sie im Ämtli-Plan weiter «dran» (`chores.py:94 rotate`).
+Vorschlag: `core/abschied.py` (rein): aus dem Datenbestand berechnen, was
+ein Name berührt, die Listen aus `umzug.py` wiederverwenden; die
+Löschroute bekommt `?aemtli_an=<Name>`; die App zeigt vor dem Löschen
+«Anna entfernen? 2 Geräte, Bild, 3 Ämtli, 1 Erinnerung» und lässt die
+Ämtli übergeben; «Zugang nur einfrieren» als sichtbarer Gegenpol. Nähe:
+498 (Gäste), 495 (Gerätenamen), `umzug.py` (Umbenennen per CLI).
+Stellen: `hub/homepilot/api/routes/users.py`, `hub/homepilot/core/umzug.py`,
+`hub/homepilot/core/personenbilder.py`, `app/src/screens/UsersScreen.tsx`.
+Aufwand: mittel · Hub + App.
+
+`core/abschied.py` (rein): `bilanz()` zählt, was ein Name berührt, `satz()`
+macht daraus «Anna entfernen? 2 Geräte, Bild, 3 Ämtli, 1 Erinnerung»,
+`abschied()` nimmt es aus dem Bestand - Sitzungen, Push-Telefone, Prefs,
+E-Mail, Ortungslisten (Listen aus `umzug.py` wiederverwendet), Namen aus
+Reihen und Abstimmungen. Ämtli werden übergeben, nicht gelöscht: an
+`?aemtli_an=<Name>` oder an den Nächsten in der Reihe. Rezepte und Verlauf
+mit `author`/`by` bleiben; Punktekonten fallen weg. `GET
+/api/users/{name}/abschied` liefert Bilanz, Satz und mögliche Übernehmer;
+das Löschen entfernt zuerst den Benutzer, erst dann den Rest, dazu
+Telefone im Push-Dienst und das Personenbild. Die App fragt beim ersten
+Tipp auf «Löschen» nach, zeigt den Satz, lässt per Chip übergeben und
+nennt «Deaktivieren» als sanfteren Weg.
+
+Stellen: `hub/homepilot/core/abschied.py`, `hub/homepilot/api/routes/users.py`, `hub/tests/test_abschied.py`, `app/src/lib/abschied.ts`, `app/src/screens/UsersScreen.tsx`
+
+### 629. Der Taster weiss, was er auslöst, und die Kachel sagt es nicht ✓ erledigt
+
+*Befund:* Die Tasterkachel zeigt nur «Kurz gedrückt · vor 3 Std.»
+(`EntityCard.tsx:1141`). Welcher Druck was tut, steht in den Abläufen als
+`trigger.to` (`single`, `double`, `hold` - Wortschatz in
+`entwurf.ts:323`), und die Geräteseite zählt sie nur: «in 2 Abläufen»
+(`lib/verweise.ts:58`). Wer vor dem Wandtaster im Flur steht, muss die
+Abläufe aufmachen, um zu wissen, ob «doppelt» überhaupt belegt ist.
+Vorschlag: `verweise.ts` um `tasterBelegung(entityId, automations)`
+erweitern (rein, testbar): je Ablauf die Auslöser dieses Tasters lesen,
+`to` ins deutsche Wort übersetzen, dazu den Ablaufnamen; die Kachel zeigt
+darunter «einmal → Flur an · halten → Alles aus», eine unbelegte Taste
+bleibt weg, Tipp öffnet den Ablauf; dieselbe Zeile im Langdruck-Menü.
+Nähe: 104 (nur Zählung), 314 (Drücke im Editor), 575. Stellen:
+`app/src/lib/verweise.ts`, `app/src/components/EntityCard.tsx`,
+`app/src/screens/automations/entwurf.ts`. Aufwand: klein · App.
+
+`tasterBelegung(entityId, automations)` (rein) liest je Ablauf die
+`state`-Auslöser des Tasters, übersetzt `to` ins kurze Wort («einmal»,
+«doppelt», «halten»; Homematic «kurz»/«lang») und nennt den Ablauf - in
+der Reihenfolge von `TASTERDRUECKE`. Ruhende Abläufe zählen nicht, ein
+Auslöser ohne `to` steht als «jeder Druck». Die Kachel zeigt darunter
+«einmal → Flur an · halten → Alles aus», eine unbelegte Taste bleibt weg;
+dieselbe Zeile steht im Langdruck-Menü. Der Tipp führt zu den Abläufen,
+nicht direkt in den einen Ablauf - `AutomationsScreen` kennt kein Öffnen
+nach Kennung.
+
+Stellen: `app/src/lib/verweise.ts`, `app/src/components/EntityCard.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/screens/automations/entwurf.ts`
+
+### 630. Das Einschaltverhalten nach Stromausfall stellt man am Gerät ein - der Hub kennt den Schalter nicht ✓ erledigt
+
+*Befund:* `stromrueckkehr.py:9` sagt selbst:
+«Wer den Blitz loswerden will, stellt es am Gerät ein (Hue: Verhalten
+bei Stromrückkehr, Homematic: Einschaltwert)». Genau das kann der Hub
+nicht: Zigbee2MQTT exponiert `power_on_behavior` (`schreibbare_merkmale`
+in `zigbee2mqtt.py:180` sammelt es, `art_und_befehle:260` wirft es weg),
+Hue v2 führt `powerup` an jeder Leuchte (`hue.py:219` liest nur
+`on`/`dimming`), Homematic hat `POWERUP_…`-Parameter je Kanal.
+Vorschlag: ein Befehl `set_power_on` (`previous`, `off`, `on`) in Zigbee,
+Hue und Homematic, im Zustand als `power_on`; in der App eine Zeile im
+Anpassen-Blatt («Nach Stromausfall: wie vorher / aus / an») und unter
+System → Stromausfall ein Knopf «Alle Lampen auf ‹wie vorher› stellen»
+mit der Liste derer, die es nicht können. Nähe: 501 und der Auslöser
+«Nach Stromausfall» räumen *nachher* auf; das hier verhindert den Blitz
+*vorher*. Stellen: `hub/homepilot/integrations/zigbee2mqtt.py`,
+`hub/homepilot/integrations/hue.py`, `hub/homepilot/integrations/homematic.py`,
+`app/src/components/entity/anpassen.tsx`. Aufwand: mittel · Hub + App.
+
+Ein Befehl `set_power_on {mode: previous|off|on}` in drei Anbindungen, der
+Stand als `power_on` im Zustand. Zigbee: `power_on_behavior`, einmal beim
+Anlegen per `/get` abgefragt, weil Zigbee2MQTT den Wert sonst nie nennt.
+Hue: `powerup` gelesen und geschrieben; «aus» gibt es nur als `custom`.
+Homematic: der erste POWERUP-Parameter mit Aufzählung im MASTER-Paramset
+(`powerup_parameter`, rein - keine Gerätetyp-Liste), im Hintergrund nach
+dem Start gelesen, über `putParamset MASTER` gestellt; ein Wunsch
+ausserhalb seiner Aufzählung wird mit ihren Wörtern abgewiesen. App: Zeile
+«Nach Stromausfall: Wie vorher / Aus / An» im Anpassen-Blatt; unter
+System → Betrieb die Karte `StromausfallCard` mit «Alle Lampen auf ‹wie
+vorher› stellen» und der Liste der Lampen, die der Hub nicht einstellen
+kann. Die HmIP-Aufzählungsnamen sind beschreibungsgetrieben zugeordnet und
+am echten Aktor einmal gegenzuprüfen.
+
+Stellen: `hub/homepilot/integrations/zigbee2mqtt.py`, `hue.py`, `homematic.py`, `homematic_channels.py`, `hub/tests/test_einschaltverhalten.py`, `app/src/lib/einschaltverhalten.ts`, `app/src/components/entity/anpassen.tsx`, `app/src/components/StromausfallCard.tsx`, `app/src/screens/SystemScreen.tsx`
+
+### 631. Empfindlichkeit, Nachlaufzeit und Temperatur-Abgleich eines Zigbee-Geräts gibt es nur in Zigbee2MQTT ✓ erledigt
+
+*Befund:* `schreibbare_merkmale`
+(`zigbee2mqtt.py:180`) kennt alle stellbaren Eigenschaften eines Geräts -
+`occupancy_timeout`, `motion_sensitivity`, `temperature_calibration`,
+`humidity_calibration`, `led_indication`; `art_und_befehle:260` macht
+daraus nur Schaltbefehle und Sirene, `set_nutzlast:505` kennt keinen Weg
+für Optionen. Wer den Melder im Flur unempfindlicher will oder den
+Aqara-Fühler 0.8 Grad nach unten abgleichen, braucht die Z2M-Oberfläche
+auf Port 8099 (`docs/zigbee.md:69`). Vorschlag: je Gerät eine kleine
+Liste `options` im Zustand (Name, Typ, Bereich, Wert - aus den Exposes,
+gefiltert auf eine Allowlist gängiger Namen mit deutscher Beschriftung)
+und `set_option {name, value}` als Befehl; in der App ein Abschnitt
+«Gerät einstellen» im Anpassen-Blatt: Schieber, Schalter, Chips. Der
+Temperatur-Abgleich ist die wichtigste Zeile: Der Raumkopf (538) zeigt
+sonst den Fehler des Fühlers als Zimmertemperatur. Nähe: 547 (Nachlauf
+der Lampe), 548 (Einheit), 544 (Sirene - die erste Stellgrösse, aber nur
+die eine). Stellen: `hub/homepilot/integrations/zigbee2mqtt.py`,
+`hub/homepilot/api/models.py`, `app/src/components/entity/anpassen.tsx`.
+Aufwand: mittel · Hub + App.
+
+`OPTIONEN` in `zigbee2mqtt.py` ist eine Allowlist gängiger Namen mit
+deutscher Beschriftung (Nachlaufzeit, Empfindlichkeit, Messabstand,
+Temperatur-/Feuchte-/Helligkeits-Abgleich, LED, Kindersicherung …);
+`optionen_aus_exposes` liest daraus je Gerät Name, Art, Bereich, Schritt,
+Einheit, und `set_option {name, value}` wird gegen die Liste *dieses*
+Geräts geprüft. Die Liste liegt als `options` im Zustand. App:
+`lib/geraeteoptionen.ts` (Schritt nach Bereich, Rundung, Deckel), Abschnitt
+«Gerät einstellen» im Anpassen-Blatt mit −/Feld/+, Ja/Nein- und
+Auswahl-Chips - immer der zuletzt gemeldete Wert. Ein Melder mit nur
+`set_option` hat jetzt einen Befehl, aber keinen Schaltbefehl -
+`raumszene.ts` prüft deshalb `schaltbar` statt `commands.length`.
+
+Stellen: `hub/homepilot/integrations/zigbee2mqtt.py`, `hub/tests/test_zigbee2mqtt.py`, `app/src/lib/geraeteoptionen.ts`, `app/src/lib/raumszene.ts`, `app/src/components/entity/anpassen.tsx`, `docs/zigbee.md`
+
+### 632. Ein neues Gerät anlernen geht nur an der Zigbee2MQTT-Oberfläche oder an der Kommandozeile ✓ erledigt
+
+*Befund:* Zigbee: «Permit join» in der Z2M-Weboberfläche
+(`docs/zigbee.md:69`); der Hub sendet nie `bridge/request/permit_join`.
+Matter: `pair(code)` existiert (`matter.py:860`), erreichbar nur über
+`python -m homepilot.integrations.matter --pair`; keine Route ruft es.
+Die `Einrichtungshilfe` setzt erst *nach* dem Anlernen an, und der
+`QrScanner` ist seit 369 generisch, liest also einen Matter-Code schon
+heute. Vorschlag: `POST /api/verbindungen/zigbee/anlernen {minuten}`
+(publiziert `permit_join`, meldet die Restzeit, liest die
+`device_interview`-Meldungen und antwortet «Aqara Türkontakt gefunden»)
+und `POST /api/verbindungen/matter/koppeln {code}`; in der App unter
+Einstellungen → Verbindungen je ein Abschnitt «Gerät hinzufügen» - neben
+dem Fernseher-Koppeln, wo Einrichten zuhause ist; das gefundene Gerät
+landet direkt in der Einrichtungshilfe. Nähe: 536 (Dongle), 54 (neu
+laden), 248 (Erst-Start). Stellen:
+`hub/homepilot/api/routes/verbindungen.py`,
+`hub/homepilot/integrations/zigbee2mqtt.py`,
+`hub/homepilot/integrations/matter.py`,
+`app/src/screens/VerbindungenScreen.tsx`. Aufwand: mittel · Hub + App.
+
+Zigbee: `anlernen_starten(minuten)` publiziert `bridge/request/permit_join`
+(1.x und 2.x), `bridge/info` korrigiert den eigenen Zähler, `bridge/event`
+sammelt je Gerät den jüngsten Stand: «klopft an», «gefunden»,
+«Zigbee2MQTT kennt es nicht», «gescheitert». Matter: `pair()` nennt die
+Namen der aufgenommenen Geräte. Routen `GET /api/verbindungen/anlernen`,
+`POST /api/verbindungen/zigbee/anlernen {minuten}` (0 schliesst) und
+`POST /api/verbindungen/matter/koppeln {code}` - der Code wird geprüft
+und steht in keiner Meldung; alles `EDIT_CONFIG`. App: Abschnitt «Gerät
+hinzufügen» unter Einstellungen → Verbindungen neben der
+Fernseher-Kopplung, Zigbee-Karte mit Restzeit (alle drei Sekunden
+nachgefragt - ein anklopfendes Gerät ist keine Entität und käme über den
+WebSocket nie vorbei) und Fundliste, Matter-Karte mit Feld, `QrScanner`
+und Koppeln. Das neue Gerät hat keinen Raum und landet von selbst in der
+Einrichtungshilfe.
+
+Stellen: `hub/homepilot/integrations/zigbee2mqtt.py`, `matter.py`, `hub/homepilot/api/routes/verbindungen.py`, `hub/tests/test_anlernen.py`, `app/src/lib/anlernen.ts`, `app/src/components/GeraetAnlernen.tsx`, `app/src/screens/VerbindungenScreen.tsx`, `docs/zigbee.md`
+
+### 633. Die Batteriewarnung sagt, *dass* eine leer ist, nicht *welche* man kaufen muss ✓ erledigt
+
+*Befund:* Die Push lautet «Batterie schwach: Türkontakt Küche. Noch
+12 %» (`watchdog.py:2621`). Ob da eine CR2032, CR2450, AAA oder ein Akku
+drin steckt, weiss weder Hub noch App - kein Feld in `set_entity_meta`
+(`hub.py:570`), nichts in `lib/batterien.ts`. Die Prognose (258) sagt
+«reicht noch ~3 Wochen», der Einkauf dazu bleibt Kopfarbeit - im Haus mit
+einem Dutzend Zigbee-Meldern jedes Mal dieselbe Frage. Vorschlag: ein
+Meta-Feld `battery_type` (Vorschlagsliste CR2032/CR2450/CR2477/AA/AAA/
+Akku), setzbar im Anpassen-Blatt und in der Geräte-Gesundheit; Push und
+Zeile tragen es mit («… CR2032 wechseln»), unter der Meldung ein Knopf
+«Auf die Einkaufsliste» (`mitteilungsknoepfe.ts`, dedupliziert nach 174);
+die Gesundheitsliste bekommt «Für die nächsten 3 Monate: 2× CR2032, 1×
+AAA» aus der Prognose. Nähe: 258, 478, 176, 174. Stellen:
+`hub/homepilot/core/hub.py`, `hub/homepilot/core/watchdog.py`,
+`app/src/components/DeviceHealth.tsx`, `app/src/lib/mitteilungsknoepfe.ts`.
+Aufwand: klein · Hub + App.
+
+Meta-Feld `battery_type` (`set_entity_meta`, Vorschlagsliste
+`watchrules.BATTERIETYPEN`; alles andere wird «unbekannt», ein Tippfehler
+soll nicht auf der Einkaufsliste landen). Setzbar im Anpassen-Blatt und in
+der Batterienliste. Die Warnung sagt «CR2032 wechseln»; die Batterie
+bekommt die eigene Knopf-Kategorie `batterie` (Erledigt, «Auf die
+Einkaufsliste», Später, Heute nicht mehr) - der Posten «CR2032 (Türkontakt
+Küche)» geht über `eintragen()` aus `lib/einkauf.ts` denselben Weg wie ein
+Eintrag von Hand, dedupliziert nach 174. Die Gesundheitsliste rechnet «Für
+die nächsten 3 Monate: 2× CR2032, 1× AAA» (`batterieBedarf`, rein).
+Nebenbei: `/api/batteries` liefert jetzt `forecast` und `resttage` - das
+Wort aus Punkt 258 stand in der App bereit, der Hub schickte es nie.
+
+Stellen: `hub/homepilot/core/hub.py`, `hub/homepilot/core/entity.py`, `hub/homepilot/core/watchdog.py`, `hub/homepilot/core/watchrules.py`, `hub/homepilot/core/push.py`, `app/src/lib/batterien.ts`, `app/src/lib/mitteilungsknoepfe.ts`, `app/src/components/DeviceHealth.tsx`, `app/src/components/entity/anpassen.tsx`
+
+### Nebenbei gefundene Fehler, in derselben Sitzung behoben
+
+Zehn Stellen, an denen der Code etwas anderes tat, als Archiv oder
+Kommentar sagten - ohne eigene Nummer, damit die Zahl der Vorschläge
+nicht mit Reparaturen aufgefüllt wird.
+
+- **Ein Ende-Push für eine Live-Karte verfiel nach zehn Minuten.**
+  `apns_frist(payload, jetzt_s)` (rein) entscheidet am `aps.event`: Ende
+  4 h, Update 60 s, Start weiterhin 600 s; ohne erkennbares Ereignis gilt
+  die kurze Start-Frist. Stellen: `hub/homepilot/core/liveaktivitaet.py`,
+  `hub/tests/test_liveaktivitaet.py`.
+- **`/api/glance?ids=` hatte keinen Abnehmer.** `ladeGlance(ids:)` hängt
+  die Kennungen der Geräte-Knöpfe an, `Hausstand.da` trägt `an`, und
+  `KnopfSymbol` färbt das Symbol gelb - auf dem kleinen Widget, im Raster
+  und auf der `AutoKnopfwand`. Stellen: `app/targets/widget/index.swift`,
+  `hub/homepilot/api/routes/dashboard.py`.
+- **Der Modus «der Reihe nach» ging im Editor verloren.** Dritter Chip
+  mit Erklärung zu `QUEUE_LIMIT`, `ablaufModus()` hält die drei Wörter des
+  Hubs an einer Stelle, `toDraft` behält `queued` auch dann, wenn die
+  Chips (nur bei Wartezeit sichtbar) nicht gezeigt werden. Stellen:
+  `app/src/screens/automations/entwurf.ts`, `editor.tsx`.
+- **`next_run` und das Tagesband kannten nur `time` und `sun`; `RUN_LIMIT`
+  galt fürs Haus.** `window` steht nun in «Nächste Ausführung» und im
+  Band, `calendar` rechnet über das reine `kalender_zeitpunkte` (die
+  Simulation ruft es seither statt eine Kopie zu halten). Dazu
+  `RUNS_PER_AUTOMATION = 20` neben `RUN_LIMIT = 100`: `verlauf_kuerzen`
+  beschneidet erst je Ablauf, dann das Ganze. Stellen:
+  `hub/homepilot/core/automation.py`, `ablaufsimulation.py`,
+  `app/src/lib/tagesband.ts`.
+- **Ein abgelehnter Datensatz blockierte den Supabase-Verlauf für
+  immer.** Drei Tabellen, drei Versuche statt ein `try`. `SupabaseError`
+  trägt den Status; `store.dauerhaft_abgelehnt()` (400/404/409/422)
+  verwirft die Zeilen, warnt einmal und zählt danach nur. Netz/5xx/401/429
+  werden weiter versucht - eine Warnung beim Beginn der Störung, eine Info
+  am Ende. `_pending_runs` auf 500 gedeckelt. Stellen:
+  `hub/homepilot/core/store.py`, `hub/homepilot/core/supabase.py`.
+- **Geprüft wurde Python 3.11, gebaut 3.12.** Matrix 3.11 + 3.12 im
+  Hub-Job statt Festnageln auf 3.11: `pytboss` (Pit-Boss-Grill) verlangt
+  3.12 - ein Abbild auf 3.11 hätte den Grill still verloren.
+  `tests/test_python_abbild.py` hält Dockerfile, Matrix und
+  `requires-python` gegeneinander. Stellen: `.github/workflows/pruefung.yml`,
+  `hub/tests/test_python_abbild.py`, `CLAUDE.md`.
+- **«Türklingel (nur sehen)» fehlte in der Benutzerverwaltung.** `klingel`
+  in `FEATURE_LABELS`; `tests/test_gastbereiche_abgleich.py` hält beide
+  Listen in beide Richtungen gegeneinander. Stellen:
+  `app/src/screens/UsersScreen.tsx`, `hub/tests/test_gastbereiche_abgleich.py`.
+- **Der Zustandspunkt ignorierte «Bewegung reduzieren».**
+  `bewegtSich(vorher, nachher, ruhig)` sagt nein, wenn die Einstellung
+  steht; `Zustandspunkt` fragt `useBewegungReduziert`, `Lauftext` auch
+  (der eigene `AccessibilityInfo`-Weg ist weg). Der Hook hört zusätzlich
+  auf `reduceMotionChanged`. Stellen: `app/src/lib/uebergang.ts`,
+  `app/src/components/Zustandspunkt.tsx`, `Lauftext.tsx`,
+  `app/src/hooks/useBewegungReduziert.ts`.
+- **Der Nachlese-Zettel rechnete an Punkt 471 vorbei.** Wer auf
+  irgendeinem Gerät erreicht wurde, hat nichts verpasst; für alle anderen
+  zählt die Regel des Geräts (`geraete_muted`, `geraete_ruhe`) - dieselbe
+  Rechnung wie in `recipients()`. Drei Tests halten die beiden Löcher und
+  den Normalfall fest. Stellen: `hub/homepilot/core/push.py`,
+  `hub/tests/test_push_zurueckgehalten.py`.
+- **Der Tagesdeckel zählte Meldungen, die niemand bekam - und jede
+  Probe.** `bremse` liest nur noch; gezählt wird über den Rückruf
+  `push.zaehlen` → `hub._push_deckel_zaehlen`, erst wenn `messages` nicht
+  leer ist, und nicht bei einem Titel mit «Probe: ». Stellen:
+  `hub/homepilot/core/push.py`, `hub/homepilot/core/hub.py`,
+  `hub/homepilot/core/pushbeispiel.py`.
