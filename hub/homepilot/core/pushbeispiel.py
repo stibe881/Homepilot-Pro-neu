@@ -83,6 +83,12 @@ BEISPIELE: dict[str, tuple[str, str]] = {
         "1 Fenster offen, 2 Batterien schwach, in der Nacht war nichts.",
     ),
     "presence": ("Telefon fast leer", "Bines Telefon hat noch 12 % - die Ortung fällt sonst aus."),
+    # Punkt 626: die Meldung, die niemand bekommen sollte - und die man
+    # deshalb einmal gesehen haben will.
+    "login": (
+        "Neues Gerät angemeldet",
+        "«iPhone von Anna» hat sich mit deinem Konto angemeldet (192.168.1.44). Warst du das?",
+    ),
     "weekahead": ("Die Woche voraus", "3 Termine, 2 Ämtli, 1 Geburtstag."),
     "vouchers": ("Gutschein läuft ab", "Der Gutschein von Ochsner Sport gilt noch 7 Tage."),
     "test": ("HomePilot Test", "Push-Benachrichtigungen funktionieren \U0001f389"),
