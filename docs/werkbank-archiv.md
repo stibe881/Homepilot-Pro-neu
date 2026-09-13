@@ -7933,3 +7933,32 @@ berühren dieselbe Ecke - der Neustart-Fehler der Alarmanlage und die
 PlayStation als eigenes Gerät - ohne diesen Fall zu treffen.
 
 Stellen: `hub/homepilot/integrations/androidtv.py`, `hub/homepilot/core/szenenrueckweg.py`, `hub/tests/test_new_integrations.py`, `hub/tests/test_szenenrueckweg.py`
+
+### 645. Eine Hue-Lampe schaltete immer auf warmweiss ✓ erledigt
+
+Aus dem Haus, mit dem Bild des Ablauf-Editors: «Wenn ich dies mache,
+schaltet es auf warmweiss und nicht auf neutralweiss.» Auf Nachfrage:
+Philips-Hue-Anbindung, und «bei beiden dasselbe» - warmweiss und
+neutralweiss direkt ausprobiert, dasselbe Ergebnis.
+
+Die Rechnung von der Wahl bis zum Mired-Wert stimmte auf jeder Station
+- App, Ablauf-Entwurf, Hub: 286 kam als 286 an. Der Fehler lag im
+Vorgehen, nicht im Wert. Ein Licht-Schritt mit Helligkeit *und*
+Weisston schickte der Hub als **zwei** Anfragen nacheinander an die
+Bridge: erst «an, mit dieser Helligkeit», dann «und diese
+Farbtemperatur» (`core/automation.py`, `_light`). Zwei Übergänge an
+der Lampe statt einem - und die zweite Anfrage kam auf der
+Zigbee-Funkstrecke der Leuchte («Büro Spot 1», Teil einer
+Mehrspot-Leuchte, also mehr Geräte im selben Funkbereich) manchmal zu
+spät oder ging unter. Die Lampe blieb bei der Farbe, mit der sie
+einschaltete - und das ist bei Hue serienmässig warmweiss.
+
+Jetzt trägt schon die erste Anfrage die gewünschte Farbtemperatur mit,
+wenn eine angegeben ist (`hue.light_body`, herausgelöst aus
+`handle_command` und rein testbar) - ein einziger PUT für an,
+Helligkeit und Farbe zusammen, wie Philips es selbst empfiehlt. Die
+zweite, eigenständige Anfrage schickt der Hub weiterhin (für
+Anbindungen, die die Abkürzung nicht kennen); bei Hue bestätigt sie
+danach nur noch denselben Wert, den die Lampe schon zeigt.
+
+Stellen: `hub/homepilot/integrations/hue.py`, `hub/homepilot/core/automation.py`, `hub/tests/test_light.py`, `hub/tests/test_new_integrations.py`

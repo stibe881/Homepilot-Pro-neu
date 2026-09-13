@@ -1718,6 +1718,49 @@ def test_renamed_speakers_translate_at_the_edges():
     assert uebersetzte_namen({}, ["Terrasse"]) == ["Terrasse"]
 
 
+def test_hue_light_body_carries_the_white_tone_in_the_same_put():
+    """Punkt 645: «Büro Spot 1 schaltet auf warmweiss und nicht auf
+    neutralweiss» - egal welcher Weisston gewählt war.
+
+    Der Hub schickte bisher zwei PUT-Anfragen nacheinander: erst «an,
+    mit Helligkeit», dann «und diese Farbtemperatur». Zwei Übergänge an
+    der Lampe statt einem - die zweite Anfrage kam auf der Zigbee-
+    Funkstrecke manchmal zu spät oder ging unter, und die Lampe blieb
+    bei ihrer Einschalt-Farbe. Jetzt trägt schon die erste Anfrage die
+    Farbtemperatur mit, wenn eine dabei ist.
+    """
+    from homepilot.integrations.hue import light_body
+
+    # «neutralweiss» (286 Mired) beim Einschalten mit Helligkeit.
+    body = light_body(
+        "set_brightness", {"brightness": 100, "color_temp": 286}, war_an=False
+    )
+    assert body == {
+        "dimming": {"brightness": 100.0},
+        "on": {"on": True},
+        "color_temperature": {"mirek": 286},
+    }
+    # Dasselbe ohne Helligkeitsangabe - «turn_on» allein.
+    body = light_body("turn_on", {"color_temp": 200}, war_an=False)
+    assert body == {"on": {"on": True}, "color_temperature": {"mirek": 200}}
+    # Ohne Weisston bleibt die Anfrage, wie sie war - kein erfundenes Feld.
+    assert light_body("set_brightness", {"brightness": 50}, war_an=False) == {
+        "dimming": {"brightness": 50.0},
+        "on": {"on": True},
+    }
+    # Geht die Lampe dabei aus (Helligkeit 0), gehört keine Farbe hinein -
+    # eine Farbtemperatur für eine ausgeschaltete Lampe wäre unsinnig.
+    body = light_body("set_brightness", {"brightness": 0, "color_temp": 370}, war_an=True)
+    assert "color_temperature" not in body
+    # Das eigenständige Kommando bleibt unverändert erreichbar - für
+    # Anbindungen, die die Abkürzung oben nicht kennen.
+    assert light_body("set_color_temp", {"color_temp": 370}, war_an=True) == {
+        "color_temperature": {"mirek": 370}
+    }
+    # toggle kennt nur den Zustand davor, keine Farbe.
+    assert light_body("toggle", {"color_temp": 286}, war_an=False) == {"on": {"on": True}}
+
+
 def test_hue_scenes_keep_their_names():
     """«Entspannen» gibt es in jedem Zimmer – ohne Unterscheidung wäre die
     Auswahl ein Ratespiel."""
