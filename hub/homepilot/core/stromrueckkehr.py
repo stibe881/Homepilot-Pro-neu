@@ -53,7 +53,24 @@ TAKT_SEKUNDEN = 15
 FENSTER_SEKUNDEN = 600
 
 
-def kaltstart(vermerk: Any) -> bool:
+#: Läuft der Rechner schon so lange, war es kein Stromausfall. Fünfzehn
+#: Minuten: Nach dem Strom kommt erst der Host, dann Docker, dann der
+#: Hub - auf einem NAS dauert das Minuten, aber keine Viertelstunde.
+HOST_LAEUFT_SEKUNDEN = 900
+
+
+def betriebszeit() -> float | None:
+    """Wie lange der Rechner schon läuft, in Sekunden - None, wenn er es
+    nicht sagt (kein Linux, kein /proc). Im Container steht dort die Zeit
+    des Hosts, nicht die des Containers - und genau die ist gemeint."""
+    try:
+        with open("/proc/uptime", encoding="utf-8") as handle:
+            return float(handle.read().split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def kaltstart(vermerk: Any, betriebszeit: float | None = None) -> bool:
     """Ist der Hub nach einem Stromausfall hochgefahren? (rein, testbar)
 
     ``vermerk`` ist, was der vorige Lauf hinterlassen hat. «läuft» heisst:
@@ -61,10 +78,22 @@ def kaltstart(vermerk: Any) -> bool:
     kein Vermerk, etwas Unbekanntes - heisst «kein Kaltstart», und das
     ist die sichere Seite: Wer hier irrt, schaltet einem das Licht aus,
     während man im Zimmer steht.
+
+    ``betriebszeit`` ist das zweite Signal (Punkt 590 der Werkbank): Ein
+    abgebrochener Lauf allein sagt nur, dass der *Prozess* nicht geordnet
+    endete - das tut er auch, wenn ihn der Speicher-Wächter abschiesst
+    oder ein harter Neustart ihn trifft. Lief der Rechner dabei schon
+    Stunden, hatte das Haus nie Strom verloren, und die Lampen brennen
+    nicht wegen des Stromnetzes, sondern weil jemand sie eingeschaltet
+    hat. Ohne Angabe (None) zählt wie bisher nur der Vermerk.
     """
     if not isinstance(vermerk, dict):
         return False
-    return vermerk.get("state") == "laeuft"
+    if vermerk.get("state") != "laeuft":
+        return False
+    if betriebszeit is not None and betriebszeit > HOST_LAEUFT_SEKUNDEN:
+        return False
+    return True
 
 
 def wartezeit(config: Any) -> int:

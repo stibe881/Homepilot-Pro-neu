@@ -94,6 +94,38 @@ def test_restart_is_scheduled_not_executed_in_tests(client, monkeypatch):
     # echten Prozess-Exit durchläuft und die Berechtigung geprüft wurde.
 
 
+def test_der_neustart_endet_geordnet_und_hat_einen_nothalt(monkeypatch):
+    """Punkt 590 der Werkbank: Statt os._exit(0) geht SIGTERM an den
+    eigenen Prozess - uvicorn fährt dann über den lifespan herunter, also
+    durch hub.stop(), und der nächste Start hält den Knopf nicht für einen
+    Stromausfall. Der harte Exit bleibt als Netz dahinter, aber als
+    Daemon-Faden, der den regulären Ausgang nicht aufhält."""
+    import signal
+
+    signale = []
+    monkeypatch.setattr(server.os, "kill", lambda pid, sig: signale.append((pid, sig)))
+    gestartet = []
+
+    class FakeTimer:
+        def __init__(self, sekunden, funktion, args=()):
+            self.sekunden = sekunden
+            self.funktion = funktion
+            self.args = args
+            self.daemon = False
+
+        def start(self):
+            gestartet.append(self)
+
+    monkeypatch.setattr(server.threading, "Timer", FakeTimer)
+    server._exit_for_restart()
+    assert signale == [(server.os.getpid(), signal.SIGTERM)]
+    assert len(gestartet) == 1
+    nothalt = gestartet[0]
+    assert nothalt.daemon is True
+    assert nothalt.sekunden == server.NOTHALT_SEKUNDEN
+    assert nothalt.funktion is server.os._exit and nothalt.args == (0,)
+
+
 def test_owner_assigns_room_to_entity(client):
     # Demo-Entität ohne Raum → per API Raum setzen → im Snapshot sichtbar.
     entities = client.get("/api/entities", headers=auth("t-owner")).json()

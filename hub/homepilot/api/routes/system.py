@@ -322,7 +322,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     @app.post("/api/system/restart")
     async def restart(request: Request) -> dict[str, Any]:
         """Hub-Prozess beenden – Docker (restart: unless-stopped) oder
-        systemd starten ihn sofort neu, mit frisch gelesener Konfiguration."""
+        systemd starten ihn sofort neu, mit frisch gelesener Konfiguration.
+
+        Geordnet, nicht hart (Punkt 590 der Werkbank): Das Ende läuft
+        durch hub.stop(), sonst sieht der nächste Start diesen Knopf für
+        einen Stromausfall an.
+        """
         user = require(request, Capability.EDIT_CONFIG)
         log.warning("Neustart angefordert von %s", user.name)
         # Kurz warten, damit die Antwort das Gerät noch erreicht.

@@ -178,8 +178,11 @@ class Hub:
         # steht im Vermerk des vorigen Laufs und muss hier fallen, bevor
         # ihn dieser Lauf überschreibt (core/stromrueckkehr.py).
         eintraege = self.data.get("lauf")
+        # Dazu die Betriebszeit des Rechners (Punkt 590): Ein Hub, der
+        # abstürzt oder hart neu gestartet wird, hinterlässt denselben
+        # Vermerk wie ein Stromausfall - der Host weiss den Unterschied.
         self._kaltstart = stromrueckkehr.kaltstart(
-            eintraege[0] if eintraege else None
+            eintraege[0] if eintraege else None, stromrueckkehr.betriebszeit()
         )
         self.data.set("lauf", [{"state": "laeuft", "at": time.time()}])
         if self._kaltstart:

@@ -467,7 +467,11 @@ class DataStore:
             raise ValueError("Die Sicherung ist beschädigt (kein Objekt).")
         self.backup()
         self._data = payload
-        self.save()
+        # Direkt schreiben, nicht über save(): Das sammelt innerhalb der
+        # Sammelsekunde nur vor, und der Neustart folgt in unter einer
+        # Sekunde - ob der Flush davor noch feuerte, war Zufall (Punkt
+        # 590 der Werkbank).
+        self._write()
 
     def _backup_file(self, name: str) -> Path:
         folder = self._backup_dir()
