@@ -12,9 +12,9 @@ jede einzelne Änderung.
 Ein selbstgebautes Zuhause-System für einen Haushalt in Zell LU. Zwei
 Teile:
 
-- **`hub/`** – Python 3.11, FastAPI. Spricht mit den Geräten (Homematic,
-  Hue, Matter, MQTT, Tuya …), führt Abläufe aus, hält den Zustand. Läuft
-  durchgehend auf einem Rechner im Haus.
+- **`hub/`** – Python 3.11+ (das Abbild läuft auf 3.12), FastAPI. Spricht
+  mit den Geräten (Homematic, Hue, Matter, MQTT, Tuya …), führt Abläufe
+  aus, hält den Zustand. Läuft durchgehend auf einem Rechner im Haus.
 - **`app/`** – React Native mit Expo. iPhone, iPad und Browser aus
   derselben Quelle. Redet mit dem Hub über HTTP und einen WebSocket.
 

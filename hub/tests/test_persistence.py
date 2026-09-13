@@ -163,8 +163,14 @@ def test_backup_writes_dated_copy_and_prunes(tmp_path):
     assert result is not None
     backups = store.backups()
     assert len(backups) == 1
-    # Inhalt der Sicherung entspricht den Daten.
-    saved = json.loads((tmp_path / "backups" / backups[0]["name"]).read_text("utf-8"))
+    # Inhalt der Sicherung entspricht den Daten - seit Punkt 593 liegt die
+    # Datendatei in einem Archiv, neben dem, was sonst neben ihr liegt.
+    import tarfile
+
+    with tarfile.open(tmp_path / "backups" / backups[0]["name"], mode="r:gz") as archiv:
+        datei = archiv.extractfile("homepilot-data.json")
+        assert datei is not None
+        saved = json.loads(datei.read().decode("utf-8"))
     assert saved["users"][0]["name"] == "A"
 
     # Mehr als «keep» Sicherungen werden auf die jüngsten gestutzt.

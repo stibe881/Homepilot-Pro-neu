@@ -198,7 +198,7 @@ import { Widgets } from '../components/Widgets';
 import { syncAuto } from '../lib/autoablage';
 import { Ablage, syncWidget } from '../lib/widget';
 import { hoereAufSchnellaktionen, setzeSchnellaktionen } from '../lib/schnellaktionen';
-import { Ziel, knoepfeAus, zielAus } from '../lib/pushziel';
+import { PushKnopf, Ziel, knoepfeAus, sitzungsPfad, zielAus } from '../lib/pushziel';
 import { PushBlatt } from '../components/PushBlatt';
 import { Erinnerungsblatt } from '../components/Erinnerungsblatt';
 import { fristSatz } from '../lib/erinnerungsfrist';
@@ -4604,6 +4604,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               if (knopf.scene) activateScene(knopf.scene);
               else if (knopf.entity && knopf.command) {
                 guardedCommand(knopf.entity, knopf.command);
+              } else {
+                // «Nicht ich → Gerät abmelden» (Punkt 626): die fremde
+                // Anmeldung beenden - eigene über das Konto, die eines
+                // Gasts über die Benutzerverwaltung (lib/pushziel.ts).
+                const pfad = sitzungsPfad(knopf, user?.name);
+                if (pfad) hub.del(pfad, { fallback: null }).catch(() => {});
               }
             }}
             onSchliessen={() => setPushBlatt(null)}

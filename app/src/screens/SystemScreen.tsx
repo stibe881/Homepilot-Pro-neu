@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import Constants from 'expo-constants';
+import * as DocumentPicker from 'expo-document-picker';
 import * as Updates from 'expo-updates';
 
 import { HubFehler, hubClient } from '../api/client';
@@ -34,6 +35,7 @@ import { LaufArt, LetzterLauf, letzterLaufSatz } from '../lib/letzterlauf';
 import { OtaStand, otaLage, otaZeile } from '../lib/otastand';
 import { standSatz } from '../lib/appstand';
 import { SIGNAL_AN, SIGNAL_AUS, rauchmelderListe } from '../lib/rauchmelder';
+import { sicherungsNameProblem, sicherungsZeile } from '../lib/sicherung';
 import { UpdateVorschau, vorschauZeilen } from '../lib/updatevorschau';
 import { fehlerZeilen, letzterStartfehler, startfehlerListe } from '../lib/startfehler';
 import { localTime, timeAgo } from '../lib/zeit';
@@ -2076,16 +2078,25 @@ function BackupCard({ settings }: { settings: HubSettings }) {
     name: string;
     error?: string | null;
   } | null>(null);
+  // Der Rückweg (Punkt 593): Ob es einen Bucket gibt, was darin liegt,
+  // und ob gerade etwas hoch- oder heruntergeladen wird.
+  const [offsiteMoeglich, setOffsiteMoeglich] = useState(false);
+  const [bucket, setBucket] = useState<string[] | null>(null);
+  const [bucketOffen, setBucketOffen] = useState(false);
 
   const load = useCallback(() => {
     hub
-      .get<{ backups?: Sicherung[]; offsite?: Offsite }>('/api/system/backups', {
-        fallback: { backups: [] },
-        still: true,
-      })
+      .get<{ backups?: Sicherung[]; offsite?: Offsite; offsite_moeglich?: boolean }>(
+        '/api/system/backups',
+        {
+          fallback: { backups: [] },
+          still: true,
+        }
+      )
       .then((data) => {
         setBackups(data.backups ?? []);
         setOffsite(data.offsite ?? null);
+        setOffsiteMoeglich(!!data.offsite_moeglich);
       });
   }, [hub]);
 
@@ -2198,6 +2209,91 @@ function BackupCard({ settings }: { settings: HubSettings }) {
     }
   };
 
+  /**
+   * Eine Sicherung vom Rechner hochladen (Punkt 593).
+   *
+   * Das Gegenstück zum Herunterladen: Wer die Kopie auf dem Computer hat,
+   * legt sie damit in den Ordner der Sicherungen - und spielt sie dann
+   * unten zurück wie jede andere. Die Datei geht roh an den Hub, der
+   * Name in der Adresse; beides prüft der Hub noch einmal selbst.
+   */
+  const hochladen = async () => {
+    setNote(null);
+    const ergebnis = await DocumentPicker.getDocumentAsync({
+      copyToCacheDirectory: true,
+      multiple: false,
+    }).catch(() => null);
+    if (!ergebnis || ergebnis.canceled || !ergebnis.assets?.length) return;
+    const asset = ergebnis.assets[0];
+    const problem = sicherungsNameProblem(asset.name);
+    if (problem) {
+      setNote(problem);
+      return;
+    }
+    setBusy(true);
+    try {
+      const blob = await (await fetch(asset.uri)).blob();
+      const antwort = await hub.roh<{ backups?: Sicherung[]; backup?: Sicherung }>(
+        `/api/system/backups/upload?name=${encodeURIComponent(asset.name.trim())}`,
+        blob,
+        { still: true, timeout: 300_000 }
+      );
+      setBackups(antwort?.backups ?? []);
+      setListOpen(true);
+      setNote(
+        `${antwort?.backup?.name ?? asset.name} liegt jetzt bei den Sicherungen - ` +
+          'unten «Zurückspielen», um sie zu übernehmen.'
+      );
+    } catch (err) {
+      setNote(err instanceof HubFehler ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Was im Supabase-Bucket liegt - erst auf Tipp, nicht bei jedem Öffnen. */
+  const bucketLaden = async () => {
+    if (bucketOffen) {
+      setBucketOffen(false);
+      return;
+    }
+    setNote(null);
+    setBucketOffen(true);
+    setBucket(null);
+    try {
+      const antwort = await hub.get<{ names?: string[] }>('/api/system/backups/offsite', {
+        still: true,
+      });
+      setBucket(antwort?.names ?? []);
+    } catch (err) {
+      setBucketOffen(false);
+      setNote(err instanceof HubFehler ? err.message : String(err));
+    }
+  };
+
+  /** Eine Sicherung aus dem Bucket in den lokalen Ordner holen (Punkt 593). */
+  const holen = async (name: string) => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const antwort = await hub.post<{ backups?: Sicherung[]; backup?: Sicherung }>(
+        `/api/system/backups/offsite/${encodeURIComponent(name)}/fetch`,
+        undefined,
+        { still: true, timeout: 300_000 }
+      );
+      setBackups(antwort?.backups ?? []);
+      setListOpen(true);
+      setNote(
+        `${antwort?.backup?.name ?? name} aus dem Bucket geholt - unten «Zurückspielen», ` +
+          'um sie zu übernehmen.'
+      );
+    } catch (err) {
+      setNote(err instanceof HubFehler ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const restore = async (name: string) => {
     if (confirmRestore !== name) {
       setConfirmRestore(name);
@@ -2255,7 +2351,40 @@ function BackupCard({ settings }: { settings: HubSettings }) {
           label={Platform.OS === 'web' ? 'Hausblatt drucken' : 'Hausblatt teilen'}
           onPress={hausblatt}
         />
+        <Button label="Sicherung hochladen" onPress={hochladen} />
+        {offsiteMoeglich ? (
+          <Button
+            label={bucketOffen ? 'Bucket zuklappen' : 'Aus dem Bucket holen'}
+            onPress={bucketLaden}
+          />
+        ) : null}
       </View>
+      {bucketOffen ? (
+        <View style={{ gap: 6 }}>
+          <Text style={styles.rowDetail}>
+            {bucket == null
+              ? 'Bucket wird gelesen …'
+              : bucket.length === 0
+                ? 'Im Bucket liegt keine Sicherung.'
+                : `Im Supabase-Bucket (${bucket.length}) - holen legt sie zu den Sicherungen unten:`}
+          </Text>
+          {(bucket ?? []).map((name) => (
+            <View key={name} style={styles.row}>
+              <Text style={[styles.rowDetail, { flex: 1 }]} numberOfLines={1}>
+                {name}
+              </Text>
+              <Pressable
+                onPress={() => holen(name)}
+                accessibilityRole="button"
+                accessibilityLabel={`${name} aus dem Bucket holen`}
+                style={({ pressed }) => [styles.smallAction, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={styles.smallActionText}>Holen</Text>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      ) : null}
       <Text style={styles.rowDetail}>
         {Platform.OS === 'web'
           ? 'Die Datei enthält Abläufe, Szenen, Listen und Räume – keine Token, keine Sitzungen, kein Zugriffsprotokoll.'
@@ -2271,9 +2400,7 @@ function BackupCard({ settings }: { settings: HubSettings }) {
             <View key={entry.name} style={styles.row}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowDetail}>
-                  {datumUhr(entry.created * 1000)}
-                  {' · '}
-                  {Math.max(1, Math.round(entry.size / 1024))} kB
+                  {sicherungsZeile(entry, datumUhr(entry.created * 1000))}
                 </Text>
               </View>
               {Platform.OS === 'web' ? (
@@ -2320,9 +2447,11 @@ function BackupCard({ settings }: { settings: HubSettings }) {
       ) : null}
       <Text style={styles.hint}>
         Benutzer, Abläufe, Szenen und Familien-Daten werden täglich automatisch gesichert
-        (die letzten 14). Zurückspielen sichert den aktuellen Stand zuerst und startet den
-        Hub neu. Fürs Herunterladen die Web-Fassung am Computer öffnen - eine Kopie
-        ausserhalb des Hubs schützt auch bei einem Plattenschaden.
+        (die letzten 14) - als Archiv samt allem daneben: Bilder, Gutschein-Dateien,
+        Token der Dienste, config.yaml. Zurückspielen sichert den aktuellen Stand zuerst
+        und startet den Hub neu. Fürs Herunterladen die Web-Fassung am Computer öffnen -
+        eine Kopie ausserhalb des Hubs schützt auch bei einem Plattenschaden; der Weg
+        zurück ist «Sicherung hochladen» oder «Aus dem Bucket holen».
       </Text>
     </Card>
   );

@@ -133,6 +133,10 @@ class Hub:
         # In der App angelegte Benutzer und Automationen liegen neben der
         # Konfiguration, damit sie ohne Datenbank einen Neustart überleben.
         self.data = DataStore(config.data_file)
+        # Wo config.yaml und secrets.env liegen - die Sicherung nimmt sie
+        # mit (Punkt 593), auch wenn die Datendatei woanders wohnt.
+        if config.source_path:
+            self.data.config_dir = Path(config.source_path).parent
         # Was der Hub tut, mitzählen - siehe core/metrics.py.
         self.counters = metrics.Counters()
         # Sitzungen aus der Anmeldung mit E-Mail und Passwort. Sie liegen
@@ -178,8 +182,11 @@ class Hub:
         # steht im Vermerk des vorigen Laufs und muss hier fallen, bevor
         # ihn dieser Lauf überschreibt (core/stromrueckkehr.py).
         eintraege = self.data.get("lauf")
+        # Dazu die Betriebszeit des Rechners (Punkt 590): Ein Hub, der
+        # abstürzt oder hart neu gestartet wird, hinterlässt denselben
+        # Vermerk wie ein Stromausfall - der Host weiss den Unterschied.
         self._kaltstart = stromrueckkehr.kaltstart(
-            eintraege[0] if eintraege else None
+            eintraege[0] if eintraege else None, stromrueckkehr.betriebszeit()
         )
         self.data.set("lauf", [{"state": "laeuft", "at": time.time()}])
         if self._kaltstart:
@@ -380,7 +387,9 @@ class Hub:
 
         try:
             payload = self.data.backup_bytes(name)
-            await offsite.upload(str(url), str(key), bucket, name, payload)
+            await offsite.upload(
+                str(url), str(key), bucket, name, payload, offsite.content_type(name)
+            )
             await offsite.prune(str(url), str(key), bucket)
             # Die Matter-Fabrik dazu: Ohne sie müsste nach einem
             # Plattenschaden jedes Matter-Gerät neu gekoppelt werden.

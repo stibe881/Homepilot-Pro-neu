@@ -53,7 +53,7 @@ export function PushBlatt({
           {text ? <Text style={styles.text}>{text}</Text> : null}
           {knoepfe.map((knopf) => (
             <Pressable
-              key={`${knopf.label}:${knopf.scene ?? knopf.entity}`}
+              key={`${knopf.label}:${knopf.scene ?? knopf.entity ?? knopf.sitzung}`}
               onPress={() => {
                 onDruck(knopf);
                 onSchliessen();
@@ -62,7 +62,7 @@ export function PushBlatt({
               style={({ pressed }) => [styles.knopf, pressed && { opacity: 0.8 }]}
             >
               <Ionicons
-                name={knopf.scene ? 'sparkles' : 'flash'}
+                name={knopf.scene ? 'sparkles' : knopf.sitzung ? 'log-out-outline' : 'flash'}
                 size={18}
                 color="#FFFFFF"
               />

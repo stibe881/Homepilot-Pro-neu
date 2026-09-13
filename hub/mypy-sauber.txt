@@ -39,6 +39,7 @@ homepilot/api/server.py
 homepilot/core/__init__.py
 homepilot/core/ablaufsimulation.py
 homepilot/core/abschaltung.py
+homepilot/core/abschied.py
 homepilot/core/aenderungen.py
 homepilot/core/alarmanwesenheit.py
 homepilot/core/alarmbericht.py

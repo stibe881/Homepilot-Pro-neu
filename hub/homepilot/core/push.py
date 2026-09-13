@@ -359,6 +359,10 @@ CATEGORIES: dict[str, str] = {
     "packlist": "Packliste für morgen",
     "morning": "Morgen-Zusammenfassung",
     "presence": "Ortung: schwacher Akku, Funkstille",
+    # Punkt 626: Eine neue Anmeldung an deinem Konto - und für die
+    # Besitzer: an einem Gast- oder Kinderkonto, oder eine gesperrte
+    # Adresse nach zu vielen falschen Passwörtern.
+    "login": "Neue Anmeldung an deinem Konto",
     "weekahead": "Wochenausblick am Sonntag",
     # Gutscheine (Punkt 264): dreissig und sieben Tage vor dem Verfall.
     "vouchers": "Gutschein läuft bald ab",
@@ -380,7 +384,8 @@ GROUPS: list[tuple[str, tuple[str, ...]]] = [
     # Die Klingel steht ganz vorn: Sie ist die Nachricht, auf die man
     # sofort reagiert - und die einzige, bei der ein paar Sekunden
     # Verzögerung den Zweck zunichte machen.
-    ("Sicherheit", ("doorbell", "alarm", "alarm_arming", "camera_motion", "leak", "smoke", "door")),
+    ("Sicherheit", ("doorbell", "alarm", "alarm_arming", "camera_motion", "leak", "smoke",
+                    "door", "login")),
     ("Haus", ("open", "appliance", "oven", "grill", "vacuum", "frost", "rain",
               "storm_covers", "heat_covers", "plants", "timer", "maintenance")),
     # «Baby weint» steht vorn und bei der Familie, nicht bei der

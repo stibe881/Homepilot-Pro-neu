@@ -1,4 +1,4 @@
-import { HOECHSTENS_KNOEPFE, knoepfeAus, zielAus } from './pushziel';
+import { HOECHSTENS_KNOEPFE, knoepfeAus, sitzungsPfad, zielAus } from './pushziel';
 
 describe('Wohin ein Tipp auf eine Nachricht führt', () => {
   it('versteht einen Bereich', () => {
@@ -133,5 +133,26 @@ describe('Knöpfe unter einer Nachricht', () => {
   it('kommt ohne Knöpfe aus', () => {
     expect(knoepfeAus({})).toEqual([]);
     expect(knoepfeAus({ knoepfe: 'nein' })).toEqual([]);
+  });
+});
+
+describe('Der Knopf «Nicht ich → Gerät abmelden» (Punkt 626)', () => {
+  it('liest eine Sitzung samt Person - und verlangt beides', () => {
+    expect(
+      knoepfeAus({
+        knoepfe: [
+          { label: 'Nicht ich → Gerät abmelden', sitzung: 'abc123', user: 'Levin' },
+          { label: 'Ohne Person', sitzung: 'abc123' },
+        ],
+      })
+    ).toEqual([{ label: 'Nicht ich → Gerät abmelden', sitzung: 'abc123', user: 'Levin' }]);
+  });
+
+  it('beendet die eigene Sitzung über das Konto, eine fremde über die Verwaltung', () => {
+    const knopf = { label: 'Nicht ich', sitzung: 'abc123', user: 'Levin' };
+    expect(sitzungsPfad(knopf, 'Levin')).toBe('/api/auth/sessions/abc123');
+    // Der Besitzer bekommt die Meldung über den Babysitter-Zugang.
+    expect(sitzungsPfad(knopf, 'Stefan')).toBe('/api/users/Levin/sessions/abc123');
+    expect(sitzungsPfad({ label: 'Kino', scene: 'kino' }, 'Levin')).toBeNull();
   });
 });

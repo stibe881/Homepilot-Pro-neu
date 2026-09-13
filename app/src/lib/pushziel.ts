@@ -183,9 +183,15 @@ export interface PushKnopf {
   label: string;
   /** Entweder eine Szene … */
   scene?: string;
-  /** … oder ein Gerät samt Befehl. */
+  /** … oder ein Gerät samt Befehl … */
   entity?: string;
   command?: string;
+  /** … oder eine Sitzung, die beendet werden soll (Punkt 626): «Nicht
+   *  ich → Gerät abmelden» unter der Meldung «Neues Gerät angemeldet».
+   *  `user` sagt, wessen Sitzung - die eigene geht über /api/auth, eine
+   *  fremde (Gast, Kind) über die Benutzerverwaltung (Punkt 625). */
+  sitzung?: string;
+  user?: string;
 }
 
 /** Höchstens so viele. Mehr liest unter einer Nachricht niemand. */
@@ -209,12 +215,33 @@ export function knoepfeAus(data: { knoepfe?: unknown }): PushKnopf[] {
     const scene = typeof eintrag.scene === 'string' ? eintrag.scene : '';
     const entity = typeof eintrag.entity === 'string' ? eintrag.entity : '';
     const command = typeof eintrag.command === 'string' ? eintrag.command : '';
+    const sitzung = typeof eintrag.sitzung === 'string' ? eintrag.sitzung : '';
+    const user = typeof eintrag.user === 'string' ? eintrag.user : '';
     if (scene) {
       knoepfe.push({ label, scene });
     } else if (entity && command) {
       knoepfe.push({ label, entity, command });
+    } else if (sitzung && user) {
+      knoepfe.push({ label, sitzung, user });
     }
     if (knoepfe.length >= HOECHSTENS_KNOEPFE) break;
   }
   return knoepfe;
+}
+
+/**
+ * Wohin ein Sitzungs-Knopf sein DELETE schickt (rein, testbar).
+ *
+ * Die eigene Sitzung beendet man über /api/auth/sessions - das darf
+ * jeder für sich. Die eines Gasts oder Kinds, dessen Anmeldung die
+ * Besitzer gemeldet bekommen, geht über die Benutzerverwaltung
+ * (/api/users/{name}/sessions/{sid}, Punkt 625); ohne MANAGE_USERS
+ * antwortet der Hub dort mit 403, und das ist richtig so. null, wenn
+ * der Knopf keine Sitzung trägt.
+ */
+export function sitzungsPfad(knopf: PushKnopf, eigenerName: string | null | undefined): string | null {
+  if (!knopf.sitzung || !knopf.user) return null;
+  const sid = encodeURIComponent(knopf.sitzung);
+  if (eigenerName && knopf.user === eigenerName) return `/api/auth/sessions/${sid}`;
+  return `/api/users/${encodeURIComponent(knopf.user)}/sessions/${sid}`;
 }

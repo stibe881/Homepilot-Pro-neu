@@ -27,6 +27,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import signal
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -126,10 +128,36 @@ from .routes import (
 log = logging.getLogger(__name__)
 
 
+#: So lange darf das geordnete Ende dauern, bevor der Prozess hart
+#: beendet wird. Docker gibt beim «stop» zehn Sekunden - hier ist es
+#: grosszügiger, weil niemand wartet: Wer den Knopf drückt, sieht die
+#: App ohnehin erst wieder, wenn der neue Prozess antwortet.
+NOTHALT_SEKUNDEN = 20.0
+
+
 def _exit_for_restart() -> None:
-    """Prozess hart beenden – der Prozessmanager (Docker, systemd) startet
-    neu. In Tests wird diese Funktion ersetzt."""
-    os._exit(0)
+    """Den Prozess geordnet beenden – der Prozessmanager (Docker, systemd)
+    startet neu. In Tests wird diese Funktion ersetzt.
+
+    Punkt 590 der Werkbank: Hier stand ``os._exit(0)``. Das übersprang
+    ``hub.stop()`` - kein Vermerk «beendet», kein Weglegen des Log-Rings,
+    kein ``data.flush()``. Der nächste Start fand den liegengebliebenen
+    Vermerk «läuft», hielt den Neustart für einen Stromausfall, und der
+    Ablauf «Nach Stromausfall» räumte am Nachmittag das Haus ab - nach
+    einem Tipp auf «Neustart».
+
+    Deshalb SIGTERM an den eigenen Prozess: uvicorn fängt es im
+    Hauptfaden, schliesst die Verbindungen und fährt die Anwendung über
+    den lifespan herunter - also durch ``hub.stop()``, genau wie bei
+    ``docker stop``. Bleibt das hängen (eine Anbindung, die beim Abbau
+    nicht antwortet), beendet der Wächterfaden den Prozess nach
+    ``NOTHALT_SEKUNDEN`` trotzdem - als Daemon, damit er den regulären
+    Ausgang nicht selbst aufhält.
+    """
+    nothalt = threading.Timer(NOTHALT_SEKUNDEN, os._exit, args=(0,))
+    nothalt.daemon = True
+    nothalt.start()
+    os.kill(os.getpid(), signal.SIGTERM)
 
 
 

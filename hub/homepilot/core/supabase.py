@@ -15,7 +15,12 @@ log = logging.getLogger(__name__)
 
 
 class SupabaseError(Exception):
-    pass
+    """Eine Antwort ab 400 - mit dem Status, denn der entscheidet, ob ein
+    zweiter Versuch Sinn hat (core/store.py: dauerhaft_abgelehnt)."""
+
+    def __init__(self, message: str, status: int = 0) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 class SupabaseClient:
@@ -47,7 +52,9 @@ class SupabaseClient:
         ) as response:
             body = await response.text()
             if response.status >= 400:
-                raise SupabaseError(f"{method} {table} → {response.status}: {body[:300]}")
+                raise SupabaseError(
+                    f"{method} {table} → {response.status}: {body[:300]}", response.status
+                )
             if not body.strip():
                 return []
             return await response.json(content_type=None)

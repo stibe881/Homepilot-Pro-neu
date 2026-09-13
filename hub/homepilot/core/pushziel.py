@@ -85,6 +85,12 @@ ZIELE: dict[str, str] = {
     "vouchers": "familie:vouchers",
     # Wer wo ist, steht unter «Familie und Freunde».
     "presence": "bereich:personen",
+    # Eine neue Anmeldung (Punkt 626): Dort, wo die eigenen Geräte
+    # stehen und sich das fremde beenden lässt - auf der Konto-Seite.
+    # Die Meldung an die Besitzer über ein Gast- oder Kinderkonto trägt
+    # ihr Ziel selbst (bereich:users), dort steht die Geräteliste der
+    # anderen (Punkt 625).
+    "login": "bereich:account",
     # Bewegung sieht man auf der Kamera - welche, sagt die Nachricht
     # selbst (data.camera).
     "camera_motion": "start",
