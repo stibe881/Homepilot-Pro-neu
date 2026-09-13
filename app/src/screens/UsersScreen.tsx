@@ -33,6 +33,7 @@ import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { Tastaturplatz } from '../components/Tastaturplatz';
 import { einladungFrist } from '../lib/einladung';
+import { Abschied, loeschKnopf, loeschPfad, uebergabeMoeglich } from '../lib/abschied';
 import { gruppiereZugaenge } from '../lib/benutzergruppen';
 import {
   Geraetesitzung,
@@ -345,6 +346,10 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
   const [newShared, setNewShared] = useState(false);
   const [newFeatures, setNewFeatures] = useState<string[]>(['licht']);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  // Was am Löschen hängt (Punkt 628): der Satz des Hubs und die Wahl,
+  // wer die Ämtli übernimmt. null, solange nicht gefragt wurde.
+  const [abschied, setAbschied] = useState<Abschied | null>(null);
+  const [aemtliAn, setAemtliAn] = useState<string | null>(null);
   // Detailansicht: gewählter Benutzer + geladene Kopplungs-Daten.
   const [detail, setDetail] = useState<HubUser | null>(null);
   const [pairing, setPairing] = useState<string | null>(null);
@@ -542,18 +547,35 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
     }
   };
 
+  /**
+   * Der erste Tipp auf «Löschen» fragt den Hub, was daran hängt (Punkt
+   * 628) - erst dann steht «Anna entfernen? 2 Geräte, Bild, 3 Ämtli» da,
+   * und die Ämtli lassen sich übergeben, bevor der zweite Tipp löscht.
+   */
+  const loeschenVorbereiten = (name: string) => {
+    setConfirmDelete(name);
+    setAbschied(null);
+    setAemtliAn(null);
+    hub
+      .get<Abschied>(`/api/users/${encodeURIComponent(name)}/abschied`, { still: true })
+      .then(setAbschied)
+      .catch(() => {});
+  };
+
   const remove = async (name: string) => {
     setError(null);
     try {
-      const response = await fetch(
-        `${settings.url}/api/users/${encodeURIComponent(name)}`,
-        { method: 'DELETE', headers }
-      );
+      const response = await fetch(`${settings.url}${loeschPfad(name, aemtliAn)}`, {
+        method: 'DELETE',
+        headers,
+      });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(body?.detail ?? `Hub antwortet mit ${response.status}`);
       }
       setConfirmDelete(null);
+      setAbschied(null);
+      setAemtliAn(null);
       setDetail(null);
       load();
     } catch (err) {
@@ -1565,30 +1587,79 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                   ) : null}
 
                   {detail.editable && currentUser?.name !== detail.name ? (
-                    <View style={styles.modalButtons}>
-                      <Pressable
-                        onPress={() =>
-                          patchUser(detail.name, { enabled: detail.enabled === false })
-                        }
-                        style={[styles.smallButton, { flex: 1 }]}
-                      >
-                        <Text style={styles.smallButtonText}>
-                          {detail.enabled === false ? 'Aktivieren' : 'Deaktivieren'}
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() =>
-                          confirmDelete === detail.name
-                            ? remove(detail.name)
-                            : setConfirmDelete(detail.name)
-                        }
-                        style={[styles.smallButton, styles.dangerButton, { flex: 1 }]}
-                      >
-                        <Text style={styles.dangerButtonText}>
-                          {confirmDelete === detail.name ? 'Wirklich löschen' : 'Löschen'}
-                        </Text>
-                      </Pressable>
-                    </View>
+                    <>
+                      {confirmDelete === detail.name ? (
+                        <View style={styles.rotateBox}>
+                          {/* Punkt 628: Was das Löschen mitnimmt, steht
+                              vor dem zweiten Tipp da - nicht danach im Log. */}
+                          <Text style={styles.qrHint}>
+                            {abschied?.satz ?? `${detail.name} entfernen? Einen Moment …`}
+                          </Text>
+                          {uebergabeMoeglich(abschied) ? (
+                            <>
+                              <Text style={styles.formLabel}>Ämtli und Aufgaben übergeben an</Text>
+                              <View style={styles.roleRow}>
+                                {(abschied?.uebernehmer ?? []).map((name) => {
+                                  const active = aemtliAn === name;
+                                  return (
+                                    <Pressable
+                                      key={name}
+                                      onPress={() => setAemtliAn(active ? null : name)}
+                                      accessibilityRole="radio"
+                                      accessibilityState={{ selected: active }}
+                                      style={[styles.roleChip, active && styles.roleChipActive]}
+                                    >
+                                      <Text
+                                        style={[
+                                          styles.roleChipText,
+                                          active && styles.roleChipTextActive,
+                                        ]}
+                                      >
+                                        {name}
+                                      </Text>
+                                    </Pressable>
+                                  );
+                                })}
+                              </View>
+                              <Text style={styles.qrHint}>
+                                Ohne Wahl rückt die Reihe weiter, wie beim Abhaken.
+                              </Text>
+                            </>
+                          ) : null}
+                          <Text style={styles.qrHint}>
+                            Soll die Person nur vorübergehend nicht hereinkommen, ist
+                            «Deaktivieren» der sanftere Weg: Der Zugang friert ein, alles
+                            bleibt.
+                          </Text>
+                        </View>
+                      ) : null}
+                      <View style={styles.modalButtons}>
+                        <Pressable
+                          onPress={() =>
+                            patchUser(detail.name, { enabled: detail.enabled === false })
+                          }
+                          style={[styles.smallButton, { flex: 1 }]}
+                        >
+                          <Text style={styles.smallButtonText}>
+                            {detail.enabled === false ? 'Aktivieren' : 'Deaktivieren'}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() =>
+                            confirmDelete === detail.name
+                              ? remove(detail.name)
+                              : loeschenVorbereiten(detail.name)
+                          }
+                          style={[styles.smallButton, styles.dangerButton, { flex: 1 }]}
+                        >
+                          <Text style={styles.dangerButtonText}>
+                            {confirmDelete === detail.name
+                              ? loeschKnopf(abschied, aemtliAn)
+                              : 'Löschen'}
+                          </Text>
+                        </Pressable>
+                      </View>
+                    </>
                   ) : null}
                 </>
               ) : null}
