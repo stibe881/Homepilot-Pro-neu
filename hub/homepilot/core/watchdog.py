@@ -55,6 +55,7 @@ from . import (
     packliste,
     personen,
     presence,
+    push,
     pushbuendel,
     pushziel,
     regen,
@@ -2101,7 +2102,14 @@ class Watchdog:
             self._gemahnt[entity.id] = gemahnt + 1
             self._gemahnt_at[entity.id] = now
             titel, text = waschkueche.mahnsatz(entity.label, since, now, gemahnt)
-            await self._notify(titel, text, "appliance", entity_id=entity.id)
+            await self._notify(
+                titel,
+                text,
+                "appliance",
+                # Punkt 599: Die volle Maschine räumt aus, wer im Haus ist.
+                to=push.ZIEL_ANWESEND if params.get("anwesende") else None,
+                entity_id=entity.id,
+            )
 
     async def _kueche_durchsage(self, entity: Any, kurz: str, satz: str) -> None:
         """Parat/fertig aus der Küche: Push und Durchsage, jeder Weg für
@@ -2413,6 +2421,10 @@ class Watchdog:
         now = time.time()
         offen = {entity.id for entity in open_contacts(entities)}
         reminder = self.rules["open"]["params"]["hours"] * 3600
+        # «Nur an Anwesende» (Punkt 599): Wer unterwegs ist, kann das
+        # Fenster nicht schliessen. Ist niemand zuhause, geht die Meldung
+        # trotzdem an alle - das entscheidet recipients().
+        empfaenger = push.ZIEL_ANWESEND if self.rules["open"]["params"].get("anwesende") else None
         # Das Gedächtnis liegt in hub.data, nicht im Arbeitsspeicher:
         # «Terrasse steht offen» kam sonst nach jedem Hub-Neustart erneut
         # - und jedes Update ist ein Neustart. Verankert am Zeitpunkt der
@@ -2435,6 +2447,7 @@ class Watchdog:
                     f"{offen_satz(since, now)} – im Winter geht so die "
                     "Heizung zum Fenster hinaus.",
                     "open",
+                    to=empfaenger,
                     entity_id=entity.id,
                 )
         zeilen = offene_meldungen_zeilen(gemahnt)

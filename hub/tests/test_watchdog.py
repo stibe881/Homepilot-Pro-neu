@@ -1141,3 +1141,39 @@ async def test_open_reminder_survives_a_hub_restart():
     finally:
         await hub.stop()
 
+
+
+async def test_das_offene_fenster_geht_mit_dem_schalter_nur_an_anwesende():
+    """Punkt 599: «Nur an Anwesende» an der Regel wird zum Ziel «anwesend»
+    - wer unterwegs ist, kann das Fenster ohnehin nicht schliessen."""
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        ziele: list[str] = []
+        echte_empfaenger = hub.push.recipients
+
+        def recipients(users, to="all", category=None):
+            ziele.append((to, category))
+            return echte_empfaenger(users, to, category)
+
+        async def fake_send(tokens, title, body, data=None, image=None, **_):
+            return len(tokens)
+
+        hub.push.recipients = recipients  # type: ignore[assignment]
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+        hub.data.set(
+            "notify_rules",
+            [
+                {"key": "morning", "enabled": False, "params": {}},
+                {"key": "open", "enabled": True, "params": {"hours": 2, "anwesende": 1}},
+            ],
+        )
+        fenster = melder("hm.fenster", "contact")
+        hub.registry.all = lambda: [fenster]  # type: ignore[assignment]
+        await hub.watchdog.check()
+        hub.watchdog._open_since["hm.fenster"] -= 2 * 3600
+        await hub.watchdog.check()
+        assert ("anwesend", "open") in ziele
+    finally:
+        await hub.stop()

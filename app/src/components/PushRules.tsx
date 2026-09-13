@@ -106,6 +106,15 @@ interface RuleParam {
   step: number;
 }
 
+/** Ein Parameter, der ein Schalter ist (rein, testbar).
+ *
+ *  Die Regeln des Hubs kennen nur Zahlen; «Nur an Anwesende» (Punkt 599)
+ *  reist darum als 0/1 ohne Einheit. Mit Plus und Minus wäre das ein
+ *  Rätsel - als Häkchen ist es die Frage, die es ist. */
+export function istSchalter(param: Pick<RuleParam, 'min' | 'max' | 'step' | 'unit'>): boolean {
+  return param.min === 0 && param.max === 1 && param.step === 1 && !param.unit;
+}
+
 interface Rule {
   key: string;
   title: string;
@@ -478,7 +487,25 @@ export function PushRules({
               </View>
 
               {rule.enabled
-                ? rule.params.map((param) => (
+                ? rule.params.map((param) => istSchalter(param) ? (
+                    <View key={param.key} style={styles.paramRow}>
+                      <Text style={styles.paramLabel}>{param.label}</Text>
+                      <Pressable
+                        onPress={() => nudge(rule, param, param.value >= 1 ? -1 : 1)}
+                        disabled={!mayEdit}
+                        accessibilityRole="switch"
+                        accessibilityState={{ checked: param.value >= 1 }}
+                        accessibilityLabel={param.label}
+                        style={styles.iconButton}
+                      >
+                        <Ionicons
+                          name={param.value >= 1 ? 'checkmark-circle' : 'ellipse-outline'}
+                          size={22}
+                          color={param.value >= 1 ? colors.on : colors.inkFaint}
+                        />
+                      </Pressable>
+                    </View>
+                  ) : (
                     <View key={param.key} style={styles.paramRow}>
                       <Text style={styles.paramLabel}>{param.label}</Text>
                       {mayEdit ? (

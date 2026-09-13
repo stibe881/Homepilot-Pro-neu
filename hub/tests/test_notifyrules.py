@@ -53,7 +53,7 @@ def test_store_replaces_and_validates():
         {
             "key": "appliance",
             "enabled": False,
-            "params": {"hours": 6.0, "quiet_from": 22.0, "quiet_to": 8.0},
+            "params": {"hours": 6.0, "quiet_from": 22.0, "quiet_to": 8.0, "anwesende": 0.0},
         }
     ]
 

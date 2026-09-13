@@ -325,6 +325,10 @@ class GeofenceIntegration(Integration):
                 "'zones' noch Benutzer im Hub"
             )
         self._eigene_places = presence.parse_places(self.config.get("places"))
+        # Die Push-Ziele «anwesend» und «unterwegs» (Punkt 599) fragen
+        # hier nach - ein Rückruf, damit der Push-Dienst nichts über
+        # Zonen wissen muss.
+        self.hub.push.zustaende = self.zustaende_je_benutzer
         # Erst beim ersten Suchen angelegt: Wer nie einen Laden erfasst,
         # soll dafür keine Verbindung offen haben.
         # Getippt, damit mypy die spätere Zuweisung einer Sitzung versteht.
@@ -958,6 +962,27 @@ class GeofenceIntegration(Integration):
             # der Zustand ist längst geschrieben, und der ist das
             # Wichtige.
             self.log.debug("Geofence: %s nicht gemeldet (%s)", zone_id, err)
+
+    def zustaende_je_benutzer(self) -> dict[str, str]:
+        """Name → Ortungszustand für jeden Benutzer mit Zone.
+
+        Die Antwort auf «wer ist gerade da?» für die Push-Ziele
+        «anwesend» und «unterwegs» (Punkt 599, push.anwesende). Wer keine
+        Zone hat, fehlt - über ihn lässt sich nichts sagen. Über
+        ``merged``, nicht direkt aus dem Zustand: Dort ist die Funkstille
+        schon zu «unbekannt» geworden.
+        """
+        namen = {
+            zone_id: getattr(self.hub.registry.get(entity_id), "label", zone_id)
+            for zone_id, entity_id in self._zones.items()
+        }
+        zustaende: dict[str, str] = {}
+        for user in getattr(getattr(self.hub, "users", None), "users", []) or []:
+            zone_id = presence.zone_fuer(user.name, namen)
+            if zone_id is None:
+                continue
+            zustaende[user.name] = str(self.merged(zone_id).get("state") or presence.UNKNOWN)
+        return zustaende
 
     def merged(self, zone_id: str) -> dict[str, Any]:
         """Der Zustand einer Person, wie ihn die App liest (Punkt 200).

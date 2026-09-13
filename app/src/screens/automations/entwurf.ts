@@ -215,6 +215,10 @@ export const GRUPPE_PREFIX = 'gruppe:';
  *  dass die Kennung «gruppe:Eltern» auf dem Bildschirm steht. */
 export function empfaengerLabel(key: string): string {
   if (key.startsWith(GRUPPE_PREFIX)) return `${key.slice(GRUPPE_PREFIX.length)} (Gruppe)`;
+  // Die beweglichen Ziele (Punkt 599): Der Hub löst sie beim Senden über
+  // die Ortung auf; hier stehen sie als Satz, nicht als Kennung.
+  if (key === 'anwesend') return 'Wer zuhause ist';
+  if (key === 'unterwegs') return 'Wer unterwegs ist';
   return key;
 }
 

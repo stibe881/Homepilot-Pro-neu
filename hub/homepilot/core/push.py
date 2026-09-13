@@ -682,6 +682,50 @@ def gruppe_aus(to: str | None) -> str | None:
     return None
 
 
+# ── Bewegliche Ziele: wer gerade da ist (Punkt 599) ────────────────────────
+#
+# Der Hub weiss, wer zuhause ist - aber kein Empfänger hiess so. «Fenster
+# Bad steht offen» ging um 22 Uhr auch an den, der in Zürich sitzt, und
+# «Es klingelt» an alle, obwohl die Person im Flur die Klingel hört und
+# nur die unterwegs das Bild braucht. Zwei Ziele nach dem Muster der
+# Gruppen, nur dass ihre Mitglieder sich mit jedem Zonenwechsel ändern.
+
+#: Ziel «wer gerade zuhause ist».
+ZIEL_ANWESEND = "anwesend"
+#: Ziel «wer nachweislich unterwegs ist».
+ZIEL_UNTERWEGS = "unterwegs"
+ANWESENHEITS_ZIELE = (ZIEL_ANWESEND, ZIEL_UNTERWEGS)
+
+#: Was als «zuhause» zählt - dieselben Schreibweisen wie in
+#: presence.anyone_home_state.
+_ZUHAUSE = ("home", "on", "true")
+#: Was weder zuhause noch weg ist: kein Telefon, keine Meldung.
+_UNBEKANNT = ("", "unknown")
+
+
+def anwesende(to: str | None, zustaende: dict[str, str] | None) -> set[str] | None:
+    """Wer zu einem Anwesenheitsziel gehört (rein, testbar).
+
+    ``zustaende`` ist Name → Ortungszustand. ``None`` heisst: ``to`` ist
+    gar kein solches Ziel. Sonst die Namen - «anwesend» ist, wer
+    ausdrücklich zuhause steht; «unterwegs», wer ausdrücklich anderswo
+    steht (``away`` oder ein benannter Ort). Unbekannt zählt zu keinem
+    von beiden: Über jemanden, dessen Telefon schweigt, sagt man weder
+    das eine noch das andere (dieselbe Vorsicht wie in
+    livekarten.nicht_zuhause).
+    """
+    if to not in ANWESENHEITS_ZIELE:
+        return None
+    namen: set[str] = set()
+    for name, zustand in (zustaende or {}).items():
+        wert = str(zustand or "").strip().lower()
+        zuhause = wert in _ZUHAUSE
+        weg = not zuhause and wert not in _UNBEKANNT
+        if (to == ZIEL_ANWESEND and zuhause) or (to == ZIEL_UNTERWEGS and weg):
+            namen.add(str(name))
+    return namen
+
+
 def is_expo_token(token: str) -> bool:
     return token.startswith("ExponentPushToken[") or token.startswith("ExpoPushToken[")
 
@@ -849,6 +893,11 @@ class PushService:
         self.kritisch_erlaubt = False
         # Empfängergruppen: Name → Benutzernamen (``gruppen_lesen``).
         self.gruppen: dict[str, list[str]] = {}
+        # Wird von der Ortung gesetzt (integrations/geofence.py): «Wer
+        # steht gerade wo?» als Name → Zustand, für die Ziele «anwesend»
+        # und «unterwegs» (Punkt 599). Ohne Ortung bleibt es None, und
+        # beide Ziele meinen dann alle.
+        self.zustaende: Any = None
         # Wird vom Hub gesetzt: «Darf diese Kategorie jetzt noch?» Der
         # Tagesdeckel braucht einen Zählerstand, der Neustarts übersteht,
         # und der liegt in der hub.data. Ein Rückruf statt eines
@@ -959,9 +1008,15 @@ class PushService:
     ) -> list[str]:
         """Wählt die Empfänger aus.
 
-        ``to`` ist "all", eine Rolle ("bewohner"), ein Benutzername oder
-        eine Gruppe ("gruppe:Eltern", siehe ``gruppen_lesen``). Gäste
-        bekommen nur etwas, wenn sie ausdrücklich gemeint sind.
+        ``to`` ist "all", eine Rolle ("bewohner"), ein Benutzername,
+        eine Gruppe ("gruppe:Eltern", siehe ``gruppen_lesen``) oder eines
+        der beweglichen Ziele "anwesend"/"unterwegs" (``anwesende``,
+        Punkt 599). Gäste bekommen nur etwas, wenn sie ausdrücklich
+        gemeint sind.
+
+        Fällt niemand in «anwesend» oder «unterwegs» - weil die Ortung
+        fehlt oder alle Telefone schweigen -, geht die Meldung an alle:
+        Eine Meldung darf nicht an der Ortung scheitern.
 
         ``category`` ist die Art der Nachricht. Wer sie in seinem Profil
         abbestellt hat, fällt hier heraus – das ist die einzige Stelle, an
@@ -973,6 +1028,12 @@ class PushService:
         by_name = {user.name: user for user in users}
         gruppe = gruppe_aus(to)
         mitglieder = set(self.gruppen.get(gruppe, ())) if gruppe else set()
+        anwesend = anwesende(to, self.zustaende() if self.zustaende is not None else None)
+        if anwesend is not None:
+            if anwesend:
+                gruppe, mitglieder = to, anwesend
+            else:
+                to = "all"
         tokens = []
         for device in self._devices.values():
             user = by_name.get(device.user)

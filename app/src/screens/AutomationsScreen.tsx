@@ -314,17 +314,19 @@ export function AutomationsScreen({
         setFavoriten((data?.favorites ?? []).map((zeile) => String(zeile.name ?? ''))),
       );
     hub
-      .get<{ names?: string[]; groups?: string[] } | null>('/api/push/targets', {
-        fallback: null,
-        still: true,
-      })
+      .get<{ names?: string[]; groups?: string[]; presence?: string[] } | null>(
+        '/api/push/targets',
+        { fallback: null, still: true },
+      )
       // Gruppen (Punkt 513) hinter den Namen, mit dem Vorsatz des Hubs:
       // Das to-Feld des Ablaufs trägt «gruppe:Eltern», die Auswahl zeigt
-      // «Eltern (Gruppe)» (entwurf.ts: empfaengerLabel).
+      // «Eltern (Gruppe)» (entwurf.ts: empfaengerLabel). Zuletzt die
+      // beweglichen Ziele «anwesend»/«unterwegs» (Punkt 599).
       .then((data) =>
         setEmpfaenger([
           ...(data?.names ?? []),
           ...(data?.groups ?? []).map((name) => `${GRUPPE_PREFIX}${name}`),
+          ...(data?.presence ?? []),
         ])
       );
     hub

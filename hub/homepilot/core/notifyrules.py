@@ -24,6 +24,21 @@ from . import push, waschkueche
 # {key, label, unit, default, min, max, step}
 Param = dict[str, Any]
 
+# «Nur an Anwesende» (Punkt 599): ein Schalter als Zahl 0/1, weil die
+# Regeln nur Zahlen kennen - die App zeigt min 0 / max 1 / ohne Einheit
+# als Schalter (components/PushRules.tsx). Gilt für Meldungen, bei denen
+# nur handeln kann, wer im Haus ist: das offene Fenster, die volle
+# Maschine. Wer unterwegs ist, kann beides nur zur Kenntnis nehmen.
+SCHALTER_ANWESENDE: Param = {
+    "key": "anwesende",
+    "label": "Nur an Anwesende",
+    "unit": "",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "step": 1,
+}
+
 # Die Regeln in Anzeige-Reihenfolge. `category` ist zugleich der Schlüssel
 # der Push-Kategorie (siehe push.CATEGORIES) – so greifen persönliche
 # Abbestellungen weiterhin.
@@ -118,7 +133,9 @@ RULES: list[dict[str, Any]] = [
         "key": "open",
         "title": "Fenster/Tür steht offen",
         "detail": "Erinnert einmal je Öffnung – wer schliesst und wieder "
-        "öffnet, fängt neu an.",
+        "öffnet, fängt neu an. «Nur an Anwesende»: Wer unterwegs ist, "
+        "kann das Fenster ohnehin nicht schliessen; ist niemand zuhause, "
+        "geht die Meldung trotzdem an alle.",
         "params": [
             {
                 "key": "hours",
@@ -128,7 +145,8 @@ RULES: list[dict[str, Any]] = [
                 "min": 1,
                 "max": 24,
                 "step": 1,
-            }
+            },
+            SCHALTER_ANWESENDE,
         ],
     },
     {
@@ -169,6 +187,7 @@ RULES: list[dict[str, Any]] = [
                 "max": 23,
                 "step": 1,
             },
+            SCHALTER_ANWESENDE,
         ],
     },
     {

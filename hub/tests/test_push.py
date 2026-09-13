@@ -345,3 +345,39 @@ def test_das_ziel_steht_auf_dem_zettel():
     assert rows[0]["ziel"] == "klingel"
     # Ohne Angabe bleibt es ehrlich leer statt zu raten.
     assert pushverlauf.anhaengen([], {"title": "X"}, 1.0)[0]["ziel"] is None
+
+
+# ── Die beweglichen Ziele «anwesend» und «unterwegs» (Punkt 599) ──────────
+
+
+def test_anwesend_sind_die_ausdruecklich_zuhause_und_unterwegs_die_ausdruecklich_weg():
+    zustaende = {"Stefan": "home", "Bine": "away", "Lina": "schule", "Oma": "unknown"}
+    assert push_module.anwesende("anwesend", zustaende) == {"Stefan"}
+    assert push_module.anwesende("unterwegs", zustaende) == {"Bine", "Lina"}
+    # Ein anderes Ziel ist keins von beiden.
+    assert push_module.anwesende("all", zustaende) is None
+    assert push_module.anwesende("gruppe:Eltern", zustaende) is None
+
+
+def test_das_offene_fenster_geht_nur_an_die_die_zuhause_sind():
+    service = PushService()
+    service.register("ExponentPushToken[stefan]", "Stefan")
+    service.register("ExponentPushToken[bine]", "Bine")
+    service.zustaende = lambda: {"Stefan": "home", "Bine": "away"}
+    users = [SimpleNamespace(name="Stefan", role="bewohner"), SimpleNamespace(name="Bine", role="bewohner")]
+    assert service.recipients(users, "anwesend", "open") == ["ExponentPushToken[stefan]"]
+    assert service.recipients(users, "unterwegs", "open") == ["ExponentPushToken[bine]"]
+
+
+def test_faellt_niemand_in_die_menge_geht_die_meldung_an_alle():
+    """Eine Meldung darf nicht an der Ortung scheitern - weder an einer
+    fehlenden noch an einer, die alle für unbekannt hält."""
+    service = PushService()
+    service.register("ExponentPushToken[stefan]", "Stefan")
+    service.register("ExponentPushToken[gast]", "Gast")
+    users = [SimpleNamespace(name="Stefan", role="bewohner"), SimpleNamespace(name="Gast", role="gast")]
+    # Ohne Ortung.
+    assert service.recipients(users, "anwesend", "open") == ["ExponentPushToken[stefan]"]
+    # Mit Ortung, aber alle unbekannt.
+    service.zustaende = lambda: {"Stefan": "unknown"}
+    assert service.recipients(users, "unterwegs", "open") == ["ExponentPushToken[stefan]"]
