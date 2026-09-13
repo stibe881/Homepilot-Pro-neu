@@ -15,7 +15,7 @@ import { chipSchrift, fensterHoehe } from '../../lib/storenkachel';
 import { grillBauart, grillFoto, grillKurzinfo } from '../../lib/grillbild';
 import { fuehlerZeile } from '../../lib/grillziel';
 import { mayOpenDirectly } from '../../lib/tuerbestaetigung';
-import { radius, trefferRand, useColors } from '../../theme';
+import { radius, trefferRand, useColors, useTyp } from '../../theme';
 import { Bar } from '../Bar';
 import { CoverVisual, Sky } from '../CoverVisual';
 import { GrillVisual } from '../GrillVisual';
@@ -38,7 +38,8 @@ export function LockBody({
   doorConfirm?: boolean;
 }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   const [armed, setArmed] = useState(false);
   // Der lange Druck der Kachel. Die Türknöpfe füllen sie fast ganz aus,
   // und ein Druck auf einen Knopf erreicht die Kachel darunter nie -
@@ -303,7 +304,8 @@ export function GrillBody({
   ziele?: Record<string, number>;
 }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
 
   const unit = entity.state.unit ?? '°C';
   const running = entity.state.state === 'running';
@@ -357,7 +359,8 @@ export function CoverBody({
   onCommand: (command: string, data?: CommandData) => void;
 }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   const pos = entity.state.position;
   const tilt = entity.state.tilt;
   // Was der Hub über diese Store sagt - und ob er überhaupt etwas sagt.
@@ -572,7 +575,8 @@ export function VacuumBody({
   onCommand: (command: string, data?: CommandData) => void;
 }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   // Der lange Druck der Kachel - siehe kacheldruck.tsx.
   const saugerDruck = useKachelDruck();
   const [selected, setSelected] = useState<number[]>([]);
@@ -867,7 +871,8 @@ export function KameraKachel({
   klassisch: React.ReactNode;
 }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   const [ohneBild, setOhneBild] = useState(false);
   const online = entity.state.state === 'online';
   const privacyOn = entity.state.privacy === 'on';

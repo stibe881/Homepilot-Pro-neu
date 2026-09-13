@@ -455,7 +455,9 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
     justifyContent: 'space-between',
     gap: 8,
   },
-  szeneName: { fontSize: 20, fontWeight: '700', lineHeight: 24 },
+  // An `typ` gehängt (Punkt 610): Vorher stand hier fest 20, und die
+  // Szenenkachel blieb am Wandpanel als Einzige in Telefonschrift.
+  szeneName: { fontSize: typ.sceneName, fontWeight: '700', lineHeight: typ.sceneName + 4 },
   /** Die Lichtkachel: Die ganze Fläche ist der Schalter, deshalb sitzt
    *  der Inhalt darin und nicht daneben. */
   lichtFlaeche: { gap: 12, justifyContent: 'space-between', minHeight: 96 },
@@ -470,7 +472,7 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
   lichtWert: { fontSize: typ.value, fontWeight: '600', ...schrift(), ...ZIFFERN },
   lichtName: { fontSize: typ.cardTitle, fontWeight: '700', marginTop: 2 },
   lichtUnter: { fontSize: typ.cardSub, opacity: 0.85, marginTop: 1 },
-  szeneStand: { fontSize: 12, fontWeight: '600', opacity: 0.8, marginTop: 3 },
+  szeneStand: { fontSize: typ.detail, fontWeight: '600', opacity: 0.8, marginTop: 3 },
   lockButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -530,7 +532,7 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
   warnHint: { color: colors.warnInk, fontSize: 12, lineHeight: 17 },
   detail: {
     color: colors.inkSoft,
-    fontSize: 12,
+    fontSize: typ.detail,
   },
   pill: {
     alignSelf: 'flex-start',
@@ -539,7 +541,7 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
     paddingVertical: 6,
   },
   pillText: {
-    fontSize: 13,
+    fontSize: typ.chip,
     fontWeight: '600',
   },
   /** Die Pille mit Männchen davor (Punkt 612): Symbol und Wort in einer

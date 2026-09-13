@@ -77,7 +77,7 @@ import { useLiveAktivitaet } from '../hooks/useLiveAktivitaet';
 import { useWatchSync } from '../hooks/useWatchSync';
 import { useTuerKnopf } from '../hooks/useTuerKnopf';
 import { usePushRegistration } from '../hooks/usePushRegistration';
-import { breakpoints, space, type, useColors } from '../theme';
+import { breakpoints, space, type, useColors, useTyp } from '../theme';
 import {
   KAMERA_MINDEST,
   breiteFuer,
@@ -314,7 +314,10 @@ interface SuchAblauf {
 
 export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  // Am Wandpanel grösser (Punkt 610): Die Begrüssung ist das Erste, was
+  // man dort liest.
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   const {
     entities,
     activity,

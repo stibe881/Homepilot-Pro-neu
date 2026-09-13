@@ -9,7 +9,7 @@ import { Text, View } from 'react-native';
 
 import { bewegungsSignal } from '../../lib/bewegung';
 import { datumKurz, uhr, wochentagUhr } from '../../lib/format';
-import { Colors, icon, useColors } from '../../theme';
+import { Colors, icon, useColors, useTyp } from '../../theme';
 import { makeStyles } from './stil';
 
 
@@ -35,7 +35,8 @@ export function clock(iso: string): string {
 
 export function BigValue({ value, on, note }: { value: string; on?: boolean; note?: string }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   return (
     <View>
       <Text style={[styles.value, on && { color: colors.onInk }]}>{value}</Text>
@@ -46,7 +47,8 @@ export function BigValue({ value, on, note }: { value: string; on?: boolean; not
 
 export function Pill({ label, tone, solid }: { label: string; tone?: string; solid?: boolean }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   const color = tone ?? colors.inkSoft;
   return (
     <View
@@ -94,7 +96,8 @@ export function pillSchrift(colors: Colors, ton: string, solid: boolean): string
  */
 export function Bewegungsmarke({ label = 'Bewegung' }: { label?: string }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   const signal = bewegungsSignal(colors);
   return (
     <View

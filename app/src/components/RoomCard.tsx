@@ -7,7 +7,7 @@ import { raumDunkel, raumSymbol, raumZeile } from '../lib/raum';
 import { bewegungImRaum, bewegungsSignal } from '../lib/bewegung';
 import { Raumaktion, kachelKlima, kachelKnoepfe, raumFarben, raumStand } from '../lib/raumkarte';
 import { useJetzt } from '../hooks/useRestzeit';
-import { Colors, radius, useColors } from '../theme';
+import { Colors, Typmass, radius, useColors, useTyp } from '../theme';
 import { Card } from './Card';
 
 /**
@@ -72,7 +72,10 @@ export function RoomCard({
   klimaGeraete?: Entity[];
 }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  // Am Wandpanel grösser (Punkt 610): Raumname und Zustandszeile standen
+  // fest in 21 und 13 Punkt, während die Gerätekacheln daneben wuchsen.
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   // Ein Bild, das sich nicht laden lässt (Hub gerade weg, Datei kaputt),
   // darf keinen schwarzen Balken hinterlassen: Dann gilt die Farbe.
   const [bildKaputt, setBildKaputt] = useState(false);
@@ -260,7 +263,7 @@ export function RoomCard({
   }
 }
 
-const makeStyles = (colors: Colors) =>
+const makeStyles = (colors: Colors, typ: Typmass) =>
   StyleSheet.create({
     // Kein Innenrand und nichts, was übersteht: Das Bild geht bis an die
     // Kante der Karte.
@@ -290,7 +293,7 @@ const makeStyles = (colors: Colors) =>
     },
     name: {
       color: '#FFFFFF',
-      fontSize: 21,
+      fontSize: typ.roomTitle,
       fontWeight: '700',
       letterSpacing: -0.3,
       textShadowColor: 'rgba(0, 0, 0, 0.45)',
@@ -345,7 +348,7 @@ const makeStyles = (colors: Colors) =>
     },
     klimaWert: {
       color: '#FFFFFF',
-      fontSize: 12,
+      fontSize: typ.detail,
       fontWeight: '600',
       textShadowColor: 'rgba(0, 0, 0, 0.45)',
       textShadowRadius: 8,
@@ -361,12 +364,12 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: 'rgba(255, 255, 255, 0.24)',
     },
     szeneAn: { backgroundColor: colors.accent },
-    szeneText: { color: '#FFFFFF', fontSize: 12, fontWeight: '600', flexShrink: 1 },
+    szeneText: { color: '#FFFFFF', fontSize: typ.detail, fontWeight: '600', flexShrink: 1 },
     // Nimmt den Rest der Kachel ein. Ohne das sammelte sich die
     // überzählige Höhe zwischen Kopf und Knöpfen: In einer Reihe mit
     // einer höheren Kachel klaffte dort ein Loch.
     unten: { flex: 1, padding: 14, gap: 10 },
-    stand: { color: colors.inkSoft, fontSize: 13 },
+    stand: { color: colors.inkSoft, fontSize: typ.cardSub },
     standZeile: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     /** Das Männchen in der Farbe, die auf dieser Kachel «hier ist
      *  etwas» heisst - dieselbe wie ein eingeschalteter Knopf. Ein
@@ -401,6 +404,6 @@ const makeStyles = (colors: Colors) =>
       justifyContent: 'center',
     },
     knopfAn: { backgroundColor: colors.accent, borderColor: colors.accent },
-    knopfText: { fontSize: 12, fontWeight: '600', color: colors.inkSoft },
-    leer: { color: colors.inkFaint, fontSize: 12 },
+    knopfText: { fontSize: typ.detail, fontWeight: '600', color: colors.inkSoft },
+    leer: { color: colors.inkFaint, fontSize: typ.detail },
   });

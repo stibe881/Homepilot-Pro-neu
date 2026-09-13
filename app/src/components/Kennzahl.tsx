@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { angeklebt, zerlege } from '../lib/kennzahl';
 import { MAX_SCHRIFT } from '../lib/schrift';
-import { Colors, type, useColors } from '../theme';
+import { Colors, Typmass, useColors, useTyp } from '../theme';
 
 /**
  * Ein Messwert, bei dem die Zahl führt.
@@ -41,7 +41,10 @@ export function Kennzahl({
   gross?: boolean;
 }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  // Am Wandpanel grösser (Punkt 610) - die Zahl ist das, was man dort
+  // aus zwei Metern liest.
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   const { zahl, einheit } = zerlege(wert);
 
   return (
@@ -92,7 +95,7 @@ export function Kennzahl({
   );
 }
 
-const makeStyles = (colors: Colors) =>
+const makeStyles = (colors: Colors, typ: Typmass) =>
   StyleSheet.create({
     block: { gap: 1 },
     // Auf der Grundlinie und nicht mittig: Sonst schwebt das «°C» neben
@@ -100,14 +103,14 @@ const makeStyles = (colors: Colors) =>
     zeile: { flexDirection: 'row', alignItems: 'baseline' },
     zahl: {
       color: colors.ink,
-      fontSize: type.value,
+      fontSize: typ.value,
       fontWeight: '700',
       // Siehe oben - ohne das ruckt jede Zahl, die sich ändert.
       fontVariant: ['tabular-nums'],
     },
-    zahlGross: { fontSize: type.greetingSmall },
-    einheit: { color: colors.inkSoft, fontSize: type.cardSub, fontWeight: '600' },
+    zahlGross: { fontSize: typ.greetingSmall },
+    einheit: { color: colors.inkSoft, fontSize: typ.cardSub, fontWeight: '600' },
     // Der schmale Zwischenraum des Dudens - «21 °C», aber «63%».
     mitLuft: { marginLeft: 3 },
-    label: { color: colors.inkFaint, fontSize: 12 },
+    label: { color: colors.inkFaint, fontSize: typ.detail },
   });

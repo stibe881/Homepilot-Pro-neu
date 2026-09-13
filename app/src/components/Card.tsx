@@ -12,7 +12,17 @@ import {
 
 import { dauer, hinweis } from '../lib/langdruck';
 
-import { Colors, kachel, radius, trefferRand, treffer, type, useColors } from '../theme';
+import {
+  Colors,
+  Typmass,
+  kachel,
+  radius,
+  trefferRand,
+  treffer,
+  type,
+  useColors,
+  useTyp,
+} from '../theme';
 
 /** Gemeinsame Glaskachel: Fläche, Rundung, Schatten. */
 export function Card({
@@ -124,7 +134,11 @@ export function CardFooter({
   onLongPress?: () => void;
 }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  // Am Wandpanel grösser (Punkt 610): Die Fusszeile ist der Name jeder
+  // Schalter-, Sensor-, Storen- und Schlosskachel - und stand dort in
+  // 16 Punkt neben dem Lichtnamen in 19.
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   return (
     <View style={styles.footer}>
       <Text
@@ -200,7 +214,7 @@ export function PowerButton({
 /** Der sichtbare Ring des Ein/Aus-Knopfs. */
 const POWER_RING = 34;
 
-const makeStyles = (colors: Colors) =>
+const makeStyles = (colors: Colors, typ: Typmass = type) =>
   StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
@@ -227,12 +241,12 @@ const makeStyles = (colors: Colors) =>
   },
   title: {
     color: colors.ink,
-    fontSize: type.cardTitle,
+    fontSize: typ.cardTitle,
     fontWeight: '600',
   },
   subtitle: {
     color: colors.inkSoft,
-    fontSize: type.cardSub,
+    fontSize: typ.cardSub,
     flexShrink: 1,
   },
   power: {

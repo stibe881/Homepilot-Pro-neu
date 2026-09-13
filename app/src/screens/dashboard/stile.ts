@@ -8,11 +8,14 @@
  */
 import { StyleSheet } from 'react-native';
 
-import { Colors, radius, space, type } from '../../theme';
+import { Colors, Typmass, radius, space, type } from '../../theme';
 import { bewegungsSignal } from '../../lib/bewegung';
 import { ZIFFERN, schrift } from '../../lib/schriftart';
 
-export const makeStyles = (colors: Colors) =>
+/** ``typ`` ist die Schriftgrösse dieses Bildschirms (Punkt 610) - am
+ *  Wandpanel grösser; voreingestellt auf die gewohnte, damit die übrigen
+ *  Aufrufer nichts merken. */
+export const makeStyles = (colors: Colors, typ: Typmass = type) =>
   StyleSheet.create({
     root: { flex: 1 },
     timelineBox: { paddingHorizontal: 16, paddingTop: 10 },
@@ -151,7 +154,7 @@ export const makeStyles = (colors: Colors) =>
     },
     greetingLine: {
       color: colors.onGradient,
-      fontSize: type.greeting,
+      fontSize: typ.greeting,
       fontWeight: '300',
       letterSpacing: 0.2,
       // Die Display-Schrift im mageren Schnitt: Der Satz war schon

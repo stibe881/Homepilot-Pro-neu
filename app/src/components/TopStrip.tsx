@@ -46,7 +46,7 @@ import {
 } from '../lib/verbindungsstand';
 import { useEscape } from '../hooks/useEscape';
 import { useJetzt } from '../hooks/useRestzeit';
-import { Colors, icon, radius, type, useColors } from '../theme';
+import { Colors, Typmass, icon, radius, type, useColors, useTyp } from '../theme';
 import { warnText, warnZahl, warnZahlSatz } from '../lib/warnzeile';
 import { Lauftext } from './Lauftext';
 
@@ -211,7 +211,8 @@ export function TopStrip({
   onKalender?: (art: 'termine' | 'geburtstage') => void;
 }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   const [lightsOpen, setLightsOpen] = useState(false);
   // Die Uhr fürs «Lichter an»-Blatt: nur wenn es offen ist und dort
   // wirklich eine Frist läuft (hooks/useRestzeit.ts).
@@ -1476,7 +1477,8 @@ function Chip({
   onPress?: () => void;
 }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   const content = (
     <>
       <Ionicons name={icon} size={15} color={tone ?? colors.onGradientSoft} />
@@ -1573,7 +1575,7 @@ export function alertWindow(warning: {
   return '';
 }
 
-const makeStyles = (colors: Colors) =>
+const makeStyles = (colors: Colors, typ: Typmass = type) =>
   StyleSheet.create({
   row: {
     flexDirection: 'row',
@@ -1594,9 +1596,11 @@ const makeStyles = (colors: Colors) =>
     justifyContent: 'space-between',
     gap: 10,
   },
+  // An `typ` gehängt (Punkt 610): Die Begrüssung ist das Erste, was
+  // man am Wandpanel liest, und stand dort fest in 24 und 34 Punkt.
   karteGruss: {
     color: colors.ink,
-    fontSize: 24,
+    fontSize: typ.greetingSmall,
     fontWeight: '700',
     letterSpacing: -0.4,
   },
@@ -1604,10 +1608,10 @@ const makeStyles = (colors: Colors) =>
   karteWetter: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   karteTemp: {
     color: colors.ink,
-    fontSize: 34,
+    fontSize: typ.greeting,
     fontWeight: '700',
     letterSpacing: -1,
-    lineHeight: 38,
+    lineHeight: typ.greeting + 4,
   },
   karteWetterText: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
   karteZeile: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },

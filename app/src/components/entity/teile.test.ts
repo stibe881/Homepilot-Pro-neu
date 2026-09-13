@@ -1,6 +1,10 @@
 import { darkColors, lightColors } from '../../theme';
 import { format, pillSchrift } from './teile';
 
+// Die Bewegungsmarke bringt ein Sinnbild mit, und die Symbolschrift
+// lädt im Test nicht - hier zählen nur die reinen Funktionen.
+jest.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
+
 describe('format', () => {
   it('rundet Zahlen auf eine Nachkommastelle', () => {
     expect(format(21.47)).toBe('21.5');

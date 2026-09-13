@@ -337,6 +337,14 @@ export const type = {
   cardSub: 13,
   value: 26,
   label: 14,
+  // Die vier kleinen Stufen (Punkt 610 der Werkbank): Sie standen als
+  // feste Zahlen in den Kacheln - `detail` 12, die Pille 13, der
+  // Szenenname 20, der Raumname 21 - und blieben deshalb am Wandpanel
+  // in Telefonschrift, während der Lichtname daneben wuchs.
+  detail: 12,
+  chip: 13,
+  sceneName: 20,
+  roomTitle: 21,
 };
 
 export type Typmass = typeof type;
