@@ -812,6 +812,9 @@ class MetaRequest(BaseModel):
     #: meldet beides als `contact`; hier steht, was der Raumkopf sagen
     #: soll. None heisst «raten» (Geräteklasse, sonst Name).
     contact_kind: str | None = None
+    #: Nur für Batteriegeräte: welche Batterie drinsteckt («CR2032»,
+    #: «AAA», …; watchrules.BATTERIETYPEN). None heisst «unbekannt».
+    battery_type: str | None = None
 
 
 

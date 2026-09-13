@@ -48,11 +48,14 @@ import { TvRemote } from './TvRemote';
 import { TvSteuerkreuz } from './TvSteuerkreuz';
 import {
   AnpassenBlatt,
+  BatterietypWahl,
   GroupPicker,
   KachelMenue,
   RenameDialog,
   RoomPicker,
+  batterietypZeile,
 } from './entity/anpassen';
+import { hatBatterie } from '../lib/batterien';
 import {
   CameraSnapshot,
   CoverBody,
@@ -184,6 +187,8 @@ interface Props {
   /** Nur für Fenster- und Türkontakte: «Kontakt an - Fenster/Türe»
    *  umlegen. Fehlt er, steht die Zeile nicht im Anpassen-Blatt. */
   onContactKind?: (value: 'window' | 'door') => void;
+  /** Batterietyp setzen (Punkt 633) - null heisst «unbekannt». */
+  onBatteryType?: (value: string | null) => void;
   /** Anpassen-Modus: Gerät einer Gruppe zuordnen (oder lösen). */
   groups?: string[];
   onSetGroup?: (group: string | null) => void;
@@ -254,6 +259,7 @@ export function EntityCard({
   onSceneToggles,
   onRoomOnly,
   onContactKind,
+  onBatteryType,
   groups,
   onSetGroup,
   doorConfirm,
@@ -291,6 +297,8 @@ export function EntityCard({
   const [roomPickerOpen, setRoomPickerOpen] = useState(false);
   const [blattOffen, setBlattOffen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
+  // Punkt 633: die Wahl des Batterietyps aus dem Anpassen-Blatt.
+  const [batterieWahl, setBatterieWahl] = useState(false);
   const [menueOffen, setMenueOffen] = useState(false);
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
   const isOn = entity.state.state === 'on';
@@ -1261,6 +1269,17 @@ export function EntityCard({
           </Pressable>
         </View>
       ) : null}
+      {editing && onBatteryType ? (
+        <BatterietypWahl
+          visible={batterieWahl}
+          current={entity.battery_type}
+          onClose={() => setBatterieWahl(false)}
+          onSelect={(typ) => {
+            setBatterieWahl(false);
+            onBatteryType(typ);
+          }}
+        />
+      ) : null}
       {editing ? (
         <AnpassenBlatt
           visible={blattOffen}
@@ -1358,6 +1377,11 @@ export function EntityCard({
             // Geraten wird sonst am Namen - und ein Kontakt, der
             // «Waschküche» heisst, galt damit als Fenster. Im Raumkopf
             // steht aber «Fenster zu» oder «Türen zu».
+            // Punkt 633: Welche Batterie drinsteckt, weiss nur, wer sie
+            // eingelegt hat - hier trägt er es ein.
+            ...(onBatteryType && hatBatterie(entity)
+              ? [batterietypZeile(entity, () => setBatterieWahl(true))]
+              : []),
             ...(onContactKind && istKontakt(entity)
               ? [
                   {

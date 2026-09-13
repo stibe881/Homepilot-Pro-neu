@@ -86,7 +86,8 @@ import {
   spalten,
 } from '../lib/raster';
 import { warnungSchonOben } from '../lib/warnzeile';
-import { mengeUndName } from '../lib/einkauf';
+import { EinkaufZeile, eintragen, mengeUndName } from '../lib/einkauf';
+import { einkaufText } from '../lib/batterien';
 import { uhr } from '../lib/format';
 import {
   klingelAktionen,
@@ -1192,6 +1193,28 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         }
         return;
       }
+      // «Auf die Einkaufsliste» unter der Batteriewarnung (Punkt 633):
+      // Der Posten heisst «CR2032 (Türkontakt Küche)» und geht denselben
+      // Weg wie jeder Eintrag von Hand - steht er schon offen da, wird
+      // die Menge erhöht statt eine zweite Zeile angelegt (Punkt 174).
+      if (druck.handlung === 'einkauf') {
+        if (!druck.batteryType) {
+          setNote('Batterietyp am Gerät eintragen, dann klappt das');
+          return;
+        }
+        const text = einkaufText(druck.batteryType, druck.title.replace(/^Batterie schwach:\s*/, ''));
+        hub
+          .get<EinkaufZeile[]>('/api/family/shopping', { fallback: [], still: true })
+          .then((liste) => {
+            const was = eintragen(liste ?? [], text);
+            return was.kind === 'mehr'
+              ? hub.put(`/api/family/shopping/${encodeURIComponent(was.id)}`, { text: was.text }, { still: true })
+              : hub.post('/api/family/shopping', was.draft, { still: true });
+          })
+          .then(() => setNote(`Auf der Einkaufsliste: ${text}`))
+          .catch(() => {});
+        return;
+      }
       // «Erledigt» gibt es bisher für die Batteriewarnung: Sie quittiert
       // das Gerät, damit sie nicht jede Woche wiederkommt.
       if (druck.entityId) {
@@ -2242,6 +2265,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       onContactKind={
         darfAnpassen
           ? (value) => setEntityMeta(entity.id, { contact_kind: value })
+          : undefined
+      }
+      // Punkt 633: welche Batterie drinsteckt.
+      onBatteryType={
+        darfAnpassen
+          ? (value) => setEntityMeta(entity.id, { battery_type: value })
           : undefined
       }
       doorConfirm={prefs.doorConfirm}

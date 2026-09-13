@@ -7,6 +7,8 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
+import { Entity } from '../../api/types';
+import { BATTERIETYPEN } from '../../lib/batterien';
 import { KachelEintrag } from '../../lib/kachelmenue';
 import { useColors } from '../../theme';
 import { Tastaturplatz } from '../Tastaturplatz';
@@ -397,6 +399,86 @@ export function GroupPicker({
         </Pressable>
       </Pressable>
       </Tastaturplatz>
+    </Modal>
+  );
+}
+
+/**
+ * Die Zeile «Batterietyp» fürs Anpassen-Blatt (Punkt 633).
+ *
+ * Nur für Geräte mit Batterie (lib/batterien.ts: hatBatterie). Was
+ * drinsteckt, weiss weder Hub noch Gerät - hier trägt es jemand ein,
+ * und die Warnung sagt danach «CR2032 wechseln» statt nur «schwach».
+ */
+export function batterietypZeile(
+  entity: Pick<Entity, 'battery_type'>,
+  onPress: () => void
+): {
+  key: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  wert?: string;
+  aktiv?: boolean;
+  onPress: () => void;
+} {
+  return {
+    key: 'batterietyp',
+    icon: 'battery-half-outline',
+    label: 'Batterietyp',
+    wert: entity.battery_type ?? 'unbekannt',
+    aktiv: !!entity.battery_type,
+    onPress,
+  };
+}
+
+/**
+ * Die Wahl des Batterietyps (Punkt 633) - eine Liste, kein Textfeld:
+ * Ein Tippfehler landete sonst auf der Einkaufsliste. Der Hub kennt
+ * dieselbe Liste und weist alles andere ab (core/watchrules.py).
+ */
+export function BatterietypWahl({
+  visible,
+  current,
+  onClose,
+  onSelect,
+}: {
+  visible: boolean;
+  current: string | null | undefined;
+  onClose: () => void;
+  onSelect: (typ: string | null) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const options: { key: string; label: string; value: string | null }[] = [
+    { key: '__none', label: 'Unbekannt', value: null },
+    ...BATTERIETYPEN.map((typ) => ({ key: typ, label: typ, value: typ })),
+  ];
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.roomBackdrop} onPress={onClose}>
+        <Pressable style={styles.roomSheet} onPress={() => {}}>
+          <Text style={styles.roomSheetTitle}>Batterietyp</Text>
+          <ScrollView>
+            {options.map((option) => {
+              const active = option.value === (current ?? null);
+              return (
+                <Pressable
+                  key={option.key}
+                  onPress={() => onSelect(option.value)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  style={[styles.roomOption, active && styles.roomOptionActive]}
+                >
+                  <Text style={styles.roomOptionText}>{option.label}</Text>
+                  {active ? (
+                    <Ionicons name="checkmark" size={20} color={colors.accent} />
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </Pressable>
+      </Pressable>
     </Modal>
   );
 }

@@ -52,6 +52,7 @@ from . import (
     pushverlauf,
     raumbilder,
     stromrueckkehr,
+    watchrules,
 )
 from . import push as push_service
 from . import users as users_module
@@ -578,6 +579,7 @@ class Hub:
         scene_toggles: Any = UNSET,
         room_only: Any = UNSET,
         contact_kind: Any = UNSET,
+        battery_type: Any = UNSET,
     ) -> None:
         """Setzt Anzeigename, Favorit-Flag oder Gruppe einer Entität.
 
@@ -605,6 +607,10 @@ class Hub:
             current["contact_kind"] = (
                 contact_kind if contact_kind in ("window", "door") else None
             )
+        if battery_type is not UNSET:
+            # Punkt 633: nur ein bekannter Typ, sonst «unbekannt» - ein
+            # Tippfehler soll nicht auf der Einkaufsliste landen.
+            current["battery_type"] = watchrules.batterietyp_pruefen(battery_type)
         # Leere Felder entfernen, damit der Eintrag nicht anwächst.
         #
         # `scene_toggles` geht andersherum: Der Normalfall ist «ja»,

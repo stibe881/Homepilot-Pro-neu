@@ -593,6 +593,8 @@ export function useHub(url: string | null, token: string | null) {
         room_only?: boolean;
         /** Nur Fenster- und Türkontakte: «window» oder «door». */
         contact_kind?: 'window' | 'door' | null;
+        /** Nur Batteriegeräte: welche Batterie drinsteckt (Punkt 633). */
+        battery_type?: string | null;
       }
     ) => {
       setEntityMap((prev) => {
@@ -605,6 +607,7 @@ export function useHub(url: string | null, token: string | null) {
         if (meta.scene_toggles !== undefined) next.scene_toggles = meta.scene_toggles;
         if (meta.room_only !== undefined) next.room_only = meta.room_only;
         if (meta.contact_kind !== undefined) next.contact_kind = meta.contact_kind;
+        if (meta.battery_type !== undefined) next.battery_type = meta.battery_type;
         return { ...prev, [entityId]: next };
       });
       try {

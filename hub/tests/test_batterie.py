@@ -233,7 +233,12 @@ async def test_the_routes_acknowledge_and_undo():
 
     hub = Hub(make_config())
     with TestClient(create_app(hub)) as client:
-        assert client.get("/api/batteries").json() == {"batteries": []}
+        assert client.get("/api/batteries").json() == {
+            "batteries": [],
+            # Prognose und Resttage seit Punkt 633 - ohne Verlauf leer.
+            "forecast": {},
+            "resttage": {},
+        }
 
         # Ein Gerät, das es nicht gibt, lässt sich nicht quittieren.
         assert client.post("/api/batteries/nope.nope/ack").status_code == 404
@@ -248,7 +253,12 @@ async def test_the_routes_acknowledge_and_undo():
         assert zeilen[0]["muted"] is True
 
         assert client.delete("/api/batteries/demo.motion_hall/ack").status_code == 200
-        assert client.get("/api/batteries").json() == {"batteries": []}
+        assert client.get("/api/batteries").json() == {
+            "batteries": [],
+            # Prognose und Resttage seit Punkt 633 - ohne Verlauf leer.
+            "forecast": {},
+            "resttage": {},
+        }
 
 
 def test_prefs_survive_the_data_store_as_a_one_entry_list():

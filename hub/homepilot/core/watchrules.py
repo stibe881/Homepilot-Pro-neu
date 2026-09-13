@@ -698,6 +698,37 @@ def klingelnde(entities: list[Any]) -> list[Any]:
     ]
 
 
+#: Was in einem Melder stecken kann (Punkt 633). Eine Vorschlagsliste,
+#: keine Wahrheit: Der Hub weiss es nicht, die App fragt den Menschen.
+#: Dieselbe Liste steht in app/src/lib/batterien.ts.
+BATTERIETYPEN: tuple[str, ...] = (
+    "CR2032",
+    "CR2450",
+    "CR2477",
+    "CR123A",
+    "AA",
+    "AAA",
+    "9V",
+    "Akku",
+)
+
+
+def batterietyp_pruefen(wert: Any) -> str | None:
+    """Nur ein bekannter Typ geht durch, sonst None (rein, testbar).
+
+    Gross-/Kleinschreibung zählt nicht («cr2032» ist eine CR2032), der
+    Rest schon: Ein Tippfehler soll nicht als vierzehnter Typ in der
+    Ablage weiterleben und auf der Einkaufsliste landen.
+    """
+    gesucht = str(wert or "").strip().casefold()
+    if not gesucht:
+        return None
+    for typ in BATTERIETYPEN:
+        if typ.casefold() == gesucht:
+            return typ
+    return None
+
+
 def low_batteries(entities: list[Any], schwelle: float | None = None) -> list[Any]:
     """Geräte, die eine schwache Batterie melden (rein, testbar).
 

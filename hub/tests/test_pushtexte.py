@@ -19,6 +19,7 @@ from homepilot.core import notifyrules, push, pushbeispiel, pushruhe
 from homepilot.core.push import (
     _KNOEPFE,
     CATEGORIES,
+    KNOEPFE_BATTERIE,
     KNOEPFE_ERLEDIGT,
 )
 
@@ -95,7 +96,9 @@ def test_der_erledigt_knopf_steht_nur_wo_er_etwas_quittiert() -> None:
     Kennung mit, also fand die App nichts zu quittieren und tat
     schlicht nichts. Ein Knopf, der nichts tut und «Erledigt» heisst,
     ist schlimmer als keiner."""
-    mit = {key for key, art in _KNOEPFE.items() if art == KNOEPFE_ERLEDIGT}
+    mit = {
+        key for key, art in _KNOEPFE.items() if art in (KNOEPFE_ERLEDIGT, KNOEPFE_BATTERIE)
+    }
     assert mit == {"battery"}
 
 

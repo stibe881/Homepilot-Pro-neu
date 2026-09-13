@@ -2782,15 +2782,25 @@ class Watchdog:
                 if isinstance(stand, (int, float)) and not isinstance(stand, bool)
                 else ""
             )
+            # Punkt 633: *welche* Batterie man kaufen muss, steht mit drin
+            # - und reist in den Nutzdaten mit, damit der Knopf «Auf die
+            # Einkaufsliste» unter der Meldung weiss, was er einträgt.
+            typ = getattr(entity, "battery_type", None)
+            welche = f"{typ} wechseln. " if typ else ""
             await self._notify(
                 f"Batterie schwach: {entity.label}",
-                f"{prozent}Danach ist das Gerät still, ohne sich abzumelden. "
+                f"{prozent}{welche}Danach ist das Gerät still, ohne sich abzumelden. "
                 f"Der Hub erinnert täglich um {prefs['hour']} Uhr, bis die "
                 "Batterie gewechselt ist.",
                 "battery",
                 # Damit ein Tipp auf die Nachricht direkt zu den Batterien
                 # führt, statt nur die App zu öffnen.
-                data={"type": "battery", "entity_id": entity.id, "ziel": "batterien"},
+                data={
+                    "type": "battery",
+                    "entity_id": entity.id,
+                    "ziel": "batterien",
+                    **({"battery_type": typ} if typ else {}),
+                },
             )
 
     async def _check_funk(self, entities: list[Any]) -> None:

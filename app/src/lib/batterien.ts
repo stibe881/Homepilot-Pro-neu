@@ -105,3 +105,58 @@ export function batteryRows(entities: Entity[]): HealthRow[] {
   });
 }
 
+/** Was in einem Melder stecken kann (Punkt 633) - dieselbe Liste wie im
+ *  Hub (core/watchrules.py: BATTERIETYPEN). Eine Vorschlagsliste, keine
+ *  Wahrheit: Der Hub weiss es nicht, die App fragt den Menschen. */
+export const BATTERIETYPEN = ['CR2032', 'CR2450', 'CR2477', 'CR123A', 'AA', 'AAA', '9V', 'Akku'];
+
+/** Hat dieses Gerät überhaupt eine Batterie? (rein, testbar) */
+export function hatBatterie(entity: Entity): boolean {
+  if (istPerson(entity)) return false;
+  const raw = entity.state?.battery;
+  return (typeof raw === 'number' && raw >= 0 && raw <= 100) || entity.state?.low_battery === true;
+}
+
+/** Der Posten für die Einkaufsliste (rein, testbar): «CR2032 (Türkontakt
+ *  Küche)» - der Typ vorn, weil man im Laden danach sucht, das Gerät in
+ *  Klammern, weil zwei Melder mit derselben Zelle zwei Posten sind. */
+export function einkaufText(typ: string, geraet: string): string {
+  const name = String(geraet ?? '').trim();
+  return name ? `${typ} (${name})` : typ;
+}
+
+/**
+ * Was in den nächsten Monaten zu kaufen ist (rein, testbar) - Punkt 633.
+ *
+ * Gezählt wird je Typ, was jetzt schwach ist oder laut Prognose innert
+ * `horizontTage` leer wird. Geräte ohne Typ zählen nicht: Ein «2× ?» ist
+ * keine Einkaufshilfe. Sortiert nach Anzahl, dann Name.
+ */
+export function batterieBedarf(
+  rows: HealthRow[],
+  resttage: Record<string, number>,
+  horizontTage = 90
+): { typ: string; anzahl: number }[] {
+  const zaehler = new Map<string, number>();
+  for (const row of rows) {
+    const typ = row.entity.battery_type;
+    if (!typ) continue;
+    const tage = resttage[row.entity.id];
+    const bald =
+      row.low ||
+      (row.percent !== null && row.percent <= BATTERY_SOON) ||
+      (typeof tage === 'number' && tage <= horizontTage);
+    if (!bald) continue;
+    zaehler.set(typ, (zaehler.get(typ) ?? 0) + 1);
+  }
+  return [...zaehler.entries()]
+    .map(([typ, anzahl]) => ({ typ, anzahl }))
+    .sort((a, b) => b.anzahl - a.anzahl || a.typ.localeCompare(b.typ));
+}
+
+/** «Für die nächsten 3 Monate: 2× CR2032, 1× AAA» - oder null (rein, testbar). */
+export function bedarfSatz(bedarf: { typ: string; anzahl: number }[], monate = 3): string | null {
+  if (bedarf.length === 0) return null;
+  const teile = bedarf.map((b) => `${b.anzahl}× ${b.typ}`).join(', ');
+  return `Für die nächsten ${monate} Monate: ${teile}`;
+}

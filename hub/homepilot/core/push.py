@@ -132,6 +132,10 @@ def push_fehlertext(status: int, body: str) -> str:
 KNOEPFE_SPAETER = "spaeter"
 #: Erinnert später und lässt sich abhaken (Batterie, Wartung).
 KNOEPFE_ERLEDIGT = "erledigt"
+#: «Erledigt», «Auf die Einkaufsliste» und «Später» - für die Batterie
+#: (Punkt 633). Der Einkauf gehört dazu, weil die Meldung sagt, *welche*
+#: Batterie fehlt; im Laden ist die Frage sonst wieder offen.
+KNOEPFE_BATTERIE = "batterie"
 #: «Ich mach's» – die volle Maschine übernimmt jemand. Die Meldung geht
 #: an alle, und ohne dieses Zeichen geht danach entweder niemand
 #: hinunter (jeder nimmt an, ein anderer tue es) oder zwei gleichzeitig.
@@ -176,7 +180,7 @@ _KNOEPFE: dict[str, str] = {
     "appliance": KNOEPFE_WAESCHE,
     "shopping": KNOEPFE_SPAETER,
     "medication": KNOEPFE_SPAETER,
-    "battery": KNOEPFE_ERLEDIGT,
+    "battery": KNOEPFE_BATTERIE,
     # Nachsehen geht man, wenn man ohnehin unten ist.
     "device_down": KNOEPFE_SPAETER,
     "maintenance": KNOEPFE_SPAETER,

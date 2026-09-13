@@ -82,6 +82,10 @@ export interface Entity {
    *  Raumkopf sagt aber «Fenster zu» oder «Türe zu». Leer heisst
    *  «raten» (lib/offen.ts, kontaktArt). */
   contact_kind?: 'window' | 'door' | null;
+  /** Welche Batterie drinsteckt - «CR2032», «AAA» … (Punkt 633). Weder
+   *  Hub noch Gerät wissen es; wer es einträgt, liest es in der Warnung
+   *  und auf der Einkaufsliste wieder (lib/batterien.ts). */
+  battery_type?: string | null;
   /** Kennung der Leuchte, in der dieses Licht aufgeht.
    *
    *  Eine Deckenlampe mit fünf Spots ist ein Licht, nicht fünf: Wer das

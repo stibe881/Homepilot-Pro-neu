@@ -24,6 +24,8 @@ export const KATEGORIE_ERLEDIGT = 'erledigt';
 export const KATEGORIE_WAESCHE = 'waesche';
 export const KATEGORIE_OFFEN = 'offen';
 export const KATEGORIE_GIESSEN = 'giessen';
+/** «Erledigt», «Auf die Einkaufsliste», «Später» - die Batterie (Punkt 633). */
+export const KATEGORIE_BATTERIE = 'batterie';
 
 /** Die Knöpfe selbst – die Kennung reist mit der Antwort zurück. */
 export const KNOPF_SPAETER = 'spaeter30';
@@ -31,6 +33,10 @@ export const KNOPF_ERLEDIGT = 'erledigt';
 export const KNOPF_ICHMACHS = 'ichmachs';
 export const KNOPF_PASST = 'passtso';
 export const KNOPF_GEGOSSEN = 'gegossen';
+/** «Auf die Einkaufsliste» unter der Batteriewarnung (Punkt 633): Die
+ *  Meldung sagt, *welche* Batterie fehlt - ohne den Knopf ist die Frage
+ *  im Laden wieder offen. Dedupliziert wie jeder andere Posten (174). */
+export const KNOPF_EINKAUF = 'einkauf';
 /** «Heute nicht mehr» (Punkt 397 der Werkbank) - stellt die Kategorie der
  *  Meldung für den Rest des Tages still (`/api/push/still`), ohne den
  *  Umweg über Konto → Benachrichtigungen. Steht neben «Später», nicht
@@ -48,9 +54,10 @@ export const KNOPF_STILL = 'heutenichtmehr';
  */
 export function knopfHandlung(
   id: string | undefined
-): 'spaeter' | 'erledigt' | 'ichmachs' | 'passt' | 'gegossen' | 'still' | null {
+): 'spaeter' | 'erledigt' | 'ichmachs' | 'passt' | 'gegossen' | 'still' | 'einkauf' | null {
   if (id === KNOPF_SPAETER) return 'spaeter';
   if (id === KNOPF_ERLEDIGT) return 'erledigt';
+  if (id === KNOPF_EINKAUF) return 'einkauf';
   if (id === KNOPF_ICHMACHS) return 'ichmachs';
   if (id === KNOPF_PASST) return 'passt';
   if (id === KNOPF_GEGOSSEN) return 'gegossen';
@@ -121,7 +128,20 @@ export async function knoepfeAnmelden(): Promise<void> {
     buttonTitle: 'Heute nicht mehr',
     options: { opensAppToForeground: false, isDestructive: true },
   };
+  // «Auf die Einkaufsliste» unter der Batteriewarnung (Punkt 633). Ohne
+  // die App zu öffnen: Der Posten geht an den Hub, mehr braucht es nicht.
+  const einkauf = {
+    identifier: KNOPF_EINKAUF,
+    buttonTitle: 'Auf die Einkaufsliste',
+    options: { opensAppToForeground: false },
+  };
   await Notifications.setNotificationCategoryAsync(KATEGORIE_SPAETER, [spaeter, still]);
+  await Notifications.setNotificationCategoryAsync(KATEGORIE_BATTERIE, [
+    erledigt,
+    einkauf,
+    spaeter,
+    still,
+  ]);
   await Notifications.setNotificationCategoryAsync(KATEGORIE_ERLEDIGT, [
     erledigt,
     spaeter,
