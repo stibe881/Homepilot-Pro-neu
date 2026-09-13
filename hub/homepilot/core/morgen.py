@@ -58,6 +58,7 @@ def zeilen(
     nacht: int,
     stille_ablaeufe: list[str],
     uv: str | None = None,
+    regen: str | None = None,
 ) -> list[str]:
     """Die Zeilen der Zusammenfassung (rein, testbar).
 
@@ -83,6 +84,10 @@ def zeilen(
         # Zuletzt: Das Fenster, das noch offen steht, ist der Handgriff
         # vor der Haustüre - die Sonnencreme kommt danach.
         raus.append(uv)
+    if regen:
+        # Und nach derselben Regel die Regenjacke (Punkt 584 der
+        # Werkbank): nur an Tagen, an denen etwas in den Thek gehört.
+        raus.append(regen)
     return raus
 
 

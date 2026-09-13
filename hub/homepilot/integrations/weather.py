@@ -89,6 +89,10 @@ def stunden_heute(hourly: Any, jetzt: datetime) -> list[dict[str, Any]]:
     temps = hourly.get("temperature_2m") or []
     codes = hourly.get("weather_code") or []
     rain = hourly.get("precipitation_probability") or []
+    # Die Menge zusätzlich zur Wahrscheinlichkeit: Der Schulweg-Hinweis
+    # (core/regen.py, Punkt 584) rechnet wie die Vorwarnung mit
+    # Millimetern - «60 %» heisst nicht, dass es um vier Uhr regnet.
+    mengen = hourly.get("precipitation") or []
     ab = jetzt.replace(minute=0, second=0, microsecond=0)
     heute = jetzt.date()
     zeilen: list[dict[str, Any]] = []
@@ -104,6 +108,7 @@ def stunden_heute(hourly: Any, jetzt: datetime) -> list[dict[str, Any]]:
                 "text": text,
                 "icon": icon,
                 "rain": rain[index] if index < len(rain) else None,
+                "mm": _round_mm(mengen[index] if index < len(mengen) else None),
             }
         )
     return zeilen
@@ -163,6 +168,11 @@ def parse_forecast(
         # auf die Wetterkarte. Nur die restlichen Stunden: Was vorbei
         # ist, braucht keine Vorhersage mehr.
         "hours": stunden_heute(payload.get("hourly"), jetzt),
+        # Regenjacke in den Thek? Die Zeile für die Wetterkarte; der
+        # Morgengruss rechnet sie zur Meldestunde frisch (Punkt 584).
+        "schulweg": regen.schulweg_hinweis(
+            stunden_heute(payload.get("hourly"), jetzt), jetzt
+        ),
         # Der Tageshöchstwert heute, griffbereit: Die Karte und der
         # Morgen-Hinweis fragen genau danach, nicht nach der Woche.
         "uv_today": days_out[0]["uv"] if days_out else None,

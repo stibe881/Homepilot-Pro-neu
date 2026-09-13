@@ -1353,6 +1353,16 @@ class Watchdog:
             if tage > 0
             else []
         )
+        # Der Zustand der Wetter-Entität - für UV und Regen. Leer, wenn
+        # keine angebunden ist: Dann fehlen die Zeilen, mehr nicht.
+        wetter: dict[str, Any] = next(
+            (
+                entity.state
+                for entity in entities
+                if getattr(entity, "kind", "") == "weather"
+            ),
+            {},
+        )
         gebaut = morgen.satz(
             morgen.zeilen(
                 offen=[entity.label for entity in open_contacts(entities)],
@@ -1376,16 +1386,12 @@ class Watchdog:
                 stille_ablaeufe=still,
                 # Der UV-Hinweis nur an Tagen, an denen er etwas sagt -
                 # «UV 2, alles gut» bestellte man ab (core/uvwarnung.py).
-                uv=uvwarnung.hinweis(
-                    next(
-                        (
-                            entity.state.get("uv_today")
-                            for entity in entities
-                            if getattr(entity, "kind", "") == "weather"
-                        ),
-                        None,
-                    )
-                ),
+                uv=uvwarnung.hinweis(wetter.get("uv_today")),
+                # Regenjacke in den Thek? (Punkt 584 der Werkbank) Frisch
+                # zur Meldestunde gerechnet, nicht aus dem Feld der
+                # Entität: Das stammt vom letzten Abruf, und «trocken
+                # jetzt» soll das Jetzt der Meldung meinen.
+                regen=regen.schulweg_hinweis(wetter.get("hours"), datetime.now()),
             )
         )
         if gebaut is None:

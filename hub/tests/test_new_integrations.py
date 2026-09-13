@@ -1067,6 +1067,8 @@ def test_weather_hours_zeigen_den_rest_des_tages():
         "text": "Klar",
         "icon": "sunny-outline",
         "rain": 0,
+        # Ohne Menge in der Antwort: 0.0 mm, nicht geraten (Punkt 584).
+        "mm": 0.0,
     }
     assert zeilen[1]["text"] == "Regenschauer"
     assert zeilen[1]["rain"] == 55

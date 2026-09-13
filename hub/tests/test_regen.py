@@ -405,3 +405,76 @@ def test_lange_dauern_stehen_in_stunden():
     assert (
         regen.satz({"now": False, "minutes": 95}) == "Regen in etwa 1 Stunde 35 Minuten."
     )
+
+
+# ── Der Schulweg: Regenjacke in den Thek? (Punkt 584) ────────────────────
+
+
+def stunden(*mm: float, ab: datetime) -> list[dict]:
+    """Stundenzeilen, wie sie in der Wetter-Entität stehen (``hours``)."""
+    return [
+        {"time": (ab + timedelta(hours=i)).isoformat(), "mm": wert, "rain": 0}
+        for i, wert in enumerate(mm)
+    ]
+
+
+def test_the_morning_hint_names_the_hour_the_rain_starts():
+    morgen = datetime(2026, 9, 8, 7, 0)
+    # Trocken um sieben, Regen ab 13 Uhr - mitten im Heimweg.
+    zeilen = stunden(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.4, 0.8, ab=morgen)
+    assert regen.schulweg_hinweis(zeilen, morgen) == (
+        "Regen ab etwa 13 Uhr - Regenjacke mitgeben"
+    )
+
+
+def test_no_hint_when_it_stays_dry_until_the_kids_are_home():
+    morgen = datetime(2026, 9, 8, 7, 0)
+    # Regen erst um 19 Uhr: Dann sind alle längst zuhause.
+    zeilen = stunden(*([0.0] * 12 + [2.0]), ab=morgen)
+    assert regen.schulweg_hinweis(zeilen, morgen) is None
+    assert regen.schulweg_hinweis([], morgen) is None
+    assert regen.schulweg_hinweis(None, morgen) is None
+
+
+def test_no_hint_when_it_is_already_raining():
+    # Das sieht man aus dem Fenster - ein Satz dazu wäre der zweite
+    # zur selben Sache.
+    morgen = datetime(2026, 9, 8, 7, 10)
+    zeilen = stunden(1.0, 1.0, 0.0, ab=morgen.replace(minute=0))
+    assert regen.schulweg_hinweis(zeilen, morgen) is None
+
+
+def test_no_hint_after_school_is_out():
+    abend = datetime(2026, 9, 8, 18, 0)
+    zeilen = stunden(0.0, 2.0, ab=abend)
+    assert regen.schulweg_hinweis(zeilen, abend) is None
+
+
+def test_old_states_without_amounts_fall_back_to_probability():
+    morgen = datetime(2026, 9, 8, 7, 0)
+    zeilen = [
+        {"time": (morgen + timedelta(hours=i)).isoformat(), "rain": wert}
+        for i, wert in enumerate([10, 20, 30, 70])
+    ]
+    assert regen.schulweg_hinweis(zeilen, morgen) == (
+        "Regen ab etwa 10 Uhr - Regenjacke mitgeben"
+    )
+
+
+def test_the_forecast_carries_the_school_way_hint():
+    morgen = datetime(2026, 9, 8, 7, 0)
+    zustand = parse_forecast(
+        {
+            "current": {"temperature_2m": 12.0, "weather_code": 3},
+            "hourly": {
+                "time": [(morgen + timedelta(hours=i)).isoformat() for i in range(8)],
+                "temperature_2m": [12] * 8,
+                "weather_code": [3] * 8,
+                "precipitation_probability": [10] * 8,
+                "precipitation": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.1, 0.5],
+            },
+        },
+        morgen,
+    )
+    assert zustand["hours"][6]["mm"] == 1.1
+    assert zustand["schulweg"] == "Regen ab etwa 13 Uhr - Regenjacke mitgeben"

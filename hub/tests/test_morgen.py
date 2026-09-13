@@ -132,3 +132,21 @@ async def test_ohne_etwas_zu_melden_kommt_keine_zusammenfassung(hub, monkeypatch
 
     await hub.watchdog.check()
     assert [t for t, _b in sent if "Morgen" in t] == []
+
+
+def test_the_rain_jacket_line_comes_last_and_only_when_needed():
+    """Punkt 584: Nach derselben Regel wie UV - nur an Tagen, an denen
+    etwas in den Thek gehört, und als letzte Zeile."""
+    ohne = morgen.zeilen(offen=[], schwach=[], stumm=[], nacht=0, stille_ablaeufe=[])
+    assert ohne == []
+    zeilen = morgen.zeilen(
+        offen=["Balkontüre"],
+        schwach=[],
+        stumm=[],
+        nacht=0,
+        stille_ablaeufe=[],
+        uv="UV heute hoch (7) - eincremen, Mittagssonne meiden",
+        regen="Regen ab etwa 13 Uhr - Regenjacke mitgeben",
+    )
+    assert zeilen[0] == "Noch offen: Balkontüre"
+    assert zeilen[-1] == "Regen ab etwa 13 Uhr - Regenjacke mitgeben"
