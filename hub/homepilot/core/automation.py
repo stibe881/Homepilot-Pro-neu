@@ -375,6 +375,12 @@ class Automation:
 
 # So viele Läufe merkt sich der Hub – genug, um einen Abend nachzuvollziehen.
 RUN_LIMIT = 100
+# … und so viele höchstens je Ablauf. Fehler aus der Runde 579 der
+# Werkbank: Der Ring galt nur fürs ganze Haus, und ein Bewegungslicht im
+# Flur verdrängte die Gute-Nacht-Spur in einer einzigen Nacht - genau die
+# Spur, der man am Morgen nachgehen wollte. Je Ablauf bleibt mindestens
+# das letzte Stück Geschichte stehen, egal wie geschwätzig die anderen sind.
+RUNS_PER_AUTOMATION = 20
 
 #: So lange nach einem Lauf wird nachgesehen, ob er gewirkt hat. Die
 #: Geräte melden ihren neuen Zustand über ihren eigenen Weg zurück -
@@ -1124,6 +1130,63 @@ def calendar_due(
         if feuer_ab <= jetzt_ts < feuer_ab + 300:
             faellig.append(schluessel)
     return faellig
+
+
+def kalender_zeitpunkte(
+    events: list[dict[str, Any]],
+    contains: str,
+    kind: str,
+    minutes_before: float,
+) -> list[datetime]:
+    """Wann ein Kalender-Auslöser feuern würde (rein, testbar).
+
+    Fehler aus der Runde 579 der Werkbank: «Nächste Ausführung» und das
+    Tagesband kannten nur Zeit- und Sonnen-Auslöser; ein Ablauf «wenn
+    ‹Gäste› beginnt» stand ohne Uhrzeit da, obwohl der Termin im Kalender
+    liegt. Dieselbe Rechnung wie in ``calendar_due``, nur ohne Fenster:
+    Start oder Ende jedes passenden Termins, den Vorlauf abgezogen,
+    als naive Ortszeit, aufsteigend.
+    """
+    needle = contains.strip().lower()
+    zeitpunkte: list[datetime] = []
+    for event in events or []:
+        summary = str(event.get("summary") or "")
+        if needle and needle not in summary.lower():
+            continue
+        grenze = event.get("end" if kind == "end" else "start")
+        if not grenze:
+            continue
+        try:
+            zeitpunkt = datetime.fromisoformat(str(grenze).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if zeitpunkt.tzinfo is not None:
+            zeitpunkt = zeitpunkt.astimezone().replace(tzinfo=None)
+        zeitpunkte.append(zeitpunkt - timedelta(minutes=minutes_before))
+    return sorted(zeitpunkte)
+
+
+def verlauf_kuerzen(
+    runs: list[dict[str, Any]],
+    haus: int = RUN_LIMIT,
+    je_ablauf: int = RUNS_PER_AUTOMATION,
+) -> list[dict[str, Any]]:
+    """Den Verlauf beschneiden - jüngste zuerst (rein, testbar).
+
+    Zuerst je Ablauf auf ``je_ablauf`` Läufe, dann das Ganze auf ``haus``:
+    Ein geschwätziger Ablauf bekommt so nie mehr als seinen Anteil, und
+    für die anderen bleibt Platz. Die Reihenfolge bleibt, wie sie war.
+    """
+    gezaehlt: dict[str, int] = {}
+    gekuerzt: list[dict[str, Any]] = []
+    for run in runs:
+        schluessel = str(run.get("automation_id") or "")
+        stand = gezaehlt.get(schluessel, 0)
+        if stand >= je_ablauf:
+            continue
+        gezaehlt[schluessel] = stand + 1
+        gekuerzt.append(run)
+    return gekuerzt[:haus]
 
 
 def parse_repeat_count(value: Any, maximum: int = REPEAT_LIMIT) -> int:
@@ -2276,7 +2339,7 @@ class AutomationEngine:
             # Kaputter Verlauf: lieber ohne Geschichte starten als gar nicht.
             return
         if stored:
-            self.runs = list(stored)[:RUN_LIMIT]
+            self.runs = verlauf_kuerzen(list(stored))
 
     def _location(self) -> tuple[float, float]:
         loc = getattr(self.hub.config, "location", None) or {}
@@ -2489,12 +2552,15 @@ class AutomationEngine:
         return True
 
     def next_run(self, automation: Automation) -> float | None:
-        """Wann der nächste Zeit- oder Sonnen-Auslöser fällig ist (Punkt 161).
+        """Wann der nächste Zeit-, Zeitraum-, Sonnen- oder Kalender-Auslöser
+        fällig ist (Punkt 161).
 
         Unix-Sekunden, ``None`` wenn nichts planbar ist - Zustands- und
         Intervall-Auslöser haben keinen Kalender. Der Zufalls-Versatz
         bleibt aussen vor: Angezeigt wird der Zielpunkt, gewürfelt wird
-        erst beim Feuern.
+        erst beim Feuern. Zeitraum (feuert zu Beginn) und Kalender kamen
+        mit dem Fehler aus der Runde 579 der Werkbank dazu - sie standen
+        vorher ohne «Nächste Ausführung» da.
         """
         if not automation.enabled:
             return None
@@ -2502,9 +2568,17 @@ class AutomationEngine:
         kandidaten: list[float] = []
         for trigger in automation.triggers:
             art = str(trigger.get("type", "state"))
-            if art == "time":
+            if art == "calendar":
+                kandidaten.extend(
+                    zeitpunkt.timestamp()
+                    for zeitpunkt in self._kalender_zeitpunkte(trigger)
+                    if zeitpunkt > jetzt
+                )
+            elif art in ("time", "window"):
                 try:
-                    hour, minute = _parse_hhmm(str(trigger.get("at")))
+                    hour, minute = _parse_hhmm(
+                        str(trigger.get("after" if art == "window" else "at"))
+                    )
                 except (TypeError, ValueError):
                     continue
                 ziel = jetzt.replace(hour=hour, minute=minute, second=0, microsecond=0)
@@ -2527,22 +2601,41 @@ class AutomationEngine:
     def tagesplan(self) -> list[dict[str, Any]]:
         """Was das Haus heute vorhat (Punkt 163).
 
-        Alle Zeit- und Sonnen-Auslöser des heutigen Tages, auch die schon
-        vorbeigezogenen - das Band in der App zeigt Erledigtes mit Haken
-        und Kommendes mit Uhrzeit. Zustands-Auslöser haben keinen
-        Kalender und stehen deshalb nicht hier.
+        Alle Zeit-, Zeitraum-, Sonnen- und Kalender-Auslöser des heutigen
+        Tages, auch die schon vorbeigezogenen - das Band in der App zeigt
+        Erledigtes mit Haken und Kommendes mit Uhrzeit. Zustands-Auslöser
+        haben keinen Kalender und stehen deshalb nicht hier.
         """
         heute = datetime.now()
         lat, lon = self._location()
         eintraege: list[dict[str, Any]] = []
+
+        def eintragen(automation: Automation, zeitpunkt: datetime, art: str) -> None:
+            eintraege.append(
+                {
+                    "automation_id": automation.id,
+                    "alias": automation.alias,
+                    "at": zeitpunkt.timestamp(),
+                    "art": art,
+                }
+            )
+
         for automation in self.automations:
             if not automation.enabled:
                 continue
             for trigger in automation.triggers:
                 art = str(trigger.get("type", "state"))
-                if art == "time":
+                if art == "calendar":
+                    # Ein Kalender-Auslöser kann heute mehrmals fällig sein.
+                    for zeitpunkt in self._kalender_zeitpunkte(trigger):
+                        if zeitpunkt.date() == heute.date():
+                            eintragen(automation, zeitpunkt, art)
+                    continue
+                if art in ("time", "window"):
                     try:
-                        hour, minute = _parse_hhmm(str(trigger.get("at")))
+                        hour, minute = _parse_hhmm(
+                            str(trigger.get("after" if art == "window" else "at"))
+                        )
                     except (TypeError, ValueError):
                         continue
                     zeitpunkt = heute.replace(
@@ -2564,16 +2657,22 @@ class AutomationEngine:
                     zeitpunkt = ereignis + timedelta(minutes=versatz)
                 else:
                     continue
-                eintraege.append(
-                    {
-                        "automation_id": automation.id,
-                        "alias": automation.alias,
-                        "at": zeitpunkt.timestamp(),
-                        "art": art,
-                    }
-                )
+                eintragen(automation, zeitpunkt, art)
         eintraege.sort(key=lambda eintrag: eintrag["at"])
         return eintraege
+
+    def _kalender_zeitpunkte(self, trigger: dict[str, Any]) -> list[datetime]:
+        """Die Feuerzeiten eines Kalender-Auslösers aus der Terminliste."""
+        try:
+            vorlauf = float(trigger.get("minutes_before") or 0)
+        except (TypeError, ValueError):
+            vorlauf = 0.0
+        return kalender_zeitpunkte(
+            self._calendar_events(str(trigger.get("entity_id") or "")),
+            str(trigger.get("contains") or ""),
+            str(trigger.get("event") or "start"),
+            vorlauf,
+        )
 
     async def probe_action(self, action: dict[str, Any]) -> None:
         """Eine einzelne Aktion ausführen, ohne den Ablauf (Punkt 164).
@@ -3014,7 +3113,7 @@ class AutomationEngine:
             "steps": steps or [],
         }
         self.runs.insert(0, eintrag)
-        del self.runs[RUN_LIMIT:]
+        self.runs[:] = verlauf_kuerzen(self.runs)
         # Auch auf die Platte: Nach einem Neustart ist sonst genau die
         # Spur weg, der man nachgeht - «heute Nacht ging das Licht an, und
         # jetzt weiss niemand, warum».

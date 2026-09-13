@@ -28,7 +28,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from . import astro, feiertage, schulferien
-from .automation import parse_hhmm, parse_weekdays, time_in_window
+from .automation import kalender_zeitpunkte, parse_hhmm, parse_weekdays, time_in_window
 
 #: Mehr als ein Monat rückwärts ist keine Simulation mehr, sondern eine
 #: Statistik - und das Ereignisprotokoll reicht ohnehin nicht so weit.
@@ -109,32 +109,20 @@ def _kalender_zeitpunkte(
 ) -> list[datetime]:
     """Wann dieser Kalender-Auslöser feuert - je Termin ein Zeitpunkt.
 
-    (rein, testbar) - dieselben Regeln wie automation.calendar_due, nur
-    ohne Fenster und Gedächtnis: Hier wird nicht gefeuert, sondern
-    gezählt.
+    (rein, testbar) - die Rechnung liegt seit dem Fehler aus der Runde
+    579 in automation.kalender_zeitpunkte, weil «Nächste Ausführung» und
+    das Tagesband dieselbe brauchen. Hier wird nur der Auslöser gelesen.
     """
-    needle = str(trigger.get("contains") or "").strip().lower()
-    kind = str(trigger.get("event") or "start")
     try:
         vorlauf = float(trigger.get("minutes_before") or 0)
     except (TypeError, ValueError):
         vorlauf = 0.0
-    zeitpunkte: list[datetime] = []
-    for event in events or []:
-        summary = str(event.get("summary") or "")
-        if needle and needle not in summary.lower():
-            continue
-        grenze = event.get("end" if kind == "end" else "start")
-        if not grenze:
-            continue
-        try:
-            zeitpunkt = datetime.fromisoformat(str(grenze).replace("Z", "+00:00"))
-        except ValueError:
-            continue
-        if zeitpunkt.tzinfo is not None:
-            zeitpunkt = zeitpunkt.astimezone().replace(tzinfo=None)
-        zeitpunkte.append(zeitpunkt - timedelta(minutes=vorlauf))
-    return zeitpunkte
+    return kalender_zeitpunkte(
+        events or [],
+        str(trigger.get("contains") or ""),
+        str(trigger.get("event") or "start"),
+        vorlauf,
+    )
 
 
 def _nicht_simulierbar(trigger: dict[str, Any], grund: str) -> dict[str, Any]:

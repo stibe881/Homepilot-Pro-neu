@@ -2349,3 +2349,108 @@ async def test_ein_gestolperter_schritt_schickt_eine_nachricht(tmp_path):
         assert len(gesendet) == 1
     finally:
         await hub.stop()
+
+
+# ── Zeitraum und Kalender im Tagesband (Fehler aus der Runde 579) ─────────
+
+
+def test_verlauf_kuerzen_laesst_jedem_ablauf_seinen_anteil():
+    """Ein Bewegungslicht im Flur verdrängte die Gute-Nacht-Spur in einer
+    Nacht: Der Ring galt fürs ganze Haus, nicht je Ablauf."""
+    from homepilot.core.automation import verlauf_kuerzen
+
+    runs = [{"automation_id": "flur", "at": 1000 - i} for i in range(90)]
+    runs.append({"automation_id": "gute_nacht", "at": 1})
+    gekuerzt = verlauf_kuerzen(runs, haus=100, je_ablauf=20)
+    assert sum(1 for r in gekuerzt if r["automation_id"] == "flur") == 20
+    # Die jüngsten bleiben, die Reihenfolge auch.
+    assert [r["at"] for r in gekuerzt[:3]] == [1000, 999, 998]
+    assert gekuerzt[-1]["automation_id"] == "gute_nacht"
+    # Der Haus-Ring gilt weiterhin.
+    viele = [{"automation_id": f"a{i}", "at": i} for i in range(150)]
+    assert len(verlauf_kuerzen(viele, haus=100, je_ablauf=20)) == 100
+
+
+def test_kalender_zeitpunkte_rechnet_den_vorlauf_ab():
+    from homepilot.core.automation import kalender_zeitpunkte
+
+    events = [
+        {"summary": "Gäste", "start": "2026-03-01T18:00:00", "end": "2026-03-01T22:00:00"},
+        {"summary": "Zahnarzt", "start": "2026-03-01T09:00:00"},
+        {"summary": "Gäste", "start": "kaputt"},
+    ]
+    assert kalender_zeitpunkte(events, "gäste", "start", 30) == [
+        datetime(2026, 3, 1, 17, 30)
+    ]
+    assert kalender_zeitpunkte(events, "gäste", "end", 0) == [datetime(2026, 3, 1, 22, 0)]
+    assert [z.hour for z in kalender_zeitpunkte(events, "", "start", 0)] == [9, 18]
+
+
+def test_next_run_und_tagesplan_kennen_zeitraum_und_kalender():
+    """Vorher standen Zeitraum- und Kalender-Auslöser ohne «Nächste
+    Ausführung» und ohne Kachel im Tagesband."""
+
+    async def check():
+        from datetime import timedelta
+
+        hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+        await hub.start()
+        try:
+            jetzt = datetime.now()
+            termin = (jetzt + timedelta(hours=1)).replace(second=0, microsecond=0)
+            await hub.registry.add(
+                Entity(
+                    id="demo.kalender",
+                    kind=EntityKind.SENSOR,
+                    name="Kalender",
+                    integration="demo",
+                    state={
+                        "events": [
+                            {"summary": "Gäste", "start": termin.isoformat()},
+                            # Gestern zählt nicht - weder als nächster noch heute.
+                            {
+                                "summary": "Gäste",
+                                "start": (termin - timedelta(days=1)).isoformat(),
+                            },
+                        ]
+                    },
+                )
+            )
+            engine = hub.automations
+            fenster = Automation(
+                id="w",
+                alias="Zeitraum",
+                triggers=[
+                    {
+                        "type": "window",
+                        "after": (jetzt + timedelta(hours=2)).strftime("%H:%M"),
+                        "before": "23:59",
+                    }
+                ],
+            )
+            kalender = Automation(
+                id="k",
+                alias="Gäste kommen",
+                triggers=[
+                    {
+                        "type": "calendar",
+                        "entity_id": "demo.kalender",
+                        "contains": "Gäste",
+                        "minutes_before": 15,
+                    }
+                ],
+            )
+            engine.automations = [fenster, kalender]
+
+            geplant = engine.next_run(fenster)
+            assert geplant is not None
+            assert abs(geplant - (jetzt + timedelta(hours=2)).timestamp()) < 60
+            assert engine.next_run(kalender) == (termin - timedelta(minutes=15)).timestamp()
+
+            plan = engine.tagesplan()
+            arten = {eintrag["alias"]: eintrag["art"] for eintrag in plan}
+            assert arten == {"Zeitraum": "window", "Gäste kommen": "calendar"}
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
