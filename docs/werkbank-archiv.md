@@ -7902,6 +7902,13 @@ Bibliothek den Port für die Dauer ihres Aufrufs ganz (die Geräteschleife
 wartet am Schloss) und öffnet den Kanal danach neu; was die Bibliothek
 sonst wirft, kommt als Satz in der Antwort an, nicht als 500.
 
+**Und die Sitzung fiel nach ein paar Sekunden ab:** Der Hub schickte die
+einzelnen Tasten, liess aber den Controller-Worker der Bibliothek
+(`controller.start()`) aus - und erst dessen steter Pad-Zustand im Takt
+von 100-200 ms hält die Remote-Play-Sitzung am Leben. Ohne ihn legte die
+Konsole sie von selbst ab. Der Worker läuft jetzt, solange die Sitzung
+steht, und hält still, sobald sie getrennt wird.
+
 Stellen: `hub/homepilot/integrations/playstation.py`, `hub/homepilot/api/routes/playstation.py`, `hub/homepilot/core/livekarten.py`, `hub/homepilot/core/extras.py`, `hub/pyproject.toml`, `hub/Dockerfile`, `docs/playstation.md`, `hub/tests/test_playstation*.py`, `app/src/lib/playstation.ts`, `app/src/components/TvRemote.tsx`, `app/src/components/PsKopplung.tsx`, `app/src/screens/VerbindungenScreen.tsx`, `app/src/lib/fernsehkachel.ts`, `app/src/lib/fernsehkopplung.ts`, `app/src/lib/geraeteart.ts`, `app/src/lib/raumkarte.ts`
 
 ### 644. «Zocken» blieb nie aktiv - der zweite Druck löste bloss erneut aus ✓ erledigt
