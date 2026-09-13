@@ -21,6 +21,10 @@ hub/homepilot-data.json
 # Ring, Google-Kalender, Overkiz, Roborock. Dasselbe Argument.
 hub/*-token.json
 hub/**/*-token.json
+# Die Remote-Play-Registrierung der PlayStation (Punkt 643): Schlüssel,
+# mit denen man die Konsole fernbedient. Gleiches Argument.
+hub/*playstation-profile.json*
+hub/**/*playstation-profile.json*
 
 # Die Matter-Fabric: Schlüssel und Zertifikate der gekoppelten Geräte.
 # Gehört ins Backup, aber nie ins Repository.

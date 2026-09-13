@@ -609,6 +609,37 @@ def _tv_app(entity: Any) -> str | None:
     return str(app) if app else None
 
 
+def eigenstaendig(entity: Any) -> bool:
+    """Ist das ein eigenes Gerät mit eigener Fernbedienung? (rein, testbar)
+
+    Punkt 643: Die PlayStation hat ein Steuerkreuz, ist aber kein
+    zweiter Draht zum selben Bildschirm - sie ist ein Zuspieler mit
+    eigener Fernbedienung. Zählte sie als Steuerkreuz-Zwilling, zerfiele
+    im Wohnzimmer die Zusammenlegung von Cast und Android TV (zwei
+    Steuerkreuze → «es wird nicht geraten»), und das Geisterbild des
+    Zuspielers käme zurück. Also steht sie ausserhalb der Zwillingsregel:
+    eigene Karte, eigene Fernbedienung, kein Einfluss auf die anderen.
+    """
+    return getattr(entity, "integration", None) == "playstation"
+
+
+def tv_symbol(entity: Any) -> str:
+    """Das Symbol der Karte (rein, testbar): Controller für die Konsole, sonst Fernseher."""
+    return "gamecontroller" if eigenstaendig(entity) else "tv"
+
+
+def tv_text(entity: Any, app: str | None) -> str:
+    """Der Text der Karte (rein, testbar).
+
+    Beim Fernseher steht die App allein («Netflix»), bei der Konsole das
+    Spiel mit Vorsatz («Spielt: Gran Turismo 7») - der Spielname sagt
+    ohne ihn nicht, was gerade geschieht.
+    """
+    if not app:
+        return "eingeschaltet"
+    return f"Spielt: {app}" if eigenstaendig(entity) else app
+
+
 def _tv_name(label: Any) -> str:
     """Der Name ohne Füllwörter, zum Vergleichen (rein).
 
@@ -664,6 +695,7 @@ def geisterbild(entity: Any, entities: list[Any]) -> bool:
         if kandidat is not entity
         and getattr(kandidat, "kind", None) == "media_player"
         and "dpad_up" in (getattr(kandidat, "commands", None) or [])
+        and not eigenstaendig(kandidat)
         and sind_zwillinge(entity, kandidat)
     ]
     if len(kreuze) != 1:
@@ -723,13 +755,20 @@ def tv_auswahl(laufend: list[Any]) -> list[tuple[Any, str | None]]:
     """
     gruppen: list[list[Any]] = []
     for entity in laufend:
-        ziel = next(
-            (
-                gruppe
-                for gruppe in gruppen
-                if any(sind_zwillinge(entity, mitglied) for mitglied in gruppe)
-            ),
-            None,
+        # Eine Konsole bildet ihre eigene Gruppe und nimmt niemanden auf
+        # (eigenstaendig): Sie teilt sich den Bildschirm, nicht die Karte.
+        ziel = (
+            None
+            if eigenstaendig(entity)
+            else next(
+                (
+                    gruppe
+                    for gruppe in gruppen
+                    if not eigenstaendig(gruppe[0])
+                    and any(sind_zwillinge(entity, mitglied) for mitglied in gruppe)
+                ),
+                None,
+            )
         )
         if ziel is None:
             gruppen.append([entity])
@@ -788,6 +827,7 @@ def fernbedienung_ziel(entity: Any, entities: list[Any]) -> str:
         if kandidat is not entity
         and getattr(kandidat, "kind", None) == "media_player"
         and "dpad_up" in (getattr(kandidat, "commands", None) or [])
+        and not eigenstaendig(kandidat)
         and sind_zwillinge(entity, kandidat)
     ]
     if len(kreuze) != 1:
@@ -847,9 +887,10 @@ def karten_tv(
                 **({"ohne": list(ohne)} if ohne else {}),
                 "state": {
                     "titel": entity.label,
-                    # Die laufende App als Text - «Netflix» sagt mehr als «an».
-                    "text": app or "eingeschaltet",
-                    "symbol": "tv",
+                    # Die laufende App als Text - «Netflix» sagt mehr als
+                    # «an»; bei der Konsole «Spielt: …» (Punkt 643).
+                    "text": tv_text(entity, app),
+                    "symbol": tv_symbol(entity),
                     "url": (
                         "homepilot://fernbedienung/"
                         f"{quote(fernbedienung_ziel(entity, entities))}"
