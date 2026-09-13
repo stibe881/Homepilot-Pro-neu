@@ -4,7 +4,7 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Entity, Scene } from '../api/types';
 import { raumDunkel, raumSymbol, raumZeile } from '../lib/raum';
-import { bewegungImRaum } from '../lib/bewegung';
+import { bewegungImRaum, bewegungsSignal } from '../lib/bewegung';
 import { Raumaktion, kachelKlima, kachelKnoepfe, raumFarben, raumStand } from '../lib/raumkarte';
 import { useJetzt } from '../hooks/useRestzeit';
 import { Colors, radius, useColors } from '../theme';
@@ -188,7 +188,7 @@ export function RoomCard({
               accessibilityLabel={`Bewegung in ${name}`}
               style={styles.bewegung}
             >
-              <Ionicons name="walk" size={13} color={colors.on} />
+              <Ionicons name="walk" size={13} color={bewegungsSignal(colors).farbe} />
             </View>
           ) : null}
         </View>
@@ -377,9 +377,10 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.pill,
       alignItems: 'center',
       justifyContent: 'center',
-      // Derselbe grüne Hauch wie ein eingeschalteter Zustand
-      // (`onSoft`): Er heisst auf jeder Kachel «hier ist gerade etwas».
-      backgroundColor: colors.onSoft,
+      // Derselbe grüne Hauch wie ein eingeschalteter Zustand: Er heisst
+      // auf jeder Kachel «hier ist gerade etwas». Seit Punkt 612 gilt
+      // diese Regel überall, wo das Männchen steht (lib/bewegung.ts).
+      backgroundColor: bewegungsSignal(colors).grund,
     },
     // Ans untere Ende: So stehen die Knöpfe zweier Kacheln nebeneinander
     // auf derselben Linie, auch wenn die eine mehr zu sagen hat.

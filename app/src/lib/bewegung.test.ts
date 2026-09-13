@@ -1,5 +1,15 @@
+import fs from 'fs';
+import path from 'path';
+
 import type { Entity, EntityState } from '../api/types';
-import { bewegungImRaum, istBewegungsmelder, meldetBewegung } from './bewegung';
+import {
+  darkColors,
+  lightColors,
+  mitternachtColors,
+  pinkColors,
+  sandColors,
+} from '../theme';
+import { bewegungImRaum, bewegungsSignal, istBewegungsmelder, meldetBewegung } from './bewegung';
 
 function geraet(
   kind: string,
@@ -124,5 +134,52 @@ describe('bewegungImRaum', () => {
     expect(bewegungImRaum([geraet('light', 'Licht', { state: 'on' }), melder({ state: 'off' })])).toBe(
       false
     );
+  });
+});
+
+describe('bewegungsSignal', () => {
+  // Punkt 612: «Bewegung» trug vier Farben - rot auf der Kamerawand,
+  // orange auf der Kamerakachel, grün auf der Raumkachel, weiss im
+  // Raumkopf. Jetzt gilt überall die Regel der Raumkachel.
+  it.each([
+    ['hell', lightColors],
+    ['dunkel', darkColors],
+    ['pink', pinkColors],
+    ['mitternacht', mitternachtColors],
+    ['sand', sandColors],
+  ])('nimmt in der Palette %s die Farbe von «an», nie Rot', (_name, colors) => {
+    const signal = bewegungsSignal(colors);
+    expect(signal.farbe).toBe(colors.on);
+    expect(signal.grund).toBe(colors.onSoft);
+    expect(signal.farbe).not.toBe(colors.danger);
+  });
+
+  it('wird von jeder Stelle geholt, die das Männchen zeichnet', () => {
+    // Ein Quellen-Test wie symbole.test.ts: Die fünfte Farbe kommt
+    // nicht dadurch, dass jemand die Regel bricht, sondern dadurch,
+    // dass er sie nicht kennt. Wer `walk` als Zeichen für Bewegung
+    // setzt, holt Farbe und Grund aus bewegungsSignal - und schreibt
+    // keinen festen Farbwert daneben.
+    const quelle = path.join(__dirname, '..');
+    const dateien = (ordner: string): string[] =>
+      fs.readdirSync(ordner, { withFileTypes: true }).flatMap((eintrag) => {
+        const voll = path.join(ordner, eintrag.name);
+        if (eintrag.isDirectory()) return dateien(voll);
+        return /\.tsx$/.test(eintrag.name) && !eintrag.name.includes('.test.') ? [voll] : [];
+      });
+    const verstoesse: string[] = [];
+    for (const datei of dateien(quelle)) {
+      const text = fs.readFileSync(datei, 'utf8');
+      const maennchen = text.match(/<Ionicons[^>]*name="walk"[^>]*>/g) ?? [];
+      if (maennchen.length === 0) continue;
+      const rel = path.relative(quelle, datei);
+      if (!text.includes('bewegungsSignal(')) {
+        verstoesse.push(`${rel}: holt die Farbe nicht aus bewegungsSignal`);
+      }
+      for (const tag of maennchen) {
+        if (/color=["{]'?#/.test(tag)) verstoesse.push(`${rel}: fester Farbwert am Männchen`);
+      }
+    }
+    expect(verstoesse).toEqual([]);
   });
 });

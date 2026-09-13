@@ -9,6 +9,7 @@
 import { StyleSheet } from 'react-native';
 
 import { Colors, radius, space, type } from '../../theme';
+import { bewegungsSignal } from '../../lib/bewegung';
 import { ZIFFERN, schrift } from '../../lib/schriftart';
 
 export const makeStyles = (colors: Colors) =>
@@ -539,7 +540,9 @@ export const makeStyles = (colors: Colors) =>
       borderRadius: radius.pill,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: colors.surfaceSoft,
+      // Derselbe Grund wie auf der Raumkachel (Punkt 612): Das Männchen
+      // sagt an beiden Orten dasselbe und sieht darum auch gleich aus.
+      backgroundColor: bewegungsSignal(colors).grund,
       marginTop: 2,
     },
     reorderButton: {

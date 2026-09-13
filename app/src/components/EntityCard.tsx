@@ -82,6 +82,7 @@ export function raumWert(entity: Entity): string {
   return `${zimmer[0]} +${zimmer.length - 1}`;
 }
 import {
+  Bewegungsmarke,
   BigValue,
   Pill,
   clock,
@@ -910,7 +911,7 @@ export function EntityCard({
               <Pill label="Klingelt" tone={colors.danger} solid />
             ) : null}
             {entity.state.motion === 'on' ? (
-              <Pill label="Bewegung" tone={colors.warn} solid />
+              <Bewegungsmarke />
             ) : null}
             {entity.state.last_motion ? (
               <Text style={styles.detail}>

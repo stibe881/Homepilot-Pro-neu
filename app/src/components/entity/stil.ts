@@ -550,4 +550,7 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
     fontSize: 13,
     fontWeight: '600',
   },
+  /** Die Pille mit Männchen davor (Punkt 612): Symbol und Wort in einer
+   *  Zeile, sonst wie jede Pille. */
+  bewegungsmarke: { flexDirection: 'row', alignItems: 'center', gap: 5 },
 });

@@ -100,7 +100,7 @@ import {
   musikboxenImRaum,
   pickPlayer,
 } from '../lib/geraeteart';
-import { bewegungImRaum } from '../lib/bewegung';
+import { bewegungImRaum, bewegungsSignal } from '../lib/bewegung';
 import { rueckangebot } from '../lib/rueckgriff';
 import { gemerkteAktion, menuLabel } from '../lib/doppeltipp';
 import { leerbild } from '../lib/leerzustand';
@@ -3506,7 +3506,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                       accessibilityLabel="Bewegung im Raum"
                       style={styles.raumBewegung}
                     >
-                      <Ionicons name="walk" size={15} color={colors.onGradient} />
+                      <Ionicons name="walk" size={15} color={bewegungsSignal(colors).farbe} />
                     </View>
                   ) : null}
                 </View>

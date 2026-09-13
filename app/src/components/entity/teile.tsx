@@ -3,11 +3,13 @@
  *
  * Herausgelöst aus EntityCard.tsx (Punkt 59 der Werkbank).
  */
+import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
 import { Text, View } from 'react-native';
 
+import { bewegungsSignal } from '../../lib/bewegung';
 import { datumKurz, uhr, wochentagUhr } from '../../lib/format';
-import { Colors, useColors } from '../../theme';
+import { Colors, icon, useColors } from '../../theme';
 import { makeStyles } from './stil';
 
 
@@ -80,6 +82,30 @@ export function pillSchrift(colors: Colors, ton: string, solid: boolean): string
   if (ton === colors.on) return colors.onInk;
   if (ton === colors.warn) return colors.warnInk;
   return ton;
+}
+
+/**
+ * Das Männchen mit Wort - «Bewegung» auf der Kamerakachel (Punkt 612).
+ *
+ * Vorher eine orange gefüllte Pille, während dieselbe Auskunft auf der
+ * Raumkachel ein grünes Männchen war. Jetzt dasselbe Zeichen in
+ * derselben Farbe (lib/bewegung.ts, bewegungsSignal), nur mit dem Wort
+ * daneben, weil auf der Kachel Platz dafür ist.
+ */
+export function Bewegungsmarke({ label = 'Bewegung' }: { label?: string }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const signal = bewegungsSignal(colors);
+  return (
+    <View
+      accessibilityRole="image"
+      accessibilityLabel={label}
+      style={[styles.pill, styles.bewegungsmarke, { backgroundColor: signal.grund }]}
+    >
+      <Ionicons name="walk" size={icon.klein} color={signal.farbe} />
+      <Text style={[styles.pillText, { color: colors.onInk }]}>{label}</Text>
+    </View>
+  );
 }
 
 /** Werte, die «noch nichts» heissen – und nicht so aussehen sollen. */
