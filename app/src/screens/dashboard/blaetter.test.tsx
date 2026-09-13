@@ -61,6 +61,14 @@ describe('useBlaetter', () => {
       ['seitenhilfe', (b) => b.setSeitenhilfe(true)],
       ['wandOffen', (b) => b.setWandOffen(true)],
       ['searchOpen', (b) => b.setSearchOpen(true)],
+      // Die fünf, die bis Punkt 582 als eigene Zustände in der
+      // Startseite lebten und bei der Rückkehr des Wandpanels offen
+      // liegen blieben.
+      ['remoteFuer', (b) => b.setRemoteFuer('demo.fernseher')],
+      ['grillBlattFuer', (b) => b.setGrillBlattFuer('demo.grill')],
+      ['musikBlattRaum', (b) => b.setMusikBlattRaum('Küche')],
+      ['posteingangOffen', (b) => b.setPosteingangOffen(true)],
+      ['pushBlatt', (b) => b.setPushBlatt({ knoepfe: [] })],
     ];
 
     for (const [name, oeffnen] of oeffner) {

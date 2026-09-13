@@ -1,6 +1,7 @@
 import { Dispatch, SetStateAction, useCallback, useState } from 'react';
 
 import { Entity } from '../../api/types';
+import { PushKnopf } from '../../lib/pushziel';
 
 /**
  * Was gerade über der Seite liegt – und wie man es alles zumacht.
@@ -23,7 +24,23 @@ import { Entity } from '../../api/types';
  * als eigenes Blatt über der Leiste, dort ist der Menüpunkt gar nicht
  * erreichbar, und so bleibt er auch. Die Trennlinie ist nicht «ist es
  * ein Blatt», sondern «soll es beim Ortswechsel verschwinden».
+ *
+ * Seit Punkt 582 gehören auch Fernbedienung, Grillblatt, Musikblatt,
+ * Posteingang und das Blatt mit den Handgriffen einer Nachricht dazu.
+ * Sie lebten als eigene Zustände in der Startseite, und die
+ * Drei-Minuten-Rückkehr des Wandpanels machte sie deshalb nie zu: Die
+ * Fernbedienung lag noch über der Startseite, zu der das Panel gerade
+ * zurückgekehrt war.
  */
+
+/** Die Handgriffe, die ein Ablauf seiner Nachricht mitgegeben hat -
+ *  «Trockner an» unter «Waschmaschine fertig». Sie stehen erst hier zur
+ *  Wahl, hinter der Anmeldung. */
+export interface PushBlattInhalt {
+  titel?: string;
+  text?: string;
+  knoepfe: PushKnopf[];
+}
 export interface Blaetter {
   /** Gerät im Vollbild (Kamera, Klingel). */
   fullscreen: string | null;
@@ -67,6 +84,28 @@ export interface Blaetter {
   /** Das Suchfeld. */
   searchOpen: boolean;
   setSearchOpen: Dispatch<SetStateAction<boolean>>;
+  /** Welcher Fernseher seine Fernbedienung offen hat. Sie hängt nicht
+   *  an der Gerätekachel, sondern hier: Der Knopf «Fernseher» auf einer
+   *  Raumkachel soll sie aufmachen, ohne dass man erst in den Raum geht.
+   *  Über die Kennung und nicht über die Entität: Der Hub schickt bei
+   *  jedem Tastendruck einen neuen Zustand, und ein festgehaltenes
+   *  Objekt wäre nach dem ersten Druck von gestern. */
+  remoteFuer: string | null;
+  setRemoteFuer: Dispatch<SetStateAction<string | null>>;
+  /** Der Grill, dessen Blatt offen ist (Punkt 555) - aus demselben
+   *  Grund über die Kennung wie die Fernbedienung. */
+  grillBlattFuer: string | null;
+  setGrillBlattFuer: Dispatch<SetStateAction<string | null>>;
+  /** Für welchen Raum der Player offen steht (Musik-Knopf der Raumkachel). */
+  musikBlattRaum: string | null;
+  setMusikBlattRaum: Dispatch<SetStateAction<string | null>>;
+  /** Der Posteingang (Punkt 524): was das Haus für mich zurückgehalten
+   *  hat, hinter der Glocke oben. */
+  posteingangOffen: boolean;
+  setPosteingangOffen: Dispatch<SetStateAction<boolean>>;
+  /** Die Handgriffe einer Nachricht. */
+  pushBlatt: PushBlattInhalt | null;
+  setPushBlatt: Dispatch<SetStateAction<PushBlattInhalt | null>>;
   /** Alles zumachen – beim Wechsel des Bereichs. */
   allesZu: () => void;
   /** Liegt gerade etwas darüber? Für Tests und für den Riegel. */
@@ -88,6 +127,11 @@ export function useBlaetter(): Blaetter {
   const [seitenhilfe, setSeitenhilfe] = useState(false);
   const [wandOffen, setWandOffen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [remoteFuer, setRemoteFuer] = useState<string | null>(null);
+  const [grillBlattFuer, setGrillBlattFuer] = useState<string | null>(null);
+  const [musikBlattRaum, setMusikBlattRaum] = useState<string | null>(null);
+  const [posteingangOffen, setPosteingangOffen] = useState(false);
+  const [pushBlatt, setPushBlatt] = useState<PushBlattInhalt | null>(null);
 
   const allesZu = useCallback(() => {
     setFullscreen(null);
@@ -104,6 +148,11 @@ export function useBlaetter(): Blaetter {
     setSeitenhilfe(false);
     setWandOffen(false);
     setSearchOpen(false);
+    setRemoteFuer(null);
+    setGrillBlattFuer(null);
+    setMusikBlattRaum(null);
+    setPosteingangOffen(false);
+    setPushBlatt(null);
   }, []);
 
   return {
@@ -135,6 +184,16 @@ export function useBlaetter(): Blaetter {
     setWandOffen,
     searchOpen,
     setSearchOpen,
+    remoteFuer,
+    setRemoteFuer,
+    grillBlattFuer,
+    setGrillBlattFuer,
+    musikBlattRaum,
+    setMusikBlattRaum,
+    posteingangOffen,
+    setPosteingangOffen,
+    pushBlatt,
+    setPushBlatt,
     allesZu,
     etwasOffen:
       fullscreen !== null ||
@@ -150,6 +209,11 @@ export function useBlaetter(): Blaetter {
       hilfeOffen ||
       seitenhilfe ||
       wandOffen ||
-      searchOpen,
+      searchOpen ||
+      remoteFuer !== null ||
+      grillBlattFuer !== null ||
+      musikBlattRaum !== null ||
+      posteingangOffen ||
+      pushBlatt !== null,
   };
 }

@@ -103,6 +103,7 @@ import {
 import { bewegungImRaum } from '../lib/bewegung';
 import { rueckangebot } from '../lib/rueckgriff';
 import { oberstes } from '../lib/blattstapel';
+import { darfZurueck } from '../lib/rueckkehr';
 import { gemerkteAktion, menuLabel } from '../lib/doppeltipp';
 import { leerbild } from '../lib/leerzustand';
 import { reihenfolge as nutzungsReihenfolge } from '../lib/raumnutzung';
@@ -196,7 +197,7 @@ import { Widgets } from '../components/Widgets';
 import { syncAuto } from '../lib/autoablage';
 import { Ablage, syncWidget } from '../lib/widget';
 import { hoereAufSchnellaktionen, setzeSchnellaktionen } from '../lib/schnellaktionen';
-import { PushKnopf, Ziel, knoepfeAus, zielAus } from '../lib/pushziel';
+import { Ziel, knoepfeAus, zielAus } from '../lib/pushziel';
 import { PushBlatt } from '../components/PushBlatt';
 import { Erinnerungsblatt } from '../components/Erinnerungsblatt';
 import { fristSatz } from '../lib/erinnerungsfrist';
@@ -443,6 +444,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setWandOffen,
     searchOpen,
     setSearchOpen,
+    remoteFuer,
+    setRemoteFuer,
+    grillBlattFuer,
+    setGrillBlattFuer,
+    musikBlattRaum,
+    setMusikBlattRaum,
+    posteingangOffen,
+    setPosteingangOffen,
+    pushBlatt,
+    setPushBlatt,
     allesZu,
   } = useBlaetter();
   // Aufgeklappt kommt man nur über die Batteriewarnung hierher; sonst
@@ -514,10 +525,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [lastTouch, setLastTouch] = useState(() => Date.now());
   // Eine Berührung irgendwo - im Wurzel-View oder in einem Blatt
   // darüber (Punkt 582 der Werkbank): Tipps in einem nativen Modal
-  // erreichten den `onTouchStart` des Wurzel-Views nie.
+  // erreichten den `onTouchStart` des Wurzel-Views nie, und das Panel
+  // sprang mitten im Rezept auf die Startseite.
   const beruehrt = useCallback(() => setLastTouch(Date.now()), []);
   // Welche Blätter gerade übereinander offen sind (lib/blattstapel.ts):
-  // Das oberste zeichnet die Meldungen (Punkt 581).
+  // Das oberste zeichnet die Meldungen (Punkt 581), und eines, das
+  // «wach hält», setzt die Rückkehr aus.
   const blattstapel = useBlattstapel();
   // Zählt hoch, wenn der Widget-Knopf «Alles aus» gedrückt wurde – die
   // Rückfrage öffnet sich dann von selbst, statt dass die App nur
@@ -554,20 +567,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Tipp-Haken früh gebraucht wird und der Weg selbst erst weiter unten
   // steht - dort, wo die Räume bekannt sind.
   const zumZiel = useRef<(ziel: Ziel) => void>(() => {});
-  // Die Handgriffe, die ein Ablauf seiner Nachricht mitgegeben hat -
-  // «Trockner an» unter «Waschmaschine fertig». Sie stehen erst hier zur
-  // Wahl, hinter der Anmeldung.
-  const [pushBlatt, setPushBlatt] = useState<{
-    titel?: string;
-    text?: string;
-    knoepfe: PushKnopf[];
-  } | null>(null);
-  // Der Posteingang (Punkt 524): was das Haus für mich zurückgehalten
-  // hat, hinter der Glocke oben. Die Zahl an der Glocke ist, was seit
-  // dem letzten Öffnen dazukam - der Zeitpunkt liegt beim Hub
-  // (lib/persoenlich.ts), damit das iPad nicht zeigt, was das Telefon
-  // längst gelesen hat.
-  const [posteingangOffen, setPosteingangOffen] = useState(false);
+  // Die Handgriffe einer Nachricht (pushBlatt) und der Posteingang
+  // (posteingangOffen, Punkt 524) kommen aus useBlaetter - siehe dort.
+  // Die Zahl an der Glocke ist, was seit dem letzten Öffnen dazukam -
+  // der Zeitpunkt liegt beim Hub (lib/persoenlich.ts), damit das iPad
+  // nicht zeigt, was das Telefon längst gelesen hat.
   const [verpasste, setVerpasste] = useState<{ at: number }[]>([]);
   const [posteingangGesehen, setPosteingangGesehen] = useState(0);
   const verpassteLaden = useCallback(() => {
@@ -607,17 +611,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Bild nicht auf Vorrat.
   const [personenbilder, setPersonenbilder] = useState<Record<string, number>>({});
   // Für welchen Raum das Blatt «Bild wählen» offen steht.
-  // Für welchen Raum der Player offen steht (Musik-Knopf der Raumkachel).
-  const [musikBlattRaum, setMusikBlattRaum] = useState<string | null>(null);
-  // Welcher Fernseher seine Fernbedienung offen hat. Sie hängt nicht an
-  // der Gerätekachel, sondern hier: Der Knopf «Fernseher» auf einer
-  // Raumkachel soll sie aufmachen, ohne dass man erst in den Raum geht.
-  const [remoteFuer, setRemoteFuer] = useState<string | null>(null);
-  // Der Grill, dessen Blatt offen ist (Punkt 555). Über die Kennung und
-  // nicht über die Entität: Der Hub schickt alle dreissig Sekunden einen
-  // neuen Zustand, und ein festgehaltenes Objekt wäre sofort von gestern
-  // - dieselbe Überlegung wie beim Fernbedienungs-Blatt.
-  const [grillBlattFuer, setGrillBlattFuer] = useState<string | null>(null);
+  // Musikblatt, Fernbedienung und Grillblatt (Punkt 555) kommen aus
+  // useBlaetter - seit Punkt 582, damit die Rückkehr des Wandpanels sie
+  // mit zumacht.
   const [grillziele, setGrillziele] = useState<Zielzeile[]>([]);
   // Auf der Startseite markierte Countdowns aus dem Familie-Modul.
   const [startCountdowns, setStartCountdowns] = useState<
@@ -1144,7 +1140,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (knoepfe.length > 0) {
       setPushBlatt({ titel: tap.title, text: tap.body, knoepfe });
     }
-  }, []);
+    // Ein Setzer aus useBlaetter - fest, aber der Prüfer weiss das nicht.
+  }, [setPushBlatt]);
   // «Später» und «Erledigt» aus der Mitteilung heraus. Beides läuft ohne
   // die App zu öffnen; sie erfährt davon, sobald sie das nächste Mal
   // läuft, und reicht es an den Hub weiter (lib/mitteilungsknoepfe.ts).
@@ -1269,9 +1266,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Gemeinschaftsgerät genauso wie am Wandpanel - und dabei fällt der
   // Riegel wieder zu: Eine offene Einkaufsliste soll nicht im Flur
   // stehen bleiben, bloss weil vorhin jemand das Passwort kannte.
+  //
+  // Nicht während des Kochens, Klingelns oder Grillens (Punkt 582 der
+  // Werkbank, lib/rueckkehr.ts): Wer mit Teig an den Händen im Rezept
+  // blättert, tippt drei Minuten lang nichts - und fand dann die
+  // Startseite vor. Und was darüber offen liegt (Fernbedienung,
+  // Grillblatt, Musik), geht mit zu: Sonst deckte es die Startseite zu,
+  // zu der man gerade zurückgekehrt ist.
   useTakt(
     () => {
-      if (Date.now() - lastTouch > 180000) {
+      if (darfZurueck(Date.now(), lastTouch, blattstapel.haeltWach)) {
         // Im Kindermodus ist «zuhause» die Kinderseite, nicht die
         // Startseite - die gibt es auf diesem Gerät gar nicht.
         setSection((settings.kindPanel ?? '').trim() ? 'family' : 'start');
@@ -1279,6 +1283,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         setRoom(ALL_ROOMS);
         setRiegelBis(0);
         setRiegelModul(null);
+        allesZu();
       }
     },
     panelArtig ? 30000 : null
@@ -1579,7 +1584,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // Ereignisse (App lief schon) kommen genau einmal - jedes zählt.
     const subscription = Linking.addEventListener('url', (event) => handle(event.url));
     return () => subscription.remove();
-  }, [entities, scenes, activateScene, guardedCommand, prefs.doorConfirm]);
+  }, [
+    entities,
+    scenes,
+    activateScene,
+    guardedCommand,
+    prefs.doorConfirm,
+    // Setzer aus useBlaetter - fest, aber der Prüfer weiss das nicht.
+    setRemoteFuer,
+    setGrillBlattFuer,
+  ]);
 
   const toggleIn = (list: string[], id: string) =>
     list.includes(id) ? list.filter((item) => item !== id) : [...list, id];
