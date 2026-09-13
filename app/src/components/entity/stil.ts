@@ -272,14 +272,6 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
   garstufeAktiv: { backgroundColor: colors.accentSoft, borderColor: colors.accent },
   garstufeText: { color: colors.ink, fontSize: 12, fontWeight: '600' },
   grillRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  grillStep: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.track,
-  },
   mediaLabel: {
     color: colors.inkFaint,
     fontSize: 11,

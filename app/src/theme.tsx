@@ -384,6 +384,33 @@ export function typFuer(panel: boolean): Typmass {
 export const icon = { klein: 16, mittel: 18, gross: 22 };
 
 /**
+ * Die kleinste Trefffläche (Punkt 613 der Werkbank).
+ *
+ * Apple verlangt 44 × 44 Punkte, WCAG 2.5.8 mindestens 24. Der
+ * Ein/Aus-Knopf war 34 gross, der Stift 32, die Zeitraum-Chips im
+ * Verlauf 19 - und `hitSlop` stand 143-mal im Code, jede Stelle nach
+ * Gefühl. Der Ein/Aus-Knopf ist die meistgedrückte Fläche im Haus: Wer
+ * daneben tippt, tippt auf die Kachel, und die öffnet je nach
+ * Bildschirm den Verlauf.
+ *
+ * Wichtig für das Wandpanel: Im Browser wirkt `hitSlop` nicht -
+ * react-native-web kennt es an Pressable schlicht nicht. Dort zählt
+ * allein der Kasten, deshalb wächst der Ein/Aus-Knopf als Kasten
+ * (Card.tsx, PowerButton) und nicht nur um einen unsichtbaren Rand.
+ * Die Browser-Probe (scripts/probe.mjs) misst genau das.
+ */
+export const treffer = { mindest: 44 };
+
+/**
+ * Um wie viel eine Fläche je Seite wachsen muss, damit sie die kleinste
+ * Trefffläche erreicht (rein, testbar) - als `hitSlop` oder als
+ * negativer Rand um einen grösseren Kasten.
+ */
+export function trefferRand(groesse: number): number {
+  return Math.max(0, Math.ceil((treffer.mindest - groesse) / 2));
+}
+
+/**
  * Die Kachelhöhen-Regel (Punkt 528): Jede Kachel ist mindestens so hoch,
  * und in einer Zeile des Rasters sind alle gleich hoch - die höchste
  * gibt vor (`alignItems: 'stretch'` am Raster). Vorher stand die 138

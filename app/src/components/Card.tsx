@@ -12,7 +12,7 @@ import {
 
 import { dauer, hinweis } from '../lib/langdruck';
 
-import { Colors, kachel, radius, type, useColors } from '../theme';
+import { Colors, kachel, radius, trefferRand, treffer, type, useColors } from '../theme';
 
 /** Gemeinsame Glaskachel: Fläche, Rundung, Schatten. */
 export function Card({
@@ -173,21 +173,32 @@ export function PowerButton({
       accessibilityRole="switch"
       accessibilityState={{ checked: on, busy: !!pending }}
       accessibilityLabel={label ?? (on ? 'Ausschalten' : 'Einschalten')}
-      style={({ pressed }) => [
-        styles.power,
-        { borderColor: on ? colors.on : colors.off },
-        on && { backgroundColor: colors.onSoft },
-        (pressed || pending) && { opacity: 0.55 },
-      ]}
+      style={({ pressed }) => [styles.power, (pressed || pending) && { opacity: 0.55 }]}
     >
-      {pending ? (
-        <ActivityIndicator size="small" color={on ? colors.on : colors.inkFaint} />
-      ) : (
-        <Ionicons name="power" size={17} color={on ? colors.on : colors.inkFaint} />
-      )}
+      {/* Der Ring ist das, was man sieht; der Knopf darum das, was man
+          trifft (Punkt 613): 44 Punkte, wie Apple es verlangt, bei
+          gleichem Platz in der Zeile - der Kasten ragt mit negativem
+          Rand über den Ring hinaus. Kein hitSlop, weil das im Browser
+          nichts tut, und am Wandpanel läuft der Browser. */}
+      <View
+        style={[
+          styles.powerRing,
+          { borderColor: on ? colors.on : colors.off },
+          on && { backgroundColor: colors.onSoft },
+        ]}
+      >
+        {pending ? (
+          <ActivityIndicator size="small" color={on ? colors.on : colors.inkFaint} />
+        ) : (
+          <Ionicons name="power" size={17} color={on ? colors.on : colors.inkFaint} />
+        )}
+      </View>
     </Pressable>
   );
 }
+
+/** Der sichtbare Ring des Ein/Aus-Knopfs. */
+const POWER_RING = 34;
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
@@ -225,9 +236,18 @@ const makeStyles = (colors: Colors) =>
     flexShrink: 1,
   },
   power: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: treffer.mindest,
+    height: treffer.mindest,
+    // Der negative Rand nimmt dem Kasten wieder, was er über den Ring
+    // hinaus misst: In der Zeile belegt der Knopf weiter 34 Punkte.
+    margin: -trefferRand(POWER_RING),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  powerRing: {
+    width: POWER_RING,
+    height: POWER_RING,
+    borderRadius: POWER_RING / 2,
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',

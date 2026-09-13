@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, {
   Circle,
   Defs,
@@ -11,7 +11,7 @@ import Svg, {
 
 import { Entity, EntityState } from '../api/types';
 import { useSettings } from '../hooks/HubContext';
-import { Colors, radius, useColors } from '../theme';
+import { Colors, radius, trefferRand, useColors } from '../theme';
 import {
   Punkt,
   flaeche,
@@ -111,16 +111,16 @@ export function HistoryChart({
         <Text style={styles.note}>{note}</Text>
         <View style={styles.rangeRow}>
           {RANGES.map((range) => (
-            <Text
+            <Zeitraumknopf
               key={range.hours}
+              label={range.label}
+              aktiv={hours === range.hours}
+              styles={styles}
               onPress={() => {
                 setPunkts(null);
                 setHours(range.hours);
               }}
-              style={[styles.rangeChip, hours === range.hours && styles.rangeChipActive]}
-            >
-              {range.label}
-            </Text>
+            />
           ))}
         </View>
       </View>
@@ -231,17 +231,58 @@ export function HistoryChart({
         )}
         <View style={styles.rangeRow}>
           {RANGES.map((range) => (
-            <Text
+            <Zeitraumknopf
               key={range.hours}
+              label={range.label}
+              aktiv={hours === range.hours}
+              styles={styles}
               onPress={() => setHours(range.hours)}
-              style={[styles.rangeChip, hours === range.hours && styles.rangeChipActive]}
-            >
-              {range.label}
-            </Text>
+            />
           ))}
         </View>
       </View>
     </View>
+  );
+}
+
+/** Wie hoch der Zeitraum-Chip sichtbar ist - für den Rand darum. */
+const CHIP_HOEHE = 28;
+
+/**
+ * Ein Zeitraum-Chip (Punkt 613 der Werkbank).
+ *
+ * Vorher ein nackter `Text` mit `onPress`, rund 19 Punkte hoch und ohne
+ * Rolle: Die Vorlesehilfe nannte ihn nicht als Knopf, und wer «24 h»
+ * treffen wollte, traf die Kachel. Jetzt ein Pressable mit Rolle und
+ * Zustand, sichtbar 28 Punkte hoch und mit dem Rand, der bis zur
+ * kleinsten Trefffläche fehlt.
+ */
+function Zeitraumknopf({
+  label,
+  aktiv,
+  onPress,
+  styles,
+}: {
+  label: string;
+  aktiv: boolean;
+  onPress: () => void;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: aktiv }}
+      accessibilityLabel={`Zeitraum ${label}`}
+      hitSlop={trefferRand(CHIP_HOEHE)}
+      style={({ pressed }) => [
+        styles.rangeChip,
+        aktiv && styles.rangeChipActive,
+        pressed && { opacity: 0.7 },
+      ]}
+    >
+      <Text style={[styles.rangeChipText, aktiv && styles.rangeChipTextActive]}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -278,13 +319,14 @@ const makeStyles = (colors: Colors) =>
     // eine Zeile, und über den Rand hinausragen ist keine Lösung.
     rangeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, flexShrink: 1 },
     rangeChip: {
-      color: colors.inkFaint,
-      fontSize: 11,
-      paddingHorizontal: 8,
-      paddingVertical: 2,
+      minHeight: CHIP_HOEHE,
+      paddingHorizontal: 10,
+      justifyContent: 'center',
       borderRadius: radius.pill,
       overflow: 'hidden',
     },
-    rangeChipActive: { color: colors.onAccent, backgroundColor: colors.accent },
+    rangeChipActive: { backgroundColor: colors.accent },
+    rangeChipText: { color: colors.inkFaint, fontSize: 11 },
+    rangeChipTextActive: { color: colors.onAccent },
     note: { color: colors.inkSoft, fontSize: 12, lineHeight: 18 },
   });

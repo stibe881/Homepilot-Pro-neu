@@ -15,7 +15,7 @@ import { chipSchrift, fensterHoehe } from '../../lib/storenkachel';
 import { grillBauart, grillFoto, grillKurzinfo } from '../../lib/grillbild';
 import { fuehlerZeile } from '../../lib/grillziel';
 import { mayOpenDirectly } from '../../lib/tuerbestaetigung';
-import { radius, useColors } from '../../theme';
+import { radius, trefferRand, useColors } from '../../theme';
 import { Bar } from '../Bar';
 import { CoverVisual, Sky } from '../CoverVisual';
 import { GrillVisual } from '../GrillVisual';
@@ -904,7 +904,8 @@ export function KameraKachel({
             accessibilityRole="switch"
             accessibilityState={{ checked: false }}
             accessibilityLabel="Privatsphäre einschalten"
-            hitSlop={6}
+            // Bis zur kleinsten Trefffläche (Punkt 613), nicht nach Gefühl.
+            hitSlop={trefferRand(32)}
             style={({ pressed }) => [styles.kameraRund, pressed && { opacity: 0.7 }]}
           >
             <Ionicons name="eye-off-outline" size={16} color="#FFFFFF" />
