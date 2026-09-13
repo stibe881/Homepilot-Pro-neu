@@ -6,6 +6,10 @@
  * Dienstagabend stimmt und nützt nichts.
  */
 import {
+  aktivitaetZeile,
+  aktivitaetenAm,
+  fahrtSatz,
+  fahrtUnbesetzt,
   ferienSatz,
   ferienpause,
   geburtstagInTagen,
@@ -241,6 +245,36 @@ describe('heuteSatz', () => {
         ferien: { state: 'schultag', next: 'Herbstferien', next_in_days: 1 },
       })
     ).toBeNull();
+  });
+});
+
+describe('wer fährt (Punkt 621)', () => {
+  it('sagt in einem Satz, wer bringt und wer holt', () => {
+    expect(fahrtSatz({ bringt: 'Stefan', holt: 'Stefan' })).toBe('Stefan fährt');
+    expect(fahrtSatz({ bringt: 'Stefan', holt: 'Anna' })).toBe('Stefan bringt · Anna holt');
+    expect(fahrtSatz({ holt: 'Anna' })).toBe('Anna holt');
+    expect(fahrtSatz({})).toBeNull();
+    // Mit Ort, aber ohne Person: die offene Frage.
+    expect(fahrtUnbesetzt({ ort: 'Sursee' })).toBe(true);
+    expect(fahrtUnbesetzt({ ort: 'Sursee', bringt: 'Stefan' })).toBe(false);
+    expect(fahrtUnbesetzt({})).toBe(false);
+  });
+
+  it('stellt die Wöchentlichen eines Tages in den Wochenplan', () => {
+    const activities = [
+      { id: '1', member: 'Levin', day: 'Di', from: '17:30', text: 'Fussball', bringt: 'Stefan', holt: 'Stefan' },
+      { id: '2', member: 'Lina', day: 'Di', from: '16:00', text: 'Ballett', ort: 'Zell' },
+      { id: '3', member: 'Levin', day: 'Fr', from: '18:00', text: 'Jugi' },
+      { id: '4', member: 'Lina', day: 'Di', from: '15:00', text: 'Flöte', week: 'B' },
+    ];
+    // Alle: nach Zeit, nur die laufende Woche (A).
+    expect(aktivitaetenAm(activities, 'Di', null, 'A').map((z) => z.id)).toEqual(['2', '1']);
+    // Der Filter kennt das Kind - und den, der fährt.
+    expect(aktivitaetenAm(activities, 'Di', 'Levin', 'A').map((z) => z.id)).toEqual(['1']);
+    expect(aktivitaetenAm(activities, 'Di', 'Stefan', 'A').map((z) => z.id)).toEqual(['1']);
+    expect(aktivitaetenAm(activities, 'Di', 'Anna', 'A')).toEqual([]);
+    expect(aktivitaetZeile(activities[0])).toBe('Levin: Fussball 17:30 · Stefan fährt');
+    expect(aktivitaetZeile(activities[1])).toBe('Lina: Ballett 16:00');
   });
 });
 

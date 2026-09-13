@@ -346,6 +346,69 @@ export function heuteSatz(
   return ferien ? 'Ferien - heute steht nichts an.' : 'Heute steht nichts an.';
 }
 
+// ── Wer fährt? (Punkt 621 der Werkbank) ────────────────────────────────
+//
+// Ein Wöchentliches trug Tag, von/bis und einen Ort, aber keine Person,
+// die bringt oder holt - die tägliche Familienfrage «wer fährt Levin
+// nach Sursee?» hatte keinen Platz. Die beiden Felder heissen `bringt`
+// und `holt` und tragen einen Namen aus der Personenreihe; der Hub
+// liest dieselben Felder für den Losfahr-Wecker (core/losfahren.py).
+
+/**
+ * «Stefan fährt», «Stefan bringt · Anna holt» - oder null (rein, testbar).
+ *
+ * Fährt dieselbe Person hin und zurück, steht sie einmal da: «Stefan
+ * bringt · Stefan holt» liest sich wie ein Fehler.
+ */
+export function fahrtSatz(eintrag: Eintrag): string | null {
+  const bringt = String(eintrag?.bringt ?? '').trim();
+  const holt = String(eintrag?.holt ?? '').trim();
+  if (!bringt && !holt) return null;
+  if (bringt && holt && bringt === holt) return `${bringt} fährt`;
+  return [bringt ? `${bringt} bringt` : '', holt ? `${holt} holt` : '']
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/** Braucht die Fahrt noch jemanden? Mit Ort, aber ohne Person (rein). */
+export function fahrtUnbesetzt(eintrag: Eintrag): boolean {
+  return Boolean(String(eintrag?.ort ?? '').trim()) && fahrtSatz(eintrag) === null;
+}
+
+/**
+ * Die Wöchentlichen eines Wochentags, für den Wochenplan (rein, testbar).
+ *
+ * `person` filtert wie die Chips über dem Wochenplan: das Kind selbst
+ * oder wer bringt oder holt - «Levin» zeigt Levins Fussball, «Stefan»
+ * die Fahrten, die an ihm hängen. Null heisst alle. Nach Zeit sortiert,
+ * Zweiwochen-Einträge nur in ihrer Woche.
+ */
+export function aktivitaetenAm(
+  activities: Eintrag[] | null | undefined,
+  tag: string,
+  person: string | null,
+  woche: Woche
+): Eintrag[] {
+  const zeilen = (activities ?? []).filter(
+    (zeile) =>
+      String(zeile?.day ?? '') === tag &&
+      (person === null ||
+        [zeile?.member, zeile?.bringt, zeile?.holt].some(
+          (wer) => String(wer ?? '').trim() === person
+        ))
+  );
+  return nachZeit(fuerWoche(zeilen, woche));
+}
+
+/** «Levin: Fussball 17:30 · Stefan fährt» (rein, testbar). */
+export function aktivitaetZeile(eintrag: Eintrag): string {
+  const wer = String(eintrag?.member ?? '').trim();
+  const was = String(eintrag?.text ?? '').trim();
+  const uhr = zeitNormal(eintrag?.from);
+  const teile = [uhr ? `${was} ${uhr}` : was, fahrtSatz(eintrag) ?? ''].filter(Boolean);
+  return wer ? `${wer}: ${teile.join(' · ')}` : teile.join(' · ');
+}
+
 /**
  * Zwei Terminquellen zu einer Liste (rein, testbar).
  *

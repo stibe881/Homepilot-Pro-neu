@@ -122,6 +122,23 @@ def test_the_week_ahead_names_the_edge_of_the_holidays():
     assert text.startswith("Mo: Herbstferien beginnen")
 
 
+def test_the_week_ahead_names_rides_nobody_has_taken():
+    """Punkt 621: «Do Jugi: niemand fährt» gehört in den Sonntagabend-
+    Ausblick, nicht auf den Donnerstag um 17 Uhr."""
+    activities = [
+        {"day": "Do", "text": "Jugi", "ort": "Sursee", "member": "Levin"},
+        {"day": "Di", "text": "Fussball", "ort": "Sursee", "bringt": "Stefan"},
+        {"day": "Mo", "text": "Ballett", "ort": "Zell", "holt": "Anna"},
+        # Ohne Ort keine Fahrt, ohne Tag keine Zeile.
+        {"day": "Fr", "text": "Lesen", "member": "Lina"},
+        {"day": "Irgendwann", "text": "Turnen", "ort": "Zell"},
+    ]
+    assert familie.unbesetzte_fahrten(activities) == ["Do Jugi: niemand fährt"]
+    assert familie.unbesetzte_fahrten(None) == []
+    text = familie.week_ahead([], [], [], [], date(2026, 8, 23), activities=activities)
+    assert text == "Do Jugi: niemand fährt"
+
+
 def test_the_week_ahead_lists_the_meals_and_the_missing_plan():
     """Punkt 587: Das Abendessen stand im Wochenplan - und nirgends sonst.
     Am Sonntag steht es im Ausblick, samt dem Tag, für den noch ein Plan

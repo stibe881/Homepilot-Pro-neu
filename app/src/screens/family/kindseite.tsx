@@ -37,6 +37,7 @@ import { terminWann } from '../../lib/kalenderliste';
 import {
   TAGE,
   TAG_NAMEN,
+  fahrtSatz,
   ferienSatz,
   ferienpause,
   geburtstagSatz,
@@ -238,6 +239,7 @@ function FerienChip({
 function WochenForm({
   platzhalter,
   mitOrt,
+  mitglieder,
   tag,
   onTag,
   onAdd,
@@ -247,6 +249,9 @@ function WochenForm({
 }: {
   platzhalter: string;
   mitOrt?: boolean;
+  /** Wer bringen oder holen kann (Punkt 621) - die Personenreihe ohne
+   *  das Kind selbst. Ohne Liste gibt es die Chips nicht. */
+  mitglieder?: string[];
   tag: string;
   /** Fehlt sie, ist der Tag von aussen gesetzt (Stundenplan). */
   onTag?: (tag: string) => void;
@@ -263,6 +268,8 @@ function WochenForm({
   const [ort, setOrt] = useState('');
   const [woche, setWoche] = useState<'' | Woche>('');
   const [ferien, setFerien] = useState(false);
+  const [bringt, setBringt] = useState('');
+  const [holt, setHolt] = useState('');
   const bereit = Boolean(text.trim()) && zeitNormal(von) !== null;
 
   const submit = () => {
@@ -279,6 +286,8 @@ function WochenForm({
       ...(woche ? { week: woche } : {}),
       ...(mitOrt && ort.trim() ? { ort: ort.trim() } : {}),
       ...(mitOrt && ferien ? { holidays: true } : {}),
+      ...(mitOrt && bringt ? { bringt } : {}),
+      ...(mitOrt && holt ? { holt } : {}),
     });
     setText('');
     setVon('');
@@ -286,7 +295,35 @@ function WochenForm({
     setOrt('');
     setWoche('');
     setFerien(false);
+    setBringt('');
+    setHolt('');
   };
+
+  /** Eine Chip-Reihe «bringt» bzw. «holt» - ein zweiter Tipp auf den
+   *  gewählten Namen nimmt ihn wieder heraus. */
+  const fahrerReihe = (
+    titel: string,
+    wahl: string,
+    setWahl: (name: string) => void
+  ) => (
+    <View style={styles.chipRow}>
+      <Text style={styles.checkSub}>{titel}</Text>
+      {(mitglieder ?? []).map((name) => (
+        <Pressable
+          key={name}
+          onPress={() => setWahl(wahl === name ? '' : name)}
+          accessibilityRole="radio"
+          accessibilityState={{ selected: wahl === name }}
+          accessibilityLabel={`${name} ${titel}`}
+          style={[styles.chip, wahl === name && styles.chipActive]}
+        >
+          <Text style={[styles.chipText, wahl === name && styles.chipTextActive]}>
+            {name}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  );
 
   return (
     <View style={{ gap: 8, marginTop: 4 }}>
@@ -338,6 +375,14 @@ function WochenForm({
           />
         ) : null}
       </View>
+      {/* Wer fährt? (Punkt 621) Nur bei den Wöchentlichen mit Ort - zur
+          Schulstunde fährt niemand. */}
+      {mitOrt && (mitglieder ?? []).length > 0 ? (
+        <>
+          {fahrerReihe('bringt', bringt, setBringt)}
+          {fahrerReihe('holt', holt, setHolt)}
+        </>
+      ) : null}
       {/* Der Stundenplan macht in den Ferien immer Pause - der Schalter
           gehört nur zu den Wöchentlichen (Punkt 620). */}
       {mitOrt ? (
@@ -384,6 +429,7 @@ export function Kindseite({
   ferien,
   kontakte,
   sachen,
+  mitglieder,
   onBack,
   onAdd,
   onRemove,
@@ -414,6 +460,9 @@ export function Kindseite({
   kontakte?: FamilyItem[];
   /** «gear» - die Packliste: was an welchem Tag in den Thek gehört. */
   sachen?: FamilyItem[];
+  /** Wer bringen oder holen kann (Punkt 621): die Personenreihe ohne
+   *  das Kind selbst. */
+  mitglieder?: string[];
   onBack: () => void;
   onAdd: (liste: Wochenliste, zeile: FamilyItem) => void;
   onRemove: (liste: Wochenliste, id: string) => void;
@@ -925,6 +974,10 @@ export function Kindseite({
                 naechstesMal(eintrag, jetzt),
                 eintrag.to ? `bis ${zeitNormal(eintrag.to)}` : '',
                 String(eintrag.ort ?? '').trim(),
+                // «Stefan fährt» - oder, mit Ort aber ohne Person, die
+                // offene Frage gleich dazu (Punkt 621).
+                fahrtSatz(eintrag) ??
+                  (String(eintrag.ort ?? '').trim() ? 'niemand fährt' : ''),
                 ferienpause(eintrag, ferien) ? 'Ferienpause' : '',
               ]
                 .filter(Boolean)
@@ -938,6 +991,7 @@ export function Kindseite({
           <WochenForm
             platzhalter="Fussball, Jugi …"
             mitOrt
+            mitglieder={mitglieder}
             tag={terminTag}
             onTag={setTerminTag}
             onAdd={(neu) => onAdd('activities', neu)}

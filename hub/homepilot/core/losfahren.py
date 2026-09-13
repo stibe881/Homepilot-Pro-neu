@@ -30,6 +30,8 @@ import math
 from datetime import datetime
 from typing import Any
 
+from . import packliste
+
 #: Weiter als das schaut der Wecker nicht voraus - wer um 8 Uhr einen
 #: Abendtermin sähe, bekäme die Nachricht Stunden zu früh berechnet
 #: (und der Ort wäre trotzdem längst nachgeschlagen).
@@ -103,6 +105,75 @@ def kandidaten(events: Any, jetzt: datetime) -> list[dict[str, Any]]:
             }
         )
     return ergebnis
+
+
+def aktivitaeten_heute(
+    activities: Any, jetzt: datetime, ferien: bool = False
+) -> list[dict[str, Any]]:
+    """Die Wöchentlichen der Kinder als Termine mit Ort (rein, testbar).
+
+    Punkt 621 der Werkbank: Der Wecker las nur Kalendertermine, obwohl
+    die Aktivitäten (Fussball in Sursee, Dienstag 17:30) den Ort längst
+    hatten. Je Eintrag entstehen bis zu zwei Fahrten: das Hinbringen
+    zum Anfang und das Abholen zum Ende - jede mit der eingetragenen
+    Person (``bringt`` bzw. ``holt``), damit die Nachricht nicht an
+    alle geht. Ohne Person geht sie an alle, wie bisher.
+
+    Zweiwochen-Einträge nur in ihrer Woche, und in den Ferien nur, was
+    den Schalter «auch in den Ferien» trägt (Punkt 620).
+    """
+    tag = packliste.tag_von(jetzt.date())
+    woche = packliste.woche_von(jetzt.date())
+    heute = jetzt.date().isoformat()
+    ergebnis: list[dict[str, Any]] = []
+    for eintrag in activities if isinstance(activities, list) else []:
+        if not isinstance(eintrag, dict) or str(eintrag.get("day") or "") != tag:
+            continue
+        eintrag_woche = str(eintrag.get("week") or "")
+        if eintrag_woche and eintrag_woche != woche:
+            continue
+        if ferien and not packliste.gilt_in_den_ferien(eintrag):
+            continue
+        ort = str(eintrag.get("ort") or "").strip()
+        text = str(eintrag.get("text") or "").strip()
+        if not ort or not text:
+            continue
+        kennung = str(eintrag.get("id") or text)
+        for feld, wann_feld, zusatz in (("bringt", "from", ""), ("holt", "to", " abholen")):
+            uhr = _uhrzeit(eintrag.get(wann_feld))
+            if uhr is None:
+                continue
+            start = jetzt.replace(hour=uhr[0], minute=uhr[1], second=0, microsecond=0)
+            # Dasselbe Fenster wie bei den Kalenderterminen: Was vorbei
+            # ist, braucht keinen Wecker mehr.
+            abstand = (start - jetzt).total_seconds()
+            if abstand <= 0 or abstand > FENSTER_STUNDEN * 3600:
+                continue
+            ergebnis.append(
+                {
+                    "kennung": f"aktivitaet:{kennung}:{heute}:{feld}",
+                    "summary": f"{text}{zusatz}",
+                    "ort": ort,
+                    "start": start,
+                    "person": str(eintrag.get(feld) or "").strip() or None,
+                    "member": str(eintrag.get("member") or "").strip() or None,
+                }
+            )
+    return ergebnis
+
+
+def _uhrzeit(wert: Any) -> tuple[int, int] | None:
+    """«17:30» → (17, 30); alles andere → None (rein)."""
+    teile = str(wert or "").strip().replace(".", ":").split(":")
+    if len(teile) != 2:
+        return None
+    try:
+        stunde, minute = int(teile[0]), int(teile[1])
+    except ValueError:
+        return None
+    if not (0 <= stunde <= 23 and 0 <= minute <= 59):
+        return None
+    return stunde, minute
 
 
 def luftlinie_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:

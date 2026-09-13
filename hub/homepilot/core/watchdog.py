@@ -1627,6 +1627,8 @@ class Watchdog:
             meals=self.hub.data.get("family_meals"),
             # Und der Ferienrand (Punkt 620): «Montag beginnen die Ferien».
             ferien_rows=self.hub.data.get(schulferien.STORE_KEY),
+            # Wöchentliche mit Ort, aber ohne Fahrer (Punkt 621).
+            activities=self.hub.data.get("family_activities"),
         )
         if not text:
             return
@@ -2170,7 +2172,17 @@ class Watchdog:
             ):
                 events.extend(entity.state["events"])
         jetzt = datetime.now().astimezone()
-        termine = losfahren.kandidaten(events, jetzt)
+        # Die Wöchentlichen der Kinder mit Ort dazu (Punkt 621) - der
+        # Wecker las nur den Kalender. In den Ferien nur, was dann gilt.
+        ferien = (
+            schulferien.lage(self.hub.data.get(schulferien.STORE_KEY), jetzt.date())[
+                "state"
+            ]
+            == schulferien.FERIEN
+        )
+        termine = losfahren.kandidaten(events, jetzt) + losfahren.aktivitaeten_heute(
+            self.hub.data.get("family_activities"), jetzt, ferien
+        )
         if not termine:
             return
         puffer = int(self.rules["departure"]["params"]["buffer"])

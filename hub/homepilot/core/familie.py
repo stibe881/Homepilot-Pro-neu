@@ -444,6 +444,30 @@ def ferienrand(rows: Any, heute: date, tage: int = 7) -> list[tuple[date, str]]:
     return sorted(treffer)
 
 
+def unbesetzte_fahrten(activities: Any, hoechstens: int = 4) -> list[str]:
+    """«Do Jugi: niemand fährt» - Wöchentliche mit Ort, aber ohne Person
+    (rein, testbar). Punkt 621 der Werkbank: Die Frage «wer fährt Levin
+    nach Sursee?» gehört in den Sonntagabend-Ausblick, nicht auf den
+    Donnerstag um 17 Uhr.
+
+    Ohne Ort keine Fahrt, also keine Zeile; und ein Eintrag ohne Kind
+    gehört niemandem - er bleibt draussen.
+    """
+    zeilen: list[tuple[int, str]] = []
+    for eintrag in activities if isinstance(activities, list) else []:
+        if not isinstance(eintrag, dict):
+            continue
+        tag = str(eintrag.get("day") or "")
+        text = str(eintrag.get("text") or "").strip()
+        ort = str(eintrag.get("ort") or "").strip()
+        if tag not in WEEKDAYS or not text or not ort:
+            continue
+        if str(eintrag.get("bringt") or "").strip() or str(eintrag.get("holt") or "").strip():
+            continue
+        zeilen.append((WEEKDAYS.index(tag), f"{tag} {text}: niemand fährt"))
+    return [text for _, text in sorted(zeilen)[:hoechstens]]
+
+
 def week_ahead(
     events: list[dict[str, Any]],
     tasks: list[dict[str, Any]],
@@ -453,6 +477,7 @@ def week_ahead(
     tage: int = 7,
     meals: list[dict[str, Any]] | None = None,
     ferien_rows: Any = None,
+    activities: Any = None,
 ) -> str | None:
     """Was in den nächsten Tagen ansteht, in einer Nachricht (rein, testbar).
 
@@ -524,9 +549,9 @@ def week_ahead(
         wann = heute + timedelta(days=versatz)
         zeilen.append(f"{WEEKDAYS[wann.weekday()]}: {name} hat Geburtstag")
 
-    # Das Essen zuletzt (Punkt 587): Es sind zwei Zeilen, die nicht mit
-    # den Terminen um die zehn Plätze konkurrieren sollen.
-    zeilen = zeilen[:10] + meals_lines(meals)
+    # Das Essen und die offenen Fahrten zuletzt (Punkte 587, 621): Zeilen,
+    # die nicht mit den Terminen um die zehn Plätze konkurrieren sollen.
+    zeilen = zeilen[:10] + meals_lines(meals) + unbesetzte_fahrten(activities)
     if not zeilen:
         return None
     return "\n".join(zeilen)

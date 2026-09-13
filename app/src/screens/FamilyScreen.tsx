@@ -84,7 +84,7 @@ import { ROLE_LABELS } from '../lib/rollen';
 import { naechsteStraehne, straehnenSatz } from '../lib/straehne';
 import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, EventForm, FamilyItem, GroupedChecklist, MealRow, Member, MemberAddRow, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, Styles, TaskAddRow, TwoFieldForm, VorratBlatt, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, pickPhoto, rotateMember } from './family/bausteine';
 import { Kindseite, Wochenliste } from './family/kindseite';
-import { istKind, verschmelze } from '../lib/kindseite';
+import { TAGE, aktivitaetZeile, aktivitaetenAm, istKind, verschmelze, wocheVon } from '../lib/kindseite';
 import { farbIndex, initialen, personenGruppen, rolleZeile } from '../lib/personenliste';
 import { Gutscheine } from './family/gutscheine';
 import {
@@ -813,6 +813,8 @@ export function FamilyScreen({
         }
         kontakte={data.contacts ?? []}
         sachen={data.gear ?? []}
+        // Wer bringen oder holen kann (Punkt 621): alle ausser dem Kind.
+        mitglieder={members.filter((m) => m.name !== kind && !m.shared).map((m) => m.name)}
         // Frisch beim Zeichnen: `jetztTick` läuft nur, solange das
         // Rückgängig-Band steht, und wäre hier sonst die Uhrzeit von
         // vorgestern.
@@ -2580,6 +2582,15 @@ export function FamilyScreen({
         datum,
         iso,
         heute: iso === heuteIso,
+        // Die Wöchentlichen der Kinder samt «wer fährt» (Punkt 621) -
+        // bisher baute der Wochenplan seine Tage nur aus Terminen,
+        // Essen, Ämtli, Aufgaben und Geburtstagen.
+        aktivitaeten: aktivitaetenAm(
+          data.activities ?? [],
+          TAGE[index],
+          wochenPerson === 'Alle' ? null : wochenPerson,
+          wocheVon(datum)
+        ),
         termine: events.filter(
           (event: FamilyItem) => isoTag(new Date(event.start)) === iso
         ),
@@ -2671,6 +2682,7 @@ export function FamilyScreen({
               : tag.aufgaben.filter((task: FamilyItem) => task.member === wochenPerson);
           const leer =
             tag.termine.length === 0 &&
+            tag.aktivitaeten.length === 0 &&
             !tag.essen?.text &&
             aemtli.length === 0 &&
             aufgaben.length === 0 &&
@@ -2708,6 +2720,16 @@ export function FamilyScreen({
                   <Ionicons name="calendar-outline" size={15} color={colors.inkSoft} />
                   <Text style={[styles.checkText, { flex: 1 }]} numberOfLines={1}>
                     {event.summary ?? event.title ?? 'Termin'}
+                  </Text>
+                </View>
+              ))}
+
+              {/* «Levin: Fussball 17:30 · Stefan fährt» (Punkt 621). */}
+              {tag.aktivitaeten.map((eintrag: FamilyItem) => (
+                <View key={`a${String(eintrag.id)}`} style={styles.weekRowItem}>
+                  <Ionicons name="football-outline" size={15} color={colors.inkSoft} />
+                  <Text style={[styles.checkText, { flex: 1 }]} numberOfLines={1}>
+                    {aktivitaetZeile(eintrag)}
                   </Text>
                 </View>
               ))}
