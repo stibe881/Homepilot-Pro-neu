@@ -106,3 +106,25 @@ def test_orte_vorrat_merkt_auch_nicht_gefundenes():
     assert gelesen["Sportplatz, 6210 Sursee"] == (47.17, 8.11)
     assert gelesen["Nirgendwo 99"] is None
     assert orte_lesen("kein dict") == {}
+
+
+# ── Winter: Schnee und Glatteis (Punkt 585) ──────────────────────────────
+
+
+def test_im_winter_rechnet_der_wecker_laenger_und_kratzt_zuerst():
+    from homepilot.core.losfahren import winterlage
+
+    # 10 km im Sommer: 20 Minuten. Im Winter mal 1.4 plus zehn Minuten
+    # Kratzen - bisher rechnete der Wecker im Januar wie im Juli.
+    assert fahrminuten(10.0) == 20
+    assert fahrminuten(10.0, winter=True) == 38
+    _, text = wecker_satz(
+        "Fussball", "Sportplatz, 6210 Sursee", datetime(2026, 1, 12, 17, 30), 38, True
+    )
+    assert text.endswith("Fahrzeit etwa 38 Minuten (Schnee).")
+    # Die Winterlage kommt aus der Wetter-Entität: Neuschnee ab 2 cm
+    # oder ein Schnee-/Glatteis-Code. Ohne Wetter: kein Winter.
+    assert winterlage({"snow_tonight_cm": 6.0, "winter_code": None}) is True
+    assert winterlage({"snow_tonight_cm": 0.5, "winter_code": 66}) is True
+    assert winterlage({"snow_tonight_cm": 0.5, "winter_code": None}) is False
+    assert winterlage(None) is False

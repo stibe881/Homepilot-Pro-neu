@@ -1392,6 +1392,11 @@ class Watchdog:
                 # Entität: Das stammt vom letzten Abruf, und «trocken
                 # jetzt» soll das Jetzt der Meldung meinen.
                 regen=regen.schulweg_hinweis(wetter.get("hours"), datetime.now()),
+                # Schnee über Nacht oder Glatteis (Punkt 585): Der Hub
+                # weiss es um sechs - und sagte es nicht.
+                winter=morgen.winter_hinweis(
+                    wetter.get("snow_tonight_cm"), wetter.get("winter_code")
+                ),
             )
         )
         if gebaut is None:
@@ -2154,6 +2159,14 @@ class Watchdog:
         if not termine:
             return
         puffer = int(self.rules["departure"]["params"]["buffer"])
+        # Bei Schnee oder Glatteis rechnet der Wecker länger (Punkt 585)
+        # - bisher im Januar wie im Juli.
+        winter = losfahren.winterlage(
+            next(
+                (entity.state for entity in entities if entity.kind == "weather"),
+                None,
+            )
+        )
         orte = losfahren.orte_lesen(self.hub.data.get(losfahren.ORTE_KEY))
         erinnert = losfahren.erinnert_lesen(self.hub.data.get(losfahren.ERINNERT_KEY))
         neu: set[str] = set()
@@ -2166,11 +2179,11 @@ class Watchdog:
             km = losfahren.luftlinie_km(*daheim, *koordinaten)
             if km < losfahren.MINDEST_KM:
                 continue
-            minuten = losfahren.fahrminuten(km) + puffer
+            minuten = losfahren.fahrminuten(km, winter) + puffer
             if not losfahren.faellig(termin["start"], minuten, jetzt):
                 continue
             titel, text = losfahren.wecker_satz(
-                termin["summary"], termin["ort"], termin["start"], minuten
+                termin["summary"], termin["ort"], termin["start"], minuten, winter
             )
             await self._notify(titel, text, "departure")
             neu.add(termin["kennung"])

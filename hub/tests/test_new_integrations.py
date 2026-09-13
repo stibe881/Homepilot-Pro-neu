@@ -1083,6 +1083,41 @@ def test_weather_unknown_code_stays_neutral():
     assert describe_code(None)[1] == "cloud-outline"
 
 
+def test_weather_zaehlt_den_schnee_der_nacht_und_erkennt_die_winterlage():
+    """Punkt 585: In Zell heisst «5 cm über Nacht» Auto freikratzen und
+    früher los - der Hub wusste es um sechs und sagte es nicht."""
+    from datetime import datetime, timedelta
+
+    from homepilot.integrations.weather import ist_winter, nachtschnee_cm, parse_forecast
+
+    morgen = datetime(2026, 1, 12, 6, 30)
+    # Stunden von gestern Mittag bis heute Mittag; Schnee fiel nachts.
+    zeiten = [(morgen - timedelta(hours=18) + timedelta(hours=i)) for i in range(30)]
+    schnee = [0.0] * 30
+    for stelle in range(12, 17):  # 00:30 bis 04:30
+        schnee[stelle] = 1.2
+    schnee[2] = 5.0  # gestern um 14:30 - nicht «über Nacht»
+    hourly = {
+        "time": [zeit.isoformat() for zeit in zeiten],
+        "snowfall": schnee,
+        "temperature_2m": [-2] * 30,
+        "weather_code": [71] * 30,
+    }
+    assert nachtschnee_cm(hourly, morgen) == 6.0
+    assert nachtschnee_cm(None, morgen) == 0.0
+    assert ist_winter(73) and ist_winter(66) and not ist_winter(61)
+
+    zustand = parse_forecast(
+        {"current": {"temperature_2m": -2.0, "weather_code": 71}, "hourly": hourly},
+        morgen,
+    )
+    assert zustand["snow_tonight_cm"] == 6.0
+    assert zustand["winter_code"] == 71
+    sommer = parse_forecast({"current": {"weather_code": 1}}, morgen)
+    assert sommer["snow_tonight_cm"] == 0.0
+    assert sommer["winter_code"] is None
+
+
 # ── MeteoAlarm-Gebietsfilter ─────────────────────────────────────────────
 
 

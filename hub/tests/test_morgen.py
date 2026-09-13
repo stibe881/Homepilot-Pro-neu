@@ -150,3 +150,28 @@ def test_the_rain_jacket_line_comes_last_and_only_when_needed():
     )
     assert zeilen[0] == "Noch offen: Balkontüre"
     assert zeilen[-1] == "Regen ab etwa 13 Uhr - Regenjacke mitgeben"
+
+
+def test_the_winter_line_comes_from_snow_or_freezing_rain():
+    """Punkt 585: ab 2 cm über Nacht oder bei gefrierendem Regen - und
+    vor UV und Regen, weil sie den Morgen umstellt."""
+    assert morgen.winter_hinweis(6.0) == (
+        "Über Nacht 6 cm Schnee - Auto freikratzen, früher los"
+    )
+    assert morgen.winter_hinweis(2.5, None) == (
+        "Über Nacht 2.5 cm Schnee - Auto freikratzen, früher los"
+    )
+    assert morgen.winter_hinweis(0.4, 66) == "Gefrierender Regen - Glatteis, früher los"
+    assert morgen.winter_hinweis(0.4, 61) is None
+    assert morgen.winter_hinweis(None, None) is None
+    assert morgen.winter_hinweis("kaputt", "kaputt") is None
+    zeilen = morgen.zeilen(
+        offen=[],
+        schwach=[],
+        stumm=[],
+        nacht=0,
+        stille_ablaeufe=[],
+        uv="UV heute hoch (7) - eincremen, Mittagssonne meiden",
+        winter="Über Nacht 6 cm Schnee - Auto freikratzen, früher los",
+    )
+    assert zeilen[0].startswith("Über Nacht")

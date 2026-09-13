@@ -116,14 +116,47 @@ def luftlinie_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * erdradius * math.asin(math.sqrt(a))
 
 
-def fahrminuten(km: float) -> int:
+#: Bei Schnee und Glatteis (Punkt 585 der Werkbank): Alles dauert
+#: länger, und das Auto muss vorher freigekratzt werden. Der Faktor
+#: ist grob wie der Rest der Rechnung - «eher jetzt als zu spät».
+WINTERFAKTOR = 1.4
+KRATZEN_MINUTEN = 10
+
+#: Ab so viel Neuschnee über Nacht gilt die Winterlage.
+SCHNEE_AB_CM = 2.0
+
+
+def fahrminuten(km: float, winter: bool = False) -> int:
     """Geschätzte Fahrzeit in Minuten (rein, testbar).
 
     Aufgerundet - ein Wecker, der eine Minute zu früh klingelt, ist
-    keiner, der eine zu spät klingelt.
+    keiner, der eine zu spät klingelt. Im Winter (Schnee über Nacht
+    oder gefrierender Regen) mal 1.4 und zehn feste Minuten fürs
+    Kratzen - bisher rechnete der Wecker im Januar wie im Juli.
     """
     tempo = TEMPO_KURZ if km < TEMPO_GRENZE_KM else TEMPO_LANG
-    return max(1, math.ceil(km * STRASSENFAKTOR / tempo * 60))
+    minuten = km * STRASSENFAKTOR / tempo * 60
+    if winter:
+        minuten = minuten * WINTERFAKTOR + KRATZEN_MINUTEN
+    return max(1, math.ceil(minuten))
+
+
+def winterlage(wetter: Any) -> bool:
+    """Gilt gerade die Winterlage? (rein, testbar)
+
+    Aus dem Zustand der Wetter-Entität (integrations/weather.py): Schnee
+    über Nacht ab zwei Zentimetern oder ein Wettercode, der Schnee oder
+    gefrierenden Niederschlag meint. Ohne Wetter-Entität nein - dann
+    rechnet der Wecker wie bisher.
+    """
+    if not isinstance(wetter, dict):
+        return False
+    if wetter.get("winter_code") is not None:
+        return True
+    try:
+        return float(wetter.get("snow_tonight_cm") or 0) >= SCHNEE_AB_CM
+    except (TypeError, ValueError):
+        return False
 
 
 def faellig(start: datetime, minuten: float, jetzt: datetime) -> bool:
@@ -147,13 +180,17 @@ def ort_kurz(ort: str) -> str:
 
 
 def wecker_satz(
-    summary: str, ort: str, start: datetime, minuten: int
+    summary: str, ort: str, start: datetime, minuten: int, winter: bool = False
 ) -> tuple[str, str]:
-    """Titel und Text der Nachricht (rein, testbar)."""
+    """Titel und Text der Nachricht (rein, testbar).
+
+    «(Schnee)» hinter der Fahrzeit sagt, warum sie länger ist als
+    sonst - sonst hielte man die 35 Minuten nach Sursee für einen Fehler.
+    """
     return (
         "Jetzt losfahren",
         f"{summary} um {start.strftime('%H:%M')} in {ort_kurz(ort)} – "
-        f"Fahrzeit etwa {minuten} Minuten.",
+        f"Fahrzeit etwa {minuten} Minuten{' (Schnee)' if winter else ''}.",
     )
 
 

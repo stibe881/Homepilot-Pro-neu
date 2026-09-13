@@ -59,6 +59,7 @@ def zeilen(
     stille_ablaeufe: list[str],
     uv: str | None = None,
     regen: str | None = None,
+    winter: str | None = None,
 ) -> list[str]:
     """Die Zeilen der Zusammenfassung (rein, testbar).
 
@@ -80,6 +81,10 @@ def zeilen(
         )
     if stille_ablaeufe:
         raus.append("Lief nicht: " + ", ".join(stille_ablaeufe))
+    if winter:
+        # Vor UV und Regen: Wer kratzen muss, muss als Erstes früher
+        # los - das ist die Zeile, die den Morgen umstellt (Punkt 585).
+        raus.append(winter)
     if uv:
         # Zuletzt: Das Fenster, das noch offen steht, ist der Handgriff
         # vor der Haustüre - die Sonnencreme kommt danach.
@@ -89,6 +94,40 @@ def zeilen(
         # Werkbank): nur an Tagen, an denen etwas in den Thek gehört.
         raus.append(regen)
     return raus
+
+
+#: Ab so viel Neuschnee über Nacht kommt die Winterzeile (Punkt 585) -
+#: derselbe Wert, ab dem der Losfahr-Wecker länger rechnet
+#: (core/losfahren.py).
+SCHNEE_AB_CM = 2.0
+
+#: Wettercodes für gefrierenden Niesel und Regen (WMO 56/57, 66/67):
+#: Glatteis kommt ohne einen Zentimeter Schnee.
+GEFRIEREND = frozenset({56, 57, 66, 67})
+
+
+def winter_hinweis(schnee_cm: Any, code: Any = None) -> str | None:
+    """«Über Nacht 6 cm Schnee - Auto freikratzen, früher los» (rein, testbar).
+
+    Ab zwei Zentimetern - darunter ist es ein Hauch, den die Sonne um
+    acht wegnimmt. Gefrierender Regen zählt auch ohne Schnee: Dann ist
+    die Strasse das Problem, nicht das Autodach. Sonst None - eine
+    Winterzeile im Juli bestellte man ab.
+    """
+    try:
+        cm = float(schnee_cm or 0)
+    except (TypeError, ValueError):
+        cm = 0.0
+    try:
+        gefrierend = int(code) in GEFRIEREND
+    except (TypeError, ValueError):
+        gefrierend = False
+    if cm >= SCHNEE_AB_CM:
+        zahl = f"{cm:.0f}" if cm == int(cm) else f"{cm:.1f}"
+        return f"Über Nacht {zahl} cm Schnee - Auto freikratzen, früher los"
+    if gefrierend:
+        return "Gefrierender Regen - Glatteis, früher los"
+    return None
 
 
 def satz(zeilen_liste: list[str]) -> tuple[str, str] | None:
