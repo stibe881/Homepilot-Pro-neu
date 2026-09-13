@@ -164,3 +164,75 @@ def test_das_zweite_geraet_in_der_ruhezeit_macht_die_person_nicht_zur_verpasseri
     )
 
     assert zettel[0]["held_for"] == []
+
+
+# ── Der Deckel zählt nur, was hinausging (Fehler aus der Runde 579) ───────
+
+
+class _Antwort:
+    status = 200
+
+    async def text(self) -> str:
+        return ""
+
+    async def json(self, content_type: Any = None) -> dict[str, Any]:
+        return {"data": [{"status": "ok", "id": "TICKET-1"}]}
+
+    async def __aenter__(self) -> _Antwort:
+        return self
+
+    async def __aexit__(self, *args: Any) -> bool:
+        return False
+
+
+class _Expo:
+    def post(self, url: str, json: Any = None) -> _Antwort:
+        return _Antwort()
+
+    async def close(self) -> None:
+        pass
+
+
+def _mit_zaehler(*namen: str) -> tuple[PushService, list[dict[str, Any]], list[str]]:
+    service, zettel = dienst(*namen)
+    service._session_factory = lambda: _Expo()
+    gezaehlt: list[str] = []
+    service.bremse = lambda category: None
+    service.zaehlen = gezaehlt.append
+    return service, zettel, gezaehlt
+
+
+def test_der_deckel_zaehlt_keine_meldung_die_niemand_bekam() -> None:
+    """Drei nächtliche Meldungen in der Ruhezeit aller verbrauchten
+    vorher drei von sechs Plätzen - am Morgen war der Tag halb um."""
+    service, _, gezaehlt = _mit_zaehler("Stefan")
+    service.ruhe = {"Stefan": {"enabled": True, "from": 0, "to": 24}}
+    tokens = service.recipients([Benutzer("Stefan")], "all", "open")
+
+    asyncio.run(service.send(tokens, title="Bad steht offen", body="", category="open"))
+
+    assert gezaehlt == []
+
+
+def test_der_deckel_zaehlt_was_wirklich_hinausging() -> None:
+    service, _, gezaehlt = _mit_zaehler("Stefan")
+    tokens = service.recipients([Benutzer("Stefan")], "all", "open")
+
+    asyncio.run(service.send(tokens, title="Bad steht offen", body="", category="open"))
+
+    assert gezaehlt == ["open"]
+
+
+def test_die_probe_zaehlt_nicht_auf_den_deckel() -> None:
+    """Wer die Batterie-Vorschau dreimal probiert, hat sonst den Tag
+    verbraucht - und die echte Warnung bleibt aus."""
+    from homepilot.core import pushbeispiel
+
+    service, _, gezaehlt = _mit_zaehler("Stefan")
+    tokens = service.recipients([Benutzer("Stefan")], "all", "battery")
+    titel, text = pushbeispiel.als_meldung("battery")
+
+    ergebnis = asyncio.run(service.send(tokens, title=titel, body=text, category="battery"))
+
+    assert ergebnis.accepted == 1
+    assert gezaehlt == []

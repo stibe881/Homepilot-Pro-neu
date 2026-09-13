@@ -582,6 +582,16 @@ APNS_HINTS = {
 }
 
 
+#: Das Zeichen, an dem man einen Testversand erkennt.
+#:
+#: Ohne das läuft jemand los, weil «Wasser gemeldet» auf dem Telefon
+#: steht - der Text ist ja absichtlich derselbe wie im Ernstfall. Vorn,
+#: nicht hinten: Auf dem Sperrbildschirm wird der Titel abgeschnitten,
+#: und das Ende sieht niemand. Hier und nicht in ``pushbeispiel``, weil
+#: ``send`` daran erkennt, dass die Probe nicht auf den Tagesdeckel
+#: zählt - und ``pushbeispiel`` dieses Modul schon importiert.
+PROBE = "Probe: "
+
 #: Vorsatz, mit dem ein Empfänger «eine Gruppe» heisst: to="gruppe:Eltern".
 GRUPPE_PREFIX = "gruppe:"
 #: Schlüssel in hub.data für die Empfängergruppen.
@@ -790,8 +800,12 @@ class PushService:
         # Tagesdeckel braucht einen Zählerstand, der Neustarts übersteht,
         # und der liegt in der hub.data. Ein Rückruf statt eines
         # DataStore - derselbe Schnitt wie bei on_change und on_sent.
-        # Gibt den Grund zurück oder None.
+        # Gibt den Grund zurück oder None - und zählt *nicht*: Das tut
+        # ``zaehlen``, und zwar erst, wenn eine Nachricht wirklich
+        # hinausgeht (Fehler aus der Runde 579 der Werkbank).
         self.bremse: Any = None
+        # Wird vom Hub gesetzt: «Eine Meldung dieser Kategorie ist raus.»
+        self.zaehlen: Any = None
         self._session_factory = session_factory or (
             lambda: aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15))
         )
@@ -994,7 +1008,9 @@ class PushService:
 
         # Der Tagesdeckel gilt fürs Haus, nicht für eine Person: Er
         # begrenzt, was der Hub *schickt*. Erreicht heisst, dass niemand
-        # sie bekommt - nachlesen kann man sie trotzdem.
+        # sie bekommt - nachlesen kann man sie trotzdem. ``bremse`` liest
+        # nur; gezählt wird weiter unten, wenn feststeht, dass wirklich
+        # etwas hinausgeht (``zaehlen``).
         deckel = self.bremse(category) if (category and self.bremse is not None) else None
         if deckel:
             valid = []
@@ -1078,6 +1094,15 @@ class PushService:
                 log.info("Push «%s» zurückgehalten: %s", title, grund)
                 return PushResult(zurueckgehalten=grund)
             return PushResult(errors=["Kein gültiger Expo-Push-Token angemeldet"])
+
+        # Erst jetzt zählt der Tagesdeckel mit (Fehler aus der Runde 579
+        # der Werkbank): Vorher zählte ``bremse`` beim Lesen, also auch
+        # drei nächtliche Meldungen, die die Ruhezeit aller aufhielt -
+        # und am Morgen war der Tag halb verbraucht, ohne dass jemand
+        # etwas bekommen hatte. Die Probe zählt nicht: Wer die Vorschau
+        # dreimal ansieht, soll damit nicht die echte Warnung verbrauchen.
+        if category and self.zaehlen is not None and not title.startswith(PROBE):
+            self.zaehlen(category)
 
         session = self._session_factory()
         try:

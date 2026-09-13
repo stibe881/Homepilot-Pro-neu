@@ -88,13 +88,10 @@ BEISPIELE: dict[str, tuple[str, str]] = {
     "test": ("HomePilot Test", "Push-Benachrichtigungen funktionieren \U0001f389"),
 }
 
-#: Das Zeichen, an dem man einen Testversand erkennt.
-#:
-#: Ohne das läuft jemand los, weil «Wasser gemeldet» auf dem Telefon
-#: steht - der Text ist ja absichtlich derselbe wie im Ernstfall. Vorn,
-#: nicht hinten: Auf dem Sperrbildschirm wird der Titel abgeschnitten,
-#: und das Ende sieht niemand.
-PROBE = "Probe: "
+#: Das Zeichen, an dem man einen Testversand erkennt - definiert in
+#: ``push``, weil ``send`` es selbst braucht (die Probe zählt nicht auf
+#: den Tagesdeckel); hier bleibt es unter dem gewohnten Namen.
+PROBE = push.PROBE
 
 
 def beispiel(category: str | None) -> tuple[str, str] | None:
