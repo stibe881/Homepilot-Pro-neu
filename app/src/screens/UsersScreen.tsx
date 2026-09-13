@@ -84,7 +84,11 @@ const ROLE_HINTS: Record<string, string> = {
   gast: 'sieht und schaltet nur die freigegebenen Bereiche',
 };
 
-/** Freigebbare Bereiche für Gäste – Schlüssel wie auf dem Hub. */
+/** Freigebbare Bereiche für Gäste – Schlüssel wie auf dem Hub
+ *  (core/users.py: GUEST_FEATURES; ein Hub-Test hält beide Listen
+ *  gegeneinander). «klingel» fehlte hier (Fehler aus der Runde 579 der
+ *  Werkbank): Nur der Babysitter-Weg setzte es, und ein so angelegter
+ *  Gast zeigte in der Liste das rohe Wort. */
 export const FEATURE_LABELS: Record<string, string> = {
   licht: 'Licht',
   storen: 'Storen',
@@ -95,6 +99,7 @@ export const FEATURE_LABELS: Record<string, string> = {
   haushalt: 'Haushalt',
   raeume: 'Räume',
   kameras: 'Kameras',
+  klingel: 'Türklingel (nur sehen)',
 };
 
 interface HubUser {
