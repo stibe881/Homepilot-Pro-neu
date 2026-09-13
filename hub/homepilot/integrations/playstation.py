@@ -22,8 +22,8 @@ Funktionen, damit die Tests ohne Bibliothek und ohne Konsole laufen.
 Was die Bibliothek braucht: Standby und Tasten. Beides gibt es nur
 innerhalb einer Remote-Play-Sitzung, und die ist verschlüsselt und an
 ein PSN-Konto gebunden – ``pyremoteplay`` baut sie auf, wir nutzen sie
-ohne Video (``receiver=None``) und trennen sie nach einer halben Minute
-ohne weitere Taste wieder (SITZUNG_LEERLAUF). Eine Dauer-Sitzung hielte
+ohne Video (``receiver=None``) und trennen sie nach zwei Minuten ohne
+weitere Taste wieder (SITZUNG_LEERLAUF, einstellbar mit ``session_idle``). Eine Dauer-Sitzung hielte
 die Konsole auf «Remote Play verbunden», und das steht dann im
 Bildschirm-Eck, während jemand spielt.
 
@@ -79,7 +79,7 @@ DDP_TIMEOUT = 2.0
 #: So lange bleibt eine Remote-Play-Sitzung ohne weitere Taste offen.
 #: Wer durch ein Menü tippt, drückt alle paar Sekunden; wer aufhört,
 #: soll die Konsole nicht mit «Remote Play verbunden» zurücklassen.
-SITZUNG_LEERLAUF = 30.0
+SITZUNG_LEERLAUF = 120.0
 #: So lange darf der Aufbau einer Sitzung dauern.
 SITZUNG_AUFBAU = 15.0
 
@@ -184,6 +184,20 @@ def konsolenzustand(antwort: dict[str, Any]) -> dict[str, Any]:
     if bauart in DDP_PORTS:
         zustand["konsole"] = bauart
     return zustand
+
+
+def leerlauf_dauer(wert: Any) -> float:
+    """``session_idle`` aus der Konfiguration lesen (rein, testbar).
+
+    Fehlt der Wert oder ist er unlesbar, gilt SITZUNG_LEERLAUF; negativ
+    zählt wie 0 (nie trennen).
+    """
+    if wert is None or wert == "":
+        return SITZUNG_LEERLAUF
+    try:
+        return max(0.0, float(wert))
+    except (TypeError, ValueError):
+        return SITZUNG_LEERLAUF
 
 
 def ddp_ports(konsole: str | None) -> list[int]:
@@ -994,6 +1008,15 @@ class PlaystationIntegration(Integration):
             with contextlib.suppress(Exception):
                 device.disconnect()
             raise ConnectionError(f"{SITZUNG_FEHLGESCHLAGEN} ({fehler})" if fehler else SITZUNG_FEHLGESCHLAGEN)
+        # Der Controller-Worker sendet den Zustand des Pads im Takt von
+        # 100-200 ms weiter - und genau dieser stete Strom hält die Sitzung
+        # am Leben. Ohne ihn kommen nur die einzelnen Tastendrücke an, und
+        # die Konsole legt die Remote-Play-Sitzung nach ein paar Sekunden
+        # von selbst ab («nach ein paar Sekunden wird getrennt», aus dem
+        # Haus gemeldet). start() läuft in einem Faden; ein Fehler darin
+        # darf die Sitzung nicht kippen.
+        with contextlib.suppress(Exception):
+            device.controller.start()
         self.log.info("Remote-Play-Sitzung mit %s offen", geraet["host"])
         return device
 
@@ -1006,8 +1029,23 @@ class PlaystationIntegration(Integration):
             sitzung.wecker.cancel()
         sitzung.wecker = self.start_task(self._sitzung_verfaellt(entity_id, sitzung))
 
+    def _leerlauf(self) -> float:
+        """Wie lange eine Sitzung ohne Taste offen bleibt (rein, testbar).
+
+        ``session_idle`` in der Konfiguration, sonst SITZUNG_LEERLAUF. Aus
+        dem Haus kam «nach ein paar Sekunden wird die Verbindung
+        getrennt» - gewollt, aber die Dauer soll dem Haus gehören: Wer
+        lange durch Menüs tippt, will nicht bei jeder Pause die Meldung
+        «Remote Play verbunden» neu auf dem Fernseher. 0 heisst: nie von
+        selbst trennen (dann bis Ruhemodus oder Neustart).
+        """
+        return leerlauf_dauer(self.config.get("session_idle"))
+
     async def _sitzung_verfaellt(self, entity_id: str, sitzung: Sitzung) -> None:
-        await asyncio.sleep(SITZUNG_LEERLAUF)
+        dauer = self._leerlauf()
+        if dauer <= 0:
+            return
+        await asyncio.sleep(dauer)
         if self._sitzungen.get(entity_id) is sitzung:
             self.log.info("Remote-Play-Sitzung mit %s getrennt (keine Taste mehr)", entity_id)
             self._sitzung_trennen(entity_id)
@@ -1018,6 +1056,10 @@ class PlaystationIntegration(Integration):
             return
         if sitzung.wecker is not None and sitzung.wecker is not asyncio.current_task():
             sitzung.wecker.cancel()
+        # Erst den Controller-Worker anhalten, dann die Sitzung: Der Faden
+        # greift sonst auf eine halb abgebaute Sitzung zu.
+        with contextlib.suppress(Exception):
+            sitzung.device.controller.stop()
         with contextlib.suppress(Exception):
             sitzung.device.disconnect()
 
