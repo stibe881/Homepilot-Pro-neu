@@ -68,7 +68,7 @@ import { LiveTuerSchalter } from '../components/LiveTuerSchalter';
 import { PushPrefs } from '../components/PushPrefs';
 import { ActivityCard, MediaPanel, SidePanel } from '../components/SidePanel';
 import { useMusikwahl } from '../hooks/useMusikwahl';
-import { Bestaetigung, Toast, UndoToast } from '../components/Toast';
+import { Meldungsband } from '../components/Toast';
 import { TopStrip } from '../components/TopStrip';
 import { useHub } from '../hooks/useHub';
 import { Knopfdruck, Tap, useNotificationTap } from '../hooks/useNotificationTap';
@@ -102,6 +102,7 @@ import {
 } from '../lib/geraeteart';
 import { bewegungImRaum } from '../lib/bewegung';
 import { rueckangebot } from '../lib/rueckgriff';
+import { oberstes } from '../lib/blattstapel';
 import { gemerkteAktion, menuLabel } from '../lib/doppeltipp';
 import { leerbild } from '../lib/leerzustand';
 import { reihenfolge as nutzungsReihenfolge } from '../lib/raumnutzung';
@@ -207,7 +208,7 @@ import {
   standardDirekt,
   widgetCommand,
 } from '../lib/widgetButtons';
-import { HubProvider } from '../hooks/HubContext';
+import { HubProvider, MeldungsProvider, useBlattstapel } from '../hooks/HubContext';
 import { useFamilienlisten } from '../hooks/useFamilienlisten';
 import { useAbstuerze } from '../hooks/useAbstuerze';
 import { useKachelnutzung } from '../hooks/useKachelnutzung';
@@ -511,6 +512,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // wechselt nie, aber der Prüfer weiss das nicht.
   }, [room, section, setRaumMenue]);
   const [lastTouch, setLastTouch] = useState(() => Date.now());
+  // Eine Berührung irgendwo - im Wurzel-View oder in einem Blatt
+  // darüber (Punkt 582 der Werkbank): Tipps in einem nativen Modal
+  // erreichten den `onTouchStart` des Wurzel-Views nie.
+  const beruehrt = useCallback(() => setLastTouch(Date.now()), []);
+  // Welche Blätter gerade übereinander offen sind (lib/blattstapel.ts):
+  // Das oberste zeichnet die Meldungen (Punkt 581).
+  const blattstapel = useBlattstapel();
   // Zählt hoch, wenn der Widget-Knopf «Alles aus» gedrückt wurde – die
   // Rückfrage öffnet sich dann von selbst, statt dass die App nur
   // aufgeht und nichts tut.
@@ -779,6 +787,54 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         befehl: undo,
       }),
     [error, abrufFehler, einkaufUndo, griffUndo, undo]
+  );
+  // Die drei Einblendungen als ein Wert für den Context (Punkt 581 der
+  // Werkbank): Ein abgelehnter Befehl hat Vorrang - er ist die Antwort
+  // auf etwas, das man gerade angetippt hat. Ein fehlgeschlagener
+  // Abruf kommt, wenn sonst nichts ansteht. Wo das Band gezeichnet
+  // wird, entscheidet nicht mehr dieser Bildschirm, sondern das
+  // oberste offene Blatt (components/Blatt.tsx).
+  const meldungen = useMemo(
+    () => ({
+      fehler: error ?? abrufFehler,
+      fehlerWeg: error ? dismissError : () => setAbrufFehler(null),
+      note,
+      noteWeg: () => setNote(null),
+      // Welches der drei möglichen «Zurück» gemeint ist, entscheidet
+      // lib/rueckgriff.ts – dort steht auch, warum in dieser Reihenfolge.
+      rueck: rueckAngebot.what
+        ? {
+            what: rueckAngebot.what,
+            onUndo:
+              rueckAngebot.quelle === 'einkauf'
+                ? nimmAbhakenZurueck
+                : rueckAngebot.quelle === 'griff'
+                  ? nimmGriffZurueck
+                  : undoLast,
+            onDismiss:
+              rueckAngebot.quelle === 'einkauf'
+                ? () => setEinkaufUndo(null)
+                : rueckAngebot.quelle === 'griff'
+                  ? () => setGriffUndo(null)
+                  : dismissUndo,
+          }
+        : null,
+    }),
+    [
+      error,
+      abrufFehler,
+      dismissError,
+      note,
+      rueckAngebot,
+      nimmAbhakenZurueck,
+      nimmGriffZurueck,
+      undoLast,
+      dismissUndo,
+      // Setzer aus einem fremden Haken - für den Prüfer keine festen
+      // Grössen, obwohl sie es sind.
+      setEinkaufUndo,
+      setGriffUndo,
+    ]
   );
 
   // Die Ablaufnamen holen, damit die Suche sie kennt – und den
@@ -2179,11 +2235,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           : null
       }
       pending={pending[entity.id]}
-      // Die letzte Absage des Hubs. Sie geht nur in die Fernbedienung –
-      // die ist ein Modal und deckt das Band am unteren Rand zu, in dem
-      // sie sonst steht.
-      fehler={error}
-      onFehlerWeg={dismissError}
       // Nur unter «Geräte»: Wo kommt das Gerät überall vor? Antippen
       // führt zu den Abläufen.
       usedIn={
@@ -4000,9 +4051,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
 
   return (
     <HubProvider settings={settings} entities={entities} user={user}>
+    <MeldungsProvider meldungen={meldungen} blaetter={blattstapel} beruehrt={beruehrt}>
       <View
         style={styles.root}
-        onTouchStart={() => setLastTouch(Date.now())}
+        onTouchStart={beruehrt}
         {...zurueckWischen}
       >
         {/* Auch links und rechts (Punkt 523): Im Querformat liegt die
@@ -4609,14 +4661,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           }}
         />
 
-        {/* Ein abgelehnter Befehl hat Vorrang: Er ist die Antwort auf etwas,
-          das man gerade angetippt hat. Ein fehlgeschlagener Abruf kommt,
-          wenn sonst nichts ansteht. */}
-        <Toast
-          message={error ?? abrufFehler}
-          onDismiss={error ? dismissError : () => setAbrufFehler(null)}
-          bottomInset={insets.bottom}
-        />
+        {/* Fehler, Bestätigung und «Rückgängig» (Punkt 581): hier nur,
+          solange kein Blatt darüber liegt - sonst zeichnet das oberste
+          Blatt das Band, und im Web stünde es sonst zweimal, einmal
+          durch den durchscheinenden Hintergrund hindurch. */}
+        {oberstes(blattstapel.stapel) === null ? <Meldungsband /> : null}
         {/* Die Fernbedienung zum Knopf «Fernseher» auf einer Raumkachel.
             Dieselbe wie auf der Gerätekachel - eine zweite Fassung
             liefe früher oder später auseinander. */}
@@ -4627,8 +4676,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             onClose={() => setRemoteFuer(null)}
             onCommand={(command, data) => guardedCommand(remoteTv.id, command, data)}
             apps={remoteTv.commands.includes('launch_app') ? appsOf(remoteTv) : []}
-            fehler={error}
-            onFehlerWeg={dismissError}
             kino={kinoImBlatt}
             onKino={activateScene}
           />
@@ -4679,34 +4726,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           onClose={() => setSorgenOffen(false)}
         />
 
-        {/* Welches der drei möglichen «Zurück» gemeint ist, entscheidet
-          lib/rueckgriff.ts – dort steht auch, warum in dieser Reihenfolge. */}
-        <UndoToast
-          what={rueckAngebot.what}
-          onUndo={
-            rueckAngebot.quelle === 'einkauf'
-              ? nimmAbhakenZurueck
-              : rueckAngebot.quelle === 'griff'
-                ? nimmGriffZurueck
-                : undoLast
-          }
-          onDismiss={
-            rueckAngebot.quelle === 'einkauf'
-              ? () => setEinkaufUndo(null)
-              : rueckAngebot.quelle === 'griff'
-                ? () => setGriffUndo(null)
-                : dismissUndo
-          }
-          bottomInset={insets.bottom}
-        />
-        {/* Gelungenes tritt hinter beides zurück: Wer gerade einen Fehler
-          liest, braucht nicht noch ein Häkchen daneben. */}
-        <Bestaetigung
-          text={error || abrufFehler || rueckAngebot.what ? null : note}
-          onDismiss={() => setNote(null)}
-          bottomInset={insets.bottom}
-        />
-
         {/* Nachtabsenkung fürs Wandpanel. Der Schleier lässt Berührungen
           durch: Ein Panel, bei dem der erste Tipp nur das Aufwecken ist,
           ärgert genau die Person, die schnell das Licht ausmachen wollte.
@@ -4724,6 +4743,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           />
         ) : null}
       </View>
+    </MeldungsProvider>
     </HubProvider>
   );
 }

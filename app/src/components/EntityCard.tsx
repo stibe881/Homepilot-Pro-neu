@@ -138,10 +138,6 @@ interface Props {
   onCommand: (command: string, data?: CommandData) => void;
   /** Kommando unterwegs – die Kachel zeigt das, statt still zu wirken. */
   pending?: boolean;
-  /** Die letzte Absage des Hubs. Nur die Fernbedienung braucht sie: Sie
-   *  ist ein Modal und deckt das Fehlerband am unteren Rand zu. */
-  fehler?: string | null;
-  onFehlerWeg?: () => void;
   /** Strompreis für die Kostenanzeige, z.B. 0.32 */
   pricePerKwh?: number;
   currency?: string;
@@ -234,8 +230,6 @@ export function EntityCard({
   width,
   onCommand,
   pending,
-  fehler,
-  onFehlerWeg,
   pricePerKwh,
   currency = 'CHF',
   editing,
@@ -1469,8 +1463,6 @@ export function EntityCard({
           // Dieselben Apps wie in der Auswahl der Kachel - das Blatt
           // deckt die Kachel zu, also muss der Wechsel auch hier gehen.
           apps={entity.commands.includes('launch_app') ? appsOf(entity) : []}
-          fehler={remoteOpen ? fehler : null}
-          onFehlerWeg={onFehlerWeg}
           kino={kino}
           onKino={onKino}
         />

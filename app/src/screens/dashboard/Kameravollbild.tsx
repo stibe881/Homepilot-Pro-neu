@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Entity, HubSettings } from '../../api/types';
+import { Blatt } from '../../components/Blatt';
 import { CameraLive } from '../../components/CameraLive';
 import { CameraTimeline } from '../../components/CameraTimeline';
 import { ClipArchiv } from '../../components/ClipArchiv';
@@ -76,7 +77,10 @@ export function CameraFullscreen({
 
   return (
     <Modal visible animationType="fade" onRequestClose={onClose}>
-      <View style={styles.doorbellRoot}>
+      {/* Als Blatt angemeldet (Punkt 581): Meldungen stehen hier statt
+          hinter dem Modal, und Tipps zählen für die Rückkehr des
+          Wandpanels (Punkt 582). */}
+      <Blatt style={styles.doorbellRoot}>
         <Text style={styles.doorbellTitle}>{camera.name}</Text>
         <View style={styles.videoBox}>
           {schichten.standbild ? (
@@ -159,7 +163,7 @@ export function CameraFullscreen({
         {archivOffen ? (
           <ClipArchiv settings={settings} onClose={() => setArchivOffen(false)} />
         ) : null}
-      </View>
+      </Blatt>
     </Modal>
   );
 }
