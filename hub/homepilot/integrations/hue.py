@@ -179,6 +179,58 @@ def matching_room(hue_room: str | None, known: list[str]) -> str | None:
     return None
 
 
+#: Das Einschaltverhalten nach Stromausfall (Punkt 630 der Werkbank).
+#:
+#: Die Bridge führt es je Leuchte als ``powerup`` mit vier Voreinstellungen:
+#: «safety» (an, volle Helligkeit - der Blitz um drei Uhr nachts),
+#: «powerfail» (wie vor dem Ausfall), «last_on_state» (an, mit dem
+#: letzten Licht) und «custom». Der Hub kennt drei Wörter, dieselben wie
+#: bei Zigbee und Homematic: ``previous``, ``off``, ``on``.
+POWERUP_VON_PRESET = {
+    "powerfail": "previous",
+    "safety": "on",
+    "last_on_state": "on",
+}
+
+
+def powerup_lesen(powerup: Any) -> str | None:
+    """Was die Bridge als Einschaltverhalten meldet (rein, testbar).
+
+    «other» heisst: eingestellt, aber nichts, was der Hub anbietet
+    (etwa «custom» mit Umschalten). Es steht so in der App, statt
+    zufällig eines der drei Wörter zu sein.
+    """
+    if not isinstance(powerup, dict):
+        return None
+    preset = str(powerup.get("preset") or "")
+    if preset in POWERUP_VON_PRESET:
+        return POWERUP_VON_PRESET[preset]
+    if preset != "custom":
+        return None
+    an = powerup.get("on") or {}
+    modus = str(an.get("mode") or "")
+    if modus == "previous":
+        return "previous"
+    if modus == "on":
+        return "on" if (an.get("on") or {}).get("on", True) else "off"
+    return "other"
+
+
+def powerup_body(mode: str) -> dict[str, Any]:
+    """Was für ``set_power_on`` an die Leuchte geht (rein, testbar).
+
+    «aus» gibt es bei Hue nur als eigene Einstellung: Die Bridge kennt
+    keine Voreinstellung dafür, wohl aber ``custom`` mit «an: nein».
+    """
+    if mode == "previous":
+        return {"preset": "powerfail"}
+    if mode == "on":
+        return {"preset": "safety"}
+    if mode == "off":
+        return {"preset": "custom", "on": {"mode": "on", "on": {"on": False}}}
+    raise HomePilotError("Nach Stromausfall geht nur 'previous', 'off' oder 'on'")
+
+
 class HueIntegration(Integration):
     name = "hue"
 
@@ -349,6 +401,12 @@ class HueIntegration(Integration):
             mirek = light["color_temperature"].get("mirek")
             if isinstance(mirek, (int, float)):
                 changes["color_temp"] = round(mirek)
+        # Das Einschaltverhalten kommt mit jeder Leuchte mit (Punkt 630)
+        # - bisher las der Hub nur on und dimming und liess es liegen.
+        if "powerup" in light:
+            power_on = powerup_lesen(light["powerup"])
+            if power_on:
+                changes["power_on"] = power_on
 
         if self.hub.registry.get(entity_id) is None:
             name = (light.get("metadata") or {}).get("name") or "Hue Licht"
@@ -357,6 +415,8 @@ class HueIntegration(Integration):
                 commands.append("set_brightness")
             if "color_temperature" in light:
                 commands.append("set_color_temp")
+            if "powerup" in light:
+                commands.append("set_power_on")
             await self.add_entity(
                 resource_id,
                 EntityKind.LIGHT,
@@ -464,6 +524,10 @@ class HueIntegration(Integration):
             else:
                 mirek = float(data.get("color_temp", data.get("mirek", 366)))
             body["color_temperature"] = {"mirek": max(153, min(500, round(mirek)))}
+        elif command == "set_power_on":
+            # Nach Stromausfall (Punkt 630): keine Schaltung, eine
+            # Einstellung - sie steht in der Leuchte selbst.
+            body["powerup"] = powerup_body(str(data.get("mode") or ""))
 
         resource_id = entity.id.split(".", 1)[1]
         async with self._session.put(
@@ -481,6 +545,8 @@ class HueIntegration(Integration):
             changes["brightness"] = round(body["dimming"]["brightness"])
         if "color_temperature" in body:
             changes["color_temp"] = body["color_temperature"]["mirek"]
+        if "powerup" in body:
+            changes["power_on"] = str(data.get("mode"))
         if changes:
             await self.hub.registry.update_state(entity.id, changes)
 

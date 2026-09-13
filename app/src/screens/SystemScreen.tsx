@@ -24,6 +24,7 @@ import { AccessLog } from '../components/AccessLog';
 import { Einrichtungsprotokoll } from '../components/Einrichtungsprotokoll';
 import { Card } from '../components/Card';
 import { Maintenance } from '../components/Maintenance';
+import { StromausfallCard } from '../components/StromausfallCard';
 import { Fehlschlag, Laedt, Umriss } from '../components/Zustand';
 import { ConfigCard } from './system/konfiguration';
 import { ROLE_LABELS } from '../lib/rollen';
@@ -278,6 +279,9 @@ export function SystemScreen({
       <Text style={styles.sectionTitle}>Betrieb</Text>
 
       <Maintenance settings={settings} />
+      {/* Alle Lampen auf «wie vorher» - der Blitz nach dem Stromausfall
+          wird vorher verhindert, nicht nachher aufgeräumt (Punkt 630). */}
+      <StromausfallCard entities={entities} settings={settings} />
       {/* Die Geräte-Gesundheit steht unter «Geräte» – dort sucht man
           nach einem Gerät, hier nach dem Hub. */}
 

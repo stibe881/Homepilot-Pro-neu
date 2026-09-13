@@ -9,8 +9,11 @@ Haus in vollem Licht, und jemand geht durch alle Zimmer.
 eine Minute zum Hochfahren; solange brennt alles. Wer den Blitz auch
 noch loswerden will, stellt es am Gerät ein (bei Hue heisst es
 «Verhalten bei Stromrückkehr», Homematic hat je Aktor einen
-Einschaltwert). Das hier ist das Netz darunter - es gilt für jede
-Anbindung und auch für die Lampe, die diese Einstellung nicht kennt.
+Einschaltwert). Seit Punkt 630 stellt der Hub genau diese Einstellung:
+``set_power_on`` bei Zigbee, Hue und Homematic, unter System als ein
+Knopf für alle Lampen. Das hier ist das Netz darunter - es gilt für
+jede Anbindung und auch für die Lampe, die diese Einstellung nicht
+kennt.
 
 **Was aufgeräumt wird, steht in einem Ablauf**, nicht in der
 config.yaml: Der Auslöser «Nach Stromausfall» (core/automation.py)

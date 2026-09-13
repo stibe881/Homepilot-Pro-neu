@@ -5,8 +5,18 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { CommandData, Entity } from '../../api/types';
+import { EINSCHALT_WAHL, einschaltWort, kannEinschalten } from '../../lib/einschaltverhalten';
+import {
+  GeraetOption,
+  begrenzt,
+  naechsterWert,
+  optionenVon,
+  wertText,
+  wertWort,
+} from '../../lib/geraeteoptionen';
 import { KachelEintrag } from '../../lib/kachelmenue';
 import { useColors } from '../../theme';
 import { Tastaturplatz } from '../Tastaturplatz';
@@ -138,9 +148,16 @@ export function AnpassenBlatt({
   titel,
   zeilen,
   onClose,
+  entity,
+  onCommand,
 }: {
   visible: boolean;
   titel: string;
+  /** Das Gerät selbst - für die Abschnitte «Gerät einstellen» (Punkt
+   *  631) und «Nach Stromausfall» (Punkt 630) unter den Zeilen. Beide
+   *  schicken Befehle, darum der Griff dazu; fehlt er, fehlen sie. */
+  entity?: Entity;
+  onCommand?: (command: string, data?: CommandData) => void;
   zeilen: {
     key: string;
     icon: keyof typeof Ionicons.glyphMap;
@@ -196,10 +213,211 @@ export function AnpassenBlatt({
                 ) : null}
               </Pressable>
             ))}
+            {entity && onCommand ? (
+              <>
+                <Einschaltverhalten entity={entity} onCommand={onCommand} />
+                <GeraetEinstellungen entity={entity} onCommand={onCommand} />
+              </>
+            ) : null}
           </ScrollView>
         </Pressable>
       </Pressable>
     </Modal>
+  );
+}
+
+/**
+ * «Nach Stromausfall» im Anpassen-Blatt (Punkt 630 der Werkbank).
+ *
+ * Kommt der Strom zurück, geht die Lampe an - das entscheidet das
+ * Leuchtmittel, und bisher konnte man es nur in der Hue-App oder an der
+ * CCU umstellen. Drei Chips: wie vorher, aus, an. Gezeigt wird, was der
+ * Hub vom Gerät gelesen hat; kennt er den Stand noch nicht, steht das
+ * so da, statt dass ein Chip so tut, als gälte er.
+ */
+function Einschaltverhalten({
+  entity,
+  onCommand,
+}: {
+  entity: Entity;
+  onCommand: (command: string, data?: CommandData) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  if (!kannEinschalten(entity)) return null;
+  const stand = entity.state?.power_on;
+  return (
+    <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.surfaceBorder }}>
+      <View style={[styles.feinZeile, { marginTop: 12 }]}>
+        <Text style={[styles.roomSheetTitle, { fontSize: 14, marginBottom: 0 }]}>
+          Nach Stromausfall
+        </Text>
+        <Text style={styles.blattWert}>{einschaltWort(stand)}</Text>
+      </View>
+      <View style={[styles.vorgabenRaster, { paddingVertical: 8 }]}>
+        {EINSCHALT_WAHL.map((wahl) => (
+          <Chip
+            key={wahl.key}
+            label={wahl.label}
+            aktiv={stand === wahl.key}
+            onPress={() => onCommand('set_power_on', { mode: wahl.key })}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/**
+ * «Gerät einstellen» im Anpassen-Blatt (Punkt 631 der Werkbank).
+ *
+ * Nachlaufzeit, Empfindlichkeit, Temperatur-Abgleich, LED - was das
+ * Gerät stellen lässt, gab es nur in der Zigbee2MQTT-Oberfläche auf
+ * Port 8099. Jetzt steht es dort, wo man das Gerät ohnehin anpasst.
+ *
+ * Je Art ein Bedienelement: Zahlen mit «−», Feld und «+» (der Schritt
+ * kommt aus lib/geraeteoptionen.ts), Ja/Nein und Auswahllisten als
+ * Chips. Gezeigt wird immer, was der Hub zuletzt vom Gerät gehört hat -
+ * kein eigener Zwischenstand, der nach einem abgelehnten Befehl falsch
+ * dastünde. Ein schlafender Melder nimmt den Wert erst beim nächsten
+ * Aufwachen; bis dahin steht der alte da, und das ist die Wahrheit.
+ */
+function GeraetEinstellungen({
+  entity,
+  onCommand,
+}: {
+  entity: Entity;
+  onCommand: (command: string, data?: CommandData) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const optionen = optionenVon(entity);
+  if (optionen.length === 0) return null;
+  const setze = (name: string, value: number | string | boolean) =>
+    onCommand('set_option', { name, value });
+  return (
+    <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.surfaceBorder }}>
+      <Text style={[styles.roomSheetTitle, { fontSize: 14, marginTop: 12 }]}>
+        Gerät einstellen
+      </Text>
+      {optionen.map((option) => (
+        <View key={option.name} style={{ paddingVertical: 8, gap: 6 }}>
+          <View style={styles.feinZeile}>
+            <Text style={styles.blattLabel}>{option.label}</Text>
+            {option.type === 'numeric' ? (
+              <Text style={styles.blattWert}>{wertText(option)}</Text>
+            ) : null}
+          </View>
+          {option.type === 'numeric' ? (
+            <ZahlenSteller option={option} onWert={(wert) => setze(option.name, wert)} />
+          ) : option.type === 'binary' ? (
+            <View style={styles.vorgabenRaster}>
+              {[
+                { key: true, label: 'An' },
+                { key: false, label: 'Aus' },
+              ].map((wahl) => (
+                <Chip
+                  key={String(wahl.key)}
+                  label={wahl.label}
+                  aktiv={option.value === wahl.key}
+                  onPress={() => setze(option.name, wahl.key)}
+                />
+              ))}
+            </View>
+          ) : (
+            <View style={styles.vorgabenRaster}>
+              {(option.values ?? []).map((wert) => (
+                <Chip
+                  key={wert}
+                  label={wertWort(wert)}
+                  aktiv={option.value === wert}
+                  onPress={() => setze(option.name, wert)}
+                />
+              ))}
+            </View>
+          )}
+        </View>
+      ))}
+      <Text style={styles.roomHinweis}>
+        Der Hub zeigt, was das Gerät zuletzt gemeldet hat. Ein Melder mit Batterie
+        übernimmt eine Änderung erst, wenn er das nächste Mal aufwacht.
+      </Text>
+    </View>
+  );
+}
+
+/** Ein Chip der Auswahl - gewählt ist der dunkle. */
+function Chip({ label, aktiv, onPress }: { label: string; aktiv: boolean; onPress: () => void }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: aktiv }}
+      style={({ pressed }) => [styles.vorgabe, aktiv && styles.vorgabeAn, pressed && { opacity: 0.7 }]}
+    >
+      <Text style={[styles.vorgabeText, aktiv && styles.vorgabeTextAn]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/**
+ * «−», ein Feld, «+» für eine Zahl mit Bereich.
+ *
+ * Das Feld nimmt das Getippte erst beim Verlassen: Wer «−0.8» tippt,
+ * soll nicht nach dem Minus schon einen Befehl auslösen.
+ */
+function ZahlenSteller({
+  option,
+  onWert,
+}: {
+  option: GeraetOption;
+  onWert: (wert: number) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const gemeldet = option.value === null || option.value === undefined ? '' : String(option.value);
+  const [text, setText] = useState(gemeldet);
+  // Meldet das Gerät einen neuen Wert, gilt der - auch im Feld.
+  useEffect(() => setText(gemeldet), [gemeldet]);
+  const uebernehmen = () => {
+    const zahl = Number(text.replace(',', '.').replace('−', '-'));
+    if (!Number.isFinite(zahl)) {
+      setText(gemeldet);
+      return;
+    }
+    const ziel = begrenzt(option, zahl);
+    if (String(ziel) !== gemeldet) onWert(ziel);
+    else setText(gemeldet);
+  };
+  const knopf = (zeichen: '−' | '+', richtung: 1 | -1) => (
+    <Pressable
+      onPress={() => onWert(naechsterWert(option, richtung))}
+      accessibilityRole="button"
+      accessibilityLabel={`${option.label} ${zeichen === '+' ? 'erhöhen' : 'verringern'}`}
+      hitSlop={6}
+      style={({ pressed }) => [styles.vorgabe, { flexBasis: 56, flexGrow: 0 }, pressed && { opacity: 0.7 }]}
+    >
+      <Text style={styles.vorgabeText}>{zeichen}</Text>
+    </Pressable>
+  );
+  return (
+    <View style={[styles.vorgabenRaster, { alignItems: 'center', flexWrap: 'nowrap' }]}>
+      {knopf('−', -1)}
+      <TextInput
+        style={[styles.renameInput, { flex: 1, marginBottom: 0, paddingVertical: 8, textAlign: 'center' }]}
+        value={text}
+        onChangeText={setText}
+        onBlur={uebernehmen}
+        onSubmitEditing={uebernehmen}
+        keyboardType="numbers-and-punctuation"
+        placeholder="–"
+        placeholderTextColor={colors.inkFaint}
+        accessibilityLabel={option.label}
+      />
+      {knopf('+', 1)}
+    </View>
   );
 }
 

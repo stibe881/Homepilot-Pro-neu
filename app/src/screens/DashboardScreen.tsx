@@ -117,7 +117,7 @@ import {
   sortiereGeraete,
   sortierungsWort,
 } from '../lib/geraetefilter';
-import { verweisText, verweiseAuf } from '../lib/verweise';
+import { tasterBelegung, verweisText, verweiseAuf } from '../lib/verweise';
 import { pausenSatz } from '../lib/verbindungsstand';
 import {
   alphabetisch,
@@ -2292,6 +2292,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           : undefined
       }
       onUsedIn={() => setSection('automations')}
+      // Taster: was welcher Druck auslöst, direkt auf der Kachel
+      // (Punkt 629, lib/verweise.ts).
+      belegung={entity.kind === 'button' ? tasterBelegung(entity.id, automations) : undefined}
+      onBelegung={() => setSection('automations')}
       pricePerKwh={energy?.price_per_kwh}
       currency={energy?.currency ?? 'CHF'}
       editing={editing}

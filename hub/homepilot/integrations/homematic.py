@@ -265,6 +265,9 @@ from .homematic_channels import (  # noqa: F401
     lux_to_state,
     maintenance_address,
     power_to_state,
+    powerup_index,
+    powerup_lesen,
+    powerup_parameter,
     press_to_state,
     switch_channel,
     unit_for,
@@ -341,6 +344,10 @@ class HomematicIntegration(Integration):
         self._devices: dict[str, dict[str, Any]] = {}
         # Sendespeicher je Funk-Schnittstelle: object_id → (Adresse, Port).
         self._duty: dict[str, tuple[str, int]] = {}
+        # Einschaltverhalten nach Stromausfall (Punkt 630): je Aktor der
+        # MASTER-Parameter und die Wörter seiner Aufzählung - nur für
+        # die, die einen solchen haben.
+        self._powerup: dict[str, tuple[str, list[str]]] = {}
 
         for device in self.config.get("devices") or []:
             await self._add_device(device)
@@ -355,6 +362,75 @@ class HomematicIntegration(Integration):
         if self._callback_port:
             await self._start_callbacks()
         self.start_task(self._poll_loop())
+        # Im Hintergrund, nicht im Start: Je Aktor zwei Aufrufe an die
+        # CCU, und der Hub soll nicht warten, bis vierzig davon durch sind.
+        self.start_task(self._powerup_lesen())
+
+    async def _powerup_lesen(self) -> None:
+        """Welche Aktoren ein Einschaltverhalten kennen, und wie es steht.
+
+        Punkt 630 der Werkbank. Gefragt wird die Beschreibung des
+        MASTER-Paramsets je Schalt- und Lichtkanal; wer dort einen
+        POWERUP-Parameter führt, bekommt den Befehl ``set_power_on`` und
+        den Stand als ``power_on``. Alle anderen bleiben, wie sie sind -
+        die Liste unter System sagt dann, dass dieses Gerät es nicht kann.
+        """
+        for entity_id, info in list(self._devices.items()):
+            if info["kind"] not in (EntityKind.SWITCH, EntityKind.LIGHT):
+                continue
+            try:
+                beschreibung = await self._call(
+                    "getParamsetDescription", info["address"], "MASTER", port=info["port"]
+                )
+                gefunden = powerup_parameter(beschreibung)
+                if gefunden is None:
+                    continue
+                name, werte = gefunden
+                master = await self._call(
+                    "getParamset", info["address"], "MASTER", port=info["port"]
+                )
+            except Exception as err:
+                self.log.debug("%s: Einschaltverhalten nicht lesbar: %s", entity_id, err)
+                continue
+            self._powerup[entity_id] = (name, werte)
+            entity = self.hub.registry.get(entity_id)
+            if entity is None:
+                continue
+            if "set_power_on" not in entity.commands:
+                await self.hub.registry.set_commands(
+                    entity_id, [*entity.commands, "set_power_on"]
+                )
+            stand = powerup_lesen(
+                (master or {}).get(name) if isinstance(master, dict) else None, werte
+            )
+            if stand:
+                await self.hub.registry.update_state(entity_id, {"power_on": stand})
+
+    async def _power_on_stellen(self, entity: Entity, mode: str) -> None:
+        """``set_power_on`` - eine Einstellung im Gerät, kein Schaltbefehl.
+
+        Über ``putParamset MASTER``: Der Aktor merkt sie sich selbst,
+        und genau das ist der Sinn - der Hub ist beim Stromausfall ja
+        ebenfalls stromlos.
+        """
+        gefunden = self._powerup.get(entity.id)
+        if gefunden is None:
+            raise HomePilotError("Dieses Gerät kennt kein Einschaltverhalten")
+        name, werte = gefunden
+        index = powerup_index(werte, mode)
+        if index is None:
+            raise HomePilotError(
+                f"{entity.label} kann nach Stromausfall nur: "
+                + ", ".join(werte)
+            )
+        info = self._devices[entity.id]
+        try:
+            await self._call(
+                "putParamset", info["address"], "MASTER", {name: index}, port=info["port"]
+            )
+        except xmlrpc.client.Fault as err:
+            raise HomePilotError(command_error(info["address"], name, err)) from err
+        await self.hub.registry.update_state(entity.id, {"power_on": mode})
 
     async def _add_duty_cycle_sensors(self) -> None:
         """Je Funk-Schnittstelle ein Messwert «Sendespeicher».
@@ -1167,6 +1243,9 @@ class HomematicIntegration(Integration):
     # ── Hub → CCU ──────────────────────────────────────────────────────────
 
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
+        if command == "set_power_on":
+            await self._power_on_stellen(entity, str(data.get("mode") or ""))
+            return
         info = self._devices[entity.id]
         datapoint, value = command_to_value(command, data, info["dimmable"], entity.state)
         # Funk-Timeouts sind oft vorübergehend (Gerät gerade nicht wach, kurze

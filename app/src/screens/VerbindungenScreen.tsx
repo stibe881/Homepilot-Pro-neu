@@ -28,6 +28,7 @@ import { ConnectionStatus } from '../hooks/useHub';
 import { Entity, HubSettings } from '../api/types';
 import { Abschnitt } from '../components/Abschnitt';
 import { Card } from '../components/Card';
+import { GeraetAnlernen } from '../components/GeraetAnlernen';
 import { TvKopplung } from '../components/TvKopplung';
 import { brauchtKopplung, kannKoppeln, kopplungsZeile } from '../lib/fernsehkopplung';
 import {
@@ -207,6 +208,12 @@ export function VerbindungenScreen({
           ))}
         </Abschnitt>
       ) : null}
+
+      {/* Neue Geräte anlernen (Punkt 632): Zigbee-Netz öffnen und
+          Matter-Code koppeln - neben der Fernseher-Kopplung, wo
+          Einrichten zuhause ist. Nur für die Besitzerin, wie die
+          Dienste: Ein offenes Funknetz ist eine Einrichtungsfrage. */}
+      {darfDienste ? <GeraetAnlernen settings={settings} /> : null}
 
       {darfDienste && dienste ? (
         <Abschnitt

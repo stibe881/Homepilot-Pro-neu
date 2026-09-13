@@ -1,6 +1,14 @@
 /** Wo kommt ein Gerät überall vor – Abläufe und Szenen. */
 import { Scene } from '../api/types';
-import { mitschalter, mitschalterSatz, verweisText, verweiseAuf } from './verweise';
+import {
+  belegungZeile,
+  druckWort,
+  mitschalter,
+  mitschalterSatz,
+  tasterBelegung,
+  verweisText,
+  verweiseAuf,
+} from './verweise';
 
 const automations = [
   {
@@ -124,5 +132,69 @@ describe('mitschalterSatz', () => {
 
   it('schweigt, wenn niemand mitschaltet', () => {
     expect(mitschalterSatz([])).toBe('');
+  });
+});
+
+describe('tasterBelegung', () => {
+  // Punkt 629: Wer vor dem Wandtaster steht, soll auf der Kachel lesen,
+  // was welcher Druck tut - ohne die Abläufe aufzumachen.
+  const ablaeufe = [
+    {
+      id: 'b1',
+      alias: 'Alles aus',
+      triggers: [{ type: 'state', entity_id: 'z2m.taster', to: 'hold' }],
+      actions: [],
+    },
+    {
+      id: 'b2',
+      alias: 'Flur an',
+      triggers: [{ type: 'state', entity_id: 'z2m.taster', to: 'single' }],
+      actions: [],
+    },
+    {
+      id: 'b3',
+      alias: 'Ruht',
+      enabled: false,
+      triggers: [{ type: 'state', entity_id: 'z2m.taster', to: 'double' }],
+      actions: [],
+    },
+    {
+      id: 'b4',
+      alias: 'Anderer Taster',
+      triggers: [{ type: 'state', entity_id: 'z2m.anderer', to: 'single' }],
+      actions: [],
+    },
+  ];
+
+  it('nennt je Druck den Ablauf, in der Reihenfolge des Editors', () => {
+    const belegung = tasterBelegung('z2m.taster', ablaeufe);
+    expect(belegung.map((e) => [e.wort, e.ablauf.alias])).toEqual([
+      ['einmal', 'Flur an'],
+      ['halten', 'Alles aus'],
+    ]);
+    expect(belegungZeile(belegung)).toBe('einmal → Flur an · halten → Alles aus');
+  });
+
+  it('lässt ruhende Abläufe und fremde Taster weg', () => {
+    const belegung = tasterBelegung('z2m.taster', ablaeufe);
+    expect(belegung.some((e) => e.ablauf.id === 'b3')).toBe(false);
+    expect(belegung.some((e) => e.ablauf.id === 'b4')).toBe(false);
+    expect(tasterBelegung('z2m.niemand', ablaeufe)).toEqual([]);
+  });
+
+  it('kennt die Wörter von Zigbee und Homematic', () => {
+    expect(druckWort('double')).toBe('doppelt');
+    expect(druckWort('short')).toBe('kurz');
+    expect(druckWort('long')).toBe('lang');
+    expect(druckWort('brightness_move_up')).toBe('heller halten');
+    // Was der Editor nicht kennt, bleibt, wie das Gerät es meldet.
+    expect(druckWort('button_3_single')).toBe('button_3_single');
+  });
+
+  it('ein Auslöser ohne Druckart gilt für jeden Druck', () => {
+    const belegung = tasterBelegung('hm.taster', [
+      { id: 'c1', alias: 'Licht', triggers: [{ type: 'state', entity_id: 'hm.taster' }] },
+    ]);
+    expect(belegungZeile(belegung)).toBe('jeder Druck → Licht');
   });
 });

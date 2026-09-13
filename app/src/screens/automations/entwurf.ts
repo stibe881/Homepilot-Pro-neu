@@ -323,7 +323,7 @@ const OFFEN_KLASSEN = ['contact', 'door', 'window', 'garage', 'opening'];
  * nicht - das ist derselbe Fall wie ein Ablauf aus früherer Zeit, und
  * `unbekannterZustand` sagt es dann auch.
  */
-const TASTERDRUECKE: { key: string; label: string }[] = [
+export const TASTERDRUECKE: { key: string; label: string }[] = [
   { key: 'single', label: 'einmal drücken' },
   { key: 'double', label: 'doppelt drücken' },
   { key: 'triple', label: 'dreimal drücken' },
