@@ -7903,3 +7903,33 @@ wartet am Schloss) und öffnet den Kanal danach neu; was die Bibliothek
 sonst wirft, kommt als Satz in der Antwort an, nicht als 500.
 
 Stellen: `hub/homepilot/integrations/playstation.py`, `hub/homepilot/api/routes/playstation.py`, `hub/homepilot/core/livekarten.py`, `hub/homepilot/core/extras.py`, `hub/pyproject.toml`, `hub/Dockerfile`, `docs/playstation.md`, `hub/tests/test_playstation*.py`, `app/src/lib/playstation.ts`, `app/src/components/TvRemote.tsx`, `app/src/components/PsKopplung.tsx`, `app/src/screens/VerbindungenScreen.tsx`, `app/src/lib/fernsehkachel.ts`, `app/src/lib/fernsehkopplung.ts`, `app/src/lib/geraeteart.ts`, `app/src/lib/raumkarte.ts`
+
+### 644. «Zocken» blieb nie aktiv - der zweite Druck löste bloss erneut aus ✓ erledigt
+
+Aus dem Haus: «Ich habe die Szene Zocken / Kino aktiviert. In der Szene
+habe ich hinterlegt bei ‹Nach dem Auslösen› = ‹Bleibt aktiv›. Es bleibt
+aber nicht aktiv. Wenn ich nochmals darauf klicke, löst es einfach die
+Szene erneut aus.»
+
+Der Fernseher wechselt beim Zocken über `launch_app` auf die
+PlayStation. Ob eine Szene noch gilt, prüft der Hub daran, ob die
+beteiligten Geräte noch so stehen, wie die Szene sie hinterlassen hat
+(`szene_gilt_noch`) - dazu muss sich das Ziel einer Aktion mit dem
+Zustand vergleichen lassen. Für `launch_app` ging das nie: Die Aktion
+trägt die Paket-ID (`data.app`, z. B. `com.sony.ps5`), der Zustand
+aber nur den übersetzten Anzeigenamen (`app`, androidtv.tv_state) -
+zwei Vokabulare, die nie zusammenpassten. Bestand die Szene nur aus
+solchen App-Wechseln, blieb `ist_aktiv` immer `False`, und `toggle()`
+rief statt `revert()` immer wieder `activate()` auf - genau das
+gemeldete Verhalten.
+
+Der Zustand führt die Paket-ID jetzt zusätzlich roh mit (`app_id`),
+und `launch_app` ist seither eine vorhersagbare Aktion wie `turn_on`
+oder `set_volume` auch: Die Szene gilt als aktiv, sobald die richtige
+App läuft, und ein zweiter Druck nimmt sie zurück - nicht bloss zu
+«Fernseher an», was das Spiel weiterlaufen liesse, sondern zurück zur
+App, die vorher lief. Zwei Nachbarpunkte auf anderen Zweigen (642, 643)
+berühren dieselbe Ecke - der Neustart-Fehler der Alarmanlage und die
+PlayStation als eigenes Gerät - ohne diesen Fall zu treffen.
+
+Stellen: `hub/homepilot/integrations/androidtv.py`, `hub/homepilot/core/szenenrueckweg.py`, `hub/tests/test_new_integrations.py`, `hub/tests/test_szenenrueckweg.py`

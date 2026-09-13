@@ -68,6 +68,13 @@ def zielzustand(action: dict[str, Any]) -> dict[str, Any]:
         return {"state": "paused"}
     if command == "set_volume":
         return {"volume": _zahl(data.get("volume"))}
+    if command == "launch_app":
+        # Verglichen wird die rohe Paket-ID (androidtv.py, tv_state) und
+        # nicht der Anzeigename: Die Aktion trägt die ID, der Zustand bis
+        # Punkt 644 nur den übersetzten Namen - zwei Vokabulare, die nie
+        # zusammenpassten (Punkt 644 der Werkbank).
+        app = str(data.get("app") or "").strip()
+        return {"app_id": app} if app else {}
     return {}
 
 
@@ -129,6 +136,12 @@ def rueckbefehl(
         return None
 
     if kind == "media_player":
+        # Vor dem blossen «ein»: Lief vorher eine bestimmte App, gehört
+        # die zurück - sonst käme man aus «Zocken» in einen Fernseher,
+        # der zwar an ist, aber noch das Spiel zeigt (Punkt 644).
+        app_id = str(vorher.get("app_id") or "").strip()
+        if app_id and "launch_app" in commands:
+            return {"command": "launch_app", "data": {"app": app_id}}
         if zustand == "playing" and "play" in commands:
             return {"command": "play"}
         if zustand in ("paused", "idle") and "pause" in commands:

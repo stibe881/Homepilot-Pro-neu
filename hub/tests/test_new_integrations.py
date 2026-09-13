@@ -659,13 +659,16 @@ def test_tv_state_on_with_app_and_volume():
     assert state["track"] == "Netflix"  # Hauptzeile der Media-Kachel
     assert state["volume"] == 30
     assert state["muted"] is False
+    # Die rohe Paket-ID daneben (Punkt 644) - eine Szene vergleicht sich
+    # damit, nicht mit dem übersetzten Anzeigenamen.
+    assert state["app_id"] == "com.netflix.ninja"
 
 
 def test_tv_state_off_hides_app():
     from homepilot.integrations.androidtv import tv_state
 
     state = tv_state(False, "com.netflix.ninja", None)
-    assert state == {"state": "off", "app": None, "track": None}
+    assert state == {"state": "off", "app": None, "track": None, "app_id": None}
 
 
 def test_app_name_launcher_counts_as_nothing():
