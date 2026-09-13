@@ -815,7 +815,11 @@ class MetaRequest(BaseModel):
     #: Nur für Batteriegeräte: welche Batterie drinsteckt («CR2032»,
     #: «AAA», …; watchrules.BATTERIETYPEN). None heisst «unbekannt».
     battery_type: str | None = None
-
+    #: Nur für Fernseher und Spielkonsole (has_screen, Punkt 646): bis zu
+    #: zwei Szenen, die unten an der Fernbedienung stehen. None heisst
+    #: unverändert, eine leere Liste räumt die Auswahl weg - siehe
+    #: core/entity.py, remote_scenes_lesen.
+    remote_scenes: list[str] | None = None
 
 
 class EinladungRequest(BaseModel):

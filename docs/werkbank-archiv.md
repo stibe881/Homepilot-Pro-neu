@@ -7962,3 +7962,34 @@ Anbindungen, die die Abkürzung nicht kennen); bei Hue bestätigt sie
 danach nur noch denselben Wert, den die Lampe schon zeigt.
 
 Stellen: `hub/homepilot/integrations/hue.py`, `hub/homepilot/core/automation.py`, `hub/tests/test_light.py`, `hub/tests/test_new_integrations.py`
+
+### 646. Bis zu zwei Szenen unten an der Fernbedienung ✓ erledigt
+
+Aus dem Haus, mit dem Bild der Verbindungen-Seite (Fernseher, dann
+PlayStation 5): «Man soll hier angeben können, welche Szene unten an
+der Fernbedienung angezeigt werden soll. Man soll bis zu zwei
+Szenen/Abläufe angeben können.»
+
+Bisher gab es genau einen Griff, automatisch gefunden: die Szene
+«Kino», wenn es im Haus genau eine mit diesem Namen gibt
+(`lib/kinoszene.ts`) - ein Zufallstreffer, der ein Haus ohne eine Szene
+namens «Kino», oder mit einer zweiten für «Zocken», nie bediente. Jetzt
+lässt sich die Wahl treffen, unter Einstellungen → Verbindungen, direkt
+bei der Kopplung von Fernseher und Spielkonsole - dort, wo man ohnehin
+gerade an diesem Gerät ist, wie beim Einschlaf-Timer nebenan.
+
+Gespeichert wird als Geräte-Metadatum (`entity.remote_scenes`, wie
+`scene_toggles` oder `battery_type` schon vorher) - höchstens zwei,
+geklemmt im Hub selbst (`core/entity.py`, `remote_scenes_lesen`) und
+nicht nur in der App: Wer die Route von Hand aufruft, soll trotzdem
+nicht mehr bekommen. Ohne eigene Wahl bleibt es bei der alten Regel
+(die Szene «Kino») - ein bestehendes Haus merkt von der Umstellung
+nichts, bis jemand die Auswahl trifft; wählt jemand beide Knöpfe ab,
+bleibt die Reihe wirklich leer, statt überraschend doch auf «Kino»
+zurückzufallen (`app/src/lib/fernbedienungsszenen.ts`,
+`fernbedienungsSzenen`). Das Fernbedienungs-Blatt selbst kannte bisher
+nur die eine Szene (`kino`/`onKino`); es zeigt jetzt eine Reihe aus bis
+zu zwei Pillen (`szenen`/`onSzene`) - dieselbe Stelle, die auch die
+PlayStation bedient (Punkt 643), also gilt die Wahl für beide Geräte.
+
+Stellen: `hub/homepilot/core/entity.py`, `hub/homepilot/core/registry.py`, `hub/homepilot/core/hub.py`, `hub/homepilot/api/models.py`, `app/src/lib/fernbedienungsszenen.ts`, `app/src/components/TvRemote.tsx`, `app/src/components/EntityCard.tsx`, `app/src/components/FernbedienungsSzenen.tsx`, `app/src/screens/VerbindungenScreen.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/hooks/useHub.ts`

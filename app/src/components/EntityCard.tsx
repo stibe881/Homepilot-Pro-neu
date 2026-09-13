@@ -193,11 +193,11 @@ interface Props {
   /** Fragt die Türe vor dem Öffnen nach? Haushaltsweite Einstellung;
    *  fehlt sie, wird gefragt (siehe lib/tuerbestaetigung.ts). */
   doorConfirm?: boolean;
-  /** Die Szene «Kino» fürs Fernbedienungs-Blatt (lib/kinoszene.ts) -
-   *  der Film beginnt, das Licht ist noch hell, der Griff gehört
-   *  neben die Tasten. */
-  kino?: { id: string; name: string } | null;
-  onKino?: (sceneId: string) => void;
+  /** Bis zu zwei Szenen fürs Fernbedienungs-Blatt (Punkt 646,
+   *  lib/fernbedienungsszenen.ts) - der Film beginnt, das Licht ist
+   *  noch hell, der Griff gehört neben die Tasten. */
+  szenen?: { id: string; name: string }[];
+  onSzene?: (sceneId: string) => void;
   /** Sensorkacheln lassen sich antippen und zeigen dann ihren Verlauf. */
   onPress?: () => void;
   /** Grillkacheln: die Kerntemperatur-Ziele je Fühlernummer (Punkt 554).
@@ -263,8 +263,8 @@ export function EntityCard({
   groups,
   onSetGroup,
   doorConfirm,
-  kino,
-  onKino,
+  szenen,
+  onSzene,
   onPress,
   grillziele,
   onLongPress,
@@ -1536,8 +1536,8 @@ export function EntityCard({
           // Dieselben Apps wie in der Auswahl der Kachel - das Blatt
           // deckt die Kachel zu, also muss der Wechsel auch hier gehen.
           apps={entity.commands.includes('launch_app') ? appsOf(entity) : []}
-          kino={kino}
-          onKino={onKino}
+          szenen={szenen}
+          onSzene={onSzene}
           // Fernseher oder Spielkonsole - das Blatt sieht es am Gerät
           // (lib/playstation.ts, Punkt 643).
           entity={entity}
