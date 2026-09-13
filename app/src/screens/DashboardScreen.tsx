@@ -198,7 +198,7 @@ import { Widgets } from '../components/Widgets';
 import { syncAuto } from '../lib/autoablage';
 import { Ablage, syncWidget } from '../lib/widget';
 import { hoereAufSchnellaktionen, setzeSchnellaktionen } from '../lib/schnellaktionen';
-import { PushKnopf, Ziel, knoepfeAus, sitzungsPfad, zielAus } from '../lib/pushziel';
+import { Ziel, knoepfeAus, sitzungsPfad, zielAus } from '../lib/pushziel';
 import { PushBlatt } from '../components/PushBlatt';
 import { Erinnerungsblatt } from '../components/Erinnerungsblatt';
 import { fristSatz } from '../lib/erinnerungsfrist';
