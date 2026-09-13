@@ -21,6 +21,7 @@ import { Modal, Pressable, StyleSheet, Text } from 'react-native';
 
 import { PushKnopf } from '../lib/pushziel';
 import { Colors, radius, space, type, useColors } from '../theme';
+import { Blatt } from './Blatt';
 
 export function PushBlatt({
   titel,
@@ -40,6 +41,10 @@ export function PushBlatt({
 
   return (
     <Modal visible animationType="fade" transparent onRequestClose={onSchliessen}>
+      {/* Als Blatt angemeldet (Punkt 582): Tipps hier zählen für die
+          Rückkehr des Wandpanels, und die Absage zu einem Handgriff
+          steht im Blatt, nicht dahinter. */}
+      <Blatt>
       <Pressable style={styles.grund} onPress={onSchliessen}>
         {/* Der Tipp auf das Blatt selbst schliesst nicht: Sonst trifft
             man beim Zielen auf einen Knopf daneben und alles ist weg. */}
@@ -75,6 +80,7 @@ export function PushBlatt({
           </Pressable>
         </Pressable>
       </Pressable>
+      </Blatt>
     </Modal>
   );
 }

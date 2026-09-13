@@ -40,7 +40,7 @@ import { HistoryChart } from '../components/HistoryChart';
 import { OpenDoors } from '../components/OpenDoors';
 import { RunningAppliances } from '../components/RunningAppliances';
 import { SECTION_LABEL, Rail, Section, sichtbareBereiche } from '../components/Rail';
-import { nachbarBereich } from '../lib/bereiche';
+import { nachbar, nachbarBereich } from '../lib/bereiche';
 import { useBereichWischen } from '../hooks/useBereichWischen';
 import { Posteingang } from '../components/Posteingang';
 import { ungelesen } from '../lib/posteingang';
@@ -68,7 +68,7 @@ import { LiveTuerSchalter } from '../components/LiveTuerSchalter';
 import { PushPrefs } from '../components/PushPrefs';
 import { ActivityCard, MediaPanel, SidePanel } from '../components/SidePanel';
 import { useMusikwahl } from '../hooks/useMusikwahl';
-import { Bestaetigung, Toast, UndoToast } from '../components/Toast';
+import { Meldungsband } from '../components/Toast';
 import { TopStrip } from '../components/TopStrip';
 import { useHub } from '../hooks/useHub';
 import { Knopfdruck, Tap, useNotificationTap } from '../hooks/useNotificationTap';
@@ -102,6 +102,8 @@ import {
 } from '../lib/geraeteart';
 import { bewegungImRaum } from '../lib/bewegung';
 import { rueckangebot } from '../lib/rueckgriff';
+import { oberstes } from '../lib/blattstapel';
+import { darfZurueck } from '../lib/rueckkehr';
 import { gemerkteAktion, menuLabel } from '../lib/doppeltipp';
 import { leerbild } from '../lib/leerzustand';
 import { reihenfolge as nutzungsReihenfolge } from '../lib/raumnutzung';
@@ -195,7 +197,7 @@ import { Widgets } from '../components/Widgets';
 import { syncAuto } from '../lib/autoablage';
 import { Ablage, syncWidget } from '../lib/widget';
 import { hoereAufSchnellaktionen, setzeSchnellaktionen } from '../lib/schnellaktionen';
-import { PushKnopf, Ziel, knoepfeAus, zielAus } from '../lib/pushziel';
+import { Ziel, knoepfeAus, zielAus } from '../lib/pushziel';
 import { PushBlatt } from '../components/PushBlatt';
 import { Erinnerungsblatt } from '../components/Erinnerungsblatt';
 import { fristSatz } from '../lib/erinnerungsfrist';
@@ -207,7 +209,7 @@ import {
   standardDirekt,
   widgetCommand,
 } from '../lib/widgetButtons';
-import { HubProvider } from '../hooks/HubContext';
+import { HubProvider, MeldungsProvider, useBlattstapel } from '../hooks/HubContext';
 import { useFamilienlisten } from '../hooks/useFamilienlisten';
 import { useAbstuerze } from '../hooks/useAbstuerze';
 import { useKachelnutzung } from '../hooks/useKachelnutzung';
@@ -442,6 +444,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setWandOffen,
     searchOpen,
     setSearchOpen,
+    remoteFuer,
+    setRemoteFuer,
+    grillBlattFuer,
+    setGrillBlattFuer,
+    musikBlattRaum,
+    setMusikBlattRaum,
+    posteingangOffen,
+    setPosteingangOffen,
+    pushBlatt,
+    setPushBlatt,
     allesZu,
   } = useBlaetter();
   // Aufgeklappt kommt man nur über die Batteriewarnung hierher; sonst
@@ -511,6 +523,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // wechselt nie, aber der Prüfer weiss das nicht.
   }, [room, section, setRaumMenue]);
   const [lastTouch, setLastTouch] = useState(() => Date.now());
+  // Eine Berührung irgendwo - im Wurzel-View oder in einem Blatt
+  // darüber (Punkt 582 der Werkbank): Tipps in einem nativen Modal
+  // erreichten den `onTouchStart` des Wurzel-Views nie, und das Panel
+  // sprang mitten im Rezept auf die Startseite.
+  const beruehrt = useCallback(() => setLastTouch(Date.now()), []);
+  // Welche Blätter gerade übereinander offen sind (lib/blattstapel.ts):
+  // Das oberste zeichnet die Meldungen (Punkt 581), und eines, das
+  // «wach hält», setzt die Rückkehr aus.
+  const blattstapel = useBlattstapel();
   // Zählt hoch, wenn der Widget-Knopf «Alles aus» gedrückt wurde – die
   // Rückfrage öffnet sich dann von selbst, statt dass die App nur
   // aufgeht und nichts tut.
@@ -546,20 +567,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Tipp-Haken früh gebraucht wird und der Weg selbst erst weiter unten
   // steht - dort, wo die Räume bekannt sind.
   const zumZiel = useRef<(ziel: Ziel) => void>(() => {});
-  // Die Handgriffe, die ein Ablauf seiner Nachricht mitgegeben hat -
-  // «Trockner an» unter «Waschmaschine fertig». Sie stehen erst hier zur
-  // Wahl, hinter der Anmeldung.
-  const [pushBlatt, setPushBlatt] = useState<{
-    titel?: string;
-    text?: string;
-    knoepfe: PushKnopf[];
-  } | null>(null);
-  // Der Posteingang (Punkt 524): was das Haus für mich zurückgehalten
-  // hat, hinter der Glocke oben. Die Zahl an der Glocke ist, was seit
-  // dem letzten Öffnen dazukam - der Zeitpunkt liegt beim Hub
-  // (lib/persoenlich.ts), damit das iPad nicht zeigt, was das Telefon
-  // längst gelesen hat.
-  const [posteingangOffen, setPosteingangOffen] = useState(false);
+  // Die Handgriffe einer Nachricht (pushBlatt) und der Posteingang
+  // (posteingangOffen, Punkt 524) kommen aus useBlaetter - siehe dort.
+  // Die Zahl an der Glocke ist, was seit dem letzten Öffnen dazukam -
+  // der Zeitpunkt liegt beim Hub (lib/persoenlich.ts), damit das iPad
+  // nicht zeigt, was das Telefon längst gelesen hat.
   const [verpasste, setVerpasste] = useState<{ at: number }[]>([]);
   const [posteingangGesehen, setPosteingangGesehen] = useState(0);
   const verpassteLaden = useCallback(() => {
@@ -599,17 +611,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Bild nicht auf Vorrat.
   const [personenbilder, setPersonenbilder] = useState<Record<string, number>>({});
   // Für welchen Raum das Blatt «Bild wählen» offen steht.
-  // Für welchen Raum der Player offen steht (Musik-Knopf der Raumkachel).
-  const [musikBlattRaum, setMusikBlattRaum] = useState<string | null>(null);
-  // Welcher Fernseher seine Fernbedienung offen hat. Sie hängt nicht an
-  // der Gerätekachel, sondern hier: Der Knopf «Fernseher» auf einer
-  // Raumkachel soll sie aufmachen, ohne dass man erst in den Raum geht.
-  const [remoteFuer, setRemoteFuer] = useState<string | null>(null);
-  // Der Grill, dessen Blatt offen ist (Punkt 555). Über die Kennung und
-  // nicht über die Entität: Der Hub schickt alle dreissig Sekunden einen
-  // neuen Zustand, und ein festgehaltenes Objekt wäre sofort von gestern
-  // - dieselbe Überlegung wie beim Fernbedienungs-Blatt.
-  const [grillBlattFuer, setGrillBlattFuer] = useState<string | null>(null);
+  // Musikblatt, Fernbedienung und Grillblatt (Punkt 555) kommen aus
+  // useBlaetter - seit Punkt 582, damit die Rückkehr des Wandpanels sie
+  // mit zumacht.
   const [grillziele, setGrillziele] = useState<Zielzeile[]>([]);
   // Auf der Startseite markierte Countdowns aus dem Familie-Modul.
   const [startCountdowns, setStartCountdowns] = useState<
@@ -779,6 +783,54 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         befehl: undo,
       }),
     [error, abrufFehler, einkaufUndo, griffUndo, undo]
+  );
+  // Die drei Einblendungen als ein Wert für den Context (Punkt 581 der
+  // Werkbank): Ein abgelehnter Befehl hat Vorrang - er ist die Antwort
+  // auf etwas, das man gerade angetippt hat. Ein fehlgeschlagener
+  // Abruf kommt, wenn sonst nichts ansteht. Wo das Band gezeichnet
+  // wird, entscheidet nicht mehr dieser Bildschirm, sondern das
+  // oberste offene Blatt (components/Blatt.tsx).
+  const meldungen = useMemo(
+    () => ({
+      fehler: error ?? abrufFehler,
+      fehlerWeg: error ? dismissError : () => setAbrufFehler(null),
+      note,
+      noteWeg: () => setNote(null),
+      // Welches der drei möglichen «Zurück» gemeint ist, entscheidet
+      // lib/rueckgriff.ts – dort steht auch, warum in dieser Reihenfolge.
+      rueck: rueckAngebot.what
+        ? {
+            what: rueckAngebot.what,
+            onUndo:
+              rueckAngebot.quelle === 'einkauf'
+                ? nimmAbhakenZurueck
+                : rueckAngebot.quelle === 'griff'
+                  ? nimmGriffZurueck
+                  : undoLast,
+            onDismiss:
+              rueckAngebot.quelle === 'einkauf'
+                ? () => setEinkaufUndo(null)
+                : rueckAngebot.quelle === 'griff'
+                  ? () => setGriffUndo(null)
+                  : dismissUndo,
+          }
+        : null,
+    }),
+    [
+      error,
+      abrufFehler,
+      dismissError,
+      note,
+      rueckAngebot,
+      nimmAbhakenZurueck,
+      nimmGriffZurueck,
+      undoLast,
+      dismissUndo,
+      // Setzer aus einem fremden Haken - für den Prüfer keine festen
+      // Grössen, obwohl sie es sind.
+      setEinkaufUndo,
+      setGriffUndo,
+    ]
   );
 
   // Die Ablaufnamen holen, damit die Suche sie kennt – und den
@@ -1088,7 +1140,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (knoepfe.length > 0) {
       setPushBlatt({ titel: tap.title, text: tap.body, knoepfe });
     }
-  }, []);
+    // Ein Setzer aus useBlaetter - fest, aber der Prüfer weiss das nicht.
+  }, [setPushBlatt]);
   // «Später» und «Erledigt» aus der Mitteilung heraus. Beides läuft ohne
   // die App zu öffnen; sie erfährt davon, sobald sie das nächste Mal
   // läuft, und reicht es an den Hub weiter (lib/mitteilungsknoepfe.ts).
@@ -1213,9 +1266,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Gemeinschaftsgerät genauso wie am Wandpanel - und dabei fällt der
   // Riegel wieder zu: Eine offene Einkaufsliste soll nicht im Flur
   // stehen bleiben, bloss weil vorhin jemand das Passwort kannte.
+  //
+  // Nicht während des Kochens, Klingelns oder Grillens (Punkt 582 der
+  // Werkbank, lib/rueckkehr.ts): Wer mit Teig an den Händen im Rezept
+  // blättert, tippt drei Minuten lang nichts - und fand dann die
+  // Startseite vor. Und was darüber offen liegt (Fernbedienung,
+  // Grillblatt, Musik), geht mit zu: Sonst deckte es die Startseite zu,
+  // zu der man gerade zurückgekehrt ist.
   useTakt(
     () => {
-      if (Date.now() - lastTouch > 180000) {
+      if (darfZurueck(Date.now(), lastTouch, blattstapel.haeltWach)) {
         // Im Kindermodus ist «zuhause» die Kinderseite, nicht die
         // Startseite - die gibt es auf diesem Gerät gar nicht.
         setSection((settings.kindPanel ?? '').trim() ? 'family' : 'start');
@@ -1223,6 +1283,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         setRoom(ALL_ROOMS);
         setRiegelBis(0);
         setRiegelModul(null);
+        allesZu();
       }
     },
     panelArtig ? 30000 : null
@@ -1535,7 +1596,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // Ereignisse (App lief schon) kommen genau einmal - jedes zählt.
     const subscription = Linking.addEventListener('url', (event) => handle(event.url));
     return () => subscription.remove();
-  }, [entities, scenes, activateScene, guardedCommand, prefs.doorConfirm]);
+  }, [
+    entities,
+    scenes,
+    activateScene,
+    guardedCommand,
+    prefs.doorConfirm,
+    // Setzer aus useBlaetter - fest, aber der Prüfer weiss das nicht.
+    setRemoteFuer,
+    setGrillBlattFuer,
+  ]);
 
   const toggleIn = (list: string[], id: string) =>
     list.includes(id) ? list.filter((item) => item !== id) : [...list, id];
@@ -2078,6 +2148,24 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       if (ziel) waehleBereich(ziel);
     }
   );
+  // Und im Zimmer ins Nachbarzimmer (Punkt 583): Wer abends Wohnzimmer
+  // → Küche → Flur abklappert, ging dreimal über die Raumliste, obwohl
+  // die Räume eine Reihenfolge haben. Dieselbe Geste, die Raumliste als
+  // Nachbarschaft; die linke Kante bleibt «zurück» (lib/bereichwischen.ts,
+  // zimmerRichtung), und Wischdimmer wie Storen-Leiste behalten ihren
+  // Vorrang, weil sie als Kinder zuerst gefragt werden. Auch mit
+  // Seitenleiste: Die Zimmer stehen dort nicht.
+  const zimmer = useMemo(() => rooms.filter((name) => name !== ALL_ROOMS), [rooms]);
+  const zimmerWischen = useBereichWischen(
+    section === 'home' && room !== ALL_ROOMS && !editing,
+    (richtung) => {
+      const ziel = nachbar(zimmer, room, richtung);
+      if (ziel) setRoom(ziel);
+    },
+    true
+  );
+  const zimmerDavor = section === 'home' && room !== ALL_ROOMS ? nachbar(zimmer, room, -1) : null;
+  const zimmerDanach = section === 'home' && room !== ALL_ROOMS ? nachbar(zimmer, room, 1) : null;
   const raumSchein = categorized && raumLeuchtet(inRoom);
   // Der Klimafühler steht gross im Kopf - als Chip daneben stünde er
   // doppelt, wie früher die Temperatur.
@@ -2191,11 +2279,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           : null
       }
       pending={pending[entity.id]}
-      // Die letzte Absage des Hubs. Sie geht nur in die Fernbedienung –
-      // die ist ein Modal und deckt das Band am unteren Rand zu, in dem
-      // sie sonst steht.
-      fehler={error}
-      onFehlerWeg={dismissError}
       // Nur unter «Geräte»: Wo kommt das Gerät überall vor? Antippen
       // führt zu den Abläufen.
       usedIn={
@@ -3444,6 +3527,50 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     <Ionicons name="chevron-back" size={18} color={colors.onGradient} />
                     <Text style={styles.backText}>Räume</Text>
                   </Pressable>
+                  {/* Die Nachbarzimmer als sichtbarer Weg (Punkt 583) -
+                      das Wischen dazu sieht niemand. Mit Namen, damit
+                      man weiss, wohin es geht, und leiser als «Räume»:
+                      Das ist der Abzweig, nicht der Rückweg. */}
+                  {zimmerDavor || zimmerDanach ? (
+                    <View style={styles.raumNachbarn}>
+                      {zimmerDavor ? (
+                        <Pressable
+                          onPress={() => setRoom(zimmerDavor)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Voriges Zimmer: ${zimmerDavor}`}
+                          hitSlop={6}
+                          style={styles.raumNachbar}
+                        >
+                          <Ionicons
+                            name="chevron-back"
+                            size={14}
+                            color={colors.onGradientSoft}
+                          />
+                          <Text style={styles.raumNachbarText} numberOfLines={1}>
+                            {zimmerDavor}
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                      {zimmerDanach ? (
+                        <Pressable
+                          onPress={() => setRoom(zimmerDanach)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Nächstes Zimmer: ${zimmerDanach}`}
+                          hitSlop={6}
+                          style={styles.raumNachbar}
+                        >
+                          <Text style={styles.raumNachbarText} numberOfLines={1}>
+                            {zimmerDanach}
+                          </Text>
+                          <Ionicons
+                            name="chevron-forward"
+                            size={14}
+                            color={colors.onGradientSoft}
+                          />
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  ) : null}
                   {/* «Anpassen» und «Reihenfolge» braucht man einmal im
                       Jahr - sie stehen hinter dem ···, nicht vor den
                       Kacheln. */}
@@ -4012,9 +4139,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
 
   return (
     <HubProvider settings={settings} entities={entities} user={user}>
+    <MeldungsProvider meldungen={meldungen} blaetter={blattstapel} beruehrt={beruehrt}>
       <View
         style={styles.root}
-        onTouchStart={() => setLastTouch(Date.now())}
+        onTouchStart={beruehrt}
         {...zurueckWischen}
       >
         {/* Auch links und rechts (Punkt 523): Im Querformat liegt die
@@ -4026,6 +4154,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right },
           ]}
           {...bereichWischen}
+          {...zimmerWischen}
         >
           {hasRail ? (
             <Rail
@@ -4621,14 +4750,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           }}
         />
 
-        {/* Ein abgelehnter Befehl hat Vorrang: Er ist die Antwort auf etwas,
-          das man gerade angetippt hat. Ein fehlgeschlagener Abruf kommt,
-          wenn sonst nichts ansteht. */}
-        <Toast
-          message={error ?? abrufFehler}
-          onDismiss={error ? dismissError : () => setAbrufFehler(null)}
-          bottomInset={insets.bottom}
-        />
+        {/* Fehler, Bestätigung und «Rückgängig» (Punkt 581): hier nur,
+          solange kein Blatt darüber liegt - sonst zeichnet das oberste
+          Blatt das Band, und im Web stünde es sonst zweimal, einmal
+          durch den durchscheinenden Hintergrund hindurch. */}
+        {oberstes(blattstapel.stapel) === null ? <Meldungsband /> : null}
         {/* Die Fernbedienung zum Knopf «Fernseher» auf einer Raumkachel.
             Dieselbe wie auf der Gerätekachel - eine zweite Fassung
             liefe früher oder später auseinander. */}
@@ -4639,8 +4765,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             onClose={() => setRemoteFuer(null)}
             onCommand={(command, data) => guardedCommand(remoteTv.id, command, data)}
             apps={remoteTv.commands.includes('launch_app') ? appsOf(remoteTv) : []}
-            fehler={error}
-            onFehlerWeg={dismissError}
             kino={kinoImBlatt}
             onKino={activateScene}
           />
@@ -4691,34 +4815,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           onClose={() => setSorgenOffen(false)}
         />
 
-        {/* Welches der drei möglichen «Zurück» gemeint ist, entscheidet
-          lib/rueckgriff.ts – dort steht auch, warum in dieser Reihenfolge. */}
-        <UndoToast
-          what={rueckAngebot.what}
-          onUndo={
-            rueckAngebot.quelle === 'einkauf'
-              ? nimmAbhakenZurueck
-              : rueckAngebot.quelle === 'griff'
-                ? nimmGriffZurueck
-                : undoLast
-          }
-          onDismiss={
-            rueckAngebot.quelle === 'einkauf'
-              ? () => setEinkaufUndo(null)
-              : rueckAngebot.quelle === 'griff'
-                ? () => setGriffUndo(null)
-                : dismissUndo
-          }
-          bottomInset={insets.bottom}
-        />
-        {/* Gelungenes tritt hinter beides zurück: Wer gerade einen Fehler
-          liest, braucht nicht noch ein Häkchen daneben. */}
-        <Bestaetigung
-          text={error || abrufFehler || rueckAngebot.what ? null : note}
-          onDismiss={() => setNote(null)}
-          bottomInset={insets.bottom}
-        />
-
         {/* Nachtabsenkung fürs Wandpanel. Der Schleier lässt Berührungen
           durch: Ein Panel, bei dem der erste Tipp nur das Aufwecken ist,
           ärgert genau die Person, die schnell das Licht ausmachen wollte.
@@ -4736,6 +4832,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           />
         ) : null}
       </View>
+    </MeldungsProvider>
     </HubProvider>
   );
 }

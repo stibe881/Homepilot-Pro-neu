@@ -8,6 +8,7 @@ import { datumUhr } from '../lib/format';
 import { Meldung, sortiert } from '../lib/posteingang';
 import { verpasstsatz } from '../lib/pushruhe';
 import { Colors, icon, radius, space, type, useColors } from '../theme';
+import { Blatt } from './Blatt';
 
 /**
  * Der Posteingang (Punkt 524) - hinter der Glocke auf der Startseite.
@@ -61,6 +62,9 @@ export function Posteingang({
 
   return (
     <Modal visible animationType="fade" transparent onRequestClose={onSchliessen}>
+      {/* Als Blatt angemeldet (Punkt 582): Tipps hier zählen für die
+          Rückkehr des Wandpanels, und Meldungen stehen im Blatt. */}
+      <Blatt>
       <Pressable style={styles.grund_} onPress={onSchliessen} accessibilityLabel="Schliessen">
         <Pressable style={styles.blatt} onPress={() => {}}>
           <View style={styles.kopf}>
@@ -96,6 +100,7 @@ export function Posteingang({
           </ScrollView>
         </Pressable>
       </Pressable>
+      </Blatt>
     </Modal>
   );
 }

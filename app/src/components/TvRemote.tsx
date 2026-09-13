@@ -3,6 +3,8 @@ import React, { useMemo } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { CommandData } from '../api/types';
+import { useMeldung } from '../hooks/HubContext';
+import { Blatt } from './Blatt';
 import { TvApp } from './TvApps';
 import { TvAppLogo } from './TvAppLogo';
 import { tapped, triggered } from '../lib/haptics';
@@ -21,15 +23,6 @@ interface Props {
    *  liegt unter genau diesem Blatt. Wer die Fernbedienung offen hat und
    *  zu Zattoo will, musste sie erst schliessen. */
   apps?: TvApp[];
-  /** Was der Hub zur letzten Taste sagte – oder ``null``.
-   *
-   *  Muss hier hinein und nicht ins Band unten am Bildschirm: Die
-   *  Fernbedienung ist ein Modal und liegt darüber. Die Absage stand
-   *  also da, verdeckt von genau der Fläche, auf der man gerade tippt –
-   *  gemessen mit `elementFromPoint`, nicht geraten. Wer drückte, sah
-   *  nichts passieren und erfuhr auch nicht, warum. */
-  fehler?: string | null;
-  onFehlerWeg?: () => void;
   /** Die Szene «Kino», wenn es genau eine gibt (lib/kinoszene.ts).
    *  Der Film beginnt, das Licht ist noch hell - der Griff gehört
    *  neben die Fernbedienung, nicht vier Tipps tief in die App. */
@@ -86,13 +79,18 @@ export function TvRemote({
   onClose,
   onCommand,
   apps,
-  fehler,
-  onFehlerWeg,
   kino,
   onKino,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  // Was der Hub zur letzten Taste sagte. Lange kam es als Prop hinein,
+  // weil die Fernbedienung ein Modal ist und das Band unten am
+  // Bildschirm zudeckt - die Absage stand da, verdeckt von genau der
+  // Fläche, auf der man gerade tippte (gemessen mit `elementFromPoint`).
+  // Seit Punkt 581 zeichnet das oberste Blatt das Band selbst
+  // (components/Blatt.tsx); hier bleibt nur das Wegräumen.
+  const meldung = useMeldung();
 
   // Was ein fertiger Druck tut. Die Taste selbst (Key) steht BEWUSST
   // ausserhalb dieser Funktion - siehe den Kommentar dort.
@@ -117,7 +115,7 @@ export function TvRemote({
     }
     // Die alte Absage gehört zur alten Taste. Bliebe sie stehen,
     // liesse sich nicht mehr erkennen, ob die neue ankam.
-    if (fehler) onFehlerWeg?.();
+    if (meldung?.fehler) meldung.fehlerWeg();
     onCommand(command, data);
   };
 
@@ -135,7 +133,7 @@ export function TvRemote({
           dem Blatt. (Die stumme Fernbedienung auf dem iPhone war
           übrigens NICHT das - sie war der Neuaufbau der Tasten bei
           jedem Rendern, siehe den Kommentar an `Key`.) */}
-      <View style={styles.backdrop}>
+      <Blatt style={styles.backdrop}>
         <Pressable
           style={StyleSheet.absoluteFill}
           onPress={onClose}
@@ -230,7 +228,7 @@ export function TvRemote({
                 } catch {
                   // Haptik ist Zugabe - der Druck darf nie an ihr hängen.
                 }
-                if (fehler) onFehlerWeg?.();
+                if (meldung?.fehler) meldung.fehlerWeg();
                 onKino(kino.id);
               }}
               style={({ pressed }) => [styles.kinoKnopf, pressed && { opacity: 0.7 }]}
@@ -240,19 +238,13 @@ export function TvRemote({
             </Pressable>
           ) : null}
 
-          {/* Nur die Absage des Hubs - eine Erfolgsmeldung braucht es
-              nicht mehr: Dass der Druck ankommt, sagen Haptik und
-              Fernseher. Die Diagnosezeilen von einst (welche Taste
+          {/* Keine Erfolgsmeldung: Dass der Druck ankommt, sagen Haptik
+              und Fernseher. Die Absage des Hubs steht im Band des Blatts
+              (Punkt 581). Die Diagnosezeilen von einst (welche Taste
               rausging, App-Version, Berührungszähler) haben ihren Fall
               gelöst und standen danach nur noch im Weg. */}
-          {fehler ? (
-            <View style={styles.absage}>
-              <Ionicons name="alert-circle-outline" size={16} color={colors.danger} />
-              <Text style={styles.absageText}>{fehler}</Text>
-            </View>
-          ) : null}
         </View>
-      </View>
+      </Blatt>
     </Modal>
   );
 }
@@ -298,13 +290,6 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     keyBig: { width: 76, height: 76, borderRadius: 38 },
-    absage: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      gap: 8,
-      paddingTop: 4,
-    },
-    absageText: { flex: 1, fontSize: 13, lineHeight: 18, color: colors.inkSoft },
     keyPressed: { backgroundColor: colors.surfaceStrong },
     appReihe: {
       flexDirection: 'row',

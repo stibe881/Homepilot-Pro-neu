@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 
 import { HubSettings } from '../api/types';
+import { Blatt } from '../components/Blatt';
 import { Tastaturplatz } from '../components/Tastaturplatz';
 import {
   Box,
@@ -967,7 +968,11 @@ function CookMode({
 
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
-      <View style={[styles.cookRoot, { backgroundColor: colors.panel }]}>
+      {/* «Hält wach» (Punkt 582 der Werkbank): Am Wandpanel sprang die
+          Drei-Minuten-Rückkehr mitten im Rezept auf die Startseite - die
+          Tipps im Modal zählte sie nicht, und wer Teig an den Händen hat,
+          tippt ohnehin selten. Solange gekocht wird, bleibt sie aus. */}
+      <Blatt haeltWach style={[styles.cookRoot, { backgroundColor: colors.panel }]}>
         {step < 0 ? (
           <>
             <Pressable onPress={onClose} style={styles.cookBack} hitSlop={8}>
@@ -1256,7 +1261,7 @@ function CookMode({
             );
           })()
         )}
-      </View>
+      </Blatt>
     </Modal>
   );
 }

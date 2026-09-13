@@ -475,6 +475,24 @@ export const makeStyles = (colors: Colors) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
+    /** Die Nachbarzimmer in der Kopfzeile (Punkt 583): leiser als
+     *  «‹ Räume», denn das ist der Abzweig, nicht der Rückweg. */
+    raumNachbarn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 14,
+      flexShrink: 1,
+      minWidth: 0,
+    },
+    raumNachbar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 2,
+      paddingVertical: 4,
+      flexShrink: 1,
+      minWidth: 0,
+    },
+    raumNachbarText: { color: colors.onGradientSoft, fontSize: 13, flexShrink: 1 },
     raumHeld: {
       flexDirection: 'row',
       alignItems: 'flex-end',
