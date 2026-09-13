@@ -29,8 +29,10 @@ import { Entity, HubSettings } from '../api/types';
 import { Abschnitt } from '../components/Abschnitt';
 import { Card } from '../components/Card';
 import { GeraetAnlernen } from '../components/GeraetAnlernen';
+import { PsKopplung } from '../components/PsKopplung';
 import { TvKopplung } from '../components/TvKopplung';
 import { brauchtKopplung, kannKoppeln, kopplungsZeile } from '../lib/fernsehkopplung';
+import { istPlaystation } from '../lib/playstation';
 import {
   Dienst,
   ERINNERUNGS_MINUTEN,
@@ -51,8 +53,8 @@ interface Props {
   user?: { name: string; role: string; shared?: boolean } | null;
   /** Nur wer die Konfiguration ändern darf, sieht die Dienst-Karten. */
   darfDienste: boolean;
-  /** Für die Fernseher-Kopplung: Welche Android-TV-Geräte es gibt und
-   *  woran sie sind. */
+  /** Für die Kopplung von Fernseher und Spielkonsole: Welche Geräte es
+   *  gibt und woran sie sind. */
   entities?: Entity[];
   /** Woran die App gerade ist - für die Ampel in der Hub-Karte. */
   stand?: ConnectionStatus;
@@ -80,16 +82,21 @@ export function VerbindungenScreen({
     [settings.url, settings.token]
   );
 
-  // Nur die Android-TV-Geräte: Sie sind die einzigen, die eine Kopplung
-  // kennen (lib/fernsehkopplung.ts, kannKoppeln). Nach Namen, damit die
-  // Reihenfolge nicht mit jeder Zustandsmeldung springt.
-  const fernseher = useMemo(
+  // Nur die Geräte, die eine Kopplung kennen (lib/fernsehkopplung.ts,
+  // kannKoppeln): Android TV und seit Punkt 643 die PlayStation. Nach
+  // Namen, damit die Reihenfolge nicht mit jeder Zustandsmeldung
+  // springt. Die Konsole steht in einem eigenen Abschnitt - ihre
+  // Kopplung hat zwei Schritte und einen anderen Wortlaut, und
+  // «Fernseher» wäre für sie das falsche Wort.
+  const koppelbar = useMemo(
     () =>
       (entities ?? [])
         .filter(kannKoppeln)
         .sort((a, b) => a.name.localeCompare(b.name)),
     [entities]
   );
+  const fernseher = useMemo(() => koppelbar.filter((e) => !istPlaystation(e)), [koppelbar]);
+  const konsolen = useMemo(() => koppelbar.filter(istPlaystation), [koppelbar]);
 
   const [dienste, setDienste] = useState<Dienst[] | null>(null);
   // Nach einer Änderung gilt sie erst mit dem nächsten Start des Hubs -
@@ -204,6 +211,41 @@ export function VerbindungenScreen({
                 </View>
               </View>
               <TvKopplung entity={tv} dringend={brauchtKopplung(tv)} />
+            </Card>
+          ))}
+        </Abschnitt>
+      ) : null}
+
+      {/* Die Spielkonsole (Punkt 643): dieselbe Stelle wie der Fernseher,
+          aber ein eigener Abschnitt - zwei Schritte (PSN-Konto, Code von
+          der Konsole) statt einem. */}
+      {konsolen.length > 0 ? (
+        <Abschnitt
+          titel="Spielkonsole"
+          hinweis="Einmal mit dem PSN-Konto anmelden und den Code von der Konsole eintippen - dann gehorchen Fernbedienung, Standby und Aufwecken der App."
+        >
+          {konsolen.map((ps) => (
+            <Card key={ps.id} style={styles.card}>
+              <View style={styles.tvKopf}>
+                <Ionicons
+                  name="game-controller-outline"
+                  size={20}
+                  color={brauchtKopplung(ps) ? colors.warn : colors.inkSoft}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.tvName}>{ps.name}</Text>
+                  <Text
+                    style={[
+                      styles.tvZeile,
+                      brauchtKopplung(ps) && { color: colors.warnInk },
+                    ]}
+                  >
+                    {kopplungsZeile(ps)}
+                    {ps.room ? ` · ${ps.room}` : ''}
+                  </Text>
+                </View>
+              </View>
+              <PsKopplung entity={ps} dringend={brauchtKopplung(ps)} />
             </Card>
           ))}
         </Abschnitt>

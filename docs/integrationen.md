@@ -48,6 +48,7 @@ stand eine ausgefahrene Markise als «Geschlossen» da.
 | **vzug** | Geschirrspüler, Waschmaschine (Home-API) | IP je Gerät |
 | **google_cast** | Chromecasts und Cast-Boxen, Durchsagen | nur mDNS |
 | **androidtv** | Fernseher über das Google-TV-Remote-Protokoll | IP, Kopplung |
+| **playstation** | PlayStation 5/4: Zustand und Spiel, Wecken, Ruhemodus, Tasten ([Anleitung](playstation.md)) | IP, PSN-Konto und Code von der Konsole |
 | **unifi** | Welche Geräte im WLAN sind (keine Anwesenheit – die kommt vom Geofence) | Controller, Zugangsdaten |
 | **unifi_protect** | Kameras | Controller, Zugangsdaten |
 | **pitboss** | Pelletgrill (auch mehrere) | IP oder Cloud-Kennung, Modell |

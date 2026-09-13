@@ -11,6 +11,22 @@ Die Runde 579 der Werkbank: fünfundfünfzig Vorschläge, zweiundfünfzig
 davon gebaut, dazu zehn nebenbei gefundene Fehler. Die Nummern stehen
 im Archiv der Werkbank, hier nur, was man im Haus merkt.
 
+**Neu: die PlayStation 5 (643)**
+
+- **Die Konsole steht im Haus wie der Android TV.** Kachel mit «Spielt:
+  Gran Turismo 7», Standby getrennt von Aus, Fernbedienung mit
+  Steuerkreuz, △□○✕ und Share · PS · Options, Wecken und Ruhemodus, und
+  auf dem Sperrbildschirm die Karte mit Controller-Symbol, solange sie
+  läuft. Kopplung unter Einstellungen → Verbindungen, Abschnitt
+  «Spielkonsole»: zuerst die PSN-Anmeldung im Browser (die Adresse der
+  Seite danach einfügen), dann der achtstellige Code von der Konsole
+  (Einstellungen → System → Remote Play → Gerät verbinden). Anleitung
+  und Grenzen in `docs/playstation.md`. Ein Spiel starten kann der Hub
+  nicht - das gibt das Protokoll nicht her. Ungeprüft am echten Gerät:
+  Die Anbindung ist gegen die Protokollbeschreibung gebaut; `python -m
+  homepilot.integrations.playstation <host>` zeigt roh, was die Konsole
+  antwortet.
+
 **Für den Betrieb - vor dem Update lesen**
 
 - **`api.trusted_proxies` eintragen, wenn der Hub hinter dem Nginx

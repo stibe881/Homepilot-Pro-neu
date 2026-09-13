@@ -763,8 +763,14 @@ export function EntityCard({
                 onCommand={onCommand}
                 onMehr={hasRemote ? () => setRemoteOpen(true) : undefined}
                 // Wo schon ein Schieber steht, wären zwei Tasten daneben
-                // ein zweiter Weg zum selben Ziel.
-                lautstaerke={!teile.lautstaerke && !entity.commands.includes('set_volume')}
+                // ein zweiter Weg zum selben Ziel. Und wo es gar keine
+                // Lautstärke gibt (PlayStation, Punkt 643), wären sie
+                // zwei Knöpfe, die nichts tun.
+                lautstaerke={
+                  !teile.lautstaerke &&
+                  !entity.commands.includes('set_volume') &&
+                  entity.commands.includes('volume_up')
+                }
               />
             ) : (fernseher ? teile.transport : entity.commands.includes('next')) ? (
               <View style={styles.mediaRow}>
@@ -1532,6 +1538,9 @@ export function EntityCard({
           apps={entity.commands.includes('launch_app') ? appsOf(entity) : []}
           kino={kino}
           onKino={onKino}
+          // Fernseher oder Spielkonsole - das Blatt sieht es am Gerät
+          // (lib/playstation.ts, Punkt 643).
+          entity={entity}
         />
       ) : null}
       {onSetRoom && rooms ? (

@@ -37,6 +37,33 @@ describe('tvKopf', () => {
   it('sagt wenigstens «An», wenn das Gerät nichts über sich verrät', () => {
     expect(tvKopf(tv({ state: 'on' })).text).toBe('An');
   });
+
+  describe('auf der PlayStation (Punkt 643)', () => {
+    const ps = (state: Record<string, unknown>) =>
+      ({ ...tv(state, ['dpad_up', 'cross']), integration: 'playstation' }) as Entity;
+
+    it('sagt «Spielt: …» statt den Namen einer App', () => {
+      // Auf einer Konsole läuft ein Spiel - wie auf der Karte des
+      // Sperrbildschirms.
+      expect(tvKopf(ps({ state: 'on', app: 'Gran Turismo 7' }))).toEqual({
+        text: 'Spielt: Gran Turismo 7',
+        unter: null,
+      });
+    });
+
+    it('sagt «Eingeschaltet», wenn kein Spiel läuft', () => {
+      expect(tvKopf(ps({ state: 'on', app: null })).text).toBe('Eingeschaltet');
+    });
+
+    it('unterscheidet Standby von Aus', () => {
+      // Aus dem Standby lässt sie sich wecken, aus dem Aus nicht - wer
+      // «Aus» liest und die Ein-Taste drückt, wartet sonst vergebens.
+      expect(tvKopf(ps({ state: 'off', standby: true, app: 'Gran Turismo 7' })).text).toBe(
+        'Standby'
+      );
+      expect(tvKopf(ps({ state: 'off', standby: false })).text).toBe('Aus');
+    });
+  });
 });
 
 describe('tvTeile', () => {
@@ -81,6 +108,27 @@ describe('tvTeile', () => {
   it('kommt mit einem Gerät ohne Befehlsliste zurecht', () => {
     const kaputt = { ...tv({ state: 'on' }), commands: undefined } as unknown as Entity;
     expect(tvTeile(kaputt).apps).toBe(false);
+  });
+
+  it('zeigt an der PlayStation nur das Steuerkreuz - sie hat weder Ton noch Timer noch Apps', () => {
+    // Punkt 643: Die Konsole meldet aus dem Vertrag genau die Befehle,
+    // die sie kann. Entscheidet die Kachel nach den Befehlen und nicht
+    // nach der Geräteart, steht dort nichts, was ins Leere drückt.
+    const ps = {
+      ...tv({ state: 'on', app: 'Gran Turismo 7', apps: [] }, [
+        'turn_on', 'turn_off', 'toggle', 'dpad_up', 'dpad_down', 'dpad_left', 'dpad_right',
+        'ok', 'back', 'home', 'ps', 'cross', 'circle', 'triangle', 'square', 'options', 'share',
+      ]),
+      integration: 'playstation',
+    } as Entity;
+    expect(tvTeile(ps)).toEqual({
+      transport: false,
+      lautstaerke: false,
+      apps: false,
+      timer: false,
+      fernbedienung: true,
+    });
+    expect(fernbedienungMoeglich(ps)).toBe(true);
   });
 });
 

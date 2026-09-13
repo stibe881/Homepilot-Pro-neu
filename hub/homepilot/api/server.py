@@ -101,6 +101,9 @@ from .routes import (
     personen as routes_personen,
 )
 from .routes import (
+    playstation as routes_playstation,
+)
+from .routes import (
     prefs as routes_prefs,
 )
 from .routes import (
@@ -371,6 +374,7 @@ def create_app(hub: Hub) -> FastAPI:
         routes_verbindungen.register,
         routes_funk.register,
         routes_androidtv.register,
+        routes_playstation.register,
         routes_diagnose.register,
     ):
         register(app, ctx)

@@ -2,12 +2,13 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { CommandData } from '../api/types';
+import { CommandData, Entity } from '../api/types';
 import { useMeldung } from '../hooks/HubContext';
 import { Blatt } from './Blatt';
 import { TvApp } from './TvApps';
 import { TvAppLogo } from './TvAppLogo';
 import { tapped, triggered } from '../lib/haptics';
+import { PS_REIHE, PS_SYMBOLTASTEN, istPlaystation, psKopf } from '../lib/playstation';
 import { tvLogo } from '../lib/tvlogo';
 import { tastenStaerke } from '../lib/tastenhaptik';
 import { Colors, radius, useColors } from '../theme';
@@ -28,6 +29,10 @@ interface Props {
    *  neben die Fernbedienung, nicht vier Tipps tief in die App. */
   kino?: { id: string; name: string } | null;
   onKino?: (sceneId: string) => void;
+  /** Das Gerät selbst - entscheidet, ob hier ein Fernseher oder eine
+   *  PlayStation bedient wird (Punkt 643). Optional, damit die
+   *  bestehenden Aufrufe unverändert bleiben: ohne Gerät ein Fernseher. */
+  entity?: Entity;
 }
 
 /** Eine einzelne Taste der Fernbedienung.
@@ -72,7 +77,15 @@ function Key({
 }
 
 /** Vollwertige Fernbedienung für Android-TV-Kacheln: Steuerkreuz,
- *  Lautstärke, Medientasten. Öffnet sich als Modal über dem Dashboard. */
+ *  Lautstärke, Medientasten. Öffnet sich als Modal über dem Dashboard.
+ *
+ *  Für die PlayStation (Punkt 643) dasselbe Blatt mit anderen Tasten:
+ *  Unter dem Steuerkreuz die vier Symboltasten in der Anordnung des
+ *  Controllers, darunter Share · PS · Options. Keine Lautstärke, kein
+ *  Transport, keine Apps - die Konsole kann über das Protokoll nichts
+ *  davon, und ein Knopf, der nichts tut, ist schlimmer als keiner. Das
+ *  OK in der Mitte des Kreuzes entfällt: Auf dem Controller bestätigt
+ *  das Kreuz, und zweimal dieselbe Taste verwirrt. */
 export function TvRemote({
   visible,
   name,
@@ -81,6 +94,7 @@ export function TvRemote({
   apps,
   kino,
   onKino,
+  entity,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -124,6 +138,9 @@ export function TvRemote({
     onDruck: druck,
   };
 
+  const konsole = istPlaystation(entity);
+  const kopf = konsole && entity ? psKopf(entity) : null;
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       {/* Der Hintergrund liegt als Geschwister HINTER dem Blatt, nicht
@@ -141,9 +158,19 @@ export function TvRemote({
         />
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.title} numberOfLines={1}>
-              {name}
-            </Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title} numberOfLines={1}>
+                {kopf ? kopf.titel : name}
+              </Text>
+              {/* Das laufende Spiel unter dem Namen der Konsole - man
+                  sieht, was man fernbedient, ohne auf den Fernseher zu
+                  schauen. */}
+              {kopf ? (
+                <Text style={styles.untertitel} numberOfLines={1}>
+                  {kopf.unter}
+                </Text>
+              ) : null}
+            </View>
             <Pressable accessibilityLabel="Schliessen" onPress={onClose} style={styles.close}>
               <Ionicons name="close" size={20} color={colors.inkSoft} />
             </Pressable>
@@ -156,7 +183,11 @@ export function TvRemote({
             </View>
             <View style={styles.dpadRow}>
               <Key icon="chevron-back" command="dpad_left" label="Links" {...taste} />
-              <Key icon="ellipse-outline" command="ok" label="OK" big {...taste} />
+              {konsole ? (
+                <View style={[styles.keyBig, styles.keyLeer]} />
+              ) : (
+                <Key icon="ellipse-outline" command="ok" label="OK" big {...taste} />
+              )}
               <Key icon="chevron-forward" command="dpad_right" label="Rechts" {...taste} />
             </View>
             <View style={styles.dpadRow}>
@@ -164,23 +195,57 @@ export function TvRemote({
             </View>
           </View>
 
-          <View style={styles.row}>
-            <Key icon="arrow-undo" command="back" label="Zurück" {...taste} />
-            <Key icon="home-outline" command="home" label="Home" {...taste} />
-            <Key icon="power" command="toggle" label="An/Aus" {...taste} />
-          </View>
+          {konsole ? (
+            <>
+              {/* Die vier Symboltasten wie auf dem Controller: Dreieck
+                  oben, Viereck links, Kreis rechts, Kreuz unten - so
+                  liegen sie unter dem rechten Daumen, und so sucht man
+                  sie auch hier. Die Belegung steht in lib/playstation.ts. */}
+              <View style={styles.dpad}>
+                <View style={styles.dpadRow}>
+                  <Key {...PS_SYMBOLTASTEN.oben} {...taste} />
+                </View>
+                <View style={styles.dpadRow}>
+                  <Key {...PS_SYMBOLTASTEN.links} {...taste} />
+                  <View style={[styles.key, styles.keyLeer]} />
+                  <Key {...PS_SYMBOLTASTEN.rechts} {...taste} />
+                </View>
+                <View style={styles.dpadRow}>
+                  <Key {...PS_SYMBOLTASTEN.unten} {...taste} />
+                </View>
+              </View>
 
-          <View style={styles.row}>
-            <Key icon="volume-low" command="volume_down" label="Leiser" {...taste} />
-            <Key icon="volume-mute" command="mute" label="Stumm" {...taste} />
-            <Key icon="volume-high" command="volume_up" label="Lauter" {...taste} />
-          </View>
+              <View style={styles.row}>
+                {PS_REIHE.map((ps) => (
+                  <Key key={ps.command} {...ps} {...taste} />
+                ))}
+              </View>
 
-          <View style={styles.row}>
-            <Key icon="play-skip-back" command="previous" label="Zurück" {...taste} />
-            <Key icon="play" command="play" label="Play/Pause" {...taste} />
-            <Key icon="play-skip-forward" command="next" label="Weiter" {...taste} />
-          </View>
+              <View style={styles.row}>
+                <Key icon="power" command="toggle" label="An/Aus" {...taste} />
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.row}>
+                <Key icon="arrow-undo" command="back" label="Zurück" {...taste} />
+                <Key icon="home-outline" command="home" label="Home" {...taste} />
+                <Key icon="power" command="toggle" label="An/Aus" {...taste} />
+              </View>
+
+              <View style={styles.row}>
+                <Key icon="volume-low" command="volume_down" label="Leiser" {...taste} />
+                <Key icon="volume-mute" command="mute" label="Stumm" {...taste} />
+                <Key icon="volume-high" command="volume_up" label="Lauter" {...taste} />
+              </View>
+
+              <View style={styles.row}>
+                <Key icon="play-skip-back" command="previous" label="Zurück" {...taste} />
+                <Key icon="play" command="play" label="Play/Pause" {...taste} />
+                <Key icon="play-skip-forward" command="next" label="Weiter" {...taste} />
+              </View>
+            </>
+          )}
 
           {/* Die Apps zum Schluss: erst steuern, dann wechseln. Die
               gleiche Liste bietet auch die Kachel an - aber die liegt
@@ -274,7 +339,8 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     header: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    title: { flex: 1, fontSize: 17, fontWeight: '600', color: colors.ink },
+    title: { fontSize: 17, fontWeight: '600', color: colors.ink },
+    untertitel: { fontSize: 13, color: colors.inkSoft, marginTop: 2 },
     close: { padding: 4 },
     dpad: { alignItems: 'center', gap: 8 },
     dpadRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -291,6 +357,11 @@ const makeStyles = (colors: Colors) =>
     },
     keyBig: { width: 76, height: 76, borderRadius: 38 },
     keyPressed: { backgroundColor: colors.surfaceStrong },
+    // Ein Platzhalter, wo auf dem Controller keine Taste ist: die Mitte
+    // des Steuerkreuzes und die Mitte der Symboltasten. Unsichtbar,
+    // aber so gross wie eine Taste - sonst rücken die Nachbarn zusammen
+    // und das Kreuz verliert seine Form.
+    keyLeer: { backgroundColor: 'transparent', borderColor: 'transparent' },
     appReihe: {
       flexDirection: 'row',
       flexWrap: 'wrap',

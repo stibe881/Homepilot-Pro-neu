@@ -130,6 +130,23 @@ describe('deviceKindIcon', () => {
       .toBe('musical-notes-outline');
   });
 
+  it('gibt der PlayStation den Controller, nicht den Fernseher (Punkt 643)', () => {
+    // Für den Hub ein Bildschirm mit Steuerkreuz, im Haushalt eine
+    // Spielkonsole - so heisst sie im Wähler und so sieht sie aus.
+    const ps = geraet({
+      kind: 'media_player',
+      integration: 'playstation',
+      state: { has_screen: true },
+      commands: ['dpad_up', 'cross'],
+    });
+    expect(deviceKindIcon(ps)).toBe('game-controller-outline');
+    expect(deviceKindLabel(ps)).toBe('Spielkonsole');
+    expect(geraeteartMuster()).toContainEqual({
+      label: 'Spielkonsole',
+      icon: 'game-controller-outline',
+    });
+  });
+
   it('hat für jede Art ein Symbol', () => {
     const arten = ['light', 'switch', 'binary_sensor', 'sensor', 'cover', 'lock',
                    'vacuum', 'camera', 'button', 'alarm', 'alert', 'appliance',

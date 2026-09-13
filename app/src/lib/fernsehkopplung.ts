@@ -24,7 +24,13 @@ import { Entity } from '../api/types';
  * erreichbarer nur Strom und Netz.
  */
 export function kopplungsZeile(entity: Entity): string {
-  if (entity?.state?.paired === false) return 'Nicht gekoppelt';
+  const stand = entity?.state?.paired === false ? 'Nicht gekoppelt' : 'Gekoppelt';
+  // Nur die PlayStation trägt `remote_play` (Punkt 643): Ohne die
+  // Bibliothek im Hub ist «gekoppelt» die halbe Wahrheit - Zustand und
+  // Aufwecken gehen, Tasten und Standby nicht. Der Fernseher kennt das
+  // Feld nicht und bleibt, wie er war.
+  if (entity?.state?.remote_play === false) return `${stand} · dem Hub fehlt Remote Play`;
+  if (stand === 'Nicht gekoppelt') return stand;
   return entity?.available === false ? 'Gekoppelt · gerade nicht erreichbar' : 'Gekoppelt';
 }
 
@@ -49,8 +55,9 @@ export function brauchtKopplung(entity: Entity): boolean {
  * Zwei Bedingungen, und die zweite kam aus dem Haus: «Weshalb sind hier
  * die Timer auch vorhanden zum Koppeln?»
  *
- * 1. Der Hub führt `paired` - das setzt einzig die Android-TV-
- *    Integration, und zwar auf **jedem** ihrer Geräte. Absichtlich:
+ * 1. Der Hub führt `paired` - das setzen die Android-TV-Integration
+ *    (auf **jedem** ihrer Geräte) und seit Punkt 643 die PlayStation.
+ *    Beim Fernseher absichtlich auch auf dem Timer:
  *    Auch die Einschlaf-Timer-Kachel soll sagen können, dass die
  *    Kopplung fehlt, denn dort fällt es abends auf.
  * 2. Es ist der Fernseher selbst (`media_player`) und nicht sein
