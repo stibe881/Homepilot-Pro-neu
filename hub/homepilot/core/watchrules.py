@@ -188,6 +188,82 @@ def offen_satz(seit: float, jetzt: float) -> str:
     return f"Offen seit {uhr} – {dauer}"
 
 
+#: Ab dieser Aussentemperatur ist ein offenes Fenster keine Heizungsfrage
+#: mehr (Punkt 601). Die Vorgabe der Regel «open»; verstellbar dort.
+WARM_AB = 18.0
+
+
+def aussentemperatur(entities: list[Any]) -> float | None:
+    """Was das Wetter gerade draussen misst - oder None (rein, testbar)."""
+    for entity in entities:
+        if getattr(entity, "kind", "") != "weather":
+            continue
+        wert = (getattr(entity, "state", None) or {}).get("temperature")
+        if isinstance(wert, (int, float)) and not isinstance(wert, bool):
+            return float(wert)
+    return None
+
+
+def jemand_zuhause(entities: list[Any]) -> bool | None:
+    """Ist jemand da? True/False - oder None ohne Ortung (rein, testbar).
+
+    Gelesen an der Sammel-Entität der Ortung («Jemand zuhause»,
+    integrations/geofence.py), nicht an den Einzelpersonen: Die eine
+    Frage ist dort schon beantwortet, samt der Vorsicht bei Unbekannt.
+    """
+    for entity in entities:
+        state = getattr(entity, "state", None) or {}
+        if str(state.get("device_class") or "") != "presence":
+            continue
+        if not str(getattr(entity, "id", "")).endswith("anyone_home"):
+            continue
+        return str(state.get("state") or "") == "on"
+    return None
+
+
+def offen_lohnt(
+    aussen_temp: float | None, jemand_zuhause: bool | None, warm_ab: float = WARM_AB
+) -> bool:
+    """Lohnt die Fenster-Erinnerung jetzt? (rein, testbar) - Punkt 601.
+
+    Die Erinnerung sagte «im Winter geht so die Heizung zum Fenster
+    hinaus» - auch im Juli, auch wenn die ganze Familie am Lüften ist.
+    Mit Deckel 6/Tag war das im Sommer die häufigste Lärmquelle.
+
+    Ist es draussen warm und jemand zuhause, schweigt sie: Wer lüftet,
+    weiss es. Ist niemand zuhause, meldet sie immer - ein offenes
+    Fenster im leeren Haus ist eine andere Frage als die Heizung. Ohne
+    Ortung (None) gilt «jemand da»; ohne Wetter gilt «kalt».
+    """
+    if jemand_zuhause is False:
+        return True
+    if aussen_temp is not None and aussen_temp >= warm_ab:
+        return False
+    return True
+
+
+def offen_text(
+    seit: float,
+    jetzt: float,
+    label: str,
+    aussen_temp: float | None,
+    jemand_zuhause: bool | None,
+) -> str:
+    """Der Satz unter «… steht offen» (rein, testbar) - Punkt 601.
+
+    Mit der Zahl aus dem Wetter, wenn es eine gibt: Die Vorschau in
+    pushbeispiel.py versprach «draussen sind es 4 °C» schon lange, der
+    Ernstfall lieferte es nicht. Und ist niemand zuhause, sagt der Satz
+    das - dann geht es nicht um die Heizung, sondern um das leere Haus.
+    """
+    draussen = f", draussen sind es {aussen_temp:g} °C" if aussen_temp is not None else ""
+    if jemand_zuhause is False:
+        return f"Niemand zuhause und {label} offen. {offen_satz(seit, jetzt)}{draussen}."
+    if aussen_temp is not None:
+        return f"{offen_satz(seit, jetzt)}{draussen} – so geht die Heizung zum Fenster hinaus."
+    return f"{offen_satz(seit, jetzt)} – im Winter geht so die Heizung zum Fenster hinaus."
+
+
 def leaks(entities: list[Any]) -> list[Any]:
     """Wassermelder, die gerade Wasser melden (rein, testbar)."""
     return [

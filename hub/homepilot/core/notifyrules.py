@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import push, waschkueche
+from . import push, waschkueche, watchrules
 
 # Beschreibung je Parameter: Grenzen halten Tippfehler fern (eine Erinnerung
 # nach 0 Stunden wäre Dauerfeuer, eine Frostwarnung bei 40 °C nie still).
@@ -133,7 +133,9 @@ RULES: list[dict[str, Any]] = [
         "key": "open",
         "title": "Fenster/Tür steht offen",
         "detail": "Erinnert einmal je Öffnung – wer schliesst und wieder "
-        "öffnet, fängt neu an. «Nur an Anwesende»: Wer unterwegs ist, "
+        "öffnet, fängt neu an. Ist es draussen warm und jemand zuhause, "
+        "bleibt sie still: Wer lüftet, weiss es. Ist niemand zuhause, "
+        "kommt sie immer. «Nur an Anwesende»: Wer unterwegs ist, "
         "kann das Fenster ohnehin nicht schliessen; ist niemand zuhause, "
         "geht die Meldung trotzdem an alle.",
         "params": [
@@ -144,6 +146,16 @@ RULES: list[dict[str, Any]] = [
                 "default": 2,
                 "min": 1,
                 "max": 24,
+                "step": 1,
+            },
+            # Punkt 601: ab hier ist das offene Fenster keine Heizungsfrage.
+            {
+                "key": "warm_ab",
+                "label": "Still, wenn draussen über",
+                "unit": "°C",
+                "default": watchrules.WARM_AB,
+                "min": 5,
+                "max": 30,
                 "step": 1,
             },
             SCHALTER_ANWESENDE,

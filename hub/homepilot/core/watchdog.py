@@ -82,17 +82,22 @@ from .watchrules import (  # noqa: F401
     IGNORE,
     OPEN_CLASSES,
     OPEN_REPORTED_KEY,
+    WARM_AB,
+    aussentemperatur,
     cycle_stats,
     disk_usage,
     dock_thema,
     down_integrations,
     frost_night,
+    jemand_zuhause,
     klingel_gesperrt,
     leaks,
     leck_dauer_text,
     leck_eskalation_faellig,
     low_batteries,
+    offen_lohnt,
     offen_satz,
+    offen_text,
     offene_meldungen_lesen,
     offene_meldungen_zeilen,
     open_contacts,
@@ -2432,11 +2437,19 @@ class Watchdog:
         # (watchrules.schon_gemahnt).
         vorher = self.hub.data.get(OPEN_REPORTED_KEY)
         gemahnt = offene_meldungen_lesen(vorher, offen)
+        # Punkt 601: Draussen warm und jemand da - dann weiss man es. Die
+        # Öffnung bleibt dabei unvermerkt: Kühlt es ab oder gehen alle,
+        # holt die nächste Runde die Erinnerung nach.
+        draussen = aussentemperatur(entities)
+        daheim = jemand_zuhause(entities)
+        warm_ab = float(self.rules["open"]["params"].get("warm_ab", WARM_AB))
         for entity in open_contacts(entities):
             since = self._offen_seit(entity, now)
             if schon_gemahnt(gemahnt, entity.id, since):
                 continue
             if now - since >= reminder:
+                if not offen_lohnt(draussen, daheim, warm_ab):
+                    continue
                 gemahnt[entity.id] = since
                 await self._notify(
                     f"{entity.label} steht offen",
@@ -2444,8 +2457,7 @@ class Watchdog:
                     # Stunde» ist nicht nachprüfbar, «seit 14:05» schon -
                     # und wer weiss, dass er um 14:20 aufgemacht hat,
                     # erkennt daran sofort einen hängenden Sensor.
-                    f"{offen_satz(since, now)} – im Winter geht so die "
-                    "Heizung zum Fenster hinaus.",
+                    offen_text(since, now, entity.label, draussen, daheim),
                     "open",
                     to=empfaenger,
                     entity_id=entity.id,
