@@ -95,6 +95,37 @@ def test_timer_cancel():
         assert client.delete(f"/api/timers/{timer_id}").status_code == 404
 
 
+def test_a_timer_can_be_extended_and_stopped_from_the_card():
+    """Punkt 605: Die Sperrbildschirm-Karte kann nur POST - Stopp und
+    «+5 min» brauchen darum eigene Routen neben dem DELETE."""
+    hub = Hub(make_config())
+    with TestClient(create_app(hub)) as client:
+        started = client.post("/api/timers", json={"minutes": 5, "text": "Tee"})
+        timer_id = started.json()["timer"]["id"]
+        vorher = started.json()["timer"]["ends_at"]
+
+        # Der Karten-Knopf schickt fünf Minuten mit.
+        antwort = client.post(f"/api/timers/{timer_id}/verlaengern", json={"minutes": 5})
+        assert antwort.status_code == 200
+        assert antwort.json()["timer"]["ends_at"] == vorher + 300
+        assert antwort.json()["timer"]["minutes"] == 10
+        # Ohne Body gelten fünf Minuten.
+        assert (
+            client.post(f"/api/timers/{timer_id}/verlaengern").json()["timer"]["ends_at"]
+            == vorher + 600
+        )
+        # Über die Obergrenze hinaus geht es nicht.
+        assert (
+            client.post(f"/api/timers/{timer_id}/verlaengern", json={"minutes": 175}).status_code
+            == 400
+        )
+
+        assert client.post(f"/api/timers/{timer_id}/abbrechen").status_code == 200
+        assert client.get("/api/timers").json()["timers"] == []
+        assert client.post(f"/api/timers/{timer_id}/abbrechen").status_code == 404
+        assert client.post(f"/api/timers/{timer_id}/verlaengern").status_code == 404
+
+
 def test_timers_survive_a_restart(tmp_path):
     """Der Fall: Der Update-Knopf wird gedrückt, während die Pizza im
     Ofen ist. Vorher lebten die Timer nur im Speicher, und genau der

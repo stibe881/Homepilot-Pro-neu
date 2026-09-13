@@ -195,22 +195,65 @@ def erreichbar(entity: Any) -> bool:
 # stehen bleibt (die Waschmaschine darf «Fertig» sagen).
 
 
+#: So lange bleibt «Abgelaufen» auf dem Sperrbildschirm stehen (Punkt
+#: 605). Kürzer als die Waschmaschine (900 s): Ein Timer ruft, die
+#: Maschine wartet.
+TIMER_NACHKLANG = 600
+
+
+def timer_knoepfe(timer_id: str) -> list[dict[str, Any]]:
+    """Die zwei Griffe auf der Timer-Karte: Stopp und +5 min (rein, testbar).
+
+    Punkt 605 der Werkbank: Anders als Sauger und Fernseher trug die
+    Timer-Karte keine Knöpfe - Stoppen ging nur über App oder Uhr, mit
+    Teigfingern der lange Weg. Beides als POST, weil der Karten-Knopf
+    nur das kann (api/routes/haus.py). Harmlos im Sinne der
+    Sperrbildschirm-Regel: Schlimmstenfalls klingelt der Eierwecker fünf
+    Minuten später oder gar nicht.
+    """
+    pfad = f"/api/timers/{quote(str(timer_id), safe='')}"
+    return [
+        {"symbol": "stop.fill", "pfad": f"{pfad}/abbrechen", "body": ""},
+        {"symbol": "plus", "pfad": f"{pfad}/verlaengern", "body": json.dumps({"minutes": 5})},
+    ]
+
+
 def karten_timer(timers: Any) -> list[dict[str, Any]]:
-    """Je laufendem Küchen-Timer eine Karte mit Countdown."""
+    """Je laufendem Küchen-Timer eine Karte mit Countdown.
+
+    Mit Schluss-Bild (Punkt 605): Der Hub nimmt den Timer aus der Liste,
+    *bevor* er meldet (core/timers.py, _run) - damit fiel die Karte in
+    der Sekunde vom Sperrbildschirm, in der er klingelte, und wer das
+    Brummen verpasst hatte, fand nichts mehr vor. Jetzt bleibt
+    «Abgelaufen - Pasta» zehn Minuten in Orange stehen, wie die
+    Waschmaschine ihr «Fertig».
+    """
     karten = []
     for eintrag in timers or []:
         if not isinstance(eintrag, dict) or not eintrag.get("id"):
             continue
+        text = str(eintrag.get("text") or "")
         karten.append(
             {
                 "art": f"timer:{eintrag['id']}",
                 "user": None,
                 "state": {
                     "titel": "Küchen-Timer",
-                    "text": str(eintrag.get("text") or ""),
+                    "text": text,
                     "symbol": "timer",
                     "endet": float(eintrag.get("ends_at") or 0) or None,
                     "url": "homepilot://timer",
+                    "knoepfe": timer_knoepfe(str(eintrag["id"])),
+                },
+                "ende": {
+                    "state": {
+                        "titel": "Küchen-Timer",
+                        "text": f"Abgelaufen - {text}" if text else "Abgelaufen",
+                        "symbol": "timer",
+                        "farbe": "orange",
+                        "url": "homepilot://timer",
+                    },
+                    "sichtbar": TIMER_NACHKLANG,
                 },
             }
         )
@@ -1145,6 +1188,14 @@ def abgleich(
             # bliebe es beim Aktualisieren einer Karte, die niemand
             # sieht.
             alt = None
+        # Das Schluss-Bild wandert in die Zeile (Punkt 605): Beim
+        # Beenden ist die Karte gerade *nicht* mehr unter den
+        # gewünschten - ein Timer, der klingelt, steht nicht mehr in der
+        # Liste, eine fertige Waschmaschine läuft nicht mehr. Der Blick
+        # in `gewuenscht` unten fand das Ende also nie, und «Fertig -
+        # ausräumen» stand seit seiner Einführung auf keinem
+        # Sperrbildschirm; die Karte verschwand sofort.
+        ende = karte.get("ende")
         if alt is None:
             starten.append({"user": user, "art": art, "state": karte["state"]})
             neue.append(
@@ -1155,6 +1206,7 @@ def abgleich(
                     "activity_tokens": [],
                     "gestartet": jetzt_s,
                     "aktualisiert": jetzt_s,
+                    **({"ende": ende} if ende else {}),
                 }
             )
             continue
@@ -1166,19 +1218,28 @@ def abgleich(
             and jetzt_s - float(alt.get("aktualisiert") or 0) >= abstand
         ):
             aktualisieren.append({"tokens": tokens, "state": karte["state"]})
-            neue.append({**alt, "stand": stand, "aktualisiert": jetzt_s})
+            neue.append(
+                {
+                    **alt,
+                    "stand": stand,
+                    "aktualisiert": jetzt_s,
+                    **({"ende": ende} if ende else {}),
+                }
+            )
         else:
             neue.append(alt)
 
     for alt in alte.values():
         karte = None
-        # Das Ende der Karte kennt nur der Treiber - über die Art des
-        # Eintrags wiederfinden (die Waschmaschine sagt «Fertig»).
+        # Das Ende der Karte kennt nur der Treiber - er hat es beim
+        # Start in die Zeile gelegt (oben). Der Blick in `gewuenscht`
+        # bleibt als Netz für Zeilen aus einer Fassung ohne das Feld und
+        # für den Fall, dass die Karte nur für diese Person wegfällt.
         for kandidat in gewuenscht:
             if kandidat["art"] == alt.get("art"):
                 karte = kandidat
                 break
-        ende = (karte or {}).get("ende") or {}
+        ende = alt.get("ende") or (karte or {}).get("ende") or {}
         tokens = alt.get("activity_tokens") or []
         beenden.append(
             {

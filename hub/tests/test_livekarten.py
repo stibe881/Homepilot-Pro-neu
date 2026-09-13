@@ -41,6 +41,34 @@ def test_timer_karte_traegt_den_countdown():
     assert karten_timer([]) == []
 
 
+def test_die_timer_karte_bleibt_beim_klingeln_liegen_und_hat_knoepfe():
+    """Punkt 605: Der Timer fiel in der Sekunde vom Sperrbildschirm, in
+    der er klingelte (kein `ende`), und hatte keinen Griff."""
+    karte = karten_timer([{"id": "t1", "text": "Pasta", "ends_at": 1000.0}])[0]
+    assert [k["pfad"] for k in karte["state"]["knoepfe"]] == [
+        "/api/timers/t1/abbrechen",
+        "/api/timers/t1/verlaengern",
+    ]
+    assert karte["ende"]["state"]["text"] == "Abgelaufen - Pasta"
+    assert karte["ende"]["state"]["farbe"] == "orange"
+    assert karte["ende"]["sichtbar"] == 600
+    # Auf dem Schluss-Bild keine Knöpfe - den Timer gibt es nicht mehr.
+    assert "knoepfe" not in karte["ende"]["state"]
+
+
+def test_das_schluss_bild_kommt_aus_der_zeile_nicht_aus_dem_wunsch():
+    """Beim Beenden steht die Karte gerade nicht mehr unter den
+    gewünschten - dort war ihr Ende also nie zu finden, und «Fertig»
+    stand nie auf einem Sperrbildschirm (aufgefallen bei Punkt 605)."""
+    wunsch = karten_timer([{"id": "t1", "text": "Pasta", "ends_at": 1000.0}])
+    rows, *_ = abgleich([], wunsch, ["Stibe"], 900.0)
+    rows = token_merken(rows, "Stibe", "timer:t1", "act-1")
+    # Der Timer klingelt: Er ist aus der Liste, das Soll ist leer.
+    rows, _, _, beenden = abgleich(rows, [], ["Stibe"], 1000.0)
+    assert beenden[0]["state"]["text"] == "Abgelaufen - Pasta"
+    assert beenden[0]["sichtbar"] == 600
+
+
 def test_waschmaschine_ja_grill_nein():
     """Der Grill ist auch ein appliance - erkennbar am Temperaturziel
     bekommt er seine eigene Karte statt der Wäsche-Karte."""

@@ -20,6 +20,7 @@ from fastapi import (
     Request,
     Response,
 )
+from pydantic import BaseModel
 
 from ... import qr as qr_module
 from ...core import giessen as giessen_module
@@ -65,6 +66,18 @@ def _lautstaerke(roh: str | None) -> int | None:
         return max(0, min(100, int(str(roh))))
     except (TypeError, ValueError):
         return None
+
+class TimerExtendRequest(BaseModel):
+    """Um wie viele Minuten ein Timer verlängert wird (Punkt 605).
+
+    Auf Modulhöhe wie MaintenanceRequest in dashboard.py: Mit
+    ``from __future__ import annotations`` findet FastAPI eine Klasse
+    innerhalb von register() nicht und hielte den Rumpf für einen
+    Abfrageparameter.
+    """
+
+    minutes: float = 5
+
 
 def register(app: FastAPI, ctx: ApiContext) -> None:
     hub = ctx.hub
@@ -439,6 +452,35 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         if not hub.timers.cancel(timer_id):
             raise HTTPException(status_code=404, detail="Diesen Timer gibt es nicht (mehr).")
         return {"ok": True, "timers": hub.timers.list()}
+
+    # Die zwei Griffe der Sperrbildschirm-Karte (Punkt 605 der Werkbank).
+    # Als POST, obwohl es das DELETE oben schon gibt: Der Knopf auf der
+    # Live-Karte kann nur POST (targets/widget/index.swift,
+    # KartenBefehlIntent ruft hubPost) - dieselbe Arbeitsteilung wie bei
+    # den Sauger-Knöpfen.
+    @app.post("/api/timers/{timer_id}/abbrechen")
+    async def stop_timer(timer_id: str, request: Request) -> dict[str, Any]:
+        require(request, Capability.CONTROL)
+        if not hub.timers.cancel(timer_id):
+            raise HTTPException(status_code=404, detail="Diesen Timer gibt es nicht (mehr).")
+        return {"ok": True, "timers": hub.timers.list()}
+
+    @app.post("/api/timers/{timer_id}/verlaengern")
+    async def extend_timer(
+        timer_id: str,
+        request: Request,
+        # Ohne Body gültig - der Karten-Knopf schickt fünf Minuten, die
+        # Uhr oder ein Kurzbefehl dürfen es ohne Angabe.
+        body: TimerExtendRequest | None = None,
+    ) -> dict[str, Any]:
+        require(request, Capability.CONTROL)
+        try:
+            entry = hub.timers.extend(timer_id, body.minutes if body else 5)
+        except HomePilotError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        if entry is None:
+            raise HTTPException(status_code=404, detail="Diesen Timer gibt es nicht (mehr).")
+        return {"ok": True, "timer": entry, "timers": hub.timers.list()}
 
     # ── Gäste-WLAN ─────────────────────────────────────────────────────────
 
