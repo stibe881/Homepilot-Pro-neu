@@ -31,6 +31,44 @@ struct Blick: Decodable {
   }
 }
 
+/// Was aus dem Scharfschalten geworden ist (POST /api/alarm/arm).
+///
+/// Der Hub schaltet nicht blind: Steht ein Fenster offen oder meldet
+/// ein Sensor nichts, kommt `ok: false` mit den Namen - und die gehören
+/// auf die Uhr, nicht in den Papierkorb (Punkt 608 der Werkbank).
+struct ScharfAntwort: Decodable {
+  var ok: Bool = false
+  var reason: String?
+  // «offen» statt «open»: Das Wort ist in Swift ein Zugriffsmodifikator,
+  // und als Feldname liest es sich zweimal falsch.
+  var offen: [String] = []
+  var offline: [String] = []
+  var battery: [String] = []
+
+  private enum CodingKeys: String, CodingKey {
+    case ok, reason, offline, battery
+    case offen = "open"
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    ok = (try? container.decode(Bool.self, forKey: .ok)) ?? false
+    reason = try? container.decode(String.self, forKey: .reason)
+    offen = (try? container.decode([String].self, forKey: .offen)) ?? []
+    offline = (try? container.decode([String].self, forKey: .offline)) ?? []
+    battery = (try? container.decode([String].self, forKey: .battery)) ?? []
+  }
+
+  /// Die eine Zeile für die Uhr - «Offen: Küche, Bad» oder «Stumm: Flur».
+  var hinweis: String? {
+    if ok { return nil }
+    if !offen.isEmpty { return "Offen: " + offen.joined(separator: ", ") }
+    let stumm = offline + battery
+    if !stumm.isEmpty { return "Stumm: " + stumm.joined(separator: ", ") }
+    return "Nicht scharf geschaltet."
+  }
+}
+
 struct KuechenTimer: Decodable, Identifiable {
   var id: String
   var text: String
@@ -86,6 +124,21 @@ enum HubClient {
     let daten = try await laden(
       anfrage(zugang, pfad: "/api/timers/\(id)", methode: "DELETE"))
     return try JSONDecoder().decode(TimerAntwort.self, from: daten).timers
+  }
+
+  /// Scharf schalten - und nur das (Punkt 608 der Werkbank). Unscharf
+  /// gibt es auf der Uhr bewusst nicht, aus demselben Grund wie im
+  /// Widget und im Auto (lib/widgetButtons.ts, Punkt 486): Scharf ist
+  /// die harmlose Richtung - schlimmstenfalls steht die Anlage, wenn
+  /// man sie nicht wollte. Unscharf am Handgelenk hiesse, wer die Uhr
+  /// in der Hand hat, hebt die Anlage auf. Derselbe Modus wie beim
+  /// Widget-Knopf «Scharf»; ohne `force`, damit der Hub offene Fenster
+  /// meldet, statt loszulaufen.
+  static func alarmScharf(_ zugang: Zugang) async throws -> ScharfAntwort {
+    let body = try JSONSerialization.data(withJSONObject: ["mode": "ausser_haus"])
+    let daten = try await laden(
+      anfrage(zugang, pfad: "/api/alarm/arm", methode: "POST", body: body))
+    return try JSONDecoder().decode(ScharfAntwort.self, from: daten)
   }
 
   /// Der Befehl kommt fertig vom Telefon (doorBody, JSON) - die Uhr
