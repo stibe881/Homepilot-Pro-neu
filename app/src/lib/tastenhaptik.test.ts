@@ -23,6 +23,16 @@ describe('Wie sich eine Taste anfühlt', () => {
     }
   });
 
+  it('das Kreuz der PlayStation wiegt wie OK, die übrigen Konsolentasten ticken fein', () => {
+    // Punkt 634: Kreuz bestätigt - dieselbe Rolle wie OK. Kreis,
+    // Dreieck, Viereck und die Reihe darunter drückt man im Menü in
+    // Serie, wie das Steuerkreuz.
+    expect(tastenStaerke('cross')).toBe('kraeftig');
+    for (const taste of ['circle', 'triangle', 'square', 'share', 'ps', 'options']) {
+      expect(tastenStaerke(taste)).toBe('leicht');
+    }
+  });
+
   it('eine unbekannte Taste tickt auch – kein Sonderfall', () => {
     expect(tastenStaerke('irgendwas')).toBe('leicht');
   });

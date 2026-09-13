@@ -16,6 +16,7 @@
  * deshalb von überall verwendbar.
  */
 import type { Entity } from '../api/types';
+import { istPlaystation } from './playstation';
 import type { Symbolname } from './symbole';
 
 /**
@@ -160,6 +161,10 @@ export function deviceKindLabel(entity: Entity): string {
       return 'Kalender';
 
     case 'media_player':
+      // Die PlayStation ist für den Hub ein Fernseher mit Steuerkreuz
+      // (Punkt 634) - im Haushalt aber eine Spielkonsole, und so heisst
+      // sie auch in den Abläufen und im Wähler.
+      if (istPlaystation(entity)) return 'Spielkonsole';
       return isTelevision(entity) ? 'Fernseher' : 'Lautsprecher';
 
     // Der Einschlaf-Timer des Fernsehers als eigene Kachel.
@@ -257,6 +262,7 @@ export function deviceKindIcon(entity: Entity): Symbolname {
     case 'calendar':
       return 'calendar-outline';
     case 'media_player':
+      if (istPlaystation(entity)) return 'game-controller-outline';
       return isTelevision(entity) ? 'tv-outline' : 'musical-notes-outline';
     case 'timer':
       return 'moon-outline';
@@ -312,6 +318,7 @@ export function geraeteartMuster(): { label: string; icon: Symbolname }[] {
     muster('calendar'),
     muster('media_player'),
     muster('media_player', { has_screen: true }),
+    muster('media_player', { has_screen: true }, { integration: 'playstation' }),
     muster('timer'),
   ];
   return entitaeten.map((entity) => ({
@@ -484,6 +491,7 @@ export function pickPlayer(entities: Entity[]): Entity | undefined {
 const INTEGRATION_NAMEN: Record<string, string> = {
   google_cast: 'Chromecast',
   androidtv: 'Android TV',
+  playstation: 'PlayStation',
   spotify: 'Spotify',
   tunein: 'Radio',
 };

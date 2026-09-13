@@ -18,8 +18,13 @@
 
 export type Staerke = 'leicht' | 'kraeftig';
 
-/** Tasten, die eine Entscheidung sind – nicht eine von vielen in Serie. */
-const KRAEFTIG: readonly string[] = ['ok', 'toggle', 'turn_on', 'turn_off'] as const;
+/** Tasten, die eine Entscheidung sind – nicht eine von vielen in Serie.
+ *
+ *  `cross` ist das OK der PlayStation (Punkt 634): dieselbe Rolle,
+ *  dasselbe Gewicht. Kreis, Dreieck, Viereck, Share, PS und Options
+ *  drückt man wie das Steuerkreuz - im Menü, in Serie - und die ticken
+ *  fein. */
+const KRAEFTIG: readonly string[] = ['ok', 'cross', 'toggle', 'turn_on', 'turn_off'] as const;
 
 /** Wie stark darf es sich anfühlen? (rein, testbar) */
 export function tastenStaerke(command: string): Staerke {
