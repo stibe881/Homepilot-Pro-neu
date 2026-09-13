@@ -2185,7 +2185,19 @@ class Watchdog:
             titel, text = losfahren.wecker_satz(
                 termin["summary"], termin["ort"], termin["start"], minuten, winter
             )
-            await self._notify(titel, text, "departure")
+            # Punkt 586: Der Tipp öffnet die Route zum Ort statt den
+            # Kalender, und gehört der Kalender einer Person, geht der
+            # Wecker nur an sie - nicht an den, der im Büro sitzt.
+            await self._notify(
+                titel,
+                text,
+                "departure",
+                to=termin.get("person"),
+                data={
+                    "ziel": pushziel.route(str(termin["ort"])),
+                    "location": str(termin["ort"]),
+                },
+            )
             neu.add(termin["kennung"])
         if neu:
             self.hub.data.set(

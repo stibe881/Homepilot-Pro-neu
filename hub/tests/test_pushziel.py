@@ -49,6 +49,17 @@ def test_unbekannte_kategorie_faellt_durch():
     assert ziel_fuer("gibtsnicht") is None
 
 
+def test_der_losfahr_wecker_fuehrt_zur_route():
+    """Punkt 586: Der Wecker kennt die Adresse - der Tipp führte trotzdem
+    nur in den Kalender. Die Adresse reist in der Zeichenkette mit,
+    Kommas und alles; ohne Ort gibt es kein Routenziel."""
+    from homepilot.core.pushziel import route
+
+    assert route("Sportplatz, 6210 Sursee") == "route:Sportplatz, 6210 Sursee"
+    assert route("  ") is None
+    assert route(None) is None
+
+
 # ── Knöpfe unter einer Nachricht ──────────────────────────────────────────
 
 

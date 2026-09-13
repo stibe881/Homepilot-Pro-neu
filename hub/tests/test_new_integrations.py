@@ -960,6 +960,42 @@ def test_calendar_next_event():
     assert state["events"][1]["all_day"] is True
 
 
+def test_calendar_config_knows_whose_calendar_it_is():
+    """Punkt 586: Je Kalender optional eine Person - dann gehen Erinnerung
+    und Losfahr-Wecker nur an sie, nicht an den, der im Büro sitzt."""
+    from datetime import datetime
+
+    from homepilot.integrations.google_calendar import kalender_konfig, parse_events
+
+    kennungen, personen = kalender_konfig(
+        ["primary", {"id": "stefan@example.com", "person": "Stefan"}, {"person": "x"}, ""]
+    )
+    assert kennungen == ["primary", "stefan@example.com"]
+    assert personen == {"stefan@example.com": "Stefan"}
+    assert kalender_konfig(None) == ([], {})
+
+    now = datetime(2026, 8, 15, 8, 0, tzinfo=UTC)
+    state = parse_events(
+        [
+            {
+                "summary": "Sitzung",
+                "start": {"dateTime": "2026-08-15T10:00:00+02:00"},
+                "end": {"dateTime": "2026-08-15T11:00:00+02:00"},
+                "_calendar": "stefan@example.com",
+                "_person": "Stefan",
+            },
+            {
+                "summary": "Zahnarzt",
+                "start": {"dateTime": "2026-08-15T14:00:00+02:00"},
+                "end": {"dateTime": "2026-08-15T15:00:00+02:00"},
+                "_calendar": "primary",
+            },
+        ],
+        now,
+    )
+    assert [event["person"] for event in state["events"]] == ["Stefan", None]
+
+
 def test_calendar_skips_finished_events():
     from datetime import datetime
 

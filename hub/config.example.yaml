@@ -433,6 +433,10 @@ integrations:
   #   calendar_ids:
   #     - primary
   #     - addressbook#contacts@group.v.calendar.google.com   # Geburtstage
+  #     # Ein Kalender, der einer Person gehört (Punkt 586): Termin-
+  #     # Erinnerung und Losfahr-Wecker gehen dann nur an sie.
+  #     - id: stefan@example.com
+  #       person: Stefan
 
   # Android TV / Google TV (auch Nvidia Shield). Braucht:
   #   pip install androidtvremote2

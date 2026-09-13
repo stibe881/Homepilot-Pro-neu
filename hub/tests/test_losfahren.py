@@ -44,6 +44,9 @@ def test_kandidaten_nimmt_nur_kommende_termine_mit_ort():
     assert [t["kennung"] for t in treffer] == ["t1"]
     assert treffer[0]["ort"] == "Sportplatz, 6210 Sursee"
     assert treffer[0]["start"] == datetime(2026, 8, 30, 17, 30)
+    # Ohne Person am Kalender geht der Wecker an alle (Punkt 586).
+    assert treffer[0]["person"] is None
+    assert kandidaten([_termin(person="Stefan")], JETZT)[0]["person"] == "Stefan"
 
 
 def test_kandidaten_vertraegt_zeitzonen_mischung():

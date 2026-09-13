@@ -72,7 +72,8 @@ def kandidaten(events: Any, jetzt: datetime) -> list[dict[str, Any]]:
 
     Mit Ort, mit Uhrzeit, noch nicht begonnen und innert der nächsten
     Stunden. Rückgabe je Termin: kennung, summary, ort, start
-    (datetime, in der Zeitzonen-Welt von ``jetzt``).
+    (datetime, in der Zeitzonen-Welt von ``jetzt``) und person - wem
+    der Kalender gehört (Punkt 586), None wenn allen.
     """
     ergebnis: list[dict[str, Any]] = []
     for event in events if isinstance(events, list) else []:
@@ -98,6 +99,7 @@ def kandidaten(events: Any, jetzt: datetime) -> list[dict[str, Any]]:
                 "summary": str(event.get("summary") or "Termin"),
                 "ort": ort,
                 "start": start,
+                "person": str(event.get("person") or "").strip() or None,
             }
         )
     return ergebnis

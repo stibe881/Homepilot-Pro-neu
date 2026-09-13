@@ -103,6 +103,20 @@ AM_GERAET = frozenset({"open", "leak", "appliance", "vacuum", "grill"})
 AN_DER_KAMERA = frozenset({"baby_cry"})
 
 
+def route(ort: str | None) -> str | None:
+    """Das Ziel «Route dorthin» (rein, testbar) - Punkt 586 der Werkbank.
+
+    Der Losfahr-Wecker kennt die Adresse; sein Tipp führte trotzdem nur
+    in den Kalender. Mit ``route:<Adresse>`` öffnet die App die
+    Karten-App mit dem Ziel (lib/pushziel.ts). Die Adresse reist in
+    derselben Zeichenkette mit - ein zweites Feld ginge bei einer App,
+    die es nicht kennt, still verloren; ein unbekanntes Ziel fällt dort
+    sauber auf «App öffnen» zurück. Ohne Ort gibt es kein Routenziel.
+    """
+    sauber = str(ort or "").strip()
+    return f"route:{sauber}" if sauber else None
+
+
 def ziel_fuer(category: str | None, entity_id: str | None = None) -> str | None:
     """Das Ziel zu einer Kategorie (rein, testbar).
 

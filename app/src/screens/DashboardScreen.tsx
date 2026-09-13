@@ -69,7 +69,7 @@ import { PushPrefs } from '../components/PushPrefs';
 import { ActivityCard, MediaPanel, SidePanel } from '../components/SidePanel';
 import { useMusikwahl } from '../hooks/useMusikwahl';
 import { Bestaetigung, Toast, UndoToast } from '../components/Toast';
-import { TopStrip } from '../components/TopStrip';
+import { TopStrip, appleMapsRoute } from '../components/TopStrip';
 import { useHub } from '../hooks/useHub';
 import { Knopfdruck, Tap, useNotificationTap } from '../hooks/useNotificationTap';
 import { usePrefs } from '../hooks/usePrefs';
@@ -1724,6 +1724,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       }
       case 'klingel':
         setKlingelTap(ziel.entityId ?? '');
+        return;
+      case 'route':
+        // «Jetzt losfahren» (Punkt 586): Die Karten-App mit dem Ziel -
+        // derselbe Weg wie der Routenknopf im Termin-Fenster.
+        Linking.openURL(appleMapsRoute(ziel.ort)).catch(() => {});
         return;
     }
   };
