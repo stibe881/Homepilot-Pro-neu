@@ -178,6 +178,14 @@ def tv_state(is_on: bool, current_app: str | None, volume_info: Any) -> dict[str
         "app": name,
         # Die Media-Player-Kachel der App zeigt 'track' als Hauptzeile.
         "track": name,
+        # Die Paket-ID daneben, roh (Punkt 644 der Werkbank): «app» ist
+        # der Anzeigename, aber eine Szene startet eine App über ihre
+        # Paket-ID (launch_app, data.app). Ohne dieses Feld liess sich
+        # ein App-Start nirgends mit seinem Ziel vergleichen - eine
+        # Szene, die nur die App wechselt, galt nie als «noch aktiv»,
+        # und ein zweiter Druck auf den Knopf loeste sie einfach erneut
+        # aus, statt zur vorherigen App zurückzukehren.
+        "app_id": current_app if is_on else None,
     }
     level = getattr(volume_info, "level", None)
     maximum = getattr(volume_info, "max", None)

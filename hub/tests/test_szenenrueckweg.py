@@ -116,6 +116,43 @@ def test_was_sich_nicht_vorhersagen_laesst_bleibt_unangetastet() -> None:
     assert plane_rueckweg(actions, stand) == []
 
 
+def test_zocken_schaltet_die_app_um_und_kommt_zurueck() -> None:
+    """Der gemeldete Fall (Punkt 644): «Zocken» aktiviert bleibt in der
+    App nicht aktiv - ein zweiter Druck löst die Szene bloss erneut aus,
+    statt zur vorherigen App zurückzukehren.
+
+    Der Grund: `launch_app` trägt die rohe Paket-ID (`data.app`), der
+    Zustand vorher nur den übersetzten Anzeigenamen (`app`) - die beiden
+    liessen sich nie vergleichen, und die Szene galt darum nie als «noch
+    aktiv». Seit Punkt 644 führt der Zustand die Paket-ID zusätzlich roh
+    mit (`app_id`, androidtv.tv_state), und genau die wird verglichen.
+    """
+    actions = [{"entity_id": "tv.stube", "command": "launch_app", "data": {"app": "com.sony.ps5"}}]
+    lief_schon_ps5 = {
+        "tv.stube": geraet(
+            "media_player", ["turn_on", "turn_off", "launch_app"],
+            {"state": "on", "app": "Netflix", "app_id": "com.sony.ps5"},
+        )
+    }
+    lief_netflix = {
+        "tv.stube": geraet(
+            "media_player", ["turn_on", "turn_off", "launch_app"],
+            {"state": "on", "app": "Netflix", "app_id": "com.netflix.ninja"},
+        )
+    }
+    # Die Vorschau, die `ist_aktiv` befragt: Läuft die PS5 schon, gilt
+    # die Szene als aktiv - lief noch Netflix, nicht.
+    assert szene_gilt_noch(actions, lief_schon_ps5) is True
+    assert szene_gilt_noch(actions, lief_netflix) is False
+    # Nichts geändert, nichts zum Zurücknehmen.
+    assert hat_sich_geaendert(lief_schon_ps5["tv.stube"]["state"], zielzustand(actions[0])) is False
+    # Lief vorher Netflix, geht der zweite Druck dorthin zurück - nicht
+    # bloss «Fernseher an», was das Spiel weiterlaufen liesse.
+    assert plane_rueckweg(actions, lief_netflix) == [
+        {"entity_id": "tv.stube", "command": "launch_app", "data": {"app": "com.netflix.ninja"}}
+    ]
+
+
 def test_ein_geraet_zweimal_in_der_szene_zaehlt_einmal() -> None:
     """Der Vorzustand ist der vor der ersten Aktion."""
     actions = [
