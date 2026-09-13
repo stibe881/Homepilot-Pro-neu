@@ -11,10 +11,11 @@ der Wächter; wer die Daten pflegt, ist die App.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from . import schulferien
+from . import packliste, schulferien
 
 # Die Tageszeiten einer Kur und die Stunde, ab der sie fällig sind.
 # Bewusst grob: «morgens» ist keine Uhrzeit, sondern der Teil des Tages,
@@ -469,14 +470,42 @@ def krank_heute(members: Any, heute: date) -> set[str]:
     return krank
 
 
-def unbesetzte_fahrten(activities: Any, hoechstens: int = 4) -> list[str]:
+def _fahrt_satz(eintrag: dict[str, Any]) -> str | None:
+    """«Stefan fährt», «Stefan bringt · Anna holt» - oder None (rein,
+    testbar); dieselben Worte wie ``fahrtSatz`` in lib/kindseite.ts."""
+    bringt = str(eintrag.get("bringt") or "").strip()
+    holt = str(eintrag.get("holt") or "").strip()
+    if not bringt and not holt:
+        return None
+    if bringt and holt and bringt == holt:
+        return f"{bringt} fährt"
+    return " · ".join(
+        teil for teil in (f"{bringt} bringt" if bringt else "", f"{holt} holt" if holt else "") if teil
+    )
+
+
+def _uhr(wert: Any) -> str | None:
+    """«17:30» aus einem Eintragsfeld, sonst None (rein)."""
+    teile = str(wert or "").strip().replace(".", ":").split(":")
+    if len(teile) != 2 or not all(teil.isdigit() for teil in teile):
+        return None
+    return f"{int(teile[0]):02d}:{int(teile[1]):02d}"
+
+
+def unbesetzte_fahrten(
+    activities: Any, hoechstens: int = 4, ausser: Collection[str] = ()
+) -> list[str]:
     """«Do Jugi: niemand fährt» - Wöchentliche mit Ort, aber ohne Person
     (rein, testbar). Punkt 621 der Werkbank: Die Frage «wer fährt Levin
     nach Sursee?» gehört in den Sonntagabend-Ausblick, nicht auf den
     Donnerstag um 17 Uhr.
 
     Ohne Ort keine Fahrt, also keine Zeile; und ein Eintrag ohne Kind
-    gehört niemandem - er bleibt draussen.
+    gehört niemandem - er bleibt draussen. ``ausser`` sind die
+    Kennungen der Einträge, die der Ausblick schon in der Kinderwoche
+    nennt (Punkt 619) - dort steht «niemand fährt» gleich am Termin,
+    und dieselbe Fahrt zweimal in einer Nachricht liest sich wie ein
+    Versehen.
     """
     zeilen: list[tuple[int, str]] = []
     for eintrag in activities if isinstance(activities, list) else []:
@@ -487,10 +516,83 @@ def unbesetzte_fahrten(activities: Any, hoechstens: int = 4) -> list[str]:
         ort = str(eintrag.get("ort") or "").strip()
         if tag not in WEEKDAYS or not text or not ort:
             continue
-        if str(eintrag.get("bringt") or "").strip() or str(eintrag.get("holt") or "").strip():
+        if _fahrt_satz(eintrag) is not None or _kennung(eintrag) in ausser:
             continue
         zeilen.append((WEEKDAYS.index(tag), f"{tag} {text}: niemand fährt"))
     return [text for _, text in sorted(zeilen)[:hoechstens]]
+
+
+def _kennung(eintrag: dict[str, Any]) -> str:
+    """Womit ein Wöchentliches wiedererkannt wird - die id, sonst Tag und
+    Text (rein)."""
+    return str(eintrag.get("id") or f"{eintrag.get('day')}|{eintrag.get('text')}")
+
+
+def kinderwoche(
+    activities: Any,
+    heute: date,
+    tage: int = 7,
+    ferien_rows: Any = None,
+    members: Any = None,
+    hoechstens: int = 4,
+) -> tuple[list[str], set[str]]:
+    """Die Wöchentlichen der Kinder in der kommenden Woche, als Zeilen
+    für den Sonntagabend-Ausblick (rein, testbar) - Punkt 619 der Werkbank.
+
+    «Di: Levin – Fussball 17:30, Sursee · Stefan fährt». Nur Einträge
+    mit Ort oder Zeit: Ein «Lesen, Freitag» ohne beides ist kein Termin,
+    den man am Sonntag im Kopf durchgeht. Höchstens vier Zeilen, damit
+    die Termine und Ämtli daneben Platz behalten; was den Ort hat, aber
+    niemanden, der fährt, trägt «niemand fährt» gleich am Termin.
+
+    Zweiwochen-Einträge nur in ihrer Woche; in den Ferien nur, was den
+    Schalter «auch in den Ferien» trägt (Punkt 620); für ein bis dahin
+    krank gemeldetes Kind (Punkt 622) nichts. Zurück kommen die Zeilen
+    und die Kennungen aller genannten Einträge, damit die Liste der
+    offenen Fahrten (Punkt 621) sie nicht noch einmal aufzählt.
+    """
+    zeilen: list[tuple[date, int, str, str]] = []
+    for versatz in range(1, tage + 1):
+        datum = heute + timedelta(days=versatz)
+        tag = WEEKDAYS[datum.weekday()]
+        woche = packliste.woche_von(datum)
+        ferien = schulferien.lage(ferien_rows, datum)["state"] == schulferien.FERIEN
+        krank = krank_heute(members, datum)
+        for eintrag in activities if isinstance(activities, list) else []:
+            if not isinstance(eintrag, dict) or str(eintrag.get("day") or "") != tag:
+                continue
+            eintrag_woche = str(eintrag.get("week") or "")
+            if eintrag_woche and eintrag_woche != woche:
+                continue
+            if ferien and not packliste.gilt_in_den_ferien(eintrag):
+                continue
+            kind = str(eintrag.get("member") or "").strip()
+            if kind in krank:
+                continue
+            text = str(eintrag.get("text") or "").strip()
+            ort = str(eintrag.get("ort") or "").strip()
+            uhr = _uhr(eintrag.get("from"))
+            if not text or (not ort and uhr is None):
+                continue
+            was = f"{text} {uhr}" if uhr else text
+            if ort:
+                was = f"{was}, {ort}"
+            fahrt = _fahrt_satz(eintrag) or ("niemand fährt" if ort else None)
+            if fahrt:
+                was = f"{was} · {fahrt}"
+            wer = f"{kind} – " if kind else ""
+            zeilen.append(
+                (
+                    datum,
+                    int((uhr or "99:99").replace(":", "")),
+                    f"{tag}: {wer}{was}",
+                    _kennung(eintrag),
+                )
+            )
+    # Genannt ist nur, was wirklich in der Nachricht steht: Eine Fahrt
+    # jenseits der vier Zeilen soll am Ende noch als offen auftauchen.
+    gewaehlt = sorted(zeilen)[:hoechstens]
+    return [text for _, _, text, _ in gewaehlt], {kennung for _, _, _, kennung in gewaehlt}
 
 
 def week_ahead(
@@ -503,6 +605,7 @@ def week_ahead(
     meals: list[dict[str, Any]] | None = None,
     ferien_rows: Any = None,
     activities: Any = None,
+    members: Any = None,
 ) -> str | None:
     """Was in den nächsten Tagen ansteht, in einer Nachricht (rein, testbar).
 
@@ -574,9 +677,21 @@ def week_ahead(
         wann = heute + timedelta(days=versatz)
         zeilen.append(f"{WEEKDAYS[wann.weekday()]}: {name} hat Geburtstag")
 
+    # Die Kinderwoche (Punkt 619): Fussball, Jugi, Flöte - mit Ort und
+    # Zeit, nach den Terminen und vor dem Essen. Bisher kannte der
+    # Ausblick die Listen «activities» gar nicht.
+    kinder, genannt = kinderwoche(
+        activities, heute, tage, ferien_rows=ferien_rows, members=members
+    )
+    zeilen.extend(kinder)
+
     # Das Essen und die offenen Fahrten zuletzt (Punkte 587, 621): Zeilen,
     # die nicht mit den Terminen um die zehn Plätze konkurrieren sollen.
-    zeilen = zeilen[:10] + meals_lines(meals) + unbesetzte_fahrten(activities)
+    # Eine Fahrt, die schon in der Kinderwoche als «niemand fährt» steht,
+    # kommt nicht noch einmal.
+    zeilen = (
+        zeilen[:14] + meals_lines(meals) + unbesetzte_fahrten(activities, ausser=genannt)
+    )
     if not zeilen:
         return None
     return "\n".join(zeilen)

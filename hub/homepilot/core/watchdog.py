@@ -1761,8 +1761,11 @@ class Watchdog:
             meals=self.hub.data.get("family_meals"),
             # Und der Ferienrand (Punkt 620): «Montag beginnen die Ferien».
             ferien_rows=self.hub.data.get(schulferien.STORE_KEY),
-            # Wöchentliche mit Ort, aber ohne Fahrer (Punkt 621).
+            # Wöchentliche mit Ort, aber ohne Fahrer (Punkt 621) - und die
+            # Kinderwoche selbst (Punkt 619): Fussball, Jugi, Flöte mit Ort
+            # und Zeit, ohne die Tage, an denen ein Kind krank ist.
             activities=self.hub.data.get("family_activities"),
+            members=self.hub.data.get("family_members"),
         )
         if not text:
             return

@@ -151,7 +151,70 @@ def test_the_week_ahead_names_rides_nobody_has_taken():
     assert familie.unbesetzte_fahrten(activities) == ["Do Jugi: niemand fährt"]
     assert familie.unbesetzte_fahrten(None) == []
     text = familie.week_ahead([], [], [], [], date(2026, 8, 23), activities=activities)
-    assert text == "Do Jugi: niemand fährt"
+    assert text is not None
+    # Seit Punkt 619 steht die Fahrt in der Kinderwoche selbst, mit Ort -
+    # und nur einmal, nicht noch einmal am Ende als offene Fahrt.
+    assert "Do: Levin – Jugi, Sursee · niemand fährt" in text
+    assert text.count("niemand fährt") == 1
+
+
+def test_the_week_ahead_tells_the_childrens_week():
+    """Punkt 619: Der Sonntagabend-Ausblick kannte die Liste «activities»
+    nicht - Fussball in Sursee am Dienstag stand nirgends. Nur Einträge
+    mit Ort oder Zeit, höchstens vier, nach Tag und Uhrzeit."""
+    sonntag = date(2026, 8, 23)
+    activities = [
+        {"id": "1", "day": "Di", "text": "Fussball", "from": "17:30", "ort": "Sursee",
+         "member": "Levin", "bringt": "Stefan", "holt": "Stefan"},
+        {"id": "2", "day": "Di", "text": "Ballett", "from": "16:00", "member": "Lina"},
+        {"id": "3", "day": "Mo", "text": "Flöte", "from": "14:00", "member": "Lina",
+         "holt": "Anna"},
+        # Ohne Ort und Zeit kein Termin, den man am Sonntag durchgeht.
+        {"id": "4", "day": "Fr", "text": "Lesen", "member": "Lina"},
+        # Ein Zweiwochen-Eintrag der anderen Woche: KW 35 ist ungerade, also A.
+        {"id": "5", "day": "Mi", "text": "Handarbeit", "from": "13:30", "member": "Lina",
+         "week": "B"},
+    ]
+    zeilen, genannt = familie.kinderwoche(activities, sonntag)
+    assert zeilen == [
+        "Mo: Lina – Flöte 14:00 · Anna holt",
+        "Di: Lina – Ballett 16:00",
+        "Di: Levin – Fussball 17:30, Sursee · Stefan fährt",
+    ]
+    assert genannt == {"1", "2", "3"}
+    text = familie.week_ahead(
+        [{"summary": "Elternabend", "start": "2026-08-25T19:00"}],
+        [], [], [], sonntag, activities=activities,
+    )
+    assert text is not None
+    assert text.index("Elternabend") < text.index("Fussball")
+
+
+def test_the_childrens_week_pauses_for_holidays_and_sickness():
+    """Punkt 619 mit 620 und 622: In den Ferien nur, was den Schalter
+    trägt; für ein krank gemeldetes Kind bis zu diesem Tag nichts."""
+    sonntag = date(2026, 9, 27)
+    ferien = [{"name": "Herbstferien", "from": "2026-09-28", "to": "2026-10-09"}]
+    activities = [
+        {"id": "1", "day": "Di", "text": "Fussball", "from": "17:30", "member": "Levin",
+         "holidays": True},
+        {"id": "2", "day": "Mi", "text": "Flöte", "from": "14:00", "member": "Lina"},
+    ]
+    zeilen, _ = familie.kinderwoche(activities, sonntag, ferien_rows=ferien)
+    assert zeilen == ["Di: Levin – Fussball 17:30"]
+    # Levin ist bis Dienstag krank gemeldet - der Fussball fällt aus,
+    # die Flöte am Mittwoch nicht.
+    members = [{"text": "Levin", "role": "kind", "sick_until": "2026-09-29"}]
+    zeilen, _ = familie.kinderwoche(activities, sonntag, members=members)
+    assert zeilen == ["Mi: Lina – Flöte 14:00"]
+    # Höchstens vier Zeilen.
+    viele = [
+        {"id": str(n), "day": "Do", "text": f"Kurs {n}", "from": f"{10 + n}:00", "member": "Lina"}
+        for n in range(6)
+    ]
+    zeilen, genannt = familie.kinderwoche(viele, sonntag)
+    assert len(zeilen) == 4 and genannt == {"0", "1", "2", "3"}
+    assert familie.kinderwoche(None, sonntag) == ([], set())
 
 
 def test_the_week_ahead_lists_the_meals_and_the_missing_plan():

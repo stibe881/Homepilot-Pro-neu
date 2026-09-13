@@ -84,7 +84,7 @@ import { ROLE_LABELS } from '../lib/rollen';
 import { naechsteStraehne, straehnenSatz } from '../lib/straehne';
 import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, EventForm, FamilyItem, GroupedChecklist, MealRow, Member, MemberAddRow, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, Styles, TaskAddRow, TwoFieldForm, VorratBlatt, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, pickPhoto, rotateMember } from './family/bausteine';
 import { Kindseite, Wochenliste } from './family/kindseite';
-import { TAGE, aemtliAbgeben, aktivitaetZeile, aktivitaetenAm, istKind, verschmelze, wocheVon } from '../lib/kindseite';
+import { TAGE, Tageslage, aemtliAbgeben, aktivitaetZeile, aktivitaetenAm, ferienAm, istKind, kinderHeute, krankBis, schulzeileAm, verschmelze, wocheVon } from '../lib/kindseite';
 import { kachelSatz } from '../lib/dokumente';
 import { farbIndex, initialen, personenGruppen, rolleZeile } from '../lib/personenliste';
 import { Gutscheine } from './family/gutscheine';
@@ -736,6 +736,24 @@ export function FamilyScreen({
     event.all_day
       ? wochentagDatumKurz(new Date(event.start))
       : wochentagUhr(new Date(event.start));
+
+  // Die Kinderwoche ausserhalb der Kinderseite (Punkt 619): Wochenplan,
+  // Wandpanel und Babysitter-Seite lesen dieselben Listen wie sie -
+  // und dieselbe Lage je Kind und Tag: Ferien aus der Schulferien-
+  // Entität (Punkt 620), krank aus dem Mitglieds-Eintrag (Punkt 622).
+  const kinderNamen = haushalt(members)
+    .filter((member) => istKind(member))
+    .map((member) => member.name);
+  const ferienStand = entities.find((entity) => entity.id === 'schulferien.heute')?.state ?? null;
+  const lageAm = (name: string, datum: Date): Tageslage => {
+    const eintrag = (data.members ?? []).find(
+      (roh: FamilyItem) => String(roh.text ?? '').trim() === name
+    );
+    return {
+      ferien: ferienAm(ferienStand, datum, today),
+      krank: krankBis(eintrag ?? null, datum) !== null,
+    };
+  };
 
   const presenceOf = (name: string): 'home' | 'away' | null => {
     // Aus derselben Liste wie die Karte darüber. Vorher suchte das hier
@@ -2036,6 +2054,18 @@ export function FamilyScreen({
     );
     const abend: FamilyItem = (data.babysitter ?? [])[0] ?? {};
     const luecken = abendLuecken(abend, kontakte, hausadresse?.address);
+    // Was die Kinder heute haben (Punkt 619): «Schule bis 15:05 ·
+    // Fussball 17:30 in Sursee, Stefan holt» - die Seite wusste bisher
+    // nicht, dass Levin um 17:30 Fussball hat, und genau das fragt
+    // jemand, der das Haus nicht kennt.
+    const kinderZeilen = kinderHeute(
+      data.lessons ?? [],
+      data.activities ?? [],
+      kinderNamen,
+      today,
+      (name) => lageAm(name, today),
+      true
+    );
     // Punkt 214: Der Abendablauf steht im Routinen-Modul – abgetippt
     // wurde er trotzdem noch einmal.
     const abendRoutine = routinen.find(
@@ -2050,6 +2080,11 @@ export function FamilyScreen({
         if (wert) zeilen.push(`${feld.label}: ${wert}`);
       }
       if (zeilen.length > 2) zeilen.push('');
+      if (kinderZeilen.length > 0) {
+        zeilen.push('DIE KINDER HEUTE');
+        for (const zeile of kinderZeilen) zeilen.push(`  ${zeile.name}: ${zeile.satz}`);
+        zeilen.push('');
+      }
       if (kontakte.length > 0) {
         zeilen.push('NUMMERN');
         for (const kontakt of kontakte) {
@@ -2486,6 +2521,23 @@ export function FamilyScreen({
           )}
         </Card>
 
+        {kinderZeilen.length > 0 ? (
+          <>
+            <Text style={styles.groupLabel}>Die Kinder heute</Text>
+            <Card style={styles.listCard}>
+              {kinderZeilen.map((zeile) => (
+                <View key={zeile.name} style={styles.checkRow}>
+                  <Ionicons name="school-outline" size={16} color={colors.inkSoft} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.checkText}>{zeile.name}</Text>
+                    <Text style={styles.checkSub}>{zeile.satz}</Text>
+                  </View>
+                </View>
+              ))}
+            </Card>
+          </>
+        ) : null}
+
         {kontakte.length > 0 ? (
           <>
             <Text style={styles.groupLabel}>Nummern</Text>
@@ -2621,6 +2673,22 @@ export function FamilyScreen({
           wochenPerson === 'Alle' ? null : wochenPerson,
           wocheVon(datum)
         ),
+        // «Levin: Schule bis 15:05 · Nachmittag frei» (Punkt 619) - aus
+        // dem Stundenplan, ohne Ferien- und Krankheitstage. Wer «Levin»
+        // filtert, sah bisher weder Fussball noch den freien Nachmittag.
+        schule: kinderNamen
+          .filter((name) => wochenPerson === 'Alle' || wochenPerson === name)
+          .map((name) => ({
+            name,
+            text: schulzeileAm(
+              data.lessons ?? [],
+              name,
+              TAGE[index],
+              wocheVon(datum),
+              lageAm(name, datum)
+            ),
+          }))
+          .filter((zeile): zeile is { name: string; text: string } => zeile.text !== null),
         termine: events.filter(
           (event: FamilyItem) => isoTag(new Date(event.start)) === iso
         ),
@@ -2713,6 +2781,7 @@ export function FamilyScreen({
           const leer =
             tag.termine.length === 0 &&
             tag.aktivitaeten.length === 0 &&
+            tag.schule.length === 0 &&
             !tag.essen?.text &&
             aemtli.length === 0 &&
             aufgaben.length === 0 &&
@@ -2750,6 +2819,15 @@ export function FamilyScreen({
                   <Ionicons name="calendar-outline" size={15} color={colors.inkSoft} />
                   <Text style={[styles.checkText, { flex: 1 }]} numberOfLines={1}>
                     {event.summary ?? event.title ?? 'Termin'}
+                  </Text>
+                </View>
+              ))}
+
+              {tag.schule.map((zeile) => (
+                <View key={`s${zeile.name}`} style={styles.weekRowItem}>
+                  <Ionicons name="school-outline" size={15} color={colors.inkSoft} />
+                  <Text style={[styles.checkText, { flex: 1 }]} numberOfLines={1}>
+                    {zeile.name}: {zeile.text}
                   </Text>
                 </View>
               ))}
@@ -4071,6 +4149,17 @@ export function FamilyScreen({
                 </Text>
               ))
           )}
+          {/* Je Kind der Heute-Satz der Kinderseite (Punkt 619): Am
+              Kühlschrank ist «Levin: Schule 08:20–15:05 · Fussball
+              17:30» die Zeile, die man morgens sucht - bisher standen
+              hier nur Kalendertermine. */}
+          {kinderHeute(data.lessons ?? [], data.activities ?? [], kinderNamen, today, (name) =>
+            lageAm(name, today)
+          ).map((zeile) => (
+            <Text key={`k${zeile.name}`} style={styles.panelZeile}>
+              {zeile.name}: {zeile.satz}
+            </Text>
+          ))}
           <Text style={styles.panelTitel}>ES GIBT</Text>
           <Text style={styles.panelZeile}>
             {String(

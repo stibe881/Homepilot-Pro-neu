@@ -410,21 +410,54 @@ export function heuteSatz(
   termine: Eintrag[] | null | undefined,
   name: string,
   jetzt: Date,
-  lage: Tageslage = {}
+  lage: Tageslage = {},
+  ausfuehrlich = false
 ): string {
   if (lage.krank) return 'Heute krank - gute Besserung!';
+  const teile = heuteTeile(lektionen, termine, name, jetzt, lage, ausfuehrlich);
+  if (teile.length > 0) return teile.join(' · ');
+  return inFerien(lage.ferien) ? 'Ferien - heute steht nichts an.' : 'Heute steht nichts an.';
+}
+
+/**
+ * Die Stücke des Heute-Satzes, ohne den Ersatztext (rein, testbar).
+ *
+ * `ausfuehrlich` ist die Fassung für jemanden, der das Haus nicht kennt
+ * (Punkt 619, Babysitter): «Schule bis 15:05» statt der Anfangszeit -
+ * der Babysitter kommt am Nachmittag und will wissen, wann das Kind
+ * heimkommt -, dazu der Ort und wer holt.
+ */
+export function heuteTeile(
+  lektionen: Eintrag[] | null | undefined,
+  termine: Eintrag[] | null | undefined,
+  name: string,
+  jetzt: Date,
+  lage: Tageslage = {},
+  ausfuehrlich = false
+): string[] {
   const teile: string[] = [];
   const ferien = inFerien(lage.ferien);
-  const schule = ferien ? null : schulzeit(lektionen, name, jetzt);
-  if (schule) teile.push(`Schule ${schule}`);
+  if (!ferien) {
+    const schule = ausfuehrlich
+      ? schulzeile(heute(lektionen, name, jetzt))
+      : schulzeit(lektionen, name, jetzt);
+    if (schule) teile.push(ausfuehrlich ? schule : `Schule ${schule}`);
+  }
   for (const termin of heute(termine, name, jetzt)) {
     if (ferien && !giltInDenFerien(termin)) continue;
     const uhr = zeitNormal(termin?.from);
     const was = String(termin?.text ?? '').trim();
-    if (was) teile.push(uhr ? `${was} ${uhr}` : was);
+    if (!was) continue;
+    let stueck = uhr ? `${was} ${uhr}` : was;
+    if (ausfuehrlich) {
+      const ort = String(termin?.ort ?? '').trim();
+      if (ort) stueck = `${stueck} in ${ort}`;
+      const fahrt = fahrtSatz(termin);
+      if (fahrt) stueck = `${stueck}, ${fahrt}`;
+    }
+    teile.push(stueck);
   }
-  if (teile.length > 0) return teile.join(' · ');
-  return ferien ? 'Ferien - heute steht nichts an.' : 'Heute steht nichts an.';
+  return teile;
 }
 
 // ── Wer fährt? (Punkt 621 der Werkbank) ────────────────────────────────
@@ -488,6 +521,124 @@ export function aktivitaetZeile(eintrag: Eintrag): string {
   const uhr = zeitNormal(eintrag?.from);
   const teile = [uhr ? `${was} ${uhr}` : was, fahrtSatz(eintrag) ?? ''].filter(Boolean);
   return wer ? `${wer}: ${teile.join(' · ')}` : teile.join(' · ');
+}
+
+// ── Die Kinderwoche überall (Punkt 619 der Werkbank) ───────────────────
+//
+// Die Listen «lessons» und «activities» las ausser der Kinderseite und
+// dem Packlisten-Push niemand: Der Wochenplan baute seine Tage aus
+// Terminen, Essen, Ämtli und Geburtstagen, das Wandpanel-«HEUTE» aus
+// Kalenderterminen, und die Babysitter-Seite wusste nicht, dass Levin
+// um 17:30 Fussball hat. Hier die reinen Stücke, die diese drei Orte
+// brauchen; die Wöchentlichen je Tag stehen seit Punkt 621 in
+// `aktivitaetenAm`.
+
+/**
+ * Sind an diesem Tag Ferien? (rein, testbar)
+ *
+ * Die Schulferien-Entität beschreibt heute - `state`, und seit Punkt
+ * 619 mit `until` das Ende der laufenden und mit `next_in_days`/
+ * `next_until` Anfang und Ende der nächsten Ferien. Damit lässt sich
+ * für jeden Tag der angezeigten Woche sagen, ob Schule ist. Was
+ * ausserhalb dieser beiden Spannen liegt, gilt als Schulzeit: Für den
+ * Wochenplan drei Monate voraus gibt es keine bessere Auskunft.
+ */
+export function ferienAm(
+  stand: Eintrag | null | undefined,
+  datum: Date,
+  heute: Date
+): Eintrag | null {
+  if (!stand || typeof stand !== 'object') return null;
+  const tag = isoDatum(datum);
+  const heuteIso = isoDatum(heute);
+  if (tag === heuteIso) return stand;
+  const bis = typeof stand.until === 'string' ? stand.until.slice(0, 10) : '';
+  if (stand.state === 'ferien' && tag > heuteIso && (bis ? tag <= bis : false)) {
+    return { state: 'ferien', name: stand.name ?? null };
+  }
+  const inTagen = typeof stand.next_in_days === 'number' ? stand.next_in_days : null;
+  const naechsteBis = typeof stand.next_until === 'string' ? stand.next_until.slice(0, 10) : '';
+  if (inTagen !== null && inTagen >= 0 && naechsteBis) {
+    const anfang = new Date(heute.getFullYear(), heute.getMonth(), heute.getDate() + inTagen);
+    if (tag >= isoDatum(anfang) && tag <= naechsteBis) {
+      return { state: 'ferien', name: stand.next ?? null };
+    }
+  }
+  return { state: 'schultag' };
+}
+
+/** «15:05» - wann die letzte Lektion des Tages endet (rein, testbar). */
+export function schulschluss(zeilen: Eintrag[]): string | null {
+  const enden = zeilen
+    .map((zeile) => minuten(zeile?.to) ?? minuten(zeile?.from))
+    .filter((wert): wert is number => wert !== null);
+  return enden.length > 0 ? uhrText(Math.max(...enden)) : null;
+}
+
+/**
+ * «Schule bis 15:05» oder «Schule bis 11:30 · Nachmittag frei» - die
+ * Zeile eines Schultags im Wochenplan (rein, testbar). Null ohne
+ * Lektionen, in den Ferien und wenn das Kind krank gemeldet ist.
+ *
+ * Nicht die Anfangszeit: Im Wochenplan plant man den Nachmittag, und
+ * die Frage ist, wann das Kind wieder da ist. Der freie Nachmittag
+ * steht dabei, weil er die Zeile ist, die man sonst nirgends sieht.
+ */
+export function schulzeile(zeilen: Eintrag[], lage: Tageslage = {}): string | null {
+  if (lage.krank || inFerien(lage.ferien)) return null;
+  const schluss = schulschluss(zeilen);
+  if (!schluss) return null;
+  return nachmittagFrei(zeilen) ? `Schule bis ${schluss} · Nachmittag frei` : `Schule bis ${schluss}`;
+}
+
+/** Die Schulzeile eines Kindes an einem Wochentag (rein, testbar). */
+export function schulzeileAm(
+  lektionen: Eintrag[] | null | undefined,
+  name: string,
+  tag: string,
+  woche: Woche,
+  lage: Tageslage = {}
+): string | null {
+  const zeilen = fuerWoche(
+    (lektionen ?? []).filter((zeile) => zeile?.member === name && zeile?.day === tag),
+    woche
+  );
+  return schulzeile(zeilen, lage);
+}
+
+/** Ein Kind mit seinem Satz für heute. */
+export interface Kindzeile {
+  name: string;
+  satz: string;
+}
+
+/**
+ * Je Kind der Satz für heute - fürs Wandpanel und den Babysitter (rein,
+ * testbar).
+ *
+ * Nur Kinder, für die überhaupt etwas eingetragen ist: Ein Kleinkind
+ * ohne Stundenplan stünde sonst jeden Tag mit «Heute steht nichts an»
+ * da. Wer eingetragen ist, steht auch an einem leeren Tag - am
+ * Wandpanel soll die Reihe der Kinder nicht je nach Tag wechseln.
+ * `lageFuer` liefert Ferien und Krank je Kind (Punkte 620, 622).
+ */
+export function kinderHeute(
+  lektionen: Eintrag[] | null | undefined,
+  termine: Eintrag[] | null | undefined,
+  kinder: string[],
+  jetzt: Date,
+  lageFuer: (name: string) => Tageslage = () => ({}),
+  ausfuehrlich = false
+): Kindzeile[] {
+  const eingetragen = new Set(
+    [...(lektionen ?? []), ...(termine ?? [])].map((zeile) => String(zeile?.member ?? '').trim())
+  );
+  return kinder
+    .filter((name) => eingetragen.has(name))
+    .map((name) => ({
+      name,
+      satz: heuteSatz(lektionen, termine, name, jetzt, lageFuer(name), ausfuehrlich),
+    }));
 }
 
 /**

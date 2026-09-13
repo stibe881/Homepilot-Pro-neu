@@ -17,6 +17,9 @@ import {
   geburtstagSatz,
   heute,
   heuteSatz,
+  kinderHeute,
+  ferienAm,
+  schulzeileAm,
   morgenPackSatz,
   istKind,
   kindTermine,
@@ -635,5 +638,76 @@ describe('morgenPackSatz', () => {
     const dienstag = new Date(2026, 8, 8, 19, 0);
     expect(morgenPackSatz(gear, 'Lina', dienstag)).toBeNull();
     expect(morgenPackSatz([], 'Levin', montagA)).toBeNull();
+  });
+});
+
+describe('die Kinderwoche überall (Punkt 619)', () => {
+  const lektionen = [
+    { member: 'Levin', day: 'Di', from: '08:20', to: '11:30' },
+    { member: 'Levin', day: 'Di', from: '13:30', to: '15:05' },
+    { member: 'Levin', day: 'Mi', from: '08:20', to: '11:30' },
+    { member: 'Levin', day: 'Do', from: '08:20', to: '11:30', week: 'B' },
+  ];
+  const termine = [
+    { member: 'Levin', day: 'Di', from: '17:30', to: '19:00', text: 'Fussball', ort: 'Sursee', holt: 'Stefan' },
+    { member: 'Lina', day: 'Di', from: '16:00', text: 'Ballett' },
+  ];
+
+  it('sagt im Wochenplan, wann die Schule aus ist - und ob der Nachmittag frei ist', () => {
+    expect(schulzeileAm(lektionen, 'Levin', 'Di', 'A')).toBe('Schule bis 15:05');
+    expect(schulzeileAm(lektionen, 'Levin', 'Mi', 'A')).toBe('Schule bis 11:30 · Nachmittag frei');
+    // Ein Zweiwochen-Fach nur in seiner Woche; sonst kein Schultag.
+    expect(schulzeileAm(lektionen, 'Levin', 'Do', 'B')).toBe('Schule bis 11:30 · Nachmittag frei');
+    expect(schulzeileAm(lektionen, 'Levin', 'Do', 'A')).toBeNull();
+    expect(schulzeileAm(lektionen, 'Lina', 'Di', 'A')).toBeNull();
+    // In den Ferien und krank keine Schule.
+    expect(schulzeileAm(lektionen, 'Levin', 'Di', 'A', { ferien: { state: 'ferien' } })).toBeNull();
+    expect(schulzeileAm(lektionen, 'Levin', 'Di', 'A', { krank: true })).toBeNull();
+  });
+
+  it('weiss für jeden Tag der Woche, ob Ferien sind', () => {
+    // Die Entität beschreibt heute; mit «until» und «next_until» reicht
+    // das für die sieben Tage des Wochenplans.
+    const heute = new Date(2026, 9, 1); // Donnerstag in den Herbstferien
+    const inFerienStand = { state: 'ferien', name: 'Herbstferien', until: '2026-10-11', next: 'Weihnachtsferien', next_in_days: 79, next_until: '2027-01-03' };
+    expect(ferienAm(inFerienStand, heute, heute)).toBe(inFerienStand);
+    expect(ferienAm(inFerienStand, new Date(2026, 9, 6), heute)?.state).toBe('ferien');
+    expect(ferienAm(inFerienStand, new Date(2026, 9, 12), heute)?.state).toBe('schultag');
+    // Ein Schultag vor den Ferien: Ab Samstag Ferien, ab dem 12. wieder Schule.
+    const vorher = new Date(2026, 8, 24);
+    const schulStand = { state: 'schultag', next: 'Herbstferien', next_in_days: 2, next_until: '2026-10-11' };
+    expect(ferienAm(schulStand, new Date(2026, 8, 25), vorher)?.state).toBe('schultag');
+    expect(ferienAm(schulStand, new Date(2026, 8, 28), vorher)).toEqual({ state: 'ferien', name: 'Herbstferien' });
+    expect(ferienAm(schulStand, new Date(2026, 9, 12), vorher)?.state).toBe('schultag');
+    // Ein alter Hub ohne Ende: Nur heute ist sicher.
+    expect(ferienAm({ state: 'ferien' }, new Date(2026, 9, 6), heute)?.state).toBe('schultag');
+    expect(ferienAm(null, heute, heute)).toBeNull();
+  });
+
+  it('gibt dem Babysitter den ausführlichen Satz mit Ort und wer holt', () => {
+    expect(heuteSatz(lektionen, termine, 'Levin', DIENSTAG, {}, true)).toBe(
+      'Schule bis 15:05 · Fussball 17:30 in Sursee, Stefan holt'
+    );
+    // Die kurze Fassung der Kinderseite bleibt, wie sie war.
+    expect(heuteSatz(lektionen, termine, 'Levin', DIENSTAG)).toBe(
+      'Schule 08:20–15:05 · Fussball 17:30'
+    );
+  });
+
+  it('stellt am Wandpanel jedes eingetragene Kind hin - auch an einem leeren Tag', () => {
+    const zeilen = kinderHeute(lektionen, termine, ['Levin', 'Lina', 'Pia'], DIENSTAG, (name) =>
+      name === 'Lina' ? { krank: true } : {}
+    );
+    expect(zeilen).toEqual([
+      { name: 'Levin', satz: 'Schule 08:20–15:05 · Fussball 17:30' },
+      { name: 'Lina', satz: 'Heute krank - gute Besserung!' },
+    ]);
+    // Am Mittwoch hat Lina nichts - sie steht trotzdem da, Pia (ohne
+    // Einträge) nicht.
+    const mittwoch = new Date(DIENSTAG.getTime() + 86_400_000);
+    expect(kinderHeute(lektionen, termine, ['Levin', 'Lina', 'Pia'], mittwoch).map((z) => z.satz)).toEqual([
+      'Schule 08:20–11:30',
+      'Heute steht nichts an.',
+    ]);
   });
 });
