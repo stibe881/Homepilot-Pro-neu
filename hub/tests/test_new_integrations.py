@@ -304,6 +304,30 @@ def test_a_cleared_vacuum_error_clears_in_the_state():
     assert ohne_feld["error"] is None
 
 
+def test_vacuum_state_carries_the_sentences_for_the_sheet():
+    """Punkt 637: Der Fehler von Sauger oder Station steht am Zustand -
+    als fertiger Satz, derselbe wie in der Push-Nachricht.
+    """
+    from types import SimpleNamespace
+
+    from homepilot.integrations.roborock import vacuum_state
+
+    state = vacuum_state(
+        _Status(
+            state_name="error",
+            error_code_name="robot_trapped",
+            dirty_water_box_status=SimpleNamespace(name="full_not_installed"),
+        )
+    )
+    assert state["problems"] == [
+        "Der Sauger steckt fest.",
+        "Der Schmutzwassertank ist voll oder nicht eingesetzt.",
+    ]
+    # Ohne Störung eine leere Liste, kein fehlendes Feld: Sonst bliebe
+    # der behobene Fehler beim Verschmelzen auf dem Blatt stehen.
+    assert vacuum_state(_Status(state_name="cleaning", error_code_name="none"))["problems"] == []
+
+
 def test_vacuum_state_survives_missing_fields():
     from homepilot.integrations.roborock import vacuum_state
 

@@ -461,6 +461,51 @@ def lauf_meldung(state: dict[str, Any] | None) -> tuple[str, str] | None:
     return (f"lauf:{wann}", satz)
 
 
+def sauger_meldungen(state: dict[str, Any] | None) -> list[tuple[str, str]]:
+    """Was Roboter und Station gerade melden: (Schlüssel, Satz) (rein, testbar).
+
+    Herausgelöst aus sauger_probleme (Punkt 637), weil dieselben Sätze
+    seither auch an der Kachel stehen: Der Roboter meldet seine Fehler
+    selbst (``error``), die Station ihre eigenen - und die Tank- und
+    Beutelstände nochmals getrennt davon (``dock.dirty_water`` und
+    Geschwister, siehe DOCK_MELDER). Der Schlüssel nennt die Quelle mit,
+    damit «Tank voll» und «steckt fest» je eine eigene Nachricht
+    bekommen und nicht einander verdrängen.
+    """
+    state = state or {}
+    ergebnis: list[tuple[str, str]] = []
+    fehler = str(state.get("error") or "").strip()
+    if fehler and fehler.lower() not in SAUGER_OK:
+        ergebnis.append((f"fehler:{fehler}", sauger_wort(fehler)))
+    dock = state.get("dock")
+    if isinstance(dock, dict):
+        # Je Sache eine Nachricht, nicht je Feld: Die Station meldet
+        # denselben vollen Tank in zwei Feldern (dock_thema).
+        themen: set[str] = set()
+        for feld in DOCK_MELDER:
+            wert = str(dock.get(feld) or "").strip()
+            if not wert or wert.lower() in SAUGER_OK:
+                continue
+            thema = dock_thema(feld, wert)
+            if thema in themen:
+                continue
+            themen.add(thema)
+            ergebnis.append((f"dock:{feld}:{wert}", sauger_wort(wert)))
+    return ergebnis
+
+
+def sauger_saetze(state: dict[str, Any] | None) -> list[str]:
+    """Die Sätze allein - für die Kachel und das Reinigungsblatt (rein, testbar).
+
+    Punkt 637: Gewünscht im Haus, dass der Fehler von Station oder
+    Sauger auch auf dem Blatt steht, nicht nur in der Push-Nachricht.
+    Übersetzt wird deshalb hier, einmal, und nicht nochmals in der App -
+    sonst hiesse derselbe volle Tank in der Nachricht anders als auf dem
+    Blatt.
+    """
+    return [satz for _, satz in sauger_meldungen(state)]
+
+
 def sauger_probleme(entities: list[Any]) -> list[tuple[Any, str, str]]:
     """Sauger mit gemeldetem Problem: (Gerät, Schlüssel, Satz) (rein, testbar).
 
@@ -475,23 +520,8 @@ def sauger_probleme(entities: list[Any]) -> list[tuple[Any, str, str]]:
         if getattr(entity, "kind", None) != "vacuum":
             continue
         state = entity.state or {}
-        fehler = str(state.get("error") or "").strip()
-        if fehler and fehler.lower() not in SAUGER_OK:
-            ergebnis.append((entity, f"fehler:{fehler}", sauger_wort(fehler)))
-        dock = state.get("dock")
-        if isinstance(dock, dict):
-            # Je Sache eine Nachricht, nicht je Feld: Die Station meldet
-            # denselben vollen Tank in zwei Feldern (dock_thema).
-            themen: set[str] = set()
-            for feld in DOCK_MELDER:
-                wert = str(dock.get(feld) or "").strip()
-                if not wert or wert.lower() in SAUGER_OK:
-                    continue
-                thema = dock_thema(feld, wert)
-                if thema in themen:
-                    continue
-                themen.add(thema)
-                ergebnis.append((entity, f"dock:{feld}:{wert}", sauger_wort(wert)))
+        for schluessel, satz in sauger_meldungen(state):
+            ergebnis.append((entity, schluessel, satz))
         # Und der Lauf selbst: Er endet manchmal, ohne dass irgendwo ein
         # Fehler steht - der Sauger kam schlicht nicht überall durch.
         lauf = lauf_meldung(state)

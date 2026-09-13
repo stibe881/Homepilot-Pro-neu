@@ -85,6 +85,33 @@ export function zustandWort(state: unknown): string {
   return ZUSTAND_WOERTER[roh] ?? zustandLesbar(roh);
 }
 
+/**
+ * Was Sauger oder Station gerade melden - als Sätze (rein, testbar).
+ *
+ * Punkt 637: Gewünscht im Haus, dass der Fehler auf dem Reinigungsblatt
+ * steht, nicht nur in der Push-Nachricht. Übersetzt hat der Hub
+ * (`problems`, watchrules.sauger_saetze) - die App hält keine zweite
+ * Tabelle. Ein Hub, der das Feld noch nicht kennt, bekommt die rohen
+ * Namen aus `error` und `dock` lesbar gemacht: lieber «robot trapped»
+ * als gar nichts.
+ */
+export function saugerprobleme(sauger: { state: Record<string, unknown> }): string[] {
+  const fertig = sauger.state.problems;
+  if (Array.isArray(fertig)) return fertig.map(String).filter((satz) => satz.trim() !== '');
+  const ok = ['', 'none', 'ok', 'okay', '0'];
+  const roh: string[] = [];
+  const fehler = String(sauger.state.error ?? '').trim();
+  if (!ok.includes(fehler.toLowerCase())) roh.push(fehler);
+  const dock = sauger.state.dock;
+  if (dock && typeof dock === 'object') {
+    for (const feld of ['error', 'dirty_water', 'clear_water', 'dust_bag', 'water_shortage']) {
+      const wert = String((dock as Record<string, unknown>)[feld] ?? '').trim();
+      if (!ok.includes(wert.toLowerCase())) roh.push(wert);
+    }
+  }
+  return roh.map((wert) => `Der Sauger meldet: ${wert.replace(/_/g, ' ')}.`);
+}
+
 /** Ein Knopf auf dem Reinigungsblatt (Punkt 636). */
 export interface Saugerknopf {
   command: 'pause' | 'start' | 'locate' | 'dock';

@@ -7652,3 +7652,27 @@ Keine Browser-Probe: Der Demo-Hub hat keinen Sauger. Die Regel ist in
 Jest festgehalten.
 
 Stellen: `app/src/lib/saugerkarte.ts`, `app/src/components/VacuumHome.tsx`
+
+### 637. Der Fehler von Sauger oder Station steht auf dem Reinigungsblatt ✓ erledigt
+
+Aus dem Haus, mit dem Bild des Blatts «Olga»: «Auf dieser Karte soll
+man auch den Fehler von der Station oder vom Sauger sehen, sofern
+einer vorhanden ist.»
+
+Der Fehler kam bisher nur als Push-Nachricht und stand sonst nirgends -
+auf dem Blatt prangte «Komplette Reinigung starten» über einem
+Roboter, der unter dem Bett feststeckte. Jetzt steht über dem Hinweis
+ein roter Kasten mit dem, was Sauger oder Station melden. Übersetzt
+wird einmal, im Hub: `vacuum_state` legt die fertigen Sätze als
+`problems` an den Zustand (`watchrules.sauger_saetze`, herausgelöst
+aus `sauger_probleme`), dieselben wie in der Nachricht - sonst hiesse
+derselbe volle Tank an zwei Orten verschieden. Eine leere Liste, wenn
+nichts ansteht, kein fehlendes Feld: Beim Verschmelzen bliebe der
+behobene Fehler sonst kleben (derselbe Fall wie beim `error` selbst).
+Ein Hub ohne das Feld bekommt in der App die rohen Namen lesbar
+gemacht.
+
+Keine Browser-Probe: Der Demo-Hub hat keinen Sauger. Beide Hälften sind
+in Tests festgehalten.
+
+Stellen: `hub/homepilot/core/watchrules.py`, `hub/homepilot/integrations/roborock.py`, `app/src/lib/saugerkarte.ts`, `app/src/components/VacuumHome.tsx`

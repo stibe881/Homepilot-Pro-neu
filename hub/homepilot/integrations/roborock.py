@@ -32,6 +32,7 @@ from ..core.bildspeicher import Bildspeicher
 from ..core.entity import Entity, EntityKind
 from ..core.errors import ConfigError
 from ..core.integration import Integration
+from ..core.watchrules import sauger_saetze
 
 # Saugstärke-Stufen → Code (V2, moderne S-Serie). Für die App bewusst auf
 # vier verständliche Stufen reduziert.
@@ -266,6 +267,11 @@ def vacuum_state(status: Any) -> dict[str, Any]:
     dock = dock_state(status)
     if dock:
         result["dock"] = dock
+    # Die fertigen Sätze für Kachel und Reinigungsblatt (Punkt 637) -
+    # dieselben wie in der Push-Nachricht (watchrules.SAUGER_TEXTE).
+    # Ausdrücklich eine leere Liste, wenn nichts ansteht: Wie beim
+    # Fehler oben würde ein weggelassenes Feld beim Verschmelzen kleben.
+    result["problems"] = sauger_saetze(result)
     fan = getattr(status, "fan_power", None)
     if fan is not None:
         # Enum (hat .name) oder roher Code – auf einen der vier Namen bringen.

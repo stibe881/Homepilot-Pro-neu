@@ -22,6 +22,7 @@ import {
   shapeInCrop,
   saugerFaehrt,
   saugerknoepfe,
+  saugerprobleme,
   vacuumText,
 } from '../lib/saugerkarte';
 import { Colors, radius, type, useColors } from '../theme';
@@ -494,6 +495,10 @@ function CleanDialog({
   // Wer über den Chip «saugt» hierherkommt, will sie meist anhalten oder
   // heimschicken, nicht eine zweite Reinigung starten.
   const knoepfe = saugerknoepfe(entity);
+  // Und was gerade nicht stimmt (Punkt 637): Der Fehler von Sauger oder
+  // Station, in den Sätzen des Hubs. Ohne ihn stünde «Komplette
+  // Reinigung starten» über einem Roboter, der unter dem Bett feststeckt.
+  const probleme = saugerprobleme(entity);
   const sofort = (command: string) => {
     onCommand(entity.id, command);
     onClose();
@@ -655,6 +660,19 @@ function CleanDialog({
                   </Pressable>
                 );
               })}
+            </View>
+          ) : null}
+
+          {probleme.length > 0 ? (
+            <View style={styles.problemBox} accessibilityRole="alert">
+              <Ionicons name="warning-outline" size={18} color={colors.danger} />
+              <View style={{ flex: 1, gap: 2 }}>
+                {probleme.map((satz) => (
+                  <Text key={satz} style={styles.problemText}>
+                    {satz}
+                  </Text>
+                ))}
+              </View>
             </View>
           ) : null}
 
@@ -1029,6 +1047,17 @@ const makeStyles = (colors: Colors) =>
       borderColor: '#FFFFFF',
     },
     dialogHint: { color: colors.inkFaint, fontSize: 13, lineHeight: 19 },
+    problemBox: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 10,
+      padding: 12,
+      borderRadius: radius.control,
+      backgroundColor: colors.dangerSoft,
+      borderWidth: 1,
+      borderColor: colors.danger,
+    },
+    problemText: { color: colors.danger, fontSize: 14, fontWeight: '600', lineHeight: 19 },
     dialogActions: { flexDirection: 'row', gap: 10 },
     cancel: {
       flex: 1,

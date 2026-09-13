@@ -15,6 +15,7 @@ import {
   shapeInCrop,
   saugerFaehrt,
   saugerknoepfe,
+  saugerprobleme,
   vacuumText,
   zustandLesbar,
   zustandWort,
@@ -176,5 +177,28 @@ describe('Die Knöpfe auf dem Reinigungsblatt (Punkt 636)', () => {
   it('bietet nur an, was der Hub als Kommando kennt', () => {
     expect(befehle('cleaning', ['start', 'dock'])).toEqual(['dock']);
     expect(befehle('cleaning', [])).toEqual([]);
+  });
+});
+
+describe('Der Fehler auf dem Reinigungsblatt (Punkt 637)', () => {
+  it('zeigt die Sätze des Hubs, wie sie sind', () => {
+    const saetze = ['Der Sauger steckt fest.', 'Der Schmutzwassertank ist voll.'];
+    expect(saugerprobleme({ state: { state: 'error', problems: saetze } })).toEqual(saetze);
+  });
+
+  it('zeigt nichts, wenn nichts ansteht', () => {
+    expect(saugerprobleme({ state: { state: 'cleaning', problems: [] } })).toEqual([]);
+    expect(saugerprobleme({ state: { state: 'cleaning', error: null } })).toEqual([]);
+    expect(saugerprobleme({ state: { state: 'docked', dock: { error: 'ok', type: 'x' } } })).toEqual([]);
+  });
+
+  it('macht bei einem alten Hub die rohen Namen wenigstens lesbar', () => {
+    // Ein Hub ohne `problems` schickt weiter `error` und `dock` -
+    // lieber «robot trapped» auf dem Blatt als eine leere Stelle.
+    expect(
+      saugerprobleme({
+        state: { state: 'error', error: 'robot_trapped', dock: { dirty_water: 'full_not_installed' } },
+      })
+    ).toEqual(['Der Sauger meldet: robot trapped.', 'Der Sauger meldet: full not installed.']);
   });
 });
