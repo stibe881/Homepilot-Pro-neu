@@ -23,7 +23,7 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Card } from '../../components/Card';
 import {
@@ -33,6 +33,7 @@ import {
   sternSatz,
   wochenSterne,
 } from '../../lib/aemtlisterne';
+import { mitRolle, nummernVon, waehlbar } from '../../lib/familie';
 import { terminWann } from '../../lib/kalenderliste';
 import {
   TAGE,
@@ -42,6 +43,9 @@ import {
   ferienpause,
   geburtstagSatz,
   heuteSatz,
+  isoDatum,
+  krankBis,
+  krankSatz,
   morgenPackSatz,
   kindTermine,
   naechstesMal,
@@ -430,6 +434,9 @@ export function Kindseite({
   kontakte,
   sachen,
   mitglieder,
+  mitgliedEintrag,
+  onKrank,
+  onKurAnlegen,
   onBack,
   onAdd,
   onRemove,
@@ -463,6 +470,12 @@ export function Kindseite({
   /** Wer bringen oder holen kann (Punkt 621): die Personenreihe ohne
    *  das Kind selbst. */
   mitglieder?: string[];
+  /** Der rohe Eintrag aus «members» - er trägt `sick_until` (Punkt 622). */
+  mitgliedEintrag?: FamilyItem | null;
+  /** Krank melden bis zu diesem Tag («JJJJ-MM-TT»), null heisst gesund. */
+  onKrank?: (bis: string | null) => void;
+  /** Ins Medikamente-Modul - eine Kur für dieses Kind anlegen. */
+  onKurAnlegen?: () => void;
   onBack: () => void;
   onAdd: (liste: Wochenliste, zeile: FamilyItem) => void;
   onRemove: (liste: Wochenliste, id: string) => void;
@@ -521,6 +534,15 @@ export function Kindseite({
     )
   );
   const naechste = kindTermine(events, name, jetzt);
+  // Krank (Punkt 622): Solange es gilt, schweigen Schul-Satz und
+  // Packliste, und die Schule steht mit Anruf-Knopf zum Abmelden oben.
+  const krankheitBis = krankBis(mitgliedEintrag, jetzt);
+  const krank = krankheitBis !== null;
+  const schulKontakte = mitRolle(kontakte ?? [], 'schule');
+  const heuteIso = isoDatum(jetzt);
+  const morgenIso = isoDatum(
+    new Date(jetzt.getFullYear(), jetzt.getMonth(), jetzt.getDate() + 1)
+  );
 
   const zeile = (
     eintrag: FamilyItem,
@@ -575,12 +597,16 @@ export function Kindseite({
       <Card style={styles.listCard}>
         <Text style={eigen.kartenTitel}>Heute</Text>
         <Text style={eigen.heute}>
-          {heuteSatz(lektionen, termine, name, jetzt, { ferien })}
+          {heuteSatz(lektionen, termine, name, jetzt, { ferien, krank })}
         </Text>
         {/* Der Blick nach vorn: Was morgen in den Thek gehört, will man
             am Abend wissen, nicht am Morgen um sieben. */}
         {(() => {
-          const packZeile = morgenPackSatz(sachen, name, jetzt, { ferien });
+          const packZeile = morgenPackSatz(sachen, name, jetzt, {
+            ferien,
+            krank,
+            krankBis: krankheitBis,
+          });
           return packZeile ? (
             <View style={eigen.vorfreudeZeile}>
               <Ionicons name="bag-handle-outline" size={16} color={colors.accent} />
@@ -589,6 +615,82 @@ export function Kindseite({
           ) : null;
         })()}
       </Card>
+
+      {/* Krank (Punkt 622): ein Knopf, und solange er gilt, steht hier
+          die Schule mit der Nummer zum Abmelden, dazu «Auch morgen»,
+          «Wieder gesund» und der Weg zur Kur. Fällige Ämtli gibt die
+          Familienseite beim Krankmelden an den Nächsten weiter. */}
+      {onKrank ? (
+        <Card style={styles.listCard}>
+          {krank ? (
+            <>
+              <Text style={eigen.kartenTitel}>{krankSatz(krankheitBis, jetzt)}</Text>
+              {schulKontakte.map((kontakt) =>
+                nummernVon(kontakt).slice(0, 1).map((nummer) => (
+                  <Pressable
+                    key={`${String(kontakt.id)}-${nummer.nummer}`}
+                    onPress={() =>
+                      Linking.openURL(`tel:${waehlbar(nummer.nummer)}`).catch(() => {})
+                    }
+                    accessibilityRole="button"
+                    accessibilityLabel={`${String(kontakt.text ?? '')} anrufen und abmelden`}
+                    style={({ pressed }) => [eigen.krankZeile, pressed && { opacity: 0.7 }]}
+                  >
+                    <Ionicons name="call-outline" size={18} color={colors.accent} />
+                    <Text style={[eigen.heute, { flex: 1 }]}>
+                      {String(kontakt.text ?? '')} · {nummer.nummer}
+                    </Text>
+                    <Text style={eigen.formKnopfText}>abmelden</Text>
+                  </Pressable>
+                ))
+              )}
+              {schulKontakte.length === 0 ? (
+                <Text style={styles.checkSub}>
+                  Kein Kontakt mit der Rolle «Schule/Hort» - dann stünde die Nummer zum
+                  Abmelden hier.
+                </Text>
+              ) : null}
+              <View style={styles.chipRow}>
+                {krankheitBis < morgenIso ? (
+                  <Pressable
+                    onPress={() => onKrank(morgenIso)}
+                    accessibilityRole="button"
+                    style={styles.chip}
+                  >
+                    <Text style={styles.chipText}>Auch morgen</Text>
+                  </Pressable>
+                ) : null}
+                <Pressable
+                  onPress={() => onKrank(null)}
+                  accessibilityRole="button"
+                  style={styles.chip}
+                >
+                  <Text style={styles.chipText}>Wieder gesund</Text>
+                </Pressable>
+                {onKurAnlegen ? (
+                  <Pressable
+                    onPress={onKurAnlegen}
+                    accessibilityRole="button"
+                    style={styles.chip}
+                  >
+                    <Text style={styles.chipText}>Kur anlegen</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </>
+          ) : (
+            <Pressable
+              onPress={() => onKrank(heuteIso)}
+              accessibilityRole="button"
+              accessibilityLabel={`${name} heute krank melden`}
+              style={({ pressed }) => [eigen.formKnopf, pressed && { opacity: 0.7 }]}
+            >
+              <Ionicons name="thermometer-outline" size={16} color={colors.accent} />
+              <Text style={eigen.formKnopfText}>Heute krank</Text>
+            </Pressable>
+          )}
+        </Card>
+      ) : null}
 
       {/* Zum Vorfreuen: Kinder zählen Tage - bis zu den Ferien und bis
           zum eigenen Geburtstag. Beides rechnet der Hub längst
@@ -1060,6 +1162,7 @@ const makeStyles = (colors: Colors) =>
     kartenTitel: { color: colors.ink, fontSize: 15, fontWeight: '700' },
     heute: { color: colors.inkSoft, fontSize: 14, lineHeight: 20 },
     vorfreudeZeile: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    krankZeile: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
     // Die Sterne: gross genug zum Zählen mit dem Finger. Die Reihe
     // bricht um, wenn das Ziel breiter ist als ein Telefon.
     sternReihe: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 8 },

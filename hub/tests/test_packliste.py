@@ -42,6 +42,14 @@ def test_in_the_holidays_only_gear_marked_for_them_is_packed():
     assert packliste.gilt_in_den_ferien({}) is False
 
 
+def test_a_sick_child_needs_no_school_bag():
+    # Punkt 622: Mit Fieber im Bett ist «Levin braucht morgen: Turnsack»
+    # die Nachricht, die man nicht lesen will - die Schwester packt weiter.
+    assert packliste.morgen_zeilen(GEAR, DIENSTAG_A, krank={"Levin"}) == {
+        "Lina": ["Malschürze"]
+    }
+
+
 def test_the_evening_sentence_reads_like_a_person_wrote_it():
     assert packliste.satz({"Levin": ["Turnsack", "Flöte"], "Lina": ["Malschürze"]}) == (
         "Levin: Turnsack und Flöte · Lina: Malschürze"

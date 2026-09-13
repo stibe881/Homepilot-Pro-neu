@@ -157,6 +157,10 @@ def test_activities_with_a_place_become_departure_candidates():
         "aktivitaet:ferien_ok:2026-08-30:bringt"
     ]
     assert aktivitaeten_heute(None, JETZT) == []
+    # Für ein krank gemeldetes Kind fährt niemand (Punkt 622).
+    assert [t["kennung"] for t in aktivitaeten_heute(activities, JETZT, krank={"Levin"})] == [
+        "aktivitaet:ferien_ok:2026-08-30:bringt"
+    ]
 
 
 # ── Winter: Schnee und Glatteis (Punkt 585) ──────────────────────────────

@@ -1658,7 +1658,11 @@ class Watchdog:
             == schulferien.FERIEN
         )
         zeilen = packliste.morgen_zeilen(
-            self.hub.data.get("family_gear"), morgen, ferien
+            self.hub.data.get("family_gear"),
+            morgen,
+            ferien,
+            # Wer morgen noch krank ist, braucht keinen Thek (Punkt 622).
+            familie.krank_heute(self.hub.data.get("family_members"), morgen),
         )
         text = packliste.satz(zeilen)
         if not text:
@@ -2181,7 +2185,11 @@ class Watchdog:
             == schulferien.FERIEN
         )
         termine = losfahren.kandidaten(events, jetzt) + losfahren.aktivitaeten_heute(
-            self.hub.data.get("family_activities"), jetzt, ferien
+            self.hub.data.get("family_activities"),
+            jetzt,
+            ferien,
+            # Für ein krankes Kind fährt niemand (Punkt 622).
+            familie.krank_heute(self.hub.data.get("family_members"), jetzt.date()),
         )
         if not termine:
             return

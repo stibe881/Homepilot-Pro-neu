@@ -14,6 +14,7 @@ verschiedene Rechnungen wären irgendwann zwei verschiedene Wochen.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import date
 from typing import Any
 
@@ -40,7 +41,10 @@ def gilt_in_den_ferien(eintrag: dict[str, Any]) -> bool:
 
 
 def morgen_zeilen(
-    gear: list[Any] | None, morgen: date, ferien: bool = False
+    gear: list[Any] | None,
+    morgen: date,
+    ferien: bool = False,
+    krank: Collection[str] = (),
 ) -> dict[str, list[str]]:
     """Je Kind, was morgen mitmuss (rein, testbar).
 
@@ -51,7 +55,8 @@ def morgen_zeilen(
     Sind morgen Ferien (Punkt 620), bleiben die Schulsachen zuhause:
     In den Herbstferien um 19 Uhr «Levin braucht morgen: Turnsack» war
     die Nachricht, die man abbestellt. Nur was den Schalter «auch in
-    den Ferien» trägt, kommt dann noch.
+    den Ferien» trägt, kommt dann noch. Und wer morgen noch krank
+    gemeldet ist (Punkt 622), braucht gar nichts.
     """
     tag = tag_von(morgen)
     woche = woche_von(morgen)
@@ -68,7 +73,7 @@ def morgen_zeilen(
             continue
         text = str(eintrag.get("text") or "").strip()
         wer = str(eintrag.get("member") or "").strip()
-        if not text or not wer:
+        if not text or not wer or wer in krank:
             continue
         zeilen.setdefault(wer, []).append(text)
     return zeilen

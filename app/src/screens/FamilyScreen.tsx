@@ -84,7 +84,7 @@ import { ROLE_LABELS } from '../lib/rollen';
 import { naechsteStraehne, straehnenSatz } from '../lib/straehne';
 import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, EventForm, FamilyItem, GroupedChecklist, MealRow, Member, MemberAddRow, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, Styles, TaskAddRow, TwoFieldForm, VorratBlatt, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, pickPhoto, rotateMember } from './family/bausteine';
 import { Kindseite, Wochenliste } from './family/kindseite';
-import { TAGE, aktivitaetZeile, aktivitaetenAm, istKind, verschmelze, wocheVon } from '../lib/kindseite';
+import { TAGE, aemtliAbgeben, aktivitaetZeile, aktivitaetenAm, istKind, verschmelze, wocheVon } from '../lib/kindseite';
 import { farbIndex, initialen, personenGruppen, rolleZeile } from '../lib/personenliste';
 import { Gutscheine } from './family/gutscheine';
 import {
@@ -815,6 +815,33 @@ export function FamilyScreen({
         sachen={data.gear ?? []}
         // Wer bringen oder holen kann (Punkt 621): alle ausser dem Kind.
         mitglieder={members.filter((m) => m.name !== kind && !m.shared).map((m) => m.name)}
+        // Krank (Punkt 622): `sick_until` hängt am Eintrag in «members».
+        // Ein Kind mit eigenem Zugang hat dort keinen - dann legt das
+        // Krankmelden einen an, wie beim Sterne-Ziel (SternZielForm).
+        mitgliedEintrag={
+          (data.members ?? []).find(
+            (eintrag: FamilyItem) => String(eintrag.text ?? '').trim() === kind
+          ) ?? null
+        }
+        onKrank={(bis) => {
+          const roh = (data.members ?? []).find(
+            (eintrag: FamilyItem) => String(eintrag.text ?? '').trim() === kind
+          );
+          if (roh?.id) update('members', String(roh.id), { sick_until: bis });
+          else if (bis) add('members', { text: kind, role: 'kind', sick_until: bis });
+          // Fällige Ämtli an den Nächsten in der Reihe - sonst wird das
+          // Ämtli des kranken Kindes rot überfällig und steht am
+          // Wandpanel unter «ÄMTLI HEUTE» (lib/kindseite.ts).
+          if (bis) {
+            for (const patch of aemtliAbgeben(data.chores ?? [], kind, new Date())) {
+              update('chores', patch.id, { member: patch.member });
+            }
+          }
+        }}
+        onKurAnlegen={() => {
+          setKind(null);
+          setView('medications');
+        }}
         // Frisch beim Zeichnen: `jetztTick` läuft nur, solange das
         // Rückgängig-Band steht, und wäre hier sonst die Uhrzeit von
         // vorgestern.

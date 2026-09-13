@@ -6,6 +6,7 @@
  * Dienstagabend stimmt und nützt nichts.
  */
 import {
+  aemtliAbgeben,
   aktivitaetZeile,
   aktivitaetenAm,
   fahrtSatz,
@@ -19,6 +20,8 @@ import {
   morgenPackSatz,
   istKind,
   kindTermine,
+  krankBis,
+  krankSatz,
   minuten,
   naechstesMal,
   nenntPerson,
@@ -245,6 +248,51 @@ describe('heuteSatz', () => {
         ferien: { state: 'schultag', next: 'Herbstferien', next_in_days: 1 },
       })
     ).toBeNull();
+  });
+});
+
+describe('krank (Punkt 622)', () => {
+  it('kennt die Krankmeldung bis Mitternacht nach dem letzten Tag', () => {
+    expect(krankBis({ sick_until: '2026-09-01' }, DIENSTAG)).toBe('2026-09-01');
+    expect(krankBis({ sick_until: '2026-08-31' }, DIENSTAG)).toBeNull();
+    expect(krankBis({}, DIENSTAG)).toBeNull();
+    expect(krankBis({ sick_until: 'gestern' }, DIENSTAG)).toBeNull();
+    expect(krankSatz('2026-09-01', DIENSTAG)).toBe('Krank gemeldet bis heute');
+    expect(krankSatz('2026-09-02', DIENSTAG)).toBe('Krank gemeldet bis morgen');
+    expect(krankSatz('2026-09-15', DIENSTAG)).toBe('Krank gemeldet bis 15.09.');
+  });
+
+  it('lässt Schul-Satz und Packliste schweigen', () => {
+    const lektionen = [{ member: 'Levin', day: 'Di', from: '08:20', to: '15:05' }];
+    expect(heuteSatz(lektionen, [], 'Levin', DIENSTAG, { krank: true })).toBe(
+      'Heute krank - gute Besserung!'
+    );
+    const gear = [{ member: 'Levin', day: 'Mi', text: 'Turnsack' }];
+    // Krank bis morgen: kein Thek. Krank nur bis heute: morgen wieder Schule.
+    expect(
+      morgenPackSatz(gear, 'Levin', DIENSTAG, { krank: true, krankBis: '2026-09-02' })
+    ).toBeNull();
+    expect(
+      morgenPackSatz(gear, 'Levin', DIENSTAG, { krank: true, krankBis: '2026-09-01' })
+    ).toBe('Morgen mitnehmen: Turnsack');
+  });
+
+  it('gibt fällige Ämtli an den Nächsten in der Reihe', () => {
+    const chores = [
+      { id: 'a', member: 'Levin', members: ['Levin', 'Lina', 'Stefan'], due: '2026-09-01' },
+      { id: 'b', member: 'Levin', members: ['Levin', 'Lina'], due: '2026-08-30' },
+      // Übermorgen darf warten - vielleicht ist er bis dann gesund.
+      { id: 'c', member: 'Levin', members: ['Levin', 'Lina'], due: '2026-09-03' },
+      // Nicht seins, schon erledigt, oder allein in der Reihe.
+      { id: 'd', member: 'Lina', members: ['Levin', 'Lina'], due: '2026-09-01' },
+      { id: 'e', member: 'Levin', members: ['Levin', 'Lina'], due: '2026-09-01', done: true },
+      { id: 'f', member: 'Levin', members: ['Levin'], due: '2026-09-01' },
+    ];
+    expect(aemtliAbgeben(chores, 'Levin', DIENSTAG)).toEqual([
+      { id: 'a', member: 'Lina' },
+      { id: 'b', member: 'Lina' },
+    ]);
+    expect(aemtliAbgeben(null, 'Levin', DIENSTAG)).toEqual([]);
   });
 });
 

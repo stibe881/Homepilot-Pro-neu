@@ -294,6 +294,86 @@ export function wochenliste(
 export interface Tageslage {
   /** Der Zustand der Schulferien-Entität (`schulferien.heute`). */
   ferien?: Eintrag | null;
+  /** Krank gemeldet (Punkt 622): kein Schul-Satz, keine Packliste. */
+  krank?: boolean;
+  /** Der letzte Krankheitstag «JJJJ-MM-TT» - für die Packliste von morgen. */
+  krankBis?: string | null;
+}
+
+// ── Krank (Punkt 622 der Werkbank) ─────────────────────────────────────
+//
+// Es gab keinen Zustand «krank». Lag Levin mit Fieber im Bett, sagte
+// der Heute-Satz «Schule 08:20–15:05», um 19 Uhr kam «Levin braucht
+// morgen: Turnsack», und sein Ämtli wurde rot überfällig. Das Feld
+// `sick_until` am Mitglied trägt den letzten Krankheitstag als
+// «JJJJ-MM-TT»; der Hub liest dasselbe Feld (core/familie.py).
+
+/** «JJJJ-MM-TT» aus einem Datum, in Ortszeit (rein, testbar). */
+export function isoDatum(datum: Date): string {
+  return `${datum.getFullYear()}-${String(datum.getMonth() + 1).padStart(2, '0')}-${String(
+    datum.getDate()
+  ).padStart(2, '0')}`;
+}
+
+/** Bis wann das Mitglied krank gemeldet ist - null, wenn nicht oder
+ *  nicht mehr (rein, testbar). Um Mitternacht nach dem Enddatum ist
+ *  alles wieder normal. */
+export function krankBis(eintrag: Eintrag | null | undefined, jetzt: Date): string | null {
+  const bis = String(eintrag?.sick_until ?? '').trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(bis)) return null;
+  return bis >= isoDatum(jetzt) ? bis : null;
+}
+
+/** «Krank gemeldet bis heute» / «bis morgen» / «bis 15.09.» (rein, testbar). */
+export function krankSatz(bis: string, jetzt: Date): string {
+  const heute = isoDatum(jetzt);
+  const morgen = isoDatum(new Date(jetzt.getFullYear(), jetzt.getMonth(), jetzt.getDate() + 1));
+  if (bis <= heute) return 'Krank gemeldet bis heute';
+  if (bis === morgen) return 'Krank gemeldet bis morgen';
+  return `Krank gemeldet bis ${bis.slice(8, 10)}.${bis.slice(5, 7)}.`;
+}
+
+/** Ein Ämtli-Eintrag, so wie die Reihe ihn führt. */
+interface Aemtli {
+  id?: unknown;
+  member?: unknown;
+  members?: unknown;
+  due?: unknown;
+  done?: unknown;
+}
+
+/**
+ * Welche fälligen Ämtli ein krankes Kind an den Nächsten abgibt
+ * (rein, testbar). Zurück kommen die Änderungen: je Ämtli die Kennung
+ * und wer es übernimmt.
+ *
+ * Nur was heute fällig oder überfällig ist - das Ämtli von übermorgen
+ * darf warten, vielleicht ist das Kind bis dann wieder gesund. Die
+ * Reihe rückt wie beim Abhaken weiter (dieselbe Regel wie
+ * rotateMember in bausteine.tsx und core/chores.py); wer allein in der
+ * Reihe steht, gibt nichts ab - an wen auch.
+ */
+export function aemtliAbgeben(
+  chores: Aemtli[] | null | undefined,
+  kind: string,
+  jetzt: Date
+): { id: string; member: string }[] {
+  const heute = isoDatum(jetzt);
+  const patches: { id: string; member: string }[] = [];
+  for (const chore of chores ?? []) {
+    if (!chore || chore.done || String(chore.member ?? '').trim() !== kind) continue;
+    const frist = String(chore.due ?? '').slice(0, 10);
+    if (!frist || frist > heute) continue;
+    const reihe = (Array.isArray(chore.members) ? chore.members : [])
+      .map((name) => String(name).trim())
+      .filter(Boolean);
+    if (reihe.length < 2) continue;
+    const stelle = reihe.indexOf(kind);
+    const naechster = stelle < 0 ? reihe[0] : reihe[(stelle + 1) % reihe.length];
+    if (naechster === kind || !chore.id) continue;
+    patches.push({ id: String(chore.id), member: naechster });
+  }
+  return patches;
 }
 
 /** Sind gerade Ferien (oder ein Feiertag)? (rein, testbar) */
@@ -332,6 +412,7 @@ export function heuteSatz(
   jetzt: Date,
   lage: Tageslage = {}
 ): string {
+  if (lage.krank) return 'Heute krank - gute Besserung!';
   const teile: string[] = [];
   const ferien = inFerien(lage.ferien);
   const schule = ferien ? null : schulzeit(lektionen, name, jetzt);
@@ -798,6 +879,9 @@ export function morgenPackSatz(
   lage: Tageslage = {}
 ): string | null {
   const morgen = new Date(jetzt.getFullYear(), jetzt.getMonth(), jetzt.getDate() + 1);
+  // Krank bis mindestens morgen: kein Thek (Punkt 622). Endet die
+  // Krankmeldung heute, gehört die Packliste wieder hin.
+  if (lage.krank && lage.krankBis && lage.krankBis >= isoDatum(morgen)) return null;
   const ferien = morgenFerien(lage.ferien);
   const sachen = packlisteFuer(gear, name, morgen)
     .filter((zeile) => !ferien || giltInDenFerien(zeile))

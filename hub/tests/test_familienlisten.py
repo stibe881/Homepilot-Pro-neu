@@ -122,6 +122,21 @@ def test_the_week_ahead_names_the_edge_of_the_holidays():
     assert text.startswith("Mo: Herbstferien beginnen")
 
 
+def test_a_sick_child_is_known_until_midnight_after_the_last_day():
+    """Punkt 622: Es gab keinen Zustand «krank». Das Feld sick_until am
+    Mitglied trägt den letzten Krankheitstag; danach ist alles normal."""
+    members = [
+        {"text": "Levin", "role": "kind", "sick_until": "2026-09-08"},
+        {"text": "Lina", "role": "kind", "sick_until": "2026-09-01"},
+        {"text": "Pia", "role": "kind"},
+        {"text": "Kaputt", "sick_until": "irgendwann"},
+        "kein dict",
+    ]
+    assert familie.krank_heute(members, date(2026, 9, 8)) == {"Levin"}
+    assert familie.krank_heute(members, date(2026, 9, 9)) == set()
+    assert familie.krank_heute(None, date(2026, 9, 8)) == set()
+
+
 def test_the_week_ahead_names_rides_nobody_has_taken():
     """Punkt 621: «Do Jugi: niemand fährt» gehört in den Sonntagabend-
     Ausblick, nicht auf den Donnerstag um 17 Uhr."""

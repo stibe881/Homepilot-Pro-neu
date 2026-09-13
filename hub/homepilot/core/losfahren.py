@@ -27,6 +27,7 @@ Takt, Nachschlagen und Nachricht übernimmt der Wächter.
 from __future__ import annotations
 
 import math
+from collections.abc import Collection
 from datetime import datetime
 from typing import Any
 
@@ -108,7 +109,10 @@ def kandidaten(events: Any, jetzt: datetime) -> list[dict[str, Any]]:
 
 
 def aktivitaeten_heute(
-    activities: Any, jetzt: datetime, ferien: bool = False
+    activities: Any,
+    jetzt: datetime,
+    ferien: bool = False,
+    krank: Collection[str] = (),
 ) -> list[dict[str, Any]]:
     """Die Wöchentlichen der Kinder als Termine mit Ort (rein, testbar).
 
@@ -120,7 +124,8 @@ def aktivitaeten_heute(
     alle geht. Ohne Person geht sie an alle, wie bisher.
 
     Zweiwochen-Einträge nur in ihrer Woche, und in den Ferien nur, was
-    den Schalter «auch in den Ferien» trägt (Punkt 620).
+    den Schalter «auch in den Ferien» trägt (Punkt 620). Für ein krank
+    gemeldetes Kind (Punkt 622) fährt niemand.
     """
     tag = packliste.tag_von(jetzt.date())
     woche = packliste.woche_von(jetzt.date())
@@ -133,6 +138,8 @@ def aktivitaeten_heute(
         if eintrag_woche and eintrag_woche != woche:
             continue
         if ferien and not packliste.gilt_in_den_ferien(eintrag):
+            continue
+        if str(eintrag.get("member") or "").strip() in krank:
             continue
         ort = str(eintrag.get("ort") or "").strip()
         text = str(eintrag.get("text") or "").strip()

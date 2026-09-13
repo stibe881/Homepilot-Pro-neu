@@ -444,6 +444,31 @@ def ferienrand(rows: Any, heute: date, tage: int = 7) -> list[tuple[date, str]]:
     return sorted(treffer)
 
 
+def krank_heute(members: Any, heute: date) -> set[str]:
+    """Wer heute krank gemeldet ist (rein, testbar) - Punkt 622 der Werkbank.
+
+    Das Feld ``sick_until`` am Mitglied trägt den letzten Krankheitstag
+    als «JJJJ-MM-TT»; um Mitternacht danach ist alles wieder normal.
+    Für ein krankes Kind schweigen Packliste und Losfahr-Wecker - «Levin
+    braucht morgen: Turnsack» ist mit Fieber im Bett die Nachricht, die
+    man nicht lesen will.
+    """
+    krank: set[str] = set()
+    for eintrag in members if isinstance(members, list) else []:
+        if not isinstance(eintrag, dict):
+            continue
+        name = str(eintrag.get("text") or "").strip()
+        bis = str(eintrag.get("sick_until") or "").strip()[:10]
+        if not name or not bis:
+            continue
+        try:
+            if date.fromisoformat(bis) >= heute:
+                krank.add(name)
+        except ValueError:
+            continue
+    return krank
+
+
 def unbesetzte_fahrten(activities: Any, hoechstens: int = 4) -> list[str]:
     """«Do Jugi: niemand fährt» - Wöchentliche mit Ort, aber ohne Person
     (rein, testbar). Punkt 621 der Werkbank: Die Frage «wer fährt Levin
