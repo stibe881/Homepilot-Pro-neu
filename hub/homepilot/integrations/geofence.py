@@ -1001,7 +1001,14 @@ class GeofenceIntegration(Integration):
             return {"state": presence.UNKNOWN, "source": "none", "place": None}
         zustand = dict(entity.state)
         zustand.setdefault("source", "geofence")
-        return presence.settle(zustand, time.time())
+        jetzt = time.time()
+        # Die Ortungspause (Punkt 627): Wer pausiert, ist für das Haus
+        # «unbekannt, weil pausiert» - nicht «weg», und nicht «meldet
+        # sich nicht». Der Wächter und die Familienseite lesen das hier.
+        pausen = presence.pausen_lesen(self.hub.data.get(presence.PAUSE_KEY), jetzt)
+        if zone_id in pausen:
+            return presence.pausiert_zustand(zustand, pausen[zone_id])
+        return presence.settle(zustand, jetzt)
 
     def diagnose(self) -> list[dict[str, Any]]:
         """Je Person eine Zeile: warum steht da, was da steht (Punkt 219)."""

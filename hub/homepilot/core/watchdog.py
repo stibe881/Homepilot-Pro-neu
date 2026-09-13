@@ -1628,12 +1628,19 @@ class Watchdog:
         # Je Person die eigenen Schalter (Einstellungen → Familie und
         # Freunde). Einmal geholt, nicht je Zone: Es ist dieselbe Liste.
         schalter = self.hub.data.get(personen.LADE)
+        # Punkt 627: Wer seine Ortung pausiert hat, schweigt mit Absicht -
+        # weder «meldet sich nicht mehr» noch «Telefon fast leer» sind
+        # dann eine Auskunft. Die Merker bleiben stehen: Läuft die Pause
+        # ab und das Telefon schweigt weiter, kommt die Meldung dann.
+        pausen = presence.pausen_lesen(self.hub.data.get(presence.PAUSE_KEY), jetzt)
         for zone_id in service.zone_ids():
             entity_id = service.zone_entity(zone_id)
             entity = self.hub.registry.get(entity_id) if entity_id else None
             if entity is None:
                 continue
             zustaende.append(dict(entity.state))
+            if zone_id in pausen:
+                continue
             # Punkt 220: Ein leeres Telefon ist die häufigste Ursache für
             # eine tote Ortung – und es kündigt sich an.
             akku = entity.state.get("battery")
