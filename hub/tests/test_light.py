@@ -377,6 +377,55 @@ async def test_umschalten_setzt_beim_einschalten_die_vorgaben():
         await hub.automations.probe_action(schritt)
         assert [befehl for _, befehl, _ in gesendet] == ["set_brightness", "set_color_temp"]
         assert gesendet[0][2]["brightness"] == 20
+        # Die Farbtemperatur reist gleich mit dem ersten Befehl mit
+        # (Punkt 645) - die zweite, eigenständige Anfrage bleibt trotzdem
+        # bestehen, für Anbindungen, die die Abkürzung nicht kennen.
+        assert gesendet[0][2]["color_temp"] == 400
+        assert gesendet[1][2]["color_temp"] == 400
+    finally:
+        await hub.stop()
+
+
+@pytest.mark.asyncio
+async def test_die_farbtemperatur_reist_mit_dem_ersten_befehl():
+    """Punkt 645: «Büro Spot 1 schaltet auf warmweiss und nicht auf
+    neutralweiss.»
+
+    Der Hub schickte «an, mit Helligkeit» und «und diese Farbtemperatur»
+    als zwei getrennte Anfragen an die Bridge - zwei Übergänge an der
+    Lampe statt einem. Bei Hue kam die zweite manchmal zu spät oder ging
+    auf der Zigbee-Funkstrecke unter, und die Lampe blieb bei ihrer
+    Einschalt-Farbe (hue.light_body prüft die andere Hälfte davon: dass
+    der PUT-Rumpf der ersten Anfrage die Farbe wirklich trägt).
+    """
+    hub = await hub_mit([])
+    try:
+        await hub.registry.add(
+            Entity(
+                id="hue.buero",
+                name="Büro Spot 1",
+                kind="light",
+                integration="demo",
+                state={"state": "off"},
+                commands=["turn_on", "set_brightness", "set_color_temp"],
+            )
+        )
+        gesendet: list[tuple[str, str, dict]] = []
+
+        async def merken(entity_id, command, data=None):
+            gesendet.append((entity_id, command, data or {}))
+
+        hub.integrations.dispatch_command = merken  # type: ignore[method-assign]
+        await hub.automations.probe_action(
+            {
+                "type": "light",
+                "entity_id": "hue.buero",
+                "brightness": 100,
+                "color_temp": 286,
+            }
+        )
+        assert [befehl for _, befehl, _ in gesendet] == ["set_brightness", "set_color_temp"]
+        assert gesendet[0][2] == {"brightness": 100.0, "color_temp": 286.0}
     finally:
         await hub.stop()
 

@@ -231,6 +231,72 @@ def powerup_body(mode: str) -> dict[str, Any]:
     raise HomePilotError("Nach Stromausfall geht nur 'previous', 'off' oder 'on'")
 
 
+def farbtemperatur_mirek(data: dict[str, Any]) -> int:
+    """Die gewünschte Farbtemperatur als Mirek, geklemmt auf Hues Bereich
+    (153 = kalt/6500K … 500 = warm/2000K) (rein, testbar).
+
+    Nimmt ``kelvin``, ``color_temp`` oder ``mirek`` entgegen - so, wie es
+    beim jeweiligen Aufrufer gerade vorliegt.
+    """
+    if "kelvin" in data and float(data["kelvin"]) > 0:
+        mirek = 1_000_000 / float(data["kelvin"])
+    else:
+        mirek = float(data.get("color_temp", data.get("mirek", 366)))
+    return max(153, min(500, round(mirek)))
+
+
+def light_body(command: str, data: dict[str, Any], war_an: bool) -> dict[str, Any]:
+    """Der PUT-Rumpf für ein Kommando an ein Hue-Licht (rein, testbar) -
+    Punkt 645 der Werkbank.
+
+    ``war_an`` ist der Zustand vor dem Befehl - nur ``toggle`` braucht
+    ihn.
+
+    Eine Farbtemperatur reist im selben PUT wie das Einschalten oder
+    Dimmen mit, wenn eine angegeben ist - nicht erst in einem zweiten,
+    danach geschickten. Der gemeldete Fall: «Büro Spot 1» schaltete
+    immer auf warmweiss, ganz gleich welchen Weisston man wählte. Der
+    Hub schickte zwei PUT-Anfragen nacheinander - erst «an, mit dieser
+    Helligkeit», dann «und diese Farbtemperatur» - und damit zwei
+    Übergänge an der Lampe statt einem. Die zweite Anfrage kam auf der
+    Zigbee-Funkstrecke der Leuchte manchmal zu spät oder ging unter,
+    und die Lampe blieb bei der Farbe, mit der sie einschaltete. Jetzt
+    trägt schon die erste Anfrage die gewünschte Farbtemperatur mit,
+    wenn eine mitgegeben wurde - unabhängig davon, ob core/automation.py
+    danach zusätzlich noch die eigene set_color_temp-Anfrage schickt
+    (das bleibt sie, für Anbindungen, die diese Abkürzung nicht kennen -
+    bei Hue bestätigt sie dann nur noch denselben Wert).
+    """
+    body: dict[str, Any] = {}
+    if command == "turn_on":
+        body["on"] = {"on": True}
+        if "brightness" in data:
+            body["dimming"] = {"brightness": float(data["brightness"])}
+    elif command == "turn_off":
+        body["on"] = {"on": False}
+    elif command == "toggle":
+        body["on"] = {"on": not war_an}
+    elif command == "set_brightness":
+        brightness = float(data.get("brightness", 100))
+        body["dimming"] = {"brightness": brightness}
+        body["on"] = {"on": brightness > 0}
+    elif command == "set_power_on":
+        # Nach Stromausfall (Punkt 630): keine Schaltung, eine
+        # Einstellung - sie steht in der Leuchte selbst. Farbe hat hier
+        # nichts verloren, deshalb hier heraus, bevor sie unten dazu käme.
+        body["powerup"] = powerup_body(str(data.get("mode") or ""))
+        return body
+
+    schaltet_an = body.get("on", {}).get("on", True)
+    if command == "set_color_temp" or (
+        schaltet_an
+        and command in ("turn_on", "set_brightness")
+        and ("color_temp" in data or "mirek" in data or "kelvin" in data)
+    ):
+        body["color_temperature"] = {"mirek": farbtemperatur_mirek(data)}
+    return body
+
+
 class HueIntegration(Integration):
     name = "hue"
 
@@ -503,31 +569,7 @@ class HueIntegration(Integration):
             await self.hub.registry.update_state(entity.id, {"state": "active"})
             return
 
-        body: dict[str, Any] = {}
-        if command == "turn_on":
-            body["on"] = {"on": True}
-            if "brightness" in data:
-                body["dimming"] = {"brightness": float(data["brightness"])}
-        elif command == "turn_off":
-            body["on"] = {"on": False}
-        elif command == "toggle":
-            body["on"] = {"on": entity.state.get("state") != "on"}
-        elif command == "set_brightness":
-            brightness = float(data.get("brightness", 100))
-            body["dimming"] = {"brightness": brightness}
-            body["on"] = {"on": brightness > 0}
-        elif command == "set_color_temp":
-            # Farbtemperatur als Mirek (153 = kalt/6500K … 500 = warm/2000K).
-            # Alternativ 'kelvin' entgegennehmen und umrechnen.
-            if "kelvin" in data and float(data["kelvin"]) > 0:
-                mirek = 1_000_000 / float(data["kelvin"])
-            else:
-                mirek = float(data.get("color_temp", data.get("mirek", 366)))
-            body["color_temperature"] = {"mirek": max(153, min(500, round(mirek)))}
-        elif command == "set_power_on":
-            # Nach Stromausfall (Punkt 630): keine Schaltung, eine
-            # Einstellung - sie steht in der Leuchte selbst.
-            body["powerup"] = powerup_body(str(data.get("mode") or ""))
+        body = light_body(command, data, entity.state.get("state") == "on")
 
         resource_id = entity.id.split(".", 1)[1]
         async with self._session.put(
