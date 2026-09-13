@@ -11,9 +11,13 @@ import {
   CODE_ABGEMELDET,
   CODE_FENSTER_ZU,
   NachSchliessen,
+  PING_INTERVALL_MS,
+  PONG_FRIST_MS,
   nachSchliessen,
+  pongAusgeblieben,
 } from '../lib/verbindungsstand';
 import { QueuedCommand, enqueue, stillFresh } from '../lib/warteschlange';
+import { useTakt } from './useTakt';
 
 /**
  * `signed_out`: Der Hub hat das Token abgewiesen (Punkt 579 der
@@ -141,6 +145,9 @@ export function useHub(url: string | null, token: string | null) {
   // Die Verbindung bewusst anhalten (abgemeldet) - gesetzt von der
   // Verbindungsschleife, gerufen vom Fehlerkanal des HTTP-Clients.
   const anhaltenRef = useRef<((schritt: NachSchliessen) => void) | null>(null);
+  // Einen Ping schicken (Punkt 592 der Werkbank) - gesetzt von der
+  // Verbindungsschleife, gerufen vom Takt und nach einem Zeitlimit.
+  const pingRef = useRef<(() => void) | null>(null);
   const timersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   // Der Zustand von vor dem Tippen – nur zum Nachschlagen, nicht zum
   // Anzeigen, deshalb ein Ref und kein zweiter State.
@@ -295,17 +302,59 @@ export function useHub(url: string | null, token: string | null) {
       }
     };
 
+    // Ping und Pong (Punkt 592 der Werkbank): Ein Socket, der nach einem
+    // Neustart des Accesspoints halboffen ist, sieht von hier aus offen
+    // aus und liefert nie mehr etwas. Nur eine Frage, die beantwortet
+    // werden muss, deckt das auf.
+    let pongTimer: ReturnType<typeof setTimeout> | null = null;
+    let pongAt: number | null = null;
+    const pongTimerRaeumen = () => {
+      if (pongTimer !== null) {
+        clearTimeout(pongTimer);
+        pongTimer = null;
+      }
+    };
+
+    const pingen = () => {
+      const socket = ws;
+      // Ein Ping ist schon unterwegs - erst seine Antwort abwarten.
+      if (!socket || socket.readyState !== WebSocket.OPEN || pongTimer !== null) return;
+      socket.send(JSON.stringify({ type: 'ping' }));
+      const gesendet = Date.now();
+      pongTimer = setTimeout(() => {
+        pongTimer = null;
+        // Inzwischen neu verbunden - die alte Frage gilt nicht mehr.
+        if (socket !== ws || !pongAusgeblieben(gesendet, pongAt)) return;
+        // Nicht auf das onclose des toten Sockets warten: Bei einem
+        // halboffenen kommt es erst nach dem TCP-Zeitlimit, Minuten
+        // später. Die Schleife geht sofort weiter, der Socket wird
+        // stumm geschaltet und zugemacht.
+        socket.onclose = null;
+        socket.onmessage = null;
+        socket.onerror = null;
+        socket.close();
+        attemptRef.current = 0;
+        weiterNach(nachSchliessen(undefined, undefined, 0, Date.now()));
+      }, PONG_FRIST_MS);
+    };
+    pingRef.current = pingen;
+
     const connect = () => {
       const base = url.replace(/\/+$/, '').replace(/^http/, 'ws');
       const wsUrl = base + '/ws' + (token ? `?token=${encodeURIComponent(token)}` : '');
       halt = false;
+      pongTimerRaeumen();
       setzeStatus('connecting');
       ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
         attemptRef.current = 0;
-        setzeStatus('connected');
+        // «Verbunden» erst nach dem ersten Pong: Ein offener Socket
+        // beweist nur den Handschlag, nicht dass beide Richtungen
+        // tragen. Der Pong kommt in Millisekunden, der Schnappschuss
+        // davor wird ohnehin angewendet.
+        pingen();
       };
 
       ws.onmessage = (event) => {
@@ -365,6 +414,11 @@ export function useHub(url: string | null, token: string | null) {
           flushPlanen();
         } else if (message.type === 'family_changed') {
           setFamilyChangedAt(Date.now());
+        } else if (message.type === 'pong') {
+          pongAt = Date.now();
+          pongTimerRaeumen();
+          // Der erste Pong nach dem Öffnen macht die Verbindung zu einer.
+          if (statusRef.current === 'connecting') setzeStatus('connected');
         } else if (message.type === 'entity_removed') {
           delete meldungsPuffer.current[message.entity_id];
           setEntityMap((prev) => {
@@ -394,6 +448,7 @@ export function useHub(url: string | null, token: string | null) {
       };
 
       ws.onclose = (event) => {
+        pongTimerRaeumen();
         if (disposed || halt) return;
         // Der Code sagt, warum: 4401 heisst abgemeldet, und dann ist
         // jeder weitere Versuch vergeblich (Punkt 579 der Werkbank);
@@ -453,6 +508,8 @@ export function useHub(url: string | null, token: string | null) {
     return () => {
       disposed = true;
       anhaltenRef.current = null;
+      pingRef.current = null;
+      pongTimerRaeumen();
       appState.remove();
       if (retryTimer) clearTimeout(retryTimer);
       if (flushTimer.current != null) {
@@ -463,6 +520,12 @@ export function useHub(url: string | null, token: string | null) {
       wsRef.current = null;
     };
   }, [url, token, clearPending, flushPlanen, absagen]);
+
+  // Der Ping im Takt (Punkt 592 der Werkbank) - über den gemeinsamen
+  // Takt, der im Hintergrund schweigt: Ein Telefon in der Tasche muss
+  // nicht alle 30 Sekunden fragen, ob der Hub noch da ist; das iPad im
+  // Flur schon, denn es geht nie in den Hintergrund.
+  useTakt(() => pingRef.current?.(), status === 'connected' ? PING_INTERVALL_MS : null);
 
   // Ein 401 des HTTP-Clients heisst dasselbe wie ein 4401 am Socket:
   // Das Token gilt nicht mehr (Punkt 579 der Werkbank). Der Socket
@@ -549,6 +612,11 @@ export function useHub(url: string | null, token: string | null) {
         () => {
           clearPending(entityId);
           absagen(entityId, null);
+          // Keine Antwort kann auch heissen, dass der Socket halboffen
+          // ist (Punkt 592 der Werkbank): nachfragen, statt auf den
+          // nächsten Takt zu warten - bleibt der Pong aus, wird neu
+          // verbunden.
+          pingRef.current?.();
         },
         SLOW_COMMANDS.has(command) ? SLOW_COMMAND_TIMEOUT : PENDING_TIMEOUT
       );

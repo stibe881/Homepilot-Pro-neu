@@ -5,10 +5,27 @@ import {
   WARTEZEIT_MAX_MS,
   nachSchliessen,
   pausenSatz,
+  pongAusgeblieben,
   verbindungsAnsage,
   verbindungsZusatz,
   wartezeit,
 } from './verbindungsstand';
+
+describe('pongAusgeblieben', () => {
+  // Punkt 592 der Werkbank: Das iPad im Flur geht nie in den Hintergrund.
+  // Nach einem Neustart des Accesspoints blieb sein Socket halboffen -
+  // der Punkt grün, der Stand alt, nie neu verbunden.
+  it('meldet den toten Socket, wenn nach dem Ping kein Pong kam', () => {
+    expect(pongAusgeblieben(1_000_000, null)).toBe(true);
+    // Ein Pong von vor dem Ping hat eine frühere Frage beantwortet.
+    expect(pongAusgeblieben(1_000_000, 999_000)).toBe(true);
+  });
+
+  it('ist zufrieden, sobald ein Pong nach dem Ping da ist', () => {
+    expect(pongAusgeblieben(1_000_000, 1_000_050)).toBe(false);
+    expect(pongAusgeblieben(1_000_000, 1_000_000)).toBe(false);
+  });
+});
 
 describe('nachSchliessen', () => {
   // Punkt 579 der Werkbank: Ein unter «Meine Geräte» beendetes iPad

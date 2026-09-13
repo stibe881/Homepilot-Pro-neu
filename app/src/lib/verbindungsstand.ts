@@ -146,3 +146,29 @@ export function pausenSatz(wiederAb: number | null, jetzt: number): string {
       : zeit;
   return `Gute Nacht - ab ${wann} geht's weiter.`;
 }
+
+// ── Ob die Verbindung noch trägt ─────────────────────────────────────────
+//
+// Punkt 592 der Werkbank: Das iPad im Flur geht nie in den Hintergrund.
+// Nach einem Neustart des Accesspoints oder einem NAT-Timeout bleibt sein
+// Socket halboffen - der Punkt grün, der Stand alt, und ein Tipp endet
+// nach sechs Sekunden in «antwortet nicht», ohne dass je neu verbunden
+// würde. Ein Ping im Takt deckt das auf; bleibt der Pong aus, ist die
+// Verbindung tot, und die App baut sie neu.
+
+/** So oft fragt die App nach, solange sie verbunden ist. */
+export const PING_INTERVALL_MS = 30000;
+/** So lange darf der Pong ausbleiben. Zehn Sekunden: Ein Hub, der
+ *  gerade einen Schwall Zustände verarbeitet, antwortet darunter; ein
+ *  toter Socket antwortet nie. */
+export const PONG_FRIST_MS = 10000;
+
+/**
+ * Ist der Pong zum Ping ausgeblieben? (rein, testbar)
+ *
+ * `pongAt` ist der letzte empfangene Pong. Ein älterer als der Ping
+ * zählt nicht - er hat eine frühere Frage beantwortet.
+ */
+export function pongAusgeblieben(pingAt: number, pongAt: number | null): boolean {
+  return pongAt === null || pongAt < pingAt;
+}
