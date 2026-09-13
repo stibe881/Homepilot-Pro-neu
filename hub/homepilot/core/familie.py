@@ -375,6 +375,48 @@ def _due_within(rows: list[dict[str, Any]], heute: date, tage: int) -> list[tupl
     return sorted(treffer)
 
 
+# Die Tage, an denen ein fehlender Essensplan eine Lücke ist. Das
+# Wochenende bleibt draussen: Samstag isst man, was kommt, und eine
+# Nachricht, die jeden Sonntag «für Samstag fehlt ein Plan» sagt,
+# schaltet man ab.
+PLAN_LUECKEN_TAGE = PLAN_DAYS[:5]
+
+
+def meals_lines(meals: list[dict[str, Any]] | None) -> list[str]:
+    """Das Essen der Woche im Ausblick (rein, testbar) - Punkt 587.
+
+    «Essen: Mo Lasagne · Di Reis …» und, wenn unter der Woche ein Tag
+    ohne Plan ist, «Für Mittwoch fehlt noch ein Plan». Beides nur, wenn
+    überhaupt geplant wird: Wer den Essensplan nicht führt, soll nicht
+    jeden Sonntag daran erinnert werden.
+    """
+    geplant: dict[str, str] = {}
+    for meal in meals or []:
+        if not isinstance(meal, dict):
+            continue
+        tag = str(meal.get("day") or "")
+        text = str(meal.get("text") or "").strip()
+        if tag in PLAN_DAYS and text and tag not in geplant:
+            geplant[tag] = text
+    if not geplant:
+        return []
+    zeilen = [
+        "Essen: "
+        + " · ".join(
+            f"{WEEKDAYS[PLAN_DAYS.index(tag)]} {geplant[tag]}"
+            for tag in PLAN_DAYS
+            if tag in geplant
+        )
+    ]
+    fehlt = [tag for tag in PLAN_LUECKEN_TAGE if tag not in geplant]
+    if fehlt:
+        aufzaehlung = (
+            fehlt[0] if len(fehlt) == 1 else ", ".join(fehlt[:-1]) + f" und {fehlt[-1]}"
+        )
+        zeilen.append(f"Für {aufzaehlung} fehlt noch ein Plan")
+    return zeilen
+
+
 def week_ahead(
     events: list[dict[str, Any]],
     tasks: list[dict[str, Any]],
@@ -382,6 +424,7 @@ def week_ahead(
     contacts: list[dict[str, Any]],
     heute: date,
     tage: int = 7,
+    meals: list[dict[str, Any]] | None = None,
 ) -> str | None:
     """Was in den nächsten Tagen ansteht, in einer Nachricht (rein, testbar).
 
@@ -448,9 +491,12 @@ def week_ahead(
         wann = heute + timedelta(days=versatz)
         zeilen.append(f"{WEEKDAYS[wann.weekday()]}: {name} hat Geburtstag")
 
+    # Das Essen zuletzt (Punkt 587): Es sind zwei Zeilen, die nicht mit
+    # den Terminen um die zehn Plätze konkurrieren sollen.
+    zeilen = zeilen[:10] + meals_lines(meals)
     if not zeilen:
         return None
-    return "\n".join(zeilen[:10])
+    return "\n".join(zeilen)
 
 
 def emergency_stale(checked: Any, heute: date, monate: int = 12) -> bool:

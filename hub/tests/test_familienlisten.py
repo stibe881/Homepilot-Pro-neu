@@ -99,6 +99,30 @@ def test_a_quiet_week_sends_nothing():
     assert familie.week_ahead([], [], [], [], date(2026, 8, 23)) is None
 
 
+def test_the_week_ahead_lists_the_meals_and_the_missing_plan():
+    """Punkt 587: Das Abendessen stand im Wochenplan - und nirgends sonst.
+    Am Sonntag steht es im Ausblick, samt dem Tag, für den noch ein Plan
+    fehlt."""
+    meals = [
+        {"day": "Montag", "text": "Lasagne"},
+        {"day": "Dienstag", "text": "Reis"},
+        {"day": "Donnerstag", "text": "Pizza"},
+        {"day": "Freitag", "text": "Fisch"},
+        {"day": "Samstag", "text": ""},
+    ]
+    text = familie.week_ahead([], [], [], [], date(2026, 8, 23), meals=meals)
+    assert text is not None
+    assert "Essen: Mo Lasagne · Di Reis · Do Pizza · Fr Fisch" in text
+    # Nur unter der Woche: Samstag isst man, was kommt.
+    assert text.endswith("Für Mittwoch fehlt noch ein Plan")
+    # Zwei Lücken werden aufgezählt; ohne Plan gibt es keine Mahnung.
+    assert familie.meals_lines(meals[:1])[1] == (
+        "Für Dienstag, Mittwoch, Donnerstag und Freitag fehlt noch ein Plan"
+    )
+    assert familie.meals_lines([]) == []
+    assert familie.meals_lines(None) == []
+
+
 def test_the_week_ahead_starts_on_monday_not_today():
     """Der gemeldete Fall: Die Sonntagabend-Vorschau fing mit «So: …»
     an - dem heutigen Tag. Die kommende Woche beginnt am Montag; was

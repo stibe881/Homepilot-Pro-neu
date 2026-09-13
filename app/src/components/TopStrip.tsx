@@ -107,6 +107,8 @@ export function TopStrip({
   tageszeit,
   zusatz,
   onKalender,
+  tagesgericht,
+  onTagesgericht,
   gaesteWlan,
   besuch,
   besuchLaeuft = false,
@@ -209,6 +211,12 @@ export function TopStrip({
    *  «Alle Geburtstage») - der Tipp auf die Zeile in der Karte soll
    *  dasselbe tun wie der Tipp auf die Kachel darunter. */
   onKalender?: (art: 'termine' | 'geburtstage') => void;
+  /** «Heute: Lasagne» ab 15 Uhr (lib/tagesgericht.ts, Punkt 587) - das
+   *  Abendessen stand sonst nur im Wochenplan, vier Tipps tief. Der
+   *  Tipp führt in den Essensplan, wo das Rezept einen Tipp entfernt
+   *  ist. Null heisst: keine Zeile. */
+  tagesgericht?: string | null;
+  onTagesgericht?: () => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -1165,7 +1173,7 @@ export function TopStrip({
             </Text>
           </View>
 
-          {termin || geburtstag ? (
+          {termin || geburtstag || tagesgericht ? (
             <View style={styles.karteZeilen}>
               {/* Zwei eigene Griffe: Der Tipp auf den Termin öffnet «Alle
                   Termine», der auf den Geburtstag «Alle Geburtstage» -
@@ -1213,6 +1221,23 @@ export function TopStrip({
                     iconFarbe={colors.inkSoft}
                   >
                     {geburtstag}
+                  </Lauftext>
+                </Pressable>
+              ) : null}
+              {tagesgericht ? (
+                <Pressable
+                  onPress={onTagesgericht}
+                  disabled={!onTagesgericht}
+                  accessibilityRole="button"
+                  accessibilityLabel="Essensplan öffnen"
+                  style={styles.karteZeilenGriff}
+                >
+                  <Lauftext
+                    style={styles.karteZeile}
+                    icon="restaurant-outline"
+                    iconFarbe={colors.inkSoft}
+                  >
+                    {tagesgericht}
                   </Lauftext>
                 </Pressable>
               ) : null}
@@ -1356,6 +1381,9 @@ export function TopStrip({
             text={`${clockTime(calendar.state.next_start)} ${calendar.state.state}`}
             onPress={event ? () => setEventOpen(true) : undefined}
           />
+        ) : null}
+        {tagesgericht ? (
+          <Chip icon="restaurant-outline" text={tagesgericht} onPress={onTagesgericht} />
         ) : null}
         {alerts ? (
           // Dieselbe Auskunft in der schmalen Fassung - also auch

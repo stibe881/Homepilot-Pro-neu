@@ -1621,6 +1621,9 @@ class Watchdog:
             self.hub.data.get("family_chores"),
             self.hub.data.get("family_contacts"),
             jetzt.date(),
+            # Das Essen der Woche (Punkt 587): Bisher listete der
+            # Ausblick Termine, Ämtli, Geburtstage - nicht die Gerichte.
+            meals=self.hub.data.get("family_meals"),
         )
         if not text:
             return
