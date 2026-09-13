@@ -88,6 +88,16 @@ EXTRAS: list[dict[str, Any]] = [
         "integration": "androidtv",
     },
     {
+        "key": "playstation",
+        "module": "pyremoteplay",
+        "title": "PlayStation (Remote Play)",
+        "detail": "Ruhemodus und Tasten der PlayStation über eine "
+        "Remote-Play-Sitzung. Ohne das Paket sieht der Hub weiterhin, ob sie "
+        "läuft und was gespielt wird, und kann sie wecken - ausschalten und "
+        "tippen geht dann nicht.",
+        "integration": "playstation",
+    },
+    {
         "key": "ring",
         "module": "ring_doorbell",
         "title": "Ring-Türklingel",
