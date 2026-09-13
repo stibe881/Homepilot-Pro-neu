@@ -10,6 +10,7 @@ import type { Entity } from '../api/types';
 import {
   deviceKindIcon,
   deviceKindLabel,
+  geraeteartMuster,
   isTelevision,
   kachelHerkunft,
   melderArt,
@@ -136,6 +137,34 @@ describe('deviceKindIcon', () => {
     for (const kind of arten) {
       expect(deviceKindIcon(geraet({ kind }))).toBeTruthy();
     }
+  });
+
+  it('zeigt bei einem Messwert, was er misst', () => {
+    // Punkt 611: Feuchte, Leistung, CO₂ und Helligkeit sahen überall
+    // gleich aus - ausgerechnet am Wandpanel-Grundriss, wo das Symbol
+    // das Einzige ist, was man sieht. Erst die Geräteklasse, sonst die
+    // Einheit - mit demselben Schlüssel wie das Wort dazu.
+    expect(deviceKindIcon(geraet({ kind: 'sensor', state: { device_class: 'humidity' } })))
+      .toBe('water-outline');
+    expect(deviceKindIcon(geraet({ kind: 'sensor', state: { unit: '°C' } })))
+      .toBe('thermometer-outline');
+    expect(deviceKindIcon(geraet({ kind: 'sensor', state: { unit: 'W' } })))
+      .toBe('flash-outline');
+    expect(deviceKindIcon(geraet({ kind: 'sensor', state: { unit: 'lx' } })))
+      .toBe('sunny-outline');
+    expect(deviceKindIcon(geraet({ kind: 'sensor', state: { unit: 'ppm' } })))
+      .toBe('leaf-outline');
+    // Ein Batteriestand in Prozent ist kein Wasser: Die Klasse geht vor.
+    expect(deviceKindIcon(geraet({ kind: 'sensor', state: { device_class: 'battery', unit: '%' } })))
+      .toBe('battery-half-outline');
+    expect(deviceKindIcon(geraet({ kind: 'sensor' }))).toBe('speedometer-outline');
+  });
+
+  it('liefert je Art ein Muster für Musterblatt und Symboltest', () => {
+    const muster = geraeteartMuster();
+    expect(muster.length).toBeGreaterThan(20);
+    expect(muster).toContainEqual({ label: 'Bewegungsmelder', icon: 'walk-outline' });
+    expect(muster).toContainEqual({ label: 'Feuchtefühler', icon: 'water-outline' });
   });
 });
 

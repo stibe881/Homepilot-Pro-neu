@@ -16,6 +16,7 @@
 import fs from 'fs';
 import path from 'path';
 
+import { geraeteartMuster } from './geraeteart';
 import { GLEICHBEDEUTEND, SYMBOL, symbol } from './symbole';
 
 const QUELLE = path.join(__dirname, '..');
@@ -51,6 +52,18 @@ describe('Die Symbolsprache', () => {
         );
       }
     }
+    expect(verstoesse).toEqual([]);
+  });
+
+  it('gilt auch für die Sinnbilder der Gerätearten', () => {
+    // Punkt 611: Die Symbole der Gerätearten stehen nicht als `name=`
+    // in einer Datei, sondern kommen aus deviceKindIcon - und dort
+    // stand neben dem Sammelsymbol eine zweite Tabelle, die es anders
+    // sah. Jetzt gibt es eine Quelle, und sie hält dieselbe Regel ein
+    // wie jeder Knopf.
+    const verstoesse = geraeteartMuster()
+      .filter(({ icon }) => GLEICHBEDEUTEND[icon])
+      .map(({ label, icon }) => `${label}: «${icon}» – es gilt «${symbol(GLEICHBEDEUTEND[icon])}»`);
     expect(verstoesse).toEqual([]);
   });
 

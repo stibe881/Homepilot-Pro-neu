@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { geraeteartMuster } from '../lib/geraeteart';
 import { SYMBOL, type Begriff } from '../lib/symbole';
 import { Card } from './Card';
 import { Kennzahl } from './Kennzahl';
@@ -180,6 +181,25 @@ export function Musterblatt() {
                 <Ionicons name={SYMBOL[begriff]} size={20} color={colors.ink} />
               </View>
               <Text style={styles.probeName}>{begriff}</Text>
+            </View>
+          ))}
+        </View>
+
+        <Text style={styles.gruppe}>Gerätearten</Text>
+        <Text style={styles.hint}>
+          Je Art ein Sinnbild, aus lib/geraeteart.ts – dasselbe auf der
+          Kachel, im Grundriss und im Ablauf-Editor (Punkt 611). Ein
+          Messwert zeigt, was er misst, nicht dass er einer ist.
+        </Text>
+        <View style={styles.reihe}>
+          {geraeteartMuster().map(({ label, icon: zeichen }, index) => (
+            <View key={`${label}-${index}`} style={styles.probe}>
+              <View style={[styles.klecks, styles.textprobe]}>
+                <Ionicons name={zeichen} size={20} color={colors.ink} />
+              </View>
+              <Text style={styles.probeName} numberOfLines={2}>
+                {label}
+              </Text>
             </View>
           ))}
         </View>

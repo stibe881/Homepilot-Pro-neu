@@ -1,5 +1,3 @@
-import { Ionicons } from '@expo/vector-icons';
-
 import { Entity } from '../api/types';
 import { timerZeile } from '../lib/fernsehtimer';
 import { zustandsText } from '../lib/haushalt';
@@ -7,35 +5,21 @@ import { zustandWort } from '../lib/saugerkarte';
 import { aktiveVorgabe } from '../lib/storenvorgaben';
 
 /**
- * Ein Gerät in einer Zeile: sein Sinnbild und sein Zustand in einem Wort.
+ * Ein Gerät in einer Zeile: sein Zustand in einem Wort.
  *
  * Hier stand die Raum-Kachel der Seite «Räume» – eine Liste der Geräte
  * mit Schaltknopf je Zeile. Sie ist der Kachel mit Kopfbild gewichen
- * (components/RoomCard.tsx); übrig bleiben die beiden Übersetzungen, die
- * mit ihr nichts zu tun hatten und anderswo weiterleben: in den kleinen
+ * (components/RoomCard.tsx); übrig bleibt die Übersetzung, die mit ihr
+ * nichts zu tun hatte und anderswo weiterlebt: in den kleinen
  * Raumfliesen der Startseite.
+ *
+ * Das Sinnbild zur Geräteart stand bis Punkt 611 der Werkbank ebenfalls
+ * hier (`KIND_ICONS`) - als zweite Tabelle neben `deviceKindIcon` in
+ * lib/geraeteart.ts, und die beiden widersprachen sich. Jetzt gibt es
+ * nur noch die eine.
  *
  * Der Dateiname bleibt, damit die Verweise darauf nicht wandern müssen.
  */
-
-export const KIND_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
-  light: 'bulb-outline',
-  switch: 'power-outline',
-  sensor: 'thermometer-outline',
-  binary_sensor: 'radio-button-on-outline',
-  button: 'ellipse-outline',
-  media_player: 'musical-notes-outline',
-  timer: 'moon-outline',
-  camera: 'videocam-outline',
-  vacuum: 'sparkles-outline',
-  appliance: 'cube-outline',
-  calendar: 'calendar-outline',
-  lock: 'key-outline',
-  cover: 'reorder-four-outline',
-  weather: 'partly-sunny-outline',
-  alert: 'warning-outline',
-  scene: 'color-palette-outline',
-};
 
 /** Kurzer Zustand für die rechte Spalte – nur für nicht schaltbare Geräte. */
 export function shortState(entity: Entity): string {

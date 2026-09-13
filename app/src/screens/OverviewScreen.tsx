@@ -15,7 +15,8 @@ import { CommandData, Entity, KalenderEintrag, Scene } from '../api/types';
 import { Card } from '../components/Card';
 import { RenameDialog } from '../components/entity/anpassen';
 import { DraggableList } from '../components/DraggableList';
-import { KIND_ICONS, shortState } from '../components/RoomTile';
+import { shortState } from '../components/RoomTile';
+import { deviceKindIcon } from '../lib/geraeteart';
 import { appleMapsRoute, googleMapsRoute } from '../components/TopStrip';
 import { TagesZeile } from '../components/TagesZeile';
 import { VacuumHome } from '../components/VacuumHome';
@@ -650,7 +651,7 @@ export function OverviewScreen({
             // für «irgendein Gerät» (RoomTile), und vor «Olga» sah er aus
             // wie ein Platzhalter, den jemand vergessen hat. Der Sauger
             // hat dasselbe Sinnbild wie überall sonst.
-            icon={KIND_ICONS[vacuum.kind] ?? 'sparkles-outline'}
+            icon={deviceKindIcon(vacuum)}
             title={vacuum.name}
           >
             <VacuumHome
@@ -1131,7 +1132,7 @@ function FavoriteChip({
       <Ionicons
         // Läuft ein Timer, ist der Mond das Sinnbild - die Note über
         // «Aus in 1 h 30 min» erzählt vom falschen Gerät.
-        name={laeuft ? 'moon' : (KIND_ICONS[entity.kind] ?? 'cube-outline')}
+        name={laeuft ? 'moon' : deviceKindIcon(entity)}
         size={18}
         color={active || laeuft ? colors.accent : colors.inkSoft}
       />
