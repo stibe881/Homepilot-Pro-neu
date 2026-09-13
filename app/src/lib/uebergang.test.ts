@@ -45,4 +45,11 @@ describe('Wann sich überhaupt etwas bewegt', () => {
   it('bewegt sich beim echten Wechsel', () => {
     expect(bewegtSich('off', 'on')).toBe(true);
   });
+
+  it('springt, wer «Bewegung reduzieren» eingestellt hat', () => {
+    // Fehler aus der Runde 579: Archiv 527 versprach den Sprung, der
+    // Zustandspunkt animierte trotzdem immer.
+    expect(bewegtSich('off', 'on', true)).toBe(false);
+    expect(bewegtSich('off', 'on', false)).toBe(true);
+  });
 });

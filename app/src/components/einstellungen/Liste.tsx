@@ -115,7 +115,7 @@ export function EinstellungsListe({
                       <Text
                         style={[
                           styles.plaketteText,
-                          punkt.plakette.ton === 'gut' && { color: colors.on },
+                          punkt.plakette.ton === 'gut' && { color: colors.onInk },
                           punkt.plakette.ton === 'warnung' && { color: colors.danger },
                         ]}
                         maxFontSizeMultiplier={MAX_SCHRIFT}

@@ -928,7 +928,7 @@ const makeStyles = (colors: Colors) =>
     },
     dauerChipAktiv: { backgroundColor: colors.accent, borderColor: colors.accent },
     dauerText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
-    dauerTextAktiv: { color: '#FFFFFF' },
+    dauerTextAktiv: { color: colors.onAccent },
     zugangKnopf: {
       flexDirection: 'row',
       alignItems: 'center',

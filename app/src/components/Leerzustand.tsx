@@ -74,5 +74,5 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       backgroundColor: colors.accent,
     },
-    knopfText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+    knopfText: { color: colors.onAccent, fontSize: 14, fontWeight: '700' },
   });

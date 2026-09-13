@@ -19,13 +19,14 @@ import {
   begrenzteAnzahl,
 } from '../../lib/kontrollfluss';
 import { anwesenheitsPersonen } from '../../lib/ortsausloeser';
-import { Compare, EMPTY_STEP, STEP_KIND_ICON, StateCondition, StepDraft, StepKind, conditionOptions, delayLabel, empfaengerLabel, fittingState, geraetePlatzhalter, KAMERA_AUSLOESER, kopieSchritt, PLATZHALTER, measurableAttributes } from './entwurf';
+import { Compare, EMPTY_STEP, STEP_KIND_ICON, StateCondition, StepDraft, StepKind, ablaufTat, conditionOptions, delayLabel, empfaengerLabel, fittingState, geraetePlatzhalter, KAMERA_AUSLOESER, kopieSchritt, normalisiereZeit, PLATZHALTER, measurableAttributes } from './entwurf';
 import {
   Choice,
   Kachelauswahl,
   EntityPicker,
   NumberField,
   Picker,
+  SeitMindestens,
 } from './felder';
 import { makeStyles } from './stil';
 import { tiefen } from '../../lib/ablaufhilfen';
@@ -354,10 +355,50 @@ export function StepList({
                 value={step.automationId}
                 onSelect={(automationId) => setStep(index, { automationId })}
               />
+              {/* Punkt 597 der Werkbank: nicht nur starten, sondern auch
+                  ruhen lassen, ein- und ausschalten - «Termin ‹Gäste›
+                  beginnt → Bewegungslicht Flur ruht bis 06:00». */}
+              <Choice
+                options={[
+                  { key: 'run', label: 'starten' },
+                  { key: 'snooze', label: 'ruhen lassen' },
+                  { key: 'enable', label: 'einschalten' },
+                  { key: 'disable', label: 'ausschalten' },
+                ]}
+                value={step.automationDo}
+                onSelect={(tat) => setStep(index, { automationDo: ablaufTat(tat) })}
+              />
+              {step.automationDo === 'snooze' ? (
+                <View style={styles.rowGap}>
+                  <View style={{ flex: 1 }}>
+                    <NumberField
+                      value={step.automationMinutes}
+                      onCommit={(automationMinutes) => setStep(index, { automationMinutes })}
+                      placeholder="180"
+                      einheit="Min"
+                    />
+                  </View>
+                  <TextInput
+                    style={[styles.input, { flex: 1 }]}
+                    value={step.automationUntil}
+                    onChangeText={(automationUntil) => setStep(index, { automationUntil })}
+                    onEndEditing={(event) =>
+                      setStep(index, { automationUntil: normalisiereZeit(event.nativeEvent.text) })
+                    }
+                    keyboardType="numbers-and-punctuation"
+                    placeholder="oder bis 06:00"
+                    placeholderTextColor={colors.inkFaint}
+                  />
+                </View>
+              ) : null}
               <Text style={styles.triggerNote}>
-                Führt die Schritte des anderen Ablaufs aus – nur seine Schritte,
-                nicht seine Bedingungen. «Alles aus» steht so einmal und wird von
-                fünf Abläufen aufgerufen, statt fünfmal abgeschrieben.
+                {step.automationDo === 'snooze'
+                  ? 'Der andere Ablauf ruht so lange und meldet sich von selbst zurück – wie «Aus bis morgen» von Hand. Steht eine Uhrzeit da, gilt sie statt der Minuten.'
+                  : step.automationDo === 'enable'
+                    ? 'Schaltet den anderen Ablauf ein – etwa die Anwesenheitssimulation, wenn die Alarmanlage auf «weg» geht.'
+                    : step.automationDo === 'disable'
+                      ? 'Schaltet den anderen Ablauf aus, bis ihn jemand oder ein anderer Schritt wieder einschaltet.'
+                      : 'Führt die Schritte des anderen Ablaufs aus – nur seine Schritte, nicht seine Bedingungen. «Alles aus» steht so einmal und wird von fünf Abläufen aufgerufen, statt fünfmal abgeschrieben.'}
               </Text>
             </>
           ) : step.kind === 'hue_scene' ? (
@@ -1160,6 +1201,10 @@ export function BedingungsListe({
                   onSelect={(attribute) => setEntry(index, { attribute })}
                 />
               ) : null}
+              <SeitMindestens
+                value={entry.minAge ?? ''}
+                onCommit={(minAge) => setEntry(index, { minAge })}
+              />
             </View>
             <Pressable
               onPress={() =>

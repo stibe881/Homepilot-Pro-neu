@@ -43,6 +43,7 @@ import Svg, { Circle } from 'react-native-svg';
 
 import { hubClient } from '../../api/client';
 import { Entity } from '../../api/types';
+import { Blatt } from '../../components/Blatt';
 import { Grillverlauf } from '../../components/Grillverlauf';
 import { Tastaturplatz } from '../../components/Tastaturplatz';
 import { remainingLabel } from '../../components/KitchenTimer';
@@ -209,7 +210,11 @@ export function Grillvollbild({
       {/* Die Dauer des Timers wird getippt - ohne das läge die Tastatur
           über dem Feld (Punkt 265 der Werkbank). */}
       <Tastaturplatz>
-      <View style={styles.backdrop}>
+      {/* Als Blatt angemeldet (Punkt 581): Eine Absage zum Anzünden oder
+          zur Temperatur steht hier, wo man am Grill hinschaut. «Hält
+          wach» (Punkt 582): Am Wandpanel soll das Blatt nicht nach drei
+          Minuten ohne Tipp verschwinden - Fleisch braucht länger. */}
+      <Blatt haeltWach style={styles.backdrop}>
         <Pressable
           style={StyleSheet.absoluteFill}
           onPress={onSchliessen}
@@ -591,7 +596,7 @@ export function Grillvollbild({
             </View>
           ) : null}
         </View>
-      </View>
+      </Blatt>
       </Tastaturplatz>
     </Modal>
   );
@@ -700,7 +705,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: 8,
       backgroundColor: colors.accent,
     },
-    timerStartText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700', letterSpacing: 1 },
+    timerStartText: { color: colors.onAccent, fontSize: 16, fontWeight: '700', letterSpacing: 1 },
     kreise: {
       flexDirection: 'row',
       flexWrap: 'wrap',

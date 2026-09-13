@@ -48,6 +48,13 @@ const GROESSEN = [
   { name: 'iPhone', width: 390, height: 844 },
 ];
 
+/** Die dritte Grösse: das Wandpanel im Flur (Punkt 610). Dieselbe
+ *  Fläche wie das iPad, aber mit `panel: true` - dann schreibt die App
+ *  grösser. Nicht in GROESSEN, weil die übrigen Messungen dort nichts
+ *  anderes sähen als auf dem iPad; gemessen wird nur, was das Panel
+ *  unterscheidet: die Schrift. */
+const WANDPANEL = { name: 'Wandpanel', width: 1180, height: 820, panel: true };
+
 function playwrightLaden() {
   try {
     return require('playwright');
@@ -83,13 +90,15 @@ async function angemeldeteSeite(browser, groesse) {
   // die App den Anmeldebildschirm und misst man dessen Breite.
   await seite.goto(WEB);
   await seite.evaluate(
-    ([url, token]) => {
+    ([url, token, panel]) => {
       localStorage.setItem(
         'homepilot.settings',
-        JSON.stringify({ url, token, theme: 'dark' })
+        // `panel` macht aus dem Browser das Wandpanel (Punkt 610): Dann
+        // schreibt die App grösser, und genau das wird gemessen.
+        JSON.stringify({ url, token, theme: 'dark', panel: !!panel })
       );
     },
-    [HUB, TOKEN]
+    [HUB, TOKEN, groesse.panel ?? false]
   );
   await seite.goto(WEB);
   await seite.waitForTimeout(2500);
@@ -1274,6 +1283,236 @@ async function smokerLaeuftOeffnetBlatt(browser) {
   await seite.close();
 }
 
+/** Die kleinste Trefffläche, wie app/src/theme.tsx sie kennt (Punkt 613):
+ *  Apples 44 Punkte. WCAG 2.5.8 verlangt 24 - das ist die Untergrenze,
+ *  unter der ein Knopf schlicht nicht mehr zu treffen ist. */
+const TREFFER_MINDEST = 44;
+const TREFFER_UNTERGRENZE = 24;
+
+/** Was unter 44 Punkten bleiben darf, und warum (Punkt 613).
+ *
+ *  Jede Ausnahme steht hier mit Namen, damit die nächste nicht still
+ *  dazukommt. Gemeint sind Flächen, die ihre Grösse aus dem Text
+ *  beziehen und in einer Reihe mit anderen stehen - Chips: 44 Punkte
+ *  hoch wäre eine Reihe aus Knöpfen, keine Zeile mehr. Sie liegen alle
+ *  über der Untergrenze der WCAG (gemessen: 26 bis 41 Punkte); nativ
+ *  trägt jede davon ausserdem einen `hitSlop`, der im Browser nicht
+ *  messbar ist. Die Namen sind die Vorlesetexte (aria-label). */
+const TREFFER_AUSNAHMEN = [
+  // Chips: Zeitraum im Verlauf (28), Szenen im Raumkopf und auf der
+  // Raumkachel (41), Stellungen der Store (32/34), «Storen hoch/runter»
+  // und «Zurück zu Räume» (28), die Knöpfe der Fernseherkachel (33/34),
+  // Lautsprecherwahl und Wetterwarnung (27), Zufall/Wiederholen (37),
+  // Playlists und Grillstreifen (41), die Schlossknöpfe (37), Klima im
+  // Raumkopf (38), Raum einrichten (34).
+  /^Zeitraum /,
+  /^Szene /,
+  /^Store .*: (Auf|Zu|Halb|Beschattung)$/,
+  /^Storen (hoch|runter)$/,
+  /^Zurück zu /,
+  /^(App wechseln|Einschlafen|Ganze Fernbedienung|Raum einrichten)$/,
+  /^Alles aus/,
+  /^(Wetterwarnungen|Lautsprecher wählen|Besuch oder Babysitter)$/,
+  /^(Zufall ein|Zufall aus|Wiederholen)/,
+  /^(Playlists|Öffnen|Auf \+ öffnen|Aufschliessen|Abschliessen)$/,
+  /^Smoker läuft/,
+  /^Temperatur \d/,
+  // Die Tasten der Fernbedienung und des Players: 34 bis 40 Punkte, in
+  // einem Steuerkreuz - grösser gäbe es kein Kreuz mehr auf einer Kachel.
+  /^(Hoch|Runter|Links|Rechts|Zurück|Startseite|Stumm|Lauter|Leiser|Stopp|Abspielen|Pause|Voriger Titel|Nächster Titel)$/,
+  // Die Farbpunkte der Lichtkachel (26): neun in einer Reihe.
+  /^(Rot|Orange|Gelb|Grün|Türkis|Blau|Violett|Pink|Warmweiss|Kaltweiss)$/,
+];
+
+/** Was unter der Untergrenze der WCAG liegt und **nicht** in Ordnung ist
+ *  - bekannt, mit Namen, noch zu beheben (Punkt 613).
+ *
+ *  Keine Ausnahmen, sondern Schulden: Sie standen so im Haus, als die
+ *  Messung dazukam, und gehören in eigene Runden (die Dateien stehen
+ *  dabei). Die Liste hält sie fest, damit die Probe grün bleibt und
+ *  trotzdem jede *neue* Fläche unter 24 Punkten rot wird - und damit
+ *  einer, der eine davon behebt, sie hier streichen kann. */
+const TREFFER_SCHULD = [
+  // Die Symbolknöpfe der Kopfzeile, 16×17 (components/TopStrip.tsx).
+  /^(Posteingang|Gäste-WLAN|Reihenfolge der Schnellaktionen ändern)$/,
+  // Die Kalenderzeilen und ihre Fussnoten, 16 bis 19 hoch
+  // (components/TopStrip.tsx, components/TagesZeile.tsx).
+  /^Alle (Termine|Geburtstage)$/,
+  /^\d\d:\d\d /,
+  /^Einkaufen$/,
+  /^\d+ Warnung/,
+  // Die Klima-Chips in der Kopfzeile, 14 bis 16 hoch (lib/klimachip.ts,
+  // components/TopStrip.tsx).
+  /^(Temperatur|Luftfeuchtigkeit) .*: \d/,
+  /^Luftfeuchtigkeit \d/,
+  // «Fein einstellen» auf der Storenkachel, 23 hoch (entity/koerper.tsx).
+  /^Fein einstellen$/,
+];
+
+/** Der Ein/Aus-Knopf jeder Kachel (Card.tsx, PowerButton) - die
+ *  meistgedrückte Fläche im Haus. Er wird eigens gemessen, damit die
+ *  Probe nicht nur sagt, was zu klein ist, sondern auch, dass die eine
+ *  Fläche, um die es in Punkt 613 ging, wirklich gewachsen ist. */
+async function messeEinAusKnoepfe(seite) {
+  return seite.evaluate(() =>
+    [...document.querySelectorAll('[role="switch"]')]
+      .filter((el) => /^(Einschalten|Ausschalten|Weiterspielen|Pausieren)$/.test(el.getAttribute('aria-label') ?? ''))
+      .map((el) => {
+        const box = el.getBoundingClientRect();
+        return Math.round(Math.min(box.width, box.height));
+      })
+  );
+}
+
+/** Misst die offene Seite: Welche Knöpfe, Schalter und Reiter sind
+ *  kleiner als die kleinste Trefffläche? Dieselbe Bauart wie
+ *  messeUeberlauf - alles, was das Dokument dazu hergibt. */
+async function messeTreffflaechen(seite) {
+  return seite.evaluate((mindest) => {
+    const rollen = ['button', 'switch', 'tab'];
+    // Der Name einer Fläche ohne aria-label ist ihr erster Text - nicht
+    // `textContent` des Ganzen: Ein Sinnbild davor liefert sein
+    // unsichtbares Glyphenzeichen mit, und der Lauftext hält seinen Satz
+    // dreimal im Dokument (components/Lauftext.tsx), sodass aus
+    // «Einkaufen» ein «EinkaufenEinkaufen» würde.
+    const ersterText = (el) => {
+      for (const blatt of el.querySelectorAll('*')) {
+        if (blatt.childElementCount > 0) continue;
+        const text = (blatt.textContent ?? '').replace(/[-]/g, '').trim();
+        if (text) return text.slice(0, 40);
+      }
+      return (el.textContent ?? '').replace(/[-]/g, '').trim().slice(0, 40);
+    };
+    return [...document.querySelectorAll(rollen.map((r) => `[role="${r}"]`).join(','))]
+      .map((el) => {
+        const box = el.getBoundingClientRect();
+        return {
+          rolle: el.getAttribute('role'),
+          label: el.getAttribute('aria-label') || ersterText(el) || '(ohne Namen)',
+          breite: Math.round(box.width),
+          hoehe: Math.round(box.height),
+          sichtbar: box.width > 0 && box.height > 0 && el.getClientRects().length > 0,
+        };
+      })
+      .filter((t) => t.sichtbar && Math.min(t.breite, t.hoehe) < mindest);
+  }, TREFFER_MINDEST);
+}
+
+/** 16. Ist jede Trefffläche gross genug? (Punkt 613 der Werkbank)
+ *
+ *  Der Fall: Der Ein/Aus-Knopf war 34 Punkte gross, die Zeitraum-Chips
+ *  im Verlauf 19 - und «hitSlop» stand 143-mal im Code, jede Stelle
+ *  nach Gefühl. Wer neben den Ein/Aus-Knopf tippt, tippt auf die
+ *  Kachel, und die öffnet den Verlauf.
+ *
+ *  Gemessen wird der Kasten, und das mit Absicht: Im Browser wirkt
+ *  `hitSlop` nicht (react-native-web kennt es an Pressable nicht), und
+ *  am Wandpanel läuft der Browser. Was hier zu klein ist, ist an der
+ *  Wand zu klein. Zwei Schwellen: Unter 24 Punkten (WCAG) ist ein Knopf
+ *  ein Fehler, ohne Ausnahme. Unter 44 (Apple) darf nur, was oben mit
+ *  Namen steht. */
+async function treffflaechen(browser) {
+  const alle = process.env.PROBE_TREFFER_ALLE === '1';
+  for (const groesse of GROESSEN) {
+    const seite = await angemeldeteSeite(browser, groesse);
+    const orte = [['Startseite', await messeTreffflaechen(seite)]];
+    if (await inDenRaum(seite)) orte.push(['Zimmer', await messeTreffflaechen(seite)]);
+    const einAus = await messeEinAusKnoepfe(seite);
+    pruefe(
+      einAus.length > 0 && einAus.every((mass) => mass >= TREFFER_MINDEST),
+      `${groesse.name}: jeder Ein/Aus-Knopf misst ${TREFFER_MINDEST} Punkte`,
+      einAus.length ? `gemessen ${einAus.join(', ')}` : 'keiner gefunden'
+    );
+    for (const [ort, klein] of orte) {
+      if (alle) {
+        for (const t of klein) console.log(`    ${ort} ${t.rolle} «${t.label}» ${t.breite}×${t.hoehe}`);
+      }
+      const passt = (muster, t) => muster.some((m) => m.test(t.label));
+      const zuKlein = klein.filter(
+        (t) => Math.min(t.breite, t.hoehe) < TREFFER_UNTERGRENZE && !passt(TREFFER_SCHULD, t)
+      );
+      const ohneAusnahme = klein.filter(
+        (t) => !passt(TREFFER_AUSNAHMEN, t) && !passt(TREFFER_SCHULD, t)
+      );
+      const nenne = (liste) =>
+        liste.slice(0, 4).map((t) => `${t.rolle} «${t.label}» ${t.breite}×${t.hoehe}`).join(' | ');
+      pruefe(
+        zuKlein.length === 0,
+        `${groesse.name}, ${ort}: kein neuer Knopf unter ${TREFFER_UNTERGRENZE} Punkten`,
+        nenne(zuKlein)
+      );
+      pruefe(
+        ohneAusnahme.length === 0,
+        `${groesse.name}, ${ort}: keine Trefffläche unter ${TREFFER_MINDEST} Punkten ohne benannte Ausnahme`,
+        `${ohneAusnahme.length}: ${nenne(ohneAusnahme)}`
+      );
+    }
+    await seite.close();
+  }
+}
+
+/** Die Schriftgrössen von Name und Fusszeile einer Kachel, in Punkten.
+ *
+ *  Die Lichtkachel trägt Name und Zeile selbst (EntityCard, lichtName /
+ *  lichtUnter), jede andere Kachel über CardFooter (title, dann eine
+ *  Zeile mit subtitle). Beide Wege enden in einem Text mit dem Namen
+ *  des Geräts; die Zeile darunter ist das nächste Textelement dahinter. */
+async function messeKachelschrift(seite, name) {
+  return seite.evaluate((gesucht) => {
+    const groesse = (el) => (el ? Math.round(parseFloat(getComputedStyle(el).fontSize)) : null);
+    const titel = [...document.querySelectorAll('div')].find(
+      (el) => el.childElementCount === 0 && el.textContent?.trim() === gesucht
+    );
+    if (!titel) return null;
+    // Die Zeile darunter: bei der Lichtkachel der nächste Text, bei
+    // CardFooter der erste Text in der Zeile danach (Name, Ein/Aus).
+    const naechstes = titel.nextElementSibling;
+    const zeile = naechstes && naechstes.childElementCount === 0 ? naechstes : naechstes?.firstElementChild;
+    return { name: groesse(titel), zeile: groesse(zeile) };
+  }, name);
+}
+
+/** 17. Schreibt das Wandpanel überall grösser - nicht nur auf der
+ *  Lichtkachel? (Punkt 610 der Werkbank)
+ *
+ *  Der Fall: Punkt 445 hatte `useTyp()` gebaut, benutzt wurde es genau
+ *  einmal, in der Lichtkachel. An der Wand stand der Lichtname in 19
+ *  Punkt neben dem Storennamen in 16, und die Fusszeile jeder anderen
+ *  Kachel blieb Telefonschrift. Gemessen wird die Schriftgrösse, nicht
+ *  die Höhe der Kachel: Die ist auch ohne grössere Schrift gleich, weil
+ *  jede Zeile eines Rasters gleich hoch ist (Punkt 528). */
+async function wandpanelSchreibtGross(browser) {
+  const seite = await angemeldeteSeite(browser, WANDPANEL);
+  if (!(await inDenRaum(seite))) {
+    pruefe(false, 'Wandpanel: der Weg ins Zimmer steht offen');
+    await seite.close();
+    return;
+  }
+  const licht = await messeKachelschrift(seite, 'Licht Wohnzimmer');
+  const store = await messeKachelschrift(seite, 'Store Wohnzimmer');
+  pruefe(!!licht && !!store, 'Wandpanel: Licht- und Storenkachel stehen im Zimmer');
+  if (licht && store) {
+    // 16 ist die Telefonschrift (theme.type.cardTitle); am Panel muss es
+    // mehr sein - sonst misst man ein iPad mit anderem Namen.
+    pruefe(
+      licht.name > 16,
+      'Wandpanel: die Lichtkachel schreibt grösser als das Telefon',
+      `${licht.name} Punkte`
+    );
+    pruefe(
+      store.name === licht.name,
+      'Wandpanel: der Kachelname der Store ist so gross wie der des Lichts',
+      `Store ${store.name}, Licht ${licht.name}`
+    );
+    pruefe(
+      store.zeile !== null && store.zeile === licht.zeile,
+      'Wandpanel: die Fusszeile der Store ist so gross wie die des Lichts',
+      `Store ${store.zeile}, Licht ${licht.zeile}`
+    );
+  }
+  await seite.close();
+}
+
 const { chromium } = playwrightLaden();
 const browser = await chromium.launch({ executablePath: browserOrt() });
 try {
@@ -1293,6 +1532,8 @@ try {
   await grillzielSetzen(browser);
   await grillblattVierPlaetze(browser);
   await smokerLaeuftOeffnetBlatt(browser);
+  await treffflaechen(browser);
+  await wandpanelSchreibtGross(browser);
 } finally {
   await browser.close();
 }

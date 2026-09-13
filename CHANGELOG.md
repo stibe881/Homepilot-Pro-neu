@@ -5,6 +5,118 @@ Gegenstück: was die Anlage heute kann, was sie vorher nicht konnte.
 
 Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
+## 2026-09-13
+
+Die Runde 579 der Werkbank: fünfundfünfzig Vorschläge, zweiundfünfzig
+davon gebaut, dazu zehn nebenbei gefundene Fehler. Die Nummern stehen
+im Archiv der Werkbank, hier nur, was man im Haus merkt.
+
+**Für den Betrieb - vor dem Update lesen**
+
+- **`api.trusted_proxies` eintragen, wenn der Hub hinter dem Nginx
+  Proxy Manager läuft** (591). Der Kopf `X-Forwarded-For` zählt nur
+  noch von Adressen aus dieser Liste; ohne Eintrag sieht der Hub jeden
+  Zugriff von aussen als Zugriff des Proxys, und die Bremse gegen
+  Fehlversuche sperrt nach zehn falschen Passwörtern irgendwoher den
+  Proxy - und damit alle. Beispiel in `config.example.yaml`, Erklärung
+  in `docs/app-ohne-vpn.md`.
+- **Ein TestFlight-Build ist nötig** für die Heimweg-Karte mit
+  Hausstand (607), den Scharf-Knopf auf der Uhr (608) und die gefärbten
+  Widget-Knöpfe. Kein neues Modul, die Laufzeit bleibt «8» - die
+  OTA-Fassung läuft weiter, nur diese drei Stücke kommen erst mit dem
+  Build.
+- Die Prüfung läuft jetzt auf Python 3.11 **und** 3.12 - das Abbild
+  war schon immer 3.12, geprüft wurde nur 3.11.
+
+**Neu**
+
+- **Verbindung.** Ein abgemeldetes Gerät sagt «Dieses Gerät wurde
+  abgemeldet» mit «Neu anmelden» statt endlos zu verbinden (579); ein
+  Kind ausserhalb seines Zeitfensters sieht «Gute Nacht - ab 07:00
+  geht's weiter» (624); nach einer Absage zeigt die Kachel den Stand
+  von vorher mit «unbestätigt», und die Meldung nennt das Gerät (580);
+  das Wandpanel pingt den Hub und verbindet neu, wenn die Antwort
+  ausbleibt (592).
+- **Startseite.** Fehler und Bestätigungen erscheinen auch über einem
+  offenen Blatt - an der Klingel, am Grill (581); die
+  Drei-Minuten-Rückkehr am Wandpanel zählt Tipps in Blättern und wartet,
+  solange gekocht wird (582); vom Zimmer wischt man ins Nachbarzimmer,
+  mit Pfeilen im Raumkopf (583).
+- **Alltag.** Der Morgengruss warnt vor Regen auf dem Schulweg (584)
+  und vor Schnee - der Losfahr-Wecker rechnet dann länger (585); der
+  Losfahr-Wecker öffnet die Route und geht nur an die Person des
+  Kalenders (586); «Heute: Lasagne» steht ab 15 Uhr auf der Startseite
+  und der Essensplan im Sonntagabend-Ausblick (587).
+- **Familie.** Wochenplan, Ausblick, Wandpanel und Babysitter kennen
+  die Kinderwoche (619); Packliste und Kinderseite kennen die
+  Schulferien (620); ein Kindertermin weiss, wer bringt und holt, und
+  der Wecker geht an diese Person (621); «Heute krank» räumt Schule,
+  Packliste, Wecker und Ämtli für das Kind weg (622); Dokumente haben
+  ein Ablaufdatum mit Erinnerung 60 und 14 Tage vorher (623).
+- **Abläufe.** Bedingung «seit mindestens … Minuten» (595); ein
+  wirkungsloser Lauf wird einmal nachgefasst und dann gemeldet (596);
+  ein Ablauf kann einen anderen ruhen lassen, ein- oder ausschalten
+  (597); die Zeitbedingung kennt «vom 1.12. bis 6.1.» (598).
+- **Push.** Empfänger «wer zuhause ist» / «wer unterwegs ist», auch
+  für Fenster- und Geräte-Meldungen (599); flüchtige Meldungen
+  (Klingel, Timer, Ofen) verfallen, statt eine Stunde später zu kommen
+  (600); die Fenster-Erinnerung schweigt im Sommer bei Anwesenheit und
+  sagt sonst die Aussentemperatur (601); «Wieder trocken» nach einem
+  Wasseralarm (602); eigene Erinnerungen sind eine Push-Kategorie mit
+  «Später» (603); «Paket vor der Haustüre» mit Bild und abends «liegt
+  noch draussen» (617); die Ortungspause gilt auf dem Hub - keine
+  Funkstille-Meldung an alle (627); die Batteriewarnung nennt den Typ
+  und legt ihn auf die Einkaufsliste (633).
+- **Sperrbildschirm, Widget, Uhr.** Bei Rauch eine eigene Brand-Karte
+  mit «Stumm» (604); der Küchen-Timer bleibt beim Klingeln liegen und
+  hat «Stopp» und «+5 min» (605); die Erinnerungs-Karte hat «Erledigt»
+  und «Später» (606); die Heimweg-Karte sagt «Alarm scharf · Livia ist
+  zuhause» (607); die Uhr kann scharf schalten (608).
+- **Gestaltung.** Grün und Weiss als Schrift sind überall lesbar,
+  gemessen über alle fünf Erscheinungsbilder (609); am Wandpanel
+  schreiben alle Kacheln grösser, nicht nur das Licht (610); ein
+  Symbolwörterbuch je Geräteart, Sensoren nach Einheit (611);
+  «Bewegung» hat überall dieselbe Farbe (612); der Ein/Aus-Knopf ist 44
+  Punkte gross, die Probe misst jede Trefffläche (613).
+- **Alarm, Brand, Tür.** Die Anlage schaltet nicht mehr scharf über
+  eine unverschlossene Haustüre - «Abschliessen und scharf» (614); bei
+  Feuer setzt sich die Einbruchmeldung aus, bei Entwarnung zurück
+  (615); die Türe sagt, wer sie aufgeschlossen hat (Code, Finger, App),
+  und der Heimgruss spielt auch ohne Telefon (616).
+- **Betrieb und Benutzer.** Der Neustart-Knopf fährt geordnet herunter
+  und gilt nicht mehr als Stromausfall (590); die Sicherung ist ein
+  Archiv mit Bildern, Belegen, Tokens und Konfiguration, hochladbar und
+  aus dem Bucket holbar (593); der Verwalter sieht und beendet die
+  Geräte der anderen (625); eine neue Anmeldung meldet sich mit «Warst
+  du das?» (626); wer den Haushalt verlässt, wird mit Bilanz entfernt
+  und übergibt seine Ämtli (628).
+- **Geräte.** Die Tasterkachel sagt, was welcher Druck auslöst (629);
+  das Einschaltverhalten nach Stromausfall stellt der Hub, für alle
+  Lampen auf einmal (630); Nachlaufzeit, Empfindlichkeit und Abgleich
+  eines Zigbee-Geräts im Anpassen-Blatt (631); neue Geräte aus der App
+  anlernen - Zigbee-Netz öffnen, Matter koppeln (632).
+
+**Behoben**
+
+- Abläufe mit Anwesenheits-, Termin- oder Wetterwarnungs-Bedingung
+  liessen sich nicht speichern (594); der Modus «der Reihe nach» ging
+  im Editor verloren; Zeitraum- und Kalender-Auslöser fehlten im
+  Tagesband, und der Verlauf eines Bewegungslichts verdrängte den der
+  anderen.
+- Der Push-Nachlese-Zettel rechnete je Person statt je Gerät; der
+  Tagesdeckel zählte zurückgehaltene Meldungen und Proben mit.
+- Ein Ende-Push für eine Live-Karte verfiel nach zehn Minuten - die
+  Karte blieb bis zu acht Stunden liegen, wenn das Telefon ohne Netz
+  war. Das «Fertig - ausräumen» der Waschmaschine kam nie auf den
+  Sperrbildschirm.
+- Der Zustandspunkt ignorierte «Bewegung reduzieren».
+- Ein abgelehnter Datensatz blockierte den Supabase-Verlauf für immer.
+- «Türklingel (nur sehen)» fehlte in der Benutzerverwaltung; die
+  Widget-Knöpfe zeigen jetzt, ob das Licht brennt.
+
+**Offen geblieben** aus der Runde: die Wäsche mit Wetterblick (588), die
+unlesbare Datendatei (589) und das Bild in der Klingel-Push (618).
+
 ## 2026-09-05
 
 **Neu**

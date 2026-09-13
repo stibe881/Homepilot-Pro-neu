@@ -51,8 +51,10 @@ BEISPIELE: dict[str, tuple[str, str]] = {
     "open": ("Fenster Bad steht offen", "Seit 2 Stunden offen, draussen sind es 4 °C."),
     "leak": ("Wasser gemeldet", "Der Melder in der Waschküche meldet Wasser."),
     "smoke": ("🔥 Rauch gemeldet", "Rauchmelder Küche – Küche meldet Rauch. Das Haus verlassen, dann 118 anrufen."),
+    "door": ("Haustüre aufgeschlossen", "Livia hat um 15:42 per Code aufgeschlossen."),
     "doorbell": ("Es klingelt", "Jemand steht an der Haustüre."),
     "baby_cry": ("Ein Baby weint", "Die Kamera im Kinderzimmer hört ein Kind."),
+    "package": ("Paket vor der Haustüre", "Die Kamera Haustüre sieht ein Paket."),
     "disk": ("Speicherplatz wird knapp", "Die Platte ist zu 87 % belegt."),
     "frost": ("Frost angekündigt", "Heute Nacht bis -1 °C - die Pflanzen auf dem Balkon."),
     "rain": ("Regen kommt", "In 30 Minuten Regen. Das Fenster im Bad steht offen."),
@@ -83,18 +85,23 @@ BEISPIELE: dict[str, tuple[str, str]] = {
         "1 Fenster offen, 2 Batterien schwach, in der Nacht war nichts.",
     ),
     "presence": ("Telefon fast leer", "Bines Telefon hat noch 12 % - die Ortung fällt sonst aus."),
+    # Punkt 626: die Meldung, die niemand bekommen sollte - und die man
+    # deshalb einmal gesehen haben will.
+    "login": (
+        "Neues Gerät angemeldet",
+        "«iPhone von Anna» hat sich mit deinem Konto angemeldet (192.168.1.44). Warst du das?",
+    ),
     "weekahead": ("Die Woche voraus", "3 Termine, 2 Ämtli, 1 Geburtstag."),
     "vouchers": ("Gutschein läuft ab", "Der Gutschein von Ochsner Sport gilt noch 7 Tage."),
+    "documents": ("Dokument läuft ab", "Pass Levin (Levin) läuft in 60 Tagen ab."),
+    "reminder": ("⏰ Erinnerung", "Zahnarzt anrufen"),
     "test": ("HomePilot Test", "Push-Benachrichtigungen funktionieren \U0001f389"),
 }
 
-#: Das Zeichen, an dem man einen Testversand erkennt.
-#:
-#: Ohne das läuft jemand los, weil «Wasser gemeldet» auf dem Telefon
-#: steht - der Text ist ja absichtlich derselbe wie im Ernstfall. Vorn,
-#: nicht hinten: Auf dem Sperrbildschirm wird der Titel abgeschnitten,
-#: und das Ende sieht niemand.
-PROBE = "Probe: "
+#: Das Zeichen, an dem man einen Testversand erkennt - definiert in
+#: ``push``, weil ``send`` es selbst braucht (die Probe zählt nicht auf
+#: den Tagesdeckel); hier bleibt es unter dem gewohnten Namen.
+PROBE = push.PROBE
 
 
 def beispiel(category: str | None) -> tuple[str, str] | None:

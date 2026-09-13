@@ -21,6 +21,7 @@ import { Modal, Pressable, StyleSheet, Text } from 'react-native';
 
 import { PushKnopf } from '../lib/pushziel';
 import { Colors, radius, space, type, useColors } from '../theme';
+import { Blatt } from './Blatt';
 
 export function PushBlatt({
   titel,
@@ -40,6 +41,10 @@ export function PushBlatt({
 
   return (
     <Modal visible animationType="fade" transparent onRequestClose={onSchliessen}>
+      {/* Als Blatt angemeldet (Punkt 582): Tipps hier zählen für die
+          Rückkehr des Wandpanels, und die Absage zu einem Handgriff
+          steht im Blatt, nicht dahinter. */}
+      <Blatt>
       <Pressable style={styles.grund} onPress={onSchliessen}>
         {/* Der Tipp auf das Blatt selbst schliesst nicht: Sonst trifft
             man beim Zielen auf einen Knopf daneben und alles ist weg. */}
@@ -48,7 +53,7 @@ export function PushBlatt({
           {text ? <Text style={styles.text}>{text}</Text> : null}
           {knoepfe.map((knopf) => (
             <Pressable
-              key={`${knopf.label}:${knopf.scene ?? knopf.entity}`}
+              key={`${knopf.label}:${knopf.scene ?? knopf.entity ?? knopf.sitzung}`}
               onPress={() => {
                 onDruck(knopf);
                 onSchliessen();
@@ -57,9 +62,9 @@ export function PushBlatt({
               style={({ pressed }) => [styles.knopf, pressed && { opacity: 0.8 }]}
             >
               <Ionicons
-                name={knopf.scene ? 'sparkles' : 'flash'}
+                name={knopf.scene ? 'sparkles' : knopf.sitzung ? 'log-out-outline' : 'flash'}
                 size={18}
-                color="#FFFFFF"
+                color={colors.onAccent}
               />
               <Text style={styles.knopfText} numberOfLines={1}>
                 {knopf.label}
@@ -75,6 +80,7 @@ export function PushBlatt({
           </Pressable>
         </Pressable>
       </Pressable>
+      </Blatt>
     </Modal>
   );
 }
@@ -104,7 +110,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       backgroundColor: colors.accent,
     },
-    knopfText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+    knopfText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
     zu: { alignItems: 'center', paddingVertical: 8 },
     zuText: { color: colors.inkFaint, fontSize: 14, fontWeight: '600' },
   });

@@ -43,7 +43,7 @@ def test_verschachtelt_in_if_und_repeat():
         "action": [
             {
                 "type": "if",
-                "condition": {"type": "wetter"},
+                "conditions": [{"type": "wetter"}],
                 "then": [{"type": "unsinn"}],
                 "else": [{"type": "command", "entity_id": "x", "command": "turn_off"}],
             },
@@ -75,3 +75,43 @@ def test_verschachtelt_in_gruppen():
 def test_kaputte_eintraege_werden_uebersprungen_nicht_abgestuerzt():
     entry = {"action": ["kaputt", None, 42], "condition": ["auch kaputt"]}
     assert ablaufpruefung.pruefen(entry) == []
+
+
+def test_die_kontext_bedingungen_gelten_als_bekannt():
+    """Punkt 594 der Werkbank: «nur wenn Livia daheim ist» wurde beim
+    Speichern abgewiesen, weil die vier Kontext-Bedingungen einen Tag
+    nach dieser Liste in den Motor kamen."""
+    entry = {
+        "condition": [
+            {"type": "presence", "person": "livia", "state": "present"},
+            {"type": "availability", "entity_id": "x", "available": True},
+            {"type": "weather_warning", "active": True},
+            {"type": "calendar", "contains": "Gäste"},
+        ]
+    }
+    assert ablaufpruefung.pruefen(entry) == []
+
+
+def test_die_bedingungsliste_deckt_alle_zweige_des_motors():
+    """Die Liste ist bewusst von Hand gepflegt (siehe Modulkommentar) -
+    dieser Test sagt, wenn der Motor einen Zweig kennt, den sie nicht
+    kennt, und umgekehrt."""
+    import inspect
+    import re
+
+    from homepilot.core.automation import AutomationEngine
+
+    quelle = inspect.getsource(AutomationEngine._check_condition)
+    zweige = set(re.findall(r'if ctype == "([a-z_]+)"', quelle))
+    assert zweige == set(ablaufpruefung.CONDITION_TYPES)
+
+
+def test_die_bedingungen_einer_verzweigung_werden_geprueft():
+    """Der Motor liest am «wenn»-Schritt ``conditions`` - die Prüfung
+    las ``condition`` und sah darum nie hinein (Punkt 594)."""
+    entry = {
+        "action": [{"type": "if", "conditions": [{"type": "quatsch"}], "then": []}]
+    }
+    fehler = ablaufpruefung.pruefen(entry)
+    assert len(fehler) == 1 and "quatsch" in fehler[0]
+    assert "action[0].conditions[0]" in fehler[0]

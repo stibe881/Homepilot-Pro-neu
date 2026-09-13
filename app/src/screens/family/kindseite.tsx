@@ -23,7 +23,7 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Card } from '../../components/Card';
 import {
@@ -33,13 +33,20 @@ import {
   sternSatz,
   wochenSterne,
 } from '../../lib/aemtlisterne';
+import { ablaufSatz, dokumenteVon, gueltigBis } from '../../lib/dokumente';
+import { mitRolle, nummernVon, waehlbar } from '../../lib/familie';
 import { terminWann } from '../../lib/kalenderliste';
 import {
   TAGE,
   TAG_NAMEN,
+  fahrtSatz,
   ferienSatz,
+  ferienpause,
   geburtstagSatz,
   heuteSatz,
+  isoDatum,
+  krankBis,
+  krankSatz,
   morgenPackSatz,
   kindTermine,
   naechstesMal,
@@ -144,13 +151,20 @@ function PackForm({
 }) {
   const [text, setText] = useState('');
   const [woche, setWoche] = useState<'' | Woche>('');
+  const [ferien, setFerien] = useState(false);
 
   const submit = () => {
     const name = text.trim();
     if (!name) return;
-    onAdd({ day: tag, text: name, ...(woche ? { week: woche } : {}) });
+    onAdd({
+      day: tag,
+      text: name,
+      ...(woche ? { week: woche } : {}),
+      ...(ferien ? { holidays: true } : {}),
+    });
     setText('');
     setWoche('');
+    setFerien(false);
   };
 
   return (
@@ -170,7 +184,7 @@ function PackForm({
           style={[styles.addButton, !text.trim() && { opacity: 0.5 }]}
           accessibilityLabel={`Am ${TAG_NAMEN[tag]} mitnehmen`}
         >
-          <Ionicons name="add" size={22} color="#FFFFFF" />
+          <Ionicons name="add" size={22} color={colors.onAccent} />
         </Pressable>
       </View>
       <View style={styles.chipRow}>
@@ -189,8 +203,34 @@ function PackForm({
             </Text>
           </Pressable>
         ))}
+        <FerienChip an={ferien} onToggle={() => setFerien(!ferien)} styles={styles} />
       </View>
     </View>
+  );
+}
+
+/** Der Schalter «auch in den Ferien» (Punkt 620): Das Fussballtraining
+ *  läuft in den Ferien oft weiter, die Flöte nicht. Ohne ihn macht ein
+ *  Eintrag in den Ferien Pause - auf der Seite und im Packlisten-Push
+ *  (core/packliste.py). */
+function FerienChip({
+  an,
+  onToggle,
+  styles,
+}: {
+  an: boolean;
+  onToggle: () => void;
+  styles: Styles;
+}) {
+  return (
+    <Pressable
+      onPress={onToggle}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: an }}
+      style={[styles.chip, an && styles.chipActive]}
+    >
+      <Text style={[styles.chipText, an && styles.chipTextActive]}>auch in den Ferien</Text>
+    </Pressable>
   );
 }
 
@@ -204,6 +244,7 @@ function PackForm({
 function WochenForm({
   platzhalter,
   mitOrt,
+  mitglieder,
   tag,
   onTag,
   onAdd,
@@ -213,6 +254,9 @@ function WochenForm({
 }: {
   platzhalter: string;
   mitOrt?: boolean;
+  /** Wer bringen oder holen kann (Punkt 621) - die Personenreihe ohne
+   *  das Kind selbst. Ohne Liste gibt es die Chips nicht. */
+  mitglieder?: string[];
   tag: string;
   /** Fehlt sie, ist der Tag von aussen gesetzt (Stundenplan). */
   onTag?: (tag: string) => void;
@@ -228,6 +272,9 @@ function WochenForm({
   const [bis, setBis] = useState('');
   const [ort, setOrt] = useState('');
   const [woche, setWoche] = useState<'' | Woche>('');
+  const [ferien, setFerien] = useState(false);
+  const [bringt, setBringt] = useState('');
+  const [holt, setHolt] = useState('');
   const bereit = Boolean(text.trim()) && zeitNormal(von) !== null;
 
   const submit = () => {
@@ -243,13 +290,45 @@ function WochenForm({
       to: zeitNormal(bis) ?? '',
       ...(woche ? { week: woche } : {}),
       ...(mitOrt && ort.trim() ? { ort: ort.trim() } : {}),
+      ...(mitOrt && ferien ? { holidays: true } : {}),
+      ...(mitOrt && bringt ? { bringt } : {}),
+      ...(mitOrt && holt ? { holt } : {}),
     });
     setText('');
     setVon('');
     setBis('');
     setOrt('');
     setWoche('');
+    setFerien(false);
+    setBringt('');
+    setHolt('');
   };
+
+  /** Eine Chip-Reihe «bringt» bzw. «holt» - ein zweiter Tipp auf den
+   *  gewählten Namen nimmt ihn wieder heraus. */
+  const fahrerReihe = (
+    titel: string,
+    wahl: string,
+    setWahl: (name: string) => void
+  ) => (
+    <View style={styles.chipRow}>
+      <Text style={styles.checkSub}>{titel}</Text>
+      {(mitglieder ?? []).map((name) => (
+        <Pressable
+          key={name}
+          onPress={() => setWahl(wahl === name ? '' : name)}
+          accessibilityRole="radio"
+          accessibilityState={{ selected: wahl === name }}
+          accessibilityLabel={`${name} ${titel}`}
+          style={[styles.chip, wahl === name && styles.chipActive]}
+        >
+          <Text style={[styles.chipText, wahl === name && styles.chipTextActive]}>
+            {name}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  );
 
   return (
     <View style={{ gap: 8, marginTop: 4 }}>
@@ -270,7 +349,7 @@ function WochenForm({
           style={[styles.addButton, !bereit && { opacity: 0.5 }]}
           accessibilityLabel={`Am ${TAG_NAMEN[tag]} eintragen`}
         >
-          <Ionicons name="add" size={22} color="#FFFFFF" />
+          <Ionicons name="add" size={22} color={colors.onAccent} />
         </Pressable>
       </View>
       <View style={styles.addRow}>
@@ -301,6 +380,21 @@ function WochenForm({
           />
         ) : null}
       </View>
+      {/* Wer fährt? (Punkt 621) Nur bei den Wöchentlichen mit Ort - zur
+          Schulstunde fährt niemand. */}
+      {mitOrt && (mitglieder ?? []).length > 0 ? (
+        <>
+          {fahrerReihe('bringt', bringt, setBringt)}
+          {fahrerReihe('holt', holt, setHolt)}
+        </>
+      ) : null}
+      {/* Der Stundenplan macht in den Ferien immer Pause - der Schalter
+          gehört nur zu den Wöchentlichen (Punkt 620). */}
+      {mitOrt ? (
+        <View style={styles.chipRow}>
+          <FerienChip an={ferien} onToggle={() => setFerien(!ferien)} styles={styles} />
+        </View>
+      ) : null}
       {/* Manche Fächer wechseln sich alle zwei Wochen ab (Handarbeit /
           Werken). «diese Woche» steht dran, damit man beim Eintragen
           weiss, welche Woche gerade läuft. */}
@@ -340,6 +434,11 @@ export function Kindseite({
   ferien,
   kontakte,
   sachen,
+  dokumente,
+  mitglieder,
+  mitgliedEintrag,
+  onKrank,
+  onKurAnlegen,
   onBack,
   onAdd,
   onRemove,
@@ -370,6 +469,18 @@ export function Kindseite({
   kontakte?: FamilyItem[];
   /** «gear» - die Packliste: was an welchem Tag in den Thek gehört. */
   sachen?: FamilyItem[];
+  /** «documents» - der Dokumentsafe: Pass und Impfausweis des Kindes
+   *  stehen hier mit «gültig bis» (Punkt 623). */
+  dokumente?: FamilyItem[];
+  /** Wer bringen oder holen kann (Punkt 621): die Personenreihe ohne
+   *  das Kind selbst. */
+  mitglieder?: string[];
+  /** Der rohe Eintrag aus «members» - er trägt `sick_until` (Punkt 622). */
+  mitgliedEintrag?: FamilyItem | null;
+  /** Krank melden bis zu diesem Tag («JJJJ-MM-TT»), null heisst gesund. */
+  onKrank?: (bis: string | null) => void;
+  /** Ins Medikamente-Modul - eine Kur für dieses Kind anlegen. */
+  onKurAnlegen?: () => void;
   onBack: () => void;
   onAdd: (liste: Wochenliste, zeile: FamilyItem) => void;
   onRemove: (liste: Wochenliste, id: string) => void;
@@ -428,14 +539,26 @@ export function Kindseite({
     )
   );
   const naechste = kindTermine(events, name, jetzt);
+  // Krank (Punkt 622): Solange es gilt, schweigen Schul-Satz und
+  // Packliste, und die Schule steht mit Anruf-Knopf zum Abmelden oben.
+  const krankheitBis = krankBis(mitgliedEintrag, jetzt);
+  const krank = krankheitBis !== null;
+  const schulKontakte = mitRolle(kontakte ?? [], 'schule');
+  const heuteIso = isoDatum(jetzt);
+  const morgenIso = isoDatum(
+    new Date(jetzt.getFullYear(), jetzt.getMonth(), jetzt.getDate() + 1)
+  );
 
   const zeile = (
     eintrag: FamilyItem,
     liste: Wochenliste,
     titel: string,
-    unten: string
+    unten: string,
+    // Blass: Der Eintrag gilt gerade nicht (Ferienpause, Punkt 620) -
+    // ausgegraut statt versteckt, sonst hielte man ihn für gelöscht.
+    blass = false
   ) => (
-    <View key={String(eintrag.id)} style={eigen.zeile}>
+    <View key={String(eintrag.id)} style={[eigen.zeile, blass && { opacity: 0.5 }]}>
       <View style={{ flex: 1 }}>
         <Text style={styles.checkText}>{titel}</Text>
         {unten ? <Text style={styles.checkSub}>{unten}</Text> : null}
@@ -478,11 +601,17 @@ export function Kindseite({
       {/* Die eine Zeile, für die man die Seite aufmacht. */}
       <Card style={styles.listCard}>
         <Text style={eigen.kartenTitel}>Heute</Text>
-        <Text style={eigen.heute}>{heuteSatz(lektionen, termine, name, jetzt)}</Text>
+        <Text style={eigen.heute}>
+          {heuteSatz(lektionen, termine, name, jetzt, { ferien, krank })}
+        </Text>
         {/* Der Blick nach vorn: Was morgen in den Thek gehört, will man
             am Abend wissen, nicht am Morgen um sieben. */}
         {(() => {
-          const packZeile = morgenPackSatz(sachen, name, jetzt);
+          const packZeile = morgenPackSatz(sachen, name, jetzt, {
+            ferien,
+            krank,
+            krankBis: krankheitBis,
+          });
           return packZeile ? (
             <View style={eigen.vorfreudeZeile}>
               <Ionicons name="bag-handle-outline" size={16} color={colors.accent} />
@@ -491,6 +620,107 @@ export function Kindseite({
           ) : null;
         })()}
       </Card>
+
+      {/* Krank (Punkt 622): ein Knopf, und solange er gilt, steht hier
+          die Schule mit der Nummer zum Abmelden, dazu «Auch morgen»,
+          «Wieder gesund» und der Weg zur Kur. Fällige Ämtli gibt die
+          Familienseite beim Krankmelden an den Nächsten weiter. */}
+      {onKrank ? (
+        <Card style={styles.listCard}>
+          {krank ? (
+            <>
+              <Text style={eigen.kartenTitel}>{krankSatz(krankheitBis, jetzt)}</Text>
+              {schulKontakte.map((kontakt) =>
+                nummernVon(kontakt).slice(0, 1).map((nummer) => (
+                  <Pressable
+                    key={`${String(kontakt.id)}-${nummer.nummer}`}
+                    onPress={() =>
+                      Linking.openURL(`tel:${waehlbar(nummer.nummer)}`).catch(() => {})
+                    }
+                    accessibilityRole="button"
+                    accessibilityLabel={`${String(kontakt.text ?? '')} anrufen und abmelden`}
+                    style={({ pressed }) => [eigen.krankZeile, pressed && { opacity: 0.7 }]}
+                  >
+                    <Ionicons name="call-outline" size={18} color={colors.accent} />
+                    <Text style={[eigen.heute, { flex: 1 }]}>
+                      {String(kontakt.text ?? '')} · {nummer.nummer}
+                    </Text>
+                    <Text style={eigen.formKnopfText}>abmelden</Text>
+                  </Pressable>
+                ))
+              )}
+              {schulKontakte.length === 0 ? (
+                <Text style={styles.checkSub}>
+                  Kein Kontakt mit der Rolle «Schule/Hort» - dann stünde die Nummer zum
+                  Abmelden hier.
+                </Text>
+              ) : null}
+              <View style={styles.chipRow}>
+                {krankheitBis < morgenIso ? (
+                  <Pressable
+                    onPress={() => onKrank(morgenIso)}
+                    accessibilityRole="button"
+                    style={styles.chip}
+                  >
+                    <Text style={styles.chipText}>Auch morgen</Text>
+                  </Pressable>
+                ) : null}
+                <Pressable
+                  onPress={() => onKrank(null)}
+                  accessibilityRole="button"
+                  style={styles.chip}
+                >
+                  <Text style={styles.chipText}>Wieder gesund</Text>
+                </Pressable>
+                {onKurAnlegen ? (
+                  <Pressable
+                    onPress={onKurAnlegen}
+                    accessibilityRole="button"
+                    style={styles.chip}
+                  >
+                    <Text style={styles.chipText}>Kur anlegen</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </>
+          ) : (
+            <Pressable
+              onPress={() => onKrank(heuteIso)}
+              accessibilityRole="button"
+              accessibilityLabel={`${name} heute krank melden`}
+              style={({ pressed }) => [eigen.formKnopf, pressed && { opacity: 0.7 }]}
+            >
+              <Ionicons name="thermometer-outline" size={16} color={colors.accent} />
+              <Text style={eigen.formKnopfText}>Heute krank</Text>
+            </Pressable>
+          )}
+        </Card>
+      ) : null}
+
+      {/* Die Dokumente des Kindes mit Ablaufdatum (Punkt 623): «Pass
+          gültig bis 03.2027» - und in Warnfarbe, wenn es knapp wird. */}
+      {(() => {
+        const meine = dokumenteVon(dokumente, name);
+        if (meine.length === 0) return null;
+        return (
+          <Card style={styles.listCard}>
+            <Text style={eigen.kartenTitel}>Dokumente</Text>
+            {meine.map((doc) => {
+              const warnung = ablaufSatz(doc, jetzt);
+              return (
+                <View key={String(doc.id)} style={eigen.vorfreudeZeile}>
+                  <Ionicons name="document-text-outline" size={16} color={colors.accent} />
+                  <Text style={[eigen.heute, warnung ? { color: colors.warnInk } : null]}>
+                    {[String(doc.text ?? ''), gueltigBis(doc), warnung ?? '']
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </Text>
+                </View>
+              );
+            })}
+          </Card>
+        );
+      })()}
 
       {/* Zum Vorfreuen: Kinder zählen Tage - bis zu den Ferien und bis
           zum eigenen Geburtstag. Beides rechnet der Hub längst
@@ -876,9 +1106,15 @@ export function Kindseite({
                 naechstesMal(eintrag, jetzt),
                 eintrag.to ? `bis ${zeitNormal(eintrag.to)}` : '',
                 String(eintrag.ort ?? '').trim(),
+                // «Stefan fährt» - oder, mit Ort aber ohne Person, die
+                // offene Frage gleich dazu (Punkt 621).
+                fahrtSatz(eintrag) ??
+                  (String(eintrag.ort ?? '').trim() ? 'niemand fährt' : ''),
+                ferienpause(eintrag, ferien) ? 'Ferienpause' : '',
               ]
                 .filter(Boolean)
-                .join(' · ')
+                .join(' · '),
+              ferienpause(eintrag, ferien)
             )
           )
         )}
@@ -887,6 +1123,7 @@ export function Kindseite({
           <WochenForm
             platzhalter="Fussball, Jugi …"
             mitOrt
+            mitglieder={mitglieder}
             tag={terminTag}
             onTag={setTerminTag}
             onAdd={(neu) => onAdd('activities', neu)}
@@ -918,9 +1155,12 @@ export function Kindseite({
                 eintrag.week === 'A' || eintrag.week === 'B'
                   ? `nur Woche ${eintrag.week}`
                   : '',
+                eintrag.holidays ? 'auch in den Ferien' : '',
+                ferienpause(eintrag, ferien) ? 'Ferienpause' : '',
               ]
                 .filter(Boolean)
-                .join(' · ')
+                .join(' · '),
+              ferienpause(eintrag, ferien)
             )
           )
         )}
@@ -952,6 +1192,7 @@ const makeStyles = (colors: Colors) =>
     kartenTitel: { color: colors.ink, fontSize: 15, fontWeight: '700' },
     heute: { color: colors.inkSoft, fontSize: 14, lineHeight: 20 },
     vorfreudeZeile: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    krankZeile: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
     // Die Sterne: gross genug zum Zählen mit dem Finger. Die Reihe
     // bricht um, wenn das Ziel breiter ist als ein Telefon.
     sternReihe: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 8 },
@@ -1069,7 +1310,7 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     jetztChip: {
-      color: '#FFFFFF',
+      color: colors.onAccent,
       backgroundColor: colors.accent,
       fontSize: 10,
       fontWeight: '700',

@@ -202,7 +202,7 @@ export function AddRow({
         onSubmitEditing={multiline ? undefined : submit}
       />
       <Pressable onPress={submit} style={styles.addButton} accessibilityLabel="Hinzufügen">
-        <Ionicons name="add" size={22} color="#FFFFFF" />
+        <Ionicons name="add" size={22} color={colors.onAccent} />
       </Pressable>
     </View>
   );
@@ -634,7 +634,7 @@ export function PollAddRow({
           style={styles.addButton}
           accessibilityLabel="Abstimmung anlegen"
         >
-          <Ionicons name="add" size={22} color="#FFFFFF" />
+          <Ionicons name="add" size={22} color={colors.onAccent} />
         </Pressable>
       </View>
     </View>
@@ -693,7 +693,7 @@ export function MemberAddRow({
           onSubmitEditing={submit}
         />
         <Pressable onPress={submit} style={styles.addButton} accessibilityLabel="Hinzufügen">
-          <Ionicons name="add" size={22} color="#FFFFFF" />
+          <Ionicons name="add" size={22} color={colors.onAccent} />
         </Pressable>
       </View>
       <View style={styles.chipRow}>
@@ -775,7 +775,7 @@ export function MedicationAddRow({
           onSubmitEditing={submit}
         />
         <Pressable onPress={submit} style={styles.addButton} accessibilityLabel="Hinzufügen">
-          <Ionicons name="add" size={22} color="#FFFFFF" />
+          <Ionicons name="add" size={22} color={colors.onAccent} />
         </Pressable>
       </View>
 
@@ -891,7 +891,7 @@ export function ChoreAddRow({
           style={[styles.addButton, reihe.length === 0 && { opacity: 0.5 }]}
           accessibilityLabel="Ämtli anlegen"
         >
-          <Ionicons name="add" size={22} color="#FFFFFF" />
+          <Ionicons name="add" size={22} color={colors.onAccent} />
         </Pressable>
       </View>
       <Text style={styles.formHintSmall}>
@@ -1004,7 +1004,7 @@ export function TaskAddRow({
           onSubmitEditing={submit}
         />
         <Pressable onPress={submit} style={styles.addButton} accessibilityLabel="Hinzufügen">
-          <Ionicons name="add" size={22} color="#FFFFFF" />
+          <Ionicons name="add" size={22} color={colors.onAccent} />
         </Pressable>
       </View>
       <View style={styles.chipRow}>
@@ -1106,7 +1106,7 @@ export function ShoppingAddRow({
           onSubmitEditing={submit}
         />
         <Pressable onPress={submit} style={styles.addButton} accessibilityLabel="Hinzufügen">
-          <Ionicons name="add" size={22} color="#FFFFFF" />
+          <Ionicons name="add" size={22} color={colors.onAccent} />
         </Pressable>
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -1324,7 +1324,7 @@ export function ContactForm({
               <Ionicons
                 name={rolle.icon as keyof typeof Ionicons.glyphMap}
                 size={13}
-                color={aktiv ? '#FFFFFF' : colors.inkSoft}
+                color={aktiv ? colors.onAccent : colors.inkSoft}
               />
               <Text style={[styles.chipText, aktiv && styles.chipTextActive]}>
                 {rolle.label}

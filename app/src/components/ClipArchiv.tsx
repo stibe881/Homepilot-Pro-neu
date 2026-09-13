@@ -220,7 +220,7 @@ export function ClipArchiv({
                           pressed && { opacity: 0.7 },
                         ]}
                       >
-                        <Text style={[styles.fristChipText, on && { color: '#FFFFFF' }]}>
+                        <Text style={[styles.fristChipText, on && { color: colors.onAccent }]}>
                           {fristText(tage)}
                         </Text>
                       </Pressable>
@@ -307,7 +307,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.pill,
     },
     loeschenGefragt: { backgroundColor: colors.danger },
-    loeschenText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
+    loeschenText: { color: colors.onAccent, fontSize: 12, fontWeight: '700' },
     hinweis: { color: colors.inkFaint, fontSize: 11, marginTop: 12, lineHeight: 16 },
     fristBlock: { marginTop: 18, gap: 6 },
     fristTitel: { color: colors.inkSoft, fontSize: 13, fontWeight: '700' },

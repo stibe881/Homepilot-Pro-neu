@@ -17,12 +17,27 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import push, waschkueche
+from . import push, waschkueche, watchrules
 
 # Beschreibung je Parameter: Grenzen halten Tippfehler fern (eine Erinnerung
 # nach 0 Stunden wäre Dauerfeuer, eine Frostwarnung bei 40 °C nie still).
 # {key, label, unit, default, min, max, step}
 Param = dict[str, Any]
+
+# «Nur an Anwesende» (Punkt 599): ein Schalter als Zahl 0/1, weil die
+# Regeln nur Zahlen kennen - die App zeigt min 0 / max 1 / ohne Einheit
+# als Schalter (components/PushRules.tsx). Gilt für Meldungen, bei denen
+# nur handeln kann, wer im Haus ist: das offene Fenster, die volle
+# Maschine. Wer unterwegs ist, kann beides nur zur Kenntnis nehmen.
+SCHALTER_ANWESENDE: Param = {
+    "key": "anwesende",
+    "label": "Nur an Anwesende",
+    "unit": "",
+    "default": 0,
+    "min": 0,
+    "max": 1,
+    "step": 1,
+}
 
 # Die Regeln in Anzeige-Reihenfolge. `category` ist zugleich der Schlüssel
 # der Push-Kategorie (siehe push.CATEGORIES) – so greifen persönliche
@@ -54,6 +69,24 @@ RULES: list[dict[str, Any]] = [
         "Smart Detections → Audio). Weint es weiter, kommt frühestens nach "
         "zwei Minuten die nächste Nachricht.",
         "params": [],
+    },
+    {
+        "key": "package",
+        "title": "Paket vor der Haustüre",
+        "detail": "Sobald eine Kamera ein Paket erkennt - mit Bild. Liegt "
+        "es am Abend noch draussen, ohne dass seither jemand an der Kamera "
+        "vorbeikam oder heimgekommen ist, erinnert der Hub einmal daran.",
+        "params": [
+            {
+                "key": "hour",
+                "label": "Abends erinnern um",
+                "unit": "Uhr",
+                "default": 20,
+                "min": 12,
+                "max": 23,
+                "step": 1,
+            }
+        ],
     },
     {
         "key": "battery",
@@ -118,7 +151,11 @@ RULES: list[dict[str, Any]] = [
         "key": "open",
         "title": "Fenster/Tür steht offen",
         "detail": "Erinnert einmal je Öffnung – wer schliesst und wieder "
-        "öffnet, fängt neu an.",
+        "öffnet, fängt neu an. Ist es draussen warm und jemand zuhause, "
+        "bleibt sie still: Wer lüftet, weiss es. Ist niemand zuhause, "
+        "kommt sie immer. «Nur an Anwesende»: Wer unterwegs ist, "
+        "kann das Fenster ohnehin nicht schliessen; ist niemand zuhause, "
+        "geht die Meldung trotzdem an alle.",
         "params": [
             {
                 "key": "hours",
@@ -128,7 +165,18 @@ RULES: list[dict[str, Any]] = [
                 "min": 1,
                 "max": 24,
                 "step": 1,
-            }
+            },
+            # Punkt 601: ab hier ist das offene Fenster keine Heizungsfrage.
+            {
+                "key": "warm_ab",
+                "label": "Still, wenn draussen über",
+                "unit": "°C",
+                "default": watchrules.WARM_AB,
+                "min": 5,
+                "max": 30,
+                "step": 1,
+            },
+            SCHALTER_ANWESENDE,
         ],
     },
     {
@@ -169,6 +217,7 @@ RULES: list[dict[str, Any]] = [
                 "max": 23,
                 "step": 1,
             },
+            SCHALTER_ANWESENDE,
         ],
     },
     {
@@ -396,6 +445,24 @@ RULES: list[dict[str, Any]] = [
         # käme. Die App zeigt sie deshalb als Chip-Reihen in derselben
         # Karte, wie die Türe der Waschküche bei «Haushaltgerät».
         "params": [],
+    },
+    {
+        "key": "documents",
+        "title": "Dokument läuft bald ab",
+        "detail": "Trägt ein Dokument im Dokumentsafe ein «gültig bis», kommt "
+        "sechzig und vierzehn Tage vorher eine Nachricht - und noch eine am "
+        "Ablauftag. Sechzig, weil ein neuer Pass Wochen dauert.",
+        "params": [
+            {
+                "key": "hour",
+                "label": "Verschicken um",
+                "unit": "Uhr",
+                "default": 9,
+                "min": 7,
+                "max": 20,
+                "step": 1,
+            }
+        ],
     },
     {
         "key": "packlist",

@@ -67,3 +67,6 @@ hub/raumbilder/
 
 # Die Browser-Probe holt sich Playwright und einen Browser dorthin.
 scripts/node_modules/
+
+# Arbeitskopien der Agenten (git worktree), nur lokal
+.claude/worktrees/

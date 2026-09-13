@@ -1,4 +1,5 @@
 import {
+  KNOPF_EINKAUF,
   KNOPF_ERLEDIGT,
   KNOPF_GEGOSSEN,
   KNOPF_ICHMACHS,
@@ -42,5 +43,11 @@ describe('«Gegossen»', () => {
     // die nächste Erinnerung kommt frühestens nach der Trockenzeit
     // (hub/core/giessen.py).
     expect(knopfHandlung(KNOPF_GEGOSSEN)).toBe('gegossen');
+  });
+});
+
+describe('«Auf die Einkaufsliste» (Punkt 633)', () => {
+  it('kommt als eigene Handlung zurück', () => {
+    expect(knopfHandlung(KNOPF_EINKAUF)).toBe('einkauf');
   });
 });

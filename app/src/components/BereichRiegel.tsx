@@ -193,5 +193,5 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: 22,
       paddingVertical: 10,
     },
-    knopfText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
+    knopfText: { color: colors.onAccent, fontSize: 15, fontWeight: '600' },
   });

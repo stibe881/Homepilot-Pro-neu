@@ -37,7 +37,7 @@ import {
 } from '../lib/ablaufhilfen';
 import { laeuft, tippLabel, unterzeile } from '../lib/szenenzeile';
 import { szenenFarben } from '../lib/szenenfarben';
-import { bandReihenfolge, bandZeile } from '../lib/tagesband';
+import { bandReihenfolge, bandSymbol, bandZeile } from '../lib/tagesband';
 import { makeStyles } from './automations/stil';
 import { SCENE_ICONS, SceneDraft, SceneEditor } from './automations/szenen-editor';
 import { EigeneVorlage, buildTemplates, gruppiereVorlagen, mischeVorlagen } from './automations/vorlagen';
@@ -314,17 +314,19 @@ export function AutomationsScreen({
         setFavoriten((data?.favorites ?? []).map((zeile) => String(zeile.name ?? ''))),
       );
     hub
-      .get<{ names?: string[]; groups?: string[] } | null>('/api/push/targets', {
-        fallback: null,
-        still: true,
-      })
+      .get<{ names?: string[]; groups?: string[]; presence?: string[] } | null>(
+        '/api/push/targets',
+        { fallback: null, still: true },
+      )
       // Gruppen (Punkt 513) hinter den Namen, mit dem Vorsatz des Hubs:
       // Das to-Feld des Ablaufs trägt «gruppe:Eltern», die Auswahl zeigt
-      // «Eltern (Gruppe)» (entwurf.ts: empfaengerLabel).
+      // «Eltern (Gruppe)» (entwurf.ts: empfaengerLabel). Zuletzt die
+      // beweglichen Ziele «anwesend»/«unterwegs» (Punkt 599).
       .then((data) =>
         setEmpfaenger([
           ...(data?.names ?? []),
           ...(data?.groups ?? []).map((name) => `${GRUPPE_PREFIX}${name}`),
+          ...(data?.presence ?? []),
         ])
       );
     hub
@@ -1044,12 +1046,12 @@ export function AutomationsScreen({
               <Ionicons
                 name={babysitter.active ? 'happy' : 'happy-outline'}
                 size={14}
-                color={babysitter.active ? '#FFFFFF' : colors.inkSoft}
+                color={babysitter.active ? colors.onAccent : colors.inkSoft}
               />
               <Text
                 style={[
                   styles.templateText,
-                  babysitter.active && { color: '#FFFFFF' },
+                  babysitter.active && { color: colors.onAccent },
                 ]}
               >
                 {babysitter.active ? 'Babysitter beenden' : 'Babysitter'}
@@ -1092,13 +1094,7 @@ export function AutomationsScreen({
                 style={[styles.agendaChip, eintrag.vorbei && { opacity: 0.55 }]}
               >
                 <Ionicons
-                  name={
-                    eintrag.vorbei
-                      ? 'checkmark-circle'
-                      : eintrag.art === 'sun'
-                        ? 'sunny-outline'
-                        : 'time-outline'
-                  }
+                  name={bandSymbol(eintrag.art, eintrag.vorbei)}
                   size={13}
                   color={eintrag.vorbei ? colors.on : colors.inkSoft}
                 />
@@ -1971,7 +1967,7 @@ export function AutomationsScreen({
                       <Ionicons
                         name={szenenSymbol(scene) as keyof typeof Ionicons.glyphMap}
                         size={20}
-                        color={laeuft(scene) ? '#FFFFFF' : colors.inkSoft}
+                        color={laeuft(scene) ? colors.onAccent : colors.inkSoft}
                       />
                     </View>
                     <View style={{ flex: 1 }}>

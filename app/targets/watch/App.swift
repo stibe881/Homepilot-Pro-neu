@@ -4,9 +4,10 @@ import SwiftUI
 ///
 /// Die Uhr ist für die Momente, in denen das Telefon in der Tasche
 /// bleibt: vor der Türe mit vollen Händen, der Blick beim Rausgehen
-/// («ist alles zu?»), der Timer mit Teigfingern in der Küche. Alles
-/// Übrige - Räume, Szenen, Musik - gehört auf einen Bildschirm, der
-/// grösser ist als eine Briefmarke.
+/// («ist alles zu?» - und seit Punkt 608 auch «scharf schalten»), der
+/// Timer mit Teigfingern in der Küche. Alles Übrige - Räume, Szenen,
+/// Musik - gehört auf einen Bildschirm, der grösser ist als eine
+/// Briefmarke.
 @main
 struct HomePilotWatchApp: App {
   @StateObject private var verbindung = Verbindung.shared
@@ -55,6 +56,11 @@ struct BlickView: View {
   @Environment(\.scenePhase) private var scenePhase
   @State private var blick: Blick?
   @State private var fehler = false
+  // Scharfschalten (Punkt 608): Rückfrage, Laufanzeige und die Antwort
+  // des Hubs - «Offen: Küche» gehört auf die Uhr, nicht verschluckt.
+  @State private var scharfFrage = false
+  @State private var scharfLaeuft = false
+  @State private var scharfHinweis: String?
 
   var body: some View {
     ScrollView {
@@ -80,6 +86,22 @@ struct BlickView: View {
           )
           if let alarm = blick.alarm {
             Label(alarmWort(alarm), systemImage: "shield")
+            // Nur bei «unscharf», und nur diese Richtung: Beim
+            // Rausgehen mit vollen Händen - genau die Situation, für
+            // die die Uhr da ist - blieb bisher nur das Telefon.
+            // Unscharf gibt es hier nicht (HubClient.alarmScharf sagt,
+            // warum).
+            if alarm == "unscharf" {
+              Button {
+                scharfFrage = true
+              } label: {
+                Label("Scharf schalten", systemImage: "lock.shield.fill")
+              }
+              .disabled(scharfLaeuft)
+            }
+            if let scharfHinweis {
+              Text(scharfHinweis).font(.footnote).foregroundStyle(.orange)
+            }
           }
         } else if fehler {
           Text("Hub nicht erreichbar.").font(.footnote).foregroundStyle(.secondary)
@@ -90,6 +112,15 @@ struct BlickView: View {
       .frame(maxWidth: .infinity, alignment: .leading)
     }
     .navigationTitle("Zuhause")
+    // Dieselbe Hürde wie bei der Türe: Am Handgelenk streift man Knöpfe
+    // schneller, als man schaut - und eine Anlage, die beim Abwischen
+    // des Handgelenks scharf wird, ist zwar harmlos, aber lästig.
+    .confirmationDialog("Alarm scharf schalten?", isPresented: $scharfFrage) {
+      Button("Scharf schalten") {
+        Task { await scharfSchalten() }
+      }
+      Button("Abbrechen", role: .cancel) {}
+    }
     .task { await laden() }
     .onChange(of: scenePhase) { neu in
       // Beim Heben des Handgelenks frisch nachsehen - ein Blick von
@@ -105,6 +136,24 @@ struct BlickView: View {
     } catch {
       fehler = blick == nil
     }
+  }
+
+  private func scharfSchalten() async {
+    scharfLaeuft = true
+    scharfHinweis = nil
+    do {
+      let antwort = try await HubClient.alarmScharf(verbindung.zugang)
+      // Offene Fenster oder stumme Sensoren: als Zeile, nicht als
+      // stilles Nichts - sonst steht man vor der Türe und glaubt, die
+      // Anlage sei scharf.
+      scharfHinweis = antwort.hinweis
+    } catch {
+      scharfHinweis = "Hat nicht geklappt."
+    }
+    // Den Blick nachziehen: Bei Verzögerung steht dort jetzt «schaltet
+    // scharf», und der Knopf verschwindet mit dem Zustand.
+    await laden()
+    scharfLaeuft = false
   }
 
   private func alarmWort(_ stand: String) -> String {

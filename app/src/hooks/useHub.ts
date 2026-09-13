@@ -2,12 +2,39 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
+import { onHubFehler } from '../api/client';
 import { Activity, CommandData, Entity, EntityState, Scene, ServerMessage, User } from '../api/types';
 import { failed, tapped, triggered } from '../lib/haptics';
+import { absageSatz, zurueckgesetzt } from '../lib/kachelstand';
 import { UndoOffer, undoCommand, undoLabel } from '../lib/rueckgaengig';
+import {
+  CODE_ABGEMELDET,
+  CODE_FENSTER_ZU,
+  NachSchliessen,
+  PING_INTERVALL_MS,
+  PONG_FRIST_MS,
+  nachSchliessen,
+  pongAusgeblieben,
+} from '../lib/verbindungsstand';
 import { QueuedCommand, enqueue, stillFresh } from '../lib/warteschlange';
+import { useTakt } from './useTakt';
 
-export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
+/**
+ * `signed_out`: Der Hub hat das Token abgewiesen (Punkt 579 der
+ * Werkbank) - kein Wiederverbinden, der Balken bietet «Neu anmelden».
+ * Vorher hiess das «getrennt» und die App klopfte im Sekundentakt
+ * weiter an, obwohl der Hub erreichbar war.
+ *
+ * `paused`: Das Token gilt, aber das Zeitfenster ist zu (Punkt 624) -
+ * die App verbindet erst wieder, wenn es aufgeht, und sagt bis dahin
+ * «Gute Nacht» statt «keine Verbindung».
+ */
+export type ConnectionStatus =
+  | 'connecting'
+  | 'connected'
+  | 'disconnected'
+  | 'signed_out'
+  | 'paused';
 
 const ACTIVITY_LIMIT = 20;
 const CACHE_KEY = 'homepilot.snapshot';
@@ -105,13 +132,32 @@ export function useHub(url: string | null, token: string | null) {
   // zeigt, lädt neu, wenn sich dieser Wert ändert – statt im Minutentakt
   // zu fragen, ob sich etwas geändert haben könnte.
   const [familyChangedAt, setFamilyChangedAt] = useState(0);
+  // Bis wann die Pause ausserhalb des Zeitfensters dauert (Punkt 624
+  // der Werkbank) - der Balken nennt die Uhrzeit.
+  const [pausiertBis, setPausiertBis] = useState<number | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const attemptRef = useRef(0);
+  // Der Zustand auch als Ref: Der AppState-Horcher und der Fehlerkanal
+  // des Clients laufen ausserhalb des Render-Zyklus und dürfen ein
+  // abgemeldetes Gerät nicht wieder anklopfen lassen.
+  const statusRef = useRef<ConnectionStatus>('disconnected');
+  // Die Verbindung bewusst anhalten (abgemeldet) - gesetzt von der
+  // Verbindungsschleife, gerufen vom Fehlerkanal des HTTP-Clients.
+  const anhaltenRef = useRef<((schritt: NachSchliessen) => void) | null>(null);
+  // Einen Ping schicken (Punkt 592 der Werkbank) - gesetzt von der
+  // Verbindungsschleife, gerufen vom Takt und nach einem Zeitlimit.
+  const pingRef = useRef<(() => void) | null>(null);
   const timersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   // Der Zustand von vor dem Tippen – nur zum Nachschlagen, nicht zum
   // Anzeigen, deshalb ein Ref und kein zweiter State.
   const entitiesRef = useRef<Record<string, Entity>>({});
+  // Je pendentem Befehl der Zustand, den der Hub zuletzt wirklich
+  // gemeldet hat (Punkt 580 der Werkbank). Bleibt die Antwort aus oder
+  // sagt der Hub ab, kommt er auf die Kachel zurück - vorher blieb der
+  // Wunschzustand stehen, und der Hub schickt nach einem gescheiterten
+  // Befehl keinen echten nach.
+  const vorherRef = useRef<Record<string, EntityState>>({});
 
   // Beim Öffnen sofort den letzten bekannten Stand zeigen, statt auf die
   // Verbindung zu warten – der Start fühlt sich dadurch augenblicklich an.
@@ -202,6 +248,21 @@ export function useHub(url: string | null, token: string | null) {
     });
   }, []);
 
+  /**
+   * Eine Absage verarbeiten (Punkt 580 der Werkbank): Die Kachel
+   * bekommt den Stand von vorher zurück und die Marke «unbestätigt»,
+   * die Einblendung nennt das Gerät.
+   */
+  const absagen = useCallback((entityId: string, grund: string | null) => {
+    const vorher = vorherRef.current[entityId];
+    delete vorherRef.current[entityId];
+    setEntityMap((prev) => {
+      const entity = prev[entityId];
+      return entity ? { ...prev, [entityId]: zurueckgesetzt(entity, vorher) } : prev;
+    });
+    setError(absageSatz(entitiesRef.current[entityId]?.name, grund));
+  }, []);
+
   useEffect(() => {
     if (!url) {
       return;
@@ -209,17 +270,91 @@ export function useHub(url: string | null, token: string | null) {
     let disposed = false;
     let ws: WebSocket | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    // Bewusst angehalten: Dann verbindet onclose nicht neu. Sonst
+    // machte das Schliessen eines abgemeldeten Sockets genau die
+    // Schleife wieder auf, die es beenden soll.
+    let halt = false;
+
+    const setzeStatus = (next: ConnectionStatus) => {
+      statusRef.current = next;
+      setStatus(next);
+    };
+
+    /**
+     * Was nach dem Ende einer Verbindung geschieht - ob der Hub sie
+     * geschlossen hat oder die App sie aufgibt (Punkt 579 der
+     * Werkbank). Die Entscheidung trifft lib/verbindungsstand.ts; hier
+     * wird sie nur ausgeführt.
+     */
+    const weiterNach = (schritt: NachSchliessen) => {
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = undefined;
+      setzeStatus(schritt.status);
+      setStale(true);
+      setPausiertBis(schritt.status === 'paused' ? schritt.wiederAb : null);
+      if (schritt.status === 'signed_out') {
+        // Ohne Benutzer öffnet die Konto-Seite ihre Verbindungsfelder
+        // von selbst - dort steht der Weg zurück (QR-Code oder Token).
+        setUser(null);
+      }
+      if (schritt.wiederAb !== null) {
+        retryTimer = setTimeout(connect, Math.max(0, schritt.wiederAb - Date.now()));
+      }
+    };
+
+    // Ping und Pong (Punkt 592 der Werkbank): Ein Socket, der nach einem
+    // Neustart des Accesspoints halboffen ist, sieht von hier aus offen
+    // aus und liefert nie mehr etwas. Nur eine Frage, die beantwortet
+    // werden muss, deckt das auf.
+    let pongTimer: ReturnType<typeof setTimeout> | null = null;
+    let pongAt: number | null = null;
+    const pongTimerRaeumen = () => {
+      if (pongTimer !== null) {
+        clearTimeout(pongTimer);
+        pongTimer = null;
+      }
+    };
+
+    const pingen = () => {
+      const socket = ws;
+      // Ein Ping ist schon unterwegs - erst seine Antwort abwarten.
+      if (!socket || socket.readyState !== WebSocket.OPEN || pongTimer !== null) return;
+      socket.send(JSON.stringify({ type: 'ping' }));
+      const gesendet = Date.now();
+      pongTimer = setTimeout(() => {
+        pongTimer = null;
+        // Inzwischen neu verbunden - die alte Frage gilt nicht mehr.
+        if (socket !== ws || !pongAusgeblieben(gesendet, pongAt)) return;
+        // Nicht auf das onclose des toten Sockets warten: Bei einem
+        // halboffenen kommt es erst nach dem TCP-Zeitlimit, Minuten
+        // später. Die Schleife geht sofort weiter, der Socket wird
+        // stumm geschaltet und zugemacht.
+        socket.onclose = null;
+        socket.onmessage = null;
+        socket.onerror = null;
+        socket.close();
+        attemptRef.current = 0;
+        weiterNach(nachSchliessen(undefined, undefined, 0, Date.now()));
+      }, PONG_FRIST_MS);
+    };
+    pingRef.current = pingen;
 
     const connect = () => {
       const base = url.replace(/\/+$/, '').replace(/^http/, 'ws');
       const wsUrl = base + '/ws' + (token ? `?token=${encodeURIComponent(token)}` : '');
-      setStatus('connecting');
+      halt = false;
+      pongTimerRaeumen();
+      setzeStatus('connecting');
       ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
         attemptRef.current = 0;
-        setStatus('connected');
+        // «Verbunden» erst nach dem ersten Pong: Ein offener Socket
+        // beweist nur den Handschlag, nicht dass beide Richtungen
+        // tragen. Der Pong kommt in Millisekunden, der Schnappschuss
+        // davor wird ohnehin angewendet.
+        pingen();
       };
 
       ws.onmessage = (event) => {
@@ -227,6 +362,7 @@ export function useHub(url: string | null, token: string | null) {
         if (message.type === 'snapshot') {
           // Was noch im Puffer liegt, ist älter als der Schnappschuss.
           meldungsPuffer.current = {};
+          vorherRef.current = {};
           const entities = Object.fromEntries(
             message.entities.map((entity) => [entity.id, entity])
           );
@@ -250,6 +386,10 @@ export function useHub(url: string | null, token: string | null) {
           message.type === 'entity_added'
         ) {
           clearPending(message.entity.id);
+          // Ein echter Zustand des Hubs - was vor dem Tippen war, zählt
+          // nicht mehr, und die Marke «unbestätigt» geht mit dem
+          // ersetzten Objekt von selbst.
+          delete vorherRef.current[message.entity.id];
           meldungsPuffer.current[message.entity.id] = message.entity;
           if (message.type === 'state_changed') {
             const summary = describe(
@@ -274,6 +414,11 @@ export function useHub(url: string | null, token: string | null) {
           flushPlanen();
         } else if (message.type === 'family_changed') {
           setFamilyChangedAt(Date.now());
+        } else if (message.type === 'pong') {
+          pongAt = Date.now();
+          pongTimerRaeumen();
+          // Der erste Pong nach dem Öffnen macht die Verbindung zu einer.
+          if (statusRef.current === 'connecting') setzeStatus('connected');
         } else if (message.type === 'entity_removed') {
           delete meldungsPuffer.current[message.entity_id];
           setEntityMap((prev) => {
@@ -286,24 +431,49 @@ export function useHub(url: string | null, token: string | null) {
             clearPending(message.entity_id);
           }
           // Fehlgeschlagene Kommandos nicht verschlucken – sonst tippt man
-          // ins Leere und erfährt nie, warum nichts passiert ist.
+          // ins Leere und erfährt nie, warum nichts passiert ist. Und der
+          // Wunschzustand kommt von der Kachel (Punkt 580 der Werkbank):
+          // Der Hub schickt nach einer Absage keinen echten nach.
           if (!message.ok) {
-            setError(message.error ?? 'Der Befehl ist fehlgeschlagen');
+            if (message.entity_id) {
+              absagen(message.entity_id, message.error ?? 'Der Befehl ist fehlgeschlagen');
+            } else {
+              setError(message.error ?? 'Der Befehl ist fehlgeschlagen');
+            }
             failed();
+          } else if (message.entity_id) {
+            delete vorherRef.current[message.entity_id];
           }
         }
       };
 
-      ws.onclose = () => {
-        if (disposed) return;
-        setStatus('disconnected');
-        setStale(true);
-        const delay = Math.min(15000, 1000 * 2 ** attemptRef.current);
+      ws.onclose = (event) => {
+        pongTimerRaeumen();
+        if (disposed || halt) return;
+        // Der Code sagt, warum: 4401 heisst abgemeldet, und dann ist
+        // jeder weitere Versuch vergeblich (Punkt 579 der Werkbank);
+        // 4403 heisst Pause bis zur Zeit im Grund (Punkt 624).
+        const schritt = nachSchliessen(
+          event.code,
+          event.reason,
+          attemptRef.current,
+          Date.now()
+        );
         attemptRef.current += 1;
-        retryTimer = setTimeout(connect, delay);
+        weiterNach(schritt);
       };
 
       ws.onerror = () => ws?.close();
+    };
+
+    // Von aussen anhalten - ein 401 des HTTP-Clients sagt dasselbe wie
+    // ein 4401 am Socket: Das Token ist tot. Der Socket wird zugemacht,
+    // ohne dass sein onclose die Schleife wieder anwirft.
+    anhaltenRef.current = (schritt) => {
+      if (disposed) return;
+      halt = true;
+      weiterNach(schritt);
+      if (ws && ws.readyState !== WebSocket.CLOSED) ws.close();
     };
 
     connect();
@@ -318,6 +488,10 @@ export function useHub(url: string | null, token: string | null) {
     // ein vollständiger Schnappschuss, damit stimmt alles wieder.
     const appState = AppState.addEventListener('change', (next) => {
       if (next !== 'active' || disposed) return;
+      // Ein abgemeldetes Gerät klopft auch nach dem Aufwachen nicht an:
+      // Die Antwort wäre dieselbe, und der Balken sagt schon, was zu
+      // tun ist.
+      if (statusRef.current === 'signed_out') return;
       if (retryTimer) clearTimeout(retryTimer);
       attemptRef.current = 0;
       if (ws === null || ws.readyState === WebSocket.CLOSED) {
@@ -333,6 +507,9 @@ export function useHub(url: string | null, token: string | null) {
 
     return () => {
       disposed = true;
+      anhaltenRef.current = null;
+      pingRef.current = null;
+      pongTimerRaeumen();
       appState.remove();
       if (retryTimer) clearTimeout(retryTimer);
       if (flushTimer.current != null) {
@@ -342,7 +519,32 @@ export function useHub(url: string | null, token: string | null) {
       ws?.close();
       wsRef.current = null;
     };
-  }, [url, token, clearPending, flushPlanen]);
+  }, [url, token, clearPending, flushPlanen, absagen]);
+
+  // Der Ping im Takt (Punkt 592 der Werkbank) - über den gemeinsamen
+  // Takt, der im Hintergrund schweigt: Ein Telefon in der Tasche muss
+  // nicht alle 30 Sekunden fragen, ob der Hub noch da ist; das iPad im
+  // Flur schon, denn es geht nie in den Hintergrund.
+  useTakt(() => pingRef.current?.(), status === 'connected' ? PING_INTERVALL_MS : null);
+
+  // Ein 401 des HTTP-Clients heisst dasselbe wie ein 4401 am Socket:
+  // Das Token gilt nicht mehr (Punkt 579 der Werkbank). Der Socket
+  // erfährt es sonst erst beim nächsten Neuaufbau - und bis dahin
+  // meldete jede Abfrage «fehlt die Berechtigung», während die
+  // Kopfzeile «verbunden» sagte. Ein 403 mit `gilt_ab` ist der 4403
+  // des Sockets: Zeitfenster zu, Pause bis dahin (Punkt 624).
+  useEffect(
+    () =>
+      onHubFehler((fehler) => {
+        const jetzt = Date.now();
+        if (fehler.status === 401 && statusRef.current !== 'signed_out') {
+          anhaltenRef.current?.(nachSchliessen(CODE_ABGEMELDET, undefined, 0, jetzt));
+        } else if (fehler.status === 403 && fehler.giltAb && statusRef.current !== 'paused') {
+          anhaltenRef.current?.(nachSchliessen(CODE_FENSTER_ZU, fehler.giltAb, 0, jetzt));
+        }
+      }),
+    []
+  );
 
   // Nach dem Anlegen oder Ändern einer Szene ruft der Editor das erneut auf.
   const reloadScenes = useCallback(() => {
@@ -387,6 +589,14 @@ export function useHub(url: string | null, token: string | null) {
       // Sofort den erwarteten Zustand zeigen. Meldet der Hub etwas anderes,
       // überschreibt seine Antwort diese Annahme – aber die Kachel reagiert
       // augenblicklich statt erst nach der Antwort des Geräts.
+      //
+      // Den Stand von vorher dabei festhalten (Punkt 580 der Werkbank) -
+      // den ersten, nicht den jüngsten: Beim Ziehen eines Reglers ist
+      // der zweite «vorher» schon der Wunsch des ersten Tippens.
+      const bekannt = entitiesRef.current[entityId];
+      if (bekannt && !(entityId in vorherRef.current) && expectedState(bekannt, command, data)) {
+        vorherRef.current[entityId] = { ...bekannt.state };
+      }
       setEntityMap((prev) => {
         const entity = prev[entityId];
         if (!entity) return prev;
@@ -394,10 +604,19 @@ export function useHub(url: string | null, token: string | null) {
         return next ? { ...prev, [entityId]: { ...entity, state: next } } : prev;
       });
       setPending((prev) => ({ ...prev, [entityId]: true }));
+      // Das alte Zeitlimit desselben Geräts räumen: Sonst meldete der
+      // erste Tipp «antwortet nicht», während der zweite noch unterwegs war.
+      const alt = timersRef.current[entityId];
+      if (alt) clearTimeout(alt);
       timersRef.current[entityId] = setTimeout(
         () => {
           clearPending(entityId);
-          setError('Das Gerät antwortet nicht');
+          absagen(entityId, null);
+          // Keine Antwort kann auch heissen, dass der Socket halboffen
+          // ist (Punkt 592 der Werkbank): nachfragen, statt auf den
+          // nächsten Takt zu warten - bleibt der Pong aus, wird neu
+          // verbunden.
+          pingRef.current?.();
         },
         SLOW_COMMANDS.has(command) ? SLOW_COMMAND_TIMEOUT : PENDING_TIMEOUT
       );
@@ -409,7 +628,7 @@ export function useHub(url: string | null, token: string | null) {
       if (command !== 'set_brightness') tapped();
       return true;
     },
-    [clearPending]
+    [clearPending, absagen]
   );
 
   /**
@@ -593,6 +812,8 @@ export function useHub(url: string | null, token: string | null) {
         room_only?: boolean;
         /** Nur Fenster- und Türkontakte: «window» oder «door». */
         contact_kind?: 'window' | 'door' | null;
+        /** Nur Batteriegeräte: welche Batterie drinsteckt (Punkt 633). */
+        battery_type?: string | null;
       }
     ) => {
       setEntityMap((prev) => {
@@ -605,6 +826,7 @@ export function useHub(url: string | null, token: string | null) {
         if (meta.scene_toggles !== undefined) next.scene_toggles = meta.scene_toggles;
         if (meta.room_only !== undefined) next.room_only = meta.room_only;
         if (meta.contact_kind !== undefined) next.contact_kind = meta.contact_kind;
+        if (meta.battery_type !== undefined) next.battery_type = meta.battery_type;
         return { ...prev, [entityId]: next };
       });
       try {
@@ -645,6 +867,7 @@ export function useHub(url: string | null, token: string | null) {
     stale,
     cachedAt,
     familyChangedAt,
+    pausiertBis,
     undo,
     undoLast,
     dismissUndo: () => setUndo(null),

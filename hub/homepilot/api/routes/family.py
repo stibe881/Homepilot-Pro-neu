@@ -28,7 +28,9 @@ from ...core import (
     gleichzeitig,
     gutscheine,
     rezeptimport,
+    spaeter,
 )
+from ...core import erinnerungen as erinnerungen_module
 from ...core import shopping as shopping_module
 from ...core import trash as trash_module
 from ...core import vorrat as vorrat_module
@@ -633,6 +635,48 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             await family_changed("vouchers")
             return row
         raise HTTPException(status_code=404, detail="Gutschein nicht gefunden")
+
+    # ── Erinnerungen: die zwei Griffe der Sperrbildschirm-Karte ──────────
+    # Punkt 606 der Werkbank. Quittieren lief bisher über ein PUT mit der
+    # ganzen `quittiert`-Liste (useFamilienlisten.ts) - vom Widget-Prozess
+    # aus, der nur Pfad und Body kennt, nicht machbar. Der Name kommt aus
+    # dem Token, die Liste führt der Hub.
+
+    @app.post("/api/family/reminders/{item_id}/quittieren")
+    async def reminder_quittieren(item_id: str, request: Request) -> dict[str, Any]:
+        user = family_user(request)
+        key = family_key("reminders")
+        rows, gefunden = erinnerungen_module.quittieren(hub.data.get(key), item_id, user.name)
+        if not gefunden:
+            raise HTTPException(status_code=404, detail="Erinnerung nicht gefunden")
+        hub.data.set(key, rows)
+        await family_changed("reminders")
+        return {"ok": True}
+
+    @app.post("/api/family/reminders/{item_id}/spaeter")
+    async def reminder_spaeter(item_id: str, request: Request) -> dict[str, Any]:
+        """«Später»: so viele Minuten, wie die Person für ihre Mitteilungen
+        eingestellt hat (core/spaeter.py) - dieselbe Zahl wie beim Knopf
+        in der Push-Nachricht."""
+        user = family_user(request)
+        key = family_key("reminders")
+        zeile = next(
+            (
+                eintrag
+                for eintrag in hub.data.get("push_prefs") or []
+                if isinstance(eintrag, dict) and eintrag.get("user") == user.name
+            ),
+            {},
+        )
+        minuten = spaeter.eigene_minuten(zeile)
+        rows, gefunden = erinnerungen_module.verschieben(
+            hub.data.get(key), item_id, time.time() * 1000, minuten
+        )
+        if not gefunden:
+            raise HTTPException(status_code=404, detail="Erinnerung nicht gefunden")
+        hub.data.set(key, rows)
+        await family_changed("reminders")
+        return {"ok": True, "minutes": minuten}
 
     async def tell_the_recipient_of_transfer(
         item: dict[str, Any], empfaenger_name: str, von: str

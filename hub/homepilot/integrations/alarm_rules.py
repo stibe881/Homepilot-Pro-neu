@@ -14,6 +14,12 @@ from typing import Any
 
 from ..core.entity import Entity, EntityKind
 
+# Die unverschlossenen Türen kennt der Gute-Nacht-Knopf seit je; die
+# Funktion bleibt im Kern (der Kern importiert nichts aus den
+# Integrationen, Gute Nacht braucht sie weiterhin) und wird hier nur
+# weitergereicht - Punkt 614 der Werkbank.
+from ..core.goodnight import unlocked_locks  # noqa: F401
+
 # Eine Kamera zum Auslöser sucht auch der Ablauf-Kern - die
 # Antwort steht deshalb dort und wird hier nur weitergereicht.
 from ..core.kamera import camera_for, nearest_camera  # noqa: F401
@@ -48,6 +54,49 @@ def valid_duress_pin(entry: dict[str, Any], pin: str) -> bool:
 
 # Die scharfen Modi. «aus» ist kein Modus, sondern deren Abwesenheit.
 MODES = ("nacht", "ausser_haus", "urlaub")
+
+#: Die Modi, in denen niemand im Haus ist. Alles andere - Nacht und die
+#: eigenen Modi («Nur Erdgeschoss», «Gäste da») - heisst: Es ist jemand
+#: da. Zwei Stellen fragen danach: die Riegelprüfung beim Scharfschalten
+#: (Punkt 614) und die Brand-Aussetzung (Punkt 615).
+ABWESEND_MODI = ("ausser_haus", "urlaub")
+
+
+def abwesend(mode: str | None) -> bool:
+    """Ist in diesem Modus niemand zuhause? (rein, testbar)"""
+    return mode in ABWESEND_MODI
+
+
+def brand_setzt_aus(state: str, mode: str | None) -> bool:
+    """Setzt ein Brandalarm die Anlage in diesem Zustand aus? (rein, testbar)
+
+    Punkt 615 der Werkbank. Nur, wenn jemand da ist - Nacht und die
+    eigenen Modi: Dort ist die Flucht durchs Haus der Grund für die
+    Fehlauslösung. Bei Abwesend/Ferien bleibt der Einbruchweg offen: Wer
+    das Feuer legt, soll nicht damit die Anlage ausschalten. Unscharf
+    bleibt unscharf, und ein Brand-Zustand wird nicht noch einmal gesetzt.
+    """
+    if state in (DISARMED, BRAND):
+        return False
+    return not abwesend(mode)
+
+
+def unverschlossen(entities: list[Entity], zone: str | None = None) -> list[Entity]:
+    """Türen, die vor dem Scharfschalten noch abzuschliessen wären (rein, testbar).
+
+    Punkt 614 der Werkbank. Die Bereitschaftsprüfung kannte nur «offen»
+    und «blind»; beim Schloss zählt dort ausdrücklich der Türsensor,
+    nicht der Riegel (sensor_open). Eine zugezogene, aber unverschlossene
+    Nuki-Türe ging ohne Wort durch - bei «Abwesend» war das Haus dann
+    geschützt wie ohne Schloss.
+
+    Bei einer Zone keine Antwort: «Nur die Garage» soll nicht an der
+    Haustüre scheitern - ein Schloss hat keine Zone, und wer einen Teil
+    des Hauses scharf schaltet, ist selbst noch drin.
+    """
+    if zone:
+        return []
+    return unlocked_locks(entities)
 
 MODE_LABELS = {
     "nacht": "Nacht",
@@ -131,6 +180,13 @@ TRIGGERED = "ausgeloest"
 #: dieser Zeit entschärft, hat einen Fehlalarm ohne Sirene; meldet sich
 #: ein zweiter Sensor, ist es keiner mehr - dann sofort.
 VERDACHT = "verdacht"
+#: Wegen Brandalarm ausgesetzt (Punkt 615 der Werkbank): Die Brandanlage
+#: weckt alle mit Durchsage und Licht - und die erste Person im Flur
+#: löste über den Bewegungsmelder den Einbruchalarm samt Sirene aus.
+#: Solange es brennt, hört die Einbruchmeldung nicht zu; nach der
+#: Entwarnung geht es in den vorigen Modus zurück, ohne
+#: Bereitschaftsprüfung (wie nach einem Alarm).
+BRAND = "brand"
 
 #: Was auch während der Saugerfahrt auslöst.
 #:

@@ -62,7 +62,7 @@ export function CategoryField({
                 accessibilityRole="button"
                 style={[styles.template, on && styles.templateOn]}
               >
-                <Text style={[styles.templateText, on && { color: '#FFFFFF' }]}>
+                <Text style={[styles.templateText, on && { color: colors.onAccent }]}>
                   {name}
                 </Text>
               </Pressable>
@@ -130,6 +130,36 @@ const EIGEN = 'eigen';
  * beschriftet sich selbst: «120» steht als «2 Std.» da, damit man beim
  * Hinsehen merkt, wenn eine Null zu viel im Feld gelandet ist.
  */
+/**
+ * «seit mindestens … Minuten» an einer Gerätebedingung (Punkt 595).
+ *
+ * Der Hub weiss, seit wann ein Zustand gilt (last_change), benutzt hat
+ * es nur die Anzeige. «Sauger starten, nur wenn seit 30 Min keine
+ * Bewegung» braucht genau dieses eine Feld - an jeder Stelle, an der
+ * eine Gerätebedingung steht: Bedingung, Gruppe, «wenn»-Schritt.
+ */
+export function SeitMindestens({
+  value,
+  onCommit,
+}: {
+  value: string;
+  onCommit: (value: string) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return (
+    <View style={{ gap: 4 }}>
+      <Text style={styles.triggerNote}>seit mindestens</Text>
+      <NumberField
+        value={value}
+        onCommit={(text) => onCommit(Number(text) > 0 ? String(Math.round(Number(text))) : '')}
+        placeholder="egal seit wann"
+        einheit="Min"
+      />
+    </View>
+  );
+}
+
 export function MinutenWahl({
   value,
   options,
@@ -707,7 +737,7 @@ export function Kachelauswahl({
             <Ionicons
               name={option.icon}
               size={22}
-              color={aktiv ? '#FFFFFF' : colors.inkSoft}
+              color={aktiv ? colors.onAccent : colors.inkSoft}
             />
             <Text
               style={[styles.kachelText, aktiv && styles.kachelTextAktiv]}

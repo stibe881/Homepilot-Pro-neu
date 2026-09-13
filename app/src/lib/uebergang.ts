@@ -63,8 +63,15 @@ export function dauerMs(seit: number | null | undefined, jetzt: number): number 
  *   nicht nach Zustand.
  * - **Kein Wechsel.** Der Hub meldet auch dann, wenn nur ein Stern
  *   oder ein Name gesetzt wurde (siehe describe() in hooks/useHub.ts).
+ *
+ * Und ein dritter, der nichts mit dem Wechsel zu tun hat, sondern mit
+ * der Person: Wer «Bewegung reduzieren» eingestellt hat, bekommt den
+ * Sprung (Fehler aus der Runde 579 der Werkbank - Archiv 527 hatte es
+ * versprochen, der Punkt animierte trotzdem immer; nur Auftritt und
+ * Lauftext fragten nach, jeder auf seinem eigenen Weg).
  */
-export function bewegtSich(vorher: unknown, nachher: unknown): boolean {
+export function bewegtSich(vorher: unknown, nachher: unknown, ruhig = false): boolean {
+  if (ruhig) return false;
   if (vorher === undefined) return false;
   return vorher !== nachher;
 }

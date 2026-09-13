@@ -43,11 +43,14 @@ export interface Tap {
 
 /** Ein Griff aus der Mitteilung heraus – samt dem, was drinstand. */
 export interface Knopfdruck {
-  handlung: 'spaeter' | 'erledigt' | 'ichmachs' | 'passt' | 'gegossen' | 'still';
+  handlung: 'spaeter' | 'erledigt' | 'ichmachs' | 'passt' | 'gegossen' | 'still' | 'einkauf';
   title: string;
   body: string;
   category?: string;
   entityId?: string;
+  /** Welche Batterie die Warnung meint (Punkt 633) - für «Auf die
+   *  Einkaufsliste». */
+  batteryType?: string;
 }
 
 /** Was jemand in der Mitteilung gedrückt hat (rein, testbar).
@@ -68,6 +71,7 @@ export function knopfAusResponse(response: any): Knopfdruck | null {
     body: typeof inhalt?.body === 'string' ? inhalt.body : '',
     category: typeof daten.category === 'string' ? daten.category : undefined,
     entityId: typeof daten.entity_id === 'string' ? daten.entity_id : undefined,
+    batteryType: typeof daten.battery_type === 'string' ? daten.battery_type : undefined,
   };
 }
 

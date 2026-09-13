@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { Modal, Pressable, Text, TextInput, View } from 'react-native';
 
 import { Entity } from '../../api/types';
+import { Blatt } from '../../components/Blatt';
 import { Tastaturplatz } from '../../components/Tastaturplatz';
 import { Colors } from '../../theme';
 import { DashboardStile } from './stile';
@@ -45,7 +46,9 @@ export function LockConfirm({
           : 'einschalten';
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onCancel}>
-      <View style={styles.lockBackdrop}>
+      {/* Als Blatt angemeldet (Punkt 581/582): Meldungen im Blatt, Tipps
+          zählen für die Rückkehr des Wandpanels. */}
+      <Blatt style={styles.lockBackdrop}>
         <View style={styles.lockSheet}>
           <Ionicons name="lock-closed" size={26} color={colors.accent} />
           <Text style={styles.lockTitle}>
@@ -65,7 +68,7 @@ export function LockConfirm({
             </Pressable>
           </View>
         </View>
-      </View>
+      </Blatt>
     </Modal>
   );
 }
@@ -92,7 +95,7 @@ export function AlarmPinAsk({
       {/* Die PIN zum Entschärfen wird getippt - ohne das läge die
           Zahlentastatur genau auf dem Feld (Punkt 265 der Werkbank). */}
       <Tastaturplatz>
-      <View style={styles.lockBackdrop}>
+      <Blatt style={styles.lockBackdrop}>
         <View style={styles.lockSheet}>
           <Ionicons name="keypad-outline" size={26} color={colors.accent} />
           <Text style={styles.lockTitle}>Anlage entschärfen</Text>
@@ -131,7 +134,7 @@ export function AlarmPinAsk({
             ) : null}
           </View>
         </View>
-      </View>
+      </Blatt>
       </Tastaturplatz>
     </Modal>
   );

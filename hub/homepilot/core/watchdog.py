@@ -36,6 +36,7 @@ from . import (
     bilder,
     cliparchiv,
     dateien,
+    dokumente,
     energy,
     familie,
     flattern,
@@ -54,10 +55,13 @@ from . import (
     ofen,
     packliste,
     personen,
+    personenbild,
     presence,
+    push,
     pushbuendel,
     pushziel,
     regen,
+    schulferien,
     shopping,
     spaeter,
     storenwaechter,
@@ -81,23 +85,37 @@ from .watchrules import (  # noqa: F401
     IGNORE,
     OPEN_CLASSES,
     OPEN_REPORTED_KEY,
+    PAKET_KEY,
+    WARM_AB,
+    aussentemperatur,
     cycle_stats,
     disk_usage,
     dock_thema,
     down_integrations,
     frost_night,
+    jemand_zuhause,
     klingel_gesperrt,
     leaks,
     leck_dauer_text,
     leck_eskalation_faellig,
     low_batteries,
+    offen_lohnt,
     offen_satz,
+    offen_text,
     offene_meldungen_lesen,
     offene_meldungen_zeilen,
     open_contacts,
+    paket_abgeholt,
+    paket_erinnerung_faellig,
+    paket_gesperrt,
+    paket_merken,
+    paket_satz,
+    pakete_lesen,
+    pakete_zeilen,
     sauger_erreichbar,
     sauger_probleme,
     schon_gemahnt,
+    trocken_satz,
     watched_entities,
     wein_gesperrt,
 )
@@ -256,6 +274,8 @@ class Watchdog:
         # Protect meldet ein anhaltendes Weinen als mehrere kurze
         # Ereignisse, und ohne Sperrfrist würde jedes zur Nachricht.
         self._weint: set[str] = set()
+        # Punkt 617: wann je Kamera zuletzt ein Paket gemeldet wurde.
+        self._paket_gemeldet: dict[str, float] = {}
         self._wein_gemeldet: dict[str, float] = {}
         # Kochgeräte: ob das Gerät in der letzten Runde am Vorheizen war -
         # die Flanke «Vorheizen fertig» ergibt die Parat-Durchsage (ofen.py).
@@ -317,7 +337,7 @@ class Watchdog:
         # die Ausnahme, das Vollbild am Panel (es hängt am Zustand,
         # nicht am Wächter) käme weiter, nur die Nachricht bliebe aus.
         # Die wichtigste Nachricht im Haus darf an keiner anderen hängen.
-        for pruefung in (self._pruefe_klingeln, self._pruefe_weinen):
+        for pruefung in (self._pruefe_klingeln, self._pruefe_weinen, self._pruefe_paket):
             try:
                 pruefung(entity_id, data)
             except Exception:
@@ -463,6 +483,112 @@ class Watchdog:
             entity_id=entity_id,
         )
 
+    def _pruefe_paket(self, entity_id: str, data: dict[str, Any]) -> None:
+        """Bus-Listener-Teil: Hat eine Kamera gerade ein Paket erkannt?
+
+        Punkt 617 der Werkbank: Protect meldet das Paket als eigene
+        Erkennung, der Hub führte ``detected_package`` - und nichts hörte
+        darauf. Derselbe Weg wie beim Weinen, mit drei Flanken:
+
+        * ``detected_package`` off → on: melden (mit Bild) und vermerken.
+        * ``detected_person`` off → on an derselben Kamera: Das Paket
+          gilt als hereingeholt - wer es holt, steht im Bild.
+        * «Jemand zuhause» off → on: Wer heimkommt, geht an der Haustüre
+          vorbei; dann sind alle Pakete drin.
+
+        Die Abend-Erinnerung läuft in der Minuten-Runde (``_check_paket``).
+        """
+        alt = data.get("old_state") or {}
+        neu = data.get("new_state") or {}
+        entity = (
+            (data.get("entity") or {}) if isinstance(data.get("entity"), dict) else {}
+        )
+        if entity_id.endswith("anyone_home") and str(neu.get("state")) == "on" != str(
+            alt.get("state")
+        ):
+            self._pakete_setzen(paket_abgeholt(self._pakete_lesen()))
+            return
+        if str(neu.get("detected_person")) == "on" != str(alt.get("detected_person")):
+            pakete = self._pakete_lesen()
+            if entity_id in pakete:
+                self._pakete_setzen(paket_abgeholt(pakete, entity_id))
+        if str(neu.get("detected_package") or "") != "on":
+            return
+        if str(alt.get("detected_package") or "") == "on":
+            return
+        jetzt = time.time()
+        if paket_gesperrt(self._paket_gemeldet.get(entity_id), jetzt):
+            log.debug("Paket an %s bereits gemeldet - keine zweite Nachricht", entity_id)
+            return
+        self._paket_gemeldet[entity_id] = jetzt
+        self._pakete_setzen(paket_merken(self._pakete_lesen(), entity_id, jetzt))
+        name = str(entity.get("name") or entity_id)
+        # Als eigene Aufgabe, wie beim Weinen: Der Bus ruft synchron.
+        asyncio.create_task(self._melde_paket(entity_id, name))
+
+    def _pakete_lesen(self) -> dict[str, dict[str, Any]]:
+        return pakete_lesen(self.hub.data.get(PAKET_KEY))
+
+    def _pakete_setzen(self, pakete: dict[str, dict[str, Any]]) -> None:
+        zeilen = pakete_zeilen(pakete)
+        if zeilen != self.hub.data.get(PAKET_KEY):
+            self.hub.data.set(PAKET_KEY, zeilen)
+
+    async def _melde_paket(self, entity_id: str, name: str) -> None:
+        """«Paket vor der Haustüre» - mit dem Bild, das die Kamera gerade hat.
+
+        Das Bild kommt direkt, ohne auf eine Person zu warten: Der Bote ist
+        oft schon weg, das Paket ist das Motiv. Kein Bild ist kein Grund,
+        nicht zu melden.
+        """
+        rule = self.rules.get("package")
+        if rule is not None and not rule["enabled"]:
+            log.info("Paket an %s (Regel 'package' abgeschaltet)", name)
+            return
+        image: str | None = None
+        try:
+            image = await personenbild.bild_adresse(self.hub, entity_id, 0.0, "die Paket-Meldung")
+        except Exception:  # noqa: BLE001 - ohne Bild, aber nicht ohne Meldung
+            image = None
+        await self._senden(
+            "Paket vor der Haustüre",
+            f"Die Kamera «{name}» sieht ein Paket.",
+            "package",
+            data={"type": "package", "entity_id": entity_id, "camera": entity_id},
+            entity_id=entity_id,
+            image=image,
+        )
+
+    async def _check_paket(self) -> None:
+        """Abends: Liegt das Paket noch draussen? (Punkt 617)
+
+        Einmal je Paket, ab der Stunde aus der Regel, und nur wenn es
+        seither weder von einer Person an derselben Kamera abgelöst
+        wurde noch jemand heimgekommen ist - beides räumt den Vermerk
+        weg (``_pruefe_paket``).
+        """
+        rule = self.rules.get("package")
+        if rule is None or not rule["enabled"]:
+            return
+        pakete = self._pakete_lesen()
+        if not pakete:
+            return
+        jetzt = time.time()
+        stunde = int(rule["params"].get("hour", 20))
+        for camera in paket_erinnerung_faellig(pakete, jetzt, stunde):
+            pakete[camera] = {**pakete[camera], "reminded": True}
+            self._pakete_setzen(pakete)
+            entity = self.hub.registry.get(camera)
+            name = entity.label if entity is not None else camera
+            await self._notify(
+                "Das Paket liegt noch draussen",
+                f"{paket_satz(float(pakete[camera]['since']))} Die Kamera «{name}» "
+                "hat seither niemanden gesehen.",
+                "package",
+                data={"type": "package", "entity_id": camera, "camera": camera},
+                entity_id=camera,
+            )
+
     async def stop(self) -> None:
         if self._task:
             self._task.cancel()
@@ -572,6 +698,7 @@ class Watchdog:
         await self._check_funk(entities)
         await self._check_open(entities)
         await self._check_leaks(entities)
+        await self._check_paket()
         await self._check_sauger(entities)
         self._record_energy(entities)
         # Abgelaufene Kamera-Clips wegräumen (Punkt 256 der Werkbank) -
@@ -600,6 +727,7 @@ class Watchdog:
         await self._check_losfahren(entities)
         await self._check_family_cleanup()
         await self._check_vouchers()
+        await self._check_dokumente()
         # Was abgelaufene Gäste hinterlassen (Punkt 498 der Werkbank).
         await self._gastspuren_aufraeumen()
         await self._check_meal_plan()
@@ -1353,6 +1481,16 @@ class Watchdog:
             if tage > 0
             else []
         )
+        # Der Zustand der Wetter-Entität - für UV und Regen. Leer, wenn
+        # keine angebunden ist: Dann fehlen die Zeilen, mehr nicht.
+        wetter: dict[str, Any] = next(
+            (
+                entity.state
+                for entity in entities
+                if getattr(entity, "kind", "") == "weather"
+            ),
+            {},
+        )
         gebaut = morgen.satz(
             morgen.zeilen(
                 offen=[entity.label for entity in open_contacts(entities)],
@@ -1376,15 +1514,16 @@ class Watchdog:
                 stille_ablaeufe=still,
                 # Der UV-Hinweis nur an Tagen, an denen er etwas sagt -
                 # «UV 2, alles gut» bestellte man ab (core/uvwarnung.py).
-                uv=uvwarnung.hinweis(
-                    next(
-                        (
-                            entity.state.get("uv_today")
-                            for entity in entities
-                            if getattr(entity, "kind", "") == "weather"
-                        ),
-                        None,
-                    )
+                uv=uvwarnung.hinweis(wetter.get("uv_today")),
+                # Regenjacke in den Thek? (Punkt 584 der Werkbank) Frisch
+                # zur Meldestunde gerechnet, nicht aus dem Feld der
+                # Entität: Das stammt vom letzten Abruf, und «trocken
+                # jetzt» soll das Jetzt der Meldung meinen.
+                regen=regen.schulweg_hinweis(wetter.get("hours"), datetime.now()),
+                # Schnee über Nacht oder Glatteis (Punkt 585): Der Hub
+                # weiss es um sechs - und sagte es nicht.
+                winter=morgen.winter_hinweis(
+                    wetter.get("snow_tonight_cm"), wetter.get("winter_code")
                 ),
             )
         )
@@ -1503,12 +1642,19 @@ class Watchdog:
         # Je Person die eigenen Schalter (Einstellungen → Familie und
         # Freunde). Einmal geholt, nicht je Zone: Es ist dieselbe Liste.
         schalter = self.hub.data.get(personen.LADE)
+        # Punkt 627: Wer seine Ortung pausiert hat, schweigt mit Absicht -
+        # weder «meldet sich nicht mehr» noch «Telefon fast leer» sind
+        # dann eine Auskunft. Die Merker bleiben stehen: Läuft die Pause
+        # ab und das Telefon schweigt weiter, kommt die Meldung dann.
+        pausen = presence.pausen_lesen(self.hub.data.get(presence.PAUSE_KEY), jetzt)
         for zone_id in service.zone_ids():
             entity_id = service.zone_entity(zone_id)
             entity = self.hub.registry.get(entity_id) if entity_id else None
             if entity is None:
                 continue
             zustaende.append(dict(entity.state))
+            if zone_id in pausen:
+                continue
             # Punkt 220: Ein leeres Telefon ist die häufigste Ursache für
             # eine tote Ortung – und es kündigt sich an.
             akku = entity.state.get("battery")
@@ -1610,6 +1756,16 @@ class Watchdog:
             self.hub.data.get("family_chores"),
             self.hub.data.get("family_contacts"),
             jetzt.date(),
+            # Das Essen der Woche (Punkt 587): Bisher listete der
+            # Ausblick Termine, Ämtli, Geburtstage - nicht die Gerichte.
+            meals=self.hub.data.get("family_meals"),
+            # Und der Ferienrand (Punkt 620): «Montag beginnen die Ferien».
+            ferien_rows=self.hub.data.get(schulferien.STORE_KEY),
+            # Wöchentliche mit Ort, aber ohne Fahrer (Punkt 621) - und die
+            # Kinderwoche selbst (Punkt 619): Fussball, Jugi, Flöte mit Ort
+            # und Zeit, ohne die Tage, an denen ein Kind krank ist.
+            activities=self.hub.data.get("family_activities"),
+            members=self.hub.data.get("family_members"),
         )
         if not text:
             return
@@ -1631,7 +1787,20 @@ class Watchdog:
         if not self._einmal(f"packlist:{heute}"):
             return
         morgen = (jetzt + timedelta(days=1)).date()
-        zeilen = packliste.morgen_zeilen(self.hub.data.get("family_gear"), morgen)
+        # In den Ferien bleiben die Schulsachen zuhause (Punkt 620): Der
+        # Hub kennt die Luzerner Schulferien längst (core/schulferien.py),
+        # die Packliste fragte ihn nur nie.
+        ferien = (
+            schulferien.lage(self.hub.data.get(schulferien.STORE_KEY), morgen)["state"]
+            == schulferien.FERIEN
+        )
+        zeilen = packliste.morgen_zeilen(
+            self.hub.data.get("family_gear"),
+            morgen,
+            ferien,
+            # Wer morgen noch krank ist, braucht keinen Thek (Punkt 622).
+            familie.krank_heute(self.hub.data.get("family_members"), morgen),
+        )
         text = packliste.satz(zeilen)
         if not text:
             return
@@ -1783,6 +1952,24 @@ class Watchdog:
                 eintrag["archived"] = True
             log.info("%d aufgebrauchte Gutscheine ins Archiv gelegt", len(aufgeraeumt))
             self.hub.data.set(gutscheine.KEY, rows)
+
+    async def _check_dokumente(self) -> None:
+        """Dokumente, die ablaufen (Punkt 623 der Werkbank, core/dokumente.py).
+
+        Sechzig und vierzehn Tage vorher, und einmal am Ablauftag - je
+        Stufe und je Ablaufdatum genau einmal: Die Marke trägt das
+        Datum, also bekommt ein erneuerter Pass für das neue Datum
+        wieder alle Stufen. Zur Meldestunde, nicht mitten in der Nacht.
+        """
+        jetzt = datetime.now()
+        stunde = int(self.rules["documents"]["params"].get("hour", 9))
+        if jetzt.hour != stunde:
+            return
+        for eintrag in dokumente.faellig(self.hub.data.get(dokumente.KEY), jetzt.date()):
+            if not self._einmal(eintrag["marke"]):
+                continue
+            titel, text = dokumente.satz(eintrag["row"], eintrag["tage"])
+            await self._notify(titel, text, category="documents")
 
     async def _check_meal_plan(self) -> None:
         """Der Wochenplan füttert «zuletzt gekocht» (Punkt 218).
@@ -2101,7 +2288,14 @@ class Watchdog:
             self._gemahnt[entity.id] = gemahnt + 1
             self._gemahnt_at[entity.id] = now
             titel, text = waschkueche.mahnsatz(entity.label, since, now, gemahnt)
-            await self._notify(titel, text, "appliance", entity_id=entity.id)
+            await self._notify(
+                titel,
+                text,
+                "appliance",
+                # Punkt 599: Die volle Maschine räumt aus, wer im Haus ist.
+                to=push.ZIEL_ANWESEND if params.get("anwesende") else None,
+                entity_id=entity.id,
+            )
 
     async def _kueche_durchsage(self, entity: Any, kurz: str, satz: str) -> None:
         """Parat/fertig aus der Küche: Push und Durchsage, jeder Weg für
@@ -2144,10 +2338,32 @@ class Watchdog:
             ):
                 events.extend(entity.state["events"])
         jetzt = datetime.now().astimezone()
-        termine = losfahren.kandidaten(events, jetzt)
+        # Die Wöchentlichen der Kinder mit Ort dazu (Punkt 621) - der
+        # Wecker las nur den Kalender. In den Ferien nur, was dann gilt.
+        ferien = (
+            schulferien.lage(self.hub.data.get(schulferien.STORE_KEY), jetzt.date())[
+                "state"
+            ]
+            == schulferien.FERIEN
+        )
+        termine = losfahren.kandidaten(events, jetzt) + losfahren.aktivitaeten_heute(
+            self.hub.data.get("family_activities"),
+            jetzt,
+            ferien,
+            # Für ein krankes Kind fährt niemand (Punkt 622).
+            familie.krank_heute(self.hub.data.get("family_members"), jetzt.date()),
+        )
         if not termine:
             return
         puffer = int(self.rules["departure"]["params"]["buffer"])
+        # Bei Schnee oder Glatteis rechnet der Wecker länger (Punkt 585)
+        # - bisher im Januar wie im Juli.
+        winter = losfahren.winterlage(
+            next(
+                (entity.state for entity in entities if entity.kind == "weather"),
+                None,
+            )
+        )
         orte = losfahren.orte_lesen(self.hub.data.get(losfahren.ORTE_KEY))
         erinnert = losfahren.erinnert_lesen(self.hub.data.get(losfahren.ERINNERT_KEY))
         neu: set[str] = set()
@@ -2160,13 +2376,25 @@ class Watchdog:
             km = losfahren.luftlinie_km(*daheim, *koordinaten)
             if km < losfahren.MINDEST_KM:
                 continue
-            minuten = losfahren.fahrminuten(km) + puffer
+            minuten = losfahren.fahrminuten(km, winter) + puffer
             if not losfahren.faellig(termin["start"], minuten, jetzt):
                 continue
             titel, text = losfahren.wecker_satz(
-                termin["summary"], termin["ort"], termin["start"], minuten
+                termin["summary"], termin["ort"], termin["start"], minuten, winter
             )
-            await self._notify(titel, text, "departure")
+            # Punkt 586: Der Tipp öffnet die Route zum Ort statt den
+            # Kalender, und gehört der Kalender einer Person, geht der
+            # Wecker nur an sie - nicht an den, der im Büro sitzt.
+            await self._notify(
+                titel,
+                text,
+                "departure",
+                to=termin.get("person"),
+                data={
+                    "ziel": pushziel.route(str(termin["ort"])),
+                    "location": str(termin["ort"]),
+                },
+            )
             neu.add(termin["kennung"])
         if neu:
             self.hub.data.set(
@@ -2413,6 +2641,10 @@ class Watchdog:
         now = time.time()
         offen = {entity.id for entity in open_contacts(entities)}
         reminder = self.rules["open"]["params"]["hours"] * 3600
+        # «Nur an Anwesende» (Punkt 599): Wer unterwegs ist, kann das
+        # Fenster nicht schliessen. Ist niemand zuhause, geht die Meldung
+        # trotzdem an alle - das entscheidet recipients().
+        empfaenger = push.ZIEL_ANWESEND if self.rules["open"]["params"].get("anwesende") else None
         # Das Gedächtnis liegt in hub.data, nicht im Arbeitsspeicher:
         # «Terrasse steht offen» kam sonst nach jedem Hub-Neustart erneut
         # - und jedes Update ist ein Neustart. Verankert am Zeitpunkt der
@@ -2420,11 +2652,19 @@ class Watchdog:
         # (watchrules.schon_gemahnt).
         vorher = self.hub.data.get(OPEN_REPORTED_KEY)
         gemahnt = offene_meldungen_lesen(vorher, offen)
+        # Punkt 601: Draussen warm und jemand da - dann weiss man es. Die
+        # Öffnung bleibt dabei unvermerkt: Kühlt es ab oder gehen alle,
+        # holt die nächste Runde die Erinnerung nach.
+        draussen = aussentemperatur(entities)
+        daheim = jemand_zuhause(entities)
+        warm_ab = float(self.rules["open"]["params"].get("warm_ab", WARM_AB))
         for entity in open_contacts(entities):
             since = self._offen_seit(entity, now)
             if schon_gemahnt(gemahnt, entity.id, since):
                 continue
             if now - since >= reminder:
+                if not offen_lohnt(draussen, daheim, warm_ab):
+                    continue
                 gemahnt[entity.id] = since
                 await self._notify(
                     f"{entity.label} steht offen",
@@ -2432,9 +2672,9 @@ class Watchdog:
                     # Stunde» ist nicht nachprüfbar, «seit 14:05» schon -
                     # und wer weiss, dass er um 14:20 aufgemacht hat,
                     # erkennt daran sofort einen hängenden Sensor.
-                    f"{offen_satz(since, now)} – im Winter geht so die "
-                    "Heizung zum Fenster hinaus.",
+                    offen_text(since, now, entity.label, draussen, daheim),
                     "open",
+                    to=empfaenger,
                     entity_id=entity.id,
                 )
         zeilen = offene_meldungen_zeilen(gemahnt)
@@ -2488,8 +2728,22 @@ class Watchdog:
         self._reported_leak &= nass
         for entity_id in list(self._leak_since):
             if entity_id not in nass:
-                self._leak_since.pop(entity_id, None)
+                seit = self._leak_since.pop(entity_id)
                 self._leak_escalated.discard(entity_id)
+                # Punkt 602: Wer die Meldung unterwegs bekam, ruft sonst an
+                # oder fährt heim, obwohl längst aufgewischt ist. Nur wo
+                # die erste Meldung hinausging (dafür steht der Merker),
+                # und unter derselben Kategorie - wer Wasser abbestellt
+                # hat, will auch die Entwarnung nicht.
+                melder = next((e for e in entities if e.id == entity_id), None)
+                if melder is None:
+                    continue
+                await self._notify(
+                    f"Wieder trocken: {melder.label}",
+                    trocken_satz(seit, jetzt),
+                    "leak",
+                    entity_id=entity_id,
+                )
 
     async def _check_sauger(self, entities: list[Any]) -> None:
         """Der Sauger meldet ein Problem - Tank leer, festgefahren, voll.
@@ -2617,15 +2871,25 @@ class Watchdog:
                 if isinstance(stand, (int, float)) and not isinstance(stand, bool)
                 else ""
             )
+            # Punkt 633: *welche* Batterie man kaufen muss, steht mit drin
+            # - und reist in den Nutzdaten mit, damit der Knopf «Auf die
+            # Einkaufsliste» unter der Meldung weiss, was er einträgt.
+            typ = getattr(entity, "battery_type", None)
+            welche = f"{typ} wechseln. " if typ else ""
             await self._notify(
                 f"Batterie schwach: {entity.label}",
-                f"{prozent}Danach ist das Gerät still, ohne sich abzumelden. "
+                f"{prozent}{welche}Danach ist das Gerät still, ohne sich abzumelden. "
                 f"Der Hub erinnert täglich um {prefs['hour']} Uhr, bis die "
                 "Batterie gewechselt ist.",
                 "battery",
                 # Damit ein Tipp auf die Nachricht direkt zu den Batterien
                 # führt, statt nur die App zu öffnen.
-                data={"type": "battery", "entity_id": entity.id, "ziel": "batterien"},
+                data={
+                    "type": "battery",
+                    "entity_id": entity.id,
+                    "ziel": "batterien",
+                    **({"battery_type": typ} if typ else {}),
+                },
             )
 
     async def _check_funk(self, entities: list[Any]) -> None:
@@ -2847,12 +3111,16 @@ class Watchdog:
         to: str | None = None,
         data: dict[str, Any] | None = None,
         entity_id: str | None = None,
+        image: str | None = None,
     ) -> None:
         """Wirklich verschicken - der Teil von `_notify` ohne die Regeln.
 
         Getrennt, weil eine Sammelmeldung diesen Teil braucht und den
         anderen nicht: Ob die Regel eingeschaltet ist, wurde für jede
         ihrer Einzelmeldungen schon geprüft.
+
+        ``image`` ist die Bildadresse fürs Telefon (Punkt 617, das Paket);
+        die Sammelmeldungen und `_notify` kommen ohne aus.
         """
         ziel = pushziel.ziel_fuer(category, entity_id)
         nutzlast: dict[str, Any] = dict(data or {})
@@ -2869,6 +3137,7 @@ class Watchdog:
                 title=title,
                 body=body,
                 data=nutzlast or None,
+                image=image,
                 category=category,
             )
         except Exception:

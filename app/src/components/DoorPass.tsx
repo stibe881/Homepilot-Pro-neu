@@ -166,7 +166,7 @@ export function DoorPass({
                   style={[styles.chip, active && styles.chipActive]}
                 >
                   {active ? (
-                    <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+                    <Ionicons name="checkmark" size={13} color={colors.onAccent} />
                   ) : null}
                   <Text style={[styles.chipText, active && styles.chipTextActive]}>
                     {door.name}
@@ -231,7 +231,7 @@ export function DoorPass({
         accessibilityRole="button"
         style={({ pressed }) => [styles.create, pressed && { opacity: 0.8 }]}
       >
-        <Ionicons name="key-outline" size={16} color="#FFFFFF" />
+        <Ionicons name="key-outline" size={16} color={colors.onAccent} />
         <Text style={styles.createText}>
           {targets.length > 1
             ? `Link für ${targets.length} Türen erstellen`
@@ -331,7 +331,7 @@ const makeStyles = (colors: Colors) =>
     },
     chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     chipText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
-    chipTextActive: { color: '#FFFFFF' },
+    chipTextActive: { color: colors.onAccent },
     create: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -341,7 +341,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       backgroundColor: colors.accent,
     },
-    createText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+    createText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
     list: { gap: 10, marginTop: 4 },
     row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     rowTitle: { color: colors.ink, fontSize: 14, fontWeight: '600' },

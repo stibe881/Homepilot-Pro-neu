@@ -173,7 +173,7 @@ export function DragCell({
         <Ionicons
           name="move"
           size={16}
-          color={dragging ? '#FFFFFF' : colors.inkSoft}
+          color={dragging ? colors.onAccent : colors.inkSoft}
         />
       </View>
     </View>

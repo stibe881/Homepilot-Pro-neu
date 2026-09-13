@@ -6,7 +6,9 @@ Fassung der jährlichen Übung – Herunterladen und Einspielen von Hand
 steht in deploy/README.md.
 """
 
+import io
 import json
+import tarfile
 
 from homepilot.core.offsite import matter_tar
 from homepilot.core.persistence import DataStore
@@ -22,22 +24,27 @@ def test_a_backup_restores_a_household_on_an_empty_hub(tmp_path):
     quelle.set("scenes", [{"id": "s1", "name": "Kino", "actions": []}])
     gemacht = quelle.backup()
     assert gemacht is not None
-    # Das ist exakt der Inhalt, der zu Supabase hochgeladen wird.
+    # Das ist exakt der Inhalt, der zu Supabase hochgeladen wird - seit
+    # Punkt 593 ein Archiv mit der Datendatei darin.
     payload = quelle.backup_bytes(gemacht["name"])
 
     # «Leerer Hub»: neue Platte, nichts da. Die Übung: Datei aus dem
-    # Bucket holen, an den Datenpfad legen, starten.
+    # Bucket holen, in den Sicherungsordner legen, zurückspielen.
     ziel_pfad = tmp_path / "neu" / "homepilot-data.json"
     ziel_pfad.parent.mkdir(parents=True)
-    ziel_pfad.write_bytes(payload)
-
     ziel = DataStore(ziel_pfad)
     ziel.load()
+    ziel.backup_ablegen(gemacht["name"], payload)
+    ziel.restore_backup(gemacht["name"])
     assert [user["name"] for user in ziel.get("users")] == ["Stefan"]
     assert [auto["alias"] for auto in ziel.get("automations")] == ["Flurlicht"]
     assert [scene["name"] for scene in ziel.get("scenes")] == ["Kino"]
-    # Und es ist gültiges JSON geblieben – kein Transportschaden.
-    json.loads(payload)
+    # Und die Datendatei darin ist gültiges JSON geblieben – kein
+    # Transportschaden.
+    with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archiv:
+        datei = archiv.extractfile("homepilot-data.json")
+        assert datei is not None
+        json.loads(datei.read())
 
 
 def test_the_matter_factory_travels_as_a_tarball(tmp_path):

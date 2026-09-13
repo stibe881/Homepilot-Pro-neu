@@ -40,7 +40,7 @@ import { HistoryChart } from '../components/HistoryChart';
 import { OpenDoors } from '../components/OpenDoors';
 import { RunningAppliances } from '../components/RunningAppliances';
 import { SECTION_LABEL, Rail, Section, sichtbareBereiche } from '../components/Rail';
-import { nachbarBereich } from '../lib/bereiche';
+import { nachbar, nachbarBereich } from '../lib/bereiche';
 import { useBereichWischen } from '../hooks/useBereichWischen';
 import { Posteingang } from '../components/Posteingang';
 import { ungelesen } from '../lib/posteingang';
@@ -68,8 +68,8 @@ import { LiveTuerSchalter } from '../components/LiveTuerSchalter';
 import { PushPrefs } from '../components/PushPrefs';
 import { ActivityCard, MediaPanel, SidePanel } from '../components/SidePanel';
 import { useMusikwahl } from '../hooks/useMusikwahl';
-import { Bestaetigung, Toast, UndoToast } from '../components/Toast';
-import { TopStrip } from '../components/TopStrip';
+import { Meldungsband } from '../components/Toast';
+import { TopStrip, appleMapsRoute } from '../components/TopStrip';
 import { useHub } from '../hooks/useHub';
 import { Knopfdruck, Tap, useNotificationTap } from '../hooks/useNotificationTap';
 import { usePrefs } from '../hooks/usePrefs';
@@ -77,7 +77,7 @@ import { useLiveAktivitaet } from '../hooks/useLiveAktivitaet';
 import { useWatchSync } from '../hooks/useWatchSync';
 import { useTuerKnopf } from '../hooks/useTuerKnopf';
 import { usePushRegistration } from '../hooks/usePushRegistration';
-import { breakpoints, space, type, useColors } from '../theme';
+import { breakpoints, space, type, useColors, useTyp } from '../theme';
 import {
   KAMERA_MINDEST,
   breiteFuer,
@@ -86,7 +86,8 @@ import {
   spalten,
 } from '../lib/raster';
 import { warnungSchonOben } from '../lib/warnzeile';
-import { mengeUndName } from '../lib/einkauf';
+import { EinkaufZeile, eintragen, mengeUndName } from '../lib/einkauf';
+import { einkaufText } from '../lib/batterien';
 import { uhr } from '../lib/format';
 import {
   klingelAktionen,
@@ -100,8 +101,10 @@ import {
   musikboxenImRaum,
   pickPlayer,
 } from '../lib/geraeteart';
-import { bewegungImRaum } from '../lib/bewegung';
+import { bewegungImRaum, bewegungsSignal } from '../lib/bewegung';
 import { rueckangebot } from '../lib/rueckgriff';
+import { oberstes } from '../lib/blattstapel';
+import { darfZurueck } from '../lib/rueckkehr';
 import { gemerkteAktion, menuLabel } from '../lib/doppeltipp';
 import { leerbild } from '../lib/leerzustand';
 import { reihenfolge as nutzungsReihenfolge } from '../lib/raumnutzung';
@@ -115,7 +118,8 @@ import {
   sortiereGeraete,
   sortierungsWort,
 } from '../lib/geraetefilter';
-import { verweisText, verweiseAuf } from '../lib/verweise';
+import { tasterBelegung, verweisText, verweiseAuf } from '../lib/verweise';
+import { pausenSatz } from '../lib/verbindungsstand';
 import {
   alphabetisch,
   imRaum,
@@ -195,7 +199,7 @@ import { Widgets } from '../components/Widgets';
 import { syncAuto } from '../lib/autoablage';
 import { Ablage, syncWidget } from '../lib/widget';
 import { hoereAufSchnellaktionen, setzeSchnellaktionen } from '../lib/schnellaktionen';
-import { PushKnopf, Ziel, knoepfeAus, zielAus } from '../lib/pushziel';
+import { Ziel, knoepfeAus, sitzungsPfad, zielAus } from '../lib/pushziel';
 import { PushBlatt } from '../components/PushBlatt';
 import { Erinnerungsblatt } from '../components/Erinnerungsblatt';
 import { fristSatz } from '../lib/erinnerungsfrist';
@@ -207,7 +211,7 @@ import {
   standardDirekt,
   widgetCommand,
 } from '../lib/widgetButtons';
-import { HubProvider } from '../hooks/HubContext';
+import { HubProvider, MeldungsProvider, useBlattstapel } from '../hooks/HubContext';
 import { useFamilienlisten } from '../hooks/useFamilienlisten';
 import { useAbstuerze } from '../hooks/useAbstuerze';
 import { useKachelnutzung } from '../hooks/useKachelnutzung';
@@ -218,6 +222,7 @@ import { useSensorlinien } from '../hooks/useSensorlinien';
 import { useAusfall } from '../hooks/useAusfall';
 import { useZurueckWischen } from '../hooks/useZurueckWischen';
 import { useTakt } from '../hooks/useTakt';
+import { tagesgerichtZeile } from '../lib/tagesgericht';
 import { ErinnerungOverlay } from './dashboard/Erinnerungsvollbild';
 import { Grillvollbild } from './dashboard/Grillvollbild';
 import { GroupControls } from './dashboard/Gruppensteuerung';
@@ -314,7 +319,10 @@ interface SuchAblauf {
 
 export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  // Am Wandpanel grösser (Punkt 610): Die Begrüssung ist das Erste, was
+  // man dort liest.
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   const {
     entities,
     activity,
@@ -327,6 +335,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     error,
     cachedAt,
     familyChangedAt,
+    pausiertBis,
     pending,
     queued,
     undo,
@@ -442,6 +451,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setWandOffen,
     searchOpen,
     setSearchOpen,
+    remoteFuer,
+    setRemoteFuer,
+    grillBlattFuer,
+    setGrillBlattFuer,
+    musikBlattRaum,
+    setMusikBlattRaum,
+    posteingangOffen,
+    setPosteingangOffen,
+    pushBlatt,
+    setPushBlatt,
     allesZu,
   } = useBlaetter();
   // Aufgeklappt kommt man nur über die Batteriewarnung hierher; sonst
@@ -511,6 +530,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // wechselt nie, aber der Prüfer weiss das nicht.
   }, [room, section, setRaumMenue]);
   const [lastTouch, setLastTouch] = useState(() => Date.now());
+  // Eine Berührung irgendwo - im Wurzel-View oder in einem Blatt
+  // darüber (Punkt 582 der Werkbank): Tipps in einem nativen Modal
+  // erreichten den `onTouchStart` des Wurzel-Views nie, und das Panel
+  // sprang mitten im Rezept auf die Startseite.
+  const beruehrt = useCallback(() => setLastTouch(Date.now()), []);
+  // Welche Blätter gerade übereinander offen sind (lib/blattstapel.ts):
+  // Das oberste zeichnet die Meldungen (Punkt 581), und eines, das
+  // «wach hält», setzt die Rückkehr aus.
+  const blattstapel = useBlattstapel();
   // Zählt hoch, wenn der Widget-Knopf «Alles aus» gedrückt wurde – die
   // Rückfrage öffnet sich dann von selbst, statt dass die App nur
   // aufgeht und nichts tut.
@@ -546,20 +574,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Tipp-Haken früh gebraucht wird und der Weg selbst erst weiter unten
   // steht - dort, wo die Räume bekannt sind.
   const zumZiel = useRef<(ziel: Ziel) => void>(() => {});
-  // Die Handgriffe, die ein Ablauf seiner Nachricht mitgegeben hat -
-  // «Trockner an» unter «Waschmaschine fertig». Sie stehen erst hier zur
-  // Wahl, hinter der Anmeldung.
-  const [pushBlatt, setPushBlatt] = useState<{
-    titel?: string;
-    text?: string;
-    knoepfe: PushKnopf[];
-  } | null>(null);
-  // Der Posteingang (Punkt 524): was das Haus für mich zurückgehalten
-  // hat, hinter der Glocke oben. Die Zahl an der Glocke ist, was seit
-  // dem letzten Öffnen dazukam - der Zeitpunkt liegt beim Hub
-  // (lib/persoenlich.ts), damit das iPad nicht zeigt, was das Telefon
-  // längst gelesen hat.
-  const [posteingangOffen, setPosteingangOffen] = useState(false);
+  // Die Handgriffe einer Nachricht (pushBlatt) und der Posteingang
+  // (posteingangOffen, Punkt 524) kommen aus useBlaetter - siehe dort.
+  // Die Zahl an der Glocke ist, was seit dem letzten Öffnen dazukam -
+  // der Zeitpunkt liegt beim Hub (lib/persoenlich.ts), damit das iPad
+  // nicht zeigt, was das Telefon längst gelesen hat.
   const [verpasste, setVerpasste] = useState<{ at: number }[]>([]);
   const [posteingangGesehen, setPosteingangGesehen] = useState(0);
   const verpassteLaden = useCallback(() => {
@@ -599,17 +618,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Bild nicht auf Vorrat.
   const [personenbilder, setPersonenbilder] = useState<Record<string, number>>({});
   // Für welchen Raum das Blatt «Bild wählen» offen steht.
-  // Für welchen Raum der Player offen steht (Musik-Knopf der Raumkachel).
-  const [musikBlattRaum, setMusikBlattRaum] = useState<string | null>(null);
-  // Welcher Fernseher seine Fernbedienung offen hat. Sie hängt nicht an
-  // der Gerätekachel, sondern hier: Der Knopf «Fernseher» auf einer
-  // Raumkachel soll sie aufmachen, ohne dass man erst in den Raum geht.
-  const [remoteFuer, setRemoteFuer] = useState<string | null>(null);
-  // Der Grill, dessen Blatt offen ist (Punkt 555). Über die Kennung und
-  // nicht über die Entität: Der Hub schickt alle dreissig Sekunden einen
-  // neuen Zustand, und ein festgehaltenes Objekt wäre sofort von gestern
-  // - dieselbe Überlegung wie beim Fernbedienungs-Blatt.
-  const [grillBlattFuer, setGrillBlattFuer] = useState<string | null>(null);
+  // Musikblatt, Fernbedienung und Grillblatt (Punkt 555) kommen aus
+  // useBlaetter - seit Punkt 582, damit die Rückkehr des Wandpanels sie
+  // mit zumacht.
   const [grillziele, setGrillziele] = useState<Zielzeile[]>([]);
   // Auf der Startseite markierte Countdowns aus dem Familie-Modul.
   const [startCountdowns, setStartCountdowns] = useState<
@@ -654,6 +665,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   }, [hub, settings.url, settings.token]);
   useEffect(ladeCountdowns, [ladeCountdowns]);
   useTakt(ladeCountdowns, 60000);
+  // Der Essensplan für die Zeile «Heute: Lasagne» in der Kopfkarte
+  // (lib/tagesgericht.ts, Punkt 587) - derselbe Takt wie die Countdowns.
+  const [startMeals, setStartMeals] = useState<{ day?: string; text?: string }[]>([]);
+  const ladeTagesgericht = useCallback(() => {
+    if (!settings.url || !settings.token) return;
+    hub
+      .get<{ day?: string; text?: string }[]>('/api/family/meals', { fallback: [], still: true })
+      .then((rows) => setStartMeals(Array.isArray(rows) ? rows : []));
+  }, [hub, settings.url, settings.token]);
+  useEffect(ladeTagesgericht, [ladeTagesgericht]);
+  useTakt(ladeTagesgericht, 60000);
   // Einkaufsliste, Läden und Erinnerungen des Haushalts - Zustand und
   // Handgriffe stehen in hooks/useFamilienlisten.ts.
   const {
@@ -779,6 +801,54 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         befehl: undo,
       }),
     [error, abrufFehler, einkaufUndo, griffUndo, undo]
+  );
+  // Die drei Einblendungen als ein Wert für den Context (Punkt 581 der
+  // Werkbank): Ein abgelehnter Befehl hat Vorrang - er ist die Antwort
+  // auf etwas, das man gerade angetippt hat. Ein fehlgeschlagener
+  // Abruf kommt, wenn sonst nichts ansteht. Wo das Band gezeichnet
+  // wird, entscheidet nicht mehr dieser Bildschirm, sondern das
+  // oberste offene Blatt (components/Blatt.tsx).
+  const meldungen = useMemo(
+    () => ({
+      fehler: error ?? abrufFehler,
+      fehlerWeg: error ? dismissError : () => setAbrufFehler(null),
+      note,
+      noteWeg: () => setNote(null),
+      // Welches der drei möglichen «Zurück» gemeint ist, entscheidet
+      // lib/rueckgriff.ts – dort steht auch, warum in dieser Reihenfolge.
+      rueck: rueckAngebot.what
+        ? {
+            what: rueckAngebot.what,
+            onUndo:
+              rueckAngebot.quelle === 'einkauf'
+                ? nimmAbhakenZurueck
+                : rueckAngebot.quelle === 'griff'
+                  ? nimmGriffZurueck
+                  : undoLast,
+            onDismiss:
+              rueckAngebot.quelle === 'einkauf'
+                ? () => setEinkaufUndo(null)
+                : rueckAngebot.quelle === 'griff'
+                  ? () => setGriffUndo(null)
+                  : dismissUndo,
+          }
+        : null,
+    }),
+    [
+      error,
+      abrufFehler,
+      dismissError,
+      note,
+      rueckAngebot,
+      nimmAbhakenZurueck,
+      nimmGriffZurueck,
+      undoLast,
+      dismissUndo,
+      // Setzer aus einem fremden Haken - für den Prüfer keine festen
+      // Grössen, obwohl sie es sind.
+      setEinkaufUndo,
+      setGriffUndo,
+    ]
   );
 
   // Die Ablaufnamen holen, damit die Suche sie kennt – und den
@@ -1088,7 +1158,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (knoepfe.length > 0) {
       setPushBlatt({ titel: tap.title, text: tap.body, knoepfe });
     }
-  }, []);
+    // Ein Setzer aus useBlaetter - fest, aber der Prüfer weiss das nicht.
+  }, [setPushBlatt]);
   // «Später» und «Erledigt» aus der Mitteilung heraus. Beides läuft ohne
   // die App zu öffnen; sie erfährt davon, sobald sie das nächste Mal
   // läuft, und reicht es an den Hub weiter (lib/mitteilungsknoepfe.ts).
@@ -1192,6 +1263,28 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         }
         return;
       }
+      // «Auf die Einkaufsliste» unter der Batteriewarnung (Punkt 633):
+      // Der Posten heisst «CR2032 (Türkontakt Küche)» und geht denselben
+      // Weg wie jeder Eintrag von Hand - steht er schon offen da, wird
+      // die Menge erhöht statt eine zweite Zeile angelegt (Punkt 174).
+      if (druck.handlung === 'einkauf') {
+        if (!druck.batteryType) {
+          setNote('Batterietyp am Gerät eintragen, dann klappt das');
+          return;
+        }
+        const text = einkaufText(druck.batteryType, druck.title.replace(/^Batterie schwach:\s*/, ''));
+        hub
+          .get<EinkaufZeile[]>('/api/family/shopping', { fallback: [], still: true })
+          .then((liste) => {
+            const was = eintragen(liste ?? [], text);
+            return was.kind === 'mehr'
+              ? hub.put(`/api/family/shopping/${encodeURIComponent(was.id)}`, { text: was.text }, { still: true })
+              : hub.post('/api/family/shopping', was.draft, { still: true });
+          })
+          .then(() => setNote(`Auf der Einkaufsliste: ${text}`))
+          .catch(() => {});
+        return;
+      }
       // «Erledigt» gibt es bisher für die Batteriewarnung: Sie quittiert
       // das Gerät, damit sie nicht jede Woche wiederkommt.
       if (druck.entityId) {
@@ -1213,9 +1306,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Gemeinschaftsgerät genauso wie am Wandpanel - und dabei fällt der
   // Riegel wieder zu: Eine offene Einkaufsliste soll nicht im Flur
   // stehen bleiben, bloss weil vorhin jemand das Passwort kannte.
+  //
+  // Nicht während des Kochens, Klingelns oder Grillens (Punkt 582 der
+  // Werkbank, lib/rueckkehr.ts): Wer mit Teig an den Händen im Rezept
+  // blättert, tippt drei Minuten lang nichts - und fand dann die
+  // Startseite vor. Und was darüber offen liegt (Fernbedienung,
+  // Grillblatt, Musik), geht mit zu: Sonst deckte es die Startseite zu,
+  // zu der man gerade zurückgekehrt ist.
   useTakt(
     () => {
-      if (Date.now() - lastTouch > 180000) {
+      if (darfZurueck(Date.now(), lastTouch, blattstapel.haeltWach)) {
         // Im Kindermodus ist «zuhause» die Kinderseite, nicht die
         // Startseite - die gibt es auf diesem Gerät gar nicht.
         setSection((settings.kindPanel ?? '').trim() ? 'family' : 'start');
@@ -1223,6 +1323,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         setRoom(ALL_ROOMS);
         setRiegelBis(0);
         setRiegelModul(null);
+        allesZu();
       }
     },
     panelArtig ? 30000 : null
@@ -1444,6 +1545,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         setAllOffSignal((n) => n + 1);
       } else if (what === 'alarm') {
         setSection('alarm');
+      } else if (what === 'brand') {
+        // Von der Brand-Live-Karte (Punkt 604 der Werkbank): in den
+        // Bereich der Brandmeldeanlage, nicht zur Einbruchanlage - die
+        // Karte sagte vorher «Alarmanlage» und sprang dorthin.
+        setSection('brand');
       } else if (what === 'raum' && id) {
         // Von der Live-Aktivität eines Geräts (Geschirrspüler → Küche,
         // Waschmaschine → Waschküche): in den Raum, in dem es steht.
@@ -1472,6 +1578,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         setSection('home');
         if (grill.room) setRoom(grill.room);
         setGrillBlattFuer(grill.id);
+      } else if (what === 'erinnerung') {
+        // Von der Erinnerungs-Karte (Punkt 606 der Werkbank): Das
+        // Vollbild für Fälliges legt sich von selbst über jede Seite
+        // (ErinnerungOverlay), sobald die Liste geladen ist - hier
+        // bleibt nur, die App auf die Startseite zu holen. Ist die
+        // Erinnerung inzwischen quittiert, steht eben nichts davor.
+        setSection('start');
       } else if (what === 'timer') {
         // Die Karte des Küchen-Timers: Er wohnt in der Küche (die
         // Kachel steht nur dort). Die Adresse schickte der Hub schon
@@ -1523,7 +1636,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // Ereignisse (App lief schon) kommen genau einmal - jedes zählt.
     const subscription = Linking.addEventListener('url', (event) => handle(event.url));
     return () => subscription.remove();
-  }, [entities, scenes, activateScene, guardedCommand, prefs.doorConfirm]);
+  }, [
+    entities,
+    scenes,
+    activateScene,
+    guardedCommand,
+    prefs.doorConfirm,
+    // Setzer aus useBlaetter - fest, aber der Prüfer weiss das nicht.
+    setRemoteFuer,
+    setGrillBlattFuer,
+  ]);
 
   const toggleIn = (list: string[], id: string) =>
     list.includes(id) ? list.filter((item) => item !== id) : [...list, id];
@@ -1724,6 +1846,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       }
       case 'klingel':
         setKlingelTap(ziel.entityId ?? '');
+        return;
+      case 'route':
+        // «Jetzt losfahren» (Punkt 586): Die Karten-App mit dem Ziel -
+        // derselbe Weg wie der Routenknopf im Termin-Fenster.
+        Linking.openURL(appleMapsRoute(ziel.ort)).catch(() => {});
         return;
     }
   };
@@ -2066,6 +2193,24 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       if (ziel) waehleBereich(ziel);
     }
   );
+  // Und im Zimmer ins Nachbarzimmer (Punkt 583): Wer abends Wohnzimmer
+  // → Küche → Flur abklappert, ging dreimal über die Raumliste, obwohl
+  // die Räume eine Reihenfolge haben. Dieselbe Geste, die Raumliste als
+  // Nachbarschaft; die linke Kante bleibt «zurück» (lib/bereichwischen.ts,
+  // zimmerRichtung), und Wischdimmer wie Storen-Leiste behalten ihren
+  // Vorrang, weil sie als Kinder zuerst gefragt werden. Auch mit
+  // Seitenleiste: Die Zimmer stehen dort nicht.
+  const zimmer = useMemo(() => rooms.filter((name) => name !== ALL_ROOMS), [rooms]);
+  const zimmerWischen = useBereichWischen(
+    section === 'home' && room !== ALL_ROOMS && !editing,
+    (richtung) => {
+      const ziel = nachbar(zimmer, room, richtung);
+      if (ziel) setRoom(ziel);
+    },
+    true
+  );
+  const zimmerDavor = section === 'home' && room !== ALL_ROOMS ? nachbar(zimmer, room, -1) : null;
+  const zimmerDanach = section === 'home' && room !== ALL_ROOMS ? nachbar(zimmer, room, 1) : null;
   const raumSchein = categorized && raumLeuchtet(inRoom);
   // Der Klimafühler steht gross im Kopf - als Chip daneben stünde er
   // doppelt, wie früher die Temperatur.
@@ -2179,11 +2324,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           : null
       }
       pending={pending[entity.id]}
-      // Die letzte Absage des Hubs. Sie geht nur in die Fernbedienung –
-      // die ist ein Modal und deckt das Band am unteren Rand zu, in dem
-      // sie sonst steht.
-      fehler={error}
-      onFehlerWeg={dismissError}
       // Nur unter «Geräte»: Wo kommt das Gerät überall vor? Antippen
       // führt zu den Abläufen.
       usedIn={
@@ -2195,6 +2335,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           : undefined
       }
       onUsedIn={() => setSection('automations')}
+      // Taster: was welcher Druck auslöst, direkt auf der Kachel
+      // (Punkt 629, lib/verweise.ts).
+      belegung={entity.kind === 'button' ? tasterBelegung(entity.id, automations) : undefined}
+      onBelegung={() => setSection('automations')}
       pricePerKwh={energy?.price_per_kwh}
       currency={energy?.currency ?? 'CHF'}
       editing={editing}
@@ -2242,6 +2386,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       onContactKind={
         darfAnpassen
           ? (value) => setEntityMeta(entity.id, { contact_kind: value })
+          : undefined
+      }
+      // Punkt 633: welche Batterie drinsteckt.
+      onBatteryType={
+        darfAnpassen
+          ? (value) => setEntityMeta(entity.id, { battery_type: value })
           : undefined
       }
       doorConfirm={prefs.doorConfirm}
@@ -3432,6 +3582,50 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     <Ionicons name="chevron-back" size={18} color={colors.onGradient} />
                     <Text style={styles.backText}>Räume</Text>
                   </Pressable>
+                  {/* Die Nachbarzimmer als sichtbarer Weg (Punkt 583) -
+                      das Wischen dazu sieht niemand. Mit Namen, damit
+                      man weiss, wohin es geht, und leiser als «Räume»:
+                      Das ist der Abzweig, nicht der Rückweg. */}
+                  {zimmerDavor || zimmerDanach ? (
+                    <View style={styles.raumNachbarn}>
+                      {zimmerDavor ? (
+                        <Pressable
+                          onPress={() => setRoom(zimmerDavor)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Voriges Zimmer: ${zimmerDavor}`}
+                          hitSlop={6}
+                          style={styles.raumNachbar}
+                        >
+                          <Ionicons
+                            name="chevron-back"
+                            size={14}
+                            color={colors.onGradientSoft}
+                          />
+                          <Text style={styles.raumNachbarText} numberOfLines={1}>
+                            {zimmerDavor}
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                      {zimmerDanach ? (
+                        <Pressable
+                          onPress={() => setRoom(zimmerDanach)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Nächstes Zimmer: ${zimmerDanach}`}
+                          hitSlop={6}
+                          style={styles.raumNachbar}
+                        >
+                          <Text style={styles.raumNachbarText} numberOfLines={1}>
+                            {zimmerDanach}
+                          </Text>
+                          <Ionicons
+                            name="chevron-forward"
+                            size={14}
+                            color={colors.onGradientSoft}
+                          />
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  ) : null}
                   {/* «Anpassen» und «Reihenfolge» braucht man einmal im
                       Jahr - sie stehen hinter dem ···, nicht vor den
                       Kacheln. */}
@@ -3506,7 +3700,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                       accessibilityLabel="Bewegung im Raum"
                       style={styles.raumBewegung}
                     >
-                      <Ionicons name="walk" size={15} color={colors.onGradient} />
+                      <Ionicons name="walk" size={15} color={bewegungsSignal(colors).farbe} />
                     </View>
                   ) : null}
                 </View>
@@ -4000,9 +4194,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
 
   return (
     <HubProvider settings={settings} entities={entities} user={user}>
+    <MeldungsProvider meldungen={meldungen} blaetter={blattstapel} beruehrt={beruehrt}>
       <View
         style={styles.root}
-        onTouchStart={() => setLastTouch(Date.now())}
+        onTouchStart={beruehrt}
         {...zurueckWischen}
       >
         {/* Auch links und rechts (Punkt 523): Im Querformat liegt die
@@ -4014,6 +4209,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right },
           ]}
           {...bereichWischen}
+          {...zimmerWischen}
         >
           {hasRail ? (
             <Rail
@@ -4059,7 +4255,38 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             // im Gutschein-Formular brauchte sonst zwei Tipper.
             keyboardShouldPersistTaps="handled"
           >
-            {ausfall && entities.length > 0 ? (
+            {status === 'signed_out' ? (
+              // Der Hub hat das Token abgewiesen (Punkt 579 der Werkbank):
+              // beendet unter «Meine Geräte», Passwort gewechselt. Das ist
+              // kein Ausfall, und der Knopf führt dorthin, wo der Weg
+              // zurück liegt - die Konto-Seite mit den Verbindungsfeldern.
+              <View style={styles.offlineBanner}>
+                <Ionicons name="log-out-outline" size={16} color={colors.warn} />
+                <Text style={styles.offlineText} numberOfLines={2}>
+                  Dieses Gerät wurde abgemeldet.
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    onSaveSettings({ ...settings, token: '' });
+                    setSection('account');
+                  }}
+                  style={({ pressed }) => [styles.offlineKnopf, pressed && { opacity: 0.7 }]}
+                >
+                  <Text style={styles.offlineKnopfText}>Neu anmelden</Text>
+                </Pressable>
+              </View>
+            ) : status === 'paused' ? (
+              // Zeitfenster zu (Punkt 624 der Werkbank): kein kaputtes Haus,
+              // sondern Feierabend. Die App verbindet von selbst wieder,
+              // sobald es aufgeht - deshalb kein Knopf.
+              <View style={styles.offlineBanner}>
+                <Ionicons name="moon-outline" size={16} color={colors.warn} />
+                <Text style={styles.offlineText} numberOfLines={2}>
+                  {pausenSatz(pausiertBis, now.getTime())}
+                </Text>
+              </View>
+            ) : ausfall && entities.length > 0 ? (
               // Getrennt, aber wir haben den letzten Stand: lieber alte Werte
               // mit deutlichem Hinweis als eine leere Seite. Geschaltet wird
               // trotzdem nicht - die Befehle liefen ins Leere.
@@ -4101,6 +4328,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                       onShoppingCount: setzeMenge,
                       knownItems: bekannt,
                       onShoppingAdd: kaufeEin,
+                      // «Heute: Lasagne» ab 15 Uhr (Punkt 587); der Tipp
+                      // öffnet den Essensplan, dort ist das Rezept einen
+                      // Tipp entfernt.
+                      tagesgericht: section === 'start' ? tagesgerichtZeile(startMeals, now) : null,
+                      onTagesgericht: () => {
+                        setSection('family');
+                        setFamilienModul('meals');
+                      },
                     })}
                 showClock={!!settings.panel}
                 queued={queued}
@@ -4426,6 +4661,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               if (knopf.scene) activateScene(knopf.scene);
               else if (knopf.entity && knopf.command) {
                 guardedCommand(knopf.entity, knopf.command);
+              } else {
+                // «Nicht ich → Gerät abmelden» (Punkt 626): die fremde
+                // Anmeldung beenden - eigene über das Konto, die eines
+                // Gasts über die Benutzerverwaltung (lib/pushziel.ts).
+                const pfad = sitzungsPfad(knopf, user?.name);
+                if (pfad) hub.del(pfad, { fallback: null }).catch(() => {});
               }
             }}
             onSchliessen={() => setPushBlatt(null)}
@@ -4609,14 +4850,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           }}
         />
 
-        {/* Ein abgelehnter Befehl hat Vorrang: Er ist die Antwort auf etwas,
-          das man gerade angetippt hat. Ein fehlgeschlagener Abruf kommt,
-          wenn sonst nichts ansteht. */}
-        <Toast
-          message={error ?? abrufFehler}
-          onDismiss={error ? dismissError : () => setAbrufFehler(null)}
-          bottomInset={insets.bottom}
-        />
+        {/* Fehler, Bestätigung und «Rückgängig» (Punkt 581): hier nur,
+          solange kein Blatt darüber liegt - sonst zeichnet das oberste
+          Blatt das Band, und im Web stünde es sonst zweimal, einmal
+          durch den durchscheinenden Hintergrund hindurch. */}
+        {oberstes(blattstapel.stapel) === null ? <Meldungsband /> : null}
         {/* Die Fernbedienung zum Knopf «Fernseher» auf einer Raumkachel.
             Dieselbe wie auf der Gerätekachel - eine zweite Fassung
             liefe früher oder später auseinander. */}
@@ -4627,8 +4865,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             onClose={() => setRemoteFuer(null)}
             onCommand={(command, data) => guardedCommand(remoteTv.id, command, data)}
             apps={remoteTv.commands.includes('launch_app') ? appsOf(remoteTv) : []}
-            fehler={error}
-            onFehlerWeg={dismissError}
             kino={kinoImBlatt}
             onKino={activateScene}
           />
@@ -4679,34 +4915,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           onClose={() => setSorgenOffen(false)}
         />
 
-        {/* Welches der drei möglichen «Zurück» gemeint ist, entscheidet
-          lib/rueckgriff.ts – dort steht auch, warum in dieser Reihenfolge. */}
-        <UndoToast
-          what={rueckAngebot.what}
-          onUndo={
-            rueckAngebot.quelle === 'einkauf'
-              ? nimmAbhakenZurueck
-              : rueckAngebot.quelle === 'griff'
-                ? nimmGriffZurueck
-                : undoLast
-          }
-          onDismiss={
-            rueckAngebot.quelle === 'einkauf'
-              ? () => setEinkaufUndo(null)
-              : rueckAngebot.quelle === 'griff'
-                ? () => setGriffUndo(null)
-                : dismissUndo
-          }
-          bottomInset={insets.bottom}
-        />
-        {/* Gelungenes tritt hinter beides zurück: Wer gerade einen Fehler
-          liest, braucht nicht noch ein Häkchen daneben. */}
-        <Bestaetigung
-          text={error || abrufFehler || rueckAngebot.what ? null : note}
-          onDismiss={() => setNote(null)}
-          bottomInset={insets.bottom}
-        />
-
         {/* Nachtabsenkung fürs Wandpanel. Der Schleier lässt Berührungen
           durch: Ein Panel, bei dem der erste Tipp nur das Aufwecken ist,
           ärgert genau die Person, die schnell das Licht ausmachen wollte.
@@ -4724,6 +4932,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           />
         ) : null}
       </View>
+    </MeldungsProvider>
     </HubProvider>
   );
 }

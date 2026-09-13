@@ -14,6 +14,7 @@ verschiedene Rechnungen wären irgendwann zwei verschiedene Wochen.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import date
 from typing import Any
 
@@ -29,14 +30,33 @@ def tag_von(datum: date) -> str:
     return TAGE[datum.weekday()]
 
 
+def gilt_in_den_ferien(eintrag: dict[str, Any]) -> bool:
+    """Trägt der Eintrag den Schalter «auch in den Ferien»? (rein, testbar)
+
+    Punkt 620 der Werkbank: Das Fussballtraining läuft in den Ferien oft
+    weiter, die Flöte nicht - das entscheidet die Familie je Eintrag.
+    Dasselbe Feld liest die App (lib/kindseite.ts, ``holidays``).
+    """
+    return bool(eintrag.get("holidays"))
+
+
 def morgen_zeilen(
-    gear: list[Any] | None, morgen: date
+    gear: list[Any] | None,
+    morgen: date,
+    ferien: bool = False,
+    krank: Collection[str] = (),
 ) -> dict[str, list[str]]:
     """Je Kind, was morgen mitmuss (rein, testbar).
 
     Ein Eintrag ohne Woche gilt jede Woche; «A»/«B» nur in der ihren.
     Die Reihenfolge bleibt die der Liste - so, wie die Familie sie
     angelegt hat.
+
+    Sind morgen Ferien (Punkt 620), bleiben die Schulsachen zuhause:
+    In den Herbstferien um 19 Uhr «Levin braucht morgen: Turnsack» war
+    die Nachricht, die man abbestellt. Nur was den Schalter «auch in
+    den Ferien» trägt, kommt dann noch. Und wer morgen noch krank
+    gemeldet ist (Punkt 622), braucht gar nichts.
     """
     tag = tag_von(morgen)
     woche = woche_von(morgen)
@@ -46,12 +66,14 @@ def morgen_zeilen(
             continue
         if str(eintrag.get("day") or "") != tag:
             continue
+        if ferien and not gilt_in_den_ferien(eintrag):
+            continue
         eintrag_woche = str(eintrag.get("week") or "")
         if eintrag_woche and eintrag_woche != woche:
             continue
         text = str(eintrag.get("text") or "").strip()
         wer = str(eintrag.get("member") or "").strip()
-        if not text or not wer:
+        if not text or not wer or wer in krank:
             continue
         zeilen.setdefault(wer, []).append(text)
     return zeilen

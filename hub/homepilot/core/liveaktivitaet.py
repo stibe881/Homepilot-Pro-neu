@@ -659,13 +659,61 @@ def abgeschaltet(prefs_rows: Any) -> set[str]:
 # ── Push-Inhalte (rein, testbar) ──────────────────────────────────────────
 
 
-def start_payload(jetzt_s: float, tuer: str = "Haustüre") -> dict[str, Any]:
-    """Der APNs-Inhalt, der die Aktivität startet."""
+#: Was die Alarmanlage auf der Heimweg-Karte sagt - nur die Zustände,
+#: die vor der Türe zählen. «unscharf» fehlt bewusst: Der Normalfall
+#: braucht keine Zeile (dieselbe Regel wie im Widget, StatusZeile).
+ALARM_WORTE = {
+    "scharf": "Alarm scharf",
+    "scharfschaltend": "Alarm wird scharf",
+    "ausgeloest": "Alarm ausgelöst!",
+}
+
+
+def heimweg_text(alarm_state: Any, anwesende: list[str], lichter: int) -> str:
+    """Die Zeile auf der Heimweg-Karte (rein, testbar) - Punkt 607.
+
+    Die Karte entsteht dreihundert Meter vor dem Haus, und der Hub
+    weiss in diesem Moment, was man vor der Türe wissen will: ob die
+    Anlage scharf ist (dann läuft die Eingangsverzögerung, sobald die
+    Türe aufgeht), ob jemand zuhause ist, ob Licht brennt. Vorher stand
+    dort ein leeres Feld und im Widget der feste Satz «Haustüre im
+    Schnellzugriff» - eine Karte, die nichts vom Haus wusste.
+
+    «Alarm scharf · Livia ist zuhause», «Niemand zuhause · 2 Lichter an».
+    Die Anwesenheit steht immer, Alarm und Licht nur, wenn sie etwas
+    sagen - eine Zeile, die im Vorbeigehen gelesen wird, trägt keine
+    Nullen.
+    """
+    teile: list[str] = []
+    alarm = ALARM_WORTE.get(str(alarm_state or "").strip().lower())
+    if alarm:
+        teile.append(alarm)
+    namen = [str(name).strip() for name in anwesende if str(name).strip()]
+    if not namen:
+        teile.append("Niemand zuhause")
+    elif len(namen) == 1:
+        teile.append(f"{namen[0]} ist zuhause")
+    else:
+        teile.append(f"{', '.join(namen[:-1])} und {namen[-1]} sind zuhause")
+    if lichter == 1:
+        teile.append("1 Licht an")
+    elif lichter > 1:
+        teile.append(f"{lichter} Lichter an")
+    return " · ".join(teile)
+
+
+def start_payload(jetzt_s: float, tuer: str = "Haustüre", text: str = "") -> dict[str, Any]:
+    """Der APNs-Inhalt, der die Aktivität startet.
+
+    ``text`` ist die Zeile aus heimweg_text - das Widget zeigt sie statt
+    des festen Satzes, sobald sie da ist (targets/widget/index.swift,
+    TuerAktivitaet).
+    """
     return {
         "aps": {
             "timestamp": int(jetzt_s),
             "event": "start",
-            "content-state": {"text": ""},
+            "content-state": {"text": text},
             "attributes-type": ATTRIBUTES_TYPE,
             "attributes": {"tuer": tuer},
             # Das alert ist beim Start-Ereignis PFLICHT: Ohne es nimmt
@@ -696,6 +744,32 @@ def end_payload(jetzt_s: float) -> dict[str, Any]:
             "dismissal-date": int(jetzt_s),
         }
     }
+
+
+#: Wie lange Apple einen Push je Ereignis aufhebt, wenn das Telefon
+#: gerade nicht zu erreichen ist (Sekunden) - Fehler aus der Runde 579
+#: der Werkbank. Vorher galten für Start, Update und Ende dieselben
+#: zehn Minuten, und das war für das Ende die falsche Zahl: Wer so
+#: lange ohne Netz ist (Zug, Keller, Flugmodus), behielt die
+#: Fernseher- oder Sauger-Karte bis zu acht Stunden - der Hub hatte
+#: von Apple eine 200 und strich die Zeile als beendet, der Push kam
+#: aber nie an. Ein Ende darf darum lange warten. Ein Update dagegen
+#: kaum: Ein Grill-Messwert von vor drei Minuten ist nach der Ankunft
+#: nur noch ein falscher, und der nächste Takt schickt ohnehin einen
+#: frischen. Der Start bleibt bei den zehn Minuten - eine Karte für
+#: etwas, das vor einer Stunde lief, will niemand mehr.
+APNS_FRIST = {"start": 600, "update": 60, "end": 4 * 3600}
+
+
+def apns_frist(payload: dict[str, Any], jetzt_s: float) -> int:
+    """Bis wann Apple diesen Push aufheben soll, als Unix-Zeit (rein, testbar).
+
+    Das Ereignis steht im Inhalt selbst (``aps.event``); wer es nicht
+    trägt, bekommt die Frist des Starts - lieber zu kurz als eine
+    Karte, die Stunden später noch aufgestellt wird.
+    """
+    ereignis = str((payload.get("aps") or {}).get("event") or "start")
+    return int(jetzt_s + APNS_FRIST.get(ereignis, APNS_FRIST["start"]))
 
 
 def apns_jwt(key_pem: bytes, key_id: str, team_id: str, jetzt_s: float) -> str:
@@ -782,7 +856,8 @@ class ApnsVersand:
                     "apns-topic": f"{self.config['bundle_id']}.push-type.liveactivity",
                     "apns-push-type": "liveactivity",
                     "apns-priority": "10",
-                    "apns-expiration": str(int(jetzt + 600)),
+                    # Je Ereignis verschieden - siehe APNS_FRIST.
+                    "apns-expiration": str(apns_frist(payload, jetzt)),
                 },
             )
         except Exception as err:
@@ -874,6 +949,40 @@ def _weg_stand(hub: Any, benutzer: set[str], laufend: set[str]) -> dict[str, boo
     return stand
 
 
+def _haus_text(hub: Any) -> str:
+    """Die Heimweg-Zeile aus dem Hauszustand - dieselben Quellen wie
+    /api/glance: die Alarmanlage (nicht die Brandmeldeanlage), die
+    Personen-Zonen der Geofence-Integration und die Lichter."""
+    entities = hub.registry.all()
+    alarm = next(
+        (
+            entity
+            for entity in entities
+            if entity.kind == "alarm" and getattr(entity, "integration", "") != "brand"
+        ),
+        None,
+    )
+    lichter = sum(
+        1
+        for entity in entities
+        if entity.kind == "light" and str(entity.state.get("state")) == "on"
+    )
+    geofence = hub.integrations.get("geofence") if hub.integrations else None
+    zones = getattr(geofence, "_zones", None) or {}
+    anwesende = []
+    for zone_id, entity_id in zones.items():
+        entity = hub.registry.get(entity_id)
+        if entity is None:
+            continue
+        if str((entity.state or {}).get("state") or "") == presence.HOME:
+            anwesende.append(str(getattr(entity, "label", zone_id)))
+    return heimweg_text(
+        alarm.state.get("state") if alarm is not None else None,
+        sorted(anwesende),
+        lichter,
+    )
+
+
 async def tuer_loop(hub: Any) -> None:
     """Alle TAKT_SEKUNDEN: Karten starten und beenden, wo nötig."""
     config = parse_apns(getattr(hub.config, "apns", None))
@@ -947,8 +1056,13 @@ async def _runde(hub: Any, versand: ApnsVersand) -> None:
     if not starten and not beenden:
         return
     jetzt = time.time()
+    # Einmal je Runde gerechnet, nicht je Telefon - der Hauszustand ist
+    # für alle derselbe (Punkt 607).
+    text = _haus_text(hub) if starten else ""
     for row in starten:
-        ging = await versand.senden(str(row["start_token"]), start_payload(jetzt))
+        ging = await versand.senden(
+            str(row["start_token"]), start_payload(jetzt, text=text)
+        )
         log.info(
             "Live-Aktivität: Start an %s (%s) - %s",
             row.get("user"),

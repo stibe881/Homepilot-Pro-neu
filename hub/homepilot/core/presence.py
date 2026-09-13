@@ -692,6 +692,69 @@ def anyone_home_state(zustaende: Any) -> str:
     return "off"
 
 
+# ── Die Ortungspause (Punkt 627) ───────────────────────────────────────────
+#
+# «Pausieren ist Pausieren» stand im Hook der App - aber die Pause lag nur
+# im Speicher des einen Telefons. Der Hub kannte keinen Pausenbegriff:
+# Nach zwölf Stunden Stille schickte der Wächter «Meldet sich nicht mehr»
+# an die ganze Familie, die Familienseite zeigte «meldet sich nicht», und
+# das zweite eigene Gerät meldete munter weiter. Jetzt liegt die Pause
+# beim Hub: eine Zeile je Zone mit dem Ende.
+
+#: Wo die Pausen liegen: [{"zone": …, "until": Epoch-Sekunden}].
+PAUSE_KEY = "presence_pause"
+#: Der Grund, den ``merged`` einer pausierten Zone mitgibt.
+GRUND_PAUSE = "paused"
+
+
+def pausen_lesen(rows: Any, now: float) -> dict[str, float]:
+    """Zone → Ende der Pause, nur die noch laufenden (rein, testbar)."""
+    pausen: dict[str, float] = {}
+    for row in rows or []:
+        if not isinstance(row, dict) or not row.get("zone"):
+            continue
+        try:
+            bis = float(row.get("until") or 0)
+        except (TypeError, ValueError):
+            continue
+        if bis > now:
+            pausen[str(row["zone"])] = bis
+    return pausen
+
+
+def pause_setzen(
+    rows: Any, zone: str, until: float | None, now: float
+) -> list[dict[str, Any]]:
+    """Eine Pause setzen oder aufheben (rein, testbar).
+
+    ``None`` oder ein Ende in der Vergangenheit heisst: aufheben.
+    Abgelaufene Pausen anderer Zonen fliegen dabei mit hinaus - die
+    Ablage soll nicht mit Vergangenem anwachsen.
+    """
+    uebrig = pausen_lesen(rows, now)
+    uebrig.pop(zone, None)
+    if until is not None and until > now:
+        uebrig[zone] = float(until)
+    return [{"zone": z, "until": bis} for z, bis in sorted(uebrig.items())]
+
+
+def pausiert_zustand(state: dict[str, Any], until: float) -> dict[str, Any]:
+    """Wie eine pausierte Zone nach aussen aussieht (rein, testbar).
+
+    Unbekannt, nicht «weg»: Auf «weg» hörte «alles aus», und wer die
+    Ortung für den Abend aussetzt, sitzt meist im Wohnzimmer. Ort und
+    Ortsname gehen mit weg, wie bei der Funkstille (``settle``).
+    """
+    return {
+        **state,
+        "state": UNKNOWN,
+        "reason": GRUND_PAUSE,
+        "until": float(until),
+        "place": None,
+        "place_name": None,
+    }
+
+
 #: Wo der von Hand gesetzte Hausstandort liegt.
 HOME_KEY = "home_place"
 

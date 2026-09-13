@@ -51,6 +51,12 @@ export interface Entity {
   state: EntityState;
   commands: string[];
   available: boolean;
+  /** Nur in der App gesetzt, nie vom Hub (Punkt 580 der Werkbank): Ein
+   *  Befehl an dieses Gerät ist gescheitert oder unbeantwortet
+   *  geblieben. Die Kachel zeigt den Stand von vorher und sagt dazu
+   *  «unbestätigt», bis der nächste echte Zustand des Hubs kommt -
+   *  der ersetzt das ganze Objekt, und damit ist die Marke weg. */
+  unbestaetigt?: boolean;
   /** Raum aus der Hub-Konfiguration; die App gruppiert danach. */
   room?: string | null;
   /** Alle Zimmer, für die das Gerät zählt - `room` ist das erste
@@ -82,6 +88,10 @@ export interface Entity {
    *  Raumkopf sagt aber «Fenster zu» oder «Türe zu». Leer heisst
    *  «raten» (lib/offen.ts, kontaktArt). */
   contact_kind?: 'window' | 'door' | null;
+  /** Welche Batterie drinsteckt - «CR2032», «AAA» … (Punkt 633). Weder
+   *  Hub noch Gerät wissen es; wer es einträgt, liest es in der Warnung
+   *  und auf der Einkaufsliste wieder (lib/batterien.ts). */
+  battery_type?: string | null;
   /** Kennung der Leuchte, in der dieses Licht aufgeht.
    *
    *  Eine Deckenlampe mit fünf Spots ist ein Licht, nicht fünf: Wer das

@@ -146,6 +146,11 @@ class Entity:
     # entscheidet daran, was nachts mitwacht. Wer es weiss, trägt es hier
     # ein (Geräte → Anpassen).
     contact_kind: str | None = None
+    # Welche Batterie drinsteckt - «CR2032», «AAA» … (Punkt 633). Weder
+    # Hub noch Gerät wissen das; wer es einträgt (Geräte → Anpassen oder
+    # die Batterienliste), bekommt es in der Warnung und auf der
+    # Einkaufsliste wieder. Nur Werte aus watchrules.BATTERIETYPEN.
+    battery_type: str | None = None
     # Kennung der Lampe, in der diese Entität aufgeht – gesetzt, wenn sie
     # Mitglied einer zusammengefassten Leuchte ist. Eine Deckenlampe mit
     # fünf Spots soll ein Licht sein, nicht fünf: Wer das hier stehen hat,
@@ -200,6 +205,7 @@ class Entity:
             "scene_toggles": self.scene_toggles,
             "room_only": self.room_only,
             "contact_kind": self.contact_kind,
+            "battery_type": self.battery_type,
             "combined_into": self.combined_into,
             "last_seen": self.last_seen,
             "last_change": self.last_change,

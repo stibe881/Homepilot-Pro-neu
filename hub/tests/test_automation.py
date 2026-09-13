@@ -2349,3 +2349,325 @@ async def test_ein_gestolperter_schritt_schickt_eine_nachricht(tmp_path):
         assert len(gesendet) == 1
     finally:
         await hub.stop()
+
+
+# ── Zeitraum und Kalender im Tagesband (Fehler aus der Runde 579) ─────────
+
+
+def test_verlauf_kuerzen_laesst_jedem_ablauf_seinen_anteil():
+    """Ein Bewegungslicht im Flur verdrängte die Gute-Nacht-Spur in einer
+    Nacht: Der Ring galt fürs ganze Haus, nicht je Ablauf."""
+    from homepilot.core.automation import verlauf_kuerzen
+
+    runs = [{"automation_id": "flur", "at": 1000 - i} for i in range(90)]
+    runs.append({"automation_id": "gute_nacht", "at": 1})
+    gekuerzt = verlauf_kuerzen(runs, haus=100, je_ablauf=20)
+    assert sum(1 for r in gekuerzt if r["automation_id"] == "flur") == 20
+    # Die jüngsten bleiben, die Reihenfolge auch.
+    assert [r["at"] for r in gekuerzt[:3]] == [1000, 999, 998]
+    assert gekuerzt[-1]["automation_id"] == "gute_nacht"
+    # Der Haus-Ring gilt weiterhin.
+    viele = [{"automation_id": f"a{i}", "at": i} for i in range(150)]
+    assert len(verlauf_kuerzen(viele, haus=100, je_ablauf=20)) == 100
+
+
+def test_kalender_zeitpunkte_rechnet_den_vorlauf_ab():
+    from homepilot.core.automation import kalender_zeitpunkte
+
+    events = [
+        {"summary": "Gäste", "start": "2026-03-01T18:00:00", "end": "2026-03-01T22:00:00"},
+        {"summary": "Zahnarzt", "start": "2026-03-01T09:00:00"},
+        {"summary": "Gäste", "start": "kaputt"},
+    ]
+    assert kalender_zeitpunkte(events, "gäste", "start", 30) == [
+        datetime(2026, 3, 1, 17, 30)
+    ]
+    assert kalender_zeitpunkte(events, "gäste", "end", 0) == [datetime(2026, 3, 1, 22, 0)]
+    assert [z.hour for z in kalender_zeitpunkte(events, "", "start", 0)] == [9, 18]
+
+
+def test_next_run_und_tagesplan_kennen_zeitraum_und_kalender():
+    """Vorher standen Zeitraum- und Kalender-Auslöser ohne «Nächste
+    Ausführung» und ohne Kachel im Tagesband."""
+
+    async def check():
+        from datetime import timedelta
+
+        hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+        await hub.start()
+        try:
+            jetzt = datetime.now()
+            termin = (jetzt + timedelta(hours=1)).replace(second=0, microsecond=0)
+            await hub.registry.add(
+                Entity(
+                    id="demo.kalender",
+                    kind=EntityKind.SENSOR,
+                    name="Kalender",
+                    integration="demo",
+                    state={
+                        "events": [
+                            {"summary": "Gäste", "start": termin.isoformat()},
+                            # Gestern zählt nicht - weder als nächster noch heute.
+                            {
+                                "summary": "Gäste",
+                                "start": (termin - timedelta(days=1)).isoformat(),
+                            },
+                        ]
+                    },
+                )
+            )
+            engine = hub.automations
+            fenster = Automation(
+                id="w",
+                alias="Zeitraum",
+                triggers=[
+                    {
+                        "type": "window",
+                        "after": (jetzt + timedelta(hours=2)).strftime("%H:%M"),
+                        "before": "23:59",
+                    }
+                ],
+            )
+            kalender = Automation(
+                id="k",
+                alias="Gäste kommen",
+                triggers=[
+                    {
+                        "type": "calendar",
+                        "entity_id": "demo.kalender",
+                        "contains": "Gäste",
+                        "minutes_before": 15,
+                    }
+                ],
+            )
+            engine.automations = [fenster, kalender]
+
+            geplant = engine.next_run(fenster)
+            assert geplant is not None
+            assert abs(geplant - (jetzt + timedelta(hours=2)).timestamp()) < 60
+            assert engine.next_run(kalender) == (termin - timedelta(minutes=15)).timestamp()
+
+            plan = engine.tagesplan()
+            arten = {eintrag["alias"]: eintrag["art"] for eintrag in plan}
+            assert arten == {"Zeitraum": "window", "Gäste kommen": "calendar"}
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
+
+
+# ── «seit mindestens … Minuten» (Punkt 595) ──────────────────────────────
+
+
+def test_zustand_alt_genug_verlangt_ein_bekanntes_alter():
+    from homepilot.core.automation import zustand_alt_genug
+
+    jetzt = 10_000.0
+    # Ohne min_age gilt immer - auch ohne last_change.
+    assert zustand_alt_genug({}, None, jetzt)
+    assert zustand_alt_genug({"min_age": "quatsch"}, None, jetzt)
+    # Mit min_age: unbekanntes last_change heisst nicht erfüllt.
+    assert not zustand_alt_genug({"min_age": 30}, None, jetzt)
+    assert not zustand_alt_genug({"min_age": 30}, jetzt - 29 * 60, jetzt)
+    assert zustand_alt_genug({"min_age": 30}, jetzt - 30 * 60, jetzt)
+    assert zustand_alt_genug({"min_age": 30}, jetzt - 3 * 3600, jetzt)
+
+
+def test_describe_condition_nennt_die_zu_kurze_dauer():
+    bedingung = {"type": "state", "entity_id": "Flur", "equals": "off", "min_age": 30}
+    assert (
+        describe_condition(bedingung, "off", alter=4.2)
+        == "Flur ist erst seit 4 Min «off», verlangt sind 30"
+    )
+    assert "seit wann, weiss der Hub nicht" in describe_condition(bedingung, "off", alter=None)
+    # Passt schon der Wert nicht, ist die Dauer nicht die Auskunft.
+    assert describe_condition(bedingung, "on", alter=4.0) == "Flur ist «on», verlangt ist «off»"
+
+
+def test_eine_bedingung_mit_mindestalter_wartet_auf_den_alten_zustand():
+    """«Willkommenslicht nur, wenn seit über 1 h niemand da war» - sonst
+    meldet der Gang zum Briefkasten ein zweites Willkommen."""
+
+    async def check():
+        hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+        await hub.start()
+        try:
+            engine = hub.automations
+            licht = hub.registry.get("demo.light_livingroom")
+            licht.state["state"] = "off"
+            bedingung = {
+                "type": "state",
+                "entity_id": "demo.light_livingroom",
+                "equals": "off",
+                "min_age": 30,
+            }
+            # Seit wann, weiss der Hub nicht: nicht erfüllt.
+            licht.last_change = None
+            assert engine._check_condition(bedingung) is False
+            licht.last_change = time.time() - 5 * 60
+            assert engine._check_condition(bedingung) is False
+            licht.last_change = time.time() - 45 * 60
+            assert engine._check_condition(bedingung) is True
+            # Ohne min_age wie bisher.
+            licht.last_change = None
+            assert engine._check_condition({**bedingung, "min_age": None}) is True
+            # Die Begründung im Trockenlauf nennt die Dauer.
+            licht.last_change = time.time() - 5 * 60
+            ablauf = Automation(id="w", alias="Willkommen", triggers=[], conditions=[bedingung])
+            assert "erst seit 5 Min" in engine.dry_run(ablauf)["skipped"][0]
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
+
+
+# ── Jahreszeit an der Zeitbedingung (Punkt 598) ──────────────────────────
+
+
+def test_datum_im_fenster_geht_ueber_den_jahreswechsel():
+    from homepilot.core.automation import datum_im_fenster, monatstag_text, parse_monatstag
+
+    weihnachten = ("12-01", "01-06")
+    assert datum_im_fenster(date(2026, 12, 1), *weihnachten)
+    assert datum_im_fenster(date(2026, 12, 24), *weihnachten)
+    assert datum_im_fenster(date(2027, 1, 6), *weihnachten)
+    assert not datum_im_fenster(date(2027, 1, 7), *weihnachten)
+    assert not datum_im_fenster(date(2026, 3, 14), *weihnachten)
+    # Innerhalb des Jahres, Ränder inklusive.
+    assert datum_im_fenster(date(2026, 5, 1), "05-01", "09-30")
+    assert datum_im_fenster(date(2026, 9, 30), "05-01", "09-30")
+    assert not datum_im_fenster(date(2026, 10, 1), "05-01", "09-30")
+    # Nur ein Rand.
+    assert datum_im_fenster(date(2026, 11, 3), "10-01", None)
+    assert not datum_im_fenster(date(2026, 9, 3), "10-01", None)
+    assert datum_im_fenster(date(2026, 2, 3), None, "03-31")
+    # Ohne Angabe gilt immer; Unlesbares heisst nicht erfüllt.
+    assert datum_im_fenster(date(2026, 7, 7), None, None)
+    assert not datum_im_fenster(date(2026, 7, 7), "Dezember", "01-06")
+    assert parse_monatstag("13-01") is None
+    assert parse_monatstag("02-29") == (2, 29)
+    assert monatstag_text("12-01") == "1.12."
+
+
+def test_describe_condition_nennt_den_verlangten_zeitraum():
+    heute = date.today()
+    # Ein Fenster, das heute sicher nicht gilt: der Tag nach heute bis
+    # zum Tag davor - also alles ausser heute.
+    morgen = heute.replace(year=2000) + __import__("datetime").timedelta(days=1)
+    gestern = heute.replace(year=2000) - __import__("datetime").timedelta(days=1)
+    satz = describe_condition(
+        {"type": "time", "from": morgen.strftime("%m-%d"), "to": gestern.strftime("%m-%d")},
+        None,
+    )
+    assert satz.startswith(f"Heute ist der {heute.day}.{heute.month}., verlangt ist ")
+    assert f"{morgen.day}.{morgen.month}.–{gestern.day}.{gestern.month}." in satz
+
+
+# ── Ein Ablauf lässt einen anderen ruhen (Punkt 597) ────────────────────
+
+
+def test_ruhe_bis_kennt_minuten_und_uhrzeit():
+    from homepilot.core.automation import parse_automation_do, ruhe_bis, stellung_satz
+
+    jetzt = datetime(2026, 3, 14, 20, 0)
+    assert ruhe_bis({"minutes": 180}, jetzt) == datetime(2026, 3, 14, 23, 0).timestamp()
+    # «bis 06:00» heisst morgen früh, wenn es schon Abend ist.
+    assert ruhe_bis({"until": "06:00"}, jetzt) == datetime(2026, 3, 15, 6, 0).timestamp()
+    assert ruhe_bis({"until": "22:30"}, jetzt) == datetime(2026, 3, 14, 22, 30).timestamp()
+    # Die Uhrzeit sticht die Minuten; ohne beides gibt es kein Ende.
+    assert ruhe_bis({"minutes": 5, "until": "22:30"}, jetzt) == ruhe_bis({"until": "22:30"}, jetzt)
+    assert ruhe_bis({}, jetzt) is None
+    assert ruhe_bis({"minutes": "quatsch"}, jetzt) is None
+    assert parse_automation_do(None) == "run"
+    assert parse_automation_do("SNOOZE") == "snooze"
+    assert parse_automation_do("löschen") == "run"
+    assert stellung_satz("snooze", "Flurlicht", None).endswith("übersprungen")
+
+
+async def test_ein_ablauf_laesst_einen_anderen_ruhen_und_schaltet_ihn():
+    """«Termin ‹Gäste› beginnt → Bewegungslicht Flur ruht bis 06:00» -
+    bis hierher nur als Route und Hand-Knopf."""
+    flurlicht = {
+        "id": "flurlicht",
+        "alias": "Flurlicht",
+        "trigger": [{"type": "state", "entity_id": "demo.motion_hall", "to": "on"}],
+        "action": [
+            {"type": "command", "entity_id": "demo.light_livingroom", "command": "turn_on"}
+        ],
+    }
+    hub = await run_hub([flurlicht])
+    try:
+        engine = hub.automations
+        gaeste = Automation(id="gaeste", alias="Gäste", triggers=[])
+        ziel = engine.get("flurlicht")
+
+        # Ruhen lassen: quiet_until steht am lebenden Objekt, der Lauf
+        # trägt es als Notiz.
+        notiz = await engine._execute_action(
+            gaeste, {"type": "automation", "automation_id": "flurlicht", "do": "snooze", "minutes": 180}
+        )
+        assert notiz.startswith("«Flurlicht» ruht bis ")
+        assert ziel.quiet_until is not None and ziel.quiet_until > time.time() + 170 * 60
+        await hub.registry.update_state("demo.light_livingroom", {"state": "off"})
+        await hub.registry.update_state("demo.motion_hall", {"state": "on"})
+        await settle()
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "off"
+
+        # Ohne Dauer wird nichts gestellt.
+        ziel.quiet_until = None
+        notiz = await engine._execute_action(
+            gaeste, {"type": "automation", "automation_id": "flurlicht", "do": "snooze"}
+        )
+        assert "übersprungen" in notiz and ziel.quiet_until is None
+
+        # Aus und wieder ein.
+        assert (
+            await engine._execute_action(
+                gaeste, {"type": "automation", "automation_id": "flurlicht", "do": "disable"}
+            )
+            == "«Flurlicht» ausgeschaltet"
+        )
+        assert ziel.enabled is False
+        await hub.registry.update_state("demo.motion_hall", {"state": "off"})
+        await hub.registry.update_state("demo.motion_hall", {"state": "on"})
+        await settle()
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "off"
+        assert (
+            await engine._execute_action(
+                gaeste, {"type": "automation", "automation_id": "flurlicht", "do": "enable"}
+            )
+            == "«Flurlicht» eingeschaltet"
+        )
+        assert ziel.enabled is True
+        # «run» bleibt die Vorgabe - der alte Schritt läuft wie bisher.
+        await hub.registry.update_state("demo.light_livingroom", {"state": "off"})
+        notiz = await engine._execute_action(
+            gaeste, {"type": "automation", "automation_id": "flurlicht"}
+        )
+        await settle()
+        assert notiz == "«Flurlicht» ausgeführt"
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
+    finally:
+        await hub.stop()
+
+
+async def test_die_stellung_eines_app_ablaufs_ueberlebt_den_neustart():
+    """Wie die Route schreibt der Schritt in hub.data - nur ohne Reload,
+    der den laufenden Schritt selbst abwürgen würde."""
+    hub = await run_hub([])
+    try:
+        hub.data.set(
+            "automations",
+            [{"id": "app_1", "alias": "Simulation", "trigger": [], "action": []}],
+        )
+        await hub.reload_automations()
+        engine = hub.automations
+        rufer = Automation(id="alarm", alias="Alarm", triggers=[])
+        await engine._execute_action(
+            rufer, {"type": "automation", "automation_id": "app_1", "do": "disable"}
+        )
+        assert hub.data.get("automations")[0]["enabled"] is False
+        await hub.reload_automations()
+        assert hub.automations.get("app_1").enabled is False
+    finally:
+        await hub.stop()

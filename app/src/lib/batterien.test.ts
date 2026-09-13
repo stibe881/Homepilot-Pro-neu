@@ -6,7 +6,15 @@
  * quittieren – die App muss dafür wissen, was quittiert ist und bis wann.
  */
 import type { Entity } from '../api/types';
-import { batteryRows, quittungSatz, stummBis } from './batterien';
+import {
+  batterieBedarf,
+  batteryRows,
+  bedarfSatz,
+  einkaufText,
+  hatBatterie,
+  quittungSatz,
+  stummBis,
+} from './batterien';
 
 const geraet = (teile: Partial<Entity>): Entity =>
   ({
@@ -157,5 +165,30 @@ describe('Die Quittung ist sichtbar, nicht nur wirksam', () => {
   it('kommt ohne Namen aus', () => {
     const vermerke = [{ entity_id: 'a', ack: { by: null, until: spaeter } }];
     expect(quittungSatz(vermerke, 'a', jetzt)).toBe('Stillgestellt');
+  });
+});
+
+describe('Batterietyp (Punkt 633)', () => {
+  it('zählt je Typ, was schwach ist oder bald leer wird - Geräte ohne Typ nicht', () => {
+    const rows = batteryRows([
+      geraet({ id: 'a', name: 'Küche', state: { battery: 12 }, battery_type: 'CR2032' }),
+      geraet({ id: 'b', name: 'Bad', state: { battery: 80 }, battery_type: 'CR2032' }),
+      geraet({ id: 'c', name: 'Flur', state: { battery: 70 }, battery_type: 'AAA' }),
+      geraet({ id: 'd', name: 'Keller', state: { low_battery: true } }),
+    ]);
+    // b wird laut Prognose in 40 Tagen leer, c erst in 200.
+    const bedarf = batterieBedarf(rows, { b: 40, c: 200 });
+    expect(bedarf).toEqual([{ typ: 'CR2032', anzahl: 2 }]);
+    expect(bedarfSatz(bedarf)).toBe('Für die nächsten 3 Monate: 2× CR2032');
+    expect(bedarfSatz([])).toBeNull();
+  });
+
+  it('kennt Batteriegeräte und den Posten für die Einkaufsliste', () => {
+    expect(hatBatterie(geraet({ state: { battery: 50 } }))).toBe(true);
+    expect(hatBatterie(geraet({ state: { low_battery: true } }))).toBe(true);
+    expect(hatBatterie(geraet({ state: {} }))).toBe(false);
+    expect(hatBatterie(geraet({ state: { battery: 14, place: 'home' } }))).toBe(false);
+    expect(einkaufText('CR2032', 'Türkontakt Küche')).toBe('CR2032 (Türkontakt Küche)');
+    expect(einkaufText('AAA', '')).toBe('AAA');
   });
 });

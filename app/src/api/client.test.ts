@@ -53,6 +53,34 @@ describe('hubClient', () => {
     await expect(hubClient('http://hub', 't').get('/x')).rejects.toBeInstanceOf(HubFehler);
   });
 
+  it('reicht bei 403 ausserhalb des Zeitfensters weiter, ab wann es wieder gilt', async () => {
+    // Punkt 624 der Werkbank: «fehlt die Berechtigung» wäre hier falsch -
+    // die Berechtigung fehlt nicht, es ist Feierabend.
+    antworte(
+      403,
+      JSON.stringify({
+        detail: {
+          message: 'Dein Zugang gilt ab 07:00 wieder.',
+          grund: 'fenster_zu',
+          gilt_ab: '2026-09-14T07:00',
+        },
+      })
+    );
+    const fehler = await hubClient('http://hub', 't')
+      .get('/api/me')
+      .catch((err: HubFehler) => err);
+    expect(fehler).toBeInstanceOf(HubFehler);
+    expect((fehler as HubFehler).giltAb).toBe('2026-09-14T07:00');
+    expect((fehler as HubFehler).message).toBe('Dein Zugang gilt ab 07:00 wieder.');
+    // Ein gewöhnliches 403 bleibt beim eigenen Satz, ohne Zeit.
+    antworte(403, '{"detail":"Rolle darf das nicht"}');
+    const schlicht = await hubClient('http://hub', 't')
+      .get('/x')
+      .catch((err: HubFehler) => err);
+    expect((schlicht as HubFehler).giltAb).toBeNull();
+    expect((schlicht as HubFehler).message).toContain('Berechtigung');
+  });
+
   it('liefert den Ersatzwert, wenn man ihn ausdrücklich nennt', async () => {
     antworte(500);
     await expect(hubClient('http://hub', 't').get('/x', { fallback: [] })).resolves.toEqual([]);

@@ -52,6 +52,32 @@ def test_nach_dem_versand_ist_nur_push_erledigt():
     assert "pushed" not in je_id["d"]
 
 
+def test_quittieren_traegt_den_namen_einmal_ein():
+    """Punkt 606: «Erledigt» von der Sperrbildschirm-Karte - idempotent,
+    ein zweiter Tipp verdoppelt den Namen nicht."""
+    from homepilot.core.erinnerungen import quittieren
+
+    rows = [{"id": "a", "quittiert": ["Bine"]}, {"id": "b"}]
+    neue, gefunden = quittieren(rows, "a", "Stefan")
+    assert gefunden and neue[0]["quittiert"] == ["Bine", "Stefan"]
+    neue, _ = quittieren(neue, "a", "Stefan")
+    assert neue[0]["quittiert"] == ["Bine", "Stefan"]
+    assert neue[1] == {"id": "b"}
+    _, gefunden = quittieren(rows, "gibt-es-nicht", "Stefan")
+    assert gefunden is False
+
+
+def test_spaeter_stellt_die_erinnerung_frisch_nach_hinten():
+    from homepilot.core.erinnerungen import verschieben
+
+    rows = [{"id": "a", "at": 1000, "quittiert": ["Bine"], "pushed": True}]
+    neue, gefunden = verschieben(rows, "a", 5000, 30)
+    assert gefunden
+    assert neue[0]["at"] == 5000 + 30 * 60_000
+    # Frisch: niemand hat sie gesehen, der Push geht wieder raus.
+    assert neue[0]["quittiert"] == [] and neue[0]["pushed"] is False
+
+
 def test_benutzer_umbenennen_zieht_empfaenger_und_quittierungen_mit():
     """Ein Push an den alten Namen erreicht niemanden, und eine schon
     weggedrückte Erinnerung erschiene wieder - beides zieht mit um."""
@@ -180,5 +206,85 @@ async def test_zwei_gleichzeitig_faellige_geben_zwei_getrennte_pushes():
             "Zahnarzt anrufen",
             "Pflanzen giessen",
         ]
+    finally:
+        await hub.stop()
+
+
+async def test_der_erinnerungs_push_traegt_kategorie_und_ziel():
+    """Punkt 603: Ohne Kategorie lief die Erinnerung an allem vorbei, was
+    Push kann - kein «Später», kein Ziel, keine Zeile in den
+    Einstellungen. Jetzt geht sie als «reminder» mit dem Sprung zur
+    Liste und ihrer eigenen Kennung."""
+    from homepilot.core import erinnerungen as modul
+    from homepilot.core.hub import Hub
+
+    from .conftest import make_config
+
+    hub = Hub(
+        make_config(
+            users=[{"name": "Stefan", "role": "besitzer", "token": "t"}],
+            integrations=[{"integration": "demo"}],
+        )
+    )
+    await hub.start()
+    try:
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+        hub.data.set(
+            "family_reminders",
+            [{"id": "a", "text": "Zahnarzt anrufen", "at": time.time() * 1000 - 1000, "push": True}],
+        )
+        gesendet: list[dict] = []
+
+        async def fake_send(tokens, title, body, data=None, category=None, **_):
+            gesendet.append({"tokens": tokens, "data": data, "category": category})
+
+            class R:
+                accepted = len(tokens)
+
+            return R()
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        await modul._runde(hub)
+        assert gesendet[0]["category"] == "reminder"
+        assert gesendet[0]["data"] == {"ziel": "familie:reminders", "reminder_id": "a"}
+        assert gesendet[0]["tokens"] == ["ExponentPushToken[x]"]
+    finally:
+        await hub.stop()
+
+
+async def test_wer_erinnerungen_abbestellt_hat_bekommt_keine():
+    """Die Zeile in den Push-Einstellungen, die es vorher nicht gab."""
+    from homepilot.core import erinnerungen as modul
+    from homepilot.core.hub import Hub
+
+    from .conftest import make_config
+
+    hub = Hub(
+        make_config(
+            users=[{"name": "Stefan", "role": "besitzer", "token": "t"}],
+            integrations=[{"integration": "demo"}],
+        )
+    )
+    await hub.start()
+    try:
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+        hub.push.muted = {"Stefan": {"reminder"}}
+        hub.data.set(
+            "family_reminders",
+            [{"id": "a", "text": "Zahnarzt anrufen", "at": time.time() * 1000 - 1000, "push": True}],
+        )
+        gesendet: list[list[str]] = []
+
+        async def fake_send(tokens, title, body, **_):
+            gesendet.append(tokens)
+
+            class R:
+                accepted = 0
+
+            return R()
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        await modul._runde(hub)
+        assert gesendet == [[]]
     finally:
         await hub.stop()

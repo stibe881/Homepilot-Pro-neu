@@ -52,6 +52,7 @@ from . import (
     pushverlauf,
     raumbilder,
     stromrueckkehr,
+    watchrules,
 )
 from . import push as push_service
 from . import users as users_module
@@ -133,6 +134,10 @@ class Hub:
         # In der App angelegte Benutzer und Automationen liegen neben der
         # Konfiguration, damit sie ohne Datenbank einen Neustart überleben.
         self.data = DataStore(config.data_file)
+        # Wo config.yaml und secrets.env liegen - die Sicherung nimmt sie
+        # mit (Punkt 593), auch wenn die Datendatei woanders wohnt.
+        if config.source_path:
+            self.data.config_dir = Path(config.source_path).parent
         # Was der Hub tut, mitzählen - siehe core/metrics.py.
         self.counters = metrics.Counters()
         # Sitzungen aus der Anmeldung mit E-Mail und Passwort. Sie liegen
@@ -178,8 +183,11 @@ class Hub:
         # steht im Vermerk des vorigen Laufs und muss hier fallen, bevor
         # ihn dieser Lauf überschreibt (core/stromrueckkehr.py).
         eintraege = self.data.get("lauf")
+        # Dazu die Betriebszeit des Rechners (Punkt 590): Ein Hub, der
+        # abstürzt oder hart neu gestartet wird, hinterlässt denselben
+        # Vermerk wie ein Stromausfall - der Host weiss den Unterschied.
         self._kaltstart = stromrueckkehr.kaltstart(
-            eintraege[0] if eintraege else None
+            eintraege[0] if eintraege else None, stromrueckkehr.betriebszeit()
         )
         self.data.set("lauf", [{"state": "laeuft", "at": time.time()}])
         if self._kaltstart:
@@ -316,6 +324,7 @@ class Hub:
         # Update das Rezept, um den Deckel zu umgehen - und ausgerechnet
         # nach einem Update wird viel gemeldet.
         self.push.bremse = self._push_deckel
+        self.push.zaehlen = self._push_deckel_zaehlen
         for problem in self._config_problems():
             log.warning("Konfiguration: %s", problem)
         log.info(
@@ -380,7 +389,9 @@ class Hub:
 
         try:
             payload = self.data.backup_bytes(name)
-            await offsite.upload(str(url), str(key), bucket, name, payload)
+            await offsite.upload(
+                str(url), str(key), bucket, name, payload, offsite.content_type(name)
+            )
             await offsite.prune(str(url), str(key), bucket)
             # Die Matter-Fabrik dazu: Ohne sie müsste nach einem
             # Plattenschaden jedes Matter-Gerät neu gekoppelt werden.
@@ -577,6 +588,7 @@ class Hub:
         scene_toggles: Any = UNSET,
         room_only: Any = UNSET,
         contact_kind: Any = UNSET,
+        battery_type: Any = UNSET,
     ) -> None:
         """Setzt Anzeigename, Favorit-Flag oder Gruppe einer Entität.
 
@@ -604,6 +616,10 @@ class Hub:
             current["contact_kind"] = (
                 contact_kind if contact_kind in ("window", "door") else None
             )
+        if battery_type is not UNSET:
+            # Punkt 633: nur ein bekannter Typ, sonst «unbekannt» - ein
+            # Tippfehler soll nicht auf der Einkaufsliste landen.
+            current["battery_type"] = watchrules.batterietyp_pruefen(battery_type)
         # Leere Felder entfernen, damit der Eintrag nicht anwächst.
         #
         # `scene_toggles` geht andersherum: Der Normalfall ist «ja»,
@@ -725,18 +741,28 @@ class Hub:
     def _push_deckel(self, category: str) -> str | None:
         """Ist der Tagesdeckel dieser Kategorie erreicht? (siehe pushruhe.py)
 
-        Zählt gleich mit, wenn nicht: Der Push-Dienst ruft das genau
-        einmal je Meldung, und ein getrenntes Hochzählen wäre eine
-        zweite Stelle, die jemand vergessen kann.
+        Liest nur. Früher zählte es gleich mit - «der Push-Dienst ruft
+        das genau einmal je Meldung» -, aber er rief es, *bevor*
+        feststand, ob überhaupt ein Telefon übrig war: Drei nächtliche
+        Meldungen, die die Ruhezeit aller aufhielt, verbrauchten drei von
+        sechs Plätzen, und dreimal die Vorschau probiert war der Tag
+        (Fehler aus der Runde 579 der Werkbank). Gezählt wird deshalb in
+        ``_push_deckel_zaehlen``, und das ruft der Push-Dienst erst, wenn
+        eine Nachricht wirklich hinausgeht.
         """
         tag = datetime.now().strftime("%Y-%m-%d")
         stand = self.data.get(pushruhe.DECKEL_KEY)
         if pushruhe.ueber_deckel(stand, category, tag):
             return pushruhe.GRUND_DECKEL
+        return None
+
+    def _push_deckel_zaehlen(self, category: str) -> None:
+        """Eine hinausgegangene Meldung auf den Tagesdeckel zählen."""
+        tag = datetime.now().strftime("%Y-%m-%d")
+        stand = self.data.get(pushruhe.DECKEL_KEY)
         neu = pushruhe.hochzaehlen(stand, category, tag)
         if neu != stand:
             self.data.set(pushruhe.DECKEL_KEY, neu)
-        return None
 
     def _config_problems(self) -> list[str]:
         """Was in der config.yaml auffällt – einmal beim Start ins Log.

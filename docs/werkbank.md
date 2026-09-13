@@ -10,7 +10,7 @@ sucht.
 **Die Nummern bleiben, wo sie sind.** Nie umnummerieren, auch nicht bei
 Erledigtem oder Gestrichenem: Ein späterer «Punkt 273» zeigte sonst auf
 etwas anderes als gemeint. Neues bekommt die nächste freie Nummer -
-zurzeit **544**. Ist ein Punkt gebaut, wandert er samt Begründung ins
+zurzeit **634**. Ist ein Punkt gebaut, wandert er samt Begründung ins
 Archiv; er wird nicht hier abgehakt. Dass jede Nummer genau einmal
 vorkommt, prüft `scripts/werkbank.py` (und mit ihr der Prüflauf).
 
@@ -27,6 +27,9 @@ vorkommt, prüft `scripts/werkbank.py` (und mit ihr der Prüflauf).
 | Alarmanlage | 1 | 483 |
 | Selbst gewählt | 8 | 492, 493, 494, 496, 499, 500, 501, 502 |
 | Aus früheren Runden | 4 | 223, 237, 268, 353 |
+| Nützlich im Alltag | 1 | 588 |
+| App und Hub | 1 | 589 |
+| Funktionalität | 1 | 618 |
 
 ## Aus früheren Runden
 
@@ -387,3 +390,72 @@ Sortierung. Was nie gebraucht wird, folgt daraus ebenso, und das ist die
 interessantere Hälfte: Ein Bildschirm, den in sechs Monaten niemand
 geöffnet hat, gehört weg oder an einen anderen Ort. Stellen:
 `app/src/hooks/useKachelnutzung.ts`, `app/src/hooks/useRaumnutzung.ts`
+
+## Fünfundfünfzig Vorschläge (579–633)
+
+Auf Zuruf erstellt, September 2026: fünf je Bereich für User Experience,
+Alltag, App und Hub, Abläufe, Push, Live-Aktivitäten, Gestaltung,
+Funktionalität, Familie, Profil und Geräte, aus dem Code gelesen und
+gegen alle 578 früheren Punkte geprüft. Zweiundfünfzig davon sind in
+derselben Sitzung gebaut worden und stehen im Archiv (Teil XIII), samt
+den zehn nebenbei gefundenen Fehlern. Was hier steht, ist der Rest.
+
+### Nützlich im Alltag (584-588)
+
+**588. Die Waschmaschine ist fertig, und der Hub weiss, dass es bis 19
+Uhr trocken bleibt - er sagt es nicht.** Beim Übergang laufend → fertig
+bekommt nur das Kochgerät eine Durchsage (`watchdog.py:2059`); ein
+Wäschegerät hört man erst nach den `hours` als «ist noch voll»
+(`waschkueche.mahnsatz`, `waschkueche.py:222`), und der Satz sagt nichts
+zum Wetter, obwohl `hours[]` mit Regen und Temperatur je Stunde daliegt.
+Die Regen-Vorwarnung kann nur die Umkehrung («hereinholen»), nicht «jetzt
+lohnt sich die Leine statt der Tumbler». Vorschlag: reine Funktion
+`waeschetag(hours, jetzt)` - bis Sonnenuntergang kein Regen, Höchstwert
+≥ 15 °C → «Draussen trocknet's: bis 19 Uhr kein Regen, 23 °C» als Zusatz
+zur ersten Wäsche-Meldung; bei Regen in der nächsten Stunde «Regen kommt
+- lieber Tumbler». Nur tagsüber, nie beim Tumbler selbst. Nähe: 229
+(Tarif) ist gestrichen und ein anderes Thema. Stellen:
+`hub/homepilot/core/waschkueche.py`, `hub/homepilot/core/regen.py`,
+`hub/homepilot/core/watchdog.py`. Aufwand: klein · Hub.
+
+### App und Hub (589-593)
+
+**589. Eine unlesbare Datendatei wird beim ersten Schreiben durch eine
+leere ersetzt - und dann gesichert.** `DataStore.load()` gibt bei
+kaputtem JSON nur eine Warnung aus und liefert `EMPTY`
+(`persistence.py:214`). Direkt danach schreibt der Start `data.set("lauf",
+…)` (`hub.py:184`), und `_write()` ersetzt die kaputte Datei per
+`os.replace` - Benutzer, Abläufe, Gutscheine, Familienlisten sind weg,
+obwohl 14 Tagessicherungen daneben liegen; die nächste Tagessicherung
+kopiert den leeren Stand, nach 14 Tagen ist die letzte gute Sicherung
+ausgerottet. Dazu setzt `_write()` `_dirty = False` *vor* dem Schreiben
+(`:261`): Schlägt es fehl (volle Platte), ist die Änderung bis zum
+nächsten `set()` still weg. Vorschlag: die unlesbare Datei nach
+`homepilot-data.json.kaputt-<Stempel>` verschieben, die jüngste lesbare
+Sicherung laden, im Status und als Push melden, im Notlauf keine neue
+Sicherung schreiben und nichts nach Supabase laden; das Dirty-Flag erst
+nach Erfolg zurücksetzen, den letzten Schreibfehler im Status ausweisen.
+Nähe: 6, 275, 492, 493 betreffen das Anlegen und Prüfen von Sicherungen,
+nicht den Moment des Überschreibens. Stellen:
+`hub/homepilot/core/persistence.py`, `hub/homepilot/core/hub.py`,
+`hub/tests/test_persistence.py`. Aufwand: mittel · Hub.
+
+### Funktionalität (614-618)
+
+**618. Die Klingel-Push kommt ohne Bild, obwohl der Hub die Kamera dazu
+schon anwirft.** `_melde_klingeln` (`watchdog.py:354`) schickt «Jemand
+steht vor der Türe.» ohne `image`; `_notify` hat den Parameter gar nicht
+(`:2797`). Drei Zeilen weiter startet `_waerme_livebild` über
+`kamera.camera_for()` den Strom genau dieser Kamera. Die Alarmanlage
+(`alarm.py:948`, `_snapshot_url`) und der Ablauf-Schritt hängen längst
+ein Bild an. Wer unterwegs die Push liest, sieht erst nach dem Tipp und
+4–8 s Vorlauf, wer da steht. Vorschlag: `_snapshot_url` aus `alarm.py`
+nach `core/kamera.py` verschieben, `_notify` bekommt `image`,
+`_melde_klingeln` hängt den Schnappschuss der Klingel-Kamera an - mit
+derselben Frist wie beim Alarm (4 s; kommt nichts, geht die Push ohne
+Bild, aber nicht später); dasselbe Bild in den Posteingang, damit «wer
+hat um 14:02 geklingelt» am Abend beantwortbar ist. Nähe: 215, 506, 518,
+519 - das Bild in der Klingel-Push selbst fehlt überall. Stellen:
+`hub/homepilot/core/watchdog.py`, `hub/homepilot/core/kamera.py`,
+`hub/homepilot/integrations/alarm.py`, `hub/homepilot/core/pushverlauf.py`.
+Aufwand: klein · Hub.

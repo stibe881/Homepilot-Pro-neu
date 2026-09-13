@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { geraeteartMuster } from '../lib/geraeteart';
 import { SYMBOL, type Begriff } from '../lib/symbole';
 import { Card } from './Card';
 import { Kennzahl } from './Kennzahl';
@@ -42,7 +43,26 @@ const FLAECHEN = [
 ] as const;
 
 /** Und die, die Text oder Zeichen sein können. */
-const SCHRIFTEN = ['ink', 'inkSoft', 'inkFaint', 'accent', 'on', 'warn', 'danger'] as const;
+const SCHRIFTEN = [
+  'ink',
+  'inkSoft',
+  'inkFaint',
+  'accent',
+  'on',
+  'onInk',
+  'warn',
+  'warnInk',
+  'danger',
+] as const;
+
+/** Die Schrift auf einer gefüllten Fläche - je Fläche ihre Gegenfarbe
+ *  (Punkt 609 der Werkbank). */
+const GEFUELLT = [
+  ['accent', 'onAccent'],
+  ['danger', 'onAccent'],
+  ['on', 'onSignal'],
+  ['warn', 'onSignal'],
+] as const;
 
 export function Musterblatt() {
   const colors = useColors();
@@ -79,6 +99,21 @@ export function Musterblatt() {
                 <Text style={{ color: colors[name], fontWeight: '700' }}>Aa</Text>
               </View>
               <Text style={styles.probeName}>{name}</Text>
+            </View>
+          ))}
+        </View>
+
+        <Text style={styles.gruppe}>Schrift auf Flächen</Text>
+        <View style={styles.reihe}>
+          {GEFUELLT.map(([flaeche, schrift]) => (
+            <View key={flaeche} style={styles.probe}>
+              {/* Weiss war hier fest verdrahtet - und auf dem hellen
+                  Akzent der dunklen Bilder wie auf Grün nicht lesbar.
+                  Jetzt trägt jede Fläche ihre Gegenfarbe. */}
+              <View style={[styles.klecks, styles.textprobe, { backgroundColor: colors[flaeche] }]}>
+                <Text style={{ color: colors[schrift], fontWeight: '700' }}>Aa</Text>
+              </View>
+              <Text style={styles.probeName}>{schrift}</Text>
             </View>
           ))}
         </View>
@@ -146,6 +181,25 @@ export function Musterblatt() {
                 <Ionicons name={SYMBOL[begriff]} size={20} color={colors.ink} />
               </View>
               <Text style={styles.probeName}>{begriff}</Text>
+            </View>
+          ))}
+        </View>
+
+        <Text style={styles.gruppe}>Gerätearten</Text>
+        <Text style={styles.hint}>
+          Je Art ein Sinnbild, aus lib/geraeteart.ts – dasselbe auf der
+          Kachel, im Grundriss und im Ablauf-Editor (Punkt 611). Ein
+          Messwert zeigt, was er misst, nicht dass er einer ist.
+        </Text>
+        <View style={styles.reihe}>
+          {geraeteartMuster().map(({ label, icon: zeichen }, index) => (
+            <View key={`${label}-${index}`} style={styles.probe}>
+              <View style={[styles.klecks, styles.textprobe]}>
+                <Ionicons name={zeichen} size={20} color={colors.ink} />
+              </View>
+              <Text style={styles.probeName} numberOfLines={2}>
+                {label}
+              </Text>
             </View>
           ))}
         </View>

@@ -1141,3 +1141,256 @@ async def test_open_reminder_survives_a_hub_restart():
     finally:
         await hub.stop()
 
+
+
+async def test_das_offene_fenster_geht_mit_dem_schalter_nur_an_anwesende():
+    """Punkt 599: «Nur an Anwesende» an der Regel wird zum Ziel «anwesend»
+    - wer unterwegs ist, kann das Fenster ohnehin nicht schliessen."""
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        ziele: list[str] = []
+        echte_empfaenger = hub.push.recipients
+
+        def recipients(users, to="all", category=None):
+            ziele.append((to, category))
+            return echte_empfaenger(users, to, category)
+
+        async def fake_send(tokens, title, body, data=None, image=None, **_):
+            return len(tokens)
+
+        hub.push.recipients = recipients  # type: ignore[assignment]
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+        hub.data.set(
+            "notify_rules",
+            [
+                {"key": "morning", "enabled": False, "params": {}},
+                {"key": "open", "enabled": True, "params": {"hours": 2, "anwesende": 1}},
+            ],
+        )
+        fenster = melder("hm.fenster", "contact")
+        hub.registry.all = lambda: [fenster]  # type: ignore[assignment]
+        await hub.watchdog.check()
+        hub.watchdog._open_since["hm.fenster"] -= 2 * 3600
+        await hub.watchdog.check()
+        assert ("anwesend", "open") in ziele
+    finally:
+        await hub.stop()
+
+
+# ── Die Fenster-Erinnerung kennt Sommer und leeres Haus (Punkt 601) ───────
+
+
+def test_offen_lohnt_schweigt_wenn_es_warm_ist_und_jemand_da():
+    from homepilot.core.watchrules import offen_lohnt
+
+    assert offen_lohnt(22.0, True) is False
+    # Niemand zuhause: immer melden, auch im Hochsommer.
+    assert offen_lohnt(30.0, False) is True
+    # Kalt: melden, egal wer da ist.
+    assert offen_lohnt(4.0, True) is True
+    # Ohne Wetter gilt kalt, ohne Ortung gilt «jemand da».
+    assert offen_lohnt(None, None) is True
+    assert offen_lohnt(25.0, None) is False
+    # Die Schwelle ist verstellbar.
+    assert offen_lohnt(16.0, True, warm_ab=15) is False
+
+
+def test_offen_text_nennt_die_zahl_aus_dem_wetter_und_das_leere_haus():
+    import time as zeit
+
+    from homepilot.core.watchrules import offen_text
+
+    jetzt = zeit.mktime((2026, 8, 27, 15, 5, 0, 0, 0, -1))
+    seit = jetzt - 7200
+    mit_wetter = offen_text(seit, jetzt, "Fenster Bad", 4.0, True)
+    assert "draussen sind es 4 °C" in mit_wetter
+    assert "Heizung zum Fenster" in mit_wetter
+    ohne_wetter = offen_text(seit, jetzt, "Fenster Bad", None, True)
+    assert "im Winter" in ohne_wetter
+    leer = offen_text(seit, jetzt, "Fenster Bad", 12.5, False)
+    assert leer.startswith("Niemand zuhause und Fenster Bad offen.")
+    assert "12.5 °C" in leer
+    assert "ß" not in leer + mit_wetter + ohne_wetter
+
+
+def _wetter(temperatur: float):
+    return type(
+        "W",
+        (),
+        {
+            "id": "wetter.zell",
+            "name": "Wetter",
+            "label": "Wetter",
+            "kind": "weather",
+            "integration": "wetter",
+            "available": True,
+            "state": {"temperature": temperatur, "days": []},
+        },
+    )()
+
+
+def _jemand_zuhause(da: bool):
+    return type(
+        "P",
+        (),
+        {
+            "id": "geofence.anyone_home",
+            "name": "Jemand zuhause",
+            "label": "Jemand zuhause",
+            "kind": "binary_sensor",
+            "integration": "geofence",
+            "available": True,
+            "state": {"state": "on" if da else "off", "device_class": "presence"},
+        },
+    )()
+
+
+async def test_im_sommer_mit_familie_zuhause_bleibt_das_offene_fenster_still():
+    """Mit Deckel 6/Tag war das im Sommer die häufigste Lärmquelle."""
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        sent: list[tuple[str, str]] = []
+
+        async def fake_send(tokens, title, body, data=None, image=None, **_):
+            sent.append((title, body))
+            return len(tokens)
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+        hub.data.set("notify_rules", [{"key": "morning", "enabled": False, "params": {}}])
+
+        fenster = melder("hm.fenster", "contact")
+        wetter = _wetter(24.0)
+        daheim = _jemand_zuhause(True)
+        hub.registry.all = lambda: [fenster, wetter, daheim]  # type: ignore[assignment]
+
+        await hub.watchdog.check()
+        hub.watchdog._open_since["hm.fenster"] -= 3 * 3600
+        await hub.watchdog.check()
+        assert not any("steht offen" in title for title, _ in sent)
+        # Die Öffnung ist nicht als gemahnt vermerkt: Gehen alle, kommt
+        # die Erinnerung in der nächsten Runde nach - mit dem anderen Satz.
+        daheim.state = {"state": "off", "device_class": "presence"}
+        await hub.watchdog.check()
+        offen = [(t, b) for t, b in sent if "steht offen" in t]
+        assert len(offen) == 1
+        assert offen[0][1].startswith("Niemand zuhause und hm.fenster offen.")
+        assert "24 °C" in offen[0][1]
+    finally:
+        await hub.stop()
+
+
+async def test_im_winter_traegt_die_erinnerung_die_aussentemperatur():
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        sent: list[tuple[str, str]] = []
+
+        async def fake_send(tokens, title, body, data=None, image=None, **_):
+            sent.append((title, body))
+            return len(tokens)
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+        hub.data.set("notify_rules", [{"key": "morning", "enabled": False, "params": {}}])
+
+        fenster = melder("hm.fenster", "contact")
+        hub.registry.all = lambda: [fenster, _wetter(4.0), _jemand_zuhause(True)]  # type: ignore[assignment]
+
+        await hub.watchdog.check()
+        hub.watchdog._open_since["hm.fenster"] -= 3 * 3600
+        await hub.watchdog.check()
+        offen = [b for t, b in sent if "steht offen" in t]
+        assert len(offen) == 1
+        assert "draussen sind es 4 °C" in offen[0]
+    finally:
+        await hub.stop()
+
+
+# ── Wieder trocken (Punkt 602) ─────────────────────────────────────────────
+
+
+def test_trocken_satz_nennt_die_dauer():
+    from homepilot.core.watchrules import trocken_satz
+
+    jetzt = 1_000_000.0
+    assert trocken_satz(jetzt - 23 * 60, jetzt) == "War 23 Minuten nass - der Melder meldet kein Wasser mehr."
+    assert trocken_satz(jetzt - 20, jetzt).startswith("War eine Minute nass")
+    assert trocken_satz(jetzt - 95 * 60, jetzt).startswith("War 1 Std. 35 Min. nass")
+
+
+async def test_wer_wasser_gemeldet_bekam_erfaehrt_auch_dass_es_wieder_trocken_ist():
+    """Wer die Meldung unterwegs bekam, ruft sonst an oder fährt heim,
+    obwohl längst aufgewischt ist. Und Flattern nass/trocken/nass ist
+    je ein neuer Fall - keine Meldung geht doppelt, keine verloren."""
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        sent: list[tuple[str, str, str | None]] = []
+
+        async def fake_send(tokens, title, body, data=None, image=None, category=None, **_):
+            sent.append((title, body, category))
+            return len(tokens)
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+        hub.data.set("notify_rules", [{"key": "morning", "enabled": False, "params": {}}])
+
+        keller = melder("hm.keller", "moisture")
+        hub.registry.all = lambda: [keller]  # type: ignore[assignment]
+
+        await hub.watchdog.check()
+        assert [t for t, _, _ in sent] == ["Wasser: hm.keller"]
+
+        # 23 Minuten nass, dann trocken.
+        hub.watchdog._leak_since["hm.keller"] -= 23 * 60
+        hub.watchdog._leak_escalated.add("hm.keller")
+        keller.state = {"state": "off", "device_class": "moisture"}
+        await hub.watchdog.check()
+        assert sent[-1][0] == "Wieder trocken: hm.keller"
+        assert "23 Minuten" in sent[-1][1]
+        # Unter derselben Kategorie - wer Wasser abbestellt hat, will
+        # auch die Entwarnung nicht.
+        assert sent[-1][2] == "leak"
+
+        # Trocken bleibt trocken: keine zweite Entwarnung.
+        await hub.watchdog.check()
+        assert len(sent) == 2
+
+        # Wieder nass: ein neuer Fall, wieder eine Meldung.
+        keller.state = {"state": "on", "device_class": "moisture"}
+        await hub.watchdog.check()
+        assert [t for t, _, _ in sent] == [
+            "Wasser: hm.keller",
+            "Wieder trocken: hm.keller",
+            "Wasser: hm.keller",
+        ]
+    finally:
+        await hub.stop()
+
+
+async def test_ohne_erste_meldung_keine_entwarnung():
+    """Ein Melder, der beim Start schon trocken ist, hat nie gemeldet -
+    also gibt es auch nichts zu entwarnen."""
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        sent: list[str] = []
+
+        async def fake_send(tokens, title, body, data=None, image=None, **_):
+            sent.append(title)
+            return len(tokens)
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+        hub.data.set("notify_rules", [{"key": "morning", "enabled": False, "params": {}}])
+        keller = melder("hm.keller", "moisture", state="off")
+        hub.registry.all = lambda: [keller]  # type: ignore[assignment]
+        await hub.watchdog.check()
+        await hub.watchdog.check()
+        assert not any("trocken" in t for t in sent)
+    finally:
+        await hub.stop()

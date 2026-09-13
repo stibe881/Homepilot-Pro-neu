@@ -313,3 +313,42 @@ def test_children_can_be_listed_without_giving_them_an_account():
         # Und sie lässt sich wieder entfernen, wenn sie auszieht.
         client.delete(f"/api/family/members/{kind.json()['id']}", headers=auth("t-owner"))
         assert client.get("/api/family/members", headers=auth("t-owner")).json() == []
+
+
+def test_reminder_card_buttons_quittieren_and_spaeter():
+    """Punkt 606: Die Knöpfe der Sperrbildschirm-Karte - der Name kommt
+    aus dem Token, «Später» nimmt die Minuten der Person."""
+    with make_client() as client:
+        angelegt = client.post(
+            "/api/family/reminders",
+            json={"text": "Ofen aus", "at": 1000},
+            headers=auth("t-owner"),
+        )
+        reminder_id = angelegt.json()["id"]
+
+        antwort = client.post(
+            f"/api/family/reminders/{reminder_id}/quittieren", headers=auth("t-resident")
+        )
+        assert antwort.status_code == 200
+        client.post(f"/api/family/reminders/{reminder_id}/quittieren", headers=auth("t-resident"))
+        eintrag = client.get("/api/family/reminders", headers=auth("t-owner")).json()[0]
+        assert eintrag["quittiert"] == ["Partnerin"]
+
+        antwort = client.post(
+            f"/api/family/reminders/{reminder_id}/spaeter", headers=auth("t-owner")
+        )
+        assert antwort.status_code == 200 and antwort.json()["minutes"] == 30
+        eintrag = client.get("/api/family/reminders", headers=auth("t-owner")).json()[0]
+        assert eintrag["at"] > 1000 and eintrag["quittiert"] == []
+
+        assert (
+            client.post("/api/family/reminders/nix/quittieren", headers=auth("t-owner")).status_code
+            == 404
+        )
+        # Gäste ohne Familienrecht bleiben draussen wie bei jeder Liste.
+        assert (
+            client.post(
+                f"/api/family/reminders/{reminder_id}/spaeter", headers=auth("t-guest")
+            ).status_code
+            == 403
+        )

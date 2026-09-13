@@ -16,6 +16,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, StyleProp, ViewStyle } from 'react-native';
 
+import { useBewegungReduziert } from '../hooks/useBewegungReduziert';
 import { bewegtSich, dauerMs } from '../lib/uebergang';
 
 export function Zustandspunkt({
@@ -38,9 +39,14 @@ export function Zustandspunkt({
   // dreissig Kacheln gleichzeitig in Bewegung.
   const wert = useRef(new Animated.Value(an ? 1 : 0)).current;
   const vorher = useRef<boolean | undefined>(undefined);
+  // Wer «Bewegung reduzieren» eingestellt hat, bekommt den Sprung - das
+  // versprach Archiv 527, gehalten hat es nur Auftritt.tsx (Fehler aus
+  // der Runde 579 der Werkbank). Derselbe Hook wie dort, kein eigener
+  // Weg über AccessibilityInfo.
+  const ruhig = useBewegungReduziert();
 
   useEffect(() => {
-    const wechsel = bewegtSich(vorher.current, an);
+    const wechsel = bewegtSich(vorher.current, an, ruhig);
     vorher.current = an;
     if (!wechsel) {
       wert.setValue(an ? 1 : 0);
@@ -56,7 +62,7 @@ export function Zustandspunkt({
       // bei einem Punkt von zehn Punkten Grösse merkt man ihn nicht.
       useNativeDriver: false,
     }).start();
-  }, [an, getipptAt, wert]);
+  }, [an, getipptAt, ruhig, wert]);
 
   return (
     <Animated.View

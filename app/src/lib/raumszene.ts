@@ -16,6 +16,7 @@
  * gedimmten 15 %, die verlorene Storen-Position).
  */
 import { Entity } from '../api/types';
+import { schaltbar } from './geraeteoptionen';
 import { snapshotAction } from './szenen';
 import { imSchnappschuss } from '../screens/automations/szenengeraete';
 
@@ -40,9 +41,9 @@ export interface SzenenAktion {
  * nichts tut.
  */
 export function aufnehmbar(items: Entity[]): Entity[] {
-  return items.filter(
-    (entity) => imSchnappschuss(entity) && entity.commands.length > 0
-  );
+  // `schaltbar` statt `commands.length`: Seit Punkt 631 hat auch ein
+  // Melder mit Nachlaufzeit einen Befehl - nur keinen, der ihn schaltet.
+  return items.filter((entity) => imSchnappschuss(entity) && schaltbar(entity));
 }
 
 /**

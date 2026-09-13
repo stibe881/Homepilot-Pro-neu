@@ -83,11 +83,28 @@ def ferien_am(rows: Any, tag: date) -> str | None:
 
 
 def lage(rows: Any, tag: date) -> dict[str, Any]:
-    """Der Zustand des Sensors für diesen Tag (rein, testbar)."""
+    """Der Zustand des Sensors für diesen Tag (rein, testbar).
+
+    ``until`` und ``next_until`` (Punkt 619 der Werkbank) sind der letzte
+    Tag der laufenden und der nächsten Ferien: Der Wochenplan der App
+    zeigt sieben Tage und muss wissen, ob der Dienstag noch Ferien ist -
+    aus «heute Ferien» und «in 19 Tagen die nächsten» liess sich das
+    nicht lesen, und «Levin: Schule bis 15:05» stand mitten in den
+    Herbstferien. Ein Feiertag endet am selben Tag.
+    """
     ferien = ferien_am(rows, tag)
+    bis = next(
+        (
+            eintrag["bis"]
+            for eintrag in lesen(rows)
+            if eintrag["von"] <= tag <= eintrag["bis"]
+        ),
+        None,
+    )
     if ferien is None and feiertage.ist_feiertag(tag):
         # Für den Wecker ist Auffahrt dasselbe wie ein Ferientag.
         ferien = "Feiertag"
+        bis = tag
     if ferien is not None:
         stand = FERIEN
     elif tag.weekday() >= 5:
@@ -100,8 +117,10 @@ def lage(rows: Any, tag: date) -> dict[str, Any]:
     return {
         "state": stand,
         "name": ferien,
+        "until": bis.isoformat() if bis else None,
         "next": naechste["name"] if naechste else None,
         "next_in_days": (naechste["von"] - tag).days if naechste else None,
+        "next_until": naechste["bis"].isoformat() if naechste else None,
     }
 
 

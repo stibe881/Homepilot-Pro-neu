@@ -246,7 +246,7 @@ export function LoginScreen({
               accessibilityState={{ disabled: busy, busy }}
               style={({ pressed }) => [styles.primary, (pressed || busy) && { opacity: 0.7 }]}
             >
-              <Ionicons name="key-outline" size={18} color="#FFFFFF" />
+              <Ionicons name="key-outline" size={18} color={colors.onAccent} />
               <Text style={styles.primaryText}>
                 {busy ? 'Einen Moment …' : 'Passwort setzen'}
               </Text>
@@ -264,7 +264,7 @@ export function LoginScreen({
               accessibilityLabel="Mit QR-Code verbinden"
               style={styles.primary}
             >
-              <Ionicons name="qr-code-outline" size={18} color="#FFFFFF" />
+              <Ionicons name="qr-code-outline" size={18} color={colors.onAccent} />
               <Text style={styles.primaryText}>Mit QR-Code verbinden</Text>
             </Pressable>
           </>
@@ -320,7 +320,7 @@ export function LoginScreen({
               <Ionicons
                 name={mode === 'recover' ? 'mail-outline' : 'log-in-outline'}
                 size={18}
-                color="#FFFFFF"
+                color={colors.onAccent}
               />
               <Text style={styles.primaryText}>
                 {busy ? 'Einen Moment …' : mode === 'login' ? 'Anmelden' : 'E-Mail schicken'}
@@ -387,7 +387,7 @@ const makeStyles = (colors: Colors) =>
     },
     hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },
     error: { color: colors.danger, fontSize: 13, lineHeight: 19, fontWeight: '600' },
-    note: { color: colors.on, fontSize: 13, lineHeight: 19, fontWeight: '600' },
+    note: { color: colors.onInk, fontSize: 13, lineHeight: 19, fontWeight: '600' },
     primary: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -398,7 +398,7 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.accent,
       marginTop: 6,
     },
-    primaryText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+    primaryText: { color: colors.onAccent, fontSize: 16, fontWeight: '700' },
     links: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 },
     link: { color: colors.accent, fontSize: 13, fontWeight: '600' },
     secondary: {

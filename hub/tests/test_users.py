@@ -8,6 +8,7 @@ from homepilot.core.users import (
     Role,
     User,
     UserRegistry,
+    naechster_beginn,
     parse_hours,
     parse_users,
 )
@@ -239,6 +240,71 @@ def test_a_window_across_midnight_works():
     assert nacht.active(datetime(2026, 8, 17, 23, 0)) is True
     assert nacht.active(datetime(2026, 8, 17, 3, 0)) is True
     assert nacht.active(datetime(2026, 8, 17, 12, 0)) is False
+
+
+def test_outside_the_window_the_reason_says_when_it_opens_again():
+    """Punkt 624 der Werkbank: Das Kind um 20:01 soll «ab 07:00 wieder»
+    hören, nicht «Ungültiges Token»."""
+    kind = User(
+        name="Levin", role=Role.RESIDENT, token="t", hours={"from": "07:00", "to": "20:00"}
+    )
+    assert kind.zugangsgrund(datetime(2026, 8, 17, 12, 0)) is None
+    grund = kind.zugangsgrund(datetime(2026, 8, 17, 20, 1))
+    assert grund is not None and grund.art == "fenster_zu"
+    assert grund.gilt_ab == datetime(2026, 8, 18, 7, 0)
+    assert grund.satz(datetime(2026, 8, 17, 20, 1)) == "Dein Zugang gilt ab 07:00 wieder."
+    # Vor dem Fenster am selben Tag: heute um sieben, nicht morgen.
+    frueh = kind.zugangsgrund(datetime(2026, 8, 17, 6, 30))
+    assert frueh is not None and frueh.gilt_ab == datetime(2026, 8, 17, 7, 0)
+    assert kind.active(datetime(2026, 8, 17, 20, 1)) is False
+
+
+def test_locked_and_expired_are_not_a_pause():
+    """Gesperrt und abgelaufen kommen nicht von selbst zurück - da bleibt
+    es bei «Ungültiges Token»."""
+    gesperrt = User(name="G", role=Role.GUEST, token="t", enabled=False)
+    assert gesperrt.zugangsgrund().art == "gesperrt"
+    abgelaufen = User(name="A", role=Role.GUEST, token="t2", expires="2026-08-10")
+    assert abgelaufen.zugangsgrund(datetime(2026, 8, 17, 12, 0)).art == "abgelaufen"
+    # Ein Fenster, das erst nach dem Ablaufdatum wieder aufginge, ist
+    # ebenfalls kein «bis dann».
+    kurz = User(
+        name="K",
+        role=Role.GUEST,
+        token="t3",
+        expires="2026-08-17",
+        hours={"from": "07:00", "to": "20:00"},
+    )
+    assert kurz.zugangsgrund(datetime(2026, 8, 17, 21, 0)).art == "abgelaufen"
+
+
+def test_the_next_start_respects_weekdays_and_midnight():
+    # Die Putzhilfe jeden Donnerstag 8-12: Am Freitagmittag gilt es
+    # erst am nächsten Donnerstag wieder - und der Satz nennt das Datum.
+    freitag = datetime(2026, 8, 21, 12, 0)
+    do = naechster_beginn([3], {"from": "08:00", "to": "12:00"}, None, freitag)
+    assert do == datetime(2026, 8, 27, 8, 0)
+    hilfe = User(name="P", role=Role.GUEST, token="t", days=[3], hours={"from": "08:00", "to": "12:00"})
+    assert hilfe.zugangsgrund(freitag).satz(freitag) == "Dein Zugang gilt ab 27.08. 08:00 wieder."
+    # Nachtfenster 22-06 um 12 Uhr: heute Abend um zehn.
+    assert naechster_beginn([], {"from": "22:00", "to": "06:00"}, None, freitag) == datetime(
+        2026, 8, 21, 22, 0
+    )
+    # Nur Wochentage, kein Fenster: der nächste Tag um Mitternacht.
+    assert naechster_beginn([0], {}, None, freitag) == datetime(2026, 8, 24, 0, 0)
+    # Weder Tage noch Fenster: nichts, das je aufginge.
+    assert naechster_beginn([], {}, None, freitag) is None
+
+
+def test_the_holder_is_found_even_when_he_may_not_come_in():
+    """by_token bleibt streng - erst active_only=False nennt den Inhaber.
+    Die Schnittstelle braucht ihn, um «ab 07:00 wieder» statt «Ungültiges
+    Token» sagen zu können."""
+    gesperrt = User(name="G", role=Role.GUEST, token="t", enabled=False)
+    registry = UserRegistry([gesperrt])
+    assert registry.by_token("t") is None
+    assert registry.by_token("t", active_only=False) is gesperrt
+    assert registry.by_token("falsch", active_only=False) is None
 
 
 def test_half_a_window_is_no_window():

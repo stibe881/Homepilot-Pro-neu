@@ -22,13 +22,14 @@ import { hatWarteschlange } from '../lib/musikliste';
 import { lichtkachel } from '../lib/lichtfarbe';
 import { szenenfarbe } from '../lib/szenenfarbe';
 import { ketteSatz, ursacheSatz } from '../lib/ursache';
+import { belegungZeile, TasterBelegung } from '../lib/verweise';
 import { zaehlbar } from '../lib/zaehlung';
 import { useJetzt } from '../hooks/useRestzeit';
 import { useColors, useTyp } from '../theme';
 import { warnZahl, warnZahlSatz } from '../lib/warnzeile';
 import { Bar } from './Bar';
 import { Card, CardFooter } from './Card';
-import { faelltAuf, standZeile } from '../lib/kachelstand';
+import { faelltAuf, standZeile, unbestaetigtZeile } from '../lib/kachelstand';
 import { Musikliste } from './Musikliste';
 import { ColorRow } from './ColorRow';
 import { Sky } from './CoverVisual';
@@ -48,11 +49,14 @@ import { TvRemote } from './TvRemote';
 import { TvSteuerkreuz } from './TvSteuerkreuz';
 import {
   AnpassenBlatt,
+  BatterietypWahl,
   GroupPicker,
   KachelMenue,
   RenameDialog,
   RoomPicker,
+  batterietypZeile,
 } from './entity/anpassen';
+import { hatBatterie } from '../lib/batterien';
 import {
   CameraSnapshot,
   CoverBody,
@@ -82,6 +86,7 @@ export function raumWert(entity: Entity): string {
   return `${zimmer[0]} +${zimmer.length - 1}`;
 }
 import {
+  Bewegungsmarke,
   BigValue,
   Pill,
   clock,
@@ -138,10 +143,6 @@ interface Props {
   onCommand: (command: string, data?: CommandData) => void;
   /** Kommando unterwegs – die Kachel zeigt das, statt still zu wirken. */
   pending?: boolean;
-  /** Die letzte Absage des Hubs. Nur die Fernbedienung braucht sie: Sie
-   *  ist ein Modal und deckt das Fehlerband am unteren Rand zu. */
-  fehler?: string | null;
-  onFehlerWeg?: () => void;
   /** Strompreis für die Kostenanzeige, z.B. 0.32 */
   pricePerKwh?: number;
   currency?: string;
@@ -184,6 +185,8 @@ interface Props {
   /** Nur für Fenster- und Türkontakte: «Kontakt an - Fenster/Türe»
    *  umlegen. Fehlt er, steht die Zeile nicht im Anpassen-Blatt. */
   onContactKind?: (value: 'window' | 'door') => void;
+  /** Batterietyp setzen (Punkt 633) - null heisst «unbekannt». */
+  onBatteryType?: (value: string | null) => void;
   /** Anpassen-Modus: Gerät einer Gruppe zuordnen (oder lösen). */
   groups?: string[];
   onSetGroup?: (group: string | null) => void;
@@ -221,6 +224,10 @@ interface Props {
    *  selbst angeht, soll den Urheber finden, ohne alles durchzulesen. */
   usedIn?: string;
   onUsedIn?: () => void;
+  /** Nur Taster: was welcher Druck auslöst (Punkt 629, lib/verweise.ts,
+   *  tasterBelegung). Ein Tipp darauf führt zu den Abläufen. */
+  belegung?: TasterBelegung[];
+  onBelegung?: () => void;
 }
 
 /** Warnstufen brauchen je nach Palette andere Farben. */
@@ -234,8 +241,6 @@ export function EntityCard({
   width,
   onCommand,
   pending,
-  fehler,
-  onFehlerWeg,
   pricePerKwh,
   currency = 'CHF',
   editing,
@@ -254,6 +259,7 @@ export function EntityCard({
   onSceneToggles,
   onRoomOnly,
   onContactKind,
+  onBatteryType,
   groups,
   onSetGroup,
   doorConfirm,
@@ -268,6 +274,8 @@ export function EntityCard({
   partOf,
   usedIn,
   onUsedIn,
+  belegung,
+  onBelegung,
   onErinnern,
 }: Props) {
   const colors = useColors();
@@ -291,6 +299,8 @@ export function EntityCard({
   const [roomPickerOpen, setRoomPickerOpen] = useState(false);
   const [blattOffen, setBlattOffen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
+  // Punkt 633: die Wahl des Batterietyps aus dem Anpassen-Blatt.
+  const [batterieWahl, setBatterieWahl] = useState(false);
   const [menueOffen, setMenueOffen] = useState(false);
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
   const isOn = entity.state.state === 'on';
@@ -589,9 +599,13 @@ export function EntityCard({
                 >
                   {pending
                     ? 'wird geschaltet …'
-                    : entity.available
-                      ? subtitle
-                      : offlineText}
+                    : !entity.available
+                      ? offlineText
+                      : entity.unbestaetigt
+                        ? // Nach einer Absage steht der Stand von vorher
+                          // da, und die Zeile sagt es (Punkt 580).
+                          unbestaetigtZeile(subtitle)
+                        : subtitle}
                 </Text>
               </View>
             </Pressable>
@@ -860,7 +874,7 @@ export function EntityCard({
                       <Ionicons
                         name={active ? 'volume-high' : 'volume-medium-outline'}
                         size={12}
-                        color={active ? '#FFFFFF' : colors.inkSoft}
+                        color={active ? colors.onAccent : colors.inkSoft}
                       />
                       <Text
                         style={[
@@ -910,7 +924,7 @@ export function EntityCard({
               <Pill label="Klingelt" tone={colors.danger} solid />
             ) : null}
             {entity.state.motion === 'on' ? (
-              <Pill label="Bewegung" tone={colors.warn} solid />
+              <Bewegungsmarke />
             ) : null}
             {entity.state.last_motion ? (
               <Text style={styles.detail}>
@@ -949,9 +963,9 @@ export function EntityCard({
                 <Ionicons
                   name={privacyOn ? 'eye-off' : 'eye-off-outline'}
                   size={15}
-                  color={privacyOn ? '#FFFFFF' : colors.inkSoft}
+                  color={privacyOn ? colors.onAccent : colors.inkSoft}
                 />
-                <Text style={[styles.privacyText, privacyOn && { color: '#FFFFFF' }]}>
+                <Text style={[styles.privacyText, privacyOn && { color: colors.onAccent }]}>
                   {privacyOn ? 'Privatsphäre beenden' : 'Privatsphäre'}
                 </Text>
               </Pressable>
@@ -1157,6 +1171,34 @@ export function EntityCard({
             <Text style={styles.detail}>
               {typeof press === 'number' ? sinceLabel(press) : 'Noch kein Druck'}
             </Text>
+            {/* Was welcher Druck auslöst (Punkt 629 der Werkbank): Der
+                Taster weiss es, die Abläufe wissen es - nur die Kachel
+                sagte es nicht, und wer im Flur stand, musste die
+                Abläufe aufmachen, um zu sehen, ob «doppelt» überhaupt
+                belegt ist. Eine unbelegte Taste bleibt weg: «doppelt →
+                nichts» wäre eine Zeile Rauschen je Taster. */}
+            {belegung && belegung.length > 0 ? (
+              <Pressable
+                onPress={onBelegung}
+                disabled={!onBelegung}
+                accessibilityRole="button"
+                accessibilityLabel={`${entity.name}: ${belegungZeile(belegung)} – Abläufe öffnen`}
+                hitSlop={4}
+                style={styles.stack}
+              >
+                {belegung.map((eintrag) => (
+                  <View
+                    key={`${eintrag.druck}:${eintrag.ablauf.id}`}
+                    style={styles.partOfRow}
+                  >
+                    <Ionicons name="git-branch-outline" size={12} color={colors.inkFaint} />
+                    <Text style={styles.partOfText} numberOfLines={1}>
+                      {eintrag.wort} → {eintrag.ablauf.alias}
+                    </Text>
+                  </View>
+                ))}
+              </Pressable>
+            ) : null}
             {/* «Bereit, noch kein Druck» stimmt und führt trotzdem in die
                 Irre, wenn der Kanal gar nichts sendet - etwa der
                 Schaltausgang eines Aktors statt seiner Wippe. Der Hub
@@ -1261,11 +1303,25 @@ export function EntityCard({
           </Pressable>
         </View>
       ) : null}
+      {editing && onBatteryType ? (
+        <BatterietypWahl
+          visible={batterieWahl}
+          current={entity.battery_type}
+          onClose={() => setBatterieWahl(false)}
+          onSelect={(typ) => {
+            setBatterieWahl(false);
+            onBatteryType(typ);
+          }}
+        />
+      ) : null}
       {editing ? (
         <AnpassenBlatt
           visible={blattOffen}
           titel={entity.name}
           onClose={() => setBlattOffen(false)}
+          // Für «Gerät einstellen» (631) und «Nach Stromausfall» (630).
+          entity={entity}
+          onCommand={onCommand}
           zeilen={[
             ...(onRename
               ? [
@@ -1358,6 +1414,11 @@ export function EntityCard({
             // Geraten wird sonst am Namen - und ein Kontakt, der
             // «Waschküche» heisst, galt damit als Fenster. Im Raumkopf
             // steht aber «Fenster zu» oder «Türen zu».
+            // Punkt 633: Welche Batterie drinsteckt, weiss nur, wer sie
+            // eingelegt hat - hier trägt er es ein.
+            ...(onBatteryType && hatBatterie(entity)
+              ? [batterietypZeile(entity, () => setBatterieWahl(true))]
+              : []),
             ...(onContactKind && istKontakt(entity)
               ? [
                   {
@@ -1469,8 +1530,6 @@ export function EntityCard({
           // Dieselben Apps wie in der Auswahl der Kachel - das Blatt
           // deckt die Kachel zu, also muss der Wechsel auch hier gehen.
           apps={entity.commands.includes('launch_app') ? appsOf(entity) : []}
-          fehler={remoteOpen ? fehler : null}
-          onFehlerWeg={onFehlerWeg}
           kino={kino}
           onKino={onKino}
         />
@@ -1497,7 +1556,13 @@ export function EntityCard({
           // Und die Kette dahinter, wo der Hub sie kennt: Melder →
           // Ablauf → Gerät. «Ablauf «Licht bei Bewegung»» allein zog
           // sonst die nächste Frage nach sich - welche Bewegung?
-          kette={ketteSatz(entity, entity.name)}
+          // Beim Taster steht hier stattdessen, was welcher Druck
+          // auslöst (Punkt 629) - dieselbe Zeile wie auf der Kachel.
+          kette={
+            belegung && belegung.length > 0
+              ? belegungZeile(belegung)
+              : ketteSatz(entity, entity.name)
+          }
           eintraege={aktionen}
           onClose={() => setMenueOffen(false)}
           onSelect={fuehreAus}
@@ -1536,7 +1601,11 @@ export function EntityCard({
           Native sie an das innerste Element gibt, das sie annimmt.
           Siehe entity/kacheldruck.tsx. */}
       <KachelDruck wert={langerDruck}>
-        <View style={[styles.body, pending && { opacity: 0.55 }]}>{body()}</View>
+        {/* Nach einer Absage ebenso blass (Punkt 580 der Werkbank): Der
+            Stand von vorher steht da, aber geprüft ist er nicht mehr. */}
+        <View style={[styles.body, (pending || entity.unbestaetigt) && { opacity: 0.55 }]}>
+          {body()}
+        </View>
       </KachelDruck>
       {chart}
       {eigenerName ? null : (
@@ -1547,12 +1616,14 @@ export function EntityCard({
               ? 'wird geschaltet …'
               : !entity.available
                 ? offlineText
-                : // Ohne Verbindung sagt die Zeile, von wann der Wert ist -
-                  // «21,5 °C» und «21,5 °C · Stand 17:42» sind zwei
-                  // verschiedene Aussagen, und die zweite ist die ehrliche.
-                  altText
-                  ? `${subtitle ? `${subtitle} · ` : ''}Stand ${altText}`
-                  : subtitle
+                : entity.unbestaetigt
+                  ? unbestaetigtZeile(subtitle)
+                  : // Ohne Verbindung sagt die Zeile, von wann der Wert ist -
+                    // «21,5 °C» und «21,5 °C · Stand 17:42» sind zwei
+                    // verschiedene Aussagen, und die zweite ist die ehrliche.
+                    altText
+                    ? `${subtitle ? `${subtitle} · ` : ''}Stand ${altText}`
+                    : subtitle
           }
           on={isOn || !!boxSchalter?.an}
           onToggle={toggleMitDoppeltipp}

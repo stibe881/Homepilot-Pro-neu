@@ -10,6 +10,10 @@
  * Gelaufene. Das Band öffnet damit auf der Antwort statt auf der
  * Vorgeschichte.
  */
+import type { Ionicons } from '@expo/vector-icons';
+
+type Symbol = React.ComponentProps<typeof Ionicons>['name'];
+
 export interface Bandeintrag {
   automation_id: string;
   alias: string;
@@ -44,6 +48,22 @@ export function bandReihenfolge(
     .sort((a, b) => b.at - a.at)
     .map((eintrag) => ({ ...eintrag, vorbei: true }));
   return [...kommend, ...vorbei];
+}
+
+/**
+ * Das Symbol einer Kachel (rein, testbar).
+ *
+ * Fehler aus der Runde 579 der Werkbank: Der Hub liefert seither auch
+ * Zeitraum- und Kalender-Auslöser ins Band - mit dem Uhr-Symbol sähe
+ * «Gäste kommen 17:30» wie ein Zeit-Auslöser aus, dabei rückt der
+ * Termin mit dem Kalender.
+ */
+export function bandSymbol(art: string, vorbei: boolean): Symbol {
+  if (vorbei) return 'checkmark-circle';
+  if (art === 'sun') return 'sunny-outline';
+  if (art === 'calendar') return 'calendar-outline';
+  if (art === 'window') return 'hourglass-outline';
+  return 'time-outline';
 }
 
 /**

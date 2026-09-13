@@ -60,6 +60,33 @@ def _headers(service_key: str) -> dict[str, str]:
     return {"apikey": service_key, "Authorization": f"Bearer {service_key}"}
 
 
+#: Womit eine Sicherung im Bucket beginnt - die Einzeldateien von früher
+#: und die Archive seit Punkt 593 tragen denselben Anfang, damit eine
+#: Frist für beide gilt.
+SICHERUNGS_PREFIX = "homepilot-data-"
+
+
+def content_type(name: str) -> str:
+    """Der Typ, mit dem eine Datei in den Bucket geht (rein, testbar).
+
+    Supabase merkt sich den Typ und liefert ihn beim Herunterladen zurück;
+    ein Tar als «application/json» öffnete der Browser als Textseite.
+    """
+    return "application/gzip" if name.endswith(".tar.gz") else "application/json"
+
+
+def sicherungsnamen(entries: list[dict[str, Any]]) -> list[str]:
+    """Die Sicherungen aus einer Bucket-Liste, jüngste zuerst (rein,
+    testbar). Die Namen tragen den Zeitstempel - absteigend sortiert
+    heisst: die jüngsten zuerst."""
+    names = [
+        str(entry.get("name") or "")
+        for entry in entries
+        if str(entry.get("name") or "").startswith(SICHERUNGS_PREFIX)
+    ]
+    return sorted(names, reverse=True)
+
+
 def bucket_fehlt(body: str) -> bool:
     """Sagt die Storage-Antwort «diesen Bucket gibt es nicht»? (rein,
     testbar) Supabase meldet das je nach Weg als Code oder als Satz."""
@@ -90,7 +117,12 @@ async def bucket_anlegen(url: str, service_key: str, bucket: str) -> None:
 
 
 async def upload(
-    url: str, service_key: str, bucket: str, name: str, payload: bytes
+    url: str,
+    service_key: str,
+    bucket: str,
+    name: str,
+    payload: bytes,
+    typ: str = "application/json",
 ) -> None:
     """Eine Sicherung hochladen (x-upsert: derselbe Name überschreibt).
 
@@ -106,7 +138,7 @@ async def upload(
             data=payload,
             headers={
                 **_headers(service_key),
-                "Content-Type": "application/json",
+                "Content-Type": typ,
                 "x-upsert": "true",
             },
         ) as response:
@@ -121,7 +153,41 @@ async def upload(
 
 async def prune(url: str, service_key: str, bucket: str, keep: int = KEEP) -> None:
     """Alte Sicherungen im Bucket aufräumen - dieselbe Regel wie lokal."""
-    await prune_prefix(url, service_key, bucket, "homepilot-data-", keep)
+    await prune_prefix(url, service_key, bucket, SICHERUNGS_PREFIX, keep)
+
+
+async def liste(url: str, service_key: str, bucket: str) -> list[str]:
+    """Welche Sicherungen im Bucket liegen, jüngste zuerst (Punkt 593).
+
+    Für «aus dem Bucket zurückholen» in der App: Nach dem Totalausfall
+    führte der Weg sonst über das Supabase-Dashboard und SSH.
+    """
+    base = url.rstrip("/") + "/storage/v1"
+    timeout = aiohttp.ClientTimeout(total=60)
+    async with aiohttp.ClientSession(
+        timeout=timeout, headers={**_headers(service_key), "Content-Type": "application/json"}
+    ) as session, session.post(
+        f"{base}/object/list/{bucket}",
+        json={"prefix": "", "limit": 200, "sortBy": {"column": "name", "order": "desc"}},
+    ) as response:
+        if response.status >= 400:
+            body = (await response.text())[:300]
+            raise RuntimeError(f"Bucket-Liste → {response.status}: {body}")
+        entries: list[dict[str, Any]] = await response.json(content_type=None)
+    return sicherungsnamen(entries)
+
+
+async def download(url: str, service_key: str, bucket: str, name: str) -> bytes:
+    """Eine Sicherung aus dem Bucket holen (Punkt 593)."""
+    target = f"{url.rstrip('/')}/storage/v1/object/{bucket}/{name}"
+    timeout = aiohttp.ClientTimeout(total=300)
+    async with aiohttp.ClientSession(timeout=timeout) as session, session.get(
+        target, headers=_headers(service_key)
+    ) as response:
+        if response.status >= 400:
+            body = (await response.text())[:300]
+            raise RuntimeError(f"Herunterladen → {response.status}: {body}")
+        return await response.read()
 
 
 async def prune_prefix(

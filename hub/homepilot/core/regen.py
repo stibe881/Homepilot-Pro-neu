@@ -254,3 +254,61 @@ def satz(stand: Any) -> str | None:
     if minuten <= 5:
         return "Es fängt gleich an zu regnen."
     return f"Regen in etwa {dauer(minuten)}."
+
+
+# ── Der Schulweg: Regenjacke in den Thek? (Punkt 584 der Werkbank) ────────
+#
+# Die Vorwarnung oben schaut zwei Stunden voraus und ist für die Wäsche
+# gedacht. Am Morgen um sieben stellt sich eine andere Frage: Bleibt es
+# trocken bis die Kinder zurück sind? Der Schulweg um 7:20 und der
+# Heimweg um 15:40 liegen ausserhalb jeder Zwei-Stunden-Vorschau, und
+# «60 % heute» sagt nicht, ob es beim Heimweg giesst.
+
+#: Die Stunden, in denen ein Kind unterwegs ist - von der ersten
+#: Lektion bis nach der letzten. Grob mit Absicht: Der Hinweis soll
+#: «Regenjacke mitgeben» sagen, nicht «um 15:40 regnet es».
+SCHULWEG_VON = 7
+SCHULWEG_BIS = 17
+
+#: Fehlt die Menge (ältere Zustände tragen nur die Wahrscheinlichkeit),
+#: zählt ab hier die Wahrscheinlichkeit als Regen.
+SCHULWEG_WAHRSCHEINLICH = 60
+
+
+def schulweg_hinweis(hours: Any, jetzt: datetime) -> str | None:
+    """«Regen ab etwa 13 Uhr - Regenjacke mitgeben», oder nichts (rein, testbar).
+
+    Gerechnet über den Stundenzeilen der Wetter-Entität (``hours``, siehe
+    integrations/weather.py ``stunden_heute``). Nur, wenn es jetzt
+    trocken ist: Regnet es schon, sieht man das aus dem Fenster, und der
+    Hinweis wäre der zweite Satz zur selben Sache. Und nur für den Rest
+    des Schultags - nach fünf Uhr ist niemand mehr mit dem Thek
+    unterwegs, dann sagt der Hinweis nichts mehr.
+
+    Wie die Vorwarnung mit der Menge, nicht mit der Wahrscheinlichkeit -
+    wo die Menge fehlt, muss die Wahrscheinlichkeit reichen, sonst bliebe
+    der Hinweis an alten Zuständen einfach still.
+    """
+    if not isinstance(hours, list) or jetzt.hour >= SCHULWEG_BIS:
+        return None
+    for eintrag in hours:
+        if not isinstance(eintrag, dict):
+            continue
+        zeit = _zeit(eintrag.get("time"))
+        if zeit is None or zeit.date() != jetzt.date():
+            continue
+        if "mm" in eintrag:
+            nass = _mm(eintrag.get("mm")) >= SCHWELLE_MM
+        else:
+            nass = _mm(eintrag.get("rain")) >= SCHULWEG_WAHRSCHEINLICH
+        if zeit <= jetzt.replace(minute=0, second=0, microsecond=0):
+            if nass:
+                # Es regnet jetzt - das sieht man, dafür braucht es
+                # keinen Satz.
+                return None
+            continue
+        if zeit.hour < SCHULWEG_VON or zeit.hour >= SCHULWEG_BIS:
+            continue
+        if nass:
+            return f"Regen ab etwa {zeit.hour} Uhr - Regenjacke mitgeben"
+    return None

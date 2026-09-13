@@ -62,10 +62,16 @@ ZIELE: dict[str, str] = {
     # Rauch: die Brandmeldeanlage selbst - dort steht Quittieren und
     # Stummschalten, und die Liste der Melder mit dem, der anschlägt.
     "smoke": "bereich:brand",
+    # Wer aufgeschlossen hat (Punkt 616): zur Türe selbst - dort steht
+    # es an der Kachel, und dort kann man wieder abschliessen.
+    "door": "start",
     "doorbell": "klingel",
     # Ohne Kamera bleibt nur die Startseite - der Normalfall steht in
     # AN_DER_KAMERA: Man will sehen und hören, was im Zimmer los ist.
     "baby_cry": "start",
+    # Das Paket sieht man auf der Kamera, die es erkannt hat (AN_DER_KAMERA);
+    # ohne Kamera bleibt die Startseite.
+    "package": "start",
     "timer": "timer",
     # Familie: je Meldung ihre Kachel.
     "tasks": "familie:tasks",
@@ -80,8 +86,20 @@ ZIELE: dict[str, str] = {
     # Ein Gutschein, der verfällt, wird in seiner Kachel eingelöst oder
     # verlängert - dort steht die Nummer, die man dafür braucht.
     "vouchers": "familie:vouchers",
+    # Ein ablaufendes Dokument (Punkt 623) wird in seiner Kachel
+    # erneuert - dort steht «Erneuert» und der Verlauf.
+    "documents": "familie:documents",
+    # Die selbst gestellte Erinnerung (Punkt 603): dorthin, wo man sie
+    # bestätigt oder weiterstellt.
+    "reminder": "familie:reminders",
     # Wer wo ist, steht unter «Familie und Freunde».
     "presence": "bereich:personen",
+    # Eine neue Anmeldung (Punkt 626): Dort, wo die eigenen Geräte
+    # stehen und sich das fremde beenden lässt - auf der Konto-Seite.
+    # Die Meldung an die Besitzer über ein Gast- oder Kinderkonto trägt
+    # ihr Ziel selbst (bereich:users), dort steht die Geräteliste der
+    # anderen (Punkt 625).
+    "login": "bereich:account",
     # Bewegung sieht man auf der Kamera - welche, sagt die Nachricht
     # selbst (data.camera).
     "camera_motion": "start",
@@ -93,14 +111,28 @@ ZIELE: dict[str, str] = {
 # ein Wassermelder schickt einen dorthin, wo man den Hahn zudreht. Bei
 # den anderen (Batterie, ausgefallenes Gerät) ist der Sammelplatz
 # besser: Dort steht der Knopf zum Quittieren.
-AM_GERAET = frozenset({"open", "leak", "appliance", "vacuum", "grill"})
+AM_GERAET = frozenset({"open", "leak", "appliance", "vacuum", "grill", "door"})
 
 ## Meldungen, bei denen das Kamerabild der beste Ort ist.
 #
 # «Ein Baby weint» beantwortet man mit einem Blick ins Zimmer, nicht mit
 # einem Sprung in einen Raum voller Kacheln: Der Tipp öffnet die Kamera
 # im Vollbild, mit Ton und Live-Bild.
-AN_DER_KAMERA = frozenset({"baby_cry"})
+AN_DER_KAMERA = frozenset({"baby_cry", "package"})
+
+
+def route(ort: str | None) -> str | None:
+    """Das Ziel «Route dorthin» (rein, testbar) - Punkt 586 der Werkbank.
+
+    Der Losfahr-Wecker kennt die Adresse; sein Tipp führte trotzdem nur
+    in den Kalender. Mit ``route:<Adresse>`` öffnet die App die
+    Karten-App mit dem Ziel (lib/pushziel.ts). Die Adresse reist in
+    derselben Zeichenkette mit - ein zweites Feld ginge bei einer App,
+    die es nicht kennt, still verloren; ein unbekanntes Ziel fällt dort
+    sauber auf «App öffnen» zurück. Ohne Ort gibt es kein Routenziel.
+    """
+    sauber = str(ort or "").strip()
+    return f"route:{sauber}" if sauber else None
 
 
 def ziel_fuer(category: str | None, entity_id: str | None = None) -> str | None:

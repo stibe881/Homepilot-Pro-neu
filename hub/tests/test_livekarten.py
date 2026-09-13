@@ -12,6 +12,7 @@ from homepilot.core.livekarten import (
     grill_url,
     hat_karte,
     karten_alarm,
+    karten_brand,
     karten_erinnerungen,
     karten_geraete,
     karten_grill,
@@ -38,6 +39,34 @@ def test_timer_karte_traegt_den_countdown():
     assert karten[0]["state"]["endet"] == 1000.0
     assert karten[0]["state"]["text"] == "Pasta"
     assert karten_timer([]) == []
+
+
+def test_die_timer_karte_bleibt_beim_klingeln_liegen_und_hat_knoepfe():
+    """Punkt 605: Der Timer fiel in der Sekunde vom Sperrbildschirm, in
+    der er klingelte (kein `ende`), und hatte keinen Griff."""
+    karte = karten_timer([{"id": "t1", "text": "Pasta", "ends_at": 1000.0}])[0]
+    assert [k["pfad"] for k in karte["state"]["knoepfe"]] == [
+        "/api/timers/t1/abbrechen",
+        "/api/timers/t1/verlaengern",
+    ]
+    assert karte["ende"]["state"]["text"] == "Abgelaufen - Pasta"
+    assert karte["ende"]["state"]["farbe"] == "orange"
+    assert karte["ende"]["sichtbar"] == 600
+    # Auf dem Schluss-Bild keine Knöpfe - den Timer gibt es nicht mehr.
+    assert "knoepfe" not in karte["ende"]["state"]
+
+
+def test_das_schluss_bild_kommt_aus_der_zeile_nicht_aus_dem_wunsch():
+    """Beim Beenden steht die Karte gerade nicht mehr unter den
+    gewünschten - dort war ihr Ende also nie zu finden, und «Fertig»
+    stand nie auf einem Sperrbildschirm (aufgefallen bei Punkt 605)."""
+    wunsch = karten_timer([{"id": "t1", "text": "Pasta", "ends_at": 1000.0}])
+    rows, *_ = abgleich([], wunsch, ["Stibe"], 900.0)
+    rows = token_merken(rows, "Stibe", "timer:t1", "act-1")
+    # Der Timer klingelt: Er ist aus der Liste, das Soll ist leer.
+    rows, _, _, beenden = abgleich(rows, [], ["Stibe"], 1000.0)
+    assert beenden[0]["state"]["text"] == "Abgelaufen - Pasta"
+    assert beenden[0]["sichtbar"] == 600
 
 
 def test_waschmaschine_ja_grill_nein():
@@ -417,6 +446,17 @@ def test_erinnerungs_karte_folgt_den_regeln_des_vollbilds():
     assert karten[0]["ohne"] == ["Stibe"]
 
 
+def test_die_erinnerungs_karte_oeffnet_das_vollbild_und_hat_erledigt_und_spaeter():
+    """Punkt 606: Die Karte trug weder Adresse noch Knöpfe - «Erledigt»
+    gab es nur in der App."""
+    karte = karten_erinnerungen([{"id": "a/1", "text": "Ofen aus", "at": 100}], 200)[0]
+    assert karte["state"]["url"] == "homepilot://erinnerung/a%2F1"
+    assert [k["pfad"] for k in karte["state"]["knoepfe"]] == [
+        "/api/family/reminders/a%2F1/quittieren",
+        "/api/family/reminders/a%2F1/spaeter",
+    ]
+
+
 def test_alarm_karte_countdown_und_rot():
     schaltend = entity(
         "alarm.haus", "alarm", "Alarmanlage", state="scharfschaltend", seconds_left=30
@@ -438,6 +478,69 @@ def test_alarm_karte_countdown_und_rot():
     # die zwölf Stunden, die iOS einer Aktivität gibt.
     scharf = entity("alarm.haus", "alarm", "Alarmanlage", state="scharf")
     assert karten_alarm([scharf], jetzt_s=1000.0) == []
+
+
+def test_bei_rauch_liegt_eine_brandkarte_und_keine_alarmkarte():
+    """Punkt 604: Die Brandmeldeanlage ist eine «alarm»-Entität - und
+    bekam bei Rauch die Karte «Alarmanlage · Alarm ausgelöst!», die zur
+    Einbruchanlage führte."""
+    anlage = SimpleNamespace(
+        id="brand.anlage",
+        kind="alarm",
+        label="Brandmeldeanlage",
+        integration="brand",
+        state={"state": "ausgeloest", "alarm": ["z2m.rauch_flur", "z2m.rauch_kueche"]},
+    )
+    flur = SimpleNamespace(
+        id="z2m.rauch_flur", kind="binary_sensor", label="Rauchmelder Flur",
+        room="Flur", state={"state": "on", "device_class": "smoke"},
+    )
+    kueche = SimpleNamespace(
+        id="z2m.rauch_kueche", kind="binary_sensor", label="Rauchmelder Küche",
+        room=None, state={"state": "on", "device_class": "smoke"},
+    )
+    einbruch = entity("alarm.haus", "alarm", "Alarmanlage", state="unscharf")
+    alle = [anlage, flur, kueche, einbruch]
+
+    assert karten_alarm(alle, jetzt_s=1000.0) == []
+    karten = karten_brand(alle)
+    assert [k["art"] for k in karten] == ["brand:brand.anlage"]
+    state = karten[0]["state"]
+    assert state["titel"] == "Rauch"
+    # Raum vor Gerätename - und ohne Raum der Name.
+    assert state["text"] == "Flur · Rauchmelder Küche"
+    assert state["farbe"] == "rot"
+    assert state["url"] == "homepilot://brand"
+    # Nur «Stumm» - Quittieren gehört nicht auf den Sperrbildschirm.
+    assert [k["pfad"] for k in state["knoepfe"]] == ["/api/brand/stumm"]
+
+    # Bereit: keine Karte. Quittiert: die Karte bleibt und sagt, wer.
+    anlage.state = {"state": "bereit", "alarm": []}
+    assert karten_brand(alle) == []
+    anlage.state = {
+        "state": "quittiert", "alarm": ["z2m.rauch_flur"], "acknowledged_by": "Livia",
+    }
+    assert karten_brand(alle)[0]["state"]["text"] == "Flur · quittiert von Livia"
+
+
+def test_ein_gasmelder_heisst_gas():
+    anlage = SimpleNamespace(
+        id="brand.anlage", kind="alarm", label="Brand", integration="brand",
+        state={"state": "ausgeloest", "alarm": ["z2m.gas"]},
+    )
+    gas = SimpleNamespace(
+        id="z2m.gas", kind="binary_sensor", label="Gasmelder", room="Keller",
+        state={"state": "on", "device_class": "gas"},
+    )
+    assert karten_brand([anlage, gas])[0]["state"]["titel"] == "Gas"
+    rauch = SimpleNamespace(
+        id="z2m.rauch", kind="binary_sensor", label="Rauchmelder", room="Küche",
+        state={"state": "on", "device_class": "smoke"},
+    )
+    anlage.state = {"state": "ausgeloest", "alarm": ["z2m.gas", "z2m.rauch"]}
+    assert karten_brand([anlage, gas, rauch])[0]["state"]["titel"] == "Rauch und Gas"
+    # Die Einbruchanlage (ohne integration «brand») bleibt bei karten_alarm.
+    assert karten_brand([entity("alarm.haus", "alarm", "Alarm", state="ausgeloest")]) == []
 
 
 def test_abgleich_startet_aktualisiert_und_beendet():
