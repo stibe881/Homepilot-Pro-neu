@@ -7676,3 +7676,29 @@ Keine Browser-Probe: Der Demo-Hub hat keinen Sauger. Beide Hälften sind
 in Tests festgehalten.
 
 Stellen: `hub/homepilot/core/watchrules.py`, `hub/homepilot/integrations/roborock.py`, `app/src/lib/saugerkarte.ts`, `app/src/components/VacuumHome.tsx`
+
+### 639. Das Stations-Fenster spricht Deutsch ✓ erledigt
+
+Aus dem Haus, mit dem Bild des Fensters «Ladestation»: «Hier stehen
+Texte noch auf Englisch und mit Underline.» Zu sehen war
+`waste_water_tank_full` in Rot, `shell_3s_dock`, eine Zeile
+`dirty_water: full_not_installed`, dazu Waschgang, Trocknung und
+Entleerung als nackte 0 und 1 - und unten ein leerer Knopf.
+
+Die Zeilen kommen jetzt aus einer reinen Funktion
+(`stationszeilen`): Störungen stehen als die Sätze des Hubs (Punkt
+637, dieselben wie in der Push-Nachricht), rot, und die Störfelder
+erscheinen nicht nochmals roh darunter - der volle Schmutzwassertank
+stand vorher zweimal da, einmal als Störung der Station und einmal als
+Tankstand. Die Betriebswerte sind übersetzt: Waschgang «Keiner» oder
+«Phase n», Trocknung und Staubentleerung «Aus» oder «Läuft», die
+automatische Entleerung «Aus» oder «Ein». Der Stationstyp wird aus dem
+Bezeichner der Bibliothek zum Modellnamen («Shell 3S»); die Bauarten
+mit deutschem Namen behalten ihn.
+
+Der leere Knopf unten war «Schliessen» mit `flex: 1` - in der Zeile
+neben «Starten» richtig, allein in der Spalte des Fensters schrumpfte
+er auf einen leeren Rahmen, sobald das Fenster höher war als der
+Bildschirm. Das Wartungs-Fenster hatte denselben Knopf.
+
+Stellen: `app/src/lib/saugerkarte.ts`, `app/src/components/VacuumHome.tsx`

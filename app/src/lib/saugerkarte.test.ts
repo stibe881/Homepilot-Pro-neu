@@ -16,6 +16,9 @@ import {
   saugerFaehrt,
   saugerknoepfe,
   saugerprobleme,
+  stationstyp,
+  stationswert,
+  stationszeilen,
   vacuumText,
   zustandLesbar,
   zustandWort,
@@ -200,5 +203,64 @@ describe('Der Fehler auf dem Reinigungsblatt (Punkt 637)', () => {
         state: { state: 'error', error: 'robot_trapped', dock: { dirty_water: 'full_not_installed' } },
       })
     ).toEqual(['Der Sauger meldet: robot trapped.', 'Der Sauger meldet: full not installed.']);
+  });
+});
+
+describe('Das Stations-Fenster spricht Deutsch (Punkt 639)', () => {
+  // Der Stand aus dem Haus: voller Schmutzwassertank, zweimal gemeldet,
+  // dazu die Betriebswerte als nackte Zahlen und der Typ als Schlüssel.
+  const olga = {
+    state: {
+      state: 'docked',
+      battery: 96,
+      problems: ['Der Schmutzwassertank ist voll.'],
+      dock: {
+        error: 'waste_water_tank_full',
+        type: 'shell_3s_dock',
+        wash_phase: 0,
+        drying: 0,
+        dust_collection: 0,
+        auto_empty: 1,
+        dirty_water: 'full_not_installed',
+      },
+    },
+  };
+
+  it('zeigt die Störung als Satz des Hubs und die Störfelder nicht nochmals roh', () => {
+    const zeilen = stationszeilen(olga);
+    expect(zeilen.map((zeile) => [zeile.label, zeile.wert])).toEqual([
+      ['Akku', '96 %'],
+      ['Störung', 'Der Schmutzwassertank ist voll.'],
+      ['Stationstyp', 'Shell 3S'],
+      ['Waschgang', 'Keiner'],
+      ['Trocknung', 'Aus'],
+      ['Staubentleerung', 'Aus'],
+      ['Automatische Entleerung', 'Ein'],
+    ]);
+    expect(zeilen.filter((zeile) => zeile.stoerung).length).toBe(1);
+    const text = JSON.stringify(zeilen);
+    expect(text).not.toContain('_');
+    expect(text).not.toContain('dirty_water');
+  });
+
+  it('macht aus dem Bezeichner der Bauart einen Namen', () => {
+    expect(stationstyp('shell_3s_dock')).toBe('Shell 3S');
+    expect(stationstyp('o3_plus_dock')).toBe('O3 Plus');
+    expect(stationstyp('empty_wash_fill_dry_dock')).toBe('Absaugen, Waschen, Trocknen');
+    expect(stationstyp('unknown')).toBe('Unbekannt');
+  });
+
+  it('übersetzt die Zahlen der Betriebswerte', () => {
+    expect(stationswert('wash_phase', 2)).toBe('Phase 2');
+    expect(stationswert('drying', 1)).toBe('Läuft');
+    expect(stationswert('auto_empty', 0)).toBe('Aus');
+    // Unbekanntes bleibt, wie es kommt - lieber roh als weg.
+    expect(stationswert('irgendwas', 'x')).toBe('x');
+  });
+
+  it('kommt ohne Station aus', () => {
+    expect(stationszeilen({ state: { state: 'cleaning', battery: 40 } })).toEqual([
+      { label: 'Akku', wert: '40 %', stoerung: false },
+    ]);
   });
 });

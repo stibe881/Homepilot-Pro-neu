@@ -23,6 +23,7 @@ import {
   saugerFaehrt,
   saugerknoepfe,
   saugerprobleme,
+  stationszeilen,
   vacuumText,
 } from '../lib/saugerkarte';
 import { Colors, radius, type, useColors } from '../theme';
@@ -726,24 +727,6 @@ function CleanDialog({
 }
 
 
-/** Übersetzungen für die Stations-Angaben – Unbekanntes erscheint roh,
- *  besser als gar nicht. */
-const DOCK_LABELS: Record<string, string> = {
-  error: 'Störung',
-  type: 'Stationstyp',
-  wash_phase: 'Waschgang',
-  drying: 'Trocknung',
-  dust_collection: 'Staubentleerung',
-  auto_empty: 'Automatische Entleerung',
-};
-
-const DOCK_VALUE_LABELS: Record<string, string> = {
-  empty_wash_fill_dry_dock: 'Absaugen, Waschen, Trocknen',
-  auto_empty_dock: 'Absaug-Station',
-  wash_fill_dock: 'Waschstation',
-  no_dock: 'Einfache Ladestation',
-};
-
 /** Ladestation: was sie meldet, und was sie auf Zuruf tut. */
 function StationDialog({
   visible,
@@ -758,7 +741,10 @@ function StationDialog({
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const dock = (entity.state.dock ?? {}) as Record<string, unknown>;
+  // Die Zeilen kommen fertig aus lib/saugerkarte.ts (Punkt 639): Die
+  // Störungen als Sätze des Hubs, die Betriebswerte übersetzt - hier
+  // stand vorher «waste_water_tank_full» in Rot.
+  const zeilen = stationszeilen(entity);
   const run = (command: string) => {
     onCommand(entity.id, command);
     onClose();
@@ -778,24 +764,18 @@ function StationDialog({
         <Pressable style={styles.sheet} onPress={() => {}}>
           <Text style={styles.sheetTitle}>Ladestation</Text>
           <View style={{ gap: 6 }}>
-            {entity.state.battery != null ? (
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Akku</Text>
-                <Text style={styles.infoValue}>{entity.state.battery} %</Text>
-              </View>
-            ) : null}
-            {Object.entries(dock).map(([key, value]) => (
-              <View key={key} style={styles.infoRow}>
-                <Text style={styles.infoLabel}>{DOCK_LABELS[key] ?? key}</Text>
+            {zeilen.map((zeile, index) => (
+              <View key={`${zeile.label}-${index}`} style={styles.infoRow}>
+                <Text style={styles.infoLabel}>{zeile.label}</Text>
                 <Text
-                  style={[styles.infoValue, key === 'error' && { color: colors.danger }]}
-                  numberOfLines={1}
+                  style={[styles.infoValue, zeile.stoerung && { color: colors.danger }]}
+                  numberOfLines={zeile.stoerung ? 3 : 1}
                 >
-                  {DOCK_VALUE_LABELS[String(value)] ?? String(value)}
+                  {zeile.wert}
                 </Text>
               </View>
             ))}
-            {Object.keys(dock).length === 0 ? (
+            {zeilen.length <= 1 ? (
               <Text style={styles.dialogHint}>
                 Die Station meldet gerade keine weiteren Angaben.
               </Text>
@@ -814,7 +794,7 @@ function StationDialog({
               </Pressable>
             ))}
           </View>
-          <Pressable onPress={onClose} style={styles.cancel}>
+          <Pressable onPress={onClose} style={styles.schliessen}>
             <Text style={styles.cancelText}>Schliessen</Text>
           </Pressable>
         </Pressable>
@@ -910,7 +890,7 @@ function CareDialog({
             Zurücksetzen nach dem Tausch bzw. der Reinigung des Teils – der
             Zähler beginnt dann wieder bei 100 %.
           </Text>
-          <Pressable onPress={onClose} style={styles.cancel}>
+          <Pressable onPress={onClose} style={styles.schliessen}>
             <Text style={styles.cancelText}>Schliessen</Text>
           </Pressable>
         </Pressable>
@@ -1068,6 +1048,17 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     cancelText: { color: colors.inkSoft, fontSize: 15, fontWeight: '700' },
+    // Wie `cancel`, aber ohne flex: 1 - der steht in einer Zeile neben
+    // «Starten» und teilt sich die Breite. Allein in der Spalte des
+    // Stations-Fensters liess flex: 1 den Knopf auf einen leeren Rahmen
+    // zusammenschrumpfen, sobald das Fenster höher war als der Bildschirm.
+    schliessen: {
+      alignItems: 'center',
+      paddingVertical: 12,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
     confirm: {
       flex: 2,
       flexDirection: 'row',

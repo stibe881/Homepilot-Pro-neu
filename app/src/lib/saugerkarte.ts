@@ -112,6 +112,103 @@ export function saugerprobleme(sauger: { state: Record<string, unknown> }): stri
   return roh.map((wert) => `Der Sauger meldet: ${wert.replace(/_/g, ' ')}.`);
 }
 
+/** Eine Zeile im Stations-Fenster (Punkt 639). */
+export interface Stationszeile {
+  label: string;
+  wert: string;
+  /** Rot: eine Störung, kein Betriebswert. */
+  stoerung: boolean;
+}
+
+/** Die Felder der Station, die Störungen tragen - sie stehen nicht als
+ *  rohe Werte im Fenster, sondern als die Sätze des Hubs (`problems`). */
+const STATION_STOERFELDER = ['error', 'dirty_water', 'clear_water', 'dust_bag', 'water_shortage'];
+
+/** Was die Betriebsfelder der Station heissen. */
+const STATION_LABELS: Record<string, string> = {
+  type: 'Stationstyp',
+  wash_phase: 'Waschgang',
+  drying: 'Trocknung',
+  dust_collection: 'Staubentleerung',
+  auto_empty: 'Automatische Entleerung',
+};
+
+/** Die Bauarten, die einen sprechenden Namen haben; der Rest wird aus
+ *  dem Bezeichner der Bibliothek gelesen gemacht (stationstyp). */
+const STATION_TYPEN: Record<string, string> = {
+  empty_wash_fill_dry_dock: 'Absaugen, Waschen, Trocknen',
+  auto_empty_dock: 'Absaug-Station',
+  wash_fill_dock: 'Waschstation',
+  no_dock: 'Einfache Ladestation',
+  unknown: 'Unbekannt',
+};
+
+/**
+ * Der Stationstyp als Name statt Bezeichner (rein, testbar).
+ *
+ * «shell_3s_dock» ist der interne Name der Bibliothek für die Station
+ * des Saros - einen deutschen Namen gibt es dafür nicht, aber «Shell
+ * 3S» liest sich wie ein Modellname und nicht wie ein Schlüssel.
+ */
+export function stationstyp(roh: unknown): string {
+  const wert = String(roh ?? '').trim();
+  const bekannt = STATION_TYPEN[wert.toLowerCase()];
+  if (bekannt) return bekannt;
+  const teile = wert
+    .toLowerCase()
+    .split('_')
+    .filter((teil) => teil && teil !== 'dock');
+  if (teile.length === 0) return wert || '–';
+  return teile
+    .map((teil) => (/\d/.test(teil) ? teil.toUpperCase() : teil.charAt(0).toUpperCase() + teil.slice(1)))
+    .join(' ');
+}
+
+/** Ein Betriebswert der Station auf Deutsch (rein, testbar). */
+export function stationswert(feld: string, roh: unknown): string {
+  if (feld === 'type') return stationstyp(roh);
+  const zahl = typeof roh === 'number' ? roh : Number(roh);
+  if (Number.isNaN(zahl)) return String(roh ?? '–');
+  // Die Bibliothek liefert hier Zahlen ohne Namen: Waschgang 0 heisst
+  // «gerade keiner», Trocknung und Entleerung 0/1 heisst aus/läuft,
+  // und die automatische Entleerung ist eine Einstellung: aus/ein.
+  if (feld === 'wash_phase') return zahl === 0 ? 'Keiner' : `Phase ${zahl}`;
+  if (feld === 'auto_empty') return zahl === 0 ? 'Aus' : 'Ein';
+  if (feld === 'drying' || feld === 'dust_collection') return zahl === 0 ? 'Aus' : 'Läuft';
+  return String(roh);
+}
+
+/**
+ * Die Zeilen des Stations-Fensters (rein, testbar) - Punkt 639.
+ *
+ * Aus dem Haus: «Hier stehen Texte noch auf Englisch und mit
+ * Underline.» Störungen stehen jetzt als die Sätze des Hubs (dieselben
+ * wie in der Push-Nachricht, saugerprobleme), rot; die Betriebswerte
+ * übersetzt; und die Störfelder erscheinen nicht nochmals roh darunter.
+ * Unbekannte Felder bleiben lesbar gemacht stehen - lieber ein
+ * englisches Wort als ein verschlucktes.
+ */
+export function stationszeilen(sauger: { state: Record<string, unknown> }): Stationszeile[] {
+  const zeilen: Stationszeile[] = [];
+  const akku = sauger.state.battery;
+  if (akku != null) zeilen.push({ label: 'Akku', wert: `${akku} %`, stoerung: false });
+  for (const satz of saugerprobleme(sauger)) {
+    zeilen.push({ label: 'Störung', wert: satz, stoerung: true });
+  }
+  const dock = sauger.state.dock;
+  if (dock && typeof dock === 'object') {
+    for (const [feld, roh] of Object.entries(dock as Record<string, unknown>)) {
+      if (STATION_STOERFELDER.includes(feld)) continue;
+      zeilen.push({
+        label: STATION_LABELS[feld] ?? zustandLesbar(feld),
+        wert: stationswert(feld, roh),
+        stoerung: false,
+      });
+    }
+  }
+  return zeilen;
+}
+
 /** Ein Knopf auf dem Reinigungsblatt (Punkt 636). */
 export interface Saugerknopf {
   command: 'pause' | 'start' | 'locate' | 'dock';
