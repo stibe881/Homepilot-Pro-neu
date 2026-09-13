@@ -40,6 +40,7 @@ from __future__ import annotations
 import asyncio
 import json
 import ssl
+import time
 from typing import Any
 
 import aiomqtt
@@ -724,6 +725,71 @@ def set_nutzlast(
     raise ConfigError(f"Zigbee2MQTT kennt das Kommando '{command}' nicht")
 
 
+#: So lange steht das Netz für neue Geräte offen, wenn die App nichts
+#: anderes sagt. Vier Minuten: genug, um zum Sensor zu laufen und die
+#: Anlerntaste zu drücken - und kurz genug, dass ein vergessenes «offen»
+#: nicht den ganzen Abend ein Netz ohne Türsteher hinterlässt.
+ANLERN_MINUTEN = 4
+
+
+def anlern_ereignis(payload: Any) -> dict[str, Any] | None:
+    """Was `bridge/event` über ein neues Gerät sagt (rein, testbar).
+
+    Punkt 632 der Werkbank. Zigbee2MQTT meldet den Weg eines Geräts ins
+    Netz in Schritten: `device_joined` (es klopft an), `device_interview`
+    mit `status: started` (Zigbee2MQTT fragt es aus), dann `successful`
+    oder `failed`. Interessant für die App sind Anklopfen und Ausgang -
+    «Aqara Türkontakt gefunden» ist erst der erfolgreiche Interview,
+    vorher gibt es noch keinen Namen für das, was da kommt.
+    """
+    if not isinstance(payload, dict):
+        return None
+    art = str(payload.get("type") or "")
+    daten = payload.get("data") or {}
+    if not isinstance(daten, dict):
+        return None
+    name = str(daten.get("friendly_name") or daten.get("ieee_address") or "").strip()
+    if not name:
+        return None
+    if art == "device_joined":
+        return {"name": name, "model": "", "status": "joined"}
+    if art == "device_interview":
+        status = str(daten.get("status") or "")
+        if status not in ("successful", "failed"):
+            return None
+        definition = daten.get("definition") or {}
+        model = ""
+        if isinstance(definition, dict):
+            model = str(
+                definition.get("description") or definition.get("model") or ""
+            ).strip()
+        if status == "successful" and daten.get("supported") is False:
+            status = "unsupported"
+        return {"name": name, "model": model, "status": status}
+    return None
+
+
+def permit_join_rest(info: Any, now: float) -> float | None:
+    """Wie lange das Netz laut `bridge/info` noch offen ist (rein, testbar).
+
+    Zwei Fassungen von Zigbee2MQTT, zwei Felder: Die 2.x nennt das Ende
+    als Zeitpunkt (`permit_join_end`, Millisekunden), die 1.x die
+    Restdauer (`permit_join_timeout`, Sekunden). None heisst: die
+    Meldung sagt nichts darüber - dann bleibt es beim eigenen Zähler.
+    """
+    if not isinstance(info, dict) or "permit_join" not in info:
+        return None
+    if not info.get("permit_join"):
+        return 0.0
+    ende = info.get("permit_join_end")
+    if isinstance(ende, (int, float)) and not isinstance(ende, bool):
+        return max(0.0, float(ende) / 1000 - now)
+    rest = info.get("permit_join_timeout")
+    if isinstance(rest, (int, float)) and not isinstance(rest, bool):
+        return max(0.0, float(rest))
+    return None
+
+
 def ist_erreichbar(payload: str) -> bool | None:
     """Die Erreichbarkeitsmeldung lesen (rein, testbar).
 
@@ -778,6 +844,10 @@ class Zigbee2MqttIntegration(Integration):
         # Die stellbaren Einstellungen je Entität (Punkt 631) - die Liste
         # aus den Exposes, mit den zuletzt gemeldeten Werten.
         self._optionen: dict[str, list[dict[str, Any]]] = {}
+        # Anlernen (Punkt 632): bis wann das Netz offen ist, und was
+        # seither angeklopft hat - für die Verbindungen-Seite der App.
+        self._anlernen_bis: float | None = None
+        self._gefunden: list[dict[str, Any]] = []
 
         self.start_task(self._connection_loop())
 
@@ -808,6 +878,10 @@ class Zigbee2MqttIntegration(Integration):
                     # «retained» - sie ist sofort da, ohne dass jemand
                     # Zigbee2MQTT neu starten muss.
                     await client.subscribe(f"{self._base}/bridge/devices")
+                    # Fürs Anlernen (Punkt 632): Wer anklopft, und wie
+                    # lange das Netz noch offen ist.
+                    await client.subscribe(f"{self._base}/bridge/event")
+                    await client.subscribe(f"{self._base}/bridge/info")
                     await client.subscribe(f"{self._base}/+")
                     await client.subscribe(f"{self._base}/+/availability")
                     async for message in client.messages:
@@ -836,6 +910,9 @@ class Zigbee2MqttIntegration(Integration):
             return
         if rest == "bridge/devices":
             await self._liste_uebernehmen(payload)
+            return
+        if rest in ("bridge/event", "bridge/info"):
+            self._anlern_meldung(rest, payload)
             return
         if rest.startswith("bridge/"):
             return
@@ -959,6 +1036,68 @@ class Zigbee2MqttIntegration(Integration):
             await client.publish(f"{self._base}/{name}/get", json.dumps(felder))
         except Exception as err:
             self.log.debug("Abfrage an %s nicht möglich: %s", name, err)
+
+    # ── Anlernen (Punkt 632 der Werkbank) ─────────────────────────────────
+
+    def _anlern_meldung(self, rest: str, payload: str) -> None:
+        """`bridge/event` und `bridge/info` fürs Anlernen auswerten.
+
+        Der eigene Zähler (`_anlernen_bis`) ist die Vorgabe; was
+        Zigbee2MQTT in `bridge/info` über das Ende sagt, sticht - etwa
+        wenn jemand das Netz an der Z2M-Oberfläche geöffnet hat, die
+        App das aber genauso sehen soll.
+        """
+        try:
+            daten = json.loads(payload)
+        except ValueError:
+            return
+        if rest == "bridge/info":
+            rest_sekunden = permit_join_rest(daten, time.time())
+            if rest_sekunden is not None:
+                self._anlernen_bis = time.time() + rest_sekunden if rest_sekunden > 0 else None
+            return
+        ereignis = anlern_ereignis(daten)
+        if ereignis is None:
+            return
+        ereignis["at"] = time.time()
+        # Je Gerät nur der jüngste Stand: erst «klopft an», dann
+        # «gefunden» - nicht beides untereinander.
+        self._gefunden = [e for e in self._gefunden if e["name"] != ereignis["name"]]
+        self._gefunden.append(ereignis)
+        self._gefunden = self._gefunden[-20:]
+        if ereignis["status"] == "successful":
+            self.log.info("Zigbee: %s gefunden (%s)", ereignis["name"], ereignis["model"] or "?")
+
+    async def anlernen_starten(self, minuten: float) -> dict[str, Any]:
+        """Das Netz für neue Geräte öffnen - oder mit 0 wieder schliessen.
+
+        Über `bridge/request/permit_join`, mit `value` (Zigbee2MQTT 1.x)
+        und `time` (1.x und 2.x) zugleich: Beide Fassungen lesen, was sie
+        kennen, und ignorieren den Rest.
+        """
+        client = self._client
+        if client is None:
+            raise ConnectionError("Keine Verbindung zum Broker")
+        sekunden = int(max(0.0, min(254.0 * 60, minuten * 60)))
+        offen = sekunden > 0
+        await client.publish(
+            f"{self._base}/bridge/request/permit_join",
+            json.dumps({"value": offen, "time": sekunden} if offen else {"value": False, "time": 0}),
+        )
+        self._anlernen_bis = time.time() + sekunden if offen else None
+        if offen:
+            self._gefunden = []
+        return self.anlernen_stand()
+
+    def anlernen_stand(self) -> dict[str, Any]:
+        """Für die App: ob das Netz offen ist, wie lange noch, und wer kam."""
+        rest = max(0.0, (self._anlernen_bis or 0.0) - time.time())
+        return {
+            "offen": rest > 0,
+            "rest": round(rest),
+            "gefunden": list(self._gefunden),
+            "verbunden": self._client is not None,
+        }
 
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
         client = self._client

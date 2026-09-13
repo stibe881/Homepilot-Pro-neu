@@ -67,7 +67,11 @@ hört man das ganze Zigbee-Netz mit.
 4. Stack ausrollen. Die Weboberfläche von Zigbee2MQTT steht danach auf
    Port **8099**.
 5. Dort «Permit join» für ein paar Minuten öffnen und die Geräte
-   anlernen - und **gleich benennen**, siehe unten.
+   anlernen - und **gleich benennen**, siehe unten. Seit Punkt 632 geht
+   das auch aus der App: Einstellungen → Verbindungen → «Gerät
+   hinzufügen» öffnet das Netz für vier Minuten, zählt herunter und
+   sagt «Aqara Türkontakt gefunden», sobald Zigbee2MQTT das Gerät
+   ausgefragt hat (`bridge/request/permit_join`, `bridge/event`).
 6. Im Hub die Integration eintragen (nächster Abschnitt) und neu starten.
 
 ## Was der Hub braucht

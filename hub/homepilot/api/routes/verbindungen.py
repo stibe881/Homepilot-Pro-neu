@@ -22,6 +22,7 @@ from typing import Any
 import aiohttp
 import yaml
 from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel
 
 from ...core import config_edit, tokenstore, verbindungen
 from ...core.config import SECRETS_FILE, ConfigError, expand_env, read_secrets
@@ -31,6 +32,39 @@ from ...integrations import spotify as spotify_module
 from .. import configio
 from ..context import ApiContext
 from ..models import AnmeldungRequest, VerbindungRequest
+
+
+class AnlernenRequest(BaseModel):
+    """Das Zigbee-Netz für so viele Minuten öffnen; 0 schliesst es wieder.
+
+    Die Vorgabe ist dieselbe wie ANLERN_MINUTEN in integrations/zigbee2mqtt.py
+    - hier als Zahl, damit die Routen die Integration nicht laden müssen.
+    """
+
+    minuten: float = 4
+
+
+class KoppelnRequest(BaseModel):
+    """Der Matter-Code - «MT:…» vom QR-Aufkleber oder die elf Ziffern."""
+
+    code: str
+
+
+def matter_code_sauber(code: str) -> str | None:
+    """Der Kopplungscode, wie der Matter-Dienst ihn nimmt (rein, testbar).
+
+    Zwei Schreibweisen gibt es: den QR-Inhalt («MT:Y.K90-Q…», so gelesen
+    vom Scanner) und den elfstelligen Zahlencode von der Verpackung, oft
+    mit Bindestrichen («3497-011-2332»). Alles andere ist ein Tippfehler
+    und wird abgewiesen, bevor der Dienst dreissig Sekunden lang sucht.
+    """
+    text = str(code or "").strip()
+    if text.upper().startswith("MT:"):
+        return "MT:" + text[3:].strip() if len(text) > 3 else None
+    ziffern = "".join(zeichen for zeichen in text if zeichen.isdigit())
+    if ziffern and len(ziffern) in (11, 21) and ziffern == text.replace("-", "").replace(" ", ""):
+        return ziffern
+    return None
 
 log = logging.getLogger(__name__)
 
@@ -552,3 +586,83 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         # Die Integration liest die Datei nur beim Start - erst der
         # Neustart macht aus der Anmeldung eine Verbindung.
         return {"ok": True, "angemeldet": True, "restart_required": True}
+
+    # ── Geräte anlernen (Punkt 632 der Werkbank) ──────────────────────────
+    #
+    # Zigbee: «Permit join» gab es nur an der Zigbee2MQTT-Oberfläche,
+    # Matter: `pair(code)` nur an der Kommandozeile des Hub-Rechners. Beides
+    # gehört dorthin, wo Einrichten zuhause ist - neben die
+    # Fernseher-Kopplung unter Einstellungen → Verbindungen. Das gefundene
+    # Gerät landet ohne Raum in der Geräteliste und damit von selbst in
+    # der Einrichtungshilfe.
+
+    def _anlern_stand() -> dict[str, Any]:
+        zigbee = hub.integrations.get("zigbee2mqtt")
+        matter = hub.integrations.get("matter")
+        return {
+            "zigbee": zigbee.anlernen_stand() if zigbee is not None else None,
+            "matter": (
+                {"verbunden": getattr(matter, "_ws", None) is not None}
+                if matter is not None
+                else None
+            ),
+        }
+
+    @app.get("/api/verbindungen/anlernen")
+    async def get_anlernen(request: Request) -> dict[str, Any]:
+        """Was sich anlernen lässt - und ob gerade ein Netz offen ist."""
+        require(request, Capability.EDIT_CONFIG)
+        return _anlern_stand()
+
+    @app.post("/api/verbindungen/zigbee/anlernen")
+    async def post_zigbee_anlernen(body: AnlernenRequest, request: Request) -> dict[str, Any]:
+        """Das Zigbee-Netz öffnen (minuten > 0) oder schliessen (0)."""
+        user = require(request, Capability.EDIT_CONFIG)
+        zigbee = hub.integrations.get("zigbee2mqtt")
+        if zigbee is None:
+            raise HTTPException(status_code=404, detail="Zigbee2MQTT ist nicht eingerichtet")
+        try:
+            stand = await zigbee.anlernen_starten(body.minuten)
+        except ConnectionError as err:
+            # 503, nicht 500: Der Broker ist weg - kein Fehler des Hubs.
+            raise HTTPException(status_code=503, detail=str(err)) from err
+        if body.minuten > 0:
+            hub.aenderungen.merken(
+                user, "verbindung", f"Zigbee: Netz für {body.minuten:g} Minuten geöffnet"
+            )
+        return stand
+
+    @app.post("/api/verbindungen/matter/koppeln")
+    async def post_matter_koppeln(body: KoppelnRequest, request: Request) -> dict[str, Any]:
+        """Ein Matter-Gerät mit seinem Code in die Fabric aufnehmen."""
+        user = require(request, Capability.EDIT_CONFIG)
+        matter = hub.integrations.get("matter")
+        if matter is None:
+            raise HTTPException(status_code=404, detail="Matter ist nicht eingerichtet")
+        code = matter_code_sauber(body.code)
+        if code is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Das ist kein Matter-Code. Erwartet wird der QR-Inhalt "
+                    "(«MT:…») oder der elfstellige Zahlencode von der Verpackung."
+                ),
+            )
+        try:
+            ergebnis = await matter.pair(code)
+        except ConnectionError as err:
+            raise HTTPException(status_code=503, detail=str(err)) from err
+        except Exception as err:
+            # Der Code selbst gehört in keine Meldung - er ist ein
+            # Geheimnis auf Zeit (integrations/matter.py, pair).
+            raise HTTPException(
+                status_code=502,
+                detail=f"Der Matter-Dienst konnte das Gerät nicht aufnehmen: {err}",
+            ) from err
+        geraete = ergebnis.get("geraete") or []
+        hub.aenderungen.merken(
+            user,
+            "verbindung",
+            "Matter: " + (", ".join(geraete) if geraete else f"Knoten {ergebnis.get('node_id')}") + " aufgenommen",
+        )
+        return {"ok": True, **ergebnis}
