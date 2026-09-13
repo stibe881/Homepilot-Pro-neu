@@ -1122,8 +1122,9 @@ export interface Draft {
   /** Was stattdessen läuft, wenn die Bedingungen nicht passen. */
   elseSteps: StepDraft[];
   /** Was geschieht, wenn er noch läuft und erneut ausgelöst wird:
-   *  «single» verwirft den zweiten Auslöser, «restart» beginnt von vorn. */
-  mode: 'single' | 'restart';
+   *  «single» verwirft den zweiten Auslöser, «restart» beginnt von vorn,
+   *  «queued» reiht ihn an (Punkt 77). */
+  mode: AblaufModus;
   /** Frühestens wieder nach so vielen Minuten. Leer = kein Abstand. */
   cooldownMinutes: string;
   /** Frei benannte Kategorie zum Gruppieren in der Liste. */
@@ -1443,6 +1444,18 @@ export function schaltetSpaeterAus(steps: SchrittBaum[]): boolean {
     .some((step) =>
       (step.commandActions ?? []).some((aktion) => aktion.command === 'turn_off')
     );
+}
+
+/** Die drei Wiederanlauf-Arten des Hubs (``MODES`` in core/automation.py). */
+export type AblaufModus = 'single' | 'restart' | 'queued';
+
+/** Der Modus, wie der Hub ihn kennt - Unbekanntes wird «single» (rein, testbar).
+ *
+ *  Fehler aus der Runde 579 der Werkbank: Hier stand «restart oder single»,
+ *  und ein Ablauf aus der config.yaml mit «der Reihe nach» (77) verlor den
+ *  Modus beim ersten Speichern in der App - ohne Hinweis. */
+export function ablaufModus(mode: string | undefined): AblaufModus {
+  return mode === 'restart' || mode === 'queued' ? mode : 'single';
 }
 
 export function hatWartezeit(steps: SchrittBaum[]): boolean {
@@ -2472,7 +2485,7 @@ export function toDraft(automation: Automation): Draft {
     exceptSchoolHolidays: condition.except_school_holidays === true,
     steps: withAtLeastOne(actionsToSteps(automation.actions ?? [])),
     elseSteps: actionsToSteps(automation.otherwise ?? []),
-    mode: automation.mode === 'restart' ? 'restart' : 'single',
+    mode: ablaufModus(automation.mode),
     cooldownMinutes: automation.cooldown
       ? String(Math.round(automation.cooldown / 60))
       : '',

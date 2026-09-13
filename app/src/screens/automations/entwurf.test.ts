@@ -200,6 +200,15 @@ describe('Und/Oder-Gruppen (Punkt 152)', () => {
     expect(draft.extraConditions).toEqual([]);
   });
 
+  it('behält «der Reihe nach» - der Modus ging beim Speichern verloren', () => {
+    // Fehler aus der Runde 579 der Werkbank: Ein Ablauf aus der
+    // config.yaml mit mode: queued (77) wurde in der App zu «single».
+    expect(toDraft({ ...basis, mode: 'queued' }).mode).toBe('queued');
+    expect(toDraft({ ...basis, mode: 'restart' }).mode).toBe('restart');
+    expect(toDraft({ ...basis, mode: 'unsinn' }).mode).toBe('single');
+    expect(toDraft(basis).mode).toBe('single');
+  });
+
   it('zu tief Geschachteltes bleibt unangetastet erhalten', () => {
     const tief = {
       type: 'group',

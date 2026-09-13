@@ -27,7 +27,7 @@ import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, KontextArt, KontextC
   dannStand,
   feinStand,
   wennFehlt,
-  wennStand, conditionOptions, fittingState, hatWartezeit, schaltetSpaeterAus, measurableAttributes, meldetEtwas, melderMitLux, newTrigger, normalisiereZeit, stepsToActions, triggerToConfig, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis, stundeAusText } from './entwurf';
+  wennStand, ablaufModus, conditionOptions, fittingState, hatWartezeit, schaltetSpaeterAus, measurableAttributes, meldetEtwas, melderMitLux, newTrigger, normalisiereZeit, stepsToActions, triggerToConfig, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis, stundeAusText } from './entwurf';
 import {
   Abschnitt,
   Spalten,
@@ -1245,14 +1245,17 @@ export function Editor({
                 options={[
                   { key: 'single', label: 'nichts tun' },
                   { key: 'restart', label: 'von vorn beginnen' },
+                  { key: 'queued', label: 'der Reihe nach' },
                 ]}
                 value={draft.mode}
-                onSelect={(mode) => set({ mode: mode as 'single' | 'restart' })}
+                onSelect={(mode) => set({ mode: ablaufModus(mode) })}
               />
               <Text style={styles.triggerNote}>
                 {draft.mode === 'restart'
                   ? 'Der laufende Durchgang wird abgebrochen und beginnt neu – die Wartezeit zählt also ab dem letzten Mal. Das ist der Nachlauf eines Treppenhauslichts: Bewegung schaltet ein, jede weitere Bewegung verlängert.'
-                  : 'Ein zweiter Auslöser wird verworfen, solange der Ablauf noch wartet. Richtig für alles, was einmal geschehen soll – eine Nachricht käme sonst doppelt.'}
+                  : draft.mode === 'queued'
+                    ? 'Der zweite Auslöser wartet, bis der erste Durchgang fertig ist, und läuft dann selbst – zweimal klingeln gibt zwei Nachrichten. Höchstens zwanzig stauen sich.'
+                    : 'Ein zweiter Auslöser wird verworfen, solange der Ablauf noch wartet. Richtig für alles, was einmal geschehen soll – eine Nachricht käme sonst doppelt.'}
               </Text>
             </>
           ) : null}
