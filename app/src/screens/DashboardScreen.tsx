@@ -1444,6 +1444,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         setAllOffSignal((n) => n + 1);
       } else if (what === 'alarm') {
         setSection('alarm');
+      } else if (what === 'brand') {
+        // Von der Brand-Live-Karte (Punkt 604 der Werkbank): in den
+        // Bereich der Brandmeldeanlage, nicht zur Einbruchanlage - die
+        // Karte sagte vorher «Alarmanlage» und sprang dorthin.
+        setSection('brand');
       } else if (what === 'raum' && id) {
         // Von der Live-Aktivität eines Geräts (Geschirrspüler → Küche,
         // Waschmaschine → Waschküche): in den Raum, in dem es steht.

@@ -25,6 +25,10 @@ const KARTEN: { key: string; label: string }[] = [
   { key: 'tv', label: 'Fernbedienung, solange der Fernseher läuft' },
   { key: 'erinnerung', label: 'Fällige Erinnerungen' },
   { key: 'alarm', label: 'Alarmanlage' },
+  // Punkt 604 der Werkbank: Feuer ist keine Betriebsart der
+  // Alarmanlage, sondern eine eigene Karte - und lässt sich eigens
+  // abbestellen.
+  { key: 'brand', label: 'Rauch- und Gasmelder' },
 ];
 
 export function LiveTuerSchalter({

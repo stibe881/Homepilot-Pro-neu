@@ -34,7 +34,7 @@ import time
 from typing import Any
 from urllib.parse import quote
 
-from . import grillmeldung, laufzeit, liveaktivitaet, presence
+from . import brandmelder, grillmeldung, laufzeit, liveaktivitaet, presence
 
 log = logging.getLogger(__name__)
 
@@ -885,10 +885,16 @@ def karten_alarm(entities: list[Any], jetzt_s: float) -> list[dict[str, Any]]:
     Kein Dauerzustand: «scharf» bekommt bewusst keine Karte - eine
     Live-Aktivität endet nach spätestens zwölf Stunden, und eine Nacht
     ist länger. Dafür gibt es das Widget.
+
+    Die Brandmeldeanlage ist auch eine Entität der Art «alarm», gehört
+    aber nicht hierher (Punkt 604 der Werkbank): Bei Rauch lag sonst
+    eine Karte «Alarmanlage · Alarm ausgelöst!», die zur Einbruchanlage
+    führte. Sie bekommt ihre eigene Karte (karten_brand) - dieselbe
+    Trennung, die die App längst macht (integration === 'brand').
     """
     karten = []
     for entity in entities:
-        if entity.kind != "alarm":
+        if entity.kind != "alarm" or ist_brandanlage(entity):
             continue
         zustand = str(entity.state.get("state") or "")
         if zustand == "scharfschaltend":
@@ -920,6 +926,113 @@ def karten_alarm(entities: list[Any], jetzt_s: float) -> list[dict[str, Any]]:
                     },
                 }
             )
+    return karten
+
+
+def ist_brandanlage(entity: Any) -> bool:
+    """Ist diese Alarm-Entität die Brandmeldeanlage? (rein, testbar)
+
+    Am Namen der Integration erkannt, wie in der App - die Anlage heisst
+    im Hub immer «brand» (integrations/brand.py), gleich, wie sie in der
+    config.yaml beschriftet ist.
+    """
+    return getattr(entity, "kind", None) == "alarm" and str(
+        getattr(entity, "integration", "") or ""
+    ) == "brand"
+
+
+def brand_titel(melder: list[Any]) -> str:
+    """«Rauch», «Gas» oder beides - nach dem, was anschlägt (rein, testbar).
+
+    Nicht «Brandmeldeanlage»: Wer nachts aufs Telefon schaut, will
+    wissen, *was* los ist, nicht, welche Anlage es meldet. Ohne
+    erkennbare Melder (die Liste ist leer, weil die Kennungen nicht mehr
+    zu finden sind) bleibt «Rauch» - das ist der häufige Fall, und ein
+    falsches Wort ist hier besser als gar keines.
+    """
+    klassen = {
+        str((getattr(entity, "state", None) or {}).get("device_class") or "")
+        for entity in melder
+    }
+    if "gas" in klassen and "smoke" not in klassen and not any(
+        getattr(entity, "kind", "") == "camera" for entity in melder
+    ):
+        return "Gas"
+    if "gas" in klassen:
+        return "Rauch und Gas"
+    return "Rauch"
+
+
+def brand_text(melder: list[Any], quittiert_von: str = "") -> str:
+    """Wo es anschlägt, Raum vor Gerätename (rein, testbar).
+
+    «Flur · Küche» statt «Rauchmelder Flur, Rauchmelder Küche»: Auf der
+    Karte ist Platz für eine Zeile, und der Raum ist das, wohin man
+    läuft. Ohne Raum bleibt der Gerätename - besser als eine leere
+    Zeile. Hat jemand quittiert, steht das dahinter: Dann weiss man,
+    dass sich schon jemand kümmert.
+    """
+    orte: list[str] = []
+    for entity in melder:
+        ort = str(getattr(entity, "room", None) or "") or str(
+            getattr(entity, "label", None) or ""
+        )
+        if ort and ort not in orte:
+            orte.append(ort)
+    text = " · ".join(orte) if orte else "Melder ausgelöst"
+    if quittiert_von:
+        text = f"{text} · quittiert von {quittiert_von}"
+    return text
+
+
+def karten_brand(entities: list[Any]) -> list[dict[str, Any]]:
+    """Die Brandmeldeanlage: eine rote Karte, solange ein Melder anschlägt.
+
+    Punkt 604 der Werkbank. Anders als die Einbruchanlage kennt sie
+    keinen Countdown und keine Betriebsart - es gibt nur «es brennt»
+    und «es brennt nicht». Die Karte liegt, solange die Anlage
+    «ausgeloest» oder «quittiert» meldet: Quittieren heisst «ich weiss
+    Bescheid», nicht «der Rauch ist weg» - und wer das Telefon vom
+    Nachttisch nimmt, soll sehen, dass ein anderer schon dran ist.
+
+    Ein Tipp führt in den Brand-Bereich der App (homepilot://brand); der
+    Knopf «Stumm» ruft /api/brand/stumm - harmlos im Sinne der
+    Sperrbildschirm-Regel (lib/mitteilungsknoepfe.ts): Er nimmt nur den
+    Sirenen den Ton, die Melder selbst bleiben scharf. Quittieren steht
+    bewusst nicht auf der Karte - das soll jemand tun, der die Lage
+    gesehen hat, nicht jemand, der im Halbschlaf auf einen Knopf
+    tippt.
+    """
+    karten = []
+    for entity in entities:
+        if not ist_brandanlage(entity):
+            continue
+        zustand = str(entity.state.get("state") or "")
+        if zustand not in (brandmelder.AUSGELOEST, brandmelder.QUITTIERT):
+            continue
+        kennungen = {str(k) for k in (entity.state.get("alarm") or [])}
+        melder = [kandidat for kandidat in entities if str(kandidat.id) in kennungen]
+        quittiert_von = (
+            str(entity.state.get("acknowledged_by") or "")
+            if zustand == brandmelder.QUITTIERT
+            else ""
+        )
+        karten.append(
+            {
+                "art": f"brand:{entity.id}",
+                "user": None,
+                "state": {
+                    "titel": brand_titel(melder),
+                    "text": brand_text(melder, quittiert_von),
+                    "symbol": "flame.fill",
+                    "farbe": "rot",
+                    "url": "homepilot://brand",
+                    "knoepfe": [
+                        {"symbol": "speaker.slash.fill", "pfad": "/api/brand/stumm", "body": ""}
+                    ],
+                },
+            }
+        )
     return karten
 
 
@@ -1232,6 +1345,7 @@ def _gewuenscht(hub: Any, jetzt_s: float, benutzer: list[str]) -> list[dict[str,
         ),
         *karten_erinnerungen(hub.data.get("family_reminders"), jetzt_s * 1000),
         *karten_alarm(entities, jetzt_s),
+        *karten_brand(entities),
     ]
 
 
