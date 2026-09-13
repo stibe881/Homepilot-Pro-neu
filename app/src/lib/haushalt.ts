@@ -32,7 +32,11 @@ export interface GeraeteZeile {
  */
 const RUHETEXT: Record<string, string> = {
   idle: 'Bereit',
-  off: 'Bereit',
+  // «Aus» heisst am Hauptschalter aus (Punkt 634): Der Hub setzt es,
+  // wenn ein V-ZUG-Gerät eine halbe Stunde lang nur noch 503 sagt.
+  // Vorher stand hier «Bereit» - aber bereit ist eine Maschine, in die
+  // man Wäsche tun kann, und die muss man erst einschalten.
+  off: 'Aus',
   // Gerät am Netz, Anzeige schläft. Auch das ist «Bereit» – so gewünscht
   // aus der Waschküche: «Standby» ist ein Wort aus dem Datenblatt an
   // einer Stelle, an der man wissen will, ob man Wäsche hineintun kann.

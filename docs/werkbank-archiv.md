@@ -5882,3 +5882,25 @@ als drei Minuten zurückliegt, ist kein Zeichen wert - auch dann nicht,
 wenn der Hub es einmal doch nicht aufräumt.
 
 Stellen: `hub/homepilot/integrations/unifi_protect.py`, `hub/tests/test_kameraerkennung.py`, `app/src/lib/bewegung.ts`
+
+### 634. Eine ausgeschaltete Waschmaschine ist kein Ausfall ✓ erledigt
+
+Aus dem Haus, mit Bild der Ausfallliste: «Diese Meldung ist falsch.
+Die Waschmaschine ist einfach momentan ausgeschaltet.» Dort stand:
+«10.10.1.209 meldet seit 952 Minuten ‹503 – bedient nicht›. Sonst
+dauert das Minuten, nicht Stunden: Gerät einmal stromlos machen.»
+
+Der 503 ist bei V-ZUG der Standby-Takt des eingebauten Webservers -
+Minuten, dann antwortet er wieder. Was länger als eine halbe Stunde nur
+503 sagt, galt darum als Ausfall. Der Fall aus der Waschküche ist ein
+anderer: Maschine am Hauptschalter aus, das Funkmodul antwortet weiter
+mit 503, stundenlang. Das ist kein Ausfall, das ist **aus**.
+
+Jetzt heisst das Gerät nach der halben Stunde «Aus», bleibt erreichbar
+(das Modul antwortet ja), trägt keine Störung und kein Programm von
+vorhin - und steht nicht in der Liste der Ausfälle. Ins Log kommt eine
+Zeile, keine Warnung. Antwortet es wieder, ist es «wieder
+eingeschaltet». Dieselbe Regel wie beim Grill (Punkt 571): Ein Gerät,
+das zwischen zwei Einsätzen nicht antwortet, ist ausgeschaltet.
+
+Stellen: `hub/homepilot/integrations/vzug.py`, `hub/tests/test_vzug_verbindung.py`, `app/src/lib/haushalt.ts`
