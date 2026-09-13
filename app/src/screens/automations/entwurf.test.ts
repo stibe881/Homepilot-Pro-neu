@@ -2205,6 +2205,10 @@ describe('Empfängergruppen', () => {
     expect(empfaengerLabel('gruppe:Eltern')).toBe('Eltern (Gruppe)');
     expect(empfaengerLabel('Stefan')).toBe('Stefan');
   });
+  it('nennt die beweglichen Ziele als Satz (Punkt 599)', () => {
+    expect(empfaengerLabel('anwesend')).toBe('Wer zuhause ist');
+    expect(empfaengerLabel('unterwegs')).toBe('Wer unterwegs ist');
+  });
 });
 // ── Der geführte Weg für einen neuen Ablauf ─────────────────────────────
 //

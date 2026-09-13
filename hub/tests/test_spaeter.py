@@ -22,7 +22,9 @@ def test_die_knoepfe_haengen_an_der_art_der_meldung():
     # absichtlich offen, und das soll sich direkt in der Mitteilung
     # sagen lassen.
     assert knoepfe("open") == "offen"
-    assert knoepfe("battery") == "erledigt"
+    # Seit Punkt 633 mit «Auf die Einkaufsliste» - Erledigt und Später
+    # stecken weiter darin.
+    assert knoepfe("battery") == "batterie"
     # Die volle Maschine bekommt einen eigenen Griff: «Ich mach's».
     assert knoepfe("appliance") == "waesche"
 

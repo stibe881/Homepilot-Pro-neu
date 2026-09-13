@@ -271,6 +271,28 @@ export function pauseBis(key: string, jetzt: Date): Date {
   return morgen;
 }
 
+/**
+ * Der Stand vom Hub gegen den eigenen (rein, testbar) - Punkt 627.
+ *
+ * Die Pause liegt seit Punkt 627 beim Hub, und damit kennt sie auch das
+ * zweite eigene Gerät: Wer am Telefon pausiert hat, soll am iPad nicht
+ * «Ortung läuft» lesen - und wer dort «Weiterlaufen lassen» drückt,
+ * soll das Telefon damit wieder wecken. Gibt zurück, was dieses Gerät
+ * tun soll: sich der Pause des Hubs anschliessen, sie beenden - oder
+ * nichts, weil beide dasselbe sagen.
+ */
+export function pauseAbgleich(
+  lokalBis: unknown,
+  hubBis: unknown,
+  jetzt: Date
+): 'pausieren' | 'weiter' | null {
+  const lokal = pausiert(lokalBis, jetzt);
+  const hub = pausiert(hubBis, jetzt);
+  if (hub && (!lokal || Number(hubBis) !== Number(lokalBis))) return 'pausieren';
+  if (lokal && !hub) return 'weiter';
+  return null;
+}
+
 /** Läuft eine Pause noch? (rein, testbar) */
 export function pausiert(bis: unknown, jetzt: Date): boolean {
   const zeit = Number(bis);

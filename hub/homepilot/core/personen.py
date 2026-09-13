@@ -17,6 +17,7 @@ nichts, worüber zu melden wäre.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from .users import Role
@@ -167,6 +168,13 @@ def aufenthalt(zustand: dict[str, Any]) -> str:
     «unterwegs», und genau dafür holt der Hub die Orte aus Life360.
     """
     state = str(zustand.get("state") or "")
+    if str(zustand.get("reason") or "") == "paused":
+        # Punkt 627: Eine Pause ist kein Ausfall - und sie hat ein Ende.
+        try:
+            bis = time.strftime("%H:%M", time.localtime(float(zustand.get("until") or 0)))
+        except (TypeError, ValueError, OverflowError, OSError):
+            return "Ortung pausiert"
+        return f"Ortung pausiert bis {bis}"
     if state == "unknown":
         return "unbekannt"
     if state == "home":

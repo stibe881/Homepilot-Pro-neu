@@ -54,6 +54,7 @@ BEISPIELE: dict[str, tuple[str, str]] = {
     "door": ("Haustüre aufgeschlossen", "Livia hat um 15:42 per Code aufgeschlossen."),
     "doorbell": ("Es klingelt", "Jemand steht an der Haustüre."),
     "baby_cry": ("Ein Baby weint", "Die Kamera im Kinderzimmer hört ein Kind."),
+    "package": ("Paket vor der Haustüre", "Die Kamera Haustüre sieht ein Paket."),
     "disk": ("Speicherplatz wird knapp", "Die Platte ist zu 87 % belegt."),
     "frost": ("Frost angekündigt", "Heute Nacht bis -1 °C - die Pflanzen auf dem Balkon."),
     "rain": ("Regen kommt", "In 30 Minuten Regen. Das Fenster im Bad steht offen."),
@@ -93,16 +94,14 @@ BEISPIELE: dict[str, tuple[str, str]] = {
     "weekahead": ("Die Woche voraus", "3 Termine, 2 Ämtli, 1 Geburtstag."),
     "vouchers": ("Gutschein läuft ab", "Der Gutschein von Ochsner Sport gilt noch 7 Tage."),
     "documents": ("Dokument läuft ab", "Pass Levin (Levin) läuft in 60 Tagen ab."),
+    "reminder": ("⏰ Erinnerung", "Zahnarzt anrufen"),
     "test": ("HomePilot Test", "Push-Benachrichtigungen funktionieren \U0001f389"),
 }
 
-#: Das Zeichen, an dem man einen Testversand erkennt.
-#:
-#: Ohne das läuft jemand los, weil «Wasser gemeldet» auf dem Telefon
-#: steht - der Text ist ja absichtlich derselbe wie im Ernstfall. Vorn,
-#: nicht hinten: Auf dem Sperrbildschirm wird der Titel abgeschnitten,
-#: und das Ende sieht niemand.
-PROBE = "Probe: "
+#: Das Zeichen, an dem man einen Testversand erkennt - definiert in
+#: ``push``, weil ``send`` es selbst braucht (die Probe zählt nicht auf
+#: den Tagesdeckel); hier bleibt es unter dem gewohnten Namen.
+PROBE = push.PROBE
 
 
 def beispiel(category: str | None) -> tuple[str, str] | None:

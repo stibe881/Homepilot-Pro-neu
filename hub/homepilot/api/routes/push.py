@@ -944,6 +944,9 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "roles": sorted(Role.ALL),
             # Gruppen als Ziel: to="gruppe:<Name>" (push.GRUPPE_PREFIX).
             "groups": sorted(hub.push.gruppen),
+            # Die beweglichen Ziele (Punkt 599): wer gerade zuhause ist,
+            # wer unterwegs - aufgelöst beim Senden über die Ortung.
+            "presence": list(push.ANWESENHEITS_ZIELE),
         }
 
     @app.post("/api/push/register")

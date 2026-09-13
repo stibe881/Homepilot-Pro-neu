@@ -137,6 +137,10 @@ def push_fehlertext(status: int, body: str) -> str:
 KNOEPFE_SPAETER = "spaeter"
 #: Erinnert später und lässt sich abhaken (Batterie, Wartung).
 KNOEPFE_ERLEDIGT = "erledigt"
+#: «Erledigt», «Auf die Einkaufsliste» und «Später» - für die Batterie
+#: (Punkt 633). Der Einkauf gehört dazu, weil die Meldung sagt, *welche*
+#: Batterie fehlt; im Laden ist die Frage sonst wieder offen.
+KNOEPFE_BATTERIE = "batterie"
 #: «Ich mach's» – die volle Maschine übernimmt jemand. Die Meldung geht
 #: an alle, und ohne dieses Zeichen geht danach entweder niemand
 #: hinunter (jeder nimmt an, ein anderer tue es) oder zwei gleichzeitig.
@@ -181,7 +185,7 @@ _KNOEPFE: dict[str, str] = {
     "appliance": KNOEPFE_WAESCHE,
     "shopping": KNOEPFE_SPAETER,
     "medication": KNOEPFE_SPAETER,
-    "battery": KNOEPFE_ERLEDIGT,
+    "battery": KNOEPFE_BATTERIE,
     # Nachsehen geht man, wenn man ohnehin unten ist.
     "device_down": KNOEPFE_SPAETER,
     "maintenance": KNOEPFE_SPAETER,
@@ -202,6 +206,10 @@ _KNOEPFE: dict[str, str] = {
     "packlist": KNOEPFE_SPAETER,
     "vouchers": KNOEPFE_SPAETER,
     "documents": KNOEPFE_SPAETER,
+    # Die selbst gestellte Erinnerung (Punkt 603): Ausgerechnet die
+    # Meldung, die jemand bewusst für sich gesetzt hat, liess sich am
+    # Sperrbildschirm nicht verschieben - die Wäsche-Mahnung schon.
+    "reminder": KNOEPFE_SPAETER,
 }
 
 
@@ -317,6 +325,55 @@ def dringlichkeit(
         "interruptionLevel": "time-sensitive",
     }
 
+# ── Verfall: wie lange eine Nachricht noch etwas wert ist ──────────────────
+#
+# Ohne Verfallsdatum halten Apple und Google eine Nachricht bis zu einem
+# Monat zurück, wenn das Telefon gerade kein Netz hat - und liefern sie
+# dann nach. Eine Klingel-Meldung, die eine Stunde später ankommt, ist
+# schlimmer als keine: Man rennt zur Türe, und da steht niemand mehr.
+# Genau dieser Fall steht als Anlass in pushcheck.py; das Werkzeug misst
+# ihn, verhindert hat ihn bisher nichts (Punkt 600 der Werkbank).
+#
+# Deshalb je Kategorie eine Frist in Sekunden, nach der die Push-Dienste
+# die Nachricht wegwerfen statt nachliefern. Nur was namentlich hier
+# steht, verfällt: Alarm, Wasser, Rauch, Batterie sollen auch verspätet
+# kommen - ein Wasserschaden ist eine Stunde später immer noch einer.
+VERFALL: dict[str, int] = {
+    # Wer nicht in anderthalb Minuten an der Türe war, kommt zu spät.
+    "doorbell": 90,
+    # Die Eier sind nach fünf Minuten so oder so hart.
+    "timer": 300,
+    # Der Ofen bleibt warm - eine Weile.
+    "oven": 600,
+    "grill": 600,
+    # Ein Kind, das vor fünf Minuten geweint hat, hat entweder aufgehört
+    # oder jemand ist längst dort.
+    "baby_cry": 300,
+    # Bewegung von vorhin sieht man im Verlauf, nicht in der Meldung.
+    "camera_motion": 600,
+    # Das Paket liegt auch in einer Stunde noch da - aber die Meldung mit
+    # dem Bild vom Boten ist dann keine Nachricht mehr, und die
+    # Abend-Erinnerung sagt ohnehin, ob es noch draussen liegt.
+    "package": 3600,
+    # Der Wecker geht Fahrzeit plus Puffer vor dem Termin los - eine halbe
+    # Stunde später ist der Termin selbst der Wecker. «Bis Terminbeginn»
+    # wäre genauer, aber die Frist hängt an der Kategorie, nicht an der
+    # Meldung, und die Fahrzeit im Haus liegt praktisch immer darunter.
+    "departure": 1800,
+}
+
+
+def verfall_sekunden(category: str | None) -> int | None:
+    """Wie lange diese Meldung nachgeliefert werden darf (rein, testbar).
+
+    ``None`` heisst: kein Verfall - die Push-Dienste heben sie auf,
+    bis das Telefon wieder da ist.
+    """
+    if not category:
+        return None
+    return VERFALL.get(str(category))
+
+
 # Die Arten von Nachrichten, die der Hub verschickt. Jede hat einen festen
 # Schlüssel, damit sich einzelne davon je Benutzer abstellen lassen – wer
 # nachts nicht wegen einer schwachen Batterie geweckt werden will, soll
@@ -339,6 +396,8 @@ CATEGORIES: dict[str, str] = {
     "door": "Türe aufgeschlossen - wer und womit",
     "doorbell": "Es klingelt an der Türe",
     "baby_cry": "Ein Baby weint",
+    # Die Kamera erkennt das Paket, das Haus sagt es jemandem (Punkt 617).
+    "package": "Paket vor der Haustüre",
     "disk": "Speicherplatz wird knapp",
     "frost": "Frost angekündigt",
     "rain": "Regen kommt",
@@ -371,6 +430,10 @@ CATEGORIES: dict[str, str] = {
     "vouchers": "Gutschein läuft bald ab",
     # Dokumente (Punkt 623): sechzig und vierzehn Tage vor dem Ablauf.
     "documents": "Dokument läuft bald ab",
+    # Die selbst gestellten Erinnerungen von der Familienseite (Punkt
+    # 603). Lange ohne Kategorie unterwegs - und damit ohne Ziel, ohne
+    # Knopf, ohne Zeile in den Einstellungen und ohne Beispiel.
+    "reminder": "Erinnerung (selbst gestellt)",
     "test": "Push-Test",
 }
 
@@ -392,14 +455,15 @@ GROUPS: list[tuple[str, tuple[str, ...]]] = [
     ("Sicherheit", ("doorbell", "alarm", "alarm_arming", "camera_motion", "leak", "smoke",
                     "door", "login")),
     ("Haus", ("open", "appliance", "oven", "grill", "vacuum", "frost", "rain",
-              "storm_covers", "heat_covers", "plants", "timer", "maintenance")),
+              "storm_covers", "heat_covers", "plants", "timer", "maintenance",
+              "package")),
     # «Baby weint» steht vorn und bei der Familie, nicht bei der
     # Sicherheit: Gesucht wird die Nachricht dort, wo die Kinder sind.
     # Dringend bleibt sie unabhängig von der Gruppe - die Einteilung
     # sortiert nur die Schalter, über die Zustellung entscheidet LEISE.
     ("Familie", ("baby_cry", "birthday", "calendar", "departure", "medication",
                  "tasks", "shopping", "packlist", "weekahead", "presence",
-                 "vouchers", "documents")),
+                 "vouchers", "documents", "reminder")),
     ("Betrieb", ("outage", "flattern", "device_down", "battery", "disk", "morning")),
     # Leer, und trotzdem hier: Unter dieser Überschrift stehen die
     # Nachrichten aus selbst gebauten Abläufen. Sie haben keinen festen
@@ -598,6 +662,16 @@ APNS_HINTS = {
 }
 
 
+#: Das Zeichen, an dem man einen Testversand erkennt.
+#:
+#: Ohne das läuft jemand los, weil «Wasser gemeldet» auf dem Telefon
+#: steht - der Text ist ja absichtlich derselbe wie im Ernstfall. Vorn,
+#: nicht hinten: Auf dem Sperrbildschirm wird der Titel abgeschnitten,
+#: und das Ende sieht niemand. Hier und nicht in ``pushbeispiel``, weil
+#: ``send`` daran erkennt, dass die Probe nicht auf den Tagesdeckel
+#: zählt - und ``pushbeispiel`` dieses Modul schon importiert.
+PROBE = "Probe: "
+
 #: Vorsatz, mit dem ein Empfänger «eine Gruppe» heisst: to="gruppe:Eltern".
 GRUPPE_PREFIX = "gruppe:"
 #: Schlüssel in hub.data für die Empfängergruppen.
@@ -633,6 +707,50 @@ def gruppe_aus(to: str | None) -> str | None:
     if to and to.startswith(GRUPPE_PREFIX):
         return to[len(GRUPPE_PREFIX):].strip() or None
     return None
+
+
+# ── Bewegliche Ziele: wer gerade da ist (Punkt 599) ────────────────────────
+#
+# Der Hub weiss, wer zuhause ist - aber kein Empfänger hiess so. «Fenster
+# Bad steht offen» ging um 22 Uhr auch an den, der in Zürich sitzt, und
+# «Es klingelt» an alle, obwohl die Person im Flur die Klingel hört und
+# nur die unterwegs das Bild braucht. Zwei Ziele nach dem Muster der
+# Gruppen, nur dass ihre Mitglieder sich mit jedem Zonenwechsel ändern.
+
+#: Ziel «wer gerade zuhause ist».
+ZIEL_ANWESEND = "anwesend"
+#: Ziel «wer nachweislich unterwegs ist».
+ZIEL_UNTERWEGS = "unterwegs"
+ANWESENHEITS_ZIELE = (ZIEL_ANWESEND, ZIEL_UNTERWEGS)
+
+#: Was als «zuhause» zählt - dieselben Schreibweisen wie in
+#: presence.anyone_home_state.
+_ZUHAUSE = ("home", "on", "true")
+#: Was weder zuhause noch weg ist: kein Telefon, keine Meldung.
+_UNBEKANNT = ("", "unknown")
+
+
+def anwesende(to: str | None, zustaende: dict[str, str] | None) -> set[str] | None:
+    """Wer zu einem Anwesenheitsziel gehört (rein, testbar).
+
+    ``zustaende`` ist Name → Ortungszustand. ``None`` heisst: ``to`` ist
+    gar kein solches Ziel. Sonst die Namen - «anwesend» ist, wer
+    ausdrücklich zuhause steht; «unterwegs», wer ausdrücklich anderswo
+    steht (``away`` oder ein benannter Ort). Unbekannt zählt zu keinem
+    von beiden: Über jemanden, dessen Telefon schweigt, sagt man weder
+    das eine noch das andere (dieselbe Vorsicht wie in
+    livekarten.nicht_zuhause).
+    """
+    if to not in ANWESENHEITS_ZIELE:
+        return None
+    namen: set[str] = set()
+    for name, zustand in (zustaende or {}).items():
+        wert = str(zustand or "").strip().lower()
+        zuhause = wert in _ZUHAUSE
+        weg = not zuhause and wert not in _UNBEKANNT
+        if (to == ZIEL_ANWESEND and zuhause) or (to == ZIEL_UNTERWEGS and weg):
+            namen.add(str(name))
+    return namen
 
 
 def is_expo_token(token: str) -> bool:
@@ -802,12 +920,21 @@ class PushService:
         self.kritisch_erlaubt = False
         # Empfängergruppen: Name → Benutzernamen (``gruppen_lesen``).
         self.gruppen: dict[str, list[str]] = {}
+        # Wird von der Ortung gesetzt (integrations/geofence.py): «Wer
+        # steht gerade wo?» als Name → Zustand, für die Ziele «anwesend»
+        # und «unterwegs» (Punkt 599). Ohne Ortung bleibt es None, und
+        # beide Ziele meinen dann alle.
+        self.zustaende: Any = None
         # Wird vom Hub gesetzt: «Darf diese Kategorie jetzt noch?» Der
         # Tagesdeckel braucht einen Zählerstand, der Neustarts übersteht,
         # und der liegt in der hub.data. Ein Rückruf statt eines
         # DataStore - derselbe Schnitt wie bei on_change und on_sent.
-        # Gibt den Grund zurück oder None.
+        # Gibt den Grund zurück oder None - und zählt *nicht*: Das tut
+        # ``zaehlen``, und zwar erst, wenn eine Nachricht wirklich
+        # hinausgeht (Fehler aus der Runde 579 der Werkbank).
         self.bremse: Any = None
+        # Wird vom Hub gesetzt: «Eine Meldung dieser Kategorie ist raus.»
+        self.zaehlen: Any = None
         self._session_factory = session_factory or (
             lambda: aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15))
         )
@@ -908,9 +1035,15 @@ class PushService:
     ) -> list[str]:
         """Wählt die Empfänger aus.
 
-        ``to`` ist "all", eine Rolle ("bewohner"), ein Benutzername oder
-        eine Gruppe ("gruppe:Eltern", siehe ``gruppen_lesen``). Gäste
-        bekommen nur etwas, wenn sie ausdrücklich gemeint sind.
+        ``to`` ist "all", eine Rolle ("bewohner"), ein Benutzername,
+        eine Gruppe ("gruppe:Eltern", siehe ``gruppen_lesen``) oder eines
+        der beweglichen Ziele "anwesend"/"unterwegs" (``anwesende``,
+        Punkt 599). Gäste bekommen nur etwas, wenn sie ausdrücklich
+        gemeint sind.
+
+        Fällt niemand in «anwesend» oder «unterwegs» - weil die Ortung
+        fehlt oder alle Telefone schweigen -, geht die Meldung an alle:
+        Eine Meldung darf nicht an der Ortung scheitern.
 
         ``category`` ist die Art der Nachricht. Wer sie in seinem Profil
         abbestellt hat, fällt hier heraus – das ist die einzige Stelle, an
@@ -922,6 +1055,12 @@ class PushService:
         by_name = {user.name: user for user in users}
         gruppe = gruppe_aus(to)
         mitglieder = set(self.gruppen.get(gruppe, ())) if gruppe else set()
+        anwesend = anwesende(to, self.zustaende() if self.zustaende is not None else None)
+        if anwesend is not None:
+            if anwesend:
+                gruppe, mitglieder = to, anwesend
+            else:
+                to = "all"
         tokens = []
         for device in self._devices.values():
             user = by_name.get(device.user)
@@ -981,20 +1120,38 @@ class PushService:
         # bloss noch aufgeschrieben, wem etwas entgeht. Ohne das wäre die
         # Nacht ein Loch: Die Meldung käme nirgends an und stünde auch
         # auf keinem Zettel.
+        #
+        # Je *Gerät* gerechnet, nicht je Person - dieselbe Rechnung wie in
+        # ``recipients`` (Fehler aus der Runde 579 der Werkbank). Vorher
+        # stand hier nur die Ruhezeit der Person: Hatte allein das
+        # Telefon eine eigene Ruhezeit (Punkt 471), fand der Zettel keinen
+        # Grund, und die Meldung stand nirgends. Und hatte das iPad die
+        # Kategorie abbestellt, die Person aber eine Ruhezeit, stand
+        # «verpasst: Ruhezeit» da, obwohl das Telefon gebrummt hatte.
+        # Deshalb: Wer auf irgendeinem Gerät erreicht wurde, hat nichts
+        # verpasst; für alle anderen zählt das Gerät.
         durchgelassen = set(valid)
+        erreicht = {
+            device.user for device in self.devices if device.token in durchgelassen
+        }
         zurueck: dict[str, str] = {}
         for device in self.devices:
-            if not device.user or device.token in durchgelassen:
+            if not device.user or device.user in erreicht:
                 continue
-            if category and category in self.muted.get(device.user, set()):
+            stumm = self.geraete_muted.get(device.token)
+            if stumm is None:
+                stumm = self.muted.get(device.user, set())
+            if category and category in stumm:
                 continue
-            grund = self.zurueckhaltung(device.user, category)
+            grund = self.zurueckhaltung(device.user, category, device.token)
             if grund is not None:
                 zurueck[device.user] = grund
 
         # Der Tagesdeckel gilt fürs Haus, nicht für eine Person: Er
         # begrenzt, was der Hub *schickt*. Erreicht heisst, dass niemand
-        # sie bekommt - nachlesen kann man sie trotzdem.
+        # sie bekommt - nachlesen kann man sie trotzdem. ``bremse`` liest
+        # nur; gezählt wird weiter unten, wenn feststeht, dass wirklich
+        # etwas hinausgeht (``zaehlen``).
         deckel = self.bremse(category) if (category and self.bremse is not None) else None
         if deckel:
             valid = []
@@ -1009,6 +1166,7 @@ class PushService:
             return PushResult()
         stufe = dringlichkeit(category, self.stufen, self.kritisch_erlaubt)
         kategorie_knoepfe = knoepfe(category)
+        verfall = verfall_sekunden(category)
         # Die Kategorie reist auch in den Nutzdaten mit: Beim
         # «Später»-Knopf reicht die App sie an /api/push/snooze zurück,
         # und die Wiedervorlage läuft dann unter derselben Kategorie.
@@ -1032,6 +1190,10 @@ class PushService:
                 # kennt die App (core/push.py: knoepfe).
                 **({"categoryId": kategorie_knoepfe} if kategorie_knoepfe else {}),
                 **({"richContent": {"image": image}} if image else {}),
+                # Das Verfallsdatum (Punkt 600): ``ttl`` in Sekunden ist
+                # das Feld der Expo-Push-API, das an Apples apns-expiration
+                # und Googles ttl weitergereicht wird.
+                **({"ttl": verfall} if verfall else {}),
             }
             for token in valid
         ]
@@ -1078,6 +1240,15 @@ class PushService:
                 log.info("Push «%s» zurückgehalten: %s", title, grund)
                 return PushResult(zurueckgehalten=grund)
             return PushResult(errors=["Kein gültiger Expo-Push-Token angemeldet"])
+
+        # Erst jetzt zählt der Tagesdeckel mit (Fehler aus der Runde 579
+        # der Werkbank): Vorher zählte ``bremse`` beim Lesen, also auch
+        # drei nächtliche Meldungen, die die Ruhezeit aller aufhielt -
+        # und am Morgen war der Tag halb verbraucht, ohne dass jemand
+        # etwas bekommen hatte. Die Probe zählt nicht: Wer die Vorschau
+        # dreimal ansieht, soll damit nicht die echte Warnung verbrauchen.
+        if category and self.zaehlen is not None and not title.startswith(PROBE):
+            self.zaehlen(category)
 
         session = self._session_factory()
         try:

@@ -27,7 +27,12 @@ import time
 from datetime import datetime, timedelta
 from typing import Any
 
+from . import pushziel
+
 log = logging.getLogger(__name__)
+
+#: Die Push-Kategorie der Erinnerungen (push.CATEGORIES).
+KATEGORIE = "reminder"
 
 #: Der Blick auf die Liste. Grob mit Absicht: Eine Erinnerung ist auf
 #: die Minute gestellt, nicht auf die Sekunde.
@@ -235,11 +240,23 @@ async def _runde(hub: Any) -> None:
         # und Namen - hier sind es Namen, und die Vereinigung vermeidet
         # doppelte Geräte, wenn jemand zweimal gewählt wurde.
         for ziel in namen or ["all"]:
-            for token in hub.push.recipients(hub.users.users, to=ziel):
+            for token in hub.push.recipients(hub.users.users, to=ziel, category=KATEGORIE):
                 if token not in tokens:
                     tokens.append(token)
         text = str(row.get("text") or "Erinnerung")
-        result = await hub.push.send(tokens, "⏰ Erinnerung", text)
+        # Mit Kategorie und Ziel (Punkt 603 der Werkbank): Ohne sie ging
+        # die Meldung an allem vorbei, was Push seit Punkt 318 kann -
+        # kein «Später»-Knopf, kein Sprung zur Liste, keine Zeile in den
+        # Einstellungen, und auf dem Nachlese-Zettel stand «category:
+        # None». Die Kennung reist mit, damit die App weiss, welche
+        # Erinnerung gemeint ist.
+        result = await hub.push.send(
+            tokens,
+            "⏰ Erinnerung",
+            text,
+            data={"ziel": pushziel.ziel_fuer(KATEGORIE), "reminder_id": str(row.get("id"))},
+            category=KATEGORIE,
+        )
         log.info(
             "Erinnerung «%s» als Push an %s (%d Geräte angenommen)",
             text,
