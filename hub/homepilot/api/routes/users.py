@@ -41,6 +41,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     current_user = ctx.current_user
     throttle = ctx.throttle
 
+    def bekannte_person(name: str) -> str:
+        user = hub.users.by_name(name)
+        if user is None or user.system:
+            raise HTTPException(status_code=404, detail=f"Unbekannter Benutzer: {name}")
+        return user.name
+
     # ── Benutzerverwaltung ─────────────────────────────────────────────────
 
     @app.get("/api/users")
@@ -317,6 +323,39 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             ),
         }
 
+    # ── Angemeldete Geräte der anderen (Punkt 625) ────────────────────────
+    #
+    # GET/DELETE /api/auth/sessions gelten nur für den eigenen Namen. Der
+    # SessionStore kennt aber jede Person - verliert Levin sein Telefon,
+    # konnte die Besitzerin bisher nur den ganzen Benutzer sperren, und
+    # «hat sich das iPad des Babysitters je abgemeldet?» beantwortete
+    # niemand. Hinter MANAGE_USERS, wie alles in der Benutzerverwaltung.
+
+    @app.get("/api/users/{name}/sessions")
+    async def user_sessions(name: str, request: Request) -> dict[str, Any]:
+        """Die angemeldeten Geräte einer Person - dieselbe Zeilenform wie
+        in «Meine Geräte», nur ohne «dieses hier»."""
+        require(request, Capability.MANAGE_USERS)
+        return {"sessions": hub.sessions.list_for(bekannte_person(name))}
+
+    @app.delete("/api/users/{name}/sessions/{sid}")
+    async def end_user_session(name: str, sid: str, request: Request) -> dict[str, Any]:
+        """Ein einzelnes Gerät einer Person abmelden.
+
+        Die Kennung muss zu dieser Person gehören (core/sessions.py) -
+        sonst beendete ein falsch abgeschriebener Name die Sitzung von
+        jemand anderem.
+        """
+        actor = require(request, Capability.MANAGE_USERS)
+        ziel = bekannte_person(name)
+        if not hub.sessions.revoke_id(ziel, sid):
+            raise HTTPException(
+                status_code=404, detail="Diese Sitzung gibt es nicht (mehr)."
+            )
+        log.warning("%s hat die Sitzung %s von %s beendet", actor.name, sid, ziel)
+        hub.aenderungen.merken(actor, "benutzer", "ein Gerät abgemeldet", ziel)
+        return {"ok": True}
+
     @app.get("/api/users/{name}/pairing")
     async def user_pairing(name: str, request: Request) -> dict[str, Any]:
         """Kopplungs-Daten für den QR-Code: dieselbe Form wie der
@@ -343,12 +382,6 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
     def personenbilder_ordner():
         return personenbilder.ordner(hub.config.data_file)
-
-    def bekannte_person(name: str) -> str:
-        user = hub.users.by_name(name)
-        if user is None or user.system:
-            raise HTTPException(status_code=404, detail=f"Unbekannter Benutzer: {name}")
-        return user.name
 
     def personennamen() -> list[str]:
         return [user.name for user in hub.users.users if not user.system]

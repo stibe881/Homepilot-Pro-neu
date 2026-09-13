@@ -31,6 +31,8 @@ export interface Geraetesitzung {
   keep?: boolean;
   user?: string;
   email?: string | null;
+  /** Woher die Anmeldung kam (Punkt 626) - alte Sitzungen haben keine. */
+  address?: string | null;
 }
 
 /**
@@ -75,7 +77,30 @@ export function geraeteZeile(sitzung: Geraetesitzung, jetztMs: number): string {
     );
   }
   if (sitzung.keep) teile.push('bleibt angemeldet (Gemeinschaftsgerät)');
+  // Die Adresse dahinter (Punkt 626): «iPhone von Anna» sagt, wie das
+  // Gerät heisst - ob es im WLAN stand oder in einem fremden Netz, sagt
+  // erst sie. «unbekannt» schreibt der Hub, wenn er keine kennt.
+  const adresse = String(sitzung.address ?? '').trim();
+  if (adresse && adresse !== 'unbekannt') teile.push(adresse);
   return teile.join(' · ');
+}
+
+/**
+ * Die Kopfzeile über der Geräteliste einer anderen Person (Punkt 625):
+ * «2 Geräte · zuletzt vor 3 Std.» (rein, testbar).
+ *
+ * Für die zugeklappte Klappe in der Benutzerverwaltung: Sie soll die
+ * Frage «ist da noch etwas angemeldet?» beantworten, ohne dass man sie
+ * öffnet. Das jüngste `seen` zählt - das vergessene iPad meldet sich
+ * nicht mehr, und genau das steht dann da.
+ */
+export function geraeteKopf(sitzungen: Geraetesitzung[] | null, jetztMs: number): string {
+  if (sitzungen === null) return 'wird geladen …';
+  const anzahl = sitzungen.length;
+  if (anzahl === 0) return 'keine angemeldeten Geräte';
+  const zuletzt = Math.max(...sitzungen.map((s) => Number(s.seen ?? s.created ?? 0)));
+  const wann = zuletzt > 0 ? ` · zuletzt ${vorWieLange(jetztMs / 1000 - zuletzt)}` : '';
+  return `${anzahl === 1 ? '1 Gerät' : `${anzahl} Geräte`}${wann}`;
 }
 
 /**

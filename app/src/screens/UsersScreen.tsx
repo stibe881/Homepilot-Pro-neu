@@ -34,6 +34,13 @@ import { Card } from '../components/Card';
 import { Tastaturplatz } from '../components/Tastaturplatz';
 import { einladungFrist } from '../lib/einladung';
 import { gruppiereZugaenge } from '../lib/benutzergruppen';
+import {
+  Geraetesitzung,
+  geraeteKopf,
+  geraeteName,
+  geraeteZeile,
+  sortiereSitzungen,
+} from '../lib/konto';
 import { ROLE_LABELS } from '../lib/rollen';
 import {
   besitzerZahl,
@@ -352,6 +359,11 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
   // Zwei-Schritt-Rückfrage fürs Token-Wechseln – das ist nicht umkehrbar.
   const [rotateAsk, setRotateAsk] = useState<string | null>(null);
   const [rotateNote, setRotateNote] = useState<string | null>(null);
+  // Die angemeldeten Geräte der geöffneten Person (Punkt 625) - null,
+  // solange sie geladen werden; dieselben Zeilen wie in «Meine Geräte».
+  const [sitzungen, setSitzungen] = useState<Geraetesitzung[] | null>(null);
+  const [sitzungenJetzt, setSitzungenJetzt] = useState(() => Date.now());
+  const [beendenAsk, setBeendenAsk] = useState<string | null>(null);
   // Getippte Adressen, bis sie gespeichert sind.
   const [emailDraft, setEmailDraft] = useState<Record<string, string>>({});
   // Dasselbe fürs Passwort vor den persönlichen Bereichen. Es kommt nie
@@ -393,9 +405,50 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
     [personenbilder, settings.url, settings.token]
   );
 
+  const ladeSitzungen = useCallback(
+    (name: string) => {
+      setSitzungen(null);
+      setBeendenAsk(null);
+      hub
+        .get<{ sessions?: Geraetesitzung[] }>(
+          `/api/users/${encodeURIComponent(name)}/sessions`,
+          { still: true, fallback: { sessions: [] } }
+        )
+        .then((antwort) => {
+          setSitzungen(sortiereSitzungen(antwort?.sessions ?? []));
+          setSitzungenJetzt(Date.now());
+        });
+    },
+    [hub]
+  );
+
+  /** Ein Gerät einer anderen Person abmelden - mit Rückfrage, denn das
+   *  Gerät muss sich danach neu anmelden (Punkt 625). */
+  const sitzungBeenden = async (name: string, sitzung: Geraetesitzung) => {
+    if (beendenAsk !== sitzung.id) {
+      setBeendenAsk(sitzung.id);
+      return;
+    }
+    setBeendenAsk(null);
+    try {
+      await hub.del(
+        `/api/users/${encodeURIComponent(name)}/sessions/${encodeURIComponent(sitzung.id)}`,
+        { still: true }
+      );
+    } catch (err) {
+      // 404 heisst «gab es schon nicht mehr» - genau der gewünschte
+      // Zustand; das Nachladen räumt die Zeile weg.
+      if (!(err instanceof HubFehler && err.status === 404)) {
+        setError(err instanceof HubFehler ? err.message : String(err));
+      }
+    }
+    ladeSitzungen(name);
+  };
+
   const openDetail = async (user: HubUser) => {
     setDetail(user);
     setPairing(null);
+    ladeSitzungen(user.name);
     // Der Weg, den diese Person schon einmal gegangen ist, steht offen.
     setWeg(ersterWeg(user.email));
     setEinladungPass('');
@@ -1362,6 +1415,75 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                     </Klappe>
                   ) : null}
 
+                  {/* Punkt 625: Verliert Levin sein Telefon, soll sich
+                      genau dieses eine Gerät beenden lassen - nicht der
+                      ganze Benutzer. */}
+                  <Klappe
+                    label="Angemeldete Geräte"
+                    stand={geraeteKopf(sitzungen, sitzungenJetzt)}
+                    zuBeginnZu
+                  >
+                    <Text style={styles.qrHint}>
+                      Alle Anmeldungen mit Passwort. Einzelne beenden wirft nur dieses
+                      eine Gerät hinaus – es muss sich danach neu anmelden. Über den
+                      QR-Code gekoppelte Geräte stehen hier nicht; für sie gibt es
+                      «Token erneuern».
+                    </Text>
+                    {sitzungen !== null && sitzungen.length === 0 ? (
+                      <Text style={styles.qrHint}>Keine angemeldeten Geräte.</Text>
+                    ) : null}
+                    {(sitzungen ?? []).map((sitzung) => {
+                      const zeile = geraeteZeile(sitzung, sitzungenJetzt);
+                      return (
+                        <View
+                          key={sitzung.id}
+                          style={styles.geraetZeile}
+                          accessible
+                          accessibilityLabel={`${geraeteName(sitzung)}, ${zeile}`}
+                        >
+                          <Ionicons
+                            name={
+                              sitzung.keep ? 'tablet-landscape-outline' : 'phone-portrait-outline'
+                            }
+                            size={18}
+                            color={colors.inkSoft}
+                          />
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text style={styles.geraetName} numberOfLines={1}>
+                              {geraeteName(sitzung)}
+                            </Text>
+                            <Text style={styles.geraetDetail} numberOfLines={1}>
+                              {zeile}
+                            </Text>
+                          </View>
+                          <Pressable
+                            onPress={() => sitzungBeenden(detail.name, sitzung)}
+                            accessibilityRole="button"
+                            accessibilityLabel={
+                              beendenAsk === sitzung.id
+                                ? `${geraeteName(sitzung)} wirklich abmelden`
+                                : `${geraeteName(sitzung)} abmelden`
+                            }
+                            style={({ pressed }) => [
+                              styles.rotateButton,
+                              beendenAsk === sitzung.id && { borderColor: colors.danger },
+                              pressed && { opacity: 0.7 },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.rotateText,
+                                beendenAsk === sitzung.id && { color: colors.danger },
+                              ]}
+                            >
+                              {beendenAsk === sitzung.id ? 'Wirklich?' : 'Beenden'}
+                            </Text>
+                          </Pressable>
+                        </View>
+                      );
+                    })}
+                  </Klappe>
+
                   {detail.editable ? (
                     <Klappe label="Token erneuern">
                       <Text style={styles.qrHint}>
@@ -1662,6 +1784,17 @@ const makeStyles = (colors: Colors) =>
       marginTop: 6,
     },
     rotateBox: { gap: 8, marginTop: 4 },
+    // Die Geräteliste einer anderen Person (Punkt 625).
+    geraetZeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingTop: 8,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.surfaceBorder,
+    },
+    geraetName: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+    geraetDetail: { color: colors.inkFaint, fontSize: 12, marginTop: 1 },
     rotateButton: {
       flexDirection: 'row',
       alignItems: 'center',

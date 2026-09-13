@@ -4,6 +4,7 @@
  */
 import {
   Geraetesitzung,
+  geraeteKopf,
   geraeteName,
   geraeteZeile,
   passwortProblem,
@@ -118,5 +119,39 @@ describe('revokedSatz', () => {
       'Passwort geändert – das eine andere Gerät wurde abgemeldet.'
     );
     expect(revokedSatz(3)).toBe('Passwort geändert – 3 andere Geräte wurden abgemeldet.');
+  });
+});
+
+describe('geraeteZeile mit Adresse (Punkt 626)', () => {
+  it('sagt, woher die Anmeldung kam', () => {
+    expect(
+      geraeteZeile(sitzung({ seen: JETZT_S - 3 * 3600, address: '192.168.1.44' }), JETZT_MS)
+    ).toBe('zuletzt vor 3 Std. · 192.168.1.44');
+  });
+
+  it('verschweigt, was der Hub selbst nicht weiss', () => {
+    // Alte Sitzungen haben keine Adresse; «unbekannt» schreibt der Hub
+    // ohne Absender - beides ist keine Auskunft.
+    expect(geraeteZeile(sitzung({ current: true }), JETZT_MS)).toBe('dieses Gerät');
+    expect(geraeteZeile(sitzung({ seen: JETZT_S - 300, address: 'unbekannt' }), JETZT_MS)).toBe(
+      'zuletzt vor 5 Min.'
+    );
+  });
+});
+
+describe('geraeteKopf (Punkt 625)', () => {
+  it('beantwortet «ist da noch etwas angemeldet?» im zugeklappten Zustand', () => {
+    expect(geraeteKopf(null, JETZT_MS)).toBe('wird geladen …');
+    expect(geraeteKopf([], JETZT_MS)).toBe('keine angemeldeten Geräte');
+    expect(geraeteKopf([sitzung({ seen: JETZT_S - 3600 * 3 })], JETZT_MS)).toBe(
+      '1 Gerät · zuletzt vor 3 Std.'
+    );
+    // Das jüngste zählt - nicht das vergessene.
+    expect(
+      geraeteKopf(
+        [sitzung({ seen: JETZT_S - 86400 * 30 }), sitzung({ id: 'b', seen: JETZT_S - 300 })],
+        JETZT_MS
+      )
+    ).toBe('2 Geräte · zuletzt vor 5 Min.');
   });
 });
