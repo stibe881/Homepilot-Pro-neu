@@ -105,3 +105,62 @@ def test_ohne_angemeldetes_geraet_kommt_kein_zettel() -> None:
     service, zettel = dienst()
     asyncio.run(service.send([], title="Batterie schwach", body="Flur", category="battery"))
     assert zettel == []
+
+
+# ── Je Gerät, nicht je Person (Fehler aus der Runde 579) ──────────────────
+#
+# ``recipients`` rechnet seit Punkt 471 je Gerät; der Zettel rechnete
+# noch je Person. Zwei Löcher: Die Ruhezeit nur auf dem Telefon fand
+# keinen Grund und die Meldung stand nirgends - und ein abbestelltes
+# iPad neben einer Ruhezeit der Person vermerkte «verpasst», obwohl das
+# Telefon gebrummt hatte.
+
+
+def test_die_ruhezeit_allein_auf_dem_telefon_steht_auf_dem_zettel() -> None:
+    service, zettel = dienst("Stefan")
+    service.geraete_ruhe = {"ExponentPushToken[Stefan]": {"enabled": True, "from": 0, "to": 24}}
+    tokens = service.recipients([Benutzer("Stefan")], "all", "battery")
+    assert tokens == []
+
+    ergebnis = asyncio.run(
+        service.send(tokens, title="Batterie schwach", body="Flur", category="battery")
+    )
+
+    assert ergebnis.zurueckgehalten == pushruhe.GRUND_RUHE
+    assert zettel[0]["held_for"] == ["Stefan"]
+
+
+def test_wer_auf_dem_telefon_gebrummt_hat_gilt_nicht_als_verpasst() -> None:
+    """Das iPad hat die Batterie abbestellt, die Person schläft nachts -
+    aber das Telefon hat eine eigene, ausgeschaltete Ruhezeit und bekommt
+    die Meldung. Dann hat Stefan nichts verpasst."""
+    service, zettel = dienst("Stefan")
+    service.register("ExponentPushToken[Stefan-iPad]", "Stefan", "iPad")
+    service.ruhe = {"Stefan": {"enabled": True, "from": 0, "to": 24}}
+    service.geraete_ruhe = {"ExponentPushToken[Stefan]": {"enabled": False}}
+    service.geraete_muted = {"ExponentPushToken[Stefan-iPad]": {"battery"}}
+    tokens = service.recipients([Benutzer("Stefan")], "all", "battery")
+    assert tokens == ["ExponentPushToken[Stefan]"]
+
+    asyncio.run(
+        service.send(tokens, title="Batterie schwach", body="Flur", category="battery")
+    )
+
+    assert zettel[0]["held"] is None
+    assert zettel[0]["held_for"] == []
+
+
+def test_das_zweite_geraet_in_der_ruhezeit_macht_die_person_nicht_zur_verpasserin() -> None:
+    """Ohne eigene Abbestellung fällt das iPad auf die Ruhezeit der Person
+    zurück - trotzdem hat Stefan die Meldung auf dem Telefon."""
+    service, zettel = dienst("Stefan")
+    service.register("ExponentPushToken[Stefan-iPad]", "Stefan", "iPad")
+    service.ruhe = {"Stefan": {"enabled": True, "from": 0, "to": 24}}
+    service.geraete_ruhe = {"ExponentPushToken[Stefan]": {"enabled": False}}
+    tokens = service.recipients([Benutzer("Stefan")], "all", "battery")
+
+    asyncio.run(
+        service.send(tokens, title="Batterie schwach", body="Flur", category="battery")
+    )
+
+    assert zettel[0]["held_for"] == []

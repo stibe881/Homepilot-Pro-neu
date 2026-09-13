@@ -965,14 +965,30 @@ class PushService:
         # bloss noch aufgeschrieben, wem etwas entgeht. Ohne das wäre die
         # Nacht ein Loch: Die Meldung käme nirgends an und stünde auch
         # auf keinem Zettel.
+        #
+        # Je *Gerät* gerechnet, nicht je Person - dieselbe Rechnung wie in
+        # ``recipients`` (Fehler aus der Runde 579 der Werkbank). Vorher
+        # stand hier nur die Ruhezeit der Person: Hatte allein das
+        # Telefon eine eigene Ruhezeit (Punkt 471), fand der Zettel keinen
+        # Grund, und die Meldung stand nirgends. Und hatte das iPad die
+        # Kategorie abbestellt, die Person aber eine Ruhezeit, stand
+        # «verpasst: Ruhezeit» da, obwohl das Telefon gebrummt hatte.
+        # Deshalb: Wer auf irgendeinem Gerät erreicht wurde, hat nichts
+        # verpasst; für alle anderen zählt das Gerät.
         durchgelassen = set(valid)
+        erreicht = {
+            device.user for device in self.devices if device.token in durchgelassen
+        }
         zurueck: dict[str, str] = {}
         for device in self.devices:
-            if not device.user or device.token in durchgelassen:
+            if not device.user or device.user in erreicht:
                 continue
-            if category and category in self.muted.get(device.user, set()):
+            stumm = self.geraete_muted.get(device.token)
+            if stumm is None:
+                stumm = self.muted.get(device.user, set())
+            if category and category in stumm:
                 continue
-            grund = self.zurueckhaltung(device.user, category)
+            grund = self.zurueckhaltung(device.user, category, device.token)
             if grund is not None:
                 zurueck[device.user] = grund
 
