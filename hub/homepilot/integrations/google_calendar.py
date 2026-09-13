@@ -9,6 +9,11 @@ Konfiguration:
     calendar_ids:
       - primary
       - addressbook#contacts@group.v.calendar.google.com
+      # Ein Kalender darf einer Person gehören (Punkt 586): Dann gehen
+      # Termin-Erinnerung und Losfahr-Wecker nur an sie - nicht an den,
+      # der im Büro sitzt.
+      - id: familie@example.com
+        person: Stefan
     scan_interval: 300
     # Wie viele Minuten vor einem Termin eine Nachricht kommt (0 = keine).
     remind_minutes: 15
@@ -169,6 +174,33 @@ def due_reminders(
     return faellig
 
 
+def kalender_konfig(roh: Any) -> tuple[list[str], dict[str, str]]:
+    """Die Kalenderliste aus der Konfiguration lesen (rein, testbar).
+
+    Ein Eintrag ist entweder die blosse Kennung («primary») oder ein
+    Mapping mit ``id`` und optional ``person`` (Punkt 586 der Werkbank).
+    Zurück kommen die Kennungen in ihrer Reihenfolge und die Zuordnung
+    Kennung → Person für die, die eine haben. Kaputte Einträge (ohne
+    id) fallen weg, statt die ganze Anbindung zu stoppen.
+    """
+    kennungen: list[str] = []
+    personen: dict[str, str] = {}
+    for eintrag in roh if isinstance(roh, list) else []:
+        if isinstance(eintrag, dict):
+            kennung = str(eintrag.get("id") or "").strip()
+            if not kennung:
+                continue
+            person = str(eintrag.get("person") or "").strip()
+            if person:
+                personen[kennung] = person
+        else:
+            kennung = str(eintrag or "").strip()
+            if not kennung:
+                continue
+        kennungen.append(kennung)
+    return kennungen, personen
+
+
 def is_birthday_calendar(calendar_id: str) -> bool:
     """Googles Geburtstags-Kalender (aus den Kontakten) erkennen."""
     return "#contacts" in calendar_id or "birthday" in calendar_id.lower()
@@ -255,6 +287,10 @@ def parse_events(items: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
                 "all_day": all_day,
                 "location": event.get("location"),
                 "birthday": bool(event.get("_birthday")),
+                # Wem der Kalender gehört (Punkt 586) - None, wenn er
+                # allen gehört. Erinnerung und Losfahr-Wecker richten
+                # sich danach.
+                "person": event.get("_person") or None,
             }
         )
     upcoming.sort(key=lambda event: event.get("start") or "")
@@ -296,8 +332,10 @@ class GoogleCalendarIntegration(Integration):
             )
 
         # Ein oder mehrere Kalender; 'calendar_id' bleibt als Einzahl gültig.
+        # Je Kalender optional eine Person (Punkt 586): Dann gehen die
+        # Termin-Erinnerung und der Losfahr-Wecker nur an sie.
         ids = self.config.get("calendar_ids") or [self.config.get("calendar_id", "primary")]
-        self._calendar_ids = [str(calendar_id) for calendar_id in ids]
+        self._calendar_ids, self._personen = kalender_konfig(ids)
         self._interval = self.scan_interval()
         self._session = self.http_session(timeout=aiohttp.ClientTimeout(total=20))
         self._access_token: str | None = None
@@ -375,6 +413,7 @@ class GoogleCalendarIntegration(Integration):
                 birthday = is_birthday_calendar(calendar_id)
                 for item in payload.get("items", []):
                     item["_calendar"] = calendar_id
+                    item["_person"] = self._personen.get(calendar_id)
                     if birthday:
                         item["_birthday"] = True
                     merged.append(item)
@@ -404,10 +443,17 @@ class GoogleCalendarIntegration(Integration):
         aktuell = {str(e.get("id") or e.get("start")) for e in events}
         self._reminded &= aktuell
         try:
-            tokens = self.hub.push.recipients(self.hub.users.users, category="calendar")
-            if not tokens:
-                return
             for event in faellig:
+                # Gehört der Kalender einer Person (Punkt 586), bekommt
+                # nur sie die Erinnerung - dieselbe Zuordnung wie beim
+                # Losfahr-Wecker (core/watchdog.py).
+                tokens = self.hub.push.recipients(
+                    self.hub.users.users,
+                    to=str(event.get("person") or "all"),
+                    category="calendar",
+                )
+                if not tokens:
+                    continue
                 wann = str(event.get("start") or "")[11:16]
                 ort = event.get("location")
                 await self.hub.push.send(
@@ -447,6 +493,7 @@ class GoogleCalendarIntegration(Integration):
             birthday = is_birthday_calendar(calendar_id)
             for item in payload.get("items", []):
                 item["_calendar"] = calendar_id
+                item["_person"] = self._personen.get(calendar_id)
                 if birthday:
                     item["_birthday"] = True
                 merged.append(item)
@@ -465,6 +512,7 @@ class GoogleCalendarIntegration(Integration):
                     "all_day": all_day,
                     "location": event.get("location"),
                     "birthday": bool(event.get("_birthday")),
+                    "person": event.get("_person") or None,
                 }
             )
         umgesetzt.sort(key=lambda event: event.get("start") or "")

@@ -6,7 +6,13 @@
  * Dienstagabend stimmt und nützt nichts.
  */
 import {
+  aemtliAbgeben,
+  aktivitaetZeile,
+  aktivitaetenAm,
+  fahrtSatz,
+  fahrtUnbesetzt,
   ferienSatz,
+  ferienpause,
   geburtstagInTagen,
   geburtstagSatz,
   heute,
@@ -14,6 +20,8 @@ import {
   morgenPackSatz,
   istKind,
   kindTermine,
+  krankBis,
+  krankSatz,
   minuten,
   naechstesMal,
   nenntPerson,
@@ -201,6 +209,120 @@ describe('heuteSatz', () => {
   it('sagt auch, wenn nichts ist', () => {
     // Eine leere Zeile sähe aus, als wäre etwas nicht geladen.
     expect(heuteSatz([], [], 'Levin', DIENSTAG)).toBe('Heute steht nichts an.');
+  });
+
+  it('lässt in den Ferien die Schule weg und nur das stehen, was dann gilt', () => {
+    // Punkt 620: «Schule 08:20–15:05» stand direkt über «Gerade sind
+    // Herbstferien - keine Schule!» - zwei Sätze, die sich widersprachen.
+    const ferien = { state: 'ferien', name: 'Herbstferien' };
+    expect(heuteSatz(lektionen, termine, 'Levin', DIENSTAG, { ferien })).toBe(
+      'Ferien - heute steht nichts an.'
+    );
+    const laeuftWeiter = [{ ...termine[0], holidays: true }];
+    expect(heuteSatz(lektionen, laeuftWeiter, 'Levin', DIENSTAG, { ferien })).toBe(
+      'Fussball 17:30'
+    );
+    // Ausserhalb der Ferien ändert der Schalter nichts.
+    expect(heuteSatz(lektionen, laeuftWeiter, 'Levin', DIENSTAG, { ferien: { state: 'schultag' } })).toBe(
+      'Schule 08:20–15:05 · Fussball 17:30'
+    );
+    expect(ferienpause(termine[0], ferien)).toBe(true);
+    expect(ferienpause(laeuftWeiter[0], ferien)).toBe(false);
+    expect(ferienpause(termine[0], null)).toBe(false);
+  });
+
+  it('packt in den Ferien nur, was auch dann mitmuss', () => {
+    const gear = [
+      { member: 'Levin', day: 'Mi', text: 'Turnsack' },
+      { member: 'Levin', day: 'Mi', text: 'Fussballschuhe', holidays: true },
+    ];
+    expect(morgenPackSatz(gear, 'Levin', DIENSTAG)).toBe(
+      'Morgen mitnehmen: Turnsack, Fussballschuhe'
+    );
+    expect(morgenPackSatz(gear, 'Levin', DIENSTAG, { ferien: { state: 'ferien' } })).toBe(
+      'Morgen mitnehmen: Fussballschuhe'
+    );
+    // Beginnen die Ferien morgen, bleibt der Turnsack schon heute Abend zuhause.
+    expect(
+      morgenPackSatz(gear.slice(0, 1), 'Levin', DIENSTAG, {
+        ferien: { state: 'schultag', next: 'Herbstferien', next_in_days: 1 },
+      })
+    ).toBeNull();
+  });
+});
+
+describe('krank (Punkt 622)', () => {
+  it('kennt die Krankmeldung bis Mitternacht nach dem letzten Tag', () => {
+    expect(krankBis({ sick_until: '2026-09-01' }, DIENSTAG)).toBe('2026-09-01');
+    expect(krankBis({ sick_until: '2026-08-31' }, DIENSTAG)).toBeNull();
+    expect(krankBis({}, DIENSTAG)).toBeNull();
+    expect(krankBis({ sick_until: 'gestern' }, DIENSTAG)).toBeNull();
+    expect(krankSatz('2026-09-01', DIENSTAG)).toBe('Krank gemeldet bis heute');
+    expect(krankSatz('2026-09-02', DIENSTAG)).toBe('Krank gemeldet bis morgen');
+    expect(krankSatz('2026-09-15', DIENSTAG)).toBe('Krank gemeldet bis 15.09.');
+  });
+
+  it('lässt Schul-Satz und Packliste schweigen', () => {
+    const lektionen = [{ member: 'Levin', day: 'Di', from: '08:20', to: '15:05' }];
+    expect(heuteSatz(lektionen, [], 'Levin', DIENSTAG, { krank: true })).toBe(
+      'Heute krank - gute Besserung!'
+    );
+    const gear = [{ member: 'Levin', day: 'Mi', text: 'Turnsack' }];
+    // Krank bis morgen: kein Thek. Krank nur bis heute: morgen wieder Schule.
+    expect(
+      morgenPackSatz(gear, 'Levin', DIENSTAG, { krank: true, krankBis: '2026-09-02' })
+    ).toBeNull();
+    expect(
+      morgenPackSatz(gear, 'Levin', DIENSTAG, { krank: true, krankBis: '2026-09-01' })
+    ).toBe('Morgen mitnehmen: Turnsack');
+  });
+
+  it('gibt fällige Ämtli an den Nächsten in der Reihe', () => {
+    const chores = [
+      { id: 'a', member: 'Levin', members: ['Levin', 'Lina', 'Stefan'], due: '2026-09-01' },
+      { id: 'b', member: 'Levin', members: ['Levin', 'Lina'], due: '2026-08-30' },
+      // Übermorgen darf warten - vielleicht ist er bis dann gesund.
+      { id: 'c', member: 'Levin', members: ['Levin', 'Lina'], due: '2026-09-03' },
+      // Nicht seins, schon erledigt, oder allein in der Reihe.
+      { id: 'd', member: 'Lina', members: ['Levin', 'Lina'], due: '2026-09-01' },
+      { id: 'e', member: 'Levin', members: ['Levin', 'Lina'], due: '2026-09-01', done: true },
+      { id: 'f', member: 'Levin', members: ['Levin'], due: '2026-09-01' },
+    ];
+    expect(aemtliAbgeben(chores, 'Levin', DIENSTAG)).toEqual([
+      { id: 'a', member: 'Lina' },
+      { id: 'b', member: 'Lina' },
+    ]);
+    expect(aemtliAbgeben(null, 'Levin', DIENSTAG)).toEqual([]);
+  });
+});
+
+describe('wer fährt (Punkt 621)', () => {
+  it('sagt in einem Satz, wer bringt und wer holt', () => {
+    expect(fahrtSatz({ bringt: 'Stefan', holt: 'Stefan' })).toBe('Stefan fährt');
+    expect(fahrtSatz({ bringt: 'Stefan', holt: 'Anna' })).toBe('Stefan bringt · Anna holt');
+    expect(fahrtSatz({ holt: 'Anna' })).toBe('Anna holt');
+    expect(fahrtSatz({})).toBeNull();
+    // Mit Ort, aber ohne Person: die offene Frage.
+    expect(fahrtUnbesetzt({ ort: 'Sursee' })).toBe(true);
+    expect(fahrtUnbesetzt({ ort: 'Sursee', bringt: 'Stefan' })).toBe(false);
+    expect(fahrtUnbesetzt({})).toBe(false);
+  });
+
+  it('stellt die Wöchentlichen eines Tages in den Wochenplan', () => {
+    const activities = [
+      { id: '1', member: 'Levin', day: 'Di', from: '17:30', text: 'Fussball', bringt: 'Stefan', holt: 'Stefan' },
+      { id: '2', member: 'Lina', day: 'Di', from: '16:00', text: 'Ballett', ort: 'Zell' },
+      { id: '3', member: 'Levin', day: 'Fr', from: '18:00', text: 'Jugi' },
+      { id: '4', member: 'Lina', day: 'Di', from: '15:00', text: 'Flöte', week: 'B' },
+    ];
+    // Alle: nach Zeit, nur die laufende Woche (A).
+    expect(aktivitaetenAm(activities, 'Di', null, 'A').map((z) => z.id)).toEqual(['2', '1']);
+    // Der Filter kennt das Kind - und den, der fährt.
+    expect(aktivitaetenAm(activities, 'Di', 'Levin', 'A').map((z) => z.id)).toEqual(['1']);
+    expect(aktivitaetenAm(activities, 'Di', 'Stefan', 'A').map((z) => z.id)).toEqual(['1']);
+    expect(aktivitaetenAm(activities, 'Di', 'Anna', 'A')).toEqual([]);
+    expect(aktivitaetZeile(activities[0])).toBe('Levin: Fussball 17:30 · Stefan fährt');
+    expect(aktivitaetZeile(activities[1])).toBe('Lina: Ballett 16:00');
   });
 });
 

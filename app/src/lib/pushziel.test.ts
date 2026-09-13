@@ -1,6 +1,20 @@
 import { HOECHSTENS_KNOEPFE, knoepfeAus, sitzungsPfad, zielAus } from './pushziel';
 
 describe('Wohin ein Tipp auf eine Nachricht führt', () => {
+  it('versteht die Route zu einer Adresse - mit allen Doppelpunkten', () => {
+    // Punkt 586: Der Losfahr-Wecker kennt den Ort; der Tipp öffnet die
+    // Karten-App. Die Adresse steht in derselben Zeichenkette.
+    expect(zielAus({ ziel: 'route:Sportplatz, 6210 Sursee' })).toEqual({
+      art: 'route',
+      ort: 'Sportplatz, 6210 Sursee',
+    });
+    expect(zielAus({ ziel: 'route:Bahnhof: Gleis 3' })).toEqual({
+      art: 'route',
+      ort: 'Bahnhof: Gleis 3',
+    });
+    expect(zielAus({ ziel: 'route:' })).toBeNull();
+  });
+
   it('versteht einen Bereich', () => {
     expect(zielAus({ ziel: 'bereich:system' })).toEqual({
       art: 'bereich',

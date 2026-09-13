@@ -20,7 +20,7 @@ Minuten es anfängt (core/regen.py). «60 % heute» beantwortet die Frage
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import aiohttp
@@ -65,6 +65,47 @@ WMO = {
 }
 
 
+# Schnee und gefrierender Niederschlag (Punkt 585 der Werkbank): Bei
+# diesen Codes gilt die Winterlage - Auto freikratzen, Kinder mit
+# Stiefeln, zehn Minuten früher los. Die vier gefrierenden sind eigens
+# markiert: Glatteis kommt ohne einen Zentimeter Schnee.
+GEFRIEREND = frozenset({56, 57, 66, 67})
+WINTER = GEFRIEREND | frozenset({71, 73, 75, 77, 85, 86})
+
+#: So weit zurück zählt «über Nacht» - vom Vorabend bis jetzt.
+NACHT_STUNDEN = 12
+
+
+def ist_winter(code: Any) -> bool:
+    """Schnee oder gefrierender Niederschlag? (rein, testbar)"""
+    try:
+        return int(code) in WINTER
+    except (TypeError, ValueError):
+        return False
+
+
+def nachtschnee_cm(hourly: Any, jetzt: datetime) -> float:
+    """Wie viel Schnee in den letzten zwölf Stunden fiel (rein, testbar).
+
+    Summe der stündlichen ``snowfall``-Werte (Open-Meteo liefert sie in
+    Zentimetern) vom Vorabend bis zur angebrochenen Stunde. Die
+    Vergangenheitsstunden stehen dank ``past_days`` in derselben
+    Antwort. Ohne Werte 0.0 - erfunden wird nichts.
+    """
+    if not isinstance(hourly, dict):
+        return 0.0
+    times = hourly.get("time") or []
+    schnee = hourly.get("snowfall") or []
+    von = jetzt - timedelta(hours=NACHT_STUNDEN)
+    summe = 0.0
+    for index, roh in enumerate(times):
+        zeit = _zeitpunkt(roh)
+        if zeit is None or zeit < von or zeit > jetzt:
+            continue
+        summe += _round_mm(schnee[index] if index < len(schnee) else None)
+    return round(summe, 1)
+
+
 def describe_code(code: Any) -> tuple[str, str]:
     """WMO-Code → (Text, Symbol); Unbekanntes bleibt neutral."""
     try:
@@ -89,6 +130,10 @@ def stunden_heute(hourly: Any, jetzt: datetime) -> list[dict[str, Any]]:
     temps = hourly.get("temperature_2m") or []
     codes = hourly.get("weather_code") or []
     rain = hourly.get("precipitation_probability") or []
+    # Die Menge zusätzlich zur Wahrscheinlichkeit: Der Schulweg-Hinweis
+    # (core/regen.py, Punkt 584) rechnet wie die Vorwarnung mit
+    # Millimetern - «60 %» heisst nicht, dass es um vier Uhr regnet.
+    mengen = hourly.get("precipitation") or []
     ab = jetzt.replace(minute=0, second=0, microsecond=0)
     heute = jetzt.date()
     zeilen: list[dict[str, Any]] = []
@@ -104,6 +149,7 @@ def stunden_heute(hourly: Any, jetzt: datetime) -> list[dict[str, Any]]:
                 "text": text,
                 "icon": icon,
                 "rain": rain[index] if index < len(rain) else None,
+                "mm": _round_mm(mengen[index] if index < len(mengen) else None),
             }
         )
     return zeilen
@@ -163,6 +209,11 @@ def parse_forecast(
         # auf die Wetterkarte. Nur die restlichen Stunden: Was vorbei
         # ist, braucht keine Vorhersage mehr.
         "hours": stunden_heute(payload.get("hourly"), jetzt),
+        # Regenjacke in den Thek? Die Zeile für die Wetterkarte; der
+        # Morgengruss rechnet sie zur Meldestunde frisch (Punkt 584).
+        "schulweg": regen.schulweg_hinweis(
+            stunden_heute(payload.get("hourly"), jetzt), jetzt
+        ),
         # Der Tageshöchstwert heute, griffbereit: Die Karte und der
         # Morgen-Hinweis fragen genau danach, nicht nach der Woche.
         "uv_today": days_out[0]["uv"] if days_out else None,
@@ -172,6 +223,16 @@ def parse_forecast(
         "dry_days": giessen.trockentage(vergangen, days_out[0] if days_out else None),
         "rain_next": giessen.regen_kommt(days_out),
         "high": days_out[0]["high"] if days_out else None,
+        # Die Winterlage (Punkt 585): Neuschnee über Nacht in Zentimetern
+        # und der aktuelle Code, wenn er Schnee oder gefrierenden
+        # Niederschlag meint - sonst None. Der Morgengruss sagt daraus
+        # «freikratzen», der Losfahr-Wecker rechnet länger.
+        "snow_tonight_cm": nachtschnee_cm(payload.get("hourly"), jetzt),
+        "winter_code": (
+            int(current["weather_code"])
+            if ist_winter(current.get("weather_code"))
+            else None
+        ),
         # Die Vorwarnung fährt am selben Zustand mit: Die App zeigt sie
         # auf der Wetterkarte, der Wächter meldet sie, wenn dabei ein
         # Fenster offen steht - beide lesen dieselbe Entität.
@@ -249,10 +310,14 @@ class WeatherIntegration(Integration):
             # Stunden es anfängt (core/regen.py, naechste_stunden). Die
             # Wahrscheinlichkeit allein taugt dafür nicht - «60 %» heisst
             # nicht, dass es um vier Uhr regnet.
+            # 'snowfall' für die Winterlage (Punkt 585): Wie viel über
+            # Nacht fiel, steht in den Vergangenheitsstunden derselben
+            # Antwort.
             "hourly": "temperature_2m,weather_code,precipitation_probability,"
-            "precipitation",
+            "precipitation,snowfall",
             "daily": "weather_code,temperature_2m_max,temperature_2m_min,"
-            "precipitation_probability_max,uv_index_max,precipitation_sum",
+            "precipitation_probability_max,uv_index_max,precipitation_sum,"
+            "snowfall_sum",
             # Fünf Tage zurück: Daraus rechnet sich, wie lange es nicht
             # mehr geregnet hat (core/giessen.py). Sie stehen in
             # derselben Antwort - eine zweite Anfrage dafür wäre eine

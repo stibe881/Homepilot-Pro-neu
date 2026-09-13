@@ -28,6 +28,14 @@ import { Card } from '../../components/Card';
 import { Colors } from '../../theme';
 import { datumUhr } from '../../lib/format';
 import { doppeldosisFrage } from '../../lib/doppeldosis';
+import {
+  ablaufSatz,
+  ablaufTage,
+  baldAblaufend,
+  datumNormal,
+  erneuert,
+  gueltigBis,
+} from '../../lib/dokumente';
 import { Erinnerung, bestaetigung, offene, wiederholungVon, wiederholungsLabel } from '../../lib/erinnerungen';
 import {
   NOTFALL_FELDER,
@@ -55,7 +63,6 @@ import {
   Member,
   Notrufliste,
   Styles,
-  TwoFieldForm,
   isoInDays,
 } from './bausteine';
 
@@ -758,44 +765,221 @@ export function Dokumente({
   colors,
   goBack,
   add,
+  update,
   remove,
+  members,
+  ich,
 }: Modulrahmen) {
   const documents: FamilyItem[] = data.documents ?? [];
+  const heute = new Date();
+  // Was bald abläuft, steht oben (Punkt 623): Der abgelaufene Kinderpass
+  // fiel am Flughafen auf - hier fällt er beim Öffnen auf.
+  const bald = baldAblaufend(documents, heute);
+  const uebrige = documents.filter((doc) => !bald.includes(doc));
+  // «Erneuert»: Für welches Dokument gerade das neue Datum getippt wird.
+  const [erneuernFuer, setErneuernFuer] = useState<string | null>(null);
+  const [neuesDatum, setNeuesDatum] = useState('');
+
+  const erneuern = (doc: FamilyItem) => {
+    const iso = datumNormal(neuesDatum);
+    if (!iso) return;
+    update('documents', String(doc.id), erneuert(doc, iso, heute, ich));
+    setErneuernFuer(null);
+    setNeuesDatum('');
+  };
+
+  const karte = (doc: FamilyItem) => {
+    const tage = ablaufTage(doc, heute);
+    const warnung = ablaufSatz(doc, heute);
+    return (
+      <Card key={doc.id} style={styles.pinCard}>
+        <Text style={styles.checkText}>{doc.text}</Text>
+        {doc.body ? (
+          <Text selectable style={styles.checkSub}>
+            {doc.body}
+          </Text>
+        ) : null}
+        {gueltigBis(doc) ? (
+          <Text
+            style={[
+              styles.checkSub,
+              tage !== null && tage <= 14 && { color: colors.warnInk, fontWeight: '600' },
+            ]}
+          >
+            {[doc.member ? String(doc.member) : '', gueltigBis(doc), warnung ?? '']
+              .filter(Boolean)
+              .join(' · ')}
+          </Text>
+        ) : doc.member ? (
+          <Text style={styles.checkSub}>{String(doc.member)}</Text>
+        ) : null}
+        {erneuernFuer === String(doc.id) ? (
+          <View style={styles.addRow}>
+            <TextInput
+              style={[styles.input, { flex: 1 }]}
+              value={neuesDatum}
+              onChangeText={setNeuesDatum}
+              placeholder="Neu gültig bis (TT.MM.JJJJ oder MM.JJJJ)"
+              placeholderTextColor={colors.inkSoft}
+              onSubmitEditing={() => erneuern(doc)}
+              autoFocus
+            />
+            <Pressable
+              onPress={() => erneuern(doc)}
+              style={[styles.addButton, datumNormal(neuesDatum) === null && { opacity: 0.5 }]}
+              accessibilityRole="button"
+              accessibilityLabel="Neues Ablaufdatum speichern"
+            >
+              <Ionicons name="checkmark" size={22} color="#FFFFFF" />
+            </Pressable>
+          </View>
+        ) : null}
+        <View style={styles.pinFoot}>
+          <Text style={styles.checkSub}>
+            {[
+              doc.author,
+              // Der Verlauf: wann zuletzt erneuert - dieselbe Bauart wie
+              // bei der Wartung (Quittieren mit Namen).
+              Array.isArray(doc.log) && doc.log[0]?.at
+                ? `erneuert ${String(doc.log[0].at).slice(8, 10)}.${String(doc.log[0].at).slice(5, 7)}.${String(doc.log[0].at).slice(0, 4)}`
+                : '',
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </Text>
+          {gueltigBis(doc) ? (
+            <Pressable
+              onPress={() => {
+                setErneuernFuer(erneuernFuer === String(doc.id) ? null : String(doc.id));
+                setNeuesDatum('');
+              }}
+              style={styles.deleteTap}
+              accessibilityRole="button"
+              accessibilityLabel={`«${doc.text}» erneuert - neues Datum eintragen`}
+            >
+              <Ionicons name="refresh-outline" size={18} color={colors.accent} />
+            </Pressable>
+          ) : null}
+          <Pressable
+            onPress={() => remove('documents', doc.id)}
+            style={styles.deleteTap}
+            accessibilityRole="button"
+            accessibilityLabel={`Eintrag «${doc.text}» löschen`}
+          >
+            <Ionicons name="trash-outline" size={16} color={colors.inkFaint} />
+          </Pressable>
+        </View>
+      </Card>
+    );
+  };
+
   return (
     <View style={styles.stack}>
       <BackHead title="Dokumentsafe" onBack={goBack} styles={styles} colors={colors} />
       <Text style={styles.hint}>
         Wichtige Angaben und Ablageorte (z.B. «Pass im Tresor», Policen-Nummern,
-        Links). Dateien selbst gehören in deine Cloud-Ablage.
+        Links). Dateien selbst gehören in deine Cloud-Ablage. Mit «gültig bis»
+        erinnert das Haus 60 und 14 Tage vor dem Ablauf.
       </Text>
-      {documents.map((document) => (
-        <Card key={document.id} style={styles.pinCard}>
-          <Text style={styles.checkText}>{document.text}</Text>
-          {document.body ? (
-            <Text selectable style={styles.checkSub}>
-              {document.body}
-            </Text>
-          ) : null}
-          <View style={styles.pinFoot}>
-            <Text style={styles.checkSub}>{document.author}</Text>
-            <Pressable
-              onPress={() => remove('documents', document.id)}
-              style={styles.deleteTap}
-              accessibilityRole="button"
-              accessibilityLabel={`Eintrag «${document.text}» löschen`}
-            >
-              <Ionicons name="trash-outline" size={16} color={colors.inkFaint} />
-            </Pressable>
-          </View>
-        </Card>
-      ))}
-      <TwoFieldForm
-        labels={['Titel (z.B. Hausrat-Police)', 'Angaben / Ablageort']}
-        multilineSecond
-        onAdd={(text, body) => add('documents', { text, body })}
+      {bald.length > 0 ? <Text style={styles.groupLabel}>Läuft bald ab</Text> : null}
+      {bald.map(karte)}
+      {bald.length > 0 && uebrige.length > 0 ? (
+        <Text style={styles.groupLabel}>Weitere</Text>
+      ) : null}
+      {uebrige.map(karte)}
+      <DokumentForm
+        members={members ?? []}
+        onAdd={(eintrag) => add('documents', eintrag)}
         styles={styles}
         colors={colors}
       />
     </View>
+  );
+}
+
+/** Das Formular für ein Dokument: Titel, Angaben, «gültig bis» und die
+ *  Person, zu der es gehört (Punkt 623) - der Kinderpass steht dann auf
+ *  der Kinderseite als «Pass gültig bis 03.2027». */
+function DokumentForm({
+  members,
+  onAdd,
+  styles,
+  colors,
+}: {
+  members: Member[];
+  onAdd: (eintrag: FamilyItem) => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const [text, setText] = useState('');
+  const [body, setBody] = useState('');
+  const [expires, setExpires] = useState('');
+  const [member, setMember] = useState('');
+  // Ein getipptes Datum, das keines ist, darf nicht still verschwinden -
+  // sonst erinnert nie jemand an den Pass.
+  const datumKaputt = expires.trim() !== '' && datumNormal(expires) === null;
+  const submit = () => {
+    if (!text.trim() || datumKaputt) return;
+    onAdd({
+      text: text.trim(),
+      body: body.trim(),
+      ...(expires.trim() ? { expires: expires.trim() } : {}),
+      ...(member ? { member } : {}),
+    });
+    setText('');
+    setBody('');
+    setExpires('');
+    setMember('');
+  };
+  return (
+    <Card style={styles.formCard}>
+      <TextInput
+        style={styles.input}
+        value={text}
+        onChangeText={setText}
+        placeholder="Titel (z.B. Pass Levin, Hausrat-Police)"
+        placeholderTextColor={colors.inkSoft}
+      />
+      <TextInput
+        style={[styles.input, { minHeight: 70 }]}
+        value={body}
+        onChangeText={setBody}
+        placeholder="Angaben / Ablageort"
+        placeholderTextColor={colors.inkSoft}
+        multiline
+      />
+      <TextInput
+        style={[styles.input, datumKaputt && { borderColor: colors.warnInk }]}
+        value={expires}
+        onChangeText={setExpires}
+        placeholder="Gültig bis (TT.MM.JJJJ oder MM.JJJJ) – optional"
+        placeholderTextColor={colors.inkSoft}
+        accessibilityLabel="Gültig bis"
+      />
+      {members.length > 0 ? (
+        <View style={styles.chipRow}>
+          {members.map((m) => (
+            <Pressable
+              key={m.name}
+              onPress={() => setMember(member === m.name ? '' : m.name)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: member === m.name }}
+              style={[styles.chip, member === m.name && styles.chipActive]}
+            >
+              <Text style={[styles.chipText, member === m.name && styles.chipTextActive]}>
+                {m.name}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+      <Pressable
+        onPress={submit}
+        style={[styles.addWide, (!text.trim() || datumKaputt) && { opacity: 0.5 }]}
+        accessibilityRole="button"
+      >
+        <Text style={styles.addWideText}>Hinzufügen</Text>
+      </Pressable>
+    </Card>
   );
 }

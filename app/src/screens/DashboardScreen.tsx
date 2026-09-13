@@ -69,7 +69,7 @@ import { PushPrefs } from '../components/PushPrefs';
 import { ActivityCard, MediaPanel, SidePanel } from '../components/SidePanel';
 import { useMusikwahl } from '../hooks/useMusikwahl';
 import { Meldungsband } from '../components/Toast';
-import { TopStrip } from '../components/TopStrip';
+import { TopStrip, appleMapsRoute } from '../components/TopStrip';
 import { useHub } from '../hooks/useHub';
 import { Knopfdruck, Tap, useNotificationTap } from '../hooks/useNotificationTap';
 import { usePrefs } from '../hooks/usePrefs';
@@ -221,6 +221,7 @@ import { useSensorlinien } from '../hooks/useSensorlinien';
 import { useAusfall } from '../hooks/useAusfall';
 import { useZurueckWischen } from '../hooks/useZurueckWischen';
 import { useTakt } from '../hooks/useTakt';
+import { tagesgerichtZeile } from '../lib/tagesgericht';
 import { ErinnerungOverlay } from './dashboard/Erinnerungsvollbild';
 import { Grillvollbild } from './dashboard/Grillvollbild';
 import { GroupControls } from './dashboard/Gruppensteuerung';
@@ -660,6 +661,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   }, [hub, settings.url, settings.token]);
   useEffect(ladeCountdowns, [ladeCountdowns]);
   useTakt(ladeCountdowns, 60000);
+  // Der Essensplan für die Zeile «Heute: Lasagne» in der Kopfkarte
+  // (lib/tagesgericht.ts, Punkt 587) - derselbe Takt wie die Countdowns.
+  const [startMeals, setStartMeals] = useState<{ day?: string; text?: string }[]>([]);
+  const ladeTagesgericht = useCallback(() => {
+    if (!settings.url || !settings.token) return;
+    hub
+      .get<{ day?: string; text?: string }[]>('/api/family/meals', { fallback: [], still: true })
+      .then((rows) => setStartMeals(Array.isArray(rows) ? rows : []));
+  }, [hub, settings.url, settings.token]);
+  useEffect(ladeTagesgericht, [ladeTagesgericht]);
+  useTakt(ladeTagesgericht, 60000);
   // Einkaufsliste, Läden und Erinnerungen des Haushalts - Zustand und
   // Handgriffe stehen in hooks/useFamilienlisten.ts.
   const {
@@ -1808,6 +1820,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       }
       case 'klingel':
         setKlingelTap(ziel.entityId ?? '');
+        return;
+      case 'route':
+        // «Jetzt losfahren» (Punkt 586): Die Karten-App mit dem Ziel -
+        // derselbe Weg wie der Routenknopf im Termin-Fenster.
+        Linking.openURL(appleMapsRoute(ziel.ort)).catch(() => {});
         return;
     }
   };
@@ -4279,6 +4296,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                       onShoppingCount: setzeMenge,
                       knownItems: bekannt,
                       onShoppingAdd: kaufeEin,
+                      // «Heute: Lasagne» ab 15 Uhr (Punkt 587); der Tipp
+                      // öffnet den Essensplan, dort ist das Rezept einen
+                      // Tipp entfernt.
+                      tagesgericht: section === 'start' ? tagesgerichtZeile(startMeals, now) : null,
+                      onTagesgericht: () => {
+                        setSection('family');
+                        setFamilienModul('meals');
+                      },
                     })}
                 showClock={!!settings.panel}
                 queued={queued}

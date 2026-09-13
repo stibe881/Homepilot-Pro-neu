@@ -92,6 +92,7 @@ BEISPIELE: dict[str, tuple[str, str]] = {
     ),
     "weekahead": ("Die Woche voraus", "3 Termine, 2 Ämtli, 1 Geburtstag."),
     "vouchers": ("Gutschein läuft ab", "Der Gutschein von Ochsner Sport gilt noch 7 Tage."),
+    "documents": ("Dokument läuft ab", "Pass Levin (Levin) läuft in 60 Tagen ab."),
     "test": ("HomePilot Test", "Push-Benachrichtigungen funktionieren \U0001f389"),
 }
 

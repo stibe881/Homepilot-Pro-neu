@@ -36,6 +36,7 @@ from . import (
     bilder,
     cliparchiv,
     dateien,
+    dokumente,
     energy,
     familie,
     flattern,
@@ -58,6 +59,7 @@ from . import (
     pushbuendel,
     pushziel,
     regen,
+    schulferien,
     shopping,
     spaeter,
     storenwaechter,
@@ -600,6 +602,7 @@ class Watchdog:
         await self._check_losfahren(entities)
         await self._check_family_cleanup()
         await self._check_vouchers()
+        await self._check_dokumente()
         # Was abgelaufene Gäste hinterlassen (Punkt 498 der Werkbank).
         await self._gastspuren_aufraeumen()
         await self._check_meal_plan()
@@ -1353,6 +1356,16 @@ class Watchdog:
             if tage > 0
             else []
         )
+        # Der Zustand der Wetter-Entität - für UV und Regen. Leer, wenn
+        # keine angebunden ist: Dann fehlen die Zeilen, mehr nicht.
+        wetter: dict[str, Any] = next(
+            (
+                entity.state
+                for entity in entities
+                if getattr(entity, "kind", "") == "weather"
+            ),
+            {},
+        )
         gebaut = morgen.satz(
             morgen.zeilen(
                 offen=[entity.label for entity in open_contacts(entities)],
@@ -1376,15 +1389,16 @@ class Watchdog:
                 stille_ablaeufe=still,
                 # Der UV-Hinweis nur an Tagen, an denen er etwas sagt -
                 # «UV 2, alles gut» bestellte man ab (core/uvwarnung.py).
-                uv=uvwarnung.hinweis(
-                    next(
-                        (
-                            entity.state.get("uv_today")
-                            for entity in entities
-                            if getattr(entity, "kind", "") == "weather"
-                        ),
-                        None,
-                    )
+                uv=uvwarnung.hinweis(wetter.get("uv_today")),
+                # Regenjacke in den Thek? (Punkt 584 der Werkbank) Frisch
+                # zur Meldestunde gerechnet, nicht aus dem Feld der
+                # Entität: Das stammt vom letzten Abruf, und «trocken
+                # jetzt» soll das Jetzt der Meldung meinen.
+                regen=regen.schulweg_hinweis(wetter.get("hours"), datetime.now()),
+                # Schnee über Nacht oder Glatteis (Punkt 585): Der Hub
+                # weiss es um sechs - und sagte es nicht.
+                winter=morgen.winter_hinweis(
+                    wetter.get("snow_tonight_cm"), wetter.get("winter_code")
                 ),
             )
         )
@@ -1610,6 +1624,13 @@ class Watchdog:
             self.hub.data.get("family_chores"),
             self.hub.data.get("family_contacts"),
             jetzt.date(),
+            # Das Essen der Woche (Punkt 587): Bisher listete der
+            # Ausblick Termine, Ämtli, Geburtstage - nicht die Gerichte.
+            meals=self.hub.data.get("family_meals"),
+            # Und der Ferienrand (Punkt 620): «Montag beginnen die Ferien».
+            ferien_rows=self.hub.data.get(schulferien.STORE_KEY),
+            # Wöchentliche mit Ort, aber ohne Fahrer (Punkt 621).
+            activities=self.hub.data.get("family_activities"),
         )
         if not text:
             return
@@ -1631,7 +1652,20 @@ class Watchdog:
         if not self._einmal(f"packlist:{heute}"):
             return
         morgen = (jetzt + timedelta(days=1)).date()
-        zeilen = packliste.morgen_zeilen(self.hub.data.get("family_gear"), morgen)
+        # In den Ferien bleiben die Schulsachen zuhause (Punkt 620): Der
+        # Hub kennt die Luzerner Schulferien längst (core/schulferien.py),
+        # die Packliste fragte ihn nur nie.
+        ferien = (
+            schulferien.lage(self.hub.data.get(schulferien.STORE_KEY), morgen)["state"]
+            == schulferien.FERIEN
+        )
+        zeilen = packliste.morgen_zeilen(
+            self.hub.data.get("family_gear"),
+            morgen,
+            ferien,
+            # Wer morgen noch krank ist, braucht keinen Thek (Punkt 622).
+            familie.krank_heute(self.hub.data.get("family_members"), morgen),
+        )
         text = packliste.satz(zeilen)
         if not text:
             return
@@ -1783,6 +1817,24 @@ class Watchdog:
                 eintrag["archived"] = True
             log.info("%d aufgebrauchte Gutscheine ins Archiv gelegt", len(aufgeraeumt))
             self.hub.data.set(gutscheine.KEY, rows)
+
+    async def _check_dokumente(self) -> None:
+        """Dokumente, die ablaufen (Punkt 623 der Werkbank, core/dokumente.py).
+
+        Sechzig und vierzehn Tage vorher, und einmal am Ablauftag - je
+        Stufe und je Ablaufdatum genau einmal: Die Marke trägt das
+        Datum, also bekommt ein erneuerter Pass für das neue Datum
+        wieder alle Stufen. Zur Meldestunde, nicht mitten in der Nacht.
+        """
+        jetzt = datetime.now()
+        stunde = int(self.rules["documents"]["params"].get("hour", 9))
+        if jetzt.hour != stunde:
+            return
+        for eintrag in dokumente.faellig(self.hub.data.get(dokumente.KEY), jetzt.date()):
+            if not self._einmal(eintrag["marke"]):
+                continue
+            titel, text = dokumente.satz(eintrag["row"], eintrag["tage"])
+            await self._notify(titel, text, category="documents")
 
     async def _check_meal_plan(self) -> None:
         """Der Wochenplan füttert «zuletzt gekocht» (Punkt 218).
@@ -2144,10 +2196,32 @@ class Watchdog:
             ):
                 events.extend(entity.state["events"])
         jetzt = datetime.now().astimezone()
-        termine = losfahren.kandidaten(events, jetzt)
+        # Die Wöchentlichen der Kinder mit Ort dazu (Punkt 621) - der
+        # Wecker las nur den Kalender. In den Ferien nur, was dann gilt.
+        ferien = (
+            schulferien.lage(self.hub.data.get(schulferien.STORE_KEY), jetzt.date())[
+                "state"
+            ]
+            == schulferien.FERIEN
+        )
+        termine = losfahren.kandidaten(events, jetzt) + losfahren.aktivitaeten_heute(
+            self.hub.data.get("family_activities"),
+            jetzt,
+            ferien,
+            # Für ein krankes Kind fährt niemand (Punkt 622).
+            familie.krank_heute(self.hub.data.get("family_members"), jetzt.date()),
+        )
         if not termine:
             return
         puffer = int(self.rules["departure"]["params"]["buffer"])
+        # Bei Schnee oder Glatteis rechnet der Wecker länger (Punkt 585)
+        # - bisher im Januar wie im Juli.
+        winter = losfahren.winterlage(
+            next(
+                (entity.state for entity in entities if entity.kind == "weather"),
+                None,
+            )
+        )
         orte = losfahren.orte_lesen(self.hub.data.get(losfahren.ORTE_KEY))
         erinnert = losfahren.erinnert_lesen(self.hub.data.get(losfahren.ERINNERT_KEY))
         neu: set[str] = set()
@@ -2160,13 +2234,25 @@ class Watchdog:
             km = losfahren.luftlinie_km(*daheim, *koordinaten)
             if km < losfahren.MINDEST_KM:
                 continue
-            minuten = losfahren.fahrminuten(km) + puffer
+            minuten = losfahren.fahrminuten(km, winter) + puffer
             if not losfahren.faellig(termin["start"], minuten, jetzt):
                 continue
             titel, text = losfahren.wecker_satz(
-                termin["summary"], termin["ort"], termin["start"], minuten
+                termin["summary"], termin["ort"], termin["start"], minuten, winter
             )
-            await self._notify(titel, text, "departure")
+            # Punkt 586: Der Tipp öffnet die Route zum Ort statt den
+            # Kalender, und gehört der Kalender einer Person, geht der
+            # Wecker nur an sie - nicht an den, der im Büro sitzt.
+            await self._notify(
+                titel,
+                text,
+                "departure",
+                to=termin.get("person"),
+                data={
+                    "ziel": pushziel.route(str(termin["ort"])),
+                    "location": str(termin["ort"]),
+                },
+            )
             neu.add(termin["kennung"])
         if neu:
             self.hub.data.set(

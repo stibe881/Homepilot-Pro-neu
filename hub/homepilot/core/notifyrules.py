@@ -398,6 +398,24 @@ RULES: list[dict[str, Any]] = [
         "params": [],
     },
     {
+        "key": "documents",
+        "title": "Dokument läuft bald ab",
+        "detail": "Trägt ein Dokument im Dokumentsafe ein «gültig bis», kommt "
+        "sechzig und vierzehn Tage vorher eine Nachricht - und noch eine am "
+        "Ablauftag. Sechzig, weil ein neuer Pass Wochen dauert.",
+        "params": [
+            {
+                "key": "hour",
+                "label": "Verschicken um",
+                "unit": "Uhr",
+                "default": 9,
+                "min": 7,
+                "max": 20,
+                "step": 1,
+            }
+        ],
+    },
+    {
         "key": "packlist",
         "title": "Packliste am Vorabend",
         "detail": "Steht in der Kinderseite, was an welchem Tag in den Thek "

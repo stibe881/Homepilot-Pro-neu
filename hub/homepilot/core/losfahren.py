@@ -27,8 +27,11 @@ Takt, Nachschlagen und Nachricht übernimmt der Wächter.
 from __future__ import annotations
 
 import math
+from collections.abc import Collection
 from datetime import datetime
 from typing import Any
+
+from . import packliste
 
 #: Weiter als das schaut der Wecker nicht voraus - wer um 8 Uhr einen
 #: Abendtermin sähe, bekäme die Nachricht Stunden zu früh berechnet
@@ -72,7 +75,8 @@ def kandidaten(events: Any, jetzt: datetime) -> list[dict[str, Any]]:
 
     Mit Ort, mit Uhrzeit, noch nicht begonnen und innert der nächsten
     Stunden. Rückgabe je Termin: kennung, summary, ort, start
-    (datetime, in der Zeitzonen-Welt von ``jetzt``).
+    (datetime, in der Zeitzonen-Welt von ``jetzt``) und person - wem
+    der Kalender gehört (Punkt 586), None wenn allen.
     """
     ergebnis: list[dict[str, Any]] = []
     for event in events if isinstance(events, list) else []:
@@ -98,9 +102,85 @@ def kandidaten(events: Any, jetzt: datetime) -> list[dict[str, Any]]:
                 "summary": str(event.get("summary") or "Termin"),
                 "ort": ort,
                 "start": start,
+                "person": str(event.get("person") or "").strip() or None,
             }
         )
     return ergebnis
+
+
+def aktivitaeten_heute(
+    activities: Any,
+    jetzt: datetime,
+    ferien: bool = False,
+    krank: Collection[str] = (),
+) -> list[dict[str, Any]]:
+    """Die Wöchentlichen der Kinder als Termine mit Ort (rein, testbar).
+
+    Punkt 621 der Werkbank: Der Wecker las nur Kalendertermine, obwohl
+    die Aktivitäten (Fussball in Sursee, Dienstag 17:30) den Ort längst
+    hatten. Je Eintrag entstehen bis zu zwei Fahrten: das Hinbringen
+    zum Anfang und das Abholen zum Ende - jede mit der eingetragenen
+    Person (``bringt`` bzw. ``holt``), damit die Nachricht nicht an
+    alle geht. Ohne Person geht sie an alle, wie bisher.
+
+    Zweiwochen-Einträge nur in ihrer Woche, und in den Ferien nur, was
+    den Schalter «auch in den Ferien» trägt (Punkt 620). Für ein krank
+    gemeldetes Kind (Punkt 622) fährt niemand.
+    """
+    tag = packliste.tag_von(jetzt.date())
+    woche = packliste.woche_von(jetzt.date())
+    heute = jetzt.date().isoformat()
+    ergebnis: list[dict[str, Any]] = []
+    for eintrag in activities if isinstance(activities, list) else []:
+        if not isinstance(eintrag, dict) or str(eintrag.get("day") or "") != tag:
+            continue
+        eintrag_woche = str(eintrag.get("week") or "")
+        if eintrag_woche and eintrag_woche != woche:
+            continue
+        if ferien and not packliste.gilt_in_den_ferien(eintrag):
+            continue
+        if str(eintrag.get("member") or "").strip() in krank:
+            continue
+        ort = str(eintrag.get("ort") or "").strip()
+        text = str(eintrag.get("text") or "").strip()
+        if not ort or not text:
+            continue
+        kennung = str(eintrag.get("id") or text)
+        for feld, wann_feld, zusatz in (("bringt", "from", ""), ("holt", "to", " abholen")):
+            uhr = _uhrzeit(eintrag.get(wann_feld))
+            if uhr is None:
+                continue
+            start = jetzt.replace(hour=uhr[0], minute=uhr[1], second=0, microsecond=0)
+            # Dasselbe Fenster wie bei den Kalenderterminen: Was vorbei
+            # ist, braucht keinen Wecker mehr.
+            abstand = (start - jetzt).total_seconds()
+            if abstand <= 0 or abstand > FENSTER_STUNDEN * 3600:
+                continue
+            ergebnis.append(
+                {
+                    "kennung": f"aktivitaet:{kennung}:{heute}:{feld}",
+                    "summary": f"{text}{zusatz}",
+                    "ort": ort,
+                    "start": start,
+                    "person": str(eintrag.get(feld) or "").strip() or None,
+                    "member": str(eintrag.get("member") or "").strip() or None,
+                }
+            )
+    return ergebnis
+
+
+def _uhrzeit(wert: Any) -> tuple[int, int] | None:
+    """«17:30» → (17, 30); alles andere → None (rein)."""
+    teile = str(wert or "").strip().replace(".", ":").split(":")
+    if len(teile) != 2:
+        return None
+    try:
+        stunde, minute = int(teile[0]), int(teile[1])
+    except ValueError:
+        return None
+    if not (0 <= stunde <= 23 and 0 <= minute <= 59):
+        return None
+    return stunde, minute
 
 
 def luftlinie_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -116,14 +196,47 @@ def luftlinie_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * erdradius * math.asin(math.sqrt(a))
 
 
-def fahrminuten(km: float) -> int:
+#: Bei Schnee und Glatteis (Punkt 585 der Werkbank): Alles dauert
+#: länger, und das Auto muss vorher freigekratzt werden. Der Faktor
+#: ist grob wie der Rest der Rechnung - «eher jetzt als zu spät».
+WINTERFAKTOR = 1.4
+KRATZEN_MINUTEN = 10
+
+#: Ab so viel Neuschnee über Nacht gilt die Winterlage.
+SCHNEE_AB_CM = 2.0
+
+
+def fahrminuten(km: float, winter: bool = False) -> int:
     """Geschätzte Fahrzeit in Minuten (rein, testbar).
 
     Aufgerundet - ein Wecker, der eine Minute zu früh klingelt, ist
-    keiner, der eine zu spät klingelt.
+    keiner, der eine zu spät klingelt. Im Winter (Schnee über Nacht
+    oder gefrierender Regen) mal 1.4 und zehn feste Minuten fürs
+    Kratzen - bisher rechnete der Wecker im Januar wie im Juli.
     """
     tempo = TEMPO_KURZ if km < TEMPO_GRENZE_KM else TEMPO_LANG
-    return max(1, math.ceil(km * STRASSENFAKTOR / tempo * 60))
+    minuten = km * STRASSENFAKTOR / tempo * 60
+    if winter:
+        minuten = minuten * WINTERFAKTOR + KRATZEN_MINUTEN
+    return max(1, math.ceil(minuten))
+
+
+def winterlage(wetter: Any) -> bool:
+    """Gilt gerade die Winterlage? (rein, testbar)
+
+    Aus dem Zustand der Wetter-Entität (integrations/weather.py): Schnee
+    über Nacht ab zwei Zentimetern oder ein Wettercode, der Schnee oder
+    gefrierenden Niederschlag meint. Ohne Wetter-Entität nein - dann
+    rechnet der Wecker wie bisher.
+    """
+    if not isinstance(wetter, dict):
+        return False
+    if wetter.get("winter_code") is not None:
+        return True
+    try:
+        return float(wetter.get("snow_tonight_cm") or 0) >= SCHNEE_AB_CM
+    except (TypeError, ValueError):
+        return False
 
 
 def faellig(start: datetime, minuten: float, jetzt: datetime) -> bool:
@@ -147,13 +260,17 @@ def ort_kurz(ort: str) -> str:
 
 
 def wecker_satz(
-    summary: str, ort: str, start: datetime, minuten: int
+    summary: str, ort: str, start: datetime, minuten: int, winter: bool = False
 ) -> tuple[str, str]:
-    """Titel und Text der Nachricht (rein, testbar)."""
+    """Titel und Text der Nachricht (rein, testbar).
+
+    «(Schnee)» hinter der Fahrzeit sagt, warum sie länger ist als
+    sonst - sonst hielte man die 35 Minuten nach Sursee für einen Fehler.
+    """
     return (
         "Jetzt losfahren",
         f"{summary} um {start.strftime('%H:%M')} in {ort_kurz(ort)} – "
-        f"Fahrzeit etwa {minuten} Minuten.",
+        f"Fahrzeit etwa {minuten} Minuten{' (Schnee)' if winter else ''}.",
     )
 
 

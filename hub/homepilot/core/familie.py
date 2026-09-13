@@ -14,6 +14,8 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Any
 
+from . import schulferien
+
 # Die Tageszeiten einer Kur und die Stunde, ab der sie fällig sind.
 # Bewusst grob: «morgens» ist keine Uhrzeit, sondern der Teil des Tages,
 # in dem man daran denken soll. Wer es genauer braucht, stellt sich einen
@@ -375,6 +377,122 @@ def _due_within(rows: list[dict[str, Any]], heute: date, tage: int) -> list[tupl
     return sorted(treffer)
 
 
+# Die Tage, an denen ein fehlender Essensplan eine Lücke ist. Das
+# Wochenende bleibt draussen: Samstag isst man, was kommt, und eine
+# Nachricht, die jeden Sonntag «für Samstag fehlt ein Plan» sagt,
+# schaltet man ab.
+PLAN_LUECKEN_TAGE = PLAN_DAYS[:5]
+
+
+def meals_lines(meals: list[dict[str, Any]] | None) -> list[str]:
+    """Das Essen der Woche im Ausblick (rein, testbar) - Punkt 587.
+
+    «Essen: Mo Lasagne · Di Reis …» und, wenn unter der Woche ein Tag
+    ohne Plan ist, «Für Mittwoch fehlt noch ein Plan». Beides nur, wenn
+    überhaupt geplant wird: Wer den Essensplan nicht führt, soll nicht
+    jeden Sonntag daran erinnert werden.
+    """
+    geplant: dict[str, str] = {}
+    for meal in meals or []:
+        if not isinstance(meal, dict):
+            continue
+        tag = str(meal.get("day") or "")
+        text = str(meal.get("text") or "").strip()
+        if tag in PLAN_DAYS and text and tag not in geplant:
+            geplant[tag] = text
+    if not geplant:
+        return []
+    zeilen = [
+        "Essen: "
+        + " · ".join(
+            f"{WEEKDAYS[PLAN_DAYS.index(tag)]} {geplant[tag]}"
+            for tag in PLAN_DAYS
+            if tag in geplant
+        )
+    ]
+    fehlt = [tag for tag in PLAN_LUECKEN_TAGE if tag not in geplant]
+    if fehlt:
+        aufzaehlung = (
+            fehlt[0] if len(fehlt) == 1 else ", ".join(fehlt[:-1]) + f" und {fehlt[-1]}"
+        )
+        zeilen.append(f"Für {aufzaehlung} fehlt noch ein Plan")
+    return zeilen
+
+
+def ferienrand(rows: Any, heute: date, tage: int = 7) -> list[tuple[date, str]]:
+    """Wo in der kommenden Woche die Ferien anfangen oder aufhören
+    (rein, testbar) - Punkt 620 der Werkbank.
+
+    «Mo: Herbstferien beginnen» oder «Mo: Schule beginnt wieder» - der
+    Sonntagabend-Ausblick sagte es nicht, und der Montagmorgen begann
+    mit einem Wecker, den niemand brauchte. Zurück kommt (Tag, Text),
+    nur für Ränder innerhalb der Spanne und nach heute.
+    """
+    von = heute + timedelta(days=1)
+    bis = heute + timedelta(days=tage)
+    treffer: list[tuple[date, str]] = []
+    for eintrag in schulferien.lesen(rows):
+        if von <= eintrag["von"] <= bis:
+            treffer.append((eintrag["von"], f"{eintrag['name']} beginnen"))
+        danach = eintrag["bis"] + timedelta(days=1)
+        # Enden die Ferien am Freitag, beginnt die Schule am Montag - der
+        # erste Schultag ist der nächste Werktag nach dem Ferienende.
+        while danach.weekday() >= 5:
+            danach += timedelta(days=1)
+        if von <= danach <= bis:
+            treffer.append((danach, "Schule beginnt wieder"))
+    return sorted(treffer)
+
+
+def krank_heute(members: Any, heute: date) -> set[str]:
+    """Wer heute krank gemeldet ist (rein, testbar) - Punkt 622 der Werkbank.
+
+    Das Feld ``sick_until`` am Mitglied trägt den letzten Krankheitstag
+    als «JJJJ-MM-TT»; um Mitternacht danach ist alles wieder normal.
+    Für ein krankes Kind schweigen Packliste und Losfahr-Wecker - «Levin
+    braucht morgen: Turnsack» ist mit Fieber im Bett die Nachricht, die
+    man nicht lesen will.
+    """
+    krank: set[str] = set()
+    for eintrag in members if isinstance(members, list) else []:
+        if not isinstance(eintrag, dict):
+            continue
+        name = str(eintrag.get("text") or "").strip()
+        bis = str(eintrag.get("sick_until") or "").strip()[:10]
+        if not name or not bis:
+            continue
+        try:
+            if date.fromisoformat(bis) >= heute:
+                krank.add(name)
+        except ValueError:
+            continue
+    return krank
+
+
+def unbesetzte_fahrten(activities: Any, hoechstens: int = 4) -> list[str]:
+    """«Do Jugi: niemand fährt» - Wöchentliche mit Ort, aber ohne Person
+    (rein, testbar). Punkt 621 der Werkbank: Die Frage «wer fährt Levin
+    nach Sursee?» gehört in den Sonntagabend-Ausblick, nicht auf den
+    Donnerstag um 17 Uhr.
+
+    Ohne Ort keine Fahrt, also keine Zeile; und ein Eintrag ohne Kind
+    gehört niemandem - er bleibt draussen.
+    """
+    zeilen: list[tuple[int, str]] = []
+    for eintrag in activities if isinstance(activities, list) else []:
+        if not isinstance(eintrag, dict):
+            continue
+        tag = str(eintrag.get("day") or "")
+        text = str(eintrag.get("text") or "").strip()
+        ort = str(eintrag.get("ort") or "").strip()
+        if tag not in WEEKDAYS or not text or not ort:
+            continue
+        if str(eintrag.get("bringt") or "").strip() or str(eintrag.get("holt") or "").strip():
+            continue
+        zeilen.append((WEEKDAYS.index(tag), f"{tag} {text}: niemand fährt"))
+    return [text for _, text in sorted(zeilen)[:hoechstens]]
+
+
 def week_ahead(
     events: list[dict[str, Any]],
     tasks: list[dict[str, Any]],
@@ -382,6 +500,9 @@ def week_ahead(
     contacts: list[dict[str, Any]],
     heute: date,
     tage: int = 7,
+    meals: list[dict[str, Any]] | None = None,
+    ferien_rows: Any = None,
+    activities: Any = None,
 ) -> str | None:
     """Was in den nächsten Tagen ansteht, in einer Nachricht (rein, testbar).
 
@@ -401,6 +522,11 @@ def week_ahead(
     zeilen: list[str] = []
     von = heute + timedelta(days=1)
     bis = heute + timedelta(days=tage)
+
+    # Der Ferienrand zuerst (Punkt 620): «Mo: Herbstferien beginnen» ist
+    # die Zeile, die die ganze Woche umstellt.
+    for wann, text in ferienrand(ferien_rows, heute, tage):
+        zeilen.append(f"{WEEKDAYS[wann.weekday()]}: {text}")
 
     termine: list[tuple[date, str]] = []
     for event in events or []:
@@ -448,9 +574,12 @@ def week_ahead(
         wann = heute + timedelta(days=versatz)
         zeilen.append(f"{WEEKDAYS[wann.weekday()]}: {name} hat Geburtstag")
 
+    # Das Essen und die offenen Fahrten zuletzt (Punkte 587, 621): Zeilen,
+    # die nicht mit den Terminen um die zehn Plätze konkurrieren sollen.
+    zeilen = zeilen[:10] + meals_lines(meals) + unbesetzte_fahrten(activities)
     if not zeilen:
         return None
-    return "\n".join(zeilen[:10])
+    return "\n".join(zeilen)
 
 
 def emergency_stale(checked: Any, heute: date, monate: int = 12) -> bool:

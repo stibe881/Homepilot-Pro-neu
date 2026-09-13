@@ -84,7 +84,8 @@ import { ROLE_LABELS } from '../lib/rollen';
 import { naechsteStraehne, straehnenSatz } from '../lib/straehne';
 import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, EventForm, FamilyItem, GroupedChecklist, MealRow, Member, MemberAddRow, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, Styles, TaskAddRow, TwoFieldForm, VorratBlatt, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, pickPhoto, rotateMember } from './family/bausteine';
 import { Kindseite, Wochenliste } from './family/kindseite';
-import { istKind, verschmelze } from '../lib/kindseite';
+import { TAGE, aemtliAbgeben, aktivitaetZeile, aktivitaetenAm, istKind, verschmelze, wocheVon } from '../lib/kindseite';
+import { kachelSatz } from '../lib/dokumente';
 import { farbIndex, initialen, personenGruppen, rolleZeile } from '../lib/personenliste';
 import { Gutscheine } from './family/gutscheine';
 import {
@@ -813,6 +814,37 @@ export function FamilyScreen({
         }
         kontakte={data.contacts ?? []}
         sachen={data.gear ?? []}
+        // «Pass gültig bis 03.2027» auf der Kinderseite (Punkt 623).
+        dokumente={data.documents ?? []}
+        // Wer bringen oder holen kann (Punkt 621): alle ausser dem Kind.
+        mitglieder={members.filter((m) => m.name !== kind && !m.shared).map((m) => m.name)}
+        // Krank (Punkt 622): `sick_until` hängt am Eintrag in «members».
+        // Ein Kind mit eigenem Zugang hat dort keinen - dann legt das
+        // Krankmelden einen an, wie beim Sterne-Ziel (SternZielForm).
+        mitgliedEintrag={
+          (data.members ?? []).find(
+            (eintrag: FamilyItem) => String(eintrag.text ?? '').trim() === kind
+          ) ?? null
+        }
+        onKrank={(bis) => {
+          const roh = (data.members ?? []).find(
+            (eintrag: FamilyItem) => String(eintrag.text ?? '').trim() === kind
+          );
+          if (roh?.id) update('members', String(roh.id), { sick_until: bis });
+          else if (bis) add('members', { text: kind, role: 'kind', sick_until: bis });
+          // Fällige Ämtli an den Nächsten in der Reihe - sonst wird das
+          // Ämtli des kranken Kindes rot überfällig und steht am
+          // Wandpanel unter «ÄMTLI HEUTE» (lib/kindseite.ts).
+          if (bis) {
+            for (const patch of aemtliAbgeben(data.chores ?? [], kind, new Date())) {
+              update('chores', patch.id, { member: patch.member });
+            }
+          }
+        }}
+        onKurAnlegen={() => {
+          setKind(null);
+          setView('medications');
+        }}
         // Frisch beim Zeichnen: `jetztTick` läuft nur, solange das
         // Rückgängig-Band steht, und wäre hier sonst die Uhrzeit von
         // vorgestern.
@@ -2580,6 +2612,15 @@ export function FamilyScreen({
         datum,
         iso,
         heute: iso === heuteIso,
+        // Die Wöchentlichen der Kinder samt «wer fährt» (Punkt 621) -
+        // bisher baute der Wochenplan seine Tage nur aus Terminen,
+        // Essen, Ämtli, Aufgaben und Geburtstagen.
+        aktivitaeten: aktivitaetenAm(
+          data.activities ?? [],
+          TAGE[index],
+          wochenPerson === 'Alle' ? null : wochenPerson,
+          wocheVon(datum)
+        ),
         termine: events.filter(
           (event: FamilyItem) => isoTag(new Date(event.start)) === iso
         ),
@@ -2671,6 +2712,7 @@ export function FamilyScreen({
               : tag.aufgaben.filter((task: FamilyItem) => task.member === wochenPerson);
           const leer =
             tag.termine.length === 0 &&
+            tag.aktivitaeten.length === 0 &&
             !tag.essen?.text &&
             aemtli.length === 0 &&
             aufgaben.length === 0 &&
@@ -2708,6 +2750,16 @@ export function FamilyScreen({
                   <Ionicons name="calendar-outline" size={15} color={colors.inkSoft} />
                   <Text style={[styles.checkText, { flex: 1 }]} numberOfLines={1}>
                     {event.summary ?? event.title ?? 'Termin'}
+                  </Text>
+                </View>
+              ))}
+
+              {/* «Levin: Fussball 17:30 · Stefan fährt» (Punkt 621). */}
+              {tag.aktivitaeten.map((eintrag: FamilyItem) => (
+                <View key={`a${String(eintrag.id)}`} style={styles.weekRowItem}>
+                  <Ionicons name="football-outline" size={15} color={colors.inkSoft} />
+                  <Text style={[styles.checkText, { flex: 1 }]} numberOfLines={1}>
+                    {aktivitaetZeile(eintrag)}
                   </Text>
                 </View>
               ))}
@@ -2804,7 +2856,8 @@ export function FamilyScreen({
   if (view === 'reminders')
     return <Erinnerungen {...modulrahmen} pushZiele={pushZiele} />;
   if (view === 'countdowns') return <Countdowns {...modulrahmen} />;
-  if (view === 'documents') return <Dokumente {...modulrahmen} />;
+  if (view === 'documents')
+    return <Dokumente {...modulrahmen} members={members} ich={currentUser?.name} />;
 
   if (view === 'rewards') {
     const log: FamilyItem[] = data.rewards ?? [];
@@ -3686,7 +3739,8 @@ export function FamilyScreen({
     { key: 'countdowns', icon: 'hourglass-outline', label: 'Countdowns', sub: 'Tage zählen' },
     { key: 'reminders', icon: 'alarm-outline', label: 'Erinnerungen', sub: 'Gross auf dem Schirm oder als Push' },
     { key: 'recipes', icon: 'book-outline', label: 'Rezeptbuch', sub: 'Familienrezepte' },
-    { key: 'documents', icon: 'folder-open-outline', label: 'Dokumentsafe', sub: 'Wichtige Angaben' },
+    // «1 läuft bald ab» (Punkt 623) - sonst wie bisher.
+    { key: 'documents', icon: 'folder-open-outline', label: 'Dokumentsafe', sub: kachelSatz(data.documents ?? [], new Date()) ?? 'Wichtige Angaben' },
     // Punkt 264: «3 verfügbar · 130.00 CHF» - was noch einzulösen ist.
     { key: 'vouchers', icon: 'gift-outline', label: 'Gutscheine', sub: gutscheinKachel(data.vouchers ?? [], new Date()) },
   ];

@@ -41,7 +41,10 @@ export type Ziel =
   /** Das Klingel-Vollbild. */
   | { art: 'klingel'; entityId?: string }
   /** Die Liste der offenen Fenster und Türen. */
-  | { art: 'offen' };
+  | { art: 'offen' }
+  /** Die Route zu einer Adresse in der Karten-App (Punkt 586): der
+   *  Losfahr-Wecker kennt den Ort, also führt der Tipp dorthin. */
+  | { art: 'route'; ort: string };
 
 /** Bereiche, in die eine Nachricht führen darf. Absichtlich eine Liste
  *  und keine offene Zeichenkette: Was der Hub schickt, kommt aus einer
@@ -142,6 +145,11 @@ function ausSchluessel(roh: string, entityId?: string): Ziel | null {
       return { art: 'timer' };
     case 'offen':
       return { art: 'offen' };
+    case 'route':
+      // Der Ort steht hinter dem ersten Doppelpunkt - und darf selbst
+      // welche enthalten («Bahnhofstrasse 3, 6144 Zell»), deshalb
+      // wurde `rest` oben wieder zusammengesetzt.
+      return wert ? { art: 'route', ort: wert } : null;
     case 'klingel':
       return { art: 'klingel', entityId: wert || entityId };
     case 'bereich':

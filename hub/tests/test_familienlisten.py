@@ -99,6 +99,85 @@ def test_a_quiet_week_sends_nothing():
     assert familie.week_ahead([], [], [], [], date(2026, 8, 23)) is None
 
 
+def test_the_week_ahead_names_the_edge_of_the_holidays():
+    """Punkt 620: Der Sonntagabend-Ausblick sagte nicht «Montag beginnen
+    die Ferien» - und der Montagmorgen begann mit einem Wecker, den
+    niemand brauchte. Enden sie am Freitag, beginnt die Schule am Montag."""
+    sonntag = date(2026, 9, 27)
+    ferien = [
+        {"name": "Herbstferien", "from": "2026-09-28", "to": "2026-10-09"},
+        {"name": "Sportferien", "from": "2027-02-06", "to": "2027-02-14"},
+    ]
+    assert familie.ferienrand(ferien, sonntag) == [
+        (date(2026, 9, 28), "Herbstferien beginnen")
+    ]
+    # Die Ferien enden am Freitag, 9. Oktober - am Sonntag danach steht
+    # «Mo: Schule beginnt wieder» in der Vorschau.
+    assert familie.ferienrand(ferien, date(2026, 10, 11)) == [
+        (date(2026, 10, 12), "Schule beginnt wieder")
+    ]
+    assert familie.ferienrand(ferien, date(2026, 11, 1)) == []
+    text = familie.week_ahead([], [], [], [], sonntag, ferien_rows=ferien)
+    assert text is not None
+    assert text.startswith("Mo: Herbstferien beginnen")
+
+
+def test_a_sick_child_is_known_until_midnight_after_the_last_day():
+    """Punkt 622: Es gab keinen Zustand «krank». Das Feld sick_until am
+    Mitglied trägt den letzten Krankheitstag; danach ist alles normal."""
+    members = [
+        {"text": "Levin", "role": "kind", "sick_until": "2026-09-08"},
+        {"text": "Lina", "role": "kind", "sick_until": "2026-09-01"},
+        {"text": "Pia", "role": "kind"},
+        {"text": "Kaputt", "sick_until": "irgendwann"},
+        "kein dict",
+    ]
+    assert familie.krank_heute(members, date(2026, 9, 8)) == {"Levin"}
+    assert familie.krank_heute(members, date(2026, 9, 9)) == set()
+    assert familie.krank_heute(None, date(2026, 9, 8)) == set()
+
+
+def test_the_week_ahead_names_rides_nobody_has_taken():
+    """Punkt 621: «Do Jugi: niemand fährt» gehört in den Sonntagabend-
+    Ausblick, nicht auf den Donnerstag um 17 Uhr."""
+    activities = [
+        {"day": "Do", "text": "Jugi", "ort": "Sursee", "member": "Levin"},
+        {"day": "Di", "text": "Fussball", "ort": "Sursee", "bringt": "Stefan"},
+        {"day": "Mo", "text": "Ballett", "ort": "Zell", "holt": "Anna"},
+        # Ohne Ort keine Fahrt, ohne Tag keine Zeile.
+        {"day": "Fr", "text": "Lesen", "member": "Lina"},
+        {"day": "Irgendwann", "text": "Turnen", "ort": "Zell"},
+    ]
+    assert familie.unbesetzte_fahrten(activities) == ["Do Jugi: niemand fährt"]
+    assert familie.unbesetzte_fahrten(None) == []
+    text = familie.week_ahead([], [], [], [], date(2026, 8, 23), activities=activities)
+    assert text == "Do Jugi: niemand fährt"
+
+
+def test_the_week_ahead_lists_the_meals_and_the_missing_plan():
+    """Punkt 587: Das Abendessen stand im Wochenplan - und nirgends sonst.
+    Am Sonntag steht es im Ausblick, samt dem Tag, für den noch ein Plan
+    fehlt."""
+    meals = [
+        {"day": "Montag", "text": "Lasagne"},
+        {"day": "Dienstag", "text": "Reis"},
+        {"day": "Donnerstag", "text": "Pizza"},
+        {"day": "Freitag", "text": "Fisch"},
+        {"day": "Samstag", "text": ""},
+    ]
+    text = familie.week_ahead([], [], [], [], date(2026, 8, 23), meals=meals)
+    assert text is not None
+    assert "Essen: Mo Lasagne · Di Reis · Do Pizza · Fr Fisch" in text
+    # Nur unter der Woche: Samstag isst man, was kommt.
+    assert text.endswith("Für Mittwoch fehlt noch ein Plan")
+    # Zwei Lücken werden aufgezählt; ohne Plan gibt es keine Mahnung.
+    assert familie.meals_lines(meals[:1])[1] == (
+        "Für Dienstag, Mittwoch, Donnerstag und Freitag fehlt noch ein Plan"
+    )
+    assert familie.meals_lines([]) == []
+    assert familie.meals_lines(None) == []
+
+
 def test_the_week_ahead_starts_on_monday_not_today():
     """Der gemeldete Fall: Die Sonntagabend-Vorschau fing mit «So: …»
     an - dem heutigen Tag. Die kommende Woche beginnt am Montag; was
