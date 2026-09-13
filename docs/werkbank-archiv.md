@@ -7676,6 +7676,36 @@ Keine Browser-Probe: Der Demo-Hub hat keinen Sauger. Beide Hälften sind
 in Tests festgehalten.
 
 Stellen: `hub/homepilot/core/watchrules.py`, `hub/homepilot/integrations/roborock.py`, `app/src/lib/saugerkarte.ts`, `app/src/components/VacuumHome.tsx`
+### 638. «Niemand mehr zuhause» kam dreieinhalb Stunden zu spät ✓ erledigt
+
+Aus dem Haus, mit Bild des Sperrbildschirms: «Diese Meldungen sind um
+16:51 Uhr gekommen. Es ist aber seit ca. 13:00 Uhr niemand mehr
+zuhause.»
+
+Beides stimmt, und darin liegt der Fall. Die Kopplung rechnet nicht,
+wann jemand gegangen **ist**, sondern wann sein Telefon es gemeldet
+hat - und sie wartet auf den Letzten (`core/alarmanwesenheit.py`). Ein
+Kurzbefehl, der beim Verlassen nicht auslöst oder dessen POST am
+Zonenrand ohne Netz verfällt, hält damit das ganze Haus auf «jemand
+da», bis dieses eine Telefon sich das nächste Mal überhaupt meldet.
+Zehn Minuten Nachlauf kommen obendrauf - die sind Absicht und erklären
+die 16:51 nicht, die 16:41 davor schon.
+
+Von aussen ist das nicht zu unterscheiden: Die Anlage meldet «niemand
+mehr zuhause», ohne zu sagen, seit wann sie das denkt und an wem es
+hing. Neu sagt sie es: `docker exec homepilot-hub python -m
+homepilot.anwesenheitscheck` stellt je Person Zustand, Quelle, letzte
+Meldung und Akku hin, darunter das Kommen und Gehen der letzten 24
+Stunden, die Rechnung «alle weg seit … (zuletzt ging: …) → frühestens
+scharf um …» und was die Anlage im selben Zeitraum tat, samt «durch
+Anwesenheit». Damit steht in einer Ausgabe, ob die Kopplung zu spät
+war oder die Meldung.
+
+Wie die anderen sechs Werkzeuge läuft es auch aus der App (System →
+Prüfwerkzeuge) - gerade dieses: Die Frage stellt man, während man
+unterwegs ist, nicht am Terminal des Hubs.
+
+Stellen: `hub/homepilot/anwesenheitscheck.py`, `hub/homepilot/core/alarmanwesenheit.py` (`letzter_weggang`), `hub/homepilot/api/routes/diagnose.py`, `hub/tests/test_anwesenheitscheck.py`, `hub/tests/test_alarmanwesenheit.py`, `docs/geofence.md`
 
 ### 639. Das Stations-Fenster spricht Deutsch ✓ erledigt
 
