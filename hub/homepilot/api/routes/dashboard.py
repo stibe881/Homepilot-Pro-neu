@@ -109,7 +109,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         if laeuft:
             antwort["running"] = laeuft
         # Nur wenn gefragt: Die alte Knopfleiste soll keine Zeile mehr
-        # übertragen als bisher.
+        # übertragen als bisher. Gefragt wird seit der Runde 579 der
+        # Werkbank wieder: Das Widget schickt die Kennungen seiner
+        # Geräte-Knöpfe und färbt das Symbol, wenn `on` steht
+        # (targets/widget/index.swift, ladeGlance). Dazwischen war diese
+        # Hälfte verwaist - die Karten-Widget-Art, für die sie entstand,
+        # gab es nicht mehr.
         if gefragt:
             antwort["entities"] = widgetkarten.zeilen(entities, gefragt)
         return antwort

@@ -46,6 +46,13 @@ struct Shortcut: Decodable {
     let direct: Bool?
     let actionPath: String?
     let actionBody: String?
+
+    /// Die Geräte-Kennung hinter einem 'entity:…'-Knopf - für die Frage
+    /// an /api/glance?ids=, ob das Licht gerade brennt. Szenen, Türe
+    /// und Alarm haben keinen Zustand, den ein Symbol zeigen könnte.
+    var entityId: String? {
+        key.hasPrefix("entity:") ? String(key.dropFirst("entity:".count)) : nil
+    }
 }
 
 /// Womit jeder anfängt, solange die App nichts hinterlegt hat.
@@ -108,7 +115,10 @@ enum Hausstand {
         lightsOn: Int,
         nextEvent: String?,
         alarm: String?,
-        running: [Maschine]
+        running: [Maschine],
+        /// Kennungen der Knopf-Geräte, die gerade an sind - aus
+        /// `entities` der Antwort (core/widgetkarten.py, `on`).
+        an: Set<String>
     )
 }
 
@@ -131,12 +141,27 @@ struct Maschine {
     }
 }
 
-func ladeGlance() async -> Hausstand {
+/// Der Hausstand - und für die Knöpfe mit Gerät, ob es gerade an ist.
+///
+/// `ids` sind die Kennungen der 'entity:…'-Knöpfe. Der Hub beantwortet
+/// sie seit der Karten-Widget-Art mit je einer Zeile (`entities`,
+/// dashboard.py) - nur fragte hier nie jemand: Die Hub-Hälfte war
+/// verwaist, seit die Karten gestrichen wurden, und die Knöpfe zeigten
+/// ein Licht, das brennt, genauso wie eines, das aus ist (Fehler aus
+/// der Runde 579 der Werkbank). Ohne Geräte-Knöpfe bleibt die Adresse
+/// die alte - keine Zeile mehr übertragen als nötig.
+func ladeGlance(ids: [String] = []) async -> Hausstand {
     let defaults = UserDefaults(suiteName: appGroup)
+    // Kommas bleiben stehen (sie sind in einer Abfrage erlaubt); alles,
+    // was eine Adresse anders lesen würde, wird kodiert.
+    let frage = ids.isEmpty
+        ? ""
+        : "?ids=" + (ids.joined(separator: ",")
+            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")
     guard
         let base = defaults?.string(forKey: "hubUrl"),
         let token = defaults?.string(forKey: "hubToken"),
-        let url = URL(string: base + "/api/glance")
+        let url = URL(string: base + "/api/glance" + frage)
     else {
         return .aus
     }
@@ -172,12 +197,21 @@ func ladeGlance() async -> Hausstand {
                 percent: $0["percent"] as? Double
             )
         }
+        // Welche der gefragten Geräte an sind - der Hub sagt es in
+        // Worten («an», «offen») und als `on`; hier zählt nur das Ja.
+        var an = Set<String>()
+        for zeile in (json["entities"] as? [[String: Any]]) ?? [] {
+            if let id = zeile["id"] as? String, (zeile["on"] as? Bool) == true {
+                an.insert(id)
+            }
+        }
         return .da(
             doorsOpen: (json["doors_open"] as? [String]) ?? [],
             lightsOn: (json["lights_on"] as? Int) ?? 0,
             nextEvent: termin,
             alarm: json["alarm"] as? String,
-            running: maschinen
+            running: maschinen,
+            an: an
         )
     } catch {
         return .nichtErreicht
@@ -191,8 +225,13 @@ struct Provider: TimelineProvider {
 
     func getSnapshot(in context: Context, completion: @escaping (Entry) -> Void) {
         Task {
+            let knöpfe = ladeShortcuts()
             completion(
-                Entry(date: Date(), glance: await ladeGlance(), shortcuts: ladeShortcuts())
+                Entry(
+                    date: Date(),
+                    glance: await ladeGlance(ids: knöpfe.compactMap(\.entityId)),
+                    shortcuts: knöpfe
+                )
             )
         }
     }
@@ -211,8 +250,10 @@ struct Provider: TimelineProvider {
                 String(Int(Date().timeIntervalSince1970)),
                 forKey: "widgetZuletztGelesen"
             )
-            let glance = await ladeGlance()
+            // Erst die Knöpfe: Ihre Geräte-Kennungen gehen mit der
+            // Frage an den Hub, damit das Symbol den Zustand zeigen kann.
             let knöpfe = ladeShortcuts()
+            let glance = await ladeGlance(ids: knöpfe.compactMap(\.entityId))
             // Alle 15 Minuten: Häufiger lässt iOS ohnehin nicht zu, und für
             // «steht die Türe offen» ist es kein Alarm, sondern ein Blick im
             // Vorbeigehen. Wer es genau wissen will, tippt einmal.
@@ -238,18 +279,28 @@ struct Entry: TimelineEntry {
 
     /// Fürs runde Sperrbildschirm-Widget: Steht etwas offen?
     var etwasOffen: Bool {
-        if case .da(let türen, _, _, _, _) = glance { return !türen.isEmpty }
+        if case .da(let türen, _, _, _, _, _) = glance { return !türen.isEmpty }
         return false
     }
 
     var termin: String? {
-        if case .da(_, _, let termin, _, _) = glance { return termin }
+        if case .da(_, _, let termin, _, _, _) = glance { return termin }
         return nil
     }
 
     var maschinen: [Maschine] {
-        if case .da(_, _, _, _, let laufend) = glance { return laufend }
+        if case .da(_, _, _, _, let laufend, _) = glance { return laufend }
         return []
+    }
+
+    /// Brennt das Gerät hinter diesem Knopf gerade? Ohne Hausstand
+    /// (aus, nicht erreicht) weiss es niemand - dann nein, und das
+    /// Symbol bleibt, wie es immer war.
+    func istAn(_ knopf: Shortcut) -> Bool {
+        guard let id = knopf.entityId, case .da(_, _, _, _, _, let an) = glance else {
+            return false
+        }
+        return an.contains(id)
     }
 }
 
@@ -274,7 +325,7 @@ struct StatusZeile: View {
             Label("nicht erreichbar", systemImage: "wifi.slash")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-        case .da(let türen, let lichter, _, let alarm, _):
+        case .da(let türen, let lichter, _, let alarm, _, _):
             if !türen.isEmpty {
                 Label(
                     türen.count == 1
@@ -401,6 +452,26 @@ func hubPost(pfad: String, body: String) async {
     _ = try? await URLSession.shared.data(for: request)
 }
 
+/// Das Symbol eines Knopfs - gelb, wenn das Gerät dahinter an ist.
+///
+/// Gelb wie eine brennende Lampe, nicht die Akzentfarbe: Auf dem
+/// Sperrbildschirm und in StandBy ist die Akzentfarbe oft nicht zu
+/// sehen, und ein Licht, das brennt, soll im Vorbeigehen auffallen.
+/// Ohne Zustand (Szene, Türe, Alarm, Hausstand aus) bleibt es beim
+/// Symbol in der Textfarbe, wie bisher.
+struct KnopfSymbol: View {
+    let knopf: Shortcut
+    let an: Bool
+
+    var body: some View {
+        if an {
+            Image(systemName: knopf.symbol).foregroundStyle(Color.yellow)
+        } else {
+            Image(systemName: knopf.symbol)
+        }
+    }
+}
+
 /// Ein Knopf: schaltet direkt (iOS 17, wenn die App es erlaubt hat) oder
 /// öffnet die App an der richtigen Stelle – der Weg, der für Tür und
 /// Alarm immer bleibt.
@@ -441,7 +512,7 @@ struct KleinAufHomescreen: View {
                 // kleinen Grösse ineinander.
                 ForEach(Array(entry.shortcuts.prefix(4)), id: \.url) { knopf in
                     KnopfInhalt(knopf: knopf) {
-                        Image(systemName: knopf.symbol)
+                        KnopfSymbol(knopf: knopf, an: entry.istAn(knopf))
                     }
                 }
             }
@@ -466,7 +537,7 @@ struct KleineFassung: View {
         if mitHintergrund {
             KleinAufHomescreen(entry: entry)
         } else {
-            AutoKnopfwand(knoepfe: Array(entry.shortcuts.prefix(4)))
+            AutoKnopfwand(knoepfe: Array(entry.shortcuts.prefix(4)), entry: entry)
         }
     }
 }
@@ -480,6 +551,9 @@ struct KleineFassung: View {
 /// der linke?» ist am Steuer die falsche Frage.
 struct AutoKnopfwand: View {
     let knoepfe: [Shortcut]
+    /// Für den Zustand der Knopf-Geräte (istAn) - auch am Steuer soll
+    /// man sehen, ob das Licht noch brennt.
+    let entry: Provider.Entry
 
     var body: some View {
         let spalten = [GridItem(.flexible()), GridItem(.flexible())]
@@ -487,7 +561,7 @@ struct AutoKnopfwand: View {
             ForEach(knoepfe, id: \.url) { knopf in
                 KnopfInhalt(knopf: knopf) {
                     VStack(spacing: 4) {
-                        Image(systemName: knopf.symbol)
+                        KnopfSymbol(knopf: knopf, an: entry.istAn(knopf))
                             .font(.title2)
                             .frame(height: 24)
                         Text(knopf.title)
@@ -587,7 +661,7 @@ struct HomePilotWidgetView: View {
                     ForEach(entry.shortcuts, id: \.url) { knopf in
                         KnopfInhalt(knopf: knopf) {
                             VStack(spacing: 3) {
-                                Image(systemName: knopf.symbol)
+                                KnopfSymbol(knopf: knopf, an: entry.istAn(knopf))
                                 Text(knopf.title).font(.caption2).lineLimit(1)
                             }
                         }
