@@ -194,6 +194,14 @@ export function stateLook(
     // «jetzt unscharf schalten, wenn du es bist».
     case 'verdacht':
       return { text: 'Verdacht – gleich Alarm', color: colors.warn };
+    // Wegen Brandalarm ausgesetzt (Punkt 615): Die Einbruchmeldung hört
+    // nicht zu, solange es brennt, und kehrt nach der Entwarnung von
+    // selbst in den Modus zurück - der steht deshalb dabei.
+    case 'brand':
+      return {
+        text: `Wegen Brandalarm ausgesetzt${state.mode_label ? ` · ${state.mode_label}` : ''}`,
+        color: colors.danger,
+      };
     default:
       return { text: 'Unscharf', color: colors.inkSoft };
   }

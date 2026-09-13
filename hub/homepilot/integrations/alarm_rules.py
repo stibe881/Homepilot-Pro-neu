@@ -67,6 +67,20 @@ def abwesend(mode: str | None) -> bool:
     return mode in ABWESEND_MODI
 
 
+def brand_setzt_aus(state: str, mode: str | None) -> bool:
+    """Setzt ein Brandalarm die Anlage in diesem Zustand aus? (rein, testbar)
+
+    Punkt 615 der Werkbank. Nur, wenn jemand da ist - Nacht und die
+    eigenen Modi: Dort ist die Flucht durchs Haus der Grund für die
+    Fehlauslösung. Bei Abwesend/Ferien bleibt der Einbruchweg offen: Wer
+    das Feuer legt, soll nicht damit die Anlage ausschalten. Unscharf
+    bleibt unscharf, und ein Brand-Zustand wird nicht noch einmal gesetzt.
+    """
+    if state in (DISARMED, BRAND):
+        return False
+    return not abwesend(mode)
+
+
 def unverschlossen(entities: list[Entity], zone: str | None = None) -> list[Entity]:
     """Türen, die vor dem Scharfschalten noch abzuschliessen wären (rein, testbar).
 
@@ -166,6 +180,13 @@ TRIGGERED = "ausgeloest"
 #: dieser Zeit entschärft, hat einen Fehlalarm ohne Sirene; meldet sich
 #: ein zweiter Sensor, ist es keiner mehr - dann sofort.
 VERDACHT = "verdacht"
+#: Wegen Brandalarm ausgesetzt (Punkt 615 der Werkbank): Die Brandanlage
+#: weckt alle mit Durchsage und Licht - und die erste Person im Flur
+#: löste über den Bewegungsmelder den Einbruchalarm samt Sirene aus.
+#: Solange es brennt, hört die Einbruchmeldung nicht zu; nach der
+#: Entwarnung geht es in den vorigen Modus zurück, ohne
+#: Bereitschaftsprüfung (wie nach einem Alarm).
+BRAND = "brand"
 
 #: Was auch während der Saugerfahrt auslöst.
 #:
