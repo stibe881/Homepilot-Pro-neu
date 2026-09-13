@@ -28,7 +28,13 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from . import astro, feiertage, schulferien
-from .automation import kalender_zeitpunkte, parse_hhmm, parse_weekdays, time_in_window
+from .automation import (
+    datum_im_fenster,
+    kalender_zeitpunkte,
+    parse_hhmm,
+    parse_weekdays,
+    time_in_window,
+)
 
 #: Mehr als ein Monat rückwärts ist keine Simulation mehr, sondern eine
 #: Statistik - und das Ereignisprotokoll reicht ohnehin nicht so weit.
@@ -81,6 +87,9 @@ def bedingung_gilt(
             return any(bedingung_gilt(c, wann, lat, lon, ferien_rows) for c in subs)
         return all(bedingung_gilt(c, wann, lat, lon, ferien_rows) for c in subs)
     if ctype == "time":
+        # Jahreszeit (Punkt 598) - dieselbe Regel wie im Betrieb.
+        if not datum_im_fenster(wann.date(), condition.get("from"), condition.get("to")):
+            return False
         days = parse_weekdays(condition.get("weekdays"))
         if days and wann.weekday() not in days:
             return False

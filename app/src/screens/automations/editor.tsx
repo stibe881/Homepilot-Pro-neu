@@ -10,7 +10,7 @@ import { Pressable, Text, TextInput, View } from 'react-native';
 
 import { Entity, Scene } from '../../api/types';
 import { Colors, useColors } from '../../theme';
-import { ablaufSatz, nameVon } from '../../lib/ablaufsatz';
+import { ablaufSatz, monatstagAusText, monatstagText, nameVon } from '../../lib/ablaufsatz';
 import {
   SimulationsBericht,
   nichtSimulierbarZeile,
@@ -527,6 +527,40 @@ export function Editor({
                 {draft.weekdays.length === 0
                   ? 'Kein Tag gewählt heisst jeden Tag.'
                   : `Nur ${weekdayLabel(draft.weekdays)}.`}
+              </Text>
+              {/* Jahreszeit (Punkt 598 der Werkbank): Weihnachtsbeleuchtung
+                  1.12.–6.1., Hitzeschutz Mai–September - bis hierher jedes
+                  Jahr von Hand ein- und ausgeschaltet. Gespeichert als
+                  «MM-DD», getippt als Tag.Monat. */}
+              <Text style={styles.label}>Nur vom … bis …</Text>
+              <View style={styles.rowGap}>
+                <TextInput
+                  style={[styles.input, { flex: 1 }]}
+                  value={monatstagText(draft.conditionFrom)}
+                  onChangeText={(text) => set({ conditionFrom: text })}
+                  onEndEditing={(event) =>
+                    set({ conditionFrom: monatstagAusText(event.nativeEvent.text) })
+                  }
+                  keyboardType="numbers-and-punctuation"
+                  placeholder="vom 1.12."
+                  placeholderTextColor={colors.inkFaint}
+                />
+                <TextInput
+                  style={[styles.input, { flex: 1 }]}
+                  value={monatstagText(draft.conditionTo)}
+                  onChangeText={(text) => set({ conditionTo: text })}
+                  onEndEditing={(event) =>
+                    set({ conditionTo: monatstagAusText(event.nativeEvent.text) })
+                  }
+                  keyboardType="numbers-and-punctuation"
+                  placeholder="bis 6.1."
+                  placeholderTextColor={colors.inkFaint}
+                />
+              </View>
+              <Text style={styles.triggerNote}>
+                {draft.conditionFrom || draft.conditionTo
+                  ? 'Liegt der Anfang nach dem Ende, geht der Zeitraum über den Jahreswechsel – vom 1.12. bis 6.1. heisst Dezember und die ersten Januartage, jedes Jahr.'
+                  : 'Leer heisst das ganze Jahr. Mit Datum schaltet sich der Ablauf zur Saison selbst ein und wieder aus.'}
               </Text>
               <Pressable
                 onPress={() => set({ exceptHolidays: !draft.exceptHolidays })}

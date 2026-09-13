@@ -112,6 +112,10 @@ export function bedingungSatz(condition: Roh, entities: Entity[]): string {
     const teile = [];
     if (condition.after) teile.push(`ab ${condition.after}`);
     if (condition.before) teile.push(`bis ${condition.before}`);
+    // Jahreszeit (Punkt 598): «vom 1.12. bis 6.1.» gehört in den Satz,
+    // sonst sieht die Weihnachtsbeleuchtung im März wie kaputt aus.
+    if (condition.from) teile.push(`vom ${monatstagText(condition.from)}`);
+    if (condition.to) teile.push(`bis ${monatstagText(condition.to)}`);
     return teile.join(' ') || 'immer';
   }
   const wer = nameVon(entities, condition.entity_id);
@@ -122,6 +126,32 @@ export function bedingungSatz(condition: Roh, entities: Entity[]): string {
   if (condition.above !== undefined) return `${wer} über ${condition.above}${seit}`;
   if (condition.below !== undefined) return `${wer} unter ${condition.below}${seit}`;
   return `${wer} ist ${condition.equals ?? '?'}${seit}`;
+}
+
+/** «12-01» als «1.12.» - wie man es hier schreibt (rein, testbar).
+ *
+ *  Der Hub speichert den Datumsbereich einer Zeitbedingung als «MM-DD»
+ *  (Punkt 598), damit er sich vergleichen lässt; gelesen wird Tag.Monat. */
+export function monatstagText(wert: unknown): string {
+  const treffer = /^(\d{1,2})-(\d{1,2})$/.exec(String(wert ?? '').trim());
+  if (!treffer) return String(wert ?? '');
+  return `${Number(treffer[2])}.${Number(treffer[1])}.`;
+}
+
+/** Ein eingetipptes Datum «1.12.» oder «01.12» auf «MM-DD» (rein, testbar).
+ *
+ *  Leer bleibt leer (kein Rand), Unsinn bleibt, wie er war - dann sieht
+ *  man im Feld, was nicht verstanden wurde, statt dass es still
+ *  verschwindet. */
+export function monatstagAusText(roh: string): string {
+  const text = String(roh ?? '').trim();
+  if (!text) return '';
+  const mmdd = /^(\d{1,2})-(\d{1,2})$/.exec(text);
+  const tagMonat = /^(\d{1,2})\.\s*(\d{1,2})\.?$/.exec(text);
+  const monat = mmdd ? Number(mmdd[1]) : tagMonat ? Number(tagMonat[2]) : NaN;
+  const tag = mmdd ? Number(mmdd[2]) : tagMonat ? Number(tagMonat[1]) : NaN;
+  if (!(monat >= 1 && monat <= 12 && tag >= 1 && tag <= 31)) return roh;
+  return `${String(monat).padStart(2, '0')}-${String(tag).padStart(2, '0')}`;
 }
 
 const BEFEHL: Record<string, string> = {

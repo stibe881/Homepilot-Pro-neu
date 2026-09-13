@@ -1096,6 +1096,10 @@ export interface Draft {
   conditionSun: 'up' | 'down';
   conditionAfter: string;
   conditionBefore: string;
+  /** Jahreszeit der Uhrzeit-Bedingung als «MM-DD» (Punkt 598): «vom
+   *  1.12. bis 6.1.» geht über den Jahreswechsel. Leer = das ganze Jahr. */
+  conditionFrom: string;
+  conditionTo: string;
   /** Zusätzliche Bedingungen «nur wenn Gerät … ist / über / unter». */
   stateConditions: StateCondition[];
   /** Und/Oder-Gruppen aus Gerätebedingungen (Punkt 152). */
@@ -1171,6 +1175,8 @@ export const EMPTY: Draft = {
   conditionSun: 'down',
   conditionAfter: '',
   conditionBefore: '',
+  conditionFrom: '',
+  conditionTo: '',
   stateConditions: [],
   groups: [],
   kontextConditions: [],
@@ -1692,6 +1698,8 @@ export function buildConditions(draft: Draft): BausteinConfig[] {
     const condition: BausteinConfig = { type: 'time' };
     if (draft.conditionAfter) condition.after = draft.conditionAfter;
     if (draft.conditionBefore) condition.before = draft.conditionBefore;
+    if (draft.conditionFrom) condition.from = draft.conditionFrom;
+    if (draft.conditionTo) condition.to = draft.conditionTo;
     // Alle sieben Tage anzugeben heisst dasselbe wie keinen – dann lieber
     // das Feld weglassen, damit die gespeicherte Form schlank bleibt.
     if (draft.weekdays.length > 0 && draft.weekdays.length < 7) {
@@ -1703,6 +1711,8 @@ export function buildConditions(draft: Draft): BausteinConfig[] {
     if (
       condition.after ||
       condition.before ||
+      condition.from ||
+      condition.to ||
       condition.weekdays ||
       condition.except_holidays ||
       condition.except_school_holidays
@@ -2464,6 +2474,8 @@ export function toDraft(automation: Automation): Draft {
     conditionSun: condition.state === 'up' ? 'up' : 'down',
     conditionAfter: condition.after ?? '',
     conditionBefore: condition.before ?? '',
+    conditionFrom: String(condition.from ?? ''),
+    conditionTo: String(condition.to ?? ''),
     stateConditions: all
       .filter((entry) => (entry.type ?? 'state') === 'state' && entry.entity_id)
       // Beim Speichern wird das attribute-Feld mitgeschrieben, beim
@@ -2879,6 +2891,7 @@ export function bedingungStand(draft: Draft): string {
     );
   }
   if (draft.weekdays.length > 0) teile.push('Wochentage');
+  if (draft.conditionFrom || draft.conditionTo) teile.push('Jahreszeit');
   if (draft.exceptHolidays) teile.push('ohne Feiertage');
   if (draft.exceptSchoolHolidays) teile.push('ohne Schulferien');
   if (draft.extraConditions.length > 0) teile.push('aus der Konfiguration');

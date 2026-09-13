@@ -5,7 +5,7 @@
  * hat, liest es hier – deshalb prüft der Test genau diese Wörter.
  */
 import { Entity, Scene } from '../api/types';
-import { ablaufSatz, befehlWort, kuerze } from './ablaufsatz';
+import { ablaufSatz, befehlWort, kuerze, monatstagAusText, monatstagText } from './ablaufsatz';
 
 const entities = [
   { id: 'hm.bewegung', name: 'Bewegung Flur' },
@@ -476,5 +476,36 @@ describe('befehlWort', () => {
     // Die Listenzeile hat nicht immer eines zur Hand.
     expect(befehlWort('turn_off')).toBe('aus');
     expect(befehlWort('sound_alarm')).toBe('Signal geben');
+  });
+});
+
+describe('Jahreszeit an der Zeitbedingung (Punkt 598)', () => {
+  it('liest «MM-DD» als Tag.Monat und tippt es zurück', () => {
+    expect(monatstagText('12-01')).toBe('1.12.');
+    expect(monatstagText('01-06')).toBe('6.1.');
+    expect(monatstagText('')).toBe('');
+    expect(monatstagAusText('1.12.')).toBe('12-01');
+    expect(monatstagAusText('01.12')).toBe('12-01');
+    expect(monatstagAusText('6. 1.')).toBe('01-06');
+    expect(monatstagAusText('12-01')).toBe('12-01');
+    expect(monatstagAusText('')).toBe('');
+    // Unsinn bleibt sichtbar stehen statt still zu verschwinden.
+    expect(monatstagAusText('Dezember')).toBe('Dezember');
+    expect(monatstagAusText('32.1.')).toBe('32.1.');
+  });
+
+  it('steht im Satz', () => {
+    const satz = ablaufSatz(
+      {
+        triggers: [{ type: 'time', at: '17:00' }],
+        conditions: [{ type: 'time', from: '12-01', to: '01-06' }],
+        actions: [{ type: 'command', entity_id: 'hue.flur', command: 'turn_on' }],
+        otherwise: [],
+        match: 'all',
+      },
+      entities,
+      scenes
+    );
+    expect(satz).toContain('vom 1.12. bis 6.1.');
   });
 });

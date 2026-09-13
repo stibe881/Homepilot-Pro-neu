@@ -84,6 +84,28 @@ describe('Feiertags-Bedingung (Punkt 154)', () => {
     expect(conditions).toEqual([{ type: 'time', except_holidays: true }]);
   });
 
+  it('trägt die Jahreszeit als from/to und holt sie zurück (Punkt 598)', () => {
+    const conditions = buildConditions({
+      ...EMPTY,
+      conditionKind: 'time',
+      conditionFrom: '12-01',
+      conditionTo: '01-06',
+    });
+    expect(conditions).toEqual([{ type: 'time', from: '12-01', to: '01-06' }]);
+    const draft = toDraft({
+      id: 'x',
+      alias: 'X',
+      triggers: [],
+      conditions: [{ type: 'time', from: '12-01', to: '01-06' }],
+      actions: [],
+      editable: true,
+    });
+    expect(draft.conditionKind).toBe('time');
+    expect(draft.conditionFrom).toBe('12-01');
+    expect(draft.conditionTo).toBe('01-06');
+    expect(bedingungStand(draft)).toContain('Jahreszeit');
+  });
+
   it('ohne Häkchen bleibt die Bedingung schlank', () => {
     const conditions = buildConditions({
       ...EMPTY,

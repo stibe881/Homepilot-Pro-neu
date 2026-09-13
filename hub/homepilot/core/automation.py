@@ -16,7 +16,8 @@ Bedingungen:
   - {type: state, entity_id, attribute?: "state", equals? | above? | below?,
      min_age?: minuten}   # «seit mindestens» - aus last_change (595)
   - {type: time, after?: "HH:MM", before?: "HH:MM", weekdays?: [0..6],
-     except_holidays?: true}   # Luzerner Feiertage, siehe feiertage.py (154)
+     except_holidays?: true,   # Luzerner Feiertage, siehe feiertage.py (154)
+     from?: "MM-DD", to?: "MM-DD"}   # Jahreszeit, über den Jahreswechsel (598)
   - {type: sun, state: "up"|"down"}   # steht die Sonne über dem Horizont?
   - {type: group, match: "any"|"all", conditions: [...]}  # und/oder geschachtelt
 
@@ -842,6 +843,14 @@ def describe_condition(
         art = "oder" if str(condition.get("match", "all")) == "any" else "und"
         return f"«{art}»-Gruppe mit {len(subs)} Bedingungen nicht erfüllt"
     if ctype == "time":
+        heute = datetime.now().date()
+        if not datum_im_fenster(heute, condition.get("from"), condition.get("to")):
+            bereich = "–".join(
+                monatstag_text(teil)
+                for teil in (condition.get("from"), condition.get("to"))
+                if teil
+            )
+            return f"Heute ist der {heute.day}.{heute.month}., verlangt ist {bereich}"
         days = parse_weekdays(condition.get("weekdays"))
         if days and datetime.now().weekday() not in days:
             return f"Heute ist {WEEKDAYS[datetime.now().weekday()]}, verlangt sind {weekday_label(days)}"
@@ -1682,6 +1691,59 @@ def time_in_window(now: Any, after: str | None, before: str | None) -> bool:
     if von_min is not None:
         return minuten >= von_min
     return minuten < (bis_min or 0)
+
+
+def parse_monatstag(value: Any) -> tuple[int, int] | None:
+    """«MM-DD» in (Monat, Tag) - None, wenn es keins ist (rein, testbar).
+
+    Der 29.2. ist erlaubt: In Jahren ohne ihn fällt er einfach nicht an.
+    """
+    text = str(value or "").strip()
+    teile = text.split("-")
+    if len(teile) != 2:
+        return None
+    try:
+        monat, tag = int(teile[0]), int(teile[1])
+    except ValueError:
+        return None
+    if not (1 <= monat <= 12 and 1 <= tag <= 31):
+        return None
+    return monat, tag
+
+
+def monatstag_text(value: Any) -> str:
+    """«12-01» als «1.12.» - wie man es hier schreibt (rein, testbar)."""
+    geparst = parse_monatstag(value)
+    if geparst is None:
+        return str(value or "")
+    return f"{geparst[1]}.{geparst[0]}."
+
+
+def datum_im_fenster(heute: date, von: Any, bis: Any) -> bool:
+    """Liegt der Tag im Datumsbereich «MM-DD» bis «MM-DD»? (rein, testbar)
+
+    Punkt 598 der Werkbank: Weihnachtsbeleuchtung 1.12.–6.1.,
+    Hitzeschutz Mai–September - bis hierher jedes Jahr von Hand ein- und
+    ausgeschaltet. Dieselbe Regel wie ``time_in_window``: Liegt ``von``
+    nach ``bis``, geht das Fenster über den Jahreswechsel. Beide Ränder
+    zählen dazu. Ohne Angabe gilt immer; eine unlesbare Angabe gilt als
+    nicht erfüllt - aus «nur im Winter» darf kein «immer» werden.
+    """
+    if not von and not bis:
+        return True
+    start = parse_monatstag(von) if von else None
+    ende = parse_monatstag(bis) if bis else None
+    if (von and start is None) or (bis and ende is None):
+        log.warning("Zeitbedingung mit ungültigem Datum: from=%r to=%r", von, bis)
+        return False
+    tag = (heute.month, heute.day)
+    if start is not None and ende is not None:
+        if start <= ende:
+            return start <= tag <= ende
+        return tag >= start or tag <= ende
+    if start is not None:
+        return tag >= start
+    return ende is not None and tag <= ende
 
 
 def opposing(first: str, second: str) -> bool:
@@ -3472,6 +3534,12 @@ class AutomationEngine:
             # wait_until und den «wenn»-Schritt - beide kommen hier durch.
             return zustand_alt_genug(condition, entity.last_change, time.time())
         if ctype == "time":
+            # Jahreszeit (Punkt 598): «vom 1.12. bis 6.1.» - vor den
+            # Wochentagen, weil sie den grösseren Rahmen setzt.
+            if not datum_im_fenster(
+                datetime.now().date(), condition.get("from"), condition.get("to")
+            ):
+                return False
             days = parse_weekdays(condition.get("weekdays"))
             if days and datetime.now().weekday() not in days:
                 return False

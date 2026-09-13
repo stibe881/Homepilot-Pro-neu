@@ -2519,3 +2519,45 @@ def test_eine_bedingung_mit_mindestalter_wartet_auf_den_alten_zustand():
             await hub.stop()
 
     asyncio.run(check())
+
+
+# ── Jahreszeit an der Zeitbedingung (Punkt 598) ──────────────────────────
+
+
+def test_datum_im_fenster_geht_ueber_den_jahreswechsel():
+    from homepilot.core.automation import datum_im_fenster, monatstag_text, parse_monatstag
+
+    weihnachten = ("12-01", "01-06")
+    assert datum_im_fenster(date(2026, 12, 1), *weihnachten)
+    assert datum_im_fenster(date(2026, 12, 24), *weihnachten)
+    assert datum_im_fenster(date(2027, 1, 6), *weihnachten)
+    assert not datum_im_fenster(date(2027, 1, 7), *weihnachten)
+    assert not datum_im_fenster(date(2026, 3, 14), *weihnachten)
+    # Innerhalb des Jahres, Ränder inklusive.
+    assert datum_im_fenster(date(2026, 5, 1), "05-01", "09-30")
+    assert datum_im_fenster(date(2026, 9, 30), "05-01", "09-30")
+    assert not datum_im_fenster(date(2026, 10, 1), "05-01", "09-30")
+    # Nur ein Rand.
+    assert datum_im_fenster(date(2026, 11, 3), "10-01", None)
+    assert not datum_im_fenster(date(2026, 9, 3), "10-01", None)
+    assert datum_im_fenster(date(2026, 2, 3), None, "03-31")
+    # Ohne Angabe gilt immer; Unlesbares heisst nicht erfüllt.
+    assert datum_im_fenster(date(2026, 7, 7), None, None)
+    assert not datum_im_fenster(date(2026, 7, 7), "Dezember", "01-06")
+    assert parse_monatstag("13-01") is None
+    assert parse_monatstag("02-29") == (2, 29)
+    assert monatstag_text("12-01") == "1.12."
+
+
+def test_describe_condition_nennt_den_verlangten_zeitraum():
+    heute = date.today()
+    # Ein Fenster, das heute sicher nicht gilt: der Tag nach heute bis
+    # zum Tag davor - also alles ausser heute.
+    morgen = heute.replace(year=2000) + __import__("datetime").timedelta(days=1)
+    gestern = heute.replace(year=2000) - __import__("datetime").timedelta(days=1)
+    satz = describe_condition(
+        {"type": "time", "from": morgen.strftime("%m-%d"), "to": gestern.strftime("%m-%d")},
+        None,
+    )
+    assert satz.startswith(f"Heute ist der {heute.day}.{heute.month}., verlangt ist ")
+    assert f"{morgen.day}.{morgen.month}.–{gestern.day}.{gestern.month}." in satz
