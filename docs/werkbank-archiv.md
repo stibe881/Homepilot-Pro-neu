@@ -7732,3 +7732,31 @@ er auf einen leeren Rahmen, sobald das Fenster höher war als der
 Bildschirm. Das Wartungs-Fenster hatte denselben Knopf.
 
 Stellen: `app/src/lib/saugerkarte.ts`, `app/src/components/VacuumHome.tsx`
+
+### 640. Ein Rauchmelder, der schweigt, wird gemeldet ✓ erledigt
+
+Aus dem Haus, mit dem Bild der Geräteliste - «Rauchwarnmelder Levin ·
+nicht erreichbar»: «Wenn ein Rauchmelder nicht erreichbar ist, soll es
+eine Push geben und auch bei Einstellungen → Brandmeldeanlage
+anzeigen.»
+
+«Nicht erreichbar» stand nur an der Kachel in der Geräteliste. Die
+Brandmeldeanlage meldete derweil «Bereit – 3 Melder wachen» in Grün -
+und ein Rauchmelder, der schweigt, ist genau der, der im Brandfall
+fehlt. Jetzt prüft die Anlage in ihrem Minutentakt, wer schweigt
+(`unerreichbar`, rein: echte Melder, nicht abgeschaltet, keine
+Kamera - die hört nur mit, und ihren Ausfall meldet der Wächter der
+Anbindung). Nach zehn Minuten Karenz geht eine Wartungs-Meldung
+(«Rauchmelder meldet sich nicht», mit Raum und Dauer, Tipp führt in die
+Brandmeldeanlage), genau eine je Ausfall, und eine zweite, wenn er
+wieder da ist (`ausfall_lage`, rein). Beides steht im Verlauf der
+Anlage. Die Karenz gilt nur der Nachricht: Im Zustand steht
+`unavailable` sofort, und die Kopfzeile der Seite sagt in Orange «2 von
+3 Meldern wachen – 1 meldet sich nicht» statt «Bereit» in Grün. Die
+Melderzeile darunter sagte schon vorher «meldet sich nicht».
+
+Nach einem Neustart des Hubs kommt die Meldung nach der Karenz noch
+einmal - Absicht: Ein Rauchmelder, der immer noch fehlt, darf sich in
+Erinnerung rufen.
+
+Stellen: `hub/homepilot/core/brandmelder.py`, `hub/homepilot/integrations/brand.py`, `app/src/lib/brand.ts`

@@ -14,6 +14,9 @@ export interface BrandState {
   alarm?: string[];
   since?: number | null;
   acknowledged_by?: string | null;
+  /** Melder, die sich nicht melden (Punkt 640) - ohne Karenz, damit es
+   *  auf der Seite steht, sobald es so ist. */
+  unavailable?: string[];
 }
 
 export interface Melder {
@@ -66,6 +69,18 @@ export function zustandText(state: BrandState | null | undefined): {
     return { text: 'Kein Rauchmelder angeschlossen', ton: 'ruhig' };
   }
   const anzahl = state?.melder ?? 0;
+  // Ein Melder, der schweigt, ist im Brandfall keiner (Punkt 640): Die
+  // Kopfzeile sagt es in Orange, statt «Bereit» in Grün zu behaupten.
+  const weg = state?.unavailable?.length ?? 0;
+  if (weg > 0) {
+    const wachen = Math.max(0, anzahl - weg);
+    return {
+      text:
+        `${wachen} von ${anzahl} Melder${anzahl === 1 ? '' : 'n'} wach${wachen === 1 ? 't' : 'en'} – ` +
+        (weg === 1 ? '1 meldet sich nicht' : `${weg} melden sich nicht`),
+      ton: 'warnung',
+    };
+  }
   return {
     text: anzahl === 1 ? 'Bereit – 1 Melder wacht' : `Bereit – ${anzahl} Melder wachen`,
     ton: 'gut',

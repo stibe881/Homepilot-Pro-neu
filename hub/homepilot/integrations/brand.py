@@ -54,6 +54,12 @@ class BrandIntegration(Integration):
         self._quittiert_von = ""
         self._zuletzt_gemeldet: float | None = None
         self._seit: float | None = None
+        # Melder, die schweigen (Punkt 640): seit wann, und wen die
+        # Anlage schon gemeldet hat. Nicht gespeichert - nach einem
+        # Neustart kommt die Meldung nach der Karenz noch einmal, und
+        # das ist bei einem Rauchmelder, der immer noch fehlt, richtig.
+        self._ausfall_seit: dict[str, float] = {}
+        self._ausfall_gemeldet: set[str] = set()
         self._entity = await self.add_entity(
             "anlage",
             EntityKind.ALARM,
@@ -83,6 +89,11 @@ class BrandIntegration(Integration):
                 [e for e in brandmelder.melder(entities) if e.id not in self._abgeschaltet]
             ),
             "alarm": [entity.id for entity in aktive],
+            # Wer schweigt - sofort, ohne Karenz: Auf der Seite soll es
+            # stehen, sobald es so ist; die Karenz gilt nur der Nachricht.
+            "unavailable": [
+                entity.id for entity in brandmelder.unerreichbar(entities, self._abgeschaltet)
+            ],
             "since": self._seit,
             "acknowledged_by": self._quittiert_von or None,
         }
@@ -306,9 +317,52 @@ class BrandIntegration(Integration):
         await self._schalten()
         return {"ok": True}
 
+    async def _ausfaelle(self, jetzt: float) -> None:
+        """Melder, die schweigen (Punkt 640): einmal melden, Rückkehr melden."""
+        entities = self.hub.registry.all()
+        weg = {e.id for e in brandmelder.unerreichbar(entities, self._abgeschaltet)}
+        lage = brandmelder.ausfall_lage(
+            weg, self._ausfall_seit, self._ausfall_gemeldet, jetzt
+        )
+        self._ausfall_seit = lage["seit"]
+        if not lage["melden"] and not lage["zurueck"]:
+            return
+        tokens = self.hub.push.recipients(self.hub.users.users, "all", "maintenance")
+        for kennung in lage["melden"]:
+            self._ausfall_gemeldet.add(kennung)
+            entity = self.hub.registry.get(kennung)
+            name = entity.label if entity else kennung
+            wo = f" – {entity.room}" if entity and entity.room else ""
+            minuten = max(1, round((jetzt - self._ausfall_seit[kennung]) / 60))
+            self._note("ausfall", f"{name} meldet sich nicht", "", kennung)
+            await self.hub.push.send(
+                tokens,
+                title="Rauchmelder meldet sich nicht",
+                body=(
+                    f"{name}{wo} ist seit {minuten} Minuten nicht erreichbar - "
+                    "Batterie und Funk prüfen. Im Brandfall fehlt er."
+                ),
+                data={"type": "smoke", "ziel": "bereich:brand", "entity_id": kennung},
+                category="maintenance",
+            )
+        for kennung in lage["zurueck"]:
+            self._ausfall_gemeldet.discard(kennung)
+            entity = self.hub.registry.get(kennung)
+            name = entity.label if entity else kennung
+            self._note("wieder_da", f"{name} meldet sich wieder", "", kennung)
+            await self.hub.push.send(
+                tokens,
+                title="Rauchmelder wieder da",
+                body=f"{name} ist wieder erreichbar.",
+                data={"type": "smoke", "ziel": "bereich:brand", "entity_id": kennung},
+                category="maintenance",
+            )
+        await self._publish()
+
     async def takt(self) -> None:
-        """Vom Wächter, einmal je Minute: Wiederholung und Prüf-Erinnerung."""
+        """Vom Wächter, einmal je Minute: Wiederholung, Ausfälle, Prüf-Erinnerung."""
         jetzt = time.time()
+        await self._ausfaelle(jetzt)
         if self._ausloeser and brandmelder.wiederholung_faellig(
             self._zuletzt_gemeldet, jetzt, int(self._settings.get("repeat_minutes") or 0),
             self._quittiert,
