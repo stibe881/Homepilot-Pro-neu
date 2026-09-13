@@ -20,14 +20,27 @@ import {
 } from './playstation';
 import { GLEICHBEDEUTEND, SYMBOL } from './symbole';
 
-const konsole = (state: Record<string, unknown> = {}, extra: Partial<Entity> = {}): Entity =>
+const konsole = (
+  state: Record<string, unknown> = {},
+  extra: Partial<Entity> = {}
+): Entity =>
   ({
     id: 'playstation.192_168_1_60',
     kind: 'media_player',
     name: 'PlayStation 5',
     integration: 'playstation',
     state: { state: 'on', has_screen: true, apps: [], ...state },
-    commands: ['turn_on', 'turn_off', 'toggle', 'dpad_up', 'ok', 'back', 'home', 'cross', 'circle'],
+    commands: [
+      'turn_on',
+      'turn_off',
+      'toggle',
+      'dpad_up',
+      'ok',
+      'back',
+      'home',
+      'cross',
+      'circle',
+    ],
     available: true,
     ...extra,
   }) as unknown as Entity;
@@ -47,7 +60,9 @@ describe('istPlaystation', () => {
     expect(
       istPlaystation(konsole({}, { integration: 'androidtv', commands: ['dpad_up', 'ok'] }))
     ).toBe(false);
-    expect(istPlaystation(konsole({}, { integration: 'demo', commands: undefined }))).toBe(false);
+    expect(istPlaystation(konsole({}, { integration: 'demo', commands: undefined }))).toBe(
+      false
+    );
     expect(istPlaystation(null)).toBe(false);
   });
 });
@@ -63,7 +78,11 @@ describe('Die Tasten der Konsole', () => {
 
   it('schicken genau die Befehle aus dem Vertrag mit dem Hub', () => {
     const vertrag = ['cross', 'circle', 'triangle', 'square', 'options', 'share', 'ps'];
-    expect(psTasten().map((taste) => taste.command).sort()).toEqual(vertrag.sort());
+    expect(
+      psTasten()
+        .map((taste) => taste.command)
+        .sort()
+    ).toEqual(vertrag.sort());
   });
 
   it('halten die Symbolsprache ein', () => {
@@ -115,19 +134,34 @@ describe('psKopf und psZustand', () => {
 describe('kopplungsSchritt', () => {
   it('beginnt beim Konto', () => {
     expect(
-      kopplungsSchritt({ account: false, paired: false, online_id: null, remote_play: true })
+      kopplungsSchritt({
+        account: false,
+        paired: false,
+        online_id: null,
+        remote_play: true,
+      })
     ).toBe('konto');
   });
 
   it('fragt nach dem Konto den Code von der Konsole', () => {
     expect(
-      kopplungsSchritt({ account: true, paired: false, online_id: 'stefan', remote_play: true })
+      kopplungsSchritt({
+        account: true,
+        paired: false,
+        online_id: 'stefan',
+        remote_play: true,
+      })
     ).toBe('code');
   });
 
   it('ist fertig, wenn beides da ist', () => {
     expect(
-      kopplungsSchritt({ account: true, paired: true, online_id: 'stefan', remote_play: true })
+      kopplungsSchritt({
+        account: true,
+        paired: true,
+        online_id: 'stefan',
+        remote_play: true,
+      })
     ).toBe('gekoppelt');
   });
 
@@ -136,7 +170,12 @@ describe('kopplungsSchritt', () => {
     // Ohne sie stünde der Benutzer nach dem Anmelden vor einer Absage,
     // die schon vorher feststand.
     expect(
-      kopplungsSchritt({ account: false, paired: false, online_id: null, remote_play: false })
+      kopplungsSchritt({
+        account: false,
+        paired: false,
+        online_id: null,
+        remote_play: false,
+      })
     ).toBe('ohne_bibliothek');
     expect(
       kopplungsSchritt({ account: true, paired: true, online_id: 'x', remote_play: false })
@@ -180,7 +219,8 @@ describe('pinVollstaendig', () => {
 });
 
 describe('Die Rückkehr-Adresse', () => {
-  const rueckkehr = 'https://remoteplay.dl.playstation.net/remoteplay/redirect?code=abc123&cid=xyz';
+  const rueckkehr =
+    'https://remoteplay.dl.playstation.net/remoteplay/redirect?code=abc123&cid=xyz';
 
   it('kommt ohne die Leerzeichen des Kopierens beim Hub an', () => {
     expect(adresseSauber(`  ${rueckkehr}\n`)).toBe(rueckkehr);
@@ -194,7 +234,9 @@ describe('Die Rückkehr-Adresse', () => {
   it('weist die Anmeldeseite ab - die hat keinen Code', () => {
     // Der naheliegende Fehler: die Adresse kopieren, auf der man sich
     // angemeldet hat, statt die der Seite danach.
-    expect(adresseBrauchbar('https://auth.api.sonyentertainmentnetwork.com/login')).toBe(false);
+    expect(adresseBrauchbar('https://auth.api.sonyentertainmentnetwork.com/login')).toBe(
+      false
+    );
     expect(adresseBrauchbar('code=abc')).toBe(false);
     expect(adresseBrauchbar('')).toBe(false);
   });

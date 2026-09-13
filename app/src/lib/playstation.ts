@@ -149,7 +149,9 @@ export type KopplungsSchritt = 'ohne_bibliothek' | 'konto' | 'code' | 'gekoppelt
  * zustande (sie ist Teil derselben Bibliothek), und der Benutzer stünde
  * nach dem Anmelden vor einer Absage, die schon vorher feststand.
  */
-export function kopplungsSchritt(stand: Partial<KopplungsStand> | null | undefined): KopplungsSchritt {
+export function kopplungsSchritt(
+  stand: Partial<KopplungsStand> | null | undefined
+): KopplungsSchritt {
   if (stand?.remote_play === false) return 'ohne_bibliothek';
   if (stand?.account !== true) return 'konto';
   if (stand?.paired !== true) return 'code';
@@ -204,24 +206,25 @@ export function adresseBrauchbar(text: string): boolean {
 
 /** Wortlaut zu jedem Schritt - an einer Stelle, damit Kachel und Test
  *  dasselbe sagen (rein, Daten). */
-export const KOPPLUNGS_TEXTE: Record<KopplungsSchritt, { kopf: string; hinweis: string }> = {
-  ohne_bibliothek: {
-    kopf: 'Koppeln nicht möglich',
-    hinweis:
-      'Dem Hub fehlt die Remote-Play-Bibliothek. Zustand und Aufwecken gehen trotzdem; Tasten und Standby brauchen sie.',
-  },
-  konto: {
-    kopf: 'Schritt 1 von 2: PSN-Konto',
-    hinweis:
-      'Zuerst im Browser beim PlayStation Network anmelden. Danach zeigt der Browser eine Seite, die sich nicht öffnen lässt - ihre Adresse hier einfügen.',
-  },
-  code: {
-    kopf: 'Schritt 2 von 2: Code von der Konsole',
-    hinweis:
-      'Auf der PS5: Einstellungen → System → Remote Play → Gerät verbinden. Dort steht ein achtstelliger Code - die Konsole muss dabei an sein.',
-  },
-  gekoppelt: {
-    kopf: 'Gekoppelt',
-    hinweis: 'Fernbedienung, Standby und Aufwecken gehorchen der App.',
-  },
-};
+export const KOPPLUNGS_TEXTE: Record<KopplungsSchritt, { kopf: string; hinweis: string }> =
+  {
+    ohne_bibliothek: {
+      kopf: 'Koppeln nicht möglich',
+      hinweis:
+        'Dem Hub fehlt die Remote-Play-Bibliothek. Zustand und Aufwecken gehen trotzdem; Tasten und Standby brauchen sie.',
+    },
+    konto: {
+      kopf: 'Schritt 1 von 2: PSN-Konto',
+      hinweis:
+        'Zuerst im Browser beim PlayStation Network anmelden. Danach zeigt der Browser eine Seite, die sich nicht öffnen lässt - ihre Adresse hier einfügen.',
+    },
+    code: {
+      kopf: 'Schritt 2 von 2: Code von der Konsole',
+      hinweis:
+        'Auf der PS5: Einstellungen → System → Remote Play → Gerät verbinden. Dort steht ein achtstelliger Code - die Konsole muss dabei an sein.',
+    },
+    gekoppelt: {
+      kopf: 'Gekoppelt',
+      hinweis: 'Fernbedienung, Standby und Aufwecken gehorchen der App.',
+    },
+  };
