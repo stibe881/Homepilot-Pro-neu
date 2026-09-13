@@ -93,9 +93,18 @@ class FakeSession:
 class FakeController:
     def __init__(self):
         self.tasten: list[str] = []
+        self.laeuft = False
+        self.gestartet = 0
 
     async def async_button(self, name, action="tap"):
         self.tasten.append(name)
+
+    def start(self):
+        self.laeuft = True
+        self.gestartet += 1
+
+    def stop(self):
+        self.laeuft = False
 
 
 class FakeDevice:
@@ -364,6 +373,24 @@ async def test_tasten_brauchen_die_registrierung_und_eine_laufende_konsole(
     with pytest.raises(ConnectionError) as ruht:
         await integration.handle_command(entity, "ok", {})
     assert str(ruht.value) == NICHT_AN
+    await integration.teardown()
+
+
+async def test_die_sitzung_haelt_das_pad_am_leben_und_haengt_nicht_am_leerlauf(
+    hub, tmp_path, monkeypatch
+):
+    """Aus dem Haus: «nach ein paar Sekunden wird getrennt» - viel kürzer
+    als jeder Leerlauf. Ursache: Ohne den Controller-Worker fehlt der
+    Konsole der stete Pad-Zustand, und sie legt die Sitzung selbst ab.
+    Beim Aufbau muss der Worker also laufen, beim Trennen stehen."""
+    integration, _, entity = await gekoppelt(hub, tmp_path, monkeypatch)
+    monkeypatch.setattr(playstation, "SITZUNG_LEERLAUF", 999.0)
+    await integration.handle_command(entity, "ok", {})
+    device = FakeDevice.alle[-1]
+    assert device.controller.laeuft, "der Worker hält die Sitzung am Leben"
+    assert device.controller.gestartet == 1
+    integration._sitzung_trennen(entity.id)
+    assert not device.controller.laeuft, "beim Trennen steht der Worker still"
     await integration.teardown()
 
 

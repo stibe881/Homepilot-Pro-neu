@@ -1008,6 +1008,15 @@ class PlaystationIntegration(Integration):
             with contextlib.suppress(Exception):
                 device.disconnect()
             raise ConnectionError(f"{SITZUNG_FEHLGESCHLAGEN} ({fehler})" if fehler else SITZUNG_FEHLGESCHLAGEN)
+        # Der Controller-Worker sendet den Zustand des Pads im Takt von
+        # 100-200 ms weiter - und genau dieser stete Strom hält die Sitzung
+        # am Leben. Ohne ihn kommen nur die einzelnen Tastendrücke an, und
+        # die Konsole legt die Remote-Play-Sitzung nach ein paar Sekunden
+        # von selbst ab («nach ein paar Sekunden wird getrennt», aus dem
+        # Haus gemeldet). start() läuft in einem Faden; ein Fehler darin
+        # darf die Sitzung nicht kippen.
+        with contextlib.suppress(Exception):
+            device.controller.start()
         self.log.info("Remote-Play-Sitzung mit %s offen", geraet["host"])
         return device
 
@@ -1047,6 +1056,10 @@ class PlaystationIntegration(Integration):
             return
         if sitzung.wecker is not None and sitzung.wecker is not asyncio.current_task():
             sitzung.wecker.cancel()
+        # Erst den Controller-Worker anhalten, dann die Sitzung: Der Faden
+        # greift sonst auf eine halb abgebaute Sitzung zu.
+        with contextlib.suppress(Exception):
+            sitzung.device.controller.stop()
         with contextlib.suppress(Exception):
             sitzung.device.disconnect()
 
