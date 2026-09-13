@@ -14,6 +14,8 @@ import {
   robotRoom,
   shapeInCrop,
   saugerFaehrt,
+  saugerknoepfe,
+  saugerprobleme,
   vacuumText,
   zustandLesbar,
   zustandWort,
@@ -138,4 +140,65 @@ test('saugerFaehrt erkennt jede Art von Reinigen', () => {
   expect(saugerFaehrt('charging')).toBe(false);
   expect(saugerFaehrt('idle')).toBe(false);
   expect(saugerFaehrt(undefined)).toBe(false);
+});
+
+describe('Die Knöpfe auf dem Reinigungsblatt (Punkt 636)', () => {
+  const olga = (state: string, commands = ['start', 'pause', 'dock', 'locate']) => ({
+    commands,
+    state: { state },
+  });
+  const befehle = (state: string, commands?: string[]) =>
+    saugerknoepfe(olga(state, commands)).map((knopf) => knopf.command);
+
+  it('bietet beim Reinigen Pause, Finden und Zur Station', () => {
+    // Genau der Fall des Chips «saugt»: Sie fährt, und man will sie
+    // anhalten, suchen oder heimschicken - ohne Umweg über die Station.
+    expect(befehle('cleaning')).toEqual(['pause', 'locate', 'dock']);
+    expect(befehle('segment_cleaning')).toEqual(['pause', 'locate', 'dock']);
+  });
+
+  it('macht aus Pause «Weiter», wenn sie pausiert', () => {
+    const knoepfe = saugerknoepfe(olga('paused'));
+    expect(knoepfe.map((knopf) => knopf.command)).toEqual(['start', 'locate', 'dock']);
+    expect(knoepfe[0].label).toBe('Weiter');
+  });
+
+  it('schickt sie nicht zur Station, wenn sie schon dort steht', () => {
+    expect(befehle('docked')).toEqual(['locate']);
+    expect(befehle('charging')).toEqual(['locate']);
+    // Bereit heisst: irgendwo stehengeblieben - heimschicken geht.
+    expect(befehle('idle')).toEqual(['locate', 'dock']);
+  });
+
+  it('zeigt auf dem Heimweg weder Pause noch Zur Station', () => {
+    expect(befehle('returning')).toEqual(['locate']);
+  });
+
+  it('bietet nur an, was der Hub als Kommando kennt', () => {
+    expect(befehle('cleaning', ['start', 'dock'])).toEqual(['dock']);
+    expect(befehle('cleaning', [])).toEqual([]);
+  });
+});
+
+describe('Der Fehler auf dem Reinigungsblatt (Punkt 637)', () => {
+  it('zeigt die Sätze des Hubs, wie sie sind', () => {
+    const saetze = ['Der Sauger steckt fest.', 'Der Schmutzwassertank ist voll.'];
+    expect(saugerprobleme({ state: { state: 'error', problems: saetze } })).toEqual(saetze);
+  });
+
+  it('zeigt nichts, wenn nichts ansteht', () => {
+    expect(saugerprobleme({ state: { state: 'cleaning', problems: [] } })).toEqual([]);
+    expect(saugerprobleme({ state: { state: 'cleaning', error: null } })).toEqual([]);
+    expect(saugerprobleme({ state: { state: 'docked', dock: { error: 'ok', type: 'x' } } })).toEqual([]);
+  });
+
+  it('macht bei einem alten Hub die rohen Namen wenigstens lesbar', () => {
+    // Ein Hub ohne `problems` schickt weiter `error` und `dock` -
+    // lieber «robot trapped» auf dem Blatt als eine leere Stelle.
+    expect(
+      saugerprobleme({
+        state: { state: 'error', error: 'robot_trapped', dock: { dirty_water: 'full_not_installed' } },
+      })
+    ).toEqual(['Der Sauger meldet: robot trapped.', 'Der Sauger meldet: full not installed.']);
+  });
 });

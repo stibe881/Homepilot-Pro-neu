@@ -3,7 +3,7 @@
 Aufruf auf dem Docker-Host:
     docker exec homepilot-hub python -m homepilot.anwesenheitscheck
 
-Der Anlass (Punkt 636 der Werkbank): «Diese Meldungen sind um 16:51
+Der Anlass (Punkt 638 der Werkbank): «Diese Meldungen sind um 16:51
 gekommen. Es ist aber seit ca. 13:00 niemand mehr zuhause.» Beides kann
 stimmen, und genau darum ist die Frage ohne diese Ausgabe nicht zu
 beantworten. Die Anlage rechnet nicht, wann jemand gegangen *ist*,

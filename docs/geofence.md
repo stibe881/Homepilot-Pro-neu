@@ -309,7 +309,7 @@ Drei Dinge, die man dabei wissen muss:
 
 ## Wenn die Alarmanlage zu spät von selbst scharf wird
 
-Der gemeldete Fall (Punkt 636): Die Anlage schaltet um 16:51 scharf,
+Der gemeldete Fall (Punkt 638): Die Anlage schaltet um 16:51 scharf,
 dabei war seit 13:00 niemand mehr da. Beides stimmt – dazwischen liegen
 zwei Dinge, die man auseinanderhalten muss:
 

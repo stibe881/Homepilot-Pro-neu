@@ -85,6 +85,73 @@ export function zustandWort(state: unknown): string {
   return ZUSTAND_WOERTER[roh] ?? zustandLesbar(roh);
 }
 
+/**
+ * Was Sauger oder Station gerade melden - als Sätze (rein, testbar).
+ *
+ * Punkt 637: Gewünscht im Haus, dass der Fehler auf dem Reinigungsblatt
+ * steht, nicht nur in der Push-Nachricht. Übersetzt hat der Hub
+ * (`problems`, watchrules.sauger_saetze) - die App hält keine zweite
+ * Tabelle. Ein Hub, der das Feld noch nicht kennt, bekommt die rohen
+ * Namen aus `error` und `dock` lesbar gemacht: lieber «robot trapped»
+ * als gar nichts.
+ */
+export function saugerprobleme(sauger: { state: Record<string, unknown> }): string[] {
+  const fertig = sauger.state.problems;
+  if (Array.isArray(fertig)) return fertig.map(String).filter((satz) => satz.trim() !== '');
+  const ok = ['', 'none', 'ok', 'okay', '0'];
+  const roh: string[] = [];
+  const fehler = String(sauger.state.error ?? '').trim();
+  if (!ok.includes(fehler.toLowerCase())) roh.push(fehler);
+  const dock = sauger.state.dock;
+  if (dock && typeof dock === 'object') {
+    for (const feld of ['error', 'dirty_water', 'clear_water', 'dust_bag', 'water_shortage']) {
+      const wert = String((dock as Record<string, unknown>)[feld] ?? '').trim();
+      if (!ok.includes(wert.toLowerCase())) roh.push(wert);
+    }
+  }
+  return roh.map((wert) => `Der Sauger meldet: ${wert.replace(/_/g, ' ')}.`);
+}
+
+/** Ein Knopf auf dem Reinigungsblatt (Punkt 636). */
+export interface Saugerknopf {
+  command: 'pause' | 'start' | 'locate' | 'dock';
+  label: string;
+  icon: 'pause-outline' | 'play-outline' | 'search-outline' | 'home-outline';
+}
+
+/**
+ * Welche Knöpfe neben «Reinigung starten» stehen (rein, testbar).
+ *
+ * Gewünscht im Haus (Punkt 636): Auf dem Blatt, das der Chip «saugt»
+ * öffnet, soll man pausieren, den Sauger finden und ihn zur Station
+ * schicken können - nicht erst über das Stations-Fenster. Was gerade
+ * keinen Sinn hat, fehlt: «Pausieren» nur, während er fährt, «Weiter»
+ * nur, wenn er pausiert (Roborock nimmt dafür dasselbe «start»), «Zur
+ * Station» nicht, wenn er schon dort steht oder gerade hinfährt.
+ */
+export function saugerknoepfe(
+  sauger: Pick<Entity, 'commands'> & { state: { state?: unknown } }
+): Saugerknopf[] {
+  const zustand = String(sauger.state.state ?? '').toLowerCase();
+  const kann = (command: string) => sauger.commands.includes(command);
+  const knoepfe: Saugerknopf[] = [];
+  const faehrt = saugerFaehrt(zustand);
+  const unterwegs = zustand.includes('return') || zustand === 'docking';
+  if (faehrt && !unterwegs && kann('pause')) {
+    knoepfe.push({ command: 'pause', label: 'Pausieren', icon: 'pause-outline' });
+  } else if (zustand === 'paused' && kann('start')) {
+    knoepfe.push({ command: 'start', label: 'Weiter', icon: 'play-outline' });
+  }
+  if (kann('locate')) {
+    knoepfe.push({ command: 'locate', label: 'Finden', icon: 'search-outline' });
+  }
+  const zuhause = ['docked', 'charging', 'charging_complete'].includes(zustand);
+  if (kann('dock') && !zuhause && !unterwegs) {
+    knoepfe.push({ command: 'dock', label: 'Zur Station', icon: 'home-outline' });
+  }
+  return knoepfe;
+}
+
 /** «Reinigt · 82 %» – Zustand und Akku in einer Zeile (rein, testbar). */
 export function vacuumText(vacuum: Entity): string {
   const wort = zustandWort(vacuum.state.state);

@@ -65,7 +65,7 @@ def test_die_liste_nennt_jedes_werkzeug():
             "tvcheck",
             "saugercheck",
             "pushcheck",
-            # Punkt 636: «warum wurde die Anlage erst um 16:51 scharf,
+            # Punkt 638: «warum wurde die Anlage erst um 16:51 scharf,
             # obwohl seit 13:00 niemand da ist» - eine Frage, die man
             # stellt, während man nicht zuhause ist, also nicht am
             # Terminal des Hubs.

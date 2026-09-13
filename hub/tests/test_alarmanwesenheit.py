@@ -118,7 +118,7 @@ def test_ein_fensterkontakt_ist_keine_person() -> None:
     assert not ak.ist_person(_Gerät({}))
 
 
-# ── Wer die Anlage zurückhielt (Punkt 636) ─────────────────────────────────
+# ── Wer die Anlage zurückhielt (Punkt 638) ─────────────────────────────────
 
 
 def test_der_letzte_weggang_entscheidet_wann_alle_weg_sind() -> None:

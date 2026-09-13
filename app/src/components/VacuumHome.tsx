@@ -21,6 +21,8 @@ import {
   roomAt,
   shapeInCrop,
   saugerFaehrt,
+  saugerknoepfe,
+  saugerprobleme,
   vacuumText,
 } from '../lib/saugerkarte';
 import { Colors, radius, type, useColors } from '../theme';
@@ -489,6 +491,19 @@ function CleanDialog({
     onClose();
   };
 
+  // Pausieren, Finden, Zur Station - auf dem Blatt selbst (Punkt 636):
+  // Wer über den Chip «saugt» hierherkommt, will sie meist anhalten oder
+  // heimschicken, nicht eine zweite Reinigung starten.
+  const knoepfe = saugerknoepfe(entity);
+  // Und was gerade nicht stimmt (Punkt 637): Der Fehler von Sauger oder
+  // Station, in den Sätzen des Hubs. Ohne ihn stünde «Komplette
+  // Reinigung starten» über einem Roboter, der unter dem Bett feststeckt.
+  const probleme = saugerprobleme(entity);
+  const sofort = (command: string) => {
+    onCommand(entity.id, command);
+    onClose();
+  };
+
   const startLabel =
     mode === 'full'
       ? 'Komplette Reinigung starten'
@@ -648,6 +663,19 @@ function CleanDialog({
             </View>
           ) : null}
 
+          {probleme.length > 0 ? (
+            <View style={styles.problemBox} accessibilityRole="alert">
+              <Ionicons name="warning-outline" size={18} color={colors.danger} />
+              <View style={{ flex: 1, gap: 2 }}>
+                {probleme.map((satz) => (
+                  <Text key={satz} style={styles.problemText}>
+                    {satz}
+                  </Text>
+                ))}
+              </View>
+            </View>
+          ) : null}
+
           <Text style={styles.dialogHint}>
             {mode === 'full'
               ? 'Der Sauger reinigt die ganze Wohnung und kehrt danach zur Station zurück.'
@@ -659,6 +687,23 @@ function CleanDialog({
                     ? 'Zweite Ecke antippen – die Zone spannt sich dazwischen auf.'
                     : 'Zone steht. Ein weiterer Tipp beginnt eine neue.'}
           </Text>
+
+          {knoepfe.length > 0 ? (
+            <View style={styles.sofortRow}>
+              {knoepfe.map((knopf) => (
+                <Pressable
+                  key={knopf.command}
+                  onPress={() => sofort(knopf.command)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Sauger: ${knopf.label}`}
+                  style={({ pressed }) => [styles.sofortButton, pressed && { opacity: 0.7 }]}
+                >
+                  <Ionicons name={knopf.icon} size={15} color={colors.ink} />
+                  <Text style={styles.sofortText}>{knopf.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
 
           <View style={styles.dialogActions}>
             <Pressable onPress={onClose} style={styles.cancel}>
@@ -921,6 +966,19 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     listButtonText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+    sofortRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    sofortButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingVertical: 9,
+      paddingHorizontal: 12,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    sofortText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
     careTrack: {
       height: 6,
       borderRadius: 3,
@@ -989,6 +1047,17 @@ const makeStyles = (colors: Colors) =>
       borderColor: '#FFFFFF',
     },
     dialogHint: { color: colors.inkFaint, fontSize: 13, lineHeight: 19 },
+    problemBox: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 10,
+      padding: 12,
+      borderRadius: radius.control,
+      backgroundColor: colors.dangerSoft,
+      borderWidth: 1,
+      borderColor: colors.danger,
+    },
+    problemText: { color: colors.danger, fontSize: 14, fontWeight: '600', lineHeight: 19 },
     dialogActions: { flexDirection: 'row', gap: 10 },
     cancel: {
       flex: 1,

@@ -1,6 +1,6 @@
 """Warum hat die Anlage erst um 16:51 scharf geschaltet?
 
-Der gemeldete Fall (Punkt 636 der Werkbank): «Diese Meldungen sind um
+Der gemeldete Fall (Punkt 638 der Werkbank): «Diese Meldungen sind um
 16:51 gekommen. Es ist aber seit ca. 13:00 niemand mehr zuhause.»
 """
 

@@ -7631,7 +7631,52 @@ Startseite das Blatt nicht wieder aufreisst.
 
 Stellen: `app/src/components/VacuumHome.tsx`, `app/src/screens/OverviewScreen.tsx`, `app/src/screens/DashboardScreen.tsx`
 
-### 636. «Niemand mehr zuhause» kam dreieinhalb Stunden zu spät ✓ erledigt
+### 636. Pausieren, Finden und Zur Station auf dem Reinigungsblatt ✓ erledigt
+
+Aus dem Haus, mit dem Bild des Blatts «Olga»: «Auf dieser Karte soll
+man auch die Möglichkeit haben, den Sauger zu pausieren, Sauger finden
+und Sauger auf die Station zurückzufahren.»
+
+Das Blatt bot bisher nur an, eine Reinigung zu starten - komplett,
+Zimmer oder Zone. Wer aber über den Chip «saugt» hierherkommt (Punkt
+635), hat meist etwas anderes vor: anhalten, weil das Kind schläft,
+suchen, weil sie unter dem Bett steht, oder heimschicken. Das gab es
+nur im Stations-Fenster hinter dem Batteriesymbol. Jetzt steht eine
+Knopfreihe über «Abbrechen» und «Starten», und sie zeigt nur, was
+gerade Sinn hat (`saugerknoepfe`, rein): «Pausieren» während sie fährt,
+«Weiter» wenn sie pausiert (Roborock nimmt dafür dasselbe `start`),
+«Finden» immer, «Zur Station» nicht, wenn sie schon dort steht oder
+gerade hinfährt. Ein Tipp schickt den Befehl und schliesst das Blatt.
+
+Keine Browser-Probe: Der Demo-Hub hat keinen Sauger. Die Regel ist in
+Jest festgehalten.
+
+Stellen: `app/src/lib/saugerkarte.ts`, `app/src/components/VacuumHome.tsx`
+
+### 637. Der Fehler von Sauger oder Station steht auf dem Reinigungsblatt ✓ erledigt
+
+Aus dem Haus, mit dem Bild des Blatts «Olga»: «Auf dieser Karte soll
+man auch den Fehler von der Station oder vom Sauger sehen, sofern
+einer vorhanden ist.»
+
+Der Fehler kam bisher nur als Push-Nachricht und stand sonst nirgends -
+auf dem Blatt prangte «Komplette Reinigung starten» über einem
+Roboter, der unter dem Bett feststeckte. Jetzt steht über dem Hinweis
+ein roter Kasten mit dem, was Sauger oder Station melden. Übersetzt
+wird einmal, im Hub: `vacuum_state` legt die fertigen Sätze als
+`problems` an den Zustand (`watchrules.sauger_saetze`, herausgelöst
+aus `sauger_probleme`), dieselben wie in der Nachricht - sonst hiesse
+derselbe volle Tank an zwei Orten verschieden. Eine leere Liste, wenn
+nichts ansteht, kein fehlendes Feld: Beim Verschmelzen bliebe der
+behobene Fehler sonst kleben (derselbe Fall wie beim `error` selbst).
+Ein Hub ohne das Feld bekommt in der App die rohen Namen lesbar
+gemacht.
+
+Keine Browser-Probe: Der Demo-Hub hat keinen Sauger. Beide Hälften sind
+in Tests festgehalten.
+
+Stellen: `hub/homepilot/core/watchrules.py`, `hub/homepilot/integrations/roborock.py`, `app/src/lib/saugerkarte.ts`, `app/src/components/VacuumHome.tsx`
+### 638. «Niemand mehr zuhause» kam dreieinhalb Stunden zu spät ✓ erledigt
 
 Aus dem Haus, mit Bild des Sperrbildschirms: «Diese Meldungen sind um
 16:51 Uhr gekommen. Es ist aber seit ca. 13:00 Uhr niemand mehr
