@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from homepilot.core.config import ApiConfig, HubConfig
 from homepilot.core.hub import Hub
@@ -138,6 +139,82 @@ async def test_failed_write_is_retried():
         assert client.tables["state_history"]
     finally:
         await hub.stop()
+
+
+async def test_ein_abgelehnter_rumpf_blockiert_den_verlauf_nicht_fuer_immer(caplog):
+    """Fehler aus der Runde 579 der Werkbank: Ein 400 nach einer
+    Spaltenänderung wurde unendlich wiederholt - und riss die Zustände
+    und den Ablauf-Verlauf mit in die Schleife."""
+    from homepilot.core.supabase import SupabaseError
+
+    class Waehlerisch(FakeSupabaseClient):
+        async def insert(self, table, rows):
+            if table == "state_history" and rows:
+                raise SupabaseError("POST state_history → 400: column x missing", 400)
+            await super().insert(table, rows)
+
+    client = Waehlerisch()
+    hub = await make_hub(client)
+    try:
+        await hub.integrations.dispatch_command("demo.switch_coffee", "turn_on")
+        with caplog.at_level(logging.WARNING, logger="homepilot.core.store"):
+            await hub.store.flush()
+            # Die Zustände sind trotzdem geschrieben - die eine Tabelle
+            # hält die anderen nicht auf.
+            assert client.tables["entities"]
+            # Der abgelehnte Verlauf ist verworfen, nicht eingereiht.
+            assert hub.store._pending_history == []
+            assert hub.store.abgelehnt["state_history"] >= 1
+            # Einmal laut, danach still - sonst füllen 720 gleiche
+            # Warnungen pro Stunde den Log-Ring.
+            await hub.integrations.dispatch_command("demo.switch_coffee", "turn_off")
+            await hub.store.flush()
+            await hub.integrations.dispatch_command("demo.switch_coffee", "turn_on")
+            await hub.store.flush()
+        warnungen = [r for r in caplog.records if "lehnt state_history ab" in r.getMessage()]
+        assert len(warnungen) == 1
+    finally:
+        await hub.stop()
+
+
+async def test_eine_stoerung_wird_einmal_gemeldet_und_die_warteschlange_bleibt_gedeckelt(caplog):
+    from homepilot.core.store import MAX_PENDING_RUNS
+
+    client = FakeSupabaseClient()
+    hub = await make_hub(client)
+    try:
+        client.fail = True
+        with caplog.at_level(logging.INFO, logger="homepilot.core.store"):
+            for _ in range(3):
+                await hub.integrations.dispatch_command("demo.switch_coffee", "turn_on")
+                await hub.integrations.dispatch_command("demo.switch_coffee", "turn_off")
+                await hub.store.flush()
+            # Der Ablauf-Verlauf war als Einziger nicht gedeckelt.
+            hub.store._pending_runs = [{"automation_id": str(i)} for i in range(MAX_PENDING_RUNS + 50)]
+            await hub.store.flush()
+            assert len(hub.store._pending_runs) == MAX_PENDING_RUNS
+            client.fail = False
+            await hub.store.flush()
+        texte = [r.getMessage() for r in caplog.records]
+        assert sum("fehlgeschlagen" in t for t in texte) == 1
+        assert sum("wieder erreichbar" in t for t in texte) == 1
+        assert client.tables["automation_runs"]
+    finally:
+        await hub.stop()
+
+
+def test_was_dauerhaft_abgelehnt_ist_und_was_nicht():
+    from homepilot.core.store import dauerhaft_abgelehnt
+    from homepilot.core.supabase import SupabaseError
+
+    assert dauerhaft_abgelehnt(SupabaseError("kaputt", 400))
+    assert dauerhaft_abgelehnt(SupabaseError("Tabelle weg", 404))
+    assert dauerhaft_abgelehnt(SupabaseError("Spalte passt nicht", 422))
+    # Schlüssel, Drosselung, Serverfehler, Netz: ein zweiter Versuch hat Sinn.
+    assert not dauerhaft_abgelehnt(SupabaseError("Schlüssel", 401))
+    assert not dauerhaft_abgelehnt(SupabaseError("zu schnell", 429))
+    assert not dauerhaft_abgelehnt(SupabaseError("Server", 503))
+    assert not dauerhaft_abgelehnt(RuntimeError("Netz weg"))
 
 
 async def test_restored_state_fills_gaps_only():
