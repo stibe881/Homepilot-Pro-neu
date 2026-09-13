@@ -1,5 +1,5 @@
 /**
- * Die PlayStation 5 in der App – Punkt 634 der Werkbank.
+ * Die PlayStation 5 in der App – Punkt 643 der Werkbank.
  *
  * Für den Hub ist die Konsole ein `media_player` mit Bildschirm, genau
  * wie der Android TV: Sie meldet an/aus, was gerade läuft, und kennt

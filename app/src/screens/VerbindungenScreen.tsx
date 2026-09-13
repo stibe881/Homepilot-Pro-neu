@@ -83,7 +83,7 @@ export function VerbindungenScreen({
   );
 
   // Nur die Geräte, die eine Kopplung kennen (lib/fernsehkopplung.ts,
-  // kannKoppeln): Android TV und seit Punkt 634 die PlayStation. Nach
+  // kannKoppeln): Android TV und seit Punkt 643 die PlayStation. Nach
   // Namen, damit die Reihenfolge nicht mit jeder Zustandsmeldung
   // springt. Die Konsole steht in einem eigenen Abschnitt - ihre
   // Kopplung hat zwei Schritte und einen anderen Wortlaut, und
@@ -216,7 +216,7 @@ export function VerbindungenScreen({
         </Abschnitt>
       ) : null}
 
-      {/* Die Spielkonsole (Punkt 634): dieselbe Stelle wie der Fernseher,
+      {/* Die Spielkonsole (Punkt 643): dieselbe Stelle wie der Fernseher,
           aber ein eigener Abschnitt - zwei Schritte (PSN-Konto, Code von
           der Konsole) statt einem. */}
       {konsolen.length > 0 ? (

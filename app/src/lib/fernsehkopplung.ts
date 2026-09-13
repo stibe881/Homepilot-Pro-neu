@@ -25,7 +25,7 @@ import { Entity } from '../api/types';
  */
 export function kopplungsZeile(entity: Entity): string {
   const stand = entity?.state?.paired === false ? 'Nicht gekoppelt' : 'Gekoppelt';
-  // Nur die PlayStation trägt `remote_play` (Punkt 634): Ohne die
+  // Nur die PlayStation trägt `remote_play` (Punkt 643): Ohne die
   // Bibliothek im Hub ist «gekoppelt» die halbe Wahrheit - Zustand und
   // Aufwecken gehen, Tasten und Standby nicht. Der Fernseher kennt das
   // Feld nicht und bleibt, wie er war.
@@ -56,7 +56,7 @@ export function brauchtKopplung(entity: Entity): boolean {
  * die Timer auch vorhanden zum Koppeln?»
  *
  * 1. Der Hub führt `paired` - das setzen die Android-TV-Integration
- *    (auf **jedem** ihrer Geräte) und seit Punkt 634 die PlayStation.
+ *    (auf **jedem** ihrer Geräte) und seit Punkt 643 die PlayStation.
  *    Beim Fernseher absichtlich auch auf dem Timer:
  *    Auch die Einschlaf-Timer-Kachel soll sagen können, dass die
  *    Kopplung fehlt, denn dort fällt es abends auf.

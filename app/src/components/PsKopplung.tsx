@@ -18,7 +18,7 @@ import {
 import { Colors, radius, useColors } from '../theme';
 
 /**
- * «Konsole koppeln» unter Einstellungen → Verbindungen - Punkt 634.
+ * «Konsole koppeln» unter Einstellungen → Verbindungen - Punkt 643.
  *
  * Nach dem Muster von TvKopplung, aber mit zwei Schritten statt einem,
  * weil die PlayStation zweierlei verlangt: das PSN-Konto (einmal im

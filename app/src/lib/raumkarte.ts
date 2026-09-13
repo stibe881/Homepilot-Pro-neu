@@ -182,7 +182,7 @@ export function raumaktionen(items: Entity[]): Raumaktion[] {
  * und eine falsche Fernbedienung ist schlimmer als keine. `null`
  * heisst: Es gibt hier keine - dann bleibt der Knopf ein Schalter.
  *
- * Die PlayStation (Punkt 634) ist kein Zwilling: Sie hat zwar ein
+ * Die PlayStation (Punkt 643) ist kein Zwilling: Sie hat zwar ein
  * Steuerkreuz und einen Bildschirm, aber es ist ihr eigenes Gerät -
  * der Cast-Eintrag des Fernsehers daneben öffnete sonst die Konsole.
  */
@@ -257,7 +257,7 @@ export function geraetAktion(entity: Entity, nachbarn: Entity[] = []): Raumaktio
     // Steuerkreuz, darf es das seines Zwillings im Zimmer sein
     // (fernbedienungFuer).
     const kreuz = isTelevision(entity) ? fernbedienungFuer(entity, nachbarn) : null;
-    // Die Konsole bekommt den Controller statt des Fernsehers (Punkt 634).
+    // Die Konsole bekommt den Controller statt des Fernsehers (Punkt 643).
     const [an, aus] = istPlaystation(entity)
       ? ['game-controller', 'game-controller-outline']
       : ['tv', 'tv-outline'];

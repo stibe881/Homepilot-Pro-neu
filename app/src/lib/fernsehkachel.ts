@@ -35,7 +35,7 @@ export interface TvKopf {
  * die Nebensache. Beim Android-TV gibt es nur die App – und die steht
  * dann allein oben, nicht zweimal.
  *
- * Auf der PlayStation (Punkt 634) läuft keine App, sondern ein Spiel -
+ * Auf der PlayStation (Punkt 643) läuft keine App, sondern ein Spiel -
  * also «Spielt: Gran Turismo 7», wie auf der Karte des
  * Sperrbildschirms (hub core/livekarten.py). Und ihr Aus hat zwei
  * Gesichter: Aus dem Standby lässt sie sich wecken, aus dem Aus nicht.

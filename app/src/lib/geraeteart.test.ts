@@ -130,7 +130,7 @@ describe('deviceKindIcon', () => {
       .toBe('musical-notes-outline');
   });
 
-  it('gibt der PlayStation den Controller, nicht den Fernseher (Punkt 634)', () => {
+  it('gibt der PlayStation den Controller, nicht den Fernseher (Punkt 643)', () => {
     // Für den Hub ein Bildschirm mit Steuerkreuz, im Haushalt eine
     // Spielkonsole - so heisst sie im Wähler und so sieht sie aus.
     const ps = geraet({

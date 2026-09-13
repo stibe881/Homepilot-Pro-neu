@@ -1,5 +1,5 @@
 /**
- * Die PlayStation 5 in der App (Punkt 634) - was sich ohne Konsole
+ * Die PlayStation 5 in der App (Punkt 643) - was sich ohne Konsole
  * entscheiden lässt: Erkennung, Tasten, Kopplungsschritte, Codes.
  */
 import type { Entity } from '../api/types';

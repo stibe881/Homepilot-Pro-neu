@@ -1,5 +1,5 @@
 /**
- * «Konsole koppeln» auf der Verbindungen-Seite (Punkt 634).
+ * «Konsole koppeln» auf der Verbindungen-Seite (Punkt 643).
  *
  * Geprüft wird der Weg, den ein Mensch geht: Anmeldung im Browser
  * öffnen, die Adresse der Seite danach einfügen, dann den Code von der

@@ -764,7 +764,7 @@ export function EntityCard({
                 onMehr={hasRemote ? () => setRemoteOpen(true) : undefined}
                 // Wo schon ein Schieber steht, wären zwei Tasten daneben
                 // ein zweiter Weg zum selben Ziel. Und wo es gar keine
-                // Lautstärke gibt (PlayStation, Punkt 634), wären sie
+                // Lautstärke gibt (PlayStation, Punkt 643), wären sie
                 // zwei Knöpfe, die nichts tun.
                 lautstaerke={
                   !teile.lautstaerke &&
@@ -1539,7 +1539,7 @@ export function EntityCard({
           kino={kino}
           onKino={onKino}
           // Fernseher oder Spielkonsole - das Blatt sieht es am Gerät
-          // (lib/playstation.ts, Punkt 634).
+          // (lib/playstation.ts, Punkt 643).
           entity={entity}
         />
       ) : null}

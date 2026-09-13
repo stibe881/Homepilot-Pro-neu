@@ -162,7 +162,7 @@ export function deviceKindLabel(entity: Entity): string {
 
     case 'media_player':
       // Die PlayStation ist für den Hub ein Fernseher mit Steuerkreuz
-      // (Punkt 634) - im Haushalt aber eine Spielkonsole, und so heisst
+      // (Punkt 643) - im Haushalt aber eine Spielkonsole, und so heisst
       // sie auch in den Abläufen und im Wähler.
       if (istPlaystation(entity)) return 'Spielkonsole';
       return isTelevision(entity) ? 'Fernseher' : 'Lautsprecher';

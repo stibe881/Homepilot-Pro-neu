@@ -287,7 +287,7 @@ describe('geraetAktion und kachelKnoepfe', () => {
     expect(aktion?.id).toBe('cast.tv');
   });
 
-  it('nimmt die PlayStation nicht als Zwilling des Fernsehers (Punkt 634)', () => {
+  it('nimmt die PlayStation nicht als Zwilling des Fernsehers (Punkt 643)', () => {
     // Die Konsole hat Bildschirm und Steuerkreuz - aber sie ist ihr
     // eigenes Gerät. Der Cast-Eintrag des Fernsehers daneben öffnete
     // sonst die Konsole statt zu schalten.

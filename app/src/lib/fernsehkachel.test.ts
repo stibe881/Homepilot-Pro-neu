@@ -38,7 +38,7 @@ describe('tvKopf', () => {
     expect(tvKopf(tv({ state: 'on' })).text).toBe('An');
   });
 
-  describe('auf der PlayStation (Punkt 634)', () => {
+  describe('auf der PlayStation (Punkt 643)', () => {
     const ps = (state: Record<string, unknown>) =>
       ({ ...tv(state, ['dpad_up', 'cross']), integration: 'playstation' }) as Entity;
 
@@ -111,7 +111,7 @@ describe('tvTeile', () => {
   });
 
   it('zeigt an der PlayStation nur das Steuerkreuz - sie hat weder Ton noch Timer noch Apps', () => {
-    // Punkt 634: Die Konsole meldet aus dem Vertrag genau die Befehle,
+    // Punkt 643: Die Konsole meldet aus dem Vertrag genau die Befehle,
     // die sie kann. Entscheidet die Kachel nach den Befehlen und nicht
     // nach der Geräteart, steht dort nichts, was ins Leere drückt.
     const ps = {

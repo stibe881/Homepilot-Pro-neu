@@ -30,7 +30,7 @@ interface Props {
   kino?: { id: string; name: string } | null;
   onKino?: (sceneId: string) => void;
   /** Das Gerät selbst - entscheidet, ob hier ein Fernseher oder eine
-   *  PlayStation bedient wird (Punkt 634). Optional, damit die
+   *  PlayStation bedient wird (Punkt 643). Optional, damit die
    *  bestehenden Aufrufe unverändert bleiben: ohne Gerät ein Fernseher. */
   entity?: Entity;
 }
@@ -79,7 +79,7 @@ function Key({
 /** Vollwertige Fernbedienung für Android-TV-Kacheln: Steuerkreuz,
  *  Lautstärke, Medientasten. Öffnet sich als Modal über dem Dashboard.
  *
- *  Für die PlayStation (Punkt 634) dasselbe Blatt mit anderen Tasten:
+ *  Für die PlayStation (Punkt 643) dasselbe Blatt mit anderen Tasten:
  *  Unter dem Steuerkreuz die vier Symboltasten in der Anordnung des
  *  Controllers, darunter Share · PS · Options. Keine Lautstärke, kein
  *  Transport, keine Apps - die Konsole kann über das Protokoll nichts

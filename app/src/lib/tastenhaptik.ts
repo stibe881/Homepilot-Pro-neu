@@ -20,7 +20,7 @@ export type Staerke = 'leicht' | 'kraeftig';
 
 /** Tasten, die eine Entscheidung sind – nicht eine von vielen in Serie.
  *
- *  `cross` ist das OK der PlayStation (Punkt 634): dieselbe Rolle,
+ *  `cross` ist das OK der PlayStation (Punkt 643): dieselbe Rolle,
  *  dasselbe Gewicht. Kreis, Dreieck, Viereck, Share, PS und Options
  *  drückt man wie das Steuerkreuz - im Menü, in Serie - und die ticken
  *  fein. */

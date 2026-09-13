@@ -94,7 +94,7 @@ describe('kopplungsZeile', () => {
     expect(kopplungsZeile(geraet({ paired: true }))).toBe('Gekoppelt');
   });
 
-  it('zählt die PlayStation mit, ohne den Fernseher zu ändern (Punkt 634)', () => {
+  it('zählt die PlayStation mit, ohne den Fernseher zu ändern (Punkt 643)', () => {
     // Die Konsole trägt `paired` wie der Fernseher - und zusätzlich
     // `remote_play`: Ohne die Bibliothek im Hub ist «gekoppelt» nur die
     // halbe Wahrheit, denn Tasten und Standby gehen dann trotzdem nicht.

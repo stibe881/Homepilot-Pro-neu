@@ -1,6 +1,6 @@
 /**
  * Die Fernbedienung, einmal als Fernseher und einmal als PlayStation
- * (Punkt 634).
+ * (Punkt 643).
  *
  * Geprüft wird, was ein Mensch auf dem Blatt findet: An der Konsole die
  * Symboltasten des Controllers und Share · PS · Options - und keine
