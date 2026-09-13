@@ -1887,7 +1887,24 @@ class AlarmIntegration(Integration):
                 )
                 return
         else:
-            await self.disarm(by="Anwesenheit")
+            # Als eigene Quelle, damit check_pin die Kopplung durchlässt
+            # (alarm_rules.ohne_pin_erlaubt, Punkt 641). Vorher kam sie
+            # als «Gerät» an und scheiterte bei jeder Heimkehr still an
+            # der PIN - der Fehler lag im Log, die Sirene im Treppenhaus.
+            try:
+                with source.as_source(source.presence_source()):
+                    await self.disarm(by="Anwesenheit")
+            except HomePilotError as err:
+                # Nie mehr still: Wenn es doch scheitert, soll es jemand
+                # lesen, bevor die Türe aufgeht.
+                log.warning("Anwesenheit konnte nicht entschärfen: %s", err)
+                self._note("fehler", f"Anwesenheit konnte nicht entschärfen: {err}", "")
+                await self._notify(
+                    "Konnte nicht unscharf schalten",
+                    f"Jemand ist heimgekommen, aber die Anlage bleibt scharf: {err}",
+                    "alarm_arming",
+                )
+                return
         await self._notify("Alarmanlage", text, "alarm_arming")
 
     def _anwesenheitszustaende(self) -> list[str]:
