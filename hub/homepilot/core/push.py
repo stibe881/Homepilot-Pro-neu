@@ -315,6 +315,51 @@ def dringlichkeit(
         "interruptionLevel": "time-sensitive",
     }
 
+# ── Verfall: wie lange eine Nachricht noch etwas wert ist ──────────────────
+#
+# Ohne Verfallsdatum halten Apple und Google eine Nachricht bis zu einem
+# Monat zurück, wenn das Telefon gerade kein Netz hat - und liefern sie
+# dann nach. Eine Klingel-Meldung, die eine Stunde später ankommt, ist
+# schlimmer als keine: Man rennt zur Türe, und da steht niemand mehr.
+# Genau dieser Fall steht als Anlass in pushcheck.py; das Werkzeug misst
+# ihn, verhindert hat ihn bisher nichts (Punkt 600 der Werkbank).
+#
+# Deshalb je Kategorie eine Frist in Sekunden, nach der die Push-Dienste
+# die Nachricht wegwerfen statt nachliefern. Nur was namentlich hier
+# steht, verfällt: Alarm, Wasser, Rauch, Batterie sollen auch verspätet
+# kommen - ein Wasserschaden ist eine Stunde später immer noch einer.
+VERFALL: dict[str, int] = {
+    # Wer nicht in anderthalb Minuten an der Türe war, kommt zu spät.
+    "doorbell": 90,
+    # Die Eier sind nach fünf Minuten so oder so hart.
+    "timer": 300,
+    # Der Ofen bleibt warm - eine Weile.
+    "oven": 600,
+    "grill": 600,
+    # Ein Kind, das vor fünf Minuten geweint hat, hat entweder aufgehört
+    # oder jemand ist längst dort.
+    "baby_cry": 300,
+    # Bewegung von vorhin sieht man im Verlauf, nicht in der Meldung.
+    "camera_motion": 600,
+    # Der Wecker geht Fahrzeit plus Puffer vor dem Termin los - eine halbe
+    # Stunde später ist der Termin selbst der Wecker. «Bis Terminbeginn»
+    # wäre genauer, aber die Frist hängt an der Kategorie, nicht an der
+    # Meldung, und die Fahrzeit im Haus liegt praktisch immer darunter.
+    "departure": 1800,
+}
+
+
+def verfall_sekunden(category: str | None) -> int | None:
+    """Wie lange diese Meldung nachgeliefert werden darf (rein, testbar).
+
+    ``None`` heisst: kein Verfall - die Push-Dienste heben sie auf,
+    bis das Telefon wieder da ist.
+    """
+    if not category:
+        return None
+    return VERFALL.get(str(category))
+
+
 # Die Arten von Nachrichten, die der Hub verschickt. Jede hat einen festen
 # Schlüssel, damit sich einzelne davon je Benutzer abstellen lassen – wer
 # nachts nicht wegen einer schwachen Batterie geweckt werden will, soll
@@ -1033,6 +1078,7 @@ class PushService:
             return PushResult()
         stufe = dringlichkeit(category, self.stufen, self.kritisch_erlaubt)
         kategorie_knoepfe = knoepfe(category)
+        verfall = verfall_sekunden(category)
         # Die Kategorie reist auch in den Nutzdaten mit: Beim
         # «Später»-Knopf reicht die App sie an /api/push/snooze zurück,
         # und die Wiedervorlage läuft dann unter derselben Kategorie.
@@ -1056,6 +1102,10 @@ class PushService:
                 # kennt die App (core/push.py: knoepfe).
                 **({"categoryId": kategorie_knoepfe} if kategorie_knoepfe else {}),
                 **({"richContent": {"image": image}} if image else {}),
+                # Das Verfallsdatum (Punkt 600): ``ttl`` in Sekunden ist
+                # das Feld der Expo-Push-API, das an Apples apns-expiration
+                # und Googles ttl weitergereicht wird.
+                **({"ttl": verfall} if verfall else {}),
             }
             for token in valid
         ]
