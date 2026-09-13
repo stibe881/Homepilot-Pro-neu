@@ -123,12 +123,34 @@ Schnittstelle ohne Anmeldung.
 ## Was der Hub dagegen selbst tut
 
 **Bremse gegen Anmeldeversuche.** Nach zehn ungültigen Tokens innerhalb von
-fünf Minuten ist die Adresse eine Viertelstunde draussen (HTTP 429). Gezählt
-werden nur Fehlversuche – wer ein gültiges Token hat, darf so oft er will.
+fünf Minuten ist die Adresse eine Viertelstunde draussen (HTTP 429, am
+WebSocket Code 4429 mit den Sekunden im Grund). Gezählt werden nur
+Fehlversuche – wer ein gültiges Token hat, darf so oft er will. Sie gilt
+für `/api/*` und für den Handschlag auf `/ws` gleichermassen (Punkt 591 der
+Werkbank): Vorher konnte man über `/ws` unbegrenzt raten.
 
-Hinter einem Reverse Proxy nimmt die Bremse die Adresse aus
-`X-Forwarded-For`; sonst sperrte sie den Proxy aus und mit ihm das ganze
-Haus. Der Nginx Proxy Manager setzt diesen Kopf von sich aus.
+**Hinter einem Reverse Proxy den Proxy eintragen.** In `request.client`
+steht dort immer der Proxy; die echte Adresse kommt im Kopf
+`X-Forwarded-For`, den der Nginx Proxy Manager von sich aus setzt. Der Hub
+glaubt diesem Kopf aber nur, wenn die Verbindung wirklich vom Proxy kommt –
+sonst könnte jeder ihn selbst setzen, die Sperre mit einer neuen Adresse je
+Versuch umgehen, fremde Adressen aussperren und mit erfundener Adresse im
+Zugriffsprotokoll von Türe und Alarm stehen. Deshalb in der `config.yaml`:
+
+```yaml
+api:
+  trusted_proxies: ["172.18.0.0/16"]   # das Docker-Netz des Proxys
+```
+
+Einzelne Adressen gehen auch (`"10.0.0.5"`); ein Netz ist besser, weil ein
+Container in Docker bei jedem Neustart eine andere Adresse aus seinem Netz
+bekommen kann. Welches Netz das ist, sagt `docker network inspect` beim
+Netz des Proxy-Stacks. Die Vorgabe ist **leer** – dann zählt der Kopf nie,
+und hinter einem nicht eingetragenen Proxy sieht der Hub jede Anfrage vom
+Proxy kommen: Zehn Fehlversuche von irgendwem sperren dann den Proxy aus
+und mit ihm das ganze Haus. Das Protokoll warnt in dem Fall einmal je
+Adresse: «X-Forwarded-For von 172.18.0.3 ignoriert – steht der Proxy in
+api.trusted_proxies?».
 
 Das schützt nicht gegen jemanden, der ein Token *hat*. Es schützt gegen das
 Durchprobieren und gegen Dauerbeschuss, der den Hub sonst beschäftigt hält.

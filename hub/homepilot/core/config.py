@@ -63,6 +63,17 @@ class ApiConfig:
     # Gerät im eigenen Netz vertretbar, weil der Token nicht automatisch
     # mitgeschickt wird; einschränken lässt es sich trotzdem.
     cors_origins: list[str] = field(default_factory=lambda: ["*"])
+    # Nur von diesen Adressen (einzeln oder als Netz, «172.18.0.0/16»)
+    # gilt der Kopf X-Forwarded-For als Wahrheit. Punkt 591 der
+    # Werkbank: Vorher nahm die Bremse den Kopf von jedem - wer ihn
+    # selbst setzte, umging die Sperre mit einer neuen Adresse je
+    # Versuch, sperrte fremde Adressen aus und stand mit erfundener
+    # Adresse im Zugriffsprotokoll von Türe und Alarm. Leer heisst:
+    # Der Kopf zählt nie, es gilt die Adresse der Verbindung. Wer hinter
+    # dem Nginx Proxy Manager steht, trägt dessen Netz hier ein
+    # (docs/app-ohne-vpn.md) - sonst sperrt die Bremse den Proxy und mit
+    # ihm das ganze Haus.
+    trusted_proxies: list[str] = field(default_factory=list)
     # Zweiter Zugang allein für das Anmeldefenster des Gäste-WLANs.
     #
     # UniFi lässt beim «External Portal Server» nur eine IPv4-Adresse zu -
@@ -304,11 +315,15 @@ def load_config(path: str | Path) -> HubConfig:
     origins = api_raw.get("cors_origins")
     if origins is not None and not isinstance(origins, list):
         raise ConfigError("'api.cors_origins' muss eine Liste sein")
+    proxies = api_raw.get("trusted_proxies")
+    if proxies is not None and not isinstance(proxies, list):
+        raise ConfigError("'api.trusted_proxies' muss eine Liste sein")
     api = ApiConfig(
         host=api_raw.get("host", "0.0.0.0"),
         port=int(api_raw.get("port", 8123)),
         token=api_raw.get("token"),
         cors_origins=[str(origin) for origin in origins] if origins else ["*"],
+        trusted_proxies=[str(proxy) for proxy in proxies or []],
         portal_port=portal_port(api_raw.get("portal_port")),
     )
 

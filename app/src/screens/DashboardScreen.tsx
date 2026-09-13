@@ -118,6 +118,7 @@ import {
   sortierungsWort,
 } from '../lib/geraetefilter';
 import { verweisText, verweiseAuf } from '../lib/verweise';
+import { pausenSatz } from '../lib/verbindungsstand';
 import {
   alphabetisch,
   imRaum,
@@ -329,6 +330,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     error,
     cachedAt,
     familyChangedAt,
+    pausiertBis,
     pending,
     queued,
     undo,
@@ -4200,7 +4202,38 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             // im Gutschein-Formular brauchte sonst zwei Tipper.
             keyboardShouldPersistTaps="handled"
           >
-            {ausfall && entities.length > 0 ? (
+            {status === 'signed_out' ? (
+              // Der Hub hat das Token abgewiesen (Punkt 579 der Werkbank):
+              // beendet unter «Meine Geräte», Passwort gewechselt. Das ist
+              // kein Ausfall, und der Knopf führt dorthin, wo der Weg
+              // zurück liegt - die Konto-Seite mit den Verbindungsfeldern.
+              <View style={styles.offlineBanner}>
+                <Ionicons name="log-out-outline" size={16} color={colors.warn} />
+                <Text style={styles.offlineText} numberOfLines={2}>
+                  Dieses Gerät wurde abgemeldet.
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    onSaveSettings({ ...settings, token: '' });
+                    setSection('account');
+                  }}
+                  style={({ pressed }) => [styles.offlineKnopf, pressed && { opacity: 0.7 }]}
+                >
+                  <Text style={styles.offlineKnopfText}>Neu anmelden</Text>
+                </Pressable>
+              </View>
+            ) : status === 'paused' ? (
+              // Zeitfenster zu (Punkt 624 der Werkbank): kein kaputtes Haus,
+              // sondern Feierabend. Die App verbindet von selbst wieder,
+              // sobald es aufgeht - deshalb kein Knopf.
+              <View style={styles.offlineBanner}>
+                <Ionicons name="moon-outline" size={16} color={colors.warn} />
+                <Text style={styles.offlineText} numberOfLines={2}>
+                  {pausenSatz(pausiertBis, now.getTime())}
+                </Text>
+              </View>
+            ) : ausfall && entities.length > 0 ? (
               // Getrennt, aber wir haben den letzten Stand: lieber alte Werte
               // mit deutlichem Hinweis als eine leere Seite. Geschaltet wird
               // trotzdem nicht - die Befehle liefen ins Leere.

@@ -32,7 +32,12 @@ grosszügig als eine ausgesperrte Familie, weil eine Datei kaputt ist.
 from __future__ import annotations
 
 import hashlib
+import ipaddress
+import logging
 import time
+from collections.abc import Iterable
+
+log = logging.getLogger(__name__)
 
 # So viele Fehlversuche gehen durch, bevor gesperrt wird. Grosszügig
 # genug, dass ein abgelaufener Gastzugang nicht sofort in die Sperre
@@ -142,18 +147,78 @@ class Throttle:
         return len(self._blocked)
 
 
-def client_address(request) -> str:
-    """Von welcher Adresse kommt die Anfrage? (rein genug, testbar)
+def vertrauenswuerdig(direkt: str, trusted_proxies: Iterable[str]) -> bool:
+    """Darf diese Verbindung einen X-Forwarded-For mitbringen? (rein, testbar)
+
+    Einträge sind Adressen oder Netze («172.18.0.0/16» - der Nginx Proxy
+    Manager in Docker bekommt bei jedem Neustart eine andere Adresse aus
+    seinem Netz). Ein unlesbarer Eintrag zählt nicht, statt alles zu
+    öffnen.
+    """
+    try:
+        adresse = ipaddress.ip_address(direkt)
+    except ValueError:
+        return False
+    for eintrag in trusted_proxies:
+        try:
+            if adresse in ipaddress.ip_network(str(eintrag).strip(), strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def adresse(direkt: str, forwarded: str, trusted_proxies: Iterable[str]) -> str:
+    """Von welcher Adresse kommt die Anfrage? (rein, testbar)
 
     Hinter einem Reverse Proxy steht in ``request.client`` immer der Proxy.
     Die echte Adresse steht in ``X-Forwarded-For`` – und zwar ganz vorne;
     alles dahinter hat der Proxy angehängt und ist nicht vertrauenswürdig.
 
-    Ohne diesen Kopf sperrte die Bremse sonst den Proxy aus, und mit ihm
-    das ganze Haus.
+    Der Kopf zählt aber nur, wenn die Verbindung wirklich vom Proxy kommt
+    (Punkt 591 der Werkbank). Vorher galt er von jedem: Wer ihn selbst
+    setzte, umging die Bremse mit einer neuen Adresse je Versuch, sperrte
+    fremde Adressen aus, und dieselbe erfundene Adresse stand im
+    Zugriffsprotokoll von Türe und Alarm.
+    """
+    if forwarded and vertrauenswuerdig(direkt, trusted_proxies):
+        return forwarded.split(",")[0].strip() or direkt or "unbekannt"
+    return direkt or "unbekannt"
+
+
+# Die Proxys aus der Konfiguration (api.trusted_proxies). Auf Modulebene,
+# weil ein Dutzend Routen ``client_address(request)`` rufen und keine
+# davon die Konfiguration zur Hand hat - die Bremse selbst lebt ohnehin
+# je Prozess. Gesetzt in api/server.py beim Bau der App.
+_trusted_proxies: tuple[str, ...] = ()
+# Je Adresse einmal warnen, wenn ein Kopf ignoriert wurde: Wer den
+# Proxy vergisst einzutragen, findet den Grund so im Protokoll, statt
+# dass die Bremse still das ganze Haus aussperrt.
+_gewarnt: set[str] = set()
+
+
+def vertraute_proxys_setzen(proxies: Iterable[str]) -> None:
+    global _trusted_proxies
+    _trusted_proxies = tuple(str(proxy) for proxy in proxies)
+    _gewarnt.clear()
+
+
+def client_address(request, trusted_proxies: Iterable[str] | None = None) -> str:
+    """Von welcher Adresse kommt die Anfrage? - für Request und WebSocket.
+
+    ``trusted_proxies`` fehlt bei den Routen; dann gilt die Liste aus der
+    Konfiguration (``vertraute_proxys_setzen``).
     """
     forwarded = request.headers.get("x-forwarded-for", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
     client = getattr(request, "client", None)
-    return getattr(client, "host", "") or "unbekannt"
+    direkt = getattr(client, "host", "") or ""
+    proxies = _trusted_proxies if trusted_proxies is None else tuple(trusted_proxies)
+    ergebnis = adresse(direkt, forwarded, proxies)
+    if forwarded and ergebnis == (direkt or "unbekannt") and direkt not in _gewarnt:
+        _gewarnt.add(direkt)
+        log.warning(
+            "X-Forwarded-For von %s ignoriert - steht der Proxy in "
+            "api.trusted_proxies? (docs/app-ohne-vpn.md)",
+            direkt or "unbekannt",
+        )
+    return ergebnis

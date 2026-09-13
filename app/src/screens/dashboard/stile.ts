@@ -27,6 +27,15 @@ export const makeStyles = (colors: Colors) =>
       borderColor: colors.warn,
     },
     offlineText: { color: colors.onGradient, fontSize: 13, flex: 1 },
+    // «Neu anmelden» im Balken eines abgemeldeten Geräts (Punkt 579).
+    offlineKnopf: {
+      paddingVertical: 5,
+      paddingHorizontal: 10,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.warn,
+    },
+    offlineKnopfText: { color: colors.onGradient, fontSize: 13, fontWeight: '600' },
     allOffRow: {
       flexDirection: 'row',
       alignItems: 'flex-start',

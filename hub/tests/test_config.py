@@ -29,6 +29,26 @@ def test_load_config_expands_env(tmp_path, monkeypatch):
     assert config.integrations == [{"integration": "demo"}]
 
 
+def test_trusted_proxies_are_read_and_empty_by_default(tmp_path, monkeypatch):
+    """Punkt 591 der Werkbank: Der Kopf X-Forwarded-For zählt nur von
+    den hier eingetragenen Adressen - und ohne Eintrag nie."""
+    monkeypatch.setenv("TEST_TOKEN", "geheim")
+    monkeypatch.setenv("TEST_KEY", "k")
+    path = tmp_path / "config.yaml"
+    path.write_text(CONFIG, encoding="utf-8")
+    assert load_config(path).api.trusted_proxies == []
+
+    path.write_text(
+        CONFIG.replace("api:\n", 'api:\n  trusted_proxies: ["172.18.0.0/16", "10.0.0.5"]\n'),
+        encoding="utf-8",
+    )
+    assert load_config(path).api.trusted_proxies == ["172.18.0.0/16", "10.0.0.5"]
+
+    path.write_text(CONFIG.replace("api:\n", "api:\n  trusted_proxies: 10.0.0.5\n"), encoding="utf-8")
+    with pytest.raises(ConfigError):
+        load_config(path)
+
+
 def test_missing_env_var_raises(tmp_path, monkeypatch):
     monkeypatch.delenv("TEST_TOKEN", raising=False)
     monkeypatch.setenv("TEST_KEY", "x")

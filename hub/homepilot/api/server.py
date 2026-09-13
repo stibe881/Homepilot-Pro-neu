@@ -44,7 +44,7 @@ from fastapi.staticfiles import StaticFiles
 from ..core import throttle as throttle_module
 from ..core.hub import Hub
 from ..core.source import as_source, user_source
-from ..core.users import Capability, Role, User
+from ..core.users import Capability, Role, User, Zugangsgrund
 from . import invitepage  # noqa: F401 - Weiterleitung für bestehende Importe
 from .context import ApiContext
 from .routes import (
@@ -137,6 +137,9 @@ def create_app(hub: Hub) -> FastAPI:
     # Eine Bremse je Hub-Instanz, nicht global: Tests sollen sich nicht
     # gegenseitig aussperren.
     throttle = throttle_module.Throttle()
+    # Wessen X-Forwarded-For zählt (Punkt 591 der Werkbank) - für alle
+    # Routen, die client_address() rufen.
+    throttle_module.vertraute_proxys_setzen(hub.config.api.trusted_proxies)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -169,7 +172,7 @@ def create_app(hub: Hub) -> FastAPI:
             return header.removeprefix("Bearer ").strip()
         return request.query_params.get("token")
 
-    def user_for_token(token: str | None) -> User | None:
+    def resolve_token(token: str | None) -> User | None:
         """Wer gehört zu diesem Token? – für HTTP und WebSocket dieselbe Antwort.
 
         Zwei Arten von Token führen zum selben Benutzer: das feste aus der
@@ -178,8 +181,12 @@ def create_app(hub: Hub) -> FastAPI:
         die Auflösung zweimal im Code, hinge irgendwann eine der beiden
         zurück – und dann kommt man zwar durch die Anmeldung, aber der
         Zustandskanal bleibt zu.
+
+        Liefert den Inhaber auch dann, wenn er gerade nicht hereindarf
+        (Punkt 624 der Werkbank): Ob es «Ungültiges Token» heisst oder
+        «ab 07:00 wieder», entscheidet ``zugangsgrund()`` danach.
         """
-        user = hub.users.by_token(token)
+        user = hub.users.by_token(token, active_only=False)
         if user is not None:
             return user
         kennung = hub.sessions.identity(token or "")
@@ -209,7 +216,19 @@ def create_app(hub: Hub) -> FastAPI:
                 "Sitzung von '%s' zeigt ins Leere - umbenannt oder gelöscht?", name
             )
             return None
-        return user if user.active() else None
+        return user
+
+    def fenster_zu(user: User | None) -> Zugangsgrund | None:
+        """Der Grund, wenn nur die Uhr dagegen ist (Punkt 624 der Werkbank).
+
+        Gesperrt und abgelaufen bleiben «Ungültiges Token»: Da ist der
+        Zugang weg. Das Zeitfenster dagegen ist eine Pause mit bekanntem
+        Ende, und die App soll sie als solche zeigen.
+        """
+        if user is None:
+            return None
+        grund = user.zugangsgrund()
+        return grund if grund is not None and grund.art == "fenster_zu" else None
 
     def current_user(request: Request) -> User:
         # Sobald der Hub von aussen erreichbar ist, klopfen Scanner an.
@@ -224,7 +243,15 @@ def create_app(hub: Hub) -> FastAPI:
                 headers={"Retry-After": str(round(waiting))},
             )
         token = token_from(request)
-        user = user_for_token(token)
+        user = resolve_token(token)
+        grund = fenster_zu(user)
+        if grund is not None:
+            # Ein gültiges Token zur falschen Stunde ist kein Fehlversuch -
+            # die Bremse zählt es nicht. Die App liest ``gilt_ab`` und
+            # verbindet erst dann wieder.
+            raise HTTPException(status_code=403, detail=grund.as_dict())
+        if user is not None and not user.active():
+            user = None
         if user is None:
             # Mit Fingerabdruck: Dasselbe untaugliche Token noch einmal ist
             # kein Rateversuch, sondern eine App, die von ihrer abgelaufenen
@@ -344,10 +371,46 @@ def create_app(hub: Hub) -> FastAPI:
         token = (
             websocket.query_params.get("token") or header.removeprefix("Bearer ").strip()
         )
-        user = user_for_token(token)
-        if user is None:
-            await websocket.close(code=4401)
+        # Dieselbe Bremse wie bei current_user() (Punkt 591 der
+        # Werkbank): Wer über /ws rät, wurde vorher nie gesperrt, während
+        # /api/* nach zehn Versuchen dichtmachte. Die Adresse einmal
+        # bestimmen - sie geht auch ins Zugriffsprotokoll von Türe und
+        # Alarm, das über diesen Weg bisher gar keine bekam.
+        address = throttle_module.client_address(websocket)
+        waiting = throttle.blocked_for(address)
+        if waiting > 0:
+            await websocket.accept()
+            await websocket.close(code=4429, reason=str(round(waiting)))
             return
+        user = resolve_token(token)
+        grund = fenster_zu(user)
+        if grund is not None and grund.gilt_ab is not None:
+            # Punkt 624 der Werkbank: Zeitfenster zu heisst Pause, nicht
+            # Rauswurf. Im Grund steht, ab wann es weitergeht - die App
+            # zeigt «Gute Nacht» und verbindet erst dann wieder.
+            await websocket.accept()
+            await websocket.close(
+                code=4403, reason=grund.gilt_ab.isoformat(timespec="minutes")
+            )
+            return
+        if user is None or not user.active():
+            # Mit Fingerabdruck wie bei current_user(): Dasselbe tote
+            # Token im Takt ist kein Rateversuch (core/throttle.py).
+            gesperrt = throttle.failed(
+                address, kennung=throttle_module.fingerabdruck(token or "")
+            )
+            if gesperrt:
+                log.warning("%s gesperrt: zu viele ungültige Tokens am WebSocket", address)
+            # Erst annehmen, dann schliessen (Punkt 579 der Werkbank):
+            # Ein close() vor dem accept() beantwortet der Server als
+            # HTTP 403 - der Handschlag scheitert, und die App sieht
+            # Code 1006 «abgebrochen» statt 4401. Genau darum hielt sich
+            # ein hinausgeworfenes Gerät für «ohne Netz» und klopfte
+            # im Sekundentakt weiter an.
+            await websocket.accept()
+            await websocket.close(code=4401, reason="Ungültiges Token")
+            return
+        throttle.succeeded(address)
 
         await websocket.accept()
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
@@ -421,10 +484,13 @@ def create_app(hub: Hub) -> FastAPI:
                         continue
                     try:
                         # Die Entität ist oben schon geholt - nur festhalten,
-                        # wer hier was ausgelöst hat.
+                        # wer hier was ausgelöst hat, und von wo: Türe und
+                        # Alarm über den WebSocket hatten im Protokoll
+                        # bisher keine Adresse, nur der REST-Weg reichte
+                        # sie mit (Punkt 591 der Werkbank).
                         if entity is not None:
                             hub.audit.record(
-                                user.name, entity, message.get("command", "")
+                                user.name, entity, message.get("command", ""), address
                             )
                         with as_source(user_source(user.name)):
                             await hub.integrations.dispatch_command(

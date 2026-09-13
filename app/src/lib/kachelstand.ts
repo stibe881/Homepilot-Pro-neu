@@ -58,3 +58,53 @@ export function faelltAuf(stand: Kachelstand): boolean {
     stand?.ungezaehlt
   );
 }
+
+// ── Nach einer Absage ────────────────────────────────────────────────────
+//
+// Punkt 580 der Werkbank: Beim Tippen setzt die App sofort den
+// Wunschzustand auf die Kachel. Lief das Zeitlimit ab oder sagte der Hub
+// «ok: false», wurde nur das Warte-Zeichen gelöscht - der Wunsch blieb
+// stehen, bis zufällig ein echter Zustand kam. Und der Hub schickt nach
+// einem gescheiterten Befehl keinen. Eine Homematic-Lampe mit
+// Funk-Timeout stand so als «an» am Wandpanel, obwohl sie aus war.
+
+/**
+ * Die Kachel nach einer Absage (rein, testbar): Zurück auf den Stand von
+ * vor dem Tippen, mit der Marke «unbestätigt».
+ *
+ * Nicht auf «aus» oder «unbekannt», sondern auf das, was der Hub zuletzt
+ * wirklich gemeldet hat - das ist die beste Auskunft, die es gibt. Die
+ * Marke sagt, dass sie nicht mehr geprüft ist; der nächste echte Zustand
+ * ersetzt das ganze Objekt und nimmt sie mit.
+ */
+export function zurueckgesetzt<T extends { state: unknown }>(
+  entity: T,
+  vorher: T['state'] | undefined
+): T & { unbestaetigt: true } {
+  return vorher === undefined
+    ? { ...entity, unbestaetigt: true }
+    : { ...entity, state: vorher, unbestaetigt: true };
+}
+
+/**
+ * Die Zeile unter dem Namen, wenn der Stand unbestätigt ist (rein,
+ * testbar) - «An · unbestätigt», wie «21,5 °C · Stand 17:42» aus
+ * Punkt 271: Der Wert bleibt lesbar, die Zeile sagt, was von ihm zu
+ * halten ist.
+ */
+export function unbestaetigtZeile(subtitle: string | null | undefined): string {
+  const text = subtitle?.trim();
+  return text ? `${text} · unbestätigt` : 'unbestätigt';
+}
+
+/**
+ * Die Einblendung nach einer Absage (rein, testbar) - mit dem Gerät.
+ *
+ * «Das Gerät antwortet nicht» nannte keines: Wer drei Kacheln kurz
+ * nacheinander getippt hat, wusste nicht, welche gemeint war.
+ */
+export function absageSatz(name: string | null | undefined, grund: string | null | undefined): string {
+  const wer = name?.trim() || 'Das Gerät';
+  const warum = grund?.trim();
+  return warum ? `${wer}: ${warum}` : `${wer} antwortet nicht`;
+}
