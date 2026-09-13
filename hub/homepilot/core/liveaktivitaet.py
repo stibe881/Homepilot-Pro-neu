@@ -698,6 +698,32 @@ def end_payload(jetzt_s: float) -> dict[str, Any]:
     }
 
 
+#: Wie lange Apple einen Push je Ereignis aufhebt, wenn das Telefon
+#: gerade nicht zu erreichen ist (Sekunden) - Fehler aus der Runde 579
+#: der Werkbank. Vorher galten für Start, Update und Ende dieselben
+#: zehn Minuten, und das war für das Ende die falsche Zahl: Wer so
+#: lange ohne Netz ist (Zug, Keller, Flugmodus), behielt die
+#: Fernseher- oder Sauger-Karte bis zu acht Stunden - der Hub hatte
+#: von Apple eine 200 und strich die Zeile als beendet, der Push kam
+#: aber nie an. Ein Ende darf darum lange warten. Ein Update dagegen
+#: kaum: Ein Grill-Messwert von vor drei Minuten ist nach der Ankunft
+#: nur noch ein falscher, und der nächste Takt schickt ohnehin einen
+#: frischen. Der Start bleibt bei den zehn Minuten - eine Karte für
+#: etwas, das vor einer Stunde lief, will niemand mehr.
+APNS_FRIST = {"start": 600, "update": 60, "end": 4 * 3600}
+
+
+def apns_frist(payload: dict[str, Any], jetzt_s: float) -> int:
+    """Bis wann Apple diesen Push aufheben soll, als Unix-Zeit (rein, testbar).
+
+    Das Ereignis steht im Inhalt selbst (``aps.event``); wer es nicht
+    trägt, bekommt die Frist des Starts - lieber zu kurz als eine
+    Karte, die Stunden später noch aufgestellt wird.
+    """
+    ereignis = str((payload.get("aps") or {}).get("event") or "start")
+    return int(jetzt_s + APNS_FRIST.get(ereignis, APNS_FRIST["start"]))
+
+
 def apns_jwt(key_pem: bytes, key_id: str, team_id: str, jetzt_s: float) -> str:
     """Das Anmelde-Token für Apple bauen (rein, testbar).
 
@@ -782,7 +808,8 @@ class ApnsVersand:
                     "apns-topic": f"{self.config['bundle_id']}.push-type.liveactivity",
                     "apns-push-type": "liveactivity",
                     "apns-priority": "10",
-                    "apns-expiration": str(int(jetzt + 600)),
+                    # Je Ereignis verschieden - siehe APNS_FRIST.
+                    "apns-expiration": str(apns_frist(payload, jetzt)),
                 },
             )
         except Exception as err:

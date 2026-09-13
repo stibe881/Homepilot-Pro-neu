@@ -3,6 +3,7 @@
 from homepilot.core.liveaktivitaet import (
     abmelden,
     aktivitaet_merken,
+    apns_frist,
     apns_jwt,
     end_payload,
     karte_faellig,
@@ -149,6 +150,19 @@ def test_payloads_tragen_das_noetige():
     ende = end_payload(2000.0)
     assert ende["aps"]["event"] == "end"
     assert ende["aps"]["dismissal-date"] == 2000
+
+
+def test_ein_ende_push_wartet_stunden_ein_update_nur_eine_minute():
+    """Fehler aus der Runde 579: Für Start, Update und Ende galten
+    dieselben zehn Minuten. Wer so lange im Zug ohne Netz sass, behielt
+    die Fernseher-Karte bis zu acht Stunden - der Hub hatte die 200 von
+    Apple und hielt die Karte für beendet."""
+    assert apns_frist(end_payload(1000.0), 1000.0) == 1000 + 4 * 3600
+    assert apns_frist(start_payload(1000.0), 1000.0) == 1600
+    assert apns_frist({"aps": {"event": "update"}}, 1000.0) == 1060
+    # Ohne Ereignis gilt die kurze Frist des Starts - lieber kein Push
+    # als eine Karte, die Stunden später noch aufgestellt wird.
+    assert apns_frist({}, 1000.0) == 1600
 
 
 def test_apns_jwt_traegt_kennung_und_gueltige_signatur():
