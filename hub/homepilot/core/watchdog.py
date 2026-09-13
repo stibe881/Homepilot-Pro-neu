@@ -36,6 +36,7 @@ from . import (
     bilder,
     cliparchiv,
     dateien,
+    dokumente,
     energy,
     familie,
     flattern,
@@ -601,6 +602,7 @@ class Watchdog:
         await self._check_losfahren(entities)
         await self._check_family_cleanup()
         await self._check_vouchers()
+        await self._check_dokumente()
         # Was abgelaufene Gäste hinterlassen (Punkt 498 der Werkbank).
         await self._gastspuren_aufraeumen()
         await self._check_meal_plan()
@@ -1815,6 +1817,24 @@ class Watchdog:
                 eintrag["archived"] = True
             log.info("%d aufgebrauchte Gutscheine ins Archiv gelegt", len(aufgeraeumt))
             self.hub.data.set(gutscheine.KEY, rows)
+
+    async def _check_dokumente(self) -> None:
+        """Dokumente, die ablaufen (Punkt 623 der Werkbank, core/dokumente.py).
+
+        Sechzig und vierzehn Tage vorher, und einmal am Ablauftag - je
+        Stufe und je Ablaufdatum genau einmal: Die Marke trägt das
+        Datum, also bekommt ein erneuerter Pass für das neue Datum
+        wieder alle Stufen. Zur Meldestunde, nicht mitten in der Nacht.
+        """
+        jetzt = datetime.now()
+        stunde = int(self.rules["documents"]["params"].get("hour", 9))
+        if jetzt.hour != stunde:
+            return
+        for eintrag in dokumente.faellig(self.hub.data.get(dokumente.KEY), jetzt.date()):
+            if not self._einmal(eintrag["marke"]):
+                continue
+            titel, text = dokumente.satz(eintrag["row"], eintrag["tage"])
+            await self._notify(titel, text, category="documents")
 
     async def _check_meal_plan(self) -> None:
         """Der Wochenplan füttert «zuletzt gekocht» (Punkt 218).

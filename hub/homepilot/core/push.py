@@ -72,6 +72,8 @@ LEISE: frozenset[str] = frozenset(
         "morning",
         # Sieben Tage vor dem Verfall ist eine Viertelstunde egal.
         "vouchers",
+        # Und sechzig Tage vor dem Ablauf eines Passes erst recht (Punkt 623).
+        "documents",
     }
 )
 
@@ -196,6 +198,7 @@ _KNOEPFE: dict[str, str] = {
     "birthday": KNOEPFE_SPAETER,
     "packlist": KNOEPFE_SPAETER,
     "vouchers": KNOEPFE_SPAETER,
+    "documents": KNOEPFE_SPAETER,
 }
 
 
@@ -356,6 +359,8 @@ CATEGORIES: dict[str, str] = {
     "weekahead": "Wochenausblick am Sonntag",
     # Gutscheine (Punkt 264): dreissig und sieben Tage vor dem Verfall.
     "vouchers": "Gutschein läuft bald ab",
+    # Dokumente (Punkt 623): sechzig und vierzehn Tage vor dem Ablauf.
+    "documents": "Dokument läuft bald ab",
     "test": "Push-Test",
 }
 
@@ -383,7 +388,7 @@ GROUPS: list[tuple[str, tuple[str, ...]]] = [
     # sortiert nur die Schalter, über die Zustellung entscheidet LEISE.
     ("Familie", ("baby_cry", "birthday", "calendar", "departure", "medication",
                  "tasks", "shopping", "packlist", "weekahead", "presence",
-                 "vouchers")),
+                 "vouchers", "documents")),
     ("Betrieb", ("outage", "flattern", "device_down", "battery", "disk", "morning")),
     # Leer, und trotzdem hier: Unter dieser Überschrift stehen die
     # Nachrichten aus selbst gebauten Abläufen. Sie haben keinen festen

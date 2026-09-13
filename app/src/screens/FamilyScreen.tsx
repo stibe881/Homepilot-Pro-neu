@@ -85,6 +85,7 @@ import { naechsteStraehne, straehnenSatz } from '../lib/straehne';
 import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, EventForm, FamilyItem, GroupedChecklist, MealRow, Member, MemberAddRow, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, Styles, TaskAddRow, TwoFieldForm, VorratBlatt, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, pickPhoto, rotateMember } from './family/bausteine';
 import { Kindseite, Wochenliste } from './family/kindseite';
 import { TAGE, aemtliAbgeben, aktivitaetZeile, aktivitaetenAm, istKind, verschmelze, wocheVon } from '../lib/kindseite';
+import { kachelSatz } from '../lib/dokumente';
 import { farbIndex, initialen, personenGruppen, rolleZeile } from '../lib/personenliste';
 import { Gutscheine } from './family/gutscheine';
 import {
@@ -813,6 +814,8 @@ export function FamilyScreen({
         }
         kontakte={data.contacts ?? []}
         sachen={data.gear ?? []}
+        // «Pass gültig bis 03.2027» auf der Kinderseite (Punkt 623).
+        dokumente={data.documents ?? []}
         // Wer bringen oder holen kann (Punkt 621): alle ausser dem Kind.
         mitglieder={members.filter((m) => m.name !== kind && !m.shared).map((m) => m.name)}
         // Krank (Punkt 622): `sick_until` hängt am Eintrag in «members».
@@ -2853,7 +2856,8 @@ export function FamilyScreen({
   if (view === 'reminders')
     return <Erinnerungen {...modulrahmen} pushZiele={pushZiele} />;
   if (view === 'countdowns') return <Countdowns {...modulrahmen} />;
-  if (view === 'documents') return <Dokumente {...modulrahmen} />;
+  if (view === 'documents')
+    return <Dokumente {...modulrahmen} members={members} ich={currentUser?.name} />;
 
   if (view === 'rewards') {
     const log: FamilyItem[] = data.rewards ?? [];
@@ -3735,7 +3739,8 @@ export function FamilyScreen({
     { key: 'countdowns', icon: 'hourglass-outline', label: 'Countdowns', sub: 'Tage zählen' },
     { key: 'reminders', icon: 'alarm-outline', label: 'Erinnerungen', sub: 'Gross auf dem Schirm oder als Push' },
     { key: 'recipes', icon: 'book-outline', label: 'Rezeptbuch', sub: 'Familienrezepte' },
-    { key: 'documents', icon: 'folder-open-outline', label: 'Dokumentsafe', sub: 'Wichtige Angaben' },
+    // «1 läuft bald ab» (Punkt 623) - sonst wie bisher.
+    { key: 'documents', icon: 'folder-open-outline', label: 'Dokumentsafe', sub: kachelSatz(data.documents ?? [], new Date()) ?? 'Wichtige Angaben' },
     // Punkt 264: «3 verfügbar · 130.00 CHF» - was noch einzulösen ist.
     { key: 'vouchers', icon: 'gift-outline', label: 'Gutscheine', sub: gutscheinKachel(data.vouchers ?? [], new Date()) },
   ];

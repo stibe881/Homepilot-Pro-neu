@@ -33,6 +33,7 @@ import {
   sternSatz,
   wochenSterne,
 } from '../../lib/aemtlisterne';
+import { ablaufSatz, dokumenteVon, gueltigBis } from '../../lib/dokumente';
 import { mitRolle, nummernVon, waehlbar } from '../../lib/familie';
 import { terminWann } from '../../lib/kalenderliste';
 import {
@@ -433,6 +434,7 @@ export function Kindseite({
   ferien,
   kontakte,
   sachen,
+  dokumente,
   mitglieder,
   mitgliedEintrag,
   onKrank,
@@ -467,6 +469,9 @@ export function Kindseite({
   kontakte?: FamilyItem[];
   /** «gear» - die Packliste: was an welchem Tag in den Thek gehört. */
   sachen?: FamilyItem[];
+  /** «documents» - der Dokumentsafe: Pass und Impfausweis des Kindes
+   *  stehen hier mit «gültig bis» (Punkt 623). */
+  dokumente?: FamilyItem[];
   /** Wer bringen oder holen kann (Punkt 621): die Personenreihe ohne
    *  das Kind selbst. */
   mitglieder?: string[];
@@ -691,6 +696,31 @@ export function Kindseite({
           )}
         </Card>
       ) : null}
+
+      {/* Die Dokumente des Kindes mit Ablaufdatum (Punkt 623): «Pass
+          gültig bis 03.2027» - und in Warnfarbe, wenn es knapp wird. */}
+      {(() => {
+        const meine = dokumenteVon(dokumente, name);
+        if (meine.length === 0) return null;
+        return (
+          <Card style={styles.listCard}>
+            <Text style={eigen.kartenTitel}>Dokumente</Text>
+            {meine.map((doc) => {
+              const warnung = ablaufSatz(doc, jetzt);
+              return (
+                <View key={String(doc.id)} style={eigen.vorfreudeZeile}>
+                  <Ionicons name="document-text-outline" size={16} color={colors.accent} />
+                  <Text style={[eigen.heute, warnung ? { color: colors.warnInk } : null]}>
+                    {[String(doc.text ?? ''), gueltigBis(doc), warnung ?? '']
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </Text>
+                </View>
+              );
+            })}
+          </Card>
+        );
+      })()}
 
       {/* Zum Vorfreuen: Kinder zählen Tage - bis zu den Ferien und bis
           zum eigenen Geburtstag. Beides rechnet der Hub längst
