@@ -14,12 +14,16 @@ export const VERBINDUNGSWORT: Record<ConnectionStatus, string> = {
   connecting: 'verbinde …',
   disconnected: 'getrennt',
   signed_out: 'abgemeldet',
+  paused: 'pausiert',
 };
 
 /** Grün, gelb, rot - dieselbe Ampel wie in der Begrüssungskarte. */
 export function verbindungsFarbe(colors: Colors, status: ConnectionStatus): string {
   if (status === 'connected') return colors.on;
-  return status === 'connecting' ? colors.warn : colors.danger;
+  // Feierabend ist kein Fehler: Das Kind sieht eine Pause, kein rotes
+  // Licht (Punkt 624 der Werkbank).
+  if (status === 'connecting' || status === 'paused') return colors.warn;
+  return colors.danger;
 }
 
 /**
@@ -66,12 +70,18 @@ export function verbindungsAnsage(status: ConnectionStatus, queued: number): str
 
 /** Das Token gilt nicht (mehr): beendet, widerrufen, Passwort gewechselt. */
 export const CODE_ABGEMELDET = 4401;
+/** Gültiges Token, aber ausserhalb des Zeitfensters (Punkt 624 der
+ *  Werkbank). Im Grund steht als ISO-Zeit, ab wann es wieder gilt. */
+export const CODE_FENSTER_ZU = 4403;
 
 /** Länger wartet die App zwischen zwei Versuchen nie. */
 export const WARTEZEIT_MAX_MS = 15000;
+/** Was gilt, wenn der Hub eine Zeit nennt, die nicht zu lesen ist -
+ *  oder eine, die schon vorbei ist: in einer Minute noch einmal. */
+const FALLBACK_MS = 60000;
 
 export interface NachSchliessen {
-  status: 'disconnected' | 'signed_out';
+  status: 'disconnected' | 'signed_out' | 'paused';
   /** Wann die App wieder verbindet (ms seit 1970) - null: gar nicht. */
   wiederAb: number | null;
 }
@@ -90,18 +100,49 @@ export function wartezeit(versuch: number): number {
 /**
  * Was nach einem geschlossenen Socket gilt (rein, testbar).
  *
- * `code` kommt aus dem Close-Ereignis; ein HTTP-401 des Clients meldet
- * sich mit demselben Code 4401 - dieselbe Entscheidung für beide Wege.
+ * `code` und `reason` kommen aus dem Close-Ereignis; ein HTTP-401 des
+ * Clients meldet sich mit demselben Code 4401, ein 403 mit `gilt_ab`
+ * als 4403 - dieselbe Entscheidung für beide Wege.
  *
  * - 4401: abgemeldet, kein Wiederverbinden. Der nächste Versuch
  *   bekäme dieselbe Antwort; zurück führt nur eine neue Anmeldung.
+ * - 4403: pausiert bis zur genannten Zeit, dann wieder verbinden
+ *   (Punkt 624). Ist die Zeit nicht lesbar oder schon vorbei, in
+ *   einer Minute - besser als nie.
  * - alles andere: getrennt, wieder nach der üblichen Wartezeit.
  */
 export function nachSchliessen(
   code: number | undefined,
+  reason: string | undefined,
   versuch: number,
   jetzt: number
 ): NachSchliessen {
   if (code === CODE_ABGEMELDET) return { status: 'signed_out', wiederAb: null };
+  if (code === CODE_FENSTER_ZU) {
+    const ab = Date.parse(String(reason ?? ''));
+    const wiederAb = Number.isFinite(ab) && ab > jetzt ? ab : jetzt + FALLBACK_MS;
+    return { status: 'paused', wiederAb };
+  }
   return { status: 'disconnected', wiederAb: jetzt + wartezeit(versuch) };
+}
+
+/**
+ * Der Satz auf dem ruhigen Blatt ausserhalb des Zeitfensters (rein,
+ * testbar). Punkt 624 der Werkbank.
+ *
+ * «Gute Nacht - ab 07:00 geht's weiter»: Das Kind um 20:01 sieht
+ * Feierabend, kein kaputtes Haus. Liegt der Zeitpunkt mehr als einen
+ * Tag voraus - die Putzhilfe am Freitag, deren Fenster erst am
+ * Donnerstag wieder aufgeht -, steht das Datum dabei; «ab 08:00»
+ * hiesse sonst morgen früh.
+ */
+export function pausenSatz(wiederAb: number | null, jetzt: number): string {
+  if (wiederAb === null) return 'Gerade ausserhalb der Zugangszeit.';
+  const ab = new Date(wiederAb);
+  const zeit = ab.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' });
+  const wann =
+    wiederAb - jetzt > 24 * 3600 * 1000
+      ? `${ab.toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit' })} ${zeit}`
+      : zeit;
+  return `Gute Nacht - ab ${wann} geht's weiter.`;
 }

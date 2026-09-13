@@ -44,7 +44,7 @@ from fastapi.staticfiles import StaticFiles
 from ..core import throttle as throttle_module
 from ..core.hub import Hub
 from ..core.source import as_source, user_source
-from ..core.users import Capability, Role, User
+from ..core.users import Capability, Role, User, Zugangsgrund
 from . import invitepage  # noqa: F401 - Weiterleitung für bestehende Importe
 from .context import ApiContext
 from .routes import (
@@ -169,7 +169,7 @@ def create_app(hub: Hub) -> FastAPI:
             return header.removeprefix("Bearer ").strip()
         return request.query_params.get("token")
 
-    def user_for_token(token: str | None) -> User | None:
+    def resolve_token(token: str | None) -> User | None:
         """Wer gehört zu diesem Token? – für HTTP und WebSocket dieselbe Antwort.
 
         Zwei Arten von Token führen zum selben Benutzer: das feste aus der
@@ -178,8 +178,12 @@ def create_app(hub: Hub) -> FastAPI:
         die Auflösung zweimal im Code, hinge irgendwann eine der beiden
         zurück – und dann kommt man zwar durch die Anmeldung, aber der
         Zustandskanal bleibt zu.
+
+        Liefert den Inhaber auch dann, wenn er gerade nicht hereindarf
+        (Punkt 624 der Werkbank): Ob es «Ungültiges Token» heisst oder
+        «ab 07:00 wieder», entscheidet ``zugangsgrund()`` danach.
         """
-        user = hub.users.by_token(token)
+        user = hub.users.by_token(token, active_only=False)
         if user is not None:
             return user
         kennung = hub.sessions.identity(token or "")
@@ -209,7 +213,19 @@ def create_app(hub: Hub) -> FastAPI:
                 "Sitzung von '%s' zeigt ins Leere - umbenannt oder gelöscht?", name
             )
             return None
-        return user if user.active() else None
+        return user
+
+    def fenster_zu(user: User | None) -> Zugangsgrund | None:
+        """Der Grund, wenn nur die Uhr dagegen ist (Punkt 624 der Werkbank).
+
+        Gesperrt und abgelaufen bleiben «Ungültiges Token»: Da ist der
+        Zugang weg. Das Zeitfenster dagegen ist eine Pause mit bekanntem
+        Ende, und die App soll sie als solche zeigen.
+        """
+        if user is None:
+            return None
+        grund = user.zugangsgrund()
+        return grund if grund is not None and grund.art == "fenster_zu" else None
 
     def current_user(request: Request) -> User:
         # Sobald der Hub von aussen erreichbar ist, klopfen Scanner an.
@@ -224,7 +240,15 @@ def create_app(hub: Hub) -> FastAPI:
                 headers={"Retry-After": str(round(waiting))},
             )
         token = token_from(request)
-        user = user_for_token(token)
+        user = resolve_token(token)
+        grund = fenster_zu(user)
+        if grund is not None:
+            # Ein gültiges Token zur falschen Stunde ist kein Fehlversuch -
+            # die Bremse zählt es nicht. Die App liest ``gilt_ab`` und
+            # verbindet erst dann wieder.
+            raise HTTPException(status_code=403, detail=grund.as_dict())
+        if user is not None and not user.active():
+            user = None
         if user is None:
             # Mit Fingerabdruck: Dasselbe untaugliche Token noch einmal ist
             # kein Rateversuch, sondern eine App, die von ihrer abgelaufenen
@@ -344,8 +368,18 @@ def create_app(hub: Hub) -> FastAPI:
         token = (
             websocket.query_params.get("token") or header.removeprefix("Bearer ").strip()
         )
-        user = user_for_token(token)
-        if user is None:
+        user = resolve_token(token)
+        grund = fenster_zu(user)
+        if grund is not None and grund.gilt_ab is not None:
+            # Punkt 624 der Werkbank: Zeitfenster zu heisst Pause, nicht
+            # Rauswurf. Im Grund steht, ab wann es weitergeht - die App
+            # zeigt «Gute Nacht» und verbindet erst dann wieder.
+            await websocket.accept()
+            await websocket.close(
+                code=4403, reason=grund.gilt_ab.isoformat(timespec="minutes")
+            )
+            return
+        if user is None or not user.active():
             # Erst annehmen, dann schliessen (Punkt 579 der Werkbank):
             # Ein close() vor dem accept() beantwortet der Server als
             # HTTP 403 - der Handschlag scheitert, und die App sieht

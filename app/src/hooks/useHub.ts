@@ -6,7 +6,12 @@ import { onHubFehler } from '../api/client';
 import { Activity, CommandData, Entity, EntityState, Scene, ServerMessage, User } from '../api/types';
 import { failed, tapped, triggered } from '../lib/haptics';
 import { UndoOffer, undoCommand, undoLabel } from '../lib/rueckgaengig';
-import { CODE_ABGEMELDET, NachSchliessen, nachSchliessen } from '../lib/verbindungsstand';
+import {
+  CODE_ABGEMELDET,
+  CODE_FENSTER_ZU,
+  NachSchliessen,
+  nachSchliessen,
+} from '../lib/verbindungsstand';
 import { QueuedCommand, enqueue, stillFresh } from '../lib/warteschlange';
 
 /**
@@ -14,8 +19,17 @@ import { QueuedCommand, enqueue, stillFresh } from '../lib/warteschlange';
  * Werkbank) - kein Wiederverbinden, der Balken bietet «Neu anmelden».
  * Vorher hiess das «getrennt» und die App klopfte im Sekundentakt
  * weiter an, obwohl der Hub erreichbar war.
+ *
+ * `paused`: Das Token gilt, aber das Zeitfenster ist zu (Punkt 624) -
+ * die App verbindet erst wieder, wenn es aufgeht, und sagt bis dahin
+ * «Gute Nacht» statt «keine Verbindung».
  */
-export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'signed_out';
+export type ConnectionStatus =
+  | 'connecting'
+  | 'connected'
+  | 'disconnected'
+  | 'signed_out'
+  | 'paused';
 
 const ACTIVITY_LIMIT = 20;
 const CACHE_KEY = 'homepilot.snapshot';
@@ -113,6 +127,9 @@ export function useHub(url: string | null, token: string | null) {
   // zeigt, lädt neu, wenn sich dieser Wert ändert – statt im Minutentakt
   // zu fragen, ob sich etwas geändert haben könnte.
   const [familyChangedAt, setFamilyChangedAt] = useState(0);
+  // Bis wann die Pause ausserhalb des Zeitfensters dauert (Punkt 624
+  // der Werkbank) - der Balken nennt die Uhrzeit.
+  const [pausiertBis, setPausiertBis] = useState<number | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const attemptRef = useRef(0);
@@ -245,6 +262,7 @@ export function useHub(url: string | null, token: string | null) {
       retryTimer = undefined;
       setzeStatus(schritt.status);
       setStale(true);
+      setPausiertBis(schritt.status === 'paused' ? schritt.wiederAb : null);
       if (schritt.status === 'signed_out') {
         // Ohne Benutzer öffnet die Konto-Seite ihre Verbindungsfelder
         // von selbst - dort steht der Weg zurück (QR-Code oder Token).
@@ -343,8 +361,14 @@ export function useHub(url: string | null, token: string | null) {
       ws.onclose = (event) => {
         if (disposed || halt) return;
         // Der Code sagt, warum: 4401 heisst abgemeldet, und dann ist
-        // jeder weitere Versuch vergeblich (Punkt 579 der Werkbank).
-        const schritt = nachSchliessen(event.code, attemptRef.current, Date.now());
+        // jeder weitere Versuch vergeblich (Punkt 579 der Werkbank);
+        // 4403 heisst Pause bis zur Zeit im Grund (Punkt 624).
+        const schritt = nachSchliessen(
+          event.code,
+          event.reason,
+          attemptRef.current,
+          Date.now()
+        );
         attemptRef.current += 1;
         weiterNach(schritt);
       };
@@ -409,12 +433,17 @@ export function useHub(url: string | null, token: string | null) {
   // Das Token gilt nicht mehr (Punkt 579 der Werkbank). Der Socket
   // erfährt es sonst erst beim nächsten Neuaufbau - und bis dahin
   // meldete jede Abfrage «fehlt die Berechtigung», während die
-  // Kopfzeile «verbunden» sagte.
+  // Kopfzeile «verbunden» sagte. Ein 403 mit `gilt_ab` ist der 4403
+  // des Sockets: Zeitfenster zu, Pause bis dahin (Punkt 624).
   useEffect(
     () =>
       onHubFehler((fehler) => {
-        if (fehler.status !== 401 || statusRef.current === 'signed_out') return;
-        anhaltenRef.current?.(nachSchliessen(CODE_ABGEMELDET, 0, Date.now()));
+        const jetzt = Date.now();
+        if (fehler.status === 401 && statusRef.current !== 'signed_out') {
+          anhaltenRef.current?.(nachSchliessen(CODE_ABGEMELDET, undefined, 0, jetzt));
+        } else if (fehler.status === 403 && fehler.giltAb && statusRef.current !== 'paused') {
+          anhaltenRef.current?.(nachSchliessen(CODE_FENSTER_ZU, fehler.giltAb, 0, jetzt));
+        }
       }),
     []
   );
@@ -720,6 +749,7 @@ export function useHub(url: string | null, token: string | null) {
     stale,
     cachedAt,
     familyChangedAt,
+    pausiertBis,
     undo,
     undoLast,
     dismissUndo: () => setUndo(null),

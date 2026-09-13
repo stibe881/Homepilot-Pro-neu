@@ -1,8 +1,10 @@
 import {
   CODE_ABGEMELDET,
+  CODE_FENSTER_ZU,
   VERBINDUNGSWORT,
   WARTEZEIT_MAX_MS,
   nachSchliessen,
+  pausenSatz,
   verbindungsAnsage,
   verbindungsZusatz,
   wartezeit,
@@ -13,20 +15,60 @@ describe('nachSchliessen', () => {
   // verband in Endlosschleife neu und sagte «Keine Verbindung», obwohl
   // der Hub erreichbar war und gerade 4401 geantwortet hatte.
   it('gibt nach 4401 auf, statt weiter anzuklopfen', () => {
-    expect(nachSchliessen(CODE_ABGEMELDET, 3, 1_000_000)).toEqual({
+    expect(nachSchliessen(CODE_ABGEMELDET, 'Ungültiges Token', 3, 1_000_000)).toEqual({
       status: 'signed_out',
       wiederAb: null,
     });
   });
 
   it('verbindet nach einem gewöhnlichen Abbruch mit wachsender Wartezeit neu', () => {
-    expect(nachSchliessen(1006, 0, 1_000_000)).toEqual({
+    expect(nachSchliessen(1006, '', 0, 1_000_000)).toEqual({
       status: 'disconnected',
       wiederAb: 1_001_000,
     });
-    expect(nachSchliessen(1000, 2, 1_000_000).wiederAb).toBe(1_004_000);
+    expect(nachSchliessen(1000, '', 2, 1_000_000).wiederAb).toBe(1_004_000);
     // Ohne Code (ein von der App selbst geschlossener Socket) dasselbe.
-    expect(nachSchliessen(undefined, 0, 1_000_000).status).toBe('disconnected');
+    expect(nachSchliessen(undefined, undefined, 0, 1_000_000).status).toBe('disconnected');
+  });
+
+  // Punkt 624 der Werkbank: Das Kind um 20:01 sah ein kaputtes Haus,
+  // nicht «Feierabend» - der Hub sagte «Ungültiges Token», die App
+  // verband im Takt weiter.
+  it('pausiert nach 4403 bis zur Zeit im Grund', () => {
+    const morgen = new Date(2026, 8, 14, 7, 0);
+    const jetzt = new Date(2026, 8, 13, 20, 1).getTime();
+    const schritt = nachSchliessen(CODE_FENSTER_ZU, '2026-09-14T07:00', 0, jetzt);
+    expect(schritt.status).toBe('paused');
+    expect(schritt.wiederAb).toBe(morgen.getTime());
+  });
+
+  it('versucht es in einer Minute wieder, wenn die Zeit unlesbar oder vorbei ist', () => {
+    const jetzt = new Date(2026, 8, 13, 20, 1).getTime();
+    expect(nachSchliessen(CODE_FENSTER_ZU, 'quatsch', 0, jetzt).wiederAb).toBe(jetzt + 60_000);
+    expect(nachSchliessen(CODE_FENSTER_ZU, '1999-01-01T07:00', 0, jetzt).wiederAb).toBe(
+      jetzt + 60_000
+    );
+  });
+});
+
+describe('pausenSatz', () => {
+  it('nennt die Uhrzeit, ab der es weitergeht', () => {
+    const jetzt = new Date(2026, 8, 13, 20, 1).getTime();
+    expect(pausenSatz(new Date(2026, 8, 14, 7, 0).getTime(), jetzt)).toBe(
+      "Gute Nacht - ab 07:00 geht's weiter."
+    );
+  });
+
+  it('nennt das Datum, wenn es mehr als einen Tag dauert', () => {
+    // Die Putzhilfe am Freitag: «ab 08:00» hiesse sonst morgen früh.
+    const freitag = new Date(2026, 7, 21, 12, 0).getTime();
+    expect(pausenSatz(new Date(2026, 7, 27, 8, 0).getTime(), freitag)).toBe(
+      "Gute Nacht - ab 27.08. 08:00 geht's weiter."
+    );
+  });
+
+  it('bleibt ohne Zeit bei einem ruhigen Satz', () => {
+    expect(pausenSatz(null, 0)).toBe('Gerade ausserhalb der Zugangszeit.');
   });
 
   it('wartet nie länger als die Obergrenze', () => {

@@ -1,8 +1,11 @@
+from datetime import datetime, timedelta
+
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from homepilot.api import create_app
+from homepilot.core.config import ApiConfig, HubConfig
 from homepilot.core.hub import Hub
 
 from .conftest import make_config
@@ -94,6 +97,56 @@ def test_a_dead_token_closes_the_socket_with_4401_after_accepting():
             with client.websocket_connect("/ws?token=falsch") as websocket:
                 websocket.receive_json()
         assert info.value.code == 4401
+
+
+def _geschlossenes_fenster() -> dict[str, str]:
+    """Ein Zeitfenster, das jetzt gerade zu ist: beginnt in zwei Stunden."""
+    von = datetime.now() + timedelta(hours=2)
+    bis = von + timedelta(hours=1)
+    return {"from": von.strftime("%H:%M"), "to": bis.strftime("%H:%M")}
+
+
+def test_outside_the_window_the_hub_says_when_instead_of_invalid_token():
+    """Punkt 624 der Werkbank: Das Kind um 20:01 sah ein kaputtes Haus.
+    HTTP antwortet 403 mit `gilt_ab`, der WebSocket schliesst mit 4403
+    und der Zeit im Grund - beides ohne die Bremse zu füttern."""
+    hub = Hub(
+        HubConfig(
+            api=ApiConfig(),
+            integrations=[{"integration": "demo"}],
+            users=[
+                {"name": "Stefan", "role": "besitzer", "token": "t-owner"},
+                {
+                    "name": "Levin",
+                    "role": "bewohner",
+                    "token": "t-kind",
+                    "hours": _geschlossenes_fenster(),
+                },
+            ],
+        )
+    )
+    with TestClient(create_app(hub)) as client:
+        response = client.get("/api/me", headers={"Authorization": "Bearer t-kind"})
+        assert response.status_code == 403
+        detail = response.json()["detail"]
+        assert detail["grund"] == "fenster_zu"
+        assert detail["message"].startswith("Dein Zugang gilt ab ")
+        assert datetime.fromisoformat(detail["gilt_ab"]) > datetime.now()
+
+        with pytest.raises(WebSocketDisconnect) as info:
+            with client.websocket_connect("/ws?token=t-kind") as websocket:
+                websocket.receive_json()
+        assert info.value.code == 4403
+        assert datetime.fromisoformat(info.value.reason) > datetime.now()
+
+        # Ein gültiges Token zur falschen Stunde ist kein Rateversuch:
+        # Auch nach vielen Anfragen bleibt der Besitzer draussen nicht.
+        for _ in range(15):
+            client.get("/api/me", headers={"Authorization": "Bearer t-kind"})
+        assert (
+            client.get("/api/me", headers={"Authorization": "Bearer t-owner"}).status_code
+            == 200
+        )
 
 
 def test_cors_preflight_is_allowed():

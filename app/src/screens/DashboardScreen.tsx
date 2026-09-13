@@ -116,6 +116,7 @@ import {
   sortierungsWort,
 } from '../lib/geraetefilter';
 import { verweisText, verweiseAuf } from '../lib/verweise';
+import { pausenSatz } from '../lib/verbindungsstand';
 import {
   alphabetisch,
   imRaum,
@@ -327,6 +328,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     error,
     cachedAt,
     familyChangedAt,
+    pausiertBis,
     pending,
     queued,
     undo,
@@ -4079,6 +4081,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 >
                   <Text style={styles.offlineKnopfText}>Neu anmelden</Text>
                 </Pressable>
+              </View>
+            ) : status === 'paused' ? (
+              // Zeitfenster zu (Punkt 624 der Werkbank): kein kaputtes Haus,
+              // sondern Feierabend. Die App verbindet von selbst wieder,
+              // sobald es aufgeht - deshalb kein Knopf.
+              <View style={styles.offlineBanner}>
+                <Ionicons name="moon-outline" size={16} color={colors.warn} />
+                <Text style={styles.offlineText} numberOfLines={2}>
+                  {pausenSatz(pausiertBis, now.getTime())}
+                </Text>
               </View>
             ) : ausfall && entities.length > 0 ? (
               // Getrennt, aber wir haben den letzten Stand: lieber alte Werte
