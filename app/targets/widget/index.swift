@@ -717,9 +717,18 @@ struct TuerAktivitaet: Widget {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Unterwegs")
                         .font(.headline)
-                    Text("\(context.attributes.tuer) im Schnellzugriff")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    // Was der Hub über das Haus weiss - Alarm scharf, wer
+                    // zuhause ist, Licht (Punkt 607, core/liveaktivitaet.py
+                    // heimweg_text). Leer bei einem Hub von vorher: dann
+                    // der bisherige Satz.
+                    Text(
+                        context.state.text.isEmpty
+                            ? "\(context.attributes.tuer) im Schnellzugriff"
+                            : context.state.text
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
                 }
                 Spacer()
                 TuerOeffnenKnopf()
