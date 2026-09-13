@@ -48,6 +48,13 @@ import {
   blindStufe,
   blindTitel,
 } from '../lib/alarmblind';
+import {
+  NACHSEHEN,
+  type Riegel,
+  nochNichtZu,
+  riegelText,
+  unverschlossenAus,
+} from '../lib/alarmriegel';
 import { datumUhr } from '../lib/format';
 import { deviceKindLabel, melderArt } from '../lib/geraeteart';
 import { BlattZeile, blattWuerdig, blattZeilen } from '../lib/ereignisblatt';
@@ -338,6 +345,10 @@ export function AlarmScreen({
   const [historyAll, setHistoryAll] = useState(false);
   // Namen der offenen Sensoren aus der letzten Scharfschalt-Absage.
   const [offenBeimScharfschalten, setOffenBeimScharfschalten] = useState<string[]>([]);
+  // Die Türen, die noch nicht abgeschlossen sind (Punkt 614 der
+  // Werkbank) - der Knopf «Abschliessen und scharf» schaltet sie zu.
+  const [unverschlossen, setUnverschlossen] = useState<Riegel[]>([]);
+  const [schliesst, setSchliesst] = useState(false);
   const [testNote, setTestNote] = useState<string | null>(null);
   // Was der Panikknopf zurückmeldet - er tut viel und sieht dabei nach
   // nichts aus, solange man nicht danebensteht.
@@ -457,6 +468,13 @@ export function AlarmScreen({
         if ((body.battery ?? []).length > 0) {
           parts.push(`Batterie schwach: ${body.battery.join(', ')}`);
         }
+        // Die dritte Antwort (Punkt 614): zugezogen, aber nicht
+        // abgeschlossen. Bei Abwesend/Ferien eine Absage wie ein
+        // offenes Fenster - mit dem Knopf, der es behebt.
+        const riegel = unverschlossenAus(body);
+        const riegelSatz = riegelText(riegel, false);
+        if (riegelSatz) parts.push(riegelSatz);
+        setUnverschlossen(riegel);
         setNote(
           `${parts.join(' · ')}. Beheben – oder unten trotzdem scharf schalten.`
         );
@@ -465,10 +483,54 @@ export function AlarmScreen({
       }
       setPendingMode(null);
       setOffenBeimScharfschalten([]);
+      setUnverschlossen([]);
+      // Nachts nur ein Hinweis: Die Anlage ist scharf, die Türe nicht
+      // abgeschlossen - nachts geht man nochmals raus.
+      setNote(riegelText(unverschlossenAus(body), true));
     } catch (err) {
       setNote(String(err instanceof Error ? err.message : err));
     }
     load();
+  };
+
+  // «Abschliessen und scharf» (Punkt 614): erst `lock` an jede Türe,
+  // dann warten, bis sie wirklich «locked» sagt, dann nochmals scharf.
+  // Nicht `force`: Ein Fenster, das derweil aufging, soll die Anlage
+  // weiterhin melden.
+  const abschliessenUndScharf = async (mode: string) => {
+    setSchliesst(true);
+    setNote('Schliesst ab …');
+    try {
+      for (const tuer of unverschlossen) {
+        await client.post(
+          `/api/entities/${encodeURIComponent(tuer.entity_id)}/command`,
+          { command: 'lock', data: {} },
+          { still: true }
+        );
+      }
+      for (let versuch = 0; versuch < NACHSEHEN.versuche; versuch += 1) {
+        await new Promise((fertig) => setTimeout(fertig, NACHSEHEN.abstandMs));
+        const staende = await Promise.all(
+          unverschlossen.map((tuer) =>
+            client.get<Entity | null>(
+              `/api/entities/${encodeURIComponent(tuer.entity_id)}`,
+              { still: true, fallback: null }
+            )
+          )
+        );
+        const zustand = (id: string) =>
+          String(staende.find((e) => e?.id === id)?.state.state ?? '');
+        if (nochNichtZu(unverschlossen, zustand).length === 0) {
+          setSchliesst(false);
+          await arm(mode);
+          return;
+        }
+      }
+      setNote('Die Türe hat sich nicht abschliessen lassen – bitte nachsehen.');
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
+    }
+    setSchliesst(false);
   };
 
   // Alarm von Hand. Ohne PIN und aus jedem Zustand - warum, steht im
@@ -885,6 +947,23 @@ export function AlarmScreen({
                   </Pressable>
                 ))}
               </View>
+            ) : null}
+            {pendingMode && unverschlossen.length > 0 ? (
+              <Pressable
+                onPress={() => abschliessenUndScharf(pendingMode)}
+                disabled={schliesst}
+                accessibilityRole="button"
+                accessibilityLabel="Türen abschliessen und dann scharf schalten"
+                style={({ pressed }) => [
+                  styles.abschliessen,
+                  (pressed || schliesst) && { opacity: 0.7 },
+                ]}
+              >
+                <Ionicons name="lock-closed-outline" size={16} color="#FFFFFF" />
+                <Text style={styles.abschliessenText}>
+                  {schliesst ? 'Schliesst ab …' : 'Abschliessen und scharf'}
+                </Text>
+              </Pressable>
             ) : null}
             {pendingMode ? (
               <Pressable
@@ -3153,6 +3232,19 @@ const makeStyles = (colors: Colors) =>
     disarmText: { color: colors.ink, fontSize: 15, fontWeight: '700' },
     force: { alignItems: 'center', paddingVertical: 10 },
     forceText: { color: colors.danger, fontSize: 14, fontWeight: '700' },
+    // «Abschliessen und scharf» (Punkt 614) - der Weg, der das Problem
+    // behebt, steht als voller Knopf über dem roten «Trotzdem».
+    abschliessen: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      backgroundColor: colors.accent,
+      borderRadius: radius.control,
+      paddingVertical: 12,
+      marginTop: 8,
+    },
+    abschliessenText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
 
     afterBlock: {
       gap: 8,

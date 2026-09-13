@@ -88,6 +88,7 @@ from .alarm_rules import (  # noqa: F401
     TEST_SIREN_SECONDS,
     TRIGGERED,
     VERDACHT,
+    abwesend,
     alle_modi,
     camera_for,
     camera_motion_due,
@@ -116,6 +117,7 @@ from .alarm_rules import (  # noqa: F401
     sensor_open,
     sensortest_bestaetigen,
     sensortest_start,
+    unverschlossen,
     valid_duress_pin,
     valid_pin,
     zonen,
@@ -401,14 +403,30 @@ class AlarmIntegration(Integration):
         zone = zone or None
         open_now = self.open_sensors(mode, zone)
         blind = self.blind_sensors(mode, zone)
-        if (open_now or blind["offline"] or blind["battery"]) and not force:
+        # Die unverschlossenen Türen (Punkt 614 der Werkbank): Beim
+        # Schloss zählt in der Bereitschaftsprüfung der Türsensor, nicht
+        # der Riegel - eine zugezogene, aber nicht abgeschlossene Türe
+        # ging ohne Wort durch. Bei Abwesend/Ferien ist das eine Absage
+        # wie ein offenes Fenster; nachts nur ein Hinweis, denn nachts
+        # geht man nochmals raus.
+        riegel = unverschlossen(self.hub.registry.all(), zone)
+        riegel_zeilen = [{"entity_id": e.id, "label": e.label} for e in riegel]
+        riegel_sperrt = bool(riegel) and abwesend(mode)
+        if (
+            open_now or blind["offline"] or blind["battery"] or riegel_sperrt
+        ) and not force:
             # Nicht einfach trotzdem scharf schalten: Der Benutzer soll
             # entscheiden, ob er das Fenster schliesst oder überbrückt – und
             # von einem stummen Sensor überhaupt erst erfahren.
             return {
                 "ok": False,
-                "reason": "offen" if open_now else "blind",
+                "reason": "offen"
+                if open_now
+                else "blind"
+                if blind["offline"] or blind["battery"]
+                else "unverschlossen",
                 "open": [entity.label for entity in open_now],
+                "unlocked": riegel_zeilen,
                 **blind,
             }
 
@@ -431,11 +449,20 @@ class AlarmIntegration(Integration):
             self._next = None
         await self._publish()
         zone_zusatz = f" ({zone})" if zone else ""
-        self._note("armed", f"{self.mode_label(mode)} scharf geschaltet{zone_zusatz}", by)
+        text = f"{self.mode_label(mode)} scharf geschaltet{zone_zusatz}"
+        if riegel:
+            # Im Verlauf, nicht nur in der Antwort: Am Morgen will man
+            # nachlesen können, dass die Türe die Nacht über offen war.
+            text += " – nicht abgeschlossen: " + ", ".join(e.label for e in riegel)
+        self._note("armed", text, by)
         if self._settings.get("notify_arming"):
             await self._notify(
                 "Alarmanlage scharf", f"Modus {self.mode_label(mode)}", "alarm_arming"
             )
+        # Der Hinweis nur, wenn es einen gibt - eine Antwort ohne Türen
+        # bleibt, was sie war (Abläufe und Tests vergleichen sie ganz).
+        if riegel:
+            return {"ok": True, "state": self._state, "unlocked": riegel_zeilen}
         return {"ok": True, "state": self._state}
 
     # ── PIN fürs Entschärfen ───────────────────────────────────────────────
@@ -1918,6 +1945,11 @@ class AlarmIntegration(Integration):
             return
         result = await self.arm(mode, force=force)
         if not result.get("ok"):
+            if result.get("reason") == "unverschlossen":
+                raise HomePilotError(
+                    "Scharfschalten nicht möglich, nicht abgeschlossen: "
+                    + ", ".join(z["label"] for z in result.get("unlocked", []))
+                )
             raise HomePilotError(
                 "Scharfschalten nicht möglich, noch offen: "
                 + ", ".join(result.get("open", []))
