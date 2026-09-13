@@ -7801,6 +7801,46 @@ Ein Telefon springt beim Ankommen zwischen beiden hin und her, und
 «quartier» zählt als weg.
 
 Stellen: `hub/homepilot/core/source.py`, `hub/homepilot/integrations/alarm_rules.py`, `hub/homepilot/integrations/alarm.py`, `hub/tests/test_alarm.py`, `hub/tests/test_alarm_pin.py`
+### 642. Ein Neustart entschärfte die Alarmanlage ✓ erledigt
+
+Gefunden beim Nachgehen von Punkt 638, im Verlauf der Anlage: 13:08:48
+«Ausser Haus scharf geschaltet, durch Anwesenheit» - und um 16:50:54
+dasselbe noch einmal. Dazwischen kein einziges Entschärfen. Der Grund
+stand in `alarm.py`: `setup()` setzte `self._state = DISARMED`, und der
+Zustand lag nur im Speicher. Jeder Neustart des Behälters - also jedes
+Update - schaltete die Anlage still aus.
+
+Aufgefallen ist es nur, weil die Kopplung auf «automatisch» steht: Sie
+schaltete zehn Minuten später wieder scharf, mit einer Meldung, die
+klang, als hätte der Hub eben erst gemerkt, dass niemand da ist. Wer
+sie auf «vorschlagen» stehen hat oder wer zuhause ist, dem bliebe die
+Anlage nach einem Update einfach aus - unbemerkt, denn eine Anlage, die
+nicht scharf ist, macht kein Geräusch.
+
+Jetzt überlebt der Zustand den Neustart (`alarm_state` in der
+`hub.data`, geschrieben in `_publish` und nur, wenn sich Zustand, Modus
+oder Zone wirklich geändert haben - der laufende Countdown
+veröffentlicht im Sekundentakt). Drei Entscheidungen dabei:
+
+- **Ein laufender Alarm kommt als «scharf» zurück, nicht als
+  «ausgelöst».** Eine Sirene, die Minuten nach dem Ereignis von selbst
+  losgeht, ist für alle im Haus unerklärlich; der Vorfall steht im
+  Verlauf, und geschützt ist das Haus wieder.
+- **Den Modus muss es noch geben.** Ein eigener Modus, den jemand
+  inzwischen gestrichen hat, hat keine Sensorzuordnung mehr - scharf in
+  einem Modus, den niemand kennt, wäre eine Anlage, die nichts bewacht
+  und trotzdem scharf aussieht. Dann lieber unscharf, aber mit einem
+  Grund im Verlauf.
+- **Kein Verfallsdatum.** Was scharf war, ist es auch nach zwei Tagen
+  Stromausfall.
+
+Und man sieht es: «Nach dem Neustart wieder scharf (Ausser Haus)» steht
+im Verlauf, statt dass eine Anlage stumm hochkommt. Ein Test spielt den
+Neustart wirklich nach - zwei Hubs nacheinander auf derselben
+Datendatei -, und er fällt nachweislich, wenn man die Wiederherstellung
+herausnimmt.
+
+Stellen: `hub/homepilot/integrations/alarm.py`, `hub/homepilot/integrations/alarm_rules.py`, `hub/tests/test_alarm_neustart.py`
 
 ### 644. «Zocken» blieb nie aktiv - der zweite Druck löste bloss erneut aus ✓ erledigt
 
