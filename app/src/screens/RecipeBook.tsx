@@ -583,7 +583,7 @@ function RecipeForm({
               <Ionicons
                 name={importStatus === 'laedt' ? 'hourglass-outline' : 'download-outline'}
                 size={16}
-                color="#FFFFFF"
+                color={colors.onAccent}
               />
               <Text style={styles.importKnopfText}>
                 {importStatus === 'laedt' ? 'Holt…' : 'Holen'}
@@ -705,7 +705,7 @@ function RecipeForm({
                 accessibilityRole="button"
                 style={[styles.katChip, active && { backgroundColor: colors.accent }]}
               >
-                <Text style={[styles.katChipText, active && { color: '#FFFFFF' }]}>
+                <Text style={[styles.katChipText, active && { color: colors.onAccent }]}>
                   {categoryEmoji(name)} {name}
                 </Text>
               </Pressable>
@@ -735,7 +735,7 @@ function RecipeForm({
               onPress={() => setDifficulty(active ? '' : level)}
               style={[styles.levelChip, active && { backgroundColor: colors.accent }]}
             >
-              <Text style={[styles.levelChipText, active && { color: '#FFFFFF' }]}>
+              <Text style={[styles.levelChipText, active && { color: colors.onAccent }]}>
                 {difficultyInfo(level)!.label}
               </Text>
             </Pressable>
@@ -2200,7 +2200,7 @@ export function RecipeBook({
                     style={[styles.filterChip, aktiv && { backgroundColor: colors.accent }]}
                   >
                     <Text
-                      style={[styles.filterText, aktiv && { color: '#FFFFFF' }]}
+                      style={[styles.filterText, aktiv && { color: colors.onAccent }]}
                     >
                       {name}
                     </Text>
@@ -2412,10 +2412,10 @@ export function RecipeBook({
                 <Ionicons
                   name={entry.icon}
                   size={14}
-                  color={active ? '#FFFFFF' : colors.inkSoft}
+                  color={active ? colors.onAccent : colors.inkSoft}
                 />
               ) : null}
-              <Text style={[styles.filterText, active && { color: '#FFFFFF' }]}>
+              <Text style={[styles.filterText, active && { color: colors.onAccent }]}>
                 {entry.label}
               </Text>
             </Pressable>
@@ -2459,7 +2459,7 @@ export function RecipeBook({
         accessibilityLabel="Neues Rezept"
         style={styles.fab}
       >
-        <Ionicons name="add" size={30} color="#FFFFFF" />
+        <Ionicons name="add" size={30} color={colors.onAccent} />
       </Pressable>
     </View>
   );
@@ -2847,7 +2847,7 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.accent,
       justifyContent: 'center',
     },
-    importKnopfText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+    importKnopfText: { color: colors.onAccent, fontSize: 14, fontWeight: '700' },
     importFehler: { color: colors.danger, fontSize: 13, marginTop: 6 },
     formRow: { flexDirection: 'row', gap: 8 },
     input: {
@@ -2873,7 +2873,7 @@ const makeStyles = (colors: Colors) =>
       justifyContent: 'center',
       paddingVertical: 15,
     },
-    primaryWideText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+    primaryWideText: { color: colors.onAccent, fontSize: 16, fontWeight: '800' },
     ghostWide: {
       borderRadius: radius.pill,
       alignItems: 'center',

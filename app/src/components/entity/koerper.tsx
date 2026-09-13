@@ -16,7 +16,7 @@ import { grillBauart, grillFoto, grillKurzinfo } from '../../lib/grillbild';
 import { fuehlerZeile } from '../../lib/grillziel';
 import { letzteOeffnung } from '../../lib/schlossprotokoll';
 import { mayOpenDirectly } from '../../lib/tuerbestaetigung';
-import { radius, useColors } from '../../theme';
+import { radius, trefferRand, useColors, useTyp } from '../../theme';
 import { Bar } from '../Bar';
 import { CoverVisual, Sky } from '../CoverVisual';
 import { GrillVisual } from '../GrillVisual';
@@ -39,7 +39,8 @@ export function LockBody({
   doorConfirm?: boolean;
 }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   const [armed, setArmed] = useState(false);
   // Der lange Druck der Kachel. Die Türknöpfe füllen sie fast ganz aus,
   // und ein Druck auf einen Knopf erreicht die Kachel darunter nie -
@@ -134,7 +135,7 @@ export function LockBody({
             <Ionicons
               name={armed ? 'lock-open' : 'key-outline'}
               size={16}
-              color="#FFFFFF"
+              color={colors.onAccent}
             />
             <Text style={styles.lockButtonText}>
               {armed ? 'Wirklich öffnen?' : 'Auf + öffnen'}
@@ -178,7 +179,7 @@ export function LockBody({
         <Ionicons
           name={armed ? 'lock-open' : 'lock-closed-outline'}
           size={16}
-          color="#FFFFFF"
+          color={colors.onAccent}
         />
         <Text style={styles.lockButtonText}>
           {opened ? 'Geöffnet' : armed ? 'Wirklich öffnen?' : 'Tür öffnen'}
@@ -309,7 +310,8 @@ export function GrillBody({
   ziele?: Record<string, number>;
 }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
 
   const unit = entity.state.unit ?? '°C';
   const running = entity.state.state === 'running';
@@ -363,7 +365,8 @@ export function CoverBody({
   onCommand: (command: string, data?: CommandData) => void;
 }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   const pos = entity.state.position;
   const tilt = entity.state.tilt;
   // Was der Hub über diese Store sagt - und ob er überhaupt etwas sagt.
@@ -578,7 +581,8 @@ export function VacuumBody({
   onCommand: (command: string, data?: CommandData) => void;
 }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   // Der lange Druck der Kachel - siehe kacheldruck.tsx.
   const saugerDruck = useKachelDruck();
   const [selected, setSelected] = useState<number[]>([]);
@@ -676,7 +680,7 @@ export function VacuumBody({
                 <Ionicons
                   name={active ? 'checkmark-circle' : 'ellipse-outline'}
                   size={12}
-                  color={active ? '#FFFFFF' : colors.inkSoft}
+                  color={active ? colors.onAccent : colors.inkSoft}
                 />
                 <Text
                   style={[styles.deviceChipText, active && styles.deviceChipTextActive]}
@@ -697,7 +701,7 @@ export function VacuumBody({
           accessibilityRole="button"
           style={({ pressed }) => [styles.cleanRoomsButton, pressed && { opacity: 0.75 }]}
         >
-          <Ionicons name="play" size={14} color="#FFFFFF" />
+          <Ionicons name="play" size={14} color={colors.onAccent} />
           <Text style={styles.cleanRoomsText}>
             {selected.length === 1 ? '1 Raum saugen' : `${selected.length} Räume saugen`}
           </Text>
@@ -749,7 +753,7 @@ export function VacuumMap({
                 borderColor: active ? colors.accent : colors.surfaceBorder,
               }}
             >
-              <Text style={{ fontSize: 12, color: active ? '#FFFFFF' : colors.inkSoft }}>
+              <Text style={{ fontSize: 12, color: active ? colors.onAccent : colors.inkSoft }}>
                 {room.name}
               </Text>
             </Pressable>
@@ -873,7 +877,8 @@ export function KameraKachel({
   klassisch: React.ReactNode;
 }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   const [ohneBild, setOhneBild] = useState(false);
   const online = entity.state.state === 'online';
   const privacyOn = entity.state.privacy === 'on';
@@ -910,7 +915,8 @@ export function KameraKachel({
             accessibilityRole="switch"
             accessibilityState={{ checked: false }}
             accessibilityLabel="Privatsphäre einschalten"
-            hitSlop={6}
+            // Bis zur kleinsten Trefffläche (Punkt 613), nicht nach Gefühl.
+            hitSlop={trefferRand(32)}
             style={({ pressed }) => [styles.kameraRund, pressed && { opacity: 0.7 }]}
           >
             <Ionicons name="eye-off-outline" size={16} color="#FFFFFF" />

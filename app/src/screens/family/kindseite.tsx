@@ -184,7 +184,7 @@ function PackForm({
           style={[styles.addButton, !text.trim() && { opacity: 0.5 }]}
           accessibilityLabel={`Am ${TAG_NAMEN[tag]} mitnehmen`}
         >
-          <Ionicons name="add" size={22} color="#FFFFFF" />
+          <Ionicons name="add" size={22} color={colors.onAccent} />
         </Pressable>
       </View>
       <View style={styles.chipRow}>
@@ -349,7 +349,7 @@ function WochenForm({
           style={[styles.addButton, !bereit && { opacity: 0.5 }]}
           accessibilityLabel={`Am ${TAG_NAMEN[tag]} eintragen`}
         >
-          <Ionicons name="add" size={22} color="#FFFFFF" />
+          <Ionicons name="add" size={22} color={colors.onAccent} />
         </Pressable>
       </View>
       <View style={styles.addRow}>
@@ -1310,7 +1310,7 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     jetztChip: {
-      color: '#FFFFFF',
+      color: colors.onAccent,
       backgroundColor: colors.accent,
       fontSize: 10,
       fontWeight: '700',

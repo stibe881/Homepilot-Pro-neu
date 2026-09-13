@@ -619,7 +619,7 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                 {/* Ein Gerät bekommt kein Initial, sondern ein Sinnbild -
                     «F» für den Flur sähe aus wie eine Person namens F. */}
                 {user.shared ? (
-                  <Ionicons name="tablet-landscape-outline" size={20} color="#FFFFFF" />
+                  <Ionicons name="tablet-landscape-outline" size={20} color={colors.onAccent} />
                 ) : personenbildUrl(user.name) ? (
                   <Image
                     source={{ uri: personenbildUrl(user.name)! }}
@@ -1730,7 +1730,7 @@ const makeStyles = (colors: Colors) =>
     },
     voucherChipText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
     voucherChipStark: { backgroundColor: colors.accent, borderColor: colors.accent },
-    voucherChipStarkText: { color: '#FFFFFF' },
+    voucherChipStarkText: { color: colors.onAccent },
     intro: { color: colors.onGradientSoft, fontSize: 13, lineHeight: 19, maxWidth: 520 },
     note: { color: colors.inkSoft, fontSize: 14 },
     error: { color: colors.danger, fontSize: 13, fontWeight: '600' },
@@ -1750,7 +1750,7 @@ const makeStyles = (colors: Colors) =>
       justifyContent: 'center',
     },
     avatarDisabled: { backgroundColor: colors.inkFaint },
-    avatarText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
+    avatarText: { color: colors.onAccent, fontSize: 17, fontWeight: '700' },
     avatarBild: { width: 42, height: 42, borderRadius: 21 },
     personenbildZeile: {
       flexDirection: 'row',
@@ -1803,7 +1803,7 @@ const makeStyles = (colors: Colors) =>
     },
     roleChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     roleChipText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
-    roleChipTextActive: { color: '#FFFFFF' },
+    roleChipTextActive: { color: colors.onAccent },
     roleHint: { color: colors.inkFaint, fontSize: 12 },
     formButtons: { flexDirection: 'row', gap: 8, justifyContent: 'flex-end' },
     smallButton: {
@@ -1817,9 +1817,9 @@ const makeStyles = (colors: Colors) =>
     },
     smallButtonText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
     primaryButton: { backgroundColor: colors.accent, borderColor: colors.accent },
-    primaryButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+    primaryButtonText: { color: colors.onAccent, fontSize: 13, fontWeight: '700' },
     dangerButton: { backgroundColor: colors.danger, borderColor: colors.danger },
-    dangerButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+    dangerButtonText: { color: colors.onAccent, fontSize: 13, fontWeight: '700' },
 
     newButton: {
       flexDirection: 'row',
@@ -1895,7 +1895,7 @@ const makeStyles = (colors: Colors) =>
     },
     expiryChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     expiryChipText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
-    expiryChipTextActive: { color: '#FFFFFF' },
+    expiryChipTextActive: { color: colors.onAccent },
     shareButton: {
       flexDirection: 'row',
       alignItems: 'center',

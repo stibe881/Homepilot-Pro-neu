@@ -146,5 +146,5 @@ const makeStyles = (colors: Colors) =>
     },
     chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     chipText: { color: colors.ink, fontSize: 13 },
-    chipTextActive: { color: '#FFFFFF', fontWeight: '600' },
+    chipTextActive: { color: colors.onAccent, fontWeight: '600' },
   });

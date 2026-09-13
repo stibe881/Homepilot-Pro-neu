@@ -257,7 +257,7 @@ function SternZielForm({
               accessibilityLabel={`Sterne-Ziel für ${name} speichern`}
               style={({ pressed }) => [styles.addButton, pressed && { opacity: 0.8 }]}
             >
-              <Ionicons name="checkmark" size={22} color="#FFFFFF" />
+              <Ionicons name="checkmark" size={22} color={colors.onAccent} />
             </Pressable>
           </View>
           {/* checkSub statt hint: Der Satz steht in der Karte, hint ist
@@ -892,7 +892,7 @@ export function FamilyScreen({
               <Ionicons
                 name={mode === 'list' ? 'list-outline' : 'calendar-outline'}
                 size={14}
-                color={calMode === mode ? '#FFFFFF' : colors.inkSoft}
+                color={calMode === mode ? colors.onAccent : colors.inkSoft}
               />
               <Text style={[styles.chipText, calMode === mode && styles.chipTextActive]}>
                 {mode === 'list' ? 'Liste' : 'Kalender'}
@@ -1146,7 +1146,7 @@ export function FamilyScreen({
                     style={styles.confirmOk}
                     accessibilityLabel="Punkte gutschreiben"
                   >
-                    <Ionicons name="checkmark" size={18} color="#FFFFFF" />
+                    <Ionicons name="checkmark" size={18} color={colors.onSignal} />
                   </Pressable>
                   <Pressable
                     onPress={() => rejectReward(task)}
@@ -1684,7 +1684,7 @@ export function FamilyScreen({
             accessibilityRole="button"
             style={({ pressed }) => [styles.mealShopButton, pressed && { opacity: 0.85 }]}
           >
-            <Ionicons name="basket-outline" size={18} color="#FFFFFF" />
+            <Ionicons name="basket-outline" size={18} color={colors.onAccent} />
             <Text style={styles.mealShopText}>
               Wocheneinkauf: Zutaten aus {geplanteRezepte.length} Rezept
               {geplanteRezepte.length === 1 ? '' : 'en'}
@@ -1991,7 +1991,7 @@ export function FamilyScreen({
                   accessibilityRole="button"
                   style={({ pressed }) => [styles.choreDone, pressed && { opacity: 0.85 }]}
                 >
-                  <Ionicons name="checkmark" size={17} color="#FFFFFF" />
+                  <Ionicons name="checkmark" size={17} color={colors.onSignal} />
                   <Text style={styles.choreDoneText}>Erledigt</Text>
                 </Pressable>
                 {naechster && naechster !== chore.member ? (
@@ -2109,7 +2109,7 @@ export function FamilyScreen({
               accessibilityLabel="Eltern anrufen"
               style={({ pressed }) => [styles.notrufButton, pressed && { opacity: 0.85 }]}
             >
-              <Ionicons name="call" size={22} color="#FFFFFF" />
+              <Ionicons name="call" size={22} color={colors.onSignal} />
               <Text style={styles.notrufButtonText}>Eltern anrufen</Text>
             </Pressable>
             {eltern.slice(0, 2).map((kontakt: FamilyItem) => (
@@ -2513,7 +2513,7 @@ export function FamilyScreen({
                         style={styles.callButton}
                         accessibilityLabel={`${kontakt.text} anrufen`}
                       >
-                        <Ionicons name="call" size={16} color="#FFFFFF" />
+                        <Ionicons name="call" size={16} color={colors.onSignal} />
                       </Pressable>
                     ) : null}
                   </View>
@@ -2958,12 +2958,12 @@ export function FamilyScreen({
                       <Ionicons
                         name={affordable ? 'gift' : 'lock-closed'}
                         size={13}
-                        color={affordable ? '#FFFFFF' : colors.inkFaint}
+                        color={affordable ? colors.onAccent : colors.inkFaint}
                       />
                       <Text
                         style={[
                           styles.redeemChipText,
-                          { color: affordable ? '#FFFFFF' : colors.inkFaint },
+                          { color: affordable ? colors.onAccent : colors.inkFaint },
                         ]}
                       >
                         {member.name}
@@ -3002,7 +3002,7 @@ export function FamilyScreen({
                   <Text
                     style={[
                       styles.rewardDelta,
-                      { color: Number(entry.points) < 0 ? colors.danger : colors.on },
+                      { color: Number(entry.points) < 0 ? colors.danger : colors.onInk },
                     ]}
                   >
                     {Number(entry.points) > 0 ? `+${entry.points}` : entry.points}
@@ -3138,7 +3138,7 @@ export function FamilyScreen({
                     <Ionicons
                       name={rolle.icon as keyof typeof Ionicons.glyphMap}
                       size={13}
-                      color={aktiv ? '#FFFFFF' : colors.inkSoft}
+                      color={aktiv ? colors.onAccent : colors.inkSoft}
                     />
                     <Text style={[styles.chipText, aktiv && styles.chipTextActive]}>
                       {rolle.label}
@@ -3214,7 +3214,7 @@ export function FamilyScreen({
                     <Text
                       style={[
                         styles.checkSub,
-                        status.offen ? { color: colors.on, fontWeight: '600' } : null,
+                        status.offen ? { color: colors.onInk, fontWeight: '600' } : null,
                       ]}
                     >
                       {status.text}
@@ -3248,7 +3248,7 @@ export function FamilyScreen({
                   style={styles.callButton}
                   accessibilityLabel={`${contact.text} anrufen`}
                 >
-                  <Ionicons name="call" size={22} color="#FFFFFF" />
+                  <Ionicons name="call" size={22} color={colors.onSignal} />
                 </Pressable>
                 {/* Nicht jede Frage ist ein Anruf wert – «kommst du später?»
                     schreibt man. */}
@@ -3961,7 +3961,7 @@ export function FamilyScreen({
                       {person.name}
                     </Text>
                     <Text
-                      style={[styles.daOrt, wie === 'da' && { color: colors.on }]}
+                      style={[styles.daOrt, wie === 'da' && { color: colors.onInk }]}
                       numberOfLines={1}
                     >
                       {ortText(person)}

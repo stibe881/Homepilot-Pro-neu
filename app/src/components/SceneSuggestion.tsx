@@ -178,7 +178,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       backgroundColor: colors.accent,
     },
-    primaryText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+    primaryText: { color: colors.onAccent, fontSize: 14, fontWeight: '700' },
     secondary: {
       alignItems: 'center',
       paddingVertical: 11,

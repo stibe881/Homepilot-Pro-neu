@@ -15,7 +15,8 @@ import { CommandData, Entity, KalenderEintrag, Scene } from '../api/types';
 import { Card } from '../components/Card';
 import { RenameDialog } from '../components/entity/anpassen';
 import { DraggableList } from '../components/DraggableList';
-import { KIND_ICONS, shortState } from '../components/RoomTile';
+import { shortState } from '../components/RoomTile';
+import { deviceKindIcon } from '../lib/geraeteart';
 import { appleMapsRoute, googleMapsRoute } from '../components/TopStrip';
 import { TagesZeile } from '../components/TagesZeile';
 import { VacuumHome } from '../components/VacuumHome';
@@ -577,7 +578,7 @@ export function OverviewScreen({
           <Text
             style={[
               styles.tileState,
-              alarmArmed && { color: colors.on },
+              alarmArmed && { color: colors.onInk },
               String(alarm?.state.state) === 'ausgeloest' && { color: colors.danger },
             ]}
           >
@@ -650,7 +651,7 @@ export function OverviewScreen({
             // für «irgendein Gerät» (RoomTile), und vor «Olga» sah er aus
             // wie ein Platzhalter, den jemand vergessen hat. Der Sauger
             // hat dasselbe Sinnbild wie überall sonst.
-            icon={KIND_ICONS[vacuum.kind] ?? 'sparkles-outline'}
+            icon={deviceKindIcon(vacuum)}
             title={vacuum.name}
           >
             <VacuumHome
@@ -1131,7 +1132,7 @@ function FavoriteChip({
       <Ionicons
         // Läuft ein Timer, ist der Mond das Sinnbild - die Note über
         // «Aus in 1 h 30 min» erzählt vom falschen Gerät.
-        name={laeuft ? 'moon' : (KIND_ICONS[entity.kind] ?? 'cube-outline')}
+        name={laeuft ? 'moon' : deviceKindIcon(entity)}
         size={18}
         color={active || laeuft ? colors.accent : colors.inkSoft}
       />
@@ -1644,7 +1645,7 @@ function DurchsageFenster({
               <Ionicons
                 name={verwalten ? (bearbeite ? 'checkmark' : 'add') : 'megaphone-outline'}
                 size={18}
-                color="#FFFFFF"
+                color={colors.onAccent}
               />
             </Pressable>
             {/* Die Sprachnotiz steht neben dem Textfeld und nicht
@@ -1692,7 +1693,7 @@ function DurchsageFenster({
                 ]}
               >
                 {seit === null ? (
-                  <Ionicons name="mic-outline" size={18} color="#FFFFFF" />
+                  <Ionicons name="mic-outline" size={18} color={colors.onAccent} />
                 ) : (
                   <Text style={styles.durchsageZeit}>{aufnahmeDauer(jetzt - seit)}</Text>
                 )}
@@ -2165,7 +2166,7 @@ function Action({
         <Ionicons
           name={icon}
           size={16}
-          color={accent ? '#FFFFFF' : undefined}
+          color={accent ? styles.actionTextAccent.color : undefined}
           style={accent ? undefined : styles.actionIcon}
         />
       ) : null}
@@ -2352,7 +2353,7 @@ const makeStyles = (colors: Colors) =>
     // Die laufende Sekunde im Aufnahmeknopf - gleich gross wie das
     // Symbol daneben, damit die Zeile beim Umschalten nicht springt.
     durchsageZeit: {
-      color: '#FFFFFF',
+      color: colors.onAccent,
       fontSize: 13,
       fontWeight: '700',
       fontVariant: ['tabular-nums'],
@@ -2506,7 +2507,7 @@ const makeStyles = (colors: Colors) =>
     actionIcon: { color: colors.ink },
     actionAccent: { backgroundColor: colors.accent, borderColor: colors.accent },
     actionText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
-    actionTextAccent: { color: '#FFFFFF' },
+    actionTextAccent: { color: colors.onAccent },
     actionRow: { flexDirection: 'row', gap: 8 },
     actionCol: { gap: 8, alignSelf: 'stretch' },
   });

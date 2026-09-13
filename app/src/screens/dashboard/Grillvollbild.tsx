@@ -705,7 +705,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: 8,
       backgroundColor: colors.accent,
     },
-    timerStartText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700', letterSpacing: 1 },
+    timerStartText: { color: colors.onAccent, fontSize: 16, fontWeight: '700', letterSpacing: 1 },
     kreise: {
       flexDirection: 'row',
       flexWrap: 'wrap',

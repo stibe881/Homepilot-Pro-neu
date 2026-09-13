@@ -77,7 +77,7 @@ import { useLiveAktivitaet } from '../hooks/useLiveAktivitaet';
 import { useWatchSync } from '../hooks/useWatchSync';
 import { useTuerKnopf } from '../hooks/useTuerKnopf';
 import { usePushRegistration } from '../hooks/usePushRegistration';
-import { breakpoints, space, type, useColors } from '../theme';
+import { breakpoints, space, type, useColors, useTyp } from '../theme';
 import {
   KAMERA_MINDEST,
   breiteFuer,
@@ -100,7 +100,7 @@ import {
   musikboxenImRaum,
   pickPlayer,
 } from '../lib/geraeteart';
-import { bewegungImRaum } from '../lib/bewegung';
+import { bewegungImRaum, bewegungsSignal } from '../lib/bewegung';
 import { rueckangebot } from '../lib/rueckgriff';
 import { oberstes } from '../lib/blattstapel';
 import { darfZurueck } from '../lib/rueckkehr';
@@ -318,7 +318,10 @@ interface SuchAblauf {
 
 export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  // Am Wandpanel grösser (Punkt 610): Die Begrüssung ist das Erste, was
+  // man dort liest.
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   const {
     entities,
     activity,
@@ -3668,7 +3671,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                       accessibilityLabel="Bewegung im Raum"
                       style={styles.raumBewegung}
                     >
-                      <Ionicons name="walk" size={15} color={colors.onGradient} />
+                      <Ionicons name="walk" size={15} color={bewegungsSignal(colors).farbe} />
                     </View>
                   ) : null}
                 </View>

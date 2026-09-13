@@ -218,7 +218,7 @@ export function DoorbellOverlay({
                 <Ionicons
                   name={aktion.oeffnet ? 'log-in-outline' : 'key'}
                   size={22}
-                  color="#FFFFFF"
+                  color={colors.onSignal}
                 />
                 <Text style={styles.doorbellOpenText}>
                   {gefragt ? rueckfrage : aktion.label}

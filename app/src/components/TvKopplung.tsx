@@ -278,7 +278,7 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.accent,
     },
     knopfHalb: { flex: 1 },
-    knopfText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+    knopfText: { color: colors.onAccent, fontSize: 14, fontWeight: '700' },
     abbruch: {
       flex: 1,
       alignItems: 'center',

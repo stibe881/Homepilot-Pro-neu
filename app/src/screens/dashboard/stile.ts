@@ -8,10 +8,14 @@
  */
 import { StyleSheet } from 'react-native';
 
-import { Colors, radius, space, type } from '../../theme';
+import { Colors, Typmass, radius, space, type } from '../../theme';
+import { bewegungsSignal } from '../../lib/bewegung';
 import { ZIFFERN, schrift } from '../../lib/schriftart';
 
-export const makeStyles = (colors: Colors) =>
+/** ``typ`` ist die Schriftgrösse dieses Bildschirms (Punkt 610) - am
+ *  Wandpanel grösser; voreingestellt auf die gewohnte, damit die übrigen
+ *  Aufrufer nichts merken. */
+export const makeStyles = (colors: Colors, typ: Typmass = type) =>
   StyleSheet.create({
     root: { flex: 1 },
     timelineBox: { paddingHorizontal: 16, paddingTop: 10 },
@@ -106,7 +110,7 @@ export const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       backgroundColor: colors.accent,
     },
-    lockConfirmText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+    lockConfirmText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
     frame: { flex: 1, flexDirection: 'row' },
     scroll: { flex: 1, minWidth: 0 },
     content: {
@@ -159,7 +163,7 @@ export const makeStyles = (colors: Colors) =>
     },
     greetingLine: {
       color: colors.onGradient,
-      fontSize: type.greeting,
+      fontSize: typ.greeting,
       fontWeight: '300',
       letterSpacing: 0.2,
       // Die Display-Schrift im mageren Schnitt: Der Satz war schon
@@ -302,7 +306,7 @@ export const makeStyles = (colors: Colors) =>
       paddingVertical: 14,
       paddingHorizontal: 34,
     },
-    erinnerungKnopfText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
+    erinnerungKnopfText: { color: colors.onSignal, fontSize: 18, fontWeight: '700' },
     // Der leise Bruder von erinnerungKnopf: nur Rahmen statt Fläche -
     // «für alle» soll der Knopf sein, zu dem die Hand zuerst will.
     erinnerungKnopfLeise: {
@@ -362,7 +366,7 @@ export const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       paddingVertical: 18,
     },
-    doorbellOpenText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
+    doorbellOpenText: { color: colors.onSignal, fontSize: 18, fontWeight: '700' },
     doorbellClose: { alignItems: 'center', paddingVertical: 12 },
     doorbellCloseText: { color: 'rgba(255,255,255,0.7)', fontSize: 15, fontWeight: '600' },
     grid: {
@@ -566,7 +570,9 @@ export const makeStyles = (colors: Colors) =>
       borderRadius: radius.pill,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: colors.surfaceSoft,
+      // Derselbe Grund wie auf der Raumkachel (Punkt 612): Das Männchen
+      // sagt an beiden Orten dasselbe und sieht darum auch gleich aus.
+      backgroundColor: bewegungsSignal(colors).grund,
       marginTop: 2,
     },
     reorderButton: {

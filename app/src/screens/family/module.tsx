@@ -436,7 +436,7 @@ export function Medikamente({
                       <Ionicons
                         name={schon ? 'checkmark-circle' : 'ellipse-outline'}
                         size={14}
-                        color={schon ? '#FFFFFF' : jetzt ? colors.warn : colors.inkFaint}
+                        color={schon ? colors.onAccent : jetzt ? colors.warn : colors.inkFaint}
                       />
                       <Text
                         style={[

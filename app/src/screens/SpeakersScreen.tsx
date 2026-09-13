@@ -242,7 +242,7 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
             <Ionicons
               name={adopting === id ? 'hourglass-outline' : 'add'}
               size={15}
-              color="#FFFFFF"
+              color={colors.onAccent}
             />
             <Text style={styles.adoptText}>Übernehmen</Text>
           </Pressable>
@@ -288,7 +288,7 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
             <Ionicons
               name={busy ? 'hourglass-outline' : 'refresh'}
               size={16}
-              color="#FFFFFF"
+              color={colors.onAccent}
             />
             <Text style={styles.suchenText}>{busy ? 'Sucht …' : 'Suchen'}</Text>
           </Pressable>
@@ -311,7 +311,7 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
                 (pressed || restarting) && { opacity: 0.7 },
               ]}
             >
-              <Ionicons name="refresh-circle-outline" size={16} color="#FFFFFF" />
+              <Ionicons name="refresh-circle-outline" size={16} color={colors.onAccent} />
               <Text style={styles.buttonText}>
                 {restarting ? 'Hub startet neu …' : 'Jetzt neu starten'}
               </Text>
@@ -487,7 +487,7 @@ const makeStyles = (colors: Colors) =>
     unterzeile: { color: colors.inkSoft, fontSize: 12, lineHeight: 17 },
     leiser: { color: colors.accent, fontSize: 12, fontWeight: '600', paddingTop: 2 },
     badgeWait: { color: colors.warnInk, fontSize: 11, fontWeight: '700' },
-    badgeOk: { color: colors.on, fontSize: 11, fontWeight: '700' },
+    badgeOk: { color: colors.onInk, fontSize: 11, fontWeight: '700' },
     /** «Übernehmen» ist die Handlung dieser Seite und sieht jetzt danach
      *  aus: gefüllt statt als blasser Umriss neben zwei anderen Symbolen. */
     adopt: {
@@ -499,7 +499,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.pill,
       backgroundColor: colors.accent,
     },
-    adoptText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
+    adoptText: { color: colors.onAccent, fontSize: 12, fontWeight: '700' },
     suchen: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -509,7 +509,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.pill,
       backgroundColor: colors.accent,
     },
-    suchenText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+    suchenText: { color: colors.onAccent, fontSize: 13, fontWeight: '700' },
     errorBanner: {
       color: colors.danger,
       fontSize: 13,
@@ -525,5 +525,5 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       paddingVertical: 12,
     },
-    buttonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+    buttonText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
   });

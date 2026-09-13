@@ -313,7 +313,7 @@ const makeStyles = (colors: Colors) =>
       fontSize: 16,
     },
     fehler: { color: colors.danger, fontSize: 13, lineHeight: 18 },
-    gelungen: { color: colors.on, fontSize: 13, lineHeight: 18 },
+    gelungen: { color: colors.onInk, fontSize: 13, lineHeight: 18 },
     knopf: {
       flexDirection: 'row',
       alignItems: 'center',

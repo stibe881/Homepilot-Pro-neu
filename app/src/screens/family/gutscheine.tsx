@@ -774,7 +774,7 @@ function Detail({
               accessibilityRole="button"
               style={({ pressed }) => [eigen.primaerKnopf, pressed && { opacity: 0.8 }]}
             >
-              <Ionicons name="remove-circle-outline" size={18} color="#FFFFFF" />
+              <Ionicons name="remove-circle-outline" size={18} color={colors.onAccent} />
               <Text style={eigen.primaerText}>Betrag abziehen</Text>
             </Pressable>
           ) : (
@@ -900,7 +900,7 @@ function Detail({
               accessibilityRole="button"
               accessibilityLabel="Ja, löschen"
             >
-              <Ionicons name="checkmark" size={18} color="#FFFFFF" />
+              <Ionicons name="checkmark" size={18} color={colors.onSignal} />
             </Pressable>
             <Pressable
               onPress={() => setLoeschFrage(false)}
@@ -1907,7 +1907,7 @@ export function Gutscheine({
       style={[styles.chip, aktiv && styles.chipActive]}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-        {icon ? <Ionicons name={icon} size={13} color={aktiv ? '#FFFFFF' : colors.ink} /> : null}
+        {icon ? <Ionicons name={icon} size={13} color={aktiv ? colors.onAccent : colors.ink} /> : null}
         <Text style={[styles.chipText, aktiv && styles.chipTextActive]}>{label}</Text>
       </View>
     </Pressable>
@@ -1936,7 +1936,7 @@ export function Gutscheine({
           accessibilityLabel="Gutschein erfassen"
           style={({ pressed }) => [eigen.neuKnopf, pressed && { opacity: 0.8 }]}
         >
-          <Ionicons name="add" size={22} color="#FFFFFF" />
+          <Ionicons name="add" size={22} color={colors.onAccent} />
         </Pressable>
       </View>
 
@@ -1958,7 +1958,7 @@ export function Gutscheine({
                 accessibilityLabel={`Gutschein von ${e.by} annehmen`}
                 style={({ pressed }) => [eigen.primaerKnopf, pressed && { opacity: 0.8 }]}
               >
-                <Ionicons name="checkmark" size={18} color="#FFFFFF" />
+                <Ionicons name="checkmark" size={18} color={colors.onAccent} />
               </Pressable>
               <Pressable
                 onPress={() => uebergabeEntscheiden(e.id, false)}
@@ -2206,7 +2206,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.pill,
       backgroundColor: colors.accent,
     },
-    abziehenText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+    abziehenText: { color: colors.onAccent, fontSize: 14, fontWeight: '700' },
 
     // ── Detail ────────────────────────────────────────────────────────
     detailKarte: { minHeight: 0, gap: 12 },
@@ -2246,7 +2246,7 @@ const makeStyles = (colors: Colors) =>
     feldLabel: { color: colors.inkSoft, fontSize: 11, fontWeight: '700', letterSpacing: 0.8 },
     feldWert: { color: colors.ink, fontSize: 16, fontWeight: '600' },
     pinZeile: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    rueckmeldung: { color: colors.on, fontSize: 13, fontWeight: '600' },
+    rueckmeldung: { color: colors.onInk, fontSize: 13, fontWeight: '600' },
     linkZeile: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     linkText: { color: colors.accent, fontSize: 14, textDecorationLine: 'underline', flex: 1 },
     notiz: { color: colors.inkSoft, fontSize: 14, lineHeight: 20 },
@@ -2264,7 +2264,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       backgroundColor: colors.accent,
     },
-    primaerText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+    primaerText: { color: colors.onAccent, fontSize: 14, fontWeight: '700' },
     sekundaerKnopf: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -2281,7 +2281,7 @@ const makeStyles = (colors: Colors) =>
     // Der Knopf «1 einlösen» bei Stück-Gutscheinen (Punkt 376) - hervor-
     // gehoben, weil das der Tipp ist, den man neunmal von zehn braucht.
     stueckKnopf: { backgroundColor: colors.accent, borderColor: colors.accent },
-    stueckKnopfText: { color: '#FFFFFF' },
+    stueckKnopfText: { color: colors.onAccent },
     loeschKnopf: {
       flexDirection: 'row',
       alignItems: 'center',

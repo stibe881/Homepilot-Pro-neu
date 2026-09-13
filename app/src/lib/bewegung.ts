@@ -1,4 +1,5 @@
 import type { Entity } from '../api/types';
+import type { Colors } from '../theme';
 
 /**
  * Bewegt sich gerade jemand im Zimmer?
@@ -17,6 +18,25 @@ import type { Entity } from '../api/types';
  *
  * Reines Rechnen: hinein die Geräte, heraus ja oder nein.
  */
+
+/**
+ * Farbe und Grundfläche des Männchens (rein, testbar) - Punkt 612 der
+ * Werkbank.
+ *
+ * «Bewegung» trug vier Farben: rot auf der Kamerawand, orange als Pille
+ * auf der Kamerakachel, grün auf der Raumkachel, weiss im Raumkopf.
+ * Dieselbe Auskunft, vier Signale - und Rot hiess anderswo «jetzt
+ * aufstehen» (444), die Kamerawand verwendete es für jede Katze im
+ * Garten. Jetzt gilt überall die Regel der Raumkachel: das Männchen in
+ * `on`, der Grund ein Hauch davon (`onSoft`) - die Farbe, die auf jeder
+ * Kachel «hier ist gerade etwas» heisst, nicht «Gefahr».
+ *
+ * Wer das Männchen zeichnet, holt sich beides hier; der Test liest die
+ * Quellen mit, damit nicht die fünfte Farbe dazukommt.
+ */
+export function bewegungsSignal(colors: Colors): { farbe: string; grund: string } {
+  return { farbe: colors.on, grund: colors.onSoft };
+}
 
 /** Geräteklassen, die Bewegung melden - dieselben drei, an denen auch
  *  die Alarmanlage entscheidet (hub: alarm_rules.ist_bewegung). */

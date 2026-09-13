@@ -19,7 +19,8 @@ import {
   unplatzierte,
 } from '../lib/grundriss';
 import { Card } from './Card';
-import { KIND_ICONS, shortState } from './RoomTile';
+import { deviceKindIcon } from '../lib/geraeteart';
+import { shortState } from './RoomTile';
 import { Colors, radius, type, useColors } from '../theme';
 
 /**
@@ -327,7 +328,10 @@ export function Grundriss({ settings, entities, darfAnpassen, onCommand, width }
               pointerEvents={anpassen ? 'none' : 'auto'}
             >
               <Ionicons
-                name={KIND_ICONS[entity.kind] ?? 'ellipse-outline'}
+                // Dasselbe Sinnbild wie auf der Kachel und im Editor
+                // (Punkt 611): Feuchte, Leistung, CO₂ sehen im Grundriss
+                // sonst alle aus wie ein Thermometer.
+                name={deviceKindIcon(entity)}
                 size={13}
                 color={art === 'an' ? colors.panel : colors.ink}
               />

@@ -57,6 +57,36 @@ describe.each(paletten)('Palette $name', ({ colors, hinter, rohRand }) => {
     ).toBeGreaterThanOrEqual(4.5);
   });
 
+  it('hält Grün als Schrift wirklich lesbar (onInk)', () => {
+    // Punkt 609 der Werkbank - das Gegenstück zu warnInk: `on` ist die
+    // Farbe des Zustandspunkts und darf als Zeichen schwach sein. Als
+    // *Schrift* kam es im Hellen auf 1,7:1 und im Sand auf 1,7 - und in
+    // genau dieser Farbe stand «An» in 26 Punkt fett auf jeder
+    // Schalterkachel, dazu «Scharf · …» und die Erfolgszeilen unter
+    // Login und Einstellungen. 4,5 ist die Schwelle für Fliesstext, und
+    // sie gilt auf der Karte wie auf dem Blatt.
+    expect(textContrast(colors.onInk, colors.surface, hinter)).toBeGreaterThanOrEqual(4.5);
+    expect(textContrast(colors.onInk, colors.panel, colors.panel)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('hält die Schrift auf gefüllten Flächen lesbar (onAccent, onSignal)', () => {
+    // Punkt 609 der Werkbank. Bisher stand auf jedem gefüllten Knopf
+    // fest Weiss - auf dem hellen Akzent der dunklen Bilder 2,7:1, auf
+    // Grün und Orange («Geöffnet», «Bewegung») 1,5 bis 2,7 in jeder
+    // Palette, und kein Test mass es. Jetzt gilt für ein Wort auf einem
+    // Knopf dieselbe Schwelle wie für eines auf einer Karte.
+    const flaeche = (schrift: string, grund: string) => textContrast(schrift, grund, grund);
+    expect(flaeche(colors.onAccent, colors.accent)).toBeGreaterThanOrEqual(4.5);
+    expect(flaeche(colors.onSignal, colors.on)).toBeGreaterThanOrEqual(4.5);
+    expect(flaeche(colors.onSignal, colors.warn)).toBeGreaterThanOrEqual(4.5);
+    // Rot trägt dieselbe Schrift wie der Akzent: In jeder Palette ist es
+    // gleich tief wie er. Im Hellen erreicht darauf weder Weiss (3,9)
+    // noch Tinte (3,4) die 4,5 - Weiss ist die bessere der beiden
+    // Antworten, und die Schwelle hier hält fest, dass sie nicht unter
+    // die für grosse, fette Schrift (3:1) fällt.
+    expect(flaeche(colors.onAccent, colors.danger)).toBeGreaterThanOrEqual(3);
+  });
+
   it('lässt auf dem Akzent-Hauch weiter Fliesstext zu (accentSoft)', () => {
     // Punkt 537 der Werkbank: Jedes gewählte Gerät im Ablauf-Editor
     // trägt seine Einstellungen auf `accentSoft`. Der Ton ist bewusst

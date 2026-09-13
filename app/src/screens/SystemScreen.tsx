@@ -138,7 +138,7 @@ export function SystemScreen({
                   ? colors.danger
                   : status.disk.percent >= 85
                     ? colors.warn
-                    : colors.on
+                    : colors.onInk
               }
             />
           ) : null}
@@ -1385,7 +1385,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
                 pressed && { opacity: 0.7 },
               ]}
             >
-              <Text style={[styles.updateAskButtonText, { color: '#FFFFFF' }]}>
+              <Text style={[styles.updateAskButtonText, { color: colors.onAccent }]}>
                 Hub + App-Builds
               </Text>
             </Pressable>

@@ -371,7 +371,7 @@ export const makeStyles = (colors: Colors) =>
     },
     weekdayOn: { backgroundColor: colors.accent, borderColor: colors.accent },
     weekdayText: { color: colors.inkSoft, fontSize: 13, fontWeight: '700' },
-    weekdayTextOn: { color: '#FFFFFF' },
+    weekdayTextOn: { color: colors.onAccent },
     stepNumber: { color: colors.inkSoft, fontSize: 13, fontWeight: '700' },
     rowGap: { flexDirection: 'row', gap: 8 },
     card: { minHeight: 0, gap: 6 },
@@ -416,7 +416,7 @@ export const makeStyles = (colors: Colors) =>
     },
     handstartAbbruch: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
     handstartLos: { backgroundColor: colors.accent, borderColor: colors.accent },
-    handstartLosText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+    handstartLosText: { color: colors.onAccent, fontSize: 13, fontWeight: '700' },
     newButton: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -485,7 +485,7 @@ export const makeStyles = (colors: Colors) =>
       borderRadius: 14,
       backgroundColor: colors.accent,
     },
-    assistentWeiterText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+    assistentWeiterText: { color: colors.onAccent, fontSize: 16, fontWeight: '700' },
     /**
      * Die Kopfleiste des Editors – fest, nicht mitscrollend.
      *
@@ -548,7 +548,7 @@ export const makeStyles = (colors: Colors) =>
       justifyContent: 'center',
       backgroundColor: colors.accent,
     },
-    abschnittNummerText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
+    abschnittNummerText: { color: colors.onAccent, fontSize: 14, fontWeight: '800' },
     abschnittTitel: {
       color: colors.ink,
       fontSize: 17,
@@ -652,7 +652,7 @@ export const makeStyles = (colors: Colors) =>
     },
     choiceActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     choiceText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
-    choiceTextActive: { color: '#FFFFFF' },
+    choiceTextActive: { color: colors.onAccent },
     /** Die Frage über einer Chip-Reihe (felder.tsx, Unterfrage). */
     unterfrage: { gap: 6 },
     unterfrageLabel: { color: colors.inkSoft, fontSize: 12.5, fontWeight: '700' },
@@ -682,14 +682,14 @@ export const makeStyles = (colors: Colors) =>
       fontWeight: '600',
       textAlign: 'center',
     },
-    kachelTextAktiv: { color: '#FFFFFF' },
+    kachelTextAktiv: { color: colors.onAccent },
     save: {
       backgroundColor: colors.accent,
       borderRadius: radius.control,
       paddingVertical: 15,
       alignItems: 'center',
     },
-    saveText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
+    saveText: { color: colors.onAccent, fontWeight: '700', fontSize: 16 },
     delete: { alignItems: 'center', paddingVertical: 12 },
     deleteText: { color: colors.danger, fontSize: 15, fontWeight: '600' },
     /** Der Hinweis auf gegenläufige Abläufe (Punkt 312). Warnfarbe, aber

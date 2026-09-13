@@ -246,7 +246,7 @@ export function SpotifyPanel({
                 <Ionicons
                   name={name === active && playing ? 'volume-high' : 'volume-medium-outline'}
                   size={12}
-                  color={selected ? '#FFFFFF' : colors.inkSoft}
+                  color={selected ? colors.onAccent : colors.inkSoft}
                 />
                 <Text
                   style={[styles.deviceChipText, selected && styles.deviceChipTextActive]}
@@ -662,7 +662,7 @@ export function RadioPanel({
                 <Ionicons
                   name={name === active && playing ? 'volume-high' : 'volume-medium-outline'}
                   size={12}
-                  color={selected ? '#FFFFFF' : colors.inkSoft}
+                  color={selected ? colors.onAccent : colors.inkSoft}
                 />
                 <Text
                   style={[styles.deviceChipText, selected && styles.deviceChipTextActive]}

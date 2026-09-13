@@ -65,7 +65,7 @@ export function ErinnerungOverlay({
                     pressed && { opacity: 0.8 },
                   ]}
                 >
-                  <Ionicons name="checkmark" size={22} color="#FFFFFF" />
+                  <Ionicons name="checkmark" size={22} color={styles.erinnerungKnopfText.color} />
                   <Text style={styles.erinnerungKnopfText}>Für alle erledigt</Text>
                 </Pressable>
               </View>

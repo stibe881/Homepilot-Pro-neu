@@ -152,7 +152,7 @@ export function WhatsNew({
                 pressed && { opacity: 0.7 },
               ]}
             >
-              <Text style={[styles.buttonText, { color: '#FFFFFF' }]}>Alles klar</Text>
+              <Text style={[styles.buttonText, { color: colors.onAccent }]}>Alles klar</Text>
             </Pressable>
           </View>
         </Card>

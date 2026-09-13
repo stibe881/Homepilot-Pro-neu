@@ -210,7 +210,7 @@ export function Einfuehrung({
                   pressed && { opacity: 0.7 },
                 ]}
               >
-                <Text style={[styles.buttonText, { color: '#FFFFFF' }]}>
+                <Text style={[styles.buttonText, { color: colors.onAccent }]}>
                   {letzter ? 'Alles klar' : 'Weiter'}
                 </Text>
               </Pressable>

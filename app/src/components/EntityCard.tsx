@@ -83,6 +83,7 @@ export function raumWert(entity: Entity): string {
   return `${zimmer[0]} +${zimmer.length - 1}`;
 }
 import {
+  Bewegungsmarke,
   BigValue,
   Pill,
   clock,
@@ -865,7 +866,7 @@ export function EntityCard({
                       <Ionicons
                         name={active ? 'volume-high' : 'volume-medium-outline'}
                         size={12}
-                        color={active ? '#FFFFFF' : colors.inkSoft}
+                        color={active ? colors.onAccent : colors.inkSoft}
                       />
                       <Text
                         style={[
@@ -915,7 +916,7 @@ export function EntityCard({
               <Pill label="Klingelt" tone={colors.danger} solid />
             ) : null}
             {entity.state.motion === 'on' ? (
-              <Pill label="Bewegung" tone={colors.warn} solid />
+              <Bewegungsmarke />
             ) : null}
             {entity.state.last_motion ? (
               <Text style={styles.detail}>
@@ -954,9 +955,9 @@ export function EntityCard({
                 <Ionicons
                   name={privacyOn ? 'eye-off' : 'eye-off-outline'}
                   size={15}
-                  color={privacyOn ? '#FFFFFF' : colors.inkSoft}
+                  color={privacyOn ? colors.onAccent : colors.inkSoft}
                 />
-                <Text style={[styles.privacyText, privacyOn && { color: '#FFFFFF' }]}>
+                <Text style={[styles.privacyText, privacyOn && { color: colors.onAccent }]}>
                   {privacyOn ? 'Privatsphäre beenden' : 'Privatsphäre'}
                 </Text>
               </Pressable>
