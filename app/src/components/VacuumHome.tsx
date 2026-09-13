@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -21,6 +21,9 @@ import {
   roomAt,
   shapeInCrop,
   saugerFaehrt,
+  saugerknoepfe,
+  saugerprobleme,
+  stationszeilen,
   vacuumText,
 } from '../lib/saugerkarte';
 import { Colors, radius, type, useColors } from '../theme';
@@ -240,11 +243,17 @@ export function VacuumHome({
   uri,
   now,
   onCommand,
+  oeffneSignal = 0,
 }: {
   entity: Entity;
   uri?: string;
   now: Date;
   onCommand: (entityId: string, command: string, data?: CommandData) => void;
+  /** Zählt hoch, wenn jemand von aussen das Reinigungsblatt will - der
+   *  Chip «saugt» in der Kopfzeile (Punkt 635). Ein Zähler und kein
+   *  Schalter, damit derselbe Wunsch zweimal hintereinander zweimal
+   *  öffnet (dasselbe Muster wie AllOff.openSignal). */
+  oeffneSignal?: number;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -253,6 +262,14 @@ export function VacuumHome({
   const robot = Array.isArray(entity.state.robot) ? (entity.state.robot as number[]) : undefined;
   const cleaning = saugerFaehrt(entity.state.state);
   const [dialog, setDialog] = useState<{ mode: CleanMode; preselect?: number } | null>(null);
+  // Nur ein *neues* Signal öffnet - beim Zurückkommen auf die Startseite
+  // sähe die Karte sonst den alten Stand und risse das Blatt wieder auf.
+  const verbraucht = useRef(oeffneSignal);
+  useEffect(() => {
+    if (oeffneSignal <= verbraucht.current) return;
+    verbraucht.current = oeffneSignal;
+    setDialog({ mode: 'full' });
+  }, [oeffneSignal]);
   const [stationOpen, setStationOpen] = useState(false);
   const [careOpen, setCareOpen] = useState(false);
   const maintenance: WartungsTeil[] = Array.isArray(entity.state.maintenance)
@@ -475,6 +492,19 @@ function CleanDialog({
     onClose();
   };
 
+  // Pausieren, Finden, Zur Station - auf dem Blatt selbst (Punkt 636):
+  // Wer über den Chip «saugt» hierherkommt, will sie meist anhalten oder
+  // heimschicken, nicht eine zweite Reinigung starten.
+  const knoepfe = saugerknoepfe(entity);
+  // Und was gerade nicht stimmt (Punkt 637): Der Fehler von Sauger oder
+  // Station, in den Sätzen des Hubs. Ohne ihn stünde «Komplette
+  // Reinigung starten» über einem Roboter, der unter dem Bett feststeckt.
+  const probleme = saugerprobleme(entity);
+  const sofort = (command: string) => {
+    onCommand(entity.id, command);
+    onClose();
+  };
+
   const startLabel =
     mode === 'full'
       ? 'Komplette Reinigung starten'
@@ -634,6 +664,19 @@ function CleanDialog({
             </View>
           ) : null}
 
+          {probleme.length > 0 ? (
+            <View style={styles.problemBox} accessibilityRole="alert">
+              <Ionicons name="warning-outline" size={18} color={colors.danger} />
+              <View style={{ flex: 1, gap: 2 }}>
+                {probleme.map((satz) => (
+                  <Text key={satz} style={styles.problemText}>
+                    {satz}
+                  </Text>
+                ))}
+              </View>
+            </View>
+          ) : null}
+
           <Text style={styles.dialogHint}>
             {mode === 'full'
               ? 'Der Sauger reinigt die ganze Wohnung und kehrt danach zur Station zurück.'
@@ -645,6 +688,23 @@ function CleanDialog({
                     ? 'Zweite Ecke antippen – die Zone spannt sich dazwischen auf.'
                     : 'Zone steht. Ein weiterer Tipp beginnt eine neue.'}
           </Text>
+
+          {knoepfe.length > 0 ? (
+            <View style={styles.sofortRow}>
+              {knoepfe.map((knopf) => (
+                <Pressable
+                  key={knopf.command}
+                  onPress={() => sofort(knopf.command)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Sauger: ${knopf.label}`}
+                  style={({ pressed }) => [styles.sofortButton, pressed && { opacity: 0.7 }]}
+                >
+                  <Ionicons name={knopf.icon} size={15} color={colors.ink} />
+                  <Text style={styles.sofortText}>{knopf.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
 
           <View style={styles.dialogActions}>
             <Pressable onPress={onClose} style={styles.cancel}>
@@ -667,24 +727,6 @@ function CleanDialog({
 }
 
 
-/** Übersetzungen für die Stations-Angaben – Unbekanntes erscheint roh,
- *  besser als gar nicht. */
-const DOCK_LABELS: Record<string, string> = {
-  error: 'Störung',
-  type: 'Stationstyp',
-  wash_phase: 'Waschgang',
-  drying: 'Trocknung',
-  dust_collection: 'Staubentleerung',
-  auto_empty: 'Automatische Entleerung',
-};
-
-const DOCK_VALUE_LABELS: Record<string, string> = {
-  empty_wash_fill_dry_dock: 'Absaugen, Waschen, Trocknen',
-  auto_empty_dock: 'Absaug-Station',
-  wash_fill_dock: 'Waschstation',
-  no_dock: 'Einfache Ladestation',
-};
-
 /** Ladestation: was sie meldet, und was sie auf Zuruf tut. */
 function StationDialog({
   visible,
@@ -699,7 +741,10 @@ function StationDialog({
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const dock = (entity.state.dock ?? {}) as Record<string, unknown>;
+  // Die Zeilen kommen fertig aus lib/saugerkarte.ts (Punkt 639): Die
+  // Störungen als Sätze des Hubs, die Betriebswerte übersetzt - hier
+  // stand vorher «waste_water_tank_full» in Rot.
+  const zeilen = stationszeilen(entity);
   const run = (command: string) => {
     onCommand(entity.id, command);
     onClose();
@@ -719,24 +764,18 @@ function StationDialog({
         <Pressable style={styles.sheet} onPress={() => {}}>
           <Text style={styles.sheetTitle}>Ladestation</Text>
           <View style={{ gap: 6 }}>
-            {entity.state.battery != null ? (
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Akku</Text>
-                <Text style={styles.infoValue}>{entity.state.battery} %</Text>
-              </View>
-            ) : null}
-            {Object.entries(dock).map(([key, value]) => (
-              <View key={key} style={styles.infoRow}>
-                <Text style={styles.infoLabel}>{DOCK_LABELS[key] ?? key}</Text>
+            {zeilen.map((zeile, index) => (
+              <View key={`${zeile.label}-${index}`} style={styles.infoRow}>
+                <Text style={styles.infoLabel}>{zeile.label}</Text>
                 <Text
-                  style={[styles.infoValue, key === 'error' && { color: colors.danger }]}
-                  numberOfLines={1}
+                  style={[styles.infoValue, zeile.stoerung && { color: colors.danger }]}
+                  numberOfLines={zeile.stoerung ? 3 : 1}
                 >
-                  {DOCK_VALUE_LABELS[String(value)] ?? String(value)}
+                  {zeile.wert}
                 </Text>
               </View>
             ))}
-            {Object.keys(dock).length === 0 ? (
+            {zeilen.length <= 1 ? (
               <Text style={styles.dialogHint}>
                 Die Station meldet gerade keine weiteren Angaben.
               </Text>
@@ -755,7 +794,7 @@ function StationDialog({
               </Pressable>
             ))}
           </View>
-          <Pressable onPress={onClose} style={styles.cancel}>
+          <Pressable onPress={onClose} style={styles.schliessen}>
             <Text style={styles.cancelText}>Schliessen</Text>
           </Pressable>
         </Pressable>
@@ -851,7 +890,7 @@ function CareDialog({
             Zurücksetzen nach dem Tausch bzw. der Reinigung des Teils – der
             Zähler beginnt dann wieder bei 100 %.
           </Text>
-          <Pressable onPress={onClose} style={styles.cancel}>
+          <Pressable onPress={onClose} style={styles.schliessen}>
             <Text style={styles.cancelText}>Schliessen</Text>
           </Pressable>
         </Pressable>
@@ -907,6 +946,19 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     listButtonText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+    sofortRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    sofortButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingVertical: 9,
+      paddingHorizontal: 12,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    sofortText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
     careTrack: {
       height: 6,
       borderRadius: 3,
@@ -975,6 +1027,17 @@ const makeStyles = (colors: Colors) =>
       borderColor: '#FFFFFF',
     },
     dialogHint: { color: colors.inkFaint, fontSize: 13, lineHeight: 19 },
+    problemBox: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 10,
+      padding: 12,
+      borderRadius: radius.control,
+      backgroundColor: colors.dangerSoft,
+      borderWidth: 1,
+      borderColor: colors.danger,
+    },
+    problemText: { color: colors.danger, fontSize: 14, fontWeight: '600', lineHeight: 19 },
     dialogActions: { flexDirection: 'row', gap: 10 },
     cancel: {
       flex: 1,
@@ -985,6 +1048,17 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     cancelText: { color: colors.inkSoft, fontSize: 15, fontWeight: '700' },
+    // Wie `cancel`, aber ohne flex: 1 - der steht in einer Zeile neben
+    // «Starten» und teilt sich die Breite. Allein in der Spalte des
+    // Stations-Fensters liess flex: 1 den Knopf auf einen leeren Rahmen
+    // zusammenschrumpfen, sobald das Fenster höher war als der Bildschirm.
+    schliessen: {
+      alignItems: 'center',
+      paddingVertical: 12,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
     confirm: {
       flex: 2,
       flexDirection: 'row',

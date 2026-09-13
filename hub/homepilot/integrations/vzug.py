@@ -203,10 +203,27 @@ AUSFAELLE_BIS_WEG = 3
 # also stehen, und das Gerät gilt weiter als erreichbar.
 BESCHAEFTIGT = 503
 
-# Irgendwann ist «gerade nicht» dann doch ein Ausfall. Eine halbe Stunde
-# deckt den beobachteten Takt um ein Vielfaches ab; was länger schweigt,
-# hat ein echtes Problem.
+# Irgendwann ist «gerade nicht» dann doch kein Standby mehr. Eine halbe
+# Stunde deckt den beobachteten Takt um ein Vielfaches ab; was länger
+# 503 sagt, ist **ausgeschaltet** - so aus der Waschküche (Punkt 634):
+# Die Maschine am Hauptschalter aus, ihr Funkmodul antwortet weiter mit
+# 503, und die Kachel behauptete dazu einen Ausfall samt Rat, das Gerät
+# stromlos zu machen. Ein ausgeschaltetes Gerät ist kein Ausfall.
 BESCHAEFTIGT_HOECHSTENS = 30 * 60
+
+# Der Zustand nach dieser halben Stunde. «off» und nicht «standby»: Im
+# Standby bedient das Gerät nach Minuten wieder, ausgeschaltet nicht.
+AUSGESCHALTET = "off"
+
+
+def ausgeschaltet_nachtrag() -> dict[str, Any]:
+    """Was die Kachel nach einer halben Stunde 503 bekommt (rein, testbar).
+
+    Kein Ausfall, keine Störung, keine Anleitung: «Aus», und der Rest
+    bleibt, wie er war. Ein Programm von vorhin steht dann nicht mehr
+    als laufend da - eine ausgeschaltete Maschine wäscht nicht.
+    """
+    return {"state": AUSGESCHALTET, "problem": None, "program": None, "minutes_left": None}
 
 # Während das Gerät 503 meldet, immer seltener nachfragen: Es hilft
 # niemandem, einen schlafenden Webserver im Minutentakt zu wecken.
@@ -325,6 +342,9 @@ class VZugIntegration(Integration):
         # Standby und melden dann 503 – bei jedem Abruf eine Warnung zu
         # schreiben flutet das Log und begräbt alles Wichtige darunter.
         self._down: set[str] = set()
+        # Wer nach einer halben Stunde 503 als ausgeschaltet gilt - einmal
+        # ins Log, nicht jede Runde (Punkt 634).
+        self._ausgeschaltet: set[str] = set()
         # Je Gerät: wie viele Abrufe hintereinander misslungen sind.
         self._fehlversuche: dict[str, int] = {}
         # Seit wann ein Gerät «beschäftigt» meldet, wie oft in Folge, und
@@ -442,6 +462,9 @@ class VZugIntegration(Integration):
         if entity_id in self._down:
             self._down.discard(entity_id)
             self.log.info("V-ZUG %s wieder erreichbar", host)
+        if entity_id in self._ausgeschaltet:
+            self._ausgeschaltet.discard(entity_id)
+            self.log.info("V-ZUG %s wieder eingeschaltet", host)
         status = unfrozen_status(
             parse_device_status(payload), self._countdown, entity_id, time.time()
         )
@@ -495,25 +518,20 @@ class VZugIntegration(Integration):
                 await self.hub.registry.update_state(entity_id, aenderungen)
             return
 
-        if entity_id not in self._down:
-            self._down.add(entity_id)
-            self.log.warning(
-                "V-ZUG %s meldet seit %.0f Minuten «503 – bedient nicht». "
-                "Sonst dauert das Minuten, nicht Stunden: Gerät stromlos "
-                "machen oder im Netz nachsehen.",
+        # Länger als eine halbe Stunde: ausgeschaltet, kein Ausfall
+        # (Punkt 634). Erreichbar bleibt es - das Funkmodul antwortet ja,
+        # und in der Liste der Ausfälle hat eine ausgeschaltete Maschine
+        # nichts verloren.
+        if entity_id not in self._ausgeschaltet:
+            self._ausgeschaltet.add(entity_id)
+            self.log.info(
+                "V-ZUG %s meldet seit %.0f Minuten «503 – bedient nicht» - "
+                "gilt als ausgeschaltet.",
                 host,
                 dauer / 60,
             )
         await self.hub.registry.update_state(
-            entity_id,
-            {
-                "problem": (
-                    f"{host} meldet seit {dauer / 60:.0f} Minuten «503 – "
-                    "bedient nicht». Sonst dauert das Minuten, nicht "
-                    "Stunden: Gerät einmal stromlos machen."
-                )
-            },
-            available=False,
+            entity_id, ausgeschaltet_nachtrag(), available=True
         )
 
 

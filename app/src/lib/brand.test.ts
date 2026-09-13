@@ -18,6 +18,21 @@ describe('zustandText', () => {
     expect(zustandText({ state: 'bereit', melder: 1 }).text).toBe('Bereit – 1 Melder wacht');
     expect(zustandText({ state: 'unbesetzt' }).ton).toBe('ruhig');
   });
+
+  it('sagt in Orange, wenn ein Melder schweigt (Punkt 640)', () => {
+    // Der Fall aus dem Haus: Levins Melder «nicht erreichbar» - und die
+    // Brandmeldeanlage meldete «Bereit – 3 Melder wachen» in Grün.
+    const lage = zustandText({ state: 'bereit', melder: 3, unavailable: ['z.levin'] });
+    expect(lage.ton).toBe('warnung');
+    expect(lage.text).toBe('2 von 3 Meldern wachen – 1 meldet sich nicht');
+    expect(zustandText({ state: 'bereit', melder: 2, unavailable: ['a', 'b'] }).text).toBe(
+      '0 von 2 Meldern wachen – 2 melden sich nicht'
+    );
+    // Der Alarm geht vor: Ein brennendes Haus mit einem schweigenden
+    // Melder ist zuerst ein brennendes Haus.
+    expect(zustandText({ state: 'ausgeloest', unavailable: ['a'] }).ton).toBe('gefahr');
+    expect(zustandText({ state: 'bereit', melder: 3, unavailable: [] }).ton).toBe('gut');
+  });
 });
 
 describe('melderZeile', () => {

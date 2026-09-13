@@ -71,6 +71,10 @@ WERKZEUGE: dict[str, dict[str, Any]] = {
         "satz": "Ob eine Push-Meldung zu spät kam oder erst das Ereignis.",
         "flags": {},
     },
+    "anwesenheitscheck": {
+        "satz": "Warum die Anlage erst spät scharf wurde: wer wann als weg gemeldet hat.",
+        "flags": {},
+    },
 }
 
 #: Grosszügig, aber nicht endlos: livecheck --kalt wartet auf einen

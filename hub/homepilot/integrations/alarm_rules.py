@@ -328,7 +328,20 @@ def ohne_pin_erlaubt(quelle: Any, settings: dict[str, Any]) -> bool:
     steht - genau der Fall, für den es die PIN gibt. Sie führen die PIN
     ohnehin mit (siehe handle_command).
     """
-    if not isinstance(quelle, dict) or quelle.get("kind") != "automation":
+    if not isinstance(quelle, dict):
+        return False
+    # Die Anwesenheits-Kopplung (Punkt 641): Sie hat so wenig eine
+    # Tastatur wie ein Ablauf - und sie scheiterte genauso still. Am
+    # 13. September meldete das Telefon zwei Minuten vor der Türe
+    # «zuhause», die Anlage blieb scharf, und die Sirene ging. Ihr
+    # Schalter ist die Stufe selbst: Wer «Wenn jemand heimkommt» auf
+    # «automatisch» stellt, hat entschieden, dass die Ortung entschärfen
+    # darf; auf «vorschlagen» ruft die Kopplung das Entschärfen gar
+    # nicht erst auf. Ein zweiter Schalter daneben wäre einer, den man
+    # vergisst.
+    if quelle.get("kind") == "presence":
+        return True
+    if quelle.get("kind") != "automation":
         return False
     return settings.get("automation_disarm", True) is not False
 
@@ -348,7 +361,7 @@ def quellen_name(quelle: Any) -> str:
         return f"Ablauf «{label}»"
     if quelle.get("kind") == "scene":
         return f"Szene «{label}»"
-    if quelle.get("kind") == "user":
+    if quelle.get("kind") in ("user", "presence"):
         return label
     return ""
 
@@ -947,3 +960,65 @@ def sensortest_bestaetigen(test: dict[str, Any], entity_id: str) -> dict[str, An
         "pending": [e for e in test["pending"] if e != entity_id],
         "confirmed": [*test.get("confirmed", []), entity_id],
     }
+
+
+#: Zustände, aus denen ein Neustart als «scharf» zurückkehrt.
+#:
+#: Alles ausser «unscharf»: Wer in der Eingangsverzögerung stand oder
+#: gerade ausgelöst hatte, war scharf - und das Haus soll es danach
+#: wieder sein.
+WIEDER_SCHARF = (ARMING, ARMED, ENTRY, VERDACHT, TRIGGERED, BRAND)
+
+
+def zustand_merken(
+    state: str, mode: str | None, zone: str | None, jetzt: float
+) -> dict[str, Any]:
+    """Was von der Anlage einen Neustart überleben muss (rein, testbar)."""
+    return {"state": state, "mode": mode, "zone": zone, "at": jetzt}
+
+
+def zustand_nach_neustart(
+    gespeichert: Any, modi: tuple[str, ...]
+) -> dict[str, Any]:
+    """Womit die Anlage nach einem Neustart hochkommt (rein, testbar).
+
+    Der Fall aus dem Betrieb (Punkt 642 der Werkbank): Die Anlage stand
+    seit 13:08 scharf, um 16:40 startete der Hub neu - und kam unscharf
+    hoch, weil der Zustand nur im Speicher lag. Zehn Minuten später
+    schaltete die Anwesenheits-Kopplung sie wieder scharf, mit einer
+    Meldung, die klang, als hätte der Hub eben erst gemerkt, dass
+    niemand da ist. Wer die Kopplung auf «vorschlagen» stehen hat oder
+    zuhause ist, dem bleibt die Anlage nach jedem Update einfach aus.
+
+    Drei Entscheidungen stecken darin:
+
+    * **Ein laufender Alarm kommt als «scharf» zurück, nicht als
+      «ausgelöst».** Eine Sirene, die Minuten nach dem Ereignis von
+      selbst losgeht, ist für alle im Haus unerklärlich - und der
+      Vorfall selbst steht im Verlauf. Geschützt ist das Haus trotzdem
+      wieder.
+    * **Der Modus muss es noch geben.** Ein eigener Modus, den jemand
+      inzwischen gestrichen hat, hat keine Sensorzuordnung mehr
+      (``guards``); scharf in einem Modus, den niemand kennt, wäre eine
+      Anlage, die nichts bewacht und trotzdem scharf aussieht. Dann
+      lieber ehrlich unscharf - mit einem Grund, den man lesen kann.
+    * **Kein Verfallsdatum.** Eine Anlage, die scharf war, bleibt es
+      auch nach zwei Tagen Stromausfall. Alt wird der Eintrag nur, wenn
+      niemand daheim war - und genau dann soll er gelten.
+    """
+    eintrag = gespeichert[0] if gespeichert else {}
+    if not isinstance(eintrag, dict):
+        eintrag = {}
+    state = str(eintrag.get("state") or DISARMED)
+    if state not in WIEDER_SCHARF:
+        return {"state": DISARMED, "mode": None, "zone": None, "grund": ""}
+    mode = str(eintrag.get("mode") or "") or None
+    if mode is None or mode not in modi:
+        return {
+            "state": DISARMED,
+            "mode": None,
+            "zone": None,
+            "grund": f"Modus «{mode or '?'}» gibt es nicht mehr",
+        }
+    zone = str(eintrag.get("zone") or "") or None
+    return {"state": ARMED, "mode": mode, "zone": zone, "grund": ""}

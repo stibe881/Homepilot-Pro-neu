@@ -99,6 +99,9 @@ interface Props {
   countdowns?: { text: string; date: string; on_start?: boolean }[];
   /** Karten-/Schnappschuss-Adresse eines Geräts – für die Saugerkarte. */
   snapshotUri?: (entity: Entity) => string | undefined;
+  /** Öffnet das Reinigungsblatt des Saugers, wenn es hochzählt - vom
+   *  Chip «saugt» in der Kopfzeile (Punkt 635). */
+  saugerSignal?: number;
   /** Als Favorit markierte Geräte-IDs. Kommt von aussen, weil der Stern
    *  in der Geräteliste in die Geräte-Einstellungen schreibt und nicht in
    *  die Entität – wer nur `entity.favorite` liest, sieht nie etwas. */
@@ -211,6 +214,7 @@ export function OverviewScreen({
   onActivateScene,
   countdowns,
   snapshotUri,
+  saugerSignal,
   favoriteIds = [],
   favoriteOrder,
   onReorderFavorites,
@@ -659,6 +663,7 @@ export function OverviewScreen({
               uri={snapshotUri?.(vacuum)}
               now={now}
               onCommand={onCommand}
+              oeffneSignal={saugerSignal}
             />
           </Tile>
         </View>

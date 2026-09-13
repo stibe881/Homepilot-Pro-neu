@@ -7591,3 +7591,253 @@ nicht mit Reparaturen aufgefüllt wird.
   leer ist, und nicht bei einem Titel mit «Probe: ». Stellen:
   `hub/homepilot/core/push.py`, `hub/homepilot/core/hub.py`,
   `hub/homepilot/core/pushbeispiel.py`.
+
+### 634. Eine ausgeschaltete Waschmaschine ist kein Ausfall ✓ erledigt
+
+Aus dem Haus, mit Bild der Ausfallliste: «Diese Meldung ist falsch.
+Die Waschmaschine ist einfach momentan ausgeschaltet.» Dort stand:
+«10.10.1.209 meldet seit 952 Minuten ‹503 – bedient nicht›. Sonst
+dauert das Minuten, nicht Stunden: Gerät einmal stromlos machen.»
+
+Der 503 ist bei V-ZUG der Standby-Takt des eingebauten Webservers -
+Minuten, dann antwortet er wieder. Was länger als eine halbe Stunde nur
+503 sagt, galt darum als Ausfall. Der Fall aus der Waschküche ist ein
+anderer: Maschine am Hauptschalter aus, das Funkmodul antwortet weiter
+mit 503, stundenlang. Das ist kein Ausfall, das ist **aus**.
+
+Jetzt heisst das Gerät nach der halben Stunde «Aus», bleibt erreichbar
+(das Modul antwortet ja), trägt keine Störung und kein Programm von
+vorhin - und steht nicht in der Liste der Ausfälle. Ins Log kommt eine
+Zeile, keine Warnung. Antwortet es wieder, ist es «wieder
+eingeschaltet». Dieselbe Regel wie beim Grill (Punkt 571): Ein Gerät,
+das zwischen zwei Einsätzen nicht antwortet, ist ausgeschaltet.
+
+Stellen: `hub/homepilot/integrations/vzug.py`, `hub/tests/test_vzug_verbindung.py`, `app/src/lib/haushalt.ts`
+
+### 635. Der Chip «saugt» öffnet das Reinigungsblatt ✓ erledigt
+
+Aus dem Haus, mit zwei Bildern - der Kopfzeile mit «saugt» und dem
+Blatt «Olga» mit Karte, Zimmern und Zonen: «Wenn man hier auf saugt
+klickt, soll man hierher kommen.»
+
+Der Chip führte bisher in die Geräteliste, nach dem Namen des Saugers
+gefiltert - die Kachel mit allen Bedienelementen. Wer auf «saugt»
+tippt, will aber sehen, wo er fährt, und ihn womöglich woandershin
+schicken; das steht auf dem Reinigungsblatt der Startseite, nicht auf
+der Kachel. Jetzt wechselt der Tipp auf die Startseite und öffnet dort
+das Blatt - über einen Zähler wie beim «Alles aus», damit derselbe
+Wunsch zweimal hintereinander zweimal öffnet und ein Rückweg auf die
+Startseite das Blatt nicht wieder aufreisst.
+
+Stellen: `app/src/components/VacuumHome.tsx`, `app/src/screens/OverviewScreen.tsx`, `app/src/screens/DashboardScreen.tsx`
+
+### 636. Pausieren, Finden und Zur Station auf dem Reinigungsblatt ✓ erledigt
+
+Aus dem Haus, mit dem Bild des Blatts «Olga»: «Auf dieser Karte soll
+man auch die Möglichkeit haben, den Sauger zu pausieren, Sauger finden
+und Sauger auf die Station zurückzufahren.»
+
+Das Blatt bot bisher nur an, eine Reinigung zu starten - komplett,
+Zimmer oder Zone. Wer aber über den Chip «saugt» hierherkommt (Punkt
+635), hat meist etwas anderes vor: anhalten, weil das Kind schläft,
+suchen, weil sie unter dem Bett steht, oder heimschicken. Das gab es
+nur im Stations-Fenster hinter dem Batteriesymbol. Jetzt steht eine
+Knopfreihe über «Abbrechen» und «Starten», und sie zeigt nur, was
+gerade Sinn hat (`saugerknoepfe`, rein): «Pausieren» während sie fährt,
+«Weiter» wenn sie pausiert (Roborock nimmt dafür dasselbe `start`),
+«Finden» immer, «Zur Station» nicht, wenn sie schon dort steht oder
+gerade hinfährt. Ein Tipp schickt den Befehl und schliesst das Blatt.
+
+Keine Browser-Probe: Der Demo-Hub hat keinen Sauger. Die Regel ist in
+Jest festgehalten.
+
+Stellen: `app/src/lib/saugerkarte.ts`, `app/src/components/VacuumHome.tsx`
+
+### 637. Der Fehler von Sauger oder Station steht auf dem Reinigungsblatt ✓ erledigt
+
+Aus dem Haus, mit dem Bild des Blatts «Olga»: «Auf dieser Karte soll
+man auch den Fehler von der Station oder vom Sauger sehen, sofern
+einer vorhanden ist.»
+
+Der Fehler kam bisher nur als Push-Nachricht und stand sonst nirgends -
+auf dem Blatt prangte «Komplette Reinigung starten» über einem
+Roboter, der unter dem Bett feststeckte. Jetzt steht über dem Hinweis
+ein roter Kasten mit dem, was Sauger oder Station melden. Übersetzt
+wird einmal, im Hub: `vacuum_state` legt die fertigen Sätze als
+`problems` an den Zustand (`watchrules.sauger_saetze`, herausgelöst
+aus `sauger_probleme`), dieselben wie in der Nachricht - sonst hiesse
+derselbe volle Tank an zwei Orten verschieden. Eine leere Liste, wenn
+nichts ansteht, kein fehlendes Feld: Beim Verschmelzen bliebe der
+behobene Fehler sonst kleben (derselbe Fall wie beim `error` selbst).
+Ein Hub ohne das Feld bekommt in der App die rohen Namen lesbar
+gemacht.
+
+Keine Browser-Probe: Der Demo-Hub hat keinen Sauger. Beide Hälften sind
+in Tests festgehalten.
+
+Stellen: `hub/homepilot/core/watchrules.py`, `hub/homepilot/integrations/roborock.py`, `app/src/lib/saugerkarte.ts`, `app/src/components/VacuumHome.tsx`
+### 638. «Niemand mehr zuhause» kam dreieinhalb Stunden zu spät ✓ erledigt
+
+Aus dem Haus, mit Bild des Sperrbildschirms: «Diese Meldungen sind um
+16:51 Uhr gekommen. Es ist aber seit ca. 13:00 Uhr niemand mehr
+zuhause.»
+
+Beides stimmt, und darin liegt der Fall. Die Kopplung rechnet nicht,
+wann jemand gegangen **ist**, sondern wann sein Telefon es gemeldet
+hat - und sie wartet auf den Letzten (`core/alarmanwesenheit.py`). Ein
+Kurzbefehl, der beim Verlassen nicht auslöst oder dessen POST am
+Zonenrand ohne Netz verfällt, hält damit das ganze Haus auf «jemand
+da», bis dieses eine Telefon sich das nächste Mal überhaupt meldet.
+Zehn Minuten Nachlauf kommen obendrauf - die sind Absicht und erklären
+die 16:51 nicht, die 16:41 davor schon.
+
+Von aussen ist das nicht zu unterscheiden: Die Anlage meldet «niemand
+mehr zuhause», ohne zu sagen, seit wann sie das denkt und an wem es
+hing. Neu sagt sie es: `docker exec homepilot-hub python -m
+homepilot.anwesenheitscheck` stellt je Person Zustand, Quelle, letzte
+Meldung und Akku hin, darunter das Kommen und Gehen der letzten 24
+Stunden, die Rechnung «alle weg seit … (zuletzt ging: …) → frühestens
+scharf um …» und was die Anlage im selben Zeitraum tat, samt «durch
+Anwesenheit». Damit steht in einer Ausgabe, ob die Kopplung zu spät
+war oder die Meldung.
+
+Wie die anderen sechs Werkzeuge läuft es auch aus der App (System →
+Prüfwerkzeuge) - gerade dieses: Die Frage stellt man, während man
+unterwegs ist, nicht am Terminal des Hubs.
+
+Stellen: `hub/homepilot/anwesenheitscheck.py`, `hub/homepilot/core/alarmanwesenheit.py` (`letzter_weggang`), `hub/homepilot/api/routes/diagnose.py`, `hub/tests/test_anwesenheitscheck.py`, `hub/tests/test_alarmanwesenheit.py`, `docs/geofence.md`
+
+### 639. Das Stations-Fenster spricht Deutsch ✓ erledigt
+
+Aus dem Haus, mit dem Bild des Fensters «Ladestation»: «Hier stehen
+Texte noch auf Englisch und mit Underline.» Zu sehen war
+`waste_water_tank_full` in Rot, `shell_3s_dock`, eine Zeile
+`dirty_water: full_not_installed`, dazu Waschgang, Trocknung und
+Entleerung als nackte 0 und 1 - und unten ein leerer Knopf.
+
+Die Zeilen kommen jetzt aus einer reinen Funktion
+(`stationszeilen`): Störungen stehen als die Sätze des Hubs (Punkt
+637, dieselben wie in der Push-Nachricht), rot, und die Störfelder
+erscheinen nicht nochmals roh darunter - der volle Schmutzwassertank
+stand vorher zweimal da, einmal als Störung der Station und einmal als
+Tankstand. Die Betriebswerte sind übersetzt: Waschgang «Keiner» oder
+«Phase n», Trocknung und Staubentleerung «Aus» oder «Läuft», die
+automatische Entleerung «Aus» oder «Ein». Der Stationstyp wird aus dem
+Bezeichner der Bibliothek zum Modellnamen («Shell 3S»); die Bauarten
+mit deutschem Namen behalten ihn.
+
+Der leere Knopf unten war «Schliessen» mit `flex: 1` - in der Zeile
+neben «Starten» richtig, allein in der Spalte des Fensters schrumpfte
+er auf einen leeren Rahmen, sobald das Fenster höher war als der
+Bildschirm. Das Wartungs-Fenster hatte denselben Knopf.
+
+Stellen: `app/src/lib/saugerkarte.ts`, `app/src/components/VacuumHome.tsx`
+
+### 640. Ein Rauchmelder, der schweigt, wird gemeldet ✓ erledigt
+
+Aus dem Haus, mit dem Bild der Geräteliste - «Rauchwarnmelder Levin ·
+nicht erreichbar»: «Wenn ein Rauchmelder nicht erreichbar ist, soll es
+eine Push geben und auch bei Einstellungen → Brandmeldeanlage
+anzeigen.»
+
+«Nicht erreichbar» stand nur an der Kachel in der Geräteliste. Die
+Brandmeldeanlage meldete derweil «Bereit – 3 Melder wachen» in Grün -
+und ein Rauchmelder, der schweigt, ist genau der, der im Brandfall
+fehlt. Jetzt prüft die Anlage in ihrem Minutentakt, wer schweigt
+(`unerreichbar`, rein: echte Melder, nicht abgeschaltet, keine
+Kamera - die hört nur mit, und ihren Ausfall meldet der Wächter der
+Anbindung). Nach zehn Minuten Karenz geht eine Wartungs-Meldung
+(«Rauchmelder meldet sich nicht», mit Raum und Dauer, Tipp führt in die
+Brandmeldeanlage), genau eine je Ausfall, und eine zweite, wenn er
+wieder da ist (`ausfall_lage`, rein). Beides steht im Verlauf der
+Anlage. Die Karenz gilt nur der Nachricht: Im Zustand steht
+`unavailable` sofort, und die Kopfzeile der Seite sagt in Orange «2 von
+3 Meldern wachen – 1 meldet sich nicht» statt «Bereit» in Grün. Die
+Melderzeile darunter sagte schon vorher «meldet sich nicht».
+
+Nach einem Neustart des Hubs kommt die Meldung nach der Karenz noch
+einmal - Absicht: Ein Rauchmelder, der immer noch fehlt, darf sich in
+Erinnerung rufen.
+
+Stellen: `hub/homepilot/core/brandmelder.py`, `hub/homepilot/integrations/brand.py`, `app/src/lib/brand.ts`
+
+### 641. Die Heimkehr scheiterte still an der PIN ✓ erledigt
+
+Aus dem Haus: «Ich bin nachhause gekommen und es hat die Alarmanlage
+ausgelöst.» Die Datenablage des Hubs vom 13. September sagt, was war:
+Kopplung «Wenn jemand heimkommt» auf «automatisch», Eingangsverzögerung
+0 s. Um 18:04:28 meldete das erste Telefon «zuhause», um 18:04:32 das
+zweite. Um 18:06:30 ging die Wohnungstüre auf (Verdacht), um 18:06:34
+löste der Eingang aus, um 18:07:05 heulte die Sirene, und um 18:14:06
+tippte jemand die PIN. Zehn Minuten lang stand «zuhause» im Zustand,
+und die Anlage schaltete nicht - nicht sofort (Punkt 551), nicht im
+Takt, nicht aus der Sirene heraus.
+
+Der Grund: Seit eine PIN gesetzt ist, weist `check_pin` jedes
+Entschärfen ohne Code ab - ausser die Quelle ist ein Ablauf
+(`ohne_pin_erlaubt`, dort steht die ganze Begründung, und dort steht
+auch, dass genau dieser Fehler für Abläufe schon einmal passiert ist).
+Die Kopplung rief `disarm` ohne Quelle auf, kam als «Gerät» an und
+scheiterte bei jeder Heimkehr mit «Zum Entschärfen braucht es die
+PIN.» - im Log, nirgends sonst. Die Tests zur Heimkehr liefen ohne PIN
+und waren grün.
+
+Jetzt hat die Kopplung eine eigene Quelle (`source.presence_source`),
+und `ohne_pin_erlaubt` lässt sie durch: Ihr Schalter ist die Stufe
+«automatisch» selbst; auf «vorschlagen» ruft sie das Entschärfen gar
+nicht auf. Der strenge Schalter für Abläufe gilt für sie nicht - ein
+zweiter Schalter daneben wäre einer, den man vergisst. Und scheitert
+es je wieder, ist es nicht mehr still: Verlaufszeile und Nachricht
+«Konnte nicht unscharf schalten» mit dem Grund. Der Test stellt den
+Tag nach: PIN gesetzt, scharf, Telefon meldet «zuhause» - unscharf,
+und im Verlauf steht «Anwesenheit».
+
+Zwei Dinge aus derselben Ablage, hier nur festgehalten: Die Anlage
+kennt ihren Zustand nach einem Neustart nicht mehr - um 16:50:54
+schaltete die Anwesenheit «scharf», ohne dass je jemand «unscharf»
+geschaltet hätte, also war der Hub um 16:40 neu gestartet und das Haus
+zehn Minuten unbewacht. Und die Zone «quartier» umschliesst «home»:
+Ein Telefon springt beim Ankommen zwischen beiden hin und her, und
+«quartier» zählt als weg.
+
+Stellen: `hub/homepilot/core/source.py`, `hub/homepilot/integrations/alarm_rules.py`, `hub/homepilot/integrations/alarm.py`, `hub/tests/test_alarm.py`, `hub/tests/test_alarm_pin.py`
+### 642. Ein Neustart entschärfte die Alarmanlage ✓ erledigt
+
+Gefunden beim Nachgehen von Punkt 638, im Verlauf der Anlage: 13:08:48
+«Ausser Haus scharf geschaltet, durch Anwesenheit» - und um 16:50:54
+dasselbe noch einmal. Dazwischen kein einziges Entschärfen. Der Grund
+stand in `alarm.py`: `setup()` setzte `self._state = DISARMED`, und der
+Zustand lag nur im Speicher. Jeder Neustart des Behälters - also jedes
+Update - schaltete die Anlage still aus.
+
+Aufgefallen ist es nur, weil die Kopplung auf «automatisch» steht: Sie
+schaltete zehn Minuten später wieder scharf, mit einer Meldung, die
+klang, als hätte der Hub eben erst gemerkt, dass niemand da ist. Wer
+sie auf «vorschlagen» stehen hat oder wer zuhause ist, dem bliebe die
+Anlage nach einem Update einfach aus - unbemerkt, denn eine Anlage, die
+nicht scharf ist, macht kein Geräusch.
+
+Jetzt überlebt der Zustand den Neustart (`alarm_state` in der
+`hub.data`, geschrieben in `_publish` und nur, wenn sich Zustand, Modus
+oder Zone wirklich geändert haben - der laufende Countdown
+veröffentlicht im Sekundentakt). Drei Entscheidungen dabei:
+
+- **Ein laufender Alarm kommt als «scharf» zurück, nicht als
+  «ausgelöst».** Eine Sirene, die Minuten nach dem Ereignis von selbst
+  losgeht, ist für alle im Haus unerklärlich; der Vorfall steht im
+  Verlauf, und geschützt ist das Haus wieder.
+- **Den Modus muss es noch geben.** Ein eigener Modus, den jemand
+  inzwischen gestrichen hat, hat keine Sensorzuordnung mehr - scharf in
+  einem Modus, den niemand kennt, wäre eine Anlage, die nichts bewacht
+  und trotzdem scharf aussieht. Dann lieber unscharf, aber mit einem
+  Grund im Verlauf.
+- **Kein Verfallsdatum.** Was scharf war, ist es auch nach zwei Tagen
+  Stromausfall.
+
+Und man sieht es: «Nach dem Neustart wieder scharf (Ausser Haus)» steht
+im Verlauf, statt dass eine Anlage stumm hochkommt. Ein Test spielt den
+Neustart wirklich nach - zwei Hubs nacheinander auf derselben
+Datendatei -, und er fällt nachweislich, wenn man die Wiederherstellung
+herausnimmt.
+
+Stellen: `hub/homepilot/integrations/alarm.py`, `hub/homepilot/integrations/alarm_rules.py`, `hub/tests/test_alarm_neustart.py`

@@ -48,6 +48,17 @@ def scene_source(scene_id: str, name: str) -> dict[str, Any]:
     return {"kind": "scene", "label": name, "id": scene_id}
 
 
+def presence_source() -> dict[str, Any]:
+    """Die Anwesenheits-Kopplung der Alarmanlage als Quelle (Punkt 641).
+
+    Eine eigene Art und nicht «automation»: Die Kopplung ist kein
+    aufgeschriebener Ablauf, sondern ein Schalter der Anlage selbst -
+    und sie soll im Verlauf so heissen, wie sie in den Einstellungen
+    heisst.
+    """
+    return {"kind": "presence", "label": "Anwesenheit"}
+
+
 def current() -> dict[str, Any]:
     """Die aktuelle Quelle – ohne gesetzte Quelle war es das Gerät selbst."""
     return _current.get() or DEVICE
