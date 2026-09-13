@@ -2454,3 +2454,68 @@ def test_next_run_und_tagesplan_kennen_zeitraum_und_kalender():
             await hub.stop()
 
     asyncio.run(check())
+
+
+# ── «seit mindestens … Minuten» (Punkt 595) ──────────────────────────────
+
+
+def test_zustand_alt_genug_verlangt_ein_bekanntes_alter():
+    from homepilot.core.automation import zustand_alt_genug
+
+    jetzt = 10_000.0
+    # Ohne min_age gilt immer - auch ohne last_change.
+    assert zustand_alt_genug({}, None, jetzt)
+    assert zustand_alt_genug({"min_age": "quatsch"}, None, jetzt)
+    # Mit min_age: unbekanntes last_change heisst nicht erfüllt.
+    assert not zustand_alt_genug({"min_age": 30}, None, jetzt)
+    assert not zustand_alt_genug({"min_age": 30}, jetzt - 29 * 60, jetzt)
+    assert zustand_alt_genug({"min_age": 30}, jetzt - 30 * 60, jetzt)
+    assert zustand_alt_genug({"min_age": 30}, jetzt - 3 * 3600, jetzt)
+
+
+def test_describe_condition_nennt_die_zu_kurze_dauer():
+    bedingung = {"type": "state", "entity_id": "Flur", "equals": "off", "min_age": 30}
+    assert (
+        describe_condition(bedingung, "off", alter=4.2)
+        == "Flur ist erst seit 4 Min «off», verlangt sind 30"
+    )
+    assert "seit wann, weiss der Hub nicht" in describe_condition(bedingung, "off", alter=None)
+    # Passt schon der Wert nicht, ist die Dauer nicht die Auskunft.
+    assert describe_condition(bedingung, "on", alter=4.0) == "Flur ist «on», verlangt ist «off»"
+
+
+def test_eine_bedingung_mit_mindestalter_wartet_auf_den_alten_zustand():
+    """«Willkommenslicht nur, wenn seit über 1 h niemand da war» - sonst
+    meldet der Gang zum Briefkasten ein zweites Willkommen."""
+
+    async def check():
+        hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+        await hub.start()
+        try:
+            engine = hub.automations
+            licht = hub.registry.get("demo.light_livingroom")
+            licht.state["state"] = "off"
+            bedingung = {
+                "type": "state",
+                "entity_id": "demo.light_livingroom",
+                "equals": "off",
+                "min_age": 30,
+            }
+            # Seit wann, weiss der Hub nicht: nicht erfüllt.
+            licht.last_change = None
+            assert engine._check_condition(bedingung) is False
+            licht.last_change = time.time() - 5 * 60
+            assert engine._check_condition(bedingung) is False
+            licht.last_change = time.time() - 45 * 60
+            assert engine._check_condition(bedingung) is True
+            # Ohne min_age wie bisher.
+            licht.last_change = None
+            assert engine._check_condition({**bedingung, "min_age": None}) is True
+            # Die Begründung im Trockenlauf nennt die Dauer.
+            licht.last_change = time.time() - 5 * 60
+            ablauf = Automation(id="w", alias="Willkommen", triggers=[], conditions=[bedingung])
+            assert "erst seit 5 Min" in engine.dry_run(ablauf)["skipped"][0]
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())

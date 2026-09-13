@@ -984,6 +984,9 @@ export interface StateCondition {
   value: string;
   /** Welcher Messwert verglichen wird. Leer = der Zustand selbst. */
   attribute?: string;
+  /** «seit mindestens … Minuten» (Punkt 595): Der Zustand muss so lange
+   *  schon gelten. Leer = egal, seit wann. */
+  minAge?: string;
 }
 
 /** Eine Und/Oder-Gruppe von Gerätebedingungen (Punkt 152).
@@ -1740,6 +1743,10 @@ export function stateConditionToConfig(entry: StateCondition): BausteinConfig | 
   // Ohne Angabe vergleicht der Hub den Zustand selbst - dann gehört das
   // Feld auch nicht in die gespeicherte Form.
   if (entry.attribute) base.attribute = entry.attribute;
+  // «seit mindestens» (Punkt 595): nur mit einer echten Zahl - eine Null
+  // hiesse dasselbe wie kein Feld und stünde nur im Weg.
+  const minAge = Math.round(Number(entry.minAge) || 0);
+  if (minAge > 0) base.min_age = minAge;
   if (entry.op === 'above') return { ...base, above: Number(entry.value) || 0 };
   if (entry.op === 'below') return { ...base, below: Number(entry.value) || 0 };
   return { ...base, equals: entry.value };
@@ -2437,6 +2444,7 @@ function stateConditionFromConfig(entry: BausteinConfig): StateCondition {
     op: ('above' in entry ? 'above' : 'below' in entry ? 'below' : 'is') as Compare,
     value: String(entry.above ?? entry.below ?? entry.equals ?? 'on'),
     ...(entry.attribute ? { attribute: String(entry.attribute) } : {}),
+    ...(Number(entry.min_age) > 0 ? { minAge: String(entry.min_age) } : {}),
   };
 }
 

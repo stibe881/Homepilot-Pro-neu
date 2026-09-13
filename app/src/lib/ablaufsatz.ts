@@ -115,9 +115,13 @@ export function bedingungSatz(condition: Roh, entities: Entity[]): string {
     return teile.join(' ') || 'immer';
   }
   const wer = nameVon(entities, condition.entity_id);
-  if (condition.above !== undefined) return `${wer} über ${condition.above}`;
-  if (condition.below !== undefined) return `${wer} unter ${condition.below}`;
-  return `${wer} ist ${condition.equals ?? '?'}`;
+  // «seit mindestens» (Punkt 595) gehört in den Satz: «Flur ist off seit
+  // mindestens 30 Min» ist die ganze Bedingung, «Flur ist off» nur die halbe.
+  const seit =
+    Number(condition.min_age) > 0 ? ` seit mindestens ${Number(condition.min_age)} Min` : '';
+  if (condition.above !== undefined) return `${wer} über ${condition.above}${seit}`;
+  if (condition.below !== undefined) return `${wer} unter ${condition.below}${seit}`;
+  return `${wer} ist ${condition.equals ?? '?'}${seit}`;
 }
 
 const BEFEHL: Record<string, string> = {

@@ -26,6 +26,7 @@ import {
   EntityPicker,
   NumberField,
   Picker,
+  SeitMindestens,
 } from './felder';
 import { makeStyles } from './stil';
 import { tiefen } from '../../lib/ablaufhilfen';
@@ -1160,6 +1161,10 @@ export function BedingungsListe({
                   onSelect={(attribute) => setEntry(index, { attribute })}
                 />
               ) : null}
+              <SeitMindestens
+                value={entry.minAge ?? ''}
+                onCommit={(minAge) => setEntry(index, { minAge })}
+              />
             </View>
             <Pressable
               onPress={() =>

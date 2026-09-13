@@ -13,7 +13,8 @@ Trigger:
   - {type: weather_warning, min_severity?, entity_id?}   # neue Warnung (252)
 
 Bedingungen:
-  - {type: state, entity_id, attribute?: "state", equals? | above? | below?}
+  - {type: state, entity_id, attribute?: "state", equals? | above? | below?,
+     min_age?: minuten}   # «seit mindestens» - aus last_change (595)
   - {type: time, after?: "HH:MM", before?: "HH:MM", weekdays?: [0..6],
      except_holidays?: true}   # Luzerner Feiertage, siehe feiertage.py (154)
   - {type: sun, state: "up"|"down"}   # steht die Sonne über dem Horizont?
@@ -767,8 +768,63 @@ def timed_actions(actions: list[dict[str, Any]], name_of: Any = None) -> list[st
     return lines
 
 
+def wert_passt(condition: dict[str, Any], value: Any) -> bool:
+    """Passt der Istwert zu equals/above/below? (rein, testbar)
+
+    Ohne Vergleich gilt «passt» - eine Bedingung, die nur ein Gerät nennt,
+    ist erfüllt, sobald es das Gerät gibt (wie in _check_condition).
+    """
+    if "equals" in condition:
+        return value == condition["equals"]
+    try:
+        if "above" in condition:
+            return value is not None and float(value) > float(condition["above"])
+        if "below" in condition:
+            return value is not None and float(value) < float(condition["below"])
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def parse_min_age(value: Any) -> float:
+    """«seit mindestens … Minuten» an einer Zustandsbedingung (rein, testbar).
+
+    Punkt 595 der Werkbank. Unbrauchbares und Negatives heisst null - also
+    keine Anforderung: Ein Tippfehler soll die Bedingung nicht für immer
+    unerfüllbar machen.
+    """
+    try:
+        minuten = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, minuten)
+
+
+def zustand_alt_genug(
+    condition: dict[str, Any], last_change: float | None, jetzt_ts: float
+) -> bool:
+    """Gilt der Zustand schon lange genug? (rein, testbar)
+
+    Punkt 595 der Werkbank: «Sauger starten, nur wenn seit 30 Min keine
+    Bewegung im Wohnzimmer» - der Hub führt an jeder Entität
+    ``last_change``, benutzt hat es nur die Anzeige. Ohne ``min_age``
+    gilt immer. Ein unbekanntes ``last_change`` heisst *nicht erfüllt*:
+    Wer «seit 30 Minuten» verlangt, will keinen Ablauf, der nach einem
+    Neustart sofort läuft, weil niemand weiss, seit wann.
+    """
+    minuten = parse_min_age(condition.get("min_age"))
+    if minuten <= 0:
+        return True
+    if last_change is None:
+        return False
+    return (jetzt_ts - float(last_change)) >= minuten * 60
+
+
 def describe_condition(
-    condition: dict[str, Any], value: Any, ferien_name: str | None = None
+    condition: dict[str, Any],
+    value: Any,
+    ferien_name: str | None = None,
+    alter: float | None = None,
 ) -> str:
     """Warum eine Bedingung nicht passte, in einem Satz (rein, testbar).
 
@@ -777,6 +833,8 @@ def describe_condition(
 
     ``ferien_name`` kommt von aussen herein (Punkt 470): Die Ferientermine
     liegen in der Ablage des Hubs, und diese Funktion soll rein bleiben.
+    ``alter`` ebenso (Punkt 595): Minuten seit der letzten Änderung des
+    Geräts, None wenn der Hub es nicht weiss.
     """
     ctype = condition.get("type", "state")
     if ctype == "group":
@@ -827,6 +885,16 @@ def describe_condition(
         return f"Ein {was} läuft gerade - verlangt ist keiner"
     name = condition.get("entity_id", "Gerät")
     shown = "nichts" if value is None else f"«{value}»"
+    # «seit mindestens» (Punkt 595): Passt der Wert, war nur die Dauer zu
+    # kurz - dann soll der Satz die Dauer nennen, nicht den Wert.
+    verlangt = parse_min_age(condition.get("min_age"))
+    if verlangt > 0 and value is not None and wert_passt(condition, value):
+        if alter is None:
+            return (
+                f"{name} ist {shown}, aber seit wann, weiss der Hub nicht"
+                f" - verlangt sind {verlangt:g} Min"
+            )
+        return f"{name} ist erst seit {alter:.0f} Min {shown}, verlangt sind {verlangt:g}"
     if "above" in condition:
         return f"{name} ist {shown}, verlangt ist über {condition['above']}"
     if "below" in condition:
@@ -3295,7 +3363,7 @@ class AutomationEngine:
             self.hub.data.get(schulferien.STORE_KEY), date.today()
         )
         failed = [
-            describe_condition(c, self._value_of(c), ferien_name)
+            describe_condition(c, self._value_of(c), ferien_name, self._alter_of(c))
             for c, ok in results
             if not ok
         ]
@@ -3368,6 +3436,16 @@ class AutomationEngine:
             return None
         return entity.state.get(condition.get("attribute", "state"))
 
+    def _alter_of(self, condition: dict[str, Any]) -> float | None:
+        """Minuten seit der letzten Änderung des Geräts – für «seit
+        mindestens» (Punkt 595); None, wenn der Hub es nicht weiss."""
+        if condition.get("type", "state") != "state":
+            return None
+        entity = self.hub.registry.get(condition.get("entity_id", ""))
+        if entity is None or entity.last_change is None:
+            return None
+        return max(0.0, (time.time() - float(entity.last_change)) / 60)
+
     def _check_condition(self, condition: dict[str, Any]) -> bool:
         ctype = condition.get("type", "state")
         if ctype == "group":
@@ -3388,13 +3466,11 @@ class AutomationEngine:
             if entity is None:
                 return False
             value = entity.state.get(condition.get("attribute", "state"))
-            if "equals" in condition:
-                return value == condition["equals"]
-            if "above" in condition:
-                return value is not None and float(value) > float(condition["above"])
-            if "below" in condition:
-                return value is not None and float(value) < float(condition["below"])
-            return True
+            if not wert_passt(condition, value):
+                return False
+            # «seit mindestens … Minuten» (Punkt 595): Das gilt auch für
+            # wait_until und den «wenn»-Schritt - beide kommen hier durch.
+            return zustand_alt_genug(condition, entity.last_change, time.time())
         if ctype == "time":
             days = parse_weekdays(condition.get("weekdays"))
             if days and datetime.now().weekday() not in days:
@@ -4204,7 +4280,9 @@ class AutomationEngine:
                 log.info(
                     "Automation '%s': Wartezeit abgelaufen, %s",
                     automation.alias,
-                    describe_condition(action, self._value_of(action)),
+                    describe_condition(
+                        action, self._value_of(action), alter=self._alter_of(action)
+                    ),
                 )
                 return f"Frist abgelaufen ({timeout:.0f} s)"
             await asyncio.sleep(WAIT_POLL)

@@ -50,6 +50,21 @@ describe('ablaufSatz', () => {
     expect(ablaufSatz({ ...basis, match: 'any' }, entities, scenes)).toContain(' oder ');
   });
 
+  it('sagt «seit mindestens», wenn die Bedingung eine Dauer verlangt (Punkt 595)', () => {
+    const satz = ablaufSatz(
+      {
+        triggers: [{ type: 'time', at: '10:00' }],
+        conditions: [{ type: 'state', entity_id: 'hm.bewegung', equals: 'off', min_age: 30 }],
+        actions: [{ type: 'command', entity_id: 'hue.flur', command: 'turn_on' }],
+        otherwise: [],
+        match: 'all',
+      },
+      entities,
+      scenes
+    );
+    expect(satz).toContain('Bewegung Flur ist off seit mindestens 30 Min');
+  });
+
   it('nennt Szenen beim Namen und den Sonst-Zweig beim Wort', () => {
     const satz = ablaufSatz(
       {

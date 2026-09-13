@@ -9,6 +9,7 @@ import {
   ASSISTENT_SCHRITTE,
   assistentNoetig,
   buildConditions,
+  stateConditionToConfig,
   dannFehlt,
   dannStand,
   feinStand,
@@ -146,6 +147,30 @@ describe('Nachricht mit Verzögerung', () => {
   it('nimmt Unsinn aus einer alten Datei als «sofort»', () => {
     expect(actionsToSteps([{ type: 'notify', delay: 'gleich' }])[0].notifyVerzoegerung).toBe(0);
     expect(actionsToSteps([{ type: 'notify' }])[0].notifyVerzoegerung).toBe(0);
+  });
+});
+
+describe('«seit mindestens» an der Gerätebedingung (Punkt 595)', () => {
+  it('wandert als min_age in die gespeicherte Form und zurück', () => {
+    const entry = { entity_id: 'a.b', op: 'is' as const, value: 'off', minAge: '30' };
+    expect(stateConditionToConfig(entry)).toEqual({
+      type: 'state',
+      entity_id: 'a.b',
+      equals: 'off',
+      min_age: 30,
+    });
+    // Leer oder null heisst «egal seit wann» - dann fehlt das Feld.
+    expect(stateConditionToConfig({ ...entry, minAge: '' })).not.toHaveProperty('min_age');
+    expect(stateConditionToConfig({ ...entry, minAge: '0' })).not.toHaveProperty('min_age');
+    const draft = toDraft({
+      id: 'x',
+      alias: 'X',
+      triggers: [],
+      conditions: [{ type: 'state', entity_id: 'a.b', equals: 'off', min_age: 30 }],
+      actions: [],
+      editable: true,
+    });
+    expect(draft.stateConditions[0].minAge).toBe('30');
   });
 });
 

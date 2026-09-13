@@ -39,6 +39,7 @@ import {
   EntityPicker,
   Field,
   NumberField,
+  SeitMindestens,
   } from './felder';
 import { makeStyles } from './stil';
 import { zuletztGefeuert } from '../../lib/verwaist';
@@ -682,6 +683,10 @@ export function Editor({
                     Personen.
                   </Text>
                 ) : null}
+                <SeitMindestens
+                  value={entry.minAge ?? ''}
+                  onCommit={(minAge) => setEntry({ minAge })}
+                />
               </View>
             );
           })}
@@ -963,6 +968,10 @@ export function Editor({
                             placeholder="z.B. 30"
                           />
                         )}
+                        <SeitMindestens
+                          value={entry.minAge ?? ''}
+                          onCommit={(minAge) => setEntry({ minAge })}
+                        />
                       </View>
                       <Pressable
                         onPress={() =>
