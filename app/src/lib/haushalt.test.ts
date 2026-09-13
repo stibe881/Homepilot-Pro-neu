@@ -87,10 +87,15 @@ describe('Stillstehende Maschinen heissen «Bereit»', () => {
     // «Standby» stand so an Waschmaschine, Geschirrspüler und Tumbler -
     // ein Wort aus dem Datenblatt an einer Stelle, an der man wissen
     // will, ob man Wäsche hineintun kann.
-    for (const wert of ['idle', 'off', 'standby', 'ready']) {
+    for (const wert of ['idle', 'standby', 'ready']) {
       expect(applianceLine(geraet2(wert), '').text).toBe('Bereit');
       expect(applianceLine(geraet2(wert), '').running).toBe(false);
     }
+    // «off» ist seit Punkt 634 nicht mehr «Bereit», sondern «Aus»: Der
+    // Hub setzt es, wenn die Maschine am Hauptschalter aus ist - in die
+    // muss man erst einschalten, bevor Wäsche hinein kann.
+    expect(applianceLine(geraet2('off'), '').text).toBe('Aus');
+    expect(applianceLine(geraet2('off'), '').running).toBe(false);
     // «unknown» ist etwas anderes: Da hat der Hub noch nichts gehört.
     expect(applianceLine(geraet2('unknown'), '').text).toBe('Unbekannt');
   });
