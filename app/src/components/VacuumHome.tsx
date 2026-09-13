@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -240,11 +240,17 @@ export function VacuumHome({
   uri,
   now,
   onCommand,
+  oeffneSignal = 0,
 }: {
   entity: Entity;
   uri?: string;
   now: Date;
   onCommand: (entityId: string, command: string, data?: CommandData) => void;
+  /** Zählt hoch, wenn jemand von aussen das Reinigungsblatt will - der
+   *  Chip «saugt» in der Kopfzeile (Punkt 635). Ein Zähler und kein
+   *  Schalter, damit derselbe Wunsch zweimal hintereinander zweimal
+   *  öffnet (dasselbe Muster wie AllOff.openSignal). */
+  oeffneSignal?: number;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -253,6 +259,14 @@ export function VacuumHome({
   const robot = Array.isArray(entity.state.robot) ? (entity.state.robot as number[]) : undefined;
   const cleaning = saugerFaehrt(entity.state.state);
   const [dialog, setDialog] = useState<{ mode: CleanMode; preselect?: number } | null>(null);
+  // Nur ein *neues* Signal öffnet - beim Zurückkommen auf die Startseite
+  // sähe die Karte sonst den alten Stand und risse das Blatt wieder auf.
+  const verbraucht = useRef(oeffneSignal);
+  useEffect(() => {
+    if (oeffneSignal <= verbraucht.current) return;
+    verbraucht.current = oeffneSignal;
+    setDialog({ mode: 'full' });
+  }, [oeffneSignal]);
   const [stationOpen, setStationOpen] = useState(false);
   const [careOpen, setCareOpen] = useState(false);
   const maintenance: WartungsTeil[] = Array.isArray(entity.state.maintenance)

@@ -7613,3 +7613,20 @@ eingeschaltet». Dieselbe Regel wie beim Grill (Punkt 571): Ein Gerät,
 das zwischen zwei Einsätzen nicht antwortet, ist ausgeschaltet.
 
 Stellen: `hub/homepilot/integrations/vzug.py`, `hub/tests/test_vzug_verbindung.py`, `app/src/lib/haushalt.ts`
+
+### 635. Der Chip «saugt» öffnet das Reinigungsblatt ✓ erledigt
+
+Aus dem Haus, mit zwei Bildern - der Kopfzeile mit «saugt» und dem
+Blatt «Olga» mit Karte, Zimmern und Zonen: «Wenn man hier auf saugt
+klickt, soll man hierher kommen.»
+
+Der Chip führte bisher in die Geräteliste, nach dem Namen des Saugers
+gefiltert - die Kachel mit allen Bedienelementen. Wer auf «saugt»
+tippt, will aber sehen, wo er fährt, und ihn womöglich woandershin
+schicken; das steht auf dem Reinigungsblatt der Startseite, nicht auf
+der Kachel. Jetzt wechselt der Tipp auf die Startseite und öffnet dort
+das Blatt - über einen Zähler wie beim «Alles aus», damit derselbe
+Wunsch zweimal hintereinander zweimal öffnet und ein Rückweg auf die
+Startseite das Blatt nicht wieder aufreisst.
+
+Stellen: `app/src/components/VacuumHome.tsx`, `app/src/screens/OverviewScreen.tsx`, `app/src/screens/DashboardScreen.tsx`

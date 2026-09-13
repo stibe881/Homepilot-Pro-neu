@@ -543,6 +543,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Rückfrage öffnet sich dann von selbst, statt dass die App nur
   // aufgeht und nichts tut.
   const [allOffSignal, setAllOffSignal] = useState(0);
+  // Der Chip «saugt» öffnet das Reinigungsblatt des Saugers auf der
+  // Startseite (Punkt 635) - ein Zähler wie beim «Alles aus».
+  const [saugerSignal, setSaugerSignal] = useState(0);
   // Der Tipp auf Termin oder Geburtstag in der Startkarte öffnet die
   // Kalender-Fenster des OverviewScreens - dasselbe Muster wie beim
   // «Alles aus»-Signal: Der Zähler stösst an, die Art sagt welches.
@@ -2855,6 +2858,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               // derselbe Inhalt zweimal untereinander wäre keiner.
               ohneKopf
               kalenderSignal={kalenderSignal}
+              saugerSignal={saugerSignal}
               pending={pending}
               wide={hasRail}
               onCommand={guardedCommand}
@@ -4402,13 +4406,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     ? (art) => setKalenderSignal((s) => ({ art, n: s.n + 1 }))
                     : undefined
                 }
-                // Ein Tipp auf «saugt» öffnet die Karte des Saugroboters -
-                // derselbe Weg wie ein Suchtreffer: in die Geräteliste,
-                // nach seinem Namen gefiltert, mit allen Bedienelementen.
-                onVacuum={(entityId) => {
-                  const sauger = entities.find((e) => e.id === entityId);
-                  setSection('devices');
-                  setQuery(sauger?.name ?? 'Sauger');
+                // Ein Tipp auf «saugt» öffnet das Reinigungsblatt des
+                // Saugers auf der Startseite (Punkt 635) - mit Karte,
+                // Zimmern und Zonen. Vorher führte er in die Geräteliste,
+                // nach dem Namen gefiltert: die Kachel, nicht das Blatt.
+                onVacuum={() => {
+                  setSection('start');
+                  setSaugerSignal((n) => n + 1);
                 }}
               />
             </Auffangnetz>
