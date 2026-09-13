@@ -80,6 +80,9 @@ ZIELE: dict[str, str] = {
     # Ein Gutschein, der verfällt, wird in seiner Kachel eingelöst oder
     # verlängert - dort steht die Nummer, die man dafür braucht.
     "vouchers": "familie:vouchers",
+    # Die selbst gestellte Erinnerung (Punkt 603): dorthin, wo man sie
+    # bestätigt oder weiterstellt.
+    "reminder": "familie:reminders",
     # Wer wo ist, steht unter «Familie und Freunde».
     "presence": "bereich:personen",
     # Bewegung sieht man auf der Kamera - welche, sagt die Nachricht

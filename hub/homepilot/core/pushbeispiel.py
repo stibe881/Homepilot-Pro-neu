@@ -85,6 +85,7 @@ BEISPIELE: dict[str, tuple[str, str]] = {
     "presence": ("Telefon fast leer", "Bines Telefon hat noch 12 % - die Ortung fällt sonst aus."),
     "weekahead": ("Die Woche voraus", "3 Termine, 2 Ämtli, 1 Geburtstag."),
     "vouchers": ("Gutschein läuft ab", "Der Gutschein von Ochsner Sport gilt noch 7 Tage."),
+    "reminder": ("⏰ Erinnerung", "Zahnarzt anrufen"),
     "test": ("HomePilot Test", "Push-Benachrichtigungen funktionieren \U0001f389"),
 }
 

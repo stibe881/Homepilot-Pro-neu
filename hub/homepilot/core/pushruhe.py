@@ -48,6 +48,9 @@ IMMER_DURCH: frozenset[str] = frozenset(
         "baby_cry",
         "timer",
         "medication",
+        # Die selbst gestellte Erinnerung (Punkt 603): Wer sie auf 23 Uhr
+        # stellt, meint 23 Uhr - die Ruhezeit darf sie nicht verschlucken.
+        "reminder",
         "test",
     }
 )

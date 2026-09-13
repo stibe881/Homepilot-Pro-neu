@@ -196,6 +196,10 @@ _KNOEPFE: dict[str, str] = {
     "birthday": KNOEPFE_SPAETER,
     "packlist": KNOEPFE_SPAETER,
     "vouchers": KNOEPFE_SPAETER,
+    # Die selbst gestellte Erinnerung (Punkt 603): Ausgerechnet die
+    # Meldung, die jemand bewusst für sich gesetzt hat, liess sich am
+    # Sperrbildschirm nicht verschieben - die Wäsche-Mahnung schon.
+    "reminder": KNOEPFE_SPAETER,
 }
 
 
@@ -356,6 +360,10 @@ CATEGORIES: dict[str, str] = {
     "weekahead": "Wochenausblick am Sonntag",
     # Gutscheine (Punkt 264): dreissig und sieben Tage vor dem Verfall.
     "vouchers": "Gutschein läuft bald ab",
+    # Die selbst gestellten Erinnerungen von der Familienseite (Punkt
+    # 603). Lange ohne Kategorie unterwegs - und damit ohne Ziel, ohne
+    # Knopf, ohne Zeile in den Einstellungen und ohne Beispiel.
+    "reminder": "Erinnerung (selbst gestellt)",
     "test": "Push-Test",
 }
 
@@ -383,7 +391,7 @@ GROUPS: list[tuple[str, tuple[str, ...]]] = [
     # sortiert nur die Schalter, über die Zustellung entscheidet LEISE.
     ("Familie", ("baby_cry", "birthday", "calendar", "departure", "medication",
                  "tasks", "shopping", "packlist", "weekahead", "presence",
-                 "vouchers")),
+                 "vouchers", "reminder")),
     ("Betrieb", ("outage", "flattern", "device_down", "battery", "disk", "morning")),
     # Leer, und trotzdem hier: Unter dieser Überschrift stehen die
     # Nachrichten aus selbst gebauten Abläufen. Sie haben keinen festen
