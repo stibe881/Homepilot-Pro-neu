@@ -7630,3 +7630,25 @@ Wunsch zweimal hintereinander zweimal öffnet und ein Rückweg auf die
 Startseite das Blatt nicht wieder aufreisst.
 
 Stellen: `app/src/components/VacuumHome.tsx`, `app/src/screens/OverviewScreen.tsx`, `app/src/screens/DashboardScreen.tsx`
+
+### 636. Pausieren, Finden und Zur Station auf dem Reinigungsblatt ✓ erledigt
+
+Aus dem Haus, mit dem Bild des Blatts «Olga»: «Auf dieser Karte soll
+man auch die Möglichkeit haben, den Sauger zu pausieren, Sauger finden
+und Sauger auf die Station zurückzufahren.»
+
+Das Blatt bot bisher nur an, eine Reinigung zu starten - komplett,
+Zimmer oder Zone. Wer aber über den Chip «saugt» hierherkommt (Punkt
+635), hat meist etwas anderes vor: anhalten, weil das Kind schläft,
+suchen, weil sie unter dem Bett steht, oder heimschicken. Das gab es
+nur im Stations-Fenster hinter dem Batteriesymbol. Jetzt steht eine
+Knopfreihe über «Abbrechen» und «Starten», und sie zeigt nur, was
+gerade Sinn hat (`saugerknoepfe`, rein): «Pausieren» während sie fährt,
+«Weiter» wenn sie pausiert (Roborock nimmt dafür dasselbe `start`),
+«Finden» immer, «Zur Station» nicht, wenn sie schon dort steht oder
+gerade hinfährt. Ein Tipp schickt den Befehl und schliesst das Blatt.
+
+Keine Browser-Probe: Der Demo-Hub hat keinen Sauger. Die Regel ist in
+Jest festgehalten.
+
+Stellen: `app/src/lib/saugerkarte.ts`, `app/src/components/VacuumHome.tsx`

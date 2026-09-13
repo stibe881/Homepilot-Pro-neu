@@ -14,6 +14,7 @@ import {
   robotRoom,
   shapeInCrop,
   saugerFaehrt,
+  saugerknoepfe,
   vacuumText,
   zustandLesbar,
   zustandWort,
@@ -138,4 +139,42 @@ test('saugerFaehrt erkennt jede Art von Reinigen', () => {
   expect(saugerFaehrt('charging')).toBe(false);
   expect(saugerFaehrt('idle')).toBe(false);
   expect(saugerFaehrt(undefined)).toBe(false);
+});
+
+describe('Die Knöpfe auf dem Reinigungsblatt (Punkt 636)', () => {
+  const olga = (state: string, commands = ['start', 'pause', 'dock', 'locate']) => ({
+    commands,
+    state: { state },
+  });
+  const befehle = (state: string, commands?: string[]) =>
+    saugerknoepfe(olga(state, commands)).map((knopf) => knopf.command);
+
+  it('bietet beim Reinigen Pause, Finden und Zur Station', () => {
+    // Genau der Fall des Chips «saugt»: Sie fährt, und man will sie
+    // anhalten, suchen oder heimschicken - ohne Umweg über die Station.
+    expect(befehle('cleaning')).toEqual(['pause', 'locate', 'dock']);
+    expect(befehle('segment_cleaning')).toEqual(['pause', 'locate', 'dock']);
+  });
+
+  it('macht aus Pause «Weiter», wenn sie pausiert', () => {
+    const knoepfe = saugerknoepfe(olga('paused'));
+    expect(knoepfe.map((knopf) => knopf.command)).toEqual(['start', 'locate', 'dock']);
+    expect(knoepfe[0].label).toBe('Weiter');
+  });
+
+  it('schickt sie nicht zur Station, wenn sie schon dort steht', () => {
+    expect(befehle('docked')).toEqual(['locate']);
+    expect(befehle('charging')).toEqual(['locate']);
+    // Bereit heisst: irgendwo stehengeblieben - heimschicken geht.
+    expect(befehle('idle')).toEqual(['locate', 'dock']);
+  });
+
+  it('zeigt auf dem Heimweg weder Pause noch Zur Station', () => {
+    expect(befehle('returning')).toEqual(['locate']);
+  });
+
+  it('bietet nur an, was der Hub als Kommando kennt', () => {
+    expect(befehle('cleaning', ['start', 'dock'])).toEqual(['dock']);
+    expect(befehle('cleaning', [])).toEqual([]);
+  });
 });

@@ -85,6 +85,46 @@ export function zustandWort(state: unknown): string {
   return ZUSTAND_WOERTER[roh] ?? zustandLesbar(roh);
 }
 
+/** Ein Knopf auf dem Reinigungsblatt (Punkt 636). */
+export interface Saugerknopf {
+  command: 'pause' | 'start' | 'locate' | 'dock';
+  label: string;
+  icon: 'pause-outline' | 'play-outline' | 'search-outline' | 'home-outline';
+}
+
+/**
+ * Welche Knöpfe neben «Reinigung starten» stehen (rein, testbar).
+ *
+ * Gewünscht im Haus (Punkt 636): Auf dem Blatt, das der Chip «saugt»
+ * öffnet, soll man pausieren, den Sauger finden und ihn zur Station
+ * schicken können - nicht erst über das Stations-Fenster. Was gerade
+ * keinen Sinn hat, fehlt: «Pausieren» nur, während er fährt, «Weiter»
+ * nur, wenn er pausiert (Roborock nimmt dafür dasselbe «start»), «Zur
+ * Station» nicht, wenn er schon dort steht oder gerade hinfährt.
+ */
+export function saugerknoepfe(
+  sauger: Pick<Entity, 'commands'> & { state: { state?: unknown } }
+): Saugerknopf[] {
+  const zustand = String(sauger.state.state ?? '').toLowerCase();
+  const kann = (command: string) => sauger.commands.includes(command);
+  const knoepfe: Saugerknopf[] = [];
+  const faehrt = saugerFaehrt(zustand);
+  const unterwegs = zustand.includes('return') || zustand === 'docking';
+  if (faehrt && !unterwegs && kann('pause')) {
+    knoepfe.push({ command: 'pause', label: 'Pausieren', icon: 'pause-outline' });
+  } else if (zustand === 'paused' && kann('start')) {
+    knoepfe.push({ command: 'start', label: 'Weiter', icon: 'play-outline' });
+  }
+  if (kann('locate')) {
+    knoepfe.push({ command: 'locate', label: 'Finden', icon: 'search-outline' });
+  }
+  const zuhause = ['docked', 'charging', 'charging_complete'].includes(zustand);
+  if (kann('dock') && !zuhause && !unterwegs) {
+    knoepfe.push({ command: 'dock', label: 'Zur Station', icon: 'home-outline' });
+  }
+  return knoepfe;
+}
+
 /** «Reinigt · 82 %» – Zustand und Akku in einer Zeile (rein, testbar). */
 export function vacuumText(vacuum: Entity): string {
   const wort = zustandWort(vacuum.state.state);
