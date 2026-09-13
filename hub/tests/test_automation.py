@@ -2561,3 +2561,113 @@ def test_describe_condition_nennt_den_verlangten_zeitraum():
     )
     assert satz.startswith(f"Heute ist der {heute.day}.{heute.month}., verlangt ist ")
     assert f"{morgen.day}.{morgen.month}.–{gestern.day}.{gestern.month}." in satz
+
+
+# ── Ein Ablauf lässt einen anderen ruhen (Punkt 597) ────────────────────
+
+
+def test_ruhe_bis_kennt_minuten_und_uhrzeit():
+    from homepilot.core.automation import parse_automation_do, ruhe_bis, stellung_satz
+
+    jetzt = datetime(2026, 3, 14, 20, 0)
+    assert ruhe_bis({"minutes": 180}, jetzt) == datetime(2026, 3, 14, 23, 0).timestamp()
+    # «bis 06:00» heisst morgen früh, wenn es schon Abend ist.
+    assert ruhe_bis({"until": "06:00"}, jetzt) == datetime(2026, 3, 15, 6, 0).timestamp()
+    assert ruhe_bis({"until": "22:30"}, jetzt) == datetime(2026, 3, 14, 22, 30).timestamp()
+    # Die Uhrzeit sticht die Minuten; ohne beides gibt es kein Ende.
+    assert ruhe_bis({"minutes": 5, "until": "22:30"}, jetzt) == ruhe_bis({"until": "22:30"}, jetzt)
+    assert ruhe_bis({}, jetzt) is None
+    assert ruhe_bis({"minutes": "quatsch"}, jetzt) is None
+    assert parse_automation_do(None) == "run"
+    assert parse_automation_do("SNOOZE") == "snooze"
+    assert parse_automation_do("löschen") == "run"
+    assert stellung_satz("snooze", "Flurlicht", None).endswith("übersprungen")
+
+
+async def test_ein_ablauf_laesst_einen_anderen_ruhen_und_schaltet_ihn():
+    """«Termin ‹Gäste› beginnt → Bewegungslicht Flur ruht bis 06:00» -
+    bis hierher nur als Route und Hand-Knopf."""
+    flurlicht = {
+        "id": "flurlicht",
+        "alias": "Flurlicht",
+        "trigger": [{"type": "state", "entity_id": "demo.motion_hall", "to": "on"}],
+        "action": [
+            {"type": "command", "entity_id": "demo.light_livingroom", "command": "turn_on"}
+        ],
+    }
+    hub = await run_hub([flurlicht])
+    try:
+        engine = hub.automations
+        gaeste = Automation(id="gaeste", alias="Gäste", triggers=[])
+        ziel = engine.get("flurlicht")
+
+        # Ruhen lassen: quiet_until steht am lebenden Objekt, der Lauf
+        # trägt es als Notiz.
+        notiz = await engine._execute_action(
+            gaeste, {"type": "automation", "automation_id": "flurlicht", "do": "snooze", "minutes": 180}
+        )
+        assert notiz.startswith("«Flurlicht» ruht bis ")
+        assert ziel.quiet_until is not None and ziel.quiet_until > time.time() + 170 * 60
+        await hub.registry.update_state("demo.light_livingroom", {"state": "off"})
+        await hub.registry.update_state("demo.motion_hall", {"state": "on"})
+        await settle()
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "off"
+
+        # Ohne Dauer wird nichts gestellt.
+        ziel.quiet_until = None
+        notiz = await engine._execute_action(
+            gaeste, {"type": "automation", "automation_id": "flurlicht", "do": "snooze"}
+        )
+        assert "übersprungen" in notiz and ziel.quiet_until is None
+
+        # Aus und wieder ein.
+        assert (
+            await engine._execute_action(
+                gaeste, {"type": "automation", "automation_id": "flurlicht", "do": "disable"}
+            )
+            == "«Flurlicht» ausgeschaltet"
+        )
+        assert ziel.enabled is False
+        await hub.registry.update_state("demo.motion_hall", {"state": "off"})
+        await hub.registry.update_state("demo.motion_hall", {"state": "on"})
+        await settle()
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "off"
+        assert (
+            await engine._execute_action(
+                gaeste, {"type": "automation", "automation_id": "flurlicht", "do": "enable"}
+            )
+            == "«Flurlicht» eingeschaltet"
+        )
+        assert ziel.enabled is True
+        # «run» bleibt die Vorgabe - der alte Schritt läuft wie bisher.
+        await hub.registry.update_state("demo.light_livingroom", {"state": "off"})
+        notiz = await engine._execute_action(
+            gaeste, {"type": "automation", "automation_id": "flurlicht"}
+        )
+        await settle()
+        assert notiz == "«Flurlicht» ausgeführt"
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
+    finally:
+        await hub.stop()
+
+
+async def test_die_stellung_eines_app_ablaufs_ueberlebt_den_neustart():
+    """Wie die Route schreibt der Schritt in hub.data - nur ohne Reload,
+    der den laufenden Schritt selbst abwürgen würde."""
+    hub = await run_hub([])
+    try:
+        hub.data.set(
+            "automations",
+            [{"id": "app_1", "alias": "Simulation", "trigger": [], "action": []}],
+        )
+        await hub.reload_automations()
+        engine = hub.automations
+        rufer = Automation(id="alarm", alias="Alarm", triggers=[])
+        await engine._execute_action(
+            rufer, {"type": "automation", "automation_id": "app_1", "do": "disable"}
+        )
+        assert hub.data.get("automations")[0]["enabled"] is False
+        await hub.reload_automations()
+        assert hub.automations.get("app_1").enabled is False
+    finally:
+        await hub.stop()

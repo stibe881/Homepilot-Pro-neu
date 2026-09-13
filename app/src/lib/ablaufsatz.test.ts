@@ -509,3 +509,29 @@ describe('Jahreszeit an der Zeitbedingung (Punkt 598)', () => {
     expect(satz).toContain('vom 1.12. bis 6.1.');
   });
 });
+
+describe('Schritt «Ablauf» (Punkt 597)', () => {
+  const satz = (action: Record<string, unknown>) =>
+    ablaufSatz(
+      {
+        triggers: [{ type: 'time', at: '20:00' }],
+        conditions: [],
+        actions: [action],
+        otherwise: [],
+        match: 'all',
+      },
+      entities,
+      scenes
+    );
+  it('sagt, ob der andere startet, ruht oder umgeschaltet wird', () => {
+    expect(satz({ type: 'automation', automation_id: 'flur' })).toContain('Ablauf «flur» starten');
+    expect(satz({ type: 'automation', automation_id: 'flur', do: 'snooze', until: '06:00' })).toContain(
+      'Ablauf «flur» ruhen lassen bis 06:00'
+    );
+    expect(satz({ type: 'automation', automation_id: 'flur', do: 'snooze', minutes: 180 })).toContain(
+      'ruhen lassen 180 Min'
+    );
+    expect(satz({ type: 'automation', automation_id: 'flur', do: 'enable' })).toContain('einschalten');
+    expect(satz({ type: 'automation', automation_id: 'flur', do: 'disable' })).toContain('ausschalten');
+  });
+});

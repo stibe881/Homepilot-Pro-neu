@@ -698,6 +698,15 @@ export interface NotifyKnopf {
 
 export type StepKind = 'command' | 'toggle_all' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'presence' | 'delay' | 'wait_until' | 'fade' | 'music' | 'if' | 'repeat' | 'automation';
 
+/** Was der Schritt «Ablauf» mit dem anderen tun kann (Punkt 597). */
+export type AblaufTat = 'run' | 'snooze' | 'enable' | 'disable';
+
+/** Die Tat des Ablauf-Schritts, wie der Hub sie kennt - Unbekanntes
+ *  heisst «run» (rein, testbar). */
+export function ablaufTat(value: unknown): AblaufTat {
+  return value === 'snooze' || value === 'enable' || value === 'disable' ? value : 'run';
+}
+
 /** Was ein Musik-Schritt tun kann. */
 export type MusikTat = 'favorite' | 'sleep' | 'pause_all' | 'night' | 'fade' | 'follow';
 export type ConditionKind = 'none' | 'sun' | 'time';
@@ -888,6 +897,12 @@ export interface StepDraft {
    *  das längst (`type: automation`) - der Editor kannte den Schritt
    *  nicht und warf ihn beim Öffnen und Speichern still weg. */
   automationId: string;
+  /** Was mit dem anderen Ablauf geschieht (Punkt 597): starten wie
+   *  bisher, ruhen lassen (Minuten oder bis «HH:MM»), ein- oder
+   *  ausschalten. «run» bleibt die Vorgabe. */
+  automationDo: AblaufTat;
+  automationMinutes: string;
+  automationUntil: string;
   repeatWhileExtra: BausteinConfig[];
   repeatMax: string;
   repeatSteps: StepDraft[];
@@ -936,6 +951,9 @@ export const EMPTY_STEP: StepDraft = {
   repeatMax: '10',
   repeatSteps: [],
   automationId: '',
+  automationDo: 'run',
+  automationMinutes: '180',
+  automationUntil: '',
 };
 
 /** Ein neuer Auslöser für dieses Gerät – mit einem Zustand, den es auch
@@ -1989,9 +2007,19 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
     return musikSchrittZuAktion(step);
   }
   if (step.kind === 'automation') {
-    return step.automationId
-      ? [{ type: 'automation', automation_id: step.automationId }]
-      : [];
+    if (!step.automationId) return [];
+    const action: BausteinConfig = { type: 'automation', automation_id: step.automationId };
+    // «run» ist die Vorgabe des Hubs - ohne Feld bleibt die gespeicherte
+    // Form, wie sie vor Punkt 597 war.
+    if (step.automationDo !== 'run') action.do = step.automationDo;
+    if (step.automationDo === 'snooze') {
+      // Die Uhrzeit sticht die Minuten - wie im Hub (ruhe_bis).
+      if (step.automationUntil) action.until = step.automationUntil;
+      else if (Number(step.automationMinutes) > 0) {
+        action.minutes = Math.round(Number(step.automationMinutes));
+      }
+    }
+    return [action];
   }
   if (step.kind === 'if') {
     // Ohne Bedingung hiesse der Schritt beim Hub «gilt immer», ohne
@@ -2414,6 +2442,10 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
         ...EMPTY_STEP,
         kind: 'automation',
         automationId: String(action.automation_id ?? action.automation ?? ''),
+        automationDo: ablaufTat(action.do),
+        automationMinutes:
+          Number(action.minutes) > 0 ? String(action.minutes) : EMPTY_STEP.automationMinutes,
+        automationUntil: action.until ? String(action.until) : '',
       });
     } else if (type === 'wait_until') {
       steps.push({

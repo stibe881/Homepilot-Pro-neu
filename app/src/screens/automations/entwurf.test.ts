@@ -172,6 +172,42 @@ describe('Nachricht mit Verzögerung', () => {
   });
 });
 
+describe('Schritt «Ablauf» kann ruhen lassen, ein- und ausschalten (Punkt 597)', () => {
+  it('lässt «starten» wie bisher ohne Feld, sonst mit do/minutes/until', () => {
+    const start = { ...EMPTY_STEP, kind: 'automation' as const, automationId: 'flur' };
+    expect(stepToActions(start)).toEqual([{ type: 'automation', automation_id: 'flur' }]);
+    expect(
+      stepToActions({ ...start, automationDo: 'snooze', automationMinutes: '180' })
+    ).toEqual([{ type: 'automation', automation_id: 'flur', do: 'snooze', minutes: 180 }]);
+    // Die Uhrzeit sticht die Minuten.
+    expect(
+      stepToActions({
+        ...start,
+        automationDo: 'snooze',
+        automationMinutes: '180',
+        automationUntil: '06:00',
+      })
+    ).toEqual([{ type: 'automation', automation_id: 'flur', do: 'snooze', until: '06:00' }]);
+    expect(stepToActions({ ...start, automationDo: 'disable' })).toEqual([
+      { type: 'automation', automation_id: 'flur', do: 'disable' },
+    ]);
+  });
+
+  it('holt die Tat beim Öffnen zurück', () => {
+    const [schritt] = actionsToSteps([
+      { type: 'automation', automation_id: 'flur', do: 'snooze', until: '06:00' },
+    ]);
+    expect(schritt.automationDo).toBe('snooze');
+    expect(schritt.automationUntil).toBe('06:00');
+    const [alt] = actionsToSteps([{ type: 'automation', automation_id: 'flur' }]);
+    expect(alt.automationDo).toBe('run');
+    const [unsinn] = actionsToSteps([
+      { type: 'automation', automation_id: 'flur', do: 'unsinn' },
+    ]);
+    expect(unsinn.automationDo).toBe('run');
+  });
+});
+
 describe('«seit mindestens» an der Gerätebedingung (Punkt 595)', () => {
   it('wandert als min_age in die gespeicherte Form und zurück', () => {
     const entry = { entity_id: 'a.b', op: 'is' as const, value: 'off', minAge: '30' };

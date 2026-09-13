@@ -32,7 +32,9 @@ Aktionen:
   - {type: presence, zone, event: enter|leave}   # «X ist da» ohne Telefon
   - {type: wait_until, ...Bedingung, timeout?: sekunden}
   - {type: fade, entity_id, to: 0..100, minutes}   # weich dimmen (157)
-  - {type: automation, automation_id}   # die Aktionen eines anderen mitausführen
+  - {type: automation, automation_id, do?: run|snooze|enable|disable,
+     minutes?, until?: "HH:MM"}   # einen anderen starten - oder ruhen
+                                  # lassen, ein-, ausschalten (597)
   - {type: if, conditions, match?, then: [...], else?: [...]}   # (251)
   - {type: repeat, count, actions} / {type: repeat, while: [...],
      actions, max?}   # (251) - harte Obergrenze, siehe REPEAT_LIMIT
@@ -504,6 +506,57 @@ def stolpersatz(gestolpert: list[tuple[str, str]], gesamt: int) -> str:
     return f"{kopf} Der Rest lief durch."
 
 
+#: Was der Schritt «Ablauf» mit dem anderen Ablauf tun kann (Punkt 597).
+AUTOMATION_DOS = ("run", "snooze", "enable", "disable")
+
+
+def parse_automation_do(value: Any) -> str:
+    """run, snooze, enable oder disable - Unbekanntes heisst run (rein, testbar).
+
+    «run» bleibt die Vorgabe: Jeder Ablauf, der bisher einen anderen
+    aufrief, tut das weiterhin, ohne dass jemand ein Feld nachträgt.
+    """
+    text = str(value or "run").strip().lower()
+    return text if text in AUTOMATION_DOS else "run"
+
+
+def ruhe_bis(action: dict[str, Any], jetzt: datetime) -> float | None:
+    """Bis wann «ruhen lassen» gilt - Unix-Sekunden (rein, testbar).
+
+    ``minutes`` zählt ab jetzt («Kino: Bewegungslicht ruht 3 h»),
+    ``until: "HH:MM"`` meint das nächste Vorkommen dieser Uhrzeit - heute,
+    wenn sie noch kommt, sonst morgen («Gäste: Flurlicht ruht bis 06:00»).
+    Steht beides da, gilt die Uhrzeit. None ohne brauchbare Angabe: Ein
+    Ruhen ohne Ende wäre ein «aus», das keiner so bestellt hat.
+    """
+    until = parse_hhmm(action.get("until"))
+    if until is not None:
+        ziel = jetzt.replace(hour=until[0], minute=until[1], second=0, microsecond=0)
+        if ziel <= jetzt:
+            ziel += timedelta(days=1)
+        return ziel.timestamp()
+    try:
+        minuten = float(action.get("minutes") or 0)
+    except (TypeError, ValueError):
+        minuten = 0.0
+    if minuten <= 0:
+        return None
+    return (jetzt + timedelta(minutes=minuten)).timestamp()
+
+
+def stellung_satz(do: str, alias: str, bis: float | None) -> str:
+    """Die Verlaufsnotiz zum Schritt «Ablauf» (rein, testbar)."""
+    if do == "snooze":
+        if bis is None:
+            return f"«{alias}» ruhen lassen - ohne Dauer, übersprungen"
+        return f"«{alias}» ruht bis {datetime.fromtimestamp(bis).strftime('%H:%M')}"
+    if do == "enable":
+        return f"«{alias}» eingeschaltet"
+    if do == "disable":
+        return f"«{alias}» ausgeschaltet"
+    return f"«{alias}» ausgeführt"
+
+
 def describe_action(action: dict[str, Any], name_of: Any = None) -> str:
     """Eine Aktion in einem Satz – für den Trockenlauf (rein, testbar).
 
@@ -589,6 +642,18 @@ def describe_action(action: dict[str, Any], name_of: Any = None) -> str:
         )
     if atype == "music":
         return musik_satz(action, named)
+    if atype == "automation":
+        ziel = str(action.get("automation_id") or action.get("automation") or "?")
+        do = parse_automation_do(action.get("do"))
+        if do == "snooze":
+            wie = f" {action['minutes']} Min" if action.get("minutes") else ""
+            wie = f" bis {action['until']}" if action.get("until") else wie
+            return f"Ablauf «{ziel}» ruhen lassen{wie}"
+        if do == "enable":
+            return f"Ablauf «{ziel}» einschalten"
+        if do == "disable":
+            return f"Ablauf «{ziel}» ausschalten"
+        return f"Ablauf «{ziel}» ausführen"
     if atype == "if":
         # Der Trockenlauf zählt nicht bloss («2 Schritte»), er zeigt die
         # Zweige - sonst weiss man erst im Betrieb, was «sonst» tut.
@@ -2560,6 +2625,12 @@ class AutomationEngine:
         if self.paused:
             log.debug("Automation '%s' übersprungen (pausiert)", automation.alias)
             return
+        if not automation.enabled:
+            # Zustands-Auslöser prüften das schon; Zeitgeber nicht. Seit ein
+            # Ablauf einen anderen zur Laufzeit ausschalten kann (Punkt
+            # 597), muss «aus» an einer Stelle für alle Auslöser gelten.
+            log.debug("Automation '%s' übersprungen (ausgeschaltet)", automation.alias)
+            return
         # Der Babysitter sitzt im Wohnzimmer, und die Anwesenheit weiss
         # nichts davon. Solange sein Modus läuft, ruht alles, was nicht
         # ausdrücklich freigegeben ist - allen voran «alles aus, wenn
@@ -3681,7 +3752,7 @@ class AutomationEngine:
                 return
             await hue.activate_scene(str(action.get("scene") or ""))
         elif atype == "automation":
-            await self._run_other(automation, action)
+            return await self._run_other(automation, action)
         elif atype == "if":
             return await self._verzweigung(automation, action, ausloeser, tiefe)
         elif atype == "repeat":
@@ -4355,8 +4426,11 @@ class AutomationEngine:
                 return f"Frist abgelaufen ({timeout:.0f} s)"
             await asyncio.sleep(WAIT_POLL)
 
-    async def _run_other(self, automation: Automation, action: dict[str, Any]) -> None:
-        """Die Aktionen eines anderen Ablaufs mitausführen.
+    async def _run_other(
+        self, automation: Automation, action: dict[str, Any]
+    ) -> str | None:
+        """Die Aktionen eines anderen Ablaufs mitausführen - oder ihn
+        ruhen lassen, ein- oder ausschalten (``do``, Punkt 597).
 
         Wozu: «Alles aus» steht in fünf Abläufen fast gleich - beim
         Weggehen, zur Nacht, beim Scharfschalten. Bisher musste man es
@@ -4376,12 +4450,15 @@ class AutomationEngine:
                 automation.alias,
                 ziel_id or "(ohne Kennung)",
             )
-            return
+            return f"Ablauf «{ziel_id or '?'}» gibt es nicht"
+        do = parse_automation_do(action.get("do"))
+        if do != "run":
+            return self._ablauf_stellen(automation, ziel, do, action)
         if ziel.id == automation.id:
             # Ein Ablauf, der sich selbst aufruft, läuft bis der Speicher
             # voll ist. Lieber hier abfangen als im Haus.
             log.warning("Automation '%s' ruft sich selbst auf - übersprungen", ziel.alias)
-            return
+            return "ruft sich selbst auf - übersprungen"
         tiefe = self._depth.get(automation.id, 0)
         if tiefe >= CALL_DEPTH:
             # Zwei Abläufe, die einander rufen, tun das sonst endlos.
@@ -4391,7 +4468,7 @@ class AutomationEngine:
                 tiefe,
                 ziel.alias,
             )
-            return
+            return "Aufrufkette zu tief - nicht ausgeführt"
         log.info("Automation '%s' führt '%s' mit aus", automation.alias, ziel.alias)
         self._depth[ziel.id] = tiefe + 1
         try:
@@ -4399,6 +4476,58 @@ class AutomationEngine:
                 await self._execute_action(ziel, weitere)
         finally:
             self._depth.pop(ziel.id, None)
+        return stellung_satz("run", ziel.alias, None)
+
+    def _ablauf_stellen(
+        self, automation: Automation, ziel: Automation, do: str, action: dict[str, Any]
+    ) -> str:
+        """Einen anderen Ablauf ruhen lassen, ein- oder ausschalten (Punkt 597).
+
+        «Termin ‹Gäste› beginnt → Bewegungslicht Flur ruht bis 06:00»,
+        «Alarm auf ‹weg› → Anwesenheitssimulation ein» - bis hierher gab
+        es das nur als Route und Hand-Knopf (159) oder über Bearbeiten.
+
+        Geschrieben wird wie die Route in `hub.data` - aber ohne
+        ``reload_automations``: Das hielte den Motor an und damit auch
+        den Lauf, der gerade diesen Schritt ausführt. Stattdessen wird
+        das lebende Objekt gestellt und der Eintrag nachgetragen; Abläufe
+        aus der config.yaml gehören der Datei und ändern sich nur zur
+        Laufzeit.
+        """
+        felder: dict[str, Any] = {}
+        bis: float | None = None
+        if do == "snooze":
+            bis = ruhe_bis(action, datetime.now())
+            if bis is None:
+                log.warning(
+                    "Automation '%s': «%s» ruhen lassen ohne minutes/until",
+                    automation.alias,
+                    ziel.alias,
+                )
+                return stellung_satz(do, ziel.alias, None)
+            ziel.quiet_until = bis
+            felder["quiet_until"] = bis
+        elif do == "enable":
+            ziel.enabled = True
+            felder["enabled"] = True
+        elif do == "disable":
+            ziel.enabled = False
+            felder["enabled"] = False
+        if ziel.editable:
+            try:
+                gespeichert = self.hub.data.get("automations") or []
+                self.hub.data.set(
+                    "automations",
+                    [
+                        {**eintrag, **felder} if eintrag.get("id") == ziel.id else eintrag
+                        for eintrag in gespeichert
+                    ],
+                )
+            except Exception:
+                log.debug("Stellung von '%s' nicht schreibbar", ziel.alias, exc_info=True)
+        satz = stellung_satz(do, ziel.alias, bis)
+        log.info("Automation '%s': %s", automation.alias, satz)
+        return satz
 
     async def _verzweigung(
         self,

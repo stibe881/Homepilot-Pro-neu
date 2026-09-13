@@ -314,6 +314,23 @@ export function aktionSatz(
     }
     case 'wait_until':
       return `warten bis ${nameVon(entities, action.entity_id)} passt`;
+    case 'automation': {
+      // Punkt 597: Was mit dem anderen Ablauf geschieht, gehört in den
+      // Satz - «Flurlicht ruhen lassen bis 06:00» liest sich anders als
+      // «Flurlicht starten».
+      const wer = `Ablauf «${action.automation_id ?? action.automation ?? '?'}»`;
+      if (action.do === 'snooze') {
+        const wie = action.until
+          ? ` bis ${action.until}`
+          : Number(action.minutes) > 0
+            ? ` ${Number(action.minutes)} Min`
+            : '';
+        return `${wer} ruhen lassen${wie}`;
+      }
+      if (action.do === 'enable') return `${wer} einschalten`;
+      if (action.do === 'disable') return `${wer} ausschalten`;
+      return `${wer} starten`;
+    }
     case 'light':
       // Der Licht-Schritt trägt gar keinen Befehl, sondern Vorgaben.
       // Ohne diesen Fall landete er unten im Regelfall und las sich als
