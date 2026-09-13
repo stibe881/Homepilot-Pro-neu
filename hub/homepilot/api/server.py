@@ -346,7 +346,14 @@ def create_app(hub: Hub) -> FastAPI:
         )
         user = user_for_token(token)
         if user is None:
-            await websocket.close(code=4401)
+            # Erst annehmen, dann schliessen (Punkt 579 der Werkbank):
+            # Ein close() vor dem accept() beantwortet der Server als
+            # HTTP 403 - der Handschlag scheitert, und die App sieht
+            # Code 1006 «abgebrochen» statt 4401. Genau darum hielt sich
+            # ein hinausgeworfenes Gerät für «ohne Netz» und klopfte
+            # im Sekundentakt weiter an.
+            await websocket.accept()
+            await websocket.close(code=4401, reason="Ungültiges Token")
             return
 
         await websocket.accept()

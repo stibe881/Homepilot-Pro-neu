@@ -1,4 +1,6 @@
+import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from homepilot.api import create_app
 from homepilot.core.hub import Hub
@@ -80,6 +82,18 @@ def test_websocket_snapshot_and_command():
             for message in messages:
                 if message["type"] == "state_changed":
                     assert message["new_state"]["state"] == "on"
+
+
+def test_a_dead_token_closes_the_socket_with_4401_after_accepting():
+    """Punkt 579 der Werkbank: Ein close() vor dem accept() kommt beim
+    Browser als gescheiterter Handschlag an (Code 1006), nie als 4401 -
+    und die App hielt ein hinausgeworfenes Gerät darum für «ohne Netz».
+    Erst annehmen, dann schliessen: So liest die App den Code."""
+    with make_client(token="geheim") as client:
+        with pytest.raises(WebSocketDisconnect) as info:
+            with client.websocket_connect("/ws?token=falsch") as websocket:
+                websocket.receive_json()
+        assert info.value.code == 4401
 
 
 def test_cors_preflight_is_allowed():

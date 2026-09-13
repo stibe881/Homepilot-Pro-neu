@@ -2,12 +2,20 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
+import { onHubFehler } from '../api/client';
 import { Activity, CommandData, Entity, EntityState, Scene, ServerMessage, User } from '../api/types';
 import { failed, tapped, triggered } from '../lib/haptics';
 import { UndoOffer, undoCommand, undoLabel } from '../lib/rueckgaengig';
+import { CODE_ABGEMELDET, NachSchliessen, nachSchliessen } from '../lib/verbindungsstand';
 import { QueuedCommand, enqueue, stillFresh } from '../lib/warteschlange';
 
-export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
+/**
+ * `signed_out`: Der Hub hat das Token abgewiesen (Punkt 579 der
+ * Werkbank) - kein Wiederverbinden, der Balken bietet «Neu anmelden».
+ * Vorher hiess das «getrennt» und die App klopfte im Sekundentakt
+ * weiter an, obwohl der Hub erreichbar war.
+ */
+export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'signed_out';
 
 const ACTIVITY_LIMIT = 20;
 const CACHE_KEY = 'homepilot.snapshot';
@@ -108,6 +116,13 @@ export function useHub(url: string | null, token: string | null) {
 
   const wsRef = useRef<WebSocket | null>(null);
   const attemptRef = useRef(0);
+  // Der Zustand auch als Ref: Der AppState-Horcher und der Fehlerkanal
+  // des Clients laufen ausserhalb des Render-Zyklus und dürfen ein
+  // abgemeldetes Gerät nicht wieder anklopfen lassen.
+  const statusRef = useRef<ConnectionStatus>('disconnected');
+  // Die Verbindung bewusst anhalten (abgemeldet) - gesetzt von der
+  // Verbindungsschleife, gerufen vom Fehlerkanal des HTTP-Clients.
+  const anhaltenRef = useRef<((schritt: NachSchliessen) => void) | null>(null);
   const timersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   // Der Zustand von vor dem Tippen – nur zum Nachschlagen, nicht zum
   // Anzeigen, deshalb ein Ref und kein zweiter State.
@@ -209,17 +224,48 @@ export function useHub(url: string | null, token: string | null) {
     let disposed = false;
     let ws: WebSocket | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    // Bewusst angehalten: Dann verbindet onclose nicht neu. Sonst
+    // machte das Schliessen eines abgemeldeten Sockets genau die
+    // Schleife wieder auf, die es beenden soll.
+    let halt = false;
+
+    const setzeStatus = (next: ConnectionStatus) => {
+      statusRef.current = next;
+      setStatus(next);
+    };
+
+    /**
+     * Was nach dem Ende einer Verbindung geschieht - ob der Hub sie
+     * geschlossen hat oder die App sie aufgibt (Punkt 579 der
+     * Werkbank). Die Entscheidung trifft lib/verbindungsstand.ts; hier
+     * wird sie nur ausgeführt.
+     */
+    const weiterNach = (schritt: NachSchliessen) => {
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = undefined;
+      setzeStatus(schritt.status);
+      setStale(true);
+      if (schritt.status === 'signed_out') {
+        // Ohne Benutzer öffnet die Konto-Seite ihre Verbindungsfelder
+        // von selbst - dort steht der Weg zurück (QR-Code oder Token).
+        setUser(null);
+      }
+      if (schritt.wiederAb !== null) {
+        retryTimer = setTimeout(connect, Math.max(0, schritt.wiederAb - Date.now()));
+      }
+    };
 
     const connect = () => {
       const base = url.replace(/\/+$/, '').replace(/^http/, 'ws');
       const wsUrl = base + '/ws' + (token ? `?token=${encodeURIComponent(token)}` : '');
-      setStatus('connecting');
+      halt = false;
+      setzeStatus('connecting');
       ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
         attemptRef.current = 0;
-        setStatus('connected');
+        setzeStatus('connected');
       };
 
       ws.onmessage = (event) => {
@@ -294,16 +340,26 @@ export function useHub(url: string | null, token: string | null) {
         }
       };
 
-      ws.onclose = () => {
-        if (disposed) return;
-        setStatus('disconnected');
-        setStale(true);
-        const delay = Math.min(15000, 1000 * 2 ** attemptRef.current);
+      ws.onclose = (event) => {
+        if (disposed || halt) return;
+        // Der Code sagt, warum: 4401 heisst abgemeldet, und dann ist
+        // jeder weitere Versuch vergeblich (Punkt 579 der Werkbank).
+        const schritt = nachSchliessen(event.code, attemptRef.current, Date.now());
         attemptRef.current += 1;
-        retryTimer = setTimeout(connect, delay);
+        weiterNach(schritt);
       };
 
       ws.onerror = () => ws?.close();
+    };
+
+    // Von aussen anhalten - ein 401 des HTTP-Clients sagt dasselbe wie
+    // ein 4401 am Socket: Das Token ist tot. Der Socket wird zugemacht,
+    // ohne dass sein onclose die Schleife wieder anwirft.
+    anhaltenRef.current = (schritt) => {
+      if (disposed) return;
+      halt = true;
+      weiterNach(schritt);
+      if (ws && ws.readyState !== WebSocket.CLOSED) ws.close();
     };
 
     connect();
@@ -318,6 +374,10 @@ export function useHub(url: string | null, token: string | null) {
     // ein vollständiger Schnappschuss, damit stimmt alles wieder.
     const appState = AppState.addEventListener('change', (next) => {
       if (next !== 'active' || disposed) return;
+      // Ein abgemeldetes Gerät klopft auch nach dem Aufwachen nicht an:
+      // Die Antwort wäre dieselbe, und der Balken sagt schon, was zu
+      // tun ist.
+      if (statusRef.current === 'signed_out') return;
       if (retryTimer) clearTimeout(retryTimer);
       attemptRef.current = 0;
       if (ws === null || ws.readyState === WebSocket.CLOSED) {
@@ -333,6 +393,7 @@ export function useHub(url: string | null, token: string | null) {
 
     return () => {
       disposed = true;
+      anhaltenRef.current = null;
       appState.remove();
       if (retryTimer) clearTimeout(retryTimer);
       if (flushTimer.current != null) {
@@ -343,6 +404,20 @@ export function useHub(url: string | null, token: string | null) {
       wsRef.current = null;
     };
   }, [url, token, clearPending, flushPlanen]);
+
+  // Ein 401 des HTTP-Clients heisst dasselbe wie ein 4401 am Socket:
+  // Das Token gilt nicht mehr (Punkt 579 der Werkbank). Der Socket
+  // erfährt es sonst erst beim nächsten Neuaufbau - und bis dahin
+  // meldete jede Abfrage «fehlt die Berechtigung», während die
+  // Kopfzeile «verbunden» sagte.
+  useEffect(
+    () =>
+      onHubFehler((fehler) => {
+        if (fehler.status !== 401 || statusRef.current === 'signed_out') return;
+        anhaltenRef.current?.(nachSchliessen(CODE_ABGEMELDET, 0, Date.now()));
+      }),
+    []
+  );
 
   // Nach dem Anlegen oder Ändern einer Szene ruft der Editor das erneut auf.
   const reloadScenes = useCallback(() => {

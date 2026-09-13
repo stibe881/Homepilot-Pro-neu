@@ -1,4 +1,39 @@
-import { VERBINDUNGSWORT, verbindungsAnsage, verbindungsZusatz } from './verbindungsstand';
+import {
+  CODE_ABGEMELDET,
+  VERBINDUNGSWORT,
+  WARTEZEIT_MAX_MS,
+  nachSchliessen,
+  verbindungsAnsage,
+  verbindungsZusatz,
+  wartezeit,
+} from './verbindungsstand';
+
+describe('nachSchliessen', () => {
+  // Punkt 579 der Werkbank: Ein unter «Meine Geräte» beendetes iPad
+  // verband in Endlosschleife neu und sagte «Keine Verbindung», obwohl
+  // der Hub erreichbar war und gerade 4401 geantwortet hatte.
+  it('gibt nach 4401 auf, statt weiter anzuklopfen', () => {
+    expect(nachSchliessen(CODE_ABGEMELDET, 3, 1_000_000)).toEqual({
+      status: 'signed_out',
+      wiederAb: null,
+    });
+  });
+
+  it('verbindet nach einem gewöhnlichen Abbruch mit wachsender Wartezeit neu', () => {
+    expect(nachSchliessen(1006, 0, 1_000_000)).toEqual({
+      status: 'disconnected',
+      wiederAb: 1_001_000,
+    });
+    expect(nachSchliessen(1000, 2, 1_000_000).wiederAb).toBe(1_004_000);
+    // Ohne Code (ein von der App selbst geschlossener Socket) dasselbe.
+    expect(nachSchliessen(undefined, 0, 1_000_000).status).toBe('disconnected');
+  });
+
+  it('wartet nie länger als die Obergrenze', () => {
+    expect(wartezeit(10)).toBe(WARTEZEIT_MAX_MS);
+    expect(wartezeit(0)).toBe(1000);
+  });
+});
 
 describe('verbindungsZusatz', () => {
   it('schreibt neben den Punkt nichts, solange nichts wartet', () => {
@@ -24,6 +59,7 @@ describe('verbindungsAnsage', () => {
     expect(verbindungsAnsage('connected', 0)).toBe('verbunden');
     expect(verbindungsAnsage('disconnected', 0)).toBe('getrennt');
     expect(verbindungsAnsage('connecting', 0)).toBe(VERBINDUNGSWORT.connecting);
+    expect(verbindungsAnsage('signed_out', 0)).toBe('abgemeldet');
   });
 
   it('nimmt die Wartezahl mit', () => {
