@@ -74,7 +74,7 @@ export const makeStyles = (colors: Colors) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
-    avatarText: { color: '#FFFFFF', fontSize: 21, fontWeight: '700' },
+    avatarText: { color: colors.onAccent, fontSize: 21, fontWeight: '700' },
     avatarSmall: {
       width: 38,
       height: 38,
@@ -83,7 +83,7 @@ export const makeStyles = (colors: Colors) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
-    avatarSmallText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+    avatarSmallText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
     memberName: { color: colors.onGradient, fontSize: 13, fontWeight: '700' },
     memberRole: { color: colors.onGradientSoft, fontSize: 11 },
     memberFuss: { flexDirection: 'row', alignItems: 'center', gap: 2 },
@@ -188,7 +188,7 @@ export const makeStyles = (colors: Colors) =>
       paddingVertical: 12,
       alignItems: 'center',
     },
-    addWideText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+    addWideText: { color: colors.onAccent, fontSize: 14, fontWeight: '700' },
     formCard: { minHeight: 0, gap: 8 },
     // ── Datums- und Zeitwähler der Erinnerungen ──────────────────────
     wahlZeile: { flexDirection: 'row', gap: 8 },
@@ -333,7 +333,7 @@ export const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       backgroundColor: colors.on,
     },
-    choreDoneText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+    choreDoneText: { color: colors.onSignal, fontSize: 14, fontWeight: '700' },
     choreSkip: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -382,7 +382,7 @@ export const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     mealNameText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
-    mealShopText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+    mealShopText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
     confirmRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -424,7 +424,7 @@ export const makeStyles = (colors: Colors) =>
     // stand als heller Schatten da. Mit `ink` sind es 6.2:1 hell und
     // 9.9:1 dunkel.
     chipText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
-    chipTextActive: { color: '#FFFFFF' },
+    chipTextActive: { color: colors.onAccent },
     groupHead: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -555,7 +555,7 @@ export const makeStyles = (colors: Colors) =>
       borderWidth: 1,
       borderColor: colors.surfaceBorder,
     },
-    pointButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+    pointButtonText: { color: colors.onAccent, fontSize: 13, fontWeight: '700' },
     pointsBig: { color: colors.accent, fontSize: 16, fontWeight: '800' },
     groupLabel: {
       color: colors.onGradientSoft,
@@ -591,7 +591,7 @@ export const makeStyles = (colors: Colors) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
-    daysNumber: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
+    daysNumber: { color: colors.onAccent, fontSize: 18, fontWeight: '700' },
     daysLabel: { color: 'rgba(255,255,255,0.85)', fontSize: 9 },
 
     mealRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 6 },
@@ -633,7 +633,7 @@ export const makeStyles = (colors: Colors) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
-    contactInitialText: { color: '#FFFFFF', fontWeight: '700' },
+    contactInitialText: { color: colors.onAccent, fontWeight: '700' },
     contactFormRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
     contactFormPhoto: { width: 72, height: 72, borderRadius: 36 },
     contactPhotoEmpty: {
@@ -663,7 +663,7 @@ export const makeStyles = (colors: Colors) =>
       borderRadius: 14,
       backgroundColor: colors.on,
     },
-    notrufButtonText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
+    notrufButtonText: { color: colors.onSignal, fontSize: 17, fontWeight: '700' },
     addRowText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
     // Kleines Blatt über der Seite - fürs Ändern eines Termins.
     modalBack: {

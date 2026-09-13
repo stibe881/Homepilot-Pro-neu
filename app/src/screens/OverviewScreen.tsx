@@ -577,7 +577,7 @@ export function OverviewScreen({
           <Text
             style={[
               styles.tileState,
-              alarmArmed && { color: colors.on },
+              alarmArmed && { color: colors.onInk },
               String(alarm?.state.state) === 'ausgeloest' && { color: colors.danger },
             ]}
           >
@@ -1644,7 +1644,7 @@ function DurchsageFenster({
               <Ionicons
                 name={verwalten ? (bearbeite ? 'checkmark' : 'add') : 'megaphone-outline'}
                 size={18}
-                color="#FFFFFF"
+                color={colors.onAccent}
               />
             </Pressable>
             {/* Die Sprachnotiz steht neben dem Textfeld und nicht
@@ -1692,7 +1692,7 @@ function DurchsageFenster({
                 ]}
               >
                 {seit === null ? (
-                  <Ionicons name="mic-outline" size={18} color="#FFFFFF" />
+                  <Ionicons name="mic-outline" size={18} color={colors.onAccent} />
                 ) : (
                   <Text style={styles.durchsageZeit}>{aufnahmeDauer(jetzt - seit)}</Text>
                 )}
@@ -2165,7 +2165,7 @@ function Action({
         <Ionicons
           name={icon}
           size={16}
-          color={accent ? '#FFFFFF' : undefined}
+          color={accent ? styles.actionTextAccent.color : undefined}
           style={accent ? undefined : styles.actionIcon}
         />
       ) : null}
@@ -2352,7 +2352,7 @@ const makeStyles = (colors: Colors) =>
     // Die laufende Sekunde im Aufnahmeknopf - gleich gross wie das
     // Symbol daneben, damit die Zeile beim Umschalten nicht springt.
     durchsageZeit: {
-      color: '#FFFFFF',
+      color: colors.onAccent,
       fontSize: 13,
       fontWeight: '700',
       fontVariant: ['tabular-nums'],
@@ -2506,7 +2506,7 @@ const makeStyles = (colors: Colors) =>
     actionIcon: { color: colors.ink },
     actionAccent: { backgroundColor: colors.accent, borderColor: colors.accent },
     actionText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
-    actionTextAccent: { color: '#FFFFFF' },
+    actionTextAccent: { color: colors.onAccent },
     actionRow: { flexDirection: 'row', gap: 8 },
     actionCol: { gap: 8, alignSelf: 'stretch' },
   });

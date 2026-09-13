@@ -132,7 +132,7 @@ export function DeviceHealth({
       ? colors.danger
       : row.percent !== null && row.percent <= BATTERY_SOON
         ? colors.warn
-        : colors.on;
+        : colors.onInk;
 
   return (
     <Card style={styles.card}>
@@ -217,10 +217,10 @@ export function DeviceHealth({
                     <Ionicons
                       name={stumm ? 'notifications-off' : 'notifications-off-outline'}
                       size={13}
-                      color={stumm ? '#FFFFFF' : colors.inkSoft}
+                      color={stumm ? colors.onAccent : colors.inkSoft}
                     />
                     <Text
-                      style={[styles.quittierenText, stumm && { color: '#FFFFFF' }]}
+                      style={[styles.quittierenText, stumm && { color: colors.onAccent }]}
                     >
                       {stumm ? 'bis morgen still' : 'bis morgen'}
                     </Text>

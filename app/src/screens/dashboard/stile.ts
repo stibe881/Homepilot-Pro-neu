@@ -97,7 +97,7 @@ export const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       backgroundColor: colors.accent,
     },
-    lockConfirmText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+    lockConfirmText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
     frame: { flex: 1, flexDirection: 'row' },
     scroll: { flex: 1, minWidth: 0 },
     content: {
@@ -293,7 +293,7 @@ export const makeStyles = (colors: Colors) =>
       paddingVertical: 14,
       paddingHorizontal: 34,
     },
-    erinnerungKnopfText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
+    erinnerungKnopfText: { color: colors.onSignal, fontSize: 18, fontWeight: '700' },
     // Der leise Bruder von erinnerungKnopf: nur Rahmen statt Fläche -
     // «für alle» soll der Knopf sein, zu dem die Hand zuerst will.
     erinnerungKnopfLeise: {
@@ -353,7 +353,7 @@ export const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       paddingVertical: 18,
     },
-    doorbellOpenText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
+    doorbellOpenText: { color: colors.onSignal, fontSize: 18, fontWeight: '700' },
     doorbellClose: { alignItems: 'center', paddingVertical: 12 },
     doorbellCloseText: { color: 'rgba(255,255,255,0.7)', fontSize: 15, fontWeight: '600' },
     grid: {

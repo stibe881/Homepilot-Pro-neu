@@ -164,7 +164,7 @@ export function Einrichtungshilfe({
                         (pressed || !entwurf.trim()) && { opacity: 0.5 },
                       ]}
                     >
-                      <Ionicons name="checkmark" size={18} color="#FFFFFF" />
+                      <Ionicons name="checkmark" size={18} color={colors.onAccent} />
                     </Pressable>
                   </View>
                   <Text style={styles.hinweis}>
@@ -203,7 +203,7 @@ const makeStyles = (colors: Colors) =>
     },
     chipAn: { backgroundColor: colors.accent, borderColor: colors.accent },
     chipText: { color: colors.inkSoft, fontSize: 12, fontWeight: '600' },
-    chipTextAn: { color: '#FFFFFF' },
+    chipTextAn: { color: colors.onAccent },
     namensZeile: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     eingabe: {
       flex: 1,

@@ -251,7 +251,7 @@ export function DeviceTools({
                       style={[styles.chip, aktiv && styles.chipActive]}
                     >
                       {aktiv ? (
-                        <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+                        <Ionicons name="checkmark" size={13} color={colors.onAccent} />
                       ) : null}
                       <Text style={[styles.chipText, aktiv && styles.chipTextActive]}>
                         {entity.name}
@@ -429,7 +429,7 @@ const makeStyles = (colors: Colors) =>
     },
     chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     chipText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
-    chipTextActive: { color: '#FFFFFF' },
+    chipTextActive: { color: colors.onAccent },
     footer: { gap: 6, borderTopWidth: 1, borderTopColor: colors.surfaceBorder, paddingTop: 10 },
     footerLabel: { color: colors.inkSoft, fontSize: 12, fontWeight: '700', marginTop: 6 },
     primary: {
@@ -438,5 +438,5 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       backgroundColor: colors.accent,
     },
-    primaryText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+    primaryText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
   });

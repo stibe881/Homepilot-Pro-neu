@@ -465,6 +465,6 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     voucherChipStark: { backgroundColor: colors.accent, borderColor: colors.accent },
-    voucherChipStarkText: { color: '#FFFFFF' },
+    voucherChipStarkText: { color: colors.onAccent },
     voucherChipText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
   });

@@ -134,7 +134,7 @@ export function Maintenance({ settings }: { settings: HubSettings }) {
             accessibilityLabel={`${item.text} erledigt`}
             style={({ pressed }) => [styles.doneButton, pressed && { opacity: 0.8 }]}
           >
-            <Ionicons name="checkmark" size={15} color="#FFFFFF" />
+            <Ionicons name="checkmark" size={15} color={colors.onSignal} />
             <Text style={styles.doneText}>Erledigt</Text>
           </Pressable>
         </View>
@@ -246,7 +246,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       backgroundColor: colors.on,
     },
-    doneText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+    doneText: { color: colors.onSignal, fontSize: 13, fontWeight: '700' },
     form: { gap: 8 },
     input: {
       backgroundColor: colors.surfaceSoft,
@@ -269,7 +269,7 @@ const makeStyles = (colors: Colors) =>
     },
     chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     chipText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
-    chipTextActive: { color: '#FFFFFF' },
+    chipTextActive: { color: colors.onAccent },
     formButtons: { flexDirection: 'row', gap: 8 },
     primary: {
       flex: 1,
@@ -278,7 +278,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       backgroundColor: colors.accent,
     },
-    primaryText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+    primaryText: { color: colors.onAccent, fontSize: 14, fontWeight: '700' },
     secondary: {
       alignItems: 'center',
       paddingVertical: 11,

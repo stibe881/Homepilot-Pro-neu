@@ -1750,7 +1750,7 @@ export function AssistentFuss({
           ]}
         >
           <Text style={styles.assistentWeiterText}>Weiter</Text>
-          <Ionicons name="chevron-forward" size={16} color="#FFFFFF" />
+          <Ionicons name="chevron-forward" size={16} color={colors.onAccent} />
         </Pressable>
       </View>
       <Pressable

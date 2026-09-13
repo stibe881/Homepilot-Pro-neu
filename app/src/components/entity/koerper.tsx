@@ -128,7 +128,7 @@ export function LockBody({
             <Ionicons
               name={armed ? 'lock-open' : 'key-outline'}
               size={16}
-              color="#FFFFFF"
+              color={colors.onAccent}
             />
             <Text style={styles.lockButtonText}>
               {armed ? 'Wirklich öffnen?' : 'Auf + öffnen'}
@@ -172,7 +172,7 @@ export function LockBody({
         <Ionicons
           name={armed ? 'lock-open' : 'lock-closed-outline'}
           size={16}
-          color="#FFFFFF"
+          color={colors.onAccent}
         />
         <Text style={styles.lockButtonText}>
           {opened ? 'Geöffnet' : armed ? 'Wirklich öffnen?' : 'Tür öffnen'}
@@ -670,7 +670,7 @@ export function VacuumBody({
                 <Ionicons
                   name={active ? 'checkmark-circle' : 'ellipse-outline'}
                   size={12}
-                  color={active ? '#FFFFFF' : colors.inkSoft}
+                  color={active ? colors.onAccent : colors.inkSoft}
                 />
                 <Text
                   style={[styles.deviceChipText, active && styles.deviceChipTextActive]}
@@ -691,7 +691,7 @@ export function VacuumBody({
           accessibilityRole="button"
           style={({ pressed }) => [styles.cleanRoomsButton, pressed && { opacity: 0.75 }]}
         >
-          <Ionicons name="play" size={14} color="#FFFFFF" />
+          <Ionicons name="play" size={14} color={colors.onAccent} />
           <Text style={styles.cleanRoomsText}>
             {selected.length === 1 ? '1 Raum saugen' : `${selected.length} Räume saugen`}
           </Text>
@@ -743,7 +743,7 @@ export function VacuumMap({
                 borderColor: active ? colors.accent : colors.surfaceBorder,
               }}
             >
-              <Text style={{ fontSize: 12, color: active ? '#FFFFFF' : colors.inkSoft }}>
+              <Text style={{ fontSize: 12, color: active ? colors.onAccent : colors.inkSoft }}>
                 {room.name}
               </Text>
             </Pressable>

@@ -426,12 +426,12 @@ const makeStyles = (colors: Colors) =>
     },
     chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     chipText: { color: colors.ink, fontSize: 12 },
-    chipTextActive: { color: '#FFFFFF', fontWeight: '600' },
+    chipTextActive: { color: colors.onAccent, fontWeight: '600' },
     // Die Nummer als eigenes Zeichen, nicht als «1. » im Text: So steht
     // sie bei jedem Gang an derselben Stelle, statt mit der Länge des
     // Namens zu wandern.
     chipNummer: {
-      color: '#FFFFFF',
+      color: colors.onAccent,
       fontSize: 11,
       fontWeight: '700',
       minWidth: 14,

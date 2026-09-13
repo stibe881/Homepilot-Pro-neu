@@ -860,7 +860,7 @@ export function EntityCard({
                       <Ionicons
                         name={active ? 'volume-high' : 'volume-medium-outline'}
                         size={12}
-                        color={active ? '#FFFFFF' : colors.inkSoft}
+                        color={active ? colors.onAccent : colors.inkSoft}
                       />
                       <Text
                         style={[
@@ -949,9 +949,9 @@ export function EntityCard({
                 <Ionicons
                   name={privacyOn ? 'eye-off' : 'eye-off-outline'}
                   size={15}
-                  color={privacyOn ? '#FFFFFF' : colors.inkSoft}
+                  color={privacyOn ? colors.onAccent : colors.inkSoft}
                 />
-                <Text style={[styles.privacyText, privacyOn && { color: '#FFFFFF' }]}>
+                <Text style={[styles.privacyText, privacyOn && { color: colors.onAccent }]}>
                   {privacyOn ? 'Privatsphäre beenden' : 'Privatsphäre'}
                 </Text>
               </Pressable>

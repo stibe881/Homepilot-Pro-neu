@@ -332,7 +332,7 @@ function DienstKarte({
           <Text
             style={[
               styles.standText,
-              dienst.status.ton === 'gut' && { color: colors.on },
+              dienst.status.ton === 'gut' && { color: colors.onInk },
               dienst.status.ton === 'warnung' && { color: colors.danger },
             ]}
           >

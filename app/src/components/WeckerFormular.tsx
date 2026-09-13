@@ -197,7 +197,7 @@ export function WeckerFormular({
                 <Ionicons
                   name="volume-medium-outline"
                   size={12}
-                  color={entwurf.device === name ? '#FFFFFF' : colors.inkSoft}
+                  color={entwurf.device === name ? colors.onAccent : colors.inkSoft}
                 />
                 <Text
                   style={[styles.chipText, entwurf.device === name && styles.chipTextAn]}
@@ -281,5 +281,5 @@ const makeStyles = (colors: Colors) =>
     },
     chipAn: { backgroundColor: colors.accent, borderColor: colors.accent },
     chipText: { color: colors.inkSoft, fontSize: 12, fontWeight: '600', maxWidth: 160 },
-    chipTextAn: { color: '#FFFFFF' },
+    chipTextAn: { color: colors.onAccent },
   });

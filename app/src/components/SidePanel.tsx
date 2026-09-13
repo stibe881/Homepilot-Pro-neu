@@ -773,7 +773,7 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.accent,
     },
     speakerChipText: { fontSize: 12, color: colors.inkSoft, flexShrink: 1 },
-    speakerChipTextActive: { color: '#FFFFFF' },
+    speakerChipTextActive: { color: colors.onAccent },
     nowPlayingRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     coverArt: {
       width: 56,

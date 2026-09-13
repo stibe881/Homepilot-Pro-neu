@@ -285,6 +285,6 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.pill,
       overflow: 'hidden',
     },
-    rangeChipActive: { color: '#FFFFFF', backgroundColor: colors.accent },
+    rangeChipActive: { color: colors.onAccent, backgroundColor: colors.accent },
     note: { color: colors.inkSoft, fontSize: 12, lineHeight: 18 },
   });

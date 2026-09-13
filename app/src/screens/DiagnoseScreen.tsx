@@ -203,7 +203,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.pill,
       backgroundColor: colors.accent,
     },
-    knopfText: { color: colors.on, fontSize: 13, fontWeight: '700' },
+    knopfText: { color: colors.onInk, fontSize: 13, fontWeight: '700' },
     knopfZart: {
       paddingVertical: 8,
       paddingHorizontal: 14,

@@ -656,7 +656,7 @@ function CleanDialog({
               accessibilityState={{ disabled: !ready }}
               style={[styles.confirm, !ready && { opacity: 0.4 }]}
             >
-              <Ionicons name="play" size={14} color="#FFFFFF" />
+              <Ionicons name="play" size={14} color={colors.onAccent} />
               <Text style={styles.confirmText}>{startLabel}</Text>
             </Pressable>
           </View>
@@ -795,7 +795,7 @@ function CareDialog({
           {maintenance.map((part) => {
             const percent = Number(part.percent_left ?? 0);
             const tone =
-              percent <= 10 ? colors.danger : percent <= 30 ? colors.warn : colors.on;
+              percent <= 10 ? colors.danger : percent <= 30 ? colors.warn : colors.onInk;
             return (
               <View key={String(part.part)} style={{ gap: 6 }}>
                 <View style={styles.infoRow}>
@@ -962,7 +962,7 @@ const makeStyles = (colors: Colors) =>
     },
     modeChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     modeText: { color: colors.inkSoft, fontSize: 14, fontWeight: '600' },
-    modeTextActive: { color: '#FFFFFF' },
+    modeTextActive: { color: colors.onAccent },
     corner: {
       position: 'absolute',
       marginLeft: -6,
@@ -995,5 +995,5 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       backgroundColor: colors.accent,
     },
-    confirmText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+    confirmText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
   });

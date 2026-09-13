@@ -1044,12 +1044,12 @@ export function AutomationsScreen({
               <Ionicons
                 name={babysitter.active ? 'happy' : 'happy-outline'}
                 size={14}
-                color={babysitter.active ? '#FFFFFF' : colors.inkSoft}
+                color={babysitter.active ? colors.onAccent : colors.inkSoft}
               />
               <Text
                 style={[
                   styles.templateText,
-                  babysitter.active && { color: '#FFFFFF' },
+                  babysitter.active && { color: colors.onAccent },
                 ]}
               >
                 {babysitter.active ? 'Babysitter beenden' : 'Babysitter'}
@@ -1971,7 +1971,7 @@ export function AutomationsScreen({
                       <Ionicons
                         name={szenenSymbol(scene) as keyof typeof Ionicons.glyphMap}
                         size={20}
-                        color={laeuft(scene) ? '#FFFFFF' : colors.inkSoft}
+                        color={laeuft(scene) ? colors.onAccent : colors.inkSoft}
                       />
                     </View>
                     <View style={{ flex: 1 }}>

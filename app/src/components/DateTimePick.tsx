@@ -254,7 +254,7 @@ const makeStyles = (colors: Colors) =>
     day: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 7 },
     dayActive: { backgroundColor: colors.accent, borderRadius: 999 },
     dayText: { color: colors.ink, fontSize: 13 },
-    dayTextActive: { color: '#FFFFFF', fontWeight: '700' },
+    dayTextActive: { color: colors.onAccent, fontWeight: '700' },
     timeRow: {
       flexDirection: 'row',
       alignItems: 'center',

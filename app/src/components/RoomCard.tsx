@@ -209,12 +209,12 @@ export function RoomCard({
                 <Ionicons
                   name={aktion.icon as keyof typeof Ionicons.glyphMap}
                   size={17}
-                  color={aktion.an ? '#FFFFFF' : colors.inkSoft}
+                  color={aktion.an ? colors.onAccent : colors.inkSoft}
                 />
                 {/* Gerätenamen können lang sein («Sternenhimmel») - eine
                     Zeile, notfalls gekürzt, statt eines wachsenden Knopfs. */}
                 <Text
-                  style={[styles.knopfText, aktion.an && { color: '#FFFFFF' }]}
+                  style={[styles.knopfText, aktion.an && { color: colors.onAccent }]}
                   numberOfLines={1}
                 >
                   {aktion.label}

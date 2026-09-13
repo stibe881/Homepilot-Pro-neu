@@ -62,7 +62,7 @@ export function CategoryField({
                 accessibilityRole="button"
                 style={[styles.template, on && styles.templateOn]}
               >
-                <Text style={[styles.templateText, on && { color: '#FFFFFF' }]}>
+                <Text style={[styles.templateText, on && { color: colors.onAccent }]}>
                   {name}
                 </Text>
               </Pressable>
@@ -707,7 +707,7 @@ export function Kachelauswahl({
             <Ionicons
               name={option.icon}
               size={22}
-              color={aktiv ? '#FFFFFF' : colors.inkSoft}
+              color={aktiv ? colors.onAccent : colors.inkSoft}
             />
             <Text
               style={[styles.kachelText, aktiv && styles.kachelTextAktiv]}

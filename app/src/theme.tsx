@@ -42,6 +42,16 @@ export const lightColors = {
 
   on: '#34C759',
   onSoft: 'rgba(52, 199, 89, 0.16)',
+  // Dasselbe Grün als *Schrift* (Punkt 609 der Werkbank) - das
+  // Gegenstück zu `warnInk` weiter unten, aus demselben Grund: `on` ist
+  // die Farbe des Zustandspunkts und des Ein-Symbols, und die tragen
+  // ihre Form. Als Text trug das Grün nichts: «An» in 26 Punkt fett auf
+  // der Schalterkachel kam im Hellen auf 1,7:1, «Scharf · Zuhause» und
+  // die Erfolgszeilen unter Login und Einstellungen ebenso - unter jeder
+  // Schwelle, auch der 3:1 für grosse Schrift. In den dunklen Bildern ist
+  // `on` lesbar und `onInk` dieselbe Farbe. Der Test in
+  // lib/kontrast.test.ts hält 4,5:1 fest.
+  onInk: '#146A2E',
   off: 'rgba(35, 40, 51, 0.14)',
   // Der Akzent als *Fläche* - ein Hauch davon, nicht die Farbe selbst.
   //
@@ -54,6 +64,22 @@ export const lightColors = {
   // übereinander wären weder lesbar noch gemeint.
   accent: '#2F6BF6',
   accentSoft: 'rgba(47, 107, 246, 0.10)',
+  // Schrift auf einer *gefüllten* Fläche (Punkt 609 der Werkbank).
+  //
+  // Bisher stand dort fest `'#FFFFFF'`, quer durch die App - und Weiss
+  // ist nur im Hellen und im Sand die richtige Antwort. Der dunkle
+  // Akzent ist ein helles Blau, damit er auf dem dunklen Grund leuchtet;
+  // weisse Schrift darauf kam auf 2,7:1. Ein Wort auf einem Knopf muss
+  // aber genauso lesbar sein wie eines auf einer Karte, deshalb je
+  // Palette die Gegenfarbe: Weiss auf dunklem Akzent, Dunkel auf hellem.
+  //
+  // `onAccent` gilt für den Akzent *und* für Rot: Beide sind in jeder
+  // Palette gleich tief, und Weiss ist dort, wo es passt, die bessere
+  // der zwei möglichen Antworten. `onSignal` gilt für Grün und Orange,
+  // die überall hell sind - darauf steht Weiss nirgends (1,5 bis 2,7),
+  // Tinte immer. Der Test in lib/kontrast.test.ts rechnet beides nach.
+  onAccent: '#FFFFFF',
+  onSignal: '#232833',
   warn: '#F5A524',
   // Dieselbe Warnung als *Schrift* (Punkt 442/444 der Werkbank).
   //
@@ -101,9 +127,15 @@ export const darkColors: Colors = {
   // verschwinden sie.
   on: '#3DDC84',
   onSoft: 'rgba(61, 220, 132, 0.18)',
+  // Siehe onInk im hellen Erscheinungsbild - dort steht, warum.
+  onInk: '#3DDC84',
   off: 'rgba(255, 255, 255, 0.16)',
   accent: '#6E9BFF',
   accentSoft: 'rgba(110, 155, 255, 0.14)',
+  // Der Akzent ist hier ein helles Blau - Weiss darauf kam auf 2,7:1.
+  // Deshalb die Tinte des Panels (siehe onAccent im hellen Bild).
+  onAccent: '#20262F',
+  onSignal: '#20262F',
   warn: '#FFC061',
   // Siehe warnInk im hellen Erscheinungsbild - dort steht, warum.
   warnInk: '#FFC061',
@@ -169,11 +201,17 @@ export const pinkColors: Colors = {
 
   on: '#3BEFA6',
   onSoft: 'rgba(59, 239, 166, 0.18)',
+  // Siehe onInk im hellen Erscheinungsbild - dort steht, warum.
+  onInk: '#3BEFA6',
   off: 'rgba(255, 235, 246, 0.16)',
   // Neonpink: Farbton 328 Grad, Sattheit 96 Prozent, volle Helligkeit.
   // Nicht 300 Grad – das wäre Magenta und damit wieder Violett.
   accent: '#FF0A8C',
   accentSoft: 'rgba(255, 10, 140, 0.13)',
+  // Auf Neon steht Schwarz, nicht Weiss: 3,7:1 gegen 5,5:1 (siehe
+  // onAccent im hellen Bild).
+  onAccent: '#0A0307',
+  onSignal: '#0A0307',
   warn: '#FFC061',
   // Siehe warnInk im hellen Erscheinungsbild - dort steht, warum.
   warnInk: '#FFC061',
@@ -217,9 +255,15 @@ export const mitternachtColors: Colors = {
 
   on: '#3DDC84',
   onSoft: 'rgba(61, 220, 132, 0.18)',
+  // Siehe onInk im hellen Erscheinungsbild - dort steht, warum.
+  onInk: '#3DDC84',
   off: 'rgba(226, 229, 255, 0.16)',
   accent: '#8F92FF',
   accentSoft: 'rgba(143, 146, 255, 0.14)',
+  // Perlblau ist hell - Weiss darauf 2,7:1, die Panel-Tinte 5,8 (siehe
+  // onAccent im hellen Bild).
+  onAccent: '#1F2138',
+  onSignal: '#1F2138',
   warn: '#FFC061',
   // Siehe warnInk im hellen Erscheinungsbild - dort steht, warum.
   warnInk: '#FFC061',
@@ -263,9 +307,15 @@ export const sandColors: Colors = {
 
   on: '#34C759',
   onSoft: 'rgba(52, 199, 89, 0.16)',
+  // Siehe onInk im hellen Erscheinungsbild - dort steht, warum.
+  onInk: '#146A2E',
   off: 'rgba(51, 41, 28, 0.14)',
   accent: '#A94E26',
   accentSoft: 'rgba(169, 78, 38, 0.11)',
+  // Terracotta ist tief genug für Weiss (5,5:1); auf Grün und Orange
+  // steht wie im Hellen die Tinte (siehe onAccent im hellen Bild).
+  onAccent: '#FFFFFF',
+  onSignal: '#33291C',
   warn: '#DF8A00',
   // Siehe warnInk im hellen Erscheinungsbild - dort steht, warum.
   warnInk: '#6B3E00',

@@ -198,7 +198,7 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
     backgroundColor: colors.accent,
     alignItems: 'center',
   },
-  roomFertigText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  roomFertigText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
   renameInput: {
     backgroundColor: colors.surfaceSoft,
     borderRadius: radius.control,
@@ -220,7 +220,7 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
     paddingHorizontal: 20,
     alignItems: 'center',
   },
-  renameSaveText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  renameSaveText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
   mediaRow: { flexDirection: 'row', gap: 10 },
   /** Die vier Stellungen der Store: zwei mal zwei, damit auch «Beschattung»
    *  in eine halbbreite Telefonkachel passt. */
@@ -371,7 +371,7 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
     borderColor: colors.accent,
   },
   deviceChipText: { fontSize: 12, color: colors.inkSoft, flexShrink: 1 },
-  deviceChipTextActive: { color: '#FFFFFF' },
+  deviceChipTextActive: { color: colors.onAccent },
   /** Die Kamerakachel, in der das Bild die Fläche ist. Alles Weitere
    *  liegt darüber - deshalb ist hier nur die Bühne. */
   kameraVoll: { position: 'relative' },
@@ -453,7 +453,7 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
     borderRadius: radius.control,
     backgroundColor: colors.accent,
   },
-  cleanRoomsText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+  cleanRoomsText: { color: colors.onAccent, fontSize: 13, fontWeight: '700' },
   /** Die Szenenkachel: Sie IST der Knopf, deshalb füllt ihr Inhalt die
    *  ganze Fläche - Symbol oben, Name unten, dazwischen Luft. */
   szeneInhalt: { flex: 1, justifyContent: 'space-between', minHeight: 106, gap: 12 },
@@ -489,7 +489,7 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
     backgroundColor: colors.accent,
   },
   lockButtonArmed: { backgroundColor: colors.danger },
-  lockButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  lockButtonText: { color: colors.onAccent, fontSize: 14, fontWeight: '700' },
   mediaButton: {
     width: 38,
     height: 38,

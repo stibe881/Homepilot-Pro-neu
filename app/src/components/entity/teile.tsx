@@ -36,7 +36,7 @@ export function BigValue({ value, on, note }: { value: string; on?: boolean; not
   const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <View>
-      <Text style={[styles.value, on && { color: colors.on }]}>{value}</Text>
+      <Text style={[styles.value, on && { color: colors.onInk }]}>{value}</Text>
       {note ? <Text style={styles.hint}>{note}</Text> : null}
     </View>
   );
@@ -55,9 +55,31 @@ export function Pill({ label, tone, solid }: { label: string; tone?: string; sol
           : { backgroundColor: colors.surfaceSoft, borderColor: color, borderWidth: 1 },
       ]}
     >
-      <Text style={[styles.pillText, solid ? { color: '#fff' } : { color }]}>{label}</Text>
+      <Text style={[styles.pillText, { color: pillSchrift(colors, color, !!solid) }]}>
+        {label}
+      </Text>
     </View>
   );
+}
+
+/**
+ * Die Schriftfarbe einer Pille (rein, testbar) - Punkt 609 der Werkbank.
+ *
+ * Der Ton kommt vom Aufrufer als Signalfarbe (`on`, `warn`, `danger`,
+ * `accent`), und die ist am Rand der Pille richtig: Dort trägt die Form
+ * die Bedeutung. Als *Schrift* trägt sie nicht - «Online» in Grün kam
+ * auf einer Karte im Hellen auf 1,7:1 -, deshalb bekommt der Text die
+ * Tinte derselben Farbe (`onInk`, `warnInk`), wie es Punkt 442 für
+ * Orange eingeführt hat. Gefüllt stand fest Weiss darauf: auf Grün und
+ * Orange nirgends lesbar («Geöffnet», «Bewegung»), auf dem hellen
+ * Akzent der dunklen Bilder auch nicht - jetzt die Gegenfarbe der
+ * Palette (`onSignal`, `onAccent`).
+ */
+export function pillSchrift(colors: Colors, ton: string, solid: boolean): string {
+  if (solid) return ton === colors.on || ton === colors.warn ? colors.onSignal : colors.onAccent;
+  if (ton === colors.on) return colors.onInk;
+  if (ton === colors.warn) return colors.warnInk;
+  return ton;
 }
 
 /** Werte, die «noch nichts» heissen – und nicht so aussehen sollen. */

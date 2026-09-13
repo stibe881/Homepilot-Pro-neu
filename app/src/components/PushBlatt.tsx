@@ -59,7 +59,7 @@ export function PushBlatt({
               <Ionicons
                 name={knopf.scene ? 'sparkles' : 'flash'}
                 size={18}
-                color="#FFFFFF"
+                color={colors.onAccent}
               />
               <Text style={styles.knopfText} numberOfLines={1}>
                 {knopf.label}
@@ -104,7 +104,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       backgroundColor: colors.accent,
     },
-    knopfText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+    knopfText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
     zu: { alignItems: 'center', paddingVertical: 8 },
     zuText: { color: colors.inkFaint, fontSize: 14, fontWeight: '600' },
   });

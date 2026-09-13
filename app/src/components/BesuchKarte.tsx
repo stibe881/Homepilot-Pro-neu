@@ -115,7 +115,7 @@ export function BesuchKarte({
           <Text style={styles.statusTitel}>
             {laeuft ? 'Jemand ist da' : 'Niemand angemeldet'}
           </Text>
-          <Text style={[styles.statusZeile, laeuft && { color: colors.on }]}>
+          <Text style={[styles.statusZeile, laeuft && { color: colors.onInk }]}>
             {laeuft
               ? rest
                 ? `Läuft noch ${rest}`
@@ -175,7 +175,7 @@ export function BesuchKarte({
         <Ionicons
           name={laeuft ? 'stop-outline' : 'people-outline'}
           size={16}
-          color="#FFFFFF"
+          color={colors.onAccent}
         />
         <Text style={styles.buttonText}>
           {laeuft ? 'Beenden – die Abläufe laufen wieder' : 'Starten'}
@@ -211,7 +211,7 @@ const makeStyles = (colors: Colors) =>
     },
     chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     chipText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
-    chipTextActive: { color: '#FFFFFF' },
+    chipTextActive: { color: colors.onAccent },
     hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },
     button: {
       flexDirection: 'row',
@@ -222,5 +222,5 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       backgroundColor: colors.accent,
     },
-    buttonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+    buttonText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
   });

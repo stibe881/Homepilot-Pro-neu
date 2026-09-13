@@ -1089,7 +1089,7 @@ export function TopStrip({
                   <Ionicons
                     name="people"
                     size={icon.klein}
-                    color={besuchLaeuft ? '#FFFFFF' : colors.ink}
+                    color={besuchLaeuft ? colors.onAccent : colors.ink}
                   />
                 </Pressable>
               ) : null}
@@ -1676,7 +1676,7 @@ const makeStyles = (colors: Colors) =>
     alignItems: 'center',
     justifyContent: 'center',
   },
-  glockenZahlText: { color: '#FFFFFF', fontSize: 10, fontWeight: '700' },
+  glockenZahlText: { color: colors.onAccent, fontSize: 10, fontWeight: '700' },
   /** Das Leute-Zeichen der Begrüssungskarte. Eigener Stil und nicht
    *  `chip`: Es bekommt im eingeschalteten Zustand eine Füllung, und
    *  der Platz dafür muss auch vorher schon da sein - sonst rückt die
@@ -1756,7 +1756,7 @@ const makeStyles = (colors: Colors) =>
   },
   shopChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
   shopChipText: { color: colors.ink, fontSize: 13 },
-  shopChipTextActive: { color: '#FFFFFF', fontWeight: '600' },
+  shopChipTextActive: { color: colors.onAccent, fontWeight: '600' },
   gangLabel: {
     color: colors.inkSoft,
     fontSize: 12,

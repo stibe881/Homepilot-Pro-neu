@@ -175,7 +175,7 @@ export function stateLook(
 ): { text: string; color: string } {
   switch (state.state) {
     case 'scharf':
-      return { text: `Scharf · ${state.mode_label}`, color: colors.on };
+      return { text: `Scharf · ${state.mode_label}`, color: colors.onInk };
     case 'scharfschaltend':
       return { text: 'Wird scharf …', color: colors.warn };
     case 'eintritt':
@@ -708,7 +708,7 @@ export function AlarmScreen({
               accessibilityState={{ selected: selectedZone === null }}
               style={[styles.chip, selectedZone === null && styles.chipOn]}
             >
-              <Text style={[styles.chipText, selectedZone === null && { color: '#FFFFFF' }]}>
+              <Text style={[styles.chipText, selectedZone === null && { color: colors.onAccent }]}>
                 Ganzes Haus
               </Text>
             </Pressable>
@@ -720,7 +720,7 @@ export function AlarmScreen({
                 accessibilityState={{ selected: selectedZone === zone }}
                 style={[styles.chip, selectedZone === zone && styles.chipOn]}
               >
-                <Text style={[styles.chipText, selectedZone === zone && { color: '#FFFFFF' }]}>
+                <Text style={[styles.chipText, selectedZone === zone && { color: colors.onAccent }]}>
                   {zone}
                 </Text>
               </Pressable>
@@ -748,9 +748,9 @@ export function AlarmScreen({
                 <Ionicons
                   name={mode.icon}
                   size={20}
-                  color={active ? '#FFFFFF' : colors.ink}
+                  color={active ? colors.onAccent : colors.ink}
                 />
-                <Text style={[styles.modeText, active && { color: '#FFFFFF' }]}>
+                <Text style={[styles.modeText, active && { color: colors.onAccent }]}>
                   {mode.label}
                 </Text>
               </Pressable>
@@ -920,10 +920,10 @@ export function AlarmScreen({
                   accessibilityState={{ selected: on }}
                   style={[styles.tab, on && styles.tabOn]}
                 >
-                  <Text style={[styles.tabText, on && { color: '#FFFFFF' }]}>
+                  <Text style={[styles.tabText, on && { color: colors.onAccent }]}>
                     {mode.label}
                   </Text>
-                  <Text style={[styles.tabCount, on && { color: '#FFFFFF' }]}>
+                  <Text style={[styles.tabCount, on && { color: colors.onAccent }]}>
                     {count}
                   </Text>
                 </Pressable>
@@ -1026,7 +1026,7 @@ export function AlarmScreen({
                           style={[styles.chip, entry?.delayed && styles.chipOn]}
                         >
                           <Text
-                            style={[styles.chipText, entry?.delayed && { color: '#FFFFFF' }]}
+                            style={[styles.chipText, entry?.delayed && { color: colors.onAccent }]}
                           >
                             verzögert
                           </Text>
@@ -1040,7 +1040,7 @@ export function AlarmScreen({
                           style={[styles.chip, entry?.bypass && styles.chipWarn]}
                         >
                           <Text
-                            style={[styles.chipText, entry?.bypass && { color: '#FFFFFF' }]}
+                            style={[styles.chipText, entry?.bypass && { color: colors.onAccent }]}
                           >
                             überbrückt
                           </Text>
@@ -1254,7 +1254,7 @@ export function AlarmScreen({
                   <Text
                     style={[
                       styles.smallButtonText,
-                      historyKind === key && { color: '#FFFFFF' },
+                      historyKind === key && { color: colors.onAccent },
                     ]}
                   >
                     {label}
@@ -1577,7 +1577,7 @@ function EskalationKarte({
           pressed && { opacity: 0.7 },
         ]}
       >
-        <Text style={[styles.chipText, on && { color: '#FFFFFF' }]}>{entity.name}</Text>
+        <Text style={[styles.chipText, on && { color: colors.onAccent }]}>{entity.name}</Text>
       </Pressable>
     );
   };
@@ -1620,7 +1620,7 @@ function EskalationKarte({
                         pressed && { opacity: 0.7 },
                       ]}
                     >
-                      <Text style={[styles.chipText, on && { color: '#FFFFFF' }]}>
+                      <Text style={[styles.chipText, on && { color: colors.onAccent }]}>
                         {fristLabel(sekunden)}
                       </Text>
                     </Pressable>
@@ -1713,7 +1713,7 @@ function EskalationKarte({
                           pressed && { opacity: 0.7 },
                         ]}
                       >
-                        <Text style={[styles.chipText, on && { color: '#FFFFFF' }]}>
+                        <Text style={[styles.chipText, on && { color: colors.onAccent }]}>
                           {ziel.label}
                         </Text>
                       </Pressable>
@@ -1751,7 +1751,7 @@ function EskalationKarte({
                               ]}
                             >
                               <Text
-                                style={[styles.chipText, on && { color: '#FFFFFF' }]}
+                                style={[styles.chipText, on && { color: colors.onAccent }]}
                               >
                                 {box.name}
                               </Text>
@@ -1804,7 +1804,7 @@ function EskalationKarte({
                 <Text
                   style={[
                     styles.chipText,
-                    eskalation.volume == null && { color: '#FFFFFF' },
+                    eskalation.volume == null && { color: colors.onAccent },
                   ]}
                 >
                   Vorgabe des Hubs
@@ -1876,7 +1876,7 @@ function AfterTrigger({
                     accessibilityState={{ selected: on }}
                     style={[styles.chip, on && styles.chipOn]}
                   >
-                    <Text style={[styles.chipText, on && { color: '#FFFFFF' }]}>
+                    <Text style={[styles.chipText, on && { color: colors.onAccent }]}>
                       {choice.label}
                     </Text>
                   </Pressable>
@@ -2296,7 +2296,7 @@ function AlarmSettings({
                 accessibilityLabel={`Symbol ${symbol}`}
                 style={[styles.chip, on && styles.chipOn]}
               >
-                <Ionicons name={symbol} size={16} color={on ? '#FFFFFF' : colors.ink} />
+                <Ionicons name={symbol} size={16} color={on ? colors.onAccent : colors.ink} />
               </Pressable>
             );
           })}
@@ -2379,7 +2379,7 @@ function AlarmSettings({
                     pressed && { opacity: 0.7 },
                   ]}
                 >
-                  <Text style={[styles.chipText, gewaehlt && { color: '#FFFFFF' }]}>
+                  <Text style={[styles.chipText, gewaehlt && { color: colors.onAccent }]}>
                     {entity.name}
                   </Text>
                 </Pressable>
@@ -2444,7 +2444,7 @@ function AlarmSettings({
                     pressed && { opacity: 0.7 },
                   ]}
                 >
-                  <Text style={[styles.chipText, gewaehlt && { color: '#FFFFFF' }]}>
+                  <Text style={[styles.chipText, gewaehlt && { color: colors.onAccent }]}>
                     {eintrag.label}
                   </Text>
                 </Pressable>
@@ -2532,7 +2532,7 @@ function AlarmSettings({
                     pressed && { opacity: 0.7 },
                   ]}
                 >
-                  <Text style={[styles.chipText, gewaehlt && { color: '#FFFFFF' }]}>
+                  <Text style={[styles.chipText, gewaehlt && { color: colors.onAccent }]}>
                     {stufe.label}
                   </Text>
                 </Pressable>
@@ -3062,7 +3062,7 @@ const makeStyles = (colors: Colors) =>
     },
     actionChipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
     actionChipText: { color: colors.inkSoft, fontSize: 12, fontWeight: '700' },
-    actionChipTextOn: { color: '#FFFFFF' },
+    actionChipTextOn: { color: colors.onAccent },
     warn: { color: colors.warnInk, fontSize: 13, lineHeight: 19, fontWeight: '600' },
 
     stateHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -3133,7 +3133,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       backgroundColor: colors.accent,
     },
-    pinConfirmText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+    pinConfirmText: { color: colors.onAccent, fontSize: 14, fontWeight: '700' },
     pinRemove: {
       paddingVertical: 11,
       paddingHorizontal: 12,
