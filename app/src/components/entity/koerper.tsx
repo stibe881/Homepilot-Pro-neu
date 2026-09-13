@@ -14,6 +14,7 @@ import { aktiveVorgabe, vorgaben } from '../../lib/storenvorgaben';
 import { chipSchrift, fensterHoehe } from '../../lib/storenkachel';
 import { grillBauart, grillFoto, grillKurzinfo } from '../../lib/grillbild';
 import { fuehlerZeile } from '../../lib/grillziel';
+import { letzteOeffnung } from '../../lib/schlossprotokoll';
 import { mayOpenDirectly } from '../../lib/tuerbestaetigung';
 import { radius, useColors } from '../../theme';
 import { Bar } from '../Bar';
@@ -88,12 +89,17 @@ export function LockBody({
                   : value === 'motor_blocked'
                     ? 'Motor blockiert'
                     : '–';
+    // Wer aufgeschlossen hat, und womit (Punkt 616 der Werkbank): «Livia
+    // (Code) · 15:42». Der Hub liest es aus dem Protokoll des Nuki; ohne
+    // Eintrag bleibt die Zeile weg, wie bei einem älteren Hub.
+    const oeffnung = letzteOeffnung(entity.state);
     return (
       <View style={styles.stack}>
         <Pill
           label={label}
           tone={value === 'motor_blocked' ? colors.danger : locked ? undefined : colors.on}
         />
+        {oeffnung ? <Text style={styles.hint}>{oeffnung}</Text> : null}
         {entity.state.battery != null ? (
           <Text style={styles.hint}>
             {entity.state.battery} % Akku
