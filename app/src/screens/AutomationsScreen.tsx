@@ -37,7 +37,7 @@ import {
 } from '../lib/ablaufhilfen';
 import { laeuft, tippLabel, unterzeile } from '../lib/szenenzeile';
 import { szenenFarben } from '../lib/szenenfarben';
-import { bandReihenfolge, bandZeile } from '../lib/tagesband';
+import { bandReihenfolge, bandSymbol, bandZeile } from '../lib/tagesband';
 import { makeStyles } from './automations/stil';
 import { SCENE_ICONS, SceneDraft, SceneEditor } from './automations/szenen-editor';
 import { EigeneVorlage, buildTemplates, gruppiereVorlagen, mischeVorlagen } from './automations/vorlagen';
@@ -1092,13 +1092,7 @@ export function AutomationsScreen({
                 style={[styles.agendaChip, eintrag.vorbei && { opacity: 0.55 }]}
               >
                 <Ionicons
-                  name={
-                    eintrag.vorbei
-                      ? 'checkmark-circle'
-                      : eintrag.art === 'sun'
-                        ? 'sunny-outline'
-                        : 'time-outline'
-                  }
+                  name={bandSymbol(eintrag.art, eintrag.vorbei)}
                   size={13}
                   color={eintrag.vorbei ? colors.on : colors.inkSoft}
                 />

@@ -130,6 +130,9 @@ export interface Run {
     urteil: 'gewirkt' | 'teilweise' | 'wirkungslos';
     geprueft: number;
     nicht: string[];
+    /** Punkt 596: Der Hub hat für die fehlenden Geräte den Befehl noch
+     *  einmal geschickt, bevor er urteilte. */
+    nachgefasst?: boolean;
   } | null;
 }
 
@@ -608,10 +611,14 @@ export function wirkungText(run: Run): string | null {
   const effect = run.effect;
   if (!effect || effect.urteil === 'gewirkt') return null;
   const namen = effect.nicht.join(', ');
+  // Nachgefasst (Punkt 596) gehört dazu: «wirkte nicht» nach zwei
+  // Anläufen ist eine andere Auskunft als nach einem - beim zweiten
+  // sucht man am Gerät, nicht am Funk.
+  const zweimal = effect.nachgefasst ? ' – auch nachgefasst' : '';
   if (effect.urteil === 'wirkungslos') {
-    return namen ? `wirkte nicht: ${namen}` : 'wirkte nicht';
+    return namen ? `wirkte nicht${zweimal}: ${namen}` : `wirkte nicht${zweimal}`;
   }
-  return namen ? `wirkte nur halb – ohne ${namen}` : 'wirkte nur halb';
+  return namen ? `wirkte nur halb${zweimal} – ohne ${namen}` : `wirkte nur halb${zweimal}`;
 }
 
 export function lastRunText(runs: Run[], automationId: string): string {
@@ -697,6 +704,15 @@ export interface NotifyKnopf {
 }
 
 export type StepKind = 'command' | 'toggle_all' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'presence' | 'delay' | 'wait_until' | 'fade' | 'music' | 'if' | 'repeat' | 'automation';
+
+/** Was der Schritt «Ablauf» mit dem anderen tun kann (Punkt 597). */
+export type AblaufTat = 'run' | 'snooze' | 'enable' | 'disable';
+
+/** Die Tat des Ablauf-Schritts, wie der Hub sie kennt - Unbekanntes
+ *  heisst «run» (rein, testbar). */
+export function ablaufTat(value: unknown): AblaufTat {
+  return value === 'snooze' || value === 'enable' || value === 'disable' ? value : 'run';
+}
 
 /** Was ein Musik-Schritt tun kann. */
 export type MusikTat = 'favorite' | 'sleep' | 'pause_all' | 'night' | 'fade' | 'follow';
@@ -888,6 +904,12 @@ export interface StepDraft {
    *  das längst (`type: automation`) - der Editor kannte den Schritt
    *  nicht und warf ihn beim Öffnen und Speichern still weg. */
   automationId: string;
+  /** Was mit dem anderen Ablauf geschieht (Punkt 597): starten wie
+   *  bisher, ruhen lassen (Minuten oder bis «HH:MM»), ein- oder
+   *  ausschalten. «run» bleibt die Vorgabe. */
+  automationDo: AblaufTat;
+  automationMinutes: string;
+  automationUntil: string;
   repeatWhileExtra: BausteinConfig[];
   repeatMax: string;
   repeatSteps: StepDraft[];
@@ -936,6 +958,9 @@ export const EMPTY_STEP: StepDraft = {
   repeatMax: '10',
   repeatSteps: [],
   automationId: '',
+  automationDo: 'run',
+  automationMinutes: '180',
+  automationUntil: '',
 };
 
 /** Ein neuer Auslöser für dieses Gerät – mit einem Zustand, den es auch
@@ -984,6 +1009,9 @@ export interface StateCondition {
   value: string;
   /** Welcher Messwert verglichen wird. Leer = der Zustand selbst. */
   attribute?: string;
+  /** «seit mindestens … Minuten» (Punkt 595): Der Zustand muss so lange
+   *  schon gelten. Leer = egal, seit wann. */
+  minAge?: string;
 }
 
 /** Eine Und/Oder-Gruppe von Gerätebedingungen (Punkt 152).
@@ -1093,6 +1121,10 @@ export interface Draft {
   conditionSun: 'up' | 'down';
   conditionAfter: string;
   conditionBefore: string;
+  /** Jahreszeit der Uhrzeit-Bedingung als «MM-DD» (Punkt 598): «vom
+   *  1.12. bis 6.1.» geht über den Jahreswechsel. Leer = das ganze Jahr. */
+  conditionFrom: string;
+  conditionTo: string;
   /** Zusätzliche Bedingungen «nur wenn Gerät … ist / über / unter». */
   stateConditions: StateCondition[];
   /** Und/Oder-Gruppen aus Gerätebedingungen (Punkt 152). */
@@ -1122,8 +1154,9 @@ export interface Draft {
   /** Was stattdessen läuft, wenn die Bedingungen nicht passen. */
   elseSteps: StepDraft[];
   /** Was geschieht, wenn er noch läuft und erneut ausgelöst wird:
-   *  «single» verwirft den zweiten Auslöser, «restart» beginnt von vorn. */
-  mode: 'single' | 'restart';
+   *  «single» verwirft den zweiten Auslöser, «restart» beginnt von vorn,
+   *  «queued» reiht ihn an (Punkt 77). */
+  mode: AblaufModus;
   /** Frühestens wieder nach so vielen Minuten. Leer = kein Abstand. */
   cooldownMinutes: string;
   /** Frei benannte Kategorie zum Gruppieren in der Liste. */
@@ -1167,6 +1200,8 @@ export const EMPTY: Draft = {
   conditionSun: 'down',
   conditionAfter: '',
   conditionBefore: '',
+  conditionFrom: '',
+  conditionTo: '',
   stateConditions: [],
   groups: [],
   kontextConditions: [],
@@ -1445,6 +1480,18 @@ export function schaltetSpaeterAus(steps: SchrittBaum[]): boolean {
     );
 }
 
+/** Die drei Wiederanlauf-Arten des Hubs (``MODES`` in core/automation.py). */
+export type AblaufModus = 'single' | 'restart' | 'queued';
+
+/** Der Modus, wie der Hub ihn kennt - Unbekanntes wird «single» (rein, testbar).
+ *
+ *  Fehler aus der Runde 579 der Werkbank: Hier stand «restart oder single»,
+ *  und ein Ablauf aus der config.yaml mit «der Reihe nach» (77) verlor den
+ *  Modus beim ersten Speichern in der App - ohne Hinweis. */
+export function ablaufModus(mode: string | undefined): AblaufModus {
+  return mode === 'restart' || mode === 'queued' ? mode : 'single';
+}
+
 export function hatWartezeit(steps: SchrittBaum[]): boolean {
   // Dimmen dauert - für «restart oder nicht» zählt es wie eine Wartezeit.
   return alleSchritte(steps).some(
@@ -1676,6 +1723,8 @@ export function buildConditions(draft: Draft): BausteinConfig[] {
     const condition: BausteinConfig = { type: 'time' };
     if (draft.conditionAfter) condition.after = draft.conditionAfter;
     if (draft.conditionBefore) condition.before = draft.conditionBefore;
+    if (draft.conditionFrom) condition.from = draft.conditionFrom;
+    if (draft.conditionTo) condition.to = draft.conditionTo;
     // Alle sieben Tage anzugeben heisst dasselbe wie keinen – dann lieber
     // das Feld weglassen, damit die gespeicherte Form schlank bleibt.
     if (draft.weekdays.length > 0 && draft.weekdays.length < 7) {
@@ -1687,6 +1736,8 @@ export function buildConditions(draft: Draft): BausteinConfig[] {
     if (
       condition.after ||
       condition.before ||
+      condition.from ||
+      condition.to ||
       condition.weekdays ||
       condition.except_holidays ||
       condition.except_school_holidays
@@ -1727,6 +1778,10 @@ export function stateConditionToConfig(entry: StateCondition): BausteinConfig | 
   // Ohne Angabe vergleicht der Hub den Zustand selbst - dann gehört das
   // Feld auch nicht in die gespeicherte Form.
   if (entry.attribute) base.attribute = entry.attribute;
+  // «seit mindestens» (Punkt 595): nur mit einer echten Zahl - eine Null
+  // hiesse dasselbe wie kein Feld und stünde nur im Weg.
+  const minAge = Math.round(Number(entry.minAge) || 0);
+  if (minAge > 0) base.min_age = minAge;
   if (entry.op === 'above') return { ...base, above: Number(entry.value) || 0 };
   if (entry.op === 'below') return { ...base, below: Number(entry.value) || 0 };
   return { ...base, equals: entry.value };
@@ -1959,9 +2014,19 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
     return musikSchrittZuAktion(step);
   }
   if (step.kind === 'automation') {
-    return step.automationId
-      ? [{ type: 'automation', automation_id: step.automationId }]
-      : [];
+    if (!step.automationId) return [];
+    const action: BausteinConfig = { type: 'automation', automation_id: step.automationId };
+    // «run» ist die Vorgabe des Hubs - ohne Feld bleibt die gespeicherte
+    // Form, wie sie vor Punkt 597 war.
+    if (step.automationDo !== 'run') action.do = step.automationDo;
+    if (step.automationDo === 'snooze') {
+      // Die Uhrzeit sticht die Minuten - wie im Hub (ruhe_bis).
+      if (step.automationUntil) action.until = step.automationUntil;
+      else if (Number(step.automationMinutes) > 0) {
+        action.minutes = Math.round(Number(step.automationMinutes));
+      }
+    }
+    return [action];
   }
   if (step.kind === 'if') {
     // Ohne Bedingung hiesse der Schritt beim Hub «gilt immer», ohne
@@ -2384,6 +2449,10 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
         ...EMPTY_STEP,
         kind: 'automation',
         automationId: String(action.automation_id ?? action.automation ?? ''),
+        automationDo: ablaufTat(action.do),
+        automationMinutes:
+          Number(action.minutes) > 0 ? String(action.minutes) : EMPTY_STEP.automationMinutes,
+        automationUntil: action.until ? String(action.until) : '',
       });
     } else if (type === 'wait_until') {
       steps.push({
@@ -2424,6 +2493,7 @@ function stateConditionFromConfig(entry: BausteinConfig): StateCondition {
     op: ('above' in entry ? 'above' : 'below' in entry ? 'below' : 'is') as Compare,
     value: String(entry.above ?? entry.below ?? entry.equals ?? 'on'),
     ...(entry.attribute ? { attribute: String(entry.attribute) } : {}),
+    ...(Number(entry.min_age) > 0 ? { minAge: String(entry.min_age) } : {}),
   };
 }
 
@@ -2443,6 +2513,8 @@ export function toDraft(automation: Automation): Draft {
     conditionSun: condition.state === 'up' ? 'up' : 'down',
     conditionAfter: condition.after ?? '',
     conditionBefore: condition.before ?? '',
+    conditionFrom: String(condition.from ?? ''),
+    conditionTo: String(condition.to ?? ''),
     stateConditions: all
       .filter((entry) => (entry.type ?? 'state') === 'state' && entry.entity_id)
       // Beim Speichern wird das attribute-Feld mitgeschrieben, beim
@@ -2472,7 +2544,7 @@ export function toDraft(automation: Automation): Draft {
     exceptSchoolHolidays: condition.except_school_holidays === true,
     steps: withAtLeastOne(actionsToSteps(automation.actions ?? [])),
     elseSteps: actionsToSteps(automation.otherwise ?? []),
-    mode: automation.mode === 'restart' ? 'restart' : 'single',
+    mode: ablaufModus(automation.mode),
     cooldownMinutes: automation.cooldown
       ? String(Math.round(automation.cooldown / 60))
       : '',
@@ -2858,6 +2930,7 @@ export function bedingungStand(draft: Draft): string {
     );
   }
   if (draft.weekdays.length > 0) teile.push('Wochentage');
+  if (draft.conditionFrom || draft.conditionTo) teile.push('Jahreszeit');
   if (draft.exceptHolidays) teile.push('ohne Feiertage');
   if (draft.exceptSchoolHolidays) teile.push('ohne Schulferien');
   if (draft.extraConditions.length > 0) teile.push('aus der Konfiguration');

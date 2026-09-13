@@ -5,7 +5,7 @@
  * hat, liest es hier – deshalb prüft der Test genau diese Wörter.
  */
 import { Entity, Scene } from '../api/types';
-import { ablaufSatz, befehlWort, kuerze } from './ablaufsatz';
+import { ablaufSatz, befehlWort, kuerze, monatstagAusText, monatstagText } from './ablaufsatz';
 
 const entities = [
   { id: 'hm.bewegung', name: 'Bewegung Flur' },
@@ -48,6 +48,21 @@ describe('ablaufSatz', () => {
     };
     expect(ablaufSatz({ ...basis, match: 'all' }, entities, scenes)).toContain(' und ');
     expect(ablaufSatz({ ...basis, match: 'any' }, entities, scenes)).toContain(' oder ');
+  });
+
+  it('sagt «seit mindestens», wenn die Bedingung eine Dauer verlangt (Punkt 595)', () => {
+    const satz = ablaufSatz(
+      {
+        triggers: [{ type: 'time', at: '10:00' }],
+        conditions: [{ type: 'state', entity_id: 'hm.bewegung', equals: 'off', min_age: 30 }],
+        actions: [{ type: 'command', entity_id: 'hue.flur', command: 'turn_on' }],
+        otherwise: [],
+        match: 'all',
+      },
+      entities,
+      scenes
+    );
+    expect(satz).toContain('Bewegung Flur ist off seit mindestens 30 Min');
   });
 
   it('nennt Szenen beim Namen und den Sonst-Zweig beim Wort', () => {
@@ -461,5 +476,62 @@ describe('befehlWort', () => {
     // Die Listenzeile hat nicht immer eines zur Hand.
     expect(befehlWort('turn_off')).toBe('aus');
     expect(befehlWort('sound_alarm')).toBe('Signal geben');
+  });
+});
+
+describe('Jahreszeit an der Zeitbedingung (Punkt 598)', () => {
+  it('liest «MM-DD» als Tag.Monat und tippt es zurück', () => {
+    expect(monatstagText('12-01')).toBe('1.12.');
+    expect(monatstagText('01-06')).toBe('6.1.');
+    expect(monatstagText('')).toBe('');
+    expect(monatstagAusText('1.12.')).toBe('12-01');
+    expect(monatstagAusText('01.12')).toBe('12-01');
+    expect(monatstagAusText('6. 1.')).toBe('01-06');
+    expect(monatstagAusText('12-01')).toBe('12-01');
+    expect(monatstagAusText('')).toBe('');
+    // Unsinn bleibt sichtbar stehen statt still zu verschwinden.
+    expect(monatstagAusText('Dezember')).toBe('Dezember');
+    expect(monatstagAusText('32.1.')).toBe('32.1.');
+  });
+
+  it('steht im Satz', () => {
+    const satz = ablaufSatz(
+      {
+        triggers: [{ type: 'time', at: '17:00' }],
+        conditions: [{ type: 'time', from: '12-01', to: '01-06' }],
+        actions: [{ type: 'command', entity_id: 'hue.flur', command: 'turn_on' }],
+        otherwise: [],
+        match: 'all',
+      },
+      entities,
+      scenes
+    );
+    expect(satz).toContain('vom 1.12. bis 6.1.');
+  });
+});
+
+describe('Schritt «Ablauf» (Punkt 597)', () => {
+  const satz = (action: Record<string, unknown>) =>
+    ablaufSatz(
+      {
+        triggers: [{ type: 'time', at: '20:00' }],
+        conditions: [],
+        actions: [action],
+        otherwise: [],
+        match: 'all',
+      },
+      entities,
+      scenes
+    );
+  it('sagt, ob der andere startet, ruht oder umgeschaltet wird', () => {
+    expect(satz({ type: 'automation', automation_id: 'flur' })).toContain('Ablauf «flur» starten');
+    expect(satz({ type: 'automation', automation_id: 'flur', do: 'snooze', until: '06:00' })).toContain(
+      'Ablauf «flur» ruhen lassen bis 06:00'
+    );
+    expect(satz({ type: 'automation', automation_id: 'flur', do: 'snooze', minutes: 180 })).toContain(
+      'ruhen lassen 180 Min'
+    );
+    expect(satz({ type: 'automation', automation_id: 'flur', do: 'enable' })).toContain('einschalten');
+    expect(satz({ type: 'automation', automation_id: 'flur', do: 'disable' })).toContain('ausschalten');
   });
 });
