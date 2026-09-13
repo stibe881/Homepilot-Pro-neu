@@ -53,6 +53,7 @@ BEISPIELE: dict[str, tuple[str, str]] = {
     "smoke": ("🔥 Rauch gemeldet", "Rauchmelder Küche – Küche meldet Rauch. Das Haus verlassen, dann 118 anrufen."),
     "doorbell": ("Es klingelt", "Jemand steht an der Haustüre."),
     "baby_cry": ("Ein Baby weint", "Die Kamera im Kinderzimmer hört ein Kind."),
+    "package": ("Paket vor der Haustüre", "Die Kamera Haustüre sieht ein Paket."),
     "disk": ("Speicherplatz wird knapp", "Die Platte ist zu 87 % belegt."),
     "frost": ("Frost angekündigt", "Heute Nacht bis -1 °C - die Pflanzen auf dem Balkon."),
     "rain": ("Regen kommt", "In 30 Minuten Regen. Das Fenster im Bad steht offen."),

@@ -54,6 +54,7 @@ from . import (
     ofen,
     packliste,
     personen,
+    personenbild,
     presence,
     push,
     pushbuendel,
@@ -82,6 +83,7 @@ from .watchrules import (  # noqa: F401
     IGNORE,
     OPEN_CLASSES,
     OPEN_REPORTED_KEY,
+    PAKET_KEY,
     WARM_AB,
     aussentemperatur,
     cycle_stats,
@@ -101,6 +103,13 @@ from .watchrules import (  # noqa: F401
     offene_meldungen_lesen,
     offene_meldungen_zeilen,
     open_contacts,
+    paket_abgeholt,
+    paket_erinnerung_faellig,
+    paket_gesperrt,
+    paket_merken,
+    paket_satz,
+    pakete_lesen,
+    pakete_zeilen,
     sauger_erreichbar,
     sauger_probleme,
     schon_gemahnt,
@@ -263,6 +272,8 @@ class Watchdog:
         # Protect meldet ein anhaltendes Weinen als mehrere kurze
         # Ereignisse, und ohne Sperrfrist würde jedes zur Nachricht.
         self._weint: set[str] = set()
+        # Punkt 617: wann je Kamera zuletzt ein Paket gemeldet wurde.
+        self._paket_gemeldet: dict[str, float] = {}
         self._wein_gemeldet: dict[str, float] = {}
         # Kochgeräte: ob das Gerät in der letzten Runde am Vorheizen war -
         # die Flanke «Vorheizen fertig» ergibt die Parat-Durchsage (ofen.py).
@@ -324,7 +335,7 @@ class Watchdog:
         # die Ausnahme, das Vollbild am Panel (es hängt am Zustand,
         # nicht am Wächter) käme weiter, nur die Nachricht bliebe aus.
         # Die wichtigste Nachricht im Haus darf an keiner anderen hängen.
-        for pruefung in (self._pruefe_klingeln, self._pruefe_weinen):
+        for pruefung in (self._pruefe_klingeln, self._pruefe_weinen, self._pruefe_paket):
             try:
                 pruefung(entity_id, data)
             except Exception:
@@ -470,6 +481,112 @@ class Watchdog:
             entity_id=entity_id,
         )
 
+    def _pruefe_paket(self, entity_id: str, data: dict[str, Any]) -> None:
+        """Bus-Listener-Teil: Hat eine Kamera gerade ein Paket erkannt?
+
+        Punkt 617 der Werkbank: Protect meldet das Paket als eigene
+        Erkennung, der Hub führte ``detected_package`` - und nichts hörte
+        darauf. Derselbe Weg wie beim Weinen, mit drei Flanken:
+
+        * ``detected_package`` off → on: melden (mit Bild) und vermerken.
+        * ``detected_person`` off → on an derselben Kamera: Das Paket
+          gilt als hereingeholt - wer es holt, steht im Bild.
+        * «Jemand zuhause» off → on: Wer heimkommt, geht an der Haustüre
+          vorbei; dann sind alle Pakete drin.
+
+        Die Abend-Erinnerung läuft in der Minuten-Runde (``_check_paket``).
+        """
+        alt = data.get("old_state") or {}
+        neu = data.get("new_state") or {}
+        entity = (
+            (data.get("entity") or {}) if isinstance(data.get("entity"), dict) else {}
+        )
+        if entity_id.endswith("anyone_home") and str(neu.get("state")) == "on" != str(
+            alt.get("state")
+        ):
+            self._pakete_setzen(paket_abgeholt(self._pakete_lesen()))
+            return
+        if str(neu.get("detected_person")) == "on" != str(alt.get("detected_person")):
+            pakete = self._pakete_lesen()
+            if entity_id in pakete:
+                self._pakete_setzen(paket_abgeholt(pakete, entity_id))
+        if str(neu.get("detected_package") or "") != "on":
+            return
+        if str(alt.get("detected_package") or "") == "on":
+            return
+        jetzt = time.time()
+        if paket_gesperrt(self._paket_gemeldet.get(entity_id), jetzt):
+            log.debug("Paket an %s bereits gemeldet - keine zweite Nachricht", entity_id)
+            return
+        self._paket_gemeldet[entity_id] = jetzt
+        self._pakete_setzen(paket_merken(self._pakete_lesen(), entity_id, jetzt))
+        name = str(entity.get("name") or entity_id)
+        # Als eigene Aufgabe, wie beim Weinen: Der Bus ruft synchron.
+        asyncio.create_task(self._melde_paket(entity_id, name))
+
+    def _pakete_lesen(self) -> dict[str, dict[str, Any]]:
+        return pakete_lesen(self.hub.data.get(PAKET_KEY))
+
+    def _pakete_setzen(self, pakete: dict[str, dict[str, Any]]) -> None:
+        zeilen = pakete_zeilen(pakete)
+        if zeilen != self.hub.data.get(PAKET_KEY):
+            self.hub.data.set(PAKET_KEY, zeilen)
+
+    async def _melde_paket(self, entity_id: str, name: str) -> None:
+        """«Paket vor der Haustüre» - mit dem Bild, das die Kamera gerade hat.
+
+        Das Bild kommt direkt, ohne auf eine Person zu warten: Der Bote ist
+        oft schon weg, das Paket ist das Motiv. Kein Bild ist kein Grund,
+        nicht zu melden.
+        """
+        rule = self.rules.get("package")
+        if rule is not None and not rule["enabled"]:
+            log.info("Paket an %s (Regel 'package' abgeschaltet)", name)
+            return
+        image: str | None = None
+        try:
+            image = await personenbild.bild_adresse(self.hub, entity_id, 0.0, "die Paket-Meldung")
+        except Exception:  # noqa: BLE001 - ohne Bild, aber nicht ohne Meldung
+            image = None
+        await self._senden(
+            "Paket vor der Haustüre",
+            f"Die Kamera «{name}» sieht ein Paket.",
+            "package",
+            data={"type": "package", "entity_id": entity_id, "camera": entity_id},
+            entity_id=entity_id,
+            image=image,
+        )
+
+    async def _check_paket(self) -> None:
+        """Abends: Liegt das Paket noch draussen? (Punkt 617)
+
+        Einmal je Paket, ab der Stunde aus der Regel, und nur wenn es
+        seither weder von einer Person an derselben Kamera abgelöst
+        wurde noch jemand heimgekommen ist - beides räumt den Vermerk
+        weg (``_pruefe_paket``).
+        """
+        rule = self.rules.get("package")
+        if rule is None or not rule["enabled"]:
+            return
+        pakete = self._pakete_lesen()
+        if not pakete:
+            return
+        jetzt = time.time()
+        stunde = int(rule["params"].get("hour", 20))
+        for camera in paket_erinnerung_faellig(pakete, jetzt, stunde):
+            pakete[camera] = {**pakete[camera], "reminded": True}
+            self._pakete_setzen(pakete)
+            entity = self.hub.registry.get(camera)
+            name = entity.label if entity is not None else camera
+            await self._notify(
+                "Das Paket liegt noch draussen",
+                f"{paket_satz(float(pakete[camera]['since']))} Die Kamera «{name}» "
+                "hat seither niemanden gesehen.",
+                "package",
+                data={"type": "package", "entity_id": camera, "camera": camera},
+                entity_id=camera,
+            )
+
     async def stop(self) -> None:
         if self._task:
             self._task.cancel()
@@ -579,6 +696,7 @@ class Watchdog:
         await self._check_funk(entities)
         await self._check_open(entities)
         await self._check_leaks(entities)
+        await self._check_paket()
         await self._check_sauger(entities)
         self._record_energy(entities)
         # Abgelaufene Kamera-Clips wegräumen (Punkt 256 der Werkbank) -
@@ -2887,12 +3005,16 @@ class Watchdog:
         to: str | None = None,
         data: dict[str, Any] | None = None,
         entity_id: str | None = None,
+        image: str | None = None,
     ) -> None:
         """Wirklich verschicken - der Teil von `_notify` ohne die Regeln.
 
         Getrennt, weil eine Sammelmeldung diesen Teil braucht und den
         anderen nicht: Ob die Regel eingeschaltet ist, wurde für jede
         ihrer Einzelmeldungen schon geprüft.
+
+        ``image`` ist die Bildadresse fürs Telefon (Punkt 617, das Paket);
+        die Sammelmeldungen und `_notify` kommen ohne aus.
         """
         ziel = pushziel.ziel_fuer(category, entity_id)
         nutzlast: dict[str, Any] = dict(data or {})
@@ -2909,6 +3031,7 @@ class Watchdog:
                 title=title,
                 body=body,
                 data=nutzlast or None,
+                image=image,
                 category=category,
             )
         except Exception:

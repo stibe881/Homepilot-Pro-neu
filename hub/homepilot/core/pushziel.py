@@ -66,6 +66,9 @@ ZIELE: dict[str, str] = {
     # Ohne Kamera bleibt nur die Startseite - der Normalfall steht in
     # AN_DER_KAMERA: Man will sehen und hören, was im Zimmer los ist.
     "baby_cry": "start",
+    # Das Paket sieht man auf der Kamera, die es erkannt hat (AN_DER_KAMERA);
+    # ohne Kamera bleibt die Startseite.
+    "package": "start",
     "timer": "timer",
     # Familie: je Meldung ihre Kachel.
     "tasks": "familie:tasks",
@@ -103,7 +106,7 @@ AM_GERAET = frozenset({"open", "leak", "appliance", "vacuum", "grill"})
 # «Ein Baby weint» beantwortet man mit einem Blick ins Zimmer, nicht mit
 # einem Sprung in einen Raum voller Kacheln: Der Tipp öffnet die Kamera
 # im Vollbild, mit Ton und Live-Bild.
-AN_DER_KAMERA = frozenset({"baby_cry"})
+AN_DER_KAMERA = frozenset({"baby_cry", "package"})
 
 
 def ziel_fuer(category: str | None, entity_id: str | None = None) -> str | None:

@@ -579,6 +579,110 @@ def wein_gesperrt(
     return klingel_gesperrt(zuletzt, jetzt, frist)
 
 
+# ── Das Paket vor der Haustüre (Punkt 617) ─────────────────────────────────
+#
+# Protect meldet «package» als eigene Erkennung, der Hub führte das Feld -
+# und nichts hörte darauf. Wie beim Weinen: Flanke off → on meldet, eine
+# Sperrfrist je Kamera hält die Wiederholungen der Kamera fern. Dazu der
+# Alltagsteil: Das Paket bleibt vermerkt, bis eine Person an derselben
+# Kamera vorbeikam oder jemand heimgekommen ist - und liegt es am Abend
+# noch da, erinnert der Hub einmal.
+
+#: So lange nach einer Paket-Nachricht wird für dieselbe Kamera keine
+#: zweite verschickt. Länger als beim Weinen: Der Bote stellt ab und
+#: geht, die Kamera sieht das Paket in jedem Bild neu.
+PAKET_SPERRE = 600.0
+
+#: Wo die draussen liegenden Pakete stehen: je Kamera der Zeitpunkt der
+#: Erkennung und ob am Abend schon erinnert wurde.
+PAKET_KEY = "paket_draussen"
+
+
+def paket_gesperrt(
+    zuletzt: float | None, jetzt: float, frist: float = PAKET_SPERRE
+) -> bool:
+    """Wurde für diese Kamera eben schon ein Paket gemeldet? (rein, testbar)"""
+    return klingel_gesperrt(zuletzt, jetzt, frist)
+
+
+def pakete_lesen(rows: Any) -> dict[str, dict[str, Any]]:
+    """Die vermerkten Pakete je Kamera (rein, testbar)."""
+    pakete: dict[str, dict[str, Any]] = {}
+    for row in rows or []:
+        if not isinstance(row, dict) or not row.get("camera"):
+            continue
+        try:
+            seit = float(row.get("since") or 0)
+        except (TypeError, ValueError):
+            continue
+        if seit <= 0:
+            continue
+        pakete[str(row["camera"])] = {"since": seit, "reminded": bool(row.get("reminded"))}
+    return pakete
+
+
+def pakete_zeilen(pakete: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    """Zurück in die Ablage (rein, testbar)."""
+    return [
+        {"camera": camera, "since": float(werte["since"]), "reminded": bool(werte.get("reminded"))}
+        for camera, werte in sorted(pakete.items())
+    ]
+
+
+def paket_merken(
+    pakete: dict[str, dict[str, Any]], camera: str, jetzt: float
+) -> dict[str, dict[str, Any]]:
+    """Ein erkanntes Paket vermerken (rein, testbar).
+
+    Liegt an dieser Kamera schon eines, bleibt der erste Zeitpunkt: «seit
+    14:12» soll nicht bei jedem weiteren Boten neu beginnen.
+    """
+    if camera in pakete:
+        return pakete
+    return {**pakete, camera: {"since": jetzt, "reminded": False}}
+
+
+def paket_abgeholt(
+    pakete: dict[str, dict[str, Any]], camera: str | None = None
+) -> dict[str, dict[str, Any]]:
+    """Das Paket gilt als hereingeholt (rein, testbar).
+
+    Mit Kamera: Eine Person kam an genau dieser vorbei. Ohne: Jemand ist
+    heimgekommen, und wer heimkommt, geht an der Haustüre vorbei - dann
+    sind alle Pakete drin.
+    """
+    if camera is None:
+        return {}
+    return {k: v for k, v in pakete.items() if k != camera}
+
+
+def paket_erinnerung_faellig(
+    pakete: dict[str, dict[str, Any]], jetzt: float, stunde: int
+) -> list[str]:
+    """Welche Pakete am Abend noch draussen liegen (rein, testbar).
+
+    Fällig ab ``stunde`` Uhr Ortszeit, einmal je Paket, und nur für
+    Pakete von heute: Was gestern liegen blieb, wurde gestern gemeldet -
+    und ein Paket, das seit drei Tagen «draussen» steht, ist eher ein
+    vergessener Vermerk als ein Paket.
+    """
+    lokal = time.localtime(jetzt)
+    if lokal.tm_hour < stunde:
+        return []
+    heute = time.strftime("%Y-%m-%d", lokal)
+    return sorted(
+        camera
+        for camera, werte in pakete.items()
+        if not werte.get("reminded")
+        and time.strftime("%Y-%m-%d", time.localtime(float(werte["since"]))) == heute
+    )
+
+
+def paket_satz(seit: float) -> str:
+    """«Seit 14:12 vor der Haustüre» (rein, testbar)."""
+    return f"Seit {time.strftime('%H:%M', time.localtime(seit))} vor der Haustüre."
+
+
 def klingelnde(entities: list[Any]) -> list[Any]:
     """Geräte, an denen es gerade klingelt (rein, testbar).
 

@@ -71,6 +71,24 @@ RULES: list[dict[str, Any]] = [
         "params": [],
     },
     {
+        "key": "package",
+        "title": "Paket vor der Haustüre",
+        "detail": "Sobald eine Kamera ein Paket erkennt - mit Bild. Liegt "
+        "es am Abend noch draussen, ohne dass seither jemand an der Kamera "
+        "vorbeikam oder heimgekommen ist, erinnert der Hub einmal daran.",
+        "params": [
+            {
+                "key": "hour",
+                "label": "Abends erinnern um",
+                "unit": "Uhr",
+                "default": 20,
+                "min": 12,
+                "max": 23,
+                "step": 1,
+            }
+        ],
+    },
+    {
         "key": "battery",
         "title": "Batterie schwach",
         "detail": "Einmal je Gerät, sobald es eine schwache Batterie meldet. "

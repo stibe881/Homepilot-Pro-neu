@@ -341,6 +341,10 @@ VERFALL: dict[str, int] = {
     "baby_cry": 300,
     # Bewegung von vorhin sieht man im Verlauf, nicht in der Meldung.
     "camera_motion": 600,
+    # Das Paket liegt auch in einer Stunde noch da - aber die Meldung mit
+    # dem Bild vom Boten ist dann keine Nachricht mehr, und die
+    # Abend-Erinnerung sagt ohnehin, ob es noch draussen liegt.
+    "package": 3600,
     # Der Wecker geht Fahrzeit plus Puffer vor dem Termin los - eine halbe
     # Stunde später ist der Termin selbst der Wecker. «Bis Terminbeginn»
     # wäre genauer, aber die Frist hängt an der Kategorie, nicht an der
@@ -379,6 +383,8 @@ CATEGORIES: dict[str, str] = {
     "smoke": "Rauch gemeldet",
     "doorbell": "Es klingelt an der Türe",
     "baby_cry": "Ein Baby weint",
+    # Die Kamera erkennt das Paket, das Haus sagt es jemandem (Punkt 617).
+    "package": "Paket vor der Haustüre",
     "disk": "Speicherplatz wird knapp",
     "frost": "Frost angekündigt",
     "rain": "Regen kommt",
@@ -429,7 +435,8 @@ GROUPS: list[tuple[str, tuple[str, ...]]] = [
     # Verzögerung den Zweck zunichte machen.
     ("Sicherheit", ("doorbell", "alarm", "alarm_arming", "camera_motion", "leak", "smoke")),
     ("Haus", ("open", "appliance", "oven", "grill", "vacuum", "frost", "rain",
-              "storm_covers", "heat_covers", "plants", "timer", "maintenance")),
+              "storm_covers", "heat_covers", "plants", "timer", "maintenance",
+              "package")),
     # «Baby weint» steht vorn und bei der Familie, nicht bei der
     # Sicherheit: Gesucht wird die Nachricht dort, wo die Kinder sind.
     # Dringend bleibt sie unabhängig von der Gruppe - die Einteilung
