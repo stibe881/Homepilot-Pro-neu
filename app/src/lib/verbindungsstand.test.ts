@@ -1,6 +1,7 @@
 import {
   CODE_ABGEMELDET,
   CODE_FENSTER_ZU,
+  CODE_GEBREMST,
   VERBINDUNGSWORT,
   WARTEZEIT_MAX_MS,
   nachSchliessen,
@@ -57,6 +58,17 @@ describe('nachSchliessen', () => {
     const schritt = nachSchliessen(CODE_FENSTER_ZU, '2026-09-14T07:00', 0, jetzt);
     expect(schritt.status).toBe('paused');
     expect(schritt.wiederAb).toBe(morgen.getTime());
+  });
+
+  // Punkt 591 der Werkbank: Die Bremse gilt jetzt auch am WebSocket -
+  // im Grund stehen die Sekunden, und vorher anzuklopfen zählte nur mit.
+  it('wartet nach 4429 die genannten Sekunden ab', () => {
+    expect(nachSchliessen(CODE_GEBREMST, '600', 0, 1_000_000)).toEqual({
+      status: 'disconnected',
+      wiederAb: 1_600_000,
+    });
+    // Ohne lesbare Zahl eine Minute.
+    expect(nachSchliessen(CODE_GEBREMST, '', 0, 1_000_000).wiederAb).toBe(1_060_000);
   });
 
   it('versucht es in einer Minute wieder, wenn die Zeit unlesbar oder vorbei ist', () => {

@@ -22,6 +22,12 @@ api:
   # Herkünfte, die der Browser ansprechen darf. Nötig für die Web-Fassung
   # der App, die unter einer anderen Adresse läuft als der Hub.
   cors_origins: ["*"]
+  # Nur hinter einem Reverse Proxy (docs/app-ohne-vpn.md): Von diesen
+  # Adressen oder Netzen glaubt der Hub dem Kopf X-Forwarded-For - für die
+  # Bremse gegen Fehlversuche und fürs Zugriffsprotokoll. Leer heisst: Der
+  # Kopf zählt nie. Ein nicht eingetragener Proxy wird nach zehn fremden
+  # Fehlversuchen selbst gesperrt, und mit ihm das ganze Haus.
+  # trusted_proxies: ["172.18.0.0/16"]
   # Nur fürs Gäste-WLAN mit «External Portal Server»: UniFi lässt dort
   # allein eine IPv4-Adresse zu, kein «:8123» - der Controller schickt den
   # Gast also auf Port 80. Steht diese Zeile, antwortet dort ein blosser

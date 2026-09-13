@@ -137,6 +137,9 @@ def create_app(hub: Hub) -> FastAPI:
     # Eine Bremse je Hub-Instanz, nicht global: Tests sollen sich nicht
     # gegenseitig aussperren.
     throttle = throttle_module.Throttle()
+    # Wessen X-Forwarded-For zählt (Punkt 591 der Werkbank) - für alle
+    # Routen, die client_address() rufen.
+    throttle_module.vertraute_proxys_setzen(hub.config.api.trusted_proxies)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -368,6 +371,17 @@ def create_app(hub: Hub) -> FastAPI:
         token = (
             websocket.query_params.get("token") or header.removeprefix("Bearer ").strip()
         )
+        # Dieselbe Bremse wie bei current_user() (Punkt 591 der
+        # Werkbank): Wer über /ws rät, wurde vorher nie gesperrt, während
+        # /api/* nach zehn Versuchen dichtmachte. Die Adresse einmal
+        # bestimmen - sie geht auch ins Zugriffsprotokoll von Türe und
+        # Alarm, das über diesen Weg bisher gar keine bekam.
+        address = throttle_module.client_address(websocket)
+        waiting = throttle.blocked_for(address)
+        if waiting > 0:
+            await websocket.accept()
+            await websocket.close(code=4429, reason=str(round(waiting)))
+            return
         user = resolve_token(token)
         grund = fenster_zu(user)
         if grund is not None and grund.gilt_ab is not None:
@@ -380,6 +394,13 @@ def create_app(hub: Hub) -> FastAPI:
             )
             return
         if user is None or not user.active():
+            # Mit Fingerabdruck wie bei current_user(): Dasselbe tote
+            # Token im Takt ist kein Rateversuch (core/throttle.py).
+            gesperrt = throttle.failed(
+                address, kennung=throttle_module.fingerabdruck(token or "")
+            )
+            if gesperrt:
+                log.warning("%s gesperrt: zu viele ungültige Tokens am WebSocket", address)
             # Erst annehmen, dann schliessen (Punkt 579 der Werkbank):
             # Ein close() vor dem accept() beantwortet der Server als
             # HTTP 403 - der Handschlag scheitert, und die App sieht
@@ -389,6 +410,7 @@ def create_app(hub: Hub) -> FastAPI:
             await websocket.accept()
             await websocket.close(code=4401, reason="Ungültiges Token")
             return
+        throttle.succeeded(address)
 
         await websocket.accept()
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
@@ -462,10 +484,13 @@ def create_app(hub: Hub) -> FastAPI:
                         continue
                     try:
                         # Die Entität ist oben schon geholt - nur festhalten,
-                        # wer hier was ausgelöst hat.
+                        # wer hier was ausgelöst hat, und von wo: Türe und
+                        # Alarm über den WebSocket hatten im Protokoll
+                        # bisher keine Adresse, nur der REST-Weg reichte
+                        # sie mit (Punkt 591 der Werkbank).
                         if entity is not None:
                             hub.audit.record(
-                                user.name, entity, message.get("command", "")
+                                user.name, entity, message.get("command", ""), address
                             )
                         with as_source(user_source(user.name)):
                             await hub.integrations.dispatch_command(

@@ -73,6 +73,9 @@ export const CODE_ABGEMELDET = 4401;
 /** Gültiges Token, aber ausserhalb des Zeitfensters (Punkt 624 der
  *  Werkbank). Im Grund steht als ISO-Zeit, ab wann es wieder gilt. */
 export const CODE_FENSTER_ZU = 4403;
+/** Die Adresse ist gebremst - zu viele Fehlversuche (Punkt 591). Im
+ *  Grund stehen die Sekunden, bis sie wieder darf. */
+export const CODE_GEBREMST = 4429;
 
 /** Länger wartet die App zwischen zwei Versuchen nie. */
 export const WARTEZEIT_MAX_MS = 15000;
@@ -109,6 +112,8 @@ export function wartezeit(versuch: number): number {
  * - 4403: pausiert bis zur genannten Zeit, dann wieder verbinden
  *   (Punkt 624). Ist die Zeit nicht lesbar oder schon vorbei, in
  *   einer Minute - besser als nie.
+ * - 4429: getrennt, wieder nach den genannten Sekunden (Punkt 591) -
+ *   früher hat es keinen Sinn, die Bremse zählte den Versuch nur mit.
  * - alles andere: getrennt, wieder nach der üblichen Wartezeit.
  */
 export function nachSchliessen(
@@ -122,6 +127,11 @@ export function nachSchliessen(
     const ab = Date.parse(String(reason ?? ''));
     const wiederAb = Number.isFinite(ab) && ab > jetzt ? ab : jetzt + FALLBACK_MS;
     return { status: 'paused', wiederAb };
+  }
+  if (code === CODE_GEBREMST) {
+    const sekunden = Number(reason);
+    const pause = Number.isFinite(sekunden) && sekunden > 0 ? sekunden * 1000 : FALLBACK_MS;
+    return { status: 'disconnected', wiederAb: jetzt + pause };
   }
   return { status: 'disconnected', wiederAb: jetzt + wartezeit(versuch) };
 }
