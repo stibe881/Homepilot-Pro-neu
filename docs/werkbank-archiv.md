@@ -7892,4 +7892,14 @@ Warteschleife), der Ruhemodus zeigt sich erst in der nächsten DDP-Runde.
 Die Nummer war zuerst 634 und wanderte auf 643, weil 634–642 in der
 Zwischenzeit auf anderen Zweigen vergeben wurden.
 
+**Erster Kontakt mit der echten Konsole:** Schritt 1 (PSN-Konto) ging
+durch, Schritt 2 endete mit «Im Hub ist etwas schiefgegangen». Der Hub
+hielt den Quellport 9303 für seine eigenen Statusanfragen offen, und die
+Bibliothek band für `async_get_status` und die Registrierung denselben
+Port ein zweites Mal - «Address already in use», weder Wert- noch
+Verbindungsfehler, also ein 500. Seither gibt `_port_frei()` der
+Bibliothek den Port für die Dauer ihres Aufrufs ganz (die Geräteschleife
+wartet am Schloss) und öffnet den Kanal danach neu; was die Bibliothek
+sonst wirft, kommt als Satz in der Antwort an, nicht als 500.
+
 Stellen: `hub/homepilot/integrations/playstation.py`, `hub/homepilot/api/routes/playstation.py`, `hub/homepilot/core/livekarten.py`, `hub/homepilot/core/extras.py`, `hub/pyproject.toml`, `hub/Dockerfile`, `docs/playstation.md`, `hub/tests/test_playstation*.py`, `app/src/lib/playstation.ts`, `app/src/components/TvRemote.tsx`, `app/src/components/PsKopplung.tsx`, `app/src/screens/VerbindungenScreen.tsx`, `app/src/lib/fernsehkachel.ts`, `app/src/lib/fernsehkopplung.ts`, `app/src/lib/geraeteart.ts`, `app/src/lib/raumkarte.ts`
