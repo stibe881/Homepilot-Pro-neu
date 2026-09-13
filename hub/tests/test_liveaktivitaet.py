@@ -3,8 +3,10 @@
 from homepilot.core.liveaktivitaet import (
     abmelden,
     aktivitaet_merken,
+    apns_frist,
     apns_jwt,
     end_payload,
+    heimweg_text,
     karte_faellig,
     kartenstand,
     parse_apns,
@@ -149,6 +151,37 @@ def test_payloads_tragen_das_noetige():
     ende = end_payload(2000.0)
     assert ende["aps"]["event"] == "end"
     assert ende["aps"]["dismissal-date"] == 2000
+
+
+def test_ein_ende_push_wartet_stunden_ein_update_nur_eine_minute():
+    """Fehler aus der Runde 579: Für Start, Update und Ende galten
+    dieselben zehn Minuten. Wer so lange im Zug ohne Netz sass, behielt
+    die Fernseher-Karte bis zu acht Stunden - der Hub hatte die 200 von
+    Apple und hielt die Karte für beendet."""
+    assert apns_frist(end_payload(1000.0), 1000.0) == 1000 + 4 * 3600
+    assert apns_frist(start_payload(1000.0), 1000.0) == 1600
+    assert apns_frist({"aps": {"event": "update"}}, 1000.0) == 1060
+    # Ohne Ereignis gilt die kurze Frist des Starts - lieber kein Push
+    # als eine Karte, die Stunden später noch aufgestellt wird.
+    assert apns_frist({}, 1000.0) == 1600
+
+
+def test_die_heimweg_zeile_sagt_was_vor_der_tuere_zaehlt():
+    """Punkt 607: Das Textfeld der Heimweg-Karte war immer leer."""
+    assert heimweg_text("scharf", ["Livia"], 0) == "Alarm scharf · Livia ist zuhause"
+    assert heimweg_text("unscharf", [], 2) == "Niemand zuhause · 2 Lichter an"
+    assert heimweg_text(None, ["Livia", "Stefan"], 1) == (
+        "Livia und Stefan sind zuhause · 1 Licht an"
+    )
+    assert heimweg_text("ausgeloest", ["A", "B", "C"], 0) == (
+        "Alarm ausgelöst! · A, B und C sind zuhause"
+    )
+    # Die Zeile wandert in den Start-Push; ohne Angabe bleibt sie leer,
+    # und das Widget zeigt den alten Satz.
+    assert start_payload(1000.0, text="Niemand zuhause")["aps"]["content-state"] == {
+        "text": "Niemand zuhause"
+    }
+    assert start_payload(1000.0)["aps"]["content-state"] == {"text": ""}
 
 
 def test_apns_jwt_traegt_kennung_und_gueltige_signatur():

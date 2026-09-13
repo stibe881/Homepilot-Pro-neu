@@ -34,7 +34,7 @@ import time
 from typing import Any
 from urllib.parse import quote
 
-from . import grillmeldung, laufzeit, liveaktivitaet, presence
+from . import brandmelder, grillmeldung, laufzeit, liveaktivitaet, presence
 
 log = logging.getLogger(__name__)
 
@@ -195,22 +195,65 @@ def erreichbar(entity: Any) -> bool:
 # stehen bleibt (die Waschmaschine darf «Fertig» sagen).
 
 
+#: So lange bleibt «Abgelaufen» auf dem Sperrbildschirm stehen (Punkt
+#: 605). Kürzer als die Waschmaschine (900 s): Ein Timer ruft, die
+#: Maschine wartet.
+TIMER_NACHKLANG = 600
+
+
+def timer_knoepfe(timer_id: str) -> list[dict[str, Any]]:
+    """Die zwei Griffe auf der Timer-Karte: Stopp und +5 min (rein, testbar).
+
+    Punkt 605 der Werkbank: Anders als Sauger und Fernseher trug die
+    Timer-Karte keine Knöpfe - Stoppen ging nur über App oder Uhr, mit
+    Teigfingern der lange Weg. Beides als POST, weil der Karten-Knopf
+    nur das kann (api/routes/haus.py). Harmlos im Sinne der
+    Sperrbildschirm-Regel: Schlimmstenfalls klingelt der Eierwecker fünf
+    Minuten später oder gar nicht.
+    """
+    pfad = f"/api/timers/{quote(str(timer_id), safe='')}"
+    return [
+        {"symbol": "stop.fill", "pfad": f"{pfad}/abbrechen", "body": ""},
+        {"symbol": "plus", "pfad": f"{pfad}/verlaengern", "body": json.dumps({"minutes": 5})},
+    ]
+
+
 def karten_timer(timers: Any) -> list[dict[str, Any]]:
-    """Je laufendem Küchen-Timer eine Karte mit Countdown."""
+    """Je laufendem Küchen-Timer eine Karte mit Countdown.
+
+    Mit Schluss-Bild (Punkt 605): Der Hub nimmt den Timer aus der Liste,
+    *bevor* er meldet (core/timers.py, _run) - damit fiel die Karte in
+    der Sekunde vom Sperrbildschirm, in der er klingelte, und wer das
+    Brummen verpasst hatte, fand nichts mehr vor. Jetzt bleibt
+    «Abgelaufen - Pasta» zehn Minuten in Orange stehen, wie die
+    Waschmaschine ihr «Fertig».
+    """
     karten = []
     for eintrag in timers or []:
         if not isinstance(eintrag, dict) or not eintrag.get("id"):
             continue
+        text = str(eintrag.get("text") or "")
         karten.append(
             {
                 "art": f"timer:{eintrag['id']}",
                 "user": None,
                 "state": {
                     "titel": "Küchen-Timer",
-                    "text": str(eintrag.get("text") or ""),
+                    "text": text,
                     "symbol": "timer",
                     "endet": float(eintrag.get("ends_at") or 0) or None,
                     "url": "homepilot://timer",
+                    "knoepfe": timer_knoepfe(str(eintrag["id"])),
+                },
+                "ende": {
+                    "state": {
+                        "titel": "Küchen-Timer",
+                        "text": f"Abgelaufen - {text}" if text else "Abgelaufen",
+                        "symbol": "timer",
+                        "farbe": "orange",
+                        "url": "homepilot://timer",
+                    },
+                    "sichtbar": TIMER_NACHKLANG,
                 },
             }
         )
@@ -873,10 +916,27 @@ def karten_erinnerungen(reminders: Any, jetzt_ms: float) -> list[dict[str, Any]]
                     "text": str(row.get("text") or ""),
                     "symbol": "alarm",
                     "farbe": "orange",
+                    # Punkt 606: Ein Tipp öffnet das Vollbild, das die
+                    # App für Fälliges ohnehin zeigt - vorher führte er
+                    # bloss auf die Startseite. Die Knöpfe sind die aus
+                    # der Push-Mitteilung: «Erledigt» (nur bei mir) und
+                    # «Später»; beide harmlos, beide über POST-Routen,
+                    # weil der Karten-Knopf nur das kann.
+                    "url": f"homepilot://erinnerung/{quote(str(row['id']), safe='')}",
+                    "knoepfe": erinnerung_knoepfe(str(row["id"])),
                 },
             }
         )
     return karten
+
+
+def erinnerung_knoepfe(reminder_id: str) -> list[dict[str, Any]]:
+    """«Erledigt» und «Später» als Griffe der Erinnerungs-Karte (rein, testbar)."""
+    pfad = f"/api/family/reminders/{quote(str(reminder_id), safe='')}"
+    return [
+        {"symbol": "checkmark", "pfad": f"{pfad}/quittieren", "body": ""},
+        {"symbol": "clock.arrow.circlepath", "pfad": f"{pfad}/spaeter", "body": ""},
+    ]
 
 
 def karten_alarm(entities: list[Any], jetzt_s: float) -> list[dict[str, Any]]:
@@ -885,10 +945,16 @@ def karten_alarm(entities: list[Any], jetzt_s: float) -> list[dict[str, Any]]:
     Kein Dauerzustand: «scharf» bekommt bewusst keine Karte - eine
     Live-Aktivität endet nach spätestens zwölf Stunden, und eine Nacht
     ist länger. Dafür gibt es das Widget.
+
+    Die Brandmeldeanlage ist auch eine Entität der Art «alarm», gehört
+    aber nicht hierher (Punkt 604 der Werkbank): Bei Rauch lag sonst
+    eine Karte «Alarmanlage · Alarm ausgelöst!», die zur Einbruchanlage
+    führte. Sie bekommt ihre eigene Karte (karten_brand) - dieselbe
+    Trennung, die die App längst macht (integration === 'brand').
     """
     karten = []
     for entity in entities:
-        if entity.kind != "alarm":
+        if entity.kind != "alarm" or ist_brandanlage(entity):
             continue
         zustand = str(entity.state.get("state") or "")
         if zustand == "scharfschaltend":
@@ -920,6 +986,113 @@ def karten_alarm(entities: list[Any], jetzt_s: float) -> list[dict[str, Any]]:
                     },
                 }
             )
+    return karten
+
+
+def ist_brandanlage(entity: Any) -> bool:
+    """Ist diese Alarm-Entität die Brandmeldeanlage? (rein, testbar)
+
+    Am Namen der Integration erkannt, wie in der App - die Anlage heisst
+    im Hub immer «brand» (integrations/brand.py), gleich, wie sie in der
+    config.yaml beschriftet ist.
+    """
+    return getattr(entity, "kind", None) == "alarm" and str(
+        getattr(entity, "integration", "") or ""
+    ) == "brand"
+
+
+def brand_titel(melder: list[Any]) -> str:
+    """«Rauch», «Gas» oder beides - nach dem, was anschlägt (rein, testbar).
+
+    Nicht «Brandmeldeanlage»: Wer nachts aufs Telefon schaut, will
+    wissen, *was* los ist, nicht, welche Anlage es meldet. Ohne
+    erkennbare Melder (die Liste ist leer, weil die Kennungen nicht mehr
+    zu finden sind) bleibt «Rauch» - das ist der häufige Fall, und ein
+    falsches Wort ist hier besser als gar keines.
+    """
+    klassen = {
+        str((getattr(entity, "state", None) or {}).get("device_class") or "")
+        for entity in melder
+    }
+    if "gas" in klassen and "smoke" not in klassen and not any(
+        getattr(entity, "kind", "") == "camera" for entity in melder
+    ):
+        return "Gas"
+    if "gas" in klassen:
+        return "Rauch und Gas"
+    return "Rauch"
+
+
+def brand_text(melder: list[Any], quittiert_von: str = "") -> str:
+    """Wo es anschlägt, Raum vor Gerätename (rein, testbar).
+
+    «Flur · Küche» statt «Rauchmelder Flur, Rauchmelder Küche»: Auf der
+    Karte ist Platz für eine Zeile, und der Raum ist das, wohin man
+    läuft. Ohne Raum bleibt der Gerätename - besser als eine leere
+    Zeile. Hat jemand quittiert, steht das dahinter: Dann weiss man,
+    dass sich schon jemand kümmert.
+    """
+    orte: list[str] = []
+    for entity in melder:
+        ort = str(getattr(entity, "room", None) or "") or str(
+            getattr(entity, "label", None) or ""
+        )
+        if ort and ort not in orte:
+            orte.append(ort)
+    text = " · ".join(orte) if orte else "Melder ausgelöst"
+    if quittiert_von:
+        text = f"{text} · quittiert von {quittiert_von}"
+    return text
+
+
+def karten_brand(entities: list[Any]) -> list[dict[str, Any]]:
+    """Die Brandmeldeanlage: eine rote Karte, solange ein Melder anschlägt.
+
+    Punkt 604 der Werkbank. Anders als die Einbruchanlage kennt sie
+    keinen Countdown und keine Betriebsart - es gibt nur «es brennt»
+    und «es brennt nicht». Die Karte liegt, solange die Anlage
+    «ausgeloest» oder «quittiert» meldet: Quittieren heisst «ich weiss
+    Bescheid», nicht «der Rauch ist weg» - und wer das Telefon vom
+    Nachttisch nimmt, soll sehen, dass ein anderer schon dran ist.
+
+    Ein Tipp führt in den Brand-Bereich der App (homepilot://brand); der
+    Knopf «Stumm» ruft /api/brand/stumm - harmlos im Sinne der
+    Sperrbildschirm-Regel (lib/mitteilungsknoepfe.ts): Er nimmt nur den
+    Sirenen den Ton, die Melder selbst bleiben scharf. Quittieren steht
+    bewusst nicht auf der Karte - das soll jemand tun, der die Lage
+    gesehen hat, nicht jemand, der im Halbschlaf auf einen Knopf
+    tippt.
+    """
+    karten = []
+    for entity in entities:
+        if not ist_brandanlage(entity):
+            continue
+        zustand = str(entity.state.get("state") or "")
+        if zustand not in (brandmelder.AUSGELOEST, brandmelder.QUITTIERT):
+            continue
+        kennungen = {str(k) for k in (entity.state.get("alarm") or [])}
+        melder = [kandidat for kandidat in entities if str(kandidat.id) in kennungen]
+        quittiert_von = (
+            str(entity.state.get("acknowledged_by") or "")
+            if zustand == brandmelder.QUITTIERT
+            else ""
+        )
+        karten.append(
+            {
+                "art": f"brand:{entity.id}",
+                "user": None,
+                "state": {
+                    "titel": brand_titel(melder),
+                    "text": brand_text(melder, quittiert_von),
+                    "symbol": "flame.fill",
+                    "farbe": "rot",
+                    "url": "homepilot://brand",
+                    "knoepfe": [
+                        {"symbol": "speaker.slash.fill", "pfad": "/api/brand/stumm", "body": ""}
+                    ],
+                },
+            }
+        )
     return karten
 
 
@@ -1032,6 +1205,14 @@ def abgleich(
             # bliebe es beim Aktualisieren einer Karte, die niemand
             # sieht.
             alt = None
+        # Das Schluss-Bild wandert in die Zeile (Punkt 605): Beim
+        # Beenden ist die Karte gerade *nicht* mehr unter den
+        # gewünschten - ein Timer, der klingelt, steht nicht mehr in der
+        # Liste, eine fertige Waschmaschine läuft nicht mehr. Der Blick
+        # in `gewuenscht` unten fand das Ende also nie, und «Fertig -
+        # ausräumen» stand seit seiner Einführung auf keinem
+        # Sperrbildschirm; die Karte verschwand sofort.
+        ende = karte.get("ende")
         if alt is None:
             starten.append({"user": user, "art": art, "state": karte["state"]})
             neue.append(
@@ -1042,6 +1223,7 @@ def abgleich(
                     "activity_tokens": [],
                     "gestartet": jetzt_s,
                     "aktualisiert": jetzt_s,
+                    **({"ende": ende} if ende else {}),
                 }
             )
             continue
@@ -1053,19 +1235,28 @@ def abgleich(
             and jetzt_s - float(alt.get("aktualisiert") or 0) >= abstand
         ):
             aktualisieren.append({"tokens": tokens, "state": karte["state"]})
-            neue.append({**alt, "stand": stand, "aktualisiert": jetzt_s})
+            neue.append(
+                {
+                    **alt,
+                    "stand": stand,
+                    "aktualisiert": jetzt_s,
+                    **({"ende": ende} if ende else {}),
+                }
+            )
         else:
             neue.append(alt)
 
     for alt in alte.values():
         karte = None
-        # Das Ende der Karte kennt nur der Treiber - über die Art des
-        # Eintrags wiederfinden (die Waschmaschine sagt «Fertig»).
+        # Das Ende der Karte kennt nur der Treiber - er hat es beim
+        # Start in die Zeile gelegt (oben). Der Blick in `gewuenscht`
+        # bleibt als Netz für Zeilen aus einer Fassung ohne das Feld und
+        # für den Fall, dass die Karte nur für diese Person wegfällt.
         for kandidat in gewuenscht:
             if kandidat["art"] == alt.get("art"):
                 karte = kandidat
                 break
-        ende = (karte or {}).get("ende") or {}
+        ende = alt.get("ende") or (karte or {}).get("ende") or {}
         tokens = alt.get("activity_tokens") or []
         beenden.append(
             {
@@ -1232,6 +1423,7 @@ def _gewuenscht(hub: Any, jetzt_s: float, benutzer: list[str]) -> list[dict[str,
         ),
         *karten_erinnerungen(hub.data.get("family_reminders"), jetzt_s * 1000),
         *karten_alarm(entities, jetzt_s),
+        *karten_brand(entities),
     ]
 
 
