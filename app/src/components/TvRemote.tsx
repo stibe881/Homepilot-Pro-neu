@@ -140,6 +140,13 @@ export function TvRemote({
 
   const konsole = istPlaystation(entity);
   const kopf = konsole && entity ? psKopf(entity) : null;
+  // Nur Tasten, die das Gerät führt - wo das Gerät bekannt ist. Ohne
+  // Gerät (ältere Aufrufe) bleibt das volle Fernseher-Blatt, denn ein
+  // Fernseher ohne Ton gibt es nicht; ein Blatt, das dem Hub Befehle
+  // schickt, die er mit «unterstützt … nicht» beantwortet, aber schon
+  // (Punkt 643).
+  const kann = (befehl: string) =>
+    !entity || (Array.isArray(entity.commands) && entity.commands.includes(befehl));
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -233,17 +240,23 @@ export function TvRemote({
                 <Key icon="power" command="toggle" label="An/Aus" {...taste} />
               </View>
 
-              <View style={styles.row}>
-                <Key icon="volume-low" command="volume_down" label="Leiser" {...taste} />
-                <Key icon="volume-mute" command="mute" label="Stumm" {...taste} />
-                <Key icon="volume-high" command="volume_up" label="Lauter" {...taste} />
-              </View>
+              {kann('volume_up') ? (
+                <View style={styles.row}>
+                  <Key icon="volume-low" command="volume_down" label="Leiser" {...taste} />
+                  {kann('mute') ? (
+                    <Key icon="volume-mute" command="mute" label="Stumm" {...taste} />
+                  ) : null}
+                  <Key icon="volume-high" command="volume_up" label="Lauter" {...taste} />
+                </View>
+              ) : null}
 
-              <View style={styles.row}>
-                <Key icon="play-skip-back" command="previous" label="Zurück" {...taste} />
-                <Key icon="play" command="play" label="Play/Pause" {...taste} />
-                <Key icon="play-skip-forward" command="next" label="Weiter" {...taste} />
-              </View>
+              {kann('play') || kann('next') ? (
+                <View style={styles.row}>
+                  <Key icon="play-skip-back" command="previous" label="Zurück" {...taste} />
+                  <Key icon="play" command="play" label="Play/Pause" {...taste} />
+                  <Key icon="play-skip-forward" command="next" label="Weiter" {...taste} />
+                </View>
+              ) : null}
             </>
           )}
 

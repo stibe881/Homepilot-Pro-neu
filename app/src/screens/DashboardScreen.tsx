@@ -4871,6 +4871,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             apps={remoteTv.commands.includes('launch_app') ? appsOf(remoteTv) : []}
             kino={kinoImBlatt}
             onKino={activateScene}
+            // Ohne das Gerät zeigt das Blatt das Fernseher-Muster - und
+            // die PlayStation bekam vom Raumkopf und von der Sperrbild-
+            // schirm-Karte aus Ton- und Abspieltasten, die der Hub mit
+            // «unterstützt das Kommando nicht» beantwortete (Punkt 643).
+            entity={remoteTv}
           />
         ) : null}
         {grillImBlatt ? (

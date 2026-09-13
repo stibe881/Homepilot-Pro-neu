@@ -88,10 +88,13 @@ anderes Konto her soll.
 - **Kein App-Start.** Das Protokoll kann nichts starten, nur sehen, was
   läuft. `apps` bleibt leer, `launch_app` gibt es nicht.
 - **Die Sitzung ist sichtbar.** Für Tasten und Ruhemodus baut der Hub
-  eine Remote-Play-Sitzung auf (ohne Video) und trennt sie nach einer
-  halben Minute ohne weitere Taste. Solange sie steht, zeigt die Konsole
-  «Remote Play verbunden» - und wer gerade am Controller spielt, sieht
-  das im Bildschirm-Eck. Deshalb keine Dauer-Sitzung.
+  eine Remote-Play-Sitzung auf (ohne Video) und trennt sie nach zwei
+  Minuten ohne weitere Taste - das ist die Trennung, die man nach der
+  letzten Taste auf dem Fernseher sieht, kein Fehler. Beim Auf- und
+  Abbau meldet die Konsole «Remote Play verbunden»/«getrennt»; wer
+  gerade am Controller spielt, sieht das im Bildschirm-Eck. Deshalb
+  keine Dauer-Sitzung. Die Dauer stellt `session_idle` (Sekunden) im
+  Block der Anbindung ein; `0` heisst nie von selbst trennen.
 - **Ganz aus ist ganz aus.** Nur der Ruhemodus antwortet auf DDP und
   lässt sich wecken. Wer die Konsole ausschaltet statt in den Ruhemodus
   zu schicken, sieht «nicht erreichbar».

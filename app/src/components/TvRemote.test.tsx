@@ -7,6 +7,7 @@
  * Lautstärke, keinen Transport, kein OK in der Mitte des Kreuzes. Am
  * Fernseher alles wie vorher; der Umbau darf ihn nicht anfassen.
  */
+import fs from 'fs';
 import React from 'react';
 import { Text } from 'react-native';
 import { ReactTestRenderer, act, create } from 'react-test-renderer';
@@ -222,3 +223,44 @@ describe('TvRemote am Fernseher', () => {
     expect(taste(baum, 'Kreuz')).toBeUndefined();
   });
 });
+
+describe('TvRemote und die Befehlsliste des Geräts', () => {
+  it('lässt Ton- und Abspieltasten weg, die das Gerät nicht führt', async () => {
+    // Der Fall aus dem Haus (Punkt 643): Vom Raumkopf aus kam die
+    // PlayStation ins Fernseher-Blatt, und jede Ton-Taste endete beim Hub
+    // mit «unterstützt das Kommando nicht».
+    const nurSteuerkreuz = {
+      ...fernseher,
+      commands: ['toggle', 'dpad_up', 'ok', 'back', 'home'],
+    } as unknown as Entity;
+    let baum!: ReactTestRenderer;
+    await act(async () => {
+      baum = create(
+        <TvRemote visible name="egal" onClose={() => {}} onCommand={() => {}} entity={nurSteuerkreuz} />
+      );
+    });
+    expect(taste(baum, 'Stumm')).toBeUndefined();
+    expect(taste(baum, 'Play/Pause')).toBeUndefined();
+    expect(taste(baum, 'Zurück')).toBeDefined();
+  });
+
+  it('zeigt dem Fernseher weiterhin alles', async () => {
+    let baum!: ReactTestRenderer;
+    await act(async () => {
+      baum = create(
+        <TvRemote visible name="egal" onClose={() => {}} onCommand={() => {}} entity={fernseher} />
+      );
+    });
+    expect(taste(baum, 'Stumm')).toBeDefined();
+  });
+
+  it('bekommt vom Raumkopf aus das Gerät mit', () => {
+    // Quelltext-Prüfung: Die zweite Fernbedienung der Startseite muss
+    // `entity` durchreichen, sonst bedient sie jede Konsole als Fernseher.
+    const quelle = fs.readFileSync(`${__dirname}/../screens/DashboardScreen.tsx`, 'utf8');
+    const stelle = quelle.slice(quelle.indexOf('<TvRemote'));
+    const block = stelle.slice(0, stelle.indexOf('/>'));
+    expect(block).toMatch(/entity=\{remoteTv\}/);
+  });
+});
+

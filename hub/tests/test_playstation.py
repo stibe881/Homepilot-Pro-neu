@@ -406,3 +406,17 @@ async def test_der_kopplungsstand_fuer_die_verbindungen_seite(hub, tmp_path, mon
     # der Hub noch nicht, also gilt das Konto als gekoppelt.
     assert stand["paired"] is True
     await integration.teardown()
+
+
+def test_die_leerlaufdauer_kommt_aus_der_konfiguration():
+    """«Nach ein paar Sekunden wird die Verbindung getrennt» - die Dauer
+    gehört dem Haus, und 0 heisst: nie von selbst."""
+    from homepilot.integrations.playstation import SITZUNG_LEERLAUF, leerlauf_dauer
+
+    assert leerlauf_dauer(None) == SITZUNG_LEERLAUF
+    assert leerlauf_dauer("") == SITZUNG_LEERLAUF
+    assert leerlauf_dauer("quatsch") == SITZUNG_LEERLAUF
+    assert leerlauf_dauer(300) == 300.0
+    assert leerlauf_dauer("45") == 45.0
+    assert leerlauf_dauer(-5) == 0.0
+
