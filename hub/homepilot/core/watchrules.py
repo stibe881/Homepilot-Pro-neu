@@ -313,6 +313,21 @@ def leck_dauer_text(seit: float, jetzt: float) -> str:
     return "seit einer Minute" if minuten == 1 else f"seit {minuten} Minuten"
 
 
+def trocken_satz(seit: float, jetzt: float) -> str:
+    """«War 23 Minuten nass» für die Entwarnung (rein, testbar) - Punkt 602.
+
+    Die Dauer gehört dazu: «wieder trocken» allein sagt nicht, ob ein
+    Spritzer oder eine Stunde Wasser dahintersteckt.
+    """
+    minuten = max(1, round((jetzt - seit) / 60))
+    if minuten < 60:
+        dauer = "eine Minute" if minuten == 1 else f"{minuten} Minuten"
+    else:
+        stunden, rest = divmod(minuten, 60)
+        dauer = f"{stunden} Std." + (f" {rest} Min." if rest else "")
+    return f"War {dauer} nass - der Melder meldet kein Wasser mehr."
+
+
 #: Was die häufigsten Sauger-Meldungen auf Deutsch heissen. Die Namen
 #: stammen aus der Roborock-Bibliothek (error_code_name und
 #: dock_error_status_name); die Liste muss nicht vollständig sein - was

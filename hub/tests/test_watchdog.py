@@ -1308,3 +1308,89 @@ async def test_im_winter_traegt_die_erinnerung_die_aussentemperatur():
         assert "draussen sind es 4 °C" in offen[0]
     finally:
         await hub.stop()
+
+
+# ── Wieder trocken (Punkt 602) ─────────────────────────────────────────────
+
+
+def test_trocken_satz_nennt_die_dauer():
+    from homepilot.core.watchrules import trocken_satz
+
+    jetzt = 1_000_000.0
+    assert trocken_satz(jetzt - 23 * 60, jetzt) == "War 23 Minuten nass - der Melder meldet kein Wasser mehr."
+    assert trocken_satz(jetzt - 20, jetzt).startswith("War eine Minute nass")
+    assert trocken_satz(jetzt - 95 * 60, jetzt).startswith("War 1 Std. 35 Min. nass")
+
+
+async def test_wer_wasser_gemeldet_bekam_erfaehrt_auch_dass_es_wieder_trocken_ist():
+    """Wer die Meldung unterwegs bekam, ruft sonst an oder fährt heim,
+    obwohl längst aufgewischt ist. Und Flattern nass/trocken/nass ist
+    je ein neuer Fall - keine Meldung geht doppelt, keine verloren."""
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        sent: list[tuple[str, str, str | None]] = []
+
+        async def fake_send(tokens, title, body, data=None, image=None, category=None, **_):
+            sent.append((title, body, category))
+            return len(tokens)
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+        hub.data.set("notify_rules", [{"key": "morning", "enabled": False, "params": {}}])
+
+        keller = melder("hm.keller", "moisture")
+        hub.registry.all = lambda: [keller]  # type: ignore[assignment]
+
+        await hub.watchdog.check()
+        assert [t for t, _, _ in sent] == ["Wasser: hm.keller"]
+
+        # 23 Minuten nass, dann trocken.
+        hub.watchdog._leak_since["hm.keller"] -= 23 * 60
+        hub.watchdog._leak_escalated.add("hm.keller")
+        keller.state = {"state": "off", "device_class": "moisture"}
+        await hub.watchdog.check()
+        assert sent[-1][0] == "Wieder trocken: hm.keller"
+        assert "23 Minuten" in sent[-1][1]
+        # Unter derselben Kategorie - wer Wasser abbestellt hat, will
+        # auch die Entwarnung nicht.
+        assert sent[-1][2] == "leak"
+
+        # Trocken bleibt trocken: keine zweite Entwarnung.
+        await hub.watchdog.check()
+        assert len(sent) == 2
+
+        # Wieder nass: ein neuer Fall, wieder eine Meldung.
+        keller.state = {"state": "on", "device_class": "moisture"}
+        await hub.watchdog.check()
+        assert [t for t, _, _ in sent] == [
+            "Wasser: hm.keller",
+            "Wieder trocken: hm.keller",
+            "Wasser: hm.keller",
+        ]
+    finally:
+        await hub.stop()
+
+
+async def test_ohne_erste_meldung_keine_entwarnung():
+    """Ein Melder, der beim Start schon trocken ist, hat nie gemeldet -
+    also gibt es auch nichts zu entwarnen."""
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        sent: list[str] = []
+
+        async def fake_send(tokens, title, body, data=None, image=None, **_):
+            sent.append(title)
+            return len(tokens)
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+        hub.data.set("notify_rules", [{"key": "morning", "enabled": False, "params": {}}])
+        keller = melder("hm.keller", "moisture", state="off")
+        hub.registry.all = lambda: [keller]  # type: ignore[assignment]
+        await hub.watchdog.check()
+        await hub.watchdog.check()
+        assert not any("trocken" in t for t in sent)
+    finally:
+        await hub.stop()

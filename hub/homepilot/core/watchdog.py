@@ -104,6 +104,7 @@ from .watchrules import (  # noqa: F401
     sauger_erreichbar,
     sauger_probleme,
     schon_gemahnt,
+    trocken_satz,
     watched_entities,
     wein_gesperrt,
 )
@@ -2513,8 +2514,22 @@ class Watchdog:
         self._reported_leak &= nass
         for entity_id in list(self._leak_since):
             if entity_id not in nass:
-                self._leak_since.pop(entity_id, None)
+                seit = self._leak_since.pop(entity_id)
                 self._leak_escalated.discard(entity_id)
+                # Punkt 602: Wer die Meldung unterwegs bekam, ruft sonst an
+                # oder fährt heim, obwohl längst aufgewischt ist. Nur wo
+                # die erste Meldung hinausging (dafür steht der Merker),
+                # und unter derselben Kategorie - wer Wasser abbestellt
+                # hat, will auch die Entwarnung nicht.
+                melder = next((e for e in entities if e.id == entity_id), None)
+                if melder is None:
+                    continue
+                await self._notify(
+                    f"Wieder trocken: {melder.label}",
+                    trocken_satz(seit, jetzt),
+                    "leak",
+                    entity_id=entity_id,
+                )
 
     async def _check_sauger(self, entities: list[Any]) -> None:
         """Der Sauger meldet ein Problem - Tank leer, festgefahren, voll.
