@@ -73,6 +73,7 @@ from .alarm_rules import (  # noqa: F401
     AFTER_ACTIONS,
     ARMED,
     ARMING,
+    BRAND,
     DEFAULT_AFTER,
     DEFAULT_SETTINGS,
     DISARM,
@@ -88,7 +89,9 @@ from .alarm_rules import (  # noqa: F401
     TEST_SIREN_SECONDS,
     TRIGGERED,
     VERDACHT,
+    abwesend,
     alle_modi,
+    brand_setzt_aus,
     camera_for,
     camera_motion_due,
     durchsage_boxen,
@@ -116,6 +119,7 @@ from .alarm_rules import (  # noqa: F401
     sensor_open,
     sensortest_bestaetigen,
     sensortest_start,
+    unverschlossen,
     valid_duress_pin,
     valid_pin,
     zonen,
@@ -258,6 +262,13 @@ class AlarmIntegration(Integration):
             ],
         )
         self._unsubscribe = self.hub.bus.subscribe("state_changed", self._on_state_changed)
+        # Die Brandmeldeanlage (Punkt 615 der Werkbank): Solange es
+        # brennt, hört die Einbruchmeldung nicht zu - sonst löst die
+        # Flucht durch den Flur die Sirene aus.
+        self._brand_abmelden = [
+            self.hub.bus.subscribe("fire", self._on_fire),
+            self.hub.bus.subscribe("fire_cleared", self._on_fire_cleared),
+        ]
         # Nach der eigenen Sirene sehen (Punkt 481 der Werkbank).
         self._pflege_task = asyncio.create_task(self._pflege_loop())
 
@@ -276,6 +287,9 @@ class AlarmIntegration(Integration):
         if self._unsubscribe is not None:
             self._unsubscribe()
             self._unsubscribe = None
+        for abmelden in self._brand_abmelden:
+            abmelden()
+        self._brand_abmelden = []
         self._cancel_timer()
         await super().teardown()
 
@@ -401,14 +415,30 @@ class AlarmIntegration(Integration):
         zone = zone or None
         open_now = self.open_sensors(mode, zone)
         blind = self.blind_sensors(mode, zone)
-        if (open_now or blind["offline"] or blind["battery"]) and not force:
+        # Die unverschlossenen Türen (Punkt 614 der Werkbank): Beim
+        # Schloss zählt in der Bereitschaftsprüfung der Türsensor, nicht
+        # der Riegel - eine zugezogene, aber nicht abgeschlossene Türe
+        # ging ohne Wort durch. Bei Abwesend/Ferien ist das eine Absage
+        # wie ein offenes Fenster; nachts nur ein Hinweis, denn nachts
+        # geht man nochmals raus.
+        riegel = unverschlossen(self.hub.registry.all(), zone)
+        riegel_zeilen = [{"entity_id": e.id, "label": e.label} for e in riegel]
+        riegel_sperrt = bool(riegel) and abwesend(mode)
+        if (
+            open_now or blind["offline"] or blind["battery"] or riegel_sperrt
+        ) and not force:
             # Nicht einfach trotzdem scharf schalten: Der Benutzer soll
             # entscheiden, ob er das Fenster schliesst oder überbrückt – und
             # von einem stummen Sensor überhaupt erst erfahren.
             return {
                 "ok": False,
-                "reason": "offen" if open_now else "blind",
+                "reason": "offen"
+                if open_now
+                else "blind"
+                if blind["offline"] or blind["battery"]
+                else "unverschlossen",
                 "open": [entity.label for entity in open_now],
+                "unlocked": riegel_zeilen,
                 **blind,
             }
 
@@ -431,11 +461,20 @@ class AlarmIntegration(Integration):
             self._next = None
         await self._publish()
         zone_zusatz = f" ({zone})" if zone else ""
-        self._note("armed", f"{self.mode_label(mode)} scharf geschaltet{zone_zusatz}", by)
+        text = f"{self.mode_label(mode)} scharf geschaltet{zone_zusatz}"
+        if riegel:
+            # Im Verlauf, nicht nur in der Antwort: Am Morgen will man
+            # nachlesen können, dass die Türe die Nacht über offen war.
+            text += " – nicht abgeschlossen: " + ", ".join(e.label for e in riegel)
+        self._note("armed", text, by)
         if self._settings.get("notify_arming"):
             await self._notify(
                 "Alarmanlage scharf", f"Modus {self.mode_label(mode)}", "alarm_arming"
             )
+        # Der Hinweis nur, wenn es einen gibt - eine Antwort ohne Türen
+        # bleibt, was sie war (Abläufe und Tests vergleichen sie ganz).
+        if riegel:
+            return {"ok": True, "state": self._state, "unlocked": riegel_zeilen}
         return {"ok": True, "state": self._state}
 
     # ── PIN fürs Entschärfen ───────────────────────────────────────────────
@@ -825,6 +864,69 @@ class AlarmIntegration(Integration):
             return
 
         await self._trigger(entity)
+
+    # ── Brand (Punkt 615 der Werkbank) ─────────────────────────────────────
+
+    async def _on_fire(self, _event_type: str, payload: dict[str, Any]) -> None:
+        """Ein Rauchmelder schlägt an: die Einbruchmeldung aussetzen.
+
+        Schlägt um drei Uhr ein Melder an, während «Nacht» scharf ist,
+        weckt die Brandanlage alle mit Durchsage und Licht - und die
+        erste Person im Flur löste über den Bewegungsmelder den
+        Einbruchalarm samt Sirene und Eskalation aus. Also: keine
+        Auslösung mehr, laufende Fristen und die Eskalation abbrechen,
+        Sirene aus. Der Modus bleibt gemerkt, damit die Entwarnung
+        dorthin zurückfindet.
+        """
+        if not brand_setzt_aus(self._state, self._mode):
+            return
+        self._cancel_timer()
+        self._cancel_escalation()
+        self._cancel_spaeter()
+        self._piep_stoppen()
+        self._state = BRAND
+        self._verdacht_von = None
+        self._until = None
+        self._gesamt = None
+        self._next = None
+        await self._publish()
+        wo = str(payload.get("name") or "Rauchmelder")
+        self._note("brand", f"Wegen Brandalarm ausgesetzt ({wo})", "Brandmeldeanlage")
+        # Sirene aus, Licht zurück - dieselben Befehle wie beim
+        # Entschärfen: Eine Sirene, die neben der Brandansage weiterheult,
+        # übertönt genau den Satz, den man jetzt hören muss. Nebenher,
+        # nicht im Ereignis selbst: Die Brandanlage wartet auf ihre
+        # Zuhörer, und eine hängende Sirene darf ihre Push nicht aufhalten.
+        self.start_task(self._brand_sirene_aus())
+
+    async def _brand_sirene_aus(self) -> None:
+        await self._run_actions("clear")
+        if self._eskaliert:
+            self._eskaliert = False
+            await self._run_commands(
+                eskalations_ende_befehle(self._escalation, self.hub.registry.all()),
+                "eskalation-aus",
+            )
+
+    async def _on_fire_cleared(self, _event_type: str, _payload: dict[str, Any]) -> None:
+        """Entwarnung: zurück in den vorigen Modus - ohne Bereitschaftsprüfung.
+
+        Wie nach einem Alarm (_rearm): Die Flucht lässt Türen offen
+        stehen, und würde die Anlage sich deswegen weigern, bliebe das
+        Haus die restliche Nacht ungeschützt. Was noch offen ist, steht
+        im Verlauf. Wer inzwischen entschärft hat, bleibt unscharf.
+        """
+        if self._state != BRAND or self._mode is None:
+            return
+        self._state = ARMED
+        await self._publish()
+        still_open = [e.label for e in self.open_sensors(self._mode, self._zone)]
+        text = f"Nach Entwarnung wieder scharf ({self.mode_label(self._mode)})"
+        if still_open:
+            text += " – noch offen: " + ", ".join(still_open)
+        self._note("armed", text, "Brandmeldeanlage")
+        if self._settings.get("notify_arming"):
+            await self._notify("Alarmanlage wieder scharf", text, "alarm_arming")
 
     async def _verdacht(self, entity: Entity, frist: float) -> None:
         """Voralarm: melden und warten, bevor es laut wird (Punkt 516).
@@ -1918,6 +2020,11 @@ class AlarmIntegration(Integration):
             return
         result = await self.arm(mode, force=force)
         if not result.get("ok"):
+            if result.get("reason") == "unverschlossen":
+                raise HomePilotError(
+                    "Scharfschalten nicht möglich, nicht abgeschlossen: "
+                    + ", ".join(z["label"] for z in result.get("unlocked", []))
+                )
             raise HomePilotError(
                 "Scharfschalten nicht möglich, noch offen: "
                 + ", ".join(result.get("open", []))

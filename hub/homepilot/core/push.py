@@ -72,6 +72,9 @@ LEISE: frozenset[str] = frozenset(
         "morning",
         # Sieben Tage vor dem Verfall ist eine Viertelstunde egal.
         "vouchers",
+        # «Livia ist um 15:42 heimgekommen» stimmt auch eine Viertelstunde
+        # später noch (Punkt 616).
+        "door",
     }
 )
 
@@ -328,6 +331,9 @@ CATEGORIES: dict[str, str] = {
     # Die Brandmeldeanlage (Punkt 543): Rauch oder Gas gemeldet, die
     # Wiederholung, die Entwarnung und der Probealarm.
     "smoke": "Rauch gemeldet",
+    # Wer die Türe aufgeschlossen hat, und womit (Punkt 616): das
+    # Keypad-Kind, das ohne Telefon heimkommt.
+    "door": "Türe aufgeschlossen - wer und womit",
     "doorbell": "Es klingelt an der Türe",
     "baby_cry": "Ein Baby weint",
     "disk": "Speicherplatz wird knapp",
@@ -374,7 +380,7 @@ GROUPS: list[tuple[str, tuple[str, ...]]] = [
     # Die Klingel steht ganz vorn: Sie ist die Nachricht, auf die man
     # sofort reagiert - und die einzige, bei der ein paar Sekunden
     # Verzögerung den Zweck zunichte machen.
-    ("Sicherheit", ("doorbell", "alarm", "alarm_arming", "camera_motion", "leak", "smoke")),
+    ("Sicherheit", ("doorbell", "alarm", "alarm_arming", "camera_motion", "leak", "smoke", "door")),
     ("Haus", ("open", "appliance", "oven", "grill", "vacuum", "frost", "rain",
               "storm_covers", "heat_covers", "plants", "timer", "maintenance")),
     # «Baby weint» steht vorn und bei der Familie, nicht bei der

@@ -62,6 +62,9 @@ ZIELE: dict[str, str] = {
     # Rauch: die Brandmeldeanlage selbst - dort steht Quittieren und
     # Stummschalten, und die Liste der Melder mit dem, der anschlägt.
     "smoke": "bereich:brand",
+    # Wer aufgeschlossen hat (Punkt 616): zur Türe selbst - dort steht
+    # es an der Kachel, und dort kann man wieder abschliessen.
+    "door": "start",
     "doorbell": "klingel",
     # Ohne Kamera bleibt nur die Startseite - der Normalfall steht in
     # AN_DER_KAMERA: Man will sehen und hören, was im Zimmer los ist.
@@ -93,7 +96,7 @@ ZIELE: dict[str, str] = {
 # ein Wassermelder schickt einen dorthin, wo man den Hahn zudreht. Bei
 # den anderen (Batterie, ausgefallenes Gerät) ist der Sammelplatz
 # besser: Dort steht der Knopf zum Quittieren.
-AM_GERAET = frozenset({"open", "leak", "appliance", "vacuum", "grill"})
+AM_GERAET = frozenset({"open", "leak", "appliance", "vacuum", "grill", "door"})
 
 ## Meldungen, bei denen das Kamerabild der beste Ort ist.
 #

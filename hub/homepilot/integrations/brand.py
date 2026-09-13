@@ -177,12 +177,16 @@ class BrandIntegration(Integration):
             "",
             entity_id=entity.id,
         )
-        await self._melden(entity, wiederholung=False)
-        await self._sprechen(entity)
-        await self._schalten()
+        # Das Ereignis vor der Nachricht: Die Alarmanlage setzt sich
+        # darauf aus (Punkt 615 der Werkbank), und das muss stehen, bevor
+        # die Durchsage die Erste aus dem Bett in den Flur schickt - die
+        # Nachricht wartet sonst bis zu vier Sekunden auf ihr Kamerabild.
         await self.hub.bus.publish(
             "fire", {"entity_id": entity.id, "name": entity.label, "room": entity.room}
         )
+        await self._melden(entity, wiederholung=False)
+        await self._sprechen(entity)
+        await self._schalten()
 
     async def _melden(self, entity: Entity, wiederholung: bool) -> None:
         if not self._settings.get("notify"):
@@ -242,6 +246,10 @@ class BrandIntegration(Integration):
         self._zuletzt_gemeldet = None
         await self._publish()
         self._note("entwarnung", f"Entwarnung - alle Melder wieder ruhig nach {dauer} min", "")
+        # Das Gegenstück zu «fire» beim Auslösen: Die Alarmanlage hat
+        # sich derweil ausgesetzt (Punkt 615 der Werkbank) und findet
+        # damit in ihren Modus zurück.
+        await self.hub.bus.publish("fire_cleared", {"minutes": dauer})
         if self._settings.get("notify_clear"):
             tokens = self.hub.push.recipients(self.hub.users.users, "all", "smoke")
             await self.hub.push.send(
