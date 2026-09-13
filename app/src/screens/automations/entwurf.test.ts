@@ -1470,6 +1470,17 @@ describe('Wirkte der Ablauf?', () => {
     expect(wirkungText(lauf(undefined))).toBeNull();
   });
 
+  test('nachgefasst steht dabei – das ist die zweite Auskunft (Punkt 596)', () => {
+    expect(
+      wirkungText(
+        lauf({ urteil: 'wirkungslos', geprueft: 1, nicht: ['Stehlampe'], nachgefasst: true })
+      )
+    ).toBe('wirkte nicht – auch nachgefasst: Stehlampe');
+    expect(
+      wirkungText(lauf({ urteil: 'teilweise', geprueft: 2, nicht: ['Stehlampe'], nachgefasst: false }))
+    ).toBe('wirkte nur halb – ohne Stehlampe');
+  });
+
   test('wirkungslos nennt die Geräte, die nicht folgten', () => {
     expect(
       wirkungText(lauf({ urteil: 'wirkungslos', geprueft: 1, nicht: ['Licht Küche'] }))

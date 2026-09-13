@@ -130,6 +130,9 @@ export interface Run {
     urteil: 'gewirkt' | 'teilweise' | 'wirkungslos';
     geprueft: number;
     nicht: string[];
+    /** Punkt 596: Der Hub hat für die fehlenden Geräte den Befehl noch
+     *  einmal geschickt, bevor er urteilte. */
+    nachgefasst?: boolean;
   } | null;
 }
 
@@ -608,10 +611,14 @@ export function wirkungText(run: Run): string | null {
   const effect = run.effect;
   if (!effect || effect.urteil === 'gewirkt') return null;
   const namen = effect.nicht.join(', ');
+  // Nachgefasst (Punkt 596) gehört dazu: «wirkte nicht» nach zwei
+  // Anläufen ist eine andere Auskunft als nach einem - beim zweiten
+  // sucht man am Gerät, nicht am Funk.
+  const zweimal = effect.nachgefasst ? ' – auch nachgefasst' : '';
   if (effect.urteil === 'wirkungslos') {
-    return namen ? `wirkte nicht: ${namen}` : 'wirkte nicht';
+    return namen ? `wirkte nicht${zweimal}: ${namen}` : `wirkte nicht${zweimal}`;
   }
-  return namen ? `wirkte nur halb – ohne ${namen}` : 'wirkte nur halb';
+  return namen ? `wirkte nur halb${zweimal} – ohne ${namen}` : `wirkte nur halb${zweimal}`;
 }
 
 export function lastRunText(runs: Run[], automationId: string): string {

@@ -3118,7 +3118,7 @@ class AutomationEngine:
         if standbild is not None:
             await self._standbild_anhaengen(eintrag, standbild)
         if executed and error is None:
-            self._wirkung_planen(eintrag, actions)
+            self._wirkung_planen(eintrag, actions, automation)
         if executed and error is not None:
             await self._melde_fehlschlag(automation, error)
         if executed:
@@ -3166,6 +3166,36 @@ class AutomationEngine:
             data={"ziel": f"ablauf:{automation.id}"},
             category="maintenance",
         )
+    async def _melde_wirkungslos(
+        self,
+        automation: Automation,
+        punkte: list[dict[str, Any]],
+        fehlt: list[str],
+        name_of: Any,
+    ) -> None:
+        """Sagen, dass ein Lauf auch nach dem Nachfassen nichts bewirkte
+        (Punkt 596 der Werkbank).
+
+        Derselbe Weg wie beim gestolperten Schritt (465): Kategorie
+        «maintenance», höchstens einmal am Tag je Ablauf, der Tipp führt
+        in den Verlauf. Ein Gerät, das seit Wochen nicht hört, macht
+        sonst aus jeder Nacht zwei Nachrichten.
+        """
+        heute = datetime.now().strftime("%Y-%m-%d")
+        marke = f"wirkung:{automation.id}:{heute}"
+        if marke in self._fehlschlag_gemeldet:
+            return
+        self._fehlschlag_gemeldet.add(marke)
+        titel, text = wirkung.meldung(automation.alias, punkte, fehlt, name_of)
+        tokens = self.hub.push.recipients(self.hub.users.users, "all", "maintenance")
+        await self.hub.push.send(
+            tokens,
+            titel,
+            text,
+            data={"ziel": f"ablauf:{automation.id}"},
+            category="maintenance",
+        )
+
     def _standbild_starten(
         self, automation: Automation, ausloeser: str | None
     ) -> asyncio.Task[str | None] | None:
@@ -3235,9 +3265,13 @@ class AutomationEngine:
             self._verlauf_sichern()
 
     def _wirkung_planen(
-        self, eintrag: dict[str, Any], actions: list[dict[str, Any]]
+        self,
+        eintrag: dict[str, Any],
+        actions: list[dict[str, Any]],
+        automation: Automation,
     ) -> None:
-        """Ein paar Sekunden später nachsehen, ob der Lauf gewirkt hat.
+        """Ein paar Sekunden später nachsehen, ob der Lauf gewirkt hat -
+        und einmal nachfassen, wenn nicht (Punkt 596).
 
         «Ausgeführt» heisst bisher nur: abgeschickt. Ein Funkbefehl, der
         nicht ankommt, sieht im Protokoll genauso aus wie einer, der das
@@ -3248,17 +3282,52 @@ class AutomationEngine:
         Befehl steht dort noch der alte, und jeder Lauf sähe wirkungslos
         aus. Was sich nicht vorhersagen lässt, wird gar nicht erst
         geprüft (core/wirkung.py).
+
+        Nachfassen (Punkt 596): Fehlt etwas, geht für genau diese Geräte
+        der Befehl noch einmal hinaus - ein verlorener Funkbefehl ist der
+        häufigste Grund, und der zweite kommt meist an. Dann wird erneut
+        nachgesehen; ``effect.nachgefasst`` sagt, dass es zwei Anläufe
+        brauchte. Bleibt es wirkungslos, meldet es der Hub - «Gute Nacht»
+        lässt die Stehlampe an, und niemand liest nachts den Verlauf.
         """
         punkte = wirkung.pruefpunkte(actions)
         if not punkte or self._stopping:
             return
 
+        def stand() -> dict[str, dict[str, Any]]:
+            return {entity.id: dict(entity.state) for entity in self.hub.registry.all()}
+
+        def name_of(entity_id: str) -> str:
+            entity = self.hub.registry.get(entity_id)
+            return entity.label if entity else entity_id
+
         async def nachsehen() -> None:
             await asyncio.sleep(WIRKUNG_NACH)
-            stand = {
-                entity.id: dict(entity.state) for entity in self.hub.registry.all()
-            }
-            ergebnis = wirkung.abgleich(punkte, stand)
+            ergebnis = wirkung.abgleich(punkte, stand())
+            nachgefasst = False
+            if ergebnis["fehlt"] and not self._stopping:
+                noch_einmal = wirkung.nachfass_aktionen(actions, ergebnis["fehlt"])
+                if noch_einmal:
+                    nachgefasst = True
+                    # Dem Ablauf zugeschrieben wie der erste Versuch - am
+                    # Gerät soll «Gute Nacht» stehen, nicht «von Hand».
+                    with as_source(automation_source(automation.id, automation.alias)):
+                        for action in noch_einmal:
+                            try:
+                                await self._execute_action(automation, action)
+                            except Exception as err:
+                                log.info(
+                                    "Nachfassen für '%s' hing: %s", automation.alias, err
+                                )
+                    await asyncio.sleep(WIRKUNG_NACH)
+                    zweiter = wirkung.abgleich(
+                        [p for p in punkte if p["entity_id"] in ergebnis["fehlt"]],
+                        stand(),
+                    )
+                    ergebnis = {
+                        "ok": ergebnis["ok"] + zweiter["ok"],
+                        "fehlt": zweiter["fehlt"],
+                    }
             spruch = wirkung.urteil(ergebnis)
             if spruch is None:
                 return
@@ -3275,8 +3344,11 @@ class AutomationEngine:
                     )
                     if entity is not None
                 ],
+                "nachgefasst": nachgefasst,
             }
             self._verlauf_sichern()
+            if ergebnis["fehlt"] and not eintrag.get("test") and not self._stopping:
+                await self._melde_wirkungslos(automation, punkte, ergebnis["fehlt"], name_of)
 
         task = asyncio.create_task(nachsehen())
         self._run_tasks.add(task)
