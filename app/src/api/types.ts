@@ -51,6 +51,12 @@ export interface Entity {
   state: EntityState;
   commands: string[];
   available: boolean;
+  /** Nur in der App gesetzt, nie vom Hub (Punkt 580 der Werkbank): Ein
+   *  Befehl an dieses Gerät ist gescheitert oder unbeantwortet
+   *  geblieben. Die Kachel zeigt den Stand von vorher und sagt dazu
+   *  «unbestätigt», bis der nächste echte Zustand des Hubs kommt -
+   *  der ersetzt das ganze Objekt, und damit ist die Marke weg. */
+  unbestaetigt?: boolean;
   /** Raum aus der Hub-Konfiguration; die App gruppiert danach. */
   room?: string | null;
   /** Alle Zimmer, für die das Gerät zählt - `room` ist das erste

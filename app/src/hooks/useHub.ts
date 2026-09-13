@@ -5,6 +5,7 @@ import { AppState } from 'react-native';
 import { onHubFehler } from '../api/client';
 import { Activity, CommandData, Entity, EntityState, Scene, ServerMessage, User } from '../api/types';
 import { failed, tapped, triggered } from '../lib/haptics';
+import { absageSatz, zurueckgesetzt } from '../lib/kachelstand';
 import { UndoOffer, undoCommand, undoLabel } from '../lib/rueckgaengig';
 import {
   CODE_ABGEMELDET,
@@ -144,6 +145,12 @@ export function useHub(url: string | null, token: string | null) {
   // Der Zustand von vor dem Tippen – nur zum Nachschlagen, nicht zum
   // Anzeigen, deshalb ein Ref und kein zweiter State.
   const entitiesRef = useRef<Record<string, Entity>>({});
+  // Je pendentem Befehl der Zustand, den der Hub zuletzt wirklich
+  // gemeldet hat (Punkt 580 der Werkbank). Bleibt die Antwort aus oder
+  // sagt der Hub ab, kommt er auf die Kachel zurück - vorher blieb der
+  // Wunschzustand stehen, und der Hub schickt nach einem gescheiterten
+  // Befehl keinen echten nach.
+  const vorherRef = useRef<Record<string, EntityState>>({});
 
   // Beim Öffnen sofort den letzten bekannten Stand zeigen, statt auf die
   // Verbindung zu warten – der Start fühlt sich dadurch augenblicklich an.
@@ -234,6 +241,21 @@ export function useHub(url: string | null, token: string | null) {
     });
   }, []);
 
+  /**
+   * Eine Absage verarbeiten (Punkt 580 der Werkbank): Die Kachel
+   * bekommt den Stand von vorher zurück und die Marke «unbestätigt»,
+   * die Einblendung nennt das Gerät.
+   */
+  const absagen = useCallback((entityId: string, grund: string | null) => {
+    const vorher = vorherRef.current[entityId];
+    delete vorherRef.current[entityId];
+    setEntityMap((prev) => {
+      const entity = prev[entityId];
+      return entity ? { ...prev, [entityId]: zurueckgesetzt(entity, vorher) } : prev;
+    });
+    setError(absageSatz(entitiesRef.current[entityId]?.name, grund));
+  }, []);
+
   useEffect(() => {
     if (!url) {
       return;
@@ -291,6 +313,7 @@ export function useHub(url: string | null, token: string | null) {
         if (message.type === 'snapshot') {
           // Was noch im Puffer liegt, ist älter als der Schnappschuss.
           meldungsPuffer.current = {};
+          vorherRef.current = {};
           const entities = Object.fromEntries(
             message.entities.map((entity) => [entity.id, entity])
           );
@@ -314,6 +337,10 @@ export function useHub(url: string | null, token: string | null) {
           message.type === 'entity_added'
         ) {
           clearPending(message.entity.id);
+          // Ein echter Zustand des Hubs - was vor dem Tippen war, zählt
+          // nicht mehr, und die Marke «unbestätigt» geht mit dem
+          // ersetzten Objekt von selbst.
+          delete vorherRef.current[message.entity.id];
           meldungsPuffer.current[message.entity.id] = message.entity;
           if (message.type === 'state_changed') {
             const summary = describe(
@@ -350,10 +377,18 @@ export function useHub(url: string | null, token: string | null) {
             clearPending(message.entity_id);
           }
           // Fehlgeschlagene Kommandos nicht verschlucken – sonst tippt man
-          // ins Leere und erfährt nie, warum nichts passiert ist.
+          // ins Leere und erfährt nie, warum nichts passiert ist. Und der
+          // Wunschzustand kommt von der Kachel (Punkt 580 der Werkbank):
+          // Der Hub schickt nach einer Absage keinen echten nach.
           if (!message.ok) {
-            setError(message.error ?? 'Der Befehl ist fehlgeschlagen');
+            if (message.entity_id) {
+              absagen(message.entity_id, message.error ?? 'Der Befehl ist fehlgeschlagen');
+            } else {
+              setError(message.error ?? 'Der Befehl ist fehlgeschlagen');
+            }
             failed();
+          } else if (message.entity_id) {
+            delete vorherRef.current[message.entity_id];
           }
         }
       };
@@ -427,7 +462,7 @@ export function useHub(url: string | null, token: string | null) {
       ws?.close();
       wsRef.current = null;
     };
-  }, [url, token, clearPending, flushPlanen]);
+  }, [url, token, clearPending, flushPlanen, absagen]);
 
   // Ein 401 des HTTP-Clients heisst dasselbe wie ein 4401 am Socket:
   // Das Token gilt nicht mehr (Punkt 579 der Werkbank). Der Socket
@@ -491,6 +526,14 @@ export function useHub(url: string | null, token: string | null) {
       // Sofort den erwarteten Zustand zeigen. Meldet der Hub etwas anderes,
       // überschreibt seine Antwort diese Annahme – aber die Kachel reagiert
       // augenblicklich statt erst nach der Antwort des Geräts.
+      //
+      // Den Stand von vorher dabei festhalten (Punkt 580 der Werkbank) -
+      // den ersten, nicht den jüngsten: Beim Ziehen eines Reglers ist
+      // der zweite «vorher» schon der Wunsch des ersten Tippens.
+      const bekannt = entitiesRef.current[entityId];
+      if (bekannt && !(entityId in vorherRef.current) && expectedState(bekannt, command, data)) {
+        vorherRef.current[entityId] = { ...bekannt.state };
+      }
       setEntityMap((prev) => {
         const entity = prev[entityId];
         if (!entity) return prev;
@@ -498,10 +541,14 @@ export function useHub(url: string | null, token: string | null) {
         return next ? { ...prev, [entityId]: { ...entity, state: next } } : prev;
       });
       setPending((prev) => ({ ...prev, [entityId]: true }));
+      // Das alte Zeitlimit desselben Geräts räumen: Sonst meldete der
+      // erste Tipp «antwortet nicht», während der zweite noch unterwegs war.
+      const alt = timersRef.current[entityId];
+      if (alt) clearTimeout(alt);
       timersRef.current[entityId] = setTimeout(
         () => {
           clearPending(entityId);
-          setError('Das Gerät antwortet nicht');
+          absagen(entityId, null);
         },
         SLOW_COMMANDS.has(command) ? SLOW_COMMAND_TIMEOUT : PENDING_TIMEOUT
       );
@@ -513,7 +560,7 @@ export function useHub(url: string | null, token: string | null) {
       if (command !== 'set_brightness') tapped();
       return true;
     },
-    [clearPending]
+    [clearPending, absagen]
   );
 
   /**

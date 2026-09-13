@@ -28,7 +28,7 @@ import { useColors, useTyp } from '../theme';
 import { warnZahl, warnZahlSatz } from '../lib/warnzeile';
 import { Bar } from './Bar';
 import { Card, CardFooter } from './Card';
-import { faelltAuf, standZeile } from '../lib/kachelstand';
+import { faelltAuf, standZeile, unbestaetigtZeile } from '../lib/kachelstand';
 import { Musikliste } from './Musikliste';
 import { ColorRow } from './ColorRow';
 import { Sky } from './CoverVisual';
@@ -589,9 +589,13 @@ export function EntityCard({
                 >
                   {pending
                     ? 'wird geschaltet …'
-                    : entity.available
-                      ? subtitle
-                      : offlineText}
+                    : !entity.available
+                      ? offlineText
+                      : entity.unbestaetigt
+                        ? // Nach einer Absage steht der Stand von vorher
+                          // da, und die Zeile sagt es (Punkt 580).
+                          unbestaetigtZeile(subtitle)
+                        : subtitle}
                 </Text>
               </View>
             </Pressable>
@@ -1536,7 +1540,11 @@ export function EntityCard({
           Native sie an das innerste Element gibt, das sie annimmt.
           Siehe entity/kacheldruck.tsx. */}
       <KachelDruck wert={langerDruck}>
-        <View style={[styles.body, pending && { opacity: 0.55 }]}>{body()}</View>
+        {/* Nach einer Absage ebenso blass (Punkt 580 der Werkbank): Der
+            Stand von vorher steht da, aber geprüft ist er nicht mehr. */}
+        <View style={[styles.body, (pending || entity.unbestaetigt) && { opacity: 0.55 }]}>
+          {body()}
+        </View>
       </KachelDruck>
       {chart}
       {eigenerName ? null : (
@@ -1547,12 +1555,14 @@ export function EntityCard({
               ? 'wird geschaltet …'
               : !entity.available
                 ? offlineText
-                : // Ohne Verbindung sagt die Zeile, von wann der Wert ist -
-                  // «21,5 °C» und «21,5 °C · Stand 17:42» sind zwei
-                  // verschiedene Aussagen, und die zweite ist die ehrliche.
-                  altText
-                  ? `${subtitle ? `${subtitle} · ` : ''}Stand ${altText}`
-                  : subtitle
+                : entity.unbestaetigt
+                  ? unbestaetigtZeile(subtitle)
+                  : // Ohne Verbindung sagt die Zeile, von wann der Wert ist -
+                    // «21,5 °C» und «21,5 °C · Stand 17:42» sind zwei
+                    // verschiedene Aussagen, und die zweite ist die ehrliche.
+                    altText
+                    ? `${subtitle ? `${subtitle} · ` : ''}Stand ${altText}`
+                    : subtitle
           }
           on={isOn || !!boxSchalter?.an}
           onToggle={toggleMitDoppeltipp}
