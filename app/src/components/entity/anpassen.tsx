@@ -8,6 +8,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { CommandData, Entity } from '../../api/types';
+import { EINSCHALT_WAHL, einschaltWort, kannEinschalten } from '../../lib/einschaltverhalten';
 import {
   GeraetOption,
   begrenzt,
@@ -213,12 +214,57 @@ export function AnpassenBlatt({
               </Pressable>
             ))}
             {entity && onCommand ? (
-              <GeraetEinstellungen entity={entity} onCommand={onCommand} />
+              <>
+                <Einschaltverhalten entity={entity} onCommand={onCommand} />
+                <GeraetEinstellungen entity={entity} onCommand={onCommand} />
+              </>
             ) : null}
           </ScrollView>
         </Pressable>
       </Pressable>
     </Modal>
+  );
+}
+
+/**
+ * «Nach Stromausfall» im Anpassen-Blatt (Punkt 630 der Werkbank).
+ *
+ * Kommt der Strom zurück, geht die Lampe an - das entscheidet das
+ * Leuchtmittel, und bisher konnte man es nur in der Hue-App oder an der
+ * CCU umstellen. Drei Chips: wie vorher, aus, an. Gezeigt wird, was der
+ * Hub vom Gerät gelesen hat; kennt er den Stand noch nicht, steht das
+ * so da, statt dass ein Chip so tut, als gälte er.
+ */
+function Einschaltverhalten({
+  entity,
+  onCommand,
+}: {
+  entity: Entity;
+  onCommand: (command: string, data?: CommandData) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  if (!kannEinschalten(entity)) return null;
+  const stand = entity.state?.power_on;
+  return (
+    <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.surfaceBorder }}>
+      <View style={[styles.feinZeile, { marginTop: 12 }]}>
+        <Text style={[styles.roomSheetTitle, { fontSize: 14, marginBottom: 0 }]}>
+          Nach Stromausfall
+        </Text>
+        <Text style={styles.blattWert}>{einschaltWort(stand)}</Text>
+      </View>
+      <View style={[styles.vorgabenRaster, { paddingVertical: 8 }]}>
+        {EINSCHALT_WAHL.map((wahl) => (
+          <Chip
+            key={wahl.key}
+            label={wahl.label}
+            aktiv={stand === wahl.key}
+            onPress={() => onCommand('set_power_on', { mode: wahl.key })}
+          />
+        ))}
+      </View>
+    </View>
   );
 }
 
