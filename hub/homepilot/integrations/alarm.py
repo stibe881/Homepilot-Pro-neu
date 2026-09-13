@@ -240,7 +240,7 @@ class AlarmIntegration(Integration):
         self._escalation = parse_escalation(config.get("escalation"))
         self._history: list[dict[str, Any]] = list(config.get("history") or [])
 
-        # Scharf bleibt scharf, auch über einen Neustart (Punkt 641 der
+        # Scharf bleibt scharf, auch über einen Neustart (Punkt 642 der
         # Werkbank). Vorher lag der Zustand nur im Speicher: Jedes Update
         # und jeder Neustart des Behälters entschärfte die Anlage still.
         # Aufgefallen ist es an der Uhrzeit einer Meldung - «niemand mehr
@@ -288,7 +288,7 @@ class AlarmIntegration(Integration):
         elif wieder["grund"]:
             # Der eine Fall, in dem ein Neustart wirklich entschärft -
             # und dann soll er es sagen. Stumm unscharf war genau der
-            # Fehler, gegen den Punkt 641 gebaut ist.
+            # Fehler, gegen den Punkt 642 gebaut ist.
             self._note("disarmed", f"Nach dem Neustart unscharf: {wieder['grund']}", "Neustart")
         self._unsubscribe = self.hub.bus.subscribe("state_changed", self._on_state_changed)
         # Die Brandmeldeanlage (Punkt 615 der Werkbank): Solange es
@@ -384,7 +384,7 @@ class AlarmIntegration(Integration):
         )
 
     def _zustand_merken(self) -> None:
-        """Den Zustand für den nächsten Start hinschreiben (Punkt 641).
+        """Den Zustand für den nächsten Start hinschreiben (Punkt 642).
 
         Hier und nicht in jedem Schaltweg: `_publish` ist die eine
         Stelle, durch die jeder Wechsel geht. Geschrieben wird nur, was
@@ -1933,7 +1933,24 @@ class AlarmIntegration(Integration):
                 )
                 return
         else:
-            await self.disarm(by="Anwesenheit")
+            # Als eigene Quelle, damit check_pin die Kopplung durchlässt
+            # (alarm_rules.ohne_pin_erlaubt, Punkt 641). Vorher kam sie
+            # als «Gerät» an und scheiterte bei jeder Heimkehr still an
+            # der PIN - der Fehler lag im Log, die Sirene im Treppenhaus.
+            try:
+                with source.as_source(source.presence_source()):
+                    await self.disarm(by="Anwesenheit")
+            except HomePilotError as err:
+                # Nie mehr still: Wenn es doch scheitert, soll es jemand
+                # lesen, bevor die Türe aufgeht.
+                log.warning("Anwesenheit konnte nicht entschärfen: %s", err)
+                self._note("fehler", f"Anwesenheit konnte nicht entschärfen: {err}", "")
+                await self._notify(
+                    "Konnte nicht unscharf schalten",
+                    f"Jemand ist heimgekommen, aber die Anlage bleibt scharf: {err}",
+                    "alarm_arming",
+                )
+                return
         await self._notify("Alarmanlage", text, "alarm_arming")
 
     def _anwesenheitszustaende(self) -> list[str]:

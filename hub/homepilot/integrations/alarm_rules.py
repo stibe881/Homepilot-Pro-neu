@@ -328,7 +328,20 @@ def ohne_pin_erlaubt(quelle: Any, settings: dict[str, Any]) -> bool:
     steht - genau der Fall, für den es die PIN gibt. Sie führen die PIN
     ohnehin mit (siehe handle_command).
     """
-    if not isinstance(quelle, dict) or quelle.get("kind") != "automation":
+    if not isinstance(quelle, dict):
+        return False
+    # Die Anwesenheits-Kopplung (Punkt 641): Sie hat so wenig eine
+    # Tastatur wie ein Ablauf - und sie scheiterte genauso still. Am
+    # 13. September meldete das Telefon zwei Minuten vor der Türe
+    # «zuhause», die Anlage blieb scharf, und die Sirene ging. Ihr
+    # Schalter ist die Stufe selbst: Wer «Wenn jemand heimkommt» auf
+    # «automatisch» stellt, hat entschieden, dass die Ortung entschärfen
+    # darf; auf «vorschlagen» ruft die Kopplung das Entschärfen gar
+    # nicht erst auf. Ein zweiter Schalter daneben wäre einer, den man
+    # vergisst.
+    if quelle.get("kind") == "presence":
+        return True
+    if quelle.get("kind") != "automation":
         return False
     return settings.get("automation_disarm", True) is not False
 
@@ -348,7 +361,7 @@ def quellen_name(quelle: Any) -> str:
         return f"Ablauf «{label}»"
     if quelle.get("kind") == "scene":
         return f"Szene «{label}»"
-    if quelle.get("kind") == "user":
+    if quelle.get("kind") in ("user", "presence"):
         return label
     return ""
 
@@ -969,7 +982,7 @@ def zustand_nach_neustart(
 ) -> dict[str, Any]:
     """Womit die Anlage nach einem Neustart hochkommt (rein, testbar).
 
-    Der Fall aus dem Betrieb (Punkt 641 der Werkbank): Die Anlage stand
+    Der Fall aus dem Betrieb (Punkt 642 der Werkbank): Die Anlage stand
     seit 13:08 scharf, um 16:40 startete der Hub neu - und kam unscharf
     hoch, weil der Zustand nur im Speicher lag. Zehn Minuten später
     schaltete die Anwesenheits-Kopplung sie wieder scharf, mit einer

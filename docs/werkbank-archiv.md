@@ -7761,7 +7761,47 @@ Erinnerung rufen.
 
 Stellen: `hub/homepilot/core/brandmelder.py`, `hub/homepilot/integrations/brand.py`, `app/src/lib/brand.ts`
 
-### 641. Ein Neustart entschärfte die Alarmanlage ✓ erledigt
+### 641. Die Heimkehr scheiterte still an der PIN ✓ erledigt
+
+Aus dem Haus: «Ich bin nachhause gekommen und es hat die Alarmanlage
+ausgelöst.» Die Datenablage des Hubs vom 13. September sagt, was war:
+Kopplung «Wenn jemand heimkommt» auf «automatisch», Eingangsverzögerung
+0 s. Um 18:04:28 meldete das erste Telefon «zuhause», um 18:04:32 das
+zweite. Um 18:06:30 ging die Wohnungstüre auf (Verdacht), um 18:06:34
+löste der Eingang aus, um 18:07:05 heulte die Sirene, und um 18:14:06
+tippte jemand die PIN. Zehn Minuten lang stand «zuhause» im Zustand,
+und die Anlage schaltete nicht - nicht sofort (Punkt 551), nicht im
+Takt, nicht aus der Sirene heraus.
+
+Der Grund: Seit eine PIN gesetzt ist, weist `check_pin` jedes
+Entschärfen ohne Code ab - ausser die Quelle ist ein Ablauf
+(`ohne_pin_erlaubt`, dort steht die ganze Begründung, und dort steht
+auch, dass genau dieser Fehler für Abläufe schon einmal passiert ist).
+Die Kopplung rief `disarm` ohne Quelle auf, kam als «Gerät» an und
+scheiterte bei jeder Heimkehr mit «Zum Entschärfen braucht es die
+PIN.» - im Log, nirgends sonst. Die Tests zur Heimkehr liefen ohne PIN
+und waren grün.
+
+Jetzt hat die Kopplung eine eigene Quelle (`source.presence_source`),
+und `ohne_pin_erlaubt` lässt sie durch: Ihr Schalter ist die Stufe
+«automatisch» selbst; auf «vorschlagen» ruft sie das Entschärfen gar
+nicht auf. Der strenge Schalter für Abläufe gilt für sie nicht - ein
+zweiter Schalter daneben wäre einer, den man vergisst. Und scheitert
+es je wieder, ist es nicht mehr still: Verlaufszeile und Nachricht
+«Konnte nicht unscharf schalten» mit dem Grund. Der Test stellt den
+Tag nach: PIN gesetzt, scharf, Telefon meldet «zuhause» - unscharf,
+und im Verlauf steht «Anwesenheit».
+
+Zwei Dinge aus derselben Ablage, hier nur festgehalten: Die Anlage
+kennt ihren Zustand nach einem Neustart nicht mehr - um 16:50:54
+schaltete die Anwesenheit «scharf», ohne dass je jemand «unscharf»
+geschaltet hätte, also war der Hub um 16:40 neu gestartet und das Haus
+zehn Minuten unbewacht. Und die Zone «quartier» umschliesst «home»:
+Ein Telefon springt beim Ankommen zwischen beiden hin und her, und
+«quartier» zählt als weg.
+
+Stellen: `hub/homepilot/core/source.py`, `hub/homepilot/integrations/alarm_rules.py`, `hub/homepilot/integrations/alarm.py`, `hub/tests/test_alarm.py`, `hub/tests/test_alarm_pin.py`
+### 642. Ein Neustart entschärfte die Alarmanlage ✓ erledigt
 
 Gefunden beim Nachgehen von Punkt 638, im Verlauf der Anlage: 13:08:48
 «Ausser Haus scharf geschaltet, durch Anwesenheit» - und um 16:50:54

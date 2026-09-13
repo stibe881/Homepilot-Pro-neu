@@ -1,4 +1,4 @@
-"""Scharf bleibt scharf, auch über einen Neustart (Punkt 641).
+"""Scharf bleibt scharf, auch über einen Neustart (Punkt 642).
 
 Der Fall aus dem Betrieb: Die Anlage stand seit 13:08 scharf, um 16:40
 startete der Hub neu - und kam unscharf hoch, weil der Zustand nur im

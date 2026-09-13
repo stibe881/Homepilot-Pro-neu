@@ -1006,6 +1006,31 @@ def test_auch_aus_der_heulenden_sirene_heraus(heimkehr_hub):
     assert asyncio.run(run()) == DISARMED
 
 
+def test_die_heimkehr_entschaerft_auch_mit_gesetzter_pin(heimkehr_hub):
+    """Der Fall vom 13. September (Punkt 641): «Ich bin nachhause
+    gekommen und es hat die Alarmanlage ausgelöst.»
+
+    Die Kopplung stand auf «automatisch», das Telefon meldete zwei
+    Minuten vor der Türe «zuhause» - und die Anlage blieb scharf, zehn
+    Minuten lang, bis jemand die PIN tippte. Der Grund: Seit die PIN
+    gesetzt war, wies check_pin das Entschärfen der Kopplung ab, und
+    die Kopplung hat keine Tastatur. Für Abläufe war genau das schon
+    einmal repariert (ohne_pin_erlaubt); die Anwesenheit fiel durch.
+    """
+    hub, service = heimkehr_hub
+
+    async def run():
+        await service.set_pin("Stefan", "2580")
+        await service.arm("ausser_haus", by="Test")
+        await hub.registry.update_state("test.stefan", {"state": "home"})
+        await asyncio.sleep(0.05)
+        return service._entity.state["state"], service.history[0]
+
+    zustand, zeile = asyncio.run(run())
+    assert zustand == DISARMED
+    assert zeile["kind"] == "disarmed" and zeile["by"] == "Anwesenheit"
+
+
 def test_ein_fensterkontakt_hebt_die_anlage_nicht_auf(heimkehr_hub):
     """Die Gegenprobe: Nur Personen zählen.
 

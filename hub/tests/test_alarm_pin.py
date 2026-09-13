@@ -130,6 +130,18 @@ def test_only_automations_may_skip_the_pin():
     assert not ohne_pin_erlaubt(None, {})
 
 
+def test_the_presence_coupling_may_skip_the_pin_too():
+    """Punkt 641: Die Kopplung hat so wenig eine Tastatur wie ein
+    Ablauf. Ihr Schalter ist die Stufe «automatisch» selbst - der
+    strenge Schalter für Abläufe gilt für sie nicht."""
+    from homepilot.core.source import presence_source
+    from homepilot.integrations.alarm_rules import ohne_pin_erlaubt, quellen_name
+
+    assert ohne_pin_erlaubt(presence_source(), {})
+    assert ohne_pin_erlaubt(presence_source(), {"automation_disarm": False})
+    assert quellen_name(presence_source()) == "Anwesenheit"
+
+
 def test_the_strict_setting_closes_it_again():
     """Wie stark die Bedingung eines Ablaufs ist, weiss nur, wer ihn
     geschrieben hat - ein Wandtaster ist etwas anderes als die Ortung."""
