@@ -7841,3 +7841,55 @@ Datendatei -, und er fällt nachweislich, wenn man die Wiederherstellung
 herausnimmt.
 
 Stellen: `hub/homepilot/integrations/alarm.py`, `hub/homepilot/integrations/alarm_rules.py`, `hub/tests/test_alarm_neustart.py`
+
+# Teil XIV: Auf Zuruf (643)
+
+### 643. Die PlayStation 5 im Haus - wie der Android TV, mit Fernbedienung und Karte ✓ erledigt
+
+*Aufwand: gross · Hub + App*
+
+Gewünscht war die Konsole «so wie der Android TV»: Kachel mit Zustand
+und laufendem Spiel, Fernbedienung in der App, Karte auf dem
+Sperrbildschirm, Kopplung unter Einstellungen → Verbindungen. Für den Hub
+ist die Konsole deshalb ein Fernseher mit Steuerkreuz (`media_player`,
+`has_screen`) - und genau das war die Falle: Kachel, Fernbedienung und
+Live-Karte griffen von selbst, aber mit OK statt Kreuz, «App» statt
+Spiel, Ton-Tasten ohne Ton und einer Kopplung, die den Code vom
+Bildschirm erwartete.
+
+**Hub.** `integrations/playstation.py`: Zustand und laufendes Spiel über
+das Discovery-Protokoll (UDP 9302/987, `ddp_antwort`, `konsolenzustand`,
+rein), Wecken per WAKEUP-Paket mit dem RegistKey der Registrierung oder
+der Konto-Kennung (`weck_kennung`) - beides ohne Bibliothek. Ruhemodus
+und Tasten über `pyremoteplay` in einer kurzlebigen Remote-Play-Sitzung
+ohne Video, die nach 30 s ohne Taste wieder getrennt wird; ohne die
+Bibliothek sagt die Absage den pip-Befehl. Ein UDP-Kanal für alle
+Konsolen (`DdpKanal`, Quellport 9303 - nur darauf antwortet die PS5),
+Antworten nach Absender verteilt. Kopplung in zwei Schritten aus der App
+(`api/routes/playstation.py`: PSN-Anmeldung und Rückkehr-Adresse, dann
+der achtstellige Code von der Konsole); Konto in `playstation-token.json`,
+Registrierung in `playstation-profile.json` - `Profiles.save()` der
+Bibliothek ignoriert den Standardpfad und schriebe ins
+Home-Verzeichnis des Containers. Auf der Karte Controller-Symbol und
+«Spielt: …»; die Konsole gilt als `eigenstaendig` und stört die
+Zwillingsregel von Cast und Android TV nicht. Das Extra `playstation`
+braucht im Abbild eine gcc-Schicht, weil `netifaces` kein Rad für Python
+3.12 hat; gcc wird in derselben Schicht wieder entfernt.
+
+**App.** `istPlaystation` erkennt die Konsole; die Fernbedienung zeigt
+△□○✕ und Share · PS · Options (Kreuz bestätigt, deshalb kein OK in der
+Kreuzmitte), die Kachel «Spielt: …» und trennt Standby von Aus (nur aus
+dem Standby lässt sie sich wecken). `PsKopplung` unter Verbindungen im
+Abschnitt «Spielkonsole», der Hub sagt, welcher Schritt dran ist. Zwei
+Beifänge: Ton-Tasten am Steuerkreuz ohne `volume_up`, und die Konsole
+war ein falscher Fernseher-Zwilling in `raumkarte.ts`.
+
+**Am echten Gerät noch zu prüfen:** ob die PS5 im Haus auf die
+SRCH-Anfrage antwortet und das Wecken mit dem RegistKey greift; ob die
+Sitzung ohne Video innert 15 s «bereit» meldet und die Tasten ankommen;
+`async_standby()` der Bibliothek liefert praktisch immer `False` (kaputte
+Warteschleife), der Ruhemodus zeigt sich erst in der nächsten DDP-Runde.
+Die Nummer war zuerst 634 und wanderte auf 643, weil 634–642 in der
+Zwischenzeit auf anderen Zweigen vergeben wurden.
+
+Stellen: `hub/homepilot/integrations/playstation.py`, `hub/homepilot/api/routes/playstation.py`, `hub/homepilot/core/livekarten.py`, `hub/homepilot/core/extras.py`, `hub/pyproject.toml`, `hub/Dockerfile`, `docs/playstation.md`, `hub/tests/test_playstation*.py`, `app/src/lib/playstation.ts`, `app/src/components/TvRemote.tsx`, `app/src/components/PsKopplung.tsx`, `app/src/screens/VerbindungenScreen.tsx`, `app/src/lib/fernsehkachel.ts`, `app/src/lib/fernsehkopplung.ts`, `app/src/lib/geraeteart.ts`, `app/src/lib/raumkarte.ts`
