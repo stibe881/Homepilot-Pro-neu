@@ -26,6 +26,22 @@ def test_tomorrows_gear_respects_day_and_ab_week():
     assert packliste.morgen_zeilen(None, DIENSTAG_A) == {}
 
 
+def test_in_the_holidays_only_gear_marked_for_them_is_packed():
+    """Punkt 620: In den Herbstferien um 19 Uhr «Levin braucht morgen:
+    Turnsack» war die Nachricht, die man abbestellt. Was den Schalter
+    «auch in den Ferien» trägt, kommt trotzdem."""
+    gear = GEAR + [{"member": "Levin", "text": "Fussballschuhe", "day": "Di", "holidays": True}]
+    assert packliste.morgen_zeilen(gear, DIENSTAG_A, ferien=True) == {
+        "Levin": ["Fussballschuhe"]
+    }
+    # Ohne Ferien wie bisher - der Schalter ändert daran nichts.
+    assert packliste.morgen_zeilen(gear, DIENSTAG_A)["Levin"] == [
+        "Turnsack", "Flöte", "Fussballschuhe",
+    ]
+    assert packliste.gilt_in_den_ferien({"holidays": True}) is True
+    assert packliste.gilt_in_den_ferien({}) is False
+
+
 def test_the_evening_sentence_reads_like_a_person_wrote_it():
     assert packliste.satz({"Levin": ["Turnsack", "Flöte"], "Lina": ["Malschürze"]}) == (
         "Levin: Turnsack und Flöte · Lina: Malschürze"

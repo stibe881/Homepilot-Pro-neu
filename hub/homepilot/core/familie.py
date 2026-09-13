@@ -14,6 +14,8 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Any
 
+from . import schulferien
+
 # Die Tageszeiten einer Kur und die Stunde, ab der sie fällig sind.
 # Bewusst grob: «morgens» ist keine Uhrzeit, sondern der Teil des Tages,
 # in dem man daran denken soll. Wer es genauer braucht, stellt sich einen
@@ -417,6 +419,31 @@ def meals_lines(meals: list[dict[str, Any]] | None) -> list[str]:
     return zeilen
 
 
+def ferienrand(rows: Any, heute: date, tage: int = 7) -> list[tuple[date, str]]:
+    """Wo in der kommenden Woche die Ferien anfangen oder aufhören
+    (rein, testbar) - Punkt 620 der Werkbank.
+
+    «Mo: Herbstferien beginnen» oder «Mo: Schule beginnt wieder» - der
+    Sonntagabend-Ausblick sagte es nicht, und der Montagmorgen begann
+    mit einem Wecker, den niemand brauchte. Zurück kommt (Tag, Text),
+    nur für Ränder innerhalb der Spanne und nach heute.
+    """
+    von = heute + timedelta(days=1)
+    bis = heute + timedelta(days=tage)
+    treffer: list[tuple[date, str]] = []
+    for eintrag in schulferien.lesen(rows):
+        if von <= eintrag["von"] <= bis:
+            treffer.append((eintrag["von"], f"{eintrag['name']} beginnen"))
+        danach = eintrag["bis"] + timedelta(days=1)
+        # Enden die Ferien am Freitag, beginnt die Schule am Montag - der
+        # erste Schultag ist der nächste Werktag nach dem Ferienende.
+        while danach.weekday() >= 5:
+            danach += timedelta(days=1)
+        if von <= danach <= bis:
+            treffer.append((danach, "Schule beginnt wieder"))
+    return sorted(treffer)
+
+
 def week_ahead(
     events: list[dict[str, Any]],
     tasks: list[dict[str, Any]],
@@ -425,6 +452,7 @@ def week_ahead(
     heute: date,
     tage: int = 7,
     meals: list[dict[str, Any]] | None = None,
+    ferien_rows: Any = None,
 ) -> str | None:
     """Was in den nächsten Tagen ansteht, in einer Nachricht (rein, testbar).
 
@@ -444,6 +472,11 @@ def week_ahead(
     zeilen: list[str] = []
     von = heute + timedelta(days=1)
     bis = heute + timedelta(days=tage)
+
+    # Der Ferienrand zuerst (Punkt 620): «Mo: Herbstferien beginnen» ist
+    # die Zeile, die die ganze Woche umstellt.
+    for wann, text in ferienrand(ferien_rows, heute, tage):
+        zeilen.append(f"{WEEKDAYS[wann.weekday()]}: {text}")
 
     termine: list[tuple[date, str]] = []
     for event in events or []:

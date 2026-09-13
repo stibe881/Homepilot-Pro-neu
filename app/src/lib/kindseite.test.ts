@@ -7,6 +7,7 @@
  */
 import {
   ferienSatz,
+  ferienpause,
   geburtstagInTagen,
   geburtstagSatz,
   heute,
@@ -201,6 +202,45 @@ describe('heuteSatz', () => {
   it('sagt auch, wenn nichts ist', () => {
     // Eine leere Zeile sähe aus, als wäre etwas nicht geladen.
     expect(heuteSatz([], [], 'Levin', DIENSTAG)).toBe('Heute steht nichts an.');
+  });
+
+  it('lässt in den Ferien die Schule weg und nur das stehen, was dann gilt', () => {
+    // Punkt 620: «Schule 08:20–15:05» stand direkt über «Gerade sind
+    // Herbstferien - keine Schule!» - zwei Sätze, die sich widersprachen.
+    const ferien = { state: 'ferien', name: 'Herbstferien' };
+    expect(heuteSatz(lektionen, termine, 'Levin', DIENSTAG, { ferien })).toBe(
+      'Ferien - heute steht nichts an.'
+    );
+    const laeuftWeiter = [{ ...termine[0], holidays: true }];
+    expect(heuteSatz(lektionen, laeuftWeiter, 'Levin', DIENSTAG, { ferien })).toBe(
+      'Fussball 17:30'
+    );
+    // Ausserhalb der Ferien ändert der Schalter nichts.
+    expect(heuteSatz(lektionen, laeuftWeiter, 'Levin', DIENSTAG, { ferien: { state: 'schultag' } })).toBe(
+      'Schule 08:20–15:05 · Fussball 17:30'
+    );
+    expect(ferienpause(termine[0], ferien)).toBe(true);
+    expect(ferienpause(laeuftWeiter[0], ferien)).toBe(false);
+    expect(ferienpause(termine[0], null)).toBe(false);
+  });
+
+  it('packt in den Ferien nur, was auch dann mitmuss', () => {
+    const gear = [
+      { member: 'Levin', day: 'Mi', text: 'Turnsack' },
+      { member: 'Levin', day: 'Mi', text: 'Fussballschuhe', holidays: true },
+    ];
+    expect(morgenPackSatz(gear, 'Levin', DIENSTAG)).toBe(
+      'Morgen mitnehmen: Turnsack, Fussballschuhe'
+    );
+    expect(morgenPackSatz(gear, 'Levin', DIENSTAG, { ferien: { state: 'ferien' } })).toBe(
+      'Morgen mitnehmen: Fussballschuhe'
+    );
+    // Beginnen die Ferien morgen, bleibt der Turnsack schon heute Abend zuhause.
+    expect(
+      morgenPackSatz(gear.slice(0, 1), 'Levin', DIENSTAG, {
+        ferien: { state: 'schultag', next: 'Herbstferien', next_in_days: 1 },
+      })
+    ).toBeNull();
   });
 });
 

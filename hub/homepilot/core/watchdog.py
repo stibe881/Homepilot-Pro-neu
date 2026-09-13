@@ -58,6 +58,7 @@ from . import (
     pushbuendel,
     pushziel,
     regen,
+    schulferien,
     shopping,
     spaeter,
     storenwaechter,
@@ -1624,6 +1625,8 @@ class Watchdog:
             # Das Essen der Woche (Punkt 587): Bisher listete der
             # Ausblick Termine, Ämtli, Geburtstage - nicht die Gerichte.
             meals=self.hub.data.get("family_meals"),
+            # Und der Ferienrand (Punkt 620): «Montag beginnen die Ferien».
+            ferien_rows=self.hub.data.get(schulferien.STORE_KEY),
         )
         if not text:
             return
@@ -1645,7 +1648,16 @@ class Watchdog:
         if not self._einmal(f"packlist:{heute}"):
             return
         morgen = (jetzt + timedelta(days=1)).date()
-        zeilen = packliste.morgen_zeilen(self.hub.data.get("family_gear"), morgen)
+        # In den Ferien bleiben die Schulsachen zuhause (Punkt 620): Der
+        # Hub kennt die Luzerner Schulferien längst (core/schulferien.py),
+        # die Packliste fragte ihn nur nie.
+        ferien = (
+            schulferien.lage(self.hub.data.get(schulferien.STORE_KEY), morgen)["state"]
+            == schulferien.FERIEN
+        )
+        zeilen = packliste.morgen_zeilen(
+            self.hub.data.get("family_gear"), morgen, ferien
+        )
         text = packliste.satz(zeilen)
         if not text:
             return

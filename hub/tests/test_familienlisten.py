@@ -99,6 +99,29 @@ def test_a_quiet_week_sends_nothing():
     assert familie.week_ahead([], [], [], [], date(2026, 8, 23)) is None
 
 
+def test_the_week_ahead_names_the_edge_of_the_holidays():
+    """Punkt 620: Der Sonntagabend-Ausblick sagte nicht «Montag beginnen
+    die Ferien» - und der Montagmorgen begann mit einem Wecker, den
+    niemand brauchte. Enden sie am Freitag, beginnt die Schule am Montag."""
+    sonntag = date(2026, 9, 27)
+    ferien = [
+        {"name": "Herbstferien", "from": "2026-09-28", "to": "2026-10-09"},
+        {"name": "Sportferien", "from": "2027-02-06", "to": "2027-02-14"},
+    ]
+    assert familie.ferienrand(ferien, sonntag) == [
+        (date(2026, 9, 28), "Herbstferien beginnen")
+    ]
+    # Die Ferien enden am Freitag, 9. Oktober - am Sonntag danach steht
+    # «Mo: Schule beginnt wieder» in der Vorschau.
+    assert familie.ferienrand(ferien, date(2026, 10, 11)) == [
+        (date(2026, 10, 12), "Schule beginnt wieder")
+    ]
+    assert familie.ferienrand(ferien, date(2026, 11, 1)) == []
+    text = familie.week_ahead([], [], [], [], sonntag, ferien_rows=ferien)
+    assert text is not None
+    assert text.startswith("Mo: Herbstferien beginnen")
+
+
 def test_the_week_ahead_lists_the_meals_and_the_missing_plan():
     """Punkt 587: Das Abendessen stand im Wochenplan - und nirgends sonst.
     Am Sonntag steht es im Ausblick, samt dem Tag, für den noch ein Plan

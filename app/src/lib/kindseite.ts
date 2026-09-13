@@ -288,28 +288,62 @@ export function wochenliste(
     });
 }
 
+// ── Die Lage des Tages: Ferien (Punkt 620) ─────────────────────────────
+
+/** Was den Tag eines Kindes anders macht als sonst. */
+export interface Tageslage {
+  /** Der Zustand der Schulferien-Entität (`schulferien.heute`). */
+  ferien?: Eintrag | null;
+}
+
+/** Sind gerade Ferien (oder ein Feiertag)? (rein, testbar) */
+export function inFerien(ferien: Eintrag | null | undefined): boolean {
+  return Boolean(ferien && typeof ferien === 'object' && ferien.state === 'ferien');
+}
+
+/** Gilt der Eintrag auch in den Ferien? Das Fussballtraining läuft oft
+ *  weiter, die Flöte nicht - der Schalter steht am Eintrag (`holidays`),
+ *  und der Hub liest dasselbe Feld (core/packliste.py). */
+export function giltInDenFerien(eintrag: Eintrag): boolean {
+  return Boolean(eintrag?.holidays);
+}
+
+/** Macht der Eintrag gerade Ferienpause? (rein, testbar) */
+export function ferienpause(eintrag: Eintrag, ferien: Eintrag | null | undefined): boolean {
+  return inFerien(ferien) && !giltInDenFerien(eintrag);
+}
+
 /**
  * Die Zeile unter dem Namen auf der Kinderkarte (rein, testbar).
  *
  * Sie beantwortet die eine Frage, mit der man die Seite aufmacht: Was
  * ist heute? Steht heute nichts an, sagt sie das – eine leere Zeile
  * sähe aus, als wäre etwas nicht geladen.
+ *
+ * In den Ferien (Punkt 620) fällt die Schule weg, und von den
+ * Wöchentlichen bleibt nur, was den Schalter «auch in den Ferien» hat -
+ * vorher stand «Schule 08:20–15:05» direkt über «Gerade sind
+ * Herbstferien - keine Schule!», zwei Sätze, die sich widersprachen.
  */
 export function heuteSatz(
   lektionen: Eintrag[] | null | undefined,
   termine: Eintrag[] | null | undefined,
   name: string,
-  jetzt: Date
+  jetzt: Date,
+  lage: Tageslage = {}
 ): string {
   const teile: string[] = [];
-  const schule = schulzeit(lektionen, name, jetzt);
+  const ferien = inFerien(lage.ferien);
+  const schule = ferien ? null : schulzeit(lektionen, name, jetzt);
   if (schule) teile.push(`Schule ${schule}`);
   for (const termin of heute(termine, name, jetzt)) {
+    if (ferien && !giltInDenFerien(termin)) continue;
     const uhr = zeitNormal(termin?.from);
     const was = String(termin?.text ?? '').trim();
     if (was) teile.push(uhr ? `${was} ${uhr}` : was);
   }
-  return teile.length > 0 ? teile.join(' · ') : 'Heute steht nichts an.';
+  if (teile.length > 0) return teile.join(' · ');
+  return ferien ? 'Ferien - heute steht nichts an.' : 'Heute steht nichts an.';
 }
 
 /**
@@ -682,16 +716,29 @@ export function packlisteFuer(
   );
 }
 
-/** «Morgen mitnehmen: Turnsack, Flöte» - oder nichts (rein, testbar). */
+/** Sind morgen Ferien? (rein, testbar) Aus dem heutigen Stand der
+ *  Schulferien-Entität: heute Ferien, oder die nächsten beginnen morgen.
+ *  Der letzte Ferientag zählt damit noch als Ferien - der Hub rechnet
+ *  am Vorabend genau (core/packliste.py), die Seite zeigt die Nähe. */
+export function morgenFerien(ferien: Eintrag | null | undefined): boolean {
+  if (inFerien(ferien)) return true;
+  return Boolean(ferien && typeof ferien === 'object' && ferien.next_in_days === 1);
+}
+
+/** «Morgen mitnehmen: Turnsack, Flöte» - oder nichts (rein, testbar).
+ *  In den Ferien bleiben die Schulsachen zuhause (Punkt 620), nur was
+ *  «auch in den Ferien» gilt, steht noch da. */
 export function morgenPackSatz(
   gear: Eintrag[] | null | undefined,
   name: string,
-  jetzt: Date
+  jetzt: Date,
+  lage: Tageslage = {}
 ): string | null {
   const morgen = new Date(jetzt.getFullYear(), jetzt.getMonth(), jetzt.getDate() + 1);
-  const sachen = packlisteFuer(gear, name, morgen).map((zeile) =>
-    String(zeile.text ?? '').trim()
-  );
+  const ferien = morgenFerien(lage.ferien);
+  const sachen = packlisteFuer(gear, name, morgen)
+    .filter((zeile) => !ferien || giltInDenFerien(zeile))
+    .map((zeile) => String(zeile.text ?? '').trim());
   const liste = sachen.filter(Boolean);
   if (liste.length === 0) return null;
   return `Morgen mitnehmen: ${liste.join(', ')}`;

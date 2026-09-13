@@ -38,6 +38,7 @@ import {
   TAGE,
   TAG_NAMEN,
   ferienSatz,
+  ferienpause,
   geburtstagSatz,
   heuteSatz,
   morgenPackSatz,
@@ -144,13 +145,20 @@ function PackForm({
 }) {
   const [text, setText] = useState('');
   const [woche, setWoche] = useState<'' | Woche>('');
+  const [ferien, setFerien] = useState(false);
 
   const submit = () => {
     const name = text.trim();
     if (!name) return;
-    onAdd({ day: tag, text: name, ...(woche ? { week: woche } : {}) });
+    onAdd({
+      day: tag,
+      text: name,
+      ...(woche ? { week: woche } : {}),
+      ...(ferien ? { holidays: true } : {}),
+    });
     setText('');
     setWoche('');
+    setFerien(false);
   };
 
   return (
@@ -189,8 +197,34 @@ function PackForm({
             </Text>
           </Pressable>
         ))}
+        <FerienChip an={ferien} onToggle={() => setFerien(!ferien)} styles={styles} />
       </View>
     </View>
+  );
+}
+
+/** Der Schalter «auch in den Ferien» (Punkt 620): Das Fussballtraining
+ *  läuft in den Ferien oft weiter, die Flöte nicht. Ohne ihn macht ein
+ *  Eintrag in den Ferien Pause - auf der Seite und im Packlisten-Push
+ *  (core/packliste.py). */
+function FerienChip({
+  an,
+  onToggle,
+  styles,
+}: {
+  an: boolean;
+  onToggle: () => void;
+  styles: Styles;
+}) {
+  return (
+    <Pressable
+      onPress={onToggle}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: an }}
+      style={[styles.chip, an && styles.chipActive]}
+    >
+      <Text style={[styles.chipText, an && styles.chipTextActive]}>auch in den Ferien</Text>
+    </Pressable>
   );
 }
 
@@ -228,6 +262,7 @@ function WochenForm({
   const [bis, setBis] = useState('');
   const [ort, setOrt] = useState('');
   const [woche, setWoche] = useState<'' | Woche>('');
+  const [ferien, setFerien] = useState(false);
   const bereit = Boolean(text.trim()) && zeitNormal(von) !== null;
 
   const submit = () => {
@@ -243,12 +278,14 @@ function WochenForm({
       to: zeitNormal(bis) ?? '',
       ...(woche ? { week: woche } : {}),
       ...(mitOrt && ort.trim() ? { ort: ort.trim() } : {}),
+      ...(mitOrt && ferien ? { holidays: true } : {}),
     });
     setText('');
     setVon('');
     setBis('');
     setOrt('');
     setWoche('');
+    setFerien(false);
   };
 
   return (
@@ -301,6 +338,13 @@ function WochenForm({
           />
         ) : null}
       </View>
+      {/* Der Stundenplan macht in den Ferien immer Pause - der Schalter
+          gehört nur zu den Wöchentlichen (Punkt 620). */}
+      {mitOrt ? (
+        <View style={styles.chipRow}>
+          <FerienChip an={ferien} onToggle={() => setFerien(!ferien)} styles={styles} />
+        </View>
+      ) : null}
       {/* Manche Fächer wechseln sich alle zwei Wochen ab (Handarbeit /
           Werken). «diese Woche» steht dran, damit man beim Eintragen
           weiss, welche Woche gerade läuft. */}
@@ -433,9 +477,12 @@ export function Kindseite({
     eintrag: FamilyItem,
     liste: Wochenliste,
     titel: string,
-    unten: string
+    unten: string,
+    // Blass: Der Eintrag gilt gerade nicht (Ferienpause, Punkt 620) -
+    // ausgegraut statt versteckt, sonst hielte man ihn für gelöscht.
+    blass = false
   ) => (
-    <View key={String(eintrag.id)} style={eigen.zeile}>
+    <View key={String(eintrag.id)} style={[eigen.zeile, blass && { opacity: 0.5 }]}>
       <View style={{ flex: 1 }}>
         <Text style={styles.checkText}>{titel}</Text>
         {unten ? <Text style={styles.checkSub}>{unten}</Text> : null}
@@ -478,11 +525,13 @@ export function Kindseite({
       {/* Die eine Zeile, für die man die Seite aufmacht. */}
       <Card style={styles.listCard}>
         <Text style={eigen.kartenTitel}>Heute</Text>
-        <Text style={eigen.heute}>{heuteSatz(lektionen, termine, name, jetzt)}</Text>
+        <Text style={eigen.heute}>
+          {heuteSatz(lektionen, termine, name, jetzt, { ferien })}
+        </Text>
         {/* Der Blick nach vorn: Was morgen in den Thek gehört, will man
             am Abend wissen, nicht am Morgen um sieben. */}
         {(() => {
-          const packZeile = morgenPackSatz(sachen, name, jetzt);
+          const packZeile = morgenPackSatz(sachen, name, jetzt, { ferien });
           return packZeile ? (
             <View style={eigen.vorfreudeZeile}>
               <Ionicons name="bag-handle-outline" size={16} color={colors.accent} />
@@ -876,9 +925,11 @@ export function Kindseite({
                 naechstesMal(eintrag, jetzt),
                 eintrag.to ? `bis ${zeitNormal(eintrag.to)}` : '',
                 String(eintrag.ort ?? '').trim(),
+                ferienpause(eintrag, ferien) ? 'Ferienpause' : '',
               ]
                 .filter(Boolean)
-                .join(' · ')
+                .join(' · '),
+              ferienpause(eintrag, ferien)
             )
           )
         )}
@@ -918,9 +969,12 @@ export function Kindseite({
                 eintrag.week === 'A' || eintrag.week === 'B'
                   ? `nur Woche ${eintrag.week}`
                   : '',
+                eintrag.holidays ? 'auch in den Ferien' : '',
+                ferienpause(eintrag, ferien) ? 'Ferienpause' : '',
               ]
                 .filter(Boolean)
-                .join(' · ')
+                .join(' · '),
+              ferienpause(eintrag, ferien)
             )
           )
         )}
