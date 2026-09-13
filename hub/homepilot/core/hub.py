@@ -133,6 +133,10 @@ class Hub:
         # In der App angelegte Benutzer und Automationen liegen neben der
         # Konfiguration, damit sie ohne Datenbank einen Neustart überleben.
         self.data = DataStore(config.data_file)
+        # Wo config.yaml und secrets.env liegen - die Sicherung nimmt sie
+        # mit (Punkt 593), auch wenn die Datendatei woanders wohnt.
+        if config.source_path:
+            self.data.config_dir = Path(config.source_path).parent
         # Was der Hub tut, mitzählen - siehe core/metrics.py.
         self.counters = metrics.Counters()
         # Sitzungen aus der Anmeldung mit E-Mail und Passwort. Sie liegen
@@ -383,7 +387,9 @@ class Hub:
 
         try:
             payload = self.data.backup_bytes(name)
-            await offsite.upload(str(url), str(key), bucket, name, payload)
+            await offsite.upload(
+                str(url), str(key), bucket, name, payload, offsite.content_type(name)
+            )
             await offsite.prune(str(url), str(key), bucket)
             # Die Matter-Fabrik dazu: Ohne sie müsste nach einem
             # Plattenschaden jedes Matter-Gerät neu gekoppelt werden.

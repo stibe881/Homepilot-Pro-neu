@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -30,6 +31,7 @@ from ...core import (
     confighistory,
     extras,
     gutscheine,
+    persistence,
     watchdog,
 )
 from ...core import energy as energy_module
@@ -787,11 +789,93 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             raise HTTPException(status_code=404, detail=f"Fassung nicht gefunden: {err}") from err
         return {**save_config(content), "restored": name}
 
+    def offsite_zugang() -> tuple[str, str, str] | None:
+        """URL, Schlüssel und Bucket der Off-Site-Kopie - oder None, wenn
+        sie nicht eingerichtet ist. Dieselbe Regel wie in hub._offsite_backup."""
+        supabase = hub.config.supabase or {}
+        bucket = str(supabase.get("backup_bucket", "backups") or "")
+        url, key = supabase.get("url"), supabase.get("service_key")
+        if not (bucket and url and key):
+            return None
+        return str(url), str(key), bucket
+
     @app.get("/api/system/backups")
     async def list_backups(request: Request) -> dict[str, Any]:
         """Vorhandene Sicherungen der App-Daten (jüngste zuerst)."""
         require(request, Capability.EDIT_CONFIG)
-        return {"backups": hub.data.backups(), "offsite": hub.offsite}
+        return {
+            "backups": hub.data.backups(),
+            "offsite": hub.offsite,
+            # Ob «aus dem Bucket holen» überhaupt einen Bucket hat - die
+            # App zeigt den Knopf sonst nicht (Punkt 593).
+            "offsite_moeglich": offsite_zugang() is not None,
+        }
+
+    @app.post("/api/system/backups/upload")
+    async def upload_backup(request: Request) -> dict[str, Any]:
+        """Eine Sicherung aus der App hochladen (Punkt 593 der Werkbank).
+
+        Der Rückweg zum Herunterladen: Wer eine Kopie auf dem Rechner hat,
+        legt sie hier in den Ordner der Sicherungen und spielt sie dann
+        wie jede andere zurück. Der Rumpf ist die Datei selbst, der Name
+        steht in der Adresse - beides wird geprüft, bevor etwas auf der
+        Platte landet (persistence.backup_ablegen).
+        """
+        require(request, Capability.EDIT_CONFIG)
+        name = str(request.query_params.get("name") or "").strip()
+        payload = await request.body()
+        if not payload:
+            raise HTTPException(status_code=400, detail="Die Datei ist leer.")
+        try:
+            abgelegt = hub.data.backup_ablegen(name, payload)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        return {"ok": True, "backup": abgelegt, "backups": hub.data.backups()}
+
+    @app.get("/api/system/backups/offsite")
+    async def list_offsite_backups(request: Request) -> dict[str, Any]:
+        """Welche Sicherungen im Supabase-Bucket liegen (Punkt 593)."""
+        require(request, Capability.EDIT_CONFIG)
+        zugang = offsite_zugang()
+        if zugang is None:
+            raise HTTPException(
+                status_code=400, detail="Die Off-Site-Kopie ist nicht eingerichtet."
+            )
+        from ...core import offsite
+
+        try:
+            namen = await offsite.liste(*zugang)
+        except Exception as err:
+            raise HTTPException(status_code=502, detail=str(err)) from err
+        return {"names": namen}
+
+    @app.post("/api/system/backups/offsite/{name}/fetch")
+    async def fetch_offsite_backup(name: str, request: Request) -> dict[str, Any]:
+        """Eine Sicherung aus dem Bucket zurückholen (Punkt 593).
+
+        Sie landet im Ordner der lokalen Sicherungen und wird von dort
+        zurückgespielt - derselbe Weg wie bei jeder anderen, mit derselben
+        Prüfung und derselben Sicherung des aktuellen Stands davor.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        zugang = offsite_zugang()
+        if zugang is None:
+            raise HTTPException(
+                status_code=400, detail="Die Off-Site-Kopie ist nicht eingerichtet."
+            )
+        if not re.fullmatch(persistence.SICHERUNGSNAME, name):
+            raise HTTPException(status_code=400, detail=f"Kein Sicherungsname: {name}")
+        from ...core import offsite
+
+        try:
+            payload = await offsite.download(*zugang, name)
+        except Exception as err:
+            raise HTTPException(status_code=502, detail=str(err)) from err
+        try:
+            abgelegt = hub.data.backup_ablegen(name, payload)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        return {"ok": True, "backup": abgelegt, "backups": hub.data.backups()}
 
     @app.post("/api/system/backup")
     async def make_backup(request: Request) -> dict[str, Any]:
@@ -819,7 +903,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             raise HTTPException(status_code=404, detail=str(err)) from err
         return Response(
             content=payload,
-            media_type="application/json",
+            media_type="application/gzip" if name.endswith(".tar.gz") else "application/json",
             headers={"Content-Disposition": f'attachment; filename="{name}"'},
         )
 
@@ -943,7 +1027,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """
         require(request, Capability.EDIT_CONFIG)
         try:
-            hub.data.restore_backup(name)
+            ergebnis = hub.data.restore_backup(name)
         except (ValueError, OSError, json.JSONDecodeError) as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
         # Über das server-Modul und zum Aufrufzeitpunkt aufgelöst: Tests
@@ -951,10 +1035,16 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         from .. import server as server_module
 
         threading.Timer(0.8, server_module._exit_for_restart).start()
+        beilagen = int(ergebnis.get("beilagen") or 0)
         return {
             "ok": True,
-            "hinweis": "Zurückgespielt - der Hub startet jetzt neu. Der "
-            "vorherige Stand liegt als frische Sicherung daneben.",
+            "beilagen": beilagen,
+            "hinweis": (
+                "Zurückgespielt"
+                + (f" samt {beilagen} Dateien daneben" if beilagen else "")
+                + " - der Hub startet jetzt neu. Der vorherige Stand liegt "
+                "als frische Sicherung daneben."
+            ),
         }
 
     @app.get("/api/appliances/cycles")

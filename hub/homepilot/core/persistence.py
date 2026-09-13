@@ -11,10 +11,12 @@ dort auch änderbar. Damit gibt es nie die Frage, wer wen überschreibt.
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import os
 import re
+import tarfile
 import tempfile
 import time
 from pathlib import Path
@@ -187,6 +189,112 @@ def strip_users(users: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sauber
 
 
+# ── Was neben der Datendatei liegt und mit in die Sicherung gehört ─────────
+#
+# Punkt 593 der Werkbank: Gesichert wurde nur die homepilot-data.json.
+# Der Hub besteht aber aus einem Dutzend Dateien daneben - Gutschein-PDFs,
+# Rezept-, Personen- und Raumbilder, der Grundriss, der Anrufbeantworter,
+# die Token-Dateien von Google, Spotify, Ring und Roborock, die
+# config.yaml samt secrets.env und ihrer Geschichte. Nach einem
+# Plattenschaden zeigten Gutscheine ins Leere, und vier Dienste wollten
+# neu angemeldet werden.
+#
+# Eine Erlaubnisliste, keine Sperrliste - mit Absicht: Ohne data_file in
+# der config.yaml liegt die Datendatei neben ihr, und in der Entwicklung
+# ist das der Quellordner mit dem ganzen Baum. «Alles ausser …» hätte den
+# in die Sicherung gepackt. Wer einen neuen Ordner neben die Daten legt,
+# trägt ihn hier ein; ein Test (test_sicherung_tar.py) hält die Liste
+# gegen die Module, die solche Ordner anlegen.
+BEILAGEN_ORDNER: tuple[str, ...] = (
+    "gutscheindateien",
+    "gutscheinbilder",
+    "rezeptbilder",
+    "personenbilder",
+    "raumbilder",
+    "grundriss",
+    "config-history",
+)
+BEILAGEN_DATEIEN: tuple[str, ...] = (
+    "geraete-verlauf.json",
+    "heimgruss.ton",
+    "config.yaml",
+    "secrets.env",
+)
+#: Token-Dateien der Integrationen (core/tokenstore.py, Spotify).
+BEILAGEN_MUSTER: tuple[str, ...] = ("*-token.json",)
+#: Bewusst nicht dabei: backups/ (die Sicherung selbst), cliparchiv/ und
+#: bildarchiv/ (Alarm-Mitschnitte mit eigener Frist, gross), say-cache/
+#: (Zwischenspeicher), matter/ (hat sein eigenes Tar, Punkt 53) und
+#: log-uebergabe.json (der Log-Ring des letzten Laufs).
+
+#: So heisst die Datendatei im Archiv - fest, damit restore_backup sie
+#: findet, egal wie die Datei auf der Platte heisst.
+ARCHIV_DATENDATEI = "homepilot-data.json"
+
+#: Wie eine Sicherung heissen darf. Der Name kommt aus einer URL oder
+#: einem Upload - ohne Prüfung wäre das ein Fenster auf beliebige Dateien.
+SICHERUNGSNAME = r"homepilot-data-[A-Za-z0-9_.-]+\.(?:json|tar\.gz)"
+
+
+def beilagen(data_dir: Path | None, config_dir: Path | None = None) -> list[tuple[Path, str]]:
+    """Welche Dateien neben der Datendatei in die Sicherung gehören - als
+    (Pfad, Name im Archiv). Rein bis aufs Lesen des Verzeichnisses.
+
+    Die Konfiguration kommt aus ihrem eigenen Ordner, wenn er ein anderer
+    ist; im Archiv liegt trotzdem alles flach nebeneinander, so wie es im
+    Container auch liegt (/config). Beim Zurückspielen landet sie wieder
+    dort, wo sie herkam.
+    """
+    gefunden: list[tuple[Path, str]] = []
+    gesehen: set[str] = set()
+
+    def aufnehmen(datei: Path, arcname: str) -> None:
+        if arcname in gesehen or not datei.is_file():
+            return
+        gesehen.add(arcname)
+        gefunden.append((datei, arcname))
+
+    def ordner_aufnehmen(wurzel: Path, name: str) -> None:
+        ordner = wurzel / name
+        if not ordner.is_dir():
+            return
+        for datei in sorted(ordner.rglob("*")):
+            if datei.is_file():
+                aufnehmen(datei, str(datei.relative_to(wurzel)).replace(os.sep, "/"))
+
+    for wurzel in (data_dir, config_dir):
+        if wurzel is None:
+            continue
+        for name in BEILAGEN_ORDNER:
+            ordner_aufnehmen(wurzel, name)
+        for name in BEILAGEN_DATEIEN:
+            aufnehmen(wurzel / name, name)
+        for muster in BEILAGEN_MUSTER:
+            for datei in sorted(wurzel.glob(muster)):
+                aufnehmen(datei, datei.name)
+    return gefunden
+
+
+def archivname_erlaubt(name: str) -> bool:
+    """Darf ein Eintrag aus einem Archiv auf die Platte? (rein, testbar)
+
+    Das Archiv kann hochgeladen worden sein - also ist jeder Name darin
+    Eingabe. Erlaubt ist genau, was `beilagen` hineinlegt: ein Name aus
+    der Liste oder ein Pfad in einen der Ordner, ohne «..», ohne
+    führenden Schrägstrich.
+    """
+    if not name or name.startswith("/") or "\\" in name:
+        return False
+    teile = name.split("/")
+    if any(teil in ("", ".", "..") for teil in teile):
+        return False
+    if len(teile) == 1:
+        return name in BEILAGEN_DATEIEN or any(
+            Path(name).match(muster) for muster in BEILAGEN_MUSTER
+        )
+    return teile[0] in BEILAGEN_ORDNER
+
+
 ## So lange nach einem Schreibvorgang werden weitere nur vorgemerkt.
 #
 # Der Wächter schreibt in einer Runde gern drei Listen nacheinander
@@ -202,6 +310,9 @@ class DataStore:
         # Ohne Pfad läuft alles nur im Speicher – so legen Tests und
         # programmatisch gebaute Hubs keine Dateien nebenher an.
         self.path = Path(path) if path else None
+        # Wo config.yaml und secrets.env liegen, wenn nicht neben den
+        # Daten - der Hub setzt es beim Start (Punkt 593).
+        self.config_dir: Path | None = None
         self._data: dict[str, Any] = dict(EMPTY)
         self._dirty = False
         self._last_write = 0.0
@@ -373,7 +484,7 @@ class DataStore:
         if folder is None or not folder.exists():
             return []
         entries = []
-        for file in folder.glob("homepilot-data-*.json"):
+        for file in self._backup_files(folder):
             try:
                 stat = file.stat()
             except OSError:
@@ -383,32 +494,40 @@ class DataStore:
             )
         return sorted(entries, key=lambda entry: entry["created"], reverse=True)
 
+    @staticmethod
+    def _backup_files(folder: Path) -> list[Path]:
+        """Alle Sicherungen im Ordner - die alten Einzeldateien und die
+        Archive seit Punkt 593 gemeinsam, damit die Frist für beide gilt."""
+        return [*folder.glob("homepilot-data-*.json"), *folder.glob("homepilot-data-*.tar.gz")]
+
     def backup(self, keep: int = 14) -> dict[str, Any] | None:
-        """Schreibt eine datierte Kopie und behält die jüngsten ``keep``.
+        """Schreibt eine datierte Sicherung und behält die jüngsten ``keep``.
 
         Läuft täglich automatisch und lässt sich in der App auslösen. Ohne
         Datei-Pfad (Tests, In-Memory-Hub) passiert nichts.
+
+        Seit Punkt 593 ein Tar-Archiv: die Datendatei plus alles, was
+        `beilagen` neben ihr findet. Dieselbe Frist wie bisher, und die
+        alten Einzeldateien zählen beim Aufräumen mit.
         """
         folder = self._backup_dir()
-        if folder is None:
+        if folder is None or self.path is None:
             return None
         try:
             folder.mkdir(parents=True, exist_ok=True)
             stamp = time.strftime("%Y-%m-%d_%H%M%S", time.localtime())
-            target = folder / f"homepilot-data-{stamp}.json"
+            target = folder / f"homepilot-data-{stamp}.tar.gz"
             # Zwei Sicherungen in derselben Sekunde (etwa die automatische
             # vor einem Zurückspielen) dürfen sich nicht überschreiben.
             counter = 2
             while target.exists():
-                target = folder / f"homepilot-data-{stamp}-{counter}.json"
+                target = folder / f"homepilot-data-{stamp}-{counter}.tar.gz"
                 counter += 1
-            target.write_text(
-                json.dumps(self._data, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
+            self._tar_schreiben(target)
             os.chmod(target, 0o600)
             # Alte Sicherungen aufräumen – nur die jüngsten behalten.
             existing = sorted(
-                folder.glob("homepilot-data-*.json"),
+                self._backup_files(folder),
                 key=lambda file: file.stat().st_mtime,
                 reverse=True,
             )
@@ -419,6 +538,28 @@ class DataStore:
         except OSError as err:
             log.error("Sicherung fehlgeschlagen: %s", err)
             return None
+
+    def _tar_schreiben(self, target: Path) -> None:
+        """Das Archiv: zuerst die Datendatei aus dem Speicher, dann die
+        Beilagen von der Platte. Über eine temporäre Datei, damit eine
+        halb geschriebene Sicherung nie wie eine ganze aussieht."""
+        assert self.path is not None
+        rohdaten = json.dumps(self._data, ensure_ascii=False, indent=2).encode("utf-8")
+        temporary = target.with_name(target.name + ".tmp")
+        with tarfile.open(temporary, mode="w:gz") as archiv:
+            info = tarfile.TarInfo(ARCHIV_DATENDATEI)
+            info.size = len(rohdaten)
+            info.mtime = int(time.time())
+            info.mode = 0o600
+            archiv.addfile(info, io.BytesIO(rohdaten))
+            for datei, arcname in beilagen(self.path.parent, self.config_dir):
+                try:
+                    archiv.add(datei, arcname=arcname, recursive=False)
+                except OSError as err:
+                    # Eine Beilage, die gerade nicht lesbar ist, darf die
+                    # Sicherung der Daten nicht verhindern.
+                    log.warning("Sicherung: %s übersprungen (%s)", arcname, err)
+        os.replace(temporary, target)
 
     def last_backup_age(self) -> float | None:
         """Alter der jüngsten Sicherung in Sekunden (None = gibt keine)."""
@@ -453,16 +594,26 @@ class DataStore:
         """
         return self._backup_file(name).read_bytes()
 
-    def restore_backup(self, name: str) -> None:
-        """Eine Sicherung zurückspielen.
+    def restore_backup(self, name: str) -> dict[str, Any]:
+        """Eine Sicherung zurückspielen - liefert, was dabei ankam.
 
         Der aktuelle Stand wird vorher selbst gesichert - ein Zurückspielen,
         das den letzten Stand vernichtet, wäre die falsche Rettungsleine.
         Danach braucht der Hub einen Neustart: Benutzer, Abläufe und Szenen
         werden beim Start aus der Datei aufgebaut.
+
+        Beide Formen werden gelesen: die Einzeldatei von vor Punkt 593 und
+        das Archiv seither. Aus dem Archiv kommen auch die Beilagen
+        zurück - Bilder, Dateien, Token, Konfiguration -, und zwar nur
+        an die Orte, die `archivname_erlaubt` zulässt: Das Archiv kann
+        hochgeladen worden sein.
         """
         file = self._backup_file(name)
-        payload = json.loads(file.read_text(encoding="utf-8"))
+        if file.name.endswith(".tar.gz"):
+            payload, beilagen_liste = self._tar_lesen(file)
+        else:
+            payload = json.loads(file.read_text(encoding="utf-8"))
+            beilagen_liste = []
         if not isinstance(payload, dict):
             raise ValueError("Die Sicherung ist beschädigt (kein Objekt).")
         self.backup()
@@ -472,12 +623,106 @@ class DataStore:
         # Sekunde - ob der Flush davor noch feuerte, war Zufall (Punkt
         # 590 der Werkbank).
         self._write()
+        zurueck = 0
+        if beilagen_liste and self.path is not None:
+            with tarfile.open(file, mode="r:gz") as archiv:
+                for eintrag in beilagen_liste:
+                    quelle = archiv.extractfile(eintrag)
+                    if quelle is None:
+                        continue
+                    ziel = self._beilage_ziel(eintrag.name)
+                    ziel.parent.mkdir(parents=True, exist_ok=True)
+                    temporary = ziel.with_name(ziel.name + ".tmp")
+                    with open(temporary, "wb") as handle:
+                        handle.write(quelle.read())
+                    os.replace(temporary, ziel)
+                    os.chmod(ziel, 0o600)
+                    zurueck += 1
+        return {"name": name, "beilagen": zurueck}
+
+    def _beilage_ziel(self, arcname: str) -> Path:
+        """Wohin eine Beilage aus dem Archiv gehört: die Konfiguration in
+        ihren Ordner, alles andere neben die Daten."""
+        assert self.path is not None
+        erster = arcname.split("/", 1)[0]
+        konfiguration = erster in ("config.yaml", "secrets.env", "config-history")
+        wurzel = self.config_dir if (konfiguration and self.config_dir) else self.path.parent
+        return wurzel / arcname
+
+    @staticmethod
+    def _tar_lesen(file: Path) -> tuple[Any, list[tarfile.TarInfo]]:
+        """Die Datendatei und die zulässigen Beilagen eines Archivs."""
+        try:
+            with tarfile.open(file, mode="r:gz") as archiv:
+                mitglieder = archiv.getmembers()
+                daten = next(
+                    (m for m in mitglieder if m.name == ARCHIV_DATENDATEI and m.isfile()),
+                    None,
+                )
+                if daten is None:
+                    raise ValueError(
+                        f"Die Sicherung enthält keine {ARCHIV_DATENDATEI}."
+                    )
+                quelle = archiv.extractfile(daten)
+                payload = json.loads((quelle.read() if quelle else b"").decode("utf-8"))
+        except tarfile.TarError as err:
+            raise ValueError(f"Die Sicherung ist kein lesbares Archiv: {err}") from err
+        erlaubt = [
+            m for m in mitglieder if m.isfile() and archivname_erlaubt(m.name)
+        ]
+        return payload, erlaubt
+
+    def backup_ablegen(self, name: str, payload: bytes) -> dict[str, Any]:
+        """Eine von aussen kommende Sicherung in den Ordner legen (Punkt 593).
+
+        Für die hochgeladene Datei aus der App und die Kopie aus dem
+        Bucket. Geprüft wird vor dem Ablegen: der Name (er ist Eingabe)
+        und ob der Inhalt überhaupt eine Sicherung ist - sonst läge im
+        Ordner etwas, das beim Zurückspielen erst scheitert. Ein Name,
+        den es schon gibt, wird nicht überschrieben.
+        """
+        folder = self._backup_dir()
+        if folder is None:
+            raise ValueError("Ohne Datei-Speicher gibt es keine Sicherungen.")
+        if not re.fullmatch(SICHERUNGSNAME, name):
+            raise ValueError(f"Kein Sicherungsname: {name}")
+        if name.endswith(".tar.gz"):
+            try:
+                with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archiv:
+                    if not any(m.name == ARCHIV_DATENDATEI for m in archiv.getmembers()):
+                        raise ValueError(
+                            f"Das Archiv enthält keine {ARCHIV_DATENDATEI}."
+                        )
+            except tarfile.TarError as err:
+                raise ValueError(f"Kein lesbares Archiv: {err}") from err
+        else:
+            try:
+                inhalt = json.loads(payload.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as err:
+                raise ValueError(f"Keine lesbare Sicherung: {err}") from err
+            if not isinstance(inhalt, dict) or "users" not in inhalt:
+                raise ValueError("Die Datei sieht nicht wie eine Sicherung aus.")
+        folder.mkdir(parents=True, exist_ok=True)
+        stamm, endung = (
+            (name[: -len(".tar.gz")], ".tar.gz")
+            if name.endswith(".tar.gz")
+            else (name[: -len(".json")], ".json")
+        )
+        target = folder / name
+        counter = 2
+        while target.exists():
+            target = folder / f"{stamm}-{counter}{endung}"
+            counter += 1
+        target.write_bytes(payload)
+        os.chmod(target, 0o600)
+        log.info("Sicherung abgelegt: %s (%d KB)", target.name, len(payload) // 1000)
+        return {"name": target.name, "created": target.stat().st_mtime, "size": len(payload)}
 
     def _backup_file(self, name: str) -> Path:
         folder = self._backup_dir()
         if folder is None:
             raise ValueError("Ohne Datei-Speicher gibt es keine Sicherungen.")
-        if not re.fullmatch(r"homepilot-data-[A-Za-z0-9_.-]+\.json", name):
+        if not re.fullmatch(SICHERUNGSNAME, name):
             raise ValueError(f"Unbekannte Sicherung: {name}")
         file = folder / name
         if not file.is_file():
