@@ -151,3 +151,51 @@ def satz(richtung: str, stufe: str) -> str:
         if stufe == VORSCHLAGEN
         else "Jemand ist heimgekommen – die Anlage ist unscharf."
     )
+
+
+def letzter_weggang(
+    verlauf: Any, personen: Any = None
+) -> tuple[float | None, str | None]:
+    """Seit wann ist niemand mehr zuhause - und wer ging zuletzt?
+
+    (rein, testbar)
+
+    Die Frage aus dem Betrieb: «Die Anlage hat um 16:51 scharf
+    geschaltet, dabei ist seit 13:00 niemand mehr da.» Beides kann
+    stimmen. Die Anlage rechnet nicht, wann jemand gegangen *ist*,
+    sondern wann sein Telefon es gemeldet hat - und die Kopplung wartet
+    auf den Letzten. Ein Kurzbefehl, der beim Verlassen nicht auslöst,
+    hält damit das ganze Haus auf «jemand da», bis dieses eine Telefon
+    sich das nächste Mal meldet.
+
+    Genau das steht hier: der Zeitpunkt, ab dem «alle weg» galt, und der
+    Name, an dem es hing. ``(None, None)`` heisst, dass jemand noch als
+    zuhause geführt wird - dann hat die Kopplung schlicht nichts zu tun.
+
+    Gelesen wird der Verlauf aus ``presence_history`` (neueste Zeile
+    zuerst, je Person mehrere); massgebend ist je Person die erste.
+    """
+    gesucht = {str(name) for name in personen} if personen is not None else None
+    zuletzt: dict[str, dict[str, Any]] = {}
+    for row in verlauf or []:
+        if not isinstance(row, dict):
+            continue
+        wer = str(row.get("person") or "")
+        if not wer or wer in zuletzt:
+            continue
+        if gesucht is not None and wer not in gesucht:
+            continue
+        zuletzt[wer] = row
+    if not zuletzt:
+        return None, None
+    # Dieselbe Auslegung wie presence.anyone_home_state: Nur ein
+    # ausdrückliches «home» hält das Haus besetzt; ein benannter Ort
+    # («schule») und «unknown» zählen als weg.
+    if any(
+        str(row.get("state") or "").strip().lower() == presence.HOME
+        for row in zuletzt.values()
+    ):
+        return None, None
+    letzte = max(zuletzt.values(), key=lambda row: float(row.get("at") or 0))
+    wann = float(letzte.get("at") or 0)
+    return (wann or None), str(letzte.get("person") or "") or None

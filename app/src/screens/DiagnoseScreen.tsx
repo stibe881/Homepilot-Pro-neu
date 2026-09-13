@@ -1,9 +1,10 @@
 /**
  * Die Prüfwerkzeuge des Hubs, aus der App aufrufbar (Punkt 344).
  *
- * Fünf kleine Kommandozeilen-Programme (storencheck, livecheck, tvcheck,
- * saugercheck, pushcheck - die Fragen dazu stehen in der Werkbank-
- * Tabelle) brauchten bisher `docker exec` auf dem Rechner im Haus. Diese
+ * Kleine Kommandozeilen-Programme (storencheck, livecheck, tvcheck,
+ * saugercheck, pushcheck, anwesenheitscheck - die Fragen dazu stehen in
+ * der Werkbank-Tabelle) brauchten bisher `docker exec` auf dem Rechner
+ * im Haus. Diese
  * Seite ruft dieselben Programme über /api/diagnose auf und zeigt ihre
  * Textausgabe unverändert - wer sie vom Terminal kennt, sieht hier
  * wortwörtlich dasselbe, nur ohne Terminal.

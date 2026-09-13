@@ -306,3 +306,38 @@ Drei Dinge, die man dabei wissen muss:
   also am nächsten Morgen wieder auf weg – für die Frage «ist Levin
   jetzt heimgekommen?» ist das richtig, für «war er heute überhaupt da?»
   ist es der Verlauf, den man liest.
+
+## Wenn die Alarmanlage zu spät von selbst scharf wird
+
+Der gemeldete Fall (Punkt 636): Die Anlage schaltet um 16:51 scharf,
+dabei war seit 13:00 niemand mehr da. Beides stimmt – dazwischen liegen
+zwei Dinge, die man auseinanderhalten muss:
+
+- **Die Anlage wartet auf den Letzten.** «Niemand mehr zuhause» wird
+  wahr, wenn die *letzte* Person als weg geführt wird. Ein Telefon, das
+  seinen Weggang nicht meldet, hält das ganze Haus besetzt – auch wenn
+  alle anderen längst gemeldet haben.
+- **Sie rechnet mit der Meldung, nicht mit dem Weggang.** Der Hub weiss
+  nicht, wann jemand die Türe zugezogen hat, nur wann ein POST
+  eintraf. Kommt der erst drei Stunden später, ist der Weggang für den
+  Hub drei Stunden später.
+
+Dazu kommen zehn Minuten Nachlauf (`core/alarmanwesenheit.py`,
+`NACHLAUF_SEKUNDEN`) – gegen den Fall, dass jemand vor der Garage steht
+und noch einmal hineingeht.
+
+Was davon zutraf, sagt:
+
+```bash
+docker exec homepilot-hub python -m homepilot.anwesenheitscheck
+```
+
+Je Person Zustand, Quelle, letzte Meldung und Akku; darunter das Kommen
+und Gehen der letzten 24 Stunden, die Rechnung «alle weg seit … zuletzt
+ging … → frühestens scharf um …» und was die Anlage im selben Zeitraum
+tat. Dasselbe Werkzeug läuft auch aus der App unter System →
+Prüfwerkzeuge – die Frage stellt man ja unterwegs.
+
+Steht dort als Letzter jemand, der in Wahrheit als Erster ging, ist sein
+Kurzbefehl «Verlassen» der Grund: Er hat nicht ausgelöst, oder der POST
+verfiel ohne Netz am Zonenrand. iOS wiederholt ihn nicht.

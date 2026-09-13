@@ -116,3 +116,51 @@ def test_ein_fensterkontakt_ist_keine_person() -> None:
     assert not ak.ist_person(_Gerät({"state": "off", "device_class": "contact"}))
     assert not ak.ist_person(_Gerät({"state": "on"}))
     assert not ak.ist_person(_Gerät({}))
+
+
+# ── Wer die Anlage zurückhielt (Punkt 636) ─────────────────────────────────
+
+
+def test_der_letzte_weggang_entscheidet_wann_alle_weg_sind() -> None:
+    """Die Anlage wartet auf den Letzten - nicht auf den Ersten.
+
+    Der gemeldete Fall: «Die Meldung kam um 16:51, dabei ist seit 13:00
+    niemand mehr zuhause.» Stefan ging um 13:00 und meldete es auch;
+    Bines Telefon meldete erst um 16:41. Bis dahin galt das Haus als
+    besetzt.
+    """
+    verlauf = [
+        {"person": "bine", "state": "away", "at": 16_41},
+        {"person": "stefan", "state": "away", "at": 13_00},
+        {"person": "bine", "state": "home", "at": 8_00},
+    ]
+    wann, wer = ak.letzter_weggang(verlauf)
+    assert wer == "bine"
+    assert wann == 16_41
+
+
+def test_solange_jemand_zuhause_ist_gibt_es_keinen_weggang() -> None:
+    """Sonst stünde im Prüfwerkzeug eine Uhrzeit, ab der «alle weg» galt,
+    während die Familie am Tisch sitzt."""
+    verlauf = [
+        {"person": "bine", "state": "away", "at": 1600},
+        {"person": "stefan", "state": "home", "at": 1300},
+    ]
+    assert ak.letzter_weggang(verlauf) == (None, None)
+
+
+def test_ein_benannter_ort_zaehlt_als_weg() -> None:
+    """Dieselbe Auslegung wie presence.anyone_home_state: «Livia: Schule»
+    ist nicht zuhause."""
+    verlauf = [
+        {"person": "livia", "state": "schule", "place": "schule", "at": 900},
+        {"person": "stefan", "state": "away", "at": 800},
+    ]
+    wann, wer = ak.letzter_weggang(verlauf)
+    assert (wann, wer) == (900, "livia")
+
+
+def test_ohne_verlauf_wird_nichts_behauptet() -> None:
+    assert ak.letzter_weggang([]) == (None, None)
+    assert ak.letzter_weggang(None) == (None, None)
+    assert ak.letzter_weggang(["kaputt", {"state": "away", "at": 5}]) == (None, None)

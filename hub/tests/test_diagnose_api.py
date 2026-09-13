@@ -49,7 +49,7 @@ def test_nur_der_besitzer_darf():
         )
 
 
-def test_die_liste_nennt_alle_fuenf():
+def test_die_liste_nennt_jedes_werkzeug():
     with make_client() as client:
         antwort = client.get("/api/diagnose", headers=auth("t-owner"))
         assert antwort.status_code == 200
@@ -65,6 +65,11 @@ def test_die_liste_nennt_alle_fuenf():
             "tvcheck",
             "saugercheck",
             "pushcheck",
+            # Punkt 636: «warum wurde die Anlage erst um 16:51 scharf,
+            # obwohl seit 13:00 niemand da ist» - eine Frage, die man
+            # stellt, während man nicht zuhause ist, also nicht am
+            # Terminal des Hubs.
+            "anwesenheitscheck",
         }
         assert werkzeuge[0]["key"] == "hauscheck"
 
