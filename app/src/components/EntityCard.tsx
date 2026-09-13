@@ -22,6 +22,7 @@ import { hatWarteschlange } from '../lib/musikliste';
 import { lichtkachel } from '../lib/lichtfarbe';
 import { szenenfarbe } from '../lib/szenenfarbe';
 import { ketteSatz, ursacheSatz } from '../lib/ursache';
+import { belegungZeile, TasterBelegung } from '../lib/verweise';
 import { zaehlbar } from '../lib/zaehlung';
 import { useJetzt } from '../hooks/useRestzeit';
 import { useColors, useTyp } from '../theme';
@@ -221,6 +222,10 @@ interface Props {
    *  selbst angeht, soll den Urheber finden, ohne alles durchzulesen. */
   usedIn?: string;
   onUsedIn?: () => void;
+  /** Nur Taster: was welcher Druck auslöst (Punkt 629, lib/verweise.ts,
+   *  tasterBelegung). Ein Tipp darauf führt zu den Abläufen. */
+  belegung?: TasterBelegung[];
+  onBelegung?: () => void;
 }
 
 /** Warnstufen brauchen je nach Palette andere Farben. */
@@ -268,6 +273,8 @@ export function EntityCard({
   partOf,
   usedIn,
   onUsedIn,
+  belegung,
+  onBelegung,
   onErinnern,
 }: Props) {
   const colors = useColors();
@@ -1157,6 +1164,34 @@ export function EntityCard({
             <Text style={styles.detail}>
               {typeof press === 'number' ? sinceLabel(press) : 'Noch kein Druck'}
             </Text>
+            {/* Was welcher Druck auslöst (Punkt 629 der Werkbank): Der
+                Taster weiss es, die Abläufe wissen es - nur die Kachel
+                sagte es nicht, und wer im Flur stand, musste die
+                Abläufe aufmachen, um zu sehen, ob «doppelt» überhaupt
+                belegt ist. Eine unbelegte Taste bleibt weg: «doppelt →
+                nichts» wäre eine Zeile Rauschen je Taster. */}
+            {belegung && belegung.length > 0 ? (
+              <Pressable
+                onPress={onBelegung}
+                disabled={!onBelegung}
+                accessibilityRole="button"
+                accessibilityLabel={`${entity.name}: ${belegungZeile(belegung)} – Abläufe öffnen`}
+                hitSlop={4}
+                style={styles.stack}
+              >
+                {belegung.map((eintrag) => (
+                  <View
+                    key={`${eintrag.druck}:${eintrag.ablauf.id}`}
+                    style={styles.partOfRow}
+                  >
+                    <Ionicons name="git-branch-outline" size={12} color={colors.inkFaint} />
+                    <Text style={styles.partOfText} numberOfLines={1}>
+                      {eintrag.wort} → {eintrag.ablauf.alias}
+                    </Text>
+                  </View>
+                ))}
+              </Pressable>
+            ) : null}
             {/* «Bereit, noch kein Druck» stimmt und führt trotzdem in die
                 Irre, wenn der Kanal gar nichts sendet - etwa der
                 Schaltausgang eines Aktors statt seiner Wippe. Der Hub
@@ -1497,7 +1532,13 @@ export function EntityCard({
           // Und die Kette dahinter, wo der Hub sie kennt: Melder →
           // Ablauf → Gerät. «Ablauf «Licht bei Bewegung»» allein zog
           // sonst die nächste Frage nach sich - welche Bewegung?
-          kette={ketteSatz(entity, entity.name)}
+          // Beim Taster steht hier stattdessen, was welcher Druck
+          // auslöst (Punkt 629) - dieselbe Zeile wie auf der Kachel.
+          kette={
+            belegung && belegung.length > 0
+              ? belegungZeile(belegung)
+              : ketteSatz(entity, entity.name)
+          }
           eintraege={aktionen}
           onClose={() => setMenueOffen(false)}
           onSelect={fuehreAus}

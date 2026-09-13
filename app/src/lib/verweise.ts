@@ -1,4 +1,5 @@
 import { Scene } from '../api/types';
+import { TASTERDRUECKE } from '../screens/automations/entwurf';
 
 /**
  * Wo ein Gerät überall vorkommt: in welchen Abläufen und Szenen.
@@ -106,4 +107,82 @@ export function mitschalterSatz(namen: string[], hoechstens = 3): string {
   const rest = namen.length - gezeigt.length;
   const liste = rest > 0 ? `${gezeigt.join(', ')} und ${rest} weitere` : gezeigt.join(', ');
   return `Dieselben Geräte schaltet auch ${liste}. Das kann gewollt sein – wenn nicht, kommt euch einer zuvor.`;
+}
+
+/**
+ * Was ein Druck auf diesen Taster auslöst (Punkt 629 der Werkbank).
+ *
+ * Die Kachel sagte nur «Kurz gedrückt · vor 3 Std.», und ob «doppelt»
+ * überhaupt belegt ist, stand allein in den Abläufen - als `trigger.to`
+ * mit dem Wortschatz des Editors (`TASTERDRUECKE`). Wer vor dem
+ * Wandtaster im Flur steht, soll es auf der Kachel lesen.
+ */
+export interface TasterBelegung {
+  /** Der Druck, wie der Hub ihn meldet: `single`, `hold`, `short` … */
+  druck: string;
+  /** Das kurze Wort dazu: «einmal», «halten», «kurz». */
+  wort: string;
+  /** Der Ablauf, der darauf läuft. */
+  ablauf: AblaufKopf;
+}
+
+/** Was Homematic meldet - der Editor kennt dafür eigene Wörter. */
+const HOMEMATIC_DRUECKE: Record<string, string> = { short: 'kurz', long: 'lang' };
+
+/**
+ * Das kurze Wort für einen Druck (rein, testbar).
+ *
+ * «einmal drücken → Flur an» ist auf einer halbbreiten Kachel zu lang;
+ * das Verb steht ohnehin auf der Kachel. Übrig bleibt «einmal», «doppelt»,
+ * «halten» - und was der Editor nicht kennt, steht so da, wie das Gerät
+ * es meldet.
+ */
+export function druckWort(druck: string): string {
+  if (HOMEMATIC_DRUECKE[druck]) return HOMEMATIC_DRUECKE[druck];
+  const label = TASTERDRUECKE.find((eintrag) => eintrag.key === druck)?.label;
+  if (!label) return druck;
+  if (label === 'gedrückt halten') return 'halten';
+  return label.replace(/ drücken$/, '');
+}
+
+/**
+ * Je Druck der Ablauf, der darauf läuft (rein, testbar).
+ *
+ * In der Reihenfolge des Editors, damit «einmal» vor «halten» steht -
+ * so, wie man die Taste auch benutzt. Ein Ablauf ohne `to` läuft bei
+ * jedem Druck und steht als solcher da. Ruhende Abläufe fehlen: Ein
+ * Druck, der nichts tut, ist keine Belegung.
+ */
+export function tasterBelegung<A extends AblaufKopf>(
+  entityId: string,
+  automations: A[]
+): TasterBelegung[] {
+  const gefunden: TasterBelegung[] = [];
+  for (const automation of automations) {
+    const roh = automation as unknown as Record<string, unknown>;
+    if (roh.enabled === false) continue;
+    for (const trigger of Array.isArray(roh.triggers) ? roh.triggers : []) {
+      if (!trigger || typeof trigger !== 'object') continue;
+      const t = trigger as Record<string, unknown>;
+      if (t.type !== 'state' || t.entity_id !== entityId) continue;
+      const druck = typeof t.to === 'string' && t.to ? t.to : '*';
+      if (gefunden.some((e) => e.druck === druck && e.ablauf.id === automation.id)) continue;
+      gefunden.push({
+        druck,
+        wort: druck === '*' ? 'jeder Druck' : druckWort(druck),
+        ablauf: { id: automation.id, alias: automation.alias },
+      });
+    }
+  }
+  const rang = (druck: string) => {
+    if (druck === '*') return -1;
+    const index = TASTERDRUECKE.findIndex((eintrag) => eintrag.key === druck);
+    return index < 0 ? TASTERDRUECKE.length : index;
+  };
+  return gefunden.sort((a, b) => rang(a.druck) - rang(b.druck));
+}
+
+/** Die Zeile dazu: «einmal → Flur an · halten → Alles aus» (rein, testbar). */
+export function belegungZeile(belegung: TasterBelegung[]): string {
+  return belegung.map((eintrag) => `${eintrag.wort} → ${eintrag.ablauf.alias}`).join(' · ');
 }
