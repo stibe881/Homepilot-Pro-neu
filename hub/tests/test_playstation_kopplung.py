@@ -185,6 +185,13 @@ async def aufbau(hub, tmp_path, monkeypatch) -> tuple[PlaystationIntegration, Fa
     )
     kanal = FakeKanal()
     integration._ddp = kanal
+
+    # Die Bibliothek bekommt den Port zeitweise ganz (_port_frei); danach
+    # öffnet der Hub seinen Kanal neu - im Test wieder die Attrappe.
+    async def kanal_fabrik():
+        return kanal
+
+    integration._kanal_fabrik = kanal_fabrik
     monkeypatch.setattr(integration, "_starte_loop", lambda entity_id: None)
     await integration.setup()
     entity = hub.registry.get("playstation.10_0_0_60")
@@ -357,6 +364,44 @@ async def test_tasten_brauchen_die_registrierung_und_eine_laufende_konsole(
     with pytest.raises(ConnectionError) as ruht:
         await integration.handle_command(entity, "ok", {})
     assert str(ruht.value) == NICHT_AN
+    await integration.teardown()
+
+
+async def test_der_quellport_gehoert_waehrend_der_registrierung_der_bibliothek(
+    hub, tmp_path, monkeypatch
+):
+    """Der Fall aus dem Haus beim allerersten Koppeln: Hub und Bibliothek
+    wollten beide den Quellport 9303, «Address already in use» wurde zum
+    500. Solange die Bibliothek fragt, ist der Kanal des Hubs zu; danach
+    steht er wieder."""
+    integration, kanal, entity = await aufbau(hub, tmp_path, monkeypatch)
+    await integration.pair_account(entity.id, REDIRECT)
+    gesehen: list[Any] = []
+
+    async def status_mit_blick(self):
+        gesehen.append(integration._ddp)
+        return dict(FakeDevice.status)
+
+    monkeypatch.setattr(FakeDevice, "async_get_status", status_mit_blick)
+    await integration.pair_pin(entity.id, "12345678")
+    assert gesehen == [None], "während der Bibliotheksaufrufe muss der Kanal zu sein"
+    assert integration._ddp is kanal, "danach gehört der Port wieder dem Hub"
+    await integration.teardown()
+
+
+async def test_ein_belegter_port_wird_zur_klaren_absage(hub, tmp_path, monkeypatch):
+    """Rutscht doch ein Fehler der Bibliothek durch, steht er als Satz in
+    der Antwort - nicht als «im Hub ist etwas schiefgegangen»."""
+    integration, _, entity = await aufbau(hub, tmp_path, monkeypatch)
+    await integration.pair_account(entity.id, REDIRECT)
+
+    async def belegt(self):
+        raise OSError(98, "Address already in use")
+
+    monkeypatch.setattr(FakeDevice, "async_get_status", belegt)
+    with pytest.raises(ConnectionError) as absage:
+        await integration.pair_pin(entity.id, "12345678")
+    assert "Address already in use" in str(absage.value)
     await integration.teardown()
 
 

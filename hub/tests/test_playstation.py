@@ -252,6 +252,13 @@ async def aufbau(hub, tmp_path, monkeypatch) -> tuple[PlaystationIntegration, Fa
     )
     kanal = FakeKanal()
     integration._ddp = kanal
+
+    # Die Bibliothek bekommt den Port zeitweise ganz (_port_frei); danach
+    # öffnet der Hub seinen Kanal neu - im Test wieder die Attrappe.
+    async def kanal_fabrik():
+        return kanal
+
+    integration._kanal_fabrik = kanal_fabrik
     monkeypatch.setattr(integration, "_starte_loop", lambda entity_id: None)
     await integration.setup()
     return integration, kanal

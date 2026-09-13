@@ -110,4 +110,11 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             raise HTTPException(400, str(err)) from err
         except ConnectionError as err:
             raise HTTPException(503, str(err)) from err
+        except Exception as err:  # noqa: BLE001 - der Grund gehört auf den Bildschirm
+            # Beim allerersten Koppeln im Haus kam hier ein OSError der
+            # Bibliothek an, und die App sagte nur «im Hub ist etwas
+            # schiefgegangen». Die Integration fängt seither selbst, und
+            # falls doch etwas durchrutscht: mit Satz, nicht als 500.
+            log.exception("PlayStation %s: Kopplung gescheitert", ps_id)
+            raise HTTPException(503, f"Kopplung gescheitert: {err}") from err
         return {"ok": True}

@@ -51,6 +51,7 @@ import asyncio
 import contextlib
 import re
 import socket
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -532,6 +533,12 @@ class PlaystationIntegration(Integration):
         self._status: dict[str, dict[str, Any]] = {}
         self._erreichbar: dict[str, bool] = {}
         self._ddp: DdpKanal | None = None
+        # Wer den Kanal öffnet - im Test eine Attrappe (Fehler aus dem
+        # Haus, siehe _port_frei).
+        self._kanal_fabrik: Callable[[], Awaitable[DdpKanal]] = DdpKanal.oeffnen
+        # Ein Schloss um den Quellport 9303: Solange die Bibliothek ihn
+        # braucht, darf die Geräteschleife ihn nicht neu belegen.
+        self._ddp_schloss = asyncio.Lock()
         self._konto: dict[str, str] | None = None
         self._profile: dict[str, Any] = {}
         self._token_datei: Path = Path("playstation-token.json")
@@ -719,20 +726,30 @@ class PlaystationIntegration(Integration):
         except ImportError as err:
             raise ConnectionError(BIBLIOTHEK_FEHLT) from err
         device = RPDevice(geraet["host"])
-        status = await device.async_get_status()
-        if not status:
-            raise ConnectionError(NICHT_ERREICHBAR)
-        if status.get("status-code") != 200:
-            raise ValueError(NICHT_AN)
-        profiles = Profiles.load(str(self._profil_datei))
-        try:
-            profil = await device.async_register(
-                self._konto["online_id"], code, profiles=profiles, save=False
-            )
-        except asyncio.CancelledError:
-            raise
-        except Exception as err:
-            raise ConnectionError(f"Registrierung fehlgeschlagen: {err}") from err
+        async with self._port_frei():
+            try:
+                status = await device.async_get_status()
+            except asyncio.CancelledError:
+                raise
+            except Exception as err:
+                # Ein Fehler der Bibliothek soll als Satz ankommen, nicht als
+                # 500 - der Grund gehört auf den Bildschirm, nicht nur ins Log.
+                self.log.exception("PlayStation %s: Statusabfrage gescheitert", geraet["host"])
+                raise ConnectionError(f"Statusabfrage gescheitert: {err}") from err
+            if not status:
+                raise ConnectionError(NICHT_ERREICHBAR)
+            if status.get("status-code") != 200:
+                raise ValueError(NICHT_AN)
+            profiles = Profiles.load(str(self._profil_datei))
+            try:
+                profil = await device.async_register(
+                    self._konto["online_id"], code, profiles=profiles, save=False
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as err:
+                self.log.exception("PlayStation %s: Registrierung gescheitert", geraet["host"])
+                raise ConnectionError(f"Registrierung fehlgeschlagen: {err}") from err
         if profil is None:
             raise ConnectionError(
                 "Die Konsole hat die Registrierung abgelehnt – stimmt der Code, und "
@@ -751,14 +768,41 @@ class PlaystationIntegration(Integration):
 
     async def _kanal(self) -> DdpKanal:
         if self._ddp is None:
-            self._ddp = await DdpKanal.oeffnen()
+            self._ddp = await self._kanal_fabrik()
         return self._ddp
+
+    @contextlib.asynccontextmanager
+    async def _port_frei(self) -> AsyncIterator[None]:
+        """Den Quellport 9303 der Bibliothek überlassen - und danach zurückholen.
+
+        Der Fall aus dem Haus, beim allerersten Koppeln: Der Hub hält den
+        Port für seine eigenen Statusanfragen offen (DdpKanal), und
+        ``pyremoteplay`` bindet für ``async_get_status`` und die
+        Registrierung denselben Port ein zweites Mal - «Address already
+        in use», und weil das weder Wert- noch Verbindungsfehler war,
+        stand in der App nur «im Hub ist etwas schiefgegangen». Die
+        Bibliothek nimmt keinen fremden Socket entgegen; also bekommt sie
+        den Port für die Dauer ihres Aufrufs ganz, die Geräteschleife
+        wartet am Schloss, und danach öffnet der Hub seinen Kanal neu.
+        """
+        async with self._ddp_schloss:
+            if self._ddp is not None:
+                self._ddp.schliessen()
+                self._ddp = None
+            try:
+                yield
+            finally:
+                with contextlib.suppress(OSError):
+                    self._ddp = await self._kanal_fabrik()
 
     async def _ddp_status(self, entity_id: str) -> dict[str, Any] | None:
         """Eine Statusanfrage an die Konsole - None, wenn sie schweigt."""
         geraet = self._geraete[entity_id]
-        kanal = await self._kanal()
-        roh = await kanal.anfragen(geraet["ip"], ddp_ports(geraet.get("konsole")), ddp_suche())
+        async with self._ddp_schloss:
+            kanal = await self._kanal()
+            roh = await kanal.anfragen(
+                geraet["ip"], ddp_ports(geraet.get("konsole")), ddp_suche()
+            )
         if roh is None:
             return None
         antwort = ddp_antwort(roh)
@@ -920,20 +964,31 @@ class PlaystationIntegration(Integration):
         geraet = self._geraete[entity_id]
         konto = self._konto or {}
         device = RPDevice(geraet["host"])
-        status = await device.async_get_status()
-        if not status:
-            raise ConnectionError(NICHT_ERREICHBAR)
-        if status.get("status-code") != 200:
-            raise ConnectionError(NICHT_AN)
-        profiles = Profiles.load(str(self._profil_datei))
-        session = device.create_session(konto.get("online_id", ""), profiles=profiles, receiver=None)
-        if session is None:
-            raise ConnectionError(NICHT_REGISTRIERT)
-        try:
-            verbunden = await asyncio.wait_for(device.connect(), SITZUNG_AUFBAU)
-            bereit = verbunden and await session.async_wait(SITZUNG_AUFBAU)
-        except TimeoutError:
-            bereit = False
+        # Auch hier braucht die Bibliothek den Quellport 9303 für ihre
+        # eigene Statusabfrage (siehe _port_frei).
+        async with self._port_frei():
+            try:
+                status = await device.async_get_status()
+            except asyncio.CancelledError:
+                raise
+            except Exception as err:
+                self.log.exception("PlayStation %s: Statusabfrage gescheitert", geraet["host"])
+                raise ConnectionError(f"Statusabfrage gescheitert: {err}") from err
+            if not status:
+                raise ConnectionError(NICHT_ERREICHBAR)
+            if status.get("status-code") != 200:
+                raise ConnectionError(NICHT_AN)
+            profiles = Profiles.load(str(self._profil_datei))
+            session = device.create_session(
+                konto.get("online_id", ""), profiles=profiles, receiver=None
+            )
+            if session is None:
+                raise ConnectionError(NICHT_REGISTRIERT)
+            try:
+                verbunden = await asyncio.wait_for(device.connect(), SITZUNG_AUFBAU)
+                bereit = verbunden and await session.async_wait(SITZUNG_AUFBAU)
+            except TimeoutError:
+                bereit = False
         if not bereit:
             fehler = str(getattr(session, "error", "") or "").strip()
             with contextlib.suppress(Exception):
