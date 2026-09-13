@@ -446,6 +446,17 @@ def test_erinnerungs_karte_folgt_den_regeln_des_vollbilds():
     assert karten[0]["ohne"] == ["Stibe"]
 
 
+def test_die_erinnerungs_karte_oeffnet_das_vollbild_und_hat_erledigt_und_spaeter():
+    """Punkt 606: Die Karte trug weder Adresse noch Knöpfe - «Erledigt»
+    gab es nur in der App."""
+    karte = karten_erinnerungen([{"id": "a/1", "text": "Ofen aus", "at": 100}], 200)[0]
+    assert karte["state"]["url"] == "homepilot://erinnerung/a%2F1"
+    assert [k["pfad"] for k in karte["state"]["knoepfe"]] == [
+        "/api/family/reminders/a%2F1/quittieren",
+        "/api/family/reminders/a%2F1/spaeter",
+    ]
+
+
 def test_alarm_karte_countdown_und_rot():
     schaltend = entity(
         "alarm.haus", "alarm", "Alarmanlage", state="scharfschaltend", seconds_left=30

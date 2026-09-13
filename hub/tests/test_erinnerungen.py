@@ -52,6 +52,32 @@ def test_nach_dem_versand_ist_nur_push_erledigt():
     assert "pushed" not in je_id["d"]
 
 
+def test_quittieren_traegt_den_namen_einmal_ein():
+    """Punkt 606: «Erledigt» von der Sperrbildschirm-Karte - idempotent,
+    ein zweiter Tipp verdoppelt den Namen nicht."""
+    from homepilot.core.erinnerungen import quittieren
+
+    rows = [{"id": "a", "quittiert": ["Bine"]}, {"id": "b"}]
+    neue, gefunden = quittieren(rows, "a", "Stefan")
+    assert gefunden and neue[0]["quittiert"] == ["Bine", "Stefan"]
+    neue, _ = quittieren(neue, "a", "Stefan")
+    assert neue[0]["quittiert"] == ["Bine", "Stefan"]
+    assert neue[1] == {"id": "b"}
+    _, gefunden = quittieren(rows, "gibt-es-nicht", "Stefan")
+    assert gefunden is False
+
+
+def test_spaeter_stellt_die_erinnerung_frisch_nach_hinten():
+    from homepilot.core.erinnerungen import verschieben
+
+    rows = [{"id": "a", "at": 1000, "quittiert": ["Bine"], "pushed": True}]
+    neue, gefunden = verschieben(rows, "a", 5000, 30)
+    assert gefunden
+    assert neue[0]["at"] == 5000 + 30 * 60_000
+    # Frisch: niemand hat sie gesehen, der Push geht wieder raus.
+    assert neue[0]["quittiert"] == [] and neue[0]["pushed"] is False
+
+
 def test_benutzer_umbenennen_zieht_empfaenger_und_quittierungen_mit():
     """Ein Push an den alten Namen erreicht niemanden, und eine schon
     weggedrückte Erinnerung erschiene wieder - beides zieht mit um."""

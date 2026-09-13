@@ -1477,6 +1477,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         setSection('home');
         if (grill.room) setRoom(grill.room);
         setGrillBlattFuer(grill.id);
+      } else if (what === 'erinnerung') {
+        // Von der Erinnerungs-Karte (Punkt 606 der Werkbank): Das
+        // Vollbild für Fälliges legt sich von selbst über jede Seite
+        // (ErinnerungOverlay), sobald die Liste geladen ist - hier
+        // bleibt nur, die App auf die Startseite zu holen. Ist die
+        // Erinnerung inzwischen quittiert, steht eben nichts davor.
+        setSection('start');
       } else if (what === 'timer') {
         // Die Karte des Küchen-Timers: Er wohnt in der Küche (die
         // Kachel steht nur dort). Die Adresse schickte der Hub schon

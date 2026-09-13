@@ -162,6 +162,53 @@ def benutzer_umbenennen(rows: Any, alt: str, neu: str) -> list[Any]:
     return neue
 
 
+def quittieren(rows: Any, reminder_id: str, name: str) -> tuple[list[Any], bool]:
+    """Eine Erinnerung für eine Person als gesehen eintragen (rein, testbar).
+
+    Punkt 606 der Werkbank: Der Knopf «Erledigt» auf der
+    Sperrbildschirm-Karte. Idempotent - wer zweimal tippt, steht einmal
+    in ``quittiert``. Zurück kommen die Liste und ob es den Eintrag gab.
+    """
+    neue = []
+    gefunden = False
+    for row in rows or []:
+        if isinstance(row, dict) and str(row.get("id")) == reminder_id:
+            gefunden = True
+            bisher = [str(n) for n in (row.get("quittiert") or []) if str(n).strip()]
+            if name not in bisher:
+                row = {**row, "quittiert": [*bisher, name]}
+        neue.append(row)
+    return neue, gefunden
+
+
+def verschieben(
+    rows: Any, reminder_id: str, jetzt_ms: float, minuten: int
+) -> tuple[list[Any], bool]:
+    """Eine fällige Erinnerung um ein paar Minuten nach hinten (rein, testbar).
+
+    Punkt 606: «Später» auf der Karte. Die Erinnerung ist geteilt, also
+    ist es auch das Später - sie verschwindet bei allen und kommt bei
+    allen wieder, frisch (niemand hat sie quittiert, kein Push ist für
+    sie draussen), wie eine wiederkehrende nach dem Bestätigen
+    (nach_versand, lib/erinnerungen.ts bestaetigung). Ein Später je
+    Person gäbe es nur mit einem Feld, das die Bildschirme nicht kennen
+    - dort stünde die Karte dann trotzdem.
+    """
+    neue = []
+    gefunden = False
+    for row in rows or []:
+        if isinstance(row, dict) and str(row.get("id")) == reminder_id:
+            gefunden = True
+            row = {
+                **row,
+                "at": jetzt_ms + max(1, int(minuten)) * 60_000,
+                "quittiert": [],
+                "pushed": False,
+            }
+        neue.append(row)
+    return neue, gefunden
+
+
 async def push_loop(hub: Any) -> None:
     """Alle TAKT_SEKUNDEN: fällige Pushes verschicken und festhalten."""
     while True:

@@ -916,10 +916,27 @@ def karten_erinnerungen(reminders: Any, jetzt_ms: float) -> list[dict[str, Any]]
                     "text": str(row.get("text") or ""),
                     "symbol": "alarm",
                     "farbe": "orange",
+                    # Punkt 606: Ein Tipp öffnet das Vollbild, das die
+                    # App für Fälliges ohnehin zeigt - vorher führte er
+                    # bloss auf die Startseite. Die Knöpfe sind die aus
+                    # der Push-Mitteilung: «Erledigt» (nur bei mir) und
+                    # «Später»; beide harmlos, beide über POST-Routen,
+                    # weil der Karten-Knopf nur das kann.
+                    "url": f"homepilot://erinnerung/{quote(str(row['id']), safe='')}",
+                    "knoepfe": erinnerung_knoepfe(str(row["id"])),
                 },
             }
         )
     return karten
+
+
+def erinnerung_knoepfe(reminder_id: str) -> list[dict[str, Any]]:
+    """«Erledigt» und «Später» als Griffe der Erinnerungs-Karte (rein, testbar)."""
+    pfad = f"/api/family/reminders/{quote(str(reminder_id), safe='')}"
+    return [
+        {"symbol": "checkmark", "pfad": f"{pfad}/quittieren", "body": ""},
+        {"symbol": "clock.arrow.circlepath", "pfad": f"{pfad}/spaeter", "body": ""},
+    ]
 
 
 def karten_alarm(entities: list[Any], jetzt_s: float) -> list[dict[str, Any]]:
