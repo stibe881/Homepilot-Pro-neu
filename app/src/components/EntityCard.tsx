@@ -1301,6 +1301,9 @@ export function EntityCard({
           visible={blattOffen}
           titel={entity.name}
           onClose={() => setBlattOffen(false)}
+          // Für «Gerät einstellen» (631) und «Nach Stromausfall» (630).
+          entity={entity}
+          onCommand={onCommand}
           zeilen={[
             ...(onRename
               ? [

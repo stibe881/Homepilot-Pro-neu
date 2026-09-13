@@ -140,6 +140,15 @@ danach, was man mit ihm *tut* – erst die Bedienung, dann die Messwerte.
 | occupancy, contact, water_leak … | Melder | – |
 | temperature, humidity … | Messfühler | – |
 
+**Einstellen am Gerät** (Punkt 631): Nachlaufzeit, Empfindlichkeit,
+Temperatur- und Feuchte-Abgleich, LED - eine Auswahl gängiger
+Einstellungen steht in der App im Anpassen-Blatt unter «Gerät
+einstellen». Welche Namen dazugehören, sagt die Tabelle `OPTIONEN` in
+`integrations/zigbee2mqtt.py`; alles Übrige bleibt in der
+Z2M-Oberfläche. Der Wert kommt mit der nächsten Zustandsmeldung des
+Geräts - ein Melder mit Batterie übernimmt eine Änderung erst beim
+nächsten Aufwachen.
+
 ## Zwei Dinge, die überraschen
 
 **`contact: true` heisst zu.** Zigbee dreht den Fensterkontakt um. Der
