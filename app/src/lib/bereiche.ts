@@ -76,20 +76,29 @@ export function bereichTint(ton: number | null): string | null {
   return ton === null ? null : `hsla(${ton}, 55%, 50%, 0.28)`;
 }
 
+/** Der Nachbar in einer geordneten Liste (rein, testbar) - null am Rand
+ *  und null, wenn das Aktive gar nicht in der Liste steht.
+ *
+ *  Am Rand endet die Geste, statt umzulaufen - ein Wischen, das vom
+ *  letzten Eintrag wieder auf den ersten springt, verwirrt mehr als es
+ *  hilft. Verallgemeinert aus `nachbarBereich` (Punkt 583): Dieselbe
+ *  Frage stellt sich im Zimmer, mit der Raumliste als Nachbarschaft. */
+export function nachbar<T>(liste: readonly T[], aktiv: T, richtung: 1 | -1): T | null {
+  const index = liste.indexOf(aktiv);
+  if (index < 0) return null;
+  return liste[index + richtung] ?? null;
+}
+
 /** Der Nachbar in der Leiste (rein, testbar) - null am Rand.
  *
  *  Punkt 522: Auf dem Telefon wischt man zwischen den Bereichen, statt
- *  nach unten zur Leiste zu greifen. Die Reihenfolge ist die der Leiste;
- *  am Rand endet die Geste, statt umzulaufen - ein Wischen, das von
- *  «Einstellungen» wieder auf «Start» springt, verwirrt mehr als es hilft. */
+ *  nach unten zur Leiste zu greifen. Die Reihenfolge ist die der Leiste. */
 export function nachbarBereich(
   sichtbar: Section[],
   aktiv: Section,
   richtung: 1 | -1
 ): Section | null {
-  const index = sichtbar.indexOf(aktiv);
-  if (index < 0) return null;
-  return sichtbar[index + richtung] ?? null;
+  return nachbar(sichtbar, aktiv, richtung);
 }
 
 export const SECTION_LABEL: Record<Section, string> = {

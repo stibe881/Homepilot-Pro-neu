@@ -40,7 +40,7 @@ import { HistoryChart } from '../components/HistoryChart';
 import { OpenDoors } from '../components/OpenDoors';
 import { RunningAppliances } from '../components/RunningAppliances';
 import { SECTION_LABEL, Rail, Section, sichtbareBereiche } from '../components/Rail';
-import { nachbarBereich } from '../lib/bereiche';
+import { nachbar, nachbarBereich } from '../lib/bereiche';
 import { useBereichWischen } from '../hooks/useBereichWischen';
 import { Posteingang } from '../components/Posteingang';
 import { ungelesen } from '../lib/posteingang';
@@ -2136,6 +2136,24 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       if (ziel) waehleBereich(ziel);
     }
   );
+  // Und im Zimmer ins Nachbarzimmer (Punkt 583): Wer abends Wohnzimmer
+  // → Küche → Flur abklappert, ging dreimal über die Raumliste, obwohl
+  // die Räume eine Reihenfolge haben. Dieselbe Geste, die Raumliste als
+  // Nachbarschaft; die linke Kante bleibt «zurück» (lib/bereichwischen.ts,
+  // zimmerRichtung), und Wischdimmer wie Storen-Leiste behalten ihren
+  // Vorrang, weil sie als Kinder zuerst gefragt werden. Auch mit
+  // Seitenleiste: Die Zimmer stehen dort nicht.
+  const zimmer = useMemo(() => rooms.filter((name) => name !== ALL_ROOMS), [rooms]);
+  const zimmerWischen = useBereichWischen(
+    section === 'home' && room !== ALL_ROOMS && !editing,
+    (richtung) => {
+      const ziel = nachbar(zimmer, room, richtung);
+      if (ziel) setRoom(ziel);
+    },
+    true
+  );
+  const zimmerDavor = section === 'home' && room !== ALL_ROOMS ? nachbar(zimmer, room, -1) : null;
+  const zimmerDanach = section === 'home' && room !== ALL_ROOMS ? nachbar(zimmer, room, 1) : null;
   const raumSchein = categorized && raumLeuchtet(inRoom);
   // Der Klimafühler steht gross im Kopf - als Chip daneben stünde er
   // doppelt, wie früher die Temperatur.
@@ -3497,6 +3515,50 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     <Ionicons name="chevron-back" size={18} color={colors.onGradient} />
                     <Text style={styles.backText}>Räume</Text>
                   </Pressable>
+                  {/* Die Nachbarzimmer als sichtbarer Weg (Punkt 583) -
+                      das Wischen dazu sieht niemand. Mit Namen, damit
+                      man weiss, wohin es geht, und leiser als «Räume»:
+                      Das ist der Abzweig, nicht der Rückweg. */}
+                  {zimmerDavor || zimmerDanach ? (
+                    <View style={styles.raumNachbarn}>
+                      {zimmerDavor ? (
+                        <Pressable
+                          onPress={() => setRoom(zimmerDavor)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Voriges Zimmer: ${zimmerDavor}`}
+                          hitSlop={6}
+                          style={styles.raumNachbar}
+                        >
+                          <Ionicons
+                            name="chevron-back"
+                            size={14}
+                            color={colors.onGradientSoft}
+                          />
+                          <Text style={styles.raumNachbarText} numberOfLines={1}>
+                            {zimmerDavor}
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                      {zimmerDanach ? (
+                        <Pressable
+                          onPress={() => setRoom(zimmerDanach)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Nächstes Zimmer: ${zimmerDanach}`}
+                          hitSlop={6}
+                          style={styles.raumNachbar}
+                        >
+                          <Text style={styles.raumNachbarText} numberOfLines={1}>
+                            {zimmerDanach}
+                          </Text>
+                          <Ionicons
+                            name="chevron-forward"
+                            size={14}
+                            color={colors.onGradientSoft}
+                          />
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  ) : null}
                   {/* «Anpassen» und «Reihenfolge» braucht man einmal im
                       Jahr - sie stehen hinter dem ···, nicht vor den
                       Kacheln. */}
@@ -4080,6 +4142,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right },
           ]}
           {...bereichWischen}
+          {...zimmerWischen}
         >
           {hasRail ? (
             <Rail
