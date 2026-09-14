@@ -187,8 +187,13 @@ export function mischeVorlagen(
  * sich als Entwurf, und geändert wird sie vor dem Speichern.
  */
 export const TAGESZEIT_BAENDER = [
-  { von: '06:00', bis: '09:00', prozent: 40, mirek: 286, wann: 'Morgen' },
-  { von: '09:00', bis: '20:00', prozent: 100, mirek: 200, wann: 'Tag' },
+  // Die Weisstöne sind genau die drei aus lib/weisston.ts - ein Wert
+  // daneben stünde im Editor als Knopf da, den man nicht wiederfindet.
+  // Sie haben sich mit Punkt 655 verschoben (neutralweiss 286 → 250,
+  // tageslichtweiss 200 → 153): «Tageslicht» war vorher nicht das
+  // kälteste Weiss, das eine Lampe kann.
+  { von: '06:00', bis: '09:00', prozent: 40, mirek: 250, wann: 'Morgen' },
+  { von: '09:00', bis: '20:00', prozent: 100, mirek: 153, wann: 'Tag' },
   { von: '20:00', bis: '00:00', prozent: 25, mirek: 370, wann: 'Abend' },
   { von: '00:00', bis: '06:00', prozent: 5, mirek: 370, wann: 'Nacht' },
 ] as const;
