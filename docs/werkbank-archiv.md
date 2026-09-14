@@ -7841,3 +7841,162 @@ Datendatei -, und er fällt nachweislich, wenn man die Wiederherstellung
 herausnimmt.
 
 Stellen: `hub/homepilot/integrations/alarm.py`, `hub/homepilot/integrations/alarm_rules.py`, `hub/tests/test_alarm_neustart.py`
+
+# Teil XIV: Auf Zuruf (643)
+
+### 643. Die PlayStation 5 im Haus - wie der Android TV, mit Fernbedienung und Karte ✓ erledigt
+
+*Aufwand: gross · Hub + App*
+
+Gewünscht war die Konsole «so wie der Android TV»: Kachel mit Zustand
+und laufendem Spiel, Fernbedienung in der App, Karte auf dem
+Sperrbildschirm, Kopplung unter Einstellungen → Verbindungen. Für den Hub
+ist die Konsole deshalb ein Fernseher mit Steuerkreuz (`media_player`,
+`has_screen`) - und genau das war die Falle: Kachel, Fernbedienung und
+Live-Karte griffen von selbst, aber mit OK statt Kreuz, «App» statt
+Spiel, Ton-Tasten ohne Ton und einer Kopplung, die den Code vom
+Bildschirm erwartete.
+
+**Hub.** `integrations/playstation.py`: Zustand und laufendes Spiel über
+das Discovery-Protokoll (UDP 9302/987, `ddp_antwort`, `konsolenzustand`,
+rein), Wecken per WAKEUP-Paket mit dem RegistKey der Registrierung oder
+der Konto-Kennung (`weck_kennung`) - beides ohne Bibliothek. Ruhemodus
+und Tasten über `pyremoteplay` in einer kurzlebigen Remote-Play-Sitzung
+ohne Video, die nach 30 s ohne Taste wieder getrennt wird; ohne die
+Bibliothek sagt die Absage den pip-Befehl. Ein UDP-Kanal für alle
+Konsolen (`DdpKanal`, Quellport 9303 - nur darauf antwortet die PS5),
+Antworten nach Absender verteilt. Kopplung in zwei Schritten aus der App
+(`api/routes/playstation.py`: PSN-Anmeldung und Rückkehr-Adresse, dann
+der achtstellige Code von der Konsole); Konto in `playstation-token.json`,
+Registrierung in `playstation-profile.json` - `Profiles.save()` der
+Bibliothek ignoriert den Standardpfad und schriebe ins
+Home-Verzeichnis des Containers. Auf der Karte Controller-Symbol und
+«Spielt: …»; die Konsole gilt als `eigenstaendig` und stört die
+Zwillingsregel von Cast und Android TV nicht. Das Extra `playstation`
+braucht im Abbild eine gcc-Schicht, weil `netifaces` kein Rad für Python
+3.12 hat; gcc wird in derselben Schicht wieder entfernt.
+
+**App.** `istPlaystation` erkennt die Konsole; die Fernbedienung zeigt
+△□○✕ und Share · PS · Options (Kreuz bestätigt, deshalb kein OK in der
+Kreuzmitte), die Kachel «Spielt: …» und trennt Standby von Aus (nur aus
+dem Standby lässt sie sich wecken). `PsKopplung` unter Verbindungen im
+Abschnitt «Spielkonsole», der Hub sagt, welcher Schritt dran ist. Zwei
+Beifänge: Ton-Tasten am Steuerkreuz ohne `volume_up`, und die Konsole
+war ein falscher Fernseher-Zwilling in `raumkarte.ts`.
+
+**Am echten Gerät noch zu prüfen:** ob die PS5 im Haus auf die
+SRCH-Anfrage antwortet und das Wecken mit dem RegistKey greift; ob die
+Sitzung ohne Video innert 15 s «bereit» meldet und die Tasten ankommen;
+`async_standby()` der Bibliothek liefert praktisch immer `False` (kaputte
+Warteschleife), der Ruhemodus zeigt sich erst in der nächsten DDP-Runde.
+Die Nummer war zuerst 634 und wanderte auf 643, weil 634–642 in der
+Zwischenzeit auf anderen Zweigen vergeben wurden.
+
+**Erster Kontakt mit der echten Konsole:** Schritt 1 (PSN-Konto) ging
+durch, Schritt 2 endete mit «Im Hub ist etwas schiefgegangen». Der Hub
+hielt den Quellport 9303 für seine eigenen Statusanfragen offen, und die
+Bibliothek band für `async_get_status` und die Registrierung denselben
+Port ein zweites Mal - «Address already in use», weder Wert- noch
+Verbindungsfehler, also ein 500. Seither gibt `_port_frei()` der
+Bibliothek den Port für die Dauer ihres Aufrufs ganz (die Geräteschleife
+wartet am Schloss) und öffnet den Kanal danach neu; was die Bibliothek
+sonst wirft, kommt als Satz in der Antwort an, nicht als 500.
+
+**Und die Sitzung fiel nach ein paar Sekunden ab:** Der Hub schickte die
+einzelnen Tasten, liess aber den Controller-Worker der Bibliothek
+(`controller.start()`) aus - und erst dessen steter Pad-Zustand im Takt
+von 100-200 ms hält die Remote-Play-Sitzung am Leben. Ohne ihn legte die
+Konsole sie von selbst ab. Der Worker läuft jetzt, solange die Sitzung
+steht, und hält still, sobald sie getrennt wird.
+
+Stellen: `hub/homepilot/integrations/playstation.py`, `hub/homepilot/api/routes/playstation.py`, `hub/homepilot/core/livekarten.py`, `hub/homepilot/core/extras.py`, `hub/pyproject.toml`, `hub/Dockerfile`, `docs/playstation.md`, `hub/tests/test_playstation*.py`, `app/src/lib/playstation.ts`, `app/src/components/TvRemote.tsx`, `app/src/components/PsKopplung.tsx`, `app/src/screens/VerbindungenScreen.tsx`, `app/src/lib/fernsehkachel.ts`, `app/src/lib/fernsehkopplung.ts`, `app/src/lib/geraeteart.ts`, `app/src/lib/raumkarte.ts`
+
+### 644. «Zocken» blieb nie aktiv - der zweite Druck löste bloss erneut aus ✓ erledigt
+
+Aus dem Haus: «Ich habe die Szene Zocken / Kino aktiviert. In der Szene
+habe ich hinterlegt bei ‹Nach dem Auslösen› = ‹Bleibt aktiv›. Es bleibt
+aber nicht aktiv. Wenn ich nochmals darauf klicke, löst es einfach die
+Szene erneut aus.»
+
+Der Fernseher wechselt beim Zocken über `launch_app` auf die
+PlayStation. Ob eine Szene noch gilt, prüft der Hub daran, ob die
+beteiligten Geräte noch so stehen, wie die Szene sie hinterlassen hat
+(`szene_gilt_noch`) - dazu muss sich das Ziel einer Aktion mit dem
+Zustand vergleichen lassen. Für `launch_app` ging das nie: Die Aktion
+trägt die Paket-ID (`data.app`, z. B. `com.sony.ps5`), der Zustand
+aber nur den übersetzten Anzeigenamen (`app`, androidtv.tv_state) -
+zwei Vokabulare, die nie zusammenpassten. Bestand die Szene nur aus
+solchen App-Wechseln, blieb `ist_aktiv` immer `False`, und `toggle()`
+rief statt `revert()` immer wieder `activate()` auf - genau das
+gemeldete Verhalten.
+
+Der Zustand führt die Paket-ID jetzt zusätzlich roh mit (`app_id`),
+und `launch_app` ist seither eine vorhersagbare Aktion wie `turn_on`
+oder `set_volume` auch: Die Szene gilt als aktiv, sobald die richtige
+App läuft, und ein zweiter Druck nimmt sie zurück - nicht bloss zu
+«Fernseher an», was das Spiel weiterlaufen liesse, sondern zurück zur
+App, die vorher lief. Zwei Nachbarpunkte auf anderen Zweigen (642, 643)
+berühren dieselbe Ecke - der Neustart-Fehler der Alarmanlage und die
+PlayStation als eigenes Gerät - ohne diesen Fall zu treffen.
+
+Stellen: `hub/homepilot/integrations/androidtv.py`, `hub/homepilot/core/szenenrueckweg.py`, `hub/tests/test_new_integrations.py`, `hub/tests/test_szenenrueckweg.py`
+
+### 645. Eine Hue-Lampe schaltete immer auf warmweiss ✓ erledigt
+
+Aus dem Haus, mit dem Bild des Ablauf-Editors: «Wenn ich dies mache,
+schaltet es auf warmweiss und nicht auf neutralweiss.» Auf Nachfrage:
+Philips-Hue-Anbindung, und «bei beiden dasselbe» - warmweiss und
+neutralweiss direkt ausprobiert, dasselbe Ergebnis.
+
+Die Rechnung von der Wahl bis zum Mired-Wert stimmte auf jeder Station
+- App, Ablauf-Entwurf, Hub: 286 kam als 286 an. Der Fehler lag im
+Vorgehen, nicht im Wert. Ein Licht-Schritt mit Helligkeit *und*
+Weisston schickte der Hub als **zwei** Anfragen nacheinander an die
+Bridge: erst «an, mit dieser Helligkeit», dann «und diese
+Farbtemperatur» (`core/automation.py`, `_light`). Zwei Übergänge an
+der Lampe statt einem - und die zweite Anfrage kam auf der
+Zigbee-Funkstrecke der Leuchte («Büro Spot 1», Teil einer
+Mehrspot-Leuchte, also mehr Geräte im selben Funkbereich) manchmal zu
+spät oder ging unter. Die Lampe blieb bei der Farbe, mit der sie
+einschaltete - und das ist bei Hue serienmässig warmweiss.
+
+Jetzt trägt schon die erste Anfrage die gewünschte Farbtemperatur mit,
+wenn eine angegeben ist (`hue.light_body`, herausgelöst aus
+`handle_command` und rein testbar) - ein einziger PUT für an,
+Helligkeit und Farbe zusammen, wie Philips es selbst empfiehlt. Die
+zweite, eigenständige Anfrage schickt der Hub weiterhin (für
+Anbindungen, die die Abkürzung nicht kennen); bei Hue bestätigt sie
+danach nur noch denselben Wert, den die Lampe schon zeigt.
+
+Stellen: `hub/homepilot/integrations/hue.py`, `hub/homepilot/core/automation.py`, `hub/tests/test_light.py`, `hub/tests/test_new_integrations.py`
+
+### 646. Bis zu zwei Szenen unten an der Fernbedienung ✓ erledigt
+
+Aus dem Haus, mit dem Bild der Verbindungen-Seite (Fernseher, dann
+PlayStation 5): «Man soll hier angeben können, welche Szene unten an
+der Fernbedienung angezeigt werden soll. Man soll bis zu zwei
+Szenen/Abläufe angeben können.»
+
+Bisher gab es genau einen Griff, automatisch gefunden: die Szene
+«Kino», wenn es im Haus genau eine mit diesem Namen gibt
+(`lib/kinoszene.ts`) - ein Zufallstreffer, der ein Haus ohne eine Szene
+namens «Kino», oder mit einer zweiten für «Zocken», nie bediente. Jetzt
+lässt sich die Wahl treffen, unter Einstellungen → Verbindungen, direkt
+bei der Kopplung von Fernseher und Spielkonsole - dort, wo man ohnehin
+gerade an diesem Gerät ist, wie beim Einschlaf-Timer nebenan.
+
+Gespeichert wird als Geräte-Metadatum (`entity.remote_scenes`, wie
+`scene_toggles` oder `battery_type` schon vorher) - höchstens zwei,
+geklemmt im Hub selbst (`core/entity.py`, `remote_scenes_lesen`) und
+nicht nur in der App: Wer die Route von Hand aufruft, soll trotzdem
+nicht mehr bekommen. Ohne eigene Wahl bleibt es bei der alten Regel
+(die Szene «Kino») - ein bestehendes Haus merkt von der Umstellung
+nichts, bis jemand die Auswahl trifft; wählt jemand beide Knöpfe ab,
+bleibt die Reihe wirklich leer, statt überraschend doch auf «Kino»
+zurückzufallen (`app/src/lib/fernbedienungsszenen.ts`,
+`fernbedienungsSzenen`). Das Fernbedienungs-Blatt selbst kannte bisher
+nur die eine Szene (`kino`/`onKino`); es zeigt jetzt eine Reihe aus bis
+zu zwei Pillen (`szenen`/`onSzene`) - dieselbe Stelle, die auch die
+PlayStation bedient (Punkt 643), also gilt die Wahl für beide Geräte.
+
+Stellen: `hub/homepilot/core/entity.py`, `hub/homepilot/core/registry.py`, `hub/homepilot/core/hub.py`, `hub/homepilot/api/models.py`, `app/src/lib/fernbedienungsszenen.ts`, `app/src/components/TvRemote.tsx`, `app/src/components/EntityCard.tsx`, `app/src/components/FernbedienungsSzenen.tsx`, `app/src/screens/VerbindungenScreen.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/hooks/useHub.ts`

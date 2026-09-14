@@ -191,7 +191,6 @@ import { UsersScreen } from './UsersScreen';
 import { confirm as confirmBiometrie, needsCheck } from '../lib/biometrie';
 import { type HeimgrussStand } from '../lib/heimgruss';
 import { mayOpenDirectly } from '../lib/tuerbestaetigung';
-import { kinoSzene } from '../lib/kinoszene';
 import { BioLock } from '../components/BioLock';
 import { KontoBlatt } from '../components/KontoBlatt';
 import { TuerRueckfrage } from '../components/TuerRueckfrage';
@@ -204,6 +203,7 @@ import { PushBlatt } from '../components/PushBlatt';
 import { Erinnerungsblatt } from '../components/Erinnerungsblatt';
 import { fristSatz } from '../lib/erinnerungsfrist';
 import { favoritenVon, zuUebernehmen } from '../lib/favoriten';
+import { fernbedienungsSzenen } from '../lib/fernbedienungsszenen';
 import { altesUebernehmen } from '../lib/hausprefs';
 import {
   mitDirekt,
@@ -790,9 +790,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       })
       .then((antwort) => setGrillziele(antwort?.ziele ?? []));
   }, [hub, hatGrill, grillBlattFuer]);
-  // Die Szene «Kino» fürs Fernbedienungs-Blatt - dieselbe Regel wie auf
-  // der Live-Karte des Fernsehers (lib/kinoszene.ts).
-  const kinoImBlatt = useMemo(() => kinoSzene(scenes), [scenes]);
 
   // Was die Einblendung unten anbietet: Abhaken, Griff oder die letzte
   // Schaltung – in dieser Reihenfolge, aus einem Grund (lib/rueckgriff.ts).
@@ -2406,8 +2403,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           : undefined
       }
       doorConfirm={prefs.doorConfirm}
-      kino={kinoImBlatt}
-      onKino={activateScene}
+      szenen={fernbedienungsSzenen(entity, scenes)}
+      onSzene={activateScene}
       groups={editing ? groupNames : undefined}
       onSetGroup={editing ? (group) => setEntityMeta(entity.id, { group }) : undefined}
       onCommand={(command, data) => guardedCommand(entity.id, command, data)}
@@ -3131,6 +3128,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             darfDienste={(user?.capabilities ?? []).includes('edit_config')}
             entities={entities}
             stand={status}
+            scenes={scenes}
+            onSetRemoteScenes={
+              darfAnpassen
+                ? (entityId, remoteScenes) =>
+                    setEntityMeta(entityId, { remote_scenes: remoteScenes })
+                : undefined
+            }
           />
         </View>
       );
@@ -4879,8 +4883,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             onClose={() => setRemoteFuer(null)}
             onCommand={(command, data) => guardedCommand(remoteTv.id, command, data)}
             apps={remoteTv.commands.includes('launch_app') ? appsOf(remoteTv) : []}
-            kino={kinoImBlatt}
-            onKino={activateScene}
+            szenen={fernbedienungsSzenen(remoteTv, scenes)}
+            onSzene={activateScene}
+            // Ohne das Gerät zeigt das Blatt das Fernseher-Muster - und
+            // die PlayStation bekam vom Raumkopf und von der Sperrbild-
+            // schirm-Karte aus Ton- und Abspieltasten, die der Hub mit
+            // «unterstützt das Kommando nicht» beantwortete (Punkt 643).
+            entity={remoteTv}
           />
         ) : null}
         {grillImBlatt ? (

@@ -4106,12 +4106,27 @@ class AutomationEngine:
             except (TypeError, ValueError):
                 helligkeit = None
 
+        # Die Farbtemperatur reist gleich mit dem ersten Befehl mit, wenn
+        # es einen gibt (Punkt 645 der Werkbank): Der gemeldete Fall war
+        # eine Hue-Lampe, die immer auf warmweiss schaltete, egal welcher
+        # Weisston gewählt war - der Hub schickte «an, mit Helligkeit» und
+        # «und diese Farbe» als zwei getrennte Anfragen, und die zweite
+        # kam auf der Zigbee-Funkstrecke manchmal zu spät oder ging unter.
+        # Integrationen, die diese Abkürzung nicht kennen (die meisten),
+        # ignorieren das zusätzliche Feld einfach - für sie zieht weiter
+        # unten die eigene set_color_temp-Anfrage die Farbe nach.
+        erste_daten: dict[str, Any] = {}
+        farbe_vorab = action.get("color")
+        weiss_vorab = action.get("color_temp")
+        if weiss_vorab and not farbe_vorab:
+            erste_daten["color_temp"] = float(weiss_vorab)
+
         if helligkeit is not None and "set_brightness" in entity.commands:
             await self.hub.integrations.dispatch_command(
-                entity_id, "set_brightness", {"brightness": helligkeit}
+                entity_id, "set_brightness", {"brightness": helligkeit, **erste_daten}
             )
         else:
-            await self.hub.integrations.dispatch_command(entity_id, "turn_on", {})
+            await self.hub.integrations.dispatch_command(entity_id, "turn_on", erste_daten)
 
         # Und wie lange sie an bleiben soll. Ohne diese Angabe brauchte ein
         # Bewegungslicht drei Schritte (an, warten, aus) - und der

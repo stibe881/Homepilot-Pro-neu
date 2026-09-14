@@ -9,6 +9,7 @@ from homepilot.core.livekarten import (
     UPDATE_ABSTAND,
     abgleich,
     ende_payload,
+    fernbedienung_ziel,
     grill_url,
     hat_karte,
     karten_alarm,
@@ -1377,3 +1378,65 @@ def test_ohne_ist_temperatur_gibt_es_keine_grosse_zahl():
     karte = karten_grill([grill])[0]["state"]
     assert "gross" not in karte
     assert karte["text"] == "Ziel 110°C"
+
+
+# ── Die PlayStation auf der Fernseher-Karte (Punkt 643) ────────────────
+
+
+def test_die_playstation_karte_traegt_controller_und_spiel():
+    """Die Konsole meldet sich wie ein Fernseher (has_screen, on) und
+    bekommt dieselbe Karte - mit Controller statt Fernseher als Symbol
+    und «Spielt: …» statt dem nackten Namen."""
+    ps5 = SimpleNamespace(
+        id="playstation.10_0_0_60", kind="media_player", label="PlayStation 5",
+        integration="playstation", room="Wohnzimmer",
+        state={"state": "on", "has_screen": True, "app": "Gran Turismo 7"},
+        commands=["dpad_up", "cross"],
+    )
+    karten = karten_tv([ps5])
+    assert [k["art"] for k in karten] == ["tv:playstation.10_0_0_60"]
+    assert karten[0]["state"]["symbol"] == "gamecontroller"
+    assert karten[0]["state"]["text"] == "Spielt: Gran Turismo 7"
+    assert karten[0]["state"]["url"] == "homepilot://fernbedienung/playstation.10_0_0_60"
+    # Ohne Spiel: eingeschaltet, wie beim Fernseher. Im Ruhemodus keine Karte.
+    ps5.state = {"state": "on", "has_screen": True, "app": None}
+    assert karten_tv([ps5])[0]["state"]["text"] == "eingeschaltet"
+    ps5.state = {"state": "off", "has_screen": True, "standby": True}
+    assert karten_tv([ps5]) == []
+
+
+def test_die_playstation_stoert_die_zwillinge_nicht():
+    """Sie hat ein Steuerkreuz, ist aber kein zweiter Draht zum selben
+    Bildschirm: Zählte sie als Zwilling, gäbe es im Wohnzimmer zwei
+    Steuerkreuze, die Zusammenlegung von Cast und Android TV zerfiele,
+    und das Geisterbild des Zuspielers käme zurück."""
+    android_aus = SimpleNamespace(
+        id="androidtv.wz", kind="media_player", label="Fernseher Wohnzimmer",
+        integration="androidtv", room="Wohnzimmer", available=True,
+        state={"state": "off", "has_screen": True}, commands=["dpad_up"],
+    )
+    cast = SimpleNamespace(
+        id="cast.wz", kind="media_player", label="Fernseher im Wohnzimmer",
+        integration="google_cast", room="Wohnzimmer",
+        state={"state": "playing", "has_screen": True, "app": "Zattoo"}, commands=["play"],
+    )
+    ps5 = SimpleNamespace(
+        id="playstation.wz", kind="media_player", label="PlayStation 5",
+        integration="playstation", room="Wohnzimmer",
+        state={"state": "on", "has_screen": True, "app": "Astro's Playroom"},
+        commands=["dpad_up", "cross"],
+    )
+    # Der Cast-Eintrag bleibt ein Geisterbild, die Konsole bekommt ihre Karte.
+    karten = karten_tv([android_aus, cast, ps5])
+    assert [k["art"] for k in karten] == ["tv:playstation.wz"]
+
+    # Läuft der Fernseher auch, gibt es zwei Karten: zwei Geräte, zwei
+    # Fernbedienungen - und der Cast-Eintrag geht weiter im Fernseher auf.
+    android_an = SimpleNamespace(**{**vars(android_aus), "state": {"state": "on", "has_screen": True}})
+    karten = karten_tv([android_an, cast, ps5])
+    assert [k["art"] for k in karten] == ["tv:androidtv.wz", "tv:playstation.wz"]
+    assert karten[0]["state"]["text"] == "Zattoo" and karten[0]["state"]["symbol"] == "tv"
+    assert karten[1]["state"]["text"] == "Spielt: Astro's Playroom"
+    # Und der Tipp auf die Cast-Karte führt weiter zum Fernseher, nie zur Konsole.
+    assert fernbedienung_ziel(cast, [android_aus, cast, ps5]) == "androidtv.wz"
+    assert fernbedienung_ziel(cast, [cast, ps5]) == "cast.wz"

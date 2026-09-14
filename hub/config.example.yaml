@@ -470,6 +470,21 @@ integrations:
   #       apps:
   #         - com.plexapp.android
 
+  # PlayStation 5 (oder 4): Kachel mit Zustand und laufendem Spiel,
+  # Fernbedienung, Karte auf dem Sperrbildschirm (Punkt 643). Zustand
+  # und Wecken laufen ohne Zusatzpaket; für Ruhemodus und Tasten braucht
+  # es Remote Play:  pip install "homepilot[playstation]"  (im Abbild dabei).
+  # Einmalige Kopplung in der App unter Einstellungen → Verbindungen:
+  # PSN-Anmeldung, dann der Code von der Konsole - siehe docs/playstation.md.
+  # - integration: playstation
+  #   # Wie lange eine Remote-Play-Sitzung ohne weitere Taste offen bleibt
+  #   # (Sekunden, Vorgabe 120). Jede Sitzung meldet sich auf dem
+  #   # Fernseher mit «verbunden»/«getrennt»; 0 heisst nie von selbst trennen.
+  #   session_idle: 120
+  #   devices:
+  #     - host: 192.168.1.60
+  #       name: PlayStation 5
+
   # Overkiz (Somfy TaHoma & Co.): Storen, Rollläden, Markisen.
   # Braucht: pip install pyoverkiz. Entwicklermodus im Somfy-Konto
   # aktivieren, dann ein lokales Token in der TaHoma-App erzeugen

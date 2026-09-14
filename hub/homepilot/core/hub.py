@@ -60,6 +60,7 @@ from .aenderungen import Aenderungsprotokoll
 from .audit import AuditLog
 from .automation import AutomationEngine
 from .config import HubConfig
+from .entity import remote_scenes_lesen
 from .eventlog import EventLog
 from .events import EventBus
 from .guestpass import PassStore
@@ -589,6 +590,7 @@ class Hub:
         room_only: Any = UNSET,
         contact_kind: Any = UNSET,
         battery_type: Any = UNSET,
+        remote_scenes: Any = UNSET,
     ) -> None:
         """Setzt Anzeigename, Favorit-Flag oder Gruppe einer Entität.
 
@@ -620,6 +622,12 @@ class Hub:
             # Punkt 633: nur ein bekannter Typ, sonst «unbekannt» - ein
             # Tippfehler soll nicht auf der Einkaufsliste landen.
             current["battery_type"] = watchrules.batterietyp_pruefen(battery_type)
+        if remote_scenes is not UNSET:
+            # Punkt 646: höchstens zwei, geklemmt hier und nicht erst in
+            # der App - siehe entity.remote_scenes_lesen. Eine leere
+            # Liste räumt die Auswahl weg (unten, "Leere Felder
+            # entfernen" behandelt sie darum wie die anderen Felder).
+            current["remote_scenes"] = remote_scenes_lesen(remote_scenes)
         # Leere Felder entfernen, damit der Eintrag nicht anwächst.
         #
         # `scene_toggles` geht andersherum: Der Normalfall ist «ja»,

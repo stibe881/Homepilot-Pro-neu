@@ -68,6 +68,7 @@ SCAN_INTERVALS: dict[str, float] = {
     "meteoalarm": 900,
     "nuki": 60,
     "pitboss": 30,
+    "playstation": 10,
     "plex": 30,
     "ring": 300,
     "roborock": 60,

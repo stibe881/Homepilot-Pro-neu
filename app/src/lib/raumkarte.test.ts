@@ -287,6 +287,34 @@ describe('geraetAktion und kachelKnoepfe', () => {
     expect(aktion?.id).toBe('cast.tv');
   });
 
+  it('nimmt die PlayStation nicht als Zwilling des Fernsehers (Punkt 643)', () => {
+    // Die Konsole hat Bildschirm und Steuerkreuz - aber sie ist ihr
+    // eigenes Gerät. Der Cast-Eintrag des Fernsehers daneben öffnete
+    // sonst die Konsole statt zu schalten.
+    const cast = geraet('cast.tv', 'media_player', { state: 'on', has_screen: true }, [
+      'turn_on',
+      'turn_off',
+    ]);
+    const ps = {
+      ...geraet('playstation.ps5', 'media_player', { state: 'on', has_screen: true }, [
+        'turn_on',
+        'turn_off',
+        'dpad_up',
+        'cross',
+      ]),
+      integration: 'playstation',
+    } as Entity;
+    const aktion = geraetAktion(cast, [cast, ps]);
+    expect(aktion?.oeffnet).toBeUndefined();
+    expect(aktion?.icon).toBe('tv');
+    // Die Konsole selbst öffnet ihre Fernbedienung - mit dem Controller
+    // als Sinnbild, nicht dem Fernseher.
+    const eigene = geraetAktion(ps, [cast, ps]);
+    expect(eigene?.oeffnet).toBe('fernbedienung');
+    expect(eigene?.fernbedienungId).toBe('playstation.ps5');
+    expect(eigene?.icon).toBe('game-controller');
+  });
+
   it('raet bei zwei Steuerkreuzen im Zimmer nicht', () => {
     // Eine falsche Fernbedienung ist schlimmer als keine.
     const cast = geraet('cast.tv', 'media_player', { state: 'on', has_screen: true }, [
