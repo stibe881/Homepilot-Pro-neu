@@ -25,7 +25,7 @@ vorkommt, prüft `scripts/werkbank.py` (und mit ihr der Prüflauf).
 | Gutscheine | 11 | 453, 458, 688, 689, 690, 691, 692, 693, 694, 695, 696 |
 | Abläufe | 12 | 468, 469, 697, 698, 699, 700, 701, 702, 703, 704, 705, 706 |
 | Push-Benachrichtigungen | 12 | 473, 474, 476, 707, 708, 709, 710, 711, 713, 714, 715, 716 |
-| Alarmanlage | 8 | 483, 717, 718, 719, 720, 721, 723, 725 |
+| Alarmanlage | 7 | 483, 717, 718, 719, 721, 723, 725 |
 | Selbst gewählt | 22 | 492, 493, 494, 496, 499, 500, 501, 502, 726, 727, 728, 729, 730, 731, 732, 733, 734, 735, 736, 737, 738, 739 |
 | Aus früheren Runden | 4 | 223, 237, 268, 353 |
 | Nützlich im Alltag | 1 | 588 |
@@ -469,9 +469,9 @@ Runde 421-505. Vier davon standen beim Gegenprüfen schon im Code und
 fehlen darum hier bewusst: die «Was ist neu»-Anzeige nach einem Update
 (`components/WhatsNew.tsx`), «Bewegung reduzieren»
 (`hooks/useBewegungReduziert.ts`), die gestaffelte Alarm-Eskalation
-(Punkt 255) und die Wartungserinnerungen (`core/maintenance.py`). Sieben
-weitere - 670, 674, 681, 687, 712, 722 und 724 - sind inzwischen gebaut
-und stehen im Archiv.
+(Punkt 255) und die Wartungserinnerungen (`core/maintenance.py`). Acht
+weitere - 670, 674, 681, 687, 712, 720, 722 und 724 - sind inzwischen
+gebaut und stehen im Archiv.
 
 Kurz gehalten, damit die Liste lesbar bleibt (Punkt 505) - die
 ausführliche Abwägung je Punkt, falls es sie gab, steht dann im Archiv.
@@ -722,10 +722,6 @@ liefert die Daten bereits, nur unverknüpft. Aufwand: mittel · Hub.
 **719. Jahres-/Quartalsbericht der Anlage** (Scharfschaltungen,
 Fehlalarme, Reaktionszeit), aus den Einzelberichten von
 `core/alarmbericht.py`. Aufwand: mittel · Hub.
-
-**720. Live-Bild-Vorschau aller Innenkameras beim Scharfschalten
-«Ausser Haus»**, eingebettet statt nur über `Kamerawand.tsx` separat
-erreichbar. Aufwand: klein · App.
 
 **721. Zwei-Faktor bei Fern-Entschärfung von ausserhalb des W-LANs**
 gegen ein gestohlenes, entsperrtes Telefon. Aufwand: mittel · Hub+App.

@@ -8594,3 +8594,24 @@ Testperson macht. `GET /api/push/categories` zeigt `testmodus_fuer` je
 Kategorie, für einen Knopf in der App.
 
 Stellen: `hub/homepilot/core/push.py`, `hub/homepilot/core/hub.py`, `hub/homepilot/api/routes/push.py`, `hub/homepilot/api/models.py`, `hub/tests/test_push_testmodus.py`
+
+### 720. Kamera-Vorschau beim Scharfschalten "Ausser Haus" ✓ erledigt (44b9d90)
+
+Alle Kameras auf einmal gab es bereits (`components/Kamerawand.tsx`,
+separat über die Kameraseite erreichbar) - eingebettet in den
+Scharfschalten-Vorgang selbst, als letzter Blick vor dem Verlassen
+(«ist wirklich niemand mehr drin, ist der Herd aus»), fehlte sie.
+
+`Kamerawand` bekommt einen optionalen `aktion`-Knopf unten im Blatt -
+abwärtskompatibel, die bestehenden Aufrufer (Dashboard) lassen ihn
+einfach weg. `AlarmScreen` öffnet die Wand jetzt, statt direkt scharf
+zu schalten, wenn «Ausser Haus» gewählt wird und es Kameras gibt; der
+Knopf «Jetzt scharf schalten» schliesst die Wand und ruft `arm('ausser_haus')`
+wie zuvor. Andere Modi (Nacht, Nur Erdgeschoss) bleiben unverändert -
+dort ist man noch im Haus und sieht selbst nach. Vereinfacht gegenüber
+dem ursprünglichen Vorschlag: alle Kameras (`entity.kind === 'camera'`),
+nicht nur Innenkameras - eine Innen/Aussen-Unterscheidung gibt es im
+Datenmodell bisher nicht, und sie eigens dafür einzuführen wäre über
+den Rahmen dieses Punkts hinausgegangen.
+
+Stellen: `app/src/components/Kamerawand.tsx`, `app/src/screens/AlarmScreen.tsx`
