@@ -8185,3 +8185,35 @@ nicht die gespeicherte Farbe von gestern: Die Lampe sagt ja, dass sie
 jetzt weiss leuchtet.
 
 Stellen: `app/src/lib/lichtfarbe.ts`, `app/src/lib/lichtfarbe.test.ts`
+
+### 652. «Tageslicht» war nicht das kälteste Weiss, das die Lampe kann ✓ erledigt
+
+Aus dem Haus: «Wenn man auf Tageslicht stellt, ist es nicht das Maximum
+an Kaltweiss.» Stimmt - und zwar um 1500 Kelvin.
+
+Die drei Stufen standen auf 370, 286 und 200 Mirek. In Kelvin sind das
+2700, 3500 und 5000 - eine Hue-Lampe kann aber bis 6500 K (153 Mirek).
+Die kälteste Stufe verschenkte also fast die Hälfte der Spanne, und die
+mittlere lag ebenfalls zu warm.
+
+Jetzt folgen die Zahlen den Wörtern, die auf jeder Lampenpackung
+stehen: warmweiss unter 3300 K (370 Mirek = 2700 K), neutralweiss
+dazwischen (250 = 4000 K), tageslichtweiss über 5300 K (153 = 6500 K) -
+und 153 ist zugleich das Kälteste, was die Bridge annimmt. Eine Lampe,
+die das nicht schafft, bekommt von ihrer Bridge den kältesten Wert, den
+sie kann; zu hoch zu zielen kostet nichts, zu niedrig verschenkt die
+Spanne.
+
+Zwei Dinge fielen dabei ab:
+
+- Ein Ablauf aus der Zeit davor trägt weiter seine 200 oder 286. Die
+  Punktwahl ist nachsichtig (±60 Mirek) und markiert trotzdem die
+  richtige Stufe; ausgeschrieben steht dort dann «5000 K» statt
+  «tageslichtweiss» - ehrlicher als ein Wort, das nicht mehr stimmt.
+- Die Farbe, in der ein Weisston in der App erscheint, gab es zweimal:
+  einmal für die Punkte im Raster, einmal für die Punkte auf dem
+  Szenenknopf. Jetzt kommt beides aus `weisstonFarbe` - zwei Paletten
+  für dieselben drei Töne wären zwei Stellen, an denen jemand eine
+  ändert.
+
+Stellen: `app/src/lib/weisston.ts`, `app/src/lib/weisston.test.ts`, `app/src/lib/lichtwahl.ts`, `app/src/lib/lichtwahl.test.ts`

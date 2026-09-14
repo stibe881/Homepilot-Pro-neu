@@ -45,8 +45,17 @@ describe('aktiverWeisston', () => {
     // Eine Lampe meldet 366 zurück, wo 370 geschickt wurde. Ohne
     // Nachsicht wäre nie ein Punkt markiert.
     expect(aktiverWeisston(lampe(kann, { color_temp: 366 }))).toBe(370);
-    expect(aktiverWeisston(lampe(kann, { color_temp: 290 }))).toBe(286);
-    expect(aktiverWeisston(lampe(kann, { color_temp: 205 }))).toBe(200);
+    expect(aktiverWeisston(lampe(kann, { color_temp: 255 }))).toBe(250);
+    expect(aktiverWeisston(lampe(kann, { color_temp: 160 }))).toBe(153);
+  });
+
+  it('markiert die kälteste Stufe auch an einer Lampe, die 153 nicht schafft', () => {
+    // «Wenn man auf Tageslicht stellt, ist es nicht das Maximum an
+    // Kaltweiss»: Tageslicht heisst seither 153 (6500 K). Eine Lampe,
+    // die nur bis 200 kommt, meldet 200 zurück - und soll trotzdem als
+    // «tageslichtweiss» markiert sein, sonst stünde die eigene Wahl
+    // gleich wieder ohne Punkt da.
+    expect(aktiverWeisston(lampe(kann, { color_temp: 200 }))).toBe(153);
   });
 
   it('markiert nichts, was zu weit von jeder Stufe weg ist', () => {

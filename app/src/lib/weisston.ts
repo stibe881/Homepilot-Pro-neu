@@ -10,10 +10,29 @@
  * und eine Lib soll nichts aus einem Bildschirm holen müssen.
  */
 
+/**
+ * Die drei Stufen - und warum genau diese Zahlen.
+ *
+ * Sie folgen den Wörtern, die auf jeder Lampenpackung stehen:
+ * warmweiss unter 3300 K, neutralweiss dazwischen, tageslichtweiss
+ * über 5300 K. In Mirek gerechnet (1 000 000 / Kelvin):
+ *
+ * * **warmweiss** 370 = 2700 K - die klassische Glühbirne.
+ * * **neutralweiss** 250 = 4000 K - das Licht über dem Arbeitstisch.
+ * * **tageslichtweiss** 153 = 6500 K - und das ist zugleich das
+ *   Kälteste, was eine Hue-Lampe kann; kälter geht es nicht.
+ *
+ * Vorher standen dort 286 (3500 K) und 200 (5000 K), und beides lag zu
+ * warm: Aus dem Haus kam «wenn man auf Tageslicht stellt, ist es nicht
+ * das Maximum an Kaltweiss» - und das stimmte, es fehlten 1500 Kelvin.
+ * Eine Lampe, die 153 nicht schafft, bekommt von ihrer Bridge ohnehin
+ * den kältesten Wert, den sie kann; zu hoch zu zielen kostet nichts,
+ * zu niedrig verschenkt die halbe Spanne.
+ */
 export const WEISSTOENE: { key: string; label: string; mirek: number }[] = [
   { key: 'warm', label: 'warmweiss', mirek: 370 },
-  { key: 'neutral', label: 'neutralweiss', mirek: 286 },
-  { key: 'kalt', label: 'tageslichtweiss', mirek: 200 },
+  { key: 'neutral', label: 'neutralweiss', mirek: 250 },
+  { key: 'kalt', label: 'tageslichtweiss', mirek: 153 },
 ];
 
 /** Ein Weisston in Worten (rein, testbar) - «warmweiss» statt «370».

@@ -1,4 +1,5 @@
 import { Entity } from '../api/types';
+import { weisstonFarbe } from './szenenfarben';
 import { WEISSTOENE } from './weisston';
 
 /**
@@ -32,17 +33,13 @@ export interface Weissknopf {
   hex: string;
 }
 
-/** Die Farbe, in der ein Weisston in der App erscheint. */
-const WEISSFARBE: Record<string, string> = {
-  warm: '#FFCE91',
-  neutral: '#FFF1DC',
-  kalt: '#EAF3FF',
-};
-
+// Die Farbe zum Zeichnen kommt aus lib/szenenfarben.ts - dieselbe, die
+// ein Szenenknopf als Punkt trägt. Zwei Paletten für dieselben drei
+// Töne wären zwei Stellen, an denen jemand eine ändert.
 export const WEISSKNOEPFE: Weissknopf[] = WEISSTOENE.map((ton) => ({
   mirek: ton.mirek,
   label: ton.label,
-  hex: WEISSFARBE[ton.key] ?? '#FFFFFF',
+  hex: weisstonFarbe(ton.mirek),
 }));
 
 /** Kann die Lampe Farben? (rein, testbar) */
