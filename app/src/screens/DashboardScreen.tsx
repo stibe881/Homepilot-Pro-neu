@@ -211,6 +211,7 @@ import {
   standardDirekt,
   widgetCommand,
 } from '../lib/widgetButtons';
+import { mitStil } from '../lib/widgetstil';
 import { HubProvider, MeldungsProvider, useBlattstapel } from '../hooks/HubContext';
 import { useFamilienlisten } from '../hooks/useFamilienlisten';
 import { useAbstuerze } from '../hooks/useAbstuerze';
@@ -982,6 +983,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setWidgetButtons,
     setRaumKnoepfe,
     setWidgetDirect,
+    setWidgetStil,
     setEinkaufLernen,
   } = usePrefs(settings, status === 'connected');
 
@@ -1045,7 +1047,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const widgetButtons = useMemo(
     () =>
       mitDirekt(
-        resolveButtons(prefs.widgetButtons, scenes, entities),
+        // Erst der eigene Name und das eigene Symbol (lib/widgetstil.ts),
+        // dann die Direktschaltung: Das Widget, die Kurzbefehle am
+        // App-Symbol und die Kachelwand im Auto lesen dieselbe Liste -
+        // ein Knopf, der nur an einer der drei Stellen «Wohnung» heisst,
+        // wäre der Anfang von dreien.
+        mitStil(resolveButtons(prefs.widgetButtons, scenes, entities), prefs.widgetStil),
         // Ohne eigene Wahl schalten die Knöpfe, die es dürfen. Vorher
         // war die Vorgabe «keiner»: Jedes frische Widget öffnete nur
         // die App - genau die Klage aus dem Haus.
@@ -1059,6 +1066,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       prefs.widgetButtons,
       prefs.widgetDirect,
       prefs.widgetData,
+      prefs.widgetStil,
       tuerOhneRueckfrage,
       scenes,
       entities,
@@ -3138,6 +3146,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               standardDirekt(prefs.widgetButtons ?? [], entities, tuerOhneRueckfrage)
             }
             onDirect={setWidgetDirect}
+            stile={prefs.widgetStil}
+            onStile={setWidgetStil}
             tuerOhneRueckfrage={tuerOhneRueckfrage}
             dataEnabled={!!prefs.widgetData}
             onDataEnabled={setWidgetData}
