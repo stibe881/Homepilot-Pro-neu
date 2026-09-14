@@ -1,0 +1,130 @@
+# Dateien, deren Schriftgrössen ausserhalb der Skala liegen dürfen.
+#
+# Punkt 681 der Werkbank: `fontSize: 15` statt `type.label` oder
+# `typ.label` ist eine eigene Zahl neben der Skala in theme.tsx - genau
+# der Wildwuchs, den Punkt 441 schon für `padding` beschreibt. Dieselbe
+# Lösung: neue Dateien werden sofort geprüft (eslint.config.js meldet
+# einen Fehler), gewachsene stehen hier und bleiben unbehelligt, bis sie
+# jemand aufräumt.
+#
+# Die Liste kann nur schrumpfen - das Gegenstück zu mypy-sauber.txt im
+# Hub, das nur wächst. Wer eine Datei ohnehin anfasst und die letzte
+# nackte Zahl darin durch eine Stufe aus `type`/`typ` ersetzt, streicht
+# ihren Namen hier heraus; der Prüflauf wird dann rot, sobald wieder
+# eine neue Zahl hineinrutscht.
+src/components/Abschnitt.tsx
+src/components/AccessLog.tsx
+src/components/AllOff.tsx
+src/components/Auffangnetz.tsx
+src/components/BereichRiegel.tsx
+src/components/BesuchKarte.tsx
+src/components/BioLock.tsx
+src/components/CameraLive.tsx
+src/components/CameraLive.web.tsx
+src/components/CameraTimeline.tsx
+src/components/ClimateOverview.tsx
+src/components/ClipArchiv.tsx
+src/components/ColorRow.tsx
+src/components/DateTimePick.tsx
+src/components/DeviceHealth.tsx
+src/components/DeviceTools.tsx
+src/components/DoorPass.tsx
+src/components/DraggableList.tsx
+src/components/Einfuehrung.tsx
+src/components/Einrichtungshilfe.tsx
+src/components/Einrichtungsprotokoll.tsx
+src/components/EntityHistory.tsx
+src/components/Erinnerungsblatt.tsx
+src/components/Farbraster.tsx
+src/components/FernbedienungsSzenen.tsx
+src/components/GaesteWlan.tsx
+src/components/GeraetAnlernen.tsx
+src/components/GlobalSearch.tsx
+src/components/GoodNight.tsx
+src/components/Grillverlauf.tsx
+src/components/Grundriss.tsx
+src/components/Hilfeblatt.tsx
+src/components/HistoryChart.tsx
+src/components/Kamerawand.tsx
+src/components/Kassencode.tsx
+src/components/Kategoriezeile.tsx
+src/components/KidsView.tsx
+src/components/KitchenTimer.tsx
+src/components/Klappe.tsx
+src/components/KontoBlatt.tsx
+src/components/Leerzustand.tsx
+src/components/Lichtblatt.tsx
+src/components/LightGroups.tsx
+src/components/LiveTuerSchalter.tsx
+src/components/Maintenance.tsx
+src/components/Musikliste.tsx
+src/components/Musikzentrale.tsx
+src/components/Musterblatt.tsx
+src/components/OffenListe.tsx
+src/components/OpenDoors.tsx
+src/components/Personenbild.tsx
+src/components/Posteingang.tsx
+src/components/PsKopplung.tsx
+src/components/PushBlatt.tsx
+src/components/PushPrefs.tsx
+src/components/PushRules.tsx
+src/components/QrScanner.tsx
+src/components/Rail.tsx
+src/components/Raumbild.tsx
+src/components/RunningAppliances.tsx
+src/components/SceneRow.tsx
+src/components/SceneSuggestion.tsx
+src/components/Schalterzeile.tsx
+src/components/Seitenhilfe.tsx
+src/components/Shops.tsx
+src/components/SidePanel.tsx
+src/components/SorgenBlatt.tsx
+src/components/Strichcode.tsx
+src/components/StromausfallCard.tsx
+src/components/SzeneAufnehmen.tsx
+src/components/TagesZeile.tsx
+src/components/Toast.tsx
+src/components/TopStrip.tsx
+src/components/TuerRueckfrage.tsx
+src/components/TvApps.tsx
+src/components/TvKopplung.tsx
+src/components/TvRemote.tsx
+src/components/TvSleep.tsx
+src/components/TvSteuerkreuz.tsx
+src/components/TvVolume.tsx
+src/components/VacuumHome.tsx
+src/components/WeckerFormular.tsx
+src/components/WhatsNew.tsx
+src/components/WidgetSetting.tsx
+src/components/Widgets.tsx
+src/components/Zustand.tsx
+src/components/einstellungen/Kopf.tsx
+src/components/einstellungen/Liste.tsx
+src/components/einstellungen/Uebersicht.tsx
+src/components/einstellungen/Wechselblatt.tsx
+src/components/entity/anpassen.tsx
+src/components/entity/koerper.tsx
+src/components/entity/stil.ts
+src/lib/startfehler.tsx
+src/screens/AlarmScreen.tsx
+src/screens/BesuchScreen.tsx
+src/screens/BrandScreen.tsx
+src/screens/DiagnoseScreen.tsx
+src/screens/EnergyScreen.tsx
+src/screens/HausRueckblick.tsx
+src/screens/LoginScreen.tsx
+src/screens/OverviewScreen.tsx
+src/screens/PersonenScreen.tsx
+src/screens/RecipeBook.tsx
+src/screens/SettingsScreen.tsx
+src/screens/SpeakersScreen.tsx
+src/screens/SystemScreen.tsx
+src/screens/UsersScreen.tsx
+src/screens/VerbindungenScreen.tsx
+src/screens/automations/stil.ts
+src/screens/dashboard/Grillvollbild.tsx
+src/screens/dashboard/stile.ts
+src/screens/family/gutscheine.tsx
+src/screens/family/kindseite.tsx
+src/screens/family/stil.ts
+src/screens/system/konfiguration.tsx
