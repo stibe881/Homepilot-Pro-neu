@@ -12,6 +12,8 @@ import {
   buildTemplates,
   gruppiereVorlagen,
   mischeVorlagen,
+  gruppeAlsKategorie,
+  kategorieVorschlaege,
   vorlagenGruppe,
 } from './vorlagen';
 import { Entity } from '../../api/types';
@@ -547,5 +549,144 @@ describe('Gruppe als Feld', () => {
     expect(gruppiereVorlagen(zeilen.map((z) => ({ ...z, gruppe: undefined })))[0].titel).toBe(
       'Licht'
     );
+  });
+});
+
+// ── Kategorie aus einer Vorlage ─────────────────────────────────────────
+//
+// Gemeldet: «Wenn ich einen Ablauf aus einer Vorlage erstelle, kann ich
+// da keine Kategorie angeben.» Angeben liess sie sich sehr wohl - nur
+// stand im Editor ein leeres Textfeld und sonst nichts: Zur Wahl standen
+// ausschliesslich Kategorien, die schon ein anderer Ablauf trug. Beim
+// ersten Ablauf eines Hauses gibt es keine, und ein Feld ohne einen
+// einzigen Vorschlag sieht aus wie eine Angabe, die es nicht gibt.
+
+describe('Kategorie-Vorschläge', () => {
+  it('bietet auch ohne einen einzigen Ablauf etwas an', () => {
+    const vorschlaege = kategorieVorschlaege([]);
+    expect(vorschlaege).toContain('Licht');
+    expect(vorschlaege).toContain('Sicherheit');
+    expect(vorschlaege.length).toBeGreaterThan(3);
+  });
+
+  it('stellt die schon benutzten nach vorn', () => {
+    // Was im Haus üblich ist, steht vorn - die Standardgruppen sind nur
+    // ein Anfang, kein Vorschriftenkatalog.
+    const vorschlaege = kategorieVorschlaege(['Abends', 'Licht']);
+    expect(vorschlaege.slice(0, 2)).toEqual(['Abends', 'Licht']);
+  });
+
+  it('zählt eine benutzte Kategorie nicht doppelt', () => {
+    const vorschlaege = kategorieVorschlaege(['Licht']);
+    expect(vorschlaege.filter((name) => name.toLowerCase() === 'licht')).toHaveLength(1);
+  });
+
+  it('lässt die Sammelgruppen weg', () => {
+    // «Eigene» und «Weitere» sagen etwas über die Vorlagenliste, nichts
+    // über den Ablauf - als Kategorie wären sie eine Schublade, in der
+    // man nichts wiederfindet.
+    const vorschlaege = kategorieVorschlaege([]);
+    expect(vorschlaege).not.toContain('Eigene');
+    expect(vorschlaege).not.toContain('Weitere');
+  });
+});
+
+describe('gruppeAlsKategorie', () => {
+  it('nimmt die Gruppe der Vorlage', () => {
+    expect(gruppeAlsKategorie('Licht')).toBe('Licht');
+    expect(gruppeAlsKategorie('Klingel & Kameras')).toBe('Klingel & Kameras');
+  });
+
+  it('gibt bei den Sammelgruppen nichts zurück', () => {
+    expect(gruppeAlsKategorie('Eigene')).toBe('');
+    expect(gruppeAlsKategorie('Weitere')).toBe('');
+    expect(gruppeAlsKategorie(undefined)).toBe('');
+  });
+});
+
+// ── Licht je nach Tageszeit ─────────────────────────────────────────────
+//
+// Gewünscht im Haus: «Im Gang soll das Licht von 06:00 bis 09:00 anders
+// sein, wenn der Bewegungsmelder auslöst, als zwischen 09:00 und 20:00,
+// und anders als zwischen 20:00 und 00:00.»
+
+describe('Vorlage «Licht bei Bewegung, je nach Tageszeit»', () => {
+  const melder: Entity = {
+    id: 'demo.motion_hall',
+    name: 'Bewegung Gang',
+    kind: 'binary_sensor',
+    room: 'Gang',
+    state: { motion: false },
+    commands: [],
+  } as unknown as Entity;
+  const dimmbar: Entity = {
+    id: 'demo.light_hall',
+    name: 'Licht Gang',
+    kind: 'light',
+    room: 'Gang',
+    state: {},
+    commands: ['turn_on', 'turn_off', 'set_brightness'],
+  } as unknown as Entity;
+  const nurAn: Entity = {
+    id: 'demo.light_plain',
+    name: 'Licht Keller',
+    kind: 'light',
+    room: 'Keller',
+    state: {},
+    commands: ['turn_on', 'turn_off'],
+  } as unknown as Entity;
+
+  const vorlage = (entities: Entity[]) =>
+    buildTemplates(entities, []).find(
+      (eintrag) => eintrag.label === 'Licht bei Bewegung, je nach Tageszeit'
+    );
+
+  it('deckt die drei gewünschten Abschnitte ab', () => {
+    const gefunden = vorlage([melder, dimmbar]);
+    expect(gefunden).toBeDefined();
+    const fenster = (gefunden?.draft.steps ?? []).map((step) => step.ifExtra?.[0]);
+    expect(fenster).toEqual(
+      expect.arrayContaining([
+        { type: 'time', after: '06:00', before: '09:00' },
+        { type: 'time', after: '09:00', before: '20:00' },
+        { type: 'time', after: '20:00', before: '00:00' },
+      ])
+    );
+  });
+
+  it('lässt die Nacht nicht dunkel', () => {
+    // Nicht verlangt und trotzdem dabei: Ohne dieses Fenster passt
+    // zwischen Mitternacht und sechs keines, und im Gang ginge um drei
+    // Uhr gar nichts an.
+    const fenster = (vorlage([melder, dimmbar])?.draft.steps ?? []).map(
+      (step) => step.ifExtra?.[0]
+    );
+    expect(fenster).toContainEqual({ type: 'time', after: '00:00', before: '06:00' });
+  });
+
+  it('ist abends dunkler als tagsüber', () => {
+    const schritte = vorlage([melder, dimmbar])?.draft.steps ?? [];
+    const hell = (index: number) =>
+      schritte[index].ifThen?.[0].commandActions[0].brightness;
+    expect(hell(1)).toBeGreaterThan(hell(0) as number);
+    expect(hell(2)).toBeLessThan(hell(1) as number);
+    expect(hell(3)).toBeLessThan(hell(2) as number);
+  });
+
+  it('nimmt die Lampe aus dem Raum des Melders', () => {
+    const andere = { ...dimmbar, id: 'demo.light_bad', room: 'Bad' } as Entity;
+    const schritte = vorlage([melder, andere, dimmbar])?.draft.steps ?? [];
+    expect(schritte[0].ifThen?.[0].commandActions[0].entity_id).toBe('demo.light_hall');
+  });
+
+  it('erscheint nicht für eine Lampe, die sich nicht dimmen lässt', () => {
+    // Sonst wären alle vier Abschnitte gleich hell, und die Vorlage
+    // verspräche etwas, das sie nicht hält.
+    expect(vorlage([melder, nurAn])).toBeUndefined();
+  });
+
+  it('schaltet danach wieder aus', () => {
+    const schritte = vorlage([melder, dimmbar])?.draft.steps ?? [];
+    expect(schritte[0].ifThen?.[0].commandActions[0].offAfter).toBeGreaterThan(0);
   });
 });

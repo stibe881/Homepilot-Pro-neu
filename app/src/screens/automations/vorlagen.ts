@@ -42,6 +42,44 @@ export const VORLAGEN_GRUPPEN = [
 export type VorlagenGruppe = (typeof VORLAGEN_GRUPPEN)[number];
 
 /**
+ * Die Gruppen, die auch als Kategorie eines Ablaufs taugen (rein, testbar).
+ *
+ * «Eigene» und «Weitere» sagen nichts über den Ablauf, sondern über die
+ * Vorlagenliste - als Kategorie wären sie eine Sammelstelle, in der man
+ * nichts wiederfindet.
+ */
+export const KATEGORIE_GRUPPEN: string[] = VORLAGEN_GRUPPEN.filter(
+  (gruppe) => gruppe !== 'Eigene' && gruppe !== 'Weitere'
+);
+
+/** Die Kategorie, die eine Vorlage mitbringt - oder nichts (rein, testbar). */
+export function gruppeAlsKategorie(gruppe: string | undefined): string {
+  return gruppe && KATEGORIE_GRUPPEN.includes(gruppe) ? gruppe : '';
+}
+
+/**
+ * Was im Editor als Kategorie zur Wahl steht (rein, testbar).
+ *
+ * Gemeldet als «aus einer Vorlage kann ich keine Kategorie angeben».
+ * Sie liess sich sehr wohl angeben - nur stand dort ein leeres Textfeld
+ * und sonst nichts: Zur Wahl standen bis hierher ausschliesslich
+ * Kategorien, die schon ein anderer Ablauf trägt. Beim ersten Ablauf
+ * eines Hauses gibt es keine, und ein Feld ohne einen einzigen Vorschlag
+ * sieht aus wie eine Angabe, die es nicht gibt.
+ *
+ * Deshalb stehen die Gruppen der Vorlagen mit zur Wahl - dieselben
+ * Wörter, nach denen die Vorlagen ohnehin sortiert sind. Schon benutzte
+ * zuerst: Was im Haus üblich ist, steht vorn.
+ */
+export function kategorieVorschlaege(benutzte: string[]): string[] {
+  const gesehen = new Set(benutzte.map((name) => name.toLowerCase()));
+  return [
+    ...benutzte,
+    ...KATEGORIE_GRUPPEN.filter((gruppe) => !gesehen.has(gruppe.toLowerCase())),
+  ];
+}
+
+/**
  * In welche Gruppe eine Vorlage gehört, wenn sie kein Feld trägt
  * (rein, testbar).
  *
@@ -132,6 +170,66 @@ export function mischeVorlagen(
   return [...meine, ...gebaut];
 }
 
+/**
+ * Die Tagesabschnitte, in denen dieselbe Lampe verschieden hell ist.
+ *
+ * Gewünscht im Haus: «Im Gang soll das Licht von 06:00 bis 09:00 anders
+ * sein als zwischen 09:00 und 20:00 und anders als zwischen 20:00 und
+ * 00:00.» Genau diese drei stehen hier - und dazu die Nacht.
+ *
+ * Die Nacht war nicht verlangt und gehört trotzdem dazu: Ohne sie
+ * bliebe es zwischen Mitternacht und sechs stockdunkel, weil dann kein
+ * Fenster passt. Ein Gang, in dem um drei Uhr nichts angeht, ist der
+ * schlechtere Fehler - deshalb ganz gedämpft statt gar nicht. Wer sie
+ * nicht will, nimmt den Schritt heraus; das sieht man, weil er dasteht.
+ *
+ * Die Prozentzahlen sind ein Anfang, kein Gesetz: Eine Vorlage öffnet
+ * sich als Entwurf, und geändert wird sie vor dem Speichern.
+ */
+export const TAGESZEIT_BAENDER = [
+  { von: '06:00', bis: '09:00', prozent: 40, wann: 'Morgen' },
+  { von: '09:00', bis: '20:00', prozent: 100, wann: 'Tag' },
+  { von: '20:00', bis: '00:00', prozent: 25, wann: 'Abend' },
+  { von: '00:00', bis: '06:00', prozent: 5, wann: 'Nacht' },
+] as const;
+
+/**
+ * Ein «Wenn Zeitfenster, dann so hell»-Schritt (rein, testbar).
+ *
+ * Ein Ablauf statt vier: Vier eigene Abläufe mit je einem Zeitfenster
+ * wären dasselbe Ergebnis, aber vier Stellen zum Ändern - und wer den
+ * Melder wechselt, vergisst zuverlässig einen davon.
+ *
+ * Die Zeitspanne geht als Bedingung des Hubs hinaus (`type: 'time'` mit
+ * `after`/`before`), nicht als Gerätebedingung: Sie hängt an keiner
+ * Entität, und über Mitternacht rechnet der Hub selbst richtig
+ * (core/automation.py, time_in_window).
+ */
+export function tageszeitSchritt(
+  lampe: string,
+  band: { von: string; bis: string; prozent: number },
+  nachlaufSekunden = 240
+): StepDraft {
+  return {
+    ...EMPTY_STEP,
+    kind: 'if',
+    ifExtra: [{ type: 'time', after: band.von, before: band.bis }],
+    ifThen: [
+      {
+        ...EMPTY_STEP,
+        commandActions: [
+          {
+            entity_id: lampe,
+            command: 'set_brightness',
+            brightness: band.prozent,
+            offAfter: nachlaufSekunden,
+          },
+        ],
+      },
+    ],
+  };
+}
+
 /** Fertige Anfänge für die häufigsten Automationen – nur die, deren Geräte
  *  es in diesem Haushalt wirklich gibt. Der Editor öffnet sich vorbefüllt,
  *  anpassen und speichern bleibt beim Benutzer. */
@@ -186,6 +284,13 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
   // auszuschalten wäre kein Anfang, den man nur noch speichern muss.
   const allLights = entities.filter(
     (entity) => entity.kind === 'light' && entity.commands.includes('turn_off')
+  );
+
+  // Für die Tageszeit-Vorlage zählt nur, was sich auch dimmen lässt:
+  // Auf einer Lampe ohne `set_brightness` wären alle vier Abschnitte
+  // gleich hell, und die Vorlage verspräche etwas, das sie nicht hält.
+  const allLightsFuerTageszeit = entities.filter(
+    (entity) => entity.kind === 'light' && entity.commands.includes('set_brightness')
   );
 
   if (motion && allLights.length > 0) {
@@ -250,6 +355,46 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
             ],
           },
         ],
+      },
+    });
+  }
+
+  if (motion && allLightsFuerTageszeit.length > 0) {
+    // «Im Gang von 06:00 bis 09:00 anders als von 09:00 bis 20:00.»
+    //
+    // Die Helligkeit *nach* der Tageszeit gibt es schon als Schalter am
+    // Licht-Schritt - aber die rechnet eine feste Kurve (nachts das
+    // Minimum, tagsüber voll, dazwischen übergeblendet). Wer eigene
+    // Zeiten und eigene Werte will, braucht eigene Fenster, und die
+    // baut man hier: ein Schritt je Abschnitt, jeder mit seiner
+    // Bedingung.
+    const lampe =
+      allLightsFuerTageszeit.find(
+        (entity) => entity.room && entity.room === motion.room
+      ) ?? allLightsFuerTageszeit[0];
+    templates.push({
+      label: 'Licht bei Bewegung, je nach Tageszeit',
+      gruppe: 'Licht',
+      icon: 'time-outline',
+      draft: {
+        ...EMPTY,
+        alias: `Licht nach Tageszeit${motion.room ? ` ${motion.room}` : ''}`,
+        // Wie beim Nachlauf nebenan: Jede neue Bewegung verlängert,
+        // sonst geht das Licht aus, während man noch davorsteht.
+        mode: 'restart',
+        triggers: [
+          {
+            ...EMPTY_TRIGGER,
+            entityId: motion.id,
+            toState: 'on',
+            attribute: 'motion' in (motion.state ?? {}) ? 'motion' : '',
+          },
+        ],
+        // Bewusst *ohne* «nur wenn dunkel»: Die Tagesabschnitte
+        // entscheiden hier schon, wie hell es sein soll. Beides zusammen
+        // hiesse, dass mittags gar nichts angeht - und genau das wäre
+        // der Fehler, den man erst im dunklen Gang merkt.
+        steps: TAGESZEIT_BAENDER.map((band) => tageszeitSchritt(lampe.id, band)),
       },
     });
   }
