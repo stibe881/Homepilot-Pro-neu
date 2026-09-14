@@ -973,6 +973,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setFavorites,
     setFavoriteOrder,
     setSchnellOrder,
+    setReiterOrder,
     setDurchsage,
     setBioLock,
     setDoorConfirm,
@@ -2194,7 +2195,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     !hasRail && !editing && room === ALL_ROOMS,
     (richtung) => {
       const ziel = nachbarBereich(
-        sichtbareBereiche(user?.capabilities ?? [], hiddenSections),
+        sichtbareBereiche(user?.capabilities ?? [], hiddenSections, eigenePrefs.reiterOrder),
         railAktiv,
         richtung
       );
@@ -3062,6 +3063,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             onTageszeit={setTageszeit}
             raumNutzung={!!eigenePrefs.raumNutzung}
             onRaumNutzung={setRaumNutzung}
+            // Die Reihenfolge der Reiter (Punkt 670): dieselbe Ablage wie
+            // die zwei Schalter darüber, nur für die Haupt-Leiste statt
+            // die Kacheln darunter.
+            reiter={sichtbareBereiche(
+              user?.capabilities ?? [],
+              hiddenSections,
+              eigenePrefs.reiterOrder
+            ).map((key) => ({ id: key, name: SECTION_LABEL[key] }))}
+            onReiterOrder={setReiterOrder}
             sicherheit={
               <Abschnitt
                 titel="Anmeldung und Sicherheit"
@@ -4237,6 +4247,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               capabilities={user?.capabilities ?? []}
               hidden={hiddenSections}
               ton={leistenTon}
+              reihenfolge={eigenePrefs.reiterOrder}
             />
           ) : null}
 
@@ -4594,6 +4605,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             capabilities={user?.capabilities ?? []}
             hidden={hiddenSections}
             ton={leistenTon}
+            reihenfolge={eigenePrefs.reiterOrder}
           />
         ) : null}
 

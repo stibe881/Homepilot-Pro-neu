@@ -132,6 +132,12 @@ export interface UserPrefs {
    *  Persönlich wie die Favoriten - welche Szene man zuerst braucht, ist
    *  eine persönliche Frage, und die Storen sind es erst recht. */
   schnellOrder?: string[];
+  /** Die selbst gezogene Reihenfolge der Haupt-Reiter der Leiste
+   *  (components/Rail.tsx, Punkt 670) - Bereichs-Kennungen wie «home»,
+   *  «light». Persönlich wie die Favoriten: Wer die Familienseite selten
+   *  öffnet, will sie nicht an dritter Stelle sehen, nur weil ein
+   *  anderes Familienmitglied das so mag. */
+  reiterOrder?: string[];
   /** Weitere persönliche Schlüssel liegen in derselben Ablage, werden
    *  aber nicht von hier aus gesetzt (siehe lib/persoenlich.ts):
    *  `theme` (der gewählte Anblick), `playlisten` (Reihenfolge und
@@ -391,6 +397,11 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [setzeEigen]
   );
 
+  const setReiterOrder = useCallback(
+    (keys: string[]) => setzeEigen({ reiterOrder: keys }),
+    [setzeEigen]
+  );
+
   const setDurchsage = useCallback(
     (durchsage: DurchsagePrefs) =>
       setzeEigen({ durchsage }),
@@ -430,6 +441,7 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     setFavorites,
     setFavoriteOrder,
     setSchnellOrder,
+    setReiterOrder,
     setDurchsage,
   };
 }

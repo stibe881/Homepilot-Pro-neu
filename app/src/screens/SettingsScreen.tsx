@@ -1,10 +1,20 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
 import { HubSettings } from '../api/types';
 import { Abschnitt } from '../components/Abschnitt';
 import { Card } from '../components/Card';
+import { DraggableList } from '../components/DraggableList';
 import { Schalterzeile } from '../components/Schalterzeile';
 import { useOrtung } from '../hooks/useOrtung';
 import { ConnectionStatus } from '../hooks/useHub';
@@ -77,6 +87,17 @@ interface Props {
   onTageszeit?: (an: boolean) => void;
   raumNutzung?: boolean;
   onRaumNutzung?: (an: boolean) => void;
+  /**
+   * Die Reiter der Haupt-Leiste, in der aktuell sichtbaren Reihenfolge
+   * (Punkt 670 der Werkbank) - für den Ordnen-Knopf in der Kachel-Karte.
+   *
+   * Wert und Rückruf kommen von aussen, aus demselben Grund wie bei
+   * Tageszeit und Raumnutzung: Sie liegen im Gerätespeicher der Person
+   * (hooks/usePrefs.ts), nicht in den Hub-Einstellungen. Ohne Angabe
+   * (weniger als zwei Reiter, Ersteinrichtung) bleibt die Zeile weg.
+   */
+  reiter?: { id: string; name: string }[];
+  onReiterOrder?: (ids: string[]) => void;
   /** Woran die App gerade ist – für die Ampel in der Hub-Karte. Ohne
    *  Angabe «verbunden»: Wer diese Seite sieht, hat den Hub erreicht. */
   stand?: ConnectionStatus;
@@ -95,6 +116,8 @@ export function SettingsScreen({
   onTageszeit,
   raumNutzung,
   onRaumNutzung,
+  reiter = [],
+  onReiterOrder,
   stand = 'connected',
   sicherheit,
   geraet,
@@ -589,6 +612,11 @@ export function SettingsScreen({
   // Kurzem auf der Räume-Seite selbst, als zwei breite Zeilen über den
   // Raumkacheln - dort, wo man die Räume sucht und nicht einstellt.
   // Sie gehören zu diesem Gerät wie die Kachelgrösse darüber.
+  // Reiter ordnen (Punkt 670): derselbe Modal-und-Griff-Weg wie bei den
+  // Favoriten und Schnellaktionen auf der Startseite (OverviewScreen.tsx).
+  const [reiterOrdnen, setReiterOrdnen] = useState(false);
+  const [reiterZieht, setReiterZieht] = useState(false);
+
   const kachelKarte = (
     <Card style={styles.card}>
       <Text style={styles.title}>Kacheln</Text>
@@ -655,6 +683,47 @@ export function SettingsScreen({
               : 'Die Reihenfolge aus der Einrichtung - egal, was du oft anfasst.'
           }
         />
+      ) : null}
+      {onReiterOrder && reiter.length > 1 ? (
+        <>
+          <Pressable
+            onPress={() => setReiterOrdnen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Reihenfolge der Reiter ändern"
+            style={({ pressed }) => [styles.reiterRow, pressed && { opacity: 0.6 }]}
+          >
+            <Ionicons name="swap-vertical" size={18} color={colors.ink} />
+            <Text style={styles.label}>Reihenfolge der Reiter</Text>
+          </Pressable>
+          <Modal
+            visible={reiterOrdnen}
+            animationType="slide"
+            onRequestClose={() => setReiterOrdnen(false)}
+          >
+            <View style={styles.reorderSheet}>
+              <View style={styles.reorderHead}>
+                <Text style={styles.reorderTitle}>Reiter ordnen</Text>
+                <Pressable onPress={() => setReiterOrdnen(false)} accessibilityLabel="Fertig">
+                  <Ionicons name="checkmark" size={26} color={colors.ink} />
+                </Pressable>
+              </View>
+              <Text style={styles.reorderHint}>
+                Am Griff ☰ ziehen. Die Reihenfolge wird bei deinem Benutzer gespeichert und
+                gilt auf allen deinen Geräten.
+              </Text>
+              <ScrollView
+                contentContainerStyle={{ paddingBottom: 40 }}
+                scrollEnabled={!reiterZieht}
+              >
+                <DraggableList
+                  onDragging={setReiterZieht}
+                  items={reiter}
+                  onReorder={onReiterOrder}
+                />
+              </ScrollView>
+            </View>
+          </Modal>
+        </>
       ) : null}
     </Card>
   );
@@ -1269,4 +1338,26 @@ const makeStyles = (colors: Colors) =>
   modeHint: { color: colors.inkFaint, fontSize: 12, lineHeight: 17, marginTop: 6 },
   cancel: { alignItems: 'center', paddingVertical: 6 },
   cancelText: { color: colors.inkSoft, fontSize: 15 },
+  // Reiter ordnen (Punkt 670) - derselbe Blatt-Aufbau wie bei den
+  // Favoriten und Schnellaktionen auf der Startseite.
+  reiterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 6,
+  },
+  reorderSheet: {
+    flex: 1,
+    backgroundColor: colors.panel,
+    padding: 20,
+    paddingTop: 60,
+    gap: 10,
+  },
+  reorderHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  reorderTitle: { color: colors.ink, fontSize: 18, fontWeight: '700' },
+  reorderHint: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
 });
