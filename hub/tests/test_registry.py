@@ -229,6 +229,37 @@ async def test_a_sensor_counts_house_wide_unless_someone_says_otherwise():
     assert registry.get("demo.light").room_only is False
 
 
+def test_remote_scenes_lesen_klemmt_auf_zwei_ohne_duplikate():
+    """Das Rechnen hinter Punkt 646 - geteilt von Registry und Hub."""
+    from homepilot.core.entity import remote_scenes_lesen
+
+    assert remote_scenes_lesen(["kino", "zocken"]) == ["kino", "zocken"]
+    # Eine dritte wird verworfen, nicht die zweite ersetzt.
+    assert remote_scenes_lesen(["kino", "zocken", "party"]) == ["kino", "zocken"]
+    assert remote_scenes_lesen(["kino", "kino"]) == ["kino"]
+    assert remote_scenes_lesen(["", None, "kino"]) == ["kino"]
+    assert remote_scenes_lesen(None) == []
+    assert remote_scenes_lesen("kino") == []
+
+
+async def test_meta_gives_up_to_two_scenes_to_the_remote():
+    """Punkt 646: «Man soll angeben können, welche Szene unten an der
+    Fernbedienung angezeigt werden soll - bis zu zwei.»"""
+    registry = EntityRegistry(EventBus())
+    registry.meta_provider = {
+        "demo.light": {"remote_scenes": ["kino", "zocken"]}
+    }.get
+    await registry.add(make_light())
+    assert registry.get("demo.light").remote_scenes == ["kino", "zocken"]
+
+
+async def test_a_device_without_a_choice_has_no_remote_scenes():
+    registry = EntityRegistry(EventBus())
+    registry.meta_provider = {}.get
+    await registry.add(make_light())
+    assert registry.get("demo.light").remote_scenes == []
+
+
 async def test_meta_says_whether_a_contact_hangs_on_a_window_or_a_door():
     """Homematic meldet beides als «contact» - hier steht, was gilt.
 

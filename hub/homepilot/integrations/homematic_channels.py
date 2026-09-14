@@ -496,6 +496,72 @@ def command_to_value(
     raise ValueError(f"Kommando '{command}' nicht unterstützt")
 
 
+def powerup_parameter(beschreibung: Any) -> tuple[str, list[str]] | None:
+    """Welcher MASTER-Parameter das Einschaltverhalten trägt (rein, testbar).
+
+    Punkt 630 der Werkbank. Homematic nennt ihn je nach Gerät anders -
+    ``POWERUP_SWITCH_STATE`` beim HmIP-Schaltaktor, andere Namen bei
+    Dimmern -, und die Auswahl darin ist eine Aufzählung, deren Wörter
+    das Gerät selbst nennt. Deshalb keine Liste von Gerätetypen, sondern
+    die Frage an die Beschreibung: der erste Parameter, der mit POWERUP
+    beginnt und eine Auswahl hat. Ohne einen solchen kann das Gerät es
+    nicht - und bekommt den Befehl nicht.
+    """
+    if not isinstance(beschreibung, dict):
+        return None
+    for name in sorted(beschreibung):
+        if not str(name).upper().startswith("POWERUP"):
+            continue
+        eintrag = beschreibung.get(name)
+        werte = eintrag.get("VALUE_LIST") if isinstance(eintrag, dict) else None
+        if isinstance(werte, list) and werte:
+            return str(name), [str(wert) for wert in werte]
+    return None
+
+
+def _powerup_wort(eintrag: str) -> str:
+    """Das Wort des Hubs zu einem Eintrag der Aufzählung (rein)."""
+    gross = eintrag.upper()
+    if any(teil in gross for teil in ("RESTORE", "LAST", "PREVIOUS", "OLD")):
+        return "previous"
+    if "OFF" in gross:
+        return "off"
+    if "ON" in gross:
+        return "on"
+    return "other"
+
+
+def powerup_lesen(wert: Any, werte: list[str]) -> str | None:
+    """Was der Aktor als Einschaltverhalten hält (rein, testbar).
+
+    Die CCU liefert bei Aufzählungen die Nummer, manchmal auch den
+    Namen; beides wird verstanden. «other» ist ein Eintrag, den der Hub
+    nicht anbietet.
+    """
+    if isinstance(wert, bool):
+        return None
+    if isinstance(wert, (int, float)):
+        index = int(wert)
+        if 0 <= index < len(werte):
+            return _powerup_wort(werte[index])
+        return None
+    if isinstance(wert, str) and wert in werte:
+        return _powerup_wort(wert)
+    return None
+
+
+def powerup_index(werte: list[str], mode: str) -> int | None:
+    """Welche Nummer der Aufzählung ``mode`` meint (rein, testbar).
+
+    None, wenn das Gerät den Wunsch nicht kennt - ein HmIP-Schaltaktor
+    kann «aus» und «an», nicht immer «wie vorher».
+    """
+    for index, eintrag in enumerate(werte):
+        if _powerup_wort(eintrag) == mode:
+            return index
+    return None
+
+
 def local_address_for(host: str, port: int) -> str:
     """Ermittelt, unter welcher IP die CCU diesen Hub erreicht.
 

@@ -30,12 +30,22 @@ export class HubFehler extends Error {
   readonly status: number | null;
   /** Der angefragte Weg – für die Meldung und zum Suchen im Protokoll. */
   readonly pfad: string;
+  /** Nur bei 403 ausserhalb des Zeitfensters (Punkt 624 der Werkbank):
+   *  ab wann der Zugang wieder gilt, als ISO-Zeit des Hubs. Die
+   *  Verbindungsschleife (hooks/useHub.ts) macht daraus die Pause. */
+  readonly giltAb: string | null;
 
-  constructor(message: string, pfad: string, status: number | null = null) {
+  constructor(
+    message: string,
+    pfad: string,
+    status: number | null = null,
+    giltAb: string | null = null
+  ) {
     super(message);
     this.name = 'HubFehler';
     this.pfad = pfad;
     this.status = status;
+    this.giltAb = giltAb;
   }
 }
 
@@ -82,18 +92,37 @@ const EIGENER_SATZ = [401, 403, 404, 405];
  * was als Nächstes zu tun ist. Und `detail` wird nur genommen, wenn es
  * ein Text ist - FastAPI legt bei einer Formatprüfung eine ganze Liste
  * von Objekten hinein, und die will niemand lesen.
+ *
+ * Eine Ausnahme unter den Ausnahmen: Ein 403 ausserhalb des
+ * Zeitfensters (Punkt 624 der Werkbank) trägt in `detail` ein Objekt
+ * mit `gilt_ab` und einem fertigen Satz («Dein Zugang gilt ab 07:00
+ * wieder»). Der eigene Satz «fehlt die Berechtigung» wäre hier falsch -
+ * die Berechtigung fehlt nicht, es ist bloss Feierabend.
  */
-async function fehlerMeldung(antwort: Response, pfad: string): Promise<string> {
-  if (antwort.status < 500 && !EIGENER_SATZ.includes(antwort.status)) {
+async function fehlerMeldung(
+  antwort: Response,
+  pfad: string
+): Promise<{ text: string; giltAb: string | null }> {
+  const eigener = EIGENER_SATZ.includes(antwort.status);
+  if (antwort.status < 500 && (!eigener || antwort.status === 403)) {
     try {
       const roh = await antwort.text();
       const detail = roh ? (JSON.parse(roh) as { detail?: unknown }).detail : null;
-      if (typeof detail === 'string' && detail.trim()) return detail.trim();
+      if (!eigener && typeof detail === 'string' && detail.trim()) {
+        return { text: detail.trim(), giltAb: null };
+      }
+      if (antwort.status === 403 && detail && typeof detail === 'object') {
+        const { message, gilt_ab } = detail as { message?: unknown; gilt_ab?: unknown };
+        if (typeof gilt_ab === 'string' && gilt_ab) {
+          const text = typeof message === 'string' && message.trim() ? message.trim() : null;
+          return { text: text ?? fehlerText(antwort.status, pfad), giltAb: gilt_ab };
+        }
+      }
     } catch {
       // Kein JSON, kein `detail` - dann eben der eigene Satz.
     }
   }
-  return fehlerText(antwort.status, pfad);
+  return { text: fehlerText(antwort.status, pfad), giltAb: null };
 }
 
 // ── Wer von Fehlschlägen erfährt ─────────────────────────────────────────
@@ -166,7 +195,8 @@ export function hubClient(url: string, token: string): HubClient {
         signal: steuerung.signal,
       });
       if (!antwort.ok) {
-        throw new HubFehler(await fehlerMeldung(antwort, pfad), pfad, antwort.status);
+        const meldung = await fehlerMeldung(antwort, pfad);
+        throw new HubFehler(meldung.text, pfad, antwort.status, meldung.giltAb);
       }
       // 204 und leere Antworten sind gültig – nicht daran scheitern.
       const text = await antwort.text();

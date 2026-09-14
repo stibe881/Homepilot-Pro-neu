@@ -68,7 +68,47 @@ def zielzustand(action: dict[str, Any]) -> dict[str, Any]:
         return {"state": "paused"}
     if command == "set_volume":
         return {"volume": _zahl(data.get("volume"))}
+    if command == "launch_app":
+        # Verglichen wird die rohe Paket-ID (androidtv.py, tv_state) und
+        # nicht der Anzeigename: Die Aktion trägt die ID, der Zustand bis
+        # Punkt 644 nur den übersetzten Namen - zwei Vokabulare, die nie
+        # zusammenpassten (Punkt 644 der Werkbank).
+        app = str(data.get("app") or "").strip()
+        return {"app_id": app} if app else {}
+    if command == "activate":
+        # Eine Szene der Bridge (hue.py, demo.py) - sie meldet sich nach
+        # dem Aufruf mit `state: "active"`, ohne dass ein zweiter Befehl
+        # das noch bestätigen müsste (Punkt 650 der Werkbank). Bestand
+        # eine Szene nur aus solchen Bridge-Aufrufen und Befehlen, die
+        # sich bereits erledigt hatten (z.B. Geräte, die schon ausgeschaltet
+        # waren), blieb `ist_aktiv` immer False - derselbe Fehler, der bei
+        # `launch_app` steckte, nur an einer anderen Aktion.
+        return {"state": "active"}
     return {}
+
+
+#: Zustände, die eine Box nach «pause» genauso gültig zeigen darf wie
+#: «paused» selbst: Sie hat schlicht nichts abgespielt, das Pausieren
+#: war ein Leerlauf (integrations/google_cast.py, handle_command - eine
+#: Box ohne laufende Wiedergabe hat nichts anzuhalten, und meldet
+#: weiterhin idle oder standby, nie «paused»). Ohne diese Gleichsetzung
+#: galt eine Szene, die eine ruhige Box «pausiert», nie als noch aktiv,
+#: und ihr Rückweg hätte eine nie spielende Box fälschlich «angehalten»
+#: - der gemeldete Fall «Kino» (Punkt 650 der Werkbank).
+PAUSIERT_GLEICHWERTIG = frozenset({"paused", "idle", "standby"})
+
+
+def _stimmt_ueberein(feld: str, wert: Any, ist: Any) -> bool:
+    """Ob ein einzelnes Feld zum Sollwert passt (rein, testbar).
+
+    Eigene Funktion statt eines blossen Stringvergleichs, weil «pause»
+    eine Ausnahme braucht (siehe PAUSIERT_GLEICHWERTIG) - dieselbe Regel
+    gilt fürs Prüfen (szene_gilt_noch) und fürs Rückgängigmachen
+    (hat_sich_geaendert), sonst widersprächen sich beide.
+    """
+    if feld == "state" and wert == "paused":
+        return str(ist or "").strip().lower() in PAUSIERT_GLEICHWERTIG
+    return str(ist or "") == str(wert)
 
 
 def hat_sich_geaendert(vorher: dict[str, Any], ziel: dict[str, Any]) -> bool:
@@ -92,7 +132,7 @@ def hat_sich_geaendert(vorher: dict[str, Any], ziel: dict[str, Any]) -> bool:
             if alt_zahl is None or alt_zahl != wert:
                 return True
             continue
-        if str(alt or "") != str(wert):
+        if not _stimmt_ueberein(feld, wert, alt):
             return True
     return False
 
@@ -129,9 +169,18 @@ def rueckbefehl(
         return None
 
     if kind == "media_player":
+        # Vor dem blossen «ein»: Lief vorher eine bestimmte App, gehört
+        # die zurück - sonst käme man aus «Zocken» in einen Fernseher,
+        # der zwar an ist, aber noch das Spiel zeigt (Punkt 644).
+        app_id = str(vorher.get("app_id") or "").strip()
+        if app_id and "launch_app" in commands:
+            return {"command": "launch_app", "data": {"app": app_id}}
         if zustand == "playing" and "play" in commands:
             return {"command": "play"}
-        if zustand in ("paused", "idle") and "pause" in commands:
+        # Punkt 650: «standby» gehört zu derselben Gruppe wie «idle» -
+        # eine Box ohne Wiedergabe, egal ob sie das als Leerlauf oder als
+        # Bildschirmschoner meldet (google_cast.py, cast_state).
+        if zustand in PAUSIERT_GLEICHWERTIG and "pause" in commands:
             return {"command": "pause"}
         if zustand == "on" and "turn_on" in commands:
             return {"command": "turn_on"}
@@ -224,7 +273,7 @@ def szene_gilt_noch(
                 # auf dem Wert zum Stehen.
                 if ist is None or abs(ist - wert) > 2:
                     return False
-            elif str(zustand.get(feld) or "") != str(wert):
+            elif not _stimmt_ueberein(feld, wert, zustand.get(feld)):
                 return False
     return geprueft > 0
 

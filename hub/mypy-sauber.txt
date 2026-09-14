@@ -30,6 +30,7 @@ homepilot/api/routes/funk.py
 homepilot/api/routes/grundriss.py
 homepilot/api/routes/medien.py
 homepilot/api/routes/passes.py
+homepilot/api/routes/playstation.py
 homepilot/api/routes/prefs.py
 homepilot/api/routes/push.py
 homepilot/api/routes/radio.py
@@ -39,6 +40,7 @@ homepilot/api/server.py
 homepilot/core/__init__.py
 homepilot/core/ablaufsimulation.py
 homepilot/core/abschaltung.py
+homepilot/core/abschied.py
 homepilot/core/aenderungen.py
 homepilot/core/alarmanwesenheit.py
 homepilot/core/alarmbericht.py
@@ -161,6 +163,7 @@ homepilot/integrations/life360.py
 homepilot/integrations/mqtt.py
 homepilot/integrations/nuki.py
 homepilot/integrations/pitboss.py
+homepilot/integrations/playstation.py
 homepilot/integrations/presence_sim.py
 homepilot/integrations/schulferien.py
 homepilot/integrations/spotify_webplayer.py

@@ -198,7 +198,7 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
     backgroundColor: colors.accent,
     alignItems: 'center',
   },
-  roomFertigText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  roomFertigText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
   renameInput: {
     backgroundColor: colors.surfaceSoft,
     borderRadius: radius.control,
@@ -220,7 +220,7 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
     paddingHorizontal: 20,
     alignItems: 'center',
   },
-  renameSaveText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  renameSaveText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
   mediaRow: { flexDirection: 'row', gap: 10 },
   /** Die vier Stellungen der Store: zwei mal zwei, damit auch «Beschattung»
    *  in eine halbbreite Telefonkachel passt. */
@@ -254,15 +254,24 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
   // Grill: Störung nach vorne – ein leerer Pelletbehälter lässt das
   // Fleisch kalt werden, während man drinnen sitzt.
   grillProblem: { color: colors.warnInk, fontSize: 13, fontWeight: '700' },
-  grillRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  grillStep: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.track,
+  /** Bild links, Zahlen rechts (Punkt 559). Oben ausgerichtet, damit die
+   *  Temperatur auf der Höhe des Deckels steht und nicht irgendwo in der
+   *  Mitte zwischen Rädern und Kamin. */
+  grillZeile: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  grillInfo: { flex: 1, gap: 6, minWidth: 0 },
+  /** Die Garstufen unter einer Fühlerzeile (Punkt 554) - umbrechend,
+   *  weil sechs Stufen nie in eine Zeile passen. */
+  garstufen: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
+  garstufe: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
   },
+  garstufeAktiv: { backgroundColor: colors.accentSoft, borderColor: colors.accent },
+  garstufeText: { color: colors.ink, fontSize: 12, fontWeight: '600' },
+  grillRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   mediaLabel: {
     color: colors.inkFaint,
     fontSize: 11,
@@ -354,7 +363,7 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
     borderColor: colors.accent,
   },
   deviceChipText: { fontSize: 12, color: colors.inkSoft, flexShrink: 1 },
-  deviceChipTextActive: { color: '#FFFFFF' },
+  deviceChipTextActive: { color: colors.onAccent },
   /** Die Kamerakachel, in der das Bild die Fläche ist. Alles Weitere
    *  liegt darüber - deshalb ist hier nur die Bühne. */
   kameraVoll: { position: 'relative' },
@@ -436,7 +445,7 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
     borderRadius: radius.control,
     backgroundColor: colors.accent,
   },
-  cleanRoomsText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+  cleanRoomsText: { color: colors.onAccent, fontSize: 13, fontWeight: '700' },
   /** Die Szenenkachel: Sie IST der Knopf, deshalb füllt ihr Inhalt die
    *  ganze Fläche - Symbol oben, Name unten, dazwischen Luft. */
   szeneInhalt: { flex: 1, justifyContent: 'space-between', minHeight: 106, gap: 12 },
@@ -446,7 +455,9 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
     justifyContent: 'space-between',
     gap: 8,
   },
-  szeneName: { fontSize: 20, fontWeight: '700', lineHeight: 24 },
+  // An `typ` gehängt (Punkt 610): Vorher stand hier fest 20, und die
+  // Szenenkachel blieb am Wandpanel als Einzige in Telefonschrift.
+  szeneName: { fontSize: typ.sceneName, fontWeight: '700', lineHeight: typ.sceneName + 4 },
   /** Die Lichtkachel: Die ganze Fläche ist der Schalter, deshalb sitzt
    *  der Inhalt darin und nicht daneben. */
   lichtFlaeche: { gap: 12, justifyContent: 'space-between', minHeight: 96 },
@@ -461,7 +472,7 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
   lichtWert: { fontSize: typ.value, fontWeight: '600', ...schrift(), ...ZIFFERN },
   lichtName: { fontSize: typ.cardTitle, fontWeight: '700', marginTop: 2 },
   lichtUnter: { fontSize: typ.cardSub, opacity: 0.85, marginTop: 1 },
-  szeneStand: { fontSize: 12, fontWeight: '600', opacity: 0.8, marginTop: 3 },
+  szeneStand: { fontSize: typ.detail, fontWeight: '600', opacity: 0.8, marginTop: 3 },
   lockButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -472,7 +483,7 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
     backgroundColor: colors.accent,
   },
   lockButtonArmed: { backgroundColor: colors.danger },
-  lockButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  lockButtonText: { color: colors.onAccent, fontSize: 14, fontWeight: '700' },
   mediaButton: {
     width: 38,
     height: 38,
@@ -521,7 +532,7 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
   warnHint: { color: colors.warnInk, fontSize: 12, lineHeight: 17 },
   detail: {
     color: colors.inkSoft,
-    fontSize: 12,
+    fontSize: typ.detail,
   },
   pill: {
     alignSelf: 'flex-start',
@@ -530,7 +541,10 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
     paddingVertical: 6,
   },
   pillText: {
-    fontSize: 13,
+    fontSize: typ.chip,
     fontWeight: '600',
   },
+  /** Die Pille mit Männchen davor (Punkt 612): Symbol und Wort in einer
+   *  Zeile, sonst wie jede Pille. */
+  bewegungsmarke: { flexDirection: 'row', alignItems: 'center', gap: 5 },
 });

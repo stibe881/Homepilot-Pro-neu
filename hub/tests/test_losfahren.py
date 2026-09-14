@@ -44,6 +44,9 @@ def test_kandidaten_nimmt_nur_kommende_termine_mit_ort():
     assert [t["kennung"] for t in treffer] == ["t1"]
     assert treffer[0]["ort"] == "Sportplatz, 6210 Sursee"
     assert treffer[0]["start"] == datetime(2026, 8, 30, 17, 30)
+    # Ohne Person am Kalender geht der Wecker an alle (Punkt 586).
+    assert treffer[0]["person"] is None
+    assert kandidaten([_termin(person="Stefan")], JETZT)[0]["person"] == "Stefan"
 
 
 def test_kandidaten_vertraegt_zeitzonen_mischung():
@@ -106,3 +109,77 @@ def test_orte_vorrat_merkt_auch_nicht_gefundenes():
     assert gelesen["Sportplatz, 6210 Sursee"] == (47.17, 8.11)
     assert gelesen["Nirgendwo 99"] is None
     assert orte_lesen("kein dict") == {}
+
+
+# ── Die Wöchentlichen der Kinder (Punkt 621) ─────────────────────────────
+
+
+def test_activities_with_a_place_become_departure_candidates():
+    """Punkt 621: Der Wecker las nur Kalendertermine, obwohl Fussball in
+    Sursee am Dienstag um 17:30 den Ort längst hatte. Hinbringen und
+    Abholen sind zwei Fahrten mit je ihrer Person."""
+    from homepilot.core.losfahren import aktivitaeten_heute
+
+    # JETZT ist Sonntag, 30.8.2026, 16:00 (KW 35, ungerade → Woche A).
+    activities = [
+        {
+            "id": "f1", "member": "Levin", "day": "So", "text": "Fussball",
+            "from": "17:30", "to": "19:00", "ort": "Sportplatz, 6210 Sursee",
+            "bringt": "Stefan", "holt": "Anna",
+        },
+        {"id": "ohne_ort", "member": "Levin", "day": "So", "text": "Jugi", "from": "18:00"},
+        {"id": "anderer_tag", "member": "Lina", "day": "Mo", "text": "Ballett",
+         "from": "17:00", "ort": "Zell"},
+        {"id": "vorbei", "member": "Lina", "day": "So", "text": "Turnen",
+         "from": "10:00", "ort": "Zell"},
+        {"id": "woche_b", "member": "Lina", "day": "So", "text": "Flöte",
+         "from": "18:00", "ort": "Zell", "week": "B"},
+        {"id": "ferien_ok", "member": "Lina", "day": "So", "text": "Reiten",
+         "from": "18:30", "ort": "Hof", "holidays": True},
+        "kein dict",
+    ]
+    treffer = aktivitaeten_heute(activities, JETZT)
+    assert [t["kennung"] for t in treffer] == [
+        "aktivitaet:f1:2026-08-30:bringt",
+        "aktivitaet:f1:2026-08-30:holt",
+        "aktivitaet:ferien_ok:2026-08-30:bringt",
+    ]
+    assert treffer[0]["summary"] == "Fussball"
+    assert treffer[0]["person"] == "Stefan"
+    assert treffer[0]["start"] == datetime(2026, 8, 30, 17, 30)
+    assert treffer[1]["summary"] == "Fussball abholen"
+    assert treffer[1]["person"] == "Anna"
+    assert treffer[1]["start"] == datetime(2026, 8, 30, 19, 0)
+    # Ohne Person geht der Wecker an alle - wie bisher.
+    assert treffer[2]["person"] is None
+    # In den Ferien bleibt nur, was den Schalter trägt (Punkt 620).
+    assert [t["kennung"] for t in aktivitaeten_heute(activities, JETZT, ferien=True)] == [
+        "aktivitaet:ferien_ok:2026-08-30:bringt"
+    ]
+    assert aktivitaeten_heute(None, JETZT) == []
+    # Für ein krank gemeldetes Kind fährt niemand (Punkt 622).
+    assert [t["kennung"] for t in aktivitaeten_heute(activities, JETZT, krank={"Levin"})] == [
+        "aktivitaet:ferien_ok:2026-08-30:bringt"
+    ]
+
+
+# ── Winter: Schnee und Glatteis (Punkt 585) ──────────────────────────────
+
+
+def test_im_winter_rechnet_der_wecker_laenger_und_kratzt_zuerst():
+    from homepilot.core.losfahren import winterlage
+
+    # 10 km im Sommer: 20 Minuten. Im Winter mal 1.4 plus zehn Minuten
+    # Kratzen - bisher rechnete der Wecker im Januar wie im Juli.
+    assert fahrminuten(10.0) == 20
+    assert fahrminuten(10.0, winter=True) == 38
+    _, text = wecker_satz(
+        "Fussball", "Sportplatz, 6210 Sursee", datetime(2026, 1, 12, 17, 30), 38, True
+    )
+    assert text.endswith("Fahrzeit etwa 38 Minuten (Schnee).")
+    # Die Winterlage kommt aus der Wetter-Entität: Neuschnee ab 2 cm
+    # oder ein Schnee-/Glatteis-Code. Ohne Wetter: kein Winter.
+    assert winterlage({"snow_tonight_cm": 6.0, "winter_code": None}) is True
+    assert winterlage({"snow_tonight_cm": 0.5, "winter_code": 66}) is True
+    assert winterlage({"snow_tonight_cm": 0.5, "winter_code": None}) is False
+    assert winterlage(None) is False

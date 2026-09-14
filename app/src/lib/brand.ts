@@ -14,6 +14,9 @@ export interface BrandState {
   alarm?: string[];
   since?: number | null;
   acknowledged_by?: string | null;
+  /** Melder, die sich nicht melden (Punkt 640) - ohne Karenz, damit es
+   *  auf der Seite steht, sobald es so ist. */
+  unavailable?: string[];
 }
 
 export interface Melder {
@@ -32,6 +35,8 @@ export interface Melder {
   test_overdue?: boolean;
   can_mute?: boolean;
   can_self_test?: boolean;
+  /** Nur ein echter Melder hat eine Prüftaste - eine Kamera hört nur mit. */
+  testable?: boolean;
 }
 
 export interface BrandSettings {
@@ -64,6 +69,18 @@ export function zustandText(state: BrandState | null | undefined): {
     return { text: 'Kein Rauchmelder angeschlossen', ton: 'ruhig' };
   }
   const anzahl = state?.melder ?? 0;
+  // Ein Melder, der schweigt, ist im Brandfall keiner (Punkt 640): Die
+  // Kopfzeile sagt es in Orange, statt «Bereit» in Grün zu behaupten.
+  const weg = state?.unavailable?.length ?? 0;
+  if (weg > 0) {
+    const wachen = Math.max(0, anzahl - weg);
+    return {
+      text:
+        `${wachen} von ${anzahl} Melder${anzahl === 1 ? '' : 'n'} wach${wachen === 1 ? 't' : 'en'} – ` +
+        (weg === 1 ? '1 meldet sich nicht' : `${weg} melden sich nicht`),
+      ton: 'warnung',
+    };
+  }
   return {
     text: anzahl === 1 ? 'Bereit – 1 Melder wacht' : `Bereit – ${anzahl} Melder wachen`,
     ton: 'gut',
@@ -74,6 +91,11 @@ export function zustandText(state: BrandState | null | undefined): {
 export function melderZeile(melder: Melder, jetzt: number = Date.now() / 1000): string {
   if (melder.alarm) return 'Meldet Rauch!';
   if (!melder.active) return 'Abgeschaltet – zählt nicht';
+  // Eine Kamera hört einen piependen Melder - prüfen lässt sie sich
+  // nicht, und «nie geprüft» stünde dort für immer.
+  if (melder.kind === 'camera') {
+    return melder.available ? 'Hört einen piependen Melder' : 'Kamera meldet sich nicht';
+  }
   const teile: string[] = [];
   if (!melder.available) teile.push('meldet sich nicht');
   if (melder.low_battery) teile.push('Batterie schwach');

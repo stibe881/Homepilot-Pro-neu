@@ -14,6 +14,12 @@ from typing import Any
 
 from ..core.entity import Entity, EntityKind
 
+# Die unverschlossenen Türen kennt der Gute-Nacht-Knopf seit je; die
+# Funktion bleibt im Kern (der Kern importiert nichts aus den
+# Integrationen, Gute Nacht braucht sie weiterhin) und wird hier nur
+# weitergereicht - Punkt 614 der Werkbank.
+from ..core.goodnight import unlocked_locks  # noqa: F401
+
 # Eine Kamera zum Auslöser sucht auch der Ablauf-Kern - die
 # Antwort steht deshalb dort und wird hier nur weitergereicht.
 from ..core.kamera import camera_for, nearest_camera  # noqa: F401
@@ -48,6 +54,49 @@ def valid_duress_pin(entry: dict[str, Any], pin: str) -> bool:
 
 # Die scharfen Modi. «aus» ist kein Modus, sondern deren Abwesenheit.
 MODES = ("nacht", "ausser_haus", "urlaub")
+
+#: Die Modi, in denen niemand im Haus ist. Alles andere - Nacht und die
+#: eigenen Modi («Nur Erdgeschoss», «Gäste da») - heisst: Es ist jemand
+#: da. Zwei Stellen fragen danach: die Riegelprüfung beim Scharfschalten
+#: (Punkt 614) und die Brand-Aussetzung (Punkt 615).
+ABWESEND_MODI = ("ausser_haus", "urlaub")
+
+
+def abwesend(mode: str | None) -> bool:
+    """Ist in diesem Modus niemand zuhause? (rein, testbar)"""
+    return mode in ABWESEND_MODI
+
+
+def brand_setzt_aus(state: str, mode: str | None) -> bool:
+    """Setzt ein Brandalarm die Anlage in diesem Zustand aus? (rein, testbar)
+
+    Punkt 615 der Werkbank. Nur, wenn jemand da ist - Nacht und die
+    eigenen Modi: Dort ist die Flucht durchs Haus der Grund für die
+    Fehlauslösung. Bei Abwesend/Ferien bleibt der Einbruchweg offen: Wer
+    das Feuer legt, soll nicht damit die Anlage ausschalten. Unscharf
+    bleibt unscharf, und ein Brand-Zustand wird nicht noch einmal gesetzt.
+    """
+    if state in (DISARMED, BRAND):
+        return False
+    return not abwesend(mode)
+
+
+def unverschlossen(entities: list[Entity], zone: str | None = None) -> list[Entity]:
+    """Türen, die vor dem Scharfschalten noch abzuschliessen wären (rein, testbar).
+
+    Punkt 614 der Werkbank. Die Bereitschaftsprüfung kannte nur «offen»
+    und «blind»; beim Schloss zählt dort ausdrücklich der Türsensor,
+    nicht der Riegel (sensor_open). Eine zugezogene, aber unverschlossene
+    Nuki-Türe ging ohne Wort durch - bei «Abwesend» war das Haus dann
+    geschützt wie ohne Schloss.
+
+    Bei einer Zone keine Antwort: «Nur die Garage» soll nicht an der
+    Haustüre scheitern - ein Schloss hat keine Zone, und wer einen Teil
+    des Hauses scharf schaltet, ist selbst noch drin.
+    """
+    if zone:
+        return []
+    return unlocked_locks(entities)
 
 MODE_LABELS = {
     "nacht": "Nacht",
@@ -131,6 +180,13 @@ TRIGGERED = "ausgeloest"
 #: dieser Zeit entschärft, hat einen Fehlalarm ohne Sirene; meldet sich
 #: ein zweiter Sensor, ist es keiner mehr - dann sofort.
 VERDACHT = "verdacht"
+#: Wegen Brandalarm ausgesetzt (Punkt 615 der Werkbank): Die Brandanlage
+#: weckt alle mit Durchsage und Licht - und die erste Person im Flur
+#: löste über den Bewegungsmelder den Einbruchalarm samt Sirene aus.
+#: Solange es brennt, hört die Einbruchmeldung nicht zu; nach der
+#: Entwarnung geht es in den vorigen Modus zurück, ohne
+#: Bereitschaftsprüfung (wie nach einem Alarm).
+BRAND = "brand"
 
 #: Was auch während der Saugerfahrt auslöst.
 #:
@@ -272,7 +328,20 @@ def ohne_pin_erlaubt(quelle: Any, settings: dict[str, Any]) -> bool:
     steht - genau der Fall, für den es die PIN gibt. Sie führen die PIN
     ohnehin mit (siehe handle_command).
     """
-    if not isinstance(quelle, dict) or quelle.get("kind") != "automation":
+    if not isinstance(quelle, dict):
+        return False
+    # Die Anwesenheits-Kopplung (Punkt 641): Sie hat so wenig eine
+    # Tastatur wie ein Ablauf - und sie scheiterte genauso still. Am
+    # 13. September meldete das Telefon zwei Minuten vor der Türe
+    # «zuhause», die Anlage blieb scharf, und die Sirene ging. Ihr
+    # Schalter ist die Stufe selbst: Wer «Wenn jemand heimkommt» auf
+    # «automatisch» stellt, hat entschieden, dass die Ortung entschärfen
+    # darf; auf «vorschlagen» ruft die Kopplung das Entschärfen gar
+    # nicht erst auf. Ein zweiter Schalter daneben wäre einer, den man
+    # vergisst.
+    if quelle.get("kind") == "presence":
+        return True
+    if quelle.get("kind") != "automation":
         return False
     return settings.get("automation_disarm", True) is not False
 
@@ -292,7 +361,7 @@ def quellen_name(quelle: Any) -> str:
         return f"Ablauf «{label}»"
     if quelle.get("kind") == "scene":
         return f"Szene «{label}»"
-    if quelle.get("kind") == "user":
+    if quelle.get("kind") in ("user", "presence"):
         return label
     return ""
 
@@ -464,6 +533,26 @@ def eskalation_wirkt(escalation: dict[str, Any]) -> bool:
     return bool(escalation.get("sirens") or escalation.get("announce"))
 
 
+#: Melder, die selbst Lärm machen (Punkt 544): Ein-Befehl → Aus-Befehl.
+#: Zwei Vokabeln, ein Sinn - der Zigbee-Standard «warning» und die
+#: Aqara-Sprache; welche gilt, sagt das Gerät (zigbee2mqtt.art_und_befehle).
+SIGNAL_BEFEHLE: dict[str, str] = {"sound_alarm": "silence_alarm", "buzzer_alarm": "mute"}
+
+
+def sirenen_befehl(entity: Entity | None, an: bool) -> str:
+    """Womit dieses Gerät Lärm macht - oder aufhört (rein, testbar).
+
+    Ein Rauchmelder mit Summer hat kein «turn_on»; er kennt «Signal
+    geben». Ein Schalter, an dem eine Sirene hängt, kennt nur «ein».
+    Ohne Gerät (aus der Ablage gestrichen) bleibt es beim alten Befehl -
+    der Hub meldet dann «unbekanntes Gerät» statt still nichts zu tun.
+    """
+    for befehl_an, befehl_aus in SIGNAL_BEFEHLE.items():
+        if entity is not None and befehl_an in entity.commands:
+            return befehl_an if an else befehl_aus
+    return "turn_on" if an else "turn_off"
+
+
 def eskalations_befehle(
     escalation: dict[str, Any], entities: list[Entity] | None = None
 ) -> list[dict[str, Any]]:
@@ -476,25 +565,30 @@ def eskalations_befehle(
     trägt jeder Befehl seine eigene Frist, und «Licht an nach 30
     Sekunden» ist damit eine gewöhnliche Zeile statt eines Schalters.
 
-    ``entities`` wird nicht mehr gebraucht und bleibt nur stehen, damit
-    bestehende Aufrufe nicht brechen.
+    ``entities`` entscheidet seit Punkt 544 über den Befehl: Ein Melder
+    mit Summer bekommt «Signal geben», ein Schalter «ein».
     """
+    bekannt = {entity.id: entity for entity in entities or []}
     return [
-        {"entity_id": entity_id, "command": "turn_on"}
+        {"entity_id": entity_id, "command": sirenen_befehl(bekannt.get(entity_id), True)}
         for entity_id in escalation.get("sirens") or []
     ]
 
 
-def eskalations_ende_befehle(escalation: dict[str, Any]) -> list[dict[str, Any]]:
+def eskalations_ende_befehle(
+    escalation: dict[str, Any], entities: list[Entity] | None = None
+) -> list[dict[str, Any]]:
     """Was beim Entschärfen wieder ausgeht (rein, testbar).
 
     Nur die Sirenen: Eine Sirene, die nach dem Entschärfen weiterheult,
     wäre der Fehler, den niemand verzeiht. Die Lichter bleiben bewusst an
     - wer nach einem Alarm durchs Haus geht, will nicht im Dunkeln stehen,
-    und Ausschalten ist ein Handgriff.
+    und Ausschalten ist ein Handgriff. Ein Melder mit Summer wird stumm
+    statt ausgeschaltet - ausschalten liesse er sich ohnehin nicht.
     """
+    bekannt = {entity.id: entity for entity in entities or []}
     return [
-        {"entity_id": entity_id, "command": "turn_off"}
+        {"entity_id": entity_id, "command": sirenen_befehl(bekannt.get(entity_id), False)}
         for entity_id in escalation.get("sirens") or []
     ]
 
@@ -866,3 +960,65 @@ def sensortest_bestaetigen(test: dict[str, Any], entity_id: str) -> dict[str, An
         "pending": [e for e in test["pending"] if e != entity_id],
         "confirmed": [*test.get("confirmed", []), entity_id],
     }
+
+
+#: Zustände, aus denen ein Neustart als «scharf» zurückkehrt.
+#:
+#: Alles ausser «unscharf»: Wer in der Eingangsverzögerung stand oder
+#: gerade ausgelöst hatte, war scharf - und das Haus soll es danach
+#: wieder sein.
+WIEDER_SCHARF = (ARMING, ARMED, ENTRY, VERDACHT, TRIGGERED, BRAND)
+
+
+def zustand_merken(
+    state: str, mode: str | None, zone: str | None, jetzt: float
+) -> dict[str, Any]:
+    """Was von der Anlage einen Neustart überleben muss (rein, testbar)."""
+    return {"state": state, "mode": mode, "zone": zone, "at": jetzt}
+
+
+def zustand_nach_neustart(
+    gespeichert: Any, modi: tuple[str, ...]
+) -> dict[str, Any]:
+    """Womit die Anlage nach einem Neustart hochkommt (rein, testbar).
+
+    Der Fall aus dem Betrieb (Punkt 642 der Werkbank): Die Anlage stand
+    seit 13:08 scharf, um 16:40 startete der Hub neu - und kam unscharf
+    hoch, weil der Zustand nur im Speicher lag. Zehn Minuten später
+    schaltete die Anwesenheits-Kopplung sie wieder scharf, mit einer
+    Meldung, die klang, als hätte der Hub eben erst gemerkt, dass
+    niemand da ist. Wer die Kopplung auf «vorschlagen» stehen hat oder
+    zuhause ist, dem bleibt die Anlage nach jedem Update einfach aus.
+
+    Drei Entscheidungen stecken darin:
+
+    * **Ein laufender Alarm kommt als «scharf» zurück, nicht als
+      «ausgelöst».** Eine Sirene, die Minuten nach dem Ereignis von
+      selbst losgeht, ist für alle im Haus unerklärlich - und der
+      Vorfall selbst steht im Verlauf. Geschützt ist das Haus trotzdem
+      wieder.
+    * **Der Modus muss es noch geben.** Ein eigener Modus, den jemand
+      inzwischen gestrichen hat, hat keine Sensorzuordnung mehr
+      (``guards``); scharf in einem Modus, den niemand kennt, wäre eine
+      Anlage, die nichts bewacht und trotzdem scharf aussieht. Dann
+      lieber ehrlich unscharf - mit einem Grund, den man lesen kann.
+    * **Kein Verfallsdatum.** Eine Anlage, die scharf war, bleibt es
+      auch nach zwei Tagen Stromausfall. Alt wird der Eintrag nur, wenn
+      niemand daheim war - und genau dann soll er gelten.
+    """
+    eintrag = gespeichert[0] if gespeichert else {}
+    if not isinstance(eintrag, dict):
+        eintrag = {}
+    state = str(eintrag.get("state") or DISARMED)
+    if state not in WIEDER_SCHARF:
+        return {"state": DISARMED, "mode": None, "zone": None, "grund": ""}
+    mode = str(eintrag.get("mode") or "") or None
+    if mode is None or mode not in modi:
+        return {
+            "state": DISARMED,
+            "mode": None,
+            "zone": None,
+            "grund": f"Modus «{mode or '?'}» gibt es nicht mehr",
+        }
+    zone = str(eintrag.get("zone") or "") or None
+    return {"state": ARMED, "mode": mode, "zone": zone, "grund": ""}

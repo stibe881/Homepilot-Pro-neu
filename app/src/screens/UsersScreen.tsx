@@ -33,7 +33,15 @@ import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { Tastaturplatz } from '../components/Tastaturplatz';
 import { einladungFrist } from '../lib/einladung';
+import { Abschied, loeschKnopf, loeschPfad, uebergabeMoeglich } from '../lib/abschied';
 import { gruppiereZugaenge } from '../lib/benutzergruppen';
+import {
+  Geraetesitzung,
+  geraeteKopf,
+  geraeteName,
+  geraeteZeile,
+  sortiereSitzungen,
+} from '../lib/konto';
 import { ROLE_LABELS } from '../lib/rollen';
 import {
   besitzerZahl,
@@ -76,7 +84,11 @@ const ROLE_HINTS: Record<string, string> = {
   gast: 'sieht und schaltet nur die freigegebenen Bereiche',
 };
 
-/** Freigebbare Bereiche für Gäste – Schlüssel wie auf dem Hub. */
+/** Freigebbare Bereiche für Gäste – Schlüssel wie auf dem Hub
+ *  (core/users.py: GUEST_FEATURES; ein Hub-Test hält beide Listen
+ *  gegeneinander). «klingel» fehlte hier (Fehler aus der Runde 579 der
+ *  Werkbank): Nur der Babysitter-Weg setzte es, und ein so angelegter
+ *  Gast zeigte in der Liste das rohe Wort. */
 export const FEATURE_LABELS: Record<string, string> = {
   licht: 'Licht',
   storen: 'Storen',
@@ -87,6 +99,7 @@ export const FEATURE_LABELS: Record<string, string> = {
   haushalt: 'Haushalt',
   raeume: 'Räume',
   kameras: 'Kameras',
+  klingel: 'Türklingel (nur sehen)',
 };
 
 interface HubUser {
@@ -338,6 +351,10 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
   const [newShared, setNewShared] = useState(false);
   const [newFeatures, setNewFeatures] = useState<string[]>(['licht']);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  // Was am Löschen hängt (Punkt 628): der Satz des Hubs und die Wahl,
+  // wer die Ämtli übernimmt. null, solange nicht gefragt wurde.
+  const [abschied, setAbschied] = useState<Abschied | null>(null);
+  const [aemtliAn, setAemtliAn] = useState<string | null>(null);
   // Detailansicht: gewählter Benutzer + geladene Kopplungs-Daten.
   const [detail, setDetail] = useState<HubUser | null>(null);
   const [pairing, setPairing] = useState<string | null>(null);
@@ -352,6 +369,11 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
   // Zwei-Schritt-Rückfrage fürs Token-Wechseln – das ist nicht umkehrbar.
   const [rotateAsk, setRotateAsk] = useState<string | null>(null);
   const [rotateNote, setRotateNote] = useState<string | null>(null);
+  // Die angemeldeten Geräte der geöffneten Person (Punkt 625) - null,
+  // solange sie geladen werden; dieselben Zeilen wie in «Meine Geräte».
+  const [sitzungen, setSitzungen] = useState<Geraetesitzung[] | null>(null);
+  const [sitzungenJetzt, setSitzungenJetzt] = useState(() => Date.now());
+  const [beendenAsk, setBeendenAsk] = useState<string | null>(null);
   // Getippte Adressen, bis sie gespeichert sind.
   const [emailDraft, setEmailDraft] = useState<Record<string, string>>({});
   // Dasselbe fürs Passwort vor den persönlichen Bereichen. Es kommt nie
@@ -393,9 +415,50 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
     [personenbilder, settings.url, settings.token]
   );
 
+  const ladeSitzungen = useCallback(
+    (name: string) => {
+      setSitzungen(null);
+      setBeendenAsk(null);
+      hub
+        .get<{ sessions?: Geraetesitzung[] }>(
+          `/api/users/${encodeURIComponent(name)}/sessions`,
+          { still: true, fallback: { sessions: [] } }
+        )
+        .then((antwort) => {
+          setSitzungen(sortiereSitzungen(antwort?.sessions ?? []));
+          setSitzungenJetzt(Date.now());
+        });
+    },
+    [hub]
+  );
+
+  /** Ein Gerät einer anderen Person abmelden - mit Rückfrage, denn das
+   *  Gerät muss sich danach neu anmelden (Punkt 625). */
+  const sitzungBeenden = async (name: string, sitzung: Geraetesitzung) => {
+    if (beendenAsk !== sitzung.id) {
+      setBeendenAsk(sitzung.id);
+      return;
+    }
+    setBeendenAsk(null);
+    try {
+      await hub.del(
+        `/api/users/${encodeURIComponent(name)}/sessions/${encodeURIComponent(sitzung.id)}`,
+        { still: true }
+      );
+    } catch (err) {
+      // 404 heisst «gab es schon nicht mehr» - genau der gewünschte
+      // Zustand; das Nachladen räumt die Zeile weg.
+      if (!(err instanceof HubFehler && err.status === 404)) {
+        setError(err instanceof HubFehler ? err.message : String(err));
+      }
+    }
+    ladeSitzungen(name);
+  };
+
   const openDetail = async (user: HubUser) => {
     setDetail(user);
     setPairing(null);
+    ladeSitzungen(user.name);
     // Der Weg, den diese Person schon einmal gegangen ist, steht offen.
     setWeg(ersterWeg(user.email));
     setEinladungPass('');
@@ -489,18 +552,35 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
     }
   };
 
+  /**
+   * Der erste Tipp auf «Löschen» fragt den Hub, was daran hängt (Punkt
+   * 628) - erst dann steht «Anna entfernen? 2 Geräte, Bild, 3 Ämtli» da,
+   * und die Ämtli lassen sich übergeben, bevor der zweite Tipp löscht.
+   */
+  const loeschenVorbereiten = (name: string) => {
+    setConfirmDelete(name);
+    setAbschied(null);
+    setAemtliAn(null);
+    hub
+      .get<Abschied>(`/api/users/${encodeURIComponent(name)}/abschied`, { still: true })
+      .then(setAbschied)
+      .catch(() => {});
+  };
+
   const remove = async (name: string) => {
     setError(null);
     try {
-      const response = await fetch(
-        `${settings.url}/api/users/${encodeURIComponent(name)}`,
-        { method: 'DELETE', headers }
-      );
+      const response = await fetch(`${settings.url}${loeschPfad(name, aemtliAn)}`, {
+        method: 'DELETE',
+        headers,
+      });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(body?.detail ?? `Hub antwortet mit ${response.status}`);
       }
       setConfirmDelete(null);
+      setAbschied(null);
+      setAemtliAn(null);
       setDetail(null);
       load();
     } catch (err) {
@@ -539,7 +619,7 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                 {/* Ein Gerät bekommt kein Initial, sondern ein Sinnbild -
                     «F» für den Flur sähe aus wie eine Person namens F. */}
                 {user.shared ? (
-                  <Ionicons name="tablet-landscape-outline" size={20} color="#FFFFFF" />
+                  <Ionicons name="tablet-landscape-outline" size={20} color={colors.onAccent} />
                 ) : personenbildUrl(user.name) ? (
                   <Image
                     source={{ uri: personenbildUrl(user.name)! }}
@@ -1362,6 +1442,75 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                     </Klappe>
                   ) : null}
 
+                  {/* Punkt 625: Verliert Levin sein Telefon, soll sich
+                      genau dieses eine Gerät beenden lassen - nicht der
+                      ganze Benutzer. */}
+                  <Klappe
+                    label="Angemeldete Geräte"
+                    stand={geraeteKopf(sitzungen, sitzungenJetzt)}
+                    zuBeginnZu
+                  >
+                    <Text style={styles.qrHint}>
+                      Alle Anmeldungen mit Passwort. Einzelne beenden wirft nur dieses
+                      eine Gerät hinaus – es muss sich danach neu anmelden. Über den
+                      QR-Code gekoppelte Geräte stehen hier nicht; für sie gibt es
+                      «Token erneuern».
+                    </Text>
+                    {sitzungen !== null && sitzungen.length === 0 ? (
+                      <Text style={styles.qrHint}>Keine angemeldeten Geräte.</Text>
+                    ) : null}
+                    {(sitzungen ?? []).map((sitzung) => {
+                      const zeile = geraeteZeile(sitzung, sitzungenJetzt);
+                      return (
+                        <View
+                          key={sitzung.id}
+                          style={styles.geraetZeile}
+                          accessible
+                          accessibilityLabel={`${geraeteName(sitzung)}, ${zeile}`}
+                        >
+                          <Ionicons
+                            name={
+                              sitzung.keep ? 'tablet-landscape-outline' : 'phone-portrait-outline'
+                            }
+                            size={18}
+                            color={colors.inkSoft}
+                          />
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text style={styles.geraetName} numberOfLines={1}>
+                              {geraeteName(sitzung)}
+                            </Text>
+                            <Text style={styles.geraetDetail} numberOfLines={1}>
+                              {zeile}
+                            </Text>
+                          </View>
+                          <Pressable
+                            onPress={() => sitzungBeenden(detail.name, sitzung)}
+                            accessibilityRole="button"
+                            accessibilityLabel={
+                              beendenAsk === sitzung.id
+                                ? `${geraeteName(sitzung)} wirklich abmelden`
+                                : `${geraeteName(sitzung)} abmelden`
+                            }
+                            style={({ pressed }) => [
+                              styles.rotateButton,
+                              beendenAsk === sitzung.id && { borderColor: colors.danger },
+                              pressed && { opacity: 0.7 },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.rotateText,
+                                beendenAsk === sitzung.id && { color: colors.danger },
+                              ]}
+                            >
+                              {beendenAsk === sitzung.id ? 'Wirklich?' : 'Beenden'}
+                            </Text>
+                          </Pressable>
+                        </View>
+                      );
+                    })}
+                  </Klappe>
+
                   {detail.editable ? (
                     <Klappe label="Token erneuern">
                       <Text style={styles.qrHint}>
@@ -1443,30 +1592,79 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                   ) : null}
 
                   {detail.editable && currentUser?.name !== detail.name ? (
-                    <View style={styles.modalButtons}>
-                      <Pressable
-                        onPress={() =>
-                          patchUser(detail.name, { enabled: detail.enabled === false })
-                        }
-                        style={[styles.smallButton, { flex: 1 }]}
-                      >
-                        <Text style={styles.smallButtonText}>
-                          {detail.enabled === false ? 'Aktivieren' : 'Deaktivieren'}
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() =>
-                          confirmDelete === detail.name
-                            ? remove(detail.name)
-                            : setConfirmDelete(detail.name)
-                        }
-                        style={[styles.smallButton, styles.dangerButton, { flex: 1 }]}
-                      >
-                        <Text style={styles.dangerButtonText}>
-                          {confirmDelete === detail.name ? 'Wirklich löschen' : 'Löschen'}
-                        </Text>
-                      </Pressable>
-                    </View>
+                    <>
+                      {confirmDelete === detail.name ? (
+                        <View style={styles.rotateBox}>
+                          {/* Punkt 628: Was das Löschen mitnimmt, steht
+                              vor dem zweiten Tipp da - nicht danach im Log. */}
+                          <Text style={styles.qrHint}>
+                            {abschied?.satz ?? `${detail.name} entfernen? Einen Moment …`}
+                          </Text>
+                          {uebergabeMoeglich(abschied) ? (
+                            <>
+                              <Text style={styles.formLabel}>Ämtli und Aufgaben übergeben an</Text>
+                              <View style={styles.roleRow}>
+                                {(abschied?.uebernehmer ?? []).map((name) => {
+                                  const active = aemtliAn === name;
+                                  return (
+                                    <Pressable
+                                      key={name}
+                                      onPress={() => setAemtliAn(active ? null : name)}
+                                      accessibilityRole="radio"
+                                      accessibilityState={{ selected: active }}
+                                      style={[styles.roleChip, active && styles.roleChipActive]}
+                                    >
+                                      <Text
+                                        style={[
+                                          styles.roleChipText,
+                                          active && styles.roleChipTextActive,
+                                        ]}
+                                      >
+                                        {name}
+                                      </Text>
+                                    </Pressable>
+                                  );
+                                })}
+                              </View>
+                              <Text style={styles.qrHint}>
+                                Ohne Wahl rückt die Reihe weiter, wie beim Abhaken.
+                              </Text>
+                            </>
+                          ) : null}
+                          <Text style={styles.qrHint}>
+                            Soll die Person nur vorübergehend nicht hereinkommen, ist
+                            «Deaktivieren» der sanftere Weg: Der Zugang friert ein, alles
+                            bleibt.
+                          </Text>
+                        </View>
+                      ) : null}
+                      <View style={styles.modalButtons}>
+                        <Pressable
+                          onPress={() =>
+                            patchUser(detail.name, { enabled: detail.enabled === false })
+                          }
+                          style={[styles.smallButton, { flex: 1 }]}
+                        >
+                          <Text style={styles.smallButtonText}>
+                            {detail.enabled === false ? 'Aktivieren' : 'Deaktivieren'}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() =>
+                            confirmDelete === detail.name
+                              ? remove(detail.name)
+                              : loeschenVorbereiten(detail.name)
+                          }
+                          style={[styles.smallButton, styles.dangerButton, { flex: 1 }]}
+                        >
+                          <Text style={styles.dangerButtonText}>
+                            {confirmDelete === detail.name
+                              ? loeschKnopf(abschied, aemtliAn)
+                              : 'Löschen'}
+                          </Text>
+                        </Pressable>
+                      </View>
+                    </>
                   ) : null}
                 </>
               ) : null}
@@ -1532,7 +1730,7 @@ const makeStyles = (colors: Colors) =>
     },
     voucherChipText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
     voucherChipStark: { backgroundColor: colors.accent, borderColor: colors.accent },
-    voucherChipStarkText: { color: '#FFFFFF' },
+    voucherChipStarkText: { color: colors.onAccent },
     intro: { color: colors.onGradientSoft, fontSize: 13, lineHeight: 19, maxWidth: 520 },
     note: { color: colors.inkSoft, fontSize: 14 },
     error: { color: colors.danger, fontSize: 13, fontWeight: '600' },
@@ -1552,7 +1750,7 @@ const makeStyles = (colors: Colors) =>
       justifyContent: 'center',
     },
     avatarDisabled: { backgroundColor: colors.inkFaint },
-    avatarText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
+    avatarText: { color: colors.onAccent, fontSize: 17, fontWeight: '700' },
     avatarBild: { width: 42, height: 42, borderRadius: 21 },
     personenbildZeile: {
       flexDirection: 'row',
@@ -1605,7 +1803,7 @@ const makeStyles = (colors: Colors) =>
     },
     roleChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     roleChipText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
-    roleChipTextActive: { color: '#FFFFFF' },
+    roleChipTextActive: { color: colors.onAccent },
     roleHint: { color: colors.inkFaint, fontSize: 12 },
     formButtons: { flexDirection: 'row', gap: 8, justifyContent: 'flex-end' },
     smallButton: {
@@ -1619,9 +1817,9 @@ const makeStyles = (colors: Colors) =>
     },
     smallButtonText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
     primaryButton: { backgroundColor: colors.accent, borderColor: colors.accent },
-    primaryButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+    primaryButtonText: { color: colors.onAccent, fontSize: 13, fontWeight: '700' },
     dangerButton: { backgroundColor: colors.danger, borderColor: colors.danger },
-    dangerButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+    dangerButtonText: { color: colors.onAccent, fontSize: 13, fontWeight: '700' },
 
     newButton: {
       flexDirection: 'row',
@@ -1662,6 +1860,17 @@ const makeStyles = (colors: Colors) =>
       marginTop: 6,
     },
     rotateBox: { gap: 8, marginTop: 4 },
+    // Die Geräteliste einer anderen Person (Punkt 625).
+    geraetZeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingTop: 8,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.surfaceBorder,
+    },
+    geraetName: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+    geraetDetail: { color: colors.inkFaint, fontSize: 12, marginTop: 1 },
     rotateButton: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1686,7 +1895,7 @@ const makeStyles = (colors: Colors) =>
     },
     expiryChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     expiryChipText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
-    expiryChipTextActive: { color: '#FFFFFF' },
+    expiryChipTextActive: { color: colors.onAccent },
     shareButton: {
       flexDirection: 'row',
       alignItems: 'center',

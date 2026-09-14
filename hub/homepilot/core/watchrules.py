@@ -188,6 +188,82 @@ def offen_satz(seit: float, jetzt: float) -> str:
     return f"Offen seit {uhr} – {dauer}"
 
 
+#: Ab dieser Aussentemperatur ist ein offenes Fenster keine Heizungsfrage
+#: mehr (Punkt 601). Die Vorgabe der Regel «open»; verstellbar dort.
+WARM_AB = 18.0
+
+
+def aussentemperatur(entities: list[Any]) -> float | None:
+    """Was das Wetter gerade draussen misst - oder None (rein, testbar)."""
+    for entity in entities:
+        if getattr(entity, "kind", "") != "weather":
+            continue
+        wert = (getattr(entity, "state", None) or {}).get("temperature")
+        if isinstance(wert, (int, float)) and not isinstance(wert, bool):
+            return float(wert)
+    return None
+
+
+def jemand_zuhause(entities: list[Any]) -> bool | None:
+    """Ist jemand da? True/False - oder None ohne Ortung (rein, testbar).
+
+    Gelesen an der Sammel-Entität der Ortung («Jemand zuhause»,
+    integrations/geofence.py), nicht an den Einzelpersonen: Die eine
+    Frage ist dort schon beantwortet, samt der Vorsicht bei Unbekannt.
+    """
+    for entity in entities:
+        state = getattr(entity, "state", None) or {}
+        if str(state.get("device_class") or "") != "presence":
+            continue
+        if not str(getattr(entity, "id", "")).endswith("anyone_home"):
+            continue
+        return str(state.get("state") or "") == "on"
+    return None
+
+
+def offen_lohnt(
+    aussen_temp: float | None, jemand_zuhause: bool | None, warm_ab: float = WARM_AB
+) -> bool:
+    """Lohnt die Fenster-Erinnerung jetzt? (rein, testbar) - Punkt 601.
+
+    Die Erinnerung sagte «im Winter geht so die Heizung zum Fenster
+    hinaus» - auch im Juli, auch wenn die ganze Familie am Lüften ist.
+    Mit Deckel 6/Tag war das im Sommer die häufigste Lärmquelle.
+
+    Ist es draussen warm und jemand zuhause, schweigt sie: Wer lüftet,
+    weiss es. Ist niemand zuhause, meldet sie immer - ein offenes
+    Fenster im leeren Haus ist eine andere Frage als die Heizung. Ohne
+    Ortung (None) gilt «jemand da»; ohne Wetter gilt «kalt».
+    """
+    if jemand_zuhause is False:
+        return True
+    if aussen_temp is not None and aussen_temp >= warm_ab:
+        return False
+    return True
+
+
+def offen_text(
+    seit: float,
+    jetzt: float,
+    label: str,
+    aussen_temp: float | None,
+    jemand_zuhause: bool | None,
+) -> str:
+    """Der Satz unter «… steht offen» (rein, testbar) - Punkt 601.
+
+    Mit der Zahl aus dem Wetter, wenn es eine gibt: Die Vorschau in
+    pushbeispiel.py versprach «draussen sind es 4 °C» schon lange, der
+    Ernstfall lieferte es nicht. Und ist niemand zuhause, sagt der Satz
+    das - dann geht es nicht um die Heizung, sondern um das leere Haus.
+    """
+    draussen = f", draussen sind es {aussen_temp:g} °C" if aussen_temp is not None else ""
+    if jemand_zuhause is False:
+        return f"Niemand zuhause und {label} offen. {offen_satz(seit, jetzt)}{draussen}."
+    if aussen_temp is not None:
+        return f"{offen_satz(seit, jetzt)}{draussen} – so geht die Heizung zum Fenster hinaus."
+    return f"{offen_satz(seit, jetzt)} – im Winter geht so die Heizung zum Fenster hinaus."
+
+
 def leaks(entities: list[Any]) -> list[Any]:
     """Wassermelder, die gerade Wasser melden (rein, testbar)."""
     return [
@@ -235,6 +311,21 @@ def leck_dauer_text(seit: float, jetzt: float) -> str:
     """«seit 12 Minuten» für die Eskalationsmeldung (rein, testbar)."""
     minuten = max(1, round((jetzt - seit) / 60))
     return "seit einer Minute" if minuten == 1 else f"seit {minuten} Minuten"
+
+
+def trocken_satz(seit: float, jetzt: float) -> str:
+    """«War 23 Minuten nass» für die Entwarnung (rein, testbar) - Punkt 602.
+
+    Die Dauer gehört dazu: «wieder trocken» allein sagt nicht, ob ein
+    Spritzer oder eine Stunde Wasser dahintersteckt.
+    """
+    minuten = max(1, round((jetzt - seit) / 60))
+    if minuten < 60:
+        dauer = "eine Minute" if minuten == 1 else f"{minuten} Minuten"
+    else:
+        stunden, rest = divmod(minuten, 60)
+        dauer = f"{stunden} Std." + (f" {rest} Min." if rest else "")
+    return f"War {dauer} nass - der Melder meldet kein Wasser mehr."
 
 
 #: Was die häufigsten Sauger-Meldungen auf Deutsch heissen. Die Namen
@@ -370,6 +461,51 @@ def lauf_meldung(state: dict[str, Any] | None) -> tuple[str, str] | None:
     return (f"lauf:{wann}", satz)
 
 
+def sauger_meldungen(state: dict[str, Any] | None) -> list[tuple[str, str]]:
+    """Was Roboter und Station gerade melden: (Schlüssel, Satz) (rein, testbar).
+
+    Herausgelöst aus sauger_probleme (Punkt 637), weil dieselben Sätze
+    seither auch an der Kachel stehen: Der Roboter meldet seine Fehler
+    selbst (``error``), die Station ihre eigenen - und die Tank- und
+    Beutelstände nochmals getrennt davon (``dock.dirty_water`` und
+    Geschwister, siehe DOCK_MELDER). Der Schlüssel nennt die Quelle mit,
+    damit «Tank voll» und «steckt fest» je eine eigene Nachricht
+    bekommen und nicht einander verdrängen.
+    """
+    state = state or {}
+    ergebnis: list[tuple[str, str]] = []
+    fehler = str(state.get("error") or "").strip()
+    if fehler and fehler.lower() not in SAUGER_OK:
+        ergebnis.append((f"fehler:{fehler}", sauger_wort(fehler)))
+    dock = state.get("dock")
+    if isinstance(dock, dict):
+        # Je Sache eine Nachricht, nicht je Feld: Die Station meldet
+        # denselben vollen Tank in zwei Feldern (dock_thema).
+        themen: set[str] = set()
+        for feld in DOCK_MELDER:
+            wert = str(dock.get(feld) or "").strip()
+            if not wert or wert.lower() in SAUGER_OK:
+                continue
+            thema = dock_thema(feld, wert)
+            if thema in themen:
+                continue
+            themen.add(thema)
+            ergebnis.append((f"dock:{feld}:{wert}", sauger_wort(wert)))
+    return ergebnis
+
+
+def sauger_saetze(state: dict[str, Any] | None) -> list[str]:
+    """Die Sätze allein - für die Kachel und das Reinigungsblatt (rein, testbar).
+
+    Punkt 637: Gewünscht im Haus, dass der Fehler von Station oder
+    Sauger auch auf dem Blatt steht, nicht nur in der Push-Nachricht.
+    Übersetzt wird deshalb hier, einmal, und nicht nochmals in der App -
+    sonst hiesse derselbe volle Tank in der Nachricht anders als auf dem
+    Blatt.
+    """
+    return [satz for _, satz in sauger_meldungen(state)]
+
+
 def sauger_probleme(entities: list[Any]) -> list[tuple[Any, str, str]]:
     """Sauger mit gemeldetem Problem: (Gerät, Schlüssel, Satz) (rein, testbar).
 
@@ -384,23 +520,8 @@ def sauger_probleme(entities: list[Any]) -> list[tuple[Any, str, str]]:
         if getattr(entity, "kind", None) != "vacuum":
             continue
         state = entity.state or {}
-        fehler = str(state.get("error") or "").strip()
-        if fehler and fehler.lower() not in SAUGER_OK:
-            ergebnis.append((entity, f"fehler:{fehler}", sauger_wort(fehler)))
-        dock = state.get("dock")
-        if isinstance(dock, dict):
-            # Je Sache eine Nachricht, nicht je Feld: Die Station meldet
-            # denselben vollen Tank in zwei Feldern (dock_thema).
-            themen: set[str] = set()
-            for feld in DOCK_MELDER:
-                wert = str(dock.get(feld) or "").strip()
-                if not wert or wert.lower() in SAUGER_OK:
-                    continue
-                thema = dock_thema(feld, wert)
-                if thema in themen:
-                    continue
-                themen.add(thema)
-                ergebnis.append((entity, f"dock:{feld}:{wert}", sauger_wort(wert)))
+        for schluessel, satz in sauger_meldungen(state):
+            ergebnis.append((entity, schluessel, satz))
         # Und der Lauf selbst: Er endet manchmal, ohne dass irgendwo ein
         # Fehler steht - der Sauger kam schlicht nicht überall durch.
         lauf = lauf_meldung(state)
@@ -488,6 +609,110 @@ def wein_gesperrt(
     return klingel_gesperrt(zuletzt, jetzt, frist)
 
 
+# ── Das Paket vor der Haustüre (Punkt 617) ─────────────────────────────────
+#
+# Protect meldet «package» als eigene Erkennung, der Hub führte das Feld -
+# und nichts hörte darauf. Wie beim Weinen: Flanke off → on meldet, eine
+# Sperrfrist je Kamera hält die Wiederholungen der Kamera fern. Dazu der
+# Alltagsteil: Das Paket bleibt vermerkt, bis eine Person an derselben
+# Kamera vorbeikam oder jemand heimgekommen ist - und liegt es am Abend
+# noch da, erinnert der Hub einmal.
+
+#: So lange nach einer Paket-Nachricht wird für dieselbe Kamera keine
+#: zweite verschickt. Länger als beim Weinen: Der Bote stellt ab und
+#: geht, die Kamera sieht das Paket in jedem Bild neu.
+PAKET_SPERRE = 600.0
+
+#: Wo die draussen liegenden Pakete stehen: je Kamera der Zeitpunkt der
+#: Erkennung und ob am Abend schon erinnert wurde.
+PAKET_KEY = "paket_draussen"
+
+
+def paket_gesperrt(
+    zuletzt: float | None, jetzt: float, frist: float = PAKET_SPERRE
+) -> bool:
+    """Wurde für diese Kamera eben schon ein Paket gemeldet? (rein, testbar)"""
+    return klingel_gesperrt(zuletzt, jetzt, frist)
+
+
+def pakete_lesen(rows: Any) -> dict[str, dict[str, Any]]:
+    """Die vermerkten Pakete je Kamera (rein, testbar)."""
+    pakete: dict[str, dict[str, Any]] = {}
+    for row in rows or []:
+        if not isinstance(row, dict) or not row.get("camera"):
+            continue
+        try:
+            seit = float(row.get("since") or 0)
+        except (TypeError, ValueError):
+            continue
+        if seit <= 0:
+            continue
+        pakete[str(row["camera"])] = {"since": seit, "reminded": bool(row.get("reminded"))}
+    return pakete
+
+
+def pakete_zeilen(pakete: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    """Zurück in die Ablage (rein, testbar)."""
+    return [
+        {"camera": camera, "since": float(werte["since"]), "reminded": bool(werte.get("reminded"))}
+        for camera, werte in sorted(pakete.items())
+    ]
+
+
+def paket_merken(
+    pakete: dict[str, dict[str, Any]], camera: str, jetzt: float
+) -> dict[str, dict[str, Any]]:
+    """Ein erkanntes Paket vermerken (rein, testbar).
+
+    Liegt an dieser Kamera schon eines, bleibt der erste Zeitpunkt: «seit
+    14:12» soll nicht bei jedem weiteren Boten neu beginnen.
+    """
+    if camera in pakete:
+        return pakete
+    return {**pakete, camera: {"since": jetzt, "reminded": False}}
+
+
+def paket_abgeholt(
+    pakete: dict[str, dict[str, Any]], camera: str | None = None
+) -> dict[str, dict[str, Any]]:
+    """Das Paket gilt als hereingeholt (rein, testbar).
+
+    Mit Kamera: Eine Person kam an genau dieser vorbei. Ohne: Jemand ist
+    heimgekommen, und wer heimkommt, geht an der Haustüre vorbei - dann
+    sind alle Pakete drin.
+    """
+    if camera is None:
+        return {}
+    return {k: v for k, v in pakete.items() if k != camera}
+
+
+def paket_erinnerung_faellig(
+    pakete: dict[str, dict[str, Any]], jetzt: float, stunde: int
+) -> list[str]:
+    """Welche Pakete am Abend noch draussen liegen (rein, testbar).
+
+    Fällig ab ``stunde`` Uhr Ortszeit, einmal je Paket, und nur für
+    Pakete von heute: Was gestern liegen blieb, wurde gestern gemeldet -
+    und ein Paket, das seit drei Tagen «draussen» steht, ist eher ein
+    vergessener Vermerk als ein Paket.
+    """
+    lokal = time.localtime(jetzt)
+    if lokal.tm_hour < stunde:
+        return []
+    heute = time.strftime("%Y-%m-%d", lokal)
+    return sorted(
+        camera
+        for camera, werte in pakete.items()
+        if not werte.get("reminded")
+        and time.strftime("%Y-%m-%d", time.localtime(float(werte["since"]))) == heute
+    )
+
+
+def paket_satz(seit: float) -> str:
+    """«Seit 14:12 vor der Haustüre» (rein, testbar)."""
+    return f"Seit {time.strftime('%H:%M', time.localtime(seit))} vor der Haustüre."
+
+
 def klingelnde(entities: list[Any]) -> list[Any]:
     """Geräte, an denen es gerade klingelt (rein, testbar).
 
@@ -501,6 +726,37 @@ def klingelnde(entities: list[Any]) -> list[Any]:
         for entity in entities
         if str(entity.state.get("ring") or "") == "on"
     ]
+
+
+#: Was in einem Melder stecken kann (Punkt 633). Eine Vorschlagsliste,
+#: keine Wahrheit: Der Hub weiss es nicht, die App fragt den Menschen.
+#: Dieselbe Liste steht in app/src/lib/batterien.ts.
+BATTERIETYPEN: tuple[str, ...] = (
+    "CR2032",
+    "CR2450",
+    "CR2477",
+    "CR123A",
+    "AA",
+    "AAA",
+    "9V",
+    "Akku",
+)
+
+
+def batterietyp_pruefen(wert: Any) -> str | None:
+    """Nur ein bekannter Typ geht durch, sonst None (rein, testbar).
+
+    Gross-/Kleinschreibung zählt nicht («cr2032» ist eine CR2032), der
+    Rest schon: Ein Tippfehler soll nicht als vierzehnter Typ in der
+    Ablage weiterleben und auf der Einkaufsliste landen.
+    """
+    gesucht = str(wert or "").strip().casefold()
+    if not gesucht:
+        return None
+    for typ in BATTERIETYPEN:
+        if typ.casefold() == gesucht:
+            return typ
+    return None
 
 
 def low_batteries(entities: list[Any], schwelle: float | None = None) -> list[Any]:

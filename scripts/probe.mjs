@@ -48,6 +48,13 @@ const GROESSEN = [
   { name: 'iPhone', width: 390, height: 844 },
 ];
 
+/** Die dritte Grösse: das Wandpanel im Flur (Punkt 610). Dieselbe
+ *  Fläche wie das iPad, aber mit `panel: true` - dann schreibt die App
+ *  grösser. Nicht in GROESSEN, weil die übrigen Messungen dort nichts
+ *  anderes sähen als auf dem iPad; gemessen wird nur, was das Panel
+ *  unterscheidet: die Schrift. */
+const WANDPANEL = { name: 'Wandpanel', width: 1180, height: 820, panel: true };
+
 function playwrightLaden() {
   try {
     return require('playwright');
@@ -83,13 +90,15 @@ async function angemeldeteSeite(browser, groesse) {
   // die App den Anmeldebildschirm und misst man dessen Breite.
   await seite.goto(WEB);
   await seite.evaluate(
-    ([url, token]) => {
+    ([url, token, panel]) => {
       localStorage.setItem(
         'homepilot.settings',
-        JSON.stringify({ url, token, theme: 'dark' })
+        // `panel` macht aus dem Browser das Wandpanel (Punkt 610): Dann
+        // schreibt die App grösser, und genau das wird gemessen.
+        JSON.stringify({ url, token, theme: 'dark', panel: !!panel })
       );
     },
-    [HUB, TOKEN]
+    [HUB, TOKEN, groesse.panel ?? false]
   );
   await seite.goto(WEB);
   await seite.waitForTimeout(2500);
@@ -844,6 +853,674 @@ async function melderGibtSignal(browser) {
   await seite.close();
 }
 
+/** 11. Steht auf der Geräteliste die Spalte rechts? (Punkt 549)
+ *
+ * Gemeldet im Haus: «Bei Einstellungen → Geräte sollen diese Karten
+ * entfernt werden» - Wetter und Musik, unter der Liste.
+ *
+ * Gemessen wird mit eingebauter Gegenprobe: Auf der Startseite **muss**
+ * die Musikkarte stehen. Ohne sie wäre die Messung auch für eine App
+ * grün, in der die Spalte überall fehlt - und dieselbe Falle gab es
+ * hier schon einmal (raumlisteKopfspieler, Punkt 509).
+ *
+ * Die Wetterkarte der Spalte bleibt hier **ungemessen**, und das mit
+ * Absicht: Der Demo-Hub führt eine Wetter*warnung*, aber kein Gerät der
+ * Art «weather» - die Karte erschiene also nirgends, und eine Zeile
+ * «keine Wetterkarte» wäre immer grün, ohne etwas zu prüfen. Der
+ * Versuch, dem Prüfstand ein Wettergerät zu geben, riss sechs fremde
+ * Tests mit: Wer in seinem Test ein eigenes Wetter anlegt, bekam
+ * plötzlich das der Demo. Beide Hälften der Spalte hängen ohnehin an
+ * derselben Entscheidung (lib/seitenspalte.ts), und die ist dort
+ * geprüft.
+ */
+async function geraetelisteOhneSpalte(browser) {
+  for (const groesse of GROESSEN) {
+    const seite = await angemeldeteSeite(browser, groesse);
+    const musikkarte = () => seite.getByText('Musik', { exact: true });
+    pruefe(
+      (await musikkarte().count()) > 0,
+      `${groesse.name}: die Startseite zeigt die Musikkarte`
+    );
+    if (!(await zurSeite(seite, 'Einstellungen'))) {
+      await seite.close();
+      continue;
+    }
+    const geraete = seite.getByText('Geräte', { exact: true }).first();
+    if (!(await geraete.isVisible().catch(() => false))) {
+      pruefe(false, `${groesse.name}: die Geräteliste war erreichbar`);
+      await seite.close();
+      continue;
+    }
+    await geraete.click();
+    await seite.waitForTimeout(1500);
+    pruefe(
+      (await musikkarte().count()) === 0,
+      `${groesse.name}: die Geräteliste trägt keine Musikkarte`
+    );
+    // Und die Geräteseiten ebenso (Punkt 577): «Auf der Seite Storen,
+    // Licht, Kameras soll die Wetterkachel und die Medienkachel nicht
+    // vorhanden sein.» Gemessen an der Storenseite - sie war die im Bild.
+    if (await zurSeite(seite, 'Storen')) {
+      await seite.waitForTimeout(600);
+      pruefe(
+        (await musikkarte().count()) === 0,
+        `${groesse.name}: die Storenseite trägt keine Musikkarte`
+      );
+    }
+    await seite.close();
+  }
+}
+
+/** 12. Stehen Einrichten und Werkzeug unten - und zugeklappt? (Punkt 550)
+ *
+ * Gemeldet im Haus: «Die Karte ‹Noch einzurichten› und ‹Werkzeuge›
+ * sollen ganz unten angezeigt werden und sollen ausserdem eingeklappt
+ * sein.»
+ *
+ * Zwei Messungen, weil es zwei Versprechen sind. **Unten**: Beide
+ * Karten müssen tiefer liegen als die letzte Gerätekachel - von Auge
+ * ist das auf einem langen Bildschirm nicht zu sehen, weil man sie
+ * beim Scrollen ohnehin nacheinander antrifft. **Zugeklappt**: Der
+ * Inhalt darf nicht dastehen, die Überschrift schon - eine Karte, die
+ * ganz verschwindet, hätte man ebenso gut löschen können.
+ *
+ * Die Gegenprobe steckt im Aufklappen: Nach einem Tipp auf «Werkzeuge»
+ * muss der Knopf da sein. Ohne diese Zeile wäre die Messung auch für
+ * eine App grün, in der es die Karte gar nicht mehr gibt.
+ */
+async function geraetewerkzeugeUnten(browser) {
+  const seite = await angemeldeteSeite(browser, GROESSEN[0]);
+  if (!(await zurSeite(seite, 'Einstellungen'))) {
+    await seite.close();
+    return;
+  }
+  const geraete = seite.getByText('Geräte', { exact: true }).first();
+  if (!(await geraete.isVisible().catch(() => false))) {
+    pruefe(false, 'Die Geräteliste war erreichbar');
+    await seite.close();
+    return;
+  }
+  await geraete.click();
+  await seite.waitForTimeout(1800);
+
+  const kopf = (text) => seite.getByText(text, { exact: true }).first();
+  for (const titel of ['Noch einzurichten', 'Werkzeuge']) {
+    if (!(await kopf(titel).count())) {
+      pruefe(false, `«${titel}» steht auf der Geräteliste`);
+      await seite.close();
+      return;
+    }
+  }
+
+  // Wie tief liegt was? Gemessen im Dokument, nicht im Sichtbaren:
+  // Die Seite ist länger als der Bildschirm.
+  //
+  // Wogegen gemessen wird, ist der Punkt: gegen eine *Gerätekachel*.
+  // «Unten» ohne Bezug wäre keine Messung - die beiden Karten lagen
+  // vorher schon untereinander, nur eben über der Liste.
+  const lage = await seite.evaluate(() => {
+    const obenVon = (text) => {
+      const el = [...document.querySelectorAll('div')].find(
+        (kandidat) => kandidat.textContent?.trim() === text
+      );
+      return el ? el.getBoundingClientRect().top + window.scrollY : null;
+    };
+    return {
+      einrichten: obenVon('Noch einzurichten'),
+      werkzeuge: obenVon('Werkzeuge'),
+      // Eine Kachel, die der Prüfstand immer hat.
+      kachel: obenVon('Licht Wohnzimmer'),
+    };
+  });
+
+  if (lage.kachel === null) {
+    pruefe(false, 'Eine Gerätekachel war als Bezugspunkt zu finden');
+    await seite.close();
+    return;
+  }
+  pruefe(
+    lage.einrichten > lage.kachel,
+    '«Noch einzurichten» steht unter den Gerätekacheln',
+    `Karte bei ${Math.round(lage.einrichten)}, Kachel bei ${Math.round(lage.kachel)}`
+  );
+  pruefe(
+    lage.werkzeuge > lage.kachel,
+    '«Werkzeuge» steht unter den Gerätekacheln',
+    `Karte bei ${Math.round(lage.werkzeuge)}, Kachel bei ${Math.round(lage.kachel)}`
+  );
+  pruefe(
+    lage.werkzeuge > lage.einrichten,
+    'Und «Werkzeuge» unter «Noch einzurichten»'
+  );
+
+  // Zugeklappt: Der Inhalt fehlt, die Überschrift steht.
+  pruefe(
+    (await seite.getByText('Mehrere zuweisen', { exact: true }).count()) === 0,
+    '«Werkzeuge» ist zugeklappt'
+  );
+  await kopf('Werkzeuge').click();
+  await seite.waitForTimeout(600);
+  pruefe(
+    (await seite.getByText('Mehrere zuweisen', { exact: true }).count()) > 0,
+    'Und geht auf, wenn man ihn antippt'
+  );
+  await seite.close();
+}
+
+/** 13. Öffnet der Tipp auf die Grillkachel das Blatt - und lässt sich
+ * dort ein Ziel setzen, das der Hub behält? (Punkte 554, 555, 557)
+ *
+ * Gewünscht im Haus: «Wenn ich auf die Grillkarte drücke, schaltet sich
+ * der Grill aus» - und: «Soll der Grill beim Antippen als Popup öffnen.»
+ * Die Kachel trägt seit Punkt 557 keine Griffe mehr; der Tipp irgendwo
+ * darauf öffnet das Blatt. Gemessen wird deshalb genau das: ein Tipp auf
+ * die Fühlerzeile (die vorher selbst ein Griff war) - und danach, dass
+ * der Grill noch läuft.
+ *
+ * Die Kette läuft über drei Schichten: Die Kachel muss den Grill als
+ * Grill erkennen, das Blatt muss aufgehen, und der Hub muss das Ziel
+ * behalten. Der Fehler, der diese Messung wert macht, sass in der
+ * letzten: `hub.data` führt Listen, und das Ziel lag als Wörterbuch
+ * darin - geschrieben wurde es, gelesen kam nichts zurück.
+ */
+async function grillzielSetzen(browser) {
+  const seite = await angemeldeteSeite(browser, GROESSEN[0]);
+  if (!(await zurSeite(seite, 'Räume'))) {
+    await seite.close();
+    return;
+  }
+  const terrasse = seite.getByText('Terrasse', { exact: true }).first();
+  if (!(await terrasse.isVisible().catch(() => false))) {
+    pruefe(false, 'Der Raum mit dem Grill war erreichbar');
+    await seite.close();
+    return;
+  }
+  await terrasse.click();
+  await seite.waitForTimeout(1800);
+
+  const zeile = seite.getByText(/^Fühler 2:/).first();
+  if (!(await zeile.isVisible().catch(() => false))) {
+    // Die Gegenprobe steckt hier: Ohne Grillkachel gibt es keine
+    // Fühlerzeile - dann ist schon die erste Schicht kaputt.
+    pruefe(false, 'Die Grillkachel zeigt ihre Fühler');
+    await seite.close();
+    return;
+  }
+  pruefe(true, 'Die Grillkachel zeigt ihre Fühler');
+  // Und ihr Bild (Punkt 559) - je Bauart eines, hier der liegende
+  // Grill, weil der Demo-Smoker dasselbe Modell trägt wie der im Haus.
+  // Seit Punkt 564 das Foto - der Demo-Smoker trägt dasselbe Modell wie
+  // der im Haus, und für das gibt es eines.
+  pruefe(
+    await seite.getByLabel('Foto: Pelletgrill').first().isVisible().catch(() => false),
+    'Und das Foto des Grills daneben'
+  );
+
+  // Der Tipp auf die Kachel - auf die Zeile, die früher selbst ein
+  // Griff war.
+  await zeile.click();
+  await seite.waitForTimeout(900);
+  const blatt = seite.getByText('GRILL TEMP', { exact: true }).first();
+  if (!(await blatt.isVisible().catch(() => false))) {
+    pruefe(false, 'Ein Tipp auf die Kachel öffnet das Grillblatt');
+    await seite.close();
+    return;
+  }
+  pruefe(true, 'Ein Tipp auf die Kachel öffnet das Grillblatt');
+
+  // Und der Grill läuft noch - das ist der Fehler aus dem Haus.
+  const laeuftNoch = await seite.evaluate(async ([url, token]) => {
+    const antwort = await fetch(`${url}/api/entities`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const liste = await antwort.json();
+    const grill = (Array.isArray(liste) ? liste : liste.entities ?? []).find(
+      (e) => e.id === 'demo.smoker'
+    );
+    return grill?.state?.state;
+  }, [HUB, TOKEN]);
+  pruefe(laeuftNoch === 'running', 'Und der Grill läuft danach noch', String(laeuftNoch));
+
+  // Die Zieltemperatur (Punkt 565): «+» springt vom Demo-Ziel 110 zur
+  // nächsten Raste 121 - und der Hub bestätigt sie.
+  await seite.getByLabel('Ziel erhöhen').first().click();
+  await seite.waitForTimeout(1500);
+  pruefe(
+    await seite.getByText('ZIEL 121°', { exact: true }).first().isVisible().catch(() => false),
+    'Ein Tipp auf + hebt das Ziel auf die nächste Raste'
+  );
+  const zielBeimHub = await seite.evaluate(async ([url, token]) => {
+    const antwort = await fetch(`${url}/api/entities`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const liste = await antwort.json();
+    const grill = (Array.isArray(liste) ? liste : liste.entities ?? []).find(
+      (e) => e.id === 'demo.smoker'
+    );
+    return grill?.state?.target;
+  }, [HUB, TOKEN]);
+  pruefe(Number(zielBeimHub) === 121, 'Und der Hub hat das neue Ziel', String(zielBeimHub));
+
+  // Die Ansage nennt seit Punkt 566 auch den Wert («Fühler 2, 36°, Ziel setzen»).
+  const kreis = seite.getByLabel(/^Fühler 2, .*Ziel setzen$/).first();
+  if (!(await kreis.isVisible().catch(() => false))) {
+    pruefe(false, 'Der eingesteckte Fühler lässt sich antippen');
+    await seite.close();
+    return;
+  }
+  await kreis.click();
+  await seite.waitForTimeout(700);
+  const stufe = seite.getByText('Schwein 63°', { exact: true }).first();
+  pruefe(
+    await stufe.isVisible().catch(() => false),
+    'Ein Tipp darauf bietet die Garstufen an'
+  );
+  if (!(await stufe.isVisible().catch(() => false))) {
+    await seite.close();
+    return;
+  }
+  await stufe.click();
+  await seite.waitForTimeout(1500);
+  // Das Ziel steht im Kreis unter dem Wert (Punkt 566) - die Ansage des
+  // Kreises nennt beides.
+  pruefe(
+    await seite.getByLabel(/^Fühler 2, .*Ziel 63°$/).first().isVisible().catch(() => false),
+    'Und der Kreis zeigt das Ziel'
+  );
+  // Der Verlauf (Punkt 566): Der Demo-Hub hat keine Datenbank - dann
+  // muss genau das dastehen, kein leerer Rahmen.
+  await seite.getByLabel('Verlauf').first().click();
+  await seite.waitForTimeout(1200);
+  pruefe(
+    await seite
+      .getByText('Kein Verlauf – im Hub ist keine Datenbank eingerichtet.', { exact: true })
+      .first()
+      .isVisible()
+      .catch(() => false),
+    'Der Verlauf sagt, warum er leer ist'
+  );
+
+  // Und der Hub hat es behalten - die Schicht, in der der Fehler sass.
+  const gespeichert = await seite.evaluate(async ([url, token]) => {
+    const antwort = await fetch(`${url}/api/grillziele`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return antwort.json();
+  }, [HUB, TOKEN]);
+  pruefe(
+    (gespeichert?.ziele ?? []).some(
+      (zeile) => zeile.entity_id === 'demo.smoker' && Number(zeile.ziel) === 63
+    ),
+    'Der Hub hat das Ziel behalten',
+    JSON.stringify(gespeichert)
+  );
+
+  // Der Timer direkt im Blatt (Punkt 561): stellen, Restzeit lesen,
+  // abbrechen - und der Hub führt ihn als Küchen-Timer.
+  await seite.getByLabel('Timer stellen').first().click();
+  await seite.waitForTimeout(500);
+  // Selber getippt, keine Vorauswahl (Punkt 568): «1:15» sind 75 Minuten.
+  const feld = seite.getByLabel('Dauer in Minuten').first();
+  if (await feld.isVisible().catch(() => false)) {
+    await feld.fill('1:15');
+    await seite.waitForTimeout(300);
+    pruefe(
+      await seite.getByText('1 h 15 min', { exact: true }).first().isVisible().catch(() => false),
+      'Das Feld versteht «1:15»'
+    );
+    await seite.getByLabel('Timer starten').first().click();
+    await seite.waitForTimeout(1500);
+    const rest = await seite.getByText(/^NOCH \d+:\d\d$/).first().textContent().catch(() => null);
+    pruefe(/^NOCH 7[45]:\d\d$/.test(rest ?? ''), 'Der Timer läuft im Blatt mit Restzeit', rest ?? '');
+    const beimHub = await seite.evaluate(async ([url, token]) => {
+      const antwort = await fetch(`${url}/api/timers`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      return antwort.json();
+    }, [HUB, TOKEN]);
+    pruefe(
+      (beimHub?.timers ?? []).some((t) => t.text === 'Smoker – nachsehen'),
+      'Und der Hub führt ihn als Küchen-Timer',
+      JSON.stringify(beimHub)
+    );
+    await seite.getByLabel('Timer abbrechen').first().click();
+    await seite.waitForTimeout(800);
+    pruefe(
+      await seite.getByLabel('Timer stellen').first().isVisible().catch(() => false),
+      'Abgebrochen steht der Knopf wieder da'
+    );
+  } else {
+    pruefe(false, 'Der Timer läuft im Blatt mit Restzeit', 'kein Feld für die Dauer');
+  }
+
+  // Zurück auf der Kachel steht es auch - sie holt die Ziele nicht mehr
+  // selbst, sondern bekommt sie vom selben Stand wie das Blatt.
+  // Über den Hintergrund und nicht über «Schliessen»: Den Namen trägt
+  // auch ein Knopf unter dem Blatt, und der fing den Klick ab.
+  await seite.getByLabel('Grill schliessen').first().click({ position: { x: 5, y: 5 } });
+  await seite.waitForTimeout(700);
+  const danach = await seite.getByText(/^Fühler 2:/).first().textContent();
+  pruefe(
+    /noch \d+ bis 63/.test(danach ?? ''),
+    'Und die Kachel sagt, wie weit es noch ist',
+    danach ?? ''
+  );
+  await seite.close();
+}
+
+/** 14. Stehen alle vier Fühler im Blatt - auch die leeren? (Punkt 555)
+ *
+ * Am Demo-Grill stecken zwei Fühler, und eine Fassung, die nur die
+ * steckenden zeigt, sieht für sich richtig aus. Eine Messung, die nur
+ * «es stehen Kreise da» prüft, bliebe also grün, während das Blatt zwei
+ * Plätze verschluckt - und dann sucht man am Grill, ob man den richtigen
+ * Anschluss erwischt hat. Gemessen auf dem Telefon: Dort müssen die
+ * vier Kreise auch in die Breite passen.
+ */
+async function grillblattVierPlaetze(browser) {
+  const seite = await angemeldeteSeite(browser, GROESSEN[1]);
+  if (!(await zurSeite(seite, 'Räume'))) {
+    await seite.close();
+    return;
+  }
+  const terrasse = seite.getByText('Terrasse', { exact: true }).first();
+  if (!(await terrasse.isVisible().catch(() => false))) {
+    pruefe(false, 'Der Raum mit dem Grill war erreichbar (Telefon)');
+    await seite.close();
+    return;
+  }
+  await terrasse.click();
+  await seite.waitForTimeout(1800);
+  await seite.getByText(/^Fühler 2:/).first().click();
+  await seite.waitForTimeout(900);
+
+  const kreise = [];
+  for (const nummer of ['1', '2', '3', '4']) {
+    const kreis = seite.getByText(`P${nummer}`, { exact: true }).first();
+    if (await kreis.isVisible().catch(() => false)) kreise.push(nummer);
+  }
+  pruefe(
+    kreise.length === 4,
+    'Alle vier Fühlerplätze stehen im Blatt - auch die leeren',
+    `sichtbar: ${kreise.join(', ') || 'keiner'}`
+  );
+  // Und der leere Platz sagt das auch: «- - -°» statt einer Zahl.
+  const leer = await seite.getByText('- - -°', { exact: true }).count();
+  pruefe(leer >= 2, 'Die leeren Plätze zeigen keinen Wert', `gefunden: ${leer}`);
+  // Auf dem Telefon darf das Blatt nicht seitlich hinausragen - vier
+  // Kreise von je 150 Punkten täten das.
+  const ueber = await messeUeberlauf(seite);
+  pruefe(
+    !ueber.zuBreit,
+    'Das Grillblatt ragt auf dem Telefon nicht hinaus',
+    ueber.schuldige.join(', ')
+  );
+  await seite.close();
+}
+
+/** 15. Öffnet «Smoker läuft» neben der Begrüssung das Grillblatt? (Punkt 563)
+ *
+ * Die Zeile war bisher bewusst nichts zum Tippen. Für den Grill ist sie
+ * der kürzeste Weg zum Blatt - und eine Zeile, die nach Knopf aussieht
+ * und keiner ist, merkt man erst am Grill.
+ */
+async function smokerLaeuftOeffnetBlatt(browser) {
+  const seite = await angemeldeteSeite(browser, GROESSEN[0]);
+  await seite.waitForTimeout(1500);
+  const zeile = seite.getByText('Smoker läuft', { exact: true }).first();
+  if (!(await zeile.isVisible().catch(() => false))) {
+    pruefe(false, '«Smoker läuft» steht neben der Begrüssung');
+    await seite.close();
+    return;
+  }
+  pruefe(true, '«Smoker läuft» steht neben der Begrüssung');
+  await zeile.click();
+  await seite.waitForTimeout(900);
+  pruefe(
+    await seite.getByText('GRILL TEMP', { exact: true }).first().isVisible().catch(() => false),
+    'Und ein Tipp darauf öffnet das Grillblatt'
+  );
+  await seite.close();
+}
+
+/** Die kleinste Trefffläche, wie app/src/theme.tsx sie kennt (Punkt 613):
+ *  Apples 44 Punkte. WCAG 2.5.8 verlangt 24 - das ist die Untergrenze,
+ *  unter der ein Knopf schlicht nicht mehr zu treffen ist. */
+const TREFFER_MINDEST = 44;
+const TREFFER_UNTERGRENZE = 24;
+
+/** Was unter 44 Punkten bleiben darf, und warum (Punkt 613).
+ *
+ *  Jede Ausnahme steht hier mit Namen, damit die nächste nicht still
+ *  dazukommt. Gemeint sind Flächen, die ihre Grösse aus dem Text
+ *  beziehen und in einer Reihe mit anderen stehen - Chips: 44 Punkte
+ *  hoch wäre eine Reihe aus Knöpfen, keine Zeile mehr. Sie liegen alle
+ *  über der Untergrenze der WCAG (gemessen: 26 bis 41 Punkte); nativ
+ *  trägt jede davon ausserdem einen `hitSlop`, der im Browser nicht
+ *  messbar ist. Die Namen sind die Vorlesetexte (aria-label). */
+const TREFFER_AUSNAHMEN = [
+  // Chips: Zeitraum im Verlauf (28), Szenen im Raumkopf und auf der
+  // Raumkachel (41), Stellungen der Store (32/34), «Storen hoch/runter»
+  // und «Zurück zu Räume» (28), die Knöpfe der Fernseherkachel (33/34),
+  // Lautsprecherwahl und Wetterwarnung (27), Zufall/Wiederholen (37),
+  // Playlists und Grillstreifen (41), die Schlossknöpfe (37), Klima im
+  // Raumkopf (38), Raum einrichten (34).
+  /^Zeitraum /,
+  /^Szene /,
+  /^Store .*: (Auf|Zu|Halb|Beschattung)$/,
+  /^Storen (hoch|runter)$/,
+  /^Zurück zu /,
+  /^(App wechseln|Einschlafen|Ganze Fernbedienung|Raum einrichten)$/,
+  /^Alles aus/,
+  /^(Wetterwarnungen|Lautsprecher wählen|Besuch oder Babysitter)$/,
+  /^(Zufall ein|Zufall aus|Wiederholen)/,
+  /^(Playlists|Öffnen|Auf \+ öffnen|Aufschliessen|Abschliessen)$/,
+  /^Smoker läuft/,
+  /^Temperatur \d/,
+  // Die Tasten der Fernbedienung und des Players: 34 bis 40 Punkte, in
+  // einem Steuerkreuz - grösser gäbe es kein Kreuz mehr auf einer Kachel.
+  /^(Hoch|Runter|Links|Rechts|Zurück|Startseite|Stumm|Lauter|Leiser|Stopp|Abspielen|Pause|Voriger Titel|Nächster Titel)$/,
+  // Die Farbpunkte der Lichtkachel (26): neun in einer Reihe.
+  /^(Rot|Orange|Gelb|Grün|Türkis|Blau|Violett|Pink|Warmweiss|Kaltweiss)$/,
+  // Und die drei Weisstöne daneben (26, Punkt 649) - dieselbe Reihe,
+  // derselbe Fall. Im Lichtblatt und im Ablauf messen dieselben Punkte
+  // 44 bzw. 32; klein sind sie nur auf der Kachel, wo zwölf davon
+  // nebeneinander stehen.
+  /^(warmweiss|neutralweiss|tageslichtweiss)$/,
+  // Die Nachbarzimmer in der Kopfzeile (27): ein Textlink in einer
+  // Zeile, derselbe Fall wie «Zurück zu Räume» darüber.
+  /^(Voriges|Nächstes) Zimmer: /,
+];
+
+/** Was unter der Untergrenze der WCAG liegt und **nicht** in Ordnung ist
+ *  - bekannt, mit Namen, noch zu beheben (Punkt 613).
+ *
+ *  Keine Ausnahmen, sondern Schulden: Sie standen so im Haus, als die
+ *  Messung dazukam, und gehören in eigene Runden (die Dateien stehen
+ *  dabei). Die Liste hält sie fest, damit die Probe grün bleibt und
+ *  trotzdem jede *neue* Fläche unter 24 Punkten rot wird - und damit
+ *  einer, der eine davon behebt, sie hier streichen kann. */
+const TREFFER_SCHULD = [
+  // Die Symbolknöpfe der Kopfzeile, 16×17 (components/TopStrip.tsx).
+  /^(Posteingang|Gäste-WLAN|Reihenfolge der Schnellaktionen ändern)$/,
+  // Die Kalenderzeilen und ihre Fussnoten, 16 bis 19 hoch
+  // (components/TopStrip.tsx, components/TagesZeile.tsx).
+  /^Alle (Termine|Geburtstage)$/,
+  /^\d\d:\d\d /,
+  /^Einkaufen$/,
+  /^\d+ Warnung/,
+  // Die Klima-Chips in der Kopfzeile, 14 bis 16 hoch (lib/klimachip.ts,
+  // components/TopStrip.tsx).
+  /^(Temperatur|Luftfeuchtigkeit) .*: \d/,
+  /^Luftfeuchtigkeit \d/,
+  // «Fein einstellen» auf der Storenkachel, 23 hoch (entity/koerper.tsx).
+  /^Fein einstellen$/,
+];
+
+/** Der Ein/Aus-Knopf jeder Kachel (Card.tsx, PowerButton) - die
+ *  meistgedrückte Fläche im Haus. Er wird eigens gemessen, damit die
+ *  Probe nicht nur sagt, was zu klein ist, sondern auch, dass die eine
+ *  Fläche, um die es in Punkt 613 ging, wirklich gewachsen ist. */
+async function messeEinAusKnoepfe(seite) {
+  return seite.evaluate(() =>
+    [...document.querySelectorAll('[role="switch"]')]
+      .filter((el) => /^(Einschalten|Ausschalten|Weiterspielen|Pausieren)$/.test(el.getAttribute('aria-label') ?? ''))
+      .map((el) => {
+        const box = el.getBoundingClientRect();
+        return Math.round(Math.min(box.width, box.height));
+      })
+  );
+}
+
+/** Misst die offene Seite: Welche Knöpfe, Schalter und Reiter sind
+ *  kleiner als die kleinste Trefffläche? Dieselbe Bauart wie
+ *  messeUeberlauf - alles, was das Dokument dazu hergibt. */
+async function messeTreffflaechen(seite) {
+  return seite.evaluate((mindest) => {
+    const rollen = ['button', 'switch', 'tab'];
+    // Der Name einer Fläche ohne aria-label ist ihr erster Text - nicht
+    // `textContent` des Ganzen: Ein Sinnbild davor liefert sein
+    // unsichtbares Glyphenzeichen mit, und der Lauftext hält seinen Satz
+    // dreimal im Dokument (components/Lauftext.tsx), sodass aus
+    // «Einkaufen» ein «EinkaufenEinkaufen» würde.
+    const ersterText = (el) => {
+      for (const blatt of el.querySelectorAll('*')) {
+        if (blatt.childElementCount > 0) continue;
+        const text = (blatt.textContent ?? '').replace(/[-]/g, '').trim();
+        if (text) return text.slice(0, 40);
+      }
+      return (el.textContent ?? '').replace(/[-]/g, '').trim().slice(0, 40);
+    };
+    return [...document.querySelectorAll(rollen.map((r) => `[role="${r}"]`).join(','))]
+      .map((el) => {
+        const box = el.getBoundingClientRect();
+        return {
+          rolle: el.getAttribute('role'),
+          label: el.getAttribute('aria-label') || ersterText(el) || '(ohne Namen)',
+          breite: Math.round(box.width),
+          hoehe: Math.round(box.height),
+          sichtbar: box.width > 0 && box.height > 0 && el.getClientRects().length > 0,
+        };
+      })
+      .filter((t) => t.sichtbar && Math.min(t.breite, t.hoehe) < mindest);
+  }, TREFFER_MINDEST);
+}
+
+/** 16. Ist jede Trefffläche gross genug? (Punkt 613 der Werkbank)
+ *
+ *  Der Fall: Der Ein/Aus-Knopf war 34 Punkte gross, die Zeitraum-Chips
+ *  im Verlauf 19 - und «hitSlop» stand 143-mal im Code, jede Stelle
+ *  nach Gefühl. Wer neben den Ein/Aus-Knopf tippt, tippt auf die
+ *  Kachel, und die öffnet den Verlauf.
+ *
+ *  Gemessen wird der Kasten, und das mit Absicht: Im Browser wirkt
+ *  `hitSlop` nicht (react-native-web kennt es an Pressable nicht), und
+ *  am Wandpanel läuft der Browser. Was hier zu klein ist, ist an der
+ *  Wand zu klein. Zwei Schwellen: Unter 24 Punkten (WCAG) ist ein Knopf
+ *  ein Fehler, ohne Ausnahme. Unter 44 (Apple) darf nur, was oben mit
+ *  Namen steht. */
+async function treffflaechen(browser) {
+  const alle = process.env.PROBE_TREFFER_ALLE === '1';
+  for (const groesse of GROESSEN) {
+    const seite = await angemeldeteSeite(browser, groesse);
+    const orte = [['Startseite', await messeTreffflaechen(seite)]];
+    if (await inDenRaum(seite)) orte.push(['Zimmer', await messeTreffflaechen(seite)]);
+    const einAus = await messeEinAusKnoepfe(seite);
+    pruefe(
+      einAus.length > 0 && einAus.every((mass) => mass >= TREFFER_MINDEST),
+      `${groesse.name}: jeder Ein/Aus-Knopf misst ${TREFFER_MINDEST} Punkte`,
+      einAus.length ? `gemessen ${einAus.join(', ')}` : 'keiner gefunden'
+    );
+    for (const [ort, klein] of orte) {
+      if (alle) {
+        for (const t of klein) console.log(`    ${ort} ${t.rolle} «${t.label}» ${t.breite}×${t.hoehe}`);
+      }
+      const passt = (muster, t) => muster.some((m) => m.test(t.label));
+      const zuKlein = klein.filter(
+        (t) => Math.min(t.breite, t.hoehe) < TREFFER_UNTERGRENZE && !passt(TREFFER_SCHULD, t)
+      );
+      const ohneAusnahme = klein.filter(
+        (t) => !passt(TREFFER_AUSNAHMEN, t) && !passt(TREFFER_SCHULD, t)
+      );
+      const nenne = (liste) =>
+        liste.slice(0, 4).map((t) => `${t.rolle} «${t.label}» ${t.breite}×${t.hoehe}`).join(' | ');
+      pruefe(
+        zuKlein.length === 0,
+        `${groesse.name}, ${ort}: kein neuer Knopf unter ${TREFFER_UNTERGRENZE} Punkten`,
+        nenne(zuKlein)
+      );
+      pruefe(
+        ohneAusnahme.length === 0,
+        `${groesse.name}, ${ort}: keine Trefffläche unter ${TREFFER_MINDEST} Punkten ohne benannte Ausnahme`,
+        `${ohneAusnahme.length}: ${nenne(ohneAusnahme)}`
+      );
+    }
+    await seite.close();
+  }
+}
+
+/** Die Schriftgrössen von Name und Fusszeile einer Kachel, in Punkten.
+ *
+ *  Die Lichtkachel trägt Name und Zeile selbst (EntityCard, lichtName /
+ *  lichtUnter), jede andere Kachel über CardFooter (title, dann eine
+ *  Zeile mit subtitle). Beide Wege enden in einem Text mit dem Namen
+ *  des Geräts; die Zeile darunter ist das nächste Textelement dahinter. */
+async function messeKachelschrift(seite, name) {
+  return seite.evaluate((gesucht) => {
+    const groesse = (el) => (el ? Math.round(parseFloat(getComputedStyle(el).fontSize)) : null);
+    const titel = [...document.querySelectorAll('div')].find(
+      (el) => el.childElementCount === 0 && el.textContent?.trim() === gesucht
+    );
+    if (!titel) return null;
+    // Die Zeile darunter: bei der Lichtkachel der nächste Text, bei
+    // CardFooter der erste Text in der Zeile danach (Name, Ein/Aus).
+    const naechstes = titel.nextElementSibling;
+    const zeile = naechstes && naechstes.childElementCount === 0 ? naechstes : naechstes?.firstElementChild;
+    return { name: groesse(titel), zeile: groesse(zeile) };
+  }, name);
+}
+
+/** 17. Schreibt das Wandpanel überall grösser - nicht nur auf der
+ *  Lichtkachel? (Punkt 610 der Werkbank)
+ *
+ *  Der Fall: Punkt 445 hatte `useTyp()` gebaut, benutzt wurde es genau
+ *  einmal, in der Lichtkachel. An der Wand stand der Lichtname in 19
+ *  Punkt neben dem Storennamen in 16, und die Fusszeile jeder anderen
+ *  Kachel blieb Telefonschrift. Gemessen wird die Schriftgrösse, nicht
+ *  die Höhe der Kachel: Die ist auch ohne grössere Schrift gleich, weil
+ *  jede Zeile eines Rasters gleich hoch ist (Punkt 528). */
+async function wandpanelSchreibtGross(browser) {
+  const seite = await angemeldeteSeite(browser, WANDPANEL);
+  if (!(await inDenRaum(seite))) {
+    pruefe(false, 'Wandpanel: der Weg ins Zimmer steht offen');
+    await seite.close();
+    return;
+  }
+  const licht = await messeKachelschrift(seite, 'Licht Wohnzimmer');
+  const store = await messeKachelschrift(seite, 'Store Wohnzimmer');
+  pruefe(!!licht && !!store, 'Wandpanel: Licht- und Storenkachel stehen im Zimmer');
+  if (licht && store) {
+    // 16 ist die Telefonschrift (theme.type.cardTitle); am Panel muss es
+    // mehr sein - sonst misst man ein iPad mit anderem Namen.
+    pruefe(
+      licht.name > 16,
+      'Wandpanel: die Lichtkachel schreibt grösser als das Telefon',
+      `${licht.name} Punkte`
+    );
+    pruefe(
+      store.name === licht.name,
+      'Wandpanel: der Kachelname der Store ist so gross wie der des Lichts',
+      `Store ${store.name}, Licht ${licht.name}`
+    );
+    pruefe(
+      store.zeile !== null && store.zeile === licht.zeile,
+      'Wandpanel: die Fusszeile der Store ist so gross wie die des Lichts',
+      `Store ${store.zeile}, Licht ${licht.zeile}`
+    );
+  }
+  await seite.close();
+}
+
 const { chromium } = playwrightLaden();
 const browser = await chromium.launch({ executablePath: browserOrt() });
 try {
@@ -858,6 +1535,13 @@ try {
   await fuehlerInZweiZimmern(browser);
   await rauchmelderNichtImZimmer(browser);
   await melderGibtSignal(browser);
+  await geraetelisteOhneSpalte(browser);
+  await geraetewerkzeugeUnten(browser);
+  await grillzielSetzen(browser);
+  await grillblattVierPlaetze(browser);
+  await smokerLaeuftOeffnetBlatt(browser);
+  await treffflaechen(browser);
+  await wandpanelSchreibtGross(browser);
 } finally {
   await browser.close();
 }

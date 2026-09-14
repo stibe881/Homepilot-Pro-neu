@@ -1066,7 +1066,7 @@ const makeStyles = (colors: Colors) =>
     backgroundColor: colors.surfaceSoft,
   },
   nameButtonText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
-  nameNote: { color: colors.on, fontSize: 13, lineHeight: 18 },
+  nameNote: { color: colors.onInk, fontSize: 13, lineHeight: 18 },
   // Der Abstand zwischen den Karten - gleich dem Innenabstand einer
   // Karte, damit die Seite als eine Spalte liest.
   stack: { gap: 14 },
@@ -1132,7 +1132,7 @@ const makeStyles = (colors: Colors) =>
     justifyContent: 'center',
     backgroundColor: colors.accent,
   },
-  avatarText: { color: '#FFFFFF', fontSize: 24, fontWeight: '700' },
+  avatarText: { color: colors.onAccent, fontSize: 24, fontWeight: '700' },
   profilName: { color: colors.ink, fontSize: 22, fontWeight: '700' },
   rollenReihe: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
   /** Die Rolle als Marke und nicht als Fliesstext: «Besitzer» ist eine

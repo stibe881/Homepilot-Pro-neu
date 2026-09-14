@@ -245,11 +245,65 @@ def pruefung_faellig(
     return jetzt - letzter_test >= monate * 30.4375 * 86400
 
 
+#: So lange darf ein Melder schweigen, bevor die Anlage es meldet (Punkt
+#: 640). Zigbee2MQTT nimmt einem Batteriegerät die Erreichbarkeit erst
+#: nach Stunden - die Karenz hier fängt nur noch das kurze Flackern beim
+#: Neustart des Hubs ab, nicht die Funklücke selbst.
+AUSFALL_KARENZ_S = 10 * 60
+
+
+def unerreichbar(entities: list[Any], abgeschaltet: set[str]) -> list[Any]:
+    """Melder, die sich nicht melden (rein, testbar) - Punkt 640.
+
+    Aus dem Haus: «Wenn ein Rauchmelder nicht erreichbar ist, soll es
+    eine Push geben.» Bisher stand «nicht erreichbar» nur an der Kachel
+    in der Geräteliste - und ein Rauchmelder, der schweigt, ist genau
+    der, der im Brandfall fehlt. Kameras zählen nicht: Sie hören einen
+    Melder, sie sind keiner, und ihren Ausfall meldet der Wächter der
+    Anbindung.
+    """
+    return [
+        entity
+        for entity in melder(entities)
+        if entity.id not in abgeschaltet
+        and getattr(entity, "kind", "") != "camera"
+        and not getattr(entity, "available", True)
+    ]
+
+
+def ausfall_lage(
+    unerreichbar_ids: set[str],
+    seit: dict[str, float],
+    gemeldet: set[str],
+    jetzt: float,
+    karenz_s: float = AUSFALL_KARENZ_S,
+) -> dict[str, Any]:
+    """Wer neu zu melden ist und wer zurück ist (rein, testbar) - Punkt 640.
+
+    ``seit`` merkt sich, seit wann ein Melder schweigt, ``gemeldet``, wen
+    die Anlage schon gemeldet hat. Gemeldet wird einmal, nach der
+    Karenz; die Rückkehr, sobald der gemeldete Melder wieder da ist.
+    Wer vor Ablauf der Karenz zurückkommt, war nie weg.
+    """
+    seit_neu = {kennung: seit.get(kennung, jetzt) for kennung in unerreichbar_ids}
+    melden = sorted(
+        kennung
+        for kennung in unerreichbar_ids
+        if kennung not in gemeldet and jetzt - seit_neu[kennung] >= karenz_s
+    )
+    zurueck = sorted(kennung for kennung in gemeldet if kennung not in unerreichbar_ids)
+    return {"seit": seit_neu, "melden": melden, "zurueck": zurueck}
+
+
 def melder_zeile(entity: Any, abgeschaltet: set[str], tests: dict[str, float], jetzt: float | None = None) -> dict[str, Any]:
     """Eine Zeile der Melderliste für die App (rein, testbar)."""
     moment = time.time() if jetzt is None else jetzt
     state = getattr(entity, "state", None) or {}
-    letzter_test = tests.get(entity.id)
+    # Eine Kamera hat keine Prüftaste: Sie hört einen Melder, sie ist
+    # keiner. «Nie geprüft» stünde dort für immer - und die Erinnerung
+    # käme jeden Monat für etwas, das niemand prüfen kann.
+    kamera = getattr(entity, "kind", "") == "camera"
+    letzter_test = None if kamera else tests.get(entity.id)
     return {
         "entity_id": entity.id,
         "name": str(getattr(entity, "label", getattr(entity, "name", "")) or entity.id),
@@ -263,7 +317,10 @@ def melder_zeile(entity: Any, abgeschaltet: set[str], tests: dict[str, float], j
         "low_battery": bool(state.get("low_battery")),
         "last_seen": getattr(entity, "last_seen", None),
         "last_test": letzter_test,
-        "test_overdue": letzter_test is None or (moment - letzter_test) >= 6 * 30.4375 * 86400,
+        "test_overdue": not kamera
+        and (letzter_test is None or (moment - letzter_test) >= 6 * 30.4375 * 86400),
+        # Prüfbar ist nur ein echter Melder - die Kamera hört nur mit.
+        "testable": not kamera,
         "can_mute": "mute" in (getattr(entity, "commands", []) or []),
         "can_self_test": "self_test" in (getattr(entity, "commands", []) or []),
     }

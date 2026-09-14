@@ -1,7 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AccessibilityInfo,
   Animated,
   Easing,
   StyleProp,
@@ -11,6 +10,7 @@ import {
   View,
 } from 'react-native';
 
+import { useBewegungReduziert } from '../hooks/useBewegungReduziert';
 import { HALT_ENDE, HALT_START, laufPlan } from '../lib/lauftext';
 
 /**
@@ -66,15 +66,11 @@ export function Lauftext({
 }) {
   const [kasten, setKasten] = useState(0);
   const [inhalt, setInhalt] = useState(0);
-  const [ruhig, setRuhig] = useState(false);
+  // Derselbe Hook wie Auftritt und Zustandspunkt, kein eigener Weg über
+  // AccessibilityInfo (Fehler aus der Runde 579 der Werkbank): Zwei
+  // Stellen, zwei Wege, und die dritte hatte gar keinen.
+  const ruhig = useBewegungReduziert();
   const versatz = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    AccessibilityInfo.isReduceMotionEnabled()
-      .then(setRuhig)
-      // Nicht abfragbar heisst: normal animieren.
-      .catch(() => {});
-  }, []);
 
   // Neuer Text, neue Messung: Sonst schnitte ihn der Kasten der alten
   // Messung ab, und er meldete deren Breite als seine eigene.

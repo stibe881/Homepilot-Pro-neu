@@ -28,6 +28,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 
 import { HubSettings } from '../api/types';
+import { pauseAbgleich } from '../lib/ortung';
 import {
   Ort as Ortsangabe,
   meldungsText,
@@ -155,6 +156,35 @@ export function useOrtung(settings: HubSettings, zone: string, erlaubt: boolean)
       }))
     );
   }, []);
+
+  /**
+   * Die Pause dem Hub sagen (Punkt 627).
+   *
+   * Vorher lag sie nur im Speicher dieses Geräts: Der Wächter schickte
+   * nach zwölf Stunden Stille «Meldet sich nicht mehr» an die ganze
+   * Familie, die Familienseite zeigte «meldet sich nicht», und das
+   * zweite eigene Gerät meldete weiter. Still bei Fehlern: Die Pause
+   * gilt auf dem Gerät auch dann, wenn der Hub gerade nicht erreichbar
+   * ist - und beim nächsten Öffnen holt der Abgleich unten sie nach.
+   */
+  const pauseMelden = useCallback(
+    async (bisMs: number) => {
+      if (!zone || !settings.url) return;
+      try {
+        await fetch(`${settings.url}/api/personen/${encodeURIComponent(zone)}/pause`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${settings.token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ until: bisMs > Date.now() ? bisMs / 1000 : null }),
+        });
+      } catch {
+        // siehe oben
+      }
+    },
+    [settings.url, settings.token, zone]
+  );
 
   /** Die Orte vom Hub - eine Adresse ändert man einmal, nicht je Telefon. */
   const orteHolen = useCallback(async (): Promise<Ort[]> => {
@@ -350,8 +380,10 @@ export function useOrtung(settings: HubSettings, zone: string, erlaubt: boolean)
         pausiertBis: 0,
         hinweis,
       }));
+      // Ein- oder Ausschalten hebt eine Pause auf - auch beim Hub.
+      await pauseMelden(0);
     },
-    [anwenden, speichern]
+    [anwenden, speichern, pauseMelden]
   );
 
   const pausieren = useCallback(
@@ -360,15 +392,45 @@ export function useOrtung(settings: HubSettings, zone: string, erlaubt: boolean)
       await anwenden(stand.aktiv, zeit);
       await speichern(stand.aktiv, zeit);
       setStand((vorher) => ({ ...vorher, pausiertBis: zeit }));
+      await pauseMelden(zeit);
     },
-    [anwenden, speichern, stand.aktiv]
+    [anwenden, speichern, stand.aktiv, pauseMelden]
   );
 
   const weiter = useCallback(async () => {
     const hinweis = await anwenden(stand.aktiv, 0);
     await speichern(stand.aktiv, 0);
     setStand((vorher) => ({ ...vorher, pausiertBis: 0, hinweis }));
-  }, [anwenden, speichern, stand.aktiv]);
+    await pauseMelden(0);
+  }, [anwenden, speichern, stand.aktiv, pauseMelden]);
+
+  // Beim Öffnen den Stand der Pause vom Hub holen (Punkt 627): Was das
+  // andere eigene Gerät gesetzt oder beendet hat, gilt auch hier. Nur
+  // solange die Ortung überhaupt läuft - ein ausgeschaltetes Gerät hat
+  // nichts zu pausieren.
+  useEffect(() => {
+    if (!stand.aktiv || !zone || !settings.url || !ortungMoeglich()) return;
+    let abgebrochen = false;
+    fetch(`${settings.url}/api/personen`, {
+      headers: { Authorization: `Bearer ${settings.token}` },
+    })
+      .then((antwort) => (antwort.ok ? antwort.json() : null))
+      .then((daten: { people?: { zone?: string | null; paused_until?: number | null }[] } | null) => {
+        if (abgebrochen || !daten) return;
+        const eigene = (daten.people ?? []).find((p) => p.zone === zone);
+        const hubBis = eigene?.paused_until ? Number(eigene.paused_until) * 1000 : null;
+        const was = pauseAbgleich(stand.pausiertBis, hubBis, new Date());
+        if (was === 'pausieren' && hubBis) void pausieren(new Date(hubBis));
+        if (was === 'weiter') void weiter();
+      })
+      .catch(() => {});
+    return () => {
+      abgebrochen = true;
+    };
+    // Nur beim Einschalten und beim Wechsel des Hubs - nicht bei jedem
+    // Tipp auf «Pause», sonst fragte jeder Tipp den Hub noch einmal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stand.aktiv, zone, settings.url, settings.token]);
 
   // Beim Öffnen der App einmal sagen, wo wir sind.
   //

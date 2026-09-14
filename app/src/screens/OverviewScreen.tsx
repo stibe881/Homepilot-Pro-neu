@@ -15,7 +15,8 @@ import { CommandData, Entity, KalenderEintrag, Scene } from '../api/types';
 import { Card } from '../components/Card';
 import { RenameDialog } from '../components/entity/anpassen';
 import { DraggableList } from '../components/DraggableList';
-import { KIND_ICONS, shortState } from '../components/RoomTile';
+import { shortState } from '../components/RoomTile';
+import { deviceKindIcon } from '../lib/geraeteart';
 import { appleMapsRoute, googleMapsRoute } from '../components/TopStrip';
 import { TagesZeile } from '../components/TagesZeile';
 import { VacuumHome } from '../components/VacuumHome';
@@ -59,7 +60,7 @@ import {
   geburtstagsListe,
   terminGruppen,
 } from '../lib/kalenderliste';
-import { applianceLine } from '../lib/haushalt';
+import { applianceLine, steckdosengeraet } from '../lib/haushalt';
 import {
   aufnahmeFehler,
   dauerText as aufnahmeDauer,
@@ -98,6 +99,9 @@ interface Props {
   countdowns?: { text: string; date: string; on_start?: boolean }[];
   /** Karten-/Schnappschuss-Adresse eines Geräts – für die Saugerkarte. */
   snapshotUri?: (entity: Entity) => string | undefined;
+  /** Öffnet das Reinigungsblatt des Saugers, wenn es hochzählt - vom
+   *  Chip «saugt» in der Kopfzeile (Punkt 635). */
+  saugerSignal?: number;
   /** Als Favorit markierte Geräte-IDs. Kommt von aussen, weil der Stern
    *  in der Geräteliste in die Geräte-Einstellungen schreibt und nicht in
    *  die Entität – wer nur `entity.favorite` liest, sieht nie etwas. */
@@ -210,6 +214,7 @@ export function OverviewScreen({
   onActivateScene,
   countdowns,
   snapshotUri,
+  saugerSignal,
   favoriteIds = [],
   favoriteOrder,
   onReorderFavorites,
@@ -458,14 +463,14 @@ export function OverviewScreen({
   const wash = applianceLine(washer, 'Läuft · noch 32 min');
   // Der Tumbler hängt an einer Schalt-Messsteckdose: Ob er läuft, verrät
   // erst die Leistung – eingeschaltet ist die Steckdose auch danach noch.
-  const tumblerWatts = tumbler ? Number(tumbler.state.power ?? 0) : 1450;
-  const tumblerOff = tumbler ? String(tumbler.state.state) === 'off' : false;
-  const tumblerRunning = !tumblerOff && tumblerWatts > 5;
-  const tumblerText = tumblerOff
-    ? 'Steckdose aus'
-    : tumblerRunning
-      ? 'Am Trocknen'
-      : 'Fertig';
+  // Ab wann das «arbeitet» heisst, steht in lib/haushalt.ts, damit hier
+  // und in der Begrüssungszeile dieselbe Schwelle gilt.
+  const {
+    text: tumblerText,
+    running: tumblerRunning,
+    watts: tumblerWatts,
+    aus: tumblerOff,
+  } = steckdosengeraet(tumbler, 'Am Trocknen');
 
   // Der Kalender - nur noch für die beiden Fenster. Den nächsten Termin
   // und den nächsten Geburtstag zeigt die Startkarte oben; hier stand
@@ -577,7 +582,7 @@ export function OverviewScreen({
           <Text
             style={[
               styles.tileState,
-              alarmArmed && { color: colors.on },
+              alarmArmed && { color: colors.onInk },
               String(alarm?.state.state) === 'ausgeloest' && { color: colors.danger },
             ]}
           >
@@ -650,7 +655,7 @@ export function OverviewScreen({
             // für «irgendein Gerät» (RoomTile), und vor «Olga» sah er aus
             // wie ein Platzhalter, den jemand vergessen hat. Der Sauger
             // hat dasselbe Sinnbild wie überall sonst.
-            icon={KIND_ICONS[vacuum.kind] ?? 'sparkles-outline'}
+            icon={deviceKindIcon(vacuum)}
             title={vacuum.name}
           >
             <VacuumHome
@@ -658,6 +663,7 @@ export function OverviewScreen({
               uri={snapshotUri?.(vacuum)}
               now={now}
               onCommand={onCommand}
+              oeffneSignal={saugerSignal}
             />
           </Tile>
         </View>
@@ -1131,7 +1137,7 @@ function FavoriteChip({
       <Ionicons
         // Läuft ein Timer, ist der Mond das Sinnbild - die Note über
         // «Aus in 1 h 30 min» erzählt vom falschen Gerät.
-        name={laeuft ? 'moon' : (KIND_ICONS[entity.kind] ?? 'cube-outline')}
+        name={laeuft ? 'moon' : deviceKindIcon(entity)}
         size={18}
         color={active || laeuft ? colors.accent : colors.inkSoft}
       />
@@ -1644,7 +1650,7 @@ function DurchsageFenster({
               <Ionicons
                 name={verwalten ? (bearbeite ? 'checkmark' : 'add') : 'megaphone-outline'}
                 size={18}
-                color="#FFFFFF"
+                color={colors.onAccent}
               />
             </Pressable>
             {/* Die Sprachnotiz steht neben dem Textfeld und nicht
@@ -1692,7 +1698,7 @@ function DurchsageFenster({
                 ]}
               >
                 {seit === null ? (
-                  <Ionicons name="mic-outline" size={18} color="#FFFFFF" />
+                  <Ionicons name="mic-outline" size={18} color={colors.onAccent} />
                 ) : (
                   <Text style={styles.durchsageZeit}>{aufnahmeDauer(jetzt - seit)}</Text>
                 )}
@@ -2165,7 +2171,7 @@ function Action({
         <Ionicons
           name={icon}
           size={16}
-          color={accent ? '#FFFFFF' : undefined}
+          color={accent ? styles.actionTextAccent.color : undefined}
           style={accent ? undefined : styles.actionIcon}
         />
       ) : null}
@@ -2352,7 +2358,7 @@ const makeStyles = (colors: Colors) =>
     // Die laufende Sekunde im Aufnahmeknopf - gleich gross wie das
     // Symbol daneben, damit die Zeile beim Umschalten nicht springt.
     durchsageZeit: {
-      color: '#FFFFFF',
+      color: colors.onAccent,
       fontSize: 13,
       fontWeight: '700',
       fontVariant: ['tabular-nums'],
@@ -2506,7 +2512,7 @@ const makeStyles = (colors: Colors) =>
     actionIcon: { color: colors.ink },
     actionAccent: { backgroundColor: colors.accent, borderColor: colors.accent },
     actionText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
-    actionTextAccent: { color: '#FFFFFF' },
+    actionTextAccent: { color: colors.onAccent },
     actionRow: { flexDirection: 'row', gap: 8 },
     actionCol: { gap: 8, alignSelf: 'stretch' },
   });

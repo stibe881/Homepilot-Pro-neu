@@ -67,7 +67,11 @@ hört man das ganze Zigbee-Netz mit.
 4. Stack ausrollen. Die Weboberfläche von Zigbee2MQTT steht danach auf
    Port **8099**.
 5. Dort «Permit join» für ein paar Minuten öffnen und die Geräte
-   anlernen - und **gleich benennen**, siehe unten.
+   anlernen - und **gleich benennen**, siehe unten. Seit Punkt 632 geht
+   das auch aus der App: Einstellungen → Verbindungen → «Gerät
+   hinzufügen» öffnet das Netz für vier Minuten, zählt herunter und
+   sagt «Aqara Türkontakt gefunden», sobald Zigbee2MQTT das Gerät
+   ausgefragt hat (`bridge/request/permit_join`, `bridge/event`).
 6. Im Hub die Integration eintragen (nächster Abschnitt) und neu starten.
 
 ## Was der Hub braucht
@@ -139,6 +143,15 @@ danach, was man mit ihm *tut* – erst die Bedienung, dann die Messwerte.
 | action | Wandtaster | kein Zustand – der letzte Druck ist der Zustand |
 | occupancy, contact, water_leak … | Melder | – |
 | temperature, humidity … | Messfühler | – |
+
+**Einstellen am Gerät** (Punkt 631): Nachlaufzeit, Empfindlichkeit,
+Temperatur- und Feuchte-Abgleich, LED - eine Auswahl gängiger
+Einstellungen steht in der App im Anpassen-Blatt unter «Gerät
+einstellen». Welche Namen dazugehören, sagt die Tabelle `OPTIONEN` in
+`integrations/zigbee2mqtt.py`; alles Übrige bleibt in der
+Z2M-Oberfläche. Der Wert kommt mit der nächsten Zustandsmeldung des
+Geräts - ein Melder mit Batterie übernimmt eine Änderung erst beim
+nächsten Aufwachen.
 
 ## Zwei Dinge, die überraschen
 

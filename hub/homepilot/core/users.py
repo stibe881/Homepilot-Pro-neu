@@ -302,6 +302,76 @@ def access_end(
     return ende
 
 
+def naechster_beginn(
+    days: list[int], hours: dict[str, str], expires: str | None, now: datetime
+) -> datetime | None:
+    """Wann geht der Zugang das nächste Mal auf? (rein, testbar)
+
+    Punkt 624 der Werkbank: Ausserhalb des Zeitfensters hiess es
+    «Ungültiges Token», und das Kind um 20:01 sah ein kaputtes Haus
+    statt «Feierabend». Die Antwort «ab 07:00 wieder» braucht genau
+    diesen Zeitpunkt.
+
+    Gesucht wird der erste Fensterbeginn nach ``now``, höchstens eine
+    Woche voraus - bei Wochentagen liegt er spätestens dort. Ohne
+    Fenster und ohne Tage gibt es keinen Beginn; ``None`` heisst auch:
+    Das Datum ist bis dahin vorbei, der Zugang kommt nicht zurück.
+    """
+    if not hours and not days:
+        return None
+    start = hours.get("from", "") or "00:00"
+    try:
+        stunde, minute = (int(teil) for teil in start.split(":"))
+    except ValueError:
+        return None
+    for tage in range(8):
+        beginn = (now + timedelta(days=tage)).replace(
+            hour=stunde, minute=minute, second=0, microsecond=0
+        )
+        if beginn <= now or not in_days(days, hours, beginn):
+            continue
+        if expires and beginn.strftime("%Y-%m-%d") > expires:
+            return None
+        return beginn
+    return None
+
+
+@dataclass(frozen=True)
+class Zugangsgrund:
+    """Warum jemand gerade nicht hereindarf (Punkt 624 der Werkbank).
+
+    ``gesperrt`` ist die Entscheidung eines Menschen, ``abgelaufen`` das
+    Datum, ``fenster_zu`` die Uhr - und nur das Letzte kommt von selbst
+    zurück, deshalb trägt es den Zeitpunkt mit.
+    """
+
+    art: str
+    gilt_ab: datetime | None = None
+
+    def satz(self, now: datetime | None = None) -> str:
+        """Der Satz an die Person - was der Hub statt «Ungültiges Token» sagt."""
+        if self.art == "gesperrt":
+            return "Dein Zugang ist gesperrt."
+        if self.art == "abgelaufen" or self.gilt_ab is None:
+            return "Dein Zugang ist abgelaufen."
+        moment = now or datetime.now()
+        wann = self.gilt_ab.strftime("%H:%M")
+        if self.gilt_ab - moment > timedelta(days=1):
+            # Am Freitag «ab 08:00» hiesse morgen früh - die Putzhilfe
+            # kommt aber erst am Donnerstag wieder. «Ab 07:00» um 20:01
+            # dagegen meint morgen, und das versteht jedes Kind.
+            wann = self.gilt_ab.strftime("%d.%m. %H:%M")
+        return f"Dein Zugang gilt ab {wann} wieder."
+
+    def as_dict(self, now: datetime | None = None) -> dict[str, Any]:
+        """Für die Antwort des Hubs - die App liest ``gilt_ab``."""
+        return {
+            "message": self.satz(now),
+            "grund": self.art,
+            "gilt_ab": self.gilt_ab.isoformat(timespec="minutes") if self.gilt_ab else None,
+        }
+
+
 def kid_rooms(role: str, primary: list[str], fallback: list[str]) -> list[str]:
     """Räume mit dem Rückgriff der Kinder-Rolle (rein, testbar).
 
@@ -418,12 +488,28 @@ class User:
         sichtbar, statt spurlos zu verschwinden – sonst rätselt man, wem man
         den Zugang gegeben hat.
         """
+        return self.zugangsgrund(now) is None
+
+    def zugangsgrund(self, now: datetime | None = None) -> Zugangsgrund | None:
+        """Warum darf dieser Benutzer gerade *nicht* herein? (rein, testbar)
+
+        ``None`` heisst: Er darf. Punkt 624 der Werkbank: ``active()``
+        sagte nur ja oder nein, und aus dem Nein wurde überall
+        «Ungültiges Token» - für das Kind um 20:01 dieselbe Antwort wie
+        für ein widerrufenes Token. Das Zeitfenster ist aber kein
+        Rauswurf, sondern eine Pause mit bekanntem Ende.
+        """
         if not self.enabled:
-            return False
+            return Zugangsgrund("gesperrt")
         moment = now or datetime.now()
         if self.expires and moment.strftime("%Y-%m-%d") > self.expires:
-            return False
-        return in_days(self.days, self.hours, moment) and in_hours(self.hours, moment)
+            return Zugangsgrund("abgelaufen")
+        if in_days(self.days, self.hours, moment) and in_hours(self.hours, moment):
+            return None
+        ab = naechster_beginn(self.days, self.hours, self.expires, moment)
+        if ab is None:
+            return Zugangsgrund("abgelaufen")
+        return Zugangsgrund("fenster_zu", ab)
 
     def can(self, capability: str) -> bool:
         return capability in CAPABILITIES.get(self.role, frozenset())
@@ -521,7 +607,14 @@ class UserRegistry:
     def users(self) -> list[User]:
         return list(self._users)
 
-    def by_token(self, token: str | None) -> User | None:
+    def by_token(self, token: str | None, *, active_only: bool = True) -> User | None:
+        """Wer gehört zu diesem Token - und darf gerade herein.
+
+        ``active_only=False`` liefert den Inhaber auch ausserhalb seines
+        Zeitfensters (Punkt 624 der Werkbank): Die Schnittstelle will
+        dann nicht «Ungültiges Token» sagen, sondern «ab 07:00 wieder» -
+        und dafür muss sie wissen, wessen Token das ist.
+        """
         if self.open_access:
             return User(name="Offener Zugang", role=Role.OWNER, token="")
         if not token:
@@ -530,7 +623,7 @@ class UserRegistry:
             # Konstante Laufzeit, damit sich ein Token nicht erraten lässt,
             # indem man die Antwortzeit misst.
             if secrets.compare_digest(user.token, token):
-                return user if user.active() else None
+                return user if user.active() or not active_only else None
         return None
 
     def by_name(self, name: str) -> User | None:

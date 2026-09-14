@@ -116,6 +116,69 @@ def test_was_sich_nicht_vorhersagen_laesst_bleibt_unangetastet() -> None:
     assert plane_rueckweg(actions, stand) == []
 
 
+def test_zocken_schaltet_die_app_um_und_kommt_zurueck() -> None:
+    """Der gemeldete Fall (Punkt 644): «Zocken» aktiviert bleibt in der
+    App nicht aktiv - ein zweiter Druck löst die Szene bloss erneut aus,
+    statt zur vorherigen App zurückzukehren.
+
+    Der Grund: `launch_app` trägt die rohe Paket-ID (`data.app`), der
+    Zustand vorher nur den übersetzten Anzeigenamen (`app`) - die beiden
+    liessen sich nie vergleichen, und die Szene galt darum nie als «noch
+    aktiv». Seit Punkt 644 führt der Zustand die Paket-ID zusätzlich roh
+    mit (`app_id`, androidtv.tv_state), und genau die wird verglichen.
+    """
+    actions = [{"entity_id": "tv.stube", "command": "launch_app", "data": {"app": "com.sony.ps5"}}]
+    lief_schon_ps5 = {
+        "tv.stube": geraet(
+            "media_player", ["turn_on", "turn_off", "launch_app"],
+            {"state": "on", "app": "Netflix", "app_id": "com.sony.ps5"},
+        )
+    }
+    lief_netflix = {
+        "tv.stube": geraet(
+            "media_player", ["turn_on", "turn_off", "launch_app"],
+            {"state": "on", "app": "Netflix", "app_id": "com.netflix.ninja"},
+        )
+    }
+    # Die Vorschau, die `ist_aktiv` befragt: Läuft die PS5 schon, gilt
+    # die Szene als aktiv - lief noch Netflix, nicht.
+    assert szene_gilt_noch(actions, lief_schon_ps5) is True
+    assert szene_gilt_noch(actions, lief_netflix) is False
+    # Nichts geändert, nichts zum Zurücknehmen.
+    assert hat_sich_geaendert(lief_schon_ps5["tv.stube"]["state"], zielzustand(actions[0])) is False
+    # Lief vorher Netflix, geht der zweite Druck dorthin zurück - nicht
+    # bloss «Fernseher an», was das Spiel weiterlaufen liesse.
+    assert plane_rueckweg(actions, lief_netflix) == [
+        {"entity_id": "tv.stube", "command": "launch_app", "data": {"app": "com.netflix.ninja"}}
+    ]
+
+
+def test_eine_bridge_szene_gilt_nach_dem_aufruf_als_aktiv() -> None:
+    """Derselbe Fehler wie bei «Zocken» (Punkt 644), diesmal bei einer
+    Bridge-Szene: Der gemeldete Fall «Zocken / Kino» besteht nur aus
+    `google_cast: turn_off` und `hue: activate` - und `activate` kannte
+    `zielzustand` nicht. War der Cast schon aus, blieb kein einziges
+    vorhersagbares Feld übrig, und die Szene galt nie als aktiv (Punkt
+    650 der Werkbank).
+
+    Die Hue-Szene selbst meldet sich nach dem Aufruf mit `state: "active"`
+    (hue.py, demo.py) - genau das prüft `zielzustand` jetzt mit.
+    """
+    actions = [
+        {"entity_id": "cast.wohnzimmer", "command": "turn_off"},
+        {"entity_id": "hue.szene_kino", "command": "activate"},
+    ]
+    stand = {
+        "cast.wohnzimmer": geraet("media_player", ["turn_off"], {"state": "off"}),
+        "hue.szene_kino": geraet("scene", ["activate"], {"state": "active"}),
+    }
+    assert szene_gilt_noch(actions, stand) is True
+    # Ist eine andere Szene inzwischen aktiv, gilt «Zocken / Kino» nicht
+    # mehr - genau der Fall, den der Knopf anzeigen soll.
+    stand["hue.szene_kino"]["state"]["state"] = "inactive"
+    assert szene_gilt_noch(actions, stand) is False
+
+
 def test_ein_geraet_zweimal_in_der_szene_zaehlt_einmal() -> None:
     """Der Vorzustand ist der vor der ersten Aktion."""
     actions = [
@@ -158,3 +221,29 @@ def test_ein_paar_prozent_daneben_sind_kein_verlassen() -> None:
     assert szene_gilt_noch(actions, stand) is True
     stand["store"]["state"]["position"] = 80
     assert szene_gilt_noch(actions, stand) is False
+
+
+def test_eine_nie_spielende_box_gilt_nach_pause_trotzdem_als_ruhig() -> None:
+    """Der zweite Teil des gemeldeten Falls «Kino» (Punkt 650).
+
+    Die Szene pausiert eine Cast-Box, die schon vor dem Aufruf nichts
+    abspielte - «pausieren» ist an ihr ein Leerlauf, und sie meldet
+    weiterhin `idle` oder `standby`, nie `paused`
+    (integrations/google_cast.py, handle_command). Ohne die
+    Gleichsetzung galt die Szene nie als aktiv, und ihr Rückweg hätte
+    die Box fälschlich «angehalten».
+    """
+    actions = [{"entity_id": "cast.stube", "command": "pause"}]
+    for ruhezustand in ("idle", "standby", "paused"):
+        stand = {"cast.stube": geraet("media_player", ["play", "pause"], {"state": ruhezustand})}
+        assert szene_gilt_noch(actions, stand) is True
+    # Läuft die Box wirklich, hat die Szene sie verlassen.
+    laeuft = {"cast.stube": geraet("media_player", ["play", "pause"], {"state": "playing"})}
+    assert szene_gilt_noch(actions, laeuft) is False
+
+    # Und beim Zurücknehmen: Eine Box, die schon ruhte, bleibt unangetastet.
+    assert hat_sich_geaendert({"state": "idle"}, zielzustand(actions[0])) is False
+    assert hat_sich_geaendert({"state": "standby"}, zielzustand(actions[0])) is False
+    assert hat_sich_geaendert({"state": "playing"}, zielzustand(actions[0])) is True
+    # Rückweg aus «standby»: dieselbe Gruppe wie «idle», derselbe Befehl.
+    assert rueckbefehl("media_player", ["pause"], {"state": "standby"}) == {"command": "pause"}

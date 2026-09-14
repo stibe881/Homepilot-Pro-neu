@@ -95,6 +95,50 @@ def test_ein_reiner_messfuehler():
 # ── Was das Gerät meldet ─────────────────────────────────────────────────
 
 
+def test_ein_fuehler_bringt_seine_einheit_mit():
+    """Ohne Einheit ist ein Fühler in der App nur eine Zahl.
+
+    `lib/klimachip.ts` erkennt einen Klimafühler an der Einheit und
+    nicht am Namen - ein Prozentwert kann Feuchte, Batterie oder
+    Funkauslastung sein. Fehlt sie, hat das zwei Folgen, und beide sind
+    im Haus aufgefallen: Der Raumkopf blieb leer, obwohl die Kachel die
+    Temperatur zeigte, und im Anpassen-Blatt fehlte die Zeile «Gilt
+    für», weil sie an derselben Prüfung hängt. Ein Aqara-Fühler liess
+    sich dadurch nicht in die Kopfzeile heben, ein Homematic daneben
+    schon.
+    """
+    changes = z.zustand_aus_payload(
+        {"temperature": 21.5, "humidity": 46, "battery": 90},
+        "sensor",
+        None,
+        "temperature",
+    )
+    assert changes["state"] == 21.5
+    assert changes["unit"] == "°C"
+    assert changes["device_class"] == "temperature"
+
+    feuchte = z.zustand_aus_payload({"humidity": 46}, "sensor", None, "humidity")
+    assert feuchte["unit"] == "%"
+    assert feuchte["device_class"] == "humidity"
+
+
+def test_ein_melder_behaelt_seine_klasse():
+    """Die Klasse des Melders sticht die des Hauptwerts.
+
+    Ein Bewegungsmelder meldet nebenbei Helligkeit und Temperatur. Wäre
+    er nach seinem Hauptwert benannt, stünde er als «Helligkeitsfühler»
+    in der Alarmanlage - und die entscheidet an der Klasse, ob er
+    nachts mitwacht.
+    """
+    changes = z.zustand_aus_payload(
+        {"occupancy": True, "illuminance_lux": 12},
+        "binary_sensor",
+        "motion",
+        "illuminance",
+    )
+    assert changes["device_class"] == "motion"
+
+
 def test_zigbee_dreht_den_fensterkontakt_um():
     """`contact: true` heisst **zu**.
 
@@ -442,3 +486,146 @@ def test_ein_gemeldeter_selbsttest_ist_kein_knopf():
         {"type": "binary", "property": "self_test", "name": "self_test", "access": 2},
     ]
     assert z.art_und_befehle(echter_knopf)[1] == ["self_test"]
+
+
+# ── Einstellungen am Gerät (Punkt 631) ───────────────────────────────────
+
+MELDER_EXPOSES = [
+    {"type": "binary", "property": "occupancy", "name": "occupancy", "access": 1},
+    {
+        "type": "numeric",
+        "property": "occupancy_timeout",
+        "name": "occupancy_timeout",
+        "access": 7,
+        "value_min": 0,
+        "value_max": 65535,
+        "unit": "s",
+    },
+    {
+        "type": "enum",
+        "property": "motion_sensitivity",
+        "name": "motion_sensitivity",
+        "access": 7,
+        "values": ["low", "medium", "high"],
+    },
+    {
+        "type": "binary",
+        "property": "led_indication",
+        "name": "led_indication",
+        "access": 7,
+        "value_on": "ON",
+        "value_off": "OFF",
+    },
+    {
+        "type": "numeric",
+        "property": "temperature_calibration",
+        "name": "temperature_calibration",
+        "access": 7,
+        "value_min": -10,
+        "value_max": 10,
+        "value_step": 0.1,
+        "unit": "°C",
+    },
+    # Nur gemeldet, nicht stellbar - und darum keine Einstellung.
+    {"type": "numeric", "property": "linkquality", "name": "linkquality", "access": 1},
+    # Stellbar, aber nicht auf der Liste: das Meldeintervall gehört in
+    # die Z2M-Oberfläche, nicht ins Anpassen-Blatt.
+    {"type": "numeric", "property": "reporting_interval", "name": "reporting_interval", "access": 7},
+]
+
+
+def test_nur_die_gaengigen_einstellungen_werden_zur_option():
+    """Die Allowlist mit deutscher Beschriftung, aus den Exposes gelesen -
+    samt Art und Bereich, damit die App weiss, ob ein Schieber oder
+    Chips hingehören."""
+    optionen = z.optionen_aus_exposes(MELDER_EXPOSES)
+    assert [o["name"] for o in optionen] == [
+        "occupancy_timeout",
+        "motion_sensitivity",
+        "led_indication",
+        "temperature_calibration",
+    ]
+    nachlauf = optionen[0]
+    assert nachlauf["label"] == "Nachlaufzeit"
+    assert nachlauf["type"] == "numeric"
+    assert (nachlauf["min"], nachlauf["max"], nachlauf["unit"]) == (0, 65535, "s")
+    assert optionen[1]["values"] == ["low", "medium", "high"]
+    assert optionen[2]["value_on"] == "ON"
+    assert optionen[3]["step"] == 0.1
+    # Der Wert kommt erst mit der Meldung.
+    assert all(o["value"] is None for o in optionen)
+
+
+def test_ein_geraet_mit_einstellungen_bekommt_den_befehl():
+    art, befehle = z.art_und_befehle(MELDER_EXPOSES)
+    assert art == "binary_sensor"
+    # art_und_befehle bleibt, was es war - der Befehl kommt beim Anlegen
+    # dazu, damit die Liste aus den Exposes nur einmal gelesen wird.
+    assert "set_option" not in befehle
+
+
+def test_die_werte_kommen_mit_der_zustandsmeldung():
+    optionen = z.optionen_aus_exposes(MELDER_EXPOSES)
+    # Eine Bewegungsmeldung ohne Einstellungen ändert an der Liste nichts.
+    assert z.optionen_mit_werten(optionen, {"occupancy": True}) is None
+    neu = z.optionen_mit_werten(
+        optionen,
+        {"occupancy": True, "occupancy_timeout": 90, "led_indication": "OFF"},
+    )
+    assert neu is not None
+    werte = {o["name"]: o["value"] for o in neu}
+    assert werte["occupancy_timeout"] == 90
+    # Binär kommt als Ja/Nein beim Hub an, nicht als «ON»/«OFF».
+    assert werte["led_indication"] is False
+    assert werte["motion_sensitivity"] is None
+    # Die Vorlage bleibt unberührt.
+    assert optionen[0]["value"] is None
+
+
+def test_set_option_schreibt_das_feld_in_der_sprache_des_geraets():
+    optionen = z.optionen_aus_exposes(MELDER_EXPOSES)
+    setze = lambda name, wert: z.set_nutzlast(  # noqa: E731
+        "binary_sensor", "set_option", {"name": name, "value": wert}, None, optionen
+    )
+    assert setze("occupancy_timeout", 90) == {"occupancy_timeout": 90}
+    # Bereich: über dem Maximum wird gedeckelt, nicht abgewiesen.
+    assert setze("occupancy_timeout", 999999) == {"occupancy_timeout": 65535}
+    # Binär in der Sprache des Geräts.
+    assert setze("led_indication", False) == {"led_indication": "OFF"}
+    assert setze("led_indication", True) == {"led_indication": "ON"}
+    assert setze("motion_sensitivity", "high") == {"motion_sensitivity": "high"}
+    # Der Abgleich darf Zehntel: Das ist der wichtigste Fall (Punkt 538).
+    assert setze("temperature_calibration", -0.8) == {"temperature_calibration": -0.8}
+
+
+def test_eine_fremde_oder_unsinnige_einstellung_wird_abgewiesen():
+    optionen = z.optionen_aus_exposes(MELDER_EXPOSES)
+    with pytest.raises(ConfigError, match="kennt die Einstellung"):
+        z.set_nutzlast("binary_sensor", "set_option", {"name": "reporting_interval", "value": 5}, None, optionen)
+    with pytest.raises(ConfigError, match="kennt nur"):
+        z.set_nutzlast("binary_sensor", "set_option", {"name": "motion_sensitivity", "value": "ultra"}, None, optionen)
+    with pytest.raises(ConfigError, match="braucht eine Zahl"):
+        z.set_nutzlast("binary_sensor", "set_option", {"name": "occupancy_timeout", "value": "lang"}, None, optionen)
+
+
+# ── Einschaltverhalten nach Stromausfall (Punkt 630) ─────────────────────
+
+
+def test_das_einschaltverhalten_wird_gelesen_und_gestellt():
+    changes = z.zustand_aus_payload(
+        {"state": "ON", "power_on_behavior": "previous"}, "light", None, None
+    )
+    assert changes["power_on"] == "previous"
+    # Was der Hub nicht anbietet («toggle»), heisst «anders» und nicht
+    # zufällig eines der drei Wörter.
+    assert z.zustand_aus_payload({"power_on_behavior": "toggle"}, "light", None, None)[
+        "power_on"
+    ] == "other"
+    assert z.set_nutzlast("light", "set_power_on", {"mode": "previous"}) == {
+        "power_on_behavior": "previous"
+    }
+    assert z.set_nutzlast("light", "set_power_on", {"mode": "off"}) == {
+        "power_on_behavior": "off"
+    }
+    with pytest.raises(ConfigError):
+        z.set_nutzlast("light", "set_power_on", {"mode": "toggle"})

@@ -50,7 +50,25 @@ ACTION_TYPES: frozenset[str] = frozenset(
 )
 
 #: Dieselben Wörter wie in core/automation.py:_check_condition.
-CONDITION_TYPES: frozenset[str] = frozenset({"group", "state", "time", "sun"})
+#
+# Punkt 594 der Werkbank: Die vier Kontext-Bedingungen (presence,
+# availability, weather_warning, calendar) kamen einen Tag *nach* dieser
+# Liste in den Motor - und jeder Ablauf mit «nur wenn Livia daheim ist»
+# wurde beim Speichern mit 400 abgewiesen, obwohl der Motor ihn verstand.
+# test_ablaufpruefung.py hält die Liste seither gegen die Zweige von
+# _check_condition.
+CONDITION_TYPES: frozenset[str] = frozenset(
+    {
+        "group",
+        "state",
+        "time",
+        "sun",
+        "presence",
+        "availability",
+        "weather_warning",
+        "calendar",
+    }
+)
 
 
 def _aktionen_pruefen(actions: Any, pfad: str, fehler: list[str]) -> None:
@@ -66,10 +84,18 @@ def _aktionen_pruefen(actions: Any, pfad: str, fehler: list[str]) -> None:
             fehler.append(f"Unbekannter Aktionstyp «{atype}» ({stelle})")
             continue
         if atype == "if":
-            _bedingung_pruefen(action.get("condition"), f"{stelle}.condition", fehler)
+            # Der Motor liest am «wenn»-Schritt die Liste ``conditions``
+            # (core/automation.py:_run_if), nicht ein einzelnes
+            # ``condition`` - hier stand bis Punkt 594 der falsche
+            # Schlüssel, und Bedingungen in Verzweigungen blieben ungeprüft.
+            for cindex, teil in enumerate(action.get("conditions") or []):
+                _bedingung_pruefen(teil, f"{stelle}.conditions[{cindex}]", fehler)
             _aktionen_pruefen(action.get("then"), f"{stelle}.then", fehler)
             _aktionen_pruefen(action.get("else"), f"{stelle}.else", fehler)
         elif atype == "repeat":
+            # «solange» hat dieselben Bedingungen wie «wenn» (_run_repeat).
+            for cindex, teil in enumerate(action.get("while") or []):
+                _bedingung_pruefen(teil, f"{stelle}.while[{cindex}]", fehler)
             _aktionen_pruefen(action.get("actions"), f"{stelle}.actions", fehler)
 
 

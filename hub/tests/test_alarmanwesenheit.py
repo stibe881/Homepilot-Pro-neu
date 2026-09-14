@@ -91,3 +91,76 @@ def test_selbsttaetig_wird_nie_in_den_urlaubsmodus_geschaltet() -> None:
     """Der überwacht auch Innenräume und hat keine Karenz für Bewohner -
     das soll jemand entscheiden, nicht eine Ortung."""
     assert ak.MODUS == "ausser_haus"
+
+
+# ── Wer als Person zählt (Punkt 551) ───────────────────────────────────────
+
+
+class _Gerät:
+    def __init__(self, state):
+        self.state = state
+
+
+def test_die_geraeteklasse_entscheidet_wer_eine_person_ist() -> None:
+    """Über die Klasse und nicht über die Integration.
+
+    So zählt auch die von Hand gesetzte Anwesenheit mit, und die Anlage
+    muss keinen Geofence kennen, den es vielleicht gar nicht gibt.
+    """
+    assert ak.ist_person(_Gerät({"state": "home", "device_class": "presence"}))
+    assert ak.ist_person(_Gerät({"state": "away", "device_class": "Presence"}))
+
+
+def test_ein_fensterkontakt_ist_keine_person() -> None:
+    """Sonst hübe ein geschlossenes Fenster die Anlage auf."""
+    assert not ak.ist_person(_Gerät({"state": "off", "device_class": "contact"}))
+    assert not ak.ist_person(_Gerät({"state": "on"}))
+    assert not ak.ist_person(_Gerät({}))
+
+
+# ── Wer die Anlage zurückhielt (Punkt 638) ─────────────────────────────────
+
+
+def test_der_letzte_weggang_entscheidet_wann_alle_weg_sind() -> None:
+    """Die Anlage wartet auf den Letzten - nicht auf den Ersten.
+
+    Der gemeldete Fall: «Die Meldung kam um 16:51, dabei ist seit 13:00
+    niemand mehr zuhause.» Stefan ging um 13:00 und meldete es auch;
+    Bines Telefon meldete erst um 16:41. Bis dahin galt das Haus als
+    besetzt.
+    """
+    verlauf = [
+        {"person": "bine", "state": "away", "at": 16_41},
+        {"person": "stefan", "state": "away", "at": 13_00},
+        {"person": "bine", "state": "home", "at": 8_00},
+    ]
+    wann, wer = ak.letzter_weggang(verlauf)
+    assert wer == "bine"
+    assert wann == 16_41
+
+
+def test_solange_jemand_zuhause_ist_gibt_es_keinen_weggang() -> None:
+    """Sonst stünde im Prüfwerkzeug eine Uhrzeit, ab der «alle weg» galt,
+    während die Familie am Tisch sitzt."""
+    verlauf = [
+        {"person": "bine", "state": "away", "at": 1600},
+        {"person": "stefan", "state": "home", "at": 1300},
+    ]
+    assert ak.letzter_weggang(verlauf) == (None, None)
+
+
+def test_ein_benannter_ort_zaehlt_als_weg() -> None:
+    """Dieselbe Auslegung wie presence.anyone_home_state: «Livia: Schule»
+    ist nicht zuhause."""
+    verlauf = [
+        {"person": "livia", "state": "schule", "place": "schule", "at": 900},
+        {"person": "stefan", "state": "away", "at": 800},
+    ]
+    wann, wer = ak.letzter_weggang(verlauf)
+    assert (wann, wer) == (900, "livia")
+
+
+def test_ohne_verlauf_wird_nichts_behauptet() -> None:
+    assert ak.letzter_weggang([]) == (None, None)
+    assert ak.letzter_weggang(None) == (None, None)
+    assert ak.letzter_weggang(["kaputt", {"state": "away", "at": 5}]) == (None, None)

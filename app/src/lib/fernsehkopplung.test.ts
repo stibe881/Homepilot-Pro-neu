@@ -94,6 +94,23 @@ describe('kopplungsZeile', () => {
     expect(kopplungsZeile(geraet({ paired: true }))).toBe('Gekoppelt');
   });
 
+  it('zählt die PlayStation mit, ohne den Fernseher zu ändern (Punkt 643)', () => {
+    // Die Konsole trägt `paired` wie der Fernseher - und zusätzlich
+    // `remote_play`: Ohne die Bibliothek im Hub ist «gekoppelt» nur die
+    // halbe Wahrheit, denn Tasten und Standby gehen dann trotzdem nicht.
+    const ps = (state: Record<string, unknown>) =>
+      ({ ...geraet(state), id: 'playstation.192_168_1_60', integration: 'playstation' }) as Entity;
+    expect(kannKoppeln(ps({ paired: false, remote_play: true }))).toBe(true);
+    expect(kopplungsZeile(ps({ paired: false, remote_play: true }))).toBe('Nicht gekoppelt');
+    expect(kopplungsZeile(ps({ paired: true, remote_play: true }))).toBe('Gekoppelt');
+    expect(kopplungsZeile(ps({ paired: true, remote_play: false }))).toBe(
+      'Gekoppelt · dem Hub fehlt Remote Play'
+    );
+    expect(kopplungsZeile(ps({ paired: false, remote_play: false }))).toBe(
+      'Nicht gekoppelt · dem Hub fehlt Remote Play'
+    );
+  });
+
   it('sagt «nicht gekoppelt» auch bei einem Gerät, das gerade weg ist', () => {
     // Sonst schickte die Zeile jemanden zum Sicherungskasten, obwohl
     // der Fernseher läuft und nur die Anmeldung ablehnt.

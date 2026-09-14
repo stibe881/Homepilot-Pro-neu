@@ -7,6 +7,7 @@ import {
   fristLabel,
   geschaltetStand,
   istSirene,
+  kannSignal,
   sensorenStand,
   sirenenGruppen,
   sirenenKandidaten,
@@ -236,5 +237,30 @@ describe('geschaltetStand', () => {
     expect(geschaltetStand({ trigger: [{ entity_id: 'a', command: 'turn_on' }] })).toBe(
       '1 Befehl'
     );
+  });
+});
+
+describe('Melder mit Summer (Punkt 544)', () => {
+  const aqara = {
+    id: 'z.rauch',
+    name: 'Rauchmelder Küche',
+    kind: 'binary_sensor',
+    commands: ['buzzer_alarm', 'mute', 'self_test'],
+    state: { device_class: 'smoke' },
+  };
+  const stumm = {
+    id: 'z.rauch2',
+    name: 'Rauchmelder Flur',
+    kind: 'binary_sensor',
+    commands: [],
+    state: { device_class: 'smoke' },
+  };
+  it('steht unter «Was Lärm macht», ein stummer Melder nicht', () => {
+    expect(kannSignal(aqara)).toBe(true);
+    expect(kannSignal(stumm)).toBe(false);
+    const gruppen = sirenenGruppen([aqara, stumm]);
+    expect(gruppen.sirenen).toEqual([aqara]);
+    expect(gruppen.schalter).toEqual([]);
+    expect(sirenenKandidaten([stumm, aqara])).toEqual([aqara]);
   });
 });

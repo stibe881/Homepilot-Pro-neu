@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { HubSettings } from '../api/types';
 import { hubClient } from '../api/client';
 import { LernEintrag } from '../lib/ladenlernen';
+import { Knopfstile } from '../lib/widgetstil';
 
 /**
  * Einstellungen der Oberfläche – zwei Ablagen, ein Muster.
@@ -68,6 +69,10 @@ export interface HousePrefs {
   /** Schlüssel der Knöpfe, die direkt schalten statt die App zu öffnen.
    *  Nur für Szenen und Lichter erlaubt – nie für Tür oder Alarm. */
   widgetDirect?: string[];
+  /** Eigener Name und eigenes Symbol je Widget-Knopf (lib/widgetstil.ts).
+   *  Was hier fehlt, heisst wie sein Gerät und trägt dessen Symbol - ein
+   *  umbenanntes Gerät zieht seinen Knopf so weiter mit. */
+  widgetStil?: Knopfstile;
   /** Das Abhak-Protokoll der Einkaufsliste: aus ihm lernt die App die
    *  Gang-Reihenfolge je Laden (lib/ladenlernen.ts). Haushaltsweit,
    *  weil der Laden für alle derselbe ist – was Livia abhakt, sortiert
@@ -313,6 +318,11 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [setzeHaus]
   );
 
+  const setWidgetStil = useCallback(
+    (stile: Knopfstile) => setzeHaus({ widgetStil: stile }),
+    [setzeHaus]
+  );
+
   const setEinkaufLernen = useCallback(
     (log: LernEintrag[]) => setzeHaus({ einkaufLernen: log }),
     [setzeHaus]
@@ -407,6 +417,7 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     setWidgetButtons,
     setRaumKnoepfe,
     setWidgetDirect,
+    setWidgetStil,
     setEinkaufLernen,
     setSeenChanges,
     setKameraDynamisch,

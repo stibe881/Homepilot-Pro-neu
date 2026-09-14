@@ -10,10 +10,13 @@ import {
   BATTERY_SOON,
   BatterieVermerk,
   HealthRow,
+  batterieBedarf,
   batteryRows,
+  bedarfSatz,
   quittungSatz,
   stummBis,
 } from '../lib/batterien';
+import { BatterietypWahl } from './entity/anpassen';
 import { FunkZeile, funkRows, funkStufe, funkWort } from '../lib/funkqualitaet';
 import { epochAgo } from '../lib/zeit';
 import { Colors, radius, type, useColors } from '../theme';
@@ -66,6 +69,11 @@ export function DeviceHealth({
   // «reicht noch ~3 Monate» je Gerät - der Hub rechnet es aus dem
   // eigenen Tempo der Batterie (core/batterieprognose.py).
   const [prognose, setPrognose] = useState<Record<string, string>>({});
+  // Die Tage hinter dem Wort - daraus wird «Für die nächsten 3 Monate:
+  // 2× CR2032» (Punkt 633, lib/batterien.ts: batterieBedarf).
+  const [resttage, setResttage] = useState<Record<string, number>>({});
+  // Welches Gerät gerade seinen Batterietyp bekommt (Punkt 633).
+  const [typWahl, setTypWahl] = useState<Entity | null>(null);
   // Funkqualität der Zigbee-Geräte (Punkt 230): Der Hub sammelt
   // Wochenmittel und rechnet den Trend (core/funkqualitaet.py) - ein
   // Gerät, dessen Wert seit Wochen fällt, verstummt irgendwann.
@@ -73,14 +81,16 @@ export function DeviceHealth({
   const [jetzt, setJetzt] = useState(() => Date.now());
   const laden = useCallback(() => {
     hub
-      .get<{ batteries?: BatterieVermerk[]; forecast?: Record<string, string> } | null>(
-        '/api/batteries',
-        { fallback: null, still: true }
-      )
+      .get<{
+        batteries?: BatterieVermerk[];
+        forecast?: Record<string, string>;
+        resttage?: Record<string, number>;
+      } | null>('/api/batteries', { fallback: null, still: true })
       .then((data) => {
         if (data) {
           setVermerke(data.batteries ?? []);
           setPrognose(data.forecast ?? {});
+          setResttage(data.resttage ?? {});
         }
         setJetzt(Date.now());
       });
@@ -119,9 +129,22 @@ export function DeviceHealth({
     }
   };
 
+  // Punkt 633: Welche Batterie drinsteckt, weiss nur, wer sie eingelegt
+  // hat. Gesetzt wird es hier wie auf der Kachel über die Meta-Route;
+  // die Liste zeigt den neuen Wert, sobald der Hub ihn zurückspielt.
+  const typSetzen = async (entity: Entity, typ: string | null) => {
+    setTypWahl(null);
+    await hub
+      .put(`/api/entities/${encodeURIComponent(entity.id)}/meta`, { battery_type: typ }, {
+        still: true,
+      })
+      .catch(() => {});
+  };
+
   const rows = batteryRows(entities);
   const funkAuffaellig = funkRows(funk);
   if (rows.length === 0) return null;
+  const einkauf = bedarfSatz(batterieBedarf(rows, resttage));
 
   const urgent = rows.filter(
     (row) => row.low || (row.percent !== null && row.percent <= BATTERY_SOON)
@@ -132,7 +155,7 @@ export function DeviceHealth({
       ? colors.danger
       : row.percent !== null && row.percent <= BATTERY_SOON
         ? colors.warn
-        : colors.on;
+        : colors.onInk;
 
   return (
     <Card style={styles.card}>
@@ -184,6 +207,23 @@ export function DeviceHealth({
                   {prognose[row.entity.id] ? (
                     <Text style={styles.detail}>{prognose[row.entity.id]}</Text>
                   ) : null}
+                  {/* Punkt 633: welche Batterie - antippen zum Eintragen.
+                      Steht sie da, sagt die Warnung «CR2032 wechseln»
+                      und der Knopf darunter legt sie auf die Liste. */}
+                  <Pressable
+                    onPress={() => setTypWahl(row.entity)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${row.entity.name}: Batterietyp ${
+                      row.entity.battery_type ?? 'eintragen'
+                    }`}
+                    hitSlop={6}
+                  >
+                    <Text style={[styles.detail, { color: colors.accent }]}>
+                      {row.entity.battery_type
+                        ? `Batterie: ${row.entity.battery_type}`
+                        : 'Batterietyp eintragen'}
+                    </Text>
+                  </Pressable>
                   {/* Wer sie stillgestellt hat (Punkt 478 der Werkbank).
                       Die Quittung gilt fürs ganze Haus - richtig so,
                       sonst laufen zwei wegen derselben Batterie in den
@@ -217,10 +257,10 @@ export function DeviceHealth({
                     <Ionicons
                       name={stumm ? 'notifications-off' : 'notifications-off-outline'}
                       size={13}
-                      color={stumm ? '#FFFFFF' : colors.inkSoft}
+                      color={stumm ? colors.onAccent : colors.inkSoft}
                     />
                     <Text
-                      style={[styles.quittierenText, stumm && { color: '#FFFFFF' }]}
+                      style={[styles.quittierenText, stumm && { color: colors.onAccent }]}
                     >
                       {stumm ? 'bis morgen still' : 'bis morgen'}
                     </Text>
@@ -232,6 +272,9 @@ export function DeviceHealth({
               </View>
             );
           })}
+          {/* Der Einkaufszettel aus Prognose und Typ (Punkt 633): Was
+              schwach ist oder in drei Monaten leer wird, je Typ gezählt. */}
+          {einkauf ? <Text style={[styles.hint, { color: colors.ink }]}>{einkauf}</Text> : null}
           <Text style={styles.hint}>
             Dringendste zuerst. «Schwach» ohne Prozentzahl heisst: Das Gerät
             meldet nur noch, dass es bald leer ist – danach ist es still,
@@ -284,6 +327,14 @@ export function DeviceHealth({
           ) : null}
         </>
       ) : null}
+      <BatterietypWahl
+        visible={typWahl !== null}
+        current={typWahl?.battery_type}
+        onClose={() => setTypWahl(null)}
+        onSelect={(typ) => {
+          if (typWahl) void typSetzen(typWahl, typ);
+        }}
+      />
     </Card>
   );
 }

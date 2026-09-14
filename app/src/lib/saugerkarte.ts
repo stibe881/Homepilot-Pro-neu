@@ -85,6 +85,170 @@ export function zustandWort(state: unknown): string {
   return ZUSTAND_WOERTER[roh] ?? zustandLesbar(roh);
 }
 
+/**
+ * Was Sauger oder Station gerade melden - als Sätze (rein, testbar).
+ *
+ * Punkt 637: Gewünscht im Haus, dass der Fehler auf dem Reinigungsblatt
+ * steht, nicht nur in der Push-Nachricht. Übersetzt hat der Hub
+ * (`problems`, watchrules.sauger_saetze) - die App hält keine zweite
+ * Tabelle. Ein Hub, der das Feld noch nicht kennt, bekommt die rohen
+ * Namen aus `error` und `dock` lesbar gemacht: lieber «robot trapped»
+ * als gar nichts.
+ */
+export function saugerprobleme(sauger: { state: Record<string, unknown> }): string[] {
+  const fertig = sauger.state.problems;
+  if (Array.isArray(fertig)) return fertig.map(String).filter((satz) => satz.trim() !== '');
+  const ok = ['', 'none', 'ok', 'okay', '0'];
+  const roh: string[] = [];
+  const fehler = String(sauger.state.error ?? '').trim();
+  if (!ok.includes(fehler.toLowerCase())) roh.push(fehler);
+  const dock = sauger.state.dock;
+  if (dock && typeof dock === 'object') {
+    for (const feld of ['error', 'dirty_water', 'clear_water', 'dust_bag', 'water_shortage']) {
+      const wert = String((dock as Record<string, unknown>)[feld] ?? '').trim();
+      if (!ok.includes(wert.toLowerCase())) roh.push(wert);
+    }
+  }
+  return roh.map((wert) => `Der Sauger meldet: ${wert.replace(/_/g, ' ')}.`);
+}
+
+/** Eine Zeile im Stations-Fenster (Punkt 639). */
+export interface Stationszeile {
+  label: string;
+  wert: string;
+  /** Rot: eine Störung, kein Betriebswert. */
+  stoerung: boolean;
+}
+
+/** Die Felder der Station, die Störungen tragen - sie stehen nicht als
+ *  rohe Werte im Fenster, sondern als die Sätze des Hubs (`problems`). */
+const STATION_STOERFELDER = ['error', 'dirty_water', 'clear_water', 'dust_bag', 'water_shortage'];
+
+/** Was die Betriebsfelder der Station heissen. */
+const STATION_LABELS: Record<string, string> = {
+  type: 'Stationstyp',
+  wash_phase: 'Waschgang',
+  drying: 'Trocknung',
+  dust_collection: 'Staubentleerung',
+  auto_empty: 'Automatische Entleerung',
+};
+
+/** Die Bauarten, die einen sprechenden Namen haben; der Rest wird aus
+ *  dem Bezeichner der Bibliothek gelesen gemacht (stationstyp). */
+const STATION_TYPEN: Record<string, string> = {
+  empty_wash_fill_dry_dock: 'Absaugen, Waschen, Trocknen',
+  auto_empty_dock: 'Absaug-Station',
+  wash_fill_dock: 'Waschstation',
+  no_dock: 'Einfache Ladestation',
+  unknown: 'Unbekannt',
+};
+
+/**
+ * Der Stationstyp als Name statt Bezeichner (rein, testbar).
+ *
+ * «shell_3s_dock» ist der interne Name der Bibliothek für die Station
+ * des Saros - einen deutschen Namen gibt es dafür nicht, aber «Shell
+ * 3S» liest sich wie ein Modellname und nicht wie ein Schlüssel.
+ */
+export function stationstyp(roh: unknown): string {
+  const wert = String(roh ?? '').trim();
+  const bekannt = STATION_TYPEN[wert.toLowerCase()];
+  if (bekannt) return bekannt;
+  const teile = wert
+    .toLowerCase()
+    .split('_')
+    .filter((teil) => teil && teil !== 'dock');
+  if (teile.length === 0) return wert || '–';
+  return teile
+    .map((teil) => (/\d/.test(teil) ? teil.toUpperCase() : teil.charAt(0).toUpperCase() + teil.slice(1)))
+    .join(' ');
+}
+
+/** Ein Betriebswert der Station auf Deutsch (rein, testbar). */
+export function stationswert(feld: string, roh: unknown): string {
+  if (feld === 'type') return stationstyp(roh);
+  const zahl = typeof roh === 'number' ? roh : Number(roh);
+  if (Number.isNaN(zahl)) return String(roh ?? '–');
+  // Die Bibliothek liefert hier Zahlen ohne Namen: Waschgang 0 heisst
+  // «gerade keiner», Trocknung und Entleerung 0/1 heisst aus/läuft,
+  // und die automatische Entleerung ist eine Einstellung: aus/ein.
+  if (feld === 'wash_phase') return zahl === 0 ? 'Keiner' : `Phase ${zahl}`;
+  if (feld === 'auto_empty') return zahl === 0 ? 'Aus' : 'Ein';
+  if (feld === 'drying' || feld === 'dust_collection') return zahl === 0 ? 'Aus' : 'Läuft';
+  return String(roh);
+}
+
+/**
+ * Die Zeilen des Stations-Fensters (rein, testbar) - Punkt 639.
+ *
+ * Aus dem Haus: «Hier stehen Texte noch auf Englisch und mit
+ * Underline.» Störungen stehen jetzt als die Sätze des Hubs (dieselben
+ * wie in der Push-Nachricht, saugerprobleme), rot; die Betriebswerte
+ * übersetzt; und die Störfelder erscheinen nicht nochmals roh darunter.
+ * Unbekannte Felder bleiben lesbar gemacht stehen - lieber ein
+ * englisches Wort als ein verschlucktes.
+ */
+export function stationszeilen(sauger: { state: Record<string, unknown> }): Stationszeile[] {
+  const zeilen: Stationszeile[] = [];
+  const akku = sauger.state.battery;
+  if (akku != null) zeilen.push({ label: 'Akku', wert: `${akku} %`, stoerung: false });
+  for (const satz of saugerprobleme(sauger)) {
+    zeilen.push({ label: 'Störung', wert: satz, stoerung: true });
+  }
+  const dock = sauger.state.dock;
+  if (dock && typeof dock === 'object') {
+    for (const [feld, roh] of Object.entries(dock as Record<string, unknown>)) {
+      if (STATION_STOERFELDER.includes(feld)) continue;
+      zeilen.push({
+        label: STATION_LABELS[feld] ?? zustandLesbar(feld),
+        wert: stationswert(feld, roh),
+        stoerung: false,
+      });
+    }
+  }
+  return zeilen;
+}
+
+/** Ein Knopf auf dem Reinigungsblatt (Punkt 636). */
+export interface Saugerknopf {
+  command: 'pause' | 'start' | 'locate' | 'dock';
+  label: string;
+  icon: 'pause-outline' | 'play-outline' | 'search-outline' | 'home-outline';
+}
+
+/**
+ * Welche Knöpfe neben «Reinigung starten» stehen (rein, testbar).
+ *
+ * Gewünscht im Haus (Punkt 636): Auf dem Blatt, das der Chip «saugt»
+ * öffnet, soll man pausieren, den Sauger finden und ihn zur Station
+ * schicken können - nicht erst über das Stations-Fenster. Was gerade
+ * keinen Sinn hat, fehlt: «Pausieren» nur, während er fährt, «Weiter»
+ * nur, wenn er pausiert (Roborock nimmt dafür dasselbe «start»), «Zur
+ * Station» nicht, wenn er schon dort steht oder gerade hinfährt.
+ */
+export function saugerknoepfe(
+  sauger: Pick<Entity, 'commands'> & { state: { state?: unknown } }
+): Saugerknopf[] {
+  const zustand = String(sauger.state.state ?? '').toLowerCase();
+  const kann = (command: string) => sauger.commands.includes(command);
+  const knoepfe: Saugerknopf[] = [];
+  const faehrt = saugerFaehrt(zustand);
+  const unterwegs = zustand.includes('return') || zustand === 'docking';
+  if (faehrt && !unterwegs && kann('pause')) {
+    knoepfe.push({ command: 'pause', label: 'Pausieren', icon: 'pause-outline' });
+  } else if (zustand === 'paused' && kann('start')) {
+    knoepfe.push({ command: 'start', label: 'Weiter', icon: 'play-outline' });
+  }
+  if (kann('locate')) {
+    knoepfe.push({ command: 'locate', label: 'Finden', icon: 'search-outline' });
+  }
+  const zuhause = ['docked', 'charging', 'charging_complete'].includes(zustand);
+  if (kann('dock') && !zuhause && !unterwegs) {
+    knoepfe.push({ command: 'dock', label: 'Zur Station', icon: 'home-outline' });
+  }
+  return knoepfe;
+}
+
 /** «Reinigt · 82 %» – Zustand und Akku in einer Zeile (rein, testbar). */
 export function vacuumText(vacuum: Entity): string {
   const wort = zustandWort(vacuum.state.state);

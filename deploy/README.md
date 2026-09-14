@@ -129,12 +129,15 @@ Ordner auf demselben Rechner genügt:
 mkdir -p /tmp/probe && cd /tmp/probe
 
 # 1. Die jüngste Sicherung aus dem Supabase-Bucket holen
-#    (Dashboard → Storage → backups → herunterladen), oder lokal:
-cp /pfad/zum/hub/backups/homepilot-data-*.json . | true
-cp "$(ls -t /pfad/zum/hub/backups/homepilot-data-*.json | head -1)" \
-   homepilot-data.json
+#    (Dashboard → Storage → backups → herunterladen), oder lokal.
+#    Seit Punkt 593 ist sie ein Archiv: die Datendatei samt Bildern,
+#    Gutschein-Dateien, Token-Dateien und config.yaml - entpacken genügt:
+tar -xzf "$(ls -t /pfad/zum/hub/backups/homepilot-data-*.tar.gz | head -1)"
+#    (Eine alte Einzeldatei von vor Punkt 593 stattdessen als
+#    homepilot-data.json hierher kopieren.)
 
-# 2. Eine minimale config.yaml daneben legen (Demo genügt):
+# 2. Eine minimale config.yaml daneben legen (Demo genügt - die echte aus
+#    dem Archiv vorher beiseitelegen, sie zeigt auf die echten Geräte):
 cat > config.yaml <<'YAML'
 api: { host: 127.0.0.1, port: 8123, token: probe }
 integrations: [{ integration: demo }]

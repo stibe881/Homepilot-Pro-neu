@@ -76,6 +76,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                         name, dict(entity.state) if entity else {}, jetzt
                     )["hint"],
                     "meldungen": personen_module.fuer(prefs, zone_id),
+                    # Punkt 627: bis wann die Ortung pausiert (Epoch-
+                    # Sekunden), sonst None - das zweite eigene Telefon
+                    # liest hier, was das erste gesetzt hat.
+                    "paused_until": zusammen.get("until")
+                    if zusammen.get("reason") == presence_module.GRUND_PAUSE
+                    else None,
                 }
             )
         return zeilen
@@ -147,3 +153,35 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         return {"zone": zone, "meldungen": personen_module.fuer(
             hub.data.get(personen_module.LADE), zone
         )}
+
+    @app.post("/api/personen/{zone}/pause")
+    async def personen_pause(zone: str, body: dict[str, Any], request: Request) -> dict[str, Any]:
+        """Die eigene Ortung pausieren - beim Hub, nicht nur im Telefon (Punkt 627).
+
+        ``until`` in Epoch-Sekunden; ``null`` hebt die Pause auf. Nur die
+        eigene Zone: Die Pause ist eine Aussage über das eigene Telefon,
+        und wer sie für andere setzen könnte, könnte auch deren Ortung
+        abstellen. Der Wächter überspringt für eine pausierte Zone die
+        Funkstille- und Akku-Meldung, die Familienseite sagt «Ortung
+        pausiert bis 06:00» statt «meldet sich nicht».
+        """
+        user = current_user(request)
+        service = hub.integrations.get("geofence")
+        bekannt = set(service.zone_ids()) if service is not None else set()
+        if zone not in bekannt:
+            raise HTTPException(status_code=404, detail=f"Keine Ortung für {zone}")
+        if presence_module.zone_fuer(user.name, zonen_namen()) != zone:
+            raise HTTPException(status_code=403, detail="Nur die eigene Ortung lässt sich pausieren")
+        roh = body.get("until")
+        until: float | None
+        try:
+            until = None if roh is None else float(roh)
+        except (TypeError, ValueError) as err:
+            raise HTTPException(status_code=400, detail="until: Epoch-Sekunden oder null") from err
+        jetzt = time.time()
+        hub.data.set(
+            presence_module.PAUSE_KEY,
+            presence_module.pause_setzen(hub.data.get(presence_module.PAUSE_KEY), zone, until, jetzt),
+        )
+        pausen = presence_module.pausen_lesen(hub.data.get(presence_module.PAUSE_KEY), jetzt)
+        return {"zone": zone, "until": pausen.get(zone)}

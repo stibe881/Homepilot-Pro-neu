@@ -56,6 +56,9 @@ describe('aufnehmbar', () => {
     const liste = aufnehmbar([
       LAMPE,
       geraet({ id: 'hm.temperatur', kind: 'sensor', commands: [] }),
+      // Ein Melder mit Nachlaufzeit (Punkt 631) hat einen Befehl - aber
+      // keinen, der ihn schaltet. Er stünde sonst als Zeile «aus» drin.
+      geraet({ id: 'zigbee2mqtt.melder', kind: 'binary_sensor', commands: ['set_option'] }),
     ]);
     expect(liste.map((entity) => entity.id)).toEqual(['hue.stehlampe']);
   });

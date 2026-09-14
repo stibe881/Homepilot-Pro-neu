@@ -235,7 +235,7 @@ const makeStyles = (colors: Colors) =>
     },
     filterChipAktiv: { backgroundColor: colors.accent, borderColor: colors.accent },
     filterText: { color: colors.inkSoft, fontSize: 12, fontWeight: '600' },
-    filterTextAktiv: { color: '#FFFFFF' },
+    filterTextAktiv: { color: colors.onAccent },
     strip: { flexDirection: 'row', gap: 6 },
     bubble: {
       alignItems: 'center',

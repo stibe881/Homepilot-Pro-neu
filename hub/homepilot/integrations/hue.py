@@ -27,6 +27,7 @@ import aiohttp
 
 from ..core.entity import Entity, EntityKind
 from ..core.errors import ConfigError, HomePilotError, UnsupportedCommandError
+from ..core.farbraum import hex_zu_xy, xy_zu_hex
 from ..core.integration import Integration
 
 
@@ -177,6 +178,153 @@ def matching_room(hue_room: str | None, known: list[str]) -> str | None:
         if raum.casefold() == hue_room.casefold():
             return raum
     return None
+
+
+#: Das Einschaltverhalten nach Stromausfall (Punkt 630 der Werkbank).
+#:
+#: Die Bridge führt es je Leuchte als ``powerup`` mit vier Voreinstellungen:
+#: «safety» (an, volle Helligkeit - der Blitz um drei Uhr nachts),
+#: «powerfail» (wie vor dem Ausfall), «last_on_state» (an, mit dem
+#: letzten Licht) und «custom». Der Hub kennt drei Wörter, dieselben wie
+#: bei Zigbee und Homematic: ``previous``, ``off``, ``on``.
+POWERUP_VON_PRESET = {
+    "powerfail": "previous",
+    "safety": "on",
+    "last_on_state": "on",
+}
+
+
+def powerup_lesen(powerup: Any) -> str | None:
+    """Was die Bridge als Einschaltverhalten meldet (rein, testbar).
+
+    «other» heisst: eingestellt, aber nichts, was der Hub anbietet
+    (etwa «custom» mit Umschalten). Es steht so in der App, statt
+    zufällig eines der drei Wörter zu sein.
+    """
+    if not isinstance(powerup, dict):
+        return None
+    preset = str(powerup.get("preset") or "")
+    if preset in POWERUP_VON_PRESET:
+        return POWERUP_VON_PRESET[preset]
+    if preset != "custom":
+        return None
+    an = powerup.get("on") or {}
+    modus = str(an.get("mode") or "")
+    if modus == "previous":
+        return "previous"
+    if modus == "on":
+        return "on" if (an.get("on") or {}).get("on", True) else "off"
+    return "other"
+
+
+def powerup_body(mode: str) -> dict[str, Any]:
+    """Was für ``set_power_on`` an die Leuchte geht (rein, testbar).
+
+    «aus» gibt es bei Hue nur als eigene Einstellung: Die Bridge kennt
+    keine Voreinstellung dafür, wohl aber ``custom`` mit «an: nein».
+    """
+    if mode == "previous":
+        return {"preset": "powerfail"}
+    if mode == "on":
+        return {"preset": "safety"}
+    if mode == "off":
+        return {"preset": "custom", "on": {"mode": "on", "on": {"on": False}}}
+    raise HomePilotError("Nach Stromausfall geht nur 'previous', 'off' oder 'on'")
+
+
+def farbtemperatur_mirek(data: dict[str, Any]) -> int:
+    """Die gewünschte Farbtemperatur als Mirek, geklemmt auf Hues Bereich
+    (153 = kalt/6500K … 500 = warm/2000K) (rein, testbar).
+
+    Nimmt ``kelvin``, ``color_temp`` oder ``mirek`` entgegen - so, wie es
+    beim jeweiligen Aufrufer gerade vorliegt.
+    """
+    if "kelvin" in data and float(data["kelvin"]) > 0:
+        mirek = 1_000_000 / float(data["kelvin"])
+    else:
+        mirek = float(data.get("color_temp", data.get("mirek", 366)))
+    return max(153, min(500, round(mirek)))
+
+
+def xy_aus(data: dict[str, Any]) -> tuple[float, float] | None:
+    """Die gewünschte Farbe als Farbort - oder nichts (rein, testbar).
+
+    Die Bridge kennt kein Hex (core/farbraum.py). ``None`` heisst: Es
+    war keine Farbe dabei, dann gehört auch keine in den PUT.
+    """
+    if "color" not in data:
+        return None
+    return hex_zu_xy(data.get("color"))
+
+
+def light_body(command: str, data: dict[str, Any], war_an: bool) -> dict[str, Any]:
+    """Der PUT-Rumpf für ein Kommando an ein Hue-Licht (rein, testbar) -
+    Punkt 645 der Werkbank.
+
+    ``war_an`` ist der Zustand vor dem Befehl - nur ``toggle`` braucht
+    ihn.
+
+    Eine Farbtemperatur reist im selben PUT wie das Einschalten oder
+    Dimmen mit, wenn eine angegeben ist - nicht erst in einem zweiten,
+    danach geschickten. Der gemeldete Fall: «Büro Spot 1» schaltete
+    immer auf warmweiss, ganz gleich welchen Weisston man wählte. Der
+    Hub schickte zwei PUT-Anfragen nacheinander - erst «an, mit dieser
+    Helligkeit», dann «und diese Farbtemperatur» - und damit zwei
+    Übergänge an der Lampe statt einem. Die zweite Anfrage kam auf der
+    Zigbee-Funkstrecke der Leuchte manchmal zu spät oder ging unter,
+    und die Lampe blieb bei der Farbe, mit der sie einschaltete. Jetzt
+    trägt schon die erste Anfrage die gewünschte Farbtemperatur mit,
+    wenn eine mitgegeben wurde - unabhängig davon, ob core/automation.py
+    danach zusätzlich noch die eigene set_color_temp-Anfrage schickt
+    (das bleibt sie, für Anbindungen, die diese Abkürzung nicht kennen -
+    bei Hue bestätigt sie dann nur noch denselben Wert).
+    """
+    body: dict[str, Any] = {}
+    if command == "turn_on":
+        body["on"] = {"on": True}
+        if "brightness" in data:
+            body["dimming"] = {"brightness": float(data["brightness"])}
+    elif command == "turn_off":
+        body["on"] = {"on": False}
+    elif command == "toggle":
+        body["on"] = {"on": not war_an}
+    elif command == "set_brightness":
+        brightness = float(data.get("brightness", 100))
+        body["dimming"] = {"brightness": brightness}
+        body["on"] = {"on": brightness > 0}
+    elif command == "set_power_on":
+        # Nach Stromausfall (Punkt 630): keine Schaltung, eine
+        # Einstellung - sie steht in der Leuchte selbst. Farbe hat hier
+        # nichts verloren, deshalb hier heraus, bevor sie unten dazu käme.
+        body["powerup"] = powerup_body(str(data.get("mode") or ""))
+        return body
+
+    schaltet_an = body.get("on", {}).get("on", True)
+    # Farbe schlägt Weisston: Eine Lampe leuchtet entweder bunt oder
+    # weiss, und wer in der Farbreihe tippt, meint die Farbe. Kämen
+    # beide im selben PUT, entschiede die Bridge - und zwar je nach
+    # Lampe verschieden.
+    farbe = xy_aus(data) if command == "set_color" or schaltet_an else None
+    if farbe is not None and (
+        command == "set_color"
+        or (schaltet_an and command in ("turn_on", "set_brightness"))
+    ):
+        body["color"] = {"xy": {"x": farbe[0], "y": farbe[1]}}
+        if command == "set_color":
+            # Ein Farbtipp an einer ausgeschalteten Lampe soll sie
+            # anschalten - so steht es in der App an der Farbreihe («ein
+            # Tipp schaltet ein und stellt die Farbe in einem Zug»), und
+            # ohne das bliebe die Lampe dunkel und die Farbe ein
+            # Versprechen für das nächste Einschalten.
+            body.setdefault("on", {"on": True})
+        return body
+    if command == "set_color_temp" or (
+        schaltet_an
+        and command in ("turn_on", "set_brightness")
+        and ("color_temp" in data or "mirek" in data or "kelvin" in data)
+    ):
+        body["color_temperature"] = {"mirek": farbtemperatur_mirek(data)}
+    return body
 
 
 class HueIntegration(Integration):
@@ -349,6 +497,30 @@ class HueIntegration(Integration):
             mirek = light["color_temperature"].get("mirek")
             if isinstance(mirek, (int, float)):
                 changes["color_temp"] = round(mirek)
+            # Ob die Lampe *gerade* weiss leuchtet, sagt die Bridge
+            # ausdrücklich: In der Farbe steht `mirek_valid: false`, und
+            # der letzte Weisston bleibt trotzdem stehen. Ohne dieses
+            # Feld müsste die App raten, welcher der beiden Werte gilt -
+            # und markierte dann in der Farbreihe und in den Weisstönen
+            # je einen Punkt, obwohl nur einer leuchtet.
+            changes["color_mode"] = (
+                "weiss" if light["color_temperature"].get("mirek_valid") else "farbe"
+            )
+        # Die Farbe, in Hex wie überall sonst (core/farbraum.py). Ohne
+        # sie stand in der App keine Farbreihe an einer Hue-Lampe, die
+        # längst bunt kann - der gemeldete Fall.
+        if "color" in light:
+            xy = (light["color"] or {}).get("xy") or {}
+            if isinstance(xy.get("x"), (int, float)) and isinstance(
+                xy.get("y"), (int, float)
+            ):
+                changes["color"] = xy_zu_hex(xy["x"], xy["y"])
+        # Das Einschaltverhalten kommt mit jeder Leuchte mit (Punkt 630)
+        # - bisher las der Hub nur on und dimming und liess es liegen.
+        if "powerup" in light:
+            power_on = powerup_lesen(light["powerup"])
+            if power_on:
+                changes["power_on"] = power_on
 
         if self.hub.registry.get(entity_id) is None:
             name = (light.get("metadata") or {}).get("name") or "Hue Licht"
@@ -357,6 +529,10 @@ class HueIntegration(Integration):
                 commands.append("set_brightness")
             if "color_temperature" in light:
                 commands.append("set_color_temp")
+            if "color" in light:
+                commands.append("set_color")
+            if "powerup" in light:
+                commands.append("set_power_on")
             await self.add_entity(
                 resource_id,
                 EntityKind.LIGHT,
@@ -443,27 +619,7 @@ class HueIntegration(Integration):
             await self.hub.registry.update_state(entity.id, {"state": "active"})
             return
 
-        body: dict[str, Any] = {}
-        if command == "turn_on":
-            body["on"] = {"on": True}
-            if "brightness" in data:
-                body["dimming"] = {"brightness": float(data["brightness"])}
-        elif command == "turn_off":
-            body["on"] = {"on": False}
-        elif command == "toggle":
-            body["on"] = {"on": entity.state.get("state") != "on"}
-        elif command == "set_brightness":
-            brightness = float(data.get("brightness", 100))
-            body["dimming"] = {"brightness": brightness}
-            body["on"] = {"on": brightness > 0}
-        elif command == "set_color_temp":
-            # Farbtemperatur als Mirek (153 = kalt/6500K … 500 = warm/2000K).
-            # Alternativ 'kelvin' entgegennehmen und umrechnen.
-            if "kelvin" in data and float(data["kelvin"]) > 0:
-                mirek = 1_000_000 / float(data["kelvin"])
-            else:
-                mirek = float(data.get("color_temp", data.get("mirek", 366)))
-            body["color_temperature"] = {"mirek": max(153, min(500, round(mirek)))}
+        body = light_body(command, data, entity.state.get("state") == "on")
 
         resource_id = entity.id.split(".", 1)[1]
         async with self._session.put(
@@ -481,6 +637,8 @@ class HueIntegration(Integration):
             changes["brightness"] = round(body["dimming"]["brightness"])
         if "color_temperature" in body:
             changes["color_temp"] = body["color_temperature"]["mirek"]
+        if "powerup" in body:
+            changes["power_on"] = str(data.get("mode"))
         if changes:
             await self.hub.registry.update_state(entity.id, changes)
 

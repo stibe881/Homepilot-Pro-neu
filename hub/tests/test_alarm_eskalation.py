@@ -174,6 +174,32 @@ def test_ende_befehle_schalten_nur_die_sirenen_aus():
     ]
 
 
+def test_ein_melder_mit_summer_bekommt_signal_statt_ein():
+    """Punkt 544: Der Aqara-Rauchmelder kennt kein «ein», nur «Signal geben»."""
+    from homepilot.integrations.alarm_rules import eskalations_befehle as befehle
+    from homepilot.integrations.alarm_rules import eskalations_ende_befehle as ende
+
+    melder = Entity(
+        id="z.rauch", kind=EntityKind.BINARY_SENSOR, name="Rauchmelder", integration="z",
+        state={"state": "off", "device_class": "smoke"}, commands=["buzzer_alarm", "mute"],
+    )
+    norm = Entity(
+        id="z.sirene", kind=EntityKind.SWITCH, name="Sirene", integration="z",
+        state={"state": "off"}, commands=["sound_alarm", "silence_alarm"],
+    )
+    escalation = parse_escalation({"enabled": True, "sirens": ["z.rauch", "z.sirene", "hm.dose"]})
+    assert befehle(escalation, [melder, norm]) == [
+        {"entity_id": "z.rauch", "command": "buzzer_alarm"},
+        {"entity_id": "z.sirene", "command": "sound_alarm"},
+        {"entity_id": "hm.dose", "command": "turn_on"},
+    ]
+    assert ende(escalation, [melder, norm]) == [
+        {"entity_id": "z.rauch", "command": "mute"},
+        {"entity_id": "z.sirene", "command": "silence_alarm"},
+        {"entity_id": "hm.dose", "command": "turn_off"},
+    ]
+
+
 # ── Anlage im Betrieb ──────────────────────────────────────────────────────
 
 

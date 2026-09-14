@@ -95,7 +95,7 @@ export function BrandScreen({
 
   const lage = zustandText(data.state);
   const tonFarbe = {
-    gut: colors.on,
+    gut: colors.onInk,
     warnung: colors.warn,
     ruhig: colors.inkSoft,
     gefahr: colors.danger,
@@ -156,7 +156,7 @@ export function BrandScreen({
               accessibilityRole="button"
               style={({ pressed }) => [styles.knopf, styles.knopfStark, pressed && { opacity: 0.8 }]}
             >
-              <Ionicons name="checkmark" size={icon.mittel} color="#FFFFFF" />
+              <Ionicons name="checkmark" size={icon.mittel} color={colors.onAccent} />
               <Text style={styles.knopfStarkText}>Quittieren</Text>
             </Pressable>
           ) : null}
@@ -215,7 +215,11 @@ export function BrandScreen({
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={[styles.zeileTitel, !eintrag.active && { color: colors.inkFaint }]} numberOfLines={1}>
                   {eintrag.name}
-                  {eintrag.room ? ` · ${eintrag.room}` : ''}
+                  {/* Den Raum nur, wenn er nicht schon im Namen steckt -
+                      «Balkon · Balkon» sagt nichts zweimal. */}
+                  {eintrag.room && !eintrag.name.toLowerCase().includes(eintrag.room.toLowerCase())
+                    ? ` · ${eintrag.room}`
+                    : ''}
                 </Text>
                 <Text
                   style={[
@@ -227,7 +231,7 @@ export function BrandScreen({
                 </Text>
               </View>
               <View style={styles.melderKnoepfe}>
-                {eintrag.kind !== 'camera' ? (
+                {eintrag.testable !== false && eintrag.kind !== 'camera' ? (
                   <Pressable
                     onPress={() =>
                       handgriff(
@@ -322,7 +326,7 @@ export function BrandScreen({
                     accessibilityState={{ selected: an }}
                     style={[styles.chip, an && styles.chipAn]}
                   >
-                    <Text style={[styles.chipText, an && { color: '#FFFFFF' }]}>
+                    <Text style={[styles.chipText, an && { color: colors.onAccent }]}>
                       {minuten === 0 ? 'einmal' : `alle ${minuten} min`}
                     </Text>
                   </Pressable>
@@ -346,7 +350,7 @@ export function BrandScreen({
                     accessibilityState={{ selected: an }}
                     style={[styles.chip, an && styles.chipAn]}
                   >
-                    <Text style={[styles.chipText, an && { color: '#FFFFFF' }]}>
+                    <Text style={[styles.chipText, an && { color: colors.onAccent }]}>
                       {monate === 0 ? 'nie' : `alle ${monate} Monate`}
                     </Text>
                   </Pressable>
@@ -403,7 +407,7 @@ const makeStyles = (colors: Colors) =>
     },
     knopfStark: { backgroundColor: colors.danger },
     knopfText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
-    knopfStarkText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+    knopfStarkText: { color: colors.onAccent, fontSize: 14, fontWeight: '700' },
     zeile: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
     zeileTitel: { color: colors.ink, fontSize: 14, fontWeight: '600' },
     melder: {

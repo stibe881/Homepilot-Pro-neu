@@ -128,6 +128,28 @@ def combined_state(members: list[Entity | None], is_light: bool) -> dict[str, An
     }
     if is_light and levels:
         shaped["brightness"] = round(sum(levels) / len(levels))
+    if is_light:
+        # Farbe und Weisston der Leuchte - aber nur, wenn sich die
+        # eingeschalteten Mitglieder einig sind (Punkt 648 der
+        # Werkbank). Fünf Spots in fünf Farben haben keine gemeinsame
+        # Farbe; dann steht in der App kein Punkt markiert, und das ist
+        # die Wahrheit. Ohne diese Zeilen blieb die Reihe an einer
+        # Leuchte für immer ohne Markierung - man stellte Warmweiss ein
+        # und sah es nirgends.
+        an = [
+            member
+            for member in members
+            if member is not None
+            and str(member.state.get("state")).lower() in ON_STATES
+        ]
+        for feld in ("color", "color_temp", "color_mode"):
+            werte = {
+                member.state[feld]
+                for member in an
+                if member.state.get(feld) is not None
+            }
+            if len(werte) == 1:
+                shaped[feld] = werte.pop()
     return shaped
 
 

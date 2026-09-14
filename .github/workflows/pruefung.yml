@@ -22,13 +22,25 @@ on:
 
 jobs:
   hub:
-    name: Hub – Tests, Linter, Typen
+    name: Hub – Tests, Linter, Typen (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
+    # Zwei Interpreter, mit Absicht (Fehler aus der Runde 579 der
+    # Werkbank): Geprüft wurde nur 3.11, das Abbild im Haus läuft auf 3.12
+    # (hub/Dockerfile) - die Tests hatten den Interpreter, der im Haus
+    # läuft, nie gesehen. 3.11 bleibt, weil pyproject.toml es als
+    # Untergrenze verspricht und die Entwicklungsrechner es haben; auf 3.11
+    # festnageln ginge nicht, der Pit-Boss-Grill (pytboss) verlangt 3.12.
+    # tests/test_python_abbild.py hält die Zeile hier und das Dockerfile
+    # gegeneinander.
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python }}
           cache: pip
       - name: Abhängigkeiten
         working-directory: hub

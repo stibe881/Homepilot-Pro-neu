@@ -304,6 +304,30 @@ def test_a_cleared_vacuum_error_clears_in_the_state():
     assert ohne_feld["error"] is None
 
 
+def test_vacuum_state_carries_the_sentences_for_the_sheet():
+    """Punkt 637: Der Fehler von Sauger oder Station steht am Zustand -
+    als fertiger Satz, derselbe wie in der Push-Nachricht.
+    """
+    from types import SimpleNamespace
+
+    from homepilot.integrations.roborock import vacuum_state
+
+    state = vacuum_state(
+        _Status(
+            state_name="error",
+            error_code_name="robot_trapped",
+            dirty_water_box_status=SimpleNamespace(name="full_not_installed"),
+        )
+    )
+    assert state["problems"] == [
+        "Der Sauger steckt fest.",
+        "Der Schmutzwassertank ist voll oder nicht eingesetzt.",
+    ]
+    # Ohne Störung eine leere Liste, kein fehlendes Feld: Sonst bliebe
+    # der behobene Fehler beim Verschmelzen auf dem Blatt stehen.
+    assert vacuum_state(_Status(state_name="cleaning", error_code_name="none"))["problems"] == []
+
+
 def test_vacuum_state_survives_missing_fields():
     from homepilot.integrations.roborock import vacuum_state
 
@@ -635,13 +659,16 @@ def test_tv_state_on_with_app_and_volume():
     assert state["track"] == "Netflix"  # Hauptzeile der Media-Kachel
     assert state["volume"] == 30
     assert state["muted"] is False
+    # Die rohe Paket-ID daneben (Punkt 644) - eine Szene vergleicht sich
+    # damit, nicht mit dem übersetzten Anzeigenamen.
+    assert state["app_id"] == "com.netflix.ninja"
 
 
 def test_tv_state_off_hides_app():
     from homepilot.integrations.androidtv import tv_state
 
     state = tv_state(False, "com.netflix.ninja", None)
-    assert state == {"state": "off", "app": None, "track": None}
+    assert state == {"state": "off", "app": None, "track": None, "app_id": None}
 
 
 def test_app_name_launcher_counts_as_nothing():
@@ -960,6 +987,42 @@ def test_calendar_next_event():
     assert state["events"][1]["all_day"] is True
 
 
+def test_calendar_config_knows_whose_calendar_it_is():
+    """Punkt 586: Je Kalender optional eine Person - dann gehen Erinnerung
+    und Losfahr-Wecker nur an sie, nicht an den, der im Büro sitzt."""
+    from datetime import datetime
+
+    from homepilot.integrations.google_calendar import kalender_konfig, parse_events
+
+    kennungen, personen = kalender_konfig(
+        ["primary", {"id": "stefan@example.com", "person": "Stefan"}, {"person": "x"}, ""]
+    )
+    assert kennungen == ["primary", "stefan@example.com"]
+    assert personen == {"stefan@example.com": "Stefan"}
+    assert kalender_konfig(None) == ([], {})
+
+    now = datetime(2026, 8, 15, 8, 0, tzinfo=UTC)
+    state = parse_events(
+        [
+            {
+                "summary": "Sitzung",
+                "start": {"dateTime": "2026-08-15T10:00:00+02:00"},
+                "end": {"dateTime": "2026-08-15T11:00:00+02:00"},
+                "_calendar": "stefan@example.com",
+                "_person": "Stefan",
+            },
+            {
+                "summary": "Zahnarzt",
+                "start": {"dateTime": "2026-08-15T14:00:00+02:00"},
+                "end": {"dateTime": "2026-08-15T15:00:00+02:00"},
+                "_calendar": "primary",
+            },
+        ],
+        now,
+    )
+    assert [event["person"] for event in state["events"]] == ["Stefan", None]
+
+
 def test_calendar_skips_finished_events():
     from datetime import datetime
 
@@ -1067,6 +1130,8 @@ def test_weather_hours_zeigen_den_rest_des_tages():
         "text": "Klar",
         "icon": "sunny-outline",
         "rain": 0,
+        # Ohne Menge in der Antwort: 0.0 mm, nicht geraten (Punkt 584).
+        "mm": 0.0,
     }
     assert zeilen[1]["text"] == "Regenschauer"
     assert zeilen[1]["rain"] == 55
@@ -1079,6 +1144,41 @@ def test_weather_unknown_code_stays_neutral():
 
     assert describe_code(999)[0] == "—"
     assert describe_code(None)[1] == "cloud-outline"
+
+
+def test_weather_zaehlt_den_schnee_der_nacht_und_erkennt_die_winterlage():
+    """Punkt 585: In Zell heisst «5 cm über Nacht» Auto freikratzen und
+    früher los - der Hub wusste es um sechs und sagte es nicht."""
+    from datetime import datetime, timedelta
+
+    from homepilot.integrations.weather import ist_winter, nachtschnee_cm, parse_forecast
+
+    morgen = datetime(2026, 1, 12, 6, 30)
+    # Stunden von gestern Mittag bis heute Mittag; Schnee fiel nachts.
+    zeiten = [(morgen - timedelta(hours=18) + timedelta(hours=i)) for i in range(30)]
+    schnee = [0.0] * 30
+    for stelle in range(12, 17):  # 00:30 bis 04:30
+        schnee[stelle] = 1.2
+    schnee[2] = 5.0  # gestern um 14:30 - nicht «über Nacht»
+    hourly = {
+        "time": [zeit.isoformat() for zeit in zeiten],
+        "snowfall": schnee,
+        "temperature_2m": [-2] * 30,
+        "weather_code": [71] * 30,
+    }
+    assert nachtschnee_cm(hourly, morgen) == 6.0
+    assert nachtschnee_cm(None, morgen) == 0.0
+    assert ist_winter(73) and ist_winter(66) and not ist_winter(61)
+
+    zustand = parse_forecast(
+        {"current": {"temperature_2m": -2.0, "weather_code": 71}, "hourly": hourly},
+        morgen,
+    )
+    assert zustand["snow_tonight_cm"] == 6.0
+    assert zustand["winter_code"] == 71
+    sommer = parse_forecast({"current": {"weather_code": 1}}, morgen)
+    assert sommer["snow_tonight_cm"] == 0.0
+    assert sommer["winter_code"] is None
 
 
 # ── MeteoAlarm-Gebietsfilter ─────────────────────────────────────────────
@@ -1616,6 +1716,49 @@ def test_renamed_speakers_translate_at_the_edges():
     assert technischer_name(paare, "Nest Küche") == "Nest Küche"
     assert technischer_name({}, "Büro") == "Büro"
     assert uebersetzte_namen({}, ["Terrasse"]) == ["Terrasse"]
+
+
+def test_hue_light_body_carries_the_white_tone_in_the_same_put():
+    """Punkt 645: «Büro Spot 1 schaltet auf warmweiss und nicht auf
+    neutralweiss» - egal welcher Weisston gewählt war.
+
+    Der Hub schickte bisher zwei PUT-Anfragen nacheinander: erst «an,
+    mit Helligkeit», dann «und diese Farbtemperatur». Zwei Übergänge an
+    der Lampe statt einem - die zweite Anfrage kam auf der Zigbee-
+    Funkstrecke manchmal zu spät oder ging unter, und die Lampe blieb
+    bei ihrer Einschalt-Farbe. Jetzt trägt schon die erste Anfrage die
+    Farbtemperatur mit, wenn eine dabei ist.
+    """
+    from homepilot.integrations.hue import light_body
+
+    # «neutralweiss» (286 Mired) beim Einschalten mit Helligkeit.
+    body = light_body(
+        "set_brightness", {"brightness": 100, "color_temp": 286}, war_an=False
+    )
+    assert body == {
+        "dimming": {"brightness": 100.0},
+        "on": {"on": True},
+        "color_temperature": {"mirek": 286},
+    }
+    # Dasselbe ohne Helligkeitsangabe - «turn_on» allein.
+    body = light_body("turn_on", {"color_temp": 200}, war_an=False)
+    assert body == {"on": {"on": True}, "color_temperature": {"mirek": 200}}
+    # Ohne Weisston bleibt die Anfrage, wie sie war - kein erfundenes Feld.
+    assert light_body("set_brightness", {"brightness": 50}, war_an=False) == {
+        "dimming": {"brightness": 50.0},
+        "on": {"on": True},
+    }
+    # Geht die Lampe dabei aus (Helligkeit 0), gehört keine Farbe hinein -
+    # eine Farbtemperatur für eine ausgeschaltete Lampe wäre unsinnig.
+    body = light_body("set_brightness", {"brightness": 0, "color_temp": 370}, war_an=True)
+    assert "color_temperature" not in body
+    # Das eigenständige Kommando bleibt unverändert erreichbar - für
+    # Anbindungen, die die Abkürzung oben nicht kennen.
+    assert light_body("set_color_temp", {"color_temp": 370}, war_an=True) == {
+        "color_temperature": {"mirek": 370}
+    }
+    # toggle kennt nur den Zustand davor, keine Farbe.
+    assert light_body("toggle", {"color_temp": 286}, war_an=False) == {"on": {"on": True}}
 
 
 def test_hue_scenes_keep_their_names():
@@ -2325,6 +2468,8 @@ class _Protect:
         self.integration = UnifiProtectIntegration(hub, {})
         self.integration._cameras = {"cam-1": entity_id}
         self.integration._erkennung_ende = {}
+        # Wann eine Erkennung begann - für die Höchstdauer (Punkt 578).
+        self.integration._erkennung_start = {}
         self.integration._gesehene_ereignisse = set()
         self.integration._laufende = {}
 

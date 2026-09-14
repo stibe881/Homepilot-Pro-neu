@@ -45,6 +45,8 @@ export function SidePanel({
   width,
   room,
   roomList,
+  deviceList,
+  geraeteseite,
   onCommand,
 }: {
   entities: Entity[];
@@ -55,6 +57,12 @@ export function SidePanel({
   /** Die Raumliste – dort bleibt sie aus demselben Grund weg
    *  (lib/seitenspalte.ts). */
   roomList?: boolean;
+  /** Die Geräteliste – dort bleibt die Spalte ebenfalls weg
+   *  (lib/seitenspalte.ts). */
+  deviceList?: boolean;
+  /** Licht, Storen, Kameras – auch dort bleibt die Spalte weg
+   *  (lib/seitenspalte.ts, Punkt 577). */
+  geraeteseite?: boolean;
   /** Für den Player – ohne ihn bleibt er weg statt tot dazustehen. */
   onCommand?: (entityId: string, command: string, data?: CommandData) => void;
 }) {
@@ -96,6 +104,8 @@ export function SidePanel({
   const zeigt = panelContent({
     inRoom: !!room,
     roomList: !!roomList,
+    deviceList: !!deviceList,
+    geraeteseite: !!geraeteseite,
     weather: !!weather,
     housePlayer: !!player && !!onCommand,
   });
@@ -567,6 +577,13 @@ function WeatherPanel({ entity }: { entity: Entity }) {
           </Text>
         ) : null}
 
+        {/* Regenjacke in den Thek? Der Hub rechnet die Zeile über die
+          Stunden des Schultags (hub/core/regen.py, Punkt 584); sie
+          steht nur da, wenn etwas zu tun ist - wie der UV-Hinweis. */}
+        {typeof entity.state.schulweg === 'string' && entity.state.schulweg ? (
+          <Text style={styles.uv}>{entity.state.schulweg}</Text>
+        ) : null}
+
         {/* Und die andere Richtung: Wie lange es *nicht* geregnet hat.
           Der Hub erinnert abends ans Giessen (hub/core/giessen.py) - hier
           steht dieselbe Auskunft dort, wo man ohnehin nachsieht. */}
@@ -763,7 +780,7 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.accent,
     },
     speakerChipText: { fontSize: 12, color: colors.inkSoft, flexShrink: 1 },
-    speakerChipTextActive: { color: '#FFFFFF' },
+    speakerChipTextActive: { color: colors.onAccent },
     nowPlayingRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     coverArt: {
       width: 56,

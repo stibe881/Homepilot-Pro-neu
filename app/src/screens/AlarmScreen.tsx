@@ -48,6 +48,13 @@ import {
   blindStufe,
   blindTitel,
 } from '../lib/alarmblind';
+import {
+  NACHSEHEN,
+  type Riegel,
+  nochNichtZu,
+  riegelText,
+  unverschlossenAus,
+} from '../lib/alarmriegel';
 import { datumUhr } from '../lib/format';
 import { deviceKindLabel, melderArt } from '../lib/geraeteart';
 import { BlattZeile, blattWuerdig, blattZeilen } from '../lib/ereignisblatt';
@@ -175,7 +182,7 @@ export function stateLook(
 ): { text: string; color: string } {
   switch (state.state) {
     case 'scharf':
-      return { text: `Scharf · ${state.mode_label}`, color: colors.on };
+      return { text: `Scharf · ${state.mode_label}`, color: colors.onInk };
     case 'scharfschaltend':
       return { text: 'Wird scharf …', color: colors.warn };
     case 'eintritt':
@@ -187,6 +194,14 @@ export function stateLook(
     // «jetzt unscharf schalten, wenn du es bist».
     case 'verdacht':
       return { text: 'Verdacht – gleich Alarm', color: colors.warn };
+    // Wegen Brandalarm ausgesetzt (Punkt 615): Die Einbruchmeldung hört
+    // nicht zu, solange es brennt, und kehrt nach der Entwarnung von
+    // selbst in den Modus zurück - der steht deshalb dabei.
+    case 'brand':
+      return {
+        text: `Wegen Brandalarm ausgesetzt${state.mode_label ? ` · ${state.mode_label}` : ''}`,
+        color: colors.danger,
+      };
     default:
       return { text: 'Unscharf', color: colors.inkSoft };
   }
@@ -338,6 +353,10 @@ export function AlarmScreen({
   const [historyAll, setHistoryAll] = useState(false);
   // Namen der offenen Sensoren aus der letzten Scharfschalt-Absage.
   const [offenBeimScharfschalten, setOffenBeimScharfschalten] = useState<string[]>([]);
+  // Die Türen, die noch nicht abgeschlossen sind (Punkt 614 der
+  // Werkbank) - der Knopf «Abschliessen und scharf» schaltet sie zu.
+  const [unverschlossen, setUnverschlossen] = useState<Riegel[]>([]);
+  const [schliesst, setSchliesst] = useState(false);
   const [testNote, setTestNote] = useState<string | null>(null);
   // Was der Panikknopf zurückmeldet - er tut viel und sieht dabei nach
   // nichts aus, solange man nicht danebensteht.
@@ -457,6 +476,13 @@ export function AlarmScreen({
         if ((body.battery ?? []).length > 0) {
           parts.push(`Batterie schwach: ${body.battery.join(', ')}`);
         }
+        // Die dritte Antwort (Punkt 614): zugezogen, aber nicht
+        // abgeschlossen. Bei Abwesend/Ferien eine Absage wie ein
+        // offenes Fenster - mit dem Knopf, der es behebt.
+        const riegel = unverschlossenAus(body);
+        const riegelSatz = riegelText(riegel, false);
+        if (riegelSatz) parts.push(riegelSatz);
+        setUnverschlossen(riegel);
         setNote(
           `${parts.join(' · ')}. Beheben – oder unten trotzdem scharf schalten.`
         );
@@ -465,10 +491,54 @@ export function AlarmScreen({
       }
       setPendingMode(null);
       setOffenBeimScharfschalten([]);
+      setUnverschlossen([]);
+      // Nachts nur ein Hinweis: Die Anlage ist scharf, die Türe nicht
+      // abgeschlossen - nachts geht man nochmals raus.
+      setNote(riegelText(unverschlossenAus(body), true));
     } catch (err) {
       setNote(String(err instanceof Error ? err.message : err));
     }
     load();
+  };
+
+  // «Abschliessen und scharf» (Punkt 614): erst `lock` an jede Türe,
+  // dann warten, bis sie wirklich «locked» sagt, dann nochmals scharf.
+  // Nicht `force`: Ein Fenster, das derweil aufging, soll die Anlage
+  // weiterhin melden.
+  const abschliessenUndScharf = async (mode: string) => {
+    setSchliesst(true);
+    setNote('Schliesst ab …');
+    try {
+      for (const tuer of unverschlossen) {
+        await client.post(
+          `/api/entities/${encodeURIComponent(tuer.entity_id)}/command`,
+          { command: 'lock', data: {} },
+          { still: true }
+        );
+      }
+      for (let versuch = 0; versuch < NACHSEHEN.versuche; versuch += 1) {
+        await new Promise((fertig) => setTimeout(fertig, NACHSEHEN.abstandMs));
+        const staende = await Promise.all(
+          unverschlossen.map((tuer) =>
+            client.get<Entity | null>(
+              `/api/entities/${encodeURIComponent(tuer.entity_id)}`,
+              { still: true, fallback: null }
+            )
+          )
+        );
+        const zustand = (id: string) =>
+          String(staende.find((e) => e?.id === id)?.state.state ?? '');
+        if (nochNichtZu(unverschlossen, zustand).length === 0) {
+          setSchliesst(false);
+          await arm(mode);
+          return;
+        }
+      }
+      setNote('Die Türe hat sich nicht abschliessen lassen – bitte nachsehen.');
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
+    }
+    setSchliesst(false);
   };
 
   // Alarm von Hand. Ohne PIN und aus jedem Zustand - warum, steht im
@@ -708,7 +778,7 @@ export function AlarmScreen({
               accessibilityState={{ selected: selectedZone === null }}
               style={[styles.chip, selectedZone === null && styles.chipOn]}
             >
-              <Text style={[styles.chipText, selectedZone === null && { color: '#FFFFFF' }]}>
+              <Text style={[styles.chipText, selectedZone === null && { color: colors.onAccent }]}>
                 Ganzes Haus
               </Text>
             </Pressable>
@@ -720,7 +790,7 @@ export function AlarmScreen({
                 accessibilityState={{ selected: selectedZone === zone }}
                 style={[styles.chip, selectedZone === zone && styles.chipOn]}
               >
-                <Text style={[styles.chipText, selectedZone === zone && { color: '#FFFFFF' }]}>
+                <Text style={[styles.chipText, selectedZone === zone && { color: colors.onAccent }]}>
                   {zone}
                 </Text>
               </Pressable>
@@ -748,9 +818,9 @@ export function AlarmScreen({
                 <Ionicons
                   name={mode.icon}
                   size={20}
-                  color={active ? '#FFFFFF' : colors.ink}
+                  color={active ? colors.onAccent : colors.ink}
                 />
-                <Text style={[styles.modeText, active && { color: '#FFFFFF' }]}>
+                <Text style={[styles.modeText, active && { color: colors.onAccent }]}>
                   {mode.label}
                 </Text>
               </Pressable>
@@ -886,6 +956,23 @@ export function AlarmScreen({
                 ))}
               </View>
             ) : null}
+            {pendingMode && unverschlossen.length > 0 ? (
+              <Pressable
+                onPress={() => abschliessenUndScharf(pendingMode)}
+                disabled={schliesst}
+                accessibilityRole="button"
+                accessibilityLabel="Türen abschliessen und dann scharf schalten"
+                style={({ pressed }) => [
+                  styles.abschliessen,
+                  (pressed || schliesst) && { opacity: 0.7 },
+                ]}
+              >
+                <Ionicons name="lock-closed-outline" size={16} color="#FFFFFF" />
+                <Text style={styles.abschliessenText}>
+                  {schliesst ? 'Schliesst ab …' : 'Abschliessen und scharf'}
+                </Text>
+              </Pressable>
+            ) : null}
             {pendingMode ? (
               <Pressable
                 onPress={() => arm(pendingMode, true)}
@@ -920,10 +1007,10 @@ export function AlarmScreen({
                   accessibilityState={{ selected: on }}
                   style={[styles.tab, on && styles.tabOn]}
                 >
-                  <Text style={[styles.tabText, on && { color: '#FFFFFF' }]}>
+                  <Text style={[styles.tabText, on && { color: colors.onAccent }]}>
                     {mode.label}
                   </Text>
-                  <Text style={[styles.tabCount, on && { color: '#FFFFFF' }]}>
+                  <Text style={[styles.tabCount, on && { color: colors.onAccent }]}>
                     {count}
                   </Text>
                 </Pressable>
@@ -1026,7 +1113,7 @@ export function AlarmScreen({
                           style={[styles.chip, entry?.delayed && styles.chipOn]}
                         >
                           <Text
-                            style={[styles.chipText, entry?.delayed && { color: '#FFFFFF' }]}
+                            style={[styles.chipText, entry?.delayed && { color: colors.onAccent }]}
                           >
                             verzögert
                           </Text>
@@ -1040,7 +1127,7 @@ export function AlarmScreen({
                           style={[styles.chip, entry?.bypass && styles.chipWarn]}
                         >
                           <Text
-                            style={[styles.chipText, entry?.bypass && { color: '#FFFFFF' }]}
+                            style={[styles.chipText, entry?.bypass && { color: colors.onAccent }]}
                           >
                             überbrückt
                           </Text>
@@ -1254,7 +1341,7 @@ export function AlarmScreen({
                   <Text
                     style={[
                       styles.smallButtonText,
-                      historyKind === key && { color: '#FFFFFF' },
+                      historyKind === key && { color: colors.onAccent },
                     ]}
                   >
                     {label}
@@ -1577,7 +1664,7 @@ function EskalationKarte({
           pressed && { opacity: 0.7 },
         ]}
       >
-        <Text style={[styles.chipText, on && { color: '#FFFFFF' }]}>{entity.name}</Text>
+        <Text style={[styles.chipText, on && { color: colors.onAccent }]}>{entity.name}</Text>
       </Pressable>
     );
   };
@@ -1620,7 +1707,7 @@ function EskalationKarte({
                         pressed && { opacity: 0.7 },
                       ]}
                     >
-                      <Text style={[styles.chipText, on && { color: '#FFFFFF' }]}>
+                      <Text style={[styles.chipText, on && { color: colors.onAccent }]}>
                         {fristLabel(sekunden)}
                       </Text>
                     </Pressable>
@@ -1639,9 +1726,9 @@ function EskalationKarte({
                   Programms. Jetzt steht dabei, was gemeint ist, und die
                   gewöhnlichen Schalter liegen hinter einem Tipp. */}
               <Text style={styles.hint}>
-                Was beim Alarm eingeschaltet wird: eine Sirene, ein Gong -
-                oder die Steckdose, an der so etwas hängt. Beim Entschärfen
-                geht genau das wieder aus.
+                Was beim Alarm eingeschaltet wird: eine Sirene, ein Gong, ein
+                Rauchmelder mit Summer - oder die Steckdose, an der so etwas
+                hängt. Beim Entschärfen geht genau das wieder aus.
               </Text>
               {sirenen.length === 0 && !alleSchalter ? (
                 <Text style={styles.hint}>
@@ -1713,7 +1800,7 @@ function EskalationKarte({
                           pressed && { opacity: 0.7 },
                         ]}
                       >
-                        <Text style={[styles.chipText, on && { color: '#FFFFFF' }]}>
+                        <Text style={[styles.chipText, on && { color: colors.onAccent }]}>
                           {ziel.label}
                         </Text>
                       </Pressable>
@@ -1751,7 +1838,7 @@ function EskalationKarte({
                               ]}
                             >
                               <Text
-                                style={[styles.chipText, on && { color: '#FFFFFF' }]}
+                                style={[styles.chipText, on && { color: colors.onAccent }]}
                               >
                                 {box.name}
                               </Text>
@@ -1804,7 +1891,7 @@ function EskalationKarte({
                 <Text
                   style={[
                     styles.chipText,
-                    eskalation.volume == null && { color: '#FFFFFF' },
+                    eskalation.volume == null && { color: colors.onAccent },
                   ]}
                 >
                   Vorgabe des Hubs
@@ -1876,7 +1963,7 @@ function AfterTrigger({
                     accessibilityState={{ selected: on }}
                     style={[styles.chip, on && styles.chipOn]}
                   >
-                    <Text style={[styles.chipText, on && { color: '#FFFFFF' }]}>
+                    <Text style={[styles.chipText, on && { color: colors.onAccent }]}>
                       {choice.label}
                     </Text>
                   </Pressable>
@@ -2296,7 +2383,7 @@ function AlarmSettings({
                 accessibilityLabel={`Symbol ${symbol}`}
                 style={[styles.chip, on && styles.chipOn]}
               >
-                <Ionicons name={symbol} size={16} color={on ? '#FFFFFF' : colors.ink} />
+                <Ionicons name={symbol} size={16} color={on ? colors.onAccent : colors.ink} />
               </Pressable>
             );
           })}
@@ -2379,7 +2466,7 @@ function AlarmSettings({
                     pressed && { opacity: 0.7 },
                   ]}
                 >
-                  <Text style={[styles.chipText, gewaehlt && { color: '#FFFFFF' }]}>
+                  <Text style={[styles.chipText, gewaehlt && { color: colors.onAccent }]}>
                     {entity.name}
                   </Text>
                 </Pressable>
@@ -2444,7 +2531,7 @@ function AlarmSettings({
                     pressed && { opacity: 0.7 },
                   ]}
                 >
-                  <Text style={[styles.chipText, gewaehlt && { color: '#FFFFFF' }]}>
+                  <Text style={[styles.chipText, gewaehlt && { color: colors.onAccent }]}>
                     {eintrag.label}
                   </Text>
                 </Pressable>
@@ -2532,7 +2619,7 @@ function AlarmSettings({
                     pressed && { opacity: 0.7 },
                   ]}
                 >
-                  <Text style={[styles.chipText, gewaehlt && { color: '#FFFFFF' }]}>
+                  <Text style={[styles.chipText, gewaehlt && { color: colors.onAccent }]}>
                     {stufe.label}
                   </Text>
                 </Pressable>
@@ -3062,7 +3149,7 @@ const makeStyles = (colors: Colors) =>
     },
     actionChipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
     actionChipText: { color: colors.inkSoft, fontSize: 12, fontWeight: '700' },
-    actionChipTextOn: { color: '#FFFFFF' },
+    actionChipTextOn: { color: colors.onAccent },
     warn: { color: colors.warnInk, fontSize: 13, lineHeight: 19, fontWeight: '600' },
 
     stateHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -3133,7 +3220,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       backgroundColor: colors.accent,
     },
-    pinConfirmText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+    pinConfirmText: { color: colors.onAccent, fontSize: 14, fontWeight: '700' },
     pinRemove: {
       paddingVertical: 11,
       paddingHorizontal: 12,
@@ -3153,6 +3240,19 @@ const makeStyles = (colors: Colors) =>
     disarmText: { color: colors.ink, fontSize: 15, fontWeight: '700' },
     force: { alignItems: 'center', paddingVertical: 10 },
     forceText: { color: colors.danger, fontSize: 14, fontWeight: '700' },
+    // «Abschliessen und scharf» (Punkt 614) - der Weg, der das Problem
+    // behebt, steht als voller Knopf über dem roten «Trotzdem».
+    abschliessen: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      backgroundColor: colors.accent,
+      borderRadius: radius.control,
+      paddingVertical: 12,
+      marginTop: 8,
+    },
+    abschliessenText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
 
     afterBlock: {
       gap: 8,

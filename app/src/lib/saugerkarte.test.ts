@@ -14,6 +14,11 @@ import {
   robotRoom,
   shapeInCrop,
   saugerFaehrt,
+  saugerknoepfe,
+  saugerprobleme,
+  stationstyp,
+  stationswert,
+  stationszeilen,
   vacuumText,
   zustandLesbar,
   zustandWort,
@@ -138,4 +143,124 @@ test('saugerFaehrt erkennt jede Art von Reinigen', () => {
   expect(saugerFaehrt('charging')).toBe(false);
   expect(saugerFaehrt('idle')).toBe(false);
   expect(saugerFaehrt(undefined)).toBe(false);
+});
+
+describe('Die Knöpfe auf dem Reinigungsblatt (Punkt 636)', () => {
+  const olga = (state: string, commands = ['start', 'pause', 'dock', 'locate']) => ({
+    commands,
+    state: { state },
+  });
+  const befehle = (state: string, commands?: string[]) =>
+    saugerknoepfe(olga(state, commands)).map((knopf) => knopf.command);
+
+  it('bietet beim Reinigen Pause, Finden und Zur Station', () => {
+    // Genau der Fall des Chips «saugt»: Sie fährt, und man will sie
+    // anhalten, suchen oder heimschicken - ohne Umweg über die Station.
+    expect(befehle('cleaning')).toEqual(['pause', 'locate', 'dock']);
+    expect(befehle('segment_cleaning')).toEqual(['pause', 'locate', 'dock']);
+  });
+
+  it('macht aus Pause «Weiter», wenn sie pausiert', () => {
+    const knoepfe = saugerknoepfe(olga('paused'));
+    expect(knoepfe.map((knopf) => knopf.command)).toEqual(['start', 'locate', 'dock']);
+    expect(knoepfe[0].label).toBe('Weiter');
+  });
+
+  it('schickt sie nicht zur Station, wenn sie schon dort steht', () => {
+    expect(befehle('docked')).toEqual(['locate']);
+    expect(befehle('charging')).toEqual(['locate']);
+    // Bereit heisst: irgendwo stehengeblieben - heimschicken geht.
+    expect(befehle('idle')).toEqual(['locate', 'dock']);
+  });
+
+  it('zeigt auf dem Heimweg weder Pause noch Zur Station', () => {
+    expect(befehle('returning')).toEqual(['locate']);
+  });
+
+  it('bietet nur an, was der Hub als Kommando kennt', () => {
+    expect(befehle('cleaning', ['start', 'dock'])).toEqual(['dock']);
+    expect(befehle('cleaning', [])).toEqual([]);
+  });
+});
+
+describe('Der Fehler auf dem Reinigungsblatt (Punkt 637)', () => {
+  it('zeigt die Sätze des Hubs, wie sie sind', () => {
+    const saetze = ['Der Sauger steckt fest.', 'Der Schmutzwassertank ist voll.'];
+    expect(saugerprobleme({ state: { state: 'error', problems: saetze } })).toEqual(saetze);
+  });
+
+  it('zeigt nichts, wenn nichts ansteht', () => {
+    expect(saugerprobleme({ state: { state: 'cleaning', problems: [] } })).toEqual([]);
+    expect(saugerprobleme({ state: { state: 'cleaning', error: null } })).toEqual([]);
+    expect(saugerprobleme({ state: { state: 'docked', dock: { error: 'ok', type: 'x' } } })).toEqual([]);
+  });
+
+  it('macht bei einem alten Hub die rohen Namen wenigstens lesbar', () => {
+    // Ein Hub ohne `problems` schickt weiter `error` und `dock` -
+    // lieber «robot trapped» auf dem Blatt als eine leere Stelle.
+    expect(
+      saugerprobleme({
+        state: { state: 'error', error: 'robot_trapped', dock: { dirty_water: 'full_not_installed' } },
+      })
+    ).toEqual(['Der Sauger meldet: robot trapped.', 'Der Sauger meldet: full not installed.']);
+  });
+});
+
+describe('Das Stations-Fenster spricht Deutsch (Punkt 639)', () => {
+  // Der Stand aus dem Haus: voller Schmutzwassertank, zweimal gemeldet,
+  // dazu die Betriebswerte als nackte Zahlen und der Typ als Schlüssel.
+  const olga = {
+    state: {
+      state: 'docked',
+      battery: 96,
+      problems: ['Der Schmutzwassertank ist voll.'],
+      dock: {
+        error: 'waste_water_tank_full',
+        type: 'shell_3s_dock',
+        wash_phase: 0,
+        drying: 0,
+        dust_collection: 0,
+        auto_empty: 1,
+        dirty_water: 'full_not_installed',
+      },
+    },
+  };
+
+  it('zeigt die Störung als Satz des Hubs und die Störfelder nicht nochmals roh', () => {
+    const zeilen = stationszeilen(olga);
+    expect(zeilen.map((zeile) => [zeile.label, zeile.wert])).toEqual([
+      ['Akku', '96 %'],
+      ['Störung', 'Der Schmutzwassertank ist voll.'],
+      ['Stationstyp', 'Shell 3S'],
+      ['Waschgang', 'Keiner'],
+      ['Trocknung', 'Aus'],
+      ['Staubentleerung', 'Aus'],
+      ['Automatische Entleerung', 'Ein'],
+    ]);
+    expect(zeilen.filter((zeile) => zeile.stoerung).length).toBe(1);
+    const text = JSON.stringify(zeilen);
+    expect(text).not.toContain('_');
+    expect(text).not.toContain('dirty_water');
+  });
+
+  it('macht aus dem Bezeichner der Bauart einen Namen', () => {
+    expect(stationstyp('shell_3s_dock')).toBe('Shell 3S');
+    expect(stationstyp('o3_plus_dock')).toBe('O3 Plus');
+    expect(stationstyp('empty_wash_fill_dry_dock')).toBe('Absaugen, Waschen, Trocknen');
+    expect(stationstyp('unknown')).toBe('Unbekannt');
+  });
+
+  it('übersetzt die Zahlen der Betriebswerte', () => {
+    expect(stationswert('wash_phase', 2)).toBe('Phase 2');
+    expect(stationswert('drying', 1)).toBe('Läuft');
+    expect(stationswert('auto_empty', 0)).toBe('Aus');
+    // Unbekanntes bleibt, wie es kommt - lieber roh als weg.
+    expect(stationswert('irgendwas', 'x')).toBe('x');
+  });
+
+  it('kommt ohne Station aus', () => {
+    expect(stationszeilen({ state: { state: 'cleaning', battery: 40 } })).toEqual([
+      { label: 'Akku', wert: '40 %', stoerung: false },
+    ]);
+  });
 });

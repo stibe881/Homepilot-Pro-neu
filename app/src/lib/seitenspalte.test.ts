@@ -40,6 +40,26 @@ describe('panelContent', () => {
     expect(raumliste.anything).toBe(false);
   });
 
+  it('lässt die Spalte auf der Geräteliste ganz weg', () => {
+    // Gemeldet im Haus: Unter Einstellungen → Geräte standen Wetter und
+    // Musik unter der Liste. Dort sucht man ein bestimmtes Gerät - das
+    // Wetter von Zell beantwortet keine Frage, die man dabei stellt,
+    // und auf dem Telefon schob es die Liste unter den Rand.
+    const geraete = panelContent({ ...ALLES, deviceList: true });
+    expect(geraete.weather).toBe(false);
+    expect(geraete.housePlayer).toBe(false);
+    expect(geraete.anything).toBe(false);
+  });
+
+  it('lässt die Spalte auf Licht, Storen und Kameras ganz weg', () => {
+    // Punkt 577: «Auf der Seite Storen, Licht, Kameras soll die
+    // Wetterkachel und die Medienkachel nicht vorhanden sein.»
+    const storen = panelContent({ ...ALLES, geraeteseite: true });
+    expect(storen.weather).toBe(false);
+    expect(storen.housePlayer).toBe(false);
+    expect(storen.anything).toBe(false);
+  });
+
   it('behält die Spalte auf der Startseite', () => {
     // Die Gegenprobe: Sie ist die Seite, auf der man stehen bleibt -
     // dort ist das Wetter die Frage, mit der man sie öffnet.

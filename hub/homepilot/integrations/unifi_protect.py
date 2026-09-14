@@ -214,6 +214,29 @@ EVENT_LABELS = {
 # Ereignisarten, die eine Erkennung tragen - Bild wie Ton.
 DETECT_EVENTS = ("smartDetectZone", "smartDetectLine", "smartAudioDetect")
 
+#: Länger als so gilt keine Erkennung ohne Ende-Meldung (Punkt 578).
+ERKENNUNG_HOECHSTENS_S = 5 * 60.0
+
+
+def erkennung_abgestanden(
+    start_s: float | None, jetzt_s: float, hoechstens: float = ERKENNUNG_HOECHSTENS_S
+) -> bool:
+    """Ist eine laufende Erkennung so alt, dass sie vorbei sein muss? (rein, testbar)
+
+    Aus dem Haus (Punkt 578): «Hier wird angezeigt, dass eine Bewegung
+    im Zimmer ist. Diese Bewegung war aber vor fast einer Stunde.» Eine
+    Erkennung endet im Hub nur, wenn die Ende-Meldung aus dem
+    Ereignisstrom ankommt - geht sie verloren (Neustart, abgelaufene
+    Sitzung, ein Rahmen, den der Hub nicht lesen kann), blieb
+    `detected_person` für immer auf «on», und jede Abfrage schrieb es
+    aus Rücksicht auf «läuft noch» wieder hinein. Eine Person, die
+    Protect fünf Minuten am Stück sieht, ist keine Erkennung mehr,
+    sondern ein Bewohner - dann darf die Abfrage aufräumen.
+    """
+    if start_s is None:
+        return True
+    return jetzt_s - start_s >= hoechstens
+
 # Was Protect erkennt, wie das Feld bei uns heisst und wie es in der App
 # steht. Die Schlüssel sind kleingeschrieben und ohne Unterstriche: Die
 # API schreibt mal «alrmBabyCry», mal «smoke_cmonx», und beides meint
@@ -431,6 +454,8 @@ class UnifiProtectIntegration(Integration):
         # «end» enthält - ohne Art und ohne Kamera; ohne dieses
         # Gedächtnis liesse sich sie niemandem zuordnen.
         self._erkennung_ende: dict[tuple[str, str], float] = {}
+        # Wann eine Erkennung begann - für die Höchstdauer (Punkt 578).
+        self._erkennung_start: dict[tuple[str, str], float] = {}
         # Ereignis-Kennungen, die schon verarbeitet sind. Sonst löste
         # dieselbe Erkennung bei jeder Abfrage erneut aus.
         self._gesehene_ereignisse: set[str] = set()
@@ -509,8 +534,18 @@ class UnifiProtectIntegration(Integration):
         await self._erkennungen_nachziehen()
 
     def _erkennung_vorbei(self, entity_id: str, feld: str) -> bool:
-        """Ist die Erkennung dieses Feldes schon beendet gemeldet worden?"""
-        return (entity_id, feld) in self._erkennung_ende
+        """Ist die Erkennung dieses Feldes vorbei - gemeldet oder verjährt?
+
+        Gemeldet: die Ende-Meldung kam. Verjährt: sie kam nie, aber der
+        Anfang liegt länger zurück als eine Erkennung dauern kann
+        (erkennung_abgestanden, Punkt 578).
+        """
+        # Die Abfrage fragt mit dem Feldnamen («detected_person»), das
+        # Gedächtnis führt die Art («person») - beides meint dasselbe.
+        art = feld[len("detected_") :] if feld.startswith("detected_") else feld
+        if (entity_id, art) in self._erkennung_ende:
+            return True
+        return erkennung_abgestanden(self._erkennung_start.get((entity_id, art)), time.time())
 
     async def _erkennungen_nachziehen(self, minuten: int = 10) -> None:
         """Erkennungen aus der Ereignisliste holen - der Weg ohne Strom.
@@ -700,8 +735,10 @@ class UnifiProtectIntegration(Integration):
         for feld in felder:
             if beendet:
                 self._erkennung_ende[(entity_id, feld)] = time.time()
+                self._erkennung_start.pop((entity_id, feld), None)
             else:
                 self._erkennung_ende.pop((entity_id, feld), None)
+                self._erkennung_start[(entity_id, feld)] = time.time()
         if kennung and not beendet:
             self._laufende[kennung] = (entity_id, felder)
         await self.hub.registry.update_state(entity_id, changes, available=True)

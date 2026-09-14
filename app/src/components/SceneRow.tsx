@@ -53,7 +53,7 @@ export function SceneRow({
             <Ionicons
               name={(scene.icon as keyof typeof Ionicons.glyphMap) || 'sparkles-outline'}
               size={17}
-              color={aktiv ? '#FFFFFF' : colors.ink}
+              color={aktiv ? colors.onAccent : colors.ink}
             />
             <Text style={[styles.label, aktiv && styles.labelOn]}>{scene.name}</Text>
             {farben.map((farbe) => (
@@ -81,7 +81,7 @@ const makeStyles = (colors: Colors) =>
   strip: { height: 46, flexGrow: 0, flexShrink: 0 },
   row: { gap: 10, alignItems: 'center', paddingRight: 20 },
   sceneOn: { backgroundColor: colors.accent, borderColor: colors.accent },
-  labelOn: { color: '#FFFFFF' },
+  labelOn: { color: colors.onAccent },
   scene: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -13,6 +13,8 @@
 
 import { Entity } from '../api/types';
 import { dauerText } from './format';
+import { grillKurzinfo } from './grillbild';
+import { istGrill } from './grillziel';
 
 export interface GeraeteZeile {
   text: string;
@@ -30,7 +32,11 @@ export interface GeraeteZeile {
  */
 const RUHETEXT: Record<string, string> = {
   idle: 'Bereit',
-  off: 'Bereit',
+  // «Aus» heisst am Hauptschalter aus (Punkt 634): Der Hub setzt es,
+  // wenn ein V-ZUG-Gerät eine halbe Stunde lang nur noch 503 sagt.
+  // Vorher stand hier «Bereit» - aber bereit ist eine Maschine, in die
+  // man Wäsche tun kann, und die muss man erst einschalten.
+  off: 'Aus',
   // Gerät am Netz, Anzeige schläft. Auch das ist «Bereit» – so gewünscht
   // aus der Waschküche: «Standby» ist ein Wort aus dem Datenblatt an
   // einer Stelle, an der man wissen will, ob man Wäsche hineintun kann.
@@ -138,6 +144,17 @@ export function workingAppliances(entities: Entity[]): Working[] {
       const state = String(entity.state.state ?? '');
       if (state !== 'running' && state !== 'on') continue;
       const minutes = entity.state.minutes_left;
+      // Der Grill hat keine Restzeit und kein Programm - bei ihm zählt,
+      // wie heiss er ist und wohin er will (Punkt 562). «Smoker läuft ·
+      // läuft» stand vorher da, zweimal dasselbe Wort untereinander.
+      if (istGrill(entity)) {
+        const kurz = grillKurzinfo(entity.state);
+        working.push({
+          entity,
+          note: [kurz.gross, kurz.klein].filter(Boolean).join(' · '),
+        });
+        continue;
+      }
       working.push({
         entity,
         note:
@@ -161,4 +178,89 @@ export function workingAppliances(entities: Entity[]): Working[] {
     working.push({ entity, note: '' });
   }
   return working;
+}
+
+export interface Steckdosengeraet {
+  /** Was als Zustand auf der Kachel steht. */
+  text: string;
+  /** Arbeitet das Gerät gerade? */
+  running: boolean;
+  /** Gemessene Leistung – die Zeile darunter. */
+  watts: number;
+  /** Steckdose aus; dann gibt es auch keine Leistung anzuschreiben. */
+  aus: boolean;
+}
+
+/**
+ * Ein Haushaltsgerät an der Schalt-Messsteckdose (rein, testbar).
+ *
+ * Dieselbe Schwelle wie oben - und genau daran hing der gemeldete Fall:
+ * Die Kachel auf der Startseite rechnete sich ihre Antwort selbst aus,
+ * mit «mehr als 5 W heisst läuft». Der Tumbler zieht fertig, mit wachem
+ * Display, 9 W; über der Kachel stand «Am Trocknen», während die Wäsche
+ * längst trocken war. Die Begrüssungszeile daneben, die
+ * `workingAppliances` fragt, schwieg zur selben Zeit richtig - zwei
+ * Regeln für dieselbe Frage, und die falsche stand im Bildschirm.
+ *
+ * `laufwort` ist das, was beim Arbeiten dasteht: Ein Tumbler trocknet,
+ * eine Pumpe läuft.
+ */
+export function steckdosengeraet(
+  entity: Entity | undefined,
+  laufwort = 'Läuft',
+  demoWatts = 1450
+): Steckdosengeraet {
+  const watts = entity ? Number(entity.state.power ?? 0) : demoWatts;
+  const aus = entity ? String(entity.state.state) === 'off' : false;
+  const running = !aus && Number.isFinite(watts) && watts > WORKING_WATTS;
+  // «Fertig» und nicht «Bereit»: Am Gerät an der Steckdose ist der Fall,
+  // der einen etwas angeht, das Ende eines Durchgangs - und danach steht
+  // die Trommel voll da, bis jemand sie ausräumt.
+  const text = aus ? 'Steckdose aus' : running ? laufwort : 'Fertig';
+  return { text, running, watts: Number.isFinite(watts) ? watts : 0, aus };
+}
+
+/** Die Symbole, die neben der Begrüssung stehen können. */
+export type Geraetesymbol =
+  | 'flame'
+  | 'sunny-outline'
+  | 'water-outline'
+  | 'restaurant-outline'
+  | 'ellipse';
+
+/**
+ * Passendes Symbol zum laufenden Gerät (rein, testbar).
+ *
+ * Dieselben Symbole wie auf den Haushalt-Kacheln der Startseite. Bewusst
+ * kein Kreispfeil: Der steht überall für «neu laden» und lädt zum Tippen
+ * ein – hier gibt es aber nichts zu tippen, der Wert aktualisiert sich von
+ * selbst, sobald der Hub eine Änderung meldet.
+ *
+ * Der Grill bekommt die Flamme - dieselbe wie auf seiner Live-Karte
+ * (hub: core/livekarten.py, symbol «flame»), so gewünscht im Haus
+ * (Punkt 562). Erkannt am Temperaturziel, nicht am Namen: «Smoker» und
+ * «Räucherschrank» stehen in keiner Namensliste, und vor der Flamme
+ * stand dort ein grauer Punkt. Hier und nicht in der Komponente, weil
+ * sich hier ohne Symbolschrift testen lässt.
+ */
+export function applianceIcon(entity: Pick<Entity, 'name' | 'kind' | 'state'>): Geraetesymbol {
+  if (istGrill(entity)) return 'flame';
+  const name = entity.name;
+  if (/tumbler|trockner/i.test(name)) return 'sunny-outline';
+  if (/wasch/i.test(name)) return 'water-outline';
+  if (/geschirr|sp(ü|ue)lmaschine/i.test(name)) return 'restaurant-outline';
+  return 'ellipse';
+}
+
+/**
+ * Der Grill, den ein Tipp auf «Smoker läuft» öffnet (rein, testbar).
+ *
+ * Gewünscht im Haus (Punkt 563): «Wenn man hier auf Smoker läuft
+ * klickt, soll sich das Popup vom jeweiligen Smoker öffnen.» Der erste
+ * laufende Grill - laufen zwei zugleich, gewinnt der vordere; das Blatt
+ * des andern ist über seine Kachel eine Berührung entfernt. Läuft nur
+ * die Waschmaschine, gibt es nichts zu öffnen: `null`.
+ */
+export function grillZumOeffnen(working: Working[]): Entity | null {
+  return working.map((item) => item.entity).find(istGrill) ?? null;
 }

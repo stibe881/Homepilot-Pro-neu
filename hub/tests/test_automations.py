@@ -174,3 +174,52 @@ async def test_ein_testlauf_nennt_die_uebergangenen_bedingungen(hub):
 
 async def test_ein_unbekannter_ablauf_laesst_sich_nicht_testen(hub):
     assert await hub.automations.trigger_now("gibt-es-nicht") is False
+
+
+def test_ein_ablauf_mit_anwesenheits_bedingung_laesst_sich_anlegen():
+    """Punkt 594 der Werkbank: Der Editor baut seit 40cdc50 Bedingungen
+    wie «nur wenn Livia daheim ist», der Motor prüft sie - die
+    Speicherprüfung aus 378 kannte sie nicht und die Route antwortete 400.
+    Hier wird wirklich per POST angelegt, nicht nur die reine Prüfung
+    gefragt."""
+    from fastapi.testclient import TestClient
+
+    from homepilot.api import create_app
+    from homepilot.core.hub import Hub
+
+    from .conftest import make_config
+
+    hub = Hub(make_config())
+    with TestClient(create_app(hub)) as client:
+        antwort = client.post(
+            "/api/automations",
+            json={
+                "alias": "Willkommen",
+                "trigger": [{"type": "time", "at": "18:00"}],
+                "condition": [
+                    {"type": "presence", "person": "livia", "state": "present"},
+                    {"type": "calendar", "contains": "Gäste", "active": False},
+                ],
+                "action": [
+                    {
+                        "type": "if",
+                        "conditions": [{"type": "weather_warning", "active": True}],
+                        "then": [{"type": "notify", "title": "x", "message": "y"}],
+                    }
+                ],
+            },
+        )
+        assert antwort.status_code == 200, antwort.text
+        assert antwort.json()["automation"]["condition"][0]["type"] == "presence"
+
+        # Ein Tippfehler in der Verzweigung fällt seither auch auf.
+        kaputt = client.post(
+            "/api/automations",
+            json={
+                "alias": "Kaputt",
+                "trigger": [],
+                "action": [{"type": "if", "conditions": [{"type": "anwesend"}], "then": []}],
+            },
+        )
+        assert kaputt.status_code == 400
+        assert "anwesend" in kaputt.json()["detail"]

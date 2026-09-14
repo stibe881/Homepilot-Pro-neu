@@ -19,7 +19,8 @@ RUN apt-get update \
 
 # Abhängigkeiten zuerst, damit Docker sie beim Ändern von Code nicht
 # jedes Mal neu installiert. Im Container sind alle optionalen
-# Integrationsbibliotheken dabei (Ring, Roborock, Cast, Android TV, Tuya) –
+# Integrationsbibliotheken dabei (Ring, Roborock, Cast, Android TV, Tuya,
+# PlayStation) –
 # auf einem Hub-Server zählt Vollständigkeit mehr als Abbildgrösse.
 #
 # **Die Liste muss alle Extras aus core/extras.py enthalten.** Ein Test
@@ -34,7 +35,16 @@ RUN apt-get update \
 WORKDIR /app
 COPY pyproject.toml ./
 COPY homepilot ./homepilot
-RUN pip install --no-cache-dir ".[roborock,cast,androidtv,ring,overkiz,pitboss,speech,tuya,apns,beleg,ocr]"
+# gcc nur für diese eine Schicht: `pyremoteplay` (Extra playstation,
+# Punkt 643) hängt hart an `netifaces`, und das hat kein Rad für Python
+# 3.12 - pip baut es aus der Quelle. Danach kommt der Compiler wieder
+# weg; in derselben RUN-Zeile, sonst bliebe er in einer Zwischenschicht
+# und das Abbild wäre um hundert Megabyte schwerer.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc libc6-dev \
+    && pip install --no-cache-dir ".[roborock,cast,androidtv,ring,overkiz,pitboss,speech,tuya,apns,beleg,ocr,playstation]" \
+    && apt-get purge -y --auto-remove gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Nicht als root laufen lassen.
 RUN useradd --create-home --uid 1000 homepilot

@@ -386,7 +386,7 @@ export function LightGroups({
                     taken && { opacity: 0.4 },
                   ]}
                 >
-                  {active ? <Ionicons name="checkmark" size={13} color="#FFFFFF" /> : null}
+                  {active ? <Ionicons name="checkmark" size={13} color={colors.onAccent} /> : null}
                   <Text style={[styles.chipText, active && styles.chipTextActive]}>
                     {entity.name}
                     {entity.room ? ` · ${entity.room}` : ''}
@@ -540,7 +540,7 @@ const makeStyles = (colors: Colors) =>
     },
     chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     chipText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
-    chipTextActive: { color: '#FFFFFF' },
+    chipTextActive: { color: colors.onAccent },
     check: {
       flexDirection: 'row',
       alignItems: 'flex-start',
@@ -558,7 +558,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       backgroundColor: colors.accent,
     },
-    primaryText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+    primaryText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
     secondary: {
       alignItems: 'center',
       paddingVertical: 12,

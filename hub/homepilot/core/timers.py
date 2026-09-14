@@ -84,6 +84,39 @@ class KitchenTimers:
         self._merken()
         return True
 
+    def extend(self, timer_id: str, minutes: float) -> dict[str, Any] | None:
+        """Einen laufenden Timer um ein paar Minuten verlängern.
+
+        Der Griff «+5 min» auf der Sperrbildschirm-Karte (Punkt 605 der
+        Werkbank): Die Pasta braucht doch noch etwas, und die Karte liegt
+        schon in der Hand - ein neuer Timer aus der App wäre der lange
+        Weg. Gerechnet wird ab dem alten Ende, nicht ab jetzt; die
+        Obergrenze bleibt dieselbe wie beim Start. None, wenn es den
+        Timer nicht (mehr) gibt - dann ist er eben schon abgelaufen.
+        """
+        entry = self._timers.get(timer_id)
+        if entry is None:
+            return None
+        if not (0 < minutes <= MAX_MINUTES):
+            raise HomePilotError(
+                f"Zwischen einer Minute und {MAX_MINUTES} Minuten - ein "
+                "Küchen-Timer ist kein Kalender."
+            )
+        jetzt = time.time()
+        neues_ende = max(float(entry["ends_at"]), jetzt) + minutes * 60
+        if neues_ende - jetzt > MAX_MINUTES * 60:
+            raise HomePilotError(
+                f"Länger als {MAX_MINUTES} Minuten läuft ein Küchen-Timer nicht."
+            )
+        # Die alte Aufgabe schläft auf das alte Ende zu - sie muss weg,
+        # sonst meldet sich der Timer zweimal: einmal alt, einmal neu.
+        entry["task"].cancel()
+        entry["ends_at"] = neues_ende
+        entry["minutes"] = int(entry.get("minutes") or 0) + round(minutes)
+        entry["task"] = asyncio.create_task(self._run(entry))
+        self._merken()
+        return {key: value for key, value in entry.items() if key != "task"}
+
     def restore(self) -> None:
         """Beim Hub-Start: gemerkte Timer wieder aufnehmen.
 

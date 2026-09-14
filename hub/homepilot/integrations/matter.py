@@ -868,9 +868,19 @@ class MatterIntegration(Integration):
         node = await self._command("commission_with_code", code=code.strip())
         node_id = (node or {}).get("node_id")
         self.log.info("Matter: Gerät als Knoten %s aufgenommen", node_id)
+        geraete: list[str] = []
         if node:
             await self._sync_node(node)
-        return {"node_id": node_id}
+            # Die Namen dazu (Punkt 632): Die App sagt «Stehlampe
+            # aufgenommen», nicht «Knoten 7» - und wer nichts findet,
+            # sieht an der leeren Liste, dass der Hub das Gerät zwar
+            # gekoppelt, aber nicht verstanden hat.
+            attributes = node.get("attributes") or {}
+            geraete = [
+                endpoint_name(attributes, int(node_id or 0), endpoint)
+                for endpoint, _kind in node_endpoints(node)
+            ]
+        return {"node_id": node_id, "geraete": geraete}
 
     async def unpair(self, node_id: int) -> None:
         """Ein Gerät aus der Fabric entfernen.

@@ -428,3 +428,43 @@ async def test_die_leuchte_lernt_dazu_wenn_ihre_spots_spaeter_kommen():
         assert "set_color_temp" in kann
     finally:
         await hub.stop()
+
+
+def test_die_leuchte_zeigt_die_farbe_nur_wenn_sich_alle_einig_sind():
+    """Punkt 648: In der App war an einer Leuchte nie ein Farbpunkt
+    markiert - `combined_state` reichte Farbe und Weisston gar nicht
+    weiter. Man stellte Warmweiss ein und sah es nirgends.
+
+    Fünf Spots in fünf Farben haben aber keine gemeinsame Farbe; dann
+    bleibt der Punkt aus, und das ist die Wahrheit.
+    """
+    einig = [
+        FakeMember({"state": "on", "color_temp": 370, "color_mode": "weiss"}),
+        FakeMember({"state": "on", "color_temp": 370, "color_mode": "weiss"}),
+    ]
+    shaped = combined_state(einig, True)
+    assert shaped["color_temp"] == 370
+    assert shaped["color_mode"] == "weiss"
+
+    uneinig = [
+        FakeMember({"state": "on", "color_temp": 370}),
+        FakeMember({"state": "on", "color_temp": 200}),
+    ]
+    assert "color_temp" not in combined_state(uneinig, True)
+
+
+def test_ein_ausgeschalteter_spot_redet_bei_der_farbe_nicht_mit():
+    """Dieselbe Überlegung wie bei der Helligkeit: Was nicht leuchtet,
+    hat keine Farbe, die man sehen könnte - es trüge nur seinen
+    gespeicherten Wert von gestern bei."""
+    members = [
+        FakeMember({"state": "on", "color": "#ff0000"}),
+        FakeMember({"state": "off", "color": "#2e7cff"}),
+    ]
+    assert combined_state(members, True)["color"] == "#ff0000"
+
+
+def test_ein_schalter_bekommt_keine_farbe_angedichtet():
+    """`is_light` ist falsch - dann gibt es nichts einzufärben."""
+    members = [FakeMember({"state": "on", "color": "#ff0000"})]
+    assert "color" not in combined_state(members, False)

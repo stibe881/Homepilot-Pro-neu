@@ -1,5 +1,6 @@
 """Haltezeit am Auslöser, Sicherung zurückspielen, Durchsage-Basis."""
 
+import json
 import time
 
 from fastapi.testclient import TestClient
@@ -70,6 +71,10 @@ def test_restore_backup_roundtrip(tmp_path):
     # … und zurückgespielt.
     store.restore_backup(made["name"])
     assert store.get("automations") == [{"id": "a1", "alias": "Wichtig"}]
+    # Und zwar sofort auf der Platte (Punkt 590): Der Neustart folgt in
+    # unter einer Sekunde, da darf nichts in der Sammelsekunde hängen.
+    auf_platte = json.loads((tmp_path / "homepilot-data.json").read_text("utf-8"))
+    assert auf_platte["automations"] == [{"id": "a1", "alias": "Wichtig"}]
     # Der Stand von vor dem Zurückspielen liegt als frische Sicherung da.
     assert len(store.backups()) >= 2
 

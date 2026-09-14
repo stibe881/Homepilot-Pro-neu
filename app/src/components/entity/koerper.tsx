@@ -12,10 +12,14 @@ import { useTakt } from '../../hooks/useTakt';
 import { herkunftText, positionText, storenstand } from '../../lib/storenstand';
 import { aktiveVorgabe, vorgaben } from '../../lib/storenvorgaben';
 import { chipSchrift, fensterHoehe } from '../../lib/storenkachel';
+import { grillBauart, grillFoto, grillKurzinfo } from '../../lib/grillbild';
+import { fuehlerZeile } from '../../lib/grillziel';
+import { letzteOeffnung } from '../../lib/schlossprotokoll';
 import { mayOpenDirectly } from '../../lib/tuerbestaetigung';
-import { radius, useColors } from '../../theme';
+import { radius, trefferRand, useColors, useTyp } from '../../theme';
 import { Bar } from '../Bar';
 import { CoverVisual, Sky } from '../CoverVisual';
+import { GrillVisual } from '../GrillVisual';
 import { useKachelDruck } from './kacheldruck';
 import { MediaButton } from './medien';
 import { makeStyles } from './stil';
@@ -35,7 +39,8 @@ export function LockBody({
   doorConfirm?: boolean;
 }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   const [armed, setArmed] = useState(false);
   // Der lange Druck der Kachel. Die Türknöpfe füllen sie fast ganz aus,
   // und ein Druck auf einen Knopf erreicht die Kachel darunter nie -
@@ -85,12 +90,17 @@ export function LockBody({
                   : value === 'motor_blocked'
                     ? 'Motor blockiert'
                     : '–';
+    // Wer aufgeschlossen hat, und womit (Punkt 616 der Werkbank): «Livia
+    // (Code) · 15:42». Der Hub liest es aus dem Protokoll des Nuki; ohne
+    // Eintrag bleibt die Zeile weg, wie bei einem älteren Hub.
+    const oeffnung = letzteOeffnung(entity.state);
     return (
       <View style={styles.stack}>
         <Pill
           label={label}
           tone={value === 'motor_blocked' ? colors.danger : locked ? undefined : colors.on}
         />
+        {oeffnung ? <Text style={styles.hint}>{oeffnung}</Text> : null}
         {entity.state.battery != null ? (
           <Text style={styles.hint}>
             {entity.state.battery} % Akku
@@ -125,7 +135,7 @@ export function LockBody({
             <Ionicons
               name={armed ? 'lock-open' : 'key-outline'}
               size={16}
-              color="#FFFFFF"
+              color={colors.onAccent}
             />
             <Text style={styles.lockButtonText}>
               {armed ? 'Wirklich öffnen?' : 'Auf + öffnen'}
@@ -169,7 +179,7 @@ export function LockBody({
         <Ionicons
           name={armed ? 'lock-open' : 'lock-closed-outline'}
           size={16}
-          color="#FFFFFF"
+          color={colors.onAccent}
         />
         <Text style={styles.lockButtonText}>
           {opened ? 'Geöffnet' : armed ? 'Wirklich öffnen?' : 'Tür öffnen'}
@@ -272,109 +282,66 @@ export function useGlide(target: number, fullTravelSeconds: number): number {
  *  eigene Hooks braucht. Ein Knopfdruck setzt das Ziel sofort («weiss ja,
  *  wohin die Fahrt geht»), die nächste Meldung des Hubs übernimmt. */
 /**
- * Pelletgrill.
+ * Pelletgrill - die Kachel zeigt, das Blatt bedient.
  *
- * Was beim Grillen wirklich zählt, steht oben: die Temperatur im Garraum
- * und die der Fleischfühler. Alles andere ist Beiwerk – ausser einer
- * Störung, die gehört nach vorne, weil ein leerer Pelletbehälter das
- * Fleisch kalt werden lässt, während man drinnen sitzt.
+ * Links das Bild des Grills, rechts daneben, was man beim Grillen
+ * wissen will: die Temperatur gross, das Ziel darunter, dann die
+ * Fühler (Punkt 559 - «neben dem Bild vom Grill sollen kurz die
+ * wichtigsten Infos stehen»). Eine Störung gehört nach vorne, weil ein
+ * leerer Pelletbehälter das Fleisch kalt werden lässt, während man
+ * drinnen sitzt.
  *
- * Anzünden ist zweistufig und erscheint nur, wenn es in der config.yaml
- * freigegeben ist. Es entfacht ein Feuer in einem Gerät, neben dem gerade
- * niemand stehen muss – ein einzelner Fehlgriff soll das nicht auslösen.
+ * Keine Griffe auf der Kachel (Punkt 557). Vorher standen hier
+ * Schritte für die Gartemperatur, je Fühler eine Zeile mit Garstufen,
+ * Anzünden und ein Aus-Knopf - und «wenn ich auf die Grillkarte drücke,
+ * schaltet sich der Grill aus»: Der Aus-Knopf war auf dem Grill im Haus
+ * der einzige in seiner Reihe, ein runder Knopf unten links, und wer die
+ * Kachel antippte, traf ihn. Jetzt öffnet der Tipp auf die Kachel das
+ * Grillblatt (screens/dashboard/Grillvollbild.tsx), und dort steht das
+ * Aus hinter einer Rückfrage - ein Feuer löscht man nicht aus Versehen.
  */
 export function GrillBody({
   entity,
-  onCommand,
+  ziele = {},
 }: {
   entity: Entity;
-  onCommand: (command: string, data?: Record<string, unknown>) => void;
+  /** Die Kerntemperatur-Ziele je Fühlernummer - vom Hub, gehalten in
+   *  DashboardScreen, damit Kachel und Blatt dasselbe sagen. */
+  ziele?: Record<string, number>;
 }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [askStart, setAskStart] = useState(false);
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
 
   const unit = entity.state.unit ?? '°C';
-  const temperature = entity.state.temperature;
-  const target = entity.state.target;
   const running = entity.state.state === 'running';
   const probes: Record<string, number> = entity.state.probes ?? {};
   const problem = entity.state.problem;
-
-  // Der Grill nimmt nur bestimmte Sollwerte an und rundet selbst auf den
-  // nächsten – deshalb genügen hier grobe Schritte.
-  const step = (delta: number) =>
-    onCommand('set_temperature', { temperature: Math.round((target ?? 100) + delta) });
+  const kurz = grillKurzinfo(entity.state);
 
   return (
     <View style={styles.stack}>
-      <Pill
-        label={
-          running
-            ? typeof temperature === 'number'
-              ? `${temperature} ${unit}`
-              : 'Läuft'
-            : 'Aus'
-        }
-        tone={running ? colors.accent : undefined}
-      />
+      <View style={styles.grillZeile}>
+        <GrillVisual
+          bauart={grillBauart(entity.state.model)}
+          foto={grillFoto(entity.state.model)}
+          laeuft={running}
+        />
+        <View style={styles.grillInfo}>
+          <Pill label={kurz.gross} tone={running ? colors.accent : undefined} />
+          {kurz.klein ? <Text style={styles.hint}>{kurz.klein}</Text> : null}
+          {/* Je Fühler eine Zeile mit seinem Ziel (Punkt 554) -
+              gesetzt wird es im Blatt. */}
+          {Object.entries(probes).map(([number, value]) => (
+            <Text key={number} style={styles.detail}>
+              {fuehlerZeile(number, value, ziele[number] ?? null, unit)}
+            </Text>
+          ))}
+        </View>
+      </View>
 
       {problem ? <Text style={styles.grillProblem}>{problem}</Text> : null}
-
-      {running && typeof target === 'number' ? (
-        <View style={styles.grillRow}>
-          <Pressable
-            onPress={() => step(-5)}
-            hitSlop={6}
-            accessibilityLabel="Temperatur senken"
-            style={({ pressed }) => [styles.grillStep, pressed && { opacity: 0.6 }]}
-          >
-            <Ionicons name="remove" size={16} color={colors.ink} />
-          </Pressable>
-          <Text style={styles.hint}>
-            Ziel {target} {unit}
-          </Text>
-          <Pressable
-            onPress={() => step(5)}
-            hitSlop={6}
-            accessibilityLabel="Temperatur erhöhen"
-            style={({ pressed }) => [styles.grillStep, pressed && { opacity: 0.6 }]}
-          >
-            <Ionicons name="add" size={16} color={colors.ink} />
-          </Pressable>
-        </View>
-      ) : null}
-
-      {Object.entries(probes).map(([number, value]) => (
-        <Text key={number} style={styles.detail}>
-          Fühler {number}: {value} {unit}
-        </Text>
-      ))}
-
-      <View style={styles.mediaRow}>
-        {entity.commands.includes('turn_on') ? (
-          <MediaButton
-            icon={askStart ? 'flame' : 'flame-outline'}
-            label={askStart ? 'Wirklich?' : 'Anzünden'}
-            onPress={() => {
-              if (askStart) {
-                setAskStart(false);
-                onCommand('turn_on');
-              } else {
-                setAskStart(true);
-              }
-            }}
-          />
-        ) : null}
-        {entity.commands.includes('light_on') ? (
-          <MediaButton
-            icon="bulb-outline"
-            label="Licht"
-            onPress={() => onCommand(entity.state.light ? 'light_off' : 'light_on')}
-          />
-        ) : null}
-        <MediaButton icon="power" label="Aus" onPress={() => onCommand('turn_off')} />
-      </View>
+      <Text style={styles.detail}>Tippen für die grosse Ansicht</Text>
     </View>
   );
 }
@@ -398,7 +365,8 @@ export function CoverBody({
   onCommand: (command: string, data?: CommandData) => void;
 }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   const pos = entity.state.position;
   const tilt = entity.state.tilt;
   // Was der Hub über diese Store sagt - und ob er überhaupt etwas sagt.
@@ -613,7 +581,8 @@ export function VacuumBody({
   onCommand: (command: string, data?: CommandData) => void;
 }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   // Der lange Druck der Kachel - siehe kacheldruck.tsx.
   const saugerDruck = useKachelDruck();
   const [selected, setSelected] = useState<number[]>([]);
@@ -711,7 +680,7 @@ export function VacuumBody({
                 <Ionicons
                   name={active ? 'checkmark-circle' : 'ellipse-outline'}
                   size={12}
-                  color={active ? '#FFFFFF' : colors.inkSoft}
+                  color={active ? colors.onAccent : colors.inkSoft}
                 />
                 <Text
                   style={[styles.deviceChipText, active && styles.deviceChipTextActive]}
@@ -732,7 +701,7 @@ export function VacuumBody({
           accessibilityRole="button"
           style={({ pressed }) => [styles.cleanRoomsButton, pressed && { opacity: 0.75 }]}
         >
-          <Ionicons name="play" size={14} color="#FFFFFF" />
+          <Ionicons name="play" size={14} color={colors.onAccent} />
           <Text style={styles.cleanRoomsText}>
             {selected.length === 1 ? '1 Raum saugen' : `${selected.length} Räume saugen`}
           </Text>
@@ -784,7 +753,7 @@ export function VacuumMap({
                 borderColor: active ? colors.accent : colors.surfaceBorder,
               }}
             >
-              <Text style={{ fontSize: 12, color: active ? '#FFFFFF' : colors.inkSoft }}>
+              <Text style={{ fontSize: 12, color: active ? colors.onAccent : colors.inkSoft }}>
                 {room.name}
               </Text>
             </Pressable>
@@ -908,7 +877,8 @@ export function KameraKachel({
   klassisch: React.ReactNode;
 }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   const [ohneBild, setOhneBild] = useState(false);
   const online = entity.state.state === 'online';
   const privacyOn = entity.state.privacy === 'on';
@@ -945,7 +915,8 @@ export function KameraKachel({
             accessibilityRole="switch"
             accessibilityState={{ checked: false }}
             accessibilityLabel="Privatsphäre einschalten"
-            hitSlop={6}
+            // Bis zur kleinsten Trefffläche (Punkt 613), nicht nach Gefühl.
+            hitSlop={trefferRand(32)}
             style={({ pressed }) => [styles.kameraRund, pressed && { opacity: 0.7 }]}
           >
             <Ionicons name="eye-off-outline" size={16} color="#FFFFFF" />

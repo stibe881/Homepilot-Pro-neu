@@ -1,6 +1,12 @@
+from datetime import datetime, timedelta
+
+import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from homepilot.api import create_app
+from homepilot.core.config import ApiConfig, HubConfig
+from homepilot.core.entity import Entity, EntityKind
 from homepilot.core.hub import Hub
 
 from .conftest import make_config
@@ -80,6 +86,68 @@ def test_websocket_snapshot_and_command():
             for message in messages:
                 if message["type"] == "state_changed":
                     assert message["new_state"]["state"] == "on"
+
+
+def test_a_dead_token_closes_the_socket_with_4401_after_accepting():
+    """Punkt 579 der Werkbank: Ein close() vor dem accept() kommt beim
+    Browser als gescheiterter Handschlag an (Code 1006), nie als 4401 -
+    und die App hielt ein hinausgeworfenes Gerät darum für «ohne Netz».
+    Erst annehmen, dann schliessen: So liest die App den Code."""
+    with make_client(token="geheim") as client:
+        with pytest.raises(WebSocketDisconnect) as info:
+            with client.websocket_connect("/ws?token=falsch") as websocket:
+                websocket.receive_json()
+        assert info.value.code == 4401
+
+
+def _geschlossenes_fenster() -> dict[str, str]:
+    """Ein Zeitfenster, das jetzt gerade zu ist: beginnt in zwei Stunden."""
+    von = datetime.now() + timedelta(hours=2)
+    bis = von + timedelta(hours=1)
+    return {"from": von.strftime("%H:%M"), "to": bis.strftime("%H:%M")}
+
+
+def test_outside_the_window_the_hub_says_when_instead_of_invalid_token():
+    """Punkt 624 der Werkbank: Das Kind um 20:01 sah ein kaputtes Haus.
+    HTTP antwortet 403 mit `gilt_ab`, der WebSocket schliesst mit 4403
+    und der Zeit im Grund - beides ohne die Bremse zu füttern."""
+    hub = Hub(
+        HubConfig(
+            api=ApiConfig(),
+            integrations=[{"integration": "demo"}],
+            users=[
+                {"name": "Stefan", "role": "besitzer", "token": "t-owner"},
+                {
+                    "name": "Levin",
+                    "role": "bewohner",
+                    "token": "t-kind",
+                    "hours": _geschlossenes_fenster(),
+                },
+            ],
+        )
+    )
+    with TestClient(create_app(hub)) as client:
+        response = client.get("/api/me", headers={"Authorization": "Bearer t-kind"})
+        assert response.status_code == 403
+        detail = response.json()["detail"]
+        assert detail["grund"] == "fenster_zu"
+        assert detail["message"].startswith("Dein Zugang gilt ab ")
+        assert datetime.fromisoformat(detail["gilt_ab"]) > datetime.now()
+
+        with pytest.raises(WebSocketDisconnect) as info:
+            with client.websocket_connect("/ws?token=t-kind") as websocket:
+                websocket.receive_json()
+        assert info.value.code == 4403
+        assert datetime.fromisoformat(info.value.reason) > datetime.now()
+
+        # Ein gültiges Token zur falschen Stunde ist kein Rateversuch:
+        # Auch nach vielen Anfragen bleibt der Besitzer draussen nicht.
+        for _ in range(15):
+            client.get("/api/me", headers={"Authorization": "Bearer t-kind"})
+        assert (
+            client.get("/api/me", headers={"Authorization": "Bearer t-owner"}).status_code
+            == 200
+        )
 
 
 def test_cors_preflight_is_allowed():
@@ -231,6 +299,24 @@ def test_entity_meta_rename_favorite_group():
         assert entity["group"] is None
         # Der Name blieb dabei unangetastet.
         assert entity["name"] == "Stehlampe"
+
+
+def test_entity_meta_remote_scenes_klemmt_auf_zwei():
+    """Punkt 646: bis zu zwei Szenen an der Fernbedienung, über die Route."""
+    with make_client() as client:
+        response = client.put(
+            "/api/entities/demo.light_livingroom/meta",
+            json={"remote_scenes": ["kino", "zocken", "party"]},
+        )
+        assert response.status_code == 200
+        # Eine dritte wird verworfen, nicht die zweite ersetzt.
+        assert response.json()["entity"]["remote_scenes"] == ["kino", "zocken"]
+
+        # Leer geräumt: eine leere Liste entfernt die Auswahl wieder.
+        response = client.put(
+            "/api/entities/demo.light_livingroom/meta", json={"remote_scenes": []}
+        )
+        assert response.json()["entity"]["remote_scenes"] == []
 
 
 def test_residents_rename_too_but_guests_do_not():
@@ -1118,6 +1204,43 @@ def test_audit_records_who_switched_what():
         assert entries[0]["entity_id"] == "demo.light_livingroom"
         # Eine Lampe braucht keine Adresse - nur Schloss und Alarm.
         assert "address" not in entries[0]
+
+
+def test_a_lock_over_the_websocket_is_logged_with_an_address():
+    """Punkt 591 der Werkbank: Türe und Alarm über den WebSocket
+    hinterliessen im Protokoll keine Adresse - nur der REST-Weg reichte
+    sie mit. Die Adresse wird beim Annehmen einmal bestimmt und jedem
+    Eintrag mitgegeben."""
+    hub = Hub(
+        make_config(
+            token="geheim",
+            users=[{"name": "Stefan", "role": "besitzer", "token": "t-stefan"}],
+        )
+    )
+    with TestClient(create_app(hub)) as client:
+        client.portal.call(
+            hub.registry.add,
+            Entity(
+                id="test.haustuere",
+                kind=EntityKind.LOCK,
+                name="Haustüre",
+                integration="test",
+                state={"state": "locked"},
+                commands=["unlock"],
+            ),
+        )
+        with client.websocket_connect("/ws?token=t-stefan") as websocket:
+            websocket.receive_json()  # snapshot
+            websocket.send_json(
+                {"type": "command", "entity_id": "test.haustuere", "command": "unlock"}
+            )
+            websocket.receive_json()  # result - ob die Integration kann, ist hier egal
+        headers = {"Authorization": "Bearer t-stefan"}
+        entries = client.get("/api/system/audit", headers=headers).json()["entries"]
+        assert entries[0]["entity_id"] == "test.haustuere"
+        assert entries[0]["command"] == "unlock"
+        # Der TestClient meldet sich als «testclient» - Hauptsache, es steht was.
+        assert entries[0]["address"] == "testclient"
 
 
 def test_web_app_cache_headers(tmp_path):

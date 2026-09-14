@@ -19,6 +19,7 @@
  */
 
 import { Entity } from '../api/types';
+import { istPlaystation, psZustand } from './playstation';
 
 export interface TvKopf {
   /** Die grosse Zeile. */
@@ -33,8 +34,19 @@ export interface TvKopf {
  * Läuft ein Film über Chromecast, ist sein Titel die Auskunft und die App
  * die Nebensache. Beim Android-TV gibt es nur die App – und die steht
  * dann allein oben, nicht zweimal.
+ *
+ * Auf der PlayStation (Punkt 643) läuft keine App, sondern ein Spiel -
+ * also «Spielt: Gran Turismo 7», wie auf der Karte des
+ * Sperrbildschirms (hub core/livekarten.py). Und ihr Aus hat zwei
+ * Gesichter: Aus dem Standby lässt sie sich wecken, aus dem Aus nicht.
+ * Wer «Aus» liest und die Ein-Taste drückt, wartet sonst vergebens.
  */
 export function tvKopf(entity: Entity): TvKopf {
+  if (istPlaystation(entity)) {
+    const an = String(entity.state.state ?? '') === 'on';
+    const app = entity.state.app ? String(entity.state.app) : null;
+    return { text: an && app ? `Spielt: ${app}` : psZustand(entity), unter: null };
+  }
   const zustand = String(entity.state.state ?? '');
   if (zustand === 'off') return { text: 'Aus', unter: null };
   const app = entity.state.app ? String(entity.state.app) : null;

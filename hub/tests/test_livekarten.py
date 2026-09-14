@@ -4,11 +4,16 @@ import time
 from types import SimpleNamespace
 
 from homepilot.core.livekarten import (
+    GRILL_UPDATE_ABSTAND,
     NACHHALL_SEKUNDEN,
+    UPDATE_ABSTAND,
     abgleich,
     ende_payload,
+    fernbedienung_ziel,
+    grill_url,
     hat_karte,
     karten_alarm,
+    karten_brand,
     karten_erinnerungen,
     karten_geraete,
     karten_grill,
@@ -37,6 +42,34 @@ def test_timer_karte_traegt_den_countdown():
     assert karten_timer([]) == []
 
 
+def test_die_timer_karte_bleibt_beim_klingeln_liegen_und_hat_knoepfe():
+    """Punkt 605: Der Timer fiel in der Sekunde vom Sperrbildschirm, in
+    der er klingelte (kein `ende`), und hatte keinen Griff."""
+    karte = karten_timer([{"id": "t1", "text": "Pasta", "ends_at": 1000.0}])[0]
+    assert [k["pfad"] for k in karte["state"]["knoepfe"]] == [
+        "/api/timers/t1/abbrechen",
+        "/api/timers/t1/verlaengern",
+    ]
+    assert karte["ende"]["state"]["text"] == "Abgelaufen - Pasta"
+    assert karte["ende"]["state"]["farbe"] == "orange"
+    assert karte["ende"]["sichtbar"] == 600
+    # Auf dem Schluss-Bild keine Knöpfe - den Timer gibt es nicht mehr.
+    assert "knoepfe" not in karte["ende"]["state"]
+
+
+def test_das_schluss_bild_kommt_aus_der_zeile_nicht_aus_dem_wunsch():
+    """Beim Beenden steht die Karte gerade nicht mehr unter den
+    gewünschten - dort war ihr Ende also nie zu finden, und «Fertig»
+    stand nie auf einem Sperrbildschirm (aufgefallen bei Punkt 605)."""
+    wunsch = karten_timer([{"id": "t1", "text": "Pasta", "ends_at": 1000.0}])
+    rows, *_ = abgleich([], wunsch, ["Stibe"], 900.0)
+    rows = token_merken(rows, "Stibe", "timer:t1", "act-1")
+    # Der Timer klingelt: Er ist aus der Liste, das Soll ist leer.
+    rows, _, _, beenden = abgleich(rows, [], ["Stibe"], 1000.0)
+    assert beenden[0]["state"]["text"] == "Abgelaufen - Pasta"
+    assert beenden[0]["sichtbar"] == 600
+
+
 def test_waschmaschine_ja_grill_nein():
     """Der Grill ist auch ein appliance - erkennbar am Temperaturziel
     bekommt er seine eigene Karte statt der Wäsche-Karte."""
@@ -62,7 +95,10 @@ def test_waschmaschine_ja_grill_nein():
 
     grills = karten_grill([maschine, grill, still])
     assert [k["art"] for k in grills] == ["grill:pitboss.grill"]
-    assert grills[0]["state"]["text"] == "182° → 200°"
+    # Die Ist-Temperatur steht seit Punkt 553 gross daneben - zweimal
+    # dieselbe Zahl auf einer Karte liest niemand zweimal.
+    assert grills[0]["state"]["gross"] == "182°"
+    assert grills[0]["state"]["text"] == "Heizt auf 200°"
     assert 0.9 < grills[0]["state"]["fortschritt"] < 0.92
 
 
@@ -411,6 +447,17 @@ def test_erinnerungs_karte_folgt_den_regeln_des_vollbilds():
     assert karten[0]["ohne"] == ["Stibe"]
 
 
+def test_die_erinnerungs_karte_oeffnet_das_vollbild_und_hat_erledigt_und_spaeter():
+    """Punkt 606: Die Karte trug weder Adresse noch Knöpfe - «Erledigt»
+    gab es nur in der App."""
+    karte = karten_erinnerungen([{"id": "a/1", "text": "Ofen aus", "at": 100}], 200)[0]
+    assert karte["state"]["url"] == "homepilot://erinnerung/a%2F1"
+    assert [k["pfad"] for k in karte["state"]["knoepfe"]] == [
+        "/api/family/reminders/a%2F1/quittieren",
+        "/api/family/reminders/a%2F1/spaeter",
+    ]
+
+
 def test_alarm_karte_countdown_und_rot():
     schaltend = entity(
         "alarm.haus", "alarm", "Alarmanlage", state="scharfschaltend", seconds_left=30
@@ -432,6 +479,69 @@ def test_alarm_karte_countdown_und_rot():
     # die zwölf Stunden, die iOS einer Aktivität gibt.
     scharf = entity("alarm.haus", "alarm", "Alarmanlage", state="scharf")
     assert karten_alarm([scharf], jetzt_s=1000.0) == []
+
+
+def test_bei_rauch_liegt_eine_brandkarte_und_keine_alarmkarte():
+    """Punkt 604: Die Brandmeldeanlage ist eine «alarm»-Entität - und
+    bekam bei Rauch die Karte «Alarmanlage · Alarm ausgelöst!», die zur
+    Einbruchanlage führte."""
+    anlage = SimpleNamespace(
+        id="brand.anlage",
+        kind="alarm",
+        label="Brandmeldeanlage",
+        integration="brand",
+        state={"state": "ausgeloest", "alarm": ["z2m.rauch_flur", "z2m.rauch_kueche"]},
+    )
+    flur = SimpleNamespace(
+        id="z2m.rauch_flur", kind="binary_sensor", label="Rauchmelder Flur",
+        room="Flur", state={"state": "on", "device_class": "smoke"},
+    )
+    kueche = SimpleNamespace(
+        id="z2m.rauch_kueche", kind="binary_sensor", label="Rauchmelder Küche",
+        room=None, state={"state": "on", "device_class": "smoke"},
+    )
+    einbruch = entity("alarm.haus", "alarm", "Alarmanlage", state="unscharf")
+    alle = [anlage, flur, kueche, einbruch]
+
+    assert karten_alarm(alle, jetzt_s=1000.0) == []
+    karten = karten_brand(alle)
+    assert [k["art"] for k in karten] == ["brand:brand.anlage"]
+    state = karten[0]["state"]
+    assert state["titel"] == "Rauch"
+    # Raum vor Gerätename - und ohne Raum der Name.
+    assert state["text"] == "Flur · Rauchmelder Küche"
+    assert state["farbe"] == "rot"
+    assert state["url"] == "homepilot://brand"
+    # Nur «Stumm» - Quittieren gehört nicht auf den Sperrbildschirm.
+    assert [k["pfad"] for k in state["knoepfe"]] == ["/api/brand/stumm"]
+
+    # Bereit: keine Karte. Quittiert: die Karte bleibt und sagt, wer.
+    anlage.state = {"state": "bereit", "alarm": []}
+    assert karten_brand(alle) == []
+    anlage.state = {
+        "state": "quittiert", "alarm": ["z2m.rauch_flur"], "acknowledged_by": "Livia",
+    }
+    assert karten_brand(alle)[0]["state"]["text"] == "Flur · quittiert von Livia"
+
+
+def test_ein_gasmelder_heisst_gas():
+    anlage = SimpleNamespace(
+        id="brand.anlage", kind="alarm", label="Brand", integration="brand",
+        state={"state": "ausgeloest", "alarm": ["z2m.gas"]},
+    )
+    gas = SimpleNamespace(
+        id="z2m.gas", kind="binary_sensor", label="Gasmelder", room="Keller",
+        state={"state": "on", "device_class": "gas"},
+    )
+    assert karten_brand([anlage, gas])[0]["state"]["titel"] == "Gas"
+    rauch = SimpleNamespace(
+        id="z2m.rauch", kind="binary_sensor", label="Rauchmelder", room="Küche",
+        state={"state": "on", "device_class": "smoke"},
+    )
+    anlage.state = {"state": "ausgeloest", "alarm": ["z2m.gas", "z2m.rauch"]}
+    assert karten_brand([anlage, gas, rauch])[0]["state"]["titel"] == "Rauch und Gas"
+    # Die Einbruchanlage (ohne integration «brand») bleibt bei karten_alarm.
+    assert karten_brand([entity("alarm.haus", "alarm", "Alarm", state="ausgeloest")]) == []
 
 
 def test_abgleich_startet_aktualisiert_und_beendet():
@@ -467,6 +577,39 @@ def test_abgleich_startet_aktualisiert_und_beendet():
         ("Bine", True),
         ("Stibe", True),
     ]
+
+
+def test_die_grillkarte_folgt_jedem_messwert():
+    """«In der Live-Aktivität steht 108, der Grill hat aber schon 110»
+    (Punkt 558): Der Grill misst alle dreissig Sekunden, und mit dem
+    allgemeinen Abstand von 45 s auf einem 20-s-Takt hing die Karte bis
+    zu anderthalb Minuten hinterher. Seine Karte bringt darum ihren
+    eigenen, kürzeren Abstand mit - der Timer bleibt beim alten."""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", temperature=108, target=110, unit="°C",
+    )
+    karte = karten_grill([grill])[0]
+    assert karte["abstand"] == GRILL_UPDATE_ABSTAND < UPDATE_ABSTAND
+
+    rows = [
+        {
+            "user": "Stefan",
+            "art": "grill:pitboss.grill",
+            "stand": "alt",
+            "activity_tokens": ["tok"],
+            "aktualisiert": 1000.0,
+        }
+    ]
+    # Zwanzig Sekunden später, ein neuer Messwert: Die Grillkarte geht
+    # raus - eine Karte ohne eigenen Abstand müsste noch warten.
+    rows_grill, _, aktualisieren, _ = abgleich(rows, [karte], ["Stefan"], 1020.0)
+    assert [a["tokens"] for a in aktualisieren] == [["tok"]]
+    assert rows_grill[0]["aktualisiert"] == 1020.0
+
+    timer = {"art": "grill:pitboss.grill", "user": None, "state": karte["state"]}
+    _, _, aktualisieren, _ = abgleich(rows, [timer], ["Stefan"], 1020.0)
+    assert aktualisieren == []
 
 
 def test_wer_das_haus_verlaesst_verliert_die_fernseher_karte():
@@ -629,17 +772,35 @@ def test_ein_tipp_auf_die_geraetekarte_fuehrt_in_den_raum():
     assert raum_url(maschine) == "homepilot://raum/Waschk%C3%BCche"
 
 
-def test_auch_grill_und_sauger_fuehren_in_ihren_raum():
-    grill = SimpleNamespace(
-        id="pitboss.grill", kind="appliance", label="Grill", room="Terrasse",
-        state={"state": "running", "target": 200, "temperature": 150},
-    )
+def test_der_sauger_fuehrt_in_seinen_raum():
     sauger = SimpleNamespace(
         id="roborock.s7", kind="vacuum", label="Sauger", room="Flur",
         state={"state": "cleaning", "battery": 80},
     )
-    assert karten_grill([grill])[0]["state"]["url"] == "homepilot://raum/Terrasse"
     assert karten_sauger([sauger])[0]["state"]["url"] == "homepilot://raum/Flur"
+
+
+def test_die_grillkarte_fuehrt_ins_vollbild_statt_nur_in_den_raum():
+    """Ein Tipp auf die Live-Aktivität soll die Fühler zeigen (Punkt 555).
+
+    Vorher führte sie in den Raum - dort steht die Kachel zwar, aber
+    man muss sie erst suchen und antippen. Mit heissen Händen am Grill
+    ist das ein Schritt zu viel.
+    """
+    grill = SimpleNamespace(
+        id="pitboss.grill", kind="appliance", label="Grill", room="Terrasse",
+        state={"state": "running", "target": 200, "temperature": 150},
+    )
+    assert karten_grill([grill])[0]["state"]["url"] == "homepilot://grill/pitboss.grill"
+    assert grill_url(grill) == "homepilot://grill/pitboss.grill"
+
+    # Auch ohne Raum - anders als bei der Waschmaschine hängt die
+    # Adresse hier am Gerät, nicht am Zimmer.
+    heimatlos = SimpleNamespace(
+        id="pitboss.grill", kind="appliance", label="Grill", room=None,
+        state={"state": "running", "target": 200, "temperature": 150},
+    )
+    assert karten_grill([heimatlos])[0]["state"]["url"] == "homepilot://grill/pitboss.grill"
 
 
 def test_die_saugerkarte_traegt_pause_weiter_und_station():
@@ -1112,3 +1273,170 @@ async def test_eine_haengende_karte_meldet_sich_einmal_und_nicht_alle_zwanzig_se
         ]
     finally:
         await hub.stop()
+
+
+# ── Die Grillkarte in der Form der Hersteller-App (Punkt 553) ─────────────
+
+
+def test_die_karte_zeigt_die_eingesteckten_fuehler():
+    """Gewünscht im Haus: «Die Live-Aktivität soll so aussehen (auch
+    inkl. den Kerntemperatursensoren, 4 Stk.)»"""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", temperature=104, target=110, unit="°C",
+        probe_1=None, probe_2=36, probe_3=43, probe_4=None,
+    )
+    karte = karten_grill([grill])[0]["state"]
+    assert karte["gross"] == "104°C"
+    assert karte["text"] == "Heizt auf 110°C"
+    # Nur die eingesteckten, und jeder in seiner festen Farbe.
+    assert karte["werte"] == [
+        {"nummer": "2", "wert": "36°C", "farbe": "gelb"},
+        {"nummer": "3", "wert": "43°C", "farbe": "rot"},
+    ]
+
+
+def test_die_fuehler_tragen_ihren_anteil_zum_ziel():
+    """Punkt 570: «Auch hier werden keine Ringe angezeigt» - der Ring auf
+    der Live-Karte wächst auf das Fühlerziel zu, wie im Grillblatt."""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", temperature=115, target=121, unit="°C",
+        probe_2=43, probe_3=38,
+    )
+    zeilen = [{"entity_id": "pitboss.grill", "nummer": 3, "ziel": 76}]
+    werte = karten_grill([grill], zeilen)[0]["state"]["werte"]
+    # Fühler 2 ohne Ziel: kein Anteil, das Widget zeichnet den vollen Ring.
+    assert "anteil" not in werte[0]
+    # Fühler 3 auf dem halben Weg.
+    assert werte[1]["anteil"] == 0.5
+    # Und ohne Ablage wie bisher.
+    assert "anteil" not in karten_grill([grill])[0]["state"]["werte"][1]
+
+
+def test_die_grillkarte_traegt_unten_den_griff_zum_timer():
+    """Wie in der Hersteller-App (Punkt 556): unten in der Mitte «Timer
+    stellen». Der Griff kommt vom Hub, nicht aus dem Widget - die Karte
+    ist eine Form für alles, und was auf ihr steht, entscheidet der Hub."""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", temperature=104, target=110, unit="°C",
+    )
+    karte = karten_grill([grill])[0]["state"]
+    # Ins Grillblatt, nicht in die Küche (Punkt 561): Dort wird der Timer
+    # gestellt und abgelesen.
+    assert karte["link"] == {
+        "symbol": "timer",
+        "text": "Timer stellen",
+        "url": "homepilot://grill/pitboss.grill",
+    }
+    # Und nur der Grill: Die Waschmaschine hat keinen Timer zu stellen.
+    maschine = entity(
+        "vzug.wm", "appliance", "Waschmaschine", state="running", program="Eco"
+    )
+    assert "link" not in karten_geraete([maschine])[0]["state"]
+
+
+def test_ohne_fuehler_bleibt_das_feld_weg():
+    """Die Karte soll keinen Platz für Kreise reservieren, die es nicht
+    gibt."""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", temperature=104, target=110, unit="°C",
+    )
+    assert "werte" not in karten_grill([grill])[0]["state"]
+
+
+def test_auf_temperatur_heisst_haelt_und_nicht_heizt():
+    """«Heizt auf 110°», während er seit einer Stunde 110° hält, wäre
+    falsch - und ein Pelletgrill pendelt um seinen Sollwert."""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", temperature=109, target=110, unit="°C",
+    )
+    assert karten_grill([grill])[0]["state"]["text"] == "Hält 110°C"
+
+
+def test_ein_grill_in_fahrenheit_bekommt_seine_eigene_einheit():
+    """«350°C» wäre eine Behauptung über glühendes Blech."""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", temperature=225, target=350, unit="°F", probe_1=140,
+    )
+    karte = karten_grill([grill])[0]["state"]
+    assert karte["gross"] == "225°F"
+    assert karte["text"] == "Heizt auf 350°F"
+    assert karte["werte"][0]["wert"] == "140°F"
+
+
+def test_ohne_ist_temperatur_gibt_es_keine_grosse_zahl():
+    """Sonst stünde dort ein leeres Feld, wo die Zahl sein müsste."""
+    grill = entity(
+        "pitboss.grill", "appliance", "Smoker",
+        state="running", target=110, unit="°C",
+    )
+    karte = karten_grill([grill])[0]["state"]
+    assert "gross" not in karte
+    assert karte["text"] == "Ziel 110°C"
+
+
+# ── Die PlayStation auf der Fernseher-Karte (Punkt 643) ────────────────
+
+
+def test_die_playstation_karte_traegt_controller_und_spiel():
+    """Die Konsole meldet sich wie ein Fernseher (has_screen, on) und
+    bekommt dieselbe Karte - mit Controller statt Fernseher als Symbol
+    und «Spielt: …» statt dem nackten Namen."""
+    ps5 = SimpleNamespace(
+        id="playstation.10_0_0_60", kind="media_player", label="PlayStation 5",
+        integration="playstation", room="Wohnzimmer",
+        state={"state": "on", "has_screen": True, "app": "Gran Turismo 7"},
+        commands=["dpad_up", "cross"],
+    )
+    karten = karten_tv([ps5])
+    assert [k["art"] for k in karten] == ["tv:playstation.10_0_0_60"]
+    assert karten[0]["state"]["symbol"] == "gamecontroller"
+    assert karten[0]["state"]["text"] == "Spielt: Gran Turismo 7"
+    assert karten[0]["state"]["url"] == "homepilot://fernbedienung/playstation.10_0_0_60"
+    # Ohne Spiel: eingeschaltet, wie beim Fernseher. Im Ruhemodus keine Karte.
+    ps5.state = {"state": "on", "has_screen": True, "app": None}
+    assert karten_tv([ps5])[0]["state"]["text"] == "eingeschaltet"
+    ps5.state = {"state": "off", "has_screen": True, "standby": True}
+    assert karten_tv([ps5]) == []
+
+
+def test_die_playstation_stoert_die_zwillinge_nicht():
+    """Sie hat ein Steuerkreuz, ist aber kein zweiter Draht zum selben
+    Bildschirm: Zählte sie als Zwilling, gäbe es im Wohnzimmer zwei
+    Steuerkreuze, die Zusammenlegung von Cast und Android TV zerfiele,
+    und das Geisterbild des Zuspielers käme zurück."""
+    android_aus = SimpleNamespace(
+        id="androidtv.wz", kind="media_player", label="Fernseher Wohnzimmer",
+        integration="androidtv", room="Wohnzimmer", available=True,
+        state={"state": "off", "has_screen": True}, commands=["dpad_up"],
+    )
+    cast = SimpleNamespace(
+        id="cast.wz", kind="media_player", label="Fernseher im Wohnzimmer",
+        integration="google_cast", room="Wohnzimmer",
+        state={"state": "playing", "has_screen": True, "app": "Zattoo"}, commands=["play"],
+    )
+    ps5 = SimpleNamespace(
+        id="playstation.wz", kind="media_player", label="PlayStation 5",
+        integration="playstation", room="Wohnzimmer",
+        state={"state": "on", "has_screen": True, "app": "Astro's Playroom"},
+        commands=["dpad_up", "cross"],
+    )
+    # Der Cast-Eintrag bleibt ein Geisterbild, die Konsole bekommt ihre Karte.
+    karten = karten_tv([android_aus, cast, ps5])
+    assert [k["art"] for k in karten] == ["tv:playstation.wz"]
+
+    # Läuft der Fernseher auch, gibt es zwei Karten: zwei Geräte, zwei
+    # Fernbedienungen - und der Cast-Eintrag geht weiter im Fernseher auf.
+    android_an = SimpleNamespace(**{**vars(android_aus), "state": {"state": "on", "has_screen": True}})
+    karten = karten_tv([android_an, cast, ps5])
+    assert [k["art"] for k in karten] == ["tv:androidtv.wz", "tv:playstation.wz"]
+    assert karten[0]["state"]["text"] == "Zattoo" and karten[0]["state"]["symbol"] == "tv"
+    assert karten[1]["state"]["text"] == "Spielt: Astro's Playroom"
+    # Und der Tipp auf die Cast-Karte führt weiter zum Fernseher, nie zur Konsole.
+    assert fernbedienung_ziel(cast, [android_aus, cast, ps5]) == "androidtv.wz"
+    assert fernbedienung_ziel(cast, [cast, ps5]) == "cast.wz"

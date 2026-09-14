@@ -5,6 +5,7 @@ import { CommandData, Entity } from '../api/types';
 import { useMusikwahl } from '../hooks/useMusikwahl';
 import { musikboxenImRaum, pickPlayer } from '../lib/geraeteart';
 import { Colors, radius, space, useColors } from '../theme';
+import { Blatt } from './Blatt';
 import { MediaPanel } from './SidePanel';
 
 /**
@@ -48,6 +49,10 @@ export function MusikBlatt({
   if (!player) return null;
   return (
     <Modal visible animationType="fade" transparent onRequestClose={onSchliessen}>
+      {/* Als Blatt angemeldet (Punkt 581): Die Absage einer Box steht im
+          Blatt, nicht hinter ihm - und Tipps zählen für die Rückkehr des
+          Wandpanels (Punkt 582). */}
+      <Blatt>
       <Pressable
         style={styles.grund}
         onPress={onSchliessen}
@@ -65,6 +70,7 @@ export function MusikBlatt({
           />
         </Pressable>
       </Pressable>
+      </Blatt>
     </Modal>
   );
 }

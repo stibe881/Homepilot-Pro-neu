@@ -64,6 +64,8 @@ def geraet(antworten, gesehen: float | None = 1000.0, zustand: str = "idle"):
     """
     integration = object.__new__(modul.VZugIntegration)
     integration._down = set()
+    # Wer nach einer halben Stunde 503 als ausgeschaltet gilt (Punkt 634).
+    integration._ausgeschaltet = set()
     integration._fehlversuche = {}
     integration._countdown = {}
     integration._beschaeftigt_seit = {}
@@ -200,6 +202,23 @@ def test_a_busy_device_keeps_its_last_state(monkeypatch):
     assert "vzug.waschmaschine" not in integration._down
 
 
+def test_half_an_hour_of_busy_means_switched_off_not_gone(monkeypatch):
+    """Punkt 634: «Diese Meldung ist falsch. Die Waschmaschine ist
+    einfach momentan ausgeschaltet.» Am Hauptschalter aus antwortet das
+    Funkmodul weiter mit 503 - stundenlang. Das ist kein Ausfall."""
+    ohne_pause(monkeypatch)
+    integration, registry = geraet([beschaeftigt()])
+    integration._beschaeftigt_seit["vzug.waschmaschine"] = (
+        modul.monotonic() - modul.BESCHAEFTIGT_HOECHSTENS - 60
+    )
+    lauf(integration)
+    assert registry.letzter_zustand == modul.AUSGESCHALTET
+    assert registry.letzte_verfuegbarkeit is True
+    assert registry.letzter_grund is None
+    assert "vzug.waschmaschine" not in integration._down
+    assert "vzug.waschmaschine" in integration._ausgeschaltet
+
+
 def test_a_busy_device_is_not_asked_again_right_away(monkeypatch):
     ohne_pause(monkeypatch)
     integration, _ = geraet([beschaeftigt()])
@@ -232,7 +251,11 @@ def test_the_waiting_time_grows_but_has_a_ceiling():
     assert modul.wartezeit(0, 60) == 60
 
 
-def test_after_a_very_long_busy_stretch_it_is_an_outage_after_all(monkeypatch):
+def test_after_a_very_long_busy_stretch_it_is_switched_off_not_gone(monkeypatch):
+    """Vorher hiess es hier «dann ist es doch ein Ausfall». Aus der
+    Waschküche kam die Korrektur (Punkt 634): Am Hauptschalter aus
+    antwortet das Funkmodul genau so - das ist kein Ausfall, das ist
+    aus."""
     ohne_pause(monkeypatch)
     integration, registry = geraet([beschaeftigt(), beschaeftigt()])
     uhr = [1000.0]
@@ -243,7 +266,9 @@ def test_after_a_very_long_busy_stretch_it_is_an_outage_after_all(monkeypatch):
     uhr[0] += modul.BESCHAEFTIGT_HOECHSTENS + 60
     integration._ruhe_bis.clear()
     lauf(integration)
-    assert registry.letzte_verfuegbarkeit is False
+    assert registry.letzte_verfuegbarkeit is True
+    assert registry.letzter_zustand == modul.AUSGESCHALTET
+    assert registry.letzter_grund is None
 
 
 def test_one_good_answer_ends_the_busy_stretch(monkeypatch):

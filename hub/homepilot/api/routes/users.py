@@ -17,6 +17,7 @@ from fastapi import (
     Response,
 )
 
+from ...core import abschied as abschied_module
 from ...core import bereich as bereich_module
 from ...core import personen, personenbilder, presence
 from ...core import throttle as throttle_module
@@ -40,6 +41,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     require = ctx.require
     current_user = ctx.current_user
     throttle = ctx.throttle
+
+    def bekannte_person(name: str) -> str:
+        user = hub.users.by_name(name)
+        if user is None or user.system:
+            raise HTTPException(status_code=404, detail=f"Unbekannter Benutzer: {name}")
+        return user.name
 
     # ── Benutzerverwaltung ─────────────────────────────────────────────────
 
@@ -317,6 +324,39 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             ),
         }
 
+    # ── Angemeldete Geräte der anderen (Punkt 625) ────────────────────────
+    #
+    # GET/DELETE /api/auth/sessions gelten nur für den eigenen Namen. Der
+    # SessionStore kennt aber jede Person - verliert Levin sein Telefon,
+    # konnte die Besitzerin bisher nur den ganzen Benutzer sperren, und
+    # «hat sich das iPad des Babysitters je abgemeldet?» beantwortete
+    # niemand. Hinter MANAGE_USERS, wie alles in der Benutzerverwaltung.
+
+    @app.get("/api/users/{name}/sessions")
+    async def user_sessions(name: str, request: Request) -> dict[str, Any]:
+        """Die angemeldeten Geräte einer Person - dieselbe Zeilenform wie
+        in «Meine Geräte», nur ohne «dieses hier»."""
+        require(request, Capability.MANAGE_USERS)
+        return {"sessions": hub.sessions.list_for(bekannte_person(name))}
+
+    @app.delete("/api/users/{name}/sessions/{sid}")
+    async def end_user_session(name: str, sid: str, request: Request) -> dict[str, Any]:
+        """Ein einzelnes Gerät einer Person abmelden.
+
+        Die Kennung muss zu dieser Person gehören (core/sessions.py) -
+        sonst beendete ein falsch abgeschriebener Name die Sitzung von
+        jemand anderem.
+        """
+        actor = require(request, Capability.MANAGE_USERS)
+        ziel = bekannte_person(name)
+        if not hub.sessions.revoke_id(ziel, sid):
+            raise HTTPException(
+                status_code=404, detail="Diese Sitzung gibt es nicht (mehr)."
+            )
+        log.warning("%s hat die Sitzung %s von %s beendet", actor.name, sid, ziel)
+        hub.aenderungen.merken(actor, "benutzer", "ein Gerät abgemeldet", ziel)
+        return {"ok": True}
+
     @app.get("/api/users/{name}/pairing")
     async def user_pairing(name: str, request: Request) -> dict[str, Any]:
         """Kopplungs-Daten für den QR-Code: dieselbe Form wie der
@@ -343,12 +383,6 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
     def personenbilder_ordner():
         return personenbilder.ordner(hub.config.data_file)
-
-    def bekannte_person(name: str) -> str:
-        user = hub.users.by_name(name)
-        if user is None or user.system:
-            raise HTTPException(status_code=404, detail=f"Unbekannter Benutzer: {name}")
-        return user.name
 
     def personennamen() -> list[str]:
         return [user.name for user in hub.users.users if not user.system]
@@ -426,17 +460,75 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "images": personenbilder.stand(personenbilder_ordner(), personennamen()),
         }
 
+    # ── Wer den Haushalt verlässt (Punkt 628) ────────────────────────────
+    #
+    # Löschen rief nur hub.users.remove. Sitzungen, Push-Telefone,
+    # Einstellungen, Ortungsspur, Personenbild und die Ämtli-Reihen
+    # blieben liegen - die Au-pair stand nach dem Auszug weiter «dran».
+    # Das Rechnen steht in core/abschied.py; hier wird geschrieben.
+
+    @app.get("/api/users/{name}/abschied")
+    async def user_abschied(name: str, request: Request) -> dict[str, Any]:
+        """Was am Löschen hängt - für das Blatt vor dem Löschen: «Anna
+        entfernen? 2 Geräte, Bild, 3 Ämtli, 1 Erinnerung», und wer die
+        Ämtli übernehmen könnte."""
+        require(request, Capability.MANAGE_USERS)
+        ziel = bekannte_person(name)
+        zone = geofence.zonenkennung(ziel)
+        bilanz = abschied_module.bilanz(hub.data.snapshot(), ziel, zone)
+        folder = personenbilder_ordner()
+        bild = bool(folder and personenbilder.pfad(folder, ziel))
+        return {
+            "bilanz": bilanz,
+            "bild": bild,
+            "satz": abschied_module.satz(ziel, bilanz, bild),
+            # Wer übernehmen kann: alle anderen Menschen im Haus.
+            "uebernehmer": [n for n in personennamen() if n != ziel],
+        }
+
     @app.delete("/api/users/{name}")
     async def delete_user(name: str, request: Request) -> dict[str, Any]:
+        """Einen Benutzer entfernen - samt allem, was an seinem Namen hängt.
+
+        ``?aemtli_an=<Name>`` sagt, wer die Ämtli und offenen Aufgaben
+        übernimmt; ohne Angabe rückt die Reihe weiter. Zuerst der
+        Benutzer selbst (letzter Besitzer, config.yaml - die Regeln von
+        hub.users.remove), erst dann der Rest: Scheitert das Löschen,
+        bleibt der Datenbestand unangetastet.
+        """
         user = require(request, Capability.MANAGE_USERS)
         if user.name == name:
             raise HTTPException(status_code=400, detail="Sich selbst kann man nicht löschen")
+        aemtli_an = str(request.query_params.get("aemtli_an") or "").strip()
+        if aemtli_an and (aemtli_an == name or hub.users.by_name(aemtli_an) is None):
+            raise HTTPException(
+                status_code=400, detail=f"Unbekannte Person für die Ämtli: {aemtli_an}"
+            )
         try:
             removed = hub.users.remove(name)
         except HomePilotError as err:
             raise HTTPException(status_code=409, detail=str(err)) from err
         if not removed:
             raise HTTPException(status_code=404, detail=f"Unbekannter Benutzer: {name}")
-        hub.aenderungen.merken(user, "benutzer", "gelöscht", name)
-        return {"ok": True}
+        neu, bericht = abschied_module.abschied(
+            hub.data.snapshot(), name, geofence.zonenkennung(name), aemtli_an
+        )
+        for schluessel in bericht:
+            hub.data.set(schluessel, neu[schluessel])
+        # Die Telefone kennt der Push-Dienst auch im Speicher - sonst
+        # ginge die nächste Meldung an ein Gerät, das niemandem mehr gehört.
+        for device in hub.push.devices:
+            if device.user == name:
+                hub.push.unregister(device.token)
+        bild_weg = personenbilder.loeschen(personenbilder_ordner(), name)
+        if bild_weg:
+            bericht["personenbild"] = 1
+        hub.aenderungen.merken(
+            user,
+            "benutzer",
+            "gelöscht" + (f", Ämtli an {aemtli_an}" if aemtli_an else ""),
+            name,
+        )
+        log.info("Benutzer '%s' entfernt: %s", name, bericht or "nichts hing daran")
+        return {"ok": True, "bericht": bericht, "aemtli_an": aemtli_an or None}
 

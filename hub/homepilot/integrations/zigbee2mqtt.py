@@ -40,6 +40,7 @@ from __future__ import annotations
 import asyncio
 import json
 import ssl
+import time
 from typing import Any
 
 import aiomqtt
@@ -74,6 +75,30 @@ MESSWERTE = {
     # Der Melder im Selbsttest. Ohne dieses Feld sieht «Rauch» nach
     # Feuer aus, obwohl jemand nur den Knopf gedrückt hat.
     "test": "test",
+}
+
+#: Die Einheit hinter der Zahl - und weit mehr als Schmuck.
+#:
+#: Die App erkennt einen Klimafühler an der Einheit, nicht am Namen
+#: (`lib/klimachip.ts`): Ein Prozentwert kann Feuchte, Batterie oder
+#: Funkauslastung sein, und «°C» kann vom Grill kommen. Ohne `unit`
+#: fällt ein Fühler durch diese Prüfung - mit zwei Folgen, die beide im
+#: Haus aufgefallen sind: Im Raumkopf blieb die Temperatur leer, obwohl
+#: die Kachel sie zeigte, und im Anpassen-Blatt fehlte die Zeile «Gilt
+#: für: nur diesen Raum / das ganze Haus», weil sie an derselben Prüfung
+#: hängt. Ein Aqara-Fühler im Wohnzimmer liess sich dadurch nicht in die
+#: Kopfzeile heben, ein Homematic daneben schon - der schickt seine
+#: Einheit mit.
+EINHEITEN = {
+    "temperature": "°C",
+    "humidity": "%",
+    "pressure": "hPa",
+    "illuminance": "lx",
+    "battery": "%",
+    "power": "W",
+    "energy": "kWh",
+    "voltage": "V",
+    "current": "A",
 }
 
 #: Melder, deren «true» etwas bedeutet - und was der Hub daraus macht.
@@ -189,6 +214,166 @@ def schreibbare_merkmale(exposes: Any) -> set[str]:
 
     gehe(exposes)
     return gefunden
+
+
+#: Welche Einstellungen eines Geräts der Hub anbietet, und wie sie
+#: heissen (Punkt 631 der Werkbank).
+#:
+#: Eine Auswahl, kein Durchlass - mit Absicht. Zigbee2MQTT exponiert je
+#: Gerät gern zwanzig stellbare Dinge, vom Meldeintervall bis zur
+#: Firmware-Option; das gehört in die Z2M-Oberfläche, nicht ins
+#: Anpassen-Blatt. Hier steht, was man im Alltag wirklich verstellt:
+#: den Melder im Flur unempfindlicher, den Aqara-Fühler 0.8 Grad nach
+#: unten - denn der Raumkopf zeigt sonst den Fehler des Fühlers als
+#: Zimmertemperatur (Punkt 538). Links der Name bei Zigbee2MQTT (fest,
+#: englisch), rechts die Beschriftung, die die App zeigt.
+OPTIONEN: dict[str, str] = {
+    "occupancy_timeout": "Nachlaufzeit",
+    "motion_sensitivity": "Empfindlichkeit",
+    "sensitivity": "Empfindlichkeit",
+    "radar_sensitivity": "Empfindlichkeit",
+    "detection_interval": "Messabstand",
+    "temperature_calibration": "Temperatur-Abgleich",
+    "humidity_calibration": "Feuchte-Abgleich",
+    "illuminance_calibration": "Helligkeits-Abgleich",
+    "led_indication": "LED am Gerät",
+    "led_disabled_night": "LED nachts aus",
+    "indicator_mode": "LED-Anzeige",
+    "backlight_mode": "Hintergrundlicht",
+    "child_lock": "Kindersicherung",
+}
+
+#: Das Einschaltverhalten nach Stromausfall - bewusst keine Option unter
+#: den anderen, sondern ein eigener Befehl (Punkt 630): Er gilt für Hue
+#: und Homematic genauso, und die App stellt ihn an einer Stelle für
+#: alle Lampen im Haus. Links die Wörter des Hubs, rechts die von
+#: Zigbee2MQTT.
+POWER_ON_MERKMAL = "power_on_behavior"
+POWER_ON_WERTE = {"previous": "previous", "off": "off", "on": "on"}
+
+
+def optionen_aus_exposes(exposes: Any) -> list[dict[str, Any]]:
+    """Die stellbaren Einstellungen eines Geräts (rein, testbar).
+
+    Je Eintrag Name, Beschriftung, Art und Bereich - alles aus den
+    Exposes, damit die App weder raten muss, ob «Empfindlichkeit» eine
+    Zahl oder ein «low/medium/high» ist, noch wie weit der Schieber
+    geht. Der Wert selbst kommt später mit der Zustandsmeldung.
+    """
+    gefunden: list[dict[str, Any]] = []
+    gesehen: set[str] = set()
+
+    def gehe(knoten: Any) -> None:
+        if isinstance(knoten, list):
+            for eintrag in knoten:
+                gehe(eintrag)
+            return
+        if not isinstance(knoten, dict):
+            return
+        name = str(knoten.get("property") or knoten.get("name") or "")
+        try:
+            zugang = int(knoten.get("access") or 0)
+        except (TypeError, ValueError):
+            zugang = 0
+        art = str(knoten.get("type") or "")
+        if name in OPTIONEN and zugang & 2 and name not in gesehen and art in (
+            "numeric",
+            "binary",
+            "enum",
+        ):
+            gesehen.add(name)
+            option: dict[str, Any] = {"name": name, "label": OPTIONEN[name], "type": art}
+            if art == "numeric":
+                for quelle, ziel in (
+                    ("value_min", "min"),
+                    ("value_max", "max"),
+                    ("value_step", "step"),
+                ):
+                    if isinstance(knoten.get(quelle), (int, float)):
+                        option[ziel] = knoten[quelle]
+                if knoten.get("unit"):
+                    option["unit"] = str(knoten["unit"])
+            elif art == "binary":
+                option["value_on"] = knoten.get("value_on", True)
+                option["value_off"] = knoten.get("value_off", False)
+            else:
+                option["values"] = [str(wert) for wert in knoten.get("values") or []]
+            option["value"] = None
+            gefunden.append(option)
+        gehe(knoten.get("features"))
+
+    gehe(exposes)
+    return gefunden
+
+
+def optionen_mit_werten(
+    optionen: list[dict[str, Any]], payload: dict[str, Any]
+) -> list[dict[str, Any]] | None:
+    """Die Liste mit den Werten aus einer Zustandsmeldung (rein, testbar).
+
+    None, wenn die Meldung keine der Einstellungen enthält - dann bleibt
+    der Zustand unberührt, statt bei jeder Bewegungsmeldung dieselbe
+    Liste neu zu publizieren.
+    """
+    if not optionen or not any(option["name"] in payload for option in optionen):
+        return None
+    neu: list[dict[str, Any]] = []
+    for option in optionen:
+        eintrag = dict(option)
+        if option["name"] in payload:
+            wert = payload[option["name"]]
+            if option["type"] == "binary":
+                wert = wert == option.get("value_on") or wert is True
+            eintrag["value"] = wert
+        neu.append(eintrag)
+    return neu
+
+
+def option_nutzlast(optionen: list[dict[str, Any]] | None, data: dict[str, Any]) -> dict[str, Any]:
+    """Was `set_option {name, value}` in `/set` schreibt (rein, testbar).
+
+    Geprüft wird gegen die Liste des Geräts, nicht gegen die Tabelle
+    oben: Ein Name, den *dieses* Gerät nicht führt, ginge sonst als
+    Feld an Zigbee2MQTT, das es kommentarlos verwirft - und die App
+    zeigte weiter den alten Wert, ohne dass jemand erführe, warum.
+    """
+    name = str(data.get("name") or "")
+    option = next((o for o in optionen or [] if o["name"] == name), None)
+    if option is None:
+        raise ConfigError(f"Dieses Gerät kennt die Einstellung '{name or '?'}' nicht")
+    wert = data.get("value")
+    if option["type"] == "binary":
+        an = wert in (True, 1, "true", "on", "ON", "1")
+        return {name: option.get("value_on", True) if an else option.get("value_off", False)}
+    if option["type"] == "enum":
+        if str(wert) not in option.get("values", []):
+            raise ConfigError(
+                f"'{option['label']}' kennt nur: {', '.join(option.get('values', [])) or '-'}"
+            )
+        return {name: str(wert)}
+    try:
+        zahl = float(wert)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as err:
+        raise ConfigError(f"'{option['label']}' braucht eine Zahl") from err
+    if isinstance(option.get("min"), (int, float)):
+        zahl = max(float(option["min"]), zahl)
+    if isinstance(option.get("max"), (int, float)):
+        zahl = min(float(option["max"]), zahl)
+    # Ganze Schritte bleiben ganze Zahlen: «occupancy_timeout: 90.0»
+    # nehmen manche Geräte nicht an, «90» schon.
+    schritt = option.get("step")
+    ganz = not isinstance(schritt, float) or float(schritt).is_integer()
+    return {name: int(round(zahl)) if ganz and zahl.is_integer() else zahl}
+
+
+def power_on_nutzlast(data: dict[str, Any]) -> dict[str, Any]:
+    """Was `set_power_on {mode}` in `/set` schreibt (rein, testbar)."""
+    modus = str(data.get("mode") or "")
+    if modus not in POWER_ON_WERTE:
+        raise ConfigError(
+            "Nach Stromausfall geht nur 'previous', 'off' oder 'on'"
+        )
+    return {POWER_ON_MERKMAL: POWER_ON_WERTE[modus]}
 
 
 #: Wie ein Gerät zum Lärmen gebracht wird - in der Reihenfolge, in der
@@ -329,6 +514,23 @@ def hauptwert(exposes: Any) -> str | None:
     return None
 
 
+def messwert_merkmale(haupt: str | None) -> dict[str, Any]:
+    """Einheit und Art zum Hauptwert einer Sensorkachel (rein, testbar).
+
+    Getrennt von `zustand_aus_payload`, weil beide Stellen sie brauchen:
+    die Zustandsmeldung und das Anlegen der Kachel. Ein Fühler, der sich
+    erst in Tagen meldet, soll nicht bis dahin als namenlose Zahl
+    dastehen.
+    """
+    if not haupt:
+        return {}
+    merkmale: dict[str, Any] = {"device_class": haupt}
+    einheit = EINHEITEN.get(haupt)
+    if einheit:
+        merkmale["unit"] = einheit
+    return merkmale
+
+
 def geraete_aus_bridge(payload: Any, ignorieren: set[str] | None = None) -> list[dict[str, Any]]:
     """Die Geräteliste von `bridge/devices` lesen (rein, testbar).
 
@@ -417,6 +619,16 @@ def zustand_aus_payload(
         changes["state"] = str(payload["action"])
     elif kind == EntityKind.SENSOR and haupt and haupt in changes:
         changes["state"] = changes[haupt]
+        # Einheit und Art des Hauptwerts - beides braucht die App, um
+        # einen Fühler von einer beliebigen Zahl zu unterscheiden
+        # (siehe EINHEITEN oben).
+        changes.update(messwert_merkmale(haupt))
+
+    # Das Einschaltverhalten meldet das Gerät wie jeden anderen Wert
+    # (Punkt 630); beim Hub heisst es für alle Anbindungen gleich.
+    if payload.get(POWER_ON_MERKMAL) is not None:
+        gemeldet = str(payload[POWER_ON_MERKMAL])
+        changes["power_on"] = gemeldet if gemeldet in POWER_ON_WERTE else "other"
 
     if klasse:
         changes["device_class"] = klasse
@@ -458,13 +670,23 @@ def sirene_nutzlast(art: str, command: str, data: dict[str, Any]) -> dict[str, A
 
 
 def set_nutzlast(
-    kind: str, command: str, data: dict[str, Any], sirene: str | None = None
+    kind: str,
+    command: str,
+    data: dict[str, Any],
+    sirene: str | None = None,
+    optionen: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Was in `<gerät>/set` geschrieben wird (rein, testbar)."""
     if command in SIRENE_BEFEHLE:
         if not sirene:
             raise ConfigError("Dieses Gerät kann kein Signal geben")
         return sirene_nutzlast(sirene, command, data)
+    # Einstellungen und Einschaltverhalten (Punkte 631 und 630) - vor
+    # den Schaltbefehlen, weil sie für jede Geräteart gleich aussehen.
+    if command == "set_option":
+        return option_nutzlast(optionen, data)
+    if command == "set_power_on":
+        return power_on_nutzlast(data)
     if kind == EntityKind.COVER:
         if command == "open":
             return {"state": "OPEN"}
@@ -501,6 +723,71 @@ def set_nutzlast(
     if command == "self_test":
         return {"self_test": True}
     raise ConfigError(f"Zigbee2MQTT kennt das Kommando '{command}' nicht")
+
+
+#: So lange steht das Netz für neue Geräte offen, wenn die App nichts
+#: anderes sagt. Vier Minuten: genug, um zum Sensor zu laufen und die
+#: Anlerntaste zu drücken - und kurz genug, dass ein vergessenes «offen»
+#: nicht den ganzen Abend ein Netz ohne Türsteher hinterlässt.
+ANLERN_MINUTEN = 4
+
+
+def anlern_ereignis(payload: Any) -> dict[str, Any] | None:
+    """Was `bridge/event` über ein neues Gerät sagt (rein, testbar).
+
+    Punkt 632 der Werkbank. Zigbee2MQTT meldet den Weg eines Geräts ins
+    Netz in Schritten: `device_joined` (es klopft an), `device_interview`
+    mit `status: started` (Zigbee2MQTT fragt es aus), dann `successful`
+    oder `failed`. Interessant für die App sind Anklopfen und Ausgang -
+    «Aqara Türkontakt gefunden» ist erst der erfolgreiche Interview,
+    vorher gibt es noch keinen Namen für das, was da kommt.
+    """
+    if not isinstance(payload, dict):
+        return None
+    art = str(payload.get("type") or "")
+    daten = payload.get("data") or {}
+    if not isinstance(daten, dict):
+        return None
+    name = str(daten.get("friendly_name") or daten.get("ieee_address") or "").strip()
+    if not name:
+        return None
+    if art == "device_joined":
+        return {"name": name, "model": "", "status": "joined"}
+    if art == "device_interview":
+        status = str(daten.get("status") or "")
+        if status not in ("successful", "failed"):
+            return None
+        definition = daten.get("definition") or {}
+        model = ""
+        if isinstance(definition, dict):
+            model = str(
+                definition.get("description") or definition.get("model") or ""
+            ).strip()
+        if status == "successful" and daten.get("supported") is False:
+            status = "unsupported"
+        return {"name": name, "model": model, "status": status}
+    return None
+
+
+def permit_join_rest(info: Any, now: float) -> float | None:
+    """Wie lange das Netz laut `bridge/info` noch offen ist (rein, testbar).
+
+    Zwei Fassungen von Zigbee2MQTT, zwei Felder: Die 2.x nennt das Ende
+    als Zeitpunkt (`permit_join_end`, Millisekunden), die 1.x die
+    Restdauer (`permit_join_timeout`, Sekunden). None heisst: die
+    Meldung sagt nichts darüber - dann bleibt es beim eigenen Zähler.
+    """
+    if not isinstance(info, dict) or "permit_join" not in info:
+        return None
+    if not info.get("permit_join"):
+        return 0.0
+    ende = info.get("permit_join_end")
+    if isinstance(ende, (int, float)) and not isinstance(ende, bool):
+        return max(0.0, float(ende) / 1000 - now)
+    rest = info.get("permit_join_timeout")
+    if isinstance(rest, (int, float)) and not isinstance(rest, bool):
+        return max(0.0, float(rest))
+    return None
 
 
 def ist_erreichbar(payload: str) -> bool | None:
@@ -554,6 +841,13 @@ class Zigbee2MqttIntegration(Integration):
         self._haupt: dict[str, str | None] = {}
         # Womit dieses Gerät Lärm macht - «warning», «alarm» oder gar nicht.
         self._sirenen: dict[str, str] = {}
+        # Die stellbaren Einstellungen je Entität (Punkt 631) - die Liste
+        # aus den Exposes, mit den zuletzt gemeldeten Werten.
+        self._optionen: dict[str, list[dict[str, Any]]] = {}
+        # Anlernen (Punkt 632): bis wann das Netz offen ist, und was
+        # seither angeklopft hat - für die Verbindungen-Seite der App.
+        self._anlernen_bis: float | None = None
+        self._gefunden: list[dict[str, Any]] = []
 
         self.start_task(self._connection_loop())
 
@@ -584,6 +878,10 @@ class Zigbee2MqttIntegration(Integration):
                     # «retained» - sie ist sofort da, ohne dass jemand
                     # Zigbee2MQTT neu starten muss.
                     await client.subscribe(f"{self._base}/bridge/devices")
+                    # Fürs Anlernen (Punkt 632): Wer anklopft, und wie
+                    # lange das Netz noch offen ist.
+                    await client.subscribe(f"{self._base}/bridge/event")
+                    await client.subscribe(f"{self._base}/bridge/info")
                     await client.subscribe(f"{self._base}/+")
                     await client.subscribe(f"{self._base}/+/availability")
                     async for message in client.messages:
@@ -613,6 +911,9 @@ class Zigbee2MqttIntegration(Integration):
         if rest == "bridge/devices":
             await self._liste_uebernehmen(payload)
             return
+        if rest in ("bridge/event", "bridge/info"):
+            self._anlern_meldung(rest, payload)
+            return
         if rest.startswith("bridge/"):
             return
         if rest.endswith("/availability"):
@@ -639,6 +940,13 @@ class Zigbee2MqttIntegration(Integration):
             self._klassen.get(entity_id),
             self._haupt.get(entity_id),
         )
+        # Die Einstellungen kommen mit derselben Meldung wie die Werte
+        # (Punkt 631): Zigbee2MQTT hängt «occupancy_timeout: 90» an die
+        # Bewegungsmeldung, sobald es den Wert je gelesen hat.
+        optionen = optionen_mit_werten(self._optionen.get(entity_id, []), daten)
+        if optionen is not None:
+            self._optionen[entity_id] = optionen
+            changes["options"] = optionen
         if changes:
             await self.hub.registry.update_state(entity_id, changes, available=True)
 
@@ -667,6 +975,24 @@ class Zigbee2MqttIntegration(Integration):
             klasse = melder_klasse(geraet["exposes"])
             haupt = hauptwert(geraet["exposes"])
             zustand: dict[str, Any] = {"state": "unknown"}
+            # Was sich am Gerät einstellen lässt (Punkt 631) und ob es
+            # ein Einschaltverhalten kennt (Punkt 630). Beides als
+            # Befehl, weil nur ein Befehl durch dispatch_command kommt -
+            # und beides schon beim Anlegen, damit das Anpassen-Blatt
+            # die Zeilen zeigt, bevor das Gerät je gemeldet hat.
+            optionen = optionen_aus_exposes(geraet["exposes"])
+            if optionen:
+                befehle = [*befehle, "set_option"]
+                zustand["options"] = optionen
+            kennt_einschalten = POWER_ON_MERKMAL in schreibbare_merkmale(geraet["exposes"])
+            if kennt_einschalten:
+                befehle = [*befehle, "set_power_on"]
+            # Einheit und Art schon beim Anlegen, nicht erst mit der
+            # ersten Meldung: Ein Fensterkontakt meldet sich womöglich
+            # tagelang nicht, und bis dahin wäre der Fühler daneben eine
+            # Zahl ohne Bedeutung - ohne «Gilt für» im Anpassen-Blatt
+            # und ohne Platz im Raumkopf.
+            zustand.update(messwert_merkmale(haupt))
             if klasse:
                 zustand["device_class"] = klasse
             entity = await self.add_entity(
@@ -688,9 +1014,90 @@ class Zigbee2MqttIntegration(Integration):
             laermt = sirene_art(geraet["exposes"])
             if laermt:
                 self._sirenen[entity.id] = laermt
+            if optionen:
+                self._optionen[entity.id] = optionen
+            if kennt_einschalten:
+                # Das Einschaltverhalten meldet ein Gerät nicht von sich
+                # aus - Zigbee2MQTT kennt es erst, wenn es einmal gefragt
+                # hat. Einmal beim Anlegen, nicht öfter: Lampen und
+                # Steckdosen hängen am Netz, die Frage kostet nichts.
+                await self._abfragen(geraet["name"], {POWER_ON_MERKMAL: ""})
             neu += 1
         if neu:
             self.log.info("%d Zigbee-Geräte übernommen", neu)
+
+    async def _abfragen(self, name: str, felder: dict[str, Any]) -> None:
+        """Ein Gerät nach Werten fragen (`<gerät>/get`) - still, wenn es
+        gerade keinen Broker gibt: Die Antwort käme dann ohnehin nicht."""
+        client = self._client
+        if client is None:
+            return
+        try:
+            await client.publish(f"{self._base}/{name}/get", json.dumps(felder))
+        except Exception as err:
+            self.log.debug("Abfrage an %s nicht möglich: %s", name, err)
+
+    # ── Anlernen (Punkt 632 der Werkbank) ─────────────────────────────────
+
+    def _anlern_meldung(self, rest: str, payload: str) -> None:
+        """`bridge/event` und `bridge/info` fürs Anlernen auswerten.
+
+        Der eigene Zähler (`_anlernen_bis`) ist die Vorgabe; was
+        Zigbee2MQTT in `bridge/info` über das Ende sagt, sticht - etwa
+        wenn jemand das Netz an der Z2M-Oberfläche geöffnet hat, die
+        App das aber genauso sehen soll.
+        """
+        try:
+            daten = json.loads(payload)
+        except ValueError:
+            return
+        if rest == "bridge/info":
+            rest_sekunden = permit_join_rest(daten, time.time())
+            if rest_sekunden is not None:
+                self._anlernen_bis = time.time() + rest_sekunden if rest_sekunden > 0 else None
+            return
+        ereignis = anlern_ereignis(daten)
+        if ereignis is None:
+            return
+        ereignis["at"] = time.time()
+        # Je Gerät nur der jüngste Stand: erst «klopft an», dann
+        # «gefunden» - nicht beides untereinander.
+        self._gefunden = [e for e in self._gefunden if e["name"] != ereignis["name"]]
+        self._gefunden.append(ereignis)
+        self._gefunden = self._gefunden[-20:]
+        if ereignis["status"] == "successful":
+            self.log.info("Zigbee: %s gefunden (%s)", ereignis["name"], ereignis["model"] or "?")
+
+    async def anlernen_starten(self, minuten: float) -> dict[str, Any]:
+        """Das Netz für neue Geräte öffnen - oder mit 0 wieder schliessen.
+
+        Über `bridge/request/permit_join`, mit `value` (Zigbee2MQTT 1.x)
+        und `time` (1.x und 2.x) zugleich: Beide Fassungen lesen, was sie
+        kennen, und ignorieren den Rest.
+        """
+        client = self._client
+        if client is None:
+            raise ConnectionError("Keine Verbindung zum Broker")
+        sekunden = int(max(0.0, min(254.0 * 60, minuten * 60)))
+        offen = sekunden > 0
+        await client.publish(
+            f"{self._base}/bridge/request/permit_join",
+            json.dumps({"value": offen, "time": sekunden} if offen else {"value": False, "time": 0}),
+        )
+        self._anlernen_bis = time.time() + sekunden if offen else None
+        if offen:
+            self._gefunden = []
+        return self.anlernen_stand()
+
+    def anlernen_stand(self) -> dict[str, Any]:
+        """Für die App: ob das Netz offen ist, wie lange noch, und wer kam."""
+        rest = max(0.0, (self._anlernen_bis or 0.0) - time.time())
+        return {
+            "offen": rest > 0,
+            "rest": round(rest),
+            "gefunden": list(self._gefunden),
+            "verbunden": self._client is not None,
+        }
 
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
         client = self._client
@@ -704,6 +1111,7 @@ class Zigbee2MqttIntegration(Integration):
             command,
             data,
             self._sirenen.get(entity.id),
+            self._optionen.get(entity.id),
         )
         await client.publish(f"{self._base}/{name}/set", json.dumps(nutzlast))
         # Den neuen Zustand meldet das Gerät selbst zurück - deshalb hier

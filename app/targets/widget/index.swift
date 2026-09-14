@@ -46,6 +46,13 @@ struct Shortcut: Decodable {
     let direct: Bool?
     let actionPath: String?
     let actionBody: String?
+
+    /// Die Geräte-Kennung hinter einem 'entity:…'-Knopf - für die Frage
+    /// an /api/glance?ids=, ob das Licht gerade brennt. Szenen, Türe
+    /// und Alarm haben keinen Zustand, den ein Symbol zeigen könnte.
+    var entityId: String? {
+        key.hasPrefix("entity:") ? String(key.dropFirst("entity:".count)) : nil
+    }
 }
 
 /// Womit jeder anfängt, solange die App nichts hinterlegt hat.
@@ -108,7 +115,10 @@ enum Hausstand {
         lightsOn: Int,
         nextEvent: String?,
         alarm: String?,
-        running: [Maschine]
+        running: [Maschine],
+        /// Kennungen der Knopf-Geräte, die gerade an sind - aus
+        /// `entities` der Antwort (core/widgetkarten.py, `on`).
+        an: Set<String>
     )
 }
 
@@ -131,12 +141,27 @@ struct Maschine {
     }
 }
 
-func ladeGlance() async -> Hausstand {
+/// Der Hausstand - und für die Knöpfe mit Gerät, ob es gerade an ist.
+///
+/// `ids` sind die Kennungen der 'entity:…'-Knöpfe. Der Hub beantwortet
+/// sie seit der Karten-Widget-Art mit je einer Zeile (`entities`,
+/// dashboard.py) - nur fragte hier nie jemand: Die Hub-Hälfte war
+/// verwaist, seit die Karten gestrichen wurden, und die Knöpfe zeigten
+/// ein Licht, das brennt, genauso wie eines, das aus ist (Fehler aus
+/// der Runde 579 der Werkbank). Ohne Geräte-Knöpfe bleibt die Adresse
+/// die alte - keine Zeile mehr übertragen als nötig.
+func ladeGlance(ids: [String] = []) async -> Hausstand {
     let defaults = UserDefaults(suiteName: appGroup)
+    // Kommas bleiben stehen (sie sind in einer Abfrage erlaubt); alles,
+    // was eine Adresse anders lesen würde, wird kodiert.
+    let frage = ids.isEmpty
+        ? ""
+        : "?ids=" + (ids.joined(separator: ",")
+            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")
     guard
         let base = defaults?.string(forKey: "hubUrl"),
         let token = defaults?.string(forKey: "hubToken"),
-        let url = URL(string: base + "/api/glance")
+        let url = URL(string: base + "/api/glance" + frage)
     else {
         return .aus
     }
@@ -172,12 +197,21 @@ func ladeGlance() async -> Hausstand {
                 percent: $0["percent"] as? Double
             )
         }
+        // Welche der gefragten Geräte an sind - der Hub sagt es in
+        // Worten («an», «offen») und als `on`; hier zählt nur das Ja.
+        var an = Set<String>()
+        for zeile in (json["entities"] as? [[String: Any]]) ?? [] {
+            if let id = zeile["id"] as? String, (zeile["on"] as? Bool) == true {
+                an.insert(id)
+            }
+        }
         return .da(
             doorsOpen: (json["doors_open"] as? [String]) ?? [],
             lightsOn: (json["lights_on"] as? Int) ?? 0,
             nextEvent: termin,
             alarm: json["alarm"] as? String,
-            running: maschinen
+            running: maschinen,
+            an: an
         )
     } catch {
         return .nichtErreicht
@@ -191,8 +225,13 @@ struct Provider: TimelineProvider {
 
     func getSnapshot(in context: Context, completion: @escaping (Entry) -> Void) {
         Task {
+            let knöpfe = ladeShortcuts()
             completion(
-                Entry(date: Date(), glance: await ladeGlance(), shortcuts: ladeShortcuts())
+                Entry(
+                    date: Date(),
+                    glance: await ladeGlance(ids: knöpfe.compactMap(\.entityId)),
+                    shortcuts: knöpfe
+                )
             )
         }
     }
@@ -211,8 +250,10 @@ struct Provider: TimelineProvider {
                 String(Int(Date().timeIntervalSince1970)),
                 forKey: "widgetZuletztGelesen"
             )
-            let glance = await ladeGlance()
+            // Erst die Knöpfe: Ihre Geräte-Kennungen gehen mit der
+            // Frage an den Hub, damit das Symbol den Zustand zeigen kann.
             let knöpfe = ladeShortcuts()
+            let glance = await ladeGlance(ids: knöpfe.compactMap(\.entityId))
             // Alle 15 Minuten: Häufiger lässt iOS ohnehin nicht zu, und für
             // «steht die Türe offen» ist es kein Alarm, sondern ein Blick im
             // Vorbeigehen. Wer es genau wissen will, tippt einmal.
@@ -238,18 +279,28 @@ struct Entry: TimelineEntry {
 
     /// Fürs runde Sperrbildschirm-Widget: Steht etwas offen?
     var etwasOffen: Bool {
-        if case .da(let türen, _, _, _, _) = glance { return !türen.isEmpty }
+        if case .da(let türen, _, _, _, _, _) = glance { return !türen.isEmpty }
         return false
     }
 
     var termin: String? {
-        if case .da(_, _, let termin, _, _) = glance { return termin }
+        if case .da(_, _, let termin, _, _, _) = glance { return termin }
         return nil
     }
 
     var maschinen: [Maschine] {
-        if case .da(_, _, _, _, let laufend) = glance { return laufend }
+        if case .da(_, _, _, _, let laufend, _) = glance { return laufend }
         return []
+    }
+
+    /// Brennt das Gerät hinter diesem Knopf gerade? Ohne Hausstand
+    /// (aus, nicht erreicht) weiss es niemand - dann nein, und das
+    /// Symbol bleibt, wie es immer war.
+    func istAn(_ knopf: Shortcut) -> Bool {
+        guard let id = knopf.entityId, case .da(_, _, _, _, _, let an) = glance else {
+            return false
+        }
+        return an.contains(id)
     }
 }
 
@@ -274,7 +325,7 @@ struct StatusZeile: View {
             Label("nicht erreichbar", systemImage: "wifi.slash")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-        case .da(let türen, let lichter, _, let alarm, _):
+        case .da(let türen, let lichter, _, let alarm, _, _):
             if !türen.isEmpty {
                 Label(
                     türen.count == 1
@@ -401,6 +452,26 @@ func hubPost(pfad: String, body: String) async {
     _ = try? await URLSession.shared.data(for: request)
 }
 
+/// Das Symbol eines Knopfs - gelb, wenn das Gerät dahinter an ist.
+///
+/// Gelb wie eine brennende Lampe, nicht die Akzentfarbe: Auf dem
+/// Sperrbildschirm und in StandBy ist die Akzentfarbe oft nicht zu
+/// sehen, und ein Licht, das brennt, soll im Vorbeigehen auffallen.
+/// Ohne Zustand (Szene, Türe, Alarm, Hausstand aus) bleibt es beim
+/// Symbol in der Textfarbe, wie bisher.
+struct KnopfSymbol: View {
+    let knopf: Shortcut
+    let an: Bool
+
+    var body: some View {
+        if an {
+            Image(systemName: knopf.symbol).foregroundStyle(Color.yellow)
+        } else {
+            Image(systemName: knopf.symbol)
+        }
+    }
+}
+
 /// Ein Knopf: schaltet direkt (iOS 17, wenn die App es erlaubt hat) oder
 /// öffnet die App an der richtigen Stelle – der Weg, der für Tür und
 /// Alarm immer bleibt.
@@ -441,7 +512,7 @@ struct KleinAufHomescreen: View {
                 // kleinen Grösse ineinander.
                 ForEach(Array(entry.shortcuts.prefix(4)), id: \.url) { knopf in
                     KnopfInhalt(knopf: knopf) {
-                        Image(systemName: knopf.symbol)
+                        KnopfSymbol(knopf: knopf, an: entry.istAn(knopf))
                     }
                 }
             }
@@ -466,7 +537,7 @@ struct KleineFassung: View {
         if mitHintergrund {
             KleinAufHomescreen(entry: entry)
         } else {
-            AutoKnopfwand(knoepfe: Array(entry.shortcuts.prefix(4)))
+            AutoKnopfwand(knoepfe: Array(entry.shortcuts.prefix(4)), entry: entry)
         }
     }
 }
@@ -480,6 +551,9 @@ struct KleineFassung: View {
 /// der linke?» ist am Steuer die falsche Frage.
 struct AutoKnopfwand: View {
     let knoepfe: [Shortcut]
+    /// Für den Zustand der Knopf-Geräte (istAn) - auch am Steuer soll
+    /// man sehen, ob das Licht noch brennt.
+    let entry: Provider.Entry
 
     var body: some View {
         let spalten = [GridItem(.flexible()), GridItem(.flexible())]
@@ -487,7 +561,7 @@ struct AutoKnopfwand: View {
             ForEach(knoepfe, id: \.url) { knopf in
                 KnopfInhalt(knopf: knopf) {
                     VStack(spacing: 4) {
-                        Image(systemName: knopf.symbol)
+                        KnopfSymbol(knopf: knopf, an: entry.istAn(knopf))
                             .font(.title2)
                             .frame(height: 24)
                         Text(knopf.title)
@@ -587,7 +661,7 @@ struct HomePilotWidgetView: View {
                     ForEach(entry.shortcuts, id: \.url) { knopf in
                         KnopfInhalt(knopf: knopf) {
                             VStack(spacing: 3) {
-                                Image(systemName: knopf.symbol)
+                                KnopfSymbol(knopf: knopf, an: entry.istAn(knopf))
                                 Text(knopf.title).font(.caption2).lineLimit(1)
                             }
                         }
@@ -717,9 +791,18 @@ struct TuerAktivitaet: Widget {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Unterwegs")
                         .font(.headline)
-                    Text("\(context.attributes.tuer) im Schnellzugriff")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    // Was der Hub über das Haus weiss - Alarm scharf, wer
+                    // zuhause ist, Licht (Punkt 607, core/liveaktivitaet.py
+                    // heimweg_text). Leer bei einem Hub von vorher: dann
+                    // der bisherige Satz.
+                    Text(
+                        context.state.text.isEmpty
+                            ? "\(context.attributes.tuer) im Schnellzugriff"
+                            : context.state.text
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
                 }
                 Spacer()
                 TuerOeffnenKnopf()
@@ -773,6 +856,33 @@ struct HausAktivitaetAttributes: ActivityAttributes {
         /// Station). Optional und vom Hub bestimmt - eine alte Hülle
         /// überliest das Feld (Codable ignoriert unbekannte Schlüssel).
         var knoepfe: [KartenKnopf]?
+        /// Die grosse Zahl links, z.B. «104°C» (Punkt 553). Nur der
+        /// Grill setzt sie; ohne sie bleibt die Karte die schmale
+        /// Zeile, die Timer, Waschmaschine und Sauger brauchen.
+        var gross: String?
+        /// Kreise rechts, z.B. die vier Fleischfühler des Grills.
+        var werte: [KartenWert]?
+        /// Der Griff unten in der Mitte, z.B. «Timer stellen» beim
+        /// Grill (Punkt 556). Eine Adresse, kein Befehl.
+        var link: KartenLink?
+    }
+
+    /// Ein Griff, der in die App führt: SF-Symbol, Beschriftung, Adresse.
+    public struct KartenLink: Codable, Hashable {
+        var symbol: String
+        var text: String
+        var url: String
+    }
+
+    /// Ein Kreis auf der Karte: Nummer, Wert und die Farbe, die der Hub
+    /// fest zugeteilt hat (core/livekarten.py, FUEHLERFARBEN).
+    public struct KartenWert: Codable, Hashable {
+        var nummer: String
+        var wert: String
+        var farbe: String?
+        /// 0…1: wie weit der Ring aufs Ziel zu gewachsen ist (Punkt 570).
+        /// Ohne Ziel fehlt das Feld, und der Ring ist voll.
+        var anteil: Double?
     }
 
     /// Ein Knopf: SF-Symbol plus dem, was er beim Hub auslöst. Das
@@ -812,7 +922,190 @@ private func kartenFarbe(_ name: String?) -> Color {
     switch name {
     case "rot": return .red
     case "orange": return .orange
+    // Die Farben der Fleischfühler (Punkt 553). «gruen» ohne Umlaut:
+    // Der Name reist als JSON durch den Push, und ein «ü» darin ist
+    // überall dort eine Quelle für Ärger, die man sich sparen kann -
+    // dieselbe Regel wie bei den Zigbee-Kennungen.
+    case "gelb": return .yellow
+    case "blau": return .blue
+    case "gruen": return .green
+    case "violett": return .purple
     default: return .accentColor
+    }
+}
+
+/// «104°C» in Zahl und Einheit zerlegt - reine Typografie: Die Zahl
+/// gross, die Einheit klein daneben, wie auf einem Thermometer. Der
+/// Hub schickt weiter einen Text, damit eine ältere Hülle ihn so
+/// anzeigen kann, wie er ist.
+private func zahlUndEinheit(_ text: String) -> (String, String) {
+    let zahl = text.prefix { $0.isNumber || $0 == "-" || $0 == "." || $0 == "," }
+    if zahl.isEmpty { return (text, "") }
+    return (String(zahl), String(text.dropFirst(zahl.count)))
+}
+
+/// Ein Fleischfühler als Kreis - Nummer oben, Temperatur darunter.
+///
+/// Die Form stammt aus der Hersteller-App und ist beim Grillen die
+/// richtige: Man sucht nicht «Fühler 2», man sucht die gelbe Zahl, weil
+/// dort das Nackenstück steckt. Seit Punkt 556 trägt die **Ziffer** die
+/// Farbe und der Ring bleibt grau - so steht es im Bild aus dem Haus,
+/// und die gelbe 2 auf dunklem Grund ist von weiter weg besser zu lesen
+/// als ein gelber Ring um eine weisse 2.
+@available(iOS 16.2, *)
+struct FuehlerKreis: View {
+    let wert: HausAktivitaetAttributes.KartenWert
+
+    var body: some View {
+        let (zahl, einheit) = zahlUndEinheit(wert.wert)
+        VStack(spacing: -1) {
+            Text(wert.nummer)
+                .font(.system(size: 17, weight: .heavy, design: .rounded))
+                .foregroundStyle(kartenFarbe(wert.farbe))
+            HStack(alignment: .firstTextBaseline, spacing: 1) {
+                Text(zahl)
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                Text(einheit)
+                    .font(.system(size: 9, weight: .semibold))
+            }
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+        }
+        .frame(width: 50, height: 50)
+        .background(Circle().fill(.white.opacity(0.08)))
+        // Die Spur grau, darüber der Ring in der Farbe des Fühlers - so
+        // weit, wie das Fleisch seinem Ziel nahe ist (Punkt 570). Von
+        // unten weg im Uhrzeigersinn wie am Gerät: trim beginnt rechts,
+        // ein Viertel gedreht ist unten. Ohne Ziel der volle Ring.
+        .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 2.5))
+        .overlay(
+            Circle()
+                .trim(from: 0, to: wert.anteil ?? 1)
+                .stroke(kartenFarbe(wert.farbe), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                .rotationEffect(.degrees(90))
+                .padding(1.25)
+        )
+    }
+}
+
+/// Die Fühler rechts, in der Reihenfolge, die der Hub schickt.
+///
+/// Bis zwei übereinander, wie im Bild aus dem Haus. Ab drei in zwei
+/// Spalten: Vier übereinander wären 220 Punkte, und mehr als 160 lässt
+/// der Sperrbildschirm einer Karte nicht. Höchstens vier - mehr hat der
+/// Grill nicht.
+@available(iOS 16.2, *)
+struct Fuehlerspalten: View {
+    let werte: [HausAktivitaetAttributes.KartenWert]
+
+    var body: some View {
+        let vier = Array(werte.prefix(4))
+        let spalten: [[HausAktivitaetAttributes.KartenWert]] =
+            vier.count <= 2 ? [vier] : [Array(vier.prefix(2)), Array(vier.dropFirst(2))]
+        HStack(spacing: 4) {
+            ForEach(Array(spalten.enumerated()), id: \.offset) { _, spalte in
+                VStack(spacing: 4) {
+                    ForEach(spalte, id: \.nummer) { wert in
+                        FuehlerKreis(wert: wert)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Der Balken mit dem Knopf am Ende - wie ein Regler, nur dass er
+/// nichts regelt. ProgressView hat keinen Knopf, und ohne ihn sah der
+/// Balken neben der grossen Zahl aus wie ein Strich, der zufällig da
+/// liegt.
+struct Fortschrittsbalken: View {
+    let anteil: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            let x = max(0, min(1, anteil)) * geo.size.width
+            ZStack(alignment: .leading) {
+                Capsule().fill(.white.opacity(0.2)).frame(height: 5)
+                Capsule().fill(.blue).frame(width: x, height: 5)
+                Circle().fill(.white).frame(width: 14, height: 14)
+                    .offset(x: max(0, min(geo.size.width - 14, x - 7)))
+            }
+            .frame(height: 14)
+        }
+        .frame(height: 14)
+    }
+}
+
+/// Die Grillkarte - die Form aus der Hersteller-App, gewünscht im Haus
+/// mit einem Bild davon (Punkt 556): links die Gartemperatur gross mit
+/// kleiner Einheit, darunter «Heizt auf 110°C» und der Balken; in der
+/// Mitte oben der Name, unten der Griff zum Timer; rechts die Fühler
+/// als Kreise. Was fest ist, ist nur die Anordnung - jeder Inhalt
+/// kommt vom Hub, und was er weglässt, bleibt weg.
+@available(iOS 16.2, *)
+struct GrillKarte: View {
+    let state: HausAktivitaetAttributes.ContentState
+    let gross: String
+
+    var body: some View {
+        let (zahl, einheit) = zahlUndEinheit(gross)
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .top, spacing: 2) {
+                    Text(zahl)
+                        .font(.system(size: 58, weight: .heavy, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
+                    Text(einheit)
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .padding(.top, 10)
+                }
+                Spacer(minLength: 0)
+                if !state.text.isEmpty {
+                    Text(state.text)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                if let fortschritt = state.fortschritt {
+                    Fortschrittsbalken(anteil: fortschritt)
+                }
+            }
+            // Nicht breiter als die Zahl braucht: Der Balken darunter
+            // (GeometryReader) nähme sonst die ganze Breite und drückte
+            // Name und Griff in der Mitte auf «S…» zusammen (Punkt 570).
+            .frame(maxWidth: 170, maxHeight: .infinity, alignment: .leading)
+            VStack(spacing: 0) {
+                Text(state.titel.uppercased())
+                    .font(.system(size: 17, weight: .heavy, design: .rounded))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Spacer(minLength: 0)
+                if let link = state.link, let ziel = URL(string: link.url) {
+                    Link(destination: ziel) {
+                        HStack(spacing: 5) {
+                            Image(systemName: link.symbol)
+                            Text(link.text.uppercased())
+                        }
+                        .font(.system(size: 15, weight: .heavy, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if let werte = state.werte, !werte.isEmpty {
+                Fuehlerspalten(werte: werte)
+            }
+        }
+        .padding(14)
+        // Zwei Kreise übereinander samt Abstand - und die Karte nicht
+        // höher, sonst hängen Zahl und Balken in der Luft. Nur nach
+        // oben begrenzt: In der Dynamic Island bekommt die Karte
+        // weniger Platz, und eine feste Höhe würde dort abgeschnitten.
+        .frame(maxHeight: 132)
     }
 }
 
@@ -889,6 +1182,24 @@ struct HausKarteInhalt: View {
     let state: HausAktivitaetAttributes.ContentState
 
     var body: some View {
+        // Die grosse Zahl macht aus der schmalen Zeile die Grillkarte
+        // (Punkt 553, Form seit 556): Wer den Grill vom Sofa aus
+        // ansieht, will die Gartemperatur lesen können, ohne das
+        // Telefon in die Hand zu nehmen. Timer, Waschmaschine und
+        // Sauger bleiben bei der Zeile.
+        if let gross = state.gross {
+            GrillKarte(state: state, gross: gross)
+        } else {
+            SchmaleKarte(state: state)
+        }
+    }
+}
+
+@available(iOS 16.2, *)
+struct SchmaleKarte: View {
+    let state: HausAktivitaetAttributes.ContentState
+
+    var body: some View {
         HStack(spacing: 12) {
             Image(systemName: state.symbol)
                 .font(.title2)
@@ -948,6 +1259,16 @@ struct HausKarte: Widget {
                     )
                     .monospacedDigit()
                     .frame(maxWidth: 60)
+                } else if let gross = context.state.gross {
+                    // Der Grill hat kein Ende, auf das er zählen könnte
+                    // - dort stand in der Insel bisher nichts als die
+                    // Flamme. Die Gartemperatur ist die Zahl, für die
+                    // man hinsieht (Punkt 553).
+                    Text(gross)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .frame(maxWidth: 60)
                 }
             } minimal: {
                 Image(systemName: context.state.symbol)

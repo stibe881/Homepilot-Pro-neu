@@ -90,12 +90,22 @@ class SessionStore:
         self._data.set("sessions", rows)
 
     def create(
-        self, user: str, label: str = "", keep: bool = False, email: str = ""
+        self,
+        user: str,
+        label: str = "",
+        keep: bool = False,
+        email: str = "",
+        address: str = "",
     ) -> str:
         """Eine neue Sitzung – gibt das Token zurück, das nur jetzt sichtbar ist.
 
         ``keep`` für Gemeinschaftsgeräte: Die Sitzung läuft nie ab (siehe
         ``bleibt``).
+
+        ``address`` ist, woher die Anmeldung kam (Punkt 626 der Werkbank).
+        «iPhone von Anna» sagt nur, wie das Gerät heisst - ob es im WLAN
+        stand oder in einem fremden Netz, sagt erst die Adresse. Sie
+        steht in der Geräteliste neben dem Zeitpunkt.
 
         ``email`` ist der zweite Weg zurück zum Benutzer. Der Name allein
         war zu wenig: Wer sich in der config.yaml umbenennt – «Stefan» zu
@@ -114,6 +124,7 @@ class SessionStore:
                 "user": user,
                 "email": (email or "").strip().lower(),
                 "label": label,
+                "address": (address or "").strip(),
                 "created": now,
                 "seen": now,
                 "keep": bool(keep),
@@ -121,6 +132,11 @@ class SessionStore:
         )
         self._save(prune(rows))
         return token
+
+    def id_for(self, token: str) -> str:
+        """Die öffentliche Kennung zu einem Token (rein, testbar) - für den
+        Knopf «Nicht ich → Gerät abmelden» unter der Anmelde-Meldung."""
+        return session_id(hash_token(token)) if token else ""
 
     def identity(self, token: str) -> tuple[str, str] | None:
         """Name und E-Mail zu diesem Token – oder None (keine Sitzung).

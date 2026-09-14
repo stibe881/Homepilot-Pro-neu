@@ -13,6 +13,7 @@ from homepilot.core.errors import ConfigError
 from homepilot.integrations.pitboss import (
     RPC_ABFRAGE,
     _frage_rpc,
+    ausfall_zustand,
     faults,
     fundzeile,
     grill_entries,
@@ -23,6 +24,7 @@ from homepilot.integrations.pitboss import (
     rpc_antwort,
     slug,
     yaml_block,
+    zusammenlegen,
     zustandszeilen,
 )
 
@@ -84,6 +86,17 @@ def test_grill_state_shape():
     assert grill_state({"isFahrenheit": True})["unit"] == "°F"
     # Die erste Störung steht vorne, damit die Kachel sie zeigen kann.
     assert grill_state({"noPellets": True})["problem"] == "Pellets leer"
+
+
+def test_grill_state_carries_the_model_for_the_picture():
+    """Punkt 559: Die App zeichnet je Bauart ein Bild - den liegenden
+    Grill oder den stehenden Schrank - und erkennt sie am Modell."""
+    assert grill_state({"moduleIsOn": True}, "PBV4PS2")["model"] == "PBV4PS2"
+    # Und «das ist ein Grill» steht ausdrücklich da (Punkt 572) - ein
+    # kalter Grill hat kein Temperaturziel, an dem man ihn erkennen könnte.
+    assert grill_state({"moduleIsOn": False})["grill"] is True
+    # Ohne Modell kein leeres Feld - die App kommt ohne aus.
+    assert "model" not in grill_state({"moduleIsOn": True})
 
 
 # --- Der Einrichtungs-Helfer -------------------------------------------
@@ -541,3 +554,41 @@ async def test_an_unknown_model_is_named_as_a_configuration_error(monkeypatch):
     finally:
         await integration.teardown()
         await hub.stop()
+
+
+def test_a_partial_report_keeps_what_it_does_not_mention():
+    """Punkt 567: Nach dem Umstellen des Sollwerts stand 0 °C im Blatt
+    und alle Fühler waren leer - das Bruchstück nach dem Befehl hatte
+    die guten Werte überschrieben."""
+    voll = {"moduleIsOn": True, "grillTemp": 121, "grillSetTemp": 110,
+            "p2Temp": 93, "p3Temp": 94, "isFahrenheit": False}
+    bruchstueck = {"grillSetTemp": 121, "grillTemp": None, "p2Temp": None}
+    zusammen = zusammenlegen(voll, bruchstueck)
+    assert zusammen["grillSetTemp"] == 121
+    assert zusammen["grillTemp"] == 121
+    assert grill_state(zusammen)["probes"] == {2: 93, 3: 94}
+    # Der erste Stand ohne Vorgänger bleibt, was er ist.
+    assert zusammenlegen({}, voll) == voll
+
+
+def test_a_cold_grill_that_does_not_answer_is_off_not_unreachable():
+    """Punkt 571: «Wenn ein Smoker ausgeschaltet ist, soll es anzeigen,
+    dass er ausgeschaltet ist, und nicht ‹nicht erreichbar›.»"""
+    nachtrag, erreichbar = ausfall_zustand(False, 1000.0, 1001.0, "Not connected")
+    assert erreichbar is True
+    assert nachtrag["state"] == "off"
+    assert nachtrag["problem"] is None
+    # Kalt heisst kalt - keine Temperaturen von vorhin.
+    assert nachtrag["temperature"] is None
+    assert nachtrag["probes"] == {}
+
+
+def test_a_running_grill_that_goes_silent_is_a_fault_for_a_while():
+    """Mitten im Lauf verstummt: Störung samt Grund - bis die Karenz um
+    ist, dann ist er ausgeschaltet."""
+    nachtrag, erreichbar = ausfall_zustand(True, 1000.0, 1000.0 + 60, "Not connected")
+    assert erreichbar is False
+    assert nachtrag == {"problem": "Not connected"}
+    nachtrag, erreichbar = ausfall_zustand(True, 1000.0, 1000.0 + 11 * 60, "Not connected")
+    assert erreichbar is True
+    assert nachtrag["state"] == "off"

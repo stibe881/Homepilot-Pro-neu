@@ -27,6 +27,15 @@ import {
   moveButton,
   resolveButtons,
 } from '../lib/widgetButtons';
+import {
+  Knopfstil,
+  Knopfstile,
+  SYMBOLWAHL,
+  ionicon,
+  mitStil,
+  stilLoeschen,
+  stilSetzen,
+} from '../lib/widgetstil';
 import { Colors, radius, type, useColors } from '../theme';
 
 /**
@@ -52,6 +61,8 @@ export function Widgets({
   onButtons,
   direct = [],
   onDirect,
+  stile,
+  onStile,
   tuerOhneRueckfrage = false,
   dataEnabled,
   onDataEnabled,
@@ -66,6 +77,9 @@ export function Widgets({
    *  – «Alles aus» und der Alarm behalten den Umweg. */
   direct?: string[];
   onDirect?: (keys: string[]) => void;
+  /** Eigener Name und eigenes Symbol je Knopf (lib/widgetstil.ts). */
+  stile?: Knopfstile;
+  onStile?: (stile: Knopfstile) => void;
   /** Ist die Tür-Rückfrage ausdrücklich abgestellt? Dann dürfen auch
    *  die Schlösser direkt schalten – dieselbe Abwägung wie in der App. */
   tuerOhneRueckfrage?: boolean;
@@ -82,9 +96,18 @@ export function Widgets({
 
   const keys = buttons ?? STANDARD;
   const gewaehlt = useMemo(
-    () => resolveButtons(keys, scenes, entities),
-    [keys, scenes, entities]
+    // Mit dem eigenen Namen und Symbol: In der Liste soll stehen, was
+    // nachher auch im Widget steht - sonst richtet man hier etwas ein
+    // und prüft es auf dem Homescreen.
+    () => mitStil(resolveButtons(keys, scenes, entities), stile),
+    [keys, scenes, entities, stile]
   );
+  // Welcher Knopf gerade angepasst wird - einer nach dem anderen, und
+  // das Blatt steht unter seiner Zeile statt über der halben Seite.
+  const [anpassen, setAnpassen] = useState<string | null>(null);
+
+  const stilAendern = (key: string, patch: Knopfstil) =>
+    onStile?.(stilSetzen(stile, key, patch));
   // Nicht aus `keys`, sondern aus dem Aufgelösten: Was es nicht mehr
   // gibt, soll auch nicht als «schon drin» gelten.
   const drin = gewaehlt.map((knopf) => knopf.key);
@@ -140,13 +163,34 @@ export function Widgets({
           </Text>
         ) : (
           gewaehlt.map((knopf, index) => (
-            <View key={knopf.key} style={styles.row}>
+            <View key={knopf.key}>
+             <View style={styles.row}>
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>{index + 1}</Text>
               </View>
-              <Text style={styles.rowTitle} numberOfLines={1}>
-                {knopf.title}
-              </Text>
+              {/* Symbol und Name zusammen als eine Fläche: Beides
+                  gehört zum selben Knopf, und zwei Tippziele
+                  nebeneinander, die dasselbe Blatt öffnen, wären eines
+                  zu viel. Ohne `onStile` (ältere Aufrufer) bleibt es
+                  eine blosse Zeile. */}
+              <Pressable
+                onPress={() =>
+                  setAnpassen((offen) => (offen === knopf.key ? null : knopf.key))
+                }
+                disabled={!onStile}
+                style={styles.namePress}
+                accessibilityRole="button"
+                accessibilityLabel={`${knopf.title} umbenennen oder Symbol wählen`}
+              >
+                <Ionicons
+                  name={ionicon(knopf.symbol) as never}
+                  size={17}
+                  color={colors.inkSoft}
+                />
+                <Text style={styles.rowTitle} numberOfLines={1}>
+                  {knopf.title}
+                </Text>
+              </Pressable>
               <Pressable
                 onPress={() => verschieben(index, -1)}
                 disabled={index === 0}
@@ -219,6 +263,68 @@ export function Widgets({
               >
                 <Ionicons name="close-circle" size={20} color={colors.inkFaint} />
               </Pressable>
+             </View>
+             {onStile && anpassen === knopf.key ? (
+              <View style={styles.anpassen}>
+                <TextInput
+                  style={styles.search}
+                  defaultValue={stile?.[knopf.key]?.name ?? ''}
+                  onChangeText={(text) => stilAendern(knopf.key, { name: text })}
+                  placeholder={`Name im Widget – sonst «${knopf.title}»`}
+                  placeholderTextColor={colors.inkFaint}
+                  autoCorrect={false}
+                  maxLength={30}
+                />
+                <View style={styles.symbolwand}>
+                  {SYMBOLWAHL.map((eintrag) => {
+                    const gewaehltesSymbol =
+                      (stile?.[knopf.key]?.symbol ?? knopf.symbol) === eintrag.sf;
+                    return (
+                      <Pressable
+                        key={eintrag.sf}
+                        onPress={() =>
+                          stilAendern(knopf.key, { symbol: eintrag.sf })
+                        }
+                        style={[
+                          styles.symbolfeld,
+                          gewaehltesSymbol && {
+                            borderColor: colors.accent,
+                            backgroundColor: colors.accentSoft,
+                          },
+                        ]}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: gewaehltesSymbol }}
+                        accessibilityLabel={eintrag.wort}
+                      >
+                        <Ionicons
+                          name={eintrag.ionicon as never}
+                          size={20}
+                          color={gewaehltesSymbol ? colors.accent : colors.inkSoft}
+                        />
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <View style={styles.anpassenFuss}>
+                  <Text style={styles.hint}>
+                    Leer lassen heisst: wie das Gerät. Ein umbenanntes Gerät
+                    zieht seinen Knopf dann weiter mit.
+                  </Text>
+                  {stile?.[knopf.key] ? (
+                    <Pressable
+                      onPress={() => onStile(stilLoeschen(stile, knopf.key))}
+                      accessibilityRole="button"
+                      style={({ pressed }) => [
+                        styles.addButton,
+                        pressed && { opacity: 0.8 },
+                      ]}
+                    >
+                      <Text style={styles.addText}>Zurücksetzen</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
+             ) : null}
             </View>
           ))
         )}
@@ -487,6 +593,19 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     picker: { maxHeight: 220 },
+    namePress: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
+    anpassen: { gap: 10, paddingTop: 10, paddingBottom: 4, paddingLeft: 34 },
+    symbolwand: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    symbolfeld: {
+      width: 40,
+      height: 40,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    anpassenFuss: { gap: 8 },
     warn: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
     warnText: {
       color: colors.inkSoft,

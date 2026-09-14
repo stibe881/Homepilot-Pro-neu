@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { Image, Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Entity, HubSettings } from '../../api/types';
+import { Blatt } from '../../components/Blatt';
 import { CameraLive } from '../../components/CameraLive';
 import { useTakt } from '../../hooks/useTakt';
 import {
@@ -99,6 +100,12 @@ export function DoorbellOverlay({
 
   return (
     <Modal visible animationType="fade" onRequestClose={onDismiss}>
+      {/* Als Blatt angemeldet (Punkt 581): Die Absage zum Türöffner
+          steht damit hier, wo man vor der Türe hinschaut - und nicht
+          im Band der Startseite hinter dem Modal. «Hält wach», weil das
+          Wandpanel während des Klingelns nicht zur Startseite springen
+          soll (Punkt 582). */}
+      <Blatt haeltWach>
       <Pressable
         style={styles.doorbellRoot}
         onPress={verlaengern}
@@ -211,7 +218,7 @@ export function DoorbellOverlay({
                 <Ionicons
                   name={aktion.oeffnet ? 'log-in-outline' : 'key'}
                   size={22}
-                  color="#FFFFFF"
+                  color={colors.onSignal}
                 />
                 <Text style={styles.doorbellOpenText}>
                   {gefragt ? rueckfrage : aktion.label}
@@ -236,6 +243,7 @@ export function DoorbellOverlay({
           </Pressable>
         </View>
       </Pressable>
+      </Blatt>
     </Modal>
   );
 }

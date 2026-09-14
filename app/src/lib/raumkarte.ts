@@ -24,6 +24,7 @@ import { naechsteAbschaltung, restText } from './abschaltung';
 import { bewegungImRaum } from './bewegung';
 import { fernbedienungMoeglich } from './fernsehkachel';
 import { isTelevision, zaehltAlsAn } from './geraeteart';
+import { istPlaystation } from './playstation';
 import { imRaum, raumKlima } from './raum';
 
 export type AktionsArt = 'licht' | 'storen' | 'musik' | 'geraet';
@@ -180,6 +181,10 @@ export function raumaktionen(items: Entity[]): Raumaktion[] {
  * Nur bei *einem* Steuerkreuz im Zimmer: Bei zweien wäre es geraten,
  * und eine falsche Fernbedienung ist schlimmer als keine. `null`
  * heisst: Es gibt hier keine - dann bleibt der Knopf ein Schalter.
+ *
+ * Die PlayStation (Punkt 643) ist kein Zwilling: Sie hat zwar ein
+ * Steuerkreuz und einen Bildschirm, aber es ist ihr eigenes Gerät -
+ * der Cast-Eintrag des Fernsehers daneben öffnete sonst die Konsole.
  */
 export function fernbedienungFuer(entity: Entity, nachbarn: Entity[]): string | null {
   if (fernbedienungMoeglich(entity)) return entity.id;
@@ -187,6 +192,7 @@ export function fernbedienungFuer(entity: Entity, nachbarn: Entity[]): string | 
     (kandidat) =>
       kandidat.id !== entity.id &&
       isTelevision(kandidat) &&
+      !istPlaystation(kandidat) &&
       fernbedienungMoeglich(kandidat)
   );
   return kreuze.length === 1 ? kreuze[0].id : null;
@@ -251,9 +257,13 @@ export function geraetAktion(entity: Entity, nachbarn: Entity[] = []): Raumaktio
     // Steuerkreuz, darf es das seines Zwillings im Zimmer sein
     // (fernbedienungFuer).
     const kreuz = isTelevision(entity) ? fernbedienungFuer(entity, nachbarn) : null;
+    // Die Konsole bekommt den Controller statt des Fernsehers (Punkt 643).
+    const [an, aus] = istPlaystation(entity)
+      ? ['game-controller', 'game-controller-outline']
+      : ['tv', 'tv-outline'];
     if (kreuz) {
       return {
-        ...knopf(laeuft ? 'tv' : 'tv-outline', laeuft, laeuft ? 'turn_off' : 'turn_on'),
+        ...knopf(laeuft ? an : aus, laeuft, laeuft ? 'turn_off' : 'turn_on'),
         oeffnet: 'fernbedienung',
         fernbedienungId: kreuz,
       };
@@ -262,7 +272,7 @@ export function geraetAktion(entity: Entity, nachbarn: Entity[] = []): Raumaktio
     // Schalter: Ein Blatt mit nichts darin wäre schlechter als der
     // Knopf, den es ersetzt.
     if (isTelevision(entity) && entity.commands.includes('turn_on')) {
-      return knopf(laeuft ? 'tv' : 'tv-outline', laeuft, laeuft ? 'turn_off' : 'turn_on');
+      return knopf(laeuft ? an : aus, laeuft, laeuft ? 'turn_off' : 'turn_on');
     }
     if (entity.commands.includes('toggle')) {
       return knopf(laeuft ? 'musical-notes' : 'musical-notes-outline', laeuft, 'toggle');

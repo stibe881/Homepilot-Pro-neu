@@ -52,6 +52,21 @@ def test_melder_erkennt_rauch_gas_und_hoerende_kameras():
     assert brandmelder.ist_melder(kontakt) is False
 
 
+def test_eine_kamera_hat_keine_pruefung():
+    """Sie hört einen Melder, sie ist keiner - «nie geprüft» wäre für immer."""
+    kamera = SimpleNamespace(
+        id="cam.flur", kind="camera", label="Flur", name="Flur", room="Flur",
+        commands=[], available=True, last_seen=None,
+        state={"state": "online", "detected_smoke_alarm": "off"},
+    )
+    zeile = brandmelder.melder_zeile(kamera, set(), {}, jetzt=1.0)
+    assert zeile["testable"] is False
+    assert zeile["test_overdue"] is False
+    assert zeile["last_test"] is None
+    melder = _melder("z.a")
+    assert brandmelder.melder_zeile(melder, set(), {}, jetzt=1.0)["testable"] is True
+
+
 def test_zustand_folgt_den_meldern_und_dem_quittieren():
     ruhig = _melder("z.a")
     laut = _melder("z.b", state="on")
@@ -250,6 +265,88 @@ def test_wiederholung_bis_jemand_quittiert(tmp_path, monkeypatch):
             await anlage.takt()
             assert len(gesendet) == 2
             assert gesendet[1]["title"].startswith("🔥 Immer noch")
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
+
+
+def test_ausfall_lage_meldet_einmal_nach_der_karenz():
+    """Punkt 640, das Rechnen: Karenz, genau eine Meldung, Rückkehr."""
+    lage = brandmelder.ausfall_lage({"z.flur"}, {}, set(), jetzt=1000.0, karenz_s=600)
+    assert lage["seit"] == {"z.flur": 1000.0} and lage["melden"] == []
+    # Noch in der Karenz: nichts.
+    lage = brandmelder.ausfall_lage({"z.flur"}, lage["seit"], set(), jetzt=1500.0, karenz_s=600)
+    assert lage["melden"] == []
+    # Karenz vorbei: melden - und danach nicht noch einmal.
+    lage = brandmelder.ausfall_lage({"z.flur"}, lage["seit"], set(), jetzt=1700.0, karenz_s=600)
+    assert lage["melden"] == ["z.flur"]
+    lage = brandmelder.ausfall_lage({"z.flur"}, lage["seit"], {"z.flur"}, jetzt=1800.0, karenz_s=600)
+    assert lage["melden"] == [] and lage["zurueck"] == []
+    # Wieder da: Rückkehr melden, und der Zeitpunkt ist vergessen.
+    lage = brandmelder.ausfall_lage(set(), lage["seit"], {"z.flur"}, jetzt=1900.0, karenz_s=600)
+    assert lage["zurueck"] == ["z.flur"] and lage["seit"] == {}
+    # Wer vor der Karenz zurückkommt, war nie weg.
+    lage = brandmelder.ausfall_lage(set(), {"z.flur": 1000.0}, set(), jetzt=1100.0, karenz_s=600)
+    assert lage["melden"] == [] and lage["zurueck"] == []
+
+
+def test_unerreichbar_zaehlt_keine_kamera_und_keinen_abgeschalteten():
+    melder_weg = SimpleNamespace(
+        id="z.flur", kind="binary_sensor", available=False,
+        state={"device_class": "smoke"}, commands=[],
+    )
+    abgeschaltet = SimpleNamespace(
+        id="z.keller", kind="binary_sensor", available=False,
+        state={"device_class": "smoke"}, commands=[],
+    )
+    kamera = SimpleNamespace(
+        id="cam.flur", kind="camera", available=False,
+        state={"detected_smoke_alarm": False}, commands=[],
+    )
+    weg = brandmelder.unerreichbar([melder_weg, abgeschaltet, kamera], {"z.keller"})
+    assert [e.id for e in weg] == ["z.flur"]
+
+
+def test_ein_schweigender_melder_wird_gemeldet_und_seine_rueckkehr(tmp_path):
+    """Punkt 640: «Wenn ein Rauchmelder nicht erreichbar ist, soll es
+    eine Push geben und auch bei Einstellungen → Brandmeldeanlage
+    anzeigen.»
+    """
+    async def check():
+        hub, zigbee, gesendet = await _hub(tmp_path)
+        try:
+            anlage = hub.integrations.get("brand")
+            await anlage.update_config({"settings": {"test_months": 0}})
+            await hub.registry.update_state("z.flur", {}, available=False)
+            await asyncio.sleep(0.05)
+            # Auf der Seite steht es sofort ...
+            await anlage._publish()
+            assert anlage._entity.state["unavailable"] == ["z.flur"]
+            zeilen = {z["entity_id"]: z for z in anlage.melderliste()}
+            assert zeilen["z.flur"]["available"] is False
+            # ... die Nachricht kommt erst nach der Karenz.
+            await anlage.takt()
+            assert gesendet == []
+            anlage._ausfall_seit["z.flur"] -= brandmelder.AUSFALL_KARENZ_S + 1
+            await anlage.takt()
+            assert len(gesendet) == 1
+            assert gesendet[0]["title"] == "Rauchmelder meldet sich nicht"
+            assert gesendet[0]["category"] == "maintenance"
+            assert "Flur" in gesendet[0]["body"]
+            assert gesendet[0]["data"]["ziel"] == "bereich:brand"
+            assert anlage.history[0]["kind"] == "ausfall"
+            # Und nicht noch einmal.
+            await anlage.takt()
+            assert len(gesendet) == 1
+            # Wieder da: eine Rückmeldung, und die Seite ist wieder sauber.
+            await hub.registry.update_state("z.flur", {}, available=True)
+            await asyncio.sleep(0.05)
+            await anlage.takt()
+            assert len(gesendet) == 2
+            assert gesendet[1]["title"] == "Rauchmelder wieder da"
+            assert anlage._entity.state["unavailable"] == []
+            assert anlage.history[0]["kind"] == "wieder_da"
         finally:
             await hub.stop()
 

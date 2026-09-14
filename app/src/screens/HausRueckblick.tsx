@@ -428,7 +428,7 @@ const makeStyles = (colors: Colors) =>
     },
     chipAn: { backgroundColor: colors.accent, borderColor: colors.accent },
     chipText: { color: colors.inkSoft, fontSize: 12, fontWeight: '600' },
-    chipTextAn: { color: '#FFFFFF' },
+    chipTextAn: { color: colors.onAccent },
     tag: {
       color: colors.inkFaint,
       fontSize: 11,

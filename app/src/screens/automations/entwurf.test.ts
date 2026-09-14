@@ -9,6 +9,7 @@ import {
   ASSISTENT_SCHRITTE,
   assistentNoetig,
   buildConditions,
+  stateConditionToConfig,
   dannFehlt,
   dannStand,
   feinStand,
@@ -83,6 +84,28 @@ describe('Feiertags-Bedingung (Punkt 154)', () => {
     expect(conditions).toEqual([{ type: 'time', except_holidays: true }]);
   });
 
+  it('trägt die Jahreszeit als from/to und holt sie zurück (Punkt 598)', () => {
+    const conditions = buildConditions({
+      ...EMPTY,
+      conditionKind: 'time',
+      conditionFrom: '12-01',
+      conditionTo: '01-06',
+    });
+    expect(conditions).toEqual([{ type: 'time', from: '12-01', to: '01-06' }]);
+    const draft = toDraft({
+      id: 'x',
+      alias: 'X',
+      triggers: [],
+      conditions: [{ type: 'time', from: '12-01', to: '01-06' }],
+      actions: [],
+      editable: true,
+    });
+    expect(draft.conditionKind).toBe('time');
+    expect(draft.conditionFrom).toBe('12-01');
+    expect(draft.conditionTo).toBe('01-06');
+    expect(bedingungStand(draft)).toContain('Jahreszeit');
+  });
+
   it('ohne Häkchen bleibt die Bedingung schlank', () => {
     const conditions = buildConditions({
       ...EMPTY,
@@ -149,6 +172,66 @@ describe('Nachricht mit Verzögerung', () => {
   });
 });
 
+describe('Schritt «Ablauf» kann ruhen lassen, ein- und ausschalten (Punkt 597)', () => {
+  it('lässt «starten» wie bisher ohne Feld, sonst mit do/minutes/until', () => {
+    const start = { ...EMPTY_STEP, kind: 'automation' as const, automationId: 'flur' };
+    expect(stepToActions(start)).toEqual([{ type: 'automation', automation_id: 'flur' }]);
+    expect(
+      stepToActions({ ...start, automationDo: 'snooze', automationMinutes: '180' })
+    ).toEqual([{ type: 'automation', automation_id: 'flur', do: 'snooze', minutes: 180 }]);
+    // Die Uhrzeit sticht die Minuten.
+    expect(
+      stepToActions({
+        ...start,
+        automationDo: 'snooze',
+        automationMinutes: '180',
+        automationUntil: '06:00',
+      })
+    ).toEqual([{ type: 'automation', automation_id: 'flur', do: 'snooze', until: '06:00' }]);
+    expect(stepToActions({ ...start, automationDo: 'disable' })).toEqual([
+      { type: 'automation', automation_id: 'flur', do: 'disable' },
+    ]);
+  });
+
+  it('holt die Tat beim Öffnen zurück', () => {
+    const [schritt] = actionsToSteps([
+      { type: 'automation', automation_id: 'flur', do: 'snooze', until: '06:00' },
+    ]);
+    expect(schritt.automationDo).toBe('snooze');
+    expect(schritt.automationUntil).toBe('06:00');
+    const [alt] = actionsToSteps([{ type: 'automation', automation_id: 'flur' }]);
+    expect(alt.automationDo).toBe('run');
+    const [unsinn] = actionsToSteps([
+      { type: 'automation', automation_id: 'flur', do: 'unsinn' },
+    ]);
+    expect(unsinn.automationDo).toBe('run');
+  });
+});
+
+describe('«seit mindestens» an der Gerätebedingung (Punkt 595)', () => {
+  it('wandert als min_age in die gespeicherte Form und zurück', () => {
+    const entry = { entity_id: 'a.b', op: 'is' as const, value: 'off', minAge: '30' };
+    expect(stateConditionToConfig(entry)).toEqual({
+      type: 'state',
+      entity_id: 'a.b',
+      equals: 'off',
+      min_age: 30,
+    });
+    // Leer oder null heisst «egal seit wann» - dann fehlt das Feld.
+    expect(stateConditionToConfig({ ...entry, minAge: '' })).not.toHaveProperty('min_age');
+    expect(stateConditionToConfig({ ...entry, minAge: '0' })).not.toHaveProperty('min_age');
+    const draft = toDraft({
+      id: 'x',
+      alias: 'X',
+      triggers: [],
+      conditions: [{ type: 'state', entity_id: 'a.b', equals: 'off', min_age: 30 }],
+      actions: [],
+      editable: true,
+    });
+    expect(draft.stateConditions[0].minAge).toBe('30');
+  });
+});
+
 describe('Und/Oder-Gruppen (Punkt 152)', () => {
   const basis = {
     id: 'x',
@@ -198,6 +281,15 @@ describe('Und/Oder-Gruppen (Punkt 152)', () => {
     expect(draft.groups).toHaveLength(1);
     expect(draft.groups[0].conditions[0].entity_id).toBe('a.b');
     expect(draft.extraConditions).toEqual([]);
+  });
+
+  it('behält «der Reihe nach» - der Modus ging beim Speichern verloren', () => {
+    // Fehler aus der Runde 579 der Werkbank: Ein Ablauf aus der
+    // config.yaml mit mode: queued (77) wurde in der App zu «single».
+    expect(toDraft({ ...basis, mode: 'queued' }).mode).toBe('queued');
+    expect(toDraft({ ...basis, mode: 'restart' }).mode).toBe('restart');
+    expect(toDraft({ ...basis, mode: 'unsinn' }).mode).toBe('single');
+    expect(toDraft(basis).mode).toBe('single');
   });
 
   it('zu tief Geschachteltes bleibt unangetastet erhalten', () => {
@@ -640,6 +732,31 @@ describe('Zustände, die es im Editor bisher nicht gab', () => {
     // Ein Cast ist immer eingeschaltet, er spielt bloss nichts.
     const box = geraet({ kind: 'media_player', commands: ['play', 'pause'] });
     expect(plainStates(box).map((z) => z.key)).toEqual(['playing', 'paused', 'idle']);
+  });
+
+  it('bietet die Ereignisse eines Erschütterungsmelders an', () => {
+    // Der Aqara DJT11LM meldet kein «vibration: true», sondern ein Wort
+    // in `action` - und ist damit für den Hub ein Taster. Im Editor
+    // stand deshalb nur der Wortschatz der Wandtaster, und ein Ablauf
+    // «wenn jemand am Briefkasten rüttelt» liess sich nicht bauen,
+    // obwohl der Sensor angelernt und die Kachel da war.
+    const melder = geraet({ kind: 'button', state: { state: 'vibration' } });
+    const schluessel = plainStates(melder).map((z) => z.key);
+    expect(schluessel).toContain('vibration');
+    expect(schluessel).toContain('tilt');
+    expect(schluessel).toContain('drop');
+    // Und zwar auf Deutsch, wie alles andere in dieser Reihe.
+    expect(plainStates(melder).find((z) => z.key === 'vibration')?.label).toBe(
+      'erschüttert'
+    );
+  });
+
+  it('bietet den Platzhalter des Hubs nicht als Auslöser an', () => {
+    // «unknown» steht dort, bis sich das Gerät zum ersten Mal meldet.
+    // Als Chip stand es zuvorderst zur Wahl - ein Auslöser, der nie
+    // feuert, und dazu das einzige englische Wort in der Reihe.
+    const frisch = geraet({ kind: 'button', state: { state: 'unknown' } });
+    expect(plainStates(frisch).map((z) => z.key)).not.toContain('unknown');
   });
 
   it('zählt Anwesenheit in zuhause und weg', () => {
@@ -1351,6 +1468,17 @@ describe('Wirkte der Ablauf?', () => {
   test('ein Lauf ohne Nachschau meldet nichts', () => {
     expect(wirkungText(lauf(null))).toBeNull();
     expect(wirkungText(lauf(undefined))).toBeNull();
+  });
+
+  test('nachgefasst steht dabei – das ist die zweite Auskunft (Punkt 596)', () => {
+    expect(
+      wirkungText(
+        lauf({ urteil: 'wirkungslos', geprueft: 1, nicht: ['Stehlampe'], nachgefasst: true })
+      )
+    ).toBe('wirkte nicht – auch nachgefasst: Stehlampe');
+    expect(
+      wirkungText(lauf({ urteil: 'teilweise', geprueft: 2, nicht: ['Stehlampe'], nachgefasst: false }))
+    ).toBe('wirkte nur halb – ohne Stehlampe');
   });
 
   test('wirkungslos nennt die Geräte, die nicht folgten', () => {
@@ -2076,6 +2204,10 @@ describe('Empfängergruppen', () => {
   it('zeigt eine Gruppe als solche, einen Namen unverändert', () => {
     expect(empfaengerLabel('gruppe:Eltern')).toBe('Eltern (Gruppe)');
     expect(empfaengerLabel('Stefan')).toBe('Stefan');
+  });
+  it('nennt die beweglichen Ziele als Satz (Punkt 599)', () => {
+    expect(empfaengerLabel('anwesend')).toBe('Wer zuhause ist');
+    expect(empfaengerLabel('unterwegs')).toBe('Wer unterwegs ist');
   });
 });
 // ── Der geführte Weg für einen neuen Ablauf ─────────────────────────────

@@ -353,12 +353,12 @@ const makeStyles = (colors: Colors) =>
     },
     chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     chipText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
-    chipTextActive: { color: '#FFFFFF' },
+    chipTextActive: { color: colors.onAccent },
     check: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
     checkText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
     editToggle: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     editToggleText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
-    okLine: { color: colors.on, fontSize: 13, lineHeight: 19 },
+    okLine: { color: colors.onInk, fontSize: 13, lineHeight: 19 },
     warnLine: { color: colors.warnInk, fontSize: 13, lineHeight: 19, fontWeight: '600' },
     actions: { flexDirection: 'row', gap: 10, marginTop: 4 },
     cancel: {
@@ -377,5 +377,5 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       backgroundColor: colors.accent,
     },
-    confirmText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+    confirmText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
   });

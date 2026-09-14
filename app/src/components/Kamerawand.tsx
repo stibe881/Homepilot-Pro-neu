@@ -17,6 +17,7 @@ import { Image, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } 
 
 import { Entity } from '../api/types';
 import { useTakt } from '../hooks/useTakt';
+import { bewegungsSignal } from '../lib/bewegung';
 import { spalten } from '../lib/kamerawand';
 import { Colors, radius, type, useColors } from '../theme';
 
@@ -99,7 +100,7 @@ export function Kamerawand({
                   </Text>
                   {kamera.state?.motion === 'on' ? (
                     <View style={styles.bewegung}>
-                      <Ionicons name="walk" size={12} color="#FFFFFF" />
+                      <Ionicons name="walk" size={12} color={bewegungsSignal(colors).farbe} />
                     </View>
                   ) : null}
                   {!kamera.available ? (
@@ -115,7 +116,7 @@ export function Kamerawand({
   );
 }
 
-const makeStyles = (_colors: Colors) =>
+const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     // Schwarz, unabhängig vom Thema: Ein Bild liest sich vor Schwarz
     // besser, und für eine Wand aus Kameras ist das der Zweck.
@@ -149,11 +150,14 @@ const makeStyles = (_colors: Colors) =>
       backgroundColor: 'rgba(0,0,0,0.55)',
     },
     name: { color: '#FFFFFF', fontSize: 13, fontWeight: '600', flex: 1 },
+    // Nicht mehr rot (Punkt 612): Rot heisst «jetzt aufstehen», und die
+    // Wand zeigte es für jede Katze im Garten. Dieselbe Farbe wie das
+    // Männchen auf der Raumkachel - «hier ist gerade etwas».
     bewegung: {
       paddingHorizontal: 5,
       paddingVertical: 2,
       borderRadius: radius.pill,
-      backgroundColor: '#E5484D',
+      backgroundColor: bewegungsSignal(colors).grund,
     },
     weg: { color: '#8A8A8E', fontSize: 11 },
   });

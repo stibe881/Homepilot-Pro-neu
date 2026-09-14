@@ -16,6 +16,12 @@ Wartezeit-Schritt), fällt dabei heraus: Bleibt nichts Prüfbares übrig,
 gibt es kein Urteil. Lieber keine Auskunft als eine geratene.
 
 Hier steht nur das Rechnen. Wer nachsieht, ist der AutomationManager.
+
+Punkt 596 der Werkbank: Wissen allein half nicht - «wirkungslos» stand
+im aufgeklappten Verlauf, den nachts niemand liest. Seither wird für
+genau die Geräte, die fehlten, der Befehl noch einmal geschickt und
+erneut nachgesehen (``nachfass_aktionen``); bleibt es dabei, geht eine
+Meldung über den Weg von Punkt 465, einmal täglich je Ablauf.
 """
 
 from __future__ import annotations
@@ -116,3 +122,57 @@ def urteil(ergebnis: dict[str, list[str]]) -> str | None:
     if not ok:
         return "wirkungslos"
     return "teilweise"
+
+
+def nachfass_aktionen(
+    actions: list[dict[str, Any]], fehlt: list[str]
+) -> list[dict[str, Any]]:
+    """Welche Schritte noch einmal geschickt werden (rein, testbar).
+
+    Je fehlendem Gerät der *letzte* Schritt, der ihm einen Zielzustand
+    gab - derselbe, den ``pruefpunkte`` zusammengerechnet hat. Nur der
+    letzte: Ein Ablauf «an, dann aus» soll beim Nachfassen ausschalten,
+    nicht erst wieder ein. Wartezeiten, Durchsagen und alles ohne
+    Zielzustand bleiben aussen vor - sie sind nicht das, was fehlte.
+    """
+    gesucht = set(fehlt)
+    letzter: dict[str, dict[str, Any]] = {}
+    for action in actions:
+        entity_id = str(action.get("entity_id") or "")
+        if entity_id not in gesucht:
+            continue
+        if not any(wert is not None for wert in zielzustand(action).values()):
+            continue
+        letzter[entity_id] = action
+    return [letzter[entity_id] for entity_id in fehlt if entity_id in letzter]
+
+
+def blieb_satz(ziel: dict[str, Any]) -> str:
+    """«blieb an», «blieb aus», «blieb offen» … (rein, testbar).
+
+    Der Satz in der Meldung soll sagen, was man im Zimmer sieht - nicht,
+    welcher Befehl fehlschlug.
+    """
+    soll = str(ziel.get("state") or "")
+    return {
+        "off": "blieb an",
+        "on": "blieb aus",
+        "open": "blieb zu",
+        "closed": "blieb offen",
+        "locked": "blieb offen",
+        "unlocked": "blieb verriegelt",
+        "playing": "blieb still",
+        "paused": "spielte weiter",
+    }.get(soll, "folgte nicht")
+
+
+def meldung(
+    alias: str,
+    punkte: list[dict[str, Any]],
+    fehlt: list[str],
+    name_of: Any,
+) -> tuple[str, str]:
+    """Titel und Text der Push-Meldung «Ablauf ohne Wirkung» (rein, testbar)."""
+    ziele = {str(p.get("entity_id") or ""): p.get("ziel") or {} for p in punkte}
+    teile = [f"{name_of(entity_id)} {blieb_satz(ziele.get(entity_id, {}))}" for entity_id in fehlt]
+    return "Ablauf ohne Wirkung", f"{alias}: {', '.join(teile)}"

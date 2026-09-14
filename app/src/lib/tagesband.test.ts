@@ -1,4 +1,4 @@
-import { bandReihenfolge, bandZeile } from './tagesband';
+import { bandReihenfolge, bandSymbol, bandZeile } from './tagesband';
 
 const JETZT = new Date('2026-03-14T23:18:00').getTime();
 const um = (stunde: number, minute = 0) =>
@@ -68,5 +68,16 @@ describe('bandZeile', () => {
 
   it('bleibt leer, wenn das Band leer ist', () => {
     expect(bandZeile([])).toBe('');
+  });
+});
+
+describe('bandSymbol', () => {
+  it('unterscheidet Zeitraum und Kalender von der Uhr (Fehler aus Runde 579)', () => {
+    expect(bandSymbol('time', false)).toBe('time-outline');
+    expect(bandSymbol('sun', false)).toBe('sunny-outline');
+    expect(bandSymbol('calendar', false)).toBe('calendar-outline');
+    expect(bandSymbol('window', false)).toBe('hourglass-outline');
+    // Gelaufen ist gelaufen - egal welcher Art.
+    expect(bandSymbol('calendar', true)).toBe('checkmark-circle');
   });
 });

@@ -106,8 +106,8 @@ export function KidsView({
                   pressed && { opacity: 0.8 },
                 ]}
               >
-                <Ionicons name="call" size={34} color="#FFFFFF" />
-                <Text style={[styles.bigText, { color: '#FFFFFF' }]}>{knopf.label}</Text>
+                <Ionicons name="call" size={34} color={colors.onAccent} />
+                <Text style={[styles.bigText, { color: colors.onAccent }]}>{knopf.label}</Text>
               </Pressable>
             ) : (
               // Ohne Telefonie (Browser, Wandpanel) wäre der Knopf tot -
@@ -150,12 +150,12 @@ export function KidsView({
                 <Ionicons
                   name={on ? 'bulb' : 'bulb-outline'}
                   size={34}
-                  color={on ? '#FFFFFF' : colors.ink}
+                  color={on ? colors.onAccent : colors.ink}
                 />
-                <Text style={[styles.bigText, on && { color: '#FFFFFF' }]}>
+                <Text style={[styles.bigText, on && { color: colors.onAccent }]}>
                   {light.name}
                 </Text>
-                <Text style={[styles.bigState, on && { color: '#FFFFFF' }]}>
+                <Text style={[styles.bigState, on && { color: colors.onAccent }]}>
                   {on ? 'An' : 'Aus'}
                 </Text>
               </Pressable>

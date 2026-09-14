@@ -1,7 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 
+import { useMeldung } from '../hooks/HubContext';
 import { anzeigedauer, istLang } from '../lib/meldung';
 import { Colors, radius, useColors } from '../theme';
 
@@ -175,6 +177,44 @@ export function UndoToast({
     </View>
   );
 }
+
+/**
+ * Die drei Einblendungen zusammen, aus dem Context (Punkt 581).
+ *
+ * Bisher standen sie einmal, im Wurzel-View der Startseite - und ein
+ * natives Modal deckte sie zu. Jetzt zeichnet das Band, wer gerade
+ * oben liegt: das oberste offene Blatt (components/Blatt.tsx), sonst
+ * der Wurzel-View. Die Reihenfolge darin ist dieselbe wie vorher: Ein
+ * abgelehnter Befehl hat Vorrang, Gelungenes tritt hinter Fehler und
+ * «Rückgängig» zurück - wer gerade einen Fehler liest, braucht nicht
+ * noch ein Häkchen daneben.
+ *
+ * Der untere Abstand kommt von hier, nicht vom Aufrufer: In einem
+ * Vollbild-Modal gilt derselbe Sicherheitsabstand wie auf der Seite.
+ * Über den Context statt `useSafeAreaInsets()`, weil der wirft, wo kein
+ * Provider ist (Tests) - hier heisst das schlicht «kein Abstand».
+ */
+export function Meldungsband() {
+  const meldungen = useMeldung();
+  const unten = useContext(SafeAreaInsetsContext)?.bottom ?? 0;
+  if (!meldungen) return null;
+  const { fehler, fehlerWeg, note, noteWeg, rueck } = meldungen;
+  return (
+    <>
+      <Toast message={fehler} onDismiss={fehlerWeg} bottomInset={unten} />
+      <UndoToast
+        what={rueck?.what ?? null}
+        onUndo={rueck?.onUndo ?? nichts}
+        onDismiss={rueck?.onDismiss ?? nichts}
+        bottomInset={unten}
+      />
+      <Bestaetigung text={fehler || rueck ? null : note} onDismiss={noteWeg} bottomInset={unten} />
+    </>
+  );
+}
+
+/** Ohne Angebot gibt es nichts zurückzunehmen - und nichts wegzutippen. */
+const nichts = () => {};
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({

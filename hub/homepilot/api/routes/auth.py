@@ -7,6 +7,7 @@ Sachgebiet statt 3800 Zeilen am Stück. Die Routen selbst sind unverändert
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -23,7 +24,7 @@ from ...core import (
 )
 from ...core import throttle as throttle_module
 from ...core.errors import HomePilotError
-from ...core.users import Capability
+from ...core.users import Capability, Role
 from .. import invitepage
 from ..context import ApiContext
 from ..models import (
@@ -92,6 +93,79 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "invite": service is not None and service.can_invite,
         }
 
+    # ── Eine neue Anmeldung erfährt nicht nur das Log (Punkt 626) ──────────
+    #
+    # Jede Passwort-Anmeldung endete in log.warning(); wer sich mit
+    # Stefans Passwort auf einem fremden Gerät anmeldete, wurde von
+    # niemandem bemerkt. Jetzt geht eine Push an die Person selbst - auf
+    # ihre *anderen* Geräte, das neue hat noch kein Push-Token - mit dem
+    # Knopf «Nicht ich → Gerät abmelden». Bei Gast- und Kinderkonten
+    # zusätzlich an die Besitzer. Im Hintergrund, damit die Anmeldung
+    # nicht auf Expo wartet; ein Fehler dabei ist kein Anmeldefehler.
+
+    laufende: set[asyncio.Task[Any]] = set()
+
+    def im_hintergrund(coro: Any) -> None:
+        task = asyncio.create_task(coro)
+        laufende.add(task)
+        task.add_done_callback(laufende.discard)
+
+    async def anmeldung_melden(user: Any, label: str, address: str, token: str) -> None:
+        sid = hub.sessions.id_for(token)
+        geraet = label or "Unbenanntes Gerät"
+        woher = f" ({address})" if address and address != "unbekannt" else ""
+        knopf = {"label": "Nicht ich → Gerät abmelden", "sitzung": sid, "user": user.name}
+        try:
+            eigene = hub.push.recipients(hub.users.users, to=user.name, category="login")
+            if eigene:
+                await hub.push.send(
+                    eigene,
+                    "Neues Gerät angemeldet",
+                    f"«{geraet}» hat sich mit deinem Konto angemeldet{woher}. "
+                    "Warst du das?",
+                    data={"ziel": "bereich:account", "knoepfe": [knopf]},
+                    category="login",
+                )
+            if user.role in (Role.GUEST, Role.KID):
+                besitzer = [
+                    t
+                    for t in hub.push.recipients(hub.users.users, to=Role.OWNER, category="login")
+                    if t not in eigene
+                ]
+                if besitzer:
+                    await hub.push.send(
+                        besitzer,
+                        f"{user.name}: neues Gerät angemeldet",
+                        f"«{geraet}» hat sich mit dem Konto von {user.name} "
+                        f"angemeldet{woher}.",
+                        data={"ziel": "bereich:users", "knoepfe": [knopf]},
+                        category="login",
+                    )
+        except Exception as err:  # eine Nachricht ist kein Grund zu scheitern
+            log.warning("Anmelde-Meldung für %s fehlgeschlagen: %s", user.name, err)
+
+    async def sperre_melden(address: str) -> None:
+        """Eine einzige Push an die Besitzer, wenn die Bremse zuschnappt."""
+        try:
+            tokens = hub.push.recipients(hub.users.users, to=Role.OWNER, category="login")
+            if not tokens:
+                return
+            await hub.push.send(
+                tokens,
+                "Anmeldung gesperrt",
+                f"{throttle.limit} falsche Passwörter von {address} - die Adresse "
+                f"ist für {round(throttle.block / 60)} Minuten gesperrt.",
+                data={"ziel": "bereich:users"},
+                category="login",
+            )
+        except Exception as err:
+            log.warning("Sperr-Meldung fehlgeschlagen: %s", err)
+
+    def fehlversuch(address: str) -> None:
+        """Zählen - und beim Zuschnappen der Bremse einmal Bescheid geben."""
+        if throttle.failed(address):
+            im_hintergrund(sperre_melden(address))
+
     @app.post("/api/auth/login")
     async def auth_login(body: LoginRequest, request: Request) -> dict[str, Any]:
         """Anmelden und eine Sitzung für dieses Gerät bekommen."""
@@ -115,7 +189,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             if not entry:
                 return None
             if not bereich.matches(entry, body.password):
-                throttle.failed(address)
+                fehlversuch(address)
                 log.warning(
                     "Rückfall-Anmeldung für %s abgelehnt (%s)", user.name, address
                 )
@@ -133,6 +207,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 body.label or "Unbenanntes Gerät",
                 keep=user.shared,
                 email=user.email or "",
+                address=address,
             )
             log.warning(
                 "Supabase nicht erreichbar - %s über den lokalen Hash "
@@ -140,6 +215,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 user.name,
                 address,
             )
+            im_hintergrund(anmeldung_melden(user, body.label, address, token))
             return {"token": token, "user": user_payload(user)}
 
         service = auth_service()
@@ -166,7 +242,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         lokal = hub.users.by_name(eingabe) or hub.users.by_email(eingabe)
         if lokal is not None and lokal.passwort:
             if not bereich.matches(lokal.passwort, body.password):
-                throttle.failed(address)
+                fehlversuch(address)
                 log.warning("Passwort-Anmeldung für %s abgelehnt (%s)", lokal.name, address)
                 raise HTTPException(
                     status_code=401, detail="Name oder Passwort stimmt nicht."
@@ -181,8 +257,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 body.label or "Unbenanntes Gerät",
                 keep=lokal.shared,
                 email=lokal.email or "",
+                address=address,
             )
             log.warning("%s hat sich mit Passwort angemeldet (%s)", lokal.name, address)
+            im_hintergrund(anmeldung_melden(lokal, body.label, address, token))
             return {
                 "token": token,
                 "user": user_payload(lokal),
@@ -200,7 +278,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             # Es gibt Passwort-Zugänge, nur nicht für diese Eingabe -
             # dieselbe Auskunft wie bei einem falschen Passwort, damit
             # sich Namen nicht durchprobieren lassen.
-            throttle.failed(address)
+            fehlversuch(address)
             raise HTTPException(
                 status_code=401, detail="Name oder Passwort stimmt nicht."
             )
@@ -212,7 +290,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 # Adresse. Das fällt bewusst NICHT auf den lokalen Hash
                 # zurück - sonst bliebe ein bei Supabase zurückgesetztes
                 # Passwort hier ewig gültig.
-                throttle.failed(address)
+                fehlversuch(address)
                 raise HTTPException(status_code=err.status, detail=str(err)) from err
             if err.status >= 500:
                 # Timeout, DNS weg, Supabase down (Punkt 234 der
@@ -229,7 +307,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             # Adresse eingetragen. Bewusst dieselbe Auskunft wie bei einem
             # falschen Passwort – wer fremde Adressen durchprobiert, soll
             # daraus nichts lernen.
-            throttle.failed(address)
+            fehlversuch(address)
             log.warning(
                 "Anmeldung mit unbekannter Adresse %s abgelehnt", session["email"]
             )
@@ -270,8 +348,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             # Die Adresse mit in die Sitzung: Sie überlebt eine
             # Umbenennung, der Name nicht (core/sessions.py).
             email=user.email or "",
+            address=address,
         )
         log.warning("%s hat sich mit Passwort angemeldet (%s)", user.name, address)
+        im_hintergrund(anmeldung_melden(user, body.label, address, token))
         return {"token": token, "user": user_payload(user)}
 
     @app.post("/api/auth/password")

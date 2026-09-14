@@ -19,7 +19,14 @@ from fastapi import (
     Response,
 )
 
-from ...core import batterie, cliparchiv, kurzverlauf, spaeter, widgetkarten
+from ...core import (
+    batterie,
+    batterieprognose,
+    cliparchiv,
+    kurzverlauf,
+    spaeter,
+    widgetkarten,
+)
 from ...core import replace as replace_module
 from ...core import streams as streams_modul
 from ...core import throttle as throttle_module
@@ -368,7 +375,36 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 }
                 for row in hub.data.get(batterie.STORE_KEY)
                 if isinstance(row, dict) and row.get("entity_id")
-            ]
+            ],
+            # «reicht noch ~3 Monate» je Gerät (Punkt 258) und die Tage
+            # dahinter (Punkt 633): Aus den Tagen und dem Batterietyp
+            # rechnet die App «Für die nächsten 3 Monate: 2× CR2032».
+            # Das Wort stand in der App seit 258 bereit, der Hub lieferte
+            # es nie - die Zeile blieb leer.
+            "forecast": {
+                entity.id: wort
+                for entity in hub.registry.all()
+                if isinstance(entity.state.get("battery"), (int, float))
+                for wort in [
+                    batterieprognose.restwort(
+                        batterieprognose.resttage(
+                            hub.data.get(batterieprognose.STORE_KEY), entity.id
+                        )
+                    )
+                ]
+                if wort
+            },
+            "resttage": {
+                entity.id: tage
+                for entity in hub.registry.all()
+                if isinstance(entity.state.get("battery"), (int, float))
+                for tage in [
+                    batterieprognose.resttage(
+                        hub.data.get(batterieprognose.STORE_KEY), entity.id
+                    )
+                ]
+                if tage is not None
+            },
         }
 
     @app.post("/api/batteries/{entity_id}/ack")

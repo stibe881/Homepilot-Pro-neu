@@ -16,6 +16,8 @@
  * deshalb von überall verwendbar.
  */
 import type { Entity } from '../api/types';
+import { istPlaystation } from './playstation';
+import type { Symbolname } from './symbole';
 
 /**
  * Melderarten, wie der Hub sie als `device_class` mitschickt.
@@ -50,6 +52,7 @@ const MESSWERT: Record<string, string> = {
   power: 'Verbrauchsmessung',
   energy: 'Verbrauchsmessung',
   battery: 'Batteriestand',
+  co2: 'CO₂-Fühler',
 };
 
 const NACH_EINHEIT: Record<string, string> = {
@@ -58,6 +61,7 @@ const NACH_EINHEIT: Record<string, string> = {
   W: 'Verbrauchsmessung',
   kWh: 'Verbrauchsmessung',
   lx: 'Helligkeitsfühler',
+  ppm: 'CO₂-Fühler',
 };
 
 /**
@@ -157,6 +161,10 @@ export function deviceKindLabel(entity: Entity): string {
       return 'Kalender';
 
     case 'media_player':
+      // Die PlayStation ist für den Hub ein Fernseher mit Steuerkreuz
+      // (Punkt 643) - im Haushalt aber eine Spielkonsole, und so heisst
+      // sie auch in den Abläufen und im Wähler.
+      if (istPlaystation(entity)) return 'Spielkonsole';
       return isTelevision(entity) ? 'Fernseher' : 'Lautsprecher';
 
     // Der Einschlaf-Timer des Fernsehers als eigene Kachel.
@@ -168,8 +176,42 @@ export function deviceKindLabel(entity: Entity): string {
   }
 }
 
-/** Das Symbol zur Art – dasselbe Vokabular wie die Kacheln. */
-export function deviceKindIcon(entity: Entity): string {
+/** Das Symbol eines Messwerts - am `device_class`, sonst an der Einheit
+ *  erkannt, wie das Wort in `deviceKindLabel`. */
+const MESSWERT_SYMBOL: Record<string, Symbolname> = {
+  temperature: 'thermometer-outline',
+  humidity: 'water-outline',
+  illuminance: 'sunny-outline',
+  power: 'flash-outline',
+  energy: 'flash-outline',
+  battery: 'battery-half-outline',
+  co2: 'leaf-outline',
+};
+
+const SYMBOL_NACH_EINHEIT: Record<string, Symbolname> = {
+  '°C': 'thermometer-outline',
+  '%': 'water-outline',
+  W: 'flash-outline',
+  kWh: 'flash-outline',
+  lx: 'sunny-outline',
+  ppm: 'leaf-outline',
+};
+
+/**
+ * Das Symbol zur Art – dasselbe Vokabular wie die Kacheln, und seit
+ * Punkt 611 der Werkbank die **einzige** Quelle dafür.
+ *
+ * Daneben stand eine zweite Tabelle (`KIND_ICONS` in RoomTile.tsx), und
+ * die beiden widersprachen sich: Im Grundriss und in der Übersicht war
+ * der Bewegungsmelder ein Radioknopf und der Feuchtefühler ein
+ * Thermometer, im Ablauf-Editor ein Männchen und ein Tachometer. Keine
+ * von beiden kannte die Einheit eines Messwerts - Feuchte, Leistung,
+ * CO₂ und Helligkeit sahen überall gleich aus, ausgerechnet am
+ * Wandpanel-Grundriss, wo das Symbol das Einzige ist, was man sieht.
+ * Jetzt kommt das Sinnbild eines `sensor` aus `device_class` oder
+ * Einheit, mit demselben Schlüssel wie sein Wort.
+ */
+export function deviceKindIcon(entity: Entity): Symbolname {
   const deviceClass = String(entity.state?.device_class ?? '');
   switch (entity.kind) {
     case 'light':
@@ -192,7 +234,11 @@ export function deviceKindIcon(entity: Entity): string {
       if (entity.integration === 'unifi') return 'wifi-outline';
       return 'ellipse-outline';
     case 'sensor':
-      return 'speedometer-outline';
+      return (
+        MESSWERT_SYMBOL[deviceClass] ??
+        SYMBOL_NACH_EINHEIT[String(entity.state?.unit ?? '')] ??
+        'speedometer-outline'
+      );
     case 'cover':
       return 'browsers-outline';
     case 'lock':
@@ -216,12 +262,69 @@ export function deviceKindIcon(entity: Entity): string {
     case 'calendar':
       return 'calendar-outline';
     case 'media_player':
+      if (istPlaystation(entity)) return 'game-controller-outline';
       return isTelevision(entity) ? 'tv-outline' : 'musical-notes-outline';
     case 'timer':
       return 'moon-outline';
     default:
       return 'ellipse-outline';
   }
+}
+
+/**
+ * Ein Muster je Geräteart, wie sie im Haus vorkommen (rein, testbar) -
+ * Punkt 611 der Werkbank.
+ *
+ * Für das Musterblatt unter System und für den Symboltest: Beide
+ * wollen wissen, welche Sinnbilder `deviceKindIcon` überhaupt
+ * herausgibt, ohne den Schalter Zeile für Zeile abzuschreiben - eine
+ * abgeschriebene Liste wäre nach der ersten neuen Art eine Lüge.
+ */
+export function geraeteartMuster(): { label: string; icon: Symbolname }[] {
+  const muster = (kind: string, state: Entity['state'] = {}, extra: Partial<Entity> = {}): Entity => ({
+    id: `${kind}.muster`,
+    kind,
+    name: '',
+    integration: 'demo',
+    state,
+    commands: [],
+    available: true,
+    ...extra,
+  });
+  const entitaeten: Entity[] = [
+    muster('light'),
+    muster('light', {}, { integration: 'group' }),
+    muster('switch'),
+    muster('switch', {}, { integration: 'helpers' }),
+    ...['motion', 'contact', 'window', 'garage_door', 'smoke', 'moisture', 'vibration', 'tamper'].map(
+      (device_class) => muster('binary_sensor', { device_class })
+    ),
+    muster('binary_sensor', {}, { integration: 'geofence' }),
+    muster('binary_sensor', {}, { integration: 'unifi' }),
+    ...['temperature', 'humidity', 'illuminance', 'power', 'battery', 'co2'].map((device_class) =>
+      muster('sensor', { device_class })
+    ),
+    muster('sensor'),
+    muster('cover'),
+    muster('lock'),
+    muster('vacuum'),
+    muster('camera'),
+    muster('button'),
+    muster('alarm'),
+    muster('scene'),
+    muster('alert'),
+    muster('appliance'),
+    muster('weather'),
+    muster('calendar'),
+    muster('media_player'),
+    muster('media_player', { has_screen: true }),
+    muster('media_player', { has_screen: true }, { integration: 'playstation' }),
+    muster('timer'),
+  ];
+  return entitaeten.map((entity) => ({
+    label: deviceKindLabel(entity),
+    icon: deviceKindIcon(entity),
+  }));
 }
 
 /**
@@ -241,7 +344,7 @@ export function deviceKindIcon(entity: Entity): string {
 export function melderArt(
   sensor: { entity_id: string; kind: string; device_class?: string | null },
   entities: Entity[]
-): { label: string; icon: string } {
+): { label: string; icon: Symbolname } {
   const entity =
     entities.find((eintrag) => eintrag.id === sensor.entity_id) ??
     ({
@@ -388,6 +491,7 @@ export function pickPlayer(entities: Entity[]): Entity | undefined {
 const INTEGRATION_NAMEN: Record<string, string> = {
   google_cast: 'Chromecast',
   androidtv: 'Android TV',
+  playstation: 'PlayStation',
   spotify: 'Spotify',
   tunein: 'Radio',
 };

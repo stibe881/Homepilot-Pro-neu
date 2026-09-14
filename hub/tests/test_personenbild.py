@@ -260,13 +260,35 @@ async def test_die_auslieferung_haelt_die_anfrage_bis_das_bild_da_ist(monkeypatc
     from homepilot.api import create_app
 
     leer, person = b"\xff\xd8\xff-leerer-flur", b"\xff\xd8\xff-jemand-steht-da"
-    hub = await _hub(monkeypatch, [leer, person])
+    # Ein weites Personen-Fenster, und das ist hier der Punkt.
+    #
+    # Mit den üblichen 0,5 Sekunden hing der Test an einer Uhr, die
+    # nichts mit ihm zu tun hat: Zwischen dem Melden und dem Abruf
+    # unten liegt der Aufbau, und dauert der unter Last länger als das
+    # Fenster, hat der Hub längst mit dem Bild vom leeren Flur
+    # abgeschlossen. Der Test fiel dann - ohne dass sich an der Route
+    # etwas geändert hätte; ausgelöst hat es eine Entität mehr in der
+    # Demo-Integration. Wie kurz das Fenster sein darf, prüfen die
+    # Tests darüber; hier geht es darum, dass die Anfrage stillhält und
+    # das *spätere* Bild bekommt.
+    hub = await _hub(monkeypatch, [leer, person], fenster=5.0)
     try:
         gesendet = await _melden(hub)
         token = _token(gesendet[0]["image"])
 
+        # Die App **vor** dem Rennen bauen, nicht darin.
+        #
+        # Sonst steht sie im Weg: `create_app` legt jede Route an, und
+        # das dauert je nach Last länger als die fünfzig Millisekunden,
+        # nach denen unten jemand hereinläuft. Dann kommt die Person,
+        # bevor die Anfrage überhaupt wartet - und der Test prüft nicht
+        # mehr, was er prüfen will. Aufgefallen ist es, als eine
+        # Entität mehr in der Demo-Integration stand: Der Test fiel
+        # danach zuverlässig, ohne dass sich an der Route etwas geändert
+        # hätte.
+        transport = httpx.ASGITransport(app=create_app(hub))
+
         async def abrufen():
-            transport = httpx.ASGITransport(app=create_app(hub))
             async with httpx.AsyncClient(
                 transport=transport, base_url="https://haus.example"
             ) as client:

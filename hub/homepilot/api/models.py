@@ -295,6 +295,21 @@ class LaundryRequest(BaseModel):
     door: str | None = None
 
 
+class GrillZielRequest(BaseModel):
+    """Das Kerntemperatur-Ziel eines Fühlers (Punkt 554).
+
+    `ziel: null` nimmt es wieder weg - «kein Ziel» ist ein gültiger
+    Wunsch, und ein Feld weglassen hiesse hier «lass, wie es ist».
+    """
+
+    #: Der Grill, an dem der Fühler steckt.
+    entity_id: str
+    #: Welcher Fühler: 1 bis 4.
+    nummer: int
+    #: In der Einheit des Grills - er meldet sie selbst mit.
+    ziel: float | None = None
+
+
 class CoverGuardRequest(BaseModel):
     """Worauf die Wächter-Regeln sehen und was sie anfassen.
 
@@ -797,7 +812,14 @@ class MetaRequest(BaseModel):
     #: meldet beides als `contact`; hier steht, was der Raumkopf sagen
     #: soll. None heisst «raten» (Geräteklasse, sonst Name).
     contact_kind: str | None = None
-
+    #: Nur für Batteriegeräte: welche Batterie drinsteckt («CR2032»,
+    #: «AAA», …; watchrules.BATTERIETYPEN). None heisst «unbekannt».
+    battery_type: str | None = None
+    #: Nur für Fernseher und Spielkonsole (has_screen, Punkt 646): bis zu
+    #: zwei Szenen, die unten an der Fernbedienung stehen. None heisst
+    #: unverändert, eine leere Liste räumt die Auswahl weg - siehe
+    #: core/entity.py, remote_scenes_lesen.
+    remote_scenes: list[str] | None = None
 
 
 class EinladungRequest(BaseModel):

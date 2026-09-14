@@ -24,6 +24,25 @@ def test_nur_ein_abgebrochener_lauf_gilt_als_stromausfall():
     assert stromrueckkehr.kaltstart({"state": "beendet"}) is False
 
 
+def test_ein_lange_laufender_rechner_hatte_keinen_stromausfall():
+    """Punkt 590 der Werkbank: Der Vermerk «läuft» bleibt auch liegen,
+    wenn der Speicher-Wächter den Prozess abschiesst oder ein Neustart
+    ihn hart trifft. Lief der Host dabei schon Stunden, hatte das Haus
+    nie Strom verloren - und niemandem geht das Licht aus."""
+    assert stromrueckkehr.kaltstart({"state": "laeuft"}, betriebszeit=3 * 3600) is False
+    # Frisch hochgefahren: das ist der Stromausfall.
+    assert stromrueckkehr.kaltstart({"state": "laeuft"}, betriebszeit=120.0) is True
+    # Ohne Auskunft des Rechners (kein Linux) zählt wie bisher der Vermerk.
+    assert stromrueckkehr.kaltstart({"state": "laeuft"}, betriebszeit=None) is True
+    # Und ein sauber beendeter Lauf ist es nie, egal wie frisch der Host.
+    assert stromrueckkehr.kaltstart({"state": "beendet"}, betriebszeit=30.0) is False
+
+
+def test_die_betriebszeit_kommt_aus_proc_uptime_oder_gar_nicht():
+    zeit = stromrueckkehr.betriebszeit()
+    assert zeit is None or zeit >= 0
+
+
 def test_ohne_vermerk_wird_nichts_abgeraeumt():
     """Beim allerersten Start fehlt er - und ein frisch eingerichteter
     Hub soll nicht als Erstes das Haus abräumen."""
@@ -87,8 +106,14 @@ async def test_ein_geordnetes_ende_hinterlaesst_seinen_vermerk(tmp_path):
         await zweiter.stop()
 
 
-async def test_nach_einem_abbruch_meldet_der_naechste_start_den_kaltstart(tmp_path):
+async def test_nach_einem_abbruch_meldet_der_naechste_start_den_kaltstart(
+    tmp_path, monkeypatch
+):
     """Kein stop() - so sieht ein Stromausfall aus."""
+    # Der Prüfrechner läuft seit Stunden; der Hub liest die Betriebszeit
+    # des Hosts als zweites Signal (Punkt 590) und hielte das sonst zu
+    # Recht für keinen Stromausfall. Hier ist der Rechner frisch gebootet.
+    monkeypatch.setattr(stromrueckkehr, "betriebszeit", lambda: 90.0)
     pfad = str(tmp_path / "hub.json")
     hub = Hub(make_config(data_file=pfad))
     await hub.start()
@@ -128,8 +153,14 @@ def ablauf(entity_id: str) -> dict:
     }
 
 
-async def kalt_gestartet(pfad: str, **kwargs) -> Hub:
-    """Einen Hub hochfahren, der einen Stromausfall hinter sich hat."""
+async def kalt_gestartet(pfad: str, monkeypatch, **kwargs) -> Hub:
+    """Einen Hub hochfahren, der einen Stromausfall hinter sich hat.
+
+    Die Betriebszeit des Rechners wird auf «frisch gebootet» gestellt:
+    Der Prüfrechner läuft seit Stunden, und das zweite Signal aus Punkt
+    590 hielte den Abbruch sonst zu Recht für keinen Stromausfall.
+    """
+    monkeypatch.setattr(stromrueckkehr, "betriebszeit", lambda: 90.0)
     vorlauf = Hub(make_config(data_file=pfad))
     await vorlauf.start()
     vorlauf.data.flush()
@@ -158,7 +189,7 @@ async def test_der_ablauf_laeuft_nach_dem_stromausfall(tmp_path, monkeypatch):
     # Ohne Wartezeit - die Untergrenze von fünf Sekunden ist für den
     # Betrieb richtig, im Test nur Leerlauf.
     monkeypatch.setattr(stromrueckkehr, "wartezeit", lambda _t: 0)
-    hub = await kalt_gestartet(pfad, automations=[ablauf(licht_id)])
+    hub = await kalt_gestartet(pfad, monkeypatch, automations=[ablauf(licht_id)])
     await hub.start()
     try:
         assert hub._kaltstart is True
@@ -222,7 +253,7 @@ async def test_die_spaet_erwachte_lampe_bekommt_ihre_zweite_gelegenheit(
 
     monkeypatch.setattr(stromrueckkehr, "wartezeit", lambda _t: 0)
     monkeypatch.setattr(stromrueckkehr, "takt", lambda _t: 0)
-    hub = await kalt_gestartet(pfad, automations=[ablauf(licht_id)])
+    hub = await kalt_gestartet(pfad, monkeypatch, automations=[ablauf(licht_id)])
     await hub.start()
     try:
         await hub.integrations.dispatch_command(licht_id, "turn_on", {})

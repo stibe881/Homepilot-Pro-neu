@@ -265,5 +265,5 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       backgroundColor: colors.danger,
     },
-    confirmText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+    confirmText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
   });

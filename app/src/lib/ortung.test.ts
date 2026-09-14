@@ -7,6 +7,7 @@ import {
   entfernungText,
   geortet,
   ortungsHinweis,
+  pauseAbgleich,
   pauseBis,
   pausiert,
   quellenText,
@@ -338,5 +339,27 @@ describe('entfernungText', () => {
     expect(entfernungText(undefined)).toBe('');
     expect(entfernungText(null)).toBe('');
     expect(entfernungText('weit')).toBe('');
+  });
+});
+
+describe('pauseAbgleich (Punkt 627)', () => {
+  const inEinerStunde = JETZT.getTime() + 3600000;
+  const vorhin = JETZT.getTime() - 60000;
+
+  it('schliesst sich der Pause des Hubs an, wenn das Gerät keine kennt', () => {
+    expect(pauseAbgleich(0, inEinerStunde, JETZT)).toBe('pausieren');
+    // Auch wenn das Gerät eine andere Pause kennt: Es gilt die des Hubs.
+    expect(pauseAbgleich(inEinerStunde + 1000, inEinerStunde, JETZT)).toBe('pausieren');
+  });
+
+  it('beendet die eigene Pause, wenn der Hub keine mehr kennt', () => {
+    expect(pauseAbgleich(inEinerStunde, null, JETZT)).toBe('weiter');
+    expect(pauseAbgleich(inEinerStunde, vorhin, JETZT)).toBe('weiter');
+  });
+
+  it('tut nichts, wenn beide dasselbe sagen', () => {
+    expect(pauseAbgleich(inEinerStunde, inEinerStunde, JETZT)).toBeNull();
+    expect(pauseAbgleich(0, null, JETZT)).toBeNull();
+    expect(pauseAbgleich(vorhin, vorhin, JETZT)).toBeNull();
   });
 });

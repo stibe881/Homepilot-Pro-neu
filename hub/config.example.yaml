@@ -22,6 +22,12 @@ api:
   # Herkünfte, die der Browser ansprechen darf. Nötig für die Web-Fassung
   # der App, die unter einer anderen Adresse läuft als der Hub.
   cors_origins: ["*"]
+  # Nur hinter einem Reverse Proxy (docs/app-ohne-vpn.md): Von diesen
+  # Adressen oder Netzen glaubt der Hub dem Kopf X-Forwarded-For - für die
+  # Bremse gegen Fehlversuche und fürs Zugriffsprotokoll. Leer heisst: Der
+  # Kopf zählt nie. Ein nicht eingetragener Proxy wird nach zehn fremden
+  # Fehlversuchen selbst gesperrt, und mit ihm das ganze Haus.
+  # trusted_proxies: ["172.18.0.0/16"]
   # Nur fürs Gäste-WLAN mit «External Portal Server»: UniFi lässt dort
   # allein eine IPv4-Adresse zu, kein «:8123» - der Controller schickt den
   # Gast also auf Port 80. Steht diese Zeile, antwortet dort ein blosser
@@ -433,6 +439,10 @@ integrations:
   #   calendar_ids:
   #     - primary
   #     - addressbook#contacts@group.v.calendar.google.com   # Geburtstage
+  #     # Ein Kalender, der einer Person gehört (Punkt 586): Termin-
+  #     # Erinnerung und Losfahr-Wecker gehen dann nur an sie.
+  #     - id: stefan@example.com
+  #       person: Stefan
 
   # Android TV / Google TV (auch Nvidia Shield). Braucht:
   #   pip install androidtvremote2
@@ -459,6 +469,21 @@ integrations:
   #       # … und lässt sich je Gerät ganz ersetzen.
   #       apps:
   #         - com.plexapp.android
+
+  # PlayStation 5 (oder 4): Kachel mit Zustand und laufendem Spiel,
+  # Fernbedienung, Karte auf dem Sperrbildschirm (Punkt 643). Zustand
+  # und Wecken laufen ohne Zusatzpaket; für Ruhemodus und Tasten braucht
+  # es Remote Play:  pip install "homepilot[playstation]"  (im Abbild dabei).
+  # Einmalige Kopplung in der App unter Einstellungen → Verbindungen:
+  # PSN-Anmeldung, dann der Code von der Konsole - siehe docs/playstation.md.
+  # - integration: playstation
+  #   # Wie lange eine Remote-Play-Sitzung ohne weitere Taste offen bleibt
+  #   # (Sekunden, Vorgabe 120). Jede Sitzung meldet sich auf dem
+  #   # Fernseher mit «verbunden»/«getrennt»; 0 heisst nie von selbst trennen.
+  #   session_idle: 120
+  #   devices:
+  #     - host: 192.168.1.60
+  #       name: PlayStation 5
 
   # Overkiz (Somfy TaHoma & Co.): Storen, Rollläden, Markisen.
   # Braucht: pip install pyoverkiz. Entwicklermodus im Somfy-Konto

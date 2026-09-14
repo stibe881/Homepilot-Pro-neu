@@ -274,3 +274,21 @@ def test_the_simulation_route_answers_and_caps_the_days():
             ).status_code
             == 404
         )
+
+
+def test_a_season_condition_counts_only_days_in_the_window():
+    """Punkt 598: «Weihnachtsbeleuchtung 1.12.–6.1.» - die Simulation
+    rechnet den Jahreswechsel genauso wie der Betrieb."""
+    ergebnis = simulieren(
+        [{"type": "time", "at": "17:00"}],
+        [{"type": "time", "from": "12-01", "to": "01-06"}],
+        "all",
+        10,
+        datetime(2027, 1, 9, 12, 0),
+        LAT,
+        LON,
+    )
+    # 31.12. bis 6.1. zählen (7 Tage), 7.–9.1. nicht.
+    assert ergebnis["total"] == 7
+    siebter = next(t for t in ergebnis["days"] if t["date"] == "2027-01-07")
+    assert siebter["count"] == 0

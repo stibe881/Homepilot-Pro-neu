@@ -1,9 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Entity } from '../api/types';
-import { workingAppliances } from '../lib/haushalt';
+import { applianceIcon, grillZumOeffnen, workingAppliances } from '../lib/haushalt';
 import { Colors, useColors } from '../theme';
 
 /**
@@ -15,26 +15,21 @@ import { Colors, useColors } from '../theme';
  * wert.
  */
 
-/**
- * Passendes Symbol zum Gerät (rein, testbar).
- *
- * Dieselben Symbole wie auf den Haushalt-Kacheln der Startseite. Bewusst
- * kein Kreispfeil: Der steht überall für «neu laden» und lädt zum Tippen
- * ein – hier gibt es aber nichts zu tippen, der Wert aktualisiert sich von
- * selbst, sobald der Hub eine Änderung meldet.
- */
-export function applianceIcon(name: string): keyof typeof Ionicons.glyphMap {
-  if (/tumbler|trockner/i.test(name)) return 'sunny-outline';
-  if (/wasch/i.test(name)) return 'water-outline';
-  if (/geschirr|sp(ü|ue)lmaschine/i.test(name)) return 'restaurant-outline';
-  return 'ellipse';
-}
-
-export function RunningAppliances({ entities }: { entities: Entity[] }) {
+export function RunningAppliances({
+  entities,
+  onGrill,
+}: {
+  entities: Entity[];
+  /** Ein Tipp auf «Smoker läuft» öffnet das Grillblatt (Punkt 563) -
+   *  der einzige Tipp hier: Für die Waschmaschine gibt es nichts zu
+   *  öffnen, und die Zeile bleibt bei ihr die stille Randnotiz. */
+  onGrill?: (entity: Entity) => void;
+}) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const working = workingAppliances(entities);
   if (working.length === 0) return null;
+  const grill = onGrill ? grillZumOeffnen(working) : null;
 
   const heading =
     working.length === 1
@@ -54,13 +49,10 @@ export function RunningAppliances({ entities }: { entities: Entity[] }) {
     .filter(Boolean)
     .join(', ');
 
-  return (
-    <View
-      style={styles.card}
-      accessibilityLabel={detail ? `${heading}: ${detail}` : heading}
-    >
+  const inhalt = (
+    <>
       <Ionicons
-        name={working.length === 1 ? applianceIcon(working[0].entity.name) : 'ellipse'}
+        name={working.length === 1 ? applianceIcon(working[0].entity) : 'ellipse'}
         size={working.length === 1 ? 16 : 10}
         color={colors.onGradientSoft}
       />
@@ -74,6 +66,25 @@ export function RunningAppliances({ entities }: { entities: Entity[] }) {
           </Text>
         ) : null}
       </View>
+    </>
+  );
+  const ansage = detail ? `${heading}: ${detail}` : heading;
+
+  if (grill) {
+    return (
+      <Pressable
+        onPress={() => onGrill?.(grill)}
+        accessibilityRole="button"
+        accessibilityLabel={`${ansage} – Grill öffnen`}
+        style={({ pressed }) => [styles.card, pressed && { opacity: 0.6 }]}
+      >
+        {inhalt}
+      </Pressable>
+    );
+  }
+  return (
+    <View style={styles.card} accessibilityLabel={ansage}>
+      {inhalt}
     </View>
   );
 }

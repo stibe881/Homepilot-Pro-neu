@@ -21,6 +21,21 @@ dependencies = [
 roborock = ["python-roborock>=3.0"]
 cast = ["pychromecast>=14.0"]
 androidtv = ["androidtvremote2>=0.3"]
+# PlayStation 5/4 über Remote Play (Punkt 643): Ruhemodus und Tasten.
+# Zustand und Wecken gehen auch ohne (DDP, eigener Code). Die Bibliothek
+# ist brüchig in ihren Abhängigkeiten, deshalb sind sie hier festgezurrt:
+# pyee 12 hat `ExecutorEventEmitter` entfernt, `pyps4-2ndscreen` braucht
+# async-timeout und aiohttp, und `netifaces` hat kein Rad für 3.12 -
+# `netifaces-plus` liefert dasselbe Modul als Rad (das Dockerfile bringt
+# für das Original trotzdem kurz gcc mit, weil pip die harte Abhängigkeit
+# von pyremoteplay dennoch baut).
+playstation = [
+    "pyremoteplay>=0.7.6",
+    "pyee<12",
+    "async-timeout>=4",
+    "aiohttp>=3.8",
+    "netifaces-plus>=0.12",
+]
 ring = ["ring-doorbell>=0.9"]
 # Tuya-Geräte lokal im eigenen Netz (Lampen, Steckdosen, Projektoren).
 tuya = ["tinytuya>=1.17"]

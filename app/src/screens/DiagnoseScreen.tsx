@@ -1,9 +1,10 @@
 /**
  * Die Prüfwerkzeuge des Hubs, aus der App aufrufbar (Punkt 344).
  *
- * Fünf kleine Kommandozeilen-Programme (storencheck, livecheck, tvcheck,
- * saugercheck, pushcheck - die Fragen dazu stehen in der Werkbank-
- * Tabelle) brauchten bisher `docker exec` auf dem Rechner im Haus. Diese
+ * Kleine Kommandozeilen-Programme (storencheck, livecheck, tvcheck,
+ * saugercheck, pushcheck, anwesenheitscheck - die Fragen dazu stehen in
+ * der Werkbank-Tabelle) brauchten bisher `docker exec` auf dem Rechner
+ * im Haus. Diese
  * Seite ruft dieselben Programme über /api/diagnose auf und zeigt ihre
  * Textausgabe unverändert - wer sie vom Terminal kennt, sieht hier
  * wortwörtlich dasselbe, nur ohne Terminal.
@@ -203,7 +204,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.pill,
       backgroundColor: colors.accent,
     },
-    knopfText: { color: colors.on, fontSize: 13, fontWeight: '700' },
+    knopfText: { color: colors.onInk, fontSize: 13, fontWeight: '700' },
     knopfZart: {
       paddingVertical: 8,
       paddingHorizontal: 14,

@@ -2,10 +2,13 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { CommandData } from '../api/types';
+import { CommandData, Entity } from '../api/types';
+import { useMeldung } from '../hooks/HubContext';
+import { Blatt } from './Blatt';
 import { TvApp } from './TvApps';
 import { TvAppLogo } from './TvAppLogo';
 import { tapped, triggered } from '../lib/haptics';
+import { PS_REIHE, PS_SYMBOLTASTEN, istPlaystation, psKopf } from '../lib/playstation';
 import { tvLogo } from '../lib/tvlogo';
 import { tastenStaerke } from '../lib/tastenhaptik';
 import { Colors, radius, useColors } from '../theme';
@@ -21,20 +24,18 @@ interface Props {
    *  liegt unter genau diesem Blatt. Wer die Fernbedienung offen hat und
    *  zu Zattoo will, musste sie erst schliessen. */
   apps?: TvApp[];
-  /** Was der Hub zur letzten Taste sagte – oder ``null``.
-   *
-   *  Muss hier hinein und nicht ins Band unten am Bildschirm: Die
-   *  Fernbedienung ist ein Modal und liegt darüber. Die Absage stand
-   *  also da, verdeckt von genau der Fläche, auf der man gerade tippt –
-   *  gemessen mit `elementFromPoint`, nicht geraten. Wer drückte, sah
-   *  nichts passieren und erfuhr auch nicht, warum. */
-  fehler?: string | null;
-  onFehlerWeg?: () => void;
-  /** Die Szene «Kino», wenn es genau eine gibt (lib/kinoszene.ts).
-   *  Der Film beginnt, das Licht ist noch hell - der Griff gehört
-   *  neben die Fernbedienung, nicht vier Tipps tief in die App. */
-  kino?: { id: string; name: string } | null;
-  onKino?: (sceneId: string) => void;
+  /** Bis zu zwei Szenen unten an der Fernbedienung (Punkt 646,
+   *  lib/fernbedienungsszenen.ts) - gewählt unter Einstellungen →
+   *  Verbindungen, oder die alte Regel: die Szene «Kino», wenn es genau
+   *  eine mit diesem Namen gibt. Der Film beginnt, das Licht ist noch
+   *  hell - der Griff gehört neben die Fernbedienung, nicht vier Tipps
+   *  tief in die App. */
+  szenen?: { id: string; name: string }[];
+  onSzene?: (sceneId: string) => void;
+  /** Das Gerät selbst - entscheidet, ob hier ein Fernseher oder eine
+   *  PlayStation bedient wird (Punkt 643). Optional, damit die
+   *  bestehenden Aufrufe unverändert bleiben: ohne Gerät ein Fernseher. */
+  entity?: Entity;
 }
 
 /** Eine einzelne Taste der Fernbedienung.
@@ -79,20 +80,34 @@ function Key({
 }
 
 /** Vollwertige Fernbedienung für Android-TV-Kacheln: Steuerkreuz,
- *  Lautstärke, Medientasten. Öffnet sich als Modal über dem Dashboard. */
+ *  Lautstärke, Medientasten. Öffnet sich als Modal über dem Dashboard.
+ *
+ *  Für die PlayStation (Punkt 643) dasselbe Blatt mit anderen Tasten:
+ *  Unter dem Steuerkreuz die vier Symboltasten in der Anordnung des
+ *  Controllers, darunter Share · PS · Options. Keine Lautstärke, kein
+ *  Transport, keine Apps - die Konsole kann über das Protokoll nichts
+ *  davon, und ein Knopf, der nichts tut, ist schlimmer als keiner. Das
+ *  OK in der Mitte des Kreuzes entfällt: Auf dem Controller bestätigt
+ *  das Kreuz, und zweimal dieselbe Taste verwirrt. */
 export function TvRemote({
   visible,
   name,
   onClose,
   onCommand,
   apps,
-  fehler,
-  onFehlerWeg,
-  kino,
-  onKino,
+  szenen,
+  onSzene,
+  entity,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  // Was der Hub zur letzten Taste sagte. Lange kam es als Prop hinein,
+  // weil die Fernbedienung ein Modal ist und das Band unten am
+  // Bildschirm zudeckt - die Absage stand da, verdeckt von genau der
+  // Fläche, auf der man gerade tippte (gemessen mit `elementFromPoint`).
+  // Seit Punkt 581 zeichnet das oberste Blatt das Band selbst
+  // (components/Blatt.tsx); hier bleibt nur das Wegräumen.
+  const meldung = useMeldung();
 
   // Was ein fertiger Druck tut. Die Taste selbst (Key) steht BEWUSST
   // ausserhalb dieser Funktion - siehe den Kommentar dort.
@@ -117,7 +132,7 @@ export function TvRemote({
     }
     // Die alte Absage gehört zur alten Taste. Bliebe sie stehen,
     // liesse sich nicht mehr erkennen, ob die neue ankam.
-    if (fehler) onFehlerWeg?.();
+    if (meldung?.fehler) meldung.fehlerWeg();
     onCommand(command, data);
   };
 
@@ -125,6 +140,16 @@ export function TvRemote({
     aussehen: { styles, colors },
     onDruck: druck,
   };
+
+  const konsole = istPlaystation(entity);
+  const kopf = konsole && entity ? psKopf(entity) : null;
+  // Nur Tasten, die das Gerät führt - wo das Gerät bekannt ist. Ohne
+  // Gerät (ältere Aufrufe) bleibt das volle Fernseher-Blatt, denn ein
+  // Fernseher ohne Ton gibt es nicht; ein Blatt, das dem Hub Befehle
+  // schickt, die er mit «unterstützt … nicht» beantwortet, aber schon
+  // (Punkt 643).
+  const kann = (befehl: string) =>
+    !entity || (Array.isArray(entity.commands) && entity.commands.includes(befehl));
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -135,7 +160,7 @@ export function TvRemote({
           dem Blatt. (Die stumme Fernbedienung auf dem iPhone war
           übrigens NICHT das - sie war der Neuaufbau der Tasten bei
           jedem Rendern, siehe den Kommentar an `Key`.) */}
-      <View style={styles.backdrop}>
+      <Blatt style={styles.backdrop}>
         <Pressable
           style={StyleSheet.absoluteFill}
           onPress={onClose}
@@ -143,9 +168,19 @@ export function TvRemote({
         />
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.title} numberOfLines={1}>
-              {name}
-            </Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title} numberOfLines={1}>
+                {kopf ? kopf.titel : name}
+              </Text>
+              {/* Das laufende Spiel unter dem Namen der Konsole - man
+                  sieht, was man fernbedient, ohne auf den Fernseher zu
+                  schauen. */}
+              {kopf ? (
+                <Text style={styles.untertitel} numberOfLines={1}>
+                  {kopf.unter}
+                </Text>
+              ) : null}
+            </View>
             <Pressable accessibilityLabel="Schliessen" onPress={onClose} style={styles.close}>
               <Ionicons name="close" size={20} color={colors.inkSoft} />
             </Pressable>
@@ -158,7 +193,11 @@ export function TvRemote({
             </View>
             <View style={styles.dpadRow}>
               <Key icon="chevron-back" command="dpad_left" label="Links" {...taste} />
-              <Key icon="ellipse-outline" command="ok" label="OK" big {...taste} />
+              {konsole ? (
+                <View style={[styles.keyBig, styles.keyLeer]} />
+              ) : (
+                <Key icon="ellipse-outline" command="ok" label="OK" big {...taste} />
+              )}
               <Key icon="chevron-forward" command="dpad_right" label="Rechts" {...taste} />
             </View>
             <View style={styles.dpadRow}>
@@ -166,23 +205,63 @@ export function TvRemote({
             </View>
           </View>
 
-          <View style={styles.row}>
-            <Key icon="arrow-undo" command="back" label="Zurück" {...taste} />
-            <Key icon="home-outline" command="home" label="Home" {...taste} />
-            <Key icon="power" command="toggle" label="An/Aus" {...taste} />
-          </View>
+          {konsole ? (
+            <>
+              {/* Die vier Symboltasten wie auf dem Controller: Dreieck
+                  oben, Viereck links, Kreis rechts, Kreuz unten - so
+                  liegen sie unter dem rechten Daumen, und so sucht man
+                  sie auch hier. Die Belegung steht in lib/playstation.ts. */}
+              <View style={styles.dpad}>
+                <View style={styles.dpadRow}>
+                  <Key {...PS_SYMBOLTASTEN.oben} {...taste} />
+                </View>
+                <View style={styles.dpadRow}>
+                  <Key {...PS_SYMBOLTASTEN.links} {...taste} />
+                  <View style={[styles.key, styles.keyLeer]} />
+                  <Key {...PS_SYMBOLTASTEN.rechts} {...taste} />
+                </View>
+                <View style={styles.dpadRow}>
+                  <Key {...PS_SYMBOLTASTEN.unten} {...taste} />
+                </View>
+              </View>
 
-          <View style={styles.row}>
-            <Key icon="volume-low" command="volume_down" label="Leiser" {...taste} />
-            <Key icon="volume-mute" command="mute" label="Stumm" {...taste} />
-            <Key icon="volume-high" command="volume_up" label="Lauter" {...taste} />
-          </View>
+              <View style={styles.row}>
+                {PS_REIHE.map((ps) => (
+                  <Key key={ps.command} {...ps} {...taste} />
+                ))}
+              </View>
 
-          <View style={styles.row}>
-            <Key icon="play-skip-back" command="previous" label="Zurück" {...taste} />
-            <Key icon="play" command="play" label="Play/Pause" {...taste} />
-            <Key icon="play-skip-forward" command="next" label="Weiter" {...taste} />
-          </View>
+              <View style={styles.row}>
+                <Key icon="power" command="toggle" label="An/Aus" {...taste} />
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.row}>
+                <Key icon="arrow-undo" command="back" label="Zurück" {...taste} />
+                <Key icon="home-outline" command="home" label="Home" {...taste} />
+                <Key icon="power" command="toggle" label="An/Aus" {...taste} />
+              </View>
+
+              {kann('volume_up') ? (
+                <View style={styles.row}>
+                  <Key icon="volume-low" command="volume_down" label="Leiser" {...taste} />
+                  {kann('mute') ? (
+                    <Key icon="volume-mute" command="mute" label="Stumm" {...taste} />
+                  ) : null}
+                  <Key icon="volume-high" command="volume_up" label="Lauter" {...taste} />
+                </View>
+              ) : null}
+
+              {kann('play') || kann('next') ? (
+                <View style={styles.row}>
+                  <Key icon="play-skip-back" command="previous" label="Zurück" {...taste} />
+                  <Key icon="play" command="play" label="Play/Pause" {...taste} />
+                  <Key icon="play-skip-forward" command="next" label="Weiter" {...taste} />
+                </View>
+              ) : null}
+            </>
+          )}
 
           {/* Die Apps zum Schluss: erst steuern, dann wechseln. Die
               gleiche Liste bietet auch die Kachel an - aber die liegt
@@ -216,43 +295,46 @@ export function TvRemote({
             </View>
           ) : null}
 
-          {/* Die Szene «Kino», wenn es genau eine gibt: Der Film
-              beginnt, das Licht ist noch hell - der Griff gehört
-              hierher, nicht vier Tipps tief in die App. Dieselbe Regel
-              wie auf der Live-Karte des Fernsehers (hub kino_knopf). */}
-          {kino && onKino ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Szene ${kino.name} starten`}
-              onPress={() => {
-                try {
-                  tapped();
-                } catch {
-                  // Haptik ist Zugabe - der Druck darf nie an ihr hängen.
-                }
-                if (fehler) onFehlerWeg?.();
-                onKino(kino.id);
-              }}
-              style={({ pressed }) => [styles.kinoKnopf, pressed && { opacity: 0.7 }]}
-            >
-              <Ionicons name="film-outline" size={17} color={colors.ink} />
-              <Text style={styles.kinoText}>{kino.name}</Text>
-            </Pressable>
-          ) : null}
-
-          {/* Nur die Absage des Hubs - eine Erfolgsmeldung braucht es
-              nicht mehr: Dass der Druck ankommt, sagen Haptik und
-              Fernseher. Die Diagnosezeilen von einst (welche Taste
-              rausging, App-Version, Berührungszähler) haben ihren Fall
-              gelöst und standen danach nur noch im Weg. */}
-          {fehler ? (
-            <View style={styles.absage}>
-              <Ionicons name="alert-circle-outline" size={16} color={colors.danger} />
-              <Text style={styles.absageText}>{fehler}</Text>
+          {/* Bis zu zwei Szenen unten an der Fernbedienung (Punkt 646):
+              der Film beginnt, das Licht ist noch hell, oder das Zocken
+              will sein eigenes Bild - der Griff gehört hierher, nicht
+              vier Tipps tief in die App. Ohne eigene Auswahl steht hier
+              die alte Regel (die Szene «Kino»), dieselbe wie auf der
+              Live-Karte des Fernsehers (hub kino_knopf). */}
+          {szenen && szenen.length > 0 && onSzene ? (
+            <View style={styles.szenenReihe}>
+              {szenen.map((szene) => (
+                <Pressable
+                  key={szene.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Szene ${szene.name} starten`}
+                  onPress={() => {
+                    try {
+                      tapped();
+                    } catch {
+                      // Haptik ist Zugabe - der Druck darf nie an ihr hängen.
+                    }
+                    if (meldung?.fehler) meldung.fehlerWeg();
+                    onSzene(szene.id);
+                  }}
+                  style={({ pressed }) => [styles.kinoKnopf, pressed && { opacity: 0.7 }]}
+                >
+                  <Ionicons name="film-outline" size={17} color={colors.ink} />
+                  <Text style={styles.kinoText} numberOfLines={1}>
+                    {szene.name}
+                  </Text>
+                </Pressable>
+              ))}
             </View>
           ) : null}
+
+          {/* Keine Erfolgsmeldung: Dass der Druck ankommt, sagen Haptik
+              und Fernseher. Die Absage des Hubs steht im Band des Blatts
+              (Punkt 581). Die Diagnosezeilen von einst (welche Taste
+              rausging, App-Version, Berührungszähler) haben ihren Fall
+              gelöst und standen danach nur noch im Weg. */}
         </View>
-      </View>
+      </Blatt>
     </Modal>
   );
 }
@@ -282,7 +364,8 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     header: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    title: { flex: 1, fontSize: 17, fontWeight: '600', color: colors.ink },
+    title: { fontSize: 17, fontWeight: '600', color: colors.ink },
+    untertitel: { fontSize: 13, color: colors.inkSoft, marginTop: 2 },
     close: { padding: 4 },
     dpad: { alignItems: 'center', gap: 8 },
     dpadRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -298,14 +381,12 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     keyBig: { width: 76, height: 76, borderRadius: 38 },
-    absage: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      gap: 8,
-      paddingTop: 4,
-    },
-    absageText: { flex: 1, fontSize: 13, lineHeight: 18, color: colors.inkSoft },
     keyPressed: { backgroundColor: colors.surfaceStrong },
+    // Ein Platzhalter, wo auf dem Controller keine Taste ist: die Mitte
+    // des Steuerkreuzes und die Mitte der Symboltasten. Unsichtbar,
+    // aber so gross wie eine Taste - sonst rücken die Nachbarn zusammen
+    // und das Kreuz verliert seine Form.
+    keyLeer: { backgroundColor: 'transparent', borderColor: 'transparent' },
     appReihe: {
       flexDirection: 'row',
       flexWrap: 'wrap',
@@ -316,14 +397,20 @@ const makeStyles = (colors: Colors) =>
       gap: 8,
       paddingTop: 2,
     },
-    // Der Kino-Griff: eine Pille unter den App-Logos, bewusst anders
-    // geformt als die runden Apps - er startet keine App, er stellt
-    // das Zimmer.
+    // Die Szenen-Reihe (Punkt 646): bis zu zwei Pillen unter den
+    // App-Logos, bewusst anders geformt als die runden Apps - sie
+    // starten keine App, sie stellen das Zimmer.
+    szenenReihe: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      gap: 8,
+      marginTop: 4,
+    },
     kinoKnopf: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      alignSelf: 'center',
       gap: 8,
       paddingHorizontal: 18,
       paddingVertical: 10,
@@ -331,9 +418,9 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.surfaceSoft,
       borderWidth: 1,
       borderColor: colors.surfaceBorder,
-      marginTop: 4,
+      maxWidth: '100%',
     },
-    kinoText: { color: colors.ink, fontSize: 14, fontWeight: '700' },
+    kinoText: { color: colors.ink, fontSize: 14, fontWeight: '700', flexShrink: 1 },
     appChip: {
       paddingVertical: 7,
       paddingHorizontal: 14,

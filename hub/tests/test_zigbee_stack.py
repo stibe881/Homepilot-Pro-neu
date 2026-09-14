@@ -89,6 +89,19 @@ def test_beide_compose_dateien_kennen_die_zwei_dienste():
         assert "zigbee2mqtt" in dienste, pfad.name
 
 
+def test_zigbee2mqtt_meldet_erreichbarkeit_weil_der_hub_darauf_wartet():
+    """Die eine Einstellung, ohne die das ganze Netz blass bleibt.
+
+    `Zigbee2MqttIntegration` abonniert `<name>/availability` und legt
+    jedes Gerät zunächst als nicht erreichbar an - ein Zigbee-Sensor
+    meldet sich erst, wenn sich etwas ändert. Steht die Erreichbarkeit
+    bei Zigbee2MQTT auf `false` (dessen Vorgabe), kommt diese Meldung
+    nie, und in der App ist nach jedem Neustart des Hubs alles grau.
+    Beide Seiten sind einzeln richtig und zusammen falsch.
+    """
+    assert _beispiel()["availability"]["enabled"] is True
+
+
 def test_die_weboberflaeche_fuehrt_keinen_fremden_code_aus():
     """Die Oberfläche auf 8099 hat keine Anmeldung.
 

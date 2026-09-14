@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Any
 
 from ..core.entity import Entity, EntityKind
@@ -80,6 +81,67 @@ def probe_temperatures(state: dict[str, Any]) -> dict[int, int]:
     return found
 
 
+#: So lange gilt ein Grill, der mitten im Lauf verstummt, als Störung -
+#: danach als ausgeschaltet.
+AUSFALL_KARENZ_S = 10 * 60.0
+
+
+def ausfall_zustand(
+    lief: bool, unerreichbar_seit: float, jetzt: float, grund: str
+) -> tuple[dict[str, Any], bool]:
+    """Was die Kachel zeigt, wenn der Grill nicht antwortet (rein, testbar).
+
+    Aus dem Haus (Punkt 571): «Wenn ein Smoker ausgeschaltet ist, soll
+    es anzeigen, dass er ausgeschaltet ist, und nicht ‹nicht
+    erreichbar›.» Ein Pit Boss ohne Strom antwortet nicht - und zwischen
+    zwei Grillabenden ist das der Normalfall, kein Ausfall. Dann heisst
+    er «Aus», ist erreichbar (er steht ja da) und ohne Störung; auch aus
+    der Liste der Ausfälle fällt er damit heraus.
+
+    Die Ausnahme ist der Grill, der **mitten im Lauf** verstummt: Der
+    Strom fiel, das WLAN riss ab, oder jemand zog den Stecker mit Fleisch
+    darauf - das ist die Störung, die man wissen will, samt Grund an der
+    Kachel. Sie gilt für eine Karenz; wer den Grill nach dem Essen vom
+    Strom nimmt, hat nach zehn Minuten wieder einen ausgeschalteten
+    Grill und keinen Ausfall.
+
+    Zurück kommt der Zustands-Nachtrag und ob die Kachel erreichbar ist.
+    """
+    if lief and jetzt - unerreichbar_seit < AUSFALL_KARENZ_S:
+        return {"problem": grund}, False
+    return (
+        {
+            "state": "off",
+            "problem": None,
+            # Kalt heisst kalt: Die Temperaturen von vorhin wären eine
+            # Behauptung über ein Gerät, das nichts mehr sagt.
+            "temperature": None,
+            "probes": {},
+            **{f"probe_{nummer}": None for nummer in (1, 2, 3, 4)},
+        },
+        True,
+    )
+
+
+def zusammenlegen(alt: dict[str, Any], neu: dict[str, Any]) -> dict[str, Any]:
+    """Eine Teilmeldung auf den letzten vollen Zustand legen (rein, testbar).
+
+    Aus dem Haus (Punkt 567): «Wenn ich die Zieltemperatur umstelle»,
+    stand im Blatt 0 °C, «Hält 0°», und alle vier Fühler waren leer.
+    Nach einem Befehl liest der Hub den Zustand sofort nach, und die
+    Cloud schickt zwischendurch Meldungen - beides kann ein Bruchstück
+    sein: nur der neue Sollwert, die Temperaturen als None. `grill_state`
+    machte daraus einen vollständigen Zustand mit lauter Lücken, und die
+    Lücken überschrieben im Hub die guten Werte von vorhin.
+
+    Deshalb: Was die Meldung nicht kennt oder als None schickt, bleibt,
+    wie es war. Nur die regelmässige Abfrage ersetzt den Zustand ganz -
+    sie ist vollständig, und nur bei ihr darf ein ausgesteckter Fühler
+    (None) auch verschwinden.
+    """
+    return {**alt, **{key: value for key, value in neu.items() if value is not None}}
+
+
 def faults(state: dict[str, Any]) -> list[str]:
     """Was gerade nicht stimmt, in lesbaren Worten (rein, testbar).
 
@@ -106,11 +168,23 @@ def faults(state: dict[str, Any]) -> list[str]:
     return problems
 
 
-def grill_state(state: dict[str, Any]) -> dict[str, Any]:
-    """Rohzustand des Grills in die Form des Hubs bringen (rein, testbar)."""
+def grill_state(state: dict[str, Any], model: str | None = None) -> dict[str, Any]:
+    """Rohzustand des Grills in die Form des Hubs bringen (rein, testbar).
+
+    ``model`` ist die Typenbezeichnung aus der config.yaml (PB1150PS2,
+    PBV4PS2). Sie reist seit Punkt 559 mit, weil die App daran die
+    Bauart erkennt und das passende Bild zeichnet - der liegende Grill
+    oder der stehende Räucherschrank (app: lib/grillbild.ts).
+    """
     running = bool(state.get("moduleIsOn"))
     problems = faults(state)
     return {
+        # «Das ist ein Grill» - ausdrücklich, nicht nur am Temperaturziel
+        # erkennbar (Punkt 572): Ein kalter Grill hat keines, und seine
+        # Kachel fiel darum auf die Spülmaschinen-Form zurück -
+        # «Unbekannt», ohne Bild.
+        "grill": True,
+        **({"model": model} if model else {}),
         "state": "running" if running else "off",
         "temperature": state.get("grillTemp"),
         "target": state.get("grillSetTemp"),
@@ -132,6 +206,23 @@ def grill_state(state: dict[str, Any]) -> dict[str, Any]:
         "faults": problems,
         "problem": problems[0] if problems else None,
     }
+
+
+def fehlergrund(err: BaseException, weg: str) -> str:
+    """Warum der Grill nicht antwortet - als Satz (rein, testbar).
+
+    Die Ausnahme allein taugt nicht: `TimeoutError()` hat gar keinen
+    Text, und `ClientConnectorError` trägt eine halbe Zeile Python. Auf
+    der Kachel steht der Satz unter «nicht erreichbar», und dort soll er
+    sagen, wo man nachsehen muss - nicht, welche Klasse geflogen ist.
+    """
+    art = type(err).__name__
+    text = str(err).strip()
+    if isinstance(err, TimeoutError) or "timeout" in f"{art} {text}".lower():
+        return f"Keine Antwort {weg} (Zeitüberschreitung) - steht der Grill unter Strom?"
+    if isinstance(err, (ConnectionError, OSError)) or "connect" in art.lower():
+        return f"Keine Verbindung {weg}: {text or art}"
+    return f"Fehler {weg}: {text or art}"
 
 
 def grill_entries(config: dict[str, Any]) -> list[dict[str, Any]]:
@@ -224,11 +315,29 @@ class _Grill:
 
     def __init__(self, eintrag: dict[str, Any], boss: Any, entity: Entity) -> None:
         self.name: str = eintrag["name"]
+        self.model: str = eintrag["model"]
+        # Der letzte vollständige Rohzustand - Bruchstücke werden darauf
+        # gelegt (zusammenlegen, Punkt 567).
+        self.roh: dict[str, Any] = {}
         self.may_start: bool = eintrag["allow_remote_start"]
         # Über die Cloud meldet sich der Grill von selbst, lokal nicht.
         self.pushes: bool = not eintrag["host"]
+        # Womit es versucht wird - gehört in die Meldung, wenn es nicht
+        # geht (Punkt 552). «Grill antwortet nicht» beantwortet die
+        # Frage «warum?» nicht; «über 10.10.1.60» beantwortet sie halb.
+        self.weg: str = (
+            f"lokal über {eintrag['host']}" if eintrag["host"] else "über die Pit-Boss-Wolke"
+        )
         self.boss = boss
         self.entity = entity
+        # Ob er beim letzten Versuch erreichbar war - damit nur der
+        # *Wechsel* im Log steht und nicht alle dreissig Sekunden
+        # dieselbe Zeile.
+        self.erreichbar: bool | None = None
+        # Seit wann er nicht antwortet, und ob er davor lief - daran
+        # entscheidet sich «Aus» oder «Störung» (ausfall_zustand).
+        self.unerreichbar_seit: float = 0.0
+        self.lief: bool = False
 
 
 class PitBossIntegration(Integration):
@@ -299,7 +408,9 @@ class PitBossIntegration(Integration):
                 eintrag["id"],
                 EntityKind.APPLIANCE,
                 eintrag["name"],
-                state={"state": "unknown"},
+                # Das Modell von Anfang an: Auch ein kalter, nicht
+                # erreichbarer Grill soll sein Bild bekommen.
+                state={"state": "unknown", "grill": True, "model": eintrag["model"]},
                 commands=commands,
                 available=False,
             )
@@ -315,7 +426,7 @@ class PitBossIntegration(Integration):
 
         async def _on_push(payload: Any) -> None:
             if isinstance(payload, dict):
-                await self._publish(grill, payload)
+                await self._teilmeldung(grill, payload)
 
         return _on_push
 
@@ -325,18 +436,54 @@ class PitBossIntegration(Integration):
                 state = await grill.boss.get_state()
             except Exception as err:
                 # Zwischen zwei Grillabenden ist das Gerät wochenlang aus.
-                # Das ist kein Fehler, nur «nicht da».
-                self.log.debug("Grill '%s' nicht erreichbar: %s", grill.name, err)
+                # Das ist kein Fehler, nur «nicht da» - deshalb keine
+                # Warnung bei jeder Runde.
+                #
+                # Der *Wechsel* gehört aber ins Log, und der Grund an die
+                # Kachel (Punkt 552). Vorher stand beides nirgends: Das
+                # Log schwieg auf «debug», und der Ausfall wurde mit
+                # einem leeren Wörterbuch gemeldet - unter «Ausfälle»
+                # stand damit «noch ausgefallen» und sonst nichts. Wer
+                # danebensteht und sieht, dass der Smoker läuft, kann
+                # daraus nicht schliessen, woran es liegt.
+                grund = fehlergrund(err, grill.weg)
+                jetzt = time.time()
+                if grill.erreichbar is not False:
+                    grill.unerreichbar_seit = jetzt
+                    # Ein laufender Grill, der verstummt, ist eine Warnung
+                    # wert; ein kalter zwischen zwei Abenden nicht.
+                    if grill.lief:
+                        self.log.warning("Grill '%s': %s", grill.name, grund)
+                    else:
+                        self.log.info("Grill '%s' ist aus (%s)", grill.name, grund)
+                    grill.erreichbar = False
+                else:
+                    self.log.debug("Grill '%s': %s", grill.name, grund)
+                nachtrag, erreichbar = ausfall_zustand(
+                    grill.lief, grill.unerreichbar_seit, jetzt, grund
+                )
                 await self.hub.registry.update_state(
-                    grill.entity.id, {}, available=False
+                    grill.entity.id, nachtrag, available=erreichbar
                 )
             else:
                 if isinstance(state, dict):
+                    if grill.erreichbar is False:
+                        self.log.info("Grill '%s' antwortet wieder", grill.name)
+                    grill.erreichbar = True
+                    grill.lief = bool(state.get("moduleIsOn"))
+                    # Die Abfrage ist vollständig - sie ersetzt den Stand.
+                    grill.roh = dict(state)
                     await self._publish(grill, state)
             await asyncio.sleep(self._interval)
 
+    async def _teilmeldung(self, grill: _Grill, raw: dict[str, Any]) -> None:
+        """Eine Meldung, die ein Bruchstück sein kann - auf den letzten
+        vollen Stand gelegt, statt ihn mit Lücken zu überschreiben."""
+        grill.roh = zusammenlegen(grill.roh, raw)
+        await self._publish(grill, grill.roh)
+
     async def _publish(self, grill: _Grill, raw: dict[str, Any]) -> None:
-        shaped = grill_state(raw)
+        shaped = grill_state(raw, grill.model)
         await self.hub.registry.update_state(grill.entity.id, shaped, available=True)
 
     async def handle_command(
@@ -372,9 +519,10 @@ class PitBossIntegration(Integration):
         except Exception as err:
             raise HomePilotError(f"Grill antwortet nicht: {err}") from err
         # Nicht auf die nächste Abfrage warten – wer schaltet, will sehen,
-        # dass es angekommen ist.
+        # dass es angekommen ist. Als Teilmeldung: Direkt nach einem
+        # Befehl kommt vom Gerät gern ein Bruchstück (Punkt 567).
         try:
-            await self._publish(grill, await grill.boss.get_state())
+            await self._teilmeldung(grill, await grill.boss.get_state())
         except Exception:
             pass
 

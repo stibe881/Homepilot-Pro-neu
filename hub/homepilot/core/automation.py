@@ -13,9 +13,11 @@ Trigger:
   - {type: weather_warning, min_severity?, entity_id?}   # neue Warnung (252)
 
 Bedingungen:
-  - {type: state, entity_id, attribute?: "state", equals? | above? | below?}
+  - {type: state, entity_id, attribute?: "state", equals? | above? | below?,
+     min_age?: minuten}   # «seit mindestens» - aus last_change (595)
   - {type: time, after?: "HH:MM", before?: "HH:MM", weekdays?: [0..6],
-     except_holidays?: true}   # Luzerner Feiertage, siehe feiertage.py (154)
+     except_holidays?: true,   # Luzerner Feiertage, siehe feiertage.py (154)
+     from?: "MM-DD", to?: "MM-DD"}   # Jahreszeit, über den Jahreswechsel (598)
   - {type: sun, state: "up"|"down"}   # steht die Sonne über dem Horizont?
   - {type: group, match: "any"|"all", conditions: [...]}  # und/oder geschachtelt
 
@@ -30,7 +32,9 @@ Aktionen:
   - {type: presence, zone, event: enter|leave}   # «X ist da» ohne Telefon
   - {type: wait_until, ...Bedingung, timeout?: sekunden}
   - {type: fade, entity_id, to: 0..100, minutes}   # weich dimmen (157)
-  - {type: automation, automation_id}   # die Aktionen eines anderen mitausführen
+  - {type: automation, automation_id, do?: run|snooze|enable|disable,
+     minutes?, until?: "HH:MM"}   # einen anderen starten - oder ruhen
+                                  # lassen, ein-, ausschalten (597)
   - {type: if, conditions, match?, then: [...], else?: [...]}   # (251)
   - {type: repeat, count, actions} / {type: repeat, while: [...],
      actions, max?}   # (251) - harte Obergrenze, siehe REPEAT_LIMIT
@@ -375,6 +379,12 @@ class Automation:
 
 # So viele Läufe merkt sich der Hub – genug, um einen Abend nachzuvollziehen.
 RUN_LIMIT = 100
+# … und so viele höchstens je Ablauf. Fehler aus der Runde 579 der
+# Werkbank: Der Ring galt nur fürs ganze Haus, und ein Bewegungslicht im
+# Flur verdrängte die Gute-Nacht-Spur in einer einzigen Nacht - genau die
+# Spur, der man am Morgen nachgehen wollte. Je Ablauf bleibt mindestens
+# das letzte Stück Geschichte stehen, egal wie geschwätzig die anderen sind.
+RUNS_PER_AUTOMATION = 20
 
 #: So lange nach einem Lauf wird nachgesehen, ob er gewirkt hat. Die
 #: Geräte melden ihren neuen Zustand über ihren eigenen Weg zurück -
@@ -496,6 +506,57 @@ def stolpersatz(gestolpert: list[tuple[str, str]], gesamt: int) -> str:
     return f"{kopf} Der Rest lief durch."
 
 
+#: Was der Schritt «Ablauf» mit dem anderen Ablauf tun kann (Punkt 597).
+AUTOMATION_DOS = ("run", "snooze", "enable", "disable")
+
+
+def parse_automation_do(value: Any) -> str:
+    """run, snooze, enable oder disable - Unbekanntes heisst run (rein, testbar).
+
+    «run» bleibt die Vorgabe: Jeder Ablauf, der bisher einen anderen
+    aufrief, tut das weiterhin, ohne dass jemand ein Feld nachträgt.
+    """
+    text = str(value or "run").strip().lower()
+    return text if text in AUTOMATION_DOS else "run"
+
+
+def ruhe_bis(action: dict[str, Any], jetzt: datetime) -> float | None:
+    """Bis wann «ruhen lassen» gilt - Unix-Sekunden (rein, testbar).
+
+    ``minutes`` zählt ab jetzt («Kino: Bewegungslicht ruht 3 h»),
+    ``until: "HH:MM"`` meint das nächste Vorkommen dieser Uhrzeit - heute,
+    wenn sie noch kommt, sonst morgen («Gäste: Flurlicht ruht bis 06:00»).
+    Steht beides da, gilt die Uhrzeit. None ohne brauchbare Angabe: Ein
+    Ruhen ohne Ende wäre ein «aus», das keiner so bestellt hat.
+    """
+    until = parse_hhmm(action.get("until"))
+    if until is not None:
+        ziel = jetzt.replace(hour=until[0], minute=until[1], second=0, microsecond=0)
+        if ziel <= jetzt:
+            ziel += timedelta(days=1)
+        return ziel.timestamp()
+    try:
+        minuten = float(action.get("minutes") or 0)
+    except (TypeError, ValueError):
+        minuten = 0.0
+    if minuten <= 0:
+        return None
+    return (jetzt + timedelta(minutes=minuten)).timestamp()
+
+
+def stellung_satz(do: str, alias: str, bis: float | None) -> str:
+    """Die Verlaufsnotiz zum Schritt «Ablauf» (rein, testbar)."""
+    if do == "snooze":
+        if bis is None:
+            return f"«{alias}» ruhen lassen - ohne Dauer, übersprungen"
+        return f"«{alias}» ruht bis {datetime.fromtimestamp(bis).strftime('%H:%M')}"
+    if do == "enable":
+        return f"«{alias}» eingeschaltet"
+    if do == "disable":
+        return f"«{alias}» ausgeschaltet"
+    return f"«{alias}» ausgeführt"
+
+
 def describe_action(action: dict[str, Any], name_of: Any = None) -> str:
     """Eine Aktion in einem Satz – für den Trockenlauf (rein, testbar).
 
@@ -581,6 +642,18 @@ def describe_action(action: dict[str, Any], name_of: Any = None) -> str:
         )
     if atype == "music":
         return musik_satz(action, named)
+    if atype == "automation":
+        ziel = str(action.get("automation_id") or action.get("automation") or "?")
+        do = parse_automation_do(action.get("do"))
+        if do == "snooze":
+            wie = f" {action['minutes']} Min" if action.get("minutes") else ""
+            wie = f" bis {action['until']}" if action.get("until") else wie
+            return f"Ablauf «{ziel}» ruhen lassen{wie}"
+        if do == "enable":
+            return f"Ablauf «{ziel}» einschalten"
+        if do == "disable":
+            return f"Ablauf «{ziel}» ausschalten"
+        return f"Ablauf «{ziel}» ausführen"
     if atype == "if":
         # Der Trockenlauf zählt nicht bloss («2 Schritte»), er zeigt die
         # Zweige - sonst weiss man erst im Betrieb, was «sonst» tut.
@@ -761,8 +834,63 @@ def timed_actions(actions: list[dict[str, Any]], name_of: Any = None) -> list[st
     return lines
 
 
+def wert_passt(condition: dict[str, Any], value: Any) -> bool:
+    """Passt der Istwert zu equals/above/below? (rein, testbar)
+
+    Ohne Vergleich gilt «passt» - eine Bedingung, die nur ein Gerät nennt,
+    ist erfüllt, sobald es das Gerät gibt (wie in _check_condition).
+    """
+    if "equals" in condition:
+        return value == condition["equals"]
+    try:
+        if "above" in condition:
+            return value is not None and float(value) > float(condition["above"])
+        if "below" in condition:
+            return value is not None and float(value) < float(condition["below"])
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def parse_min_age(value: Any) -> float:
+    """«seit mindestens … Minuten» an einer Zustandsbedingung (rein, testbar).
+
+    Punkt 595 der Werkbank. Unbrauchbares und Negatives heisst null - also
+    keine Anforderung: Ein Tippfehler soll die Bedingung nicht für immer
+    unerfüllbar machen.
+    """
+    try:
+        minuten = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, minuten)
+
+
+def zustand_alt_genug(
+    condition: dict[str, Any], last_change: float | None, jetzt_ts: float
+) -> bool:
+    """Gilt der Zustand schon lange genug? (rein, testbar)
+
+    Punkt 595 der Werkbank: «Sauger starten, nur wenn seit 30 Min keine
+    Bewegung im Wohnzimmer» - der Hub führt an jeder Entität
+    ``last_change``, benutzt hat es nur die Anzeige. Ohne ``min_age``
+    gilt immer. Ein unbekanntes ``last_change`` heisst *nicht erfüllt*:
+    Wer «seit 30 Minuten» verlangt, will keinen Ablauf, der nach einem
+    Neustart sofort läuft, weil niemand weiss, seit wann.
+    """
+    minuten = parse_min_age(condition.get("min_age"))
+    if minuten <= 0:
+        return True
+    if last_change is None:
+        return False
+    return (jetzt_ts - float(last_change)) >= minuten * 60
+
+
 def describe_condition(
-    condition: dict[str, Any], value: Any, ferien_name: str | None = None
+    condition: dict[str, Any],
+    value: Any,
+    ferien_name: str | None = None,
+    alter: float | None = None,
 ) -> str:
     """Warum eine Bedingung nicht passte, in einem Satz (rein, testbar).
 
@@ -771,6 +899,8 @@ def describe_condition(
 
     ``ferien_name`` kommt von aussen herein (Punkt 470): Die Ferientermine
     liegen in der Ablage des Hubs, und diese Funktion soll rein bleiben.
+    ``alter`` ebenso (Punkt 595): Minuten seit der letzten Änderung des
+    Geräts, None wenn der Hub es nicht weiss.
     """
     ctype = condition.get("type", "state")
     if ctype == "group":
@@ -778,6 +908,14 @@ def describe_condition(
         art = "oder" if str(condition.get("match", "all")) == "any" else "und"
         return f"«{art}»-Gruppe mit {len(subs)} Bedingungen nicht erfüllt"
     if ctype == "time":
+        heute = datetime.now().date()
+        if not datum_im_fenster(heute, condition.get("from"), condition.get("to")):
+            bereich = "–".join(
+                monatstag_text(teil)
+                for teil in (condition.get("from"), condition.get("to"))
+                if teil
+            )
+            return f"Heute ist der {heute.day}.{heute.month}., verlangt ist {bereich}"
         days = parse_weekdays(condition.get("weekdays"))
         if days and datetime.now().weekday() not in days:
             return f"Heute ist {WEEKDAYS[datetime.now().weekday()]}, verlangt sind {weekday_label(days)}"
@@ -821,6 +959,16 @@ def describe_condition(
         return f"Ein {was} läuft gerade - verlangt ist keiner"
     name = condition.get("entity_id", "Gerät")
     shown = "nichts" if value is None else f"«{value}»"
+    # «seit mindestens» (Punkt 595): Passt der Wert, war nur die Dauer zu
+    # kurz - dann soll der Satz die Dauer nennen, nicht den Wert.
+    verlangt = parse_min_age(condition.get("min_age"))
+    if verlangt > 0 and value is not None and wert_passt(condition, value):
+        if alter is None:
+            return (
+                f"{name} ist {shown}, aber seit wann, weiss der Hub nicht"
+                f" - verlangt sind {verlangt:g} Min"
+            )
+        return f"{name} ist erst seit {alter:.0f} Min {shown}, verlangt sind {verlangt:g}"
     if "above" in condition:
         return f"{name} ist {shown}, verlangt ist über {condition['above']}"
     if "below" in condition:
@@ -1124,6 +1272,63 @@ def calendar_due(
         if feuer_ab <= jetzt_ts < feuer_ab + 300:
             faellig.append(schluessel)
     return faellig
+
+
+def kalender_zeitpunkte(
+    events: list[dict[str, Any]],
+    contains: str,
+    kind: str,
+    minutes_before: float,
+) -> list[datetime]:
+    """Wann ein Kalender-Auslöser feuern würde (rein, testbar).
+
+    Fehler aus der Runde 579 der Werkbank: «Nächste Ausführung» und das
+    Tagesband kannten nur Zeit- und Sonnen-Auslöser; ein Ablauf «wenn
+    ‹Gäste› beginnt» stand ohne Uhrzeit da, obwohl der Termin im Kalender
+    liegt. Dieselbe Rechnung wie in ``calendar_due``, nur ohne Fenster:
+    Start oder Ende jedes passenden Termins, den Vorlauf abgezogen,
+    als naive Ortszeit, aufsteigend.
+    """
+    needle = contains.strip().lower()
+    zeitpunkte: list[datetime] = []
+    for event in events or []:
+        summary = str(event.get("summary") or "")
+        if needle and needle not in summary.lower():
+            continue
+        grenze = event.get("end" if kind == "end" else "start")
+        if not grenze:
+            continue
+        try:
+            zeitpunkt = datetime.fromisoformat(str(grenze).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if zeitpunkt.tzinfo is not None:
+            zeitpunkt = zeitpunkt.astimezone().replace(tzinfo=None)
+        zeitpunkte.append(zeitpunkt - timedelta(minutes=minutes_before))
+    return sorted(zeitpunkte)
+
+
+def verlauf_kuerzen(
+    runs: list[dict[str, Any]],
+    haus: int = RUN_LIMIT,
+    je_ablauf: int = RUNS_PER_AUTOMATION,
+) -> list[dict[str, Any]]:
+    """Den Verlauf beschneiden - jüngste zuerst (rein, testbar).
+
+    Zuerst je Ablauf auf ``je_ablauf`` Läufe, dann das Ganze auf ``haus``:
+    Ein geschwätziger Ablauf bekommt so nie mehr als seinen Anteil, und
+    für die anderen bleibt Platz. Die Reihenfolge bleibt, wie sie war.
+    """
+    gezaehlt: dict[str, int] = {}
+    gekuerzt: list[dict[str, Any]] = []
+    for run in runs:
+        schluessel = str(run.get("automation_id") or "")
+        stand = gezaehlt.get(schluessel, 0)
+        if stand >= je_ablauf:
+            continue
+        gezaehlt[schluessel] = stand + 1
+        gekuerzt.append(run)
+    return gekuerzt[:haus]
 
 
 def parse_repeat_count(value: Any, maximum: int = REPEAT_LIMIT) -> int:
@@ -1551,6 +1756,59 @@ def time_in_window(now: Any, after: str | None, before: str | None) -> bool:
     if von_min is not None:
         return minuten >= von_min
     return minuten < (bis_min or 0)
+
+
+def parse_monatstag(value: Any) -> tuple[int, int] | None:
+    """«MM-DD» in (Monat, Tag) - None, wenn es keins ist (rein, testbar).
+
+    Der 29.2. ist erlaubt: In Jahren ohne ihn fällt er einfach nicht an.
+    """
+    text = str(value or "").strip()
+    teile = text.split("-")
+    if len(teile) != 2:
+        return None
+    try:
+        monat, tag = int(teile[0]), int(teile[1])
+    except ValueError:
+        return None
+    if not (1 <= monat <= 12 and 1 <= tag <= 31):
+        return None
+    return monat, tag
+
+
+def monatstag_text(value: Any) -> str:
+    """«12-01» als «1.12.» - wie man es hier schreibt (rein, testbar)."""
+    geparst = parse_monatstag(value)
+    if geparst is None:
+        return str(value or "")
+    return f"{geparst[1]}.{geparst[0]}."
+
+
+def datum_im_fenster(heute: date, von: Any, bis: Any) -> bool:
+    """Liegt der Tag im Datumsbereich «MM-DD» bis «MM-DD»? (rein, testbar)
+
+    Punkt 598 der Werkbank: Weihnachtsbeleuchtung 1.12.–6.1.,
+    Hitzeschutz Mai–September - bis hierher jedes Jahr von Hand ein- und
+    ausgeschaltet. Dieselbe Regel wie ``time_in_window``: Liegt ``von``
+    nach ``bis``, geht das Fenster über den Jahreswechsel. Beide Ränder
+    zählen dazu. Ohne Angabe gilt immer; eine unlesbare Angabe gilt als
+    nicht erfüllt - aus «nur im Winter» darf kein «immer» werden.
+    """
+    if not von and not bis:
+        return True
+    start = parse_monatstag(von) if von else None
+    ende = parse_monatstag(bis) if bis else None
+    if (von and start is None) or (bis and ende is None):
+        log.warning("Zeitbedingung mit ungültigem Datum: from=%r to=%r", von, bis)
+        return False
+    tag = (heute.month, heute.day)
+    if start is not None and ende is not None:
+        if start <= ende:
+            return start <= tag <= ende
+        return tag >= start or tag <= ende
+    if start is not None:
+        return tag >= start
+    return ende is not None and tag <= ende
 
 
 def opposing(first: str, second: str) -> bool:
@@ -2276,7 +2534,7 @@ class AutomationEngine:
             # Kaputter Verlauf: lieber ohne Geschichte starten als gar nicht.
             return
         if stored:
-            self.runs = list(stored)[:RUN_LIMIT]
+            self.runs = verlauf_kuerzen(list(stored))
 
     def _location(self) -> tuple[float, float]:
         loc = getattr(self.hub.config, "location", None) or {}
@@ -2366,6 +2624,12 @@ class AutomationEngine:
         hat, nicht die des anderen Zimmers."""
         if self.paused:
             log.debug("Automation '%s' übersprungen (pausiert)", automation.alias)
+            return
+        if not automation.enabled:
+            # Zustands-Auslöser prüften das schon; Zeitgeber nicht. Seit ein
+            # Ablauf einen anderen zur Laufzeit ausschalten kann (Punkt
+            # 597), muss «aus» an einer Stelle für alle Auslöser gelten.
+            log.debug("Automation '%s' übersprungen (ausgeschaltet)", automation.alias)
             return
         # Der Babysitter sitzt im Wohnzimmer, und die Anwesenheit weiss
         # nichts davon. Solange sein Modus läuft, ruht alles, was nicht
@@ -2489,12 +2753,15 @@ class AutomationEngine:
         return True
 
     def next_run(self, automation: Automation) -> float | None:
-        """Wann der nächste Zeit- oder Sonnen-Auslöser fällig ist (Punkt 161).
+        """Wann der nächste Zeit-, Zeitraum-, Sonnen- oder Kalender-Auslöser
+        fällig ist (Punkt 161).
 
         Unix-Sekunden, ``None`` wenn nichts planbar ist - Zustands- und
         Intervall-Auslöser haben keinen Kalender. Der Zufalls-Versatz
         bleibt aussen vor: Angezeigt wird der Zielpunkt, gewürfelt wird
-        erst beim Feuern.
+        erst beim Feuern. Zeitraum (feuert zu Beginn) und Kalender kamen
+        mit dem Fehler aus der Runde 579 der Werkbank dazu - sie standen
+        vorher ohne «Nächste Ausführung» da.
         """
         if not automation.enabled:
             return None
@@ -2502,9 +2769,17 @@ class AutomationEngine:
         kandidaten: list[float] = []
         for trigger in automation.triggers:
             art = str(trigger.get("type", "state"))
-            if art == "time":
+            if art == "calendar":
+                kandidaten.extend(
+                    zeitpunkt.timestamp()
+                    for zeitpunkt in self._kalender_zeitpunkte(trigger)
+                    if zeitpunkt > jetzt
+                )
+            elif art in ("time", "window"):
                 try:
-                    hour, minute = _parse_hhmm(str(trigger.get("at")))
+                    hour, minute = _parse_hhmm(
+                        str(trigger.get("after" if art == "window" else "at"))
+                    )
                 except (TypeError, ValueError):
                     continue
                 ziel = jetzt.replace(hour=hour, minute=minute, second=0, microsecond=0)
@@ -2527,22 +2802,41 @@ class AutomationEngine:
     def tagesplan(self) -> list[dict[str, Any]]:
         """Was das Haus heute vorhat (Punkt 163).
 
-        Alle Zeit- und Sonnen-Auslöser des heutigen Tages, auch die schon
-        vorbeigezogenen - das Band in der App zeigt Erledigtes mit Haken
-        und Kommendes mit Uhrzeit. Zustands-Auslöser haben keinen
-        Kalender und stehen deshalb nicht hier.
+        Alle Zeit-, Zeitraum-, Sonnen- und Kalender-Auslöser des heutigen
+        Tages, auch die schon vorbeigezogenen - das Band in der App zeigt
+        Erledigtes mit Haken und Kommendes mit Uhrzeit. Zustands-Auslöser
+        haben keinen Kalender und stehen deshalb nicht hier.
         """
         heute = datetime.now()
         lat, lon = self._location()
         eintraege: list[dict[str, Any]] = []
+
+        def eintragen(automation: Automation, zeitpunkt: datetime, art: str) -> None:
+            eintraege.append(
+                {
+                    "automation_id": automation.id,
+                    "alias": automation.alias,
+                    "at": zeitpunkt.timestamp(),
+                    "art": art,
+                }
+            )
+
         for automation in self.automations:
             if not automation.enabled:
                 continue
             for trigger in automation.triggers:
                 art = str(trigger.get("type", "state"))
-                if art == "time":
+                if art == "calendar":
+                    # Ein Kalender-Auslöser kann heute mehrmals fällig sein.
+                    for zeitpunkt in self._kalender_zeitpunkte(trigger):
+                        if zeitpunkt.date() == heute.date():
+                            eintragen(automation, zeitpunkt, art)
+                    continue
+                if art in ("time", "window"):
                     try:
-                        hour, minute = _parse_hhmm(str(trigger.get("at")))
+                        hour, minute = _parse_hhmm(
+                            str(trigger.get("after" if art == "window" else "at"))
+                        )
                     except (TypeError, ValueError):
                         continue
                     zeitpunkt = heute.replace(
@@ -2564,16 +2858,22 @@ class AutomationEngine:
                     zeitpunkt = ereignis + timedelta(minutes=versatz)
                 else:
                     continue
-                eintraege.append(
-                    {
-                        "automation_id": automation.id,
-                        "alias": automation.alias,
-                        "at": zeitpunkt.timestamp(),
-                        "art": art,
-                    }
-                )
+                eintragen(automation, zeitpunkt, art)
         eintraege.sort(key=lambda eintrag: eintrag["at"])
         return eintraege
+
+    def _kalender_zeitpunkte(self, trigger: dict[str, Any]) -> list[datetime]:
+        """Die Feuerzeiten eines Kalender-Auslösers aus der Terminliste."""
+        try:
+            vorlauf = float(trigger.get("minutes_before") or 0)
+        except (TypeError, ValueError):
+            vorlauf = 0.0
+        return kalender_zeitpunkte(
+            self._calendar_events(str(trigger.get("entity_id") or "")),
+            str(trigger.get("contains") or ""),
+            str(trigger.get("event") or "start"),
+            vorlauf,
+        )
 
     async def probe_action(self, action: dict[str, Any]) -> None:
         """Eine einzelne Aktion ausführen, ohne den Ablauf (Punkt 164).
@@ -2818,7 +3118,7 @@ class AutomationEngine:
         if standbild is not None:
             await self._standbild_anhaengen(eintrag, standbild)
         if executed and error is None:
-            self._wirkung_planen(eintrag, actions)
+            self._wirkung_planen(eintrag, actions, automation)
         if executed and error is not None:
             await self._melde_fehlschlag(automation, error)
         if executed:
@@ -2866,6 +3166,36 @@ class AutomationEngine:
             data={"ziel": f"ablauf:{automation.id}"},
             category="maintenance",
         )
+    async def _melde_wirkungslos(
+        self,
+        automation: Automation,
+        punkte: list[dict[str, Any]],
+        fehlt: list[str],
+        name_of: Any,
+    ) -> None:
+        """Sagen, dass ein Lauf auch nach dem Nachfassen nichts bewirkte
+        (Punkt 596 der Werkbank).
+
+        Derselbe Weg wie beim gestolperten Schritt (465): Kategorie
+        «maintenance», höchstens einmal am Tag je Ablauf, der Tipp führt
+        in den Verlauf. Ein Gerät, das seit Wochen nicht hört, macht
+        sonst aus jeder Nacht zwei Nachrichten.
+        """
+        heute = datetime.now().strftime("%Y-%m-%d")
+        marke = f"wirkung:{automation.id}:{heute}"
+        if marke in self._fehlschlag_gemeldet:
+            return
+        self._fehlschlag_gemeldet.add(marke)
+        titel, text = wirkung.meldung(automation.alias, punkte, fehlt, name_of)
+        tokens = self.hub.push.recipients(self.hub.users.users, "all", "maintenance")
+        await self.hub.push.send(
+            tokens,
+            titel,
+            text,
+            data={"ziel": f"ablauf:{automation.id}"},
+            category="maintenance",
+        )
+
     def _standbild_starten(
         self, automation: Automation, ausloeser: str | None
     ) -> asyncio.Task[str | None] | None:
@@ -2935,9 +3265,13 @@ class AutomationEngine:
             self._verlauf_sichern()
 
     def _wirkung_planen(
-        self, eintrag: dict[str, Any], actions: list[dict[str, Any]]
+        self,
+        eintrag: dict[str, Any],
+        actions: list[dict[str, Any]],
+        automation: Automation,
     ) -> None:
-        """Ein paar Sekunden später nachsehen, ob der Lauf gewirkt hat.
+        """Ein paar Sekunden später nachsehen, ob der Lauf gewirkt hat -
+        und einmal nachfassen, wenn nicht (Punkt 596).
 
         «Ausgeführt» heisst bisher nur: abgeschickt. Ein Funkbefehl, der
         nicht ankommt, sieht im Protokoll genauso aus wie einer, der das
@@ -2948,17 +3282,52 @@ class AutomationEngine:
         Befehl steht dort noch der alte, und jeder Lauf sähe wirkungslos
         aus. Was sich nicht vorhersagen lässt, wird gar nicht erst
         geprüft (core/wirkung.py).
+
+        Nachfassen (Punkt 596): Fehlt etwas, geht für genau diese Geräte
+        der Befehl noch einmal hinaus - ein verlorener Funkbefehl ist der
+        häufigste Grund, und der zweite kommt meist an. Dann wird erneut
+        nachgesehen; ``effect.nachgefasst`` sagt, dass es zwei Anläufe
+        brauchte. Bleibt es wirkungslos, meldet es der Hub - «Gute Nacht»
+        lässt die Stehlampe an, und niemand liest nachts den Verlauf.
         """
         punkte = wirkung.pruefpunkte(actions)
         if not punkte or self._stopping:
             return
 
+        def stand() -> dict[str, dict[str, Any]]:
+            return {entity.id: dict(entity.state) for entity in self.hub.registry.all()}
+
+        def name_of(entity_id: str) -> str:
+            entity = self.hub.registry.get(entity_id)
+            return entity.label if entity else entity_id
+
         async def nachsehen() -> None:
             await asyncio.sleep(WIRKUNG_NACH)
-            stand = {
-                entity.id: dict(entity.state) for entity in self.hub.registry.all()
-            }
-            ergebnis = wirkung.abgleich(punkte, stand)
+            ergebnis = wirkung.abgleich(punkte, stand())
+            nachgefasst = False
+            if ergebnis["fehlt"] and not self._stopping:
+                noch_einmal = wirkung.nachfass_aktionen(actions, ergebnis["fehlt"])
+                if noch_einmal:
+                    nachgefasst = True
+                    # Dem Ablauf zugeschrieben wie der erste Versuch - am
+                    # Gerät soll «Gute Nacht» stehen, nicht «von Hand».
+                    with as_source(automation_source(automation.id, automation.alias)):
+                        for action in noch_einmal:
+                            try:
+                                await self._execute_action(automation, action)
+                            except Exception as err:
+                                log.info(
+                                    "Nachfassen für '%s' hing: %s", automation.alias, err
+                                )
+                    await asyncio.sleep(WIRKUNG_NACH)
+                    zweiter = wirkung.abgleich(
+                        [p for p in punkte if p["entity_id"] in ergebnis["fehlt"]],
+                        stand(),
+                    )
+                    ergebnis = {
+                        "ok": ergebnis["ok"] + zweiter["ok"],
+                        "fehlt": zweiter["fehlt"],
+                    }
             spruch = wirkung.urteil(ergebnis)
             if spruch is None:
                 return
@@ -2975,8 +3344,11 @@ class AutomationEngine:
                     )
                     if entity is not None
                 ],
+                "nachgefasst": nachgefasst,
             }
             self._verlauf_sichern()
+            if ergebnis["fehlt"] and not eintrag.get("test") and not self._stopping:
+                await self._melde_wirkungslos(automation, punkte, ergebnis["fehlt"], name_of)
 
         task = asyncio.create_task(nachsehen())
         self._run_tasks.add(task)
@@ -3014,7 +3386,7 @@ class AutomationEngine:
             "steps": steps or [],
         }
         self.runs.insert(0, eintrag)
-        del self.runs[RUN_LIMIT:]
+        self.runs[:] = verlauf_kuerzen(self.runs)
         # Auch auf die Platte: Nach einem Neustart ist sonst genau die
         # Spur weg, der man nachgeht - «heute Nacht ging das Licht an, und
         # jetzt weiss niemand, warum».
@@ -3196,7 +3568,7 @@ class AutomationEngine:
             self.hub.data.get(schulferien.STORE_KEY), date.today()
         )
         failed = [
-            describe_condition(c, self._value_of(c), ferien_name)
+            describe_condition(c, self._value_of(c), ferien_name, self._alter_of(c))
             for c, ok in results
             if not ok
         ]
@@ -3269,6 +3641,16 @@ class AutomationEngine:
             return None
         return entity.state.get(condition.get("attribute", "state"))
 
+    def _alter_of(self, condition: dict[str, Any]) -> float | None:
+        """Minuten seit der letzten Änderung des Geräts – für «seit
+        mindestens» (Punkt 595); None, wenn der Hub es nicht weiss."""
+        if condition.get("type", "state") != "state":
+            return None
+        entity = self.hub.registry.get(condition.get("entity_id", ""))
+        if entity is None or entity.last_change is None:
+            return None
+        return max(0.0, (time.time() - float(entity.last_change)) / 60)
+
     def _check_condition(self, condition: dict[str, Any]) -> bool:
         ctype = condition.get("type", "state")
         if ctype == "group":
@@ -3289,14 +3671,18 @@ class AutomationEngine:
             if entity is None:
                 return False
             value = entity.state.get(condition.get("attribute", "state"))
-            if "equals" in condition:
-                return value == condition["equals"]
-            if "above" in condition:
-                return value is not None and float(value) > float(condition["above"])
-            if "below" in condition:
-                return value is not None and float(value) < float(condition["below"])
-            return True
+            if not wert_passt(condition, value):
+                return False
+            # «seit mindestens … Minuten» (Punkt 595): Das gilt auch für
+            # wait_until und den «wenn»-Schritt - beide kommen hier durch.
+            return zustand_alt_genug(condition, entity.last_change, time.time())
         if ctype == "time":
+            # Jahreszeit (Punkt 598): «vom 1.12. bis 6.1.» - vor den
+            # Wochentagen, weil sie den grösseren Rahmen setzt.
+            if not datum_im_fenster(
+                datetime.now().date(), condition.get("from"), condition.get("to")
+            ):
+                return False
             days = parse_weekdays(condition.get("weekdays"))
             if days and datetime.now().weekday() not in days:
                 return False
@@ -3438,7 +3824,7 @@ class AutomationEngine:
                 return
             await hue.activate_scene(str(action.get("scene") or ""))
         elif atype == "automation":
-            await self._run_other(automation, action)
+            return await self._run_other(automation, action)
         elif atype == "if":
             return await self._verzweigung(automation, action, ausloeser, tiefe)
         elif atype == "repeat":
@@ -3720,12 +4106,27 @@ class AutomationEngine:
             except (TypeError, ValueError):
                 helligkeit = None
 
+        # Die Farbtemperatur reist gleich mit dem ersten Befehl mit, wenn
+        # es einen gibt (Punkt 645 der Werkbank): Der gemeldete Fall war
+        # eine Hue-Lampe, die immer auf warmweiss schaltete, egal welcher
+        # Weisston gewählt war - der Hub schickte «an, mit Helligkeit» und
+        # «und diese Farbe» als zwei getrennte Anfragen, und die zweite
+        # kam auf der Zigbee-Funkstrecke manchmal zu spät oder ging unter.
+        # Integrationen, die diese Abkürzung nicht kennen (die meisten),
+        # ignorieren das zusätzliche Feld einfach - für sie zieht weiter
+        # unten die eigene set_color_temp-Anfrage die Farbe nach.
+        erste_daten: dict[str, Any] = {}
+        farbe_vorab = action.get("color")
+        weiss_vorab = action.get("color_temp")
+        if weiss_vorab and not farbe_vorab:
+            erste_daten["color_temp"] = float(weiss_vorab)
+
         if helligkeit is not None and "set_brightness" in entity.commands:
             await self.hub.integrations.dispatch_command(
-                entity_id, "set_brightness", {"brightness": helligkeit}
+                entity_id, "set_brightness", {"brightness": helligkeit, **erste_daten}
             )
         else:
-            await self.hub.integrations.dispatch_command(entity_id, "turn_on", {})
+            await self.hub.integrations.dispatch_command(entity_id, "turn_on", erste_daten)
 
         # Und wie lange sie an bleiben soll. Ohne diese Angabe brauchte ein
         # Bewegungslicht drei Schritte (an, warten, aus) - und der
@@ -3940,16 +4341,46 @@ class AutomationEngine:
         Je Lampe genau ein Zeitgeber: Neue Bewegung während des Nachlaufs
         verlängert ihn. Zwei Zeitgeber nebeneinander hiessen, dass das
         Licht beim ersten ausgeht, obwohl gerade jemand im Flur steht.
+
+        Und wenn der Melder gar nicht neu auslöst, weil er seit der
+        ersten Bewegung ununterbrochen «on» sagt, wird am Ende der Frist
+        nachgesehen statt ausgeschaltet (Punkt 547). Das war der
+        gemeldete Fehler: Ein echter Melder meldet einmal und bleibt dann
+        darauf, bis es ruhig wird - ein zweites «on» ist für den Hub
+        «nichts geändert». Das Licht ging mitten im Betrieb aus, und der
+        Melder konnte es nicht einmal wieder anschalten, weil er nie auf
+        «off» war.
         """
         self._nachlauf_stoppen(entity_id)
         faellig = time.time() + seconds
+        # Wen man fragt, ob die Bewegung noch anhält: die Auslöser dieses
+        # Ablaufs. Ein Ablauf ohne Melder - «um 18:00 das Licht an» -
+        # hat hier keine, und dann gilt die Zeit wie bisher.
+        melder = licht.lux_sources(automation.triggers)
 
         async def warten() -> None:
-            await asyncio.sleep(seconds)
-            entity = self.hub.registry.get(entity_id)
-            if entity is None or str(entity.state.get("state")) != "on":
-                # Jemand war schneller - dann gibt es nichts auszuschalten.
-                return
+            nonlocal faellig
+            while True:
+                await asyncio.sleep(max(0.0, faellig - time.time()))
+                entity = self.hub.registry.get(entity_id)
+                if entity is None or str(entity.state.get("state")) != "on":
+                    # Jemand war schneller - dann gibt es nichts auszuschalten.
+                    return
+                if not licht.bewegung_haelt_an(self.hub.registry.all(), melder):
+                    break
+                # Der Melder sagt immer noch «Bewegung»: Die letzte
+                # Bewegung ist jetzt, also zählt der Nachlauf von vorn.
+                faellig = time.time() + seconds
+                self._nachlauf[entity_id] = (asyncio.current_task(), faellig)  # type: ignore[assignment]
+                if automation.countdown:
+                    # Sonst stünde an der Kachel weiter die alte
+                    # Restzeit und liefe auf null, während das Licht
+                    # brennt (core/abschaltung.py).
+                    self._start_task(
+                        self._countdown_setzen(
+                            entity_id, faellig, asyncio.current_task()
+                        )
+                    )
             with as_source(automation_source(automation.id, automation.alias)):
                 await self.hub.integrations.dispatch_command(entity_id, "turn_off", {})
 
@@ -4075,13 +4506,18 @@ class AutomationEngine:
                 log.info(
                     "Automation '%s': Wartezeit abgelaufen, %s",
                     automation.alias,
-                    describe_condition(action, self._value_of(action)),
+                    describe_condition(
+                        action, self._value_of(action), alter=self._alter_of(action)
+                    ),
                 )
                 return f"Frist abgelaufen ({timeout:.0f} s)"
             await asyncio.sleep(WAIT_POLL)
 
-    async def _run_other(self, automation: Automation, action: dict[str, Any]) -> None:
-        """Die Aktionen eines anderen Ablaufs mitausführen.
+    async def _run_other(
+        self, automation: Automation, action: dict[str, Any]
+    ) -> str | None:
+        """Die Aktionen eines anderen Ablaufs mitausführen - oder ihn
+        ruhen lassen, ein- oder ausschalten (``do``, Punkt 597).
 
         Wozu: «Alles aus» steht in fünf Abläufen fast gleich - beim
         Weggehen, zur Nacht, beim Scharfschalten. Bisher musste man es
@@ -4101,12 +4537,15 @@ class AutomationEngine:
                 automation.alias,
                 ziel_id or "(ohne Kennung)",
             )
-            return
+            return f"Ablauf «{ziel_id or '?'}» gibt es nicht"
+        do = parse_automation_do(action.get("do"))
+        if do != "run":
+            return self._ablauf_stellen(automation, ziel, do, action)
         if ziel.id == automation.id:
             # Ein Ablauf, der sich selbst aufruft, läuft bis der Speicher
             # voll ist. Lieber hier abfangen als im Haus.
             log.warning("Automation '%s' ruft sich selbst auf - übersprungen", ziel.alias)
-            return
+            return "ruft sich selbst auf - übersprungen"
         tiefe = self._depth.get(automation.id, 0)
         if tiefe >= CALL_DEPTH:
             # Zwei Abläufe, die einander rufen, tun das sonst endlos.
@@ -4116,7 +4555,7 @@ class AutomationEngine:
                 tiefe,
                 ziel.alias,
             )
-            return
+            return "Aufrufkette zu tief - nicht ausgeführt"
         log.info("Automation '%s' führt '%s' mit aus", automation.alias, ziel.alias)
         self._depth[ziel.id] = tiefe + 1
         try:
@@ -4124,6 +4563,58 @@ class AutomationEngine:
                 await self._execute_action(ziel, weitere)
         finally:
             self._depth.pop(ziel.id, None)
+        return stellung_satz("run", ziel.alias, None)
+
+    def _ablauf_stellen(
+        self, automation: Automation, ziel: Automation, do: str, action: dict[str, Any]
+    ) -> str:
+        """Einen anderen Ablauf ruhen lassen, ein- oder ausschalten (Punkt 597).
+
+        «Termin ‹Gäste› beginnt → Bewegungslicht Flur ruht bis 06:00»,
+        «Alarm auf ‹weg› → Anwesenheitssimulation ein» - bis hierher gab
+        es das nur als Route und Hand-Knopf (159) oder über Bearbeiten.
+
+        Geschrieben wird wie die Route in `hub.data` - aber ohne
+        ``reload_automations``: Das hielte den Motor an und damit auch
+        den Lauf, der gerade diesen Schritt ausführt. Stattdessen wird
+        das lebende Objekt gestellt und der Eintrag nachgetragen; Abläufe
+        aus der config.yaml gehören der Datei und ändern sich nur zur
+        Laufzeit.
+        """
+        felder: dict[str, Any] = {}
+        bis: float | None = None
+        if do == "snooze":
+            bis = ruhe_bis(action, datetime.now())
+            if bis is None:
+                log.warning(
+                    "Automation '%s': «%s» ruhen lassen ohne minutes/until",
+                    automation.alias,
+                    ziel.alias,
+                )
+                return stellung_satz(do, ziel.alias, None)
+            ziel.quiet_until = bis
+            felder["quiet_until"] = bis
+        elif do == "enable":
+            ziel.enabled = True
+            felder["enabled"] = True
+        elif do == "disable":
+            ziel.enabled = False
+            felder["enabled"] = False
+        if ziel.editable:
+            try:
+                gespeichert = self.hub.data.get("automations") or []
+                self.hub.data.set(
+                    "automations",
+                    [
+                        {**eintrag, **felder} if eintrag.get("id") == ziel.id else eintrag
+                        for eintrag in gespeichert
+                    ],
+                )
+            except Exception:
+                log.debug("Stellung von '%s' nicht schreibbar", ziel.alias, exc_info=True)
+        satz = stellung_satz(do, ziel.alias, bis)
+        log.info("Automation '%s': %s", automation.alias, satz)
+        return satz
 
     async def _verzweigung(
         self,

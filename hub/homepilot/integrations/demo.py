@@ -291,6 +291,28 @@ class DemoIntegration(Integration):
                 ],
             },
         )
+        # Ein laufender Pelletgrill mit zwei eingesteckten Fühlern
+        # (Punkt 554). Ohne ihn liess sich weder die Grillkachel noch
+        # die Live-Karte je ansehen: Der Prüfstand hatte kein Gerät mit
+        # Temperaturziel, und genau daran hängen beide.
+        await self.add_entity(
+            "smoker",
+            EntityKind.APPLIANCE,
+            "Smoker",
+            state={
+                # Dasselbe Modell wie der Smoker im Haus - daran hängt
+                # das Bild auf der Kachel (Punkt 559).
+                "model": "PB1150PS2",
+                "state": "running",
+                "temperature": 104,
+                "target": 110,
+                "unit": "°C",
+                "probes": {1: 52, 2: 36},
+                "probe_1": 52,
+                "probe_2": 36,
+            },
+            commands=["turn_off", "set_temperature"],
+        )
         await self.add_entity(
             "weather_alerts",
             EntityKind.ALERT,
@@ -341,6 +363,12 @@ class DemoIntegration(Integration):
                 changes["image"] = None
             else:
                 changes["state"] = "off"
+        elif command == "set_temperature":
+            # Der Demo-Grill nimmt den Sollwert wie gewünscht an - ohne
+            # die Raste des echten Geräts; die kennt die App selbst
+            # (lib/grillziel.ts, grillstufen). Ohne diesen Zweig liess
+            # sich «Ziel erhöhen» im Browser nicht messen (Punkt 565).
+            changes["target"] = float(data.get("temperature", 0))
         elif command == "toggle":
             # Eine Box kippt zwischen «spielt» und «pausiert», eine Lampe
             # zwischen an und aus. Derselbe Knopf, zwei Vokabeln – die

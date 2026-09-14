@@ -36,6 +36,13 @@ export function Einrichtungshilfe({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [offenAuf, setOffenAuf] = useState<string | null>(null);
   const [entwurf, setEntwurf] = useState('');
+  // Zugeklappt, bis jemand sie aufmacht (Punkt 550). Einrichten tut man
+  // einmal je Gerät; die Liste stand aber jedes Mal offen, wenn man die
+  // Geräteseite öffnete - bei achtzig Geräten ohne Raum war das eine
+  // Bildschirmlänge, durch die man scrollte, um an die Geräte zu
+  // kommen, die man suchte. Die Zeile darüber sagt weiterhin, ob sich
+  // das Aufklappen lohnt.
+  const [aufgeklappt, setAufgeklappt] = useState(false);
 
   const offen = useMemo(() => offeneGeraete(entities, raeume), [entities, raeume]);
   // Wer fertig ist, sieht die Karte nicht mehr.
@@ -51,12 +58,28 @@ export function Einrichtungshilfe({
 
   return (
     <Card>
-      <View style={styles.kopf}>
+      <Pressable
+        onPress={() => setAufgeklappt((auf) => !auf)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: aufgeklappt }}
+        accessibilityLabel={
+          aufgeklappt ? 'Noch einzurichten zuklappen' : 'Noch einzurichten aufklappen'
+        }
+        style={({ pressed }) => [styles.kopf, pressed && { opacity: 0.7 }]}
+      >
         <Ionicons name="construct-outline" size={18} color={colors.inkSoft} />
-        <Text style={styles.titel}>Noch einzurichten</Text>
-      </View>
+        <Text style={[styles.titel, { flex: 1 }]}>Noch einzurichten</Text>
+        <Ionicons
+          name={aufgeklappt ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={colors.inkSoft}
+        />
+      </Pressable>
+      {/* Bleibt auch zugeklappt stehen: «78 ohne Raum» ist die Auskunft,
+          an der man entscheidet, ob man die Karte überhaupt aufmacht. */}
       <Text style={styles.satz}>{offenSatz(offen)}</Text>
 
+      {!aufgeklappt ? null : (
       <ScrollView style={{ maxHeight: 420 }}>
         {offen.map((eintrag) => {
           const auf = offenAuf === eintrag.entity.id;
@@ -141,7 +164,7 @@ export function Einrichtungshilfe({
                         (pressed || !entwurf.trim()) && { opacity: 0.5 },
                       ]}
                     >
-                      <Ionicons name="checkmark" size={18} color="#FFFFFF" />
+                      <Ionicons name="checkmark" size={18} color={colors.onAccent} />
                     </Pressable>
                   </View>
                   <Text style={styles.hinweis}>
@@ -154,6 +177,7 @@ export function Einrichtungshilfe({
           );
         })}
       </ScrollView>
+      )}
     </Card>
   );
 }
@@ -179,7 +203,7 @@ const makeStyles = (colors: Colors) =>
     },
     chipAn: { backgroundColor: colors.accent, borderColor: colors.accent },
     chipText: { color: colors.inkSoft, fontSize: 12, fontWeight: '600' },
-    chipTextAn: { color: '#FFFFFF' },
+    chipTextAn: { color: colors.onAccent },
     namensZeile: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     eingabe: {
       flex: 1,

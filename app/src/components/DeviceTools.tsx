@@ -51,6 +51,10 @@ export function DeviceTools({
   const [neu, setNeu] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Zugeklappt, bis jemand sie braucht (Punkt 550). Drei Knöpfe für
+  // Arbeiten, die man ein paarmal im Jahr macht - sie standen bisher
+  // auf jeder Geräteseite offen da und schoben die Liste nach unten.
+  const [aufgeklappt, setAufgeklappt] = useState(false);
 
   /** Verwaiste Zuordnungen (Raum/Name) zu Geräten, die es nicht mehr
    *  gibt, obwohl ihre Integration läuft - Punkt 83 der Werkbank. Der Hub
@@ -165,7 +169,21 @@ export function DeviceTools({
 
   return (
     <Card style={styles.card}>
-      <Text style={styles.heading}>Werkzeuge</Text>
+      <Pressable
+        onPress={() => setAufgeklappt((auf) => !auf)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: aufgeklappt }}
+        accessibilityLabel={aufgeklappt ? 'Werkzeuge zuklappen' : 'Werkzeuge aufklappen'}
+        style={({ pressed }) => [styles.kopf, pressed && { opacity: 0.7 }]}
+      >
+        <Text style={[styles.heading, { flex: 1 }]}>Werkzeuge</Text>
+        <Ionicons
+          name={aufgeklappt ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={colors.inkSoft}
+        />
+      </Pressable>
+      {aufgeklappt ? (
       <View style={styles.row}>
         <Pressable
           onPress={() => setOffen('sammel')}
@@ -193,6 +211,9 @@ export function DeviceTools({
           <Text style={styles.buttonText}>Verwaistes aufräumen</Text>
         </Pressable>
       </View>
+      ) : null}
+      {/* Ausserhalb des Zugeklappten: Was ein Knopf gemeldet hat, darf
+          nicht verschwinden, weil man die Karte danach zumacht. */}
       {note ? <Text style={styles.note}>{note}</Text> : null}
 
       <Modal visible={offen !== null} animationType="slide" onRequestClose={schliessen}>
@@ -230,7 +251,7 @@ export function DeviceTools({
                       style={[styles.chip, aktiv && styles.chipActive]}
                     >
                       {aktiv ? (
-                        <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+                        <Ionicons name="checkmark" size={13} color={colors.onAccent} />
                       ) : null}
                       <Text style={[styles.chipText, aktiv && styles.chipTextActive]}>
                         {entity.name}
@@ -351,6 +372,7 @@ export function DeviceTools({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
+    kopf: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     card: { gap: 10, minHeight: 0 },
     heading: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
     row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
@@ -407,7 +429,7 @@ const makeStyles = (colors: Colors) =>
     },
     chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     chipText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
-    chipTextActive: { color: '#FFFFFF' },
+    chipTextActive: { color: colors.onAccent },
     footer: { gap: 6, borderTopWidth: 1, borderTopColor: colors.surfaceBorder, paddingTop: 10 },
     footerLabel: { color: colors.inkSoft, fontSize: 12, fontWeight: '700', marginTop: 6 },
     primary: {
@@ -416,5 +438,5 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       backgroundColor: colors.accent,
     },
-    primaryText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+    primaryText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
   });

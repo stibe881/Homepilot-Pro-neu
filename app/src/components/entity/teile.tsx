@@ -3,11 +3,13 @@
  *
  * Herausgelöst aus EntityCard.tsx (Punkt 59 der Werkbank).
  */
+import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
 import { Text, View } from 'react-native';
 
+import { bewegungsSignal } from '../../lib/bewegung';
 import { datumKurz, uhr, wochentagUhr } from '../../lib/format';
-import { Colors, useColors } from '../../theme';
+import { Colors, icon, useColors, useTyp } from '../../theme';
 import { makeStyles } from './stil';
 
 
@@ -33,10 +35,11 @@ export function clock(iso: string): string {
 
 export function BigValue({ value, on, note }: { value: string; on?: boolean; note?: string }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   return (
     <View>
-      <Text style={[styles.value, on && { color: colors.on }]}>{value}</Text>
+      <Text style={[styles.value, on && { color: colors.onInk }]}>{value}</Text>
       {note ? <Text style={styles.hint}>{note}</Text> : null}
     </View>
   );
@@ -44,7 +47,8 @@ export function BigValue({ value, on, note }: { value: string; on?: boolean; not
 
 export function Pill({ label, tone, solid }: { label: string; tone?: string; solid?: boolean }) {
   const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
   const color = tone ?? colors.inkSoft;
   return (
     <View
@@ -55,16 +59,76 @@ export function Pill({ label, tone, solid }: { label: string; tone?: string; sol
           : { backgroundColor: colors.surfaceSoft, borderColor: color, borderWidth: 1 },
       ]}
     >
-      <Text style={[styles.pillText, solid ? { color: '#fff' } : { color }]}>{label}</Text>
+      <Text style={[styles.pillText, { color: pillSchrift(colors, color, !!solid) }]}>
+        {label}
+      </Text>
     </View>
   );
 }
+
+/**
+ * Die Schriftfarbe einer Pille (rein, testbar) - Punkt 609 der Werkbank.
+ *
+ * Der Ton kommt vom Aufrufer als Signalfarbe (`on`, `warn`, `danger`,
+ * `accent`), und die ist am Rand der Pille richtig: Dort trägt die Form
+ * die Bedeutung. Als *Schrift* trägt sie nicht - «Online» in Grün kam
+ * auf einer Karte im Hellen auf 1,7:1 -, deshalb bekommt der Text die
+ * Tinte derselben Farbe (`onInk`, `warnInk`), wie es Punkt 442 für
+ * Orange eingeführt hat. Gefüllt stand fest Weiss darauf: auf Grün und
+ * Orange nirgends lesbar («Geöffnet», «Bewegung»), auf dem hellen
+ * Akzent der dunklen Bilder auch nicht - jetzt die Gegenfarbe der
+ * Palette (`onSignal`, `onAccent`).
+ */
+export function pillSchrift(colors: Colors, ton: string, solid: boolean): string {
+  if (solid) return ton === colors.on || ton === colors.warn ? colors.onSignal : colors.onAccent;
+  if (ton === colors.on) return colors.onInk;
+  if (ton === colors.warn) return colors.warnInk;
+  return ton;
+}
+
+/**
+ * Das Männchen mit Wort - «Bewegung» auf der Kamerakachel (Punkt 612).
+ *
+ * Vorher eine orange gefüllte Pille, während dieselbe Auskunft auf der
+ * Raumkachel ein grünes Männchen war. Jetzt dasselbe Zeichen in
+ * derselben Farbe (lib/bewegung.ts, bewegungsSignal), nur mit dem Wort
+ * daneben, weil auf der Kachel Platz dafür ist.
+ */
+export function Bewegungsmarke({ label = 'Bewegung' }: { label?: string }) {
+  const colors = useColors();
+  const typ = useTyp();
+  const styles = useMemo(() => makeStyles(colors, typ), [colors, typ]);
+  const signal = bewegungsSignal(colors);
+  return (
+    <View
+      accessibilityRole="image"
+      accessibilityLabel={label}
+      style={[styles.pill, styles.bewegungsmarke, { backgroundColor: signal.grund }]}
+    >
+      <Ionicons name="walk" size={icon.klein} color={signal.farbe} />
+      <Text style={[styles.pillText, { color: colors.onInk }]}>{label}</Text>
+    </View>
+  );
+}
+
+/** Werte, die «noch nichts» heissen – und nicht so aussehen sollen. */
+const OHNE_WERT = new Set(['unknown', 'unavailable', 'none', 'null', '']);
 
 export function format(value: unknown): string {
   if (typeof value === 'number') {
     return String(Math.round(value * 10) / 10);
   }
-  return String(value ?? '–');
+  // `unknown` ist kein Messwert, sondern der Platzhalter, den der Hub
+  // setzt, bis das Gerät sich zum ersten Mal meldet
+  // (integrations/zigbee2mqtt.py). Auf vier frisch angelernten
+  // Klimafühlern stand dadurch in grossen Buchstaben «unknown» - ein
+  // englisches Wort aus dem Inneren, das aussieht wie ein Defekt.
+  //
+  // Ein echter Fehlerwert («error») steht weiterhin da: Der ist die
+  // Wahrheit, und man kann danach suchen. Übersetzt wird nur, was
+  // ausdrücklich «noch keine Messung» bedeutet.
+  const text = String(value ?? '–');
+  return OHNE_WERT.has(text.trim().toLowerCase()) ? '–' : text;
 }
 
 /** «Zuletzt gesehen»-Abstand in Alltagssprache (rein, testbar). */
