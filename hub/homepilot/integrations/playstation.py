@@ -86,7 +86,7 @@ SITZUNG_AUFBAU = 15.0
 #: Konsole nicht auf der Profilauswahl stehen bleibt (siehe
 #: _anmelden_nach_wecken). So lange wird auf das Hochfahren gewartet,
 #: und so oft dazwischen nachgesehen.
-WECKEN_ANMELDEN_WARTEN = 45.0
+WECKEN_ANMELDEN_WARTEN = 90.0
 WECKEN_ANMELDEN_TAKT = 3.0
 
 
@@ -931,23 +931,32 @@ class PlaystationIntegration(Integration):
         """
         loop = asyncio.get_running_loop()
         frist = loop.time() + WECKEN_ANMELDEN_WARTEN
+        letzter_fehler = ""
         while loop.time() < frist:
             await asyncio.sleep(WECKEN_ANMELDEN_TAKT)
             antwort = await self._ddp_status(entity_id)
-            if antwort and antwort.get("status_code") == 200:
-                try:
-                    await self._sitzung(entity_id)
-                    self.log.info("PlayStation %s: im Konto angemeldet nach dem Wecken", entity_id)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as err:
-                    self.log.info(
-                        "PlayStation %s: Anmelden nach dem Wecken ging nicht (%s) - "
-                        "Profil von Hand wählen",
-                        entity_id,
-                        err,
-                    )
+            if not (antwort and antwort.get("status_code") == 200):
+                continue
+            # «An» heisst noch nicht «bereit für Remote Play»: Frisch
+            # hochgefahren nimmt die Konsole die Sitzung ein paar Sekunden
+            # lang noch nicht an. Ein einzelner Versuch genau in diesem
+            # Fenster scheiterte, und dann blieb es doch bei der
+            # Profilauswahl von Hand. Also weiter versuchen, bis die
+            # Sitzung steht oder die Frist abläuft.
+            try:
+                await self._sitzung(entity_id)
+                self.log.info("PlayStation %s: im Konto angemeldet nach dem Wecken", entity_id)
                 return
+            except asyncio.CancelledError:
+                raise
+            except Exception as err:
+                letzter_fehler = str(err)
+        self.log.info(
+            "PlayStation %s: Anmelden nach dem Wecken kam nicht zustande (%s) - "
+            "Profil von Hand wählen",
+            entity_id,
+            letzter_fehler or "Zeit abgelaufen",
+        )
 
     def _sitzung_pruefen(self, entity_id: str) -> None:
         """Was für Standby und Tasten alles da sein muss - sonst ConnectionError."""

@@ -123,6 +123,20 @@ zeigt roh, was die Konsole auf eine Statusanfrage antwortet - oder dass
 sie schweigt. Antwortet sie, steht in der ersten Zeile `200 Ok` (läuft)
 oder `620 Server Standby` (ruht); `running-app-name` ist das Spiel.
 
+**Nach dem Einschalten dauert es ein paar Sekunden, bis die App wirkt.**
+Die Konsole muss erst hochfahren, und dann meldet der Hub sich über eine
+Remote-Play-Sitzung im Konto an - das ist es, was die Profilauswahl
+auslässt. Erst wenn im Protokoll «im Konto angemeldet nach dem Wecken»
+steht, gehorcht die Konsole der App. Bis dahin (bis zu anderthalb
+Minuten, bei jedem Versuch neu) tut sich nichts - das ist das Hochfahren,
+kein Fehler. Kommt stattdessen «Anmelden nach dem Wecken kam nicht
+zustande», hat die Sitzung nicht gegriffen; dann bleibt die
+Profilauswahl am Controller. Das ist die eine Stelle, an der die PS5
+einen physischen Tastendruck verlangen kann, den Remote Play nicht
+ersetzt - meist hilft es, in den PS5-Einstellungen unter System →
+Remote Play sicherzugehen, dass Remote Play aktiviert und das Konto als
+Gerät verbunden ist.
+
 Auf der Sperrbildschirm-Karte trägt die Konsole einen Controller statt
 des Fernsehers und «Spielt: …» statt des nackten Namens. Sie ist dort
 ein eigenes Gerät: Steht im selben Zimmer ein Android TV, gibt es zwei
