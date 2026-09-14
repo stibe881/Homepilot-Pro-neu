@@ -294,3 +294,70 @@ async def test_fremde_szene_ohne_gedaechtnis_loest_nur_aus():
         assert hub.scenes.undo_fuer(szene.id) == []
     finally:
         await hub.stop()
+
+
+async def test_eine_szene_kann_eine_durchsage_machen(monkeypatch):
+    """Gewünscht im Haus: «Bei den Szenen soll man eine Durchsage machen
+    können, wenn man einen Speaker auswählt.» (Punkt 657 der Werkbank)
+
+    Dieselbe Rechnung wie ein Ablauf (core/automation.py, Aktionsart
+    "broadcast") - nur auf genau den einen Lautsprecher der Aktion statt
+    auf eine Liste, und ohne eigenen Aktionstyp: Eine Szene kennt nur
+    entity_id/command/data, darum ist "announce" ein Kommando wie jedes
+    andere - nur dass es nicht an die Integration geht, sondern an
+    `say.speak`.
+    """
+    from homepilot.core import say
+
+    hub = await make_hub(
+        [
+            {
+                "id": "ansage",
+                "name": "Ansage",
+                "actions": [
+                    {
+                        "entity_id": "demo.speaker_kitchen",
+                        "command": "announce",
+                        "data": {"text": "Es hat geklingelt", "volume": 40},
+                    }
+                ],
+            }
+        ]
+    )
+    gesagt = []
+
+    async def speak(_hub, text, speakers=None, volume=None, base=None, source=None):
+        gesagt.append((text, speakers, volume))
+        return {"sent": list(speakers or []), "errors": []}
+
+    monkeypatch.setattr(say, "speak", speak)
+
+    try:
+        ergebnis = await hub.scenes.activate("ansage")
+        assert ergebnis["failed"] == []
+        assert gesagt == [("Es hat geklingelt", ["demo.speaker_kitchen"], 40)]
+        # Eine Durchsage lässt sich nicht zurücknehmen - kein Rückweg.
+        assert hub.scenes.undo_fuer("ansage") == []
+    finally:
+        await hub.stop()
+
+
+async def test_eine_durchsage_ohne_text_scheitert_lesbar():
+    """Kein stiller Fehlschlag - die Szene meldet, was fehlt."""
+    hub = await make_hub(
+        [
+            {
+                "id": "leer",
+                "name": "Leer",
+                "actions": [
+                    {"entity_id": "demo.speaker_kitchen", "command": "announce", "data": {}}
+                ],
+            }
+        ]
+    )
+    try:
+        ergebnis = await hub.scenes.activate("leer")
+        assert len(ergebnis["failed"]) == 1
+        assert "Text" in ergebnis["failed"][0]["error"]
+    finally:
+        await hub.stop()

@@ -478,6 +478,9 @@ class SceneManager:
                     if uebergang > 0 and action["command"] == "set_brightness":
                         await self._fade(scene, action, uebergang)
                         continue
+                    if action["command"] == "announce":
+                        await self._announce(action)
+                        continue
                     await self.hub.integrations.dispatch_command(
                         action["entity_id"], action["command"], action.get("data") or {}
                     )
@@ -616,3 +619,26 @@ class SceneManager:
         task = asyncio.create_task(run())
         self._fades.add(task)
         task.add_done_callback(self._fades.discard)
+
+    async def _announce(self, action: dict[str, Any]) -> None:
+        """Eine Durchsage als Szenen-Aktion (Punkt 657 der Werkbank).
+
+        Dieselbe Rechnung wie ein Ablauf (core/automation.py, Aktionsart
+        "broadcast") - text zu Sprache, aber auf genau den einen
+        Lautsprecher der Aktion statt auf eine Liste. Nicht als
+        Integrations-Befehl: Die Bridge/Box kennt kein "announce", nur
+        `play_url` - `say.speak` löst Text zu Sprache auf und ruft das
+        selbst auf.
+        """
+        from . import say
+
+        data = action.get("data") or {}
+        text = str(data.get("text") or "").strip()
+        if not text:
+            raise HomePilotError("Durchsage braucht einen Text.")
+        await say.speak(
+            self.hub,
+            text,
+            speakers=[str(action.get("entity_id") or "")],
+            volume=data.get("volume"),
+        )

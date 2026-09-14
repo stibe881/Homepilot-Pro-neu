@@ -553,6 +553,22 @@ export function SceneDevices({
               </Unterfrage>
             ) : null}
 
+            {/* Durchsage: der Text wird zu Sprache (core/say.py), auf
+                genau dieser einen Box - dieselbe Rechnung wie beim
+                Ablauf, nur ohne eigenen Aktionstyp (Punkt 657). */}
+            {action.command === 'announce' ? (
+              <Unterfrage label="Was soll gesagt werden?">
+                <TextInput
+                  style={styles.input}
+                  value={action.text ?? ''}
+                  onChangeText={(text) => setField(entity.id, { text })}
+                  placeholder="z.B. Es hat geklingelt"
+                  placeholderTextColor={colors.inkFaint}
+                  maxLength={200}
+                />
+              </Unterfrage>
+            ) : null}
+
             {action.command === 'set_position' ? (
               <Unterfrage label="Wie weit?">
                 <Choice

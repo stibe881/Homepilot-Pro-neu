@@ -229,6 +229,13 @@ describe('Lautstärke, Playlist und App beim Bearbeiten', () => {
     // Beim Hub heisst das Feld 'name'; im Entwurf 'playlist', damit es
     // nicht mit dem Namen der Szene verwechselt wird.
     expect(zurueck[1].playlist).toBe('Sonntagmorgen');
+    // Der Text einer Durchsage geht beim Öffnen sonst verloren – der Chip
+    // «Durchsage» stünde da, das Feld darunter leer (Punkt 657).
+    expect(
+      sceneActionsToDraft([
+        { entity_id: 'cast.stube', command: 'announce', data: { text: 'Es hat geklingelt' } },
+      ])[0].text
+    ).toBe('Es hat geklingelt');
     expect(zurueck[2].app).toBe('com.netflix.ninja');
   });
 

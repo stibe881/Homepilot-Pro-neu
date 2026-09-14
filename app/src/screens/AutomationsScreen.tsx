@@ -786,6 +786,7 @@ export function AutomationsScreen({
             app,
             device,
             shuffle,
+            text,
           }) => {
           // Kamera und Lautsprecher kennen je einen Befehl, dessen
           // Richtung in unsichtbaren Zusatzdaten steckt. In der Auswahl
@@ -793,6 +794,20 @@ export function AutomationsScreen({
           const richtung = richtungBefehl(command);
           if (richtung) {
             return [{ entity_id, command: richtung.command, data: richtung.data }];
+          }
+          // Durchsage: der Text, und die Lautstärke nur, wenn eine
+          // gewählt wurde - sonst gilt die übliche (core/say.py).
+          if (command === 'announce') {
+            return [
+              {
+                entity_id,
+                command,
+                data: {
+                  text: (text ?? '').trim(),
+                  ...(volume ? { volume } : {}),
+                },
+              },
+            ];
           }
           if (command === 'set_volume') {
             return [{ entity_id, command, data: { volume: volume ?? 30 } }];

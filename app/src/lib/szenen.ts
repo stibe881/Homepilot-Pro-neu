@@ -162,6 +162,8 @@ export interface SceneActionDraft {
   /** Playlist zufällig abspielen. undefined lässt die Einstellung des
    *  Kontos, wie sie ist. */
   shuffle?: boolean;
+  /** Der gesprochene Text, wenn das Kommando 'announce' ist. */
+  text?: string;
 }
 
 /**
@@ -263,6 +265,7 @@ export function sceneActionsToDraft(
       app?: string;
       device?: string;
       shuffle?: boolean;
+      text?: string;
     };
   }[]
 ): SceneActionDraft[] {
@@ -298,6 +301,7 @@ export function sceneActionsToDraft(
       shuffle: musik?.shuffle,
       transition: action.data?.transition,
       color: action.command === 'set_color' ? String(action.data?.color ?? '') : undefined,
+      text: action.data?.text,
     });
   }
   return result;

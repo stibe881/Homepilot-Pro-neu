@@ -138,6 +138,14 @@ export function baseCommandOptions(entity: Entity): { key: string; label: string
     if (radioWahl(entity)) {
       options.push({ key: 'play_radio', label: 'Sender' });
     }
+    // Nur, wo überhaupt eine Tonadresse ankommt (google_cast.py,
+    // core/say.py) - dieselbe Bedingung, nach der auch eine Durchsage
+    // aus der App oder einem Ablauf ihre Boxen sucht. Gewünscht im Haus:
+    // «Bei den Szenen soll man eine Durchsage machen können, wenn man
+    // einen Speaker auswählt.» (Punkt 657 der Werkbank)
+    if (kann('play_url')) {
+      options.push({ key: 'announce', label: 'Durchsage' });
+    }
     return options;
   }
   if (entity.kind === 'scene') {

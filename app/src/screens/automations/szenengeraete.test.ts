@@ -221,6 +221,14 @@ describe('Lautsprecher in einer Szene', () => {
       )
     ).toContain('launch_app');
   });
+
+  it('bietet eine Durchsage nur an, wo eine Tonadresse ankommt', () => {
+    // Gewünscht im Haus: «Bei den Szenen soll man eine Durchsage machen
+    // können, wenn man einen Speaker auswählt.» (Punkt 657)
+    expect(schluessel(box(['play', 'pause', 'play_url']))).toContain('announce');
+    // Ohne play_url (z.B. ein Fernseher ohne Cast) gibt es den Chip nicht.
+    expect(schluessel(box(['turn_on', 'turn_off', 'play', 'pause']))).not.toContain('announce');
+  });
 });
 
 describe('playlistsVon und appsVon', () => {

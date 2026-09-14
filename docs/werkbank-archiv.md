@@ -8369,3 +8369,31 @@ gehört, nicht nur, was sie nachweislich verändert hat: Den Unterschied
 kennt der Hub nicht, das galt schon für den Direkt-Tipp.
 
 Stellen: `hub/homepilot/core/scenes.py`, `hub/tests/test_hue_szenen.py`
+
+### 657. Durchsage als Szenen-Aktion ✓ erledigt
+
+Gewünscht im Haus: «Bei den Szenen soll man eine Durchsage machen
+können, wenn man einen Speaker auswählt.»
+
+Die Durchsage selbst gab es längst - als Aktionsart eines Ablaufs
+(`core/automation.py`, "broadcast") und als eigener Knopf im Haus
+(`/api/broadcast`, `core/say.py`: Text zu Sprache, dann `play_url` auf
+die Boxen). Nur die Szene kannte sie nicht: Eine Szene besteht nur aus
+`entity_id`/`command`/`data`, keinen eigenen Aktionsarten - ein
+"broadcast"-Schritt wie im Ablauf hätte dort nicht hineingepasst.
+
+Die Lösung fügt sich stattdessen als Kommando `announce` an einem
+einzelnen Lautsprecher ein, wie jedes andere Kommando auch: Im Editor
+steht "Durchsage" jetzt bei jedem Gerät zur Wahl, das eine Tonadresse
+annehmen kann (`kann('play_url')` in `szenengeraete.ts` - dieselbe
+Bedingung, nach der auch `say.play_audio` seine Ziele sucht), mit einem
+Textfeld darunter. Beim Auslösen fängt `SceneManager.activate()` das
+Kommando ab, bevor es an eine Integration ginge (die kennt kein
+"announce", nur `play_url`), und ruft stattdessen `say.speak` mit genau
+diesem einen Lautsprecher als Ziel.
+
+Zurücknehmen lässt sich eine Durchsage nicht - `zielzustand` kennt
+"announce" nicht und lässt sie darum unangetastet, wie jedes andere
+nicht vorhersagbare Kommando auch.
+
+Stellen: `hub/homepilot/core/scenes.py`, `hub/tests/test_scenes.py`, `app/src/lib/szenen.ts`, `app/src/lib/szenen.test.ts`, `app/src/screens/automations/szenengeraete.ts`, `app/src/screens/automations/szenengeraete.test.ts`, `app/src/screens/automations/szenen-editor.tsx`, `app/src/screens/AutomationsScreen.tsx`
