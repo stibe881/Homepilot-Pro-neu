@@ -8185,3 +8185,53 @@ nicht die gespeicherte Farbe von gestern: Die Lampe sagt ja, dass sie
 jetzt weiss leuchtet.
 
 Stellen: `app/src/lib/lichtfarbe.ts`, `app/src/lib/lichtfarbe.test.ts`
+
+### 652. Die Tageszeiten der Vorlage liessen sich nicht eintippen ✓ erledigt
+
+Aus dem Haus, einen Tag nach Punkt 650: «ich kann die tageszeite range
+nicht eingeben.»
+
+Die Vorlage «Licht bei Bewegung, je nach Tageszeit» legt vier
+Wenn-Schritte an, jeder mit einem Zeitfenster: 06:00–09:00, 09:00–20:00,
+20:00–00:00, 00:00–06:00. Versprochen war, dass man die Zeiten vor dem
+Speichern an das eigene Haus anpasst - der Gang wird hier nicht um
+sechs, sondern um halb sieben gebraucht.
+
+Anpassen liess sich nichts. Das Fenster ging als `ifExtra` hinaus, und
+`ifExtra` ist die Schublade für Bedingungen, die der Editor nicht bauen
+kann (Punkt 251): Sie überleben das Öffnen und Speichern unverändert,
+sichtbar ist davon nur die Zeile «zu viel für den Editor, sie bleiben
+beim Speichern erhalten». Für eine Bedingung aus einer von Hand
+geschriebenen `config.yaml` ist das richtig. Für vier Fenster, die eine
+Vorlage gerade selbst angelegt hat und zum Anpassen anbietet, ist es
+das Gegenteil von dem, was draufsteht.
+
+Das schlichte Fenster «von … bis …» ist jetzt ein Feldpaar am
+Wenn-Schritt (`ifVon`/`ifBis`), wie schon beim Zeitfenster des ganzen
+Ablaufs. Beim Öffnen eines gespeicherten Ablaufs wird das erste solche
+Fenster in die Felder gezogen, alles Übrige bleibt in `ifExtra`: Eine
+Zeitbedingung mit Wochentagen, Datumsspanne oder Feiertagsausnahme
+trägt mehr, als zwei Felder fassen - sie in die Felder zu zwingen
+hiesse, sie beim nächsten Speichern zu verlieren.
+
+Unsinn im Feld («abends») ergibt kein Fenster statt eines um Mitternacht:
+Eine Bedingung, die der Hub nie erfüllt sieht, liesse den Ablauf
+schweigend nie laufen. Nur eine Seite auszufüllen ist dagegen erlaubt
+und gemeint - «ab 22:00» ohne Ende heisst «bis Mitternacht durch», und
+über Mitternacht rechnet der Hub selbst richtig (`time_in_window`); der
+Hinweis darunter sagt das.
+
+Die Browser-Probe misst es jetzt mit (`tageszeitenEintippbar`), und
+beim Einbauen fiel eine zweite Sache auf: Die Messung «Der Rauchmelder
+steht im Ablauf-Editor zur Wahl» (Punkt 542) meldete seit der
+Aufräumaktion (Punkt 511) **gar nichts mehr**. Die Vorlagenliste steht
+seither zugeklappt, die Knöpfe darin gibt es ohne Tipp nicht im Baum -
+die Messung fand keinen, kehrte still um und war damit weder grün noch
+rot, sondern gar nicht da. Beide klappen die Liste jetzt auf, und eine
+fehlende Vorlage ist eine rote Messung statt einer stillen Umkehr: Ein
+Prüfstand, der nie rot wird, ist keiner.
+
+Stellen: `app/src/screens/automations/entwurf.ts`,
+`app/src/screens/automations/schritte.tsx`,
+`app/src/screens/automations/vorlagen.ts`, `scripts/probe.mjs`, dazu die
+Tests in `entwurf.test.ts` und `vorlagen.test.ts`

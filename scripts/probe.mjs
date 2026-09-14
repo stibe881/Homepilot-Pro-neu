@@ -800,6 +800,18 @@ async function rauchmelderNichtImZimmer(browser) {
   await seite.close();
 }
 
+/** Die zugeklappte Vorlagenliste auf der Ablaufseite öffnen.
+ *
+ * Seit der Aufräumaktion (Punkt 511) steht sie zu; zwei Messungen
+ * brauchen die Knöpfe darin. */
+async function vorlagenAufklappen(seite) {
+  const kopf = seite.getByText('Vorlagen', { exact: true }).first();
+  if (!(await kopf.isVisible().catch(() => false))) return;
+  if ((await seite.getByLabel(/^Neuer Ablauf aus /).count()) > 0) return;
+  await kopf.click();
+  await seite.waitForTimeout(900);
+}
+
 /** 10. Steht der Melder im Ablauf-Editor mit «Signal geben»? (Punkt 544)
  *
  * Gemeldet im Haus: «Ich kann in den Abläufen nicht machen, dass wenn
@@ -830,11 +842,18 @@ async function melderGibtSignal(browser) {
   }
   await ablaeufe.click();
   await seite.waitForTimeout(1300);
+  // Die Vorlagen stehen zugeklappt (Punkt 511) - ohne diesen Tipp gibt
+  // es die Knöpfe gar nicht im Baum. Genau daran ist diese Messung
+  // still verstummt: Sie fand keinen Knopf, kehrte um und meldete
+  // nichts, und eine Messung, die nie etwas meldet, ist keine.
+  await vorlagenAufklappen(seite);
   const vorlage = seite.getByLabel(/^Neuer Ablauf aus /).first();
   if (!(await vorlage.isVisible().catch(() => false))) {
+    pruefe(false, 'Die Vorlagen stehen auf der Ablaufseite zur Wahl');
     await seite.close();
     return;
   }
+  pruefe(true, 'Die Vorlagen stehen auf der Ablaufseite zur Wahl');
   await vorlage.click();
   await seite.waitForTimeout(1300);
 
@@ -850,6 +869,79 @@ async function melderGibtSignal(browser) {
   const text = await seite.evaluate(() => document.body.innerText);
   pruefe(text.includes('Signal geben'), 'Und bietet «Signal geben» an');
   pruefe(text.includes('Signal aus'), 'Und «Signal aus» daneben');
+  await seite.close();
+}
+
+/** Lassen sich die Tageszeiten der Vorlage eintippen? (Punkt 652)
+ *
+ * Gemeldet im Haus, einen Tag nach der Vorlage: «ich kann die
+ * tageszeite range nicht eingeben.» Die Vorlage «Licht bei Bewegung, je
+ * nach Tageszeit» legt vier Wenn-Schritte mit je einem Zeitfenster an
+ * und bietet sie zum Anpassen an - anzupassen war nichts: Das Fenster
+ * lag in `ifExtra`, der Schublade für Bedingungen, die der Editor nicht
+ * bauen kann, und darüber stand nur «zu viel für den Editor».
+ *
+ * Im Browser gemessen und nicht nur im Test, weil die Kette drei
+ * Schichten hat: Die Vorlage muss die Zeit in die Felder legen, der
+ * Editor die Felder überhaupt zeigen, und der Abschnitt «… dann das
+ * tun» muss aufklappbar sein. Jede Schicht war für sich grün, als im
+ * Haus nichts einzutippen war.
+ *
+ * Die Gegenprobe steckt in der Messung selbst: Sie verlangt die vier
+ * Uhrzeiten *und* die Abwesenheit der alten Zeile - ohne die zweite
+ * Hälfte wäre sie auch dann grün, wenn die Felder leer blieben.
+ */
+async function tageszeitenEintippbar(browser) {
+  const seite = await angemeldeteSeite(browser, GROESSEN[0]);
+  const einstellungen = seite.getByLabel('Einstellungen').first();
+  if (!(await einstellungen.isVisible().catch(() => false))) {
+    await seite.close();
+    return;
+  }
+  await einstellungen.click();
+  await seite.waitForTimeout(900);
+  const ablaeufe = seite.getByLabel('Abläufe').first();
+  if (!(await ablaeufe.isVisible().catch(() => false))) {
+    await seite.close();
+    return;
+  }
+  await ablaeufe.click();
+  await seite.waitForTimeout(1300);
+  await vorlagenAufklappen(seite);
+  const tageszeit = seite
+    .getByText('Licht bei Bewegung, je nach Tageszeit', { exact: true })
+    .first();
+  if (!(await tageszeit.isVisible().catch(() => false))) {
+    // Der Demo-Hub hat ein dimmbares Licht und einen Melder - fehlt die
+    // Vorlage hier, stimmt etwas nicht. Stillschweigend umkehren wäre
+    // derselbe Fehler wie beim Rauchmelder darüber.
+    pruefe(false, 'Die Tageszeit-Vorlage steht zur Wahl');
+    await seite.close();
+    return;
+  }
+  await tageszeit.click();
+  await seite.waitForTimeout(1500);
+  // Der Assistent führt durch die neuen Abläufe - bis ans Ende klicken.
+  for (let i = 0; i < 8; i += 1) {
+    const weiter = seite.getByText('Weiter', { exact: true }).first();
+    if (!(await weiter.isVisible().catch(() => false))) break;
+    await weiter.click();
+    await seite.waitForTimeout(500);
+  }
+  const zeiten = await seite.evaluate(() =>
+    [...document.querySelectorAll('input')]
+      .filter((el) => /^(ab|bis) \d\d:\d\d$/.test(el.placeholder ?? ''))
+      .map((el) => el.value)
+  );
+  pruefe(
+    zeiten.join(' ') === '06:00 09:00 09:00 20:00 20:00 00:00 00:00 06:00',
+    `Die vier Tageszeiten stehen als Felder im Editor (${zeiten.join(' ') || 'keines'})`
+  );
+  const text = await seite.evaluate(() => document.body.innerText);
+  pruefe(
+    !text.includes('zu viel für den Editor'),
+    'Und nicht mehr als «zu viel für den Editor»'
+  );
   await seite.close();
 }
 
@@ -1535,6 +1627,7 @@ try {
   await fuehlerInZweiZimmern(browser);
   await rauchmelderNichtImZimmer(browser);
   await melderGibtSignal(browser);
+  await tageszeitenEintippbar(browser);
   await geraetelisteOhneSpalte(browser);
   await geraetewerkzeugeUnten(browser);
   await grillzielSetzen(browser);
