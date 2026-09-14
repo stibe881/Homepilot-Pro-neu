@@ -8000,3 +8000,43 @@ zu zwei Pillen (`szenen`/`onSzene`) - dieselbe Stelle, die auch die
 PlayStation bedient (Punkt 643), also gilt die Wahl für beide Geräte.
 
 Stellen: `hub/homepilot/core/entity.py`, `hub/homepilot/core/registry.py`, `hub/homepilot/core/hub.py`, `hub/homepilot/api/models.py`, `app/src/lib/fernbedienungsszenen.ts`, `app/src/components/TvRemote.tsx`, `app/src/components/EntityCard.tsx`, `app/src/components/FernbedienungsSzenen.tsx`, `app/src/screens/VerbindungenScreen.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/hooks/useHub.ts`
+
+### 650. «Bleibt aktiv» blieb bei zwei weiteren Szenen nie aktiv ✓ erledigt
+
+Aus dem Haus: «Wenn ich eine Szene anklicke, bei der ich gesagt habe
+‹Nach dem Auslösen› auf ‹Bleibt aktiv›, bleibt die Szene nicht aktiv.»
+Nachgesehen mit den echten Szenen des Hauses (`/api/scenes`) fanden
+sich zwei neue Fälle derselben Familie wie Punkt 644 - eine Aktion, die
+`zielzustand` nicht kannte oder falsch übersetzte, liess die ganze
+Szene nie als aktiv gelten:
+
+- **«Zocken / Kino»** bestand nur aus `google_cast: turn_off` und
+  `hue: activate` (eine Hue-Bridge-Szene aufrufen). `activate` fehlte
+  in `zielzustand` ganz - genau wie `launch_app` vor Punkt 644. Die
+  Bridge-Szene selbst meldet sich nach dem Aufruf mit `state: "active"`
+  (`hue.py`, `demo.py`); das reicht, um zu wissen, dass sie noch gilt,
+  auch wenn sich nicht zurücknehmen lässt, was sie an den Lampen
+  geändert hat - dafür bleibt `undo_fuer` für diese Aktion weiterhin
+  leer, unverändert seit dem ursprünglichen Entwurf.
+- **«Kino»** pausiert unter anderem mehrere Google-Cast-Boxen. Lief auf
+  einer nichts, ist Pausieren ein Leerlauf, und die Box bleibt bei
+  `idle` oder `standby` stehen - nie bei `paused`
+  (`integrations/google_cast.py`, `handle_command`: eine leere Box hat
+  nichts anzuhalten). `zielzustand("pause")` verlangte aber immer genau
+  `state == "paused"`, und schon eine einzige ruhende Box liess die
+  ganze Szene als verlassen gelten.
+
+Beide Fälle brauchten dieselbe Reparatur wie eine echte Prüfung, nicht
+nur eine Zusage: `zielzustand` kennt jetzt `activate`, und eine neue
+Gruppe `PAUSIERT_GLEICHWERTIG` (`paused`, `idle`, `standby`) gilt für
+den Vergleich als gleichwertig - sowohl beim Prüfen (`szene_gilt_noch`)
+als auch beim Zurücknehmen (`hat_sich_geaendert`, `rueckbefehl`): Eine
+Box, die schon ruhte, bleibt beim zweiten Druck unangetastet, statt
+fälschlich «angehalten» zu werden.
+
+Ein bestehender Test hielt das alte Verhalten für eine Hue-Bridge-Szene
+ausdrücklich für richtig («die Szene steht nie auf gilt gerade») - das
+war eine bewusste Entscheidung, bevor `activate` überhaupt lesbar war.
+Er ist auf das neue, genauere Verhalten nachgezogen.
+
+Stellen: `hub/homepilot/core/szenenrueckweg.py`, `hub/tests/test_szenenrueckweg.py`, `hub/tests/test_hue_szenen.py`

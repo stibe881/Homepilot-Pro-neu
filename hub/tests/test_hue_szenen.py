@@ -139,8 +139,16 @@ async def test_hub_scene_can_contain_a_bridge_scene():
 
     Zurücknehmen lässt sich der Hue-Teil nicht: Was ``activate`` aus den
     Lampen macht, weiss nur die Bridge, und Raten wäre hier schlimmer als
-    nichts tun. Deshalb steht die Szene auch nie auf «gilt gerade» – ein
-    Knopf, der immer leuchtet, sagt nichts.
+    nichts tun - ``undo_fuer`` bleibt darum leer.
+
+    Ob die Szene noch *gilt*, ist eine andere Frage als die zurückzunehmen
+    (Punkt 650 der Werkbank, der Fall «Zocken / Kino»): Die Hue-Szene
+    selbst meldet nach dem Aufruf ``state: "active"`` - genau das lässt
+    sich ablesen, ohne zu raten, was sie an den Lampen geändert hat. Vor
+    Punkt 650 kannte ``zielzustand`` das Kommando ``activate`` gar nicht;
+    eine Szene, die nur aus Bridge-Aufrufen und bereits erledigten
+    Befehlen bestand, zeigte darum nie «gilt gerade» - selbst direkt nach
+    dem Auslösen.
     """
     hub, hue = await _hue()
     gerufen: list[str] = []
@@ -168,11 +176,10 @@ async def test_hub_scene_can_contain_a_bridge_scene():
 
         szene = hub.scenes.get("abend")
         assert szene is not None
-        assert hub.scenes.ist_aktiv(szene) is False
+        assert hub.scenes.ist_aktiv(szene) is True
         assert hub.scenes.undo_fuer("abend") == []
     finally:
         await hub.stop()
-
 
 
 def test_scene_lights_kommen_aus_den_aktionen():
