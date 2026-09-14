@@ -250,7 +250,7 @@ def test_eine_nie_spielende_box_gilt_nach_pause_trotzdem_als_ruhig() -> None:
 
 
 def test_eine_cast_box_meldet_nach_turn_off_nie_wirklich_aus() -> None:
-    """Der dritte Teil des gemeldeten Falls «Zocken / Kino» (Punkt 652).
+    """Der dritte Teil des gemeldeten Falls «Zocken / Kino» (Punkt 653).
 
     `test_eine_bridge_szene_gilt_nach_dem_aufruf_als_aktiv` liess die
     Cast-Box nach `turn_off` `state: "off"` melden - das kommt bei einer

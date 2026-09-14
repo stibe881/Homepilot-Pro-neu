@@ -5,7 +5,7 @@
  * Gerätebestand - dazutun oder wegnehmen konnte man nichts. Wer eine
  * bearbeitet, will danach seine sehen und nicht beide.
  */
-import { EMPTY } from './entwurf';
+import { EMPTY, stepToActions } from './entwurf';
 import {
   EigeneVorlage,
   Template,
@@ -645,12 +645,12 @@ describe('Vorlage «Licht bei Bewegung, je nach Tageszeit»', () => {
   it('deckt die drei gewünschten Abschnitte ab', () => {
     const gefunden = vorlage([melder, dimmbar]);
     expect(gefunden).toBeDefined();
-    const fenster = (gefunden?.draft.steps ?? []).map((step) => step.ifExtra?.[0]);
+    const fenster = (gefunden?.draft.steps ?? []).map((step) => [step.ifVon, step.ifBis]);
     expect(fenster).toEqual(
       expect.arrayContaining([
-        { type: 'time', after: '06:00', before: '09:00' },
-        { type: 'time', after: '09:00', before: '20:00' },
-        { type: 'time', after: '20:00', before: '00:00' },
+        ['06:00', '09:00'],
+        ['09:00', '20:00'],
+        ['20:00', '00:00'],
       ])
     );
   });
@@ -660,9 +660,23 @@ describe('Vorlage «Licht bei Bewegung, je nach Tageszeit»', () => {
     // zwischen Mitternacht und sechs keines, und im Gang ginge um drei
     // Uhr gar nichts an.
     const fenster = (vorlage([melder, dimmbar])?.draft.steps ?? []).map(
-      (step) => step.ifExtra?.[0]
+      (step) => [step.ifVon, step.ifBis]
     );
-    expect(fenster).toContainEqual({ type: 'time', after: '00:00', before: '06:00' });
+    expect(fenster).toContainEqual(['00:00', '06:00']);
+  });
+
+  it('legt die Zeiten in die Felder des Editors, nicht in ifExtra', () => {
+    // Punkt 652: In ifExtra lagen sie zwar unbeschadet, aber der Editor
+    // zeigte darüber nur «zu viel für den Editor» - die Vorlage
+    // versprach vier anpassbare Tageszeiten und gab vier feste.
+    const schritte = vorlage([melder, dimmbar])?.draft.steps ?? [];
+    expect(schritte.every((step) => (step.ifExtra?.length ?? 0) === 0)).toBe(true);
+    // Und beim Speichern steht die Zeit trotzdem als Bedingung im Ablauf.
+    expect(stepToActions(schritte[0])[0].conditions).toContainEqual({
+      type: 'time',
+      after: '06:00',
+      before: '09:00',
+    });
   });
 
   it('ist abends dunkler als tagsüber', () => {

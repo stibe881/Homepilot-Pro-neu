@@ -108,7 +108,7 @@ PAUSIERT_GLEICHWERTIG = frozenset({"paused", "idle", "standby"})
 #: szene_gilt_noch an genau diesem einen Gerät, selbst wenn alles
 #: andere an der Szene noch stimmte - der gemeldete Fall
 #: «Zocken / Kino», dessen einzige zwei Aktionen ein google_cast-
-#: turn_off und ein hue-activate sind (Punkt 652 der Werkbank).
+#: turn_off und ein hue-activate sind (Punkt 653 der Werkbank).
 AUS_GLEICHWERTIG = frozenset({"off", "standby", "idle"})
 
 

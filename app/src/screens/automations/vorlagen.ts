@@ -214,7 +214,11 @@ export const TAGESZEIT_BAENDER = [
  * Die Zeitspanne geht als Bedingung des Hubs hinaus (`type: 'time'` mit
  * `after`/`before`), nicht als Gerätebedingung: Sie hängt an keiner
  * Entität, und über Mitternacht rechnet der Hub selbst richtig
- * (core/automation.py, time_in_window).
+ * (core/automation.py, time_in_window). Sie steht in `ifVon`/`ifBis`
+ * und nicht in `ifExtra` - dort lag sie anfangs, und der Editor zeigte
+ * statt der Zeiten nur «zu viel für den Editor»: Die Vorlage versprach
+ * vier Tageszeiten zum Anpassen und gab vier unveränderliche
+ * (Punkt 652).
  */
 export function tageszeitSchritt(
   lampe: Entity,
@@ -224,7 +228,8 @@ export function tageszeitSchritt(
   return {
     ...EMPTY_STEP,
     kind: 'if',
-    ifExtra: [{ type: 'time', after: band.von, before: band.bis }],
+    ifVon: band.von,
+    ifBis: band.bis,
     ifThen: [
       {
         ...EMPTY_STEP,

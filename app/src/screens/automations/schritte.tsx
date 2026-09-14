@@ -19,7 +19,7 @@ import {
   begrenzteAnzahl,
 } from '../../lib/kontrollfluss';
 import { anwesenheitsPersonen } from '../../lib/ortsausloeser';
-import { Compare, EMPTY_STEP, STEP_KIND_ICON, StateCondition, StepDraft, StepKind, ablaufTat, conditionOptions, delayLabel, empfaengerLabel, fittingState, geraetePlatzhalter, KAMERA_AUSLOESER, kopieSchritt, normalisiereZeit, PLATZHALTER, measurableAttributes } from './entwurf';
+import { Compare, EMPTY_STEP, STEP_KIND_ICON, StateCondition, StepDraft, StepKind, ablaufTat, conditionOptions, delayLabel, empfaengerLabel, fittingState, geraetePlatzhalter, KAMERA_AUSLOESER, kopieSchritt, normalisiereZeit, PLATZHALTER, measurableAttributes, zeitfensterHinweis } from './entwurf';
 import {
   Choice,
   Kachelauswahl,
@@ -851,16 +851,55 @@ export function StepList({
                 colors={colors}
                 styles={styles}
               />
+              {/* Punkt 652: Das Zeitfenster gehört als Feld hierher und
+                  nicht in die Zeile «zu viel für den Editor». Die
+                  Tageszeit-Vorlage legt vier solche Schritte an - wer
+                  den Gang morgens erst ab halb sieben anders haben
+                  will, muss die 06:00 ändern können. */}
+              <Text style={styles.label}>zu dieser Zeit</Text>
+              <View style={styles.rowGap}>
+                <TextInput
+                  style={[styles.input, { flex: 1 }]}
+                  value={step.ifVon}
+                  onChangeText={(ifVon) => setStep(index, { ifVon })}
+                  onEndEditing={(event) =>
+                    setStep(index, { ifVon: normalisiereZeit(event.nativeEvent.text) })
+                  }
+                  keyboardType="numbers-and-punctuation"
+                  placeholder="ab 06:00"
+                  placeholderTextColor={colors.inkFaint}
+                  accessibilityLabel="Zeitfenster ab"
+                />
+                <TextInput
+                  style={[styles.input, { flex: 1 }]}
+                  value={step.ifBis}
+                  onChangeText={(ifBis) => setStep(index, { ifBis })}
+                  onEndEditing={(event) =>
+                    setStep(index, { ifBis: normalisiereZeit(event.nativeEvent.text) })
+                  }
+                  keyboardType="numbers-and-punctuation"
+                  placeholder="bis 09:00"
+                  placeholderTextColor={colors.inkFaint}
+                  accessibilityLabel="Zeitfenster bis"
+                />
+              </View>
+              <Text style={styles.snapshotHint}>
+                {zeitfensterHinweis(step.ifVon, step.ifBis) ??
+                  'Beide Felder leer heisst: gilt rund um die Uhr.'}
+              </Text>
               {(step.ifExtra?.length ?? 0) > 0 ? (
                 <Text style={styles.triggerNote}>
                   Dazu {step.ifExtra.length === 1
                     ? 'eine Bedingung'
                     : `${step.ifExtra.length} Bedingungen`}{' '}
-                  aus der Konfiguration (Zeitfenster, Gruppen) – zu viel für
+                  aus der Konfiguration (Wochentage, Gruppen) – zu viel für
                   den Editor, sie bleiben beim Speichern erhalten.
                 </Text>
               ) : null}
-              {step.ifConditions.length + (step.ifExtra?.length ?? 0) > 1 ? (
+              {step.ifConditions.length +
+                (step.ifExtra?.length ?? 0) +
+                (step.ifVon || step.ifBis ? 1 : 0) >
+              1 ? (
                 <Choice
                   options={[
                     { key: 'all', label: 'alle zusammen (und)' },

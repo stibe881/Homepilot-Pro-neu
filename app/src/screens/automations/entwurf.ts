@@ -895,6 +895,14 @@ export interface StepDraft {
    *  stumm zu verschwinden - dieselbe Regel wie bei extraConditions. */
   ifConditions: StateCondition[];
   ifMatch: 'all' | 'any';
+  /** Das Zeitfenster des Schritts (Punkt 652): «von 06:00 bis 09:00».
+   *  Es lag bisher mit allem Übrigen in `ifExtra` und war damit nur
+   *  erhalten, nicht änderbar - die Tageszeit-Vorlage legt aber vier
+   *  solche Fenster an, und wer die Zeiten des eigenen Gangs anders
+   *  haben will, stand vor einer Zeile «zu viel für den Editor».
+   *  Leer heisst «immer». */
+  ifVon: string;
+  ifBis: string;
   ifExtra: BausteinConfig[];
   ifThen: StepDraft[];
   ifElse: StepDraft[];
@@ -952,6 +960,8 @@ export const EMPTY_STEP: StepDraft = {
   musikZiel: '',
   ifConditions: [],
   ifMatch: 'all',
+  ifVon: '',
+  ifBis: '',
   ifExtra: [],
   ifThen: [],
   ifElse: [],
@@ -2036,10 +2046,12 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
     // Ohne Bedingung hiesse der Schritt beim Hub «gilt immer», ohne
     // einen Zweig, der etwas tut, wäre er eine leere Klammer - beides
     // sieht im Editor unfertig aus und ergibt darum keine Aktion.
+    const zeitfenster = ifZeitfenster(step);
     const conditions = [
       ...step.ifConditions
         .map(stateConditionToConfig)
         .filter((sub): sub is BausteinConfig => sub !== null),
+      ...(zeitfenster ? [zeitfenster] : []),
       ...(step.ifExtra ?? []),
     ];
     const dann = stepsToActions(step.ifThen ?? []);
@@ -2409,13 +2421,22 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
       const conditions = ((action.conditions ?? []) as BausteinConfig[]).filter(
         (sub) => !!sub && typeof sub === 'object'
       );
+      // Punkt 652: Das erste schlichte «von … bis …» wird zu zwei
+      // Feldern. Ein zweites bliebe unsichtbar, wenn es auch hier
+      // landete - darum kommt nur das erste heraus, der Rest wandert
+      // wie bisher nach ifExtra und überlebt unverändert.
+      const fenster = conditions.find(schlichtesZeitfenster);
       steps.push({
         ...EMPTY_STEP,
         kind: 'if',
         ifConditions: conditions
           .filter(editierbareBedingung)
           .map(stateConditionFromConfig),
-        ifExtra: conditions.filter((sub) => !editierbareBedingung(sub)),
+        ifVon: String(fenster?.after ?? ''),
+        ifBis: String(fenster?.before ?? ''),
+        ifExtra: conditions.filter(
+          (sub) => !editierbareBedingung(sub) && sub !== fenster
+        ),
         ifMatch: action.match === 'any' ? 'any' : 'all',
         ifThen: actionsToSteps(action.then ?? []),
         ifElse: actionsToSteps(action.else ?? []),
@@ -2489,6 +2510,46 @@ function editierbareGruppe(entry: BausteinConfig): boolean {
  *  Gerätebedingungen - dieselbe Regel wie bei den Gruppen. */
 function editierbareBedingung(entry: BausteinConfig): boolean {
   return (entry?.type ?? 'state') === 'state' && !!entry?.entity_id;
+}
+
+/**
+ * Ist das ein schlichtes Zeitfenster «von … bis …»? (rein, testbar)
+ *
+ * Punkt 652: Nur dieses eine Muster zeigt der Editor als zwei Felder.
+ * Eine Zeitbedingung mit Wochentagen, Datumsspanne oder
+ * Feiertagsausnahme trägt mehr, als zwei Felder fassen - sie bleibt in
+ * `ifExtra` und damit unangetastet, statt beim Speichern auf «von/bis»
+ * zusammenzuschrumpfen.
+ */
+export function schlichtesZeitfenster(entry: BausteinConfig): boolean {
+  if (!entry || entry.type !== 'time') return false;
+  const uebrig = Object.keys(entry).filter(
+    (schluessel) => schluessel !== 'type' && schluessel !== 'after' && schluessel !== 'before'
+  );
+  return uebrig.length === 0 && (!!entry.after || !!entry.before);
+}
+
+/**
+ * Das Zeitfenster eines «Wenn …»-Schritts als Bedingung (rein, testbar).
+ *
+ * Punkt 652: Nur eine Seite auszufüllen ist erlaubt und gemeint - «ab
+ * 22:00» ohne Ende heisst «bis Mitternacht durch». Unsinn im Feld
+ * («abends») ergibt kein Fenster, statt eine Bedingung zu speichern,
+ * die der Hub nie erfüllt sieht.
+ */
+export function ifZeitfenster(step: StepDraft): BausteinConfig | null {
+  const zeit = (roh: string): string => {
+    const text = normalisiereZeit(roh);
+    return /^\d{2}:\d{2}$/.test(text) ? text : '';
+  };
+  const von = zeit(step.ifVon ?? '');
+  const bis = zeit(step.ifBis ?? '');
+  if (!von && !bis) return null;
+  return {
+    type: 'time',
+    ...(von ? { after: von } : {}),
+    ...(bis ? { before: bis } : {}),
+  };
 }
 
 function stateConditionFromConfig(entry: BausteinConfig): StateCondition {
@@ -2880,7 +2941,12 @@ export function schrittFehlt(step: StepDraft): string | null {
     case 'if':
       // Erst die Bedingung, dann die Zweige - in der Reihenfolge, in
       // der das Formular sie zeigt.
-      if (step.ifConditions.length + (step.ifExtra?.length ?? 0) === 0) {
+      if (
+        step.ifConditions.length +
+          (step.ifExtra?.length ?? 0) +
+          (ifZeitfenster(step) ? 1 : 0) ===
+        0
+      ) {
         return 'eine Bedingung anlegen';
       }
       return 'im Dann- oder Sonst-Zweig einen Schritt anlegen, der etwas tut';

@@ -19,6 +19,7 @@ import {
   stateOptions,
   stepToActions,
   actionsToSteps,
+  schrittFehlt,
   toDraft,
   describe as zeileFuer,
   geraetePlatzhalter,
@@ -1624,9 +1625,9 @@ describe('Wenn/Sonst und Wiederholen als Schritte (Punkt 251)', () => {
         type: 'if',
         conditions: [
           { type: 'state', entity_id: 'hm.lux', below: 20 },
-          // Ein Zeitfenster kann der Editor nicht als Zeile zeigen -
-          // es muss den Weg über ifExtra überleben.
-          { type: 'time', after: '22:00' },
+          // Eine Zeitbedingung mit Wochentagen fassen die zwei Felder
+          // «von/bis» nicht - sie muss den Weg über ifExtra überleben.
+          { type: 'time', after: '22:00', weekdays: [5, 6] },
         ],
         match: 'any',
         then: [{ type: 'command', entity_id: 'hue.flur', command: 'turn_on' }],
@@ -1638,19 +1639,69 @@ describe('Wenn/Sonst und Wiederholen als Schritte (Punkt 251)', () => {
     expect(schritte[0].ifConditions).toEqual([
       { entity_id: 'hm.lux', op: 'below', value: '20' },
     ]);
-    expect(schritte[0].ifExtra).toEqual([{ type: 'time', after: '22:00' }]);
+    expect(schritte[0].ifExtra).toEqual([
+      { type: 'time', after: '22:00', weekdays: [5, 6] },
+    ]);
     // Und wieder zurück - samt der Bedingung aus der Konfiguration.
     expect(stepToActions(schritte[0])).toEqual([
       {
         type: 'if',
         conditions: [
           { type: 'state', entity_id: 'hm.lux', below: 20 },
-          { type: 'time', after: '22:00' },
+          { type: 'time', after: '22:00', weekdays: [5, 6] },
         ],
         match: 'any',
         then: [{ type: 'command', entity_id: 'hue.flur', command: 'turn_on' }],
       },
     ]);
+  });
+
+  it('macht aus dem schlichten Zeitfenster zwei Felder', () => {
+    // Punkt 652: «von 06:00 bis 09:00» lag früher in ifExtra - erhalten,
+    // aber nicht änderbar. Die Tageszeit-Vorlage legt vier solche
+    // Schritte an; wer die Zeiten des eigenen Gangs anders will, muss
+    // sie im Editor sehen.
+    const schritte = actionsToSteps([
+      {
+        type: 'if',
+        conditions: [{ type: 'time', after: '06:00', before: '09:00' }],
+        then: [{ type: 'command', entity_id: 'hue.gang', command: 'turn_on' }],
+      },
+    ]);
+    expect(schritte[0].ifVon).toBe('06:00');
+    expect(schritte[0].ifBis).toBe('09:00');
+    expect(schritte[0].ifExtra).toEqual([]);
+    expect(stepToActions(schritte[0])[0].conditions).toEqual([
+      { type: 'time', after: '06:00', before: '09:00' },
+    ]);
+  });
+
+  it('nimmt ein Zeitfenster mit nur einer Seite', () => {
+    // «ab 22:00» ohne Ende heisst «bis Mitternacht durch» - eine
+    // erzwungene zweite Uhrzeit wäre eine Angabe, die niemand gemacht hat.
+    const schritt = wennSchritt({ ifConditions: [], ifVon: '22:00', ifBis: '' });
+    expect(stepToActions(schritt)[0].conditions).toEqual([
+      { type: 'time', after: '22:00' },
+    ]);
+  });
+
+  it('speichert kein Zeitfenster aus Unsinn im Feld', () => {
+    // «abends» ergäbe eine Bedingung, die der Hub nie erfüllt sieht -
+    // der Ablauf liefe dann nie, ohne dass jemand den Grund sähe.
+    expect(stepToActions(wennSchritt({ ifConditions: [], ifVon: 'abends' }))).toEqual([]);
+    // Und neben einer echten Bedingung bleibt sie schlicht die einzige.
+    expect(
+      stepToActions(wennSchritt({ ifVon: 'abends' }))[0].conditions
+    ).toEqual([{ type: 'state', entity_id: 'hm.lux', below: 20 }]);
+  });
+
+  it('zählt das Zeitfenster als Bedingung des Schritts', () => {
+    // Ohne diese Zählung hiesse ein Schritt, der nur ein Zeitfenster
+    // trägt, im Editor «eine Bedingung anlegen» - und würde beim
+    // Speichern trotzdem hinausgehen.
+    const schritt = wennSchritt({ ifConditions: [], ifVon: '06:00', ifBis: '09:00' });
+    expect(stepToActions(schritt)).toHaveLength(1);
+    expect(schrittFehlt(schritt)).toBeNull();
   });
 
   it('speichert wiederholen mit Anzahl und deckelt bei 50', () => {
