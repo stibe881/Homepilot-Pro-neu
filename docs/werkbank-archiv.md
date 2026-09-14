@@ -8339,3 +8339,33 @@ alten 286 und 200, und ein Wert daneben stünde im Editor als Knopf da,
 den man nicht wiederfindet. Ein Test hält genau das fest.
 
 Stellen: `app/src/lib/weisston.ts`, `app/src/lib/weisston.test.ts`, `app/src/lib/lichtwahl.ts`, `app/src/lib/lichtwahl.test.ts`, `app/src/screens/automations/vorlagen.ts`
+
+### 656. Ein zweiter Druck nahm die Lampen der Bridge-Szene nicht zurück ✓ erledigt
+
+Nach Punkt 650/653/654 stand «Zocken / Kino» endlich richtig auf
+«aktiv». Der letzte Teil des gemeldeten Falls: «Wenn ich sie nochmals
+klicke, macht sie die Änderungen nicht mehr rückgängig, die die Szene
+gemacht hat.»
+
+Für eine Hue-Szenen-**Kachel**, direkt angetippt, gab es das längst:
+`fremde_szene` hält vor dem Aufruf fest, wie die Lampen der Szene
+standen (`entity.state["lights"]`, aus den Bridge-Aktionen), und ein
+zweiter Druck stellt genau das wieder her. Für eine **Hub-Szene**, die
+eine Bridge-Szene bloss als eine von mehreren Aktionen mit aufruft -
+der Fall «Zocken / Kino» -, griff dieser Mechanismus nie:
+`SceneManager.activate()` reicht ihre Aktionen an die reine Funktion
+`plane_rueckweg` weiter, die nur die Szenen-**Entität** selbst kennt.
+`rueckbefehl` liefert für die Art `scene` immer `None` - dieselbe
+Lampenliste lag direkt daneben, in `entity.state`, wurde aber nie
+angesehen.
+
+Die gemeinsame Rechnung ist jetzt herausgelöst
+(`_bridge_lichter_rueckweg`, von `fremde_szene` und `activate()`
+geteilt): Ruft eine Aktion der Hub-Szene eine Bridge-Szene auf, werden
+zusätzlich zum normalen Rückweg die Zustände ihrer Lampen
+festgehalten und beim Zurücknehmen mit angewandt - wie bei einer
+eigenen Aktion. Zurückgestellt wird dabei alles, was zur Bridge-Szene
+gehört, nicht nur, was sie nachweislich verändert hat: Den Unterschied
+kennt der Hub nicht, das galt schon für den Direkt-Tipp.
+
+Stellen: `hub/homepilot/core/scenes.py`, `hub/tests/test_hue_szenen.py`

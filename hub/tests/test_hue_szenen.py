@@ -10,7 +10,7 @@ Szenen-Editor der App – er zeigt, was in der Registry steht.
 from typing import Any
 
 from homepilot.core.config import ApiConfig, HubConfig
-from homepilot.core.entity import EntityKind
+from homepilot.core.entity import Entity, EntityKind
 from homepilot.core.hub import Hub
 from homepilot.integrations.hue import HueIntegration, parse_scenes
 
@@ -137,9 +137,12 @@ async def test_hub_scene_can_contain_a_bridge_scene():
     """Der Fall, um den es geht: eine Szene des Hubs, die eine Hue-Szene
     aufruft – neben allem anderen, was sie sonst schaltet.
 
-    Zurücknehmen lässt sich der Hue-Teil nicht: Was ``activate`` aus den
-    Lampen macht, weiss nur die Bridge, und Raten wäre hier schlimmer als
-    nichts tun - ``undo_fuer`` bleibt darum leer.
+    Zurücknehmen lässt sich hier nur, was `_bridge_lichter_rueckweg`
+    kennt: die Lampen aus `entity.state["lights"]` (Punkt 656 der
+    Werkbank, `test_hub_scene_takes_back_the_lights_of_its_bridge_scene`
+    unten). Diese Bridge-Antwort hier trägt keine `actions` und damit
+    keine Lampen - `undo_fuer` bleibt für dieses Setup darum leer, nicht
+    grundsätzlich.
 
     Ob die Szene noch *gilt*, ist eine andere Frage als die zurückzunehmen
     (Punkt 650 der Werkbank, der Fall «Zocken / Kino»): Die Hue-Szene
@@ -178,6 +181,86 @@ async def test_hub_scene_can_contain_a_bridge_scene():
         assert szene is not None
         assert hub.scenes.ist_aktiv(szene) is True
         assert hub.scenes.undo_fuer("abend") == []
+    finally:
+        await hub.stop()
+
+
+async def test_hub_scene_takes_back_the_lights_of_its_bridge_scene():
+    """Punkt 656: «Zocken / Kino» stand nach Punkt 650/653 richtig auf
+    «aktiv» - ein zweiter Druck nahm aber nichts von dem zurück, was die
+    Hue-Szene an den Lampen verändert hatte. `fremde_szene` (der
+    Direkt-Tipp auf die Hue-Szenen-Kachel) kannte den Rückweg über ihre
+    Lampen längst; `activate()` einer Hub-Szene, die eine Bridge-Szene
+    bloss mit aufruft, tat es nicht - `plane_rueckweg` sieht dort nur
+    die Szenen-Entität selbst, an der `rueckbefehl` nie etwas findet.
+    """
+    hub, hue = await _hue()
+    gerufen: list[str] = []
+
+    async def recall(scene_id: str) -> None:
+        gerufen.append(scene_id)
+
+    try:
+        hub.integrations._integrations["hue"] = hue
+        hue._recall = recall  # type: ignore[method-assign]
+        payload = bridge_scenes(("aaa", "Zocken", "r1"))
+        payload["data"][0]["actions"] = [
+            {"target": {"rid": "l1", "rtype": "light"}, "action": {}}
+        ]
+        hue._scenes = parse_scenes(payload, {})
+        await hue._apply_scenes(hue._scenes)
+
+        await hub.registry.add(
+            Entity(
+                id="hue.l1",
+                kind=EntityKind.LIGHT,
+                name="Deckenlampe",
+                integration="hue",
+                state={"state": "on", "brightness": 80},
+                commands=["turn_on", "turn_off", "set_brightness"],
+            )
+        )
+
+        hub.scenes.load(
+            [
+                {
+                    "id": "abend",
+                    "name": "Abend",
+                    "actions": [{"entity_id": "hue.scene_aaa", "command": "activate"}],
+                }
+            ]
+        )
+        await hub.scenes.activate("abend")
+        assert gerufen == ["aaa"]
+
+        # Die Bridge hat die Lampe verändert (hier von Hand nachgestellt,
+        # weil kein echtes Netz mitspielt).
+        await hub.registry.update_state("hue.l1", {"state": "off"})
+
+        assert hub.scenes.undo_fuer("abend") == [
+            {
+                "entity_id": "hue.l1",
+                "command": "set_brightness",
+                "data": {"brightness": 80},
+            }
+        ]
+
+        # Geprüft wird der Rückweg, den der SceneManager plant - nicht
+        # die Bridge-Anbindung selbst (die hat ihre eigenen Tests).
+        async def stelle_licht(entity: Any, command: str, data: dict[str, Any]) -> None:
+            if command == "set_brightness":
+                await hub.registry.update_state(
+                    entity.id, {"state": "on", "brightness": data.get("brightness")}
+                )
+
+        hue.handle_command = stelle_licht  # type: ignore[method-assign]
+
+        ergebnis = await hub.scenes.revert("abend")
+        assert ergebnis["reverted"] is True
+        lampe = hub.registry.get("hue.l1")
+        assert lampe is not None
+        assert lampe.state["state"] == "on"
+        assert lampe.state["brightness"] == 80
     finally:
         await hub.stop()
 

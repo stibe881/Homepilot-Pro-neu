@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from . import szenenrueckweg
+from .entity import EntityKind
 from .errors import ConfigError, HomePilotError
 from .source import as_source, scene_source
 
@@ -349,14 +350,9 @@ class SceneManager:
                 await asyncio.sleep(0)
         return failed
 
-    async def fremde_szene(self, entity: Any) -> dict[str, Any]:
-        """Eine Szene drücken, die einer Integration gehört (Hue).
-
-        Die Bridge kann eine Szene aufrufen, aber nicht zurücknehmen -
-        sie kennt kein «vorher». Der Hub kann es: Vor dem Aufrufen hält
-        er fest, wie die Lampen der Szene standen, und der zweite Druck
-        stellt genau das wieder her. Damit verhält sich eine Hue-Szene
-        wie eine eigene, und «Bleibt aktiv» heisst überall dasselbe.
+    def _bridge_lichter_rueckweg(self, entity: Any) -> list[dict[str, Any]]:
+        """Der Rückweg für die Lampen einer Bridge-Szene (rein genug, um
+        von activate() und fremde_szene() geteilt zu werden).
 
         Welche Lampen dazugehören, sagt die Szene selbst: Die Bridge
         führt sie in ihren Aktionen mit, die Integration schreibt sie als
@@ -369,7 +365,31 @@ class SceneManager:
         eigenen Zustand noch einmal gesetzt - das sieht man nicht.
         """
         lights = [str(x) for x in (entity.state.get("lights") or []) if str(x)]
-        merkt_sich = bool(getattr(entity, "scene_toggles", True)) and bool(lights)
+        if not (bool(getattr(entity, "scene_toggles", True)) and lights):
+            return []
+        stand = self._geraete_stand(lights)
+        return [
+            {"entity_id": entity_id, **befehl}
+            for entity_id, info in stand.items()
+            if (
+                befehl := szenenrueckweg.rueckbefehl(
+                    str(info.get("kind") or ""),
+                    list(info.get("commands") or []),
+                    dict(info.get("state") or {}),
+                )
+            )
+        ]
+
+    async def fremde_szene(self, entity: Any) -> dict[str, Any]:
+        """Eine Szene drücken, die einer Integration gehört (Hue).
+
+        Die Bridge kann eine Szene aufrufen, aber nicht zurücknehmen -
+        sie kennt kein «vorher». Der Hub kann es: Vor dem Aufrufen hält
+        er fest, wie die Lampen der Szene standen, und der zweite Druck
+        stellt genau das wieder her. Damit verhält sich eine Hue-Szene
+        wie eine eigene, und «Bleibt aktiv» heisst überall dasselbe.
+        """
+        merkt_sich = bool(getattr(entity, "scene_toggles", True))
         aktiv = str(entity.state.get("state") or "") == "active"
         rueckweg = self.undo_fuer(entity.id)
 
@@ -380,18 +400,7 @@ class SceneManager:
             return {"reverted": True, "failed": failed}
 
         if merkt_sich:
-            stand = self._geraete_stand(lights)
-            befehle = [
-                {"entity_id": entity_id, **befehl}
-                for entity_id, info in stand.items()
-                if (
-                    befehl := szenenrueckweg.rueckbefehl(
-                        str(info.get("kind") or ""),
-                        list(info.get("commands") or []),
-                        dict(info.get("state") or {}),
-                    )
-                )
-            ]
+            befehle = self._bridge_lichter_rueckweg(entity)
             self._undo_setzen(entity.id, befehle or None)
         else:
             # Ohne Gedächtnis auch kein alter Rückweg: Wer «Löst nur aus»
@@ -420,9 +429,24 @@ class SceneManager:
             vorher = self._geraete_stand(
                 [str(a.get("entity_id") or "") for a in scene.actions]
             )
-            self._undo_setzen(
-                scene_id, szenenrueckweg.plane_rueckweg(scene.actions, vorher)
-            )
+            rueckweg = szenenrueckweg.plane_rueckweg(scene.actions, vorher)
+            # Eine Bridge-Szene (Hue) lässt sich als Ganzes nicht
+            # zurücknehmen - plane_rueckweg findet an ihrer eigenen
+            # Entität nichts, weil rueckbefehl für die Art "scene" immer
+            # None liefert. Was sich zurückstellen lässt, sind ihre
+            # Lampen (fremde_szene tut dasselbe für den Direkt-Tipp) -
+            # sonst blieb eine Szene wie «Zocken / Kino» zwar richtig
+            # als aktiv stehen, ein zweiter Druck nahm aber nichts von
+            # dem zurück, was die Bridge-Szene an den Lampen verändert
+            # hatte (Punkt 656 der Werkbank).
+            for action in scene.actions:
+                if str(action.get("command") or "") != "activate":
+                    continue
+                ziel = self.hub.registry.get(str(action.get("entity_id") or ""))
+                if ziel is None or ziel.kind != EntityKind.SCENE:
+                    continue
+                rueckweg.extend(self._bridge_lichter_rueckweg(ziel))
+            self._undo_setzen(scene_id, rueckweg)
             # Die Selbst-Ausschalt-Uhr läuft ab dem eben gespeicherten
             # Auslöse-Zeitpunkt - derselbe Stempel, den auch ein Neustart
             # wieder vorfindet.
