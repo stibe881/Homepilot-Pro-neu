@@ -18,6 +18,7 @@ import { HubFehler, hubClient } from '../api/client';
 import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { Bar } from '../components/Bar';
+import { Kamerawand } from '../components/Kamerawand';
 import { Klappe } from '../components/Klappe';
 import { Fehlschlag, Umriss } from '../components/Zustand';
 import { useTakt } from '../hooks/useTakt';
@@ -336,6 +337,21 @@ export function AlarmScreen({
   // Nur diese Zone scharf statt des ganzen Hauses (Punkt 398 der
   // Werkbank) - null heisst wie bisher alles.
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
+  // Der letzte Blick vor dem Verlassen (Punkt 720): alle Kameras auf
+  // einmal, bevor «Ausser Haus» wirklich scharf schaltet. Nur bei
+  // diesem einen Modus - bei «Nacht» oder «Nur Erdgeschoss» ist man
+  // noch im Haus und sieht selbst nach.
+  const [kameraVorschau, setKameraVorschau] = useState(false);
+  const kameras = useMemo(
+    () => entities.filter((entity) => entity.kind === 'camera'),
+    [entities]
+  );
+  const kameraBild = (entity: Entity) =>
+    settings.url && settings.token
+      ? `${settings.url.replace(/\/+$/, '')}/api/entities/${encodeURIComponent(
+          entity.id
+        )}/snapshot?token=${encodeURIComponent(settings.token)}`
+      : undefined;
   // PIN-Abfrage vor dem Entschärfen (nur wenn eine PIN gesetzt ist).
   const [pinAsk, setPinAsk] = useState(false);
   const [pinValue, setPinValue] = useState('');
@@ -807,7 +823,11 @@ export function AlarmScreen({
             return (
               <Pressable
                 key={mode.key}
-                onPress={() => arm(mode.key)}
+                onPress={() =>
+                  mode.key === 'ausser_haus' && kameras.length > 0
+                    ? setKameraVorschau(true)
+                    : arm(mode.key)
+                }
                 accessibilityRole="button"
                 style={({ pressed }) => [
                   styles.mode,
@@ -1417,6 +1437,24 @@ export function AlarmScreen({
       ) : null}
 
       {clip ? <ClipPlayer uri={clip} onClose={() => setClip(null)} /> : null}
+      {kameraVorschau ? (
+        <Kamerawand
+          kameras={kameras}
+          bildUrl={kameraBild}
+          onOeffnen={(kamera) => {
+            setKameraVorschau(false);
+            onEntity?.(kamera.name);
+          }}
+          onClose={() => setKameraVorschau(false)}
+          aktion={{
+            label: 'Jetzt scharf schalten',
+            onPress: () => {
+              setKameraVorschau(false);
+              arm('ausser_haus');
+            },
+          }}
+        />
+      ) : null}
       {blattAt != null ? (
         <Ereignisblatt
           at={blattAt}
