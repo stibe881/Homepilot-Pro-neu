@@ -5,7 +5,7 @@
  * Gerätebestand - dazutun oder wegnehmen konnte man nichts. Wer eine
  * bearbeitet, will danach seine sehen und nicht beide.
  */
-import { EMPTY } from './entwurf';
+import { EMPTY, stepToActions } from './entwurf';
 import {
   EigeneVorlage,
   Template,
@@ -17,6 +17,7 @@ import {
   vorlagenGruppe,
 } from './vorlagen';
 import { Entity } from '../../api/types';
+import { WEISSTOENE } from '../../lib/weisston';
 
 const eingebaut = (label: string, gruppe = vorlagenGruppe(label)): Template => ({
   label,
@@ -644,12 +645,12 @@ describe('Vorlage «Licht bei Bewegung, je nach Tageszeit»', () => {
   it('deckt die drei gewünschten Abschnitte ab', () => {
     const gefunden = vorlage([melder, dimmbar]);
     expect(gefunden).toBeDefined();
-    const fenster = (gefunden?.draft.steps ?? []).map((step) => step.ifExtra?.[0]);
+    const fenster = (gefunden?.draft.steps ?? []).map((step) => [step.ifVon, step.ifBis]);
     expect(fenster).toEqual(
       expect.arrayContaining([
-        { type: 'time', after: '06:00', before: '09:00' },
-        { type: 'time', after: '09:00', before: '20:00' },
-        { type: 'time', after: '20:00', before: '00:00' },
+        ['06:00', '09:00'],
+        ['09:00', '20:00'],
+        ['20:00', '00:00'],
       ])
     );
   });
@@ -659,9 +660,23 @@ describe('Vorlage «Licht bei Bewegung, je nach Tageszeit»', () => {
     // zwischen Mitternacht und sechs keines, und im Gang ginge um drei
     // Uhr gar nichts an.
     const fenster = (vorlage([melder, dimmbar])?.draft.steps ?? []).map(
-      (step) => step.ifExtra?.[0]
+      (step) => [step.ifVon, step.ifBis]
     );
-    expect(fenster).toContainEqual({ type: 'time', after: '00:00', before: '06:00' });
+    expect(fenster).toContainEqual(['00:00', '06:00']);
+  });
+
+  it('legt die Zeiten in die Felder des Editors, nicht in ifExtra', () => {
+    // Punkt 652: In ifExtra lagen sie zwar unbeschadet, aber der Editor
+    // zeigte darüber nur «zu viel für den Editor» - die Vorlage
+    // versprach vier anpassbare Tageszeiten und gab vier feste.
+    const schritte = vorlage([melder, dimmbar])?.draft.steps ?? [];
+    expect(schritte.every((step) => (step.ifExtra?.length ?? 0) === 0)).toBe(true);
+    // Und beim Speichern steht die Zeit trotzdem als Bedingung im Ablauf.
+    expect(stepToActions(schritte[0])[0].conditions).toContainEqual({
+      type: 'time',
+      after: '06:00',
+      before: '09:00',
+    });
   });
 
   it('ist abends dunkler als tagsüber', () => {
@@ -688,5 +703,76 @@ describe('Vorlage «Licht bei Bewegung, je nach Tageszeit»', () => {
   it('schaltet danach wieder aus', () => {
     const schritte = vorlage([melder, dimmbar])?.draft.steps ?? [];
     expect(schritte[0].ifThen?.[0].commandActions[0].offAfter).toBeGreaterThan(0);
+  });
+});
+
+describe('Vorlage «je nach Tageszeit»: Weisston', () => {
+  // «Es soll aber nicht nur die Helligkeit, sondern auch warmweiss,
+  // kaltweiss, Farbe eingestellt werden können.»
+  const melder: Entity = {
+    id: 'demo.motion_hall',
+    name: 'Bewegung Gang',
+    kind: 'binary_sensor',
+    room: 'Gang',
+    state: { motion: false },
+    commands: [],
+  } as unknown as Entity;
+  const mitWeiss: Entity = {
+    id: 'demo.light_weiss',
+    name: 'Licht Gang',
+    kind: 'light',
+    room: 'Gang',
+    state: {},
+    commands: ['turn_on', 'turn_off', 'set_brightness', 'set_color_temp'],
+  } as unknown as Entity;
+  const nurDimmen: Entity = {
+    id: 'demo.light_dimm',
+    name: 'Licht Gang schlicht',
+    kind: 'light',
+    room: 'Gang',
+    state: {},
+    commands: ['turn_on', 'turn_off', 'set_brightness'],
+  } as unknown as Entity;
+
+  const schritte = (entities: Entity[]) =>
+    buildTemplates(entities, []).find(
+      (eintrag) => eintrag.label === 'Licht bei Bewegung, je nach Tageszeit'
+    )?.draft.steps ?? [];
+
+  it('stellt abends warm und tagsüber Tageslicht ein', () => {
+    const weiss = schritte([melder, mitWeiss]).map(
+      (step) => step.ifThen?.[0].commandActions[0].colorTemp
+    );
+    // Mirek: grösser heisst wärmer (370 warmweiss, 200 tageslichtweiss).
+    expect(weiss[1]).toBeLessThan(weiss[0] as number);
+    expect(weiss[2]).toBeGreaterThan(weiss[1] as number);
+  });
+
+  it('nimmt genau die Werte, die im Editor als Knopf dastehen', () => {
+    // Eine Zahl dazwischen wäre gültig - nur stünde dann kein Knopf
+    // markiert da, und die Vorlage sähe aus, als habe sie nichts
+    // eingestellt.
+    const bekannt = WEISSTOENE.map((ton) => ton.mirek);
+    schritte([melder, mitWeiss]).forEach((step) => {
+      expect(bekannt).toContain(step.ifThen?.[0].commandActions[0].colorTemp);
+    });
+  });
+
+  it('lässt den Weisston weg, wo die Lampe ihn nicht kann', () => {
+    schritte([melder, nurDimmen]).forEach((step) => {
+      expect(step.ifThen?.[0].commandActions[0].colorTemp).toBeUndefined();
+    });
+  });
+
+  it('bevorzugt im Raum die Lampe, die mehr kann', () => {
+    const gewaehlt = schritte([melder, nurDimmen, mitWeiss])[0].ifThen?.[0]
+      .commandActions[0].entity_id;
+    expect(gewaehlt).toBe('demo.light_weiss');
+  });
+
+  it('setzt keine Farbe - die ist Geschmack, nicht Tageszeit', () => {
+    schritte([melder, mitWeiss]).forEach((step) => {
+      expect(step.ifThen?.[0].commandActions[0].color).toBeUndefined();
+    });
   });
 });

@@ -247,3 +247,46 @@ def test_eine_nie_spielende_box_gilt_nach_pause_trotzdem_als_ruhig() -> None:
     assert hat_sich_geaendert({"state": "playing"}, zielzustand(actions[0])) is True
     # Rückweg aus «standby»: dieselbe Gruppe wie «idle», derselbe Befehl.
     assert rueckbefehl("media_player", ["pause"], {"state": "standby"}) == {"command": "pause"}
+
+
+def test_eine_cast_box_meldet_nach_turn_off_nie_wirklich_aus() -> None:
+    """Der dritte Teil des gemeldeten Falls «Zocken / Kino» (Punkt 653).
+
+    `test_eine_bridge_szene_gilt_nach_dem_aufruf_als_aktiv` liess die
+    Cast-Box nach `turn_off` `state: "off"` melden - das kommt bei einer
+    echten Box nie vor. `zielzustand` erwartet nach `turn_off` aber
+    genau `"off"` - ohne Gleichsetzung scheiterte szene_gilt_noch an
+    diesem einen Feld, selbst wenn die Hue-Szene (Punkt 650) längst als
+    aktiv galt.
+
+    Was die Box tatsächlich meldet, hängt an der Stelle, die es setzt:
+    `handle_command`s `turn_off` (google_cast.py) schreibt sofort
+    `state: "idle"` - direkt, ohne den Umweg über `cast_state_name`,
+    das bei einem Bildschirmgerät später auch `"standby"` ergäbe. Ein
+    Lautsprecher ohne Bildschirm (`has_screen: false`) bleibt für immer
+    bei `"idle"` stehen - er führt die HDMI-CEC-Felder gar nicht, aus
+    denen `cast_state_name` den Standby ausliest. Ein erster Versuch
+    dieser Reparatur prüfte nur gegen `"standby"` und scheiterte am
+    echten Gerät weiterhin (im Haus nachgemessen: `state: "idle"`).
+    """
+    actions = [
+        {"entity_id": "cast.wohnzimmer", "command": "turn_off"},
+        {"entity_id": "hue.szene_kino", "command": "activate"},
+    ]
+    stand = {
+        "cast.wohnzimmer": geraet("media_player", ["turn_off"], {"state": "idle"}),
+        "hue.szene_kino": geraet("scene", ["activate"], {"state": "active"}),
+    }
+    assert szene_gilt_noch(actions, stand) is True
+    # Ein Bildschirmgerät meldet stattdessen Standby - dieselbe Gruppe.
+    stand["cast.wohnzimmer"]["state"]["state"] = "standby"
+    assert szene_gilt_noch(actions, stand) is True
+    # Lief die Box noch, hat die Szene sie nicht (mehr) im Griff.
+    stand["cast.wohnzimmer"]["state"]["state"] = "playing"
+    assert szene_gilt_noch(actions, stand) is False
+
+    # War sie schon vor der Szene ruhig, hat «turn_off» nichts geändert
+    # - nichts zum Zurücknehmen.
+    assert hat_sich_geaendert({"state": "idle"}, zielzustand(actions[0])) is False
+    assert hat_sich_geaendert({"state": "standby"}, zielzustand(actions[0])) is False
+    assert hat_sich_geaendert({"state": "playing"}, zielzustand(actions[0])) is True

@@ -8186,7 +8186,90 @@ jetzt weiss leuchtet.
 
 Stellen: `app/src/lib/lichtfarbe.ts`, `app/src/lib/lichtfarbe.test.ts`
 
-### 652. «Tageslicht» war nicht das kälteste Weiss, das die Lampe kann ✓ erledigt
+### 652. Die Tageszeiten der Vorlage liessen sich nicht eintippen ✓ erledigt
+
+Aus dem Haus, einen Tag nach Punkt 650: «ich kann die tageszeite range
+nicht eingeben.»
+
+Die Vorlage «Licht bei Bewegung, je nach Tageszeit» legt vier
+Wenn-Schritte an, jeder mit einem Zeitfenster: 06:00–09:00, 09:00–20:00,
+20:00–00:00, 00:00–06:00. Versprochen war, dass man die Zeiten vor dem
+Speichern an das eigene Haus anpasst - der Gang wird hier nicht um
+sechs, sondern um halb sieben gebraucht.
+
+Anpassen liess sich nichts. Das Fenster ging als `ifExtra` hinaus, und
+`ifExtra` ist die Schublade für Bedingungen, die der Editor nicht bauen
+kann (Punkt 251): Sie überleben das Öffnen und Speichern unverändert,
+sichtbar ist davon nur die Zeile «zu viel für den Editor, sie bleiben
+beim Speichern erhalten». Für eine Bedingung aus einer von Hand
+geschriebenen `config.yaml` ist das richtig. Für vier Fenster, die eine
+Vorlage gerade selbst angelegt hat und zum Anpassen anbietet, ist es
+das Gegenteil von dem, was draufsteht.
+
+Das schlichte Fenster «von … bis …» ist jetzt ein Feldpaar am
+Wenn-Schritt (`ifVon`/`ifBis`), wie schon beim Zeitfenster des ganzen
+Ablaufs. Beim Öffnen eines gespeicherten Ablaufs wird das erste solche
+Fenster in die Felder gezogen, alles Übrige bleibt in `ifExtra`: Eine
+Zeitbedingung mit Wochentagen, Datumsspanne oder Feiertagsausnahme
+trägt mehr, als zwei Felder fassen - sie in die Felder zu zwingen
+hiesse, sie beim nächsten Speichern zu verlieren.
+
+Unsinn im Feld («abends») ergibt kein Fenster statt eines um Mitternacht:
+Eine Bedingung, die der Hub nie erfüllt sieht, liesse den Ablauf
+schweigend nie laufen. Nur eine Seite auszufüllen ist dagegen erlaubt
+und gemeint - «ab 22:00» ohne Ende heisst «bis Mitternacht durch», und
+über Mitternacht rechnet der Hub selbst richtig (`time_in_window`); der
+Hinweis darunter sagt das.
+
+Die Browser-Probe misst es jetzt mit (`tageszeitenEintippbar`), und
+beim Einbauen fiel eine zweite Sache auf: Die Messung «Der Rauchmelder
+steht im Ablauf-Editor zur Wahl» (Punkt 542) meldete seit der
+Aufräumaktion (Punkt 511) **gar nichts mehr**. Die Vorlagenliste steht
+seither zugeklappt, die Knöpfe darin gibt es ohne Tipp nicht im Baum -
+die Messung fand keinen, kehrte still um und war damit weder grün noch
+rot, sondern gar nicht da. Beide klappen die Liste jetzt auf, und eine
+fehlende Vorlage ist eine rote Messung statt einer stillen Umkehr: Ein
+Prüfstand, der nie rot wird, ist keiner.
+
+Stellen: `app/src/screens/automations/entwurf.ts`,
+`app/src/screens/automations/schritte.tsx`,
+`app/src/screens/automations/vorlagen.ts`, `scripts/probe.mjs`, dazu die
+Tests in `entwurf.test.ts` und `vorlagen.test.ts`
+
+### 653. «Zocken / Kino» blieb trotz Punkt 650 immer noch nie aktiv ✓ erledigt
+
+Punkt 650 war nach dem Deployen nachweislich im Haus angekommen
+(`HOMEPILOT_COMMIT` geprüft), und trotzdem zeigte «Zocken / Kino»
+weiterhin nie «aktiv». Der Grund lag einen Schritt tiefer, in derselben
+Szene, aber am anderen der beiden Schritte: Punkt 650 reparierte
+`hue: activate` - der zweite Schritt, `google_cast: turn_off`, hatte
+denselben Fehler wie `pause` in Punkt 650, nur bei `turn_off` gegen ein
+Gerät, das kein «aus» kennt.
+
+`zielzustand("turn_off")` verlangt `state == "off"`. Eine Cast-Box
+meldet nach dem Ausschalten aber nie `"off"`. Der bestehende Test für
+diesen Fall (`test_eine_bridge_szene_gilt_nach_dem_aufruf_als_aktiv`,
+Punkt 650) liess die Cast-Box testweise `state: "off"` melden - ein
+Zustand, den eine echte Box nie erreicht, und der die Lücke deshalb
+verdeckte, statt sie zu zeigen.
+
+Ein erster Versuch prüfte gegen `"standby"` (`cast_state_name`) - im
+Haus nachgemessen (`/api/entities`, direkt nach dem Auslösen) meldete
+die Box aber `state: "idle"`. Grund: `handle_command`s `turn_off`
+(`google_cast.py`) setzt den Zustand optimistisch direkt auf `"idle"`,
+ohne den Umweg über `cast_state_name` - und ein Lautsprecher ohne
+Bildschirm (`has_screen: false`) führt die HDMI-CEC-Felder gar nicht,
+aus denen `cast_state_name` später einen Standby ablesen würde. Für
+so ein Gerät bleibt `"idle"` der einzige je gemeldete Ruhezustand.
+
+Reparatur wie bei Punkt 650: eine neue Gruppe `AUS_GLEICHWERTIG`
+(`off`, `standby`, `idle`) gilt in `_stimmt_ueberein` als gleichwertig
+- sowohl beim Prüfen (`szene_gilt_noch`) als auch beim Zurücknehmen
+(`hat_sich_geaendert`). Eine Box, die schon ruhte, bleibt beim Rückweg
+weiterhin unangetastet.
+
+Stellen: `hub/homepilot/core/szenenrueckweg.py`, `hub/tests/test_szenenrueckweg.py`
+### 654. «Tageslicht» war nicht das kälteste Weiss, das die Lampe kann ✓ erledigt
 
 Aus dem Haus: «Wenn man auf Tageslicht stellt, ist es nicht das Maximum
 an Kaltweiss.» Stimmt - und zwar um 1500 Kelvin.
@@ -8216,4 +8299,8 @@ Zwei Dinge fielen dabei ab:
   für dieselben drei Töne wären zwei Stellen, an denen jemand eine
   ändert.
 
-Stellen: `app/src/lib/weisston.ts`, `app/src/lib/weisston.test.ts`, `app/src/lib/lichtwahl.ts`, `app/src/lib/lichtwahl.test.ts`
+Und die Vorlage «je nach Tageszeit» zog mit: Ihre Bänder trugen die
+alten 286 und 200, und ein Wert daneben stünde im Editor als Knopf da,
+den man nicht wiederfindet. Ein Test hält genau das fest.
+
+Stellen: `app/src/lib/weisston.ts`, `app/src/lib/weisston.test.ts`, `app/src/lib/lichtwahl.ts`, `app/src/lib/lichtwahl.test.ts`, `app/src/screens/automations/vorlagen.ts`

@@ -187,11 +187,27 @@ export function mischeVorlagen(
  * sich als Entwurf, und geändert wird sie vor dem Speichern.
  */
 export const TAGESZEIT_BAENDER = [
-  { von: '06:00', bis: '09:00', prozent: 40, wann: 'Morgen' },
-  { von: '09:00', bis: '20:00', prozent: 100, wann: 'Tag' },
-  { von: '20:00', bis: '00:00', prozent: 25, wann: 'Abend' },
-  { von: '00:00', bis: '06:00', prozent: 5, wann: 'Nacht' },
+  // Die Weisstöne sind genau die drei aus lib/weisston.ts - ein Wert
+  // daneben stünde im Editor als Knopf da, den man nicht wiederfindet.
+  // Sie haben sich mit Punkt 654 verschoben (neutralweiss 286 → 250,
+  // tageslichtweiss 200 → 153): «Tageslicht» war vorher nicht das
+  // kälteste Weiss, das eine Lampe kann.
+  { von: '06:00', bis: '09:00', prozent: 40, mirek: 250, wann: 'Morgen' },
+  { von: '09:00', bis: '20:00', prozent: 100, mirek: 153, wann: 'Tag' },
+  { von: '20:00', bis: '00:00', prozent: 25, mirek: 370, wann: 'Abend' },
+  { von: '00:00', bis: '06:00', prozent: 5, mirek: 370, wann: 'Nacht' },
 ] as const;
+
+// Die Mirek-Werte sind nicht frei gewählt, sondern genau die drei aus
+// `lib/weisston.ts` (warmweiss 370, neutralweiss 286, tageslichtweiss
+// 200). Eine Zahl dazwischen wäre auch gültig - nur stünde dann im
+// Editor kein Knopf markiert da, und die Vorlage sähe aus, als habe sie
+// nichts eingestellt.
+//
+// Warum diese Reihenfolge: Morgens neutral (wach werden, aber nicht
+// grell), tagsüber Tageslicht, abends und nachts warm. Melatonin ist
+// kein Argument, das hier hingehört - der Grund ist einfacher: Blaues
+// Licht um elf Uhr abends im Gang ist unangenehm.
 
 /**
  * Ein «Wenn Zeitfenster, dann so hell»-Schritt (rein, testbar).
@@ -203,26 +219,43 @@ export const TAGESZEIT_BAENDER = [
  * Die Zeitspanne geht als Bedingung des Hubs hinaus (`type: 'time'` mit
  * `after`/`before`), nicht als Gerätebedingung: Sie hängt an keiner
  * Entität, und über Mitternacht rechnet der Hub selbst richtig
- * (core/automation.py, time_in_window).
+ * (core/automation.py, time_in_window). Sie steht in `ifVon`/`ifBis`
+ * und nicht in `ifExtra` - dort lag sie anfangs, und der Editor zeigte
+ * statt der Zeiten nur «zu viel für den Editor»: Die Vorlage versprach
+ * vier Tageszeiten zum Anpassen und gab vier unveränderliche
+ * (Punkt 652).
  */
 export function tageszeitSchritt(
-  lampe: string,
-  band: { von: string; bis: string; prozent: number },
+  lampe: Entity,
+  band: { von: string; bis: string; prozent: number; mirek?: number },
   nachlaufSekunden = 240
 ): StepDraft {
   return {
     ...EMPTY_STEP,
     kind: 'if',
-    ifExtra: [{ type: 'time', after: band.von, before: band.bis }],
+    ifVon: band.von,
+    ifBis: band.bis,
     ifThen: [
       {
         ...EMPTY_STEP,
         commandActions: [
           {
-            entity_id: lampe,
+            entity_id: lampe.id,
             command: 'set_brightness',
             brightness: band.prozent,
             offAfter: nachlaufSekunden,
+            // Der Weisston nur, wo die Lampe ihn kann. An einer Lampe
+            // ohne `set_color_temp` wäre er eine Angabe, die der Hub
+            // still verwirft - und im Editor stünde ein Knopf, der
+            // nichts bewirkt.
+            //
+            // Eine *Farbe* setzt die Vorlage bewusst nicht: Welche, ist
+            // Geschmack und nicht Tageszeit. Wählen lässt sie sich je
+            // Abschnitt trotzdem - im selben Raster, in dem auch die
+            // Weisstöne stehen.
+            ...(band.mirek && lampe.commands.includes('set_color_temp')
+              ? { colorTemp: band.mirek }
+              : {}),
           },
         ],
       },
@@ -368,10 +401,17 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
     // Zeiten und eigene Werte will, braucht eigene Fenster, und die
     // baut man hier: ein Schritt je Abschnitt, jeder mit seiner
     // Bedingung.
+    // Erst der Raum des Melders, dann die Lampe, die am meisten kann:
+    // Eine, die auch Weisstöne beherrscht, macht aus der Vorlage das,
+    // wonach gefragt wurde - morgens neutral, abends warm. Eine, die nur
+    // dimmt, bekommt dieselben Abschnitte, aber ohne Weisston.
+    const imRaum = allLightsFuerTageszeit.filter(
+      (entity) => entity.room && entity.room === motion.room
+    );
+    const wahlkreis = imRaum.length > 0 ? imRaum : allLightsFuerTageszeit;
     const lampe =
-      allLightsFuerTageszeit.find(
-        (entity) => entity.room && entity.room === motion.room
-      ) ?? allLightsFuerTageszeit[0];
+      wahlkreis.find((entity) => entity.commands.includes('set_color_temp')) ??
+      wahlkreis[0];
     templates.push({
       label: 'Licht bei Bewegung, je nach Tageszeit',
       gruppe: 'Licht',
@@ -394,7 +434,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
         // entscheiden hier schon, wie hell es sein soll. Beides zusammen
         // hiesse, dass mittags gar nichts angeht - und genau das wäre
         // der Fehler, den man erst im dunklen Gang merkt.
-        steps: TAGESZEIT_BAENDER.map((band) => tageszeitSchritt(lampe.id, band)),
+        steps: TAGESZEIT_BAENDER.map((band) => tageszeitSchritt(lampe, band)),
       },
     });
   }
