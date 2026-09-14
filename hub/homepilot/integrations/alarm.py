@@ -122,6 +122,7 @@ from .alarm_rules import (  # noqa: F401
     unverschlossen,
     valid_duress_pin,
     valid_pin,
+    verzoegerung,
     zonen,
     zustand_merken,
     zustand_nach_neustart,
@@ -494,7 +495,7 @@ class AlarmIntegration(Integration):
         # Ein laufender Sensor-Testlauf ergibt scharf keinen Sinn mehr -
         # er endet mit dem Scharfschalten von selbst.
         self._sensor_test = None
-        delay = float(self._settings.get("exit_delay") or 0)
+        delay = verzoegerung(self._settings.get("exit_delay"), datetime.now().weekday())
         if delay > 0:
             self._state = ARMING
             self._until = time.time() + delay
@@ -868,7 +869,7 @@ class AlarmIntegration(Integration):
             return
 
         entry = self._sensors.get(entity.id) or {}
-        delay = float(self._settings.get("entry_delay") or 0)
+        delay = verzoegerung(self._settings.get("entry_delay"), datetime.now().weekday())
         if entry.get("delayed") and delay > 0:
             self._cancel_timer()
             self._state = ENTRY

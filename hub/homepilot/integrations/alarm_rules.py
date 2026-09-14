@@ -208,9 +208,13 @@ DURCHBRUCH = ("person", "animal")
 PET_DURCHBRUCH = ("person",)
 
 DEFAULT_SETTINGS: dict[str, Any] = {
-    # Sekunden zum Verlassen des Hauses nach dem Scharfschalten.
+    # Sekunden zum Verlassen des Hauses nach dem Scharfschalten. Für alle
+    # Tage gleich, wenn hier eine Zahl steht - für einzelne Wochentage
+    # verschieden, wenn stattdessen ein Wörterbuch steht (Punkt 722 der
+    # Werkbank, siehe verzoegerung() weiter unten).
     "exit_delay": 45,
-    # Sekunden zum Unscharfschalten nach dem Öffnen eines verzögerten Sensors.
+    # Sekunden zum Unscharfschalten nach dem Öffnen eines verzögerten
+    # Sensors. Dieselbe Wahl zwischen Zahl und Wörterbuch wie oben.
     "entry_delay": 30,
     # Push beim Auslösen (praktisch immer gewollt) …
     "notify_trigger": True,
@@ -301,6 +305,36 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # Eigene Modi (Punkt 515): [{key, label, icon}], siehe eigene_modi_lesen.
     "custom_modes": [],
 }
+
+
+def verzoegerung(setting: Any, wochentag: int) -> float:
+    """Wie viele Sekunden eine Ein- oder Ausgangsverzögerung heute dauert
+    (rein, testbar). Punkt 722 der Werkbank.
+
+    Steht dort eine blosse Zahl, gilt sie für jeden Tag - wie bisher.
+    Steht stattdessen ein Wörterbuch, zählt der eigene Wochentag als
+    Schlüssel (0 = Montag, wie überall sonst im Hub: parse_weekdays,
+    datetime.weekday()); fehlt er, gilt "default". Der Fall dahinter:
+    Am Wochenende geht morgens niemand zu einer festen Uhrzeit aus dem
+    Haus - eine Ausgangsverzögerung, die für den hektischen Werktag
+    reicht, löst am Sonntag beim gemütlichen Verlassen unnötig aus.
+
+    Eine kaputte oder fehlende Angabe zählt als 0 - dieselbe Regel wie
+    vorher bei ``float(settings.get(...) or 0)``.
+    """
+    if isinstance(setting, dict):
+        if wochentag in setting:
+            gewaehlt = setting[wochentag]
+        elif str(wochentag) in setting:
+            gewaehlt = setting[str(wochentag)]
+        else:
+            gewaehlt = setting.get("default")
+    else:
+        gewaehlt = setting
+    try:
+        return float(gewaehlt or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def ohne_pin_erlaubt(quelle: Any, settings: dict[str, Any]) -> bool:
