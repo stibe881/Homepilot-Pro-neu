@@ -42,6 +42,44 @@ export const VORLAGEN_GRUPPEN = [
 export type VorlagenGruppe = (typeof VORLAGEN_GRUPPEN)[number];
 
 /**
+ * Die Gruppen, die auch als Kategorie eines Ablaufs taugen (rein, testbar).
+ *
+ * «Eigene» und «Weitere» sagen nichts über den Ablauf, sondern über die
+ * Vorlagenliste - als Kategorie wären sie eine Sammelstelle, in der man
+ * nichts wiederfindet.
+ */
+export const KATEGORIE_GRUPPEN: string[] = VORLAGEN_GRUPPEN.filter(
+  (gruppe) => gruppe !== 'Eigene' && gruppe !== 'Weitere'
+);
+
+/** Die Kategorie, die eine Vorlage mitbringt - oder nichts (rein, testbar). */
+export function gruppeAlsKategorie(gruppe: string | undefined): string {
+  return gruppe && KATEGORIE_GRUPPEN.includes(gruppe) ? gruppe : '';
+}
+
+/**
+ * Was im Editor als Kategorie zur Wahl steht (rein, testbar).
+ *
+ * Gemeldet als «aus einer Vorlage kann ich keine Kategorie angeben».
+ * Sie liess sich sehr wohl angeben - nur stand dort ein leeres Textfeld
+ * und sonst nichts: Zur Wahl standen bis hierher ausschliesslich
+ * Kategorien, die schon ein anderer Ablauf trägt. Beim ersten Ablauf
+ * eines Hauses gibt es keine, und ein Feld ohne einen einzigen Vorschlag
+ * sieht aus wie eine Angabe, die es nicht gibt.
+ *
+ * Deshalb stehen die Gruppen der Vorlagen mit zur Wahl - dieselben
+ * Wörter, nach denen die Vorlagen ohnehin sortiert sind. Schon benutzte
+ * zuerst: Was im Haus üblich ist, steht vorn.
+ */
+export function kategorieVorschlaege(benutzte: string[]): string[] {
+  const gesehen = new Set(benutzte.map((name) => name.toLowerCase()));
+  return [
+    ...benutzte,
+    ...KATEGORIE_GRUPPEN.filter((gruppe) => !gesehen.has(gruppe.toLowerCase())),
+  ];
+}
+
+/**
  * In welche Gruppe eine Vorlage gehört, wenn sie kein Feld trägt
  * (rein, testbar).
  *

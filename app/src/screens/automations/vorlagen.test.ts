@@ -12,6 +12,8 @@ import {
   buildTemplates,
   gruppiereVorlagen,
   mischeVorlagen,
+  gruppeAlsKategorie,
+  kategorieVorschlaege,
   vorlagenGruppe,
 } from './vorlagen';
 import { Entity } from '../../api/types';
@@ -547,5 +549,57 @@ describe('Gruppe als Feld', () => {
     expect(gruppiereVorlagen(zeilen.map((z) => ({ ...z, gruppe: undefined })))[0].titel).toBe(
       'Licht'
     );
+  });
+});
+
+// ── Kategorie aus einer Vorlage ─────────────────────────────────────────
+//
+// Gemeldet: «Wenn ich einen Ablauf aus einer Vorlage erstelle, kann ich
+// da keine Kategorie angeben.» Angeben liess sie sich sehr wohl - nur
+// stand im Editor ein leeres Textfeld und sonst nichts: Zur Wahl standen
+// ausschliesslich Kategorien, die schon ein anderer Ablauf trug. Beim
+// ersten Ablauf eines Hauses gibt es keine, und ein Feld ohne einen
+// einzigen Vorschlag sieht aus wie eine Angabe, die es nicht gibt.
+
+describe('Kategorie-Vorschläge', () => {
+  it('bietet auch ohne einen einzigen Ablauf etwas an', () => {
+    const vorschlaege = kategorieVorschlaege([]);
+    expect(vorschlaege).toContain('Licht');
+    expect(vorschlaege).toContain('Sicherheit');
+    expect(vorschlaege.length).toBeGreaterThan(3);
+  });
+
+  it('stellt die schon benutzten nach vorn', () => {
+    // Was im Haus üblich ist, steht vorn - die Standardgruppen sind nur
+    // ein Anfang, kein Vorschriftenkatalog.
+    const vorschlaege = kategorieVorschlaege(['Abends', 'Licht']);
+    expect(vorschlaege.slice(0, 2)).toEqual(['Abends', 'Licht']);
+  });
+
+  it('zählt eine benutzte Kategorie nicht doppelt', () => {
+    const vorschlaege = kategorieVorschlaege(['Licht']);
+    expect(vorschlaege.filter((name) => name.toLowerCase() === 'licht')).toHaveLength(1);
+  });
+
+  it('lässt die Sammelgruppen weg', () => {
+    // «Eigene» und «Weitere» sagen etwas über die Vorlagenliste, nichts
+    // über den Ablauf - als Kategorie wären sie eine Schublade, in der
+    // man nichts wiederfindet.
+    const vorschlaege = kategorieVorschlaege([]);
+    expect(vorschlaege).not.toContain('Eigene');
+    expect(vorschlaege).not.toContain('Weitere');
+  });
+});
+
+describe('gruppeAlsKategorie', () => {
+  it('nimmt die Gruppe der Vorlage', () => {
+    expect(gruppeAlsKategorie('Licht')).toBe('Licht');
+    expect(gruppeAlsKategorie('Klingel & Kameras')).toBe('Klingel & Kameras');
+  });
+
+  it('gibt bei den Sammelgruppen nichts zurück', () => {
+    expect(gruppeAlsKategorie('Eigene')).toBe('');
+    expect(gruppeAlsKategorie('Weitere')).toBe('');
+    expect(gruppeAlsKategorie(undefined)).toBe('');
   });
 });
