@@ -4,7 +4,7 @@ from homepilot.core.config import ApiConfig, HubConfig
 from homepilot.core.entity import Entity, EntityKind
 from homepilot.core.errors import ConfigError, HomePilotError
 from homepilot.core.hub import Hub
-from homepilot.core.scenes import parse_scenes
+from homepilot.core.scenes import MAX_WAIT, parse_scenes, warte_dauer
 
 KINO = {
     "id": "kino",
@@ -32,6 +32,30 @@ async def make_hub(scenes):
 def test_parse_requires_entity_and_command():
     with pytest.raises(ConfigError, match="entity_id"):
         parse_scenes([{"id": "x", "actions": [{"command": "turn_on"}]}])
+
+
+def test_parse_erlaubt_einen_warte_schritt_ohne_entitaet():
+    """Der einzige Aktion, die keine Entität braucht (Punkt 658)."""
+    szenen = parse_scenes(
+        [
+            {
+                "id": "x",
+                "actions": [
+                    {"entity_id": "demo.light_livingroom", "command": "turn_on"},
+                    {"command": "wait", "data": {"seconds": 5}},
+                ],
+            }
+        ]
+    )
+    assert szenen[0].actions[1]["command"] == "wait"
+    # Der Warte-Schritt trägt keine Entität - er taucht darum auch nicht
+    # als "None" in entity_ids auf.
+    assert szenen[0].as_dict()["entity_ids"] == ["demo.light_livingroom"]
+
+
+def test_parse_verlangt_trotzdem_ein_kommando():
+    with pytest.raises(ConfigError, match="entity_id"):
+        parse_scenes([{"id": "x", "actions": [{"entity_id": "demo.light_livingroom"}]}])
 
 
 async def test_activate_runs_all_actions():
@@ -359,5 +383,83 @@ async def test_eine_durchsage_ohne_text_scheitert_lesbar():
         ergebnis = await hub.scenes.activate("leer")
         assert len(ergebnis["failed"]) == 1
         assert "Text" in ergebnis["failed"][0]["error"]
+    finally:
+        await hub.stop()
+
+
+def test_warte_dauer_ignoriert_null_und_unsinn():
+    """0 oder nichts heisst: gar nicht warten - kein leerer Leerlauf für
+    eine Zahl, die niemand gemeint hat."""
+    assert warte_dauer({}) == 0.0
+    assert warte_dauer({"seconds": 0}) == 0.0
+    assert warte_dauer({"seconds": -5}) == 0.0
+    assert warte_dauer({"seconds": "unsinn"}) == 0.0
+    assert warte_dauer({"seconds": None}) == 0.0
+
+
+def test_warte_dauer_ist_gedeckelt():
+    """Länger als eine Stunde ist kein Schritt einer Szene mehr, sondern
+    ein Ablauf - dieselbe Grenze wie bei der Übergangszeit (Punkt 658)."""
+    assert warte_dauer({"seconds": 30}) == 30.0
+    assert warte_dauer({"seconds": 999999}) == MAX_WAIT
+
+
+async def test_eine_szene_kann_zwischen_zwei_aktionen_warten(monkeypatch):
+    """Gewünscht im Haus: eine Wartezeit zwischen zwei Aktionsgruppen -
+    «Licht aus, warten, Store zu» statt beidem gleichzeitig (Punkt 658).
+
+    `_warten` wird ersetzt statt `asyncio.sleep` selbst - ein
+    Hub trägt eigene Hintergrund-Aufgaben (Verbindungsschleifen, Uhren),
+    die echtes Warten brauchen; sie global stillzulegen liesse den Test
+    hängen, statt ihn schneller zu machen.
+    """
+    hub = await make_hub(
+        [
+            {
+                "id": "abfolge",
+                "name": "Abfolge",
+                "actions": [
+                    {"entity_id": "demo.switch_coffee", "command": "turn_off"},
+                    {"command": "wait", "data": {"seconds": 3}},
+                    {"entity_id": "demo.light_livingroom", "command": "turn_on"},
+                ],
+            }
+        ]
+    )
+    gewartet = []
+
+    async def fake_warten(action) -> None:
+        gewartet.append((action.get("data") or {}).get("seconds"))
+
+    monkeypatch.setattr(hub.scenes, "_warten", fake_warten)
+
+    try:
+        ergebnis = await hub.scenes.activate("abfolge")
+        assert ergebnis["failed"] == []
+        assert gewartet == [3]
+        assert hub.registry.get("demo.switch_coffee").state["state"] == "off"
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
+    finally:
+        await hub.stop()
+
+
+async def test_eine_wartezeit_von_null_wartet_nicht():
+    """0 oder nichts heisst: sofort weiter - kein leerer Leerlauf."""
+    hub = await make_hub(
+        [
+            {
+                "id": "ohne",
+                "name": "Ohne",
+                "actions": [
+                    {"command": "wait", "data": {"seconds": 0}},
+                    {"entity_id": "demo.light_livingroom", "command": "turn_on"},
+                ],
+            }
+        ]
+    )
+    try:
+        ergebnis = await hub.scenes.activate("ohne")
+        assert ergebnis["failed"] == []
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
     finally:
         await hub.stop()

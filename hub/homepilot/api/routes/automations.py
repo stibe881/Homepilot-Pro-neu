@@ -380,7 +380,13 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         if not actions:
             raise HTTPException(status_code=400, detail="Eine Szene braucht Aktionen")
         for action in actions:
-            if not action.get("entity_id") or not action.get("command"):
+            if not action.get("command"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Jede Aktion braucht 'entity_id' und 'command'",
+                )
+            # Ein Warte-Schritt betrifft kein Gerät (Punkt 658).
+            if action.get("command") != "wait" and not action.get("entity_id"):
                 raise HTTPException(
                     status_code=400,
                     detail="Jede Aktion braucht 'entity_id' und 'command'",

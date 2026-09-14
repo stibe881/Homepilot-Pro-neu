@@ -239,6 +239,21 @@ describe('Lautstärke, Playlist und App beim Bearbeiten', () => {
     expect(zurueck[2].app).toBe('com.netflix.ninja');
   });
 
+  it('macht aus einem Warte-Schritt ohne Entität trotzdem eine anfassbare Zeile', () => {
+    // Punkt 658: Ein Warte-Schritt hat beim Hub keine entity_id - im
+    // Editor braucht jede Zeile trotzdem eine, um sie anzufassen.
+    const [erster, zweiter] = sceneActionsToDraft([
+      { command: 'wait', data: { seconds: 5 } },
+      { command: 'wait', data: { seconds: 10 } },
+    ]);
+    expect(erster.seconds).toBe(5);
+    expect(zweiter.seconds).toBe(10);
+    expect(erster.entity_id).toBeTruthy();
+    // Zwei Warte-Schritte dürfen sich nicht dieselbe Kennung teilen -
+    // sonst liesse sich der eine nicht ändern, ohne den anderen zu treffen.
+    expect(erster.entity_id).not.toBe(zweiter.entity_id);
+  });
+
   it('holt auch die Zieltemperatur des Grills zurück', () => {
     // Ohne das stünde beim nächsten Öffnen der Chip da und die Stufe
     // darunter auf der Vorgabe – die Szene selbst hätte den richtigen

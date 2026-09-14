@@ -80,7 +80,9 @@ class Scene:
             "name": self.name,
             "icon": self.icon,
             "actions": self.actions,
-            "entity_ids": [action.get("entity_id") for action in self.actions],
+            # Ein Warte-Schritt hat keine Entität - er soll in dieser
+            # Liste nicht als "None" auftauchen (Punkt 658 der Werkbank).
+            "entity_ids": [eid for a in self.actions if (eid := a.get("entity_id"))],
             "editable": self.editable,
             "room": self.room,
             "on_start": self.on_start,
@@ -95,6 +97,10 @@ class Scene:
 MAX_TRANSITION = 3600
 # Und länger als ein Tag ist kein Selbst-Ausschalten mehr, sondern nie.
 MAX_AUTO_OFF = 24 * 3600
+# Dieselbe Grenze wie bei der Übergangszeit, aus demselben Grund: Länger
+# als eine Stunde warten ist kein Schritt einer Szene mehr, sondern ein
+# Ablauf (Punkt 658 der Werkbank).
+MAX_WAIT = 3600
 
 
 def restlaufzeit(ausgeloest: float, auto_off: int, jetzt: float) -> float | None:
@@ -153,6 +159,23 @@ def transition_for(scene: Scene, action: dict[str, Any]) -> float:
     return min(sekunden, MAX_TRANSITION)
 
 
+def warte_dauer(data: dict[str, Any]) -> float:
+    """Wie lange ein Warte-Schritt tatsächlich wartet (rein, testbar).
+
+    0 oder Unsinn heisst: gar nicht - kein leerer Leerlauf für eine
+    Zahl, die niemand gemeint hat. Mehr als MAX_WAIT ist kein Schritt
+    einer Szene mehr, sondern ein Ablauf, dieselbe Grenze wie bei der
+    Übergangszeit (Punkt 658 der Werkbank).
+    """
+    try:
+        sekunden = float(data.get("seconds") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    if sekunden <= 0:
+        return 0.0
+    return min(sekunden, MAX_WAIT)
+
+
 def parse_scenes(configs: list[dict[str, Any]], editable: bool = False) -> list[Scene]:
     scenes = []
     for index, config in enumerate(configs):
@@ -161,7 +184,13 @@ def parse_scenes(configs: list[dict[str, Any]], editable: bool = False) -> list[
         if not isinstance(actions, list):
             raise ConfigError(f"Szene '{scene_id}': 'actions' muss eine Liste sein")
         for action in actions:
-            if not action.get("entity_id") or not action.get("command"):
+            if not action.get("command"):
+                raise ConfigError(
+                    f"Szene '{scene_id}': jede Aktion braucht 'entity_id' und 'command'"
+                )
+            # Ein Warte-Schritt betrifft kein Gerät - er braucht als
+            # einziger keine Entität (Punkt 658 der Werkbank).
+            if action.get("command") != "wait" and not action.get("entity_id"):
                 raise ConfigError(
                     f"Szene '{scene_id}': jede Aktion braucht 'entity_id' und 'command'"
                 )
@@ -481,6 +510,9 @@ class SceneManager:
                     if action["command"] == "announce":
                         await self._announce(action)
                         continue
+                    if action["command"] == "wait":
+                        await self._warten(action)
+                        continue
                     await self.hub.integrations.dispatch_command(
                         action["entity_id"], action["command"], action.get("data") or {}
                     )
@@ -642,3 +674,18 @@ class SceneManager:
             speakers=[str(action.get("entity_id") or "")],
             volume=data.get("volume"),
         )
+
+    async def _warten(self, action: dict[str, Any]) -> None:
+        """Ein Warte-Schritt innerhalb einer Szene (Punkt 658 der Werkbank).
+
+        Gewünscht im Haus: eine Wartezeit zwischen zwei Gruppen von
+        Aktionen, statt einer Szene, die alles auf einen Schlag schaltet
+        - «Licht aus, drei Sekunden warten, Store zu» statt beidem
+        gleichzeitig. Dieselbe Rechnung wie ein Ablauf
+        (core/automation.py, Aktionsart "delay"), nur innerhalb einer
+        Szene: Kein eigener Aktionstyp, sondern ein Kommando ohne
+        Entität - die einzige Aktion einer Szene, die keine braucht.
+        """
+        sekunden = warte_dauer(action.get("data") or {})
+        if sekunden > 0:
+            await asyncio.sleep(sekunden)

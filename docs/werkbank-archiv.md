@@ -8397,3 +8397,39 @@ Zurücknehmen lässt sich eine Durchsage nicht - `zielzustand` kennt
 nicht vorhersagbare Kommando auch.
 
 Stellen: `hub/homepilot/core/scenes.py`, `hub/tests/test_scenes.py`, `app/src/lib/szenen.ts`, `app/src/lib/szenen.test.ts`, `app/src/screens/automations/szenengeraete.ts`, `app/src/screens/automations/szenengeraete.test.ts`, `app/src/screens/automations/szenen-editor.tsx`, `app/src/screens/AutomationsScreen.tsx`
+
+### 658. Warte-Schritt innerhalb einer Szene ✓ erledigt
+
+Gewünscht im Haus: eine Wartezeit zwischen zwei Gruppen von Aktionen
+innerhalb einer Szene - «Licht aus, warten, Store zu» statt beidem auf
+einen Schlag. Das gibt es in Abläufen längst als eigener Schritt
+(«Warten», `schritte.tsx`) - Szenen kennen laut eigenem Modul-Kommentar
+bewusst keinen Zeitverlauf. Im Haus war der Wunsch trotzdem, es genau
+dort zu haben, wo die einfachen Kachel-Knöpfe («Kino», «Zocken») her
+sind, nicht im grösseren Ablauf-Editor.
+
+Eine Szene kennt keine eigenen Aktionsarten, nur `entity_id`/`command`/
+`data` - ein Warte-Schritt ist darum das Kommando `wait` ohne Entität,
+die einzige Aktion einer Szene, die keine braucht. `parse_scenes` und
+`validate_scene_actions` lassen genau diese eine Ausnahme zu;
+`SceneManager.activate()` fängt das Kommando vor dem Dispatch ab und
+wartet (`warte_dauer`, gedeckelt auf `MAX_WAIT` - dieselbe Grenze und
+derselbe Grund wie bei der Übergangszeit: länger als eine Stunde ist
+kein Szenen-Schritt mehr, sondern ein Ablauf).
+
+Im Editor braucht ein Warte-Schritt trotzdem eine Kennung, um ihn
+anzufassen (auswählen, löschen, Sekunden ändern) - dieselbe Maschinerie
+läuft überall über `entity_id`. Er bekommt darum eine rein lokale
+(`neueWarteId`, `lib/szenenwarten.ts`), die beim Speichern wieder
+wegfällt. Die Reihenfolge der Aktionen ist ihre Ausführungsreihenfolge:
+Ein «Warten hinzufügen» hängt sich ans Ende der bisherigen Wahl, genau
+wie ein neu gewähltes Gerät - wer «erst das, dann warten, dann das»
+will, wählt die Geräte in dieser Reihenfolge und tippt dazwischen auf
+den Knopf.
+
+Nur in Szenen, nicht in Abläufen: `SceneDevices` (geteilt mit
+`schritte.tsx`) bekommt dafür das neue, standardmässig **aus**stehende
+`allowWait` - in Abläufen gäbe es sonst zwei Antworten auf dieselbe
+Frage.
+
+Stellen: `hub/homepilot/core/scenes.py`, `hub/homepilot/api/routes/automations.py`, `hub/tests/test_scenes.py`, `app/src/lib/szenen.ts`, `app/src/lib/szenen.test.ts`, `app/src/lib/szenenwarten.ts`, `app/src/lib/szenenwarten.test.ts`, `app/src/screens/automations/szenen-editor.tsx`, `app/src/screens/automations/szenen-editor.test.tsx`, `app/src/screens/AutomationsScreen.tsx`

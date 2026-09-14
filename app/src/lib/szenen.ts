@@ -1,4 +1,5 @@
 import { Entity, Scene } from '../api/types';
+import { WARTE_KOMMANDO, neueWarteId } from './szenenwarten';
 
 /**
  * Szenen: den Ist-Zustand einfangen und gespeicherte Aktionen zurücklesen.
@@ -164,6 +165,8 @@ export interface SceneActionDraft {
   shuffle?: boolean;
   /** Der gesprochene Text, wenn das Kommando 'announce' ist. */
   text?: string;
+  /** Die Wartezeit in Sekunden, wenn das Kommando 'wait' ist. */
+  seconds?: number;
 }
 
 /**
@@ -248,7 +251,9 @@ export function snapshotCommand(entity: Entity): string {
  */
 export function sceneActionsToDraft(
   actions: {
-    entity_id: string;
+    // Fehlt nur bei einem Warte-Schritt - der einzigen Aktion einer
+    // Szene ohne Entität.
+    entity_id?: string;
     command: string;
     data?: {
       rooms?: number[];
@@ -266,11 +271,22 @@ export function sceneActionsToDraft(
       device?: string;
       shuffle?: boolean;
       text?: string;
+      seconds?: number;
     };
   }[]
 ): SceneActionDraft[] {
   const result: SceneActionDraft[] = [];
   for (const action of actions) {
+    if (action.command === WARTE_KOMMANDO) {
+      result.push({
+        // Rein lokal - beim Speichern lässt AutomationsScreen.tsx sie
+        // wieder weg (siehe szenenwarten.ts).
+        entity_id: neueWarteId(),
+        command: WARTE_KOMMANDO,
+        seconds: action.data?.seconds,
+      });
+      continue;
+    }
     if (action.command === 'set_color') {
       const traeger = result.find(
         (entry) => entry.entity_id === action.entity_id && entry.command === 'set_brightness'
@@ -285,7 +301,7 @@ export function sceneActionsToDraft(
     // der Playlist als Beilage – sonst leuchtete beim Öffnen gar nichts.
     const musik = musikSchluessel(action.command, action.data);
     result.push({
-      entity_id: action.entity_id,
+      entity_id: action.entity_id ?? '',
       command: musik?.command ?? richtung ?? action.command,
       rooms: action.data?.rooms,
       position: action.data?.position,

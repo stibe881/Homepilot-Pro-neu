@@ -787,7 +787,14 @@ export function AutomationsScreen({
             device,
             shuffle,
             text,
-          }) => {
+            seconds,
+          }): { entity_id?: string; command: string; data?: Record<string, unknown> }[] => {
+          // Ein Warte-Schritt hat keine Entität - seine lokale
+          // Kennung (szenenwarten.ts, `neueWarteId`) ist nur dazu da,
+          // ihn im Editor anzufassen, und gehört nicht zum Hub.
+          if (command === 'wait') {
+            return [{ command, data: { seconds: Math.max(0, Number(seconds) || 0) } }];
+          }
           // Kamera und Lautsprecher kennen je einen Befehl, dessen
           // Richtung in unsichtbaren Zusatzdaten steckt. In der Auswahl
           // sind es zwei Chips.

@@ -21,6 +21,7 @@ import {
   raumHatLux,
 } from '../../lib/helligkeitsvorgabe';
 import { RueckwegBefehl, SceneActionDraft, snapshotAction } from '../../lib/szenen';
+import { istWarteSchritt, neueWarteId, wartezeitLabel } from '../../lib/szenenwarten';
 import { Fassung, VersionsSection } from './editor';
 import { istAnschalten, vacuumRooms } from './entwurf';
 import {
@@ -105,6 +106,7 @@ export function SceneDevices({
   sceneTransition = 0,
   luxSensors,
   nurAuswahl = false,
+  allowWait = false,
 }: {
   entities: Entity[];
   actions: SceneDraft['actions'];
@@ -125,6 +127,11 @@ export function SceneDevices({
   /** Der «Aktuellen Zustand übernehmen»-Knopf – für Szenen sinnvoll, für
    *  Ablauf-Aktionen nicht (dort zählt der Zielzustand, nicht der jetzige). */
   showSnapshot?: boolean;
+  /** Ein «Warten»-Schritt zwischen zwei Aktionsgruppen – nur in Szenen
+   *  sinnvoll (Punkt 658). In Abläufen gibt es dafür längst einen
+   *  eigenen Schritt («Warten», schritte.tsx) - ein zweiter hier wäre
+   *  eine zweite Antwort auf dieselbe Frage. */
+  allowWait?: boolean;
   /** «umschalten» als dritte Möglichkeit – nur in Abläufen sinnvoll. */
   allowToggle?: boolean;
 }) {
@@ -156,9 +163,21 @@ export function SceneDevices({
   // Vorher stand alles in einer einzigen, ungedeckelten Liste: Wer drei
   // Geräte gewählt hatte, scrollte an hundert anderen vorbei, um sie
   // wiederzufinden.
-  const gewaehlte = actions
-    .map((action) => all.find((entity) => entity.id === action.entity_id))
-    .filter((entity): entity is Entity => !!entity);
+  //
+  // Ein Warte-Schritt (Punkt 658) steht in derselben Liste, an seiner
+  // Stelle in der Reihenfolge - nur ohne Gerät dahinter. Die Reihenfolge
+  // der Aktionen ist ihre Ausführungsreihenfolge (core/scenes.py,
+  // activate()): Nur so lässt sich «erst das, dann warten, dann das»
+  // überhaupt bauen.
+  type AusgewaehlteZeile =
+    | { art: 'geraet'; entity: Entity }
+    | { art: 'warten'; action: SceneActionDraft };
+  const gewaehlteZeilen: AusgewaehlteZeile[] = actions.flatMap(
+    (action): AusgewaehlteZeile[] => {
+      if (istWarteSchritt(action)) return [{ art: 'warten', action }];
+      const entity = all.find((e) => e.id === action.entity_id);
+      return entity ? [{ art: 'geraet' as const, entity }] : [];
+    });
   const angebot = devices.filter((entity) => !byId.has(entity.id));
 
   // Nach Raum gruppieren; Geräte ohne Raum kommen unter «Weitere».
@@ -189,6 +208,19 @@ export function SceneDevices({
       onActions([...actions, snapshotAction(entity)]);
     }
   };
+
+  // Ans Ende der bisherigen Wahl - wie ein neu gewähltes Gerät auch
+  // (siehe toggle). So baut man «erst das, dann warten, dann das»,
+  // indem man die Geräte in der gewünschten Reihenfolge wählt und
+  // dazwischen auf «Warten» tippt.
+  const warteSchrittHinzufuegen = () =>
+    onActions([
+      ...actions,
+      { entity_id: neueWarteId(), command: 'wait', seconds: 5 },
+    ]);
+
+  const entferneAktion = (entityId: string) =>
+    onActions(actions.filter((action) => action.entity_id !== entityId));
 
   const setCommand = (entityId: string, command: string) =>
     onActions(
@@ -280,15 +312,33 @@ export function SceneDevices({
           in der nur ein Häkchen den Unterschied machte - und «1
           Gerät(e)» stand als lose Zeile darüber, weil niemand die
           Mehrzahl bilden wollte. */}
-      {gewaehlte.length > 0 ? (
+      {gewaehlteZeilen.length > 0 ? (
         <View style={{ gap: 10 }}>
           <View style={styles.wahlKopf}>
             <Text style={styles.groupLabel}>Ausgewählt</Text>
             <Text style={styles.wahlZahl}>
-              {gewaehlte.length === 1 ? '1 Gerät' : `${gewaehlte.length} Geräte`}
+              {(() => {
+                const anzahl = gewaehlteZeilen.filter((z) => z.art === 'geraet').length;
+                return anzahl === 1 ? '1 Gerät' : `${anzahl} Geräte`;
+              })()}
             </Text>
           </View>
-          {gewaehlte.map((entity) => gewaehltesGeraet(entity))}
+          {gewaehlteZeilen.map((zeile) =>
+            zeile.art === 'warten'
+              ? gewaehlterWarteSchritt(zeile.action)
+              : gewaehltesGeraet(zeile.entity)
+          )}
+          {allowWait ? (
+            <Pressable
+              onPress={warteSchrittHinzufuegen}
+              accessibilityRole="button"
+              accessibilityLabel="Warten einfügen"
+              style={({ pressed }) => [styles.snapshot, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name="time-outline" size={18} color={colors.accent} />
+              <Text style={styles.snapshotText}>Warten einfügen</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
 
@@ -302,7 +352,7 @@ export function SceneDevices({
         <View style={{ gap: 6 }}>
           <View style={styles.wahlKopf}>
             <Text style={styles.groupLabel}>
-              {gewaehlte.length > 0 ? 'Weitere hinzufügen' : 'Gerät wählen'}
+              {gewaehlteZeilen.length > 0 ? 'Weitere hinzufügen' : 'Gerät wählen'}
             </Text>
           </View>
           <ScrollView
@@ -348,6 +398,50 @@ export function SceneDevices({
           <Text style={styles.pickKind}>{geraeteUntertitel(entity, entities)}</Text>
         </View>
       </Pressable>
+    );
+  }
+
+  /** Ein Warte-Schritt als eigene Karte, wie ein gewähltes Gerät - nur
+   *  ohne Gerätename, sondern mit der Wartezeit selbst (Punkt 658). */
+  function gewaehlterWarteSchritt(action: SceneActionDraft) {
+    const sekunden = action.seconds ?? 5;
+    return (
+      <View key={action.entity_id} style={styles.geraetKarte}>
+        <View style={styles.geraetKopf}>
+          <View style={styles.geraetZeichen}>
+            <Ionicons name="time-outline" size={17} color={colors.accent} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.deviceName}>Warten</Text>
+            <Text style={styles.pickKind}>{wartezeitLabel(sekunden)}</Text>
+          </View>
+          <Pressable
+            onPress={() => entferneAktion(action.entity_id)}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Warte-Schritt wieder entfernen"
+            style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+          >
+            <Ionicons name="close-circle" size={22} color={colors.inkFaint} />
+          </Pressable>
+        </View>
+
+        {nurAuswahl ? null : (
+          <>
+            <View style={styles.geraetStrich} />
+            <Unterfrage label="Wie lange?">
+              <Choice
+                options={[5, 10, 30, 60, 120, 300, 600].map((wert) => ({
+                  key: String(wert),
+                  label: wartezeitLabel(wert),
+                }))}
+                value={String(sekunden)}
+                onSelect={(key) => setField(action.entity_id, { seconds: Number(key) })}
+              />
+            </Unterfrage>
+          </>
+        )}
+      </View>
     );
   }
 
@@ -976,6 +1070,7 @@ export function SceneEditor({
             actions={draft.actions}
             onActions={(actions) => set({ actions })}
             sceneTransition={draft.transition ?? 0}
+            allowWait
           />
         </Field>
 

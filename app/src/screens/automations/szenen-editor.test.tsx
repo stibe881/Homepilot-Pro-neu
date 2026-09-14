@@ -52,6 +52,24 @@ function bauen(actions: { entity_id: string; command: string }[], onActions = je
   return { baum, onActions };
 }
 
+function bauenAlsSzene(
+  actions: { entity_id: string; command: string; seconds?: number }[],
+  onActions = jest.fn()
+) {
+  let baum!: ReactTestRenderer;
+  act(() => {
+    baum = create(
+      <SceneDevices
+        entities={[lampe]}
+        actions={actions}
+        onActions={onActions}
+        allowWait
+      />
+    );
+  });
+  return { baum, onActions };
+}
+
 describe('Ein gewähltes Gerät im Editor', () => {
   it('stellt jede Chip-Reihe als Frage', () => {
     // Der gemeldete Zustand: fünf Reihen Chips untereinander, beschriftet
@@ -186,6 +204,46 @@ describe('Farbe und Weisston als Raster (Punkt 649)', () => {
     });
     expect(onActions).toHaveBeenCalledWith([
       expect.objectContaining({ colorTemp: undefined, color: undefined }),
+    ]);
+  });
+});
+
+describe('Warten zwischen zwei Aktionen (Punkt 658)', () => {
+  it('bietet «Warten einfügen» nur an, wo es erlaubt ist', () => {
+    // In Abläufen gibt es dafür längst einen eigenen Schritt
+    // (schritte.tsx) - der Knopf hier ist nur für Szenen gedacht.
+    const { baum: ohneErlaubnis } = bauen([{ entity_id: lampe.id, command: 'turn_on' }]);
+    expect(texte(ohneErlaubnis)).not.toContain('Warten einfügen');
+
+    const { baum: mitErlaubnis } = bauenAlsSzene([{ entity_id: lampe.id, command: 'turn_on' }]);
+    expect(texte(mitErlaubnis)).toContain('Warten einfügen');
+  });
+
+  it('hängt einen neuen Warte-Schritt ans Ende der bisherigen Wahl', () => {
+    const { baum, onActions } = bauenAlsSzene([{ entity_id: lampe.id, command: 'turn_on' }]);
+    act(() => {
+      knopf(baum, 'Warten einfügen').onPress();
+    });
+    expect(onActions).toHaveBeenCalledTimes(1);
+    const [aktionen] = onActions.mock.calls[0];
+    expect(aktionen).toHaveLength(2);
+    expect(aktionen[0].entity_id).toBe(lampe.id);
+    expect(aktionen[1].command).toBe('wait');
+    expect(aktionen[1].seconds).toBe(5);
+    expect(aktionen[1].entity_id).toBeTruthy();
+  });
+
+  it('zeigt eine gewählte Wartezeit und nimmt sie wieder weg', () => {
+    const { baum, onActions } = bauenAlsSzene([
+      { entity_id: lampe.id, command: 'turn_on' },
+      { entity_id: '__warten_x', command: 'wait', seconds: 30 },
+    ]);
+    expect(texte(baum)).toContain('30 Sekunden');
+    act(() => {
+      knopf(baum, 'Warte-Schritt wieder entfernen').onPress();
+    });
+    expect(onActions).toHaveBeenCalledWith([
+      expect.objectContaining({ entity_id: lampe.id }),
     ]);
   });
 });
