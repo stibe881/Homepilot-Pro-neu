@@ -73,10 +73,15 @@ anderes Konto her soll.
 
 ## Was die Kachel kann
 
-- Ein/Aus: Einschalten weckt aus dem Ruhemodus (DDP), Ausschalten
-  schickt in den Ruhemodus (Remote Play). Eine ruhende Konsole
-  auszuschalten gilt als erledigt, damit «niemand mehr zuhause» nicht an
-  ihr hängen bleibt.
+- Ein/Aus: Einschalten weckt aus dem Ruhemodus (DDP) und meldet danach
+  im Hintergrund das gekoppelte Konto an - sonst bliebe die Konsole auf
+  der Profilauswahl stehen, und bis man dort von Hand ein Profil wählt,
+  wirkt keine Taste. Dafür öffnet der Hub, sobald die Konsole oben ist,
+  eine Remote-Play-Sitzung (wie die Remote-Play-App): Sie landet direkt
+  im Konto. Das braucht die abgeschlossene Kopplung; ohne sie weckt der
+  Hub nur, und das Profil wählt man selbst. Ausschalten schickt in den
+  Ruhemodus (Remote Play). Eine ruhende Konsole auszuschalten gilt als
+  erledigt, damit «niemand mehr zuhause» nicht an ihr hängen bleibt.
 - Tasten: Steuerkreuz, Kreuz, Kreis, Dreieck, Quadrat, Options, Share,
   PS. Die bestehende Fernbedienung der App funktioniert ohne Änderung:
   `ok` ist Kreuz, `back` Kreis, `home` die PS-Taste.

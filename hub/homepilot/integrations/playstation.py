@@ -82,6 +82,12 @@ DDP_TIMEOUT = 2.0
 SITZUNG_LEERLAUF = 120.0
 #: So lange darf der Aufbau einer Sitzung dauern.
 SITZUNG_AUFBAU = 15.0
+#: Nach dem Wecken meldet sich der Hub selbst im Konto an, damit die
+#: Konsole nicht auf der Profilauswahl stehen bleibt (siehe
+#: _anmelden_nach_wecken). So lange wird auf das Hochfahren gewartet,
+#: und so oft dazwischen nachgesehen.
+WECKEN_ANMELDEN_WARTEN = 45.0
+WECKEN_ANMELDEN_TAKT = 3.0
 
 
 def ddp_anfrage(art: str, daten: dict[str, str] | None = None) -> bytes:
@@ -902,6 +908,46 @@ class PlaystationIntegration(Integration):
         # Auch das Gelingen protokollieren - ein leeres Log unterscheidet
         # nicht zwischen «alles gut» und «kam nie an».
         self.log.info("Weck-Paket an PlayStation %s gesendet", geraet["host"])
+        # Das blosse Weckpaket bringt die Konsole auf die Profilauswahl und
+        # meldet niemanden an - danach «kann man nichts mehr machen, bis man
+        # sein Profil gewählt hat» (aus dem Haus). Eine Remote-Play-Sitzung
+        # dagegen meldet genau das registrierte Konto an und landet in
+        # dessen Startbildschirm, wie die Remote-Play-App. Also im
+        # Hintergrund: warten, bis die Konsole hochgefahren ist, dann die
+        # Sitzung öffnen und offen halten (die folgenden Tasten nutzen sie).
+        # Nur wenn es überhaupt geht - ohne Registrierung oder Bibliothek
+        # bleibt es beim Weckpaket, und die Profilauswahl von Hand.
+        if self._ist_registriert(entity.id) and remote_play_verfuegbar():
+            self.start_task(self._anmelden_nach_wecken(entity.id))
+
+    async def _anmelden_nach_wecken(self, entity_id: str) -> None:
+        """Nach dem Wecken im Konto anmelden - sobald die Konsole oben ist.
+
+        Wartet, bis eine DDP-Antwort «an» meldet (die Konsole braucht ein
+        paar Sekunden zum Hochfahren), und öffnet dann die
+        Remote-Play-Sitzung. Deren Aufbau meldet das Konto an und lässt die
+        Profilauswahl aus. Bester Versuch: Schlägt er fehl, steht man dort,
+        wo man heute steht - vor der Profilauswahl von Hand.
+        """
+        loop = asyncio.get_running_loop()
+        frist = loop.time() + WECKEN_ANMELDEN_WARTEN
+        while loop.time() < frist:
+            await asyncio.sleep(WECKEN_ANMELDEN_TAKT)
+            antwort = await self._ddp_status(entity_id)
+            if antwort and antwort.get("status_code") == 200:
+                try:
+                    await self._sitzung(entity_id)
+                    self.log.info("PlayStation %s: im Konto angemeldet nach dem Wecken", entity_id)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as err:
+                    self.log.info(
+                        "PlayStation %s: Anmelden nach dem Wecken ging nicht (%s) - "
+                        "Profil von Hand wählen",
+                        entity_id,
+                        err,
+                    )
+                return
 
     def _sitzung_pruefen(self, entity_id: str) -> None:
         """Was für Standby und Tasten alles da sein muss - sonst ConnectionError."""

@@ -7909,6 +7909,16 @@ von 100-200 ms hält die Remote-Play-Sitzung am Leben. Ohne ihn legte die
 Konsole sie von selbst ab. Der Worker läuft jetzt, solange die Sitzung
 steht, und hält still, sobald sie getrennt wird.
 
+**Und nach dem Wecken ging nichts:** Das blosse Weckpaket bringt die
+Konsole auf die Profilauswahl und meldet niemanden an - bis man dort von
+Hand ein Profil wählt, wirkt keine Taste. Eine Remote-Play-Sitzung
+dagegen meldet das gekoppelte Konto an und landet in dessen
+Startbildschirm. Der Hub öffnet sie seit `_anmelden_nach_wecken` selbst:
+nach dem Weckpaket im Hintergrund warten, bis eine DDP-Antwort «an»
+meldet, dann die Sitzung öffnen und offen halten. Bester Versuch - ohne
+Registrierung oder Bibliothek bleibt es beim Weckpaket und der
+Profilauswahl von Hand.
+
 Stellen: `hub/homepilot/integrations/playstation.py`, `hub/homepilot/api/routes/playstation.py`, `hub/homepilot/core/livekarten.py`, `hub/homepilot/core/extras.py`, `hub/pyproject.toml`, `hub/Dockerfile`, `docs/playstation.md`, `hub/tests/test_playstation*.py`, `app/src/lib/playstation.ts`, `app/src/components/TvRemote.tsx`, `app/src/components/PsKopplung.tsx`, `app/src/screens/VerbindungenScreen.tsx`, `app/src/lib/fernsehkachel.ts`, `app/src/lib/fernsehkopplung.ts`, `app/src/lib/geraeteart.ts`, `app/src/lib/raumkarte.ts`
 
 ### 644. «Zocken» blieb nie aktiv - der zweite Druck löste bloss erneut aus ✓ erledigt
