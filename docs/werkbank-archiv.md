@@ -8197,17 +8197,25 @@ denselben Fehler wie `pause` in Punkt 650, nur bei `turn_off` gegen ein
 Gerät, das kein «aus» kennt.
 
 `zielzustand("turn_off")` verlangt `state == "off"`. Eine Cast-Box
-meldet nach dem Ausschalten aber nie `"off"` - sie kennt nur den
-Standby (`integrations/google_cast.py`, `cast_state_name`). Der
-bestehende Test für diesen Fall (`test_eine_bridge_szene_gilt_
-nach_dem_aufruf_als_aktiv`, Punkt 650) liess die Cast-Box testweise
-`state: "off"` melden - ein Zustand, den eine echte Box nie erreicht,
-und der die Lücke deshalb verdeckte, statt sie zu zeigen.
+meldet nach dem Ausschalten aber nie `"off"`. Der bestehende Test für
+diesen Fall (`test_eine_bridge_szene_gilt_nach_dem_aufruf_als_aktiv`,
+Punkt 650) liess die Cast-Box testweise `state: "off"` melden - ein
+Zustand, den eine echte Box nie erreicht, und der die Lücke deshalb
+verdeckte, statt sie zu zeigen.
+
+Ein erster Versuch prüfte gegen `"standby"` (`cast_state_name`) - im
+Haus nachgemessen (`/api/entities`, direkt nach dem Auslösen) meldete
+die Box aber `state: "idle"`. Grund: `handle_command`s `turn_off`
+(`google_cast.py`) setzt den Zustand optimistisch direkt auf `"idle"`,
+ohne den Umweg über `cast_state_name` - und ein Lautsprecher ohne
+Bildschirm (`has_screen: false`) führt die HDMI-CEC-Felder gar nicht,
+aus denen `cast_state_name` später einen Standby ablesen würde. Für
+so ein Gerät bleibt `"idle"` der einzige je gemeldete Ruhezustand.
 
 Reparatur wie bei Punkt 650: eine neue Gruppe `AUS_GLEICHWERTIG`
-(`off`, `standby`) gilt in `_stimmt_ueberein` als gleichwertig - sowohl
-beim Prüfen (`szene_gilt_noch`) als auch beim Zurücknehmen
-(`hat_sich_geaendert`). Eine Box, die schon im Standby war, bleibt beim
-Rückweg weiterhin unangetastet.
+(`off`, `standby`, `idle`) gilt in `_stimmt_ueberein` als gleichwertig
+- sowohl beim Prüfen (`szene_gilt_noch`) als auch beim Zurücknehmen
+(`hat_sich_geaendert`). Eine Box, die schon ruhte, bleibt beim Rückweg
+weiterhin unangetastet.
 
 Stellen: `hub/homepilot/core/szenenrueckweg.py`, `hub/tests/test_szenenrueckweg.py`

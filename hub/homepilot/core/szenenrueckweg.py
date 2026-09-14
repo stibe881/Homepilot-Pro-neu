@@ -98,15 +98,18 @@ def zielzustand(action: dict[str, Any]) -> dict[str, Any]:
 PAUSIERT_GLEICHWERTIG = frozenset({"paused", "idle", "standby"})
 
 
-#: Eine Cast-Box kennt kein «aus» im Sinn von state="off" - sie geht in
-#: den Standby (integrations/google_cast.py, cast_state_name: nach dem
-#: Ausschalten meldet sie "standby", nie "off"). Ohne diese
-#: Gleichsetzung scheiterte szene_gilt_noch an genau diesem einen
-#: Gerät, selbst wenn alles andere an der Szene noch stimmte - der
-#: gemeldete Fall «Zocken / Kino», dessen einzige zwei Aktionen ein
-#: google_cast-turn_off und ein hue-activate sind (Punkt 652 der
-#: Werkbank).
-AUS_GLEICHWERTIG = frozenset({"off", "standby"})
+#: Eine Cast-Box kennt kein «aus» im Sinn von state="off". `turn_off`
+#: setzt den Zustand optimistisch direkt auf "idle" (google_cast.py,
+#: handle_command - ohne Umweg über cast_state_name), und ein später
+#: eintreffender echter Bericht meldet je nach Gerät "idle" oder
+#: "standby" (Lautsprecher ohne Bildschirm kennen keinen Standby-Sinn -
+#: `cast_state_name` liest ihn nur aus HDMI-CEC-Feldern, die ein reiner
+#: Lautsprecher gar nicht führt). Ohne diese Gleichsetzung scheiterte
+#: szene_gilt_noch an genau diesem einen Gerät, selbst wenn alles
+#: andere an der Szene noch stimmte - der gemeldete Fall
+#: «Zocken / Kino», dessen einzige zwei Aktionen ein google_cast-
+#: turn_off und ein hue-activate sind (Punkt 652 der Werkbank).
+AUS_GLEICHWERTIG = frozenset({"off", "standby", "idle"})
 
 
 def _stimmt_ueberein(feld: str, wert: Any, ist: Any) -> bool:
