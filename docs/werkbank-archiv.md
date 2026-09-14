@@ -34,6 +34,7 @@ werden sie archiviert und nicht gelöscht.
 | 421–505 | Fünfundachtzig Vorschläge (September 2026) | dieselben acht Bereiche, eine Runde später |
 | 506–509 | Auf einem anderen Zweig, derselbe Abend | Klingeltöne, Räume-Seite, Kontoeinstellungen |
 | 510–533 | Zweite Vorschlagsrunde des anderen Zweigs | Abläufe, Push, Alarm, Gutscheine, Gestaltung |
+| 659–739 | Einundachtzig Vorschläge (September 2026) | App allgemein, User Experience, Gestaltung, Gutscheine, Abläufe, Push, Alarm, Selbst gewählt |
 
 Die Häkchen tragen die Commit-Kürzel von den Werkbank-Seiten; ganz alte
 können hinter der flachen Klon-Grenze liegen.
@@ -8433,3 +8434,31 @@ Nur in Szenen, nicht in Abläufen: `SceneDevices` (geteilt mit
 Frage.
 
 Stellen: `hub/homepilot/core/scenes.py`, `hub/homepilot/api/routes/automations.py`, `hub/tests/test_scenes.py`, `app/src/lib/szenen.ts`, `app/src/lib/szenen.test.ts`, `app/src/lib/szenenwarten.ts`, `app/src/lib/szenenwarten.test.ts`, `app/src/screens/automations/szenen-editor.tsx`, `app/src/screens/automations/szenen-editor.test.tsx`, `app/src/screens/AutomationsScreen.tsx`
+
+### 670. Personalisierbare Reihenfolge der Haupt-Reiter je Person ✓ erledigt (80c8eed)
+
+Die Reiter der Haupt-Leiter (Start, Räume, Licht, Storen, …,
+`components/Rail.tsx`) standen für alle in derselben festen Reihenfolge
+- anders als die Favoritenkacheln, die sich seit `lib/favoritenordnung.ts`
+je Person ziehen lassen. Wer die Familienseite selten öffnet, sah sie
+trotzdem an derselben Stelle wie jemand, der nichts anderes benutzt.
+
+`sichtbareBereiche()` (die reine, bereits getestete Funktion, aus der
+die Leiste ihre Knöpfe baut und der auch die Wischgeste zwischen
+Bereichen folgt, Punkt 522) nimmt jetzt einen dritten, optionalen
+Parameter entgegen: dieselbe `favoritenOrdnen()`-Funktion wie bei den
+Favoriten sortiert die sichtbaren Reiter nach einer gespeicherten
+Reihenfolge, und was darin fehlt, hängt sich hinten an statt zu
+verschwinden - ein neu freigeschaltetes Feature verliert seinen Reiter
+also nicht, nur weil die Reihenfolge schon einmal gezogen wurde. Rail
+und die Wischgeste rufen dieselbe Funktion, damit beide nie
+auseinanderlaufen können.
+
+Gespeichert wird unter `eigenePrefs.reiterOrder` (hooks/usePrefs.ts),
+genau wie `favoriteOrder` und `schnellOrder` - persönlich, nicht
+haushaltsweit. Ein neuer Ordnen-Knopf in der Kachel-Karte der
+Einstellungen (`SettingsScreen.tsx`) öffnet denselben Griff-Ordnen-Weg
+(Modal, `DraggableList`) wie schon bei Favoriten und Schnellaktionen auf
+der Startseite - keine dritte Bedienung für dieselbe Geste.
+
+Stellen: `app/src/components/Rail.tsx`, `app/src/components/Rail.test.ts`, `app/src/hooks/usePrefs.ts`, `app/src/screens/SettingsScreen.tsx`, `app/src/screens/DashboardScreen.tsx`

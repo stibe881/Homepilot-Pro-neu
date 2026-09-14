@@ -20,7 +20,7 @@ vorkommt, prüft `scripts/werkbank.py` (und mit ihr der Prüflauf).
 | --- | --- | --- |
 | App allgemein | 15 | 422, 424, 425, 427, 428, 429, 659, 660, 661, 662, 663, 664, 665, 666, 667 |
 | Bedienung | 10 | 431, 432, 433, 434, 435, 436, 437, 438, 439, 440 |
-| User Experience | 10 | 668, 669, 670, 671, 672, 673, 674, 675, 676, 677 |
+| User Experience | 9 | 668, 669, 671, 672, 673, 674, 675, 676, 677 |
 | Gestaltung | 14 | 441, 446, 447, 449, 450, 678, 679, 680, 681, 682, 683, 684, 685, 686 |
 | Gutscheine | 12 | 453, 458, 687, 688, 689, 690, 691, 692, 693, 694, 695, 696 |
 | Abläufe | 12 | 468, 469, 697, 698, 699, 700, 701, 702, 703, 704, 705, 706 |
@@ -616,15 +616,6 @@ gesprochenen Wort gerecht wird. Nähe: 500 (Sprachbefehle als Liste ohne
 Prüfstand). Stellen: `docs/sprachbefehle.md`,
 `hub/homepilot/api/routes/`, `app/src/lib/suchbefehl.ts`. Aufwand:
 mittel · Hub.
-
-**670. Personalisierbare Reihenfolge der Haupt-Reiter je Person, nicht
-nur der Favoriten-Kacheln.** `lib/favoritenordnung.ts` ordnet die
-Kacheln auf der Startseite je Person; die Reiter der Leiste selbst
-(`components/Rail.tsx`) sind für alle gleich - fest in derselben
-Reihenfolge, ob jemand die Familienseite zehnmal am Tag öffnet oder nie.
-Dieselbe Mechanik wie bei den Favoriten, nur eine Ebene höher. Stellen:
-`app/src/components/Rail.tsx`, `app/src/lib/favoritenordnung.ts`,
-`app/src/lib/persoenlich.ts`. Aufwand: klein · App.
 
 **671. App-weiter «Fokus»-Modus (Badges/Vorschläge stumm während eines
 Meetings), unabhängig von Push-Ruhezeiten.** Die Push-Ruhezeiten
