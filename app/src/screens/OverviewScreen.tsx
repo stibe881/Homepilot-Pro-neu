@@ -118,6 +118,11 @@ interface Props {
    *  Gerätespeicher dieses Bildschirms liegt (hooks/useKachelnutzung.ts)
    *  und nicht zu diesem Bauteil gehört. */
   recentIds?: string[];
+  /** «640.00 CHF · 40.00 EUR» - der offene Gesamtwert der Gutscheine
+   *  (Punkt 687 der Werkbank, hooks/useGutscheinSumme.ts). Leer heisst:
+   *  keine Kachel, entweder weil noch nichts geladen ist oder weil
+   *  nichts offen ist. */
+  gutscheinSumme?: string;
   /** Selbst gezogene Reihenfolge der Schnellaktionen (Szenen-Kennungen
    *  und die zwei Storen-Knöpfe, siehe lib/schnellordnung.ts). */
   schnellOrder?: string[];
@@ -225,6 +230,7 @@ export function OverviewScreen({
   favoriteOrder,
   onReorderFavorites,
   recentIds = [],
+  gutscheinSumme = '',
   schnellOrder,
   onReorderSchnell,
   onRenameEntity,
@@ -1053,6 +1059,19 @@ export function OverviewScreen({
             ))}
           </View>
         </>
+      ) : null}
+
+      {/* Gesamtwert-Kachel der Gutscheine (Punkt 687): «Noch 340 CHF in
+          Gutscheinen offen» - der Wert, den man sonst erst nach dem
+          Öffnen des Familienmoduls sieht. Leer heisst nichts offen oder
+          noch nicht geladen, und dann steht hier bewusst keine Karte. */}
+      {gutscheinSumme ? (
+        <Card style={styles.gutscheinKarte}>
+          <Ionicons name="pricetag-outline" size={18} color={colors.inkSoft} />
+          <Text style={styles.gutscheinText}>
+            Noch {gutscheinSumme} in Gutscheinen offen
+          </Text>
+        </Card>
       ) : null}
 
       {/* Der Handgriff zur Tageszeit: morgens «Storen auf», abends
@@ -2448,6 +2467,13 @@ const makeStyles = (colors: Colors) =>
     },
     reorderTitle: { color: colors.ink, fontSize: 18, fontWeight: '700' },
     reorderHint: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
+    gutscheinKarte: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingVertical: 12,
+    },
+    gutscheinText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
     stack: { gap: space.gap },
     headRow: { flexDirection: 'row', gap: space.gap },
     clockCard: { flex: 1, minHeight: 0, justifyContent: 'center' },

@@ -215,6 +215,7 @@ import { mitStil } from '../lib/widgetstil';
 import { HubProvider, MeldungsProvider, useBlattstapel } from '../hooks/HubContext';
 import { useFamilienlisten } from '../hooks/useFamilienlisten';
 import { useAbstuerze } from '../hooks/useAbstuerze';
+import { useGutscheinSumme } from '../hooks/useGutscheinSumme';
 import { useKachelnutzung } from '../hooks/useKachelnutzung';
 import { useRaumnutzung } from '../hooks/useRaumnutzung';
 import { Zielzeile, istGrill, zieleVon } from '../lib/grillziel';
@@ -717,6 +718,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Und wie oft welches Gerät zu welcher Tageszeit
   // (hooks/useKachelnutzung.ts) - daraus wird die gelernte Reihenfolge.
   const { kachelZaehler, zaehleKachel } = useKachelnutzung();
+  // Der offene Gesamtwert der Gutscheine, für die Kachel auf der
+  // Übersicht (Punkt 687 der Werkbank, hooks/useGutscheinSumme.ts).
+  const gutscheinSumme = useGutscheinSumme(settings, status === 'connected');
   // Was `<Auffangnetz>` abfängt, gehört ins Buch dieses Geräts - sonst
   // erfährt niemand davon (Punkt 272, hooks/useAbstuerze.ts).
   const { merkeAbsturz } = useAbstuerze();
@@ -2886,6 +2890,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               favoriteOrder={eigenePrefs.favoriteOrder ?? prefs.order?.favorites}
               onReorderFavorites={setFavoriteOrder}
               recentIds={recentIds}
+              gutscheinSumme={gutscheinSumme}
               schnellOrder={eigenePrefs.schnellOrder}
               onReorderSchnell={setSchnellOrder}
               onDurchsage={darfSchalten ? sendeDurchsage : undefined}
