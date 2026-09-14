@@ -8486,3 +8486,26 @@ Die Liste ist nicht gewählt, sondern beobachtet, und würde sich unter
 der Hand jedes Ziehens sofort wieder verschieben.
 
 Stellen: `app/src/lib/kachellernen.ts`, `app/src/lib/kachellernen.test.ts`, `app/src/screens/OverviewScreen.tsx`, `app/src/screens/DashboardScreen.tsx`
+
+### 722. Wochentagsabhängige Ein-/Ausgangsverzögerung ✓ erledigt (3d71068)
+
+`exit_delay` und `entry_delay` der Alarmanlage waren je eine feste
+Zahl - dieselbe Ausgangsverzögerung für den hektischen Werktag um
+Viertel vor acht wie für den gemütlichen Sonntagmorgen, an dem
+niemand zu einer festen Uhrzeit aus dem Haus geht. Zu kurz eingestellt,
+löste sie am Wochenende unnötig aus; grosszügig eingestellt, war sie
+unter der Woche länger offen, als es sein müsste.
+
+Die neue reine Funktion `verzoegerung()` (`integrations/alarm_rules.py`)
+liest beide Einstellungen jetzt entweder wie bisher als Zahl (gilt für
+jeden Tag) oder als Wörterbuch mit einem Grundwert unter `"default"`
+und Ausnahmen für einzelne Wochentage - 0 für Montag, wie überall sonst
+im Hub (`parse_weekdays` in `core/automation.py`, `datetime.weekday()`).
+Eine kaputte oder fehlende Angabe zählt weiterhin als 0, genau wie
+vorher bei `float(settings.get(...) or 0)`.
+
+`arm()` und der Eingangs-Sensor-Pfad in `integrations/alarm.py` rufen
+die Funktion mit dem heutigen Wochentag; beide Aufrufstellen sind
+dieselben zwei, an denen die Verzögerung bisher direkt gelesen wurde.
+
+Stellen: `hub/homepilot/integrations/alarm_rules.py`, `hub/homepilot/integrations/alarm.py`, `hub/tests/test_alarm_verzoegerung.py`
