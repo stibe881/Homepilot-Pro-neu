@@ -146,6 +146,63 @@ def test_low_batteries_also_by_threshold_but_never_phones():
     assert low_batteries(entities) == []
 
 
+def test_low_batteries_stages_guarded_devices_first():
+    """Punkt 724: Ein Sensor, den die Alarmanlage bewacht, steht vorn -
+    wichtig vor allem dort, wo mehrere schwache Batterien in einer
+    Sammelmeldung landen (core/pushbuendel.py) und nur vier Zeilen
+    sichtbar sind."""
+
+    def entity(entity_id: str):
+        return type(
+            "E",
+            (),
+            {"id": entity_id, "name": entity_id, "label": entity_id,
+             "state": {"low_battery": True}},
+        )()
+
+    entities = [entity("cheller"), entity("eingang"), entity("wohnzimmer")]
+    # In der Registry-Reihenfolge steht der Cheller zuerst - bewacht ist
+    # aber nur der Eingang, und der soll vorn stehen.
+    assert [item.id for item in low_batteries(entities, guarded={"eingang"})] == [
+        "eingang",
+        "cheller",
+        "wohnzimmer",
+    ]
+
+
+def test_low_batteries_keeps_registry_order_within_each_group():
+    """Stabil sortiert: Innerhalb «bewacht» und «nicht bewacht» bleibt
+    die ursprüngliche Reihenfolge - sonst würde die Sammelmeldung bei
+    gleicher Kritikalität jede Runde anders aussehen."""
+
+    def entity(entity_id: str):
+        return type(
+            "E",
+            (),
+            {"id": entity_id, "name": entity_id, "label": entity_id,
+             "state": {"low_battery": True}},
+        )()
+
+    entities = [entity("a"), entity("b"), entity("c"), entity("d")]
+    assert [
+        item.id for item in low_batteries(entities, guarded={"b", "d"})
+    ] == ["b", "d", "a", "c"]
+
+
+def test_low_batteries_without_guarded_devices_keeps_registry_order():
+    def entity(entity_id: str):
+        return type(
+            "E",
+            (),
+            {"id": entity_id, "name": entity_id, "label": entity_id,
+             "state": {"low_battery": True}},
+        )()
+
+    entities = [entity("a"), entity("b")]
+    assert [item.id for item in low_batteries(entities, guarded=set())] == ["a", "b"]
+    assert [item.id for item in low_batteries(entities, guarded=None)] == ["a", "b"]
+
+
 async def test_a_weak_battery_is_reported_once():
     hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
     await hub.start()

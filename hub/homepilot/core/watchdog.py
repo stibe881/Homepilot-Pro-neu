@@ -1503,6 +1503,7 @@ class Watchdog:
                         batterie.prefs_lesen(
                             self.hub.data.get(batterie.PREFS_KEY)
                         )["threshold"],
+                        self._guarded(),
                     )
                 ],
                 stumm=sorted(
@@ -2857,7 +2858,10 @@ class Watchdog:
         # sofort melden, dann täglich zur Erinnerungsstunde, bis die
         # Batterie gewechselt ist.
         prefs = batterie.prefs_lesen(self.hub.data.get(batterie.PREFS_KEY))
-        for entity in low_batteries(entities, prefs["threshold"]):
+        # Nach Kritikalität gestaffelt (Punkt 724): Was die Alarmanlage
+        # bewacht, wird zuerst gemeldet und steht vorn, wenn mehrere in
+        # einer Sammelmeldung landen.
+        for entity in low_batteries(entities, prefs["threshold"], self._guarded()):
             if not batterie.soll_melden(rows, entity.id, jetzt, prefs["hour"]):
                 continue
             # Vormerken *bevor* die Meldung rausgeht: Scheitert der
