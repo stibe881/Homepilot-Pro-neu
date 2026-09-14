@@ -603,3 +603,90 @@ describe('gruppeAlsKategorie', () => {
     expect(gruppeAlsKategorie(undefined)).toBe('');
   });
 });
+
+// ── Licht je nach Tageszeit ─────────────────────────────────────────────
+//
+// Gewünscht im Haus: «Im Gang soll das Licht von 06:00 bis 09:00 anders
+// sein, wenn der Bewegungsmelder auslöst, als zwischen 09:00 und 20:00,
+// und anders als zwischen 20:00 und 00:00.»
+
+describe('Vorlage «Licht bei Bewegung, je nach Tageszeit»', () => {
+  const melder: Entity = {
+    id: 'demo.motion_hall',
+    name: 'Bewegung Gang',
+    kind: 'binary_sensor',
+    room: 'Gang',
+    state: { motion: false },
+    commands: [],
+  } as unknown as Entity;
+  const dimmbar: Entity = {
+    id: 'demo.light_hall',
+    name: 'Licht Gang',
+    kind: 'light',
+    room: 'Gang',
+    state: {},
+    commands: ['turn_on', 'turn_off', 'set_brightness'],
+  } as unknown as Entity;
+  const nurAn: Entity = {
+    id: 'demo.light_plain',
+    name: 'Licht Keller',
+    kind: 'light',
+    room: 'Keller',
+    state: {},
+    commands: ['turn_on', 'turn_off'],
+  } as unknown as Entity;
+
+  const vorlage = (entities: Entity[]) =>
+    buildTemplates(entities, []).find(
+      (eintrag) => eintrag.label === 'Licht bei Bewegung, je nach Tageszeit'
+    );
+
+  it('deckt die drei gewünschten Abschnitte ab', () => {
+    const gefunden = vorlage([melder, dimmbar]);
+    expect(gefunden).toBeDefined();
+    const fenster = (gefunden?.draft.steps ?? []).map((step) => step.ifExtra?.[0]);
+    expect(fenster).toEqual(
+      expect.arrayContaining([
+        { type: 'time', after: '06:00', before: '09:00' },
+        { type: 'time', after: '09:00', before: '20:00' },
+        { type: 'time', after: '20:00', before: '00:00' },
+      ])
+    );
+  });
+
+  it('lässt die Nacht nicht dunkel', () => {
+    // Nicht verlangt und trotzdem dabei: Ohne dieses Fenster passt
+    // zwischen Mitternacht und sechs keines, und im Gang ginge um drei
+    // Uhr gar nichts an.
+    const fenster = (vorlage([melder, dimmbar])?.draft.steps ?? []).map(
+      (step) => step.ifExtra?.[0]
+    );
+    expect(fenster).toContainEqual({ type: 'time', after: '00:00', before: '06:00' });
+  });
+
+  it('ist abends dunkler als tagsüber', () => {
+    const schritte = vorlage([melder, dimmbar])?.draft.steps ?? [];
+    const hell = (index: number) =>
+      schritte[index].ifThen?.[0].commandActions[0].brightness;
+    expect(hell(1)).toBeGreaterThan(hell(0) as number);
+    expect(hell(2)).toBeLessThan(hell(1) as number);
+    expect(hell(3)).toBeLessThan(hell(2) as number);
+  });
+
+  it('nimmt die Lampe aus dem Raum des Melders', () => {
+    const andere = { ...dimmbar, id: 'demo.light_bad', room: 'Bad' } as Entity;
+    const schritte = vorlage([melder, andere, dimmbar])?.draft.steps ?? [];
+    expect(schritte[0].ifThen?.[0].commandActions[0].entity_id).toBe('demo.light_hall');
+  });
+
+  it('erscheint nicht für eine Lampe, die sich nicht dimmen lässt', () => {
+    // Sonst wären alle vier Abschnitte gleich hell, und die Vorlage
+    // verspräche etwas, das sie nicht hält.
+    expect(vorlage([melder, nurAn])).toBeUndefined();
+  });
+
+  it('schaltet danach wieder aus', () => {
+    const schritte = vorlage([melder, dimmbar])?.draft.steps ?? [];
+    expect(schritte[0].ifThen?.[0].commandActions[0].offAfter).toBeGreaterThan(0);
+  });
+});
