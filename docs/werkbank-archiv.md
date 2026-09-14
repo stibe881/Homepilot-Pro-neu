@@ -8462,3 +8462,27 @@ Einstellungen (`SettingsScreen.tsx`) öffnet denselben Griff-Ordnen-Weg
 der Startseite - keine dritte Bedienung für dieselbe Geste.
 
 Stellen: `app/src/components/Rail.tsx`, `app/src/components/Rail.test.ts`, `app/src/hooks/usePrefs.ts`, `app/src/screens/SettingsScreen.tsx`, `app/src/screens/DashboardScreen.tsx`
+
+### 674. «Zuletzt verwendet»-Schnellzugriff auf der Startseite ✓ erledigt (661958e)
+
+Die Favoriten (`lib/favoriten.ts`) sind eine bewusste, von Hand
+gepflegte Auswahl - ein Gerät, das man diese Woche zum ersten Mal
+braucht (der Heizlüfter im Gästezimmer), schafft nie den Sprung
+hinein und stand bisher nirgends griffbereit.
+
+Die Zählung dafür gab es bereits, nur anders gelesen:
+`useKachelnutzung` merkt sich für «nach Tageszeit sortieren», wie oft
+und wann ein Gerät in welchem Tagesabschnitt bedient wurde
+(`Kachelzaehler`, ein Zeitstempel je Gerät-und-Abschnitt-Schlüssel).
+Die neue reine Funktion `zuletztVerwendet()` (`lib/kachellernen.ts`)
+liest denselben Zähler ohne Rücksicht auf den Abschnitt - der jüngste
+Zeitstempel über alle Tageszeiten hinweg entscheidet, und ein
+Ausschluss-Parameter nimmt die eigenen Favoriten heraus, damit kein
+Gerät zweimal auf der Seite steht.
+
+`OverviewScreen` zeigt die Reihe direkt unter den Favoriten, mit
+denselben `FavoriteChip`-Kacheln - ohne Ziehen und ohne Umbenennen:
+Die Liste ist nicht gewählt, sondern beobachtet, und würde sich unter
+der Hand jedes Ziehens sofort wieder verschieben.
+
+Stellen: `app/src/lib/kachellernen.ts`, `app/src/lib/kachellernen.test.ts`, `app/src/screens/OverviewScreen.tsx`, `app/src/screens/DashboardScreen.tsx`

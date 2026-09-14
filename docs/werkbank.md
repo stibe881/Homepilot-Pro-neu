@@ -20,7 +20,7 @@ vorkommt, prüft `scripts/werkbank.py` (und mit ihr der Prüflauf).
 | --- | --- | --- |
 | App allgemein | 15 | 422, 424, 425, 427, 428, 429, 659, 660, 661, 662, 663, 664, 665, 666, 667 |
 | Bedienung | 10 | 431, 432, 433, 434, 435, 436, 437, 438, 439, 440 |
-| User Experience | 9 | 668, 669, 671, 672, 673, 674, 675, 676, 677 |
+| User Experience | 8 | 668, 669, 671, 672, 673, 675, 676, 677 |
 | Gestaltung | 14 | 441, 446, 447, 449, 450, 678, 679, 680, 681, 682, 683, 684, 685, 686 |
 | Gutscheine | 12 | 453, 458, 687, 688, 689, 690, 691, 692, 693, 694, 695, 696 |
 | Abläufe | 12 | 468, 469, 697, 698, 699, 700, 701, 702, 703, 704, 705, 706 |
@@ -651,16 +651,6 @@ System-Tastatur. Nähe: 223. Stellen: `app/src/lib/sprachnotiz.ts`,
 `app/src/screens/family/gutscheine.tsx`,
 `app/src/screens/automations/editor.tsx`. Aufwand: klein · App.
 
-**674. «Zuletzt verwendet»-Schnellzugriff auf der Startseite,
-unabhängig von den festen Favoriten.** Favoriten (`lib/favoriten.ts`)
-sind eine bewusste, von Hand gepflegte Auswahl; «zuletzt verwendet» ist
-die ungepflegte Ergänzung dazu - für das Gerät, das man diese Woche zum
-ersten Mal braucht (der Heizlüfter im Gästezimmer) und das nie den
-Sprung in die Favoriten schaffen wird. Die Zählung für die Sortierung
-gibt es mit `useKachelnutzung` bereits; eine eigene kurze Zeile «zuletzt
-verwendet» wäre die sichtbare Form davon. Nähe:
-`app/src/hooks/useKachelnutzung.ts`. Stellen: `app/src/lib/favoriten.ts`,
-`app/src/screens/DashboardScreen.tsx`. Aufwand: klein · App.
 
 **675. Wischgesten zwischen Hauptbereichen (Übersicht ↔ Familie ↔
 Räume) für einhändige Bedienung am Wandpanel.** Die Leiste
