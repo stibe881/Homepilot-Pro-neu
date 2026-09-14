@@ -715,6 +715,9 @@ class Hub:
         # Dringlichkeit je Kategorie und die Empfängergruppen: fürs Haus,
         # nicht je Person - deshalb eigene Schlüssel neben push_prefs.
         self.push.stufen = push_service.stufen_lesen(self.data.get(push_service.STUFEN_KEY))
+        self.push.test_kategorien = push_service.test_lesen(
+            self.data.get(push_service.TEST_KEY)
+        )
         self.push.gruppen = push_service.gruppen_lesen(
             self.data.get(push_service.GRUPPEN_KEY)
         )

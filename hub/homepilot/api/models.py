@@ -225,6 +225,18 @@ class PushStufeRequest(BaseModel):
     stufe: str
 
 
+class PushTestmodusRequest(BaseModel):
+    """Testmodus einer Kategorie ein- oder ausschalten (Punkt 712).
+
+    Wer die einzige Empfängerin wird, ist immer die angemeldete Person
+    selbst (aus dem Token) - nicht Teil der Anfrage, sonst liesse sich
+    darüber jemand anderes zur Testperson machen.
+    """
+
+    category: str
+    an: bool
+
+
 class PushGruppeRequest(BaseModel):
     """Eine Empfängergruppe (push.gruppen_lesen)."""
 
