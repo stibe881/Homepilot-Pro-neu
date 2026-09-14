@@ -8155,6 +8155,37 @@ Er ist auf das neue, genauere Verhalten nachgezogen.
 
 Stellen: `hub/homepilot/core/szenenrueckweg.py`, `hub/tests/test_szenenrueckweg.py`, `hub/tests/test_hue_szenen.py`
 
+### 651. Die Lichtkachel trug nicht die Farbe, in der die Lampe leuchtet ✓ erledigt
+
+Aus dem Haus, mit Bild der Büro-Kachel: «Diese Karten sollen die Farbe
+des Lichts haben. Wenn es kaltweiss ist, sollen sie kaltweiss sein, wenn
+das Licht warmweiss eingestellt ist, sollen die Karten auch warmweiss
+sein, wenn das Licht z. B. grün ist, soll die Karte auch dasselbe Grün
+haben.»
+
+Genau das tat `lib/lichtfarbe.ts` schon - die Kachel war trotzdem immer
+orange. Zwei Gründe, beide erst jetzt sichtbar:
+
+**Die Leuchte gab nichts weiter.** «Büro» ist eine Leuchte aus mehreren
+Lampen, und `combined_state` reichte Farbe und Weisston nicht durch
+(behoben in Punkt 648). Ohne beides greift der letzte Zweig: warmes
+Weiss - das Orange auf dem Bild.
+
+**Und die Reihenfolge stimmte nicht mehr.** Seit Hue Farben kann
+(ebenfalls 648), meldet eine Hue-Lampe *immer* beides: den Farbort ihres
+Weisspunktes und den Weisston. Die alte Reihenfolge nahm zuerst die
+Farbe - eine warmweiss brennende Lampe hätte damit eine fast weisse
+Kachel getragen, auf der kalt und warm nicht zu unterscheiden sind.
+Jetzt entscheidet `color_mode`, was die Lampe *gerade* tut: «weiss»
+heisst Weisston, «farbe» heisst Farbe. Ohne den Modus (Anbindungen, die
+ihn nicht melden) gilt weiter die alte Reihenfolge.
+
+Meldet die Lampe «weiss», aber keinen Weisston, wird es warmes Weiss und
+nicht die gespeicherte Farbe von gestern: Die Lampe sagt ja, dass sie
+jetzt weiss leuchtet.
+
+Stellen: `app/src/lib/lichtfarbe.ts`, `app/src/lib/lichtfarbe.test.ts`
+
 ### 652. «Zocken / Kino» blieb trotz Punkt 650 immer noch nie aktiv ✓ erledigt
 
 Punkt 650 war nach dem Deployen nachweislich im Haus angekommen

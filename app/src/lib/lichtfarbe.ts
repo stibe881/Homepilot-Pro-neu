@@ -6,12 +6,20 @@
  * aus «An» zu erschliessen. Vorher stand dafür eine leere Vorschaufläche
  * da, die genau dann nichts zeigte, wenn es nichts zu zeigen gab.
  *
- * Drei Quellen, in dieser Reihenfolge:
+ * Vier Quellen, in dieser Reihenfolge:
  *
- * 1. `color` - eine echte Farbe (Hex), wie sie Zigbee und Tuya melden.
- * 2. `color_temp` - Mirek, wie es Hue meldet: 153 ist kaltes Tageslicht,
- *    500 ist Kerzenschein. Daraus wird warm oder kühl.
- * 3. Nichts davon: warmes Weiss. Eine Lampe ohne Farbmeldung leuchtet
+ * 1. `color_mode` - was die Lampe **gerade** tut. Eine Lampe führt Farbe
+ *    *und* letzten Weisston im Zustand, leuchtet aber nur in einem von
+ *    beidem; welcher gilt, weiss nur die Bridge (Punkt 648). Steht dort
+ *    «weiss», zählt der Weisston, auch wenn eine Farbe danebensteht -
+ *    sonst trüge eine warmweiss brennende Lampe den Farbort ihres
+ *    Weisspunktes, und die Kachel sähe aus wie eine fast weisse Fläche,
+ *    auf der kalt und warm nicht mehr zu unterscheiden sind.
+ * 2. `color` - eine echte Farbe (Hex), wie sie Zigbee, Tuya und seit
+ *    Punkt 648 auch Hue melden.
+ * 3. `color_temp` - Mirek: 153 ist kaltes Tageslicht, 500 ist
+ *    Kerzenschein. Daraus wird warm oder kühl.
+ * 4. Nichts davon: warmes Weiss. Eine Lampe ohne Farbmeldung leuchtet
  *    im Haus fast immer warm, und Weiss auf Weiss sähe man nicht.
  *
  * Die Töne sind bewusst gedämpft: Eine Wand voller Kacheln in voller
@@ -88,7 +96,10 @@ const WARMWEISS: [number, number, number] = [255, 205, 138];
  */
 export function lichtkachel(state: Record<string, unknown>): Lichtfarbe | null {
   if (String(state?.state ?? '') !== 'on') return null;
-  const rgb = zuRgb(state?.color);
+  const modus = String(state?.color_mode ?? '');
+  const weisston = weiss(state, modus);
+  if (weisston) return weisston;
+  const rgb = modus === 'weiss' ? null : zuRgb(state?.color);
   if (rgb) {
     // Gesättigte Gerätefarben (reines Rot, reines Blau) wären als Fläche
     // zu laut - aufgehellt bleiben sie erkennbar und tragen Schrift.
@@ -98,11 +109,21 @@ export function lichtkachel(state: Record<string, unknown>): Lichtfarbe | null {
       tinte: TINTE,
     };
   }
-  const mirek = Number(state?.color_temp);
-  if (Number.isFinite(mirek) && mirek > 0) {
-    const anteil = Math.max(0, Math.min(1, (mirek - KALT) / (WARM - KALT)));
-    const ton = mischen(KALTWEISS, WARMWEISS, anteil);
-    return { von: zuHex(heller(ton, 0.18)), bis: zuHex(ton), tinte: TINTE };
-  }
+  const ausMirek = weiss(state, 'weiss');
+  if (ausMirek) return ausMirek;
   return { von: '#FFE3BC', bis: '#FFC98A', tinte: TINTE };
+}
+
+/** Die Kachelfarbe aus dem Weisston - oder nichts.
+ *
+ * Nur, wenn er auch gilt: Ohne `color_mode` (Anbindungen, die ihn nicht
+ * melden) entscheidet weiter die Reihenfolge darüber, und ein gemeldeter
+ * Weisston zählt erst, wenn keine Farbe danebensteht. */
+function weiss(state: Record<string, unknown>, modus: string): Lichtfarbe | null {
+  if (modus !== 'weiss') return null;
+  const mirek = Number(state?.color_temp);
+  if (!Number.isFinite(mirek) || mirek <= 0) return null;
+  const anteil = Math.max(0, Math.min(1, (mirek - KALT) / (WARM - KALT)));
+  const ton = mischen(KALTWEISS, WARMWEISS, anteil);
+  return { von: zuHex(heller(ton, 0.18)), bis: zuHex(ton), tinte: TINTE };
 }

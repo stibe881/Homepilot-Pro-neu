@@ -40,7 +40,7 @@ import { szenenFarben } from '../lib/szenenfarben';
 import { bandReihenfolge, bandSymbol, bandZeile } from '../lib/tagesband';
 import { makeStyles } from './automations/stil';
 import { SCENE_ICONS, SceneDraft, SceneEditor } from './automations/szenen-editor';
-import { EigeneVorlage, buildTemplates, gruppiereVorlagen, mischeVorlagen } from './automations/vorlagen';
+import { EigeneVorlage, buildTemplates, gruppiereVorlagen, mischeVorlagen, gruppeAlsKategorie, kategorieVorschlaege } from './automations/vorlagen';
 
 /** Ein gegensätzlich geschaltetes Gerät aus /api/automations/conflicts. */
 interface Konflikt {
@@ -1264,7 +1264,19 @@ export function AutomationsScreen({
                   {gruppe.zeilen.map((vorlage) => (
                 <View key={vorlage.key} style={styles.vorlagenZeile}>
                   <Pressable
-                    onPress={() => oeffneEntwurf({ ...EMPTY, ...vorlage.draft })}
+                    onPress={() =>
+                      oeffneEntwurf({
+                        ...EMPTY,
+                        ...vorlage.draft,
+                        // Die Vorlage weiss, wohin sie gehört - sie steht
+                        // ja unter «Licht» oder «Sicherheit». Diese
+                        // Gruppe als Kategorie mitzugeben erspart das
+                        // Eintippen und sorgt dafür, dass die Liste von
+                        // Anfang an sortiert ist statt erst, wenn sie
+                        // lang geworden ist.
+                        category: vorlage.draft.category || gruppeAlsKategorie(gruppe.titel),
+                      })
+                    }
                     accessibilityRole="button"
                     accessibilityLabel={`Neuer Ablauf aus «${vorlage.label}»`}
                     style={({ pressed }) => [
@@ -2077,7 +2089,7 @@ export function AutomationsScreen({
         orte={orte}
         scenes={scenes}
         andereAblaeufe={automations}
-        categories={usedCategories(automations)}
+        categories={kategorieVorschlaege(usedCategories(automations))}
         hueScenes={hueScenes}
         favoriten={favoriten}
         empfaenger={empfaenger}
