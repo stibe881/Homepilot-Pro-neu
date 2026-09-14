@@ -8526,3 +8526,23 @@ zeigt die Karte nur, wenn `summenText` etwas liefert - keine Karte über
 nichts.
 
 Stellen: `app/src/hooks/useGutscheinSumme.ts`, `app/src/screens/OverviewScreen.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/lib/gutscheine.ts`
+
+### 681. ESLint-Regel gegen literale Schriftgrössen ✓ erledigt (bfbd2c0)
+
+Punkt 441 zählte 913 nackte `padding`-Zahlen und schlug eine Regel für
+neue Dateien vor, ohne sie zu bauen; dieselbe Zahlen-statt-Skala-Falle
+gibt es bei Schriftgrössen - 1090 literale `fontSize: NN` in 116
+Dateien, statt der zehn Stufen in `theme.tsx` (`type`/`typ`, mit dem
+Wandpanel-Faktor `PANEL_MASS` skaliert).
+
+Alle 116 auf einmal aufzuräumen war ausserhalb des Rahmens dieses
+Punkts - stattdessen jetzt dieselbe Lösung, die 441 skizziert und nie
+gebaut hat: `no-restricted-syntax` verbietet `fontSize: <Zahl>` als
+Fehler, und `schriftmass-ausnahmen.txt` listet die 116 gewachsenen
+Dateien, für die die Regel ausdrücklich ausgeschaltet ist. Das
+Gegenstück zu `hub/mypy-sauber.txt`: Dort wächst die Liste der sauberen
+Module, hier schrumpft die Liste der schmutzigen - wer eine Datei
+ohnehin anfasst, räumt die letzte Zahl auf und streicht ihren Namen,
+danach greift die Regel auch dort.
+
+Stellen: `app/eslint.config.js`, `app/schriftmass-ausnahmen.txt`

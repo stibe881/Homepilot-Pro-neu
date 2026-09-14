@@ -21,7 +21,7 @@ vorkommt, prüft `scripts/werkbank.py` (und mit ihr der Prüflauf).
 | App allgemein | 15 | 422, 424, 425, 427, 428, 429, 659, 660, 661, 662, 663, 664, 665, 666, 667 |
 | Bedienung | 10 | 431, 432, 433, 434, 435, 436, 437, 438, 439, 440 |
 | User Experience | 8 | 668, 669, 671, 672, 673, 675, 676, 677 |
-| Gestaltung | 14 | 441, 446, 447, 449, 450, 678, 679, 680, 681, 682, 683, 684, 685, 686 |
+| Gestaltung | 13 | 441, 446, 447, 449, 450, 678, 679, 680, 682, 683, 684, 685, 686 |
 | Gutscheine | 11 | 453, 458, 688, 689, 690, 691, 692, 693, 694, 695, 696 |
 | Abläufe | 12 | 468, 469, 697, 698, 699, 700, 701, 702, 703, 704, 705, 706 |
 | Push-Benachrichtigungen | 13 | 473, 474, 476, 707, 708, 709, 710, 711, 712, 713, 714, 715, 716 |
@@ -469,9 +469,9 @@ Runde 421-505. Vier davon standen beim Gegenprüfen schon im Code und
 fehlen darum hier bewusst: die «Was ist neu»-Anzeige nach einem Update
 (`components/WhatsNew.tsx`), «Bewegung reduzieren»
 (`hooks/useBewegungReduziert.ts`), die gestaffelte Alarm-Eskalation
-(Punkt 255) und die Wartungserinnerungen (`core/maintenance.py`). Vier
-weitere - 670, 674, 687 und 722 - sind inzwischen gebaut und stehen im
-Archiv.
+(Punkt 255) und die Wartungserinnerungen (`core/maintenance.py`). Fünf
+weitere - 670, 674, 681, 687 und 722 - sind inzwischen gebaut und
+stehen im Archiv.
 
 Kurz gehalten, damit die Liste lesbar bleibt (Punkt 505) - die
 ausführliche Abwägung je Punkt, falls es sie gab, steht dann im Archiv.
@@ -571,10 +571,6 @@ abschaltbar. Aufwand: mittel · App.
 **680. Eigene kleine Illustrationen je Modul für Leerzustände** statt
 generischer Icons in `components/Leerzustand.tsx`. Nähe: 447. Aufwand:
 mittel · App.
-
-**681. ESLint-Regel gegen literale Schriftgrössen** ausserhalb der
-Skala (`lib/schrift.ts`), analog zur padding-Regel aus Punkt 441.
-Aufwand: klein · App.
 
 **682. Echtes Mehrspalten-Layout für Listen im iPad-Querformat**
 (Gutscheine, Rezepte) statt einer breiter skalierten Telefon-Spalte.
