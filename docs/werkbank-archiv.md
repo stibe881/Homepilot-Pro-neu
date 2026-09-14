@@ -8546,3 +8546,27 @@ ohnehin anfasst, räumt die letzte Zahl auf und streicht ihren Namen,
 danach greift die Regel auch dort.
 
 Stellen: `app/eslint.config.js`, `app/schriftmass-ausnahmen.txt`
+
+### 724. Nach Kritikalität gestaffelte Batteriewarnung ✓ erledigt (c0e5cbc)
+
+`low_batteries()` (`core/watchrules.py`) lieferte schwache Batterien in
+Registry-Reihenfolge - zufällig, aus Sicht der Anlage. Wo mehrere in
+derselben Wächter-Runde anfielen, landeten sie über `core/pushbuendel.py`
+in einer Sammelmeldung mit nur vier sichtbaren Zeilen; welche vier das
+waren, entschied dieselbe zufällige Reihenfolge.
+
+`low_batteries()` nimmt jetzt zusätzlich die Menge der von der
+Alarmanlage bewachten Geräte entgegen - dieselbe Menge, die
+`watched_entities()` für die «Gerät antwortet nicht»-Meldung schon
+verwendet (`self._guarded()` in `watchdog.py`, aus den Sensoren der
+Alarm-Integration) - und sortiert stabil danach: Bewachte Geräte
+zuerst, innerhalb jeder der beiden Gruppen bleibt die ursprüngliche
+Reihenfolge erhalten. Ein Sensor an der Eingangstür steht damit vor
+einem im selten betretenen Cheller, sowohl in der einzelnen Push als
+auch in einer Sammelmeldung.
+
+Beide Aufrufstellen in `watchdog.py` geben jetzt `self._guarded()` mit
+- auch die Geräteliste im Morgenbriefing, damit sie mit der
+Batterie-Push übereinstimmt.
+
+Stellen: `hub/homepilot/core/watchrules.py`, `hub/homepilot/core/watchdog.py`, `hub/tests/test_watchdog.py`
