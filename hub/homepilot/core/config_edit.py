@@ -758,6 +758,105 @@ def remove_cast_device(content: str, host: str, port: int = 8009) -> str:
     return content
 
 
+def _has_host(lines: list[str], host: str) -> bool:
+    """Steht diese Adresse schon in diesen Zeilen? (rein, testbar)
+
+    Wie `has_endpoint`, aber ohne Port - Fernseher und Spielkonsole
+    kennen keinen, jede Adresse gehört nur einem Gerät.
+    """
+    return any(line.strip().lstrip("- ").startswith(f"host: {host}") for line in lines)
+
+
+def add_host_device(content: str, integration: str, name: str, host: str) -> str:
+    """Ein Gerät (nur Name und Adresse) in einen Integrationsblock
+    eintragen (rein, testbar).
+
+    Verallgemeinerung von `add_cast_device` ohne Port - für Fernseher
+    (androidtv) und Spielkonsole (playstation): Beide sollen sich von der
+    Verbindungen-Seite aus einrichten lassen, ohne dass jemand die
+    config.yaml von Hand öffnet, genau wie eine Cast-Box.
+    """
+    lines = content.splitlines()
+    entry_name = quote(name)
+    found = block_range(lines, integration)
+
+    if found is None:
+        lines, insert, indent = _integrations_insert(lines)
+        lines[insert:insert] = [
+            " " * indent + f"- integration: {integration}",
+            " " * (indent + 2) + "devices:",
+            " " * (indent + 4) + f"- host: {host}",
+            " " * (indent + 6) + f"name: {entry_name}",
+        ]
+        return "\n".join(lines) + "\n"
+
+    start, end = found
+    block = lines[start:end]
+    if _has_host(block, host):
+        return content
+
+    base = indent_of(lines[start])
+    devices = _devices_line(lines, start, end)
+    if devices is None:
+        insert = start + 1
+        lines[insert:insert] = [
+            " " * (base + 2) + "devices:",
+            " " * (base + 4) + f"- host: {host}",
+            " " * (base + 6) + f"name: {entry_name}",
+        ]
+        return "\n".join(lines) + "\n"
+
+    device_indent = indent_of(lines[devices])
+    entry_indent = _entry_indent(lines, devices, end, device_indent)
+    insert = _end_of_list(lines, devices, end, device_indent)
+    lines[insert:insert] = [
+        " " * entry_indent + f"- host: {host}",
+        " " * (entry_indent + 2) + f"name: {entry_name}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def remove_host_device(content: str, integration: str, host: str) -> str:
+    """Das Gegenstück zu `add_host_device` (rein, testbar)."""
+    found = enabled_block(content, integration)
+    if found is None:
+        return content
+    lines = content.splitlines()
+    start, end = found
+    devices = _devices_line(lines, start, end)
+    if devices is None:
+        return content
+    device_indent = indent_of(lines[devices])
+
+    eintraege: list[tuple[int, int]] = []
+    von: int | None = None
+    liste_ende = devices + 1
+    for index in range(devices + 1, end):
+        line = lines[index]
+        if not line.strip():
+            continue
+        if not _in_list(line, device_indent):
+            break
+        if line.strip().startswith("- "):
+            if von is not None:
+                eintraege.append((von, index))
+            von = index
+        liste_ende = index + 1
+    if von is not None:
+        eintraege.append((von, liste_ende))
+
+    for anfang, bis in eintraege:
+        eintrag_host: str | None = None
+        for index in range(anfang, bis):
+            text = lines[index].strip().lstrip("- ").strip()
+            if text.startswith("host:"):
+                eintrag_host = text.split(":", 1)[1].strip()
+        if eintrag_host == host:
+            del lines[anfang:bis]
+            return _join(content, lines)
+    return content
+
+
 def toggle_block(content: str, start: int, end: int, enabled: bool) -> str:
     """Einen Bereich aus- oder wieder einkommentieren (rein, testbar).
 
