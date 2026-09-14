@@ -8078,3 +8078,39 @@ beiden. Die Bridge sagt es (`mirek_valid`), der Hub gibt es als
 Farbreihe und bei den Weisstönen je ein Punkt, obwohl nur einer brennt.
 
 Stellen: `hub/homepilot/core/farbraum.py`, `hub/homepilot/integrations/hue.py`, `hub/homepilot/integrations/group.py`, `hub/tests/test_hue_farbe.py`, `hub/tests/test_lightgroups.py`, `app/src/lib/lichtwahl.ts`, `app/src/lib/lichtwahl.test.ts`, `app/src/components/ColorRow.tsx`, `app/src/components/EntityCard.tsx`
+
+### 649. Farbe und Weisston als Punkte - auf der Kachel, im Ablauf, in der Szene ✓ erledigt
+
+Aus dem Haus, mit Bild der Lichtseite einer fremden App: «Es soll es in
+dieser Art anzeigen. Ausserdem soll es bei Abläufen und Szenarien auch
+in dieser Art anzeigen und nicht als Text.»
+
+Zwei Dinge, und das zweite ist das wichtigere.
+
+**Im Ablauf und in der Szene** stand der Weisston als Liste von Wörtern
+(«warmweiss», «neutralweiss», «tageslichtweiss») und die Farbe daneben
+als Reihe von Punkten - zwei Darstellungen für dieselbe Frage, und die
+mit den Wörtern ist die schlechtere: Man wählt ein Licht nicht nach
+seinem Namen, sondern danach, wie es aussieht. Jetzt steht beides unter
+einer Überschrift als ein Raster (`components/Farbraster.tsx`), Weiss
+zuerst, mit einem Punkt «unverändert lassen» davor. Dasselbe Raster
+zeigt die Kachel und das Blatt - eine Frage, eine Darstellung, an drei
+Orten.
+
+**Auf der Kachel** kam ein Blatt dazu, das sich öffnet wie eine eigene
+Geräteseite: ein senkrechter Balken über 260 Punkte, darunter der
+Ein-/Aus-Knopf und das Raster. Senkrecht und nicht waagrecht wie auf
+der Kachel, und das ist kein Geschmack: Eine Lampe wird «heller» und
+«dunkler», oben und unten liest sich das von selbst. Auf der Kachel
+bleibt der Regler waagrecht, weil dort die Kachel breiter als hoch ist -
+und weil vier Geräte nebeneinander keinen Balken über die halbe Seite
+vertragen. Der Weg dorthin ist der lange Druck, wo auch Verlauf und
+Umbenennen stehen; angeboten wird der Eintrag nur, wo es etwas
+einzustellen gibt.
+
+Die Umkehrung im senkrechten Regler hat einen eigenen Test (`ausY`):
+Der Balken zählt von unten, die Bildschirmkoordinate von oben - zieht
+man das falsch herum, wird es beim Hochziehen dunkler, und das merkt
+man erst an der Lampe.
+
+Stellen: `app/src/components/Farbraster.tsx`, `app/src/components/Lichtblatt.tsx`, `app/src/lib/lichtwahl.ts`, `app/src/lib/lichtwahl.test.ts`, `app/src/lib/kachelmenue.ts`, `app/src/components/EntityCard.tsx`, `app/src/screens/automations/szenen-editor.tsx`, `app/src/screens/automations/szenen-editor.test.tsx`

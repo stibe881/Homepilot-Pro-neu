@@ -32,6 +32,7 @@ import { Card, CardFooter } from './Card';
 import { faelltAuf, standZeile, unbestaetigtZeile } from '../lib/kachelstand';
 import { Musikliste } from './Musikliste';
 import { ColorRow } from './ColorRow';
+import { Lichtblatt } from './Lichtblatt';
 import { Sky } from './CoverVisual';
 import {
   deviceKindLabel,
@@ -302,6 +303,8 @@ export function EntityCard({
   // Punkt 633: die Wahl des Batterietyps aus dem Anpassen-Blatt.
   const [batterieWahl, setBatterieWahl] = useState(false);
   const [menueOffen, setMenueOffen] = useState(false);
+  // Das Lichtblatt (Punkt 649) - grosser Regler, Farbe, Weisston.
+  const [lichtOffen, setLichtOffen] = useState(false);
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
   const isOn = entity.state.state === 'on';
 
@@ -311,6 +314,13 @@ export function EntityCard({
   const aktionen = editing
     ? []
     : kachelAktionen({
+        // Nur wo es etwas einzustellen gibt: Ein Licht, das bloss an und
+        // aus kann, braucht kein Blatt mit einem Regler ohne Weg.
+        licht:
+          entity.kind === 'light' &&
+          (entity.commands.includes('set_brightness') ||
+            entity.commands.includes('set_color') ||
+            entity.commands.includes('set_color_temp')),
         umbenennen: Boolean(onRename),
         // Dieselbe Berechtigung wie beim Umbenennen: Die Sperre gilt fürs
         // ganze Haus, und der Hub führt sie in den Haus-Einstellungen.
@@ -331,6 +341,7 @@ export function EntityCard({
       });
   const fuehreAus = (eintrag: KachelEintrag) => {
     setMenueOffen(false);
+    if (eintrag.id === 'licht') setLichtOffen(true);
     if (eintrag.id === 'umbenennen') setRenameOpen(true);
     if (eintrag.id === 'sperren') onToggleLocked?.();
     if (eintrag.id === 'zaehlung') onToggleUngezaehlt?.();
@@ -1559,6 +1570,19 @@ export function EntityCard({
             setRoomPickerOpen(false);
             onSetRoom(gewaehlt);
           }}
+        />
+      ) : null}
+      {/* Das Lichtblatt (Punkt 649): grosser Regler, Farbe, Weisston -
+          in der Art, wie man eine Lampe sonst auf einer eigenen Seite
+          bedient. Immer gebaut, aber nur sichtbar, wenn es gerufen
+          wurde; ein Modal, das erst beim Öffnen entsteht, blendet den
+          ersten Bildaufbau ein. */}
+      {entity.kind === 'light' ? (
+        <Lichtblatt
+          entity={entity}
+          visible={lichtOffen}
+          onClose={() => setLichtOffen(false)}
+          onCommand={onCommand}
         />
       ) : null}
       {aktionen.length > 1 ? (

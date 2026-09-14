@@ -2,6 +2,7 @@ import { Entity } from '../api/types';
 import {
   WEISSKNOEPFE,
   aktiverWeisston,
+  ausY,
   kannFarbe,
   kannWeiss,
   zeigtFarbe,
@@ -96,5 +97,29 @@ describe('WEISSKNOEPFE', () => {
     }
     // Warm zuerst: Es ist die häufigste Antwort.
     expect(WEISSKNOEPFE[0].label).toBe('warmweiss');
+  });
+});
+
+describe('ausY', () => {
+  it('macht oben hell und unten dunkel', () => {
+    // Der Balken im Lichtblatt zählt von unten, die Bildschirmkoordinate
+    // von oben. Genau diese Umkehrung ist der Fehler, den man sonst erst
+    // an der Lampe bemerkt - man zieht nach oben und es wird dunkler.
+    expect(ausY(0, 200)).toBe(100);
+    expect(ausY(200, 200)).toBe(0);
+    expect(ausY(100, 200)).toBe(50);
+  });
+
+  it('bleibt im Rahmen, wenn der Finger darüber hinausfährt', () => {
+    // Beim Ziehen läuft der Finger über den Balken hinaus - das ist der
+    // Normalfall, nicht die Ausnahme.
+    expect(ausY(-40, 200)).toBe(100);
+    expect(ausY(260, 200)).toBe(0);
+  });
+
+  it('kommt mit einem Balken ohne Höhe zurecht', () => {
+    // Vor dem ersten Layout ist sie 0 - dann darf nichts durch Null
+    // geteilt werden.
+    expect(ausY(10, 0)).toBe(0);
   });
 });

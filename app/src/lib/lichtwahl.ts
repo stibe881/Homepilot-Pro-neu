@@ -100,3 +100,15 @@ export function zeigtFarbe(entity: Entity): boolean {
   if (modus === 'weiss') return false;
   return typeof entity.state.color === 'string';
 }
+
+/**
+ * Aus der Fingerhöhe im senkrechten Regler ein Prozent (rein, testbar).
+ *
+ * Oben ist hell: Der Balken zählt von unten, die Bildschirmkoordinate
+ * von oben. Genau diese Umkehrung ist der Fehler, den man sonst erst an
+ * der Lampe bemerkt - man zieht nach oben und es wird dunkler.
+ */
+export function ausY(y: number, hoehe: number): number {
+  if (hoehe <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round(((hoehe - y) / hoehe) * 100)));
+}
