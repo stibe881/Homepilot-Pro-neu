@@ -8001,6 +8001,120 @@ PlayStation bedient (Punkt 643), also gilt die Wahl für beide Geräte.
 
 Stellen: `hub/homepilot/core/entity.py`, `hub/homepilot/core/registry.py`, `hub/homepilot/core/hub.py`, `hub/homepilot/api/models.py`, `app/src/lib/fernbedienungsszenen.ts`, `app/src/components/TvRemote.tsx`, `app/src/components/EntityCard.tsx`, `app/src/components/FernbedienungsSzenen.tsx`, `app/src/screens/VerbindungenScreen.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/hooks/useHub.ts`
 
+### 647. Eigener Name und eigenes Symbol je Widget-Knopf ✓ erledigt
+
+Aus dem Haus, mit Bild der Widget-Einstellungen: «Hier soll man für die
+einzelnen Widgets Icons geben können und man soll sie umbenennen
+können.»
+
+Ein Knopf hiess, wie das Gerät oder die Szene heisst, und trug das
+Symbol seiner Art: jedes Licht eine Glühbirne, jede Szene Funken. Auf
+dem Homescreen stehen sie klein nebeneinander, ohne weiteren
+Zusammenhang - und «Smart Lock Pro» neben «Haustüre», beide mit
+demselben Schlüssel, beantwortet nicht, welches die Wohnungstüre ist.
+Ein Widget-Knopf ist keine Geräteliste; er ist die Abkürzung, die man
+sich selbst legt.
+
+Jetzt öffnet ein Tipp auf Symbol und Namen ein Blatt unter der Zeile:
+ein Feld für den Namen, vierundzwanzig Symbole zur Wahl und
+«Zurücksetzen». Beides freiwillig - was nicht gesetzt ist, bleibt wie
+bisher, und ein umbenanntes Gerät zieht seinen Knopf weiter mit. Die
+Liste in den Einstellungen zeigt dabei schon das Ergebnis, samt Symbol;
+sonst richtet man hier etwas ein und prüft es auf dem Homescreen.
+
+Die Symbolwahl ist bewusst kurz und handverlesen statt einer Suche über
+alle SF-Symbole: Eines, das die iOS-Fassung auf dem Telefon nicht kennt,
+zeichnet im Widget **nichts** - der Knopf wäre leer, und man sähe es
+erst dort. Zu jedem steht in derselben Zeile das Ionicon, mit dem die
+App denselben Knopf zeigt; zwei Listen wären zwei Stellen zum Vergessen.
+
+Der Stil greift an der einen Stelle, an der die Knöpfe aufgelöst werden.
+Widget, Kurzbefehle am App-Symbol und die Kachelwand im Auto lesen
+dieselbe Liste - ein Knopf, der nur an einer der drei Stellen «Wohnung»
+heisst, wäre der Anfang von dreien. Nativ ist nichts zu tun: Das Widget
+liest Titel und Symbol längst aus der App-Gruppe, die Laufzeit bleibt
+bei 8.
+
+Stellen: `app/src/lib/widgetstil.ts`, `app/src/lib/widgetstil.test.ts`, `app/src/components/Widgets.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/hooks/usePrefs.ts`
+
+### 648. Farbe und Weisston liessen sich auf der Kachel nicht einstellen ✓ erledigt
+
+Aus dem Haus, mit Bild der Büro-Kacheln: «Man kann bei den Lichtern die
+Farbe und die Weissheit nicht einstellen in den Kacheln. Es soll aber
+auch nur da gehen, wo die Lampen dies unterstützen.»
+
+Drei Gründe lagen übereinander, und jeder allein hätte gereicht:
+
+**Die Hue-Anbindung konnte gar keine Farbe.** Sie las `color_temperature`
+aus der Bridge und sonst nichts - kein `set_color` in den Befehlen,
+keine Farbe im Zustand. Die Bridge nimmt auch kein Hex entgegen, sondern
+einen Farbort in CIE xy; die Umrechnung fehlte. Sie steht jetzt in
+`core/farbraum.py` (und dort, nicht in `hue.py`, weil xy nicht Hue
+gehört - es ist der Farbraum jeder Zigbee-Lampe darunter). Was die
+Bridge über das Gamut der einzelnen Lampe weiss, bleibt ihre Sache: Sie
+rechnet einen Punkt ausserhalb selbst auf den nächsten erreichbaren, und
+das ein zweites Mal zu tun hiesse, mit einer Tabelle zu rechnen, die
+veraltet, sobald eine neue Lampe dazukommt.
+
+**Die Kachel kannte keine Weisstöne.** Die Farbreihe erschien nur bei
+`set_color`; `set_color_temp` kam darin gar nicht vor. Jetzt stehen die
+drei Weisstöne in derselben Reihe, vor den Farben und durch einen Strich
+getrennt: Es ist dieselbe Frage - in welchem Licht soll es leuchten -,
+und die häufigste Antwort ist warmweiss. Was die Lampe nicht kann, steht
+nicht da, und kann sie weder das eine noch das andere, fehlt die Reihe
+ganz.
+
+**Eine Leuchte aus mehreren Lampen gab beides nicht weiter.**
+`combined_state` reichte Zustand und Helligkeit durch, Farbe und
+Weisston nicht - an der Leuchte «Büro» wäre also nie ein Punkt markiert
+gewesen, auch nach dem Umstellen. Jetzt zeigt sie beides, aber nur, wenn
+sich die eingeschalteten Mitglieder einig sind: Fünf Spots in fünf Farben
+haben keine gemeinsame Farbe, und dann bleibt der Punkt aus.
+
+Dazu die Frage, welcher der beiden Werte gerade gilt: Eine Lampe führt
+Farbe *und* letzten Weisston im Zustand, leuchtet aber nur in einem von
+beiden. Die Bridge sagt es (`mirek_valid`), der Hub gibt es als
+`color_mode` weiter, und die App markiert danach - sonst stünde in der
+Farbreihe und bei den Weisstönen je ein Punkt, obwohl nur einer brennt.
+
+Stellen: `hub/homepilot/core/farbraum.py`, `hub/homepilot/integrations/hue.py`, `hub/homepilot/integrations/group.py`, `hub/tests/test_hue_farbe.py`, `hub/tests/test_lightgroups.py`, `app/src/lib/lichtwahl.ts`, `app/src/lib/lichtwahl.test.ts`, `app/src/components/ColorRow.tsx`, `app/src/components/EntityCard.tsx`
+
+### 649. Farbe und Weisston als Punkte - auf der Kachel, im Ablauf, in der Szene ✓ erledigt
+
+Aus dem Haus, mit Bild der Lichtseite einer fremden App: «Es soll es in
+dieser Art anzeigen. Ausserdem soll es bei Abläufen und Szenarien auch
+in dieser Art anzeigen und nicht als Text.»
+
+Zwei Dinge, und das zweite ist das wichtigere.
+
+**Im Ablauf und in der Szene** stand der Weisston als Liste von Wörtern
+(«warmweiss», «neutralweiss», «tageslichtweiss») und die Farbe daneben
+als Reihe von Punkten - zwei Darstellungen für dieselbe Frage, und die
+mit den Wörtern ist die schlechtere: Man wählt ein Licht nicht nach
+seinem Namen, sondern danach, wie es aussieht. Jetzt steht beides unter
+einer Überschrift als ein Raster (`components/Farbraster.tsx`), Weiss
+zuerst, mit einem Punkt «unverändert lassen» davor. Dasselbe Raster
+zeigt die Kachel und das Blatt - eine Frage, eine Darstellung, an drei
+Orten.
+
+**Auf der Kachel** kam ein Blatt dazu, das sich öffnet wie eine eigene
+Geräteseite: ein senkrechter Balken über 260 Punkte, darunter der
+Ein-/Aus-Knopf und das Raster. Senkrecht und nicht waagrecht wie auf
+der Kachel, und das ist kein Geschmack: Eine Lampe wird «heller» und
+«dunkler», oben und unten liest sich das von selbst. Auf der Kachel
+bleibt der Regler waagrecht, weil dort die Kachel breiter als hoch ist -
+und weil vier Geräte nebeneinander keinen Balken über die halbe Seite
+vertragen. Der Weg dorthin ist der lange Druck, wo auch Verlauf und
+Umbenennen stehen; angeboten wird der Eintrag nur, wo es etwas
+einzustellen gibt.
+
+Die Umkehrung im senkrechten Regler hat einen eigenen Test (`ausY`):
+Der Balken zählt von unten, die Bildschirmkoordinate von oben - zieht
+man das falsch herum, wird es beim Hochziehen dunkler, und das merkt
+man erst an der Lampe.
+
+Stellen: `app/src/components/Farbraster.tsx`, `app/src/components/Lichtblatt.tsx`, `app/src/lib/lichtwahl.ts`, `app/src/lib/lichtwahl.test.ts`, `app/src/lib/kachelmenue.ts`, `app/src/components/EntityCard.tsx`, `app/src/screens/automations/szenen-editor.tsx`, `app/src/screens/automations/szenen-editor.test.tsx`
+
 ### 650. «Bleibt aktiv» blieb bei zwei weiteren Szenen nie aktiv ✓ erledigt
 
 Aus dem Haus: «Wenn ich eine Szene anklicke, bei der ich gesagt habe

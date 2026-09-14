@@ -1322,6 +1322,14 @@ const TREFFER_AUSNAHMEN = [
   /^(Hoch|Runter|Links|Rechts|Zurück|Startseite|Stumm|Lauter|Leiser|Stopp|Abspielen|Pause|Voriger Titel|Nächster Titel)$/,
   // Die Farbpunkte der Lichtkachel (26): neun in einer Reihe.
   /^(Rot|Orange|Gelb|Grün|Türkis|Blau|Violett|Pink|Warmweiss|Kaltweiss)$/,
+  // Und die drei Weisstöne daneben (26, Punkt 649) - dieselbe Reihe,
+  // derselbe Fall. Im Lichtblatt und im Ablauf messen dieselben Punkte
+  // 44 bzw. 32; klein sind sie nur auf der Kachel, wo zwölf davon
+  // nebeneinander stehen.
+  /^(warmweiss|neutralweiss|tageslichtweiss)$/,
+  // Die Nachbarzimmer in der Kopfzeile (27): ein Textlink in einer
+  // Zeile, derselbe Fall wie «Zurück zu Räume» darüber.
+  /^(Voriges|Nächstes) Zimmer: /,
 ];
 
 /** Was unter der Untergrenze der WCAG liegt und **nicht** in Ordnung ist
