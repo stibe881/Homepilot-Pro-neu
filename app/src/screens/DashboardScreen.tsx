@@ -218,7 +218,7 @@ import { useAbstuerze } from '../hooks/useAbstuerze';
 import { useKachelnutzung } from '../hooks/useKachelnutzung';
 import { useRaumnutzung } from '../hooks/useRaumnutzung';
 import { Zielzeile, istGrill, zieleVon } from '../lib/grillziel';
-import { nachGewohnheit } from '../lib/kachellernen';
+import { nachGewohnheit, zuletztVerwendet } from '../lib/kachellernen';
 import { useSensorlinien } from '../hooks/useSensorlinien';
 import { useAusfall } from '../hooks/useAusfall';
 import { useZurueckWischen } from '../hooks/useZurueckWischen';
@@ -1348,6 +1348,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const favorites = useMemo(
     () => eigenePrefs.favorites ?? favoritenVon(entities),
     [eigenePrefs.favorites, entities]
+  );
+  // «Zuletzt verwendet» (Punkt 674): derselbe Zähler wie bei «nach
+  // Tageszeit sortieren», nur nach Zeitpunkt statt nach Abschnitt
+  // gelesen - und ohne die eigenen Favoriten, die schon eine Kachel
+  // weiter oben stehen.
+  const recentIds = useMemo(
+    () => zuletztVerwendet(kachelZaehler, new Set(favorites)),
+    [kachelZaehler, favorites]
   );
   // Festgehalten und nicht je Rendern neu: `prefs.locked ?? []` ist bei
   // jedem Durchlauf eine andere leere Liste, und die hängt an den
@@ -2877,6 +2885,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               // sonst spränge beim Umstieg alles durcheinander.
               favoriteOrder={eigenePrefs.favoriteOrder ?? prefs.order?.favorites}
               onReorderFavorites={setFavoriteOrder}
+              recentIds={recentIds}
               schnellOrder={eigenePrefs.schnellOrder}
               onReorderSchnell={setSchnellOrder}
               onDurchsage={darfSchalten ? sendeDurchsage : undefined}

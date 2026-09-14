@@ -13,6 +13,7 @@ import {
   merken,
   nachGewohnheit,
   verblasst,
+  zuletztVerwendet,
 } from './kachellernen';
 import { ABSCHNITTE, abschnittFuer } from './tageszeit';
 
@@ -120,5 +121,37 @@ describe('nachGewohnheit', () => {
 describe('hinweisGelernt', () => {
   it('sagt, dass gelernt und nicht gesetzt wird', () => {
     expect(hinweisGelernt(ABSCHNITTE[2])).toBe('Abend: nach deiner Gewohnheit');
+  });
+});
+
+describe('zuletztVerwendet', () => {
+  it('sortiert nach dem jüngsten Griff, über alle Abschnitte hinweg', () => {
+    let zaehler = merken({}, 'hue.decke', MORGEN.key, 1000);
+    zaehler = merken(zaehler, 'mqtt.kaffee', ABEND.key, 3000);
+    zaehler = merken(zaehler, 'hm.store', MORGEN.key, 2000);
+    expect(zuletztVerwendet(zaehler)).toEqual(['mqtt.kaffee', 'hm.store', 'hue.decke']);
+  });
+
+  it('zählt ein Gerät aus mehreren Abschnitten nur einmal, mit dem jüngsten Zeitpunkt', () => {
+    let zaehler = merken({}, 'hue.decke', MORGEN.key, 1000);
+    zaehler = merken(zaehler, 'hue.decke', ABEND.key, 5000);
+    expect(zuletztVerwendet(zaehler)).toEqual(['hue.decke']);
+  });
+
+  it('lässt aus, was im Ausschluss steht - die eigenen Favoriten', () => {
+    let zaehler = merken({}, 'hue.decke', MORGEN.key, 1000);
+    zaehler = merken(zaehler, 'mqtt.kaffee', MORGEN.key, 2000);
+    expect(zuletztVerwendet(zaehler, new Set(['mqtt.kaffee']))).toEqual(['hue.decke']);
+  });
+
+  it('deckelt auf die verlangte Anzahl, die jüngsten zuerst', () => {
+    let zaehler = merken({}, 'a', MORGEN.key, 1000);
+    zaehler = merken(zaehler, 'b', MORGEN.key, 2000);
+    zaehler = merken(zaehler, 'c', MORGEN.key, 3000);
+    expect(zuletztVerwendet(zaehler, new Set(), 2)).toEqual(['c', 'b']);
+  });
+
+  it('ist leer ohne Zählung', () => {
+    expect(zuletztVerwendet({})).toEqual([]);
   });
 });
