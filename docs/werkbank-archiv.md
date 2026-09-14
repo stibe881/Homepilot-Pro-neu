@@ -8000,3 +8000,39 @@ zu zwei Pillen (`szenen`/`onSzene`) - dieselbe Stelle, die auch die
 PlayStation bedient (Punkt 643), also gilt die Wahl für beide Geräte.
 
 Stellen: `hub/homepilot/core/entity.py`, `hub/homepilot/core/registry.py`, `hub/homepilot/core/hub.py`, `hub/homepilot/api/models.py`, `app/src/lib/fernbedienungsszenen.ts`, `app/src/components/TvRemote.tsx`, `app/src/components/EntityCard.tsx`, `app/src/components/FernbedienungsSzenen.tsx`, `app/src/screens/VerbindungenScreen.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/hooks/useHub.ts`
+
+### 647. Eigener Name und eigenes Symbol je Widget-Knopf ✓ erledigt
+
+Aus dem Haus, mit Bild der Widget-Einstellungen: «Hier soll man für die
+einzelnen Widgets Icons geben können und man soll sie umbenennen
+können.»
+
+Ein Knopf hiess, wie das Gerät oder die Szene heisst, und trug das
+Symbol seiner Art: jedes Licht eine Glühbirne, jede Szene Funken. Auf
+dem Homescreen stehen sie klein nebeneinander, ohne weiteren
+Zusammenhang - und «Smart Lock Pro» neben «Haustüre», beide mit
+demselben Schlüssel, beantwortet nicht, welches die Wohnungstüre ist.
+Ein Widget-Knopf ist keine Geräteliste; er ist die Abkürzung, die man
+sich selbst legt.
+
+Jetzt öffnet ein Tipp auf Symbol und Namen ein Blatt unter der Zeile:
+ein Feld für den Namen, vierundzwanzig Symbole zur Wahl und
+«Zurücksetzen». Beides freiwillig - was nicht gesetzt ist, bleibt wie
+bisher, und ein umbenanntes Gerät zieht seinen Knopf weiter mit. Die
+Liste in den Einstellungen zeigt dabei schon das Ergebnis, samt Symbol;
+sonst richtet man hier etwas ein und prüft es auf dem Homescreen.
+
+Die Symbolwahl ist bewusst kurz und handverlesen statt einer Suche über
+alle SF-Symbole: Eines, das die iOS-Fassung auf dem Telefon nicht kennt,
+zeichnet im Widget **nichts** - der Knopf wäre leer, und man sähe es
+erst dort. Zu jedem steht in derselben Zeile das Ionicon, mit dem die
+App denselben Knopf zeigt; zwei Listen wären zwei Stellen zum Vergessen.
+
+Der Stil greift an der einen Stelle, an der die Knöpfe aufgelöst werden.
+Widget, Kurzbefehle am App-Symbol und die Kachelwand im Auto lesen
+dieselbe Liste - ein Knopf, der nur an einer der drei Stellen «Wohnung»
+heisst, wäre der Anfang von dreien. Nativ ist nichts zu tun: Das Widget
+liest Titel und Symbol längst aus der App-Gruppe, die Laufzeit bleibt
+bei 8.
+
+Stellen: `app/src/lib/widgetstil.ts`, `app/src/lib/widgetstil.test.ts`, `app/src/components/Widgets.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/hooks/usePrefs.ts`

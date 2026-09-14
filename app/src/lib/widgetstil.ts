@@ -1,7 +1,7 @@
 import { kurz, WidgetButton } from './widgetButtons';
 
 /**
- * Eigener Name und eigenes Symbol je Widget-Knopf.
+ * Eigener Name und eigenes Symbol je Widget-Knopf (Punkt 647).
  *
  * Bis hierher hiess ein Knopf, wie das Gerät oder die Szene heisst, und
  * trug das Symbol seiner Art: jedes Licht eine Glühbirne, jede Szene
