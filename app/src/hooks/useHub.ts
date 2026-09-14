@@ -7,6 +7,7 @@ import { Activity, CommandData, Entity, EntityState, Scene, ServerMessage, User 
 import { failed, tapped, triggered } from '../lib/haptics';
 import { absageSatz, zurueckgesetzt } from '../lib/kachelstand';
 import { UndoOffer, undoCommand, undoLabel } from '../lib/rueckgaengig';
+import { beruehrtSzene, szenenEntitaetenMenge } from '../lib/szenenabgleich';
 import {
   CODE_ABGEMELDET,
   CODE_FENSTER_ZU,
@@ -159,6 +160,16 @@ export function useHub(url: string | null, token: string | null) {
   // Befehl keinen echten nach.
   const vorherRef = useRef<Record<string, EntityState>>({});
 
+  // Welche Entitäten zu einer Szene gehören - zum Nachfragen, ob eine
+  // Szene noch gilt, sobald sich eine davon meldet (Punkt 654 der
+  // Werkbank). Ein Ref, kein State: Nur zum Nachschlagen im Puffer.
+  const szenenEntitaeten = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    szenenEntitaeten.current = szenenEntitaetenMenge(scenes);
+  }, [scenes]);
+  const reloadScenesRef = useRef<() => void>(() => {});
+  const szenenAbgleichTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Beim Öffnen sofort den letzten bekannten Stand zeigen, statt auf die
   // Verbindung zu warten – der Start fühlt sich dadurch augenblicklich an.
   useEffect(() => {
@@ -221,6 +232,23 @@ export function useHub(url: string | null, token: string | null) {
     if (Object.keys(staende).length > 0) {
       meldungsPuffer.current = {};
       setEntityMap((prev) => ({ ...prev, ...staende }));
+      // Betrifft die Meldung ein Gerät, das zu einer Szene gehört, lohnt
+      // sich ein Nachfragen beim Hub - der einzige Ort, der weiss, ob sie
+      // noch «gilt» (core/scenes.py, ist_aktiv). Ohne das blieb der
+      // Szenen-Knopf beim einmaligen Nachfragen 1.2 Sekunden nach dem
+      // Auslösen stehen: Ein Fernseher, der länger zum Aufwachen braucht,
+      // oder eine Hue-Bridge, deren Bericht erst später ankommt, liessen
+      // die Szene dauerhaft als «nicht aktiv» erscheinen, obwohl sie es
+      // inzwischen war (Punkt 654 der Werkbank).
+      if (
+        szenenAbgleichTimer.current == null &&
+        beruehrtSzene(Object.keys(staende), szenenEntitaeten.current)
+      ) {
+        szenenAbgleichTimer.current = setTimeout(() => {
+          szenenAbgleichTimer.current = null;
+          reloadScenesRef.current();
+        }, 800);
+      }
     }
     const eintraege = aktivitaetsPuffer.current;
     if (eintraege.length > 0) {
@@ -557,6 +585,9 @@ export function useHub(url: string | null, token: string | null) {
       .then(setScenes)
       .catch(() => setScenes([]));
   }, [url, token]);
+  useEffect(() => {
+    reloadScenesRef.current = reloadScenes;
+  }, [reloadScenes]);
 
   // Szenen und Strompreis kommen über REST – sie ändern sich nicht laufend.
   useEffect(() => {

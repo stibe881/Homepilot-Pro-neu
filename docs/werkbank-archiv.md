@@ -8269,3 +8269,37 @@ Reparatur wie bei Punkt 650: eine neue Gruppe `AUS_GLEICHWERTIG`
 weiterhin unangetastet.
 
 Stellen: `hub/homepilot/core/szenenrueckweg.py`, `hub/tests/test_szenenrueckweg.py`
+
+### 654. Der Szenen-Knopf fragte nur einmal nach, ob die Szene noch gilt ✓ erledigt
+
+Nach Punkt 653 war der Hub nachweislich richtig (`/api/scenes` zeigte
+`active: true`, direkt nachgefragt) - und trotzdem blieb der Knopf in
+der App dunkel: «wenn ich den szenen button klicke in dem raum wo die
+szene ist, schaltet sich die szene ein, bleibt aber immer noch nicht
+aktiv.» Die Frage «suchst du den Fehler am richtigen Ort?» aus dem Haus
+war berechtigt - er lag diesmal nicht im Hub, sondern in der App.
+
+`activateScene` (`useHub.ts`) stellt den Knopf sofort optimistisch um
+und fragt genau **einmal**, 1,2 Sekunden später, beim Hub nach -
+danach nie wieder, ausser jemand öffnet den Szenen-Editor («Szenen und
+Strompreis kommen über REST – sie ändern sich nicht laufend»). Braucht
+ein beteiligtes Gerät länger als diese 1,2 Sekunden, um seinen
+endgültigen Zustand zu melden - ein Fernseher beim Aufwachen, eine
+Hue-Bridge, deren Ereignis erst später eintrifft -, zeigt die einmalige
+Nachfrage «nicht aktiv», und dabei bleibt es für immer: Niemand fragt
+danach je wieder nach.
+
+Die App bekommt den Zustand jedes einzelnen Geräts längst laufend über
+den WebSocket (`meldungsPuffer`/`flush`). Genau daran hängt der neue
+Anstoss: Betrifft eine ankommende Zustandsmeldung eine Entität, die zu
+irgendeiner Szene gehört, fragt die App 800 ms später erneut beim Hub
+nach, ob sich die Lage geändert hat - so oft, wie es neue, relevante
+Meldungen gibt, nicht nur einmal. Ein Fernseher, der erst zehn Sekunden
+nach dem Auslösen «an» meldet, lässt den Knopf zehn Sekunden später
+aufleuchten, statt für immer dunkel zu bleiben.
+
+Welche Entitäten zu einer Szene gehören, ist eine reine Funktion
+(`szenenEntitaetenMenge`, `beruehrtSzene` in `lib/szenenabgleich.ts`) -
+herausgelöst, damit sie sich ohne Hub und WebSocket testen lässt.
+
+Stellen: `app/src/hooks/useHub.ts`, `app/src/lib/szenenabgleich.ts`, `app/src/lib/szenenabgleich.test.ts`
