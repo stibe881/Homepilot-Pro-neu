@@ -814,6 +814,9 @@ export function useHub(url: string | null, token: string | null) {
         contact_kind?: 'window' | 'door' | null;
         /** Nur Batteriegeräte: welche Batterie drinsteckt (Punkt 633). */
         battery_type?: string | null;
+        /** Nur Fernseher und Spielkonsole: bis zu zwei Szenen an der
+         *  Fernbedienung (Punkt 646). */
+        remote_scenes?: string[];
       }
     ) => {
       setEntityMap((prev) => {
@@ -827,6 +830,7 @@ export function useHub(url: string | null, token: string | null) {
         if (meta.room_only !== undefined) next.room_only = meta.room_only;
         if (meta.contact_kind !== undefined) next.contact_kind = meta.contact_kind;
         if (meta.battery_type !== undefined) next.battery_type = meta.battery_type;
+        if (meta.remote_scenes !== undefined) next.remote_scenes = meta.remote_scenes;
         return { ...prev, [entityId]: next };
       });
       try {

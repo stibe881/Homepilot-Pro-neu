@@ -63,7 +63,12 @@ describe('Ein gewähltes Gerät im Editor', () => {
     expect(gesehen).toContain('Helligkeit');
     expect(gesehen).toContain('Oder rechnen lassen');
     expect(gesehen).toContain('Wie lange an?');
-    expect(gesehen).toContain('Weisston');
+    // Weisston und Farbe stehen seit Punkt 649 unter einer Überschrift
+    // und als ein Raster von Punkten - vorher war der Weisston eine
+    // Liste von Wörtern, die Farbe eine Reihe von Punkten, und beide
+    // fragten dasselbe.
+    expect(gesehen).toContain('Lichtfarbe');
+    expect(gesehen).not.toContain('Weisston');
   });
 
   it('sagt bei der Zeit, dass sie ab der letzten Bewegung zählt', () => {
@@ -138,5 +143,49 @@ describe('Die Liste, aus der man wählt', () => {
     });
     expect(onActions).toHaveBeenCalledTimes(1);
     expect(onActions.mock.calls[0][0]).toHaveLength(1);
+  });
+});
+
+describe('Farbe und Weisston als Raster (Punkt 649)', () => {
+  it('bietet die Weisstöne als Punkte an, nicht als Wörter', () => {
+    // Aus dem Haus: «Es soll bei Abläufen und Szenarien auch in dieser
+    // Art anzeigen und nicht als Text.» Man wählt ein Licht nicht nach
+    // seinem Namen, sondern danach, wie es aussieht - die Wörter leben
+    // nur noch als Beschriftung für die Vorlesefunktion weiter.
+    const { baum, onActions } = bauen([
+      { entity_id: lampe.id, command: 'turn_on' },
+    ]);
+    act(() => {
+      knopf(baum, 'warmweiss').onPress();
+    });
+    expect(onActions).toHaveBeenCalledWith([
+      expect.objectContaining({ entity_id: lampe.id, colorTemp: 370 }),
+    ]);
+  });
+
+  it('zeigt keine Farben an einer Lampe, die nur Weiss kann', () => {
+    // Die zweite Hälfte des Auftrags: «nur da, wo die Lampen das
+    // unterstützen». Die Testlampe kann set_color_temp, aber kein
+    // set_color.
+    const { baum } = bauen([{ entity_id: lampe.id, command: 'turn_on' }]);
+    const punkte = baum.root.findAll(
+      (knoten) => knoten.props.accessibilityLabel === 'Türkis'
+    );
+    expect(punkte).toHaveLength(0);
+  });
+
+  it('lässt «unverändert» wieder zurücknehmen', () => {
+    // Der Punkt mit dem Kreuz: Ohne ihn käme man aus einer einmal
+    // gewählten Farbe nicht mehr heraus, ohne den ganzen Schritt zu
+    // löschen.
+    const { baum, onActions } = bauen([
+      { entity_id: lampe.id, command: 'turn_on', colorTemp: 370 } as never,
+    ]);
+    act(() => {
+      knopf(baum, 'Unverändert lassen').onPress();
+    });
+    expect(onActions).toHaveBeenCalledWith([
+      expect.objectContaining({ colorTemp: undefined, color: undefined }),
+    ]);
   });
 });

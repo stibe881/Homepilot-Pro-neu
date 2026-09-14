@@ -27,6 +27,7 @@ import aiohttp
 
 from ..core.entity import Entity, EntityKind
 from ..core.errors import ConfigError, HomePilotError, UnsupportedCommandError
+from ..core.farbraum import hex_zu_xy, xy_zu_hex
 from ..core.integration import Integration
 
 
@@ -245,6 +246,17 @@ def farbtemperatur_mirek(data: dict[str, Any]) -> int:
     return max(153, min(500, round(mirek)))
 
 
+def xy_aus(data: dict[str, Any]) -> tuple[float, float] | None:
+    """Die gewünschte Farbe als Farbort - oder nichts (rein, testbar).
+
+    Die Bridge kennt kein Hex (core/farbraum.py). ``None`` heisst: Es
+    war keine Farbe dabei, dann gehört auch keine in den PUT.
+    """
+    if "color" not in data:
+        return None
+    return hex_zu_xy(data.get("color"))
+
+
 def light_body(command: str, data: dict[str, Any], war_an: bool) -> dict[str, Any]:
     """Der PUT-Rumpf für ein Kommando an ein Hue-Licht (rein, testbar) -
     Punkt 645 der Werkbank.
@@ -288,6 +300,24 @@ def light_body(command: str, data: dict[str, Any], war_an: bool) -> dict[str, An
         return body
 
     schaltet_an = body.get("on", {}).get("on", True)
+    # Farbe schlägt Weisston: Eine Lampe leuchtet entweder bunt oder
+    # weiss, und wer in der Farbreihe tippt, meint die Farbe. Kämen
+    # beide im selben PUT, entschiede die Bridge - und zwar je nach
+    # Lampe verschieden.
+    farbe = xy_aus(data) if command == "set_color" or schaltet_an else None
+    if farbe is not None and (
+        command == "set_color"
+        or (schaltet_an and command in ("turn_on", "set_brightness"))
+    ):
+        body["color"] = {"xy": {"x": farbe[0], "y": farbe[1]}}
+        if command == "set_color":
+            # Ein Farbtipp an einer ausgeschalteten Lampe soll sie
+            # anschalten - so steht es in der App an der Farbreihe («ein
+            # Tipp schaltet ein und stellt die Farbe in einem Zug»), und
+            # ohne das bliebe die Lampe dunkel und die Farbe ein
+            # Versprechen für das nächste Einschalten.
+            body.setdefault("on", {"on": True})
+        return body
     if command == "set_color_temp" or (
         schaltet_an
         and command in ("turn_on", "set_brightness")
@@ -467,6 +497,24 @@ class HueIntegration(Integration):
             mirek = light["color_temperature"].get("mirek")
             if isinstance(mirek, (int, float)):
                 changes["color_temp"] = round(mirek)
+            # Ob die Lampe *gerade* weiss leuchtet, sagt die Bridge
+            # ausdrücklich: In der Farbe steht `mirek_valid: false`, und
+            # der letzte Weisston bleibt trotzdem stehen. Ohne dieses
+            # Feld müsste die App raten, welcher der beiden Werte gilt -
+            # und markierte dann in der Farbreihe und in den Weisstönen
+            # je einen Punkt, obwohl nur einer leuchtet.
+            changes["color_mode"] = (
+                "weiss" if light["color_temperature"].get("mirek_valid") else "farbe"
+            )
+        # Die Farbe, in Hex wie überall sonst (core/farbraum.py). Ohne
+        # sie stand in der App keine Farbreihe an einer Hue-Lampe, die
+        # längst bunt kann - der gemeldete Fall.
+        if "color" in light:
+            xy = (light["color"] or {}).get("xy") or {}
+            if isinstance(xy.get("x"), (int, float)) and isinstance(
+                xy.get("y"), (int, float)
+            ):
+                changes["color"] = xy_zu_hex(xy["x"], xy["y"])
         # Das Einschaltverhalten kommt mit jeder Leuchte mit (Punkt 630)
         # - bisher las der Hub nur on und dimming und liess es liegen.
         if "powerup" in light:
@@ -481,6 +529,8 @@ class HueIntegration(Integration):
                 commands.append("set_brightness")
             if "color_temperature" in light:
                 commands.append("set_color_temp")
+            if "color" in light:
+                commands.append("set_color")
             if "powerup" in light:
                 commands.append("set_power_on")
             await self.add_entity(

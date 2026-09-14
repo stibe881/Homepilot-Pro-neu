@@ -224,6 +224,51 @@ describe('TvRemote am Fernseher', () => {
   });
 });
 
+describe('Die Szenen unten an der Fernbedienung (Punkt 646)', () => {
+  it('zeigt bis zu zwei Knöpfe und löst die richtige Szene aus', async () => {
+    const onSzene = jest.fn();
+    let baum!: ReactTestRenderer;
+    await act(async () => {
+      baum = create(
+        <TvRemote
+          visible
+          name="Fernseher Wohnzimmer"
+          onClose={() => {}}
+          onCommand={() => {}}
+          entity={fernseher}
+          szenen={[
+            { id: 'kino', name: 'Kino' },
+            { id: 'zocken', name: 'Zocken' },
+          ]}
+          onSzene={onSzene}
+        />
+      );
+    });
+    expect(texte(baum)).toContain('Kino');
+    expect(texte(baum)).toContain('Zocken');
+    await act(async () => {
+      taste(baum, 'Szene Zocken starten')!.onPress();
+    });
+    expect(onSzene).toHaveBeenCalledWith('zocken');
+  });
+
+  it('zeigt nichts ohne Auswahl', async () => {
+    let baum!: ReactTestRenderer;
+    await act(async () => {
+      baum = create(
+        <TvRemote
+          visible
+          name="Fernseher Wohnzimmer"
+          onClose={() => {}}
+          onCommand={() => {}}
+          entity={fernseher}
+        />
+      );
+    });
+    expect(texte(baum)).not.toContain('Kino');
+  });
+});
+
 describe('TvRemote und die Befehlsliste des Geräts', () => {
   it('lässt Ton- und Abspieltasten weg, die das Gerät nicht führt', async () => {
     // Der Fall aus dem Haus (Punkt 643): Vom Raumkopf aus kam die

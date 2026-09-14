@@ -6,7 +6,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from .entity import Entity
+from .entity import Entity, remote_scenes_lesen
 from .errors import UnknownEntityError
 from .eventlog import worth_recording
 from .events import EventBus
@@ -58,6 +58,7 @@ class EntityRegistry:
         art = meta.get("contact_kind")
         entity.contact_kind = art if art in ("window", "door") else None
         entity.battery_type = meta.get("battery_type") or None
+        entity.remote_scenes = remote_scenes_lesen(meta.get("remote_scenes"))
 
     def _aus_protokoll(self, entity: Entity, state: dict[str, Any]) -> bool:
         """«Seit wann steht das so?» aus dem Protokoll holen (in place).
@@ -217,6 +218,7 @@ class EntityRegistry:
         art = meta.get("contact_kind")
         entity.contact_kind = art if art in ("window", "door") else None
         entity.battery_type = meta.get("battery_type") or None
+        entity.remote_scenes = remote_scenes_lesen(meta.get("remote_scenes"))
         await self.bus.publish(
             "state_changed",
             {

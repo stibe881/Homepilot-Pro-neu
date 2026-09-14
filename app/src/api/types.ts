@@ -100,6 +100,15 @@ export interface Entity {
   combined_into?: string | null;
   /** Frei wählbare Gruppe (z.B. «Storen Süd») zum gemeinsamen Schalten. */
   group?: string | null;
+  /**
+   * Bis zu zwei Szenen, die unten an der Fernbedienung stehen (Punkt 646).
+   *
+   * Nur für Fernseher und Spielkonsole (has_screen) - unter Einstellungen
+   * → Verbindungen gewählt. Ohne Auswahl fällt lib/fernbedienungsszenen.ts
+   * auf die alte Regel zurück: die Szene «Kino», wenn es genau eine mit
+   * diesem Namen gibt (lib/kinoszene.ts).
+   */
+  remote_scenes?: string[] | null;
   /** Epoch-Sekunden, wann das Gerät zuletzt erreichbar war. */
   last_seen?: number | null;
   /** Wann sich der Zustand zuletzt wirklich geändert hat (Epoch-Sekunden)

@@ -7979,3 +7979,338 @@ Anbindungen, die die Abkürzung nicht kennen); bei Hue bestätigt sie
 danach nur noch denselben Wert, den die Lampe schon zeigt.
 
 Stellen: `hub/homepilot/integrations/hue.py`, `hub/homepilot/core/automation.py`, `hub/tests/test_light.py`, `hub/tests/test_new_integrations.py`
+
+### 646. Bis zu zwei Szenen unten an der Fernbedienung ✓ erledigt
+
+Aus dem Haus, mit dem Bild der Verbindungen-Seite (Fernseher, dann
+PlayStation 5): «Man soll hier angeben können, welche Szene unten an
+der Fernbedienung angezeigt werden soll. Man soll bis zu zwei
+Szenen/Abläufe angeben können.»
+
+Bisher gab es genau einen Griff, automatisch gefunden: die Szene
+«Kino», wenn es im Haus genau eine mit diesem Namen gibt
+(`lib/kinoszene.ts`) - ein Zufallstreffer, der ein Haus ohne eine Szene
+namens «Kino», oder mit einer zweiten für «Zocken», nie bediente. Jetzt
+lässt sich die Wahl treffen, unter Einstellungen → Verbindungen, direkt
+bei der Kopplung von Fernseher und Spielkonsole - dort, wo man ohnehin
+gerade an diesem Gerät ist, wie beim Einschlaf-Timer nebenan.
+
+Gespeichert wird als Geräte-Metadatum (`entity.remote_scenes`, wie
+`scene_toggles` oder `battery_type` schon vorher) - höchstens zwei,
+geklemmt im Hub selbst (`core/entity.py`, `remote_scenes_lesen`) und
+nicht nur in der App: Wer die Route von Hand aufruft, soll trotzdem
+nicht mehr bekommen. Ohne eigene Wahl bleibt es bei der alten Regel
+(die Szene «Kino») - ein bestehendes Haus merkt von der Umstellung
+nichts, bis jemand die Auswahl trifft; wählt jemand beide Knöpfe ab,
+bleibt die Reihe wirklich leer, statt überraschend doch auf «Kino»
+zurückzufallen (`app/src/lib/fernbedienungsszenen.ts`,
+`fernbedienungsSzenen`). Das Fernbedienungs-Blatt selbst kannte bisher
+nur die eine Szene (`kino`/`onKino`); es zeigt jetzt eine Reihe aus bis
+zu zwei Pillen (`szenen`/`onSzene`) - dieselbe Stelle, die auch die
+PlayStation bedient (Punkt 643), also gilt die Wahl für beide Geräte.
+
+Stellen: `hub/homepilot/core/entity.py`, `hub/homepilot/core/registry.py`, `hub/homepilot/core/hub.py`, `hub/homepilot/api/models.py`, `app/src/lib/fernbedienungsszenen.ts`, `app/src/components/TvRemote.tsx`, `app/src/components/EntityCard.tsx`, `app/src/components/FernbedienungsSzenen.tsx`, `app/src/screens/VerbindungenScreen.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/hooks/useHub.ts`
+
+### 647. Eigener Name und eigenes Symbol je Widget-Knopf ✓ erledigt
+
+Aus dem Haus, mit Bild der Widget-Einstellungen: «Hier soll man für die
+einzelnen Widgets Icons geben können und man soll sie umbenennen
+können.»
+
+Ein Knopf hiess, wie das Gerät oder die Szene heisst, und trug das
+Symbol seiner Art: jedes Licht eine Glühbirne, jede Szene Funken. Auf
+dem Homescreen stehen sie klein nebeneinander, ohne weiteren
+Zusammenhang - und «Smart Lock Pro» neben «Haustüre», beide mit
+demselben Schlüssel, beantwortet nicht, welches die Wohnungstüre ist.
+Ein Widget-Knopf ist keine Geräteliste; er ist die Abkürzung, die man
+sich selbst legt.
+
+Jetzt öffnet ein Tipp auf Symbol und Namen ein Blatt unter der Zeile:
+ein Feld für den Namen, vierundzwanzig Symbole zur Wahl und
+«Zurücksetzen». Beides freiwillig - was nicht gesetzt ist, bleibt wie
+bisher, und ein umbenanntes Gerät zieht seinen Knopf weiter mit. Die
+Liste in den Einstellungen zeigt dabei schon das Ergebnis, samt Symbol;
+sonst richtet man hier etwas ein und prüft es auf dem Homescreen.
+
+Die Symbolwahl ist bewusst kurz und handverlesen statt einer Suche über
+alle SF-Symbole: Eines, das die iOS-Fassung auf dem Telefon nicht kennt,
+zeichnet im Widget **nichts** - der Knopf wäre leer, und man sähe es
+erst dort. Zu jedem steht in derselben Zeile das Ionicon, mit dem die
+App denselben Knopf zeigt; zwei Listen wären zwei Stellen zum Vergessen.
+
+Der Stil greift an der einen Stelle, an der die Knöpfe aufgelöst werden.
+Widget, Kurzbefehle am App-Symbol und die Kachelwand im Auto lesen
+dieselbe Liste - ein Knopf, der nur an einer der drei Stellen «Wohnung»
+heisst, wäre der Anfang von dreien. Nativ ist nichts zu tun: Das Widget
+liest Titel und Symbol längst aus der App-Gruppe, die Laufzeit bleibt
+bei 8.
+
+Stellen: `app/src/lib/widgetstil.ts`, `app/src/lib/widgetstil.test.ts`, `app/src/components/Widgets.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/hooks/usePrefs.ts`
+
+### 648. Farbe und Weisston liessen sich auf der Kachel nicht einstellen ✓ erledigt
+
+Aus dem Haus, mit Bild der Büro-Kacheln: «Man kann bei den Lichtern die
+Farbe und die Weissheit nicht einstellen in den Kacheln. Es soll aber
+auch nur da gehen, wo die Lampen dies unterstützen.»
+
+Drei Gründe lagen übereinander, und jeder allein hätte gereicht:
+
+**Die Hue-Anbindung konnte gar keine Farbe.** Sie las `color_temperature`
+aus der Bridge und sonst nichts - kein `set_color` in den Befehlen,
+keine Farbe im Zustand. Die Bridge nimmt auch kein Hex entgegen, sondern
+einen Farbort in CIE xy; die Umrechnung fehlte. Sie steht jetzt in
+`core/farbraum.py` (und dort, nicht in `hue.py`, weil xy nicht Hue
+gehört - es ist der Farbraum jeder Zigbee-Lampe darunter). Was die
+Bridge über das Gamut der einzelnen Lampe weiss, bleibt ihre Sache: Sie
+rechnet einen Punkt ausserhalb selbst auf den nächsten erreichbaren, und
+das ein zweites Mal zu tun hiesse, mit einer Tabelle zu rechnen, die
+veraltet, sobald eine neue Lampe dazukommt.
+
+**Die Kachel kannte keine Weisstöne.** Die Farbreihe erschien nur bei
+`set_color`; `set_color_temp` kam darin gar nicht vor. Jetzt stehen die
+drei Weisstöne in derselben Reihe, vor den Farben und durch einen Strich
+getrennt: Es ist dieselbe Frage - in welchem Licht soll es leuchten -,
+und die häufigste Antwort ist warmweiss. Was die Lampe nicht kann, steht
+nicht da, und kann sie weder das eine noch das andere, fehlt die Reihe
+ganz.
+
+**Eine Leuchte aus mehreren Lampen gab beides nicht weiter.**
+`combined_state` reichte Zustand und Helligkeit durch, Farbe und
+Weisston nicht - an der Leuchte «Büro» wäre also nie ein Punkt markiert
+gewesen, auch nach dem Umstellen. Jetzt zeigt sie beides, aber nur, wenn
+sich die eingeschalteten Mitglieder einig sind: Fünf Spots in fünf Farben
+haben keine gemeinsame Farbe, und dann bleibt der Punkt aus.
+
+Dazu die Frage, welcher der beiden Werte gerade gilt: Eine Lampe führt
+Farbe *und* letzten Weisston im Zustand, leuchtet aber nur in einem von
+beiden. Die Bridge sagt es (`mirek_valid`), der Hub gibt es als
+`color_mode` weiter, und die App markiert danach - sonst stünde in der
+Farbreihe und bei den Weisstönen je ein Punkt, obwohl nur einer brennt.
+
+Stellen: `hub/homepilot/core/farbraum.py`, `hub/homepilot/integrations/hue.py`, `hub/homepilot/integrations/group.py`, `hub/tests/test_hue_farbe.py`, `hub/tests/test_lightgroups.py`, `app/src/lib/lichtwahl.ts`, `app/src/lib/lichtwahl.test.ts`, `app/src/components/ColorRow.tsx`, `app/src/components/EntityCard.tsx`
+
+### 649. Farbe und Weisston als Punkte - auf der Kachel, im Ablauf, in der Szene ✓ erledigt
+
+Aus dem Haus, mit Bild der Lichtseite einer fremden App: «Es soll es in
+dieser Art anzeigen. Ausserdem soll es bei Abläufen und Szenarien auch
+in dieser Art anzeigen und nicht als Text.»
+
+Zwei Dinge, und das zweite ist das wichtigere.
+
+**Im Ablauf und in der Szene** stand der Weisston als Liste von Wörtern
+(«warmweiss», «neutralweiss», «tageslichtweiss») und die Farbe daneben
+als Reihe von Punkten - zwei Darstellungen für dieselbe Frage, und die
+mit den Wörtern ist die schlechtere: Man wählt ein Licht nicht nach
+seinem Namen, sondern danach, wie es aussieht. Jetzt steht beides unter
+einer Überschrift als ein Raster (`components/Farbraster.tsx`), Weiss
+zuerst, mit einem Punkt «unverändert lassen» davor. Dasselbe Raster
+zeigt die Kachel und das Blatt - eine Frage, eine Darstellung, an drei
+Orten.
+
+**Auf der Kachel** kam ein Blatt dazu, das sich öffnet wie eine eigene
+Geräteseite: ein senkrechter Balken über 260 Punkte, darunter der
+Ein-/Aus-Knopf und das Raster. Senkrecht und nicht waagrecht wie auf
+der Kachel, und das ist kein Geschmack: Eine Lampe wird «heller» und
+«dunkler», oben und unten liest sich das von selbst. Auf der Kachel
+bleibt der Regler waagrecht, weil dort die Kachel breiter als hoch ist -
+und weil vier Geräte nebeneinander keinen Balken über die halbe Seite
+vertragen. Der Weg dorthin ist der lange Druck, wo auch Verlauf und
+Umbenennen stehen; angeboten wird der Eintrag nur, wo es etwas
+einzustellen gibt.
+
+Die Umkehrung im senkrechten Regler hat einen eigenen Test (`ausY`):
+Der Balken zählt von unten, die Bildschirmkoordinate von oben - zieht
+man das falsch herum, wird es beim Hochziehen dunkler, und das merkt
+man erst an der Lampe.
+
+Stellen: `app/src/components/Farbraster.tsx`, `app/src/components/Lichtblatt.tsx`, `app/src/lib/lichtwahl.ts`, `app/src/lib/lichtwahl.test.ts`, `app/src/lib/kachelmenue.ts`, `app/src/components/EntityCard.tsx`, `app/src/screens/automations/szenen-editor.tsx`, `app/src/screens/automations/szenen-editor.test.tsx`
+
+### 650. «Bleibt aktiv» blieb bei zwei weiteren Szenen nie aktiv ✓ erledigt
+
+Aus dem Haus: «Wenn ich eine Szene anklicke, bei der ich gesagt habe
+‹Nach dem Auslösen› auf ‹Bleibt aktiv›, bleibt die Szene nicht aktiv.»
+Nachgesehen mit den echten Szenen des Hauses (`/api/scenes`) fanden
+sich zwei neue Fälle derselben Familie wie Punkt 644 - eine Aktion, die
+`zielzustand` nicht kannte oder falsch übersetzte, liess die ganze
+Szene nie als aktiv gelten:
+
+- **«Zocken / Kino»** bestand nur aus `google_cast: turn_off` und
+  `hue: activate` (eine Hue-Bridge-Szene aufrufen). `activate` fehlte
+  in `zielzustand` ganz - genau wie `launch_app` vor Punkt 644. Die
+  Bridge-Szene selbst meldet sich nach dem Aufruf mit `state: "active"`
+  (`hue.py`, `demo.py`); das reicht, um zu wissen, dass sie noch gilt,
+  auch wenn sich nicht zurücknehmen lässt, was sie an den Lampen
+  geändert hat - dafür bleibt `undo_fuer` für diese Aktion weiterhin
+  leer, unverändert seit dem ursprünglichen Entwurf.
+- **«Kino»** pausiert unter anderem mehrere Google-Cast-Boxen. Lief auf
+  einer nichts, ist Pausieren ein Leerlauf, und die Box bleibt bei
+  `idle` oder `standby` stehen - nie bei `paused`
+  (`integrations/google_cast.py`, `handle_command`: eine leere Box hat
+  nichts anzuhalten). `zielzustand("pause")` verlangte aber immer genau
+  `state == "paused"`, und schon eine einzige ruhende Box liess die
+  ganze Szene als verlassen gelten.
+
+Beide Fälle brauchten dieselbe Reparatur wie eine echte Prüfung, nicht
+nur eine Zusage: `zielzustand` kennt jetzt `activate`, und eine neue
+Gruppe `PAUSIERT_GLEICHWERTIG` (`paused`, `idle`, `standby`) gilt für
+den Vergleich als gleichwertig - sowohl beim Prüfen (`szene_gilt_noch`)
+als auch beim Zurücknehmen (`hat_sich_geaendert`, `rueckbefehl`): Eine
+Box, die schon ruhte, bleibt beim zweiten Druck unangetastet, statt
+fälschlich «angehalten» zu werden.
+
+Ein bestehender Test hielt das alte Verhalten für eine Hue-Bridge-Szene
+ausdrücklich für richtig («die Szene steht nie auf gilt gerade») - das
+war eine bewusste Entscheidung, bevor `activate` überhaupt lesbar war.
+Er ist auf das neue, genauere Verhalten nachgezogen.
+
+Stellen: `hub/homepilot/core/szenenrueckweg.py`, `hub/tests/test_szenenrueckweg.py`, `hub/tests/test_hue_szenen.py`
+
+### 651. Die Lichtkachel trug nicht die Farbe, in der die Lampe leuchtet ✓ erledigt
+
+Aus dem Haus, mit Bild der Büro-Kachel: «Diese Karten sollen die Farbe
+des Lichts haben. Wenn es kaltweiss ist, sollen sie kaltweiss sein, wenn
+das Licht warmweiss eingestellt ist, sollen die Karten auch warmweiss
+sein, wenn das Licht z. B. grün ist, soll die Karte auch dasselbe Grün
+haben.»
+
+Genau das tat `lib/lichtfarbe.ts` schon - die Kachel war trotzdem immer
+orange. Zwei Gründe, beide erst jetzt sichtbar:
+
+**Die Leuchte gab nichts weiter.** «Büro» ist eine Leuchte aus mehreren
+Lampen, und `combined_state` reichte Farbe und Weisston nicht durch
+(behoben in Punkt 648). Ohne beides greift der letzte Zweig: warmes
+Weiss - das Orange auf dem Bild.
+
+**Und die Reihenfolge stimmte nicht mehr.** Seit Hue Farben kann
+(ebenfalls 648), meldet eine Hue-Lampe *immer* beides: den Farbort ihres
+Weisspunktes und den Weisston. Die alte Reihenfolge nahm zuerst die
+Farbe - eine warmweiss brennende Lampe hätte damit eine fast weisse
+Kachel getragen, auf der kalt und warm nicht zu unterscheiden sind.
+Jetzt entscheidet `color_mode`, was die Lampe *gerade* tut: «weiss»
+heisst Weisston, «farbe» heisst Farbe. Ohne den Modus (Anbindungen, die
+ihn nicht melden) gilt weiter die alte Reihenfolge.
+
+Meldet die Lampe «weiss», aber keinen Weisston, wird es warmes Weiss und
+nicht die gespeicherte Farbe von gestern: Die Lampe sagt ja, dass sie
+jetzt weiss leuchtet.
+
+Stellen: `app/src/lib/lichtfarbe.ts`, `app/src/lib/lichtfarbe.test.ts`
+
+### 652. Die Tageszeiten der Vorlage liessen sich nicht eintippen ✓ erledigt
+
+Aus dem Haus, einen Tag nach Punkt 650: «ich kann die tageszeite range
+nicht eingeben.»
+
+Die Vorlage «Licht bei Bewegung, je nach Tageszeit» legt vier
+Wenn-Schritte an, jeder mit einem Zeitfenster: 06:00–09:00, 09:00–20:00,
+20:00–00:00, 00:00–06:00. Versprochen war, dass man die Zeiten vor dem
+Speichern an das eigene Haus anpasst - der Gang wird hier nicht um
+sechs, sondern um halb sieben gebraucht.
+
+Anpassen liess sich nichts. Das Fenster ging als `ifExtra` hinaus, und
+`ifExtra` ist die Schublade für Bedingungen, die der Editor nicht bauen
+kann (Punkt 251): Sie überleben das Öffnen und Speichern unverändert,
+sichtbar ist davon nur die Zeile «zu viel für den Editor, sie bleiben
+beim Speichern erhalten». Für eine Bedingung aus einer von Hand
+geschriebenen `config.yaml` ist das richtig. Für vier Fenster, die eine
+Vorlage gerade selbst angelegt hat und zum Anpassen anbietet, ist es
+das Gegenteil von dem, was draufsteht.
+
+Das schlichte Fenster «von … bis …» ist jetzt ein Feldpaar am
+Wenn-Schritt (`ifVon`/`ifBis`), wie schon beim Zeitfenster des ganzen
+Ablaufs. Beim Öffnen eines gespeicherten Ablaufs wird das erste solche
+Fenster in die Felder gezogen, alles Übrige bleibt in `ifExtra`: Eine
+Zeitbedingung mit Wochentagen, Datumsspanne oder Feiertagsausnahme
+trägt mehr, als zwei Felder fassen - sie in die Felder zu zwingen
+hiesse, sie beim nächsten Speichern zu verlieren.
+
+Unsinn im Feld («abends») ergibt kein Fenster statt eines um Mitternacht:
+Eine Bedingung, die der Hub nie erfüllt sieht, liesse den Ablauf
+schweigend nie laufen. Nur eine Seite auszufüllen ist dagegen erlaubt
+und gemeint - «ab 22:00» ohne Ende heisst «bis Mitternacht durch», und
+über Mitternacht rechnet der Hub selbst richtig (`time_in_window`); der
+Hinweis darunter sagt das.
+
+Die Browser-Probe misst es jetzt mit (`tageszeitenEintippbar`), und
+beim Einbauen fiel eine zweite Sache auf: Die Messung «Der Rauchmelder
+steht im Ablauf-Editor zur Wahl» (Punkt 542) meldete seit der
+Aufräumaktion (Punkt 511) **gar nichts mehr**. Die Vorlagenliste steht
+seither zugeklappt, die Knöpfe darin gibt es ohne Tipp nicht im Baum -
+die Messung fand keinen, kehrte still um und war damit weder grün noch
+rot, sondern gar nicht da. Beide klappen die Liste jetzt auf, und eine
+fehlende Vorlage ist eine rote Messung statt einer stillen Umkehr: Ein
+Prüfstand, der nie rot wird, ist keiner.
+
+Stellen: `app/src/screens/automations/entwurf.ts`,
+`app/src/screens/automations/schritte.tsx`,
+`app/src/screens/automations/vorlagen.ts`, `scripts/probe.mjs`, dazu die
+Tests in `entwurf.test.ts` und `vorlagen.test.ts`
+
+### 653. «Zocken / Kino» blieb trotz Punkt 650 immer noch nie aktiv ✓ erledigt
+
+Punkt 650 war nach dem Deployen nachweislich im Haus angekommen
+(`HOMEPILOT_COMMIT` geprüft), und trotzdem zeigte «Zocken / Kino»
+weiterhin nie «aktiv». Der Grund lag einen Schritt tiefer, in derselben
+Szene, aber am anderen der beiden Schritte: Punkt 650 reparierte
+`hue: activate` - der zweite Schritt, `google_cast: turn_off`, hatte
+denselben Fehler wie `pause` in Punkt 650, nur bei `turn_off` gegen ein
+Gerät, das kein «aus» kennt.
+
+`zielzustand("turn_off")` verlangt `state == "off"`. Eine Cast-Box
+meldet nach dem Ausschalten aber nie `"off"`. Der bestehende Test für
+diesen Fall (`test_eine_bridge_szene_gilt_nach_dem_aufruf_als_aktiv`,
+Punkt 650) liess die Cast-Box testweise `state: "off"` melden - ein
+Zustand, den eine echte Box nie erreicht, und der die Lücke deshalb
+verdeckte, statt sie zu zeigen.
+
+Ein erster Versuch prüfte gegen `"standby"` (`cast_state_name`) - im
+Haus nachgemessen (`/api/entities`, direkt nach dem Auslösen) meldete
+die Box aber `state: "idle"`. Grund: `handle_command`s `turn_off`
+(`google_cast.py`) setzt den Zustand optimistisch direkt auf `"idle"`,
+ohne den Umweg über `cast_state_name` - und ein Lautsprecher ohne
+Bildschirm (`has_screen: false`) führt die HDMI-CEC-Felder gar nicht,
+aus denen `cast_state_name` später einen Standby ablesen würde. Für
+so ein Gerät bleibt `"idle"` der einzige je gemeldete Ruhezustand.
+
+Reparatur wie bei Punkt 650: eine neue Gruppe `AUS_GLEICHWERTIG`
+(`off`, `standby`, `idle`) gilt in `_stimmt_ueberein` als gleichwertig
+- sowohl beim Prüfen (`szene_gilt_noch`) als auch beim Zurücknehmen
+(`hat_sich_geaendert`). Eine Box, die schon ruhte, bleibt beim Rückweg
+weiterhin unangetastet.
+
+Stellen: `hub/homepilot/core/szenenrueckweg.py`, `hub/tests/test_szenenrueckweg.py`
+### 654. «Tageslicht» war nicht das kälteste Weiss, das die Lampe kann ✓ erledigt
+
+Aus dem Haus: «Wenn man auf Tageslicht stellt, ist es nicht das Maximum
+an Kaltweiss.» Stimmt - und zwar um 1500 Kelvin.
+
+Die drei Stufen standen auf 370, 286 und 200 Mirek. In Kelvin sind das
+2700, 3500 und 5000 - eine Hue-Lampe kann aber bis 6500 K (153 Mirek).
+Die kälteste Stufe verschenkte also fast die Hälfte der Spanne, und die
+mittlere lag ebenfalls zu warm.
+
+Jetzt folgen die Zahlen den Wörtern, die auf jeder Lampenpackung
+stehen: warmweiss unter 3300 K (370 Mirek = 2700 K), neutralweiss
+dazwischen (250 = 4000 K), tageslichtweiss über 5300 K (153 = 6500 K) -
+und 153 ist zugleich das Kälteste, was die Bridge annimmt. Eine Lampe,
+die das nicht schafft, bekommt von ihrer Bridge den kältesten Wert, den
+sie kann; zu hoch zu zielen kostet nichts, zu niedrig verschenkt die
+Spanne.
+
+Zwei Dinge fielen dabei ab:
+
+- Ein Ablauf aus der Zeit davor trägt weiter seine 200 oder 286. Die
+  Punktwahl ist nachsichtig (±60 Mirek) und markiert trotzdem die
+  richtige Stufe; ausgeschrieben steht dort dann «5000 K» statt
+  «tageslichtweiss» - ehrlicher als ein Wort, das nicht mehr stimmt.
+- Die Farbe, in der ein Weisston in der App erscheint, gab es zweimal:
+  einmal für die Punkte im Raster, einmal für die Punkte auf dem
+  Szenenknopf. Jetzt kommt beides aus `weisstonFarbe` - zwei Paletten
+  für dieselben drei Töne wären zwei Stellen, an denen jemand eine
+  ändert.
+
+Und die Vorlage «je nach Tageszeit» zog mit: Ihre Bänder trugen die
+alten 286 und 200, und ein Wert daneben stünde im Editor als Knopf da,
+den man nicht wiederfindet. Ein Test hält genau das fest.
+
+Stellen: `app/src/lib/weisston.ts`, `app/src/lib/weisston.test.ts`, `app/src/lib/lichtwahl.ts`, `app/src/lib/lichtwahl.test.ts`, `app/src/screens/automations/vorlagen.ts`

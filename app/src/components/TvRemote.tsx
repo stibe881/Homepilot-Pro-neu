@@ -24,11 +24,14 @@ interface Props {
    *  liegt unter genau diesem Blatt. Wer die Fernbedienung offen hat und
    *  zu Zattoo will, musste sie erst schliessen. */
   apps?: TvApp[];
-  /** Die Szene «Kino», wenn es genau eine gibt (lib/kinoszene.ts).
-   *  Der Film beginnt, das Licht ist noch hell - der Griff gehört
-   *  neben die Fernbedienung, nicht vier Tipps tief in die App. */
-  kino?: { id: string; name: string } | null;
-  onKino?: (sceneId: string) => void;
+  /** Bis zu zwei Szenen unten an der Fernbedienung (Punkt 646,
+   *  lib/fernbedienungsszenen.ts) - gewählt unter Einstellungen →
+   *  Verbindungen, oder die alte Regel: die Szene «Kino», wenn es genau
+   *  eine mit diesem Namen gibt. Der Film beginnt, das Licht ist noch
+   *  hell - der Griff gehört neben die Fernbedienung, nicht vier Tipps
+   *  tief in die App. */
+  szenen?: { id: string; name: string }[];
+  onSzene?: (sceneId: string) => void;
   /** Das Gerät selbst - entscheidet, ob hier ein Fernseher oder eine
    *  PlayStation bedient wird (Punkt 643). Optional, damit die
    *  bestehenden Aufrufe unverändert bleiben: ohne Gerät ein Fernseher. */
@@ -92,8 +95,8 @@ export function TvRemote({
   onClose,
   onCommand,
   apps,
-  kino,
-  onKino,
+  szenen,
+  onSzene,
   entity,
 }: Props) {
   const colors = useColors();
@@ -292,28 +295,37 @@ export function TvRemote({
             </View>
           ) : null}
 
-          {/* Die Szene «Kino», wenn es genau eine gibt: Der Film
-              beginnt, das Licht ist noch hell - der Griff gehört
-              hierher, nicht vier Tipps tief in die App. Dieselbe Regel
-              wie auf der Live-Karte des Fernsehers (hub kino_knopf). */}
-          {kino && onKino ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Szene ${kino.name} starten`}
-              onPress={() => {
-                try {
-                  tapped();
-                } catch {
-                  // Haptik ist Zugabe - der Druck darf nie an ihr hängen.
-                }
-                if (meldung?.fehler) meldung.fehlerWeg();
-                onKino(kino.id);
-              }}
-              style={({ pressed }) => [styles.kinoKnopf, pressed && { opacity: 0.7 }]}
-            >
-              <Ionicons name="film-outline" size={17} color={colors.ink} />
-              <Text style={styles.kinoText}>{kino.name}</Text>
-            </Pressable>
+          {/* Bis zu zwei Szenen unten an der Fernbedienung (Punkt 646):
+              der Film beginnt, das Licht ist noch hell, oder das Zocken
+              will sein eigenes Bild - der Griff gehört hierher, nicht
+              vier Tipps tief in die App. Ohne eigene Auswahl steht hier
+              die alte Regel (die Szene «Kino»), dieselbe wie auf der
+              Live-Karte des Fernsehers (hub kino_knopf). */}
+          {szenen && szenen.length > 0 && onSzene ? (
+            <View style={styles.szenenReihe}>
+              {szenen.map((szene) => (
+                <Pressable
+                  key={szene.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Szene ${szene.name} starten`}
+                  onPress={() => {
+                    try {
+                      tapped();
+                    } catch {
+                      // Haptik ist Zugabe - der Druck darf nie an ihr hängen.
+                    }
+                    if (meldung?.fehler) meldung.fehlerWeg();
+                    onSzene(szene.id);
+                  }}
+                  style={({ pressed }) => [styles.kinoKnopf, pressed && { opacity: 0.7 }]}
+                >
+                  <Ionicons name="film-outline" size={17} color={colors.ink} />
+                  <Text style={styles.kinoText} numberOfLines={1}>
+                    {szene.name}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
           ) : null}
 
           {/* Keine Erfolgsmeldung: Dass der Druck ankommt, sagen Haptik
@@ -385,14 +397,20 @@ const makeStyles = (colors: Colors) =>
       gap: 8,
       paddingTop: 2,
     },
-    // Der Kino-Griff: eine Pille unter den App-Logos, bewusst anders
-    // geformt als die runden Apps - er startet keine App, er stellt
-    // das Zimmer.
+    // Die Szenen-Reihe (Punkt 646): bis zu zwei Pillen unter den
+    // App-Logos, bewusst anders geformt als die runden Apps - sie
+    // starten keine App, sie stellen das Zimmer.
+    szenenReihe: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      gap: 8,
+      marginTop: 4,
+    },
     kinoKnopf: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      alignSelf: 'center',
       gap: 8,
       paddingHorizontal: 18,
       paddingVertical: 10,
@@ -400,9 +418,9 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.surfaceSoft,
       borderWidth: 1,
       borderColor: colors.surfaceBorder,
-      marginTop: 4,
+      maxWidth: '100%',
     },
-    kinoText: { color: colors.ink, fontSize: 14, fontWeight: '700' },
+    kinoText: { color: colors.ink, fontSize: 14, fontWeight: '700', flexShrink: 1 },
     appChip: {
       paddingVertical: 7,
       paddingHorizontal: 14,

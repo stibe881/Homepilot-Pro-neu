@@ -10,7 +10,7 @@ import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Entity } from '../../api/types';
 import { useColors } from '../../theme';
 import { deviceKindIcon, deviceKindLabel, geraeteUntertitel } from '../../lib/geraeteart';
-import { PALETTE } from '../../components/ColorRow';
+import { Farbraster } from '../../components/Farbraster';
 import {
   UNVERAENDERT,
   chipWahl,
@@ -22,7 +22,7 @@ import {
 } from '../../lib/helligkeitsvorgabe';
 import { RueckwegBefehl, SceneActionDraft, snapshotAction } from '../../lib/szenen';
 import { Fassung, VersionsSection } from './editor';
-import { WEISSTOENE, istAnschalten, vacuumRooms } from './entwurf';
+import { istAnschalten, vacuumRooms } from './entwurf';
 import {
   appsVon,
   baseCommandOptions,
@@ -664,72 +664,34 @@ export function SceneDevices({
               </>
             ) : null}
 
-            {/* Farbe und Weissanteil, wenn die Lampe es kann und wir in
+            {/* Farbe und Weisston, wenn die Lampe es kann und wir in
                 einem Ablauf sind: «wenn sich die Lampe einschaltet, dann
-                bitte so». */}
-            {lichtFein &&
-            istAnschalten(action.command) &&
-            entity.commands.includes('set_color') ? (
-              <Unterfrage label="Lichtfarbe">
-                <View style={styles.farbReihe}>
-                  <Pressable
-                    onPress={() => setField(entity.id, { color: undefined })}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: !action.color }}
-                    accessibilityLabel="Farbe unverändert lassen"
-                    style={[
-                      styles.farbPunkt,
-                      styles.farbLeer,
-                      !action.color && { borderColor: colors.ink, borderWidth: 2 },
-                    ]}
-                  >
-                    <Ionicons name="close" size={13} color={colors.inkFaint} />
-                  </Pressable>
-                  {PALETTE.map((farbe) => (
-                    <Pressable
-                      key={farbe.hex}
-                      onPress={() =>
-                        setField(entity.id, {
-                          color: farbe.hex,
-                          // Farbe und Weissanteil schliessen sich aus:
-                          // Die Lampe leuchtet in einem von beidem.
-                          colorTemp: undefined,
-                        })
-                      }
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected: action.color === farbe.hex }}
-                      accessibilityLabel={farbe.name}
-                      style={[
-                        styles.farbPunkt,
-                        { backgroundColor: farbe.hex },
-                        action.color === farbe.hex && {
-                          borderColor: colors.ink,
-                          borderWidth: 2,
-                        },
-                      ]}
-                    />
-                  ))}
-                </View>
-              </Unterfrage>
-            ) : null}
+                bitte so».
 
+                Ein Raster für beides (Punkt 649): Der Weisston stand
+                hier als Liste von Wörtern und die Farbe daneben als
+                Reihe von Punkten - zwei Darstellungen für dieselbe
+                Frage. Man wählt ein Licht aber nicht nach seinem Namen,
+                sondern danach, wie es aussieht. */}
             {lichtFein &&
             istAnschalten(action.command) &&
-            entity.commands.includes('set_color_temp') ? (
-              <Unterfrage label="Weisston">
-                <Choice
-                  options={[
-                    { key: '', label: 'Weiss unverändert' },
-                    ...WEISSTOENE.map((ton) => ({
-                      key: String(ton.mirek),
-                      label: ton.label,
-                    })),
-                  ]}
-                  value={action.color ? '' : String(action.colorTemp ?? '')}
-                  onSelect={(key) =>
+            (entity.commands.includes('set_color') ||
+              entity.commands.includes('set_color_temp')) ? (
+              <Unterfrage label="Lichtfarbe">
+                <Farbraster
+                  farben={entity.commands.includes('set_color')}
+                  weiss={entity.commands.includes('set_color_temp')}
+                  mitUnveraendert
+                  wert={{ color: action.color, colorTemp: action.colorTemp }}
+                  onWahl={(wahl) =>
+                    // Farbe und Weisston schliessen sich aus: Die Lampe
+                    // leuchtet in einem von beidem. Das Raster schickt
+                    // ohnehin nur eines - hier steht das andere
+                    // ausdrücklich auf nichts, damit ein zweiter Tipp
+                    // den ersten wirklich ersetzt.
                     setField(entity.id, {
-                      colorTemp: key ? Number(key) : undefined,
-                      color: key ? undefined : action.color,
+                      color: wahl.color,
+                      colorTemp: wahl.colorTemp,
                     })
                   }
                 />

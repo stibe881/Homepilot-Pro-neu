@@ -25,9 +25,10 @@ import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-nat
 
 import { hubClient } from '../api/client';
 import { ConnectionStatus } from '../hooks/useHub';
-import { Entity, HubSettings } from '../api/types';
+import { Entity, HubSettings, Scene } from '../api/types';
 import { Abschnitt } from '../components/Abschnitt';
 import { Card } from '../components/Card';
+import { FernbedienungsSzenen } from '../components/FernbedienungsSzenen';
 import { GeraetAnlernen } from '../components/GeraetAnlernen';
 import { PsKopplung } from '../components/PsKopplung';
 import { TvKopplung } from '../components/TvKopplung';
@@ -58,6 +59,13 @@ interface Props {
   entities?: Entity[];
   /** Woran die App gerade ist - für die Ampel in der Hub-Karte. */
   stand?: ConnectionStatus;
+  /** Für die Wahl der Szenen an der Fernbedienung (Punkt 646). */
+  scenes?: Scene[];
+  /** Bis zu zwei Szenen je Gerät speichern (hub: entity_meta,
+   *  remote_scenes). Fehlt sie, steht dort keine Auswahl - dieselbe
+   *  Zurückhaltung wie bei den anderen Geräte-Einstellungen: nur wer
+   *  Geräte bearbeiten darf, bekommt den Griff überhaupt gereicht. */
+  onSetRemoteScenes?: (entityId: string, remoteScenes: string[]) => void;
 }
 
 interface Antwort {
@@ -74,6 +82,8 @@ export function VerbindungenScreen({
   darfDienste,
   entities = [],
   stand,
+  scenes = [],
+  onSetRemoteScenes,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -211,6 +221,13 @@ export function VerbindungenScreen({
                 </View>
               </View>
               <TvKopplung entity={tv} dringend={brauchtKopplung(tv)} />
+              {onSetRemoteScenes ? (
+                <FernbedienungsSzenen
+                  entity={tv}
+                  scenes={scenes}
+                  onChange={onSetRemoteScenes}
+                />
+              ) : null}
             </Card>
           ))}
         </Abschnitt>
@@ -246,6 +263,13 @@ export function VerbindungenScreen({
                 </View>
               </View>
               <PsKopplung entity={ps} dringend={brauchtKopplung(ps)} />
+              {onSetRemoteScenes ? (
+                <FernbedienungsSzenen
+                  entity={ps}
+                  scenes={scenes}
+                  onChange={onSetRemoteScenes}
+                />
+              ) : null}
             </Card>
           ))}
         </Abschnitt>

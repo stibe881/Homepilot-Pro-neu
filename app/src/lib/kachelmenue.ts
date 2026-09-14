@@ -23,6 +23,7 @@
  */
 
 export type KachelAktion =
+  | 'licht'
   | 'umbenennen'
   | 'sperren'
   | 'zaehlung'
@@ -40,6 +41,10 @@ export interface KachelEintrag {
 }
 
 const EINTRAEGE: Record<KachelAktion, KachelEintrag> = {
+  // Punkt 649: das Blatt mit dem grossen Regler und den Farbpunkten.
+  // Zuoberst, weil es als Einziges das Gerät *bedient* - alles andere
+  // hier stellt etwas an der Kachel ein.
+  licht: { id: 'licht', label: 'Licht einstellen', icon: 'color-palette-outline' },
   umbenennen: { id: 'umbenennen', label: 'Umbenennen', icon: 'pencil' },
   sperren: { id: 'sperren', label: 'Sperren', icon: 'lock-closed-outline' },
   zaehlung: { id: 'zaehlung', label: 'Oben nicht mitzählen', icon: 'eye-off-outline' },
@@ -87,6 +92,8 @@ const ZAEHLT_WIEDER: KachelEintrag = {
  * dieselbe - also gewinnt die häufigere Frage.
  */
 export function kachelAktionen(moeglich: {
+  /** Licht mit Farbe, Weisston oder Dimmer (Punkt 649). */
+  licht?: boolean;
   umbenennen?: boolean;
   /** Sperren: schaltet nur noch nach ausdrücklicher Rückfrage. */
   sperren?: boolean;
@@ -110,6 +117,7 @@ export function kachelAktionen(moeglich: {
   doppeltipp?: string | null;
 }): KachelEintrag[] {
   const eintraege: KachelEintrag[] = [];
+  if (moeglich.licht) eintraege.push(EINTRAEGE.licht);
   if (moeglich.verlauf) eintraege.push(EINTRAEGE.verlauf);
   // Gleich hinter dem Verlauf: Beides sind Fragen an das Gerät, nicht
   // Einstellungen daran.

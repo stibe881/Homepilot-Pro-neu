@@ -301,6 +301,24 @@ def test_entity_meta_rename_favorite_group():
         assert entity["name"] == "Stehlampe"
 
 
+def test_entity_meta_remote_scenes_klemmt_auf_zwei():
+    """Punkt 646: bis zu zwei Szenen an der Fernbedienung, über die Route."""
+    with make_client() as client:
+        response = client.put(
+            "/api/entities/demo.light_livingroom/meta",
+            json={"remote_scenes": ["kino", "zocken", "party"]},
+        )
+        assert response.status_code == 200
+        # Eine dritte wird verworfen, nicht die zweite ersetzt.
+        assert response.json()["entity"]["remote_scenes"] == ["kino", "zocken"]
+
+        # Leer geräumt: eine leere Liste entfernt die Auswahl wieder.
+        response = client.put(
+            "/api/entities/demo.light_livingroom/meta", json={"remote_scenes": []}
+        )
+        assert response.json()["entity"]["remote_scenes"] == []
+
+
 def test_residents_rename_too_but_guests_do_not():
     """Ein Gerätename gilt fürs ganze Haus - und genau darum für alle,
     die darin wohnen.

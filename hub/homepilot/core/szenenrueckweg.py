@@ -75,7 +75,57 @@ def zielzustand(action: dict[str, Any]) -> dict[str, Any]:
         # zusammenpassten (Punkt 644 der Werkbank).
         app = str(data.get("app") or "").strip()
         return {"app_id": app} if app else {}
+    if command == "activate":
+        # Eine Szene der Bridge (hue.py, demo.py) - sie meldet sich nach
+        # dem Aufruf mit `state: "active"`, ohne dass ein zweiter Befehl
+        # das noch bestätigen müsste (Punkt 650 der Werkbank). Bestand
+        # eine Szene nur aus solchen Bridge-Aufrufen und Befehlen, die
+        # sich bereits erledigt hatten (z.B. Geräte, die schon ausgeschaltet
+        # waren), blieb `ist_aktiv` immer False - derselbe Fehler, der bei
+        # `launch_app` steckte, nur an einer anderen Aktion.
+        return {"state": "active"}
     return {}
+
+
+#: Zustände, die eine Box nach «pause» genauso gültig zeigen darf wie
+#: «paused» selbst: Sie hat schlicht nichts abgespielt, das Pausieren
+#: war ein Leerlauf (integrations/google_cast.py, handle_command - eine
+#: Box ohne laufende Wiedergabe hat nichts anzuhalten, und meldet
+#: weiterhin idle oder standby, nie «paused»). Ohne diese Gleichsetzung
+#: galt eine Szene, die eine ruhige Box «pausiert», nie als noch aktiv,
+#: und ihr Rückweg hätte eine nie spielende Box fälschlich «angehalten»
+#: - der gemeldete Fall «Kino» (Punkt 650 der Werkbank).
+PAUSIERT_GLEICHWERTIG = frozenset({"paused", "idle", "standby"})
+
+
+#: Eine Cast-Box kennt kein «aus» im Sinn von state="off". `turn_off`
+#: setzt den Zustand optimistisch direkt auf "idle" (google_cast.py,
+#: handle_command - ohne Umweg über cast_state_name), und ein später
+#: eintreffender echter Bericht meldet je nach Gerät "idle" oder
+#: "standby" (Lautsprecher ohne Bildschirm kennen keinen Standby-Sinn -
+#: `cast_state_name` liest ihn nur aus HDMI-CEC-Feldern, die ein reiner
+#: Lautsprecher gar nicht führt). Ohne diese Gleichsetzung scheiterte
+#: szene_gilt_noch an genau diesem einen Gerät, selbst wenn alles
+#: andere an der Szene noch stimmte - der gemeldete Fall
+#: «Zocken / Kino», dessen einzige zwei Aktionen ein google_cast-
+#: turn_off und ein hue-activate sind (Punkt 653 der Werkbank).
+AUS_GLEICHWERTIG = frozenset({"off", "standby", "idle"})
+
+
+def _stimmt_ueberein(feld: str, wert: Any, ist: Any) -> bool:
+    """Ob ein einzelnes Feld zum Sollwert passt (rein, testbar).
+
+    Eigene Funktion statt eines blossen Stringvergleichs, weil «pause»
+    und «aus» je eine Ausnahme brauchen (siehe PAUSIERT_GLEICHWERTIG und
+    AUS_GLEICHWERTIG) - dieselbe Regel gilt fürs Prüfen (szene_gilt_noch)
+    und fürs Rückgängigmachen (hat_sich_geaendert), sonst widersprächen
+    sich beide.
+    """
+    if feld == "state" and wert == "paused":
+        return str(ist or "").strip().lower() in PAUSIERT_GLEICHWERTIG
+    if feld == "state" and wert == "off":
+        return str(ist or "").strip().lower() in AUS_GLEICHWERTIG
+    return str(ist or "") == str(wert)
 
 
 def hat_sich_geaendert(vorher: dict[str, Any], ziel: dict[str, Any]) -> bool:
@@ -99,7 +149,7 @@ def hat_sich_geaendert(vorher: dict[str, Any], ziel: dict[str, Any]) -> bool:
             if alt_zahl is None or alt_zahl != wert:
                 return True
             continue
-        if str(alt or "") != str(wert):
+        if not _stimmt_ueberein(feld, wert, alt):
             return True
     return False
 
@@ -144,7 +194,10 @@ def rueckbefehl(
             return {"command": "launch_app", "data": {"app": app_id}}
         if zustand == "playing" and "play" in commands:
             return {"command": "play"}
-        if zustand in ("paused", "idle") and "pause" in commands:
+        # Punkt 650: «standby» gehört zu derselben Gruppe wie «idle» -
+        # eine Box ohne Wiedergabe, egal ob sie das als Leerlauf oder als
+        # Bildschirmschoner meldet (google_cast.py, cast_state).
+        if zustand in PAUSIERT_GLEICHWERTIG and "pause" in commands:
             return {"command": "pause"}
         if zustand == "on" and "turn_on" in commands:
             return {"command": "turn_on"}
@@ -237,7 +290,7 @@ def szene_gilt_noch(
                 # auf dem Wert zum Stehen.
                 if ist is None or abs(ist - wert) > 2:
                     return False
-            elif str(zustand.get(feld) or "") != str(wert):
+            elif not _stimmt_ueberein(feld, wert, zustand.get(feld)):
                 return False
     return geprueft > 0
 

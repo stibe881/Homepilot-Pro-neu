@@ -58,6 +58,32 @@ class EntityKind:
     TIMER = "timer"
 
 
+#: Höchstens so viele Szenen unten an der Fernbedienung (Punkt 646) -
+#: zwei, damit der Filmabend und das Zocken beide Platz haben, ohne
+#: dass die Reihe zu einer zweiten Geräteliste wird.
+REMOTE_SCENES_MAX = 2
+
+
+def remote_scenes_lesen(wert: Any) -> list[str]:
+    """Bis zu zwei Szenen-Kennungen für die Fernbedienung (rein, testbar).
+
+    Nur Zeichenketten, ohne Duplikate, nie mehr als ``REMOTE_SCENES_MAX``.
+    Geklemmt wird hier und nicht erst in der App: Wer die Route von Hand
+    aufruft, soll trotzdem nicht mehr als zwei bekommen - eine dritte
+    angegebene Kennung wird stillschweigend verworfen.
+    """
+    if not isinstance(wert, list):
+        return []
+    ergebnis: list[str] = []
+    for eintrag in wert:
+        kennung = str(eintrag or "").strip()
+        if kennung and kennung not in ergebnis:
+            ergebnis.append(kennung)
+        if len(ergebnis) >= REMOTE_SCENES_MAX:
+            break
+    return ergebnis
+
+
 @dataclass
 class Entity:
     id: str  # "<integration>.<object_id>"
@@ -158,6 +184,14 @@ class Entity:
     # Geräte zu finden. Bedienen lässt er sich dort weiterhin einzeln –
     # zum Ausrichten beim Einbau braucht man das.
     combined_into: str | None = None
+    # Bis zu zwei Szenen, die unten an der Fernbedienung stehen (Punkt
+    # 646) - für Fernseher und Spielkonsole, die eine haben
+    # (has_screen). Ohne Auswahl bleibt es beim alten Verhalten: die
+    # Szene «Kino», wenn es genau eine mit diesem Namen gibt
+    # (app/src/lib/kinoszene.ts). Wer eine eigene Auswahl trifft (Geräte
+    # → Verbindungen), sieht die - der Filmabend beginnt oft anders als
+    # das Zocken, und beide sollen einen eigenen Griff haben.
+    remote_scenes: list[str] = field(default_factory=list)
     # Zeitpunkt (Epoch-Sekunden), zu dem das Gerät zuletzt erreichbar war –
     # für «zuletzt gesehen vor …» bei offline-Geräten.
     last_seen: float | None = None
@@ -207,6 +241,7 @@ class Entity:
             "contact_kind": self.contact_kind,
             "battery_type": self.battery_type,
             "combined_into": self.combined_into,
+            "remote_scenes": list(self.remote_scenes),
             "last_seen": self.last_seen,
             "last_change": self.last_change,
             "last_source": dict(self.last_source) if self.last_source else None,
