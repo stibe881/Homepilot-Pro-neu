@@ -8509,3 +8509,20 @@ die Funktion mit dem heutigen Wochentag; beide Aufrufstellen sind
 dieselben zwei, an denen die Verzögerung bisher direkt gelesen wurde.
 
 Stellen: `hub/homepilot/integrations/alarm_rules.py`, `hub/homepilot/integrations/alarm.py`, `hub/tests/test_alarm_verzoegerung.py`
+
+### 687. Gesamtwert-Kachel für Gutscheine auf der Übersicht ✓ erledigt (ccbc762)
+
+«Noch 340 CHF in Gutscheinen offen» sah bisher nur, wer das
+Familienmodul öffnete - die Rechnung dazu lag mit `summe()`, `summen()`
+und `summenText()` bereits fertig und getestet in `lib/gutscheine.ts`,
+nur ohne eine einzige Stelle, die sie je aufrief.
+
+`hooks/useGutscheinSumme.ts` holt `/api/family/vouchers` jetzt schlank
+für sich (Fünf-Minuten-Takt, kein Websocket-Abo) - bewusst nicht über
+die grössere Ablage der Familienseite (`screens/family/ablage.ts`),
+die für eine bearbeitbare Liste mit Warteschlange und Zwischenspeicher
+gebaut ist und für eine einzelne Zahl zu viel wäre. `OverviewScreen`
+zeigt die Karte nur, wenn `summenText` etwas liefert - keine Karte über
+nichts.
+
+Stellen: `app/src/hooks/useGutscheinSumme.ts`, `app/src/screens/OverviewScreen.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/lib/gutscheine.ts`
