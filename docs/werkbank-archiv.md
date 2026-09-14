@@ -8570,3 +8570,27 @@ Beide Aufrufstellen in `watchdog.py` geben jetzt `self._guarded()` mit
 Batterie-Push übereinstimmt.
 
 Stellen: `hub/homepilot/core/watchrules.py`, `hub/homepilot/core/watchdog.py`, `hub/tests/test_watchdog.py`
+
+### 712. Testmodus für neue Push-Kategorien ✓ erledigt (4768954)
+
+`core/pushbeispiel.py` beantwortet «wie sieht diese Meldung aus» und
+«kommt sie bei mir durch», nicht «bekommt heute noch niemand ausser mir
+sie» - eine neue Kategorie ging beim ersten Lauf gleich ans ganze Haus,
+mit allem, was noch niemand ausprobiert hatte.
+
+`PushService.recipients()` - schon die eine Stelle, an der Abbestellung,
+Ruhezeit und Stillstellen geprüft werden - prüft jetzt zusätzlich
+`test_kategorien` (Kategorie → einzige Empfängerin). Steht eine
+Kategorie darin, gilt `to` nicht mehr: Auch eine ausdrückliche Anfrage
+an «all» oder eine Gruppe erreicht nur die hinterlegte Person.
+
+Gespeichert fürs Haus wie die Dringlichkeits-Stufen (`push_test` in
+`hub.data`, `test_lesen`/`test_setzen` analog zu `stufen_lesen`/
+`stufen_setzen`). Die neue Route `PUT /api/push/testmodus` (nur mit
+`EDIT_CONFIG`) schaltet je Kategorie ein und aus - wer die einzige
+Empfängerin wird, ist dabei immer die anfragende Person selbst, aus dem
+Token statt aus dem Anfrage-Körper, damit niemand jemand anderen zur
+Testperson macht. `GET /api/push/categories` zeigt `testmodus_fuer` je
+Kategorie, für einen Knopf in der App.
+
+Stellen: `hub/homepilot/core/push.py`, `hub/homepilot/core/hub.py`, `hub/homepilot/api/routes/push.py`, `hub/homepilot/api/models.py`, `hub/tests/test_push_testmodus.py`

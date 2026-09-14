@@ -24,7 +24,7 @@ vorkommt, prüft `scripts/werkbank.py` (und mit ihr der Prüflauf).
 | Gestaltung | 13 | 441, 446, 447, 449, 450, 678, 679, 680, 682, 683, 684, 685, 686 |
 | Gutscheine | 11 | 453, 458, 688, 689, 690, 691, 692, 693, 694, 695, 696 |
 | Abläufe | 12 | 468, 469, 697, 698, 699, 700, 701, 702, 703, 704, 705, 706 |
-| Push-Benachrichtigungen | 13 | 473, 474, 476, 707, 708, 709, 710, 711, 712, 713, 714, 715, 716 |
+| Push-Benachrichtigungen | 12 | 473, 474, 476, 707, 708, 709, 710, 711, 713, 714, 715, 716 |
 | Alarmanlage | 8 | 483, 717, 718, 719, 720, 721, 723, 725 |
 | Selbst gewählt | 22 | 492, 493, 494, 496, 499, 500, 501, 502, 726, 727, 728, 729, 730, 731, 732, 733, 734, 735, 736, 737, 738, 739 |
 | Aus früheren Runden | 4 | 223, 237, 268, 353 |
@@ -469,9 +469,9 @@ Runde 421-505. Vier davon standen beim Gegenprüfen schon im Code und
 fehlen darum hier bewusst: die «Was ist neu»-Anzeige nach einem Update
 (`components/WhatsNew.tsx`), «Bewegung reduzieren»
 (`hooks/useBewegungReduziert.ts`), die gestaffelte Alarm-Eskalation
-(Punkt 255) und die Wartungserinnerungen (`core/maintenance.py`). Sechs
-weitere - 670, 674, 681, 687, 722 und 724 - sind inzwischen gebaut und
-stehen im Archiv.
+(Punkt 255) und die Wartungserinnerungen (`core/maintenance.py`). Sieben
+weitere - 670, 674, 681, 687, 712, 722 und 724 - sind inzwischen gebaut
+und stehen im Archiv.
 
 Kurz gehalten, damit die Liste lesbar bleibt (Punkt 505) - die
 ausführliche Abwägung je Punkt, falls es sie gab, steht dann im Archiv.
@@ -694,10 +694,6 @@ Arbeit») statt fixer Ruhezeiten je Wochentag. Aufwand: mittel · Hub.
 **711. Diskrete Sperrbildschirm-Vorschau je Kategorie** («Neue
 Meldung» statt Klartext) für sensible Inhalte, z. B. mit Kamerabild
 (Punkt 618). Aufwand: mittel · App+Hub.
-
-**712. Testmodus für neue Push-Kategorien** - erst nur an sich selbst,
-bevor sie fürs Haus aktiv wird. Prüfen, ob `core/pushbeispiel.py` das
-schon kann. Aufwand: klein · Hub.
 
 **713. Zustellstatistik je Kategorie** (Erfolgsquote 30 Tage) aus
 `core/pushgeraet.py`, um tote Token früh zu erkennen. Aufwand: mittel ·
