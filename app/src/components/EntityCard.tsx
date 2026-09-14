@@ -496,9 +496,15 @@ export function EntityCard({
         // Die Farbreihe steht auch bei ausgeschaltetem Licht da: Ein Tipp
         // darauf schaltet ein und stellt die Farbe in einem Zug – so
         // gedacht ist es beim Sternenprojektor am Abend.
-        const farben = entity.commands.includes('set_color') ? (
-          <ColorRow entity={entity} onCommand={onCommand} />
-        ) : null;
+        // Farbe *und* Weisston (Punkt 648): Eine Hue-Lampe kann oft nur
+        // den Weisston, eine Zigbee-Lampe beides. Was die Lampe nicht
+        // kann, steht nicht da - die Reihe entscheidet das selbst
+        // (lib/lichtwahl.ts) und fehlt ganz, wenn nichts davon geht.
+        const farben =
+          entity.commands.includes('set_color') ||
+          entity.commands.includes('set_color_temp') ? (
+            <ColorRow entity={entity} onCommand={onCommand} />
+          ) : null;
         const dimmbar = entity.commands.includes('set_brightness');
         // Während des Streichens gilt der Wert unter dem Finger: Sonst
         // zieht man ins Blinde, bis der Hub geantwortet hat.

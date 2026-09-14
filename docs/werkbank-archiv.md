@@ -8036,3 +8036,45 @@ liest Titel und Symbol längst aus der App-Gruppe, die Laufzeit bleibt
 bei 8.
 
 Stellen: `app/src/lib/widgetstil.ts`, `app/src/lib/widgetstil.test.ts`, `app/src/components/Widgets.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/hooks/usePrefs.ts`
+
+### 648. Farbe und Weisston liessen sich auf der Kachel nicht einstellen ✓ erledigt
+
+Aus dem Haus, mit Bild der Büro-Kacheln: «Man kann bei den Lichtern die
+Farbe und die Weissheit nicht einstellen in den Kacheln. Es soll aber
+auch nur da gehen, wo die Lampen dies unterstützen.»
+
+Drei Gründe lagen übereinander, und jeder allein hätte gereicht:
+
+**Die Hue-Anbindung konnte gar keine Farbe.** Sie las `color_temperature`
+aus der Bridge und sonst nichts - kein `set_color` in den Befehlen,
+keine Farbe im Zustand. Die Bridge nimmt auch kein Hex entgegen, sondern
+einen Farbort in CIE xy; die Umrechnung fehlte. Sie steht jetzt in
+`core/farbraum.py` (und dort, nicht in `hue.py`, weil xy nicht Hue
+gehört - es ist der Farbraum jeder Zigbee-Lampe darunter). Was die
+Bridge über das Gamut der einzelnen Lampe weiss, bleibt ihre Sache: Sie
+rechnet einen Punkt ausserhalb selbst auf den nächsten erreichbaren, und
+das ein zweites Mal zu tun hiesse, mit einer Tabelle zu rechnen, die
+veraltet, sobald eine neue Lampe dazukommt.
+
+**Die Kachel kannte keine Weisstöne.** Die Farbreihe erschien nur bei
+`set_color`; `set_color_temp` kam darin gar nicht vor. Jetzt stehen die
+drei Weisstöne in derselben Reihe, vor den Farben und durch einen Strich
+getrennt: Es ist dieselbe Frage - in welchem Licht soll es leuchten -,
+und die häufigste Antwort ist warmweiss. Was die Lampe nicht kann, steht
+nicht da, und kann sie weder das eine noch das andere, fehlt die Reihe
+ganz.
+
+**Eine Leuchte aus mehreren Lampen gab beides nicht weiter.**
+`combined_state` reichte Zustand und Helligkeit durch, Farbe und
+Weisston nicht - an der Leuchte «Büro» wäre also nie ein Punkt markiert
+gewesen, auch nach dem Umstellen. Jetzt zeigt sie beides, aber nur, wenn
+sich die eingeschalteten Mitglieder einig sind: Fünf Spots in fünf Farben
+haben keine gemeinsame Farbe, und dann bleibt der Punkt aus.
+
+Dazu die Frage, welcher der beiden Werte gerade gilt: Eine Lampe führt
+Farbe *und* letzten Weisston im Zustand, leuchtet aber nur in einem von
+beiden. Die Bridge sagt es (`mirek_valid`), der Hub gibt es als
+`color_mode` weiter, und die App markiert danach - sonst stünde in der
+Farbreihe und bei den Weisstönen je ein Punkt, obwohl nur einer brennt.
+
+Stellen: `hub/homepilot/core/farbraum.py`, `hub/homepilot/integrations/hue.py`, `hub/homepilot/integrations/group.py`, `hub/tests/test_hue_farbe.py`, `hub/tests/test_lightgroups.py`, `app/src/lib/lichtwahl.ts`, `app/src/lib/lichtwahl.test.ts`, `app/src/components/ColorRow.tsx`, `app/src/components/EntityCard.tsx`

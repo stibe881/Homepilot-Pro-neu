@@ -2,16 +2,29 @@ import React, { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { CommandData, Entity } from '../api/types';
+import {
+  WEISSKNOEPFE,
+  aktiverWeisston,
+  kannFarbe,
+  kannWeiss,
+  zeigtFarbe,
+} from '../lib/lichtwahl';
 import { Colors, useColors } from '../theme';
 
 /**
- * Farbwahl auf der Kachel – eine Reihe Punkte, kein Farbkreis.
+ * Farb- und Weisswahl auf der Kachel – eine Reihe Punkte, kein Farbkreis.
  *
  * Ein Farbkreis sieht mächtiger aus und ist im Alltag unbrauchbar: Man
  * trifft mit dem Daumen nie zweimal dasselbe Orange, und «gestern war es
  * schöner» lässt sich nicht wiederherstellen. Eine feste Reihe ist
  * dagegen wiederholbar – und beim Sternenprojektor im Kinderzimmer ist
  * genau das die Frage: dasselbe Blau wie gestern.
+ *
+ * In derselben Reihe stehen die Weisstöne, und zwar zuerst (Punkt 648):
+ * Es ist dieselbe Frage - in welchem Licht soll es leuchten -, und die
+ * häufigste Antwort ist warmweiss. Was die Lampe nicht kann, steht auch
+ * nicht da; kann sie beides nicht, fehlt die Reihe ganz. Welche der
+ * beiden Hälften gerade leuchtet, entscheidet lib/lichtwahl.ts.
  */
 
 export interface Farbe {
@@ -82,7 +95,17 @@ export function ColorRow({
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const aktiv = gewaehlteFarbe(entity.state.color);
+  const aktiv = zeigtFarbe(entity) ? gewaehlteFarbe(entity.state.color) : null;
+  const weiss = aktiverWeisston(entity);
+  const mitFarbe = kannFarbe(entity);
+  const mitWeiss = kannWeiss(entity);
+  const wortDarunter = weiss
+    ? (WEISSKNOEPFE.find((ton) => ton.mirek === weiss)?.label ?? null)
+    : aktiv
+      ? (PALETTE.find((farbe) => farbe.hex === aktiv)?.name ?? null)
+      : null;
+
+  if (!mitFarbe && !mitWeiss) return null;
 
   return (
     <View style={styles.box}>
@@ -91,7 +114,29 @@ export function ColorRow({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.reihe}
       >
-        {PALETTE.map((farbe) => (
+        {mitWeiss
+          ? WEISSKNOEPFE.map((ton) => (
+              <Pressable
+                key={ton.mirek}
+                onPress={() => onCommand('set_color_temp', { color_temp: ton.mirek })}
+                accessibilityRole="button"
+                accessibilityLabel={ton.label}
+                accessibilityState={{ selected: weiss === ton.mirek }}
+                hitSlop={4}
+                style={({ pressed }) => [
+                  styles.punkt,
+                  { backgroundColor: ton.hex },
+                  weiss === ton.mirek && { borderColor: colors.ink, borderWidth: 2 },
+                  pressed && { opacity: 0.7 },
+                ]}
+              />
+            ))
+          : null}
+        {/* Ein Strich zwischen Weiss und Bunt: Die drei Weisstöne
+            unterscheiden sich von Auge kaum, und ohne Trenner sähen sie
+            aus wie drei blasse Farben. */}
+        {mitWeiss && mitFarbe ? <View style={styles.trenner} /> : null}
+        {(mitFarbe ? PALETTE : []).map((farbe) => (
           <Pressable
             key={farbe.hex}
             onPress={() => onCommand('set_color', { color: farbe.hex })}
@@ -108,11 +153,7 @@ export function ColorRow({
           />
         ))}
       </ScrollView>
-      {aktiv ? (
-        <Text style={styles.hint}>
-          {PALETTE.find((farbe) => farbe.hex === aktiv)?.name}
-        </Text>
-      ) : null}
+      {wortDarunter ? <Text style={styles.hint}>{wortDarunter}</Text> : null}
     </View>
   );
 }
@@ -129,4 +170,10 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     hint: { color: colors.inkFaint, fontSize: 12 },
+    trenner: {
+      width: 1,
+      alignSelf: 'stretch',
+      marginHorizontal: 2,
+      backgroundColor: colors.surfaceBorder,
+    },
   });
