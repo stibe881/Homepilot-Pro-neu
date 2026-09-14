@@ -501,7 +501,10 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: 2,
-      paddingVertical: 4,
+      // Sechs statt vier: Mit vier mass die Fläche 23 Punkte und lag
+      // damit unter der harten Grenze der WCAG (24). Die Browser-Probe
+      // hat es gemessen - von Auge sieht man den Unterschied nicht.
+      paddingVertical: 6,
       flexShrink: 1,
       minWidth: 0,
     },

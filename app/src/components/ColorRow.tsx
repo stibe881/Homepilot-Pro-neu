@@ -122,7 +122,7 @@ export function ColorRow({
                 accessibilityRole="button"
                 accessibilityLabel={ton.label}
                 accessibilityState={{ selected: weiss === ton.mirek }}
-                hitSlop={4}
+                hitSlop={9}
                 style={({ pressed }) => [
                   styles.punkt,
                   { backgroundColor: ton.hex },
@@ -143,7 +143,7 @@ export function ColorRow({
             accessibilityRole="button"
             accessibilityLabel={farbe.name}
             accessibilityState={{ selected: aktiv === farbe.hex }}
-            hitSlop={4}
+            hitSlop={9}
             style={({ pressed }) => [
               styles.punkt,
               { backgroundColor: farbe.hex },
