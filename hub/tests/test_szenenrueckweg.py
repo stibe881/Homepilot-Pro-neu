@@ -247,3 +247,33 @@ def test_eine_nie_spielende_box_gilt_nach_pause_trotzdem_als_ruhig() -> None:
     assert hat_sich_geaendert({"state": "playing"}, zielzustand(actions[0])) is True
     # Rückweg aus «standby»: dieselbe Gruppe wie «idle», derselbe Befehl.
     assert rueckbefehl("media_player", ["pause"], {"state": "standby"}) == {"command": "pause"}
+
+
+def test_eine_cast_box_meldet_nach_turn_off_standby_nicht_aus() -> None:
+    """Der dritte Teil des gemeldeten Falls «Zocken / Kino» (Punkt 653).
+
+    `test_eine_bridge_szene_gilt_nach_dem_aufruf_als_aktiv` liess die
+    Cast-Box nach `turn_off` `state: "off"` melden - das kommt bei einer
+    echten Box nie vor. Sie kennt kein «aus», nur den Standby
+    (integrations/google_cast.py, cast_state_name). `zielzustand`
+    erwartet nach `turn_off` aber genau `"off"` - ohne Gleichsetzung
+    scheiterte szene_gilt_noch an diesem einen Feld, selbst wenn die
+    Hue-Szene (Punkt 650) längst als aktiv galt.
+    """
+    actions = [
+        {"entity_id": "cast.wohnzimmer", "command": "turn_off"},
+        {"entity_id": "hue.szene_kino", "command": "activate"},
+    ]
+    stand = {
+        "cast.wohnzimmer": geraet("media_player", ["turn_off"], {"state": "standby"}),
+        "hue.szene_kino": geraet("scene", ["activate"], {"state": "active"}),
+    }
+    assert szene_gilt_noch(actions, stand) is True
+    # Lief die Box noch, hat die Szene sie nicht (mehr) im Griff.
+    stand["cast.wohnzimmer"]["state"]["state"] = "playing"
+    assert szene_gilt_noch(actions, stand) is False
+
+    # War sie schon vor der Szene im Standby, hat «turn_off» nichts
+    # geändert - nichts zum Zurücknehmen.
+    assert hat_sich_geaendert({"state": "standby"}, zielzustand(actions[0])) is False
+    assert hat_sich_geaendert({"state": "playing"}, zielzustand(actions[0])) is True

@@ -98,16 +98,30 @@ def zielzustand(action: dict[str, Any]) -> dict[str, Any]:
 PAUSIERT_GLEICHWERTIG = frozenset({"paused", "idle", "standby"})
 
 
+#: Eine Cast-Box kennt kein «aus» im Sinn von state="off" - sie geht in
+#: den Standby (integrations/google_cast.py, cast_state_name: nach dem
+#: Ausschalten meldet sie "standby", nie "off"). Ohne diese
+#: Gleichsetzung scheiterte szene_gilt_noch an genau diesem einen
+#: Gerät, selbst wenn alles andere an der Szene noch stimmte - der
+#: gemeldete Fall «Zocken / Kino», dessen einzige zwei Aktionen ein
+#: google_cast-turn_off und ein hue-activate sind (Punkt 653 der
+#: Werkbank).
+AUS_GLEICHWERTIG = frozenset({"off", "standby"})
+
+
 def _stimmt_ueberein(feld: str, wert: Any, ist: Any) -> bool:
     """Ob ein einzelnes Feld zum Sollwert passt (rein, testbar).
 
     Eigene Funktion statt eines blossen Stringvergleichs, weil «pause»
-    eine Ausnahme braucht (siehe PAUSIERT_GLEICHWERTIG) - dieselbe Regel
-    gilt fürs Prüfen (szene_gilt_noch) und fürs Rückgängigmachen
-    (hat_sich_geaendert), sonst widersprächen sich beide.
+    und «aus» je eine Ausnahme brauchen (siehe PAUSIERT_GLEICHWERTIG und
+    AUS_GLEICHWERTIG) - dieselbe Regel gilt fürs Prüfen (szene_gilt_noch)
+    und fürs Rückgängigmachen (hat_sich_geaendert), sonst widersprächen
+    sich beide.
     """
     if feld == "state" and wert == "paused":
         return str(ist or "").strip().lower() in PAUSIERT_GLEICHWERTIG
+    if feld == "state" and wert == "off":
+        return str(ist or "").strip().lower() in AUS_GLEICHWERTIG
     return str(ist or "") == str(wert)
 
 

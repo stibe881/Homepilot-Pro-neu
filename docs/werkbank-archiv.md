@@ -8235,3 +8235,29 @@ Stellen: `app/src/screens/automations/entwurf.ts`,
 `app/src/screens/automations/schritte.tsx`,
 `app/src/screens/automations/vorlagen.ts`, `scripts/probe.mjs`, dazu die
 Tests in `entwurf.test.ts` und `vorlagen.test.ts`
+
+### 653. «Zocken / Kino» blieb trotz Punkt 650 immer noch nie aktiv ✓ erledigt
+
+Punkt 650 war nach dem Deployen nachweislich im Haus angekommen
+(`HOMEPILOT_COMMIT` geprüft), und trotzdem zeigte «Zocken / Kino»
+weiterhin nie «aktiv». Der Grund lag einen Schritt tiefer, in derselben
+Szene, aber am anderen der beiden Schritte: Punkt 650 reparierte
+`hue: activate` - der zweite Schritt, `google_cast: turn_off`, hatte
+denselben Fehler wie `pause` in Punkt 650, nur bei `turn_off` gegen ein
+Gerät, das kein «aus» kennt.
+
+`zielzustand("turn_off")` verlangt `state == "off"`. Eine Cast-Box
+meldet nach dem Ausschalten aber nie `"off"` - sie kennt nur den
+Standby (`integrations/google_cast.py`, `cast_state_name`). Der
+bestehende Test für diesen Fall (`test_eine_bridge_szene_gilt_
+nach_dem_aufruf_als_aktiv`, Punkt 650) liess die Cast-Box testweise
+`state: "off"` melden - ein Zustand, den eine echte Box nie erreicht,
+und der die Lücke deshalb verdeckte, statt sie zu zeigen.
+
+Reparatur wie bei Punkt 650: eine neue Gruppe `AUS_GLEICHWERTIG`
+(`off`, `standby`) gilt in `_stimmt_ueberein` als gleichwertig - sowohl
+beim Prüfen (`szene_gilt_noch`) als auch beim Zurücknehmen
+(`hat_sich_geaendert`). Eine Box, die schon im Standby war, bleibt beim
+Rückweg weiterhin unangetastet.
+
+Stellen: `hub/homepilot/core/szenenrueckweg.py`, `hub/tests/test_szenenrueckweg.py`
