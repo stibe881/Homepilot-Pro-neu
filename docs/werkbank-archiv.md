@@ -8696,3 +8696,22 @@ prüft jetzt zuerst diesen Weg - reagiert also schon auf
 die bisherige Prüfung übers ganze Formular zurück.
 
 Stellen: `app/src/lib/gutscheine.ts`, `app/src/lib/gutscheine.test.ts`, `app/src/screens/family/gutscheine.tsx`
+
+### 676. Info-Symbol bei automatischen Vorschlägen ✓ erledigt (2c0cc29)
+
+`hinweisGelernt()` in `lib/kachellernen.ts` lieferte den Satz «Abend:
+nach deiner Gewohnheit» schon länger und war auch getestet - nur zeigte
+ihn keine Stelle im Bild. Wer die Kacheln anders sortiert vorfand als
+sonst (`nachGewohnheit()`, ab drei Griffen in derselben Tageszeit),
+hatte keine Auskunft, ob das Absicht oder Zufall war.
+
+Der Hinweis erscheint jetzt als kleine Zeile mit Info-Symbol über der
+Kachelliste - aber nur, wenn `gelernt()` für den aktuellen
+Tagesabschnitt wirklich etwas liefert, nicht schon bei der blossen
+Tageszeit-Sortierung ohne gelernte Reihenfolge, und nur in der Ansicht,
+die `rest` (die nach Gewohnheit sortierte Liste) tatsächlich zeigt -
+in der nach Zimmer gruppierten oder nach Art kategorisierten Ansicht
+bliebe der Hinweis eine falsche Auskunft, weil dort eine andere
+Reihenfolge gilt.
+
+Stellen: `app/src/screens/DashboardScreen.tsx`, `app/src/screens/dashboard/stile.ts`
