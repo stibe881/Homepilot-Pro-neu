@@ -8738,3 +8738,29 @@ jetzt die verstreuten Ternaries an allen gefundenen Stellen, sichtbarer
 Text wie Bedienungshilfe-Text gehen durch dieselbe Funktion.
 
 Stellen: `app/src/lib/bestaetigung.ts`, `app/src/lib/bestaetigung.test.ts`, `app/src/screens/PersonenScreen.tsx`, `app/src/components/ClipArchiv.tsx`, `app/src/screens/OverviewScreen.tsx`, `app/src/screens/SettingsScreen.tsx`, `app/src/screens/family/bausteine.tsx`, `app/src/components/VacuumHome.tsx`, `app/src/components/entity/koerper.tsx`, `app/src/screens/dashboard/Grillvollbild.tsx`
+
+### 667. Wöchentlicher Gesundheitscheck-Bericht des Hubs ✓ erledigt (e6fe45b)
+
+`core/metrics.py` kennt Speicher, Prozessorzeit und Zähler schon
+länger, aber nur auf Zuruf über `homepilot.status` - wer nicht gerade
+einen Verdacht hat, sieht die Zahlen nie. Ein langsam wachsender
+Speicherverbrauch fiel damit erst auf, wenn der Rechner schon stockte.
+
+Die neue, reine Regel `core/wochenbericht.py` (getestet) liefert Titel
+und Text einer Zusammenfassung, die anders als die
+Morgen-Zusammenfassung (`core/morgen.py`) *immer* kommt, nicht nur bei
+etwas Auffälligem: Laufzeit seit dem letzten Neustart, Speicher,
+Datenträgerbelegung, Befehle und Abläufe pro Stunde, dazu ausgefallene
+Integrationen, falls welche stehen.
+
+`Watchdog._check_wochenbericht` schickt sie montags zur einstellbaren
+Stunde - als Regel «weekly_report» in `core/notifyrules.py`, wie jede
+andere Push-Kategorie ab- und einstellbar über die schon bestehende,
+generische Oberfläche in `components/PushRules.tsx`. Dafür war keine
+App-Änderung nötig: Ziel, Beispieltext und Gruppierung stehen wie bei
+jeder Kategorie in `core/pushziel.py`, `core/pushbeispiel.py` und
+`core/push.py`, und die bestehenden Konsistenz-Tests
+(`test_pushtexte.py`, `test_pushziel.py`) halten von selbst fest, dass
+keine Stelle vergessen ging.
+
+Stellen: `hub/homepilot/core/wochenbericht.py`, `hub/tests/test_wochenbericht.py`, `hub/homepilot/core/watchdog.py`, `hub/homepilot/core/notifyrules.py`, `hub/homepilot/core/push.py`, `hub/homepilot/core/pushziel.py`, `hub/homepilot/core/pushbeispiel.py`

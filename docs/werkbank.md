@@ -18,7 +18,7 @@ vorkommt, prüft `scripts/werkbank.py` (und mit ihr der Prüflauf).
 
 | Bereich | Offen | Punkte |
 | --- | --- | --- |
-| App allgemein | 14 | 422, 424, 425, 427, 428, 429, 659, 660, 661, 662, 663, 664, 665, 667 |
+| App allgemein | 13 | 422, 424, 425, 427, 428, 429, 659, 660, 661, 662, 663, 664, 665 |
 | Bedienung | 10 | 431, 432, 433, 434, 435, 436, 437, 438, 439, 440 |
 | User Experience | 5 | 668, 669, 671, 673, 675 |
 | Gestaltung | 11 | 441, 446, 447, 449, 450, 679, 680, 682, 683, 685, 686 |
@@ -470,8 +470,8 @@ fehlen darum hier bewusst: die «Was ist neu»-Anzeige nach einem Update
 (`components/WhatsNew.tsx`), «Bewegung reduzieren»
 (`hooks/useBewegungReduziert.ts`), die gestaffelte Alarm-Eskalation
 (Punkt 255) und die Wartungserinnerungen (`core/maintenance.py`).
-Vierzehn weitere - 666, 670, 672, 674, 676, 677, 681, 684, 687, 695, 712,
-720, 722 und 724 - sind inzwischen gebaut und stehen im Archiv. Zwei weitere - 693 und 734, das
+Fünfzehn weitere - 666, 667, 670, 672, 674, 676, 677, 681, 684, 687, 695,
+712, 720, 722 und 724 - sind inzwischen gebaut und stehen im Archiv. Zwei weitere - 693 und 734, das
 Haushaltsbudget-Modul und die davon abhängige Verknüpfung mit den
 Gutscheinen - sind auf Wunsch gestrichen; die Nummern bleiben frei.
 Drei weitere - 690, 700 und 704 - waren beim genaueren Hinsehen schon
@@ -526,11 +526,6 @@ Commit. Aufwand: gross · App (nativ).
 **665. Sandbox-Testmodus für neue Mitglieder.** Babysitter & Co.
 schalten testweise, ohne dass der Befehl die Integration erreicht -
 ergänzt den bestehenden `core/babysitter.py`. Aufwand: mittel · Hub.
-
-**667. Wöchentlicher Gesundheitscheck-Bericht des Hubs.**
-`core/metrics.py` kennt die Zahlen, aber nur auf Zuruf - ein
-automatischer Wochenbericht (Speicher, Verbindungsfehler) macht daraus
-eine Gewohnheit. Aufwand: mittel · Hub.
 
 ### User Experience (668-677)
 
