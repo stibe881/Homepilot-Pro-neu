@@ -8811,3 +8811,25 @@ davon, wer schaltet, und ist damit ein anderer Mechanismus für einen
 verwandten Abend.
 
 Stellen: `hub/homepilot/core/users.py`, `hub/homepilot/api/models.py`, `hub/homepilot/api/routes/users.py`, `hub/homepilot/api/routes/entities.py`, `hub/tests/test_sandbox_testmodus.py`
+
+### 669. Rückfrage bei mehrdeutigem Gerätenamen im Suchfeld ✓ erledigt (6b7f76b)
+
+«Sprachsteuerung» im ursprünglichen Vorschlag zielte auf eine freie
+Sprachbefehl-Zuordnung, die es im Hub nirgends gibt - eine solche
+Infrastruktur von Grund auf zu bauen, wäre kein «mittel», sondern ein
+eigenes, grosses Vorhaben. Genau das beschriebene Muster («Bürolicht
+oder Gästezimmer?» statt der ersten stillen Übereinstimmung) traf aber
+schon auf `lib/suchbefehl.ts` zu: Wer im Suchfeld tippt oder mit dem
+nativen Diktat-Mikrofon spricht («licht büro aus»), bekam bisher
+stillschweigend das erste Gerät, dessen Name passte - zwei Bürolampen
+mit ähnlichem Namen liessen sich über die Ausführen-Zeile nie einzeln
+ansprechen.
+
+`befehlAusText` gibt jetzt `null` zurück, sobald mehr als ein Gerät zum
+Namen *und* zum Befehl passt, statt eines für alle zu entscheiden. Die
+neue, ebenfalls reine Funktion `mehrdeutigeKandidaten()` liefert in
+diesem Fall alle passenden Geräte einzeln; `GlobalSearch.tsx` zeigt sie
+dann als eigene Zeilen statt der einen Ausführen-Zeile. Bestehendes
+Verhalten bei eindeutigem Namen bleibt unverändert.
+
+Stellen: `app/src/lib/suchbefehl.ts`, `app/src/lib/suchbefehl.test.ts`, `app/src/components/GlobalSearch.tsx`
