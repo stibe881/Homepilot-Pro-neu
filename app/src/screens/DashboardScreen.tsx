@@ -181,7 +181,7 @@ import { WhatsNew } from '../components/WhatsNew';
 import { Einfuehrung } from '../components/Einfuehrung';
 import { Hilfeblatt } from '../components/Hilfeblatt';
 import { Seitenhilfe } from '../components/Seitenhilfe';
-import { hilfeFuer } from '../lib/seitenhilfe';
+import { alsGezeigtVermerken, hilfeFuer, nochNieGezeigt } from '../lib/seitenhilfe';
 import { LightGroups } from '../components/LightGroups';
 import { DeviceTools } from '../components/DeviceTools';
 import { SceneSuggestion } from '../components/SceneSuggestion';
@@ -978,6 +978,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setFavoriteOrder,
     setSchnellOrder,
     setReiterOrder,
+    setSeitenhilfeGezeigt,
     setDurchsage,
     setBioLock,
     setDoorConfirm,
@@ -988,6 +989,27 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setWidgetStil,
     setEinkaufLernen,
   } = usePrefs(settings, status === 'connected');
+
+  // Die Seitenhilfe geht beim allerersten Besuch eines Bereichs von
+  // selbst auf, statt nur auf Antippen des Fragezeichens (Punkt 672 der
+  // Werkbank). Erst warten, bis die persönlichen Einstellungen wirklich
+  // da sind - sonst hielte ein noch leerer Stand jeden Bereich für nie
+  // besucht und öffnete die Hilfe bei jedem Neustart erneut.
+  useEffect(() => {
+    if (!eigenGeladen) return;
+    if (seitenhilfe) return;
+    if (!hilfeFuer(section)) return;
+    if (!nochNieGezeigt(eigenePrefs.seitenhilfeGezeigt, section)) return;
+    setSeitenhilfeGezeigt(alsGezeigtVermerken(eigenePrefs.seitenhilfeGezeigt, section));
+    setSeitenhilfe(true);
+  }, [
+    eigenGeladen,
+    section,
+    seitenhilfe,
+    eigenePrefs.seitenhilfeGezeigt,
+    setSeitenhilfeGezeigt,
+    setSeitenhilfe,
+  ]);
 
   // Jetzt, wo die Haus-Einstellungen da sind, bekommt das Abhaken in der
   // Kopfzeile sein Protokoll (die Ref kommt aus useFamilienlisten).

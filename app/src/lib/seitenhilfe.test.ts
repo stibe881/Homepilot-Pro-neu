@@ -1,5 +1,11 @@
 import { SECTION_LABEL, type Section } from './bereiche';
-import { SEITENHILFE, hilfeFuer, knopfWort } from './seitenhilfe';
+import {
+  SEITENHILFE,
+  alsGezeigtVermerken,
+  hilfeFuer,
+  knopfWort,
+  nochNieGezeigt,
+} from './seitenhilfe';
 
 describe('seitenhilfe', () => {
   it('kennt jede Seite, die einen eigenen Menüpunkt hat', () => {
@@ -57,5 +63,26 @@ describe('seitenhilfe', () => {
     );
     // Ohne Ziel gibt es keinen Knopf - und also auch keine Beschriftung.
     expect(knopfWort({ text: 'x' })).toBe('');
+  });
+
+  describe('automatisches Zeigen (Punkt 672)', () => {
+    it('ist beim allerersten Besuch noch nie gezeigt worden', () => {
+      expect(nochNieGezeigt(undefined, 'devices')).toBe(true);
+      expect(nochNieGezeigt([], 'devices')).toBe(true);
+      expect(nochNieGezeigt(['home'], 'devices')).toBe(true);
+    });
+
+    it('gilt nach dem Vermerken als gezeigt', () => {
+      expect(nochNieGezeigt(['devices'], 'devices')).toBe(false);
+    });
+
+    it('vermerkt einen Bereich, ohne die anderen zu verlieren', () => {
+      expect(alsGezeigtVermerken(['home'], 'devices')).toEqual(['home', 'devices']);
+      expect(alsGezeigtVermerken(undefined, 'devices')).toEqual(['devices']);
+    });
+
+    it('trägt einen Bereich nicht doppelt ein', () => {
+      expect(alsGezeigtVermerken(['devices'], 'devices')).toEqual(['devices']);
+    });
   });
 });
