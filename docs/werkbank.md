@@ -23,7 +23,7 @@ vorkommt, prüft `scripts/werkbank.py` (und mit ihr der Prüflauf).
 | User Experience | 8 | 668, 669, 671, 672, 673, 675, 676, 677 |
 | Gestaltung | 12 | 441, 446, 447, 449, 450, 678, 679, 680, 682, 683, 685, 686 |
 | Gutscheine | 8 | 453, 458, 688, 689, 691, 692, 694, 696 |
-| Abläufe | 12 | 468, 469, 697, 698, 699, 700, 701, 702, 703, 704, 705, 706 |
+| Abläufe | 11 | 468, 469, 697, 698, 699, 700, 701, 702, 703, 705, 706 |
 | Push-Benachrichtigungen | 12 | 473, 474, 476, 707, 708, 709, 710, 711, 713, 714, 715, 716 |
 | Alarmanlage | 7 | 483, 717, 718, 719, 721, 723, 725 |
 | Selbst gewählt | 21 | 492, 493, 494, 496, 499, 500, 501, 502, 726, 727, 728, 729, 730, 731, 732, 733, 735, 736, 737, 738, 739 |
@@ -474,10 +474,12 @@ weitere - 670, 674, 681, 684, 687, 695, 712, 720, 722 und 724 - sind
 inzwischen gebaut und stehen im Archiv. Zwei weitere - 693 und 734, das
 Haushaltsbudget-Modul und die davon abhängige Verknüpfung mit den
 Gutscheinen - sind auf Wunsch gestrichen; die Nummern bleiben frei.
-Und einer - 690 - war beim genaueren Hinsehen schon gebaut: Der
-Haus-Rückblick zeigt verfallenes Gutschein-Guthaben neben dem
-Eingelösten seit Punkt 372/454 (`core/langzeit.py`, `bilanz()`),
-lange bevor diese Runde entstand.
+Zwei weitere - 690 und 704 - waren beim genaueren Hinsehen schon
+gebaut: Der Haus-Rückblick zeigt verfallenes Gutschein-Guthaben neben
+dem Eingelösten seit Punkt 372/454 (`core/langzeit.py`, `bilanz()`),
+und die Ablauf-Liste gruppiert und filtert schon nach `category`
+(`AutomationsScreen.tsx`, `groupByCategory`) - beides lange bevor
+diese Runde entstand.
 
 Kurz gehalten, damit die Liste lesbar bleibt (Punkt 505) - die
 ausführliche Abwägung je Punkt, falls es sie gab, steht dann im Archiv.
@@ -652,9 +654,6 @@ Hub.
 **703. Geo-Fence-Trigger kombiniert mit Personen UND Kalender**
 («alle weg UND niemand für 2h erwartet»), mit `core/terminkontext.py`.
 Aufwand: mittel · Hub.
-
-**704. Kategorien/Tags zur Gruppierung der Ablauf-Liste** (Sicherheit,
-Komfort, Energie) statt nur alphabetisch. Aufwand: klein · Hub+App.
 
 **705. Bedingungstyp für dynamische Stromtarife**, als Vorbereitung
 ohne Anbindung - Punkt 229 zum selben Thema wurde einmal gestrichen.
