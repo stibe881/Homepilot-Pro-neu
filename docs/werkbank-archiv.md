@@ -8638,6 +8638,25 @@ weil sie das Datum für die Rechnung selbst braucht.
 
 Stellen: `app/src/lib/gutscheine.ts`, `app/src/lib/gutscheine.test.ts`, `app/src/screens/family/gutscheine.tsx`
 
+### 666. Familien-weite Nutzungsstatistik ✓ erledigt (75b3f59)
+
+`core/metrics.py` (`Counters`) zählt schon Befehle im Arbeitsspeicher
+und rechnet sie auf die Stunde hoch - für die App-seitige
+Bildschirm-Nutzung je Gerät gibt es das Gegenstück
+(`useKachelnutzung`/`useRaumnutzung`). Was fehlte, war dieselbe Zahl
+haushaltsweit: Wird das Haus insgesamt lauter?
+
+Zwei neue Zähler an genau den Stellen, an denen ohnehin schon vermerkt
+wird, dass etwas passiert ist: `push_sent` in `Hub._push_vermerken`
+(derselbe Aufruf, der den Nachlese-Zettel füllt) und `automation_run`
+direkt neben dem `automation_run`-Bus-Ereignis in `core/automation.py`.
+Beide erscheinen automatisch im bestehenden `counters`-Feld des
+Hub-Status, weil `Counters` generisch ist; dazu `pushes_per_hour`/
+`automations_per_hour` neben `commands_per_hour`, mit derselben
+Hochrechnung.
+
+Stellen: `hub/homepilot/core/automation.py`, `hub/homepilot/core/hub.py`, `hub/tests/test_metrics.py`
+
 ### 695. Duplikaterkennung direkt beim Scannen einer Karte ✓ erledigt (8d9f6a0)
 
 `dublettenSatz` verlangte bisher erst einen ausgefüllten Laden, bevor
