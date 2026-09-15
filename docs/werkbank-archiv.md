@@ -8764,3 +8764,22 @@ jeder Kategorie in `core/pushziel.py`, `core/pushbeispiel.py` und
 keine Stelle vergessen ging.
 
 Stellen: `hub/homepilot/core/wochenbericht.py`, `hub/tests/test_wochenbericht.py`, `hub/homepilot/core/watchdog.py`, `hub/homepilot/core/notifyrules.py`, `hub/homepilot/core/push.py`, `hub/homepilot/core/pushziel.py`, `hub/homepilot/core/pushbeispiel.py`
+
+### 675. Wischgesten zwischen Hauptbereichen ✓ erledigt (3575381)
+
+Das Bereichswischen aus Punkt 522 lief bisher nur auf dem Telefon
+(`!hasRail`) - mit sichtbarer Seitenleiste tippt man sie ja an, so die
+Annahme. Ein fest montiertes Wandpanel hat aber ebenfalls genug Breite
+für die Seitenleiste und wird trotzdem oft einhändig von der Seite
+bedient, an der man gerade steht - die Leiste liegt dann nicht
+zwingend in Reichweite, anders als am gehaltenen iPad.
+
+`istWandpanel` - dieselbe Bedingung, die schon `usePanelMode` steuert
+(`settings.panel` oder ein Gemeinschaftskonto) - hebt die
+Seitenleisten-Ausnahme jetzt für den Wandpanel-Fall auf. Wer die
+Seitenleiste tatsächlich in der Hand hält (kein Wandpanel), tippt sie
+weiterhin - für den ändert sich nichts. Die Geste selbst (`nachbarBereich`,
+`useBereichWischen`) war schon vorhanden; es fehlte nur die
+Freigabe für diesen einen Fall.
+
+Stellen: `app/src/screens/DashboardScreen.tsx`
