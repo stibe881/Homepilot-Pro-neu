@@ -18,7 +18,7 @@ vorkommt, prüft `scripts/werkbank.py` (und mit ihr der Prüflauf).
 
 | Bereich | Offen | Punkte |
 | --- | --- | --- |
-| App allgemein | 13 | 422, 424, 425, 427, 428, 429, 659, 660, 661, 662, 663, 664, 665 |
+| App allgemein | 12 | 422, 424, 425, 427, 428, 429, 659, 660, 661, 662, 663, 664 |
 | Bedienung | 10 | 431, 432, 433, 434, 435, 436, 437, 438, 439, 440 |
 | User Experience | 4 | 668, 669, 671, 673 |
 | Gestaltung | 11 | 441, 446, 447, 449, 450, 679, 680, 682, 683, 685, 686 |
@@ -470,8 +470,9 @@ fehlen darum hier bewusst: die «Was ist neu»-Anzeige nach einem Update
 (`components/WhatsNew.tsx`), «Bewegung reduzieren»
 (`hooks/useBewegungReduziert.ts`), die gestaffelte Alarm-Eskalation
 (Punkt 255) und die Wartungserinnerungen (`core/maintenance.py`).
-Sechzehn weitere - 666, 667, 670, 672, 674, 675, 676, 677, 681, 684, 687,
-695, 712, 720, 722 und 724 - sind inzwischen gebaut und stehen im Archiv. Zwei weitere - 693 und 734, das
+Siebzehn weitere - 665, 666, 667, 670, 672, 674, 675, 676, 677, 681, 684,
+687, 695, 712, 720, 722 und 724 - sind inzwischen gebaut und stehen im
+Archiv. Zwei weitere - 693 und 734, das
 Haushaltsbudget-Modul und die davon abhängige Verknüpfung mit den
 Gutscheinen - sind auf Wunsch gestrichen; die Nummern bleiben frei.
 Drei weitere - 690, 700 und 704 - waren beim genaueren Hinsehen schon
@@ -522,10 +523,6 @@ bei Statusänderung - fehlt heute ganz. Aufwand: mittel · Hub.
 `lib/schnellaktionen.ts` (dieselbe Liste wie Widget und App-Symbol), als
 eigenes natives Modul - `runtimeVersion` und TestFlight-Build im selben
 Commit. Aufwand: gross · App (nativ).
-
-**665. Sandbox-Testmodus für neue Mitglieder.** Babysitter & Co.
-schalten testweise, ohne dass der Befehl die Integration erreicht -
-ergänzt den bestehenden `core/babysitter.py`. Aufwand: mittel · Hub.
 
 ### User Experience (668-677)
 

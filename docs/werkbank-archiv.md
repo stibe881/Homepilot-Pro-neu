@@ -8783,3 +8783,31 @@ weiterhin - für den ändert sich nichts. Die Geste selbst (`nachbarBereich`,
 Freigabe für diesen einen Fall.
 
 Stellen: `app/src/screens/DashboardScreen.tsx`
+
+### 665. Sandbox-Testmodus für neue Mitglieder ✓ erledigt (edbd44f)
+
+Ein neues Feld `User.sandbox` (wie `shared`, über dieselbe
+Benutzerverwaltung setzbar - `PUT /api/users/{name}` oder `config.yaml`):
+Befehle einer Person im Testmodus kommen an und werden ins
+Zugriffsprotokoll geschrieben wie jeder andere Befehl (mit dem Zusatz
+«(Testmodus)»), erreichen aber nie die Integration - der generische Weg
+über `POST /api/entities/{id}/command` bricht vor dem eigentlichen
+`dispatch_command` bzw. der Szenen-Ausführung ab.
+
+Bewusst kein vorgetäuschter Zustand: Wer im Testmodus schaltet, sieht
+an der Kachel schlicht keine Änderung - das ist ehrlicher als ein Haus,
+das eine Wirkung behauptet, die nicht stattfand, und einfacher als eine
+Illusion über den ganzen Zustands- und WebSocket-Weg hinweg zu pflegen.
+
+Bewusst ausserhalb des Testmodus bleiben Alarm scharf/unscharf und die
+übrigen Spezialrouten (Fernseher, PlayStation, Radio) - sie laufen
+nicht über den einen generischen Befehlsweg, und gerade bei der
+Alarmanlage wäre eine vorgetäuschte Schärfung eine falsche Sicherheit
+statt eines Testlaufs. Der Testmodus deckt damit das eigentliche
+«Schalten» ab (Licht, Storen, Steckdosen, Heizung, Schloss, Sauger).
+Anders als in der ursprünglichen Notiz vermutet, hängt das nicht an
+`core/babysitter.py` - der pausiert Abläufe fürs ganze Haus, unabhängig
+davon, wer schaltet, und ist damit ein anderer Mechanismus für einen
+verwandten Abend.
+
+Stellen: `hub/homepilot/core/users.py`, `hub/homepilot/api/models.py`, `hub/homepilot/api/routes/users.py`, `hub/homepilot/api/routes/entities.py`, `hub/tests/test_sandbox_testmodus.py`
