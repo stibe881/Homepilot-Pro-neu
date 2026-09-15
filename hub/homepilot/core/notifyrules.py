@@ -385,6 +385,25 @@ RULES: list[dict[str, Any]] = [
         ],
     },
     {
+        "key": "weekly_report",
+        "title": "Wöchentlicher Gesundheitscheck",
+        "detail": "Einmal pro Woche, unabhängig davon, ob etwas auffällig ist: "
+        "wie lange der Hub schon läuft, Speicher, Datenträger und wie viele "
+        "Befehle und Abläufe pro Stunde laufen. Anders als die Morgen-"
+        "Zusammenfassung entfällt sie nicht, wenn alles unauffällig ist.",
+        "params": [
+            {
+                "key": "hour",
+                "label": "Schicken um",
+                "unit": "Uhr",
+                "default": 8,
+                "min": 4,
+                "max": 22,
+                "step": 1,
+            },
+        ],
+    },
+    {
         "key": "birthday",
         "title": "Geburtstag",
         "detail": "Am Morgen, wer heute Geburtstag hat – aus den Kontakten in "

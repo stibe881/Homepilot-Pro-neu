@@ -70,6 +70,7 @@ LEISE: frozenset[str] = frozenset(
         "packlist",
         "weekahead",
         "morning",
+        "weekly_report",
         # Sieben Tage vor dem Verfall ist eine Viertelstunde egal.
         "vouchers",
         # «Livia ist um 15:42 heimgekommen» stimmt auch eine Viertelstunde
@@ -460,6 +461,7 @@ CATEGORIES: dict[str, str] = {
     "birthday": "Geburtstag heute",
     "packlist": "Packliste für morgen",
     "morning": "Morgen-Zusammenfassung",
+    "weekly_report": "Wöchentlicher Gesundheitscheck",
     "presence": "Ortung: schwacher Akku, Funkstille",
     # Punkt 626: Eine neue Anmeldung an deinem Konto - und für die
     # Besitzer: an einem Gast- oder Kinderkonto, oder eine gesperrte
@@ -504,7 +506,8 @@ GROUPS: list[tuple[str, tuple[str, ...]]] = [
     ("Familie", ("baby_cry", "birthday", "calendar", "departure", "medication",
                  "tasks", "shopping", "packlist", "weekahead", "presence",
                  "vouchers", "documents", "reminder")),
-    ("Betrieb", ("outage", "flattern", "device_down", "battery", "disk", "morning")),
+    ("Betrieb", ("outage", "flattern", "device_down", "battery", "disk", "morning",
+                 "weekly_report")),
     # Leer, und trotzdem hier: Unter dieser Überschrift stehen die
     # Nachrichten aus selbst gebauten Abläufen. Sie haben keinen festen
     # Schlüssel - jeder Ablauf, der meldet, bringt seinen eigenen mit
