@@ -18,7 +18,7 @@ vorkommt, prüft `scripts/werkbank.py` (und mit ihr der Prüflauf).
 
 | Bereich | Offen | Punkte |
 | --- | --- | --- |
-| App allgemein | 12 | 422, 424, 425, 427, 428, 429, 659, 660, 661, 662, 663, 664 |
+| App allgemein | 10 | 422, 424, 425, 427, 428, 429, 659, 661, 663, 664 |
 | Bedienung | 10 | 431, 432, 433, 434, 435, 436, 437, 438, 439, 440 |
 | User Experience | 3 | 668, 671, 673 |
 | Gestaltung | 11 | 441, 446, 447, 449, 450, 679, 680, 682, 683, 685, 686 |
@@ -475,14 +475,21 @@ Achtzehn weitere - 665, 666, 667, 669, 670, 672, 674, 675, 676, 677, 681,
 im Archiv. Zwei weitere - 693 und 734, das
 Haushaltsbudget-Modul und die davon abhängige Verknüpfung mit den
 Gutscheinen - sind auf Wunsch gestrichen; die Nummern bleiben frei.
-Drei weitere - 690, 700 und 704 - waren beim genaueren Hinsehen schon
-gebaut: Der Haus-Rückblick zeigt verfallenes Gutschein-Guthaben neben
-dem Eingelösten seit Punkt 372/454 (`core/langzeit.py`, `bilanz()`),
-die Ablauf-Liste gruppiert und filtert schon nach `category`
-(`AutomationsScreen.tsx`, `groupByCategory`), und der Hub erkennt
+Fünf weitere - 660, 662, 690, 700 und 704 - waren beim genaueren
+Hinsehen schon gebaut: Die Startseite zeigt bei fehlender Verbindung
+längst «Keine Verbindung - gezeigt wird der letzte bekannte Stand von
+HH:MM» (`DashboardScreen.tsx`, `cachedAt`), und `lib/familiecache.ts`s
+eigene `standText()` liefert dieselbe Auskunft auf der Familienseite,
+im Rezeptbuch, bei der Brandmeldeanlage und den Verbindungen (660);
+«Meine Geräte» (`components/KontoBlatt.tsx`) listet die Sitzungen aus
+`core/sessions.py` bereits und erlaubt die Fernabmeldung je Gerät (662);
+der Haus-Rückblick zeigt verfallenes Gutschein-Guthaben neben dem
+Eingelösten seit Punkt 372/454 (`core/langzeit.py`, `bilanz()`); die
+Ablauf-Liste gruppiert und filtert schon nach `category`
+(`AutomationsScreen.tsx`, `groupByCategory`); und der Hub erkennt
 wiederkehrende manuelle Muster aus dem Ereignisprotokoll längst
 (`core/suggest.py`, `/api/suggestions/scene`,
-`components/SceneSuggestion.tsx`) - alle drei lange bevor diese Runde
+`components/SceneSuggestion.tsx`) - alle fünf lange bevor diese Runde
 entstand. Und ein Punkt - 678, Live-Kontrast-Check für frei wählbare
 Akzentfarben - fehlt ohne Ersatz: Eine solche Farbwahl gibt es gar
 nicht, das Erscheinungsbild ist eine feste Auswahl kuratierter Themen;
@@ -500,20 +507,10 @@ ausführliche Abwägung je Punkt, falls es sie gab, steht dann im Archiv.
 Rolle, Favoriten, Benachrichtigungen in einem Assistenten, anknüpfend an
 die Einladung (`core/einladung.py`). Aufwand: mittel · App+Hub.
 
-**660. «Stand vor 4 Minuten» statt nur «Hub nicht erreichbar».** Zeigt
-die App noch den letzten bekannten Stand aus dem Zwischenspeicher
-(`lib/familiecache.ts`), soll sie das sagen, nicht so tun, als wäre sie
-live. Nähe: 439. Stellen: `app/src/hooks/useHub.ts`. Aufwand: klein · App.
-
 **661. Ein-Klick-Export der eigenen Daten als ZIP.** Gutscheine,
 Ämtli-Verlauf, Rezepte - `core/familienbuch.py` exportiert Familiendaten
 bereits als HTML-Seite, hier fehlt der ZIP-Weg für die eigenen Daten
 einer einzelnen Person. Aufwand: mittel · Hub+App.
-
-**662. Sitzungsübersicht der angemeldeten Geräte.** `core/sessions.py`
-führt die Sitzungen bereits, ohne Seite, die sie zeigt oder eine
-Fernabmeldung erlaubt. Stellen: `hub/homepilot/core/sessions.py`,
-`app/src/screens/UsersScreen.tsx`. Aufwand: mittel · Hub+App.
 
 **663. Erreichbarkeitstest des Hubs von aussen.** Regelmässiger
 Selbsttest von ausserhalb des Haus-WLANs (VPN/Portfreigabe), mit Push
