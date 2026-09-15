@@ -56,7 +56,6 @@ import { QrScanner } from '../../components/QrScanner';
 import { Kassencode } from '../../components/Kassencode';
 import { gescannteArt, kassenart } from '../../lib/strichcode';
 import {
-  Ablaufstufe,
   DATEI_TYPEN,
   CODEARTEN,
   EINHEITEN,
@@ -66,6 +65,7 @@ import {
   Geteilt,
   Gutschein,
   GutscheinDatei,
+  ablaufFarbe as gutscheinAblaufFarbe,
   ablaufSatz,
   ablaufStufe,
   abziehen,
@@ -287,27 +287,35 @@ async function holeDatei(): Promise<DateiWahl> {
   return { datei: { data, name: asset.name, type, bytes: asset.size } };
 }
 
-/** Die Farbe, in der das Ablaufdatum steht. */
-function ablaufFarbe(stufe: Ablaufstufe, colors: Colors): string {
-  if (stufe === 'bald') return colors.warn;
-  if (stufe === 'abgelaufen') return colors.inkFaint;
-  return colors.ink;
+/** Die Farbe, in der das Ablaufdatum steht - fein statt binär
+ *  (Punkt 684 der Werkbank, lib/gutscheine.ts: ablaufFarbe). */
+function textFarbe(expires: string | null | undefined, heute: string, colors: Colors): string {
+  return gutscheinAblaufFarbe(expires, heute, {
+    normal: colors.ink,
+    abgelaufen: colors.inkFaint,
+    warn: colors.warn,
+    kritisch: colors.danger,
+  });
 }
 
 /** Der Balken Rest/Gesamt. */
 function Balken({
   entry,
-  stufe,
+  heute,
   colors,
   eigen,
 }: {
   entry: Gutschein;
-  stufe: Ablaufstufe;
+  heute: string;
   colors: Colors;
   eigen: Eigen;
 }) {
-  const farbe =
-    stufe === 'abgelaufen' ? colors.inkFaint : stufe === 'bald' ? colors.warn : colors.accent;
+  const farbe = gutscheinAblaufFarbe(entry.expires, heute, {
+    normal: colors.accent,
+    abgelaufen: colors.inkFaint,
+    warn: colors.warn,
+    kritisch: colors.danger,
+  });
   return (
     <View
       style={eigen.balken}
@@ -404,7 +412,7 @@ function GutscheinKarte({
           <Text style={eigen.betragEinheit}>{einheitText(entry.unit)}</Text>
         </View>
       </View>
-      <Balken entry={entry} stufe={stufe} colors={colors} eigen={eigen} />
+      <Balken entry={entry} heute={heute} colors={colors} eigen={eigen} />
       <View style={eigen.karteFuss}>
         <View style={{ flex: 1 }}>
           <View style={eigen.chipZeile}>
@@ -424,7 +432,7 @@ function GutscheinKarte({
             ) : null}
             {entry.category ? <Text style={eigen.kategorieText}>{entry.category}</Text> : null}
           </View>
-          <Text style={[eigen.gueltigText, { color: ablaufFarbe(stufe, colors) }]}>
+          <Text style={[eigen.gueltigText, { color: textFarbe(entry.expires, heute, colors) }]}>
             {ablaufSatz(entry.expires, heute)}
           </Text>
           {/* «Noch CHF 3.20 drauf» ist eine andere Auskunft als
@@ -565,7 +573,7 @@ function Detail({
           </View>
           <Text style={eigen.vonGesamt}>von {betragText(entry.total, entry.unit)}</Text>
         </View>
-        <Balken entry={entry} stufe={stufe} colors={colors} eigen={eigen} />
+        <Balken entry={entry} heute={heute} colors={colors} eigen={eigen} />
 
         <View style={eigen.feldRaster}>
           {feld('Nummer', entry.number || '–', {
@@ -597,7 +605,7 @@ function Detail({
           )}
           {feld(
             'Ablaufdatum',
-            <Text style={[eigen.feldWert, { color: ablaufFarbe(stufe, colors) }]}>
+            <Text style={[eigen.feldWert, { color: textFarbe(entry.expires, heute, colors) }]}>
               {entry.expires ? datumText(entry.expires) : 'Unbegrenzt'}
             </Text>
           )}
@@ -607,7 +615,7 @@ function Detail({
         </View>
         {rueckmeldung ? <Text style={eigen.rueckmeldung}>{rueckmeldung}</Text> : null}
         {stufe !== 'ok' && stufe !== 'unbegrenzt' ? (
-          <Text style={[eigen.gueltigText, { color: ablaufFarbe(stufe, colors) }]}>
+          <Text style={[eigen.gueltigText, { color: textFarbe(entry.expires, heute, colors) }]}>
             {ablaufSatz(entry.expires, heute)}
           </Text>
         ) : null}
