@@ -1079,6 +1079,35 @@ export function doppelte(list: Gutschein[], entry: Gutschein): Gutschein[] {
   });
 }
 
+/**
+ * Passt ein gescannter Code zu einem schon erfassten, offenen
+ * Gutschein (rein, testbar)? Punkt 695 der Werkbank.
+ *
+ * Dieselbe sichere Spur wie in `doppelte()`, aber ohne den Rest des
+ * Formulars: Direkt nach dem Scan steht nur der Code, Laden und
+ * Betrag kommen erst danach. Ein Codetreffer ist für sich schon
+ * eindeutig genug - auf den Laden zu warten, hiesse denselben Hinweis
+ * unnötig zu verzögern, bis jemand ihn ohnehin schon abgetippt hat.
+ */
+export function doppelterCode(
+  list: Gutschein[],
+  code: string,
+  eigeneId?: string
+): Gutschein | null {
+  const gesucht = code.trim().toLowerCase();
+  if (!gesucht) return null;
+  return (
+    list.find((andere) => {
+      if (istArchiviert(andere)) return false;
+      if (eigeneId && andere.id === eigeneId) return false;
+      const seine = [...(andere.codes ?? []).map((c) => c.value), andere.number ?? ''].map(
+        (wert) => wert.trim().toLowerCase()
+      );
+      return seine.includes(gesucht);
+    }) ?? null
+  );
+}
+
 /** Der Hinweis über den Dubletten – oder null (rein, testbar). */
 export function doppelteSatz(treffer: Gutschein[]): string | null {
   if (treffer.length === 0) return null;

@@ -102,6 +102,7 @@ import {
   codeStand,
   codeVerbrauchen,
   doppelte,
+  doppelterCode,
   doppelteSatz,
   ladenAnfrage,
   naechsterCode,
@@ -1123,9 +1124,14 @@ function FormularBlatt({
     setze('files', [...form.files, wahl.datei]);
   };
 
-  // Erst, wenn genug dasteht, um überhaupt eine Aussage zu erlauben -
-  // ein leeres Formular gleicht sonst jedem Gutschein ohne Nummer.
+  // Der Code allein reicht schon (Punkt 695): Er ist die sichere Spur
+  // aus doppelte() und steht schon im Scan-Moment da, lange bevor der
+  // Laden abgetippt ist. Erst wenn er nichts findet, braucht es genug
+  // im restlichen Formular, um überhaupt eine Aussage zu erlauben -
+  // ein leeres Formular gliche sonst jedem Gutschein ohne Nummer.
   const dublettenSatz = useMemo(() => {
+    const perCode = doppelterCode(vorlagenQuelle, form.number, bisher?.id);
+    if (perCode) return doppelteSatz([perCode]);
     if (!form.shop.trim()) return null;
     const probe = formularPruefen(form, bisher);
     if (probe.eintrag === null) return null;

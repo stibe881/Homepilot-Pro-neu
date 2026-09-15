@@ -9,6 +9,7 @@ import {
   ablaufFarbe,
   ablaufNaehe,
   ablaufSatz,
+  doppelterCode,
   farbMischung,
   archivieren,
   archivListe,
@@ -1054,6 +1055,38 @@ describe('Dieselbe Karte zweimal', () => {
     expect(doppelteSatz([])).toBeNull();
     expect(doppelteSatz([mach({ shop: 'Coop' })])).toContain('Coop');
     expect(doppelteSatz([mach({}), mach({})])).toContain('2 Gutscheine');
+  });
+
+  describe('doppelterCode (Punkt 695: schon beim Scannen)', () => {
+    it('findet den Treffer über Schreibweisen hinweg, ohne Laden oder Betrag zu kennen', () => {
+      const liste = [mach({ id: '1', shop: 'Brack', number: 'XY-9', codes: [{ value: 'XY-9' }] })];
+      expect(doppelterCode(liste, 'xy-9')?.id).toBe('1');
+      expect(doppelterCode(liste, ' XY-9 ')?.id).toBe('1');
+    });
+
+    it('findet ihn auch über die Liste weiterer Codes einer Zehnerkarte', () => {
+      const liste = [mach({ id: '1', number: 'A', codes: [{ value: 'A' }, { value: 'B' }] })];
+      expect(doppelterCode(liste, 'B')?.id).toBe('1');
+    });
+
+    it('ein leerer Code findet nie etwas', () => {
+      const liste = [mach({ id: '1', number: 'A' })];
+      expect(doppelterCode(liste, '')).toBeNull();
+      expect(doppelterCode(liste, '   ')).toBeNull();
+    });
+
+    it('übergeht sich selbst und das Archiv', () => {
+      const liste = [
+        mach({ id: '1', number: 'A' }),
+        mach({ id: '2', number: 'B', archived: true }),
+      ];
+      expect(doppelterCode(liste, 'A', '1')).toBeNull();
+      expect(doppelterCode(liste, 'B')).toBeNull();
+    });
+
+    it('ein unbekannter Code findet nichts', () => {
+      expect(doppelterCode([mach({ id: '1', number: 'A' })], 'Z')).toBeNull();
+    });
   });
 });
 
