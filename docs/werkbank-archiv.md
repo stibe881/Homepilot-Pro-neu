@@ -8637,3 +8637,21 @@ Balken-Kachel bekommt dafür `heute` statt der vorberechneten Stufe,
 weil sie das Datum für die Rechnung selbst braucht.
 
 Stellen: `app/src/lib/gutscheine.ts`, `app/src/lib/gutscheine.test.ts`, `app/src/screens/family/gutscheine.tsx`
+
+### 695. Duplikaterkennung direkt beim Scannen einer Karte ✓ erledigt (8d9f6a0)
+
+`dublettenSatz` verlangte bisher erst einen ausgefüllten Laden, bevor
+überhaupt geprüft wurde - `formularPruefen()` gibt ohne `shop` keinen
+gültigen Eintrag zurück, und ohne den kam `doppelte()` gar nicht zum
+Zug. Direkt nach dem Scan steht aber schon der Code da, und der ist
+die sichere Spur aus `doppelte()` - Laden, Betrag und Ablaufdatum sind
+nur die Vermutung für den Fall ohne Nummer.
+
+Die neue reine Funktion `doppelterCode()` (`lib/gutscheine.ts`) prüft
+darum nur den Code gegen die Codes/Nummern offener, nicht archivierter
+Gutscheine, ohne sonst etwas vom Formular zu brauchen. `dublettenSatz`
+prüft jetzt zuerst diesen Weg - reagiert also schon auf
+`setze('number', ...)` im Scan-Moment - und fällt erst ohne Treffer auf
+die bisherige Prüfung übers ganze Formular zurück.
+
+Stellen: `app/src/lib/gutscheine.ts`, `app/src/lib/gutscheine.test.ts`, `app/src/screens/family/gutscheine.tsx`

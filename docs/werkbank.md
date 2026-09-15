@@ -22,7 +22,7 @@ vorkommt, prüft `scripts/werkbank.py` (und mit ihr der Prüflauf).
 | Bedienung | 10 | 431, 432, 433, 434, 435, 436, 437, 438, 439, 440 |
 | User Experience | 8 | 668, 669, 671, 672, 673, 675, 676, 677 |
 | Gestaltung | 12 | 441, 446, 447, 449, 450, 678, 679, 680, 682, 683, 685, 686 |
-| Gutscheine | 9 | 453, 458, 688, 689, 691, 692, 694, 695, 696 |
+| Gutscheine | 8 | 453, 458, 688, 689, 691, 692, 694, 696 |
 | Abläufe | 12 | 468, 469, 697, 698, 699, 700, 701, 702, 703, 704, 705, 706 |
 | Push-Benachrichtigungen | 12 | 473, 474, 476, 707, 708, 709, 710, 711, 713, 714, 715, 716 |
 | Alarmanlage | 7 | 483, 717, 718, 719, 721, 723, 725 |
@@ -469,8 +469,8 @@ Runde 421-505. Vier davon standen beim Gegenprüfen schon im Code und
 fehlen darum hier bewusst: die «Was ist neu»-Anzeige nach einem Update
 (`components/WhatsNew.tsx`), «Bewegung reduzieren»
 (`hooks/useBewegungReduziert.ts`), die gestaffelte Alarm-Eskalation
-(Punkt 255) und die Wartungserinnerungen (`core/maintenance.py`). Neun
-weitere - 670, 674, 681, 684, 687, 712, 720, 722 und 724 - sind
+(Punkt 255) und die Wartungserinnerungen (`core/maintenance.py`). Zehn
+weitere - 670, 674, 681, 684, 687, 695, 712, 720, 722 und 724 - sind
 inzwischen gebaut und stehen im Archiv. Zwei weitere - 693 und 734, das
 Haushaltsbudget-Modul und die davon abhängige Verknüpfung mit den
 Gutscheinen - sind auf Wunsch gestrichen; die Nummern bleiben frei.
@@ -615,10 +615,6 @@ Aufwand: mittel · Hub.
 **694. «Bald abgelaufen» nach Nähe zur Route sortieren** statt reiner
 Datumsliste, mit `core/gutscheinort.py`/`core/losfahren.py`. Nähe: 458.
 Aufwand: mittel · Hub+App.
-
-**695. Duplikaterkennung direkt beim Scannen einer Karte** (Code-
-Vergleich im Scan-Moment), nicht erst beim Speichern. Aufwand: klein ·
-App+Hub.
 
 **696. Kategorien mit eigenem Budget-Ziel** («Restaurant-Gutscheine bis
 Jahresende aufbrauchen») mit Fortschrittsbalken. Aufwand: mittel ·
