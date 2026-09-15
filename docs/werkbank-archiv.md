@@ -8833,3 +8833,18 @@ dann als eigene Zeilen statt der einen Ausführen-Zeile. Bestehendes
 Verhalten bei eindeutigem Namen bleibt unverändert.
 
 Stellen: `app/src/lib/suchbefehl.ts`, `app/src/lib/suchbefehl.test.ts`, `app/src/components/GlobalSearch.tsx`
+
+### 686. Kontrastreiches Erscheinungsbild für den Kassenmodus ✓ erledigt (0620508)
+
+Die Kassenansicht (`screens/family/gutscheine.tsx`, Punkt 299/300/532)
+war schon weiss, gross und kontrastreich - schwarz auf weiss, auch im
+dunklen Thema, eigens dafür ohne `useColors()` gebaut
+(`components/Strichcode.tsx`, `components/Kassencode.tsx`). Was fehlte,
+war nur die eine Zeile, die zählt, wenn der Scanner streikt: die
+Ziffern unter dem Code, bisher mit 13px kaum über den Tresen hinweg
+lesbar.
+
+Beide Stellen stehen jetzt mit 20-22px und fett - gross genug, um sie
+abzutippen, ohne sich zu vertun.
+
+Stellen: `app/src/components/Strichcode.tsx`, `app/src/components/Kassencode.tsx`
