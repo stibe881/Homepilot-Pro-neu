@@ -8657,6 +8657,28 @@ Hochrechnung.
 
 Stellen: `hub/homepilot/core/automation.py`, `hub/homepilot/core/hub.py`, `hub/tests/test_metrics.py`
 
+### 672. Kurzhilfe automatisch beim ersten Öffnen eines Moduls ✓ erledigt (9690c24)
+
+Die Seitenhilfe (`lib/seitenhilfe.ts`, `components/Seitenhilfe.tsx`)
+ging bisher nur auf Antippen des Fragezeichens auf - wer zum ersten
+Mal einen Bereich mit eigener Hilfe besuchte, landete direkt im leeren
+Formular oder der unbekannten Liste, ohne dass etwas auf das
+Fragezeichen hingewiesen hätte.
+
+`nochNieGezeigt()`/`alsGezeigtVermerken()` (rein, testbar) tragen jetzt
+je Person nach, welche Bereiche schon einmal automatisch gezeigt
+wurden - gespeichert unter `eigenePrefs.seitenhilfeGezeigt`, persönlich
+wie die Einführung (`lib/einfuehrung.ts`), damit Livia dieselbe Hilfe
+noch sieht, obwohl Stefan sie längst kennt.
+
+`DashboardScreen` öffnet die Hilfe jetzt in einem `useEffect` von
+selbst beim ersten Besuch eines Bereichs mit eigener Hilfe, sobald die
+persönlichen Einstellungen wirklich geladen sind (`eigenGeladen`) -
+ohne diese Wartebedingung hielte ein noch leerer Stand jeden Bereich
+für nie besucht und öffnete die Hilfe bei jedem Neustart erneut.
+
+Stellen: `app/src/lib/seitenhilfe.ts`, `app/src/lib/seitenhilfe.test.ts`, `app/src/hooks/usePrefs.ts`, `app/src/screens/DashboardScreen.tsx`
+
 ### 695. Duplikaterkennung direkt beim Scannen einer Karte ✓ erledigt (8d9f6a0)
 
 `dublettenSatz` verlangte bisher erst einen ausgefüllten Laden, bevor
