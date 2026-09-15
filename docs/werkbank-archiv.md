@@ -8615,3 +8615,25 @@ Datenmodell bisher nicht, und sie eigens dafür einzuführen wäre über
 den Rahmen dieses Punkts hinausgegangen.
 
 Stellen: `app/src/components/Kamerawand.tsx`, `app/src/screens/AlarmScreen.tsx`
+
+### 684. Feinere Zwischenfarbe für «bald abgelaufen» ✓ erledigt (9814f89)
+
+`ablaufStufe()` kennt schon länger vier Stufen, nicht zwei - «bald»
+deckte aber die ganzen dreissig Tage der Frist (`BALD_TAGE`) mit
+derselben flachen Warnfarbe ab. Ein Gutschein mit 29 Tagen Rest sah
+optisch genauso dringend aus wie einer mit einem einzigen.
+
+Zwei neue reine Funktionen in `lib/gutscheine.ts`: `ablaufNaehe(tage)`
+rechnet die verbleibenden Tage auf einen Anteil zwischen 0 (erster Tag
+der Frist) und 1 (heute oder morgen) herunter; `farbMischung(von, nach,
+anteil)` mischt zwei Farben linear (wiederverwendet `parseColor` aus
+`lib/kontrast.ts`, das es für den WCAG-Kontrast schon gab). `ablaufFarbe()`
+verbindet beides: «abgelaufen» und «weit weg» bleiben fest, «bald»
+gleitet zwischen Warn- und einer kritischen Farbe.
+
+`screens/family/gutscheine.tsx` nutzt die neue Funktion für Text und
+Balkenfüllung statt der bisherigen lokalen, binären Fassung; die
+Balken-Kachel bekommt dafür `heute` statt der vorberechneten Stufe,
+weil sie das Datum für die Rechnung selbst braucht.
+
+Stellen: `app/src/lib/gutscheine.ts`, `app/src/lib/gutscheine.test.ts`, `app/src/screens/family/gutscheine.tsx`
