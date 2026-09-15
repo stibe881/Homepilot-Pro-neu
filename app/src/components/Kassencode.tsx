@@ -57,11 +57,14 @@ export function Kassencode({
       <QRCode value={text} size={kante} backgroundColor="#FFFFFF" color="#000000" />
       {/* Der Inhalt darunter, wie die Ziffern unter dem Strichcode: Wenn
           der Scanner streikt, tippt die Kassiererin ab. Eine lange
-          Adresse darf dabei umbrechen - abgeschnitten wäre sie wertlos. */}
+          Adresse darf dabei umbrechen - abgeschnitten wäre sie wertlos.
+          Gross genug, um sie über den Tresen hinweg abzulesen (Punkt
+          686 der Werkbank). */}
       <Text
         style={{
           color: '#000000',
-          fontSize: 13,
+          fontSize: 20,
+          fontWeight: '700',
           letterSpacing: 1,
           textAlign: 'center',
         }}
