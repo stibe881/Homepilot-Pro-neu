@@ -3122,6 +3122,10 @@ class AutomationEngine:
         if executed and error is not None:
             await self._melde_fehlschlag(automation, error)
         if executed:
+            # Familien-weite Nutzungsstatistik (Punkt 666 der Werkbank) -
+            # neben den Pushes (hub.py: _push_vermerken) die zweite Zahl,
+            # die sagt, ob das Haus lauter wird.
+            self.hub.counters.zaehle("automation_run")
             await self.hub.bus.publish(
                 "automation_run",
                 {

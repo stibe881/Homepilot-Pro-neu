@@ -739,6 +739,10 @@ class Hub:
                 self.data.get(pushverlauf.STORE_KEY), eintrag, jetzt
             ),
         )
+        # Familien-weite Nutzungsstatistik (Punkt 666 der Werkbank) -
+        # neben den Abläufen (automation.py) die erste Zahl, die sagt,
+        # ob das Haus lauter wird.
+        self.counters.zaehle("push_sent")
         return jetzt
 
     def _push_zustellung(self, marke: float, probleme: list[str]) -> None:
@@ -861,6 +865,10 @@ class Hub:
                 **metrics.process_stats(),
                 "counters": self.counters.as_dict(),
                 "commands_per_hour": self.counters.pro_stunde("commands"),
+                # Familien-weite Nutzungsstatistik (Punkt 666): wird das
+                # Haus lauter? Dieselbe Hochrechnung wie bei den Befehlen.
+                "pushes_per_hour": self.counters.pro_stunde("push_sent"),
+                "automations_per_hour": self.counters.pro_stunde("automation_run"),
             },
             # Speicherplatz: läuft er voll, scheitert jedes Speichern.
             "disk": self.watchdog.disk,

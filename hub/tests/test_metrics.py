@@ -5,8 +5,11 @@ wachsender Speicherverbrauch fiel deshalb erst auf, wenn der Rechner
 stand.
 """
 
+import asyncio
 import sys
 
+from homepilot.core.config import ApiConfig, HubConfig
+from homepilot.core.hub import Hub
 from homepilot.core.metrics import Counters, process_stats
 
 
@@ -50,3 +53,54 @@ def test_process_stats_reads_the_real_process():
 def test_process_stats_says_nothing_about_a_process_that_is_gone():
     # Eine Kennung, die es sicher nicht gibt.
     assert process_stats(pid=99999999) == {}
+
+
+# ── Familien-weite Nutzungsstatistik (Punkt 666 der Werkbank) ───────────
+
+
+async def test_running_an_automation_counts_it():
+    hub = Hub(
+        HubConfig(
+            api=ApiConfig(),
+            integrations=[{"integration": "demo"}],
+            automations=[
+                {
+                    "id": "motion_light",
+                    "alias": "Licht bei Bewegung",
+                    "trigger": [
+                        {"type": "state", "entity_id": "demo.motion_hall", "to": "on"}
+                    ],
+                    "action": [
+                        {
+                            "type": "command",
+                            "entity_id": "demo.light_livingroom",
+                            "command": "turn_on",
+                        }
+                    ],
+                }
+            ],
+        )
+    )
+    await hub.start()
+    try:
+        assert hub.counters.as_dict().get("automation_run", 0) == 0
+        await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
+        for _ in range(10):
+            await asyncio.sleep(0)
+        assert hub.counters.as_dict()["automation_run"] == 1
+    finally:
+        await hub.stop()
+
+
+async def test_sending_a_push_counts_it():
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        assert hub.counters.as_dict().get("push_sent", 0) == 0
+        # Kein gültiger Expo-Token nötig: on_sent feuert schon, bevor der
+        # Dienst prüft, ob überhaupt jemand erreichbar wäre - genau
+        # deshalb schreibt der Zettel auch mit, was niemand bekommen hat.
+        await hub.push.send(["nicht-echt"], "Test", "Testnachricht")
+        assert hub.counters.as_dict()["push_sent"] == 1
+    finally:
+        await hub.stop()
