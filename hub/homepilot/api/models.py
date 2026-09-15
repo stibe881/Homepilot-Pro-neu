@@ -492,6 +492,9 @@ class UserUpdateRequest(BaseModel):
     rooms: list[str] | None = None
     # Gemeinschaftsgerät statt Person – siehe core/users.py.
     shared: bool | None = None
+    # Testmodus (Punkt 665): Befehle kommen an, erreichen aber nie die
+    # Integration – siehe core/users.py.
+    sandbox: bool | None = None
     # Passwort vor den persönlichen Bereichen; leerer Text nimmt es weg.
     # Nur setzbar, nie lesbar – zurück kommt bloss 'area_locked'.
     area_password: str | None = None

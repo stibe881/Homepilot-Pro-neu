@@ -191,8 +191,18 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 detail="Türschloss und Alarmanlage schalten die Erwachsenen.",
             )
         hub.audit.record(
-            user.name, entity, body.command, throttle_module.client_address(request)
+            user.name,
+            entity,
+            f"{body.command} (Testmodus)" if user.sandbox else body.command,
+            throttle_module.client_address(request),
         )
+        if user.sandbox:
+            # Punkt 665 der Werkbank: Der Befehl kommt an - Rückmeldung,
+            # Zugriffsprotokoll, alles wie sonst -, geht aber nie an die
+            # Integration. Kein Zustand wird vorgetäuscht: Wer schaltet,
+            # sieht schlicht keine Änderung an der Kachel, und genau das
+            # ist der Testmodus - kein Haus, das lügt.
+            return {"ok": True, "entity": entity.as_dict(), "sandbox": True}
         daten = body.data
         if user.shared and entity.integration == "alarm":
             # Am Wandtablet ist die PIN auch über die Kachel auf der
