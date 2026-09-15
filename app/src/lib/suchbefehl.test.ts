@@ -1,5 +1,5 @@
 import { Entity } from '../api/types';
-import { befehlAusText, prozentAus } from './suchbefehl';
+import { befehlAusText, mehrdeutigeKandidaten, prozentAus } from './suchbefehl';
 
 const geraet = (over: Partial<Entity> & { id: string; name: string }): Entity =>
   ({
@@ -81,4 +81,61 @@ test('Prozente lesen', () => {
   expect(prozentAus(['auf', '40'])).toBe(40);
   expect(prozentAus(['200'])).toBeNull();
   expect(prozentAus(['küche'])).toBeNull();
+});
+
+describe('Mehrdeutigkeit (Punkt 669 der Werkbank)', () => {
+  // Zwei Lampen im Büro - «licht büro aus» trifft auf beide.
+  const ZWEI_BUEROLICHTER: Entity[] = [
+    geraet({ id: 'b1', name: 'Licht Büro Decke', room: 'Büro' }),
+    geraet({ id: 'b2', name: 'Licht Büro Fenster', room: 'Büro' }),
+    geraet({ id: 'g1', name: 'Licht Gästezimmer', room: 'Gästezimmer' }),
+  ];
+
+  test('befehlAusText entscheidet nicht mehr still für das erste Gerät', () => {
+    expect(befehlAusText('licht büro aus', ZWEI_BUEROLICHTER)).toBeNull();
+  });
+
+  test('mehrdeutigeKandidaten nennt beide, in der Reihenfolge der Geräte', () => {
+    expect(mehrdeutigeKandidaten('licht büro aus', ZWEI_BUEROLICHTER)).toEqual([
+      { entityId: 'b1', command: 'turn_off', satz: 'Licht Büro Decke ausschalten' },
+      { entityId: 'b2', command: 'turn_off', satz: 'Licht Büro Fenster ausschalten' },
+    ]);
+  });
+
+  test('nur eine Übereinstimmung bleibt eindeutig - keine Mehrdeutigkeit ohne Grund', () => {
+    expect(befehlAusText('licht gästezimmer aus', ZWEI_BUEROLICHTER)).toEqual({
+      entityId: 'g1',
+      command: 'turn_off',
+      satz: 'Licht Gästezimmer ausschalten',
+    });
+    expect(mehrdeutigeKandidaten('licht gästezimmer aus', ZWEI_BUEROLICHTER)).toBeNull();
+  });
+
+  test('keine Übereinstimmung bleibt keine Übereinstimmung', () => {
+    expect(mehrdeutigeKandidaten('licht keller aus', ZWEI_BUEROLICHTER)).toBeNull();
+  });
+
+  test('mehrdeutig gilt auch für die Prozentzahl (Storen zweier Räume gleichen Namens)', () => {
+    const ZWEI_STOREN: Entity[] = [
+      geraet({
+        id: 's1',
+        name: 'Store Ost',
+        kind: 'cover',
+        room: 'Balkon',
+        commands: ['open', 'close', 'set_position'],
+      }),
+      geraet({
+        id: 's2',
+        name: 'Store West',
+        kind: 'cover',
+        room: 'Balkon',
+        commands: ['open', 'close', 'set_position'],
+      }),
+    ];
+    expect(befehlAusText('store balkon 40', ZWEI_STOREN)).toBeNull();
+    expect(mehrdeutigeKandidaten('store balkon 40', ZWEI_STOREN)).toEqual([
+      { entityId: 's1', command: 'set_position', data: { position: 40 }, satz: 'Store Ost auf 40 %' },
+      { entityId: 's2', command: 'set_position', data: { position: 40 }, satz: 'Store West auf 40 %' },
+    ]);
+  });
 });

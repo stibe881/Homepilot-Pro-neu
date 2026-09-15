@@ -13,7 +13,7 @@ import {
 import { CommandData, Entity, Scene } from '../api/types';
 import type { Section } from '../lib/bereiche';
 import { seitenSuchen } from '../lib/seitensuche';
-import { befehlAusText } from '../lib/suchbefehl';
+import { befehlAusText, mehrdeutigeKandidaten } from '../lib/suchbefehl';
 import { Tastaturplatz } from './Tastaturplatz';
 import { Colors, radius, useColors } from '../theme';
 
@@ -167,6 +167,10 @@ export function GlobalSearch({
   const hits = search(query, entities, scenes, automations, rooms, darfSeite);
   // «licht küche aus» ist eine Ansage, keine Suche (lib/suchbefehl.ts).
   const befehl = onCommand ? befehlAusText(query, entities) : null;
+  // Passt der Name zu mehreren Geräten (Punkt 669 der Werkbank), steht
+  // statt der einen Ausführen-Zeile eine je Kandidat - «Bürolicht oder
+  // Gästezimmer?» statt der ersten stillen Übereinstimmung.
+  const mehrdeutig = onCommand && !befehl ? mehrdeutigeKandidaten(query, entities) : null;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -218,6 +222,34 @@ export function GlobalSearch({
             </Pressable>
           ) : null}
 
+          {/* Mehrdeutig: eine Zeile je Gerät statt einer Entscheidung,
+              die man nicht sehen konnte (Punkt 669 der Werkbank). */}
+          {mehrdeutig ? (
+            <View>
+              <Text style={styles.hint}>Mehrere Geräte passen - welches?</Text>
+              {mehrdeutig.map((kandidat) => (
+                <Pressable
+                  key={`${kandidat.entityId}:${kandidat.command}`}
+                  onPress={() => {
+                    setQuery('');
+                    onCommand?.(kandidat.entityId, kandidat.command, kandidat.data);
+                    onClose();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Ausführen: ${kandidat.satz}`}
+                  style={({ pressed }) => [styles.befehlRow, pressed && { opacity: 0.7 }]}
+                >
+                  <Ionicons name="flash-outline" size={20} color={colors.accent} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.rowTitle} numberOfLines={1}>
+                      {kandidat.satz}
+                    </Text>
+                  </View>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+
           {query.trim().length < 2 ? (
             <Text style={styles.hint}>
               Ab zwei Zeichen wird gesucht – über Geräte, Räume, Szenen,
@@ -226,7 +258,7 @@ export function GlobalSearch({
               «licht küche aus», «store wohnzimmer 40».
             </Text>
           ) : hits.length === 0 ? (
-            befehl ? null : <Text style={styles.hint}>Nichts gefunden.</Text>
+            befehl || mehrdeutig ? null : <Text style={styles.hint}>Nichts gefunden.</Text>
           ) : (
             <ScrollView style={{ maxHeight: 420 }} keyboardShouldPersistTaps="handled">
               {hits.map((hit) => (
