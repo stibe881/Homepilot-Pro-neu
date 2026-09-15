@@ -905,7 +905,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // nicht in den Einstellungen stehenbleiben.
   // Ein Gemeinschaftsgerät ist ein Wandpanel - dafür ist es da. Der
   // Schalter in den Einstellungen bleibt für alle anderen Geräte.
-  usePanelMode(!!settings.panel || !!user?.shared);
+  const istWandpanel = !!settings.panel || !!user?.shared;
+  usePanelMode(istWandpanel);
 
   // Beim ersten Aufbau einmal nachsehen, ob man vor Kurzem woanders war.
   // Genau einmal: Danach ist jeder Wechsel eine Entscheidung, und die
@@ -2222,11 +2223,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     section === 'home' && room !== ALL_ROOMS && !editing,
     () => setRoom(ALL_ROOMS)
   );
-  // Wischen zwischen den Bereichen (Punkt 522) - nur auf dem Telefon,
-  // wo die Leiste unten liegt; mit Seitenleiste tippt man sie. Nicht im
-  // Zimmer (dort heisst Wischen «zurück») und nicht beim Anpassen.
+  // Wischen zwischen den Bereichen (Punkt 522) - auf dem Telefon, wo die
+  // Leiste unten liegt und man sie nicht ohne Umgreifen tippt, und am
+  // Wandpanel (Punkt 675): Dort steht die Seitenleiste zwar, aber ein fest
+  // montiertes iPad bedient man oft mit einer Hand von der Seite, an der
+  // man gerade steht - die Leiste liegt dann nicht zwingend darunter. Mit
+  // Seitenleiste in der Hand (kein Wandpanel) tippt man sie weiterhin.
+  // Nicht im Zimmer (dort heisst Wischen «zurück») und nicht beim Anpassen.
   const bereichWischen = useBereichWischen(
-    !hasRail && !editing && room === ALL_ROOMS,
+    (!hasRail || istWandpanel) && !editing && room === ALL_ROOMS,
     (richtung) => {
       const ziel = nachbarBereich(
         sichtbareBereiche(user?.capabilities ?? [], hiddenSections, eigenePrefs.reiterOrder),
