@@ -219,7 +219,7 @@ import { useGutscheinSumme } from '../hooks/useGutscheinSumme';
 import { useKachelnutzung } from '../hooks/useKachelnutzung';
 import { useRaumnutzung } from '../hooks/useRaumnutzung';
 import { Zielzeile, istGrill, zieleVon } from '../lib/grillziel';
-import { nachGewohnheit, zuletztVerwendet } from '../lib/kachellernen';
+import { gelernt, hinweisGelernt, nachGewohnheit, zuletztVerwendet } from '../lib/kachellernen';
 import { useSensorlinien } from '../hooks/useSensorlinien';
 import { useAusfall } from '../hooks/useAusfall';
 import { useZurueckWischen } from '../hooks/useZurueckWischen';
@@ -4169,6 +4169,28 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               Zum Ordnen die Suche leeren – in einer gefilterten Liste zu ziehen ergäbe eine
               Reihenfolge, die nur dazu passt.
             </Text>
+          ) : null}
+          {/* Info-Symbol bei automatischen Vorschlägen (Punkt 676 der
+              Werkbank): hinweisGelernt() gab es schon, nur ohne Stelle,
+              die es zeigt - eine umsortierte Startseite ohne Erklärung
+              hält man für Zufall, nicht für eine Regel. Nur, wenn
+              wirklich etwas gelernt ist, nicht schon bei der blossen
+              Tageszeit-Sortierung - und nur in der Ansicht, die `rest`
+              tatsächlich zeigt: In der nach Zimmer gruppierten Ansicht
+              zum Beispiel bleibt die Reihenfolge unberührt, dort wäre
+              der Hinweis eine falsche Auskunft. */}
+          {!editing &&
+          !grouped &&
+          !categorized &&
+          !roomTiles &&
+          abschnitt &&
+          gelernt(kachelZaehler, abschnitt.key, now.getTime()).length > 0 ? (
+            <View style={styles.gewohnheitZeile}>
+              <Ionicons name="information-circle-outline" size={13} color={colors.inkFaint} />
+              <Text style={[styles.sectionLabel, { marginTop: 0 }]}>
+                {hinweisGelernt(abschnitt)}
+              </Text>
+            </View>
           ) : null}
           {!grouped && !categorized && !roomTiles ? (
             <View style={styles.grid}>{cardWidth ? rest.map(renderCell) : null}</View>

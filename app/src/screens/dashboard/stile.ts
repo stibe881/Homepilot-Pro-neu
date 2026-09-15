@@ -645,6 +645,14 @@ export const makeStyles = (colors: Colors, typ: Typmass = type) =>
       textTransform: 'uppercase',
       marginTop: space.gap * 1.5,
     },
+    // Info-Symbol bei automatischen Vorschlägen (Punkt 676): Symbol und
+    // Satz in einer Zeile, statt den Satz allein stehen zu lassen.
+    gewohnheitZeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      marginTop: space.gap * 1.5,
+    },
     // Einstellungen auf dem iPad: schmales Menü links, Inhalt rechts.
     settingsSplit: { flexDirection: 'row', gap: 18, alignItems: 'flex-start' },
     settingsRail: { width: 230, gap: 2 },
