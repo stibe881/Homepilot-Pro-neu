@@ -23,7 +23,7 @@ vorkommt, prüft `scripts/werkbank.py` (und mit ihr der Prüflauf).
 | User Experience | 3 | 668, 671, 673 |
 | Gestaltung | 10 | 441, 446, 447, 449, 450, 679, 680, 682, 683, 685 |
 | Gutscheine | 8 | 453, 458, 688, 689, 691, 692, 694, 696 |
-| Abläufe | 10 | 468, 469, 697, 698, 699, 701, 702, 703, 705, 706 |
+| Abläufe | 9 | 468, 469, 697, 699, 701, 702, 703, 705, 706 |
 | Push-Benachrichtigungen | 12 | 473, 474, 476, 707, 708, 709, 710, 711, 713, 714, 715, 716 |
 | Alarmanlage | 7 | 483, 717, 718, 719, 721, 723, 725 |
 | Selbst gewählt | 21 | 492, 493, 494, 496, 499, 500, 501, 502, 726, 727, 728, 729, 730, 731, 732, 733, 735, 736, 737, 738, 739 |
@@ -475,7 +475,7 @@ Neunzehn weitere - 665, 666, 667, 669, 670, 672, 674, 675, 676, 677, 681,
 stehen im Archiv. Zwei weitere - 693 und 734, das
 Haushaltsbudget-Modul und die davon abhängige Verknüpfung mit den
 Gutscheinen - sind auf Wunsch gestrichen; die Nummern bleiben frei.
-Fünf weitere - 660, 662, 690, 700 und 704 - waren beim genaueren
+Sechs weitere - 660, 662, 690, 698, 700 und 704 - waren beim genaueren
 Hinsehen schon gebaut: Die Startseite zeigt bei fehlender Verbindung
 längst «Keine Verbindung - gezeigt wird der letzte bekannte Stand von
 HH:MM» (`DashboardScreen.tsx`, `cachedAt`), und `lib/familiecache.ts`s
@@ -484,12 +484,14 @@ im Rezeptbuch, bei der Brandmeldeanlage und den Verbindungen (660);
 «Meine Geräte» (`components/KontoBlatt.tsx`) listet die Sitzungen aus
 `core/sessions.py` bereits und erlaubt die Fernabmeldung je Gerät (662);
 der Haus-Rückblick zeigt verfallenes Gutschein-Guthaben neben dem
-Eingelösten seit Punkt 372/454 (`core/langzeit.py`, `bilanz()`); die
-Ablauf-Liste gruppiert und filtert schon nach `category`
+Eingelösten seit Punkt 372/454 (`core/langzeit.py`, `bilanz()`);
+`core/editversions.py` («Frühere Fassungen») deckt Abläufe schon
+gleichberechtigt mit Szenen ab, App-seitig im Editor eingebaut (698);
+die Ablauf-Liste gruppiert und filtert schon nach `category`
 (`AutomationsScreen.tsx`, `groupByCategory`); und der Hub erkennt
 wiederkehrende manuelle Muster aus dem Ereignisprotokoll längst
 (`core/suggest.py`, `/api/suggestions/scene`,
-`components/SceneSuggestion.tsx`) - alle fünf lange bevor diese Runde
+`components/SceneSuggestion.tsx`) - alle sechs lange bevor diese Runde
 entstand. Und ein Punkt - 678, Live-Kontrast-Check für frei wählbare
 Akzentfarben - fehlt ohne Ersatz: Eine solche Farbwahl gibt es gar
 nicht, das Erscheinungsbild ist eine feste Auswahl kuratierter Themen;
@@ -591,10 +593,6 @@ die bestehende Zeitraum-Simulation (`core/ablaufsimulation.py`, rechnet
 rückwirkend) und die Speicher-Prüfung (`core/ablaufpruefung.py`, prüft
 nur bekannte Bausteine): hier interaktiv auswerten, welche Aktionen
 *jetzt* liefen, ohne sie zu senden. Aufwand: mittel · Hub.
-
-**698. Versionsverlauf je Ablauf mit Rücksprung.** Vor dem Bauen prüfen,
-ob `core/editversions.py` das schon für Abläufe im Speziellen kann.
-Aufwand: mittel · Hub.
 
 **699. Konfliktprüfung beim Einrichten eines Ablaufs**, wenn er
 dieselbe Entität wie ein anderer aktiver Ablauf widersprüchlich
