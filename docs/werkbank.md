@@ -20,7 +20,7 @@ vorkommt, prüft `scripts/werkbank.py` (und mit ihr der Prüflauf).
 | --- | --- | --- |
 | App allgemein | 14 | 422, 424, 425, 427, 428, 429, 659, 660, 661, 662, 663, 664, 665, 667 |
 | Bedienung | 10 | 431, 432, 433, 434, 435, 436, 437, 438, 439, 440 |
-| User Experience | 6 | 668, 669, 671, 673, 675, 677 |
+| User Experience | 5 | 668, 669, 671, 673, 675 |
 | Gestaltung | 11 | 441, 446, 447, 449, 450, 679, 680, 682, 683, 685, 686 |
 | Gutscheine | 8 | 453, 458, 688, 689, 691, 692, 694, 696 |
 | Abläufe | 10 | 468, 469, 697, 698, 699, 701, 702, 703, 705, 706 |
@@ -470,8 +470,8 @@ fehlen darum hier bewusst: die «Was ist neu»-Anzeige nach einem Update
 (`components/WhatsNew.tsx`), «Bewegung reduzieren»
 (`hooks/useBewegungReduziert.ts`), die gestaffelte Alarm-Eskalation
 (Punkt 255) und die Wartungserinnerungen (`core/maintenance.py`).
-Dreizehn weitere - 666, 670, 672, 674, 676, 681, 684, 687, 695, 712, 720,
-722 und 724 - sind inzwischen gebaut und stehen im Archiv. Zwei weitere - 693 und 734, das
+Vierzehn weitere - 666, 670, 672, 674, 676, 677, 681, 684, 687, 695, 712,
+720, 722 und 724 - sind inzwischen gebaut und stehen im Archiv. Zwei weitere - 693 und 734, das
 Haushaltsbudget-Modul und die davon abhängige Verknüpfung mit den
 Gutscheinen - sind auf Wunsch gestrichen; die Nummern bleiben frei.
 Drei weitere - 690, 700 und 704 - waren beim genaueren Hinsehen schon
@@ -554,11 +554,6 @@ eigene Eingabefelder zeichnet. Nähe: 223. Aufwand: klein · App.
 **675. Wischgesten zwischen Hauptbereichen** (Übersicht ↔ Familie ↔
 Räume) für einhändige Bedienung am Wandpanel - ergänzt die Wischgeste
 zwischen Zimmern (Punkt 583). Aufwand: mittel · App.
-
-**677. Einheitliche, testbare Bestätigungsdialog-Texte.** Heute
-vermutlich pro Bildschirm unterschiedlich formuliert
-(`TuerRueckfrage.tsx`, einzelne `Alert.alert`) - eine gemeinsame reine
-Funktion vereinheitlicht sie. Aufwand: mittel · App.
 
 ### Gestaltung (679-686)
 

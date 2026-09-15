@@ -8715,3 +8715,26 @@ bliebe der Hinweis eine falsche Auskunft, weil dort eine andere
 Reihenfolge gilt.
 
 Stellen: `app/src/screens/DashboardScreen.tsx`, `app/src/screens/dashboard/stile.ts`
+
+### 677. Einheitliche, testbare Bestätigungsdialog-Texte ✓ erledigt (c010f6b)
+
+Jeder Bildschirm formulierte die Rückfrage vor dem zweiten Tipp bisher
+für sich: «Wirklich löschen» ohne Fragezeichen in `PersonenScreen.tsx`
+und `ClipArchiv.tsx`, daneben «Wirklich löschen?» mit Fragezeichen in
+`screens/family/bausteine.tsx` und `VacuumHome.tsx`; in
+`OverviewScreen.tsx` sogar zwei verschiedene Wörter für dieselbe
+Handlung im selben Bildschirm - «Sicher?» beim Öffnen der
+Wohnungstüre, «Wirklich öffnen?» beim Öffnen der Haustüre. In
+`components/entity/koerper.tsx` wich sogar die Bedienungshilfe vom
+sichtbaren Knopftext ab (mal mit, mal ohne Fragezeichen für dieselbe
+Türe).
+
+Die neue reine Funktion `zweiterTipp(basis, verb, aktiv)`
+(`lib/bestaetigung.ts`, getestet) liefert die normale Beschriftung,
+solange nichts bestätigt werden muss, und sonst immer «Wirklich
+\<Verb>?» - unabhängig davon, wie lang oder eigenwillig die normale
+Beschriftung ist (`Auf + öffnen`, `Aufnahme X löschen`). Sie ersetzt
+jetzt die verstreuten Ternaries an allen gefundenen Stellen, sichtbarer
+Text wie Bedienungshilfe-Text gehen durch dieselbe Funktion.
+
+Stellen: `app/src/lib/bestaetigung.ts`, `app/src/lib/bestaetigung.test.ts`, `app/src/screens/PersonenScreen.tsx`, `app/src/components/ClipArchiv.tsx`, `app/src/screens/OverviewScreen.tsx`, `app/src/screens/SettingsScreen.tsx`, `app/src/screens/family/bausteine.tsx`, `app/src/components/VacuumHome.tsx`, `app/src/components/entity/koerper.tsx`, `app/src/screens/dashboard/Grillvollbild.tsx`
