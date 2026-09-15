@@ -15,6 +15,7 @@ import { chipSchrift, fensterHoehe } from '../../lib/storenkachel';
 import { grillBauart, grillFoto, grillKurzinfo } from '../../lib/grillbild';
 import { fuehlerZeile } from '../../lib/grillziel';
 import { letzteOeffnung } from '../../lib/schlossprotokoll';
+import { zweiterTipp } from '../../lib/bestaetigung';
 import { mayOpenDirectly } from '../../lib/tuerbestaetigung';
 import { radius, trefferRand, useColors, useTyp } from '../../theme';
 import { Bar } from '../Bar';
@@ -137,9 +138,7 @@ export function LockBody({
               size={16}
               color={colors.onAccent}
             />
-            <Text style={styles.lockButtonText}>
-              {armed ? 'Wirklich öffnen?' : 'Auf + öffnen'}
-            </Text>
+            <Text style={styles.lockButtonText}>{zweiterTipp('Auf + öffnen', 'öffnen', armed)}</Text>
           </Pressable>
         ) : null}
       </View>
@@ -169,7 +168,7 @@ export function LockBody({
         onPress={() => oeffne('open_door')}
         onLongPress={langerDruck}
         accessibilityRole="button"
-        accessibilityLabel={armed ? 'Wirklich öffnen' : 'Tür öffnen'}
+        accessibilityLabel={zweiterTipp('Tür öffnen', 'öffnen', armed)}
         style={({ pressed }) => [
           styles.lockButton,
           armed && styles.lockButtonArmed,
@@ -182,7 +181,7 @@ export function LockBody({
           color={colors.onAccent}
         />
         <Text style={styles.lockButtonText}>
-          {opened ? 'Geöffnet' : armed ? 'Wirklich öffnen?' : 'Tür öffnen'}
+          {opened ? 'Geöffnet' : zweiterTipp('Tür öffnen', 'öffnen', armed)}
         </Text>
       </Pressable>
     </View>

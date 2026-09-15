@@ -10,6 +10,7 @@ import * as ImagePicker from 'expo-image-picker';
 
 import { Entity, HubSettings } from '../../api/types';
 import { Card } from '../../components/Card';
+import { zweiterTipp } from '../../lib/bestaetigung';
 import { Colors } from '../../theme';
 import { BERATUNGSNUMMERN, GABEN, NOTFALLNUMMERN, ROLLEN, WOCHENTAGE, rollenVon, toggleRolle, waehlbar } from '../../lib/familie';
 import { monatJahr, uhr } from '../../lib/format';
@@ -397,7 +398,7 @@ export function GroupedChecklist({
                 accessibilityLabel={`${groupNoun} löschen`}
               >
                 <Text style={[styles.resetText, { color: colors.danger }]}>
-                  {confirmDelete ? 'Wirklich löschen?' : 'Löschen'}
+                  {zweiterTipp('Löschen', 'löschen', confirmDelete)}
                 </Text>
               </Pressable>
             ) : null}

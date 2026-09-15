@@ -18,6 +18,7 @@ import { DraggableList } from '../components/DraggableList';
 import { Schalterzeile } from '../components/Schalterzeile';
 import { useOrtung } from '../hooks/useOrtung';
 import { ConnectionStatus } from '../hooks/useHub';
+import { zweiterTipp } from '../lib/bestaetigung';
 import { DICHTEN, type Dichte, lesen as dichteLesen } from '../lib/dichte';
 import { defaultHubUrl } from '../lib/origin';
 import { VERBINDUNGSWORT, verbindungsFarbe } from '../lib/verbindungsstand';
@@ -479,7 +480,7 @@ export function SettingsScreen({
                 logoutAll === 'ask' && { color: colors.danger },
               ]}
             >
-              {logoutAll === 'ask' ? 'Wirklich überall?' : 'Überall abmelden'}
+              {zweiterTipp('Überall abmelden', 'überall abmelden', logoutAll === 'ask')}
             </Text>
           </Pressable>
         </View>

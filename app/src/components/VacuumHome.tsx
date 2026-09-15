@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 
 import { CommandData, Entity } from '../api/types';
+import { zweiterTipp } from '../lib/bestaetigung';
 import {
   Box,
   VacuumRoom,
@@ -878,7 +879,7 @@ function CareDialog({
                           confirm === part.part && { color: colors.danger },
                         ]}
                       >
-                        {confirm === part.part ? 'Wirklich zurücksetzen?' : 'Zurücksetzen'}
+                        {zweiterTipp('Zurücksetzen', 'zurücksetzen', confirm === part.part)}
                       </Text>
                     </Pressable>
                   ) : null}
