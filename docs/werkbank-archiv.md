@@ -8433,3 +8433,30 @@ Nur in Szenen, nicht in Abläufen: `SceneDevices` (geteilt mit
 Frage.
 
 Stellen: `hub/homepilot/core/scenes.py`, `hub/homepilot/api/routes/automations.py`, `hub/tests/test_scenes.py`, `app/src/lib/szenen.ts`, `app/src/lib/szenen.test.ts`, `app/src/lib/szenenwarten.ts`, `app/src/lib/szenenwarten.test.ts`, `app/src/screens/automations/szenen-editor.tsx`, `app/src/screens/automations/szenen-editor.test.tsx`, `app/src/screens/AutomationsScreen.tsx`
+
+### 392. Kritische Meldungen als «critical alert» ✓ erledigt
+
+Vorbereitet war es seit Punkt 512: Eine Kategorie lässt sich auf
+«kritisch» stellen, die App fragt die Erlaubnis dafür schon beim
+Anmelden mit (`allowCriticalAlerts` in `usePushRegistration.ts`), und
+der Hub schickt den kritischen Ton, sobald `push.critical_alerts: true`
+in der `config.yaml` steht (`core/push.py`, `dringlichkeit()`). Gefehlt
+hat nur die Berechtigung von Apple selbst und ihr Niederschlag in der
+Hülle - ohne Letzteres verweigert iOS `interruptionLevel: "critical"`
+und `sound.critical`, egal was der Hub schickt.
+
+Apple hat den Antrag jetzt bestätigt («The issue you described should
+be resolved now»). Die Hülle bekommt darum das Entitlement
+`com.apple.developer.usernotifications.critical-alerts` - eine native
+Fähigkeit, darum steigt `runtimeVersion` im selben Commit von `8` auf
+`9` (Regel im Abschnitt «Ausliefern» dieser Datei: sonst bekäme eine
+nachgeladene Fassung eine Berechtigung versprochen, die in der
+installierten Hülle noch gar nicht steckt). Ein TestFlight-Build gehört
+unmittelbar hinterher.
+
+In der `config.yaml` des Hauses muss danach `push.critical_alerts:
+true` gesetzt werden (nicht Teil dieses Commits - sie liegt nicht im
+Repo) - erst dann nutzt der Hub die neue Berechtigung wirklich, für
+Rauch-/CO-Alarm, Wassermelder und die Einbruchmeldeanlage.
+
+Stellen: `app/app.json`
