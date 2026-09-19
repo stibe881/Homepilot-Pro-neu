@@ -70,6 +70,7 @@ LEISE: frozenset[str] = frozenset(
         "packlist",
         "weekahead",
         "morning",
+        "weekly_report",
         # Sieben Tage vor dem Verfall ist eine Viertelstunde egal.
         "vouchers",
         # «Livia ist um 15:42 heimgekommen» stimmt auch eine Viertelstunde
@@ -278,6 +279,46 @@ def stufe_von(category: str | None, stufen: dict[str, str] | None = None) -> str
     return stufe_standard(category)
 
 
+#: Wo der Testmodus einer Kategorie liegt (Punkt 712 der Werkbank) -
+#: fürs Haus wie die Stufen, nicht je Person: Ob eine Kategorie neu und
+#: ungeprüft ist, hängt nicht davon ab, wer gerade hinschaut.
+TEST_KEY = "push_test"
+
+
+def test_lesen(rows: Any) -> dict[str, str]:
+    """Kategorien im Testmodus: Kategorie → einzige Empfängerin (rein,
+    testbar). Punkt 712 der Werkbank.
+
+    Eine neue Kategorie ginge beim ersten Lauf sonst gleich ans ganze
+    Haus - mit ihren Knöpfen, ihrer Dringlichkeit, allem, was noch
+    niemand ausprobiert hat. Im Testmodus geht sie stattdessen nur an
+    die Person, die ihn eingeschaltet hat, bis dieselbe ihn wieder
+    ausschaltet (``test_setzen`` mit leerem Benutzernamen).
+    """
+    test: dict[str, str] = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        category = str(row.get("category") or "")
+        user = str(row.get("user") or "")
+        if known(category) and user:
+            test[category] = user
+    return test
+
+
+def test_setzen(rows: Any, category: str, user: str) -> list[dict[str, Any]]:
+    """Testmodus ein- oder ausschalten - leerer Benutzername heisst
+    frei für alle (rein, testbar)."""
+    uebrig = [
+        row
+        for row in rows or []
+        if isinstance(row, dict) and str(row.get("category") or "") != category
+    ]
+    if user:
+        uebrig.append({"category": category, "user": user})
+    return uebrig
+
+
 def dringlichkeit(
     category: str | None,
     stufen: dict[str, str] | None = None,
@@ -420,6 +461,7 @@ CATEGORIES: dict[str, str] = {
     "birthday": "Geburtstag heute",
     "packlist": "Packliste für morgen",
     "morning": "Morgen-Zusammenfassung",
+    "weekly_report": "Wöchentlicher Gesundheitscheck",
     "presence": "Ortung: schwacher Akku, Funkstille",
     # Punkt 626: Eine neue Anmeldung an deinem Konto - und für die
     # Besitzer: an einem Gast- oder Kinderkonto, oder eine gesperrte
@@ -464,7 +506,8 @@ GROUPS: list[tuple[str, tuple[str, ...]]] = [
     ("Familie", ("baby_cry", "birthday", "calendar", "departure", "medication",
                  "tasks", "shopping", "packlist", "weekahead", "presence",
                  "vouchers", "documents", "reminder")),
-    ("Betrieb", ("outage", "flattern", "device_down", "battery", "disk", "morning")),
+    ("Betrieb", ("outage", "flattern", "device_down", "battery", "disk", "morning",
+                 "weekly_report")),
     # Leer, und trotzdem hier: Unter dieser Überschrift stehen die
     # Nachrichten aus selbst gebauten Abläufen. Sie haben keinen festen
     # Schlüssel - jeder Ablauf, der meldet, bringt seinen eigenen mit
@@ -890,6 +933,10 @@ class PushService:
     # Person - das ist der Normalfall und war bis Punkt 471 der einzige.
     geraete_muted: dict[str, set[str]]
     geraete_ruhe: dict[str, dict[str, Any]]
+    # Kategorie → einzige Empfängerin, solange der Testmodus läuft
+    # (Punkt 712 der Werkbank). Fehlt eine Kategorie hier, gilt sie wie
+    # bisher für alle Empfänger.
+    test_kategorien: dict[str, str]
 
     def __init__(self, session_factory=None) -> None:
         self._devices: dict[str, PushDevice] = {}
@@ -913,6 +960,7 @@ class PushService:
         self.still = {}
         self.geraete_muted = {}
         self.geraete_ruhe = {}
+        self.test_kategorien = {}
         # Im Haus geänderte Dringlichkeiten (``stufen_lesen``) und ob
         # Apple critical alerts erlaubt - beides setzt der Hub aus der
         # Ablage und der config.yaml, derselbe Schnitt wie bei ``muted``.
@@ -1051,6 +1099,10 @@ class PushService:
         versehentlich übergeht. Dasselbe gilt seit Neuestem für die
         Ruhezeit und das Stillstellen auf Zeit: Auch sie gehören hierher
         und nicht an die dreissig Stellen, die melden.
+
+        Steht ``category`` im Testmodus (Punkt 712), gilt ``to`` nicht -
+        es geht ausschliesslich an die eine hinterlegte Person, ganz
+        gleich ob sonst «all», eine Rolle oder eine Gruppe gemeint war.
         """
         by_name = {user.name: user for user in users}
         gruppe = gruppe_aus(to)
@@ -1061,10 +1113,13 @@ class PushService:
                 gruppe, mitglieder = to, anwesend
             else:
                 to = "all"
+        tester = self.test_kategorien.get(category or "")
         tokens = []
         for device in self._devices.values():
             user = by_name.get(device.user)
             if user is None:
+                continue
+            if tester and device.user != tester:
                 continue
             # Abbestellt - je Gerät, wo es dort etwas Eigenes gibt
             # (Punkt 471), sonst wie bisher je Person.

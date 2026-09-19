@@ -3,6 +3,7 @@ import React, { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Colors, icon, radius, useColors } from '../theme';
+import { favoritenOrdnen } from '../lib/favoritenordnung';
 import { MAX_SCHRIFT } from '../lib/schrift';
 
 // Die Liste der Bereiche und ihre Namen wohnen in lib/bereiche.ts -
@@ -32,12 +33,23 @@ const ITEMS: {
 
 /** Welche Bereiche die Leiste für diese Person zeigt, in ihrer
  *  Reihenfolge (rein, testbar) - dieselbe Liste, aus der die Leiste
- *  ihre Knöpfe baut, und der die Wischgeste folgt (Punkt 522). */
-export function sichtbareBereiche(capabilities: string[] = [], hidden: Section[] = []): Section[] {
-  return ITEMS.filter(
+ *  ihre Knöpfe baut, und der die Wischgeste folgt (Punkt 522).
+ *
+ *  `reihenfolge` ist die selbst gezogene Reiter-Ordnung dieser Person
+ *  (Punkt 670 der Werkbank, hooks/usePrefs.ts: `reiterOrder`) - ohne sie
+ *  gilt die feste Reihenfolge aus `ITEMS`. Dieselbe Funktion wie bei den
+ *  Favoriten (lib/favoritenordnung.ts): Was in der Reihenfolge fehlt,
+ *  hängt sich hinten an, statt zu verschwinden. */
+export function sichtbareBereiche(
+  capabilities: string[] = [],
+  hidden: Section[] = [],
+  reihenfolge?: readonly string[] | null
+): Section[] {
+  const sichtbar = ITEMS.filter(
     (item) =>
       (!item.needs || capabilities.includes(item.needs)) && !hidden.includes(item.key)
-  ).map((item) => item.key);
+  ).map((item) => ({ id: item.key as string }));
+  return favoritenOrdnen(sichtbar, reihenfolge).map((eintrag) => eintrag.id as Section);
 }
 
 interface Props {
@@ -53,6 +65,10 @@ interface Props {
   /** Der Farbwinkel des Orts (Punkt 525): im Zimmer der des Raums,
    *  sonst der des Bereichs. Ohne Angabe färbt die Leiste nach Bereich. */
   ton?: number | null;
+  /** Die selbst gezogene Reihenfolge der Reiter (Punkt 670,
+   *  `eigenePrefs.reiterOrder`). Ohne Angabe die feste Reihenfolge aus
+   *  `ITEMS`. */
+  reihenfolge?: readonly string[] | null;
 }
 
 export function Rail({
@@ -63,13 +79,14 @@ export function Rail({
   capabilities = [],
   hidden = [],
   ton,
+  reihenfolge,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const items = ITEMS.filter(
-    (item) =>
-      (!item.needs || capabilities.includes(item.needs)) && !hidden.includes(item.key)
-  );
+  const byKey = new Map(ITEMS.map((item) => [item.key, item]));
+  const items = sichtbareBereiche(capabilities, hidden, reihenfolge)
+    .map((key) => byKey.get(key))
+    .filter((item): item is (typeof ITEMS)[number] => !!item);
   return (
     <View
       style={[

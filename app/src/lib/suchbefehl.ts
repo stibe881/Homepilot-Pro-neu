@@ -61,13 +61,18 @@ function passt(entity: Entity, woerter: string[]): boolean {
   return woerter.every((wort) => heuhaufen.includes(wort));
 }
 
+interface Grundlage {
+  kandidaten: Entity[];
+  verb: Verb | null;
+  prozent: number | null;
+}
+
 /**
- * Der Befehl hinter einem getippten Satz (rein, testbar).
- *
- * null heisst: Das war eine Suche, keine Ansage – dann zeigt das Feld
- * wie bisher nur Treffer.
+ * Kandidaten, Verb und Prozentzahl aus dem Text (rein, testbar) - die
+ * gemeinsame Grundlage für den einzelnen Befehl und für die Mehrdeutigkeit.
+ * null heisst: Das war eine Suche, keine Ansage.
  */
-export function befehlAusText(text: string, entities: Entity[]): Suchbefehl | null {
+function grundlage(text: string, entities: Entity[]): Grundlage | null {
   const woerter = text
     .toLowerCase()
     .split(/\s+/)
@@ -76,9 +81,8 @@ export function befehlAusText(text: string, entities: Entity[]): Suchbefehl | nu
   if (woerter.length < 2) return null;
 
   const prozent = prozentAus(woerter);
-  const verb = VERBEN.find((eintrag) =>
-    woerter.some((wort) => eintrag.woerter.includes(wort))
-  );
+  const verb =
+    VERBEN.find((eintrag) => woerter.some((wort) => eintrag.woerter.includes(wort))) ?? null;
   if (!verb && prozent === null) return null;
 
   // Was übrig bleibt, beschreibt das Gerät.
@@ -94,36 +98,92 @@ export function befehlAusText(text: string, entities: Entity[]): Suchbefehl | nu
     .filter((entity) => passt(entity, rest));
   if (kandidaten.length === 0) return null;
 
+  return { kandidaten, verb, prozent };
+}
+
+/** Der Prozent-Befehl für ein einzelnes Gerät, falls es dazu passt (rein, testbar). */
+function prozentBefehl(entity: Entity, prozent: number): Suchbefehl | null {
+  if (entity.commands.includes('set_brightness')) {
+    return {
+      entityId: entity.id,
+      command: 'set_brightness',
+      data: { brightness: prozent },
+      satz: `${entity.name} auf ${prozent} %`,
+    };
+  }
+  if (entity.commands.includes('set_position')) {
+    return {
+      entityId: entity.id,
+      command: 'set_position',
+      data: { position: prozent },
+      satz: `${entity.name} auf ${prozent} %`,
+    };
+  }
+  return null;
+}
+
+/**
+ * Der Befehl hinter einem getippten Satz (rein, testbar).
+ *
+ * null heisst entweder: Das war eine Suche, keine Ansage - dann zeigt das
+ * Feld wie bisher nur Treffer. Oder: Mehrere Geräte passen gleichermassen
+ * (siehe `mehrdeutigeKandidaten`) - dann entscheidet nicht diese Funktion
+ * für eines von ihnen.
+ */
+export function befehlAusText(text: string, entities: Entity[]): Suchbefehl | null {
+  const basis = grundlage(text, entities);
+  if (!basis) return null;
+  const { kandidaten, verb, prozent } = basis;
+
   // Eine Prozentzahl meint die Helligkeit bzw. die Storenhöhe - und sie
   // sticht das Verb: «storen auf 40» ist eine Position, kein «hoch».
-  for (const entity of kandidaten) {
-    if (prozent !== null && entity.commands.includes('set_brightness')) {
-      return {
-        entityId: entity.id,
-        command: 'set_brightness',
-        data: { brightness: prozent },
-        satz: `${entity.name} auf ${prozent} %`,
-      };
-    }
-    if (prozent !== null && entity.commands.includes('set_position')) {
-      return {
-        entityId: entity.id,
-        command: 'set_position',
-        data: { position: prozent },
-        satz: `${entity.name} auf ${prozent} %`,
-      };
-    }
+  if (prozent !== null) {
+    const treffer = kandidaten.filter((entity) => prozentBefehl(entity, prozent) !== null);
+    if (treffer.length === 1) return prozentBefehl(treffer[0], prozent);
+    if (treffer.length > 1) return null;
   }
   if (!verb) return null;
 
-  // Das erste Gerät, das den Befehl überhaupt kann: Eine Lampe kennt
-  // kein «hoch», eine Store kein «einschalten» - so landet «hoch» bei
-  // der Store, auch wenn die Lampe im Namen früher käme.
-  const treffer = kandidaten.find((entity) => entity.commands.includes(verb.command));
-  if (!treffer) return null;
+  const treffer = kandidaten.filter((entity) => entity.commands.includes(verb.command));
+  if (treffer.length !== 1) return null;
+  const entity = treffer[0];
   return {
-    entityId: treffer.id,
+    entityId: entity.id,
     command: verb.command,
-    satz: `${treffer.name} ${verb.wort}`,
+    satz: `${entity.name} ${verb.wort}`,
   };
+}
+
+/**
+ * Mehrere Geräte passen zum getippten Namen und können denselben Befehl
+ * (Punkt 669 der Werkbank): «Bürolicht oder Gästezimmer?» statt der
+ * ersten stillen Übereinstimmung, die `befehlAusText` früher traf, sobald
+ * ein Name zu mehr als einer Entität passte - z. B. zwei Lampen, deren
+ * Namen beide «Licht» und den gesuchten Raum enthalten.
+ *
+ * `null`, wenn es gar keine oder nur eine Übereinstimmung gibt - dann
+ * sagt schon `befehlAusText` (oder die gewöhnliche Suche), was gilt.
+ */
+export function mehrdeutigeKandidaten(text: string, entities: Entity[]): Suchbefehl[] | null {
+  const basis = grundlage(text, entities);
+  if (!basis) return null;
+  const { kandidaten, verb, prozent } = basis;
+
+  if (prozent !== null) {
+    const treffer = kandidaten
+      .map((entity) => prozentBefehl(entity, prozent))
+      .filter((befehl): befehl is Suchbefehl => befehl !== null);
+    if (treffer.length > 1) return treffer;
+  }
+  if (verb) {
+    const treffer = kandidaten
+      .filter((entity) => entity.commands.includes(verb.command))
+      .map((entity) => ({
+        entityId: entity.id,
+        command: verb.command,
+        satz: `${entity.name} ${verb.wort}`,
+      }));
+    if (treffer.length > 1) return treffer;
+  }
+  return null;
 }

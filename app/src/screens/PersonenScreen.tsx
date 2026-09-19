@@ -37,6 +37,7 @@ import {
   sortiert,
 } from '../lib/personen';
 import { fundstuecke } from '../lib/fundbuero';
+import { zweiterTipp } from '../lib/bestaetigung';
 import { Colors, radius, space, useColors } from '../theme';
 
 /**
@@ -561,11 +562,11 @@ export function PersonenScreen({
                         onPress={() => gastEntfernen(person)}
                         disabled={zugangLaeuft}
                         accessibilityRole="button"
-                        accessibilityLabel={
+                        accessibilityLabel={zweiterTipp(
+                          `Gast-Zugang für ${person.name} löschen`,
+                          'löschen',
                           gastLoeschen
-                            ? `Gast-Zugang für ${person.name} wirklich löschen`
-                            : `Gast-Zugang für ${person.name} löschen`
-                        }
+                        )}
                         style={({ pressed }) => [
                           styles.loeschKnopf,
                           { flex: 1 },
@@ -574,7 +575,7 @@ export function PersonenScreen({
                       >
                         <Ionicons name="trash-outline" size={16} color={colors.danger} />
                         <Text style={styles.loeschKnopfText}>
-                          {gastLoeschen ? 'Wirklich löschen' : 'Löschen'}
+                          {zweiterTipp('Löschen', 'löschen', gastLoeschen)}
                         </Text>
                       </Pressable>
                     </View>

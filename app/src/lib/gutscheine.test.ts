@@ -6,7 +6,11 @@
  */
 import {
   Gutschein,
+  ablaufFarbe,
+  ablaufNaehe,
   ablaufSatz,
+  doppelterCode,
+  farbMischung,
   archivieren,
   archivListe,
   bilanzSatz,
@@ -163,6 +167,50 @@ describe('ablaufSatz', () => {
     expect(ablaufSatz('2026-09-20', HEUTE)).toBe('Läuft in 13 Tagen ab');
     expect(ablaufSatz('2026-09-07', HEUTE)).toBe('Läuft heute ab');
     expect(ablaufSatz('2026-09-08', HEUTE)).toBe('Läuft morgen ab');
+  });
+});
+
+describe('ablaufNaehe', () => {
+  test('0 am ersten Tag der Frist, 1 am letzten', () => {
+    expect(ablaufNaehe(30)).toBe(0);
+    expect(ablaufNaehe(0)).toBe(1);
+  });
+  test('wächst dazwischen linear', () => {
+    expect(ablaufNaehe(15)).toBeCloseTo(0.5);
+  });
+  test('klemmt ausserhalb der Frist', () => {
+    expect(ablaufNaehe(90)).toBe(0);
+    expect(ablaufNaehe(-5)).toBe(1);
+  });
+});
+
+describe('farbMischung', () => {
+  test('reine Endfarben an beiden Rändern', () => {
+    expect(farbMischung('#F5A524', '#E5484D', 0)).toBe('rgb(245, 165, 36)');
+    expect(farbMischung('#F5A524', '#E5484D', 1)).toBe('rgb(229, 72, 77)');
+  });
+  test('dazwischen gemischt', () => {
+    expect(farbMischung('#000000', '#FFFFFF', 0.5)).toBe('rgb(128, 128, 128)');
+  });
+});
+
+describe('ablaufFarbe', () => {
+  const farben = { normal: '#111111', abgelaufen: '#999999', warn: '#F5A524', kritisch: '#E5484D' };
+
+  test('abgelaufen bleibt gedämpft, unabhängig vom Datum', () => {
+    expect(ablaufFarbe('2026-01-01', HEUTE, farben)).toBe('#999999');
+  });
+  test('weit weg bleibt die normale Farbe', () => {
+    expect(ablaufFarbe('2030-06-30', HEUTE, farben)).toBe(farben.normal);
+    expect(ablaufFarbe(null, HEUTE, farben)).toBe(farben.normal);
+  });
+  test('bald abgelaufene Gutscheine sind nicht alle gleich orange', () => {
+    // Zwei Gutscheine, beide «bald» - der näher dran ist röter.
+    const weitBald = ablaufFarbe('2026-10-06', HEUTE, farben); // 29 Tage
+    const knappBald = ablaufFarbe('2026-09-08', HEUTE, farben); // 1 Tag
+    expect(weitBald).not.toBe(knappBald);
+    expect(weitBald).toBe(farbMischung(farben.warn, farben.kritisch, ablaufNaehe(29)));
+    expect(knappBald).toBe(farbMischung(farben.warn, farben.kritisch, ablaufNaehe(1)));
   });
 });
 
@@ -1007,6 +1055,38 @@ describe('Dieselbe Karte zweimal', () => {
     expect(doppelteSatz([])).toBeNull();
     expect(doppelteSatz([mach({ shop: 'Coop' })])).toContain('Coop');
     expect(doppelteSatz([mach({}), mach({})])).toContain('2 Gutscheine');
+  });
+
+  describe('doppelterCode (Punkt 695: schon beim Scannen)', () => {
+    it('findet den Treffer über Schreibweisen hinweg, ohne Laden oder Betrag zu kennen', () => {
+      const liste = [mach({ id: '1', shop: 'Brack', number: 'XY-9', codes: [{ value: 'XY-9' }] })];
+      expect(doppelterCode(liste, 'xy-9')?.id).toBe('1');
+      expect(doppelterCode(liste, ' XY-9 ')?.id).toBe('1');
+    });
+
+    it('findet ihn auch über die Liste weiterer Codes einer Zehnerkarte', () => {
+      const liste = [mach({ id: '1', number: 'A', codes: [{ value: 'A' }, { value: 'B' }] })];
+      expect(doppelterCode(liste, 'B')?.id).toBe('1');
+    });
+
+    it('ein leerer Code findet nie etwas', () => {
+      const liste = [mach({ id: '1', number: 'A' })];
+      expect(doppelterCode(liste, '')).toBeNull();
+      expect(doppelterCode(liste, '   ')).toBeNull();
+    });
+
+    it('übergeht sich selbst und das Archiv', () => {
+      const liste = [
+        mach({ id: '1', number: 'A' }),
+        mach({ id: '2', number: 'B', archived: true }),
+      ];
+      expect(doppelterCode(liste, 'A', '1')).toBeNull();
+      expect(doppelterCode(liste, 'B')).toBeNull();
+    });
+
+    it('ein unbekannter Code findet nichts', () => {
+      expect(doppelterCode([mach({ id: '1', number: 'A' })], 'Z')).toBeNull();
+    });
   });
 });
 

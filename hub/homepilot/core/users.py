@@ -457,6 +457,14 @@ class User:
     # Nachrichten bekommt es sehr wohl: An der Wand im Flur ist die
     # Meldung «Haustüre offen» genau am richtigen Ort.
     shared: bool = False
+    # Testmodus (Punkt 665 der Werkbank): Befehle dieser Person kommen an
+    # - Rückmeldung, Zugriffsprotokoll, alles wie sonst -, erreichen aber
+    # nie die Integration. Gedacht für den Babysitter am ersten Abend und
+    # für ein neues Konto, das sich selbst zeigen soll, wie die App
+    # funktioniert, ohne dass draussen wirklich ein Licht angeht. Kein
+    # Zustand wird vorgetäuscht: Wer schaltet, sieht schlicht keine
+    # Änderung - genau das sagt «Testmodus», nicht ein Haus, das lügt.
+    sandbox: bool = False
     # Gesalzener Hashwert des Passworts vor den persönlichen Bereichen
     # (siehe core/bereich.py). Leer = kein Riegel. Steht hier statt in
     # einer eigenen Tabelle, weil es zum Benutzer gehört und mit ihm
@@ -577,6 +585,7 @@ class User:
             "simple_rooms": kid_rooms(self.role, self.simple_rooms, self.rooms),
             "rooms": list(self.rooms),
             "shared": self.shared,
+            "sandbox": self.sandbox,
             # Nur die Tatsache, nie der Wert: Die App muss wissen, ob sie
             # fragen soll, nicht wonach.
             "area_locked": bool(self.area_lock),
@@ -761,6 +770,7 @@ class UserRegistry:
         simple_rooms: list[str] | None = None,
         rooms: list[str] | None = None,
         shared: bool | None = None,
+        sandbox: bool | None = None,
         area_password: str | None = None,
         role: str | None = None,
     ) -> User:
@@ -804,6 +814,8 @@ class UserRegistry:
             user.rooms = [str(r) for r in rooms]
         if shared is not None:
             user.shared = bool(shared)
+        if sandbox is not None:
+            user.sandbox = bool(sandbox)
         if area_password is not None:
             # Leerer Wert nimmt den Riegel weg - anders käme man nie wieder
             # davon los, ohne den Benutzer neu anzulegen.
@@ -917,6 +929,7 @@ def parse_users(raw: list[dict[str, Any]], legacy_token: str | None) -> UserRegi
                 simple_rooms=[str(r) for r in simple_rooms],
                 rooms=[str(r) for r in rooms],
                 shared=bool(entry.get("shared")),
+                sandbox=bool(entry.get("sandbox")),
                 area_lock={
                     str(k): str(v)
                     for k, v in (entry.get("area_lock") or {}).items()

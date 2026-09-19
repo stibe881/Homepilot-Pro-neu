@@ -22,6 +22,7 @@ import { TagesZeile } from '../components/TagesZeile';
 import { VacuumHome } from '../components/VacuumHome';
 import { Tastaturplatz } from '../components/Tastaturplatz';
 import { useTakt } from '../hooks/useTakt';
+import { zweiterTipp } from '../lib/bestaetigung';
 import { dauer } from '../lib/langdruck';
 import { FAVORIT_LUECKE, FAVORIT_MINDEST, kachelBreite, spalten } from '../lib/raster';
 import { schnellposten } from '../lib/schnellordnung';
@@ -559,7 +560,7 @@ export function OverviewScreen({
             />
             <Action
               styles={styles}
-              label={confirm === 'flat' ? 'Sicher?' : 'Auf + öffnen'}
+              label={zweiterTipp('Auf + öffnen', 'öffnen', confirm === 'flat')}
               accent={confirm === 'flat'}
               onPress={() =>
                 confirmThen('flat', 'unlatch', () =>
@@ -767,7 +768,7 @@ export function OverviewScreen({
           ) : null}
           <Action
             styles={styles}
-            label={confirm === 'front' ? 'Wirklich öffnen?' : 'Öffnen'}
+            label={zweiterTipp('Öffnen', 'öffnen', confirm === 'front')}
             accent={confirm === 'front'}
             onPress={() =>
               confirmThen('front', 'open_door', () =>

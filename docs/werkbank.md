@@ -10,7 +10,7 @@ sucht.
 **Die Nummern bleiben, wo sie sind.** Nie umnummerieren, auch nicht bei
 Erledigtem oder Gestrichenem: Ein späterer «Punkt 273» zeigte sonst auf
 etwas anderes als gemeint. Neues bekommt die nächste freie Nummer -
-zurzeit **644**. Ist ein Punkt gebaut, wandert er samt Begründung ins
+zurzeit **740**. Ist ein Punkt gebaut, wandert er samt Begründung ins
 Archiv; er wird nicht hier abgehakt. Dass jede Nummer genau einmal
 vorkommt, prüft `scripts/werkbank.py` (und mit ihr der Prüflauf).
 
@@ -18,14 +18,15 @@ vorkommt, prüft `scripts/werkbank.py` (und mit ihr der Prüflauf).
 
 | Bereich | Offen | Punkte |
 | --- | --- | --- |
-| App allgemein | 6 | 422, 424, 425, 427, 428, 429 |
+| App allgemein | 10 | 422, 424, 425, 427, 428, 429, 659, 661, 663, 664 |
 | Bedienung | 10 | 431, 432, 433, 434, 435, 436, 437, 438, 439, 440 |
-| Gestaltung | 5 | 441, 446, 447, 449, 450 |
-| Gutscheine | 2 | 453, 458 |
-| Abläufe | 2 | 468, 469 |
-| Push-Benachrichtigungen | 3 | 473, 474, 476 |
-| Alarmanlage | 1 | 483 |
-| Selbst gewählt | 8 | 492, 493, 494, 496, 499, 500, 501, 502 |
+| User Experience | 3 | 668, 671, 673 |
+| Gestaltung | 10 | 441, 446, 447, 449, 450, 679, 680, 682, 683, 685 |
+| Gutscheine | 8 | 453, 458, 688, 689, 691, 692, 694, 696 |
+| Abläufe | 9 | 468, 469, 697, 699, 701, 702, 703, 705, 706 |
+| Push-Benachrichtigungen | 12 | 473, 474, 476, 707, 708, 709, 710, 711, 713, 714, 715, 716 |
+| Alarmanlage | 7 | 483, 717, 718, 719, 721, 723, 725 |
+| Selbst gewählt | 21 | 492, 493, 494, 496, 499, 500, 501, 502, 726, 727, 728, 729, 730, 731, 732, 733, 735, 736, 737, 738, 739 |
 | Aus früheren Runden | 4 | 223, 237, 268, 353 |
 | Nützlich im Alltag | 1 | 588 |
 | App und Hub | 1 | 589 |
@@ -459,3 +460,270 @@ hat um 14:02 geklingelt» am Abend beantwortbar ist. Nähe: 215, 506, 518,
 `hub/homepilot/core/watchdog.py`, `hub/homepilot/core/kamera.py`,
 `hub/homepilot/integrations/alarm.py`, `hub/homepilot/core/pushverlauf.py`.
 Aufwand: klein · Hub.
+## Einundachtzig Vorschläge (659–739)
+
+Auf Zuruf erstellt, September 2026: zehn je Bereich für App allgemein,
+User Experience, Gestaltung, Gutscheine, Abläufe, Push-Benachrichtigungen
+und Alarmanlage, dazu fünfzehn selbst gewählte - dieselbe Form wie die
+Runde 421-505. Vier davon standen beim Gegenprüfen schon im Code und
+fehlen darum hier bewusst: die «Was ist neu»-Anzeige nach einem Update
+(`components/WhatsNew.tsx`), «Bewegung reduzieren»
+(`hooks/useBewegungReduziert.ts`), die gestaffelte Alarm-Eskalation
+(Punkt 255) und die Wartungserinnerungen (`core/maintenance.py`).
+Neunzehn weitere - 665, 666, 667, 669, 670, 672, 674, 675, 676, 677, 681,
+684, 686, 687, 695, 712, 720, 722 und 724 - sind inzwischen gebaut und
+stehen im Archiv. Zwei weitere - 693 und 734, das
+Haushaltsbudget-Modul und die davon abhängige Verknüpfung mit den
+Gutscheinen - sind auf Wunsch gestrichen; die Nummern bleiben frei.
+Sechs weitere - 660, 662, 690, 698, 700 und 704 - waren beim genaueren
+Hinsehen schon gebaut: Die Startseite zeigt bei fehlender Verbindung
+längst «Keine Verbindung - gezeigt wird der letzte bekannte Stand von
+HH:MM» (`DashboardScreen.tsx`, `cachedAt`), und `lib/familiecache.ts`s
+eigene `standText()` liefert dieselbe Auskunft auf der Familienseite,
+im Rezeptbuch, bei der Brandmeldeanlage und den Verbindungen (660);
+«Meine Geräte» (`components/KontoBlatt.tsx`) listet die Sitzungen aus
+`core/sessions.py` bereits und erlaubt die Fernabmeldung je Gerät (662);
+der Haus-Rückblick zeigt verfallenes Gutschein-Guthaben neben dem
+Eingelösten seit Punkt 372/454 (`core/langzeit.py`, `bilanz()`);
+`core/editversions.py` («Frühere Fassungen») deckt Abläufe schon
+gleichberechtigt mit Szenen ab, App-seitig im Editor eingebaut (698);
+die Ablauf-Liste gruppiert und filtert schon nach `category`
+(`AutomationsScreen.tsx`, `groupByCategory`); und der Hub erkennt
+wiederkehrende manuelle Muster aus dem Ereignisprotokoll längst
+(`core/suggest.py`, `/api/suggestions/scene`,
+`components/SceneSuggestion.tsx`) - alle sechs lange bevor diese Runde
+entstand. Und ein Punkt - 678, Live-Kontrast-Check für frei wählbare
+Akzentfarben - fehlt ohne Ersatz: Eine solche Farbwahl gibt es gar
+nicht, das Erscheinungsbild ist eine feste Auswahl kuratierter Themen;
+`Farbraster`/`ColorRow` wählen die Farbe einer Lampe, nicht die der
+Oberfläche, und der bestehende WCAG-Check in `lib/kontrast.ts` prüft
+die feste Palette bereits im Testlauf.
+
+Kurz gehalten, damit die Liste lesbar bleibt (Punkt 505) - die
+ausführliche Abwägung je Punkt, falls es sie gab, steht dann im Archiv.
+
+### App allgemein (659-667)
+
+**659. Onboarding für ein neues Familienmitglied.** Die Einführung
+(`lib/einfuehrung.ts`) erklärt die Leiste - der Schritt davor fehlt:
+Rolle, Favoriten, Benachrichtigungen in einem Assistenten, anknüpfend an
+die Einladung (`core/einladung.py`). Aufwand: mittel · App+Hub.
+
+**661. Ein-Klick-Export der eigenen Daten als ZIP.** Gutscheine,
+Ämtli-Verlauf, Rezepte - `core/familienbuch.py` exportiert Familiendaten
+bereits als HTML-Seite, hier fehlt der ZIP-Weg für die eigenen Daten
+einer einzelnen Person. Aufwand: mittel · Hub+App.
+
+**663. Erreichbarkeitstest des Hubs von aussen.** Regelmässiger
+Selbsttest von ausserhalb des Haus-WLANs (VPN/Portfreigabe), mit Push
+bei Statusänderung - fehlt heute ganz. Aufwand: mittel · Hub.
+
+**664. Siri-Kurzbefehle/App Intents.** Für die Aktionen aus
+`lib/schnellaktionen.ts` (dieselbe Liste wie Widget und App-Symbol), als
+eigenes natives Modul - `runtimeVersion` und TestFlight-Build im selben
+Commit. Aufwand: gross · App (nativ).
+
+### User Experience (668-677)
+
+**668. Mehrstufiges Undo (letzte 5) für kritische Listen.**
+`lib/rueckgaengig.ts` kennt nur die letzte Schaltung; ein kurzer Stapel
+für Familienlisten, Abläufe, Gutscheine erweitert das. Nähe: 432.
+Aufwand: mittel · App+Hub.
+
+**671. App-weiter «Fokus»-Modus** (Badges/Vorschläge stumm während
+eines Meetings), unabhängig von den Push-Ruhezeiten (`core/pushruhe.py`).
+Aufwand: mittel · App+Hub.
+
+**673. Diktierfunktion für Textfelder.** Das native Diktat-Mikrofon der
+Tastatur nicht blockieren, plus eigenes Mikrofon-Symbol dort, wo die App
+eigene Eingabefelder zeichnet. Nähe: 223. Aufwand: klein · App.
+
+### Gestaltung (679-686)
+
+**679. Abschaltbare, dezente saisonale Farbthemen** statt eines fixen
+Jahresdesigns - eine leise Verschiebung in Akzentton/Kartenrand,
+abschaltbar. Aufwand: mittel · App.
+
+**680. Eigene kleine Illustrationen je Modul für Leerzustände** statt
+generischer Icons in `components/Leerzustand.tsx`. Nähe: 447. Aufwand:
+mittel · App.
+
+**682. Echtes Mehrspalten-Layout für Listen im iPad-Querformat**
+(Gutscheine, Rezepte) statt einer breiter skalierten Telefon-Spalte.
+Aufwand: mittel · App.
+
+**683. Sichtbarer «Test-Modus»-Rahmen**, solange ein Trockenlauf (Punkt
+697) scharf gegen echte Geräte liefe, damit niemand den Testeffekt für
+echt hält. Aufwand: klein · App.
+
+**685. Wählbare Kachelgrössen (klein/mittel/gross)** auf der Übersicht,
+nicht nur die Reihenfolge aus `lib/favoritenordnung.ts`. Aufwand: gross
+· App.
+
+### Gutscheine (688-696)
+
+**688. Hinweis beim Einkaufsplanen bei offenem Gutschein** zum
+passenden Laden - früher als der bestehende `core/gutscheinort.py`, der
+sich erst vor Ort meldet. Aufwand: mittel · Hub+App.
+
+**689. «Verschenken»-Export (PDF/Bild mit Betrag & Code)** für
+Gutscheine an Personen ausserhalb der Familie, ohne Zugriffsrechte zu
+vergeben. Aufwand: mittel · Hub+App.
+
+**691. Wiederkehrende Gutscheine als Vorlage** (z. B. jährlicher
+Arbeitgeber-Gutschein), die der Hub rechtzeitig als «erwartet»
+markiert. Aufwand: mittel · Hub.
+
+**692. Kombination Kalender + Bestand:** «Geburtstag von X in 2 Wochen -
+passender Gutschein vorhanden?», mit `core/terminkontext.py`. Nähe: 453.
+Aufwand: mittel · Hub.
+
+**694. «Bald abgelaufen» nach Nähe zur Route sortieren** statt reiner
+Datumsliste, mit `core/gutscheinort.py`/`core/losfahren.py`. Nähe: 458.
+Aufwand: mittel · Hub+App.
+
+**696. Kategorien mit eigenem Budget-Ziel** («Restaurant-Gutscheine bis
+Jahresende aufbrauchen») mit Fortschrittsbalken. Aufwand: mittel ·
+Hub+App.
+
+### Abläufe (697-706)
+
+**697. Trockenlauf/Simulator gegen den aktuellen Zustand.** Anders als
+die bestehende Zeitraum-Simulation (`core/ablaufsimulation.py`, rechnet
+rückwirkend) und die Speicher-Prüfung (`core/ablaufpruefung.py`, prüft
+nur bekannte Bausteine): hier interaktiv auswerten, welche Aktionen
+*jetzt* liefen, ohne sie zu senden. Aufwand: mittel · Hub.
+
+**699. Konfliktprüfung beim Einrichten eines Ablaufs**, wenn er
+dieselbe Entität wie ein anderer aktiver Ablauf widersprüchlich
+ansteuert. `core/konflikte.py` prüft bisher nur zur Laufzeit. Aufwand:
+mittel · Hub.
+
+**701. Vorab-Push bei potenziell störenden Abläufen** («in 5 Min.
+Nachtmodus - abbrechen?»); braucht Punkt 707 für den Abbruch-Knopf.
+Nähe: 707. Aufwand: mittel · Hub.
+
+**702. Gemeinsamer Variablenspeicher zwischen Abläufen** ohne Umweg
+über Platzhalter-Entitäten (`core/platzhalter.py`). Aufwand: mittel ·
+Hub.
+
+**703. Geo-Fence-Trigger kombiniert mit Personen UND Kalender**
+(«alle weg UND niemand für 2h erwartet»), mit `core/terminkontext.py`.
+Aufwand: mittel · Hub.
+
+**705. Bedingungstyp für dynamische Stromtarife**, als Vorbereitung
+ohne Anbindung - Punkt 229 zum selben Thema wurde einmal gestrichen.
+Aufwand: gross · Hub.
+
+**706. Ersatzaktion bei Fehlschlag eines Kettenschritts.** Punkt 465
+hat die stille Seite behoben (Push bei Fehlschlag) - die Kette bricht
+danach weiterhin ab, statt einen Alternativschritt zu fahren. Nähe: 465.
+Aufwand: mittel · Hub.
+
+### Push-Benachrichtigungen (707-716)
+
+**707. Interaktive Antwortknöpfe, auch für heikle Aktionen.**
+`lib/mitteilungsknoepfe.ts` erlaubt bewusst nur harmlose Knöpfe
+(«Später», «Erledigt») - für «Scharf schalten» bräuchte es einen
+biometrisch abgesicherten dritten Typ, nicht einfach die Regel brechen.
+Aufwand: gross · App (nativ) + Hub.
+
+**708. Eskalation an eine zweite Person bei ungelesener kritischer
+Push.** Andere Art Eskalation als die der Alarmanlage (Punkt 255).
+Aufwand: mittel · Hub.
+
+**709. Optionale abendliche Tages-Zusammenfassung** für alle
+Kategorien - die freiwillige Variante von Punkt 474 (Sammlung während
+der Ruhezeit). Nähe: 474. Aufwand: mittel · Hub.
+
+**710. Automatische Dämpfung nach Standort/Kalender** («bei der
+Arbeit») statt fixer Ruhezeiten je Wochentag. Aufwand: mittel · Hub.
+
+**711. Diskrete Sperrbildschirm-Vorschau je Kategorie** («Neue
+Meldung» statt Klartext) für sensible Inhalte, z. B. mit Kamerabild
+(Punkt 618). Aufwand: mittel · App+Hub.
+
+**713. Zustellstatistik je Kategorie** (Erfolgsquote 30 Tage) aus
+`core/pushgeraet.py`, um tote Token früh zu erkennen. Aufwand: mittel ·
+Hub.
+
+**714. Dauerhafte Speicherung des Push-Bilds** im Posteingang statt nur
+so lange wie ein Live-Schnappschuss. Nähe: 618. Aufwand: mittel · Hub.
+
+**715. «Höchstens 1×/Stunde gesammelt»** als Option für niedrigpriore
+Kategorien, ergänzt `core/pushbuendel.py` (bündelt heute je Minute).
+Aufwand: klein · Hub.
+
+**716. Durchsage kritischer Push-Kategorien im Raum**, wählbar je
+Kategorie, über `core/say.py`. Aufwand: mittel · Hub.
+
+### Alarmanlage (717-725)
+
+**717. Befristeter Gastzugriff auf Live-Bild bei Alarmauslösung** für
+eine Vertrauensperson, ohne volle App-Rechte. Nähe: `core/guestpass.py`.
+Aufwand: gross · Hub+App.
+
+**718. Sturmwarnung dämpft Fenstersensor-Alarm** auf «möglicherweise
+Wind» statt sofortiger voller Eskalation - `integrations/meteoalarm.py`
+liefert die Daten bereits, nur unverknüpft. Aufwand: mittel · Hub.
+
+**719. Jahres-/Quartalsbericht der Anlage** (Scharfschaltungen,
+Fehlalarme, Reaktionszeit), aus den Einzelberichten von
+`core/alarmbericht.py`. Aufwand: mittel · Hub.
+
+**721. Zwei-Faktor bei Fern-Entschärfung von ausserhalb des W-LANs**
+gegen ein gestohlenes, entsperrtes Telefon. Aufwand: mittel · Hub+App.
+
+**723. Befristeter Gast-Anwesenheitsstatus** (Handwerker,
+Übernachtungsgast) ausserhalb der «alle weg»-Logik - allgemeinere
+Variante von `core/babysitter.py`. Aufwand: mittel · Hub.
+
+**725. PDF-Export eines Alarmereignisses** (Zeitstempel, Sensoren,
+Bilder, wer entschärft hat) für Versicherung/Polizei, aus
+`core/alarmbericht.py`. Aufwand: mittel · Hub.
+
+### Selbst gewählt (726-739)
+
+**726. Taschengeld-Tracker, gekoppelt an Ämtli-Sterne** aus
+`core/chores.py`/`lib/aemtlisterne.ts`. Aufwand: mittel · Hub+App.
+
+**727. Familien-Wunschliste/Geschenkideen-Modul**, nach dem Vorbild der
+Gutscheine (Privatsphäre je Eintrag). Aufwand: mittel · Hub+App.
+
+**728. Gäste-Modus per QR-Code** (WLAN-Info, Klingel, ausgewählte
+Räume) - erweitert `core/wlanschein.py` über das WLAN hinaus. Aufwand:
+gross · Hub+App.
+
+**729. Energie-Rangliste der Geräte** (Top 3 Verbraucher/Monat, Trend)
+auf der Übersicht, aus `core/energy.py`. Aufwand: mittel · Hub+App.
+
+**730. Ausflugsvorschläge (ausflugfinder.ch)** im Wochenkalender, nach
+Wetter gefiltert. Aufwand: mittel · Hub.
+
+**731. Sprach-Diktat für die Einkaufsliste am Wandpanel per Zuruf.**
+Nähe: 673. Aufwand: mittel · App.
+
+**732. Vereinfachte Gäste-/Grosseltern-Startseite** (Wetter, nächster
+Termin, wer ist da) nach dem Muster von `KidsView.tsx`. Aufwand: mittel
+· App.
+
+**733. Automatisches Morgenbriefing als Durchsage** - prüfen, ob
+`core/morgen.py` das schon tut oder nur als Kartentext zeigt. Aufwand:
+mittel · Hub.
+
+**735. Familien-Abstimmungstool** für Alltagsentscheidungen, mit Push
+an alle. Nähe: 707. Aufwand: mittel · Hub+App.
+
+**736. Migrationswerkzeug für Home-Assistant-YAML-Automationen** als
+HomePilot-Vorlage, mit ehrlichem «nicht übersetzbar» statt Rätselraten.
+Aufwand: gross · Hub.
+
+**737. Monatliches Nachhaltigkeits-Dashboard (CO₂-Schätzung)** aus dem
+Stromverbrauch (`core/energy.py`). Aufwand: mittel · Hub+App.
+
+**738. Freitext-Frage an den Hub** («Ist die Waschmaschine fertig?»)
+statt feste Bildschirme zu durchsuchen. Aufwand: gross · Hub.
+
+**739. Tägliches freiwilliges Erinnerungsfoto übers Wandpanel**,
+gesammelt im Rückblick als kleines Familientagebuch. Aufwand: mittel ·
+Hub+App.

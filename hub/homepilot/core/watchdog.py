@@ -50,6 +50,7 @@ from . import (
     kamera,
     losfahren,
     maintenance,
+    metrics,
     morgen,
     notifyrules,
     ofen,
@@ -72,6 +73,7 @@ from . import (
     vorrat,
     waschkueche,
     wlanschein,
+    wochenbericht,
 )
 from .entity import EntityKind
 from .source import as_source, automation_source
@@ -720,6 +722,7 @@ class Watchdog:
         await self._check_medications()
         await self._check_birthdays()
         await self._check_morgen(entities)
+        await self._check_wochenbericht()
         await self._check_emergency()
         await self._check_presence()
         await self._check_week_ahead()
@@ -1503,6 +1506,7 @@ class Watchdog:
                         batterie.prefs_lesen(
                             self.hub.data.get(batterie.PREFS_KEY)
                         )["threshold"],
+                        self._guarded(),
                     )
                 ],
                 stumm=sorted(
@@ -1531,6 +1535,39 @@ class Watchdog:
             return
         titel, text = gebaut
         await self._notify(titel, text, category="morning")
+
+    async def _check_wochenbericht(self) -> None:
+        """Der wöchentliche Gesundheitscheck (Punkt 667 der Werkbank).
+
+        Immer montags, zur eingestellten Stunde - anders als der
+        Morgenbericht kommt er auch, wenn nichts auffällig ist
+        (core/wochenbericht.py). Ein wechselnder Wochentag wäre kein
+        verlässlicher Rhythmus, sondern ein Zufall, wann der Hub gerade
+        lief - deshalb fest auf Montag, nur die Stunde ist einstellbar.
+        """
+        params = self.rules["weekly_report"]["params"]
+        jetzt = time.time()
+        if not wochenbericht.faellig(0, int(params.get("hour", 8)), jetzt):
+            return
+        woche = datetime.now().strftime("%G-W%V")
+        if not self._einmal(f"weekly_report:{woche}", jetzt):
+            return
+        prozess = metrics.process_stats()
+        ordner = str(Path(self.hub.config.data_file or "/").parent)
+        platte = disk_usage(ordner)
+        ausgefallen = sorted(
+            name for name, stand in self.hub.integrations.status().items() if not stand["ok"]
+        )
+        zeilen = wochenbericht.zeilen(
+            laufzeit_sekunden=jetzt - self.hub.counters.started_at,
+            memory_mb=prozess.get("memory_mb"),
+            disk_percent=platte["percent"] if platte else None,
+            commands_pro_stunde=self.hub.counters.pro_stunde("commands", jetzt),
+            automations_pro_stunde=self.hub.counters.pro_stunde("automation_run", jetzt),
+            ausgefallene_integrationen=ausgefallen,
+        )
+        titel, text = wochenbericht.satz(zeilen)
+        await self._notify(titel, text, category="weekly_report")
 
     async def _check_birthdays(self) -> None:
         """Am Morgen daran erinnern, wer heute Geburtstag hat.
@@ -2857,7 +2894,10 @@ class Watchdog:
         # sofort melden, dann täglich zur Erinnerungsstunde, bis die
         # Batterie gewechselt ist.
         prefs = batterie.prefs_lesen(self.hub.data.get(batterie.PREFS_KEY))
-        for entity in low_batteries(entities, prefs["threshold"]):
+        # Nach Kritikalität gestaffelt (Punkt 724): Was die Alarmanlage
+        # bewacht, wird zuerst gemeldet und steht vorn, wenn mehrere in
+        # einer Sammelmeldung landen.
+        for entity in low_batteries(entities, prefs["threshold"], self._guarded()):
             if not batterie.soll_melden(rows, entity.id, jetzt, prefs["hour"]):
                 continue
             # Vormerken *bevor* die Meldung rausgeht: Scheitert der

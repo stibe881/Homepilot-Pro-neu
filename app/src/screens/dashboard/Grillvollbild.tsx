@@ -49,6 +49,7 @@ import { Tastaturplatz } from '../../components/Tastaturplatz';
 import { remainingLabel } from '../../components/KitchenTimer';
 import { useSettings } from '../../hooks/HubContext';
 import { useTakt } from '../../hooks/useTakt';
+import { zweiterTipp } from '../../lib/bestaetigung';
 import { dauerText } from '../../lib/format';
 import {
   TIMER_VORGABE,
@@ -571,15 +572,11 @@ export function Grillvollbild({
               <Pressable
                 onPress={schalten}
                 accessibilityRole="button"
-                accessibilityLabel={
+                accessibilityLabel={zweiterTipp(
+                  laeuft ? 'Grill ausschalten' : 'Grill anzünden',
+                  laeuft ? 'ausschalten' : 'anzünden',
                   fragt
-                    ? laeuft
-                      ? 'Wirklich ausschalten?'
-                      : 'Wirklich anzünden?'
-                    : laeuft
-                      ? 'Grill ausschalten'
-                      : 'Grill anzünden'
-                }
+                )}
                 style={({ pressed }) => [styles.schalter, pressed && { opacity: 0.7 }]}
               >
                 <Ionicons

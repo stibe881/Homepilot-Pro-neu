@@ -84,6 +84,11 @@ BEISPIELE: dict[str, tuple[str, str]] = {
         "Guten Morgen",
         "1 Fenster offen, 2 Batterien schwach, in der Nacht war nichts.",
     ),
+    "weekly_report": (
+        "Wochenbericht",
+        "· Läuft seit 12 Tagen\n· Speicher: 142 MB\n· Datenträger zu 38 % belegt\n"
+        "· 8 Befehle, 1 Abläufe pro Stunde",
+    ),
     "presence": ("Telefon fast leer", "Bines Telefon hat noch 12 % - die Ortung fällt sonst aus."),
     # Punkt 626: die Meldung, die niemand bekommen sollte - und die man
     # deshalb einmal gesehen haben will.

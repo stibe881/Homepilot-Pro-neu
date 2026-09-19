@@ -14,6 +14,7 @@
  * vom Hub; was hier als Text erscheint, ist immer «80.00 CHF» oder
  * «1 Stk.» – Schweizer Schreibweise mit Punkt, nicht Komma.
  */
+import { parseColor } from './kontrast';
 import type { Leerbild } from './leerzustand';
 import { Codeart, kassenart } from './strichcode';
 
@@ -602,6 +603,48 @@ export function ablaufSatz(expires: string | null | undefined, heute: string | D
   return `Gültig bis ${datumText(expires)}`;
 }
 
+/**
+ * Wie weit «bald» schon in Richtung «gleich» gerutscht ist (rein,
+ * testbar) - Punkt 684 der Werkbank: 0 am ersten Tag der Frist
+ * (`BALD_TAGE` Tage übrig), 1 am letzten (heute oder morgen). Binär
+ * Orange/Rot behandelte einen Gutschein mit 29 Tagen genauso dringend
+ * wie einen mit einem einzigen - dieselbe Farbe die ganzen dreissig
+ * Tage lang.
+ */
+export function ablaufNaehe(tageUebrig: number): number {
+  return 1 - Math.min(BALD_TAGE, Math.max(0, tageUebrig)) / BALD_TAGE;
+}
+
+/** Zwei Farben linear mischen (rein, testbar). `#RRGGBB` oder
+ *  `rgba(r, g, b, a)` herein, `rgb(r, g, b)` heraus. */
+export function farbMischung(von: string, nach: string, anteil: number): string {
+  const a = parseColor(von);
+  const b = parseColor(nach);
+  const t = Math.min(1, Math.max(0, anteil));
+  const kanal = (x: number, y: number) => Math.round(x + (y - x) * t);
+  return `rgb(${kanal(a.r, b.r)}, ${kanal(a.g, b.g)}, ${kanal(a.b, b.b)})`;
+}
+
+/**
+ * Die Farbe des Ablaufdatums, fein statt binär (rein, testbar).
+ *
+ * `normal` ist die Farbe für «ok» und «unbegrenzt» - an den beiden
+ * Stellen, die diese Funktion ruft, ist das nicht dieselbe (Text vs.
+ * Balkenfüllung), darum als Parameter statt fest verdrahtet.
+ */
+export function ablaufFarbe(
+  expires: string | null | undefined,
+  heute: string | Date,
+  farben: { normal: string; abgelaufen: string; warn: string; kritisch: string }
+): string {
+  const stufe = ablaufStufe(expires, heute);
+  if (stufe === 'abgelaufen') return farben.abgelaufen;
+  if (stufe !== 'bald') return farben.normal;
+  const tag = typeof heute === 'string' ? heute : heuteIso(heute);
+  const tage = tageBis(String(expires), tag);
+  return farbMischung(farben.warn, farben.kritisch, ablaufNaehe(tage));
+}
+
 /** Ist der Gutschein leer? Ein Rest unter einem Rappen zählt als leer –
  *  Fliesskommareste sollen keinen «0.00 CHF»-Gutschein offen halten. */
 export function aufgebraucht(entry: Pick<Gutschein, 'left'>): boolean {
@@ -1034,6 +1077,35 @@ export function doppelte(list: Gutschein[], entry: Gutschein): Gutschein[] {
     if (andere.total !== entry.total) return false;
     return (andere.expires ?? '') === (entry.expires ?? '');
   });
+}
+
+/**
+ * Passt ein gescannter Code zu einem schon erfassten, offenen
+ * Gutschein (rein, testbar)? Punkt 695 der Werkbank.
+ *
+ * Dieselbe sichere Spur wie in `doppelte()`, aber ohne den Rest des
+ * Formulars: Direkt nach dem Scan steht nur der Code, Laden und
+ * Betrag kommen erst danach. Ein Codetreffer ist für sich schon
+ * eindeutig genug - auf den Laden zu warten, hiesse denselben Hinweis
+ * unnötig zu verzögern, bis jemand ihn ohnehin schon abgetippt hat.
+ */
+export function doppelterCode(
+  list: Gutschein[],
+  code: string,
+  eigeneId?: string
+): Gutschein | null {
+  const gesucht = code.trim().toLowerCase();
+  if (!gesucht) return null;
+  return (
+    list.find((andere) => {
+      if (istArchiviert(andere)) return false;
+      if (eigeneId && andere.id === eigeneId) return false;
+      const seine = [...(andere.codes ?? []).map((c) => c.value), andere.number ?? ''].map(
+        (wert) => wert.trim().toLowerCase()
+      );
+      return seine.includes(gesucht);
+    }) ?? null
+  );
 }
 
 /** Der Hinweis über den Dubletten – oder null (rein, testbar). */

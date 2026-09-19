@@ -56,6 +56,9 @@ ZIELE: dict[str, str] = {
     "departure": "familie:kalender",
     "vacuum": "start",
     "morning": "start",
+    # Derselbe Bereich wie Ausfall und Speicherplatz: Der Wochenbericht
+    # ist eine Zahl über den Hub selbst, kein Anlass irgendwo im Haus.
+    "weekly_report": "bereich:system",
     "test": "start",
     "open": "offen",
     "leak": "sorgen",

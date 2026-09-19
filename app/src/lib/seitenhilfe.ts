@@ -188,3 +188,28 @@ export function knopfWort(punkt: Hilfepunkt): string {
   if (punkt.knopf) return punkt.knopf;
   return punkt.ziel ? `Zu ${SECTION_LABEL[punkt.ziel]}` : '';
 }
+
+/**
+ * Soll die Hilfe automatisch aufgehen? (rein, testbar) Punkt 672 der
+ * Werkbank.
+ *
+ * Bisher ging sie nur auf Antippen des Fragezeichens auf - wer zum
+ * ersten Mal einen Bereich mit eigener Hilfe besucht, landete also
+ * direkt im leeren Formular oder der unbekannten Liste, ohne dass
+ * jemand auf das Fragezeichen hingewiesen hätte. Automatisch nur beim
+ * allerersten Besuch: Wer die Hilfe kennt, soll nicht bei jedem
+ * erneuten Öffnen wieder ein Blatt wegwischen müssen - dieselbe Regel
+ * wie bei der Einführung (lib/einfuehrung.ts).
+ */
+export function nochNieGezeigt(gezeigt: readonly string[] | undefined, section: Section): boolean {
+  return !(gezeigt ?? []).includes(section);
+}
+
+/** Einen Bereich als automatisch gezeigt vermerken (rein, testbar). */
+export function alsGezeigtVermerken(
+  gezeigt: readonly string[] | undefined,
+  section: Section
+): string[] {
+  const bisher = gezeigt ?? [];
+  return bisher.includes(section) ? [...bisher] : [...bisher, section];
+}

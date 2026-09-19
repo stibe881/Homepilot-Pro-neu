@@ -17,6 +17,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 
 import { hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
+import { zweiterTipp } from '../lib/bestaetigung';
 import { uhr } from '../lib/format';
 import {
   Clip,
@@ -175,9 +176,11 @@ export function ClipArchiv({
                       <Pressable
                         onPress={() => (gefragt ? loeschen(clip) : setLoeschfrage(clip.id))}
                         accessibilityRole="button"
-                        accessibilityLabel={
-                          gefragt ? 'Wirklich löschen' : `Aufnahme ${clip.name} löschen`
-                        }
+                        accessibilityLabel={zweiterTipp(
+                          `Aufnahme ${clip.name} löschen`,
+                          'löschen',
+                          gefragt
+                        )}
                         hitSlop={8}
                         style={({ pressed }) => [
                           styles.loeschen,

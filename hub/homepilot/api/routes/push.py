@@ -59,6 +59,7 @@ from ..models import (
     PushSnoozeRequest,
     PushStillRequest,
     PushStufeRequest,
+    PushTestmodusRequest,
     VoucherPrefsRequest,
 )
 
@@ -188,6 +189,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                     # Standard» anbieten kann, ohne die Liste zu kennen.
                     "stufe": push.stufe_von(key, hub.push.stufen),
                     "stufe_standard": push.stufe_standard(key),
+                    # Im Testmodus (Punkt 712): Wer sie noch als Einzige
+                    # bekommt, oder None, wenn sie längst fürs ganze Haus
+                    # gilt. Die App zeigt daraus den Knopf «Testmodus».
+                    "testmodus_fuer": hub.push.test_kategorien.get(key),
                     # Was sich nie zurückhalten lässt - die App soll den
                     # Knopf «24 h still» dort gar nicht erst anbieten.
                     "immer": key in pushruhe.IMMER_DURCH,
@@ -309,6 +314,33 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "ok": True,
             "category": body.category,
             "stufe": push.stufe_von(body.category, hub.push.stufen),
+        }
+
+    @app.put("/api/push/testmodus")
+    async def set_push_testmodus(
+        body: PushTestmodusRequest, request: Request
+    ) -> dict[str, Any]:
+        """Testmodus einer Kategorie ein- oder ausschalten (Punkt 712).
+
+        Fürs Haus wie die Stufe: Ob eine Kategorie neu und ungeprüft ist,
+        hängt nicht davon ab, wer gerade hinschaut. Eingeschaltet geht
+        sie nur noch an die angemeldete Person; ausgeschaltet (leerer
+        Benutzername) wieder an alle, wie zuvor.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        if not push.known(body.category):
+            raise HTTPException(status_code=404, detail="Unbekannte Kategorie")
+        user = current_user(request)
+        gewaehlt = user.name if body.an else ""
+        hub.data.set(
+            push.TEST_KEY,
+            push.test_setzen(hub.data.get(push.TEST_KEY), body.category, gewaehlt),
+        )
+        hub.push_einstellungen_lesen()
+        return {
+            "ok": True,
+            "category": body.category,
+            "testmodus_fuer": hub.push.test_kategorien.get(body.category),
         }
 
     @app.get("/api/push/gruppen")

@@ -34,6 +34,7 @@ werden sie archiviert und nicht gelöscht.
 | 421–505 | Fünfundachtzig Vorschläge (September 2026) | dieselben acht Bereiche, eine Runde später |
 | 506–509 | Auf einem anderen Zweig, derselbe Abend | Klingeltöne, Räume-Seite, Kontoeinstellungen |
 | 510–533 | Zweite Vorschlagsrunde des anderen Zweigs | Abläufe, Push, Alarm, Gutscheine, Gestaltung |
+| 659–739 | Einundachtzig Vorschläge (September 2026) | App allgemein, User Experience, Gestaltung, Gutscheine, Abläufe, Push, Alarm, Selbst gewählt |
 
 Die Häkchen tragen die Commit-Kürzel von den Werkbank-Seiten; ganz alte
 können hinter der flachen Klon-Grenze liegen.
@@ -8520,3 +8521,446 @@ unberührt.
 der zweiten Stelle nachgetragen.
 
 Stellen: `hub/homepilot/integrations/alarm.py`, `hub/tests/test_alarm_wache_panik.py`
+
+### 670. Personalisierbare Reihenfolge der Haupt-Reiter je Person ✓ erledigt (80c8eed)
+
+Die Reiter der Haupt-Leiter (Start, Räume, Licht, Storen, …,
+`components/Rail.tsx`) standen für alle in derselben festen Reihenfolge
+- anders als die Favoritenkacheln, die sich seit `lib/favoritenordnung.ts`
+je Person ziehen lassen. Wer die Familienseite selten öffnet, sah sie
+trotzdem an derselben Stelle wie jemand, der nichts anderes benutzt.
+
+`sichtbareBereiche()` (die reine, bereits getestete Funktion, aus der
+die Leiste ihre Knöpfe baut und der auch die Wischgeste zwischen
+Bereichen folgt, Punkt 522) nimmt jetzt einen dritten, optionalen
+Parameter entgegen: dieselbe `favoritenOrdnen()`-Funktion wie bei den
+Favoriten sortiert die sichtbaren Reiter nach einer gespeicherten
+Reihenfolge, und was darin fehlt, hängt sich hinten an statt zu
+verschwinden - ein neu freigeschaltetes Feature verliert seinen Reiter
+also nicht, nur weil die Reihenfolge schon einmal gezogen wurde. Rail
+und die Wischgeste rufen dieselbe Funktion, damit beide nie
+auseinanderlaufen können.
+
+Gespeichert wird unter `eigenePrefs.reiterOrder` (hooks/usePrefs.ts),
+genau wie `favoriteOrder` und `schnellOrder` - persönlich, nicht
+haushaltsweit. Ein neuer Ordnen-Knopf in der Kachel-Karte der
+Einstellungen (`SettingsScreen.tsx`) öffnet denselben Griff-Ordnen-Weg
+(Modal, `DraggableList`) wie schon bei Favoriten und Schnellaktionen auf
+der Startseite - keine dritte Bedienung für dieselbe Geste.
+
+Stellen: `app/src/components/Rail.tsx`, `app/src/components/Rail.test.ts`, `app/src/hooks/usePrefs.ts`, `app/src/screens/SettingsScreen.tsx`, `app/src/screens/DashboardScreen.tsx`
+
+### 674. «Zuletzt verwendet»-Schnellzugriff auf der Startseite ✓ erledigt (661958e)
+
+Die Favoriten (`lib/favoriten.ts`) sind eine bewusste, von Hand
+gepflegte Auswahl - ein Gerät, das man diese Woche zum ersten Mal
+braucht (der Heizlüfter im Gästezimmer), schafft nie den Sprung
+hinein und stand bisher nirgends griffbereit.
+
+Die Zählung dafür gab es bereits, nur anders gelesen:
+`useKachelnutzung` merkt sich für «nach Tageszeit sortieren», wie oft
+und wann ein Gerät in welchem Tagesabschnitt bedient wurde
+(`Kachelzaehler`, ein Zeitstempel je Gerät-und-Abschnitt-Schlüssel).
+Die neue reine Funktion `zuletztVerwendet()` (`lib/kachellernen.ts`)
+liest denselben Zähler ohne Rücksicht auf den Abschnitt - der jüngste
+Zeitstempel über alle Tageszeiten hinweg entscheidet, und ein
+Ausschluss-Parameter nimmt die eigenen Favoriten heraus, damit kein
+Gerät zweimal auf der Seite steht.
+
+`OverviewScreen` zeigt die Reihe direkt unter den Favoriten, mit
+denselben `FavoriteChip`-Kacheln - ohne Ziehen und ohne Umbenennen:
+Die Liste ist nicht gewählt, sondern beobachtet, und würde sich unter
+der Hand jedes Ziehens sofort wieder verschieben.
+
+Stellen: `app/src/lib/kachellernen.ts`, `app/src/lib/kachellernen.test.ts`, `app/src/screens/OverviewScreen.tsx`, `app/src/screens/DashboardScreen.tsx`
+
+*Wieder entfernt durch Punkt 743 - unerwünscht auf der Startseite.*
+
+### 722. Wochentagsabhängige Ein-/Ausgangsverzögerung ✓ erledigt (3d71068)
+
+`exit_delay` und `entry_delay` der Alarmanlage waren je eine feste
+Zahl - dieselbe Ausgangsverzögerung für den hektischen Werktag um
+Viertel vor acht wie für den gemütlichen Sonntagmorgen, an dem
+niemand zu einer festen Uhrzeit aus dem Haus geht. Zu kurz eingestellt,
+löste sie am Wochenende unnötig aus; grosszügig eingestellt, war sie
+unter der Woche länger offen, als es sein müsste.
+
+Die neue reine Funktion `verzoegerung()` (`integrations/alarm_rules.py`)
+liest beide Einstellungen jetzt entweder wie bisher als Zahl (gilt für
+jeden Tag) oder als Wörterbuch mit einem Grundwert unter `"default"`
+und Ausnahmen für einzelne Wochentage - 0 für Montag, wie überall sonst
+im Hub (`parse_weekdays` in `core/automation.py`, `datetime.weekday()`).
+Eine kaputte oder fehlende Angabe zählt weiterhin als 0, genau wie
+vorher bei `float(settings.get(...) or 0)`.
+
+`arm()` und der Eingangs-Sensor-Pfad in `integrations/alarm.py` rufen
+die Funktion mit dem heutigen Wochentag; beide Aufrufstellen sind
+dieselben zwei, an denen die Verzögerung bisher direkt gelesen wurde.
+
+Stellen: `hub/homepilot/integrations/alarm_rules.py`, `hub/homepilot/integrations/alarm.py`, `hub/tests/test_alarm_verzoegerung.py`
+
+### 687. Gesamtwert-Kachel für Gutscheine auf der Übersicht ✓ erledigt (ccbc762)
+
+«Noch 340 CHF in Gutscheinen offen» sah bisher nur, wer das
+Familienmodul öffnete - die Rechnung dazu lag mit `summe()`, `summen()`
+und `summenText()` bereits fertig und getestet in `lib/gutscheine.ts`,
+nur ohne eine einzige Stelle, die sie je aufrief.
+
+`hooks/useGutscheinSumme.ts` holt `/api/family/vouchers` jetzt schlank
+für sich (Fünf-Minuten-Takt, kein Websocket-Abo) - bewusst nicht über
+die grössere Ablage der Familienseite (`screens/family/ablage.ts`),
+die für eine bearbeitbare Liste mit Warteschlange und Zwischenspeicher
+gebaut ist und für eine einzelne Zahl zu viel wäre. `OverviewScreen`
+zeigt die Karte nur, wenn `summenText` etwas liefert - keine Karte über
+nichts.
+
+Stellen: `app/src/hooks/useGutscheinSumme.ts`, `app/src/screens/OverviewScreen.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/lib/gutscheine.ts`
+
+*Wieder entfernt durch Punkt 743 - unerwünscht auf der Startseite.*
+
+### 681. ESLint-Regel gegen literale Schriftgrössen ✓ erledigt (bfbd2c0)
+
+Punkt 441 zählte 913 nackte `padding`-Zahlen und schlug eine Regel für
+neue Dateien vor, ohne sie zu bauen; dieselbe Zahlen-statt-Skala-Falle
+gibt es bei Schriftgrössen - 1090 literale `fontSize: NN` in 116
+Dateien, statt der zehn Stufen in `theme.tsx` (`type`/`typ`, mit dem
+Wandpanel-Faktor `PANEL_MASS` skaliert).
+
+Alle 116 auf einmal aufzuräumen war ausserhalb des Rahmens dieses
+Punkts - stattdessen jetzt dieselbe Lösung, die 441 skizziert und nie
+gebaut hat: `no-restricted-syntax` verbietet `fontSize: <Zahl>` als
+Fehler, und `schriftmass-ausnahmen.txt` listet die 116 gewachsenen
+Dateien, für die die Regel ausdrücklich ausgeschaltet ist. Das
+Gegenstück zu `hub/mypy-sauber.txt`: Dort wächst die Liste der sauberen
+Module, hier schrumpft die Liste der schmutzigen - wer eine Datei
+ohnehin anfasst, räumt die letzte Zahl auf und streicht ihren Namen,
+danach greift die Regel auch dort.
+
+Stellen: `app/eslint.config.js`, `app/schriftmass-ausnahmen.txt`
+
+### 724. Nach Kritikalität gestaffelte Batteriewarnung ✓ erledigt (c0e5cbc)
+
+`low_batteries()` (`core/watchrules.py`) lieferte schwache Batterien in
+Registry-Reihenfolge - zufällig, aus Sicht der Anlage. Wo mehrere in
+derselben Wächter-Runde anfielen, landeten sie über `core/pushbuendel.py`
+in einer Sammelmeldung mit nur vier sichtbaren Zeilen; welche vier das
+waren, entschied dieselbe zufällige Reihenfolge.
+
+`low_batteries()` nimmt jetzt zusätzlich die Menge der von der
+Alarmanlage bewachten Geräte entgegen - dieselbe Menge, die
+`watched_entities()` für die «Gerät antwortet nicht»-Meldung schon
+verwendet (`self._guarded()` in `watchdog.py`, aus den Sensoren der
+Alarm-Integration) - und sortiert stabil danach: Bewachte Geräte
+zuerst, innerhalb jeder der beiden Gruppen bleibt die ursprüngliche
+Reihenfolge erhalten. Ein Sensor an der Eingangstür steht damit vor
+einem im selten betretenen Cheller, sowohl in der einzelnen Push als
+auch in einer Sammelmeldung.
+
+Beide Aufrufstellen in `watchdog.py` geben jetzt `self._guarded()` mit
+- auch die Geräteliste im Morgenbriefing, damit sie mit der
+Batterie-Push übereinstimmt.
+
+Stellen: `hub/homepilot/core/watchrules.py`, `hub/homepilot/core/watchdog.py`, `hub/tests/test_watchdog.py`
+
+### 712. Testmodus für neue Push-Kategorien ✓ erledigt (4768954)
+
+`core/pushbeispiel.py` beantwortet «wie sieht diese Meldung aus» und
+«kommt sie bei mir durch», nicht «bekommt heute noch niemand ausser mir
+sie» - eine neue Kategorie ging beim ersten Lauf gleich ans ganze Haus,
+mit allem, was noch niemand ausprobiert hatte.
+
+`PushService.recipients()` - schon die eine Stelle, an der Abbestellung,
+Ruhezeit und Stillstellen geprüft werden - prüft jetzt zusätzlich
+`test_kategorien` (Kategorie → einzige Empfängerin). Steht eine
+Kategorie darin, gilt `to` nicht mehr: Auch eine ausdrückliche Anfrage
+an «all» oder eine Gruppe erreicht nur die hinterlegte Person.
+
+Gespeichert fürs Haus wie die Dringlichkeits-Stufen (`push_test` in
+`hub.data`, `test_lesen`/`test_setzen` analog zu `stufen_lesen`/
+`stufen_setzen`). Die neue Route `PUT /api/push/testmodus` (nur mit
+`EDIT_CONFIG`) schaltet je Kategorie ein und aus - wer die einzige
+Empfängerin wird, ist dabei immer die anfragende Person selbst, aus dem
+Token statt aus dem Anfrage-Körper, damit niemand jemand anderen zur
+Testperson macht. `GET /api/push/categories` zeigt `testmodus_fuer` je
+Kategorie, für einen Knopf in der App.
+
+Stellen: `hub/homepilot/core/push.py`, `hub/homepilot/core/hub.py`, `hub/homepilot/api/routes/push.py`, `hub/homepilot/api/models.py`, `hub/tests/test_push_testmodus.py`
+
+### 720. Kamera-Vorschau beim Scharfschalten "Ausser Haus" ✓ erledigt (44b9d90)
+
+Alle Kameras auf einmal gab es bereits (`components/Kamerawand.tsx`,
+separat über die Kameraseite erreichbar) - eingebettet in den
+Scharfschalten-Vorgang selbst, als letzter Blick vor dem Verlassen
+(«ist wirklich niemand mehr drin, ist der Herd aus»), fehlte sie.
+
+`Kamerawand` bekommt einen optionalen `aktion`-Knopf unten im Blatt -
+abwärtskompatibel, die bestehenden Aufrufer (Dashboard) lassen ihn
+einfach weg. `AlarmScreen` öffnet die Wand jetzt, statt direkt scharf
+zu schalten, wenn «Ausser Haus» gewählt wird und es Kameras gibt; der
+Knopf «Jetzt scharf schalten» schliesst die Wand und ruft `arm('ausser_haus')`
+wie zuvor. Andere Modi (Nacht, Nur Erdgeschoss) bleiben unverändert -
+dort ist man noch im Haus und sieht selbst nach. Vereinfacht gegenüber
+dem ursprünglichen Vorschlag: alle Kameras (`entity.kind === 'camera'`),
+nicht nur Innenkameras - eine Innen/Aussen-Unterscheidung gibt es im
+Datenmodell bisher nicht, und sie eigens dafür einzuführen wäre über
+den Rahmen dieses Punkts hinausgegangen.
+
+Stellen: `app/src/components/Kamerawand.tsx`, `app/src/screens/AlarmScreen.tsx`
+
+### 684. Feinere Zwischenfarbe für «bald abgelaufen» ✓ erledigt (9814f89)
+
+`ablaufStufe()` kennt schon länger vier Stufen, nicht zwei - «bald»
+deckte aber die ganzen dreissig Tage der Frist (`BALD_TAGE`) mit
+derselben flachen Warnfarbe ab. Ein Gutschein mit 29 Tagen Rest sah
+optisch genauso dringend aus wie einer mit einem einzigen.
+
+Zwei neue reine Funktionen in `lib/gutscheine.ts`: `ablaufNaehe(tage)`
+rechnet die verbleibenden Tage auf einen Anteil zwischen 0 (erster Tag
+der Frist) und 1 (heute oder morgen) herunter; `farbMischung(von, nach,
+anteil)` mischt zwei Farben linear (wiederverwendet `parseColor` aus
+`lib/kontrast.ts`, das es für den WCAG-Kontrast schon gab). `ablaufFarbe()`
+verbindet beides: «abgelaufen» und «weit weg» bleiben fest, «bald»
+gleitet zwischen Warn- und einer kritischen Farbe.
+
+`screens/family/gutscheine.tsx` nutzt die neue Funktion für Text und
+Balkenfüllung statt der bisherigen lokalen, binären Fassung; die
+Balken-Kachel bekommt dafür `heute` statt der vorberechneten Stufe,
+weil sie das Datum für die Rechnung selbst braucht.
+
+Stellen: `app/src/lib/gutscheine.ts`, `app/src/lib/gutscheine.test.ts`, `app/src/screens/family/gutscheine.tsx`
+
+### 666. Familien-weite Nutzungsstatistik ✓ erledigt (75b3f59)
+
+`core/metrics.py` (`Counters`) zählt schon Befehle im Arbeitsspeicher
+und rechnet sie auf die Stunde hoch - für die App-seitige
+Bildschirm-Nutzung je Gerät gibt es das Gegenstück
+(`useKachelnutzung`/`useRaumnutzung`). Was fehlte, war dieselbe Zahl
+haushaltsweit: Wird das Haus insgesamt lauter?
+
+Zwei neue Zähler an genau den Stellen, an denen ohnehin schon vermerkt
+wird, dass etwas passiert ist: `push_sent` in `Hub._push_vermerken`
+(derselbe Aufruf, der den Nachlese-Zettel füllt) und `automation_run`
+direkt neben dem `automation_run`-Bus-Ereignis in `core/automation.py`.
+Beide erscheinen automatisch im bestehenden `counters`-Feld des
+Hub-Status, weil `Counters` generisch ist; dazu `pushes_per_hour`/
+`automations_per_hour` neben `commands_per_hour`, mit derselben
+Hochrechnung.
+
+Stellen: `hub/homepilot/core/automation.py`, `hub/homepilot/core/hub.py`, `hub/tests/test_metrics.py`
+
+### 672. Kurzhilfe automatisch beim ersten Öffnen eines Moduls ✓ erledigt (9690c24)
+
+Die Seitenhilfe (`lib/seitenhilfe.ts`, `components/Seitenhilfe.tsx`)
+ging bisher nur auf Antippen des Fragezeichens auf - wer zum ersten
+Mal einen Bereich mit eigener Hilfe besuchte, landete direkt im leeren
+Formular oder der unbekannten Liste, ohne dass etwas auf das
+Fragezeichen hingewiesen hätte.
+
+`nochNieGezeigt()`/`alsGezeigtVermerken()` (rein, testbar) tragen jetzt
+je Person nach, welche Bereiche schon einmal automatisch gezeigt
+wurden - gespeichert unter `eigenePrefs.seitenhilfeGezeigt`, persönlich
+wie die Einführung (`lib/einfuehrung.ts`), damit Livia dieselbe Hilfe
+noch sieht, obwohl Stefan sie längst kennt.
+
+`DashboardScreen` öffnet die Hilfe jetzt in einem `useEffect` von
+selbst beim ersten Besuch eines Bereichs mit eigener Hilfe, sobald die
+persönlichen Einstellungen wirklich geladen sind (`eigenGeladen`) -
+ohne diese Wartebedingung hielte ein noch leerer Stand jeden Bereich
+für nie besucht und öffnete die Hilfe bei jedem Neustart erneut.
+
+Stellen: `app/src/lib/seitenhilfe.ts`, `app/src/lib/seitenhilfe.test.ts`, `app/src/hooks/usePrefs.ts`, `app/src/screens/DashboardScreen.tsx`
+
+### 695. Duplikaterkennung direkt beim Scannen einer Karte ✓ erledigt (8d9f6a0)
+
+`dublettenSatz` verlangte bisher erst einen ausgefüllten Laden, bevor
+überhaupt geprüft wurde - `formularPruefen()` gibt ohne `shop` keinen
+gültigen Eintrag zurück, und ohne den kam `doppelte()` gar nicht zum
+Zug. Direkt nach dem Scan steht aber schon der Code da, und der ist
+die sichere Spur aus `doppelte()` - Laden, Betrag und Ablaufdatum sind
+nur die Vermutung für den Fall ohne Nummer.
+
+Die neue reine Funktion `doppelterCode()` (`lib/gutscheine.ts`) prüft
+darum nur den Code gegen die Codes/Nummern offener, nicht archivierter
+Gutscheine, ohne sonst etwas vom Formular zu brauchen. `dublettenSatz`
+prüft jetzt zuerst diesen Weg - reagiert also schon auf
+`setze('number', ...)` im Scan-Moment - und fällt erst ohne Treffer auf
+die bisherige Prüfung übers ganze Formular zurück.
+
+Stellen: `app/src/lib/gutscheine.ts`, `app/src/lib/gutscheine.test.ts`, `app/src/screens/family/gutscheine.tsx`
+
+### 676. Info-Symbol bei automatischen Vorschlägen ✓ erledigt (2c0cc29)
+
+`hinweisGelernt()` in `lib/kachellernen.ts` lieferte den Satz «Abend:
+nach deiner Gewohnheit» schon länger und war auch getestet - nur zeigte
+ihn keine Stelle im Bild. Wer die Kacheln anders sortiert vorfand als
+sonst (`nachGewohnheit()`, ab drei Griffen in derselben Tageszeit),
+hatte keine Auskunft, ob das Absicht oder Zufall war.
+
+Der Hinweis erscheint jetzt als kleine Zeile mit Info-Symbol über der
+Kachelliste - aber nur, wenn `gelernt()` für den aktuellen
+Tagesabschnitt wirklich etwas liefert, nicht schon bei der blossen
+Tageszeit-Sortierung ohne gelernte Reihenfolge, und nur in der Ansicht,
+die `rest` (die nach Gewohnheit sortierte Liste) tatsächlich zeigt -
+in der nach Zimmer gruppierten oder nach Art kategorisierten Ansicht
+bliebe der Hinweis eine falsche Auskunft, weil dort eine andere
+Reihenfolge gilt.
+
+Stellen: `app/src/screens/DashboardScreen.tsx`, `app/src/screens/dashboard/stile.ts`
+
+### 677. Einheitliche, testbare Bestätigungsdialog-Texte ✓ erledigt (c010f6b)
+
+Jeder Bildschirm formulierte die Rückfrage vor dem zweiten Tipp bisher
+für sich: «Wirklich löschen» ohne Fragezeichen in `PersonenScreen.tsx`
+und `ClipArchiv.tsx`, daneben «Wirklich löschen?» mit Fragezeichen in
+`screens/family/bausteine.tsx` und `VacuumHome.tsx`; in
+`OverviewScreen.tsx` sogar zwei verschiedene Wörter für dieselbe
+Handlung im selben Bildschirm - «Sicher?» beim Öffnen der
+Wohnungstüre, «Wirklich öffnen?» beim Öffnen der Haustüre. In
+`components/entity/koerper.tsx` wich sogar die Bedienungshilfe vom
+sichtbaren Knopftext ab (mal mit, mal ohne Fragezeichen für dieselbe
+Türe).
+
+Die neue reine Funktion `zweiterTipp(basis, verb, aktiv)`
+(`lib/bestaetigung.ts`, getestet) liefert die normale Beschriftung,
+solange nichts bestätigt werden muss, und sonst immer «Wirklich
+\<Verb>?» - unabhängig davon, wie lang oder eigenwillig die normale
+Beschriftung ist (`Auf + öffnen`, `Aufnahme X löschen`). Sie ersetzt
+jetzt die verstreuten Ternaries an allen gefundenen Stellen, sichtbarer
+Text wie Bedienungshilfe-Text gehen durch dieselbe Funktion.
+
+Stellen: `app/src/lib/bestaetigung.ts`, `app/src/lib/bestaetigung.test.ts`, `app/src/screens/PersonenScreen.tsx`, `app/src/components/ClipArchiv.tsx`, `app/src/screens/OverviewScreen.tsx`, `app/src/screens/SettingsScreen.tsx`, `app/src/screens/family/bausteine.tsx`, `app/src/components/VacuumHome.tsx`, `app/src/components/entity/koerper.tsx`, `app/src/screens/dashboard/Grillvollbild.tsx`
+
+### 667. Wöchentlicher Gesundheitscheck-Bericht des Hubs ✓ erledigt (e6fe45b)
+
+`core/metrics.py` kennt Speicher, Prozessorzeit und Zähler schon
+länger, aber nur auf Zuruf über `homepilot.status` - wer nicht gerade
+einen Verdacht hat, sieht die Zahlen nie. Ein langsam wachsender
+Speicherverbrauch fiel damit erst auf, wenn der Rechner schon stockte.
+
+Die neue, reine Regel `core/wochenbericht.py` (getestet) liefert Titel
+und Text einer Zusammenfassung, die anders als die
+Morgen-Zusammenfassung (`core/morgen.py`) *immer* kommt, nicht nur bei
+etwas Auffälligem: Laufzeit seit dem letzten Neustart, Speicher,
+Datenträgerbelegung, Befehle und Abläufe pro Stunde, dazu ausgefallene
+Integrationen, falls welche stehen.
+
+`Watchdog._check_wochenbericht` schickt sie montags zur einstellbaren
+Stunde - als Regel «weekly_report» in `core/notifyrules.py`, wie jede
+andere Push-Kategorie ab- und einstellbar über die schon bestehende,
+generische Oberfläche in `components/PushRules.tsx`. Dafür war keine
+App-Änderung nötig: Ziel, Beispieltext und Gruppierung stehen wie bei
+jeder Kategorie in `core/pushziel.py`, `core/pushbeispiel.py` und
+`core/push.py`, und die bestehenden Konsistenz-Tests
+(`test_pushtexte.py`, `test_pushziel.py`) halten von selbst fest, dass
+keine Stelle vergessen ging.
+
+Stellen: `hub/homepilot/core/wochenbericht.py`, `hub/tests/test_wochenbericht.py`, `hub/homepilot/core/watchdog.py`, `hub/homepilot/core/notifyrules.py`, `hub/homepilot/core/push.py`, `hub/homepilot/core/pushziel.py`, `hub/homepilot/core/pushbeispiel.py`
+
+### 675. Wischgesten zwischen Hauptbereichen ✓ erledigt (3575381)
+
+Das Bereichswischen aus Punkt 522 lief bisher nur auf dem Telefon
+(`!hasRail`) - mit sichtbarer Seitenleiste tippt man sie ja an, so die
+Annahme. Ein fest montiertes Wandpanel hat aber ebenfalls genug Breite
+für die Seitenleiste und wird trotzdem oft einhändig von der Seite
+bedient, an der man gerade steht - die Leiste liegt dann nicht
+zwingend in Reichweite, anders als am gehaltenen iPad.
+
+`istWandpanel` - dieselbe Bedingung, die schon `usePanelMode` steuert
+(`settings.panel` oder ein Gemeinschaftskonto) - hebt die
+Seitenleisten-Ausnahme jetzt für den Wandpanel-Fall auf. Wer die
+Seitenleiste tatsächlich in der Hand hält (kein Wandpanel), tippt sie
+weiterhin - für den ändert sich nichts. Die Geste selbst (`nachbarBereich`,
+`useBereichWischen`) war schon vorhanden; es fehlte nur die
+Freigabe für diesen einen Fall.
+
+Stellen: `app/src/screens/DashboardScreen.tsx`
+
+### 665. Sandbox-Testmodus für neue Mitglieder ✓ erledigt (edbd44f)
+
+Ein neues Feld `User.sandbox` (wie `shared`, über dieselbe
+Benutzerverwaltung setzbar - `PUT /api/users/{name}` oder `config.yaml`):
+Befehle einer Person im Testmodus kommen an und werden ins
+Zugriffsprotokoll geschrieben wie jeder andere Befehl (mit dem Zusatz
+«(Testmodus)»), erreichen aber nie die Integration - der generische Weg
+über `POST /api/entities/{id}/command` bricht vor dem eigentlichen
+`dispatch_command` bzw. der Szenen-Ausführung ab.
+
+Bewusst kein vorgetäuschter Zustand: Wer im Testmodus schaltet, sieht
+an der Kachel schlicht keine Änderung - das ist ehrlicher als ein Haus,
+das eine Wirkung behauptet, die nicht stattfand, und einfacher als eine
+Illusion über den ganzen Zustands- und WebSocket-Weg hinweg zu pflegen.
+
+Bewusst ausserhalb des Testmodus bleiben Alarm scharf/unscharf und die
+übrigen Spezialrouten (Fernseher, PlayStation, Radio) - sie laufen
+nicht über den einen generischen Befehlsweg, und gerade bei der
+Alarmanlage wäre eine vorgetäuschte Schärfung eine falsche Sicherheit
+statt eines Testlaufs. Der Testmodus deckt damit das eigentliche
+«Schalten» ab (Licht, Storen, Steckdosen, Heizung, Schloss, Sauger).
+Anders als in der ursprünglichen Notiz vermutet, hängt das nicht an
+`core/babysitter.py` - der pausiert Abläufe fürs ganze Haus, unabhängig
+davon, wer schaltet, und ist damit ein anderer Mechanismus für einen
+verwandten Abend.
+
+Stellen: `hub/homepilot/core/users.py`, `hub/homepilot/api/models.py`, `hub/homepilot/api/routes/users.py`, `hub/homepilot/api/routes/entities.py`, `hub/tests/test_sandbox_testmodus.py`
+
+### 669. Rückfrage bei mehrdeutigem Gerätenamen im Suchfeld ✓ erledigt (6b7f76b)
+
+«Sprachsteuerung» im ursprünglichen Vorschlag zielte auf eine freie
+Sprachbefehl-Zuordnung, die es im Hub nirgends gibt - eine solche
+Infrastruktur von Grund auf zu bauen, wäre kein «mittel», sondern ein
+eigenes, grosses Vorhaben. Genau das beschriebene Muster («Bürolicht
+oder Gästezimmer?» statt der ersten stillen Übereinstimmung) traf aber
+schon auf `lib/suchbefehl.ts` zu: Wer im Suchfeld tippt oder mit dem
+nativen Diktat-Mikrofon spricht («licht büro aus»), bekam bisher
+stillschweigend das erste Gerät, dessen Name passte - zwei Bürolampen
+mit ähnlichem Namen liessen sich über die Ausführen-Zeile nie einzeln
+ansprechen.
+
+`befehlAusText` gibt jetzt `null` zurück, sobald mehr als ein Gerät zum
+Namen *und* zum Befehl passt, statt eines für alle zu entscheiden. Die
+neue, ebenfalls reine Funktion `mehrdeutigeKandidaten()` liefert in
+diesem Fall alle passenden Geräte einzeln; `GlobalSearch.tsx` zeigt sie
+dann als eigene Zeilen statt der einen Ausführen-Zeile. Bestehendes
+Verhalten bei eindeutigem Namen bleibt unverändert.
+
+Stellen: `app/src/lib/suchbefehl.ts`, `app/src/lib/suchbefehl.test.ts`, `app/src/components/GlobalSearch.tsx`
+
+### 686. Kontrastreiches Erscheinungsbild für den Kassenmodus ✓ erledigt (0620508)
+
+Die Kassenansicht (`screens/family/gutscheine.tsx`, Punkt 299/300/532)
+war schon weiss, gross und kontrastreich - schwarz auf weiss, auch im
+dunklen Thema, eigens dafür ohne `useColors()` gebaut
+(`components/Strichcode.tsx`, `components/Kassencode.tsx`). Was fehlte,
+war nur die eine Zeile, die zählt, wenn der Scanner streikt: die
+Ziffern unter dem Code, bisher mit 13px kaum über den Tresen hinweg
+lesbar.
+
+Beide Stellen stehen jetzt mit 20-22px und fett - gross genug, um sie
+abzutippen, ohne sich zu vertun.
+
+Stellen: `app/src/components/Strichcode.tsx`, `app/src/components/Kassencode.tsx`
+
+### 743. «Zuletzt verwendet» und die Gutschein-Kachel wieder von der Startseite entfernt ✓ erledigt
+
+Zwei Karten (Punkt 674 und Punkt 687), im Betrieb aber unerwünscht: Die
+Startseite sollte diese Reihe und diese Kachel nicht zeigen - beide
+zusammen mit einem Wort beantwortet, auf die Nachfrage «nur die eine
+oder beide?».
+
+Entfernt wurden beide JSX-Blöcke aus `OverviewScreen.tsx` samt den
+Requisiten `recentIds` und `gutscheinSumme`, die reine Funktion
+`zuletztVerwendet()` aus `lib/kachellernen.ts` (und ihr Testblock), die
+Verdrahtung in `DashboardScreen.tsx` (`recentIds`-Berechnung,
+Weiterreichen beider Requisiten) sowie der ganze Haken
+`hooks/useGutscheinSumme.ts`, weil ihn danach nichts mehr aufrief.
+
+Nicht angerührt: `hooks/useKachelnutzung.ts` und der übrige Inhalt von
+`lib/kachellernen.ts` (`merken`, `gelernt`, `nachGewohnheit`,
+`hinweisGelernt`) - derselbe Zähler trägt weiterhin «nach Tageszeit
+sortieren» (Punkt 673), das mit der Startseite nichts zu tun hat und
+bleiben soll. Ebenso unangetastet: `/api/family/vouchers` und die
+Gutschein-Ansicht der Familienseite selbst (`summe()`, `summenText()`
+in `lib/gutscheine.ts`) - die brauchte schon vor Punkt 687 niemand nur
+für diese eine Kachel.
+
+Stellen: `app/src/screens/OverviewScreen.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/lib/kachellernen.ts`, `app/src/lib/kachellernen.test.ts`

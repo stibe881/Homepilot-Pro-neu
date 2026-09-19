@@ -225,6 +225,18 @@ class PushStufeRequest(BaseModel):
     stufe: str
 
 
+class PushTestmodusRequest(BaseModel):
+    """Testmodus einer Kategorie ein- oder ausschalten (Punkt 712).
+
+    Wer die einzige Empfängerin wird, ist immer die angemeldete Person
+    selbst (aus dem Token) - nicht Teil der Anfrage, sonst liesse sich
+    darüber jemand anderes zur Testperson machen.
+    """
+
+    category: str
+    an: bool
+
+
 class PushGruppeRequest(BaseModel):
     """Eine Empfängergruppe (push.gruppen_lesen)."""
 
@@ -480,6 +492,9 @@ class UserUpdateRequest(BaseModel):
     rooms: list[str] | None = None
     # Gemeinschaftsgerät statt Person – siehe core/users.py.
     shared: bool | None = None
+    # Testmodus (Punkt 665): Befehle kommen an, erreichen aber nie die
+    # Integration – siehe core/users.py.
+    sandbox: bool | None = None
     # Passwort vor den persönlichen Bereichen; leerer Text nimmt es weg.
     # Nur setzbar, nie lesbar – zurück kommt bloss 'area_locked'.
     area_password: str | None = None

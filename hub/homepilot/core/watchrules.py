@@ -759,7 +759,11 @@ def batterietyp_pruefen(wert: Any) -> str | None:
     return None
 
 
-def low_batteries(entities: list[Any], schwelle: float | None = None) -> list[Any]:
+def low_batteries(
+    entities: list[Any],
+    schwelle: float | None = None,
+    guarded: set[str] | None = None,
+) -> list[Any]:
     """Geräte, die eine schwache Batterie melden (rein, testbar).
 
     Zwei Quellen (Punkt 258 der Werkbank): das ausdrückliche
@@ -775,6 +779,16 @@ def low_batteries(entities: list[Any], schwelle: float | None = None) -> list[An
     Die Telefone bleiben draussen: Ihre Akku-Warnung wohnt bei der
     Ortung (core/presence.battery_alert) mit eigener Schwelle - hier
     mitgezählt käme jede Warnung doppelt.
+
+    `guarded` staffelt nach Kritikalität (Punkt 724 der Werkbank):
+    Geräte, die die Alarmanlage bewacht (dieselbe Menge wie bei
+    `watched_entities`), stehen vorn. Ein Sensor an der Eingangstür ist
+    für den Betrieb der Anlage wichtiger als einer im selten betretenen
+    Cheller - und wo mehrere schwache Batterien in einer Runde zu einer
+    Sammelmeldung gebündelt werden (core/pushbuendel.py, mit nur vier
+    sichtbaren Zeilen), entscheidet genau diese Reihenfolge, welche
+    Geräte noch genannt werden. Stabil sortiert: Innerhalb der beiden
+    Gruppen bleibt die ursprüngliche Reihenfolge erhalten.
     """
     schwach = []
     for entity in entities:
@@ -791,6 +805,8 @@ def low_batteries(entities: list[Any], schwelle: float | None = None) -> list[An
             and 0 <= stand <= schwelle
         ):
             schwach.append(entity)
+    if guarded:
+        schwach.sort(key=lambda entity: entity.id not in guarded)
     return schwach
 
 

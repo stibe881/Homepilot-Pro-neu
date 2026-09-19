@@ -29,12 +29,17 @@ export function Kamerawand({
   bildUrl,
   onOeffnen,
   onClose,
+  aktion,
 }: {
   kameras: Entity[];
   bildUrl: (entity: Entity) => string | undefined;
   /** Eine Kamera gross und live – die Vollbildansicht, die es schon gibt. */
   onOeffnen: (entity: Entity) => void;
   onClose: () => void;
+  /** Ein Knopf unten, zusätzlich zum Schliessen (Punkt 720: «Jetzt
+   *  scharf schalten» nach dem letzten Blick vor dem Verlassen). Ohne
+   *  Angabe bleibt die Wand, wie sie war – nur zum Anschauen. */
+  aktion?: { label: string; onPress: () => void };
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -111,6 +116,15 @@ export function Kamerawand({
             );
           })}
         </View>
+        {aktion ? (
+          <Pressable
+            onPress={aktion.onPress}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.aktion, pressed && { opacity: 0.8 }]}
+          >
+            <Text style={styles.aktionText}>{aktion.label}</Text>
+          </Pressable>
+        ) : null}
       </View>
     </Modal>
   );
@@ -160,4 +174,14 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: bewegungsSignal(colors).grund,
     },
     weg: { color: '#8A8A8E', fontSize: 11 },
+    aktion: {
+      marginTop: 12,
+      marginBottom: 20,
+      alignSelf: 'center',
+      paddingHorizontal: 24,
+      paddingVertical: 14,
+      borderRadius: radius.pill,
+      backgroundColor: colors.accent,
+    },
+    aktionText: { color: colors.onAccent, fontSize: 16, fontWeight: '700' },
   });

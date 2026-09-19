@@ -181,7 +181,7 @@ import { WhatsNew } from '../components/WhatsNew';
 import { Einfuehrung } from '../components/Einfuehrung';
 import { Hilfeblatt } from '../components/Hilfeblatt';
 import { Seitenhilfe } from '../components/Seitenhilfe';
-import { hilfeFuer } from '../lib/seitenhilfe';
+import { alsGezeigtVermerken, hilfeFuer, nochNieGezeigt } from '../lib/seitenhilfe';
 import { LightGroups } from '../components/LightGroups';
 import { DeviceTools } from '../components/DeviceTools';
 import { SceneSuggestion } from '../components/SceneSuggestion';
@@ -218,7 +218,7 @@ import { useAbstuerze } from '../hooks/useAbstuerze';
 import { useKachelnutzung } from '../hooks/useKachelnutzung';
 import { useRaumnutzung } from '../hooks/useRaumnutzung';
 import { Zielzeile, istGrill, zieleVon } from '../lib/grillziel';
-import { nachGewohnheit } from '../lib/kachellernen';
+import { gelernt, hinweisGelernt, nachGewohnheit } from '../lib/kachellernen';
 import { useSensorlinien } from '../hooks/useSensorlinien';
 import { useAusfall } from '../hooks/useAusfall';
 import { useZurueckWischen } from '../hooks/useZurueckWischen';
@@ -901,7 +901,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // nicht in den Einstellungen stehenbleiben.
   // Ein Gemeinschaftsgerät ist ein Wandpanel - dafür ist es da. Der
   // Schalter in den Einstellungen bleibt für alle anderen Geräte.
-  usePanelMode(!!settings.panel || !!user?.shared);
+  const istWandpanel = !!settings.panel || !!user?.shared;
+  usePanelMode(istWandpanel);
 
   // Beim ersten Aufbau einmal nachsehen, ob man vor Kurzem woanders war.
   // Genau einmal: Danach ist jeder Wechsel eine Entscheidung, und die
@@ -973,6 +974,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setFavorites,
     setFavoriteOrder,
     setSchnellOrder,
+    setReiterOrder,
+    setSeitenhilfeGezeigt,
     setDurchsage,
     setBioLock,
     setDoorConfirm,
@@ -983,6 +986,27 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setWidgetStil,
     setEinkaufLernen,
   } = usePrefs(settings, status === 'connected');
+
+  // Die Seitenhilfe geht beim allerersten Besuch eines Bereichs von
+  // selbst auf, statt nur auf Antippen des Fragezeichens (Punkt 672 der
+  // Werkbank). Erst warten, bis die persönlichen Einstellungen wirklich
+  // da sind - sonst hielte ein noch leerer Stand jeden Bereich für nie
+  // besucht und öffnete die Hilfe bei jedem Neustart erneut.
+  useEffect(() => {
+    if (!eigenGeladen) return;
+    if (seitenhilfe) return;
+    if (!hilfeFuer(section)) return;
+    if (!nochNieGezeigt(eigenePrefs.seitenhilfeGezeigt, section)) return;
+    setSeitenhilfeGezeigt(alsGezeigtVermerken(eigenePrefs.seitenhilfeGezeigt, section));
+    setSeitenhilfe(true);
+  }, [
+    eigenGeladen,
+    section,
+    seitenhilfe,
+    eigenePrefs.seitenhilfeGezeigt,
+    setSeitenhilfeGezeigt,
+    setSeitenhilfe,
+  ]);
 
   // Jetzt, wo die Haus-Einstellungen da sind, bekommt das Abhaken in der
   // Kopfzeile sein Protokoll (die Ref kommt aus useFamilienlisten).
@@ -2187,14 +2211,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     section === 'home' && room !== ALL_ROOMS && !editing,
     () => setRoom(ALL_ROOMS)
   );
-  // Wischen zwischen den Bereichen (Punkt 522) - nur auf dem Telefon,
-  // wo die Leiste unten liegt; mit Seitenleiste tippt man sie. Nicht im
-  // Zimmer (dort heisst Wischen «zurück») und nicht beim Anpassen.
+  // Wischen zwischen den Bereichen (Punkt 522) - auf dem Telefon, wo die
+  // Leiste unten liegt und man sie nicht ohne Umgreifen tippt, und am
+  // Wandpanel (Punkt 675): Dort steht die Seitenleiste zwar, aber ein fest
+  // montiertes iPad bedient man oft mit einer Hand von der Seite, an der
+  // man gerade steht - die Leiste liegt dann nicht zwingend darunter. Mit
+  // Seitenleiste in der Hand (kein Wandpanel) tippt man sie weiterhin.
+  // Nicht im Zimmer (dort heisst Wischen «zurück») und nicht beim Anpassen.
   const bereichWischen = useBereichWischen(
-    !hasRail && !editing && room === ALL_ROOMS,
+    (!hasRail || istWandpanel) && !editing && room === ALL_ROOMS,
     (richtung) => {
       const ziel = nachbarBereich(
-        sichtbareBereiche(user?.capabilities ?? [], hiddenSections),
+        sichtbareBereiche(user?.capabilities ?? [], hiddenSections, eigenePrefs.reiterOrder),
         railAktiv,
         richtung
       );
@@ -3062,6 +3090,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             onTageszeit={setTageszeit}
             raumNutzung={!!eigenePrefs.raumNutzung}
             onRaumNutzung={setRaumNutzung}
+            // Die Reihenfolge der Reiter (Punkt 670): dieselbe Ablage wie
+            // die zwei Schalter darüber, nur für die Haupt-Leiste statt
+            // die Kacheln darunter.
+            reiter={sichtbareBereiche(
+              user?.capabilities ?? [],
+              hiddenSections,
+              eigenePrefs.reiterOrder
+            ).map((key) => ({ id: key, name: SECTION_LABEL[key] }))}
+            onReiterOrder={setReiterOrder}
             sicherheit={
               <Abschnitt
                 titel="Anmeldung und Sicherheit"
@@ -4124,6 +4161,28 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               Reihenfolge, die nur dazu passt.
             </Text>
           ) : null}
+          {/* Info-Symbol bei automatischen Vorschlägen (Punkt 676 der
+              Werkbank): hinweisGelernt() gab es schon, nur ohne Stelle,
+              die es zeigt - eine umsortierte Startseite ohne Erklärung
+              hält man für Zufall, nicht für eine Regel. Nur, wenn
+              wirklich etwas gelernt ist, nicht schon bei der blossen
+              Tageszeit-Sortierung - und nur in der Ansicht, die `rest`
+              tatsächlich zeigt: In der nach Zimmer gruppierten Ansicht
+              zum Beispiel bleibt die Reihenfolge unberührt, dort wäre
+              der Hinweis eine falsche Auskunft. */}
+          {!editing &&
+          !grouped &&
+          !categorized &&
+          !roomTiles &&
+          abschnitt &&
+          gelernt(kachelZaehler, abschnitt.key, now.getTime()).length > 0 ? (
+            <View style={styles.gewohnheitZeile}>
+              <Ionicons name="information-circle-outline" size={13} color={colors.inkFaint} />
+              <Text style={[styles.sectionLabel, { marginTop: 0 }]}>
+                {hinweisGelernt(abschnitt)}
+              </Text>
+            </View>
+          ) : null}
           {!grouped && !categorized && !roomTiles ? (
             <View style={styles.grid}>{cardWidth ? rest.map(renderCell) : null}</View>
           ) : null}
@@ -4237,6 +4296,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               capabilities={user?.capabilities ?? []}
               hidden={hiddenSections}
               ton={leistenTon}
+              reihenfolge={eigenePrefs.reiterOrder}
             />
           ) : null}
 
@@ -4594,6 +4654,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             capabilities={user?.capabilities ?? []}
             hidden={hiddenSections}
             ton={leistenTon}
+            reihenfolge={eigenePrefs.reiterOrder}
           />
         ) : null}
 

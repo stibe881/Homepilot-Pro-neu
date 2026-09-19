@@ -232,6 +232,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 simple_rooms=body.simple_rooms,
                 rooms=body.rooms,
                 shared=body.shared,
+                sandbox=body.sandbox,
                 area_password=body.area_password,
                 role=body.role,
             )

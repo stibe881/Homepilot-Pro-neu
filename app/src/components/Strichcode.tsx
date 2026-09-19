@@ -73,11 +73,14 @@ export function Strichcode({
       </Svg>
       {/* Die Ziffern darunter: Wenn der Scanner streikt, tippt die
           Kassiererin sie ab - und dann sollen sie dastehen, wo sie es
-          auf jeder Karte auch tun. */}
+          auf jeder Karte auch tun. Gross genug, um sie über den Tresen
+          hinweg abzulesen (Punkt 686 der Werkbank) - klein gedruckt
+          tippt man eher falsch als noch einmal. */}
       <Text
         style={{
           color: '#000000',
-          fontSize: 13,
+          fontSize: 22,
+          fontWeight: '700',
           letterSpacing: 2,
           fontVariant: ['tabular-nums'],
         }}
