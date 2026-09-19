@@ -700,7 +700,13 @@ class AlarmIntegration(Integration):
                 eskalations_ende_befehle(self._escalation, self.hub.registry.all()),
                 "eskalation-aus",
             )
-        if self._settings.get("notify_arming") and was != DISARMED:
+        # Dieselbe Ausnahme wie beim Scharfschalten (Punkt 741): Die
+        # Anwesenheits-Kopplung meldet sich nach disarm() selbst, mit dem
+        # eigentlichen Grund («Jemand ist heimgekommen – die Anlage ist
+        # unscharf.», core/alarmanwesenheit.py, _anwesenheit_handeln).
+        # Ohne diese Ausnahme kamen auch beim Entschärfen zwei Meldungen
+        # für denselben Vorgang (Punkt 742 der Werkbank).
+        if self._settings.get("notify_arming") and was != DISARMED and by != "Anwesenheit":
             await self._notify(
                 "Alarmanlage unscharf", "Die Anlage ist aus.", "alarm_arming"
             )

@@ -8504,3 +8504,19 @@ ohne den Grund.
 ist - die spezifischere Meldung der Kopplung sagt ohnehin mehr.
 
 Stellen: `hub/homepilot/integrations/alarm.py`, `hub/tests/test_alarm_wache_panik.py`
+
+### 742. Entschärfen durch Anwesenheit meldete sich ebenfalls doppelt ✓ erledigt
+
+Dasselbe Bild wie Punkt 741, nur gespiegelt: Beim Heimkommen kamen
+zwei «DRINGLICH»-Meldungen für dieselbe Heimkehr - «Alarmanlage:
+Jemand ist heimgekommen – die Anlage ist unscharf.» und «Alarmanlage
+unscharf: Die Anlage ist aus.», wieder zur selben Minute. Punkt 741
+hatte nur die Aufrufstelle in `arm()` behoben; `disarm()` hatte
+dieselbe unbedingte Meldung, nur für die andere Richtung, und blieb
+unberührt.
+
+`disarm()` lässt seine eigene Meldung jetzt ebenso aus, wenn
+`by == "Anwesenheit"` ist - dieselbe Ausnahme wie bei `arm()`, nur an
+der zweiten Stelle nachgetragen.
+
+Stellen: `hub/homepilot/integrations/alarm.py`, `hub/tests/test_alarm_wache_panik.py`

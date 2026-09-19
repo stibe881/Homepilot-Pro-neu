@@ -260,6 +260,39 @@ def test_die_anwesenheit_meldet_nur_einmal_nicht_doppelt(anlage):
     assert "Niemand mehr zuhause" in meldungen[0][1]
 
 
+def test_die_heimkehr_meldet_nur_einmal_nicht_doppelt(anlage):
+    """Dasselbe Bild wie bei Punkt 741, gespiegelt fürs Entschärfen: Zwei
+    «DRINGLICH»-Meldungen für dieselbe Heimkehr - «Jemand ist
+    heimgekommen – die Anlage ist unscharf.» aus `_anwesenheit_handeln`
+    und zusätzlich «Alarmanlage unscharf: Die Anlage ist aus.» aus
+    `disarm()` selbst, das bei `notify_arming` unabhängig vom Grund
+    meldete (Punkt 742 der Werkbank).
+    """
+    hub, service, _ = anlage
+    meldungen: list[tuple[str, str]] = []
+
+    async def run():
+        await hub.registry.add(person("geofence.stefan", "home"))
+        await service.update_config(
+            {
+                "settings": {
+                    "presence_disarm": alarmanwesenheit.AUTOMATISCH,
+                    "notify_arming": True,
+                }
+            }
+        )
+        await service.arm("ausser_haus")
+        service._notify = (
+            lambda titel, text, *a, **k: meldungen.append((titel, text)) or asyncio.sleep(0)
+        )
+        await service.takt()
+
+    asyncio.run(run())
+    assert service._entity.state["state"] == DISARMED
+    assert len(meldungen) == 1
+    assert "Jemand ist heimgekommen" in meldungen[0][1]
+
+
 def test_ein_offenes_fenster_haelt_auch_die_automatik_auf(anlage):
     """Eine Anlage, die sich selbst scharf schaltet und dabei ein offenes
     Fenster übergeht, wäre schlechter als gar keine Kopplung."""
