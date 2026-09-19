@@ -215,11 +215,10 @@ import { mitStil } from '../lib/widgetstil';
 import { HubProvider, MeldungsProvider, useBlattstapel } from '../hooks/HubContext';
 import { useFamilienlisten } from '../hooks/useFamilienlisten';
 import { useAbstuerze } from '../hooks/useAbstuerze';
-import { useGutscheinSumme } from '../hooks/useGutscheinSumme';
 import { useKachelnutzung } from '../hooks/useKachelnutzung';
 import { useRaumnutzung } from '../hooks/useRaumnutzung';
 import { Zielzeile, istGrill, zieleVon } from '../lib/grillziel';
-import { gelernt, hinweisGelernt, nachGewohnheit, zuletztVerwendet } from '../lib/kachellernen';
+import { gelernt, hinweisGelernt, nachGewohnheit } from '../lib/kachellernen';
 import { useSensorlinien } from '../hooks/useSensorlinien';
 import { useAusfall } from '../hooks/useAusfall';
 import { useZurueckWischen } from '../hooks/useZurueckWischen';
@@ -718,9 +717,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Und wie oft welches Gerät zu welcher Tageszeit
   // (hooks/useKachelnutzung.ts) - daraus wird die gelernte Reihenfolge.
   const { kachelZaehler, zaehleKachel } = useKachelnutzung();
-  // Der offene Gesamtwert der Gutscheine, für die Kachel auf der
-  // Übersicht (Punkt 687 der Werkbank, hooks/useGutscheinSumme.ts).
-  const gutscheinSumme = useGutscheinSumme(settings, status === 'connected');
   // Was `<Auffangnetz>` abfängt, gehört ins Buch dieses Geräts - sonst
   // erfährt niemand davon (Punkt 272, hooks/useAbstuerze.ts).
   const { merkeAbsturz } = useAbstuerze();
@@ -1375,14 +1371,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const favorites = useMemo(
     () => eigenePrefs.favorites ?? favoritenVon(entities),
     [eigenePrefs.favorites, entities]
-  );
-  // «Zuletzt verwendet» (Punkt 674): derselbe Zähler wie bei «nach
-  // Tageszeit sortieren», nur nach Zeitpunkt statt nach Abschnitt
-  // gelesen - und ohne die eigenen Favoriten, die schon eine Kachel
-  // weiter oben stehen.
-  const recentIds = useMemo(
-    () => zuletztVerwendet(kachelZaehler, new Set(favorites)),
-    [kachelZaehler, favorites]
   );
   // Festgehalten und nicht je Rendern neu: `prefs.locked ?? []` ist bei
   // jedem Durchlauf eine andere leere Liste, und die hängt an den
@@ -2916,8 +2904,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               // sonst spränge beim Umstieg alles durcheinander.
               favoriteOrder={eigenePrefs.favoriteOrder ?? prefs.order?.favorites}
               onReorderFavorites={setFavoriteOrder}
-              recentIds={recentIds}
-              gutscheinSumme={gutscheinSumme}
               schnellOrder={eigenePrefs.schnellOrder}
               onReorderSchnell={setSchnellOrder}
               onDurchsage={darfSchalten ? sendeDurchsage : undefined}

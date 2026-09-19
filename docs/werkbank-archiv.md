@@ -8487,6 +8487,8 @@ der Hand jedes Ziehens sofort wieder verschieben.
 
 Stellen: `app/src/lib/kachellernen.ts`, `app/src/lib/kachellernen.test.ts`, `app/src/screens/OverviewScreen.tsx`, `app/src/screens/DashboardScreen.tsx`
 
+*Wieder entfernt durch Punkt 742 - unerwünscht auf der Startseite.*
+
 ### 722. Wochentagsabhängige Ein-/Ausgangsverzögerung ✓ erledigt (3d71068)
 
 `exit_delay` und `entry_delay` der Alarmanlage waren je eine feste
@@ -8526,6 +8528,8 @@ zeigt die Karte nur, wenn `summenText` etwas liefert - keine Karte über
 nichts.
 
 Stellen: `app/src/hooks/useGutscheinSumme.ts`, `app/src/screens/OverviewScreen.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/lib/gutscheine.ts`
+
+*Wieder entfernt durch Punkt 742 - unerwünscht auf der Startseite.*
 
 ### 681. ESLint-Regel gegen literale Schriftgrössen ✓ erledigt (bfbd2c0)
 
@@ -8848,3 +8852,28 @@ Beide Stellen stehen jetzt mit 20-22px und fett - gross genug, um sie
 abzutippen, ohne sich zu vertun.
 
 Stellen: `app/src/components/Strichcode.tsx`, `app/src/components/Kassencode.tsx`
+
+### 742. «Zuletzt verwendet» und die Gutschein-Kachel wieder von der Startseite entfernt ✓ erledigt
+
+Zwei Karten (Punkt 674 und Punkt 687), im Betrieb aber unerwünscht: Die
+Startseite sollte diese Reihe und diese Kachel nicht zeigen - beide
+zusammen mit einem Wort beantwortet, auf die Nachfrage «nur die eine
+oder beide?».
+
+Entfernt wurden beide JSX-Blöcke aus `OverviewScreen.tsx` samt den
+Requisiten `recentIds` und `gutscheinSumme`, die reine Funktion
+`zuletztVerwendet()` aus `lib/kachellernen.ts` (und ihr Testblock), die
+Verdrahtung in `DashboardScreen.tsx` (`recentIds`-Berechnung,
+Weiterreichen beider Requisiten) sowie der ganze Haken
+`hooks/useGutscheinSumme.ts`, weil ihn danach nichts mehr aufrief.
+
+Nicht angerührt: `hooks/useKachelnutzung.ts` und der übrige Inhalt von
+`lib/kachellernen.ts` (`merken`, `gelernt`, `nachGewohnheit`,
+`hinweisGelernt`) - derselbe Zähler trägt weiterhin «nach Tageszeit
+sortieren» (Punkt 673), das mit der Startseite nichts zu tun hat und
+bleiben soll. Ebenso unangetastet: `/api/family/vouchers` und die
+Gutschein-Ansicht der Familienseite selbst (`summe()`, `summenText()`
+in `lib/gutscheine.ts`) - die brauchte schon vor Punkt 687 niemand nur
+für diese eine Kachel.
+
+Stellen: `app/src/screens/OverviewScreen.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/lib/kachellernen.ts`, `app/src/lib/kachellernen.test.ts`

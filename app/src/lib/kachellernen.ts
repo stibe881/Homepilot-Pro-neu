@@ -135,38 +135,6 @@ export function nachGewohnheit<T extends { id: string; kind: string }>(
 }
 
 /**
- * Die zuletzt bedienten Geräte, jüngstes zuerst - unabhängig vom
- * Tagesabschnitt (rein, testbar). Punkt 674 der Werkbank.
- *
- * Derselbe Zähler wie beim Gewohnheits-Lernen, nur anders gelesen: Dort
- * zählt, wie oft ein Gerät in einem Abschnitt vorkam, hier nur, wann es
- * zuletzt war - über alle Abschnitte hinweg, denn «zuletzt verwendet»
- * kennt keine Tageszeit. Ein Gerät kann unter mehreren Abschnitten
- * stehen (morgens *und* abends bedient); es zählt der jüngste Eintrag.
- *
- * `ausschluss` nimmt heraus, was ohnehin schon anderswo auf der Seite
- * steht - typischerweise die eigenen Favoriten, damit dasselbe Gerät
- * nicht zweimal erscheint.
- */
-export function zuletztVerwendet(
-  zaehler: Kachelzaehler,
-  ausschluss: ReadonlySet<string> = new Set(),
-  anzahl = 6
-): string[] {
-  const letzte = new Map<string, number>();
-  for (const [key, eintrag] of Object.entries(zaehler)) {
-    const id = key.slice(key.indexOf('|') + 1);
-    if (!id || ausschluss.has(id)) continue;
-    const bisher = letzte.get(id);
-    if (bisher === undefined || eintrag.at > bisher) letzte.set(id, eintrag.at);
-  }
-  return [...letzte.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, anzahl)
-    .map(([id]) => id);
-}
-
-/**
  * Was oben auf der Seite steht, wenn gelernt statt gesetzt wird (rein,
  * testbar).
  *

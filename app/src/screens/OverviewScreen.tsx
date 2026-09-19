@@ -113,17 +113,6 @@ interface Props {
   /** Selbst gezogene Reihenfolge der Favoriten (Gerätekennungen). */
   favoriteOrder?: string[];
   onReorderFavorites?: (ids: string[]) => void;
-  /** Die zuletzt bedienten Geräte, jüngstes zuerst - unabhängig von den
-   *  festen Favoriten (Punkt 674 der Werkbank, `lib/kachellernen.ts`:
-   *  `zuletztVerwendet`). Kommt von aussen, weil die Zählung im
-   *  Gerätespeicher dieses Bildschirms liegt (hooks/useKachelnutzung.ts)
-   *  und nicht zu diesem Bauteil gehört. */
-  recentIds?: string[];
-  /** «640.00 CHF · 40.00 EUR» - der offene Gesamtwert der Gutscheine
-   *  (Punkt 687 der Werkbank, hooks/useGutscheinSumme.ts). Leer heisst:
-   *  keine Kachel, entweder weil noch nichts geladen ist oder weil
-   *  nichts offen ist. */
-  gutscheinSumme?: string;
   /** Selbst gezogene Reihenfolge der Schnellaktionen (Szenen-Kennungen
    *  und die zwei Storen-Knöpfe, siehe lib/schnellordnung.ts). */
   schnellOrder?: string[];
@@ -230,8 +219,6 @@ export function OverviewScreen({
   favoriteIds = [],
   favoriteOrder,
   onReorderFavorites,
-  recentIds = [],
-  gutscheinSumme = '',
   schnellOrder,
   onReorderSchnell,
   onRenameEntity,
@@ -341,18 +328,6 @@ export function OverviewScreen({
         favoriteOrder
       ),
     [favoriten, durchsageMoeglich, favoriteOrder]
-  );
-  // «Zuletzt verwendet» (Punkt 674): dieselben Kennungen, aufgelöst zu
-  // Entitäten und ohne alles, was ohnehin schon als Favorit oben steht -
-  // sonst stände dasselbe Gerät zweimal auf der Seite.
-  const favoritIds = useMemo(() => new Set(favoriten.map((entity) => entity.id)), [favoriten]);
-  const kuerzlich = useMemo(
-    () =>
-      recentIds
-        .filter((id) => !favoritIds.has(id))
-        .map((id) => entities.find((entity) => entity.id === id))
-        .filter((entity): entity is Entity => !!entity),
-    [recentIds, favoritIds, entities]
   );
   // Welcher Fernseher gerade sein Timer-Fenster offen hat. Der Chip auf
   // der Startseite ist zu klein für fünf Knöpfe - und beim Einschalten
@@ -1035,44 +1010,6 @@ export function OverviewScreen({
             />
           ) : null}
         </>
-      ) : null}
-
-      {/* Zuletzt verwendet (Punkt 674): ein Gerät, das man diese Woche
-          zum ersten Mal braucht, schafft nie den Sprung in die von Hand
-          gepflegten Favoriten. Keine eigene Reihenfolge und kein
-          Umbenennen - anders als die Favoriten ist die Liste nicht
-          gewählt, sondern beobachtet, und verschiebt sich von selbst. */}
-      {kuerzlich.length > 0 ? (
-        <>
-          <Text style={styles.groupLabel}>Zuletzt verwendet</Text>
-          <View style={styles.favRow}>
-            {kuerzlich.map((entity) => (
-              <FavoriteChip
-                key={entity.id}
-                entity={entity}
-                breite={favWidth}
-                pending={!!pending[entity.id]}
-                onCommand={onCommand}
-                onTimer={() => setTimerTv(entity)}
-                styles={styles}
-                colors={colors}
-              />
-            ))}
-          </View>
-        </>
-      ) : null}
-
-      {/* Gesamtwert-Kachel der Gutscheine (Punkt 687): «Noch 340 CHF in
-          Gutscheinen offen» - der Wert, den man sonst erst nach dem
-          Öffnen des Familienmoduls sieht. Leer heisst nichts offen oder
-          noch nicht geladen, und dann steht hier bewusst keine Karte. */}
-      {gutscheinSumme ? (
-        <Card style={styles.gutscheinKarte}>
-          <Ionicons name="pricetag-outline" size={18} color={colors.inkSoft} />
-          <Text style={styles.gutscheinText}>
-            Noch {gutscheinSumme} in Gutscheinen offen
-          </Text>
-        </Card>
       ) : null}
 
       {/* Der Handgriff zur Tageszeit: morgens «Storen auf», abends
@@ -2468,13 +2405,6 @@ const makeStyles = (colors: Colors) =>
     },
     reorderTitle: { color: colors.ink, fontSize: 18, fontWeight: '700' },
     reorderHint: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
-    gutscheinKarte: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-      paddingVertical: 12,
-    },
-    gutscheinText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
     stack: { gap: space.gap },
     headRow: { flexDirection: 'row', gap: space.gap },
     clockCard: { flex: 1, minHeight: 0, justifyContent: 'center' },
