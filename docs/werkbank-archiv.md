@@ -8460,3 +8460,47 @@ Repo) - erst dann nutzt der Hub die neue Berechtigung wirklich, für
 Rauch-/CO-Alarm, Wassermelder und die Einbruchmeldeanlage.
 
 Stellen: `app/app.json`
+
+### 740. Ein Ablauf meldete «wirkungslos», wo eine Szene «gilt noch» sagte ✓ erledigt
+
+Aus dem Haus: «Niemand mehr zuhause» pausiert die Musik im ganzen Haus
+- die Push-Meldung «Ablauf ohne Wirkung» listete danach jedes einzelne
+Zimmer auf: «Badezimmer spielte weiter, Büro spielte weiter, Gang
+spielte weiter, …». Tatsächlich lief nirgends etwas.
+
+`core/wirkung.py` (Punkt 596) prüft nach einem Lauf, ob am Gerät wirklich
+anliegt, was der Befehl bewirken sollte - mit einem eigenen, blossen
+Stringvergleich. `core/szenenrueckweg.py` stellt genau dieselbe Frage
+für Szenen und kennt dafür zwei Gleichsetzungen: Eine Cast-Box, die
+schon ruhte, meldet nie wörtlich `"paused"` oder `"off"`, nur `"idle"`
+oder `"standby"` (`PAUSIERT_GLEICHWERTIG`, `AUS_GLEICHWERTIG`, Punkt
+650/653). `wirkung.py` kannte diese Gleichsetzungen nicht - dieselbe
+Aktion in einer Szene galt längst richtig als «gilt noch», derselbe
+Ablauf meldete sie trotzdem als gescheitert.
+
+`_stimmt_ueberein` in `szenenrueckweg.py` ist jetzt öffentlich
+(`stimmt_ueberein`, kein führender Unterstrich mehr) und wird von
+beiden Modulen geteilt - eine Frage, eine Antwort, statt zwei
+Rechnungen, die sich widersprechen können.
+
+Stellen: `hub/homepilot/core/szenenrueckweg.py`, `hub/homepilot/core/wirkung.py`, `hub/tests/test_wirkung.py`
+
+### 741. Scharfschalten durch Anwesenheit meldete sich doppelt ✓ erledigt
+
+Im selben Screenshot wie Punkt 740: Zwei «DRINGLICH»-Meldungen für
+dasselbe Ereignis - «Alarmanlage: Niemand mehr zuhause – die Anlage ist
+scharf.» und «Alarmanlage scharf: Modus Ausser Haus», beide zur
+selben Minute.
+
+Die Anwesenheits-Kopplung (`core/alarmanwesenheit.py`,
+`_anwesenheit_handeln` in `integrations/alarm.py`) meldet sich nach dem
+Scharfschalten selbst, mit dem eigentlichen Grund. `arm()` meldet sich
+aber unabhängig davon auch noch, sobald `notify_arming` an ist - und
+zwar für jeden Aufrufer gleich, ohne zu wissen, dass die Anwesenheit
+gerade schon gemeldet hat. Zwei Meldungen für ein Ereignis, die zweite
+ohne den Grund.
+
+`arm()` lässt seine eigene Meldung jetzt aus, wenn `by == "Anwesenheit"`
+ist - die spezifischere Meldung der Kopplung sagt ohnehin mehr.
+
+Stellen: `hub/homepilot/integrations/alarm.py`, `hub/tests/test_alarm_wache_panik.py`

@@ -84,6 +84,37 @@ def test_ein_paar_prozentpunkte_sind_kein_fehlschlag():
     }
 
 
+def test_eine_ruhende_box_gilt_nach_pause_oder_aus_als_gewirkt():
+    """Der gemeldete Fall: «Niemand mehr zuhause» pausiert die Musik in
+    jedem Zimmer, und jedes einzelne meldete «spielte weiter» - obwohl
+    nirgends etwas lief.
+
+    Eine Cast-Box, die schon ruhte, meldet nie wörtlich «paused» oder
+    «off», nur «idle» oder «standby» (integrations/google_cast.py).
+    `abgleich` verglich bisher mit blossem Stringvergleich und kannte
+    diese Gleichsetzung nicht - dieselbe Aktion in einer Szene galt
+    längst richtig als «gilt noch» (szenenrueckweg.py, Punkt 650/653),
+    ein Ablauf mit derselben Aktion meldete trotzdem «wirkungslos»
+    (Punkt 740 der Werkbank).
+    """
+    punkte = wirkung.pruefpunkte(
+        [
+            {"entity_id": "cast.bad", "command": "pause"},
+            {"entity_id": "cast.buero", "command": "turn_off"},
+        ]
+    )
+    ergebnis = wirkung.abgleich(
+        punkte,
+        {"cast.bad": {"state": "idle"}, "cast.buero": {"state": "standby"}},
+    )
+    assert ergebnis == {"ok": ["cast.bad", "cast.buero"], "fehlt": []}
+    assert wirkung.urteil(ergebnis) == "gewirkt"
+
+    # Lief die Box wirklich noch, bleibt es zu Recht ein Fehlschlag.
+    laeuft = wirkung.abgleich(punkte, {"cast.bad": {"state": "playing"}})
+    assert laeuft == {"ok": [], "fehlt": ["cast.bad"]}
+
+
 def test_ohne_pruefbares_gibt_es_kein_urteil():
     """Keine Auskunft ist keine schlechte Nachricht - und soll auch nicht
     als eine angezeigt werden."""

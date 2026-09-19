@@ -513,7 +513,13 @@ class AlarmIntegration(Integration):
             # nachlesen können, dass die Türe die Nacht über offen war.
             text += " – nicht abgeschlossen: " + ", ".join(e.label for e in riegel)
         self._note("armed", text, by)
-        if self._settings.get("notify_arming"):
+        # Nicht bei der Anwesenheits-Kopplung: Die meldet sich nach
+        # arm() selbst, mit dem eigentlichen Grund («Niemand mehr
+        # zuhause – die Anlage ist scharf.», core/alarmanwesenheit.py,
+        # _anwesenheit_handeln). Ohne diese Ausnahme kamen zwei
+        # Meldungen für dasselbe Scharfschalten - diese hier nannte nur
+        # den Modus, ohne zu sagen, warum (Punkt 741 der Werkbank).
+        if self._settings.get("notify_arming") and by != "Anwesenheit":
             await self._notify(
                 "Alarmanlage scharf", f"Modus {self.mode_label(mode)}", "alarm_arming"
             )

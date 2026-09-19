@@ -226,6 +226,40 @@ def test_automatisch_schaltet_wirklich_scharf(anlage):
     assert service._entity.state["state"] == ARMED
 
 
+def test_die_anwesenheit_meldet_nur_einmal_nicht_doppelt(anlage):
+    """Der gemeldete Fall: Zwei «DRINGLICH»-Meldungen für dasselbe
+    Scharfschalten - «Niemand mehr zuhause – die Anlage ist scharf.» und
+    «Alarmanlage scharf: Modus Ausser Haus». Die erste kommt aus
+    `_anwesenheit_handeln` und nennt den Grund; die zweite kam
+    zusätzlich aus `arm()` selbst, das bei `notify_arming` immer meldet
+    - unabhängig davon, wer scharf geschaltet hat (Punkt 741 der
+    Werkbank).
+    """
+    hub, service, _ = anlage
+    meldungen: list[tuple[str, str]] = []
+
+    async def run():
+        await hub.registry.add(person("geofence.stefan", "away"))
+        await service.update_config(
+            {
+                "settings": {
+                    "presence_arm": alarmanwesenheit.AUTOMATISCH,
+                    "notify_arming": True,
+                }
+            }
+        )
+        service._notify = (
+            lambda titel, text, *a, **k: meldungen.append((titel, text)) or asyncio.sleep(0)
+        )
+        service._weg_seit = 0.0
+        await service.takt()
+
+    asyncio.run(run())
+    assert service._entity.state["state"] == ARMED
+    assert len(meldungen) == 1
+    assert "Niemand mehr zuhause" in meldungen[0][1]
+
+
 def test_ein_offenes_fenster_haelt_auch_die_automatik_auf(anlage):
     """Eine Anlage, die sich selbst scharf schaltet und dabei ein offenes
     Fenster übergeht, wäre schlechter als gar keine Kopplung."""

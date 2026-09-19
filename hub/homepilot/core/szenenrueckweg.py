@@ -112,7 +112,7 @@ PAUSIERT_GLEICHWERTIG = frozenset({"paused", "idle", "standby"})
 AUS_GLEICHWERTIG = frozenset({"off", "standby", "idle"})
 
 
-def _stimmt_ueberein(feld: str, wert: Any, ist: Any) -> bool:
+def stimmt_ueberein(feld: str, wert: Any, ist: Any) -> bool:
     """Ob ein einzelnes Feld zum Sollwert passt (rein, testbar).
 
     Eigene Funktion statt eines blossen Stringvergleichs, weil «pause»
@@ -120,6 +120,15 @@ def _stimmt_ueberein(feld: str, wert: Any, ist: Any) -> bool:
     AUS_GLEICHWERTIG) - dieselbe Regel gilt fürs Prüfen (szene_gilt_noch)
     und fürs Rückgängigmachen (hat_sich_geaendert), sonst widersprächen
     sich beide.
+
+    Öffentlich (kein führender Unterstrich mehr, Punkt 740 der
+    Werkbank), weil core/wirkung.py dieselbe Frage stellt - «wirkte der
+    Befehl?» ist derselbe Vergleich wie «gilt die Szene noch?». Vorher
+    hatte wirkung.py einen eigenen, blossen Stringvergleich und kannte
+    die beiden Gruppen nicht: Eine Cast-Box, die eine Szene schon
+    korrekt als «gilt noch» zeigte, meldete ein Ablauf mit derselben
+    Aktion trotzdem als «wirkungslos» - zwei Antworten auf dieselbe
+    Frage, aus zwei Rechnungen, die sich widersprachen.
     """
     if feld == "state" and wert == "paused":
         return str(ist or "").strip().lower() in PAUSIERT_GLEICHWERTIG
@@ -149,7 +158,7 @@ def hat_sich_geaendert(vorher: dict[str, Any], ziel: dict[str, Any]) -> bool:
             if alt_zahl is None or alt_zahl != wert:
                 return True
             continue
-        if not _stimmt_ueberein(feld, wert, alt):
+        if not stimmt_ueberein(feld, wert, alt):
             return True
     return False
 
@@ -290,7 +299,7 @@ def szene_gilt_noch(
                 # auf dem Wert zum Stehen.
                 if ist is None or abs(ist - wert) > 2:
                     return False
-            elif not _stimmt_ueberein(feld, wert, zustand.get(feld)):
+            elif not stimmt_ueberein(feld, wert, zustand.get(feld)):
                 return False
     return geprueft > 0
 

@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .szenenrueckweg import zielzustand
+from .szenenrueckweg import stimmt_ueberein, zielzustand
 
 #: Felder, bei denen ein Prozentpunkt Abweichung kein Fehlschlag ist:
 #: Dimmer runden, und Storen kommen selten genau auf dem Wert zum Stehen.
@@ -78,6 +78,14 @@ def abgleich(
     ``stand`` bildet Entitäts-ID auf den Zustand *nach* dem Lauf ab. Ein
     Gerät, das der Hub nicht mehr kennt, kommt in keiner der beiden
     Listen vor: Darüber lässt sich nichts sagen.
+
+    Der Vergleich selbst ist derselbe wie beim Rückweg einer Szene
+    (``stimmt_ueberein`` statt eines blossen Stringvergleichs) - eine
+    ruhende Cast-Box zeigt «idle» oder «standby», nie wörtlich «paused»
+    oder «off» (Punkt 650/653 der Werkbank). Ohne die Gleichsetzung
+    meldete ein Ablauf, der eine solche Box pausiert oder ausschaltet,
+    stets «wirkungslos» - auch dann, wenn genau dieselbe Aktion, als Teil
+    einer Szene, bereits richtig als «gilt noch» galt (Punkt 740).
     """
     gewirkt: list[str] = []
     fehlt: list[str] = []
@@ -98,7 +106,7 @@ def abgleich(
                     or abs(ist_zahl - soll_zahl) > TOLERANZ
                 ):
                     passt = False
-            elif str(ist or "") != str(soll):
+            elif not stimmt_ueberein(feld, soll, ist):
                 passt = False
             if not passt:
                 break
