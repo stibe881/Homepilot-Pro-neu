@@ -19,8 +19,7 @@
         "com.apple.security.application-groups": [
           "group.me.stibe.homepilot"
         ],
-        "com.apple.developer.usernotifications.time-sensitive": true,
-        "com.apple.developer.usernotifications.critical-alerts": true
+        "com.apple.developer.usernotifications.time-sensitive": true
       },
       "infoPlist": {
         "NSSupportsLiveActivities": true,
@@ -90,6 +89,6 @@
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
     },
-    "runtimeVersion": "9"
+    "runtimeVersion": "8"
   }
 }

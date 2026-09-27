@@ -8462,6 +8462,8 @@ Rauch-/CO-Alarm, Wassermelder und die Einbruchmeldeanlage.
 
 Stellen: `app/app.json`
 
+*Entitlement und runtimeVersion-Erhöhung vorübergehend zurückgenommen durch Punkt 745 - blockierte jeden iOS-Build, solange die Fähigkeit an der App-ID nicht aktiv war.*
+
 ### 740. Ein Ablauf meldete «wirkungslos», wo eine Szene «gilt noch» sagte ✓ erledigt
 
 Aus dem Haus: «Niemand mehr zuhause» pausiert die Musik im ganzen Haus
@@ -8985,3 +8987,25 @@ und verlangt «Verstanden, weiter», bevor `ortung.schalten(true)` läuft.
 Ausschalten bleibt ungefragt, dort fragt auch das Betriebssystem nichts.
 
 Stellen: `app/src/components/StandortOffenlegung.tsx`, `app/src/screens/SettingsScreen.tsx`
+
+### 745. Critical-Alerts-Entitlement vorübergehend zurückgenommen ✓ erledigt
+
+Apple hatte die Fähigkeit selbst bestätigt (Punkt 392), aber jeder
+Archiv-Versuch scheiterte trotzdem mit derselben Meldung: Das
+Provisioning-Profil kannte `com.apple.developer.usernotifications.critical-alerts`
+nicht, auch nach mehrfachem Neuerzeugen nicht - die Fähigkeit war an der
+App-ID selbst noch nicht angehakt. Solange das so blieb, kam gar kein
+iOS-Build mehr durch, auch keiner ohne jeden Bezug zu Push oder Alarm -
+das Archivieren scheiterte schon vor der Signierung.
+
+Damit andere Korrekturen (etwa Punkt 744) wieder TestFlight und den App
+Store erreichen, ist das Entitlement aus `app/app.json` vorerst wieder
+draussen, und `runtimeVersion` damit zurück auf `8` - kein Build mit `9`
+ist je erfolgreich hinausgegangen, die Zahl kostet also niemanden etwas.
+
+Zurückkommen soll es, sobald «Critical Alerts» in den Capabilities der
+App-ID `ch.stibe.homepilot` im Apple Developer Portal wirklich angehakt
+ist (nicht nur vom Support bestätigt) und ein frisches
+Provisioning-Profil das auch zeigt.
+
+Stellen: `app/app.json`
