@@ -8,10 +8,12 @@ import yaml
 
 from homepilot.core.config_edit import (
     add_cast_device,
+    add_host_device,
     block_range,
     duplicate_devices,
     has_endpoint,
     quote,
+    remove_host_device,
     unused_rooms,
 )
 
@@ -158,6 +160,46 @@ def test_a_new_block_lands_in_the_integrations_list():
         "google_cast",
     ]
     assert parsed["users"][0]["name"] == "Stefan"
+
+
+def test_a_host_device_has_no_port_field():
+    """Fernseher und Spielkonsole (androidtv, playstation) kennen keinen
+    Port - anders als eine Cast-Box darf hier keiner erscheinen."""
+    result = add_host_device(CONFIG, "androidtv", "Beamer", "10.10.1.40")
+    lines = result.splitlines()
+    start, end = block_range(lines, "androidtv")
+    parsed = yaml.safe_load(result)
+    androidtv = next(
+        block for block in parsed["integrations"] if block["integration"] == "androidtv"
+    )
+    assert androidtv["devices"] == [{"host": "10.10.1.40", "name": "Beamer"}]
+    assert "port" not in "\n".join(lines[start:end])
+
+
+def test_a_host_device_creates_its_own_block_when_missing():
+    """Kein androidtv im Haus: Der Block entsteht mit dem ersten Gerät -
+    wie bei Google Home (append_integration_block/_append_integration)."""
+    result = add_host_device(CONFIG, "androidtv", "Beamer", "10.10.1.40")
+    parsed = yaml.safe_load(result)
+    assert [b["integration"] for b in parsed["integrations"]] == [
+        "google_cast",
+        "spotify",
+        "androidtv",
+    ]
+
+
+def test_a_host_device_is_not_added_twice():
+    once = add_host_device(CONFIG, "androidtv", "Beamer", "10.10.1.40")
+    assert add_host_device(once, "androidtv", "Beamer", "10.10.1.40") == once
+
+
+def test_a_host_device_can_be_removed_again():
+    mit = add_host_device(CONFIG, "androidtv", "Beamer", "10.10.1.40")
+    assert "10.10.1.40" in mit
+    ohne = remove_host_device(mit, "androidtv", "10.10.1.40")
+    assert "10.10.1.40" not in ohne
+    # Ein Eintrag, den es nicht gibt, ändert nichts - auch keine Integration.
+    assert remove_host_device(CONFIG, "androidtv", "10.9.9.9") == CONFIG
 
 
 # ── Prüfung beim Start ─────────────────────────────────────────────────────

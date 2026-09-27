@@ -15,20 +15,39 @@ sagen, wie.
 
 Zwei Aufrufe, weil dazwischen jemand aufsteht und zum Fernseher schaut:
 ``pair`` zeigt den Code an, ``pair/code`` nimmt ihn entgegen.
+
+Davor braucht es überhaupt erst den Geräte-Eintrag: ``geraet_hinzu``/
+``geraet_weg`` tragen ihn in die config.yaml ein (core/config_edit, wie
+eine Cast-Box unter api/routes/verbindungen.py) - auch dafür soll niemand
+mehr die Datei von Hand öffnen. Die Änderung braucht wie jede Änderung an
+der config.yaml einen Neustart, bevor der neue Fernseher eine Kachel hat.
 """
 
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
+from ...core import config_edit, verbindungen
 from ...core.users import Capability
+from .. import configio
 from ..context import ApiContext
 
 log = logging.getLogger(__name__)
+
+
+class GeraetHinzu(BaseModel):
+    """Name und Adresse eines neuen Fernsehers - von der Verbindungen-Seite,
+    ohne dass jemand die config.yaml von Hand öffnet (dasselbe Formular wie
+    bei einer Cast-Box, siehe api/routes/verbindungen.py).
+    """
+
+    name: str
+    host: str
 
 
 class KopplungStart(BaseModel):
@@ -49,6 +68,37 @@ class KopplungCode(BaseModel):
 def register(app: FastAPI, ctx: ApiContext) -> None:
     hub = ctx.hub
     require = ctx.require
+
+    def config_text() -> str:
+        try:
+            return Path(configio.config_path(hub)).read_text(encoding="utf-8")
+        except OSError as err:
+            raise HTTPException(
+                status_code=500, detail=f"Konfiguration nicht lesbar: {err}"
+            ) from err
+
+    @app.post("/api/androidtv/geraete")
+    async def geraet_hinzu(body: GeraetHinzu, request: Request) -> dict[str, Any]:
+        """Einen neuen Fernseher eintragen - ohne config.yaml von Hand.
+
+        Danach steht er auf der Verbindungen-Seite mit einem eigenen
+        «Fernseher koppeln»-Knopf, sobald der Hub neu gestartet ist -
+        genau wie eine frisch eingetragene Cast-Box.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        name = body.name.strip()
+        host = body.host.strip()
+        if not name or not verbindungen.gueltiger_host(host):
+            raise HTTPException(400, "Ein Gerät braucht Namen und Adresse")
+        content = config_edit.add_host_device(config_text(), "androidtv", name, host)
+        return configio.save_config(hub, content)
+
+    @app.delete("/api/androidtv/geraete/{host}")
+    async def geraet_weg(host: str, request: Request) -> dict[str, Any]:
+        """Das Gegenstück - ein Gerät wieder aus der config.yaml nehmen."""
+        require(request, Capability.EDIT_CONFIG)
+        content = config_edit.remove_host_device(config_text(), "androidtv", host.strip())
+        return configio.save_config(hub, content)
 
     def fernseher(entity_id: str) -> tuple[Any, str]:
         """Die Integration und die TV-Id zu einer Kachel – oder eine Absage.

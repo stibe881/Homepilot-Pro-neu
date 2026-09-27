@@ -140,6 +140,35 @@ export function VerbindungenScreen({
     [hub, laden]
   );
 
+  /** Einen Fernseher oder eine Spielkonsole eintragen, ohne dass jemand
+   *  die config.yaml von Hand öffnet - dasselbe Prinzip wie bei einer
+   *  Cast-Box, nur über die eigenen Routen der beiden Integrationen
+   *  (api/routes/androidtv.py, api/routes/playstation.py), weil die
+   *  Kopplung selbst schon dort lebt. */
+  const tvHinzu = useCallback(
+    async (name: string, host: string) => {
+      const antwort = await hub.post<Antwort>(
+        '/api/androidtv/geraete',
+        { name, host },
+        { still: true }
+      );
+      if (antwort.restart_required) setNeustartNoetig(true);
+    },
+    [hub]
+  );
+
+  const konsoleHinzu = useCallback(
+    async (name: string, host: string) => {
+      const antwort = await hub.post<Antwort>(
+        '/api/playstation/geraete',
+        { name, host },
+        { still: true }
+      );
+      if (antwort.restart_required) setNeustartNoetig(true);
+    },
+    [hub]
+  );
+
   /** Schritt 1 der Browser-Anmeldung: die Adresse beim Hub holen. */
   const anmeldeUrl = useCallback(
     (key: string) =>
@@ -192,9 +221,10 @@ export function VerbindungenScreen({
       {/* Die Fernseher. Sie stehen hier und nicht mehr auf ihrer Kachel:
           Eine Kopplung richtet man einmal ein, und Einrichtung gehört zu
           den Verbindungen - nicht neben den Einschlaf-Timer, den man
-          jeden Abend braucht. Ohne Android TV im Haus fällt der ganze
-          Abschnitt weg. */}
-      {fernseher.length > 0 ? (
+          jeden Abend braucht. Ohne Android TV im Haus bleibt nur das
+          Formular übrig, mit dem der erste dazukommt (wer die
+          Konfiguration ändern darf) - sonst fällt der Abschnitt weg. */}
+      {fernseher.length > 0 || darfDienste ? (
         <Abschnitt
           titel="Fernseher"
           hinweis="Einmal koppeln, dann gehorcht die Fernbedienung in der App."
@@ -230,13 +260,20 @@ export function VerbindungenScreen({
               ) : null}
             </Card>
           ))}
+          {darfDienste ? (
+            <Card style={styles.card}>
+              <Text style={styles.label}>Weiterer Fernseher</Text>
+              <NeuesGeraet hinzu={tvHinzu} />
+            </Card>
+          ) : null}
         </Abschnitt>
       ) : null}
 
       {/* Die Spielkonsole (Punkt 643): dieselbe Stelle wie der Fernseher,
           aber ein eigener Abschnitt - zwei Schritte (PSN-Konto, Code von
-          der Konsole) statt einem. */}
-      {konsolen.length > 0 ? (
+          der Konsole) statt einem. Wie beim Fernseher bleibt ohne Konsole
+          im Haus nur das Formular übrig. */}
+      {konsolen.length > 0 || darfDienste ? (
         <Abschnitt
           titel="Spielkonsole"
           hinweis="Einmal mit dem PSN-Konto anmelden und den Code von der Konsole eintippen - dann gehorchen Fernbedienung, Standby und Aufwecken der App."
@@ -272,6 +309,12 @@ export function VerbindungenScreen({
               ) : null}
             </Card>
           ))}
+          {darfDienste ? (
+            <Card style={styles.card}>
+              <Text style={styles.label}>Weitere Konsole</Text>
+              <NeuesGeraet hinzu={konsoleHinzu} />
+            </Card>
+          ) : null}
         </Abschnitt>
       ) : null}
 
@@ -703,6 +746,38 @@ function GoogleHomeInhalt({
         trägt man ein Gerät von Hand ein - mit der festen IP aus dem Router.
       </Text>
     </View>
+  );
+}
+
+/** Ein neuer Fernseher oder eine neue Konsole - dasselbe Formular wie bei
+ *  einer Cast-Box (`GeraetForm`), aber mit eigenem Busy-/Fehler-Zustand:
+ *  Es steht nicht in einer Dienst-Karte, sondern direkt unter der
+ *  Geräteliste in ihrem eigenen Abschnitt. */
+function NeuesGeraet({ hinzu }: { hinzu: (name: string, host: string) => Promise<void> }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [busy, setBusy] = useState(false);
+  const [fehler, setFehler] = useState<string | null>(null);
+
+  const tu = async (name: string, host: string) => {
+    setBusy(true);
+    setFehler(null);
+    try {
+      await hinzu(name, host);
+      return true;
+    } catch (err) {
+      setFehler(String(err instanceof Error ? err.message : err));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <GeraetForm busy={busy} onHinzu={tu} />
+      {fehler ? <Text style={styles.fehlerText}>{fehler}</Text> : null}
+    </>
   );
 }
 
