@@ -315,6 +315,55 @@ async def test_die_kopplung_wird_beim_start_von_der_platte_gelesen(hub, tmp_path
     await zweite.teardown()
 
 
+async def test_wecken_meldet_das_konto_an_sobald_die_konsole_oben_ist(
+    hub, tmp_path, monkeypatch
+):
+    """Aus dem Haus: «Ich starte sie mit der Fernbedienung, kann dann aber
+    nichts, bis ich mein Profil gewählt habe.» Das blosse Weckpaket landet
+    auf der Profilauswahl; eine Remote-Play-Sitzung meldet das Konto an. Der
+    Hub öffnet sie im Hintergrund, sobald die Konsole hochgefahren ist."""
+    monkeypatch.setattr(playstation, "WECKEN_ANMELDEN_TAKT", 0.01)
+    monkeypatch.setattr(playstation, "WECKEN_ANMELDEN_WARTEN", 1.0)
+    monkeypatch.setattr(playstation, "SITZUNG_LEERLAUF", 999.0)
+    integration, kanal, entity = await gekoppelt(hub, tmp_path, monkeypatch)
+
+    # Die Konsole ruht: Das Wecken schickt das Paket und wartet dann aufs
+    # Hochfahren.
+    kanal.antwort = ANTWORT_RUHE
+    await integration._refresh(entity.id)
+    kanal.antwort = ANTWORT_AN  # ein paar Sekunden später ist sie oben
+    vorher = len(FakeDevice.alle)
+    await integration.handle_command(entity, "toggle", {})
+
+    # Der Hintergrund-Task sieht die Konsole «an» und öffnet die Sitzung -
+    # ohne dass jemand eine Taste drücken musste.
+    for _ in range(50):
+        await asyncio.sleep(0.02)
+        if entity.id in integration._sitzungen:
+            break
+    assert entity.id in integration._sitzungen, "nach dem Wecken meldet der Hub sich an"
+    assert len(FakeDevice.alle) == vorher + 1
+    await integration.teardown()
+
+
+async def test_ohne_registrierung_bleibt_es_beim_weckpaket(hub, tmp_path, monkeypatch):
+    """Ohne Registrierung gibt es keine Remote-Play-Sitzung - dann weckt der
+    Hub nur, und die Profilauswahl bleibt Handarbeit (kein Hintergrund-Task,
+    der ins Leere läuft)."""
+    monkeypatch.setattr(playstation, "WECKEN_ANMELDEN_TAKT", 0.01)
+    monkeypatch.setattr(playstation, "WECKEN_ANMELDEN_WARTEN", 0.2)
+    integration, kanal, entity = await aufbau(hub, tmp_path, monkeypatch)
+    await integration.pair_account(entity.id, REDIRECT)  # Konto, aber nicht registriert
+    kanal.antwort = ANTWORT_RUHE
+    await integration._refresh(entity.id)
+    vorher = len(FakeDevice.alle)
+    await integration.handle_command(entity, "toggle", {})
+    await asyncio.sleep(0.3)
+    assert entity.id not in integration._sitzungen
+    assert len(FakeDevice.alle) == vorher
+    await integration.teardown()
+
+
 # ── Tasten und Standby ─────────────────────────────────────────────────
 
 
