@@ -28,6 +28,7 @@ import { zonenkennung } from '../lib/zonenkennung';
 import { SYMBOLE, Symbolwahl, gueltig } from '../lib/appsymbol';
 import { kannWechseln, symbolWechseln } from '../lib/symbolwechsel';
 import { applySetup, QrScanner } from '../components/QrScanner';
+import { StandortOffenlegung } from '../components/StandortOffenlegung';
 import { Colors, radius, ThemeMode, type, useColors } from '../theme';
 import { themenprobe } from '../lib/themenprobe';
 
@@ -128,6 +129,10 @@ export function SettingsScreen({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   // Punkt 194/197: Die Ortung dieses Geräts – Gäste nie, und was läuft,
   // steht hier und lässt sich aussetzen.
+  // Die Offenlegung vor der Standort-Erlaubnis im Hintergrund (Punkt 744
+  // der Werkbank) - ein eigener Schritt vor der Systemabfrage, nicht nur
+  // ein Hinweis daneben.
+  const [ortungOffenlegung, setOrtungOffenlegung] = useState(false);
   const ortung = useOrtung(
     { url: initial?.url ?? '', token: initial?.token ?? '' } as HubSettings,
     zonenkennung(user?.name),
@@ -814,7 +819,15 @@ export function SettingsScreen({
       <View style={styles.panelRow}>
         <View style={{ flex: 1, gap: 6 }}>
           <Pressable
-            onPress={() => ortung.schalten(!ortung.stand.aktiv)}
+            onPress={() => {
+              // Einschalten braucht erst die Offenlegung (Punkt 744);
+              // ausschalten nicht - da fragt nichts das Betriebssystem.
+              if (!ortung.stand.aktiv) {
+                setOrtungOffenlegung(true);
+              } else {
+                ortung.schalten(false);
+              }
+            }}
             accessibilityRole="switch"
             accessibilityState={{ checked: ortung.stand.aktiv }}
             style={({ pressed }) => [
@@ -903,6 +916,14 @@ export function SettingsScreen({
           ) : null}
         </View>
       </View>
+      <StandortOffenlegung
+        visible={ortungOffenlegung}
+        onCancel={() => setOrtungOffenlegung(false)}
+        onConfirm={() => {
+          setOrtungOffenlegung(false);
+          ortung.schalten(true);
+        }}
+      />
     </Card>
   ) : null;
 

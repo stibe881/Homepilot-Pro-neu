@@ -8964,3 +8964,24 @@ in `lib/gutscheine.ts`) - die brauchte schon vor Punkt 687 niemand nur
 für diese eine Kachel.
 
 Stellen: `app/src/screens/OverviewScreen.tsx`, `app/src/screens/DashboardScreen.tsx`, `app/src/lib/kachellernen.ts`, `app/src/lib/kachellernen.test.ts`
+
+### 744. Offenlegung vor der Standort-Erlaubnis im Hintergrund ✓ erledigt
+
+Google Play lehnte die Einreichung ab: «Your app accesses the
+BACKGROUND_LOCATION permission without a prominent disclosure.» Der
+Schalter unter Einstellungen → Ortung rief bisher direkt
+`requestForegroundPermissionsAsync()` und
+`requestBackgroundPermissionsAsync()` auf (`hooks/useOrtung.ts`,
+`anwenden()`) - ein erklärender Text stand zwar daneben, aber das reicht
+Google nicht: Verlangt ist ein eigener, unübersehbarer Schritt *vor* der
+Systemabfrage, mit ausdrücklicher Zustimmung statt eines blossen
+Hinweises.
+
+Die neue Komponente `StandortOffenlegung` (eigene, kleine Datei statt
+Kopplung an die Dashboard-Rückfragen aus `screens/dashboard/Rueckfragen.tsx`,
+die eigene Stile mitbringen) zeigt vor dem Einschalten Titel, zwei
+Sätze - was gesammelt wird, wozu, dass es nur an den eigenen Hub geht -
+und verlangt «Verstanden, weiter», bevor `ortung.schalten(true)` läuft.
+Ausschalten bleibt ungefragt, dort fragt auch das Betriebssystem nichts.
+
+Stellen: `app/src/components/StandortOffenlegung.tsx`, `app/src/screens/SettingsScreen.tsx`
