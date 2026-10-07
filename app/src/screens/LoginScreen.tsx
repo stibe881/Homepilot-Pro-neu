@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { HubFehler, hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
@@ -28,6 +28,11 @@ import { Colors, radius, type, useColors } from '../theme';
  */
 
 type Mode = AnmeldeModus;
+
+/** Für Google Play (Prominent Disclosure, Punkt 744 der Werkbank): Der
+ *  Verweis auf die Datenschutzerklärung soll schon an der Anmeldung
+ *  stehen, nicht erst irgendwo in den Einstellungen. */
+const DATENSCHUTZ_URL = 'https://gross-ict.ch/datenschutz';
 
 export function LoginScreen({
   initial,
@@ -364,6 +369,15 @@ export function LoginScreen({
             </Pressable>
           </>
         )}
+
+        <Pressable
+          onPress={() => Linking.openURL(DATENSCHUTZ_URL).catch(() => {})}
+          accessibilityRole="link"
+          accessibilityLabel="Datenschutzerklärung öffnen"
+          style={styles.datenschutz}
+        >
+          <Text style={styles.datenschutzText}>Datenschutz</Text>
+        </Pressable>
       </Card>
     </View>
   );
@@ -386,6 +400,8 @@ const makeStyles = (colors: Colors) =>
       fontSize: 15,
     },
     hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },
+    datenschutz: { alignSelf: 'center', marginTop: 6, padding: 4 },
+    datenschutzText: { color: colors.inkFaint, fontSize: 12, textDecorationLine: 'underline' },
     error: { color: colors.danger, fontSize: 13, lineHeight: 19, fontWeight: '600' },
     note: { color: colors.onInk, fontSize: 13, lineHeight: 19, fontWeight: '600' },
     primary: {

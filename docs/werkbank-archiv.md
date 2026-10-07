@@ -9019,3 +9019,20 @@ ist (nicht nur vom Support bestätigt) und ein frisches
 Provisioning-Profil das auch zeigt.
 
 Stellen: `app/app.json`
+
+### 746. Datenschutz-Verweis auf der Anmeldemaske ✓ erledigt
+
+Google Play lehnte HomePilot wiederholt wegen fehlender «Prominent
+Disclosure» für `BACKGROUND_LOCATION` ab. Der In-App-Dialog aus Punkt
+744 stand schon; was fehlte, war die zweite, davon unabhängige
+Anforderung - ein in der App selbst erreichbarer Verweis auf die
+Datenschutzerklärung.
+
+`LoginScreen.tsx` zeigt jetzt unten, unabhängig vom Anmelde-Modus
+(Login, Passwort vergessen, Initialpasswort-Wechsel, QR-Code-Weg),
+einen dezenten Verweis «Datenschutz», der `https://gross-ict.ch/datenschutz`
+im Browser des Geräts öffnet (`Linking.openURL`). Dort steht seit
+Punkt 744 auch der eigene Abschnitt zu HomePilot, der die
+Standorterfassung im Hintergrund konkret benennt.
+
+Stellen: `app/src/screens/LoginScreen.tsx`
