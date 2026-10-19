@@ -372,3 +372,54 @@ def test_standby_does_not_overwrite_a_real_reading(monkeypatch):
     registry.entity.state = {"state": "running"}
     lauf(integration)
     assert registry.letzter_zustand is None
+
+
+# ── Die Abfrage darf nie für immer stehen bleiben ──────────────────────────
+#
+# Der Fall aus der Küche: Der Geschirrspüler zeigte tagelang «noch 55
+# Minuten», die Waschmaschine meldete ihr neues Programm nicht mehr. Die
+# Abfrageschleife dieser Integration war selbstgebaut und ohne Fehlerfang:
+# Eine einzige Antwort, die sich nicht auswerten liess, beendete sie für
+# beide Geräte - lautlos, die Kacheln behielten ihren letzten Stand
+# (Punkt 747 der Werkbank).
+
+
+def test_an_answer_that_is_not_an_object_counts_as_a_failed_call(monkeypatch):
+    """«null», eine Liste oder blosser Text kommen als gültiges JSON an -
+    und liessen die Auswertung mit einem AttributeError abstürzen, ausserhalb
+    des Fangs um den Abruf."""
+    ohne_pause(monkeypatch)
+    for unbrauchbar in (None, [], "Wartung"):
+        integration, registry = geraet([unbrauchbar, unbrauchbar])
+        lauf(integration)
+        # Wie ein verlorener Abruf: kein Absturz, der letzte Stand bleibt.
+        assert registry.calls == []
+
+
+def test_garbage_answers_in_a_row_say_why_on_the_tile(monkeypatch):
+    ohne_pause(monkeypatch)
+    integration, registry = geraet([None] * 6)
+    lauf(integration, mal=modul.AUSFAELLE_BIS_WEG)
+    assert registry.letzte_verfuegbarkeit is False
+    assert registry.letzter_grund
+
+
+def test_a_device_that_crashes_does_not_starve_the_other_one():
+    """Waschmaschine und Geschirrspüler teilen sich eine Runde: Wirft die
+    eine, muss die andere trotzdem drankommen - und die Runde selbst darf
+    nicht werfen."""
+    integration, _ = geraet([])
+    integration._devices = {
+        "vzug.kaputt": ("10.0.0.1", None),
+        "vzug.heil": ("10.0.0.2", None),
+    }
+    gefragt: list[str] = []
+
+    async def erfrischen(entity_id, host, auth):
+        gefragt.append(entity_id)
+        if entity_id == "vzug.kaputt":
+            raise RuntimeError("nicht auszuwerten")
+
+    integration._refresh = erfrischen
+    asyncio.run(integration._refresh_all())
+    assert gefragt == ["vzug.kaputt", "vzug.heil"]

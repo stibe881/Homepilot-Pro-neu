@@ -370,12 +370,11 @@ class VZugIntegration(Integration):
             self._devices[entity.id] = (host, auth)
 
         await self._refresh_all()
-        self.start_task(self._poll_loop())
-
-    async def _poll_loop(self) -> None:
-        while True:
-            await asyncio.sleep(self._interval)
-            await self._refresh_all()
+        # Der gemeinsame Takt statt einer eigenen Schleife (Punkt 747):
+        # Die selbstgebaute hatte keinen Fehlerfang, und die erste Antwort,
+        # die sich nicht auswerten liess, beendete sie für beide Geräte -
+        # lautlos, die Kacheln behielten ihren letzten Stand.
+        self.start_polling(self._refresh_all, interval=self._interval)
 
     async def _refresh_all(self) -> None:
         for entity_id, (host, auth) in self._devices.items():
@@ -383,7 +382,15 @@ class VZugIntegration(Integration):
             # gelassen, bis die Wartezeit um ist.
             if monotonic() < self._ruhe_bis.get(entity_id, 0.0):
                 continue
-            await self._refresh(entity_id, host, auth)
+            # Jedes Gerät für sich: Waschmaschine und Geschirrspüler teilen
+            # sich eine Runde, und was bei dem einen schiefgeht, darf das
+            # andere nicht um seinen Abruf bringen.
+            try:
+                await self._refresh(entity_id, host, auth)
+            except Exception as err:
+                self.log.warning(
+                    "V-ZUG %s: Auswertung fehlgeschlagen: %s", host, err, exc_info=True
+                )
 
     async def _holen(self, host: str, auth: aiohttp.BasicAuth | None) -> Any:
         """Einmal nach dem Zustand fragen. Wirft, wenn es nicht klappt."""
@@ -407,6 +414,13 @@ class VZugIntegration(Integration):
                 await asyncio.sleep(PAUSE_VOR_ZWEITEM_VERSUCH)
             try:
                 payload = await self._holen(host, auth)
+                # «null», eine Liste oder blosser Text sind gültiges JSON,
+                # aber kein Zustand - und die Auswertung weiter unten
+                # steht ausserhalb dieses Fangs.
+                if not isinstance(payload, dict):
+                    raise ValueError(
+                        f"unerwartete Antwort ({type(payload).__name__})"
+                    )
                 fehler = None
                 break
             except aiohttp.ClientResponseError as err:

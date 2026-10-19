@@ -9036,3 +9036,40 @@ Punkt 744 auch der eigene Abschnitt zu HomePilot, der die
 Standorterfassung im Hintergrund konkret benennt.
 
 Stellen: `app/src/screens/LoginScreen.tsx`
+
+### 747. Waschmaschine und Geschirrspüler blieben auf ihrem letzten Stand stehen ✓ erledigt
+
+Aus der Küche: Der Geschirrspüler zeigte seit Tagen «noch 55 Minuten», und
+das neu gestartete Programm der Waschmaschine tauchte in der App nicht auf.
+Beide Geräte hängen an derselben Abfrage - und die war in `vzug.py` als
+einzige ihrer Art noch selbst gebaut, ohne Fehlerfang: `_poll_loop` rief
+`_refresh_all()` auf, und jede Ausnahme, die dort herauskam, beendete die
+Schleife für immer. Keine Zeile im Protokoll, keine Störung an der Kachel,
+nur ein Stand, der nicht mehr weiterrückt - genau der Fehler, für den
+`start_polling` (`core/integration.py`) gebaut wurde und den die übrigen
+Integrationen längst nicht mehr haben.
+
+Ein Auslöser, der sich nachstellen lässt: Der Abruf liefert gültiges JSON,
+das kein Objekt ist («null», eine Liste, blosser Text). Die Auswertung
+(`parse_device_status`) stand ausserhalb des Fangs um den Abruf und warf
+einen AttributeError.
+
+Drei Änderungen:
+
+- Die Integration läuft jetzt über `start_polling`: Ein Fehlschlag wird
+  protokolliert, der nächste Takt kommt trotzdem.
+- `_refresh_all` fängt je Gerät. Was bei der Waschmaschine schiefgeht,
+  nimmt dem Geschirrspüler seinen Abruf nicht mehr.
+- Eine Antwort, die kein Objekt ist, zählt wie ein verlorener Abruf (drei
+  in Folge, dann der Grund an der Kachel) statt als Absturz.
+
+Nicht belegt ist, welche Antwort es bei diesem Hub war - das Protokoll von
+damals gibt es nicht mehr. Von jetzt an steht sie darin.
+
+Dazu: Sechs Tests (`test_notifyrules.py`, `test_watchdog.py`) scheiterten
+montags ab acht Uhr, weil der Wächter dann den «Wochenbericht» (Punkt 667)
+mitschickte - die Tests liefen mit der echten Uhr. `tests/conftest.py`
+sagt der Frage «ist es jetzt so weit?» nun grundsätzlich Nein; feste
+Zeitpunkte gehen weiter an die echte Funktion.
+
+Stellen: `hub/homepilot/integrations/vzug.py`, `hub/tests/test_vzug_verbindung.py`, `hub/tests/conftest.py`
