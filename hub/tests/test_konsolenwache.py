@@ -204,7 +204,15 @@ async def test_grown_ups_playing_are_not_counted_and_not_asked_about(wache, hub)
     assert wache.lage("Maja", um(21, 10))["heute"]["gesamt_s"] == 0
 
 
+async def test_a_running_console_is_ignored_by_default_because_grown_ups_play_too(wache):
+    for minute in (0, 1, 3, 10, 30):
+        await wache.tick(um(17, minute))
+    assert wache.wirkungen["pushes"] == []
+    assert wache.wirkungen["aus"] == []
+
+
 async def test_a_running_console_nobody_signed_in_to_makes_the_parents_ask_once(wache):
+    wache.einstellungen_setzen("fragen")
     await wache.tick(um(17, 0))
     await wache.tick(um(17, 1))
     assert wache.wirkungen["pushes"] == []  # noch in der Gnadenfrist

@@ -1,4 +1,8 @@
-"""Konsolenzeit an der Switch: Nintendo zählt, der Hub stellt die Höchstzeit."""
+"""Konsolenzeit an der Switch: Die Zeit kommt vom Kind, Nintendo setzt die Höchstzeit.
+
+Gezählt wird ab «Ich spiele jetzt» bis «Fertig» - nicht nach dem, was die
+Konsole meldet: Die Erwachsenen spielen an denselben Geräten.
+"""
 
 from __future__ import annotations
 
@@ -59,39 +63,27 @@ def spielzeit(hub, minuten):
     hub.registry.get(SWITCH).state["playing_min"] = minuten
 
 
-async def test_the_switch_time_is_booked_from_nintendos_own_minutes(wache, hub):
+async def test_the_switch_time_comes_from_the_childs_sign_in_not_from_nintendos_minutes(wache, hub):
+    """Nintendo zählt auch, was die Erwachsenen spielen."""
     wache.spielen("Maja", SWITCH, um(16, 0))
-    spielzeit(hub, 13)  # 3 min seit der Anmeldung (Basis 10)
-    await wache.tick(um(16, 3))
-    assert wache.lage("Maja", um(16, 3))["heute"]["konsolen"] == {SWITCH: 180}
-    # Ein zweiter Takt ohne neue Minute bucht nichts dazu.
-    await wache.tick(um(16, 3, 30))
-    assert wache.lage("Maja", um(16, 3, 30))["heute"]["gesamt_s"] == 180
+    spielzeit(hub, 40)  # Nintendo zählt 30 min mehr - angemeldet war das Kind 3 min
+    for sekunde in range(15, 181, 15):
+        await wache.tick(um(16, 0) + sekunde)
+    assert wache.lage("Maja", um(16, 3))["heute"]["gesamt_s"] == 180
 
 
-async def test_minutes_played_before_signing_in_are_not_the_childs(wache, hub):
-    spielzeit(hub, 40)  # die Eltern haben vorhin 40 min gespielt
-    wache.spielen("Maja", SWITCH, um(16, 0))
-    await wache.tick(um(16, 1))
-    assert wache.lage("Maja", um(16, 1))["heute"]["gesamt_s"] == 0
-
-
-async def test_the_limit_is_what_nintendo_counted_plus_what_the_child_has_left(wache, hub):
+async def test_the_limit_is_what_nintendo_counted_plus_what_the_child_has_left(wache):
     wache.spielen("Maja", SWITCH, um(16, 0))
     await wache.tick(um(16, 0, 15))
-    # 10 min schon gezählt + 45 min Rest.
-    assert wache.wirkungen["limits"] == [55]
-    spielzeit(hub, 20)
-    await wache.tick(um(16, 10))
-    # Das Kind hat 10 min gespielt: Rest 35, gezählt 20 - dieselbe Summe.
-    assert wache.wirkungen["limits"] == [55]
+    # 10 min schon gezählt + 45 min Rest (abgerundet auf ganze Minuten: 44).
+    assert wache.wirkungen["limits"] == [54]
 
 
 async def test_the_limit_is_not_resent_every_tick(wache):
     wache.spielen("Maja", SWITCH, um(16, 0))
-    for sekunde in range(15, 120, 15):
+    for sekunde in range(15, 75, 15):
         await wache.tick(um(16, 0) + sekunde)
-    assert wache.wirkungen["limits"] == [55]
+    assert len(wache.wirkungen["limits"]) <= 2
 
 
 async def test_grown_ups_on_the_switch_lift_the_limit(wache):
@@ -105,7 +97,7 @@ async def test_when_the_child_is_done_the_parents_own_limit_is_put_back(wache):
     await wache.tick(um(16, 0, 15))
     wache.stoppen("Maja", um(16, 10))
     await wache.tick(um(16, 10, 15))
-    assert wache.wirkungen["limits"] == [55, "zurueck"]
+    assert wache.wirkungen["limits"][-1] == "zurueck"
 
 
 async def test_an_unattended_switch_is_left_alone_unless_the_parents_chose_to_lock_it(wache):
@@ -116,36 +108,28 @@ async def test_an_unattended_switch_is_left_alone_unless_the_parents_chose_to_lo
     assert wache.wirkungen["limits"] == [10]  # Grenze = Gespieltes: nichts mehr übrig
 
 
-async def test_when_time_is_up_the_switch_is_locked_and_the_parents_are_told_nintendo_ends_it(wache, hub):
-    wache.spielen("Maja", SWITCH, um(16, 0))
-    spielzeit(hub, 55)  # 45 min seit Basis 10: alles aufgebraucht
-    await wache.tick(um(16, 45))
-    assert wache.wirkungen["limits"][-1] == 55
+async def test_when_time_is_up_the_switch_is_locked_and_the_parents_are_told_nintendo_ends_it(wache):
+    wache.spielen("Maja", SWITCH, um(18, 15))
+    wache._zeile("Maja", datetime(2026, 11, 10).date())["gesamt"] = 44 * 60 + 50
+    wache._sitzungen["maja"]["zuletzt"] = um(18, 15)
+    await wache.tick(um(18, 15, 30))
+    assert wache.wirkungen["limits"][-1] == 10  # gespielt gemäss Nintendo, nichts übrig
     titel, text = wache.wirkungen["pushes"][0]
     assert titel == "Maja: Konsolenzeit aufgebraucht"
     assert "Nintendo beendet das Spiel." in text
 
 
-async def test_the_lock_after_time_is_up_holds_until_somebody_signs_in_again(wache, hub):
-    wache.spielen("Maja", SWITCH, um(16, 0))
-    spielzeit(hub, 55)
-    await wache.tick(um(16, 45))
-    await wache.tick(um(16, 46))
-    await wache.tick(um(17, 0))
-    assert wache.wirkungen["limits"] == [55]  # nie «zurueck» dazwischen
-    wache.eltern_spielen(SWITCH, um(17, 5))
-    await wache.tick(um(17, 6))
+async def test_the_lock_after_time_is_up_holds_until_somebody_signs_in_again(wache):
+    wache.spielen("Maja", SWITCH, um(18, 15))
+    wache._zeile("Maja", datetime(2026, 11, 10).date())["gesamt"] = 45 * 60 - 10
+    wache._sitzungen["maja"]["zuletzt"] = um(18, 15)
+    await wache.tick(um(18, 15, 30))
+    await wache.tick(um(18, 16))
+    await wache.tick(um(18, 30))
+    assert "zurueck" not in wache.wirkungen["limits"]
+    wache.eltern_spielen(SWITCH, um(18, 35))
+    await wache.tick(um(18, 36))
     assert wache.wirkungen["limits"][-1] == -1
-
-
-async def test_a_new_day_on_the_switch_does_not_book_negative_time(wache, hub):
-    wache.plan_setzen("Maja", {**PLAN, "tage": [{"an": True, "von": 0, "bis": 1440, "minuten": 120}] * 7})
-    wache.spielen("Maja", SWITCH, um(23, 50))
-    spielzeit(hub, 12)
-    await wache.tick(um(23, 55))
-    spielzeit(hub, 2)  # Mitternacht: Nintendo zählt von vorn
-    await wache.tick(um(23, 59))
-    assert wache.lage("Maja", um(23, 59))["heute"]["gesamt_s"] >= 0
 
 
 def test_the_nintendo_limit_rule_rounds_down_and_stays_in_bounds():

@@ -747,8 +747,9 @@ Aufwand: gross · Hub+App.
   `integrations/nintendo.py` über `pynintendoparental`, Anmelderoute
   (`api/routes/nintendo.py`), Prüfwerkzeug `python -m
   homepilot.integrations.nintendo`, dazu im Wächter die Höchstzeit
-  (Nintendos Spielzeit plus Rest des Kindes) und das Zählen nach
-  Nintendos Minuten. Der Hub kann die Switch nicht ausschalten; die
+  (Nintendos Spielzeit plus Rest des Kindes). Gezählt wird nie nach der
+  Konsole, sondern nach der Anmeldung des Kindes (die Erwachsenen spielen
+  an denselben Geräten). Der Hub kann die Switch nicht ausschalten; die
   Konsole beendet das Spiel selbst. **Offen:** ein Lauf an der echten
   Switch 2 (greift die Steuerung?) und die Anmeldung in der App statt
   über das Prüfwerkzeug. Übersicht: `docs/konsolenzeit.md`,

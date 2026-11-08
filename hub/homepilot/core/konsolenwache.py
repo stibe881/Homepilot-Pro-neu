@@ -61,12 +61,17 @@ AUS_GNADE = 90.0
 #: Wie lange eine Konsole ohne Anmeldung laufen darf, bevor der Hub fragt.
 UNBEKANNT_GNADE = 120.0
 BEHALTEN_TAGE = 120
+#: Wie oft die Höchstzeit der Switch frühestens neu gestellt wird (Sekunden).
+LIMIT_MIN_ABSTAND = 30.0
 #: «Sitzung» der Erwachsenen: Die Konsole läuft, niemand wird gezählt.
 ELTERN = "_eltern"
 
 #: Welche Integrationen Konsolen sind.
 KONSOLEN_INTEGRATIONEN = ("playstation", "nintendo")
-UNBEKANNT_WAHL = ("fragen", "sperren")
+#: Was der Hub tut, wenn eine Konsole ohne Anmeldung läuft. Vorgabe ist
+#: «nie»: Die Erwachsenen spielen an denselben Konsolen, und «Konsole an»
+#: heisst darum nicht «ein Kind spielt». Gezählt wird nur, wer sich anmeldet.
+UNBEKANNT_WAHL = ("nie", "fragen", "sperren")
 
 
 def _norm(name: str) -> str:
@@ -88,6 +93,8 @@ class Konsolenwache:
         #: Konsole → Tag, an dem die Zeit um war: Die Sperre hält bis Mitternacht
         #: oder bis sich jemand wieder anmeldet.
         self._ende_sperre: dict[str, str] = {}
+        #: Konsole → wann die Höchstzeit zuletzt gestellt wurde (Nintendo mit Mass fragen).
+        self._limit_zeit: dict[str, float] = {}
 
     # ── Speicher ───────────────────────────────────────────────────────
 
@@ -116,7 +123,7 @@ class Konsolenwache:
         unbekannt = roh.get("unbekannt")
         gesperrt = roh.get("gesperrt")
         return {
-            "unbekannt": unbekannt if unbekannt in UNBEKANNT_WAHL else "fragen",
+            "unbekannt": unbekannt if unbekannt in UNBEKANNT_WAHL else "nie",
             "gesperrt": [str(n) for n in gesperrt] if isinstance(gesperrt, list) else [],
             "nintendo_sperren": bool(roh.get("nintendo_sperren")),
         }
@@ -127,7 +134,7 @@ class Konsolenwache:
         roh = self._einstellungen()
         if unbekannt is not None:
             if unbekannt not in UNBEKANNT_WAHL:
-                raise HomePilotError("«fragen» oder «sperren» - etwas anderes gibt es nicht.")
+                raise HomePilotError("«nie», «fragen» oder «sperren» - etwas anderes gibt es nicht.")
             roh["unbekannt"] = unbekannt
         if nintendo_sperren is not None:
             roh["nintendo_sperren"] = bool(nintendo_sperren)
@@ -292,8 +299,6 @@ class Konsolenwache:
         self._sitzungen[_norm(kind)] = {
             "kind": kind, "konsole": konsole_id, "seit": jetzt, "zuletzt": jetzt,
             "spiel": entity.state.get("app") or None, "gebucht": 0.0,
-            # Bei der Switch zählt Nintendos Spielzeit; ab hier gehört sie dem Kind.
-            "nin_basis": entity.state.get("playing_min"),
         }
         self._unbekannt.pop(konsole_id, None)
         self._ende_sperre.pop(konsole_id, None)
@@ -483,21 +488,13 @@ class Konsolenwache:
 
         kind = sitzung["kind"]
         plan = self.plan(kind)
+        # Die Zeit kommt vom Tipp des Kindes, nicht von der Konsole: Die
+        # Erwachsenen spielen an denselben Geräten, und was die Konsole
+        # selbst zählt (Nintendos Minuten) gehörte sonst dem Kind mit. Die
+        # Konsole sagt dem Hub nur, wann es **vorbei** ist (aus), nie,
+        # dass jemand spielt.
         entity = self.hub.registry.get(sitzung["konsole"])
-        nintendo_min = entity.state.get("playing_min") if entity is not None else None
-        if nintendo_min is not None:
-            # Die Switch zählt selbst: Ihre Minuten sind die Wahrheit, die
-            # Uhr des Hubs höchstens eine Schätzung, denn Nintendo meldet
-            # verzögert und der «an»-Zustand ist nur abgeleitet.
-            if sitzung.get("nin_basis") is None:
-                sitzung["nin_basis"] = nintendo_min
-            elif nintendo_min < sitzung.get("nin_zuletzt", nintendo_min):
-                sitzung["nin_basis"] = 0  # Mitternacht: die Zählung begann neu
-            sitzung["nin_zuletzt"] = nintendo_min
-            gesamt = max(0, nintendo_min - sitzung["nin_basis"]) * 60.0
-            gebucht = max(0.0, gesamt - sitzung.get("gebucht", 0.0))
-        else:
-            gebucht = kz.luecke_zaehlt(seit_letztem)
+        gebucht = kz.luecke_zaehlt(seit_letztem)
         zeile = self._zeile(kind, datetime.fromtimestamp(jetzt).date())
         vorher = self._rest(kind, plan, jetzt - gebucht)
         zeile["gesamt"] += gebucht
@@ -598,6 +595,16 @@ class Konsolenwache:
             elif ziel == zuletzt or (zuletzt is None and entity.state.get("limit_min") == ziel):
                 self._limit_gesendet[entity.id] = ziel
                 continue
+            elif (
+                zuletzt is not None
+                and ziel > 0
+                and zuletzt > 0
+                and jetzt - self._limit_zeit.get(entity.id, 0.0) < LIMIT_MIN_ABSTAND
+            ):
+                # Die Zeit des Kindes läuft nach der Uhr, Nintendos Grenze
+                # ändert sich dann jede Minute: Nicht jede Minute die Cloud
+                # fragen, sondern alle halbe Minute höchstens.
+                continue
             else:
                 aufruf = {"minutes": ziel}
             try:
@@ -606,11 +613,16 @@ class Konsolenwache:
                 )
                 if ziel is not None:
                     self._limit_gesendet[entity.id] = ziel
+                    self._limit_zeit[entity.id] = jetzt
             except Exception as err:
                 log.warning("Konsolenzeit: Höchstzeit für %s nicht gestellt: %s", entity.id, err)
 
     async def _unbekannte_pruefen(self, jetzt: float) -> None:
         """Läuft eine Konsole eines Kindes, ohne dass sich jemand anmeldete?"""
+        if self._einstellungen()["unbekannt"] == "nie":
+            self._unbekannt.clear()
+            self._gefragt.clear()
+            return
         plaene = [p for p in self.plaene().values() if p["aktiv"]]
         belegt = {s["konsole"] for s in self._sitzungen.values()}
         einst = self._einstellungen()

@@ -77,7 +77,7 @@ export function useKonsolenzeit(client: HubClient, name: string, changedAt?: num
   const [lage, setLage] = useState<KonsolenLage | null>(null);
   const [konsolen, setKonsolen] = useState<KonsoleInfo[]>([]);
   const [eltern, setEltern] = useState<NonNullable<KonsolenUebersicht['eltern']>>([]);
-  const [unbekannt, setUnbekannt] = useState<'fragen' | 'sperren'>('fragen');
+  const [unbekannt, setUnbekannt] = useState<'nie' | 'fragen' | 'sperren'>('nie');
   const [nintendoSperren, setNintendoSperren] = useState(false);
   const [stand, setStand] = useState(() => Date.now());
   const [jetzt, setJetzt] = useState(() => Date.now());
@@ -89,7 +89,7 @@ export function useKonsolenzeit(client: HubClient, name: string, changedAt?: num
       const antwort = await client.get<KonsolenUebersicht>('/api/konsolenzeit', { still: true });
       setKonsolen(antwort.konsolen ?? []);
       setEltern(antwort.eltern ?? []);
-      setUnbekannt(antwort.einstellungen?.unbekannt ?? 'fragen');
+      setUnbekannt(antwort.einstellungen?.unbekannt ?? 'nie');
       setNintendoSperren(!!antwort.einstellungen?.nintendo_sperren);
       setLage((antwort.kinder ?? []).find((kind) => gleich(kind.kind, name)) ?? null);
       setStand(Date.now());
@@ -641,7 +641,7 @@ export function KonsolenEditor({
     }
   };
 
-  const unbekanntSetzen = async (wahl: 'fragen' | 'sperren') => {
+  const unbekanntSetzen = async (wahl: 'nie' | 'fragen' | 'sperren') => {
     try {
       await client.put('/api/konsolenzeit/einstellungen', { unbekannt: wahl });
       laden();
@@ -867,11 +867,12 @@ export function KonsolenEditor({
       <Card style={styles.listCard}>
         <Text style={eigen.leise}>
           Weder die PlayStation noch Nintendos Limit sagen, wer am Controller sitzt. Darum meldet sich
-          {' '}{name} mit «Ich spiele jetzt» an - die Zeit läuft ab dem Tipp.
+          {' '}{name} mit «Ich spiele jetzt» an: Die Zeit läuft ab dem Tipp bis «Fertig». Was die Konsole selbst
+          zählt oder ob sie läuft, ist egal - Erwachsene spielen an denselben Geräten.
         </Text>
         <Text style={[eigen.wert, { marginTop: 8 }]}>Läuft eine Konsole ohne Anmeldung?</Text>
         <View style={styles.chipRow}>
-          {(['fragen', 'sperren'] as const).map((wahl) => (
+          {(['nie', 'fragen', 'sperren'] as const).map((wahl) => (
             <Pressable
               key={wahl}
               onPress={() => unbekanntSetzen(wahl)}
@@ -880,7 +881,7 @@ export function KonsolenEditor({
               style={[styles.chip, unbekannt === wahl && styles.chipActive]}
             >
               <Text style={[styles.chipText, unbekannt === wahl && styles.chipTextActive]}>
-                {wahl === 'fragen' ? 'Eltern fragen' : 'Ausschalten'}
+                {wahl === 'nie' ? 'Nichts tun' : wahl === 'fragen' ? 'Eltern fragen' : 'Ausschalten'}
               </Text>
             </Pressable>
           ))}

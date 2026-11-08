@@ -33,10 +33,17 @@ Controller sitzt**. Darum meldet sich das Kind in der App an («Ich spiele
 jetzt»); die Zeit läuft ab dem Tipp, solange die Konsole an ist. Ein Kind
 ohne eigenes Gerät meldet ein Erwachsener an.
 
-Läuft eine Konsole zwei Minuten lang, ohne dass sich jemand angemeldet
-hat, fragt der Hub die Eltern (oder schaltet sie aus - Einstellung «Läuft
-eine Konsole ohne Anmeldung?»). Spielen die Erwachsenen selbst, tippen sie
-«Erwachsene spielen»: Dann wird weder gezählt noch gefragt.
+**Die Zeit kommt nie von der Konsole.** Auch die Erwachsenen spielen an
+PlayStation und Switch; «Konsole an» oder Nintendos eigene Spielzeit
+heissen darum nicht «ein Kind spielt». Gezählt wird nach der Uhr vom Tipp
+«Ich spiele jetzt» bis «Fertig». Die Konsole sagt dem Hub nur, wann es
+vorbei ist: Geht sie länger als anderthalb Minuten aus, endet die
+Anmeldung von selbst.
+
+Läuft eine Konsole ohne Anmeldung, tut der Hub standardmässig **nichts**.
+Wählbar (Plan → «Wer spielt?»): die Eltern fragen oder die Konsole
+ausschalten. Wer als Erwachsener spielt, tippt «Erwachsene spielen»:
+Dann wird weder gezählt noch gefragt, und eine Switch ist wieder frei.
 
 ## Was am Ende passiert
 
@@ -56,8 +63,10 @@ gibt es keine Durchsage - und die Eltern bekommen eine Push-Meldung
   er läuft und sie erreicht; ein Kind kann sie danach wieder einschalten
   und «Ich spiele jetzt» umgehen. Die Familienverwaltung der PS5 bleibt
   die zweite Sicherung.
-- Die Nintendo-Grenze gilt für die **Konsole**, nicht pro Kind; ihre
-  Spielzeit kommt verzögert und auf die Minute genau (Nintendos Cloud).
+- Die Nintendo-Grenze gilt für die **Konsole**, nicht pro Kind: Spielen
+  die Erwachsenen während der Anmeldung eines Kindes an der Switch, zählt
+  Nintendo das mit und beendet das Spiel früher, als die Uhr des Kindes
+  es täte. Ihre Spielzeit kommt verzögert und auf die Minute genau.
 - Nach einem Hub-Neustart zählt eine Lücke über zwei Minuten **nicht**
   als gespielt: lieber zu wenig gebucht als zu viel.
 - Nicht gebaut: PIN beim Anmelden (damit kein Geschwister mitläuft),
