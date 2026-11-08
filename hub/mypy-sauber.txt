@@ -85,6 +85,8 @@ homepilot/core/integration.py
 homepilot/core/kamera.py
 homepilot/core/kartenform.py
 homepilot/core/konflikte.py
+homepilot/core/konsolenwache.py
+homepilot/core/konsolenzeit.py
 homepilot/core/langzeit.py
 homepilot/core/laufzeit.py
 homepilot/core/light.py

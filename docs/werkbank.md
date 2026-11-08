@@ -26,7 +26,7 @@ vorkommt, prüft `scripts/werkbank.py` (und mit ihr der Prüflauf).
 | Abläufe | 9 | 468, 469, 697, 699, 701, 702, 703, 705, 706 |
 | Push-Benachrichtigungen | 12 | 473, 474, 476, 707, 708, 709, 710, 711, 713, 714, 715, 716 |
 | Alarmanlage | 7 | 483, 717, 718, 719, 721, 723, 725 |
-| Selbst gewählt | 21 | 492, 493, 494, 496, 499, 500, 501, 502, 726, 727, 728, 729, 730, 731, 732, 733, 735, 736, 737, 738, 739 |
+| Selbst gewählt | 22 | 492, 493, 494, 496, 499, 500, 501, 502, 726, 727, 728, 729, 730, 731, 732, 733, 735, 736, 737, 738, 739, 748 |
 | Aus früheren Runden | 4 | 223, 237, 268, 353 |
 | Nützlich im Alltag | 1 | 588 |
 | App und Hub | 1 | 589 |
@@ -727,3 +727,25 @@ statt feste Bildschirme zu durchsuchen. Aufwand: gross · Hub.
 **739. Tägliches freiwilliges Erinnerungsfoto übers Wandpanel**,
 gesammelt im Rückblick als kleines Familientagebuch. Aufwand: mittel ·
 Hub+App.
+
+**748. Konsolenzeit der Kinder** - fixe Tage, Fenster und Minuten pro Tag
+sowie pro Monat, gemeinsam über alle Konsolen des Kindes (PlayStation 5,
+Switch 2; der Fernseher bleibt ausserhalb). Modul in der Kinderseite.
+Aufwand: gross · Hub+App.
+
+- **A. Hub - gebaut:** Regeln (`core/konsolenzeit.py`, rein), Wächter
+  (`core/konsolenwache.py`: Takt, Buchung, Vorwarnung, PS5 in den
+  Ruhemodus, Push an die Eltern, Nachfrage bei einer Konsole ohne
+  Anmeldung), Routen (`api/routes/konsolenzeit.py`), Push-Kategorie
+  `konsolenzeit`. Pläne, Tageszähler und Sitzungen liegen in der
+  Datendatei (`konsolenzeit_*`).
+- **B. App - offen:** Karte auf der Kinderseite, Plan-Editor, Ansicht des
+  Kindes mit «Ich spiele jetzt», Geben/Frei/Sperren.
+- **C. Switch - offen:** `integrations/nintendo.py` über Nintendos
+  inoffizielle Kindersicherungs-Schnittstelle (`pynintendoparental`).
+  Der Hub kann die Switch nicht selbst ausschalten; er stellt die
+  Höchstzeit von heute, und die Switch beendet das Spiel selbst. Ob das
+  auch mit der Switch 2 geht, ist unerprobt und lässt sich nur an der
+  echten Konsole klären.
+- **Bewusst noch nicht:** PIN beim Anmelden (damit kein Geschwister
+  mitläuft), Knöpfe unter der Push-Meldung («15 min geben»).

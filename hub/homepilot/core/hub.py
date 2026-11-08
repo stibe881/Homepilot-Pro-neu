@@ -65,6 +65,7 @@ from .eventlog import EventLog
 from .events import EventBus
 from .guestpass import PassStore
 from .integration import IntegrationManager
+from .konsolenwache import Konsolenwache
 from .kurzverlauf import Kurzverlauf
 from .lautplan import Lautplan
 from .logbuffer import install as install_log_buffer
@@ -156,6 +157,9 @@ class Hub:
         # Lautstärke nach Tageszeit - der Plan, der vier gleichartige
         # Abläufe ersetzt (core/lautplan.py).
         self.lautplan = Lautplan(self)
+        # Konsolenzeit der Kinder (core/konsolenwache.py): zählt, warnt und
+        # legt die PlayStation schlafen.
+        self.konsolenwache = Konsolenwache(self)
         # Wandelt Kamerabilder in HLS um – läuft nur, solange jemand zuschaut.
         # Bevorzugt über mediamtx (Low-Latency), sonst über ffmpeg.
         self.streams = StreamManager(
@@ -262,6 +266,7 @@ class Hub:
         self.ton.start()
         self.musik.start()
         self.lautplan.start()
+        self.konsolenwache.start()
         self._backup_task = asyncio.create_task(self._backup_loop())
         # Gesammelte Schreibvorgänge nachholen: Der DataStore schreibt bei
         # einem Schwall nur den ersten sofort (siehe persistence.FLUSH_DELAY);
@@ -925,6 +930,7 @@ class Hub:
         await self.watchdog.stop()
         await self.timers.stop()
         await self.musik.stop()
+        await self.konsolenwache.stop()
         await self.lautplan.stop()
         await self.automations.stop()
         await self.integrations.teardown_all()

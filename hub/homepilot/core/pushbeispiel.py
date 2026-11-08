@@ -100,6 +100,10 @@ BEISPIELE: dict[str, tuple[str, str]] = {
     "vouchers": ("Gutschein läuft ab", "Der Gutschein von Ochsner Sport gilt noch 7 Tage."),
     "documents": ("Dokument läuft ab", "Pass Levin (Levin) läuft in 60 Tagen ab."),
     "reminder": ("⏰ Erinnerung", "Zahnarzt anrufen"),
+    "konsolenzeit": (
+        "Maja: Konsolenzeit aufgebraucht",
+        "45 min gespielt (PlayStation 5 30 min, Switch 15 min). Die Konsole ruht.",
+    ),
     "test": ("HomePilot Test", "Push-Benachrichtigungen funktionieren \U0001f389"),
 }
 

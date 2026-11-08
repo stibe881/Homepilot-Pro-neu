@@ -89,6 +89,9 @@ from .routes import (
     haus as routes_haus,
 )
 from .routes import (
+    konsolenzeit as routes_konsolenzeit,
+)
+from .routes import (
     lightgroups as routes_lightgroups,
 )
 from .routes import (
@@ -375,6 +378,7 @@ def create_app(hub: Hub) -> FastAPI:
         routes_funk.register,
         routes_androidtv.register,
         routes_playstation.register,
+        routes_konsolenzeit.register,
         routes_diagnose.register,
     ):
         register(app, ctx)

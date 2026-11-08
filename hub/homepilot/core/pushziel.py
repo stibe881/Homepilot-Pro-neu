@@ -92,6 +92,9 @@ ZIELE: dict[str, str] = {
     # Ein ablaufendes Dokument (Punkt 623) wird in seiner Kachel
     # erneuert - dort steht «Erneuert» und der Verlauf.
     "documents": "familie:documents",
+    # Konsolenzeit (Punkt 748): die Kinderseite, wo Rest, Plan und die
+    # Knöpfe «Geben» und «Sperren» stehen.
+    "konsolenzeit": "familie:members",
     # Die selbst gestellte Erinnerung (Punkt 603): dorthin, wo man sie
     # bestätigt oder weiterstellt.
     "reminder": "familie:reminders",

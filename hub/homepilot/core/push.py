@@ -401,6 +401,9 @@ VERFALL: dict[str, int] = {
     # wäre genauer, aber die Frist hängt an der Kategorie, nicht an der
     # Meldung, und die Fahrzeit im Haus liegt praktisch immer darunter.
     "departure": 1800,
+    # «Maja hat ihre Zeit aufgebraucht» hilft nach einer halben Stunde
+    # niemandem mehr: Dann ist sie längst im Bett oder wieder dran.
+    "konsolenzeit": 1800,
 }
 
 
@@ -472,6 +475,9 @@ CATEGORIES: dict[str, str] = {
     "vouchers": "Gutschein läuft bald ab",
     # Dokumente (Punkt 623): sechzig und vierzehn Tage vor dem Ablauf.
     "documents": "Dokument läuft bald ab",
+    # Konsolenzeit der Kinder (Punkt 748): Zeit aufgebraucht, oder eine
+    # Konsole läuft, ohne dass sich jemand angemeldet hat.
+    "konsolenzeit": "Konsolenzeit der Kinder",
     # Die selbst gestellten Erinnerungen von der Familienseite (Punkt
     # 603). Lange ohne Kategorie unterwegs - und damit ohne Ziel, ohne
     # Knopf, ohne Zeile in den Einstellungen und ohne Beispiel.
@@ -505,7 +511,7 @@ GROUPS: list[tuple[str, tuple[str, ...]]] = [
     # sortiert nur die Schalter, über die Zustellung entscheidet LEISE.
     ("Familie", ("baby_cry", "birthday", "calendar", "departure", "medication",
                  "tasks", "shopping", "packlist", "weekahead", "presence",
-                 "vouchers", "documents", "reminder")),
+                 "vouchers", "documents", "reminder", "konsolenzeit")),
     ("Betrieb", ("outage", "flattern", "device_down", "battery", "disk", "morning",
                  "weekly_report")),
     # Leer, und trotzdem hier: Unter dieser Überschrift stehen die
