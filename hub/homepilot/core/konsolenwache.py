@@ -83,6 +83,11 @@ class Konsolenwache:
         self._unbekannt: dict[str, float] = {}
         self._gefragt: set[str] = set()
         self._tage: dict[tuple[str, str], dict[str, Any]] = {}
+        #: Konsole → zuletzt eingestellte Höchstzeit (Switch, Minuten oder -1).
+        self._limit_gesendet: dict[str, int] = {}
+        #: Konsole → Tag, an dem die Zeit um war: Die Sperre hält bis Mitternacht
+        #: oder bis sich jemand wieder anmeldet.
+        self._ende_sperre: dict[str, str] = {}
 
     # ── Speicher ───────────────────────────────────────────────────────
 
@@ -113,13 +118,19 @@ class Konsolenwache:
         return {
             "unbekannt": unbekannt if unbekannt in UNBEKANNT_WAHL else "fragen",
             "gesperrt": [str(n) for n in gesperrt] if isinstance(gesperrt, list) else [],
+            "nintendo_sperren": bool(roh.get("nintendo_sperren")),
         }
 
-    def einstellungen_setzen(self, unbekannt: str) -> dict[str, Any]:
-        if unbekannt not in UNBEKANNT_WAHL:
-            raise HomePilotError("«fragen» oder «sperren» - etwas anderes gibt es nicht.")
+    def einstellungen_setzen(
+        self, unbekannt: str | None = None, nintendo_sperren: bool | None = None
+    ) -> dict[str, Any]:
         roh = self._einstellungen()
-        roh["unbekannt"] = unbekannt
+        if unbekannt is not None:
+            if unbekannt not in UNBEKANNT_WAHL:
+                raise HomePilotError("«fragen» oder «sperren» - etwas anderes gibt es nicht.")
+            roh["unbekannt"] = unbekannt
+        if nintendo_sperren is not None:
+            roh["nintendo_sperren"] = bool(nintendo_sperren)
         self.hub.data.set(STORE_EINST, [roh])
         self._geaendert()
         return roh
@@ -228,17 +239,34 @@ class Konsolenwache:
         entity = self.hub.registry.get(konsole_id)
         return entity is not None and str(entity.state.get("state") or "") == "on"
 
-    async def _abschalten(self, konsole_id: str) -> bool:
-        """Die Konsole schlafen legen - ehrlich, ob es geklappt hat."""
+    async def _abschalten(self, konsole_id: str, jetzt: float | None = None) -> str | None:
+        """Die Konsole schlafen legen - ehrlich, ob und wie es geklappt hat.
+
+        ``"aus"``: ausgeschaltet (PlayStation, Ruhemodus). ``"gesperrt"``:
+        Die Höchstzeit steht auf dem, was schon gespielt ist, und die
+        Konsole beendet das Spiel selbst (Switch, Nintendos Kindersicherung)
+        - ausschalten kann der Hub sie nicht. ``None``: ging nicht.
+        """
         entity = self.hub.registry.get(konsole_id)
-        if entity is None or "turn_off" not in entity.commands:
-            return False
+        if entity is None:
+            return None
         try:
-            await self.hub.integrations.dispatch_command(konsole_id, "turn_off", {})
-            return True
+            if "turn_off" in entity.commands:
+                await self.hub.integrations.dispatch_command(konsole_id, "turn_off", {})
+                return "aus"
+            if "set_limit" in entity.commands:
+                minuten = kz.nintendo_limit(entity.state.get("playing_min") or 0, 0)
+                await self.hub.integrations.dispatch_command(
+                    konsole_id, "set_limit", {"minutes": minuten}
+                )
+                self._limit_gesendet[konsole_id] = minuten
+                self._ende_sperre[konsole_id] = kz.tag_schluessel(
+                    datetime.fromtimestamp(jetzt or time.time()).date()
+                )
+                return "gesperrt"
         except Exception as err:
-            log.warning("Konsolenzeit: %s liess sich nicht ausschalten: %s", konsole_id, err)
-            return False
+            log.warning("Konsolenzeit: %s liess sich nicht beenden: %s", konsole_id, err)
+        return None
 
     # ── Sitzungen ──────────────────────────────────────────────────────
 
@@ -264,8 +292,11 @@ class Konsolenwache:
         self._sitzungen[_norm(kind)] = {
             "kind": kind, "konsole": konsole_id, "seit": jetzt, "zuletzt": jetzt,
             "spiel": entity.state.get("app") or None, "gebucht": 0.0,
+            # Bei der Switch zählt Nintendos Spielzeit; ab hier gehört sie dem Kind.
+            "nin_basis": entity.state.get("playing_min"),
         }
         self._unbekannt.pop(konsole_id, None)
+        self._ende_sperre.pop(konsole_id, None)
         self._sitzungen_sichern()
         self._geaendert()
         return self._sitzungen[_norm(kind)]
@@ -283,6 +314,7 @@ class Konsolenwache:
             "gebucht": 0.0,
         }
         self._unbekannt.pop(konsole_id, None)
+        self._ende_sperre.pop(konsole_id, None)
         self._sitzungen_sichern()
         self._geaendert()
 
@@ -428,6 +460,7 @@ class Konsolenwache:
             if await self._sitzung_takten(schluessel, sitzung, jetzt):
                 geaendert = True
         await self._unbekannte_pruefen(jetzt)
+        await self._grenzen_stellen(jetzt)
         if geaendert:
             self._geaendert()
 
@@ -450,14 +483,27 @@ class Konsolenwache:
 
         kind = sitzung["kind"]
         plan = self.plan(kind)
-        gebucht = kz.luecke_zaehlt(seit_letztem)
+        entity = self.hub.registry.get(sitzung["konsole"])
+        nintendo_min = entity.state.get("playing_min") if entity is not None else None
+        if nintendo_min is not None:
+            # Die Switch zählt selbst: Ihre Minuten sind die Wahrheit, die
+            # Uhr des Hubs höchstens eine Schätzung, denn Nintendo meldet
+            # verzögert und der «an»-Zustand ist nur abgeleitet.
+            if sitzung.get("nin_basis") is None:
+                sitzung["nin_basis"] = nintendo_min
+            elif nintendo_min < sitzung.get("nin_zuletzt", nintendo_min):
+                sitzung["nin_basis"] = 0  # Mitternacht: die Zählung begann neu
+            sitzung["nin_zuletzt"] = nintendo_min
+            gesamt = max(0, nintendo_min - sitzung["nin_basis"]) * 60.0
+            gebucht = max(0.0, gesamt - sitzung.get("gebucht", 0.0))
+        else:
+            gebucht = kz.luecke_zaehlt(seit_letztem)
         zeile = self._zeile(kind, datetime.fromtimestamp(jetzt).date())
         vorher = self._rest(kind, plan, jetzt - gebucht)
         zeile["gesamt"] += gebucht
         konsolen = zeile["konsolen"]
         konsolen[sitzung["konsole"]] = konsolen.get(sitzung["konsole"], 0.0) + gebucht
         sitzung["gebucht"] = sitzung.get("gebucht", 0.0) + gebucht
-        entity = self.hub.registry.get(sitzung["konsole"])
         if entity is not None and entity.state.get("app"):
             sitzung["spiel"] = entity.state.get("app")
         nachher = self._rest(kind, plan, jetzt)
@@ -485,7 +531,7 @@ class Konsolenwache:
         self._tage_sichern()
         if plan["durchsage"]:
             await self._ansage(konsole_id, kz.ende_text(kind, grund))
-        aus = await self._abschalten(konsole_id) if plan["abschalten"] else False
+        aus = await self._abschalten(konsole_id, jetzt) if plan["abschalten"] else None
         if plan["eltern_melden"]:
             zeile = self._zeile(kind, datetime.fromtimestamp(jetzt).date())
             namen = {k["id"]: k["name"] for k in self.konsolen()}
@@ -498,8 +544,70 @@ class Konsolenwache:
             )
             text = f"{kz.dauer_text(zeile['gesamt'])} gespielt" + (f" ({teile})" if teile else "") + "."
             if plan["abschalten"]:
-                text += " Die Konsole ruht." if aus else " Die Konsole liess sich nicht ausschalten."
+                text += {
+                    "aus": " Die Konsole ruht.",
+                    "gesperrt": " Nintendo beendet das Spiel.",
+                }.get(aus or "", " Die Konsole liess sich nicht ausschalten.")
             await self._eltern_melden(titel, text)
+
+    def _limit_ziel(self, entity: Any, jetzt: float) -> int | None:
+        """Welche Höchstzeit der Hub an dieser Konsole will - None: keine (rein lesend).
+
+        Nur Konsolen mit Befehl ``set_limit`` (die Switch). Drei Fälle:
+
+        - Die Erwachsenen spielen: keine Grenze (-1).
+        - Ein Kind ist angemeldet: Spielzeit, die Nintendo schon zählt,
+          plus das, was dem Kind bleibt. Damit beendet die Konsole das Spiel
+          auf die Minute selbst, auch wenn der Hub gerade nicht hinsieht.
+        - Niemand ist angemeldet: Nur wenn die Eltern «Switch gesperrt
+          halten» gewählt haben, steht die Grenze auf dem Gespielten - sonst
+          lässt der Hub die Konsole in Ruhe (und stellt zurück, was die
+          Eltern dort selbst eingestellt hatten).
+        """
+        gespielt = entity.state.get("playing_min") or 0
+        for sitzung in self._sitzungen.values():
+            if sitzung["konsole"] != entity.id:
+                continue
+            if sitzung["kind"] == ELTERN:
+                return -1
+            plan = self.plan(sitzung["kind"])
+            return kz.nintendo_limit(gespielt, self._rest(sitzung["kind"], plan, jetzt)["rest_s"])
+        # Die Zeit war um: Die Sperre hält, bis jemand sich anmeldet oder
+        # der Tag wechselt - sonst höbe der nächste Takt sie sofort wieder auf.
+        if self._ende_sperre.get(entity.id) == kz.tag_schluessel(datetime.fromtimestamp(jetzt).date()):
+            return kz.nintendo_limit(gespielt, 0)
+        self._ende_sperre.pop(entity.id, None)
+        if self._einstellungen()["nintendo_sperren"] and any(
+            p["aktiv"] and entity.id in p["konsolen"] for p in self.plaene().values()
+        ):
+            return kz.nintendo_limit(gespielt, 0)
+        return None
+
+    async def _grenzen_stellen(self, jetzt: float) -> None:
+        """Die Höchstzeit an den Konsolen nachführen, die sich so steuern lassen."""
+        for entity in self.hub.registry.all():
+            if "set_limit" not in entity.commands:
+                continue
+            ziel = self._limit_ziel(entity, jetzt)
+            zuletzt = self._limit_gesendet.get(entity.id)
+            if ziel is None:
+                if zuletzt is None:
+                    continue
+                aufruf: dict[str, Any] = {}  # ohne Minuten: zurückstellen
+                self._limit_gesendet.pop(entity.id, None)
+            elif ziel == zuletzt or (zuletzt is None and entity.state.get("limit_min") == ziel):
+                self._limit_gesendet[entity.id] = ziel
+                continue
+            else:
+                aufruf = {"minutes": ziel}
+            try:
+                await asyncio.wait_for(
+                    self.hub.integrations.dispatch_command(entity.id, "set_limit", aufruf), 20
+                )
+                if ziel is not None:
+                    self._limit_gesendet[entity.id] = ziel
+            except Exception as err:
+                log.warning("Konsolenzeit: Höchstzeit für %s nicht gestellt: %s", entity.id, err)
 
     async def _unbekannte_pruefen(self, jetzt: float) -> None:
         """Läuft eine Konsole eines Kindes, ohne dass sich jemand anmeldete?"""
@@ -518,10 +626,12 @@ class Konsolenwache:
             namen = {k["id"]: k["name"] for k in self.konsolen()}
             name = namen.get(konsole, konsole)
             if einst["unbekannt"] == "sperren":
-                aus = await self._abschalten(konsole)
+                aus = await self._abschalten(konsole, jetzt)
                 await self._eltern_melden(
                     f"{name} läuft – niemand angemeldet",
-                    "Der Hub hat sie ausgeschaltet." if aus else "Sie liess sich nicht ausschalten.",
+                    {"aus": "Der Hub hat sie ausgeschaltet.", "gesperrt": "Nintendo beendet das Spiel."}.get(
+                        aus or "", "Sie liess sich nicht ausschalten."
+                    ),
                 )
             else:
                 await self._eltern_melden(

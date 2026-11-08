@@ -42,7 +42,7 @@ COPY homepilot ./homepilot
 # und das Abbild wäre um hundert Megabyte schwerer.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends gcc libc6-dev \
-    && pip install --no-cache-dir ".[roborock,cast,androidtv,ring,overkiz,pitboss,speech,tuya,apns,beleg,ocr,playstation]" \
+    && pip install --no-cache-dir ".[roborock,cast,androidtv,ring,overkiz,pitboss,speech,tuya,apns,beleg,ocr,playstation,nintendo]" \
     && apt-get purge -y --auto-remove gcc libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 

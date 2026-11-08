@@ -40,7 +40,9 @@ class Schalter(BaseModel):
 
 
 class Einstellungen(BaseModel):
-    unbekannt: str
+    unbekannt: str | None = None
+    # Switch auch dann sperren, wenn sich niemand angemeldet hat.
+    nintendo_sperren: bool | None = None
 
 
 class ElternSpielen(BaseModel):
@@ -87,7 +89,9 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     @app.put("/api/konsolenzeit/einstellungen")
     async def einstellungen(body: Einstellungen, request: Request) -> dict[str, Any]:
         erwachsen(request)
-        return antwort(lambda: wache.einstellungen_setzen(body.unbekannt))
+        return antwort(
+            lambda: wache.einstellungen_setzen(body.unbekannt, body.nintendo_sperren)
+        )
 
     @app.post("/api/konsolenzeit/eltern")
     async def eltern_spielen(body: ElternSpielen, request: Request) -> dict[str, Any]:

@@ -485,6 +485,13 @@ integrations:
   #     - host: 192.168.1.60
   #       name: PlayStation 5
 
+  # Nintendo Switch / Switch 2 über die Kindersicherung (Punkt 748): Spielzeit
+  # und Höchstzeit von heute - ausschalten kann der Hub die Konsole nicht, er
+  # stellt die Höchstzeit, und die Switch beendet das Spiel selbst. Inoffizielle
+  # Cloud-Schnittstelle; Anmeldung und Grenzen: docs/nintendo.md.
+  # - integration: nintendo
+  #   timezone: Europe/Zurich
+
   # Overkiz (Somfy TaHoma & Co.): Storen, Rollläden, Markisen.
   # Braucht: pip install pyoverkiz. Entwicklermodus im Somfy-Konto
   # aktivieren, dann ein lokales Token in der TaHoma-App erzeugen

@@ -66,6 +66,7 @@ SCAN_INTERVALS: dict[str, float] = {
     "hue": 300,
     "hue_sync": 30,
     "meteoalarm": 900,
+    "nintendo": 60,
     "nuki": 60,
     "pitboss": 30,
     "playstation": 10,

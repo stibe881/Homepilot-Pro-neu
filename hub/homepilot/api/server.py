@@ -98,6 +98,9 @@ from .routes import (
     medien as routes_medien,
 )
 from .routes import (
+    nintendo as routes_nintendo,
+)
+from .routes import (
     passes as routes_passes,
 )
 from .routes import (
@@ -379,6 +382,7 @@ def create_app(hub: Hub) -> FastAPI:
         routes_androidtv.register,
         routes_playstation.register,
         routes_konsolenzeit.register,
+        routes_nintendo.register,
         routes_diagnose.register,
     ):
         register(app, ctx)

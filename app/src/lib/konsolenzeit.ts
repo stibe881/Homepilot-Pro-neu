@@ -81,7 +81,12 @@ export interface KonsoleInfo {
 export interface KonsolenUebersicht {
   kinder: KonsolenLage[];
   konsolen: KonsoleInfo[];
-  einstellungen?: { unbekannt: 'fragen' | 'sperren'; gesperrt: string[] };
+  einstellungen?: {
+    unbekannt: 'fragen' | 'sperren';
+    gesperrt: string[];
+    /** Die Switch auch sperren, wenn sich niemand angemeldet hat. */
+    nintendo_sperren?: boolean;
+  };
   eltern?: { konsole: string; seit: number }[];
 }
 

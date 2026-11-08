@@ -743,11 +743,15 @@ Aufwand: gross · Hub+App.
   Kinderseite für Eltern und für das Kind selbst, Plan-Editor) und
   `lib/konsolenzeit.ts` (rein). Eltern: Geben, Heute frei, Sperren, Kind
   anmelden, «Erwachsene spielen»; Kind: «Ich spiele jetzt», «Fertig».
-- **C. Switch - offen:** `integrations/nintendo.py` über Nintendos
-  inoffizielle Kindersicherungs-Schnittstelle (`pynintendoparental`).
-  Der Hub kann die Switch nicht selbst ausschalten; er stellt die
-  Höchstzeit von heute, und die Switch beendet das Spiel selbst. Ob das
-  auch mit der Switch 2 geht, ist unerprobt und lässt sich nur an der
-  echten Konsole klären.
+- **C. Switch - gebaut, ungeprüft an der echten Konsole:**
+  `integrations/nintendo.py` über `pynintendoparental`, Anmelderoute
+  (`api/routes/nintendo.py`), Prüfwerkzeug `python -m
+  homepilot.integrations.nintendo`, dazu im Wächter die Höchstzeit
+  (Nintendos Spielzeit plus Rest des Kindes) und das Zählen nach
+  Nintendos Minuten. Der Hub kann die Switch nicht ausschalten; die
+  Konsole beendet das Spiel selbst. **Offen:** ein Lauf an der echten
+  Switch 2 (greift die Steuerung?) und die Anmeldung in der App statt
+  über das Prüfwerkzeug. Übersicht: `docs/konsolenzeit.md`,
+  `docs/nintendo.md`.
 - **Bewusst noch nicht:** PIN beim Anmelden (damit kein Geschwister
   mitläuft), Knöpfe unter der Push-Meldung («15 min geben»).

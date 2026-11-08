@@ -28,7 +28,9 @@ homepilot/api/routes/automations.py
 homepilot/api/routes/dashboard.py
 homepilot/api/routes/funk.py
 homepilot/api/routes/grundriss.py
+homepilot/api/routes/konsolenzeit.py
 homepilot/api/routes/medien.py
+homepilot/api/routes/nintendo.py
 homepilot/api/routes/passes.py
 homepilot/api/routes/playstation.py
 homepilot/api/routes/prefs.py
@@ -163,6 +165,7 @@ homepilot/integrations/hue.py
 homepilot/integrations/hue_sync.py
 homepilot/integrations/life360.py
 homepilot/integrations/mqtt.py
+homepilot/integrations/nintendo.py
 homepilot/integrations/nuki.py
 homepilot/integrations/pitboss.py
 homepilot/integrations/playstation.py

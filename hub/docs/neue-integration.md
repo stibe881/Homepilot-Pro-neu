@@ -115,6 +115,7 @@ Die Protokolle sind bereits gelöst – diese Bibliotheken zeigen, wie:
 | Spotify | Cloud, OAuth | `spotipy` |
 | Google Calendar | Cloud, OAuth | `google-api-python-client` |
 | Ring | Inoffizielle Cloud-API, 2FA | `ring_doorbell` |
+| Nintendo Switch | Inoffizielle Cloud-API der Kindersicherung | `pynintendoparental` |
 | Hue Play HDMI Sync | Lokale API der Sync Box | Hue Sync Box API |
 | Matter | Eigener Controller-Dienst | `python-matter-server` |
 

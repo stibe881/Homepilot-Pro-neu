@@ -262,6 +262,21 @@ def warnstufe(
     return min(gekreuzt) if gekreuzt else None
 
 
+def nintendo_limit(gespielt_min: float, rest_s: float | None, hoechst: int = 360) -> int:
+    """Die Höchstzeit von heute, die an der Switch einzustellen ist (rein, testbar).
+
+    Nintendo kennt nur «so viele Minuten heute **insgesamt**» - die Zeit,
+    die die Konsole schon gezählt hat, steckt also mit drin: gespielt
+    plus das, was dem Kind noch bleibt. ``rest_s`` None heisst keine
+    Grenze (-1). Abgerundet: Lieber eine halbe Minute weniger als eine
+    mehr, die das Kind nicht haben sollte. Über 360 nimmt Nintendo nichts.
+    """
+    if rest_s is None:
+        return -1
+    rest_min = int(max(0.0, rest_s) // 60)
+    return max(0, min(hoechst, int(gespielt_min) + rest_min))
+
+
 def tag_schluessel(tag: date) -> str:
     return tag.isoformat()
 

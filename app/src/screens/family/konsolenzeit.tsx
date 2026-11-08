@@ -78,6 +78,7 @@ export function useKonsolenzeit(client: HubClient, name: string, changedAt?: num
   const [konsolen, setKonsolen] = useState<KonsoleInfo[]>([]);
   const [eltern, setEltern] = useState<NonNullable<KonsolenUebersicht['eltern']>>([]);
   const [unbekannt, setUnbekannt] = useState<'fragen' | 'sperren'>('fragen');
+  const [nintendoSperren, setNintendoSperren] = useState(false);
   const [stand, setStand] = useState(() => Date.now());
   const [jetzt, setJetzt] = useState(() => Date.now());
   const [geladen, setGeladen] = useState(false);
@@ -89,6 +90,7 @@ export function useKonsolenzeit(client: HubClient, name: string, changedAt?: num
       setKonsolen(antwort.konsolen ?? []);
       setEltern(antwort.eltern ?? []);
       setUnbekannt(antwort.einstellungen?.unbekannt ?? 'fragen');
+      setNintendoSperren(!!antwort.einstellungen?.nintendo_sperren);
       setLage((antwort.kinder ?? []).find((kind) => gleich(kind.kind, name)) ?? null);
       setStand(Date.now());
       setJetzt(Date.now());
@@ -141,7 +143,7 @@ export function useKonsolenzeit(client: HubClient, name: string, changedAt?: num
     [client, laden]
   );
 
-  return { lage, konsolen, eltern, unbekannt, rest, geladen, fehler, setFehler, laden, tun, elternSpielen };
+  return { lage, konsolen, eltern, unbekannt, nintendoSperren, rest, geladen, fehler, setFehler, laden, tun, elternSpielen };
 }
 
 // ── Bausteine ──────────────────────────────────────────────────────────
@@ -516,7 +518,9 @@ export function KonsolenKarte({
       {planKonsolen
         .filter(
           (konsole) =>
-            konsole.an &&
+            // Die Switch meldet «an» nur verzögert und, solange sie
+            // gesperrt ist, gar nicht - dort muss der Knopf immer stehen.
+            (konsole.an || konsole.integration === 'nintendo') &&
             spielt?.konsole !== konsole.id &&
             !eltern.some((e) => e.konsole === konsole.id)
         )
@@ -529,7 +533,9 @@ export function KonsolenKarte({
             style={[eigen.kopf, { marginTop: 8 }]}
           >
             <Ionicons name="person-outline" size={16} color={colors.accent} />
-            <Text style={eigen.link}>{konsole.name} läuft - Erwachsene spielen</Text>
+            <Text style={eigen.link}>
+              {konsole.an ? `${konsole.name} läuft - Erwachsene spielen` : `${konsole.name}: Erwachsene spielen`}
+            </Text>
           </Pressable>
         ))}
 
@@ -599,7 +605,8 @@ export function KonsolenEditor({
 }) {
   const typ = useTyp();
   const eigen = useMemo(() => makeStyles(colors, typ), [colors, typ]);
-  const { lage, konsolen, unbekannt, geladen, fehler, setFehler, laden } = useKonsolenzeit(client, name);
+  const { lage, konsolen, unbekannt, nintendoSperren, geladen, fehler, setFehler, laden } =
+    useKonsolenzeit(client, name);
   const [plan, setPlan] = useState<KonsolenPlan | null>(null);
   const [offen, setOffen] = useState<number | null>(null);
   const [speichert, setSpeichert] = useState(false);
@@ -637,6 +644,15 @@ export function KonsolenEditor({
   const unbekanntSetzen = async (wahl: 'fragen' | 'sperren') => {
     try {
       await client.put('/api/konsolenzeit/einstellungen', { unbekannt: wahl });
+      laden();
+    } catch (err) {
+      setFehler(meldung(err));
+    }
+  };
+
+  const nintendoSperrenSetzen = async (an: boolean) => {
+    try {
+      await client.put('/api/konsolenzeit/einstellungen', { nintendo_sperren: an });
       laden();
     } catch (err) {
       setFehler(meldung(err));
@@ -869,6 +885,19 @@ export function KonsolenEditor({
             </Pressable>
           ))}
         </View>
+        {konsolen.some((k) => k.integration === 'nintendo') ? (
+          <View style={[eigen.zeileZwischen, { marginTop: 8 }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={eigen.wert}>Switch gesperrt halten</Text>
+              <Text style={eigen.klein}>
+                Ohne Anmeldung steht die Höchstzeit der Switch auf dem, was schon gespielt ist - sie
+                lässt sich erst nach «Ich spiele jetzt» oder «Erwachsene spielen» starten. Aus: Die
+                Switch bleibt bei Nintendos eigener Einstellung.
+              </Text>
+            </View>
+            {schalter(nintendoSperren, nintendoSperrenSetzen, 'Switch gesperrt halten')}
+          </View>
+        ) : null}
         <Text style={eigen.klein}>
           Gilt für alle Kinder. Spielen die Erwachsenen, schalten sie die Konsole in der App auf
           «Eltern spielen» - dann wird weder gezählt noch gefragt.
