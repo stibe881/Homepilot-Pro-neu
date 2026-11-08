@@ -3,14 +3,14 @@
     "name": "HomePilot",
     "slug": "homepilot",
     "owner": "stibe88",
-    "version": "1.5.0",
+    "version": "1.5.1",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0f1115",
     "ios": {
       "bundleIdentifier": "ch.stibe.homepilot",
-      "buildNumber": "678",
+      "buildNumber": "29902823",
       "supportsTablet": true,
       "config": {
         "usesNonExemptEncryption": false
@@ -29,7 +29,7 @@
     },
     "android": {
       "package": "ch.stibe.homepilot",
-      "versionCode": 678,
+      "versionCode": 29902823,
       "adaptiveIcon": {
         "backgroundColor": "#0f1115",
         "foregroundImage": "./assets/android-icon-foreground.png",
