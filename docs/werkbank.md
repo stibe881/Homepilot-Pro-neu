@@ -739,8 +739,10 @@ Aufwand: gross · Hub+App.
   Anmeldung), Routen (`api/routes/konsolenzeit.py`), Push-Kategorie
   `konsolenzeit`. Pläne, Tageszähler und Sitzungen liegen in der
   Datendatei (`konsolenzeit_*`).
-- **B. App - offen:** Karte auf der Kinderseite, Plan-Editor, Ansicht des
-  Kindes mit «Ich spiele jetzt», Geben/Frei/Sperren.
+- **B. App - gebaut:** `screens/family/konsolenzeit.tsx` (Karte auf der
+  Kinderseite für Eltern und für das Kind selbst, Plan-Editor) und
+  `lib/konsolenzeit.ts` (rein). Eltern: Geben, Heute frei, Sperren, Kind
+  anmelden, «Erwachsene spielen»; Kind: «Ich spiele jetzt», «Fertig».
 - **C. Switch - offen:** `integrations/nintendo.py` über Nintendos
   inoffizielle Kindersicherungs-Schnittstelle (`pynintendoparental`).
   Der Hub kann die Switch nicht selbst ausschalten; er stellt die

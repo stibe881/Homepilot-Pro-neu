@@ -844,6 +844,19 @@ export function FamilyScreen({
             (eintrag: FamilyItem) => String(eintrag.text ?? '').trim() === kind
           ) ?? null
         }
+        // Konsolenzeit (Punkt 748): Eltern sehen die Karte mit allen
+        // Griffen, das Kind nur seine eigene; Gäste und fremde Kinder
+        // sehen sie nicht.
+        konsolen={(() => {
+          const rolle = currentUser?.role;
+          if (rolle === 'besitzer' || rolle === 'bewohner') {
+            return { client: hub, modus: 'eltern' as const, changedAt };
+          }
+          if (rolle === 'kind' && currentUser?.name.trim().toLowerCase() === kind.trim().toLowerCase()) {
+            return { client: hub, modus: 'kind' as const, changedAt };
+          }
+          return undefined;
+        })()}
         onKrank={(bis) => {
           const roh = (data.members ?? []).find(
             (eintrag: FamilyItem) => String(eintrag.text ?? '').trim() === kind

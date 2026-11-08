@@ -25,6 +25,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
 import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { HubClient } from '../../api/client';
 import { Card } from '../../components/Card';
 import {
   SternZiel,
@@ -70,6 +71,7 @@ import {
 } from '../../lib/kindseite';
 import { Colors, radius } from '../../theme';
 import { BackHead, FamilyItem, Styles } from './bausteine';
+import { KonsolenEditor, KonsolenKarte } from './konsolenzeit';
 
 /** Die beiden wöchentlichen Listen beim Hub. */
 export type Wochenliste = 'lessons' | 'activities' | 'gear';
@@ -437,6 +439,7 @@ export function Kindseite({
   dokumente,
   mitglieder,
   mitgliedEintrag,
+  konsolen,
   onKrank,
   onKurAnlegen,
   onBack,
@@ -477,6 +480,11 @@ export function Kindseite({
   mitglieder?: string[];
   /** Der rohe Eintrag aus «members» - er trägt `sick_until` (Punkt 622). */
   mitgliedEintrag?: FamilyItem | null;
+  /** Konsolenzeit (Punkt 748): fehlt der Eintrag, gibt es die Karte nicht.
+   *  `modus` sagt, wer hinsieht - die Eltern mit allen Knöpfen, das Kind
+   *  gross und mit «Ich spiele jetzt». Für Gäste und fremde Kinder
+   *  bleibt er weg. */
+  konsolen?: { client: HubClient; modus: 'eltern' | 'kind'; changedAt?: number };
   /** Krank melden bis zu diesem Tag («JJJJ-MM-TT»), null heisst gesund. */
   onKrank?: (bis: string | null) => void;
   /** Ins Medikamente-Modul - eine Kur für dieses Kind anlegen. */
@@ -493,6 +501,9 @@ export function Kindseite({
   const [terminTag, setTerminTag] = useState(heuteTag);
   const [packTag, setPackTag] = useState(heuteTag);
   const [formOffen, setFormOffen] = useState<Wochenliste | null>(null);
+  // Der Plan der Konsolenzeit ersetzt die Seite, solange er offen ist -
+  // ein Formular dieser Länge neben dem Stundenplan wäre ein Scrollweg.
+  const [konsolenEditor, setKonsolenEditor] = useState(false);
 
   const plan = wochenplan(lektionen, name);
   const dieseWoche = wocheVon(jetzt);
@@ -592,6 +603,18 @@ export function Kindseite({
     </Pressable>
   );
 
+  if (konsolenEditor && konsolen && konsolen.modus === 'eltern') {
+    return (
+      <KonsolenEditor
+        name={name}
+        client={konsolen.client}
+        onFertig={() => setKonsolenEditor(false)}
+        styles={styles}
+        colors={colors}
+      />
+    );
+  }
+
   return (
     <View style={styles.stack}>
       <BackHead title={name} onBack={onBack} styles={styles} colors={colors} />
@@ -620,6 +643,22 @@ export function Kindseite({
           ) : null;
         })()}
       </Card>
+
+      {/* Konsolenzeit (Punkt 748): Rest von heute, der Monat, und für die
+          Eltern die Griffe «Geben», «Heute frei» und «Sperren». */}
+      {konsolen ? (
+        <KonsolenKarte
+          name={name}
+          client={konsolen.client}
+          changedAt={konsolen.changedAt}
+          modus={konsolen.modus}
+          onEinstellen={
+            konsolen.modus === 'eltern' ? () => setKonsolenEditor(true) : undefined
+          }
+          styles={styles}
+          colors={colors}
+        />
+      ) : null}
 
       {/* Krank (Punkt 622): ein Knopf, und solange er gilt, steht hier
           die Schule mit der Nummer zum Abmelden, dazu «Auch morgen»,
