@@ -21,7 +21,7 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
 import { HubClient } from '../../api/client';
@@ -37,6 +37,7 @@ import {
   TAGE_KURZ,
   WARN_WAHL,
   aufteilung,
+  dauerLesen,
   dauerText,
   fensterText,
   grundSatz,
@@ -45,6 +46,7 @@ import {
   leererPlan,
   minutenText,
   monatAnteil,
+  monatLesen,
   monatSatz,
   monatSetzen,
   monatsHinweis,
@@ -60,6 +62,7 @@ import {
   werktageUebernehmen,
   wochenBalken,
   wochentagIndex,
+  zeitLesen,
   zeitText,
 } from '../../lib/konsolenzeit';
 import { Colors, Typmass, radius, useTyp } from '../../theme';
@@ -559,29 +562,58 @@ export function KonsolenKarte({
 
 // ── Der Editor ─────────────────────────────────────────────────────────
 
+/** Ein Wert, den man tippen oder mit Plus und Minus verstellen kann.
+ *
+ *  Getippt wird in einem Entwurf und erst beim Verlassen des Felds
+ *  übernommen: Wer «1» tippt, auf dem Weg zu «16:30», soll nicht
+ *  zwischendurch einen Plan mit 01:00 sehen. Unlesbares bleibt nicht
+ *  stehen - das Feld zeigt danach wieder den gültigen Wert. */
 function Schritt({
   wert,
   text,
+  hinweis,
   onMinus,
   onPlus,
+  onEingabe,
   eigen,
   colors,
 }: {
   wert: string;
   text: string;
+  /** Was man tippen darf - steht als Platzhalter und für die Vorlesehilfe. */
+  hinweis: string;
   onMinus: () => void;
   onPlus: () => void;
+  onEingabe: (eingabe: string) => void;
   eigen: ReturnType<typeof makeStyles>;
   colors: Colors;
 }) {
+  const [entwurf, setEntwurf] = useState<string | null>(null);
+  const fertig = () => {
+    if (entwurf !== null) onEingabe(entwurf);
+    setEntwurf(null);
+  };
   return (
     <View style={eigen.zeileZwischen}>
-      <Text style={[eigen.wert, { flex: 1 }]}>{text}</Text>
+      <Text style={[eigen.wert, { flex: 1, flexShrink: 1 }]}>{text}</Text>
       <View style={eigen.schritt}>
         <Pressable onPress={onMinus} accessibilityRole="button" accessibilityLabel={`${text} weniger`} style={eigen.schrittKnopf}>
           <Ionicons name="remove" size={18} color={colors.ink} />
         </Pressable>
-        <Text style={eigen.schrittWert}>{wert}</Text>
+        <TextInput
+          value={entwurf ?? wert}
+          onChangeText={setEntwurf}
+          onFocus={() => setEntwurf(wert)}
+          onBlur={fertig}
+          onSubmitEditing={fertig}
+          selectTextOnFocus
+          returnKeyType="done"
+          keyboardType="numbers-and-punctuation"
+          placeholder={hinweis}
+          placeholderTextColor={colors.inkFaint}
+          accessibilityLabel={`${text}: ${wert}. ${hinweis}`}
+          style={eigen.schrittFeld}
+        />
         <Pressable onPress={onPlus} accessibilityRole="button" accessibilityLabel={`${text} mehr`} style={eigen.schrittKnopf}>
           <Ionicons name="add" size={18} color={colors.ink} />
         </Pressable>
@@ -728,6 +760,11 @@ export function KonsolenEditor({
                   <Text style={eigen.wert}>{zeile.titel}</Text>
                   {zeile.unten ? <Text style={eigen.klein}>{zeile.unten}</Text> : null}
                 </View>
+                {/* Ohne Pfeil weiss niemand, dass die Zeile aufgeht - und dass man
+                    dort die Zeiten selbst eintippen kann. */}
+                {regel.an ? (
+                  <Ionicons name={offen === i ? 'chevron-up' : 'chevron-down'} size={18} color={colors.inkSoft} />
+                ) : null}
                 {schalter(regel.an, (an) => setPlan(tagAendern(plan, i, { an })), `${TAGE_KURZ[i]} erlaubt`)}
               </Pressable>
               {offen === i && regel.an ? (
@@ -735,6 +772,11 @@ export function KonsolenEditor({
                   <Schritt
                     text="Frühestens"
                     wert={zeitText(regel.von)}
+                    hinweis="Uhrzeit, z. B. 16:30"
+                    onEingabe={(e) => {
+                      const min = zeitLesen(e);
+                      if (min !== null) setPlan(tagAendern(plan, i, { von: min }));
+                    }}
                     onMinus={() => setPlan(tagAendern(plan, i, { von: verstellen(regel.von, -1, 0, 1425) }))}
                     onPlus={() => setPlan(tagAendern(plan, i, { von: verstellen(regel.von, 1, 0, 1425) }))}
                     eigen={eigen}
@@ -743,6 +785,11 @@ export function KonsolenEditor({
                   <Schritt
                     text="Spätestens"
                     wert={zeitText(regel.bis)}
+                    hinweis="Uhrzeit, z. B. 19:00"
+                    onEingabe={(e) => {
+                      const min = zeitLesen(e);
+                      if (min !== null) setPlan(tagAendern(plan, i, { bis: min }));
+                    }}
                     onMinus={() => setPlan(tagAendern(plan, i, { bis: verstellen(regel.bis, -1, 15, 1440) }))}
                     onPlus={() => setPlan(tagAendern(plan, i, { bis: verstellen(regel.bis, 1, 15, 1440) }))}
                     eigen={eigen}
@@ -751,6 +798,11 @@ export function KonsolenEditor({
                   <Schritt
                     text="Höchstens pro Tag"
                     wert={minutenText(regel.minuten)}
+                    hinweis="Minuten, z. B. 50 oder 1:15"
+                    onEingabe={(e) => {
+                      const min = dauerLesen(e);
+                      if (min !== null) setPlan(tagAendern(plan, i, { minuten: min }));
+                    }}
                     onMinus={() => setPlan(tagAendern(plan, i, { minuten: regel.minuten - 15 }))}
                     onPlus={() => setPlan(tagAendern(plan, i, { minuten: regel.minuten + 15 }))}
                     eigen={eigen}
@@ -794,6 +846,11 @@ export function KonsolenEditor({
         <Schritt
           text="Höchstens pro Monat"
           wert={plan.monat ? minutenText(plan.monat) : 'keine'}
+          hinweis="Stunden, z. B. 20 oder 12,5 - «keine» ohne Grenze"
+          onEingabe={(e) => {
+            const min = monatLesen(e);
+            if (min !== undefined) setPlan(monatSetzen(plan, min === null ? null : min / 60));
+          }}
           onMinus={() => setPlan(monatSetzen(plan, plan.monat ? Math.max(0, plan.monat / 60 - 1) : 0))}
           onPlus={() => setPlan(monatSetzen(plan, (plan.monat ?? 0) / 60 + 1))}
           eigen={eigen}
@@ -1028,7 +1085,19 @@ const makeStyles = (colors: Colors, typ: Typmass) =>
       justifyContent: 'center',
       backgroundColor: colors.surfaceSoft,
     },
-    schrittWert: { color: colors.ink, fontSize: typ.label, fontWeight: '700', minWidth: 74, textAlign: 'center' },
+    schrittFeld: {
+      color: colors.ink,
+      fontSize: typ.label,
+      fontWeight: '700',
+      width: 92,
+      textAlign: 'center',
+      paddingVertical: 8,
+      paddingHorizontal: 6,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surfaceSoft,
+    },
     speichern: {
       marginTop: 8,
       alignItems: 'center',

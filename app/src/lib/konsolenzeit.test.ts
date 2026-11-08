@@ -1,6 +1,9 @@
 import {
   KonsolenLage,
   aufteilung,
+  dauerLesen,
+  monatLesen,
+  zeitLesen,
   dauerText,
   grundSatz,
   konsoleUmschalten,
@@ -231,5 +234,52 @@ describe('Zwischen zwei Abrufen weiterzählen', () => {
     const laufend = lage({ sitzung: { konsole: 'ps5', seit: 0 } });
     expect(restNach(laufend, 99999)).toBe(0);
     expect(restNach(lage({ rest_s: null }), 60)).toBeNull();
+  });
+});
+
+describe('Freie Eingabe', () => {
+  it('liest Uhrzeiten, wie man sie tippt', () => {
+    expect(zeitLesen('16:30')).toBe(990);
+    expect(zeitLesen('16.30')).toBe(990);
+    expect(zeitLesen('1630')).toBe(990);
+    expect(zeitLesen('16')).toBe(960);
+    expect(zeitLesen('9:05')).toBe(545);
+    expect(zeitLesen(' 7 Uhr ')).toBe(420);
+    expect(zeitLesen('24:00')).toBe(1440);
+  });
+
+  it('weist Unsinn als Uhrzeit ab', () => {
+    for (const schlecht of ['', 'abend', '25:00', '12:60', '24:30', '16:5', '1:2:3']) {
+      expect(zeitLesen(schlecht)).toBeNull();
+    }
+  });
+
+  it('liest Dauern: eine Zahl sind Minuten', () => {
+    expect(dauerLesen('45')).toBe(45);
+    expect(dauerLesen('50 min')).toBe(50);
+    expect(dauerLesen('1:30')).toBe(90);
+    expect(dauerLesen('1h30')).toBe(90);
+    expect(dauerLesen('1 h 30 min')).toBe(90);
+    expect(dauerLesen('1,5 h')).toBe(90);
+    expect(dauerLesen('2 Std')).toBe(120);
+    expect(dauerLesen('viel')).toBeNull();
+    expect(dauerLesen('')).toBeNull();
+  });
+
+  it('liest die Monatsgrenze: eine Zahl sind Stunden, «keine» ist keine Grenze', () => {
+    expect(monatLesen('20')).toBe(1200);
+    expect(monatLesen('12,5')).toBe(750);
+    expect(monatLesen('20 h')).toBe(1200);
+    expect(monatLesen('1200 min')).toBe(1200);
+    expect(monatLesen('keine')).toBeNull();
+    expect(monatLesen('')).toBeNull();
+    expect(monatLesen('0')).toBeNull();
+    expect(monatLesen('viel')).toBeUndefined();
+  });
+
+  it('erlaubt ein Fenster von einer Minute und Zeiten auf die Minute genau', () => {
+    const plan = tagAendern(leererPlan(), 0, { von: 16 * 60 + 5, bis: 16 * 60 + 6 });
+    expect(plan.tage[0].von).toBe(965);
+    expect(plan.tage[0].bis).toBe(966);
   });
 });

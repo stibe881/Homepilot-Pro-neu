@@ -166,8 +166,10 @@ export function tagAendern(
   const tage = plan.tage.map((tag, i) => {
     if (i !== index) return tag;
     const neu = { ...tag, ...aenderung };
-    neu.von = zwischen(Math.round(neu.von), 0, 24 * 60 - SCHRITT);
-    neu.bis = zwischen(Math.round(neu.bis), neu.von + SCHRITT, 24 * 60);
+    // Frei eingegebene Zeiten sind auf die Minute genau: Ein Fenster ist
+    // mindestens eine Minute lang, nicht eine Viertelstunde.
+    neu.von = zwischen(Math.round(neu.von), 0, 24 * 60 - 1);
+    neu.bis = zwischen(Math.round(neu.bis), neu.von + 1, 24 * 60);
     neu.minuten = zwischen(Math.round(neu.minuten), 0, TAG_MAX);
     return neu;
   });
@@ -180,6 +182,65 @@ export function werktageUebernehmen(plan: KonsolenPlan, quelle: number): Konsole
   const vorlage = plan.tage[quelle];
   if (!vorlage) return plan;
   return { ...plan, tage: plan.tage.map((tag, i) => (i < 5 ? { ...vorlage } : tag)) };
+}
+
+// ── Freie Eingabe ──────────────────────────────────────────────────────
+
+/** Eine Uhrzeit aus dem, was jemand tippt (rein, testbar).
+ *
+ *  «16:30», «16.30», «1630», «16» (= 16:00), «9:05». Alles, was keine
+ *  Uhrzeit ist, ergibt null - die Eingabe bleibt dann, wie sie war. */
+export function zeitLesen(eingabe: string): number | null {
+  const text = eingabe.trim().replace(/\s*uhr$/i, '');
+  let stunden: number;
+  let minuten: number;
+  let treffer = /^(\d{1,2})[:.hH](\d{2})$/.exec(text);
+  if (treffer) {
+    stunden = Number(treffer[1]);
+    minuten = Number(treffer[2]);
+  } else if ((treffer = /^(\d{1,2})$/.exec(text))) {
+    stunden = Number(treffer[1]);
+    minuten = 0;
+  } else if ((treffer = /^(\d{1,2})(\d{2})$/.exec(text))) {
+    stunden = Number(treffer[1]);
+    minuten = Number(treffer[2]);
+  } else {
+    return null;
+  }
+  if (minuten > 59) return null;
+  if (stunden > 24 || (stunden === 24 && minuten > 0)) return null;
+  return stunden * 60 + minuten;
+}
+
+/** Eine Dauer in Minuten aus dem, was jemand tippt (rein, testbar).
+ *
+ *  Eine blosse Zahl sind Minuten («45»); sonst «1:30», «1h30», «1,5 h»,
+ *  «90 min», «2 Std». Alles andere ergibt null. */
+export function dauerLesen(eingabe: string): number | null {
+  const text = eingabe.trim().toLowerCase().replace(',', '.');
+  let t = /^(\d+):(\d{1,2})$/.exec(text);
+  if (t) return Number(t[1]) * 60 + Number(t[2]);
+  t = /^(\d+(?:\.\d+)?)\s*(?:h|std\.?|stunden?)$/.exec(text);
+  if (t) return Math.round(Number(t[1]) * 60);
+  t = /^(\d+)\s*(?:h|std\.?|stunden?)\s*(\d+)\s*(?:m|min\.?|minuten?)?$/.exec(text);
+  if (t) return Number(t[1]) * 60 + Number(t[2]);
+  t = /^(\d+)\s*(?:m|min\.?|minuten?)?$/.exec(text);
+  if (t) return Number(t[1]);
+  return null;
+}
+
+/** Die Monatsgrenze aus dem, was jemand tippt (rein, testbar).
+ *
+ *  Eine blosse Zahl sind hier **Stunden** («20» = 20 h, «12,5» = 12 h 30) -
+ *  im Monat denkt niemand in Minuten. «Keine», leer oder «0» heisst: keine
+ *  Grenze (null). Unlesbares ergibt undefined, damit es von «keine»
+ *  unterscheidbar bleibt. */
+export function monatLesen(eingabe: string): number | null | undefined {
+  const text = eingabe.trim().toLowerCase();
+  if (text === '' || text === 'keine' || text === 'keine grenze' || text === '0') return null;
+  if (/^\d+(?:[.,]\d+)?$/.test(text)) return Math.round(Number(text.replace(',', '.')) * 60);
+  const minuten = dauerLesen(text);
+  return minuten === null ? undefined : minuten;
 }
 
 /** Eine Zahl um Schritte verstellen, in Grenzen (rein, testbar). */
